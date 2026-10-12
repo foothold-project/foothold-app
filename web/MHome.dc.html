@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>휴대폰 — 현황</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--warn-bg:rgba(255,181,71,.12);--acc-bg:rgba(56,198,217,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--warn-bg:rgba(154,88,0,.09);--acc-bg:rgba(0,109,122,.08)}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.lbl{font-size:12px;color:var(--muted)}
+.g{display:flex;flex-direction:column;gap:2px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
+.g.warn{border-color:var(--warn);background:var(--warn-bg)}
+.tabb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;font-size:11px;color:var(--muted);text-decoration:none}
+.tabb.cur{color:var(--accent);font-weight:600}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden">
+
+  <header style="display:flex;align-items:center;gap:10px;padding:14px 16px 10px">
+    <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+      <span style="font-size:18px;font-weight:700">GO2-01</span>
+      <span style="font-size:13px;color:var(--muted)"><span style="color:var(--ok)">●</span> 연결 <span class="mono">−62 dBm</span> · 배터리 <span class="mono">68%</span></span>
+    </div>
+    <button aria-label="알림 3건" style="position:relative;width:44px;height:44px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);display:grid;place-items:center">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"></path><path d="M10 20a2 2 0 004 0"></path></svg>
+      <span class="mono" style="position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:10px;background:var(--warn);color:#1A1206;font-size:11px;font-weight:700;display:grid;place-items:center">3</span>
+    </button>
+  </header>
+
+  <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:10px;padding:0 16px">
+    <section class="card" aria-label="진행 중 임무" style="overflow:hidden">
+      <div style="padding:12px 14px 10px;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <span class="lbl">{{missionLine}}</span>
+          <span style="font-size:12px;font-weight:600;color:var(--accent);background:var(--acc-bg);padding:3px 8px;border-radius:999px">자율 이동</span>
+        </div>
+        <span style="font-size:20px;font-weight:700;line-height:1.3">4/6 · WP3 집수정으로 이동 중</span>
+        <div style="display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:4px" aria-label="6단계 중 3단계 완료">
+          <span style="height:6px;border-radius:3px;background:var(--ok)"></span><span style="height:6px;border-radius:3px;background:var(--ok)"></span><span style="height:6px;border-radius:3px;background:var(--ok)"></span><span style="height:6px;border-radius:3px;background:var(--accent)"></span><span style="height:6px;border-radius:3px;background:var(--line2)"></span><span style="height:6px;border-radius:3px;background:var(--line2)"></span>
+        </div>
+        <span class="lbl">남은 <span class="mono">6 m</span> · 예상 임무 종료 <span class="mono">10:58</span> · 복귀 여유 <span class="mono">41분</span></span>
+      </div>
+      <svg viewBox="420 120 520 260" style="width:100%;height:132px;display:block;border-top:1px solid var(--line)" role="img" aria-label="미니맵: 로봇이 집수정 쪽으로 이동 중">
+        <rect x="420" y="120" width="520" height="260" style="fill:var(--map)"></rect>
+        <g style="stroke:var(--wall)" stroke-width="6" fill="none"><path d="M440 300H300M500 300H770M830 300H960M640 40V300M380 380H750M810 380H960M600 380V580"></path></g>
+        <polyline points="470,180 470,340 780,340 780,404" fill="none" style="stroke:var(--accent)" stroke-width="5"></polyline>
+        <polyline points="780,404 780,480" fill="none" style="stroke:var(--muted)" stroke-width="3" stroke-dasharray="8 6"></polyline>
+        <circle cx="470" cy="180" r="13" style="fill:var(--ok)"></circle>
+        <circle cx="780" cy="490" r="14" style="fill:var(--map);stroke:var(--accent)" stroke-width="3"></circle>
+        <rect x="531" y="221" width="16" height="16" transform="rotate(45 539 229)" style="fill:var(--warn)"></rect>
+        <g transform="translate(780 404) rotate(180)"><path d="M0 0 L-40 -84 A92 92 0 0 1 40 -84 Z" style="fill:var(--accent)" opacity=".16"></path><path d="M0 -16 L11 11 L0 5 L-11 11 Z" style="fill:var(--accent)"></path></g>
+      </svg>
+    </section>
+
+    <sc-if value="{{isBase}}" hint-placeholder-val="{{ true }}">
+    <section class="card" aria-label="다음 지점에서 할 일" style="padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600">WP3에서 할 일</span><span class="lbl">임무 양식의 모듈</span></div>
+      <div style="display:grid;grid-template-columns:22px 1fr;gap:8px 10px;align-items:center;font-size:14px">
+        <span style="width:12px;height:12px;border-radius:50%;border:2px solid var(--line2);justify-self:center"></span><span>사진 · 전방 1장</span>
+        <span style="width:12px;height:12px;border-radius:50%;border:2px solid var(--accent);justify-self:center"></span><span><b>운영자 확인</b> · 도착하면 진동으로 알려 드립니다</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">
+        <div style="aspect-ratio:4/3;border-radius:6px;background:#0D1317"></div><div style="aspect-ratio:4/3;border-radius:6px;background:#111A1F"></div><div style="aspect-ratio:4/3;border-radius:6px;border:1.5px dashed var(--line2);display:grid;place-items:center" class="lbl">WP3</div>
+      </div>
+    </section>
+    </sc-if>
+    <sc-if value="{{isGas}}" hint-placeholder-val="{{ false }}">
+    <section class="card" aria-label="가스 측정" style="padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font-weight:600">가스</span><span class="lbl">1초 전 · 4종 + CO₂</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px">
+        <div class="g"><span class="lbl">O₂ <span style="color:var(--ok)">●</span></span><span class="mono" style="font-size:18px;font-weight:600">20.4<span style="font-size:11px;color:var(--muted)"> %</span></span></div>
+        <div class="g warn"><span class="lbl" style="color:var(--warn);font-weight:600">H₂S ▲ 주의</span><span class="mono" style="font-size:18px;font-weight:700;color:var(--warn)">6.8<span style="font-size:11px"> ppm</span></span></div>
+        <div class="g"><span class="lbl">CO <span style="color:var(--ok)">●</span></span><span class="mono" style="font-size:18px;font-weight:600">3<span style="font-size:11px;color:var(--muted)"> ppm</span></span></div>
+        <div class="g"><span class="lbl">LEL <span style="color:var(--ok)">●</span></span><span class="mono" style="font-size:18px;font-weight:600">1<span style="font-size:11px;color:var(--muted)"> %</span></span></div>
+        <div class="g"><span class="lbl">CO₂ <span style="color:var(--ok)">●</span></span><span class="mono" style="font-size:18px;font-weight:600">0.21<span style="font-size:11px;color:var(--muted)"> %</span></span></div>
+        <div class="g" style="justify-content:center"><span class="lbl">H₂S 기준</span><span class="mono" style="font-size:13px;font-weight:600">10 ppm 미만</span></div>
+      </div>
+    </section>
+    </sc-if>
+
+    <sc-if value="{{hasFind}}" hint-placeholder-val="{{ false }}">
+    <a href="MFinding.dc.html" class="card" style="display:flex;align-items:center;gap:12px;padding:12px 14px;text-decoration:none;color:inherit;min-height:44px">
+      <span style="width:12px;height:12px;transform:rotate(45deg);background:var(--warn);flex:none;margin:0 4px"></span>
+      <span style="display:flex;flex-direction:column;gap:2px;flex:1"><span style="font-weight:600">발견물 2건 확인 대기</span><span class="lbl">바닥 물고임 · 보온재 손상</span></span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+    </a>
+    </sc-if>
+
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+      <button style="height:52px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M8 5v14M16 5v14"></path></svg>일시정지</button>
+      <a href="MDrive.dc.html" style="height:52px;border-radius:10px;background:var(--accent);color:var(--on-accent);font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="2.5"></circle></svg>조종 화면</a>
+    </div>
+  </div>
+
+  <nav aria-label="주 메뉴" style="display:flex;border-top:1px solid var(--line);background:var(--panel);margin-top:10px">
+    <a class="tabb cur" href="MHome.dc.html" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle></svg>현황</a>
+    <a class="tabb" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path></svg>지도</a>
+    <a class="tabb" href="MFinding.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)"></rect></svg>발견물</a>
+    <a class="tabb" href="#"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 8h6M9 12h6"></path></svg>기록</a>
+  </nav>
+  <div style="padding:8px 16px 18px;background:var(--panel)">
+    <button aria-label="비상 정지" style="width:100%;height:64px;border:0;border-radius:12px;background:var(--stop);color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:12px">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" stroke-width="2"></path><rect x="8" y="8" width="8" height="8" fill="#FFFFFF"></rect></svg>
+      <span style="font-weight:700;font-size:22px;letter-spacing:.1em">STOP</span><span style="font-size:13px">전체 정지</span>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mission":{"editor":"enum","options":["지점 확인 다녀오기","가스 사전 측정"],"default":"지점 확인 다녀오기"},"theme":{"editor":"enum","options":["밝은","어두운"],"default":"밝은"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const mn = this.props.mission ?? '지점 확인 다녀오기';
+    const gas = mn === '가스 사전 측정';
+    return {
+      themeClass: (this.props.theme ?? '밝은') === '밝은' ? 'fh light' : 'fh',
+      missionLine: '[현장명] B1 · ' + mn,
+      isGas: gas, isBase: !gas, hasFind: gas
+    };
+  }
+}
+</script>
+</body>
+</html>

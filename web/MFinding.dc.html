@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>휴대폰 — 발견물 확인</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09)}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.lbl{font-size:12px;color:var(--muted)}
+.tag{height:36px;padding:0 12px;border:1px solid var(--line2);border-radius:18px;background:var(--panel);font-size:13px}
+.tag[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);font-weight:600}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden">
+  <header style="display:flex;align-items:center;gap:8px;padding:10px 12px">
+    <a href="MHome.dc.html" aria-label="뒤로" style="width:44px;height:44px;display:grid;place-items:center;color:inherit"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></a>
+    <span style="font-weight:700;font-size:17px;flex:1">발견물 확인</span>
+    <span class="mono lbl" style="padding-right:8px">1 / 2</span>
+  </header>
+
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:0 16px">
+    <figure style="margin:0;position:relative;border-radius:12px;overflow:hidden;background:#05080A">
+      <svg viewBox="0 0 640 360" style="width:100%;height:auto;display:block" role="img" aria-label="탐지 사진: 펌프 아래 바닥 물고임, 탐지 상자">
+        <rect width="640" height="360" fill="#080B0D"></rect>
+        <polygon points="0,360 640,360 470,190 170,190" fill="#141C21"></polygon>
+        <circle cx="470" cy="150" r="70" fill="#121A1F" stroke="#2D3A43" stroke-width="4"></circle>
+        <rect x="430" y="210" width="80" height="40" fill="#0F151A"></rect>
+        <ellipse cx="330" cy="292" rx="150" ry="30" fill="#1D303B"></ellipse>
+        <ellipse cx="300" cy="286" rx="70" ry="7" fill="#3E5A69" opacity=".6"></ellipse>
+        <rect x="170" y="252" width="320" height="76" fill="none" stroke="#FFB547" stroke-width="3"></rect>
+      </svg>
+      <span style="position:absolute;left:8px;top:8px;font-size:12px;padding:4px 8px;border-radius:4px;background:rgba(8,11,14,.7);color:#E6EBEF">전방 RGB · <span class="mono">10:39:51</span></span>
+    </figure>
+
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="width:12px;height:12px;transform:rotate(45deg);background:var(--warn);margin:0 3px"></span>
+        <span style="font-size:22px;font-weight:700">바닥 물고임</span>
+        <span class="mono" style="margin-left:auto;font-size:13px;font-weight:600;padding:3px 8px;border-radius:4px;background:var(--warn-bg);color:var(--warn)">0.88</span>
+      </div>
+      <span class="lbl">AI 탐지 결과입니다. 사람이 확인해야 기록에 들어갑니다.</span>
+    </div>
+
+    <dl style="margin:0;display:grid;grid-template-columns:72px 1fr;gap:8px 12px;font-size:14px;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:12px">
+      <dt class="lbl" style="align-self:center">위치</dt><dd style="margin:0">WP2 펌프실 A · 펌프 B 아래</dd>
+      <dt class="lbl" style="align-self:center">로봇 자세</dt><dd style="margin:0" class="mono">x 22.6 · y 18.1 · 92°</dd>
+      <dt class="lbl" style="align-self:center">같은 위치</dt><dd style="margin:0">지난 순찰(10-05)에는 없음</dd>
+    </dl>
+
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <span class="lbl">빠른 메모</span>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <button class="tag" aria-pressed="true">미끄럼 주의</button>
+        <button class="tag" aria-pressed="true">누수 의심</button>
+        <button class="tag" aria-pressed="false">조치 필요</button>
+        <button class="tag" aria-pressed="false">+ 직접 입력</button>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:auto">
+      <button style="height:56px;border:0;border-radius:12px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:16px">맞음 · 위험 요인으로 기록</button>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+        <button style="height:52px;border:1px solid var(--line2);border-radius:12px;background:var(--panel);font-weight:600">오탐</button>
+        <button style="height:52px;border:1px solid var(--line2);border-radius:12px;background:var(--panel);font-weight:600">나중에</button>
+      </div>
+    </div>
+  </div>
+
+  <div style="padding:12px 16px 18px;background:var(--panel);border-top:1px solid var(--line);margin-top:12px">
+    <button aria-label="비상 정지" style="width:100%;height:64px;border:0;border-radius:12px;background:var(--stop);color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:12px">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" stroke-width="2"></path><rect x="8" y="8" width="8" height="8" fill="#FFFFFF"></rect></svg>
+      <span style="font-weight:700;font-size:22px;letter-spacing:.1em">STOP</span><span style="font-size:13px">전체 정지</span>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["밝은","어두운"],"default":"밝은"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.theme ?? '밝은') === '밝은' ? 'fh light' : 'fh' };
+  }
+}
+</script>
+</body>
+</html>

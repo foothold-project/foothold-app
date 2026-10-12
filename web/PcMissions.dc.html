@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>관제 — 임무 양식 관리</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08)}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button,input,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button[disabled]{cursor:not-allowed;opacity:.5}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.btn{height:40px;padding:0 14px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:13px}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.danger{color:var(--bad);border-color:var(--bad)}
+.lbl{font-size:12px;color:var(--muted)}
+.inp{height:42px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:15px;box-sizing:border-box;width:100%}
+.tp{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);text-align:left;width:100%}
+.tp.sel{border-color:var(--accent);background:var(--acc-bg)}
+.kind{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.kind.base{border-color:var(--accent);color:var(--accent)}
+.kind.draft{border-style:dashed}
+.sec{padding:16px 18px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}
+.sec h3{margin:0;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}
+.mod{display:grid;grid-template-columns:18px 30px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}
+.mod.blocked{border-color:var(--warn);background:var(--warn-bg)}
+.mi{width:30px;height:30px;border-radius:6px;background:var(--acc-bg);color:var(--accent);display:grid;place-items:center;font-size:12px;font-weight:700}
+.pal{height:36px;padding:0 12px;border:1px dashed var(--line2);border-radius:999px;background:transparent;font-size:13px;display:flex;align-items:center;gap:6px}
+.pal:hover{border-color:var(--accent);border-style:solid}
+.x{width:32px;height:32px;border:0;border-radius:6px;background:transparent;color:var(--muted);display:grid;place-items:center}
+.x:hover{background:var(--bad-bg);color:var(--bad)}
+.rule{display:grid;grid-template-columns:1fr 20px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px}
+.auto{font-size:12px;padding:4px 10px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);white-space:nowrap}
+.auto.fixed{color:var(--muted);border-style:dashed}
+.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}
+.nav:hover{color:var(--text);background:var(--panel2)}
+.nav.cur{color:var(--text);background:var(--acc-bg)}
+.nav.cur svg{color:var(--accent)}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="min-height:100vh;display:flex;flex-direction:column;position:relative">
+
+<header style="display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--panel)">
+  <div style="display:flex;align-items:center;gap:10px">
+    <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" style="stroke:var(--accent)" stroke-width="2.2" stroke-linejoin="round"></path><circle cx="18" cy="6" r="2.2" style="fill:var(--accent)"></circle></svg>
+    <span style="font-weight:700;letter-spacing:.12em;font-size:15px">FOOTHOLD</span>
+  </div>
+  <div style="width:1px;height:32px;background:var(--line)"></div>
+  <div style="display:flex;flex-direction:column;gap:2px">
+    <span style="font-size:12px;color:var(--muted)">임무 · 양식</span>
+    <span style="font-size:17px;font-weight:600">임무 양식 관리</span>
+  </div>
+  <div style="flex:1"></div>
+  <button aria-label="비상 정지" style="height:52px;min-width:136px;padding:0 18px;border:0;border-radius:8px;background:var(--stop);color:#FFFFFF;display:flex;align-items:center;gap:10px;box-shadow:0 0 0 3px rgba(215,38,30,.22)">
+    <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" stroke-width="2"></path><rect x="8" y="8" width="8" height="8" fill="#FFFFFF"></rect></svg>
+    <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.1"><span style="font-weight:700;font-size:19px;letter-spacing:.08em">STOP</span><span style="font-size:11px">스페이스 · 전체 정지</span></span>
+  </button>
+</header>
+
+<div style="flex:1;display:flex;flex-wrap:wrap;min-height:0">
+  <nav aria-label="주 메뉴" style="flex:0 0 76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;border-right:1px solid var(--line);background:var(--panel)">
+    <a class="nav" href="Main.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path></svg>관제</a>
+    <a class="nav cur" href="PcMissions.dc.html" aria-current="page"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 19l5-14 5 9 3-4 3 9"></path><circle cx="9" cy="5" r="1.5"></circle></svg>임무</a>
+    <a class="nav" href="PcReview.dc.html"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>기록</a>
+    <a class="nav" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path><path d="M9 4v14M15 6v14"></path></svg>지도</a>
+    <a class="nav" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="6" y="4" width="12" height="14" rx="3"></rect><path d="M9 21h6M12 18v3M9 9h.01M15 9h.01"></path></svg>로봇</a>
+    <div style="flex:1"></div>
+    <a class="nav" href="#"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1"></path></svg>설정</a>
+  </nav>
+
+  <main style="flex:999 1 600px;min-width:0;display:flex;flex-wrap:wrap;gap:12px;padding:12px;align-content:flex-start">
+
+    <section aria-label="임무 양식 목록" class="card" style="flex:1 1 300px;max-width:380px;min-width:0;padding:14px;display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-weight:600;font-size:15px">임무 양식</span>
+        <span class="mono lbl">{{count}}</span>
+        <div style="flex:1"></div>
+        <button class="btn pri" onClick="{{add}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>새 임무</button>
+      </div>
+      <span class="lbl" style="line-height:1.5">임무 = 지점에서 할 일(모듈) + 경보 규칙. 관제 화면과 보고서는 고른 모듈에 맞춰 자동으로 구성됩니다.</span>
+      <sc-for list="{{items}}" as="it" hint-placeholder-count="4">
+        <button class="tp {{it.cls}}" onClick="{{it.pick}}" aria-pressed="{{it.pressed}}">
+          <span style="display:flex;justify-content:space-between;gap:8px;align-items:center;width:100%"><b style="font-size:14px">{{it.name}}</b><span class="kind {{it.kindCls}}">{{it.kind}}</span></span>
+          <span class="lbl">{{it.summary}}</span>
+          <sc-if value="{{it.blocked}}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--warn);font-weight:600">▲ 이 로봇에 없는 장비가 있어 실행할 수 없음</span></sc-if>
+          <span class="lbl mono">{{it.meta}}</span>
+        </button>
+      </sc-for>
+    </section>
+
+    <section aria-label="임무 양식 편집" class="card" style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column">
+      <div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+          <span class="kind {{cur.kindCls}}">{{cur.kind}}</span>
+          <span class="lbl">{{cur.saved}}</span>
+          <div style="flex:1"></div>
+          <button class="btn" onClick="{{dup}}">복제</button>
+          <button class="btn danger" onClick="{{remove}}" disabled="{{cur.locked}}">삭제</button>
+          <a class="btn pri" href="PcPlan.dc.html" style="text-decoration:none">이 양식으로 임무 계획</a>
+        </div>
+        <sc-if value="{{cur.locked}}" hint-placeholder-val="{{ false }}"><span style="font-size:12px;color:var(--muted)">기본 양식은 지우거나 고칠 수 없습니다. 복제해서 고치세요.</span></sc-if>
+        <label class="lbl" for="nm">임무 이름</label>
+        <input id="nm" class="inp" value="{{cur.name}}" onChange="{{rename}}" readOnly="{{cur.locked}}">
+        <label class="lbl" for="ds">설명 · 운영자에게 보이는 한 줄</label>
+        <input id="ds" class="inp" style="font-size:14px" value="{{cur.desc}}" onChange="{{redesc}}" readOnly="{{cur.locked}}">
+      </div>
+
+      <div class="sec">
+        <h3>지점에서 할 일 <span class="lbl" style="font-weight:400">위에서부터 차례로 실행 · 이동은 늘 포함</span></h3>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <sc-for list="{{mods}}" as="m" hint-placeholder-count="3">
+            <div class="mod {{m.cls}}">
+              <span aria-hidden="true" style="color:var(--muted)">⋮⋮</span>
+              <span class="mi mono">{{m.no}}</span>
+              <span style="display:flex;flex-direction:column;gap:2px;min-width:0"><b style="font-size:14px">{{m.type}}</b><span class="lbl">{{m.detail}}</span></span>
+              <button class="x" aria-label="{{m.delLabel}}" onClick="{{m.del}}" disabled="{{cur.locked}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+            </div>
+          </sc-for>
+          <sc-if value="{{noMods}}" hint-placeholder-val="{{ false }}"><div class="lbl" style="padding:14px;border:1px dashed var(--line2);border-radius:8px;text-align:center">아직 할 일이 없습니다. 아래에서 모듈을 더하세요. 비워 두면 «이동만» 하는 임무가 됩니다.</div></sc-if>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+          <span class="lbl" style="margin-right:4px">모듈 더하기</span>
+          <sc-for list="{{palette}}" as="p" hint-placeholder-count="6">
+            <button class="pal" onClick="{{p.add}}" disabled="{{p.off}}" title="{{p.why}}">+ {{p.type}}</button>
+          </sc-for>
+        </div>
+        <span class="lbl">열화상 · 장비 없음(로봇에 등록된 장비만 고를 수 있습니다)</span>
+      </div>
+
+      <div class="sec">
+        <h3>경보 규칙 <span class="lbl" style="font-weight:400">조건이 맞으면 로봇이 먼저 조치하고 사람에게 알립니다</span></h3>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <sc-for list="{{rules}}" as="r" hint-placeholder-count="2">
+            <div class="rule">
+              <span><span class="lbl">만약</span><br><b>{{r.cond}}</b></span>
+              <span aria-hidden="true" style="color:var(--muted)">→</span>
+              <span><span class="lbl">그러면</span><br><b>{{r.act}}</b></span>
+              <button class="x" aria-label="규칙 삭제" onClick="{{r.del}}" disabled="{{cur.locked}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+            </div>
+          </sc-for>
+          <div class="rule" style="border-style:dashed;color:var(--muted)">
+            <span><span class="lbl">항상 적용 (끌 수 없음)</span><br>통신 끊김 5초</span>
+            <span aria-hidden="true">→</span>
+            <span><span class="lbl"></span><br>마지막 통신 지점으로 후퇴</span>
+            <span></span>
+          </div>
+        </div>
+        <div><button class="btn" onClick="{{addRule}}" disabled="{{cur.locked}}">+ 규칙 추가</button></div>
+      </div>
+
+      <div class="sec" style="background:var(--panel2);border-radius:0 0 10px 10px">
+        <h3>이 임무에서 자동으로 구성되는 것</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:16px">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span class="lbl">관제 화면 패널</span>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <span class="auto fixed">지도 · 영상 · 로봇 상태 · 단계 · STOP</span>
+              <sc-for list="{{panels}}" as="pn" hint-placeholder-count="2"><span class="auto">{{pn}}</span></sc-for>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <span class="lbl">보고서 구성</span>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <span class="auto fixed">개요 · 경로 지도 · 지점별 결과 · 서명</span>
+              <sc-for list="{{sections}}" as="sc" hint-placeholder-count="2"><span class="auto">{{sc}}</span></sc-for>
+            </div>
+            <span class="lbl">지점별 결과 표의 열: <span style="color:var(--text)">{{cols}}</span></span>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<sc-if value="{{hasToast}}" hint-placeholder-val="{{ false }}">
+  <div role="status" style="position:absolute;left:50%;bottom:24px;transform:translateX(-50%);display:flex;align-items:center;gap:14px;padding:12px 14px 12px 18px;border-radius:10px;background:var(--text);color:var(--bg);font-size:14px;box-shadow:0 8px 24px rgba(0,0,0,.35)">
+    <span>«{{toastName}}» 삭제됨 · 이 양식으로 한 지난 기록은 그대로 남습니다</span>
+    <button onClick="{{undo}}" style="height:36px;padding:0 12px;border:0;border-radius:6px;background:var(--accent);color:var(--on-accent);font-weight:700">되돌리기</button>
+  </div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["어두운","밝은"],"default":"어두운"},"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const M = (type, detail) => ({ id: Math.random().toString(36).slice(2, 8), type, detail });
+    this.M = M;
+    this.state = {
+      n: 1,
+      sel: 'gas',
+      toast: null,
+      list: [
+        { id: 'base', name: '지점 확인 다녀오기', kind: '기본', desc: '목적지에 가서 영상으로 확인하고 돌아옵니다', locked: true, used: 12, edited: '기본 제공',
+          mods: [M('사진', '전방 1장'), M('운영자 확인', '영상 보고 «맞음 / 다시 보기 / 중단»')], rules: [] },
+        { id: 'gas', name: '가스 사전 측정', kind: '팀', desc: '밀폐공간 진입 전, 지점마다 산소·유해가스를 잽니다', locked: false, used: 3, edited: '10-12 10:24 김도윤',
+          mods: [M('가스 측정', '4종 검지기 + CO₂ · 값 안정까지 최대 60초'), M('사진', '전방 1장 + 개구부 쪽 1장'), M('AI 탐지', '대상: 물고임 · 쓰러진 사람 · 연기 · 신뢰도 0.6 이상')],
+          rules: [{ id: 'r1', cond: 'H₂S 10 ppm 이상 · CO 30 ppm 이상', act: '일시정지 → 직전 정상 지점으로 후퇴 · 긴급 알림' }, { id: 'r2', cond: 'O₂ 18% 미만 또는 23.5% 이상', act: '일시정지 → 후퇴 · 긴급 알림' }] },
+        { id: 'patrol', name: '시설 순찰', kind: '팀', desc: '정해진 경로를 돌며 사진을 남기고 이상을 찾습니다', locked: false, used: 7, edited: '10-09 16:02 박서연',
+          mods: [M('사진', '지점마다 3방향'), M('AI 탐지', '대상: 사람 · 연기 · 문 열림 · 물고임')],
+          rules: [{ id: 'r3', cond: '탐지: 쓰러진 사람 · 신뢰도 0.7 이상', act: '일시정지 · 운영자 확인 대기 · 긴급 알림' }] },
+        { id: 'thermal', name: '배전반 열화상 점검', kind: '초안', desc: '배전반 앞에서 열화상으로 과열을 봅니다', locked: false, used: 0, edited: '10-11 초안', blocked: true,
+          mods: [M('열화상', '장비 없음 · 이 로봇에 등록되지 않음'), M('사진', '전방 1장')], rules: [] }
+      ]
+    };
+  }
+  upd(fn) {
+    this.setState((s) => ({ list: s.list.map((t) => (t.id === s.sel ? fn(t) : t)) }));
+  }
+  renderVals() {
+    const s = this.state;
+    const M = this.M;
+    const cur = s.list.find((t) => t.id === s.sel) || s.list[0];
+    const kindCls = (k) => (k === '기본' ? 'base' : k === '초안' ? 'draft' : '');
+    const items = s.list.map((t) => ({
+      name: t.name, kind: t.kind, kindCls: kindCls(t.kind),
+      summary: '이동 · ' + (t.mods.length ? t.mods.map((m) => m.type).join(' · ') : '할 일 없음'),
+      meta: t.used ? '사용 ' + t.used + '회 · ' + t.edited : t.edited,
+      blocked: !!t.mods.find((m) => m.type === '열화상'),
+      cls: t.id === cur.id ? 'sel' : '', pressed: t.id === cur.id ? 'true' : 'false',
+      pick: () => this.setState({ sel: t.id })
+    }));
+    const catalog = ['사진', '운영자 확인', 'AI 탐지', '가스 측정', '대기', '음성 방송'];
+    const defaults = { '사진': '전방 1장', '운영자 확인': '영상 보고 «맞음 / 다시 보기 / 중단»', 'AI 탐지': '대상: 사람 · 연기', '가스 측정': '4종 검지기 + CO₂ · 최대 60초', '대기': '30초 멈춤', '음성 방송': '녹음한 안내 재생' };
+    const has = (ty) => !!cur.mods.find((m) => m.type === ty);
+    const palette = catalog.map((ty) => ({
+      type: ty,
+      off: cur.locked || (has(ty) && ty !== '대기'),
+      why: cur.locked ? '기본 양식은 고칠 수 없습니다' : has(ty) ? '이미 들어 있음' : '',
+      add: () => this.upd((t) => ({ ...t, mods: t.mods.concat([M(ty, defaults[ty])]) }))
+    }));
+    const mods = cur.mods.map((m, i) => ({
+      no: String(i + 1), type: m.type, detail: m.detail, cls: m.type === '열화상' ? 'blocked' : '',
+      delLabel: m.type + ' 모듈 삭제',
+      del: () => this.upd((t) => ({ ...t, mods: t.mods.filter((x) => x.id !== m.id) }))
+    }));
+    const rules = cur.rules.map((r) => ({ cond: r.cond, act: r.act, del: () => this.upd((t) => ({ ...t, rules: t.rules.filter((x) => x.id !== r.id) })) }));
+    const panelMap = { '가스 측정': '가스 측정 타일', 'AI 탐지': '탐지 목록 · 확인 대기', '사진': '사진 줄', '운영자 확인': '확인 요청 카드', '음성 방송': '방송 버튼', '열화상': '열화상 영상' };
+    const secMap = { '가스 측정': '법정 기준 대비 측정표', 'AI 탐지': '발견물 (사람이 확인한 것만)', '사진': '지점 사진', '운영자 확인': '운영자 판단 기록', '열화상': '최고 온도 표' };
+    const colMap = { '가스 측정': 'O₂ · H₂S · CO · LEL · CO₂', 'AI 탐지': '탐지 건수', '사진': '사진 수', '운영자 확인': '운영자 판단', '대기': '대기 시간', '음성 방송': '방송 여부', '열화상': '최고 온도' };
+    const uniq = (a) => a.filter((x, i) => x && a.indexOf(x) === i);
+    const types = cur.mods.map((m) => m.type);
+    return {
+      themeClass: (this.props.theme ?? '어두운') === '밝은' ? 'fh light' : 'fh',
+      count: s.list.length + '개',
+      items,
+      cur: { name: cur.name, desc: cur.desc, kind: cur.kind + (cur.kind === '기본' ? ' 양식 · 잠김' : cur.kind === '초안' ? ' · 저장 안 됨' : ' 양식'), kindCls: kindCls(cur.kind), locked: !!cur.locked, saved: cur.locked ? '모든 팀에 제공' : '자동 저장 · ' + cur.edited },
+      mods, noMods: mods.length === 0, palette, rules,
+      panels: uniq(types.map((t) => panelMap[t])),
+      sections: uniq(types.map((t) => secMap[t])),
+      cols: ['도착 시각'].concat(uniq(types.map((t) => colMap[t]))).concat(['판정']).join(' · '),
+      add: () => this.setState((st) => {
+        const id = 'new' + st.n;
+        return { n: st.n + 1, sel: id, list: st.list.concat([{ id, name: '새 임무 ' + st.n, kind: '초안', desc: '', locked: false, used: 0, edited: '방금 만듦', mods: [M('사진', '전방 1장')], rules: [] }]) };
+      }),
+      dup: () => this.setState((st) => {
+        const src = st.list.find((t) => t.id === st.sel) || st.list[0];
+        const id = 'dup' + st.n;
+        return { n: st.n + 1, sel: id, list: st.list.concat([{ ...src, id, name: src.name + ' 복사본', kind: '초안', locked: false, used: 0, edited: '방금 복제', blocked: src.blocked, mods: src.mods.map((m) => M(m.type, m.detail)), rules: src.rules.map((r) => ({ ...r, id: r.id + st.n })) }]) };
+      }),
+      remove: () => this.setState((st) => {
+        const i = st.list.findIndex((t) => t.id === st.sel);
+        if (i < 0 || st.list[i].locked) return null;
+        const rest = st.list.filter((t) => t.id !== st.sel);
+        return { list: rest, sel: rest[0] ? rest[0].id : null, toast: { item: st.list[i], index: i } };
+      }),
+      undo: () => this.setState((st) => {
+        if (!st.toast) return null;
+        const l = st.list.slice();
+        l.splice(st.toast.index, 0, st.toast.item);
+        return { list: l, sel: st.toast.item.id, toast: null };
+      }),
+      hasToast: !!s.toast,
+      toastName: s.toast ? s.toast.item.name : '',
+      rename: (e) => { const v = e.target.value; this.upd((t) => ({ ...t, name: v })); },
+      redesc: (e) => { const v = e.target.value; this.upd((t) => ({ ...t, desc: v })); },
+      addRule: () => this.upd((t) => ({ ...t, rules: t.rules.concat([{ id: 'r' + Date.now(), cond: '[조건 고르기]', act: '[동작 고르기]' }]) }))
+    };
+  }
+}
+</script>
+</body>
+</html>

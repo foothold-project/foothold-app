@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>휴대폰 — 가스 경보</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.lbl{font-size:12px;color:var(--muted)}
+.row{display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:center;font-size:14px}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden">
+  <section role="alert" aria-label="가스 경보" style="background:#B3261E;color:#FFFFFF;padding:22px 20px 20px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:13px;font-weight:700;letter-spacing:.06em;padding:4px 10px;border:1.5px solid #FFFFFF;border-radius:4px">■ 위험 · 긴급</span>
+      <span class="mono" style="font-size:13px">10:46:08 · 12초 전</span>
+    </div>
+    <span style="font-size:24px;font-weight:700;margin-top:8px">황화수소 기준 초과</span>
+    <div style="display:flex;align-items:baseline;gap:8px"><span class="mono" style="font-size:60px;font-weight:700;letter-spacing:-.03em;line-height:1">12.4</span><span style="font-size:20px;font-weight:600">ppm</span></div>
+    <span style="font-size:14px">기준 10 ppm 미만 · WP3 집수정 · GO2-01</span>
+  </section>
+
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;padding:14px 16px">
+    <section aria-label="로봇이 한 일" style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:12px">
+      <span style="font-weight:700">로봇이 자동으로 한 일</span>
+      <div class="row"><span style="color:var(--ok);font-weight:700">✓</span><span>임무 일시정지</span><span class="mono lbl">10:46:08</span></div>
+      <div class="row"><span style="width:14px;height:14px;border-radius:50%;border:3px solid var(--accent);box-sizing:border-box;justify-self:center"></span><span style="display:flex;flex-direction:column;gap:6px"><span><b>후퇴 지점 R로 이동 중</b></span><span style="height:6px;border-radius:3px;background:var(--line);overflow:hidden"><span style="display:block;width:40%;height:100%;background:var(--accent)"></span></span></span><span class="mono lbl">9 m 남음</span></div>
+      <div class="row" style="color:var(--muted)"><span style="justify-self:center">·</span><span>R에 도착하면 그 자리에서 대기</span><span></span></div>
+      <span class="lbl">임무 설정의 «가스 기준을 넘으면: 일시정지 후 직전 정상 지점으로 후퇴»에 따른 동작입니다.</span>
+    </section>
+
+    <section aria-label="H2S 추이" style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;justify-content:space-between"><span style="font-weight:600;font-size:14px">H₂S 최근 2분</span><span class="lbl">점선 = 기준 10 ppm</span></div>
+      <svg viewBox="0 0 320 90" style="width:100%;height:90px" role="img" aria-label="H2S가 2분 동안 1 ppm에서 12.4 ppm으로 올라 기준선을 넘음">
+        <line x1="0" y1="30" x2="320" y2="30" style="stroke:var(--bad)" stroke-width="1.5" stroke-dasharray="5 4"></line>
+        <line x1="0" y1="56" x2="320" y2="56" style="stroke:var(--warn)" stroke-width="1" stroke-dasharray="2 4"></line>
+        <polyline points="0,80 40,79 80,76 120,70 160,62 200,54 240,44 270,34 290,26 320,20" fill="none" style="stroke:var(--bad)" stroke-width="2.5" stroke-linejoin="round"></polyline>
+        <circle cx="320" cy="20" r="4" style="fill:var(--bad)"></circle>
+        <text x="4" y="24" font-size="11" style="fill:var(--bad)" font-family="JetBrains Mono, monospace">10</text>
+        <text x="4" y="50" font-size="11" style="fill:var(--warn)" font-family="JetBrains Mono, monospace">5</text>
+      </svg>
+    </section>
+
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:auto">
+      <button style="height:56px;border:0;border-radius:12px;background:var(--accent);color:var(--on-accent);font-weight:700;font-size:16px">확인 · 후퇴 계속</button>
+      <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+        <button style="height:52px;border:1px solid var(--line2);border-radius:12px;background:var(--panel);font-weight:600">그 자리 정지</button>
+        <a href="MDrive.dc.html" style="height:52px;border:1px solid var(--line2);border-radius:12px;background:var(--panel);font-weight:600;display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit">직접 조종</a>
+      </div>
+      <button style="height:44px;border:0;background:transparent;font-weight:600;color:var(--accent);font-size:14px">현장 책임자에게 경보 공유</button>
+    </div>
+  </div>
+
+  <div style="padding:8px 16px 18px;background:var(--panel);border-top:1px solid var(--line)">
+    <button aria-label="비상 정지" style="width:100%;height:64px;border:0;border-radius:12px;background:var(--stop);color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:12px">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" stroke-width="2"></path><rect x="8" y="8" width="8" height="8" fill="#FFFFFF"></rect></svg>
+      <span style="font-weight:700;font-size:22px;letter-spacing:.1em">STOP</span><span style="font-size:13px">전체 정지</span>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["밝은","어두운"],"default":"밝은"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.theme ?? '밝은') === '밝은' ? 'fh light' : 'fh' };
+  }
+}
+</script>
+</body>
+</html>

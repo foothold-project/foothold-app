@@ -1,0 +1,5 @@
+# 검사 결과(캡처·json)는 로컬에만
+runs/
+# 원본 시안 zip·압축 해제본: support.js 라이선스 미확인 — 공개 저장소에 넣을지 결정 전까지 제외
+reference/
+__pycache__/

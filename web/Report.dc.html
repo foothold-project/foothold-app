@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>임무 기록 보고서</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0;background:#FFFFFF}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+table{border-collapse:collapse;width:100%}
+th{font-size:12px;font-weight:600;color:#3D464E;text-align:right;padding:7px 8px;border-bottom:1.5px solid #12171C;white-space:nowrap}
+td{font-size:13px;padding:7px 8px;border-bottom:1px solid #C9CEC6;text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+th.l,td.l{text-align:left}
+.k{font-size:12px;color:#4F5A64}
+.iv{display:grid;grid-template-columns:72px 1fr;gap:6px}
+.thumb{display:flex;flex-direction:column;gap:4px}
+</style>
+</helmet>
+<div style="width:794px;height:1123px;box-sizing:border-box;padding:52px 56px 44px;background:#FFFFFF;color:#12171C;font-family:'IBM Plex Sans KR',system-ui,sans-serif;display:flex;flex-direction:column;gap:16px">
+
+  <header style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;padding-bottom:12px;border-bottom:2px solid #12171C">
+    <div style="display:flex;flex-direction:column;gap:4px">
+      <span style="font-size:12px;letter-spacing:.14em;font-weight:700;color:#006D7A">FOOTHOLD · 임무 기록</span>
+      <h1 style="margin:0;font-size:24px;font-weight:700;letter-spacing:-.01em">{{title}}</h1>
+    </div>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+      <span class="k">기록 번호</span><span class="mono" style="font-size:14px;font-weight:600">FH-20261012-03</span>
+    </div>
+  </header>
+
+  <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px;font-size:13px">
+    <div class="iv"><span class="k">장소</span><span>[현장명] B1</span></div>
+    <div class="iv"><span class="k">일시</span><span class="mono">2026-10-12 10:31–10:52</span></div>
+    <div class="iv"><span class="k">운영자</span><span>김도윤</span></div>
+    <div class="iv"><span class="k">로봇</span><span>Unitree Go2 EDU · GO2-01</span></div>
+    <div class="iv"><span class="k">임무 양식</span><span>{{tplLine}}</span></div>
+    <div class="iv"><span class="k">지점</span><span>{{wpLine}}</span></div>
+    <sc-if value="{{isGas}}" hint-placeholder-val="{{ false }}">
+      <div class="iv"><span class="k">측정 장비</span><span>[검지기 모델] 4종 + CO₂ · 범프 테스트 <span class="mono">10:20</span></span></div>
+      <div class="iv"><span class="k">판정 기준</span><span>산업안전보건기준에 관한 규칙 제618조 «적정공기»</span></div>
+    </sc-if>
+  </section>
+
+  <section style="display:flex;gap:16px;align-items:stretch;border:2px solid {{resColor}};border-radius:6px;padding:12px 16px">
+    <div style="display:flex;flex-direction:column;gap:2px;flex:1">
+      <span style="font-size:12px;font-weight:700;color:{{resColor}}">임무 결과</span>
+      <span style="font-size:20px;font-weight:700;color:{{resColor}}">{{resHead}}</span>
+      <span style="font-size:13px;line-height:1.5">{{resBody}}</span>
+    </div>
+    <div style="width:1px;background:#D7DBD3"></div>
+    <div style="display:flex;flex-direction:column;gap:2px;width:190px">
+      <span style="font-size:12px;font-weight:700;color:#3D464E">필요 조치</span>
+      <span style="font-size:13px;line-height:1.5">{{todo}}</span>
+    </div>
+  </section>
+
+  <section style="display:flex;flex-direction:column;gap:6px">
+    <h2 style="margin:0;font-size:15px;font-weight:700">지점별 결과</h2>
+    <sc-if value="{{isGas}}" hint-placeholder-val="{{ false }}">
+      <table>
+        <thead><tr><th>지점</th><th>측정 시각</th><th>O₂ %</th><th>H₂S ppm</th><th>CO ppm</th><th>LEL %</th><th>CO₂ %</th><th class="l">판정</th></tr></thead>
+        <tbody>
+          <tr style="background:#F2F3F0"><td class="k">적정 기준</td><td></td><td class="mono k">18 – 23.5 미만</td><td class="mono k">10 미만</td><td class="mono k">30 미만</td><td class="mono k">10 미만*</td><td class="mono k">1.5 미만</td><td></td></tr>
+          <tr><td>WP1 계단실 하부</td><td class="mono">10:33:20</td><td class="mono">20.9</td><td class="mono">0.0</td><td class="mono">2</td><td class="mono">0</td><td class="mono">0.08</td><td class="l">● 적정</td></tr>
+          <tr><td>WP2 펌프실 A</td><td class="mono">10:39:44</td><td class="mono">20.6</td><td class="mono">1.2</td><td class="mono">2</td><td class="mono">0</td><td class="mono">0.12</td><td class="l">● 적정</td></tr>
+          <tr><td><b>WP3 집수정</b></td><td class="mono">10:46:08</td><td class="mono">19.6</td><td class="mono" style="color:#B3261E;font-weight:700">12.4 ■</td><td class="mono">4</td><td class="mono">2</td><td class="mono">0.34</td><td class="l" style="color:#B3261E;font-weight:700">■ 부적정</td></tr>
+          <tr><td>WP4 배관 구역</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="l" style="color:#4F5A64">미측정 · 중단</td></tr>
+        </tbody>
+      </table>
+      <span class="k">* LEL 10%는 제618조 항목이 아니며 미국 OSHA 29 CFR 1910.146 기준을 준용했습니다.</span>
+    </sc-if>
+    <sc-if value="{{isBase}}" hint-placeholder-val="{{ true }}">
+      <table>
+        <thead><tr><th>지점</th><th>도착 시각</th><th>도착 오차</th><th>사진</th><th class="l">운영자 판단</th><th class="l">판정</th></tr></thead>
+        <tbody>
+          <tr><td>WP1 계단실 하부</td><td class="mono">10:33:02</td><td class="mono">0.2 m</td><td class="mono">1</td><td class="l k">—</td><td class="l">● 완료</td></tr>
+          <tr><td>WP2 펌프실 A</td><td class="mono">10:39:30</td><td class="mono">0.3 m</td><td class="mono">1</td><td class="l">맞음 · 김도윤 <span class="mono k">10:40:30</span></td><td class="l">● 완료</td></tr>
+          <tr><td>WP3 집수정</td><td class="mono">10:45:20</td><td class="mono">0.3 m</td><td class="mono">1</td><td class="l">다시 보기 → 맞음 <span class="mono k">10:47:02</span></td><td class="l">● 완료</td></tr>
+          <tr><td>WP4 배관 구역</td><td class="mono">10:49:41</td><td class="mono">0.4 m</td><td class="mono">1</td><td class="l k">—</td><td class="l">● 완료</td></tr>
+        </tbody>
+      </table>
+    </sc-if>
+    <sc-if value="{{isPatrol}}" hint-placeholder-val="{{ false }}">
+      <table>
+        <thead><tr><th>지점</th><th>도착 시각</th><th>사진</th><th>탐지</th><th>사람 확인</th><th class="l">판정</th></tr></thead>
+        <tbody>
+          <tr><td>WP1 계단실 하부</td><td class="mono">10:33:02</td><td class="mono">3</td><td class="mono">0</td><td class="mono">—</td><td class="l">● 이상 없음</td></tr>
+          <tr><td>WP2 펌프실 A</td><td class="mono">10:39:30</td><td class="mono">3</td><td class="mono">2</td><td class="mono">맞음 2</td><td class="l" style="color:#9A5800;font-weight:700">▲ 조치 필요</td></tr>
+          <tr><td>복도 (이동 중)</td><td class="mono">10:40:58</td><td class="mono">1</td><td class="mono">1</td><td class="mono">맞음 1</td><td class="l">● 기록 · 문 열림</td></tr>
+          <tr><td>WP3 집수정</td><td class="mono">10:45:20</td><td class="mono">3</td><td class="mono">0</td><td class="mono">—</td><td class="l">● 이상 없음</td></tr>
+          <tr><td>WP4 배관 구역</td><td class="mono">10:49:41</td><td class="mono">3</td><td class="mono">1</td><td class="mono">오탐 1</td><td class="l">● 이상 없음</td></tr>
+        </tbody>
+      </table>
+    </sc-if>
+    <span class="k">이 표의 열은 임무 양식에 들어 있는 모듈({{modLine}})에서 만들어졌습니다.</span>
+  </section>
+
+  <section style="display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px">
+    <figure style="margin:0;display:flex;flex-direction:column;gap:6px">
+      <h2 style="margin:0;font-size:15px;font-weight:700">이동 경로</h2>
+      <svg viewBox="40 40 920 545" style="width:100%;height:auto;border:1px solid #C9CEC6" role="img" aria-label="지도: 출발점에서 측정 지점을 지난 경로">
+        <rect x="40" y="40" width="920" height="545" fill="#FFFFFF"></rect>
+        <rect x="43" y="43" width="254" height="194" fill="#F4E3E1"></rect>
+        <g stroke="#6E7881" stroke-width="6" fill="none"><rect x="40" y="40" width="920" height="540"></rect><path d="M40 240H200M260 240H300M300 40V300M300 300H440M500 300H770M830 300H960M640 40V300M40 380H120M180 380H330M380 380H750M810 380H960M240 380V580M600 380V580"></path></g>
+        <polyline points="120,540 150,450 150,340 470,340 470,180 470,340 780,340 780,476" fill="none" stroke="#006D7A" stroke-width="6" display="{{gasPath}}"></polyline>
+        <polyline points="780,476 780,340 700,340" fill="none" stroke="#B3261E" stroke-width="5" stroke-dasharray="12 8" display="{{gasPath}}"></polyline>
+        <polyline points="120,540 150,450 150,340 470,340 470,180 470,340 780,340 780,490 780,340 800,340 800,170 800,340 150,340 150,450 120,540" fill="none" stroke="#006D7A" stroke-width="6" stroke-linejoin="round" display="{{fullPath}}"></polyline>
+        <g font-family="JetBrains Mono, monospace" font-weight="700" font-size="22" text-anchor="middle">
+          <circle cx="150" cy="450" r="20" fill="#12171C"></circle><text x="150" y="458" fill="#FFFFFF">1</text>
+          <circle cx="470" cy="180" r="20" fill="#12171C"></circle><text x="470" y="188" fill="#FFFFFF">2</text>
+          <g display="{{gasPath}}"><rect x="760" y="470" width="40" height="40" fill="#B3261E"></rect><text x="780" y="498" fill="#FFFFFF">3</text>
+          <circle cx="800" cy="170" r="20" fill="#FFFFFF" stroke="#6E7881" stroke-width="3"></circle><text x="800" y="178" fill="#4F5A64">4</text>
+          <circle cx="700" cy="340" r="18" fill="#FFFFFF" stroke="#B3261E" stroke-width="3"></circle><text x="700" y="348" fill="#B3261E">R</text></g>
+          <g display="{{fullPath}}"><circle cx="780" cy="490" r="20" fill="#12171C"></circle><text x="780" y="498" fill="#FFFFFF">3</text>
+          <circle cx="800" cy="170" r="20" fill="#12171C"></circle><text x="800" y="178" fill="#FFFFFF">4</text></g>
+        </g>
+        <g display="{{findPins}}"><rect x="528" y="218" width="22" height="22" transform="rotate(45 539 229)" fill="#9A5800"></rect><rect x="394" y="249" width="22" height="22" transform="rotate(45 405 260)" fill="#9A5800"></rect></g>
+        <g font-family="IBM Plex Sans KR, sans-serif" font-size="22" fill="#4F5A64"><text x="60" y="80" fill="#B3261E">진입 금지</text><text x="320" y="80">펌프실 A</text><text x="660" y="80">배관 구역</text><text x="620" y="420">집수정</text></g>
+      </svg>
+      <figcaption class="k">{{mapCap}}</figcaption>
+    </figure>
+
+    <div style="display:flex;flex-direction:column;gap:8px">
+      <sc-if value="{{isBase}}" hint-placeholder-val="{{ true }}">
+        <h2 style="margin:0;font-size:15px;font-weight:700">지점 사진</h2>
+        <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px">
+          <div class="thumb"><svg viewBox="0 0 160 90" style="width:100%;height:auto" aria-hidden="true"><rect width="160" height="90" fill="#1A2126"></rect><polygon points="0,90 160,90 110,48 50,48" fill="#2A343B"></polygon></svg><span class="k">WP1 · <span class="mono">10:33</span></span></div>
+          <div class="thumb"><svg viewBox="0 0 160 90" style="width:100%;height:auto" aria-hidden="true"><rect width="160" height="90" fill="#1A2126"></rect><polygon points="0,90 160,90 118,48 42,48" fill="#2A343B"></polygon><circle cx="118" cy="38" r="18" fill="#26313A"></circle></svg><span class="k">WP2 · <span class="mono">10:39</span></span></div>
+          <div class="thumb"><svg viewBox="0 0 160 90" style="width:100%;height:auto" aria-hidden="true"><rect width="160" height="90" fill="#1A2126"></rect><polygon points="0,90 160,90 100,52 60,52" fill="#2A343B"></polygon><rect x="60" y="24" width="40" height="28" fill="#0E1317"></rect></svg><span class="k">WP3 · <span class="mono">10:45</span></span></div>
+          <div class="thumb"><svg viewBox="0 0 160 90" style="width:100%;height:auto" aria-hidden="true"><rect width="160" height="90" fill="#1A2126"></rect><rect x="0" y="30" width="160" height="10" fill="#3A4852"></rect><rect x="0" y="50" width="160" height="6" fill="#3A4852"></rect></svg><span class="k">WP4 · <span class="mono">10:49</span></span></div>
+        </div>
+      </sc-if>
+      <sc-if value="{{hasFind}}" hint-placeholder-val="{{ false }}">
+        <h2 style="margin:0;font-size:15px;font-weight:700">확인된 발견물</h2>
+        <div style="display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:start">
+          <svg viewBox="0 0 640 360" style="width:96px;height:54px" aria-hidden="true"><rect width="640" height="360" fill="#1A2126"></rect><polygon points="0,360 640,360 470,190 170,190" fill="#2A343B"></polygon><ellipse cx="330" cy="292" rx="150" ry="30" fill="#4C6876"></ellipse><rect x="170" y="252" width="320" height="76" fill="none" stroke="#FFB547" stroke-width="10"></rect></svg>
+          <div style="display:flex;flex-direction:column;gap:2px;font-size:13px"><b>바닥 물고임 · WP2</b><span class="k">미끄럼 주의 · 펌프 B 씰 누수 의심</span><span class="k">확인 김도윤 <span class="mono">10:55</span></span></div>
+        </div>
+        <div style="display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:start">
+          <svg viewBox="0 0 640 360" style="width:96px;height:54px" aria-hidden="true"><rect width="640" height="360" fill="#1A2126"></rect><rect x="0" y="120" width="640" height="60" fill="#3A4852"></rect><rect x="290" y="110" width="140" height="80" fill="#6B5A4A"></rect><rect x="270" y="96" width="180" height="108" fill="none" stroke="#5AA9FF" stroke-width="10"></rect></svg>
+          <div style="display:flex;flex-direction:column;gap:2px;font-size:13px"><b>배관 보온재 손상 · WP2</b><span class="k">교체 필요</span><span class="k">확인 김도윤 <span class="mono">10:56</span></span></div>
+        </div>
+        <span class="k">AI 탐지는 사람이 «맞음»으로 확인한 것만 싣습니다. 오탐은 원자료에만 남깁니다.</span>
+      </sc-if>
+    </div>
+  </section>
+
+  <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:auto">
+    <div style="border:1px solid #9AA3A9;border-radius:4px;padding:10px 12px;height:64px;display:flex;flex-direction:column;justify-content:space-between"><span class="k">{{signA}}</span><span style="display:flex;justify-content:space-between;font-size:13px"><span>김도윤</span><span class="k">(서명)</span></span></div>
+    <div style="border:1px solid #9AA3A9;border-radius:4px;padding:10px 12px;height:64px;display:flex;flex-direction:column;justify-content:space-between"><span class="k">현장 책임자 확인</span><span style="display:flex;justify-content:space-between;font-size:13px"><span>[이름]</span><span class="k">(서명)</span></span></div>
+  </section>
+
+  <footer style="display:flex;justify-content:space-between;gap:12px;padding-top:10px;border-top:1px solid #C9CEC6;font-size:12px;color:#4F5A64">
+    <span>{{keep}}</span>
+    <span class="mono">1 / 1</span>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"mission":{"editor":"enum","options":["지점 확인 다녀오기","가스 사전 측정","시설 순찰"],"default":"지점 확인 다녀오기"},"$preview":{"width":794,"height":1123}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const mn = this.props.mission ?? '지점 확인 다녀오기';
+    const m = mn === '가스 사전 측정' ? 'gas' : mn === '시설 순찰' ? 'patrol' : 'base';
+    const on = (b) => (b ? 'inline' : 'none');
+    const V = {
+      base: {
+        title: '현장 확인 기록', tpl: '지점 확인 다녀오기 (기본 양식)', mods: '사진 · 운영자 확인',
+        resColor: '#1F5FBF', resHead: '● 완료 · 4개 지점 모두 확인',
+        resBody: '모든 지점에 도착 오차 0.4 m 이내로 도착했고, 운영자 확인이 필요한 2개 지점에서 «맞음»을 받았습니다.',
+        todo: '없음', signA: '운영자', keep: '보존 기간 1년 (팀 설정) · 원본 영상·센서 기록 함께 보관', cap: '실선: 이동 · 주행 거리 148 m'
+      },
+      gas: {
+        title: '밀폐공간 산소·유해가스 측정 기록', tpl: '가스 사전 측정 (팀 양식 v3)', mods: '가스 측정 · 사진 · AI 탐지',
+        resColor: '#B3261E', resHead: '■ 부적정 · 진입 불가',
+        resBody: 'WP3 집수정 H₂S 12.4 ppm — 적정공기 기준(10 ppm 미만) 초과. 경보 규칙에 따라 자동 후퇴했고 WP4는 측정하지 않았습니다.',
+        todo: '환기 후 전 지점 재측정. 결과가 적정일 때까지 출입 금지 유지.', signA: '측정자', keep: '보존 기한 2029-10-12 (법정 3년) · 원본 영상·센서 기록 함께 보관', cap: '실선: 이동 · 점선: 경보 후 자동 후퇴 · 주행 거리 112 m'
+      },
+      patrol: {
+        title: '시설 순찰 기록', tpl: '시설 순찰 (팀 양식 v2)', mods: '사진 · AI 탐지',
+        resColor: '#9A5800', resHead: '▲ 완료 · 조치 필요 2건',
+        resBody: '4개 지점을 모두 돌았습니다. AI 탐지 4건 중 3건을 사람이 «맞음», 1건을 «오탐»으로 확인했습니다.',
+        todo: 'WP2 물고임 원인 확인, 보온재 교체 요청.', signA: '운영자', keep: '보존 기간 1년 (팀 설정) · 원본 영상·센서 기록 함께 보관', cap: '실선: 이동 · ◆ 발견물 · 주행 거리 148 m'
+      }
+    }[m];
+    return {
+      title: V.title, tplLine: V.tpl, modLine: V.mods,
+      wpLine: m === 'gas' ? '4곳 중 3곳 수행' : '4곳 모두 수행',
+      isGas: m === 'gas', isBase: m === 'base', isPatrol: m === 'patrol', hasFind: m !== 'base',
+      resColor: V.resColor, resHead: V.resHead, resBody: V.resBody, todo: V.todo,
+      signA: V.signA, keep: V.keep, mapCap: V.cap,
+      gasPath: on(m === 'gas'), fullPath: on(m !== 'gas'), findPins: on(m !== 'base')
+    };
+  }
+}
+</script>
+</body>
+</html>

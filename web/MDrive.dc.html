@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>휴대폰 — 직접 조종</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.hud{display:flex;align-items:center;gap:6px;height:32px;padding:0 10px;border-radius:6px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;white-space:nowrap}
+.glass{background:rgba(8,11,14,.5);border:1.5px solid rgba(230,235,239,.45)}
+.pill{height:44px;padding:0 14px;border-radius:22px;border:1.5px solid rgba(230,235,239,.45);background:rgba(8,11,14,.55);color:#FFFFFF;font-size:13px;font-weight:600;display:flex;align-items:center;gap:6px}
+</style>
+</helmet>
+<div style="width:844px;height:390px;position:relative;overflow:hidden;background:#05080A;font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:#E6EBEF">
+  <svg viewBox="0 0 844 390" preserveAspectRatio="xMidYMid slice" style="position:absolute;inset:0;width:100%;height:100%" role="img" aria-label="전방 카메라 영상 자리: 집수정으로 가는 통로">
+    <defs><radialGradient id="lamp" cx="50%" cy="90%" r="60%"><stop offset="0" stop-color="#FFFFFF" stop-opacity=".09"></stop><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"></stop></radialGradient></defs>
+    <rect width="844" height="390" fill="#070A0C"></rect>
+    <polygon points="0,0 844,0 520,110 324,110" fill="#0A0E11"></polygon>
+    <polygon points="0,0 324,110 324,236 0,390" fill="#0D1317"></polygon>
+    <polygon points="844,0 520,110 520,236 844,390" fill="#0F151A"></polygon>
+    <polygon points="0,390 844,390 520,236 324,236" fill="#131B20"></polygon>
+    <rect x="324" y="110" width="196" height="126" fill="#040607" stroke="#26313A" stroke-width="3"></rect>
+    <line x1="0" y1="70" x2="324" y2="140" stroke="#2C3A44" stroke-width="11"></line>
+    <line x1="0" y1="110" x2="324" y2="152" stroke="#25313A" stroke-width="6"></line>
+    <ellipse cx="420" cy="330" rx="130" ry="24" fill="#1C2C35" opacity=".9"></ellipse>
+    <rect width="844" height="390" fill="url(#lamp)"></rect>
+    <path d="M300 390 L392 250 M544 390 L452 250" stroke="#38C6D9" stroke-opacity=".55" stroke-width="2" stroke-dasharray="6 6"></path>
+    <path d="M422 186v16M414 194h16" stroke="#E6EBEF" stroke-opacity=".55" stroke-width="1.5"></path>
+  </svg>
+
+  <a href="MHome.dc.html" aria-label="큰 지도 열기" style="position:absolute;left:44px;top:14px;width:172px;height:104px;border-radius:8px;overflow:hidden;border:1.5px solid rgba(230,235,239,.45);display:block">
+    <svg viewBox="600 250 360 220" style="width:100%;height:100%;display:block" aria-hidden="true">
+      <rect x="600" y="250" width="360" height="220" fill="rgba(14,19,23,.82)"></rect>
+      <g stroke="#6B7A86" stroke-width="6" fill="none"><path d="M500 300H770M830 300H960M380 380H750M810 380H960M600 380V580"></path></g>
+      <polyline points="600,340 780,340 780,404" fill="none" stroke="#38C6D9" stroke-width="6"></polyline>
+      <circle cx="780" cy="455" r="13" fill="none" stroke="#38C6D9" stroke-width="3"></circle>
+      <g transform="translate(780 404) rotate(180)"><path d="M0 -18 L12 12 L0 6 L-12 12 Z" fill="#38C6D9"></path></g>
+    </svg>
+  </a>
+
+  <div style="position:absolute;left:232px;right:190px;top:14px;display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start">
+    <span class="hud" style="background:rgba(56,198,217,.9);color:#061014;font-weight:700">직접 조종 · 임무 일시정지</span>
+    <span class="hud"><span style="color:#5AA9FF">●</span>통신 <span class="mono">−64 dBm</span></span>
+    <span class="hud"><span style="color:#5AA9FF">●</span>영상 <span class="mono">0.19 s</span></span>
+    <span class="hud"><span style="color:#5AA9FF">●</span><span class="mono">68%</span></span>
+  </div>
+
+  <button aria-label="비상 정지" style="position:absolute;right:44px;top:14px;width:132px;height:64px;border:0;border-radius:12px;background:#D7261E;color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 0 0 3px rgba(255,255,255,.18)">
+    <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" stroke-width="2"></path><rect x="8" y="8" width="8" height="8" fill="#FFFFFF"></rect></svg>
+    <span style="font-weight:700;font-size:20px;letter-spacing:.08em">STOP</span>
+  </button>
+
+  <div style="position:absolute;left:50%;top:150px;transform:translateX(-50%);display:flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:15px;background:rgba(255,181,71,.92);color:#1A1206;font-size:12px;font-weight:700">▲ 앞 장애물 <span class="mono">0.8 m</span> · 속도 자동 감속</div>
+
+  <sc-if value="{{moveLeft}}" hint-placeholder-val="{{ true }}">
+    <div style="position:absolute;left:44px;bottom:22px;display:flex;flex-direction:column;align-items:center;gap:6px">
+      <div class="glass" style="position:relative;width:140px;height:140px;border-radius:50%" role="group" aria-label="이동 막대: 앞뒤와 옆걸음">
+        <svg viewBox="0 0 140 140" style="position:absolute;inset:0" aria-hidden="true"><g fill="none" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M70 16l-7 8h14zM70 124l-7-8h14zM16 70l8-7v14zM124 70l-8-7v14z" fill="#FFFFFF"></path></g></svg>
+        <span style="position: absolute; left: 44px; top: 43px; width: 52px; height: 52px; border-radius: 50%; background: rgba(230,235,239,.92); box-shadow: 0 2px 8px rgba(0,0,0,.4)"></span>
+      </div>
+      <span style="font-size:12px;font-weight:600;text-shadow:0 1px 2px #000">이동 · 앞뒤 · 옆</span>
+    </div>
+    <div style="position:absolute;right:44px;bottom:42px;display:flex;flex-direction:column;align-items:center;gap:6px">
+      <div class="glass" style="position:relative;width:176px;height:64px;border-radius:32px" role="group" aria-label="회전 막대: 왼쪽 오른쪽">
+        <svg viewBox="0 0 176 64" style="position:absolute;inset:0" aria-hidden="true"><g fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"><path d="M34 22a12 12 0 1 0 6 10"></path><path d="M34 16v7h7"></path><path d="M142 22a12 12 0 1 1 -6 10"></path><path d="M142 16v7h-7"></path></g></svg>
+        <span style="position:absolute;left:62px;top:6px;width:52px;height:52px;border-radius:50%;background:rgba(230,235,239,.92);box-shadow:0 2px 8px rgba(0,0,0,.4)"></span>
+      </div>
+      <span style="font-size:12px;font-weight:600;text-shadow:0 1px 2px #000">회전</span>
+    </div>
+  </sc-if>
+  <sc-if value="{{rotLeft}}" hint-placeholder-val="{{ false }}">
+    <div style="position:absolute;left:44px;bottom:42px;display:flex;flex-direction:column;align-items:center;gap:6px">
+      <div class="glass" style="position:relative;width:176px;height:64px;border-radius:32px" role="group" aria-label="회전 막대: 왼쪽 오른쪽">
+        <svg viewBox="0 0 176 64" style="position:absolute;inset:0" aria-hidden="true"><g fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round"><path d="M34 22a12 12 0 1 0 6 10"></path><path d="M34 16v7h7"></path><path d="M142 22a12 12 0 1 1 -6 10"></path><path d="M142 16v7h-7"></path></g></svg>
+        <span style="position:absolute;left:62px;top:6px;width:52px;height:52px;border-radius:50%;background:rgba(230,235,239,.92)"></span>
+      </div>
+      <span style="font-size:12px;font-weight:600;text-shadow:0 1px 2px #000">회전</span>
+    </div>
+    <div style="position:absolute;right:62px;bottom:22px;display:flex;flex-direction:column;align-items:center;gap:6px">
+      <div class="glass" style="position:relative;width:64px;height:150px;border-radius:32px" role="group" aria-label="앞뒤 막대">
+        <svg viewBox="0 0 64 150" style="position:absolute;inset:0" aria-hidden="true"><path d="M32 14l-7 8h14zM32 136l-7-8h14z" fill="#FFFFFF"></path></svg>
+        <span style="position:absolute;left:6px;top:49px;width:52px;height:52px;border-radius:50%;background:rgba(230,235,239,.92)"></span>
+      </div>
+      <span style="font-size:12px;font-weight:600;text-shadow:0 1px 2px #000">앞뒤</span>
+    </div>
+  </sc-if>
+
+  <div style="position:absolute;left:50%;bottom:20px;transform:translateX(-50%);display:flex;gap:8px">
+    <div role="radiogroup" aria-label="속도" style="display:flex;height:44px;border-radius:22px;border:1.5px solid rgba(230,235,239,.45);background:rgba(8,11,14,.55);overflow:hidden">
+      <button role="radio" aria-checked="true" style="padding:0 14px;border:0;background:rgba(230,235,239,.92);color:#0B0E11;font-size:13px;font-weight:700">느리게</button>
+      <button role="radio" aria-checked="false" style="padding:0 14px;border:0;background:transparent;color:#FFFFFF;font-size:13px;font-weight:600">보통</button>
+    </div>
+    <button class="pill"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 18h14M8 18V9l4-4 4 4v9"></path></svg>자세</button>
+    <a class="pill" href="MHome.dc.html" style="text-decoration:none">임무로 돌아가기</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"stickLayout":{"editor":"enum","options":["왼쪽 이동 · 오른쪽 회전","왼쪽 회전 · 오른쪽 앞뒤"],"default":"왼쪽 이동 · 오른쪽 회전"},"$preview":{"width":844,"height":390}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const l = this.props.stickLayout ?? '왼쪽 이동 · 오른쪽 회전';
+    return { moveLeft: l === '왼쪽 이동 · 오른쪽 회전', rotLeft: l !== '왼쪽 이동 · 오른쪽 회전' };
+  }
+}
+</script>
+</body>
+</html>

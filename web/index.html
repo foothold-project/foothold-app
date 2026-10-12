@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>FOOTHOLD 앱 — 화면 시안</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&amp;display=swap">
+<!-- 시안 화면 목록(미리보기 입구). 색은 시안 Main 의 어두운 테마 값 그대로. -->
+<style>
+:root{--bg:#0B0E11;--panel:#12171C;--line:#26313A;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--warn:#FFB547}
+body{margin:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Sans KR',system-ui,sans-serif;font-size:15px;line-height:1.6}
+main{max-width:760px;margin:0 auto;padding:32px 16px 48px}
+h1{font-size:22px;margin:0 0 12px}
+h2{font-size:15px;margin:28px 0 8px;color:var(--muted);font-weight:600}
+.note{border:1.5px solid var(--warn);border-radius:8px;padding:12px 14px;background:var(--panel)}
+.note p{margin:0}.note p+p{margin-top:6px}
+ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
+li{display:flex;justify-content:space-between;gap:12px;padding:10px 2px;border-bottom:1px solid var(--line)}
+a{color:var(--accent);font-weight:600}
+.wait{color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<h1>FOOTHOLD 앱 화면 시안</h1>
+<div class="note" role="note">
+  <p><b>예시 데이터입니다. 실제 로봇 상태가 아닙니다.</b> 로봇 이름·배터리·위치·가스 값은 모두 시안용 표본입니다.</p>
+  <p>ROS·실제 로봇·실제 임무와 연결되어 있지 않습니다. STOP 버튼은 모양만 있는 시안이며 로봇을 멈추지 않습니다.</p>
+  <p>사진 판독·AI·가스 측정·자동 후퇴·경보·법규 기준은 화면 예시이며 구현·검증된 기능이 아닙니다.</p>
+</div>
+
+<h2>컴퓨터</h2>
+<ul>
+  <li><a href="Main.dc.html">관제 — 임무 진행</a><span class="wait">1440 × 920</span></li>
+  <li><a href="PcMissions.dc.html">임무 양식 관리</a><span class="wait">1440 × 1100</span></li>
+  <li><a href="PcPlan.dc.html">임무 계획과 출발 전 점검</a><span class="wait">1440 × 1120</span></li>
+  <li><a href="PcReview.dc.html">발견물 검토와 기록</a><span class="wait">1440 × 1060</span></li>
+</ul>
+
+<h2>휴대폰</h2>
+<ul>
+  <li><a href="MHome.dc.html">현황</a><span class="wait">390 × 844</span></li>
+  <li><a href="MDrive.dc.html">직접 조종(가로)</a><span class="wait">844 × 390</span></li>
+  <li><a href="MAlert.dc.html">경보 (가스 모듈 예시)</a><span class="wait">390 × 844</span></li>
+  <li><a href="MFinding.dc.html">발견물 확인</a><span class="wait">390 × 844</span></li>
+</ul>
+
+<h2>그 밖</h2>
+<ul>
+  <li><a href="Report.dc.html">임무 기록 보고서 (A4)</a><span class="wait">794 × 1123</span></li>
+  <li><a href="System.dc.html">디자인 시스템</a><span class="wait">1440 × 1560</span></li>
+</ul>
+</main>
+</body>
+</html>
