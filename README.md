@@ -28,7 +28,7 @@ python3 -m http.server 8000 --bind 127.0.0.1
 | `web/*.dc.html` | 디자인 시안 원본 마크업을 그대로 둔 화면입니다. 원본과 다른 곳은 실행 스크립트 줄 하나뿐입니다. |
 | `web/dc.js` | 시안 마크업을 그리는 작은 실행기입니다. React나 외부 런타임 없이 동작합니다. |
 | `web/index.html` | 화면 목록입니다. |
-| `tools/compare.py` | 원본 시안과 구현을 같은 크기로 캡처해 픽셀 차이를 잽니다. |
+| `tools/compare.py` | 원본 시안과 구현을 같은 크기로 캡처해 RGB 차이가 16을 넘는 픽셀 수를 셉니다. |
 | `tools/nav_check.py` | 화면 열림, 화면 사이 링크, 임무 양식 조작이 원본과 같은지 확인합니다. |
 
 검사 도구는 원본 시안(`reference/`, 저장소에는 없음)과 headless Chrome, Pillow, python3-tornado가 있어야 돌아갑니다.
