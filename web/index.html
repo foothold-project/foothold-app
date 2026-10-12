@@ -18,11 +18,28 @@ ul{list-style:none;margin:0;padding:0;border-top:1px solid var(--line)}
 li{display:flex;justify-content:space-between;gap:12px;padding:10px 2px;border-bottom:1px solid var(--line)}
 a{color:var(--accent);font-weight:600}
 .wait{color:var(--muted)}
+.live{border-color:var(--accent)}
 </style>
 </head>
 <body>
 <main>
 <h1>FOOTHOLD 앱 화면 시안</h1>
+
+<h2>v2 시뮬 실연결 — 실제로 조종되는 화면</h2>
+<div class="note live" role="note">
+  <p><b>이 두 화면만 Gazebo foothold-v2 시뮬과 연결됩니다.</b> 시뮬 세션이 꺼져 있으면 «시뮬 상태 끊김 · 명령 0»으로 보입니다. 낙상·정지 지연은 검증 전이고, 실기 Go2 와는 연결하지 않습니다.</p>
+  <p>순서: 조종권 받기 → STOP 해제 → 이동 버튼(또는 막대)을 누르는 동안 이동. 시험한 명령은 앞 0.6 m/s 와 앞+회전 ±0.5 rad/s 뿐입니다.</p>
+</div>
+<ul>
+  <li><a data-live-entry href="Main.dc.html?live=v2">PC 관제·조종 (v2 실연결)</a><span class="wait">마우스·키보드</span></li>
+  <li><a data-live-entry href="MDrive.dc.html?live=v2">휴대폰 가로 조종 (v2 실연결)</a><span class="wait">터치·마우스</span></li>
+</ul>
+<script>
+// 8780(정적 미리보기)에는 WebSocket 이 없다 → 실연결 서버(8790) 절대 주소로. 그 밖은 같은 origin.
+if (location.port === '8780') for (const a of document.querySelectorAll('a[data-live-entry]')) a.href = 'http://127.0.0.1:8790/' + a.getAttribute('href');
+</script>
+
+<h2>아래는 시안 — 모양만 있고 동작하지 않음</h2>
 <div class="note" role="note">
   <p><b>예시 데이터입니다. 실제 로봇 상태가 아닙니다.</b> 로봇 이름·운영자 이름·배터리·위치·가스 값은 모두 시안용 표본입니다. 판정 기준과 기준값은 «예시 기준 · 검증 전»이며 실제 적용 기준이 아닙니다.</p>
   <p>ROS·실제 로봇·실제 임무와 연결되어 있지 않습니다. STOP 버튼은 모양만 있는 시안이며 로봇을 멈추지 않습니다.</p>
