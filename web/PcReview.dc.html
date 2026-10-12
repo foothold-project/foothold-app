@@ -39,6 +39,8 @@ td.l{text-align:left}
 .nav:hover{color:var(--text);background:var(--panel2)}
 .nav.cur{color:var(--text);background:var(--acc-bg)}
 .nav.cur svg{color:var(--accent)}
+/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */
+header{position:sticky;top:0;z-index:10}
 </style>
 </helmet>
 <div class="{{themeClass}}" style="min-height:100vh;display:flex;flex-direction:column">
@@ -50,7 +52,7 @@ td.l{text-align:left}
   </div>
   <div style="width:1px;height:32px;background:var(--line)"></div>
   <div style="display:flex;flex-direction:column;gap:2px">
-    <span style="font-size:12px;color:var(--muted)">기록 · <span class="mono">2026-10-12 10:31–10:52</span> · 운영자 김도윤</span>
+    <span style="font-size:12px;color:var(--muted)">기록 · <span class="mono">2026-10-12 10:31–10:52</span> · 운영자 A</span>
     <span style="font-size:17px;font-weight:600">지하 펌프실 진입 전 사전 측정</span>
   </div>
   <div style="flex:1"></div>
@@ -108,7 +110,7 @@ td.l{text-align:left}
         </button>
         <button class="fd">
           <svg viewBox="0 0 88 66" style="width:88px;height:66px;border-radius:6px;background:#0D1317" aria-hidden="true"><rect width="88" height="66" fill="#0D1317"></rect><rect x="0" y="20" width="88" height="10" fill="#2C3A44"></rect><rect x="40" y="18" width="20" height="14" fill="#56473A"></rect><rect x="36" y="14" width="28" height="22" fill="none" stroke="#5AA9FF" stroke-width="1.5"></rect></svg>
-          <span style="display:flex;flex-direction:column;gap:4px;min-width:0"><span style="display:flex;justify-content:space-between;gap:6px"><b style="font-size:14px">배관 보온재 손상</b><span class="badge b-ok">맞음</span></span><span class="lbl">WP2 펌프실 A · <span class="mono">10:40:12</span></span><span class="lbl">신뢰도 <span class="mono">0.74</span> · 확인 김도윤</span></span>
+          <span style="display:flex;flex-direction:column;gap:4px;min-width:0"><span style="display:flex;justify-content:space-between;gap:6px"><b style="font-size:14px">배관 보온재 손상</b><span class="badge b-ok">맞음</span></span><span class="lbl">WP2 펌프실 A · <span class="mono">10:40:12</span></span><span class="lbl">신뢰도 <span class="mono">0.74</span> · 확인 운영자 A</span></span>
         </button>
         <button class="fd">
           <svg viewBox="0 0 88 66" style="width:88px;height:66px;border-radius:6px;background:#0D1317" aria-hidden="true"><rect width="88" height="66" fill="#0D1317"></rect><rect x="36" y="16" width="14" height="40" fill="#222C33"></rect><rect x="32" y="12" width="22" height="48" fill="none" stroke="#9AA7B3" stroke-width="1.5" stroke-dasharray="3 2"></rect></svg>

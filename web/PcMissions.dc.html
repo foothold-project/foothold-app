@@ -44,6 +44,8 @@ button[disabled]{cursor:not-allowed;opacity:.5}
 .nav:hover{color:var(--text);background:var(--panel2)}
 .nav.cur{color:var(--text);background:var(--acc-bg)}
 .nav.cur svg{color:var(--accent)}
+/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */
+header{position:sticky;top:0;z-index:10}
 </style>
 </helmet>
 <div class="{{themeClass}}" style="min-height:100vh;display:flex;flex-direction:column;position:relative">
@@ -201,7 +203,7 @@ class Component extends DCLogic {
       list: [
         { id: 'base', name: '지점 확인 다녀오기', kind: '기본', desc: '목적지에 가서 영상으로 확인하고 돌아옵니다', locked: true, used: 12, edited: '기본 제공',
           mods: [M('사진', '전방 1장'), M('운영자 확인', '영상 보고 «맞음 / 다시 보기 / 중단»')], rules: [] },
-        { id: 'gas', name: '가스 사전 측정', kind: '팀', desc: '밀폐공간 진입 전, 지점마다 산소·유해가스를 잽니다', locked: false, used: 3, edited: '10-12 10:24 김도윤',
+        { id: 'gas', name: '가스 사전 측정', kind: '팀', desc: '밀폐공간 진입 전, 지점마다 산소·유해가스를 잽니다', locked: false, used: 3, edited: '10-12 10:24 운영자 A',
           mods: [M('가스 측정', '4종 검지기 + CO₂ · 값 안정까지 최대 60초'), M('사진', '전방 1장 + 개구부 쪽 1장'), M('AI 탐지', '대상: 물고임 · 쓰러진 사람 · 연기 · 신뢰도 0.6 이상')],
           rules: [{ id: 'r1', cond: 'H₂S 10 ppm 이상 · CO 30 ppm 이상', act: '일시정지 → 직전 정상 지점으로 후퇴 · 긴급 알림' }, { id: 'r2', cond: 'O₂ 18% 미만 또는 23.5% 이상', act: '일시정지 → 후퇴 · 긴급 알림' }] },
         { id: 'patrol', name: '시설 순찰', kind: '팀', desc: '정해진 경로를 돌며 사진을 남기고 이상을 찾습니다', locked: false, used: 7, edited: '10-09 16:02 박서연',

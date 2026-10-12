@@ -37,13 +37,13 @@ th.l,td.l{text-align:left}
   <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 24px;font-size:13px">
     <div class="iv"><span class="k">장소</span><span>[현장명] B1</span></div>
     <div class="iv"><span class="k">일시</span><span class="mono">2026-10-12 10:31–10:52</span></div>
-    <div class="iv"><span class="k">운영자</span><span>김도윤</span></div>
+    <div class="iv"><span class="k">운영자</span><span>운영자 A</span></div>
     <div class="iv"><span class="k">로봇</span><span>Unitree Go2 EDU · GO2-01</span></div>
     <div class="iv"><span class="k">임무 양식</span><span>{{tplLine}}</span></div>
     <div class="iv"><span class="k">지점</span><span>{{wpLine}}</span></div>
     <sc-if value="{{isGas}}" hint-placeholder-val="{{ false }}">
       <div class="iv"><span class="k">측정 장비</span><span>[검지기 모델] 4종 + CO₂ · 범프 테스트 <span class="mono">10:20</span></span></div>
-      <div class="iv"><span class="k">판정 기준</span><span>산업안전보건기준에 관한 규칙 제618조 «적정공기»</span></div>
+      <div class="iv"><span class="k">판정 기준</span><span>예시 기준 · 검증 전</span></div>
     </sc-if>
   </section>
 
@@ -73,14 +73,14 @@ th.l,td.l{text-align:left}
           <tr><td>WP4 배관 구역</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="mono">—</td><td class="l" style="color:#4F5A64">미측정 · 중단</td></tr>
         </tbody>
       </table>
-      <span class="k">* LEL 10%는 제618조 항목이 아니며 미국 OSHA 29 CFR 1910.146 기준을 준용했습니다.</span>
+      <span class="k">* 표의 기준값은 예시 기준 · 검증 전입니다. 실제 적용 기준이 아닙니다.</span>
     </sc-if>
     <sc-if value="{{isBase}}" hint-placeholder-val="{{ true }}">
       <table>
         <thead><tr><th>지점</th><th>도착 시각</th><th>도착 오차</th><th>사진</th><th class="l">운영자 판단</th><th class="l">판정</th></tr></thead>
         <tbody>
           <tr><td>WP1 계단실 하부</td><td class="mono">10:33:02</td><td class="mono">0.2 m</td><td class="mono">1</td><td class="l k">—</td><td class="l">● 완료</td></tr>
-          <tr><td>WP2 펌프실 A</td><td class="mono">10:39:30</td><td class="mono">0.3 m</td><td class="mono">1</td><td class="l">맞음 · 김도윤 <span class="mono k">10:40:30</span></td><td class="l">● 완료</td></tr>
+          <tr><td>WP2 펌프실 A</td><td class="mono">10:39:30</td><td class="mono">0.3 m</td><td class="mono">1</td><td class="l">맞음 · 운영자 A <span class="mono k">10:40:30</span></td><td class="l">● 완료</td></tr>
           <tr><td>WP3 집수정</td><td class="mono">10:45:20</td><td class="mono">0.3 m</td><td class="mono">1</td><td class="l">다시 보기 → 맞음 <span class="mono k">10:47:02</span></td><td class="l">● 완료</td></tr>
           <tr><td>WP4 배관 구역</td><td class="mono">10:49:41</td><td class="mono">0.4 m</td><td class="mono">1</td><td class="l k">—</td><td class="l">● 완료</td></tr>
         </tbody>
@@ -140,11 +140,11 @@ th.l,td.l{text-align:left}
         <h2 style="margin:0;font-size:15px;font-weight:700">확인된 발견물</h2>
         <div style="display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:start">
           <svg viewBox="0 0 640 360" style="width:96px;height:54px" aria-hidden="true"><rect width="640" height="360" fill="#1A2126"></rect><polygon points="0,360 640,360 470,190 170,190" fill="#2A343B"></polygon><ellipse cx="330" cy="292" rx="150" ry="30" fill="#4C6876"></ellipse><rect x="170" y="252" width="320" height="76" fill="none" stroke="#FFB547" stroke-width="10"></rect></svg>
-          <div style="display:flex;flex-direction:column;gap:2px;font-size:13px"><b>바닥 물고임 · WP2</b><span class="k">미끄럼 주의 · 펌프 B 씰 누수 의심</span><span class="k">확인 김도윤 <span class="mono">10:55</span></span></div>
+          <div style="display:flex;flex-direction:column;gap:2px;font-size:13px"><b>바닥 물고임 · WP2</b><span class="k">미끄럼 주의 · 펌프 B 씰 누수 의심</span><span class="k">확인 운영자 A <span class="mono">10:55</span></span></div>
         </div>
         <div style="display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:start">
           <svg viewBox="0 0 640 360" style="width:96px;height:54px" aria-hidden="true"><rect width="640" height="360" fill="#1A2126"></rect><rect x="0" y="120" width="640" height="60" fill="#3A4852"></rect><rect x="290" y="110" width="140" height="80" fill="#6B5A4A"></rect><rect x="270" y="96" width="180" height="108" fill="none" stroke="#5AA9FF" stroke-width="10"></rect></svg>
-          <div style="display:flex;flex-direction:column;gap:2px;font-size:13px"><b>배관 보온재 손상 · WP2</b><span class="k">교체 필요</span><span class="k">확인 김도윤 <span class="mono">10:56</span></span></div>
+          <div style="display:flex;flex-direction:column;gap:2px;font-size:13px"><b>배관 보온재 손상 · WP2</b><span class="k">교체 필요</span><span class="k">확인 운영자 A <span class="mono">10:56</span></span></div>
         </div>
         <span class="k">AI 탐지는 사람이 «맞음»으로 확인한 것만 싣습니다. 오탐은 원자료에만 남깁니다.</span>
       </sc-if>
@@ -152,7 +152,7 @@ th.l,td.l{text-align:left}
   </section>
 
   <section style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-top:auto">
-    <div style="border:1px solid #9AA3A9;border-radius:4px;padding:10px 12px;height:64px;display:flex;flex-direction:column;justify-content:space-between"><span class="k">{{signA}}</span><span style="display:flex;justify-content:space-between;font-size:13px"><span>김도윤</span><span class="k">(서명)</span></span></div>
+    <div style="border:1px solid #9AA3A9;border-radius:4px;padding:10px 12px;height:64px;display:flex;flex-direction:column;justify-content:space-between"><span class="k">{{signA}}</span><span style="display:flex;justify-content:space-between;font-size:13px"><span>운영자 A</span><span class="k">(서명)</span></span></div>
     <div style="border:1px solid #9AA3A9;border-radius:4px;padding:10px 12px;height:64px;display:flex;flex-direction:column;justify-content:space-between"><span class="k">현장 책임자 확인</span><span style="display:flex;justify-content:space-between;font-size:13px"><span>[이름]</span><span class="k">(서명)</span></span></div>
   </section>
 
@@ -179,7 +179,7 @@ class Component extends DCLogic {
         title: '밀폐공간 산소·유해가스 측정 기록', tpl: '가스 사전 측정 (팀 양식 v3)', mods: '가스 측정 · 사진 · AI 탐지',
         resColor: '#B3261E', resHead: '■ 부적정 · 진입 불가',
         resBody: 'WP3 집수정 H₂S 12.4 ppm — 적정공기 기준(10 ppm 미만) 초과. 경보 규칙에 따라 자동 후퇴했고 WP4는 측정하지 않았습니다.',
-        todo: '환기 후 전 지점 재측정. 결과가 적정일 때까지 출입 금지 유지.', signA: '측정자', keep: '보존 기한 2029-10-12 (법정 3년) · 원본 영상·센서 기록 함께 보관', cap: '실선: 이동 · 점선: 경보 후 자동 후퇴 · 주행 거리 112 m'
+        todo: '환기 후 전 지점 재측정. 결과가 적정일 때까지 출입 금지 유지.', signA: '측정자', keep: '보존 기한 2029-10-12 (예시 기준 · 검증 전) · 원본 영상·센서 기록 함께 보관', cap: '실선: 이동 · 점선: 경보 후 자동 후퇴 · 주행 거리 112 m'
       },
       patrol: {
         title: '시설 순찰 기록', tpl: '시설 순찰 (팀 양식 v2)', mods: '사진 · AI 탐지',

@@ -33,13 +33,15 @@
   const fill = (s, scope) => s.replace(/\{\{([^}]*)\}\}/g, (_, x) => { const v = look(x, scope); return v == null ? '' : String(v); });
 
   // 시안 런타임과 같게: 글 속 {{값}} 은 <span class="sc-interp"> 로 감싼다(flex 간격이 여기서 갈린다). null·true/false 는 안 그림.
-  // 부모 이름공간을 따른다 — SVG <text> 안에서는 그려지지 않는다(시안 원본 런타임도 같음: 지도 위 태그·θ 빈칸). 미결 질문 Q3
+  // 승인 수정(10-12, Q3): 원본 런타임은 SVG <text> 안에도 span 을 넣어 글자가 안 그려졌다(지도 위 지점명·θ 빈칸).
+  // SVG 안에서는 SVG 글자 요소 <tspan> 으로 감싸 그린다 — 위치·색·글꼴은 부모 <text> 그대로.
+  const SVG = 'http://www.w3.org/2000/svg';
   function interp(s, scope, ns) {
     return s.split(/\{\{([^}]*)\}\}/).flatMap((part, i) => {
       if (!(i & 1)) return part ? [document.createTextNode(part)] : [];
       const v = look(part, scope);
       if (v == null || typeof v === 'boolean') return [];
-      const sp = ns && ns !== 'http://www.w3.org/1999/xhtml' ? document.createElementNS(ns, 'span') : document.createElement('span');
+      const sp = ns === SVG ? document.createElementNS(SVG, 'tspan') : document.createElement('span');
       sp.setAttribute('class', 'sc-interp'); sp.textContent = String(v); return [sp];
     });
   }

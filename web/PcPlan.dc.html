@@ -42,6 +42,8 @@ button{cursor:pointer}
 .nav:hover{color:var(--text);background:var(--panel2)}
 .nav.cur{color:var(--text);background:var(--acc-bg)}
 .nav.cur svg{color:var(--accent)}
+/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */
+header{position:sticky;top:0;z-index:10}
 </style>
 </helmet>
 <div class="{{themeClass}}" style="min-height:100vh;display:flex;flex-direction:column">
