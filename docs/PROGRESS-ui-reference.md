@@ -129,8 +129,9 @@ python3 tools/nav_check.py runs/<새 폴더>
 | 3 STOP 스크롤 고정 | PcHistory · PcMap · PcRobot · PcSettings | 기존 PC 화면과 같은 `header{position:sticky;top:0;z-index:10}`. 머리줄은 원본에서도 STOP이 한 줄 오른쪽 위라 `nowrap` 수정은 필요 없었습니다. PcLogin은 머리줄·STOP이 없어 그대로입니다. |
 | 4 예시 이름 | PcHistory 4 · PcMap 1 · PcRobot 1 · PcSettings 1 · MHistory 2 · MAlerts 1 | 원본의 같은 예시 운영자 이름을 «운영자 A»로 바꿨습니다. 다른 예시 이름 두 개와 로그인 예시 계정은 승인 범위 밖이라 원본 그대로입니다(미결). |
 | 4 예시 기준 | PcSettings | 경보 기준표 «근거» 칸 5곳(국내 규칙 조항 4, 해외 기준 준용 1)과 기록 보존 잠금 표시 «법정 고정»을 «예시 기준 · 검증 전»으로 바꿨습니다(보존 기간 «3년»은 예시 값으로 남김). |
-| 화면 연결 | Main · PcMissions · PcPlan · PcReview | 왼쪽 메뉴의 빈 링크 지도·로봇·설정을 새 화면으로(각 3개), 메뉴 «기록»을 PcReview → PcHistory로 바꿨습니다. 본문의 «임무 기록»·발견물 상세 링크는 PcReview 그대로, PcReview의 현재 메뉴 표시(`cur`)도 그대로입니다. Main «기준 설정» 빈 링크는 남겼습니다. |
+| 화면 연결 | Main · PcMissions · PcPlan · PcReview | 왼쪽 메뉴의 빈 링크 지도·로봇·설정을 새 화면으로(각 3개), 메뉴 «기록»을 PcReview → PcHistory로 바꿨습니다. 본문의 «임무 기록»·발견물 상세 링크는 PcReview 그대로, PcReview의 현재 메뉴 표시(`cur`)도 그대로입니다. Main 가스 칸 «기준 설정» 빈 링크는 `PcSettings.dc.html#thresholds`(설정의 경보 기준 절)로 이었습니다. 값 설정·저장은 없습니다. |
 | 화면 연결 | MHome · MDrive | MHome 아래 탭 «지도»·«기록» 빈 링크를 MMap·MHistory로, MDrive «큰 지도 열기»를 MHome → MMap으로 바꿨습니다. 모양은 그대로입니다. |
+| 화면 연결 | MHome 종 | 보관한 처음 원본에서는 «알림 3건» 종이 `<button>`이었고, 추가 화면이 든 새 시안에서는 MAlerts로 가는 링크입니다. 같은 style의 `<a href="MAlerts.dc.html">`로 바꾸고, 버튼 기본값과 같게 `box-sizing:border-box; color:inherit`를 붙였습니다(종 영역 캡처 차이 0). |
 
 - 표 열 너비: 이름·근거 칸 글자 폭이 바뀌어 PcHistory 기록 표와 PcSettings 기준표·계정 표의 열이 몇 px씩 옮겨졌습니다. 표 자동 배치 때문이며 다른 영역은 차이가 없습니다.
 - 승인 범위 밖이라 그대로 둔 기준 문구: PcSettings «위험(법정) 값은 근거와 함께 고정합니다». 위의 «법정 기준» 문구들과 같이 미결로 둡니다.
@@ -155,6 +156,12 @@ python3 tools/nav_check.py runs/<새 폴더>
 | cmp-r10-phone4 · cmp-r11-phone4-tall | 휴대폰 4화면 6개 상태, 시안 크기와 높이 1800 | MLogin·MMap·MAlerts 0, MHistory 1801 px는 이름 두 줄 |
 | nav-r7-phone4 | 휴대폰 4화면 + MHome·MDrive 열림·링크·스크롤 넘침 | 37/37, 예외 0 |
 | cmp-r13-malerts-name | MAlerts 이름 변경 뒤 | 537 px, 이름 한 곳(201,314)-(268,326)만 |
+| link2-r1 | MHome 종 → MAlerts → 뒤로, Main «기준 설정» → 설정 → 뒤로 | 실패(보존). 검사 스크립트가 기본 임무로 Main을 열었는데, «기준 설정»은 가스 임무일 때만 그려지는 칸에 있습니다 |
+| link2-r2 | 위와 같음, Main은 `?mission=가스 사전 측정` | 두 링크 모두 이동·화면 그림·뒤로 OK, 예외 0. 설정 화면은 경보 기준 절로 스크롤됨 |
+| cmp-r14-mhome-bell | MHome 3개 상태 | 차이 0(종 영역 포함) |
+
+- **보존하지 못한 원자료:** MAlerts 이름 변경이 적용되지 않은 채로 돈 대조 1회(`cmp-r12-malerts-name`)는 결과 폴더를 지웠습니다. 원자료는 남아 있지 않고, 결과를 다시 만들지도 않았습니다. 이후 실패·무효 실행도 새 폴더에 그대로 남깁니다.
+- 관찰(바꾸지 않음): `#thresholds`로 열면 고정 머리줄(아래 끝 73 px)이 경보 기준 절 윗부분(절 위 끝 12 px)을 가립니다. 승인된 STOP 고정과 앵커 이동이 겹쳐 생깁니다.
 
 ## 5. 미결 — 사용자 결정 전까지 원본 그대로 둡니다
 
@@ -167,11 +174,9 @@ python3 tools/nav_check.py runs/<새 폴더>
   - 실제 기능으로 연결하지 않았습니다.
 - RGB 차이가 16 이하인 픽셀은 세지 않았습니다. 그래서 위 결과를 픽셀까지 완전히 같다는 뜻으로 쓰지 않습니다.
 - **링크 빈자리 (`href="#"`)** — 메뉴 빈자리는 추가 화면으로 채웠습니다. 남은 것:
-  - Main «기준 설정» 1 (설정 화면 안 «경보 기준»으로 이을지 미정)
   - PcLogin·MLogin 서버 «바꾸기» 각 1, PcSettings 계정 «편집» 4, MAlerts 지난 알림 2
 - **추가 화면 미결**
   - 예시 이름 두 개(PcHistory·PcSettings·MHistory)와 로그인 예시 계정(PcLogin·MLogin)을 공개용으로 바꿀지.
-  - MAlerts(알림 목록)로 가는 링크가 원본 어디에도 없습니다. MHome 종 모양 «알림 3건»은 링크가 아니라 버튼이라 그대로 두었습니다.
   - PcReview 메뉴 «기록»은 PcHistory로 가지만 현재 메뉴 표시는 원본대로 «기록»에 남아 있습니다.
   - 휴대폰에서 PC 화면으로 가는 링크는 작은 화면에 맞지 않습니다(원본대로 둠).
 - 글꼴을 오프라인에 둘지, `reference/`를 저장소에 넣을지(support.js 라이선스), 저장소 라이선스: 모두 미정입니다.

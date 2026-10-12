@@ -30,10 +30,11 @@ button{font:inherit;color:inherit;cursor:pointer}
       <span style="font-size:18px;font-weight:700">GO2-01</span>
       <span style="font-size:13px;color:var(--muted)"><span style="color:var(--ok)">●</span> 연결 <span class="mono">−62 dBm</span> · 배터리 <span class="mono">68%</span></span>
     </div>
-    <button aria-label="알림 3건" style="position:relative;width:44px;height:44px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);display:grid;place-items:center">
+    <!-- 화면 연결(10-12): 원본 종 버튼을 같은 모양의 링크로 — box-sizing·글자색은 버튼 기본값과 같게 맞춤 -->
+    <a href="MAlerts.dc.html" aria-label="알림 3건" style="position:relative;width:44px;height:44px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);display:grid;place-items:center;box-sizing:border-box;color:inherit;text-decoration:none">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M6 16V11a6 6 0 0112 0v5l2 2H4z"></path><path d="M10 20a2 2 0 004 0"></path></svg>
       <span class="mono" style="position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 5px;box-sizing:border-box;border-radius:10px;background:var(--warn);color:#1A1206;font-size:11px;font-weight:700;display:grid;place-items:center">3</span>
-    </button>
+    </a>
   </header>
 
   <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:10px;padding:0 16px">
