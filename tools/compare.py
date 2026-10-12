@@ -18,6 +18,15 @@ SCREENS = {
     'MFinding': (390, 844, ['', 'theme=어두운']),
     'Report': (794, 1123, ['', 'mission=가스 사전 측정', 'mission=시설 순찰']),
     'System': (1440, 1560, ['', 'theme=밝은']),
+    'PcLogin': (1440, 900, ['', 'theme=밝은']),
+    'PcHistory': (1440, 940, ['']),
+    'PcMap': (1440, 980, ['']),
+    'PcRobot': (1440, 1040, ['']),
+    'PcSettings': (1440, 1500, ['', 'theme=밝은']),
+    'MLogin': (390, 844, ['', 'theme=어두운']),
+    'MMap': (390, 844, ['', 'theme=어두운']),
+    'MHistory': (390, 844, ['']),
+    'MAlerts': (390, 844, ['']),
 }
 
 

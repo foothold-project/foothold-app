@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>휴대폰 — 알림</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08)}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.lbl{font-size:12px;color:var(--muted)}
+.n{display:grid;grid-template-columns:28px 1fr auto;gap:4px 10px;padding:12px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit;align-items:start}
+.n.unread{background:var(--panel)}
+.ic{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;font-size:13px;font-weight:700}
+.ic.bad{background:var(--bad-bg);color:var(--bad)}.ic.warn{background:var(--warn-bg);color:var(--warn)}.ic.acc{background:var(--acc-bg);color:var(--accent)}.ic.mute{background:var(--panel2);color:var(--muted)}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px}
+.grp{font-size:12px;font-weight:700;color:var(--muted);padding:14px 16px 6px;letter-spacing:.04em}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden">
+  <header style="display:flex;align-items:center;gap:8px;padding:10px 12px">
+    <a href="MHome.dc.html" aria-label="뒤로" style="width:44px;height:44px;display:grid;place-items:center;color:inherit"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg></a>
+    <span style="font-weight:700;font-size:17px;flex:1">알림</span>
+    <button style="height:44px;padding:0 12px;border:0;background:transparent;font-size:13px;font-weight:600;color:var(--accent)">모두 읽음</button>
+  </header>
+
+  <div style="flex:1;min-height:0;overflow:hidden;border-top:1px solid var(--line)">
+    <div class="grp">지금 할 일</div>
+    <a class="n unread" href="MFinding.dc.html"><span class="ic warn">▲</span><span style="display:flex;flex-direction:column;gap:3px"><b style="font-size:14px">발견물 확인 대기 · 바닥 물고임</b><span class="lbl">지하 펌프실 사전 측정 · WP2</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="mono lbl">5분 전</span><span class="dot"></span></span></a>
+    <a class="n unread" href="PcPlan.dc.html"><span class="ic acc">✓</span><span style="display:flex;flex-direction:column;gap:3px"><b style="font-size:14px">출발 승인 요청</b><span class="lbl">B1 정기 순찰 · 박서연이 승인을 요청함</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="mono lbl">12분 전</span><span class="dot"></span></span></a>
+
+    <div class="grp">경보</div>
+    <a class="n unread" href="MAlert.dc.html"><span class="ic bad">■</span><span style="display:flex;flex-direction:column;gap:3px"><b style="font-size:14px">H₂S 12.4 ppm · 기준 초과</b><span class="lbl">WP3 집수정 · 자동 후퇴 완료 · 운영자 A 확인</span></span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="mono lbl">10:46</span><span class="dot"></span></span></a>
+    <a class="n" href="#"><span class="ic bad">■</span><span style="display:flex;flex-direction:column;gap:3px"><b style="font-size:14px">통신 끊김 8초 · 후퇴</b><span class="lbl">10-08 펌프실 사전 측정 · 다시 연결됨</span></span><span class="mono lbl">10-08</span></a>
+
+    <div class="grp">로봇 · 시스템</div>
+    <a class="n" href="PcRobot.dc.html"><span class="ic warn">▲</span><span style="display:flex;flex-direction:column;gap:3px"><b style="font-size:14px">앞오른 다리 모터 52 °C</b><span class="lbl">주의 기준 50 °C 넘음 · 쉬면 내려갑니다</span></span><span class="mono lbl">10:52</span></a>
+    <a class="n" href="PcRobot.dc.html"><span class="ic warn">▲</span><span style="display:flex;flex-direction:column;gap:3px"><b style="font-size:14px">가스 검지기 범프 테스트 필요</b><span class="lbl">오늘 기록 없음 · 가스 임무 시작 전 필요</span></span><span class="mono lbl">09:00</span></a>
+    <a class="n" href="#"><span class="ic mute">●</span><span style="display:flex;flex-direction:column;gap:3px"><b style="font-size:14px">배터리 충전 완료</b><span class="lbl">GO2-01 · 100%</span></span><span class="mono lbl">어제</span></a>
+  </div>
+
+  <div style="padding:10px 16px;border-top:1px solid var(--line);display:flex;justify-content:space-between;align-items:center">
+    <span class="lbl">위험 경보는 잠금 화면에도 뜹니다</span>
+    <a href="PcSettings.dc.html" style="font-size:13px;color:var(--accent);padding:12px 0">알림 설정</a>
+  </div>
+  <div style="padding:0 16px 18px">
+    <button aria-label="비상 정지" style="width:100%;height:64px;border:0;border-radius:12px;background:var(--stop);color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:12px">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" stroke-width="2"></path><rect x="8" y="8" width="8" height="8" fill="#FFFFFF"></rect></svg>
+      <span style="font-weight:700;font-size:22px;letter-spacing:.1em">STOP</span><span style="font-size:13px">전체 정지</span>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["밝은","어두운"],"default":"밝은"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.theme ?? '밝은') === '밝은' ? 'fh light' : 'fh' };
+  }
+}
+</script>
+</body>
+</html>

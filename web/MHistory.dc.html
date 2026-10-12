@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>휴대폰 — 기록</title>
+<script src="./dc.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600;700&amp;display=swap">
+<style>
+body{margin:0}
+.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);--ok-bg:rgba(90,169,255,.10);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08);--ok-bg:rgba(31,95,191,.08)}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;cursor:pointer}
+.lbl{font-size:12px;color:var(--muted)}
+.chip{height:36px;padding:0 14px;border:1px solid var(--line2);border-radius:18px;background:var(--panel);font-size:13px;white-space:nowrap}
+.chip[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg);font-weight:600}
+.it{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--panel);text-decoration:none;color:inherit}
+.res{font-size:12px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap;justify-self:end;align-self:start}
+.res.ok{color:var(--ok);background:var(--ok-bg)}.res.warn{color:var(--warn);background:var(--warn-bg)}.res.bad{color:var(--bad);background:var(--bad-bg)}.res.stop{color:var(--muted);border:1px solid var(--line2)}
+.day{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.04em;padding:6px 2px 0}
+.tabb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;font-size:11px;color:var(--muted);text-decoration:none}
+.tabb.cur{color:var(--accent);font-weight:600}
+</style>
+</helmet>
+<div class="{{themeClass}}" style="width:390px;height:844px;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden">
+  <header style="display:flex;flex-direction:column;gap:10px;padding:14px 16px 10px">
+    <div style="display:flex;align-items:baseline;justify-content:space-between"><span style="font-size:18px;font-weight:700">기록</span><span class="lbl">최근 30일 · 23건</span></div>
+    <div role="group" aria-label="거르기" style="display:flex;gap:6px;overflow:hidden">
+      <button class="chip" aria-pressed="true">전체</button>
+      <button class="chip" aria-pressed="false">내 임무</button>
+      <button class="chip" aria-pressed="false">경보 · 중단</button>
+      <button class="chip" aria-pressed="false">확인 대기</button>
+    </div>
+  </header>
+
+  <div style="flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;gap:8px;padding:0 16px">
+    <span class="day">오늘 · 10월 12일</span>
+    <a class="it" href="PcReview.dc.html">
+      <b style="font-size:15px">지하 펌프실 사전 측정</b><span class="res bad">■ 경보 · 중단</span>
+      <span class="lbl">가스 사전 측정 · 운영자 A · <span class="mono">10:31 · 21분</span></span><span></span>
+      <span style="font-size:12px;color:var(--warn);font-weight:600">▲ 발견물 1건 확인 대기</span><span></span>
+    </a>
+    <a class="it" href="Report.dc.html">
+      <b style="font-size:15px">출입로 확인</b><span class="res ok">● 완료</span>
+      <span class="lbl">지점 확인 다녀오기 · 박서연 · <span class="mono">09:05 · 9분</span></span><span></span>
+    </a>
+    <span class="day">어제 · 10월 11일</span>
+    <a class="it" href="Report.dc.html">
+      <b style="font-size:15px">B1 정기 순찰</b><span class="res warn">▲ 조치 필요</span>
+      <span class="lbl">시설 순찰 · 박서연 · <span class="mono">16:40 · 24분</span></span><span></span>
+      <span class="lbl">발견물 3건</span><span></span>
+    </a>
+    <a class="it" href="Report.dc.html">
+      <b style="font-size:15px">B1 정기 순찰</b><span class="res ok">● 완료</span>
+      <span class="lbl">시설 순찰 · 이준호 · <span class="mono">11:12 · 22분</span></span><span></span>
+    </a>
+    <span class="day">10월 10일</span>
+    <a class="it" href="Report.dc.html">
+      <b style="font-size:15px">펌프실 재측정</b><span class="res ok">● 적정</span>
+      <span class="lbl">가스 사전 측정 · 운영자 A · <span class="mono">15:02 · 17분</span></span><span></span>
+    </a>
+  </div>
+
+  <nav aria-label="주 메뉴" style="display:flex;border-top:1px solid var(--line);background:var(--panel);margin-top:10px">
+    <a class="tabb" href="MHome.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"></circle><circle cx="12" cy="12" r="3"></circle></svg>현황</a>
+    <a class="tabb" href="MMap.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z"></path></svg>지도</a>
+    <a class="tabb" href="MFinding.dc.html"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)"></rect></svg>발견물</a>
+    <a class="tabb cur" href="MHistory.dc.html" aria-current="page"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"></rect><path d="M9 8h6M9 12h6"></path></svg>기록</a>
+  </nav>
+  <div style="padding:8px 16px 18px;background:var(--panel)">
+    <button aria-label="비상 정지" style="width:100%;height:64px;border:0;border-radius:12px;background:var(--stop);color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:12px">
+      <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" stroke-width="2"></path><rect x="8" y="8" width="8" height="8" fill="#FFFFFF"></rect></svg>
+      <span style="font-weight:700;font-size:22px;letter-spacing:.1em">STOP</span><span style="font-size:13px">전체 정지</span>
+    </button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["밝은","어두운"],"default":"밝은"},"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { themeClass: (this.props.theme ?? '밝은') === '밝은' ? 'fh light' : 'fh' };
+  }
+}
+</script>
+</body>
+</html>

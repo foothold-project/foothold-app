@@ -3,7 +3,7 @@
 1) web/ 의 시안 화면마다: 열림 · 페이지 예외 0 · 화면 간 링크 목록(있는 화면 / 아직 없는 화면)
 2) 링크를 실제로 눌러 그 화면이 열리는지
 3) 상호작용이 있는 화면(임무 양식): 같은 조작을 원본 시안 런타임과 구현에 똑같이 하고 화면 글자·캡처가 같은지
-python3 tools/nav_check.py <결과 폴더(없어야 함)>   — 필요: python3-tornado, Pillow"""
+python3 tools/nav_check.py <결과 폴더(없어야 함)> [화면 이름…(없으면 전체)]   — 필요: python3-tornado, Pillow"""
 import asyncio, base64, glob, json, os, shutil, subprocess, sys, tempfile, time, urllib.request
 from tornado.websocket import websocket_connect
 from PIL import Image, ImageChops
@@ -78,9 +78,9 @@ async def run_steps(c, url, out, tag):
     return texts
 
 
-async def main(out):
+async def main(out, only=()):
     c = await CDP().open()
-    screens = sorted(SIZE)
+    screens = sorted(s for s in SIZE if not only or s[:-8] in only)
     for s in screens:
         w, h = SIZE[s]; n0 = len(EXC)
         await c.go(f'{BASE}/web/{s}', w, h)
@@ -99,6 +99,8 @@ async def main(out):
             await c.js(f"document.querySelector('a[href=\"{t}\"]').click()"); await asyncio.sleep(1.5)
             here = await c.js('location.pathname.split("/").pop()'); good = await c.js("document.getElementById('dc-root')?.children.length > 0")
             check(f'{s} → {t} 링크 이동', here == t and good, {'at': here})
+    if only and 'PcMissions' not in only:   # 바뀐 화면만 볼 때는 임무 양식 조작 검사를 건너뛴다
+        check('페이지 예외 0 (전체)', not EXC, EXC); return
     # 임무 양식 조작: 원본 런타임 vs 구현
     a = await run_steps(c, f'{BASE}/reference/src/PcMissions/PcMissions.dc.html', out, 'orig')
     b = await run_steps(c, f'{BASE}/web/PcMissions.dc.html', out, 'impl')
@@ -111,14 +113,14 @@ async def main(out):
     check('페이지 예외 0 (전체)', not EXC, EXC)
 
 
-async def run(out):
+async def run(out, only=()):
     os.makedirs(out)
     prof = tempfile.mkdtemp(prefix='fh-nav-')
     procs = [subprocess.Popen([sys.executable, '-m', 'http.server', str(PORT), '--bind', '127.0.0.1', '--directory', ROOT], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
              subprocess.Popen(['/opt/google/chrome/chrome', '--headless=new', f'--remote-debugging-port={DBG}', f'--user-data-dir={prof}', '--no-first-run', 'about:blank'],
                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
     try:
-        await asyncio.sleep(1); await main(out)
+        await asyncio.sleep(1); await main(out, only)
     finally:
         for p in procs[::-1]:
             p.terminate()
@@ -130,4 +132,4 @@ async def run(out):
 
 
 if __name__ == '__main__':
-    sys.exit(asyncio.run(run(sys.argv[1])))
+    sys.exit(asyncio.run(run(sys.argv[1], tuple(sys.argv[2:]))))
