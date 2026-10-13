@@ -34,7 +34,7 @@ export interface FhGate {
 ```
 
 - 실패는 Promise reject, `err.code` 가 위 `FhCode` 하나, `err.data.gen` 은 그 호출을 받은 순간의 gen. `err.message` 는 사람이 읽는 짧은 한국어(토큰·비밀번호 없음).
-- `busy`: 같은 gen 에 로그인이 이미 진행 중, 또는 대기 칸(실행 2 + 대기 8) 이 참 — 바로 거부, 재시도는 화면 판단. `internal`: 예기치 않은 네이티브 예외(Promise 를 남기지 않으려는 고정 코드). `storage`: `locked` 상태.
+- `busy`: 같은 gen 에 로그인이 이미 진행 중, 또는 대기 칸(실행 2 + 대기 8) 이 참 — 바로 거부, 재시도는 화면 판단. `internal`: 예기치 않은 네이티브 예외(Promise 를 남기지 않으려는 고정 코드) — 호출 문맥이 현재일 때만. 이미 옛 문맥이면 `stale`(gen 은 호출 문맥 그대로, `unexpectedIsInternalOnlyForCurrentContext`). `storage`: `locked` 상태.
 - `request().body` 는 관문 응답 본문 글 그대로 — 화면이 `JSON.parse`. `docs.post` 는 200·400·403·404·409(`cur`)·500·503 을 **reject 하지 않고** `status` 로 넘긴다(기존 `/api/docs` 화면 처리 그대로). 어댑터는 어느 요청도 재시도하지 않는다.
 - `photo` 는 `path` 가 `^media/photos/\d{8}/[\w.-]{1,80}\.jpg$`(ASCII) 이고 `..` 가 없을 때만(v2_link 문서 검사 `PHOTO` 와 같은 꼴 — `/api/media` 의 `url` 이 이 모양) 네트워크에 간다. 화면: `base64` → `Uint8Array` → `Blob` → `URL.createObjectURL`, 목록에서 빠질 때·화면 떠날 때·로그아웃 때 `revokeObjectURL`.
 - 저장(`saveFile`)은 B2 — 이번 초안에 없다. CSV·JSON 자료 만드는 JS 는 그대로 두고 저장 단계만 나중에 바꾼다.
@@ -74,7 +74,7 @@ export interface FhGate {
 |---|---|---|
 | 토큰은 네이티브만 | `FhGateCore` 필드 + `KeystoreVault`(Android Keystore AES-256-GCM 키, 내보낼 수 없음) 로 감싼 SharedPreferences. resolve·reject·이벤트·로그에 토큰 없음 | `loginKeepsTokenNativeAndSendsExactOrigin` |
 | 주소 규칙 | `gateOrigin` = `scripts/gate-profile.mjs` 와 같은 규칙(+대문자 호스트·포트 65536 이상 거부), 보관본 복원 때도 재검사 | `gateOriginSameRulesAsGateProfile`(4 통과·20 거부) |
-| 호출 문맥 고정 | 플러그인 메서드 첫 줄 `core.ctx()` → io 실행 직전 `live`·응답 뒤 `staleCheck`·resolve 직전 `current` | `queuedLoginAfterLogout…`·`queuedLoginAfterGateChange…`·`queuedRequestFromOldSession…`·`ioErrorOfOldContextIsStale` |
+| 호출 문맥 고정 | 플러그인 메서드 첫 줄 `core.ctx()` → io 실행 직전 `live`·응답 뒤 `staleCheck`·resolve 직전 대조 — request·photo·wsTicket 은 `current(c)`, login 은 성공이 gen 을 올리므로 `confirm(l, c)`(새 gen l.gen 이 아직 현재·닫힘 아님). 대조와 resolve 사이 두 줄 틈은 남음(화면은 gen 비교 유지) | `loginCommittedThenEndedIsStaleAtResolve`(커밋 뒤 로그아웃·주소 변경·파괴 → stale)·`queuedLoginAfterLogout…`·`queuedLoginAfterGateChange…`·`queuedRequestFromOldSession…`·`ioErrorOfOldContextIsStale` |
 | 동시 로그인 | `loginGen`(진행 중 로그인의 gen) — 같은 gen 두 번째는 `busy`, 늦은 응답은 덮지 않고 서버 로그아웃 | `concurrentLoginSameGenIsBusy`·`lateFirstLoginDoesNotOverwriteNewerLogin` |
 | 오류 gen 결속 | `GateError.gen`·`sessionEnded`(401 로 끝난 세션만) | `unauthorizedEndsOnlyItsOwnSessionWithItsGen`·`late401AfterNewLoginDoesNotEndNewSession` |
 | 파괴 무효화 | `handleOnDestroy` → `core.close()`(이후 stale·보관 쓰기 없음) + `io.shutdown()` | `closeInvalidatesPending…`·`loginInFlightWhenClosedIsNotStored`·`late401AfterCloseDoesNotTouchVault` |

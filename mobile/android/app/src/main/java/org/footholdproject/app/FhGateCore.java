@@ -194,6 +194,17 @@ public final class FhGateCore {
 
     public synchronized boolean current(Ctx c) { return !closed && c.gen == gen; }
 
+    /** 로그인 성공 resolve 직전: 로그인이 만든 세대(l.gen)가 아직 현재인가. 커밋 뒤 로그아웃·주소 변경·파괴면 stale(gen = 호출 문맥 c.gen).
+     *  ponytail: 대조와 resolve 사이 두 줄의 틈은 남는다 — 화면은 이벤트의 gen 과 자기 gen 을 계속 비교한다(계약 §2). */
+    public synchronized void confirm(Login l, Ctx c) throws GateError {
+        if (closed || l.gen != gen) throw new GateError("stale", "취소된 로그인 — 응답 버림", c.gen);
+    }
+
+    /** 예기치 않은 예외: 호출 문맥이 아직 현재면 internal, 이미 옛 문맥이면 stale(원인보다 무효가 먼저). gen 은 c.gen 고정. */
+    public synchronized GateError unexpected(Ctx c) {
+        return current(c) ? new GateError("internal", "내부 오류", c.gen) : new GateError("stale", "취소된 호출 — 응답 버림", c.gen);
+    }
+
     public synchronized Map<String, Object> state() {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("origin", origin);

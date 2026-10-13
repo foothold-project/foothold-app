@@ -74,6 +74,7 @@ public class FhGatePlugin extends Plugin {
         String user = call.getString("user"), pw = call.getString("pw"), label = call.getString("label");
         run(call, c, () -> {
             FhGateCore.Login l = core.login(c, user, pw, label);
+            core.confirm(l, c);                              // 성공 세대가 이미 끝났으면(로그아웃·주소 변경·파괴) 성공 대신 stale
             JSObject r = new JSObject();
             r.put("account", l.account); r.put("device6", l.device6); r.put("exp", l.exp); r.put("gen", l.gen); r.put("stored", l.stored);
             call.resolve(r);
@@ -151,7 +152,7 @@ public class FhGatePlugin extends Plugin {
                 } catch (FhGateCore.GateError e) {
                     reject(call, e);
                 } catch (RuntimeException e) {
-                    reject(call, new FhGateCore.GateError("internal", "내부 오류", c.gen()));
+                    reject(call, core.unexpected(c));          // 현재 문맥 internal · 옛 문맥 stale
                 }
             });
         } catch (RejectedExecutionException e) {

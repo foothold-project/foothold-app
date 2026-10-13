@@ -243,6 +243,31 @@ public class FhGateCoreTest {
     }
 
     // ── 4) 파괴: 대기·진행 작업 무효, 보관본을 늦게 못 바꿈, 보관 세션은 유지 ──
+    // 로그인 커밋 뒤 → (로그아웃 | 주소 변경 | 파괴) → resolve 직전 대조 순서를 고정한 반례: 성공 대신 stale
+    @Test public void loginCommittedThenEndedIsStaleAtResolve() throws Exception {
+        for (int k = 0; k < 3; k++) {
+            FhGateCore c = fresh(NOW);
+            c.setGate(GATE);
+            net.a = r -> json(200, LOGIN_OK);
+            FhGateCore.Ctx ctx = c.ctx();
+            FhGateCore.Login l = c.login(ctx, "fixture", "pw", "폰");
+            c.confirm(l, ctx);                                               // 끼어든 것 없음 → 통과
+            if (k == 0) c.endLocal(); else if (k == 1) c.setGate("https://127.0.0.2:18453"); else c.close();
+            FhGateCore.GateError e = err(() -> c.confirm(l, ctx));
+            assertEquals("stale", e.code); assertEquals(ctx.gen, e.gen); assertFalse(e.sessionEnded);
+        }
+    }
+
+    @Test public void unexpectedIsInternalOnlyForCurrentContext() throws Exception {
+        FhGateCore c = loggedIn();
+        FhGateCore.Ctx now = c.ctx();
+        FhGateCore.GateError cur = c.unexpected(now);
+        assertEquals("internal", cur.code); assertEquals(now.gen, cur.gen);
+        c.endLocal();                                                         // 옛 문맥이 됨
+        FhGateCore.GateError old = c.unexpected(now);
+        assertEquals("stale", old.code); assertEquals(now.gen, old.gen);
+    }
+
     @Test public void closeInvalidatesPendingAndLateWritesButKeepsStoredSession() throws Exception {
         FhGateCore c = loggedIn();
         String before = vault.v;
