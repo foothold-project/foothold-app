@@ -206,7 +206,7 @@ class Component extends DCLogic {
         { id: 'gas', name: '가스 사전 측정', kind: '팀', desc: '밀폐공간 진입 전, 지점마다 산소·유해가스를 잽니다', locked: false, used: 3, edited: '10-12 10:24 운영자 A',
           mods: [M('가스 측정', '4종 검지기 + CO₂ · 값 안정까지 최대 60초'), M('사진', '전방 1장 + 개구부 쪽 1장'), M('AI 탐지', '대상: 물고임 · 쓰러진 사람 · 연기 · 신뢰도 0.6 이상')],
           rules: [{ id: 'r1', cond: 'H₂S 10 ppm 이상 · CO 30 ppm 이상', act: '일시정지 → 직전 정상 지점으로 후퇴 · 긴급 알림' }, { id: 'r2', cond: 'O₂ 18% 미만 또는 23.5% 이상', act: '일시정지 → 후퇴 · 긴급 알림' }] },
-        { id: 'patrol', name: '시설 순찰', kind: '팀', desc: '정해진 경로를 돌며 사진을 남기고 이상을 찾습니다', locked: false, used: 7, edited: '10-09 16:02 박서연',
+        { id: 'patrol', name: '시설 순찰', kind: '팀', desc: '정해진 경로를 돌며 사진을 남기고 이상을 찾습니다', locked: false, used: 7, edited: '10-09 16:02 운영자 B',
           mods: [M('사진', '지점마다 3방향'), M('AI 탐지', '대상: 사람 · 연기 · 문 열림 · 물고임')],
           rules: [{ id: 'r3', cond: '탐지: 쓰러진 사람 · 신뢰도 0.7 이상', act: '일시정지 · 운영자 확인 대기 · 긴급 알림' }] },
         { id: 'thermal', name: '배전반 열화상 점검', kind: '초안', desc: '배전반 앞에서 열화상으로 과열을 봅니다', locked: false, used: 0, edited: '10-11 초안', blocked: true,
