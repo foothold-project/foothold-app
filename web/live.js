@@ -7,7 +7,14 @@
   const LIVE_PAGES = ['Main.dc.html', 'MDrive.dc.html'];          // 실연결을 붙인 화면은 이 둘뿐
   // 8780 은 정적 미리보기 서버(WebSocket 없음) — 실연결은 v2_link(8790) 주소로 보낸다. 그 밖(8790·시험 8791)은 같은 origin.
   const LIVE_BASE = location.port === '8780' ? 'http://127.0.0.1:8790/' : '';
-  const live = new URLSearchParams(location.search).get('live') === 'v2';
+  const Q = new URLSearchParams(location.search);
+  const live = Q.get('live') === 'v2';
+  const LOGIN_PAGES = ['MLogin.dc.html', 'PcLogin.dc.html'];      // 보호 관문(https) 로그인에 연결
+  const LAYOUTS = ['왼쪽 회전 · 오른쪽 앞뒤', '왼쪽 이동 · 오른쪽 회전'];   // 휴대폰 기본 = 처음 확정한 배치(왼쪽 회전·오른쪽 앞뒤)
+  if (live && !LIVE_BASE && PAGE === 'MDrive.dc.html' && !Q.has('stickLayout')) {   // 시안 실행기가 읽기 전에 막대 배치를 주소에 넣는다
+    let l = LAYOUTS[0]; try { l = JSON.parse(localStorage.getItem('fh.live.layout')) || l; } catch (_) { /* 저장 막힘: 기본 */ }
+    Q.set('stickLayout', LAYOUTS.includes(l) ? l : LAYOUTS[0]); history.replaceState(null, '', `${PAGE}?${Q}`);
+  }
   if (!live || LIVE_BASE) {
     if (LIVE_PAGES.includes(PAGE)) {
       const why = live ? '이 주소(8780)는 시안 미리보기 서버라 실연결이 안 됩니다' : '시안 화면입니다 · 버튼·STOP 은 로봇을 움직이거나 멈추지 않습니다';
@@ -39,8 +46,9 @@
     ['배터리', '시뮬 상태에 배터리 값 없음'],
     ['후진·제자리 회전·옆걸음·저속·자세', '시뮬 검증 안 됨 — 서버가 0으로 막음'],
     ['실기 Go2', '연결 안 함(시뮬 전용)'],
-    ['로그인·다른 기기 접속', '이 PC(127.0.0.1) 전용, 로그인 없음'],
-    ['휴대폰 앱 설치(APK·IPA)', '웹 화면만, 설치 파일 없음 · 실제 iPhone 미검증'],
+    ['8790 주소로 다른 기기 접속', '8790 은 이 PC 전용(로그인 없음) — 휴대폰·다른 PC 는 보호 주소 https://…:8453 에서 로그인'],
+    ['앱 설치 파일(APK·IPA)', '설치 파일 없음 — «홈 화면에 추가»한 웹 앱으로 사용 · 실제 iPhone 확인 전'],
+    ['시뮬 끄기·연장', '앱에서 안 함 — 시작 30분 뒤 RL 쪽이 자동 종료, 자동 연장 없음'],
   ];
   const WHY = Object.fromEntries(UNSUP);
   const $ = (sel, r = document) => r.querySelector(sel);
@@ -57,13 +65,25 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (_) { return false; } },
   };
 
-  let ws, conn = 0, st = null, lastMsg = 0, role = 'view', camURL = null, camBlob = null, camAt = 0, camFrames = [], sig = null;
+  const GATED = location.protocol === 'https:';                 // 보호 관문으로 연 화면(로그인 세션 있음)
+  const PHONE = /iPhone|iPad|Android|Mobile/i.test(navigator.userAgent);
+  const STANDALONE = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  let ws, conn = 0, st = null, firstVer = null, rid = 0; const pending = new Map();
+  let lastMsg = 0, role = 'view', camURL = null, camFrames = [], sig = null;
   const zones = new Map();                      // 누르는 곳(막대·누름 버튼) → {pid, p}: 곳마다 손가락 하나, 전체 둘
   const keys = new Map();                       // 누르고 있는 화살표 키(Main)
   const intent = { fx: 0, fy: 0, fw: 0 };
   const knobs = [];
 
-  function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+  function send(o) { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); return true; } return false; }
+  // 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로
+  function ask(op) {
+    return new Promise((res) => {
+      const id = ++rid; if (!send({ op, rid: id })) return res({ ok: false, text: '링크 끊김 — 보내지 못함' });
+      const t = setTimeout(() => { pending.delete(id); res({ ok: false, text: '서버 응답 없음(5 s)' }); }, 5000);
+      pending.set(id, (m) => { clearTimeout(t); res(m); });
+    });
+  }
   // 모든 누름 폐기: 지금 누르고 있는 손가락·키는 뗄 때까지 죽은 입력. 다시 눌러야 새 입력.
   function dropAll() {
     for (const [g, z] of zones) { g.classList.remove('lv-on'); try { g.releasePointerCapture(z.pid); } catch (_) { /* 이미 놓임 */ } }
@@ -74,24 +94,32 @@
     for (const p of [...[...zones.values()].map((z) => z.p), ...keys.values()]) { intent.fx += p.fx; intent.fy += p.fy; intent.fw += p.fw; }
   }
   function hide() { dropAll(); send({ op: 'hidden' }); }
+  const loginURL = () => `${PHONE ? 'MLogin' : 'PcLogin'}.dc.html?live=v2&next=${encodeURIComponent(location.pathname + location.search)}`;
 
   function connect() {
-    ws = new WebSocket(`ws://${location.host}/ws`); ws.binaryType = 'blob'; conn += 1;
+    ws = new WebSocket(`${GATED ? 'wss' : 'ws'}://${location.host}/ws`); ws.binaryType = 'blob'; conn += 1;
     ws.onmessage = (e) => {
       if (typeof e.data !== 'string') {                 // 카메라 jpeg
         if (camURL) URL.revokeObjectURL(camURL);
-        camBlob = e.data; camAt = Date.now(); camURL = URL.createObjectURL(e.data); const now = performance.now();
+        camURL = URL.createObjectURL(e.data); const now = performance.now();
         camFrames = camFrames.filter((t) => now - t < 2000).concat(now);
         for (const img of $$('img[data-live-cam]')) img.src = camURL;
         return;
       }
-      st = JSON.parse(e.data); lastMsg = performance.now(); role = st.role;
+      const m = JSON.parse(e.data);
+      if (m.op === 'reply') { const f = pending.get(m.rid); if (f) { pending.delete(m.rid); f(m); } return; }
+      st = m; lastMsg = performance.now(); role = st.role;
+      if (firstVer == null) firstVer = st.ver;
       const s2 = [role, st.latch, st.reset_pending, st.resume_pending, st.episode, !!st.sim_block].join('|');
       if (s2 !== sig) { if (sig !== null) dropAll(); sig = s2; }   // 조종권·STOP·리셋·에피소드·시뮬 상태 변화 → 누름 폐기
       try { logServer(); } catch (_) { /* 기록 실패와 무관하게 표시·조종은 계속 */ }
       paint();
     };
-    ws.onclose = () => { dropAll(); role = 'view'; sig = null; setTimeout(connect, 1000); };
+    ws.onclose = (e) => {
+      dropAll(); role = 'view'; sig = null;
+      if (e.code === 4401) { toast('로그인이 끝났습니다 — 다시 로그인'); return setTimeout(() => location.assign(loginURL()), 1200); }
+      setTimeout(connect, 1000);
+    };
   }
   document.addEventListener('visibilitychange', () => { if (document.hidden) hide(); });
   addEventListener('pagehide', hide);
@@ -176,7 +204,7 @@
   let LOGKEY = 'fh.live.log.v1', logBad = null;
   let { rows: log, bad } = loadLog(LOGKEY);
   if (bad) { logBad = bad; LOGKEY = 'fh.live.log.v1b'; const r2 = loadLog(LOGKEY); log = r2.bad ? [] : r2.rows; if (r2.bad) LOGKEY = null; }
-  const photos = [], seenEv = new Set();
+  const seenEv = new Set();
   let quotaWarned = false;
   function note(kind, text, key) {
     try {
@@ -192,56 +220,60 @@
       if (!log.some((l) => l.key === k)) note('서버', `${e.t} ${e.text}`, k);
     }
   }
-  // 사진 = 지금 받은 실프레임 + 프레임 수신 시각(카메라 원시 촬영 시각은 없음)·저장 시각·GT·출처·episode.
-  // 확인(디코드) 전에 값을 묶어 두고, 그 사이 재연결·리셋·에피소드가 바뀌면 섞인 사진이라 저장하지 않는다.
+  // 사진 = 서버가 받은 최신 프레임을 서버가 그 순간의 GT·에피소드와 함께 저장(화면은 요청만). PC·휴대폰 모두 같은 서버 기록에 남는다.
   async function takePhoto() {
-    try {
-      const v = view();
-      if (!v.camOk || !camBlob || Date.now() - camAt > 1000) return toast('사진 실패 · 지금 받은 영상 없음(영상 끊김·지연)');
-      const s = v.s, snap = { blob: camBlob, frame_at: new Date(camAt).toISOString(), conn, episode: st.episode, src: v.src,
-        x: s && ok(s.x) ? s.x : null, y: s && ok(s.y) ? s.y : null, yaw: s && ok(s.yaw) ? s.yaw : null };
-      try { const bm = await createImageBitmap(snap.blob); bm.close(); } catch (_) { return toast('사진 실패 · 영상 프레임을 읽을 수 없음'); }
-      if (snap.conn !== conn || !st || st.episode !== snap.episode || st.reset_pending) return toast('사진 실패 · 확인 중 재연결·리셋·에피소드가 바뀜 — 다시 찍으세요');
-      const p = { ...snap, saved_at: new Date().toISOString(), url: URL.createObjectURL(snap.blob) }; delete p.conn;
-      photos.unshift(p);
-      const pos = p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`;
-      note('사진', `사진 · 프레임 수신 ${hms(new Date(p.frame_at))} · ${pos} · ${photoName(p)}`);
-      save(photoName(p), p.blob, `사진 내려받기 요청 · 프레임 수신 ${hms(new Date(p.frame_at))} · ${p.src} ${pos}`);
-    } catch (e) { toast(`사진 실패 · ${e.message || e}`); }
+    const r = await ask('photo');
+    if (!r.ok) return toast(r.text);
+    const p = r.photo, pos = p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`;
+    note('사진', `사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${pos} · ${p.url}`);
+    if (PHONE) return toast(`사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${pos} · «기록»에서 보기`);
+    const a = el('a', null, { href: p.url, download: p.url.split('/').pop() }); document.body.append(a); a.click(); a.remove();
+    toast(`사진 서버 저장 + 내려받기 요청 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${pos}`);
   }
-  const photoName = (p) => `foothold-v2-${p.frame_at.replace(/[:.]/g, '-')}-ep${p.episode}${p.x == null ? '' : `-x${p.x.toFixed(2)}-y${p.y.toFixed(2)}`}.jpg`;
   function csv() {
     const q = (v) => (v == null ? '' : /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v));
     return ['t,kind,text,episode,x,y,yaw', ...log.map((l) => [l.t, l.kind, l.text, l.episode, l.x, l.y, l.yaw].map(q).join(','))].join('\n');
   }
+  // 기록: 서버 보관(모든 기기 공통 — 사진·사건) + 이 브라우저의 조작 기록. 예시 데이터와 섞지 않는다.
   function openRecords() {
-    let seen = -1;
-    openDrawer('기록 · 이 브라우저의 실제 시뮬 기록', (b) => {
-      if (seen === log.length * 1000 + photos.length) return; seen = log.length * 1000 + photos.length;   // 바뀔 때만 다시 그림
-      b.replaceChildren(el('p', '예시 데이터가 아닙니다. 이 화면에서 찍은 사진과 조종·서버 사건만 남습니다.'));
-      b.append(el('h3', `사진 ${photos.length}장`), el('p', '찍을 때 JPEG 파일을 바로 내려받습니다. 이 목록은 이 탭에만 있어 새로고침·닫기 뒤 사라집니다(파일은 남음). 조종 기록과 따로입니다.'));
-      for (const p of photos) {
-        const r = el('div', null, { className: 'lv-photo' });
-        const cap = el('div'); cap.append(el('div', `프레임 수신 ${hms(new Date(p.frame_at))} · 저장 ${hms(new Date(p.saved_at))} · episode ${p.episode}`),
-          el('div', p.x == null ? '위치 미확인' : `${p.src} x ${sgn(p.x)} y ${sgn(p.y)} m · ${deg(p.yaw)}`),
-          el('button', '내려받기', { onclick: () => save(photoName(p), p.blob) }));
-        r.append(el('img', null, { src: p.url, alt: `사진 ${p.frame_at}` }), cap); b.append(r);
+    let srv = null, err = '', seen = '';
+    const load = () => fetch('api/media', { cache: 'no-store', credentials: 'same-origin' })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d) => { srv = d; err = ''; }).catch((e) => { err = e.message || String(e); }).finally(() => { seen = ''; if (drawer) drawer.paint(); });
+    openDrawer('기록 · 실제 시뮬 기록', (b) => {
+      const key = `${!!srv}|${err}|${log.length}`; if (key === seen) return; seen = key;
+      b.replaceChildren(el('p', '예시 데이터가 아닙니다. 서버 보관 기록은 PC·휴대폰 어느 기기에서 열어도 같습니다.'),
+        el('button', '서버 기록 새로 읽기', { onclick: load }));
+      if (err) b.append(el('p', `서버 기록 읽기 실패 · ${err}`));
+      else if (!srv) b.append(el('p', '서버 기록 읽는 중…'));
+      else {
+        b.append(el('h3', `사진 ${srv.photos.length}장 · 서버 보관`), el('p', 'Gazebo 렌더(실카메라 아님). 시각 = 서버가 프레임을 받은 시각 · 저장 시각.'));
+        for (const p of srv.photos.slice(0, 40)) {
+          const r = el('div', null, { className: 'lv-photo' }), cap = el('div');
+          cap.append(el('div', `프레임 수신 ${p.frame_at.slice(5, 19).replace('T', ' ')} · episode ${p.episode} · ${p.by || ''}`),
+            el('div', p.x == null ? '위치 미확인' : `GT(저장 요청 때 최신 · 프레임 동기 아님) x ${sgn(p.x)} y ${sgn(p.y)} m · ${deg(p.yaw)}`),
+            el('a', '원본 내려받기', { href: p.url, download: p.url.split('/').pop(), style: 'color:var(--accent,#38C6D9)' }));
+          r.append(el('img', null, { src: p.url, alt: `사진 ${p.frame_at}`, loading: 'lazy' }), cap); b.append(r);
+        }
+        b.append(el('button', '사진 정보 JSON 내보내기', { onclick: () => save(`foothold-v2-photos-${Date.now()}.json`, new Blob([JSON.stringify(srv.photos, null, 1)], { type: 'application/json' })) }));
+        b.append(el('h3', `서버 사건 ${srv.events.length}건(최근 300)`));
+        const dl = el('dl'); for (const e of srv.events.slice(0, 80)) dl.append(el('dt', (e.at || '').slice(5, 19).replace('T', ' ')), el('dd', e.text)); b.append(dl);
       }
-      if (photos.length) b.append(el('button', '사진 정보 JSON 내보내기', { onclick: () => save(`foothold-v2-photos-${Date.now()}.json`, new Blob([JSON.stringify(photos.map(({ blob, url, ...m }) => ({ ...m, file: photoName({ ...m }) })), null, 1)], { type: 'application/json' })) }));
-      b.append(el('h3', `조종 기록 ${log.length}건`), el('p', !LOGKEY ? '브라우저에 저장 못 함 — 이 화면에만 있음, 내보내기로 보관하세요.' : `이 브라우저(이 기기)에 저장, 새로고침 뒤에도 남음. 최근 2000건.${logBad ? ` 예전 기록 읽기 실패(${logBad}) — 원래 값은 지우지 않고 새 기록으로 시작.` : ''}`));
+      b.append(el('h3', `이 브라우저의 조작 기록 ${log.length}건`), el('p', !LOGKEY ? '브라우저에 저장 못 함 — 이 화면에만 있음, 내보내기로 보관하세요.' : `이 기기에만 저장(누른 버튼 등). 최근 2000건.${logBad ? ` 예전 기록 읽기 실패(${logBad}) — 원래 값은 지우지 않고 새 기록으로 시작.` : ''}`));
       const row = el('div', null, { className: 'lv-row' });
       row.append(el('button', 'JSON 내보내기', { onclick: () => save(`foothold-v2-log-${Date.now()}.json`, new Blob([JSON.stringify(log, null, 1)], { type: 'application/json' })) }),
         el('button', 'CSV 내보내기', { onclick: () => save(`foothold-v2-log-${Date.now()}.csv`, new Blob([csv()], { type: 'text/csv' })) }),
-        el('button', '기록 지우기', { onclick: () => { if (confirm('이 브라우저의 조종 기록을 지울까요? (사진은 그대로)')) { log.length = 0; if (LOGKEY) store.set(LOGKEY, log); seen = -1; drawer.paint(); } } }));
+        el('button', '기록 지우기', { onclick: () => { if (confirm('이 브라우저의 조작 기록을 지울까요? (서버 기록은 그대로)')) { log.length = 0; if (LOGKEY) store.set(LOGKEY, log); seen = ''; drawer.paint(); } } }));
       b.append(row);
-      const dl = el('dl'); for (const l of log.slice(-60).reverse()) dl.append(el('dt', `${l.t.slice(11, 19)} ${l.kind}`), el('dd', `${l.text}${l.x == null ? '' : ` · x ${sgn(l.x)} y ${sgn(l.y)}`}`));
-      b.append(dl);
+      const dl2 = el('dl'); for (const l of log.slice(-40).reverse()) dl2.append(el('dt', `${l.t.slice(11, 19)} ${l.kind}`), el('dd', l.text)); b.append(dl2);
     });
+    load();
   }
   function stateRows() {   // 상태 상세: 서버가 준 원값 그대로(가공·추정 없음)
     const v = view(), r = [['링크', v.linkTxt], ['조종권', v.roleTxt], ['STOP 잠금', String(v.latch)], ['보낸 명령', v.sent],
       ['서버 이유', (st && st.reason) || '—'], ['state_age s', st ? num(st.state_age, 2) : '미확인'], ['cam_age s', st ? num(st.cam_age, 2) : '미확인'],
-      ['episode', st ? String(st.episode) : '미확인'], ['배터리', '미연결(시뮬에 값 없음)']];
+      ['episode', st ? String(st.episode) : '미확인'], ['배터리', '미연결(시뮬에 값 없음)'], ['이 기기', (st && st.me) || '미확인'],
+      ['조종 중인 기기', (st && st.holder) || '없음'], ['시뮬 세션(RL 상태)', sessTxt() || '미확인'], ['화면 판', `${firstVer || '미확인'} (서버 지금 ${(st && st.ver) || '미확인'})`]];
     for (const [k, x] of Object.entries((st && st.sim) || {})) r.push([`sim.${k}`, typeof x === 'string' ? x : JSON.stringify(x)]);
     return r;
   }
@@ -265,7 +297,25 @@
         const f = el('button'); const lab = () => { f.textContent = `지도 기본: ${store.get('fh.live.follow', false) ? '로봇 따라가기' : '전체 맞춤'} (눌러 바꾸기)`; };
         f.onclick = () => { store.set('fh.live.follow', !store.get('fh.live.follow', false)); M.follow = store.get('fh.live.follow', false); lab(); paint(); }; lab(); b.append(f);
       }
+      if (D) {
+        const cur = Q.get('stickLayout') || LAYOUTS[0];
+        const lb = el('button', `막대 배치: ${cur} (눌러 바꾸기 · 화면 다시 열림)`);
+        lb.onclick = () => {
+          if (role === 'control') return toast('조종 중에는 바꾸지 않습니다 — 조종권 반납 뒤');
+          const nx = LAYOUTS[(LAYOUTS.indexOf(cur) + 1) % LAYOUTS.length];
+          if (!store.set('fh.live.layout', nx)) toast('저장 실패 — 이번만 적용');
+          Q.set('stickLayout', nx); location.replace(`${PAGE}?${Q}`);
+        };
+        b.append(lb, el('p', '앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시).'));
+      }
       b.append(el('button', '기록 보기(사진·조종 기록)', { onclick: openRecords }));
+      b.append(el('button', '설치·접속 안내(QR·홈 화면 추가)', { onclick: () => location.assign('start.html') }));
+      if (GATED) b.append(el('button', `로그아웃 · ${(st && st.me) || ''}`, { onclick: async () => {
+        dropAll(); send({ op: 'hidden' });                    // 조종권 해제 · 0 · STOP 잠금(서버)
+        try { await fetch('api/logout', { method: 'POST', credentials: 'same-origin' }); } catch (_) { /* 아래로 */ }
+        location.assign(loginURL());
+      } }));
+      b.append(el('p', `화면 판 ${firstVer || '미확인'} · 서버 판 ${(st && st.ver) || '미확인'}${STANDALONE ? ' · 홈 화면 웹 앱' : ''}`));
       b.append(el('h3', '안 되는 기능과 이유'));
       const dl = el('dl'); for (const [k, x] of UNSUP) dl.append(el('dt', k), el('dd', x)); b.append(dl);
       b.append(el('p', `주의: ${RELURCH} · 원인 미확인`));
@@ -301,7 +351,7 @@
       linkTxt: !linkOk ? (linkAge == null ? '연결 중' : `끊김 ${linkAge.toFixed(0)} s`) : st.sim_block ? st.sim_block : '정상',
       camOk, camTxt: camOk ? `${(camFrames.length / 2).toFixed(0)} fps · ${st.cam_age.toFixed(1)} s` : (s && s.camera === 'off') ? '꺼짐(시뮬)' : '미연결',
       src: s ? (SRC[s.source] || s.source || '출처 미확인') : '—',
-      roleTxt: role === 'control' ? '조종권 · 이 기기' : role === 'view_other' ? '다른 기기가 조종 중' : '보기 전용',
+      roleTxt: role === 'control' ? '조종권 · 이 기기' : role === 'view_other' ? `다른 기기가 조종 중${st && st.holder ? ` · ${st.holder}` : ''}` : '보기 전용',
       latch: !!(linkOk && st.latch),
       flags: `online_ready=${fl(s && s.online_ready)} · safe_fallback_verified=${fl(s && s.safe_fallback_verified)}`,
       body: !s ? '몸 상태 미연결' : s.fallen === true ? '넘어짐' : s.fallen == null ? '넘어짐 미확인'
@@ -322,6 +372,21 @@
     if (v.latch) return 'STOP 잠금 중 — «STOP 해제» 먼저';
     return '';
   }
+  // 시뮬 시작(30분): 사용자가 누를 때만. 서버가 RL 래퍼를 한 번 부른다(쿨다운·중복 거부·자동 연장 없음). 새 시뮬은 STOP 상태로 시작.
+  // RL session_status.sh 원값: 실행/켜지는 중/꺼짐 + 남은 시간. 안전 준비 판정 아님
+  const sessTxt = () => { const x = st && st.sim_start && st.sim_start.session; if (!x) return '';
+    const left = x.remaining_s == null ? '' : ` · 남은 ${Math.max(0, Math.round(x.remaining_s / 60))}분${x.ends_at ? `(종료 ${String(x.ends_at).slice(11, 16)})` : ''}`;
+    return ({ running: '실행 중', starting: '켜지는 중', idle: '꺼짐' }[x.result] || x.result) + left; };
+  const simOff = () => !!(st && ['시뮬 상태 미수신', '시뮬 상태 끊김'].includes(st.sim_block));
+  async function startSim() {
+    const ss = st && st.sim_start;
+    if (!ss || !ss.ok) return toast(`시뮬 시작 안 됨 · ${(ss && ss.why) || '서버 응답 없음'}`);
+    if (!confirm('Gazebo 시뮬을 30분 동안 시작할까요?\n· RL 쪽 기동 횟수를 1회 씁니다\n· STOP 상태로 시작합니다(«STOP 해제» 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음')) return;
+    const r = await ask('sim_start'); toast(r.text); note('조작', `시뮬 시작 요청 · ${r.text}`);
+  }
+  // 서버의 화면 판이 이 탭을 연 뒤 바뀌었으면(새 판 반영) 알림 — 옛 탭으로 계속 쓰는 실수 방지
+  const newVer = () => !!(st && firstVer && st.ver && st.ver !== firstVer);
+  function reloadNow() { if (role === 'control') return toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤'); location.reload(); }
   function stopNow() { dropAll(); send({ op: 'stop' }); note('조작', 'STOP'); }
   function resumeNow() { dropAll(); send({ op: 'resume' }); note('조작', 'STOP 해제 요청'); }
   function resetNow() { dropAll(); send({ op: 'reset' }); note('조작', '시뮬 리셋 요청'); }
@@ -396,22 +461,49 @@
     // 전체화면·안내는 STOP 아래 작은 버튼(아래 줄은 막대 사이라 자리가 없음)
     const side = el('div'); side.style.cssText = 'position:absolute;right:44px;top:86px;display:flex;gap:8px;z-index:3';
     const sq = (txt, label, fn) => { const b = el('button', txt, { className: 'pill', title: label, onclick: fn }); b.setAttribute('aria-label', label); b.style.cssText = 'width:44px;padding:0;justify-content:center;font-size:18px'; return b; };
-    const fs = sq('⛶', '전체화면', fsToggle), rec = sq('ⓘ', '안내·설정', openSettings);
-    side.append(fs, rec); $('button[aria-label="비상 정지"]').after(side);
-    for (const g of $$('.glass[role="group"]')) stick(g);
+    const fs = sq('⛶', '전체화면', fsToggle), rec = sq('ⓘ', '안내·설정', openSettings), cam = sq('📷', '사진 찍기', takePhoto);   // 사진은 서버 저장(PC 와 공유)
+    side.append(fs, cam, rec); $('button[aria-label="비상 정지"]').after(side);
+    for (const g of $$('.glass[role="group"]')) {
+      stick(g);
+      const lab = g.nextElementSibling, k = g.getAttribute('aria-label');
+      if (lab && !k.startsWith('회전')) { lab.textContent += ' · 뒤✕'; lab.title = '뒤로 당기면 후진 미검증이라 서버가 0으로 막음(이유 표시)'; }
+    }
+    fitPhone();
     wireStop();
-    return { huds, banner, mm, give, fs, take: bigBtn('조종권 받기', takeCtl), resume: bigBtn('STOP 해제', resumeNow), reset: bigBtn('시뮬 리셋', resetNow) };
+    return { huds, banner, mm, give, fs, take: bigBtn('조종권 받기', takeCtl), resume: bigBtn('STOP 해제', resumeNow), reset: bigBtn('시뮬 리셋', resetNow),
+      start: bigBtn('시뮬 시작(30분)', startSim), reload: bigBtn('새로고침', reloadNow) };
   }
-  async function fsToggle() {   // 화면 전체(STOP·막대 포함)를 전체화면으로. 막히면 이유 안내.
+  // 휴대폰 가로 화면 맞춤: 시안(844×390)의 배치를 그대로 두고 지금 화면(안전 영역 안)에 맞춘다.
+  // 높이가 390 보다 낮으면(주소창 있는 가로 등) 비율 그대로 줄이고, 넓으면 가로로 늘린다. 확대(핀치)는 막지 않는다.
+  function fitPhone() {
+    const root = $('div[style*="width:844px"]'); if (!root) return;
+    const probe = el('div'); probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+    const tip = el('div', '가로로 돌려 쓰세요 · 세로에서는 작게 보입니다'); tip.setAttribute('role', 'note');
+    tip.style.cssText = 'position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:60;padding:6px 12px;border-radius:8px;background:rgba(26,18,6,.92);color:#FFB547;font:600 13px/1.4 system-ui,sans-serif;pointer-events:none';
+    document.body.append(probe, tip); document.body.style.background = '#05080A';
+    const fit = () => {
+      const cs = getComputedStyle(probe), px = (k) => parseFloat(cs[k]) || 0;
+      const l = px('paddingLeft'), t = px('paddingTop'), W = innerWidth - l - px('paddingRight'), H = innerHeight - t - px('paddingBottom');
+      const k = Math.min(1, H / 390, W / 700);
+      Object.assign(root.style, { position: 'fixed', left: `${l}px`, top: `${t}px`, width: `${W / k}px`, height: `${H / k}px`, transform: k < 1 ? `scale(${k})` : '', transformOrigin: '0 0' });
+      root.dataset.liveFit = `${Math.round(W)}x${Math.round(H)}@${k.toFixed(2)}`;   // 시험·확인용
+      tip.style.display = innerHeight > innerWidth ? 'block' : 'none';
+    };
+    addEventListener('resize', fit); if (window.visualViewport) visualViewport.addEventListener('resize', fit); fit();
+    // 첫 배치 때는 844 px 원본이 넘쳐 브라우저가 화면 폭을 넓게 잡는다(세로에서 844 로 잼). 고정 배치 뒤 다음 프레임에 다시 잰다
+    requestAnimationFrame(() => requestAnimationFrame(fit));
+  }
+  async function fsToggle() {   // 화면 전체(STOP·막대 포함)를 전체화면으로. 기능을 확인해 되는 방법을 쓰고, 안 되면 대안을 알린다.
     dropAll();
+    const de = document.documentElement, req = de.requestFullscreen || de.webkitRequestFullscreen;
     try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else {
-        if (!document.documentElement.requestFullscreen) throw new Error('지원 안 함');
-        await document.documentElement.requestFullscreen();
+      if (document.fullscreenElement || document.webkitFullscreenElement) await (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else if (req && (document.fullscreenEnabled || document.webkitFullscreenEnabled)) {
+        await req.call(de);
         try { await screen.orientation.lock('landscape'); } catch (_) { /* 방향 고정 미지원: 그대로 */ }
-      }
-    } catch (e) { toast(`이 브라우저가 전체화면을 막았거나 지원하지 않음(${e.message || e}) · 휴대폰을 가로로 두고 쓰세요`); }
+      } else if (STANDALONE) toast('이미 홈 화면 웹 앱(주소창 없음)으로 열려 있습니다');
+      else toast('이 브라우저는 화면 전체화면을 지원하지 않습니다 · ⓘ → «설치·접속 안내»에서 홈 화면에 추가하면 주소창 없이 열립니다');
+    } catch (e) { toast(`전체화면이 막힘(${e.message || e}) · 홈 화면에 추가하면 주소창 없이 열립니다`); }
   }
   function stick(g) {
     const kind = g.getAttribute('aria-label'), knob = g.querySelector(':scope > span'); knobs.push(knob);
@@ -457,11 +549,12 @@
     trial.textContent = TRIAL; trial.title = `${v.flags}\n${RELURCH}`;   // 원문 플래그는 길어서 상세(툴팁)로
     body.textContent = s ? `${v.body} · 기울기 ${num(s.tilt_deg, 0, '°')}` : v.body;
     D.mm.textContent = '';
-    D.mm.append('지도 미연결', document.createElement('br'),
+    D.mm.append(`지도 미연결 · 판 ${firstVer || '—'}`, document.createElement('br'),
       s ? `위치 출처 ${v.src}` : '위치 미연결', document.createElement('br'),
       s ? `x ${sgn(s.x)} y ${sgn(s.y)} m · 방향 ${deg(s.yaw)}` : '');
     // 가운데 알림: 끊김·STOP·리셋·넘어짐·미검증 입력 — 없으면 숨김
     const msgs = [];
+    if (newVer()) msgs.push(`새 화면 판(${st.ver})이 반영됨 · 이 화면은 ${firstVer} — 조종 없을 때 새로고침`);
     if (!v.linkOk) msgs.push(`링크 ${v.linkTxt} · 명령 0`);
     else {
       if (st.sim_block) msgs.push(`${st.sim_block} · 명령 0`);
@@ -476,6 +569,8 @@
     const b = D.banner; b.textContent = '';
     b.style.display = msgs.length ? 'flex' : 'none';
     b.append(msgs.join(' · '));
+    if (newVer()) b.append(D.reload);
+    if (v.linkOk && simOff() && st.sim_start) { b.append(D.start); D.start.title = st.sim_start.why || '30분 시뮬 시작(STOP 상태로)'; D.start.style.opacity = st.sim_start.ok ? '' : '.55'; }
     if (v.linkOk && role === 'view' && !st.sim_block) b.append(D.take);
     const can = v.linkOk && role === 'control' && !st.reset_pending && !st.resume_pending;
     if (can && v.latch) b.append(D.resume);
@@ -541,6 +636,9 @@
     b2.addEventListener('click', () => (role === 'control' ? giveCtl() : takeCtl()));
     b3.lastChild.textContent = '시뮬 리셋'; b3.addEventListener('click', resetNow);
     const drive = pad(); bar.after(drive);
+    const ex = el('div', null, { className: 'lv-row' }); ex.dataset.liveExtra = '1';
+    const bStart = el('button', '시뮬 시작(30분)', { className: 'btn', onclick: startSim }), bReload = el('button', '새로고침(새 판)', { className: 'btn', onclick: reloadNow });
+    const exTxt = el('span'); exTxt.style.cssText = 'font-size:12px;color:var(--muted,#9AA7B3)'; ex.append(bStart, bReload, exTxt); drive.after(ex);
     const K = { ArrowUp: ['fx', 1], ArrowDown: ['fx', -1], ArrowLeft: ['fw', 1], ArrowRight: ['fw', -1] };
     addEventListener('keydown', (e) => {
       const k = K[e.key]; if (!k || drawer) return; e.preventDefault();
@@ -549,7 +647,7 @@
     });
     addEventListener('keyup', (e) => { if (keys.delete(e.key)) merge(); });
     wireStop();
-    const M = { siteLine, stepTitle, modeEl, opRole, cv, mapSvg, mapTitle, stepHead, vlabel, b1, b2, b3, motion, evBox, det, dl, box, bRes, bSt, drive,
+    const M = { siteLine, stepTitle, modeEl, opRole, cv, mapSvg, mapTitle, stepHead, vlabel, b1, b2, b3, motion, evBox, det, dl, box, bRes, bSt, drive, ex, bStart, bReload, exTxt,
       chips: $$('.chip', H), trail: [], ep: null, follow: store.get('fh.live.follow', false), zoom: 1, showTrail: true };
     const pressed = () => { fol.setAttribute('aria-pressed', String(M.follow)); fol.style.borderColor = M.follow ? 'var(--accent)' : ''; trailBtn.setAttribute('aria-pressed', String(M.showTrail)); };
     fol.addEventListener('click', () => { M.follow = !M.follow; pressed(); paint(); });
@@ -581,7 +679,12 @@
   }
   function paintMain(M) {
     const v = view(), s = v.s;
-    M.siteLine.textContent = TRIAL;
+    M.siteLine.textContent = `${TRIAL} · 판 ${firstVer || '—'}`;
+    const showStart = v.linkOk && simOff() && !!st.sim_start;
+    M.bStart.style.display = showStart ? '' : 'none'; if (showStart) { M.bStart.title = st.sim_start.why || '30분 시뮬 시작(STOP 상태로)'; M.bStart.style.opacity = st.sim_start.ok ? '' : '.55'; }
+    M.bReload.style.display = newVer() ? '' : 'none';
+    M.exTxt.textContent = [showStart ? `시뮬 꺼짐${st.sim_start.why ? ` · ${st.sim_start.why}` : ''}` : (sessTxt() ? `시뮬 세션 ${sessTxt()}` : ''), newVer() ? `새 화면 판 ${st.ver} 반영됨(이 화면 ${firstVer})` : ''].filter(Boolean).join(' · ');
+    M.ex.style.display = showStart || newVer() || sessTxt() ? '' : 'none';
     M.stepTitle.textContent = '직접 조종 시험 · 임무 없음'; M.stepTitle.title = v.flags;   // 원문 플래그는 툴팁으로
     M.modeEl.textContent = !v.linkOk ? '링크 끊김' : st.reset_pending ? '리셋 중' : st.resume_pending ? 'STOP 해제 대기' : v.latch ? 'STOP 요청' : role === 'control' ? '직접 조종' : '보기 전용';
     if (M.opRole) M.opRole.textContent = v.roleTxt;
@@ -647,12 +750,53 @@
     }
   }
 
+  // ---- 로그인(보호 관문) — 시안 로그인 화면에 실제 로그인을 붙인다. 예시 계정·비밀번호는 지운다 ----
+  function setupLogin() {
+    const f = $('form'), isPhone = PAGE === 'MLogin.dc.html';
+    const id = $(isPhone ? '#mid' : '#id'), pw = $(isPhone ? '#mpw' : '#pw'), dv = $('#dv');
+    id.value = ''; pw.value = ''; if (dv) { dv.value = ''; dv.placeholder = '예: 관제 노트북 · 기록에 남음'; }
+    const srv = byText('span', '현장 서버', f);
+    if (srv) {
+      srv.textContent = `v2 시뮬 관문 · ${location.host}`;
+      const sub = srv.nextElementSibling; if (sub) sub.textContent = GATED ? '이 PC 의 자체 인증서 · 경고가 뜨면 «설치·접속 안내»' : '보호 주소(https)가 아님 — 로그인 안 됨';
+    }
+    why(byText('a', '바꾸기', f), '연결할 서버는 이 주소 하나입니다');
+    const keep = f.querySelector('input[type=checkbox]');
+    if (keep) { keep.disabled = true; keep.parentElement.title = '로그인은 12시간 유지(관문을 다시 켜면 다시 로그인)'; keep.parentElement.lastChild.textContent = '로그인 12시간 유지 · 관문 재시작 시 다시 로그인'; }
+    const btn = byText('a', '로그인', f), view = byText('a', '보기 전용', f);
+    why(view, '보기 전용 계정은 없습니다 — 로그인 뒤 조종권을 받지 않으면 보기 전용(STOP 은 누구나)');
+    const msg = el('div'); msg.setAttribute('role', 'alert'); msg.style.cssText = 'min-height:20px;font-size:13px;color:#FF5A4F';
+    btn.before(msg);
+    const guide = el('a', '설치·접속 안내(QR·인증서·홈 화면 추가)', { href: 'start.html' }); guide.style.cssText = 'font-size:13px;color:var(--accent);text-align:center;padding:10px 0';
+    f.append(guide);
+    const nx = Q.get('next') || '', next = /^\/[\w.-]+\.html(\?[^#]*)?$/.test(nx) ? nx : (isPhone ? '/MDrive.dc.html?live=v2' : '/Main.dc.html?live=v2');
+    let busy = false;
+    const go = async (e) => {
+      e.preventDefault(); if (busy) return;
+      if (!GATED) { msg.textContent = '보호 주소(https://…:8453)에서만 로그인할 수 있습니다'; return; }
+      if (!id.value.trim() || !pw.value) { msg.textContent = '계정과 비밀번호를 넣으세요'; return; }
+      busy = true; btn.style.opacity = '.6'; msg.textContent = '확인 중…';
+      try {
+        const r = await fetch('api/login', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user: id.value.trim(), pw: pw.value, device: dv ? dv.value : (isPhone ? '휴대폰' : '') }) });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.ok) { msg.style.color = '#5AA9FF'; msg.textContent = '로그인됨 — 여는 중'; location.assign(next); return; }
+        msg.textContent = d.error || `로그인 실패(HTTP ${r.status})`;
+      } catch (err) { msg.textContent = `서버에 닿지 않음 · ${err.message || err}`; }
+      busy = false; btn.style.opacity = '';
+    };
+    btn.removeAttribute('href'); btn.setAttribute('role', 'button'); btn.tabIndex = 0; btn.style.cursor = 'pointer';
+    btn.addEventListener('click', go); f.addEventListener('submit', go);
+    btn.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') go(e); });
+  }
+
   let D, M;
   function paint() { if (D) paintDrive(D); if (M) paintMain(M); if (drawer) drawer.paint(); }
   function boot() {
     if (!document.getElementById('dc-root')) return setTimeout(boot, 50);
     if (PAGE === 'MDrive.dc.html') D = setupDrive();
     else if (PAGE === 'Main.dc.html') M = setupMain();
+    else if (LOGIN_PAGES.includes(PAGE)) return setupLogin();
     else return;
     guardLinks(); paint(); connect();
   }

@@ -1,0 +1,17 @@
+{
+  "name": "FOOTHOLD 조종 (v2 시뮬)",
+  "short_name": "FOOTHOLD",
+  "description": "Go2 v2 Gazebo 시뮬 조종 · 실기 아님",
+  "start_url": "MDrive.dc.html?live=v2",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "landscape",
+  "background_color": "#05080A",
+  "theme_color": "#05080A",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

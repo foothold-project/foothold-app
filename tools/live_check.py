@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""?live=v2 모의 시험 — 가짜 발행기(domain 88) + v2_link(8790) + headless Chrome 한 개(CDP). 실제 RL 근거가 아니다.
+"""?live=v2 모의 시험 — 가짜 발행기(domain 88) + v2_link(8791) + headless Chrome 한 개(CDP). 실제 RL 근거가 아니다.
   source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=88 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 tools/live_check.py <결과 폴더(없어야 함)>
 검사: 초기 state 없음 · 첫 누름=조종권만 · 시험값 · 같은 막대 두 손가락 · STOP/옛 STOP 뒤 재개 · RESET 중 입력 · 끊김/복구 ·
       형식 오류 입력 · 보기 전용 화면의 보낸 명령 · 시안 값 숨김 · 링크 안내 · 44 px 겹침 · ?live 없으면 시안 그대로."""
@@ -119,7 +119,7 @@ async def main():
         npx = sum(1 for px in d.getdata() if max(px) > 16)          # 글꼴 안티앨리어싱 잡음 허용: 16 초과 화소 20 개 이하
         check(f'?live 없음 {page}: live.js 유무 글자 같음·캡처 차이 화소 ≤20', a == b and npx <= 20, f'text_eq={a == b} px>16={npx}')
 
-    await c.go(f'{BASE}/MDrive.dc.html?live=v2', 844, 390, touch=True)
+    await c.go(f'{BASE}/MDrive.dc.html?live=v2&stickLayout=왼쪽 이동 · 오른쪽 회전', 844, 390, touch=True)
     q = lambda e: c.js(e)
     move = await q(f"{CENTER}(document.querySelector('[aria-label=\"이동 막대: 앞뒤와 옆걸음\"]'))")
     turn = await q(f"{CENTER}(document.querySelector('[aria-label=\"회전 막대: 왼쪽 오른쪽\"]'))")
@@ -225,19 +225,19 @@ async def main():
     check('복구 후 옛 입력 복원 없음', peer.st['applied'] == [0, 0, 0], f"{peer.st['applied']} latch={peer.st['latch']}")
     await peer.op(op='release'); await asyncio.sleep(0.3)
     # 8) MDrive 실모드: 시안 값 없음, 미니맵 → 안내
-    await c.go(f'{BASE}/MDrive.dc.html?live=v2', 844, 390, touch=True); t = await q(TEXT)
+    await c.go(f'{BASE}/MDrive.dc.html?live=v2&stickLayout=왼쪽 이동 · 오른쪽 회전', 844, 390, touch=True); t = await q(TEXT)
     leak = [w for w in DESIGN_FAKES if w in t]
     check('MDrive 실모드: 시안 예시값 없음 · 짧은 시험 문구', not leak and 'Gazebo · foothold-v2 시험 · 낙상·정지 지연 미검증' in t and 'online_ready=' not in t, str(leak))
     mm = await q(f"{CENTER}(document.querySelector('[aria-label=\"큰 지도 열기\"]'))")
     await c.touch('touchStart', [(20, *mm)]); await c.touch('touchEnd', []); await asyncio.sleep(0.5)
     url = await q('location.href'); t = await q(TEXT)
-    check('미니맵 누름 → 이동 없음 + 안내', url.endswith('MDrive.dc.html?live=v2') and '시안(미연결)' in t, url)
+    check('미니맵 누름 → 이동 없음 + 안내', 'MDrive.dc.html?live=v2' in url and '시안(미연결)' in t, url)
     # 9) 화면 숨김 → 조종권 해제
     await c.touch('touchStart', [(21, *move)]); await c.touch('touchEnd', []); await wait(lambda: peer.st['role'] == 'view_other')
     await q("Object.defineProperty(document, 'hidden', {value: true, configurable: true}); document.dispatchEvent(new Event('visibilitychange'))")
     check('화면 숨김 → 조종권 해제(보기 전용으로)', await wait(lambda: peer.st['role'] == 'view', 3), peer.st['role'])
     # 10) 넘어짐 표시(가짜 발행기 45 s 뒤 넘어짐)
-    await c.go(f'{BASE}/MDrive.dc.html?live=v2', 844, 390, touch=True)
+    await c.go(f'{BASE}/MDrive.dc.html?live=v2&stickLayout=왼쪽 이동 · 오른쪽 회전', 844, 390, touch=True)
     ok = await wait(lambda: peer.st['sim'] and peer.st['sim']['fallen'], 60); await asyncio.sleep(0.5); t = await q(TEXT)
     check('넘어짐 표시', ok and '넘어짐' in t, t[:200]); await c.shot('live-7-fallen')
     check('페이지 예외 0', not EXC, str(EXC))

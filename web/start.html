@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#05080A">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="FOOTHOLD">
+<title>FOOTHOLD 두 기기로 열기</title>
+<style>
+:root{--bg:#05080A;--panel:#12171C;--line:#26313A;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--warn:#FFB547}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.6 'IBM Plex Sans KR',system-ui,sans-serif;padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) 32px max(16px,env(safe-area-inset-left))}
+main{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+h1{font-size:22px;margin:8px 0 0}h2{font-size:17px;margin:0}
+p{margin:0;color:var(--muted)}
+section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.go{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.go a{display:flex;flex-direction:column;gap:2px;min-height:64px;justify-content:center;padding:10px 16px;border-radius:10px;background:var(--accent);color:#05080A;font-weight:700;text-decoration:none}
+.go a span{font-weight:500;font-size:13px}
+ol{margin:0;padding-left:22px;display:flex;flex-direction:column;gap:6px}
+code{font-family:'JetBrains Mono',ui-monospace,monospace;font-size:13px;word-break:break-all;color:var(--text)}
+.urls{display:flex;flex-wrap:wrap;gap:16px}
+.url{display:flex;flex-direction:column;gap:6px;align-items:flex-start}
+.qr{background:#fff;padding:8px;border-radius:8px;line-height:0}
+.warn{color:var(--warn)}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+  <h1>FOOTHOLD v2 시뮬 — PC 와 휴대폰으로 열기</h1>
+  <p class="warn">Gazebo 시뮬(foothold-v2 시험)입니다. 실제 Go2 가 아니고, 카메라는 시뮬 렌더입니다.</p>
+
+  <section aria-labelledby="h-go">
+    <h2 id="h-go">지금 이 기기에서 열기</h2>
+    <div class="go">
+      <a href="Main.dc.html?live=v2">PC 관제<span>지도 대신 GT 궤적 · 영상 · 사진 · 기록</span></a>
+      <a href="MDrive.dc.html?live=v2">휴대폰 조종<span>가로 화면 · 막대 · STOP</span></a>
+    </div>
+    <p id="here"></p>
+  </section>
+
+  <section aria-labelledby="h-phone">
+    <h2 id="h-phone">휴대폰 주소</h2>
+    <p>같은 Wi-Fi 이면 첫 주소, 밖에서는 Tailscale 을 켜고 둘째 주소. 로그인은 운영 앱과 같은 계정입니다.</p>
+    <div class="urls" id="urls"><p>주소 읽는 중…</p></div>
+  </section>
+
+  <section aria-labelledby="h-ios">
+    <h2 id="h-ios">iPhone — 처음 한 번</h2>
+    <ol>
+      <li>인증서: 휴대폰에서 <a href="ca.crt">ca.crt</a> 받기 → 설정 › 일반 › VPN 및 기기 관리에서 프로파일 설치 → 설정 › 일반 › 정보 › 인증서 신뢰 설정에서 «Go2 control app local CA» 켜기. 운영 앱(8443)에서 이미 했다면 건너뜁니다(같은 인증서).</li>
+      <li>Safari 로 위 휴대폰 주소를 열고 로그인합니다.</li>
+      <li>공유 버튼 → «홈 화면에 추가» → «웹 앱으로 열기» 켜고 추가.</li>
+      <li>홈 화면의 FOOTHOLD 아이콘으로 열면 주소창 없는 가로 화면입니다. 로그인 화면이 나오면 한 번 더 로그인합니다(iOS 판에 따라 Safari 로그인이 이어지기도 합니다).</li>
+    </ol>
+    <p>조종 화면의 ⛶ 버튼은 브라우저가 전체화면을 지원하면 전체화면으로, 지원하지 않으면 안내를 띄웁니다. 그때는 홈 화면 웹 앱으로 쓰면 주소창이 없습니다.</p>
+  </section>
+
+  <section aria-labelledby="h-not">
+    <h2 id="h-not">헷갈리기 쉬운 주소</h2>
+    <p><code>…:8780</code> 은 시안 미리보기(동작 안 함), <code>127.0.0.1:8790</code> 은 이 PC 전용(로그인 없음)입니다. 휴대폰은 위 <code>https://…:8453</code> 만 씁니다. 화면 아래·지도 상자에 «판» 이 보이고, 새 판이 반영되면 화면이 새로고침을 알려 줍니다.</p>
+  </section>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+(() => {
+  const box = document.getElementById('urls');
+  document.getElementById('here').textContent = `지금 연 주소: ${location.origin}`;
+  const show = (urls) => {
+    box.replaceChildren();
+    if (!urls.length) { box.append(Object.assign(document.createElement('p'), { textContent: '주소를 찾지 못함 — PC 에서 v2_gate 로그의 «열기» 줄을 보세요' })); return; }
+    for (const u of urls) {
+      const full = `${u}MDrive.dc.html?live=v2`, d = document.createElement('div'); d.className = 'url';
+      const c = document.createElement('code'); c.textContent = full; d.append(c);
+      if (window.qrcode) {                                   // QR 라이브러리를 못 받으면 주소 글자만
+        const q = qrcode(0, 'M'); q.addData(full); q.make();
+        const w = document.createElement('div'); w.className = 'qr'; w.innerHTML = q.createSvgTag({ cellSize: 4, margin: 2 });
+        w.firstElementChild.setAttribute('role', 'img'); w.firstElementChild.setAttribute('aria-label', `QR: ${full}`); d.prepend(w);
+      }
+      box.append(d);
+    }
+  };
+  fetch('api/hosts', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : Promise.reject(r.status))).then((d) => show(d.urls || [])).catch(() => show([]));
+})();
+</script>
+</body>
+</html>

@@ -17,8 +17,9 @@ Gazebo·정책·ingress 기동은 RL 소유. 이 서버는 Gazebo 를 띄우지 
 실행: source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=61 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 sim/v2_link.py
 자체검사(ROS 없이): python3 sim/v2_link.py --selftest
 """
-import argparse, json, math, os, sys, threading, time
+import argparse, json, math, os, re, subprocess, sys, threading, time
 from collections import deque
+from pathlib import Path
 
 PRESETS_NOTE = '시험한 명령: 0 · 앞 0.6 · 앞 0.6 + 회전 ±0.5'
 SCHEMA = 'v2_live/state/1'
@@ -89,13 +90,21 @@ class Core:
         self.intent = Z; self.intent_t = -1e9
         self.reason = ''; self.out = Z   # out = 마지막으로 발행한 명령
         self.events = deque(maxlen=30)
+        self.sink = None            # 사건 영구 기록(파일) — 실패해도 조종은 계속
         self.st = None; self.state_t = None; self.state_seq = 0; self.episode = None
         self.resume_pending = None  # (요청 시각, 그때 state_seq) — 시뮬이 stop_requested=false 를 보낼 때까지 0
         self.reset_pending = None   # 요청 시각
+        self.ep_change_t = None     # 마지막 episode 변경 시각
         self.sim_was_ok = False; self.bad_input = False; self.bad_state = False
 
     def ev(self, level, text):
-        self.events.appendleft({'t': time.strftime('%H:%M:%S'), 'st': level, 'text': text})
+        e = {'t': time.strftime('%H:%M:%S'), 'st': level, 'text': text}
+        self.events.appendleft(e)
+        if self.sink:
+            try:
+                self.sink(e)
+            except Exception:
+                pass
 
     def _void(self):
         """지금까지의 입력을 버린다. 다음 비영은 이 뒤에 새로 받은 손 뗌(0) 다음에만."""
@@ -123,6 +132,7 @@ class Core:
         if d['fallen'] and not (prev or {}).get('fallen'):
             self.ev('bad', '넘어짐 (시뮬 판정)')
         if self.episode is not None and d['episode'] != self.episode:
+            self.ep_change_t = self.now()               # 사진: 바뀐 직후 도착한 프레임은 옛 episode 렌더일 수 있음
             self.latch = True; self.resume_pending = None; self._void()
             self.ev('warn', f'새 에피소드 {d["episode"]} · STOP 유지')
         self.episode = d['episode']
@@ -133,16 +143,18 @@ class Core:
             self.latch = True; self._void(); self.ev('warn', '시뮬이 STOP 상태 · «STOP 해제» 필요')
         return True
 
-    def take(self, cid):
+    def take(self, cid, who='이 기기'):
         if self.controller not in (None, cid):
             return False
         if self.controller != cid:
-            self.controller = cid; self._void(); self.ev('ok', '조종권 얻음 · 이 기기')
+            self.controller = cid; self._void(); self.ev('ok', f'조종권 얻음 · {who}')
         return True
 
     def drop(self, cid, why):
+        """조종권을 잃으면(반납·끊김·숨김·로그아웃) 0 + STOP 잠금 — 다음 조종자는 «STOP 해제»부터(정지 뒤 재움직임 원인 미확인이라 보수적으로)"""
         if self.controller == cid:
-            self.controller = None; self._void(); self.ev('warn', f'조종권 해제 · {why} → 명령 0')
+            self.controller = None; self.latch = True; self.resume_pending = None; self._void()
+            self.ev('warn', f'조종권 해제 · {why} → 명령 0 · STOP 잠금')
 
     def cmd(self, cid, axes):
         """axes = valid_axes() 결과. None(형식 오류)이면 그 요청은 0 + 무효화."""
@@ -229,6 +241,142 @@ class Core:
         return c
 
 
+class Media:
+    """서버 보관 기록: 사진(서버가 받은 최신 프레임 그대로 — 업로드 없음)·사건. 파일 이름·경로는 서버가 만든다.
+    runs/app-media/photos/<날짜>/<시각>-ep<에피소드>-<번호>.jpg + photos.jsonl(사진 정보) + events.jsonl(사건)"""
+
+    def __init__(self, root):
+        self.root = Path(root); (self.root / 'photos').mkdir(parents=True, exist_ok=True); self.n = 0
+
+    def _append(self, name, d):
+        with open(self.root / name, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(d, ensure_ascii=False) + '\n')
+
+    def event(self, e):
+        self._append('events.jsonl', {'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), **e})
+
+    def photo(self, jpeg, meta):
+        self.n += 1
+        day, ts = time.strftime('%Y%m%d'), time.strftime('%H%M%S')
+        name = f'{ts}-ep{meta.get("episode")}-{os.getpid()}-{self.n}.jpg'
+        d = self.root / 'photos' / day; d.mkdir(exist_ok=True)
+        tmp = d / (name + '.tmp')
+        tmp.write_bytes(jpeg); os.replace(tmp, d / name)
+        meta = {**meta, 'saved_at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'bytes': len(jpeg), 'url': f'media/photos/{day}/{name}'}
+        self._append('photos.jsonl', meta)
+        return meta
+
+    def tail(self, name, n):
+        """마지막 n 건(깨진 줄은 건너뜀). ponytail: 파일 전체를 읽는다 — 수만 건이 되면 날짜별로 나눈다"""
+        try:
+            lines = (self.root / name).read_text(encoding='utf-8').splitlines()[-n:]
+        except FileNotFoundError:
+            return []
+        out = []
+        for l in lines:
+            try:
+                out.append(json.loads(l))
+            except ValueError:
+                pass
+        return out
+
+
+def actor_from_header(v):
+    """관문이 붙인 «계정 · 기기»(퍼센트 인코딩 UTF-8 — HTTP 헤더는 ASCII 만 안전). 형식이 틀리면 표시용 대체값"""
+    from urllib.parse import unquote
+    if not v:
+        return ''
+    try:
+        if not v.isascii():
+            raise ValueError
+        a = unquote(v, errors='strict')
+    except (ValueError, UnicodeDecodeError):
+        return '관문 기기(이름 해독 실패)'
+    return re.sub(r'[\x00-\x1f\x7f]', '', a).strip()[:48] or '관문 기기'
+
+
+SESSION_RESULTS = {'starting', 'ready', 'already_running', 'resource_blocked', 'budget_exhausted', 'failed'}
+
+
+def parse_session(out, code):
+    """RL 래퍼(request_session.sh, schema v2_session/1) 출력 → (결과, 표시 글). 형식이 틀리면 실패로(추정 없음)"""
+    for line in reversed((out or '').strip().splitlines()):
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(d, dict) and d.get('schema') == 'v2_session/1' and d.get('result') in SESSION_RESULTS:
+            extra = ' · '.join(f'{lab}{str(d[k])[:80]}' for k, lab in (('reason', ''), ('ends_at', '종료 예정 '), ('ledger_used', '기동 원장 ')) if d.get(k) is not None)
+            return d['result'], extra
+    return 'failed', f'래퍼 응답 형식 틀림(종료 {code})'
+
+
+class SimStart:
+    """«시뮬 시작(30분)» — 사용자가 누를 때만 RL 래퍼를 한 번 부른다. 동시 1건·120 s 쿨다운·재시도/연장 없음"""
+    COOL = 120.0
+
+    def __init__(self, wrapper, now=time.monotonic):
+        self.wrapper, self.now, self.busy, self.last = wrapper, now, False, -1e9
+        self.session = None         # session_status.sh 마지막 결과(읽기만) — running/starting/idle, 남은 시간
+
+    def refuse(self, sim_live):
+        if not self.wrapper:
+            return 'RL 래퍼 미설정 — 시뮬 시작 불가(RL 쪽에서 기동)'
+        if self.busy:
+            return '시작 요청 처리 중'
+        if sim_live:
+            return '시뮬이 이미 돌고 있음'
+        if (self.session or {}).get('result') in ('running', 'starting'):
+            return '시뮬 세션이 이미 켜지는 중·실행 중(RL 상태)'
+        left = self.COOL - (self.now() - self.last)
+        return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
+
+    def state(self, sim_live):
+        why = self.refuse(sim_live)
+        ss = self.session or {}
+        return {'ok': not why, 'why': why, 'busy': self.busy,
+                'session': {k: ss.get(k) for k in ('result', 'reason', 'started_at', 'ends_at', 'remaining_s')} if ss else None}
+
+    def poll(self):
+        """RL 상태 스크립트(읽기만, 약 0.05 s). 래퍼와 같은 폴더. 실패하면 None(추정 없음)"""
+        try:
+            r = subprocess.run([str(Path(self.wrapper).with_name('session_status.sh'))], capture_output=True, text=True, timeout=10)
+            d = json.loads(r.stdout.strip().splitlines()[-1])
+            self.session = d if isinstance(d, dict) and d.get('result') in ('running', 'starting', 'idle') else None
+        except Exception:
+            self.session = None
+        # 권장 주기: 켜지는 중 2 s, 그 밖 5 s
+        return 2.0 if self.busy or (self.session or {}).get('result') == 'starting' else 5.0
+
+
+def selftest_extra():
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        m = Media(td); meta = m.photo(b'\xff\xd8x', {'episode': 3, 'x': 1.0})
+        assert meta['url'].startswith('media/photos/') and meta['url'].endswith('.jpg') and '..' not in meta['url']
+        assert (Path(td) / meta['url'][len('media/'):]).read_bytes() == b'\xff\xd8x'
+        m.event({'t': '01:02:03', 'st': 'ok', 'text': 'a'})
+        with open(Path(td) / 'events.jsonl', 'a') as f:
+            f.write('깨진 줄\n')
+        m.event({'t': '01:02:04', 'st': 'ok', 'text': 'b'})
+        assert [e['text'] for e in m.tail('events.jsonl', 5)] == ['a', 'b'] and m.tail('none.jsonl', 5) == []
+    from urllib.parse import quote
+    assert actor_from_header(quote('tester · 휴대폰')) == 'tester · 휴대폰' and actor_from_header('') == ''
+    assert actor_from_header('%FF%FE') == '관문 기기(이름 해독 실패)' and actor_from_header('휴대폰') == '관문 기기(이름 해독 실패)'
+    assert actor_from_header(quote('a\nb' + 'x' * 99)) == 'ab' + 'x' * 46 and actor_from_header('%0A') == '관문 기기'
+    ok = '{"schema":"v2_session/1","result":"starting","ends_at":"02:30"}'
+    assert parse_session('로그\n' + ok, 0) == ('starting', '종료 예정 02:30')
+    assert parse_session('{"schema":"v2_session/1","result":"already_running","reason":"active"}', 3)[0] == 'already_running'
+    for bad in ['', 'x', '{"schema":"other","result":"ready"}', '{"schema":"v2_session/1","result":"yay"}']:
+        assert parse_session(bad, 1)[0] == 'failed', bad
+    t = [0.0]; s_ = SimStart(None, lambda: t[0]); assert s_.refuse(False).startswith('RL 래퍼 미설정')
+    s_ = SimStart('/x', lambda: t[0]); assert s_.refuse(False) == '' and s_.refuse(True)
+    s_.last = 0.0; t[0] = 60.0; assert s_.refuse(False).startswith('방금'); t[0] = 120.1; assert s_.refuse(False) == ''
+    s_.busy = True; assert s_.refuse(False) == '시작 요청 처리 중'
+    s_.busy = False; s_.session = {'result': 'starting'}; assert s_.refuse(False).startswith('시뮬 세션') and s_.state(False)['session']['result'] == 'starting'
+    s_.session = {'result': 'idle'}; assert s_.refuse(False) == ''
+
+
 def selftest():
     t = [0.0]; c = Core(now=lambda: t[0]); F = (1.0, 0.0, 0.0); N = Z
 
@@ -295,8 +443,10 @@ def selftest():
     assert c.reset_begin('a', True); t[0] += 35.1; st(stop=True, ep=3); c.applied(); assert not c.reset_pending and c.latch
     c.reset_done(True, 'late'); assert c.latch                         # 시간 초과 뒤 늦은 응답은 무시
     # 조종권 해제·새 조종권
-    c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z
+    c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
+    st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
+    selftest_extra()
     print('selftest OK')
 
 
@@ -304,6 +454,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--port', type=int, default=8790)
     ap.add_argument('--web', default=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'web'))
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    ap.add_argument('--media', default=os.path.join(repo, 'runs', 'app-media'), help='서버 보관 사진·사건 폴더')
+    ap.add_argument('--sim-start', default=None, help='RL 래퍼(request_session.sh) 절대경로. 없으면 «시뮬 시작» 버튼은 이유만 보임')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -319,11 +472,33 @@ def main():
     import tornado.ioloop, tornado.web, tornado.websocket
 
     core = Core(); lock = threading.Lock()
-    sim = {'jpeg': None, 'jpeg_t': None, 'jpeg_n': 0}
+    sim = {'jpeg': None, 'jpeg_t': None, 'jpeg_n': 0, 'jpeg_wall': None, 'jpeg_stamp': None, 'jpeg_ep': None, 'jpeg_reset': False}
+    media = Media(a.media); core.sink = media.event
+    starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
+    photo_last = [0.0]
+    if starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file():
+        def poll_loop():
+            while True:
+                time.sleep(starter.poll())
+        threading.Thread(target=poll_loop, daemon=True).start()
+    ver = {'t': -1e9, 'v': '미확인'}
+
+    def version():                  # 지금 디스크의 판(커밋 + 미커밋 수정 여부). 열린 탭이 옛 판인지 화면이 비교한다
+        if time.monotonic() - ver['t'] > 5:
+            try:
+                h = subprocess.run(['git', '-C', repo, 'rev-parse', '--short', 'HEAD'], capture_output=True, text=True, timeout=3).stdout.strip()
+                d = subprocess.run(['git', '-C', repo, 'status', '--porcelain', '--', 'web', 'sim'], capture_output=True, text=True, timeout=3).stdout.strip()
+                ver['v'] = (h or '미확인') + ('+수정' if d else '')
+            except Exception:
+                ver['v'] = '미확인'
+            ver['t'] = time.monotonic()
+        return ver['v']
     clients = {}
     allowed_origins = {f'http://127.0.0.1:{a.port}', f'http://localhost:{a.port}'}
 
-    rclpy.init(); node = Node('fh_app_v2_link')
+    from rclpy.signals import SignalHandlerOptions
+    # rclpy 기본 SIGINT 처리기는 컨텍스트를 먼저 닫아 아래 «끝낼 때 0» 발행이 실패한다 → Ctrl+C 는 파이썬 KeyboardInterrupt 로 받는다
+    rclpy.init(signal_handler_options=SignalHandlerOptions.NO); node = Node('fh_app_v2_link')
     rel = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST)
     pub_cmd = node.create_publisher(Twist, '/v2_live/cmd_vel', rel)
     pub_stop = node.create_publisher(Empty, '/v2_live/stop', rel)
@@ -349,6 +524,10 @@ def main():
     def on_cam(m):
         with lock:
             sim['jpeg'] = bytes(m.data); sim['jpeg_t'] = time.monotonic(); sim['jpeg_n'] += 1
+            sim['jpeg_wall'] = time.time(); sim['jpeg_stamp'] = m.header.stamp.sec + m.header.stamp.nanosec * 1e-9
+            # 받은 순간의 episode·리셋 여부(사진 저장 때 대조 — 옛 episode 프레임이 새 episode 에 붙지 않게)
+            sim['jpeg_ep'] = core.episode
+            sim['jpeg_reset'] = bool(core.reset_pending or (core.st or {}).get('reset_in_progress'))
 
     node.create_subscription(String, '/v2_live/state', on_state, rel)
     node.create_subscription(CompressedImage, '/v2_live/camera/compressed', on_cam, QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST))
@@ -363,23 +542,95 @@ def main():
         if want_stop and time.monotonic() - last_stop_pub[0] > 0.5:
             pub_stop.publish(Empty()); last_stop_pub[0] = time.monotonic()
 
-    def snapshot(cid):
+    def sim_live():                 # 시뮬이 지금 돌고 있나(시작 버튼 거부용)
+        return core.st is not None and core.state_t is not None and time.monotonic() - core.state_t < 3
+
+    def snapshot(c):
+        cid = c.cid
         now = time.monotonic()
+        v = version()
         with lock:
+            holder = clients[core.controller].actor if core.controller in clients else None
             age = None if core.state_t is None else round(now - core.state_t, 2)
             cam_age = None if sim['jpeg_t'] is None else round(now - sim['jpeg_t'], 2)
             role = 'control' if core.controller == cid else ('view_other' if core.controller else 'view')
             # 서버 출력(applied)·이유는 누구나 같은 값을 읽는다. role 은 송신 허용에만 쓴다
             return {'op': 'status', 'role': role, 'latch': core.latch, 'applied': list(core.out), 'reason': core.reason,
                     'sim_block': core.sim_block(), 'resume_pending': bool(core.resume_pending), 'reset_pending': core.reset_pending is not None,
-                    'episode': core.episode, 'ros_domain': os.environ.get('ROS_DOMAIN_ID'), 'state_age': age, 'cam_age': cam_age, 'sim': core.st, 'events': list(core.events)[:6], 'note': PRESETS_NOTE}
+                    'episode': core.episode, 'ros_domain': os.environ.get('ROS_DOMAIN_ID'), 'state_age': age, 'cam_age': cam_age, 'sim': core.st, 'events': list(core.events)[:6], 'note': PRESETS_NOTE,
+                    'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live())}
+
+    def reply(c, rid, ok, text, **kw):
+        try:
+            c.write_message(json.dumps({'op': 'reply', 'rid': rid, 'ok': ok, 'text': text, **kw}, ensure_ascii=False))
+        except tornado.websocket.WebSocketClosedError:
+            pass
+
+    def take_photo(c, rid):
+        """서버가 가진 최신 프레임을 저장한다. 위치(GT)는 저장 요청 때 받은 최신 상태값이다 — 프레임 시각에 맞춘 동기 GT 가 아니다.
+        episode 연관은 확인될 때만 저장: 프레임·상태 1 s 안, 리셋 아님, 프레임 받을 때와 지금의 episode 같음, episode 바뀐 뒤 1 s 지남"""
+        now = time.monotonic()
+        with lock:
+            if now - photo_last[0] < 0.5:
+                return reply(c, rid, False, '사진 실패 · 너무 빠름(0.5 s 에 한 장)')
+            if sim['jpeg'] is None or now - sim['jpeg_t'] > 1.0:
+                return reply(c, rid, False, '사진 실패 · 지금 받은 영상 없음(1 s 안의 프레임 없음)')
+            st = core.st if core.state_t is not None and now - core.state_t <= 1.0 else None
+            # ponytail: 바뀐 직후 1 s 는 옛 렌더가 섞일 수 있어 거부(지연 실측 없음). 프레임에 episode 가 실리면 그걸로 대조
+            why = ('시뮬 상태 없음(1 s 안)' if st is None else '리셋 중' if core.reset_pending or st.get('reset_in_progress') or sim['jpeg_reset']
+                   else 'episode 바뀜(프레임과 연관 미확인)' if sim['jpeg_ep'] != core.episode
+                   or (core.ep_change_t is not None and min(now, sim['jpeg_t']) - core.ep_change_t < 1.0) else '')
+            if why:
+                return reply(c, rid, False, f'사진 실패 · {why} — 잠시 뒤 다시')
+            photo_last[0] = now
+            jpeg = sim['jpeg']
+            meta = {'frame_at': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(sim['jpeg_wall'])) + f'.{int(sim["jpeg_wall"] % 1 * 1000):03d}' + time.strftime('%z'),
+                    'frame_stamp_sim_s': sim['jpeg_stamp'], 'episode': core.episode, 'by': c.actor,
+                    'source': st.get('source'), 'x': st.get('x'), 'y': st.get('y'), 'yaw': st.get('yaw'),
+                    'gt_note': '위치 = 저장 요청 때 받은 최신 GT(프레임 동기 아님)', 'gt_age_s': round(now - core.state_t, 2),
+                    'camera': 'Gazebo 렌더(실카메라 아님)'}
+        try:
+            meta = media.photo(jpeg, meta)
+        except OSError as e:
+            return reply(c, rid, False, f'사진 저장 실패 · {type(e).__name__}')
+        with lock:
+            core.ev('ok', f'사진 저장 · {c.actor} · episode {meta["episode"]}')
+        reply(c, rid, True, '사진 서버 저장', photo=meta)
+
+    def start_sim(c, rid):
+        with lock:
+            why = starter.refuse(sim_live())
+            if why:
+                core.ev('warn', f'시뮬 시작 거부 · {why}'); return reply(c, rid, False, why)
+            starter.busy = True; starter.last = time.monotonic()
+            core.latch = True; core._void()            # 시작 전에도 잠금 — 새 시뮬은 STOP 상태로 시작(계약), 앱도 같은 상태로
+            core.ev('warn', f'시뮬 시작 요청(30분) · {c.actor} · STOP 상태로 시작')
+        reply(c, rid, True, '시뮬 시작 요청함 — 준비되면 영상·상태가 들어옵니다')
+
+        def run():                  # ROS·웹 스레드를 막지 않게 따로. 재시도·연장 없음
+            try:
+                r = subprocess.run([starter.wrapper], capture_output=True, text=True, timeout=240)
+                res, extra = parse_session(r.stdout, r.returncode)
+            except Exception as e:
+                res, extra = 'failed', type(e).__name__
+            ok_ = res in ('starting', 'ready')
+            text = {'starting': '시뮬 기동 중 · 상태·영상 연결은 화면 표시로 판정(안전 준비 판정 아님)',
+                    'ready': '시뮬 상태·영상 수신 확인(안전 준비 판정 아님 · STOP 상태)', 'already_running': '이미 실행 중',
+                    'resource_blocked': '자원 부족으로 기동 안 함', 'budget_exhausted': '오늘 기동 횟수 소진', 'failed': '기동 실패'}[res]
+            with lock:
+                starter.busy = False
+                core.ev('ok' if ok_ else 'bad', f'시뮬 시작 결과 · {text}{" · " + extra if extra else ""}')
+        threading.Thread(target=run, daemon=True).start()
 
     class WS(tornado.websocket.WebSocketHandler):
         def check_origin(self, origin):
             return origin in allowed_origins          # 다른 웹페이지가 이 포트로 조종하지 못하게
 
         def open(self):
-            self.cid = f'c{id(self)}'; self.cam_n = -1; clients[self.cid] = self
+            self.cid = f'c{id(self)}'; self.cam_n = -1
+            # 보호 관문(v2_gate)이 붙인 «계정 · 기기». 8790 은 127.0.0.1 전용이라 이 PC 안의 프로세스만 쓸 수 있다(신뢰 경계 = 이 PC)
+            self.actor = actor_from_header(self.request.headers.get('X-FH-Actor', '')) or '이 PC(127.0.0.1)'
+            clients[self.cid] = self
 
         def on_message(self, raw):
             try:
@@ -391,7 +642,7 @@ def main():
             op = m.get('op')
             with lock:
                 if op == 'take':
-                    core.take(self.cid)
+                    core.take(self.cid, self.actor)
                 elif op == 'release':
                     core.drop(self.cid, '화면에서 놓음')
                 elif op == 'cmd':
@@ -407,6 +658,11 @@ def main():
                         cli_reset.call_async(Trigger.Request()).add_done_callback(reset_done)
                 elif op == 'hidden':
                     core.drop(self.cid, '화면 숨김')
+            rid = m.get('rid') if type(m.get('rid')) is int else None
+            if op == 'photo':
+                take_photo(self, rid)
+            elif op == 'sim_start':
+                start_sim(self, rid)
 
         def on_close(self):
             clients.pop(self.cid, None)
@@ -415,7 +671,7 @@ def main():
 
     def push():                     # 10 Hz: 상태 + 새 영상
         for c in list(clients.values()):
-            s = snapshot(c.cid)
+            s = snapshot(c)
             with lock:
                 jpeg, n = sim['jpeg'], sim['jpeg_n']
             try:
@@ -429,7 +685,14 @@ def main():
         def set_extra_headers(self, path):
             self.set_header('Cache-Control', 'no-store')
 
-    app = tornado.web.Application([(r'/ws', WS), (r'/(.*)', NoCache, {'path': a.web, 'default_filename': 'index.html'})])
+    class MediaList(tornado.web.RequestHandler):
+        def get(self):              # 서버 보관 기록(모든 기기 공통). 예시 데이터 아님
+            self.set_header('Cache-Control', 'no-store')
+            self.finish({'photos': media.tail('photos.jsonl', 200)[::-1], 'events': media.tail('events.jsonl', 300)[::-1], 'ver': version()})
+
+    app = tornado.web.Application([(r'/ws', WS), (r'/api/media', MediaList),
+                                   (r'/media/(photos/\d{8}/[\w.-]+\.jpg)', NoCache, {'path': a.media}),
+                                   (r'/(.*)', NoCache, {'path': a.web, 'default_filename': 'index.html'})])
     app.listen(a.port, address='127.0.0.1')
     tornado.ioloop.PeriodicCallback(tick, 50).start()
     tornado.ioloop.PeriodicCallback(push, 100).start()

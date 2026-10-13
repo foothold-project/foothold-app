@@ -3,7 +3,8 @@
   source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=88 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 tools/live_ui_check.py <결과 폴더(없어야 함)>
 검사(요청 기능만): 시안 안내·index 진입 · Main 조종권 받기/반납·누름 버튼(앞·아크)·이유 버튼 · 영상 크게 보기(STOP·Esc 폐기) ·
       사진(영상 없음 거부·저장·내려받기) · 궤적 확대/축소/따라가기/숨김 · 상태 상세 · 기록/로봇/설정 패널·테마 저장 ·
-      MDrive 조종권 받기/반납·마우스 막대·전체화면·이유 버튼 · 화면 떠남 → 0."""
+      MDrive 조종권 받기/반납·마우스 막대·전체화면·이유 버튼 · 화면 떠남 → 0.
+      (두 기기 판) 사진 서버 저장·서버 기록 목록 · 시뮬 시작 버튼(가짜 래퍼: 호출 1회·쿨다운 거부) · 휴대폰 맞춤(874×402·844×390·주소창 낮음·세로) · 막대 배치 바꾸기."""
 import asyncio, base64, json, os, signal, subprocess, sys, tempfile, time, urllib.request
 from tornado.websocket import websocket_connect
 from tornado.httpclient import HTTPRequest
@@ -127,14 +128,16 @@ async def main():
     await mouse(BTN.format('후진·제자리 회전')); await asyncio.sleep(0.3)
     t = await toast(); check('후진·제자리 회전: 누르면 미검증 이유', '검증 안 됨' in t, t)
 
-    # 4) 사진 저장·기록·내려받기
+    # 4) 사진: 서버 저장(모든 기기 공통) + PC 는 내려받기
     await mouse(BTN.format('사진 찍기')); await asyncio.sleep(1.5)
     t = await toast(); files = os.listdir(f'{OUT}/dl') if os.path.isdir(f'{OUT}/dl') else []
-    check('사진: 찍으면 JPEG 바로 내려받기 + 프레임 수신 시각·좌표 안내', t.startswith('사진 내려받기 요청 · 프레임 수신') and ' x ' in t and sum(f.endswith('.jpg') for f in files) == 1, [t, files])
-    await js("window._cib = window.createImageBitmap; window.createImageBitmap = () => Promise.reject(new Error('decode'))")
-    await mouse(BTN.format('사진 찍기')); await asyncio.sleep(0.4); t = await toast()
-    check('사진: 프레임 디코드 실패 → 실패 안내', t.startswith('사진 실패 · 영상 프레임을 읽을 수 없음'), t)
-    await js("window.createImageBitmap = window._cib")
+    srv = [f for _, _, fs in os.walk(f'{OUT}/media/photos') for f in fs if f.endswith('.jpg')]
+    meta = [json.loads(l) for l in open(f'{OUT}/media/photos.jsonl')] if os.path.exists(f'{OUT}/media/photos.jsonl') else []
+    check('사진: 서버 저장 1장 + 내려받기 + 프레임 수신 시각·좌표 안내', t.startswith('사진 서버 저장 + 내려받기 요청 · 프레임 수신') and ' x ' in t
+          and sum(f.endswith('.jpg') for f in files) == 1 and len(srv) == 1, [t, files, srv])
+    check('사진 정보: 찍은 기기·episode·GT·Gazebo 렌더 표시', len(meta) == 1 and meta[0]['by'] == '이 PC(127.0.0.1)' and meta[0]['camera'].startswith('Gazebo') and meta[0]['x'] is not None, meta)
+    r2 = await js("Promise.all([1, 2].map(() => new Promise((ok) => { const w = new WebSocket(location.origin.replace('http', 'ws') + '/ws'); w.onmessage = (e) => { if (typeof e.data !== 'string') return; const m = JSON.parse(e.data); if (typeof e.data !== 'string') return; if (m.op === 'status') w.send(JSON.stringify({ op: 'photo', rid: 9 })); if (m.op === 'reply') { ok(m.ok); w.close(); } }; })))")
+    check('사진: 0.5 s 안 두 장 → 한 장 거부', sorted(r2 or []) == [False, True], r2)
 
     # 5) 지도 궤적: 확대/축소/따라가기/숨김 · 레이어 이유
     V = "document.querySelector('canvas').dataset.view"
@@ -152,10 +155,12 @@ async def main():
     check('상태 상세 펼침: 서버 원값', await js("document.querySelector('details[open] dl')?.innerText.includes('sim.x')"))
     await mouse("document.querySelector('nav a[data-design-href=\"PcHistory.dc.html\"]')"); await asyncio.sleep(0.3)
     rec = await js("document.querySelector('[role=dialog]')?.innerText || ''")
-    check('메뉴 «기록» → 실제 기록 패널(사진 1장·조종 기록)', '사진 1장' in rec and '조종 기록' in rec, rec[:200])
+    await asyncio.sleep(1.0); rec = await js("document.querySelector('[role=dialog]')?.innerText || ''")
+    check('메뉴 «기록» → 서버 사진 2장·서버 사건·이 브라우저 조작 기록', '사진 2장 · 서버 보관' in rec and '서버 사건' in rec and '조작 기록' in rec, rec[:300])
+    check('기록 패널: 사진 미리보기 실제 로드', await js("[...document.querySelectorAll('[role=dialog] img')].some(i => i.complete && i.naturalWidth > 0)"))
     check('기록 패널: 예전 기록 읽기 실패 안내 · 원래 값 보존', '읽기 실패' in rec and await js("localStorage.getItem('fh.live.log.v1') === '{\"x\":1}'"), rec[:300])
-    await mouse(BTN.format('내려받기')); await asyncio.sleep(0.3); t = await toast()
-    check('기록 패널에서 사진 다시 내려받기 요청', t.startswith('내려받기 요청: foothold-v2-') and '.jpg' in t, t)
+    await mouse(BTN.format('원본 내려받기')); await asyncio.sleep(1.5)
+    files = os.listdir(f'{OUT}/dl'); check('기록 패널에서 원본 다시 내려받기', sum(f.endswith('.jpg') for f in files) == 2, files)
     await mouse(BTN.format('CSV 내보내기')); await asyncio.sleep(1.5)
     files = os.listdir(f'{OUT}/dl'); check('조종 기록 CSV 내보내기', any(f.endswith('.csv') for f in files), files)
     await shot('3-records'); await key('Escape'); await asyncio.sleep(0.2)
@@ -189,12 +194,51 @@ async def main():
     await mouse("document.querySelector('[aria-label=\"비상 정지(확대 화면)\"]')", 'down')
     check('확대 화면 STOP → 잠금', await until(lambda: st['latch'] and st['applied'] == [0, 0, 0], 2))
     await key('Escape'); await asyncio.sleep(0.3)
-    # 사진 확인(디코드) 중 리셋 → 섞인 사진 저장 거부
-    await js("window.createImageBitmap = (b) => new Promise((r) => setTimeout(() => r({ close() {} }), 1500))")
-    await mouse(BTN.format('사진 찍기')); await mouse(BTN.format('시뮬 리셋')); await asyncio.sleep(2.0); t = await toast()
-    check('사진 확인 중 리셋 → 섞인 사진 거부', t.startswith('사진 실패 · 확인 중 재연결·리셋'), t)
-    await js("window.createImageBitmap = window._cib"); await until(lambda: not st['reset_pending'], 10)
+    await mouse(BTN.format('시뮬 리셋')); await asyncio.sleep(0.5); await until(lambda: not st['reset_pending'], 10)
     await mouse(BTN.format('조종권 반납')); await asyncio.sleep(0.5); check('«조종권 반납» → 보기 전용', not await page_role())
+    await mouse(BTN.format('조종권 받기')); await asyncio.sleep(0.5)
+    await mouse(BTN.format('조종권 반납')); await asyncio.sleep(0.5)
+    check('조종권 반납 뒤 STOP 잠금(서버)', st.get('latch') is True and st.get('applied') == [0, 0, 0], [st.get('latch'), st.get('applied')])
+
+    # 7b) 시뮬 시작(30분): 시뮬 꺼짐에만 버튼 · 확인 창 · 가짜 래퍼 1회 · 쿨다운 거부
+    check('시뮬 켜져 있으면 시작 버튼 숨김', not await js("[...document.querySelectorAll('button')].some(b => b.getClientRects().length && b.textContent.startsWith('시뮬 시작'))"))
+    stop('fake'); await until(lambda: (st.get('sim_start') or {}).get('ok'), 10); await asyncio.sleep(0.5)
+    await js("window.confirm = () => true"); await shot('5b-sim-off')
+    await mouse(BTN.format('시뮬 시작(30분)')); await asyncio.sleep(1.5); t = await toast()
+    calls = open(f'{OUT}/wrap/calls.txt').read().count('\n') if os.path.exists(f'{OUT}/wrap/calls.txt') else 0
+    check('시뮬 시작 → 확인 뒤 래퍼 1회 · STOP 잠금', t.startswith('시뮬 시작 요청함') and calls == 1 and st['latch'], [t, calls])
+    await asyncio.sleep(3.6)
+    await mouse(BTN.format('시뮬 시작(30분)')); await asyncio.sleep(0.6); t = await toast()
+    calls = open(f'{OUT}/wrap/calls.txt').read().count('\n')
+    check('바로 다시 누름 → 쿨다운 거부 · 래퍼 그대로 1회', '방금 요청함' in t and calls == 1, [t, calls])
+    ev = [e['text'] for e in st.get('events', [])]
+    check('래퍼 결과 기록(시뮬 기동 중 · 안전 준비 판정 아님)', any('시뮬 기동 중' in e and '안전 준비 판정 아님' in e for e in ev), ev)
+    check('RL 상태 원값(세션 꺼짐) 표시', (st.get('sim_start') or {}).get('session', {}).get('result') == 'idle' and '시뮬 세션' in await js("document.body.innerText"), st.get('sim_start'))
+    start('fake', FAKE + ['--camera']); await until(lambda: st.get('cam_age') is not None and st['cam_age'] < 1 and not st['sim_block'], 15)
+
+    # 8a) 휴대폰 맞춤: iPhone 16 Pro 가로 874×402 · 주소창 있는 낮은 높이 · 844×390 · 세로(안내)
+    await call('Emulation.setUserAgentOverride', userAgent='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/129.0 Mobile/15E148 Safari/604.1')
+    FIT = "[document.querySelector('[data-live-fit]')?.dataset.liveFit, getComputedStyle([...document.querySelectorAll('[role=note]')].pop()).display, document.documentElement.scrollWidth <= innerWidth]"
+    await go('MDrive.dc.html?live=v2', 874, 402, mobile=True); f1 = await js(FIT); await shot('6a-fit-874x402')
+    check('MDrive 기본 막대 배치 «왼쪽 회전 · 오른쪽 앞뒤»', await js("new URLSearchParams(location.search).get('stickLayout')") == '왼쪽 회전 · 오른쪽 앞뒤')
+    await go('MDrive.dc.html?live=v2', 874, 330, mobile=True); f2 = await js(FIT); await shot('6b-fit-874x330')
+    await go('MDrive.dc.html?live=v2', 844, 390, mobile=True); f3 = await js(FIT)
+    await go('MDrive.dc.html?live=v2', 402, 874, mobile=True); f4 = await js(FIT); await shot('6c-fit-portrait')
+    check('휴대폰 맞춤: 874×402 원크기 · 낮은 높이 축소 · 844×390 · 세로 안내 · 가로 넘침 없음',
+          f1[0] == '874x402@1.00' and f2[0] == '874x330@0.85' and f3[0] == '844x390@1.00' and f4[0].endswith('@0.57') and f4[1] == 'block' and f1[1] == 'none'
+          and all(f[2] for f in (f1, f2, f3, f4)), [f1, f2, f3, f4])
+    # 막대 배치 바꾸기(설정) → 저장·다시 열림 → 원래대로
+    await go('MDrive.dc.html?live=v2', 874, 402, mobile=True)
+    await mouse("document.querySelector('button[aria-label=\"안내·설정\"]')"); await asyncio.sleep(0.3)
+    await mouse(BTN.format('막대 배치:')); await asyncio.sleep(2.5)
+    lay = await js("[new URLSearchParams(location.search).get('stickLayout'), localStorage.getItem('fh.live.layout')]")
+    check('설정 «막대 배치» → «왼쪽 이동 · 오른쪽 회전» 저장·다시 열림', lay == ['왼쪽 이동 · 오른쪽 회전', '"왼쪽 이동 · 오른쪽 회전"'], lay)
+    await go('MDrive.dc.html?live=v2', 874, 402, mobile=True)
+    check('다음에 열 때 저장된 배치', await js("new URLSearchParams(location.search).get('stickLayout')") == '왼쪽 이동 · 오른쪽 회전')
+    await js("localStorage.setItem('fh.live.layout', JSON.stringify('왼쪽 회전 · 오른쪽 앞뒤'))")
+    await mouse("document.querySelector('button[aria-label=\"사진 찍기\"]')"); await asyncio.sleep(1.0); t = await toast()
+    check('휴대폰 사진: 서버 저장 안내(내려받기 없음)', '서버 저장' in t and '기록' in t, t)
+    await call('Emulation.setUserAgentOverride', userAgent='')
 
     # 8) MDrive: 조종권 받기 버튼·마우스 막대·전체화면·이유·반납
     await go('MDrive.dc.html?live=v2', 844, 390, mobile=False)
@@ -203,7 +247,7 @@ async def main():
     check('MDrive «조종권 받기» 버튼 → 조종', await page_role())
     if st.get('latch'): await mouse(BTN.format('STOP 해제')); await until(lambda: not st['latch'], 5)
     await asyncio.sleep(0.4)
-    mv = await center("document.querySelector('[aria-label=\"이동 막대: 앞뒤와 옆걸음\"]')")
+    mv = await center("document.querySelector('[aria-label=\"앞뒤 막대\"],[aria-label=\"이동 막대: 앞뒤와 옆걸음\"]')")
     await call('Input.dispatchMouseEvent', type='mousePressed', x=mv[0], y=mv[1], button='left', buttons=1, clickCount=1)
     await call('Input.dispatchMouseEvent', type='mouseMoved', x=mv[0], y=mv[1] - 70, button='left', buttons=1)
     check('MDrive 마우스로 막대 앞 → 0.6', await until(lambda: st['applied'] == [0.6, 0, 0], 2), st.get('applied'))
@@ -230,7 +274,12 @@ FAKE = [sys.executable, 'tools/fake_v2_live.py']
 chrome = None
 try:
     start('fake', FAKE)
-    start('link', [sys.executable, 'sim/v2_link.py', '--port', str(PORT)])
+    # 가짜 RL 래퍼(시험 전용): 부르면 한 줄 기록 + starting, 상태는 idle. 실제 래퍼·Gazebo 는 부르지 않는다
+    os.makedirs(f'{OUT}/wrap')
+    for n, body in (('request_session.sh', f'echo called >> {OUT}/wrap/calls.txt\necho \'{{"schema":"v2_session/1","result":"starting","reason":"fake","ends_at":"2026-01-01T00:30:00+09:00","ledger_used":0}}\'\n'),
+                    ('session_status.sh', 'echo \'{"schema":"v2_session/1","result":"idle","remaining_s":null}\'\n')):
+        open(f'{OUT}/wrap/{n}', 'w').write('#!/bin/sh\n' + body); os.chmod(f'{OUT}/wrap/{n}', 0o755)
+    start('link', [sys.executable, 'sim/v2_link.py', '--port', str(PORT), '--media', f'{OUT}/media', '--sim-start', f'{OUT}/wrap/request_session.sh'])
     chrome = subprocess.Popen(['/opt/google/chrome/chrome', '--headless=new', f'--remote-debugging-port={DBG}', f'--user-data-dir={tempfile.mkdtemp()}',
                                '--no-first-run', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     time.sleep(2)
