@@ -1,43 +1,112 @@
-# 최종 bundled B 연결 — 결정안 초안 (2026-10-13, 설계만)
+# 최종 bundled B 연결 — 결정안 초안 2판 (2026-10-13, 설계만)
 
-상태: **초안. 코드·서버·운영 변경 0, 실행 0.** 이 문서만으로 B 가 됐다고 하지 않는다. 서버 쪽 변경(아래 S1~S4)은 서버 담당·앱 Codex 검수 뒤에만.
-근거로 읽은 것: `sim/v2_gate.py`(마지막 변경 커밋 2dfc0e9), `phone_gate.py` 의 `same_origin`·`Sessions`(읽기만), Capacitor 8.5.2 설치본, A 검증 1~5회차(`mobile/README.md`).
+상태: **초안. 코드·서버·운영 변경 0, 설치·실행 0.** 이 문서만으로 B 가 됐다고 하지 않는다.
+소유: 서버 쪽(S1~S4) = 고정 앱 mentor · `mobile/**` 설계와 네이티브 경계 = 모바일 mentor. 구현 GO 는 앱 Codex 판정 뒤.
+1판(3fc9dc3) 대비: 앱 Codex 방향검수 7건 반영 — 토큰을 JS 에 주지 않는 어댑터, 사진·내려받기 경로, 로그아웃·주소변경·만료 순서와 연결 세대, WS 표 결속, Origin 명시·redirect 금지·CSRF 단정 삭제, 네이티브 TLS 오류 분류, S1~S4 계약.
 
-## 1. 왜 A 를 그대로 최종으로 못 쓰나
+읽은 근거
+- 관문: `sim/v2_gate.py`(2dfc0e9) — 쿠키 `fh2_s`·`fh2_dev` `HttpOnly; Secure; SameSite=Strict; Path=/`, `--ttl` 기본 12 h(메모리 세션), 로그인 동시 2·실패 제한, `/ws` `check_origin`=`same_origin`, 로그아웃·만료 때 그 세션 WS 4401, 허용 안 된 메시지 4403, 사진은 `/(api/media|media/photos/\d{8}/[\w.-]+\.jpg)` GET 만 로그인 뒤 중계. `phone_gate.py` `same_origin`·`Sessions`(읽기만).
+- 화면(recovered UI, 판 미확인): 사진 `<img src={x.url}>`(x.url = `media/photos/…`), 목록 `fetch('api/media', {credentials:'same-origin'})`, CSV·JSON 은 이미 받은 자료로 JS 가 만들어 `saveBlob`(`<a download>` + blob URL), WS 는 `new URL('ws', location.href)`.
+- 공식: Capacitor HTTP https://capacitorjs.com/docs/apis/http (JS 에 `HttpResponse.data`·`headers` 반환, `disableRedirects`) · WHATWG WebSockets https://websockets.spec.whatwg.org/ (생성자는 `url`·`protocols` 만, 헤더 못 붙임, `error` 이벤트에 원인 없음) · Capacitor 설정 https://capacitorjs.com/docs/config (`server.url` 은 production 용 아님) · Android 네트워크 보안 설정 https://developer.android.com/privacy-and-security/security-config.
 
-- Capacitor 공식 설정 문서: `server.url` 은 live reload·개발용이지 production 용이 아니다. 최종 앱은 화면을 앱 안(bundled)에 싣는다.
-- bundled 화면의 출처는 Android `https://localhost`, iOS `capacitor://localhost` 다. 지금 관문은
-  - 쿠키 `fh2_s`·`fh2_dev` = `HttpOnly; Secure; SameSite=Strict; Path=/` → 다른 출처(앱)에서 보낸 요청에는 실리지 않는다.
-  - `same_origin`: Origin 이 정확히 `https://<Host>` 이고 Host 가 관문 주소 목록 안이어야 한다 → 앱 Origin 은 로그인·로그아웃·문서 쓰기·WS 모두 403/거부.
-- 그래서 B 는 **서버 변경 없이는 불가능**하다. 아래 결정안의 조건: 기존 브라우저 경로(쿠키·Strict·same_origin)는 그대로 두고, 앱 전용 경로를 **따로** 더한다. 쿠키를 `SameSite=None` 으로 바꾸거나 Origin 와일드카드·`null` 허용은 하지 않는다.
+## 1. 왜 A 를 최종으로 못 쓰나
 
-## 2. 결정안 (경계별 한 줄 + 근거)
+bundled 화면 출처는 Android `https://localhost`, iOS `capacitor://localhost`. 지금 관문은 Strict 쿠키라 앱 출처 요청에 쿠키가 안 실리고, `same_origin` 이 Origin = `https://<관문 Host>` 만 받는다 → 로그인·쓰기·WS 전부 거부. **서버 변경 없이 B 불가.** 기존 브라우저 경로(쿠키·Strict·same_origin)는 그대로 두고 앱 전용 경로를 **따로** 둔다. `SameSite=None`·Origin 와일드카드·`null` 허용·SSL proceed 는 어느 경우에도 없다.
 
-| 경계 | 결정안 | 근거·하지 않는 것 |
+## 2. 결정안
+
+### 2.1 토큰은 JS 로 넘기지 않는다 — 네이티브 어댑터(opaque)
+
+표준 CapacitorHttp 로 로그인하면 응답 본문(토큰)이 JS `response.data` 로 그대로 온다 → «토큰은 네이티브에만»과 맞지 않는다. 그래서 **앱 안 로컬 플러그인 `FhGate`**(npm 의존 추가 없음, `mobile/**` 안 Java/Swift) 하나가 세션 토큰의 발급 수신·보관·사용·폐기를 전부 맡는다.
+
+| 어댑터 호출(JS→네이티브) | JS 가 받는 것 | JS 가 못 받는 것 |
 |---|---|---|
-| 로그인 | 앱 전용 `POST /api/app/login`(S1) → 짧은 수명 **앱 세션 토큰**(bearer) 발급. 계정 확인·실패 제한(`RateLimit`)·기기 id 는 기존 것을 재사용 | 쿠키 경로를 넓히지 않는다. Origin 은 «앱 출처 정확히 두 개» 일 때만 받되, Origin 은 신원 근거가 아니다(같은 PC 의 다른 https://localhost 페이지도 보낼 수 있음) — 신원은 토큰으로만 |
-| 세션 보관 | 토큰은 **네이티브 보안 저장소**(Android Keystore 로 감싼 저장, iOS Keychain)에만. JS `localStorage`·쿠키·로그에 두지 않는다 | 저장 플러그인 선택·버전 고정은 B 구현 때(지금 추가 0). 기기 분실 대비로 서버 TTL(지금 12 h, 메모리 세션 — 관문 재시작이면 전부 무효)을 그대로 따른다 |
-| API 요청 | 화면 → 네이티브 → 관문으로 `Authorization: Bearer`. 브라우저 CORS 를 열지 않으려면 네이티브 HTTP(CapacitorHttp) 경유가 기본, CORS 를 열 경우는 정확한 두 출처·자격증명 없음만(S2) | 쿠키 자동 전송이 없으니 CSRF 경로가 생기지 않는다. 토큰이 JS 로 넘어오는 범위는 B 구현 검수에서 다시 정한다 |
-| WS | WebView 의 WebSocket 은 헤더를 못 붙인다 → 토큰으로 **1회용 WS 표(ticket)** 를 받고(S3, 수명 ≤30 s·한 번 쓰면 폐기) `wss://관문/ws?t=…` 로 연결. 관문 `check_origin` 은 앱 두 출처를 정확히, 표 없으면 4401 | 표는 로그에 남기지 않는다(URL 질의가 접근 로그에 찍히지 않게 S3 에 명시). 조종 op 걸러내기·4401/4403 규칙은 지금 Bridge 그대로 |
-| 인증서(CA) | 개발: A 와 같은 exact CA `debug-overrides`. 최종: **공인 인증서 관문**이 기본. 사설 CA 를 써야 하면 그 CA 한 장을 release `base-config` 에 넣는 것은 배포처별 결정(user CA 전체 허용·proceed·호스트 이름 검사 끄기는 어느 경우에도 없음) | `GateSslClient` 의 «모든 SSL cancel» 은 그대로. 단 B 에서는 `server.url` 이 없어 지금의 «관문 origin 이면 안내 화면» 분기가 동작하지 않는다 → 설정된 관문 주소와 비교하게 바꿔야 함(재검증 대상) |
-| 서버 주소 | 빌드에 굽지 않는다. 첫 실행 설정 화면에서 입력(이후 QR 은 별도) → `gate-profile.mjs` 의 `gateOrigin` 과 같은 규칙(https·origin 하나·사용자정보/경로/와일드카드/localhost 거부)으로 검사, 일반 설정 저장소에 | 주소를 바꾸면 토큰·표를 즉시 폐기하고 보기 전용으로 |
-| 앱 수명 | UI 묶음3 계약 그대로: `pause` 즉시 누름 폐기 + `hidden`, `resume`·재연결·첫 로드는 보기 전용. bundled 에서는 `@capacitor/core` 를 번들에 넣을 수 있어 `registerPlugin` 경로도 쓸 수 있다(A 와 다름) | 재생성 뒤 리스너는 Capacitor 가 로드마다 지움(`onPageStarted → bridge.reset()`) → 로드마다 등록. 조종 중 숨김 → 해제·래치 실측은 아직 없음 |
-| 로그아웃 | `POST /api/app/logout`(S4, bearer) → 서버 세션 끝 + 그 세션 WS 4401. 앱은 **응답과 무관하게** 저장소 토큰·남은 표를 지우고 로그인 화면으로 | 네트워크 실패여도 기기 쪽 폐기는 한다. 서버 쪽 세션은 TTL·관문 재시작으로 끝남을 문서에 적는다 |
+| `setGate(origin)` | 정규화된 origin 또는 거부 이유 | — |
+| `login(user, pw, label)` | `{account, device6, exp}` | 세션 토큰·기기 id 원값 |
+| `request(op, body?)` — op 은 고정 목록(`whoami`·`docs.get`·`docs.post`·`media.list`) | 응답 JSON·상태 코드 | Authorization 값 |
+| `photo(path)` | 바이트(크기 상한 안) — §2.2 | — |
+| `wsTicket()` | `{url, gen}` — 1회용 표가 든 WS 주소(≤30 s) | 세션 토큰 |
+| `logout(reason)` | 즉시 `{ok:true, server:'pending'}`, 뒤에 `server` 결과 이벤트 | — |
+| `saveFile(name, mime, bytes)` | 저장/공유 결과 | — |
 
-필요한 서버 변경(서버 담당 소유, 이 문서는 요청 초안): **S1** 앱 로그인(토큰 발급) · **S2** (선택) 앱 두 출처 정확 일치 CORS · **S3** WS 표 발급 + `/ws` 의 표 확인 + 앱 두 출처 `check_origin` · **S4** 앱 로그아웃. 기존 쿠키 경로·`same_origin` 은 손대지 않는다.
+- 세션 수명은 관문 TTL(12 h) 그대로. refresh·JWT 같은 새 구조는 넣지 않는다(1판의 «짧은 수명» 표현 삭제).
+- 보관: 토큰은 어댑터 메모리 + 플랫폼 보안 저장소(Android Keystore 로 감싼 저장, iOS Keychain). JS 저장소·쿠키·로그·크래시 보고에 두지 않는다. 저장 방식은 구현 때 라이브러리 없이 플랫폼 API 로(추가 의존이 필요하면 그때 따로 판정).
+- **한계(명시)**: 토큰을 숨겨도 WebView 안의 JS 가 오염되면(XSS) 그 JS 는 어댑터를 «호출»할 수 있다 — 앱이 켜져 있는 동안 정해진 op 범위의 인증 요청은 가능하다. 보안 저장소 설치만으로 XSS 를 막지 못한다. 줄이는 것: op 고정 목록·임의 URL/메서드 거부·관문 origin 고정·사진 경로 검사, 그리고 bundled 화면에 외부 스크립트 로드 0(CSP). 막는 것은 «토큰 유출로 앱 밖에서 재사용»까지다.
 
-## 3. A → B 재사용 / 다시 검증
+### 2.2 사진·보고서·CSV
 
-| 항목 | A 에서 확인한 것 | B 에서 |
+| 대상 | 지금(A·브라우저) | B |
 |---|---|---|
-| `gateOrigin` 주소 규칙 | selftest 3 통과·16 거부 | 재사용(설정 화면 입력 검사) — 재검증은 입력 경로만 |
-| exact CA `debug-overrides`, cleartext·mixed content 금지 | Android 에뮬 5회차 | 재사용 — release 신뢰 방식은 새로 결정·검증 |
-| `GateSslClient` cancel | 5회차 B(다른 CA) PASS | cancel 은 재사용, 안내 분기(관문 주소 비교)는 수정·재검증 |
-| 로컬 오류 화면 | 끊김(-100)·다른 CA(-202) 에서 표시 | bundled 에서는 화면이 앱 안이라 오류는 화면 안 상태로 — 다시 설계 |
-| `Plugins.App` 신호·순서 | 원격 페이지에서 pause/appStateChange 수신, pause 가 hidden 보다 1965 ms 먼저(1회) | 재사용하되 bundled 페이지에서 다시 측정 |
-| 로그인·세션·WS·로그아웃 | 관문 쿠키 경로(A) | **전부 새로 검증**(토큰·표·폐기·관문 재시작·TTL) |
-| iOS | 프로젝트만 | **전부 새로**: `capacitor://localhost` 출처, ATS, Keychain, CA 신뢰. Mac 없음 → 빌드·서명 환경 확보가 먼저 |
+| 사진 목록 | `fetch('api/media')` + 쿠키 | `request('media.list')` |
+| 사진 보기·다시 열기 | `<img src="media/photos/…">` — B 에서는 `https://localhost/media/…`(앱 번들)로 가서 안 뜨고, 관문 주소를 직접 넣어도 `<img>` 에는 bearer 를 못 붙인다 | `photo(path)` → 어댑터가 path 를 관문과 **같은 정규식** `^media/photos/\d{8}/[\w.-]+\.jpg$` 로 검사(외 거부·임의 URL 없음) → bearer GET → 크기 상한·`image/jpeg` 확인 → 바이트 → JS 가 Blob URL. 목록에서 빠지거나 화면을 떠날 때·로그아웃 때 `revokeObjectURL` |
+| CSV·JSON 내려받기 | JS 가 이미 받은 자료로 Blob 생성 → `<a download>` | 자료 만드는 JS 는 재사용. 저장은 `saveFile` (Android 공유/저장 인텐트, iOS 공유 시트). WebView 의 blob `<a download>` 는 Capacitor 기본 Activity 에서 저장된다는 근거 없음 → 어댑터 경로를 기본으로, 파일 이름은 `[\w.-]` 만·길이 상한 |
+| 실시간 영상 | 인증 WS 의 JPEG | 그대로 인증 WS(§2.4). 별도 사진 경로를 만들지 않는다 |
 
-## 4. 지금 하지 않는 것
+- 상한값(사진 1장 바이트·한 번에 여는 장수)은 구현 때 실측으로 정한다. 썸네일 다수를 브리지(base64)로 넘기는 비용은 미측정 — 느리면 썸네일 크기 축소를 서버 S1 에 추가 요청.
 
-새 플러그인 추가, 서버 코드 수정, 에뮬·실기기·실시뮬 실행, 릴리스 키·스토어, CI 원격 기동. B 착수는 UI 조종 이식(묶음3)과 서버 담당의 S1~S4 합의 뒤.
+### 2.3 로그아웃·관문 주소 변경·인증 만료 — 같은 순서
+
+1. 로컬 누름 즉시 버림 · 20 Hz 보내기 멈춤(서버 응답 안 기다림)
+2. WS 가 열려 있으면 `{op:'hidden'}` 한 번(최선, 기다리지 않음)
+3. WS 즉시 close
+4. 어댑터: 연결 세대 `gen += 1` → 토큰·남은 표를 메모리·보안 저장소에서 폐기
+5. 로그인 화면(주소 변경이면 주소 입력부터)
+6. 로그아웃이면 폐기 전에 꺼내 둔 토큰으로 S4 를 백그라운드 1회. 실패·시간 초과면 «이 기기에서는 로그아웃됨 · 서버 세션 종료 확인 못 함(관문 TTL 또는 재시작 때 끝남)» 으로 표시 — 성공으로 표시하지 않는다
+
+역할 분리: **움직임 안전**은 WS 끊김 → v2_link 의 조종권 해제·0·STOP 잠금(deadman·링크 해제)이 맡고, **세션 12 h TTL**은 인증 만료만 맡는다. 명령 0·STOP 은 물리 정지 보장이 아니다(A 실측 3.6 s·0.32 m 더 이동, 원인 미확정).
+
+연결 세대: 어댑터는 모든 호출 결과에 시작 때의 `gen` 을 붙이고, 끝났을 때 `gen` 이 바뀌었으면 결과를 버린다(취소된 옛 login 응답의 토큰은 저장하지 않고 즉시 폐기, 옛 `wsTicket` 주소는 반환하지 않음). JS 도 `wsTicket().gen` 이 현재와 다르면 그 WS 를 열지 않고, 열린 뒤 바뀌면 닫는다. 401(만료) 수신도 위 1~5 와 같다.
+
+### 2.4 WS 1회용 표
+
+- 별도 엔드포인트 **`/api/app/ws`** — 브라우저 `/ws` 의 `check_origin` 을 넓히지 않는다. 메시지 거르기(`gate_msg`)·중계·4401/4403 규칙은 같은 코드를 재사용.
+- 표 결속: (계정, 기기, 세션 토큰, 대상 관문 Host, 허용 앱 origin, 엔드포인트 `/api/app/ws`). 접속 때 원자적으로 꺼내 지움(1회), 발급 후 ≤30 s, 세션이 끝났거나 만료면 거부, 세션당·전체 보관 상한. 표가 든 질의 문자열은 접근 로그에 찍지 않는다(대안: `protocols` 인자로 전달 — 구현 때 둘 중 하나로 확정).
+- 표 발급도 WS 접속도 조종 요청(take/resume)을 보내지 않는다. 연결은 늘 보기 전용으로 시작(UI 묶음3 계약).
+
+### 2.5 Origin·쿠키/bearer 분리·redirect
+
+- 네이티브 HTTP 가 Origin 을 자동으로 붙인다고 가정하지 않는다. 어댑터가 플랫폼별 정확한 값(Android `https://localhost`, iOS `capacitor://localhost`)을 명시하고, 서버 `/api/app/*` 는 그 두 값 정확 일치만 받는다. **Origin 은 신원이 아니다** — 신원은 bearer 만.
+- 경로로 분리: `/api/app/*` 는 bearer 만 보고 쿠키는 무시, 기존 `/api/*`·`/ws` 는 쿠키만 보고 Authorization 은 무시. 브라우저 쿠키로 앱 엔드포인트를 대신 인증하지 않는다.
+- 어댑터: HTTPS 와 설정된 `gateOrigin` 한 곳만, redirect 따라가지 않음(3xx 는 오류), 다른 host 로 Authorization 을 보내지 않는다.
+- S2(앱 origin CORS)는 이번 기본 경로(네이티브 HTTP)에 필요 없다 → 미정 선택지로 뒤로 미룸. 1판의 «쿠키가 없으니 CSRF 경로가 없다» 단정은 삭제 — 앱 경로의 위조 요청 위험은 §2.1 의 한계(어댑터 호출 가능 범위)로 다룬다.
+
+### 2.6 인증서·연결 오류
+
+- B 의 주요 통신은 네이티브 HTTP(어댑터)와 WebView WS 라서, WebView 페이지 로드용 `GateSslClient` 만 고쳐서는 그 오류를 못 받는다.
+- 어댑터 오류 분류(JS 에 원인 종류만): `tls`(Android `SSLHandshakeException`·`CertPathValidatorException`, iOS `NSURLErrorServerCertificate*` 계열) · `net`(이름 풀이·연결 거부·시간 초과) · `auth`(401) · `origin`(403) · `busy`(429) · `server`(5xx). WS 는 WHATWG 상 `error` 이벤트에 원인이 없다 → «연결 실패(원인 모름)» 으로 두고 어댑터 `request('whoami')` 한 번으로 원인을 다시 잰다.
+- 어느 경우든 앱 안 연결 안내 화면(로그인·명령 차단). OS TLS 거부는 그대로, proceed·인증서 무시·사용자 CA 전체 허용 없음.
+- CA: 개발은 A 와 같은 exact CA `debug-overrides`. 최종은 공인 인증서 관문 기본, 사설 CA 를 써야 하면 그 한 장을 release 설정에 넣는 것은 배포처별 결정. 네이티브 HTTP 는 Android 네트워크 보안 설정을 따르지만 iOS 는 ATS·Keychain 신뢰가 따로라 별도 검증.
+- `GateSslClient` 의 cancel 은 WebView 용으로 재사용, B 의 «관문 주소 비교» 분기·네이티브 TLS·iOS ATS 는 각각 재검증.
+
+### 2.7 서버 주소
+
+빌드에 굽지 않는다. 첫 실행 설정 화면 → `gateOrigin`(`scripts/gate-profile.mjs`) 과 같은 규칙(https·origin 하나·사용자정보/경로/와일드카드/localhost 거부)을 어댑터 `setGate` 가 네이티브에서 다시 검사. 바꾸면 §2.3 순서.
+
+## 3. S1~S4 계약 초안 (서버 소유 = 고정 앱 mentor)
+
+| | 요청 | 성공 | 실패 |
+|---|---|---|---|
+| **S1** 앱 로그인 + bearer 조회 | `POST /api/app/login` Origin=앱 정확값, `{user, pw, label?, device?}`(device = 이전에 받은 opaque 기기 값) | 200 `{token, device, account, exp}` — token·device 는 어댑터만 보관, JS 에는 `{account, device6, exp}` | 400 형식 · 401 계정/비번 · 403 Origin · 429 실패 제한/동시 로그인 |
+| | `GET /api/app/whoami`·`GET·POST /api/app/docs`·`GET /api/app/media`·`GET /api/app/media/photos/<8자리>/<이름>.jpg`, `Authorization: Bearer` | 기존 `/api/*` 와 같은 본문 | 401 토큰 없음/만료/폐기 · 403 Origin · 502 v2_link 없음. 쓰기 작성자는 세션의 계정·기기로(기존 `X-FH-Actor` 와 같음) |
+| **S2** (미정·뒤로) 앱 origin CORS | — | — | 이번 기본 경로엔 불필요 |
+| **S3** WS 표 + 앱 WS | `POST /api/app/ws-ticket` bearer | 200 `{ticket, ttl_s≤30}` | 401 세션 끝남 · 429 보관 상한 |
+| | `GET /api/app/ws?t=<ticket>`(WS) Origin=앱 정확값 | 열림 → 기존 Bridge 와 같은 중계·보기 전용 시작 | 표 없음/사용됨/만료/결속 불일치 → 4401 · Origin → 거부 · 허용 안 된 메시지 → 4403 · 세션 로그아웃/만료 → 4401 |
+| **S4** 앱 로그아웃 | `POST /api/app/logout` bearer | 200 → 세션 끝 + 그 세션 앱 WS 4401 + 남은 표 폐기 | 401(이미 끝남) — 앱은 어느 응답이든 기기 쪽 폐기를 이미 마친 상태(§2.3) |
+
+공통: 오래된 응답은 앱이 연결 세대로 버린다(§2.3). 기존 쿠키 경로·`same_origin`·`/ws` 는 손대지 않는다. 메모리 세션이라 관문 재시작이면 모든 앱 세션이 401 → §2.3.
+
+## 4. A → B 재사용 / 다시 검증
+
+| 항목 | A 에서 확인 | B |
+|---|---|---|
+| `gateOrigin` 주소 규칙 | selftest 3 통과·16 거부 | 규칙 재사용, 네이티브 `setGate` 재구현·재검증 |
+| exact CA `debug-overrides`, cleartext·mixed 금지 | Android 에뮬 5회차 | WebView 쪽 재사용, 네이티브 HTTP·iOS ATS 는 새로 |
+| `GateSslClient` cancel | 5회차 다른 CA PASS | WebView 용 재사용, 주소 비교 분기 수정·재검증. 네이티브 TLS 분류(§2.6)는 새로 |
+| 로컬 오류 화면 | 끊김(-100)·다른 CA(-202) | 화면 안 상태로 다시 설계 |
+| `Plugins.App` 신호·순서 | pause 가 hidden 보다 1965 ms 먼저(1회) | 재사용, bundled 에서 다시 측정 |
+| 로그인·세션·WS·로그아웃·사진·내려받기 | 관문 쿠키 경로 | **전부 새로**(어댑터·표·세대·폐기·재시작·TTL·사진 검사·파일 저장) |
+| iOS | 프로젝트만, IPA 0 | **전부 새로** — Mac 없음 → 빌드·서명 환경 확보가 먼저 |
+
+## 5. 지금 하지 않는 것
+
+플러그인·의존 추가, 서버 코드 수정, 에뮬·실기기·실시뮬 실행, 계정·릴리스 키·스토어, CI 원격 기동. B 구현은 UI 조종 이식(묶음3), S1~S4 합의(고정 앱 mentor), 앱 Codex 구현 GO 뒤.
