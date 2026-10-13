@@ -135,6 +135,22 @@ describe('native 세대', () => {
     C.wsTicket.mockRejectedValueOnce({ code: 'tls', data: { gen: 1 } });
     expect(await tc.wsUrl()).toEqual({ why: '관문 인증서 확인 실패' }); expect(fc).not.toHaveBeenCalled();
   });
+  it('401 sessionEnded(옛 gen) 뒤 다음 로그인: 새 gen 의 auth 는 비밀번호 안내, 옛 gen 오류는 stale', async () => {
+    const P = fake(); const t = await mk(P); await t.where();
+    P.s.gen = 2; P.L.sessionEnded({ gen: 1 });   // 네이티브는 이미 gen 2
+    P.login.mockRejectedValueOnce({ code: 'auth', data: { gen: 2 } });
+    expect(await t.login('u', 'bad', 'l')).toEqual({ ok: false, error: '계정 또는 비밀번호가 틀림' });
+    P.login.mockRejectedValueOnce({ code: 'auth', data: { gen: 1 } });
+    expect(await t.login('u', 'bad', 'l')).toEqual({ ok: false, error: expect.stringMatching(/옛 응답/) });
+  });
+  it('logoutResult 가 logout resolve 보다 먼저: failed → 확인 못 함 · ok → 안내 없음', async () => {
+    for (const [sv, want] of [['failed', /확인 못 함/], ['ok', /^$/]] as const) {
+      const P = fake(); const t = await mk(P); const N = (await mod()).useNote; await t.where();
+      P.logout.mockImplementationOnce(async () => { P.L.logoutResult({ server: sv, gen: 2, reason: '' }); return { gen: ++P.s.gen, ok: true, server: 'pending' }; });
+      expect(await t.logout()).toEqual({ ok: true });
+      expect(N.getState().note).toMatch(want);
+    }
+  });
   it('logoutResult: 자기 세대 failed 만 «서버 종료 확인 못 함»', async () => {
     const P = fake(); const t = await mk(P); const N = (await mod()).useNote;
     await t.logout(); expect(N.getState().note).toMatch(/확인 중/);

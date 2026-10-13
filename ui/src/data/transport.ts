@@ -75,7 +75,14 @@ export function nativeTransport(P: any): Transport {
   const end = () => { ++epoch; for (const f of ended) f(); };
   const sync = P.state().then((s: any) => { adopt(s.gen); if (s.loggedIn && s.stored === false) note(MEM_ONLY); return s; });
   P.addListener('sessionEnded', (v: { gen: number }) => { if (v.gen === gen) end(); });   // 다른 세대 이벤트는 버림
-  P.addListener('logoutResult', (v: { server: string; gen: number }) => { if (v.gen === gen) note(v.server === 'failed' ? SRV_FAIL : ''); });
+  // logoutResult 는 P.logout 의 resolve 보다 먼저 올 수 있다(네이티브 큐가 차면 failed 를 먼저 알림). 현재 gen 이 아니면 작은 상한으로 보관했다가
+  // 그 logout 의 반환 gen 과 같을 때만 채택. 새 login·setGate 로 gen 이 지나가면 옛 결과는 맞을 일이 없어 버려진다.
+  const srvTxt = (sv: string) => (sv === 'failed' ? SRV_FAIL : '');
+  const early: { server: string; gen: number }[] = [];
+  P.addListener('logoutResult', (v: { server: string; gen: number }) => {
+    if (v.gen === gen) note(srvTxt(v.server));
+    else if (v.gen > gen) { early.push(v); if (early.length > 4) early.shift(); }
+  });
   const stale = (e: any) => e?.code === 'stale' || e?.data?.gen !== gen;
   const why = (e: any) => (stale(e) ? STALE : MSG[e?.code] || e?.message || String(e));
   const live = (ep: number) => { if (ep !== epoch) throw new Error(STALE); };
@@ -99,7 +106,8 @@ export function nativeTransport(P: any): Transport {
       if (ep !== epoch) return { ok: false, note: STALE, ep };   // 그 사이 더 새 logout/setGate — 옛 결과로 gen·안내를 덮지 않음
       adopt(r.gen);
       if (!r.ok) { note(MSG.storage); return { ok: false, note: MSG.storage, ep }; }
-      note(r.server === 'pending' ? SRV_WAIT : ''); return { ok: true, ep };
+      const i = early.findIndex((v) => v.gen === r.gen), pre = i >= 0 ? early.splice(i, 1)[0] : null;
+      note(pre ? srvTxt(pre.server) : r.server === 'pending' ? SRV_WAIT : ''); return { ok: true, ep };
     } catch (e) { return { ok: false, note: ep === epoch ? why(e) : STALE, ep }; }
   };
   return {
@@ -119,6 +127,7 @@ export function nativeTransport(P: any): Transport {
       let ep = ++epoch;   // 더 앞선 보류 응답(옛 logout 등)이 이 로그인 결과를 덮지 않게
       const s = await sync.then(() => P.state()).catch(() => null);
       if (ep !== epoch) return { ok: false, error: STALE };   // 보류된 state 뒤 logout/setGate → login 부르지 않음
+      if (s) adopt(s.gen);   // 401 sessionEnded 뒤 네이티브는 이미 gen+1 — 이 호출의 오류 gen 기준을 최신 state 로
       if (s?.locked) {   // 잠김: 다시 로그아웃(디스크 폐기)부터
         const o = await logoutRaw();
         if (!o.ok) return { ok: false, error: o.note || MSG.storage };
