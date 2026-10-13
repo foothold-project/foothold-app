@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -12,6 +13,7 @@ const sameOrigin = { target: LINK, changeOrigin: true, configure: (p: any) => {
 export default defineConfig({
   plugins: [react()],
   base: './',
+  resolve: { alias: { '@contracts': fileURLToPath(new URL('../contracts/v1/ts/index.ts', import.meta.url)) } },   // 백엔드 계약 생성물(읽기만)
   server: { host: '127.0.0.1', port: 5181, strictPort: true, fs: { allow: ['..'] },
     proxy: { '/api': sameOrigin, '/media': sameOrigin, '/ws': { ...sameOrigin, ws: true } } },
   preview: { host: '127.0.0.1', port: 5182, strictPort: true },

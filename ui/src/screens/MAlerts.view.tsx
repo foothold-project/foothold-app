@@ -18,7 +18,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <header style={{"display":"flex","alignItems":"center","gap":"8px","padding":"10px 12px"}}>
           {" "}
-          <a href="MHome.dc.html" aria-label="뒤로" style={{"width":"44px","height":"44px","display":"grid","placeItems":"center","color":"inherit"}}>
+          <a href="#/MHome" aria-label="뒤로" style={{"width":"44px","height":"44px","display":"grid","placeItems":"center","color":"inherit"}}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M15 6l-6 6 6 6" />
             </svg>
@@ -40,7 +40,7 @@ export function View({ v }: { v: Vals }) {
             {"지금 할 일"}
           </div>
           {" "}
-          <a className="n unread" href="MFinding.dc.html">
+          <a className="n unread" href="#/MFinding">
             <span className="ic warn">
               {"▲"}
             </span>
@@ -60,7 +60,7 @@ export function View({ v }: { v: Vals }) {
             </span>
           </a>
           {" "}
-          <a className="n unread" href="PcPlan.dc.html">
+          <a className="n unread" href="#/PcPlan">
             <span className="ic acc">
               {"✓"}
             </span>
@@ -84,7 +84,7 @@ export function View({ v }: { v: Vals }) {
             {"경보"}
           </div>
           {" "}
-          <a className="n unread" href="MAlert.dc.html">
+          <a className="n unread" href="#/MAlert">
             <span className="ic bad">
               {"■"}
             </span>
@@ -125,7 +125,7 @@ export function View({ v }: { v: Vals }) {
             {"로봇 · 시스템"}
           </div>
           {" "}
-          <a className="n" href="PcRobot.dc.html">
+          <a className="n" href="#/PcRobot">
             <span className="ic warn">
               {"▲"}
             </span>
@@ -142,7 +142,7 @@ export function View({ v }: { v: Vals }) {
             </span>
           </a>
           {" "}
-          <a className="n" href="PcRobot.dc.html">
+          <a className="n" href="#/PcRobot">
             <span className="ic warn">
               {"▲"}
             </span>
@@ -184,7 +184,7 @@ export function View({ v }: { v: Vals }) {
             {"위험 경보는 잠금 화면에도 뜹니다"}
           </span>
           {" "}
-          <a href="PcSettings.dc.html" style={{"fontSize":"13px","color":"var(--accent)","padding":"12px 0"}}>
+          <a href="#/PcSettings" style={{"fontSize":"13px","color":"var(--accent)","padding":"12px 0"}}>
             {"알림 설정"}
           </a>
           {" "}

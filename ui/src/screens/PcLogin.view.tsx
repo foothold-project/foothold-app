@@ -136,13 +136,13 @@ export function View({ v }: { v: Vals }) {
               {"이 기기에서 로그인 유지 (12시간)"}
             </label>
             {" "}
-            <a href="Main.dc.html" style={{"height":"52px","borderRadius":"8px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"16px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none"}}>
+            <a href="#/Main" style={{"height":"52px","borderRadius":"8px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"16px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none"}}>
               {"로그인"}
             </a>
             {" "}
             <div style={{"display":"flex","justifyContent":"space-between","gap":"12px","fontSize":"13px"}}>
               {" "}
-              <a href="Main.dc.html" style={{"color":"var(--accent)"}}>
+              <a href="#/Main" style={{"color":"var(--accent)"}}>
                 {"보기 전용으로 들어가기"}
               </a>
               {" "}

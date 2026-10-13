@@ -16,7 +16,7 @@ SIZE = {'Report': (794, 1123, ['', 'mission=가스 사전 측정']), 'PcHistory'
 SIG = r"""(() => { const out = []; const w = (n, d) => { for (const c of n.childNodes) {
   if (c.nodeType === 3) { const t = c.data.replace(/\s+/g, ' ').trim(); if (t) out.push(d + '#' + t); continue; }
   if (c.nodeType !== 1 || c.localName === 'script') continue;   // 틀 안 시안 스크립트(그려지지 않음)는 비교 밖
-  const a = [...c.attributes].filter((x) => x.name !== 'style' && !(c.localName === 'select' && x.name === 'value') && !(c.localName === 'option' && x.name === 'selected')).map((x) => x.name + '=' + x.value).sort();
+  const a = [...c.attributes].filter((x) => x.name !== 'style' && !(c.localName === 'select' && x.name === 'value') && !(c.localName === 'option' && x.name === 'selected')).map((x) => x.name + '=' + (x.name === 'href' ? x.value.replace(/^#\/(\w+)$/, '$1.dc.html').replace(/^(\w+\.dc\.html)#\w+$/, '$1') : x.value)).sort();   // 화면 링크: 원본 X.dc.html(#절) = React #/X
   if (c.getAttribute('style') != null) a.push('style=' + c.style.cssText);
   if (c.localName === 'select') a.push('selected=' + c.value);   // <select value> 는 React 가 속성 대신 선택 상태로 둔다 — 실제 선택값으로 비교
   out.push(d + '<' + c.localName + ' ' + a.join(' ')); w(c, d + ' '); } }; w(document.getElementById('dc-root'), ''); return out; })()"""

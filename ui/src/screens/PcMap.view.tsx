@@ -87,7 +87,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <nav aria-label="주 메뉴" style={{"flex":"0 0 76px","display":"flex","flexDirection":"column","alignItems":"center","gap":"4px","padding":"12px 6px","borderRight":"1px solid var(--line)","background":"var(--panel)"}}>
             {" "}
-            <a className="nav" href="Main.dc.html">
+            <a className="nav" href="#/Main">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="8" />
                 <circle cx="12" cy="12" r="3" />
@@ -96,7 +96,7 @@ export function View({ v }: { v: Vals }) {
               {"관제"}
             </a>
             {" "}
-            <a className="nav" href="PcMissions.dc.html">
+            <a className="nav" href="#/PcMissions">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <path d="M4 19l5-14 5 9 3-4 3 9" />
                 <circle cx="9" cy="5" r="1.5" />
@@ -104,7 +104,7 @@ export function View({ v }: { v: Vals }) {
               {"임무"}
             </a>
             {" "}
-            <a className="nav" href="PcHistory.dc.html">
+            <a className="nav" href="#/PcHistory">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <rect x="4" y="3" width="16" height="18" rx="2" />
                 <path d="M8 8h8M8 12h8M8 16h5" />
@@ -112,7 +112,7 @@ export function View({ v }: { v: Vals }) {
               {"기록"}
             </a>
             {" "}
-            <a className="nav cur" href="PcMap.dc.html" aria-current="page">
+            <a className="nav cur" href="#/PcMap" aria-current="page">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
                 <path d="M9 4v14M15 6v14" />
@@ -120,7 +120,7 @@ export function View({ v }: { v: Vals }) {
               {"지도"}
             </a>
             {" "}
-            <a className="nav" href="PcRobot.dc.html">
+            <a className="nav" href="#/PcRobot">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <rect x="6" y="4" width="12" height="14" rx="3" />
                 <path d="M9 21h6M12 18v3M9 9h.01M15 9h.01" />
@@ -130,7 +130,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
             <div style={{"flex":"1"}} />
             {" "}
-            <a className="nav" href="PcSettings.dc.html">
+            <a className="nav" href="#/PcSettings">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" />
                 <path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1" />

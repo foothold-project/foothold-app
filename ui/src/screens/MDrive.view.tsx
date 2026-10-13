@@ -37,7 +37,7 @@ export function View({ v }: { v: Vals }) {
           <path d="M422 186v16M414 194h16" stroke="#E6EBEF" strokeOpacity=".55" strokeWidth="1.5" />
         </svg>
         {" "}
-        <a href="MMap.dc.html" aria-label="큰 지도 열기" style={{"position":"absolute","left":"44px","top":"14px","width":"172px","height":"104px","borderRadius":"8px","overflow":"hidden","border":"1.5px solid rgba(230,235,239,.45)","display":"block"}}>
+        <a href="#/MMap" aria-label="큰 지도 열기" style={{"position":"absolute","left":"44px","top":"14px","width":"172px","height":"104px","borderRadius":"8px","overflow":"hidden","border":"1.5px solid rgba(230,235,239,.45)","display":"block"}}>
           {" "}
           <svg viewBox="600 250 360 220" style={{"width":"100%","height":"100%","display":"block"}} aria-hidden="true">
             <rect x="600" y="250" width="360" height="220" fill="rgba(14,19,23,.82)" />
@@ -224,7 +224,7 @@ export function View({ v }: { v: Vals }) {
             {"자세"}
           </button>
           {" "}
-          <a className="pill" href="MHome.dc.html" style={{"textDecoration":"none"}}>
+          <a className="pill" href="#/MHome" style={{"textDecoration":"none"}}>
             {"임무로 돌아가기"}
           </a>
           {" "}

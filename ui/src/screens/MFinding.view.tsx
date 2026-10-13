@@ -18,7 +18,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <header style={{"display":"flex","alignItems":"center","gap":"8px","padding":"10px 12px"}}>
           {" "}
-          <a href="MHome.dc.html" aria-label="뒤로" style={{"width":"44px","height":"44px","display":"grid","placeItems":"center","color":"inherit"}}>
+          <a href="#/MHome" aria-label="뒤로" style={{"width":"44px","height":"44px","display":"grid","placeItems":"center","color":"inherit"}}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
               <path d="M15 6l-6 6 6 6" />
             </svg>

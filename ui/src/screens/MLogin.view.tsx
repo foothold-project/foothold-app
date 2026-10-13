@@ -92,11 +92,11 @@ export function View({ v }: { v: Vals }) {
             {"이 휴대폰에서 로그인 유지"}
           </label>
           {" "}
-          <a href="MHome.dc.html" style={{"height":"56px","borderRadius":"12px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"17px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","marginTop":"auto"}}>
+          <a href="#/MHome" style={{"height":"56px","borderRadius":"12px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"17px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","marginTop":"auto"}}>
             {"로그인"}
           </a>
           {" "}
-          <a href="MHome.dc.html" style={{"height":"44px","display":"flex","alignItems":"center","justifyContent":"center","fontSize":"14px","fontWeight":"600","color":"var(--accent)","textDecoration":"none"}}>
+          <a href="#/MHome" style={{"height":"44px","display":"flex","alignItems":"center","justifyContent":"center","fontSize":"14px","fontWeight":"600","color":"var(--accent)","textDecoration":"none"}}>
             {"보기 전용으로 들어가기"}
           </a>
           {" "}

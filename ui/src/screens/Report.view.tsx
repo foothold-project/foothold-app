@@ -1,4 +1,5 @@
-// 생성: scripts/dc2tsx.mjs ← web/Report.dc.html (시각 원본). 생성 뒤 손으로 실데이터 연결 — 다시 생성해 덮지 않는다.
+// 생성: scripts/dc2tsx.mjs (손 수정: 예시 글자 자리마다 v.<이름> ?? 예시 — 실화면은 모든 자리를 넘김, 대조 시험은 예시 그대로)
+// ← web/Report.dc.html (시각 원본). 생성 뒤 손으로 실데이터 연결 — 다시 생성해 덮지 않는다.
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
@@ -7,7 +8,7 @@ export const PREVIEW = {"width":794,"height":1123};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0;background:#FFFFFF}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\ntable{border-collapse:collapse;width:100%}\nth{font-size:12px;font-weight:600;color:#3D464E;text-align:right;padding:7px 8px;border-bottom:1.5px solid #12171C;white-space:nowrap}\ntd{font-size:13px;padding:7px 8px;border-bottom:1px solid #C9CEC6;text-align:right;white-space:nowrap}\nth:first-child,td:first-child{text-align:left}\nth.l,td.l{text-align:left}\n.k{font-size:12px;color:#4F5A64}\n.iv{display:grid;grid-template-columns:72px 1fr;gap:6px}\n.thumb{display:flex;flex-direction:column;gap:4px}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { title?: any; tplLine?: any; wpLine?: any; isGas?: any; resColor?: any; resHead?: any; resBody?: any; todo?: any; isBase?: any; isPatrol?: any; modLine?: any; gasPath?: any; fullPath?: any; findPins?: any; mapCap?: any; hasFind?: any; signA?: any; keep?: any };
+export type Vals = { recNo?: any; place?: any; when?: any; who?: any; robot?: any; thAt?: any; thRes?: any; rows?: any; modNote?: any; map?: any; thumbs?: any; signName?: any; signB?: any; title?: any; tplLine?: any; wpLine?: any; isGas?: any; resColor?: any; resHead?: any; resBody?: any; todo?: any; isBase?: any; isPatrol?: any; modLine?: any; gasPath?: any; fullPath?: any; findPins?: any; mapCap?: any; hasFind?: any; signA?: any; keep?: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -36,7 +37,7 @@ export function View({ v }: { v: Vals }) {
               {"기록 번호"}
             </span>
             <span className="mono" style={{"fontSize":"14px","fontWeight":"600"}}>
-              {"FH-20261012-03"}
+              {v.recNo ?? "FH-20261012-03"}
             </span>
             {" "}
           </div>
@@ -50,7 +51,7 @@ export function View({ v }: { v: Vals }) {
               {"장소"}
             </span>
             <span>
-              {"[현장명] B1"}
+              {v.place ?? "[현장명] B1"}
             </span>
           </div>
           {" "}
@@ -59,7 +60,7 @@ export function View({ v }: { v: Vals }) {
               {"일시"}
             </span>
             <span className="mono">
-              {"2026-10-12 10:31–10:52"}
+              {v.when ?? "2026-10-12 10:31–10:52"}
             </span>
           </div>
           {" "}
@@ -68,7 +69,7 @@ export function View({ v }: { v: Vals }) {
               {"운영자"}
             </span>
             <span>
-              {"운영자 A"}
+              {v.who ?? "운영자 A"}
             </span>
           </div>
           {" "}
@@ -77,7 +78,7 @@ export function View({ v }: { v: Vals }) {
               {"로봇"}
             </span>
             <span>
-              {"Unitree Go2 EDU · GO2-01"}
+              {v.robot ?? "Unitree Go2 EDU · GO2-01"}
             </span>
           </div>
           {" "}
@@ -354,7 +355,7 @@ export function View({ v }: { v: Vals }) {
                     {"지점"}
                   </th>
                   <th>
-                    {"도착 시각"}
+                    {v.thAt ?? "도착 시각"}
                   </th>
                   <th>
                     {"도착 오차"}
@@ -366,12 +367,13 @@ export function View({ v }: { v: Vals }) {
                     {"운영자 판단"}
                   </th>
                   <th className="l">
-                    {"판정"}
+                    {v.thRes ?? "판정"}
                   </th>
                 </tr>
               </thead>
               {" "}
               <tbody>
+{v.rows ?? (<>
                 {" "}
                 <tr>
                   <td>
@@ -463,7 +465,8 @@ export function View({ v }: { v: Vals }) {
                   </td>
                 </tr>
                 {" "}
-              </tbody>
+              </>)}
+</tbody>
               {" "}
             </table>
             {" "}
@@ -610,9 +613,11 @@ export function View({ v }: { v: Vals }) {
           </>) : null}
           {" "}
           <span className="k">
+            {v.modNote ?? (<>
             {"이 표의 열은 임무 양식에 들어 있는 모듈("}
             {iv(v.modLine)}
             {")에서 만들어졌습니다."}
+            </>)}
           </span>
           {" "}
         </section>
@@ -625,7 +630,7 @@ export function View({ v }: { v: Vals }) {
               {"이동 경로"}
             </h2>
             {" "}
-            <svg viewBox="40 40 920 545" style={{"width":"100%","height":"auto","border":"1px solid #C9CEC6"}} role="img" aria-label="지도: 출발점에서 측정 지점을 지난 경로">
+            {v.map ?? (<svg viewBox="40 40 920 545" style={{"width":"100%","height":"auto","border":"1px solid #C9CEC6"}} role="img" aria-label="지도: 출발점에서 측정 지점을 지난 경로">
               <rect x="40" y="40" width="920" height="545" fill="#FFFFFF" />
               <rect x="43" y="43" width="254" height="194" fill="#F4E3E1" />
               <g stroke="#6E7881" strokeWidth="6" fill="none">
@@ -687,7 +692,7 @@ export function View({ v }: { v: Vals }) {
                   {"집수정"}
                 </text>
               </g>
-            </svg>
+            </svg>)}
             {" "}
             <figcaption className="k">
               {iv(v.mapCap)}
@@ -704,6 +709,7 @@ export function View({ v }: { v: Vals }) {
               </h2>
               {" "}
               <div style={{"display":"grid","gridTemplateColumns":"repeat(2,minmax(0,1fr))","gap":"8px"}}>
+{v.thumbs ?? (<>
                 {" "}
                 <div className="thumb">
                   <svg viewBox="0 0 160 90" style={{"width":"100%","height":"auto"}} aria-hidden="true">
@@ -760,7 +766,8 @@ export function View({ v }: { v: Vals }) {
                   </span>
                 </div>
                 {" "}
-              </div>
+              </>)}
+</div>
               {" "}
             </>) : null}
             {" "}
@@ -840,7 +847,7 @@ export function View({ v }: { v: Vals }) {
             </span>
             <span style={{"display":"flex","justifyContent":"space-between","fontSize":"13px"}}>
               <span>
-                {"운영자 A"}
+                {v.signName ?? "운영자 A"}
               </span>
               <span className="k">
                 {"(서명)"}
@@ -854,7 +861,7 @@ export function View({ v }: { v: Vals }) {
             </span>
             <span style={{"display":"flex","justifyContent":"space-between","fontSize":"13px"}}>
               <span>
-                {"[이름]"}
+                {v.signB ?? "[이름]"}
               </span>
               <span className="k">
                 {"(서명)"}

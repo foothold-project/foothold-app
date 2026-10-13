@@ -140,7 +140,7 @@ export function View({ v }: { v: Vals }) {
                 {"그 자리 정지"}
               </button>
               {" "}
-              <a href="MDrive.dc.html" style={{"height":"52px","border":"1px solid var(--line2)","borderRadius":"12px","background":"var(--panel)","fontWeight":"600","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","color":"inherit"}}>
+              <a href="#/MDrive" style={{"height":"52px","border":"1px solid var(--line2)","borderRadius":"12px","background":"var(--panel)","fontWeight":"600","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","color":"inherit"}}>
                 {"직접 조종"}
               </a>
               {" "}

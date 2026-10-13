@@ -41,7 +41,7 @@ export function View({ v }: { v: Vals }) {
           </div>
           {" "}
           {" "}
-          <a href="MAlerts.dc.html" aria-label="알림 3건" style={{"position":"relative","width":"44px","height":"44px","border":"1px solid var(--line2)","borderRadius":"10px","background":"var(--panel)","display":"grid","placeItems":"center","boxSizing":"border-box","color":"inherit","textDecoration":"none"}}>
+          <a href="#/MAlerts" aria-label="알림 3건" style={{"position":"relative","width":"44px","height":"44px","border":"1px solid var(--line2)","borderRadius":"10px","background":"var(--panel)","display":"grid","placeItems":"center","boxSizing":"border-box","color":"inherit","textDecoration":"none"}}>
             {" "}
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M6 16V11a6 6 0 0112 0v5l2 2H4z" />
@@ -272,7 +272,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           {v.hasFind ? (<>
             {" "}
-            <a href="MFinding.dc.html" className="card" style={{"display":"flex","alignItems":"center","gap":"12px","padding":"12px 14px","textDecoration":"none","color":"inherit","minHeight":"44px"}}>
+            <a href="#/MFinding" className="card" style={{"display":"flex","alignItems":"center","gap":"12px","padding":"12px 14px","textDecoration":"none","color":"inherit","minHeight":"44px"}}>
               {" "}
               <span style={{"width":"12px","height":"12px","transform":"rotate(45deg)","background":"var(--warn)","flex":"none","margin":"0 4px"}} />
               {" "}
@@ -302,7 +302,7 @@ export function View({ v }: { v: Vals }) {
               {"일시정지"}
             </button>
             {" "}
-            <a href="MDrive.dc.html" style={{"height":"52px","borderRadius":"10px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","display":"flex","alignItems":"center","justifyContent":"center","gap":"8px","textDecoration":"none"}}>
+            <a href="#/MDrive" style={{"height":"52px","borderRadius":"10px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","display":"flex","alignItems":"center","justifyContent":"center","gap":"8px","textDecoration":"none"}}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="8" />
                 <circle cx="12" cy="12" r="2.5" />
@@ -316,7 +316,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <nav aria-label="주 메뉴" style={{"display":"flex","borderTop":"1px solid var(--line)","background":"var(--panel)","marginTop":"10px"}}>
           {" "}
-          <a className="tabb cur" href="MHome.dc.html" aria-current="page">
+          <a className="tabb cur" href="#/MHome" aria-current="page">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <circle cx="12" cy="12" r="8" />
               <circle cx="12" cy="12" r="3" />
@@ -324,21 +324,21 @@ export function View({ v }: { v: Vals }) {
             {"현황"}
           </a>
           {" "}
-          <a className="tabb" href="MMap.dc.html">
+          <a className="tabb" href="#/MMap">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
             </svg>
             {"지도"}
           </a>
           {" "}
-          <a className="tabb" href="MFinding.dc.html">
+          <a className="tabb" href="#/MFinding">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" />
             </svg>
             {"발견물"}
           </a>
           {" "}
-          <a className="tabb" href="MHistory.dc.html">
+          <a className="tabb" href="#/MHistory">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <rect x="5" y="3" width="14" height="18" rx="2" />
               <path d="M9 8h6M9 12h6" />

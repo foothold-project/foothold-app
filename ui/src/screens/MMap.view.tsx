@@ -182,7 +182,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <nav aria-label="주 메뉴" style={{"display":"flex","borderTop":"1px solid var(--line)","background":"var(--panel)","marginTop":"10px"}}>
           {" "}
-          <a className="tabb" href="MHome.dc.html">
+          <a className="tabb" href="#/MHome">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <circle cx="12" cy="12" r="8" />
               <circle cx="12" cy="12" r="3" />
@@ -190,21 +190,21 @@ export function View({ v }: { v: Vals }) {
             {"현황"}
           </a>
           {" "}
-          <a className="tabb cur" href="MMap.dc.html" aria-current="page">
+          <a className="tabb cur" href="#/MMap" aria-current="page">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
             </svg>
             {"지도"}
           </a>
           {" "}
-          <a className="tabb" href="MFinding.dc.html">
+          <a className="tabb" href="#/MFinding">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <rect x="7" y="7" width="10" height="10" transform="rotate(45 12 12)" />
             </svg>
             {"발견물"}
           </a>
           {" "}
-          <a className="tabb" href="MHistory.dc.html">
+          <a className="tabb" href="#/MHistory">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <rect x="5" y="3" width="14" height="18" rx="2" />
               <path d="M9 8h6M9 12h6" />
