@@ -83,7 +83,9 @@ def main():
     import phone_gate as G                           # 운영 관문과 같은 계정 확인·세션·출처 검사
     from app_gateway import load_key                 # 읽기만(없거나 권한이 넓으면 기동 거부 — 새로 만들지 않음)
     import tornado.httpclient, tornado.ioloop, tornado.web, tornado.websocket
+    from tornado.log import access_log
     import ssl
+    sys.path.insert(0, str(HERE)); import app_auth as A   # 앱(bundled B) 전용 bearer·1회용 WS 표 — 쿠키 경로와 분리
 
     state = Path(a.state)
     for n in ('accounts.json', 'cert.pem', 'key.pem', 'hmac.key', 'sans'):
@@ -99,6 +101,7 @@ def main():
         sys.exit(f'[v2_gate] 인증서에 없는 주소 {missing} — 운영 관문(phone_gate) 재기동으로 인증서를 갱신한 뒤 다시')
     devkey = hmac.new(load_key(str(state / 'hmac.key')), b'fh2-device-id', hashlib.sha256).digest()
     sessions, rl = G.Sessions(a.ttl), G.RateLimit()
+    app_sessions, tickets = G.Sessions(a.ttl), A.Tickets()   # 앱 세션은 쿠키 세션과 따로(서로 로그아웃시키지 않음)
     gate_hosts = {f'{h}:{a.port}' for h in hosts} | {f'localhost:{a.port}', f'127.0.0.1:{a.port}'}
     COOKIE = dict(httponly=True, secure=True, samesite='Strict', path='/')
     UP_HTTP, UP_WS = f'http://{a.upstream}', f'ws://{a.upstream}/ws'
@@ -205,12 +208,17 @@ def main():
             self.set_header('X-Frame-Options', 'DENY')
 
     class Bridge(tornado.websocket.WebSocketHandler):
+        store = sessions                               # 앱 경로(AppBridge)는 app_sessions
+
         def check_origin(self, origin):
             return G.same_origin(origin, self.request.host, gate_hosts)
 
+        def auth_tok(self):
+            return self.get_cookie('fh2_s')
+
         async def open(self):
             self.up, self.gone = None, False
-            self.tok = self.get_cookie('fh2_s'); s = sessions.get(self.tok, time.time())
+            self.tok = self.auth_tok(); s = self.store.get(self.tok, time.time())
             if not s:
                 log(f'거부(로그인 없음) {self.request.remote_ip}'); return self.close(4401, 'login')
             actor = f'{s["account"]} · {s.get("label") or "기기 " + s["device"][:6]}'
@@ -219,7 +227,7 @@ def main():
                 up = await tornado.websocket.websocket_connect(req, on_message_callback=self.down)
             except OSError:
                 log('v2_link 없음'); return self.close(1011, 'upstream')
-            if self.gone or sessions.get(self.tok, time.time()) is not s:   # 기다리는 사이 닫힘·로그아웃
+            if self.gone or self.store.get(self.tok, time.time()) is not s:   # 기다리는 사이 닫힘·로그아웃
                 up.close(); return None if self.gone else self.close(4401, 'session')
             self.up, self.s = up, s
             s['conns'].add(self)
@@ -235,7 +243,7 @@ def main():
 
         def on_message(self, raw):                     # 화면 → v2_link
             if self.up is None: return
-            if not sessions.get(self.tok, time.time()):
+            if not self.store.get(self.tok, time.time()):
                 return self.close(4401, 'session')
             m = gate_msg(raw)
             if m is None:
@@ -247,18 +255,112 @@ def main():
             if self.up is not None:
                 self.up.close(); self.s['conns'].discard(self)
 
+    # ---- 앱(bundled B) 전용 경로 /api/app/* (계약 mobile/docs/FHGATE-CONTRACT.md §3) — 쿠키는 보지 않고 bearer 만. 3xx 없음 ----
+    class AppBase(Base):
+        def prepare(self):                             # Origin 은 앱 두 값 정확 일치 + Host 는 이 관문 주소(DNS 재바인딩)
+            if not A.origin_ok(self.request.headers.get('Origin')) or self.request.host not in gate_hosts:
+                self.set_status(403); self.finish({'error': '다른 출처'})
+
+        def session(self):
+            self.tok = A.bearer(self.request.headers.get('Authorization'))
+            return app_sessions.get(self.tok, time.time())
+
+        def origin_ok(self):
+            return True                                # prepare 에서 검사함
+
+    class AppLogin(AppBase):
+        async def post(self):
+            ip = self.request.remote_ip
+            if rl.blocked(ip, time.time()): self.set_status(429); return self.finish({'error': '실패가 많음 — 5분 뒤 다시'})
+            try:
+                b = A.login_body(json.loads(self.request.body))
+            except ValueError:
+                b = None
+            if b is None: self.set_status(400); return self.finish({'error': '형식'})
+            user, pw, label, dv = b
+            if login_slots.locked(): self.set_status(429); return self.finish({'error': '로그인이 몰려 있음 — 잠시 뒤 다시'})
+            async with login_slots:
+                ok = await asyncio.get_running_loop().run_in_executor(None, G.verify_pw, accounts, user, pw)
+            if not ok:
+                rl.failed(ip, time.time()); log(f'앱 로그인 실패 {ip}'); self.set_status(401)
+                return self.finish({'error': '계정 또는 비밀번호가 틀림'})
+            dev, cookie = G.dev_check(devkey, A.device_in(dv)), A.device_in(dv)
+            if dev is None:
+                dev, cookie = G.dev_issue(devkey)
+            tok = app_sessions.create(user, dev, time.time()); s = app_sessions.by_tok[tok]
+            s['label'] = clean_label(label)
+            log(f'앱 로그인 {user} 기기 {dev[:6]} {ip}')
+            self.finish(A.login_reply(tok, A.device_out(cookie), user, s['exp']))
+
+    class AppWhoAmI(AppBase):
+        def get(self):
+            s = self.session()
+            if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            self.finish(A.whoami_reply(s))
+
+    class AppDocs(AppBase, DocsProxy):                 # 기존 DocsProxy 그대로(작성자 = 앱 세션 계정·기기, 상태 코드·본문 그대로)
+        pass
+
+    class AppMedia(AppBase, Proxy):
+        async def get(self, path):
+            if '..' in path: self.set_status(404); return self.finish({'error': '없음'})   # 계약: ASCII 1~80자 · '..' 금지
+            await Proxy.get(self, 'api/media' if path == 'media' else path)
+
+    class AppTicket(AppBase):
+        def post(self):
+            s = self.session()
+            if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            t = tickets.issue(self.tok, self.request.host, self.request.headers.get('Origin'), time.time())
+            if t is None: self.set_status(429); return self.finish({'error': '표가 많음 — 잠시 뒤 다시'})
+            self.finish({'ticket': t, 'ttl_s': int(tickets.ttl)})   # 표 발급은 take/resume 을 보내지 않는다
+
+    class AppLogout(AppBase):
+        def post(self):
+            tok = A.bearer(self.request.headers.get('Authorization'))
+            s = app_sessions.get(tok, time.time()) and app_sessions.end(tok)
+            if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            tickets.drop_session(tok)
+            for c in list(s['conns']):
+                c.close(4401, 'logout')               # 중계 끊김 → v2_link: 조종권 해제 · 0 · STOP 잠금
+            log(f'앱 로그아웃 {s["account"]}')
+            self.finish({'ok': True})
+
+    class AppNone(AppBase):                            # 없는 /api/app/* — 화면 페이지(로그인 redirect)로 떨어지지 않게
+        def get(self, *_): self.set_status(404); self.finish({'error': '없음'})
+        post = get
+
+    class AppBridge(Bridge):                           # 1회용 표로만 연다(쿠키 무시). 보기 전용 시작은 v2_link 규칙 그대로
+        store = app_sessions
+
+        def check_origin(self, origin):
+            return A.origin_ok(origin) and self.request.host in gate_hosts
+
+        def auth_tok(self):
+            return tickets.consume(self.get_query_argument('t', None), self.request.host, self.request.headers.get('Origin'), time.time())
+
+    def log_req(h):                                    # 접근 로그: /api/app/* 는 질의(표)를 지운다
+        r = h.request; st = h.get_status()
+        (access_log.info if st < 400 else access_log.warning if st < 500 else access_log.error)(
+            '%d %s %s (%s) %.2fms', st, r.method, r.path if r.path.startswith('/api/app/') else r.uri, r.remote_ip, 1000.0 * r.request_time())
+
     def sweep():
-        for tok in sessions.expired(time.time()):
-            s = sessions.end(tok)
-            for c in list(s['conns']) if s else []:
-                c.close(4401, 'expired')
+        now = time.time()
+        for store in (sessions, app_sessions):
+            for tok in store.expired(now):
+                s = store.end(tok); tickets.drop_session(tok)
+                for c in list(s['conns']) if s else []:
+                    c.close(4401, 'expired')
+        tickets.sweep(now)
 
     app = tornado.web.Application([
+        (r'/api/app/ws', AppBridge), (r'/api/app/login', AppLogin), (r'/api/app/whoami', AppWhoAmI), (r'/api/app/docs', AppDocs),
+        (r'/api/app/(media|media/photos/\d{8}/[A-Za-z0-9_.-]{1,80}\.jpg)', AppMedia), (r'/api/app/ws-ticket', AppTicket), (r'/api/app/logout', AppLogout),
+        (r'/api/app/(.*)', AppNone),
         (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy),
         (r'/(api/media|media/photos/\d{8}/[\w.-]+\.jpg)', Proxy),
         (r'/(ca\.crt)', tornado.web.StaticFileHandler, {'path': str(state)}),     # 공개 인증서만
         (r'/(.*)', Page, {'path': a.web}),
-    ], websocket_max_message_size=4 * 1024)
+    ], websocket_max_message_size=4 * 1024, log_function=log_req)
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH); ctx.load_cert_chain(str(state / 'cert.pem'), str(state / 'key.pem'))
     app.listen(a.port, address=a.bind, ssl_options=ctx, max_body_size=16 * 1024)   # 공용 문서(최대 12 KB)용
     tornado.ioloop.PeriodicCallback(sweep, 2000).start()
