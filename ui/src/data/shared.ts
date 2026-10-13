@@ -1,7 +1,7 @@
 // 서버 공유 기록(문서 api/docs · 사진·사건 api/media) 조회 — TanStack Query 는 «문서 조회·저장»만 맡는다(조종 명령 재시도 큐로 쓰지 않음).
 // 다시 읽는 때는 상태 메시지가 정한다(link.ts refreshShared): docs_rev 가 바뀌거나 최신 사건이 바뀌면. 자동 재시도·창 포커스 재조회 없음(live.js 와 같음).
 import { QueryClient, useQuery } from '@tanstack/react-query';
-import type { DocEnvelope, DocsList, MediaList, MediaEvent, RunEnv } from '@contracts';
+import type { DocEnvelope, DocWrite, DocsList, MediaList, MediaEvent, RunEnv } from '@contracts';
 
 export const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity, gcTime: Infinity, refetchOnWindowFocus: false, refetchOnReconnect: false } } });
 
@@ -41,4 +41,15 @@ export function refreshShared(docsRev: number | null | undefined, head: { t: str
   if (d && !d.busy && docsRev != null && docsRev !== cur?.rev && d.dt > (d.err ? 3000 : 300)) qc.invalidateQueries({ queryKey: ['docs'] }, { cancelRefetch: false });
   const m = since('media'), k = head ? `${head.t}|${head.text}` : '';
   if (m && !m.busy && k !== mediaKey && m.dt > (m.err ? 3000 : 1500)) { mediaKey = k; qc.invalidateQueries({ queryKey: ['media'] }, { cancelRefetch: false }); }
+}
+
+// 공용 문서 저장 — web/live.js saveDoc 과 같은 규칙. 저장 뒤 목록은 늘 다시 읽는다(성공·실패 모두).
+export type SaveRes = { ok: true; id: string; rev: number } | { ok: false; code: number; error: string; cur?: DocEnvelope | null };
+export async function saveDoc(m: DocWrite): Promise<SaveRes> {
+  try {
+    const r = await fetch('api/docs', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(m) });
+    const d = await r.json().catch(() => ({}));
+    qc.invalidateQueries({ queryKey: ['docs'] }, { cancelRefetch: false });
+    return r.ok ? { ok: true, ...d } : { ok: false, code: r.status, error: d.error || `HTTP ${r.status}`, cur: d.cur };
+  } catch (e: any) { return { ok: false, code: 0, error: `서버에 닿지 않음 · ${e?.message || e}` }; }
 }

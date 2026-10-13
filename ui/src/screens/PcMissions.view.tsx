@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":1100};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,textarea{font:inherit;color:inherit}\nbutton{cursor:pointer}\nbutton[disabled]{cursor:not-allowed;opacity:.5}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}\n.btn{height:40px;padding:0 14px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:13px}\n.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\n.btn.danger{color:var(--bad);border-color:var(--bad)}\n.lbl{font-size:12px;color:var(--muted)}\n.inp{height:42px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:15px;box-sizing:border-box;width:100%}\n.tp{display:flex;flex-direction:column;gap:6px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);text-align:left;width:100%}\n.tp.sel{border-color:var(--accent);background:var(--acc-bg)}\n.kind{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}\n.kind.base{border-color:var(--accent);color:var(--accent)}\n.kind.draft{border-style:dashed}\n.sec{padding:16px 18px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:12px}\n.sec h3{margin:0;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}\n.mod{display:grid;grid-template-columns:18px 30px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}\n.mod.blocked{border-color:var(--warn);background:var(--warn-bg)}\n.mi{width:30px;height:30px;border-radius:6px;background:var(--acc-bg);color:var(--accent);display:grid;place-items:center;font-size:12px;font-weight:700}\n.pal{height:36px;padding:0 12px;border:1px dashed var(--line2);border-radius:999px;background:transparent;font-size:13px;display:flex;align-items:center;gap:6px}\n.pal:hover{border-color:var(--accent);border-style:solid}\n.x{width:32px;height:32px;border:0;border-radius:6px;background:transparent;color:var(--muted);display:grid;place-items:center}\n.x:hover{background:var(--bad-bg);color:var(--bad)}\n.rule{display:grid;grid-template-columns:1fr 20px 1fr auto;gap:10px;align-items:center;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:13px}\n.auto{font-size:12px;padding:4px 10px;border-radius:6px;background:var(--panel2);border:1px solid var(--line2);white-space:nowrap}\n.auto.fixed{color:var(--muted);border-style:dashed}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any; count?: any; add?: any; items?: any; cur?: any; dup?: any; remove?: any; rename?: any; redesc?: any; mods?: any; noMods?: any; palette?: any; rules?: any; addRule?: any; panels?: any; sections?: any; cols?: any; hasToast?: any; toastName?: any; undo?: any };
+export type Vals = { themeClass?: any; count?: any; add?: any; items?: any; cur?: any; dup?: any; remove?: any; rename?: any; redesc?: any; mods?: any; noMods?: any; palette?: any; rules?: any; addRule?: any; panels?: any; sections?: any; cols?: any; hasToast?: any; toastName?: any; undo?: any; status?: any; stopProps?: any; planHref?: any; nmP?: any; dsP?: any; msg?: any; offL?: any; ruleWhy?: any; fixed?: any; addRuleProps?: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -41,7 +41,8 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"flex":"1"}} />
           {" "}
-          <button aria-label="비상 정지" style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
+          {v.status ?? null}
+<button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
             {" "}
             <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
@@ -204,7 +205,7 @@ export function View({ v }: { v: Vals }) {
                     {"삭제"}
                   </button>
                   {" "}
-                  <a className="btn pri" href="#/PcPlan" style={{"textDecoration":"none"}}>
+                  <a className="btn pri" href={v.planHref ?? "#/PcPlan"} style={{"textDecoration":"none"}}>
                     {"이 양식으로 임무 계획"}
                   </a>
                   {" "}
@@ -220,13 +221,14 @@ export function View({ v }: { v: Vals }) {
                   {"임무 이름"}
                 </label>
                 {" "}
-                <input id="nm" className="inp" value={str(v.cur?.name)} onChange={fn(v.rename)} readOnly={!!(v.cur?.locked)} />
+                <input id="nm" className="inp" value={str(v.cur?.name)} onChange={fn(v.rename)} readOnly={!!(v.cur?.locked)} {...v.nmP} />
                 {" "}
                 <label className="lbl" htmlFor="ds">
                   {"설명 · 운영자에게 보이는 한 줄"}
                 </label>
                 {" "}
-                <input id="ds" className="inp" style={{"fontSize":"14px"}} value={str(v.cur?.desc)} onChange={fn(v.redesc)} readOnly={!!(v.cur?.locked)} />
+                <input id="ds" className="inp" style={{"fontSize":"14px"}} value={str(v.cur?.desc)} onChange={fn(v.redesc)} readOnly={!!(v.cur?.locked)} {...v.dsP} />
+                {v.msg ?? null}
                 {" "}
               </div>
               {" "}
@@ -257,7 +259,7 @@ export function View({ v }: { v: Vals }) {
                         <b style={{"fontSize":"14px"}}>
                           {iv(m?.type)}
                         </b>
-                        <span className="lbl">
+                        <span className="lbl" {...m?.detProps}>
                           {iv(m?.detail)}
                         </span>
                       </span>
@@ -298,7 +300,7 @@ export function View({ v }: { v: Vals }) {
                 </div>
                 {" "}
                 <span className="lbl">
-                  {"열화상 · 장비 없음(로봇에 등록된 장비만 고를 수 있습니다)"}
+                  {v.offL ?? "열화상 · 장비 없음(로봇에 등록된 장비만 고를 수 있습니다)"}
                 </span>
                 {" "}
               </div>
@@ -311,7 +313,7 @@ export function View({ v }: { v: Vals }) {
                     {"조건이 맞으면 로봇이 먼저 조치하고 사람에게 알립니다"}
                   </span>
                 </h3>
-                {" "}
+                {v.ruleWhy ?? null}
                 <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
                   {" "}
                   {arr(v.rules).map((r: any, i9: number) => (<Fragment key={i9}>
@@ -352,7 +354,7 @@ export function View({ v }: { v: Vals }) {
                     {" "}
                   </Fragment>))}
                   {" "}
-                  <div className="rule" style={{"borderStyle":"dashed","color":"var(--muted)"}}>
+                  {v.fixed ?? (<><div className="rule" style={{"borderStyle":"dashed","color":"var(--muted)"}}>
                     {" "}
                     <span>
                       <span className="lbl">
@@ -374,12 +376,12 @@ export function View({ v }: { v: Vals }) {
                     {" "}
                     <span />
                     {" "}
-                  </div>
+                  </div></>)}
                   {" "}
                 </div>
                 {" "}
                 <div>
-                  <button className="btn" onClick={fn(v.addRule)} disabled={!!(v.cur?.locked)}>
+                  <button className="btn" onClick={fn(v.addRule)} disabled={!!(v.cur?.locked)} {...v.addRuleProps}>
                     {"+ 규칙 추가"}
                   </button>
                 </div>

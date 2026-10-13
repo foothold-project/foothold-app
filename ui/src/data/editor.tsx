@@ -1,0 +1,63 @@
+// 문서 편집기 — web/live.js editor() 와 같은 규칙: 초안(d)·기준 판(rev). 400·409·404·저장 실패 어느 경우에도 초안은 지우지 않는다.
+// gen: 다른 문서를 열 때마다 +1 — 옛 저장 응답이 새로 연 편집기를 덮지 않게.
+import { useReducer, useRef, type ReactNode } from 'react';
+import type { DocEnvelope } from '@contracts';
+import { docById, saveDoc, type Docs, type SaveRes } from './shared';
+import { fmtT } from './fmt';
+import { toast } from '../app/shell';
+
+type Kind = DocEnvelope['kind'];
+export type Editor<T> = {
+  kind: Kind; id: string | null; rev: number | null; d: T | null; dirty: boolean; busy: boolean; gen: number; msg: ReactNode;
+  load(doc: { id: string; rev: number; doc: unknown } | null | undefined, init?: T): void;
+  save(rev?: number | null): Promise<(SaveRes & { other?: boolean }) | null>;
+  del(): Promise<SaveRes | null>;
+  stale(D: Docs): DocEnvelope | null;
+  touch(): void;   // 화면 다시 그리기
+};
+
+function make<T>(kind: Kind, rebuild: () => void): Editor<T> {
+  const say = (t: string, bad?: boolean) => { E.msg = <p className="lv-note" style={bad ? { color: 'var(--bad)' } : undefined}>{t}</p>; rebuild(); };
+  const box = (t: string, ...b: ReactNode[]) => { E.msg = <div className="lv-warnbox" role="alert"><span>{t}</span><div className="lv-row">{b}</div></div>; rebuild(); };
+  const E: Editor<T> = {
+    kind, id: null, rev: null, d: null, dirty: false, busy: false, gen: 0, msg: null,
+    load(doc, init) { E.gen++; E.id = doc ? doc.id : null; E.rev = doc ? doc.rev : null; E.d = structuredClone((doc ? doc.doc : init) ?? null) as T | null; E.dirty = false; E.msg = null; rebuild(); },
+    async save(rev = E.rev) {
+      if (E.busy) return null; E.busy = true; say('저장 중…');
+      const sent = JSON.stringify(E.d), gen = E.gen;   // 보낸 판 그대로 — 저장 중 입력은 E.d 에만 쌓임
+      const r = await saveDoc({ op: 'put', kind, id: E.id, rev, doc: JSON.parse(sent) }); E.busy = false;
+      if (gen !== E.gen) { toast(r.ok ? `앞 문서 저장됨 · 판 ${r.rev}` : `앞 문서 저장 안 됨 · ${r.error}`); rebuild(); return { ...r, ok: false, code: 0, error: '', other: true } as SaveRes & { other: true }; }
+      if (r.ok) {
+        E.id = r.id; E.rev = r.rev; E.dirty = JSON.stringify(E.d) !== sent;   // 실제로 저장된 판과 같을 때만 깨끗함
+        say(E.dirty ? `판 ${r.rev} 저장됨 · 저장 중에 고친 내용은 아직 저장 안 됨` : `저장됨 · 판 ${r.rev} · 모든 기기 공유`); return r;
+      }
+      if (r.code === 409 && r.cur) {
+        const c = r.cur;
+        box(`다른 기기가 먼저 고침 · ${c.by} · ${fmtT(c.at)} (판 ${c.rev}). 내 초안은 화면에 그대로 있습니다.`,
+          <button key="a" type="button" className="lv-btn" onClick={() => E.load(c)}>최신 판 불러오기(내 초안 버림)</button>,
+          <button key="b" type="button" className="lv-btn pri" onClick={() => { E.id = c.id; E.save(c.rev); }}>내 초안을 최신 판 위에 저장</button>);
+      } else if (r.code === 404) {
+        box('다른 기기가 이 문서를 지웠습니다. 내 초안은 화면에 그대로 있습니다.',
+          <button key="a" type="button" className="lv-btn pri" onClick={() => { E.id = null; E.rev = null; E.save(); }}>새 문서로 저장</button>);
+      } else say(`저장 안 됨 · ${r.error} — 초안은 화면에 그대로`, true);
+      return r;
+    },
+    async del() {
+      if (!E.id || !confirm('지울까요? 모든 기기에서 사라집니다.')) return null;
+      const r = await saveDoc({ op: 'del', id: E.id, rev: E.rev! });
+      if (!r.ok) say(r.code === 409 ? '다른 기기가 먼저 고침 — 최신 판을 확인한 뒤 다시 지우세요' : `지우지 못함 · ${r.error}`, true);
+      return r;
+    },
+    // 더 새 판만(방금 저장해 서버 목록이 아직 옛 판일 때 되돌리지 않음)
+    stale(D) { const c = !E.busy && E.id && D.rev != null ? docById(D, E.id) : null; return c && E.rev != null && c.rev > E.rev ? c : null; },
+    touch: () => rebuild(),
+  };
+  return E;
+}
+
+/** 화면 하나에 편집기 하나. 객체는 화면이 사는 동안 같은 것(ref) — 값이 바뀌면 touch()/load()/save() 가 다시 그린다 */
+export function useEditor<T>(kind: Kind): Editor<T> {
+  const [, bump] = useReducer((n: number) => n + 1, 0), r = useRef<Editor<T>>();
+  if (!r.current) r.current = make<T>(kind, bump);
+  return r.current;
+}
