@@ -4,11 +4,11 @@ import { useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL, UNSUP, WHY } from '../data/facts';
-import { ask, camURL, linkView, sendOp, stateRows, TRAIL, useLink } from '../data/link';
+import { ask, camURL, dropAll, linkView, sendOp, stateRows, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs } from '../data/shared';
 import { shoot } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
-import { useFitPhone, useStick } from '../app/drive';
+import { useDriveScreen, useFitPhone, useStick } from '../app/drive';
 import { Drawer, stopProps, toast, whyProps } from '../app/shell';
 
 const MOVE = '이동 막대: 앞뒤와 옆걸음', ROT = '회전 막대: 왼쪽 오른쪽', FB = '앞뒤 막대';
@@ -21,15 +21,17 @@ export default function MDrive() {
   const ctl = st?.role === 'control' && !L.viewOnly;
   const [lay, setLay] = useState(() => { const x = store.get('fh.live.layout', LAYOUTS[0]); return LAYOUTS.includes(x) ? x : LAYOUTS[0]; });
   const [menu, setMenu] = useState(false);
+  useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
   const sm = useStick(MOVE, ['fx', 'fy']), sr = useStick(ROT, [null, 'fw']), sf = useStick(FB, ['fx', null]);
 
   const startSim = async () => {
     const ss = st?.sim_start; if (!ss || !ss.ok) return toast(`시뮬 시작 안 됨 · ${ss?.why || '서버 응답 없음'}`);
-    if (!confirm('Gazebo 시뮬을 30분 동안 시작할까요?\n· RL 쪽 기동 횟수를 1회 씁니다\n· STOP 상태로 시작합니다(«STOP 해제» 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음')) return;
+    dropAll(); if (!confirm('Gazebo 시뮬을 30분 동안 시작할까요?\n· RL 쪽 기동 횟수를 1회 씁니다\n· STOP 상태로 시작합니다(«STOP 해제» 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음')) return;
     toast((await ask('sim_start')).text || '응답 없음');
   };
   const photo = async () => { const p = await shoot(); if (p) toast(`사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`} · «관찰»에서 분류`); };
   const fsToggle = async () => {
+    dropAll();   // 전체화면 진입·나옴 전 폐기(fullscreenchange 도 link.ts 에서 폐기)
     const de = document.documentElement as any, d = document as any;
     try {
       if (d.fullscreenElement || d.webkitFullscreenElement) await (d.exitFullscreen || d.webkitExitFullscreen).call(d);

@@ -51,6 +51,8 @@ export const lift = (id: string, pid: number) => { if (presses.get(id)?.pid === 
 /** 취소·포착 잃음: 이 곳 손가락이면 모두 폐기 */
 export const cancel = (id: string, pid: number) => { if (presses.get(id)?.pid === pid) dropAll(); };
 export const pressed = (id: string) => presses.has(id);
+/** 이 곳을 이 손가락이 지금 누르고 있나(폐기·STOP 뒤 낡은 손가락·hover 는 false) */
+export const owns = (id: string, pid: number) => presses.get(id)?.pid === pid;
 function tick20() {
   if (driveBlock()) { if (presses.size) dropAll(); return; }   // 막히면 보내지 않고 누름도 버림(손 떼고 다시 눌러야 새 입력)
   const a = { fx: 0, fy: 0, fw: 0 };
@@ -64,20 +66,26 @@ export const sendOp = (op: 'take' | 'release' | 'resume' | 'reset') => { dropAll
 /** 숨김·떠남·앱 pause: 누름 폐기 + 서버에 hidden(조종권 해제) + 보기 전용 */
 // 배경 한 번에 pause·appStateChange·visibility·blur 로 3~4번 불림 → hidden 은 조종 중(take 뒤 또는 서버 role=control)일 때만 보냄(서버 drop 은 반복 무해)
 let hidSent = false;   // 이 연결에서 마지막 take 뒤 hidden 을 이미 보냄
-function hide() { const s = useLink.getState(); dropAll(); if (!hidSent && (!s.viewOnly || s.st?.role === 'control')) hidSent = send({ op: 'hidden' }); useLink.setState({ viewOnly: true }); }
+export function hide() { const s = useLink.getState(); dropAll(); if (!hidSent && (!s.viewOnly || s.st?.role === 'control')) hidSent = send({ op: 'hidden' }); useLink.setState({ viewOnly: true }); }
 
 // ---- 받은 상태 실행 중 검사(계약 Status 중 명령 관문이 쓰는 칸) — 실패 이유 또는 null ----
 const ROLES = new Set(['control', 'view_other', 'view']);
 const nf = (v: unknown) => v === null || fin(v);
+const age = (v: unknown) => v === null || (fin(v) && v >= 0);   // 나이는 음수면 미확인
+const int = (v: unknown) => fin(v) && Number.isInteger(v);
+const EVST = new Set(['ok', 'warn', 'bad']);
 export function checkStatus(m: any): string | null {
   if (!m || typeof m !== 'object' || m.op !== 'status') return 'op';
   if (typeof m.ver !== 'string' || !m.ver) return 'ver';
   if (!ROLES.has(m.role)) return 'role';
   for (const k of ['latch', 'resume_pending', 'reset_pending']) if (typeof m[k] !== 'boolean') return k;
   if (typeof m.sim_block !== 'string') return 'sim_block';
-  if (!nf(m.episode) || !nf(m.state_age) || !nf(m.cam_age) || !fin(m.docs_rev)) return 'episode/age/docs_rev';
+  if (!(m.episode === null || int(m.episode)) || !age(m.state_age) || !age(m.cam_age) || !int(m.docs_rev)) return 'episode/age/docs_rev';
+  if (typeof m.reason !== 'string' || typeof m.me !== 'string' || !(m.holder === null || typeof m.holder === 'string')) return 'reason/me/holder';
   if (!Array.isArray(m.applied) || m.applied.length !== 3 || !m.applied.every(fin)) return 'applied';
-  if (!Array.isArray(m.events)) return 'events';
+  if (!Array.isArray(m.events) || !m.events.every((e: any) => e && typeof e.t === 'string' && EVST.has(e.st) && typeof e.text === 'string')) return 'events';
+  const ss = m.sim_start;   // 화면이 읽는 칸만: ok·why·session(남은 시간)
+  if (!ss || typeof ss !== 'object' || typeof ss.ok !== 'boolean' || typeof ss.why !== 'string' || !(ss.session === null || typeof ss.session === 'object')) return 'sim_start';
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
     for (const k of ['x', 'y', 'yaw', 'vx', 'vy', 'tilt_deg']) if (!nf(m.sim[k])) return `sim.${k}`;
@@ -137,8 +145,10 @@ export function startLink() {
 function lifecycle() {
   document.addEventListener('visibilitychange', () => { if (document.hidden) hide(); });
   addEventListener('pagehide', hide);
+  addEventListener('hashchange', dropAll);   // 경로 전환 순간 누름 폐기(화면 unmount 의 hide 보다 먼저) — 같은 화면 쿼리 변경도 다시 눌러야 함
   addEventListener('blur', hide);
   screen.orientation?.addEventListener('change', dropAll);
+  document.addEventListener('fullscreenchange', dropAll); document.addEventListener('webkitfullscreenchange', dropAll);   // 전체화면 들어감·나옴: 누르던 손가락 폐기
   document.addEventListener('focusin', (e) => { const t = e.target as HTMLElement | null; if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) dropAll(); });   // 입력칸으로 가면 누르던 조종부터 폐기
   const App = (window as any).Capacitor?.Plugins?.App;
   // 네이티브가 페이지 로드마다 removeAllListeners(Bridge.reset) — 여기선 로드당 한 번(started 가드)만. addListener 는 Promise: 거부를 삼킨다

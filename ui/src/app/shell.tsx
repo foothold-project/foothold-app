@@ -1,7 +1,7 @@
 // 앱 틀: 해시 경로(#/화면?값) · 알림(toast) · STOP 버튼과 Space 단축키.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
-import { sendStop } from '../data/link';
+import { dropAll, sendStop } from '../data/link';
 
 // ---- 경로 ----
 const sub = (f: () => void) => { addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); };
@@ -41,6 +41,7 @@ export function Drawer({ title, onClose, children }: { title: string; onClose: (
   const x = useRef<HTMLButtonElement>(null), close = useRef(onClose); close.current = onClose;   // 다시 그릴 때마다 초점을 뺏지 않게 처음 한 번만
   const [bot, setBot] = useState(12);
   useEffect(() => {
+    dropAll();   // 메뉴·서랍이 열리는 순간 조종 입력 폐기(네이티브 blur 를 가정하지 않음) — 모든 화면 공통
     x.current?.focus(); const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); };
     // 서랍 아래쪽(휴대폰 하단)에 있는 STOP 을 덮지 않게 그 위에서 끝냄 — 머리줄 STOP(PC)은 top 84 위라 해당 없음
     const fit = () => { const t = [...document.querySelectorAll('[aria-label="비상 정지"]')].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.top > 184).map((r) => r.top); setBot(t.length ? Math.max(12, innerHeight - Math.min(...t) + 8) : 12); };
