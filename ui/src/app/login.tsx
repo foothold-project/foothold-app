@@ -45,10 +45,10 @@ export function useLoginVals(phone: boolean) {
       <input id="gate-origin" ref={gin} className="inp" type="url" inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={200}
         defaultValue={cur} placeholder="https://관문주소:포트" disabled={ed.busy} aria-invalid={!!ed.err} aria-describedby="gate-err"
         onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); change(); } else if (e.key === 'Escape') { e.preventDefault(); close(); } }} />
-      <div id="gate-err" role="alert" style={{ minHeight: 18, fontSize: 13, color: 'var(--bad, #FF5A4F)', overflowWrap: 'anywhere' }}>{ed.busy ? '연결 주소 확인 중…' : ed.err}</div>
+      <div id="gate-err" role="alert" style={{ minHeight: 18, fontSize: 13, color: 'var(--bad, #FF5A4F)', overflowWrap: 'anywhere' }}>{ed.busy ? '주소 저장 중…' : ed.err}</div>
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
         <button type="button" style={{ ...EDB, background: 'transparent', color: 'var(--accent)', border: '1px solid var(--line2)' }} onClick={close} disabled={ed.busy}>취소</button>
-        <button type="button" style={{ ...EDB, background: 'var(--accent)', color: 'var(--on-accent)', border: 0 }} onClick={change} disabled={ed.busy}>연결</button>
+        <button type="button" style={{ ...EDB, background: 'var(--accent)', color: 'var(--on-accent)', border: 0 }} onClick={change} disabled={ed.busy}>주소 저장</button>
       </div>
     </div>) : null;
   const go = async (e: React.SyntheticEvent) => {
