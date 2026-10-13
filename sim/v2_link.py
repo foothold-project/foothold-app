@@ -397,7 +397,9 @@ class Docs:
         if cur is None:
             if len(self.d) >= DOC_TOTAL:
                 return 400, {'error': f'문서 수 한도 {DOC_TOTAL}'}
-            self.n += 1; did = f'{kind[0]}{time.strftime("%m%d%H%M%S")}{os.getpid() % 1000:03d}{self.n}'
+            while True:                # 같은 초·같은 pid 로 다시 열면 n 이 0 부터라 기존 id 와 겹칠 수 있다 → 겹치면 다시 뽑기(형식 그대로)
+                self.n += 1; did = f'{kind[0]}{time.strftime("%m%d%H%M%S")}{os.getpid() % 1000:03d}{self.n}'
+                if did not in self.d: break
         new[did] = {'id': did, 'kind': kind, 'rev': (cur['rev'] if cur else 0) + 1, 'by': actor, 'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'doc': doc}
         self._write(new); self.d = new; self.rev += 1
         return 200, {'ok': True, 'id': did, 'rev': new[did]['rev'], 'kind': kind, 'name': doc.get('name', ''), 'new': cur is None}
@@ -517,6 +519,14 @@ def selftest_extra():
         zid = r['id']; assert d.d[zid]['by'] == 'A' and Docs(td).d == d.d and not (Path(td) / 'docs.tmp').exists()
         assert d.apply({'op': 'put', 'id': zid, 'rev': 1, 'doc': {**z, 'name': '금지2'}}, 'B')[0] == 200
         c, r = d.apply({'op': 'put', 'id': zid, 'rev': 1, 'doc': {**z, 'name': '늦은 수정'}}, 'A'); assert c == 409 and r['cur']['doc']['name'] == '금지2'
+        fz, orig = time.localtime(), time.strftime   # 같은 초·같은 pid 로 다시 연 두 Docs(n=0 부터) — 기존 id 를 덮지 않는다
+        time.strftime = lambda f, t=None: orig(f, fz)
+        try:
+            a_ = Docs(td).apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': z}, 'C')[1]['id']
+            b_ = Docs(td).apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': z}, 'C')[1]['id']
+        finally:
+            time.strftime = orig
+        assert a_ != b_ and {a_, b_, zid} <= set(Docs(td).d)
         for bad in [{**z, 'pts': [[0, 0], [1, 1]]}, {**z, 'pts': [[0, 0], [1, float('nan')], [1, 1]]}, {**z, 'pts': [[0, 0], [True, 0], [1, 1]]},
                     {**z, 'type': '위험'}, {**z, 'name': 'x' * 41}, {**z, 'extra': 1}, {'name': 'a'}, 'str']:
             assert d.apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': bad}, 'A')[0] == 400, bad
