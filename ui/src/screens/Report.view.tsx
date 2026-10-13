@@ -11,6 +11,9 @@ export const CSS = "\nbody{margin:0;background:#FFFFFF}\n.mono{font-family:'JetB
 /** 원본 틀이 읽는 값 이름 */
 export type Vals = { recNo?: any; place?: any; when?: any; who?: any; robot?: any; thAt?: any; thRes?: any; rows?: any; modNote?: any; map?: any; thumbs?: any; signName?: any; signB?: any; title?: any; tplLine?: any; wpLine?: any; isGas?: any; resColor?: any; resHead?: any; resBody?: any; todo?: any; isBase?: any; isPatrol?: any; modLine?: any; gasPath?: any; fullPath?: any; findPins?: any; mapCap?: any; hasFind?: any; signA?: any; keep?: any };
 
+/** 시안 예시값의 옛 결과 색 → 공식 토큰(브랜드). 실연결 값은 Report.tsx 가 이미 토큰으로 준다 */
+const rc = (x: unknown) => ({ '#1F5FBF': 'var(--dim-ink)', '#9A5800': 'var(--note-ink)', '#B3261E': 'var(--stop)', '#4F5A64': 'var(--ink-2)' } as Record<string, string>)[String(x).toUpperCase()] ?? x;
+
 export function View({ v }: { v: Vals }) {
   return (
     <>
@@ -128,15 +131,15 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </section>
         {" "}
-        <section style={css(`display:flex;gap:16px;align-items:stretch;border:2px solid ${str(v.resColor)};border-radius:6px;padding:12px 16px`)}>
+        <section style={css(`display:flex;gap:16px;align-items:stretch;border:2px solid ${str(rc(v.resColor))};border-radius:6px;padding:12px 16px`)}>
           {" "}
           <div style={{"display":"flex","flexDirection":"column","gap":"2px","flex":"1"}}>
             {" "}
-            <span style={css(`font-size:12px;font-weight:700;color:${str(v.resColor)}`)}>
+            <span style={css(`font-size:12px;font-weight:700;color:${str(rc(v.resColor))}`)}>
               {"임무 결과"}
             </span>
             {" "}
-            <span style={css(`font-size:20px;font-weight:700;color:${str(v.resColor)}`)}>
+            <span style={css(`font-size:20px;font-weight:700;color:${str(rc(v.resColor))}`)}>
               {iv(v.resHead)}
             </span>
             {" "}
@@ -331,7 +334,7 @@ export function View({ v }: { v: Vals }) {
                   <td className="mono">
                     {"—"}
                   </td>
-                  <td className="l" style={{"color":"#4F5A64"}}>
+                  <td className="l" style={{"color":"var(--ink-2)"}}>
                     {"미측정 · 중단"}
                   </td>
                 </tr>
@@ -539,7 +542,7 @@ export function View({ v }: { v: Vals }) {
                   <td className="mono">
                     {"맞음 2"}
                   </td>
-                  <td className="l" style={{"color":"#9A5800","fontWeight":"700"}}>
+                  <td className="l" style={{"color":"var(--note-ink)","fontWeight":"700"}}>
                     {"▲ 조치 필요"}
                   </td>
                 </tr>
@@ -633,7 +636,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
             {v.map ?? (<svg viewBox="40 40 920 545" style={{"width":"100%","height":"auto","border":"1px solid #C9CEC6"}} role="img" aria-label="지도: 출발점에서 측정 지점을 지난 경로">
               <rect x="40" y="40" width="920" height="545" fill="#FFFFFF" />
-              <rect x="43" y="43" width="254" height="194" fill="#F4E3E1" />
+              <rect x="43" y="43" width="254" height="194" style={{"fill":"var(--stop-soft)"}} />
               <g stroke="#6E7881" strokeWidth="6" fill="none">
                 <rect x="40" y="40" width="920" height="540" />
                 <path d="M40 240H200M260 240H300M300 40V300M300 300H440M500 300H770M830 300H960M640 40V300M40 380H120M180 380H330M380 380H750M810 380H960M240 380V580M600 380V580" />
@@ -656,7 +659,7 @@ export function View({ v }: { v: Vals }) {
                     {"3"}
                   </text>
                   <circle cx="800" cy="170" r="20" fill="#FFFFFF" stroke="#6E7881" strokeWidth="3" />
-                  <text x="800" y="178" fill="#4F5A64">
+                  <text x="800" y="178" style={{"fill":"var(--ink-2)"}}>
                     {"4"}
                   </text>
                   <circle cx="700" cy="340" r="18" fill="#FFFFFF" stroke="#a3342a" strokeWidth="3" />
@@ -676,10 +679,10 @@ export function View({ v }: { v: Vals }) {
                 </g>
               </g>
               <g display={`${str(v.findPins)}` as any}>
-                <rect x="528" y="218" width="22" height="22" transform="rotate(45 539 229)" fill="#9A5800" />
-                <rect x="394" y="249" width="22" height="22" transform="rotate(45 405 260)" fill="#9A5800" />
+                <rect x="528" y="218" width="22" height="22" transform="rotate(45 539 229)" style={{"fill":"var(--note-ink)"}} />
+                <rect x="394" y="249" width="22" height="22" transform="rotate(45 405 260)" style={{"fill":"var(--note-ink)"}} />
               </g>
-              <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="22" fill="#4F5A64">
+              <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="22" style={{"fill":"var(--ink-2)"}}>
                 <text x="60" y="80" fill="#a3342a">
                   {"진입 금지"}
                 </text>
@@ -784,7 +787,7 @@ export function View({ v }: { v: Vals }) {
                   <rect width="640" height="360" fill="#1A2126" />
                   <polygon points="0,360 640,360 470,190 170,190" fill="#2A343B" />
                   <ellipse cx="330" cy="292" rx="150" ry="30" fill="#4C6876" />
-                  <rect x="170" y="252" width="320" height="76" fill="none" stroke="#FFB547" strokeWidth="10" />
+                  <rect x="170" y="252" width="320" height="76" fill="none" stroke="#dc9a30" strokeWidth="10" />
                 </svg>
                 {" "}
                 <div style={{"display":"flex","flexDirection":"column","gap":"2px","fontSize":"13px"}}>
@@ -810,7 +813,7 @@ export function View({ v }: { v: Vals }) {
                   <rect width="640" height="360" fill="#1A2126" />
                   <rect x="0" y="120" width="640" height="60" fill="#3A4852" />
                   <rect x="290" y="110" width="140" height="80" fill="#6B5A4A" />
-                  <rect x="270" y="96" width="180" height="108" fill="none" stroke="#5AA9FF" strokeWidth="10" />
+                  <rect x="270" y="96" width="180" height="108" fill="none" stroke="#3ec7b4" strokeWidth="10" />
                 </svg>
                 {" "}
                 <div style={{"display":"flex","flexDirection":"column","gap":"2px","fontSize":"13px"}}>
@@ -872,7 +875,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </section>
         {" "}
-        <footer style={{"display":"flex","justifyContent":"space-between","gap":"12px","paddingTop":"10px","borderTop":"1px solid #C9CEC6","fontSize":"12px","color":"#4F5A64"}}>
+        <footer style={{"display":"flex","justifyContent":"space-between","gap":"12px","paddingTop":"10px","borderTop":"1px solid #C9CEC6","fontSize":"12px","color":"var(--ink-2)"}}>
           {" "}
           <span>
             {iv(v.keep)}

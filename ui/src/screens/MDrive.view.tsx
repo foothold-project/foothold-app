@@ -60,7 +60,7 @@ export function View({ v }: { v: Vals }) {
           </span>
           {" "}
           <span className="hud">
-            <span style={{"color":"#5AA9FF"}}>
+            <span style={{"color":"#3ec7b4"}}>
               {"●"}
             </span>
             {"통신 "}
@@ -70,7 +70,7 @@ export function View({ v }: { v: Vals }) {
           </span>
           {" "}
           <span className="hud">
-            <span style={{"color":"#5AA9FF"}}>
+            <span style={{"color":"#3ec7b4"}}>
               {"●"}
             </span>
             {"영상 "}
@@ -80,7 +80,7 @@ export function View({ v }: { v: Vals }) {
           </span>
           {" "}
           <span className="hud">
-            <span style={{"color":"#5AA9FF"}}>
+            <span style={{"color":"#3ec7b4"}}>
               {"●"}
             </span>
             <span className="mono">
@@ -103,7 +103,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </button>
         {" "}
-        <div style={{"position":"absolute","left":"50%","top":"150px","transform":"translateX(-50%)","display":"flex","alignItems":"center","gap":"6px","height":"30px","padding":"0 12px","borderRadius":"15px","background":"rgba(255,181,71,.92)","color":"#1A1206","fontSize":"12px","fontWeight":"700"}}>
+        <div style={{"position":"absolute","left":"50%","top":"150px","transform":"translateX(-50%)","display":"flex","alignItems":"center","gap":"6px","height":"30px","padding":"0 12px","borderRadius":"15px","background":"rgba(220,154,48,.92)","color":"#12161d","fontSize":"12px","fontWeight":"700"}}>
           {"▲ 앞 장애물 "}
           <span className="mono">
             {"0.8 m"}

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """브랜드 적용 전후 캡처·측정 (parity.html 예시값, 모의 전용).
-쓰임: python3 ui/tests/brand_shots.py <결과 폴더(없어야 함)>   (이미 뜬 headless Chrome CDP 9258 재사용)
+쓰임: python3 ui/tests/brand_shots.py <결과 폴더(없어야 함)> [화면 …(생략 = 전부)]   (이미 뜬 headless Chrome CDP 9258 재사용)
 환경: REACT=http://127.0.0.1:5181
 측정: STOP 상자·화면 안·elementFromPoint 적중·글자/바탕 대비, 로고 상자·img src 의 sha256(ui/public 원본과 대조),
       가로 넘침, <html data-theme>, 실제 쓰인 글꼴, .fh font-family → measure.json"""
@@ -37,7 +37,7 @@ def contrast(a, b):
     try: la, lb = lum(rgb(a)), lum(rgb(b))
     except Exception: return None   # transparent·color-mix 원문 등 숫자로 못 읽으면 기록만
     return round((max(la, lb) + 0.05) / (min(la, lb) + 0.05), 2)
-async def main(outdir):
+async def main(outdir, only):
     os.makedirs(outdir); tabs = json.load(urllib.request.urlopen(f'http://127.0.0.1:{DBG}/json'))
     ws = await websocket_connect([t for t in tabs if t['type'] == 'page'][0]['webSocketDebuggerUrl'], max_message_size=128 << 20); n = [0]
     async def call(m, **p):
@@ -47,7 +47,7 @@ async def main(outdir):
             if r.get('id') == me: return r.get('result', r.get('error'))
     async def js(e): return (await call('Runtime.evaluate', expression=e, returnByValue=True, awaitPromise=True)).get('result', {}).get('value')
     out = {}
-    for name, w, h, q in SHOTS:
+    for name, w, h, q in [x for x in SHOTS if not only or x[0] in only]:
         for th in THEMES:
             await call('Emulation.setDeviceMetricsOverride', width=w, height=h, deviceScaleFactor=1, mobile=False)
             await call('Page.navigate', url=f'{REACT}/parity.html?screen={name}&theme={th}&{q}'); await asyncio.sleep(2.5)
@@ -64,4 +64,4 @@ async def main(outdir):
             out[tag] = m; print(tag, 'stops', [(s['box'], s['inView'], s['hit'], s['contrast']) for s in m['stops']], 'logo', m['logo'][:2],
                                'imgs', [(Path(i['src']).name, i['box'], i['same_as_public']) for i in m['imgs']], 'hOv', m['hOverflow'], 'theme', m['dataTheme'], flush=True)
     json.dump(out, open(f'{outdir}/measure.json', 'w'), ensure_ascii=False, indent=1)
-asyncio.run(main(sys.argv[1]))
+asyncio.run(main(sys.argv[1], sys.argv[2:]))

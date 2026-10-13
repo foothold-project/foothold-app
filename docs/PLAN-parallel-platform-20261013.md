@@ -25,7 +25,7 @@
 | 브랜드 | foothold-brand 7afd241 로고·토큰·Pretendard 적용(배치·조작 그대로) | 완료(아래 «브랜드 적용») |
 | 2 | 계획·양식·공용 지도(Canvas)·사진 분류 이전. Zustand = 표시·일시 입력, TanStack Query = 문서 조회·저장(409·초안·세대) | 대기 |
 | 3 | 조종 Main·MDrive (마지막). 두 pointerId·폐기 규칙·STOP 우선·비영 복원 금지 보존. link.ts 에 live.js 126–127 의 hidden/pagehide → hidden 이식 + 앱 생명주기 계약: native pause·visibility·pagehide·blur·끊김 → 모든 pointer 폐기 + (가능하면) hidden, resume → 재연결은 보기 전용, WS 명령 발행 소유자 1개(App plugin 활성은 모바일 담당과 협의) | 대기 |
-| 4 | PWA·Capacitor(Android/iOS) 같은 번들 | 대기 |
+| 4 | PWA·Capacitor(Android/iOS) 같은 번들 | 외피 병렬 완료(모바일 담당, app-contract-storage `mobile/**` 86ef8d4 Capacitor 8.5.2·96b600f 아이콘·appId 임시) · 개발 연결 A(server.url→기존 관문 HTTPS, fixture) 진행 중 · 번들 내장 B 는 신뢰·Origin·API 설계 별도 · 실폰 미검증 |
 | 5 | PC 3D 슬롯(three.js/R3F, 공급원 없음 표시), FastAPI/SQLite 백엔드 호환 연결 | 대기 |
 
 ## 묶음 1 결과 (dbf7a28)
@@ -35,7 +35,7 @@
   - `python3 ui/tests/parity.py` → 19화면 20/20 PASS(`runs/react-oh/parity-5`)
   - `npx vitest run` 1 통과(tms +0900/-0130/빈값/null/쓰레기), `npm run build` 통과
   - STOP: 버튼 pointerdown·Space 키 → 상태 줄 «STOP 잠금» 확인(해제는 조종권 보유자만 — 보기 전용 연결로는 해제 안 되는 것이 정상)
-- 기존 동작과 일부러 다르게 한 곳: Report 결과 색을 상태별(완료 파랑·진행 주황·실패/중단 빨강, 기존은 늘 파랑) · PcHistory 쪽 버튼(비활성 흐림·현재 쪽 강조, 기존 복제 스타일 버그) · MHistory 목록 스크롤(기존 넘침 숨김) · 사진 읽기 전 건수 «—» · 시뮬 세션 결과 null → «미확인».
+- 기존 동작과 일부러 다르게 한 곳: Report 결과 색을 상태별(브랜드 뒤: 완료 dim-ink·진행 note-ink·실패/중단 stop, 기존은 늘 파랑) · PcHistory 쪽 버튼(비활성 흐림·현재 쪽 강조, 기존 복제 스타일 버그) · MHistory 목록 스크롤(기존 넘침 숨김) · 사진 읽기 전 건수 «—» · 시뮬 세션 결과 null → «미확인».
 - 남은 것: 4401 은 authEnd 표시만(로그인 화면 = 묶음 4) · 카메라 프레임 무시 · MapCanvas 지도 위 버튼·로봇 궤적(묶음 2) · PcSettings 쪽 안 앵커(#display 등)가 해시 경로와 충돌(묶음 2) · live_cmp 는 줄 순서 미비교.
 
 ## 백엔드 연결 (fixture 만, 운영·자료 이전 아님)
@@ -51,6 +51,7 @@
 - 화면 안 고정색(테마 무관 자리)만 같은 공식값으로: MDrive 경로 `#38C6D9→#3ec7b4`·STOP `#D7261E→#a3342a`, 로그인 소개면 `#071014→#12161d`·`#38C6D9→#3ec7b4`, MAlert 경보띠·Report 빨강 `→#a3342a`, Report 청록·잉크 `→#0e7a6e`·`#161c26`. SVG 글꼴 속성은 Pretendard.
 - 검증 (`python3 ui/tests/brand_shots.py <폴더>`, parity.html 예시값·모의만):
   - BEFORE `runs/brand/before-e618139/`, AFTER `runs/brand/after-1/` (PC Main·PcLogin·Report, 폰 MDrive·MHome·MLogin × 어두운/밝은, `measure.json`).
+  - 후속 좁은 patch(앱 Codex 검수 지적): Report 결과색(실연결·시안 예시값 모두) 완료=dim-ink·진행=note-ink·실패/중단=stop, Report 표·지도 글 ink-2·note-ink·금지구역 stop-soft, 사진 위 표시·MDrive HUD 점·경고칩·Main 카메라 bbox·녹화점은 공식 어두움 값, Main 경고띠·warn 채움 글자 = var(--warn) 위 var(--paper)(5.64/7.52), 빨간 띠 흰 버튼 글자 #a3342a. System 설명칸에 «원본 시안 참고용·현재 공식 규격 링크». 캡처 `runs/brand/after-2/`.
   - STOP: Main 162×52→159×52(글자폭, 위치 1265,23 화면 안·적중), MDrive 132×64·MHome 358×64 위치·크기 그대로, 전부 inView·elementFromPoint 적중. 글자 대비 5.02/5.71 → 6.81.
   - 대비: 본문 14.66(어두움)·15.67(밝음)은 화면 실측. 아래는 토큰 값 계산 — accent 위 글자 8.66/5.21, note-ink/note-soft 5.45·6.05, dim-ink/dim-soft 5.99·6.77. 상태는 색 + 글자·기호(색만으로 구분 안 함).
   - 로고: 보이는 img 의 개발 서버 응답 sha256 = `ui/public` 원본, 테마별 dark/light 파일 바뀜 확인. 가로 넘침 0.
@@ -68,4 +69,4 @@
 ## 미확인 · 블로커
 - 실제 iPhone·Android 다지점 터치: 미확인(에뮬레이션·CDP 합성만 가능).
 - iOS 빌드: 이 PC 에 macOS/Xcode/서명 없음 → 프로젝트·절차까지만.
-- Node 18.19.1 → Vite 5·Capacitor 6 계열 사용(Vite 7·Capacitor 7 은 Node 20 이상 요구).
+- Node: React(ui, Vite 5)는 시스템 Node 18.19.1 로 빌드. 모바일 외피(Capacitor 8.5.2)는 Node 22 이상(사용자 폴더 node 22, 전역 업데이트 없음) — `mobile/README.md`.

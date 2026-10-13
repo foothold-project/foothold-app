@@ -135,7 +135,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
             <div style={{"display":"flex","flexWrap":"wrap","gap":"8px"}}>
               {" "}
-              <button style={{"height":"40px","padding":"0 14px","border":"0","borderRadius":"6px","background":"#FFFFFF","color":"#8E1A14","fontWeight":"700"}}>
+              <button style={{"height":"40px","padding":"0 14px","border":"0","borderRadius":"6px","background":"#FFFFFF","color":"#a3342a","fontWeight":"700"}}>
                 {"후퇴 계속 · 확인"}
               </button>
               {" "}
@@ -179,7 +179,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
             <div style={{"display":"flex","flexWrap":"wrap","gap":"8px"}}>
               {" "}
-              <button style={{"height":"40px","padding":"0 14px","border":"0","borderRadius":"6px","background":"#FFFFFF","color":"#8E1A14","fontWeight":"700"}}>
+              <button style={{"height":"40px","padding":"0 14px","border":"0","borderRadius":"6px","background":"#FFFFFF","color":"#a3342a","fontWeight":"700"}}>
                 {"맞음 · 구조 요청"}
               </button>
               {" "}
@@ -237,7 +237,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         {v.isLost ? (<>
           {" "}
-          <div role="alert" style={{"display":"flex","flexWrap":"wrap","alignItems":"center","gap":"10px 18px","padding":"12px 16px","background":"#FFB547","color":"#1A1206"}}>
+          <div role="alert" style={{"display":"flex","flexWrap":"wrap","alignItems":"center","gap":"10px 18px","padding":"12px 16px","background":"var(--warn)","color":"var(--paper)"}}>
             {" "}
             <span style={{"fontWeight":"700","fontSize":"17px"}}>
               {"▲ 로봇과 통신 끊김 · "}
@@ -351,7 +351,7 @@ export function View({ v }: { v: Vals }) {
                     {" "}
                     <button className="layer" aria-pressed="true">
                       {"발견물 "}
-                      <span className="mono" style={{"padding":"0 6px","borderRadius":"999px","background":"var(--warn)","color":"#1A1206","fontWeight":"700"}}>
+                      <span className="mono" style={{"padding":"0 6px","borderRadius":"999px","background":"var(--warn)","color":"var(--paper)","fontWeight":"700"}}>
                         {"2"}
                       </span>
                     </button>
@@ -519,14 +519,14 @@ export function View({ v }: { v: Vals }) {
                   </g>
                   <g display={`${str(v.showFind)}` as any}>
                     <rect x="531" y="221" width="16" height="16" transform="rotate(45 539 229)" style={{"fill":"var(--warn)"}} />
-                    <text x="539" y="234" textAnchor="middle" fontSize="12" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
+                    <text x="539" y="234" textAnchor="middle" fontSize="12" fontWeight="700" style={{"fill":"var(--paper)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"!"}
                     </text>
                     <text x="556" y="234" fontSize="13" style={{"fill":"var(--text)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"바닥 물고임"}
                     </text>
                     <rect x="397" y="252" width="16" height="16" transform="rotate(45 405 260)" style={{"fill":"var(--warn)"}} />
-                    <text x="405" y="265" textAnchor="middle" fontSize="12" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
+                    <text x="405" y="265" textAnchor="middle" fontSize="12" fontWeight="700" style={{"fill":"var(--paper)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"!"}
                     </text>
                     <text x="322" y="284" fontSize="13" style={{"fill":"var(--text)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
@@ -676,9 +676,9 @@ export function View({ v }: { v: Vals }) {
                   <rect x="268" y="224" width="104" height="10" fill="#1A2329" />
                   <rect width="640" height="360" fill="url(#lamp)" />
                   <g display={`${str(v.showFind)}` as any}>
-                    <rect x="206" y="268" width="232" height="62" fill="none" stroke="#FFB547" strokeWidth="2" />
-                    <rect x="206" y="246" width="128" height="22" fill="#FFB547" />
-                    <text x="214" y="262" fontSize="13" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
+                    <rect x="206" y="268" width="232" height="62" fill="none" stroke="#dc9a30" strokeWidth="2" />
+                    <rect x="206" y="246" width="128" height="22" fill="#dc9a30" />
+                    <text x="214" y="262" fontSize="13" fontWeight="700" fill="#12161d" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"바닥 물고임 0.88"}
                     </text>
                   </g>
@@ -695,7 +695,7 @@ export function View({ v }: { v: Vals }) {
                 </div>
                 {" "}
                 <div style={{"position":"absolute","right":"10px","top":"10px","display":"flex","alignItems":"center","gap":"6px","fontSize":"12px","padding":"4px 8px","borderRadius":"4px","background":"rgba(5,8,10,.72)","color":"#E6EBEF"}}>
-                  <span style={{"width":"8px","height":"8px","borderRadius":"50%","background":"#FF5A52"}} />
+                  <span style={{"width":"8px","height":"8px","borderRadius":"50%","background":"#e56d5e"}} />
                   {"기록 중"}
                 </div>
                 {" "}
@@ -896,7 +896,7 @@ export function View({ v }: { v: Vals }) {
                   {" "}
                   <div style={{"display":"grid","gridTemplateColumns":"64px 1fr auto","gap":"10px","alignItems":"center","padding":"8px","border":"1px solid var(--warn)","borderRadius":"8px"}}>
                     {" "}
-                    <div style={{"aspectRatio":"4/3","borderRadius":"4px","background":"#0D1317","border":"1.5px solid #FFB547"}} />
+                    <div style={{"aspectRatio":"4/3","borderRadius":"4px","background":"#0D1317","border":"1.5px solid var(--warn)"}} />
                     {" "}
                     <div style={{"display":"flex","flexDirection":"column","gap":"2px"}}>
                       <b style={{"fontSize":"13px"}}>

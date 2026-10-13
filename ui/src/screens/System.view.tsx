@@ -30,6 +30,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
             <p style={{"margin":"0","maxWidth":"720px","color":"var(--muted)","fontSize":"15px","lineHeight":"1.65","textWrap":"pretty"}}>
               {"운영자는 급하고, 장갑을 꼈고, 햇빛 아래서 로봇과 화면을 번갈아 봅니다. 모든 규칙은 이 상황에서 출발합니다."}
+              {" 이 화면은 원본 시안 참고용입니다 — 아래 색·글꼴 값은 옛 시안 값이며, 현재 공식 규격은 "}<a href="./brand/SOURCE.md" style={{"color":"var(--accent)"}}>{"foothold-brand 7afd241 (brand/SOURCE.md)"}</a>{" 입니다."}
             </p>
             {" "}
           </header>

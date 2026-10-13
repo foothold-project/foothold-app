@@ -8,7 +8,8 @@ import { docById, docsOf, noteOf, useDocs, useMedia } from '../data/shared';
 import { histCSV, histRows, href } from '../data/hist';
 import { stopProps, toast, useRoute } from '../app/shell';
 
-const COLOR: Record<string, string> = { '완료': '#1F5FBF', '진행': '#9A5800', '실패': '#B3261E', '중단': '#B3261E' };   // 원본 시안의 세 결과 색
+// 결과 색 = 공식 토큰(Report 는 항상 밝음): 완료·확인 dim-ink, 진행·미확인 note-ink, 실패·중단 stop. 색 + 글자로 구분
+const COLOR: Record<string, string> = { '완료': 'var(--dim-ink)', '진행': 'var(--note-ink)', '실패': 'var(--stop)', '중단': 'var(--stop)' };
 
 export default function Report() {
   const D = useDocs(), M = useMedia(), { q, setQ } = useRoute();
@@ -22,7 +23,7 @@ export default function Report() {
     </div>
   );
   const blank = { recNo: '—', place: '—', when: '—', who: '—', robot: '—', tplLine: '—', wpLine: '—', resHead: '—', todo: '—', rows: [], modNote: '', thumbs: [],   // null·undefined 면 원본 예시가 나오므로 빈 배열
-    map, mapCap: '기록 없음', signA: '운영자', signName: '', signB: '', keep, isBase: true, isGas: false, isPatrol: false, hasFind: false, resColor: '#4F5A64',
+    map, mapCap: '기록 없음', signA: '운영자', signName: '', signB: '', keep, isBase: true, isGas: false, isPatrol: false, hasFind: false, resColor: 'var(--ink-2)',
     thAt: '방문 기록 시각(운영자)', thRes: '결과' };
   let v: Record<string, unknown>;
   if (!R) {
@@ -35,7 +36,7 @@ export default function Report() {
     v = { ...blank, title: R.name, recNo: run!.id,
       place: 'Gazebo foothold-v2 시뮬 바닥(±10 m) · 실제 현장 아님', when: `${fmtT(R.started)} – ${R.ended ? fmtT(R.ended) : '진행 중'} · ${durTxt(R.started, R.ended)}`,
       who: `마지막 기록 ${run!.by}`, robot: 'Go2 시뮬(Gazebo) · 실기 아님', tplLine: `${R.tmpl || '—'} · 수동 진행(자동 이동·자동 완료 아님)`,
-      wpLine: `${R.wps.length}개 · 방문 ${vis} · 미방문 ${miss.length}`, resColor: COLOR[R.status] || '#4F5A64',
+      wpLine: `${R.wps.length}개 · 방문 ${vis} · 미방문 ${miss.length}`, resColor: COLOR[R.status] || 'var(--ink-2)',
       resHead: `${R.status === '완료' ? LV.ok : R.status === '진행' ? LV.warn : LV.bad} ${R.status === '진행' ? '진행 중(수동)' : R.status}`,
       resBody: R.memo || `방문 ${vis}/${R.wps.length} · 판단 확인 ${n('확인')} · 보류 ${n('보류')} · 제외 ${n('제외')}`,
       todo: miss.length ? miss.map((w) => `${wpName(w, R.wps.indexOf(w))}: ${w.why}`).join(' · ') : R.wps.some((w) => w.chk === '보류') ? '보류 판단 지점 다시 확인' : '없음',
