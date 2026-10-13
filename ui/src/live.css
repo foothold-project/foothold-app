@@ -52,3 +52,6 @@ textarea.lv-inp{resize:vertical}
 @media (max-width:900px){.lv-main{grid-template-columns:minmax(0,1fr)!important}}
 @media print{.lv-noprint{display:none!important}body{background:#fff!important}}
 [data-live-drive] [role="group"]{touch-action:none}   /* 조종 막대: 끌기가 화면 스크롤·확대로 새지 않게 */
+/* Main(PC 조종) 머리줄: 시험 문구·임무 제목 줄이 좁은 폭(≈1024)에서 줄어들며 말줄임 — 칩이 모드 표시를 덮지 않게(전체 문구는 title) */
+[data-main] header>div:has(>span+span){flex-shrink:1;min-width:140px}
+[data-main] header>div:has(>span+span)>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

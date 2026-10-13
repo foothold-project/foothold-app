@@ -1,37 +1,20 @@
 // 휴대폰 현황(원본 틀): 진행 중 수동 임무 · 미니맵 · 지점에서 할 일 · 기록 버튼 — web/live.js pageMHome 과 같은 규칙.
 // 로봇은 자동으로 움직이지 않는다(자동 이동·도착 판정 미연결). 가스·발견물 칸은 실데이터가 없어 숨긴다(예시값 금지).
 import { useState } from 'react';
-import type { Mission, RunWaypoint } from '@contracts';
+import type { Mission } from '@contracts';
 import { CSS, View } from './MHome.view';
 import { durTxt, store, themeClass, tms, wpName } from '../data/fmt';
 import { activeRun, alertsOf, docsOf, useDocs, useMedia } from '../data/shared';
 import { TRAIL, linkView, useLink } from '../data/link';
-import { attachPhoto, curWp, modDone, modTxt, runEdit, runEnd, isoNow, startRun } from '../data/run';
+import { attachPhoto, curWp, modDone, modTxt, runEnd, startRun } from '../data/run';
 import { useEditor } from '../data/editor';
 import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
 import { stopProps, toast } from '../app/shell';
+import { Btn, WpActs } from '../app/runui';
 
 const READ = 'fh.live.alerts.read';
-const Btn = ({ t, on, pri, ...p }: { t: string; on: () => void; pri?: boolean } & React.ButtonHTMLAttributes<HTMLButtonElement>) =>
-  <button type="button" className={`lv-btn${pri ? ' pri' : ''}`} onClick={on} {...p}>{t}</button>;
-
-// 지점 기록 버튼: 방문 확인(시각 기록)·미방문 사유·운영자 판단·사진 (live.js wpActs)
-function WpActs({ id, i, w }: { id: string; i: number; w: RunWaypoint }) {
-  const n = `WP${i + 1}`, set = (o: Partial<RunWaypoint>, what: string) => runEdit(id, (d) => { Object.assign(d.wps[i], o); }, what);
-  return (
-    <div className="lv-row">
-      {w.st === '대기' ? <>
-        <Btn pri t="방문 확인" on={() => set({ st: '방문', at: isoNow(), why: '' }, `${n} 방문 확인`)} />
-        <Btn t="미방문…" on={() => { const y = prompt(`${n} 미방문 사유(예: 길 막힘·위험·시간 부족)`); if (y && y.trim()) set({ st: '미방문', at: '', why: y.trim().slice(0, 120) }, `${n} 미방문`); }} />
-      </> : <Btn t="대기로 되돌리기" on={() => set({ st: '대기', at: '', why: '' }, `${n} 되돌림`)} />}
-      {w.mods.includes('운영자 확인') && (['확인', '보류', '제외'] as const).map((c) =>
-        <Btn key={c} t={c} aria-pressed={w.chk === c} title="운영자 판단(로봇 자동 판정 아님)" on={() => runEdit(id, (d) => { d.wps[i].chk = d.wps[i].chk === c ? '' : c; }, `${n} 운영자 판단 ${c}`)} />)}
-      <Btn t="📷 사진" on={() => attachPhoto(id, i)} />
-    </div>);
-}
-
 export default function MHome() {
   const D = useDocs(), M = useMedia(), lk = linkView(useLink()), E = useEditor<Mission>('mission');
   const [endOpen, setEndOpen] = useState(false), [pick, setPick] = useState('');
