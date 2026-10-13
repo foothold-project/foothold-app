@@ -7,8 +7,8 @@
 | 구분 | 내용 |
 |---|---|
 | **만든 것** | `package.json`(버전 고정) · `capacitor.config.json` · `scripts/sync-web.mjs`(ui/dist → www, 파일별 sha256 을 `SOURCE.json` 에) · `scripts/make-icons.py`(브랜드 공식 래스터 → 앱 아이콘) · `android/`·`ios/` 프로젝트(`cap add` 생성물 + appId·아이콘만 변경) |
-| **이 PC 에서 확인** | **debug APK = 서버 없는 설치 외피·보기 전용.** 86ef8d4: 빌드 성공(Linux, 1분 46초) + Android 14 에뮬레이터(API 34, x86_64)에서 설치·실행해 React 번들 화면이 뜸. 서버가 없어서 「링크 연결 중 · 잠금 상태 미확인 · 보기 전용」으로 표시됨. 증거 `runs/mobile-shell-20261013/`(APK sha256 `b9684116…772e`). appId·아이콘 변경 뒤에는 **빌드만** 다시 함(에뮬레이터 실행 없음): 패키지 `org.footholdproject.app`, 증거 `runs/mobile-icon-appid-20261013/`(APK sha256 `3a821941…e431`). 둘 다 git 무시 |
-| **확인 안 함** | 실제 휴대폰 · **iOS = 프로젝트 생성만**(Mac·Xcode 필요, 이 Linux 에서는 빌드·IPA 없음) · 관문 서버 연결·로그인 · 런처에서 보이는 아이콘 모양(기기·런처마다 마스크가 다름) · 릴리스 서명 · 백그라운드 동작 |
+| **이 PC 에서 확인** | **debug APK = 서버 없는 설치 외피·보기 전용.** 86ef8d4: 빌드 성공(Linux, 1분 46초) + Android 14 에뮬레이터(API 34, x86_64)에서 설치·실행해 React 번들 화면이 뜸. 서버가 없어서 「링크 연결 중 · 잠금 상태 미확인 · 보기 전용」으로 표시됨. 증거 `runs/mobile-shell-20261013/`(APK sha256 `b9684116…772e`). 단, 그 화면 캡처 `emulator-api34-first.png` 는 Android 블루투스 시스템 대화상자가 앱 위를 가리고 있어 **부분 증거**다(정상 화면 전체의 증거 아님). appId·아이콘 변경 뒤에는 **빌드만** 다시 함(에뮬레이터 실행 없음): 패키지 `org.footholdproject.app`, 증거 `runs/mobile-icon-appid-20261013/`(APK sha256 `3a821941…e431`). 둘 다 git 무시 |
+| **확인 안 함** | 실제 휴대폰 · **iOS = 프로젝트 생성만**(Mac·Xcode 필요, 이 Linux 에서는 빌드·IPA 없음) · A 의 복귀·로그아웃·오류 화면·다른 CA 거부(아래 3회차에서 미실행) · 런처에서 보이는 아이콘 모양(기기·런처마다 마스크가 다름) · 릴리스 서명 · 백그라운드 동작 |
 
 APK 를 만든 번들은 `feature/react-platform-oh` e618139 이다(브랜드 적용 전). 화면이 PC 폭으로 배치되는 것은 UI 쪽 범위다.
 
@@ -20,7 +20,8 @@ APK 를 만든 번들은 `feature/react-platform-oh` e618139 이다(브랜드 �
 | Node | 22 이상 | 시스템 node 18 은 쓰지 않는다. 사용자 폴더의 node 22 를 쓴다(전역 업데이트 없음) |
 | JDK | 21 | Capacitor android `JavaVersion.VERSION_21`. 시스템 openjdk 21.0.12 |
 | Android | compileSdk 36 · targetSdk 36 · minSdk 24 · AGP 8.13.0 · Gradle 8.14.3 | `android/variables.gradle`·`build.gradle`·wrapper(생성물 그대로) |
-| iOS | 15.0 이상 · SPM(`CapApp-SPM`, CocoaPods 없음) · bundle id `org.footholdproject.app`(임시) | `ios/App/App.xcodeproj` |
+| iOS | 최소 OS 15.0 · SPM(`CapApp-SPM`, CocoaPods 없음) · bundle id `org.footholdproject.app`(임시) | `ios/App/App.xcodeproj`. 빌드 도구는 **Xcode 26.0 이상**(공식 문서 capacitorjs.com/docs/ios 「Xcode 26.0+ is required」, 10-13 확인) — 최소 OS 와 다른 값 |
+| @capacitor/app | 8.1.1 | 앱 배경·복귀(`pause`·`resume`) 신호. 8.1.2 는 10-02 배포라 한 달 된 8.1.1 로 고정 |
 
 React 쪽(Vite 5)은 지금처럼 node 18 로 빌드해도 된다. 외피만 node 22 가 필요하다.
 
@@ -34,33 +35,72 @@ cd ui && npm ci && npm run build
 export PATH=~/.local/opt/node-v22.23.3-linux-x64/bin:$PATH
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=~/Android/Sdk
 cd mobile && npm ci
-FH_UI_REV=$(git rev-parse HEAD) npm run apk:debug     # ui/dist → www → cap sync android → gradlew assembleDebug
+FH_UI_DIST=<UI 체크아웃>/ui/dist npm run apk:debug     # ui/dist → www → cap sync android → gradlew assembleDebug
 # 결과: android/app/build/outputs/apk/debug/app-debug.apk (debug 키 서명)
 ```
 
-- `node scripts/sync-web.mjs <다른 dist 경로>` 로 다른 곳의 번들도 실을 수 있다. 소스맵(`*.map`)은 빼고, 로컬 경로는 APK 에 넣지 않는다.
+- UI 번들 정본은 UI 담당 체크아웃(`app-ui-react-recovered`)의 `ui/dist` 다. 이 모바일 체크아웃의 `ui/` 는 옛 판이라 쓰지 않는다.
+- `www/SOURCE.json` 의 `ui_rev` 는 그 번들의 판이다. `FH_UI_REV` 로 정확히 주거나, 주지 않으면 dist 가 든 체크아웃에서 자동 확인한다. 모바일 자기 체크아웃·ui 미커밋 변경·HEAD 보다 오래된 dist 이면 «미확인»으로 남기고 이유를 `ui_rev_from` 에 쓴다. 모바일 HEAD 를 UI 판으로 적지 않는다.
+- 소스맵(`*.map`)은 빼고, 로컬 경로는 APK 에 넣지 않는다.
 - 처음 빌드하면 Gradle 8.14.3 을 내려받는다. AGP 가 Build-Tools 35 를 `~/Android/Sdk` 에 자동으로 설치한다(사용자 폴더, 라이선스는 이미 동의된 상태).
 - `www/`·`node_modules/`·`android/app/src/main/assets/public` 은 생성물이라 git 에서 제외한다.
 
 ## iOS — Mac 인계
 
-1. Mac 에 Xcode(iOS 15 SDK 이상)와 Node 22 를 준비한다. 위 1)과 같이 UI 번들을 만든다.
+1. Mac 에 **Xcode 26.0 이상**과 Node 22 를 준비한다(앱 최소 OS 는 iOS 15 — 별개 값). 위 1)과 같이 UI 번들을 만든다.
 2. `cd mobile && npm ci && node scripts/sync-web.mjs && npx cap sync ios && npx cap open ios`
 3. Xcode 에서 App 타깃 → Signing & Capabilities 로 가서 Team 을 고른다. **현민님 Apple 계정 입력이 필요하다.** 프로젝트는 자동 서명(`CODE_SIGN_STYLE = Automatic`)이고 Team 은 비어 있다.
 4. 시뮬레이터에서 실행해 본 뒤 실기기에서 실행한다. Archive·IPA 는 서명이 끝난 뒤에 만든다. 이 Linux 에서는 iOS 를 하나도 빌드하거나 실행하지 않았다.
 
-## 서버 연결 설계 (문서만 — 코드·서버 변경 없음)
+## 서버 연결 — A 는 개발·체험용, 최종 번들 B 는 별도 설계
 
-앱 WebView 의 출처는 Android `https://localhost`, iOS `capacitor://localhost` 다. 관문(v2_gate)은 로그인 세션과 **같은 출처(Origin) 검사**로 쓰기·WS 를 막는다. 그래서 번들을 그대로 실은 지금 상태에서 `/api/*`·`/ws` 요청은 관문에 닿지 않는다. 에뮬레이터 로그에서도 `https://localhost/api/docs` 로 나갔다.
+앱 WebView 의 출처는 Android `https://localhost`, iOS `capacitor://localhost` 다. 관문(v2_gate)은 로그인 세션과 **같은 출처(Origin) 검사**로 쓰기·WS 를 막는다. 그래서 번들을 그대로 실은 기본 빌드에서 `/api/*`·`/ws` 요청은 관문에 닿지 않는다(에뮬레이터 로그에서 `https://localhost/api/docs` 로 나감).
 
-| 방식 | 하는 일 | 지켜지는 것 | 필요한 것 | 판정 |
-|---|---|---|---|---|
-| **A. 관문 주소 로드** | `capacitor.config.json` 의 `server.url` 을 관문 HTTPS 주소로 둔다. WebView 가 관문의 로그인·화면을 그대로 연다 | 같은 출처·세션 쿠키·Origin 검사를 그대로 쓴다. `link.ts` 는 `location` 으로 WS 주소를 만들어서 수정할 필요가 없다 | 휴대폰이 관문 인증서를 신뢰해야 한다(사설 CA 를 기기에 설치하거나 공인 인증서). `cleartext:false`(http 금지). `allowNavigation` 은 관문 호스트만 | **첫 연결로 권장**. 서버 계약 변경 0 |
-| B. 번들 + 분리 어댑터 | 번들은 앱 안에 두고, `/api`·`/ws` 만 관문 절대주소로 보낸다(`link.ts`·fetch 의 기준 주소를 주입하는 어댑터 하나) | 오프라인에서도 화면이 뜬다 | 관문 Origin 허용 목록에 `https://localhost`·`capacitor://localhost` 를 추가하고, 교차 출처 세션(쿠키 `SameSite=None; Secure` 또는 토큰)이 필요하다 → **서버 신뢰 경계를 바꾸는 일** | 지금 하지 않는다. 하려면 관문 검사 설계부터 다시 검수 |
+| 방식 | 하는 일 | 쓰임 |
+|---|---|---|
+| **A. 관문 주소 로드** | `server.url` 을 관문 HTTPS origin 으로 둔다. WebView 가 관문의 로그인·화면을 그대로 연다. 같은 출처·세션 쿠키·Origin 검사를 그대로 쓴다 | **개발·체험 전용.** Capacitor 공식 설정 문서(capacitorjs.com/docs/config)는 `server.url`·`allowNavigation` 을 live reload·개발용으로 두고 production 용이 아니라고 한다. 원격 `server.url` 에 기대는 배포판은 만들지 않는다 |
+| **B. 번들 + 분리 어댑터** | 번들은 앱 안에, `/api`·`/ws` 만 관문 절대주소로 | **최종 패키지 번들은 별도 설계.** 관문 Origin 허용 목록·교차 출처 세션이 걸려 **서버 신뢰 경계를 바꾸는 일**이다. 관문 검사 설계부터 다시 검수한 뒤에만 |
 
-- A 로 가더라도 `server.url`·인증서·`allowNavigation` 값은 기기 시험 때 정한다. 실제 IP·호스트는 저장소에 넣지 않는다(빌드할 때 환경값으로 주입).
-- A·B 모두 같은 출처 검사나 세션 검사를 풀지 않는다. 앱이라는 이유로 예외를 만들지 않는다.
-- WSS 는 관문 인증서를 그대로 쓴다. Android 는 사설 CA 를 쓰려면 `network_security_config` 에서 user CA 를 허용해야 한다. 이건 기기 시험 때 판단한다.
+A·B 모두 같은 출처·세션·CA 검사를 풀지 않는다. 앱이라는 이유로 예외를 만들지 않는다.
+
+### A 개발 프로필 (Android `gate` 빌드 타입)
+
+- 기본 빌드(`assembleDebug`)는 그대로 bundled — `server.url` 없음. A 는 별도 빌드 타입 `gate`(debug 서명, 앱 id `org.footholdproject.app.gate`)에서만 쓴다.
+- `scripts/gate-profile.mjs` 가 환경값으로 생성물 두 개를 만든다(둘 다 git 제외 — 실제 IP·호스트·CA 는 저장소에 없다):
+  - `android/app/src/gate/assets/capacitor.config.json` = main 설정 + `server.url`(origin 하나) · `appStartPath /MLogin.dc.html?live=v2` · `errorPath fh-offline.html` · `cleartext false` · `allowMixedContent false` · `allowNavigation` 없음(넓히지 않음)
+  - `android/app/src/gate/res/raw/fh_gate_ca.pem` = 그 관문 CA **한 장**
+- 주소 검사: https 만, origin 하나만. 사용자정보·경로·질의·조각·와일드카드·localhost·대소문자 다른 표기는 거부(`node scripts/gate-profile.mjs --selftest`, 3 통과·16 거부). CA 는 인증서 정확히 한 장·개인키 없음·CA:TRUE·만료 아님.
+- 인증서 신뢰: 기본은 OS 신뢰 저장소만(`base-config`, cleartext 금지). 그 CA 한 장은 `debug-overrides` 로만 — debuggable 빌드에서만 적용되고 release 에는 들어가지 않는다. user CA 전체 허용·인증서 오류 무시·호스트 이름 검사 끄기는 쓰지 않는다.
+- 관문에 닿지 못하면 앱 안의 `fh-offline.html`(스크립트 없음, CSP `default-src 'none'`)을 보여 준다. 명령을 보내지 않고, 로봇 상태는 «측정 못 함»으로만 쓴다(STOPPED 단정 없음).
+- **시작 경로를 공개 로그인 화면으로 둔 이유:** Capacitor Android 는 `server.url` 의 문서 요청을 앱이 대신 받아(HttpURLConnection) 리다이렉트를 안에서 따라간다. 그러면 WebView 주소는 원래 경로로 남아, 관문이 `/` 를 로그인 화면으로 보낸 뒤에도 `live.js` 의 `PAGE` 가 어긋난다. 그래서 관문이 리다이렉트하지 않는 공개 경로에서 바로 시작한다.
+
+```
+# mobile 폴더에서, 위 빌드 환경 그대로
+FH_UI_DIST=<UI 체크아웃>/ui/dist node scripts/sync-web.mjs && npx cap sync android
+FH_GATE_URL=https://<관문 호스트>:<포트> FH_GATE_CA=<관문 CA 인증서> node scripts/gate-profile.mjs
+cd android && ./gradlew assembleGate        # → app/build/outputs/apk/gate/app-gate.apk
+node scripts/gate-profile.mjs --clean       # 끝나면 생성물 삭제
+```
+
+- **iOS A 는 구현·검증하지 않았다.** iOS 의 CA 신뢰는 별도 설계가 필요하다. Android 결과를 iOS 통과로 보지 않는다.
+- **A 는 읽기 검증까지만.** 조종 화면은 UI 담당의 네이티브 `pause`·숨김·`pagehide` 처리(입력 버림 + `hidden`, 복귀는 보기 전용)가 연결·검수된 뒤에만 연다.
+
+### A 에뮬레이터 검증 기록 (fixture 관문·가짜 상태 domain 88, Android 14 에뮬레이터 API 34)
+
+`scripts/gate-emulator-e2e.py` — 운영 관문·운영 링크·실계정·실시뮬 없이 fixture 만 쓴다. 최종 FAIL·예외·정리 실패면 종료코드 1, 강제 kill 없음(INT→TERM, 남으면 «정리 미완료» + 임시 원물 보존).
+
+| 회차 | 결과 | 원인·비고 |
+|---|---|---|
+| 1 `runs/mobile-a-gate-e2e-20261013/` | **FAIL** — `adb install` 180 s 초과, 시나리오 미실행(옛 러너는 이래도 종료코드 0) | 실행 중 PC 부하 평균 27~33(12코어), 에뮬레이터 로그 「hanging thread QEMU2 CPU… 15–16 s」. 부하 출처는 완전히 가르지 못함 |
+| 2 `…-2/` | **중단**(부팅 중 직접 멈춤, 결과 없음) | 러너 수정 요구가 와서 그 판으로는 끝까지 돌리지 않음 |
+| 3 `…-3/` | **FAIL**(종료코드 1) — 16 PASS · 2 FAIL | 아래 |
+
+3회차(러너 수정 뒤: 시작·설치 전 부하 ≤ 코어/2 확인, 에뮬 2코어·2 GB, 부팅 완료·패키지 관리자 준비 뒤에만 설치, 설치 시한 180 s 그대로):
+- PASS: 빌드 · 관문 127.0.0.1 기동 · 설치(1 s) · **미인증 → 관문 로그인 화면** · **fixture 로그인 → 읽기 화면** · 읽기 화면 WS 가 관문 거쳐 연결 · 세션 쿠키 whoami 200 · 정리(INT/TERM) · 결과 폴더 비밀번호 없음. 런처 화면 `00-launcher.png` 은 대화상자 없이 깨끗하다.
+- **원격 페이지가 네이티브 App 플러그인을 받는지(실측):** 관문에서 받은 페이지에서도 `Capacitor.isNativePlatform()` = true, `isPluginAvailable('App')` = true, `Capacitor.Plugins.App.addListener` 사용 가능. `registerPlugin` 은 없다(원격 페이지는 `@capacitor/core` 를 싣지 않음 → 쓰려면 `Capacitor.Plugins.App` 경로). 배경으로 보냈을 때 logcat 에 `App paused`·`appStateChange {isActive:false}` 가 원격 페이지 콜백으로 전달됨.
+- **FAIL — 복귀 때 화면이 새로 만들어짐:** 홈으로 보낸 뒤 다시 열자 같은 프로세스(pid 그대로)에서 `App destroyed` → `Starting BridgeActivity` → 관문 시작 경로(로그인 화면)를 다시 불러왔다. 그래서 검사 도구(CDP) 연결이 끊겨 예외로 멈췄고, 복귀 뒤·로그아웃·관문 끊김 오류 화면·다른 CA 거부 7개 항목은 **실행되지 않았다(미확인).** Activity 를 없앤 원인은 미확정(ActivityTaskManager 로그를 받지 않음). 안전 쪽 의미: 복귀하면 페이지가 새로 떠서 보기 전용으로 시작한다(이전 입력 복원 없음) — 단 «재생성 없이 이어지는 경우»는 이번에 보지 못했다.
+- 링크 사건 기록(`link-events.jsonl`)은 비어 있다 — 이 회차에서는 서버 쪽 hidden 사건 근거가 없다.
+- **조종 화면 노출 주의:** A 는 관문의 기존 화면을 그대로 열기 때문에 읽기 화면에 「조종권 받기」 버튼이 보인다(`02-read-after-login.png`). 시험에서는 누르지 않았다. A 빌드 자체가 조종을 막지는 않으므로, 조종 개방 전 조건(위 «A 는 읽기 검증까지만»)은 운영 규칙이지 앱이 강제하는 것이 아니다.
 
 ## 숨김·백그라운드·재연결 — 번들을 재사용하는 조건
 
@@ -93,7 +133,7 @@ FH_UI_REV=$(git rev-parse HEAD) npm run apk:debug     # ui/dist → www → cap 
 ## 남은 결정
 
 - **appId `org.footholdproject.app`:** 저장소 조직(`foothold-project`)의 역도메인을 근거로 한 **개발용 임시 값**이다. 상용 ID 를 정하기 전까지 임시로 둔다. 스토어에 올린 뒤에는 바꿀 수 없어서, 게시 전에 정한다. 서명 키·스토어 등록은 하지 않았다.
-- **서버 연결 A/B:** 위 설계는 비교만 했다. 앱 Codex 가 인증·Origin·CA 계약을 읽고 검수한 뒤 결정한다. 그 전에는 어느 쪽도 구현하지 않고, 보안을 완화하는 변경은 자동으로 하지 않는다.
+- **서버 연결:** A 는 첫 개발·체험 연결로만 결정됐다(앱 Codex 검수, 96b600f 리뷰). 최종 번들 B 는 관문 검사 설계 검수 뒤 별도로. 보안을 완화하는 변경은 자동으로 하지 않는다.
 - **릴리스 서명 키:** 만들지 않았다. 만들게 되면 키는 저장소 밖에 두고 비밀번호도 기록하지 않는다.
 
 ## 기록 손실 (새 시험 결과와 구분)

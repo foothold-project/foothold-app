@@ -21,6 +21,13 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
+        // FOOTHOLD: A 연결(관문 주소 로드) 개발 전용 — debug 서명·별도 앱 id. 설정·CA 는 scripts/gate-profile.mjs 가 src/gate 에 생성(git 제외)
+        gate {
+            initWith debug
+            applicationIdSuffix ".gate"
+            versionNameSuffix "-gate"
+            matchingFallbacks = ['debug']
+        }
     }
 }
 
