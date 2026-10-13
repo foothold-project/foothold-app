@@ -55,7 +55,7 @@ class Page:                                    # CDP 페이지 하나(브라우�
     async def js(self, e): return (await self.call('Runtime.evaluate', expression=e, returnByValue=True, awaitPromise=True)).get('result', {}).get('value')
     async def shot(self, name): (OUT / f'{name}.png').write_bytes(base64.b64decode((await self.call('Page.captureScreenshot', format='png'))['data']))
     async def nav(self, url, t=3.0): await self.call('Page.navigate', url=url); await asyncio.sleep(t)
-    async def center(self, sel): return await self.js(f"(e => {{ if (!e) return null; const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }})({sel})")
+    async def center(self, sel): return await self.js(f"(e => {{ if (!e) return null; e.scrollIntoView({{block: 'nearest'}}); const r = e.getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }})({sel})")
 
     async def click(self, sel):
         c = await self.center(sel)
@@ -69,7 +69,8 @@ class Page:                                    # CDP 페이지 하나(브라우�
 
 
 BTN = "[...document.querySelectorAll('button,a')].find(b => b.getClientRects().length && b.textContent.trim().startsWith({!r}))"
-VIS = "[...document.querySelectorAll('[aria-label={!r}]')].find(e => e.getClientRects().length && e.getBoundingClientRect().width > 0)"
+def vis(label):   # 보이는 요소 하나. 따옴표는 JSON 으로(repr 의 ' 가 JS 문자열을 끊던 버그)
+    return '[...document.querySelectorAll(' + json.dumps(f'[aria-label="{label}"]') + ')].find(e => e.getClientRects().length && e.getBoundingClientRect().width > 0)'
 
 
 async def main():
@@ -127,14 +128,16 @@ async def main():
         ok_ = await until(lambda: st['sim_start']['ok'], 10)
         if not ok_:
             return check('시뮬 시작 가능', False, st.get('sim_start'))
+        old = {(e['t'], e['text']) for e in st['events']}   # 누르기 전 이벤트(앞 사람의 결과)는 이번 결과로 치지 않는다
         await pc.js('window.confirm = () => true'); mark('시뮬 시작 누름')
         await pc.click(BTN.format('시뮬 시작(30분)')); await asyncio.sleep(1.0); t = await pc.toast()
         check('PC «시뮬 시작(30분)» → 요청 접수', t.startswith('시뮬 시작 요청함'), t); started = True
-        res = await until(lambda: any('시뮬 시작 결과' in e['text'] for e in st['events']), 90)
-        evs = [e['text'] for e in st.get('events', [])]; mark('래퍼 결과', events=evs[:4])
+        new = lambda: [e['text'] for e in st['events'] if (e['t'], e['text']) not in old]
+        res = await until(lambda: any('시뮬 시작 결과' in x for x in new()), 240)
+        evs = new(); mark('래퍼 결과', events=evs[:4])
         if not res or not any('시뮬 시작 결과' in e and ('기동 중' in e or '수신 확인' in e) for e in evs):
             return check('래퍼 결과 starting/ready', False, evs[:4])
-    live = await until(lambda: st['sim_block'] is None and st['state_age'] < 1 and st['cam_age'] is not None and st['cam_age'] < 1, 120)
+    live = await until(lambda: not st['sim_block'] and st['state_age'] < 1 and st['cam_age'] is not None and st['cam_age'] < 1, 120)
     check('시뮬 상태·영상 수신(서버 원값)', live, {k: st.get(k) for k in ('sim_block', 'state_age', 'cam_age')})
     if not live: return
     await asyncio.sleep(2.0); await pc.shot('02-pc-live')
@@ -153,7 +156,11 @@ async def main():
     check('STOP 해제(시뮬 확인)', await until(lambda: not st['latch'] and not st['resume_pending'], 8), {k: st.get(k) for k in ('latch', 'resume_pending', 'reason')})
     await asyncio.sleep(0.5)
 
-    fwd = await ph.center(VIS.format('앞뒤 막대')); turn = await ph.center(VIS.format('회전 막대: 왼쪽 오른쪽'))
+    fwd = await ph.center(vis('앞뒤 막대')) or await ph.center(vis('이동 막대: 앞뒤와 옆걸음'))
+    turn = await ph.center(vis('회전 막대: 왼쪽 오른쪽'))
+    if not fwd or not turn:   # 막대를 못 찾으면 화면의 막대 라벨·크기를 남기고 멈춘다(추측 좌표로 누르지 않음)
+        dom = await ph.js("[...document.querySelectorAll('[aria-label*=\"막대\"]')].map(e => [e.getAttribute('aria-label'), e.getClientRects().length, Math.round(e.getBoundingClientRect().width), Math.round(e.getBoundingClientRect().top)])")
+        await ph.shot('04-phone-no-stick'); return check('막대 찾기', False, {'fwd': fwd, 'turn': turn, 'dom': dom})
     x0 = (st.get('sim') or {}).get('x')
     mark('앞 누름'); await ph.touch('touchStart', [(1, *fwd)]); await ph.touch('touchMove', [(1, fwd[0], fwd[1] - 60)])
     a = await until(lambda: st['applied'] == [0.6, 0, 0], 2); await asyncio.sleep(3.0); await ph.shot('04-phone-fwd')
@@ -168,11 +175,11 @@ async def main():
         a = await until(lambda: st['applied'] == want, 2); await asyncio.sleep(2.5)
         await ph.touch('touchEnd', []); z = await until(lambda: st['applied'] == [0, 0, 0], 1)
         check(f'{name} {want[0]}/{want[2]:+} · 손 떼면 0', a and z, st.get('applied')); await asyncio.sleep(1.0)
-    mark('STOP 누름'); await ph.click(VIS.format('비상 정지'))
+    mark('STOP 누름'); await ph.click(vis('비상 정지'))
     check('STOP → 잠금 · 0', await until(lambda: st['latch'] and st['applied'] == [0, 0, 0], 2), {k: st.get(k) for k in ('latch', 'applied')})
     await asyncio.sleep(1.5)
     n0 = sum(1 for _ in open(ROOT / 'runs/app-media/photos.jsonl')) if (ROOT / 'runs/app-media/photos.jsonl').exists() else 0
-    await ph.click(VIS.format('사진 찍기')); await asyncio.sleep(1.5); t = await ph.toast()
+    await ph.click(vis('사진 찍기')); await asyncio.sleep(1.5); t = await ph.toast()
     n1 = sum(1 for _ in open(ROOT / 'runs/app-media/photos.jsonl')) if (ROOT / 'runs/app-media/photos.jsonl').exists() else 0
     check('휴대폰 📷 → 서버 저장', '서버 저장' in t and n1 == n0 + 1, [t, n0, n1]); await ph.shot('05-phone-photo')
 
