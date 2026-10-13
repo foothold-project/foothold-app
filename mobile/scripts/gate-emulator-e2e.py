@@ -331,17 +331,41 @@ def released(s): return row_ok(s) and s[1] is None and all(abs(x) <= 1e-9 for x 
 def gaps(rows): return max((b[0] - a[0] for a, b in zip(rows, rows[1:])), default=None)
 
 
+class QueryError(Exception): pass                     # 조회 실패(rc·시간초과·예외) — «없음»으로 읽지 않고 도구 오류로 멈춘다
+
+
+def query(cmd, ok=(0,)):
+    try: r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as e: raise QueryError(f'{Path(cmd[0]).name}: {type(e).__name__}')
+    if r.returncode not in ok: raise QueryError(f'{Path(cmd[0]).name} rc={r.returncode}')
+    return r.returncode, r.stdout
+
+
+def adb_devices():
+    out = query([ADB, 'devices'])[1].splitlines()
+    if not out or not out[0].startswith('List of devices attached'): raise QueryError('adb devices 머리줄 없음')
+    return [l.split()[0] for l in out[1:] if l.strip()]
+
+
+def ports_open(ports, flags='-ltnH'):                 # ss 줄에서 지역 포트가 ports 인 줄
+    return [l for l in query(['ss', flags])[1].splitlines() if l.split()[3:4] and l.split()[3].rsplit(':', 1)[-1] in {str(p) for p in ports}]
+
+
+def tool_need(name, fn):                               # 조회 실패 = TOOL_ERROR 기록 후 멈춤(통과로 바꾸지 않음)
+    try: ok, v = fn()
+    except QueryError as e: note('TOOL_ERROR', name, str(e)); raise Abort
+    need(name, ok, v)
+
+
 def emu_absent():                                      # 시작 전: 남의 에뮬·기기에 붙지 않게 — adb 기기 0·qemu 프로세스 0·5554/5555 비어 있음
-    devs = [l for l in subprocess.run([ADB, 'devices'], capture_output=True, text=True, timeout=30).stdout.splitlines()[1:] if l.strip()]
-    qemu = subprocess.run(['pgrep', '-f', 'qemu-system'], capture_output=True, text=True).stdout.split()
-    out = subprocess.run(['ss', '-ltnH'], capture_output=True, text=True).stdout
-    ports = sorted({p for p in (5554, 5555) for l in out.splitlines() if l.split()[3:4] and l.split()[3].rsplit(':', 1)[-1] == str(p)})
+    devs = adb_devices()
+    rc, out = query(['pgrep', '-f', 'qemu-system'], ok=(0, 1)); qemu = out.split() if rc == 0 else []   # pgrep rc 1 = 없음, 그 밖 = 조회 오류
+    ports = sorted({int(l.split()[3].rsplit(':', 1)[-1]) for l in ports_open((5554, 5555))})
     return not devs and not qemu and not ports, {'adb 기기': devs, 'qemu pid': qemu, '포트': ports}
 
 
 def emu_bound(root, avd):                               # 기동 뒤: 5554 를 연 프로세스가 이 러너가 띄운 에뮬(또는 그 자식)·AVD_HOME 이 이 회차 폴더·adb 기기는 emulator-5554 하나
-    out = subprocess.run(['ss', '-ltnpH'], capture_output=True, text=True).stdout
-    pids = sorted({int(m) for l in out.splitlines() if l.split()[3:4] and l.split()[3].rsplit(':', 1)[-1] == '5554' for m in re.findall(r'pid=(\d+)', l)})
+    pids = sorted({int(m) for l in ports_open((5554,), '-ltnpH') for m in re.findall(r'pid=(\d+)', l)})
     def chain(p):
         seen = []
         while p > 1 and len(seen) < 20:
@@ -352,14 +376,13 @@ def emu_bound(root, avd):                               # 기동 뒤: 5554 를 �
     def avd_home(p):
         try: return next((e.split('=', 1)[1] for e in Path(f'/proc/{p}/environ').read_bytes().decode(errors='replace').split('\0') if e.startswith('ANDROID_AVD_HOME=')), None)
         except OSError: return None
-    devs = [l.split()[0] for l in subprocess.run([ADB, 'devices'], capture_output=True, text=True, timeout=30).stdout.splitlines()[1:] if l.strip()]
+    devs = adb_devices()
     v = {'5554 pid': pids, '띄운 pid': root, 'AVD_HOME': [avd_home(p) for p in pids], 'adb 기기': devs}
     return bool(pids) and all(root in chain(p) and avd_home(p) == str(avd) for p in pids) and devs == ['emulator-5554'], v
 
 
 def listening():
-    out = subprocess.run(['ss', '-ltnH'], capture_output=True, text=True).stdout
-    return sorted({p for p in PORTS for l in out.splitlines() if l.split()[3:4] and l.split()[3].rsplit(':', 1)[-1] == str(p)})
+    return sorted({int(l.split()[3].rsplit(':', 1)[-1]) for l in ports_open(PORTS)})
 
 
 def prep_front():
@@ -704,8 +727,8 @@ def main():
             shutil.copy2(MOB / 'android/app/build/outputs/apk/gate/app-gate.apk', OUT / 'app-gate.apk')
             shutil.copy2(MOB / 'android/app/src/gate/assets/capacitor.config.json', OUT / 'gate-capacitor.config.json')
         if SCOPE in ('pause', 'bundled'):
-            need('포트 비어 있음(남의 프로세스 없음)', not listening(), listening())
-            need('에뮬 시작 전: adb 기기 0·qemu 0·5554/5555 비어 있음(남의 에뮬 없음)', *emu_absent())
+            tool_need('포트 비어 있음(남의 프로세스 없음)', lambda: (lambda b: (not b, b))(listening()))
+            tool_need('에뮬 시작 전: adb 기기 0·qemu 0·5554/5555 비어 있음(남의 에뮬 없음)', emu_absent)
         start('v2_link', ['bash', '-c', f'source /opt/ros/jazzy/setup.bash && exec python3 -B sim/v2_link.py --port {LINK} --media {TMP}/media'], env=ENV_ROS)
         start('fake_v2_live', ['bash', '-c', 'source /opt/ros/jazzy/setup.bash && exec python3 -B tools/fake_v2_live.py'], env=ENV_ROS)
         time.sleep(6)
@@ -717,7 +740,7 @@ def main():
         try: subprocess.run([ADB, '-s', 'emulator-5554', 'wait-for-device'], timeout=300, check=True); dev = True
         except subprocess.TimeoutExpired: dev = False
         need('에뮬 adb 연결(300 s 안)', dev)
-        if SCOPE in ('pause', 'bundled'): need('에뮬 결속: 5554 = 이 러너가 띄운 에뮬·AVD_HOME = 이 회차·adb 기기 하나', *emu_bound(procs['emulator'].pid, avd))
+        if SCOPE in ('pause', 'bundled'): tool_need('에뮬 결속: 5554 = 이 러너가 띄운 에뮬·AVD_HOME = 이 회차·adb 기기 하나', lambda: emu_bound(procs['emulator'].pid, avd))
         need('부팅 완료 sys.boot_completed=1 (360 s 안)', wait_until(lambda: adb('shell', 'getprop', 'sys.boot_completed', check_=False, timeout=30).strip() == '1', 360))
         need('패키지 관리자 준비 pm path android (240 s 안)', wait_until(lambda: adb('shell', 'pm', 'path', 'android', check_=False, timeout=30).startswith('package:'), 240))
         time.sleep(20)
