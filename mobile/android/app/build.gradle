@@ -36,6 +36,14 @@ android {
             versionNameSuffix "-fixture"
             matchingFallbacks = ['debug']
         }
+        // FOOTHOLD: 사용자 설치용 개발 빌드(스토어 아님) — server.url 없음(main 설정·www 그대로), debug 서명·별도 앱 id.
+        // 운영 관문의 공개 CA 한 장만 debug-overrides 로 신뢰(scripts/gate-profile.mjs --dev 가 src/dev/res/raw 에 생성, git 제외)
+        dev {
+            initWith debug
+            applicationIdSuffix ".dev"
+            versionNameSuffix "-dev"
+            matchingFallbacks = ['debug']
+        }
     }
 }
 

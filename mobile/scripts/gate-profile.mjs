@@ -6,6 +6,7 @@
 //   node scripts/gate-profile.mjs --clean     생성물 삭제     node scripts/gate-profile.mjs --selftest
 // bundled B 통합 시험(fixture 빌드 타입): FH_GATE_CA=<ca.crt> node scripts/gate-profile.mjs --fixture
 //   → android/app/src/fixture/res/raw/fh_fixture_ca.pem 만(git 제외). 설정은 main(bundled, server.url 없음) 그대로 — 관문 주소는 앱 안 setGate 로
+// 사용자 설치용 dev 빌드: FH_GATE_CA=<운영 관문 ca.crt> node scripts/gate-profile.mjs --dev → android/app/src/dev/res/raw/fh_dev_ca.pem 만(git 제외)
 import { X509Certificate } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -16,6 +17,7 @@ const GATE = join(here, 'android/app/src/gate');
 const OUT_CFG = join(GATE, 'assets/capacitor.config.json');
 const OUT_CA = join(GATE, 'res/raw/fh_gate_ca.pem');
 const OUT_FX_CA = join(here, 'android/app/src/fixture/res/raw/fh_fixture_ca.pem');
+const OUT_DEV_CA = join(here, 'android/app/src/dev/res/raw/fh_dev_ca.pem');   // dev 빌드(사용자 설치용): 운영 관문 공개 CA 한 장
 // 시작 경로: 기본은 옛 관문 공개 로그인 화면. FH_GATE_START='/' 는 React --spa 관문(로그인 없으면 앱이 #/MLogin 으로) — 같은 origin 의 경로만
 const START = process.env.FH_GATE_START || '/MLogin.dc.html?live=v2';
 if (!/^\/(?![\/\\])[^\s#\\]*$/.test(START)) throw new Error('FH_GATE_START 는 / 로 시작하는 같은 origin 경로만(//·#·공백·\\ 금지)');
@@ -56,16 +58,16 @@ function selftest() {
 
 const arg = process.argv[2];
 if (arg === '--selftest') selftest();
-else if (arg === '--clean') { for (const f of [OUT_CFG, OUT_CA, OUT_FX_CA]) rmSync(f, { force: true }); console.log('gate·fixture 프로필 생성물 삭제'); }
-else if (arg === '--fixture') {
-  if (!process.env.FH_GATE_CA) throw new Error('FH_GATE_CA(fixture 관문 CA 인증서 경로) 필요');
-  const ca = caPem(process.env.FH_GATE_CA);
+else if (arg === '--clean') { for (const f of [OUT_CFG, OUT_CA, OUT_FX_CA, OUT_DEV_CA]) rmSync(f, { force: true }); console.log('gate·fixture·dev 프로필 생성물 삭제'); }
+else if (arg === '--fixture' || arg === '--dev') {
+  if (!process.env.FH_GATE_CA) throw new Error('FH_GATE_CA(관문 CA 인증서 경로) 필요');
+  const ca = caPem(process.env.FH_GATE_CA), out = arg === '--dev' ? OUT_DEV_CA : OUT_FX_CA;
   const main = join(here, 'android/app/src/main/assets/capacitor.config.json');
   if (!existsSync(main)) throw new Error('main 설정 없음 — 먼저 npx cap sync android');
   const cfg = JSON.parse(readFileSync(main, 'utf8'));
-  if (cfg.server && cfg.server.url) throw new Error('main 설정에 server.url 이 있다 — fixture 는 bundled 여야 한다');
-  mkdirSync(dirname(OUT_FX_CA), { recursive: true }); writeFileSync(OUT_FX_CA, ca.pem);
-  console.log(`fixture 프로필 생성: CA sha256 ${ca.fp} (설정은 main bundled 그대로)`);
+  if (cfg.server && cfg.server.url) throw new Error('main 설정에 server.url 이 있다 — fixture·dev 는 bundled 여야 한다');
+  mkdirSync(dirname(out), { recursive: true }); writeFileSync(out, ca.pem);
+  console.log(`${arg.slice(2)} 프로필 생성: CA sha256 ${ca.fp} (설정은 main bundled 그대로)`);
 }
 else {
   const origin = gateOrigin(process.env.FH_GATE_URL);

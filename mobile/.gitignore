@@ -2,4 +2,6 @@ node_modules/
 www/
 android/app/src/gate/res/raw/
 android/app/src/fixture/res/raw/
+android/app/src/dev/res/raw/
+out/
 android/app/src/gate/assets/capacitor.config.json

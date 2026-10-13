@@ -1,4 +1,4 @@
-# bundled B 통합 시험안 — 1기동 1회 (2026-10-13, 1회 실행 → B4 에서 멈춤, 수정 뒤 실행 0)
+# bundled B 통합 시험안 — 1기동 1회 (2026-10-13, 1회차 B4 에서 멈춤 → 수정 → 2회차 미완료, 2-1절)
 
 목적: B1 네이티브 어댑터(`404da91`, 계약 `FHGATE-CONTRACT.md` v0.1)와 UI 전송 어댑터를 **한 번의 앱 기동·설치**로 처음부터 끝까지 묶어 본다 — 앱 출처 Origin · 로그인 · Keystore 복원 · 1회용 WS 표 · take→잡고 있기→HOME 해제 · 로그아웃.
 A(원격 관문 페이지, 쿠키) 의 실행 원물(`runs/mobile-a-gate-*`)과 **섞지 않는다**: 출력 폴더 `runs/mobile-b-bundled-<날짜>-<N>`, `results.json` 의 `scope = "bundled-b"`. A HOME 실패·성공 근거를 B 판정에 쓰지 않고, B 결과로 A 를 고치지 않는다.
@@ -53,4 +53,4 @@ A(원격 관문 페이지, 쿠키) 의 실행 원물(`runs/mobile-a-gate-*`)과 
 
 1. ~~UI 판 고정~~ 28392b0(10-13). 2. ~~P1 fixture 빌드 종류~~ 구현·출처 확인 → 좁은 검수 대기.
 3. ~~러너~~ `gate-emulator-e2e.py` 에 `FH_E2E_SCOPE=bundled`(B0~B8, 필수 27항목, 빌드 뒤 APK 출처 확인·생성 CA 삭제). 정적 점검: 필수 이름 27개 ↔ 코드 need/check 일치, `apk_provenance` 양성 1·음성 2(다른 CA·다른 UI 판). 실행 0. 로그아웃은 네이티브 직접 호출(화면 버튼 경로 아님), 옛 손가락은 이 범위 밖.
-4. ~~1회 실행~~ 10-13 B4 에서 멈춤(2-1절). 5. 관문 로그·에뮬 소유·loggingBehavior·B6 대체 관측 수정 → 검수 뒤 새 1회 여부는 Codex 판단.
+4. ~~1회 실행~~ 10-13 B4 에서 멈춤(2-1절). 5. 관문 로그·에뮬 소유·loggingBehavior·B6 대체 관측 수정 → 2회차 `runs/mobile-b-bundled-20261013-2` **INCOMPLETE**(35 PASS·3 FAIL): B0~B5·HOME 서버 해제 0.34 s PASS, HOME OS 신호(`wm_on_paused_called`) 빈 결과 FAIL(원인 미확인), 다음 단계에서 러너가 응답 없이 멈춰 INT 정리 — B7·B8 미실행. 6. 러너 CDP 연결·명령 20 s·시나리오 900 s 상한(`c2ecab3`, 가짜 CDP 반례 6건 PASS·에뮬 0). 새 회차 여부는 Codex 판단.

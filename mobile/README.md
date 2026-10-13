@@ -2,15 +2,17 @@
 
 `ui/dist`(React 번들)를 **그대로** 실어 앱으로 감싼다. 화면을 다시 만들지 않는다. 화면은 UI 담당, 이 폴더는 외피·빌드·연결 설계만 맡는다.
 
-## 상태 (2026-10-13)
+## 상태 (2026-10-14)
+
+**설치용 개발 APK(10-14)**: `out/foothold-android-dev-20261014.apk`(git 제외, sha256 `263b1bbe2fdb…c3550`) — 앱 id `org.footholdproject.app.dev`, UI `75c0611`, 운영 관문 공개 CA 한 장 신뢰, 로그 끔. 빌드·APK 구조 대조만(실제 휴대폰 0). **지금 운영 관문에는 `/api/app/*` 가 없어 이 앱으로 로그인 안 됨** — 설치·미확인·연결 조건은 `docs/INSTALL-DEV.md`.
 
 | 구분 | 내용 |
 |---|---|
 | **만든 것** | `package.json`(버전 고정) · `capacitor.config.json` · `scripts/sync-web.mjs`(ui/dist → www, 파일별 sha256 을 `SOURCE.json` 에) · `scripts/make-icons.py`(브랜드 공식 래스터 → 앱 아이콘) · `android/`·`ios/` 프로젝트(`cap add` 생성물 + appId·아이콘만 변경) |
 | **이 PC 에서 확인** | ① **기본 bundled 외피**(server.url 없음, 서버 연결 없음·보기 전용): 86ef8d4 빌드 + Android 14 에뮬레이터(API 34)에서 설치·실행. 화면 캡처 `emulator-api34-first.png` 는 블루투스 시스템 대화상자가 가린 **부분 증거**. appId·아이콘 뒤는 빌드만. ② **A 개발 연결**(관문 주소 로드, gate 빌드 타입): fixture 관문·가짜 상태로 에뮬레이터에서 로그인·읽기 화면·WS·로그아웃·끊김 안내(4회차) + **다른 CA → 거부·로컬 안내 화면**(5회차 PASS). 이것은 **읽기·연결 검증**이지 조종 검증이 아니다 |
-| **확인 안 함** | 실제 휴대폰 · **조종 중 숨김(네이티브 pause → 해제·래치)** · 화면 재생성 뒤 리스너 재등록 · 런처 아이콘 모양 · 릴리스 서명 · 최종 bundled B 연결(설계 초안만 `docs/B-BUNDLED-DESIGN.md`) · **iOS: 지금 Mac 이 없다 → 프로젝트 생성만, IPA 0.** 빌드·서명 환경 확보가 먼저다. iPhone Safari 로 관문 웹에 접속하는 것은 UI 팀의 웹 경로 확인이지 iOS 네이티브 앱의 근거가 아니다 |
+| **확인 안 함** | 실제 휴대폰 · **조종 중 숨김(네이티브 pause → 해제·래치)** · 화면 재생성 뒤 리스너 재등록 · 런처 아이콘 모양 · 릴리스 서명 · bundled B 연결 끝까지(에뮬 2회차 `runs/mobile-b-bundled-20261013-2` **미완료** — B0~B5·HOME 서버 해제 PASS, HOME OS 신호 FAIL, 복귀·로그아웃 미실행. 시험안 `docs/B-BUNDLED-TEST-PLAN.md`) · **iOS: 지금 Mac 이 없다 → 프로젝트 생성만, IPA 0.** 빌드·서명 환경 확보가 먼저다. iPhone Safari 로 관문 웹에 접속하는 것은 UI 팀의 웹 경로 확인이지 iOS 네이티브 앱의 근거가 아니다 |
 
-### APK 별 판 (전부 debug 서명·git 무시, `runs/` 아래)
+### APK 별 판 (전부 debug 서명·git 무시, `runs/` 아래 — 10-14 dev 판만 `out/`)
 
 | APK (sha256 앞 12자) | 빌드 | 외피 판 | 앱 안 화면(www) | 실제로 보이는 화면·서버 연결 | 검증 환경 |
 |---|---|---|---|---|---|
@@ -20,7 +22,9 @@
 | `mobile-a-gate-e2e-20261013-3/app-gate.apk` (`8f771bfd4fc0`) | gate | 같음 | 같음 | 같음 | 3회차 FAIL(재생성으로 도구 끊김) |
 | `mobile-a-gate-e2e-20261013-4/app-gate.apk` (`576bc9fc6444`) | gate | 1512a93(=5d29bd3, 외피 변경 없음) | 같음 | 같음 | 4회차 FAIL(다른 CA 단계 도구 예외) |
 | `mobile-a-gate-ssl-20261013-5/app-gate.apk` (`8a026b536769`) | gate | 3885275(`GateSslClient`) | 같음 | 같음 | 5회차 PASS(A 로그인·읽기 → 다른 CA 거부·안내) |
+| `out/foothold-android-dev-20261014.apk` (`263b1bbe2fdb`) | dev | c2ecab3 + dev 빌드 타입 커밋 | UI 75c0611(B2·주소 저장 포함) | 앱 안 React 번들, 관문 주소는 사용자가 입력 · 운영 공개 CA 한 장 · `loggingBehavior=none` | 빌드·구조 대조만(`runs/mobile-dev-apk-20261014-1`) |
 
+- 10-13 이전 빌드(위 표의 dev 판 위 행 전부)는 Capacitor 로그가 켜져 있어 로그인 인자가 기기 로그에 찍힌다 — 실계정에 쓰지 않는다. dev 판은 끔(구조 대조로 확인, 실제 휴대폰 미확인).
 - 기본 bundled 번들은 아직 e618139(브랜드 전)다. 최신 React 번들 + 네이티브 lifecycle 이 합의되면 다시 빌드한다.
 - A 빌드 안의 www(recovered UI)는 `server.url` 때문에 화면에 쓰이지 않는다. A 에서 보이는 것은 관문이 내주는 **옛 웹 화면**(fixture 관문이 이 체크아웃의 `web/` 을 서빙, 마지막 변경 커밋 2dfc0e9)이다.
 - 화면이 PC 폭으로 배치되는 것은 UI 쪽 범위다.
