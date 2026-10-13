@@ -9,8 +9,8 @@
 | 기존 canonical | 83b25ca (운영 체크아웃, 이 브랜치와 별개) | 원본 19화면 `web/*.dc.html` + `web/live.js` + `sim/v2_link.py`(조종권·STOP·명령 제한·공유 문서) | 이 문서 범위에서 다시 검증하지 않음 | 운영 판. 16:52 실측 8792·8453 LISTEN 없음 = 지금 서빙 꺼짐 | 관문 https 8453(켜져 있을 때) |
 | 새 React | 이 브랜치 `less82/app-ui-react-recovered` HEAD d342c80 | 19화면 중 15화면 연결: Report·PcHistory·MHistory·MAlerts·MAlert·PcMissions·PcPlan·MHome·PcRobot·PcSettings·PcMap·MMap·PcReview·MFinding·MDrive. **남음: Main(PC 조종)·MLogin·PcLogin·System.** 조종 경계 `ui/src/data/link.ts`(29c758c) | 모의만: 가짜 시뮬 + `sim/v2_link.py` 8791 · Vite 5181 · 헤드리스 Chromium 합성 입력 · vitest 10건 | 실폰 0 · 운영 반영 0 | 개발 서버만 |
 | 기본 bundled APK | React e618139(브랜드 적용 전) | 앱 안 React 번들, 서버 연결 없음 | 에뮬레이터 API 34 설치·실행 | 실폰 0 · 최종 배포판 아님(debug 서명) | 표: 아래 «APK 판 표» |
-| 원격 A APK | 외피 3885275(`GateSslClient`) | 관문이 내주는 **옛 웹(`web/`, live.js)** 을 원격으로 띄움. 앱 안 www(React)는 쓰이지 않음 | 5회차 PASS = 로그인·읽기 왕복 + 다른 CA 거부 안내. **조종·숨김(lifecycle)은 미검증** | 실폰 0 | 표: 아래 «APK 판 표» |
-| 최종 bundled B | 없음(설계 초안만) | 앱 안 React + 관문 주소·앱 전용 토큰·1회용 WS 표. 서버 변경 S1~S4 필요 | 없음 | 없음 | 설계: `less82/app-contract-storage` 의 `mobile/docs/B-BUNDLED-DESIGN.md` |
+| 원격 A APK | 외피 3885275(`GateSslClient`) | 관문이 내주는 **옛 웹(`web/`, live.js)** 을 원격으로 띄움. 앱 안 www(React)는 쓰이지 않음 | 5회차 PASS — 로그인 전: 관문 인증서 확인·다른 CA 거부 안내 / 로그인 후: 읽기 왕복만. **로그인 후 조종·숨김(lifecycle)은 미검증** | 실폰 0 | 표: 아래 «APK 판 표» |
+| 최종 bundled B | 없음 — 설계 중(3fc9dc3 초안 + 앱 Codex 보완 7건 반영 대기) | 앱 안 React + 관문 주소·앱 전용 토큰·1회용 WS 표. 서버 변경 S1~S4 필요(구현 소유 UI mentor, **구현 미승인**, 기존 Core·웹 쿠키 경계 불변) | 없음(로그인 전·후 모두) | 실폰 0 · IPA 0 | 설계: `less82/app-contract-storage` 의 `mobile/docs/B-BUNDLED-DESIGN.md` |
 | iOS | 프로젝트만 | — | 없음. 이 PC 에 Mac·Xcode·서명 없음 → IPA 0 | iPhone Safari 웹 접속은 네이티브 근거가 아님 | — |
 
 APK 판 표(sha256·빌드·회차별 결과): 브랜치 `less82/app-contract-storage` 의 `mobile/README.md` 「APK 별 판」(3fc9dc3). APK 파일은 git 무시.
