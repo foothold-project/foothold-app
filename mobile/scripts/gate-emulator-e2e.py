@@ -8,7 +8,7 @@
 순서: 런처 → 앱(미인증 로그인 화면) → fixture 로그인 → 읽기 화면·WS → 배경·복귀(이벤트 실측) → 로그아웃 → 관문 끊김(오류 화면) → 다른 CA(거부).
 사용(mobile 폴더): FH_GATE_SRC=<phone_gate.py 폴더> TMPDIR=<임시> python3 -B scripts/gate-emulator-e2e.py <결과 폴더(없어야 함)>
 """
-import asyncio, base64, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
+import asyncio, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 
 from tornado.websocket import websocket_connect
@@ -26,6 +26,7 @@ PKG, ACT = 'org.footholdproject.app.gate', 'org.footholdproject.app.MainActivity
 TMP = Path(tempfile.mkdtemp(prefix='fh-a-e2e-'))
 USER, PW = 'e2e', secrets.token_urlsafe(16)          # 기록·출력 금지
 RES, procs, t0 = [], {}, time.monotonic()
+SRV = {'n': 0, 'holders': set(), 'nonzero': 0}            # observer 가 본 status: 조종권자·비영 출력 횟수
 ENV_ROS = {**os.environ, 'ROS_DOMAIN_ID': '88', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST', 'PYTHONDONTWRITEBYTECODE': '1'}
 
 
@@ -110,11 +111,12 @@ def gate(state):
 
 class Cdp:                                            # 앱 WebView 의 DevTools(디버그 빌드에서만 열림)
     async def attach(self):
-        pid = adb('shell', 'pidof', PKG).strip()
+        if getattr(self, 'ws', None): self.ws.close()   # 화면이 새로 만들어지면 옛 대상은 사라진다 → 새로 붙는다
+        pid = adb('shell', 'pidof', PKG).strip(); self.pid = pid
         adb('forward', f'tcp:{DEV}', f'localabstract:webview_devtools_remote_{pid}')
         for _ in range(30):
             try:
-                pages = [p for p in json.loads(urllib.request.urlopen(f'http://127.0.0.1:{DEV}/json', timeout=3).read()) if p.get('type') == 'page']
+                pages = [p for p in json.loads(urllib.request.urlopen(f'http://127.0.0.1:{DEV}/json', timeout=3).read()) if p.get('type') == 'page' and p.get('url', '').startswith('https://')]
                 if pages: break
             except OSError: pass
             await asyncio.sleep(1)
@@ -160,10 +162,24 @@ async def observer(stop_evt):                          # v2_link 직접(127.0.0.
             if isinstance(m, bytes): continue
             try: d = json.loads(m)
             except ValueError: continue
+            if d.get('op') == 'status':
+                SRV['n'] += 1; SRV['holders'].add(d.get('holder')); SRV['nonzero'] += any(abs(x) > 1e-9 for x in d.get('applied') or [])
             for e in d.get('events') or []:
                 k = json.dumps(e, ensure_ascii=False, sort_keys=True)
                 if k not in seen: seen.add(k); f.write(json.dumps({'t': round(time.monotonic() - t0, 1), 'event': e}, ensure_ascii=False) + '\n'); f.flush()
         ws.close()
+
+
+LOGIN_JS = """(async () => { const id = document.querySelector('#mid'), pw = document.querySelector('#mpw');
+  const b = [...document.querySelectorAll('a,[role=button]')].find((e) => e.textContent.trim() === '로그인');
+  if (!id || !pw || !b) return 'no-form'; id.value = %s; pw.value = %s; b.click(); return 'clicked'; })()"""
+
+
+async def login(cdp):                                  # fixture 계정만(실계정 없음)
+    return await cdp.js(LOGIN_JS % (json.dumps(USER), json.dumps(PW)))
+
+
+def caplog(): return adb('logcat', '-d', '-v', 'time', 'Capacitor:V', '*:S', check_=False, timeout=30).splitlines()
 
 
 async def scenario():
@@ -175,9 +191,7 @@ async def scenario():
     loc = await cdp.js('location.href'); shot('01-login-unauth')
     check('미인증 → 관문 로그인 화면', isinstance(loc, str) and loc.startswith(f'https://127.0.0.1:{GATE}/MLogin.dc.html') and await cdp.js("!!document.querySelector('#mpw')"), loc)
     info = await cdp.js(PROBE); note('INFO', '원격 페이지의 Capacitor 브리지(로그인 화면)', info)
-    r = await cdp.js("""(async () => { const id = document.querySelector('#mid'), pw = document.querySelector('#mpw');
-      const b = [...document.querySelectorAll('a,[role=button]')].find((e) => e.textContent.trim() === '로그인');
-      if (!id || !pw || !b) return 'no-form'; id.value = %s; pw.value = %s; b.click(); return 'clicked'; })()""" % (json.dumps(USER), json.dumps(PW)))
+    r = await login(cdp)
     await asyncio.sleep(8)
     loc = await cdp.js('location.href')
     if not (isinstance(loc, str) and 'MDrive.dc.html' in loc):
@@ -190,13 +204,39 @@ async def scenario():
     body = await cdp.js("document.body.innerText.slice(0, 400)"); note('INFO', '읽기 화면 글(앞 400자)', body)
     info = await cdp.js(PROBE); note('INFO', '원격 페이지의 Capacitor 브리지(읽기 화면)', info)
     # ── 배경·복귀
+    # 옛 기준(3회차까지, 원문 보존): '복귀 뒤 같은 페이지 유지(자동 재로드 없음)'.
+    # 정정(10-13 앱 Codex): Activity·WebView 재생성은 플랫폼상 일어날 수 있다 → 수락 기준은
+    #   «보존 또는 재로그인 → 보기 전용» + «이전 조종권·비영 명령 자동 복원 0». 유지/재생성/로그인 재요청을 각각 보고
+    note('INFO', '복귀 기준 정정', '옛 «같은 페이지 유지»를 플랫폼 보장으로 두지 않음 → 보존 또는 재로그인→보기 전용 + 자동 복원 0')
+    pid1, n1 = cdp.pid, len(caplog())
     adb('shell', 'input', 'keyevent', 'KEYCODE_HOME'); await asyncio.sleep(6)
     shot('03a-background-launcher')
-    adb('shell', 'am', 'start', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(6)
-    ev = await cdp.js('window.__fh'); loc2 = await cdp.js('location.href')
-    note('INFO', '배경·복귀 때 원격 페이지가 받은 신호', ev)
-    check('복귀 뒤 같은 페이지 유지(자동 재로드 없음)', loc2 == loc, loc2)
+    adb('shell', 'am', 'start', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8)
+    new = caplog()[n1:]
+    recreated = any('App destroyed' in l for l in new) and any('Starting BridgeActivity' in l for l in new)
+    page_listen = sum('pluginId: App, methodName: addListener' in l for l in new)   # 재생성 뒤 페이지가 스스로 다시 붙인 수(검사 도구 PROBE 전)
+    await cdp.attach()
+    loc2 = await cdp.js('location.href'); who_r = await cdp.js("fetch('api/whoami', {credentials: 'same-origin'}).then((r) => r.status)")
+    ev = await cdp.js('window.__fh === undefined ? null : window.__fh')
+    note('INFO', '복귀 결과', {'pid 전→후': [pid1, cdp.pid], 'Activity 재생성(logcat)': recreated, 'url': loc2, 'whoami': who_r,
+                             '페이지 신호(window.__fh)': ev if ev is not None else '없음 — 이전 listener 증거 소실(활성화 완료 아님)',
+                             '재생성 뒤 페이지가 스스로 붙인 App listener 수': page_listen})
+    kind = '유지' if not recreated and loc2 == loc else ('로그인 재요청' if who_r == 401 or 'MLogin' in (loc2 or '') else '재생성·세션 유지')
+    note('INFO', '복귀 분류', kind)
     shot('03b-after-resume')
+    if 'MDrive.dc.html' not in (loc2 or ''):
+        if who_r == 200:                               # 세션은 살아 있음 → 읽기 화면으로만 이동(조작 없음)
+            await cdp.js("location.href = '/MDrive.dc.html?live=v2'")
+        else:
+            await login(cdp)                           # 인증이 끊겼으면 fixture 재로그인만
+        await asyncio.sleep(8); await cdp.attach()
+        await cdp.js("(() => { const p = document.querySelector('#mpw'); if (p) p.value = ''; })()")
+    loc = await cdp.js('location.href'); body = await cdp.js("document.body.innerText") or ''
+    shot('03c-view-after-resume')
+    check('복귀 뒤 보존 또는 재로그인 → 보기 전용', 'MDrive.dc.html' in (loc or '') and '보기 전용' in body, {'분류': kind, 'url': loc})
+    await asyncio.sleep(3)
+    check('이전 조종권·비영 명령 자동 복원 0(서버 status)', SRV['n'] > 0 and SRV['holders'] <= {None} and SRV['nonzero'] == 0,
+          {'status 수': SRV['n'], '조종권자': sorted(map(str, SRV['holders'])), '비영 출력 횟수': SRV['nonzero']})
     # ── 로그아웃(버튼과 같은 요청을 페이지 문맥에서)
     st = await cdp.js("fetch('api/logout', {method: 'POST', credentials: 'same-origin'}).then((r) => r.status)")
     await asyncio.sleep(3)
@@ -221,7 +261,7 @@ async def scenario():
 
 
 REQUIRED = ['미인증 → 관문 로그인 화면', 'fixture 로그인 → 읽기 화면', '읽기 화면 WS 가 관문을 거쳐 v2_link 에 연결', '세션 쿠키로 whoami 200',
-            '복귀 뒤 같은 페이지 유지(자동 재로드 없음)', '로그아웃 200 → whoami 401', '관문 로그에 로그아웃', '관문 A 정상 종료(INT/TERM)',
+            '복귀 뒤 보존 또는 재로그인 → 보기 전용', '이전 조종권·비영 명령 자동 복원 0(서버 status)', '로그아웃 200 → whoami 401', '관문 로그에 로그아웃', '관문 A 정상 종료(INT/TERM)',
             '관문 없음 → 로컬 보기 전용 오류 화면', '오류 화면에 정지·STOPPED 단정 없음', '다른 CA 관문 → 로그인 화면 안 뜸(인증서 거부)',
             '정리: 띄운 프로세스 INT/TERM 으로 모두 종료', '결과 폴더에 비밀번호 없음', 'APK 설치(180 s 안)']
 
@@ -286,6 +326,7 @@ def main():
         check('결과 폴더에 비밀번호 없음', not leak, leak)
         if left: note('INFO', '정리 미완료 — 임시 원물 보존(개인키·계정·AVD)', str(TMP))
         else: shutil.rmtree(TMP)                        # fixture 개인키·계정·AVD 삭제(CA 지문만 결과에 남김)
+        note('INFO', '서버 status 전체', {'수': SRV['n'], '조종권자': sorted(map(str, SRV['holders'])), '비영 출력 횟수': SRV['nonzero']})
         passed = {r['name'] for r in RES if r['kind'] == 'PASS'}
         miss = [n for n in REQUIRED if n not in passed]
         check('필수 성공 항목 전부 PASS', not miss, miss)

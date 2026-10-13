@@ -8,7 +8,7 @@
 |---|---|
 | **만든 것** | `package.json`(버전 고정) · `capacitor.config.json` · `scripts/sync-web.mjs`(ui/dist → www, 파일별 sha256 을 `SOURCE.json` 에) · `scripts/make-icons.py`(브랜드 공식 래스터 → 앱 아이콘) · `android/`·`ios/` 프로젝트(`cap add` 생성물 + appId·아이콘만 변경) |
 | **이 PC 에서 확인** | **debug APK = 서버 없는 설치 외피·보기 전용.** 86ef8d4: 빌드 성공(Linux, 1분 46초) + Android 14 에뮬레이터(API 34, x86_64)에서 설치·실행해 React 번들 화면이 뜸. 서버가 없어서 「링크 연결 중 · 잠금 상태 미확인 · 보기 전용」으로 표시됨. 증거 `runs/mobile-shell-20261013/`(APK sha256 `b9684116…772e`). 단, 그 화면 캡처 `emulator-api34-first.png` 는 Android 블루투스 시스템 대화상자가 앱 위를 가리고 있어 **부분 증거**다(정상 화면 전체의 증거 아님). appId·아이콘 변경 뒤에는 **빌드만** 다시 함(에뮬레이터 실행 없음): 패키지 `org.footholdproject.app`, 증거 `runs/mobile-icon-appid-20261013/`(APK sha256 `3a821941…e431`). 둘 다 git 무시 |
-| **확인 안 함** | 실제 휴대폰 · **iOS = 프로젝트 생성만**(Mac·Xcode 필요, 이 Linux 에서는 빌드·IPA 없음) · A 의 복귀·로그아웃·오류 화면·다른 CA 거부(아래 3회차에서 미실행) · 런처에서 보이는 아이콘 모양(기기·런처마다 마스크가 다름) · 릴리스 서명 · 백그라운드 동작 |
+| **확인 안 함** | 실제 휴대폰 · **iOS = 프로젝트 생성만**(Mac·Xcode 필요, 이 Linux 에서는 빌드·IPA 없음) · A 의 «재생성 뒤» 복귀 · 다른 CA 일 때 앱 화면(인증서 거부 자체는 로그로 확인) · 런처에서 보이는 아이콘 모양(기기·런처마다 마스크가 다름) · 릴리스 서명 · 백그라운드 동작 |
 
 APK 를 만든 번들은 `feature/react-platform-oh` e618139 이다(브랜드 적용 전). 화면이 PC 폭으로 배치되는 것은 UI 쪽 범위다.
 
@@ -94,12 +94,19 @@ node scripts/gate-profile.mjs --clean       # 끝나면 생성물 삭제
 | 1 `runs/mobile-a-gate-e2e-20261013/` | **FAIL** — `adb install` 180 s 초과, 시나리오 미실행(옛 러너는 이래도 종료코드 0) | 실행 중 PC 부하 평균 27~33(12코어), 에뮬레이터 로그 「hanging thread QEMU2 CPU… 15–16 s」. 부하 출처는 완전히 가르지 못함 |
 | 2 `…-2/` | **중단**(부팅 중 직접 멈춤, 결과 없음) | 러너 수정 요구가 와서 그 판으로는 끝까지 돌리지 않음 |
 | 3 `…-3/` | **FAIL**(종료코드 1) — 16 PASS · 2 FAIL | 아래 |
+| 4 `…-4/` | **FAIL**(종료코드 1) — 23 PASS · 2 FAIL | 아래. 3회차 결과는 소급해 고치지 않는다 |
 
 3회차(러너 수정 뒤: 시작·설치 전 부하 ≤ 코어/2 확인, 에뮬 2코어·2 GB, 부팅 완료·패키지 관리자 준비 뒤에만 설치, 설치 시한 180 s 그대로):
 - PASS: 빌드 · 관문 127.0.0.1 기동 · 설치(1 s) · **미인증 → 관문 로그인 화면** · **fixture 로그인 → 읽기 화면** · 읽기 화면 WS 가 관문 거쳐 연결 · 세션 쿠키 whoami 200 · 정리(INT/TERM) · 결과 폴더 비밀번호 없음. 런처 화면 `00-launcher.png` 은 대화상자 없이 깨끗하다.
 - **원격 페이지가 네이티브 App 플러그인을 받는지(실측):** 관문에서 받은 페이지에서도 `Capacitor.isNativePlatform()` = true, `isPluginAvailable('App')` = true, `Capacitor.Plugins.App.addListener` 사용 가능. `registerPlugin` 은 없다(원격 페이지는 `@capacitor/core` 를 싣지 않음 → 쓰려면 `Capacitor.Plugins.App` 경로). 배경으로 보냈을 때 logcat 에 `App paused`·`appStateChange {isActive:false}` 가 원격 페이지 콜백으로 전달됨.
 - **FAIL — 복귀 때 화면이 새로 만들어짐:** 홈으로 보낸 뒤 다시 열자 같은 프로세스(pid 그대로)에서 `App destroyed` → `Starting BridgeActivity` → 관문 시작 경로(로그인 화면)를 다시 불러왔다. 그래서 검사 도구(CDP) 연결이 끊겨 예외로 멈췄고, 복귀 뒤·로그아웃·관문 끊김 오류 화면·다른 CA 거부 7개 항목은 **실행되지 않았다(미확인).** Activity 를 없앤 원인은 미확정(ActivityTaskManager 로그를 받지 않음). 안전 쪽 의미: 복귀하면 페이지가 새로 떠서 보기 전용으로 시작한다(이전 입력 복원 없음) — 단 «재생성 없이 이어지는 경우»는 이번에 보지 못했다.
 - 링크 사건 기록(`link-events.jsonl`)은 비어 있다 — 이 회차에서는 서버 쪽 hidden 사건 근거가 없다.
+4회차(3회차 뒤 러너만 수정 — CDP 재부착, 복귀 분류, 서버 status 로 조종권·출력 기록. 복귀 수락 기준 정정은 아래):
+- 복귀 기준 정정(앱 Codex 10-13, 4회차부터): 옛 기준 «복귀 때 같은 페이지·자동 재로드 없음»은 플랫폼 보장이 아니다. Activity·WebView 재생성도 정상으로 보고, **«보존 또는 재로그인 → 보기 전용» + «이전 조종권·비영 명령 자동 복원 0»** 을 수락 기준으로 둔다. 유지·재생성·로그인 재요청은 각각 기록한다.
+- 이번 복귀 = **유지**(pid 5376 그대로, Activity 재생성 없음, 같은 URL, whoami 200). 원격 페이지가 받은 신호(페이지 시각 ms): 배경 `App.pause` 10300 → `document.pause` 10332 → `appStateChange:false` 12181 → `visibilitychange` hidden 12265 / 복귀 `appStateChange:true` 17228 → `App.resume` 17234 → `visibilitychange` visible 17475 → `document.resume` 17591. **hidden 이 pause 보다 약 2 s 늦다** — 입력 버림은 `pause` 를 먼저 들어야 한다는 근거(에뮬레이터 1회 관찰). 재생성 경우는 이번에 다시 나오지 않아 «재생성 뒤 리스너 재부착»은 미측정(3회차 한 번 관찰)
+- PASS: 복귀 뒤 보기 전용 · **서버 status 1014건 동안 조종권자 없음·비영 출력 0** · 로그아웃 200 → whoami 401 · 관문 로그에 로그아웃 · 관문 A 정상 종료 · **관문 없음 → 로컬 오류 화면**(`https://localhost/fh-offline.html`, 명령 없음 문구, STOPPED 단정 없음)
+- **FAIL — 다른 CA 단계에서 러너 예외:** 인증서는 거부됐다(logcat `CertPathValidatorException: Trust anchor … not found`·`net_error -202`, 관문 B 로그 `alert certificate unknown`, 로그인 기록 없음). 그런데 인증서 오류에는 Capacitor `errorPath` 가 불리지 않아 로컬 오류 화면으로 가지 않았고, 그 화면은 https 가 아닌 주소라 러너의 CDP 대상 고르기가 비어 `IndexError` 로 멈췄다. 화면 캡처(06) 없음 → **인증서 거부는 로그 근거만, 그때의 앱 화면은 미확인.** 필수 항목은 FAIL 그대로 둔다.
+- 남은 일: 인증서 오류일 때 앱 화면(빈 화면/브라우저 오류)을 확인하고 보기 전용 안내로 보낼지 결정(SSL 오류 처리는 네이티브 쪽 — 인증서 오류 무시는 하지 않는다).
 - **조종 화면 노출 주의:** A 는 관문의 기존 화면을 그대로 열기 때문에 읽기 화면에 「조종권 받기」 버튼이 보인다(`02-read-after-login.png`). 시험에서는 누르지 않았다. A 빌드 자체가 조종을 막지는 않으므로, 조종 개방 전 조건(위 «A 는 읽기 검증까지만»)은 운영 규칙이지 앱이 강제하는 것이 아니다.
 
 ## 숨김·백그라운드·재연결 — 번들을 재사용하는 조건
