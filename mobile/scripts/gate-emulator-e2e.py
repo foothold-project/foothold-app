@@ -126,6 +126,20 @@ def gate(state, name):
     return False
 
 
+# 시간 상한(10-13 bundled 2회차: HOME 뒤 배경 WebView 에 보낸 CDP touchEnd 가 답이 없어 6시간 대기 — 상한 없는 경로였음)
+CDP_S, SCEN_S = 20, 900                               # CDP 연결·명령(js 포함) 한 번 / 시나리오 전체. 넘으면 TOOL_ERROR 기록 → Abort → finally 정상 정리
+
+
+async def cdp_wait(what, aw):
+    try: return await asyncio.wait_for(aw, CDP_S)
+    except asyncio.TimeoutError: note('TOOL_ERROR', f'CDP 응답 없음 {CDP_S} s ({what})', ''); raise Abort(what)
+
+
+async def bounded(coro):                              # 시나리오 전체 상한 — 넘으면 INCOMPLETE(앱 PASS/FAIL 과 섞지 않음)
+    try: return await asyncio.wait_for(coro, SCEN_S)
+    except asyncio.TimeoutError: note('TOOL_ERROR', f'INCOMPLETE 시나리오 시간 상한 {SCEN_S} s', ''); raise Abort('scenario')
+
+
 class Cdp:                                            # 앱 WebView 의 DevTools(디버그 빌드에서만 열림)
     async def attach(self):
         if getattr(self, 'ws', None): self.ws.close()   # 화면이 새로 만들어지면 옛 대상은 사라진다 → 새로 붙는다
@@ -139,15 +153,19 @@ class Cdp:                                            # 앱 WebView 의 DevTools
             await asyncio.sleep(1)
         else:
             self.ws = None; return False
-        self.ws, self.n = await websocket_connect(pages[0]['webSocketDebuggerUrl'], max_message_size=64 << 20), 0
+        self.ws, self.n = await cdp_wait('connect', websocket_connect(pages[0]['webSocketDebuggerUrl'], max_message_size=64 << 20)), 0
         return True
 
     async def cmd(self, method, params):
         self.n += 1; me = self.n
-        await self.ws.write_message(json.dumps({'id': me, 'method': method, 'params': params}))
-        while True:
-            r = json.loads(await self.ws.read_message())
-            if r.get('id') == me: return r
+        async def one():
+            await self.ws.write_message(json.dumps({'id': me, 'method': method, 'params': params}))
+            while True:
+                m = await self.ws.read_message()
+                if m is None: note('TOOL_ERROR', f'CDP 끊김 ({method})', ''); raise Abort(method)
+                r = json.loads(m)
+                if r.get('id') == me: return r
+        return await cdp_wait(method, one())
 
     async def js(self, expr):
         r = await self.cmd('Runtime.evaluate', {'expression': expr, 'returnByValue': True, 'awaitPromise': True})
@@ -751,7 +769,7 @@ def main():
 
         async def run():
             obs = asyncio.ensure_future(observer(stop_evt))
-            try: await (pause_scenario() if SCOPE == 'pause' else bundled_scenario() if BUNDLED else scenario())
+            try: await bounded(pause_scenario() if SCOPE == 'pause' else bundled_scenario() if BUNDLED else scenario())
             finally: stop_evt.set(); await obs
         asyncio.run(run())
     except Abort:
