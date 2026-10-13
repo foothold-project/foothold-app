@@ -70,3 +70,5 @@ export function runEnd(id: string, status: '완료' | '실패' | '중단') {
   if (!confirm(`수동 임무를 «${status}»로 끝낼까요? (운영자 기록 · 로봇 동작과 무관)`)) return;
   runEdit(id, (x) => { x.status = status; x.ended = isoNow(); if (memo != null) x.memo = memo.trim().slice(0, 400); }, `임무 ${status}`);
 }
+/** 빠른 메모 칸: 같은 낱말이 있으면 빼고 없으면 붙임(' · ' 구분, 400자) — live.js tagMemo */
+export const tagMemo = (memo: string, t: string) => { const a = memo.split(' · ').filter(Boolean); return (a.includes(t) ? a.filter((x) => x !== t) : [...a, t]).join(' · ').slice(0, 400); };
