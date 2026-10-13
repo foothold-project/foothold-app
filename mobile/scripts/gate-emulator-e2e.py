@@ -7,8 +7,10 @@
 - v2_link 는 127.0.0.1:18790 · domain 88, 상태는 tools/fake_v2_live.py(실제 시뮬 아님).
 순서: 런처 → 앱(미인증 로그인 화면) → fixture 로그인 → 읽기 화면·WS → 배경·복귀(이벤트 실측) → 로그아웃 → 관문 끊김(오류 화면) → 다른 CA(거부).
 사용(mobile 폴더): FH_GATE_SRC=<phone_gate.py 폴더> TMPDIR=<임시> python3 -B scripts/gate-emulator-e2e.py <결과 폴더(없어야 함)>
+pause 범위(원격 React native pause 1회): FH_E2E_SCOPE=pause FH_UI_REV=<UI 커밋> FH_UI_MODULES=<ui/node_modules> 를 더한다.
+  그 커밋 하나로 React 빌드·서버(sim·tools)·로그인 화면을 고정하고, 결과 폴더 front-manifest.json 에 판·파일 sha·실제 로드 origin 을 남긴다.
 """
-import asyncio, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
+import asyncio, hashlib, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 
 from tornado.websocket import websocket_connect
@@ -27,6 +29,10 @@ TMP = Path(tempfile.mkdtemp(prefix='fh-a-e2e-'))
 USER, PW = 'e2e', secrets.token_urlsafe(16)          # 기록·출력 금지
 RES, procs, t0 = [], {}, time.monotonic()
 SRV = {'n': 0, 'holders': set(), 'nonzero': 0}            # observer 가 본 status: 조종권자·비영 출력 횟수
+UI_REV = os.environ.get('FH_UI_REV')                # pause: 이 UI 커밋 하나로 React 빌드·서버(sim·tools)·로그인 화면(web)을 고정
+UI_MODULES = os.environ.get('FH_UI_MODULES')        # pause: 그 빌드에 쓸 ui/node_modules(읽기만, 링크)
+SRVD, WEB, FRONT = REPO, None, {}                   # pause 에선 SRVD=TMP/srv(UI_REV git archive), WEB=TMP/web(로그인 공개 파일 + React dist)
+STAT = []                                           # observer 가 본 status 시계열 (t, 조종권자, applied, latch)
 ENV_ROS = {**os.environ, 'ROS_DOMAIN_ID': '88', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST', 'PYTHONDONTWRITEBYTECODE': '1'}
 
 
@@ -45,9 +51,9 @@ def adb(*a, check_=True, timeout=60):
 def shot(name): (OUT / f'{name}.png').write_bytes(subprocess.run([ADB, '-s', 'emulator-5554', 'exec-out', 'screencap', '-p'], capture_output=True, check=True).stdout)
 
 
-def start(name, cmd, env=None, cwd=REPO):
+def start(name, cmd, env=None, cwd=None):
     f = open(OUT / f'{name}.log', 'w')
-    procs[name] = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env, cwd=cwd, start_new_session=True)
+    procs[name] = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env, cwd=cwd or SRVD, start_new_session=True)
 
 
 def stop(name):
@@ -102,7 +108,7 @@ def make_state(d):
 
 def gate(state, name):
     start(name, [sys.executable, '-B', 'sim/v2_gate.py', '--bind', '127.0.0.1', '--port', str(GATE), '--upstream', f'127.0.0.1:{LINK}',
-                   '--gate-src', str(GATE_SRC), '--state', str(state)], env=ENV_ROS)
+                   '--gate-src', str(GATE_SRC), '--state', str(state)] + (['--web', str(WEB)] if WEB else []), env=ENV_ROS)
     for _ in range(40):
         if '열기:' in log(name): return True
         time.sleep(0.25)
@@ -125,12 +131,16 @@ class Cdp:                                            # 앱 WebView 의 DevTools
         self.ws, self.n = await websocket_connect(pages[0]['webSocketDebuggerUrl'], max_message_size=64 << 20), 0
         return True
 
-    async def js(self, expr):
+    async def cmd(self, method, params):
         self.n += 1; me = self.n
-        await self.ws.write_message(json.dumps({'id': me, 'method': 'Runtime.evaluate', 'params': {'expression': expr, 'returnByValue': True, 'awaitPromise': True}}))
+        await self.ws.write_message(json.dumps({'id': me, 'method': method, 'params': params}))
         while True:
             r = json.loads(await self.ws.read_message())
-            if r.get('id') == me: return r.get('result', {}).get('result', {}).get('value')
+            if r.get('id') == me: return r
+
+    async def js(self, expr):
+        r = await self.cmd('Runtime.evaluate', {'expression': expr, 'returnByValue': True, 'awaitPromise': True})
+        return r.get('result', {}).get('result', {}).get('value')
 
 
 PROBE = """(() => {                                   // 배경·복귀 때 원격 페이지가 받는 신호 실측
@@ -166,6 +176,7 @@ async def observer(stop_evt):                          # v2_link 직접(127.0.0.
             try: d = json.loads(m)
             except ValueError: continue
             if d.get('op') == 'status':
+                STAT.append((round(time.monotonic() - t0, 2), d.get('holder'), d.get('applied'), d.get('latch')))
                 SRV['n'] += 1; SRV['holders'].add(d.get('holder')); SRV['nonzero'] += any(abs(x) > 1e-9 for x in d.get('applied') or [])
             for e in d.get('events') or []:
                 k = json.dumps(e, ensure_ascii=False, sort_keys=True)
@@ -292,7 +303,147 @@ async def scenario():
     await wrong_ca(cdp)
 
 
-SCOPE = os.environ.get('FH_E2E_SCOPE', 'full')     # full = 전체 시나리오, ssl = A 로그인·읽기 → B 인증서 거부만
+# ── pause 범위(10-13 앱 Codex): 원격 A(쿠키 web 경로) 에서 최신 React 를 띄워 실제 native pause 1회 ─────────────────────
+# B1 앱 인증 경로(/api/app/*)는 쓰지 않는다. 실시뮬 아님(가짜 상태) — body_still 등 몸 상태는 물리 정지 근거가 아니다.
+PUB = ('MLogin.dc.html', 'PcLogin.dc.html', 'dc.js', 'live.js', 'start.html', 'manifest.webmanifest', 'icons')   # v2_gate PUBLIC 과 같은 것만
+def sha(b): return hashlib.sha256(b).hexdigest()
+def now(): return round(time.monotonic() - t0, 2)
+def nonzero(s): return any(abs(x) > 1e-9 for x in s[2] or [])
+
+
+def prep_front():
+    """UI_REV 하나에서: ① git archive → React 빌드 ② 같은 판 sim·tools·web ③ 관문 web 폴더 = 로그인 공개 파일 + dist(index.html → app.html).
+    옛 조종 화면(MDrive.dc.html 등)은 넣지 않는다 — 시험 대상이 React 말고 다른 것일 수 없게."""
+    global SRVD, WEB
+    ok = bool(UI_REV and UI_MODULES) and subprocess.run(['git', '-C', str(REPO), 'cat-file', '-e', f'{UI_REV}^{{commit}}'], capture_output=True).returncode == 0
+    need('pause 전제: FH_UI_REV 커밋·FH_UI_MODULES', ok and (Path(UI_MODULES) / '.bin/vite').exists(), UI_REV)
+    rev = subprocess.run(['git', '-C', str(REPO), 'rev-parse', f'{UI_REV}^{{commit}}'], capture_output=True, text=True, check=True).stdout.strip()
+    SRVD, ui, WEB = TMP / 'srv', TMP / 'ui', TMP / 'web'
+    for d, parts in ((SRVD, ['sim', 'tools', 'web']), (ui, ['ui', 'contracts'])):
+        d.mkdir(); tar = subprocess.run(['git', '-C', str(REPO), 'archive', rev, *parts], capture_output=True, check=True).stdout
+        subprocess.run(['tar', '-x', '-C', str(d)], input=tar, check=True)
+    (ui / 'ui/node_modules').symlink_to(Path(UI_MODULES).resolve())
+    with open(OUT / 'ui-build.log', 'w') as f:
+        rc = subprocess.run(['npm', 'run', 'build'], cwd=ui / 'ui', env={**os.environ, 'PATH': f'{Path.home()}/.local/opt/node-v22.23.3-linux-x64/bin:' + os.environ['PATH']},
+                            stdout=f, stderr=subprocess.STDOUT).returncode
+    need('React 빌드(UI_REV git archive, npm run build)', rc == 0, f'rc={rc}')
+    dist = ui / 'ui/dist'
+    WEB.mkdir()
+    for n in PUB:
+        (shutil.copytree if (SRVD / 'web' / n).is_dir() else shutil.copy2)(SRVD / 'web' / n, WEB / n)
+    shutil.copytree(dist, WEB, dirs_exist_ok=True, ignore=shutil.ignore_patterns('*.map', 'index.html'))
+    shutil.copy2(dist / 'index.html', WEB / 'app.html')   # 관문은 ''·index.html 을 옛 화면으로 돌리므로 같은 바이트를 app.html 로
+    served = {str(p.relative_to(WEB)): sha(p.read_bytes()) for p in sorted(WEB.rglob('*')) if p.is_file()}
+    FRONT.update({'ui_rev': rev, 'build': 'git archive <ui_rev> ui contracts → npm run build (tsc --noEmit && vite build), node_modules 는 FH_UI_MODULES 링크',
+                  'served_by': 'fixture v2_gate --web (쿠키 web 경로, 127.0.0.1)', 'app.html = dist/index.html': sha((dist / 'index.html').read_bytes()) == served['app.html'],
+                  'not_served': '옛 비공개 .dc.html(MDrive·Main 등)·index.html·*.map', 'server_rev': rev,
+                  'server_files': {f: sha((SRVD / f).read_bytes()) for f in ('sim/v2_gate.py', 'sim/v2_link.py', 'tools/fake_v2_live.py')},
+                  'served': served, 'dist': str(dist)})
+    (OUT / 'front-manifest.json').write_text(json.dumps(FRONT, ensure_ascii=False, indent=1))
+    return dist
+
+
+async def until(fn, secs, step=0.25):                  # 이벤트 루프를 막지 않는 대기(observer 가 같은 루프에서 돈다)
+    end = time.monotonic() + secs
+    while time.monotonic() < end:
+        if STAT and fn(STAT[-1]): return True
+        await asyncio.sleep(step)
+    return False
+
+
+SRC_JS = """(async () => { const h = async (u) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', await (await fetch(u, {cache: 'no-store', credentials: 'same-origin'})).arrayBuffer()))].map((x) => x.toString(16).padStart(2, '0')).join('');
+  const mods = [...document.querySelectorAll('script[type=module][src]')].map((s) => new URL(s.src).pathname.slice(1));
+  return {href: location.href, origin: location.origin, react_root: !!document.querySelector('#root > *'), live_js: !!document.querySelector('script[src*="live.js"]'),
+    app_html: await h('app.html'), modules: Object.fromEntries(await Promise.all(mods.map(async (m) => [m, await h(m)])))}; })()"""
+STICK_JS = """(() => { for (const k of ['앞뒤 막대', '이동 막대: 앞뒤와 옆걸음']) { const e = document.querySelector(`[aria-label="${k}"]`); if (!e) continue;
+  const r = e.getBoundingClientRect(); if (r.width > 0 && r.height > 0) return {k, x: r.left + r.width / 2, y: r.top + r.height * 0.15}; } return null; })()"""
+BTN_JS = """((t) => { const b = [...document.querySelectorAll('button')].find((e) => e.textContent.trim() === t); if (!b) return false; b.click(); return true; })(%s)"""
+VIEW_JS = """(() => { const t = document.body.innerText; return {href: location.href, ctl_hud: t.includes('직접 조종 · 시뮬 시험'), take_hint: t.includes('조종권 받기')}; })()"""
+APP = '/app.html#/MDrive'
+
+
+async def touch(cdp, kind, x, y):
+    r = await cdp.cmd('Input.dispatchTouchEvent', {'type': kind, 'touchPoints': [] if kind == 'touchEnd' else [{'x': x, 'y': y, 'id': 1}]})
+    return 'error' not in r
+
+
+async def pause_scenario():
+    cdp = Cdp()
+    adb('reverse', f'tcp:{GATE}', f'tcp:{GATE}')
+    adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8)
+    await attach(cdp, 'start')
+    loc = await cdp.js('location.href')
+    need('미인증 → 관문 로그인 화면', isinstance(loc, str) and loc.startswith(f'https://127.0.0.1:{GATE}/MLogin.dc.html'), loc)
+    await cdp.js("location.replace('/MLogin.dc.html?live=v2&next=%2Fapp.html')"); await asyncio.sleep(5)   # 검사 도구 이동 ①: 로그인 뒤 React 로
+    r = await login(cdp); await asyncio.sleep(8)
+    loc = await cdp.js('location.href')
+    need('fixture 로그인(쿠키) → app.html', r == 'clicked' and isinstance(loc, str) and loc.startswith(f'https://127.0.0.1:{GATE}/app.html') and f'로그인 {USER}' in log('gate-A'), loc)
+    await cdp.js(f"location.hash = '{APP.split('#')[1]}'"); await asyncio.sleep(5)                       # 검사 도구 이동 ②: 해시 경로 MDrive
+    src = await cdp.js(SRC_JS); FRONT['runtime'] = src; (OUT / 'front-manifest.json').write_text(json.dumps(FRONT, ensure_ascii=False, indent=1))
+    sv = FRONT['served']
+    need('시험 대상 = 관문에서 받은 React(origin·app.html·모듈 sha = 빌드, live.js 없음)', isinstance(src, dict) and src['origin'] == f'https://127.0.0.1:{GATE}'
+         and src['app_html'] == sv['app.html'] and bool(src['modules']) and all(sv.get(k) == v for k, v in src['modules'].items()) and src['react_root'] and not src['live_js'],
+         {k: src[k] for k in ('href', 'origin', 'react_root', 'live_js')} if isinstance(src, dict) else src)
+    note('INFO', '원격 페이지의 Capacitor 브리지(React MDrive)', await cdp.js(PROBE))
+    stick = await cdp.js(STICK_JS); need('React 조종 화면 막대 위치', bool(stick), stick)
+    await asyncio.sleep(1)                              # 버튼은 서버 status 로 다시 그려진 뒤에 누른다
+    need('«조종권 받기» 누름', await cdp.js(BTN_JS % json.dumps('조종권 받기')))
+    need('서버: 조종권자 = fixture 기기', await until(lambda s: USER in str(s[1]), 10), STAT[-1:] )
+    await asyncio.sleep(1)
+    need('«STOP 해제» 누름', await cdp.js(BTN_JS % json.dumps('STOP 해제')))
+    need('서버: 래치 풀림(가짜 상태의 해제 확인)', await until(lambda s: s[3] is False and USER in str(s[1]), 10), STAT[-1:])
+    # ── 손가락을 막대에 둔 채(touchEnd 없음) 비영 출력
+    await asyncio.sleep(1); stick = await cdp.js(STICK_JS) or stick   # 안내 줄이 바뀐 뒤 위치 다시 잼
+    x, y = stick['x'], stick['y']
+    t_hold = now(); ok1 = await touch(cdp, 'touchStart', x, y); await asyncio.sleep(0.2); ok2 = await touch(cdp, 'touchMove', x, y - 2)
+    nz = await until(lambda s: nonzero(s) and USER in str(s[1]), 5); await asyncio.sleep(2)
+    need('잡은 채 비영 출력(서버 applied, 조종권자 fixture)', ok1 and ok2 and nz and nonzero(STAT[-1]) and USER in str(STAT[-1][1]),
+         {'touch': [ok1, ok2], '잡은 뒤 비영 status 수': sum(nonzero(s) for s in STAT if s[0] >= t_hold), '마지막': STAT[-1:]})
+    shot('p1-held')
+    # ── HOME(손가락은 떼지 않음) → 실제 Activity pause
+    n1, pid1 = len(caplog()), cdp.pid
+    t_home = now(); adb('shell', 'input', 'keyevent', 'KEYCODE_HOME'); await asyncio.sleep(6)
+    shot('p2-background')
+    after = [s for s in STAT if s[0] >= t_home]
+    z = next((i for i, s in enumerate(after) if s[1] is None and not nonzero(s) and s[3] is True), None)
+    bad = [] if z is None else [s for s in after[z:] if s[1] is not None or nonzero(s) or s[3] is not True]
+    check('HOME 뒤 서버: 조종권자 없음·applied 0·래치 — 그 뒤 위반 0', z is not None and not bad and len(after[z:]) >= 5,
+          {'HOME→첫 무소유·0·래치(s)': None if z is None else round(after[z][0] - t_home, 2), 'HOME 뒤 status 수': len(after), '위반': bad[:3],
+           '그 전 비영 status 수': sum(nonzero(s) for s in after[:z or len(after)])})
+    evs = [json.loads(l) for l in (OUT / 'link-events.jsonl').read_text().splitlines()]
+    note('INFO', 'HOME 뒤 서버 사건(해제 원인)', [e for e in evs if e['t'] >= t_home - 0.5][:6])
+    # ── 복귀
+    adb('shell', 'am', 'start', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8)
+    new = caplog()[n1:]
+    recreated = any('App destroyed' in l for l in new) and any('Starting BridgeActivity' in l for l in new)
+    await attach(cdp, 'resume'); t_back = now()
+    ev = await cdp.js('window.__fh === undefined ? null : window.__fh'); loc2 = await cdp.js('location.href')
+    kind = '유지' if not recreated and loc2 == loc.split('#')[0] + '#' + APP.split('#')[1] else '재생성·다시 읽힘'
+    note('INFO', '복귀 결과', {'분류': kind, 'pid 전→후': [pid1, cdp.pid], 'Activity 재생성(logcat)': recreated, 'url': loc2,
+                             '페이지 신호(window.__fh)': ev if ev is not None else '없음(페이지 다시 읽힘)'})
+    if not (isinstance(loc2, str) and loc2.endswith(APP)):
+        who = await cdp.js("fetch('api/whoami', {credentials: 'same-origin'}).then((r) => r.status)")
+        note('INFO', '복귀 뒤 React MDrive 아님 → 이동(조작 없음)', {'whoami': who})
+        if who != 200: need('복귀 뒤 세션 유지(재로그인 반복 안 함)', False, who)
+        await cdp.js(f"location.href = '{APP}'"); await asyncio.sleep(6); await attach(cdp, 'back-nav')
+    v = await cdp.js(VIEW_JS); shot('p3-after-resume')
+    check('복귀 = 보기 전용(조종 표시 없음·«조종권 받기» 안내)', isinstance(v, dict) and v['href'].endswith(APP) and not v['ctl_hud'] and v['take_hint'], v)
+    # ── 옛 손가락: 떼지 않았던 같은 id 로 움직임만 보냄(새 누름 없음) → 복원 0
+    ok3 = await touch(cdp, 'touchMove', x, y - 4); await asyncio.sleep(3); ok4 = await touch(cdp, 'touchEnd', x, y)
+    late = [s for s in STAT if s[0] >= t_back]
+    check('복귀 뒤 옛 손가락 복원 0(조종권자 없음·비영 0·래치)', len(late) >= 5 and all(s[1] is None and not nonzero(s) and s[3] is True for s in late),
+          {'touchMove·End 전달': [ok3, ok4], '복귀 뒤 status 수': len(late), '위반': [s for s in late if s[1] is not None or nonzero(s)][:3]})
+    need('관문 A 정상 종료(INT/TERM)', stop('gate-A'))
+
+
+PAUSE_REQ = ['pause 전제: FH_UI_REV 커밋·FH_UI_MODULES', 'React 빌드(UI_REV git archive, npm run build)', 'APK 설치(180 s 안)', '미인증 → 관문 로그인 화면',
+             'fixture 로그인(쿠키) → app.html', '시험 대상 = 관문에서 받은 React(origin·app.html·모듈 sha = 빌드, live.js 없음)', 'React 조종 화면 막대 위치',
+             '«조종권 받기» 누름', '서버: 조종권자 = fixture 기기', '«STOP 해제» 누름', '서버: 래치 풀림(가짜 상태의 해제 확인)', '잡은 채 비영 출력(서버 applied, 조종권자 fixture)',
+             'HOME 뒤 서버: 조종권자 없음·applied 0·래치 — 그 뒤 위반 0', '복귀 = 보기 전용(조종 표시 없음·«조종권 받기» 안내)', '복귀 뒤 옛 손가락 복원 0(조종권자 없음·비영 0·래치)',
+             '관문 A 정상 종료(INT/TERM)', '정리: 띄운 프로세스 INT/TERM 으로 모두 종료', '결과 폴더에 비밀번호 없음']
+
+
+SCOPE = os.environ.get('FH_E2E_SCOPE', 'full')     # full = 전체 시나리오, ssl = A 로그인·읽기 → B 인증서 거부만, pause = 원격 React native pause 1회
 REQUIRED = ['미인증 → 관문 로그인 화면', 'fixture 로그인 → 읽기 화면', '읽기 화면 WS 가 관문을 거쳐 v2_link 에 연결', '세션 쿠키로 whoami 200',
             '복귀 뒤 보존 또는 재로그인 → 보기 전용', '읽기 화면 왕복 중 조종권·비영 출력 자동 발생 없음(서버 status)', '로그아웃 200 → whoami 401', '관문 로그에 로그아웃', '관문 A 정상 종료(INT/TERM)',
             '관문 없음 → 로컬 보기 전용 오류 화면', '오류 화면에 정지·STOPPED 단정 없음', 'B: 관문 B 기동', 'B: 앱 쪽 인증서 거부 로그(Trust anchor 또는 -202)', 'B: 관문 B 에 로그인·WS 연결 0', 'B: 로컬 연결 오류 안내 화면(로그인·명령 불가)',
@@ -311,13 +462,20 @@ def main():
         fp_a, fp_b = make_state(TMP / 'A'), make_state(TMP / 'B'); note('INFO', 'fixture CA sha256', {'A(APK 에 넣음)': fp_a, 'B(거부 시험)': fp_b})
         nodeenv = {**os.environ, 'PATH': f'{Path.home()}/.local/opt/node-v22.23.3-linux-x64/bin:' + os.environ['PATH'],
                    'JAVA_HOME': '/usr/lib/jvm/java-21-openjdk-amd64', 'ANDROID_HOME': str(SDK)}
-        with open(OUT / 'build.log', 'w') as f:
-            for cmd, cwd in ((['npx', 'cap', 'sync', 'android'], MOB),
+        steps = ((['npx', 'cap', 'sync', 'android'], MOB),
                              (['node', 'scripts/gate-profile.mjs'], MOB),
-                             (['./gradlew', 'assembleGate', '--console=plain'], MOB / 'android')):
-                env = {**nodeenv, 'FH_GATE_URL': f'https://127.0.0.1:{GATE}', 'FH_GATE_CA': str(TMP / 'A' / 'ca.crt')}
+                 (['./gradlew', 'assembleGate', '--console=plain'], MOB / 'android'))
+        if SCOPE == 'pause':                           # APK 안 번들(www)도 같은 판으로 — A 에선 로드되지 않지만 «어느 본문인지» 섞이지 않게
+            steps = ((['node', 'scripts/sync-web.mjs', str(prep_front())], MOB),) + steps
+        with open(OUT / 'build.log', 'w') as f:
+            for cmd, cwd in steps:
+                env = {**nodeenv, 'FH_UI_REV': FRONT.get('ui_rev', ''), 'FH_GATE_URL': f'https://127.0.0.1:{GATE}', 'FH_GATE_CA': str(TMP / 'A' / 'ca.crt')}
                 rc = subprocess.run(cmd, cwd=cwd, env=env, stdout=f, stderr=subprocess.STDOUT).returncode
                 need(f'빌드 {cmd[-1] if cmd[0] != "npx" else "cap sync"}', rc == 0, f'rc={rc}')
+        if SCOPE == 'pause':
+            FRONT['apk_bundled_www'] = {**{k: v for k, v in json.loads((MOB / 'www/SOURCE.json').read_text()).items() if k != 'files'},
+                                        '로드 여부': 'A(server.url) 에선 로드 안 됨 — 시험 대상은 runtime.origin 의 원격 app.html'}
+            (OUT / 'front-manifest.json').write_text(json.dumps(FRONT, ensure_ascii=False, indent=1))
         shutil.copy2(MOB / 'android/app/build/outputs/apk/gate/app-gate.apk', OUT / 'app-gate.apk')
         shutil.copy2(MOB / 'android/app/src/gate/assets/capacitor.config.json', OUT / 'gate-capacitor.config.json')
         start('v2_link', ['bash', '-c', f'source /opt/ros/jazzy/setup.bash && exec python3 -B sim/v2_link.py --port {LINK} --media {TMP}/media'], env=ENV_ROS)
@@ -341,7 +499,7 @@ def main():
 
         async def run():
             obs = asyncio.ensure_future(observer(stop_evt))
-            try: await scenario()
+            try: await (pause_scenario() if SCOPE == 'pause' else scenario())
             finally: stop_evt.set(); await obs
         asyncio.run(run())
     except Abort:
@@ -361,7 +519,8 @@ def main():
         else: shutil.rmtree(TMP)                        # fixture 개인키·계정·AVD 삭제(CA 지문만 결과에 남김)
         note('INFO', '서버 status 전체', {'수': SRV['n'], '조종권자': sorted(map(str, SRV['holders'])), '비영 출력 횟수': SRV['nonzero']})
         passed = {r['name'] for r in RES if r['kind'] == 'PASS'}
-        req = REQUIRED if SCOPE == 'full' else [n for n in REQUIRED if n.startswith(('B:', 'APK', '미인증', 'fixture 로그인', '읽기 화면 WS', '세션 쿠키', '관문 A 정상', '정리', '결과 폴더'))]
+        (OUT / 'link-status.jsonl').write_text(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in STAT))
+        req = REQUIRED if SCOPE == 'full' else PAUSE_REQ if SCOPE == 'pause' else [n for n in REQUIRED if n.startswith(('B:', 'APK', '미인증', 'fixture 로그인', '읽기 화면 WS', '세션 쿠키', '관문 A 정상', '정리', '결과 폴더'))]
         note('INFO', '실행 범위', {'scope': SCOPE, '필수 항목 수': len(req)})
         miss = [n for n in req if n not in passed]
         check('필수 성공 항목 전부 PASS', not miss, miss)
