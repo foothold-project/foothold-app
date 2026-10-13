@@ -114,3 +114,8 @@ python3 -m venv .venv-backend && .venv-backend/bin/pip install -r requirements-b
 - 최종 안전망은 받는 쪽(시뮬·로봇)의 명령 TTL 이다(`ttl_s`·`ttl_expired`).
 - STOP 명령 0 은 물리 정지가 아니다(실험에서 3.6 s·0.32 m 를 더 이동, 원인 미확정).
 - 구현은 `sim/` 수정이라 고정 mentor 와 합의한 뒤에 한다.
+
+## 기록 손실 (10-13, 새 시험 결과와 구분)
+
+- 위 40·69·78행이 가리키는 원문 `runs/backend-review-20261013/`(pytest-full.txt·pytest-followup.txt)는 10-13 세션 이동 중 이전 worktree 폴더가 삭제되면서 **사라졌다.** 브랜치·커밋은 남았고 폴더는 같은 경로에 `git worktree add` 로 다시 만들었다. 원문은 복구하지 않았고 다시 돌리지도 않았다. 위 숫자(127 passed · 1 skipped, 74/74, 반례 2 개)는 이 문서의 기록만 남아 있다.
+- 다시 만든 뒤의 새 결과는 `runs/mobile-shell-20261013/`·`runs/mobile-icon-appid-20261013/` 뿐이다(모바일, 백엔드 시험 아님).

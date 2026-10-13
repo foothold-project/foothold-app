@@ -6,9 +6,9 @@
 
 | 구분 | 내용 |
 |---|---|
-| **만든 것** | `package.json`(버전 고정) · `capacitor.config.json` · `scripts/sync-web.mjs`(ui/dist → www, 파일별 sha256 을 `SOURCE.json` 에) · `android/`·`ios/` 프로젝트(`cap add` 생성물, 수정 없음) |
-| **이 PC 에서 확인** | debug APK 빌드 성공(Linux, 1분 46초). Android 14 에뮬레이터(API 34, x86_64)에서 설치·실행해 React 번들 화면이 뜸. 서버가 없어서 「링크 연결 중 · 잠금 상태 미확인 · 보기 전용」으로 표시됨. 증거: `runs/mobile-shell-20261013/`(git 무시) |
-| **확인 안 함** | 실제 휴대폰 · iOS 빌드(Mac·Xcode 필요, 이 Linux 에서는 IPA 를 만들 수 없음) · 관문 서버 연결·로그인 · 앱 아이콘 · 릴리스 서명 · 백그라운드 동작 |
+| **만든 것** | `package.json`(버전 고정) · `capacitor.config.json` · `scripts/sync-web.mjs`(ui/dist → www, 파일별 sha256 을 `SOURCE.json` 에) · `scripts/make-icons.py`(브랜드 공식 래스터 → 앱 아이콘) · `android/`·`ios/` 프로젝트(`cap add` 생성물 + appId·아이콘만 변경) |
+| **이 PC 에서 확인** | **debug APK = 서버 없는 설치 외피·보기 전용.** 86ef8d4: 빌드 성공(Linux, 1분 46초) + Android 14 에뮬레이터(API 34, x86_64)에서 설치·실행해 React 번들 화면이 뜸. 서버가 없어서 「링크 연결 중 · 잠금 상태 미확인 · 보기 전용」으로 표시됨. 증거 `runs/mobile-shell-20261013/`(APK sha256 `b9684116…772e`). appId·아이콘 변경 뒤에는 **빌드만** 다시 함(에뮬레이터 실행 없음): 패키지 `org.footholdproject.app`, 증거 `runs/mobile-icon-appid-20261013/`(APK sha256 `3a821941…e431`). 둘 다 git 무시 |
+| **확인 안 함** | 실제 휴대폰 · **iOS = 프로젝트 생성만**(Mac·Xcode 필요, 이 Linux 에서는 빌드·IPA 없음) · 관문 서버 연결·로그인 · 런처에서 보이는 아이콘 모양(기기·런처마다 마스크가 다름) · 릴리스 서명 · 백그라운드 동작 |
 
 APK 를 만든 번들은 `feature/react-platform-oh` e618139 이다(브랜드 적용 전). 화면이 PC 폭으로 배치되는 것은 UI 쪽 범위다.
 
@@ -20,7 +20,7 @@ APK 를 만든 번들은 `feature/react-platform-oh` e618139 이다(브랜드 �
 | Node | 22 이상 | 시스템 node 18 은 쓰지 않는다. 사용자 폴더의 node 22 를 쓴다(전역 업데이트 없음) |
 | JDK | 21 | Capacitor android `JavaVersion.VERSION_21`. 시스템 openjdk 21.0.12 |
 | Android | compileSdk 36 · targetSdk 36 · minSdk 24 · AGP 8.13.0 · Gradle 8.14.3 | `android/variables.gradle`·`build.gradle`·wrapper(생성물 그대로) |
-| iOS | 15.0 이상 · SPM(`CapApp-SPM`, CocoaPods 없음) · bundle id `kr.foothold.app` | `ios/App/App.xcodeproj` |
+| iOS | 15.0 이상 · SPM(`CapApp-SPM`, CocoaPods 없음) · bundle id `org.footholdproject.app`(임시) | `ios/App/App.xcodeproj` |
 
 React 쪽(Vite 5)은 지금처럼 node 18 로 빌드해도 된다. 외피만 node 22 가 필요하다.
 
@@ -72,8 +72,31 @@ FH_UI_REV=$(git rev-parse HEAD) npm run apk:debug     # ui/dist → www → cap 
 4. 위 규칙이 「통과했다」고 말하는 근거는 서버 사건 로그로만 삼는다. 실제 휴대폰에서 백그라운드로 보냈을 때 `hidden` 사건이 남는지 확인해야 한다. Android WebView 가 백그라운드에서 `visibilitychange` 를 확실히 보내는지는 **미확인**이라 Capacitor `pause` 도 같이 듣는다(`@capacitor/app` 추가는 그때).
 5. 실시간 보장은 아니다. 최종 안전망은 받는 쪽 명령 TTL 이다. STOP 명령 0 은 물리 정지가 아니다(실험에서 3.6 s·0.32 m 를 더 이동, 원인 미확정).
 
+## 앱 아이콘 (브랜드 공식 래스터 파생)
+
+- 출처: `foothold-project/foothold-brand` 커밋 `7afd2416d266f9a2d6d6166c66e576eacef524b9`
+  - `assets/raster/v1/logo/foothold-favicon.png` 512×512, sha256 `fdfa03e1…45d7` (원본 `assets/logo/v1/foothold-favicon.svg`)
+  - `assets/raster/v1/logo/foothold-symbol-brand.png` 512×587, sha256 `a2f555a4…ef7d` (원본 `assets/logo/v1/foothold-symbol-brand.svg`)
+  - 두 sha256 은 브랜드 `assets/raster/v1/manifest.json` 값과 같다. 스크립트가 다르면 멈춘다.
+- 원본 PNG 는 저장소에 넣지 않았다(브랜드 저장소가 정본). 다시 만들 때: 위 두 파일을 받아 한 폴더에 두고 `python3 -I scripts/make-icons.py <그 폴더>`.
+- 하는 일은 축소(LANCZOS)·가운데 배치·배경 채움뿐이다. 다시 그리기·늘이기·색 바꾸기는 하지 않는다. 배경색은 favicon 바탕과 같은 `#F6F5F1`.
+
+| 파일 | 원본 | 여백·배경 |
+|---|---|---|
+| Android `ic_launcher.png`(48~192 px) | favicon | 그대로 축소(둥근 정사각 + 투명 모서리) |
+| Android `ic_launcher_round.png` | symbol | `#F6F5F1` 원 + 심볼 대각선 72% |
+| Android 적응형 `ic_launcher_foreground.png`(108dp) + 배경색 `#F6F5F1` | symbol | 투명, 심볼 대각선 60% → 안전 원(66dp) 안 |
+| iOS `AppIcon-512@2x.png` 1024 | symbol | `#F6F5F1` 꽉 찬 정사각, 불투명(모서리는 iOS 가 깎음), 대각선 72% |
+
+- 스플래시(`drawable*/splash.png`)는 Capacitor 기본 그대로다. 바꾸지 않았다.
+
 ## 남은 결정
 
-- **앱 아이콘:** 지금은 Capacitor 기본 아이콘이다. 브랜드 저장소의 공식 래스터 `assets/raster/v1/logo/foothold-favicon.png`(7afd241)를 원본 그대로 쓰는 것이 정책에 맞다(BRAND_USAGE_POLICY: 로컬 재생성 금지). 적응형 전경·배경 분리와 크기별 파생은 새 파생물이라 앱 Codex 가 판단한다.
-- **appId `kr.foothold.app`:** 임시 값이다. 스토어에 올린 뒤에는 바꿀 수 없어서, 게시 전에 정한다.
+- **appId `org.footholdproject.app`:** 저장소 조직(`foothold-project`)의 역도메인을 근거로 한 **개발용 임시 값**이다. 상용 ID 를 정하기 전까지 임시로 둔다. 스토어에 올린 뒤에는 바꿀 수 없어서, 게시 전에 정한다. 서명 키·스토어 등록은 하지 않았다.
+- **서버 연결 A/B:** 위 설계는 비교만 했다. 앱 Codex 가 인증·Origin·CA 계약을 읽고 검수한 뒤 결정한다. 그 전에는 어느 쪽도 구현하지 않고, 보안을 완화하는 변경은 자동으로 하지 않는다.
 - **릴리스 서명 키:** 만들지 않았다. 만들게 되면 키는 저장소 밖에 두고 비밀번호도 기록하지 않는다.
+
+## 기록 손실 (새 시험 결과와 구분)
+
+- `runs/backend-review-20261013/`(백엔드 검수 때의 `pytest-full.txt`·`pytest-followup.txt`)는 10-13 세션 이동 중 이전 worktree 폴더가 삭제되면서 **사라졌다.** 복구하지 않았고 다시 만든 것도 없다. 그 결과를 인용할 때는 `docs/PROGRESS-contract-storage.md` 에 적힌 숫자가 유일한 기록이다.
+- 지금 `runs/` 에 있는 `mobile-shell-20261013/`·`mobile-icon-appid-20261013/` 는 폴더를 다시 만든 뒤 새로 만든 결과다.

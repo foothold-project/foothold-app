@@ -1,5 +1,5 @@
 {
-  "appId": "kr.foothold.app",
+  "appId": "org.footholdproject.app",
   "appName": "FOOTHOLD",
   "webDir": "www",
   "android": { "allowMixedContent": false },

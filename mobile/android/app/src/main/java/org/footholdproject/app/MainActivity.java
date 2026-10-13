@@ -1,4 +1,4 @@
-package kr.foothold.app;
+package org.footholdproject.app;
 
 import com.getcapacitor.BridgeActivity;
 
