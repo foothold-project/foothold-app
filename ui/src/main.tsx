@@ -20,6 +20,7 @@ const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   PcPlan: lazy(() => import('./screens/PcPlan')),
   MHome: lazy(() => import('./screens/MHome')),
   MFinding: lazy(() => import('./screens/MFinding')),
+  MDrive: lazy(() => import('./screens/MDrive')),
   PcRobot: lazy(() => import('./screens/PcRobot')),
   PcSettings: lazy(() => import('./screens/PcSettings')),
   PcMap: lazy(() => import('./screens/PcMap')),

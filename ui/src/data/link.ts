@@ -12,6 +12,7 @@ type LinkState = { st: Status | null; lastMsg: number; firstVer: string | null; 
 export const useLink = create<LinkState>(() => ({ st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true }));
 
 let ws: WebSocket | null = null, started = false, sig: string | null = null;
+export let camURL: string | null = null;   // 마지막 카메라 프레임(새로 그린 img 의 첫 src)
 const send = (o: ClientOp) => { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); return true; } return false; };
 
 // ---- 누름 저장소 · 폐기 · 20 Hz 발행(하나) — live.js zones/keys/intent/dropAll 과 같은 규칙 ----
@@ -100,7 +101,11 @@ export function startLink() {
     const w = ws = new WebSocket(u); w.binaryType = 'blob';
     w.onopen = () => { dropAll(); hidSent = false; useLink.setState({ open: true, viewOnly: true }); };   // 재연결은 보기 전용부터
     w.onmessage = (e) => {
-      if (typeof e.data !== 'string') { camT.push(performance.now()); return; }   // 카메라 JPEG — 묶음 2 는 fps 세기만(영상 표시는 묶음 3)
+      if (typeof e.data !== 'string') {   // 카메라 JPEG: fps 세기 + 화면의 img[data-live-cam] 에 바로 넣음(프레임마다 React 다시 그리지 않음)
+        camT.push(performance.now()); if (camURL) URL.revokeObjectURL(camURL); camURL = URL.createObjectURL(e.data as Blob);
+        for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.src = camURL;
+        return;
+      }
       let m: any; try { m = JSON.parse(e.data); } catch { m = null; }
       if (m?.op === 'reply') { const f = fin(m.rid) ? pending.get(m.rid) : null; if (f && typeof m.ok === 'boolean') { pending.delete(m.rid); f(m as Reply); } return; }
       const bad = checkStatus(m);

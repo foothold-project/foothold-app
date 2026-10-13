@@ -24,3 +24,6 @@ export const LAYOUTS = ['왼쪽 회전 · 오른쪽 앞뒤', '왼쪽 이동 · �
 
 export const ZONE_NOTE = '구역은 그리기·저장·공유·표시 기능입니다. 로봇의 실제 주행 제한(피하기·감속)은 미연결 — 충돌·감속을 보장하지 않습니다.';
 export const OBS_NOTE = 'AI 탐지 미연결 — 운영자가 찍어 등록한 관찰입니다. 분류(확인·보류·제외)와 메모는 모든 기기에 공유됩니다.';
+export const TRIAL = 'Gazebo · foothold-v2 시험 · 낙상·정지 지연 미검증';
+export const RELURCH = '정지 뒤 1~2 s 안에 한 번 다시 움직일 수 있음(시뮬 기록 최대 약 .33 m/s·28°)';
+export const NOMOVE = '후진·제자리 회전·옆걸음·저속은 시뮬에서 검증 안 됨 — 서버가 0으로 막습니다. 시험한 값: 앞 0.6 m/s, 앞+회전 ±0.5 rad/s';

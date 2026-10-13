@@ -51,3 +51,4 @@ textarea.lv-inp{resize:vertical}
 .lv-fstop{position:fixed;right:16px;bottom:16px;z-index:40;min-width:96px;height:56px;border:0;border-radius:10px;background:#a3342a;color:#fff;font-weight:700;letter-spacing:.06em;font-size:16px}
 @media (max-width:900px){.lv-main{grid-template-columns:minmax(0,1fr)!important}}
 @media print{.lv-noprint{display:none!important}body{background:#fff!important}}
+[data-live-drive] [role="group"]{touch-action:none}   /* 조종 막대: 끌기가 화면 스크롤·확대로 새지 않게 */
