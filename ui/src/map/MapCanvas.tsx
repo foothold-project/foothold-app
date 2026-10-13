@@ -14,7 +14,8 @@ const MODE_KO: Record<Mode, string> = { robot: '로봇 중심', all: '전체 보
 type Props = {
   name?: string; small?: boolean; mode?: Mode; zones?: ZoneEnv[]; wps?: Wp[] | null; trail?: number[][];
   robot?: Robot; noRobot?: boolean; showTrail?: boolean; showZones?: boolean; hiZone?: string | null; hiWp?: number | null;
-  draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number) => void;
+  draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number, k: number) => void;
+  btns?: boolean;   // live.js mapBtns(아이콘): 로봇 중심 · 전체 보기 · 확대 · 축소
 };
 
 export function MapCanvas(p: Props) {
@@ -95,6 +96,7 @@ export function MapCanvas(p: Props) {
       const t = `격자 1 m · ${W < 520 ? '' : '바닥 ±10 m · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
+    box.querySelectorAll<HTMLElement>('.lv-mapbtns [data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
     el.dataset.view = `${v.mode}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}`;   // 시험·상태 확인용
   };
 
@@ -113,7 +115,7 @@ export function MapCanvas(p: Props) {
     };
     const up = (e: PointerEvent) => {
       if (!drag || drag.id !== e.pointerId) return; const d = drag; drag = null;
-      const tap = P.current.onTap; if (!d.moved && tap) { const r = el.getBoundingClientRect(); const [x, y] = v.toWorld(e.clientX - r.left, e.clientY - r.top); tap(x, y); }
+      const tap = P.current.onTap; if (!d.moved && tap) { const r = el.getBoundingClientRect(); const [x, y] = v.toWorld(e.clientX - r.left, e.clientY - r.top); tap(x, y, v.k); }
     };
     const cancel = () => { drag = null; };
     const wheel = (e: WheelEvent) => { if (P.current.small) return; e.preventDefault(); v.zoom = Math.min(8, Math.max(0.25, v.zoom * (e.deltaY < 0 ? 1.25 : 0.8))); draw(); };
@@ -122,5 +124,12 @@ export function MapCanvas(p: Props) {
     return () => { ro.disconnect(); el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel); el.removeEventListener('wheel', wheel); };
   }, []);
 
-  return <canvas ref={cv} data-live-map={p.name || '1'} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', ...(p.small ? { pointerEvents: 'none' } : { cursor: 'crosshair' }) }} />;
+  const v = V.current, b = (t: string, label: string, f: () => void, m?: Mode) => <button type="button" className="lv-btn" data-m={m} aria-label={label} title={label} onClick={() => { f(); draw(); }}>{t}</button>;
+  return <>
+    <canvas ref={cv} data-live-map={p.name || '1'} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', ...(p.small ? { pointerEvents: 'none' } : { cursor: 'crosshair' }) }} />
+    {p.btns && <div className="lv-mapbtns">
+      {b('◎', '로봇 중심(지도가 따라 움직임)', () => { v.mode = 'robot'; v.zoom = 1; }, 'robot')}{b('⤢', '전체 보기', () => { v.mode = 'all'; v.zoom = 1; }, 'all')}
+      {b('+', '확대', () => { v.zoom = Math.min(8, v.zoom * 1.5); })}{b('−', '축소', () => { v.zoom = Math.max(0.25, v.zoom / 1.5); })}
+    </div>}
+  </>;
 }
