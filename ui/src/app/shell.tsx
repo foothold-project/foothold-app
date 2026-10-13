@@ -16,7 +16,9 @@ export function useRoute() {
 
 // ---- 알림 ----
 const useToastS = create<{ t: string; n: number }>(() => ({ t: '', n: 0 }));
-export const toast = (t: string) => useToastS.setState((s) => ({ t, n: s.n + 1 }));
+const show = (t: string) => useToastS.setState((s) => ({ t, n: s.n + 1 }));
+/** 글 하나 또는 (저장처럼) 나중에 오는 결과 글 — 결과가 와야 띄운다 */
+export const toast = (t: string | Promise<string>) => { if (typeof t === 'string') show(t); else t.then(show); };
 export function Toast() {
   const { t, n } = useToastS();
   useEffect(() => { if (!t) return; const id = setTimeout(() => useToastS.setState({ t: '' }), 3500); return () => clearTimeout(id); }, [n]);

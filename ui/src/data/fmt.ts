@@ -23,8 +23,22 @@ export const store = {
 // 원본 테마 규칙: 저장값(light/dark)이 있으면 그것, 없으면 시안 기본(PC 어두운 · 휴대폰 밝은)
 export const themeClass = (pc: boolean) => { const t = store.get<string | null>('fh.live.theme', null); return (t ? t === 'light' : !pc) ? 'fh light' : 'fh'; };
 
-// 내려받기(CSV 등). 실패는 돌려준 글로 알린다.
-export function saveBlob(name: string, blob: Blob) {
+// 내려받기(CSV·JSON). 결과는 돌려준 글로 알린다(toast 만, 화면 이동 없음).
+//  앱(Capacitor 네이티브): FhGate.saveFile 결과로만 «저장됨»(계약 FHGATE-CONTRACT §1 저장, d4e5002). a.download 는 앱에서 성공으로 쓰지 않는다.
+//  웹 브라우저: 기존 a.download + «내려받기 요청».
+const SAVE_ERR: Record<string, string> = { cancelled: '저장 취소', io: '저장 실패 — 저장 안 됨', busy: '저장 창이 이미 열림 — 잠시 뒤 다시', stale: '저장 중 화면이 바뀜 — 다시 저장', bad_input: '저장 형식 이상', too_big: '파일이 너무 큼(5 MB 넘음)' };
+export async function saveBlob(name: string, blob: Blob): Promise<string> {
+  const C: any = (globalThis as any).Capacitor;
+  if (C?.isNativePlatform?.()) {
+    const P = C.Plugins?.FhGate;
+    if (!P?.saveFile) return '이 앱 판에서는 파일 저장 미지원(저장 안 됨)';
+    try {
+      const u = new Uint8Array(await blob.arrayBuffer()); let b = '';
+      for (let i = 0; i < u.length; i += 0x8000) b += String.fromCharCode(...u.subarray(i, i + 0x8000));
+      const r = await P.saveFile({ name, base64: btoa(b) });
+      return r?.saved === true ? `저장됨(${name})` : '저장 결과 미확인';
+    } catch (e: any) { return SAVE_ERR[e?.code] || `저장 실패 — ${e?.message || e}`; }
+  }
   try {
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; document.body.append(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 10000); return `내려받기 요청: ${name} · 안 보이면 브라우저 다운로드 목록·권한 확인`;
