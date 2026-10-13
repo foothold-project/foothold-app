@@ -31,3 +31,6 @@
 
 ## 검수 묶음(앱 Codex)
 1) server 문서 저장 + 공용 지도 frozen diff 한 번 2) 나머지 화면 연결 묶음 한 번.
+
+## 구조 전환 계획
+- 지금 HTML/JS + Tornado 에서 목표 구성(React·FastAPI 등)으로 가는 단계(0~6)는 [PLAN-architecture-evolution.md](PLAN-architecture-evolution.md). 제안이며 착수 없음.
