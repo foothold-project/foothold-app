@@ -1,8 +1,8 @@
 // WebSocket 링크 — 이 앱에서 WS 를 여는 곳은 여기 하나(소유자 하나). 명령 송신도 여기서만.
-// 묶음 1 은 읽기 전용: 보내는 명령은 STOP(명령 0 요청) 하나. 조종 입력(cmd 20 Hz)·조종권은 묶음 3 에서 같은 파일에 붙인다.
+// 보내는 것: STOP(명령 0 요청) + 응답 받는 요청(사진 — 움직임 없음, live.js ask). 조종 입력(cmd 20 Hz)·조종권은 묶음 3 에서 같은 파일에 붙인다.
 // STOP 은 명령 0 요청일 뿐 몸 정지가 아니다(시뮬 관측: STOP 뒤 약 3.6 s·0.32 m 더 움직임, 원인 미확인).
 import { create } from 'zustand';
-import type { ClientOp, ServerMsg, Status } from '@contracts';
+import type { ClientOp, Reply, ServerMsg, Status } from '@contracts';
 import { refreshShared } from './shared';
 
 type LinkState = { st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number };
@@ -11,6 +11,14 @@ export const useLink = create<LinkState>(() => ({ st: null, lastMsg: 0, firstVer
 let ws: WebSocket | null = null, started = false;
 const send = (o: ClientOp) => { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); return true; } return false; };
 export const sendStop = () => send({ op: 'stop' });
+// 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로(live.js ask 와 같음)
+let rid = 0; const pending = new Map<number, (m: Reply) => void>();
+export const ask = (op: 'photo' | 'sim_start') => new Promise<Reply>((res) => {
+  const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text });
+  if (!send({ op, rid: id })) return no('링크 끊김 — 보내지 못함');
+  const t = setTimeout(() => { pending.delete(id); no('서버 응답 없음(5 s)'); }, 5000);
+  pending.set(id, (m) => { clearTimeout(t); res(m); });
+});
 
 export function startLink() {
   if (started) return; started = true;
@@ -20,7 +28,7 @@ export function startLink() {
     ws.onmessage = (e) => {
       if (typeof e.data !== 'string') { camT.push(performance.now()); return; }   // 카메라 JPEG — 묶음 2 는 fps 세기만(영상 표시는 묶음 3)
       const m = JSON.parse(e.data) as ServerMsg;
-      if (m.op !== 'status') return;            // reply(rid 응답)는 아직 안 씀
+      if (m.op === 'reply') { const f = pending.get(m.rid ?? -1); if (f) { pending.delete(m.rid!); f(m); } return; }
       track(m);
       useLink.setState((s) => ({ st: m, lastMsg: performance.now(), firstVer: s.firstVer ?? m.ver }));
       refreshShared(m.docs_rev, (m.events || [])[0]);

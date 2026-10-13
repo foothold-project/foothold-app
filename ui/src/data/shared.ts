@@ -18,6 +18,8 @@ export function useDocs(): Docs {
   const q = useQuery({ queryKey: ['docs'], queryFn: () => getJson<DocsList>('api/docs') });
   return { list: q.data?.docs || [], rev: q.data ? q.data.rev : null, err: q.error ? `문서 읽기 실패 · ${q.error.message}` : q.data?.broken || '' };
 }
+// 지금 캐시에 있는 최신 문서(비동기 뒤 판 번호용 — live.js 전역 DOCS 와 같은 역할)
+export const docsNow = (): Docs => { const d = qc.getQueryData<DocsList>(['docs']); return { list: d?.docs || [], rev: d ? d.rev : null, err: '' }; };
 export const docsOf = <K extends DocEnvelope['kind']>(D: Docs, k: K) =>
   D.list.filter((d): d is Extract<DocEnvelope, { kind: K }> => d.kind === k).sort((a, b) => (a.at < b.at ? 1 : -1));
 export const docById = (D: Docs, id: string | null) => D.list.find((d) => d.id === id);
