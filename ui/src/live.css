@@ -1,21 +1,21 @@
 /* web/live.js 공통 실연결 CSS 그대로(lv-* 클래스). 원본 시안 CSS 는 화면마다 따로(*.view.tsx CSS). */
 .lv-why{opacity:.5;cursor:help}
 .pill{white-space:nowrap}
-.lv-on{outline:3px solid #38C6D9;outline-offset:2px}
+.lv-on{outline:3px solid var(--accent,#3ec7b4);outline-offset:2px}
 .lv-pad{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .lv-pad .btn{user-select:none;-webkit-user-select:none;touch-action:none}
-.lv-drawer{position:fixed;z-index:45;display:flex;flex-direction:column;gap:10px;padding:14px;overflow:auto;background:var(--panel,#12171C);color:var(--text,#E6EBEF);border:1px solid var(--line2,#34424D);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.45);font:13px/1.5 'IBM Plex Sans KR',system-ui,sans-serif}
+.lv-drawer{position:fixed;z-index:45;display:flex;flex-direction:column;gap:10px;padding:14px;overflow:auto;background:var(--panel,#12171C);color:var(--text,#E6EBEF);border:1px solid var(--line2,#34424D);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.45);font:13px/1.5 'Pretendard Variable',Pretendard,'Malgun Gothic','Segoe UI',system-ui,sans-serif}
 .lv-drawer h2{font-size:16px;margin:0;flex:1}.lv-drawer h3{font-size:14px;margin:6px 0 0}
 .lv-drawer p{margin:0;color:var(--muted,#9AA7B3)}
 .lv-drawer button{min-height:44px;padding:0 14px;border:1px solid var(--line2,#34424D);border-radius:8px;background:var(--panel2,#182028);color:inherit;font:600 13px/1 inherit;cursor:pointer}
-.lv-drawer dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}.lv-drawer dt{color:var(--muted,#9AA7B3)}.lv-drawer dd{margin:0;font-family:'JetBrains Mono',monospace;word-break:break-all}
+.lv-drawer dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}.lv-drawer dt{color:var(--muted,#9AA7B3)}.lv-drawer dd{margin:0;font-family:inherit;font-variant-numeric:tabular-nums;word-break:break-all}
 .lv-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .lv-photo{display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center}.lv-photo img{width:120px;border-radius:6px}
 .lv-big{position:fixed!important;inset:0!important;z-index:44!important;border-radius:0!important;aspect-ratio:auto!important}
 .lv-big img[data-live-cam],:fullscreen img[data-live-cam]{object-fit:contain!important}
 .lv-bigbar{position:absolute;left:10px;right:52px;top:10px;z-index:2;display:none;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border-radius:8px;background:rgba(5,8,10,.8);color:#E6EBEF;font-size:13px}
 .lv-bigbar .btn{height:44px;padding:0 14px;border:1px solid #34424D;border-radius:8px;background:#182028;color:#E6EBEF;font-weight:600}
-.lv-bigbar .lv-stop{border:0;background:#D7261E;color:#fff;font-weight:700;letter-spacing:.06em;min-width:96px}
+.lv-bigbar .lv-stop{border:0;background:#a3342a;color:#fff;font-weight:700;letter-spacing:.06em;min-width:96px}
 .lv-main{flex:1;min-width:0;display:grid;gap:14px;align-content:start;padding:16px}
 .lv-mbody{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:10px 14px}
 .lv-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
@@ -48,6 +48,6 @@ textarea.lv-inp{resize:vertical}
 .lv-dl{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:0;font-size:13px}.lv-dl dt{color:var(--muted)}.lv-dl dd{margin:0;overflow-wrap:anywhere}
 .lv-rep{padding:48px 56px;color:#111;font-size:13px;line-height:1.5}.lv-rep h1{font-size:22px;margin:0 0 6px}.lv-rep h2{font-size:16px;margin:22px 0 6px}.lv-rep h3{font-size:14px;margin:12px 0 4px}
 .lv-rep table{width:100%;border-collapse:collapse;margin:4px 0}.lv-rep th,.lv-rep td{border:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top}
-.lv-fstop{position:fixed;right:16px;bottom:16px;z-index:40;min-width:96px;height:56px;border:0;border-radius:10px;background:#D7261E;color:#fff;font-weight:700;letter-spacing:.06em;font-size:16px}
+.lv-fstop{position:fixed;right:16px;bottom:16px;z-index:40;min-width:96px;height:56px;border:0;border-radius:10px;background:#a3342a;color:#fff;font-weight:700;letter-spacing:.06em;font-size:16px}
 @media (max-width:900px){.lv-main{grid-template-columns:minmax(0,1fr)!important}}
 @media print{.lv-noprint{display:none!important}body{background:#fff!important}}

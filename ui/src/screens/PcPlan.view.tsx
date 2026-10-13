@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":1440,"height":1120};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -20,14 +21,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
             {" "}
-            <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
-              <path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" style={{"stroke":"var(--accent)"}} strokeWidth="2.2" strokeLinejoin="round" />
-              <circle cx="18" cy="6" r="2.2" style={{"fill":"var(--accent)"}} />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","letterSpacing":".12em","fontSize":"15px"}}>
-              {"FOOTHOLD"}
-            </span>
+            <BrandLogo h={24} />
             {" "}
           </div>
           {" "}
@@ -258,7 +252,7 @@ export function View({ v }: { v: Vals }) {
                     <rect x="270" y="420" width="120" height="80" />
                     <rect x="440" y="420" width="120" height="80" />
                   </g>
-                  <g fontFamily="IBM Plex Sans KR, sans-serif" fontSize="15" style={{"fill":"var(--muted)"}}>
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="15" style={{"fill":"var(--muted)"}}>
                     <text x="60" y="72" style={{"fill":"var(--bad)"}} fontWeight="600">
                       {"전기실 · 진입 금지"}
                     </text>
@@ -283,7 +277,7 @@ export function View({ v }: { v: Vals }) {
                   </g>
                   <polyline points="120,540 150,450 150,340 470,340 470,180 470,340 780,340 780,490 780,340 800,340 800,170" fill="none" style={{"stroke":"var(--accent)"}} strokeWidth="4" strokeLinejoin="round" opacity=".85" />
                   <polyline points="800,170 800,340 150,340 150,450 120,540" fill="none" style={{"stroke":"var(--accent)"}} strokeWidth="2.5" strokeDasharray="8 7" opacity=".6" />
-                  <g fontFamily="JetBrains Mono, monospace" fontWeight="700" fontSize="13" textAnchor="middle">
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontWeight="700" fontSize="13" textAnchor="middle">
                     <rect x="106" y="526" width="28" height="28" rx="4" style={{"fill":"var(--map)","stroke":"var(--text)"}} strokeWidth="2" />
                     <text x="120" y="545" style={{"fill":"var(--text)"}}>
                       {"S"}
@@ -306,7 +300,7 @@ export function View({ v }: { v: Vals }) {
                       {"4"}
                     </text>
                   </g>
-                  <g fontFamily="IBM Plex Sans KR, sans-serif">
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                     <rect x="574" y="436" width="160" height="58" rx="6" style={{"fill":"var(--panel)","stroke":"var(--accent)"}} strokeWidth="1.5" />
                     <text x="586" y="459" fontSize="14" fontWeight="600" style={{"fill":"var(--text)"}}>
                       {"WP3 · 집수정"}
@@ -315,7 +309,7 @@ export function View({ v }: { v: Vals }) {
                       {"반경 0.5 m · 측정 60초"}
                     </text>
                   </g>
-                  <g fontFamily="JetBrains Mono, monospace" fontSize="12" style={{"fill":"var(--muted)"}}>
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="12" style={{"fill":"var(--muted)"}}>
                     <line x1="40" y1="603" x2="140" y2="603" style={{"stroke":"var(--muted)"}} strokeWidth="2" />
                     <line x1="40" y1="597" x2="40" y2="609" style={{"stroke":"var(--muted)"}} strokeWidth="2" />
                     <line x1="140" y1="597" x2="140" y2="609" style={{"stroke":"var(--muted)"}} strokeWidth="2" />

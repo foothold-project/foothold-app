@@ -3,6 +3,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":794,"height":1123};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -15,14 +16,14 @@ export function View({ v }: { v: Vals }) {
     <>
       {" "}
       {" "}
-      <div style={{"width":"794px","height":"1123px","boxSizing":"border-box","padding":"52px 56px 44px","background":"#FFFFFF","color":"#12171C","fontFamily":"'IBM Plex Sans KR',system-ui,sans-serif","display":"flex","flexDirection":"column","gap":"16px"}}>
+      <div style={{"width":"794px","height":"1123px","boxSizing":"border-box","padding":"52px 56px 44px","background":"#FFFFFF","color":"#161c26","fontFamily":"'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif","display":"flex","flexDirection":"column","gap":"16px"}}>
         {" "}
-        <header style={{"display":"flex","justifyContent":"space-between","alignItems":"flex-start","gap":"16px","paddingBottom":"12px","borderBottom":"2px solid #12171C"}}>
+        <header style={{"display":"flex","justifyContent":"space-between","alignItems":"flex-start","gap":"16px","paddingBottom":"12px","borderBottom":"2px solid #161c26"}}>
           {" "}
           <div style={{"display":"flex","flexDirection":"column","gap":"4px"}}>
             {" "}
-            <span style={{"fontSize":"12px","letterSpacing":".14em","fontWeight":"700","color":"#006D7A"}}>
-              {"FOOTHOLD · 임무 기록"}
+            <span style={{"fontSize":"12px","letterSpacing":".14em","fontWeight":"700","color":"#0e7a6e","display":"flex","alignItems":"center","gap":"8px"}}>
+              <BrandLogo h={16} tone="light" />{"임무 기록"}
             </span>
             {" "}
             <h1 style={{"margin":"0","fontSize":"24px","fontWeight":"700","letterSpacing":"-.01em"}}>
@@ -291,7 +292,7 @@ export function View({ v }: { v: Vals }) {
                   <td className="mono">
                     {"19.6"}
                   </td>
-                  <td className="mono" style={{"color":"#B3261E","fontWeight":"700"}}>
+                  <td className="mono" style={{"color":"#a3342a","fontWeight":"700"}}>
                     {"12.4 ■"}
                   </td>
                   <td className="mono">
@@ -303,7 +304,7 @@ export function View({ v }: { v: Vals }) {
                   <td className="mono">
                     {"0.34"}
                   </td>
-                  <td className="l" style={{"color":"#B3261E","fontWeight":"700"}}>
+                  <td className="l" style={{"color":"#a3342a","fontWeight":"700"}}>
                     {"■ 부적정"}
                   </td>
                 </tr>
@@ -637,20 +638,20 @@ export function View({ v }: { v: Vals }) {
                 <rect x="40" y="40" width="920" height="540" />
                 <path d="M40 240H200M260 240H300M300 40V300M300 300H440M500 300H770M830 300H960M640 40V300M40 380H120M180 380H330M380 380H750M810 380H960M240 380V580M600 380V580" />
               </g>
-              <polyline points="120,540 150,450 150,340 470,340 470,180 470,340 780,340 780,476" fill="none" stroke="#006D7A" strokeWidth="6" display={`${str(v.gasPath)}` as any} />
-              <polyline points="780,476 780,340 700,340" fill="none" stroke="#B3261E" strokeWidth="5" strokeDasharray="12 8" display={`${str(v.gasPath)}` as any} />
-              <polyline points="120,540 150,450 150,340 470,340 470,180 470,340 780,340 780,490 780,340 800,340 800,170 800,340 150,340 150,450 120,540" fill="none" stroke="#006D7A" strokeWidth="6" strokeLinejoin="round" display={`${str(v.fullPath)}` as any} />
-              <g fontFamily="JetBrains Mono, monospace" fontWeight="700" fontSize="22" textAnchor="middle">
-                <circle cx="150" cy="450" r="20" fill="#12171C" />
+              <polyline points="120,540 150,450 150,340 470,340 470,180 470,340 780,340 780,476" fill="none" stroke="#0e7a6e" strokeWidth="6" display={`${str(v.gasPath)}` as any} />
+              <polyline points="780,476 780,340 700,340" fill="none" stroke="#a3342a" strokeWidth="5" strokeDasharray="12 8" display={`${str(v.gasPath)}` as any} />
+              <polyline points="120,540 150,450 150,340 470,340 470,180 470,340 780,340 780,490 780,340 800,340 800,170 800,340 150,340 150,450 120,540" fill="none" stroke="#0e7a6e" strokeWidth="6" strokeLinejoin="round" display={`${str(v.fullPath)}` as any} />
+              <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontWeight="700" fontSize="22" textAnchor="middle">
+                <circle cx="150" cy="450" r="20" fill="#161c26" />
                 <text x="150" y="458" fill="#FFFFFF">
                   {"1"}
                 </text>
-                <circle cx="470" cy="180" r="20" fill="#12171C" />
+                <circle cx="470" cy="180" r="20" fill="#161c26" />
                 <text x="470" y="188" fill="#FFFFFF">
                   {"2"}
                 </text>
                 <g display={`${str(v.gasPath)}` as any}>
-                  <rect x="760" y="470" width="40" height="40" fill="#B3261E" />
+                  <rect x="760" y="470" width="40" height="40" fill="#a3342a" />
                   <text x="780" y="498" fill="#FFFFFF">
                     {"3"}
                   </text>
@@ -658,17 +659,17 @@ export function View({ v }: { v: Vals }) {
                   <text x="800" y="178" fill="#4F5A64">
                     {"4"}
                   </text>
-                  <circle cx="700" cy="340" r="18" fill="#FFFFFF" stroke="#B3261E" strokeWidth="3" />
-                  <text x="700" y="348" fill="#B3261E">
+                  <circle cx="700" cy="340" r="18" fill="#FFFFFF" stroke="#a3342a" strokeWidth="3" />
+                  <text x="700" y="348" fill="#a3342a">
                     {"R"}
                   </text>
                 </g>
                 <g display={`${str(v.fullPath)}` as any}>
-                  <circle cx="780" cy="490" r="20" fill="#12171C" />
+                  <circle cx="780" cy="490" r="20" fill="#161c26" />
                   <text x="780" y="498" fill="#FFFFFF">
                     {"3"}
                   </text>
-                  <circle cx="800" cy="170" r="20" fill="#12171C" />
+                  <circle cx="800" cy="170" r="20" fill="#161c26" />
                   <text x="800" y="178" fill="#FFFFFF">
                     {"4"}
                   </text>
@@ -678,8 +679,8 @@ export function View({ v }: { v: Vals }) {
                 <rect x="528" y="218" width="22" height="22" transform="rotate(45 539 229)" fill="#9A5800" />
                 <rect x="394" y="249" width="22" height="22" transform="rotate(45 405 260)" fill="#9A5800" />
               </g>
-              <g fontFamily="IBM Plex Sans KR, sans-serif" fontSize="22" fill="#4F5A64">
-                <text x="60" y="80" fill="#B3261E">
+              <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="22" fill="#4F5A64">
+                <text x="60" y="80" fill="#a3342a">
                   {"진입 금지"}
                 </text>
                 <text x="320" y="80">

@@ -14,7 +14,7 @@ export function View({ v }: { v: Vals }) {
     <>
       {" "}
       {" "}
-      <div style={{"width":"844px","height":"390px","position":"relative","overflow":"hidden","background":"#05080A","fontFamily":"'IBM Plex Sans KR',system-ui,sans-serif","color":"#E6EBEF"}}>
+      <div style={{"width":"844px","height":"390px","position":"relative","overflow":"hidden","background":"#05080A","fontFamily":"'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif","color":"#E6EBEF"}}>
         {" "}
         <svg viewBox="0 0 844 390" preserveAspectRatio="xMidYMid slice" style={{"position":"absolute","inset":"0","width":"100%","height":"100%"}} role="img" aria-label="전방 카메라 영상 자리: 집수정으로 가는 통로">
           <defs>
@@ -33,7 +33,7 @@ export function View({ v }: { v: Vals }) {
           <line x1="0" y1="110" x2="324" y2="152" stroke="#25313A" strokeWidth="6" />
           <ellipse cx="420" cy="330" rx="130" ry="24" fill="#1C2C35" opacity=".9" />
           <rect width="844" height="390" fill="url(#lamp)" />
-          <path d="M300 390 L392 250 M544 390 L452 250" stroke="#38C6D9" strokeOpacity=".55" strokeWidth="2" strokeDasharray="6 6" />
+          <path d="M300 390 L392 250 M544 390 L452 250" stroke="#3ec7b4" strokeOpacity=".55" strokeWidth="2" strokeDasharray="6 6" />
           <path d="M422 186v16M414 194h16" stroke="#E6EBEF" strokeOpacity=".55" strokeWidth="1.5" />
         </svg>
         {" "}
@@ -44,10 +44,10 @@ export function View({ v }: { v: Vals }) {
             <g stroke="#6B7A86" strokeWidth="6" fill="none">
               <path d="M500 300H770M830 300H960M380 380H750M810 380H960M600 380V580" />
             </g>
-            <polyline points="600,340 780,340 780,404" fill="none" stroke="#38C6D9" strokeWidth="6" />
-            <circle cx="780" cy="455" r="13" fill="none" stroke="#38C6D9" strokeWidth="3" />
+            <polyline points="600,340 780,340 780,404" fill="none" stroke="#3ec7b4" strokeWidth="6" />
+            <circle cx="780" cy="455" r="13" fill="none" stroke="#3ec7b4" strokeWidth="3" />
             <g transform="translate(780 404) rotate(180)">
-              <path d="M0 -18 L12 12 L0 6 L-12 12 Z" fill="#38C6D9" />
+              <path d="M0 -18 L12 12 L0 6 L-12 12 Z" fill="#3ec7b4" />
             </g>
           </svg>
           {" "}
@@ -90,7 +90,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </div>
         {" "}
-        <button aria-label="비상 정지" style={{"position":"absolute","right":"44px","top":"14px","width":"132px","height":"64px","border":"0","borderRadius":"12px","background":"#D7261E","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"8px","boxShadow":"0 0 0 3px rgba(255,255,255,.18)"}}>
+        <button aria-label="비상 정지" style={{"position":"absolute","right":"44px","top":"14px","width":"132px","height":"64px","border":"0","borderRadius":"12px","background":"#a3342a","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"8px","boxShadow":"0 0 0 3px rgba(255,255,255,.18)"}}>
           {" "}
           <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />

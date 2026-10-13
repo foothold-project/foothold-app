@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":1440,"height":920};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -20,14 +21,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
             {" "}
-            <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
-              <path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" style={{"stroke":"var(--accent)"}} strokeWidth="2.2" strokeLinejoin="round" />
-              <circle cx="18" cy="6" r="2.2" style={{"fill":"var(--accent)"}} />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","letterSpacing":".12em","fontSize":"15px"}}>
-              {"FOOTHOLD"}
-            </span>
+            <BrandLogo h={24} />
             {" "}
           </div>
           {" "}
@@ -430,7 +424,7 @@ export function View({ v }: { v: Vals }) {
                     <rect x="270" y="420" width="120" height="80" />
                     <rect x="440" y="420" width="120" height="80" />
                   </g>
-                  <g fontFamily="IBM Plex Sans KR, sans-serif" fontSize="15" style={{"fill":"var(--muted)"}}>
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="15" style={{"fill":"var(--muted)"}}>
                     <text x="60" y="72" style={{"fill":"var(--bad)"}} fontWeight="600">
                       {"전기실 · 진입 금지"}
                     </text>
@@ -462,14 +456,14 @@ export function View({ v }: { v: Vals }) {
                   <polyline points="780,456 780,340 700,340" fill="none" style={{"stroke":"var(--bad)"}} strokeWidth="4" strokeDasharray="10 6" display={`${str(v.showRetreat)}` as any} />
                   <g display={`${str(v.showR)}` as any}>
                     <circle cx="700" cy="340" r="15" style={{"fill":"var(--map)","stroke":"var(--bad)"}} strokeWidth="3" />
-                    <text x="700" y="345" textAnchor="middle" fontSize="14" fontWeight="700" style={{"fill":"var(--bad)"}} fontFamily="JetBrains Mono, monospace">
+                    <text x="700" y="345" textAnchor="middle" fontSize="14" fontWeight="700" style={{"fill":"var(--bad)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"R"}
                     </text>
-                    <text x="664" y="320" fontSize="12" style={{"fill":"var(--bad)"}} fontFamily="IBM Plex Sans KR, sans-serif">
+                    <text x="664" y="320" fontSize="12" style={{"fill":"var(--bad)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"후퇴 지점"}
                     </text>
                   </g>
-                  <g fontFamily="JetBrains Mono, monospace" fontWeight="700" fontSize="13" textAnchor="middle">
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontWeight="700" fontSize="13" textAnchor="middle">
                     <rect x="106" y="526" width="28" height="28" rx="4" style={{"fill":"var(--map)","stroke":"var(--text)"}} strokeWidth="2" />
                     <text x="120" y="545" style={{"fill":"var(--text)"}}>
                       {"S"}
@@ -492,7 +486,7 @@ export function View({ v }: { v: Vals }) {
                       {"4"}
                     </text>
                   </g>
-                  <g fontFamily="JetBrains Mono, monospace" fontSize="12">
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="12">
                     <rect x="172" y="440" width="138" height="24" rx="4" style={{"fill":"var(--panel)","stroke":"var(--line2)"}} />
                     <text x="182" y="456" style={{"fill":"var(--ok)"}}>
                       {"●"}
@@ -525,17 +519,17 @@ export function View({ v }: { v: Vals }) {
                   </g>
                   <g display={`${str(v.showFind)}` as any}>
                     <rect x="531" y="221" width="16" height="16" transform="rotate(45 539 229)" style={{"fill":"var(--warn)"}} />
-                    <text x="539" y="234" textAnchor="middle" fontSize="12" fontWeight="700" fill="#1A1206" fontFamily="JetBrains Mono, monospace">
+                    <text x="539" y="234" textAnchor="middle" fontSize="12" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"!"}
                     </text>
-                    <text x="556" y="234" fontSize="13" style={{"fill":"var(--text)"}} fontFamily="IBM Plex Sans KR, sans-serif">
+                    <text x="556" y="234" fontSize="13" style={{"fill":"var(--text)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"바닥 물고임"}
                     </text>
                     <rect x="397" y="252" width="16" height="16" transform="rotate(45 405 260)" style={{"fill":"var(--warn)"}} />
-                    <text x="405" y="265" textAnchor="middle" fontSize="12" fontWeight="700" fill="#1A1206" fontFamily="JetBrains Mono, monospace">
+                    <text x="405" y="265" textAnchor="middle" fontSize="12" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"!"}
                     </text>
-                    <text x="322" y="284" fontSize="13" style={{"fill":"var(--text)"}} fontFamily="IBM Plex Sans KR, sans-serif">
+                    <text x="322" y="284" fontSize="13" style={{"fill":"var(--text)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"보온재 손상"}
                     </text>
                   </g>
@@ -544,7 +538,7 @@ export function View({ v }: { v: Vals }) {
                     <circle r="20" style={{"fill":"var(--accent)"}} opacity=".18" />
                     <path d="M0 -16 L11 11 L0 5 L-11 11 Z" style={{"fill":"var(--accent)","stroke":"var(--map)"}} strokeWidth="2" strokeLinejoin="round" />
                   </g>
-                  <g fontFamily="JetBrains Mono, monospace" fontSize="12" style={{"fill":"var(--muted)"}}>
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="12" style={{"fill":"var(--muted)"}}>
                     <line x1="40" y1="603" x2="140" y2="603" style={{"stroke":"var(--muted)"}} strokeWidth="2" />
                     <line x1="40" y1="597" x2="40" y2="609" style={{"stroke":"var(--muted)"}} strokeWidth="2" />
                     <line x1="140" y1="597" x2="140" y2="609" style={{"stroke":"var(--muted)"}} strokeWidth="2" />
@@ -684,7 +678,7 @@ export function View({ v }: { v: Vals }) {
                   <g display={`${str(v.showFind)}` as any}>
                     <rect x="206" y="268" width="232" height="62" fill="none" stroke="#FFB547" strokeWidth="2" />
                     <rect x="206" y="246" width="128" height="22" fill="#FFB547" />
-                    <text x="214" y="262" fontSize="13" fontWeight="700" fill="#1A1206" fontFamily="IBM Plex Sans KR, sans-serif">
+                    <text x="214" y="262" fontSize="13" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                       {"바닥 물고임 0.88"}
                     </text>
                   </g>

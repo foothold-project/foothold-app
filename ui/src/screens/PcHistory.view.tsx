@@ -3,6 +3,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":1440,"height":940};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -21,14 +22,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
             {" "}
-            <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
-              <path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" style={{"stroke":"var(--accent)"}} strokeWidth="2.2" strokeLinejoin="round" />
-              <circle cx="18" cy="6" r="2.2" style={{"fill":"var(--accent)"}} />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","letterSpacing":".12em","fontSize":"15px"}}>
-              {"FOOTHOLD"}
-            </span>
+            <BrandLogo h={24} />
             {" "}
           </div>
           {" "}

@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":1440,"height":1040};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -20,14 +21,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
             {" "}
-            <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
-              <path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" style={{"stroke":"var(--accent)"}} strokeWidth="2.2" strokeLinejoin="round" />
-              <circle cx="18" cy="6" r="2.2" style={{"fill":"var(--accent)"}} />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","letterSpacing":".12em","fontSize":"15px"}}>
-              {"FOOTHOLD"}
-            </span>
+            <BrandLogo h={24} />
             {" "}
           </div>
           {" "}
@@ -150,7 +144,7 @@ export function View({ v }: { v: Vals }) {
                 {" "}
                 <svg viewBox="0 0 220 260" style={{"width":"200px","height":"auto","flex":"none"}} role="img" aria-label="위에서 본 로봇: 다리 네 개 모터 온도, 앞오른쪽 다리가 가장 높음 52도">
                   <path d="M110 18 L118 34 L102 34 Z" style={{"fill":"var(--accent)"}} />
-                  <text x="110" y="14" textAnchor="middle" fontSize="11" style={{"fill":"var(--muted)"}} fontFamily="IBM Plex Sans KR, sans-serif">
+                  <text x="110" y="14" textAnchor="middle" fontSize="11" style={{"fill":"var(--muted)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                     {"앞"}
                   </text>
                   <rect x="70" y="40" width="80" height="180" rx="18" style={{"fill":"var(--panel2)","stroke":"var(--line2)"}} strokeWidth="2" />
@@ -161,7 +155,7 @@ export function View({ v }: { v: Vals }) {
                     <line x1="70" y1="190" x2="30" y2="200" style={{"stroke":"var(--ok)"}} />
                     <line x1="150" y1="190" x2="190" y2="200" style={{"stroke":"var(--ok)"}} />
                   </g>
-                  <g fontFamily="JetBrains Mono, monospace" fontSize="12" textAnchor="middle">
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="12" textAnchor="middle">
                     <text x="30" y="44" style={{"fill":"var(--text)"}}>
                       {"41°"}
                     </text>
@@ -175,7 +169,7 @@ export function View({ v }: { v: Vals }) {
                       {"40°"}
                     </text>
                   </g>
-                  <g fontFamily="IBM Plex Sans KR, sans-serif" fontSize="11" textAnchor="middle" style={{"fill":"var(--muted)"}}>
+                  <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="11" textAnchor="middle" style={{"fill":"var(--muted)"}}>
                     <text x="30" y="84">
                       {"앞왼"}
                     </text>

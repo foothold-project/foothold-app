@@ -65,7 +65,7 @@ export function View({ v }: { v: Vals }) {
               <path d="M660 90H940M660 120H940M660 230H940" />
               <rect x="830" y="470" width="96" height="76" strokeDasharray="6 5" />
             </g>
-            <g fontFamily="IBM Plex Sans KR, sans-serif" fontSize="16" style={{"fill":"var(--muted)"}}>
+            <g fontFamily="'Pretendard Variable', Pretendard, sans-serif" fontSize="16" style={{"fill":"var(--muted)"}}>
               <text x="660" y="74">
                 {"배관 구역"}
               </text>

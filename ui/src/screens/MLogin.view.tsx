@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":390,"height":844};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -16,29 +17,22 @@ export function View({ v }: { v: Vals }) {
       {" "}
       <div className={`${str(v.themeClass)}` as any} style={{"width":"390px","height":"844px","boxSizing":"border-box","display":"flex","flexDirection":"column","overflow":"hidden"}}>
         {" "}
-        <div style={{"position":"relative","height":"250px","background":"#071014","color":"#E6EBEF","padding":"44px 24px 24px","boxSizing":"border-box","display":"flex","flexDirection":"column","justifyContent":"space-between","overflow":"hidden"}}>
+        <div style={{"position":"relative","height":"250px","background":"#12161d","color":"#E6EBEF","padding":"44px 24px 24px","boxSizing":"border-box","display":"flex","flexDirection":"column","justifyContent":"space-between","overflow":"hidden"}}>
           {" "}
           <svg viewBox="0 0 390 250" style={{"position":"absolute","inset":"0","width":"100%","height":"100%"}} aria-hidden="true">
-            <g fill="none" stroke="#38C6D9" strokeOpacity=".14" strokeWidth="1.5">
+            <g fill="none" stroke="#3ec7b4" strokeOpacity=".14" strokeWidth="1.5">
               <path d="M-20 230 C80 200 160 230 240 190 S340 140 410 160" />
               <path d="M-20 200 C70 170 170 195 250 155 S350 110 410 125" />
               <path d="M-20 170 C60 145 180 160 260 120 S360 80 410 90" />
               <path d="M-20 140 C50 120 190 125 270 85 S370 50 410 55" />
             </g>
-            <path d="M110 200 L170 150 L210 170 L280 100" fill="none" stroke="#38C6D9" strokeOpacity=".4" strokeWidth="2" />
-            <circle cx="280" cy="100" r="6" fill="#38C6D9" />
+            <path d="M110 200 L170 150 L210 170 L280 100" fill="none" stroke="#3ec7b4" strokeOpacity=".4" strokeWidth="2" />
+            <circle cx="280" cy="100" r="6" fill="#3ec7b4" />
           </svg>
           {" "}
           <div style={{"position":"relative","display":"flex","alignItems":"center","gap":"10px"}}>
             {" "}
-            <svg width="30" height="30" viewBox="0 0 28 28" aria-hidden="true">
-              <path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" stroke="#38C6D9" strokeWidth="2.2" strokeLinejoin="round" />
-              <circle cx="18" cy="6" r="2.2" fill="#38C6D9" />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","letterSpacing":".14em","fontSize":"16px"}}>
-              {"FOOTHOLD"}
-            </span>
+            <BrandLogo kind="primary" h={36} tone="dark" />
             {" "}
           </div>
           {" "}

@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":1440,"height":900};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -16,10 +17,10 @@ export function View({ v }: { v: Vals }) {
       {" "}
       <div className={`${str(v.themeClass)}` as any} style={{"minHeight":"100vh","display":"flex","flexWrap":"wrap"}}>
         {" "}
-        <section aria-label="소개" style={{"flex":"1 1 520px","minHeight":"360px","position":"relative","overflow":"hidden","background":"#071014","color":"#E6EBEF","display":"flex","flexDirection":"column","justifyContent":"space-between","padding":"48px"}}>
+        <section aria-label="소개" style={{"flex":"1 1 520px","minHeight":"360px","position":"relative","overflow":"hidden","background":"#12161d","color":"#E6EBEF","display":"flex","flexDirection":"column","justifyContent":"space-between","padding":"48px"}}>
           {" "}
           <svg viewBox="0 0 800 900" preserveAspectRatio="xMidYMid slice" style={{"position":"absolute","inset":"0","width":"100%","height":"100%"}} aria-hidden="true">
-            <g fill="none" stroke="#38C6D9" strokeOpacity=".13" strokeWidth="1.5">
+            <g fill="none" stroke="#3ec7b4" strokeOpacity=".13" strokeWidth="1.5">
               <path d="M-40 760 C120 700 220 760 340 700 S560 560 840 610" />
               <path d="M-40 700 C110 640 230 690 350 630 S570 500 840 545" />
               <path d="M-40 640 C100 585 240 620 360 560 S580 440 840 480" />
@@ -29,10 +30,10 @@ export function View({ v }: { v: Vals }) {
               <path d="M-40 400 C60 365 280 340 400 280 S620 200 840 220" />
               <path d="M-40 340 C50 310 290 270 410 210 S630 140 840 155" />
             </g>
-            <g fill="none" stroke="#38C6D9" strokeOpacity=".35" strokeWidth="2">
+            <g fill="none" stroke="#3ec7b4" strokeOpacity=".35" strokeWidth="2">
               <path d="M210 620 L300 520 L360 560 L470 430" />
             </g>
-            <g fill="#38C6D9">
+            <g fill="#3ec7b4">
               <circle cx="210" cy="620" r="6" />
               <circle cx="300" cy="520" r="6" />
               <circle cx="360" cy="560" r="6" />
@@ -42,14 +43,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"position":"relative","display":"flex","alignItems":"center","gap":"12px"}}>
             {" "}
-            <svg width="36" height="36" viewBox="0 0 28 28" aria-hidden="true">
-              <path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" stroke="#38C6D9" strokeWidth="2.2" strokeLinejoin="round" />
-              <circle cx="18" cy="6" r="2.2" fill="#38C6D9" />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","letterSpacing":".14em","fontSize":"18px"}}>
-              {"FOOTHOLD"}
-            </span>
+            <BrandLogo kind="primary" h={40} tone="dark" />
             {" "}
           </div>
           {" "}

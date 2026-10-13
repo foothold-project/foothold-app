@@ -1,6 +1,8 @@
 // 시험 전용: 변환 틀(*.view.tsx)이 원본 dc.js 와 같은 화면을 그리는지 대조한다.
 // 시안 Component(예시값)를 dc.js 와 같은 방식으로 실행해 값을 만든다 — 이 쪽에서만. 운영 화면은 예시값을 쓰지 않는다.
 import { createRoot } from 'react-dom/client';
+import './brand.css';
+import { syncTheme } from './app/theme';
 
 const views = import.meta.glob('./screens/*.view.tsx');
 const raws = import.meta.glob('../../web/*.dc.html', { query: '?raw', import: 'default' });
@@ -21,4 +23,4 @@ async function main() {
   const el = document.createElement('div'); el.id = 'dc-root'; document.body.append(el);
   createRoot(el).render(<m.View v={comp.renderVals() || {}} />);
 }
-main();
+syncTheme(); main();

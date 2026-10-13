@@ -16,7 +16,7 @@ export function View({ v }: { v: Vals }) {
       {" "}
       <div className={`${str(v.themeClass)}` as any} style={{"width":"390px","height":"844px","boxSizing":"border-box","display":"flex","flexDirection":"column","overflow":"hidden"}}>
         {" "}
-        <section role="alert" aria-label="가스 경보" style={{"background":"#B3261E","color":"#FFFFFF","padding":"22px 20px 20px","display":"flex","flexDirection":"column","gap":"6px"}}>
+        <section role="alert" aria-label="가스 경보" style={{"background":"#a3342a","color":"#FFFFFF","padding":"22px 20px 20px","display":"flex","flexDirection":"column","gap":"6px"}}>
           {" "}
           <div style={{"display":"flex","justifyContent":"space-between","alignItems":"center"}}>
             {" "}
@@ -118,10 +118,10 @@ export function View({ v }: { v: Vals }) {
               <line x1="0" y1="56" x2="320" y2="56" style={{"stroke":"var(--warn)"}} strokeWidth="1" strokeDasharray="2 4" />
               <polyline points="0,80 40,79 80,76 120,70 160,62 200,54 240,44 270,34 290,26 320,20" fill="none" style={{"stroke":"var(--bad)"}} strokeWidth="2.5" strokeLinejoin="round" />
               <circle cx="320" cy="20" r="4" style={{"fill":"var(--bad)"}} />
-              <text x="4" y="24" fontSize="11" style={{"fill":"var(--bad)"}} fontFamily="JetBrains Mono, monospace">
+              <text x="4" y="24" fontSize="11" style={{"fill":"var(--bad)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                 {"10"}
               </text>
-              <text x="4" y="50" fontSize="11" style={{"fill":"var(--warn)"}} fontFamily="JetBrains Mono, monospace">
+              <text x="4" y="50" fontSize="11" style={{"fill":"var(--warn)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                 {"5"}
               </text>
             </svg>

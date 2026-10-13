@@ -2,6 +2,7 @@
 /* eslint-disable */
 import { Fragment } from 'react';
 import { arr, css, fn, iv, ivs, str } from '../dc/jsx';
+import { BrandLogo } from '../app/BrandLogo';   // 공식 로고(브랜드 변경)
 
 export const PREVIEW = {"width":1440,"height":1060};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
@@ -20,14 +21,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
             {" "}
-            <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true">
-              <path d="M3 23 L10 9 L14 16 L18 6 L25 23 Z" fill="none" style={{"stroke":"var(--accent)"}} strokeWidth="2.2" strokeLinejoin="round" />
-              <circle cx="18" cy="6" r="2.2" style={{"fill":"var(--accent)"}} />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","letterSpacing":".12em","fontSize":"15px"}}>
-              {"FOOTHOLD"}
-            </span>
+            <BrandLogo h={24} />
             {" "}
           </div>
           {" "}
@@ -394,7 +388,7 @@ export function View({ v }: { v: Vals }) {
                       <ellipse cx="300" cy="286" rx="70" ry="7" fill="#3E5A69" opacity=".6" />
                       <rect x="170" y="252" width="320" height="76" fill="none" stroke="#FFB547" strokeWidth="2.5" />
                       <rect x="170" y="228" width="148" height="24" fill="#FFB547" />
-                      <text x="178" y="245" fontSize="14" fontWeight="700" fill="#1A1206" fontFamily="IBM Plex Sans KR, sans-serif">
+                      <text x="178" y="245" fontSize="14" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                         {"바닥 물고임 0.88"}
                       </text>
                     </svg>
