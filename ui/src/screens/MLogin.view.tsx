@@ -8,7 +8,7 @@ export const PREVIEW = {"width":390,"height":844};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace}\nbutton,input{font:inherit;color:inherit}\n.lbl{font-size:13px;color:var(--muted)}\n.inp{height:52px;padding:0 14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);font-size:16px;box-sizing:border-box;width:100%}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; [slot: string]: any };   // 손 연결 슬롯: 서버 표시·입력칸·안내·버튼 동작
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -44,24 +44,24 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </div>
         {" "}
-        <form style={{"flex":"1","display":"flex","flexDirection":"column","gap":"14px","padding":"22px 20px 24px"}}>
+        <form style={{"flex":"1","display":"flex","flexDirection":"column","gap":"14px","padding":"22px 20px 24px"}} {...v.formP}>
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"10px","padding":"12px 14px","border":"1px solid var(--line)","borderRadius":"10px","background":"var(--panel)"}}>
             {" "}
-            <span style={{"color":"var(--ok)"}}>
+            <span style={{"color":"var(--ok)"}} {...v.dotP}>
               {"●"}
             </span>
             {" "}
             <span style={{"display":"flex","flexDirection":"column","gap":"2px","flex":"1","minWidth":"0"}}>
               <span style={{"fontSize":"14px","fontWeight":"600"}}>
-                {"현장 서버 · [서버 주소]"}
+                {v.srvA ?? "현장 서버 · [서버 주소]"}
               </span>
               <span className="lbl" style={{"fontSize":"12px"}}>
-                {"같은 Wi-Fi · 인증서 확인됨"}
+                {v.srvB ?? "같은 Wi-Fi · 인증서 확인됨"}
               </span>
             </span>
             {" "}
-            <a href="#" style={{"fontSize":"13px","color":"var(--accent)","padding":"12px 0"}}>
+            <a href="#" style={{"fontSize":"13px","color":"var(--accent)","padding":"12px 0"}} {...v.chgP}>
               {"바꾸기"}
             </a>
             {" "}
@@ -71,32 +71,34 @@ export function View({ v }: { v: Vals }) {
             <label className="lbl" htmlFor="mid">
               {"계정"}
             </label>
-            <input id="mid" className="inp" defaultValue="operator.a" autoComplete="username" />
+            {v.idIn ?? <input id="mid" className="inp" defaultValue="operator.a" autoComplete="username" />}
           </div>
           {" "}
           <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
             <label className="lbl" htmlFor="mpw">
               {"비밀번호"}
             </label>
-            <input id="mpw" className="inp" type="password" defaultValue="password" autoComplete="current-password" />
+            {v.pwIn ?? <input id="mpw" className="inp" type="password" defaultValue="password" autoComplete="current-password" />}
           </div>
           {" "}
-          <label style={{"display":"flex","gap":"10px","alignItems":"center","fontSize":"14px","minHeight":"44px"}}>
-            <input type="checkbox" defaultChecked={!!(true)} style={{"width":"20px","height":"20px","accentColor":"var(--accent)"}} />
-            {"이 휴대폰에서 로그인 유지"}
+          <label style={{"display":"flex","gap":"10px","alignItems":"center","fontSize":"14px","minHeight":"44px"}} {...v.keepP}>
+            <input type="checkbox" defaultChecked={!!(true)} style={{"width":"20px","height":"20px","accentColor":"var(--accent)"}} {...v.keepIn} />
+            {v.keepT ?? "이 휴대폰에서 로그인 유지"}
           </label>
+          {v.msg}
           {" "}
-          <a href="#/MHome" style={{"height":"56px","borderRadius":"12px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"17px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","marginTop":"auto"}}>
+          <a href="#/MHome" style={{"height":"56px","borderRadius":"12px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"17px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","marginTop":"auto"}} {...v.loginP}>
             {"로그인"}
           </a>
           {" "}
-          <a href="#/MHome" style={{"height":"44px","display":"flex","alignItems":"center","justifyContent":"center","fontSize":"14px","fontWeight":"600","color":"var(--accent)","textDecoration":"none"}}>
+          <a href="#/MHome" style={{"height":"44px","display":"flex","alignItems":"center","justifyContent":"center","fontSize":"14px","fontWeight":"600","color":"var(--accent)","textDecoration":"none"}} {...v.viewP}>
             {"보기 전용으로 들어가기"}
           </a>
           {" "}
           <span className="lbl" style={{"fontSize":"12px","textAlign":"center","lineHeight":"1.5"}}>
             {"보기 전용도 STOP은 누를 수 있습니다"}
           </span>
+          {v.guide}
           {" "}
         </form>
         {" "}

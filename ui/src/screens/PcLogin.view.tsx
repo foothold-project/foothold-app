@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":900};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--acc-bg:rgba(56,198,217,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--acc-bg:rgba(0,109,122,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input{font:inherit;color:inherit}\n.lbl{font-size:13px;color:var(--muted)}\n.inp{height:48px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:15px;box-sizing:border-box;width:100%}\n.inp:focus{outline:2px solid var(--accent);outline-offset:1px}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; [slot: string]: any };   // 손 연결 슬롯: 서버 표시·입력칸·안내·버튼 동작
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -69,7 +69,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <section aria-label="로그인" style={{"flex":"1 1 480px","display":"flex","alignItems":"center","justifyContent":"center","padding":"48px 24px","background":"var(--bg)"}}>
           {" "}
-          <form style={{"width":"100%","maxWidth":"400px","display":"flex","flexDirection":"column","gap":"18px"}}>
+          <form style={{"width":"100%","maxWidth":"400px","display":"flex","flexDirection":"column","gap":"18px"}} {...v.formP}>
             {" "}
             <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
               {" "}
@@ -85,20 +85,20 @@ export function View({ v }: { v: Vals }) {
             {" "}
             <div style={{"display":"flex","alignItems":"center","gap":"10px","padding":"12px 14px","border":"1px solid var(--line)","borderRadius":"8px","background":"var(--panel)"}}>
               {" "}
-              <span style={{"color":"var(--ok)"}}>
+              <span style={{"color":"var(--ok)"}} {...v.dotP}>
                 {"●"}
               </span>
               {" "}
               <span style={{"display":"flex","flexDirection":"column","gap":"2px","flex":"1","minWidth":"0"}}>
                 <span style={{"fontSize":"14px","fontWeight":"600"}}>
-                  {"현장 서버 · [서버 주소]"}
+                  {v.srvA ?? "현장 서버 · [서버 주소]"}
                 </span>
                 <span className="lbl" style={{"fontSize":"12px"}}>
-                  {"인증서 확인됨 · 로봇 1대 연결됨"}
+                  {v.srvB ?? "인증서 확인됨 · 로봇 1대 연결됨"}
                 </span>
               </span>
               {" "}
-              <a href="#" style={{"fontSize":"13px","color":"var(--accent)"}}>
+              <a href="#" style={{"fontSize":"13px","color":"var(--accent)"}} {...v.chgP}>
                 {"바꾸기"}
               </a>
               {" "}
@@ -108,40 +108,41 @@ export function View({ v }: { v: Vals }) {
               <label className="lbl" htmlFor="id">
                 {"계정"}
               </label>
-              <input id="id" className="inp" defaultValue="operator.a" autoComplete="username" />
+              {v.idIn ?? <input id="id" className="inp" defaultValue="operator.a" autoComplete="username" />}
             </div>
             {" "}
             <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
               <label className="lbl" htmlFor="pw">
                 {"비밀번호"}
               </label>
-              <input id="pw" className="inp" type="password" defaultValue="password" autoComplete="current-password" />
+              {v.pwIn ?? <input id="pw" className="inp" type="password" defaultValue="password" autoComplete="current-password" />}
             </div>
             {" "}
             <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
               <label className="lbl" htmlFor="dv">
                 {"이 기기 이름 · 기록에 남습니다"}
               </label>
-              <input id="dv" className="inp" defaultValue="관제 노트북 1" />
+              {v.dvIn ?? <input id="dv" className="inp" defaultValue="관제 노트북 1" />}
             </div>
             {" "}
-            <label style={{"display":"flex","gap":"10px","alignItems":"center","fontSize":"14px"}}>
-              <input type="checkbox" defaultChecked={!!(true)} style={{"width":"18px","height":"18px","accentColor":"var(--accent)"}} />
-              {"이 기기에서 로그인 유지 (12시간)"}
+            <label style={{"display":"flex","gap":"10px","alignItems":"center","fontSize":"14px"}} {...v.keepP}>
+              <input type="checkbox" defaultChecked={!!(true)} style={{"width":"18px","height":"18px","accentColor":"var(--accent)"}} {...v.keepIn} />
+              {v.keepT ?? "이 기기에서 로그인 유지 (12시간)"}
             </label>
+            {v.msg}
             {" "}
-            <a href="#/Main" style={{"height":"52px","borderRadius":"8px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"16px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none"}}>
+            <a href="#/Main" style={{"height":"52px","borderRadius":"8px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"16px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none"}} {...v.loginP}>
               {"로그인"}
             </a>
             {" "}
             <div style={{"display":"flex","justifyContent":"space-between","gap":"12px","fontSize":"13px"}}>
               {" "}
-              <a href="#/Main" style={{"color":"var(--accent)"}}>
+              <a href="#/Main" style={{"color":"var(--accent)"}} {...v.viewP}>
                 {"보기 전용으로 들어가기"}
               </a>
               {" "}
               <span className="lbl">
-                {"5번 틀리면 1분 잠김"}
+                {v.rl ?? "5번 틀리면 1분 잠김"}
               </span>
               {" "}
             </div>
@@ -149,6 +150,7 @@ export function View({ v }: { v: Vals }) {
             <span className="lbl" style={{"fontSize":"12px","lineHeight":"1.6","paddingTop":"6px","borderTop":"1px solid var(--line)"}}>
               {"보기 전용 사용자도 STOP은 누를 수 있습니다. 조종은 로그인한 한 사람만, «조종권 받기»를 누른 뒤에 할 수 있습니다."}
             </span>
+            {v.guide}
             {" "}
           </form>
           {" "}

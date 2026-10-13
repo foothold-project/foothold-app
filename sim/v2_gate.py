@@ -72,6 +72,7 @@ def main():
     ap.add_argument('--web', default=str(HERE.parent / 'web'))
     ap.add_argument('--gate-src', default=str(HERE.parent.parent / 'control-app' / 'ros'), help='phone_gate.py 가 있는 폴더(재사용)')
     ap.add_argument('--state', default=str(HERE.parent.parent / 'control-app' / '.gate'), help='계정·인증서 폴더(읽기만)')
+    ap.add_argument('--spa', action='store_true', help='React 빌드(ui/dist) 서빙: 정적 파일은 공개(코드뿐), 데이터·영상은 API·WS 에서만 로그인 확인. 로그인 화면은 앱 안 #/MLogin·#/PcLogin')
     ap.add_argument('--ttl', type=float, default=12 * 3600, help='로그인 세션 수명 s')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
@@ -197,6 +198,8 @@ def main():
 
     class Page(tornado.web.StaticFileHandler):
         async def get(self, path, include_body=True):
+            if a.spa:                                 # 앱 한 장(index.html) + 빌드 자원. 로그인 없으면 앱이 WS 4401 을 보고 로그인 화면으로
+                return await super().get(path or 'index.html', include_body)
             if path in ('', 'index.html'):            # 첫 화면: 휴대폰은 조종, PC 는 관제
                 return self.redirect(('MDrive.dc.html' if PHONE_UA.search(self.request.headers.get('User-Agent', '')) else 'Main.dc.html') + '?live=v2')
             if not PUBLIC.match(path) and not sessions.get(self.get_cookie('fh2_s'), time.time()):

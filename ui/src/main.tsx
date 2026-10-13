@@ -3,7 +3,9 @@ import { lazy, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { qc } from './data/shared';
-import { startLink } from './data/link';
+import { startLink, useLink } from './data/link';
+import { auth, isLogin, loginHash } from './data/auth';
+import { useEffect } from 'react';
 import { Toast, useRoute, useStopKey } from './app/shell';
 import './live.css';
 import './brand.css';
@@ -27,12 +29,16 @@ const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   MMap: lazy(() => import('./screens/MMap')),
   PcReview: lazy(() => import('./screens/PcReview')),
   Main: lazy(() => import('./screens/Main')),
+  MLogin: lazy(() => import('./screens/MLogin')),
+  PcLogin: lazy(() => import('./screens/PcLogin')),
 };
 const HOME = 'PcHistory';
 
 function App() {
   useStopKey();
-  const { name } = useRoute(), S = SCREENS[name || HOME];
+  const { name } = useRoute(), S = SCREENS[name || HOME], authEnd = useLink((s) => s.authEnd);
+  // 관문이 로그인 없음·세션 끝(WS 4401)을 알리면 로그인 화면으로(돌아올 곳 기억). 이 PC 전용 주소(http)는 로그인 없음
+  useEffect(() => { if (authEnd && auth.gated && !isLogin(name)) location.replace(loginHash()); }, [authEnd, name]);
   return (
     <QueryClientProvider client={qc}>
       <Suspense fallback={<p className="lv-note">화면 여는 중…</p>}>

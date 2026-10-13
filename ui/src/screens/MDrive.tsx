@@ -10,6 +10,7 @@ import { shoot } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
 import { useDriveScreen, useFitPhone, useStick } from '../app/drive';
 import { Drawer, stopProps, toast, whyProps } from '../app/shell';
+import { auth, logoutNow } from '../data/auth';
 
 const MOVE = '이동 막대: 앞뒤와 옆걸음', ROT = '회전 막대: 왼쪽 오른쪽', FB = '앞뒤 막대';
 const SIM_OFF = ['시뮬 상태 미수신', '시뮬 상태 끊김'];
@@ -91,6 +92,7 @@ export default function MDrive() {
     <button type="button" onClick={() => { if (ctl) return toast('조종 중에는 바꾸지 않습니다 — 조종권 반납 뒤'); const nx = LAYOUTS[(LAYOUTS.indexOf(lay) + 1) % LAYOUTS.length]; if (!store.set('fh.live.layout', nx)) toast('저장 실패 — 이번만 적용'); setLay(nx); }}>{`막대 배치: ${lay} (눌러 바꾸기)`}</button>
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
     <button type="button" onClick={() => { location.hash = '#/MHistory'; }}>기록 보기(사진·조종 기록)</button>
+    {auth.gated && <button type="button" onClick={logoutNow}>{`로그아웃 · ${st?.me || ''}`}</button>}
     <p>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>
     <h3>상태 원값</h3><dl>{stateRows(L).slice(0, 13).map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>
     <h3>현재 v2 연결에서 안 되는 것(미제공·미연결·미검증)</h3><dl>{UNSUP.map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>

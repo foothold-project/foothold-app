@@ -5,6 +5,7 @@ import { CSS, View } from './PcSettings.view';
 import { store, themeClass } from '../data/fmt';
 import { LAYOUTS, STOP_FACT, UNSUP, WHY } from '../data/facts';
 import { linkView, useLink } from '../data/link';
+import { logoutNow } from '../data/auth';
 import { useDocs } from '../data/shared';
 import { LiveStatus } from '../app/status';
 import { stopProps, toast, whyProps } from '../app/shell';
@@ -57,7 +58,7 @@ export default function PcSettings() {
     thBody: <tr><td className="lbl" colSpan={4}>가스 측정값이 없어 기준표 미사용</td></tr>,
     addP: { ...whyProps('계정 추가·편집 미연결 — 계정은 서버 관리자가 이 PC 에서 관리'), className: 'btn pri lv-why' },
     accRows: <>{tr(st?.me || '미확인', '이 기기', '조종(조종권을 받을 때) · 임무 기록 · 사진 분류', st?.holder ? `조종 중 기기: ${st.holder}` : '조종 중인 기기 없음',
-      GATED ? <button type="button" {...whyProps('로그아웃은 로그인 화면 이식(묶음 4) 때 연결 — 지금은 브라우저 창을 닫으세요')} className="btn lv-why">로그아웃</button> : <span className="lbl">로그인 없음(이 PC 전용)</span>)}
+      GATED ? <button type="button" className="btn" title="조종권 해제 · 명령 0 · STOP 잠금(서버) 뒤 로그인 화면" onClick={logoutNow}>로그아웃</button> : <span className="lbl">로그인 없음(이 PC 전용)</span>)}
       {tr('다른 계정', '—', '계정 목록 보기 미연결(서버 관리자만)', '—', <></>)}</>,
     dispExtra: set('지도 기본 보기', '로봇 중심 = 지도가 움직임',
       <select className="inp" value={mm} onChange={(e) => { setMm(e.target.value); if (!store.set('fh.live.mapmode', e.target.value)) toast('저장 실패 — 이번 화면에만'); }}>
