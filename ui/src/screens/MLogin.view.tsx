@@ -15,9 +15,9 @@ export function View({ v }: { v: Vals }) {
     <>
       {" "}
       {" "}
-      <div className={`${str(v.themeClass)}` as any} style={{"width":"390px","height":"844px","boxSizing":"border-box","display":"flex","flexDirection":"column","overflow":"hidden"}}>
+      <div className={`${str(v.themeClass)}` as any} style={{"width":"390px","height":"844px","boxSizing":"border-box","display":"flex","flexDirection":"column","overflowX":"hidden","overflowY":"auto"}}>
         {" "}
-        <div style={{"position":"relative","height":"250px","background":"#12161d","color":"#E6EBEF","padding":"44px 24px 24px","boxSizing":"border-box","display":"flex","flexDirection":"column","justifyContent":"space-between","overflow":"hidden"}}>
+        <div style={{"position":"relative","height":"250px","flexShrink":"0","background":"#12161d","color":"#E6EBEF","padding":"44px 24px 24px","boxSizing":"border-box","display":"flex","flexDirection":"column","justifyContent":"space-between","overflow":"hidden"}}>
           {" "}
           <svg viewBox="0 0 390 250" style={{"position":"absolute","inset":"0","width":"100%","height":"100%"}} aria-hidden="true">
             <g fill="none" stroke="#3ec7b4" strokeOpacity=".14" strokeWidth="1.5">
