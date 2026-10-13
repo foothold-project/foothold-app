@@ -1,7 +1,7 @@
 # 최종 bundled B 연결 — 결정안 초안 2판 (2026-10-13, 설계만)
 
-상태: **초안. 코드·서버·운영 변경 0, 설치·실행 0.** 이 문서만으로 B 가 됐다고 하지 않는다.
-소유: 서버 쪽(S1~S4) = 고정 앱 mentor · `mobile/**` 설계와 네이티브 경계 = 모바일 mentor. 구현 GO 는 앱 Codex 판정 뒤.
+상태: **설계 초안(앱 Codex 방향검수 통과 733044e).** 서버·운영 변경 0, 실서버·에뮬 실행 0. 이 문서만으로 B 가 됐다고 하지 않는다. B1 Android 어댑터 초안·계약은 `mobile/docs/FHGATE-CONTRACT.md`.
+소유: 서버 쪽(S1~S4) 구현 = UI mentor(앱 Codex 10-13 지정) · `mobile/**` 설계와 네이티브 경계 = 모바일 mentor. 구현 GO 는 앱 Codex 판정 뒤.
 1판(3fc9dc3) 대비: 앱 Codex 방향검수 7건 반영 — 토큰을 JS 에 주지 않는 어댑터, 사진·내려받기 경로, 로그아웃·주소변경·만료 순서와 연결 세대, WS 표 결속, Origin 명시·redirect 금지·CSRF 단정 삭제, 네이티브 TLS 오류 분류, S1~S4 계약.
 
 읽은 근거
@@ -31,7 +31,7 @@ bundled 화면 출처는 Android `https://localhost`, iOS `capacitor://localhost
 
 - 세션 수명은 관문 TTL(12 h) 그대로. refresh·JWT 같은 새 구조는 넣지 않는다(1판의 «짧은 수명» 표현 삭제).
 - 보관: 토큰은 어댑터 메모리 + 플랫폼 보안 저장소(Android Keystore 로 감싼 저장, iOS Keychain). JS 저장소·쿠키·로그·크래시 보고에 두지 않는다. 저장 방식은 구현 때 라이브러리 없이 플랫폼 API 로(추가 의존이 필요하면 그때 따로 판정).
-- **한계(명시)**: 토큰을 숨겨도 WebView 안의 JS 가 오염되면(XSS) 그 JS 는 어댑터를 «호출»할 수 있다 — 앱이 켜져 있는 동안 정해진 op 범위의 인증 요청은 가능하다. 보안 저장소 설치만으로 XSS 를 막지 못한다. 줄이는 것: op 고정 목록·임의 URL/메서드 거부·관문 origin 고정·사진 경로 검사, 그리고 bundled 화면에 외부 스크립트 로드 0(CSP). 막는 것은 «토큰 유출로 앱 밖에서 재사용»까지다.
+- **한계(명시)**: 토큰을 숨겨도 WebView 안의 JS 가 오염되면(XSS) 그 JS 는 어댑터를 «호출»할 수 있다 — 앱이 켜져 있는 동안 정해진 op 범위의 인증 요청은 가능하다. 보안 저장소 설치만으로 XSS 를 막지 못한다. 줄이는 것: op 고정 목록·임의 URL/메서드 거부·관문 origin 고정·사진 경로 검사, 그리고 bundled 화면에 외부 스크립트 로드 0(CSP). 줄이는 것은 **장수명 세션 토큰이 JS 에 직접 노출되는 것**까지다. 1회용 WS 표는 JS 에 노출되고(≤30 s·1회), 오염된 JS 의 어댑터 호출은 막지 못하므로 재사용 위험은 남는다.
 
 ### 2.2 사진·보고서·CSV
 
@@ -75,19 +75,19 @@ bundled 화면 출처는 Android `https://localhost`, iOS `capacitor://localhost
 - B 의 주요 통신은 네이티브 HTTP(어댑터)와 WebView WS 라서, WebView 페이지 로드용 `GateSslClient` 만 고쳐서는 그 오류를 못 받는다.
 - 어댑터 오류 분류(JS 에 원인 종류만): `tls`(Android `SSLHandshakeException`·`CertPathValidatorException`, iOS `NSURLErrorServerCertificate*` 계열) · `net`(이름 풀이·연결 거부·시간 초과) · `auth`(401) · `origin`(403) · `busy`(429) · `server`(5xx). WS 는 WHATWG 상 `error` 이벤트에 원인이 없다 → «연결 실패(원인 모름)» 으로 두고 어댑터 `request('whoami')` 한 번으로 원인을 다시 잰다.
 - 어느 경우든 앱 안 연결 안내 화면(로그인·명령 차단). OS TLS 거부는 그대로, proceed·인증서 무시·사용자 CA 전체 허용 없음.
-- CA: 개발은 A 와 같은 exact CA `debug-overrides`. 최종은 공인 인증서 관문 기본, 사설 CA 를 써야 하면 그 한 장을 release 설정에 넣는 것은 배포처별 결정. 네이티브 HTTP 는 Android 네트워크 보안 설정을 따르지만 iOS 는 ATS·Keychain 신뢰가 따로라 별도 검증.
+- CA: 개발은 A 와 같은 exact CA `debug-overrides`. 최종은 공인 인증서 관문 기본, 사설 CA 를 써야 하면 그 한 장을 release 설정에 넣는 것은 배포처별 결정. 네이티브 HTTP 는 Android 네트워크 보안 설정을 따른다. iOS 는 **인증서 신뢰**(ATS 전송 규칙 + 사설 CA 를 어떻게 믿게 할지 — 배포처별 결정)와 **비밀 보관**(Keychain = 세션 토큰 저장, 인증서 신뢰와 무관)을 따로 검증한다.
 - `GateSslClient` 의 cancel 은 WebView 용으로 재사용, B 의 «관문 주소 비교» 분기·네이티브 TLS·iOS ATS 는 각각 재검증.
 
 ### 2.7 서버 주소
 
 빌드에 굽지 않는다. 첫 실행 설정 화면 → `gateOrigin`(`scripts/gate-profile.mjs`) 과 같은 규칙(https·origin 하나·사용자정보/경로/와일드카드/localhost 거부)을 어댑터 `setGate` 가 네이티브에서 다시 검사. 바꾸면 §2.3 순서.
 
-## 3. S1~S4 계약 초안 (서버 소유 = 고정 앱 mentor)
+## 3. S1~S4 계약 초안 (서버 구현 = UI mentor, 상세 필드는 FHGATE-CONTRACT.md §3)
 
 | | 요청 | 성공 | 실패 |
 |---|---|---|---|
 | **S1** 앱 로그인 + bearer 조회 | `POST /api/app/login` Origin=앱 정확값, `{user, pw, label?, device?}`(device = 이전에 받은 opaque 기기 값) | 200 `{token, device, account, exp}` — token·device 는 어댑터만 보관, JS 에는 `{account, device6, exp}` | 400 형식 · 401 계정/비번 · 403 Origin · 429 실패 제한/동시 로그인 |
-| | `GET /api/app/whoami`·`GET·POST /api/app/docs`·`GET /api/app/media`·`GET /api/app/media/photos/<8자리>/<이름>.jpg`, `Authorization: Bearer` | 기존 `/api/*` 와 같은 본문 | 401 토큰 없음/만료/폐기 · 403 Origin · 502 v2_link 없음. 쓰기 작성자는 세션의 계정·기기로(기존 `X-FH-Actor` 와 같음) |
+| | `GET /api/app/whoami`·`GET·POST /api/app/docs`·`GET /api/app/media`·`GET /api/app/media/photos/<8자리>/<이름>.jpg`, `Authorization: Bearer` | 기존 `/api/*` 와 같은 본문. `docs.post` 는 기존 400·403·404·409(`cur` 포함)·500·503 상태와 본문을 그대로 화면에 넘기고 **재시도 없음** | 401 토큰 없음/만료/폐기 · 403 Origin · 502 v2_link 없음. 쓰기 작성자는 세션의 계정·기기로(기존 `X-FH-Actor` 와 같음) |
 | **S2** (미정·뒤로) 앱 origin CORS | — | — | 이번 기본 경로엔 불필요 |
 | **S3** WS 표 + 앱 WS | `POST /api/app/ws-ticket` bearer | 200 `{ticket, ttl_s≤30}` | 401 세션 끝남 · 429 보관 상한 |
 | | `GET /api/app/ws?t=<ticket>`(WS) Origin=앱 정확값 | 열림 → 기존 Bridge 와 같은 중계·보기 전용 시작 | 표 없음/사용됨/만료/결속 불일치 → 4401 · Origin → 거부 · 허용 안 된 메시지 → 4403 · 세션 로그아웃/만료 → 4401 |
@@ -109,4 +109,4 @@ bundled 화면 출처는 Android `https://localhost`, iOS `capacitor://localhost
 
 ## 5. 지금 하지 않는 것
 
-플러그인·의존 추가, 서버 코드 수정, 에뮬·실기기·실시뮬 실행, 계정·릴리스 키·스토어, CI 원격 기동. B 구현은 UI 조종 이식(묶음3), S1~S4 합의(고정 앱 mentor), 앱 Codex 구현 GO 뒤.
+B1(Android 로컬 어댑터 초안 + 순수 mock 시험 + 정적 빌드)만 진행. 하지 않는 것: npm 플러그인 추가, 서버 코드 수정, 실서버 호출, 에뮬·실기기·실시뮬 실행, 계정·인증서 설치·릴리스 키·스토어, CI 원격 기동. 서버 변경 연결·사용자 체험은 B1 코드 검수 + 격리 통합 뒤.
