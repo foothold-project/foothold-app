@@ -22,6 +22,10 @@ const cookieAuth: Auth = {
 };
 export const auth: Auth = cookieAuth;
 
+/** 로컬 로그인 의도 번호: 로그인 요청·로그아웃·로그인 화면 떠남마다 +1. 응답은 «보낸 때 번호 == 지금 번호»일 때만 채택
+ *  (전송층이 새 gen 을 돌려줘도 로그아웃·주소 변경 뒤 옛 로그인 결과가 화면을 되살리지 않게). 토큰은 UI 가 저장하지 않는다 */
+export const intent = { n: 0 };
+
 export const PHONE = /iPhone|iPad|Android|Mobile/i.test(navigator.userAgent);
 const LOGIN = ['MLogin', 'PcLogin'];
 export const isLogin = (name: string) => LOGIN.includes(name);
@@ -32,7 +36,7 @@ export const loginHash = (next = location.hash) => `#/${PHONE ? 'MLogin' : 'PcLo
 
 /** 로그아웃: 누름 폐기 · hidden(조종권 해제 · 0 · STOP 잠금은 서버) → 세션 끝 → 로그인 화면(새로 읽어 링크도 새로) */
 export async function logoutNow() {
-  dropAll(); hide();
+  intent.n++; dropAll(); hide();
   await auth.logout();
   location.replace(loginHash('')); location.reload();
 }

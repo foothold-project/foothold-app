@@ -1,6 +1,6 @@
 """앱(bundled B) 전용 인증 — v2_gate 의 /api/app/* 와 /api/app/ws 가 쓰는 순수 로직(네트워크·tornado 없음).
 
-계약: less82/app-contract-storage 의 mobile/docs/FHGATE-CONTRACT.md §3 (v0 05aee96 — 실패 gen·수명·error 필드는 보완 예정).
+계약: less82/app-contract-storage 의 mobile/docs/FHGATE-CONTRACT.md §3 (현재 v0.1 d83761e — 사진 경로 ASCII 1~80자·.. 금지, exp 숫자, ttl_s 0<ttl≤30).
 필드명·형식은 이 파일 한 곳에만 둔다(합의본이 바뀌면 여기만 고친다).
 기존 쿠키 경로(/api/login·/ws·same_origin)와 섞지 않는다: 앱 세션은 별도 저장소, bearer 만 보고 쿠키는 보지 않는다.
 비밀(토큰·표·비밀번호)은 반환값으로만 다루고 로그·예외 문구에 넣지 않는다.
