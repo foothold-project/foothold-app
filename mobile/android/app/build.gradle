@@ -28,6 +28,14 @@ android {
             versionNameSuffix "-gate"
             matchingFallbacks = ['debug']
         }
+        // FOOTHOLD: bundled B 통합 시험 전용 — server.url 없음(main 설정·www 그대로), debug 서명·별도 앱 id.
+        // fixture 관문 CA 한 장만 debug-overrides 로 신뢰(scripts/gate-profile.mjs --fixture 가 src/fixture/res/raw 에 생성, git 제외)
+        fixture {
+            initWith debug
+            applicationIdSuffix ".fixture"
+            versionNameSuffix "-fixture"
+            matchingFallbacks = ['debug']
+        }
     }
 }
 

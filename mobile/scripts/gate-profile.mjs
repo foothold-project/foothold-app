@@ -4,6 +4,8 @@
 //   android/app/src/gate/res/raw/fh_gate_ca.pem          (그 관문의 CA 한 장 — debug-overrides 로만 신뢰)
 // 사용(mobile 폴더): FH_GATE_URL=https://<호스트>:<포트> FH_GATE_CA=<ca.crt> node scripts/gate-profile.mjs
 //   node scripts/gate-profile.mjs --clean     생성물 삭제     node scripts/gate-profile.mjs --selftest
+// bundled B 통합 시험(fixture 빌드 타입): FH_GATE_CA=<ca.crt> node scripts/gate-profile.mjs --fixture
+//   → android/app/src/fixture/res/raw/fh_fixture_ca.pem 만(git 제외). 설정은 main(bundled, server.url 없음) 그대로 — 관문 주소는 앱 안 setGate 로
 import { X509Certificate } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -13,6 +15,7 @@ const here = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE = join(here, 'android/app/src/gate');
 const OUT_CFG = join(GATE, 'assets/capacitor.config.json');
 const OUT_CA = join(GATE, 'res/raw/fh_gate_ca.pem');
+const OUT_FX_CA = join(here, 'android/app/src/fixture/res/raw/fh_fixture_ca.pem');
 // 시작 경로: 기본은 옛 관문 공개 로그인 화면. FH_GATE_START='/' 는 React --spa 관문(로그인 없으면 앱이 #/MLogin 으로) — 같은 origin 의 경로만
 const START = process.env.FH_GATE_START || '/MLogin.dc.html?live=v2';
 if (!/^\/(?![\/\\])[^\s#\\]*$/.test(START)) throw new Error('FH_GATE_START 는 / 로 시작하는 같은 origin 경로만(//·#·공백·\\ 금지)');
@@ -53,7 +56,17 @@ function selftest() {
 
 const arg = process.argv[2];
 if (arg === '--selftest') selftest();
-else if (arg === '--clean') { rmSync(OUT_CFG, { force: true }); rmSync(OUT_CA, { force: true }); console.log('gate 프로필 생성물 삭제'); }
+else if (arg === '--clean') { for (const f of [OUT_CFG, OUT_CA, OUT_FX_CA]) rmSync(f, { force: true }); console.log('gate·fixture 프로필 생성물 삭제'); }
+else if (arg === '--fixture') {
+  if (!process.env.FH_GATE_CA) throw new Error('FH_GATE_CA(fixture 관문 CA 인증서 경로) 필요');
+  const ca = caPem(process.env.FH_GATE_CA);
+  const main = join(here, 'android/app/src/main/assets/capacitor.config.json');
+  if (!existsSync(main)) throw new Error('main 설정 없음 — 먼저 npx cap sync android');
+  const cfg = JSON.parse(readFileSync(main, 'utf8'));
+  if (cfg.server && cfg.server.url) throw new Error('main 설정에 server.url 이 있다 — fixture 는 bundled 여야 한다');
+  mkdirSync(dirname(OUT_FX_CA), { recursive: true }); writeFileSync(OUT_FX_CA, ca.pem);
+  console.log(`fixture 프로필 생성: CA sha256 ${ca.fp} (설정은 main bundled 그대로)`);
+}
 else {
   const origin = gateOrigin(process.env.FH_GATE_URL);
   if (!process.env.FH_GATE_CA) throw new Error('FH_GATE_CA(관문 CA 인증서 경로) 필요 — 공인 인증서 관문이라도 이 프로필은 CA 한 장을 명시한다');
