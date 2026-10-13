@@ -95,6 +95,7 @@ node scripts/gate-profile.mjs --clean       # 끝나면 생성물 삭제
 | 2 `…-2/` | **중단**(부팅 중 직접 멈춤, 결과 없음) | 러너 수정 요구가 와서 그 판으로는 끝까지 돌리지 않음 |
 | 3 `…-3/` | **FAIL**(종료코드 1) — 16 PASS · 2 FAIL | 아래 |
 | 4 `…-4/` | **FAIL**(종료코드 1) — 23 PASS · 2 FAIL | 아래. 3회차 결과는 소급해 고치지 않는다 |
+| 5 `runs/mobile-a-gate-ssl-20261013-5/` | **PASS**(종료코드 0) — 22 PASS · 0 FAIL, 범위 `FH_E2E_SCOPE=ssl` | 3885275 의 인증서 오류 안내 좁은 실측. 아래 |
 
 3회차(러너 수정 뒤: 시작·설치 전 부하 ≤ 코어/2 확인, 에뮬 2코어·2 GB, 부팅 완료·패키지 관리자 준비 뒤에만 설치, 설치 시한 180 s 그대로):
 - PASS: 빌드 · 관문 127.0.0.1 기동 · 설치(1 s) · **미인증 → 관문 로그인 화면** · **fixture 로그인 → 읽기 화면** · 읽기 화면 WS 가 관문 거쳐 연결 · 세션 쿠키 whoami 200 · 정리(INT/TERM) · 결과 폴더 비밀번호 없음. 런처 화면 `00-launcher.png` 은 대화상자 없이 깨끗하다.
@@ -123,7 +124,12 @@ node scripts/gate-profile.mjs --clean       # 끝나면 생성물 삭제
 - 근거(설치본 8.5.2 소스): `BridgeWebViewClient` 에 `onReceivedSslError` 가 없다 → WebViewClient 기본(취소)만, errorPath 없음. 4회차 logcat 에서도 `-202` 뒤 로컬 화면 요청이 없었다.
 - 동작: **모든 SSL 오류는 `handler.cancel()`** — proceed 는 어떤 경로에도 없다. 오류 URL 이 관문(server.url) origin 이면 로컬 errorPath(보기 전용 연결 오류 안내)로 보낸다 → 관문 화면·로그인·WS 가 열리지 않는다. 다른 origin 하위 리소스는 취소만(화면 이동 없음). 이미 안내 화면이면 다시 부르지 않는다(안내 화면은 `https://localhost` 로컬이라 SSL 이 없다). bundled 기본 빌드(server.url 없음)는 취소만 — 기존과 같다.
 - 메인 프레임/하위 리소스: `onReceivedSslError` 는 `WebResourceRequest` 를 받지 않아 `isForMainFrame` 을 알 수 없다. 그래서 origin 으로 가른다(관문 origin 의 인증서 실패 = 관문 전체를 신뢰 못 함 → 화면 전체를 안내로).
-- 확인: 단위시험 `GateSslClientTest`(origin 비교 9개) 통과, `assembleDebug` 성공. **에뮬레이터에서 안내 화면이 실제로 뜨는지는 미확인** — `setWebViewClient` 가 첫 `loadUrl` 직후에 바뀌므로 첫 요청의 SSL 콜백이 새 클라이언트로 오는지도 실측 대상이다.
+- 확인: 단위시험 `GateSslClientTest`(origin 비교 9개) 통과, `assembleDebug` 성공.
+- **5회차 실측(에뮬레이터 1회, 같은 빌드에서 긍정 A → 부정 B):** 범위는 A 로그인 화면·fixture 로그인·읽기 WS·whoami 200 → 관문 A 정상 종료 → B(다른 CA) 만. 홈·로그아웃·끊김은 반복하지 않았고 조종 버튼은 누르지 않았다.
+  - A: 관문 A 로그(`gate-A.log`)에 로그인·연결 각 1건.
+  - B: logcat(`logcat-B-ssl.txt`) `Loading app` → `Trust anchor … not found` → `net_error -202` → **`Handling local request: https://localhost/fh-offline.html`**(오류 뒤 약 0.4 s). 관문 B 로그(`gate-B.log`)는 `alert certificate unknown` 뿐, 로그인·연결 0. CDP 로 본 주소 `https://localhost/fh-offline.html`, 로그인 칸 없음, 「명령도 보내지 않습니다」 문구. 화면 `06-wrong-ca.png`·화면계층 `06-wrong-ca-uihierarchy.xml`.
+  - 새 프로세스의 첫 로드에서 난 SSL 오류를 새 클라이언트가 받았다 — 첫 로드 타이밍은 **이 1회에서는** 문제없었다(경쟁 조건이 없다는 증명은 아님).
+  - 판정은 origin 기준이지 메인 프레임 기준이 아니다(위). APK sha256 `8a026b53…0d36`.
 - **조종 화면 노출 주의:** A 는 관문의 기존 화면을 그대로 열기 때문에 읽기 화면에 「조종권 받기」 버튼이 보인다(`02-read-after-login.png`). 시험에서는 누르지 않았다. A 빌드 자체가 조종을 막지는 않으므로, 조종 개방 전 조건(위 «A 는 읽기 검증까지만»)은 운영 규칙이지 앱이 강제하는 것이 아니다.
 
 ## 숨김·백그라운드·재연결 — 번들을 재사용하는 조건
