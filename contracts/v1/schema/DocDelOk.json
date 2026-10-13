@@ -1,0 +1,39 @@
+{
+  "$id": "fh-app/1/DocDelOk",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "pattern": "^[a-z][A-Za-z0-9_]{1,40}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "zone",
+        "tmpl",
+        "mission",
+        "run",
+        "note"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "ok": {
+      "const": true,
+      "title": "Ok",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "ok",
+    "id",
+    "kind",
+    "name"
+  ],
+  "title": "DocDelOk",
+  "type": "object"
+}

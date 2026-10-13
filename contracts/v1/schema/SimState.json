@@ -1,0 +1,336 @@
+{
+  "$id": "fh-app/1/SimState",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "status.sim = v2_link clean_state() 결과. 관문값 4개는 항상 형식이 맞다(아니면 sim 자체를 받지 않음).\n나머지는 시뮬이 형식에 맞게 보냈을 때만 값, 아니면 null(=미확인). 키는 항상 모두 있다.",
+  "properties": {
+    "body_still": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Body Still"
+    },
+    "camera": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Camera"
+    },
+    "cmd_age_s": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Cmd Age S"
+    },
+    "cmd_applied": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Cmd Applied"
+    },
+    "cmd_tested": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Cmd Tested"
+    },
+    "episode": {
+      "title": "Episode",
+      "type": "integer"
+    },
+    "fallback_active": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Fallback Active"
+    },
+    "fallen": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Fallen"
+    },
+    "online_ready": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Online Ready"
+    },
+    "plugin_mode": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Plugin Mode"
+    },
+    "policy_running": {
+      "title": "Policy Running",
+      "type": "boolean"
+    },
+    "reset_in_progress": {
+      "title": "Reset In Progress",
+      "type": "boolean"
+    },
+    "resume_wait": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Resume Wait"
+    },
+    "rtf": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Rtf"
+    },
+    "safe_fallback_verified": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Safe Fallback Verified"
+    },
+    "sim_t": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Sim T"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source"
+    },
+    "stop_requested": {
+      "title": "Stop Requested",
+      "type": "boolean"
+    },
+    "terrain_input": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Terrain Input"
+    },
+    "tilt_deg": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Tilt Deg"
+    },
+    "ttl_expired": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Ttl Expired"
+    },
+    "ttl_s": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Ttl S"
+    },
+    "vx": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Vx"
+    },
+    "vy": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Vy"
+    },
+    "wz": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Wz"
+    },
+    "x": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "X"
+    },
+    "y": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Y"
+    },
+    "yaw": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Yaw"
+    },
+    "z": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Z"
+    }
+  },
+  "required": [
+    "episode",
+    "stop_requested",
+    "reset_in_progress",
+    "policy_running",
+    "sim_t",
+    "x",
+    "y",
+    "z",
+    "yaw",
+    "vx",
+    "vy",
+    "wz",
+    "tilt_deg",
+    "rtf",
+    "cmd_age_s",
+    "ttl_s",
+    "fallen",
+    "body_still",
+    "resume_wait",
+    "ttl_expired",
+    "cmd_tested",
+    "fallback_active",
+    "online_ready",
+    "safe_fallback_verified",
+    "source",
+    "terrain_input",
+    "camera",
+    "plugin_mode",
+    "cmd_applied"
+  ],
+  "title": "SimState",
+  "type": "object"
+}

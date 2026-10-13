@@ -1,0 +1,49 @@
+{
+  "$id": "fh-app/1/DocPutOk",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "id": {
+      "pattern": "^[a-z][A-Za-z0-9_]{1,40}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "zone",
+        "tmpl",
+        "mission",
+        "run",
+        "note"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "new": {
+      "title": "New",
+      "type": "boolean"
+    },
+    "ok": {
+      "const": true,
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "rev": {
+      "title": "Rev",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "ok",
+    "id",
+    "rev",
+    "kind",
+    "name",
+    "new"
+  ],
+  "title": "DocPutOk",
+  "type": "object"
+}
