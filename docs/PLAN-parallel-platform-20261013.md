@@ -23,7 +23,7 @@
 |---|---|---|
 | 1 | React+TS+Vite 토대. 원본 19화면 시안(`web/*.dc.html`)의 마크업·CSS·글꼴을 그대로 그리는 React 템플릿 렌더러, 라우팅, 전송 경계(현재 JSON API·WS), 읽기 전용 기록·보고서 화면 | 완료 dbf7a28(아래 «묶음 1 결과») |
 | 브랜드 | foothold-brand 7afd241 로고·토큰·Pretendard 적용(배치·조작 그대로) | 완료(아래 «브랜드 적용») |
-| 2 | 계획·양식·공용 지도(Canvas)·사진 분류 이전. Zustand = 표시·일시 입력, TanStack Query = 문서 조회·저장(409·초안·세대) | frozen 6d5fa26(9a83367~6d5fa26: 알림·계획·양식·MHome·PcRobot·PcSettings·PcMap·MMap·PcReview, 공용 editor 늦은 응답 gen/초안 스냅샷). 미이식: MFinding → 묶음 3 첫 항목 · PcSettings 로그아웃(GATED)은 묶음 4. 검사 원물 `runs/bundle2/{alerts,plan,race,home,forms,map,final}` |
+| 2 | 계획·양식·공용 지도(Canvas)·사진 분류 이전. Zustand = 표시·일시 입력, TanStack Query = 문서 조회·저장(409·초안·세대) | 화면 이식 완료 586398a(9a83367~586398a: MAlerts·MAlert·PcMissions·PcPlan·MHome·PcRobot·PcSettings·PcMap·MMap·PcReview·MFinding, 공용 editor 늦은 응답 gen/초안 스냅샷). PcSettings 로그아웃(GATED)은 묶음 4. 검사 원물 `runs/bundle2/{alerts,plan,race,home,forms,map,final,finding}` |
 | 3 | 조종 Main·MDrive (마지막). 두 pointerId·폐기 규칙·STOP 우선·비영 복원 금지 보존. link.ts 에 live.js 126–127 의 hidden/pagehide → hidden 이식 + 앱 생명주기 계약: native pause·visibility·pagehide·blur·끊김 → 모든 pointer 폐기 + (가능하면) hidden, resume → 재연결은 보기 전용, WS 명령 발행 소유자 1개(App plugin 활성은 모바일 담당과 협의) | 대기 |
 | 4 | PWA·Capacitor(Android/iOS) 같은 번들 | 외피 병렬 완료(모바일 담당, app-contract-storage `mobile/**` 86ef8d4 Capacitor 8.5.2·96b600f 아이콘·appId 임시) · 개발 연결 A(server.url→기존 관문 HTTPS, fixture) 진행 중 · 번들 내장 B 는 신뢰·Origin·API 설계 별도 · 실폰 미검증 |
 | 5 | PC 3D 슬롯(three.js/R3F, 공급원 없음 표시), FastAPI/SQLite 백엔드 호환 연결 | 대기 |
