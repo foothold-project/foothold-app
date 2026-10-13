@@ -7,10 +7,23 @@
 | 구분 | 내용 |
 |---|---|
 | **만든 것** | `package.json`(버전 고정) · `capacitor.config.json` · `scripts/sync-web.mjs`(ui/dist → www, 파일별 sha256 을 `SOURCE.json` 에) · `scripts/make-icons.py`(브랜드 공식 래스터 → 앱 아이콘) · `android/`·`ios/` 프로젝트(`cap add` 생성물 + appId·아이콘만 변경) |
-| **이 PC 에서 확인** | **debug APK = 서버 없는 설치 외피·보기 전용.** 86ef8d4: 빌드 성공(Linux, 1분 46초) + Android 14 에뮬레이터(API 34, x86_64)에서 설치·실행해 React 번들 화면이 뜸. 서버가 없어서 「링크 연결 중 · 잠금 상태 미확인 · 보기 전용」으로 표시됨. 증거 `runs/mobile-shell-20261013/`(APK sha256 `b9684116…772e`). 단, 그 화면 캡처 `emulator-api34-first.png` 는 Android 블루투스 시스템 대화상자가 앱 위를 가리고 있어 **부분 증거**다(정상 화면 전체의 증거 아님). appId·아이콘 변경 뒤에는 **빌드만** 다시 함(에뮬레이터 실행 없음): 패키지 `org.footholdproject.app`, 증거 `runs/mobile-icon-appid-20261013/`(APK sha256 `3a821941…e431`). 둘 다 git 무시 |
-| **확인 안 함** | 실제 휴대폰 · **iOS = 프로젝트 생성만**(Mac·Xcode 필요, 이 Linux 에서는 빌드·IPA 없음) · A 의 «재생성 뒤» 복귀 · 다른 CA 일 때 앱 화면(인증서 거부 자체는 로그로 확인) · 런처에서 보이는 아이콘 모양(기기·런처마다 마스크가 다름) · 릴리스 서명 · 백그라운드 동작 |
+| **이 PC 에서 확인** | ① **기본 bundled 외피**(server.url 없음, 서버 연결 없음·보기 전용): 86ef8d4 빌드 + Android 14 에뮬레이터(API 34)에서 설치·실행. 화면 캡처 `emulator-api34-first.png` 는 블루투스 시스템 대화상자가 가린 **부분 증거**. appId·아이콘 뒤는 빌드만. ② **A 개발 연결**(관문 주소 로드, gate 빌드 타입): fixture 관문·가짜 상태로 에뮬레이터에서 로그인·읽기 화면·WS·로그아웃·끊김 안내(4회차) + **다른 CA → 거부·로컬 안내 화면**(5회차 PASS). 이것은 **읽기·연결 검증**이지 조종 검증이 아니다 |
+| **확인 안 함** | 실제 휴대폰 · **조종 중 숨김(네이티브 pause → 해제·래치)** · 화면 재생성 뒤 리스너 재등록 · 런처 아이콘 모양 · 릴리스 서명 · 최종 bundled B 연결(설계 초안만 `docs/B-BUNDLED-DESIGN.md`) · **iOS: 지금 Mac 이 없다 → 프로젝트 생성만, IPA 0.** 빌드·서명 환경 확보가 먼저다. iPhone Safari 로 관문 웹에 접속하는 것은 UI 팀의 웹 경로 확인이지 iOS 네이티브 앱의 근거가 아니다 |
 
-APK 를 만든 번들은 `feature/react-platform-oh` e618139 이다(브랜드 적용 전). 화면이 PC 폭으로 배치되는 것은 UI 쪽 범위다.
+### APK 별 판 (전부 debug 서명·git 무시, `runs/` 아래)
+
+| APK (sha256 앞 12자) | 빌드 | 외피 판 | 앱 안 화면(www) | 실제로 보이는 화면·서버 연결 | 검증 환경 |
+|---|---|---|---|---|---|
+| `mobile-shell-20261013/app-debug-86ef8d4.apk` (`b96841160f17`) | debug | 86ef8d4 | React `feature/react-platform-oh` e618139(브랜드 적용 전) | 앱 안 React 번들, 서버 없음 | 에뮬 API 34 설치·실행(캡처는 부분 증거) |
+| `mobile-icon-appid-20261013/app-debug-icon-appid.apk` (`3a821941de4c`) | debug | 96b600f 와 같은 소스(커밋 전 빌드) | e618139 | 같음 | 빌드만 |
+| `mobile-a-gate-e2e-20261013/app-gate.apk` (`59e4bd2dd42d`) | gate | 1512a93 와 같은 외피 소스(커밋 전 빌드) | recovered UI(판 미확인: 8022969 + 미커밋) — **A 에서는 안 쓰임** | **관문의 옛 웹 화면(`web/`, live.js) 원격 로드**, fixture 관문 127.0.0.1:18453 | 1회차 설치 시한 초과 FAIL |
+| `mobile-a-gate-e2e-20261013-3/app-gate.apk` (`8f771bfd4fc0`) | gate | 같음 | 같음 | 같음 | 3회차 FAIL(재생성으로 도구 끊김) |
+| `mobile-a-gate-e2e-20261013-4/app-gate.apk` (`576bc9fc6444`) | gate | 1512a93(=5d29bd3, 외피 변경 없음) | 같음 | 같음 | 4회차 FAIL(다른 CA 단계 도구 예외) |
+| `mobile-a-gate-ssl-20261013-5/app-gate.apk` (`8a026b536769`) | gate | 3885275(`GateSslClient`) | 같음 | 같음 | 5회차 PASS(A 로그인·읽기 → 다른 CA 거부·안내) |
+
+- 기본 bundled 번들은 아직 e618139(브랜드 전)다. 최신 React 번들 + 네이티브 lifecycle 이 합의되면 다시 빌드한다.
+- A 빌드 안의 www(recovered UI)는 `server.url` 때문에 화면에 쓰이지 않는다. A 에서 보이는 것은 관문이 내주는 **옛 웹 화면**(fixture 관문이 이 체크아웃의 `web/` 을 서빙, 마지막 변경 커밋 2dfc0e9)이다.
+- 화면이 PC 폭으로 배치되는 것은 UI 쪽 범위다.
 
 ## 버전과 근거
 
@@ -62,6 +75,8 @@ FH_UI_DIST=<UI 체크아웃>/ui/dist npm run apk:debug     # ui/dist → www →
 | **B. 번들 + 분리 어댑터** | 번들은 앱 안에, `/api`·`/ws` 만 관문 절대주소로 | **최종 패키지 번들은 별도 설계.** 관문 Origin 허용 목록·교차 출처 세션이 걸려 **서버 신뢰 경계를 바꾸는 일**이다. 관문 검사 설계부터 다시 검수한 뒤에만 |
 
 A·B 모두 같은 출처·세션·CA 검사를 풀지 않는다. 앱이라는 이유로 예외를 만들지 않는다.
+
+B 결정안 초안(설계만, 서버 변경 요청 S1~S4 포함): `docs/B-BUNDLED-DESIGN.md`. 이 초안만으로 B 완료라고 하지 않는다.
 
 ### A 개발 프로필 (Android `gate` 빌드 타입)
 
