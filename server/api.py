@@ -67,9 +67,9 @@ def create_app(store, allowed_origins, on_event=None, version=lambda: '미확인
             return too_big
         raw = bytearray()
         async for chunk in request.stream():
-            raw += chunk
-            if len(raw) > BODY_MAX:
+            if len(raw) + len(chunk) > BODY_MAX:      # 붙이기 전에 — 상한을 넘는 복사를 하지 않는다
                 return too_big
+            raw += chunk
         try:
             m = json.loads(raw)
         except ValueError:

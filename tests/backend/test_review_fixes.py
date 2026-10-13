@@ -163,3 +163,46 @@ def test_new_id_collision_redraws(tmp_path, monkeypatch):
     b = s.apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': {**Z, 'name': '둘째'}}, 'B')[1]
     assert (a['id'], b['id']) == ('z1013120000aaaaaaaa', 'z1013120000bbbbbbbb')
     assert [x['doc']['name'] for x in s.listing()['docs']] == ['금지1', '둘째']
+
+
+# ---------------------------------------------------------------- d10edb6 검수: v2_link 경로는 pydantic 없이(doc_check 주입이 import·검증까지)
+
+NO_PYDANTIC = r'''
+import sys, json, shutil
+from pathlib import Path
+class Block:
+    def find_spec(self, name, path=None, target=None):
+        if name == 'pydantic' or name.startswith(('pydantic.', 'pydantic_core', 'contracts')):
+            raise ImportError('차단: ' + name)
+sys.meta_path.insert(0, Block())
+root, tmp = Path(sys.argv[1]), Path(sys.argv[2])
+sys.path[:0] = [str(root), str(root / 'sim')]
+import v2_link as L
+from server.store import Store
+src = tmp / 'm'; src.mkdir()
+d = L.Docs(src)
+z = {'name': '금지1', 'type': '금지', 'pts': [[0, 0], [1, 0], [1, 1]]}
+for kind, doc in [('zone', z), ('note', {'photo': 'media/photos/20261013/a.jpg', 'cls': '확인', 'memo': ''})]:
+    assert d.apply({'op': 'put', 'kind': kind, 'id': None, 'doc': doc}, 'A')[0] == 200
+raw = (src / 'docs.json').read_bytes()
+s, note = L.open_docs(f'sqlite:{tmp / "m.sqlite"}', src)
+assert isinstance(s, Store) and note == '' and not s.broken, (type(s), note, getattr(s, 'broken', None))
+assert s.listing()['docs'] == list(L.Docs(src).d.values()) and (src / 'docs.json').read_bytes() == raw
+assert s.apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': {**z, 'name': '이후'}}, 'B')[0] == 200
+e = tmp / 'e'; e.mkdir()
+s2, note2 = L.open_docs(f'sqlite:{tmp / "e.sqlite"}', e)
+assert isinstance(s2, Store) and note2 == '' and s2.listing()['docs'] == []
+assert not any(k == 'pydantic' or k.startswith(('pydantic', 'contracts')) for k in sys.modules)
+print('OK')
+'''
+
+
+@pytest.mark.parametrize('py', ['venv', '/usr/bin/python3'])       # 시스템 python = 운영 v2_link 와 같은 해석기(pydantic 없음)
+def test_v2_link_sqlite_path_needs_no_pydantic(tmp_path, py):
+    import os, subprocess, sys as _s
+    from test_store import ROOT
+    exe = _s.executable if py == 'venv' else py
+    if not os.path.exists(exe):
+        pytest.skip(f'{exe} 없음')
+    r = subprocess.run([exe, '-c', NO_PYDANTIC, str(ROOT), str(tmp_path)], capture_output=True, text=True)
+    assert r.returncode == 0 and r.stdout.strip() == 'OK', r.stderr[-800:]

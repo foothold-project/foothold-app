@@ -71,6 +71,14 @@ python3 -m venv .venv-backend && .venv-backend/bin/pip install -r requirements-b
 - 변이 확인(새 시험 21개 대상, 각각 원복 후 실행): 스키마 대조 제거 1 실패 · media broken 무시 9 · tmp 삭제 제거 1 · 스트림 상한 제거 1 · Content-Length 사전검사 제거 1 · id 1회 뽑기 1 · 빈 폴더 허용 1 · 다른 메타 수용 1 · 봉투 키 개방 1 · export 고정 tmp 1. 처음에 살아남은 3개(스트림 상한·봉투 키·본문 dict 검사)는 다른 이유의 400/거부가 가려서였고, 시험이 이유 글까지 보게 고쳤다. 본문 dict 검사는 `check` 와 중복이라 지웠다.
 - 참조 강제는 보류(방향 판정): FK·CASCADE 없음, 없는 참조는 화면이 «미확인»으로 표시. 새 참조 검사·스냅샷은 다음 제품 계약.
 
+## d10edb6 검수 후속
+
+- `migrate.cmd_import(check=…)` 의 check 를 `write_db`·`compare` 안의 `Store` 까지 전달(전에는 기본 Pydantic 검사로 다시 열어, 시스템 python 의 v2_link `--store sqlite:` 가 «이전 실패 → docs.json 폴백»). `verify`·`export` 독립 CLI 기본값은 그대로.
+- api 스트림: 붙이기 «전에» `len(raw)+len(chunk)` 로 상한 검사(상한 넘는 복사 없음).
+- 반례 `test_v2_link_sqlite_path_needs_no_pydantic[venv, /usr/bin/python3]`: 별도 프로세스에서 pydantic·contracts import 를 막고, 문서 있는 media → `open_docs('sqlite:…')` 가 Store(폴백 아님)·목록 일치·쓰기 200·원본 바이트 그대로, 빈 media 도 Store. check 전달을 되돌리면 2 개 모두 실패. 원문 `runs/backend-review-20261013/pytest-followup.txt`.
+- 사진·사건은 계속 파일이 정본(DB import 는 스냅샷) — 현행 `/api/media` 를 DB 로 바꾸지 않았다.
+- 미시험 유지: v2_link Tornado GET 500 경로(고정 mentor 가 통합 때 모의 확인, live.js·React 표시는 호환 확인됨).
+
 ## 알려진 차이(의도)
 
 - **전체 판 `docs_rev`:** SQLite 는 저장된 단조 증가 값이라 재시작해도 줄지 않는다. 옛 docs.json 경로는 재시작 때 rev 합으로 다시 세서 삭제 뒤 값이 작아질 수 있다. 화면은 값이 «달라지면» 다시 읽으므로 문제없음(고정 mentor 확인).
