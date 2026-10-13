@@ -13,7 +13,7 @@ pause 범위(원격 React native pause 1회): FH_E2E_SCOPE=pause FH_UI_REV=<UI �
 bundled 범위(최종 B 1기동 1회, mobile/docs/B-BUNDLED-TEST-PLAN.md): FH_E2E_SCOPE=bundled + 같은 FH_UI_REV·FH_UI_MODULES.
   fixture 빌드 타입(server.url 없음, 앱 안 번들 = 그 UI 판) + /api/app/*(네이티브 FhGate) · domain 89. A 원물과 섞지 않는다(결과 scope bundled-b).
 """
-import asyncio, hashlib, json, math, os, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
+import asyncio, hashlib, json, math, os, re, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
 
 from tornado.websocket import websocket_connect
@@ -111,8 +111,14 @@ def make_state(d):
     return fp.split('=', 1)[-1]
 
 
+# v2_gate 의 log_req 는 tornado access_log.info 인데 logging 설정이 없어 INFO 가 안 나온다(10-13 bundled 1회 B4) → 러너 쪽에서만 INFO 를 켜고 그대로 실행(sim 무수정).
+# 접근 로그 경로는 관문이 /api/app/* 질의(1회용 표)를 지운 값. 비밀번호는 요청 본문이라 접근 로그에 없다(결과 폴더 비밀번호 검사가 그대로 지킴)
+GATE_WRAP = ("import logging, runpy, sys; logging.basicConfig(level=logging.INFO, format='%(message)s'); "
+             "sys.argv[0] = 'sim/v2_gate.py'; runpy.run_path('sim/v2_gate.py', run_name='__main__')")
+
+
 def gate(state, name):
-    start(name, [sys.executable, '-B', 'sim/v2_gate.py', '--bind', '127.0.0.1', '--port', str(GATE), '--upstream', f'127.0.0.1:{LINK}',
+    start(name, [sys.executable, '-B', '-c', GATE_WRAP, '--bind', '127.0.0.1', '--port', str(GATE), '--upstream', f'127.0.0.1:{LINK}',
                    '--gate-src', str(GATE_SRC), '--state', str(state)] + (['--web', str(WEB)] if WEB else []) + (['--spa'] if SPA else []), env=ENV_ROS)
     for _ in range(40):
         if '열기:' in log(name): return True
@@ -206,6 +212,9 @@ async def attach(cdp, where):                          # CDP 대상 0 = 검사 �
     shot(f'tool-error-{where}')
     (OUT / f'tool-error-{where}-uihierarchy.xml').write_text(adb('exec-out', 'uiautomator', 'dump', '/dev/tty', check_=False, timeout=60))
     note('TOOL_ERROR', f'CDP 대상 0 ({where})', '화면·화면계층만 남김'); raise Abort(where)
+
+
+def ospause(): return [l for l in adb('logcat', '-b', 'events', '-d', '-v', 'time', check_=False, timeout=30).splitlines() if 'wm_on_paused_called' in l and PKG + '/' in l]
 
 
 def caplog(): return adb('logcat', '-d', '-v', 'time', 'Capacitor:V', '*:S', check_=False, timeout=30).splitlines()
@@ -320,6 +329,32 @@ def row_ok(s):                                         # status 한 줄 형식: 
 def nonzero(s): return row_ok(s) and any(abs(x) > 1e-9 for x in s[2])
 def released(s): return row_ok(s) and s[1] is None and all(abs(x) <= 1e-9 for x in s[2]) and s[3] is True
 def gaps(rows): return max((b[0] - a[0] for a, b in zip(rows, rows[1:])), default=None)
+
+
+def emu_absent():                                      # 시작 전: 남의 에뮬·기기에 붙지 않게 — adb 기기 0·qemu 프로세스 0·5554/5555 비어 있음
+    devs = [l for l in subprocess.run([ADB, 'devices'], capture_output=True, text=True, timeout=30).stdout.splitlines()[1:] if l.strip()]
+    qemu = subprocess.run(['pgrep', '-f', 'qemu-system'], capture_output=True, text=True).stdout.split()
+    out = subprocess.run(['ss', '-ltnH'], capture_output=True, text=True).stdout
+    ports = sorted({p for p in (5554, 5555) for l in out.splitlines() if l.split()[3:4] and l.split()[3].rsplit(':', 1)[-1] == str(p)})
+    return not devs and not qemu and not ports, {'adb 기기': devs, 'qemu pid': qemu, '포트': ports}
+
+
+def emu_bound(root, avd):                               # 기동 뒤: 5554 를 연 프로세스가 이 러너가 띄운 에뮬(또는 그 자식)·AVD_HOME 이 이 회차 폴더·adb 기기는 emulator-5554 하나
+    out = subprocess.run(['ss', '-ltnpH'], capture_output=True, text=True).stdout
+    pids = sorted({int(m) for l in out.splitlines() if l.split()[3:4] and l.split()[3].rsplit(':', 1)[-1] == '5554' for m in re.findall(r'pid=(\d+)', l)})
+    def chain(p):
+        seen = []
+        while p > 1 and len(seen) < 20:
+            seen.append(p)
+            try: p = int(Path(f'/proc/{p}/stat').read_text().rsplit(')', 1)[1].split()[1])
+            except (OSError, ValueError, IndexError): break
+        return seen
+    def avd_home(p):
+        try: return next((e.split('=', 1)[1] for e in Path(f'/proc/{p}/environ').read_bytes().decode(errors='replace').split('\0') if e.startswith('ANDROID_AVD_HOME=')), None)
+        except OSError: return None
+    devs = [l.split()[0] for l in subprocess.run([ADB, 'devices'], capture_output=True, text=True, timeout=30).stdout.splitlines()[1:] if l.strip()]
+    v = {'5554 pid': pids, '띄운 pid': root, 'AVD_HOME': [avd_home(p) for p in pids], 'adb 기기': devs}
+    return bool(pids) and all(root in chain(p) and avd_home(p) == str(avd) for p in pids) and devs == ['emulator-5554'], v
 
 
 def listening():
@@ -494,7 +529,7 @@ def apk_provenance(apk):                                # 실제 APK 안 설정�
     raw = [n for n in z.namelist() if n.startswith('res/raw/')]
     bad = [f for f, v in src['files'].items() if sha(z.read('assets/public/' + f)) != v]
     v = {'pkg': subprocess.run([aapt, 'dump', 'packagename', str(apk)], capture_output=True, text=True).stdout.strip(), 'raw': raw,
-         'ca_sha': sha(z.read(raw[0])) if raw else None, 'server': cfg.get('server'), 'ui_rev': src.get('ui_rev'), 'files': len(src['files']), 'mismatch': bad[:5]}
+         'ca_sha': sha(z.read(raw[0])) if raw else None, 'server': cfg.get('server'), 'logging': (cfg.get('android') or {}).get('loggingBehavior'), 'ui_rev': src.get('ui_rev'), 'files': len(src['files']), 'mismatch': bad[:5]}
     ok = (v['pkg'] == PKG and 'networkSecurityConfig' in man and 'android:debuggable(0x0101000f)=true' in man and 'debug-overrides' in nsc and '"user"' not in nsc
           and raw == ['res/raw/fh_fixture_ca.pem'] and v['ca_sha'] == sha((TMP / 'A' / 'ca.crt').read_bytes()) and not (cfg.get('server') or {}).get('url')
           and z.read('assets/public/SOURCE.json') == (MOB / 'www/SOURCE.json').read_bytes() and src.get('ui_rev') == FRONT.get('ui_rev') and src['files'] and not bad)
@@ -529,6 +564,7 @@ async def bundled_scenario():                           # B0~B8 (계획서 2절)
     note('INFO', 'B2 JS 저장소 키 목록(토큰 부재는 계약·코드 근거 — 값 검색 실측 아님)', js)
     # B3 강제 종료 → 다시 기동: 재로그인 없이 보관 세션 복원(정상 경로만)
     adb('shell', 'am', 'force-stop', PKG); await asyncio.sleep(2)
+    g0, t_re = len(log('gate-A')), now()               # B4 판정 구간 = 이 재시작 뒤 관문 로그·status
     adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8); await attach(cdp, 'restart')
     st = await native(cdp, 'P.state()'); who = await native(cdp, "P.request({op: 'whoami'})")
     need('B3 force-stop 뒤 Keystore 복원(정상 경로): loggedIn·stored · whoami 200',
@@ -536,9 +572,15 @@ async def bundled_scenario():                           # B0~B8 (계획서 2절)
          {'state': {k: st.get(k) for k in ('loggedIn', 'stored', 'gen')} if isinstance(st, dict) else st, 'whoami': (who or {}).get('status', who)})
     # B4 조종 화면 → 1회용 표 → /api/app/ws
     await cdp.js("location.hash = '#/MDrive'"); await asyncio.sleep(6)
-    g = log('gate-A')
-    need('B4 조종 화면 WS: 표 발급 → 관문 /api/app/ws 연결(관문 로그에 표 원값 없음)', 'POST /api/app/ws-ticket' in g and f'연결 {USER}' in g and '?t=' not in g,
-         {'ws-ticket 200 수': g.count('200 POST /api/app/ws-ticket'), '연결 로그': f'연결 {USER}' in g})
+    ga = log('gate-A'); g = ga[g0:]                    # 재시작 뒤 구간만(재시작 전 연결을 B4 근거로 쓰지 않음)
+    tick, ws_ok = len(re.findall(r'^200 POST /api/app/ws-ticket ', g, re.M)), len(re.findall(r'^101 GET /api/app/ws ', g, re.M))
+    # 같은 표 재사용은 101 뒤 open() 에서 «거부(로그인 없음)» + 4401 로 끊긴다(접근 로그는 101) → 거부 줄 0 + 표 수 ≥ 101 수로 본다(루프백 확인 10-13)
+    ws_bad = re.findall(r'^[45]\d\d GET /api/app/ws\b.*', g, re.M) + [l for l in g.splitlines() if '거부(' in l]
+    need('B4 조종 화면 WS: 표 발급 → 관문 /api/app/ws 연결(관문 로그에 표 원값 없음)',
+         tick >= 1 and ws_ok >= 1 and not ws_bad and tick >= ws_ok and f'연결 {USER}' in g and '?t=' not in ga,
+         {'재시작 뒤 ws-ticket 200': tick, 'ws 101': ws_ok, 'ws 거부·4xx/5xx': ws_bad[:3], '연결 로그': f'연결 {USER}' in g,
+          '재시작 뒤 서버 status 수': sum(1 for s in STAT if s[0] >= t_re)})
+    note('INFO', 'B4 근거 범위: 앱이 받은 status 는 직접 안 읽음 — 앱 WS 동작은 B5 take(앱 → 관문 → 서버 holder)로 확인', '')
     need(f'서버 status 의 ros_domain = {DOMAIN}', SRV.get('domains') == {DOMAIN}, sorted(map(str, SRV.get('domains', []))))
     note('INFO', '앱 Capacitor 브리지(bundled MDrive)', await cdp.js(PROBE))
     stick = await cdp.js(STICK_JS); need('React 조종 화면 막대 위치', bool(stick), stick)
@@ -558,9 +600,13 @@ async def bundled_scenario():                           # B0~B8 (계획서 2절)
          {'touch': [ok1, ok2, e1, e2], '잡은 뒤 비영 status 수': sum(nonzero(s) for s in STAT if s[0] >= t_hold), '마지막': STAT[-1:]})
     shot('b5-held')
     # B6 HOME(손가락 떼지 않음)
-    n1 = len(caplog()); t_home = now(); adb('shell', 'input', 'keyevent', 'KEYCODE_HOME'); await asyncio.sleep(6); shot('b6-background')
-    paused = [l for l in caplog()[n1:] if l.rstrip().endswith('App paused')]
-    check('HOME: logcat 실제 Activity pause(Capacitor «App paused»)', bool(paused), paused[:2])
+    # 10-13 뒤 android.loggingBehavior=none → Capacitor «App paused» 로그 없음. 대체 관측(사전 명시, 둘 다 필수):
+    #  ① OS: events 버퍼 wm_on_paused_called 의 이 앱 Activity(구성요소 이름뿐, 비밀 없음) — HOME 전후 건수 증가
+    #  ② 페이지: B4 의 PROBE 가 붙인 Plugins.App pause·appStateChange(false) 를 페이지 메모리(window.__fh)에서 복귀 뒤 읽음(콘솔 안 씀).
+    #     복귀 때 페이지가 다시 읽히면 기록이 사라져 FAIL(약해진 관측 — 대신 쓰지 않음)
+    n1 = len(ospause()); t_home = now(); adb('shell', 'input', 'keyevent', 'KEYCODE_HOME'); await asyncio.sleep(6); shot('b6-background')
+    paused = ospause()[n1:]
+    check('HOME: OS Activity pause(events wm_on_paused_called, 이 앱)', bool(paused), paused[:2])
     after = [s for s in STAT if s[0] >= t_home]
     z = next((i for i, s in enumerate(after) if released(s)), None); tail = after[z:] if z is not None else []; bad = [s for s in tail if not released(s)]
     check('HOME 뒤 서버: 조종권자 없음·applied 0·래치 — 그 뒤 위반(형식 이상 포함) 0', z is not None and not bad and len(tail) >= 5 and gaps(tail) <= 1.0,
@@ -571,6 +617,9 @@ async def bundled_scenario():                           # B0~B8 (계획서 2절)
     await touch(cdp, 'touchEnd', x, y)                   # 손가락 정리(옛 손가락 판정은 이 범위 밖)
     # B7 복귀 = 보기 전용, 서버 자동 복원 0
     adb('shell', 'am', 'start', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8); await attach(cdp, 'resume'); t_back = now()
+    ev = await cdp.js('window.__fh || null')           # 해시 이동 전에 읽는다
+    sig = None if ev is None else [k for k, *_ in ev if k in ('App.pause', 'App.appStateChange:false')]
+    check('HOME: 페이지 App pause·appStateChange(false)(PROBE 메모리)', bool(sig), sig if ev is not None else '페이지 다시 읽힘 — 기록 없음')
     loc2 = await cdp.js('location.href')
     if not (isinstance(loc2, str) and loc2.endswith(DRIVE)):
         note('INFO', '복귀 뒤 #/MDrive 아님 → 해시 이동만(조작·재로그인 없음)', loc2)
@@ -599,10 +648,12 @@ BUNDLED_REQ = ['pause 전제: FH_UI_REV 커밋·FH_UI_MODULES', '고정 판 관�
                'B1 관문 주소 설정: state.origin = fixture 관문 · 로그인 전', 'B2 fixture 로그인(네이티브, 앱 출처) → 로그인 화면 벗어남 · state.loggedIn', 'B2 앱 출처 JS 쿠키 0',
                'B3 force-stop 뒤 Keystore 복원(정상 경로): loggedIn·stored · whoami 200', 'B4 조종 화면 WS: 표 발급 → 관문 /api/app/ws 연결(관문 로그에 표 원값 없음)',
                f'서버 status 의 ros_domain = {DOMAIN}', 'React 조종 화면 막대 위치', '«조종권 받기» 누름', '서버: 조종권자 = fixture 기기', '서버: 래치 풀림(가짜 상태의 해제 확인)',
-               'B5 잡은 채 비영 출력(서버 applied, 조종권자 fixture)', 'HOME: logcat 실제 Activity pause(Capacitor «App paused»)',
-               'HOME 뒤 서버: 조종권자 없음·applied 0·래치 — 그 뒤 위반(형식 이상 포함) 0', '복귀 = 보기 전용(조종 표시 없음·«조종권 받기» 안내)',
+               'B5 잡은 채 비영 출력(서버 applied, 조종권자 fixture)', 'HOME: OS Activity pause(events wm_on_paused_called, 이 앱)',
+               'HOME: 페이지 App pause·appStateChange(false)(PROBE 메모리)', 'HOME 뒤 서버: 조종권자 없음·applied 0·래치 — 그 뒤 위반(형식 이상 포함) 0', '복귀 = 보기 전용(조종 표시 없음·«조종권 받기» 안내)',
                '복귀 뒤 서버 자동 복원 0(조종권자 없음·비영 0·래치, 형식 이상 포함)', 'B8 로그아웃: ok·서버 ok·관문 로그 · 다시 기동하면 로그인 화면(보관본 없음)',
-               '관문 A 정상 종료(INT/TERM)', '정리: 띄운 프로세스 INT/TERM 으로 모두 종료', '결과 폴더에 비밀번호 없음']
+               '관문 A 정상 종료(INT/TERM)', '정리: 띄운 프로세스 INT/TERM 으로 모두 종료', '결과 폴더에 비밀번호 없음',
+               '에뮬 시작 전: adb 기기 0·qemu 0·5554/5555 비어 있음(남의 에뮬 없음)', '에뮬 결속: 5554 = 이 러너가 띄운 에뮬·AVD_HOME = 이 회차·adb 기기 하나',
+               'fixture APK 설정: android.loggingBehavior = none']
 
 SCOPE = os.environ.get('FH_E2E_SCOPE', 'full')     # full = 전체 시나리오, ssl = A 로그인·읽기 → B 인증서 거부만, pause = 원격 React native pause 1회
 REQUIRED = ['미인증 → 관문 로그인 화면', 'fixture 로그인 → 읽기 화면', '읽기 화면 WS 가 관문을 거쳐 v2_link 에 연결', '세션 쿠키로 whoami 200',
@@ -648,10 +699,13 @@ def main():
             ok, v = apk_provenance(OUT / 'app-gate.apk'); FRONT['apk'] = {**v, 'sha256': sha((OUT / 'app-gate.apk').read_bytes())}
             (OUT / 'front-manifest.json').write_text(json.dumps(FRONT, ensure_ascii=False, indent=1))
             need('fixture APK 출처(앱 id·NSC·CA 한 장·server.url 없음·번들 = UI 판)', ok, v)
+            need('fixture APK 설정: android.loggingBehavior = none', v['logging'] == 'none', v['logging'])
         else:
             shutil.copy2(MOB / 'android/app/build/outputs/apk/gate/app-gate.apk', OUT / 'app-gate.apk')
             shutil.copy2(MOB / 'android/app/src/gate/assets/capacitor.config.json', OUT / 'gate-capacitor.config.json')
-        if SCOPE in ('pause', 'bundled'): need('포트 비어 있음(남의 프로세스 없음)', not listening(), listening())
+        if SCOPE in ('pause', 'bundled'):
+            need('포트 비어 있음(남의 프로세스 없음)', not listening(), listening())
+            need('에뮬 시작 전: adb 기기 0·qemu 0·5554/5555 비어 있음(남의 에뮬 없음)', *emu_absent())
         start('v2_link', ['bash', '-c', f'source /opt/ros/jazzy/setup.bash && exec python3 -B sim/v2_link.py --port {LINK} --media {TMP}/media'], env=ENV_ROS)
         start('fake_v2_live', ['bash', '-c', 'source /opt/ros/jazzy/setup.bash && exec python3 -B tools/fake_v2_live.py'], env=ENV_ROS)
         time.sleep(6)
@@ -663,6 +717,7 @@ def main():
         try: subprocess.run([ADB, '-s', 'emulator-5554', 'wait-for-device'], timeout=300, check=True); dev = True
         except subprocess.TimeoutExpired: dev = False
         need('에뮬 adb 연결(300 s 안)', dev)
+        if SCOPE in ('pause', 'bundled'): need('에뮬 결속: 5554 = 이 러너가 띄운 에뮬·AVD_HOME = 이 회차·adb 기기 하나', *emu_bound(procs['emulator'].pid, avd))
         need('부팅 완료 sys.boot_completed=1 (360 s 안)', wait_until(lambda: adb('shell', 'getprop', 'sys.boot_completed', check_=False, timeout=30).strip() == '1', 360))
         need('패키지 관리자 준비 pm path android (240 s 안)', wait_until(lambda: adb('shell', 'pm', 'path', 'android', check_=False, timeout=30).startswith('package:'), 240))
         time.sleep(20)
