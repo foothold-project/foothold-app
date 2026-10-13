@@ -103,10 +103,27 @@ node scripts/gate-profile.mjs --clean       # 끝나면 생성물 삭제
 - 링크 사건 기록(`link-events.jsonl`)은 비어 있다 — 이 회차에서는 서버 쪽 hidden 사건 근거가 없다.
 4회차(3회차 뒤 러너만 수정 — CDP 재부착, 복귀 분류, 서버 status 로 조종권·출력 기록. 복귀 수락 기준 정정은 아래):
 - 복귀 기준 정정(앱 Codex 10-13, 4회차부터): 옛 기준 «복귀 때 같은 페이지·자동 재로드 없음»은 플랫폼 보장이 아니다. Activity·WebView 재생성도 정상으로 보고, **«보존 또는 재로그인 → 보기 전용» + «이전 조종권·비영 명령 자동 복원 0»** 을 수락 기준으로 둔다. 유지·재생성·로그인 재요청은 각각 기록한다.
-- 이번 복귀 = **유지**(pid 5376 그대로, Activity 재생성 없음, 같은 URL, whoami 200). 원격 페이지가 받은 신호(페이지 시각 ms): 배경 `App.pause` 10300 → `document.pause` 10332 → `appStateChange:false` 12181 → `visibilitychange` hidden 12265 / 복귀 `appStateChange:true` 17228 → `App.resume` 17234 → `visibilitychange` visible 17475 → `document.resume` 17591. **hidden 이 pause 보다 약 2 s 늦다** — 입력 버림은 `pause` 를 먼저 들어야 한다는 근거(에뮬레이터 1회 관찰). 재생성 경우는 이번에 다시 나오지 않아 «재생성 뒤 리스너 재부착»은 미측정(3회차 한 번 관찰)
-- PASS: 복귀 뒤 보기 전용 · **서버 status 1014건 동안 조종권자 없음·비영 출력 0** · 로그아웃 200 → whoami 401 · 관문 로그에 로그아웃 · 관문 A 정상 종료 · **관문 없음 → 로컬 오류 화면**(`https://localhost/fh-offline.html`, 명령 없음 문구, STOPPED 단정 없음)
-- **FAIL — 다른 CA 단계에서 러너 예외:** 인증서는 거부됐다(logcat `CertPathValidatorException: Trust anchor … not found`·`net_error -202`, 관문 B 로그 `alert certificate unknown`, 로그인 기록 없음). 그런데 인증서 오류에는 Capacitor `errorPath` 가 불리지 않아 로컬 오류 화면으로 가지 않았고, 그 화면은 https 가 아닌 주소라 러너의 CDP 대상 고르기가 비어 `IndexError` 로 멈췄다. 화면 캡처(06) 없음 → **인증서 거부는 로그 근거만, 그때의 앱 화면은 미확인.** 필수 항목은 FAIL 그대로 둔다.
-- 남은 일: 인증서 오류일 때 앱 화면(빈 화면/브라우저 오류)을 확인하고 보기 전용 안내로 보낼지 결정(SSL 오류 처리는 네이티브 쪽 — 인증서 오류 무시는 하지 않는다).
+- 이번 복귀 = **유지**(pid 5376 그대로, Activity 재생성 없음, 같은 URL, whoami 200). 원격 페이지가 받은 신호(페이지 시각 ms): 배경 `App.pause` 10300 → `document.pause` 10332 → `appStateChange:false` 12181 → `visibilitychange` hidden 12265 / 복귀 `appStateChange:true` 17228 → `App.resume` 17234 → `visibilitychange` visible 17475 → `document.resume` 17591. **hidden 이 `App.pause` 보다 1965 ms 늦게 왔다**(window.__fh 의 performance.now 값, `results.json` 「복귀 결과」 원자료). 에뮬레이터 1회 관찰이라 실기기·다른 WebView 판의 순서 보장은 아니다 — 입력 버림을 `pause` 에도 거는 근거로만 쓴다. 재생성 경우는 이번에 다시 나오지 않아 «재생성 뒤 리스너 재부착»은 미측정(3회차 한 번 관찰)
+- PASS: 복귀 뒤 보기 전용 · **읽기 화면 왕복 중 조종권·비영 출력 자동 발생 없음**(서버 status 1014건, holder 는 처음부터 None — 실제 조종권을 잡았다 끊고 복구하는 시험은 아직 아니다) · 로그아웃 200 → whoami 401 · 관문 로그에 로그아웃 · 관문 A 정상 종료 · **관문 없음 → 로컬 오류 화면**(`https://localhost/fh-offline.html`, 명령 없음 문구, STOPPED 단정 없음)
+- **FAIL — 다른 CA 단계에서 러너 예외:** 인증서는 거부됐다(logcat `CertPathValidatorException: Trust anchor … not found`·`net_error -202`, 관문 B 로그 `alert certificate unknown`, 로그인 기록 없음). 그런데 인증서 오류에는 Capacitor `errorPath` 가 불리지 않아 로컬 오류 화면으로 가지 않았고, 러너가 CDP 대상을 https 페이지로만 골라 대상이 비었고 `IndexError` 로 멈췄다(그때 WebView 의 실제 주소는 기록 못 함). 화면 캡처(06) 없음 → **인증서 거부는 로그 근거만, 그때의 앱 화면은 미확인.** 필수 항목은 FAIL 그대로 둔다.
+- 4회차 `gate.log` 는 관문 B 의 로그뿐이다 — 같은 파일 이름으로 B 를 띄우며 A 로그를 덮어썼다. A 관련 PASS(로그인·연결·로그아웃 기록)는 실행 중 그 파일을 읽어 판정한 것이고, 폴더에는 원자료가 남지 않았다. 다음 회차부터 `gate-A.log`·`gate-B.log` 로 나눈다.
+
+증거별 유효 범위(4회차까지):
+
+| 증거 | 말할 수 있는 것 | 말할 수 없는 것 |
+|---|---|---|
+| logcat `Trust anchor`·`-202` + 관문 B `alert certificate unknown` | 앱이 다른 CA 관문의 인증서를 거부했다 | 그때 앱 화면, 사용자 안내 |
+| 서버 status holder None·비영 0 | 읽기 화면 왕복 중 조종권·출력이 저절로 생기지 않았다 | 조종 중 숨김 → 해제·래치, 조종권 복구 금지 |
+| `window.__fh` 신호 순서 | 이 에뮬레이터 1회의 순서 | 실기기 순서, 재생성 뒤 리스너 재부착 |
+| 관문 없음 → `fh-offline.html` | 연결 실패(`-100`)에 로컬 안내가 뜬다 | 인증서 거부 때의 안내(아래 보완 전) |
+
+### 인증서 오류 안내 보완 (코드·정적 빌드만 — 에뮬레이터 미실행)
+
+- `GateSslClient`(`android/app/src/main/java/org/footholdproject/app/`) — Capacitor 8.5.2 `BridgeWebViewClient` 상속, `onReceivedSslError` 하나만 더한다. `MainActivity` 가 `bridge.setWebViewClient(...)`(8.5.2 공개 API)로 교체한다. `shouldInterceptRequest`·브리지·생명주기·`onReceivedError/HttpError` 의 errorPath 는 부모 그대로.
+- 근거(설치본 8.5.2 소스): `BridgeWebViewClient` 에 `onReceivedSslError` 가 없다 → WebViewClient 기본(취소)만, errorPath 없음. 4회차 logcat 에서도 `-202` 뒤 로컬 화면 요청이 없었다.
+- 동작: **모든 SSL 오류는 `handler.cancel()`** — proceed 는 어떤 경로에도 없다. 오류 URL 이 관문(server.url) origin 이면 로컬 errorPath(보기 전용 연결 오류 안내)로 보낸다 → 관문 화면·로그인·WS 가 열리지 않는다. 다른 origin 하위 리소스는 취소만(화면 이동 없음). 이미 안내 화면이면 다시 부르지 않는다(안내 화면은 `https://localhost` 로컬이라 SSL 이 없다). bundled 기본 빌드(server.url 없음)는 취소만 — 기존과 같다.
+- 메인 프레임/하위 리소스: `onReceivedSslError` 는 `WebResourceRequest` 를 받지 않아 `isForMainFrame` 을 알 수 없다. 그래서 origin 으로 가른다(관문 origin 의 인증서 실패 = 관문 전체를 신뢰 못 함 → 화면 전체를 안내로).
+- 확인: 단위시험 `GateSslClientTest`(origin 비교 9개) 통과, `assembleDebug` 성공. **에뮬레이터에서 안내 화면이 실제로 뜨는지는 미확인** — `setWebViewClient` 가 첫 `loadUrl` 직후에 바뀌므로 첫 요청의 SSL 콜백이 새 클라이언트로 오는지도 실측 대상이다.
 - **조종 화면 노출 주의:** A 는 관문의 기존 화면을 그대로 열기 때문에 읽기 화면에 「조종권 받기」 버튼이 보인다(`02-read-after-login.png`). 시험에서는 누르지 않았다. A 빌드 자체가 조종을 막지는 않으므로, 조종 개방 전 조건(위 «A 는 읽기 검증까지만»)은 운영 규칙이지 앱이 강제하는 것이 아니다.
 
 ## 숨김·백그라운드·재연결 — 번들을 재사용하는 조건
@@ -116,7 +133,7 @@ node scripts/gate-profile.mjs --clean       # 끝나면 생성물 삭제
 1. 화면이 숨겨지거나(`visibilitychange` hidden), 페이지를 떠나거나(`pagehide`), 앱이 백그라운드로 가면(Capacitor `pause`) → 누르고 있던 입력을 모두 버리고 `{op:'hidden'}` 을 보낸다. 서버는 조종권을 해제하고 명령 0 + STOP 잠금으로 처리한다(`Core.drop`). `blur`·화면 회전에도 입력을 버린다.
 2. 다시 앞으로 오거나(`resume`) 다시 연결되면 → 보기 전용으로 시작한다. 이전의 비영(0 아님) 입력은 **자동으로 복원하지 않는다.** 조종권 획득과 STOP 해제는 사용자가 다시 직접 눌러야 한다(서버도 새 조종권에 손 뗌·래치를 요구한다).
 3. 연결이 끊기면(`onclose`) 입력을 버리고 보기 전용으로 바꾼다. 재연결을 해도 명령을 다시 보내지 않는다.
-4. 위 규칙이 「통과했다」고 말하는 근거는 서버 사건 로그로만 삼는다. 실제 휴대폰에서 백그라운드로 보냈을 때 `hidden` 사건이 남는지 확인해야 한다. Android WebView 가 백그라운드에서 `visibilitychange` 를 확실히 보내는지는 **미확인**이라 Capacitor `pause` 도 같이 듣는다(`@capacitor/app` 추가는 그때).
+4. 위 규칙이 「통과했다」고 말하는 근거는 서버 사건 로그로만 삼는다. 실제 휴대폰에서 백그라운드로 보냈을 때 `hidden` 사건이 남는지 확인해야 한다. 에뮬레이터 4회차에서는 hidden 도 왔지만 `App.pause` 보다 1965 ms 늦었다(1회 관찰, 실기기 미확인). 그래서 Capacitor `pause`(`@capacitor/app` 8.1.1, 원격 페이지에서 `Capacitor.Plugins.App`)도 같이 듣는다 — UI 쪽 연결은 아직 안 됨.
 5. 실시간 보장은 아니다. 최종 안전망은 받는 쪽 명령 TTL 이다. STOP 명령 0 은 물리 정지가 아니다(실험에서 3.6 s·0.32 m 를 더 이동, 원인 미확정).
 
 ## 앱 아이콘 (브랜드 공식 래스터 파생)

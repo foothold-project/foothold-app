@@ -100,11 +100,11 @@ def make_state(d):
     return fp.split('=', 1)[-1]
 
 
-def gate(state):
-    start('gate', [sys.executable, '-B', 'sim/v2_gate.py', '--bind', '127.0.0.1', '--port', str(GATE), '--upstream', f'127.0.0.1:{LINK}',
+def gate(state, name):
+    start(name, [sys.executable, '-B', 'sim/v2_gate.py', '--bind', '127.0.0.1', '--port', str(GATE), '--upstream', f'127.0.0.1:{LINK}',
                    '--gate-src', str(GATE_SRC), '--state', str(state)], env=ENV_ROS)
     for _ in range(40):
-        if '열기:' in log('gate'): return True
+        if '열기:' in log(name): return True
         time.sleep(0.25)
     return False
 
@@ -116,11 +116,14 @@ class Cdp:                                            # 앱 WebView 의 DevTools
         adb('forward', f'tcp:{DEV}', f'localabstract:webview_devtools_remote_{pid}')
         for _ in range(30):
             try:
-                pages = [p for p in json.loads(urllib.request.urlopen(f'http://127.0.0.1:{DEV}/json', timeout=3).read()) if p.get('type') == 'page' and p.get('url', '').startswith('https://')]
+                pages = [p for p in json.loads(urllib.request.urlopen(f'http://127.0.0.1:{DEV}/json', timeout=3).read()) if p.get('type') == 'page']
                 if pages: break
             except OSError: pass
             await asyncio.sleep(1)
+        else:
+            self.ws = None; return False
         self.ws, self.n = await websocket_connect(pages[0]['webSocketDebuggerUrl'], max_message_size=64 << 20), 0
+        return True
 
     async def js(self, expr):
         self.n += 1; me = self.n
@@ -179,6 +182,16 @@ async def login(cdp):                                  # fixture 계정만(실�
     return await cdp.js(LOGIN_JS % (json.dumps(USER), json.dumps(PW)))
 
 
+def sslcap(): return adb('logcat', '-d', '-v', 'time', 'Capacitor:V', 'chromium:V', 'cr_X509Util:V', '*:S', check_=False, timeout=30).splitlines()
+
+
+async def attach(cdp, where):                          # CDP 대상 0 = 검사 도구 문제(TOOL_ERROR) — 앱 판정과 섞지 않는다
+    if await cdp.attach(): return
+    shot(f'tool-error-{where}')
+    (OUT / f'tool-error-{where}-uihierarchy.xml').write_text(adb('exec-out', 'uiautomator', 'dump', '/dev/tty', check_=False, timeout=60))
+    note('TOOL_ERROR', f'CDP 대상 0 ({where})', '화면·화면계층만 남김'); raise Abort(where)
+
+
 def caplog(): return adb('logcat', '-d', '-v', 'time', 'Capacitor:V', '*:S', check_=False, timeout=30).splitlines()
 
 
@@ -187,7 +200,7 @@ async def scenario():
     adb('reverse', f'tcp:{GATE}', f'tcp:{GATE}')
     shot('00-launcher')
     adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8)
-    await cdp.attach()
+    await attach(cdp, 'start')
     loc = await cdp.js('location.href'); shot('01-login-unauth')
     check('미인증 → 관문 로그인 화면', isinstance(loc, str) and loc.startswith(f'https://127.0.0.1:{GATE}/MLogin.dc.html') and await cdp.js("!!document.querySelector('#mpw')"), loc)
     info = await cdp.js(PROBE); note('INFO', '원격 페이지의 Capacitor 브리지(로그인 화면)', info)
@@ -197,8 +210,8 @@ async def scenario():
     if not (isinstance(loc, str) and 'MDrive.dc.html' in loc):
         await cdp.js("(() => { const p = document.querySelector('#mpw'); if (p) p.value = ''; })()")   # 화면 캡처 전에 비밀번호 칸 비우기
     shot('02-read-after-login')
-    check('fixture 로그인 → 읽기 화면', r == 'clicked' and isinstance(loc, str) and 'MDrive.dc.html' in loc and f'로그인 {USER}' in log('gate'), loc)
-    check('읽기 화면 WS 가 관문을 거쳐 v2_link 에 연결', f'연결 {USER}' in log('gate'))
+    check('fixture 로그인 → 읽기 화면', r == 'clicked' and isinstance(loc, str) and 'MDrive.dc.html' in loc and f'로그인 {USER}' in log('gate-A'), loc)
+    check('읽기 화면 WS 가 관문을 거쳐 v2_link 에 연결', f'연결 {USER}' in log('gate-A'))
     who = await cdp.js("fetch('api/whoami', {credentials: 'same-origin'}).then((r) => r.status)")
     check('세션 쿠키로 whoami 200', who == 200, who)
     body = await cdp.js("document.body.innerText.slice(0, 400)"); note('INFO', '읽기 화면 글(앞 400자)', body)
@@ -215,7 +228,7 @@ async def scenario():
     new = caplog()[n1:]
     recreated = any('App destroyed' in l for l in new) and any('Starting BridgeActivity' in l for l in new)
     page_listen = sum('pluginId: App, methodName: addListener' in l for l in new)   # 재생성 뒤 페이지가 스스로 다시 붙인 수(검사 도구 PROBE 전)
-    await cdp.attach()
+    await attach(cdp, 'resume')
     loc2 = await cdp.js('location.href'); who_r = await cdp.js("fetch('api/whoami', {credentials: 'same-origin'}).then((r) => r.status)")
     ev = await cdp.js('window.__fh === undefined ? null : window.__fh')
     note('INFO', '복귀 결과', {'pid 전→후': [pid1, cdp.pid], 'Activity 재생성(logcat)': recreated, 'url': loc2, 'whoami': who_r,
@@ -229,40 +242,53 @@ async def scenario():
             await cdp.js("location.href = '/MDrive.dc.html?live=v2'")
         else:
             await login(cdp)                           # 인증이 끊겼으면 fixture 재로그인만
-        await asyncio.sleep(8); await cdp.attach()
+        await asyncio.sleep(8); await attach(cdp, 'relogin')
         await cdp.js("(() => { const p = document.querySelector('#mpw'); if (p) p.value = ''; })()")
     loc = await cdp.js('location.href'); body = await cdp.js("document.body.innerText") or ''
     shot('03c-view-after-resume')
     check('복귀 뒤 보존 또는 재로그인 → 보기 전용', 'MDrive.dc.html' in (loc or '') and '보기 전용' in body, {'분류': kind, 'url': loc})
     await asyncio.sleep(3)
-    check('이전 조종권·비영 명령 자동 복원 0(서버 status)', SRV['n'] > 0 and SRV['holders'] <= {None} and SRV['nonzero'] == 0,
+    check('읽기 화면 왕복 중 조종권·비영 출력 자동 발생 없음(서버 status)', SRV['n'] > 0 and SRV['holders'] <= {None} and SRV['nonzero'] == 0,
           {'status 수': SRV['n'], '조종권자': sorted(map(str, SRV['holders'])), '비영 출력 횟수': SRV['nonzero']})
     # ── 로그아웃(버튼과 같은 요청을 페이지 문맥에서)
     st = await cdp.js("fetch('api/logout', {method: 'POST', credentials: 'same-origin'}).then((r) => r.status)")
     await asyncio.sleep(3)
     who2 = await cdp.js("fetch('api/whoami', {credentials: 'same-origin'}).then((r) => r.status)")
     check('로그아웃 200 → whoami 401', st == 200 and who2 == 401, [st, who2])
-    check('관문 로그에 로그아웃', f'로그아웃 {USER}' in log('gate'))
+    check('관문 로그에 로그아웃', f'로그아웃 {USER}' in log('gate-A'))
     shot('04-after-logout')
     note('INFO', '로그아웃 뒤 화면 글(앞 300자)', await cdp.js("document.body.innerText.slice(0, 300)"))
     # ── 관문 끊김 → 앱 재시작 → 로컬 오류 화면
-    need('관문 A 정상 종료(INT/TERM)', stop('gate')); adb('shell', 'am', 'force-stop', PKG); await asyncio.sleep(1)
+    need('관문 A 정상 종료(INT/TERM)', stop('gate-A')); adb('shell', 'am', 'force-stop', PKG); await asyncio.sleep(1)
     adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8)
-    await cdp.attach(); loc3 = await cdp.js('location.href'); txt = await cdp.js("document.body.innerText")
+    await attach(cdp, 'offline'); loc3 = await cdp.js('location.href'); txt = await cdp.js("document.body.innerText")
     shot('05-gate-down-offline')
     check('관문 없음 → 로컬 보기 전용 오류 화면', loc3 == 'https://localhost/fh-offline.html' and '명령도 보내지 않습니다' in (txt or ''), loc3)
     check('오류 화면에 정지·STOPPED 단정 없음', txt is not None and 'STOPPED' not in txt and '정지했' not in txt)
-    # ── 다른 CA 관문 → 신뢰 거부
-    gate_ok = gate(TMP / 'B'); adb('shell', 'am', 'force-stop', PKG); await asyncio.sleep(1)
+    # ── 다른 CA 관문(B) → 신뢰 거부. 로그인 없음만으로 PASS 하지 않는다: 앱 SSL 거부 로그 + 관문 B 연결·로그인 0 + 로컬 안내 화면
+    nB = len(sslcap())                                # B 단계 뒤 줄만 본다(앞 단계 -100 등 제외)
+    gate_ok = gate(TMP / 'B', 'gate-B'); adb('shell', 'am', 'force-stop', PKG); await asyncio.sleep(1)
     adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8)
-    await cdp.attach(); loc4 = await cdp.js('location.href'); has_pw = await cdp.js("!!document.querySelector('#mpw')")
+    sslB = [l for l in sslcap()[nB:] if any(k in l for k in ('Trust anchor', 'net_error -202', 'handshake failed', 'Loading app at', 'Handling local request'))]
+    (OUT / 'logcat-B-ssl.txt').write_text('\n'.join(sslB) + '\n')
     shot('06-wrong-ca')
-    check('다른 CA 관문 → 로그인 화면 안 뜸(인증서 거부)', gate_ok and not has_pw, {'location': loc4, 'login_form': has_pw})
+    (OUT / '06-wrong-ca-uihierarchy.xml').write_text(adb('exec-out', 'uiautomator', 'dump', '/dev/tty', check_=False, timeout=60))
+    gB = log('gate-B')
+    check('B: 관문 B 기동', gate_ok)
+    check('B: 앱 쪽 인증서 거부 로그(Trust anchor 또는 -202)', any('Trust anchor' in l or 'net_error -202' in l for l in sslB), len(sslB))
+    check('B: 관문 B 에 로그인·WS 연결 0', '로그인 ' not in gB and '연결 ' not in gB, [l for l in gB.splitlines() if 'SSL' in l][:3])
+    if await cdp.attach():
+        loc4 = await cdp.js('location.href'); txt4 = await cdp.js('document.body.innerText') or ''
+        check('B: 로컬 연결 오류 안내 화면(로그인·명령 불가)', loc4 == 'https://localhost/fh-offline.html' and '명령도 보내지 않습니다' in txt4
+              and not await cdp.js("!!document.querySelector('#mpw')"), loc4)
+    else:
+        note('TOOL_ERROR', 'B: CDP 대상 0 — 화면은 06-wrong-ca.png·06-wrong-ca-uihierarchy.xml 로만 남김(판정 안 함)', '')
+        check('B: 로컬 연결 오류 안내 화면(로그인·명령 불가)', False, 'CDP 대상 없음(TOOL_ERROR)')
 
 
 REQUIRED = ['미인증 → 관문 로그인 화면', 'fixture 로그인 → 읽기 화면', '읽기 화면 WS 가 관문을 거쳐 v2_link 에 연결', '세션 쿠키로 whoami 200',
-            '복귀 뒤 보존 또는 재로그인 → 보기 전용', '이전 조종권·비영 명령 자동 복원 0(서버 status)', '로그아웃 200 → whoami 401', '관문 로그에 로그아웃', '관문 A 정상 종료(INT/TERM)',
-            '관문 없음 → 로컬 보기 전용 오류 화면', '오류 화면에 정지·STOPPED 단정 없음', '다른 CA 관문 → 로그인 화면 안 뜸(인증서 거부)',
+            '복귀 뒤 보존 또는 재로그인 → 보기 전용', '읽기 화면 왕복 중 조종권·비영 출력 자동 발생 없음(서버 status)', '로그아웃 200 → whoami 401', '관문 로그에 로그아웃', '관문 A 정상 종료(INT/TERM)',
+            '관문 없음 → 로컬 보기 전용 오류 화면', '오류 화면에 정지·STOPPED 단정 없음', 'B: 관문 B 기동', 'B: 앱 쪽 인증서 거부 로그(Trust anchor 또는 -202)', 'B: 관문 B 에 로그인·WS 연결 0', 'B: 로컬 연결 오류 안내 화면(로그인·명령 불가)',
             '정리: 띄운 프로세스 INT/TERM 으로 모두 종료', '결과 폴더에 비밀번호 없음', 'APK 설치(180 s 안)']
 
 
@@ -290,7 +316,7 @@ def main():
         start('v2_link', ['bash', '-c', f'source /opt/ros/jazzy/setup.bash && exec python3 -B sim/v2_link.py --port {LINK} --media {TMP}/media'], env=ENV_ROS)
         start('fake_v2_live', ['bash', '-c', 'source /opt/ros/jazzy/setup.bash && exec python3 -B tools/fake_v2_live.py'], env=ENV_ROS)
         time.sleep(6)
-        need('fixture 관문 기동(127.0.0.1)', gate(TMP / 'A'))
+        need('fixture 관문 기동(127.0.0.1)', gate(TMP / 'A', 'gate-A'))
         need('에뮬 시작 전 PC 부하 ≤ 코어/2', wait_until(lambda: os.getloadavg()[0] <= thr, 180, 5), round(os.getloadavg()[0], 1))
         avd = TMP / 'avd'; avd.mkdir(); emuenv = {**os.environ, 'ANDROID_AVD_HOME': str(avd), 'ANDROID_SDK_ROOT': str(SDK), 'JAVA_HOME': nodeenv['JAVA_HOME']}
         subprocess.run([AVDM, 'create', 'avd', '-n', 'fh-a-e2e', '-k', IMG, '-d', 'pixel_6'], input='no\n', text=True, env=emuenv, capture_output=True, check=True)
@@ -319,7 +345,7 @@ def main():
         try: (OUT / 'logcat.txt').write_text(adb('logcat', '-d', '-v', 'time', 'Capacitor:V', 'Capacitor/Console:V', 'chromium:V', 'cr_X509Util:V', '*:S', check_=False, timeout=30))
         except Exception as e: note('INFO', 'logcat 못 받음', repr(e)[:120])
         subprocess.run([ADB, '-s', 'emulator-5554', 'emu', 'kill'], capture_output=True, timeout=30)
-        left = [n for n in ('emulator', 'gate', 'fake_v2_live', 'v2_link') if not stop(n)]
+        left = [n for n in ('emulator', 'gate-A', 'gate-B', 'fake_v2_live', 'v2_link') if not stop(n)]
         check('정리: 띄운 프로세스 INT/TERM 으로 모두 종료', not left, {n: procs[n].pid for n in left})
         subprocess.run([ADB, 'forward', '--remove', f'tcp:{DEV}'], capture_output=True)
         leak = [p.name for p in OUT.iterdir() if p.is_file() and PW.encode() in p.read_bytes()]
@@ -331,7 +357,7 @@ def main():
         miss = [n for n in REQUIRED if n not in passed]
         check('필수 성공 항목 전부 PASS', not miss, miss)
         (OUT / 'results.json').write_text(json.dumps(RES, ensure_ascii=False, indent=1))
-        fails = sum(r['kind'] == 'FAIL' for r in RES)
+        fails = sum(r['kind'] in ('FAIL', 'TOOL_ERROR') for r in RES)
         print('FAIL 수', fails, '· PASS 수', sum(r['kind'] == 'PASS' for r in RES), flush=True)
         sys.exit(1 if fails else 0)
 
