@@ -136,10 +136,11 @@ public class FhGatePlugin extends Plugin {
     }
 
     // ── B2 저장: 사용자가 고른 위치(시스템 문서 선택기)에 쓰고, 다 쓰고 닫힌 뒤에만 성공. 경로·URI 는 화면에 돌려주지 않는다 ──
-    private byte[] pendingSave;   // ponytail: 선택기 하나만(두 번째는 busy). 화면 재생성으로 잃으면 stale
+    private FhSave.Pending pendingSave;   // ponytail: 선택기 하나만(두 번째는 busy). 화면 재생성으로 잃으면 stale(gen -1 = 원 문맥 모름)
 
     @PluginMethod
     public void saveFile(PluginCall call) {
+        FhGateCore.Ctx c = core.ctx();                       // 받는 순간 고정 — 결과·오류 gen 은 끝까지 이 문맥
         String name = call.getString("name"), b64 = call.getString("base64");
         byte[] b;
         try {
@@ -150,39 +151,48 @@ public class FhGatePlugin extends Plugin {
             }
             b = FhSave.bytes(name, call.getString("text"), raw);
         } catch (FhGateCore.GateError e) {
-            reject(call, new FhGateCore.GateError(e.code, e.getMessage(), core.ctx().gen()));
+            reject(call, new FhGateCore.GateError(e.code, e.getMessage(), c.gen()));
             return;
         }
-        if (pendingSave != null) { reject(call, new FhGateCore.GateError("busy", "저장 창이 이미 열려 있음", core.ctx().gen())); return; }
-        pendingSave = b;
+        if (!core.current(c)) { reject(call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어짐", c.gen())); return; }
+        if (pendingSave != null) { reject(call, new FhGateCore.GateError("busy", "저장 창이 이미 열려 있음", c.gen())); return; }
+        pendingSave = new FhSave.Pending(b, c);
         Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(FhSave.mime(name)).putExtra(Intent.EXTRA_TITLE, name);
-        startActivityForResult(call, i, "saveDone");
+        try {
+            startActivityForResult(call, i, "saveDone");
+        } catch (RuntimeException x) {                       // 선택기 없음·시작 실패 — 대기 칸을 비우고 Promise 를 고정 코드로 끝낸다
+            pendingSave = null;
+            reject(call, core.unexpected(c));
+        }
     }
 
     @ActivityCallback
     private void saveDone(PluginCall call, ActivityResult result) {
-        byte[] b = pendingSave;
+        FhSave.Pending p = pendingSave;
         pendingSave = null;
         if (call == null) return;
-        long g = core.ctx().gen();
-        if (b == null) { reject(call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어져 저장할 내용을 잃음 — 다시 저장", g)); return; }
+        if (p == null) { reject(call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어져 저장할 내용을 잃음 — 다시 저장", -1)); return; }
         Uri u = result.getData() == null ? null : result.getData().getData();
-        if (result.getResultCode() != Activity.RESULT_OK || u == null) { reject(call, new FhGateCore.GateError("cancelled", "저장 취소", g)); return; }
+        if (result.getResultCode() != Activity.RESULT_OK || u == null) {
+            reject(call, new FhGateCore.GateError(core.current(p.c) ? "cancelled" : "stale", "저장 취소", p.c.gen()));
+            return;
+        }
         try {
             io.execute(() -> {
                 try {
-                    int n = FhSave.write(getContext().getContentResolver().openOutputStream(u, "wt"), b);
+                    int n = FhSave.save(core, p, () -> getContext().getContentResolver().openOutputStream(u, "wt"), () -> removePartial(u));
                     JSObject r = new JSObject();
-                    r.put("saved", true); r.put("bytes", n); r.put("gen", core.ctx().gen());   // 위치·URI 는 돌려주지 않음
-                    call.resolve(r);                              // 다 쓰고 닫힌 뒤에만
-                } catch (IOException | RuntimeException x) {
-                    removePartial(u);
-                    reject(call, new FhGateCore.GateError("io", "파일 쓰기 실패 — 저장 안 됨", g));
+                    r.put("saved", true); r.put("bytes", n); r.put("gen", p.c.gen());   // 위치·URI 는 돌려주지 않음
+                    call.resolve(r);                              // 다 쓰고 닫힌 뒤, 문맥 대조 통과 때만
+                } catch (FhGateCore.GateError e) {
+                    reject(call, e);
+                } catch (RuntimeException e) {
+                    reject(call, core.unexpected(p.c));
                 }
             });
         } catch (RejectedExecutionException x) {
-            removePartial(u);                                     // 선택기가 만든 빈 파일을 남기지 않는다(가능하면)
-            reject(call, new FhGateCore.GateError("busy", "요청이 밀림 — 저장 안 됨, 다시 저장", g));
+            removePartial(u);                                     // 안 쓴 빈 문서를 남기지 않는다(가능하면)
+            reject(call, new FhGateCore.GateError(io.isShutdown() ? "stale" : "busy", io.isShutdown() ? "앱 화면이 다시 만들어짐 — 저장 안 됨" : "요청이 밀림 — 저장 안 됨, 다시 저장", p.c.gen()));
         }
     }
 

@@ -76,4 +76,42 @@ public class FhSaveTest {
         }
         try { FhSave.write(null, b); fail(); } catch (IOException expected) { /* 위치 못 엶 */ }
     }
+
+    // ── 문맥 대조(Codex 보완 1): 결과·오류 gen 은 선택기를 연 순간의 Ctx. 끝난 문맥이 새 gen 으로 성공을 꾸미지 않는다 ──
+    interface Ev { void on(FhGateCore core) throws Exception; }
+    static final Ev[] ENDS = {   // 세대를 끝내는 세 사건(B1 경합 시험과 같은 것)
+        FhGateCore::endLocal,
+        core -> core.setGate("https://127.0.0.2:18453"),
+        FhGateCore::close,
+    };
+    static FhGateCore core() { return new FhGateCore((m, u, h, b, max) -> { throw new IOException("네트워크 없음"); }, new FhGateCoreTest.MemVault(), "https://localhost", () -> 1.0); }
+    static final byte[] CSV = "a,b\n".getBytes(StandardCharsets.UTF_8);
+
+    /** at: 0 = 쓰기 전 끝남, 1 = 쓰는 중 끝남 + 쓰기 실패, 2 = 다 쓰고 닫힌 뒤 끝남, -1 = 끝나지 않음. 돌려줌: 코드|gen|discard 횟수|닫힘 */
+    static String run(Ev end, int at, boolean writeFails) throws Exception {
+        FhGateCore core = core();
+        core.setGate("https://127.0.0.1:18453");
+        FhSave.Pending p = new FhSave.Pending(CSV, core.ctx());
+        int[] discards = {0}; boolean[] closed = {false};
+        if (at == 0) end.on(core);
+        FhSave.Opener open = () -> new ByteArrayOutputStream() {
+            @Override public void write(byte[] b, int o, int n) { if (at == 1) { try { end.on(core); } catch (Exception e) { throw new IllegalStateException(e); } } if (!writeFails) super.write(b, o, n); else throw new IllegalStateException("disk"); }
+            @Override public void close() throws IOException { closed[0] = true; if (at == 2) { try { end.on(core); } catch (Exception e) { throw new IOException(e); } } }
+        };
+        String code;
+        try { int n = FhSave.save(core, p, open, () -> discards[0]++); code = "ok" + n; }
+        catch (FhGateCore.GateError e) { code = e.code + "|" + e.gen; }
+        return code + "|d" + discards[0] + "|" + (closed[0] ? "closed" : "open");
+    }
+
+    @Test public void saveKeepsItsOwnContext() throws Exception {
+        assertEquals("ok4|d0|closed", run(null, -1, false));
+        assertEquals("io|1|d1|closed", run(null, -1, true));            // 현재 문맥의 쓰기 실패 = io + 빈 문서 지우기(스트림은 finally 로 닫힘)
+        for (int k = 0; k < ENDS.length; k++) {
+            Ev e = ENDS[k];
+            assertEquals("쓰기 전 " + k, "stale|1|d1|open", run(e, 0, false));             // 안 열고·안 쓰고 빈 문서 지움
+            assertEquals("쓰는 중 " + k, "stale|1|d1|closed", run(e, 1, true));            // 옛 문맥의 쓰기 실패 = 원인 대신 stale, 지움
+            assertEquals("쓴 뒤 " + k, "stale|1|d0|closed", run(e, 2, false));             // 파일은 완성 — 지우지 않고 응답만 stale(gen 은 원 문맥 1)
+        }
+    }
 }

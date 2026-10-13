@@ -72,5 +72,31 @@ final class FhSave {
         return b.length;
     }
 
+    /** 선택기를 여는 순간의 내용 + 호출 문맥(Ctx). 결과·오류 gen 은 언제나 이 c 의 gen — 복귀 때 현재 gen 을 새로 읽지 않는다. */
+    static final class Pending {
+        final byte[] b; final FhGateCore.Ctx c;
+        Pending(byte[] b, FhGateCore.Ctx c) { this.b = b; this.c = c; }
+    }
+
+    interface Opener { OutputStream open() throws IOException; }
+
+    /**
+     * 선택기 복귀 뒤 io 스레드에서 도는 저장 한 번. 대조 3곳: ① 쓰기 전(문맥 끝 → 안 쓰고 discard·stale) ② 쓰기 실패(discard, 현재 문맥이면 io·옛 문맥이면 stale)
+     * ③ 다 쓰고 닫은 뒤(문맥 끝 → **파일은 완성, 지우지 않음**, 응답만 stale). discard = 선택기가 만든 빈·덜 쓴 문서 지우기(최선, 실패해도 그대로).
+     * 돌려준 값 = 쓴 바이트 수(결과 gen 은 c.gen). ③ 대조와 resolve 사이 틈은 다른 호출과 같이 남는다.
+     */
+    static int save(FhGateCore core, Pending p, Opener open, Runnable discard) throws FhGateCore.GateError {
+        if (!core.current(p.c)) { discard.run(); throw new FhGateCore.GateError("stale", "취소된 저장 — 쓰지 않음", p.c.gen()); }
+        int n;
+        try {
+            n = write(open.open(), p.b);
+        } catch (IOException | RuntimeException x) {
+            discard.run();
+            throw core.current(p.c) ? new FhGateCore.GateError("io", "파일 쓰기 실패 — 저장 안 됨", p.c.gen()) : new FhGateCore.GateError("stale", "취소된 저장 — 저장 안 됨", p.c.gen());
+        }
+        if (!core.current(p.c)) throw new FhGateCore.GateError("stale", "파일은 저장됨 — 취소된 호출이라 응답 버림", p.c.gen());
+        return n;
+    }
+
     private static FhGateCore.GateError bad(String m) { return new FhGateCore.GateError("bad_input", m, -1); }
 }
