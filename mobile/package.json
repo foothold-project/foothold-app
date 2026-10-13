@@ -1,0 +1,21 @@
+{
+  "name": "foothold-mobile",
+  "private": true,
+  "version": "0.1.0",
+  "description": "FOOTHOLD 앱 Android/iOS 외피(Capacitor). 화면은 ui/dist 를 그대로 싣는다 — 화면 재구현 없음.",
+  "type": "module",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "web": "node scripts/sync-web.mjs",
+    "sync": "node scripts/sync-web.mjs && cap sync",
+    "apk:debug": "node scripts/sync-web.mjs && cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2"
+  }
+}

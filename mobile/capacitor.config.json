@@ -1,0 +1,7 @@
+{
+  "appId": "kr.foothold.app",
+  "appName": "FOOTHOLD",
+  "webDir": "www",
+  "android": { "allowMixedContent": false },
+  "server": { "androidScheme": "https", "cleartext": false }
+}
