@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":980};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--gridc:rgba(154,167,179,.07);--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--gridc:rgba(18,23,28,.06);--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,select{font:inherit;color:inherit}\nbutton{cursor:pointer}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}\n.lbl{font-size:12px;color:var(--muted)}\n.btn{height:40px;padding:0 14px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:13px}\n.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\n.tool{height:38px;padding:0 10px;border:1px solid transparent;border-radius:6px;background:transparent;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}\n.tool[aria-pressed=\"true\"]{background:var(--acc-bg);border-color:var(--accent);color:var(--text)}\n.mp{display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);text-align:left;width:100%}\n.mp.sel{border-color:var(--accent);background:var(--acc-bg)}\n.inp{height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:14px;box-sizing:border-box;width:100%}\n.sec{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}\n.kv{display:grid;grid-template-columns:96px 1fr;gap:6px 10px;font-size:13px}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; [k: string]: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -30,34 +30,35 @@ export function View({ v }: { v: Vals }) {
           <div style={{"display":"flex","flexDirection":"column","gap":"2px"}}>
             {" "}
             <span style={{"fontSize":"12px","color":"var(--muted)"}}>
-              {"지도"}
+              {v.hdrA ?? "지도"}
             </span>
             {" "}
             <span style={{"fontSize":"17px","fontWeight":"600"}}>
-              {"B1 펌프실 · 지도 v3"}
+              {v.hdrB ?? "B1 펌프실 · 지도 v3"}
             </span>
             {" "}
           </div>
           {" "}
           <span style={{"height":"26px","padding":"0 10px","borderRadius":"999px","display":"flex","alignItems":"center","fontSize":"12px","fontWeight":"600","background":"var(--acc-bg)","color":"var(--accent)"}}>
-            {"임무에 사용 중"}
+            {v.pill ?? "임무에 사용 중"}
           </span>
           {" "}
           <div style={{"flex":"1"}} />
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"6px","height":"34px","padding":"0 10px","border":"1px solid var(--line)","borderRadius":"6px","fontSize":"13px","background":"var(--panel2)"}}>
-            <span style={{"color":"var(--ok)","fontSize":"11px"}}>
-              {"●"}
+            <span style={{"color":"var(--ok)","fontSize":"11px",...v.posDotS}}>
+              {v.posDot ?? "●"}
             </span>
             <span style={{"color":"var(--muted)"}}>
               {"위치"}
             </span>
             <span className="mono" style={{"fontWeight":"600"}}>
-              {"신뢰 높음 · ±0.08 m"}
+              {v.posTxt ?? "신뢰 높음 · ±0.08 m"}
             </span>
           </div>
           {" "}
-          <button aria-label="비상 정지" style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
+          {v.status ?? null}
+          <button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
             {" "}
             <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
@@ -142,7 +143,7 @@ export function View({ v }: { v: Vals }) {
                 {"저장된 지도"}
               </span>
               {" "}
-              <button className="btn pri" style={{"width":"100%"}}>
+              <button className="btn pri" style={{"width":"100%"}} {...v.newP}>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true">
                   <path d="M12 5v14M5 12h14" />
                 </svg>
@@ -150,22 +151,23 @@ export function View({ v }: { v: Vals }) {
               </button>
               {" "}
               <span className="lbl" style={{"lineHeight":"1.5"}}>
-                {"로봇을 직접 조종해 한 바퀴 돌면 SLAM이 지도를 만듭니다. 끝나면 저장합니다."}
+                {v.lbl0 ?? "로봇을 직접 조종해 한 바퀴 돌면 SLAM이 지도를 만듭니다. 끝나면 저장합니다."}
               </span>
               {" "}
               <span className="lbl" style={{"paddingTop":"6px"}}>
-                {"B1 · [현장명]"}
+                {v.lbl1 ?? "B1 · [현장명]"}
               </span>
               {" "}
               <button className="mp sel">
                 <b style={{"fontSize":"14px"}}>
-                  {"펌프실 v3"}
+                  {v.mpName ?? "펌프실 v3"}
                 </b>
                 <span className="lbl">
-                  {"10-10 14:20 · 46 × 27 m · 사용 중"}
+                  {v.mpSub ?? "10-10 14:20 · 46 × 27 m · 사용 중"}
                 </span>
               </button>
               {" "}
+              {v.oldHide ? null : (<>
               <button className="mp">
                 <b style={{"fontSize":"14px"}}>
                   {"펌프실 v2"}
@@ -188,8 +190,9 @@ export function View({ v }: { v: Vals }) {
                 </span>
               </button>
               {" "}
+              </>)}
               <span className="lbl" style={{"lineHeight":"1.5","paddingTop":"6px","borderTop":"1px solid var(--line)"}}>
-                {"층을 바꾸면: 층 확인 → 지도 불러오기 → 위치 맞추기 → 신뢰 확인 뒤에만 이동합니다. 층 사이 자율 이동은 아직 지원하지 않습니다."}
+                {v.floorNote ?? "층을 바꾸면: 층 확인 → 지도 불러오기 → 위치 맞추기 → 신뢰 확인 뒤에만 이동합니다. 층 사이 자율 이동은 아직 지원하지 않습니다."}
               </span>
               {" "}
             </section>
@@ -198,7 +201,7 @@ export function View({ v }: { v: Vals }) {
               {" "}
               <div role="toolbar" aria-label="지도 도구" style={{"display":"flex","flexWrap":"wrap","alignItems":"center","gap":"4px","padding":"8px 10px","borderBottom":"1px solid var(--line)"}}>
                 {" "}
-                <button className="tool" aria-pressed="true">
+                <button className="tool" aria-pressed="true" {...v.tools?.[0]}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <circle cx="12" cy="12" r="4" />
                     <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
@@ -206,7 +209,7 @@ export function View({ v }: { v: Vals }) {
                   {"위치 맞추기"}
                 </button>
                 {" "}
-                <button className="tool" aria-pressed="false">
+                <button className="tool" aria-pressed="false" {...v.tools?.[1]}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <rect x="4" y="4" width="16" height="16" />
                     <path d="M4 4l16 16" />
@@ -214,7 +217,7 @@ export function View({ v }: { v: Vals }) {
                   {"진입 금지 구역"}
                 </button>
                 {" "}
-                <button className="tool" aria-pressed="false">
+                <button className="tool" aria-pressed="false" {...v.tools?.[2]}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <path d="M4 18a8 8 0 0116 0" />
                     <path d="M12 18l4-6" />
@@ -222,14 +225,14 @@ export function View({ v }: { v: Vals }) {
                   {"감속 구역"}
                 </button>
                 {" "}
-                <button className="tool" aria-pressed="false">
+                <button className="tool" aria-pressed="false" {...v.tools?.[3]}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <path d="M4 7h16M4 12h10M4 17h7" />
                   </svg>
                   {"구역 이름"}
                 </button>
                 {" "}
-                <button className="tool" aria-pressed="false">
+                <button className="tool" aria-pressed="false" {...v.tools?.[4]}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                     <path d="M5 20l7-16 7 16" />
                   </svg>
@@ -240,11 +243,11 @@ export function View({ v }: { v: Vals }) {
                 {" "}
                 <div role="radiogroup" aria-label="보기" style={{"display":"flex","border":"1px solid var(--line2)","borderRadius":"6px","overflow":"hidden"}}>
                   {" "}
-                  <button role="radio" aria-checked="true" style={{"height":"34px","padding":"0 12px","border":"0","background":"var(--acc-bg)","fontSize":"12px","fontWeight":"600"}}>
+                  <button role="radio" aria-checked="true" {...v.v2P} style={{"height":"34px","padding":"0 12px","border":"0","background":"var(--acc-bg)","fontSize":"12px","fontWeight":"600"}}>
                     {"2D 지도"}
                   </button>
                   {" "}
-                  <button role="radio" aria-checked="false" style={{"height":"34px","padding":"0 12px","border":"0","background":"transparent","fontSize":"12px","color":"var(--muted)"}}>
+                  <button role="radio" aria-checked="false" {...v.v3P} style={{"height":"34px","padding":"0 12px","border":"0","background":"transparent","fontSize":"12px","color":"var(--muted)"}}>
                     {"3D 점군"}
                   </button>
                   {" "}
@@ -254,7 +257,8 @@ export function View({ v }: { v: Vals }) {
               {" "}
               <div style={{"position":"relative"}}>
                 {" "}
-                <svg viewBox="0 0 1000 620" style={{"width":"100%","height":"auto","display":"block"}} role="img" aria-label="지도 편집: 위치 맞추기 화살표와 위치 추정 입자 구름, 선택된 진입 금지 구역, 감속 구역">
+                {v.map ?? null}
+                <svg viewBox="0 0 1000 620" style={{"width":"100%","height":"auto","display":"block",...(v.map ? { visibility: "hidden" } : {})}} role="img" aria-label="지도 편집: 위치 맞추기 화살표와 위치 추정 입자 구름, 선택된 진입 금지 구역, 감속 구역">
                   <defs>
                     <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                       <path d="M20 0H0V20" fill="none" style={{"stroke":"var(--gridc)"}} strokeWidth="1" />
@@ -365,18 +369,18 @@ export function View({ v }: { v: Vals }) {
                 <div style={{"position":"absolute","left":"12px","top":"12px","maxWidth":"340px","display":"flex","flexDirection":"column","gap":"6px","padding":"12px 14px","borderRadius":"8px","background":"var(--panel)","border":"1px solid var(--line2)"}}>
                   {" "}
                   <b style={{"fontSize":"14px"}}>
-                    {"위치 맞추기"}
+                    {v.gT ?? "위치 맞추기"}
                   </b>
                   {" "}
                   <span className="lbl" style={{"lineHeight":"1.5"}}>
-                    {"1 로봇이 실제로 있는 곳을 누르고 2 바라보는 방향으로 끌어 놓은 뒤 3 로봇을 조금 움직여 점이 모이는지 봅니다."}
+                    {v.gL ?? "1 로봇이 실제로 있는 곳을 누르고 2 바라보는 방향으로 끌어 놓은 뒤 3 로봇을 조금 움직여 점이 모이는지 봅니다."}
                   </span>
                   {" "}
                   <div style={{"display":"flex","alignItems":"center","gap":"8px","fontSize":"13px"}}>
-                    <span style={{"color":"var(--ok)"}}>
+                    {v.gS ?? (<><span style={{"color":"var(--ok)"}}>
                       {"●"}
                     </span>
-                    {"점이 한곳에 모였습니다 · 이동 가능"}
+                    {"점이 한곳에 모였습니다 · 이동 가능"}</>)}
                   </div>
                   {" "}
                 </div>
@@ -390,9 +394,9 @@ export function View({ v }: { v: Vals }) {
               <div style={{"padding":"14px 16px","display":"flex","flexDirection":"column","gap":"10px"}}>
                 {" "}
                 <div style={{"display":"flex","alignItems":"center","gap":"8px"}}>
-                  <span style={{"width":"14px","height":"14px","background":"var(--bad-bg)","border":"2px solid var(--bad)"}} />
+                  <span style={{"width":"14px","height":"14px","background":"var(--bad-bg)","border":"2px solid var(--bad)",...v.zColor}} />
                   <b style={{"fontSize":"15px"}}>
-                    {"진입 금지 구역"}
+                    {v.zHead ?? "진입 금지 구역"}
                   </b>
                 </div>
                 {" "}
@@ -400,43 +404,45 @@ export function View({ v }: { v: Vals }) {
                   {"이름"}
                 </label>
                 {" "}
-                <input id="zn" className="inp" defaultValue="전기실 · 고압 배전반" />
+                {v.zn ?? <input id="zn" className="inp" defaultValue="전기실 · 고압 배전반" />}
                 {" "}
                 <label className="lbl" htmlFor="za">
-                  {"적용"}
+                  {v.zaLbl ?? "적용"}
                 </label>
                 {" "}
-                <select id="za" className="inp">
+                {v.za ?? (<><select id="za" className="inp">
                   <option>
                     {"모든 임무 · 직접 조종 포함"}
                   </option>
                   <option>
                     {"자율 이동만"}
                   </option>
-                </select>
+                </select></>)}
                 {" "}
                 <span className="lbl" style={{"lineHeight":"1.5"}}>
-                  {"직접 조종 중에도 이 구역 앞에서 멈춥니다. Nav2 keepout 필터로 서버에서 막습니다."}
+                  {v.zNote ?? "직접 조종 중에도 이 구역 앞에서 멈춥니다. Nav2 keepout 필터로 서버에서 막습니다."}
                 </span>
                 {" "}
                 <div style={{"display":"flex","gap":"8px"}}>
-                  <button className="btn" style={{"flex":"1","color":"var(--bad)","borderColor":"var(--bad)"}}>
-                    {"구역 삭제"}
+                  <button className="btn" style={{"flex":"1","color":"var(--bad)","borderColor":"var(--bad)"}} {...v.delP}>
+                    {v.delT ?? "구역 삭제"}
                   </button>
-                  <button className="btn pri" style={{"flex":"1"}}>
+                  <button className="btn pri" style={{"flex":"1"}} {...v.saveP}>
                     {"저장"}
                   </button>
                 </div>
+                {v.msg ?? null}
                 {" "}
               </div>
               {" "}
               <div className="sec">
                 {" "}
                 <b style={{"fontSize":"14px"}}>
-                  {"이 지도의 구역"}
+                  {v.zListH ?? "이 지도의 구역"}
                 </b>
                 {" "}
                 <div style={{"display":"flex","flexDirection":"column","gap":"6px","fontSize":"13px"}}>
+                  {v.zRows ?? (<>
                   {" "}
                   <span style={{"display":"flex","justifyContent":"space-between"}}>
                     <span>
@@ -474,6 +480,7 @@ export function View({ v }: { v: Vals }) {
                     </span>
                   </span>
                   {" "}
+                  </>)}
                 </div>
                 {" "}
               </div>
@@ -485,6 +492,7 @@ export function View({ v }: { v: Vals }) {
                 </b>
                 {" "}
                 <div className="kv">
+                  {v.kv ?? (<>
                   {" "}
                   <span className="lbl">
                     {"만든 날"}
@@ -535,13 +543,14 @@ export function View({ v }: { v: Vals }) {
                     {"7회"}
                   </span>
                   {" "}
+                  </>)}
                 </div>
                 {" "}
                 <div style={{"display":"flex","gap":"8px"}}>
-                  <button className="btn" style={{"flex":"1"}}>
-                    {"내보내기"}
+                  <button className="btn" style={{"flex":"1"}} {...v.exP}>
+                    {v.exT ?? "내보내기"}
                   </button>
-                  <button className="btn" style={{"flex":"1"}}>
+                  <button className="btn" style={{"flex":"1"}} {...v.reP}>
                     {"다시 만들기"}
                   </button>
                 </div>
