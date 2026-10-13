@@ -1,0 +1,493 @@
+{
+  "$defs": {
+    "DocDel": {
+      "properties": {
+        "id": {
+          "pattern": "^[a-z][A-Za-z0-9_]{1,40}$",
+          "title": "Id",
+          "type": "string"
+        },
+        "op": {
+          "const": "del",
+          "title": "Op",
+          "type": "string"
+        },
+        "rev": {
+          "minimum": 1,
+          "title": "Rev",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op",
+        "id",
+        "rev"
+      ],
+      "title": "DocDel",
+      "type": "object"
+    },
+    "DocPut": {
+      "description": "POST /api/docs 새 문서: id=null + kind. 고침: id + 화면이 읽은 rev(kind 는 무시 — 기존 문서 종류).",
+      "properties": {
+        "doc": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Zone"
+            },
+            {
+              "$ref": "#/$defs/Tmpl"
+            },
+            {
+              "$ref": "#/$defs/Mission"
+            },
+            {
+              "$ref": "#/$defs/Run"
+            },
+            {
+              "$ref": "#/$defs/Note"
+            }
+          ],
+          "title": "Doc"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "pattern": "^[a-z][A-Za-z0-9_]{1,40}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "zone",
+                "tmpl",
+                "mission",
+                "run",
+                "note"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Kind"
+        },
+        "op": {
+          "const": "put",
+          "title": "Op",
+          "type": "string"
+        },
+        "rev": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rev"
+        }
+      },
+      "required": [
+        "op",
+        "doc"
+      ],
+      "title": "DocPut",
+      "type": "object"
+    },
+    "Mission": {
+      "additionalProperties": false,
+      "properties": {
+        "memo": {
+          "maxLength": 400,
+          "title": "Memo",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 60,
+          "title": "Name",
+          "type": "string"
+        },
+        "tmpl": {
+          "maxLength": 40,
+          "title": "Tmpl",
+          "type": "string"
+        },
+        "wps": {
+          "items": {
+            "$ref": "#/$defs/Waypoint"
+          },
+          "maxItems": 30,
+          "title": "Wps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "tmpl",
+        "memo",
+        "wps"
+      ],
+      "title": "Mission",
+      "type": "object"
+    },
+    "Note": {
+      "additionalProperties": false,
+      "description": "사진 분류(운영자 관찰, AI 탐지 없음). 같은 photo 에 하나만.",
+      "properties": {
+        "cls": {
+          "enum": [
+            "확인",
+            "보류",
+            "제외"
+          ],
+          "title": "Cls",
+          "type": "string"
+        },
+        "memo": {
+          "maxLength": 400,
+          "title": "Memo",
+          "type": "string"
+        },
+        "photo": {
+          "pattern": "^media/photos/[0-9]{8}/[A-Za-z0-9_.-]{1,80}\\.jpg$",
+          "title": "Photo",
+          "type": "string"
+        }
+      },
+      "required": [
+        "photo",
+        "cls",
+        "memo"
+      ],
+      "title": "Note",
+      "type": "object"
+    },
+    "Run": {
+      "additionalProperties": false,
+      "description": "수동 임무 진행(운영자 기록 — 로봇 자동 완료 아님). status=진행 은 전체에서 하나만.",
+      "properties": {
+        "ended": {
+          "maxLength": 32,
+          "title": "Ended",
+          "type": "string"
+        },
+        "memo": {
+          "maxLength": 400,
+          "title": "Memo",
+          "type": "string"
+        },
+        "mission": {
+          "maxLength": 40,
+          "title": "Mission",
+          "type": "string"
+        },
+        "mode": {
+          "const": "수동",
+          "title": "Mode",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 60,
+          "title": "Name",
+          "type": "string"
+        },
+        "started": {
+          "maxLength": 32,
+          "title": "Started",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "진행",
+            "완료",
+            "실패",
+            "중단"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "tmpl": {
+          "maxLength": 60,
+          "title": "Tmpl",
+          "type": "string"
+        },
+        "wps": {
+          "items": {
+            "$ref": "#/$defs/RunWaypoint"
+          },
+          "maxItems": 30,
+          "title": "Wps",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mode",
+        "mission",
+        "tmpl",
+        "name",
+        "status",
+        "started",
+        "ended",
+        "memo",
+        "wps"
+      ],
+      "title": "Run",
+      "type": "object"
+    },
+    "RunWaypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "maxLength": 32,
+          "title": "At",
+          "type": "string"
+        },
+        "chk": {
+          "enum": [
+            "",
+            "확인",
+            "보류",
+            "제외"
+          ],
+          "title": "Chk",
+          "type": "string"
+        },
+        "mods": {
+          "items": {
+            "enum": [
+              "사진",
+              "운영자 확인",
+              "대기"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Mods",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 40,
+          "title": "Name",
+          "type": "string"
+        },
+        "photos": {
+          "items": {
+            "pattern": "^media/photos/[0-9]{8}/[A-Za-z0-9_.-]{1,80}\\.jpg$",
+            "type": "string"
+          },
+          "maxItems": 10,
+          "title": "Photos",
+          "type": "array"
+        },
+        "st": {
+          "enum": [
+            "대기",
+            "방문",
+            "미방문"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "why": {
+          "maxLength": 120,
+          "title": "Why",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 10000.0,
+          "minimum": -10000.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 10000.0,
+          "minimum": -10000.0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "name",
+        "mods",
+        "st",
+        "at",
+        "why",
+        "chk",
+        "photos"
+      ],
+      "title": "RunWaypoint",
+      "type": "object"
+    },
+    "Tmpl": {
+      "additionalProperties": false,
+      "properties": {
+        "desc": {
+          "maxLength": 120,
+          "title": "Desc",
+          "type": "string"
+        },
+        "mods": {
+          "items": {
+            "$ref": "#/$defs/TmplMod"
+          },
+          "maxItems": 6,
+          "title": "Mods",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 60,
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "desc",
+        "mods"
+      ],
+      "title": "Tmpl",
+      "type": "object"
+    },
+    "TmplMod": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "maxLength": 80,
+          "title": "Detail",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "사진",
+            "운영자 확인",
+            "대기"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "detail"
+      ],
+      "title": "TmplMod",
+      "type": "object"
+    },
+    "Waypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "mods": {
+          "items": {
+            "enum": [
+              "사진",
+              "운영자 확인",
+              "대기"
+            ],
+            "type": "string"
+          },
+          "maxItems": 3,
+          "title": "Mods",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 40,
+          "title": "Name",
+          "type": "string"
+        },
+        "x": {
+          "maximum": 10000.0,
+          "minimum": -10000.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 10000.0,
+          "minimum": -10000.0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "name",
+        "mods"
+      ],
+      "title": "Waypoint",
+      "type": "object"
+    },
+    "Zone": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 40,
+          "title": "Name",
+          "type": "string"
+        },
+        "pts": {
+          "items": {
+            "items": {
+              "maximum": 10000.0,
+              "minimum": -10000.0,
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "maxItems": 40,
+          "minItems": 3,
+          "title": "Pts",
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "금지",
+            "감속"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "pts"
+      ],
+      "title": "Zone",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/DocWrite",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "del": "#/$defs/DocDel",
+      "put": "#/$defs/DocPut"
+    },
+    "propertyName": "op"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/DocPut"
+    },
+    {
+      "$ref": "#/$defs/DocDel"
+    }
+  ]
+}
