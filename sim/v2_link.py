@@ -281,6 +281,132 @@ class Media:
         return out
 
 
+# ---- 공용 문서(구역·임무·임무 진행·사진 분류) — PC·휴대폰이 같은 값을 본다 ----
+# 형식: ('s', 최대 글자) · ('n',) 유한 숫자 ±10000 · ('e', 허용값) · ('l', 항목형식, 최대 개수[, 최소]) · dict = 이 키만 전부 필요
+S = lambda n: ('s', n)
+N, PT = ('n',), ('l', ('n',), 2, 2)
+PHOTO = ('p', re.compile(r'media/photos/\d{8}/[\w.-]{1,80}\.jpg'))      # 서버 사진 경로만(임의 주소·javascript:·.. 불가)
+MODS = ('e', {'사진', '운영자 확인', '대기'})   # 지금 앱으로 실제 할 수 있는 모듈만(가스·AI 탐지·음성 방송은 미연결 — 저장 형식에 없음)
+WP = {'x': N, 'y': N, 'name': S(40), 'mods': ('l', MODS, 3)}
+DOC_KINDS = {
+    'zone': {'name': S(40), 'type': ('e', {'금지', '감속'}), 'pts': ('l', PT, 40, 3)},
+    # 임무 양식: 지점에서 할 일(모듈). 경보 규칙은 자동 실행 미연결이라 저장하지 않는다
+    'tmpl': {'name': S(60), 'desc': S(120), 'mods': ('l', {'type': MODS, 'detail': S(80)}, 6)},
+    # 임무 계획: 양식(tmpl id, 비면 기본 양식) + 경유점(지점마다 할 일)
+    'mission': {'name': S(60), 'tmpl': S(40), 'memo': S(400), 'wps': ('l', WP, 30)},
+    # 수동 임무 진행: 운영자가 직접 조종·확인해 적는 결과(로봇 자동 완료 아님). 계획을 시작 때 복사해 둔다
+    'run': {'mode': ('e', {'수동'}), 'mission': S(40), 'tmpl': S(60), 'name': S(60), 'status': ('e', {'진행', '완료', '실패', '중단'}), 'started': S(32), 'ended': S(32), 'memo': S(400),
+            'wps': ('l', {**WP, 'st': ('e', {'대기', '방문', '미방문'}), 'at': S(32), 'why': S(120), 'chk': ('e', {'', '확인', '보류', '제외'}), 'photos': ('l', PHOTO, 10)}, 30)},
+    # 사진 = 운영자 등록 관찰(AI 탐지 없음): 확인·보류·제외 + 메모
+    'note': {'photo': PHOTO, 'cls': ('e', {'확인', '보류', '제외'}), 'memo': S(400)},
+}
+DOC_MAX, DOC_TOTAL = 12000, 2000          # 문서 하나 최대 바이트 · 전체 문서 수
+
+
+def doc_check(spec, v, path='doc'):
+    """형식이 맞으면 None, 아니면 이유. bool 은 숫자로 받지 않는다"""
+    if isinstance(spec, dict):
+        if not isinstance(v, dict) or set(v) != set(spec):
+            return f'{path}: 키가 {sorted(spec)} 이어야 함'
+        for k, s in spec.items():
+            e = doc_check(s, v[k], f'{path}.{k}')
+            if e:
+                return e
+        return None
+    t = spec[0]
+    if t == 's':
+        return None if isinstance(v, str) and len(v) <= spec[1] else f'{path}: 글 {spec[1]}자 이하'
+    if t == 'n':
+        return None if type(v) in (int, float) and math.isfinite(v) and abs(v) <= 1e4 else f'{path}: 유한 숫자(±10000)'
+    if t == 'e':
+        return None if isinstance(v, str) and v in spec[1] else f'{path}: {sorted(spec[1])} 중 하나'
+    if t == 'p':
+        return None if isinstance(v, str) and spec[1].fullmatch(v) and '..' not in v else f'{path}: 서버 사진 경로(media/photos/날짜/이름.jpg)만'
+    if not isinstance(v, list) or not (spec[3] if len(spec) > 3 else 0) <= len(v) <= spec[2]:
+        return f'{path}: 목록 {spec[3] if len(spec) > 3 else 0}~{spec[2]}개'
+    for i, x in enumerate(v):
+        e = doc_check(spec[1], x, f'{path}[{i}]')
+        if e:
+            return e
+    return None
+
+
+class Docs:
+    """docs.json 하나(임시 파일 → os.replace 원자 교체). ID·판(rev)·작성자·시각은 서버가 붙인다.
+    바꿀 내용(후보)을 먼저 파일에 쓰고, 성공한 뒤에만 메모리·전체 판을 확정한다 — 쓰기 실패면 이전 상태 그대로.
+    기존 파일이 깨졌으면 원본을 건드리지 않고 문서 저장소만 «사용 불가»(조종·상태는 계속). self.lock 은 문서 전용(조종 lock 과 분리).
+    고칠 때는 화면이 읽은 rev 를 보내야 한다 — 다르면 409. ponytail: 매번 파일 전체 쓰기 — 수천 건이면 종류별 파일로"""
+
+    def __init__(self, root):
+        self.path = Path(root) / 'docs.json'; self.lock = threading.Lock(); self.n = 0; self.broken = None; self.d = {}
+        try:
+            d = json.loads(self.path.read_text(encoding='utf-8'))
+            if not isinstance(d, dict):
+                raise ValueError('최상위가 객체 아님')
+            for k, x in d.items():       # 겉 키만이 아니라 저장 때와 같은 형식 검사(doc={} 같은 판이 화면 전체 예외를 내지 않게)
+                if not (isinstance(x, dict) and x.get('id') == k and x.get('kind') in DOC_KINDS and type(x.get('rev')) is int and x['rev'] >= 1
+                        and isinstance(x.get('by'), str) and isinstance(x.get('at'), str)) or doc_check(DOC_KINDS[x['kind']], x.get('doc')):
+                    raise ValueError(f'문서 {str(k)[:40]} 형식')
+            self.d = d
+        except FileNotFoundError:
+            pass
+        except Exception as e:      # 깨진 파일: 덮어쓰지 않는다
+            self.broken = f'docs.json 읽기 실패({type(e).__name__}) — 원본 보존, 문서 저장소 사용 불가'
+        self.rev = sum(x['rev'] for x in self.d.values())    # 화면이 «바뀜»을 알아채는 전체 판
+
+    def apply(self, m, actor):
+        """m = {op:'put'|'del', kind, id(새 문서는 None), rev, doc}. 반환 (HTTP 코드, 응답). self.lock 안에서 부른다"""
+        if self.broken:
+            return 503, {'error': self.broken}
+        if not isinstance(m, dict) or m.get('op') not in ('put', 'del'):
+            return 400, {'error': 'op 는 put·del'}
+        did, cur = m.get('id'), None
+        if did is not None:
+            if not isinstance(did, str) or not re.fullmatch(r'[a-z]\w{1,40}', did):
+                return 400, {'error': 'id 형식'}
+            rev = m.get('rev')
+            if type(rev) is not int or rev < 1:
+                return 400, {'error': 'rev 는 1 이상 정수'}
+            cur = self.d.get(did)
+            if cur is None:
+                return 404, {'error': '없는 문서(다른 기기가 지웠을 수 있음)'}
+            if rev != cur['rev']:
+                return 409, {'error': '다른 기기가 먼저 고침 — 새로 읽은 뒤 다시', 'cur': cur}
+        kind = cur['kind'] if cur else m.get('kind')
+        if not isinstance(kind, str) or kind not in DOC_KINDS:
+            return 400, {'error': f'종류는 {sorted(DOC_KINDS)}'}
+        new = dict(self.d)
+        if m['op'] == 'del':
+            if cur is None:
+                return 400, {'error': '지울 id 필요'}
+            del new[did]
+            self._write(new); self.d = new; self.rev += 1
+            return 200, {'ok': True, 'id': did, 'kind': kind, 'name': cur['doc'].get('name', '')}
+        doc = m.get('doc')
+        e = doc_check(DOC_KINDS[kind], doc)
+        if e:
+            return 400, {'error': e}
+        if len(json.dumps(doc, ensure_ascii=False).encode()) > DOC_MAX:
+            return 400, {'error': f'문서가 너무 큼({DOC_MAX} 바이트 이하)'}
+        # 하나만 있어야 하는 것: 진행 중 수동 임무 하나 · 사진 하나에 분류 하나. 겹치면 409 + 기존 문서(그 id·rev 로 다시 읽고 고침)
+        for x in self.d.values():
+            if x['id'] != did and x['kind'] == kind and (
+                    (kind == 'run' and doc['status'] == '진행' and x['doc'].get('status') == '진행') or
+                    (kind == 'note' and x['doc'].get('photo') == doc['photo'])):
+                return 409, {'error': '이미 진행 중인 수동 임무가 있음 — 먼저 끝내세요' if kind == 'run' else '이 사진은 다른 기기가 먼저 분류함 — 최신 판 위에 다시', 'cur': x}
+        if cur is None:
+            if len(self.d) >= DOC_TOTAL:
+                return 400, {'error': f'문서 수 한도 {DOC_TOTAL}'}
+            self.n += 1; did = f'{kind[0]}{time.strftime("%m%d%H%M%S")}{os.getpid() % 1000:03d}{self.n}'
+        new[did] = {'id': did, 'kind': kind, 'rev': (cur['rev'] if cur else 0) + 1, 'by': actor, 'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'doc': doc}
+        self._write(new); self.d = new; self.rev += 1
+        return 200, {'ok': True, 'id': did, 'rev': new[did]['rev'], 'kind': kind, 'name': doc.get('name', ''), 'new': cur is None}
+
+    def _write(self, d):            # 실패하면 예외 — 호출자는 메모리를 바꾸지 않은 채 500
+        tmp = self.path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(d, ensure_ascii=False), encoding='utf-8'); os.replace(tmp, self.path)
+
+
 def actor_from_header(v):
     """관문이 붙인 «계정 · 기기»(퍼센트 인코딩 UTF-8 — HTTP 헤더는 ASCII 만 안전). 형식이 틀리면 표시용 대체값"""
     from urllib.parse import unquote
@@ -360,6 +486,71 @@ def selftest_extra():
             f.write('깨진 줄\n')
         m.event({'t': '01:02:04', 'st': 'ok', 'text': 'b'})
         assert [e['text'] for e in m.tail('events.jsonl', 5)] == ['a', 'b'] and m.tail('none.jsonl', 5) == []
+        # 공용 문서: 서버 ID·rev, 형식 검사, rev 충돌 409, 원자 쓰기 후 다시 읽어도 같음
+        d = Docs(td); z = {'name': '금지1', 'type': '금지', 'pts': [[0, 0], [1, 0], [1, 1]]}
+        c, r = d.apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': z}, 'A'); assert c == 200 and r['rev'] == 1 and r['new'], r
+        zid = r['id']; assert d.d[zid]['by'] == 'A' and Docs(td).d == d.d and not (Path(td) / 'docs.tmp').exists()
+        assert d.apply({'op': 'put', 'id': zid, 'rev': 1, 'doc': {**z, 'name': '금지2'}}, 'B')[0] == 200
+        c, r = d.apply({'op': 'put', 'id': zid, 'rev': 1, 'doc': {**z, 'name': '늦은 수정'}}, 'A'); assert c == 409 and r['cur']['doc']['name'] == '금지2'
+        for bad in [{**z, 'pts': [[0, 0], [1, 1]]}, {**z, 'pts': [[0, 0], [1, float('nan')], [1, 1]]}, {**z, 'pts': [[0, 0], [True, 0], [1, 1]]},
+                    {**z, 'type': '위험'}, {**z, 'name': 'x' * 41}, {**z, 'extra': 1}, {'name': 'a'}, 'str']:
+            assert d.apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': bad}, 'A')[0] == 400, bad
+        assert d.apply({'op': 'put', 'kind': 'evil', 'id': None, 'doc': {}}, 'A')[0] == 400
+        assert d.apply({'op': 'put', 'id': 'nope', 'rev': 1, 'doc': z}, 'A')[0] == 404
+        n = {'photo': 'media/photos/20261013/a.jpg', 'cls': '확인', 'memo': ''}
+        for bad in ['http://x/a.jpg', 'javascript:alert(1)', 'media/photos/20261013/../a.jpg', 'media/photos/2026/a.jpg', ['x']]:
+            assert d.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': {**n, 'photo': bad}}, 'A')[0] == 400, bad
+        for bad in [['확인'], {'a': 1}, None]:      # 목록·사전 값도 400(TypeError 500 아님)
+            assert d.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': {**n, 'cls': bad}}, 'A')[0] == 400
+        assert d.apply({'op': 'put', 'kind': ['zone'], 'id': None, 'doc': z}, 'A')[0] == 400
+        assert d.apply({'op': 'put', 'kind': {'z': 1}, 'id': None, 'doc': z}, 'A')[0] == 400
+        for rv_ in [True, 0, -1, '2', 2.0, None]:
+            assert d.apply({'op': 'put', 'id': zid, 'rev': rv_, 'doc': z}, 'A')[0] == 400, rv_
+        assert d.apply({'op': 'put', 'id': ['x'], 'rev': 1, 'doc': z}, 'A')[0] == 400
+        assert d.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': n}, 'A')[0] == 200
+        assert d.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': {**n, 'cls': '맞음'}}, 'A')[0] == 400
+        tm = {'name': 't', 'desc': '', 'mods': [{'type': '사진', 'detail': '전방 1장'}]}
+        assert d.apply({'op': 'put', 'kind': 'tmpl', 'id': None, 'doc': tm}, 'A')[0] == 200
+        for bad in ({'type': '가스 측정', 'detail': ''}, {'type': 'AI 탐지', 'detail': ''}):   # 미연결 모듈은 저장 안 됨
+            assert d.apply({'op': 'put', 'kind': 'tmpl', 'id': None, 'doc': {**tm, 'mods': [bad]}}, 'A')[0] == 400
+        assert d.apply({'op': 'put', 'kind': 'tmpl', 'id': None, 'doc': {**tm, 'rules': []}}, 'A')[0] == 400
+        wp = {'x': 1, 'y': 2, 'name': '계단 앞', 'mods': ['사진', '운영자 확인']}
+        assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {'name': 'm', 'tmpl': '', 'memo': '', 'wps': [wp]}}, 'A')[0] == 200
+        assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {'name': 'm', 'tmpl': '', 'memo': '', 'wps': [{**wp, 'mods': ['사진'] * 4}]}}, 'A')[0] == 400
+        rw = {**wp, 'st': '미방문', 'at': '', 'why': '길 막힘', 'chk': '', 'photos': ['media/photos/20261013/a.jpg']}
+        assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '중단', 'started': 't', 'ended': 't', 'memo': '', 'wps': [rw]}}, 'A')[0] == 200
+        assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '중단', 'started': 't', 'ended': 't', 'memo': '', 'wps': [{**rw, 'chk': '맞음'}]}}, 'A')[0] == 400
+        # 하나만: 같은 사진 분류를 두 기기가 동시에 새로 만들면 둘째는 409 + 기존 문서 → 그 id·rev 로 고침(중복 없음)
+        c, r = d.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': {**n, 'cls': '보류'}}, 'B'); assert c == 409 and r['cur']['doc']['photo'] == n['photo'], r
+        assert d.apply({'op': 'put', 'id': r['cur']['id'], 'rev': r['cur']['rev'], 'doc': {**n, 'cls': '보류'}}, 'B')[0] == 200
+        assert [x['doc']['cls'] for x in d.d.values() if x['kind'] == 'note'] == ['보류']
+        # 진행 중 수동 임무는 하나: 두 기기가 동시에 시작 → 둘째 409(기존 진행 run) · 끝낸 뒤엔 새로 시작 가능
+        go = {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '진행', 'started': 't', 'ended': '', 'memo': '', 'wps': [rw]}
+        c1, r1 = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': go}, 'A'); c2, r2 = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': go}, 'B')
+        assert c1 == 200 and c2 == 409 and r2['cur']['id'] == r1['id'] and sum(x['kind'] == 'run' and x['doc']['status'] == '진행' for x in d.d.values()) == 1
+        assert d.apply({'op': 'put', 'id': r1['id'], 'rev': 1, 'doc': {**go, 'memo': '진행 중 수정'}}, 'A')[0] == 200     # 자기 자신 수정은 허용
+        assert d.apply({'op': 'put', 'id': r1['id'], 'rev': 2, 'doc': {**go, 'status': '완료'}}, 'A')[0] == 200
+        assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': go}, 'B')[0] == 200
+        # 쓰기 실패 주입: 메모리·rev·파일 모두 그대로(put·del)
+        before, rv, raw = json.dumps(d.d), d.rev, (Path(td) / 'docs.json').read_text()
+        real = d._write
+        def boom(_): raise OSError('disk full')
+        d._write = boom
+        for m_ in [{'op': 'put', 'kind': 'zone', 'id': None, 'doc': z}, {'op': 'put', 'id': zid, 'rev': 2, 'doc': {**z, 'name': 'x'}}, {'op': 'del', 'id': zid, 'rev': 2}]:
+            try:
+                d.apply(m_, 'A'); assert False, '예외가 나야 함'
+            except OSError:
+                pass
+            assert json.dumps(d.d) == before and d.rev == rv and (Path(td) / 'docs.json').read_text() == raw
+        d._write = real
+        assert d.apply({'op': 'del', 'id': zid, 'rev': 2}, 'A')[0] == 200 and zid not in d.d and d.rev == rv + 1
+        # 깨진 파일: 사용 불가 표시, 원본 그대로, 쓰기 503
+        ok1 = {'id': 'z1', 'kind': 'zone', 'rev': 1, 'by': 'A', 'at': 't', 'doc': z}
+        for junk in ['{깨짐', '[1,2]', '{"a": {"id": "b"}}'] + [json.dumps({'z1': {**ok1, **bad}}, ensure_ascii=False) for bad in
+                     ({'doc': {}}, {'rev': 0}, {'by': None}, {'at': 3}, {'doc': {**z, 'type': '위험'}}, {'kind': 'note'})]:   # 겉 키만 맞고 속이 틀린 판도 사용 불가
+            (Path(td) / 'docs.json').write_text(junk)
+            b_ = Docs(td); assert b_.broken and b_.d == {} and b_.apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': z}, 'A')[0] == 503
+            assert (Path(td) / 'docs.json').read_text() == junk
     from urllib.parse import quote
     assert actor_from_header(quote('tester · 휴대폰')) == 'tester · 휴대폰' and actor_from_header('') == ''
     assert actor_from_header('%FF%FE') == '관문 기기(이름 해독 실패)' and actor_from_header('휴대폰') == '관문 기기(이름 해독 실패)'
@@ -474,6 +665,7 @@ def main():
     core = Core(); lock = threading.Lock()
     sim = {'jpeg': None, 'jpeg_t': None, 'jpeg_n': 0, 'jpeg_wall': None, 'jpeg_stamp': None, 'jpeg_ep': None, 'jpeg_reset': False}
     media = Media(a.media); core.sink = media.event
+    docs = Docs(a.media)
     starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
     photo_last = [0.0]
     if starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file():
@@ -558,7 +750,7 @@ def main():
             return {'op': 'status', 'role': role, 'latch': core.latch, 'applied': list(core.out), 'reason': core.reason,
                     'sim_block': core.sim_block(), 'resume_pending': bool(core.resume_pending), 'reset_pending': core.reset_pending is not None,
                     'episode': core.episode, 'ros_domain': os.environ.get('ROS_DOMAIN_ID'), 'state_age': age, 'cam_age': cam_age, 'sim': core.st, 'events': list(core.events)[:6], 'note': PRESETS_NOTE,
-                    'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live())}
+                    'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live()), 'docs_rev': docs.rev}
 
     def reply(c, rid, ok, text, **kw):
         try:
@@ -690,7 +882,38 @@ def main():
             self.set_header('Cache-Control', 'no-store')
             self.finish({'photos': media.tail('photos.jsonl', 200)[::-1], 'events': media.tail('events.jsonl', 300)[::-1], 'ver': version()})
 
-    app = tornado.web.Application([(r'/ws', WS), (r'/api/media', MediaList),
+    KIND_KO = {'zone': '구역', 'tmpl': '임무 양식', 'mission': '임무 계획', 'run': '임무 진행', 'note': '사진 분류'}
+
+    class DocsAPI(tornado.web.RequestHandler):
+        # 공용 문서. 쓰기는 이 PC 출처(관문은 Origin 을 이 주소로 붙여 중계) — 다른 웹페이지가 몰래 못 씀. 로봇 조종권과 무관
+        def get(self):
+            self.set_header('Cache-Control', 'no-store')
+            with docs.lock:
+                d, rev = list(docs.d.values()), docs.rev
+            self.finish({'docs': d, 'rev': rev, 'broken': docs.broken})
+
+        async def post(self):
+            self.set_header('Cache-Control', 'no-store')
+            if self.request.headers.get('Origin') not in allowed_origins:
+                self.set_status(403); return self.finish({'error': '다른 출처'})
+            try:
+                m = json.loads(self.request.body)
+            except ValueError:
+                self.set_status(400); return self.finish({'error': 'JSON 아님'})
+            actor = actor_from_header(self.request.headers.get('X-FH-Actor', '')) or '이 PC(127.0.0.1)'
+            def work():                 # 파일 쓰기는 일꾼 스레드에서, 문서 lock 만 — 조종 lock·20 Hz 명령 발행을 막지 않는다
+                with docs.lock:
+                    try:
+                        return docs.apply(m, actor)
+                    except OSError as e:
+                        return 500, {'error': f'저장 실패 · {type(e).__name__} — 이전 상태 그대로, 초안은 화면에'}
+            code, r = await tornado.ioloop.IOLoop.current().run_in_executor(None, work)
+            with lock:                  # 조종 lock 은 사건 한 줄만
+                if code == 200:
+                    core.ev('ok', f'{KIND_KO[r["kind"]]} {"삭제" if m.get("op") == "del" else "추가" if r.get("new") else "수정"} · {r["name"] or r["id"]} · {actor}')
+            self.set_status(code); self.finish(r)
+
+    app = tornado.web.Application([(r'/ws', WS), (r'/api/media', MediaList), (r'/api/docs', DocsAPI),
                                    (r'/media/(photos/\d{8}/[\w.-]+\.jpg)', NoCache, {'path': a.media}),
                                    (r'/(.*)', NoCache, {'path': a.web, 'default_filename': 'index.html'})])
     app.listen(a.port, address='127.0.0.1')

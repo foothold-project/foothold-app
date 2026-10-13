@@ -89,11 +89,13 @@
   }
 
   function render() {
+    if (root && root.dataset.liveOwned && !comp.live) return;   // ?live=v2: 시안 Component 의 다시 그리기는 막고, live.js 가 넘긴 실데이터 Component(comp.live)만 같은 원본 틀로 다시 그린다
     const act = document.activeElement, id = act?.id, sel = id && act.selectionStart != null ? [act.selectionStart, act.selectionEnd, act.value] : null;
     const f = tpl.content.cloneNode(true);
     walk(f, comp.renderVals() || {});
     root.replaceChildren(f);
     for (const s of root.querySelectorAll('select[value]')) s.value = s.getAttribute('value');   // 시안의 <select value="…"> (React 의미) — 고른 항목
+    if (comp.afterRender) comp.afterRender(root);   // 실연결: 새로 그린 원본 DOM 에 STOP·상태 줄 다시 붙이기
     if (id) { const el = document.getElementById(id); if (el) { el.focus(); if (sel && el.setSelectionRange) { if (el.value === sel[2]) el.setSelectionRange(sel[0], sel[1]); else el.setSelectionRange(el.value.length, el.value.length); } } }  // 입력 중 다시 그려도 커서 유지, 값이 바뀌면 끝으로(React 와 같게)
   }
 
@@ -108,6 +110,7 @@
     const Comp = new Function('DCLogic', `${sc.textContent}\nreturn Component;`)(DCLogic);
     comp = new Comp(props); comp.props = props; comp.state = comp.state || {};
     render();
+    window.dcUse = (make) => { comp = make(Comp, props); comp.props = props; render(); };   // live.js: 같은 원본 틀에 실데이터 Component 를 끼운다
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot); else boot();
 })();

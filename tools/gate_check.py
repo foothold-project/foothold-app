@@ -2,7 +2,7 @@
 """v2 보호 관문(sim/v2_gate.py) 모의 시험 — 시험 전용 계정·인증서(임시 폴더, 실제 .gate 안 씀) + 가짜 발행기(domain 88)
 + v2_link(8791) + 관문 2개(8463: 12 h · 8464: 세션 3 s 만료 시험) + headless Chrome 한 개. 실제 RL 근거가 아니다.
   source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=88 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 tools/gate_check.py <결과 폴더(없어야 함)>
-검사: 로그인 전 차단(화면·사진·기록·WS) · 공개 파일 · Origin·틀린 비밀번호 · 쿠키 속성 · 허용 안 된 op 끊음 · 사진 서버 저장/인증 ·
+검사: 로그인 전 차단(화면·사진·기록·WS) · 공개 파일 · Origin·틀린 비밀번호 · 쿠키 속성 · 허용 안 된 op 끊음 · 사진 서버 저장/인증 · 공용 문서(401·403·409·작성자) ·
       계정·기기 표시 · 로그아웃/만료 → 조종권 해제·0·STOP 잠금 · 휴대폰 로그인→조종→사진→로그아웃 · PC 로그인→같은 사진 보임."""
 import asyncio, base64, hashlib, json, os, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
@@ -146,6 +146,16 @@ async def main():
     who = json.loads((await req(f'{H}/api/whoami', cookie=ck)).body)
     check('whoami: 계정·기기 이름', who.get('account') == 'tester' and who.get('label') == '관제 노트북', who)
     r = await req(f'{H}/MDrive.dc.html?live=v2', cookie=ck, ua=IPHONE); check('로그인 뒤 조종 화면 200', r.code == 200, r.code)
+    # 공용 문서(구역·임무): 로그인 뒤에만 · 쓰기는 같은 출처 · 작성자 = 계정 · 기기(관문이 붙임) · 같은 rev 두 번 → 409
+    z = {'name': '시험 구역', 'type': '금지', 'pts': [[0, 0], [1, 0], [1, 1]]}
+    r0 = await req(f'{H}/api/docs'); r1 = await req(f'{H}/api/docs', 'POST', {'op': 'put', 'kind': 'zone', 'id': None, 'doc': z}, cookie=ck, origin='https://evil.example')
+    r2 = await req(f'{H}/api/docs', 'POST', {'op': 'put', 'kind': 'zone', 'id': None, 'doc': z}, cookie=ck, origin=H); d2 = json.loads(r2.body or b'{}')
+    r3 = await req(f'{H}/api/docs', 'POST', {'op': 'put', 'id': d2.get('id'), 'rev': 1, 'doc': {**z, 'name': 'A'}}, cookie=ck, origin=H)
+    r4 = await req(f'{H}/api/docs', 'POST', {'op': 'put', 'id': d2.get('id'), 'rev': 1, 'doc': {**z, 'name': 'B'}}, cookie=ck, origin=H)
+    g = json.loads((await req(f'{H}/api/docs', cookie=ck)).body); zd = next((x for x in g.get('docs', []) if x.get('id') == d2.get('id')), {})
+    check('공용 문서: 로그인 전 401 · 다른 출처 403 · 저장 200 · 같은 rev 두 번째 409 · 작성자 = 계정 · 기기',
+          r0.code == 401 and r1.code == 403 and r2.code == 200 and r3.code == 200 and r4.code == 409 and zd.get('doc', {}).get('name') == 'A' and 'tester · 관제 노트북' in json.dumps(zd, ensure_ascii=False),
+          [r0.code, r1.code, r2.code, r3.code, r4.code, zd])
     srv_log = (OUT / 'gate.log').read_text()
     check('관문 로그에 비밀번호·쿠키 값 없음', PW not in srv_log and ck.split('fh2_s=')[1].split(';')[0] not in srv_log)
 
@@ -246,10 +256,11 @@ async def main():
     await js("document.querySelector('#dv').value = '관제 노트북'")
     await click(BTN.format('로그인')); await asyncio.sleep(3.0)
     check('PC 로그인 → 관제 화면', await js('location.pathname + location.search') == '/Main.dc.html?live=v2')
-    await asyncio.sleep(1.0); await click("document.querySelector('nav a[data-design-href=\"PcHistory.dc.html\"]')"); await asyncio.sleep(1.5)
-    rec = await js("document.querySelector('[role=dialog]')?.innerText || ''")
-    check('PC 기록: 휴대폰·관문에서 찍은 사진 2장이 같은 서버에 보임', '사진 2장 · 서버 보관' in rec and 'tester · 휴대폰' in rec, rec[:300])
-    check('PC 기록: 사진 미리보기 실제 로드(관문 경유)', await js("[...document.querySelectorAll('[role=dialog] img')].some(i => i.complete && i.naturalWidth > 0)"))
+    await asyncio.sleep(1.0); await click("document.querySelector('nav a[href^=\"PcHistory.dc.html\"]')"); await asyncio.sleep(2.5)
+    rec = await js("[...document.querySelectorAll('tbody tr')].map(r => r.innerText.replace(/\\s+/g, ' ')).filter(t => t.includes('관찰 사진'))") or []
+    check('PC 기록 화면(관문 경유): 휴대폰·관문에서 찍은 사진 2장이 같은 서버에 보임', await js('location.pathname') == '/PcHistory.dc.html' and len(rec) == 2 and any('tester · 휴대폰' in t for t in rec), rec)
+    await nav(f'{H}/PcReview.dc.html?live=v2', 2.5)
+    check('관찰 사진 화면: 사진 실제 로드(관문 경유)', await js("[...document.querySelectorAll('img')].some(i => i.complete && i.naturalWidth > 0)"))
     await shot('g3-pc-records')
     await nav(f'{H}/start.html', 1.5); await shot('g4-start')
     check('시작 안내: PC·휴대폰 진입 링크 · 인증서·홈 화면 안내', await js("[...document.querySelectorAll('.go a')].map(a => a.getAttribute('href')).join()") == 'Main.dc.html?live=v2,MDrive.dc.html?live=v2'

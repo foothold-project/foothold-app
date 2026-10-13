@@ -174,6 +174,24 @@ def main():
             self.set_header('Content-Type', r.headers.get('Content-Type', 'application/octet-stream'))
             self.finish(r.body or b'')
 
+    class DocsProxy(Base):                            # 공용 문서(구역·임무·진행·분류) — 로그인 뒤에만. 쓰기는 같은 출처 + 작성자(계정 · 기기)를 붙여 중계
+        async def fwd(self, method, body=None):
+            s = self.session()
+            if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            h = {'Origin': UP_ORIGIN, 'Content-Type': 'application/json'}
+            if method == 'POST':
+                if not self.origin_ok(): self.set_status(403); return self.finish({'error': '다른 출처'})
+                h['X-FH-Actor'] = quote(f'{s["account"]} · {s.get("label") or "기기 " + s["device"][:6]}', safe='')
+            try:
+                r = await tornado.httpclient.AsyncHTTPClient().fetch(f'{UP_HTTP}/api/docs', method=method, body=body, headers=h, raise_error=False, request_timeout=10)
+            except OSError:
+                self.set_status(502); return self.finish({'error': 'v2_link 없음'})
+            self.set_status(r.code if r.code in (200, 400, 403, 404, 409, 500, 503) else 502)
+            self.set_header('Content-Type', 'application/json'); self.finish(r.body or b'{}')
+
+        async def get(self): await self.fwd('GET')
+        async def post(self): await self.fwd('POST', self.request.body)
+
     class Page(tornado.web.StaticFileHandler):
         async def get(self, path, include_body=True):
             if path in ('', 'index.html'):            # 첫 화면: 휴대폰은 조종, PC 는 관제
@@ -236,13 +254,13 @@ def main():
                 c.close(4401, 'expired')
 
     app = tornado.web.Application([
-        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts),
+        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy),
         (r'/(api/media|media/photos/\d{8}/[\w.-]+\.jpg)', Proxy),
         (r'/(ca\.crt)', tornado.web.StaticFileHandler, {'path': str(state)}),     # 공개 인증서만
         (r'/(.*)', Page, {'path': a.web}),
     ], websocket_max_message_size=4 * 1024)
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH); ctx.load_cert_chain(str(state / 'cert.pem'), str(state / 'key.pem'))
-    app.listen(a.port, address=a.bind, ssl_options=ctx, max_body_size=4 * 1024)
+    app.listen(a.port, address=a.bind, ssl_options=ctx, max_body_size=16 * 1024)   # 공용 문서(최대 12 KB)용
     tornado.ioloop.PeriodicCallback(sweep, 2000).start()
     for h in hosts: log(f'열기: https://{h}:{a.port}/  (계정 {len(accounts)}개 · 중계 {a.upstream})')
     tornado.ioloop.IOLoop.current().start()

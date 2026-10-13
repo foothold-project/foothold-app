@@ -2,7 +2,7 @@
 """?live=v2 기능 연결 모의 시험 — 가짜 발행기(domain 88) + 이 작업트리의 v2_link(8791) + headless Chrome 한 개(CDP). 실제 RL 근거가 아니다.
   source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=88 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 tools/live_ui_check.py <결과 폴더(없어야 함)>
 검사(요청 기능만): 시안 안내·index 진입 · Main 조종권 받기/반납·누름 버튼(앞·아크)·이유 버튼 · 영상 크게 보기(STOP·Esc 폐기) ·
-      사진(영상 없음 거부·저장·내려받기) · 궤적 확대/축소/따라가기/숨김 · 상태 상세 · 기록/로봇/설정 패널·테마 저장 ·
+      사진(영상 없음 거부·저장·내려받기) · 지도 로봇 중심(기본)·확대/축소·전체 보기·경로 숨김 · 상태 상세 · 메뉴 = 실제 화면(기록 CSV·관찰 사진·로봇·설정 테마 저장) ·
       MDrive 조종권 받기/반납·마우스 막대·전체화면·이유 버튼 · 화면 떠남 → 0.
       (두 기기 판) 사진 서버 저장·서버 기록 목록 · 시뮬 시작 버튼(가짜 래퍼: 호출 1회·쿨다운 거부) · 휴대폰 맞춤(874×402·844×390·주소창 낮음·세로) · 막대 배치 바꾸기."""
 import asyncio, base64, json, os, signal, subprocess, sys, tempfile, time, urllib.request
@@ -145,38 +145,14 @@ async def main():
     await mouse("document.querySelector('button[aria-label=\"축소\"]')"); await mouse("document.querySelector('button[aria-label=\"축소\"]')"); v2 = await js(V)
     await mouse("document.querySelector('button[aria-label=\"로봇 따라가기\"]')"); v3 = await js(V)
     await mouse(BTN.format('경로')); v4 = await js(V); await mouse(BTN.format('경로'))
-    check('궤적 확대·축소·따라가기·숨김', v1 == 'fit|1.5|trail' and v2 == 'fit|0.67|trail' and v3.startswith('follow|') and v4.endswith('notrail'), [v1, v2, v3, v4])
+    check('지도 로봇 중심(기본)·확대·축소 · ◎ → 전체 보기 · 경로 숨김', v1.startswith('robot|1.5|trail') and v2.startswith('robot|0.67|trail') and v3.startswith('all|') and '|notrail' in v4, [v1, v2, v3, v4])
     await mouse(BTN.format('측정값')); await asyncio.sleep(0.2); t = await toast()
     check('미지원 레이어: 누르면 이유', t.startswith('측정값 —'), t)
     await mouse(BTN.format('뎁스')); await asyncio.sleep(0.2); t = await toast(); check('뎁스: 누르면 이유', t.startswith('뎁스 —'), t)
 
-    # 6) 상태 상세·패널
+    # 6) 상태 상세
     await mouse("document.querySelector('details summary')"); await asyncio.sleep(0.4)
     check('상태 상세 펼침: 서버 원값', await js("document.querySelector('details[open] dl')?.innerText.includes('sim.x')"))
-    await mouse("document.querySelector('nav a[data-design-href=\"PcHistory.dc.html\"]')"); await asyncio.sleep(0.3)
-    rec = await js("document.querySelector('[role=dialog]')?.innerText || ''")
-    await asyncio.sleep(1.0); rec = await js("document.querySelector('[role=dialog]')?.innerText || ''")
-    check('메뉴 «기록» → 서버 사진 2장·서버 사건·이 브라우저 조작 기록', '사진 2장 · 서버 보관' in rec and '서버 사건' in rec and '조작 기록' in rec, rec[:300])
-    check('기록 패널: 사진 미리보기 실제 로드', await js("[...document.querySelectorAll('[role=dialog] img')].some(i => i.complete && i.naturalWidth > 0)"))
-    check('기록 패널: 예전 기록 읽기 실패 안내 · 원래 값 보존', '읽기 실패' in rec and await js("localStorage.getItem('fh.live.log.v1') === '{\"x\":1}'"), rec[:300])
-    await mouse(BTN.format('원본 내려받기')); await asyncio.sleep(1.5)
-    files = os.listdir(f'{OUT}/dl'); check('기록 패널에서 원본 다시 내려받기', sum(f.endswith('.jpg') for f in files) == 2, files)
-    await mouse(BTN.format('CSV 내보내기')); await asyncio.sleep(1.5)
-    files = os.listdir(f'{OUT}/dl'); check('조종 기록 CSV 내보내기', any(f.endswith('.csv') for f in files), files)
-    await shot('3-records'); await key('Escape'); await asyncio.sleep(0.2)
-    check('Esc → 패널 닫힘', await js("!document.querySelector('[role=dialog]')"))
-    await mouse("document.querySelector('nav a[data-design-href=\"PcRobot.dc.html\"]')"); await asyncio.sleep(0.3)
-    check('메뉴 «로봇» → 실제 상태 패널', await js("document.querySelector('[role=dialog]')?.innerText.includes('sim.policy_running')"))
-    await mouse("document.querySelector('nav a[data-design-href=\"PcSettings.dc.html\"]')"); await asyncio.sleep(0.3)
-    await mouse(BTN.format('테마:')); await asyncio.sleep(0.2)
-    check('설정 테마 → 밝은 + 저장', await js("document.querySelector('.fh').classList.contains('light') && localStorage.getItem('fh.live.theme') === '\"light\"'"))
-    await shot('4-settings-light')
-    await js("window._si = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error('quota'); }")
-    await mouse(BTN.format('테마:')); await asyncio.sleep(0.2); t = await toast()
-    check('테마 저장 실패 → 이번 화면엔 적용 + 실패 안내', t.startswith('테마 저장 실패') and await js("!document.querySelector('.fh').classList.contains('light') && localStorage.getItem('fh.live.theme') === '\"light\"'"), t)
-    await js("Storage.prototype.setItem = window._si"); await mouse(BTN.format('테마:')); await key('Escape'); await asyncio.sleep(3.6)   # 앞 안내가 사라진 뒤
-    await mouse("document.querySelector('nav a[data-design-href=\"PcMissions.dc.html\"]')"); await asyncio.sleep(0.2); t = await toast(); await shot('4b-mission')
-    check('메뉴 «임무» → 미지원 이유', t.startswith('임무 —'), t)
 
     # 7) 영상 크게 보기: STOP·조작 포함, Esc 로 닫으면 누름 폐기
     await mouse("document.querySelector('button[aria-label=\"영상 크게 보기\"]')"); await asyncio.sleep(0.8)
@@ -216,6 +192,26 @@ async def main():
     check('RL 상태 원값(세션 꺼짐) 표시', (st.get('sim_start') or {}).get('session', {}).get('result') == 'idle' and '시뮬 세션' in await js("document.body.innerText"), st.get('sim_start'))
     start('fake', FAKE + ['--camera']); await until(lambda: st.get('cam_age') is not None and st['cam_age'] < 1 and not st['sim_block'], 15)
 
+    # 7c) 메뉴 = 실제 화면(패널 아님, ?live=v2 유지) · 기록 CSV · 관찰 사진 · 설정 테마(저장 실패 안내)
+    hrefs = await js("Object.fromEntries([...document.querySelectorAll('nav a[href]')].map(a => [a.getAttribute('href').split('?')[0], a.getAttribute('href')]))")
+    check('메뉴 링크 → 실제 화면 + live=v2', all((hrefs or {}).get(k, '').startswith(k + '?') and 'live=v2' in hrefs[k] for k in ('PcHistory.dc.html', 'PcRobot.dc.html', 'PcSettings.dc.html', 'PcMissions.dc.html', 'PcMap.dc.html')), hrefs)
+    await go('PcHistory.dc.html?live=v2', 1440, 900); await asyncio.sleep(1.0)
+    check('PC 기록 화면: 서버 사진이 줄로 보임', '관찰 사진' in (await js("document.body.innerText") or ''))
+    await mouse(BTN.format('보이는 기록 내보내기')); await asyncio.sleep(1.5)
+    files = os.listdir(f'{OUT}/dl'); check('PC 기록 CSV 내보내기', any(f.endswith('.csv') for f in files), files); await shot('3-history')
+    await go('PcReview.dc.html?live=v2', 1440, 900); await asyncio.sleep(1.5)
+    check('관찰 사진 화면: 서버 사진 실제 로드', await js("[...document.querySelectorAll('img')].some(i => i.complete && i.naturalWidth > 0)"))
+    await go('PcRobot.dc.html?live=v2', 1440, 900)
+    check('로봇 화면: 실제 상태(배터리 미연결 표시)', '미연결' in (await js("document.body.innerText") or ''))
+    await go('PcSettings.dc.html?live=v2', 1440, 900)
+    await mouse("[...document.querySelectorAll('[role=radio],button')].find(b => b.textContent.trim().startsWith('밝은'))"); await asyncio.sleep(0.3)
+    check('설정 테마 → 밝은 + 저장', await js("document.querySelector('.fh').classList.contains('light') && localStorage.getItem('fh.live.theme') === '\"light\"'"))
+    await shot('4-settings-light')
+    await js("window._si = Storage.prototype.setItem; Storage.prototype.setItem = function () { throw new Error('quota'); }")
+    await mouse("[...document.querySelectorAll('[role=radio],button')].find(b => b.textContent.trim().startsWith('어두운'))"); await asyncio.sleep(0.2); t = await toast()
+    check('테마 저장 실패 → 이번 화면엔 적용 + 실패 안내', t.startswith('테마 저장 실패') and await js("!document.querySelector('.fh').classList.contains('light') && localStorage.getItem('fh.live.theme') === '\"light\"'"), t)
+    await js("Storage.prototype.setItem = window._si; localStorage.removeItem('fh.live.theme')")
+
     # 8a) 휴대폰 맞춤: iPhone 16 Pro 가로 874×402 · 주소창 있는 낮은 높이 · 844×390 · 세로(안내)
     await call('Emulation.setUserAgentOverride', userAgent='Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/129.0 Mobile/15E148 Safari/604.1')
     FIT = "[document.querySelector('[data-live-fit]')?.dataset.liveFit, getComputedStyle([...document.querySelectorAll('[role=note]')].pop()).display, document.documentElement.scrollWidth <= innerWidth]"
@@ -237,7 +233,7 @@ async def main():
     check('다음에 열 때 저장된 배치', await js("new URLSearchParams(location.search).get('stickLayout')") == '왼쪽 이동 · 오른쪽 회전')
     await js("localStorage.setItem('fh.live.layout', JSON.stringify('왼쪽 회전 · 오른쪽 앞뒤'))")
     await mouse("document.querySelector('button[aria-label=\"사진 찍기\"]')"); await asyncio.sleep(1.0); t = await toast()
-    check('휴대폰 사진: 서버 저장 안내(내려받기 없음)', '서버 저장' in t and '기록' in t, t)
+    check('휴대폰 사진: 서버 저장 안내(내려받기 없음)', '서버 저장' in t and '관찰' in t, t)
     await call('Emulation.setUserAgentOverride', userAgent='')
 
     # 8) MDrive: 조종권 받기 버튼·마우스 막대·전체화면·이유·반납
@@ -259,7 +255,7 @@ async def main():
     check('MDrive 전체화면(또는 거절 안내)', fs or '전체화면' in t, [fs, t]); await shot('7-mdrive-fs')
     if fs: await mouse("document.querySelector('button[aria-label=\"전체화면 닫기\"]')"); await asyncio.sleep(0.4)
     await mouse("document.querySelector('button[aria-label=\"안내·설정\"]')"); await asyncio.sleep(0.3)
-    check('MDrive 안내·설정 패널: 미지원 목록', await js("document.querySelector('[role=dialog]')?.innerText.includes('안 되는 기능과 이유')")); await shot('8-mdrive-settings')
+    check('MDrive 안내·설정 패널: 미지원 목록', await js("document.querySelector('[role=dialog]')?.innerText.includes('현재 v2 연결에서 안 되는 것')")); await shot('8-mdrive-settings')
     await key('Escape')
     await shot('9-mdrive-control-row')
     await mouse(BTN.format('조종권 반납')); await asyncio.sleep(0.4)
