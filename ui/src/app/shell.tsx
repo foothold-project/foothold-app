@@ -1,5 +1,5 @@
 // 앱 틀: 해시 경로(#/화면?값) · 알림(toast) · STOP 버튼과 Space 단축키.
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { sendStop } from '../data/link';
 
@@ -39,8 +39,14 @@ export const stopProps = { 'aria-label': '비상 정지', ...stopOn } as const;
 /** live.js openDrawer(): 오른쪽(PC)·머리줄 아래 서랍. Esc·닫기로 닫음. (휴대폰 가로 조종 화면 배치는 묶음 3 에서) */
 export function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const x = useRef<HTMLButtonElement>(null), close = useRef(onClose); close.current = onClose;   // 다시 그릴 때마다 초점을 뺏지 않게 처음 한 번만
-  useEffect(() => { x.current?.focus(); const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, []);
-  return <div className="lv-drawer" role="dialog" aria-label={title} style={{ right: 12, top: 84, bottom: 12, width: 'min(440px,calc(100vw - 24px))' }}>
+  const [bot, setBot] = useState(12);
+  useEffect(() => {
+    x.current?.focus(); const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); };
+    // 서랍 아래쪽(휴대폰 하단)에 있는 STOP 을 덮지 않게 그 위에서 끝냄 — 머리줄 STOP(PC)은 top 84 위라 해당 없음
+    const fit = () => { const t = [...document.querySelectorAll('[aria-label="비상 정지"]')].map((e) => e.getBoundingClientRect()).filter((r) => r.width && r.top > 184).map((r) => r.top); setBot(t.length ? Math.max(12, innerHeight - Math.min(...t) + 8) : 12); };
+    fit(); addEventListener('keydown', k); addEventListener('resize', fit); return () => { removeEventListener('keydown', k); removeEventListener('resize', fit); };
+  }, []);
+  return <div className="lv-drawer" role="dialog" aria-label={title} style={{ right: 12, top: 84, bottom: bot, width: 'min(440px,calc(100vw - 24px))' }}>
     <div className="lv-row"><h2>{title}</h2><button ref={x} type="button" aria-label={`${title} 닫기 (Esc)`} onClick={onClose}>닫기</button></div>
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div></div>;
 }

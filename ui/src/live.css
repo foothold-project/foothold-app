@@ -4,7 +4,7 @@
 .lv-on{outline:3px solid var(--accent,#3ec7b4);outline-offset:2px}
 .lv-pad{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .lv-pad .btn{user-select:none;-webkit-user-select:none;touch-action:none}
-.lv-drawer{position:fixed;z-index:45;display:flex;flex-direction:column;gap:10px;padding:14px;overflow:auto;background:var(--panel,#12171C);color:var(--text,#E6EBEF);border:1px solid var(--line2,#34424D);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.45);font:13px/1.5 'Pretendard Variable',Pretendard,'Malgun Gothic','Segoe UI',system-ui,sans-serif}
+.lv-drawer{position:fixed;box-sizing:border-box;z-index:45;display:flex;flex-direction:column;gap:10px;padding:14px;overflow:auto;background:var(--panel,#12171C);color:var(--text,#E6EBEF);border:1px solid var(--line2,#34424D);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.45);font:13px/1.5 'Pretendard Variable',Pretendard,'Malgun Gothic','Segoe UI',system-ui,sans-serif}
 .lv-drawer h2{font-size:16px;margin:0;flex:1}.lv-drawer h3{font-size:14px;margin:6px 0 0}
 .lv-drawer p{margin:0;color:var(--muted,#9AA7B3)}
 .lv-drawer button{min-height:44px;padding:0 14px;border:1px solid var(--line2,#34424D);border-radius:8px;background:var(--panel2,#182028);color:inherit;font:600 13px/1 inherit;cursor:pointer}

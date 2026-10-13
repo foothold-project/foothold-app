@@ -23,3 +23,4 @@ export const LATCH_TXT = (v: { linkOk: boolean; latch: boolean }) => (!v.linkOk 
 export const LAYOUTS = ['왼쪽 회전 · 오른쪽 앞뒤', '왼쪽 이동 · 오른쪽 회전'];   // 휴대폰 조종 막대 배치 — 기본 = 처음 확정한 배치(live.js 14)
 
 export const ZONE_NOTE = '구역은 그리기·저장·공유·표시 기능입니다. 로봇의 실제 주행 제한(피하기·감속)은 미연결 — 충돌·감속을 보장하지 않습니다.';
+export const OBS_NOTE = 'AI 탐지 미연결 — 운영자가 찍어 등록한 관찰입니다. 분류(확인·보류·제외)와 메모는 모든 기기에 공유됩니다.';

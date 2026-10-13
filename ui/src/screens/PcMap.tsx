@@ -42,10 +42,10 @@ export default function PcMap() {
     if (d) {
       if (d.pts.length < 3) return toast('꼭짓점을 3개 이상 찍으세요');
       if (!d.name.trim()) { zn.current?.focus(); return toast('구역 이름을 넣으세요'); }
-      const n = d.pts.length;
+      const snap = JSON.stringify(d);   // 저장 누른 그 초안 전체(꼭짓점·종류·이름)
       E.load(null, { name: d.name.trim(), type: d.type, pts: d.pts.slice() }); E.dirty = true; const g = E.gen;
       const r = await E.save();
-      if (r && r.ok && Z.current === d && E.gen === g && d.pts.length === n) { Z.current = null; E.touch(); toast('구역 저장됨 · 모든 기기 공유'); }   // 저장 누른 그 초안·그 판일 때만 지움
+      if (r && r.ok && Z.current === d && E.gen === g && JSON.stringify(d) === snap) { Z.current = null; E.touch(); toast('구역 저장됨 · 모든 기기 공유'); }   // 저장 누른 그 초안·그 판일 때만 지움
       return;
     }
     if (!E.id || !E.d) return toast('저장할 구역이 없습니다 — 도구줄에서 구역을 그리세요');
@@ -56,8 +56,8 @@ export default function PcMap() {
     if (E.busy) return toast(BUSY);
     const d = Z.current;
     if (d) { if (d.pts.length) d.pts.pop(); else Z.current = null; return E.touch(); }
-    const g = E.gen, r = await E.del();
-    if (r && r.ok) { if (E.gen === g) E.load(null); toast('구역 지움'); }   // 그사이 다른 구역을 열었으면 그대로 둠
+    const r = await E.del();
+    if (r && r.ok && r.same) { E.load(null); toast('구역 지움'); }   // 응답 때 같은 구역·같은 초안일 때만 정리(아니면 del 이 결과만 알림)
   };
   const edit = (f: (z: Zone) => void) => { if (E.d) { f(E.d); E.dirty = true; } E.touch(); };
 
@@ -86,9 +86,9 @@ export default function PcMap() {
     zColor: { background: `var(--${ty === '감속' ? 'warn' : 'bad'})`, borderColor: `var(--${ty === '감속' ? 'warn' : 'bad'})` },
     zHead: dr ? `새 ${dr.type} 구역` : E.id && E.d ? `${lbl(E.d.type)} 구역 · 판 ${E.rev}` : '구역을 고르세요',
     zaLbl: '종류',
-    zn: <input id="zn" ref={zn} className="inp" maxLength={40} placeholder="구역 이름(예: 계단 앞)" disabled={!on} value={dr ? dr.name : E.d?.name ?? ''}
+    zn: <input id="zn" ref={zn} className="inp" maxLength={40} placeholder="구역 이름(예: 계단 앞)" disabled={!on || E.busy} value={dr ? dr.name : E.d?.name ?? ''}
       onChange={(e) => { if (dr) { dr.name = e.target.value; E.touch(); } else edit((z) => { z.name = e.target.value; }); }} />,
-    za: <select id="za" className="inp" disabled={!on} value={ty || '금지'}
+    za: <select id="za" className="inp" disabled={!on || E.busy} value={ty || '금지'}
       onChange={(e) => { const t = e.target.value as Zone['type']; if (E.busy) return toast(BUSY); if (dr) { dr.type = t; E.touch(); } else edit((z) => { z.type = t; }); }}>
       <option value="금지">진입 금지</option><option value="감속">감속</option></select>,
     zNote: ZONE_NOTE,

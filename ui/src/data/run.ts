@@ -4,6 +4,13 @@ import { activeRun, docById, docsNow, docsOf, qc, saveDoc, type Docs, type SaveR
 import { ask } from './link';
 import { MISSING_T, tmplOf } from './tmpl';
 import { toast } from '../app/shell';
+import { wpName } from './fmt';
+import type { Media } from './shared';
+
+// ---- 관찰 사진: 어느 임무 지점에 붙었나 · 같은 위치(1 m 안) 다른 사진 (live.js runsOf·nearOf) ----
+type Photo = Media['photos'][number];
+export const runsOf = (D: Docs, url: string) => docsOf(D, 'run').flatMap((r) => r.doc.wps.map((w, i) => (w.photos.includes(url) ? `«${r.doc.name}» ${wpName(w, i)}` : null)).filter((x): x is string => !!x));
+export const nearOf = (M: Media, p: Photo) => (p.x == null || p.y == null ? [] : M.photos.filter((q) => q !== p && q.x != null && q.y != null && Math.hypot(q.x - p.x!, q.y - p.y!) < 1));
 
 export const r2 = (v: number) => Math.round(v * 100) / 100;
 const pip = (x: number, y: number, pts: number[][]) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };

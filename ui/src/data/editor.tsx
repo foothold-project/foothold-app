@@ -11,7 +11,7 @@ export type Editor<T> = {
   kind: Kind; id: string | null; rev: number | null; d: T | null; dirty: boolean; busy: boolean; gen: number; msg: ReactNode;
   load(doc: { id: string; rev: number; doc: unknown } | null | undefined, init?: T): void;
   save(rev?: number | null): Promise<(SaveRes & { other?: boolean }) | null>;
-  del(): Promise<SaveRes | null>;
+  del(): Promise<(SaveRes & { same: boolean }) | null>;   // same: write() 와 같은 뜻 — 응답 때 같은 대상·같은 초안일 때만 화면 정리
   stale(D: Docs): DocEnvelope | null;
   touch(): void;   // 화면 다시 그리기
   write(m: DocWrite): Promise<{ r: SaveRes; same: boolean } | null>;
@@ -44,10 +44,14 @@ function make<T>(kind: Kind, rebuild: () => void): Editor<T> {
       return r;
     },
     async del() {
+      if (E.busy) { toast('저장 중 — 잠시 뒤 다시 누르세요'); return null; }   // 지우는 중 두 번째 지우기·저장 막음
       if (!E.id || !confirm('지울까요? 모든 기기에서 사라집니다.')) return null;
-      const r = await saveDoc({ op: 'del', id: E.id, rev: E.rev! });
-      if (!r.ok) say(r.code === 409 ? '다른 기기가 먼저 고침 — 최신 판을 확인한 뒤 다시 지우세요' : `지우지 못함 · ${r.error}`, true);
-      return r;
+      E.busy = true; rebuild(); const g = E.gen, snap = JSON.stringify(E.d);
+      const r = await saveDoc({ op: 'del', id: E.id, rev: E.rev! }); E.busy = false;
+      const same = g === E.gen && snap === JSON.stringify(E.d);
+      if (!r.ok && same) say(r.code === 409 ? '다른 기기가 먼저 고침 — 최신 판을 확인한 뒤 다시 지우세요' : `지우지 못함 · ${r.error}`, true);
+      else { if (!same) toast(r.ok ? '앞 문서 지움' : `앞 문서 안 지워짐 · ${r.error}`); rebuild(); }
+      return { ...r, same };
     },
     // 더 새 판만(방금 저장해 서버 목록이 아직 옛 판일 때 되돌리지 않음)
     stale(D) { const c = !E.busy && E.id && D.rev != null ? docById(D, E.id) : null; return c && E.rev != null && c.rev > E.rev ? c : null; },

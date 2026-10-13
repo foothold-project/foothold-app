@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":1060};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--bad-strong:#B3261E;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--bad-bg:rgba(255,90,82,.13);--warn-bg:rgba(255,181,71,.12);--ok-bg:rgba(90,169,255,.10);--acc-bg:rgba(56,198,217,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--bad-strong:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--bad-bg:rgba(179,38,30,.08);--warn-bg:rgba(154,88,0,.09);--ok-bg:rgba(31,95,191,.08);--acc-bg:rgba(0,109,122,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,textarea{font:inherit;color:inherit}\nbutton{cursor:pointer}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}\n.btn{height:44px;padding:0 16px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px}\n.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\n.lbl{font-size:12px;color:var(--muted)}\n.tab{height:34px;padding:0 12px;border:1px solid var(--line);border-radius:999px;background:transparent;font-size:13px;color:var(--muted)}\n.tab[aria-selected=\"true\"]{background:var(--acc-bg);border-color:var(--accent);color:var(--text)}\n.fd{display:grid;grid-template-columns:88px 1fr;gap:10px;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);text-align:left;width:100%}\n.fd.sel{border-color:var(--accent);background:var(--acc-bg)}\n.badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}\n.b-wait{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn)}\n.b-ok{background:var(--ok-bg);color:var(--ok);border:1px solid var(--ok)}\n.b-no{background:transparent;color:var(--muted);border:1px solid var(--line2)}\ntable{border-collapse:collapse;width:100%;font-size:13px}\nth{font-size:12px;font-weight:600;color:var(--muted);text-align:right;padding:10px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}\nth:first-child,td:first-child{text-align:left}\ntd{padding:10px 12px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}\ntd.l{text-align:left}\n.v-bad{color:var(--bad);font-weight:700}\n.v-warn{color:var(--warn);font-weight:600}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; [k: string]: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -30,22 +30,23 @@ export function View({ v }: { v: Vals }) {
           <div style={{"display":"flex","flexDirection":"column","gap":"2px"}}>
             {" "}
             <span style={{"fontSize":"12px","color":"var(--muted)"}}>
-              {"기록 · "}
+              {v.hdrA ?? (<>{"기록 · "}
               <span className="mono">
                 {"2026-10-12 10:31–10:52"}
               </span>
-              {" · 운영자 A"}
+              {" · 운영자 A"}</>)}
             </span>
             {" "}
             <span style={{"fontSize":"17px","fontWeight":"600"}}>
-              {"지하 펌프실 진입 전 사전 측정"}
+              {v.hdrB ?? "지하 펌프실 진입 전 사전 측정"}
             </span>
             {" "}
           </div>
           {" "}
           <div style={{"flex":"1"}} />
           {" "}
-          <button aria-label="비상 정지" style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
+          {v.status ?? null}
+          <button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
             {" "}
             <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
@@ -129,24 +130,25 @@ export function View({ v }: { v: Vals }) {
               <div style={{"display":"flex","flexDirection":"column","gap":"4px"}}>
                 {" "}
                 <span className="lbl">
-                  {"임무 결과 · 양식: 가스 사전 측정"}
+                  {v.sL ?? "임무 결과 · 양식: 가스 사전 측정"}
                 </span>
                 {" "}
-                <span style={{"fontSize":"22px","fontWeight":"700","color":"var(--bad)"}}>
-                  {"■ 진입 불가 · H₂S 기준 초과"}
+                <span style={{"fontSize":"22px","fontWeight":"700","color":"var(--bad)",...v.sBigS}}>
+                  {v.sBig ?? "■ 진입 불가 · H₂S 기준 초과"}
                 </span>
                 {" "}
                 <span style={{"fontSize":"13px","color":"var(--muted)"}}>
-                  {"WP3 집수정에서 "}
+                  {v.sDesc ?? (<>{"WP3 집수정에서 "}
                   <span className="mono">
                     {"12.4 ppm"}
                   </span>
-                  {" (기준 10 ppm 미만) · 환기 후 재측정 필요"}
+                  {" (기준 10 ppm 미만) · 환기 후 재측정 필요"}</>)}
                 </span>
                 {" "}
               </div>
               {" "}
               <div style={{"display":"flex","flexWrap":"wrap","gap":"24px"}}>
+                {v.stats ?? (<>
                 {" "}
                 <div style={{"display":"flex","flexDirection":"column","gap":"2px"}}>
                   <span className="lbl">
@@ -193,18 +195,19 @@ export function View({ v }: { v: Vals }) {
                   </span>
                 </div>
                 {" "}
+                </>)}
               </div>
               {" "}
               <div style={{"flex":"1"}} />
               {" "}
               <div style={{"display":"flex","flexWrap":"wrap","gap":"8px"}}>
                 {" "}
-                <button className="btn">
-                  {"원자료 내려받기 (CSV)"}
+                <button className="btn" {...v.csvP}>
+                  {v.csvT ?? "원자료 내려받기 (CSV)"}
                 </button>
                 {" "}
-                <a href="#/Report" className="btn pri" style={{"textDecoration":"none"}}>
-                  {"측정 기록 보고서 만들기"}
+                <a href="#/Report" className="btn pri" style={{"textDecoration":"none"}} {...v.repP}>
+                  {v.repT ?? "측정 기록 보고서 만들기"}
                 </a>
                 {" "}
               </div>
@@ -217,14 +220,15 @@ export function View({ v }: { v: Vals }) {
                 {" "}
                 <div style={{"display":"flex","alignItems":"center","gap":"8px"}}>
                   <span style={{"fontWeight":"600"}}>
-                    {"발견물"}
+                    {v.lhA ?? "발견물"}
                   </span>
                   <span className="lbl">
-                    {"AI 탐지 결과는 사람이 확인해야 기록에 들어갑니다"}
+                    {v.lhB ?? "AI 탐지 결과는 사람이 확인해야 기록에 들어갑니다"}
                   </span>
                 </div>
                 {" "}
                 <div role="tablist" aria-label="발견물 거르기" style={{"display":"flex","flexWrap":"wrap","gap":"6px"}}>
+                  {v.tabs ?? (<>
                   {" "}
                   <button className="tab" role="tab" aria-selected="false">
                     {"전체 3"}
@@ -242,8 +246,10 @@ export function View({ v }: { v: Vals }) {
                     {"오탐 1"}
                   </button>
                   {" "}
+                  </>)}
                 </div>
                 {" "}
+                {v.fds ?? (<>
                 <button className="fd sel">
                   {" "}
                   <svg viewBox="0 0 88 66" style={{"width":"88px","height":"66px","borderRadius":"6px","background":"#0D1317"}} aria-hidden="true">
@@ -348,29 +354,30 @@ export function View({ v }: { v: Vals }) {
                   {" "}
                 </button>
                 {" "}
+                </>)}
               </section>
               {" "}
-              <section aria-label="선택한 발견물" className="card" style={{"flex":"999 1 560px","minWidth":"0","padding":"14px","display":"flex","flexDirection":"column","gap":"12px"}}>
+              <section aria-label="선택한 발견물" className="card" style={{"flex":"999 1 560px","minWidth":"0","padding":"14px","display":"flex","flexDirection":"column","gap":"12px",...v.scS}}>
                 {" "}
                 <div style={{"display":"flex","flexWrap":"wrap","alignItems":"center","gap":"8px 12px"}}>
                   {" "}
                   <span style={{"fontSize":"18px","fontWeight":"700"}}>
-                    {"바닥 물고임"}
+                    {v.scT ?? "바닥 물고임"}
                   </span>
                   {" "}
-                  <span className="badge b-wait">
-                    {"확인 대기"}
+                  <span className="badge b-wait" {...v.scBP}>
+                    {v.scB ?? "확인 대기"}
                   </span>
                   {" "}
                   <span className="lbl">
-                    {"WP2 펌프실 A · x 22.6 y 18.1 · 로봇 방향 "}
+                    {v.scL ?? (<>{"WP2 펌프실 A · x 22.6 y 18.1 · 로봇 방향 "}
                     <span className="mono">
                       {"92°"}
                     </span>
                     {" · "}
                     <span className="mono">
                       {"10:39:51"}
-                    </span>
+                    </span></>)}
                   </span>
                   {" "}
                 </div>
@@ -379,7 +386,7 @@ export function View({ v }: { v: Vals }) {
                   {" "}
                   <figure style={{"margin":"0","display":"flex","flexDirection":"column","gap":"6px"}}>
                     {" "}
-                    <svg viewBox="0 0 640 360" style={{"width":"100%","height":"auto","borderRadius":"8px","background":"#05080A","display":"block"}} role="img" aria-label="오늘 사진: 펌프 아래 바닥에 넓은 물고임과 탐지 상자">
+                    {v.im1 ?? (<>{v.im2 ?? (<><svg viewBox="0 0 640 360" style={{"width":"100%","height":"auto","borderRadius":"8px","background":"#05080A","display":"block"}} role="img" aria-label="오늘 사진: 펌프 아래 바닥에 넓은 물고임과 탐지 상자">
                       <rect width="640" height="360" fill="#080B0D" />
                       <polygon points="0,360 640,360 470,190 170,190" fill="#141C21" />
                       <circle cx="470" cy="150" r="70" fill="#121A1F" stroke="#2D3A43" strokeWidth="4" />
@@ -391,10 +398,10 @@ export function View({ v }: { v: Vals }) {
                       <text x="178" y="245" fontSize="14" fontWeight="700" fill="#1A1206" fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                         {"바닥 물고임 0.88"}
                       </text>
-                    </svg>
+                    </svg></>)}</>)}
                     {" "}
                     <figcaption className="lbl">
-                      {"오늘 10:39 · 전방 RGB"}
+                      {v.c1 ?? "오늘 10:39 · 전방 RGB"}
                     </figcaption>
                     {" "}
                   </figure>
@@ -410,7 +417,7 @@ export function View({ v }: { v: Vals }) {
                     </svg>
                     {" "}
                     <figcaption className="lbl">
-                      {"지난 순찰 10-05 · 같은 위치 비교"}
+                      {v.c2 ?? "지난 순찰 10-05 · 같은 위치 비교"}
                     </figcaption>
                     {" "}
                   </figure>
@@ -419,16 +426,16 @@ export function View({ v }: { v: Vals }) {
                 {" "}
                 <div role="group" aria-label="판정" style={{"display":"flex","flexWrap":"wrap","gap":"8px"}}>
                   {" "}
-                  <button className="btn pri" style={{"flex":"1 1 160px"}}>
-                    {"맞음 · 위험 요인으로 기록"}
+                  <button className="btn pri" style={{"flex":"1 1 160px"}} {...v.j?.[0]}>
+                    {v.jT?.[0] ?? "맞음 · 위험 요인으로 기록"}
                   </button>
                   {" "}
-                  <button className="btn" style={{"flex":"1 1 120px"}}>
-                    {"오탐"}
+                  <button className="btn" style={{"flex":"1 1 120px"}} {...v.j?.[1]}>
+                    {v.jT?.[1] ?? "오탐"}
                   </button>
                   {" "}
-                  <button className="btn" style={{"flex":"1 1 120px"}}>
-                    {"다음 순찰 때 다시 보기"}
+                  <button className="btn" style={{"flex":"1 1 120px"}} {...v.j?.[2]}>
+                    {v.jT?.[2] ?? "다음 순찰 때 다시 보기"}
                   </button>
                   {" "}
                 </div>
@@ -436,10 +443,11 @@ export function View({ v }: { v: Vals }) {
                 <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
                   {" "}
                   <label className="lbl" htmlFor="memo">
-                    {"메모 · 보고서에 함께 실립니다"}
+                    {v.memoL ?? "메모 · 보고서에 함께 실립니다"}
                   </label>
                   {" "}
-                  <textarea defaultValue={"펌프 B 씰 누수 의심. 진입 시 미끄럼 주의 표지 필요."} id="memo" rows={2} style={{"padding":"10px 12px","border":"1px solid var(--line2)","borderRadius":"6px","background":"var(--panel2)","fontSize":"14px","resize":"vertical"}} />
+                  {v.memo ?? <textarea defaultValue={"펌프 B 씰 누수 의심. 진입 시 미끄럼 주의 표지 필요."} id="memo" rows={2} style={{"padding":"10px 12px","border":"1px solid var(--line2)","borderRadius":"6px","background":"var(--panel2)","fontSize":"14px","resize":"vertical"}} />}
+                  {v.msg ?? null}
                   {" "}
                 </div>
                 {" "}
@@ -447,14 +455,14 @@ export function View({ v }: { v: Vals }) {
                   {" "}
                   <div style={{"display":"flex","justifyContent":"space-between"}} className="lbl">
                     <span>
-                      {"임무 되감기"}
+                      {v.rewA ?? "임무 되감기"}
                     </span>
                     <span className="mono">
-                      {"10:39:51 / 10:52:40"}
+                      {v.rewB ?? "10:39:51 / 10:52:40"}
                     </span>
                   </div>
                   {" "}
-                  <div style={{"position":"relative","height":"28px"}}>
+                  {v.rewHide ? null : (<><div style={{"position":"relative","height":"28px"}}>
                     {" "}
                     <div style={{"position":"absolute","left":"0","right":"0","top":"12px","height":"4px","borderRadius":"2px","background":"var(--line)"}} />
                     {" "}
@@ -472,7 +480,7 @@ export function View({ v }: { v: Vals }) {
                     {" "}
                     <span style={{"position":"absolute","left":"41%","top":"4px","width":"4px","height":"20px","borderRadius":"2px","background":"var(--text)","transform":"translateX(-2px)"}} />
                     {" "}
-                  </div>
+                  </div></>)}
                   {" "}
                 </div>
                 {" "}
@@ -489,10 +497,10 @@ export function View({ v }: { v: Vals }) {
                 </span>
                 {" "}
                 <span className="lbl">
-                  {"원격 측정 · 로봇 탑재 4종 검지기 + CO₂ · 범프 테스트 10:20 · 보존 기한 "}
+                  {v.msLbl ?? (<>{"원격 측정 · 로봇 탑재 4종 검지기 + CO₂ · 범프 테스트 10:20 · 보존 기한 "}
                   <span className="mono">
                     {"2029-10-12"}
-                  </span>
+                  </span></>)}
                 </span>
                 {" "}
               </div>
@@ -500,7 +508,6 @@ export function View({ v }: { v: Vals }) {
               <div style={{"overflowX":"auto"}}>
                 {" "}
                 <table>
-                  {" "}
                   <thead>
                     <tr>
                       <th>
@@ -529,9 +536,8 @@ export function View({ v }: { v: Vals }) {
                       </th>
                     </tr>
                   </thead>
-                  {" "}
                   <tbody>
-                    {" "}
+                    {v.mRows ?? (<>
                     <tr>
                       <td>
                         {"WP1 계단실 하부"}
@@ -561,7 +567,6 @@ export function View({ v }: { v: Vals }) {
                         {" 적정"}
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td>
                         {"WP2 펌프실 A"}
@@ -591,7 +596,6 @@ export function View({ v }: { v: Vals }) {
                         {" 적정"}
                       </td>
                     </tr>
-                    {" "}
                     <tr style={{"background":"var(--bad-bg)"}}>
                       <td>
                         {"WP3 집수정"}
@@ -618,7 +622,6 @@ export function View({ v }: { v: Vals }) {
                         {"■ 부적정 · H₂S"}
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td>
                         {"WP4 배관 구역"}
@@ -645,9 +648,8 @@ export function View({ v }: { v: Vals }) {
                         {"측정 안 함 · 경보로 중단"}
                       </td>
                     </tr>
-                    {" "}
+                    </>)}
                   </tbody>
-                  {" "}
                 </table>
                 {" "}
               </div>

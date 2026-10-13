@@ -260,7 +260,6 @@ export function View({ v }: { v: Vals }) {
               <div style={{"overflowX":"auto"}}>
                 {" "}
                 <table>
-                  {" "}
                   <thead>
                     <tr>
                       <th>
@@ -295,7 +294,6 @@ export function View({ v }: { v: Vals }) {
                       </th>
                     </tr>
                   </thead>
-                  {" "}
                   <tbody>
 {v.rows ?? (<>
                     {" "}
@@ -340,7 +338,6 @@ export function View({ v }: { v: Vals }) {
                         </a>
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td className="mono">
                         {"10-12 09:05"}
@@ -377,7 +374,6 @@ export function View({ v }: { v: Vals }) {
                         </a>
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td className="mono">
                         {"10-11 16:40"}
@@ -414,7 +410,6 @@ export function View({ v }: { v: Vals }) {
                         </a>
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td className="mono">
                         {"10-11 11:12"}
@@ -451,7 +446,6 @@ export function View({ v }: { v: Vals }) {
                         </a>
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td className="mono">
                         {"10-10 15:02"}
@@ -488,7 +482,6 @@ export function View({ v }: { v: Vals }) {
                         </a>
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td className="mono">
                         {"10-10 14:20"}
@@ -525,7 +518,6 @@ export function View({ v }: { v: Vals }) {
                         </span>
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td className="mono">
                         {"10-09 10:18"}
@@ -562,7 +554,6 @@ export function View({ v }: { v: Vals }) {
                         </a>
                       </td>
                     </tr>
-                    {" "}
                     <tr>
                       <td className="mono">
                         {"10-08 13:47"}
@@ -602,7 +593,6 @@ export function View({ v }: { v: Vals }) {
                     {" "}
                   </>)}
 </tbody>
-                  {" "}
                 </table>
                 {" "}
               </div>

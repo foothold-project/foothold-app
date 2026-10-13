@@ -174,7 +174,6 @@ export function View({ v }: { v: Vals }) {
           {v.isGas ? (<>
             {" "}
             <table>
-              {" "}
               <thead>
                 <tr>
                   <th>
@@ -203,9 +202,7 @@ export function View({ v }: { v: Vals }) {
                   </th>
                 </tr>
               </thead>
-              {" "}
               <tbody>
-                {" "}
                 <tr style={{"background":"#F2F3F0"}}>
                   <td className="k">
                     {"적정 기준"}
@@ -228,7 +225,6 @@ export function View({ v }: { v: Vals }) {
                   </td>
                   <td />
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP1 계단실 하부"}
@@ -255,7 +251,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 적정"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP2 펌프실 A"}
@@ -282,7 +277,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 적정"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     <b>
@@ -311,7 +305,6 @@ export function View({ v }: { v: Vals }) {
                     {"■ 부적정"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP4 배관 구역"}
@@ -338,9 +331,7 @@ export function View({ v }: { v: Vals }) {
                     {"미측정 · 중단"}
                   </td>
                 </tr>
-                {" "}
               </tbody>
-              {" "}
             </table>
             {" "}
             <span className="k">
@@ -352,7 +343,6 @@ export function View({ v }: { v: Vals }) {
           {v.isBase ? (<>
             {" "}
             <table>
-              {" "}
               <thead>
                 <tr>
                   <th>
@@ -375,7 +365,6 @@ export function View({ v }: { v: Vals }) {
                   </th>
                 </tr>
               </thead>
-              {" "}
               <tbody>
 {v.rows ?? (<>
                 {" "}
@@ -399,7 +388,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 완료"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP2 펌프실 A"}
@@ -423,7 +411,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 완료"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP3 집수정"}
@@ -447,7 +434,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 완료"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP4 배관 구역"}
@@ -471,7 +457,6 @@ export function View({ v }: { v: Vals }) {
                 {" "}
               </>)}
 </tbody>
-              {" "}
             </table>
             {" "}
           </>) : null}
@@ -479,7 +464,6 @@ export function View({ v }: { v: Vals }) {
           {v.isPatrol ? (<>
             {" "}
             <table>
-              {" "}
               <thead>
                 <tr>
                   <th>
@@ -502,9 +486,7 @@ export function View({ v }: { v: Vals }) {
                   </th>
                 </tr>
               </thead>
-              {" "}
               <tbody>
-                {" "}
                 <tr>
                   <td>
                     {"WP1 계단실 하부"}
@@ -525,7 +507,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 이상 없음"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP2 펌프실 A"}
@@ -546,7 +527,6 @@ export function View({ v }: { v: Vals }) {
                     {"▲ 조치 필요"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"복도 (이동 중)"}
@@ -567,7 +547,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 기록 · 문 열림"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP3 집수정"}
@@ -588,7 +567,6 @@ export function View({ v }: { v: Vals }) {
                     {"● 이상 없음"}
                   </td>
                 </tr>
-                {" "}
                 <tr>
                   <td>
                     {"WP4 배관 구역"}
@@ -609,9 +587,7 @@ export function View({ v }: { v: Vals }) {
                     {"● 이상 없음"}
                   </td>
                 </tr>
-                {" "}
               </tbody>
-              {" "}
             </table>
             {" "}
           </>) : null}
