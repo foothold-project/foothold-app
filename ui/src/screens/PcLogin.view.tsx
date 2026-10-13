@@ -103,6 +103,7 @@ export function View({ v }: { v: Vals }) {
               </a>
               {" "}
             </div>
+            {v.gateEd}
             {" "}
             <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
               <label className="lbl" htmlFor="id">

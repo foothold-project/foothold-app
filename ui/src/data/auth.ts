@@ -25,3 +25,18 @@ export async function logoutNow(): Promise<string | null> {
   if (!r.ok) return r.note || '로그아웃 실패';   // 디스크 폐기 실패 등: 성공으로 단정하지 않음 · 조종 잠금(링크 닫힘) 유지
   location.replace(loginHash('')); return null;
 }
+
+/** 관문 주소 1차 검사 — 네이티브 FhGateCore.gateOrigin(정본·최종 검사)과 같은 규칙: https · ASCII · 사용자정보/경로/질의/조각 없음 ·
+ *  호스트 소문자 · localhost 금지 · 포트 0~65535(443·앞자리 0 표기 금지 — 정규화와 다름) · 끝 «/» 하나 허용. 통과 → 정규화 origin, 아니면 이유 */
+const LABEL = '[a-z0-9](?:[a-z0-9-]*[a-z0-9])?';
+const ORIGIN = new RegExp(`^https://(${LABEL}(?:\\.${LABEL})*|\\[[0-9a-f:.]+\\])(?::(0|[1-9][0-9]{0,4}))?/?$`);
+export function gateOrigin(raw: string): { origin: string } | { why: string } {
+  if (!raw || /[\s#@*\\]/.test(raw) || /[^\x21-\x7e]/.test(raw)) return { why: '공백·#·@·*·\\·한글 등이 든 주소는 받지 않음' };
+  if (!raw.startsWith('https://')) return { why: 'https:// 로 시작하는 주소만(소문자)' };
+  const m = ORIGIN.exec(raw);
+  if (!m) return { why: '«https://호스트:포트» 만 — 경로·질의·대문자 없이' };
+  const port = m[2] == null ? null : Number(m[2]);
+  if (port != null && (port > 65535 || port === 443)) return { why: port === 443 ? '443 은 적지 않음(기본 포트)' : '포트 범위 밖(0~65535)' };
+  if (m[1] === 'localhost' || m[1].endsWith('.localhost')) return { why: 'localhost 는 안 됨 — 관문의 실제 주소' };
+  return { origin: raw.replace(/\/$/, '') };
+}
