@@ -1,5 +1,6 @@
 // 휴대폰 관찰 사진(원본 «발견물 확인» 틀): 운영자가 찍은 사진 넘겨 보기·분류(확인·제외·보류)·빠른 메모 — web/live.js pageMFinding 과 같은 규칙.
 // AI 탐지·신뢰도는 미연결이라 숨김. 분류·메모는 note 문서로 모든 기기 공유(PcReview 와 같은 문서).
+import { Photo } from '../app/Photo';
 import { useEffect, useState } from 'react';
 import type { Note } from '@contracts';
 import { CSS, View } from './MFinding.view';
@@ -36,7 +37,7 @@ export default function MFinding() {
   const v: Record<string, unknown> = {
     themeClass: themeClass(false), stopProps, status: <LiveStatus D={D} />,
     ttl: '관찰 사진', prev: nav(1, '‹', '이전(더 오래된) 사진'), next: nav(-1, '›', '다음(더 최근) 사진'), cnt: p ? `${i + 1} / ${ps.length}` : '0 / 0',
-    img: p ? <img src={p.url} alt={`관찰 사진 ${fmtT(p.frame_at)}`} style={IMG} /> : null,
+    img: p ? <Photo src={p.url} alt={`관찰 사진 ${fmtT(p.frame_at)}`} style={IMG} /> : null,
     cap: p ? `Gazebo 렌더(실카메라 아님) · 프레임 수신 ${fmtT(p.frame_at)} · episode ${p.episode}`
       : M.ok ? '사진 없음 — 조종 화면·현황의 📷 로 찍은 사진이 여기 쌓입니다(서버 저장 · 모든 기기 공통)' : M.err || '서버 기록 읽는 중…',
     name: p ? (n ? `분류: ${n.doc.cls}` : '미분류 관찰') : '—', dotS: { background: `var(--${lv})` }, confHide: true, hlbl: OBS_NOTE,

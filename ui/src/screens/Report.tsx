@@ -1,6 +1,7 @@
 // 보고서(원본 한 쪽 틀) — 고른 수동 임무 진행 기록. web/live.js pageReport 와 같은 규칙.
 // 예시값을 쓰지 않는다: 원본 틀의 모든 예시 자리(v.<이름> ?? 예시)에 실제 값이나 «—»를 넘긴다.
 // 문서 읽기 실패면 옛 목록으로 확정값처럼 채우지 않고 비운 뒤 «미확인». 고른 run 이 없으면 다른 run 으로 바꿔 보여 주지 않는다.
+import { Photo } from '../app/Photo';
 import { CSS, View } from './Report.view';
 import { MapCanvas } from '../map/MapCanvas';
 import { LV, durTxt, fmtT, saveBlob, wpName } from '../data/fmt';
@@ -50,7 +51,7 @@ export default function Report() {
       mapCap: '지점 위치(계획 스냅샷) · Gazebo GT 좌표 · 지나온 길은 저장하지 않음(미기록)',
       thumbs: ph.length ? ph.slice(0, 12).map(([u, i]) => {
         const f = M.photos.find((p) => p.url === u)?.frame_at, nn = noteOf(D, u);
-        return (<div className="thumb" key={`${u}${i}`}><img src={u} alt={`WP${i + 1} 사진`} style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
+        return (<div className="thumb" key={`${u}${i}`}><Photo src={u} alt={`WP${i + 1} 사진`} style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
           <span className="k">{`WP${i + 1} · ${f ? fmtT(f).slice(6) : ''} · ${nn ? `${nn.doc.cls}${nn.doc.memo ? ` · ${nn.doc.memo}` : ''}` : '미분류'}`}</span></div>);
       }) : <span className="k">붙인 사진 없음</span> };
   }

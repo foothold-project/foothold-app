@@ -1,5 +1,5 @@
 // 로그인 화면 공통(MLogin·PcLogin): 원본 틀에 실제 로그인을 붙인다. 예시 계정·비밀번호는 지운다(live.js setupLogin 과 같은 규칙).
-// 전송은 data/auth 의 `auth` 하나로만(지금 웹 쿠키 관문, 나중에 네이티브 B 로 교체).
+// 전송은 data/auth 의 `auth`(= transport T) 하나로만: 웹 쿠키 관문 또는 네이티브 B(앱 출처 + FhGate 있을 때만).
 import { useEffect, useRef, useState } from 'react';
 import { auth, intent, safeNext } from '../data/auth';
 import { useRoute, whyProps } from './shell';
@@ -10,7 +10,17 @@ export function useLoginVals(phone: boolean) {
   const { q } = useRoute(), next = safeNext(q.get('next'), phone);
   const [msg, setMsg] = useState<{ t: string; ok?: boolean } | null>(null);
   const busy = useRef(false), id = useRef<HTMLInputElement>(null), pw = useRef<HTMLInputElement>(null), dv = useRef<HTMLInputElement>(null);
-  useEffect(() => () => { intent.n++; }, []);   // 화면 떠나면 진행 중 로그인 결과는 버림
+  const [where, setWhere] = useState('');
+  useEffect(() => { let live = true; auth.where().then((w) => live && setWhere(w)); return () => { live = false; intent.n++; }; }, []);   // 떠나면 진행 중 로그인 결과는 버림
+  // 네이티브만: 관문 주소 바꾸기 → 세대 바뀜(진행 중 로그인 결과 버림)
+  // ponytail: prompt 입력, 화면 시안의 주소 입력 칸이 정해지면 그쪽으로
+  const change = async () => {
+    const o = prompt('관문 주소(https://주소:포트)'); if (!o || !auth.setGate) return;
+    intent.n++; busy.current = false;
+    const err = await auth.setGate(o.trim());
+    setMsg(err ? { t: err } : { t: '관문 주소 바뀜 — 다시 로그인', ok: true });
+    setWhere(await auth.where());
+  };
   const go = async (e: React.SyntheticEvent) => {
     e.preventDefault(); if (busy.current) return;
     if (!auth.gated) return setMsg({ t: '보호 주소(https://…:8453)에서만 로그인할 수 있습니다' });
@@ -26,9 +36,9 @@ export function useLoginVals(phone: boolean) {
   return {
     formP: { onSubmit: go, noValidate: true },
     dotP: auth.gated ? {} : { style: { color: 'var(--warn)' } },
-    srvA: `v2 시뮬 관문 · ${location.host}`,
-    srvB: auth.gated ? '이 PC 의 자체 인증서 · 경고가 뜨면 관문 ca.crt 설치' : '보호 주소(https)가 아님 — 로그인 안 됨',
-    chgP: whyProps('연결할 서버는 이 주소 하나입니다'),
+    srvA: where || '확인 중…',
+    srvB: auth.kind === 'native' ? '앱이 관문 인증서를 확인(토큰은 기기에만)' : auth.gated ? '이 PC 의 자체 인증서 · 경고가 뜨면 관문 ca.crt 설치' : '보호 주소(https)가 아님 — 로그인 안 됨',
+    chgP: auth.setGate ? { href: undefined, role: 'button', tabIndex: 0, onClick: (e: React.SyntheticEvent) => { e.preventDefault(); change(); } } : whyProps('연결할 서버는 이 주소 하나입니다'),
     idIn: <input id={ids[0]} ref={id} className="inp" autoComplete="username" maxLength={64} />,
     pwIn: <input id={ids[1]} ref={pw} className="inp" type="password" autoComplete="current-password" maxLength={256} />,
     dvIn: <input id="dv" ref={dv} className="inp" maxLength={40} placeholder="예: 관제 노트북 · 기록에 남음" />,

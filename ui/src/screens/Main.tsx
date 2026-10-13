@@ -1,5 +1,6 @@
 // PC 조종(원본 틀): 지도·임무 단계·영상·조작줄·이 지점에서 할 일·사건 기록 — web/live.js setupMain/paintMain/paintRun 과 같은 규칙.
 // 입력·폐기·발행은 data/link.ts 하나(20 Hz). 처음·복귀·재연결은 보기 전용. 시안의 가스·탐지·예시 경로·예시 숫자는 남기지 않는다.
+import { Photo } from '../app/Photo';
 import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
@@ -152,7 +153,7 @@ export default function Main() {
         <span key={`b${i}`}>{t}</span>, <span key={`c${i}`} className="mono" style={{ fontSize: '12px', color: 'var(--muted)' }}>{at}</span>])}</div>,
     askTiles: ph.length ? <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,minmax(0,1fr))', gap: '6px' }}>
       {ph.map(([u, i]) => <div key={u} title={`WP${i + 1} 사진`} style={{ aspectRatio: '4/3', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--line)' }}>
-        <a href={href('PcReview', { url: u })}><img src={u} alt={`WP${i + 1} 사진`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}</div> : <></>,
+        <a href={href('PcReview', { url: u })}><Photo src={u} alt={`WP${i + 1} 사진`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}</div> : <></>,
     askLbl: ph.length ? `이 임무의 사진 · ${[...new Set(ph.map(([, i]) => `WP${i + 1}`))].join(' · ')}` : R ? '이 임무에 붙인 사진 없음 — «📷 사진»으로 지금 지점에 붙입니다' : '',
     askActs: run ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{w && <WpActs id={run.id} i={ci} w={w} />}<EndRow id={run.id} /></div> : null,
     // 사건 기록: 서버 원값 최근 5건

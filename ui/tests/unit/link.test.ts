@@ -21,7 +21,9 @@ const step = (ms: number) => { vi.advanceTimersByTime(ms); };
 beforeAll(async () => {
   vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'performance'] });
   vi.advanceTimersByTime(10);   // 가짜 performance.now 가 0 이면 «아직 메시지 없음»과 같아짐
-  L = await import('../../src/data/link'); L.startLink(); sock.readyState = 1; sock.onopen();
+  L = await import('../../src/data/link'); L.startLink();
+  for (let i = 0; i < 10 && !sock; i++) await Promise.resolve();   // open 은 전송층 T.wsUrl() 을 기다린 뒤 연다
+  sock.readyState = 1; sock.onopen();
 });
 afterAll(() => { vi.useRealTimers(); });
 

@@ -6,6 +6,8 @@ import { create } from 'zustand';
 import type { ClientOp, Reply, Status } from '@contracts';
 import { refreshShared } from './shared';
 import { num, ok, sgn } from './fmt';
+import { T } from './transport';
+
 
 type LinkState = { st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean };
 // viewOnly: 이 화면이 «조종권 받기»를 누르기 전까지 cmd 를 보내지 않음. 처음 열 때·숨김·앱 pause/resume·재연결 뒤 다시 켜짐(서버 role 이 control 로 남아 있어도)
@@ -102,10 +104,17 @@ export const ask = (op: 'photo' | 'sim_start') => new Promise<Reply>((res) => {
   pending.set(id, (m) => { clearTimeout(t); res(m); });
 });
 
+/** 로그아웃·주소 변경 직전: WS 닫고 다시 잇지 않음(새로 읽을 때까지) */
+export function closeLink() { closed = true; dropAll(); ws?.close(); }
+let closed = false;
+
 export function startLink() {
   if (started) return; started = true;
-  const open = () => {
-    const u = new URL('ws', location.href); u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; u.hash = ''; u.search = '';
+  const open = async () => {
+    if (closed || useLink.getState().authEnd) return;
+    const u = await T.wsUrl().catch(() => null);   // 웹: 같은 출처 /ws · 네이티브: 1회용 표 URL(세대 다르면 null)
+    if (closed || useLink.getState().authEnd) return;
+    if (!u) { setTimeout(open, 1000); return; }
     const w = ws = new WebSocket(u); w.binaryType = 'blob';
     w.onopen = () => { dropAll(); hidSent = false; useLink.setState({ open: true, viewOnly: true }); };   // 재연결은 보기 전용부터
     w.onmessage = (e) => {
@@ -129,10 +138,11 @@ export function startLink() {
     w.onclose = (e) => {
       dropAll(); sig = null; if (ws === w) ws = null;
       useLink.setState({ open: false, viewOnly: true });   // 끊기는 즉시 «끊김» 표시(1 s 기다리지 않음)
-      if (e.code === 4401) { useLink.setState({ authEnd: true }); return; }   // 로그인 끝남: 다시 잇지 않음(로그인 화면 연결은 묶음 4)
-      setTimeout(open, 1000);
+      if (e.code === 4401) { useLink.setState({ authEnd: true }); return; }   // 로그인 끝남: 다시 잇지 않음 → 화면이 로그인으로
+      if (!closed) setTimeout(open, 1000);
     };
   };
+  T.onEnded(() => { useLink.setState({ authEnd: true }); closeLink(); });   // 네이티브: 이 세대 세션 끝(만료·401)
   open();
   setInterval(() => useLink.setState((s) => ({ tick: s.tick + 1 })), 500);   // 메시지가 끊겨도 «끊김 N s» 표시가 갱신되게
   setInterval(tick20, 50);   // cmd 발행은 이 타이머 하나(20 Hz)

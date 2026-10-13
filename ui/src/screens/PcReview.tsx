@@ -1,5 +1,6 @@
 // PC 사진 검토(원본 틀): 운영자가 찍은 관찰 사진 목록·분류(확인·보류·제외)·메모 — web/live.js pagePcReview 와 같은 규칙.
 // AI 탐지·신뢰도·측정값·임무 되감기는 미연결 — 시안 예시값을 남기지 않는다. 분류·메모는 note 문서로 모든 기기 공유.
+import { Photo } from '../app/Photo';
 import { useEffect, useState } from 'react';
 import type { Note } from '@contracts';
 import { CSS, View } from './PcReview.view';
@@ -58,7 +59,7 @@ export default function PcReview() {
         : !ps.length ? <span className="lbl">해당 사진 없음 — 조종 화면·현황의 📷 로 찍습니다</span>
         : ps.slice(0, 120).map((x) => { const nn = noteOf(D, x.url); return (
           <button key={x.url} type="button" className={`fd${x.url === u ? ' sel' : ''}`} onClick={() => pick(x.url)}>
-            <img src={x.url} alt="" loading="lazy" style={{ width: '88px', height: '66px', objectFit: 'cover', borderRadius: '6px', background: '#05080A' }} />
+            <Photo src={x.url} alt="" loading="lazy" style={{ width: '88px', height: '66px', objectFit: 'cover', borderRadius: '6px', background: '#05080A' }} />
             <span style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '0' }}>
               <span style={{ display: 'flex', justifyContent: 'space-between', gap: '6px' }}><b style={{ fontSize: '14px' }}>{nn?.doc.memo ? nn.doc.memo.slice(0, 24) : '관찰 사진'}</b>
                 <span className={badgeCls(nn)}>{nn ? nn.doc.cls : '미분류'}</span></span>
@@ -72,9 +73,9 @@ export default function PcReview() {
     Object.assign(v, {
       scT: n ? `분류: ${n.doc.cls}` : '미분류 관찰', scB: n ? n.doc.cls : '미분류', scBP: { className: badgeCls(n) },
       scL: `${runsOf(D, p.url).join(', ') || '임무 지점 없음'} · ${posTxt(p.x, p.y)} · 방향 ${deg(p.yaw)} · ${fmtT(p.frame_at)}${n ? ` · 분류 ${n.by} ${fmtT(n.at)}` : ''}`,
-      im1: <img src={p.url} alt={`관찰 사진 ${fmtT(p.frame_at)}`} style={IMG} />,
+      im1: <Photo src={p.url} alt={`관찰 사진 ${fmtT(p.frame_at)}`} style={IMG} />,
       c1: `Gazebo 렌더 · 프레임 수신 ${fmtT(p.frame_at)} · GT는 저장 요청 때 최신(프레임 동기 아님)`,
-      im2: old ? <img src={old.url} alt={`같은 위치 이전 사진 ${fmtT(old.frame_at)}`} style={IMG} /> : null,
+      im2: old ? <Photo src={old.url} alt={`같은 위치 이전 사진 ${fmtT(old.frame_at)}`} style={IMG} /> : null,
       c2: old ? `같은 위치(1 m 안) 이전 사진 · ${fmtT(old.frame_at)}` : '같은 위치(1 m 안) 이전 사진 없음',
       j: CLS.map(([c]) => ({ type: 'button', 'aria-pressed': !!n && n.doc.cls === c, disabled: !ed, onClick: () => judge(c) })), jT: CLS.map(([, t]) => t),
       memoL: '메모 · 보고서에 함께 실립니다(모든 기기 공유)',

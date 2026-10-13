@@ -1,5 +1,6 @@
 // 휴대폰 현황(원본 틀): 진행 중 수동 임무 · 미니맵 · 지점에서 할 일 · 기록 버튼 — web/live.js pageMHome 과 같은 규칙.
 // 로봇은 자동으로 움직이지 않는다(자동 이동·도착 판정 미연결). 가스·발견물 칸은 실데이터가 없어 숨긴다(예시값 금지).
+import { Photo } from '../app/Photo';
 import { useState } from 'react';
 import type { Mission } from '@contracts';
 import { CSS, View } from './MHome.view';
@@ -49,7 +50,7 @@ export default function MHome() {
       <span key={`a${i}`} style={{ width: '12px', height: '12px', borderRadius: '50%', border: `2px solid var(--${done ? 'ok' : 'line2'})`, background: done ? 'var(--ok)' : undefined, justifySelf: 'center' }} />,
       <span key={`b${i}`}>{t}</span>]),
     tilesHide: !w,
-    tiles: w && <>{w.photos.slice(-2).map((u) => <div key={u} style={tile}><a href={href('MFinding', { url: u })}><img src={u} alt="붙인 사진" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}
+    tiles: w && <>{w.photos.slice(-2).map((u) => <div key={u} style={tile}><a href={href('MFinding', { url: u })}><Photo src={u} alt="붙인 사진" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}
       <div role="button" tabIndex={0} className="lbl" onClick={cam} onKeyDown={(e) => { if (e.key === 'Enter') cam(); }}
         style={{ aspectRatio: '4/3', borderRadius: '6px', border: '1.5px dashed var(--line2)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>{`📷 ${wpName(w, ci).split(' ')[0]} 사진`}</div></>,
     acts: run && w ? <WpActs id={run.id} i={ci} w={w} /> : null,
