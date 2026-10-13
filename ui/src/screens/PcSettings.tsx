@@ -1,5 +1,6 @@
 // PC 설정(원본 절 그대로) — web/live.js pagePcSettings 와 같은 글. 서버 고정값은 보여 주기만, 이 브라우저 설정(테마·막대 배치·지도 보기)만 실제로 저장.
 // 나머지(알림·경보 기준·계정 편집·보존 기간)는 미연결 — 시안 예시값을 진실처럼 남기지 않는다.
+import { useNote } from '../data/transport';
 import { useState } from 'react';
 import { CSS, View } from './PcSettings.view';
 import { store, themeClass } from '../data/fmt';
@@ -19,6 +20,7 @@ const RECS = ['서버 media 폴더 · 사진 최근 200 · 사건 최근 300 보
 const TH = [['자동', null], ['어두운', 'dark'], ['밝은', 'light']] as const;
 
 export default function PcSettings() {
+  const note = useNote((s) => s.note);
   const D = useDocs(), L = useLink(), v = linkView(L), st = L.st;
   const [, redraw] = useState(0), theme = store.get<string | null>('fh.live.theme', null);
   const lay0 = store.get('fh.live.layout', LAYOUTS[0]), [lay, setLay] = useState(LAYOUTS.includes(lay0) ? lay0 : LAYOUTS[0]);
@@ -58,7 +60,7 @@ export default function PcSettings() {
     thBody: <tr><td className="lbl" colSpan={4}>가스 측정값이 없어 기준표 미사용</td></tr>,
     addP: { ...whyProps('계정 추가·편집 미연결 — 계정은 서버 관리자가 이 PC 에서 관리'), className: 'btn pri lv-why' },
     accRows: <>{tr(st?.me || '미확인', '이 기기', '조종(조종권을 받을 때) · 임무 기록 · 사진 분류', st?.holder ? `조종 중 기기: ${st.holder}` : '조종 중인 기기 없음',
-      GATED ? <button type="button" className="btn" title="조종권 해제 · 명령 0 · STOP 잠금(서버) 뒤 로그인 화면" onClick={() => logoutNow().then((e) => e && toast(e))}>로그아웃</button> : <span className="lbl">로그인 없음(이 PC 전용)</span>)}
+      GATED ? <><button type="button" className="btn" title="조종권 해제 · 명령 0 · STOP 잠금(서버) 뒤 로그인 화면" onClick={() => logoutNow().then((e) => e && toast(e))}>로그아웃</button>{note && <span className="lbl"> {note}</span>}</> : <span className="lbl">로그인 없음(이 PC 전용)</span>)}
       {tr('다른 계정', '—', '계정 목록 보기 미연결(서버 관리자만)', '—', <></>)}</>,
     dispExtra: set('지도 기본 보기', '로봇 중심 = 지도가 움직임',
       <select className="inp" value={mm} onChange={(e) => { setMm(e.target.value); if (!store.set('fh.live.mapmode', e.target.value)) toast('저장 실패 — 이번 화면에만'); }}>

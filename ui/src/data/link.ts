@@ -9,9 +9,9 @@ import { num, ok, sgn } from './fmt';
 import { T } from './transport';
 
 
-type LinkState = { st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean };
+type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean };
 // viewOnly: 이 화면이 «조종권 받기»를 누르기 전까지 cmd 를 보내지 않음. 처음 열 때·숨김·앱 pause/resume·재연결 뒤 다시 켜짐(서버 role 이 control 로 남아 있어도)
-export const useLink = create<LinkState>(() => ({ st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true }));
+export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true }));
 
 let ws: WebSocket | null = null, started = false, sig: string | null = null;
 export let camURL: string | null = null;   // 마지막 카메라 프레임(새로 그린 img 의 첫 src)
@@ -30,7 +30,7 @@ let stopHeld = false;   // STOP 보낸 뒤 서버 latch=true 를 볼 때까지 c
 /** 지금 cmd 를 보내도 되나(아니면 이유) — 링크·형식·판·조종권·잠금·대기·STOP·보기 전용 */
 export function driveBlock(s = useLink.getState()): string | null {
   const st = s.st;
-  if (!s.open || !s.lastMsg || performance.now() - s.lastMsg > 1000) return '링크 끊김';
+  if (!s.open || !s.lastMsg || performance.now() - s.lastMsg > 1000) return s.why ? `링크 끊김 · ${s.why}` : '링크 끊김';
   if (s.bad || !st) return `상태 미확인(${s.bad || '없음'})`;
   if (s.firstVer && st.ver !== s.firstVer) return '새 판 — 새로고침';
   if (s.viewOnly) return '보기 전용 — 조종권 받기를 누르세요';
@@ -112,11 +112,11 @@ export function startLink() {
   if (started) return; started = true;
   const open = async () => {
     if (closed || useLink.getState().authEnd) return;
-    const u = await T.wsUrl().catch(() => null);   // 웹: 같은 출처 /ws · 네이티브: 1회용 표 URL(세대 다르면 null)
+    const u = await T.wsUrl().catch((e) => ({ why: String(e?.message || e) }));   // 웹: 같은 출처 /ws · 네이티브: 1회용 표 URL
     if (closed || useLink.getState().authEnd) return;
-    if (!u) { setTimeout(open, 1000); return; }
-    const w = ws = new WebSocket(u); w.binaryType = 'blob';
-    w.onopen = () => { dropAll(); hidSent = false; useLink.setState({ open: true, viewOnly: true }); };   // 재연결은 보기 전용부터
+    if ('why' in u) { useLink.setState({ why: u.why }); setTimeout(open, 1000); return; }   // tls·net 등 원인은 연결 표시로(숨기지 않음)
+    const w = ws = new WebSocket(u.url); w.binaryType = 'blob';
+    w.onopen = () => { dropAll(); hidSent = false; useLink.setState({ open: true, viewOnly: true, why: null }); };   // 재연결은 보기 전용부터
     w.onmessage = (e) => {
       if (typeof e.data !== 'string') {   // 카메라 JPEG: fps 세기 + 화면의 img[data-live-cam] 에 바로 넣음(프레임마다 React 다시 그리지 않음)
         camT.push(performance.now()); if (camURL) URL.revokeObjectURL(camURL); camURL = URL.createObjectURL(e.data as Blob);
@@ -142,7 +142,7 @@ export function startLink() {
       if (!closed) setTimeout(open, 1000);
     };
   };
-  T.onEnded(() => { useLink.setState({ authEnd: true }); closeLink(); });   // 네이티브: 이 세대 세션 끝(만료·401)
+  T.onEnded(() => { useLink.setState({ authEnd: true }); closeLink(); });   // 네이티브: 세션 끝·주소 없음·잠김 → 로그인 화면(자동 take/resume 없음)
   open();
   setInterval(() => useLink.setState((s) => ({ tick: s.tick + 1 })), 500);   // 메시지가 끊겨도 «끊김 N s» 표시가 갱신되게
   setInterval(tick20, 50);   // cmd 발행은 이 타이머 하나(20 Hz)

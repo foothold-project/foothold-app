@@ -17,9 +17,11 @@ export const safeNext = (nx: string | null, phone = PHONE) =>
 export const loginHash = (next = location.hash) => `#/${PHONE ? 'MLogin' : 'PcLogin'}?next=${encodeURIComponent(next)}`;
 
 /** 로그아웃: 누름 폐기 · hidden(조종권 해제 · 0 · STOP 잠금은 서버) → 세션 끝 → 로그인 화면(새로 읽어 링크도 새로) */
+// 새로 읽지 않는다: 링크는 닫힌 채(closeLink), 서버 종료 확인(logoutResult)·저장 안내를 같은 페이지에서 계속 받는다. 로그인 성공이 새로 읽는다
 export async function logoutNow(): Promise<string | null> {
-  intent.n++; dropAll(); hide(); closeLink();   // 누름 버림·20 Hz 멈춤 → hidden 최선 → WS 닫기 → 로그아웃(계약 §2 순서)
+  const my = ++intent.n; dropAll(); hide(); closeLink();   // 누름 버림·20 Hz 멈춤 → hidden 최선 → WS 닫기 → 로그아웃(계약 §2 순서)
   const r = await auth.logout();
-  if (!r.ok) return r.note || '로그아웃 실패';   // 디스크 폐기 실패 등: 성공으로 단정하지 않음 · 조종 잠금(보기 전용) 유지
-  location.replace(loginHash('')); location.reload(); return null;
+  if (my !== intent.n) return null;   // 그 사이 다른 로그아웃·주소 변경·로그인 → 옛 결과로 화면을 바꾸지 않음
+  if (!r.ok) return r.note || '로그아웃 실패';   // 디스크 폐기 실패 등: 성공으로 단정하지 않음 · 조종 잠금(링크 닫힘) 유지
+  location.replace(loginHash('')); return null;
 }

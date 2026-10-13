@@ -1,5 +1,6 @@
 // 휴대폰 가로 조종(원본 틀): 카메라·작은 지도·상태 표시·막대 둘·STOP — web/live.js setupDrive/paintDrive 와 같은 규칙.
 // 입력·폐기·발행은 data/link.ts 하나. 처음·복귀·재연결은 보기 전용 — 막대 첫 누름은 «조종권 받기»만.
+import { useNote } from '../data/transport';
 import { useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
@@ -18,6 +19,7 @@ const big = (t: string, f: () => void) => <button key={t} type="button" onClick=
 const hud = (good: boolean, label: string, val: string, mono = true) => <span className="hud"><span style={{ color: good ? '#5AA9FF' : '#FFB547' }}>●</span>{label}<span className={mono ? 'mono' : undefined}>{val}</span></span>;
 
 export default function MDrive() {
+  const note = useNote((s) => s.note);
   const D = useDocs(), L = useLink(), v = linkView(L), st = L.st, s = v.s, root = useFitPhone();
   const ctl = st?.role === 'control' && !L.viewOnly;
   const [lay, setLay] = useState(() => { const x = store.get('fh.live.layout', LAYOUTS[0]); return LAYOUTS.includes(x) ? x : LAYOUTS[0]; });
@@ -92,7 +94,7 @@ export default function MDrive() {
     <button type="button" onClick={() => { if (ctl) return toast('조종 중에는 바꾸지 않습니다 — 조종권 반납 뒤'); const nx = LAYOUTS[(LAYOUTS.indexOf(lay) + 1) % LAYOUTS.length]; if (!store.set('fh.live.layout', nx)) toast('저장 실패 — 이번만 적용'); setLay(nx); }}>{`막대 배치: ${lay} (눌러 바꾸기)`}</button>
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
     <button type="button" onClick={() => { location.hash = '#/MHistory'; }}>기록 보기(사진·조종 기록)</button>
-    {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}</button>}
+    {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}{note && <small style={{ display: 'block' }}>{note}</small>}</button>}
     <p>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>
     <h3>상태 원값</h3><dl>{stateRows(L).slice(0, 13).map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>
     <h3>현재 v2 연결에서 안 되는 것(미제공·미연결·미검증)</h3><dl>{UNSUP.map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>

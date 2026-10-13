@@ -2,6 +2,7 @@
 // 전송은 data/auth 의 `auth`(= transport T) 하나로만: 웹 쿠키 관문 또는 네이티브 B(앱 출처 + FhGate 있을 때만).
 import { useEffect, useRef, useState } from 'react';
 import { auth, intent, safeNext } from '../data/auth';
+import { useNote } from '../data/transport';
 import { useRoute, whyProps } from './shell';
 
 const FAILS = '5분 안에 5번 틀리면 잠시 잠김';   // phone_gate RateLimit(limit 5, window 300 s)
@@ -11,15 +12,22 @@ export function useLoginVals(phone: boolean) {
   const [msg, setMsg] = useState<{ t: string; ok?: boolean } | null>(null);
   const busy = useRef(false), id = useRef<HTMLInputElement>(null), pw = useRef<HTMLInputElement>(null), dv = useRef<HTMLInputElement>(null);
   const [where, setWhere] = useState('');
-  useEffect(() => { let live = true; auth.where().then((w) => live && setWhere(w)); return () => { live = false; intent.n++; }; }, []);   // 떠나면 진행 중 로그인 결과는 버림
+  const note = useNote((s) => s.note);   // 저장 안 됨·서버 종료 확인 중/못 함(로그아웃 뒤에도 같은 페이지라 이어서 받음)
+  useEffect(() => {
+    let live = true;
+    auth.where().then((w) => live && setWhere(w));
+    auth.hint().then((h) => live && h && setMsg((m) => m || { t: h }));   // 주소 없음·잠김: 첫 안내
+    return () => { live = false; intent.n++; };   // 떠나면 진행 중 로그인·주소 변경 결과는 버림
+  }, []);
   // 네이티브만: 관문 주소 바꾸기 → 세대 바뀜(진행 중 로그인 결과 버림)
   // ponytail: prompt 입력, 화면 시안의 주소 입력 칸이 정해지면 그쪽으로
   const change = async () => {
     const o = prompt('관문 주소(https://주소:포트)'); if (!o || !auth.setGate) return;
-    intent.n++; busy.current = false;
+    const my = ++intent.n; busy.current = false;
     const err = await auth.setGate(o.trim());
+    if (my !== intent.n) return;   // 그 사이 다른 요청·화면 떠남
     setMsg(err ? { t: err } : { t: '관문 주소 바뀜 — 다시 로그인', ok: true });
-    setWhere(await auth.where());
+    const w = await auth.where(); if (my === intent.n) setWhere(w);
   };
   const go = async (e: React.SyntheticEvent) => {
     e.preventDefault(); if (busy.current) return;
@@ -45,7 +53,7 @@ export function useLoginVals(phone: boolean) {
     keepP: { title: '로그인은 12시간 유지(관문을 다시 켜면 다시 로그인)' },
     keepIn: { disabled: true, checked: true, readOnly: true, defaultChecked: undefined },
     keepT: '로그인 12시간 유지 · 관문 재시작 시 다시 로그인',
-    msg: <div role="alert" style={{ minHeight: 20, fontSize: 13, color: msg?.ok ? 'var(--ok)' : 'var(--bad, #FF5A4F)' }}>{msg?.t || ''}</div>,
+    msg: <div role="alert" style={{ minHeight: 20, fontSize: 13, color: msg?.ok ? 'var(--ok)' : 'var(--bad, #FF5A4F)' }}>{[msg?.t, note].filter(Boolean).join(' · ')}</div>,
     loginP: { href: undefined, role: 'button', tabIndex: 0, onClick: go, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') go(e); } },
     viewP: { ...whyProps('보기 전용 계정은 없습니다 — 로그인 뒤 조종권을 받지 않으면 보기 전용(STOP 은 누구나)'), href: undefined },
     rl: FAILS,
