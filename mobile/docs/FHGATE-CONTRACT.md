@@ -10,7 +10,7 @@
 export type FhCode =
   | 'bad_input' | 'no_gate' | 'no_session' | 'bad_state' | 'stale'
   | 'tls' | 'net' | 'unknown' | 'auth' | 'origin' | 'busy' | 'redirect' | 'server' | 'too_big' | 'bad_type'
-  | 'storage' | 'internal';
+  | 'storage' | 'internal' | 'cancelled' | 'io';
 
 export interface FhState {
   origin: string | null; loggedIn: boolean; account: string | null; device6: string | null; exp: number | null;
@@ -28,6 +28,7 @@ export interface FhGate {
   photo(o: { path: string }): Promise<{ status: 200 | 404; gen: number; mime?: 'image/jpeg'; base64?: string }>;
   wsTicket(): Promise<{ url: string; gen: number }>;                        // wss://<관문>/api/app/ws?t=<1회용 표>
   logout(o?: { reason?: string }): Promise<{ ok: boolean; server: 'pending' | 'none'; gen: number }>;   // ok = 디스크 폐기까지, gen = 새 gen
+  saveFile(o: { name: string; base64?: string; text?: string }): Promise<{ saved: true; bytes: number; gen: number }>;   // B2 — 아래 «저장»
   addListener(e: 'logoutResult', f: (v: { server: 'ok' | 'failed' | 'none'; reason: string; gen: number }) => void): Promise<{ remove(): Promise<void> }>;
   addListener(e: 'sessionEnded', f: (v: { reason: 'expired'; gen: number }) => void): Promise<{ remove(): Promise<void> }>;
 }
@@ -37,7 +38,13 @@ export interface FhGate {
 - `busy`: 같은 gen 에 로그인이 이미 진행 중, 또는 대기 칸(실행 2 + 대기 8) 이 참 — 바로 거부, 재시도는 화면 판단. `internal`: 예기치 않은 네이티브 예외(Promise 를 남기지 않으려는 고정 코드) — 호출 문맥이 현재일 때만. 이미 옛 문맥이면 `stale`(gen 은 호출 문맥 그대로, `unexpectedIsInternalOnlyForCurrentContext`). `storage`: `locked` 상태.
 - `request().body` 는 관문 응답 본문 글 그대로 — 화면이 `JSON.parse`. `docs.post` 는 200·400·403·404·409(`cur`)·500·503 을 **reject 하지 않고** `status` 로 넘긴다(기존 `/api/docs` 화면 처리 그대로). 어댑터는 어느 요청도 재시도하지 않는다.
 - `photo` 는 `path` 가 `^media/photos/\d{8}/[\w.-]{1,80}\.jpg$`(ASCII) 이고 `..` 가 없을 때만(v2_link 문서 검사 `PHOTO` 와 같은 꼴 — `/api/media` 의 `url` 이 이 모양) 네트워크에 간다. 화면: `base64` → `Uint8Array` → `Blob` → `URL.createObjectURL`, 목록에서 빠질 때·화면 떠날 때·로그아웃 때 `revokeObjectURL`.
-- 저장(`saveFile`)은 B2 — 이번 초안에 없다. CSV·JSON 자료 만드는 JS 는 그대로 두고 저장 단계만 나중에 바꾼다.
+- **저장 `saveFile` (B2)** — Android 시스템 «다른 이름으로 저장» 창(SAF `ACTION_CREATE_DOCUMENT`)을 띄워 사람이 고른 곳에 쓴다. 로그인 세션과 무관(로컬 파일만, 네트워크 0).
+  - `name`: ASCII `^foothold-v2-[a-z]{1,20}-[0-9]{10,16}\.(csv|json|jpg)$` 만(화면 `saveBlob` 이 이미 쓰는 꼴, 예 `foothold-v2-history-<ms>.csv`). 경로·URL·대문자·다른 확장자는 `bad_input`. 형식(MIME)은 확장자로 정한다 — `mime` 인자는 받지 않는다(csv `text/csv`, json `application/json`, jpg `image/jpeg`).
+  - 내용: `base64`·`text` 중 **정확히 하나**. jpg 는 `base64` 만(시작 표지 FF D8 FF 검사). csv·json 은 둘 다 됨 — 화면 `saveBlob` 은 `base64`(Blob → base64) 하나로 보내면 된다. json 은 객체·배열 하나로 끝까지 파싱돼야 한다. 빈 내용 `bad_input`.
+  - 상한 5 MB(푼 바이트, UTF-8 기준). base64 길이로 먼저 거르고 풀고 나서 다시 잰다 → `too_big`.
+  - **성공(resolve) = 쓰기·flush·close 가 모두 끝난 뒤에만.** `bytes` = 실제로 쓴 바이트 수, `gen` = resolve 순간의 gen. **저장 위치·URI·경로는 돌려주지 않는다**(SAF 는 경로를 주지 않고, 창에서 사람이 이름을 바꿀 수도 있다). 화면 문구는 «저장됨(<name>)» 처럼 보낸 이름으로.
+  - 실패: 창에서 취소 `cancelled`(오류 아님 — 화면은 «저장 취소» 안내), 쓰기·닫기 실패 `io`(창이 만든 빈·덜 쓴 파일은 지우려 시도, 못 지우면 남을 수 있음), 창이 이미 열려 있음·실행 대기 꽉 참 `busy`, 창이 열린 사이 화면(Activity)이 다시 만들어져 내용을 잃음 `stale`(다시 저장), 그 밖 `bad_input`·`too_big`. 어댑터는 재시도하지 않는다.
+  - **native 에서는 `a.download` 경로를 성공으로 쓰지 않는다.** 화면은 `Capacitor.isNativePlatform()` 이면 `saveFile` 결과로만 «저장됨», 웹 브라우저면 기존 `a.download` + «내려받기 요청…»(완료 확인 아님) 그대로.
 
 ## 2. 연결 세대 `gen`·호출 문맥·수명
 
@@ -83,9 +90,10 @@ export interface FhGate {
 | 대기 상한 | `ThreadPoolExecutor` 실행 2 + 대기 8(`ArrayBlockingQueue`), 넘치면 `busy`, 예기치 않은 예외 `internal` — 2 스레드는 처리량일 뿐 우선 처리 보장 아님 | 정적 빌드만(플러그인은 Android 의존이라 JVM 시험 밖) |
 | 시한 | 연결 5 s · 읽기 1회 10 s · 본문 읽는 동안 전체 20 s(`deadline` → `net`). 응답 헤더 전까지는 연결·읽기 시한만 적용 | `classifyNativeErrors` |
 | 고정 op·경로·TLS·redirect | `OPS` 4개 + 사진 정규식(v2_link 와 같은 꼴) + `HttpsURLConnection` 기본 검사·`setInstanceFollowRedirects(false)` | `requestUses…`·`photoPathCheckedBeforeAnyNetwork`·`httpsTransportRefusesPlainHttp` |
+| 저장(B2) | `FhSave`(순수: 이름·종류·JSON·JPEG 표지·5 MB·쓰고 닫기) + 플러그인 `saveFile`→SAF 창→`saveDone`(`@ActivityCallback`)→io 스레드 `openOutputStream(u,"wt")`→close 뒤 resolve, 실패 `deleteDocument` 시도. 결과에 URI·경로 없음 | `FhSaveTest` 5개(`fixedNamesOnly` 3 통과·12 거부, `kindMustMatchField`, `jsonMustParseToTheEnd`, `sizeCap`, `writeSucceedsOnlyAfterClose` 쓰기·flush·close 실패 각각). 플러그인 층은 정적 빌드만 |
 | 로그아웃·주소 변경 | 로컬 먼저, 서버는 뒤에서 1회(실패 = `failed`), 다른 origin 이면 기기 값도 삭제·옛 관문으로 로그아웃 | `logoutIsLocalFirst…`·`gateChangeWipesSessionAndDevice` |
 
-검증 명령(이 PC, 실서버·에뮬 없음): `cd mobile/android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=~/Android/Sdk ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug` → FhGateCoreTest 25/25, lint 오류 0(경고 `ApplySharedPref` — 토큰 폐기를 즉시 디스크에 쓰려고 `commit` 을 일부러 씀). 변이 확인 1회: `live` 의 gen 대조를 빼면 경합 시험 3개 실패(원복 md5 확인).
+검증 명령(이 PC, 실서버·에뮬 없음): `cd mobile/android && JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=~/Android/Sdk ./gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug` → FhGateCoreTest 27/27 + FhSaveTest 5/5, lint 오류 0(경고 `ApplySharedPref` — 토큰 폐기를 즉시 디스크에 쓰려고 `commit` 을 일부러 씀). 변이 확인 1회: `live` 의 gen 대조를 빼면 경합 시험 3개 실패(원복 md5 확인). B2 변이 2개(`write` 의 close 생략·상한 2배)도 `FhSaveTest` 실패(원복 cmp 확인).
 시험용 의존 하나: `testImplementation "org.json:json:20240303"`(JVM 시험에 Android org.json 구현이 없어서. 앱 실행 때는 Android 내장).
 
 ## 5. 미확인 (실측 전 주장하지 않음)
@@ -95,6 +103,7 @@ export interface FhGate {
 - 사진 base64 브리지 비용·상한(1 MB JSON·5 MB 사진은 임시값), 실행 2·대기 8 의 충분성.
 - 플러그인 층(Ctx 를 큐 전에 잡기·`done` 대조·거부 → `busy`/`stale`·파괴 순서)은 정적 빌드만 — JVM 시험은 Core 까지. Activity 재생성 때 옛 `handleOnDestroy` 가 새 `load` 보다 먼저인지는 미측정(먼저가 아니어도 옛 인스턴스는 닫힌 뒤 보관소를 못 씀).
 - 경합(큐 재정렬·동시 로그인·늦은 401·파괴 중 응답)은 mock 으로 순서를 고정해 확인 — 실제 스레드 경합 시험은 아님.
+- B2 저장 창 실동작(에뮬·실기기 미실행): 취소 때 결과 코드, `wt` 모드 지원 여부(공급자마다 다름 — 미지원이면 `io`), 실패 때 `deleteDocument` 성공 여부, 창이 열린 사이 Activity 재생성 경로(`stale`). 5 MB base64 의 브리지 메모리 비용.
 - WebView WS 의 TLS 오류는 JS `error` 이벤트에 원인이 없음(WHATWG) → 화면은 `request({op:'whoami'})` 로 원인을 다시 잰다(설계만).
 
 ## 6. iOS 인계 (같은 계약, 빌드·서명 환경 없음 → 코드 없음)

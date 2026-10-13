@@ -1,15 +1,22 @@
 package org.footholdproject.app;
 
+import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.Uri;
+import android.provider.DocumentsContract;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
+import androidx.activity.result.ActivityResult;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.Map;
@@ -126,6 +133,61 @@ public class FhGatePlugin extends Plugin {
         JSObject r = new JSObject();
         r.put("ok", e.wiped); r.put("server", e.hadSession() ? "pending" : "none"); r.put("gen", e.gen);
         call.resolve(r);
+    }
+
+    // ── B2 저장: 사용자가 고른 위치(시스템 문서 선택기)에 쓰고, 다 쓰고 닫힌 뒤에만 성공. 경로·URI 는 화면에 돌려주지 않는다 ──
+    private byte[] pendingSave;   // ponytail: 선택기 하나만(두 번째는 busy). 화면 재생성으로 잃으면 stale
+
+    @PluginMethod
+    public void saveFile(PluginCall call) {
+        String name = call.getString("name"), b64 = call.getString("base64");
+        byte[] b;
+        try {
+            FhSave.checkB64Len(b64);
+            byte[] raw = null;
+            if (b64 != null) {
+                try { raw = Base64.decode(b64, Base64.NO_WRAP); } catch (IllegalArgumentException x) { throw new FhGateCore.GateError("bad_input", "base64 형식", -1); }
+            }
+            b = FhSave.bytes(name, call.getString("text"), raw);
+        } catch (FhGateCore.GateError e) {
+            reject(call, new FhGateCore.GateError(e.code, e.getMessage(), core.ctx().gen()));
+            return;
+        }
+        if (pendingSave != null) { reject(call, new FhGateCore.GateError("busy", "저장 창이 이미 열려 있음", core.ctx().gen())); return; }
+        pendingSave = b;
+        Intent i = new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(FhSave.mime(name)).putExtra(Intent.EXTRA_TITLE, name);
+        startActivityForResult(call, i, "saveDone");
+    }
+
+    @ActivityCallback
+    private void saveDone(PluginCall call, ActivityResult result) {
+        byte[] b = pendingSave;
+        pendingSave = null;
+        if (call == null) return;
+        long g = core.ctx().gen();
+        if (b == null) { reject(call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어져 저장할 내용을 잃음 — 다시 저장", g)); return; }
+        Uri u = result.getData() == null ? null : result.getData().getData();
+        if (result.getResultCode() != Activity.RESULT_OK || u == null) { reject(call, new FhGateCore.GateError("cancelled", "저장 취소", g)); return; }
+        try {
+            io.execute(() -> {
+                try {
+                    int n = FhSave.write(getContext().getContentResolver().openOutputStream(u, "wt"), b);
+                    JSObject r = new JSObject();
+                    r.put("saved", true); r.put("bytes", n); r.put("gen", core.ctx().gen());   // 위치·URI 는 돌려주지 않음
+                    call.resolve(r);                              // 다 쓰고 닫힌 뒤에만
+                } catch (IOException | RuntimeException x) {
+                    removePartial(u);
+                    reject(call, new FhGateCore.GateError("io", "파일 쓰기 실패 — 저장 안 됨", g));
+                }
+            });
+        } catch (RejectedExecutionException x) {
+            removePartial(u);                                     // 선택기가 만든 빈 파일을 남기지 않는다(가능하면)
+            reject(call, new FhGateCore.GateError("busy", "요청이 밀림 — 저장 안 됨, 다시 저장", g));
+        }
+    }
+
+    private void removePartial(Uri u) {
+        try { DocumentsContract.deleteDocument(getContext().getContentResolver(), u); } catch (Exception ignored) { /* 지우지 못하면 빈·덜 쓴 파일이 남을 수 있음 — 오류 문구는 «저장 안 됨» 그대로 */ }
     }
 
     private void afterEnd(FhGateCore.Ended e, String reason) {
