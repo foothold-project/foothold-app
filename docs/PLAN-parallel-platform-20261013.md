@@ -2,13 +2,14 @@
 
 현민님 명시 승인(앱 Codex 전달): «그대로 작업 claude 한테 나눠서 병렬로 진행해줘. 필요하다면 claude 세션을 새로 열어도 좋아.»
 이번 범위에서 «계획 문서만»·«새 담당 금지» 규칙을 대체한다. 구현·저장소 범위 무료 의존성 설치·모의 검증까지 진행한다. 과거 규칙 때문에 대기하지 않는다.
-유지: 운영 판(83b25ca)·서빙(8792/8453) 무변경, 라이브 무단 교체 금지, 실기·Pod·새 Gazebo·실체험 원장 무접촉, main/force 금지, 위키는 위키 Codex 단독.
+유지: 운영 판(83b25ca)·서빙(8792/8453) 무변경(10-13 16:52 실측: 8792·8453 LISTEN 없음 = 운영 서빙 꺼짐, 개발은 모의 5181·8791 만), 라이브 무단 교체 금지, 실기·Pod·새 Gazebo·실체험 원장 무접촉, main/force 금지, 위키는 위키 Codex 단독.
 
-## 역할 (앱 Claude 작업자 2명, 하위 위임·추가 세션 없음)
+## 역할 (10-13 오후 현재. 옛 표의 «고정 앱 mentor `feature/react-platform-oh`·`foothold-app-wt-live-ui`» 는 worktree 삭제 전 기록)
 
 | 담당 | 브랜치 · 위치 | 소유 파일 |
 |---|---|---|
-| 고정 앱 mentor (UI·모바일·전체 통합) | `feature/react-platform-oh`, worktree `foothold-app-wt-live-ui` | `ui/**`, `mobile/**`, 루트 JS 패키지·lock, 프론트 시험, 이 문서, 기존 `sim/`·`web/` 의 최종 연결 |
+| UI mentor (화면·전체 통합) | `less82/app-ui-react-recovered`, checkout `app-ui-react-recovered` | `ui/**`, 루트 JS 패키지·lock, 프론트 시험, 이 문서·`docs/IMPLEMENTATION-STATUS.md`, 기존 `sim/`·`web/` 의 최종 연결 |
+| 모바일 mentor | `less82/app-contract-storage` 의 `mobile/**` | Capacitor 외피·APK·최종 B 설계(`mobile/README.md`·`mobile/docs/`) |
 | 백엔드 mentor | `less82/app-contract-storage`, checkout `app-contract-storage` | `contracts/**`, `server/**`, `tests/backend/**`, `tools/generate_contracts.py`, 백엔드 패키지 설정·진행 문서 |
 | 앱 Codex | 검수만 | 제품 방향·코드 검수 |
 
@@ -24,8 +25,8 @@
 | 1 | React+TS+Vite 토대. 원본 19화면 시안(`web/*.dc.html`)의 마크업·CSS·글꼴을 그대로 그리는 React 템플릿 렌더러, 라우팅, 전송 경계(현재 JSON API·WS), 읽기 전용 기록·보고서 화면 | 완료 dbf7a28(아래 «묶음 1 결과») |
 | 브랜드 | foothold-brand 7afd241 로고·토큰·Pretendard 적용(배치·조작 그대로) | 완료(아래 «브랜드 적용») |
 | 2 | 계획·양식·공용 지도(Canvas)·사진 분류 이전. Zustand = 표시·일시 입력, TanStack Query = 문서 조회·저장(409·초안·세대) | 화면 이식 완료 586398a(9a83367~586398a: MAlerts·MAlert·PcMissions·PcPlan·MHome·PcRobot·PcSettings·PcMap·MMap·PcReview·MFinding, 공용 editor 늦은 응답 gen/초안 스냅샷). PcSettings 로그아웃(GATED)은 묶음 4. 검사 원물 `runs/bundle2/{alerts,plan,race,home,forms,map,final,finding}` |
-| 3 | 조종 Main·MDrive (마지막). 두 pointerId·폐기 규칙·STOP 우선·비영 복원 금지 보존. link.ts 에 live.js 126–127 의 hidden/pagehide → hidden 이식 + 앱 생명주기 계약: native pause·visibility·pagehide·blur·끊김 → 모든 pointer 폐기 + (가능하면) hidden, resume → 재연결은 보기 전용, WS 명령 발행 소유자 1개(App plugin 활성은 모바일 담당과 협의) | 대기 |
-| 4 | PWA·Capacitor(Android/iOS) 같은 번들 | 외피 병렬 완료(모바일 담당, app-contract-storage `mobile/**` 86ef8d4 Capacitor 8.5.2·96b600f 아이콘·appId 임시) · 개발 연결 A(server.url→기존 관문 HTTPS, fixture) 진행 중 · 번들 내장 B 는 신뢰·Origin·API 설계 별도 · 실폰 미검증 |
+| 3 | 조종 Main·MDrive (마지막). 두 pointerId·폐기 규칙·STOP 우선·비영 복원 금지 보존. link.ts 에 live.js 126–127 의 hidden/pagehide → hidden 이식 + 앱 생명주기 계약: native pause·visibility·pagehide·blur·끊김 → 모든 pointer 폐기 + (가능하면) hidden, resume → 재연결은 보기 전용, WS 명령 발행 소유자 1개(App plugin 활성은 모바일 담당과 협의) | 진행 중: link.ts 경계 29c758c(vitest 10) · MDrive d342c80(모의 CDP `runs/bundle3/drive/md_check.json`) · Main 남음 · 실제 APK 조종·숨김 미검증 |
+| 4 | PWA·Capacitor(Android/iOS) 같은 번들 | 판별 상태는 `docs/IMPLEMENTATION-STATUS.md`(기본 bundled APK = React e618139 브랜드 전 · 원격 A APK = 관문 옛 web/ 화면, 로그인·읽기만 PASS · 최종 B 설계만 · IPA 0). 로그인 화면·로그아웃 이식 |
 | 5 | PC 3D 슬롯(three.js/R3F, 공급원 없음 표시), FastAPI/SQLite 백엔드 호환 연결 | 대기 |
 
 ## 묶음 1 결과 (dbf7a28)
