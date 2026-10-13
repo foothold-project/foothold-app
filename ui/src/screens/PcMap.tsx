@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { Zone } from '@contracts';
 import { CSS, View } from './PcMap.view';
 import { deg, posTxt, saveBlob, themeClass } from '../data/fmt';
-import { WHY } from '../data/facts';
+import { WHY, ZONE_NOTE } from '../data/facts';
 import { docById, docsOf, useDocs } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { TRAIL, linkView, useLink } from '../data/link';
@@ -13,7 +13,6 @@ import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
 import { stopProps, toast, useRoute, whyProps } from '../app/shell';
 
-const ZONE_NOTE = '구역은 그리기·저장·공유·표시 기능입니다. 로봇의 실제 주행 제한(피하기·감속)은 미연결 — 충돌·감속을 보장하지 않습니다.';
 const areaOf = (p: number[][]) => Math.abs(p.reduce((a, q, i) => { const n = p[(i + 1) % p.length]; return a + q[0] * n[1] - n[0] * q[1]; }, 0)) / 2;
 const why = (t: string, cls: string) => ({ ...whyProps(t), className: `${cls} lv-why` });
 const BUSY = '구역 저장 중 — 끝난 뒤 다시', DIRTY = '저장 안 한 수정이 있습니다. 버릴까요?';

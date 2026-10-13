@@ -1,5 +1,5 @@
 // 앱 틀: 해시 경로(#/화면?값) · 알림(toast) · STOP 버튼과 Space 단축키.
-import { useEffect, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { sendStop } from '../data/link';
 
@@ -36,5 +36,13 @@ export function useStopKey() {
 /** live.js stopBtn(): 누르는 순간(pointerdown)·Enter 에 STOP. 이름표 없는 보조 STOP 버튼에도 쓴다 */
 export const stopOn = { onPointerDown: stopNow, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') stopNow(); } } as const;
 export const stopProps = { 'aria-label': '비상 정지', ...stopOn } as const;
+/** live.js openDrawer(): 오른쪽(PC)·머리줄 아래 서랍. Esc·닫기로 닫음. (휴대폰 가로 조종 화면 배치는 묶음 3 에서) */
+export function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  const x = useRef<HTMLButtonElement>(null), close = useRef(onClose); close.current = onClose;   // 다시 그릴 때마다 초점을 뺏지 않게 처음 한 번만
+  useEffect(() => { x.current?.focus(); const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; addEventListener('keydown', k); return () => removeEventListener('keydown', k); }, []);
+  return <div className="lv-drawer" role="dialog" aria-label={title} style={{ right: 12, top: 84, bottom: 12, width: 'min(440px,calc(100vw - 24px))' }}>
+    <div className="lv-row"><h2>{title}</h2><button ref={x} type="button" aria-label={`${title} 닫기 (Esc)`} onClick={onClose}>닫기</button></div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>{children}</div></div>;
+}
 /** live.js why(): 미연결 기능 버튼 — 누르면 이유만 알리고 아무것도 하지 않는다 */
 export const whyProps = (text: string) => ({ 'aria-disabled': 'true' as const, title: text, className: 'lv-why', onClick: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); toast(text); } });

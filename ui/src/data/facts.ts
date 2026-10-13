@@ -21,3 +21,5 @@ export const STOP_FACT = ['조종 입력 0.3 s 끊김', '명령 0 요청(몸 정
 export const LATCH_TXT = (v: { linkOk: boolean; latch: boolean }) => (!v.linkOk ? '잠금 상태 미확인(서버 연결 끊김)' : v.latch ? 'STOP 잠금 켜짐(명령 0 유지)' : 'STOP 잠금 꺼짐');
 
 export const LAYOUTS = ['왼쪽 회전 · 오른쪽 앞뒤', '왼쪽 이동 · 오른쪽 회전'];   // 휴대폰 조종 막대 배치 — 기본 = 처음 확정한 배치(live.js 14)
+
+export const ZONE_NOTE = '구역은 그리기·저장·공유·표시 기능입니다. 로봇의 실제 주행 제한(피하기·감속)은 미연결 — 충돌·감속을 보장하지 않습니다.';

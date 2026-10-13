@@ -9,14 +9,17 @@ export const FLOOR = 10;   // online-20261012/gz/world_live.sdf: 평평한 바�
 export type Mode = 'robot' | 'all' | 'free';
 export type Robot = { x: number; y: number; yaw?: number | null; fallen?: boolean | null; t: number; fresh: boolean } | null;
 export type Wp = { x: number; y: number; st?: string };
-const MODE_KO: Record<Mode, string> = { robot: '로봇 중심', all: '전체 보기', free: '손으로 옮김(◎ 로 복귀)' };
+export const MODE_KO: Record<Mode, string> = { robot: '로봇 중심', all: '전체 보기', free: '손으로 옮김(◎ 로 복귀)' };
 
 type Props = {
   name?: string; small?: boolean; mode?: Mode; zones?: ZoneEnv[]; wps?: Wp[] | null; trail?: number[][];
   robot?: Robot; noRobot?: boolean; showTrail?: boolean; showZones?: boolean; hiZone?: string | null; hiWp?: number | null;
   draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number, k: number) => void;
-  btns?: boolean;   // live.js mapBtns(아이콘): 로봇 중심 · 전체 보기 · 확대 · 축소
+  btns?: boolean;
+  api?: { current: MapApi | null };   // 화면의 자체 버튼(휴대폰 fab·레이어 서랍)이 보기 방식·확대를 바꿀 때   // live.js mapBtns(아이콘): 로봇 중심 · 전체 보기 · 확대 · 축소
 };
+
+export type MapApi = { mode: () => Mode; setMode: (m: Mode) => void; zoomBy: (f: number) => void };
 
 export function MapCanvas(p: Props) {
   const cv = useRef<HTMLCanvasElement>(null);
@@ -97,7 +100,7 @@ export function MapCanvas(p: Props) {
       const t = `격자 1 m · ${W < 520 ? '' : '바닥 ±10 m · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
-    box.querySelectorAll<HTMLElement>('.lv-mapbtns [data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
+    box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
     el.dataset.view = `${v.mode}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}`;   // 시험·상태 확인용
   };
 
@@ -125,6 +128,8 @@ export function MapCanvas(p: Props) {
     return () => { ro.disconnect(); el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel); el.removeEventListener('wheel', wheel); };
   }, []);
 
+  if (p.api) p.api.current = { mode: () => V.current.mode, setMode: (m) => { V.current.mode = m; V.current.zoom = 1; draw(); },
+    zoomBy: (f) => { V.current.zoom = Math.min(8, Math.max(0.25, V.current.zoom * f)); draw(); } };
   const v = V.current, b = (t: string, label: string, f: () => void, m?: Mode) => <button type="button" className="lv-btn" data-m={m} aria-label={label} title={label} onClick={() => { f(); draw(); }}>{t}</button>;
   return <>
     <canvas ref={cv} data-live-map={p.name || '1'} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', ...(p.small ? { pointerEvents: 'none' } : { cursor: 'crosshair' }) }} />

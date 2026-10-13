@@ -7,7 +7,7 @@ export const PREVIEW = {"width":390,"height":844};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--gridc:rgba(154,167,179,.07);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--gridc:rgba(18,23,28,.06)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton{font:inherit;color:inherit;cursor:pointer}\n.lbl{font-size:12px;color:var(--muted)}\n.tabb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;font-size:11px;color:var(--muted);text-decoration:none}\n.tabb.cur{color:var(--accent);font-weight:600}\n.fab{width:44px;height:44px;border-radius:10px;border:1px solid var(--line2);background:var(--panel);display:grid;place-items:center}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; [k: string]: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -21,20 +21,21 @@ export function View({ v }: { v: Vals }) {
           <div style={{"display":"flex","flexDirection":"column","gap":"2px","flex":"1"}}>
             {" "}
             <span style={{"fontSize":"18px","fontWeight":"700"}}>
-              {"지도"}
+              {v.hdrA ?? "지도"}
             </span>
             {" "}
             <span className="lbl">
-              {"B1 펌프실 v3 · "}
+              {v.hdrB ?? (<>{"B1 펌프실 v3 · "}
               <span style={{"color":"var(--ok)"}}>
                 {"●"}
               </span>
-              {" 위치 신뢰 높음"}
+              {" 위치 신뢰 높음"}</>)}
             </span>
             {" "}
           </div>
           {" "}
-          <button className="fab" aria-label="지도 레이어">
+          {v.status ?? null}
+          <button className="fab" aria-label="지도 레이어" {...v.layerP}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M12 3l9 5-9 5-9-5z" />
               <path d="M3 13l9 5 9-5" />
@@ -45,7 +46,8 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <div style={{"position":"relative","margin":"0 16px","border":"1px solid var(--line)","borderRadius":"12px","overflow":"hidden","flex":"1","minHeight":"0"}}>
           {" "}
-          <svg viewBox="600 70 380 470" preserveAspectRatio="xMidYMid slice" style={{"position":"absolute","inset":"0","width":"100%","height":"100%"}} role="img" aria-label="지도: 로봇 위치와 새로 찍은 목표, 미리 본 경로">
+          {v.map ?? null}
+          <svg viewBox="600 70 380 470" preserveAspectRatio="xMidYMid slice" style={{"position":"absolute","inset":"0","width":"100%","height":"100%",...(v.map ? { visibility: "hidden" } : {})}} role="img" aria-label="지도: 로봇 위치와 새로 찍은 목표, 미리 본 경로">
             <defs>
               <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
                 <path d="M20 0H0V20" fill="none" style={{"stroke":"var(--gridc)"}} strokeWidth="1" />
@@ -90,20 +92,20 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <div style={{"position":"absolute","right":"10px","top":"10px","display":"flex","flexDirection":"column","gap":"6px"}}>
             {" "}
-            <button className="fab" aria-label="로봇 위치로">
+            <button className="fab" aria-label="로봇 위치로" {...v.fR}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <circle cx="12" cy="12" r="3" />
                 <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
               </svg>
             </button>
             {" "}
-            <button className="fab" aria-label="확대">
+            <button className="fab" aria-label="확대" {...v.fI}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
             {" "}
-            <button className="fab" aria-label="축소">
+            <button className="fab" aria-label="축소" {...v.fO}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                 <path d="M5 12h14" />
               </svg>
@@ -112,7 +114,7 @@ export function View({ v }: { v: Vals }) {
           </div>
           {" "}
           <span style={{"position":"absolute","left":"10px","top":"10px","fontSize":"12px","padding":"6px 10px","borderRadius":"6px","background":"var(--panel)","border":"1px solid var(--line2)"}}>
-            {"지도를 눌러 목표를 고르세요"}
+            {v.hint ?? "지도를 눌러 목표를 고르세요"}
           </span>
           {" "}
         </div>
@@ -122,11 +124,11 @@ export function View({ v }: { v: Vals }) {
           <div style={{"display":"flex","justifyContent":"space-between","alignItems":"baseline","gap":"8px"}}>
             {" "}
             <b style={{"fontSize":"16px"}}>
-              {"배관 구역 안쪽"}
+              {v.nb ?? "배관 구역 안쪽"}
             </b>
             {" "}
             <span className="mono lbl">
-              {"x 41.2 · y 6.4"}
+              {v.xy ?? "x 41.2 · y 6.4"}
             </span>
             {" "}
           </div>
@@ -139,41 +141,42 @@ export function View({ v }: { v: Vals }) {
               </span>
               {" "}
               <b className="mono">
-                {"19 m"}
+                {v.dist ?? "19 m"}
               </b>
             </span>
             {" "}
-            <span>
+            <span title={v.etaTitle}>
               <span className="lbl">
                 {"예상"}
               </span>
               {" "}
               <b className="mono">
-                {"1분"}
+                {v.eta ?? "1분"}
               </b>
             </span>
             {" "}
             <span>
-              <span style={{"color":"var(--ok)"}}>
+              {v.chk ?? (<><span style={{"color":"var(--ok)"}}>
                 {"●"}
               </span>
-              {" 경로 검사 통과"}
+              {" 경로 검사 통과"}</>)}
             </span>
             {" "}
           </div>
           {" "}
           <div style={{"display":"grid","gridTemplateColumns":"1fr 2fr","gap":"8px"}}>
             {" "}
-            <button style={{"height":"52px","border":"1px solid var(--line2)","borderRadius":"10px","background":"var(--panel2)","fontWeight":"600"}}>
+            <button {...v.cancelP} style={{"height":"52px","border":"1px solid var(--line2)","borderRadius":"10px","background":"var(--panel2)","fontWeight":"600"}}>
               {"취소"}
             </button>
             {" "}
-            <button style={{"height":"52px","border":"0","borderRadius":"10px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"15px"}}>
+            <button {...v.goP} style={{"height":"52px","border":"0","borderRadius":"10px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"15px"}}>
               {"이 목표로 이동"}
             </button>
             {" "}
           </div>
           {" "}
+          {v.addRow ?? null}
           <span className="lbl" style={{"textAlign":"center"}}>
             {"지도를 누르기만 해서는 움직이지 않습니다"}
           </span>
@@ -216,7 +219,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <div style={{"padding":"8px 16px 18px","background":"var(--panel)"}}>
           {" "}
-          <button aria-label="비상 정지" style={{"width":"100%","height":"64px","border":"0","borderRadius":"12px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"12px"}}>
+          <button aria-label="비상 정지" {...v.stopProps} style={{"width":"100%","height":"64px","border":"0","borderRadius":"12px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"12px"}}>
             {" "}
             <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
@@ -234,6 +237,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </div>
         {" "}
+        {v.drawer ?? null}
       </div>
       {" "}
     </>
