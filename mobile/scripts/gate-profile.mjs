@@ -13,7 +13,9 @@ const here = dirname(dirname(fileURLToPath(import.meta.url)));
 const GATE = join(here, 'android/app/src/gate');
 const OUT_CFG = join(GATE, 'assets/capacitor.config.json');
 const OUT_CA = join(GATE, 'res/raw/fh_gate_ca.pem');
-const START = '/MLogin.dc.html?live=v2';   // 관문 공개 로그인 화면에서 시작 — 아래 «리다이렉트» 참고
+// 시작 경로: 기본은 옛 관문 공개 로그인 화면. FH_GATE_START='/' 는 React --spa 관문(로그인 없으면 앱이 #/MLogin 으로) — 같은 origin 의 경로만
+const START = process.env.FH_GATE_START || '/MLogin.dc.html?live=v2';
+if (!/^\/(?![\/\\])[^\s#\\]*$/.test(START)) throw new Error('FH_GATE_START 는 / 로 시작하는 같은 origin 경로만(//·#·공백·\\ 금지)');
 const ERROR_PAGE = 'fh-offline.html';      // src/gate/assets/public 의 로컬 보기 전용 화면
 
 // 관문 주소 → 정확한 origin 하나. https 만, 사용자정보·조각·질의·경로·와일드카드·localhost 거부.
