@@ -6,13 +6,14 @@
   - 전체 판(rev)은 meta 에 저장한 단조 증가 값 — 재시작해도 되돌아가지 않는다(docs.json 판은 재시작 때 rev 합으로 다시 세서 삭제 뒤 작아질 수 있었다).
   - 사진·사건은 파일(JPEG)은 그대로 두고 메타만 photos·events 표에. 사진 파일을 지우지 않는다.
 열 때 손상·모르는 스키마 판이면 broken(쓰기 503), 파일은 건드리지 않는다. 연결은 호출마다 새로(스레드·프로세스 공유 없음).
+import 때 pydantic 이 필요 없다 — v2_link(시스템 python + rclpy·tornado)가 check=doc_check 를 넘겨 그대로 쓴다.
 """
-import json, os, secrets, sqlite3, time
+import json, os, re, secrets, sqlite3, threading, time
 from pathlib import Path
 
-from contracts.v1.models import DOC_KINDS, DOC_MAX, DOC_TOTAL, check_doc
-
 SCHEMA_VERSION = 1
+DOC_KINDS = ('zone', 'tmpl', 'mission', 'run', 'note')     # contracts.v1·v2_link 와 같은 값(시험이 대조)
+DOC_MAX, DOC_TOTAL = 12000, 2000
 _KINDS = ','.join(f"'{k}'" for k in DOC_KINDS)
 DDL = f"""
 CREATE TABLE meta(key TEXT PRIMARY KEY, value ANY) STRICT;
@@ -37,10 +38,19 @@ def now_iso():
     return time.strftime('%Y-%m-%dT%H:%M:%S%z')
 
 
+def default_check(kind, doc):
+    from contracts.v1.models import check_doc        # pydantic 은 쓸 때만
+    return check_doc(kind, doc)
+
+
 class Store:
-    def __init__(self, path, create=True):
+    """check(kind, doc) → None 이면 통과, 아니면 400 이유 글. 기본은 contracts.v1 검사.
+    rev = 이 프로세스가 아는 전체 판(열 때 DB 값, 이 객체로 쓴 뒤 갱신) — 쓰는 프로세스가 하나면 DB 와 같다. DB 값은 db_rev().
+    lock = 호출자용(v2_link Docs.lock 과 같은 자리). Store 자체는 lock 없이도 트랜잭션으로 안전하다."""
+
+    def __init__(self, path, create=True, check=default_check):
         """create=False 면 없는 파일을 만들지 않는다(검증 도구용)."""
-        self.path, self.broken = Path(path), None
+        self.path, self.broken, self.check, self.lock, self.rev = Path(path), None, check, threading.Lock(), 0
         try:
             if not self.path.exists():
                 if not create:
@@ -52,6 +62,7 @@ class Store:
                 v = c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
                 if not v or v[0] != SCHEMA_VERSION:
                     raise sqlite3.DatabaseError(f'스키마 판 {v and v[0]} — 이 서버는 {SCHEMA_VERSION}')
+                self.rev = c.execute("SELECT value FROM meta WHERE key='rev'").fetchone()[0]
         except FileNotFoundError:
             raise
         except Exception as e:          # 손상·모르는 판: 덮지 않는다
@@ -83,7 +94,7 @@ class Store:
 
     # ---------------------------------------------------------------- 조회
 
-    def rev(self):
+    def db_rev(self):
         with self._db() as c:
             return c.execute("SELECT value FROM meta WHERE key='rev'").fetchone()[0]
 
@@ -117,14 +128,17 @@ class Store:
         if m['op'] == 'put':                 # 형식 검사는 트랜잭션 밖(쓰기 잠금을 짧게). kind 는 기존 문서 것이 우선이라 아래서 다시 본다
             kind0 = m.get('kind')
             pre = None if did is not None else (
-                f'종류는 {sorted(DOC_KINDS)}' if not isinstance(kind0, str) or kind0 not in DOC_KINDS else check_doc(kind0, doc))
+                f'종류는 {sorted(DOC_KINDS)}' if not isinstance(kind0, str) or kind0 not in DOC_KINDS else self.check(kind0, doc))
             if pre:
                 return 400, {'error': pre}
         with self._db() as c:
             c.execute('BEGIN IMMEDIATE')
             try:
                 code, r = self._apply(c, m, did, doc, actor)
+                rv = c.execute("SELECT value FROM meta WHERE key='rev'").fetchone()[0]
                 c.execute('COMMIT' if code == 200 else 'ROLLBACK')
+                if code == 200:
+                    self.rev = rv                 # 커밋이 끝난 뒤에만(실패면 이전 값 그대로)
                 return code, r
             except sqlite3.IntegrityError:      # 앱 검사를 빠져나간 «하나만» 위반(다른 프로세스 경합) → 409
                 c.execute('ROLLBACK')
@@ -145,13 +159,15 @@ class Store:
             if m['rev'] != cur['rev']:
                 return 409, {'error': '다른 기기가 먼저 고침 — 새로 읽은 뒤 다시', 'cur': cur}
         kind = cur['kind'] if cur else m.get('kind')
+        if not isinstance(kind, str) or kind not in DOC_KINDS:      # v2_link 와 같은 순서: 종류 → 삭제 → 형식
+            return 400, {'error': f'종류는 {sorted(DOC_KINDS)}'}
         if m['op'] == 'del':
             if cur is None:
                 return 400, {'error': '지울 id 필요'}
             c.execute('DELETE FROM docs WHERE id=? AND rev=?', (did, cur['rev']))
             self._bump(c)
             return 200, {'ok': True, 'id': did, 'kind': kind, 'name': cur['doc'].get('name', '')}
-        e = check_doc(kind, doc)
+        e = self.check(kind, doc)
         if e:
             return 400, {'error': e}
         raw = json.dumps(doc, ensure_ascii=False)
@@ -222,7 +238,6 @@ class _Conn:
 
 
 def _id_ok(s):
-    import re
     return re.fullmatch(r'[a-z]\w{1,40}', s) is not None       # v2_link 와 같은 정규식
 
 

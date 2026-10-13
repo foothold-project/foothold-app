@@ -95,7 +95,7 @@ def test_one_only_across_processes(tmp_path, doc):
     [p.start() for p in ps]; [p.join(60) for p in ps]
     codes = sorted(q.get(timeout=5) for _ in range(n))
     assert codes == [200] + [409] * (n - 1), codes
-    s = Store(db); assert len(s.listing()['docs']) == 1 and s.rev() == 1
+    s = Store(db); assert len(s.listing()['docs']) == 1 and s.db_rev() == 1
 
 
 def test_parallel_edits_same_rev_one_wins(tmp_path):
@@ -104,7 +104,7 @@ def test_parallel_edits_same_rev_one_wins(tmp_path):
     with ThreadPoolExecutor(8) as ex:
         codes = sorted(ex.map(lambda i: Store(s.path).apply({'op': 'put', 'id': r['id'], 'rev': 1, 'doc': {**Z, 'name': f'n{i}'}}, f'D{i}')[0], range(8)))
     assert codes == [200] + [409] * 7
-    d = s.listing()['docs'][0]; assert d['rev'] == 2 and s.rev() == 2
+    d = s.listing()['docs'][0]; assert d['rev'] == 2 and s.db_rev() == 2
 
 
 def test_db_constraint_is_the_backstop(tmp_path, monkeypatch):
@@ -115,7 +115,7 @@ def test_db_constraint_is_the_backstop(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(Store, '_dup', staticmethod(lambda c, m, did, doc: calls.append(1) if len(calls) == 0 else real(c, m, did, doc)))
     code, r = s.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': {**N, 'cls': '보류'}}, 'B')
-    assert code == 409 and r['cur']['doc']['cls'] == '확인' and len(s.listing()['docs']) == 1 and s.rev() == 1
+    assert code == 409 and r['cur']['doc']['cls'] == '확인' and len(s.listing()['docs']) == 1 and s.db_rev() == 1
 
 
 # ---------------------------------------------------------------- 실패·손상·재시작
@@ -142,9 +142,9 @@ def test_rev_survives_restart_and_never_goes_back(tmp_path):
     _, a = s.apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': Z}, 'A')
     s.apply({'op': 'put', 'id': a['id'], 'rev': 1, 'doc': {**Z, 'name': 'b'}}, 'A')
     s.apply({'op': 'del', 'id': a['id'], 'rev': 2}, 'A')
-    assert Store(p).rev() == 3                   # docs.json 이었다면 재시작 뒤 rev 합 = 0 으로 되돌아감
+    assert Store(p).db_rev() == 3                   # docs.json 이었다면 재시작 뒤 rev 합 = 0 으로 되돌아감
     _, b = Store(p).apply({'op': 'put', 'kind': 'zone', 'id': None, 'doc': Z}, 'A')
-    assert Store(p).rev() == 4 and Store(p).listing()['docs'][0]['id'] == b['id']
+    assert Store(p).db_rev() == 4 and Store(p).listing()['docs'][0]['id'] == b['id']
 
 
 @pytest.mark.parametrize('junk', [b'not a database at all' * 100, b''])
@@ -192,7 +192,7 @@ def test_migrate_import_verify_continue_export_rollback(tmp_path, capsys):
     assert man['docs'] == 4 and man['photos'] == 2 and man['events'] == 2 and man['events_skipped_lines'] == 1
     assert snap(src) == before                                     # 원본(사진 JPEG 포함) 그대로
     s = Store(out)
-    assert s.listing()['docs'] == list(d.d.values()) and s.rev() == d.rev
+    assert s.listing()['docs'] == list(d.d.values()) and s.db_rev() == d.rev
     ph, ev = s.media()
     assert ph == L.Media(src).tail('photos.jsonl', 200)[::-1] and ev == L.Media(src).tail('events.jsonl', 300)[::-1]
     assert migrate.main(['verify', '--src', str(src), '--db', str(out)]) == 0

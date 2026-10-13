@@ -11,8 +11,7 @@ import argparse, hashlib, json, os, shutil, sqlite3, sys, time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from contracts.v1.models import DOC_KINDS, check_doc  # noqa: E402
-from server.store import Store  # noqa: E402
+from server.store import DOC_KINDS, Store, default_check  # noqa: E402   (pydantic 은 기본 검사를 쓸 때만)
 
 FILES = ('docs.json', 'photos.jsonl', 'events.jsonl')
 
@@ -25,7 +24,7 @@ def sha(p):
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
-def read_docs(path):
+def read_docs(path, check=default_check):
     """v2_link Docs.__init__ 과 같은 검사. 틀리면 Refuse(추정·수리 없음). 없으면 {}."""
     if not path.exists():
         return {}
@@ -35,7 +34,7 @@ def read_docs(path):
     notes, active = {}, []
     for k, x in d.items():
         if not (isinstance(x, dict) and x.get('id') == k and x.get('kind') in DOC_KINDS and type(x.get('rev')) is int and x['rev'] >= 1
-                and isinstance(x.get('by'), str) and isinstance(x.get('at'), str)) or check_doc(x['kind'], x.get('doc')):
+                and isinstance(x.get('by'), str) and isinstance(x.get('at'), str)) or check(x['kind'], x.get('doc')):
             raise Refuse(f'문서 {str(k)[:40]} 형식')
         if x['kind'] == 'note':
             if x['doc']['photo'] in notes:
@@ -64,8 +63,8 @@ def read_jsonl(path):
     return out, bad
 
 
-def load(src):
-    docs = read_docs(src / 'docs.json')
+def load(src, check=default_check):
+    docs = read_docs(src / 'docs.json', check)
     photos, bad_p = read_jsonl(src / 'photos.jsonl')
     events, bad_e = read_jsonl(src / 'events.jsonl')
     for p in photos:
@@ -122,7 +121,7 @@ def compare(src_docs, photos, events, db):
     return why
 
 
-def cmd_import(a):
+def cmd_import(a, check=default_check):
     src, out = Path(a.src), Path(a.out)
     if out.exists():
         raise Refuse(f'{out} 이미 있음 — 덮어쓰지 않음')
@@ -137,7 +136,7 @@ def cmd_import(a):
                 man['files'][f] = {'sha256': h0, 'bytes': (src / f).stat().st_size}
                 if h0 != h1:
                     raise Refuse(f'{f} 복사본 sha 불일치(복사 중 바뀜?)')
-        docs, photos, events, info = load(work / 'backup')        # 이후로는 복사본만 읽는다
+        docs, photos, events, info = load(work / 'backup', check)  # 이후로는 복사본만 읽는다
         man.update(info, docs=len(docs), photos=len(photos), events=len(events))
         tmp = work / 'new.sqlite'
         write_db(tmp, docs, photos, events)
