@@ -4,7 +4,7 @@
 
 ## 상태 (2026-10-14)
 
-**설치용 개발 APK(10-14)**: `out/foothold-android-dev-20261014.apk`(git 제외, sha256 `263b1bbe2fdb…c3550`) — 앱 id `org.footholdproject.app.dev`, UI `75c0611`, 운영 관문 공개 CA 한 장 신뢰, 로그 끔. 빌드·APK 구조 대조만(실제 휴대폰 0). **지금 운영 관문에는 `/api/app/*` 가 없어 이 앱으로 로그인 안 됨** — 설치·미확인·연결 조건은 `docs/INSTALL-DEV.md`.
+**설치용 개발 APK(10-14)**: `out/foothold-android-dev-20261014.apk`(git 제외, sha256 `263b1bbe2fdb…c3550`) — 앱 id `org.footholdproject.app.dev`, UI `75c0611`, 운영 관문 공개 CA 한 장 신뢰, 로그 끔. 빌드·APK 구조 대조만(실제 휴대폰 0). **로그인은 `/api/app/*` 가 있는 관문에서만**(운영 체크아웃 83b25ca 엔 없음 · 10-14 01:00 UI 75c0611 사본 관문이 8453 에 떠 있음, 실폰 미검증) — 설치·미확인·연결 조건은 `docs/INSTALL-DEV.md`.
 
 | 구분 | 내용 |
 |---|---|
