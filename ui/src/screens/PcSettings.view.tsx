@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":1500};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,select{font:inherit;color:inherit}\nbutton{cursor:pointer}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:14px;scroll-margin-top:12px}\n.card h2{margin:0;font-size:17px;font-weight:700}\n.lbl{font-size:12px;color:var(--muted)}\n.btn{height:40px;padding:0 14px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:13px}\n.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\n.inp{height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:14px;box-sizing:border-box}\n.set{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;align-items:center;padding:12px 0;border-top:1px solid var(--line)}\n.set .t{display:flex;flex-direction:column;gap:3px}\n.set .t b{font-size:14px;font-weight:600}\n.lock{font-size:12px;color:var(--muted);display:inline-flex;align-items:center;gap:4px}\n.sw{position:relative;width:46px;height:26px;border-radius:13px;border:0;background:var(--line2);padding:0}\n.sw span{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#FFFFFF;transition:left .15s}\n.sw[aria-checked=\"true\"]{background:var(--accent)}\n.sw[aria-checked=\"true\"] span{left:23px}\ntable{border-collapse:collapse;width:100%;font-size:13px}\nth{font-size:12px;font-weight:600;color:var(--muted);text-align:left;padding:8px 10px;border-bottom:1px solid var(--line2)}\ntd{padding:10px;border-bottom:1px solid var(--line)}\n.sub{display:block;padding:9px 12px;border-radius:6px;font-size:14px;color:var(--muted);text-decoration:none}\n.sub:hover{background:var(--panel2);color:var(--text)}\n.sub.cur{background:var(--acc-bg);color:var(--text);font-weight:600}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; [k: string]: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -30,7 +30,7 @@ export function View({ v }: { v: Vals }) {
           <div style={{"display":"flex","flexDirection":"column","gap":"2px"}}>
             {" "}
             <span style={{"fontSize":"12px","color":"var(--muted)"}}>
-              {"설정 · 관리자만 바꿀 수 있음"}
+              {v.hdrA ?? "설정 · 관리자만 바꿀 수 있음"}
             </span>
             {" "}
             <span style={{"fontSize":"17px","fontWeight":"600"}}>
@@ -42,10 +42,11 @@ export function View({ v }: { v: Vals }) {
           <div style={{"flex":"1"}} />
           {" "}
           <span className="lbl">
-            {"모든 변경은 누가·언제 바꿨는지 기록에 남습니다"}
+            {v.hdrNote ?? "모든 변경은 누가·언제 바꿨는지 기록에 남습니다"}
           </span>
           {" "}
-          <button aria-label="비상 정지" style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
+          {v.status ?? null}
+<button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
             {" "}
             <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
@@ -165,7 +166,7 @@ export function View({ v }: { v: Vals }) {
                 </h2>
                 {" "}
                 <span className="lbl" style={{"lineHeight":"1.5"}}>
-                  {"모든 임무 양식에 공통으로 적용됩니다. 값은 현장에서 잰 뒤 고정합니다(지금은 임시값)."}
+                  {v.safetyLbl ?? "모든 임무 양식에 공통으로 적용됩니다. 값은 현장에서 잰 뒤 고정합니다(지금은 임시값)."}
                 </span>
                 {" "}
                 <div>
@@ -178,14 +179,14 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"이 시간이 지나면 아래 동작을 시작합니다"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[0] ?? (<>
                     <span style={{"display":"flex","alignItems":"center","gap":"8px"}}>
                       <input className="inp mono" style={{"width":"80px","textAlign":"right"}} defaultValue="5" />
                       <span className="lbl">
                         {"초 · 임시"}
                       </span>
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -193,9 +194,9 @@ export function View({ v }: { v: Vals }) {
                         {"통신이 끊기면"}
                       </b>
                       <span className="lbl">
-                        {"자율 이동 중일 때. 직접 조종 중이면 항상 그 자리 정지"}
+                        {v.lostLbl ?? "자율 이동 중일 때. 직접 조종 중이면 항상 그 자리 정지"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[1] ?? (<>
                     <select className="inp">
                       <option>
                         {"마지막 통신 지점으로 후퇴"}
@@ -204,7 +205,7 @@ export function View({ v }: { v: Vals }) {
                         {"그 자리 정지"}
                       </option>
                     </select>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -214,14 +215,14 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"넘으면 영상에 기대는 조종·임무를 멈추고 잠급니다"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[2] ?? (<>
                     <span style={{"display":"flex","alignItems":"center","gap":"8px"}}>
                       <input className="inp mono" style={{"width":"80px","textAlign":"right"}} defaultValue="1.0" />
                       <span className="lbl">
                         {"초 · 임시"}
                       </span>
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -231,7 +232,7 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"구현 설정값 · 현장 정지 시간을 보증하지 않음"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[3] ?? (<>
                     <span className="lock">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                         <rect x="5" y="11" width="14" height="10" rx="2" />
@@ -242,7 +243,7 @@ export function View({ v }: { v: Vals }) {
                       </span>
                       {" · 고정"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -252,7 +253,7 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"사람이 상태를 확인하고 «정지 해제 → 임무 계속»을 눌러야 합니다"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[4] ?? (<>
                     <span className="lock">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                         <rect x="5" y="11" width="14" height="10" rx="2" />
@@ -260,7 +261,7 @@ export function View({ v }: { v: Vals }) {
                       </svg>
                       {"꺼짐 · 고정"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -270,11 +271,11 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"자율 이동 · 직접 조종(느리게 / 보통)"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[5] ?? (<>
                     <span className="mono" style={{"fontSize":"14px"}}>
                       {"0.5 · 0.3 / 0.6 m/s"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -284,14 +285,14 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"남은 양이 이 아래면 임무를 끝내고 복귀를 시작"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[6] ?? (<>
                     <span style={{"display":"flex","alignItems":"center","gap":"8px"}}>
                       <input className="inp mono" style={{"width":"80px","textAlign":"right"}} defaultValue="20" />
                       <span className="lbl">
                         {"%"}
                       </span>
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                 </div>
                 {" "}
@@ -300,7 +301,7 @@ export function View({ v }: { v: Vals }) {
               <section id="alerts" className="card" aria-label="알림">
                 {" "}
                 <h2>
-                  {"알림"}
+                  {v.alertsH ?? "알림"}
                 </h2>
                 {" "}
                 <div>
@@ -313,11 +314,11 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"위험 · 통신 끊김 · 확인 요청"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[7] ?? (<>
                     <button className="sw" role="switch" aria-checked="true" aria-label="PC 경보음">
                       <span />
                     </button>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -327,11 +328,11 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"주의 1회 · 위험 반복"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[8] ?? (<>
                     <button className="sw" role="switch" aria-checked="true" aria-label="휴대폰 진동">
                       <span />
                     </button>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -341,11 +342,11 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"설치형 앱에서만 · 웹에서는 화면이 켜져 있어야 함"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[9] ?? (<>
                     <button className="sw" role="switch" aria-checked="true" aria-label="잠금 화면 긴급 알림">
                       <span />
                     </button>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -355,11 +356,11 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"휴대폰 설정에서 따로 허용해야 합니다"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[10] ?? (<>
                     <button className="sw" role="switch" aria-checked="false" aria-label="무음 모드에서도 울리기">
                       <span />
                     </button>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -369,14 +370,14 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"위험 경보에 아무도 답하지 않을 때"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[11] ?? (<>
                     <span style={{"display":"flex","alignItems":"center","gap":"8px"}}>
                       <input className="inp mono" style={{"width":"80px","textAlign":"right"}} defaultValue="30" />
                       <span className="lbl">
                         {"초 뒤"}
                       </span>
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                 </div>
                 {" "}
@@ -389,13 +390,12 @@ export function View({ v }: { v: Vals }) {
                 </h2>
                 {" "}
                 <span className="lbl" style={{"lineHeight":"1.5"}}>
-                  {"위험(법정) 값은 근거와 함께 고정합니다. 주의 값만 팀이 정합니다. 임무 양식의 경보 규칙은 이 값을 씁니다."}
+                  {v.thLbl ?? "위험(법정) 값은 근거와 함께 고정합니다. 주의 값만 팀이 정합니다. 임무 양식의 경보 규칙은 이 값을 씁니다."}
                 </span>
                 {" "}
                 <div style={{"overflowX":"auto"}}>
                   {" "}
                   <table>
-                    {" "}
                     <thead>
                       <tr>
                         <th>
@@ -412,9 +412,8 @@ export function View({ v }: { v: Vals }) {
                         </th>
                       </tr>
                     </thead>
-                    {" "}
                     <tbody>
-                      {" "}
+{v.thBody ?? (<>
                       <tr>
                         <td>
                           {"O₂"}
@@ -431,7 +430,6 @@ export function View({ v }: { v: Vals }) {
                           {"예시 기준 · 검증 전"}
                         </td>
                       </tr>
-                      {" "}
                       <tr>
                         <td>
                           {"H₂S"}
@@ -447,7 +445,6 @@ export function View({ v }: { v: Vals }) {
                           {"예시 기준 · 검증 전"}
                         </td>
                       </tr>
-                      {" "}
                       <tr>
                         <td>
                           {"CO"}
@@ -463,7 +460,6 @@ export function View({ v }: { v: Vals }) {
                           {"예시 기준 · 검증 전"}
                         </td>
                       </tr>
-                      {" "}
                       <tr>
                         <td>
                           {"CO₂"}
@@ -479,7 +475,6 @@ export function View({ v }: { v: Vals }) {
                           {"예시 기준 · 검증 전"}
                         </td>
                       </tr>
-                      {" "}
                       <tr>
                         <td>
                           {"LEL"}
@@ -495,9 +490,8 @@ export function View({ v }: { v: Vals }) {
                           {"예시 기준 · 검증 전"}
                         </td>
                       </tr>
-                      {" "}
-                    </tbody>
-                    {" "}
+                    </>)}
+</tbody>
                   </table>
                   {" "}
                 </div>
@@ -511,7 +505,7 @@ export function View({ v }: { v: Vals }) {
                     {"계정 · 권한"}
                   </h2>
                   <div style={{"flex":"1"}} />
-                  <button className="btn pri">
+                  <button className="btn pri" {...v.addP}>
                     {"사람 추가"}
                   </button>
                 </div>
@@ -519,7 +513,6 @@ export function View({ v }: { v: Vals }) {
                 <div style={{"overflowX":"auto"}}>
                   {" "}
                   <table>
-                    {" "}
                     <thead>
                       <tr>
                         <th>
@@ -537,9 +530,8 @@ export function View({ v }: { v: Vals }) {
                         <th />
                       </tr>
                     </thead>
-                    {" "}
                     <tbody>
-                      {" "}
+{v.accRows ?? (<>
                       <tr>
                         <td style={{"fontWeight":"600"}}>
                           {"운영자 A"}
@@ -559,7 +551,6 @@ export function View({ v }: { v: Vals }) {
                           </a>
                         </td>
                       </tr>
-                      {" "}
                       <tr>
                         <td style={{"fontWeight":"600"}}>
                           {"운영자 B"}
@@ -579,7 +570,6 @@ export function View({ v }: { v: Vals }) {
                           </a>
                         </td>
                       </tr>
-                      {" "}
                       <tr>
                         <td style={{"fontWeight":"600"}}>
                           {"운영자 C"}
@@ -599,7 +589,6 @@ export function View({ v }: { v: Vals }) {
                           </a>
                         </td>
                       </tr>
-                      {" "}
                       <tr>
                         <td style={{"fontWeight":"600"}}>
                           {"[이름]"}
@@ -619,9 +608,8 @@ export function View({ v }: { v: Vals }) {
                           </a>
                         </td>
                       </tr>
-                      {" "}
-                    </tbody>
-                    {" "}
+                    </>)}
+</tbody>
                   </table>
                   {" "}
                 </div>
@@ -648,7 +636,7 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"측정자 · 일시 · 장소 · 수치 · 영상"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[12] ?? (<>
                     <span className="lock">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                         <rect x="5" y="11" width="14" height="10" rx="2" />
@@ -656,7 +644,7 @@ export function View({ v }: { v: Vals }) {
                       </svg>
                       {"3년 · 예시 기준 · 검증 전"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -666,7 +654,7 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"영상 원본은 용량이 커서 따로 정할 수 있습니다"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[13] ?? (<>
                     <select className="inp">
                       <option>
                         {"1년"}
@@ -678,14 +666,14 @@ export function View({ v }: { v: Vals }) {
                         {"3년"}
                       </option>
                     </select>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
                       <b>
                         {"보고서 기본 형식"}
                       </b>
-                    </span>
+                    </span>{v.sv?.[14] ?? (<>
                     <select className="inp">
                       <option>
                         {"PDF + CSV 원자료"}
@@ -694,7 +682,7 @@ export function View({ v }: { v: Vals }) {
                         {"PDF만"}
                       </option>
                     </select>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -704,11 +692,11 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"현장 서버"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[15] ?? (<>
                     <span className="mono" style={{"fontSize":"14px"}}>
                       {"[사용량] / [전체]"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                 </div>
                 {" "}
@@ -730,7 +718,7 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"자동 = PC 어두운 · 휴대폰 밝은"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[16] ?? (<>
                     <div role="radiogroup" aria-label="테마" style={{"display":"flex","border":"1px solid var(--line2)","borderRadius":"6px","overflow":"hidden"}}>
                       <button role="radio" aria-checked="true" style={{"height":"36px","padding":"0 12px","border":"0","background":"var(--acc-bg)","fontSize":"13px","fontWeight":"600"}}>
                         {"자동"}
@@ -742,14 +730,14 @@ export function View({ v }: { v: Vals }) {
                         {"밝은"}
                       </button>
                     </div>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
                       <b>
                         {"휴대폰 조종 막대 배치"}
                       </b>
-                    </span>
+                    </span>{v.sv?.[17] ?? (<>
                     <select className="inp">
                       <option>
                         {"왼쪽 이동 · 오른쪽 회전"}
@@ -758,14 +746,14 @@ export function View({ v }: { v: Vals }) {
                         {"왼쪽 회전 · 오른쪽 앞뒤"}
                       </option>
                     </select>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
                       <b>
                         {"미니맵 위치 (휴대폰 가로)"}
                       </b>
-                    </span>
+                    </span>{v.sv?.[18] ?? (<>
                     <select className="inp">
                       <option>
                         {"왼쪽 위"}
@@ -774,9 +762,10 @@ export function View({ v }: { v: Vals }) {
                         {"오른쪽 위"}
                       </option>
                     </select>
-                  </div>
+                  </>)}</div>
                   {" "}
-                </div>
+                {v.dispExtra ?? null}
+</div>
                 {" "}
               </section>
               {" "}
@@ -796,7 +785,7 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"로봇 PC의 관문 · 인터넷 없이 동작"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[19] ?? (<>
                     <span className="mono" style={{"fontSize":"14px"}}>
                       {"[서버 주소] · "}
                       <span style={{"color":"var(--ok)"}}>
@@ -804,7 +793,7 @@ export function View({ v }: { v: Vals }) {
                       </span>
                       {" 정상"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -814,11 +803,11 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"휴대폰·노트북에 설치한 현장 인증서"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[20] ?? (<>
                     <span className="mono" style={{"fontSize":"14px"}}>
                       {"만료 [날짜]"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                   <div className="set">
                     <span className="t">
@@ -828,15 +817,16 @@ export function View({ v }: { v: Vals }) {
                       <span className="lbl">
                         {"임무 중에는 업데이트하지 않습니다"}
                       </span>
-                    </span>
+                    </span>{v.sv?.[21] ?? (<>
                     <span className="mono" style={{"fontSize":"14px"}}>
                       {"[버전]"}
                     </span>
-                  </div>
+                  </>)}</div>
                   {" "}
                 </div>
                 {" "}
               </section>
+{v.limits ?? null}
               {" "}
             </div>
             {" "}

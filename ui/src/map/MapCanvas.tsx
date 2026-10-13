@@ -3,7 +3,7 @@
 // 위치는 Gazebo 정답 위치(GT)이지 SLAM 지도가 아니다. 위치가 없으면 «위치 없음 · GT 미수신», 오래되면 «위치 오래됨 N s», 도면 밖이면 «도면 밖».
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ZoneEnv } from '@contracts';
-import { ok } from '../data/fmt';
+import { ok, store } from '../data/fmt';
 
 export const FLOOR = 10;   // online-20261012/gz/world_live.sdf: 평평한 바닥, 격자 선 −10~10 m
 export type Mode = 'robot' | 'all' | 'free';
@@ -20,7 +20,8 @@ type Props = {
 
 export function MapCanvas(p: Props) {
   const cv = useRef<HTMLCanvasElement>(null);
-  const V = useRef({ mode: (p.mode || 'robot') as Mode, zoom: 1, c: [0, 0], kBase: 20, kFree: 20, k: 20, toWorld: (x: number, y: number) => [x, y] });
+  const V = useRef({ mode: (p.mode || (store.get<string>('fh.live.mapmode', 'robot') === 'all' ? 'all' : 'robot')) as Mode,   // 설정 «지도 기본 보기»(live.js 931)
+    zoom: 1, c: [0, 0], kBase: 20, kFree: 20, k: 20, toWorld: (x: number, y: number) => [x, y] });
   const P = useRef(p); P.current = p;
 
   const draw = () => {

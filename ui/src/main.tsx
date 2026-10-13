@@ -19,6 +19,8 @@ const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   PcMissions: lazy(() => import('./screens/PcMissions')),
   PcPlan: lazy(() => import('./screens/PcPlan')),
   MHome: lazy(() => import('./screens/MHome')),
+  PcRobot: lazy(() => import('./screens/PcRobot')),
+  PcSettings: lazy(() => import('./screens/PcSettings')),
 };
 const HOME = 'PcHistory';
 

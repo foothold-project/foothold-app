@@ -2,6 +2,8 @@
 import type { RunWaypoint } from '@contracts';
 
 export const ok = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
+export const num = (v: unknown, d = 2, u = '') => (ok(v) ? v.toFixed(d) + u : '미확인');
+export const deg = (r: unknown) => (ok(r) ? (r * 180 / Math.PI).toFixed(0) + '°' : '미확인');
 export const sgn = (v: unknown, d = 2, u = '') => (ok(v) ? (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d) + u : '미확인');
 // 서버 시각 «2026-10-13T12:46:00+0900»(콜론 없는 시간대)은 Safari 의 Date.parse 가 못 읽는다 → +09:00 으로 고쳐 읽는다. 못 읽으면 0.
 export const tms = (at: unknown) => Date.parse(String(at || '').replace(/([+-]\d\d)(\d\d)$/, '$1:$2')) || 0;

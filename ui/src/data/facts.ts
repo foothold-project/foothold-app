@@ -19,3 +19,5 @@ export const WHY: Record<string, string> = Object.fromEntries(UNSUP);
 export const STOP_FACT = ['조종 입력 0.3 s 끊김', '명령 0 요청(몸 정지는 별도 — 관측: STOP 뒤 약 3.6 s 동안 0.32 m 더 움직임, 원인 미확인) · 자동 후퇴 미연결', '화면 숨김·로그아웃·화면 신호 1 s 끊김', '조종권 해제 + STOP 잠금(명령 0 유지) · 사람이 «STOP 해제»'];
 /** 링크가 끊기면 «꺼짐»이 아니라 미확인 */
 export const LATCH_TXT = (v: { linkOk: boolean; latch: boolean }) => (!v.linkOk ? '잠금 상태 미확인(서버 연결 끊김)' : v.latch ? 'STOP 잠금 켜짐(명령 0 유지)' : 'STOP 잠금 꺼짐');
+
+export const LAYOUTS = ['왼쪽 회전 · 오른쪽 앞뒤', '왼쪽 이동 · 오른쪽 회전'];   // 휴대폰 조종 막대 배치 — 기본 = 처음 확정한 배치(live.js 14)

@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":1040};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);--ok-bg:rgba(90,169,255,.10);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08);--ok-bg:rgba(31,95,191,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton{font:inherit;color:inherit;cursor:pointer}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px;display:flex;flex-direction:column;gap:12px}\n.card h2{margin:0;font-size:15px;font-weight:600;display:flex;align-items:center;gap:8px}\n.lbl{font-size:12px;color:var(--muted)}\n.btn{height:44px;padding:0 14px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;font-weight:600;font-size:13px}\n.row{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13px}\n.m-ok{color:var(--ok)}.m-warn{color:var(--warn)}.m-bad{color:var(--bad)}.m-off{color:var(--muted)}\n.eq{display:grid;grid-template-columns:40px 1fr auto;gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}\n.ei{width:40px;height:40px;border-radius:8px;background:var(--acc-bg);color:var(--accent);display:grid;place-items:center}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; [k: string]: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -30,29 +30,30 @@ export function View({ v }: { v: Vals }) {
           <div style={{"display":"flex","flexDirection":"column","gap":"2px"}}>
             {" "}
             <span style={{"fontSize":"12px","color":"var(--muted)"}}>
-              {"로봇"}
+              {v.hdrA ?? "로봇"}
             </span>
             {" "}
             <span style={{"fontSize":"17px","fontWeight":"600"}}>
-              {"GO2-01 · Unitree Go2 EDU"}
+              {v.hdrB ?? "GO2-01 · Unitree Go2 EDU"}
             </span>
             {" "}
           </div>
           {" "}
-          <span style={{"height":"26px","padding":"0 10px","borderRadius":"999px","display":"flex","alignItems":"center","fontSize":"12px","fontWeight":"600","background":"var(--ok-bg)","color":"var(--ok)"}}>
-            {"● 연결됨 · 대기"}
+          <span style={{"height":"26px","padding":"0 10px","borderRadius":"999px","display":"flex","alignItems":"center","fontSize":"12px","fontWeight":"600","background":"var(--ok-bg)","color":"var(--ok)",...v.pillStyle}}>
+            {v.pill ?? "● 연결됨 · 대기"}
           </span>
           {" "}
           <div style={{"flex":"1"}} />
           {" "}
-          <span className="lbl">
+          {v.role ?? (<><span className="lbl">
             {"조종권: "}
             <b style={{"color":"var(--text)"}}>
               {"운영자 A (이 기기)"}
             </b>
-          </span>
+          </span></>)}
           {" "}
-          <button aria-label="비상 정지" style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
+          {v.status ?? null}
+<button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
             {" "}
             <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
@@ -136,13 +137,13 @@ export function View({ v }: { v: Vals }) {
               <h2>
                 {"몸 상태 "}
                 <span className="lbl" style={{"fontWeight":"400"}}>
-                  {"위에서 본 모습 · 다리 모터 온도"}
+                  {v.bodyH ?? "위에서 본 모습 · 다리 모터 온도"}
                 </span>
               </h2>
               {" "}
               <div style={{"display":"flex","flexWrap":"wrap","gap":"16px","alignItems":"center"}}>
                 {" "}
-                <svg viewBox="0 0 220 260" style={{"width":"200px","height":"auto","flex":"none"}} role="img" aria-label="위에서 본 로봇: 다리 네 개 모터 온도, 앞오른쪽 다리가 가장 높음 52도">
+                {v.noSvg ? null : (<><svg viewBox="0 0 220 260" style={{"width":"200px","height":"auto","flex":"none"}} role="img" aria-label="위에서 본 로봇: 다리 네 개 모터 온도, 앞오른쪽 다리가 가장 높음 52도">
                   <path d="M110 18 L118 34 L102 34 Z" style={{"fill":"var(--accent)"}} />
                   <text x="110" y="14" textAnchor="middle" fontSize="11" style={{"fill":"var(--muted)"}} fontFamily="'Pretendard Variable', Pretendard, sans-serif">
                     {"앞"}
@@ -183,11 +184,11 @@ export function View({ v }: { v: Vals }) {
                       {"뒤오른"}
                     </text>
                   </g>
-                </svg>
+                </svg></>)}
                 {" "}
                 <div style={{"flex":"1 1 180px","display":"flex","flexDirection":"column","gap":"2px"}}>
                   {" "}
-                  <div className="row" style={{"borderTop":"0"}}>
+                  {v.bodyRows ?? (<><div className="row" style={{"borderTop":"0"}}>
                     <span className="m-ok">
                       {"●"}
                     </span>
@@ -233,10 +234,10 @@ export function View({ v }: { v: Vals }) {
                     <b>
                       {"없음"}
                     </b>
-                  </div>
+                  </div></>)}
                   {" "}
                   <span className="lbl" style={{"lineHeight":"1.5","paddingTop":"4px"}}>
-                    {"모터 온도 주의 50 °C · 위험 65 °C(팀 설정 임시값). 위험이면 «앉기» 후 식힙니다."}
+                    {v.bodyNote ?? "모터 온도 주의 50 °C · 위험 65 °C(팀 설정 임시값). 위험이면 «앉기» 후 식힙니다."}
                   </span>
                   {" "}
                 </div>
@@ -252,7 +253,7 @@ export function View({ v }: { v: Vals }) {
               </h2>
               {" "}
               <div style={{"display":"flex","alignItems":"baseline","gap":"8px"}}>
-                <span className="mono" style={{"fontSize":"40px","fontWeight":"600","lineHeight":"1"}}>
+                {v.batBig ?? (<><span className="mono" style={{"fontSize":"40px","fontWeight":"600","lineHeight":"1"}}>
                   {"68"}
                   <span style={{"fontSize":"20px"}}>
                     {"%"}
@@ -260,21 +261,21 @@ export function View({ v }: { v: Vals }) {
                 </span>
                 <span className="lbl">
                   {"복귀 여유 41분 · 예상 운용 남은 시간 52분"}
-                </span>
+                </span></>)}
               </div>
               {" "}
-              <div style={{"height":"10px","borderRadius":"5px","background":"var(--line)","overflow":"hidden","position":"relative"}}>
+              <div style={{"height":"10px","borderRadius":"5px","background":"var(--line)","overflow":"hidden","position":"relative","display":v.batBarHide ? "none" : undefined}}>
                 <span style={{"position":"absolute","left":"0","top":"0","bottom":"0","width":"68%","background":"var(--ok)"}} />
                 <span style={{"position":"absolute","left":"20%","top":"-2px","bottom":"-2px","width":"2px","background":"var(--warn)"}} />
               </div>
               {" "}
               <span className="lbl">
-                {"노란 선 20% = 임무를 끝내고 복귀를 시작하는 기준"}
+                {v.batLbl ?? "노란 선 20% = 임무를 끝내고 복귀를 시작하는 기준"}
               </span>
               {" "}
               <div>
                 {" "}
-                <div className="row">
+                {v.batRows ?? (<><div className="row">
                   <span className="m-ok">
                     {"●"}
                   </span>
@@ -320,7 +321,7 @@ export function View({ v }: { v: Vals }) {
                   <b className="mono">
                     {"[버전] · [버전]"}
                   </b>
-                </div>
+                </div></>)}
                 {" "}
               </div>
               {" "}
@@ -334,7 +335,7 @@ export function View({ v }: { v: Vals }) {
               {" "}
               <div>
                 {" "}
-                <div className="row" style={{"borderTop":"0"}}>
+                {v.sensRows ?? (<><div className="row" style={{"borderTop":"0"}}>
                   <span className="m-ok">
                     {"●"}
                   </span>
@@ -392,7 +393,7 @@ export function View({ v }: { v: Vals }) {
                   <b style={{"color":"var(--muted)"}}>
                     {"장착 확인 안 됨"}
                   </b>
-                </div>
+                </div></>)}
                 {" "}
               </div>
               {" "}
@@ -407,13 +408,13 @@ export function View({ v }: { v: Vals }) {
               <h2>
                 {"장비 "}
                 <span className="lbl" style={{"fontWeight":"400"}}>
-                  {"여기 등록된 장비만 임무 모듈에서 고를 수 있습니다"}
+                  {v.eqH ?? "여기 등록된 장비만 임무 모듈에서 고를 수 있습니다"}
                 </span>
               </h2>
               {" "}
               <div style={{"display":"flex","flexDirection":"column","gap":"8px"}}>
                 {" "}
-                <div className="eq">
+                {v.eqs ?? (<><div className="eq">
                   <span className="ei">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                       <rect x="7" y="3" width="10" height="18" rx="2" />
@@ -456,7 +457,7 @@ export function View({ v }: { v: Vals }) {
                   </span>
                 </div>
                 {" "}
-                <div className="eq" style={{"borderStyle":"dashed","background":"transparent"}}>
+                </>)}<div className="eq" style={{"borderStyle":"dashed","background":"transparent"}}>
                   <span className="ei" style={{"background":"var(--panel2)","color":"var(--muted)"}}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                       <path d="M12 5v14M5 12h14" />
@@ -470,7 +471,7 @@ export function View({ v }: { v: Vals }) {
                       {"열화상 카메라 · 계기판 카메라 · 조명 …"}
                     </span>
                   </span>
-                  <button className="btn" style={{"height":"36px"}}>
+                  <button className="btn" style={{"height":"36px"}} {...v.eqAddP}>
                     {"등록"}
                   </button>
                 </div>
@@ -490,26 +491,26 @@ export function View({ v }: { v: Vals }) {
               {" "}
               <div style={{"display":"grid","gridTemplateColumns":"repeat(2,minmax(0,1fr))","gap":"8px"}}>
                 {" "}
-                <button className="btn">
+                <button className="btn" {...v.pose?.["일어서기"]}>
                   {"일어서기"}
                 </button>
                 {" "}
-                <button className="btn">
+                <button className="btn" {...v.pose?.["앉기"]}>
                   {"앉기"}
                 </button>
                 {" "}
-                <button className="btn">
+                <button className="btn" {...v.pose?.["엎드리기 · 모터 끄기 전"]}>
                   {"엎드리기 · 모터 끄기 전"}
                 </button>
                 {" "}
-                <button className="btn" style={{"borderColor":"var(--warn)"}}>
+                <button className="btn" style={{"borderColor":"var(--warn)"}} {...v.pose?.["넘어짐에서 다시 일어서기"]}>
                   {"넘어짐에서 다시 일어서기"}
                 </button>
                 {" "}
               </div>
               {" "}
               <span className="lbl" style={{"lineHeight":"1.5"}}>
-                {"«다시 일어서기»는 넘어짐이 감지됐을 때만 켜집니다. 계단 오르기·춤 같은 동작은 이 앱에서 쓰지 않습니다."}
+                {v.poseNote ?? "«다시 일어서기»는 넘어짐이 감지됐을 때만 켜집니다. 계단 오르기·춤 같은 동작은 이 앱에서 쓰지 않습니다."}
               </span>
               {" "}
             </section>
@@ -525,7 +526,7 @@ export function View({ v }: { v: Vals }) {
               {" "}
               <div>
                 {" "}
-                <div className="row" style={{"borderTop":"0"}}>
+                {v.stopRows ?? (<><div className="row" style={{"borderTop":"0"}}>
                   <span className="m-ok">
                     {"●"}
                   </span>
@@ -583,16 +584,16 @@ export function View({ v }: { v: Vals }) {
                   <b>
                     {"[확인 필요]"}
                   </b>
-                </div>
+                </div></>)}
                 {" "}
               </div>
               {" "}
               <div style={{"display":"flex","gap":"8px"}}>
-                <button className="btn" style={{"flex":"1"}}>
+                <button className="btn" style={{"flex":"1"}} {...v.testP}>
                   {"정지 시험 실행"}
                 </button>
-                <button className="btn" style={{"flex":"1"}}>
-                  {"진단 로그 내려받기"}
+                <button className="btn" style={{"flex":"1"}} {...v.logP}>
+                  {v.logT ?? "진단 로그 내려받기"}
                 </button>
               </div>
               {" "}

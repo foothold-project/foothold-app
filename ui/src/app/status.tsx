@@ -1,13 +1,12 @@
 // 상태 줄(링크·STOP 잠금·조종권·시뮬·공유 문서 오류·새 판) — web/live.js paintStatus 와 같은 글.
-import { linkView, useLink } from '../data/link';
+import { linkView, sessTxt, useLink } from '../data/link';
 import type { Docs } from '../data/shared';
 import { toast } from './shell';
 
 const dot = (good: boolean, t: string) => <span><span style={{ color: `var(${good ? '--ok' : '--warn'})` }}>{good ? '●' : '▲'}</span>{` ${t}`}</span>;
 
 export function LiveStatus({ D, style }: { D: Docs; style?: React.CSSProperties }) {
-  const s = useLink(), v = linkView(s), st = s.st, x = st?.sim_start?.session;
-  const sess = x ? `${({ running: '실행 중', starting: '켜지는 중', idle: '꺼짐' } as Record<string, string>)[x.result || ''] || x.result || '미확인'}${x.remaining_s == null ? '' : ` · 남은 ${Math.max(0, Math.round(x.remaining_s / 60))}분${x.ends_at ? `(종료 ${String(x.ends_at).slice(11, 16)})` : ''}`}` : '';
+  const s = useLink(), v = linkView(s), st = s.st, sess = sessTxt(st);
   const reload = () => { if (st?.role === 'control') return toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤'); location.reload(); };
   return (
     <span className="lv-status" data-live-status="1" style={style}>

@@ -4,6 +4,7 @@
 import { create } from 'zustand';
 import type { ClientOp, Reply, ServerMsg, Status } from '@contracts';
 import { refreshShared } from './shared';
+import { num, ok, sgn } from './fmt';
 
 type LinkState = { st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number };
 export const useLink = create<LinkState>(() => ({ st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0 }));
@@ -69,5 +70,22 @@ export function linkView(s: LinkState) {
     linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : `끊김 ${age.toFixed(0)} s`) : st!.sim_block || '정상',
     roleTxt: st?.role === 'control' ? '조종권 · 이 기기' : st?.role === 'view_other' ? `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}` : '보기 전용',
     newVer: !!(st && s.firstVer && st.ver && st.ver !== s.firstVer),
+    body: !sim ? '몸 상태 미연결' : sim.fallen === true ? '넘어짐' : sim.fallen == null ? '넘어짐 미확인'
+      : sim.body_still === true ? '몸 정지' : `실측 ${ok(sim.vx) && ok(sim.vy) ? Math.hypot(sim.vx, sim.vy).toFixed(2) + ' m/s' : '속도 미확인'}`,
+    // 서버가 지금 보내는 명령(누가 조종하든 같은 값). 링크가 끊기면 모름.
+    sent: linkOk && st ? `앞 ${sgn(st.applied[0])} m/s · 회전 ${sgn(st.applied[2])} rad/s` : '미확인',
   };
+}
+
+// 시뮬 세션(RL session_status.sh 원값): 실행/켜지는 중/꺼짐 + 남은 시간. 안전 준비 판정 아님
+export const sessTxt = (st: Status | null) => { const x = st?.sim_start?.session; if (!x) return '';
+  return `${({ running: '실행 중', starting: '켜지는 중', idle: '꺼짐' } as Record<string, string>)[x.result || ''] || x.result || '미확인'}${x.remaining_s == null ? '' : ` · 남은 ${Math.max(0, Math.round(x.remaining_s / 60))}분${x.ends_at ? `(종료 ${String(x.ends_at).slice(11, 16)})` : ''}`}`; };
+// 상태 상세: 서버가 준 원값 그대로(가공·추정 없음) — live.js stateRows
+export function stateRows(s: LinkState): [string, string][] {
+  const v = linkView(s), st = s.st, r: [string, string][] = [['링크', v.linkTxt], ['조종권', v.roleTxt], ['STOP 잠금', v.linkOk ? String(v.latch) : '미확인(링크 끊김)'], ['보낸 명령', v.sent],
+    ['서버 이유', st?.reason || '—'], ['state_age s', st ? num(st.state_age, 2) : '미확인'], ['cam_age s', st ? num(st.cam_age, 2) : '미확인'],
+    ['episode', st ? String(st.episode) : '미확인'], ['배터리', '미연결(시뮬에 값 없음)'], ['이 기기', st?.me || '미확인'],
+    ['조종 중인 기기', st?.holder || '없음'], ['시뮬 세션(RL 상태)', sessTxt(st) || '미확인'], ['화면 판', `${s.firstVer || '미확인'} (서버 지금 ${st?.ver || '미확인'})`]];
+  for (const [k, x] of Object.entries(st?.sim || {})) r.push([`sim.${k}`, typeof x === 'string' ? x : JSON.stringify(x)]);
+  return r;
 }
