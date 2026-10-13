@@ -17,7 +17,7 @@ Gazebo·정책·ingress 기동은 RL 소유. 이 서버는 Gazebo 를 띄우지 
 실행: source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=61 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 sim/v2_link.py
 자체검사(ROS 없이): python3 sim/v2_link.py --selftest
 """
-import argparse, json, math, os, re, subprocess, sys, threading, time
+import argparse, json, math, os, re, sqlite3, subprocess, sys, threading, time
 from collections import deque
 from pathlib import Path
 
@@ -406,6 +406,30 @@ class Docs:
         tmp = self.path.with_suffix('.tmp')
         tmp.write_text(json.dumps(d, ensure_ascii=False), encoding='utf-8'); os.replace(tmp, self.path)
 
+    def listing(self):              # GET /api/docs 응답. server/store.Store.listing 과 같은 모양
+        return {'docs': list(self.d.values()), 'rev': self.rev, 'broken': self.broken}
+
+
+def open_docs(spec, media):
+    """--store 값 → (문서 저장소, 알림 글). json = 지금의 docs.json. sqlite:<경로> = server/store.Store(검사는 이 파일의 doc_check).
+    DB 가 없으면 docs.json 을 읽기만 해서 이전(server/migrate import: 복사본 → 임시 DB → 검증 → 새 이름, 덮어쓰기 없음).
+    이전이 실패하면 docs.json(원본)으로 돌아간다. docs.json 은 어느 경우에도 지우거나 덮지 않는다.
+    주의: sqlite 로 쓴 뒤 json 으로 되돌리면 그 사이 변경은 docs.json 에 없다 — server/migrate.py export 로 새 파일을 만들어 바꿔 넣는다."""
+    if spec == 'json':
+        return Docs(media), ''
+    if not spec.startswith('sqlite:') or len(spec) == len('sqlite:'):
+        raise SystemExit('--store 는 json 또는 sqlite:<경로>')
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from server.store import Store
+    from server import migrate
+    db, chk = Path(spec[len('sqlite:'):]), (lambda k, d: doc_check(DOC_KINDS[k], d))
+    if not db.exists():
+        try:
+            migrate.cmd_import(argparse.Namespace(src=str(media), out=str(db)), check=chk)
+        except Exception as e:      # 이전 실패 → 원본 그대로 사용(작업 폴더 manifest 에 이유)
+            return Docs(media), f'SQLite 이전 실패({type(e).__name__}: {str(e)[:80]}) — docs.json 으로 계속'
+    return Store(db, create=False, check=chk), ''
+
 
 def actor_from_header(v):
     """관문이 붙인 «계정 · 기기»(퍼센트 인코딩 UTF-8 — HTTP 헤더는 ASCII 만 안전). 형식이 틀리면 표시용 대체값"""
@@ -648,6 +672,7 @@ def main():
     repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     ap.add_argument('--media', default=os.path.join(repo, 'runs', 'app-media'), help='서버 보관 사진·사건 폴더')
     ap.add_argument('--sim-start', default=None, help='RL 래퍼(request_session.sh) 절대경로. 없으면 «시뮬 시작» 버튼은 이유만 보임')
+    ap.add_argument('--store', default='json', help='공용 문서 저장: json(기본, <media>/docs.json) 또는 sqlite:<DB 경로>(없으면 docs.json 을 읽어 이전)')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -665,7 +690,9 @@ def main():
     core = Core(); lock = threading.Lock()
     sim = {'jpeg': None, 'jpeg_t': None, 'jpeg_n': 0, 'jpeg_wall': None, 'jpeg_stamp': None, 'jpeg_ep': None, 'jpeg_reset': False}
     media = Media(a.media); core.sink = media.event
-    docs = Docs(a.media)
+    docs, docs_note = open_docs(a.store, a.media)
+    if docs_note:
+        core.ev('warn', docs_note); print(docs_note, flush=True)
     starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
     photo_last = [0.0]
     if starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file():
@@ -886,11 +913,12 @@ def main():
 
     class DocsAPI(tornado.web.RequestHandler):
         # 공용 문서. 쓰기는 이 PC 출처(관문은 Origin 을 이 주소로 붙여 중계) — 다른 웹페이지가 몰래 못 씀. 로봇 조종권과 무관
-        def get(self):
+        async def get(self):
             self.set_header('Cache-Control', 'no-store')
-            with docs.lock:
-                d, rev = list(docs.d.values()), docs.rev
-            self.finish({'docs': d, 'rev': rev, 'broken': docs.broken})
+            def work():                 # SQLite 일 수 있어 IOLoop 밖에서
+                with docs.lock:
+                    return docs.listing()
+            self.finish(await tornado.ioloop.IOLoop.current().run_in_executor(None, work))
 
         async def post(self):
             self.set_header('Cache-Control', 'no-store')
@@ -905,7 +933,7 @@ def main():
                 with docs.lock:
                     try:
                         return docs.apply(m, actor)
-                    except OSError as e:
+                    except (OSError, sqlite3.Error) as e:
                         return 500, {'error': f'저장 실패 · {type(e).__name__} — 이전 상태 그대로, 초안은 화면에'}
             code, r = await tornado.ioloop.IOLoop.current().run_in_executor(None, work)
             with lock:                  # 조종 lock 은 사건 한 줄만
