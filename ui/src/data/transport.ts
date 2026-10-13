@@ -25,7 +25,9 @@ export interface Transport {
   postDocs(body: unknown): Promise<Res>;            // 200·400·403·404·409·500·503 은 status 로(던지지 않음)
   photo(url: string): Promise<string | null>;       // img src — 네이티브는 blob:(부른 쪽이 revoke), 없으면 null
   wsUrl(): Promise<WsTarget>;
-  onEnded(f: () => void): void;                     // 이 세대 세션 끝(만료·401)·주소 없음·잠김 → 로그인/주소 화면(자동 take/resume 없음)
+  onEnded(f: () => void): void;
+  // B2 파일 저장(bundled B 만): 화면 글 또는 null(버림 — 준비·창 사이 로그아웃·주소 변경·세션 끝·화면 이탈). alive = 부른 화면이 아직 그대로인가
+  saveFile?(name: string, blob: Blob, alive: () => boolean): Promise<string | null>;                     // 이 세대 세션 끝(만료·401)·주소 없음·잠김 → 로그인/주소 화면(자동 take/resume 없음)
 }
 
 const web: Transport = {
@@ -61,6 +63,13 @@ const MSG: Record<string, string> = {
   stale: '연결이 바뀜 — 옛 응답 버림', tls: '관문 인증서 확인 실패', net: '관문에 닿지 않음', unknown: '알 수 없는 오류', auth: '계정 또는 비밀번호가 틀림',
   origin: '관문이 앱 출처를 거부', busy: '처리 중 — 잠시 뒤 다시', redirect: '관문이 다른 주소로 보냄(거부)', server: '관문 오류', too_big: '응답이 너무 큼',
   bad_type: '응답 형식 이상', storage: '기기 로그아웃 저장 실패 — 다시 로그아웃', internal: '앱 내부 오류',
+  cancelled: '저장 취소', io: '저장 실패 — 저장 안 됨',
+};
+const SAVE_MAX = 5 * 1024 * 1024;   // 계약 d4e5002: 푼 바이트 5 MB 넘으면 too_big
+const b64 = async (blob: Blob) => {
+  const u = new Uint8Array(await blob.arrayBuffer()); let b = '';
+  for (let i = 0; i < u.length; i += 0x8000) b += String.fromCharCode(...u.subarray(i, i + 0x8000));
+  return btoa(b);
 };
 export const STALE = MSG.stale;
 const SRV_FAIL = '이 기기에서는 로그아웃됨 · 서버 세션 종료 확인 못 함';
@@ -158,6 +167,21 @@ export function nativeTransport(P: any): Transport {
       catch (e: any) { return { why: e?.message || String(e) }; }
     },
     onEnded(f) { ended.push(f); },
+    async saveFile(name, blob, alive) {
+      const ep = epoch, g = gen;   // 저장 시작 문맥
+      if (blob.size > SAVE_MAX) return MSG.too_big + '(5 MB 넘음 — 저장 안 됨)';   // 바이트 읽기 전에
+      const data = await b64(blob);
+      if (ep !== epoch || gen !== g || !alive()) return null;   // 준비 중 로그아웃·주소 변경·이탈 → 저장 창을 열지 않음
+      try {
+        const r: any = await call(() => P.saveFile({ name, base64: data }));   // call: 호출 전 epoch · 응답 epoch · r.gen === 현재 gen
+        if (ep !== epoch || gen !== g || !alive()) return null;
+        return r?.saved === true ? `저장됨(${name})` : '저장 결과 미확인';
+      } catch (e: any) {
+        if (ep !== epoch || gen !== g || !alive()) return null;
+        // 문맥은 그대로인데 네이티브가 stale(창 사이 화면 재생성 gen -1 · 다 쓴 뒤 응답만 버림 ③): 파일이 남았을 수도 있다(af602ba)
+        return e?.message === STALE ? '저장 결과 미확인 — 파일 목록 확인 뒤 필요하면 다시 저장' : e?.message || String(e);
+      }
+    },
   };
 }
 
