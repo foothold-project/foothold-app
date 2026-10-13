@@ -57,16 +57,37 @@ class Store:
                     raise FileNotFoundError(str(self.path))
                 self._init()
             with self._db() as c:
-                if c.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
-                    raise sqlite3.DatabaseError('quick_check 실패')
-                v = c.execute("SELECT value FROM meta WHERE key='schema_version'").fetchone()
-                if not v or v[0] != SCHEMA_VERSION:
-                    raise sqlite3.DatabaseError(f'스키마 판 {v and v[0]} — 이 서버는 {SCHEMA_VERSION}')
-                self.rev = c.execute("SELECT value FROM meta WHERE key='rev'").fetchone()[0]
+                self.rev = self._validate(c)
         except FileNotFoundError:
             raise
         except Exception as e:          # 손상·모르는 판: 덮지 않는다
             self.broken = f'문서 DB 열기 실패({type(e).__name__}: {str(e)[:80]}) — 원본 보존, 문서 저장소 사용 불가'
+
+    def _validate(self, c):
+        """열 때 한 번: 파일 무결성 + 스키마 모양 + 의미(meta·문서 봉투·본문·크기·개수·유일성). 틀리면 Bad(→ broken). 읽기만 한다.
+        반환 = 전체 rev. ponytail: 문서 전부 검사(≤2000건, 기동 때 한 번) — 조종 루프 시작 전이라 IOLoop 을 막지 않는다."""
+        if c.execute('PRAGMA quick_check').fetchone()[0] != 'ok':
+            raise Bad('quick_check 실패')
+        meta = dict(c.execute('SELECT key, value FROM meta').fetchall()) if _has(c, 'meta') else {}
+        if meta.get('schema_version') != SCHEMA_VERSION or type(meta.get('schema_version')) is not int:
+            raise Bad(f'스키마 판 {meta.get("schema_version")!r} — 이 서버는 {SCHEMA_VERSION}')
+        got = dict(c.execute(SCHEMA_Q).fetchall())
+        if got != _schema():             # 표·열·CHECK·생성 열·유일성 인덱스 정의가 DDL 과 글자 그대로 같아야
+            raise Bad(f'스키마 정의 다름: {sorted(set(got.items()) ^ set(_schema().items()))[0][0]}')
+        for k in ('rev', 'seq'):
+            if type(meta.get(k)) is not int or meta[k] < 0:
+                raise Bad(f'meta.{k} 형식')
+        n, total, top = 0, 0, 0
+        for did, kind, rev, by, at, doc, seq in c.execute('SELECT id, kind, rev, by, at, doc, seq FROM docs'):
+            d = json.loads(doc)
+            if not (isinstance(did, str) and _id_ok(did) and kind in DOC_KINDS and type(rev) is int and rev >= 1
+                    and isinstance(by, str) and isinstance(at, str) and type(seq) is int) or self.check(kind, d) \
+                    or len(json.dumps(d, ensure_ascii=False).encode()) > DOC_MAX:
+                raise Bad(f'문서 {str(did)[:40]} 형식')
+            n += 1; total += rev; top = max(top, seq)
+        if n > DOC_TOTAL or meta['rev'] < total or meta['seq'] < top:
+            raise Bad('문서 수·전체 rev·seq 불일치')
+        return meta['rev']
 
     def _db(self):
         c = sqlite3.connect(self.path, timeout=5, isolation_level=None)   # 트랜잭션은 직접(BEGIN IMMEDIATE)
@@ -95,6 +116,8 @@ class Store:
     # ---------------------------------------------------------------- 조회
 
     def db_rev(self):
+        if self.broken:
+            raise Bad(self.broken)
         with self._db() as c:
             return c.execute("SELECT value FROM meta WHERE key='rev'").fetchone()[0]
 
@@ -180,7 +203,10 @@ class Store:
         if cur is None:
             if c.execute('SELECT count(*) FROM docs').fetchone()[0] >= DOC_TOTAL:
                 return 400, {'error': f'문서 수 한도 {DOC_TOTAL}'}
-            did = f'{kind[0]}{time.strftime("%m%d%H%M%S")}{secrets.token_hex(4)}'
+            while True:                      # 같은 초에 꼬리까지 겹치면 새로 뽑는다 — 기존 문서를 덮지도, PK 오류로 500 이 되지도 않게
+                did = f'{kind[0]}{time.strftime("%m%d%H%M%S")}{secrets.token_hex(4)}'
+                if c.execute('SELECT 1 FROM docs WHERE id=?', (did,)).fetchone() is None:
+                    break
             seq = c.execute("UPDATE meta SET value=value+1 WHERE key='seq' RETURNING value").fetchone()[0]
             c.execute('INSERT INTO docs(id, kind, rev, by, at, doc, seq) VALUES(?,?,1,?,?,?,?)', (did, kind, actor, at, raw, seq))
             new_rev = 1
@@ -217,11 +243,33 @@ class Store:
             c.execute('INSERT INTO events(at, ev) VALUES(?,?)', (e['at'], json.dumps(e, ensure_ascii=False)))
 
     def media(self, n_photos=200, n_events=300):
-        """GET /api/media 의 photos·events(최신 먼저) — Media.tail(...)[::-1] 과 같은 순서."""
+        """GET /api/media 의 photos·events(최신 먼저) — Media.tail(...)[::-1] 과 같은 순서. broken 이면 Bad."""
+        if self.broken:
+            raise Bad(self.broken)
         with self._db() as c:
             ph = [json.loads(r[0]) for r in c.execute('SELECT meta FROM photos ORDER BY rowid DESC LIMIT ?', (n_photos,))]
             ev = [json.loads(r[0]) for r in c.execute('SELECT ev FROM events ORDER BY n DESC LIMIT ?', (n_events,))]
         return ph, ev
+
+
+class Bad(sqlite3.DatabaseError):
+    """열 때 검사 실패(파일은 그대로)."""
+
+
+SCHEMA_Q = "SELECT name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
+
+
+def _schema():
+    c = sqlite3.connect(':memory:')
+    try:
+        c.executescript(DDL)
+        return dict(c.execute(SCHEMA_Q).fetchall())
+    finally:
+        c.close()
+
+
+def _has(c, t):
+    return c.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (t,)).fetchone() is not None
 
 
 class _Conn:

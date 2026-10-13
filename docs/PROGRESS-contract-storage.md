@@ -11,8 +11,9 @@
 | `contracts/v1/schema/*.json`, `contracts/v1/ts/index.ts` | 생성물(수정 금지). `tools/generate_contracts.py`(`--check` = 재현 검사) |
 | `server/store.py` | SQLite 문서 저장소. `apply()` 는 v2_link `Docs.apply` 와 같은 코드·응답. 사진·사건 메타 표 |
 | `server/migrate.py` | `import`(복사본 → 임시 DB → 검증 → 덮어쓰기 없는 확정, manifest) · `verify` · `export`(rollback = docs.json 형식) |
-| `server/api.py` | FastAPI 독립 어댑터 `create_app(store, allowed_origins, on_event, version)`: GET/POST `/api/docs`, GET `/api/media` |
-| `tests/backend/` | `test_contracts.py`(74) · `test_store.py`(25) |
+| `server/api.py` | FastAPI 독립 어댑터 `create_app(store, allowed_origins, on_event, version)`: GET/POST `/api/docs`, GET `/api/media`. **v2_link 에 연결하지 않음 — 구현 완료 경로 아님** |
+| `sim/v2_link.py` | (b) 연결 최소 diff: `--store json|sqlite:<경로>`(기본 json), `open_docs()`, GET 도 executor + DB 오류 500. 이 브랜치에만 — 통합은 고정 mentor 호환 검토 뒤 |
+| `tests/backend/` | `test_contracts.py`(74) · `test_store.py`(25) · `test_v2_link_store.py`(8) · `test_review_fixes.py`(21) |
 | `requirements-backend.txt` | 버전 고정(pydantic 2.14.1 · fastapi 0.143.0 · httpx 0.28.1 · pytest 9.1.1 + 의존성) |
 
 ### SQLite 설계
@@ -21,7 +22,9 @@
 - 쓰기 하나 = `BEGIN IMMEDIATE` 트랜잭션 하나. 예외가 나면 ROLLBACK 하고, 어댑터는 500 으로 답한다. 고칠 때는 `UPDATE … WHERE id AND rev`.
 - 전체 판 `meta.rev` 는 저장된 단조 증가 값이다. import 때는 v2_link 가 보이던 값(rev 합)으로 시작한다. **docs.json 은 재시작하면 rev 합으로 다시 세서, 삭제 뒤에는 값이 작아질 수 있었다**(시험이 이 차이를 고정).
 - 연결은 호출마다 새로 연다(WAL, busy_timeout 5 s). 스레드·프로세스 사이에 공유하지 않는다.
-- 열 때 `quick_check` 실패나 모르는 `schema_version` 이면 `broken`(쓰기 503) 상태가 되고, 파일 바이트는 그대로 둔다.
+- 열 때 검사(`_validate`): `quick_check` · 표·인덱스 정의가 DDL 과 글자 그대로 같음 · meta `schema_version`/`rev`/`seq` 가 정수 ≥0 · 문서 행마다 id 형식·종류·rev·by/at·본문 검사(`check`)·크기 · 문서 수 ≤2000 · `meta.rev ≥ rev 합`·`meta.seq ≥ 최대 seq`. 하나라도 틀리면 `broken` — 쓰기·`/api/media`·`db_rev()` 는 503(Bad), `GET /api/docs` 는 v2_link 와 같게 200 + 빈 목록 + broken 글. 파일 바이트는 그대로.
+- 실행 중 DB 오류(디스크 등)는 GET·POST 모두 JSON 500 + `no-store`.
+- 새 문서 id 가 이미 있으면(같은 초 + 무작위 꼬리 겹침) 다시 뽑는다 — 덮지 않고 500 도 아님. id 형식(문자열)은 그대로.
 - 새 DB 는 임시 파일에 만든 뒤 `os.link` 로 만든다. 이미 있으면 덮어쓰지 않는다.
 - 사진 JPEG·지도·영상 파일은 옮기거나 지우지 않는다. DB 에는 url·saved_at·episode·메타 JSON 만 둔다.
 
@@ -34,7 +37,7 @@ python3 -m venv .venv-backend && .venv-backend/bin/pip install -r requirements-b
 .venv-backend/bin/python -m pytest -q -p no:cacheprovider tests/backend
 # 생성 TS 타입 검사까지: FH_TSC=<typescript 5.9.3 의 tsc 경로> 를 붙이면 test_generated_ts_typechecks 가 돈다(없으면 skip)
 ```
-- 결과: 98 passed · 1 skipped(FH_TSC 없음). tsc 5.9.3(임시 폴더 설치, 저장소 밖)으로 따로 돌린 실행에서는 74/74 통과.
+- 결과: **127 passed · 1 skipped**(FH_TSC 없음) — 원문 `runs/backend-review-20261013/pytest-full.txt`(gitignore, 명령·버전·sqlite 판 포함). tsc 5.9.3(임시 폴더 설치, 저장소 밖)으로 따로 돌린 실행에서는 74/74 통과(계약 코드는 이후 바뀌지 않음).
 - **v2_link 와 대조한 항목:**
   - 문서 형식 53건: 같은 입력에 v2_link `doc_check` 와 `check_doc` 의 수락·거부가 같은지
   - cmd 형식: `valid_axes` 와 같은지
@@ -54,16 +57,33 @@ python3 -m venv .venv-backend && .venv-backend/bin/pip install -r requirements-b
   - 전체 rev 증가 제거: 6 개 실패
   - 모두 원복한 뒤 cmp 로 원본과 같음을 확인
 
+## 앱 Codex 1회 묶음 검수(85d08f7/47006b6) 반영
+
+| 항 | 구현 | 모의 검증(`test_review_fixes.py`) | 미확인 |
+|---|---|---|---|
+| 1 열 때 의미 손상 | `Store._validate`(위 설계 절). `db_rev`·`media` 도 broken 이면 Bad. api GET 두 개·v2_link GET 에 DB 오류 → JSON 500 | 정상 SQLite 안의 손상 9종(meta rev 없음·글자·seq 음수·rev<합·표 없음·인덱스 없음·doc `{}`·doc `[1]`·id 형식) → broken·503·바이트 그대로. `_db` 가 읽기 중 OperationalError → GET 2·POST 1 모두 JSON 500 no-store | v2_link Tornado GET 의 500 경로는 코드만(Tornado 시험 없음, `--selftest` 통과만). 실제 디스크 오류 미실험 |
+| 2 원본 폴더 | `check_src`: 있는 폴더 + `docs.json` 파일 필수, 작업 폴더도 만들기 전 거부. 빈 시작은 `import --allow-empty` 명시만. v2_link `open_docs` 는 media 폴더에 docs.json 이 아직 없을 때만 allow_empty(json 경로가 빈 Docs 로 시작하는 것과 같게). 문서 봉투 키는 정확히 6개(닫힘) | 없음·파일·빈 폴더·docs.json 이 폴더·봉투 키 추가 → 종료 2, out·작업 폴더 없음, 원본 그대로, 거부 이유 글 확인. `--allow-empty` 만 빈 DB | — |
+| 3 확정 뒤 증거 | `settle()`: `wal_checkpoint(TRUNCATE)` 후 -wal/-shm 남으면 거부 → `snapshot.sqlite` 별도 복사(sha 를 manifest 에) → `os.link(tmp,out)` → tmp 삭제. export 는 `mkstemp` 배타 생성 + finally 삭제 | out 링크 수 1, `new.sqlite` 없음, snapshot sha = manifest = 확정 DB sha, out 에 계속 써도 snapshot sha 그대로. 기존 `.docs.json.tmp` 그대로 + export 성공 | — |
+| 4 사진 메타 | 같은 url·다른 메타 → 거부. 완전히 같은 줄 → `photos_dup_identical` 개수만. JPEG 없음 → `photos_missing_jpeg` 개수(미확인, 지우거나 고치지 않음, 원본 폴더에서 존재만 확인) | 같은 줄 1·없는 JPEG 1 → 둘 다 개수, 원본 그대로. 다른 메타 → 종료 2, DB 없음 | 실제 `runs/app-media` 의 중복·누락 개수 미확인(운영 자료 미실행) |
+| 5 본문 상한 | Content-Length 가 숫자 아님·64 KiB 초과 → 바로 400. 그 뒤 `request.stream()` 으로 받은 바이트를 세서 넘으면 더 읽지 않고 400(파싱 안 함) | chunked(길이 없음) 64 KiB+ · 거짓 길이 `10` · 길이 `abc` → 400 «너무 큼». chunked 정상 본문 → 200 | v2_link POST 상한은 그대로(Tornado 기본 `max_body_size`) — sim 통합 때 판단 |
+| 6 문서 | CONTRACT.md: «서버는 Pydantic 으로 검사» 삭제 → 운영 v2_link 는 `doc_check`·`valid_axes`·`gate_msg`, Pydantic 은 독립 api·Store 기본값·시험만. 표본 53건 대조 ≠ 모든 입력 동등 증명. 조종 op 재설계 없음, 버전 필드 없음 | 원물 `runs/backend-review-20261013/` | — |
+
+- 변이 확인(새 시험 21개 대상, 각각 원복 후 실행): 스키마 대조 제거 1 실패 · media broken 무시 9 · tmp 삭제 제거 1 · 스트림 상한 제거 1 · Content-Length 사전검사 제거 1 · id 1회 뽑기 1 · 빈 폴더 허용 1 · 다른 메타 수용 1 · 봉투 키 개방 1 · export 고정 tmp 1. 처음에 살아남은 3개(스트림 상한·봉투 키·본문 dict 검사)는 다른 이유의 400/거부가 가려서였고, 시험이 이유 글까지 보게 고쳤다. 본문 dict 검사는 `check` 와 중복이라 지웠다.
+- 참조 강제는 보류(방향 판정): FK·CASCADE 없음, 없는 참조는 화면이 «미확인»으로 표시. 새 참조 검사·스냅샷은 다음 제품 계약.
+
+## 알려진 차이(의도)
+
+- **전체 판 `docs_rev`:** SQLite 는 저장된 단조 증가 값이라 재시작해도 줄지 않는다. 옛 docs.json 경로는 재시작 때 rev 합으로 다시 세서 삭제 뒤 값이 작아질 수 있다. 화면은 값이 «달라지면» 다시 읽으므로 문제없음(고정 mentor 확인).
+- **새 문서 id 충돌:** 옛 v2_link `Docs` 는 id = 종류+초+pid+n(n 은 열 때마다 0) 이라, 같은 초·같은 pid 로 다시 열면 기존 id 를 다시 만들어 그 문서를 덮는다. Store 경로는 충돌 시 다시 뽑는다. 옛 json 경로 수정은 고정 mentor 가 통합 때.
+- 400 이유 글: 독립 Store/api(기본 `check_doc`)는 pydantic 오류에서 만든 한국어. v2_link 를 거치면 `doc_check` 라 문구까지 같다(바이트 대조 시험).
+
 ## 미확인·남은 것
 
 - 운영 자료로는 실행하지 않았다(지시대로 운영 자료 직접 변환 금지). 실제 `runs/app-media` 의 크기·이상 데이터는 미확인이다.
-- `server/api.py` 를 v2_link(Tornado)에 연결하지 않았다. 연결 방식은 둘 중 하나다.
-  - (a) 같은 DB 를 쓰는 별도 uvicorn 프로세스를 127.0.0.1 에 띄우고, 관문이 `/api/docs` 를 거기로 중계
-  - (b) v2_link 의 `Docs` 를 `Store` 로 바꾸는 최소 diff(고정 mentor 소유인 `sim/` 수정)
-  - uvicorn 은 설치하지 않았다(시험은 TestClient).
+- 연결은 (b) 로 정했다(앱 Codex·고정 mentor): v2_link `--store sqlite:<경로>` 최소 diff 를 이 브랜치에 커밋했고, `sim/` 통합은 고정 mentor 가 호환 검토 뒤 한다. 운영 8792·실제 v2_link 프로세스로는 실행하지 않았다(시험은 v2_link 를 import 해 `Docs`·`open_docs` 를 직접 부름).
+- (a) 별도 FastAPI 프로세스는 구현 완료로 보지 않는다 — `server/api.py` 는 TestClient 로만 검증, uvicorn 미설치.
 - 이벤트(`events.jsonl`)를 DB 로 옮기는 것은 import 까지만 했다. 실행 중인 v2_link 는 여전히 jsonl 에 쓴다.
 - 문서 사이 참조(mission.tmpl → tmpl id, run.wps.photos·note.photo → 사진 파일)는 v2_link 와 같이 **강제하지 않는다**. 지워진 양식·사진을 가리킬 수 있다. 막을지는 제품 결정이다.
-- 400 이유 글은 pydantic 오류에서 만든 한국어(`doc.pts[1][1]: 유한 숫자여야 함`)라서 v2_link 의 문구와 다르다. 코드와 수락·거부는 같다.
 - starlette 가 `httpx` 대신 `httpx2` 를 권하는 DeprecationWarning 을 낸다. 시험 클라이언트 쪽 경고일 뿐 동작과는 무관하다.
 - 생성 TS 는 타입일 뿐 런타임 검증이 아니다. 화면 쪽 런타임 검사(예: JSON Schema 검사기)는 화면 담당이 정한다.
 
