@@ -7,7 +7,7 @@ export const PREVIEW = {"width":390,"height":844};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton{font:inherit;color:inherit;cursor:pointer}\n.lbl{font-size:12px;color:var(--muted)}\n.n{display:grid;grid-template-columns:28px 1fr auto;gap:4px 10px;padding:12px 14px;border-bottom:1px solid var(--line);text-decoration:none;color:inherit;align-items:start}\n.n.unread{background:var(--panel)}\n.ic{width:28px;height:28px;border-radius:6px;display:grid;place-items:center;font-size:13px;font-weight:700}\n.ic.bad{background:var(--bad-bg);color:var(--bad)}.ic.warn{background:var(--warn-bg);color:var(--warn)}.ic.acc{background:var(--acc-bg);color:var(--accent)}.ic.mute{background:var(--panel2);color:var(--muted)}\n.dot{width:8px;height:8px;border-radius:50%;background:var(--accent);margin-top:6px}\n.grp{font-size:12px;font-weight:700;color:var(--muted);padding:14px 16px 6px;letter-spacing:.04em}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any };
+export type Vals = { themeClass?: any; readAll?: any; status?: any; list?: any; foot?: any; stopProps?: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -28,15 +28,16 @@ export function View({ v }: { v: Vals }) {
             {"알림"}
           </span>
           {" "}
-          <button style={{"height":"44px","padding":"0 12px","border":"0","background":"transparent","fontSize":"13px","fontWeight":"600","color":"var(--accent)"}}>
+          <button onClick={v.readAll} style={{"height":"44px","padding":"0 12px","border":"0","background":"transparent","fontSize":"13px","fontWeight":"600","color":"var(--accent)"}}>
             {"모두 읽음"}
           </button>
           {" "}
         </header>
+{v.status ?? null}
         {" "}
-        <div style={{"flex":"1","minHeight":"0","overflow":"hidden","borderTop":"1px solid var(--line)"}}>
+        <div style={{"flex":"1","minHeight":"0","overflow":v.list ? "auto" : "hidden","borderTop":"1px solid var(--line)"}}>
           {" "}
-          <div className="grp">
+          {v.list ?? (<><div className="grp">
             {"지금 할 일"}
           </div>
           {" "}
@@ -174,14 +175,14 @@ export function View({ v }: { v: Vals }) {
             <span className="mono lbl">
               {"어제"}
             </span>
-          </a>
+          </a></>)}
           {" "}
         </div>
         {" "}
         <div style={{"padding":"10px 16px","borderTop":"1px solid var(--line)","display":"flex","justifyContent":"space-between","alignItems":"center"}}>
           {" "}
           <span className="lbl">
-            {"위험 경보는 잠금 화면에도 뜹니다"}
+            {v.foot ?? "위험 경보는 잠금 화면에도 뜹니다"}
           </span>
           {" "}
           <a href="#/PcSettings" style={{"fontSize":"13px","color":"var(--accent)","padding":"12px 0"}}>
@@ -192,7 +193,7 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <div style={{"padding":"0 16px 18px"}}>
           {" "}
-          <button aria-label="비상 정지" style={{"width":"100%","height":"64px","border":"0","borderRadius":"12px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"12px"}}>
+          <button aria-label="비상 정지" {...v.stopProps} style={{"width":"100%","height":"64px","border":"0","borderRadius":"12px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"12px"}}>
             {" "}
             <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
