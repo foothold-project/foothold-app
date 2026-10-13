@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from contracts.v1 import models as C
+from server.store import Bad
 
 NO_STORE = {'Cache-Control': 'no-store'}
 BODY_MAX = 64 * 1024
@@ -41,17 +42,34 @@ def create_app(store, allowed_origins, on_event=None, version=lambda: '미확인
     def out(code, body):
         return JSONResponse(body, status_code=code, headers=NO_STORE)
 
+    def read_err(e):
+        # 열 때 깨짐(Bad) = 503, 실행 중 DB 오류 = 500. 둘 다 JSON(ApiError)·no-store
+        if isinstance(e, Bad):
+            return out(503, {'error': str(e)})
+        return out(500, {'error': f'읽기 실패 · {type(e).__name__} — 잠시 뒤 다시'})
+
     @app.get('/api/docs')
     def get_docs():
-        return out(200, store.listing())
+        # broken 이어도 200 + 빈 목록 + broken 글(v2_link 와 같음 — 화면이 이유를 보여 줌). 쓰기만 503
+        try:
+            return out(200, store.listing())
+        except sqlite3.Error as e:
+            return read_err(e)
 
     @app.post('/api/docs')
     async def post_docs(request: Request):
         if request.headers.get('origin') not in allowed_origins:
             return out(403, {'error': '다른 출처'})
-        raw = await request.body()
-        if len(raw) > BODY_MAX:                  # 문서 본문 상한(12000 B)+봉투 여유. 큰 본문을 JSON 파싱하지 않는다
-            return out(400, {'error': f'요청이 너무 큼({BODY_MAX} 바이트 이하)'})
+        # 문서 본문 상한(12000 B)+봉투 여유. 받은 바이트로 센다(Content-Length 가 없거나 거짓이어도) — 넘으면 더 읽지 않고 파싱도 안 함
+        too_big = out(400, {'error': f'요청이 너무 큼({BODY_MAX} 바이트 이하)'})
+        cl = request.headers.get('content-length')
+        if cl is not None and (not cl.isdigit() or int(cl) > BODY_MAX):
+            return too_big
+        raw = bytearray()
+        async for chunk in request.stream():
+            raw += chunk
+            if len(raw) > BODY_MAX:
+                return too_big
         try:
             m = json.loads(raw)
         except ValueError:
@@ -70,7 +88,10 @@ def create_app(store, allowed_origins, on_event=None, version=lambda: '미확인
 
     @app.get('/api/media')
     def get_media():
-        ph, ev = store.media()
+        try:
+            ph, ev = store.media()
+        except sqlite3.Error as e:
+            return read_err(e)
         return out(200, {'photos': ph, 'events': ev, 'ver': version()})
 
     return app

@@ -425,7 +425,8 @@ def open_docs(spec, media):
     db, chk = Path(spec[len('sqlite:'):]), (lambda k, d: doc_check(DOC_KINDS[k], d))
     if not db.exists():
         try:
-            migrate.cmd_import(argparse.Namespace(src=str(media), out=str(db)), check=chk)
+            # docs.json 이 아직 없는 새 media 폴더면 빈 DB 로 시작(json 경로가 빈 Docs 로 시작하는 것과 같게) — 폴더 자체는 있어야
+            migrate.cmd_import(argparse.Namespace(src=str(media), out=str(db), allow_empty=not (Path(media) / 'docs.json').exists()), check=chk)
         except Exception as e:      # 이전 실패 → 원본 그대로 사용(작업 폴더 manifest 에 이유)
             return Docs(media), f'SQLite 이전 실패({type(e).__name__}: {str(e)[:80]}) — docs.json 으로 계속'
     return Store(db, create=False, check=chk), ''
@@ -915,10 +916,14 @@ def main():
         # 공용 문서. 쓰기는 이 PC 출처(관문은 Origin 을 이 주소로 붙여 중계) — 다른 웹페이지가 몰래 못 씀. 로봇 조종권과 무관
         async def get(self):
             self.set_header('Cache-Control', 'no-store')
-            def work():                 # SQLite 일 수 있어 IOLoop 밖에서
+            def work():                 # SQLite 일 수 있어 IOLoop 밖에서. 실행 중 DB 오류 = 500 JSON(broken 은 200 + broken 글, 쓰기만 503)
                 with docs.lock:
-                    return docs.listing()
-            self.finish(await tornado.ioloop.IOLoop.current().run_in_executor(None, work))
+                    try:
+                        return 200, docs.listing()
+                    except sqlite3.Error as e:
+                        return 500, {'error': f'읽기 실패 · {type(e).__name__} — 잠시 뒤 다시'}
+            code, r = await tornado.ioloop.IOLoop.current().run_in_executor(None, work)
+            self.set_status(code); self.finish(r)
 
         async def post(self):
             self.set_header('Cache-Control', 'no-store')
