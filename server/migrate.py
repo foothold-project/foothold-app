@@ -104,8 +104,8 @@ def load(src, check=default_check, jpeg_root=None):
                                 'photos_dup_identical': len(photos) - len(uniq), 'photos_missing_jpeg': missing}
 
 
-def write_db(db, docs, photos, events):
-    s = Store(db)
+def write_db(db, docs, photos, events, check=default_check):
+    s = Store(db, check=check)
     if s.broken:
         raise Refuse(s.broken)
     c = sqlite3.connect(db)
@@ -126,9 +126,9 @@ def write_db(db, docs, photos, events):
         c.close()
 
 
-def compare(src_docs, photos, events, db):
+def compare(src_docs, photos, events, db, check=default_check):
     """다르면 이유 목록. 순서까지 본다."""
-    s = Store(db, create=False)
+    s = Store(db, create=False, check=check)    # 열 때 문서 검사도 호출자 것(v2_link = doc_check, pydantic 없이)
     if s.broken:
         return [s.broken]
     why = []
@@ -164,8 +164,8 @@ def cmd_import(a, check=default_check):
         docs, photos, events, info = load(work / 'backup', check, jpeg_root=src)  # 이후로는 복사본만 읽는다(JPEG 은 원본에서 있는지만)
         man.update(info, docs=len(docs), photos=len(photos), events=len(events))
         tmp = work / 'new.sqlite'
-        write_db(tmp, docs, photos, events)
-        why = compare(docs, photos, events, tmp)
+        write_db(tmp, docs, photos, events, check)
+        why = compare(docs, photos, events, tmp, check)
         if why:
             raise Refuse('검증 실패: ' + ' · '.join(why))
         for f in FILES:                                        # 원본이 그새 바뀌지 않았나
