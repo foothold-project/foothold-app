@@ -10,6 +10,8 @@ pause 범위는 가짜 상태에서만 조종권·STOP 해제·막대 입력을 
 사용(mobile 폴더): FH_GATE_SRC=<phone_gate.py 폴더> TMPDIR=<임시> python3 -B scripts/gate-emulator-e2e.py <결과 폴더(없어야 함)>
 pause 범위(원격 React native pause 1회): FH_E2E_SCOPE=pause FH_UI_REV=<UI 커밋> FH_UI_MODULES=<ui/node_modules> 를 더한다.
   그 커밋 하나로 React 빌드·서버(sim·tools)·로그인 화면을 고정하고, 결과 폴더 front-manifest.json 에 판·파일 sha·실제 로드 origin 을 남긴다.
+bundled 범위(최종 B 1기동 1회, mobile/docs/B-BUNDLED-TEST-PLAN.md): FH_E2E_SCOPE=bundled + 같은 FH_UI_REV·FH_UI_MODULES.
+  fixture 빌드 타입(server.url 없음, 앱 안 번들 = 그 UI 판) + /api/app/*(네이티브 FhGate) · domain 89. A 원물과 섞지 않는다(결과 scope bundled-b).
 """
 import asyncio, hashlib, json, math, os, secrets, shutil, signal, subprocess, sys, tempfile, time, urllib.request
 from pathlib import Path
@@ -25,7 +27,8 @@ ADB, EMU = str(SDK / 'platform-tools/adb'), str(SDK / 'emulator/emulator')
 AVDM = str(SDK / 'cmdline-tools/latest/bin/avdmanager')
 IMG = 'system-images;android-34;google_apis;x86_64'
 LINK, GATE, DEV = 18790, 18453, 9339
-PKG, ACT = 'org.footholdproject.app.gate', 'org.footholdproject.app.MainActivity'
+BUNDLED = os.environ.get('FH_E2E_SCOPE') == 'bundled'
+PKG, ACT = 'org.footholdproject.app.fixture' if BUNDLED else 'org.footholdproject.app.gate', 'org.footholdproject.app.MainActivity'
 TMP = Path(tempfile.mkdtemp(prefix='fh-a-e2e-'))
 USER, PW = 'e2e', secrets.token_urlsafe(16)          # 기록·출력 금지
 RES, procs, t0 = [], {}, time.monotonic()
@@ -34,7 +37,7 @@ UI_REV = os.environ.get('FH_UI_REV')                # pause: 이 UI 커밋 하�
 UI_MODULES = os.environ.get('FH_UI_MODULES')        # pause: 그 빌드에 쓸 ui/node_modules(읽기만, 링크)
 SRVD, WEB, FRONT, SPA = REPO, None, {}, False                   # pause 에선 SRVD=TMP/srv(UI_REV git archive), WEB=TMP/web(로그인 공개 파일 + React dist)
 STAT = []                                           # observer 가 본 status 시계열 (t, 조종권자, applied, latch)
-DOMAIN = '89' if os.environ.get('FH_E2E_SCOPE') == 'pause' else '88'   # pause: UI 모의(domain 88)와 섞이지 않게 독립 89
+DOMAIN = '89' if os.environ.get('FH_E2E_SCOPE') in ('pause', 'bundled') else '88'   # pause·bundled: UI 모의(domain 88)와 섞이지 않게 독립 89
 ENV_ROS = {**os.environ, 'ROS_DOMAIN_ID': DOMAIN, 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST', 'PYTHONDONTWRITEBYTECODE': '1'}
 
 
@@ -472,6 +475,135 @@ PAUSE_REQ = ['pause 전제: FH_UI_REV 커밋·FH_UI_MODULES', '고정 판 관문
              '관문 A 정상 종료(INT/TERM)', '정리: 띄운 프로세스 INT/TERM 으로 모두 종료', '결과 폴더에 비밀번호 없음']
 # 옛 손가락은 필수 목록에 넣지 않는다: 같은 WebView·전달 성공일 때만 PASS/FAIL, 아니면 TOOL_ERROR(실패로 셈)·UNVERIFIED 로 따로 보고
 
+FX_CA = MOB / 'android/app/src/fixture/res/raw/fh_fixture_ca.pem'   # gate-profile.mjs --fixture 생성물(git 제외) — 빌드 뒤 지운다
+APP = 'https://localhost'
+NATIVE_JS = """(async () => { const P = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.FhGate; if (!P) return {err: 'no-plugin'};
+  try { return await (%s); } catch (e) { return {err: e && e.code, msg: e && e.message, gen: e && e.data && e.data.gen}; } })()"""
+CHANGE_JS = """((o) => { window.prompt = () => o; const b = [...document.querySelectorAll('a,[role=button]')].find((e) => e.textContent.trim() === '바꾸기');
+  if (!b) return false; b.click(); return true; })(%s)"""
+JSSTORE_JS = """(() => ({cookie: document.cookie, local: Object.keys(localStorage), session: Object.keys(sessionStorage)}))()"""
+
+
+def apk_provenance(apk):                                # 실제 APK 안 설정·자원·번들 sha(출처 확인 runs/mobile-b-fixture-check-20261013-3 과 같은 항목)
+    import zipfile
+    aapt = str(SDK / 'build-tools/36.0.0/aapt2')
+    man = subprocess.run([aapt, 'dump', 'xmltree', '--file', 'AndroidManifest.xml', str(apk)], capture_output=True, text=True).stdout
+    nsc = subprocess.run([aapt, 'dump', 'xmltree', '--file', 'res/xml/fh_fixture_network_security.xml', str(apk)], capture_output=True, text=True).stdout
+    z = zipfile.ZipFile(apk); src = json.loads(z.read('assets/public/SOURCE.json'))
+    cfg = json.loads(z.read('assets/capacitor.config.json'))
+    raw = [n for n in z.namelist() if n.startswith('res/raw/')]
+    bad = [f for f, v in src['files'].items() if sha(z.read('assets/public/' + f)) != v]
+    v = {'pkg': subprocess.run([aapt, 'dump', 'packagename', str(apk)], capture_output=True, text=True).stdout.strip(), 'raw': raw,
+         'ca_sha': sha(z.read(raw[0])) if raw else None, 'server': cfg.get('server'), 'ui_rev': src.get('ui_rev'), 'files': len(src['files']), 'mismatch': bad[:5]}
+    ok = (v['pkg'] == PKG and 'networkSecurityConfig' in man and 'android:debuggable(0x0101000f)=true' in man and 'debug-overrides' in nsc and '"user"' not in nsc
+          and raw == ['res/raw/fh_fixture_ca.pem'] and v['ca_sha'] == sha((TMP / 'A' / 'ca.crt').read_bytes()) and not (cfg.get('server') or {}).get('url')
+          and z.read('assets/public/SOURCE.json') == (MOB / 'www/SOURCE.json').read_bytes() and src.get('ui_rev') == FRONT.get('ui_rev') and src['files'] and not bad)
+    return ok, v
+
+
+async def native(cdp, expr): return await cdp.js(NATIVE_JS % expr)
+
+
+async def bundled_scenario():                           # B0~B8 (계획서 2절). 단계 실패 = need 로 그 자리 종료
+    cdp, G = Cdp(), f'https://127.0.0.1:{GATE}'
+    adb('reverse', f'tcp:{GATE}', f'tcp:{GATE}')
+    adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8)
+    await attach(cdp, 'start')
+    # B0 첫 기동: 관문 주소 없음 → 앱 출처의 로그인 화면 + 주소 안내, 관문 요청 0
+    loc = await cdp.js('location.href'); txt = await cdp.js('document.body.innerText') or ''
+    need('B0 첫 기동: 앱 출처 https://localhost 의 #/MLogin + «관문 주소를 먼저 정하세요» · 관문 /api/app 요청 0',
+         isinstance(loc, str) and loc.startswith(APP + '/#/MLogin') and '관문 주소를 먼저 정하세요' in txt and '/api/app/' not in log('gate-A'), loc)
+    # B1 «바꾸기»(화면 전송층 setGate — prompt 만 검사 도구가 대신 답함)
+    need('B1 «바꾸기» 누름', await cdp.js(CHANGE_JS % json.dumps(G))); await asyncio.sleep(3)
+    st = await native(cdp, 'P.state()')
+    need('B1 관문 주소 설정: state.origin = fixture 관문 · 로그인 전', isinstance(st, dict) and st.get('origin') == G and st.get('loggedIn') is False, st)
+    # B2 로그인(화면 → 네이티브 login → /api/app/login). 성공 뒤 화면이 next 로 다시 읽힌다
+    r = await login(cdp); await asyncio.sleep(10); await attach(cdp, 'after-login')
+    loc = await cdp.js('location.href'); st = await native(cdp, 'P.state()')
+    need('B2 fixture 로그인(네이티브, 앱 출처) → 로그인 화면 벗어남 · state.loggedIn',
+         r == 'clicked' and f'앱 로그인 {USER}' in log('gate-A') and isinstance(loc, str) and loc.startswith(APP + '/#/') and '#/MLogin' not in loc
+         and isinstance(st, dict) and st.get('loggedIn') is True, {'href': loc, 'state': {k: st.get(k) for k in ('loggedIn', 'stored', 'gen')} if isinstance(st, dict) else st})
+    note('INFO', 'B2 Origin 근거 범위: 관문 app_auth.ORIGINS 정확 일치(고정 판 sha) + 로그인 성공 — 보낸 헤더 원값을 패킷으로 읽은 것 아님', FRONT.get('server_files'))
+    js = await cdp.js(JSSTORE_JS)
+    check('B2 앱 출처 JS 쿠키 0', isinstance(js, dict) and js.get('cookie') == '', js)
+    note('INFO', 'B2 JS 저장소 키 목록(토큰 부재는 계약·코드 근거 — 값 검색 실측 아님)', js)
+    # B3 강제 종료 → 다시 기동: 재로그인 없이 보관 세션 복원(정상 경로만)
+    adb('shell', 'am', 'force-stop', PKG); await asyncio.sleep(2)
+    adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8); await attach(cdp, 'restart')
+    st = await native(cdp, 'P.state()'); who = await native(cdp, "P.request({op: 'whoami'})")
+    need('B3 force-stop 뒤 Keystore 복원(정상 경로): loggedIn·stored · whoami 200',
+         isinstance(st, dict) and st.get('loggedIn') is True and st.get('stored') is True and isinstance(who, dict) and who.get('status') == 200,
+         {'state': {k: st.get(k) for k in ('loggedIn', 'stored', 'gen')} if isinstance(st, dict) else st, 'whoami': (who or {}).get('status', who)})
+    # B4 조종 화면 → 1회용 표 → /api/app/ws
+    await cdp.js("location.hash = '#/MDrive'"); await asyncio.sleep(6)
+    g = log('gate-A')
+    need('B4 조종 화면 WS: 표 발급 → 관문 /api/app/ws 연결(관문 로그에 표 원값 없음)', 'POST /api/app/ws-ticket' in g and f'연결 {USER}' in g and '?t=' not in g,
+         {'ws-ticket 200 수': g.count('200 POST /api/app/ws-ticket'), '연결 로그': f'연결 {USER}' in g})
+    need(f'서버 status 의 ros_domain = {DOMAIN}', SRV.get('domains') == {DOMAIN}, sorted(map(str, SRV.get('domains', []))))
+    note('INFO', '앱 Capacitor 브리지(bundled MDrive)', await cdp.js(PROBE))
+    stick = await cdp.js(STICK_JS); need('React 조종 화면 막대 위치', bool(stick), stick)
+    # B5 take → 잡은 채 비영
+    await asyncio.sleep(1)
+    need('«조종권 받기» 누름', await cdp.js(BTN_JS % json.dumps('조종권 받기')))
+    need('서버: 조종권자 = fixture 기기', await until(lambda s: row_ok(s) and USER in str(s[1]), 10), STAT[-1:])
+    await asyncio.sleep(1)
+    if STAT[-1][3] is True: need('«STOP 해제» 누름', await cdp.js(BTN_JS % json.dumps('STOP 해제')))
+    else: note('INFO', '조종권 받은 뒤 이미 래치 없음 — «STOP 해제» 누르지 않음', STAT[-1:])
+    need('서버: 래치 풀림(가짜 상태의 해제 확인)', await until(lambda s: row_ok(s) and s[3] is False and USER in str(s[1]), 10), STAT[-1:])
+    await asyncio.sleep(1); stick = await cdp.js(STICK_JS) or stick
+    x, y = stick['x'], stick['y']
+    t_hold = now(); ok1, e1 = await touch(cdp, 'touchStart', x, y); await asyncio.sleep(0.2); ok2, e2 = await touch(cdp, 'touchMove', x, y - 2)
+    nz = await until(lambda s: nonzero(s) and USER in str(s[1]), 5); await asyncio.sleep(2)
+    need('B5 잡은 채 비영 출력(서버 applied, 조종권자 fixture)', ok1 and ok2 and nz and nonzero(STAT[-1]) and USER in str(STAT[-1][1]),
+         {'touch': [ok1, ok2, e1, e2], '잡은 뒤 비영 status 수': sum(nonzero(s) for s in STAT if s[0] >= t_hold), '마지막': STAT[-1:]})
+    shot('b5-held')
+    # B6 HOME(손가락 떼지 않음)
+    n1 = len(caplog()); t_home = now(); adb('shell', 'input', 'keyevent', 'KEYCODE_HOME'); await asyncio.sleep(6); shot('b6-background')
+    paused = [l for l in caplog()[n1:] if l.rstrip().endswith('App paused')]
+    check('HOME: logcat 실제 Activity pause(Capacitor «App paused»)', bool(paused), paused[:2])
+    after = [s for s in STAT if s[0] >= t_home]
+    z = next((i for i, s in enumerate(after) if released(s)), None); tail = after[z:] if z is not None else []; bad = [s for s in tail if not released(s)]
+    check('HOME 뒤 서버: 조종권자 없음·applied 0·래치 — 그 뒤 위반(형식 이상 포함) 0', z is not None and not bad and len(tail) >= 5 and gaps(tail) <= 1.0,
+          {'HOME→첫 해제(s)': None if z is None else round(after[z][0] - t_home, 2), 'HOME 뒤 status 수': len(after), '그 뒤 최대 간격(s)': gaps(tail),
+           '위반': bad[:3], '형식 이상 수': sum(not row_ok(s) for s in after), '해제 전 비영 status 수': sum(nonzero(s) for s in after[:z or len(after)])})
+    evs = [json.loads(l) for l in (OUT / 'link-events.jsonl').read_text().splitlines()]
+    note('INFO', 'HOME 뒤 서버 사건(해제 원인 — 판정 아님)', [e for e in evs if e['t'] >= t_home - 0.5][:6])
+    await touch(cdp, 'touchEnd', x, y)                   # 손가락 정리(옛 손가락 판정은 이 범위 밖)
+    # B7 복귀 = 보기 전용, 서버 자동 복원 0
+    adb('shell', 'am', 'start', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8); await attach(cdp, 'resume'); t_back = now()
+    loc2 = await cdp.js('location.href')
+    if not (isinstance(loc2, str) and loc2.endswith(DRIVE)):
+        note('INFO', '복귀 뒤 #/MDrive 아님 → 해시 이동만(조작·재로그인 없음)', loc2)
+        await cdp.js(f"location.hash = '{DRIVE}'"); await asyncio.sleep(6)
+    v = await cdp.js(VIEW_JS); shot('b7-after-resume'); await asyncio.sleep(4)
+    check('복귀 = 보기 전용(조종 표시 없음·«조종권 받기» 안내)', isinstance(v, dict) and v['href'] == APP + '/' + DRIVE and not v['ctl_hud'] and v['take_hint'], v)
+    late = [s for s in STAT if s[0] >= t_back]
+    check('복귀 뒤 서버 자동 복원 0(조종권자 없음·비영 0·래치, 형식 이상 포함)', len(late) >= 5 and all(released(s) for s in late) and gaps(late) <= 1.0,
+          {'복귀 뒤 status 수': len(late), '최대 간격(s)': gaps(late), '위반': [s for s in late if not released(s)][:3]})
+    # B8 로그아웃(네이티브 호출 — 화면 버튼 경로는 이 범위 밖) → 서버 ok → 다시 기동하면 로그인 화면
+    lo = await cdp.js(NATIVE_JS % """new Promise((res) => { let out = {}; P.addListener('logoutResult', (v) => { out.ev = v; if (out.r) res(out); });
+      P.logout({reason: 'user'}).then((r) => { out.r = r; if (out.ev) res(out); setTimeout(() => res(out), 8000); }, (e) => res({err: e && e.code})); })""")
+    adb('shell', 'am', 'force-stop', PKG); await asyncio.sleep(2)
+    adb('shell', 'am', 'start', '-W', '-n', f'{PKG}/{ACT}'); await asyncio.sleep(8); await attach(cdp, 'after-logout')
+    loc3 = await cdp.js('location.href'); st = await native(cdp, 'P.state()')
+    need('B8 로그아웃: ok·서버 ok·관문 로그 · 다시 기동하면 로그인 화면(보관본 없음)',
+         isinstance(lo, dict) and (lo.get('r') or {}).get('ok') is True and (lo.get('ev') or {}).get('server') == 'ok' and '200 POST /api/app/logout' in log('gate-A')
+         and isinstance(loc3, str) and loc3.startswith(APP + '/#/MLogin') and isinstance(st, dict) and st.get('loggedIn') is False,
+         {'logout': lo, 'href': loc3, 'state': {k: st.get(k) for k in ('loggedIn', 'stored', 'origin')} if isinstance(st, dict) else st})
+    need('관문 A 정상 종료(INT/TERM)', stop('gate-A'))
+
+
+BUNDLED_REQ = ['pause 전제: FH_UI_REV 커밋·FH_UI_MODULES', '고정 판 관문에 --spa 있음', 'React 빌드(UI_REV git archive, npm run build)', '포트 비어 있음(남의 프로세스 없음)',
+               'fixture APK 출처(앱 id·NSC·CA 한 장·server.url 없음·번들 = UI 판)', 'APK 설치(180 s 안)',
+               'B0 첫 기동: 앱 출처 https://localhost 의 #/MLogin + «관문 주소를 먼저 정하세요» · 관문 /api/app 요청 0', 'B1 «바꾸기» 누름',
+               'B1 관문 주소 설정: state.origin = fixture 관문 · 로그인 전', 'B2 fixture 로그인(네이티브, 앱 출처) → 로그인 화면 벗어남 · state.loggedIn', 'B2 앱 출처 JS 쿠키 0',
+               'B3 force-stop 뒤 Keystore 복원(정상 경로): loggedIn·stored · whoami 200', 'B4 조종 화면 WS: 표 발급 → 관문 /api/app/ws 연결(관문 로그에 표 원값 없음)',
+               f'서버 status 의 ros_domain = {DOMAIN}', 'React 조종 화면 막대 위치', '«조종권 받기» 누름', '서버: 조종권자 = fixture 기기', '서버: 래치 풀림(가짜 상태의 해제 확인)',
+               'B5 잡은 채 비영 출력(서버 applied, 조종권자 fixture)', 'HOME: logcat 실제 Activity pause(Capacitor «App paused»)',
+               'HOME 뒤 서버: 조종권자 없음·applied 0·래치 — 그 뒤 위반(형식 이상 포함) 0', '복귀 = 보기 전용(조종 표시 없음·«조종권 받기» 안내)',
+               '복귀 뒤 서버 자동 복원 0(조종권자 없음·비영 0·래치, 형식 이상 포함)', 'B8 로그아웃: ok·서버 ok·관문 로그 · 다시 기동하면 로그인 화면(보관본 없음)',
+               '관문 A 정상 종료(INT/TERM)', '정리: 띄운 프로세스 INT/TERM 으로 모두 종료', '결과 폴더에 비밀번호 없음']
+
 SCOPE = os.environ.get('FH_E2E_SCOPE', 'full')     # full = 전체 시나리오, ssl = A 로그인·읽기 → B 인증서 거부만, pause = 원격 React native pause 1회
 REQUIRED = ['미인증 → 관문 로그인 화면', 'fixture 로그인 → 읽기 화면', '읽기 화면 WS 가 관문을 거쳐 v2_link 에 연결', '세션 쿠키로 whoami 200',
             '복귀 뒤 보존 또는 재로그인 → 보기 전용', '읽기 화면 왕복 중 조종권·비영 출력 자동 발생 없음(서버 status)', '로그아웃 200 → whoami 401', '관문 로그에 로그아웃', '관문 A 정상 종료(INT/TERM)',
@@ -496,6 +628,11 @@ def main():
                  (['./gradlew', 'assembleGate', '--console=plain'], MOB / 'android'))
         if SCOPE == 'pause':                           # APK 안 번들(www)도 같은 판으로 — A 에선 로드되지 않지만 «어느 본문인지» 섞이지 않게
             steps = ((['node', 'scripts/sync-web.mjs', str(prep_front())], MOB),) + steps
+        if BUNDLED:                                    # 앱 안 번들 = 그 UI 판, 설정은 main(bundled) 그대로, CA 한 장만 생성 → fixture 빌드
+            steps = ((['node', 'scripts/sync-web.mjs', str(prep_front())], MOB), (['npx', 'cap', 'sync', 'android'], MOB),
+                     (['node', 'scripts/gate-profile.mjs', '--fixture'], MOB), (['./gradlew', 'assembleFixture', '--console=plain'], MOB / 'android'))
+            FRONT.update({'served_by': f'fixture v2_gate(--web dist --spa 는 켜 두지만 앱은 자기 번들을 씀) · /api/app/* 네이티브 FhGate (127.0.0.1:{GATE})',
+                          'app_start_path': 'https://localhost/ (APK 안 번들)', 'not_used': '쿠키 web 경로·server.url·A 원물', 'scope': 'bundled-b'})
         with open(OUT / 'build.log', 'w') as f:
             for cmd, cwd in steps:
                 env = {**nodeenv, 'FH_UI_REV': FRONT.get('ui_rev', ''), **({'FH_GATE_START': '/'} if SCOPE == 'pause' else {}), 'FH_GATE_URL': f'https://127.0.0.1:{GATE}', 'FH_GATE_CA': str(TMP / 'A' / 'ca.crt')}
@@ -505,9 +642,16 @@ def main():
             FRONT['apk_bundled_www'] = {**{k: v for k, v in json.loads((MOB / 'www/SOURCE.json').read_text()).items() if k != 'files'},
                                         '로드 여부': 'A(server.url) 에선 로드 안 됨 — 시험 대상은 runtime.origin 의 원격 app.html'}
             (OUT / 'front-manifest.json').write_text(json.dumps(FRONT, ensure_ascii=False, indent=1))
-        shutil.copy2(MOB / 'android/app/build/outputs/apk/gate/app-gate.apk', OUT / 'app-gate.apk')
-        shutil.copy2(MOB / 'android/app/src/gate/assets/capacitor.config.json', OUT / 'gate-capacitor.config.json')
-        if SCOPE == 'pause': need('포트 비어 있음(남의 프로세스 없음)', not listening(), listening())
+        if BUNDLED:
+            FX_CA.unlink(missing_ok=True)              # 생성 CA 는 APK 안에만(결과에는 sha)
+            shutil.copy2(MOB / 'android/app/build/outputs/apk/fixture/app-fixture.apk', OUT / 'app-gate.apk')   # 설치 단계 이름 공용
+            ok, v = apk_provenance(OUT / 'app-gate.apk'); FRONT['apk'] = {**v, 'sha256': sha((OUT / 'app-gate.apk').read_bytes())}
+            (OUT / 'front-manifest.json').write_text(json.dumps(FRONT, ensure_ascii=False, indent=1))
+            need('fixture APK 출처(앱 id·NSC·CA 한 장·server.url 없음·번들 = UI 판)', ok, v)
+        else:
+            shutil.copy2(MOB / 'android/app/build/outputs/apk/gate/app-gate.apk', OUT / 'app-gate.apk')
+            shutil.copy2(MOB / 'android/app/src/gate/assets/capacitor.config.json', OUT / 'gate-capacitor.config.json')
+        if SCOPE in ('pause', 'bundled'): need('포트 비어 있음(남의 프로세스 없음)', not listening(), listening())
         start('v2_link', ['bash', '-c', f'source /opt/ros/jazzy/setup.bash && exec python3 -B sim/v2_link.py --port {LINK} --media {TMP}/media'], env=ENV_ROS)
         start('fake_v2_live', ['bash', '-c', 'source /opt/ros/jazzy/setup.bash && exec python3 -B tools/fake_v2_live.py'], env=ENV_ROS)
         time.sleep(6)
@@ -529,7 +673,7 @@ def main():
 
         async def run():
             obs = asyncio.ensure_future(observer(stop_evt))
-            try: await (pause_scenario() if SCOPE == 'pause' else scenario())
+            try: await (pause_scenario() if SCOPE == 'pause' else bundled_scenario() if BUNDLED else scenario())
             finally: stop_evt.set(); await obs
         asyncio.run(run())
     except Abort:
@@ -537,6 +681,7 @@ def main():
     except BaseException as e:
         note('FAIL', '예외', repr(e)[:300])
     finally:
+        FX_CA.unlink(missing_ok=True)                   # 빌드 중 실패해도 생성 CA 를 남기지 않는다
         try: (OUT / 'logcat.txt').write_text(adb('logcat', '-d', '-v', 'time', 'Capacitor:V', 'Capacitor/Console:V', 'chromium:V', 'cr_X509Util:V', '*:S', check_=False, timeout=30))
         except Exception as e: note('INFO', 'logcat 못 받음', repr(e)[:120])
         subprocess.run([ADB, '-s', 'emulator-5554', 'emu', 'kill'], capture_output=True, timeout=30)
@@ -550,7 +695,7 @@ def main():
         note('INFO', '서버 status 전체', {'수': SRV['n'], '조종권자': sorted(map(str, SRV['holders'])), '비영 출력 횟수': SRV['nonzero']})
         passed = {r['name'] for r in RES if r['kind'] == 'PASS'}
         (OUT / 'link-status.jsonl').write_text(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in STAT))
-        req = REQUIRED if SCOPE == 'full' else PAUSE_REQ if SCOPE == 'pause' else [n for n in REQUIRED if n.startswith(('B:', 'APK', '미인증', 'fixture 로그인', '읽기 화면 WS', '세션 쿠키', '관문 A 정상', '정리', '결과 폴더'))]
+        req = REQUIRED if SCOPE == 'full' else PAUSE_REQ if SCOPE == 'pause' else BUNDLED_REQ if BUNDLED else [n for n in REQUIRED if n.startswith(('B:', 'APK', '미인증', 'fixture 로그인', '읽기 화면 WS', '세션 쿠키', '관문 A 정상', '정리', '결과 폴더'))]
         note('INFO', '실행 범위', {'scope': SCOPE, '필수 항목 수': len(req)})
         miss = [n for n in req if n not in passed]
         check('필수 성공 항목 전부 PASS', not miss, miss)

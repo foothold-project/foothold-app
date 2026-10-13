@@ -45,5 +45,5 @@ A(원격 관문 페이지, 쿠키) 의 실행 원물(`runs/mobile-a-gate-*`)과 
 ## 4. 남은 일(순서)
 
 1. ~~UI 판 고정~~ 28392b0(10-13). 2. ~~P1 fixture 빌드 종류~~ 구현·출처 확인 → 좁은 검수 대기.
-3. 러너: `gate-emulator-e2e.py` 에 `FH_E2E_SCOPE=bundled` 하나 추가(새 파일 없음, A 흐름 함수 재사용) → mock 정적 점검.
+3. ~~러너~~ `gate-emulator-e2e.py` 에 `FH_E2E_SCOPE=bundled`(B0~B8, 필수 27항목, 빌드 뒤 APK 출처 확인·생성 CA 삭제). 정적 점검: 필수 이름 27개 ↔ 코드 need/check 일치, `apk_provenance` 양성 1·음성 2(다른 CA·다른 UI 판). 실행 0. 로그아웃은 네이티브 직접 호출(화면 버튼 경로 아님), 옛 손가락은 이 범위 밖.
 4. P2 인계 확인 뒤 1회 실행(승인 범위는 Codex 판정에 따름).
