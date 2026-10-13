@@ -278,7 +278,7 @@ try:
     os.makedirs(f'{OUT}/wrap')
     for n, body in (('request_session.sh', f'echo called >> {OUT}/wrap/calls.txt\necho \'{{"schema":"v2_session/1","result":"starting","reason":"fake","ends_at":"2026-01-01T00:30:00+09:00","ledger_used":0}}\'\n'),
                     ('session_status.sh', 'echo \'{"schema":"v2_session/1","result":"idle","remaining_s":null}\'\n')):
-        open(f'{OUT}/wrap/{n}', 'w').write('#!/bin/sh\n' + body); os.chmod(f'{OUT}/wrap/{n}', 0o755)
+        open(f'{OUT}/wrap/{n}', 'w').write('#!/bin/sh\n' + body); os.chmod(f'{OUT}/wrap/{n}', 0o644)   # 실제 래퍼처럼 실행 비트 없음
     start('link', [sys.executable, 'sim/v2_link.py', '--port', str(PORT), '--media', f'{OUT}/media', '--sim-start', f'{OUT}/wrap/request_session.sh'])
     chrome = subprocess.Popen(['/opt/google/chrome/chrome', '--headless=new', f'--remote-debugging-port={DBG}', f'--user-data-dir={tempfile.mkdtemp()}',
                                '--no-first-run', 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

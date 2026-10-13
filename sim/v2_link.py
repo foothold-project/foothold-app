@@ -340,7 +340,7 @@ class SimStart:
     def poll(self):
         """RL 상태 스크립트(읽기만, 약 0.05 s). 래퍼와 같은 폴더. 실패하면 None(추정 없음)"""
         try:
-            r = subprocess.run([str(Path(self.wrapper).with_name('session_status.sh'))], capture_output=True, text=True, timeout=10)
+            r = subprocess.run(['bash', str(Path(self.wrapper).with_name('session_status.sh'))], capture_output=True, text=True, timeout=10)
             d = json.loads(r.stdout.strip().splitlines()[-1])
             self.session = d if isinstance(d, dict) and d.get('result') in ('running', 'starting', 'idle') else None
         except Exception:
@@ -609,7 +609,7 @@ def main():
 
         def run():                  # ROS·웹 스레드를 막지 않게 따로. 재시도·연장 없음
             try:
-                r = subprocess.run([starter.wrapper], capture_output=True, text=True, timeout=240)
+                r = subprocess.run(['bash', starter.wrapper], capture_output=True, text=True, timeout=240)
                 res, extra = parse_session(r.stdout, r.returncode)
             except Exception as e:
                 res, extra = 'failed', type(e).__name__
