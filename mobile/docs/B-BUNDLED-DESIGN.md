@@ -27,7 +27,7 @@ bundled 화면 출처는 Android `https://localhost`, iOS `capacitor://localhost
 | `photo(path)` | 바이트(크기 상한 안) — §2.2 | — |
 | `wsTicket()` | `{url, gen}` — 1회용 표가 든 WS 주소(≤30 s) | 세션 토큰 |
 | `logout(reason)` | 즉시 `{ok:true, server:'pending'}`, 뒤에 `server` 결과 이벤트 | — |
-| `saveFile(name, mime, bytes)` | 저장/공유 결과 | — |
+| `saveFile({name, base64})` — 정본 `FHGATE-CONTRACT.md` §1 «저장»(B2 `d4e5002`, mime 은 확장자로) | `{saved, bytes, gen}` — close 뒤에만 | 저장 위치·URI·경로 |
 
 - 세션 수명은 관문 TTL(12 h) 그대로. refresh·JWT 같은 새 구조는 넣지 않는다(1판의 «짧은 수명» 표현 삭제).
 - 보관: 토큰은 어댑터 메모리 + 플랫폼 보안 저장소(Android Keystore 로 감싼 저장, iOS Keychain). JS 저장소·쿠키·로그·크래시 보고에 두지 않는다. 저장 방식은 구현 때 라이브러리 없이 플랫폼 API 로(추가 의존이 필요하면 그때 따로 판정).
