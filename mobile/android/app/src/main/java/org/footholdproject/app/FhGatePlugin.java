@@ -13,8 +13,10 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.util.Map;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
@@ -29,16 +31,22 @@ public class FhGatePlugin extends Plugin {
     static final String APP_ORIGIN = "https://localhost";   // Capacitor Android bundled 화면 출처(androidScheme https 기본)
 
     private FhGateCore core;
-    // ponytail: 2 스레드 고정 — 느린 요청 하나가 로그아웃·표 발급을 막지 않게. 동시 요청이 많아지면 늘린다
-    private final ExecutorService io = Executors.newFixedThreadPool(2);
+    // ponytail: 실행 2 스레드 + 대기 8 칸 고정. 넘치면 busy 로 바로 거부(큐 무한 증가 없음). 2 스레드는 처리량일 뿐 우선순위 보장이 아니다 —
+    // 그래서 로그아웃·주소 변경·파괴의 «로컬 폐기»는 이 큐를 거치지 않고 호출 스레드에서 바로 한다
+    private final ThreadPoolExecutor io = new ThreadPoolExecutor(2, 2, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(8));
+
+    interface Job { void run() throws FhGateCore.GateError; }
 
     @Override
     public void load() {
-        core = new FhGateCore(new FhGateCore.HttpsTransport(), new KeystoreVault(getContext()), APP_ORIGIN, System.currentTimeMillis() / 1000.0);
+        core = new FhGateCore(new FhGateCore.HttpsTransport(), new KeystoreVault(getContext()), APP_ORIGIN, () -> System.currentTimeMillis() / 1000.0);
     }
 
+    /** Activity 파괴: 이 인스턴스의 대기·진행 작업을 무효(stale)로 — 대기 작업은 실행돼도 네트워크 0, 늦은 응답은 보관소·상태를 못 바꾼다.
+     *  보관 세션은 지우지 않는다(사용자 로그아웃 아님). 큐에 남은 Promise 는 shutdown 뒤에도 실행돼 stale 로 끝난다. */
     @Override
     protected void handleOnDestroy() {
+        core.close();
         io.shutdown();
     }
 
@@ -52,98 +60,121 @@ public class FhGatePlugin extends Plugin {
         try {
             FhGateCore.Ended e = core.setGate(call.getString("origin"));
             if (e.hadSession()) afterEnd(e, "gate");
-            call.resolve(obj(core.state()));
+            JSObject r = obj(core.state());
+            r.put("wiped", e.wiped);
+            call.resolve(r);
         } catch (FhGateCore.GateError e) {
-            call.reject(e.getMessage(), e.code);
+            reject(call, e);
         }
     }
 
     @PluginMethod
     public void login(PluginCall call) {
+        FhGateCore.Ctx c = core.ctx();                       // 받는 순간 고정 — 큐에서 기다리는 사이 바뀌면 stale
         String user = call.getString("user"), pw = call.getString("pw"), label = call.getString("label");
-        io.execute(() -> {
-            try {
-                FhGateCore.Login l = core.login(user, pw, label);
-                JSObject r = new JSObject();
-                r.put("account", l.account); r.put("device6", l.device6); r.put("exp", l.exp); r.put("gen", l.gen);
-                call.resolve(r);
-            } catch (FhGateCore.GateError e) {
-                call.reject(e.getMessage(), e.code);
-            }
+        run(call, c, () -> {
+            FhGateCore.Login l = core.login(c, user, pw, label);
+            JSObject r = new JSObject();
+            r.put("account", l.account); r.put("device6", l.device6); r.put("exp", l.exp); r.put("gen", l.gen); r.put("stored", l.stored);
+            call.resolve(r);
         });
     }
 
     @PluginMethod
     public void request(PluginCall call) {
+        FhGateCore.Ctx c = core.ctx();
         String op = call.getString("op");
         JSObject body = call.getObject("body");
-        io.execute(() -> {
-            try {
-                FhGateCore.Result res = core.request(op, body == null ? null : body.toString());
-                JSObject r = new JSObject();
-                r.put("status", res.resp.status); r.put("body", res.resp.text()); r.put("gen", res.gen);
-                call.resolve(r);
-            } catch (FhGateCore.GateError e) {
-                fail(call, e);
-            }
+        run(call, c, () -> {
+            FhGateCore.Result res = core.request(c, op, body == null ? null : body.toString());
+            JSObject r = new JSObject();
+            r.put("status", res.resp.status); r.put("body", res.resp.text()); r.put("gen", res.gen);
+            done(call, c, r);
         });
     }
 
     @PluginMethod
     public void photo(PluginCall call) {
+        FhGateCore.Ctx c = core.ctx();
         String path = call.getString("path");
-        io.execute(() -> {
-            try {
-                FhGateCore.Result res = core.photo(path);
-                JSObject r = new JSObject();
-                r.put("status", res.resp.status); r.put("gen", res.gen);
-                if (res.resp.status == 200) { r.put("mime", "image/jpeg"); r.put("base64", Base64.encodeToString(res.resp.body, Base64.NO_WRAP)); }
-                call.resolve(r);
-            } catch (FhGateCore.GateError e) {
-                fail(call, e);
-            }
+        run(call, c, () -> {
+            FhGateCore.Result res = core.photo(c, path);
+            JSObject r = new JSObject();
+            r.put("status", res.resp.status); r.put("gen", res.gen);
+            if (res.resp.status == 200) { r.put("mime", "image/jpeg"); r.put("base64", Base64.encodeToString(res.resp.body, Base64.NO_WRAP)); }
+            done(call, c, r);
         });
     }
 
     @PluginMethod
     public void wsTicket(PluginCall call) {
-        io.execute(() -> {
-            try {
-                FhGateCore.Result res = core.wsTicket();
-                JSObject r = new JSObject();
-                r.put("url", res.resp.text()); r.put("gen", res.gen);
-                call.resolve(r);
-            } catch (FhGateCore.GateError e) {
-                fail(call, e);
-            }
+        FhGateCore.Ctx c = core.ctx();
+        run(call, c, () -> {
+            FhGateCore.Result res = core.wsTicket(c);
+            JSObject r = new JSObject();
+            r.put("url", res.resp.text()); r.put("gen", res.gen);
+            done(call, c, r);
         });
     }
 
-    /** 로컬 폐기는 지금 바로, 서버 알림은 뒤에서 한 번 — 결과는 logoutResult 이벤트. */
+    /** 로컬 폐기는 지금 바로(큐 안 거침), 서버 알림은 뒤에서 한 번 — 결과는 logoutResult 이벤트. ok = 디스크 폐기까지 됐나. */
     @PluginMethod
     public void logout(PluginCall call) {
         FhGateCore.Ended e = core.endLocal();
         afterEnd(e, call.getString("reason", "user"));
         JSObject r = new JSObject();
-        r.put("ok", true); r.put("server", e.hadSession() ? "pending" : "none"); r.put("gen", e.gen);
+        r.put("ok", e.wiped); r.put("server", e.hadSession() ? "pending" : "none"); r.put("gen", e.gen);
         call.resolve(r);
     }
 
     private void afterEnd(FhGateCore.Ended e, String reason) {
-        io.execute(() -> {
+        Runnable send = () -> {
             JSObject ev = new JSObject();
             ev.put("server", core.serverLogout(e)); ev.put("reason", reason); ev.put("gen", e.gen);
             notifyListeners("logoutResult", ev);
-        });
+        };
+        try {
+            io.execute(send);
+        } catch (RejectedExecutionException x) {   // 큐가 찼거나 파괴 중 — 서버 알림 못 함을 그대로 알린다(성공으로 바꾸지 않음)
+            JSObject ev = new JSObject();
+            ev.put("server", e.hadSession() ? "failed" : "none"); ev.put("reason", reason); ev.put("gen", e.gen);
+            notifyListeners("logoutResult", ev);
+        }
     }
 
-    private void fail(PluginCall call, FhGateCore.GateError e) {
-        if (e.code.equals("auth")) {          // 서버가 세션 끝을 알림 → core 가 이미 로컬 폐기·gen+1
+    /** io 에 제출. 거부·예기치 않은 예외도 Promise 를 남기지 않고 고정 코드로 끝낸다. */
+    private void run(PluginCall call, FhGateCore.Ctx c, Job job) {
+        try {
+            io.execute(() -> {
+                try {
+                    job.run();
+                } catch (FhGateCore.GateError e) {
+                    reject(call, e);
+                } catch (RuntimeException e) {
+                    reject(call, new FhGateCore.GateError("internal", "내부 오류", c.gen()));
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            reject(call, new FhGateCore.GateError(io.isShutdown() ? "stale" : "busy", io.isShutdown() ? "앱 화면이 다시 만들어짐" : "요청이 밀림 — 잠시 뒤", c.gen()));
+        }
+    }
+
+    /** resolve 직전에도 문맥 대조 — 그 사이 로그아웃·주소 변경·파괴면 stale. */
+    private void done(PluginCall call, FhGateCore.Ctx c, JSObject r) {
+        if (core.current(c)) call.resolve(r);
+        else reject(call, new FhGateCore.GateError("stale", "취소된 호출 — 응답 버림", c.gen()));
+    }
+
+    private void reject(PluginCall call, FhGateCore.GateError e) {
+        if (e.sessionEnded) {
+            // 이 호출의 세션(e.gen)이 401 로 끝났다는 알림. gen 은 사건의 gen 그대로 — 화면은 자기 현재 gen 과 같을 때만 반응
             JSObject ev = new JSObject();
-            ev.put("reason", "expired"); ev.put("gen", core.gen());
+            ev.put("reason", "expired"); ev.put("gen", e.gen);
             notifyListeners("sessionEnded", ev);
         }
-        call.reject(e.getMessage(), e.code);
+        JSObject d = new JSObject();
+        d.put("gen", e.gen);
+        call.reject(e.getMessage(), e.code, d);
     }
 
     private static JSObject obj(Map<String, Object> m) {
@@ -185,7 +216,7 @@ public class FhGatePlugin extends Plugin {
         }
 
         @Override
-        public void save(String json) {
+        public boolean save(String json) {
             try {
                 Cipher c = Cipher.getInstance("AES/GCM/NoPadding");
                 c.init(Cipher.ENCRYPT_MODE, key());
@@ -193,10 +224,15 @@ public class FhGatePlugin extends Plugin {
                 byte[] all = new byte[iv.length + ct.length];
                 System.arraycopy(iv, 0, all, 0, iv.length);
                 System.arraycopy(ct, 0, all, iv.length, ct.length);
-                sp.edit().putString(K, Base64.encodeToString(all, Base64.NO_WRAP)).commit();
+                return sp.edit().putString(K, Base64.encodeToString(all, Base64.NO_WRAP)).commit();   // commit 결과 = 디스크 반영 여부
             } catch (Exception e) {
-                sp.edit().remove(K).commit();   // 암호화 못 하면 평문 저장 대신 아무것도 안 남긴다(재실행 때 다시 로그인)
+                return false;   // 암호화 못 함 — 평문으로 대신 저장하지 않는다. 지우기는 Core 가 clear() 로 따로 시도
             }
+        }
+
+        @Override
+        public boolean clear() {
+            return sp.edit().remove(K).commit();
         }
     }
 }
