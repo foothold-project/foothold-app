@@ -9,7 +9,7 @@ import { activeRun, docsOf, useDocs } from '../data/shared';
 import { curWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas, type MapApi } from '../map/MapCanvas';
-import { useDriveScreen, useHold } from '../app/drive';
+import { MULTI, useDriveScreen, useHold } from '../app/drive';
 import { EndRow, WpActs } from '../app/runui';
 import { stopOn, stopProps, toast, whyProps } from '../app/shell';
 
@@ -46,7 +46,7 @@ export default function Main() {
     const down = (e: KeyboardEvent) => {
       const k = KEYS[e.key]; if (!k || typing(e)) return; e.preventDefault();
       if (e.repeat || useLink.getState().st?.role !== 'control') return;
-      press(`key${e.key}`, -1, { fx: 0, fy: 0, fw: 0, ...k });
+      if (!press(`key${e.key}`, -1, { fx: 0, fy: 0, fw: 0, ...k })) toast(MULTI);
     };
     const up = (e: KeyboardEvent) => { if (KEYS[e.key]) lift(`key${e.key}`, -1); };
     addEventListener('keydown', down); addEventListener('keyup', up);
@@ -87,7 +87,7 @@ export default function Main() {
   const showStart = v.linkOk && !!st?.sim_start && ['시뮬 상태 미수신', '시뮬 상태 끊김'].includes(st.sim_block);
   const ex = [showStart ? `시뮬 꺼짐${st!.sim_start.why ? ` · ${st!.sim_start.why}` : ''}` : sessTxt(st) ? `시뮬 세션 ${sessTxt(st)}` : '', v.newVer ? `새 화면 판 ${st!.ver} 반영됨(이 화면 ${L.firstVer})` : ''].filter(Boolean).join(' · ');
   const motion = `보낸 명령 ${v.sent} · 시뮬 ${v.body}` + (s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : '')
-    + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동(↑·←/→ 키도)') + ` · 주의: ${RELURCH}`;
+    + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동 · 키: ↑ 앞, ↑ 누른 채 ←/→ 아크(←/→ 단독·↓ 는 서버가 0으로 막음)') + ` · 주의: ${RELURCH}`;
   const chip = (k: string, val: string, good: boolean) => ({ k, v: val, st: good ? 'ok' : 'warn', mark: good ? '●' : '▲' });
   const mApi = api.current, robotMode = (mApi?.mode() || 'robot') === 'robot';
   const tog = (b: boolean, f: (x: boolean) => void, t: string) => ({ className: 'layer', 'aria-pressed': b, title: t, onClick: () => f(!b) });

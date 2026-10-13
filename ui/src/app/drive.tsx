@@ -4,9 +4,12 @@ import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, sendOp, useL
 import { toast } from './shell';
 
 /** 첫 누름: 조종 가능하면 누름, 아니면 «조종권 받기»만(손 떼고 다시 눌러야 움직임) 또는 막힌 이유 */
+/** 입력은 두 곳까지(같은 곳 겹침·세 번째 입력 → 전부 멈춤) — link.press 정책 */
+export const MULTI = '동시 입력은 두 곳까지 — 모두 멈춤. 손 떼고 다시 누르세요';
+
 function tryPress(id: string, pid: number, p: Axes) {
   const st = useLink.getState().st, no = driveBlock();
-  if (!no) return press(id, pid, p);
+  if (!no) { if (press(id, pid, p)) return true; toast(MULTI); return false; }
   if (st && (useLink.getState().viewOnly || st.role === 'view') && st.role !== 'view_other' && !st.sim_block && useLink.getState().open) { sendOp('take'); toast('조종권 받기 요청 — 손 떼고 다시 누르세요'); }
   else toast(no);
   return false;
