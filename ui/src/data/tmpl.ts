@@ -15,8 +15,11 @@ export type T = Tmpl & { id: string; kind: '기본' | '팀'; locked: boolean; by
 export const BASE_T: T = { id: 'base', kind: '기본', locked: true, name: '지점 확인 다녀오기', desc: '지점에 가서 직접 조종·영상으로 확인하고 기록합니다',
   mods: [{ type: '사진', detail: MOD_DEF['사진'] }, { type: '운영자 확인', detail: MOD_DEF['운영자 확인'] }] };
 export const tmpls = (D: Docs): T[] => [BASE_T, ...docsOf(D, 'tmpl').map((d) => ({ id: d.id, kind: '팀' as const, locked: false, by: d.by, at: d.at, rev: d.rev, ...d.doc }))];
-export const tmplOf = (D: Docs, id: string | null) => tmpls(D).find((t) => t.id === id) || BASE_T;
-export const defMods = (D: Docs, tid: string | null) => [...new Set(tmplOf(D, tid).mods.map((m) => m.type))].filter((t) => LIVE_MODS.includes(t)).slice(0, 3);
-export const modDetail = (D: Docs, tid: string | null, ty: string) => (tmplOf(D, tid).mods.find((m) => m.type === ty) || { detail: MOD_DEF[ty] }).detail;
+// 'base'·빈 값을 명시했을 때만 기본 양식. 지워졌거나 못 읽은 참조는 null(미확인) — 기본 양식으로 대신하지 않는다(live.js 1120 과 다름, 10-13 결정).
+export const tmplOf = (D: Docs, id: string | null): T | null => (!id || id === 'base' ? BASE_T : tmpls(D).find((t) => t.id === id) || null);
+export const MISSING_T = '미확인 양식(지워졌거나 못 읽음) — 양식을 다시 고르세요';
+/** 양식 기본 할 일 — 미확인 양식이면 빈 목록(사진·확인을 멋대로 넣지 않음) */
+export const defMods = (D: Docs, tid: string | null) => [...new Set((tmplOf(D, tid)?.mods || []).map((m) => m.type))].filter((t) => LIVE_MODS.includes(t)).slice(0, 3);
+export const modDetail = (D: Docs, tid: string | null, ty: string) => ((tmplOf(D, tid)?.mods || []).find((m) => m.type === ty) || { detail: MOD_DEF[ty] }).detail;
 /** 서버에 보낼 꼴만(id·잠금 같은 화면 값 빼고) */
 export const plain = (t: Tmpl): Tmpl => ({ name: t.name, desc: t.desc || '', mods: t.mods.map((m) => ({ type: m.type, detail: m.detail })) });

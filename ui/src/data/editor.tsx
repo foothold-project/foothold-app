@@ -1,7 +1,7 @@
 // 문서 편집기 — web/live.js editor() 와 같은 규칙: 초안(d)·기준 판(rev). 400·409·404·저장 실패 어느 경우에도 초안은 지우지 않는다.
 // gen: 다른 문서를 열 때마다 +1 — 옛 저장 응답이 새로 연 편집기를 덮지 않게.
-import { useReducer, useRef, type ReactNode } from 'react';
-import type { DocEnvelope } from '@contracts';
+import { useEffect, useReducer, useRef, type ReactNode } from 'react';
+import type { DocEnvelope, DocWrite } from '@contracts';
 import { docById, saveDoc, type Docs, type SaveRes } from './shared';
 import { fmtT } from './fmt';
 import { toast } from '../app/shell';
@@ -14,6 +14,7 @@ export type Editor<T> = {
   del(): Promise<SaveRes | null>;
   stale(D: Docs): DocEnvelope | null;
   touch(): void;   // 화면 다시 그리기
+  write(m: DocWrite): Promise<{ r: SaveRes; same: boolean } | null>;
 };
 
 function make<T>(kind: Kind, rebuild: () => void): Editor<T> {
@@ -51,13 +52,25 @@ function make<T>(kind: Kind, rebuild: () => void): Editor<T> {
     // 더 새 판만(방금 저장해 서버 목록이 아직 옛 판일 때 되돌리지 않음)
     stale(D) { const c = !E.busy && E.id && D.rev != null ? docById(D, E.id) : null; return c && E.rev != null && c.rev > E.rev ? c : null; },
     touch: () => rebuild(),
+    // 편집 중인 문서 밖 쓰기(새로 만들기·복제·지우기·진행 기록 시작) — 공용 계약:
+    // 쓰기는 한 번에 하나(busy 를 save 와 같이 씀, 겹치면 null). same = 응답이 왔을 때 편집 대상(gen)·초안이 보낸 때와 같음.
+    // 호출하는 화면은 same 일 때만 화면 이동·정리를 하고, 아니면 서버 결과만 알린다(그사이 연 문서·고친 초안은 그대로).
+    async write(m) {
+      if (E.busy) { toast('저장 중 — 잠시 뒤 다시 누르세요'); return null; }
+      E.busy = true; rebuild(); const g = E.gen, snap = JSON.stringify(E.d);
+      const r = await saveDoc(m); E.busy = false; rebuild();
+      return { r, same: g === E.gen && snap === JSON.stringify(E.d) };
+    },
   };
   return E;
 }
 
-/** 화면 하나에 편집기 하나. 객체는 화면이 사는 동안 같은 것(ref) — 값이 바뀌면 touch()/load()/save() 가 다시 그린다 */
+/** 화면 하나에 편집기 하나. 객체는 화면이 사는 동안 같은 것(ref) — 값이 바뀌면 touch()/load()/save() 가 다시 그린다.
+ *  화면을 떠나면(unmount) gen 을 올려, 늦게 온 save/write 응답은 서버 결과 알림만 하고 이동·초안 정리는 하지 않는다.
+ *  StrictMode 의 setup→cleanup→setup 에서도 gen 이 오를 뿐 다시 쓸 수 있다(진행 중 요청이 없을 때라 영향 없음). */
 export function useEditor<T>(kind: Kind): Editor<T> {
   const [, bump] = useReducer((n: number) => n + 1, 0), r = useRef<Editor<T>>();
   if (!r.current) r.current = make<T>(kind, bump);
+  useEffect(() => () => { r.current!.gen++; }, []);
   return r.current;
 }

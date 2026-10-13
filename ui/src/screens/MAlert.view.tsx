@@ -15,9 +15,10 @@ export function View({ v }: { v: Vals }) {
       {" "}
       {" "}
       <div className={`${str(v.themeClass)}` as any} style={{"width":"390px","height":"844px","boxSizing":"border-box","display":"flex","flexDirection":"column","overflow":"hidden"}}>
+{/* 10-13 검수 수정: 경보 머리·STOP 칸 flexShrink 0, 가운데 내용만 overflowY auto(근처 사건이 많아도 확인·조종·공유 버튼이 STOP 밑으로 숨지 않음) */}
 {v.status ?? null}
         {" "}
-        <section role="alert" aria-label="가스 경보" style={{"background":"#a3342a","color":"#FFFFFF","padding":"22px 20px 20px","display":"flex","flexDirection":"column","gap":"6px"}}>
+        <section role="alert" aria-label="가스 경보" style={{"flexShrink":"0","background":"#a3342a","color":"#FFFFFF","padding":"22px 20px 20px","display":"flex","flexDirection":"column","gap":"6px"}}>
           {" "}
           <div style={{"display":"flex","justifyContent":"space-between","alignItems":"center"}}>
             {" "}
@@ -50,7 +51,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </section>
         {" "}
-        <div style={{"flex":"1","minHeight":"0","display":"flex","flexDirection":"column","gap":"12px","padding":"14px 16px"}}>
+        <div style={{"flex":"1","minHeight":"0","overflowY":"auto","display":"flex","flexDirection":"column","gap":"12px","padding":"14px 16px"}}>
           {" "}
           <section aria-label="로봇이 한 일" style={{"background":"var(--panel)","border":"1px solid var(--line)","borderRadius":"12px","padding":"14px","display":"flex","flexDirection":"column","gap":"12px"}}>
             {" "}
@@ -155,7 +156,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </div>
         {" "}
-        <div style={{"padding":"8px 16px 18px","background":"var(--panel)","borderTop":"1px solid var(--line)"}}>
+        <div style={{"flexShrink":"0","padding":"8px 16px 18px","background":"var(--panel)","borderTop":"1px solid var(--line)"}}>
           {" "}
           <button aria-label="비상 정지" {...v.stopProps} style={{"width":"100%","height":"64px","border":"0","borderRadius":"12px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"12px"}}>
             {" "}

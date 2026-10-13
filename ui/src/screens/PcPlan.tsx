@@ -8,7 +8,7 @@ import { themeClass } from '../data/fmt';
 import { activeRun, docById, docsOf, useDocs } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { linkView, useLink } from '../data/link';
-import { LIVE_MODS, RULE_WHY, defMods, modDetail, tmplOf, tmpls } from '../data/tmpl';
+import { LIVE_MODS, MISSING_T, RULE_WHY, defMods, modDetail, tmplOf, tmpls } from '../data/tmpl';
 import { STOP_FACT, WHY } from '../data/facts';
 import { legLen, r2, startRun, zoneTxt, zonesAt } from '../data/run';
 import { href } from '../data/hist';
@@ -45,7 +45,7 @@ export default function PcPlan() {
     E.load(docById(D, id) || null, blank()); shown.current = E.id; setWsel(null); setQ('mission', id);
   };
   const onTap = (x: number, y: number, k: number) => {
-    if (tool === 'add') { if (ws.length >= 30) return toast('지점은 30개까지'); edit(() => ws.push({ x: r2(x), y: r2(y), name: '', mods: defMods(D, d.tmpl) })); setWsel(ws.length - 1); }
+    if (tool === 'add') { if (ws.length >= 30) return toast('지점은 30개까지'); if (!tmplOf(D, d.tmpl)) toast(`${MISSING_T} · 이 지점 할 일은 비워 둠`); edit(() => ws.push({ x: r2(x), y: r2(y), name: '', mods: defMods(D, d.tmpl) })); setWsel(ws.length - 1); }
     else if (tool === 'measure') setMeas((m) => (m.length >= 2 ? [[r2(x), r2(y)]] : [...m, [r2(x), r2(y)]]));
     else { const i = ws.findIndex((w) => Math.hypot(w.x - x, w.y - y) * k < 16); setWsel(i < 0 ? null : i); }
   };
@@ -66,7 +66,13 @@ export default function PcPlan() {
     ws.forEach((w, i) => { if (!w.name.trim()) w.name = `지점 ${i + 1}`; });
     await E.save();
   };
-  const start = async () => { if (run || await startRun(D, E.id)) location.hash = href('Main'); };
+  const start = async () => {
+    if (run) { location.hash = href('Main'); return; }
+    let same = true;   // 응답 사이 다른 계획을 열었거나 고쳤으면 화면은 그대로(초안 보존), 결과만 알림
+    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; });
+    if (!r) return;
+    if (same && !E.dirty) location.hash = href('Main'); else toast('수동 진행은 시작됨 · 모든 기기 공유 — 그사이 화면·계획이 바뀌어 자동으로 옮기지 않음(관제에서 기록)');
+  };
 
   // ---- 경로 목록(원본 .wp 줄) ----
   const T = tmplOf(D, d.tmpl);
@@ -124,7 +130,8 @@ export default function PcPlan() {
   const cks: [boolean, string, 1?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${lk.fresh ? 'Gazebo GT 수신(SLAM 아님)' : posTxt}`],
     [lk.camOk, `영상 · ${lk.camTxt}`], [false, '배터리 · 미제공(v2 시뮬 상태에 값 없음)'],
     [!run, run ? `진행 중 수동 임무 «${run.doc.name}» — 먼저 끝내기` : '진행 중 수동 임무 없음', 1],
-    [!!(E.id && !E.dirty && ws.length), !E.id ? '계획 저장 · 아직 저장 안 됨' : E.dirty ? '계획 저장 · 저장 안 한 수정 있음' : `계획 저장됨 · 지점 ${ws.length}개`, 1]];
+    [!!(E.id && !E.dirty && ws.length), !E.id ? '계획 저장 · 아직 저장 안 됨' : E.dirty ? '계획 저장 · 저장 안 한 수정 있음' : `계획 저장됨 · 지점 ${ws.length}개`, 1],
+    ...(T ? [] : [[false, `임무 양식 · ${MISSING_T}`, 1] as [boolean, string, 1]])];   // 누락 양식은 기본으로 대신하지 않고 막음
   const block = cks.filter((c) => c[2] && !c[0]).map((c) => c[1]);
   const inZ = ws.map((w, i) => (zonesAt(D, w.x, w.y).length ? `WP${i + 1} ${zoneTxt(D, w.x, w.y)}` : null)).filter(Boolean);
   const zoneWarn = inZ.length > 0 && tool !== 'measure';
@@ -156,9 +163,9 @@ export default function PcPlan() {
       </select>
       <input id="pname" className="inp" maxLength={60} placeholder="계획 이름(예: B1 순찰 경로)" aria-label="계획 이름" value={d.name} onChange={(e) => edit(() => { d.name = e.target.value; })} />
     </div>,
-    tplP: { value: T.id, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => { const id = e.target.value; edit(() => { d.tmpl = id; }); if (ws.length && confirm('지점마다 할 일을 이 양식 기본값으로 바꿀까요?')) edit(() => { for (const w of ws) w.mods = defMods(D, id); }); } },
-    tplO: <>{tmpls(D).map((t) => <option key={t.id} value={t.id}>{t.locked ? `${t.name} (기본)` : t.name}</option>)}</>,
-    tplHref: href('PcMissions', { tmpl: T.id }), ruleHref: href('PcMissions', { tmpl: T.id }),
+    tplP: { value: T ? T.id : d.tmpl, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => { const id = e.target.value; edit(() => { d.tmpl = id; }); if (ws.length && confirm('지점마다 할 일을 이 양식 기본값으로 바꿀까요?')) edit(() => { for (const w of ws) w.mods = defMods(D, id); }); } },
+    tplO: <>{T ? null : <option value={d.tmpl}>{MISSING_T}</option>}{tmpls(D).map((t) => <option key={t.id} value={t.id}>{t.locked ? `${t.name} (기본)` : t.name}</option>)}</>,
+    tplHref: href('PcMissions', T ? { tmpl: T.id } : {}), ruleHref: href('PcMissions', T ? { tmpl: T.id } : {}),
     rH: `${ws.length}개 지점 · ${len.toFixed(1)} m 직선`, rList,
     lost: <>{opt('명령 0 요청 · 잠금', '', `현재 v2 서버: ${STOP_FACT[0]} → ${STOP_FACT[1]}. ${STOP_FACT[2]} → ${STOP_FACT[3]}. 선택이 아니라 서버 고정 동작입니다.`, true)}
       {opt('마지막 통신 지점으로 후퇴', ' · 미연결', `${GOTO} — 자동 후퇴는 실행하지 않습니다.`, false)}</>,
