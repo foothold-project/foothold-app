@@ -11,7 +11,7 @@ import { BLD, FLOOR, TASK, WF, mapKey, listMaps, place, runAt, runLine, type Ses
 type W = 'v5_single' | 'v5_building' | 'rooms_a';
 const PLACES: { w: W; sub: string }[] = [
   { w: 'v5_single', sub: '단층 · 계단 위끝 낭떠러지 있음' },
-  { w: 'v5_building', sub: '시작층은 열 때 고름 · 지금은 층 사이 이동 없음(계단으로 다른 층 지도로 안 이어짐)' },
+  { w: 'v5_building', sub: '1·2층이 연결된 한 건물 · 시작층만 고름 · 실제 계단·경사로 통과 미검증' },
   { w: 'rooms_a', sub: 'SLAM 지도 만들기용' },
 ];
 type Res = { t: string; ok: boolean; text: string; what: string; key?: string } | null;   // key = 목록에서 확인된 저장본(보기 버튼)
