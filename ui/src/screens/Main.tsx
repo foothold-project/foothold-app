@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
 import { NOMOVE, RELURCH, TRIAL, WHY } from '../data/facts';
-import { ask, camURL, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, stateRows, stopSim, TRAIL, useLink, type Axes } from '../data/link';
+import { ask, camURL, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, startTxt, stateRows, stopSim, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
 import { curWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
@@ -92,7 +92,8 @@ export default function Main() {
   const mode = !v.linkOk ? '링크 끊김' : st?.reset_pending ? '리셋 중' : st?.resume_pending ? 'STOP 해제 대기' : v.latch ? 'STOP 요청' : ctl ? '직접 조종' : '보기 전용';
   const showStart = v.linkOk && !!st?.sim_start && ['시뮬 상태 미수신', '시뮬 상태 끊김'].includes(st.sim_block);
   const showStop = v.linkOk && showSimStop(st);
-  const ex = [showStart ? `시뮬 꺼짐${st!.sim_start.why ? ` · ${st!.sim_start.why}` : ''}` : sessTxt(st) ? `시뮬 세션 ${sessTxt(st)}` : '', v.newVer ? `새 화면 판 ${st!.ver} 반영됨(이 화면 ${L.firstVer})` : ''].filter(Boolean).join(' · ');
+  const sx = startTxt(st);
+  const ex = [showStart ? [`시뮬 꺼짐${st!.sim_start.why ? ` · ${st!.sim_start.why}` : ''}`, sx.left, sx.last].filter(Boolean).join(' · ') : sessTxt(st) ? `시뮬 세션 ${sessTxt(st)}` : '', v.newVer ? `새 화면 판 ${st!.ver} 반영됨(이 화면 ${L.firstVer})` : ''].filter(Boolean).join(' · ');
   const motion = `보낸 명령 ${v.sent} · 시뮬 ${v.body}` + (s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : '')
     + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동 · 키: ↑ 앞, ↑ 누른 채 ←/→ 아크(←/→ 단독·↓ 는 서버가 0으로 막음)') + ` · 주의: ${RELURCH}`;
   const chip = (k: string, val: string, good: boolean) => ({ k, v: val, st: good ? 'ok' : 'warn', mark: good ? '●' : '▲' });
@@ -153,6 +154,7 @@ export default function Main() {
     drive: <><Pad k="pc" no={no} />
       {(showStart || showStop || v.newVer || ex) && <div className="lv-row" data-live-extra="1">
         {showStart && <button type="button" className="btn" title={st!.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st!.sim_start.ok ? undefined : 0.55 }} onClick={startSim}>시뮬 시작(30분)</button>}
+        {showStart && st!.map_start && <a className="btn" href="#/PcMap" title="기동은 지도 화면에서 직접 고르고 확인">{`지도 화면 · ${sx.map}`}</a>}
         {showStop && <button type="button" className="btn" disabled={st!.sim_stop!.busy} title={st!.sim_stop!.why || 'Gazebo 시뮬 끄기(로봇 STOP 아님)'} style={{ opacity: st!.sim_stop!.ok ? undefined : 0.55 }} onClick={endSim}>{st!.sim_stop!.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기'}</button>}
         {v.newVer && <button type="button" className="btn" onClick={() => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤') : location.reload())}>새로고침(새 판)</button>}
         <span style={{ fontSize: '12px', color: 'var(--muted)' }}>{ex}</span></div>}</>,

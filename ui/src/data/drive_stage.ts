@@ -35,7 +35,9 @@ export function warnsOf(x: In): Warn[] {
   if (x.newVer && st) add('block', `새 화면 판(${st.ver}) · 명령 0`, '조종하지 않을 때 새로고침');   // driveBlock 이 실제로 막음
   if (!x.linkOk || !st) add('block', `링크 ${x.linkTxt} · 명령 0`, '휴대폰 네트워크·관문 PC 확인 — 다시 붙으면 보기 전용부터');
   else {
-    if (st.sim_block) add('block', `${st.sim_block} · 명령 0`, SIM_OFF.includes(st.sim_block) ? '«시뮬 시작»(STOP 상태로 시작) 또는 RL 쪽 상태 확인' : '서버 이유가 풀릴 때까지 대기');
+    const off = SIM_OFF.includes(st.sim_block), ss = st.sim_start;
+    if (st.sim_block) add('block', `${st.sim_block} · 명령 0`, !off ? '서버 이유가 풀릴 때까지 대기' : ss && !ss.ok ? `시뮬 시작 불가 — ${ss.why}` : '«시뮬 시작»(STOP 상태로 시작) 또는 RL 쪽 상태 확인');
+    if (off && ss?.last?.st === 'bad') add('warn', `최근 시작 결과 ${ss.last.t} · 안 켜짐`, ss.last.text);   // toast 만으로 숨기지 않음
     if (st.reset_pending) add('block', '시뮬 리셋 처리 중 · STOP 유지', '끝날 때까지 대기');
     else if (st.resume_pending) add('block', 'STOP 해제 확인 대기 · 명령 0', '서버 확인 대기');
     else if (st.latch) add('block', 'STOP 잠금 · 명령 0', ctl ? '«STOP 해제» 뒤 손 떼고 다시 누름' : '«조종권 받기» 뒤 «STOP 해제»');

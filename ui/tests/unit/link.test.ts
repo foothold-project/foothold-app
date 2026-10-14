@@ -48,6 +48,17 @@ test('형식 검사: 명령 관문 칸·유한수치·배열', () => {
   expect(L.checkStatus(ST({ events: [null] }))).toBe('events');
   expect(L.checkStatus(ST({ sim_start: { ok: 'yes', why: '' } }))).toBe('sim_start');
   expect(L.checkStatus(ST({ events: [{ t: '10:00:00', st: 'ok', text: 'a' }], episode: null }))).toBeNull();
+  // sim_start 새 칸(ledger·last): 없으면 옛 서버(통과), 있으면 정수·범위·형 검사
+  const SS = (o: any) => ST({ sim_start: { ...ST().sim_start, ...o } });
+  expect(L.checkStatus(SS({ ledger: { used: 8, max: 8 }, last: { t: '13:06:35', st: 'bad', text: 'x' } }))).toBeNull();
+  expect(L.checkStatus(SS({ ledger: null, last: null }))).toBeNull();
+  for (const bad of [{ ledger: { used: 9, max: 8 } }, { ledger: { used: -1, max: 8 } }, { ledger: { used: '8', max: 8 } }, { ledger: { used: 1.5, max: 8 } }, { last: { t: 1, st: 'bad', text: '' } }, { last: { t: '1', st: 'x', text: '' } }])
+    expect(L.checkStatus(SS(bad))).toBe('sim_start');
+  const T = (o: any) => L.startTxt(ST({ sim_start: { ...ST().sim_start, ...o }, ...('map' in o ? { map_start: { ledger: o.map } } : {}) }) as any);
+  expect(T({ ledger: { used: 8, max: 8 } }).left).toBe('기존 평지 체험 남은 0/8');
+  expect(T({}).left).toBe('기존 평지 체험 남은 횟수 미확인'); expect(T({}).last).toBe(''); expect(T({}).map).toBe('지도 체험 남은 횟수 미확인');
+  expect(T({ map: { used: 0, max: 4, keys: [] } }).map).toMatch('지도 체험 남은 4/4');
+  expect(T({ last: { t: '13:06:35', st: 'bad', text: '사용 가능 횟수 소진(기동 안 함)' } }).last).toBe('최근 시작 결과 13:06:35 · 안 켜짐 · 사용 가능 횟수 소진(기동 안 함)');
 });
 
 test('처음·재연결은 보기 전용: 서버 role=control 이어도 take 전엔 cmd 0건', () => {

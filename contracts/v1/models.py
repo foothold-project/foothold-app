@@ -126,11 +126,25 @@ class SimSession(Out):
     reason: Optional[str]; started_at: Optional[str]; ends_at: Optional[str]; remaining_s: Optional[Fin]
 
 
+class SimStartLedger(Out):
+    """기존(평지) 체험 원장 — RL session_status.sh 읽기만. 누적 횟수(날짜로 다시 채워지지 않음). 신선·정수·max 정본 8·0≤used≤max 일 때만, 아니면 상위가 null(미확인)"""
+    used: int
+    max: int
+
+
+class SimStartLast(Out):
+    t: str                                  # 서버 HH:MM:SS
+    st: Literal['ok', 'bad']                # ok = 래퍼가 starting/ready 를 돌려줌(안전 준비 판정 아님). 그 밖 = bad
+    text: str
+
+
 class SimStartState(Out):
-    ok: bool
+    ok: bool                                # 원장 소진(검증된 값)이면 false — 미확인이면 소진으로 단정하지 않음
     why: str
     busy: bool
     session: Optional[SimSession]
+    ledger: Optional[SimStartLedger] = None   # null = 미확인(0 도 허용도 아님) · 옛 서버는 칸 없음
+    last: Optional[SimStartLast] = None       # 마지막 «시뮬 시작» 결과(이 서버 기동 뒤), 화면이 계속 표시
 
 
 class SimStopLast(Out):

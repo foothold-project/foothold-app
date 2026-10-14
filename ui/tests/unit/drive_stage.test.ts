@@ -39,6 +39,13 @@ describe('warnsOf', () => {
     const w = warnsOf(x({ viewOnly: false, fallen: true }, { role: 'control', latch: false }));
     expect(w.map((v) => v.lvl)).toEqual(['warn']); expect(w[0].fix).toMatch('STOP');
   });
+  it('시뮬 꺼짐 + 시작 불가면 이유를 해결 안내로, 최근 실패 결과는 주의로 계속 표시(toast 만으로 숨기지 않음)', () => {
+    const ss = { ok: false, why: '기존 평지 체험 사용 가능 횟수 소진(8/8)', busy: false, session: null, ledger: { used: 8, max: 8 }, last: { t: '13:06:35', st: 'bad', text: '사용 가능 횟수 소진(기동 안 함)' } };
+    const w = warnsOf(x({}, { sim_block: '시뮬 상태 미수신', sim_start: ss }));
+    expect(w[0]).toMatchObject({ lvl: 'block', fix: '시뮬 시작 불가 — 기존 평지 체험 사용 가능 횟수 소진(8/8)' });
+    expect(w.find((v) => v.text.startsWith('최근 시작 결과 13:06:35'))).toMatchObject({ lvl: 'warn', fix: '사용 가능 횟수 소진(기동 안 함)' });
+    expect(warnsOf(x({}, { sim_block: '시뮬 상태 미수신', sim_start: { ...ss, ok: true, why: '', last: null } }))[0].fix).toMatch('«시뮬 시작»');
+  });
   it('조종 가능 상태는 경고 0', () => {
     expect(warnsOf(x({ viewOnly: false }, { role: 'control', latch: false }))).toEqual([]);
   });

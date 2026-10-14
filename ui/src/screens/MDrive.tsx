@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL, UNSUP, WHY } from '../data/facts';
-import { ask, camURL, driveBlock, dropAll, linkView, sendOp, showSimStop, stateRows, stopSim, TRAIL, useLink } from '../data/link';
+import { ask, camURL, driveBlock, dropAll, linkView, sendOp, showSimStop, startTxt, stateRows, stopSim, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs, useMedia } from '../data/shared';
 import { MARK, STEPS, stageOf, warnsOf } from '../data/drive_stage';
 import { href } from '../data/hist';
@@ -61,6 +61,7 @@ export default function MDrive() {
   if (v.newVer) btns.push(big('새로고침', () => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤') : location.reload())));
   if (v.linkOk && st) {
     if (SIM_OFF.includes(st.sim_block) && st.sim_start) btns.push(<span key="ss" title={st.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st.sim_start.ok ? undefined : 0.55 }}>{big('시뮬 시작(30분)', startSim)}</span>);
+    if (SIM_OFF.includes(st.sim_block) && st.sim_start && !st.sim_start.ok && st.map_start) btns.push(big('지도 화면 (지도 체험)', () => { location.hash = '#/MMap'; }));   // 기존 체험이 막혀도 별도 경로 안내 — 기동은 지도 화면에서 사용자가 직접
     if (!ctl && st.role !== 'view_other' && !st.sim_block) btns.push(big('조종권 받기', () => sendOp('take')));
     const can = ctl && !st.reset_pending && !st.resume_pending;
     if (can && v.latch) btns.push(big('STOP 해제', () => sendOp('resume')));
@@ -117,6 +118,8 @@ export default function MDrive() {
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
     {v.linkOk && showSimStop(st) && <button type="button" disabled={st!.sim_stop!.busy} style={{ opacity: st!.sim_stop!.ok ? undefined : 0.55 }} onClick={async () => { setMenu(false); const t = await stopSim(st); if (t) toast(t); }}>{st!.sim_stop!.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기 (로봇 STOP 아님)'}<small style={{ display: 'block' }}>{st!.sim_stop!.why || '확인창 뒤 종료 · 자동 재시작 없음'}</small></button>}
     <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`큰 지도 열기 · 지금 화면: ${SPLIT_TXT[split]}(작은 칸을 누르면 바뀜)`}</button>
+    {st?.sim_start && <p>{[startTxt(st).left, startTxt(st).last].filter(Boolean).join(' · ')}</p>}
+    {st?.map_start && <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`지도 체험 시작은 지도 화면에서 · ${startTxt(st).map}`}</button>}
     <button type="button" onClick={() => { location.hash = '#/MHistory'; }}>기록 보기(사진·조종 기록)</button>
     {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}{note && <small style={{ display: 'block' }}>{note}</small>}</button>}
     <p>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>

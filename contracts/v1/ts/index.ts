@@ -288,11 +288,24 @@ export interface SimSession {
   remaining_s: number | null;
 }
 
+export interface SimStartLast {
+  t: string;
+  st: "ok" | "bad";
+  text: string;
+}
+
+export interface SimStartLedger {
+  used: number;
+  max: number;
+}
+
 export interface SimStartState {
   ok: boolean;
   why: string;
   busy: boolean;
   session: SimSession | null;
+  ledger?: SimStartLedger | null;
+  last?: SimStartLast | null;
 }
 
 export interface SimState {

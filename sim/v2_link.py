@@ -462,7 +462,7 @@ def actor_from_header(v):
 SESSION_RESULTS = {'starting', 'ready', 'already_running', 'resource_blocked', 'budget_exhausted', 'bad_args', 'failed'}
 START_TEXT = {'starting': '시뮬 기동 중 · 상태·영상 연결은 화면 표시로 판정(안전 준비 판정 아님)',
               'ready': '시뮬 상태·영상 수신 확인(안전 준비 판정 아님 · STOP 상태)', 'already_running': '이미 실행 중',
-              'resource_blocked': '자원 부족으로 기동 안 함', 'budget_exhausted': '기동 원장 소진', 'bad_args': '인자 거부(기동 안 함)', 'failed': '기동 실패'}
+              'resource_blocked': '자원 부족으로 기동 안 함', 'budget_exhausted': '사용 가능 횟수 소진(기동 안 함)', 'bad_args': '인자 거부(기동 안 함)', 'failed': '기동 실패'}
 
 
 def parse_session(out, code):
@@ -480,11 +480,23 @@ def parse_session(out, code):
 
 class SimStart:
     """«시뮬 시작(30분)» — 사용자가 누를 때만 RL 래퍼를 한 번 부른다. 동시 1건·120 s 쿨다운·재시도/연장 없음"""
-    COOL = 120.0
+    COOL, LEDGER_MAX, FRESH = 120.0, 8, 15.0   # LEDGER_MAX = RL request_session.sh 정본값(다르면 미확인) · 조회 신선도(폴 2~5 s)
 
     def __init__(self, wrapper, now=time.monotonic):
         self.wrapper, self.now, self.busy, self.last = wrapper, now, False, -1e9
         self.session = None         # session_status.sh 마지막 결과(읽기만) — running/starting/idle, 남은 시간
+        self.sess_t = None          # 그 결과를 받은 시각(monotonic)
+        self.polled = False         # session_status.sh 를 한 번이라도 불렀나(조회 중 ↔ 확인 못 함 구분)
+        self.result = None          # 마지막 «시뮬 시작» 래퍼 결과 {t, st, text} — 화면이 계속 보여 줌(toast 만으로 숨기지 않게)
+
+    def ledger(self):
+        """기존(평지) 체험 원장 — session_status.sh 의 ledger_used/max 를 읽기만. 신선·schema·정수·max 정본·0≤used≤max 가 아니면 None(미확인 — 0 도 허용도 아님).
+        누적 횟수라 날짜로 다시 채워지지 않는다. 증설·초기화는 RL 소유"""
+        s = self.session if self.sess_t is not None and 0 <= self.now() - self.sess_t <= self.FRESH else None
+        if not s or s.get('schema') != 'v2_session/1':
+            return None
+        u, mx = s.get('ledger_used'), s.get('ledger_max')
+        return {'used': u, 'max': mx} if type(u) is int and type(mx) is int and mx == self.LEDGER_MAX and 0 <= u <= mx else None
 
     def refuse(self, sim_live):
         if not self.wrapper:
@@ -495,6 +507,11 @@ class SimStart:
             return '시뮬이 이미 돌고 있음'
         if (self.session or {}).get('result') in ('running', 'starting'):
             return '시뮬 세션이 이미 켜지는 중·실행 중(RL 상태)'
+        lg = self.ledger()           # 미확인(조회 전·실패·오래됨·형식 틀림)도 거부 — 0·허용으로 단정 0. 다음 폴 성공이면 자동으로 풀림(자동 기동 0)
+        if lg is None:
+            return '기존 평지 체험 사용 가능 횟수 조회 중' if self.sess_t is None and self.session is None and not self.polled else '기존 평지 체험 사용 가능 횟수 확인 못 함 — 잠시 뒤 다시 확인'
+        if lg['used'] >= lg['max']:
+            return f'기존 평지 체험 사용 가능 횟수 소진({lg["used"]}/{lg["max"]}) — 날짜가 바뀌어도 다시 채워지지 않음 · 지도 화면의 «지도 체험 시작»은 별도 횟수'
         left = self.COOL - (self.now() - self.last)
         return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
 
@@ -502,7 +519,8 @@ class SimStart:
         why = self.refuse(sim_live)
         ss = self.session or {}
         return {'ok': not why, 'why': why, 'busy': self.busy,
-                'session': {k: ss.get(k) for k in ('result', 'reason', 'started_at', 'ends_at', 'remaining_s')} if ss else None}
+                'session': {k: ss.get(k) for k in ('result', 'reason', 'started_at', 'ends_at', 'remaining_s')} if ss else None,
+                'ledger': self.ledger(), 'last': self.result}
 
     def poll(self):
         """RL 상태 스크립트(읽기만, 약 0.05 s). 래퍼와 같은 폴더. 실패하면 None(추정 없음)"""
@@ -512,6 +530,8 @@ class SimStart:
             self.session = d if isinstance(d, dict) and d.get('result') in ('running', 'starting', 'idle') else None
         except Exception:
             self.session = None
+        self.sess_t = self.now() if self.session else None
+        self.polled = True
         # 권장 주기: 켜지는 중 2 s, 그 밖 5 s
         return 2.0 if self.busy or (self.session or {}).get('result') == 'starting' else 5.0
 
@@ -790,11 +810,31 @@ def selftest_extra():
     for bad in ['', 'x', '{"schema":"other","result":"ready"}', '{"schema":"v2_session/1","result":"yay"}']:
         assert parse_session(bad, 1)[0] == 'failed', bad
     t = [0.0]; s_ = SimStart(None, lambda: t[0]); assert s_.refuse(False).startswith('RL 래퍼 미설정')
-    s_ = SimStart('/x', lambda: t[0]); assert s_.refuse(False) == '' and s_.refuse(True)
-    s_.last = 0.0; t[0] = 60.0; assert s_.refuse(False).startswith('방금'); t[0] = 120.1; assert s_.refuse(False) == ''
+    s_ = SimStart('/x', lambda: t[0]); assert s_.refuse(False) == '기존 평지 체험 사용 가능 횟수 조회 중'   # 첫 조회 전 = 조회 중(허용 아님)
+    G = {'schema': 'v2_session/1', 'result': 'idle', 'ledger_used': 7, 'ledger_max': 8}
+    s_.session, s_.sess_t, s_.polled = dict(G), t[0], True; assert s_.refuse(False) == '' and s_.refuse(True)   # 기준 7/8 신선 → 허용, 시뮬 켜짐은 기존 거부
+    assert s_.state(False) == {**s_.state(False), 'ok': True, 'ledger': {'used': 7, 'max': 8}, 'last': None}
+    # 기존 체험 원장(읽기만): 소진이면 거부(날짜 초기화 아님). 미확인(형식·schema·max·범위·오래됨·조회 실패)도 거부 — 0·소진으로 단정 안 함
+    s_.session = {**G, 'ledger_used': 8}; assert s_.ledger() == {'used': 8, 'max': 8} and s_.refuse(False).startswith('기존 평지 체험 사용 가능 횟수 소진(8/8)')
+    st_ = s_.state(False); assert st_['ok'] is False and st_['ledger'] == {'used': 8, 'max': 8}
+    s_.busy = True; assert s_.refuse(False) == '시작 요청 처리 중'; s_.busy = False                   # 기존 거부 순서 우선
+    UNK = '기존 평지 체험 사용 가능 횟수 확인 못 함 — 잠시 뒤 다시 확인'
+    for k, v in [('ledger_used', '8'), ('ledger_used', True), ('ledger_used', 9), ('ledger_used', -1), ('ledger_max', 9), ('ledger_max', 8.0), ('schema', 'x'), ('ledger_used', None)]:
+        s_.session = {**G, k: v}; assert s_.ledger() is None and s_.refuse(False) == UNK and s_.state(False)['ok'] is False and s_.state(False)['ledger'] is None, (k, v)
+    s_.session = dict(G); t[0] += 16; assert s_.ledger() is None and s_.refuse(False) == UNK               # 오래된 조회
+    s_.session, s_.sess_t = None, None; assert s_.refuse(False) == UNK                                     # 조회 실패
+    s_.session, s_.sess_t = dict(G), t[0]; assert s_.refuse(False) == ''                                   # 다음 폴 성공 → 자동 회복(표시만)
+    with tempfile.TemporaryDirectory() as td_:                                                          # 실제 poll 경로: 형식 틀림·실패 = 미확인 → 거부
+        w_ = Path(td_) / 'request_session.sh'; w_.write_text('touch "$(dirname "$0")/CALLED"\n'); ss_ = Path(td_) / 'session_status.sh'
+        for out in ['echo \'{"schema":"v2_session/1","result":"idle","ledger_used":8,"ledger_max":8}\'', 'echo \'{"schema":"v2_session/1","result":"idle","ledger_used":"7","ledger_max":8}\'', 'exit 3', 'echo 깨짐']:
+            ss_.write_text(out + '\n'); p_ = SimStart(str(w_), lambda: t[0]); p_.poll(); assert p_.refuse(False), out
+        ss_.write_text('echo \'{"schema":"v2_session/1","result":"idle","ledger_used":7,"ledger_max":8}\'\n'); p_ = SimStart(str(w_), lambda: t[0]); p_.poll(); assert p_.refuse(False) == ''
+        assert not (Path(td_) / 'CALLED').exists()                                                      # 조회만 — 래퍼 호출 0
+    t[0] = 0.0
+    s_.session, s_.sess_t = dict(G), 60.0; s_.last = 0.0; t[0] = 60.0; assert s_.refuse(False).startswith('방금'); t[0] = s_.sess_t = 120.1; assert s_.refuse(False) == ''
     s_.busy = True; assert s_.refuse(False) == '시작 요청 처리 중'
     s_.busy = False; s_.session = {'result': 'starting'}; assert s_.refuse(False).startswith('시뮬 세션') and s_.state(False)['session']['result'] == 'starting'
-    s_.session = {'result': 'idle'}; assert s_.refuse(False) == ''
+    s_.session = dict(G); assert s_.refuse(False) == ''
 
 
 # ---------------------------------------------------------------- 저장 지도(읽기만) — docs/CONTRACT-maps-sim-stop.md 3·4절
@@ -1827,7 +1867,7 @@ def main():
             starter.busy = True; starter.last = time.monotonic()
             core.latch = True; core._void()            # 시작 전에도 잠금 — 새 시뮬은 STOP 상태로 시작(계약), 앱도 같은 상태로
             core.ev('warn', f'시뮬 시작 요청(30분) · {c.actor} · STOP 상태로 시작')
-        reply(c, rid, True, '시뮬 시작 요청함 — 준비되면 영상·상태가 들어옵니다')
+        reply(c, rid, True, '시뮬 시작 요청함 — 아직 켜진 것 아님 · 결과는 «최근 시작 결과»에 표시')
 
         def run():                  # ROS·웹 스레드를 막지 않게 따로. 재시도·연장 없음
             try:
@@ -1839,7 +1879,8 @@ def main():
             text = START_TEXT[res]
             with lock:
                 starter.busy = False
-                core.ev('ok' if ok_ else 'bad', f'시뮬 시작 결과 · {text}{" · " + extra if extra else ""}')
+                starter.result = {'t': time.strftime('%H:%M:%S'), 'st': 'ok' if ok_ else 'bad', 'text': f'{text}{" · " + extra if extra else ""}'[:200]}
+                core.ev('ok' if ok_ else 'bad', f'시뮬 시작 결과 · {starter.result["text"]}')
         threading.Thread(target=run, daemon=True).start()
 
     def start_map(c, rid, m):

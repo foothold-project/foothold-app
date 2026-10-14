@@ -87,8 +87,10 @@ export function checkStatus(m: any): string | null {
   if (typeof m.reason !== 'string' || typeof m.me !== 'string' || !(m.holder === null || typeof m.holder === 'string')) return 'reason/me/holder';
   if (!Array.isArray(m.applied) || m.applied.length !== 3 || !m.applied.every(fin)) return 'applied';
   if (!Array.isArray(m.events) || !m.events.every((e: any) => e && typeof e.t === 'string' && EVST.has(e.st) && typeof e.text === 'string')) return 'events';
-  const ss = m.sim_start;   // 화면이 읽는 칸만: ok·why·session(남은 시간)
-  if (!ss || typeof ss !== 'object' || typeof ss.ok !== 'boolean' || typeof ss.why !== 'string' || !(ss.session === null || typeof ss.session === 'object')) return 'sim_start';
+  const ss = m.sim_start;   // 화면이 읽는 칸만: ok·why·session(남은 시간) + (새 서버) ledger·last — 없으면 옛 서버(미확인)
+  if (!ss || typeof ss !== 'object' || typeof ss.ok !== 'boolean' || typeof ss.why !== 'string' || !(ss.session === null || typeof ss.session === 'object')
+    || !(ss.ledger == null || (typeof ss.ledger === 'object' && int(ss.ledger.used) && int(ss.ledger.max) && ss.ledger.used >= 0 && ss.ledger.used <= ss.ledger.max))
+    || !(ss.last == null || (typeof ss.last === 'object' && typeof ss.last.t === 'string' && (ss.last.st === 'ok' || ss.last.st === 'bad') && typeof ss.last.text === 'string'))) return 'sim_start';
   const sp = m.sim_stop;    // 없으면 옛 서버(버튼 숨김). 있으면 화면이 읽는 칸 전부 검사
   if (sp !== undefined && sp !== null && (typeof sp !== 'object' || typeof sp.ok !== 'boolean' || typeof sp.why !== 'string' || typeof sp.busy !== 'boolean' || typeof sp.on !== 'boolean'
     || !(sp.ledger_left === null || int(sp.ledger_left)) || !(sp.ledger_kind == null || sp.ledger_kind === 'online' || sp.ledger_kind === 'map') || !(sp.last === null || (typeof sp.last === 'object' && (sp.last.st === 'ok' || sp.last.st === 'bad') && typeof sp.last.text === 'string')))) return 'sim_stop';
@@ -243,6 +245,15 @@ export function linkView(s: LinkState) {
 // 시뮬 세션(RL session_status.sh 원값): 실행/켜지는 중/꺼짐 + 남은 시간. 안전 준비 판정 아님
 export const sessTxt = (st: Status | null) => { const x = st?.sim_start?.session; if (!x) return '';
   return `${({ running: '실행 중', starting: '켜지는 중', idle: '꺼짐' } as Record<string, string>)[x.result || ''] || x.result || '미확인'}${x.remaining_s == null ? '' : ` · 남은 ${Math.max(0, Math.round(x.remaining_s / 60))}분${x.ends_at ? `(종료 ${String(x.ends_at).slice(11, 16)})` : ''}`}`; };
+// 시뮬 시작 안내(진단): 기존 평지 체험 남은 횟수 · 최근 시작 결과 · 지도 체험 별도 횟수 — 서버가 검증해 준 값만, 없으면 «미확인»(0·허용으로 쓰지 않음)
+export function startTxt(st: Status | null) {
+  const ss = st?.sim_start, lg = ss?.ledger, ml = st?.map_start?.ledger, last = ss?.last;
+  return {
+    left: lg ? `기존 평지 체험 남은 ${lg.max - lg.used}/${lg.max}` : '기존 평지 체험 남은 횟수 미확인',
+    last: last ? `최근 시작 결과 ${last.t} · ${last.st === 'ok' ? '요청 처리됨(켜짐 판정은 영상·상태로)' : '안 켜짐'} · ${last.text}` : '',
+    map: ml && ml.used >= 0 && ml.used <= ml.max ? `지도 체험 남은 ${ml.max - ml.used}/${ml.max}(별도 횟수 · 성공 보장 아님)` : '지도 체험 남은 횟수 미확인',
+  };
+}
 // 상태 상세: 서버가 준 원값 그대로(가공·추정 없음) — live.js stateRows
 export function stateRows(s: LinkState): [string, string][] {
   const v = linkView(s), st = s.st, r: [string, string][] = [['링크', v.linkTxt], ['조종권', v.roleTxt], ['STOP 잠금', v.linkOk ? String(v.latch) : '미확인(링크 끊김)'], ['보낸 명령', v.sent],
