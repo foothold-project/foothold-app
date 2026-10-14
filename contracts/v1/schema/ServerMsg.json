@@ -842,6 +842,19 @@
     },
     "Reply": {
       "properties": {
+        "height": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
         "live": {
           "anyOf": [
             {

@@ -56,8 +56,8 @@ test('형식 검사: 명령 관문 칸·유한수치·배열', () => {
     expect(L.checkStatus(SS(bad))).toBe('sim_start');
   const T = (o: any) => L.startTxt(ST({ sim_start: { ...ST().sim_start, ...o }, ...('map' in o ? { map_start: { ledger: o.map } } : {}) }) as any);
   expect(T({ ledger: { used: 8, max: 8 } }).left).toBe('기존 평지 체험 남은 0/8');
-  expect(T({}).left).toBe('기존 평지 체험 남은 횟수 미확인'); expect(T({}).last).toBe(''); expect(T({}).map).toBe('지도 체험 남은 횟수 미확인');
-  expect(T({ map: { used: 0, max: 4, keys: [] } }).map).toMatch('지도 체험 남은 4/4');
+  expect(T({}).left).toBe('기존 평지 체험 남은 횟수 미확인'); expect(T({}).last).toBe(''); expect(T({}).map).toBe('지도 시뮬 남은 횟수 미확인');
+  expect(T({ map: { used: 0, max: 4, keys: [] } }).map).toMatch('지도 시뮬 남은 4/4');
   expect(T({ last: { t: '13:06:35', st: 'bad', text: '사용 가능 횟수 소진(기동 안 함)' } }).last).toBe('최근 시작 결과 13:06:35 · 안 켜짐 · 사용 가능 횟수 소진(기동 안 함)');
   // 사용자 체험(usage_scope): 값은 experiment·user_experience·없음만, 사용자 체험인데 원장 숫자가 오면 모순 → 거부(지도 칸은 그 칸만 버림)
   expect(L.checkStatus(SS({ usage_scope: 'user_experience', ledger: null }))).toBeNull();
@@ -69,7 +69,7 @@ test('형식 검사: 명령 관문 칸·유한수치·배열', () => {
   expect(MS({ usage_scope: 'user_experience', ledger: { used: 0, max: 4, keys: [] } })).toBeNull();
   expect(MS({ usage_scope: 'nope' })).toBeNull();
   const U = L.startTxt(ST({ sim_start: { ...ST().sim_start, usage_scope: 'user_experience' }, map_start: { usage_scope: 'user_experience', ledger: null } }) as any);
-  expect(U.left).toBe('사용자 체험 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)'); expect(U.map).toBe('지도 체험 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)');
+  expect(U.left).toBe('사용자 체험 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)'); expect(U.map).toBe('지도 시뮬 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)');
   expect(T({ usage_scope: 'experiment', ledger: { used: 8, max: 8 } }).left).toBe('기존 평지 체험 남은 0/8');
 });
 
@@ -185,7 +185,7 @@ test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', a
   expect(asked[0]).toContain('로봇 STOP 아님'); expect(asked[0]).toContain('기존 체험(시뮬 시작) 원장 남은 0');
   // 계약 sim_stop.ledger_kind: online/map 은 그 원장의 남은 수, 종류 미지정·남은 null 은 «원장 미확인»(남은 수를 지어내지 않음)
   await L.stopSim(ST({ sim_stop: SP({ ledger_left: 0, ledger_kind: 'map' }) }) as any);
-  expect(asked[1]).toContain('지도 체험 원장 남은 0'); expect(asked[1]).toContain('«지도 체험 시작»');
+  expect(asked[1]).toContain('지도 시뮬 원장 남은 0'); expect(asked[1]).toContain('«지도 열기»');
   for (const sp of [SP({ ledger_left: 0 }), SP({ ledger_left: null, ledger_kind: 'online' })]) {
     asked.length = 0; await L.stopSim(ST({ sim_stop: sp }) as any);
     expect(asked[0]).toContain('켜진 쪽 원장 미확인'); expect(asked[0]).not.toContain('남은');

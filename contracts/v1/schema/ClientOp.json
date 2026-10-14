@@ -37,7 +37,7 @@
       "type": "object"
     },
     "OpMapGet": {
-      "description": "저장 지도 한 장. 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md).",
+      "description": "저장 지도 한 장(map_get) 또는 그 지도의 GT 높이 레이어(height_get). 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md).",
       "properties": {
         "building_id": {
           "enum": [
@@ -63,7 +63,10 @@
           "type": "string"
         },
         "op": {
-          "const": "map_get",
+          "enum": [
+            "map_get",
+            "height_get"
+          ],
           "title": "Op",
           "type": "string"
         },
@@ -260,6 +263,7 @@
   "discriminator": {
     "mapping": {
       "cmd": "#/$defs/OpCmd",
+      "height_get": "#/$defs/OpMapGet",
       "hidden": "#/$defs/OpSimple",
       "map_get": "#/$defs/OpMapGet",
       "map_list": "#/$defs/OpRid",

@@ -101,6 +101,7 @@ class Core:
     def ev(self, level, text):
         e = {'t': time.strftime('%H:%M:%S'), 'st': level, 'text': text}
         self.events.appendleft(e)
+        print(f"[ev] {e['t']} {level} {text}", flush=True)   # 10-14: 요청·거부·결과를 로그 파일에도 1줄씩(화면 링 6개만으론 거부 원물이 사라짐)
         if self.sink:
             try:
                 self.sink(e)
@@ -928,11 +929,44 @@ def read_pgm(b):
     return w, h, px
 
 
-def png_gray(w, h, px):
-    """8비트 회색 PNG(표준 라이브러리만). 행 순서는 PGM 그대로(위 = y 큰 쪽)"""
+def png_gray(w, h, px, rgb=False):
+    """8비트 PNG(표준 라이브러리만, IHDR/IDAT/IEND 만 — gAMA·sRGB·iCCP 없음 = 브라우저가 값 안 바꿈). 행 순서는 PGM 그대로(위 = y 큰 쪽). rgb = 칸당 3바이트"""
     ch = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
-    raw = b''.join(b'\0' + px[y * w:(y + 1) * w] for y in range(h))
-    return b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 0, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw, 9)) + ch(b'IEND', b'')
+    n = w * (3 if rgb else 1)
+    raw = b''.join(b'\0' + px[y * n:(y + 1) * n] for y in range(h))
+    return b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2 if rgb else 0, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw, 9)) + ch(b'IEND', b'')
+
+
+def read_pgm16(b, w, h):
+    """height.pgm: P5 maxval 65535(큰 끝), 크기 = 지도와 같아야 함 → RGB 화소(R=hi·G=lo·B=0). 그 밖은 MapErr"""
+    head = b'P5\n%d %d\n65535\n' % (w, h)
+    if not b.startswith(head) or len(b) != len(head) + 2 * w * h:
+        raise MapErr('높이 PGM 형식·크기가 지도와 다름(P5 16비트)')
+    px = bytearray(3 * w * h); px[0::3] = b[len(head)::2]; px[1::3] = b[len(head) + 1::2]
+    return bytes(px)
+
+
+def height_meta(j, meta, map_sha):
+    """height.json(RL HEIGHT-CONTRACT v2_map_height/1) 검사 → 화면 요약. 지도 meta·map.pgm sha 와 하나라도 다르면 MapErr"""
+    e, fin_ = j.get('encoding') if isinstance(j, dict) else None, lambda x: type(x) in (int, float) and math.isfinite(x)
+    st, band = j.get('stats') if isinstance(j, dict) else None, j.get('band_rel_m') if isinstance(j, dict) else None
+    if not isinstance(j, dict) or j.get('schema') != 'v2_map_height/1':
+        raise MapErr('높이 meta 형식 아님')
+    if j.get('map_source') != 'gt_raster' or j.get('height_source') != 'gt_geometry' or j.get('sensor') is not False:
+        raise MapErr('높이 출처가 GT 기하 아님(SLAM·센서 높이는 받지 않음)')
+    if any(j.get(k) != meta[k] for k in ('world_id', 'building_id', 'floor_id', 'map_version', 'map_source', 'width', 'height')) or j.get('map_sha256_pgm') != map_sha:
+        raise MapErr('높이 레이어가 이 지도와 다름(이름·크기·map sha)')
+    if not (fin_(j.get('resolution')) and abs(j['resolution'] - meta['resolution']) <= 1e-9 and isinstance(j.get('origin'), list) and len(j['origin']) == 3
+            and all(fin_(a) and abs(a - b) <= 1e-6 for a, b in zip(j['origin'], meta['origin']))):     # 숫자로 비교(-20 vs -20.0)
+        raise MapErr('높이 격자 해상도·원점이 지도와 다름')
+    if not (isinstance(e, dict) and e.get('type') == 'pgm16_be' and type(e.get('unknown')) is int and e['unknown'] == 0 and e.get('step_m') == 0.001
+            and e.get('rel_m') == '(v-1)/1000 - 1.0' and isinstance(e.get('row0'), str) and e['row0'].split(' ')[0] == 'y_max'    # 행 순서 = map.pgm 과 같음(뒤집은 선언 거부)
+            and fin_(j.get('floor_z')) and isinstance(band, list) and len(band) == 2 and all(fin_(x) for x in band) and band[0] < band[1] and isinstance(st, dict)
+            and fin_(st.get('rel_min')) and fin_(st.get('rel_max')) and isinstance(j.get('sha256_height_pgm'), str)):
+        raise MapErr('높이 인코딩·값 범위 밖')
+    return {**{k: meta[k] for k in ('building_id', 'floor_id', 'map_version', 'width', 'height', 'resolution', 'origin')}, 'map_sha256_pgm': map_sha,
+            'floor_z': j['floor_z'], 'band_rel_m': band, 'height_source': 'gt_geometry', 'sensor': False,
+            'rel_min': st['rel_min'], 'rel_max': st['rel_max']}
 
 
 def yaml_check(txt, meta):
@@ -978,7 +1012,7 @@ class MapStore:
 
     def __init__(self, root):
         self.root = Path(root).resolve() if root else None
-        self.cache = {}                     # ponytail: 최근 8장 FIFO — 지도 수가 많아지면 LRU 로
+        self.cache, self.sha = {}, {}       # ponytail: 최근 8장 FIFO — 지도 수가 많아지면 LRU 로
 
     def _dir(self, b, f, v):
         if not self.root:
@@ -1025,9 +1059,46 @@ class MapStore:
         if len(png) > MAP_PNG_MAX:
             raise MapErr(f'PNG {len(png)} B > 상한 {MAP_PNG_MAX} B')
         r = {**meta, 'png': base64.b64encode(png).decode()}
+        self._put(key, r); self.sha[key] = m['sha256_pgm']        # 검증 끝난 map.pgm sha(높이 레이어 대조용, 작아서 안 지움)
+        return r
+
+    def _put(self, key, r):
         if len(self.cache) >= 8:
             self.cache.pop(next(iter(self.cache)))
         self.cache[key] = r
+
+    def _file(self, d, name):
+        """버전 폴더 안의 보통 파일만(심볼릭 링크로 밖·다른 버전으로 새면 거부). 없으면 None"""
+        p = (d / name).resolve()
+        if p.parent != d:
+            raise MapErr(f'{name} 이 버전 폴더 밖을 가리킴')
+        return p if p.is_file() else None
+
+    def height(self, b, f, v):
+        """같은 버전 폴더의 height.{json,pgm}(GT 기하 높이, 센서 아님) → 요약 + RGB PNG base64. 지도 검증을 먼저 통과해야 함. 없으면 MapErr('높이 레이어 없음')"""
+        key = (b, f, v, 'h')
+        if key in self.cache:
+            return self.cache[key]
+        meta = self.get(b, f, v); d = self._dir(b, f, v); sha = self.sha[(b, f, v)]
+        hj, hp = self._file(d, 'height.json'), self._file(d, 'height.pgm')
+        if not hj or not hp:
+            raise MapErr('높이 레이어 없음(이 지도는 높이 원본 미제공)')
+        try:
+            if hj.stat().st_size > 64 * 1024 or hp.stat().st_size > 2 * MAP_PGM_MAX:
+                raise MapErr('높이 파일 너무 큼(JSON 64 KB · PGM 상한)')
+            j = json.loads(hj.read_text()); raw = hp.read_bytes()
+        except OSError:
+            raise MapErr('높이 파일 읽기 실패')
+        except ValueError as e:
+            raise e if isinstance(e, MapErr) else MapErr('높이 meta JSON 아님')
+        hm = height_meta(j, meta, sha)
+        if hashlib.sha256(raw).hexdigest() != j['sha256_height_pgm']:
+            raise MapErr('높이 PGM sha256 이 meta 와 다름')
+        png = png_gray(meta['width'], meta['height'], read_pgm16(raw, meta['width'], meta['height']), rgb=True)
+        if len(png) * 4 // 3 > MAP_PNG_MAX:                       # 응답 상한 = base64 기준 512 KB
+            raise MapErr(f'높이 PNG {len(png)} B — 상한 넘음, 표시 안 함')
+        r = {**hm, 'png': base64.b64encode(png).decode()}
+        self._put(key, r)
         return r
 
 
@@ -1851,6 +1922,49 @@ def selftest_maps():
             except MapErr:
                 pass
         assert MapStore(None).listing() == ([], 0)
+        # 높이 레이어(height.json/pgm, RL HEIGHT-CONTRACT): 정상 = RGB 무손실 · 원점 -20 vs -20.0 숫자 비교 · 어긋나면 MapErr · 없음 = MapErr
+        d = root / 'v5' / 'l1' / G; hv = bytes([0, 0, 0x03, 0xE9, 0x0A, 0x8D, 0xFF, 0xFF, 0x00, 0x01, 0x05, 0xDD])     # 모름·0 m·1.7 m·최대·-1 m·0.5 m
+        hp = b'P5\n3 2\n65535\n' + hv; EN = {'type': 'pgm16_be', 'row0': 'y_max (map.pgm 과 같음)', 'unknown': 0, 'rel_m': '(v-1)/1000 - 1.0', 'step_m': 0.001}
+        def hput(raw=hp, **kw):
+            (d / 'height.pgm').write_bytes(raw); s.cache.pop(('v5', 'l1', G, 'h'), None)
+            (d / 'height.json').write_text(json.dumps({'schema': 'v2_map_height/1', 'world_id': 'v5_building', 'building_id': 'v5', 'floor_id': 'l1', 'map_version': G,
+                'map_source': 'gt_raster', 'map_sha256_pgm': hashlib.sha256(b'P5\n3 2\n255\n' + px).hexdigest(), 'resolution': 0.05, 'origin': [-20.0, -14.0, 0.0],
+                'width': 3, 'height': 2, 'floor_z': 0.0, 'encoding': EN,
+                'height_source': 'gt_geometry', 'sensor': False, 'band_rel_m': [-1.0, 1.5], 'stats': {'rel_min': -1.0, 'rel_max': 64.534},
+                'sha256_height_pgm': hashlib.sha256(raw).hexdigest(), **kw}))
+        try:
+            s.height('v5', 'l1', G); raise AssertionError('높이 없음인데 통과')
+        except MapErr as e:
+            assert '없음' in str(e)
+        hput(); r = s.height('v5', 'l1', G); pg = base64.b64decode(r['png']); i, idat = 8, b''
+        while i < len(pg):
+            n, t = struct.unpack('>I4s', pg[i:i + 8]); idat += pg[i + 8:i + 8 + n] if t == b'IDAT' else b''; assert t in (b'IHDR', b'IDAT', b'IEND'); i += 12 + n
+        z = zlib.decompress(idat); rgb = b''.join(z[y * 10 + 1:(y + 1) * 10] for y in range(2))
+        assert pg[24:26] == b'\x08\x02' and bytes(rgb[0::3]) == hv[0::2] and bytes(rgb[1::3]) == hv[1::2] and not any(rgb[2::3])
+        assert r['sensor'] is False and r['floor_z'] == 0.0 and 'sha256_height_pgm' not in r
+        for kw, raw in [({'map_sha256_pgm': '0' * 64}, hp), ({'origin': [-20.0, -13.0, 0.0]}, hp), ({'floor_id': 'l2'}, hp), ({'sensor': True}, hp),
+                        ({'sha256_height_pgm': '0' * 64}, hp), ({}, hp[:-1]), ({}, b'P5\n3 2\n255\n' + px), ({'encoding': {'type': 'pgm8'}}, hp),
+                        ({'map_source': 'slam'}, hp), ({'height_source': 'slam_cloud'}, hp), ({'sensor': None}, hp), ({'band_rel_m': [1.5, -1.0]}, hp),
+                        ({'band_rel_m': [-1.0, float('inf')]}, hp), ({'encoding': {**EN, 'row0': 'y_min'}}, hp), ({'encoding': {**EN, 'unknown': 0.0}}, hp),
+                        ({'encoding': {**EN, 'unknown': False}}, hp)]:
+            hput(raw, **kw)
+            try:
+                s.height('v5', 'l1', G); raise AssertionError(kw)
+            except MapErr:
+                pass
+        hput(); (d / 'height.json').rename(d / 'h2.json'); (d / 'height.json').symlink_to(root / 'v5' / 'l2' / V / 'meta.json'); s.cache.pop(('v5', 'l1', G, 'h'), None)
+        try:                                            # 파일 심볼릭 링크로 다른 버전 폴더 → 거부
+            s.height('v5', 'l1', G); raise AssertionError('파일 링크 통과')
+        except MapErr as e:
+            assert '밖' in str(e)
+        (d / 'height.json').unlink(); (d / 'h2.json').write_text('{' + ' ' * 70000 + '}'); (d / 'h2.json').rename(d / 'height.json')
+        try:
+            s.height('v5', 'l1', G); raise AssertionError('큰 JSON 통과')
+        except MapErr as e:
+            assert '너무 큼' in str(e)
+        assert len(s.cache) <= 8
+        for e in ('height.json', 'height.pgm'):
+            (d / e).unlink()
     real = Path(os.environ.get('V2_LINK_V5_PGM', ''))        # 주면 실제 v5-l1.pgm 크기 확인(읽기만)
     if real.name and real.is_file():
         w, h, q = read_pgm(real.read_bytes()); n = len(png_gray(w, h, q)); assert (w, h) == (800, 640) and n < MAP_PNG_MAX, n
@@ -2252,7 +2366,7 @@ def main():
             holder = clients[core.controller].actor if core.controller in clients and core.controller != c.cid else None
             why = why or mapper.refuse(key, c.gated, starter, stopper.busy, sim_live(), holder)
             if why:
-                core.ev('warn', f'지도 체험 시작 거부 · {why}'); return reply(c, rid, False, why)
+                core.ev('warn', f'지도 체험 시작 거부 · {key or "인자 틀림"} {safe_txt(m.get("mode"), 10)} · {c.actor} · {why}'); return reply(c, rid, False, why)
             starter.busy = True; starter.last = time.monotonic(); core.busy_sim('지도 체험 시작 처리 중')
             core.ev('warn', f'지도 체험 시작 요청 · {key} {args[2]}{" " + args[3] if len(args) > 3 else ""} · {c.actor} · STOP 상태로 시작')
         live.hold()
@@ -2279,7 +2393,7 @@ def main():
         늦은 응답·연결 끊긴 뒤 응답은 사건으로만(요청 순번 대조)"""
         v = live.view(); why = save_refuse(c.gated, save['busy'], v, cli_save.service_is_ready())
         if why:
-            return reply(c, rid, False, why)
+            core.ev('warn', f'지도 저장 거부 · {c.actor} · {why}'); return reply(c, rid, False, why)
         save['busy'] = True; save['seq'] += 1; n = save['seq']; save['wait'][n] = (c, rid, v['epoch'])
         loop = tornado.ioloop.IOLoop.current()
         with lock:
@@ -2353,7 +2467,9 @@ def main():
         if c.map_busy:
             return reply(c, rid, False, '지도 요청 처리 중')
         c.map_busy = True
-        work = (lambda: {'maps': maps.listing()[0]}) if op == 'map_list' else (lambda: {'map': maps.get(m.get('building_id'), m.get('floor_id'), m.get('map_version'))})
+        a = (m.get('building_id'), m.get('floor_id'), m.get('map_version'))
+        work = ((lambda: {'maps': maps.listing()[0]}) if op == 'map_list' else (lambda: {'height': maps.height(*a)}) if op == 'height_get'
+                else (lambda: {'map': maps.get(*a)}))
         loop = tornado.ioloop.IOLoop.current()
 
         def done(fut):
@@ -2411,7 +2527,7 @@ def main():
                 start_sim(self, rid)
             elif op == 'sim_stop':
                 stop_sim(self, rid)
-            elif op in ('map_list', 'map_get'):
+            elif op in ('map_list', 'map_get', 'height_get'):
                 map_op(self, rid, op, m)
             elif op == 'map_live_get':
                 x = live.png()

@@ -3,7 +3,15 @@
 import { useEffect, useRef } from 'react';
 import { CLOUD } from '../data/views';
 
-export function Cloud3D({ small, bind, empty }: { small: boolean; bind: string; empty: string }) {
+const LO = -0.5, HI = 2.0;   // 색 범위(로봇 기준 상대 높이 m)
+export const hue = (dz: number) => Math.round(200 - Math.max(0, Math.min(1, (dz - LO) / (HI - LO))) * 170);
+/** 높이 범례: 측정점 높이(map 프레임 z, 로봇 기준 상대) — 층 기준 높이·벽 전체 높이·위험 판정 아님 */
+const LEGEND = <div aria-label="점 높이 범례" style={{ position: 'absolute', right: 8, bottom: 8, padding: '4px 6px', borderRadius: 6, background: 'rgba(0,0,0,.55)', color: '#DDE5EC', fontSize: 10, lineHeight: 1.3, pointerEvents: 'none', maxWidth: 220 }}>
+  <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.2, 0.4, 0.6, 0.8, 1].map((t) => `hsl(${hue(LO + t * (HI - LO))} 80% 60%)`).join(',')})` }} />
+  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${LO} m`}</span><span>0</span><span>+1</span><span>{`+${HI} m 이상`}</span></div>
+  <div>점 높이 = map z − 로봇 기준 z · 라이다 측정점(벽 전체 높이·위험 판정 아님)</div></div>;
+
+export function Cloud3D({ small, bind, empty, big = false }: { small: boolean; bind: string; empty: string; big?: boolean }) {
   const cv = useRef<HTMLCanvasElement>(null), view = useRef({ a: -0.6, b: 0.9, ver: -1, w: 0, h: 0 }), msg = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = cv.current!, v = view.current;
@@ -18,11 +26,12 @@ export function Cloud3D({ small, bind, empty }: { small: boolean; bind: string; 
       const p = c.pose, cx = p ? p.x : 0, cy = p ? p.y : 0, cz = p ? p.z : 0, s = Math.min(W, H) / 22;   // 약 ±11 m 가 보임
       const ca = Math.cos(v.a), sa = Math.sin(v.a), cb = Math.cos(v.b), sb = Math.sin(v.b);
       const proj = (x: number, y: number, z: number) => { const X = (x - cx) * ca - (y - cy) * sa, Y = (x - cx) * sa + (y - cy) * ca; return [W / 2 + X * s, H / 2 - ((z - cz) * cb + Y * sb) * s]; };
+      // 색 = 점 z − 로봇 기준 z(둘 다 map 프레임, m): −0.5 파랑 → +2.0 주황. 범례(LEGEND)와 같은 식 — 바꾸면 둘 다
       const step = Math.max(1, Math.ceil(c.n / (small ? 6000 : 60000))), r = small ? 1 : 1.6;
       for (let i = 0; i < c.n; i += step) {
         const z = c.xyz[i * 3 + 2], [u, w] = proj(c.xyz[i * 3], c.xyz[i * 3 + 1], z);
         if (u < 0 || w < 0 || u > W || w > H) continue;
-        g.fillStyle = `hsl(${Math.round(200 - Math.max(0, Math.min(1, (z - cz + 0.5) / 2.5)) * 170)} 80% 60%)`;   // 낮음 파랑 → 높음 주황
+        g.fillStyle = `hsl(${hue(z - cz)} 80% 60%)`;   // 낮음 파랑 → 높음 주황
         g.fillRect(u - r / 2, w - r / 2, r, r);
       }
       if (p) {                                    // 로봇: 흰 삼각형(머리 방향 = yaw)
@@ -47,5 +56,5 @@ export function Cloud3D({ small, bind, empty }: { small: boolean; bind: string; 
   }, [small, bind, empty]);
   return <div style={{ position: 'absolute', inset: 0 }}>
     <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none' }} aria-label="3D 점군 누적 보기(드래그로 회전)" />
-    <div ref={msg} className="qd-empty" /></div>;
+    <div ref={msg} className="qd-empty" />{big && bind && LEGEND}</div>;
 }

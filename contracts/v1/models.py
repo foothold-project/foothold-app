@@ -76,8 +76,8 @@ class OpRid(In):
 
 
 class OpMapGet(In):
-    """저장 지도 한 장. 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md)."""
-    op: Literal['map_get']
+    """저장 지도 한 장(map_get) 또는 그 지도의 GT 높이 레이어(height_get). 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md)."""
+    op: Literal['map_get', 'height_get']
     rid: Rid = None
     building_id: Literal['v5', 'v5_single', 'rooms_a']
     floor_id: Literal['f1', 'l1', 'l2']
@@ -326,6 +326,7 @@ class Reply(Out):
     maps: Optional[list[MapInfo]] = None    # op=map_list 성공 때만
     map: Optional[MapData] = None           # op=map_get 성공 때만
     live: Optional[dict] = None             # op=map_live_get 성공 때만 {seq, epoch, world_id, floor_id, png}
+    height: Optional[dict] = None           # op=height_get 성공 때만 {building_id·floor_id·map_version·map_sha256_pgm, width, height, resolution, origin, floor_z, band_rel_m, height_source, sensor, rel_min, rel_max, png} — png = RGB8(R=hi·G=lo·B=0, 0=모름, rel_m=(v-1)/1000-1)
     view: Optional[dict] = None             # op=view_get 성공 때만. follow {what, seq, stamp_sim, jpeg} · points {what, seq, world_id·building_id·floor_id·mode·map_source·map_version·epoch, stamp_sim, frame, pose_source, base_pose_map, voxel_m, n, n_raw, truncated, xyz}
 
 

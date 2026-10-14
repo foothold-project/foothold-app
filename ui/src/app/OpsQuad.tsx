@@ -30,7 +30,7 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
     return <Quad label="실기 관제 4분할" tiles={[t('rmap', '지도'), t('rrgb', 'RGB'), t('rdepth', 'Depth'), t('rpts', '3D 라이다 점군')]} />;
   }
   const noLidar = runner === 'ux_flat' || runner === 'live_v2';   // 원본 평지 체험: 라이다·TF·지도·3인칭 없음(RL VIEW-CONTRACT §0)
-  const vWhy = (k: 'follow' | 'points') => noLidar ? '미연결 — 평지 체험에는 이 센서가 없음' : views?.[k]?.why ? `미연결 — ${views[k].why}` : '미연결 — 지도 체험에서만';
+  const vWhy = (k: 'follow' | 'points') => noLidar ? '미연결 — 평지 시뮬에는 이 센서가 없음' : views?.[k]?.why ? `미연결 — ${views[k].why}` : '미연결 — «지도 열기» 시뮬에서만';
   const tiles: QTile[] = [
     { id: 'map', label: '지도', body: map },
     { id: 'rgb', label: 'RGB · Gazebo 렌더(실카메라 아님)', body: (s) => <>
@@ -39,7 +39,7 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
     { id: 'follow', label: '외부 3인칭 · Gazebo 렌더', body: () => follow && fKey && follow.bind === fKey
       ? <img alt="Gazebo 렌더 3인칭 카메라" src={follow.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
       : <QEmpty text={`${vWhy('follow')}(기본 꺼짐)`} /> },
-    { id: 'pts', label: '3D 점군 누적 · 시각화(SLAM 3D 지도 아님)', body: (s) => <Cloud3D small={s === 'thumb'} bind={pKey} empty={vWhy('points')} /> },
+    { id: 'pts', label: '3D 점군 누적 · 시각화(SLAM 3D 지도 아님)', body: (s) => <Cloud3D small={s === 'thumb'} big={s === 'big'} bind={pKey} empty={vWhy('points')} /> },
   ];
   return <Quad label="시뮬 관제 4분할" tiles={tiles} />;
 }

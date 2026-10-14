@@ -108,7 +108,7 @@ export default function Main() {
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelAsk: true, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,
     // 지도: 시뮬 바닥 도면 + GT 위치(SLAM 아님)
-    mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank} · 실제 실행 world 와 별개 · ${pose ? '위치 = 실시간 지도 status' : '위치 미표시'}` : s ? `지도·SLAM 아님 · 선은 ${s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인'} 위치 · x ${sgn(s.x)} y ${sgn(s.y)} m` : '지도·SLAM 아님 · 위치 미연결',
+    mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank} · 실제 실행 world 와 별개 · ${pose ? '위치 = 현재 열린 지도 상태' : '위치 미표시'}` : s ? `지도·SLAM 아님 · 선은 ${s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인'} 위치 · x ${sgn(s.x)} y ${sgn(s.y)} m` : '지도·SLAM 아님 · 위치 미연결',
     layerP: [tog(trail, setTrail, 'Gazebo GT 지나온 길 보이기/숨기기'), layer(`측정값 — ${WHY['가스·측정값·통신 품질']}`), layer(`발견물 — ${WHY['AI 탐지·발견물 판독']}`),
       layer(`통신 품질 — ${WHY['가스·측정값·통신 품질']}`), tog(zon, setZon, '구역 표시 켜기/끄기(표시만 · 주행 제한 미연결)'), layer(`3D 점군 — ${WHY['뎁스 영상·3D 점군']}`)],
     findCnt: '—', legendHide: true,

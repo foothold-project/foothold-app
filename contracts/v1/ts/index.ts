@@ -205,7 +205,7 @@ export interface OpCmd {
 }
 
 export interface OpMapGet {
-  op: "map_get";
+  op: "map_get" | "height_get";
   rid?: number | null;
   building_id: "v5" | "v5_single" | "rooms_a";
   floor_id: "f1" | "l1" | "l2";
@@ -263,6 +263,7 @@ export interface Reply {
   maps?: MapInfo[] | null;
   map?: MapData | null;
   live?: Record<string, unknown> | null;
+  height?: Record<string, unknown> | null;
   view?: Record<string, unknown> | null;
 }
 

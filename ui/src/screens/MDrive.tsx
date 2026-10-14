@@ -58,7 +58,7 @@ export default function MDrive() {
   if (v.newVer) btns.push(big('새로고침', () => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤') : location.reload())));
   if (v.linkOk && st) {
     if (SIM_OFF.includes(st.sim_block) && st.sim_start) btns.push(<span key="ss" title={st.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st.sim_start.ok ? undefined : 0.55 }}>{big('시뮬 시작(30분)', startSim)}</span>);
-    if (SIM_OFF.includes(st.sim_block) && st.sim_start && !st.sim_start.ok && st.map_start) btns.push(big('지도 화면 (지도 체험)', () => { location.hash = '#/MMap'; }));   // 기존 체험이 막혀도 별도 경로 안내 — 기동은 지도 화면에서 사용자가 직접
+    if (SIM_OFF.includes(st.sim_block) && st.sim_start && !st.sim_start.ok && st.map_start) btns.push(big('지도 화면 (지도 열기)', () => { location.hash = '#/MMap'; }));   // 기존 체험이 막혀도 별도 경로 안내 — 기동은 지도 화면에서 사용자가 직접
     if (!ctl && st.role !== 'view_other' && !st.sim_block) btns.push(big('조종권 받기', () => sendOp('take')));
     const can = ctl && !st.reset_pending && !st.resume_pending;
     if (can && v.latch) btns.push(big('STOP 해제', () => sendOp('resume')));
@@ -79,7 +79,7 @@ export default function MDrive() {
   const mapEl = (cap: boolean) => <><MapCanvas name="drive" small zones={D.err || mOn ? [] : docsOf(D, 'zone')} robot={mOn ? mp.pose : v.robot} trail={TRAIL.pts}
     raster={mp.raster} blank={mp.blank} noRobot={mOn && !mp.pose} showTrail={!mOn} flat={mp.flat} />
     {cap && <div style={{ position: 'absolute', left: '0', right: '0', bottom: '0', padding: '2px 6px', fontSize: '10px', lineHeight: '1.4', color: '#E6EBEF', background: 'rgba(14,19,23,.78)', pointerEvents: 'none' }}>
-      {mOn ? (mp.raster ? `${mp.live ? '실시간 지도' : '저장 지도'} · ${mp.pose ? '위치 표시' : '위치 미표시'}` : '지도 없음 · 지도 화면에서 이유 확인')
+      {mOn ? (mp.raster ? `${mp.live ? '현재 열린 지도' : '저장 지도'} · ${mp.pose ? '위치 표시' : '위치 미표시'}` : '지도 없음 · 지도 화면에서 이유 확인')
         : s ? `GT x ${sgn(s.x, 1)} y ${sgn(s.y, 1)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 위치 오래됨' : 'GT 위치 없음'}</div>}</>;
   const half = (left: boolean, el: JSX.Element) => <div style={{ position: 'absolute', top: 0, bottom: 0, width: '50%', [left ? 'left' : 'right']: 0, overflow: 'hidden', background: '#05080A', ...(left ? { borderRight: '1px solid rgba(230,235,239,.35)' } : {}) }}>{el}</div>;
   const ph = [...M.photos].sort((a, b) => (a.saved_at < b.saved_at ? 1 : -1))[0];   // ⑤ 서버에 저장된 마지막 사진
@@ -120,7 +120,7 @@ export default function MDrive() {
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
     <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`큰 지도 열기 · 지금 화면: ${SPLIT_TXT[split]}(작은 칸을 누르면 바뀜)`}</button>
     {st?.sim_start && <p>{[startTxt(st).left, startTxt(st).last].filter(Boolean).join(' · ')}</p>}
-    {st?.map_start && <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`지도 체험 시작은 지도 화면에서 · ${startTxt(st).map}`}</button>}
+    {st?.map_start && <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`지도 열기는 지도 화면에서 · ${startTxt(st).map}`}</button>}
     <button type="button" onClick={() => { location.hash = '#/MHistory'; }}>기록 보기(사진·조종 기록)</button>
     {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}{note && <small style={{ display: 'block' }}>{note}</small>}</button>}
     <p>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>

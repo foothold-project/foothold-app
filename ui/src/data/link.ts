@@ -139,7 +139,7 @@ export function checkStatus(m: any): string | null {
 }
 // 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로(live.js ask 와 같음)
 let rid = 0; const pending = new Map<number, (m: Reply) => void>();
-type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get' | 'map_live_get' | 'map_start' | 'map_save' | 'view_get';
+type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get' | 'map_live_get' | 'map_start' | 'map_save' | 'view_get' | 'height_get';
 export const ask = (op: AskOp, extra: Record<string, string | boolean> = {}, ms = 5000) => new Promise<Reply>((res) => {   // ms: 서버 쪽 제한이 더 긴 op(map_save 10 s)만 늘림
   const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text }), g0 = useLink.getState().gen;
   if (useLink.getState().provider !== 'simulation_gate') return no('실기 모드 — 시뮬 요청 안 보냄');
@@ -152,7 +152,7 @@ export const ask = (op: AskOp, extra: Record<string, string | boolean> = {}, ms 
 // 지금 켜진 쪽(runner) 원장만 말한다 — 지도 체험이면 지도 체험 원장, 기존 체험이면 기존 원장, 모르면 «미확인»(섞지 않음)
 const ledgerLine = (x: { ledger_left: number | null; ledger_kind?: 'online' | 'map' | 'user' | null }) => {
   if (x.ledger_kind === 'user') return '\n· 사용자 체험 — 횟수 제한 없음(다시 켤 수 있음 · 동시 1개 · 30분 뒤 자동 종료)';
-  const name = x.ledger_kind === 'map' ? '지도 체험 원장' : x.ledger_kind === 'online' ? '기존 체험(시뮬 시작) 원장' : '';
+  const name = x.ledger_kind === 'map' ? '지도 시뮬 원장' : x.ledger_kind === 'online' ? '기존 체험(시뮬 시작) 원장' : '';
   if (!name || x.ledger_left === null) return '\n· 켜진 쪽 원장 미확인';
   return `\n· ${name} 남은 ${x.ledger_left}${x.ledger_left === 0 ? ' — 끄면 이 원장으로는 다시 켤 수 없습니다' : ''}`;
 };
@@ -160,7 +160,7 @@ const ledgerLine = (x: { ledger_left: number | null; ledger_kind?: 'online' | 'm
 export async function stopSim(st: Status | null): Promise<string | null> {
   const x = st?.sim_stop; if (!x || !x.ok) return `Gazebo 끄기 안 됨 · ${x?.why || '서버 응답 없음'}`;
   dropAll();
-  if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 ${x.ledger_kind === 'map' ? '«지도 체험 시작»' : '«시뮬 시작»'}을 직접 눌러야 합니다${x.ledger_kind === 'user' ? '' : ' · 기동 상한이 적용됩니다'}${ledgerLine(x)}`)) return null;
+  if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 ${x.ledger_kind === 'map' ? '«지도 열기»' : '«시뮬 시작»'}을 직접 눌러야 합니다${x.ledger_kind === 'user' ? '' : ' · 기동 상한이 적용됩니다'}${ledgerLine(x)}`)) return null;
   return (await ask('sim_stop')).text || '응답 없음';
 }
 /** 시뮬 시작 확인 → 요청. 확인창 문구는 서버 usage_scope 대로: 사용자 체험 = 횟수 제한 없음 · 실험 = 실험 원장 1회 · 칸 없음 = 미확인(옛 서버) */
@@ -289,7 +289,7 @@ export function startTxt(st: Status | null) {
   return {
     left: ss?.usage_scope === 'user_experience' ? `사용자 체험 · ${UX}` : lg ? `기존 평지 체험 남은 ${lg.max - lg.used}/${lg.max}` : '기존 평지 체험 남은 횟수 미확인',
     last: last ? `최근 시작 결과 ${last.t} · ${last.st === 'ok' ? '요청 처리됨(켜짐 판정은 영상·상태로)' : '안 켜짐'} · ${last.text}` : '',
-    map: st?.map_start?.usage_scope === 'user_experience' ? `지도 체험 · ${UX}` : ml && ml.used >= 0 && ml.used <= ml.max ? `지도 체험 남은 ${ml.max - ml.used}/${ml.max}(별도 횟수 · 성공 보장 아님)` : '지도 체험 남은 횟수 미확인',
+    map: st?.map_start?.usage_scope === 'user_experience' ? `지도 시뮬 · ${UX}` : ml && ml.used >= 0 && ml.used <= ml.max ? `지도 시뮬 남은 ${ml.max - ml.used}/${ml.max}(별도 횟수 · 성공 보장 아님)` : '지도 시뮬 남은 횟수 미확인',
   };
 }
 // 상태 상세: 서버가 준 원값 그대로(가공·추정 없음) — live.js stateRows
