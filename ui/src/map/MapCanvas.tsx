@@ -65,7 +65,7 @@ export function MapCanvas(p: Props) {
       g.save(); g.imageSmoothingEnabled = k < 1 / rs.res; if (dark) g.filter = 'invert(1) brightness(.85)';
       g.drawImage(rs.img, X(B[0]), Y(B[3]), (B[1] - B[0]) * k, (B[3] - B[2]) * k); g.restore();
     }   // PGM 첫 행 = y 큰 쪽(위)
-    if (k >= 4) {
+    if (k >= 4 && !rs?.noGrid) {
       g.strokeStyle = 'rgba(128,140,150,.22)'; g.lineWidth = 1; g.beginPath();
       for (let i = Math.max(Math.ceil(B[0]), Math.ceil(cx - W / 2 / k)); i <= Math.min(B[1], cx + W / 2 / k); i++) { g.moveTo(X(i), Y(B[3])); g.lineTo(X(i), Y(B[2])); }
       for (let j = Math.max(Math.ceil(B[2]), Math.ceil(cy - H / 2 / k)); j <= Math.min(B[3], cy + H / 2 / k); j++) { g.moveTo(X(B[0]), Y(j)); g.lineTo(X(B[1]), Y(j)); }

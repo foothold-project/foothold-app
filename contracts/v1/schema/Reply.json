@@ -346,6 +346,31 @@
   "$id": "fh-app/1/Reply",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "geom": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Geom"
+    },
+    "geom_sha256": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Geom Sha256"
+    },
     "height": {
       "anyOf": [
         {
@@ -428,6 +453,19 @@
         }
       ],
       "title": "Rid"
+    },
+    "save": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Save"
     },
     "text": {
       "title": "Text",

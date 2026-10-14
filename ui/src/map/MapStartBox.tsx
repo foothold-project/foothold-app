@@ -11,7 +11,7 @@ import { BLD, FLOOR, TASK, WF, mapKey, listMaps, place, runAt, runLine, type Ses
 type W = 'v5_single' | 'v5_building' | 'rooms_a';
 const PLACES: { w: W; sub: string }[] = [
   { w: 'v5_single', sub: '단층 · 계단 위끝 낭떠러지 있음' },
-  { w: 'v5_building', sub: '층은 열 때 고름 · 층 사이 이동 없음' },
+  { w: 'v5_building', sub: '1·2층이 연결된 한 건물 · 시작층만 고름 · 실제 계단·경사로 통과 미검증' },
   { w: 'rooms_a', sub: 'SLAM 지도 만들기용' },
 ];
 type Res = { t: string; ok: boolean; text: string; what: string; key?: string } | null;   // key = 목록에서 확인된 저장본(보기 버튼)
@@ -36,11 +36,16 @@ export function nextStep(why: string | null | undefined): string {
 
 /** 저장 요청 때 출처(건물·층·epoch·연결 세대) → 결과 판정. 응답 ok + 다시 받은 목록에 같은 world·건물·층·버전이 있어야 «확인됨».
  *  응답 사이 epoch·층·연결이 바뀌었으면 그 출처 결과로만 따로 적고 «지금 지도 저장 성공»으로 쓰지 않음. 버전 = 서버 고정 문구 «지도 저장됨 · <버전>»(기존 reply 에 구조 칸 없음) */
-export type SaveSrc = { world_id: string | null; building_id: string | null; floor_id: string | null; epoch: number | null; gen: number };
-export function saveVerdict(req: SaveSrc, r: { ok: boolean; text: string }, list: MapInfo[] | string, now: SaveSrc, t: string): NonNullable<Res> {
-  const ver = r.ok ? /지도 저장됨 · (\S+)/.exec(r.text || '')?.[1] : undefined;
+export type SaveSrc = { world_id: string | null; building_id: string | null; floor_id: string | null; epoch: number | null; floor_rev: number | null; gen: number };
+const CTX = ['world_id', 'building_id', 'floor_id', 'epoch', 'floor_rev'] as const;
+/** 저장 응답 판정 — 요청 때 출처(req)로만. 서버가 확인한 응답 문맥(r.save)이 있으면 req 와 정확히 같아야, 연결 건물(floor_rev 있음)은 필수(늦은 다른 층 결과 성공 0) */
+export function saveVerdict(req: SaveSrc, r: { ok: boolean; text: string; save?: Record<string, unknown> | null }, list: MapInfo[] | string, now: SaveSrc, t: string): NonNullable<Res> {
+  const sv = r.save, svOk = !!sv && CTX.every((k) => (sv[k] ?? null) === req[k]) && typeof sv.map_version === 'string';
+  if (r.ok && (sv ? !svOk : req.floor_rev != null))
+    return { t, ok: false, text: `${place(req.world_id, req.floor_id)}(요청 때 지도) 결과 미확인 · 응답 문맥이 요청과 다르거나 없음 — 이번 요청 성공으로 안 씀, 목록 다시 확인`, what: `${place(req.world_id, req.floor_id)}(요청 때 지도)` };
+  const ver = !r.ok ? undefined : svOk ? sv!.map_version as string : /지도 저장됨 · (\S+)/.exec(r.text || '')?.[1];
   const hit = ver && Array.isArray(list) ? list.find((m) => m.world_id === req.world_id && m.building_id === req.building_id && m.floor_id === req.floor_id && m.map_version === ver) : undefined;
-  const moved = now.gen !== req.gen || now.epoch !== req.epoch || now.world_id !== req.world_id || now.floor_id !== req.floor_id;
+  const moved = now.gen !== req.gen || now.epoch !== req.epoch || now.world_id !== req.world_id || now.floor_id !== req.floor_id || now.floor_rev !== req.floor_rev;
   const src = `${place(req.world_id, req.floor_id)}(요청 때 지도)`;
   if (!r.ok) return { t, ok: false, text: r.text || '응답 없음(결과 미확인)', what: src };
   if (!hit) return { t, ok: false, text: `${r.text} · 목록에 그 건물·층·버전 없음(목록 다시 받기)`, what: src };
@@ -73,7 +78,7 @@ export function MapStartBox({ pc, onSaved, onShowLive, onView }: { pc: boolean; 
     const r = await ask('map_start', { world_id: w, floor_id: f, mode, ...(mode === 'static' ? { map_version: ver } : {}), follow_cam: fcOn });
     useRes.setState({ open: { t: now(), ok: !!r.ok, text: r.text || '응답 없음(결과 미확인)', what: sel } });
   };
-  const src = (): SaveSrc => { const s = useLink.getState(), l = s.st?.live_map; return { world_id: l?.world_id ?? null, building_id: l?.building_id ?? null, floor_id: l?.floor_id ?? null, epoch: l?.epoch ?? null, gen: s.gen }; };
+  const src = (): SaveSrc => { const s = useLink.getState(), l = s.st?.live_map; return { world_id: l?.world_id ?? null, building_id: l?.building_id ?? null, floor_id: l?.floor_id ?? null, epoch: l?.epoch ?? null, floor_rev: l?.floor_rev ?? null, gen: s.gen }; };
   const save = async () => {
     if (!sv?.ok) return;
     const req = src();                           // 요청 때 출처 캡처(응답 뒤 현재 값으로 판정하지 않음)
@@ -93,8 +98,8 @@ export function MapStartBox({ pc, onSaved, onShowLive, onView }: { pc: boolean; 
         onClick={() => { setW(p.w); setF(WF[p.w][0]); setVer(''); if (p.w === 'rooms_a') setMode('slam'); }}>{place(p.w, WF[p.w][0]).split(' · ')[0]}</button>)}
     </span>
     <span className="lbl">{PLACES.find((p) => p.w === w)!.sub}</span>
-    {WF[w].length > 1 && <span role="group" aria-label="층(2층 건물)" style={row}>
-      <span className="lbl">층</span>
+    {WF[w].length > 1 && <span role="group" aria-label="시작층(2층 건물 · 열 때만)" style={row}>
+      <span className="lbl">시작층</span>
       {WF[w].map((k) => <button key={k} {...seg(f === k)} onClick={() => { setF(k); setVer(''); }}>{`${FLOOR[k as keyof typeof FLOOR]}(${k})`}</button>)}</span>}
     <span style={row}>
       <select className={I} aria-label="여는 방식" value={mode} onChange={(e) => { setMode(e.target.value as 'slam' | 'static'); setVer(''); if (e.target.value === 'static') loadVers(); }}>

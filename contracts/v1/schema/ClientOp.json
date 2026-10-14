@@ -36,6 +36,39 @@
       "title": "OpCmd",
       "type": "object"
     },
+    "OpGeomGet": {
+      "description": "건물 전체 GT 간략 기하(RL v2_building_geom/1, 읽기만 · 센서·주행 판정 아님). 10-15 root GO — 서버 --geom-root 안 정해진 파일만·≤512KB·엄격 검사·연결당 1건·5 s.",
+      "properties": {
+        "building_id": {
+          "const": "v5",
+          "title": "Building Id",
+          "type": "string"
+        },
+        "op": {
+          "const": "geom_get",
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        }
+      },
+      "required": [
+        "op",
+        "building_id"
+      ],
+      "title": "OpGeomGet",
+      "type": "object"
+    },
     "OpMapGet": {
       "description": "저장 지도 한 장(map_get) 또는 그 지도의 GT 높이 레이어(height_get). 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md).",
       "properties": {
@@ -263,6 +296,7 @@
   "discriminator": {
     "mapping": {
       "cmd": "#/$defs/OpCmd",
+      "geom_get": "#/$defs/OpGeomGet",
       "height_get": "#/$defs/OpMapGet",
       "hidden": "#/$defs/OpSimple",
       "map_get": "#/$defs/OpMapGet",
@@ -294,6 +328,9 @@
     },
     {
       "$ref": "#/$defs/OpMapGet"
+    },
+    {
+      "$ref": "#/$defs/OpGeomGet"
     },
     {
       "$ref": "#/$defs/OpMapStart"

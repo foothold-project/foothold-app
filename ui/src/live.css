@@ -125,3 +125,9 @@ textarea.lv-inp{resize:vertical}
 body:has(#dc-root [role=group][aria-label*="막대"]) [data-live-toast]{background:#080B0E!important;box-shadow:0 0 0 1px rgba(230,235,239,.35)}
 /* 세로 안내(app/drive.tsx tip)는 서랍이 열려 있으면 숨김 — 서랍 버튼 위에 겹침(세로 390x844 모의) */
 body:has(.lv-drawer) .lv-tip{display:none!important}
+
+/* 폰 지도 머리(MMap 만, 10-15): 제목·레이어 버튼 한 행 + 연결 상태는 아래 별도 행 — 좁은 폭에서 제목이 한 글자씩 세로로 꺾이지 않게 */
+.mmap-hdr>header{flex-wrap:wrap;row-gap:6px}
+.mmap-hdr>header>div:first-of-type{flex:1 1 0;min-width:0}
+.mmap-hdr>header>div:first-of-type>span:first-child{white-space:nowrap}
+.mmap-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}

@@ -110,6 +110,19 @@
           "default": null,
           "title": "Epoch"
         },
+        "floor": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
         "floor_id": {
           "anyOf": [
             {
@@ -126,6 +139,31 @@
           ],
           "default": null,
           "title": "Floor Id"
+        },
+        "floor_rev": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor Rev"
+        },
+        "geom": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geom"
         },
         "grid": {
           "anyOf": [
@@ -253,6 +291,23 @@
           "default": null,
           "title": "Slam"
         },
+        "spawn_floor": {
+          "anyOf": [
+            {
+              "enum": [
+                "f1",
+                "l1",
+                "l2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spawn Floor"
+        },
         "st": {
           "enum": [
             "off",
@@ -286,6 +341,18 @@
           ],
           "default": null,
           "title": "World Id"
+        },
+        "world_src_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "World Src Sha256"
         }
       },
       "required": [
@@ -842,6 +909,31 @@
     },
     "Reply": {
       "properties": {
+        "geom": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geom"
+        },
+        "geom_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geom Sha256"
+        },
         "height": {
           "anyOf": [
             {
@@ -924,6 +1016,19 @@
             }
           ],
           "title": "Rid"
+        },
+        "save": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Save"
         },
         "text": {
           "title": "Text",
