@@ -6,11 +6,11 @@
 
 | 항목 | 값 |
 |---|---|
-| 파일 | `mobile/out/foothold-android-dev-20261014-ux.apk`(git 제외) · 사본 `~/Downloads/foothold-android-dev-20261014-ux.apk` |
-| SHA-256 | `40b35a277aa5bce280f50447a7c6f7976952654eddfa697de4bb72aa2daea24b` |
-| 화면(UI) 판 | `89fd7c4f8e594c4dbffbcc4f0ed44e9042713ede` — 최종 검수판(연결 단계 확인·접속 프로필·QR 포함), 파일 143개 sha 일치 |
-| 모바일 판 | `6d4064f`(probe·CAMERA 권한 포함, 작업 트리 깨끗한 상태로 빌드) |
-| 옛 판 | `-20261014`(UI 75c0611)·`-maps`·`-maplive` APK 는 보존만 — 새로 설치할 것은 위 `-ux` 하나 |
+| 파일 | `mobile/out/foothold-android-dev-20261014-mapopen.apk`(git 제외) · 사본 `~/Downloads/foothold-android-dev-20261014-mapopen.apk` |
+| SHA-256 | `71b5c93d79d35e02b5a47f034fcc92e03ea75bd253d67e188f358f96916c2631` |
+| 화면(UI) 판 | `7e644fa04f88ea15c23b46562143b6e45bf59ad2` — 새 지도 열기·PIP·높이 표시 포함 검수판, 파일 143개 sha 일치(목록 sha `0ae06fac…`) |
+| 모바일 판 | `cdc9493`(quad 와 같음 — 이번 UI 변경은 WS 내용 처리뿐이라 네이티브 변경 0, 작업 트리 깨끗한 상태로 빌드) |
+| 옛 판 | `-20261014`·`-maps`·`-maplive`·`-ux`·`-nearby`·`-quad`(UI b57e58f, sha `f779312d…`) APK 는 보존만 — 새로 설치할 것은 위 `-mapopen` 하나. quad 와 mapopen 은 앱 id 가 같아 위에 덮어 설치된다(로그인 유지 여부는 실폰 미확인) |
 | 버전 이름 | `1.0-dev` |
 
 설치: 휴대폰으로 파일을 옮겨 열고 «출처를 알 수 없는 앱 설치»를 그 파일 관리자에만 허용한다. 기존 `org.footholdproject.app`(옛 debug 판)과 **별개 앱**으로 깔린다.
@@ -38,8 +38,8 @@
 
 실제 휴대폰 설치·실행 · 실폰 QR 스캔·카메라 권한 창·WebView BarcodeDetector · 네이티브 probe 실호출 · iOS(빌드 없음) · 이 dev 빌드의 실계정 로그인 · B2 저장 창 · 관문 주소 수정 · 실기기에서 운영 CA 신뢰 · HOME(앱 숨김) 때 앱 쪽 신호 · 앱 복귀(B7)·로그아웃(B8) 실행 · 물리 정지(STOP 명령 0 ≠ 정지).
 에뮬레이터 bundled 시험 2회차(`runs/mobile-b-bundled-20261013-2`, fixture 빌드)는 **미완료**: 로그인·Keystore 복원·WS 표·take·HOME 서버 해제까지 PASS, HOME 때 OS 신호 FAIL, 복귀·로그아웃은 실행 전 멈춤.
-이 APK 는 빌드·APK 구조 대조만 했다(`runs/mobile-dev-apk-20261014-rea-1` 23항목 ALL PASS — 앱 id·서명·NSC·CA 한 장·CAMERA 권한·`server.url` 없음·로그 끔·UI 번들 sha. 파일 이름만 `-rea`→`-ux` 로 바꾸고 다시 대조: `rename-ux-check.log`).
+이 APK 는 빌드·APK 구조 대조만 했다(`runs/mobile-dev-apk-20261014-mapopen-1` 30항목 ALL PASS — 앱 id·서명(옛 dev 판과 같은 인증서)·NSC·CA 한 장·권한 3개·`server.url` 없음·로그 끔·UI 번들 143개 sha·Go2Direct 연결부 0). 새 지도 열기·PIP·높이 표시의 실제 화면 동작은 이 문서 범위 밖(UI 쪽 검수).
 
 ## 다시 빌드할 때
 
-`FH_GATE_CA=<운영 관문 ca.crt> node scripts/gate-profile.mjs --dev`(공개 CA 한 장만 검사해 `android/app/src/dev/res/raw/` 에 생성, git 제외) → `./gradlew assembleDev` → 끝나면 `--clean`. 실제 쓴 스크립트 사본 `runs/mobile-dev-apk-20261014-rea-1/dev-build-rea.sh`. 개인키·계정·토큰 파일은 읽지 않는다.
+`FH_GATE_CA=<운영 관문 ca.crt> node scripts/gate-profile.mjs --dev`(공개 CA 한 장만 검사해 `android/app/src/dev/res/raw/` 에 생성, git 제외) → `./gradlew assembleDev` → 끝나면 `--clean`. 실제 쓴 스크립트 사본 `runs/mobile-dev-apk-20261014-mapopen-1/dev-build-mapopen.sh`. 개인키·계정·토큰 파일은 읽지 않는다.
