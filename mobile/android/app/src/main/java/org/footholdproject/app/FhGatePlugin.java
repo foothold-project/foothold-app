@@ -29,7 +29,6 @@ import java.io.IOException;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
-import java.util.ArrayDeque;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -69,120 +68,93 @@ public class FhGatePlugin extends Plugin {
     protected void handleOnDestroy() {
         core.close();
         io.shutdown();
-        endScan(scan, null, true);
+        nearby.destroy();                                       // main — 진행 중 탐색 stop 후 stale
     }
 
     @Override
-    protected void handleOnPause() {
-        endScan(scan, "hidden", false);   // 화면이 숨으면 탐색을 바로 멈춘다(배경에서 멀티캐스트 계속 0)
-    }
+    protected void handleOnPause() { nearby.pause(); }        // 수명 콜백은 main — 제어기와 같은 직렬 스레드
+
+    @Override
+    protected void handleOnResume() { nearby.resume(); }
 
     // ── 주변 관문 검색(계약 D′): NSD 로 목록만. 연결·로그인·저장·probe 0, 후보는 미검증 ──
+    // 상태 전이는 전부 FhNearby.Ctl 이 main Handler 한 줄에서 한다(브리지 스레드·NSD 내부 스레드는 post 만).
     // ponytail: resolveService(36 deprecated)를 하나씩 순서대로 — minSdk 24 호환, 34 미만은 동시 resolve 가 FAILURE_ALREADY_ACTIVE.
     //           34+ registerServiceInfoCallback 으로 바꾸면 병렬·주소 갱신 가능(필요해지면)
     private final Handler main = new Handler(Looper.getMainLooper());
-    private volatile Scan scan;                                // 진행 중 탐색 하나(바꾸기는 nsdLock 안에서만)
-    private final Object nsdLock = new Object();
-
-    private static final class Scan {
-        final PluginCall call; final long gen; final FhNearby.Scan found = new FhNearby.Scan();
-        final ArrayDeque<NsdServiceInfo> queue = new ArrayDeque<>();
-        NsdManager.DiscoveryListener listener; Runnable timeout; boolean resolving, ended; int tries;
-        Scan(PluginCall call, long gen) { this.call = call; this.gen = gen; }
-    }
+    private final FhNearby.Ctl nearby = new FhNearby.Ctl(new NsdPort());
 
     @PluginMethod
     public void discover(PluginCall call) {
-        FhGateCore.Ctx c = core.ctx();
-        int ms = FhNearby.clampMs(call.getInt("ms"));
-        if (!core.current(c)) { reject(call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어짐", c.gen())); return; }
-        Scan s;
-        synchronized (nsdLock) {
-            if (scan != null) { reject(call, new FhGateCore.GateError("busy", "주변 검색이 이미 진행 중", c.gen())); return; }
-            s = scan = new Scan(call, c.gen());
-        }
-        if (!lanUp()) { endScan(s, "wifi", false); return; }
-        NsdManager nsd = (NsdManager) getContext().getSystemService(Context.NSD_SERVICE);
-        s.listener = new NsdManager.DiscoveryListener() {
-            @Override public void onStartDiscoveryFailed(String t, int code) { endScan(s, "nsd", false); }
-            @Override public void onStopDiscoveryFailed(String t, int code) {}
-            @Override public void onDiscoveryStarted(String t) {}
-            @Override public void onDiscoveryStopped(String t) {}
-            @Override public void onServiceLost(NsdServiceInfo i) {}   // 창이 짧아 목록에서 빼지 않음 — 고른 뒤 probe 가 도달을 확인
-            @Override public void onServiceFound(NsdServiceInfo i) {
-                synchronized (nsdLock) { if (s.ended || s.queue.size() >= 2 * FhNearby.MAX_ITEMS) return; s.queue.add(i); }
-                resolveNext(nsd, s);
-            }
-        };
-        s.timeout = () -> endScan(s, null, false);
-        main.postDelayed(s.timeout, ms);
-        try {
-            nsd.discoverServices(FhNearby.TYPE, NsdManager.PROTOCOL_DNS_SD, s.listener);
-        } catch (RuntimeException x) {
-            endScan(s, "nsd", false);
-        }
+        long gen = core.ctx().gen();
+        Integer ms = call.getInt("ms");
+        if (!main.post(() -> nearby.discover(call, gen, ms))) reject(call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어짐", gen));
     }
 
     /** 진행 중 탐색을 바로 끝냄 — 그 Promise 는 items [] · why cancelled. 없으면 그냥 resolve. */
     @PluginMethod
     public void discoverStop(PluginCall call) {
-        endScan(scan, "cancelled", false);
-        call.resolve();
+        if (!main.post(() -> { nearby.stopReq(); call.resolve(); })) call.resolve();
     }
 
-    private void resolveNext(NsdManager nsd, Scan s) {
-        NsdServiceInfo next;
-        synchronized (nsdLock) {
-            if (s.ended || s.resolving || s.found.full() || s.tries >= 2 * FhNearby.MAX_ITEMS || (next = s.queue.poll()) == null) return;
-            s.resolving = true; s.tries++;
+    /** Android 경계: NSD·타이머·Promise. 콜백은 전부 main 으로 post 해 제어기에 넘긴다. */
+    private final class NsdPort implements FhNearby.Ctl.Port {
+        private NsdManager nsd() {
+            NsdManager m = (NsdManager) getContext().getSystemService(Context.NSD_SERVICE);
+            if (m == null) throw new IllegalStateException("NSD 서비스 없음");
+            return m;
         }
-        try {
-            nsd.resolveService(next, new NsdManager.ResolveListener() {
-                @Override public void onResolveFailed(NsdServiceInfo i, int code) { resolved(nsd, s, null); }
-                @Override public void onServiceResolved(NsdServiceInfo i) { resolved(nsd, s, i); }
+
+        @Override public boolean lanUp() { return FhGatePlugin.this.lanUp(); }
+
+        @Override public void start(FhNearby.Ctl.Run r) {
+            NsdManager.DiscoveryListener l = new NsdManager.DiscoveryListener() {
+                @Override public void onStartDiscoveryFailed(String t, int code) { main.post(() -> nearby.startFailed(r)); }
+                @Override public void onStopDiscoveryFailed(String t, int code) {}   // 이미 끝낸 Promise 엔 못 실음 — 결과 stop 은 «requested»(확인 아님)
+                @Override public void onDiscoveryStarted(String t) {}
+                @Override public void onDiscoveryStopped(String t) {}
+                @Override public void onServiceLost(NsdServiceInfo i) {}   // 창이 짧아 목록에서 빼지 않음 — 고른 뒤 probe 가 도달을 확인
+                @Override public void onServiceFound(NsdServiceInfo i) { main.post(() -> nearby.found(r, i)); }
+            };
+            r.handle = l;
+            nsd().discoverServices(FhNearby.TYPE, NsdManager.PROTOCOL_DNS_SD, l);
+        }
+
+        @Override public void stop(FhNearby.Ctl.Run r) { nsd().stopServiceDiscovery((NsdManager.DiscoveryListener) r.handle); }
+
+        @Override public void resolve(FhNearby.Ctl.Run r, Object svc) {
+            nsd().resolveService((NsdServiceInfo) svc, new NsdManager.ResolveListener() {
+                @Override public void onResolveFailed(NsdServiceInfo i, int code) { main.post(() -> nearby.resolved(r, null)); }
+                @Override public void onServiceResolved(NsdServiceInfo i) {
+                    List<InetAddress> a = Build.VERSION.SDK_INT >= 34 ? i.getHostAddresses() : (i.getHost() == null ? Collections.emptyList() : Collections.singletonList(i.getHost()));
+                    FhNearby.Item it = FhNearby.item(i.getServiceName(), i.getPort(), a, i.getAttributes());
+                    main.post(() -> nearby.resolved(r, it));
+                }
             });
-        } catch (RuntimeException x) {
-            resolved(nsd, s, null);
         }
-    }
 
-    private void resolved(NsdManager nsd, Scan s, NsdServiceInfo i) {
-        boolean full;
-        synchronized (nsdLock) {
-            s.resolving = false;
-            if (s.ended) return;
-            if (i != null) {
-                List<InetAddress> a = Build.VERSION.SDK_INT >= 34 ? i.getHostAddresses() : (i.getHost() == null ? Collections.emptyList() : Collections.singletonList(i.getHost()));
-                s.found.add(FhNearby.item(i.getServiceName(), i.getPort(), a, i.getAttributes()));
+        @Override public boolean after(FhNearby.Ctl.Run r, int ms) {
+            Runnable t = () -> nearby.timeout(r);
+            r.timer = t;
+            return main.postDelayed(t, ms);
+        }
+
+        @Override public void cancelTimer(FhNearby.Ctl.Run r) { if (r.timer != null) main.removeCallbacks(r.timer); }
+
+        @Override public void done(Object call, long gen, List<FhNearby.Item> items, String why, String stop) {
+            JSArray arr = new JSArray();
+            for (FhNearby.Item it : items) {
+                JSObject o = new JSObject();
+                o.put("name", it.name); o.put("origin", it.origin); o.put("app", "foothold-gate"); o.put("api", 1);
+                arr.put(o);
             }
-            full = s.found.full();
+            JSObject r = new JSObject();
+            r.put("gen", gen); r.put("items", arr); r.put("stop", stop);
+            if (why != null) r.put("why", why);
+            ((PluginCall) call).resolve(r);
         }
-        if (full) endScan(s, null, false); else resolveNext(nsd, s);
-    }
 
-    /** 탐색 끝내기(한 번만): 타이머 해제·NSD stop·Promise 정리. why 가 있으면(취소·숨김·실패) 모은 것도 버리고 items []. */
-    private void endScan(Scan s, String why, boolean destroyed) {
-        if (s == null) return;
-        synchronized (nsdLock) {
-            if (s.ended) return;
-            s.ended = true;
-            if (scan == s) scan = null;
-        }
-        if (s.timeout != null) main.removeCallbacks(s.timeout);
-        if (s.listener != null) {
-            try { ((NsdManager) getContext().getSystemService(Context.NSD_SERVICE)).stopServiceDiscovery(s.listener); } catch (RuntimeException ignored) { /* 시작 실패·이미 멈춤 — stop 할 것 없음 */ }
-        }
-        if (destroyed) { reject(s.call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어짐", s.gen)); return; }
-        JSArray items = new JSArray();
-        if (why == null) for (FhNearby.Item it : s.found.items()) {
-            JSObject o = new JSObject();
-            o.put("name", it.name); o.put("origin", it.origin); o.put("app", "foothold-gate"); o.put("api", 1);
-            items.put(o);
-        }
-        JSObject r = new JSObject();
-        r.put("gen", s.gen); r.put("items", items);
-        if (why != null) r.put("why", why);
-        s.call.resolve(r);
+        @Override public void fail(Object call, String code, String msg, long gen) { reject((PluginCall) call, new FhGateCore.GateError(code, msg, gen)); }
     }
 
     /** Wi-Fi·이더넷 망이 하나라도 있나(ACCESS_NETWORK_STATE, 일반 권한). VPN 만 있으면 false — Tailscale 은 LAN 검색 대상 아님. */
