@@ -96,7 +96,7 @@ export default function Main() {
   const motion = `보낸 명령 ${v.sent} · 시뮬 ${v.body}` + (s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : '')
     + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동 · 키: ↑ 앞, ↑ 누른 채 ←/→ 아크(←/→ 단독·↓ 는 서버가 0으로 막음)') + ` · 주의: ${RELURCH}`;
   const chip = (k: string, val: string, good: boolean) => ({ k, v: val, st: good ? 'ok' : 'warn', mark: good ? '●' : '▲' });
-  const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer });   // ② 작은 단계 표시(모드·motion 은 그대로)
+  const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer, block: no });   // ② 작은 단계 표시(모드·motion 은 그대로)
   const mApi = api.current, robotMode = (mApi?.mode() || 'robot') === 'robot';
   const tog = (b: boolean, f: (x: boolean) => void, t: string) => ({ className: 'layer', 'aria-pressed': b, title: t, onClick: () => f(!b) });
 

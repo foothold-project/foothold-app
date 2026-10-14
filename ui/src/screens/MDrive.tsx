@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL, UNSUP, WHY } from '../data/facts';
-import { ask, camURL, dropAll, linkView, sendOp, showSimStop, stateRows, stopSim, TRAIL, useLink } from '../data/link';
+import { ask, camURL, driveBlock, dropAll, linkView, sendOp, showSimStop, stateRows, stopSim, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs, useMedia } from '../data/shared';
 import { MARK, STEPS, stageOf, warnsOf } from '../data/drive_stage';
 import { href } from '../data/hist';
@@ -54,7 +54,7 @@ export default function MDrive() {
   };
 
   // ②③ 단계·경고 목록(data/drive_stage — 서버 원값만, 자동 take/resume 0). 가운데 알림 = 가장 중요한 경고 1개 + «목록 N» + 기존 큰 버튼
-  const sIn = { linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer };
+  const sIn = { linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer, block: driveBlock(L) };
   const W = warnsOf(sIn), stg = stageOf(sIn), top = W[0];
   useEffect(() => { if (!W.length) setList(false); }, [W.length]);   // 경고가 없어지면 목록 자동 닫힘
   const btns: JSX.Element[] = [];

@@ -128,6 +128,22 @@ test('WS close → 즉시 끊김·보기 전용, 4401 은 다시 잇지 않음',
   expect(L.useLink.getState().open).toBe(false); expect(L.linkView(L.useLink.getState()).linkOk).toBe(false); expect(L.driveBlock()).toMatch('링크');
 });
 
+test('단계 «조종 가능» = 실제 driveBlock null 일 때만(새 판·형식 이상·STOP ACK 전 각각 가능 표시 0)', async () => {
+  const { stageOf } = await import('../../src/data/drive_stage');
+  const stage = () => { const s = L.useLink.getState(), v = L.linkView(s);
+    return stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st: s.st, viewOnly: s.viewOnly, fallen: false, newVer: !!v.newVer, block: L.driveBlock(s) }); };
+  const able = () => { const g = stage(); return g.i === 3 && g.stop === null; };
+  const old = sock; step(10000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve();   // 앞 시험이 끊은 연결 → 재연결
+  sock.readyState = 1; sock.onopen?.();
+  L.sendOp('take'); msg(ST()); expect(L.driveBlock()).toBeNull(); expect(able()).toBe(true);        // 기준: 정상 안내 그대로
+  msg(ST({ ver: 'v2' })); expect(able()).toBe(false); expect(stage().stop).toMatch('새 판'); msg(ST());
+  L.useLink.setState({ bad: 'applied' }); expect(L.useLink.getState().st?.role).toBe('control');    // 옛 control·latch=false st 가 남은 형식 이상
+  expect(able()).toBe(false); expect(stage().stop).toMatch('상태 미확인'); L.useLink.setState({ bad: null });
+  L.sendStop(); msg(ST()); expect(L.driveBlock()).toBe('STOP 잠금'); expect(able()).toBe(false);     // ACK(latch=true) 전
+  msg(ST({ latch: true })); expect(stage()).toMatchObject({ i: 1, stop: null });
+  L.sendOp('resume'); msg(ST()); expect(able()).toBe(true);
+});
+
 test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', async () => {
   const SP = (o: any = {}) => ({ ok: true, why: '', busy: false, on: true, ledger_left: 2, last: null, ...o });
   const old = sock; step(10000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve();   // 앞 시험이 끊은 연결 → 재연결
@@ -141,9 +157,17 @@ test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', a
   expect(await L.stopSim(ST({ sim_stop: SP({ ok: false, why: '다른 기기가 조종 중' }) }) as any)).toContain('다른 기기가 조종 중');
   const asked: string[] = []; (globalThis as any).confirm = (t: string) => { asked.push(t); return false; };
   const n = sent.length;
-  expect(await L.stopSim(ST({ sim_stop: SP({ ledger_left: 0 }) }) as any)).toBe(null);
+  expect(await L.stopSim(ST({ sim_stop: SP({ ledger_left: 0, ledger_kind: 'online' }) }) as any)).toBe(null);
   expect(sent.slice(n).some((m) => m.op === 'sim_stop')).toBe(false);       // 취소 → 보내지 않음
-  expect(asked[0]).toContain('로봇 STOP 아님'); expect(asked[0]).toContain('남은 기동 0');
+  expect(asked[0]).toContain('로봇 STOP 아님'); expect(asked[0]).toContain('기존 체험(시뮬 시작) 원장 남은 0');
+  // 계약 sim_stop.ledger_kind: online/map 은 그 원장의 남은 수, 종류 미지정·남은 null 은 «원장 미확인»(남은 수를 지어내지 않음)
+  await L.stopSim(ST({ sim_stop: SP({ ledger_left: 0, ledger_kind: 'map' }) }) as any);
+  expect(asked[1]).toContain('지도 체험 원장 남은 0'); expect(asked[1]).toContain('«지도 체험 시작»');
+  for (const sp of [SP({ ledger_left: 0 }), SP({ ledger_left: null, ledger_kind: 'online' })]) {
+    asked.length = 0; await L.stopSim(ST({ sim_stop: sp }) as any);
+    expect(asked[0]).toContain('켜진 쪽 원장 미확인'); expect(asked[0]).not.toContain('남은');
+  }
+  expect(sent.slice(n).some((m) => m.op === 'sim_stop')).toBe(false);
   (globalThis as any).confirm = () => true;
   const p = L.stopSim(ST({ sim_stop: SP() }) as any);
   const q = last(sent); expect(q.op).toBe('sim_stop');

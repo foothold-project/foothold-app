@@ -8,7 +8,8 @@ export const STEPS = ['보기', '조종권', 'STOP 해제', '조종 가능'] as 
 export type Stage = { i: number; stop: string | null; next: string };
 export type Lvl = 'block' | 'warn' | 'info';
 export type Warn = { lvl: Lvl; text: string; fix: string };
-export type In = { linkOk: boolean; linkTxt: string; st: Status | null; viewOnly: boolean; fallen: boolean; newVer: boolean };
+// block = 실제 발행 판정 data/link driveBlock(L) 결과 그대로 — «조종 가능»은 이것이 null 일 때만(새 판·형식 이상·STOP ACK 전 stopHeld 포함)
+export type In = { linkOk: boolean; linkTxt: string; st: Status | null; viewOnly: boolean; fallen: boolean; newVer: boolean; block: string | null };
 
 const SIM_OFF = ['시뮬 상태 미수신', '시뮬 상태 끊김'];
 const ctlOf = (x: In) => !!x.st && x.st.role === 'control' && !x.viewOnly;
@@ -22,15 +23,16 @@ export function stageOf(x: In): Stage {
   if (st.role === 'view_other') return { i: 0, stop: '다른 기기가 조종 중', next: '그 기기가 반납하면 «조종권 받기»' };
   if (!ctlOf(x)) return { i: 0, stop: null, next: '«조종권 받기»(또는 막대 한 번)' };
   if (st.latch) return { i: 1, stop: null, next: '«STOP 해제» → 손 떼고 다시 누르면 움직임' };
+  if (x.block) return { i: 2, stop: x.block, next: '명령 0 — 이 이유가 풀려야 움직임' };   // 표시만 앞서가지 않게: 실제 차단과 모순 0
   return { i: 3, stop: null, next: '누르는 동안 이동 · 떼면 0' };
 }
 
 const RANK: Record<Lvl, number> = { block: 0, warn: 1, info: 2 };
-/** 경고 목록: block = 지금 명령 0, warn = 주의, info = 안내. 중요한 것부터(같은 등급은 넣은 순서) */
+/** 경고 목록: block = 지금 명령 0(driveBlock 과 같은 사실), warn = 주의(명령은 막지 않음), info = 안내. 중요한 것부터(같은 등급은 넣은 순서) */
 export function warnsOf(x: In): Warn[] {
   const st = x.st, ctl = ctlOf(x), w: Warn[] = [];
   const add = (lvl: Lvl, text: string, fix: string) => w.push({ lvl, text, fix });
-  if (x.newVer && st) add('info', `새 화면 판(${st.ver}) 반영됨`, '조종하지 않을 때 새로고침');
+  if (x.newVer && st) add('block', `새 화면 판(${st.ver}) · 명령 0`, '조종하지 않을 때 새로고침');   // driveBlock 이 실제로 막음
   if (!x.linkOk || !st) add('block', `링크 ${x.linkTxt} · 명령 0`, '휴대폰 네트워크·관문 PC 확인 — 다시 붙으면 보기 전용부터');
   else {
     if (st.sim_block) add('block', `${st.sim_block} · 명령 0`, SIM_OFF.includes(st.sim_block) ? '«시뮬 시작»(STOP 상태로 시작) 또는 RL 쪽 상태 확인' : '서버 이유가 풀릴 때까지 대기');
@@ -38,7 +40,7 @@ export function warnsOf(x: In): Warn[] {
     else if (st.resume_pending) add('block', 'STOP 해제 확인 대기 · 명령 0', '서버 확인 대기');
     else if (st.latch) add('block', 'STOP 잠금 · 명령 0', ctl ? '«STOP 해제» 뒤 손 떼고 다시 누름' : '«조종권 받기» 뒤 «STOP 해제»');
     if (st.latch) add('warn', RELURCH, '정지 직후 주변을 비워 두기 · 원인 미확인');
-    if (x.fallen) add('block', '넘어짐', '«시뮬 리셋»(조종권 필요)');
+    if (x.fallen) add('warn', '넘어짐 · 명령은 막지 않음', '필요하면 «STOP» 뒤 «시뮬 리셋»(조종권 필요)');   // 낙상만으로는 Core·driveBlock 이 막지 않음(기존 계약) — 새 차단 0
     if (st.reason && !st.latch && !st.sim_block && st.reason !== '조종권 없음') add('warn', st.reason, '서버가 준 이유 — 메뉴 «상태 원값»에서 확인');
     if (st.role === 'view_other') add('info', `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''} · 보기 전용`, '그 기기가 반납하면 «조종권 받기»');
     else if (!ctl) add('info', '보기 전용', '«조종권 받기»(또는 막대 한 번)');

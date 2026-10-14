@@ -33,12 +33,12 @@
 - 수락: 옛 관문(경로 없음 → HTML 200) = «관문 확인 못 함»(성공 아님) · 잘못된 주소 = 형식 단계에서 멈춤 · 로그인 실패는 로그인 단계에만.
 
 ## ② 조종 단계 (공용 `data/drive_stage.ts`)
-- 입력: 서버 `role`·`latch`·`resume_pending`·`reset_pending`·`sim_block`·링크 신선도·`viewOnly`.
-- 단계: 보기 → 조종권 → STOP 해제 → 조종 가능. 막힘(링크 끊김·시뮬 막힘·리셋 중·해제 대기·다른 기기)은 단계 대신 이유.
+- 입력: 서버 `role`·`latch`·`resume_pending`·`reset_pending`·`sim_block`·링크 신선도·`viewOnly` + 실제 발행 판정 `driveBlock(L)` 결과(`block`).
+- 단계: 보기 → 조종권 → STOP 해제 → 조종 가능. 막힘(링크 끊김·시뮬 막힘·리셋 중·해제 대기·다른 기기)은 단계 대신 이유. «조종 가능»은 `driveBlock(L) === null` 일 때만 — 새 판·형식 이상(옛 st 남음)·STOP 직후 ACK 전(stopHeld)이면 그 이유를 표시(명령·Core 변경 0).
 - «다음 행동» 한 줄. 자동 take/resume 0 — 버튼은 기존 것(사람이 누름).
 
 ## ③ 경고 목록 (같은 파일)
-- 항목: `{lvl: 'block'|'warn'|'info', text, fix}`. block = 지금 명령 0, warn = 주의, info = 안내.
+- 항목: `{lvl: 'block'|'warn'|'info', text, fix}`. block = 지금 명령 0(driveBlock 이 실제로 막는 사실만 — 새 판 포함), warn = 주의(명령은 막지 않음), info = 안내. 넘어짐 단독은 warn(Core·driveBlock 이 낙상만으로 막지 않는 기존 계약, 새 안전 차단 0) + 필요 시 수동 STOP→시뮬 리셋 안내.
 - 폰: 가운데 알림 = 가장 높은 항목 1줄(`■/▲/●` 문구 — 해결) + 2개 이상이면 «목록 N» + 기존 큰 버튼(새로고침·시뮬 시작·조종권 받기·STOP 해제·시뮬 리셋). «목록 N» → dropAll → 가운데 알림 자리(top 150, 폭 420, 최대 200 px, 스크롤)에 목록(항목별 «해결: …») + 같은 큰 버튼 + «목록 닫기». 목록이 열린 동안 가운데 알림은 숨김(버튼 가림 0). 경고 0 이면 자동 닫힘. STOP 과 겹치지 않음(헤드리스 실측: 목록 212–632 × 150–350, STOP 668–800 × 14–78, STOP 중심 elementFromPoint = STOP).
 - 단계 표시: 첫 HUD 칩이 «보기 › 조종권 › STOP 해제 › 조종 가능»(지금 칸 진하게, 막힘이면 주황) · aria-label/title 에 막힘 이유·다음 행동.
 - PC: 기존 mode·motion 줄 유지, 칩에 «단계 …» 하나만 추가(작은 변경).
