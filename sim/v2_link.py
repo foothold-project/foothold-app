@@ -2491,7 +2491,15 @@ def main():
     q1 = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST)
     node.create_subscription(String, '/v2_map/points_view', lambda m: views.on_points(m.data), q1)
     node.create_subscription(String, '/v2_map/follow_cam', lambda m: views.on_follow(m.data), q1)
-    threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
+    # spin 은 명시 executor + 짧은 spin_once 반복: 끝낼 때 멈춤 → join(진행 중 콜백 끝남) → 그 뒤에 node·context 파괴.
+    # (옛: daemon rclpy.spin 을 둔 채 destroy → 대기 중인 rcl 스레드와 경합, INT 종료 rc -6 «terminate called without an active exception»)
+    from rclpy.executors import SingleThreadedExecutor
+    ex = SingleThreadedExecutor(); ex.add_node(node); spin_stop = threading.Event()
+
+    def spin_loop():
+        while not spin_stop.is_set() and rclpy.ok():
+            ex.spin_once(timeout_sec=0.1)
+    spin_t = threading.Thread(target=spin_loop, daemon=True); spin_t.start()
 
     last_stop_pub = [0.0]
 
@@ -2872,7 +2880,19 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        t = Twist(); pub_cmd.publish(t)            # 끝낼 때 0 한 번
+        t = Twist(); pub_cmd.publish(t)            # 끝낼 때 0 한 번 — RELIABLE 구독자 확인(ack)을 최대 1 s 기다림(받았다는 보장은 아님)
+        try:
+            from rclpy.duration import Duration; pub_cmd.wait_for_all_acked(Duration(seconds=1.0))
+        except Exception:
+            pass
+        spin_stop.set(); spin_t.join(3.0)          # 진행 중 콜백이 끝난 뒤에만 파괴
+        if spin_t.is_alive():                      # 콜백이 3 s 넘게 도는 중 — 지금 파괴하면 경합. 강제 종료 없이 끝날 때까지 보류
+            print('v2_link 종료: spin 콜백 3 s 안에 안 끝남 — node/context 파괴 보류, 콜백 끝날 때까지 대기(INT 만 지원 · 더 걸리면 TERM 은 기본 종료=한계)', flush=True)
+            spin_t.join()
+            print('v2_link 종료: spin 콜백 끝남 — 파괴 진행', flush=True)
+        if not ex.shutdown(timeout_sec=1.0):       # executor 가 아직 일하는 중이면 파괴 0, 종료 미확인으로 남김(rc 3)
+            print('v2_link 종료 미확인: executor shutdown 시간 초과 — node/context 파괴 안 함', flush=True)
+            sys.exit(3)
         node.destroy_node(); rclpy.try_shutdown()
 
 
