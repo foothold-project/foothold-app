@@ -8,6 +8,7 @@ import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.net.ConnectException;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.CertPathValidatorException;
@@ -16,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLPeerUnverifiedException;
 import org.junit.Test;
 
 /**
@@ -437,6 +439,87 @@ public class FhGateCoreTest {
 
     @Test public void httpsTransportRefusesPlainHttp() {
         try { new FhGateCore.HttpsTransport().send("GET", "http://127.0.0.1:1/", new HashMap<>(), null, 10); fail(); }
+        catch (IOException e) { assertEquals("https 만", e.getMessage()); }
+    }
+
+    // ── probe(로그인 전 도달·인증서·서버 호환, 계약 §1) ──
+    static final String HEALTH = "{\"app\":\"foothold-gate\",\"api\":1}";
+
+    @Test public void probeSendsNoTokenAndLeavesSessionAlone() throws Exception {
+        FhGateCore c = loggedIn();
+        long g = c.gen(); String v = vault.v;
+        net.a = r -> json(200, HEALTH);
+        FhGateCore.Probe p = c.probe(c.ctx());
+        assertEquals(200, p.status); assertEquals(Integer.valueOf(1), p.api); assertEquals(g, p.gen);
+        Req r = net.reqs.get(0);
+        assertEquals("GET", r.method); assertEquals(GATE + "/api/app/health", r.url); assertNull(r.body); assertEquals(FhGateCore.PROBE_MAX, r.max);
+        assertEquals("https://localhost", r.h.get("Origin"));
+        assertFalse("토큰을 보내면 안 됨", r.h.containsKey("Authorization"));
+        for (String val : r.h.values()) assertFalse(val.contains(TOK));
+        net.a = q -> json(401, "{}");                                   // 401 이어도 세션을 끝내지 않는다(토큰을 안 보냈으니 세션 판정 근거 아님)
+        assertEquals(401, c.probe(c.ctx()).status);
+        assertEquals(g, c.gen()); assertEquals(true, c.state().get("loggedIn")); assertEquals(v, vault.v);
+    }
+
+    @Test public void probeCompatOnlyForExactHealthBody() throws Exception {
+        FhGateCore c = fresh(NOW);
+        c.setGate(GATE);
+        net.a = r -> json(200, "{\"api\":3,\"app\":\"foothold-gate\"}");
+        assertEquals(Integer.valueOf(3), c.probe(c.ctx()).api);
+        String[] bad = {"{\"app\":\"foothold-gate\",\"api\":1,\"x\":1}", "{\"app\":\"other\",\"api\":1}", "{\"app\":\"foothold-gate\",\"api\":\"1\"}",
+                "{\"app\":\"foothold-gate\",\"api\":1.5}", "{\"app\":\"foothold-gate\",\"api\":0}", "{\"app\":\"foothold-gate\",\"api\":true}",
+                "{\"app\":\"foothold-gate\",\"api\":1} x", "[1]", "", "<html>", "{\"app\":\"foothold-gate\"}"};
+        for (String b : bad) { net.a = r -> json(200, b); FhGateCore.Probe p = c.probe(c.ctx()); assertEquals(b, 200, p.status); assertNull(b, p.api); }
+        for (int st : new int[]{404, 403, 429, 500, 502}) { net.a = r -> json(st, HEALTH); FhGateCore.Probe p = c.probe(c.ctx()); assertEquals(st, p.status); assertNull(p.api); }   // 닿음·인증서 OK, 호환 아님
+    }
+
+    @Test public void probeFailuresAreStagesNotSuccess() throws Exception {
+        FhGateCore c = fresh(NOW);
+        assertEquals("no_gate", code(() -> c.probe(c.ctx())));
+        assertEquals("bad_input", code(() -> c.setGate("https://gate.example.org:18453/api")));   // 형식 틀린 주소는 저장도 시험도 안 됨
+        assertEquals(0, net.reqs.size());
+        c.setGate(GATE);
+        Object[][] cases = {{new ConnectException("refused"), "net"}, {new SocketTimeoutException("t"), "net"}, {new UnknownHostException("h"), "net"},
+                {new IOException("deadline"), "net"}, {new SSLHandshakeException("wrong CA"), "tls"}, {new SSLPeerUnverifiedException("SAN"), "tls"},
+                {new IOException(new CertPathValidatorException("x")), "tls"}, {new IOException("too_big"), "too_big"}};
+        for (Object[] k : cases) { net.a = r -> { throw (IOException) k[0]; }; assertEquals(String.valueOf(k[0]), k[1], code(() -> c.probe(c.ctx()))); }
+        net.a = r -> json(301, "");
+        assertEquals("redirect", code(() -> c.probe(c.ctx())));
+        net.a = r -> json(200, HEALTH);
+        assertEquals(Integer.valueOf(1), c.probe(c.ctx()).api);          // 실패 뒤에도 진행 표시가 풀려 다시 됨
+    }
+
+    @Test public void probeLateAnswerAfterGateChangeLogoutOrCloseIsStale() throws Exception {
+        String[] ends = {"gate", "logout", "close"};
+        for (String e : ends) {
+            FhGateCore c = loggedIn();
+            FhGateCore.Ctx ctx = c.ctx();
+            net.a = r -> { if (e.equals("gate")) c.setGate(GATE_B); else if (e.equals("logout")) c.endLocal(); else c.close(); return json(200, HEALTH); };
+            FhGateCore.GateError x = err(() -> c.probe(ctx));
+            assertEquals(e, "stale", x.code); assertEquals(e, ctx.gen, x.gen);
+        }
+        FhGateCore c = fresh(NOW);                                        // 받은 뒤 실행 전에 주소가 바뀌면 보내지 않음
+        c.setGate(GATE);
+        FhGateCore.Ctx old = c.ctx();
+        c.setGate(GATE_B);
+        net.reqs.clear();
+        assertEquals("stale", code(() -> c.probe(old)));
+        assertEquals(0, net.reqs.size());
+    }
+
+    @Test public void probeOneAtATime() throws Exception {
+        FhGateCore c = fresh(NOW);
+        c.setGate(GATE);
+        String[] inner = {null};
+        net.a = r -> { inner[0] = code(() -> c.probe(c.ctx())); return json(200, HEALTH); };
+        c.probe(c.ctx());
+        assertEquals("busy", inner[0]); assertEquals(1, net.reqs.size());
+        net.a = r -> json(200, HEALTH);
+        c.probe(c.ctx());                                                 // 끝나면 다시 됨
+    }
+
+    @Test public void httpsTransportShortRefusesPlainHttp() {
+        try { new FhGateCore.HttpsTransport().sendShort("http://127.0.0.1:1/", new HashMap<>(), 10); fail(); }
         catch (IOException e) { assertEquals("https 만", e.getMessage()); }
     }
 }

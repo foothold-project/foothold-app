@@ -38,4 +38,7 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- QR 주소 스캔: 화면(WebView getUserMedia)이 카메라를 쓰면 Capacitor 브리지가 이 권한을 런타임에 묻는다. 거절 = 화면이 붙여넣기로. 카메라 없는 기기도 설치되게 required=false -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

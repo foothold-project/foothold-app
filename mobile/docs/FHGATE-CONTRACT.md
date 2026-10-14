@@ -24,6 +24,7 @@ export interface FhGate {
   state(): Promise<FhState>;
   setGate(o: { origin: string }): Promise<FhState & { wiped: boolean }>;  // 바뀌면 로컬 로그아웃(gen+1)·기기 값 삭제
   login(o: { user: string; pw: string; label?: string }): Promise<{ account: string; device6: string; exp: number; gen: number; stored: boolean }>;   // gen = 로그인 뒤 새 gen
+  probe(): Promise<{ status: number; compat: boolean; api: number | null; gen: number }>;   // 10-14 REA P1 — 아래 «probe»
   request(o: { op: 'whoami' | 'docs.get' | 'docs.post' | 'media.list'; body?: object }): Promise<{ status: number; body: string; gen: number }>;
   photo(o: { path: string }): Promise<{ status: 200 | 404; gen: number; mime?: 'image/jpeg'; base64?: string }>;
   wsTicket(): Promise<{ url: string; gen: number }>;                        // wss://<관문>/api/app/ws?t=<1회용 표>
@@ -38,6 +39,12 @@ export interface FhGate {
 - `busy`: 같은 gen 에 로그인이 이미 진행 중, 또는 대기 칸(실행 2 + 대기 8) 이 참 — 바로 거부, 재시도는 화면 판단. `internal`: 예기치 않은 네이티브 예외(Promise 를 남기지 않으려는 고정 코드) — 호출 문맥이 현재일 때만. 이미 옛 문맥이면 `stale`(gen 은 호출 문맥 그대로, `unexpectedIsInternalOnlyForCurrentContext`). `storage`: `locked` 상태.
 - `request().body` 는 관문 응답 본문 글 그대로 — 화면이 `JSON.parse`. `docs.post` 는 200·400·403·404·409(`cur`)·500·503 을 **reject 하지 않고** `status` 로 넘긴다(기존 `/api/docs` 화면 처리 그대로). 어댑터는 어느 요청도 재시도하지 않는다.
 - `photo` 는 `path` 가 `^media/photos/\d{8}/[\w.-]{1,80}\.jpg$`(ASCII) 이고 `..` 가 없을 때만(v2_link 문서 검사 `PHOTO` 와 같은 꼴 — `/api/media` 의 `url` 이 이 모양) 네트워크에 간다. 화면: `base64` → `Uint8Array` → `Blob` → `URL.createObjectURL`, 목록에서 빠질 때·화면 떠날 때·로그아웃 때 `revokeObjectURL`.
+- **probe (10-14, REA P1 #1)** — 로그인 **전** 단계 확인. 인자 없음: 지금 `setGate` 된 origin 만 시험(임의 URL 0). 없으면 `no_gate`.
+  - 요청 `GET <origin>/api/app/health`, 헤더 `Origin`·`Accept` 만 — **`Authorization` 은 로그인 중이어도 안 붙인다**. 본문 ≤ 4 KB, redirect 안 따라감(3xx → `redirect`), 동시 1개(진행 중 `busy`), 기존 io 큐(실행 2 + 대기 8). 시한: 연결 4 s + 읽기 4 s, 본문 포함 전체 8 s 검사(본문을 흘려 보내면 마지막 읽기 한 번만큼 넘을 수 있음).
+  - **resolve = TCP 닿음 + 인증서 신뢰(시스템 + dev CA 한 장, SAN 일치) + HTTP 응답 있음.** 로그인 성공·로봇 준비가 아니다. `compat` = status 200 이고 본문이 정확히 `{"app":"foothold-gate","api":<정수 ≥ 1>}`(키 두 개, 뒤 글 없음) — 그 밖(404 옛 관문·429 상한·5xx·다른 본문)은 `compat:false`, `api:null`. 401·403 이어도 세션을 끝내지 않는다(토큰을 안 보냈으므로).
+  - reject: `net`(접속 거부·시간 초과·DNS·경로 없음) · `tls`(다른 CA·SAN 불일치) · `redirect` · `too_big` · `busy` · `stale`(probe 중 주소 변경·로그아웃·화면 재생성 → 늦은 응답 버림, gen = 호출 순간). 화면 단계: net = 도달, tls = 인증서, compat false = 관문 판 확인 불가. 화면은 `typeof FhGate.probe === 'function'` 일 때만 부른다(옛 APK 대비).
+  - 서버(UI mentor 소유): 관문 `GET /api/app/health` 공개(기존 `/api/app` 의 Origin·Host 검사), 본문 두 키뿐, `no-store`, IP 당 60 s 60회(429). whoami·login 으로 시험하지 않는다.
+- **접속 프로필·QR (10-14 합의, 네이티브 저장 0)** — 프로필(LAN / Tailscale)은 화면 `localStorage` `{v:1, profiles ≤ 8: {id, name ≤ 40, kind, origin}}`, 비밀 0. 쓸 때 `setGate` 가 origin 을 다시 검사한다(저장 ≠ 도달 ≠ 로그인). QR 은 **평문 origin 만** 만들고 받는다(계정·비밀번호·토큰·WS 표 0). 앱 안 스캔은 화면 `getUserMedia` + `BarcodeDetector`(없으면 버튼 숨김) — 네이티브는 매니페스트 `CAMERA` 권한 + `uses-feature camera required=false` 뿐(Capacitor 8.5.2 `BridgeWebChromeClient` 가 WebView 카메라 요청 때 런타임 권한을 묻고 거절이면 deny). 시스템 카메라 앱 → 앱 deep link 는 범위 밖. 실폰 카메라·권한창·WebView `BarcodeDetector` 지원은 미측정.
 - **저장 `saveFile` (B2)** — Android 시스템 «다른 이름으로 저장» 창(SAF `ACTION_CREATE_DOCUMENT`)을 띄워 사람이 고른 곳에 쓴다. 로그인 세션과 무관(로컬 파일만, 네트워크 0).
   - `name`: ASCII `^foothold-v2-[a-z]{1,20}-[0-9]{10,16}\.(csv|json|jpg)$` 만(화면 `saveBlob` 이 이미 쓰는 꼴, 예 `foothold-v2-history-<ms>.csv`). 경로·URL·대문자·다른 확장자는 `bad_input`. 형식(MIME)은 확장자로 정한다 — `mime` 인자는 받지 않는다(csv `text/csv`, json `application/json`, jpg `image/jpeg`).
   - 내용: `base64`·`text` 중 **정확히 하나**. jpg 는 `base64` 만(시작 표지 FF D8 FF 검사). csv·json 은 둘 다 됨 — 화면 `saveBlob` 은 `base64`(Blob → base64) 하나로 보내면 된다. json 은 객체·배열 하나로 끝까지 파싱돼야 한다. 빈 내용 `bad_input`.
@@ -91,6 +98,7 @@ export interface FhGate {
 | 대기 상한 | `ThreadPoolExecutor` 실행 2 + 대기 8(`ArrayBlockingQueue`), 넘치면 `busy`, 예기치 않은 예외 `internal` — 2 스레드는 처리량일 뿐 우선 처리 보장 아님 | 정적 빌드만(플러그인은 Android 의존이라 JVM 시험 밖) |
 | 시한 | 연결 5 s · 읽기 1회 10 s · 본문 읽는 동안 전체 20 s(`deadline` → `net`). 응답 헤더 전까지는 연결·읽기 시한만 적용 | `classifyNativeErrors` |
 | 고정 op·경로·TLS·redirect | `OPS` 4개 + 사진 정규식(v2_link 와 같은 꼴) + `HttpsURLConnection` 기본 검사·`setInstanceFollowRedirects(false)` | `requestUses…`·`photoPathCheckedBeforeAnyNetwork`·`httpsTransportRefusesPlainHttp` |
+| probe(10-14) | `FhGateCore.probe`(인자 없음·`Authorization` 0·`sendShort` 4 s/4 s/8 s·`healthApi` 정확 일치·동시 1·`staleCheck`) + 플러그인 `probe` | `FhGateCoreTest` 6개: 토큰 미전송·401 에도 세션 유지 · 호환 본문 정확 일치(11 반례·404/403/429/500/502 = compat false) · net/tls/too_big/redirect 단계(8 예외) · 주소 변경·로그아웃·파괴 뒤 늦은 응답 stale·실행 전 바뀌면 안 보냄 · 동시 busy · `sendShort` http 거부. 결함 주입 2종(토큰 붙이기·staleCheck 빼기)을 해당 시험이 잡음. 플러그인 층은 빌드만 |
 | 저장(B2) | `FhSave`(순수: 이름·종류·JSON·JPEG 표지·5 MB·쓰고 닫기) + 플러그인 `saveFile`→SAF 창→`saveDone`(`@ActivityCallback`)→io 스레드 `openOutputStream(u,"wt")`→close 뒤 resolve, 실패 `deleteDocument` 시도. 결과에 URI·경로 없음 | `FhSaveTest` 6개(`saveKeepsItsOwnContext` — 끝내는 사건 3종 × 쓰기 전·중·뒤: gen 은 원 문맥, 지우기는 ①② 만, ③ 은 완성 파일 유지. `fixedNamesOnly` 3 통과·12 거부, `kindMustMatchField`, `jsonMustParseToTheEnd`, `sizeCap`, `writeSucceedsOnlyAfterClose` 쓰기·flush·close 실패 각각). 플러그인 층은 정적 빌드만 |
 | 로그아웃·주소 변경 | 로컬 먼저, 서버는 뒤에서 1회(실패 = `failed`), 다른 origin 이면 기기 값도 삭제·옛 관문으로 로그아웃 | `logoutIsLocalFirst…`·`gateChangeWipesSessionAndDevice` |
 

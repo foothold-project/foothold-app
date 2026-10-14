@@ -28,6 +28,7 @@ import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
+import org.json.JSONObject;
 
 /**
  * JS ↔ FhGateCore 연결(얇게). 계약: mobile/docs/FHGATE-CONTRACT.md
@@ -97,6 +98,18 @@ public class FhGatePlugin extends Plugin {
             FhGateCore.Result res = core.request(c, op, body == null ? null : body.toString());
             JSObject r = new JSObject();
             r.put("status", res.resp.status); r.put("body", res.resp.text()); r.put("gen", res.gen);
+            done(call, c, r);
+        });
+    }
+
+    /** 로그인 전 도달·인증서·서버 호환 확인. 인자 없음(지금 관문만), 토큰 안 보냄. resolve ≠ 로그인 성공. */
+    @PluginMethod
+    public void probe(PluginCall call) {
+        FhGateCore.Ctx c = core.ctx();
+        run(call, c, () -> {
+            FhGateCore.Probe p = core.probe(c);
+            JSObject r = new JSObject();
+            r.put("status", p.status); r.put("compat", p.api != null); r.put("api", p.api == null ? JSONObject.NULL : p.api); r.put("gen", p.gen);
             done(call, c, r);
         });
     }

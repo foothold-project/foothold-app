@@ -28,6 +28,7 @@ import javax.net.ssl.HttpsURLConnection;
 import javax.net.ssl.SSLException;
 import org.json.JSONException;
 import org.json.JSONObject;
+import org.json.JSONTokener;
 
 /**
  * B 연결 어댑터의 핵심(안드로이드 의존 없음 — JVM 단위 시험 대상). 계약: mobile/docs/FHGATE-CONTRACT.md
@@ -46,6 +47,11 @@ public final class FhGateCore {
     public interface Transport {
         /** redirect 를 따라가지 않고 maxBytes 를 넘는 본문은 IOException("too_big"). */
         Resp send(String method, String url, Map<String, String> headers, byte[] body, int maxBytes) throws IOException;
+
+        /** probe 전용 짧은 시한 GET. 기본 구현은 일반 send(시험용 가짜는 이것만 구현하면 된다). */
+        default Resp sendShort(String url, Map<String, String> headers, int maxBytes) throws IOException {
+            return send("GET", url, headers, null, maxBytes);
+        }
     }
 
     public interface Vault {   // 세션 한 덩어리(JSON 글)를 암호화해 보관. 둘 다 «디스크에 반영됐을 때만» true
@@ -123,6 +129,7 @@ public final class FhGateCore {
     public static final int PHOTO_MAX = 5 << 20;
     static final double EXP_MAX_AHEAD = 31 * 86400;         // 관문 TTL(기본 12 h)보다 넉넉한 상한 — 이보다 먼 만료는 형식 오류로 본다
     static final int TICKET_TTL_MAX = 30;
+    static final int PROBE_MAX = 4096;                       // /api/app/health 본문은 두 키뿐
     // v2_link 문서 검사(PHOTO: media/photos/\d{8}/[\w.-]{1,80}\.jpg + '..' 금지)와 같은 모양. Java \w 는 ASCII 만 — 더 좁은 쪽은 안전
     static final Pattern PHOTO = Pattern.compile("^media/photos/\\d{8}/[\\w.-]{1,80}\\.jpg$");
     static final Pattern TOKEN = Pattern.compile("^[A-Za-z0-9_-]{16,256}$");
@@ -156,6 +163,7 @@ public final class FhGateCore {
     private String origin, token, device, account;
     private double exp;
     private long gen;
+    private boolean probing;          // probe 동시 1개
     private long loginGen = -1;       // 진행 중 로그인이 시작된 gen. 같은 gen 에 두 번째 로그인은 busy
     private boolean closed;           // 인스턴스 수명 끝(Activity 파괴) — 이후 모든 호출 stale, 보관소 쓰기 없음
     private boolean stored = true;    // 현재 세션이 디스크에 있나
@@ -316,6 +324,53 @@ public final class FhGateCore {
         return res;
     }
 
+    // ── 로그인 전 확인(계약 §1 probe) — 토큰을 절대 안 보낸다. resolve 는 «닿음 + 인증서 신뢰 + HTTP 응답»일 뿐, 로그인·로봇 준비가 아니다 ──
+    public static final class Probe {
+        public final int status; public final Integer api; public final long gen;   // api = 호환 본문일 때만(아니면 null = compat false)
+        Probe(int status, Integer api, long gen) { this.status = status; this.api = api; this.gen = gen; }
+    }
+
+    public Probe probe(Ctx c) throws GateError {
+        synchronized (this) {
+            if (closed || c.gen != gen) throw new GateError("stale", "취소된 호출 — 보내지 않음", c.gen);
+            if (c.origin == null) throw new GateError("no_gate", "관문 주소 먼저", c.gen);
+            if (probing) throw new GateError("busy", "연결 확인 진행 중", c.gen);
+            probing = true;
+        }
+        try {
+            Map<String, String> h = new LinkedHashMap<>();
+            h.put("Origin", appOrigin);
+            h.put("Accept", "application/json");                     // Authorization 없음 — 로그인 중이어도
+            Resp r;
+            try {
+                r = net.sendShort(c.origin + "/api/app/health", h, PROBE_MAX);
+            } catch (IOException e) {
+                throw netError(c, e);
+            }
+            staleCheck(c);                                           // 주소 변경·로그아웃·파괴 뒤 늦은 응답은 버림
+            if (r.status >= 300 && r.status < 400) throw statusError(r.status, c.gen);
+            return new Probe(r.status, healthApi(r), c.gen);
+        } finally {
+            synchronized (this) { probing = false; }
+        }
+    }
+
+    /** 200 이고 본문이 정확히 {"app":"foothold-gate","api":<정수 ≥ 1>} 일 때만 api, 아니면 null. */
+    static Integer healthApi(Resp r) {
+        if (r.status != 200) return null;
+        try {
+            JSONTokener t = new JSONTokener(r.text());
+            Object v = t.nextValue();
+            if (!(v instanceof JSONObject) || t.nextClean() != 0) return null;
+            JSONObject j = (JSONObject) v;
+            Object api = j.opt("api");
+            if (j.length() != 2 || !"foothold-gate".equals(j.opt("app")) || !(api instanceof Integer) || (Integer) api < 1) return null;
+            return (Integer) api;
+        } catch (JSONException e) {
+            return null;
+        }
+    }
+
     /** 1회용 WS 표가 든 주소. 표 자체는 ≤30 s·1회라 JS 에 넘긴다(장수명 토큰은 아님). */
     public Result wsTicket(Ctx c) throws GateError {
         Result res = authed(c, "POST", "/api/app/ws-ticket", new byte[0], JSON_MAX, codes(200));
@@ -370,11 +425,15 @@ public final class FhGateCore {
         try {
             return net.send(method, url, headers(tok), body, max);
         } catch (IOException e) {
-            staleCheck(c);   // 옛 문맥의 IO 오류는 원인 대신 stale
-            if ("too_big".equals(e.getMessage())) throw new GateError("too_big", "응답이 상한보다 큼", c.gen);
-            String k = classify(e);
-            throw new GateError(k, k.equals("tls") ? "관문 인증서를 믿을 수 없음 — 연결 안 함" : "관문에 닿지 않음", c.gen);
+            throw netError(c, e);
         }
+    }
+
+    private GateError netError(Ctx c, IOException e) throws GateError {
+        staleCheck(c);   // 옛 문맥의 IO 오류는 원인 대신 stale
+        if ("too_big".equals(e.getMessage())) return new GateError("too_big", "응답이 상한보다 큼", c.gen);
+        String k = classify(e);
+        return new GateError(k, k.equals("tls") ? "관문 인증서를 믿을 수 없음 — 연결 안 함" : "관문에 닿지 않음", c.gen);
     }
 
     private Map<String, String> headers(String tok) {
@@ -474,15 +533,25 @@ public final class FhGateCore {
 
         @Override
         public Resp send(String method, String url, Map<String, String> headers, byte[] body, int maxBytes) throws IOException {
+            return send(method, url, headers, body, maxBytes, 5000, 10000, TOTAL_MS);
+        }
+
+        // ponytail: probe 는 연결 4 s + 읽기 4 s, 본문 포함 전체 8 s 검사 — 본문을 흘려 보내면 마지막 읽기 한 번(≤ 4 s)만큼 넘을 수 있다
+        @Override
+        public Resp sendShort(String url, Map<String, String> headers, int maxBytes) throws IOException {
+            return send("GET", url, headers, null, maxBytes, 4000, 4000, 8000);
+        }
+
+        private Resp send(String method, String url, Map<String, String> headers, byte[] body, int maxBytes, int connectMs, int readMs, long totalMs) throws IOException {
             if (!url.startsWith("https://")) throw new IOException("https 만");
-            long deadline = System.nanoTime() + TOTAL_MS * 1_000_000L;
+            long deadline = System.nanoTime() + totalMs * 1_000_000L;
             HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
             if (!(c instanceof HttpsURLConnection)) throw new IOException("https 연결 아님");
             try {
                 c.setInstanceFollowRedirects(false);
                 c.setUseCaches(false);
-                c.setConnectTimeout(5000);
-                c.setReadTimeout(10000);
+                c.setConnectTimeout(connectMs);
+                c.setReadTimeout(readMs);
                 c.setRequestMethod(method);
                 for (Map.Entry<String, String> e : headers.entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
                 if (body != null && method.equals("POST")) {
