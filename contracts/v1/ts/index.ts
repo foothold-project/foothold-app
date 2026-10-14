@@ -78,6 +78,8 @@ export interface LiveMap {
   map_source?: "slam" | "gt_raster" | null;
   map_version?: string | null;
   epoch?: number | null;
+  floor_rev?: number | null;
+  floor?: Record<string, unknown> | null;
   sim_t?: number | null;
   scan?: Record<string, unknown> | null;
   slam?: string | null;
@@ -85,6 +87,9 @@ export interface LiveMap {
   grid?: LiveGrid | null;
   pose?: LivePose | null;
   pose_why?: string | null;
+  spawn_floor?: "f1" | "l1" | "l2" | null;
+  world_src_sha256?: string | null;
+  geom?: Record<string, unknown> | null;
 }
 
 export interface LivePose {
@@ -204,6 +209,12 @@ export interface OpCmd {
   fw: number;
 }
 
+export interface OpGeomGet {
+  op: "geom_get";
+  rid?: number | null;
+  building_id: "v5";
+}
+
 export interface OpMapGet {
   op: "map_get" | "height_get";
   rid?: number | null;
@@ -264,6 +275,9 @@ export interface Reply {
   map?: MapData | null;
   live?: Record<string, unknown> | null;
   height?: Record<string, unknown> | null;
+  geom?: Record<string, unknown> | null;
+  save?: Record<string, unknown> | null;
+  geom_sha256?: string | null;
   view?: Record<string, unknown> | null;
 }
 
@@ -466,7 +480,7 @@ export interface ZoneEnv {
   doc: Zone;
 }
 
-export type ClientOp = OpSimple | OpCmd | OpRid | OpMapGet | OpMapStart | OpViewGet;
+export type ClientOp = OpSimple | OpCmd | OpRid | OpMapGet | OpGeomGet | OpMapStart | OpViewGet;
 export type ServerMsg = Status | Reply;
 export type DocEnvelope = ZoneEnv | TmplEnv | MissionEnv | RunEnv | NoteEnv;
 export type DocWrite = DocPut | DocDel;

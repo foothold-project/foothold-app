@@ -75,14 +75,14 @@ def test_cmd_matches_valid_axes(m):
 def test_client_ops_match_gate():
     import v2_gate as G
     ops = set()
-    for M in (C.OpSimple, C.OpCmd, C.OpRid, C.OpMapGet, C.OpMapStart, C.OpViewGet):
+    for M in (C.OpSimple, C.OpCmd, C.OpRid, C.OpMapGet, C.OpMapStart, C.OpViewGet, C.OpGeomGet):
         ops |= set(M.model_fields['op'].annotation.__args__)
     assert ops == G.OPS
     for op in G.OPS:                                   # 미래 필드가 있어도 기존 op 를 거부하지 않는다
         m = {'op': op, 'v': 'fh-app/2', 'rid': 1, **({'fx': 0, 'fy': 0, 'fw': 0} if op == 'cmd' else {}),
              **({'building_id': 'v5', 'floor_id': 'l1', 'map_version': 'gt-20261012'} if op in ('map_get', 'height_get') else {}),
              **({'world_id': 'rooms_a', 'floor_id': 'f1', 'mode': 'slam'} if op == 'map_start' else {}),
-             **({'what': 'points'} if op == 'view_get' else {})}
+             **({'what': 'points'} if op == 'view_get' else {}), **({'building_id': 'v5'} if op == 'geom_get' else {})}
         TypeAdapter(C.ClientOp).validate_python(m)
 
 
@@ -176,3 +176,14 @@ def test_generated_ts_typechecks(tmp_path):
     r = subprocess.run([TSC, '--noEmit', '--strict', '--target', 'es2022', '--moduleResolution', 'bundler', '--module', 'esnext',
                         str(tmp_path / 'use.ts')], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_geom_limits_match_ui():
+    """건물 기하 한도·kind: 서버(v2_link GEOM_LIM·GEOM_KINDS) == 앱(ui/src/data/geom.ts) — 한쪽만 바뀌면 실패"""
+    import json, re
+    from pathlib import Path
+    import v2_link as L
+    ts = (Path(__file__).resolve().parents[2] / 'ui' / 'src' / 'data' / 'geom.ts').read_text()
+    lim = json.loads(re.sub(r'(\w+):', r'"\1":', re.search(r'GEOM_LIM = (\{[^}]*\})', ts).group(1)))
+    kinds = tuple(json.loads(re.search(r'const KINDS = (\[[^\]]*\])', ts).group(1).replace("'", '"')))
+    assert lim == L.GEOM_LIM and kinds == L.GEOM_KINDS

@@ -2,7 +2,7 @@
 import type { LiveMap, MapInfo } from '@contracts';
 import { ask } from './link';
 
-export type Raster = { img: CanvasImageSource; res: number; ox: number; oy: number; w: number; h: number; label: string };
+export type Raster = { img: CanvasImageSource; res: number; ox: number; oy: number; w: number; h: number; label: string; noGrid?: boolean };   // noGrid: 좌표가 하나가 아닌 그림(층 나란히) — 격자 안 그림
 const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 export const WORLD = { v5_single: '1층 건물', v5_building: '2층 건물', rooms_a: '새 매핑 공간' } as const;   // 화면 이름만(계약 id 그대로)
 export const FLOOR = { f1: '1층', l1: '1층', l2: '2층' } as const;
@@ -25,9 +25,35 @@ export function okInfo(m: any): m is MapInfo {
 /** 보기 선택 계층: 지형 → (2층 건물만) 층 → 버전. 지형 순서는 WORLD, 층은 WF, 버전은 받은 순서 */
 export const groupMaps = (ms: MapInfo[]) => (Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => ({ w, label: WORLD[w],
   items: WF[w].flatMap((f) => ms.filter((m) => m.world_id === w && m.floor_id === f)) })).filter((g) => g.items.length);
-export const verLabel = (m: MapInfo) => `${(WF[m.world_id]?.length || 0) > 1 ? `${FLOOR[m.floor_id as keyof typeof FLOOR]} · ` : ''}${m.map_source === 'gt_raster' ? 'GT 기하 지도(SLAM 아님)' : 'SLAM 저장 지도'} · ${m.map_version}`;
+/** 건물 «층 나란히 보기»(GT 기하 2D만 · 보기 전용 · 전체 3D 아님) 선택 키. 저장본 키(건물/층/버전)와 겹치지 않게 접두 all: */
+export const allKey = (w: string) => `all:${w}`;
+/** 층 나란히 보기에 쓸 층별 GT 지도 — 층마다 GT 1장(목록 첫 GT), 모든 층이 같은 원점·해상도·크기일 때만. 아니면 이유.
+ *  ponytail: 층마다 GT 버전이 여럿이면 첫 것만 — 버전 고르기는 GT 버전이 둘 이상 생기면 추가 */
+export function gtFloors(ms: MapInfo[], w: string): MapInfo[] | string {
+  const fl = WF[w] || [], gs = fl.map((f) => ms.find((m) => m.world_id === w && m.floor_id === f && m.map_source === 'gt_raster'));
+  if (fl.length < 2) return '층이 하나뿐 — 층 나란히 보기 없음';
+  const miss = fl.filter((_, i) => !gs[i]); if (miss.length) return `GT 기하 지도 없는 층: ${miss.map((f) => FLOOR[f as keyof typeof FLOOR] || f).join('·')}`;
+  const a = gs[0]!;
+  if (gs.some((m) => m!.resolution !== a.resolution || m!.width !== a.width || m!.height !== a.height || m!.origin.some((x, i) => x !== a.origin[i]))) return '층 GT 지도의 원점·해상도·크기가 달라 나란히 못 그림';
+  return gs as MapInfo[];
+}
+export const verLabel =(m: MapInfo) => `${(WF[m.world_id]?.length || 0) > 1 ? `${FLOOR[m.floor_id as keyof typeof FLOOR]} · ` : ''}${m.map_source === 'gt_raster' ? 'GT 기하 지도(SLAM 아님)' : 'SLAM 저장 지도'} · ${m.map_version}`;
 export const mapKey = (m: MapInfo) => `${m.building_id}/${m.floor_id}/${m.map_version}`;
 export const mapLabel = (m: MapInfo) => `${place(m.world_id, m.floor_id)} · ${m.map_source === 'gt_raster' ? 'GT 기하 지도(SLAM 아님)' : 'SLAM 저장 지도'} · ${m.map_version}`;
+
+/** 층별 GT 그림을 위(높은 층)→아래로 쌓은 보기 전용 그림 한 장. 층 사이 띠 + 층 이름. 좌표 하나로 못 읽음 → noGrid·위치 마커 0 */
+export function stackFloors(rs: Raster[], names: string[], label: string): Raster {
+  const a = rs[0], gap = Math.round(a.h * 0.06), c = document.createElement('canvas');
+  c.width = a.w; c.height = rs.length * a.h + (rs.length - 1) * gap; const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);   // 띠 = 흰색(어두운 테마에선 반전돼 어둡게 — 지도 그림과 같은 처리)
+  const fs = Math.max(14, Math.round(a.h * 0.045));
+  [...rs].reverse().forEach((r, i) => {   // rs 는 아래층부터 → 그림은 위층이 위
+    const y = i * (a.h + gap); g.drawImage(r.img, 0, y, a.w, a.h);
+    const t = names[rs.length - 1 - i]; g.font = `700 ${fs}px sans-serif`;
+    const tw = g.measureText(t).width; g.fillStyle = '#ffffff'; g.fillRect(4, y + 4, tw + 12, fs + 10); g.fillStyle = '#000000'; g.fillText(t, 10, y + fs + 6);
+  });
+  return { img: c, res: a.res, ox: a.ox, oy: a.oy, w: c.width, h: c.height, label, noGrid: true };
+}
 
 export async function listMaps(): Promise<MapInfo[] | string> {
   const r = await ask('map_list');

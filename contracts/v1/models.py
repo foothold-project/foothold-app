@@ -84,6 +84,13 @@ class OpMapGet(In):
     map_version: Annotated[str, Field(pattern=r'^(\d{8}-\d{6}-e\d+|gt-\d{8})$')]
 
 
+class OpGeomGet(In):
+    """건물 전체 GT 간략 기하(RL v2_building_geom/1, 읽기만 · 센서·주행 판정 아님). 10-15 root GO — 서버 --geom-root 안 정해진 파일만·≤512KB·엄격 검사·연결당 1건·5 s."""
+    op: Literal['geom_get']
+    rid: Rid = None
+    building_id: Literal['v5']
+
+
 class OpMapStart(In):
     """지도 체험 시작(RL start_map.sh 1회). 허용표·버전 규칙·원장·조종 상태는 서버가 다시 검사한다(docs/CONTRACT-maps-sim-stop.md 8절)."""
     op: Literal['map_start']
@@ -102,7 +109,7 @@ class OpViewGet(In):
     what: Literal['follow', 'points']
 
 
-ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet, OpMapStart, OpViewGet], Field(discriminator='op')]
+ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet, OpGeomGet, OpMapStart, OpViewGet], Field(discriminator='op')]
 
 # ---------------------------------------------------------------- WS 서버 → 화면
 
@@ -204,6 +211,8 @@ class LiveMap(Out):
     map_source: Optional[Literal['slam', 'gt_raster']] = None
     map_version: Optional[str] = None
     epoch: Optional[int] = None
+    floor_rev: Optional[int] = None         # 연결 건물 층 context 세대(결속 키 K 의 일부 · 없는 world 는 None)
+    floor: Optional[dict] = None            # {rev, state on_floor|transit|unknown, current l1|l2|None(on_floor 일 때만), reason} — RL CONN-UI-9 초안
     sim_t: Optional[Fin] = None
     scan: Optional[dict] = None             # {n, age_s}
     slam: Optional[str] = None              # 현재 epoch 의 slam 수명주기 결과(ok = 활성화 성공)
@@ -211,6 +220,9 @@ class LiveMap(Out):
     grid: Optional[LiveGrid] = None
     pose: Optional[LivePose] = None
     pose_why: Optional[str] = None
+    spawn_floor: Optional[Literal['f1', 'l1', 'l2']] = None   # 10-15 RL CONN-UI-5 초안: 기동 층(런 안 불변) — 전체 3D 결속은 이 층 원본 SDF sha 로만
+    world_src_sha256: Optional[str] = None  # 기동 world 원본 SDF 바이트 sha256(64 hex) — 없거나 형식 틀리면 None(결속 미확인)
+    geom: Optional[dict] = None             # {schema, sha256} 이 world 의 GT 간략 기하 파일 — geom_get 응답 geom_sha256 과 대조
 
 
 class MapLedger(Out):
@@ -335,6 +347,9 @@ class Reply(Out):
     map: Optional[MapData] = None           # op=map_get 성공 때만
     live: Optional[dict] = None             # op=map_live_get 성공 때만 {seq, epoch, world_id, floor_id, png}
     height: Optional[dict] = None           # op=height_get 성공 때만 {building_id·floor_id·map_version·map_sha256_pgm, width, height, resolution, origin, floor_z, band_rel_m, height_source, sensor, rel_min, rel_max, png} — png = RGB8(R=hi·G=lo·B=0, 0=모름, rel_m=(v-1)/1000-1)
+    geom: Optional[dict] = None             # op=geom_get 성공 때만 RL v2_building_geom/1 그대로(boxes corners·meshes aabb·connectors·sdf_sha256) — 앱이 형식·결속 다시 검사
+    save: Optional[dict] = None             # op=map_save 성공 때만 요청 때 출처 {world_id, building_id, floor_id, epoch, floor_rev, map_version} — 응답 구조값과 일치 확인된 것(앱이 요청 출처와 다시 대조)
+    geom_sha256: Optional[str] = None       # op=geom_get 성공 때만 기하 파일 바이트 sha256(status live_map.geom.sha256 과 대조용)
     view: Optional[dict] = None             # op=view_get 성공 때만. follow {what, seq, stamp_sim, jpeg} · points {what, seq, world_id·building_id·floor_id·mode·map_source·map_version·epoch, stamp_sim, frame, pose_source, base_pose_map, voxel_m, n, n_raw, truncated, xyz}
 
 

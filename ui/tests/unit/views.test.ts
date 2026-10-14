@@ -21,6 +21,7 @@ test('viewKey: 대상·열림·1 s 신선도·live_map ok·뷰 ok/age/seq 하나
     [{}, { views: { points: { st: 'ok', seq: 0, age_s: 0.1 } } }, 1500], [{}, { views: { points: { st: 'ok', seq: 5, age_s: '0.1' } } }, 1500]] as any[])
     expect(V.viewKey(snap(o, st), 'points', now)).toBe('');
   expect(V.viewKey(snap({ gen: 8 }), 'points', 1500)).not.toBe(ok);   // 세대가 바뀌면 다른 결속
+  expect(V.viewKey(snap({}, { live_map: { st: 'ok', ...K, floor_rev: 2 } }), 'points', 1500)).not.toBe(ok);   // 연결 건물 층 세대가 바뀌면 다른 결속
 });
 
 test('addCloud: 정상 누적·같은 칸 중복 0·키/세대 바뀜 비움', () => {

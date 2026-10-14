@@ -1107,6 +1107,14 @@ class MapStore:
 LIVE_STALE, POSE_AGE, POSE_SIM_GAP, STAMP_EPS, HOLD_MAX = 3.0, 2.0, 1.0, 1e-3, 40.0
 POSE_SRC = {('slam', 'slam'): 'slam_tf', ('static', 'gt_raster'): 'gt_identity'}     # (mode, map_source) → 허용 pose 출처. static+저장 slam = 없음
 NULL_KO = {'saved_slam_map_not_localized': '저장 SLAM 지도 — 위치 추정 없음', 'tf_stale': '위치 변환 오래됨', 'tf_lookup_failed': '위치 변환 없음'}
+# 연결 건물 층 context(RL CONN-UI-9 초안 connected.MAP_NULL_REASONS) — 결속 안 되면 RL 이 status.map·pose_map=null + 이 코드
+MAP_NULL_KO = {'floor_transit': '층 이동 중 — 지도·위치 숨김', 'context_mismatch': '층 지도 결속 안 맞음 — 지도·위치 숨김', 'no_grid_yet': '이 층 지도 아직 없음',
+               'saved_map_other_floor': '저장 지도는 기동 층 것 — 지금 다른 층이라 지도·위치 숨김', 'gt_check_failed': '층 GT 지도 검사 실패 — 지도 숨김',
+               'slam_none': '이 층 SLAM 없음', 'slam_waiting_floor': 'SLAM 이 층 확정 기다림', 'slam_activating': 'SLAM 켜는 중', 'slam_activate_failed': 'SLAM 켜기 실패',
+               'slam_restore_failed': '층 SLAM 되살리기 실패', 'slam_restore_unverified': '층 SLAM 되살림 미확인 — 지도 숨김', 'slam_stopped': 'SLAM 멈춤',
+               'slam_blocked': 'SLAM 막힘', 'slam_halted': 'SLAM 중단', 'slam_error': 'SLAM 오류'}
+FLOOR_HOLD = '층 이동 중·층 미확인 — 지도·위치 숨김(조종·STOP 은 그대로)'
+FLOOR_MAPWAIT = '현재층 확정 · 그 층 지도 대기'   # on_floor + current_floor 있음 + 표시 지도 층(floor_id) null — 현재층은 current_floor 가 정본
 CELL_OK = bytes(range(101)) + b'\xff'                                                # OccupancyGrid 칸 허용값 -1·0~100(int8 바이트)
 GRAY = bytes(254 if v <= 25 else 0 if 65 <= v <= 100 else 205 for v in range(256))  # int8 바이트(음수 = 128~255) → 자유 254·벽 0·모름 205
 fin = lambda x: type(x) in (int, float) and math.isfinite(x)
@@ -1148,8 +1156,16 @@ class LiveMap:
         """status → (결속 키, '') | (None, 이유)"""
         if not isinstance(d, dict) or d.get('schema') != 'v2_map_status/1':
             return None, '지도 상태 형식 모름'
-        w, b, f, mode, src, ver, ep = (d.get(k) for k in ('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch'))
+        w, b, f, mode, src, ver, ep, fr = (d.get(k) for k in KEY_NAMES)
         wd = MAP_WORLDS.get(w) if isinstance(w, str) else None
+        if fr is not None and not (type(fr) is int and fr >= 0):
+            return None, '층 context 세대(floor_rev) 형식 틀림'
+        if fr is not None and f is None and d.get('floor_state') in ('transit', 'unknown') and wd and wd[0] == b:
+            return None, FLOOR_HOLD                         # 연결 건물 층 이탈 — 형식 정상, 키 없음(격자·위치 버림)
+        if (fr is not None and f is None and d.get('floor_state') == 'on_floor' and wd and wd[0] == b and d.get('current_floor') in wd[1]
+                and d.get('map') is None):                  # 층은 확정, 그 층 지도는 아직(표시 지도 층 null) — 층 이동 중과 구분
+            mr = d.get('map_null_reason')
+            return None, FLOOR_MAPWAIT + (f' · {MAP_NULL_KO[mr]}' if isinstance(mr, str) and mr in MAP_NULL_KO else '')
         if not wd or wd[0] != b or f not in wd[1]:
             return None, '지형·건물·층이 허용표 밖'
         if mode not in ('slam', 'static') or src not in ('slam', 'gt_raster') or (mode == 'slam' and src != 'slam'):
@@ -1160,11 +1176,14 @@ class LiveMap:
             return None, '지도 frame·epoch 형식 틀림'
         sl = d.get('slam_lifecycle')                        # 선택 칸 형식(틀리면 상태 전체를 모름으로 — view·NULL_KO·ROS 스레드가 죽지 않게)
         if (type(d.get('map_accepting')) is not bool or not (d.get('sim_t') is None or fin(d.get('sim_t')))
-                or any(d.get(x) is not None and not isinstance(d.get(x), str) for x in ('map_error', 'pose_map_null_reason'))
+                or any(d.get(x) is not None and not isinstance(d.get(x), str) for x in ('map_error', 'pose_map_null_reason', 'map_null_reason', 'floor_state', 'floor_reason'))
                 or any(d.get(x) is not None and not isinstance(d.get(x), dict) for x in ('map', 'pose_map', 'last_save', 'scan', 'slam_lifecycle'))
                 or (sl is not None and not isinstance(sl.get('state'), (str, type(None))))):
             return None, '지도 상태 선택 칸 형식 틀림'
-        return (w, b, f, mode, src, ver, ep), ''
+        m = d.get('map')
+        if fr is not None and isinstance(m, dict) and (m.get('floor_id') != f or m.get('floor_rev') != fr):
+            return None, MAP_NULL_KO['context_mismatch']    # 상태 스냅샷 안에서 지도 층 context ≠ 현재 context
+        return (w, b, f, mode, src, ver, ep, fr), ''
 
     def _drop(self):
         self.shown = self.pending = None
@@ -1191,7 +1210,7 @@ class LiveMap:
         res = m.get('resolution', m.get('res'))
         if (s['w'], s['h']) != (m.get('width'), m.get('height')) or not fin(res) or abs(res - s['res']) > 1e-4:
             return '상태의 지도 크기·해상도가 바뀜 — 새 격자 기다림'
-        if k[3] == 'slam' and not (fin(m.get('stamp_sim')) and abs(m['stamp_sim'] - s['stamp']) <= STAMP_EPS):
+        if (k[3] == 'slam' or k[7] is not None) and not (fin(m.get('stamp_sim')) and abs(m['stamp_sim'] - s['stamp']) <= STAMP_EPS):
             return '상태의 지도 stamp 가 바뀜 — 새 격자 기다림'
         return ''
 
@@ -1207,7 +1226,7 @@ class LiveMap:
 
     def _ahead(self, g):        # 대기 격자가 아직 status 보다 앞선 slam 격자인가
         m = (self.st or {}).get('map')
-        return bool(self.key and self.key[3] == 'slam' and isinstance(m, dict) and fin(m.get('stamp_sim')) and fin(g.get('stamp')) and g['stamp'] > m['stamp_sim'] + STAMP_EPS)
+        return bool(self.key and (self.key[3] == 'slam' or self.key[7] is not None) and isinstance(m, dict) and fin(m.get('stamp_sim')) and fin(g.get('stamp')) and g['stamp'] > m['stamp_sim'] + STAMP_EPS)
 
     def _bind(self, g, t):      # 격자 g 가 지금 status 의 현재 epoch 지도인가 → '' | 이유
         m, k = (self.st or {}).get('map'), self.key
@@ -1220,7 +1239,7 @@ class LiveMap:
         res = m.get('resolution', m.get('res'))
         if (g['w'], g['h']) != (m.get('width'), m.get('height')) or not fin(res) or abs(res - g['res']) > 1e-4:
             return '격자 크기·해상도가 상태와 다름'
-        if k[3] == 'slam' and not (fin(m.get('stamp_sim')) and fin(g['stamp']) and abs(m['stamp_sim'] - g['stamp']) <= STAMP_EPS):
+        if (k[3] == 'slam' or k[7] is not None) and not (fin(m.get('stamp_sim')) and fin(g['stamp']) and abs(m['stamp_sim'] - g['stamp']) <= STAMP_EPS):   # 연결 static 도 stamp(층 확정 시각) 비교 — l1·l2 GT 같은 크기
             return '격자 stamp 가 상태와 다름 — 다음 상태 기다림'       # static 은 stamp 비교 안 함(RL 이 파일 지도를 stamp 없이 냄) — 저장 meta 대조로
         return ''
 
@@ -1291,13 +1310,29 @@ class LiveMap:
             if d is None:
                 return {'st': 'off', 'why': why}
             k, kwhy = self.key_of(d)
-            st = ('stale' if t - self.st_t > LIVE_STALE else 'unknown' if kwhy else 'reset' if why.startswith('리셋') else 'wait' if why.endswith('기다림')
+            fh = kwhy in (FLOOR_HOLD, MAP_NULL_KO['context_mismatch']) or kwhy.startswith(FLOOR_MAPWAIT)   # 층 이탈·context 불일치 = 형식 정상 대기(모름 아님)
+            st = ('stale' if t - self.st_t > LIVE_STALE else 'wait' if fh else 'unknown' if kwhy else 'reset' if why.startswith('리셋') else 'wait' if why.endswith('기다림')
                   else 'bad' if why else 'ok' if self.shown else 'wait')
-            v = {'st': st, 'why': why or ('' if self.shown else self.grid_why or '이번 epoch 지도 기다림(slam 5 s·static 10 s 마다 발행)'),
+            mn = MAP_NULL_KO.get(d.get('map_null_reason')) if d.get('map') is None else None
+            v = {'st': st, 'why': why or ('' if self.shown else mn or self.grid_why or '이번 epoch 지도 기다림(slam 5 s·static 10 s 마다 발행)'),
                  'age_s': round(t - self.st_t, 1)}
+            fr, fs_ = d.get('floor_rev'), d.get('floor_state')
+            if (k or fh) and type(fr) is int and fr >= 0 and isinstance(d.get('world_id'), str) and d['world_id'] in MAP_WORLDS:   # 연결 건물 층 context(RL CONN-UI-9) — 형식 맞고 결속 또는 정상 층 대기일 때만
+                fl = MAP_WORLDS[d['world_id']][1]; cf = d.get('current_floor')
+                v['floor'] = {'rev': fr, 'state': fs_ if fs_ in ('on_floor', 'transit', 'unknown') else 'unknown',
+                              'current': cf if cf in fl and fs_ == 'on_floor' else None, 'reason': safe_txt(d.get('floor_reason'), 40)}
+            hx = lambda x: x if isinstance(x, str) and re.fullmatch(r'[0-9a-f]{64}', x) else None   # 전체 3D 결속 칸(RL CONN-UI-5 초안) — 형식 틀리면 None
+            w_, b_, ep_ = d.get('world_id'), d.get('building_id'), d.get('epoch')
+            if k is None and fh and isinstance(w_, str) and w_ in MAP_WORLDS and MAP_WORLDS[w_][0] == b_ and type(ep_) is int and ep_ >= 1:
+                v.update(world_id=w_, building_id=b_, epoch=ep_)   # K 없는 정상 층 대기: 신원 칸만(현재층 탭·전체 3D 결속용) — grid·pose·그림은 계속 없음
+            if k or 'world_id' in v:
+                sf, gm = d.get('spawn_floor'), d.get('geom')
+                v['spawn_floor'] = sf if sf in MAP_FLOORS.get(v['building_id'] if k is None else k[1], ()) else None
+                v['world_src_sha256'] = hx(d.get('world_src_sha256'))
+                v['geom'] = {'schema': gm['schema'], 'sha256': hx(gm.get('sha256'))} if isinstance(gm, dict) and gm.get('schema') == 'v2_building_geom/1' and hx(gm.get('sha256')) else None
             if k is None:
                 return v
-            v.update(zip(('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch'), k))
+            v.update(zip(KEY_NAMES, k))
             sc, ls, sl = d.get('scan'), d.get('last_save'), d.get('slam_lifecycle')
             v['sim_t'] = d['sim_t'] if fin(d.get('sim_t')) else None
             v['scan'] = {'n': sc['n'], 'age_s': sc.get('age_s') if fin(sc.get('age_s')) else None} if isinstance(sc, dict) and type(sc.get('n')) is int else None
@@ -1310,7 +1345,8 @@ class LiveMap:
             ok_p = (s is not None and isinstance(p, dict) and want and p.get('source') == want and all(fin(p.get(x)) for x in ('x', 'y', 'yaw', 'stamp_sim'))
                     and fin(d.get('sim_t')) and abs(d['sim_t'] - p['stamp_sim']) <= POSE_SIM_GAP and t - self.st_t <= POSE_AGE)
             v['pose'] = {'x': p['x'], 'y': p['y'], 'yaw': p['yaw'], 'source': want} if ok_p else None
-            v['pose_why'] = '' if ok_p else ('지도 없음' if s is None else (NULL_KO.get(d.get('pose_map_null_reason')) if isinstance(d.get('pose_map_null_reason'), str) else None)
+            pr = d.get('pose_map_null_reason') if isinstance(d.get('pose_map_null_reason'), str) else None
+            v['pose_why'] = '' if ok_p else ((MAP_NULL_KO.get(pr) or '지도 없음') if s is None else (NULL_KO.get(pr) or MAP_NULL_KO.get(pr))   # 격자 없음: 연결 건물 구체 이유 먼저
                                              or ('이 지도는 위치 표시 안 함(저장 SLAM 지도)' if not want else '위치 형식 틀림·오래됨'))
             return v
 
@@ -1342,10 +1378,10 @@ class LiveMap:
 PV_SCHEMA, PV_MAX_N, PV_MAX_RAW, VIEW_MIN_DT, VIEW_STALE, PV_MAX_ABS = 'v2_map/points_view/1', 4000, 80000, 0.2, 3.0, 3000.0   # 좌표 |m| 상한(앱 0.1 m 칸 키 범위 안)
 VIEW_SIM_EPS = 0.5    # 뷰 stamp_sim 이 sim_t 추정 상한(마지막 1 Hz status sim_t + 그 뒤 벽시계)보다 이만큼 넘게 앞서면 시각 이상
 FC_SCHEMA, FC_MAX, FC_MAX_RAW = 'v2_map/follow_cam/1', 64000, 90000
-KEY_NAMES = ('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch')
+KEY_NAMES = ('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch', 'floor_rev')   # floor_rev = 연결 건물 층 context 세대(없는 world 는 None)
 PROD_REASONS = {   # RL map-20261014/points_view.py REASONS·FOLLOW_REASONS 와 같은 코드(앱 문구 표는 ui/src/app/OpsQuad.tsx)
-    'points': ('ok', 'no_cloud', 'reset', 'stale_epoch', 'sim_t_unknown', 'future_stamp', 'not_localized', 'bad_cloud', 'tf_lookup_failed', 'tf_stale', 'empty', 'encode_error'),
-    'follow': ('ok', 'no_frame', 'reset', 'stale_epoch', 'sim_t_unknown', 'no_stamp', 'future_stamp', 'out_of_order', 'bad_image', 'too_large')}
+    'points': ('ok', 'no_cloud', 'reset', 'floor_transit', 'stale_epoch', 'sim_t_unknown', 'future_stamp', 'not_localized', 'bad_cloud', 'tf_lookup_failed', 'tf_stale', 'empty', 'encode_error'),
+    'follow': ('ok', 'no_frame', 'reset', 'floor_transit', 'stale_epoch', 'sim_t_unknown', 'no_stamp', 'future_stamp', 'out_of_order', 'bad_image', 'too_large')}
 
 
 class Views:
@@ -1484,7 +1520,7 @@ class Views:
 
 
 def selftest_views():
-    t, key, sim = [100.0], [('rooms_a', 'rooms_a', 'f1', 'slam', 'slam', None, 3)], [1.0]
+    t, key, sim = [100.0], [('rooms_a', 'rooms_a', 'f1', 'slam', 'slam', None, 3, None)], [1.0]
     lag = [0.0]   # status 뒤 흐른 시간(추정 상한 = sim + lag)
     V = Views(lambda: key[0], now=lambda: t[0], sim_fn=lambda: (sim[0], sim[0] + lag[0]) if finite(sim[0]) else None)
     def pv(seq, n=2, k=None, xyz=None, **kw):
@@ -1508,7 +1544,7 @@ def selftest_views():
     t[0] += 0.3; sim[0] = 6.0; V.on_points(pv(6)); key[0] = key[0][:6] + (4,)                                          # 새 epoch → 옛것 즉시 버림
     assert V.get('points')[0] is None and V.view()['points']['st'] == 'off'
     old = key[0]; key[0] = None; t[0] += 0.3; V.on_points(pv(7, k=old)); assert V.get('points')[0] is None and V.view()['points']['why'].startswith('지도 세션 없음')
-    key[0] = ('rooms_a', 'rooms_a', 'f1', 'slam', 'slam', None, 5)
+    key[0] = ('rooms_a', 'rooms_a', 'f1', 'slam', 'slam', None, 5, None)
     def fc(seq, k=None, stamp=None, data=b'\xff\xd8' + b'0' * 200, **kw):
         d = {'schema': FC_SCHEMA, 'frame': 'follow_cam', 'source': 'gazebo_render', 'format': 'jpeg', 'width': 320, 'height': 240, 'seq': seq,
              'stamp_sim': float(seq) if stamp is None else stamp, **dict(zip(KEY_NAMES, k or key[0])), 'data_b64': base64.b64encode(data).decode()}
@@ -1687,17 +1723,29 @@ def save_refuse(gated, busy, v, ready):
     return '' if ready else '저장 서비스 없음(/v2_map/save)'
 
 
-def save_result(success, message, ep_req, ep_now):
-    """Trigger 응답 → (ok, 글). message JSON 의 map_version(정규식)·reason 만 쓰고 path 는 버림"""
+SAVE_CTX = ('world_id', 'building_id', 'floor_id', 'epoch', 'floor_rev')   # 저장 요청 출처(RL CONN-UI-10 /v2_map/save message JSON — save_lock 안 캡처 문맥)
+SAVE_WHY_KO = {'floor_transit': '층 이동 중이라 저장 안 함', 'slam_not_ready': 'SLAM 준비 전이라 저장 안 함', 'slam_context_mismatch': 'SLAM 층 문맥이 달라 저장 안 함',
+               'save_busy': '다른 저장 처리 중', 'grid_context_mismatch': '저장 순간 지도 문맥이 달라져 저장 안 함'}
+
+
+def save_result(success, message, req=None):
+    """Trigger 응답 → (ok, 글, 출처|None). message JSON 의 map_version(정규식)·reason·구조값만 쓰고 path 는 버림.
+    req = 요청 때 지도 출처. 응답 구조값이 있으면 같아야 하고, 연결 건물(floor_rev 있음)은 다섯 개 모두 필수 — 다르면 이번 요청 성공으로 안 씀
+    (공유 last_save 재읽기 0 — 늦은 다른 층 결과가 이 요청 성공이 되지 않게)"""
     try:
         d = json.loads(message)
     except (TypeError, ValueError):
         d = None
     d = d if isinstance(d, dict) else {}
     ver = d.get('map_version') if isinstance(d.get('map_version'), str) and MAP_VER.fullmatch(d['map_version']) else None
-    ok = success is True and ver is not None
-    text = f'지도 저장됨 · {ver}' if ok else f'지도 저장 실패 · {safe_txt(d.get("reason")) or "응답 형식 틀림"}'
-    return ok, text + (f' · 요청 때 epoch {ep_req}, 지금 {ep_now}' if ep_req != ep_now else '')
+    ok = success is True and ver is not None and (d.get('ok') if req is not None and req.get('floor_rev') is not None else d.get('ok', True)) is True   # 연결 건물은 message ok true 필수 · 비연결은 legacy(없으면 통과)
+    if ok and req is not None:
+        need = req.get('floor_rev') is not None
+        bad = [k for k in SAVE_CTX if (k in d or need) and (type(d.get(k)), d.get(k)) != (type(req.get(k)), req.get(k))]   # True≠1 까지 구분
+        if bad:
+            return False, f'지도 저장 결과 미확인 · 응답이 요청한 지도와 다름({"·".join(bad)}) — 이번 요청 성공으로 안 씀, 저장 지도 목록 다시 확인', None
+    text = f'지도 저장됨 · {ver}' if ok else f'지도 저장 실패 · {SAVE_WHY_KO.get(d.get("reason")) or safe_txt(d.get("reason")) or "응답 형식 틀림"}'
+    return ok, text, ({**{k: req.get(k) for k in SAVE_CTX}, 'map_version': ver} if ok and req is not None else None)
 
 
 def selftest_live():
@@ -1806,6 +1854,44 @@ def selftest_live():
         S(ep=7, stamp=4.0); G(stamp=4.0); assert V()['st'] == 'ok'
         S(ep=7, stamp=4.0, **bad); v = V(); assert v['st'] == 'unknown' and v.get('grid') is None and L.png() is None, (bad, v)
     S(ep=7, stamp=4.0, pose_map=None, pose_map_null_reason='tf_stale'); G(stamp=4.0); assert V()['pose_why'] == '위치 변환 오래됨'
+    # 연결 건물 층 context(RL CONN-UI-9 초안): K 에 floor_rev · 이탈은 형식 정상 대기 · 연결 static 도 격자 stamp(층 확정 시각) 비교
+    metas[('v5', 'l2', 'gt-20261012')] = dict(metas[('v5', 'l1', 'gt-20261012')])
+    def SC(fid='l1', fr=1, fs='on_floor', stamp=20.0, mfid=None, mfr=None, ep=9, **kw):
+        mp = {'width': 4, 'height': 2, 'resolution': 0.05, 'n': 1, 'epoch': 9, 'stamp_sim': stamp, 'floor_id': mfid or fid, 'floor_rev': fr if mfr is None else mfr}
+        S(ep=ep, **{'world_id': 'v5_building', 'building_id': 'v5', 'floor_id': fid, 'mode': 'static', 'map_source': 'gt_raster', 'map_version': 'gt-20261012',
+                   'floor_rev': fr, 'floor_state': fs, 'current_floor': fid if fs == 'on_floor' else None, 'pose_map': None, 'map': mp, **kw})
+    t[0] += 1; SC(); t[0] += 0.1; G(stamp=20.0); v = V()
+    assert v['st'] == 'ok' and (v['floor_id'], v['floor_rev']) == ('l1', 1) and v['floor'] == {'rev': 1, 'state': 'on_floor', 'current': 'l1', 'reason': ''}, v
+    n = v['grid']['seq']; G(stamp=19.0); assert V()['grid']['seq'] == n                     # 같은 키라도 stamp 다른 격자는 안 받음(연결 static)
+    SC(fid=None, fr=2, fs='transit', map=None, map_null_reason='floor_transit', floor_reason='connector_stairs'); v = V()
+    assert v['st'] == 'wait' and v['why'] == FLOOR_HOLD and v.get('grid') is None and L.png() is None and v['floor'] == {'rev': 2, 'state': 'transit', 'current': None, 'reason': 'connector_stairs'}, v
+    G(stamp=20.0); assert V().get('grid') is None                                            # 이동 중 늦은 l1 격자
+    SC(fid='l2', fr=3, stamp=30.0); t[0] += 0.1; G(stamp=20.0); v = V()
+    assert v['grid'] is None and v['floor_id'] == 'l2', v                                    # 같은 크기 옛 l1 격자가 새 키 뒤 도착 → stamp 로 거부
+    G(stamp=30.0); v = V(); assert v['st'] == 'ok' and (v['floor_id'], v['floor_rev']) == ('l2', 3) and v['grid'] is not None, v
+    SC(fid='l2', fr=3, stamp=30.0, mfr=2); v = V(); assert v['st'] == 'wait' and v.get('grid') is None and '결속' in v['why'], v   # 스냅샷 안 지도 context ≠ 현재
+    SC(fid='l2', fr=4, stamp=40.0, map=None, map_null_reason='saved_map_other_floor', pose_map_null_reason='saved_map_other_floor'); v = V()
+    assert v['grid'] is None and v['pose'] is None and '기동 층' in v['why'] and '기동 층' in v['pose_why'], v
+    SC(fid=None, fr=5, map=None, map_null_reason='slam_activating', current_floor='l1'); v = V()    # 층 확정·표시 지도 층 null → 지도 대기(층 이동 중 아님), 현재층 = current_floor
+    assert v['st'] == 'wait' and v['why'].startswith(FLOOR_MAPWAIT) and 'SLAM' in v['why'] and v.get('grid') is None and v['floor'] == {'rev': 5, 'state': 'on_floor', 'current': 'l1', 'reason': ''}, v
+    SC(fid=None, fr=5, map=None, current_floor='l9'); v = V(); assert v['st'] == 'unknown' and 'world_id' not in v and 'floor' not in v   # 허용표 밖 현재층은 대기 아님·신원 0
+    for bad in (-1, True, 1.0):
+        SC(fr=bad); v = V(); assert v['st'] == 'unknown' and 'world_id' not in v and 'floor' not in v, bad
+    # K 없는 정상 층 대기(지도 대기·층 이동 중)에도 신원 칸(world·building·epoch·spawn·SDF·geom sha)은 내보냄 — grid·pose 는 계속 없음(root 최종 결합)
+    idn = dict(spawn_floor='l1', world_src_sha256='a' * 64, geom={'schema': 'v2_building_geom/1', 'sha256': 'b' * 64})
+    for o in (dict(fid=None, fr=6, map=None, current_floor='l2', map_null_reason='no_grid_yet'), dict(fid=None, fr=7, fs='transit', map=None, map_null_reason='floor_transit')):
+        SC(**o, **idn); v = V()
+        assert v['st'] == 'wait' and (v['world_id'], v['building_id'], v['epoch'], v['spawn_floor'], v['world_src_sha256'], v['geom']['sha256']) == ('v5_building', 'v5', 9, 'l1', 'a' * 64, 'b' * 64), v
+        assert v.get('grid') is None and v.get('pose') is None and 'floor_id' not in v and 'mode' not in v, v
+    assert V()['floor']['state'] == 'transit'
+    SC(fid=None, fr=6, map=None, current_floor='l2', **idn); assert V()['floor']['current'] == 'l2'
+    SC(fid=None, fr=6, map=None, current_floor='l2', ep=0, **idn); assert 'world_id' not in V()                 # epoch 형식 틀림 → 신원 0
+    SC(fid=None, fr=6, map=None, current_floor='l2', building_id='v4', **idn); v = V(); assert v['st'] == 'unknown' and 'world_id' not in v
+    # 전체 3D 결속 칸: 형식 맞을 때만 그대로, 그 밖 None(이 건물 층 아닌 spawn_floor·64 hex 아님·geom schema 다름)
+    S(ep=7, stamp=4.0, spawn_floor='f1', world_src_sha256='a' * 64, geom={'schema': 'v2_building_geom/1', 'sha256': 'b' * 64}); v = V()
+    assert (v['spawn_floor'], v['world_src_sha256'], v['geom']) == ('f1', 'a' * 64, {'schema': 'v2_building_geom/1', 'sha256': 'b' * 64}), v
+    S(ep=7, stamp=4.0, spawn_floor='l2', world_src_sha256='A' * 64, geom={'schema': 'x', 'sha256': 'b' * 64}); v = V()
+    assert v['spawn_floor'] is None and v['world_src_sha256'] is None and v['geom'] is None, v
     # map_start 인자: 허용표·버전 규칙
     has = lambda b, f, v: (b, f, v) == ('v5', 'l2', 'gt-20261012')
     assert map_args({'world_id': 'v5_building', 'floor_id': 'l2', 'mode': 'static', 'map_version': 'gt-20261012'}, has) == (['v5_building', 'l2', 'static', 'gt-20261012'], 'v5_building/l2', '')
@@ -1883,11 +1969,22 @@ def selftest_live():
     assert save_refuse(True, False, {'st': 'ok', 'mode': 'static'}, True).startswith('SLAM') and save_refuse(True, False, ok_v, False).startswith('저장 서비스')
     assert save_refuse(True, False, {'st': 'reset', 'mode': 'slam', 'why': '리셋 중'}, True).endswith('리셋 중') and save_refuse(True, False, ok_v, True) == ''
     msg = json.dumps({'map_version': '20261014-120000-e2', 'reason': 'user_save', 'path': '/home/u/maps/rooms_a/f1/20261014-120000-e2'})
-    assert save_result(True, msg, 2, 2) == (True, '지도 저장됨 · 20261014-120000-e2')
-    assert save_result(True, msg, 2, 3)[1].endswith('요청 때 epoch 2, 지금 3') and '/home' not in save_result(True, msg, 2, 3)[1]
-    ok_, txt = save_result(False, json.dumps({'map_version': None, 'reason': "save error FileExistsError: [Errno 17] File exists: '/home/u/maps/x'"}), 2, 2)
+    rq = {'world_id': 'rooms_a', 'building_id': 'rooms_a', 'floor_id': 'f1', 'epoch': 2, 'floor_rev': None}
+    assert save_result(True, msg, rq) == (True, '지도 저장됨 · 20261014-120000-e2', {**rq, 'map_version': '20261014-120000-e2'})   # 단층: 구조값 없어도 됨
+    assert save_result(True, msg)[2] is None and '/home' not in save_result(True, msg, rq)[1]
+    assert save_result(True, json.dumps({'map_version': '20261014-120000-e2', 'epoch': 3}), rq)[0] is False                 # 있으면 같아야
+    ok_, txt, _ = save_result(False, json.dumps({'map_version': None, 'reason': "save error FileExistsError: [Errno 17] File exists: '/home/u/maps/x'"}), rq)
     assert not ok_ and '/home' not in txt and '<경로>' in txt
-    assert save_result(True, 'not json', 1, 1)[0] is False and save_result(True, json.dumps({'map_version': '../x'}), 1, 1)[0] is False
+    assert save_result(True, 'not json', rq)[0] is False and save_result(True, json.dumps({'map_version': '../x'}), rq)[0] is False
+    cq = {'world_id': 'v5_building', 'building_id': 'v5', 'floor_id': 'l2', 'epoch': 4, 'floor_rev': 3}                  # 연결 건물: 다섯 개 필수·정확히 같음
+    cm = lambda **o: json.dumps({'ok': True, 'map_version': '20261015-010000-e4', 'reason': 'saved', **cq, 'path': '/x', **o})
+    assert save_result(True, cm(), cq)[0] is True and save_result(True, cm(), cq)[2]['floor_rev'] == 3
+    for o in ({'floor_id': 'l1'}, {'floor_rev': 2}, {'epoch': 5}, {'world_id': 'v5_single'}, {'floor_rev': 3.0}, {'epoch': True}):
+        r_ = save_result(True, cm(**o), cq); assert r_[0] is False and r_[2] is None and '미확인' in r_[1], o
+    assert save_result(True, json.dumps({'map_version': '20261015-010000-e4'}), cq)[0] is False                         # 구조값 없는 응답 = 성공 0
+    assert save_result(True, cm(), cq)[0] is True and save_result(True, json.dumps({'map_version': '20261015-010000-e4', **cq}), cq)[0] is False   # 연결 건물: ok 키 누락 = 성공 0
+    assert save_result(True, cm(ok=False), cq)[0] is False and save_result(True, json.dumps({'map_version': '20261014-120000-e2', **rq, 'ok': True, 'path': '/x'}), rq)[0] is True
+    assert save_result(False, json.dumps({'ok': False, 'map_version': None, 'reason': 'floor_transit', 'world_id': 'v5_building', 'building_id': 'v5', 'floor_id': None, 'epoch': None, 'floor_rev': None}), cq)[1] == '지도 저장 실패 · 층 이동 중이라 저장 안 함'
 
 
 def selftest_maps():
@@ -2062,6 +2159,113 @@ def selftest_ux():
         assert not (d / 'CALLED').exists()                                          # 상태 조회·판정만 — 시작·정지 래퍼 호출 0
 
 
+# ---------------------------------------------------------------- 건물 전체 GT 간략 기하(읽기만, op geom_get) — RL v2_building_geom/1
+# 파일 = <geom_root>/<GEOM_FILES[building_id]>. 쓰기는 RL 생성기만. 센서·주행 판정 아님 · 정밀도 주장 0. 앱 ui/src/data/geom.ts okGeom 과 같은 한도(GEOM_LIM)
+GEOM_FILES = {'v5': ('v5_building', 'v5_building_geom.json')}
+GEOM_LIM = {'bytes': 512 * 1024, 'floors': 8, 'boxes': 2000, 'meshes': 64, 'connectors': 32, 'coord': 500}   # 좌표 |m| 한도
+GEOM_KINDS = ('floor', 'wall', 'stair', 'ramp', 'obstacle', 'ceiling', 'other')
+
+
+def geom_check(g, building_id, world_id):
+    """서버 쪽 엄격 검사 — 하나라도 어긋나면 MapErr(일부만 보내기 0). 앱이 같은 규칙으로 다시 검사한다"""
+    fin = lambda x: type(x) in (int, float) and math.isfinite(x) and abs(x) <= GEOM_LIM['coord']
+    v3 = lambda p: isinstance(p, list) and len(p) == 3 and all(fin(x) for x in p)
+    ab = lambda a: isinstance(a, list) and len(a) == 6 and all(fin(x) for x in a) and a[0] <= a[3] and a[1] <= a[4] and a[2] <= a[5]
+    lst = lambda k, n: isinstance(g.get(k), list) and len(g[k]) <= n
+    if not isinstance(g, dict) or g.get('schema') != 'v2_building_geom/1':
+        raise MapErr('기하 형식 버전 다름')
+    if g.get('building_id') != building_id or g.get('world_id') != world_id:
+        raise MapErr('다른 건물·world 기하')
+    if g.get('frame') != 'world' or g.get('source') != 'gt_sdf' or g.get('sensor') is not False or g.get('precision_claim') is not False:
+        raise MapErr('기하 출처 표시 이상(GT·센서 아님·정밀도 주장 0 이어야)')
+    if not lst('floors', GEOM_LIM['floors']) or not g['floors'] or not all(isinstance(f, dict) and isinstance(f.get('floor_id'), str) and fin(f.get('z')) for f in g['floors']):
+        raise MapErr('층 목록 이상')
+    fs = [f['floor_id'] for f in g['floors']]
+    if len(set(fs)) != len(fs):
+        raise MapErr('층 이름 중복')
+    sh = g.get('sdf_sha256')
+    if not isinstance(sh, dict) or set(sh) != set(fs) or not all(isinstance(x, str) and re.fullmatch(r'[0-9a-f]{64}', x) for x in sh.values()):
+        raise MapErr('원본 SDF sha 없음·층과 다름 — 결속 불가')
+    if not (lst('boxes', GEOM_LIM['boxes']) and lst('meshes', GEOM_LIM['meshes']) and lst('connectors', GEOM_LIM['connectors'])):
+        raise MapErr('기하 목록 이상·개수 한도 넘음')
+    fl = lambda f: f is None or f in fs
+    for b in g['boxes']:
+        if not (isinstance(b, dict) and b.get('approximation') == 'exact_box' and isinstance(b.get('corners'), list) and len(b['corners']) == 8
+                and all(v3(p) for p in b['corners']) and ab(b.get('aabb')) and fl(b.get('floor_id')) and b.get('kind') in GEOM_KINDS and isinstance(b.get('id'), str)):
+            raise MapErr(f'상자 형식 이상 · {safe_txt(b.get("id") if isinstance(b, dict) else "?", 40)}')
+    for m in g['meshes']:
+        if not (isinstance(m, dict) and m.get('approximation') == 'aabb' and ab(m.get('aabb')) and fl(m.get('floor_id')) and m.get('kind') in GEOM_KINDS
+                and m.get('fill') is False and isinstance(m.get('id'), str)):
+            raise MapErr(f'mesh 형식 이상(외곽 상자·채움 0 이어야) · {safe_txt(m.get("id") if isinstance(m, dict) else "?", 40)}')
+    for c in g['connectors']:
+        if not (isinstance(c, dict) and c.get('kind') in ('stair', 'ramp') and c.get('from') in fs and c.get('to') in fs and v3(c.get('entry')) and v3(c.get('exit'))
+                and c.get('traversable_claim') is False and isinstance(c.get('id'), str)):
+            raise MapErr(f'층 연결 형식 이상(통과 가능 주장 0 이어야) · {safe_txt(c.get("id") if isinstance(c, dict) else "?", 40)}')
+
+
+def geom_read(root, building_id):
+    """루트 안 정해진 파일만(경로 탈출·심볼릭 링크 밖 0) · ≤ 512 KB · 엄격 검사 → (geom, 파일 sha256). 실패는 MapErr(친절한 이유)"""
+    if not isinstance(building_id, str) or building_id not in GEOM_FILES:
+        raise MapErr('건물 전체 3D 를 지원하지 않는 건물')
+    if not root:
+        raise MapErr('서버에 건물 기하 경로 없음(--geom-root 미설정)')
+    world_id, name = GEOM_FILES[building_id]
+    base = os.path.realpath(root); f = os.path.realpath(os.path.join(base, name))
+    if os.path.dirname(f) != base:
+        raise MapErr('기하 파일이 기하 루트 밖')
+    try:
+        with open(f, 'rb') as h:
+            raw = h.read(GEOM_LIM['bytes'] + 1)
+    except FileNotFoundError:
+        raise MapErr('이 건물 기하 파일 없음')
+    if len(raw) > GEOM_LIM['bytes']:
+        raise MapErr('기하 파일이 512 KB 넘음')
+    try:
+        g = json.loads(raw, parse_constant=lambda x: (_ for _ in ()).throw(ValueError(x)))   # NaN·Infinity 거부
+    except ValueError:
+        raise MapErr('기하 파일 JSON 아님')
+    geom_check(g, building_id, world_id)
+    return g, hashlib.sha256(raw).hexdigest()
+
+
+def selftest_geom():
+    import copy, tempfile
+    box = {'id': 'b', 'floor_id': 'l1', 'kind': 'floor', 'approximation': 'exact_box', 'aabb': [0, 0, 0, 1, 1, 0.1],
+           'corners': [[i & 4 and 1, i & 2 and 1, i & 1 and 0.1] for i in range(8)]}
+    G = {'schema': 'v2_building_geom/1', 'building_id': 'v5', 'world_id': 'v5_building', 'frame': 'world', 'source': 'gt_sdf', 'sensor': False, 'precision_claim': False,
+         'sdf_sha256': {'l1': 'a' * 64, 'l2': 'b' * 64}, 'floors': [{'floor_id': 'l1', 'z': 0.0}, {'floor_id': 'l2', 'z': 2.4}], 'boxes': [box],
+         'meshes': [{'id': 'r', 'floor_id': None, 'kind': 'ramp', 'approximation': 'aabb', 'aabb': [0, 0, 0, 2, 1, 1], 'fill': False}],
+         'connectors': [{'id': 's', 'kind': 'stair', 'from': 'l1', 'to': 'l2', 'entry': [3, 4, 0], 'exit': [7.8, 4, 2.4], 'traversable_claim': False}]}
+    geom_check(copy.deepcopy(G), 'v5', 'v5_building')
+    bad = [lambda g: g.update(sensor=True), lambda g: g.update(world_id='v5_single'), lambda g: g['floors'].append({'floor_id': 'l1', 'z': 5}),
+           lambda g: g['sdf_sha256'].pop('l2'), lambda g: g['boxes'][0]['corners'].pop(), lambda g: g['boxes'][0].update(kind='door'),
+           lambda g: g['boxes'][0]['corners'][0].__setitem__(0, 501), lambda g: g['boxes'][0].update(aabb=[1, 0, 0, 0, 1, 1]),
+           lambda g: g['meshes'][0].update(fill=True), lambda g: g['connectors'][0].update(traversable_claim=True),
+           lambda g: g.update(boxes=[box] * 2001), lambda g: g.update(connectors=g['connectors'] * 33), lambda g: g['boxes'][0].update(floor_id='l9')]
+    for i, f in enumerate(bad):
+        g = copy.deepcopy(G); f(g)
+        try:
+            geom_check(g, 'v5', 'v5_building'); raise AssertionError(f'geom bad {i} 통과')
+        except MapErr:
+            pass
+    with tempfile.TemporaryDirectory() as d:
+        r = os.path.join(d, 'root'); os.mkdir(r)
+        for why, setup in [('경로 없음', None), ('파일 없음', lambda: None), ('512', lambda: Path(r, 'v5_building_geom.json').write_bytes(b' ' * (GEOM_LIM['bytes'] + 1))),
+                           ('JSON', lambda: Path(r, 'v5_building_geom.json').write_text('{"a": NaN}')),
+                           ('루트 밖', lambda: (Path(r, 'v5_building_geom.json').unlink(), Path(d, 'out.json').write_text(json.dumps(G)), os.symlink(os.path.join(d, 'out.json'), os.path.join(r, 'v5_building_geom.json'))))]:
+            setup and setup()
+            try:
+                geom_read(None if why == '경로 없음' else r, 'v5'); raise AssertionError(why)
+            except MapErr:
+                pass
+        Path(r, 'v5_building_geom.json').unlink(); Path(r, 'v5_building_geom.json').write_text(json.dumps(G))
+        g, h = geom_read(r, 'v5'); assert g['building_id'] == 'v5' and len(h) == 64
+        try:
+            geom_read(r, ['v5']); raise AssertionError('건물')
+        except MapErr:
+            pass
+
+
 def selftest():
     t = [0.0]; c = Core(now=lambda: t[0]); F = (1.0, 0.0, 0.0); N = Z
 
@@ -2131,7 +2335,7 @@ def selftest():
     c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
     st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
-    selftest_extra(); selftest_stop(); selftest_maps(); selftest_live(); selftest_ux(); selftest_views()
+    selftest_extra(); selftest_stop(); selftest_maps(); selftest_live(); selftest_ux(); selftest_views(); selftest_geom()
     print('selftest OK')
 
 
@@ -2147,6 +2351,7 @@ def main():
     ap.add_argument('--map-start', default=None, help='RL 지도 체험 시작(start_map.sh) 절대경로. 같은 폴더 map_status.sh 로 지도 원장 조회. 없으면 «지도 체험 시작» 이유만')
     ap.add_argument('--ux-start', default=None, help='RL 사용자 체험 래퍼(ux_start.sh) 절대경로 — 주면 시뮬 시작=flat·지도 체험=map, 상태 ux_status.sh(같은 폴더), 횟수 원장 대신 usage 결속 확인. --sim-start·--map-start 와 같이 못 씀')
     ap.add_argument('--ux-stop', default=None, help='--ux-start 와 함께: Gazebo 종료 stop_live.sh 절대경로(같은 unit)')
+    ap.add_argument('--geom-root', default=None, help='건물 전체 GT 간략 기하 폴더(읽기만, RL 생성 v5_building_geom.json). 없으면 «전체 3D» 이유만')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -2423,30 +2628,31 @@ def main():
         if why:
             core.ev('warn', f'지도 저장 거부 · {c.actor} · {why}'); return reply(c, rid, False, why)
         save['busy'] = True; save['seq'] += 1; n = save['seq']; save['wait'][n] = (c, rid, v['epoch'])
+        req = {k: v.get(k) for k in SAVE_CTX}       # 요청 때 출처(응답은 이것과 대조 — 지금 상태 재읽기로 성공 판정 0)
         loop = tornado.ioloop.IOLoop.current()
         with lock:
             core.ev('ok', f'지도 저장 요청 · epoch {v["epoch"]} · {c.actor}')
 
-        def finish(n, ok, text, late=False):
+        def finish(n, ok, text, late=False, ctx=None):
             w = save['wait'].pop(n, None)
             if n == save['seq']:
                 save['busy'] = False
             with lock:
                 core.ev('ok' if ok else 'warn', ('늦은 지도 저장 응답(현재 지도·결과로 쓰지 않음) · ' if late else '') + text)
             if w and not late and w[0].cid in clients:
-                reply(w[0], w[1], ok, text)
+                reply(w[0], w[1], ok, text, **({'save': ctx} if ok and ctx else {}))
 
         def done(f):                # ROS 스레드
             try:
-                r = f.result(); ok, text = save_result(r.success, r.message, None, None)
+                r = f.result(); ok, text, ctx = save_result(r.success, r.message, req)
             except Exception as e:
-                ok, text = False, f'지도 저장 결과 미확인 · {type(e).__name__} — 저장 지도 목록 다시 확인'
+                ok, text, ctx = False, f'지도 저장 결과 미확인 · {type(e).__name__} — 저장 지도 목록 다시 확인', None
             def on_loop():
                 w = save['wait'].get(n)
                 if w is None:       # 이미 시간 초과로 닫힘
                     return finish(n, ok, text, late=True)
                 ep_now = live.view().get('epoch')
-                finish(n, ok, text + (f' · 요청 때 epoch {w[2]}, 지금 {ep_now}' if ep_now != w[2] else ''))
+                finish(n, ok, text + (f' · 요청 때 epoch {w[2]}, 지금 {ep_now}' if ep_now != w[2] else ''), ctx=ctx)
             loop.add_callback(on_loop)
 
         def timeout():
@@ -2510,12 +2716,34 @@ def main():
                 reply(c, rid, False, f'지도 읽기 실패 · {type(e).__name__}')
         loop.add_future(loop.run_in_executor(None, work), done)
 
+    def geom_op(c, rid, m):
+        """건물 기하 읽기(파일·검사)는 IOLoop 밖 · 연결마다 한 번에 하나 · 5 s 넘으면 이유로 답(늦은 결과 버림, 끝날 때까지 busy 유지 — 스레드 쌓임 0)"""
+        if c.geom_busy:
+            return reply(c, rid, False, '건물 기하 요청 처리 중')
+        c.geom_busy = True; sent = [False]
+        loop = tornado.ioloop.IOLoop.current()
+
+        def once(ok, text, **kw):
+            if not sent[0]:
+                sent[0] = True; reply(c, rid, ok, text, **kw)
+
+        def done(fut):
+            c.geom_busy = False
+            try:
+                g, h = fut.result(); once(True, '', geom=g, geom_sha256=h)
+            except MapErr as e:
+                once(False, f'건물 기하 · {e}')
+            except Exception as e:
+                once(False, f'건물 기하 읽기 실패 · {type(e).__name__}')
+        loop.call_later(5.0, lambda: once(False, '건물 기하 · 5 s 안에 못 읽음 — 잠시 뒤 다시'))
+        loop.add_future(loop.run_in_executor(None, geom_read, a.geom_root, m.get('building_id')), done)
+
     class WS(tornado.websocket.WebSocketHandler):
         def check_origin(self, origin):
             return origin in allowed_origins          # 다른 웹페이지가 이 포트로 조종하지 못하게
 
         def open(self):
-            self.cid = f'c{id(self)}'; self.cam_n = -1; self.map_busy = False
+            self.cid = f'c{id(self)}'; self.cam_n = -1; self.map_busy = False; self.geom_busy = False
             # 보호 관문(v2_gate)이 붙인 «계정 · 기기». 8790 은 127.0.0.1 전용이라 이 PC 안의 프로세스만 쓸 수 있다(신뢰 경계 = 이 PC)
             self.gated = bool(actor_from_header(self.request.headers.get('X-FH-Actor', '')))   # 관문 로그인 신원(Gazebo 종료 조건)
             self.actor = actor_from_header(self.request.headers.get('X-FH-Actor', '')) or '이 PC(127.0.0.1)'
@@ -2557,6 +2785,8 @@ def main():
                 stop_sim(self, rid)
             elif op in ('map_list', 'map_get', 'height_get'):
                 map_op(self, rid, op, m)
+            elif op == 'geom_get':
+                geom_op(self, rid, m)
             elif op == 'map_live_get':
                 x = live.png()
                 reply(self, rid, bool(x), '' if x else '표시할 실시간 지도 없음', live=x)

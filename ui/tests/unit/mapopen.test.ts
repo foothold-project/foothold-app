@@ -52,7 +52,7 @@ const MI = (o: Record<string, unknown> = {}) => ({ world_id: 'v5_building', buil
   resolution: 0.05, origin: [-20, -14, 0], width: 800, height: 640, saved_sim_t: 1, ...o }) as any;
 
 test('saveVerdict: 요청 때 출처로 대조 · epoch 바뀜/다른 층/화면 이탈 뒤 늦은 응답은 지금 지도 성공 0', () => {
-  const req = { world_id: 'v5_building', building_id: 'v5', floor_id: 'l1', epoch: 2, gen: 4 }, r = { ok: true, text: '지도 저장됨 · 20261014-170000-e2' };
+  const req = { world_id: 'v5_building', building_id: 'v5', floor_id: 'l1', epoch: 2, floor_rev: null, gen: 4 }, r = { ok: true, text: '지도 저장됨 · 20261014-170000-e2' };
   const a = saveVerdict(req, r, [MI()], req, 't');
   expect(a).toMatchObject({ ok: true, key: 'v5/l1/20261014-170000-e2' });
   const b = saveVerdict(req, r, [MI()], { ...req, epoch: 3 }, 't');                       // 응답 사이 epoch 바뀜(늦은 응답)
@@ -63,10 +63,32 @@ test('saveVerdict: 요청 때 출처로 대조 · epoch 바뀜/다른 층/화면
   { const x = saveVerdict(req, { ok: false, text: '지도 저장 결과 미확인 · 10 s' }, [MI()], req, 't'); expect(x.ok).toBe(false); expect(x.key).toBeUndefined(); }
 });
 
+test('saveVerdict: 연결 건물은 서버 확인 응답 문맥(save)이 요청 문맥과 정확히 같을 때만 성공', () => {
+  const req = { world_id: 'v5_building', building_id: 'v5', floor_id: 'l2', epoch: 4, floor_rev: 3, gen: 4 }, V = '20261015-010000-e4';
+  const sv = { world_id: 'v5_building', building_id: 'v5', floor_id: 'l2', epoch: 4, floor_rev: 3, map_version: V }, L = [MI({ floor_id: 'l2', map_version: V, epoch: 4 })];
+  expect(saveVerdict(req, { ok: true, text: `지도 저장됨 · ${V}`, save: sv }, L, req, 't')).toMatchObject({ ok: true, key: `v5/l2/${V}` });
+  expect(saveVerdict(req, { ok: true, text: `지도 저장됨 · ${V}` }, L, req, 't').ok).toBe(false);                       // 문맥 없는 성공 = 미확인
+  for (const o of [{ floor_id: 'l1' }, { floor_rev: 2 }, { epoch: 5 }, { map_version: null }])
+    expect(saveVerdict(req, { ok: true, text: `지도 저장됨 · ${V}`, save: { ...sv, ...o } }, L, req, 't').ok, JSON.stringify(o)).toBe(false);
+  expect(saveVerdict(req, { ok: true, text: `지도 저장됨 · ${V}`, save: sv }, L, { ...req, floor_rev: 4 }, 't').ok).toBe(false);   // 응답 사이 층 세대 바뀜
+});
+
 test('groupMaps: 지형 → 층 → 버전, 2층 건물만 층 표시', () => {
   const g = groupMaps([MI({ floor_id: 'l2' }), MI({ world_id: 'v5_single', building_id: 'v5_single', floor_id: 'f1', map_source: 'gt_raster', epoch: null, map_version: 'gt-20261012' }), MI()]);
   expect(g.map((x) => x.label)).toEqual(['1층 건물', '2층 건물']);
   expect(g[1].items.map((m) => m.floor_id)).toEqual(['l1', 'l2']);
   expect(verLabel(g[1].items[0])).toBe('1층 · SLAM 저장 지도 · 20261014-170000-e2');
   expect(verLabel(g[0].items[0])).toBe('GT 기하 지도(SLAM 아님) · gt-20261012');
+});
+
+import { allKey, gtFloors } from '../../src/data/maps';
+test('gtFloors: 2층 건물 층 나란히 보기 = 층마다 GT 1장 · 원점·크기 같을 때만 · 단층·GT 빠진 층·좌표 다름은 이유', () => {
+  const G = (f: string, o: Record<string, unknown> = {}) => MI({ floor_id: f, map_source: 'gt_raster', epoch: null, map_version: 'gt-20261014', ...o });
+  const r = gtFloors([MI({ floor_id: 'l2' }), G('l2'), G('l1')], 'v5_building');
+  expect(Array.isArray(r) && r.map((m) => [m.floor_id, m.map_source])).toEqual([['l1', 'gt_raster'], ['l2', 'gt_raster']]);   // 아래층부터 · SLAM 저장본 제외
+  expect(gtFloors([G('l1'), MI({ floor_id: 'l2' })], 'v5_building')).toBe('GT 기하 지도 없는 층: 2층');
+  expect(gtFloors([G('l1'), G('l2', { origin: [-19, -14, 0] })], 'v5_building')).toContain('달라');
+  expect(gtFloors([G('l1')], 'v5_single')).toContain('하나뿐');
+  expect(allKey('v5_building')).toBe('all:v5_building');
+  expect(allKey('v5_building').split('/').length).toBe(1);   // 저장본 키(건물/층/버전)와 안 겹침
 });

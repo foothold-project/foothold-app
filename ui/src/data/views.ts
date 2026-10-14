@@ -1,11 +1,11 @@
 // 보조 관제 뷰(시뮬) — RL VIEW-CONTRACT §1·§2 를 link 가 검증해 최신 1개만 들고 있고, 여기서 view_get 으로 끌어온다(≤2 Hz, 한 번에 하나).
-// 점군 누적: 결속 키(world·건물·층·모드·출처·버전·epoch) + 연결/대상 세대가 같을 때만 0.1 m 칸 하나에 점 하나, 상한 30만(넘으면 오래된 칸부터 버림).
+// 점군 누적: 결속 키(world·건물·층·모드·출처·버전·epoch·층세대) + 연결/대상 세대가 같을 때만 0.1 m 칸 하나에 점 하나, 상한 30만(넘으면 오래된 칸부터 버림).
 // 키·세대가 바뀌거나 지도 상태가 ok 아니면 비우고 쌓지 않는다. SLAM 3D 지도가 아니라 측정점 누적 시각화다(루프 폐합 0).
 import { useEffect, useState } from 'react';
 import { ask, useLink } from './link';
 
 export const VOX = 0.1, CAP = 300_000, POLL_MS = 500, MAX_ABS = 3000, SRC_AGE = 3;   // MAX_ABS: vkey 는 ±3276.7 m 까지 충돌 없음 → 그보다 작게 고정, 넘는 점이 하나라도 있으면 그 메시지 거부
-const KEYS = ['world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch'] as const;
+const KEYS = ['world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch', 'floor_rev'] as const;   // floor_rev: 연결 건물 층 context 세대(없는 world 는 null)
 export type Pose = { x: number; y: number; z: number; yaw: number };
 type Snap = ReturnType<typeof useLink.getState>;
 const keyOf = (o: any) => KEYS.map((k) => JSON.stringify(o?.[k] ?? null)).join('|');
@@ -94,7 +94,7 @@ export function usePull(what: 'points' | 'follow', on: boolean) {
 // ── 빈칸 이유(사실만 — 센서 고장·출력 보장 단정 0, 자동 기동·옵션 변경 0). 순서: 실행 상태(미확인·꺼짐·평지·시작 중) → 외부카메라 켬/끔 → 지도 상태 → 발행 쪽(producer) 자기 진단 → link 수신 검사
 const PROD_KO: Record<string, string> = {
   no_cloud: '라이다 점군 아직 안 옴 — 계속되면 기록 확인', no_frame: '렌더 영상 아직 안 옴 — 계속되면 기록 확인', reset: '리셋 중',
-  stale_epoch: '이전 회차 것이라 버림', not_localized: '위치 결속 미확인 — 기록 확인',
+  stale_epoch: '이전 회차 것이라 버림', floor_transit: '층 이동 중 — 이동 끝나면 다시 들어옴', not_localized: '위치 결속 미확인 — 기록 확인',
   tf_stale: '좌표 변환(TF)이 늦음 — 계속되면 기록 확인', tf_lookup_failed: '좌표 변환(TF) 실패 — 계속되면 기록 확인',
   sim_t_unknown: '발행 쪽이 시뮬 시각을 못 읽음 — 계속되면 기록 확인', no_stamp: '영상 시각 없음 — 계속되면 기록 확인',
   future_stamp: '시각이 시뮬보다 앞서 버림 — 계속되면 기록 확인', out_of_order: '순서 뒤바뀐 영상 버림 — 계속되면 기록 확인',

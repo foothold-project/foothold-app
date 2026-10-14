@@ -141,7 +141,7 @@ export function checkStatus(m: any): string | null {
 }
 // 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로(live.js ask 와 같음)
 let rid = 0; const pending = new Map<number, (m: Reply) => void>();
-type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get' | 'map_live_get' | 'map_start' | 'map_save' | 'view_get' | 'height_get';
+type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get' | 'map_live_get' | 'map_start' | 'map_save' | 'view_get' | 'height_get' | 'geom_get';
 export const ask = (op: AskOp, extra: Record<string, string | boolean> = {}, ms = 5000) => new Promise<Reply>((res) => {   // ms: 서버 쪽 제한이 더 긴 op(map_save 10 s)만 늘림
   const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text }), g0 = useLink.getState().gen;
   if (useLink.getState().provider !== 'simulation_gate') return no('실기 모드 — 시뮬 요청 안 보냄');

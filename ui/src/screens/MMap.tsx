@@ -18,7 +18,7 @@ import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
 
 export default function MMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, api = useRef<MapApi | null>(null), busy = useRef(false);
-  const { raster, pickEl, pose, live, on, blank, showLive, reload, flat, view, legend } = useMapPick(false);   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
+  const { raster, pickEl, pose, live, on, blank, showLive, reload, flat, view, legend, v3d } = useMapPick(false);   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
   const [sel0, setSel] = useState<number[] | null>(null), sel = on ? null : sel0, [layers, setLayers] = useState(false), [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [mid0, setMid] = useState(''), ms = docsOf(D, 'mission'), mid = ms.some((m) => m.id === mid0) ? mid0 : '';
   const d = sel && lk.robot?.fresh ? Math.hypot(lk.robot.x - sel[0], lk.robot.y - sel[1]) : null;
@@ -37,10 +37,10 @@ export default function MMap() {
   const mode = api.current?.mode() || 'robot';
 
   const v = {
-    themeClass: themeClass(false), stopProps, status: <LiveStatus D={D} />,
-    hdrA: '지도', hdrB: on ? `${live ? '현재 열린 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 ±10 m' : 'GT 위치(지형 도면 없음)'} · ${fresh ? 'GT 위치 수신' : TRAIL.last ? 'GT 오래됨' : 'GT 미수신'}(SLAM 아님)`,
+    themeClass: `${themeClass(false)} mmap-hdr`, stopProps, status: <LiveStatus D={D} />,   // mmap-hdr: 390 머리 반응형(live.css)
+    hdrA: '지도', hdrB: v3d ? '건물 전체 3D' : on ? `${live ? '현재 열린 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 ±10 m' : 'GT 위치(지형 도면 없음)'} · ${fresh ? 'GT 위치 수신' : TRAIL.last ? 'GT 오래됨' : 'GT 미수신'}(SLAM 아님)`,
     layerP: { 'aria-label': '지도 보기·레이어', 'aria-expanded': layers, onClick: () => setLayers(!layers) },
-    map: <><MapCanvas name="mmap" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : lk.robot} trail={TRAIL.pts} showTrail={trail && !on} showZones={zon && !on} sel={sel}
+    map: v3d || <><MapCanvas name="mmap" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : lk.robot} trail={TRAIL.pts} showTrail={trail && !on} showZones={zon && !on} sel={sel}
       raster={raster} blank={blank} flat={flat} noRobot={on && !pose} onTap={on ? undefined : (x, y) => setSel([r2(x), r2(y)])} />
       {legend && <div style={{ position: 'absolute', left: 8, right: 8, bottom: 30, zIndex: 2, pointerEvents: 'none' }}>{legend}</div>}</>,
     fR: { 'data-m': 'robot', onClick: () => api.current?.setMode('robot') }, fI: { onClick: () => api.current?.zoomBy(1.5) }, fO: { onClick: () => api.current?.zoomBy(1 / 1.5) },
@@ -60,8 +60,8 @@ export default function MMap() {
   };
   const B = (t: string, f: () => void) => <button type="button" className="lv-btn" onClick={() => { f(); redraw((n) => n + 1); }}>{t}</button>;
   const drawer = layers && <Drawer title="지도 열기 · 보기" onClose={() => setLayers(false)}>
-      <MapStartBox pc={false} onSaved={reload} onShowLive={live ? undefined : showLive} onView={view} />
       {pickEl}
+      <MapStartBox pc={false} onSaved={reload} onShowLive={live ? undefined : showLive} onView={view} />
       {B(`보기: ${MODE_KO[mode]} → ${mode === 'all' ? '로봇 중심' : '전체 보기'}`, () => api.current?.setMode(mode === 'all' ? 'robot' : 'all'))}
       {B(`지나온 길 ${trail ? '숨기기' : '보이기'}`, () => setTrail(!trail))}
       {B(`구역 ${zon ? '숨기기' : '보이기'}`, () => setZon(!zon))}
