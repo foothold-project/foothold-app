@@ -3,3 +3,24 @@ runs/
 # 원본 시안 zip·압축 해제본: support.js 라이선스 미확인 — 공개 저장소에 넣을지 결정 전까지 제외
 reference/
 __pycache__/
+# ── 공개 저장소 보호(앱 통합): 운영·원시 자료·생성물·비밀 — docs/GITHUB-WORKFLOW.md 5절
+.gate/
+.venv*/
+venv/
+media/
+maps/
+dist/
+ui/dist/
+node_modules/
+mobile/out/
+mobile/www/
+mobile/android/app/src/*/res/raw/
+*.apk
+*.aab
+*.pem
+*.key
+*.crt
+*.der
+*.p12
+*.jks
+*.keystore
