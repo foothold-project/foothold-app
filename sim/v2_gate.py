@@ -80,6 +80,7 @@ def selftest():
     assert [w.allow('a', 0) for _ in range(4)] == [True, True, True, False] and w.allow('a', 60.0)   # 창 지나면 다시
     assert w.allow('b', 1) and w.allow('c', 1) and len(w.w) == 1   # cap 넘으면 비우고 새로
     assert set(HEALTH) == {'app', 'api'} and HEALTH['api'] >= 1
+    sys.path.insert(0, str(HERE)); import gate_mdns; gate_mdns.selftest()
     print('[v2_gate] selftest OK')
 
 
@@ -93,6 +94,7 @@ def main():
     ap.add_argument('--state', default=str(HERE.parent.parent / 'control-app' / '.gate'), help='계정·인증서 폴더(읽기만)')
     ap.add_argument('--spa', action='store_true', help='React 빌드(ui/dist) 서빙: 정적 파일은 공개(코드뿐), 데이터·영상은 API·WS 에서만 로그인 확인. 로그인 화면은 앱 안 #/MLogin·#/PcLogin')
     ap.add_argument('--ttl', type=float, default=12 * 3600, help='로그인 세션 수명 s')
+    ap.add_argument('--advertise', action='store_true', help='--bind 0.0.0.0 일 때 같은 Wi-Fi 에 mDNS 광고(_foothold-gate._tcp, 비밀 0 — sim/gate_mdns.py)')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -404,6 +406,14 @@ def main():
     app.listen(a.port, address=a.bind, ssl_options=ctx, max_body_size=16 * 1024)   # 공용 문서(최대 12 KB)용
     tornado.ioloop.PeriodicCallback(sweep, 2000).start()
     for h in hosts: log(f'열기: https://{h}:{a.port}/  (계정 {len(accounts)}개 · 중계 {a.upstream})')
+    if a.advertise and a.bind not in ('0.0.0.0', ''):
+        log('LAN 광고 안 함 — --bind 0.0.0.0 일 때만')
+    elif a.advertise:
+        import atexit, gate_mdns
+        der = ssl.PEM_cert_to_DER_cert((state / 'cert.pem').read_text())   # 공개 인증서만(키 0)
+        adv = gate_mdns.Advert(gate_mdns.records(der, a.port, gate_mdns.iface_addrs(), sans, HEALTH['api']), log)
+        if adv.start():
+            tornado.ioloop.PeriodicCallback(adv.poll, 10000).start(); atexit.register(adv.stop)
     tornado.ioloop.IOLoop.current().start()
 
 

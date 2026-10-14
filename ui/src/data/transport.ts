@@ -234,3 +234,6 @@ const W: any = typeof window !== 'undefined' ? window : {};
 const APP_ORIGINS = ['https://localhost', 'capacitor://localhost'];
 const plugin = APP_ORIGINS.includes(W.location?.origin) ? W.Capacitor?.Plugins?.FhGate : undefined;
 export const T: Transport = plugin ? nativeTransport(plugin) : web;
+// 주변 관문 검색(D′): 이 앱 판에 discover 가 있을 때만(옛 APK 는 null — 화면이 «이 앱 판에 없음» 표시). 웹은 항상 null
+export const nearbyApi: import('./discover').NearbyApi | null = plugin && typeof plugin.discover === 'function'
+  ? { discover: (ms) => plugin.discover({ ms }), stop: () => (typeof plugin.discoverStop === 'function' ? plugin.discoverStop() : undefined) } : null;

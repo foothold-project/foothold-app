@@ -2,10 +2,11 @@
 // 전송은 data/auth 의 `auth`(= transport T) 하나로만: 웹 쿠키 관문 또는 네이티브 B(앱 출처 + FhGate 있을 때만).
 import { useEffect, useRef, useState } from 'react';
 import { auth, gateOrigin, intent, safeNext } from '../data/auth';
-import { useNote } from '../data/transport';
+import { nearbyApi, useNote } from '../data/transport';
+import { stopNearby } from '../data/discover';
 import { useRoute, whyProps } from './shell';
 import { addProfile, KIND_TXT, loadProfiles, originFromText, saveProfiles, stepsOf, type Health, type Profile, type StepSt } from '../data/gate_profile';
-import { canScan, ConnSteps, QrScan, ShareGate, SMALL } from './gateconn';
+import { canScan, ConnSteps, Nearby, QrScan, ShareGate, SMALL } from './gateconn';
 
 // 편집 줄 버튼: 로그인 화면 원본 토큰(로그인 버튼 accent·on-accent, 입력 테두리 line2)만 — .btn 은 이 화면 틀에 없음. 손가락 44 px
 const EDB = { minHeight: 44, minWidth: 72, padding: '0 16px', borderRadius: 10, fontWeight: 600, fontSize: 15, cursor: 'pointer' } as const;
@@ -81,6 +82,7 @@ export function useLoginVals(phone: boolean) {
             {`${KIND_TXT[p.kind]} · ${p.origin}${p.origin === cur ? ' · 지금' : ''}`}</button>
           <button type="button" aria-label={`${p.origin} 지우기`} style={{ ...SMALL, minWidth: 44, padding: 0 }} onClick={() => { const l = profs.filter((q) => q.id !== p.id); setProfs(l); saveProfiles(l); }}>✕</button>
         </div>)}</div>}
+      <Nearby api={nearbyApi} native={auth.kind === 'native'} cur={cur} onPick={(o) => { if (gin.current) { gin.current.value = o; gin.current.focus(); } setEd((e) => ({ ...e, err: '' })); }} />
       <label className="lbl" htmlFor="gate-origin" style={{ fontSize: 12 }}>관문 주소 · https://호스트:포트</label>
       <input id="gate-origin" ref={gin} className="inp" type="url" inputMode="url" autoComplete="off" autoCapitalize="none" spellCheck={false} maxLength={200}
         defaultValue={cur} placeholder="https://관문주소:포트" disabled={ed.busy} aria-invalid={!!ed.err} aria-describedby="gate-err"
@@ -100,6 +102,7 @@ export function useLoginVals(phone: boolean) {
   const gateEd = <><ConnSteps st={steps} why={stepWhy} ms={hl?.ok ? hl.ms : null} />{editor}</>;
   const go = async (e: React.SyntheticEvent) => {
     e.preventDefault(); if (busy.current) return;
+    stopNearby();   // 로그인 시작 → 주변 검색 멈춤(늦은 결과 버림)
     if (!auth.gated) return setMsg({ t: '보호 주소(https://관문주소:포트)에서만 로그인할 수 있습니다' });
     const u = id.current?.value.trim() || '', p = pw.current?.value || '';
     if (!u || !p) return setMsg({ t: '계정과 비밀번호를 넣으세요' });

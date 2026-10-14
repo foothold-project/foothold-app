@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import qrcode from 'qrcode-generator';
 import { STEPS, originFromText, type StepSt } from '../data/gate_profile';
 import { startScan } from '../data/qrscan';
+import { startNearby, type Found, type NearbyApi } from '../data/discover';
 
 const MARK: Record<StepSt, string> = { ok: '✓', bad: '✕', unk: '–', brw: '?' };
 const COL: Record<StepSt, string> = { ok: 'var(--ok)', bad: 'var(--bad, #FF5A4F)', unk: 'var(--muted, #8A96A0)', brw: 'var(--muted, #8A96A0)' };
@@ -71,3 +72,29 @@ export function ShareGate({ urls }: { urls: string[] }) {
   </div>;
 }
 export { SMALL };
+
+/** 주변 기기(같은 Wi-Fi 의 FOOTHOLD 관문 광고) — 이 칸이 보이는 동안만 검색, 닫기·숨김·떠남에서 멈춤. 고르면 입력칸에 넣기까지만(저장은 «주소 저장») */
+export function Nearby({ api, native, cur, onPick }: { api: NearbyApi | null; native: boolean; cur: string; onPick: (o: string) => void }) {
+  const [f, setF] = useState<Found | null>(null), [run, setRun] = useState(0);
+  useEffect(() => {
+    if (!api) return;
+    setF(null);
+    const stop = startNearby(api, 5000, setF), left = () => stop();
+    const hid = () => { if (document.visibilityState === 'hidden') stop('화면을 떠나 검색을 멈춤 — 다시 검색'); };
+    document.addEventListener('visibilitychange', hid); addEventListener('pagehide', left);
+    return () => { stop(); document.removeEventListener('visibilitychange', hid); removeEventListener('pagehide', left); };
+  }, [api, run]);
+  const note = { fontSize: 12, color: 'var(--muted, #8A96A0)' } as const;
+  return <div role="group" aria-label="주변 기기" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+    <span className="lbl" style={{ fontSize: 12 }}>주변 기기 · 같은 Wi-Fi 의 FOOTHOLD 관문(미검증 — 고르면 입력칸에만)</span>
+    {!api ? <span role="status" style={note}>{native ? '이 앱 판에는 주변 검색이 없음 — 새 앱 설치 뒤 · 지금은 저장한 주소·QR·주소 입력' : '이 브라우저는 주변 검색 불가 — 저장한 주소·QR·주소 입력'}</span> : <>
+      {f?.items.map((it) => <button type="button" key={it.origin} style={{ ...SMALL, textAlign: 'left', color: 'inherit', overflowWrap: 'anywhere' }} onClick={() => onPick(it.origin)}>
+        {`${it.name || it.origin} · 미검증${it.origin === cur ? ' · 지금' : ''}`}{it.name && <span className="mono" style={{ display: 'block', ...note }}>{it.origin}</span>}</button>)}
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <span role="status" style={{ ...note, flex: 1, minWidth: 0 }}>{f ? f.msg || `${f.items.length}개 찾음` : '찾는 중…(최대 5초)'}</span>
+        <button type="button" style={SMALL} disabled={!f} onClick={() => setRun((n) => n + 1)}>다시 검색</button>
+      </div></>}
+    <span style={note}>Tailscale 주소는 주변 검색에 안 나옴 — 저장한 주소를 쓰세요</span>
+    <span style={note}>Go2 로봇 직접 검색: 미지원(확인된 공식 프로토콜·연결 어댑터 없음) — FOOTHOLD 관문을 거친 로봇만 연결</span>
+  </div>;
+}
