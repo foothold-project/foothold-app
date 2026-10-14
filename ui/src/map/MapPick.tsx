@@ -27,6 +27,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   const linked = useLink((x) => x.open), gen = useLink((x) => x.gen), lv = useLink((x) => x.st?.live_map) || null;
   const fresh = useLink((x) => x.open && x.lastMsg > 0 && performance.now() - x.lastMsg < 1000);   // tick(500 ms)마다 다시 계산 — 수신 1 s 끊기면 false
   const [geo, setGeo] = useState<{ key: string; gen: number; g: Geom; sha: string } | string | null>(null);   // 건물 전체 3D(GT 간략 기하) — 선택·연결 세대 결속
+  const [rq, setRq] = useState(0);   // 고를 때마다 +1 — 같은 보기를 다시 눌러도(pick 이 그림을 비움) 실시간·전체 3D 를 다시 받음(저장 지도의 loadSaved 재요청과 같은 규칙, real-04 고착)
   const ready = useLink((x) => x.open && x.stGen === x.gen);   // 이 연결에서 유효 status 를 받은 뒤만(관문이 upstream 없이 곧 닫는 연결엔 안 보냄)
   const lq = useRef({ n: 0, busy: null as number | null }).current, load = () => loadList(lq, setMaps);   // 늦은·겹친 결과 채택 0(세대·대상·최신 대조는 loadList)
   // 새 연결·대상 = 옛 목록 무효(정본인 척 남지 않게) → 그 세대 첫 유효 status 뒤 1회. 세대 변경·화면 닫힘 때 걸린 요청 버림. 자동 재시도 0 — 실패면 «목록 다시 불러오기»·고를 때(onFocus)
@@ -49,7 +50,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
       if (typeof r === 'string') { setBound(null); setLwhy(r); } else { setBound({ r, k, seq, gen: g0 }); setLwhy(''); }
     });
     return () => { gone = true; };
-  }, [sel, seq, k, fresh, gen]);
+  }, [sel, seq, k, fresh, gen, rq]);
 
   const loadSaved = async (key: string, list: MapInfo[] | string | null) => {
     if (key.startsWith('all:')) {   // 건물 전체 보기: 층별 GT 그림 나란히(보기만 · 좌표 결속·위치 마커 0)
@@ -64,7 +65,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     if (typeof r === 'string') { toast(`지도 · ${r}`); setSerr(r); } else { setSaved(r); setSerr(''); }   // 실패해도 GT 로 자동 복귀 0 — 선택 유지 + 빈 칸 + 이유
   };
   const pick = (key: string) => {
-    usePick.setState({ sel: key, touched: true, auto: false }); setSaved(null); setHOn(false); setHr(null); setBound(null); setLwhy(''); setSerr(''); setGeo(null);
+    usePick.setState({ sel: key, touched: true, auto: false }); setSaved(null); setHOn(false); setHr(null); setBound(null); setLwhy(''); setSerr(''); setGeo(null); setRq((n) => n + 1);
     if (key !== LIVE && key && !key.startsWith('g3d:')) loadSaved(key, maps);
   };
   // 다른 화면에서 고른 저장 지도로 이 화면이 열림 → 목록이 오면 이 화면도 받아 그림
@@ -75,7 +76,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     let gone = false; const k0 = sel, g0 = gen; setGeo(null);
     getGeom('v5').then((x) => { if (!gone && usePick.getState().sel === k0 && useLink.getState().gen === g0) setGeo(typeof x === 'string' ? x : { key: k0, gen: g0, ...x }); });
     return () => { gone = true; };
-  }, [sel, gen, linked]);
+  }, [sel, gen, linked, rq]);
   const live = sel === LIVE, on = sel !== '';
   const showL = live && fresh && !!bound && bound.gen === gen && bound.k === k && bound.seq === seq;   // 그리는 순간에도 현재 lv·연결로 다시 결속 확인
   // 높이색(GT 저장 지도만): 켤 때 1회 요청. 늦게 온 답은 선택·켬 상태가 그대로일 때만(다르면 버림). 자동 재요청 0
