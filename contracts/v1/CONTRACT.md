@@ -78,6 +78,19 @@
 | 500 | 저장 실패 — 이전 상태 그대로 |
 | 503 | 저장소 사용 불가(파일 손상 등, 원본 보존) — `DocsList.broken` 에 이유 |
 
+## 실행 대상(provider) · 보조 관제 뷰 (10-14)
+- 이름 하나: `ProviderKind` = `simulation_gate`(관문 경유 시뮬) | `go2_direct`(Go2 직접 — 네이티브 담당, 준비 중). UI·네이티브·RL 은 이 값만 쓴다.
+- `Capabilities` {command, map, rgb, depth, points, follow_cam}: 지금 실제로 주는 것만 true. 실기 미도착·펌웨어 미확인 = 전부 false(빈 칸 + 이유). go2_direct 의 command 는 false(자동 조종 0).
+- 대상 전환(화면): 누름 폐기 → 시뮬을 떠나면 hidden(조종권 해제) → 보기 전용 → 연결 세대 +1. 세대가 다른 응답·카메라·지도·점군은 버린다. 돌아와도 조종권·STOP 해제 자동 복원 0. 실기 모드에서는 시뮬 WS 로 cmd·stop·take·ask 를 보내지 않는다.
+- 보조 뷰는 서버가 밀어넣지 않는다: `status.views.{follow,points}` 의 seq 가 바뀌면 화면이 보고 있을 때만 `view_get` 으로 최신 1개를 받는다(≤2 Hz).
+- points: map 프레임 xyz(float32 LE, base64, n×12 바이트, n ≤ 4000). 결속 키(world·building·floor·mode·map_source·map_version·epoch)가 `live_map` 과 다르거나 live_map 이 ok 가 아니면 화면은 누적하지 않는다. 누적은 시각화이며 SLAM 3D 지도가 아니다.
+- follow: Gazebo 렌더 3인칭 — RL `/v2_map/follow_cam`(std_msgs/String JSON, schema `v2_map/follow_cam/1`, JPEG base64 ≤64 000 B). 지도 체험 시작 때 `follow_cam: true`(strict bool, 실기 대상에선 보내지 않음)일 때만 켜진다. 평지 체험엔 없다. 웹이 그리는 «가상 3D 뷰»와 따로 표기한다.
+- 시각 판정(서버 `Views`, 기준시계 = `live_map` status 의 `sim_t`, 1 Hz): 추정 상한 hi = 마지막 sim_t + 그 status 뒤 흐른 벽시계(RTF ≤ 1 가정).
+  - 받을 때 stamp_sim > hi + 0.5 s → «미래 시각»으로 **들이지 않음**(캐시 오염으로 다음 정상 프레임이 «역행» 거부되는 것 방지).
+  - 보일 때: sim_t 모름 → `stale`(현재 시뮬 시각 모름) · stamp_sim > hi + 0.5 s → `bad`(미래) · sim_t − stamp_sim > 3 s → `stale`(시뮬 시각 기준 오래됨) · 벽시계 수신 나이 > 3 s → `stale`. ok 가 아니면 `view_get` 은 주지 않는다.
+  - 화면(`checkStatus`): `views.{points,follow}` 형식(st 4종·why 문자열·seq null|양의 정수·age_s null|유한 ≥0)이 틀리면 그 뷰만 버린다(조종·STOP 관문과 무관). `viewKey` 는 age_s 0~3 s·seq 양의 정수·마지막 메시지 ≤1 s 일 때만.
+  - 미검증: RTF > 1 · 실 카메라/점군 stamp 와 sim_t 의 실제 차 · 처리 부하·지연(실기동 없음).
+
 ## 버전
 
 - 메시지에는 버전 필드가 없다. **없으면 v1** 이다. 필드 추가는 v1 안에서 한다(받는 쪽이 무시하므로).

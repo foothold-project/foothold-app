@@ -18,7 +18,8 @@ type Props = {
   draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number, k: number) => void;
   btns?: boolean;
   raster?: Raster | null;   // 저장 지도 보기: 바닥 도면 대신 이 그림. 로봇·길·구역·경유점은 부르는 쪽이 끈다(좌표계 결속 전)
-  blank?: string | null;    // 지도 보기 중인데 그림 없음: GT 바닥 대신 빈 바탕 + 이 이유만(로봇·길·구역·경유점·고른 점 0)
+  blank?: string | null;
+  flat?: boolean;          // 지금 켜진 시뮬이 원본 평지 체험일 때만 «바닥 ±10 m» 라벨(아니면 지형 도면 없음 — GT 위치·1 m 격자만)    // 지도 보기 중인데 그림 없음: GT 바닥 대신 빈 바탕 + 이 이유만(로봇·길·구역·경유점·고른 점 0)
   api?: { current: MapApi | null };   // 화면의 자체 버튼(휴대폰 fab·레이어 서랍)이 보기 방식·확대를 바꿀 때   // live.js mapBtns(아이콘): 로봇 중심 · 전체 보기 · 확대 · 축소
 };
 
@@ -110,7 +111,7 @@ export function MapCanvas(p: Props) {
     } else if (!o.noRobot && !rs) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText('위치 없음 · GT 미수신', W / 2, H / 2); g.textAlign = 'left'; }
     g.font = '600 11px sans-serif'; g.fillStyle = C.mut; g.textAlign = 'right'; g.fillText('N ↑', W - 8, H - 9); g.textAlign = 'left';
     if (!o.small) {
-      const t = `${rs ? `${r ? '위치 = 실시간 지도 status' : '위치 미표시(지도와 결속 안 됨)'} · ${rs.label} · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : '바닥 ±10 m · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
+      const t = `${rs ? `${r ? '위치 = 실시간 지도 status' : '위치 미표시(지도와 결속 안 됨)'} · ${rs.label} · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : o.flat ? '바닥 ±10 m · ' : '지형 도면 없음 · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
     box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식

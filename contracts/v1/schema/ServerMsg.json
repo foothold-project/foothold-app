@@ -645,6 +645,11 @@
           "title": "Busy",
           "type": "boolean"
         },
+        "follow_cam_ok": {
+          "default": false,
+          "title": "Follow Cam Ok",
+          "type": "boolean"
+        },
         "last": {
           "anyOf": [
             {
@@ -910,6 +915,19 @@
         "text": {
           "title": "Text",
           "type": "string"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View"
         }
       },
       "required": [
@@ -1723,6 +1741,17 @@
         "ver": {
           "title": "Ver",
           "type": "string"
+        },
+        "views": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Views"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -1748,6 +1777,71 @@
         "docs_rev"
       ],
       "title": "Status",
+      "type": "object"
+    },
+    "ViewSrc": {
+      "description": "보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok",
+      "properties": {
+        "age_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Age S"
+        },
+        "seq": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seq"
+        },
+        "st": {
+          "enum": [
+            "off",
+            "stale",
+            "bad",
+            "ok"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "st",
+        "why",
+        "seq",
+        "age_s"
+      ],
+      "title": "ViewSrc",
+      "type": "object"
+    },
+    "Views": {
+      "properties": {
+        "follow": {
+          "$ref": "#/$defs/ViewSrc"
+        },
+        "points": {
+          "$ref": "#/$defs/ViewSrc"
+        }
+      },
+      "required": [
+        "follow",
+        "points"
+      ],
+      "title": "Views",
       "type": "object"
     }
   },

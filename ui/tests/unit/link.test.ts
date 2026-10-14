@@ -8,7 +8,7 @@ const on = (k: string, f: any) => { (evs[k] ||= []).push(f); };
 (globalThis as any).window = globalThis;
 Object.assign(globalThis, {
   WebSocket: FakeWS, location: { href: 'http://127.0.0.1:5181/', protocol: 'http:' }, addEventListener: on,
-  document: { hidden: false, addEventListener: on }, screen: { orientation: { addEventListener: on } },
+  document: { hidden: false, addEventListener: on, querySelectorAll: () => [] }, screen: { orientation: { addEventListener: on } },
   Capacitor: { Plugins: { App: { addListener: (k: string, f: any) => { (cap[k] ||= []).push(f); } } } },
 });
 const ST = (o: any = {}) => ({ op: 'status', ver: 'v1', role: 'control', latch: false, resume_pending: false, reset_pending: false, sim_block: '', episode: 1, state_age: 0.1, cam_age: null,
@@ -224,4 +224,44 @@ test('저장 지도: 목록 형식 걸러냄 · 다른 지도 답 버림 · 요�
   p = M.getMap(I() as any); reply({ map: { ...I({ origin: [-20, -14, 0.5] }), png: 'AA==' } }); expect(await p).toContain('회전');
   p = M.getMap(I() as any); { const z = last(sent); msg({ op: 'reply', rid: z.rid, ok: false, text: '지도 · 지도 없음' }); } expect(await p).toBe('지도 · 지도 없음');
   expect(M.mapLabel(I() as any)).toContain('GT 기하 지도(SLAM 아님)');
+});
+
+test('checkStatus: views 형식 틀림 → 그 뷰만 버림(상태·조종 관문 유지)', () => {
+  const V = (points: any, follow: any = { st: 'ok', why: '', seq: 1, age_s: 0.1 }) => { const m: any = ST({ views: { points, follow } }); return [L.checkStatus(m), m.views]; };
+  expect(V({ st: 'ok', why: '', seq: 3, age_s: 0.2 })[1].points.seq).toBe(3);
+  for (const bad of [{ st: 'ok', why: '', seq: 0, age_s: 0.2 }, { st: 'ok', why: '', seq: 1.5, age_s: 0.2 }, { st: 'ok', why: '', seq: 3, age_s: -1 }, { st: 'ok', why: '', seq: 3, age_s: Infinity },
+    { st: 'great', why: '', seq: 3, age_s: 0 }, { st: 'ok', seq: 3, age_s: 0 }, 'x', null]) {
+    const [why, v] = V(bad); expect(why).toBe(null); expect(v.points).toBe(null); expect(v.follow.seq).toBe(1);
+  }
+  const m: any = ST({ views: 'x' }); expect(L.checkStatus(m)).toBe(null); expect(m.views).toBe(null);
+});
+
+test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·늦은 응답 모두 명령 0, 돌아와도 자동 복원 0', async () => {
+  L.setProvider('simulation_gate'); L.sendOp('take'); msg(ST());
+  expect(L.press('pv', 7, { fx: 1, fy: 0, fw: 0 })).toBe(true); step(120);
+  expect(cmds().some((m) => m.fx === 1)).toBe(true);                                       // 시뮬 누름 실제 발행 확인(반례 전제)
+  (globalThis as any).confirm = () => true;
+  const late = L.ask('map_list'); const q = last(sent); expect(q.op).toBe('map_list');
+  const g0 = L.useLink.getState().gen, n = sent.length;
+  L.setProvider('go2_direct');
+  expect(sent.slice(n).map((m) => m.op)).toEqual(['hidden']);                                // 떠날 때 조종권 해제 1번만
+  expect(L.useLink.getState()).toMatchObject({ provider: 'go2_direct', viewOnly: true }); expect(L.useLink.getState().gen).toBe(g0 + 1);
+  const n2 = sent.length;
+  expect(L.move('pv', 7, { fx: 1, fy: 0, fw: 0 })).toBe(false);                             // 옛 pointerMove
+  msg(ST({ role: 'control' }));                                                              // 옛 WS status(서버가 아직 control)
+  // 실기 대상: 시뮬 status·영상·길은 화면 상태로 안 나감(위치·영상·단계·지도 표시 0)
+  expect(L.useLink.getState().st).toBe(null); expect(L.TRAIL.pts.length).toBe(0); expect(L.camURL).toBe(null);
+  msg(ST({ sim: { x: 5, y: 1, yaw: 0, vx: 0, vy: 0, tilt_deg: 0, fallen: false, body_still: true }, cam_age: 0.1 })); sock.onmessage({ data: new Blob([new Uint8Array([0xff, 0xd8])]) });
+  expect(L.useLink.getState().st).toBe(null); expect(L.TRAIL.pts.length).toBe(0); expect(L.camURL).toBe(null);
+  { const v = L.linkView(L.useLink.getState()); expect([v.linkOk, v.s, v.robot, v.camOk, v.latch]).toEqual([false, null, null, false, false]); expect(v.linkTxt).toMatch('실기'); }
+  expect(await L.startSimAsk(ST() as any)).toMatch('실기 대상');
+  msg({ op: 'reply', rid: q.rid, ok: true, text: '', maps: [] });                            // 늦은 응답
+  expect((await late).ok).toBe(false);
+  expect(L.press('pv2', 8, { fx: 1, fy: 0, fw: 0 })).toBe(false); expect(L.driveBlock()).toMatch('실기 모드');
+  expect(L.sendStop()).toBe(false); expect(L.sendOp('take')).toBe(false); expect((await L.ask('sim_stop')).text).toMatch('실기 모드');
+  step(500); expect(sent.length).toBe(n2);                                                   // 실기 모드: 시뮬 WS 송신 0(cmd 0 포함)
+  L.setProvider('simulation_gate'); msg(ST({ role: 'control' }));
+  expect(L.useLink.getState().viewOnly).toBe(true); step(300);
+  expect(sent.slice(n2).filter((m) => m.op !== 'hidden')).toEqual([]);                       // 돌아와도 take·resume·cmd 자동 0
+  expect(L.press('pv3', 9, { fx: 1, fy: 0, fw: 0 })).toBe(false);
 });

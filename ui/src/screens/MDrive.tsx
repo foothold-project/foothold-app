@@ -5,15 +5,16 @@ import { useEffect, useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL, UNSUP, WHY } from '../data/facts';
-import { ask, camURL, driveBlock, dropAll, linkView, sendOp, showSimStop, startTxt, stateRows, stopSim, TRAIL, useLink } from '../data/link';
+import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, sendOp, startTxt, stateRows, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs, useMedia } from '../data/shared';
 import { MARK, STEPS, stageOf, warnsOf } from '../data/drive_stage';
 import { href } from '../data/hist';
 import { Photo } from '../app/Photo';
 import { shoot } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
+import { useMapPick } from '../map/MapPick';
 import { useDriveScreen, useFitPhone, useGateRtt, useStick } from '../app/drive';
-import { Drawer, stopProps, toast, whyProps } from '../app/shell';
+import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
 import { auth, logoutNow } from '../data/auth';
 
 const MOVE = '이동 막대: 앞뒤와 옆걸음', ROT = '회전 막대: 왼쪽 오른쪽', FB = '앞뒤 막대';
@@ -35,11 +36,7 @@ export default function MDrive() {
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
   const sm = useStick(MOVE, ['fx', 'fy']), sr = useStick(ROT, [null, 'fw']), sf = useStick(FB, ['fx', null]);
 
-  const startSim = async () => {
-    const ss = st?.sim_start; if (!ss || !ss.ok) return toast(`시뮬 시작 안 됨 · ${ss?.why || '서버 응답 없음'}`);
-    dropAll(); if (!confirm('Gazebo 시뮬을 30분 동안 시작할까요?\n· RL 쪽 기동 횟수를 1회 씁니다\n· STOP 상태로 시작합니다(«STOP 해제» 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음')) return;
-    toast((await ask('sim_start')).text || '응답 없음');
-  };
+  const startSim = async () => toast(await startSimAsk(st));
   const photo = async () => { const p = await shoot(); if (p) toast(`사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`} · «관찰»에서 분류`); };
   const fsToggle = async () => {
     dropAll();   // 전체화면 진입·나옴 전 폐기(fullscreenchange 도 link.ts 에서 폐기)
@@ -77,9 +74,13 @@ export default function MDrive() {
   };
   const camEl = <><img data-live-cam="" alt="Gazebo 렌더 카메라" src={camURL || undefined} style={{ position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover', visibility: v.camOk ? 'visible' : 'hidden' }} />
     <div style={{ position: 'absolute', inset: '0', display: 'grid', placeItems: 'center', color: '#9AA7B2', fontSize: split === 'map' ? '11px' : '14px', pointerEvents: 'none' }}>{v.camOk ? '' : `카메라 ${v.camTxt}`}</div></>;
-  const mapEl = (cap: boolean) => <><MapCanvas name="drive" small zones={D.err ? [] : docsOf(D, 'zone')} robot={v.robot} trail={TRAIL.pts} />
+  // 작은 지도도 관제·지도 화면과 같은 선택·결속(실시간 지도면 같은 epoch·seq·신선도 경계, 끊기면 빈 칸 + 이유)
+  const mp = useMapPick(false), mOn = mp.on;
+  const mapEl = (cap: boolean) => <><MapCanvas name="drive" small zones={D.err || mOn ? [] : docsOf(D, 'zone')} robot={mOn ? mp.pose : v.robot} trail={TRAIL.pts}
+    raster={mp.raster} blank={mp.blank} noRobot={mOn && !mp.pose} showTrail={!mOn} flat={mp.flat} />
     {cap && <div style={{ position: 'absolute', left: '0', right: '0', bottom: '0', padding: '2px 6px', fontSize: '10px', lineHeight: '1.4', color: '#E6EBEF', background: 'rgba(14,19,23,.78)', pointerEvents: 'none' }}>
-      {s ? `GT x ${sgn(s.x, 1)} y ${sgn(s.y, 1)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 위치 오래됨' : 'GT 위치 없음'}</div>}</>;
+      {mOn ? (mp.raster ? `${mp.live ? '실시간 지도' : '저장 지도'} · ${mp.pose ? '위치 표시' : '위치 미표시'}` : '지도 없음 · 지도 화면에서 이유 확인')
+        : s ? `GT x ${sgn(s.x, 1)} y ${sgn(s.y, 1)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 위치 오래됨' : 'GT 위치 없음'}</div>}</>;
   const half = (left: boolean, el: JSX.Element) => <div style={{ position: 'absolute', top: 0, bottom: 0, width: '50%', [left ? 'left' : 'right']: 0, overflow: 'hidden', background: '#05080A', ...(left ? { borderRight: '1px solid rgba(230,235,239,.35)' } : {}) }}>{el}</div>;
   const ph = [...M.photos].sort((a, b) => (a.saved_at < b.saved_at ? 1 : -1))[0];   // ⑤ 서버에 저장된 마지막 사진
 
@@ -111,12 +112,12 @@ export default function MDrive() {
     r1: { 'aria-checked': true, title: '앞 0.6 m/s (시험한 값)', style: { padding: '0 14px', border: '0', background: 'rgba(230,235,239,.92)', color: '#0B0E11', fontSize: '13px', fontWeight: '700' } },
     poseP: why(`자세 — ${WHY['후진·제자리 회전·옆걸음·저속·자세']}`), backT: '현황',
     give: ctl ? <button type="button" className="pill" onClick={() => sendOp('release')}>조종권 반납</button> : null,
+    simOff: <SimOff className="pill" />,   // 아래 가운데 줄(STOP 은 오른쪽 위) — 지도 화면·관제와 같은 버튼
   };
   const drawer = menu && <Drawer title="안내 · 설정" onClose={() => setMenu(false)}>
     <p>가로 조종 화면은 영상 위 표시라 어두운 테마 고정입니다.</p>
     <button type="button" onClick={() => { if (ctl) return toast('조종 중에는 바꾸지 않습니다 — 조종권 반납 뒤'); const nx = LAYOUTS[(LAYOUTS.indexOf(lay) + 1) % LAYOUTS.length]; if (!store.set('fh.live.layout', nx)) toast('저장 실패 — 이번만 적용'); setLay(nx); }}>{`막대 배치: ${lay} (눌러 바꾸기)`}</button>
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
-    {v.linkOk && showSimStop(st) && <button type="button" disabled={st!.sim_stop!.busy} style={{ opacity: st!.sim_stop!.ok ? undefined : 0.55 }} onClick={async () => { setMenu(false); const t = await stopSim(st); if (t) toast(t); }}>{st!.sim_stop!.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기 (로봇 STOP 아님)'}<small style={{ display: 'block' }}>{st!.sim_stop!.why || '확인창 뒤 종료 · 자동 재시작 없음'}</small></button>}
     <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`큰 지도 열기 · 지금 화면: ${SPLIT_TXT[split]}(작은 칸을 누르면 바뀜)`}</button>
     {st?.sim_start && <p>{[startTxt(st).left, startTxt(st).last].filter(Boolean).join(' · ')}</p>}
     {st?.map_start && <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`지도 체험 시작은 지도 화면에서 · ${startTxt(st).map}`}</button>}

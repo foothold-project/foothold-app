@@ -75,13 +75,14 @@ def test_cmd_matches_valid_axes(m):
 def test_client_ops_match_gate():
     import v2_gate as G
     ops = set()
-    for M in (C.OpSimple, C.OpCmd, C.OpRid, C.OpMapGet, C.OpMapStart):
+    for M in (C.OpSimple, C.OpCmd, C.OpRid, C.OpMapGet, C.OpMapStart, C.OpViewGet):
         ops |= set(M.model_fields['op'].annotation.__args__)
     assert ops == G.OPS
     for op in G.OPS:                                   # 미래 필드가 있어도 기존 op 를 거부하지 않는다
         m = {'op': op, 'v': 'fh-app/2', 'rid': 1, **({'fx': 0, 'fy': 0, 'fw': 0} if op == 'cmd' else {}),
              **({'building_id': 'v5', 'floor_id': 'l1', 'map_version': 'gt-20261012'} if op == 'map_get' else {}),
-             **({'world_id': 'rooms_a', 'floor_id': 'f1', 'mode': 'slam'} if op == 'map_start' else {})}
+             **({'world_id': 'rooms_a', 'floor_id': 'f1', 'mode': 'slam'} if op == 'map_start' else {}),
+             **({'what': 'points'} if op == 'view_get' else {})}
         TypeAdapter(C.ClientOp).validate_python(m)
 
 

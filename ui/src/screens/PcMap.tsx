@@ -24,7 +24,7 @@ export default function PcMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, E = useEditor<Zone>('zone'), { q } = useRoute();
   const Z = useRef<Draw>(null), zn = useRef<HTMLInputElement>(null), dr = Z.current;
   const zs = D.err ? [] : docsOf(D, 'zone');
-  const { raster, pickEl, pose, live, on: mv, blank, showLive, reload } = useMapPick(false);   // mv = 지도 보기 중(그림 없어도 잠금)   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·초안 숨김, 구역 편집 잠금(초안은 그대로 보존)
+  const { raster, pickEl, pose, live, on: mv, blank, showLive, reload, flat } = useMapPick(false);   // mv = 지도 보기 중(그림 없어도 잠금)   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·초안 숨김, 구역 편집 잠금(초안은 그대로 보존)
 
   useEffect(() => { const sc = E.stale(D); if (sc && !E.dirty) E.load(sc); });   // 다른 기기가 고친 새 판(내 수정 없을 때만)
   const lost = () => !!(E.dirty || Z.current?.pts.length) && !confirm(DIRTY);
@@ -70,7 +70,7 @@ export default function PcMap() {
   const lbl = (t: Zone['type']) => (t === '금지' ? '진입 금지' : '감속');
   const vals = {
     themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
-    hdrA: '지도', hdrB: mv ? `${raster ? raster.label : live ? '실시간 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : '시뮬 바닥 도면 ±10 m · Gazebo GT 위치(SLAM 지도 아님)', pill: mv ? (live ? '실시간 지도(보기만)' : '저장 지도(보기만)') : '시뮬 바닥 도면',
+    hdrA: '지도', hdrB: mv ? `${raster ? raster.label : live ? '실시간 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 도면 ±10 m' : '지형 도면 없음'} · Gazebo GT 위치(SLAM 지도 아님)`, pill: mv ? (live ? '실시간 지도(보기만)' : '저장 지도(보기만)') : '시뮬 바닥 도면',
     posDot: s ? '●' : '▲', posDotS: { color: `var(--${s ? 'ok' : 'warn'})` },
     posTxt: s ? `GT ${posTxt(s.x, s.y)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 오래됨' : 'GT 미수신',
     newP: why(`새 지도 만들기 — ${WHY['SLAM 지도·위치 맞추기']}`, 'btn pri'),
@@ -84,7 +84,7 @@ export default function PcMap() {
       why('지우개(잡음 정리) — SLAM 지도 미연결', 'tool')],
     v3P: whyProps(`3D 점군 — ${WHY['뎁스 영상·3D 점군']}`),
     map: <MapCanvas name="pcmap" btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}
-      raster={raster} blank={blank} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />,
+      raster={raster} blank={blank} flat={flat} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />,
     gT: mv ? (live ? '실시간 지도 보기 중' : '저장 지도 보기 중') : dr ? `${dr.type} 구역 그리는 중` : E.id ? '구역 고름' : '구역',
     gL: mv ? '로봇·지나온 길·구역·그리던 초안은 숨김(초안은 보존). 구역 편집은 «실행 중 시뮬 바닥»으로 돌아가면 그대로 이어집니다.' : dr ? `지도를 눌러 꼭짓점 추가(3개 이상 · ${dr.pts.length}개) → 오른쪽에서 이름 넣고 저장. «구역 삭제»는 마지막 점 지우기. 끌면 지도 이동.`
       : '도구줄에서 진입 금지·감속 구역을 고른 뒤 지도를 눌러 그립니다. 지도의 구역을 누르면 고칠 수 있습니다.',

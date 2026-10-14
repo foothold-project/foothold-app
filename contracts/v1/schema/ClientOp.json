@@ -101,6 +101,11 @@
           "title": "Floor Id",
           "type": "string"
         },
+        "follow_cam": {
+          "default": false,
+          "title": "Follow Cam",
+          "type": "boolean"
+        },
         "map_version": {
           "anyOf": [
             {
@@ -212,6 +217,42 @@
       ],
       "title": "OpSimple",
       "type": "object"
+    },
+    "OpViewGet": {
+      "description": "보조 관제 뷰 최신 1개(앱이 보고 있을 때만 ≤2 Hz 로 당겨 감 — 서버가 밀어넣지 않음). follow = Gazebo 렌더 3인칭, points = /v2_map/points_view",
+      "properties": {
+        "op": {
+          "const": "view_get",
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        },
+        "what": {
+          "enum": [
+            "follow",
+            "points"
+          ],
+          "title": "What",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "what"
+      ],
+      "title": "OpViewGet",
+      "type": "object"
     }
   },
   "$id": "fh-app/1/ClientOp",
@@ -232,7 +273,8 @@
       "sim_start": "#/$defs/OpRid",
       "sim_stop": "#/$defs/OpRid",
       "stop": "#/$defs/OpSimple",
-      "take": "#/$defs/OpSimple"
+      "take": "#/$defs/OpSimple",
+      "view_get": "#/$defs/OpViewGet"
     },
     "propertyName": "op"
   },
@@ -251,6 +293,9 @@
     },
     {
       "$ref": "#/$defs/OpMapStart"
+    },
+    {
+      "$ref": "#/$defs/OpViewGet"
     }
   ]
 }

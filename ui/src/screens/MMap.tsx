@@ -13,12 +13,12 @@ import { MODE_KO, MapCanvas, type MapApi } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
 import { useMapPick } from '../map/MapPick';
 import { MapStartBox } from '../map/MapStartBox';
-import { Drawer, stopProps, toast, whyProps } from '../app/shell';
+import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
 
 
 export default function MMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, api = useRef<MapApi | null>(null), busy = useRef(false);
-  const { raster, pickEl, pose, live, on, blank, showLive, reload } = useMapPick(false);   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
+  const { raster, pickEl, pose, live, on, blank, showLive, reload, flat } = useMapPick(false);   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
   const [sel0, setSel] = useState<number[] | null>(null), sel = on ? null : sel0, [layers, setLayers] = useState(false), [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [mid0, setMid] = useState(''), ms = docsOf(D, 'mission'), mid = ms.some((m) => m.id === mid0) ? mid0 : '';
   const d = sel && lk.robot?.fresh ? Math.hypot(lk.robot.x - sel[0], lk.robot.y - sel[1]) : null;
@@ -38,10 +38,10 @@ export default function MMap() {
 
   const v = {
     themeClass: themeClass(false), stopProps, status: <LiveStatus D={D} />,
-    hdrA: '지도', hdrB: on ? `${live ? '실시간 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `시뮬 바닥 ±10 m · ${fresh ? 'GT 위치 수신' : TRAIL.last ? 'GT 오래됨' : 'GT 미수신'}(SLAM 아님)`,
+    hdrA: '지도', hdrB: on ? `${live ? '실시간 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 ±10 m' : 'GT 위치(지형 도면 없음)'} · ${fresh ? 'GT 위치 수신' : TRAIL.last ? 'GT 오래됨' : 'GT 미수신'}(SLAM 아님)`,
     layerP: { 'aria-label': '지도 보기·레이어', 'aria-expanded': layers, onClick: () => setLayers(!layers) },
     map: <><MapCanvas name="mmap" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : lk.robot} trail={TRAIL.pts} showTrail={trail && !on} showZones={zon && !on} sel={sel}
-      raster={raster} blank={blank} noRobot={on && !pose} onTap={on ? undefined : (x, y) => setSel([r2(x), r2(y)])} /></>,
+      raster={raster} blank={blank} flat={flat} noRobot={on && !pose} onTap={on ? undefined : (x, y) => setSel([r2(x), r2(y)])} /></>,
     fR: { 'data-m': 'robot', onClick: () => api.current?.setMode('robot') }, fI: { onClick: () => api.current?.zoomBy(1.5) }, fO: { onClick: () => api.current?.zoomBy(1 / 1.5) },
     hint: on ? '지도 보기 중 · 지점 고르기 꺼짐' : sel ? `고른 지점 · ${zoneTxt(D, sel[0], sel[1])}` : '지도를 눌러 지점을 고르세요',
     nb: sel ? '고른 지점' : '고른 지점 없음',
@@ -54,7 +54,7 @@ export default function MMap() {
     addRow: sel ? <div className="lv-row">
       <select className="lv-inp" aria-label="지점을 넣을 계획" value={mid} onChange={(e) => setMid(e.target.value)}>
         <option value="">+ 새 계획으로</option>{ms.map((m) => <option key={m.id} value={m.id}>{`${m.doc.name} · 지점 ${m.doc.wps.length}`}</option>)}</select>
-      <button type="button" className="lv-btn pri" onClick={add}>계획에 지점 추가</button></div> : null,
+      <button type="button" className="lv-btn pri" onClick={add}>계획에 지점 추가</button></div> : <SimOff className="lv-btn" />,   // 지도 체험 중에도 끄기 입구(STOP 은 위쪽 따로)
   };
   const B = (t: string, f: () => void) => <button type="button" className="lv-btn" onClick={() => { f(); redraw((n) => n + 1); }}>{t}</button>;
   const drawer = layers && <Drawer title="지도 보기" onClose={() => setLayers(false)}>
@@ -63,7 +63,7 @@ export default function MMap() {
       {B(`보기: ${MODE_KO[mode]} → ${mode === 'all' ? '로봇 중심' : '전체 보기'}`, () => api.current?.setMode(mode === 'all' ? 'robot' : 'all'))}
       {B(`지나온 길 ${trail ? '숨기기' : '보이기'}`, () => setTrail(!trail))}
       {B(`구역 ${zon ? '숨기기' : '보이기'}`, () => setZon(!zon))}
-      <p className="lv-note">{`시뮬 바닥 도면 ±10 m · Gazebo GT 위치(SLAM 지도 아님). ${ZONE_NOTE}`}</p>
+      <p className="lv-note">{`${flat ? '시뮬 바닥 도면 ±10 m · ' : ''}Gazebo GT 위치(SLAM 지도 아님). ${ZONE_NOTE}`}</p>
     </Drawer>;
   return <><style>{CSS}</style><div id="dc-root"><View v={{ ...v, drawer }} /></div></>;
 }

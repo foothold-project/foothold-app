@@ -8,6 +8,15 @@ export interface ApiError {
   cur?: ZoneEnv | TmplEnv | MissionEnv | RunEnv | NoteEnv | null;
 }
 
+export interface Capabilities {
+  command: boolean;
+  map: boolean;
+  rgb: boolean;
+  depth: boolean;
+  points: boolean;
+  follow_cam: boolean;
+}
+
 export interface DocDel {
   op: "del";
   id: string;
@@ -141,6 +150,7 @@ export interface MapStartState {
   session: Record<string, unknown> | null;
   last: SimStopLast | null;
   usage_scope?: "experiment" | "user_experience" | null;
+  follow_cam_ok?: boolean;
 }
 
 export interface MediaEvent {
@@ -209,6 +219,7 @@ export interface OpMapStart {
   floor_id: "f1" | "l1" | "l2";
   mode: "slam" | "static";
   map_version?: string | null;
+  follow_cam?: boolean;
 }
 
 export interface OpRid {
@@ -218,6 +229,12 @@ export interface OpRid {
 
 export interface OpSimple {
   op: "take" | "release" | "stop" | "resume" | "reset" | "hidden";
+}
+
+export interface OpViewGet {
+  op: "view_get";
+  rid?: number | null;
+  what: "follow" | "points";
 }
 
 export interface PhotoMeta {
@@ -246,6 +263,7 @@ export interface Reply {
   maps?: MapInfo[] | null;
   map?: MapData | null;
   live?: Record<string, unknown> | null;
+  view?: Record<string, unknown> | null;
 }
 
 export interface Run {
@@ -383,6 +401,7 @@ export interface Status {
   live_map?: LiveMap | null;
   map_start?: MapStartState | null;
   map_save?: MapSaveState | null;
+  views?: Views | null;
 }
 
 export interface Tmpl {
@@ -403,6 +422,18 @@ export interface TmplEnv {
 export interface TmplMod {
   type: "사진" | "운영자 확인" | "대기";
   detail: string;
+}
+
+export interface ViewSrc {
+  st: "off" | "stale" | "bad" | "ok";
+  why: string;
+  seq: number | null;
+  age_s: number | null;
+}
+
+export interface Views {
+  follow: ViewSrc;
+  points: ViewSrc;
 }
 
 export interface Waypoint {
@@ -427,7 +458,8 @@ export interface ZoneEnv {
   doc: Zone;
 }
 
-export type ClientOp = OpSimple | OpCmd | OpRid | OpMapGet | OpMapStart;
+export type ClientOp = OpSimple | OpCmd | OpRid | OpMapGet | OpMapStart | OpViewGet;
 export type ServerMsg = Status | Reply;
 export type DocEnvelope = ZoneEnv | TmplEnv | MissionEnv | RunEnv | NoteEnv;
 export type DocWrite = DocPut | DocDel;
+export type ProviderKind = "simulation_gate" | "go2_direct";

@@ -12,7 +12,7 @@
 import re
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, TypeAdapter, ValidationError, WithJsonSchema)
+from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, ValidationError, WithJsonSchema)
 
 CONTRACT_VERSION = 'fh-app/1'      # 메시지에 실리지 않는다 — 필드가 없으면 v1 (CONTRACT.md «버전»)
 
@@ -92,9 +92,17 @@ class OpMapStart(In):
     floor_id: Literal['f1', 'l1', 'l2']
     mode: Literal['slam', 'static']
     map_version: Optional[Annotated[str, Field(pattern=r'^(\d{8}-\d{6}-e\d+|gt-\d{8})$')]] = None   # static 만(필수), slam 은 없음
+    follow_cam: StrictBool = False   # 외부 3인칭 Gazebo 렌더(RL VIEW-CONTRACT §2 'follow-cam'). 서버 래퍼가 지원할 때만(MapStartState.follow_cam_ok)
 
 
-ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet, OpMapStart], Field(discriminator='op')]
+class OpViewGet(In):
+    """보조 관제 뷰 최신 1개(앱이 보고 있을 때만 ≤2 Hz 로 당겨 감 — 서버가 밀어넣지 않음). follow = Gazebo 렌더 3인칭, points = /v2_map/points_view"""
+    op: Literal['view_get']
+    rid: Rid = None
+    what: Literal['follow', 'points']
+
+
+ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet, OpMapStart, OpViewGet], Field(discriminator='op')]
 
 # ---------------------------------------------------------------- WS 서버 → 화면
 
@@ -217,10 +225,32 @@ class MapStartState(Out):
     session: Optional[dict]                 # {result, runner, world_id, floor_id, map_mode, remaining_s}
     last: Optional[SimStopLast]
     usage_scope: Optional[Literal['experiment', 'user_experience']] = None   # SimStartState.usage_scope 와 같은 뜻(user_experience 면 ledger null 이 정상)
+    follow_cam_ok: bool = False   # 이 서버 지도 체험 래퍼가 follow-cam(외부 3인칭 렌더)을 받는 판인가
 
 
 class MapSaveState(Out):
     ok: bool; why: str; busy: bool
+
+
+ProviderKind = Literal['simulation_gate', 'go2_direct']   # 화면이 보는 실행 대상. UI·네이티브·RL 이 이 이름만 쓴다(CONTRACT.md «실행 대상»)
+
+
+class Capabilities(Out):
+    """실행 대상이 지금 실제로 주는 것. false = 미지원·미연결 → 화면은 빈 칸 + 이유(시안 수치 0). 펌웨어·실기 미확인이면 false"""
+    command: bool; map: bool; rgb: bool; depth: bool; points: bool; follow_cam: bool
+
+
+class ViewSrc(Out):
+    """보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok"""
+    st: Literal['off', 'stale', 'bad', 'ok']
+    why: str
+    seq: Optional[int]                      # 서버가 받은 최신 것 번호 — 바뀌면 view_get
+    age_s: Optional[Fin]                    # s, 마지막 수신 뒤(link 시계)
+
+
+class Views(Out):
+    follow: ViewSrc                         # /v2_map/follow_cam (std_msgs/String JSON v2_map/follow_cam/1, Gazebo 렌더 3인칭, 지도 체험 시작 때 고름)
+    points: ViewSrc                         # /v2_map/points_view (map 프레임 축소 점군)
 
 
 class Status(Out):
@@ -249,6 +279,7 @@ class Status(Out):
     live_map: Optional[LiveMap] = None
     map_start: Optional[MapStartState] = None
     map_save: Optional[MapSaveState] = None
+    views: Optional[Views] = None             # 없는 서버(이전 판) = 보조 뷰 미연결
 
 
 class PhotoMeta(Out):
@@ -295,6 +326,7 @@ class Reply(Out):
     maps: Optional[list[MapInfo]] = None    # op=map_list 성공 때만
     map: Optional[MapData] = None           # op=map_get 성공 때만
     live: Optional[dict] = None             # op=map_live_get 성공 때만 {seq, epoch, world_id, floor_id, png}
+    view: Optional[dict] = None             # op=view_get 성공 때만. follow {what, seq, stamp_sim, jpeg} · points {what, seq, world_id·building_id·floor_id·mode·map_source·map_version·epoch, stamp_sim, frame, pose_source, base_pose_map, voxel_m, n, n_raw, truncated, xyz}
 
 
 ServerMsg = Annotated[Union[Status, Reply], Field(discriminator='op')]   # 텍스트 프레임. 바이너리 프레임 = JPEG 원본
@@ -472,4 +504,5 @@ def check_doc(kind, doc):
 
 TOP = {'ClientOp': ClientOp, 'ServerMsg': ServerMsg, 'Status': Status, 'Reply': Reply, 'SimState': SimState,
        'PhotoMeta': PhotoMeta, 'DocEnvelope': DocEnvelope, 'DocsList': DocsList, 'DocWrite': DocWrite,
-       'DocPutOk': DocPutOk, 'DocDelOk': DocDelOk, 'ApiError': ApiError, 'MediaList': MediaList}
+       'DocPutOk': DocPutOk, 'DocDelOk': DocDelOk, 'ApiError': ApiError, 'MediaList': MediaList,
+       'ProviderKind': ProviderKind, 'Capabilities': Capabilities}

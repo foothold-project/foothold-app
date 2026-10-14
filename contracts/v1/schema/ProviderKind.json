@@ -1,0 +1,9 @@
+{
+  "$id": "fh-app/1/ProviderKind",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "simulation_gate",
+    "go2_direct"
+  ],
+  "type": "string"
+}

@@ -55,3 +55,53 @@ textarea.lv-inp{resize:vertical}
 /* Main(PC 조종) 머리줄: 시험 문구·임무 제목 줄이 좁은 폭(≈1024)에서 줄어들며 말줄임 — 칩이 모드 표시를 덮지 않게(전체 문구는 title) */
 [data-main] header>div:has(>span+span){flex-shrink:1;min-width:140px}
 [data-main] header>div:has(>span+span)>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 관제 4분할(app/Quad.tsx, 10-14) — 2×2 ↔ 큰 칸 1 + 작은 칸 3. 기존 색 토큰만 */
+.qd{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:6px}
+.qd.f{grid-template-columns:repeat(3,minmax(0,1fr))}
+.qt{display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--map,#0E1317);cursor:zoom-in}
+.qt.on{cursor:zoom-out}
+
+.qd.f .qt.on{grid-column:1/-1;order:-1}
+.qb{position:relative;flex:1;aspect-ratio:16/10;min-height:0;background:#05080A}
+.qd.f .qt.on .qb{aspect-ratio:auto;height:min(62vh,620px)}
+.qd.f .qt:not(.on) .qb{aspect-ratio:4/3}
+.qh{display:flex;align-items:center;justify-content:space-between;gap:6px;height:30px;padding:0 8px;border:0;border-bottom:1px solid var(--line);background:var(--panel2);font-size:12px;font-weight:600;text-align:left;min-width:0}
+.qh span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qh[aria-pressed="true"]{background:var(--acc-bg);color:var(--text)}
+.qh:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.qd-empty{position:absolute;inset:0;display:grid;place-items:center;padding:12px;text-align:center;font-size:13px;line-height:1.45;color:var(--muted);pointer-events:none}
+.qd.f .qt:not(.on) .qd-empty{font-size:11px;padding:6px}
+.qd.f .qt:not(.on) .qh{height:26px;font-size:11px}
+.qmode{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.qmode button{height:30px;padding:0 10px;border:0;background:transparent;font-size:12px;font-weight:600;color:var(--muted)}
+.qmode button[aria-pressed="true"]{background:var(--acc-bg);color:var(--text)}
+.qmode button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* PC 관제(Main) 폰 폭(≤700px, iPhone 390·가로 844 의 좁은 쪽) — 10-14 진단: 머리줄 칩이 세로로 쌓여 잘리고 지도가 메뉴 아래로 밀림.
+   생성 틀(Main.view)의 인라인 스타일을 바꾸지 않고 여기서만 덮는다. 색·메뉴·STOP 은 그대로 */
+@media (max-width:700px){
+  [data-main] .fh header{flex-wrap:wrap!important;gap:6px 10px!important;padding:8px 10px!important}
+  [data-main] .fh header>div[style*="width: 1px"]{display:none}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
+  [data-main] .fh nav[aria-label="주 메뉴"]{flex:1 1 100%!important;flex-direction:row!important;justify-content:space-around;overflow-x:auto;padding:4px!important;border-right:0!important;border-bottom:1px solid var(--line)}
+  [data-main] .fh main{flex:1 1 100%!important;padding:6px!important}
+  [data-main] .fh main>section{flex:1 1 100%!important;max-width:none!important}
+}
+
+/* 가로 폰(높이 ≤500px, 844×390 등) — 10-14: 칩이 세로로 쌓여 머리줄이 높이 2/3 을 먹던 것.
+   머리줄 = 로고 · 상태 표시(보기 전용 등) · 칩 한 줄(가로로 밀어 봄) · STOP 만, 위에 고정. 제목·조작자 칸은 숨김(같은 정보는 아래 «상태 상세»).
+   관제 4분할은 남은 높이에 맞춤: 2×2 는 두 줄이 화면에 들어오게, 크게 보기는 왼쪽 큰 칸 + 오른쪽 작은 칸 3. PC·세로 폰은 그대로 */
+@media (orientation:landscape) and (max-height:500px){
+  [data-main] .fh header{position:sticky;top:0;z-index:20;flex-wrap:nowrap!important;gap:8px!important;padding:4px 8px!important;max-height:64px}
+  [data-main] .fh header>div[style*="width: 1px"],[data-main] .fh header>div[style*="flex-direction: column"],[data-main] .fh header>div[style*="padding: 0px 4px"]{display:none!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{flex:1 1 0!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"] .chip{flex:0 0 auto;white-space:nowrap}
+  .qd{--qa:calc(100vh - 150px);scroll-margin-top:68px}
+  .qd .qb{flex:none}
+  .qd:not(.f) .qb{aspect-ratio:auto;height:calc(var(--qa) / 2 - 33px)}
+  .qd.f{grid-template-columns:minmax(0,3fr) minmax(0,1fr)}
+  .qd.f .qt.on{grid-column:1;grid-row:1/span 3}
+  .qd.f .qt.on .qb{height:calc(var(--qa) - 30px)}
+  .qd.f .qt:not(.on) .qb{aspect-ratio:auto;height:calc(var(--qa) / 3 - 30px)}
+}

@@ -419,6 +419,19 @@
     "text": {
       "title": "Text",
       "type": "string"
+    },
+    "view": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "View"
     }
   },
   "required": [

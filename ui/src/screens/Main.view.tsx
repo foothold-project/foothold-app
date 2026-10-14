@@ -327,8 +327,9 @@ export function View({ v }: { v: Vals }) {
                 <div style={{"display":"flex","flexWrap":"wrap","alignItems":"center","gap":"8px 12px","padding":"10px 12px","borderBottom":"1px solid var(--line)"}}>
                   {" "}
                   <span style={{"fontWeight":"600"}}>
-                    {"지도"}
+                    {v.cardTitle ?? "지도"}
                   </span>
+                  {v.modePick ?? null}
                   {" "}
                   <span style={{"fontSize":"12px","color":"var(--muted)"}}>
                     {v.mapTitle ?? <>{"B1 · 저장 지도 "}
@@ -653,7 +654,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
             <section aria-label="영상과 측정" style={{"flex":"1 1 430px","minWidth":"0","maxWidth":"520px","display":"flex","flexDirection":"column","gap":"12px"}}>
               {" "}
-              <div style={{"position":"relative","borderRadius":"10px","overflow":"hidden","border":"1px solid var(--line)","background":"#05080A","aspectRatio":"16/9"}} ref={v.boxRef} className={v.boxCls}>
+              <div style={{"position":"relative","borderRadius":"10px","overflow":"hidden","border":"1px solid var(--line)","background":"#05080A","aspectRatio":"16/9"}} ref={v.boxRef} className={v.boxCls} hidden={v.camHide}>
                 {" "}
                 {v.cam ?? (<svg viewBox="0 0 640 360" preserveAspectRatio="xMidYMid slice" style={{"position":"absolute","inset":"0","width":"100%","height":"100%"}} role="img" aria-label="전방 카메라 영상 자리: 집수정 쪽 통로, 바닥 물고임 탐지 상자">
                   <defs>

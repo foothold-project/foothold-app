@@ -3,17 +3,19 @@
 // 묶음 3 경계: 받은 상태는 실행 중 형식 검사(타입 캐스트만 믿지 않음) — 실패면 st=null(미확인)·누름 폐기, 이전 상태로 조종하지 않음.
 // STOP 은 명령 0 요청일 뿐 몸 정지가 아니다(시뮬 관측: STOP 뒤 약 3.6 s·0.32 m 더 움직임, 원인 미확인).
 import { create } from 'zustand';
-import type { ClientOp, Reply, Status } from '@contracts';
+import type { ClientOp, ProviderKind, Reply, Status } from '@contracts';
 import { refreshShared } from './shared';
 import { num, ok, sgn } from './fmt';
 import { T } from './transport';
 
 
-type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean; gen: number };   // gen: 연결 세대(열림·닫힘마다 +1)
+// provider: 지금 화면이 보는 실행 대상(계약 ProviderKind). 이 WS 로 명령을 보내는 건 simulation_gate 일 때만 — go2_direct 는 명령 미지원(capabilities.command=false)
+type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean; gen: number; provider: ProviderKind };   // gen: 연결 세대(열림·닫힘·대상 전환마다 +1)
 // viewOnly: 이 화면이 «조종권 받기»를 누르기 전까지 cmd 를 보내지 않음. 처음 열 때·숨김·앱 pause/resume·재연결 뒤 다시 켜짐(서버 role 이 control 로 남아 있어도)
-export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true, gen: 0 }));
+export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true, gen: 0, provider: 'simulation_gate' }));
 
 let ws: WebSocket | null = null, started = false, sig: string | null = null;
+const simOn = () => useLink.getState().provider === 'simulation_gate';   // 화면에 시뮬 상태·영상·길을 내보내도 되나(실기 대상이면 내부에서 받기만, 표시 0)
 export let camURL: string | null = null;   // 마지막 카메라 프레임(새로 그린 img 의 첫 src)
 const send = (o: ClientOp) => { if (ws && ws.readyState === 1) { ws.send(JSON.stringify(o)); return true; } return false; };
 
@@ -30,6 +32,7 @@ let stopHeld = false;   // STOP 보낸 뒤 서버 latch=true 를 볼 때까지 c
 /** 지금 cmd 를 보내도 되나(아니면 이유) — 링크·형식·판·조종권·잠금·대기·STOP·보기 전용 */
 export function driveBlock(s = useLink.getState()): string | null {
   const st = s.st;
+  if (s.provider !== 'simulation_gate') return '실기 모드 — 시뮬 명령 안 보냄(Go2 명령 미지원)';
   if (!s.open || !s.lastMsg || performance.now() - s.lastMsg > 1000) return s.why ? `링크 끊김 · ${s.why}` : '링크 끊김';
   if (s.bad || !st) return `상태 미확인(${s.bad || '없음'})`;
   if (s.firstVer && st.ver !== s.firstVer) return '새 판 — 새로고침';
@@ -62,13 +65,23 @@ function tick20() {
   send({ op: 'cmd', fx: c1(a.fx), fy: c1(a.fy), fw: c1(a.fw) });   // 손 떼면 0(서버 need_neutral·0.3 s deadman)
 }
 /** STOP: 누름 폐기·발행 멈춤을 먼저, 그다음 송신 */
-export const sendStop = () => { stopHeld = true; dropAll(); return send({ op: 'stop' }); };
+export const sendStop = () => { dropAll(); if (useLink.getState().provider !== 'simulation_gate') return false; stopHeld = true; return send({ op: 'stop' }); };   // 실기 모드: 시뮬로 보내지 않음(화면이 이유 안내)
 /** 조종권·재개·리셋·놓기 — 전부 누름 폐기 뒤 송신. take 만 보기 전용을 푼다 */
-export const sendOp = (op: 'take' | 'release' | 'resume' | 'reset') => { dropAll(); if (op === 'take') { hidSent = false; useLink.setState({ viewOnly: false }); } else if (op === 'release') useLink.setState({ viewOnly: true }); return send({ op }); };
+export const sendOp = (op: 'take' | 'release' | 'resume' | 'reset') => { dropAll(); if (useLink.getState().provider !== 'simulation_gate') return false; if (op === 'take') { hidSent = false; useLink.setState({ viewOnly: false }); } else if (op === 'release') useLink.setState({ viewOnly: true }); return send({ op }); };
 /** 숨김·떠남·앱 pause: 누름 폐기 + 서버에 hidden(조종권 해제) + 보기 전용 */
 // 배경 한 번에 pause·appStateChange·visibility·blur 로 3~4번 불림 → hidden 은 조종 중(take 뒤 또는 서버 role=control)일 때만 보냄(서버 drop 은 반복 무해)
 let hidSent = false;   // 이 연결에서 마지막 take 뒤 hidden 을 이미 보냄
-export function hide() { const s = useLink.getState(); dropAll(); if (!hidSent && (!s.viewOnly || s.st?.role === 'control')) hidSent = send({ op: 'hidden' }); useLink.setState({ viewOnly: true }); }
+export function hide() { const s = useLink.getState(); dropAll(); if (s.provider === 'simulation_gate' && !hidSent && (!s.viewOnly || s.st?.role === 'control')) hidSent = send({ op: 'hidden' }); useLink.setState({ viewOnly: true }); }
+
+/** 실행 대상 전환(화면 선택). 순서: 누름 폐기 → (시뮬 떠날 때) hidden = 조종권 해제 → 보기 전용 → 세대 +1(세대가 다른 늦은 응답·카메라·지도·점군 버림).
+ *  돌아와도 조종권·STOP 해제 자동 복원 0(다시 «조종권 받기»). 같은 대상이면 아무것도 안 함 */
+export function setProvider(k: ProviderKind) {
+  const s = useLink.getState(); if (s.provider === k) return;
+  if (s.provider === 'simulation_gate') hide(); else dropAll();
+  if (camURL) URL.revokeObjectURL(camURL); camURL = null; camT.length = 0; TRAIL.pts = []; TRAIL.last = null;   // 옛 대상의 영상·지나온 길 버림
+  for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.removeAttribute('src');
+  useLink.setState((x) => ({ provider: k, viewOnly: true, gen: x.gen + 1, st: null, bad: null }));   // 옛 대상 상태 버림 — 시뮬 복귀는 다음 status 부터(낡은 값 0)
+}
 
 // ---- 받은 상태 실행 중 검사(계약 Status 중 명령 관문이 쓰는 칸) — 실패 이유 또는 null ----
 const ROLES = new Set(['control', 'view_other', 'view']);
@@ -113,6 +126,10 @@ export function checkStatus(m: any): string | null {
     && (ms.last == null || (ob(ms.last) && typeof ms.last.t === 'string' && typeof ms.last.text === 'string'))
     && SCOPE(ms.usage_scope) && !(ms.usage_scope === 'user_experience' && ms.ledger !== null))) m.map_start = null;
   if (!(ob(sv) && typeof sv.ok === 'boolean' && typeof sv.why === 'string' && typeof sv.busy === 'boolean')) m.map_save = null;
+  // 보조 관제 뷰(points·follow): 형식이 틀리면 그 뷰만 버림(조종·STOP 관문과 무관). st 4가지 · seq null|양의 정수 · age_s null|유한 ≥0
+  const vone = (x: any) => ob(x) && ['off', 'bad', 'stale', 'ok'].includes(x.st) && typeof x.why === 'string'
+    && (x.seq === null || (int(x.seq) && x.seq > 0)) && (x.age_s === null || (fin(x.age_s) && x.age_s >= 0));
+  if (m.views != null) { if (!ob(m.views)) m.views = null; else for (const k of ['points', 'follow']) if (!vone(m.views[k])) m.views[k] = null; }
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
     for (const k of ['x', 'y', 'yaw', 'vx', 'vy', 'tilt_deg']) if (!nf(m.sim[k])) return `sim.${k}`;
@@ -122,12 +139,13 @@ export function checkStatus(m: any): string | null {
 }
 // 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로(live.js ask 와 같음)
 let rid = 0; const pending = new Map<number, (m: Reply) => void>();
-type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get' | 'map_live_get' | 'map_start' | 'map_save';
-export const ask = (op: AskOp, extra: Record<string, string> = {}, ms = 5000) => new Promise<Reply>((res) => {   // ms: 서버 쪽 제한이 더 긴 op(map_save 10 s)만 늘림
-  const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text });
+type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get' | 'map_live_get' | 'map_start' | 'map_save' | 'view_get';
+export const ask = (op: AskOp, extra: Record<string, string | boolean> = {}, ms = 5000) => new Promise<Reply>((res) => {   // ms: 서버 쪽 제한이 더 긴 op(map_save 10 s)만 늘림
+  const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text }), g0 = useLink.getState().gen;
+  if (useLink.getState().provider !== 'simulation_gate') return no('실기 모드 — 시뮬 요청 안 보냄');
   if (!send({ ...extra, op, rid: id } as ClientOp)) return no('링크 끊김 — 보내지 못함');
   const t = setTimeout(() => { pending.delete(id); no(`서버 응답 없음(${ms / 1000} s)`); }, ms);
-  pending.set(id, (m) => { clearTimeout(t); res(m); });
+  pending.set(id, (m) => { clearTimeout(t); if (useLink.getState().gen !== g0) no('연결·대상이 바뀜 — 늦은 응답 버림'); else res(m); });
 });
 
 // Gazebo 끄기(로봇 STOP 아님): 폐기 → 확인창 → sim_stop. 결과(ROS 세션 종료 확인/못 함)는 서버 이벤트로 따로 온다 → 토스트 글 | null(취소)
@@ -144,6 +162,16 @@ export async function stopSim(st: Status | null): Promise<string | null> {
   dropAll();
   if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 ${x.ledger_kind === 'map' ? '«지도 체험 시작»' : '«시뮬 시작»'}을 직접 눌러야 합니다${x.ledger_kind === 'user' ? '' : ' · 기동 상한이 적용됩니다'}${ledgerLine(x)}`)) return null;
   return (await ask('sim_stop')).text || '응답 없음';
+}
+/** 시뮬 시작 확인 → 요청. 확인창 문구는 서버 usage_scope 대로: 사용자 체험 = 횟수 제한 없음 · 실험 = 실험 원장 1회 · 칸 없음 = 미확인(옛 서버) */
+export async function startSimAsk(st: Status | null): Promise<string | null> {
+  const ss = st?.sim_start; if (!ss || !ss.ok) return `시뮬 시작 안 됨 · ${ss?.why || '서버 응답 없음'}`;
+  if (useLink.getState().provider !== 'simulation_gate') return '실기 대상 — 시뮬 시작 안 함(«시뮬(보조)»로 바꾼 뒤)';
+  dropAll();
+  const use = ss.usage_scope === 'user_experience' ? '사용자 체험 — 횟수 제한 없음(동시 1개)' : ss.usage_scope === 'experiment'
+    ? `실험 원장 1회 사용${ss.ledger ? ` (지금 ${ss.ledger.used}/${ss.ledger.max})` : ''}` : '횟수 원장 사용 여부 미확인(옛 서버)';
+  if (!confirm(`Gazebo 시뮬을 30분 동안 시작할까요?\n· ${use}\n· STOP 상태로 시작합니다(«STOP 해제» 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음`)) return null;
+  return (await ask('sim_start')).text || '응답 없음';
 }
 export const showSimStop = (st: Status | null) => !!st?.sim_stop && (st.sim_stop.on || st.sim_stop.busy);
 
@@ -162,6 +190,7 @@ export function startLink() {
     w.onopen = () => { dropAll(); hidSent = false; useLink.setState((s) => ({ open: true, viewOnly: true, why: null, gen: s.gen + 1 })); };   // 재연결은 보기 전용부터
     w.onmessage = (e) => {
       if (typeof e.data !== 'string') {   // 카메라 JPEG: fps 세기 + 화면의 img[data-live-cam] 에 바로 넣음(프레임마다 React 다시 그리지 않음)
+        if (!simOn()) return;            // 실기 대상: 시뮬 영상 표시 0
         camT.push(performance.now()); if (camURL) URL.revokeObjectURL(camURL); camURL = URL.createObjectURL(e.data as Blob);
         for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.src = camURL;
         return;
@@ -169,14 +198,15 @@ export function startLink() {
       let m: any; try { m = JSON.parse(e.data); } catch { m = null; }
       if (m?.op === 'reply') { const f = fin(m.rid) ? pending.get(m.rid) : null; if (f && typeof m.ok === 'boolean') { pending.delete(m.rid); f(m as Reply); } return; }
       const bad = checkStatus(m);
-      if (bad) { dropAll(); useLink.setState({ st: null, bad, lastMsg: performance.now() }); return; }   // 미확인: 이전 st 로 조종 계속하지 않음
+      if (bad) { dropAll(); if (simOn()) useLink.setState({ st: null, bad, lastMsg: performance.now() }); return; }   // 미확인: 이전 st 로 조종 계속하지 않음
       const st = m as Status;
       if (st.latch) stopHeld = false;   // 서버가 STOP 잠금을 확인 — 이후는 latch 규칙이 막음
       const s2 = [st.role, st.latch, st.reset_pending, st.resume_pending, st.episode, st.sim_block, st.sim_stop?.busy, st.ver, st.state_age != null && st.state_age <= 1].join('|');
       if (s2 !== sig) { dropAll(); sig = s2; }   // 조종권·STOP·리셋·에피소드·시뮬·판·상태 신선도 변화 → 낡은 누름 폐기
+      refreshShared(st.docs_rev, (st.events || [])[0]);   // 공유 기록(임무·사진 목록) 갱신 신호 — 대상과 무관
+      if (!simOn()) return;   // 실기 대상: 시뮬 status 는 화면 상태(st·지나온 길·신선도)로 내보내지 않음
       track(st);
       useLink.setState((s) => ({ st, bad: null, lastMsg: performance.now(), firstVer: s.firstVer ?? st.ver }));
-      refreshShared(st.docs_rev, (st.events || [])[0]);
     };
     w.onclose = (e) => {
       dropAll(); sig = null; if (ws === w) ws = null;
@@ -228,6 +258,10 @@ function track(m: Status) {
 
 // live.js view() 의 링크·잠금·조종권·시뮬·카메라 글(같은 규칙). 끊기면 «꺼짐»이 아니라 «미확인».
 export function linkView(s: LinkState) {
+  if (s.provider !== 'simulation_gate') return {   // 실기 대상: 시뮬 값 0 — 모든 칸 «미연결»(Go2 직접 연결 없음)
+    linkOk: false, s: null, fresh: false, camOk: false, camTxt: '미연결(실기)', robot: null, latch: false, simBlock: '',
+    linkTxt: '실기 Go2 — 미연결(직접 연결 기초만)', roleTxt: '실기 — 명령 미지원', newVer: false, body: '몸 상태 미연결(실기)', sent: '미확인(실기 명령 0)',
+  };
   const age = s.lastMsg ? (performance.now() - s.lastMsg) / 1000 : null, linkOk = s.open && age != null && age < 1, st = s.st;
   const sim = linkOk && st?.sim && st.state_age != null && st.state_age <= 1 ? st.sim : null;   // 신선한 시뮬 상태만(아니면 null = 미확인)
   const camOk = !!(linkOk && st && st.cam_age != null && st.cam_age < 2), now = performance.now();

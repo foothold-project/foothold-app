@@ -1,7 +1,7 @@
 // 앱 틀: 해시 경로(#/화면?값) · 알림(toast) · STOP 버튼과 Space 단축키.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
-import { dropAll, sendStop } from '../data/link';
+import { dropAll, linkView, sendStop, showSimStop, stopSim, useLink } from '../data/link';
 
 // ---- 경로 ----
 const sub = (f: () => void) => { addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); };
@@ -26,7 +26,7 @@ export function Toast() {
 }
 
 // ---- STOP: 누르는 순간(pointerdown) 보냄. 명령 0 요청일 뿐 몸 정지가 아님 ----
-export const stopNow = () => { if (!sendStop()) toast('링크 끊김 — STOP 을 보내지 못함(서버 와치독이 명령 0 유지)'); };
+export const stopNow = () => { if (!sendStop()) toast(useLink.getState().provider !== 'simulation_gate' ? '실기 모드 — Go2 비상 정지 미연결(명령 미지원) · 로봇 리모컨으로 정지하세요' : '링크 끊김 — STOP 을 보내지 못함(서버 와치독이 명령 0 유지)'); };
 // 글자 입력 중(입력칸·여러 줄·고르기·편집 가능 영역·한글 조합 중)인 키는 단축키로 쓰지 않는다. STOP 버튼은 언제나 동작.
 const typing = (e: KeyboardEvent) => { const t = e.target as HTMLElement | null; return !!(e.isComposing || e.keyCode === 229 || (t && t.nodeType === 1 && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))); };
 export function useStopKey() {
@@ -55,3 +55,13 @@ export function Drawer({ title, onClose, children }: { title: string; onClose: (
 }
 /** live.js why(): 미연결 기능 버튼 — 누르면 이유만 알리고 아무것도 하지 않는다 */
 export const whyProps = (text: string) => ({ 'aria-disabled': 'true' as const, title: text, className: 'lv-why', onClick: (e: React.MouseEvent) => { e.preventDefault(); e.stopPropagation(); toast(text); } });
+
+/** Gazebo 끄기(로봇 STOP 아님) — 관제·조종·지도 화면 공용. STOP 과 떨어진 줄에 둔다. 서버가 거부하면(다른 기기 조종 중 등) 이유를 늘 보이게(화면에서 조건 완화 0) */
+export function SimOff({ className = 'btn', style }: { className?: string; style?: React.CSSProperties }) {
+  const L = useLink(), st = L.st, x = st?.sim_stop;
+  if (L.provider !== 'simulation_gate' || !linkView(L).linkOk || !showSimStop(st) || !x) return null;
+  return <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', ...style }}>
+    <button type="button" className={className} disabled={x.busy} title={x.why || 'Gazebo 시뮬 끄기(로봇 STOP 아님)'} style={{ opacity: x.ok ? undefined : 0.55 }}
+      onClick={async () => { const t = await stopSim(st); if (t) toast(t); }}>{x.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기(시뮬 종료)'}</button>
+    {!x.ok && !x.busy && x.why && <small role="status" style={{ color: 'var(--warn, #FFB547)', fontSize: 11 }}>{`끄기 안 됨 · ${x.why}`}</small>}</span>;
+}

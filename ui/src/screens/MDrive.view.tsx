@@ -233,6 +233,7 @@ export function View({ v }: { v: Vals }) {
             {v.backT ?? "임무로 돌아가기"}
           </a>
           {v.give ?? null}
+          {v.simOff ?? null}
           {" "}
         </div>
         {" "}
