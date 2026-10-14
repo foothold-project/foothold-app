@@ -13,7 +13,7 @@ export function MapStartBox({ pc, onSaved, onShowLive }: { pc: boolean; onSaved?
   const ms = useLink((x) => x.st?.map_start) || null, sv = useLink((x) => x.st?.map_save) || null, lv = useLink((x) => x.st?.live_map) || null;
   const [w, setW] = useState<W>('rooms_a'), [f, setF] = useState('f1'), [mode, setMode] = useState<'slam' | 'static'>('slam'), [ver, setVer] = useState('');
   const [vers, setVers] = useState<MapInfo[] | string | null>(null), [started, setStarted] = useState(false);
-  const B = pc ? 'btn' : 'lv-btn', I = pc ? 'inp' : 'lv-inp', key = `${w}/${f}`, lg = ms?.ledger;
+  const B = pc ? 'btn' : 'lv-btn', I = pc ? 'inp' : 'lv-inp', key = `${w}/${f}`, lg = ms?.ledger, ux = ms?.usage_scope === 'user_experience';
   const loadVers = () => { listMaps().then(setVers); };
   const mine = Array.isArray(vers) ? vers.filter((m) => m.building_id === BLD[w] && m.floor_id === f) : [];
   const used = !!lg && lg.keys.includes(key);
@@ -24,7 +24,7 @@ export function MapStartBox({ pc, onSaved, onShowLive }: { pc: boolean; onSaved?
     if (used) return toast(`${key} 는 이미 사용(지형·층마다 1회)`);
     if (mode === 'static' && !ver) return toast('저장 지도 버전을 고르세요');
     dropAll();
-    if (!confirm(`지도 체험을 시작할까요?\n· ${WORLD[w]} ${FLOOR[f as keyof typeof FLOOR]} · ${mode === 'slam' ? 'SLAM 지도 만들기(직접 조종)' : `저장 지도 ${ver}`}\n· 지도 체험 원장 1회 사용${lg ? ` (지금 ${lg.used}/${lg.max})` : ''} — 기존 체험 원장과 별개\n· STOP 상태로 시작, 자동 재시작·연장 없음`)) return;
+    if (!confirm(`지도 체험을 시작할까요?\n· ${WORLD[w]} ${FLOOR[f as keyof typeof FLOOR]} · ${mode === 'slam' ? 'SLAM 지도 만들기(직접 조종)' : `저장 지도 ${ver}`}${ux ? '\n· 사용자 체험 — 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)' : `\n· 지도 체험 원장 1회 사용${lg ? ` (지금 ${lg.used}/${lg.max})` : ''} — 기존 체험 원장과 별개`}\n· STOP 상태로 시작, 자동 재시작·연장 없음`)) return;
     const r = await ask('map_start', { world_id: w, floor_id: f, mode, ...(mode === 'static' ? { map_version: ver } : {}) });
     toast(r.text || '응답 없음'); if (r.ok) setStarted(true);
   };
@@ -50,7 +50,7 @@ export function MapStartBox({ pc, onSaved, onShowLive }: { pc: boolean; onSaved?
         {typeof vers === 'string' && <option disabled value="-">{`목록 · ${vers}`}</option>}
         {Array.isArray(vers) && !mine.length && <option disabled value="-">이 층 저장 지도 없음</option>}</select>}
     </span>
-    <span className="lbl">{`지도 체험 원장 ${lg ? `${lg.used}/${lg.max}${lg.keys.length ? ` · 사용: ${lg.keys.join(', ')}` : ''}` : '미확인'} · 기존 체험(시뮬 시작) 원장과 별개`}</span>
+    <span className="lbl">{ux ? '사용자 체험 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료) · 층 바꾸기 = 끄고 새로 시작' : `지도 체험 원장 ${lg ? `${lg.used}/${lg.max}${lg.keys.length ? ` · 사용: ${lg.keys.join(', ')}` : ''}` : '미확인'} · 기존 체험(시뮬 시작) 원장과 별개`}</span>
     <button type="button" className={`${B} pri`} disabled={!can} onClick={start}>{used ? `${key} 사용함` : '지도 체험 시작'}</button>
     {ms && !ms.ok && <span style={{ color: 'var(--warn)' }}>{`시작 안 됨 · ${ms.why}`}</span>}
     {ms?.last && <span style={{ color: `var(--${ms.last.st === 'ok' ? 'ok' : 'bad'})` }}>{`최근 ${ms.last.t} · ${ms.last.text}`}</span>}

@@ -140,6 +140,7 @@ export interface MapStartState {
   ledger: MapLedger | null;
   session: Record<string, unknown> | null;
   last: SimStopLast | null;
+  usage_scope?: "experiment" | "user_experience" | null;
 }
 
 export interface MediaEvent {
@@ -306,6 +307,7 @@ export interface SimStartState {
   session: SimSession | null;
   ledger?: SimStartLedger | null;
   last?: SimStartLast | null;
+  usage_scope?: "experiment" | "user_experience" | null;
 }
 
 export interface SimState {
@@ -352,7 +354,7 @@ export interface SimStopState {
   busy: boolean;
   on: boolean;
   ledger_left: number | null;
-  ledger_kind?: "online" | "map" | null;
+  ledger_kind?: "online" | "map" | "user" | null;
   last: SimStopLast | null;
 }
 

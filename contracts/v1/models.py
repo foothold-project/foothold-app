@@ -145,6 +145,7 @@ class SimStartState(Out):
     session: Optional[SimSession]
     ledger: Optional[SimStartLedger] = None   # null = 미확인(0 도 허용도 아님) · 옛 서버는 칸 없음
     last: Optional[SimStartLast] = None       # 마지막 «시뮬 시작» 결과(이 서버 기동 뒤), 화면이 계속 표시
+    usage_scope: Optional[Literal['experiment', 'user_experience']] = None   # experiment = 옛 경로(횟수 원장) · user_experience = RL ux 상태가 «횟수 제한 없음»을 보임 · null = 미확인/옛 서버
 
 
 class SimStopLast(Out):
@@ -160,7 +161,7 @@ class SimStopState(Out):
     busy: bool
     on: bool                                # 시뮬 켜짐(상태 수신 중 또는 RL 세션 running/starting)
     ledger_left: Optional[int]              # 지금 unit 을 쓰는 쪽 원장의 남은 횟수, null = 미확인
-    ledger_kind: Optional[Literal['online', 'map']] = None   # online = 기존 체험(시뮬 시작) 원장 · map = 지도 체험 원장 · null = 미확인
+    ledger_kind: Optional[Literal['online', 'map', 'user']] = None   # online = 기존 체험(시뮬 시작) 원장 · map = 지도 체험 원장 · user = 사용자 체험(횟수 제한 없음, ledger_left null) · null = 미확인
     last: Optional[SimStopLast]
 
 
@@ -215,6 +216,7 @@ class MapStartState(Out):
     ledger: Optional[MapLedger]             # null = 미확인
     session: Optional[dict]                 # {result, runner, world_id, floor_id, map_mode, remaining_s}
     last: Optional[SimStopLast]
+    usage_scope: Optional[Literal['experiment', 'user_experience']] = None   # SimStartState.usage_scope 와 같은 뜻(user_experience 면 ledger null 이 정상)
 
 
 class MapSaveState(Out):

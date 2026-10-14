@@ -59,6 +59,18 @@ test('형식 검사: 명령 관문 칸·유한수치·배열', () => {
   expect(T({}).left).toBe('기존 평지 체험 남은 횟수 미확인'); expect(T({}).last).toBe(''); expect(T({}).map).toBe('지도 체험 남은 횟수 미확인');
   expect(T({ map: { used: 0, max: 4, keys: [] } }).map).toMatch('지도 체험 남은 4/4');
   expect(T({ last: { t: '13:06:35', st: 'bad', text: '사용 가능 횟수 소진(기동 안 함)' } }).last).toBe('최근 시작 결과 13:06:35 · 안 켜짐 · 사용 가능 횟수 소진(기동 안 함)');
+  // 사용자 체험(usage_scope): 값은 experiment·user_experience·없음만, 사용자 체험인데 원장 숫자가 오면 모순 → 거부(지도 칸은 그 칸만 버림)
+  expect(L.checkStatus(SS({ usage_scope: 'user_experience', ledger: null }))).toBeNull();
+  expect(L.checkStatus(SS({ usage_scope: 'experiment', ledger: { used: 1, max: 8 } }))).toBeNull();
+  for (const bad of [{ usage_scope: 'user' }, { usage_scope: 1 }, { usage_scope: 'user_experience', ledger: { used: 0, max: 8 } }])
+    expect(L.checkStatus(SS(bad))).toBe('sim_start');
+  const MS = (o: any) => { const m: any = ST({ map_start: { ok: true, why: '', busy: false, ledger: null, last: null, ...o } }); L.checkStatus(m); return m.map_start; };
+  expect(MS({ usage_scope: 'user_experience' })).not.toBeNull();
+  expect(MS({ usage_scope: 'user_experience', ledger: { used: 0, max: 4, keys: [] } })).toBeNull();
+  expect(MS({ usage_scope: 'nope' })).toBeNull();
+  const U = L.startTxt(ST({ sim_start: { ...ST().sim_start, usage_scope: 'user_experience' }, map_start: { usage_scope: 'user_experience', ledger: null } }) as any);
+  expect(U.left).toBe('사용자 체험 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)'); expect(U.map).toBe('지도 체험 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)');
+  expect(T({ usage_scope: 'experiment', ledger: { used: 8, max: 8 } }).left).toBe('기존 평지 체험 남은 0/8');
 });
 
 test('처음·재연결은 보기 전용: 서버 role=control 이어도 take 전엔 cmd 0건', () => {
@@ -161,7 +173,7 @@ test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', a
   sock.readyState = 1; sock.onopen?.();
   expect(L.checkStatus(ST())).toBe(null);                                   // 옛 서버(칸 없음) = 정상, 버튼 숨김
   expect(L.checkStatus(ST({ sim_stop: SP() }))).toBe(null);
-  for (const bad of [SP({ ok: 'yes' }), SP({ on: 1 }), SP({ busy: null }), SP({ ledger_left: 1.5 }), SP({ last: { st: 'done', text: '' } }), 'x'])
+  for (const bad of [SP({ ok: 'yes' }), SP({ on: 1 }), SP({ busy: null }), SP({ ledger_left: 1.5 }), SP({ last: { st: 'done', text: '' } }), SP({ ledger_kind: 'user', ledger_left: 3 }), SP({ ledger_kind: 'x' }), 'x'])
     expect(L.checkStatus(ST({ sim_stop: bad }))).toBe('sim_stop');
   expect(L.showSimStop(ST({ sim_stop: SP({ on: false }) }) as any)).toBe(false);
   expect(L.showSimStop(ST({ sim_stop: SP({ on: false, busy: true }) }) as any)).toBe(true);
@@ -178,6 +190,8 @@ test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', a
     asked.length = 0; await L.stopSim(ST({ sim_stop: sp }) as any);
     expect(asked[0]).toContain('켜진 쪽 원장 미확인'); expect(asked[0]).not.toContain('남은');
   }
+  asked.length = 0; await L.stopSim(ST({ sim_stop: SP({ ledger_left: null, ledger_kind: 'user' }) }) as any);   // 사용자 체험: 횟수 문구 없음
+  expect(asked[0]).toContain('사용자 체험 — 횟수 제한 없음'); expect(asked[0]).not.toContain('기동 상한'); expect(asked[0]).not.toContain('원장');
   expect(sent.slice(n).some((m) => m.op === 'sim_stop')).toBe(false);
   (globalThis as any).confirm = () => true;
   const p = L.stopSim(ST({ sim_stop: SP() }) as any);

@@ -478,12 +478,42 @@ def parse_session(out, code):
     return 'failed', f'래퍼 응답 형식 틀림(종료 {code})'
 
 
+UX_EXIT = {'ready': 0, 'starting': 0, 'already_running': 3, 'resource_blocked': 4, 'bad_args': 2, 'failed': 1}   # RL ux_start.sh 머리말(5 budget_exhausted 없음)
+
+
+def ux_usage(s):
+    """사용자 체험 경로 결속(RL UX-CONTRACT): schema v2_session/1 + usage_scope "user_experience" + count_limit 칸이 있고 null.
+    칸이 없거나 다른 값(experiment·"unknown"·숫자)이면 False — 숫자 null 만으로 «제한 없음»을 단정하지 않는다"""
+    return (isinstance(s, dict) and s.get('schema') == 'v2_session/1' and s.get('usage_scope') == 'user_experience'
+            and 'count_limit' in s and s['count_limit'] is None)
+
+
+def ux_result(out, code):
+    """ux_start.sh 출력 → (결과, 글). 결과·종료 코드가 머리말 표와 맞고, 성공(starting/ready)이면 usage 결속까지 맞아야 채택"""
+    res, extra = parse_session(out, code)
+    if res not in UX_EXIT or UX_EXIT[res] != code:
+        return 'failed', f'래퍼 결과({res})와 종료 코드({code}) 모순'
+    if res in ('starting', 'ready'):
+        d = None
+        for line in reversed((out or '').strip().splitlines()):   # parse_session 이 채택한 줄과 같은 규칙(마지막 v2_session/1 줄)
+            try:
+                x = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(x, dict) and x.get('schema') == 'v2_session/1' and x.get('result') in SESSION_RESULTS:
+                d = x; break
+        if not ux_usage(d):
+            return 'failed', '래퍼 응답이 사용자 체험 경로가 아님(usage_scope·count_limit 불일치)'
+    return res, extra
+
+
 class SimStart:
     """«시뮬 시작(30분)» — 사용자가 누를 때만 RL 래퍼를 한 번 부른다. 동시 1건·120 s 쿨다운·재시도/연장 없음"""
     COOL, LEDGER_MAX, FRESH = 120.0, 8, 15.0   # LEDGER_MAX = RL request_session.sh 정본값(다르면 미확인) · 조회 신선도(폴 2~5 s)
 
-    def __init__(self, wrapper, now=time.monotonic):
+    def __init__(self, wrapper, now=time.monotonic, args=(), status_name='session_status.sh', ux=False):
         self.wrapper, self.now, self.busy, self.last = wrapper, now, False, -1e9
+        self.args, self.status_name, self.ux = tuple(args), status_name, ux   # ux = 사용자 체험 경로(ux_start.sh flat · ux_status.sh) — 횟수 대신 usage 결속 확인
         self.session = None         # session_status.sh 마지막 결과(읽기만) — running/starting/idle, 남은 시간
         self.sess_t = None          # 그 결과를 받은 시각(monotonic)
         self.polled = False         # session_status.sh 를 한 번이라도 불렀나(조회 중 ↔ 확인 못 함 구분)
@@ -493,10 +523,17 @@ class SimStart:
         """기존(평지) 체험 원장 — session_status.sh 의 ledger_used/max 를 읽기만. 신선·schema·정수·max 정본·0≤used≤max 가 아니면 None(미확인 — 0 도 허용도 아님).
         누적 횟수라 날짜로 다시 채워지지 않는다. 증설·초기화는 RL 소유"""
         s = self.session if self.sess_t is not None and 0 <= self.now() - self.sess_t <= self.FRESH else None
-        if not s or s.get('schema') != 'v2_session/1':
+        if self.ux or not s or s.get('schema') != 'v2_session/1':
             return None
         u, mx = s.get('ledger_used'), s.get('ledger_max')
         return {'used': u, 'max': mx} if type(u) is int and type(mx) is int and mx == self.LEDGER_MAX and 0 <= u <= mx else None
+
+    def usage(self):
+        """'experiment'(옛 경로 — 횟수 원장) | 'user_experience'(신선한 ux_status 가 결속을 보임) | None(미확인)"""
+        if not self.ux:
+            return 'experiment'
+        s = self.session if self.sess_t is not None and 0 <= self.now() - self.sess_t <= self.FRESH else None
+        return 'user_experience' if ux_usage(s) else None
 
     def refuse(self, sim_live):
         if not self.wrapper:
@@ -507,6 +544,11 @@ class SimStart:
             return '시뮬이 이미 돌고 있음'
         if (self.session or {}).get('result') in ('running', 'starting'):
             return '시뮬 세션이 이미 켜지는 중·실행 중(RL 상태)'
+        if self.ux:                  # 사용자 체험: 횟수 검사 대신 결속 확인 — 미확인이면 거부(제한 없음으로 단정 0)
+            if self.usage() is None:
+                return '사용자 체험 경로 상태 조회 중' if self.session is None and not self.polled else '사용자 체험 경로 확인 못 함(상태가 «사용자 체험 · 횟수 제한 없음»이 아님) — 잠시 뒤 다시 확인'
+            left = self.COOL - (self.now() - self.last)
+            return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
         lg = self.ledger()           # 미확인(조회 전·실패·오래됨·형식 틀림)도 거부 — 0·허용으로 단정 0. 다음 폴 성공이면 자동으로 풀림(자동 기동 0)
         if lg is None:
             return '기존 평지 체험 사용 가능 횟수 조회 중' if self.sess_t is None and self.session is None and not self.polled else '기존 평지 체험 사용 가능 횟수 확인 못 함 — 잠시 뒤 다시 확인'
@@ -520,12 +562,12 @@ class SimStart:
         ss = self.session or {}
         return {'ok': not why, 'why': why, 'busy': self.busy,
                 'session': {k: ss.get(k) for k in ('result', 'reason', 'started_at', 'ends_at', 'remaining_s')} if ss else None,
-                'ledger': self.ledger(), 'last': self.result}
+                'ledger': self.ledger(), 'last': self.result, 'usage_scope': self.usage()}
 
     def poll(self):
         """RL 상태 스크립트(읽기만, 약 0.05 s). 래퍼와 같은 폴더. 실패하면 None(추정 없음)"""
         try:
-            r = subprocess.run(['bash', str(Path(self.wrapper).with_name('session_status.sh'))], capture_output=True, text=True, timeout=10)
+            r = subprocess.run(['bash', str(Path(self.wrapper).with_name(self.status_name))], capture_output=True, text=True, timeout=10)
             d = json.loads(r.stdout.strip().splitlines()[-1])
             self.session = d if isinstance(d, dict) and d.get('result') in ('running', 'starting', 'idle') else None
         except Exception:
@@ -567,10 +609,12 @@ class SimStop:
     stop_live.sh 는 끝에 `status … || true` 라 종료 코드 0 만으로는 성공이 아니다"""
     COOL, LIMIT, GAP, WRAP = 30.0, 60.0, 3.0, 45.0     # WRAP = stop_live 기다림(systemd TimeoutStopSec 45), 전체는 LIMIT 안
 
-    def __init__(self, start_wrapper, now=time.monotonic):
-        p = Path(start_wrapper).with_name('stop_live.sh') if start_wrapper else None
+    def __init__(self, start_wrapper, now=time.monotonic, stop=None, status=None):
+        """옛 경로: --sim-start 옆 stop_live.sh·session_status.sh. 사용자 체험: stop·status 를 명시(--ux-stop · ux_status.sh)"""
+        p = Path(stop) if stop else Path(start_wrapper).with_name('stop_live.sh') if start_wrapper else None
+        q = Path(status) if stop else p.with_name('session_status.sh') if p else None
         self.wrapper = str(p) if p and p.is_file() else None
-        self.status_sh = str(p.with_name('session_status.sh')) if self.wrapper and p.with_name('session_status.sh').is_file() else None
+        self.status_sh = str(q) if self.wrapper and q and q.is_file() else None
         self.now, self.busy, self.last_t, self.last = now, False, -1e9, None   # last = 마지막 결과 {t, st, text}
 
     def on(self, sim_live, session, map_session=None):
@@ -596,7 +640,9 @@ class SimStop:
         """runner = 지금 unit 을 쓰는 쪽(MapStart.runner). 원장은 그 쪽 것만: live_v2 → 기존 체험 원장, live_map → 지도 체험 원장, 모름 → null"""
         why = self.refuse(gated, starting, sim_live, session, holder_other, map_session)
         ss = session or {}
-        if runner == 'live_map':
+        if ux_usage(map_session) and unit_state(map_session) in UNIT_LIVE:   # 사용자 체험 세션 — 횟수 제한 없음(남은 횟수 칸 null)
+            kind, left = 'user', None
+        elif runner == 'live_map':
             kind, left = 'map', (map_ledger['max'] - map_ledger['used'] if map_ledger else None)
         elif runner == 'live_v2':
             kind = 'online'
@@ -1232,11 +1278,12 @@ class MapStart:
     LEDGER_ID, LEDGER_MAX, FRESH = 'map-20261014', 4, 15.0      # RL map_status.sh 정본 상수 · 조회 결과 신선도(폴 2~5 s)
     KEYS = {f'{w}/{f}' for w, (_, fl) in MAP_WORLDS.items() for f in fl}
 
-    def __init__(self, wrapper, now=time.monotonic):
+    def __init__(self, wrapper, now=time.monotonic, status_name='map_status.sh', prefix=(), ux=False):
         p = Path(wrapper) if wrapper else None
-        ok = bool(p and p.is_file() and p.with_name('map_status.sh').is_file())
+        ok = bool(p and p.is_file() and p.with_name(status_name).is_file())
         self.wrapper = str(p) if ok else None
-        self.status_sh = str(p.with_name('map_status.sh')) if ok else None
+        self.status_sh = str(p.with_name(status_name)) if ok else None
+        self.prefix, self.ux = tuple(prefix), ux      # ux = ux_start.sh map … · ux_status.sh — 원장·키 검사 대신 usage 결속
         self.now, self.session, self.sess_t, self.last = now, None, None, None
 
     def poll(self):
@@ -1249,7 +1296,7 @@ class MapStart:
 
     def ledger(self):
         """지도 체험 원장(map_status.sh) — ledger_id·max 정본 일치, 0≤used≤max, 키는 허용표·중복 0·개수 = used(키당 1회). 하나라도 아니면 None(미확인)"""
-        s = self.session if self.fresh() else {}
+        s = self.session if self.fresh() and not self.ux else {}
         u, mx, ks = s.get('map_ledger_used'), s.get('map_ledger_max'), s.get('map_ledger_keys_used')
         ok = (s.get('ledger_id') == self.LEDGER_ID and type(mx) is int and mx == self.LEDGER_MAX and type(u) is int and 0 <= u <= mx
               and isinstance(ks, list) and all(isinstance(x, str) and x in self.KEYS for x in ks) and len(set(ks)) == len(ks) == u)
@@ -1268,9 +1315,14 @@ class MapStart:
             return '시작 요청 진행 중(RL)' if s.get('request_in_progress') is True else '시작 요청 진행 여부 미확인'
         return ''
 
-    def runner(self):           # 지금 unit 을 쓰는 쪽: 'live_map'(지도 체험) | 'live_v2'(기존 체험) | None(꺼짐·미확인)
+    def usage(self):
+        if not self.ux:
+            return 'experiment'
+        return 'user_experience' if self.fresh() and ux_usage(self.session) else None
+
+    def runner(self):           # 지금 unit 을 쓰는 쪽: 'live_map'(지도 체험) | 'live_v2'(기존 체험) | 'ux_flat'(사용자 평지) | None(꺼짐·미확인)
         s = self.session if self.fresh() else {}
-        return s.get('runner') if s.get('runner') in ('live_map', 'live_v2') and unit_state(s) in UNIT_LIVE else None
+        return s.get('runner') if s.get('runner') in ('live_map', 'live_v2', 'ux_flat') and unit_state(s) in UNIT_LIVE else None
 
     def refuse(self, key, gated, starter, stopping, sim_live, holder_other):
         if not self.wrapper:
@@ -1288,6 +1340,11 @@ class MapStart:
         uw = self.unit_why()
         if uw:
             return uw
+        if self.ux:
+            if self.usage() is None:
+                return '사용자 체험 경로 확인 못 함(상태가 «사용자 체험 · 횟수 제한 없음»이 아님)'
+            left = SimStart.COOL - (starter.now() - starter.last)
+            return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
         lg = self.ledger()
         if lg is None:
             return '지도 체험 원장 미확인'
@@ -1301,7 +1358,7 @@ class MapStart:
     def state(self, gated, starter, stopping, sim_live, holder_other):
         why = self.refuse(None, gated, starter, stopping, sim_live, holder_other)
         s = (self.session or {}) if self.fresh() else {}
-        return {'ok': not why, 'why': why, 'busy': starter.busy, 'ledger': self.ledger(), 'last': self.last,
+        return {'ok': not why, 'why': why, 'busy': starter.busy, 'ledger': self.ledger(), 'last': self.last, 'usage_scope': self.usage(),
                 'session': {k: s.get(k) for k in ('result', 'runner', 'world_id', 'floor_id', 'map_mode', 'remaining_s')} if s else None}
 
 
@@ -1581,6 +1638,55 @@ def selftest_maps():
             ('v5_single', 'f1', 'gt-20261012'), ('v5', 'l1', 'gt-20261012'), ('v5', 'l2', 'gt-20261012')}, (lst, sk)
 
 
+def selftest_ux():
+    """사용자 체험 경로(RL UX-CONTRACT) 결속: usage 칸이 맞을 때만 허용, 옛 원장 무시, 래퍼 응답도 결속 검사, 실제 래퍼 호출 0(상태 스크립트만)"""
+    import tempfile
+    G = {'schema': 'v2_session/1', 'result': 'idle', 'active_state': 'inactive', 'request_in_progress': False, 'usage_scope': 'user_experience', 'count_limit': None, 'ux_launch_n': 20}
+    assert ux_usage(G)
+    for k, v in (('usage_scope', 'experiment'), ('usage_scope', None), ('count_limit', 'unknown'), ('count_limit', 0), ('count_limit', {'total': 8}), ('schema', 'x')):
+        assert not ux_usage({**G, k: v}), (k, v)
+    assert not ux_usage({k: v for k, v in G.items() if k != 'count_limit'}) and not ux_usage(None)   # 칸 없음 ≠ null
+    J = lambda **o: json.dumps({**G, 'result': 'starting', **o})
+    assert ux_result(J(), 0)[0] == 'starting' and ux_result(J(result='ready'), 0)[0] == 'ready'
+    assert ux_result(J(), 1)[0] == 'failed'                                        # 결과·종료 코드 모순
+    assert ux_result(J(usage_scope='experiment'), 0)[0] == 'failed'                # 실험 경로 응답은 성공으로 채택 0
+    assert ux_result(J(count_limit=8), 0)[0] == 'failed'
+    assert ux_result(J(result='budget_exhausted'), 5)[0] == 'failed'               # ux 에는 5 가 없음
+    assert ux_result(J(result='already_running'), 3)[0] == 'already_running' and ux_result(J(result='resource_blocked'), 4)[0] == 'resource_blocked'
+    assert ux_result('{broken\n' + J(), 0)[0] == 'starting' and ux_result('x', 0)[0] == 'failed'
+    t = [100.0]
+    st = SimStart('/x/ux_start.sh', lambda: t[0], args=('flat',), status_name='ux_status.sh', ux=True)
+    assert st.refuse(False) == '사용자 체험 경로 상태 조회 중' and st.state(False)['usage_scope'] is None
+    st.polled = True; st.session, st.sess_t = {**G, 'ledger_used': 8, 'ledger_max': 8}, t[0]           # 옛 원장 칸이 있어도 무시
+    assert st.refuse(False) == '' and st.ledger() is None and st.state(False)['usage_scope'] == 'user_experience'
+    st.session = {**G, 'count_limit': 'unknown'}; assert st.refuse(False).startswith('사용자 체험 경로 확인 못 함') and st.state(False)['usage_scope'] is None
+    st.session = {**G, 'result': 'running', 'active_state': 'active', 'runner': 'live_v2', 'usage_scope': 'experiment', 'count_limit': {'total': 8, 'test': 4}}
+    assert st.refuse(False).startswith('시뮬 세션이 이미')                          # 실험 세션이 unit 사용 중
+    st.session = dict(G); t[0] += SimStart.FRESH + 1; assert st.refuse(False).startswith('사용자 체험 경로 확인 못 함')   # 낡음
+    st.sess_t = t[0]; st.last = t[0]; assert st.refuse(False).startswith('방금 요청함')                                   # 쿨다운은 그대로
+    legacy = SimStart('/x/request_session.sh', lambda: t[0]); assert legacy.state(False)['usage_scope'] == 'experiment'
+    with tempfile.TemporaryDirectory() as td:
+        d = Path(td); (d / 'ux_start.sh').write_text('touch "$(dirname "$0")/CALLED"\n'); (d / 'stop_live.sh').write_text('touch "$(dirname "$0")/CALLED"\n')
+        (d / 'ux_status.sh').write_text("echo '" + json.dumps(G) + "'\n")
+        s2 = SimStart(str(d / 'ux_start.sh'), args=('flat',), status_name='ux_status.sh', ux=True); s2.poll()
+        assert s2.refuse(False) == '' and s2.state(False)['usage_scope'] == 'user_experience'
+        m = MapStart(str(d / 'ux_start.sh'), status_name='ux_status.sh', prefix=('map',), ux=True); m.poll()
+        assert m.wrapper and m.ledger() is None and m.usage() == 'user_experience'
+        s2.last = -1e9
+        assert m.refuse('rooms_a/f1', True, s2, False, False, None) == '' and m.state(True, s2, False, False, None)['usage_scope'] == 'user_experience'
+        m.session = {**G, 'request_in_progress': True}; assert m.refuse('rooms_a/f1', True, s2, False, False, None).startswith('시작 요청 진행 중')
+        m.session = {**G, 'usage_scope': None, 'count_limit': 'unknown'}; assert m.refuse('rooms_a/f1', True, s2, False, False, None).startswith('사용자 체험 경로 확인 못 함')
+        assert MapStart(str(d / 'ux_start.sh')).wrapper is None                        # 옛 이름(map_status.sh) 없으면 옛 경로로 안 붙음
+        sp = SimStop(None, stop=str(d / 'stop_live.sh'), status=str(d / 'ux_status.sh'))
+        assert sp.wrapper and sp.status_sh.endswith('ux_status.sh')
+        on = {**G, 'result': 'running', 'active_state': 'active', 'runner': 'ux_flat'}
+        x = sp.state(True, False, False, on, None, 'ux_flat', None, on)
+        assert x['ledger_kind'] == 'user' and x['ledger_left'] is None and x['on']
+        exp = {**G, 'result': 'running', 'active_state': 'active', 'runner': 'live_v2', 'usage_scope': 'experiment', 'count_limit': {'total': 8}, 'ledger_used': 8, 'ledger_max': 8}
+        assert sp.state(True, False, False, exp, None, 'live_v2', None, exp)['ledger_kind'] == 'online'
+        assert not (d / 'CALLED').exists()                                          # 상태 조회·판정만 — 시작·정지 래퍼 호출 0
+
+
 def selftest():
     t = [0.0]; c = Core(now=lambda: t[0]); F = (1.0, 0.0, 0.0); N = Z
 
@@ -1650,7 +1756,7 @@ def selftest():
     c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
     st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
-    selftest_extra(); selftest_stop(); selftest_maps(); selftest_live()
+    selftest_extra(); selftest_stop(); selftest_maps(); selftest_live(); selftest_ux()
     print('selftest OK')
 
 
@@ -1664,6 +1770,8 @@ def main():
     ap.add_argument('--store', default='json', help='공용 문서 저장: json(기본, <media>/docs.json) 또는 sqlite:<DB 경로>(없으면 docs.json 을 읽어 이전)')
     ap.add_argument('--maps-root', default=None, help='저장 지도 루트(읽기만, <건물>/<층>/<버전>/). 없으면 지도 목록 빈 칸')
     ap.add_argument('--map-start', default=None, help='RL 지도 체험 시작(start_map.sh) 절대경로. 같은 폴더 map_status.sh 로 지도 원장 조회. 없으면 «지도 체험 시작» 이유만')
+    ap.add_argument('--ux-start', default=None, help='RL 사용자 체험 래퍼(ux_start.sh) 절대경로 — 주면 시뮬 시작=flat·지도 체험=map, 상태 ux_status.sh(같은 폴더), 횟수 원장 대신 usage 결속 확인. --sim-start·--map-start 와 같이 못 씀')
+    ap.add_argument('--ux-stop', default=None, help='--ux-start 와 함께: Gazebo 종료 stop_live.sh 절대경로(같은 unit)')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -1686,13 +1794,24 @@ def main():
     docs, docs_note = open_docs(a.store, a.media)
     if docs_note:
         core.ev('warn', docs_note); print(docs_note, flush=True)
-    starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
-    stopper = SimStop(starter.wrapper)
+    if a.ux_start:                  # 사용자 체험 경로 — 옛 경로와 섞지 않음, 파일이 다 있어야 기동
+        if a.sim_start or a.map_start:
+            sys.exit('[v2_link] --ux-start 는 --sim-start·--map-start 와 같이 쓰지 않는다')
+        ux = Path(a.ux_start)
+        if not (ux.is_absolute() and ux.is_file() and ux.with_name('ux_status.sh').is_file() and a.ux_stop and Path(a.ux_stop).is_absolute() and Path(a.ux_stop).is_file()):
+            sys.exit('[v2_link] --ux-start(절대경로·옆 ux_status.sh)·--ux-stop(절대경로) 파일 확인 실패')
+        starter = SimStart(str(ux), args=('flat',), status_name='ux_status.sh', ux=True)
+        stopper = SimStop(None, stop=a.ux_stop, status=str(ux.with_name('ux_status.sh')))
+        mapper = MapStart(str(ux), status_name='ux_status.sh', prefix=('map',), ux=True)
+    else:
+        starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
+        stopper = SimStop(starter.wrapper)
+        mapper = MapStart(a.map_start)
     maps = MapStore(a.maps_root)
-    mapper, live = MapStart(a.map_start), LiveMap()
+    live = LiveMap()
     save = {'busy': False, 'seq': 0, 'wait': {}}      # 지도 저장: 처리 중 1건, 요청 순번 → (연결, rid, 요청 때 epoch)
     photo_last = [0.0]
-    poll_start = bool(starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file())
+    poll_start = bool(starter.wrapper and Path(starter.wrapper).with_name(starter.status_name).is_file())
     if poll_start or mapper.status_sh:
         def poll_loop():            # 상태 스크립트(읽기만) — 켜지는 중 2 s, 그 밖 5 s
             while True:
@@ -1871,8 +1990,8 @@ def main():
 
         def run():                  # ROS·웹 스레드를 막지 않게 따로. 재시도·연장 없음
             try:
-                r = subprocess.run(['bash', starter.wrapper], capture_output=True, text=True, timeout=240)
-                res, extra = parse_session(r.stdout, r.returncode)
+                r = subprocess.run(['bash', starter.wrapper, *starter.args], capture_output=True, text=True, timeout=240)
+                res, extra = (ux_result if starter.ux else parse_session)(r.stdout, r.returncode)
             except Exception as e:
                 res, extra = 'failed', type(e).__name__
             ok_ = res in ('starting', 'ready')
@@ -1899,8 +2018,8 @@ def main():
 
         def run():
             try:
-                r = subprocess.run(['bash', mapper.wrapper, *args], capture_output=True, text=True, timeout=240)
-                res, extra = map_result(r.stdout, r.returncode)
+                r = subprocess.run(['bash', mapper.wrapper, *mapper.prefix, *args], capture_output=True, text=True, timeout=240)
+                res, extra = (ux_result if mapper.ux else map_result)(r.stdout, r.returncode)
             except Exception as e:
                 res, extra = 'failed', type(e).__name__
             text = START_TEXT[res]

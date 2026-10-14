@@ -77,6 +77,7 @@ const age = (v: unknown) => v === null || (fin(v) && v >= 0);   // 나이는 음
 const int = (v: unknown) => fin(v) && Number.isInteger(v);
 const LIVE_ST = ['off', 'stale', 'unknown', 'reset', 'wait', 'bad', 'ok'];
 const EVST = new Set(['ok', 'warn', 'bad']);
+const SCOPE = (v: unknown) => v == null || v === 'experiment' || v === 'user_experience';   // 칸 없음·null = 미확인/옛 서버
 export function checkStatus(m: any): string | null {
   if (!m || typeof m !== 'object' || m.op !== 'status') return 'op';
   if (typeof m.ver !== 'string' || !m.ver) return 'ver';
@@ -90,10 +91,11 @@ export function checkStatus(m: any): string | null {
   const ss = m.sim_start;   // 화면이 읽는 칸만: ok·why·session(남은 시간) + (새 서버) ledger·last — 없으면 옛 서버(미확인)
   if (!ss || typeof ss !== 'object' || typeof ss.ok !== 'boolean' || typeof ss.why !== 'string' || !(ss.session === null || typeof ss.session === 'object')
     || !(ss.ledger == null || (typeof ss.ledger === 'object' && int(ss.ledger.used) && int(ss.ledger.max) && ss.ledger.used >= 0 && ss.ledger.used <= ss.ledger.max))
-    || !(ss.last == null || (typeof ss.last === 'object' && typeof ss.last.t === 'string' && (ss.last.st === 'ok' || ss.last.st === 'bad') && typeof ss.last.text === 'string'))) return 'sim_start';
+    || !(ss.last == null || (typeof ss.last === 'object' && typeof ss.last.t === 'string' && (ss.last.st === 'ok' || ss.last.st === 'bad') && typeof ss.last.text === 'string'))
+    || !SCOPE(ss.usage_scope) || (ss.usage_scope === 'user_experience' && ss.ledger != null)) return 'sim_start';   // 사용자 체험인데 원장 숫자가 오면 모순
   const sp = m.sim_stop;    // 없으면 옛 서버(버튼 숨김). 있으면 화면이 읽는 칸 전부 검사
   if (sp !== undefined && sp !== null && (typeof sp !== 'object' || typeof sp.ok !== 'boolean' || typeof sp.why !== 'string' || typeof sp.busy !== 'boolean' || typeof sp.on !== 'boolean'
-    || !(sp.ledger_left === null || int(sp.ledger_left)) || !(sp.ledger_kind == null || sp.ledger_kind === 'online' || sp.ledger_kind === 'map') || !(sp.last === null || (typeof sp.last === 'object' && (sp.last.st === 'ok' || sp.last.st === 'bad') && typeof sp.last.text === 'string')))) return 'sim_stop';
+    || !(sp.ledger_left === null || int(sp.ledger_left)) || !(sp.ledger_kind == null || sp.ledger_kind === 'online' || sp.ledger_kind === 'map' || (sp.ledger_kind === 'user' && sp.ledger_left === null)) || !(sp.last === null || (typeof sp.last === 'object' && (sp.last.st === 'ok' || sp.last.st === 'bad') && typeof sp.last.text === 'string')))) return 'sim_stop';
   // 지도 칸(live_map·map_start·map_save): 틀리면 그 칸만 버림(조종 상태는 유지 — 지도 오류가 STOP·조종을 막지 않게)
   const ob = (x: any) => !!x && typeof x === 'object', lv = m.live_map, ms = m.map_start, sv = m.map_save;
   const one = (v: unknown, xs: string[]) => v == null || xs.includes(v as string), grid = (g: any) => ob(g) && int(g.seq) && [g.w, g.h].every((n) => int(n) && n >= 1 && n <= 2000)
@@ -108,7 +110,8 @@ export function checkStatus(m: any): string | null {
   }
   if (!(ob(ms) && typeof ms.ok === 'boolean' && typeof ms.why === 'string' && typeof ms.busy === 'boolean'
     && (ms.ledger === null || (ob(ms.ledger) && int(ms.ledger.used) && int(ms.ledger.max) && Array.isArray(ms.ledger.keys) && ms.ledger.keys.every((k: unknown) => typeof k === 'string')))
-    && (ms.last == null || (ob(ms.last) && typeof ms.last.t === 'string' && typeof ms.last.text === 'string')))) m.map_start = null;
+    && (ms.last == null || (ob(ms.last) && typeof ms.last.t === 'string' && typeof ms.last.text === 'string'))
+    && SCOPE(ms.usage_scope) && !(ms.usage_scope === 'user_experience' && ms.ledger !== null))) m.map_start = null;
   if (!(ob(sv) && typeof sv.ok === 'boolean' && typeof sv.why === 'string' && typeof sv.busy === 'boolean')) m.map_save = null;
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
@@ -129,7 +132,8 @@ export const ask = (op: AskOp, extra: Record<string, string> = {}, ms = 5000) =>
 
 // Gazebo 끄기(로봇 STOP 아님): 폐기 → 확인창 → sim_stop. 결과(ROS 세션 종료 확인/못 함)는 서버 이벤트로 따로 온다 → 토스트 글 | null(취소)
 // 지금 켜진 쪽(runner) 원장만 말한다 — 지도 체험이면 지도 체험 원장, 기존 체험이면 기존 원장, 모르면 «미확인»(섞지 않음)
-const ledgerLine = (x: { ledger_left: number | null; ledger_kind?: 'online' | 'map' | null }) => {
+const ledgerLine = (x: { ledger_left: number | null; ledger_kind?: 'online' | 'map' | 'user' | null }) => {
+  if (x.ledger_kind === 'user') return '\n· 사용자 체험 — 횟수 제한 없음(다시 켤 수 있음 · 동시 1개 · 30분 뒤 자동 종료)';
   const name = x.ledger_kind === 'map' ? '지도 체험 원장' : x.ledger_kind === 'online' ? '기존 체험(시뮬 시작) 원장' : '';
   if (!name || x.ledger_left === null) return '\n· 켜진 쪽 원장 미확인';
   return `\n· ${name} 남은 ${x.ledger_left}${x.ledger_left === 0 ? ' — 끄면 이 원장으로는 다시 켤 수 없습니다' : ''}`;
@@ -138,7 +142,7 @@ const ledgerLine = (x: { ledger_left: number | null; ledger_kind?: 'online' | 'm
 export async function stopSim(st: Status | null): Promise<string | null> {
   const x = st?.sim_stop; if (!x || !x.ok) return `Gazebo 끄기 안 됨 · ${x?.why || '서버 응답 없음'}`;
   dropAll();
-  if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 ${x.ledger_kind === 'map' ? '«지도 체험 시작»' : '«시뮬 시작»'}을 직접 눌러야 하고 기동 상한이 적용됩니다${ledgerLine(x)}`)) return null;
+  if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 ${x.ledger_kind === 'map' ? '«지도 체험 시작»' : '«시뮬 시작»'}을 직접 눌러야 합니다${x.ledger_kind === 'user' ? '' : ' · 기동 상한이 적용됩니다'}${ledgerLine(x)}`)) return null;
   return (await ask('sim_stop')).text || '응답 없음';
 }
 export const showSimStop = (st: Status | null) => !!st?.sim_stop && (st.sim_stop.on || st.sim_stop.busy);
@@ -247,11 +251,11 @@ export const sessTxt = (st: Status | null) => { const x = st?.sim_start?.session
   return `${({ running: '실행 중', starting: '켜지는 중', idle: '꺼짐' } as Record<string, string>)[x.result || ''] || x.result || '미확인'}${x.remaining_s == null ? '' : ` · 남은 ${Math.max(0, Math.round(x.remaining_s / 60))}분${x.ends_at ? `(종료 ${String(x.ends_at).slice(11, 16)})` : ''}`}`; };
 // 시뮬 시작 안내(진단): 기존 평지 체험 남은 횟수 · 최근 시작 결과 · 지도 체험 별도 횟수 — 서버가 검증해 준 값만, 없으면 «미확인»(0·허용으로 쓰지 않음)
 export function startTxt(st: Status | null) {
-  const ss = st?.sim_start, lg = ss?.ledger, ml = st?.map_start?.ledger, last = ss?.last;
+  const ss = st?.sim_start, lg = ss?.ledger, ml = st?.map_start?.ledger, last = ss?.last, UX = '횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)';
   return {
-    left: lg ? `기존 평지 체험 남은 ${lg.max - lg.used}/${lg.max}` : '기존 평지 체험 남은 횟수 미확인',
+    left: ss?.usage_scope === 'user_experience' ? `사용자 체험 · ${UX}` : lg ? `기존 평지 체험 남은 ${lg.max - lg.used}/${lg.max}` : '기존 평지 체험 남은 횟수 미확인',
     last: last ? `최근 시작 결과 ${last.t} · ${last.st === 'ok' ? '요청 처리됨(켜짐 판정은 영상·상태로)' : '안 켜짐'} · ${last.text}` : '',
-    map: ml && ml.used >= 0 && ml.used <= ml.max ? `지도 체험 남은 ${ml.max - ml.used}/${ml.max}(별도 횟수 · 성공 보장 아님)` : '지도 체험 남은 횟수 미확인',
+    map: st?.map_start?.usage_scope === 'user_experience' ? `지도 체험 · ${UX}` : ml && ml.used >= 0 && ml.used <= ml.max ? `지도 체험 남은 ${ml.max - ml.used}/${ml.max}(별도 횟수 · 성공 보장 아님)` : '지도 체험 남은 횟수 미확인',
   };
 }
 // 상태 상세: 서버가 준 원값 그대로(가공·추정 없음) — live.js stateRows

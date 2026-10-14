@@ -681,6 +681,22 @@
           ],
           "title": "Session"
         },
+        "usage_scope": {
+          "anyOf": [
+            {
+              "enum": [
+                "experiment",
+                "user_experience"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usage Scope"
+        },
         "why": {
           "title": "Why",
           "type": "string"
@@ -1065,6 +1081,22 @@
               "type": "null"
             }
           ]
+        },
+        "usage_scope": {
+          "anyOf": [
+            {
+              "enum": [
+                "experiment",
+                "user_experience"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usage Scope"
         },
         "why": {
           "title": "Why",
@@ -1463,7 +1495,8 @@
             {
               "enum": [
                 "online",
-                "map"
+                "map",
+                "user"
               ],
               "type": "string"
             },
