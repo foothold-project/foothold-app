@@ -1322,6 +1322,20 @@ class LiveMap:
         with self.lock:
             return self.key if self.st is not None and not self._why(self.now()) else None
 
+    def prod(self):             # 보조 뷰 producer 자기 진단(/v2_map/status 의 points_view·follow_cam) → 앱 빈칸 이유. 3 s 안 status 만, 허용 코드만(그 밖 'unknown')
+        with self.lock:
+            d = self.st
+            if not isinstance(d, dict) or self.st_t is None or self.now() - self.st_t > LIVE_STALE:
+                return {'points': None, 'follow': None}
+            out = {}
+            for k, src in (('points', 'points_view'), ('follow', 'follow_cam')):
+                x = d.get(src)
+                r, n, en = (x.get('last_reason'), x.get('n_pub'), x.get('enabled')) if isinstance(x, dict) else (None, None, None)
+                out[k] = None if not isinstance(x, dict) else {
+                    'reason': r if r in PROD_REASONS[k] else None if r is None else 'unknown',
+                    'n_pub': n if type(n) is int and n >= 0 else None, 'enabled': en if type(en) is bool else None}
+            return out
+
 
 # 보조 관제 뷰(RL view-20261014/VIEW-CONTRACT.md §1·§2, FIX1): /v2_map/points_view(JSON) · /v2_map/follow_cam(JSON, JPEG base64).
 # 최신 1개만 들고 있다가 앱이 view_get 으로 끌어간다(≤2 Hz, status·조종 WS push 에 싣지 않음). 결속 키가 지금 지도와 다르면 버림.
@@ -1329,6 +1343,9 @@ PV_SCHEMA, PV_MAX_N, PV_MAX_RAW, VIEW_MIN_DT, VIEW_STALE, PV_MAX_ABS = 'v2_map/p
 VIEW_SIM_EPS = 0.5    # 뷰 stamp_sim 이 sim_t 추정 상한(마지막 1 Hz status sim_t + 그 뒤 벽시계)보다 이만큼 넘게 앞서면 시각 이상
 FC_SCHEMA, FC_MAX, FC_MAX_RAW = 'v2_map/follow_cam/1', 64000, 90000
 KEY_NAMES = ('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch')
+PROD_REASONS = {   # RL map-20261014/points_view.py REASONS·FOLLOW_REASONS 와 같은 코드(앱 문구 표는 ui/src/app/OpsQuad.tsx)
+    'points': ('ok', 'no_cloud', 'reset', 'stale_epoch', 'sim_t_unknown', 'future_stamp', 'not_localized', 'bad_cloud', 'tf_lookup_failed', 'tf_stale', 'empty', 'encode_error'),
+    'follow': ('ok', 'no_frame', 'reset', 'stale_epoch', 'sim_t_unknown', 'no_stamp', 'future_stamp', 'out_of_order', 'bad_image', 'too_large')}
 
 
 class Views:
@@ -1692,6 +1709,15 @@ def selftest_live():
              'pose_map': {'x': 1.0, 'y': 2.0, 'yaw': 0.1, 'stamp_sim': 5.8, 'source': 'slam_tf'}, 'pose_map_null_reason': None,
              'scan': {'n': 9, 'age_s': 0.1}, 'slam_lifecycle': {'epoch': ep, 'state': 'ok'}, 'last_save': None, 'maps_root': '/secret/maps', 'kids': {'slam': 1}}
         d.update(kw); L.on_status(d)
+    # 보조 뷰 producer 진단: 허용 코드만 통과 · 모르는 코드 'unknown' · 형식 틀림 None · status 3 s 넘으면 둘 다 None
+    assert L.prod() == {'points': None, 'follow': None}
+    S(points_view={'n_pub': 0, 'last_reason': 'sim_t_unknown'}, follow_cam={'enabled': True, 'n_pub': 0, 'last_reason': 'sim_t_unknown'})
+    assert L.prod() == {'points': {'reason': 'sim_t_unknown', 'n_pub': 0, 'enabled': None}, 'follow': {'reason': 'sim_t_unknown', 'n_pub': 0, 'enabled': True}}, L.prod()
+    S(points_view={'n_pub': -1, 'last_reason': '<script>'}, follow_cam={'enabled': 'yes', 'n_pub': 2.0, 'last_reason': 'no_cloud'})   # no_cloud 는 follow 코드 아님
+    assert L.prod() == {'points': {'reason': 'unknown', 'n_pub': None, 'enabled': None}, 'follow': {'reason': 'unknown', 'n_pub': None, 'enabled': None}}, L.prod()
+    S(follow_cam={'enabled': False, 'n_pub': 0, 'last_reason': 'no_frame'}); assert L.prod() == {'points': None, 'follow': {'reason': 'no_frame', 'n_pub': 0, 'enabled': False}}
+    t[0] += LIVE_STALE + 0.1; assert L.prod() == {'points': None, 'follow': None}
+    t[0] = 100.0; L = LiveMap(now=lambda: t[0])
     metas = {('v5', 'l1', '20261014-120000-e1'): {'world_id': 'v5_building', 'map_source': 'slam', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]},
              ('v5', 'l1', 'gt-20261012'): {'world_id': 'v5_building', 'map_source': 'gt_raster', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]}}
     def get(b, f, v):
@@ -2279,6 +2305,8 @@ def main():
         now = time.monotonic()
         v = version()
         lv = live.view(); sv_why = save_refuse(c.gated, save['busy'], lv, cli_save.service_is_ready()); vw = views.view()
+        for k_, p_ in live.prod().items():
+            vw[k_]['prod'] = p_
         with lock:
             holder = clients[core.controller].actor if core.controller in clients else None
             age = None if core.state_t is None else round(now - core.state_t, 2)

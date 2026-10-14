@@ -116,3 +116,12 @@ textarea.lv-inp{resize:vertical}
   .qd.f .qt.pip .qh{display:none}
   .qd.f .qt.pip .qb{aspect-ratio:auto;height:var(--ph)}
 }
+/* 휴대폰 가로 조종(MDrive) 아래 가운데 줄: left:50% 절대 배치라 쓸 폭이 화면 절반뿐 → «조종권 반납»·«Gazebo 끄기»가 붙으면 속도 칸이 눌려 글자가 세로로 꺾이고 줄이 막대 위로 넘침(실 APK 866x364).
+   글자는 꺾지 않고, 줄 폭 = 양쪽 막대(가장자리 44 + 폭 176 + 여유 12 = 232 px) 사이로 두고 넘치면 위로 한 줄 더(배치·색·크기 무변경) */
+#dc-root div:has(>[role=radiogroup][aria-label="속도"]){width:max-content;max-width:calc(100% - 464px);flex-wrap:wrap;justify-content:center;align-items:center;row-gap:6px}
+#dc-root div:has(>[role=radiogroup][aria-label="속도"])>:not(span),#dc-root [role=radiogroup][aria-label="속도"]>*{flex:none;white-space:nowrap}
+#dc-root div:has(>[role=radiogroup][aria-label="속도"])>span{max-width:100%}
+/* 휴대폰 가로 조종 화면의 알림(토스트, 위 96 px 고정 3.5 s): 반투명이라 HUD 셋째 줄·작은 지도와 겹치면 둘 다 안 읽힘(실 APK 866x364) → 이 화면에서만 불투명 + 테두리(위치·크기·누름 통과 무변경) */
+body:has(#dc-root [role=group][aria-label*="막대"]) [data-live-toast]{background:#080B0E!important;box-shadow:0 0 0 1px rgba(230,235,239,.35)}
+/* 세로 안내(app/drive.tsx tip)는 서랍이 열려 있으면 숨김 — 서랍 버튼 위에 겹침(세로 390x844 모의) */
+body:has(.lv-drawer) .lv-tip{display:none!important}

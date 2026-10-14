@@ -72,8 +72,9 @@ export default function MDrive() {
     e.preventDefault(); e.stopPropagation(); dropAll();
     const nx = SPLITS[(SPLITS.indexOf(split) + 1) % SPLITS.length]; if (!store.set('fh.live.split', nx)) toast('저장 실패 — 이번만 적용'); setSplit(nx);
   };
+  const bannerOn = !list && !!(top || btns.length);   // 가운데 알림 표시 조건(vals.banner·bannerS·카메라 빈칸 문구 공통)
   const camEl = <><img data-live-cam="" alt="Gazebo 렌더 카메라" src={camURL || undefined} style={{ position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover', visibility: v.camOk ? 'visible' : 'hidden' }} />
-    <div style={{ position: 'absolute', inset: '0', display: 'grid', placeItems: 'center', color: '#9AA7B2', fontSize: split === 'map' ? '11px' : '14px', pointerEvents: 'none' }}>{v.camOk ? '' : `카메라 ${v.camTxt}`}</div></>;
+    <div style={{ position: 'absolute', inset: '0', display: 'grid', placeItems: 'center', color: '#9AA7B2', fontSize: split === 'map' ? '11px' : '14px', pointerEvents: 'none' }}>{v.camOk || (bannerOn && split !== 'map') ? '' : `카메라 ${v.camTxt}`}</div></>;   // 가운데 알림이 떠 있으면 그 뒤에 깔려 안 읽힘(실 APK) → 숨김, 같은 값은 위 «영상» 표시에 있음
   // 작은 지도도 관제·지도 화면과 같은 선택·결속(실시간 지도면 같은 epoch·seq·신선도 경계, 끊기면 빈 칸 + 이유)
   const mp = useMapPick(false), mOn = mp.on;
   const mapEl = (cap: boolean) => <><MapCanvas name="drive" small zones={D.err || mOn ? [] : docsOf(D, 'zone')} robot={mOn ? mp.pose : v.robot} trail={TRAIL.pts}
@@ -103,8 +104,8 @@ export default function MDrive() {
         {btns.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'center', paddingTop: '6px' }}>{btns}</div>}
         <button type="button" onClick={() => setList(false)} style={{ height: '44px', width: '100%', marginTop: '4px', border: 0, borderRadius: '8px', background: 'rgba(230,235,239,.12)', color: '#E6EBEF', fontSize: '13px', fontWeight: 700 }}>목록 닫기</button></div>}</>,
     // 목록이 열리면 가운데 알림은 숨기고 같은 큰 버튼을 목록 안에(가림 0)
-    banner: !list && (top || btns.length) ? <>{top && <span role="status">{`${MARK[top.lvl]} ${top.text} — ${top.fix}`}</span>}{W.length > 1 && !list && big(`목록 ${W.length}`, openList)}{btns}</> : '',
-    bannerS: { display: !list && (top || btns.length) ? 'flex' : 'none', height: 'auto', minHeight: '30px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '420px', padding: '4px 12px' },
+    banner: bannerOn ? <>{top && <span role="status">{`${MARK[top.lvl]} ${top.text} — ${top.fix}`}</span>}{W.length > 1 && !list && big(`목록 ${W.length}`, openList)}{btns}</> : '',
+    bannerS: { display: bannerOn ? 'flex' : 'none', height: 'auto', minHeight: '30px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '420px', padding: '4px 12px' },
     stickP: { [MOVE]: sm.props, [ROT]: sr.props, [FB]: sf.props }, knobR: { [MOVE]: sm.knob, [ROT]: sr.knob, [FB]: sf.knob },
     lbl: { '이동 · 앞뒤 · 옆': '이동 · 앞뒤 · 옆 · 뒤✕', 앞뒤: '앞뒤 · 뒤✕' },
     // 속도: 시험한 값은 0.6(보통)뿐 — 시안의 «느리게» 선택 표시를 «보통»으로 옮김

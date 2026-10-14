@@ -240,12 +240,20 @@ class Capabilities(Out):
     command: bool; map: bool; rgb: bool; depth: bool; points: bool; follow_cam: bool
 
 
+class ViewProd(Out):
+    """/v2_map/status 의 points_view·follow_cam 칸. reason = RL 코드(link 허용표 밖은 'unknown')"""
+    reason: Optional[str]                   # ok·no_cloud·no_frame·sim_t_unknown·tf_stale·… (sim/v2_link.py PROD_REASONS)
+    n_pub: Optional[int]                    # 이번 기동에서 발행한 수
+    enabled: Optional[bool]                 # follow 만: 이번 지도 시뮬에서 외부카메라를 켰나(points 는 null — map 모드면 항상 발행)
+
+
 class ViewSrc(Out):
     """보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok"""
     st: Literal['off', 'stale', 'bad', 'ok']
     why: str
     seq: Optional[int]                      # 서버가 받은 최신 것 번호 — 바뀌면 view_get
     age_s: Optional[Fin]                    # s, 마지막 수신 뒤(link 시계)
+    prod: Optional[ViewProd] = None         # 발행 쪽(live_map) 자기 진단 — 지도 상태 3 s 안일 때만, 없으면 null
 
 
 class Views(Out):

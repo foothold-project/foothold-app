@@ -52,3 +52,26 @@ test('followOf: 결속 키·seq ≥ 요청·JPEG base64 머리만 채택', () =>
     expect(V.followOf(bad, b, 2)).toBe(null);
   expect(V.followOf(J, '', 2)).toBe(null);
 });
+
+test('viewWhy: 분기마다 반례 1개(미확인·꺼짐·평지·종류 미확인·시작 중·외부카메라 끔·지도 기다림·저장 SLAM·발행 이유·link 이유) — 고장·출력 보장 단정 0', () => {
+  const S = (result: any, runner: any, o: any = {}) => ({ map_start: { session: result === undefined ? null : { result, runner } }, live_map: { st: 'ok', ...K }, ...o });
+  const vw = (k: string, prod: any, why = '받은 것 없음') => ({ views: { [k]: { st: 'off', why, seq: null, age_s: null, prod } } });
+  const out: string[] = [];
+  const W = (st: any, k: 'points' | 'follow') => { const x = V.viewWhy(st, k); out.push(x); return x; };
+  expect(W(S(undefined, null), 'points')).toMatch(/^시뮬 실행 상태 미확인/);                    // 세션 없음 → 꺼짐/평지 단정 0
+  expect(W(S('unknown', 'live_map'), 'follow')).toMatch(/^시뮬 실행 상태 미확인/);
+  expect(W(S('idle', 'live_map'), 'follow')).toBe('시뮬 꺼짐 — «지도 열기»에서 지도 시뮬(라이다 포함) 선택 · «외부카메라» 체크');   // 지난 런 runner 가 남아도 지금 꺼짐
+  expect(W(S('running', 'ux_flat'), 'points')).toMatch(/^평지 시뮬에는/);
+  expect(W(S('running', 'unknown'), 'points')).toMatch(/^실행 중인 시뮬 종류 미확인/);
+  expect(W(S('starting', 'live_map'), 'follow')).toBe('지도 시뮬 시작 중');
+  expect(W(S('running', 'live_map', vw('follow', { reason: 'no_frame', n_pub: 0, enabled: false })), 'follow')).toMatch(/외부카메라 끔/);
+  expect(W(S('running', 'live_map', { live_map: { st: 'wait', why: '이번 epoch 지도 기다림' } }), 'points')).toBe('지도 상태 기다림 — 이번 epoch 지도 기다림');
+  const saved = { live_map: { st: 'ok', ...K, mode: 'static', map_source: 'slam', map_version: '20261014-173008-e1' } };
+  expect(W(S('running', 'live_map', { ...saved, ...vw('points', { reason: 'not_localized', n_pub: 0, enabled: null }) }), 'points')).toBe('저장 SLAM 지도는 위치추정 미연결 — 점군 위치 표시 불가');
+  expect(W(S('running', 'live_map', vw('points', { reason: 'not_localized', n_pub: 0, enabled: null })), 'points')).toBe('위치 결속 미확인 — 기록 확인 (이번 기동 발행 0)');
+  expect(W(S('running', 'live_map', vw('follow', { reason: 'sim_t_unknown', n_pub: 0, enabled: true })), 'follow')).toBe('발행 쪽이 시뮬 시각을 못 읽음 — 계속되면 기록 확인 (이번 기동 발행 0)');
+  expect(W(S('running', 'live_map', vw('points', { reason: 'zzz', n_pub: null, enabled: null })), 'points')).toMatch(/코드 모름/);
+  expect(W(S('running', 'live_map', vw('points', { reason: 'ok', n_pub: 5, enabled: null }, '점군이 지금 지도(world·층·모드·epoch)와 다름')), 'points')).toMatch(/^받는 쪽 검사: 점군이/);
+  expect(W(S('running', 'live_map', vw('points', null)), 'points')).toBe('받는 쪽 검사: 받은 것 없음');   // 이전 서버(prod 없음)
+  for (const x of out) expect(x).not.toMatch(/고장|움직이면|나옴/);
+});

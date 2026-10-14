@@ -128,7 +128,9 @@ export function checkStatus(m: any): string | null {
   if (!(ob(sv) && typeof sv.ok === 'boolean' && typeof sv.why === 'string' && typeof sv.busy === 'boolean')) m.map_save = null;
   // 보조 관제 뷰(points·follow): 형식이 틀리면 그 뷰만 버림(조종·STOP 관문과 무관). st 4가지 · seq null|양의 정수 · age_s null|유한 ≥0
   const vone = (x: any) => ob(x) && ['off', 'bad', 'stale', 'ok'].includes(x.st) && typeof x.why === 'string'
-    && (x.seq === null || (int(x.seq) && x.seq > 0)) && (x.age_s === null || (fin(x.age_s) && x.age_s >= 0));
+    && (x.seq === null || (int(x.seq) && x.seq > 0)) && (x.age_s === null || (fin(x.age_s) && x.age_s >= 0))
+    && (x.prod == null || (ob(x.prod) && (x.prod.reason === null || typeof x.prod.reason === 'string') && (x.prod.enabled === null || typeof x.prod.enabled === 'boolean')
+      && (x.prod.n_pub === null || (int(x.prod.n_pub) && x.prod.n_pub >= 0))));   // prod: 발행 쪽 진단(없으면 이전 서버)
   if (m.views != null) { if (!ob(m.views)) m.views = null; else for (const k of ['points', 'follow']) if (!vone(m.views[k])) m.views[k] = null; }
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
