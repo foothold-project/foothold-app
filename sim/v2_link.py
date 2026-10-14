@@ -15,7 +15,7 @@ Gazebo·정책·ingress 기동은 RL 소유. 이 서버는 Gazebo 를 띄우지 
   - 손 뗌·입력 0.3 s 끊김 → 0. STOP(누구나) → 0 래치, RESUME(조종권만) 뒤에도 새 입력 전까지 0
   - 조종권을 새로 얻거나 RESUME·끊김 뒤에는 한 번 «손 뗌(0)»을 받아야 다시 움직인다(자동 복원 없음)
 실행: source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=61 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 sim/v2_link.py
-자체검사(ROS 없이): python3 sim/v2_link.py --selftest
+자체검사(ROS 없이): python3 sim/v2_link.py --selftest   (선택: V2_LINK_MAPS_ROOT=<RL maps root> 면 실제 지도 전부 검사 통과 확인)
 """
 import argparse, base64, hashlib, json, math, os, re, sqlite3, struct, subprocess, sys, threading, time, zlib
 from collections import deque
@@ -974,11 +974,11 @@ def selftest_maps():
             except MapErr:
                 pass
         assert MapStore(None).listing() == ([], 0)
-    real = Path('/home/hyeon/Desktop/foothold/control-app/sim/worlds/v5/maps/v5-l1.pgm')     # 있으면 실제 크기 확인(읽기만)
-    if real.is_file():
+    real = Path(os.environ.get('V2_LINK_V5_PGM', ''))        # 주면 실제 v5-l1.pgm 크기 확인(읽기만)
+    if real.name and real.is_file():
         w, h, q = read_pgm(real.read_bytes()); n = len(png_gray(w, h, q)); assert (w, h) == (800, 640) and n < MAP_PNG_MAX, n
-    rl = Path('/home/hyeon/Desktop/foothold/control-app/experiments/33-foothold-v2-gazebo-20261012/map-20261014/maps')   # RL 정본 자산(읽기만)
-    if rl.is_dir():
+    rl = Path(os.environ.get('V2_LINK_MAPS_ROOT', ''))       # 주면 RL 정본 maps root 전체가 skip 0 으로 통과하는지(읽기만)
+    if rl.name and rl.is_dir():
         lst, sk = MapStore(str(rl)).listing(); assert sk == 0 and {(x['building_id'], x['floor_id'], x['map_version']) for x in lst} >= {
             ('v5_single', 'f1', 'gt-20261012'), ('v5', 'l1', 'gt-20261012'), ('v5', 'l2', 'gt-20261012')}, (lst, sk)
 
