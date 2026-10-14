@@ -16,6 +16,7 @@
 | iOS | 계약만. Swift·Mac 빌드 0 |
 
 화면은 `Capacitor.isPluginAvailable('Go2Direct')` 가 false 면 «실기 직접 연결: 준비 중(이 앱 판엔 없음)»으로만 보인다. 영상·데이터·명령 지원을 표시하지 않는다.
+UI 합의(10-14): 실기 화면 칸(지도·RGB·depth·점군)은 contracts `Capabilities{command,map,rgb,depth,points,follow_cam}` 로 접어 실기 판에선 전부 false, 이번 판은 Go2Direct 메서드 호출 0·JS 키 입력 0, 모드 전환 때 시뮬 입력 폐기·명령 송신 0·세대 +1.
 
 ## 1. 경로 구별
 
@@ -38,7 +39,7 @@ PC 관문(FhGate)은 그대로 있고 이 계약과 별개다. PC 를 필수로 
 
 ```ts
 interface Go2Capabilities {
-  kind: 'go2direct'; api: 1;
+  kind: 'go2_direct'; api: 1;   // contracts/v1 ProviderKind 와 같은 이름(플러그인 이름은 Go2Direct)
   discover: boolean; register: boolean; deviceKey: boolean; signal: boolean;
   legacyKey: false;      // data2=2 — 앱 내장 정적 키는 추출 비밀이라 미포함
   legacyPort: false;     // 8081 /offer 옛 평문
@@ -110,7 +111,7 @@ signalCancel(): Promise<void>
 ## 8. 화면 안내 문구 기준
 
 - 빈 목록: «찾은 로봇 없음 — 로봇이 꺼져 있거나, 다른 망이거나, 응답하지 않는 것일 수 있습니다(앱은 셋을 구분하지 못함).»
-- 실기 단계: «실기 기초 준비 중: 탐색·인증·RTC 초기화까지만 준비, 조종 연결은 추가 개발 필요.»
+- 실기 단계: «실기 직접 연결 기초만: 탐색 응답·등록·시그널링의 순수 처리까지. 네트워크·RTC·조종 연결은 추가 개발 필요.»
 - 미지원 항목은 capabilities 그대로 «지원 안 함»으로 보이고, 버튼을 «곧 지원»처럼 활성화하지 않는다.
 
 ## 9. 등록부 보관
