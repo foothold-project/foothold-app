@@ -53,7 +53,7 @@
 로봇 마커는 아래가 **모두** 맞을 때만 그린다. 하나라도 아니면 «위치 미표시(지도와 결속 안 됨)».
 - `/v2_map/status` 의 world_id·building_id·floor_id·epoch 가 보고 있는 지도 meta 와 같다.
 - `pose_map`(구동기가 map→base_footprint 를 조회해 넣은 값)이 있고 신선하다.
-- 늦게 온 이전 epoch 의 지도·자세는 버린다. 결속 구현 때 RL status 의 `map.epoch`·`map.stamp_sim`·`map_accepting`·`last_save.epoch` 로 판정(RESET 중 `map_accepting=false` 면 지도·마커 갱신 멈춤).
+- 늦게 온 이전 epoch 의 지도·자세는 버린다. **GT 사전 지도(meta epoch null)는 epoch 로 비교하지 않는다** — 지도 쪽은 world·building·floor·map_version·sha256_pgm 이 status 와 같은지, 자세 쪽은 status 의 현재 epoch·stamp 신선도를 따로 본다(null ≠ live epoch 로 영구 미표시가 되지 않게). 결속 구현 때 RL status 의 `map.epoch`·`map.stamp_sim`·`map_accepting`·`last_save.epoch` 로 판정(RESET 중 `map_accepting=false` 면 지도·마커 갱신 멈춤).
 - 출처 표기: `slam_tf`(SLAM 보정) / `gt_identity`(RL 이 worlds.json 지정 GT 폴더·기하 바이트 대조를 통과한 지도에만 냄). live GT 를 지도 origin 에 그냥 붙이지 않는다.
 - 저장 SLAM 지도를 static 으로 띄우면 RL 은 map→odom 을 내지 않고 `pose_map=null`·`pose_map_null_reason=saved_slam_map_not_localized` — 화면은 마커를 그리지 않는다(위치 추정 기능 없음).
 
@@ -70,6 +70,8 @@
 
 ## 7. 아직 안 된 것
 
+- 소스 경로 정리: 커밋 0c09f8d·660ded9 의 v2_link selftest 에는 로컬 호스트 경로 문자열이 있었다(키·토큰 아님). 6fad1df 부터 HEAD 에서는 환경변수(`V2_LINK_MAPS_ROOT`·`V2_LINK_V5_PGM`)로 바꿨고, 과거 이력은 다시 쓰지 않았다(검사 범위 = HEAD).
+
 - RL 구동기·3세계 world·`/v2_map/*` 발행: 실행 미검증. 매핑 연결 전에는 «매핑 완료»·저장 버튼 동작을 표시하지 않는다.
-- v2_link map_list/map_get·저장 지도 보기: 개발판 구현(임시 GT 사본으로만 확인). 정본 maps root·meta 는 RL 과 맞춘 뒤. 위치 결속·실시간 /v2_map/map 은 미구현.
+- v2_link map_list/map_get·저장 지도 보기(관제·지도 탭·폰): 개발판 구현, RL 정본 maps root 3장으로 확인. 정본 maps root·meta 는 RL 과 맞춘 뒤. 위치 결속·실시간 /v2_map/map 은 미구현.
 - 서빙판 반영·새 APK: 검수 뒤, 조종 중이 아닐 때.
