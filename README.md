@@ -1,5 +1,17 @@
 # foothold-app
 
+> **현재 통합 개발판** — 브랜치 `less82/app-platform-integration` (2026-10-14)
+> - 구성: `ui/` React·TypeScript 19화면 · `mobile/` Capacitor Android 외피(iOS 는 프로젝트만) · `sim/` Python 관문(`v2_gate.py`·`app_auth.py`)과 링크(`v2_link.py`)
+> - 화면: 관제 4분할·큰 칸+작은 화면(PIP) · 지도 열기·저장 · GT 높이 레이어
+> - Android 개발 APK: `dev-20261014-center` — versionCode 2 · `1.0.1-dev`, 디버그 서명, prerelease
+> - 확인 안 함: 실폰 · iOS(IPA 없음) · 실로봇. 에뮬레이터 결과는 실폰 근거가 아니고, STOP 송신은 물리 정지 보장이 아니다
+> - 실제로 돌리려면 이 저장소 밖의 것이 따로 필요하다: 외부 control-app 의 ROS·시뮬 엔진, 운영 관문 CA·계정(저장소에 없음)
+> - 문서: [GitHub 작업 방식](docs/GITHUB-WORKFLOW.md) · [통합 출처](docs/PROVENANCE-app-platform-integration.md) · [Android 설치](mobile/docs/INSTALL-DEV.md)(절차는 같고 문서 속 APK 이름은 앞 판) · [구현 상태](docs/IMPLEMENTATION-STATUS.md)(10-14 00:51 실측 기준)
+>
+> 아래 «기존 웹 구현 기록»은 옛 HTML/JS 화면 시안(`web/`)의 설명이다. 지도·시뮬 끄기·React 등 현재 통합판 기능과 다르다.
+
+## 기존 웹 구현 기록
+
 현장에서 로봇을 조종하고, 임무를 맡기고, 결과를 기록하는 앱의 **화면 시안 구현**입니다.
 
 > **예시 데이터입니다. 실제 로봇 상태가 아닙니다.**

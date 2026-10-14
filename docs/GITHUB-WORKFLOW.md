@@ -11,10 +11,10 @@
 | `less82/app-contract-storage` | `mobile/**`(Capacitor 외피·네이티브 플러그인) 개발 | 모바일 담당 |
 | `less82/app-platform-integration` | **UI final 위에 `mobile/**` 만 얹은 단일 통합.** Draft PR 은 이 브랜치 하나 | 통합 담당, 출처는 `docs/PROVENANCE-app-platform-integration.md` |
 
-- 통합 브랜치는 **처음 한 번만** UI final 커밋에서 만들고 `mobile/**`(+ 이 문서·출처 문서·`.gitignore` 보강)만 더한다. `server/`·`contracts/`·`sim/`·`ui/` 는 UI final 그대로 — 옛 모바일 브랜치 판으로 덮지 않는다.
+- 통합 브랜치는 **처음 한 번만** UI final 커밋에서 만들고 `mobile/**`(+ 이 문서·출처 문서·`.gitignore` 보강)만 더한다(+ 루트 `README.md` 맨 앞 «현재 통합 개발판» 안내 — 기존 본문 보존). `server/`·`contracts/`·`sim/`·`ui/` 는 UI final 그대로 — 옛 모바일 브랜치 판으로 덮지 않는다.
 - **그 뒤에는 앞으로만 전진한다**(원격 통합 브랜치를 다시 만들거나 force push 하지 않는다): 기존 통합 HEAD 에 검토된 새 UI final 을 로컬에서 일반 merge(또는 선택 반영)하고, 현재 모바일 출처의 `mobile/` 트리 스냅샷을 새 커밋으로 얹는다. 이 «로컬 통합 merge» 는 원격 기본 브랜치·PR 의 merge 와 다르다.
-- merge 충돌은 파일별로 검토한다. 범위 밖(`mobile/`·두 문서·`.gitignore` 밖) 충돌이면 멈추고 보고한다. 옛 모바일 브랜치의 `server/`·`contracts/`·`sim/` 은 들이지 않는다.
-- 검사(매 통합 커밋, 그때의 출처 기준): `HEAD:mobile` 트리 = 현재 모바일 출처 커밋의 `mobile` 트리, `HEAD:ui` 트리 = 현재 UI final 의 `ui` 트리, `git diff --name-only <현재 UI final> HEAD` 는 `mobile/`·이 두 문서·`.gitignore` 뿐.
+- merge 충돌은 파일별로 검토한다. 범위 밖(`mobile/`·두 문서·`.gitignore`·`README.md` 밖) 충돌이면 멈추고 보고한다. 옛 모바일 브랜치의 `server/`·`contracts/`·`sim/` 은 들이지 않는다.
+- 검사(매 통합 커밋, 그때의 출처 기준): `HEAD:mobile` 트리 = 현재 모바일 출처 커밋의 `mobile` 트리, `HEAD:ui` 트리 = 현재 UI final 의 `ui` 트리, `git diff --name-only <현재 UI final> HEAD` 는 `mobile/`·이 두 문서·`.gitignore`·`README.md` 뿐.
 
 ## 2. 커밋·push·PR
 
