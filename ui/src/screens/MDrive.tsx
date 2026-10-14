@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL, UNSUP, WHY } from '../data/facts';
-import { ask, camURL, dropAll, linkView, sendOp, stateRows, TRAIL, useLink } from '../data/link';
+import { ask, camURL, dropAll, linkView, sendOp, showSimStop, stateRows, stopSim, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs } from '../data/shared';
 import { shoot } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
@@ -93,6 +93,7 @@ export default function MDrive() {
     <p>가로 조종 화면은 영상 위 표시라 어두운 테마 고정입니다.</p>
     <button type="button" onClick={() => { if (ctl) return toast('조종 중에는 바꾸지 않습니다 — 조종권 반납 뒤'); const nx = LAYOUTS[(LAYOUTS.indexOf(lay) + 1) % LAYOUTS.length]; if (!store.set('fh.live.layout', nx)) toast('저장 실패 — 이번만 적용'); setLay(nx); }}>{`막대 배치: ${lay} (눌러 바꾸기)`}</button>
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
+    {v.linkOk && showSimStop(st) && <button type="button" disabled={st!.sim_stop!.busy} style={{ opacity: st!.sim_stop!.ok ? undefined : 0.55 }} onClick={async () => { setMenu(false); const t = await stopSim(st); if (t) toast(t); }}>{st!.sim_stop!.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기 (로봇 STOP 아님)'}<small style={{ display: 'block' }}>{st!.sim_stop!.why || '확인창 뒤 종료 · 자동 재시작 없음'}</small></button>}
     <button type="button" onClick={() => { location.hash = '#/MHistory'; }}>기록 보기(사진·조종 기록)</button>
     {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}{note && <small style={{ display: 'block' }}>{note}</small>}</button>}
     <p>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>

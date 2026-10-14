@@ -88,6 +88,9 @@ export function checkStatus(m: any): string | null {
   if (!Array.isArray(m.events) || !m.events.every((e: any) => e && typeof e.t === 'string' && EVST.has(e.st) && typeof e.text === 'string')) return 'events';
   const ss = m.sim_start;   // 화면이 읽는 칸만: ok·why·session(남은 시간)
   if (!ss || typeof ss !== 'object' || typeof ss.ok !== 'boolean' || typeof ss.why !== 'string' || !(ss.session === null || typeof ss.session === 'object')) return 'sim_start';
+  const sp = m.sim_stop;    // 없으면 옛 서버(버튼 숨김). 있으면 화면이 읽는 칸 전부 검사
+  if (sp !== undefined && sp !== null && (typeof sp !== 'object' || typeof sp.ok !== 'boolean' || typeof sp.why !== 'string' || typeof sp.busy !== 'boolean' || typeof sp.on !== 'boolean'
+    || !(sp.ledger_left === null || int(sp.ledger_left)) || !(sp.last === null || (typeof sp.last === 'object' && (sp.last.st === 'ok' || sp.last.st === 'bad') && typeof sp.last.text === 'string')))) return 'sim_stop';
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
     for (const k of ['x', 'y', 'yaw', 'vx', 'vy', 'tilt_deg']) if (!nf(m.sim[k])) return `sim.${k}`;
@@ -97,12 +100,21 @@ export function checkStatus(m: any): string | null {
 }
 // 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로(live.js ask 와 같음)
 let rid = 0; const pending = new Map<number, (m: Reply) => void>();
-export const ask = (op: 'photo' | 'sim_start') => new Promise<Reply>((res) => {
+export const ask = (op: 'photo' | 'sim_start' | 'sim_stop') => new Promise<Reply>((res) => {
   const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text });
   if (!send({ op, rid: id })) return no('링크 끊김 — 보내지 못함');
   const t = setTimeout(() => { pending.delete(id); no('서버 응답 없음(5 s)'); }, 5000);
   pending.set(id, (m) => { clearTimeout(t); res(m); });
 });
+
+// Gazebo 끄기(로봇 STOP 아님): 폐기 → 확인창 → sim_stop. 결과(ROS 세션 종료 확인/못 함)는 서버 이벤트로 따로 온다 → 토스트 글 | null(취소)
+export async function stopSim(st: Status | null): Promise<string | null> {
+  const x = st?.sim_stop; if (!x || !x.ok) return `Gazebo 끄기 안 됨 · ${x?.why || '서버 응답 없음'}`;
+  dropAll();
+  if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 «시뮬 시작»을 직접 눌러야 하고 기존 기동 상한이 적용됩니다${x.ledger_left === 0 ? '\n· 남은 기동 0 — 끄면 다시 켤 수 없습니다' : ''}`)) return null;
+  return (await ask('sim_stop')).text || '응답 없음';
+}
+export const showSimStop = (st: Status | null) => !!st?.sim_stop && (st.sim_stop.on || st.sim_stop.busy);
 
 /** 로그아웃·주소 변경 직전: WS 닫고 다시 잇지 않음(새로 읽을 때까지) */
 export function closeLink() { closed = true; dropAll(); ws?.close(); }

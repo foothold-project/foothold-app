@@ -19,7 +19,7 @@ from urllib.parse import quote
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-OPS = {'take', 'release', 'cmd', 'stop', 'resume', 'reset', 'hidden', 'photo', 'sim_start'}   # v2_link 가 받는 op 만
+OPS = {'take', 'release', 'cmd', 'stop', 'resume', 'reset', 'hidden', 'photo', 'sim_start', 'sim_stop'}   # v2_link 가 받는 op 만
 MSG_MAX = 1024
 # 로그인 전에도 열리는 것: 로그인 화면과 그 화면이 쓰는 파일, 설치 정보(아이콘·manifest), 공개 인증서, 시작 안내
 PUBLIC = re.compile(r'^(MLogin\.dc\.html|PcLogin\.dc\.html|dc\.js|live\.js|start\.html|manifest\.webmanifest|icons/[\w.-]+\.png)$')

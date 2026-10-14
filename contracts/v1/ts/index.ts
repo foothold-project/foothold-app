@@ -102,7 +102,7 @@ export interface OpCmd {
 }
 
 export interface OpRid {
-  op: "photo" | "sim_start";
+  op: "photo" | "sim_start" | "sim_stop";
   rid?: number | null;
 }
 
@@ -215,6 +215,21 @@ export interface SimState {
   cmd_applied: number[] | null;
 }
 
+export interface SimStopLast {
+  t: string;
+  st: "ok" | "bad";
+  text: string;
+}
+
+export interface SimStopState {
+  ok: boolean;
+  why: string;
+  busy: boolean;
+  on: boolean;
+  ledger_left: number | null;
+  last: SimStopLast | null;
+}
+
 export interface Status {
   op: "status";
   role: "control" | "view_other" | "view";
@@ -236,6 +251,7 @@ export interface Status {
   ver: string;
   sim_start: SimStartState;
   docs_rev: number;
+  sim_stop?: SimStopState | null;
 }
 
 export interface Tmpl {

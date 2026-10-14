@@ -502,6 +502,151 @@ class SimStart:
         return 2.0 if self.busy or (self.session or {}).get('result') == 'starting' else 5.0
 
 
+def read_session(status_sh, timeout=10.0):
+    """session_status.sh(RL, 읽기만) 한 번 → dict 또는 None(종료 코드≠0·시간 초과·형식 틀림 = 미확인, 추정 없음)"""
+    try:
+        r = subprocess.run(['bash', status_sh], capture_output=True, text=True, timeout=max(0.1, timeout))
+        d = json.loads(r.stdout.strip().splitlines()[-1])
+        return d if r.returncode == 0 and isinstance(d, dict) and d.get('schema') == 'v2_session/1' else None
+    except Exception:
+        return None
+
+
+UNIT_OFF = ('inactive', 'failed')                                   # systemd ActiveState 중 «꺼짐»으로 받는 값만
+UNIT_LIVE = ('active', 'activating', 'reloading', 'deactivating')
+
+
+def unit_state(d):
+    """session_status 결과 → active_state(위 두 목록의 값만) 또는 None(없음·모르는 값·형식 틀림 = 미확인)"""
+    v = (d or {}).get('active_state')
+    return v if isinstance(v, str) and v in UNIT_OFF + UNIT_LIVE else None
+
+
+class SimStop:
+    """«Gazebo 종료» — 로봇 STOP(명령 0 잠금)과 다르다: RL 의 stop_live.sh(= systemctl --user stop fh-v2-live, SIGINT 정리)를
+    로그인한 기기가 확인 뒤 누를 때만 한 번 부른다. 경로는 --sim-start 와 같은 폴더의 고정 이름(서버 정본, 화면이 못 바꿈).
+    동시 1건·30 s 쿨다운·전체 60 s 상한. 다른 기기가 조종 중이면 거부(남의 조종을 끊지 않음).
+    확인 범위 = «ROS 세션 종료»(unit 비활성 + 상태 수신 3 s 끊김)뿐 — Gazebo 잔여 프로세스 0 은 이 앱이 확인하지 않는다.
+    stop_live.sh 는 끝에 `status … || true` 라 종료 코드 0 만으로는 성공이 아니다"""
+    COOL, LIMIT, GAP, WRAP = 30.0, 60.0, 3.0, 45.0     # WRAP = stop_live 기다림(systemd TimeoutStopSec 45), 전체는 LIMIT 안
+
+    def __init__(self, start_wrapper, now=time.monotonic):
+        p = Path(start_wrapper).with_name('stop_live.sh') if start_wrapper else None
+        self.wrapper = str(p) if p and p.is_file() else None
+        self.status_sh = str(p.with_name('session_status.sh')) if self.wrapper and p.with_name('session_status.sh').is_file() else None
+        self.now, self.busy, self.last_t, self.last = now, False, -1e9, None   # last = 마지막 결과 {t, st, text}
+
+    def on(self, sim_live, session):
+        return bool(sim_live or (session or {}).get('result') in ('running', 'starting'))
+
+    def refuse(self, gated, starting, sim_live, session, holder_other):
+        if not self.wrapper or not self.status_sh:
+            return 'Gazebo 종료 경로 미설정'
+        if not gated:
+            return '로그인한 기기에서만(관문 경유)'
+        if self.busy:
+            return 'Gazebo 종료 처리 중'
+        if starting:
+            return '시뮬 시작 요청 처리 중 — 끝난 뒤'
+        if not self.on(sim_live, session):
+            return '켜진 Gazebo 없음'
+        if holder_other:
+            return f'{holder_other} 조종 중 — 그 기기에서 STOP·반납한 뒤'
+        left = self.COOL - (self.now() - self.last_t)
+        return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
+
+    def state(self, gated, starting, sim_live, session, holder_other):
+        why = self.refuse(gated, starting, sim_live, session, holder_other)
+        ss = session or {}
+        left = ss['ledger_max'] - ss['ledger_used'] if all(type(ss.get(k)) is int for k in ('ledger_max', 'ledger_used')) else None
+        return {'ok': not why, 'why': why, 'busy': self.busy, 'on': self.on(sim_live, session), 'ledger_left': left, 'last': self.last}
+
+
+def stop_run(stopper, run_wrapper, read_unit, state_age, sleep=time.sleep):
+    """stop_live.sh 한 번 + ROS 세션 종료 확인. 시작부터 stopper.LIMIT 안에서 끝낸다. → (st, text) — 'ok' 는 확인됐을 때만.
+    run_wrapper(timeout) → 종료 코드 | None(시간 안에 안 끝남 — 죽이지 않음). read_unit(timeout) → UNIT_OFF/UNIT_LIVE 값 | None(미확인).
+    state_age() → 마지막 상태 수신 뒤 s | None(받은 적 없음). 유한·0 이상이 아니면 미확인"""
+    t0 = stopper.now(); left = lambda: stopper.LIMIT - (stopper.now() - t0)
+    rc = run_wrapper(min(stopper.WRAP, left()))
+    if rc is None:
+        return 'bad', 'Gazebo 종료 확인 못 함 · stop_live 가 시간 안에 안 끝남 — 상태 표시 확인'
+    unit = age = None
+    while left() > 0:
+        unit = read_unit(min(10.0, left()))
+        age = state_age()
+        age_ok = age is None or (type(age) in (int, float) and math.isfinite(age) and age >= 0)
+        if not age_ok:
+            age = None; unit = None if unit not in UNIT_OFF else unit; break
+        if unit in UNIT_OFF and (age is None or age > stopper.GAP) and left() >= 0:
+            return 'ok', f'ROS 세션 종료 확인 · unit {unit} · 상태 수신 끊김{"" if age is None else f" {age:.0f} s"} (Gazebo 잔여 프로세스는 미확인)' + (f' · stop_live 종료 코드 {rc}' if rc else '')
+        if left() <= 1.0:
+            break
+        sleep(1.0)
+    return 'bad', f'Gazebo 종료 확인 못 함 · unit {unit or "미확인"} · 상태 {"미확인/없음" if age is None else f"{age:.1f} s 전"} · stop_live 종료 코드 {rc} — 상태 표시 확인'
+
+
+def selftest_stop():
+    import tempfile
+    t = [0.0]; tick = lambda s: t.__setitem__(0, t[0] + s)
+    with tempfile.TemporaryDirectory() as td:
+        req = Path(td) / 'request_session.sh'; req.write_text('exit 0\n')
+        assert SimStop(str(req)).wrapper is None                                   # stop_live.sh 없으면 미설정
+        assert SimStop(None).refuse(True, False, True, None, None) == 'Gazebo 종료 경로 미설정'
+        (Path(td) / 'stop_live.sh').write_text('echo stop >> "$(dirname "$0")/calls"\n')
+        (Path(td) / 'session_status.sh').write_text('echo \'{"schema":"v2_session/1","result":"idle","active_state":"inactive","ledger_used":8,"ledger_max":8}\'\n')
+        s = SimStop(str(req), lambda: t[0])
+        run = lambda: s.refuse(True, False, True, None, None)
+        assert run() == ''
+        assert s.refuse(False, False, True, None, None).startswith('로그인한')                 # 관문 신원 없는 127.0.0.1 직접
+        assert s.refuse(True, True, True, None, None).startswith('시뮬 시작 요청')             # 시작과 경합
+        assert s.refuse(True, False, False, {'result': 'idle'}, None) == '켜진 Gazebo 없음'
+        assert s.refuse(True, False, False, {'result': 'starting'}, None) == ''               # 켜지는 중도 끌 수 있음
+        assert '조종 중' in s.refuse(True, False, True, None, 'B · 폰')                        # 타인 holder: 거부
+        s.busy = True; assert run() == 'Gazebo 종료 처리 중'; s.busy = False                  # 같은 rid 중복·연타
+        s.last_t = 0.0; t[0] = 10.0; assert run().startswith('방금'); t[0] = 31.0; assert run() == ''
+        st = s.state(True, False, True, {'result': 'running', 'ledger_used': 8, 'ledger_max': 8}, None)
+        assert st['ok'] and st['on'] and st['ledger_left'] == 0 and st['last'] is None
+        assert s.state(True, False, True, {'ledger_used': '8', 'ledger_max': 8}, None)['ledger_left'] is None
+        # 실제 subprocess 한 번(모의 wrapper·모의 상태 스크립트 — 실제 stop_live 호출 0)
+        assert subprocess.run(['bash', s.wrapper], timeout=10).returncode == 0 and (Path(td) / 'calls').read_text() == 'stop\n'
+        assert read_session(s.status_sh)['active_state'] == 'inactive'
+        assert read_session(str(req)) is None                                      # 출력 없음 → 미확인
+    # 판정(가짜 시계): rc 0 이어도 unit active 면 성공 아님 · 늦은 state · timeout · unit 미확인
+    def go(rc, units, ages, cost=0.0, wrap_cost=0.0):
+        t[0] = 0.0; s2 = SimStop(None, lambda: t[0]); u, a_ = iter(units), iter(ages); seen = []
+        def ru(to):
+            seen.append(to); assert 0 < to <= 10.0; tick(min(cost, to)); return next(u, units[-1])
+        def rw(to):
+            assert to <= 45.0; tick(min(wrap_cost, to)); return rc
+        r = stop_run(s2, rw, ru, lambda: next(a_, ages[-1]), sleep=tick)
+        assert t[0] <= 60.0 + 1e-9, t[0]; return r
+    assert go(0, ['inactive'], [5.0])[0] == 'ok'
+    assert go(0, ['failed'], [5.0])[0] == 'ok'
+    assert go(0, ['inactive'], [None])[0] == 'ok'                                  # 상태를 받은 적 없음 = 끊김
+    r = go(0, ['active'], [5.0]); assert r[0] == 'bad' and 'active' in r[1]          # rc 0 + unit active → 성공 아님
+    assert go(0, ['deactivating', 'deactivating', 'inactive'], [5.0])[0] == 'ok'      # 내려가는 중 → 기다려서 확인
+    r = go(0, ['inactive'], [0.2, 0.5, 0.1, 0.3] + [0.2] * 80); assert r[0] == 'bad'  # 옛 state 계속 늦게 옴 → 확인 못 함
+    assert go(0, ['inactive'], [0.2, 1.0, 4.0])[0] == 'ok'
+    assert go(None, ['inactive'], [9.0])[0] == 'bad'                               # wrapper 시간 초과 → 성공 표시 금지
+    assert go(0, [None], [9.0])[0] == 'bad'                                        # unit 읽기 실패 → 미확인
+    r = go(1, ['inactive'], [9.0]); assert r[0] == 'ok' and '종료 코드 1' in r[1]    # 종료 코드는 숨기지 않음
+    for bad_age in (-1.0, float('nan'), float('inf'), '5', True):                  # 상태 나이 이상 → 미확인
+        assert go(0, ['inactive'], [bad_age])[0] == 'bad', bad_age
+    assert go(0, ['inactive'], [9.0], wrap_cost=45.0)[0] == 'ok'                   # wrapper 45 s 뒤에도 상한 안
+    assert go(0, ['active'], [9.0], wrap_cost=45.0, cost=10.0)[0] == 'bad'          # 조회 무응답(매번 상한까지) → 60 s 안에 닫힘
+    assert go(0, ['inactive'], [9.0], wrap_cost=59.5, cost=10.0)[0] in ('ok', 'bad')  # 남은 0.5 s 조회 — 상한 지킴(go 안 assert)
+    # unit 값·상태 스크립트 형식
+    for d, want in [({'active_state': 'inactive'}, 'inactive'), ({'active_state': ''}, None), ({'active_state': 'unknown'}, None),
+                    ({'active_state': False}, None), ({'active_state': ' inactive'}, None), ({}, None), (None, None), ({'active_state': 'maintenance'}, None)]:
+        assert unit_state(d) == want, d
+    with tempfile.TemporaryDirectory() as td:
+        ok_json = '{"schema":"v2_session/1","result":"idle","active_state":"inactive"}'
+        for body, want in [(f"echo '{ok_json}'", 'inactive'), (f"echo '{ok_json}'; exit 1", None), ('echo', None), ('echo "  "', None),
+                           ("echo '{\"schema\":\"other\",\"active_state\":\"inactive\"}'", None), ('sleep 3', None)]:
+            f = Path(td) / 'ss.sh'; f.write_text(body + '\n')
+            assert unit_state(read_session(str(f), timeout=1.0)) == want, body
+
+
 def selftest_extra():
     import tempfile
     with tempfile.TemporaryDirectory() as td:
@@ -672,7 +817,7 @@ def selftest():
     c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
     st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
-    selftest_extra()
+    selftest_extra(); selftest_stop()
     print('selftest OK')
 
 
@@ -705,6 +850,7 @@ def main():
     if docs_note:
         core.ev('warn', docs_note); print(docs_note, flush=True)
     starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
+    stopper = SimStop(starter.wrapper)
     photo_last = [0.0]
     if starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file():
         def poll_loop():
@@ -788,7 +934,8 @@ def main():
             return {'op': 'status', 'role': role, 'latch': core.latch, 'applied': list(core.out), 'reason': core.reason,
                     'sim_block': core.sim_block(), 'resume_pending': bool(core.resume_pending), 'reset_pending': core.reset_pending is not None,
                     'episode': core.episode, 'ros_domain': os.environ.get('ROS_DOMAIN_ID'), 'state_age': age, 'cam_age': cam_age, 'sim': core.st, 'events': list(core.events)[:6], 'note': PRESETS_NOTE,
-                    'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live()), 'docs_rev': docs.rev}
+                    'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live()), 'docs_rev': docs.rev,
+                    'sim_stop': stopper.state(c.gated, starter.busy, sim_live(), starter.session, holder if core.controller not in (None, cid) else None)}
 
     def reply(c, rid, ok, text, **kw):
         try:
@@ -829,7 +976,7 @@ def main():
 
     def start_sim(c, rid):
         with lock:
-            why = starter.refuse(sim_live())
+            why = 'Gazebo 종료 처리 중' if stopper.busy else starter.refuse(sim_live())
             if why:
                 core.ev('warn', f'시뮬 시작 거부 · {why}'); return reply(c, rid, False, why)
             starter.busy = True; starter.last = time.monotonic()
@@ -852,6 +999,39 @@ def main():
                 core.ev('ok' if ok_ else 'bad', f'시뮬 시작 결과 · {text}{" · " + extra if extra else ""}')
         threading.Thread(target=run, daemon=True).start()
 
+    def stop_sim(c, rid):
+        with lock:
+            holder = clients[core.controller].actor if core.controller in clients and core.controller != c.cid else None
+            why = stopper.refuse(c.gated, starter.busy, sim_live(), starter.session, holder)
+            if why:
+                core.ev('warn', f'Gazebo 종료 거부 · {why}'); return reply(c, rid, False, why)
+            stopper.busy = True; stopper.last_t = time.monotonic()
+            core.drop(c.cid, 'Gazebo 종료')           # 본인 조종 중이면 입력 폐기·0·STOP 잠금·반납(다시 조종하려면 새 take)
+            core.latch = True; core.resume_pending = None; core._void()
+            core.ev('warn', f'Gazebo 종료 요청 · {c.actor} · 명령 0 잠금')
+        reply(c, rid, True, 'Gazebo 종료 요청함 — ROS 세션 종료가 확인되면 표시합니다')
+
+        def state_age():
+            with lock:
+                return None if core.state_t is None else time.monotonic() - core.state_t
+
+        def run_wrapper(timeout):   # 시간 안에 안 끝나도 죽이지 않는다(systemctl 쪽 TimeoutStopSec 45) — 나중에 따로 거둠
+            p = subprocess.Popen(['bash', stopper.wrapper], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            try:
+                return p.wait(timeout)
+            except subprocess.TimeoutExpired:
+                threading.Thread(target=p.wait, daemon=True).start(); return None
+
+        def run():                  # 조종 lock·20 Hz·영상을 막지 않게 따로. 연결이 끊기거나 로그아웃해도 결과는 기록되고 busy 는 풀린다
+            try:
+                st_, text = stop_run(stopper, run_wrapper, lambda to: unit_state(read_session(stopper.status_sh, to)), state_age)
+            except Exception as e:
+                st_, text = 'bad', f'Gazebo 종료 확인 못 함 · {type(e).__name__}'
+            with lock:
+                stopper.busy = False; stopper.last = {'t': time.strftime('%H:%M:%S'), 'st': st_, 'text': text}
+                core.ev(st_, text)
+        threading.Thread(target=run, daemon=True).start()
+
     class WS(tornado.websocket.WebSocketHandler):
         def check_origin(self, origin):
             return origin in allowed_origins          # 다른 웹페이지가 이 포트로 조종하지 못하게
@@ -859,6 +1039,7 @@ def main():
         def open(self):
             self.cid = f'c{id(self)}'; self.cam_n = -1
             # 보호 관문(v2_gate)이 붙인 «계정 · 기기». 8790 은 127.0.0.1 전용이라 이 PC 안의 프로세스만 쓸 수 있다(신뢰 경계 = 이 PC)
+            self.gated = bool(actor_from_header(self.request.headers.get('X-FH-Actor', '')))   # 관문 로그인 신원(Gazebo 종료 조건)
             self.actor = actor_from_header(self.request.headers.get('X-FH-Actor', '')) or '이 PC(127.0.0.1)'
             clients[self.cid] = self
 
@@ -893,6 +1074,8 @@ def main():
                 take_photo(self, rid)
             elif op == 'sim_start':
                 start_sim(self, rid)
+            elif op == 'sim_stop':
+                stop_sim(self, rid)
 
         def on_close(self):
             clients.pop(self.cid, None)

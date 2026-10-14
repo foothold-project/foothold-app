@@ -42,7 +42,8 @@
         "op": {
           "enum": [
             "photo",
-            "sim_start"
+            "sim_start",
+            "sim_stop"
           ],
           "title": "Op",
           "type": "string"
@@ -99,6 +100,7 @@
       "reset": "#/$defs/OpSimple",
       "resume": "#/$defs/OpSimple",
       "sim_start": "#/$defs/OpRid",
+      "sim_stop": "#/$defs/OpRid",
       "stop": "#/$defs/OpSimple",
       "take": "#/$defs/OpSimple"
     },

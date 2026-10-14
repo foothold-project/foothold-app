@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
 import { NOMOVE, RELURCH, TRIAL, WHY } from '../data/facts';
-import { ask, camURL, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, stateRows, TRAIL, useLink, type Axes } from '../data/link';
+import { ask, camURL, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, stateRows, stopSim, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
 import { curWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
@@ -74,6 +74,7 @@ export default function Main() {
     dropAll(); if (!confirm('Gazebo 시뮬을 30분 동안 시작할까요?\n· RL 쪽 기동 횟수를 1회 씁니다\n· STOP 상태로 시작합니다(«STOP 해제» 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음')) return;
     toast((await ask('sim_start')).text || '응답 없음');
   };
+  const endSim = async () => { const t = await stopSim(st); if (t) toast(t); };
   const photo = async () => { const p = await shoot(); if (p) toast(`사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`} · «사진 검토»에서 분류`); };
 
   // 수동 임무(운영자 기록 · 로봇 자동 완료 아님)
@@ -86,6 +87,7 @@ export default function Main() {
 
   const mode = !v.linkOk ? '링크 끊김' : st?.reset_pending ? '리셋 중' : st?.resume_pending ? 'STOP 해제 대기' : v.latch ? 'STOP 요청' : ctl ? '직접 조종' : '보기 전용';
   const showStart = v.linkOk && !!st?.sim_start && ['시뮬 상태 미수신', '시뮬 상태 끊김'].includes(st.sim_block);
+  const showStop = v.linkOk && showSimStop(st);
   const ex = [showStart ? `시뮬 꺼짐${st!.sim_start.why ? ` · ${st!.sim_start.why}` : ''}` : sessTxt(st) ? `시뮬 세션 ${sessTxt(st)}` : '', v.newVer ? `새 화면 판 ${st!.ver} 반영됨(이 화면 ${L.firstVer})` : ''].filter(Boolean).join(' · ');
   const motion = `보낸 명령 ${v.sent} · 시뮬 ${v.body}` + (s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : '')
     + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동 · 키: ↑ 앞, ↑ 누른 채 ←/→ 아크(←/→ 단독·↓ 는 서버가 0으로 막음)') + ` · 주의: ${RELURCH}`;
@@ -141,8 +143,9 @@ export default function Main() {
     b3T: '시뮬 리셋', b3P: { onClick: () => sendOp('reset'), disabled: !(ctl && !busy) },
     motion,
     drive: <><Pad k="pc" no={no} />
-      {(showStart || v.newVer || ex) && <div className="lv-row" data-live-extra="1">
+      {(showStart || showStop || v.newVer || ex) && <div className="lv-row" data-live-extra="1">
         {showStart && <button type="button" className="btn" title={st!.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st!.sim_start.ok ? undefined : 0.55 }} onClick={startSim}>시뮬 시작(30분)</button>}
+        {showStop && <button type="button" className="btn" disabled={st!.sim_stop!.busy} title={st!.sim_stop!.why || 'Gazebo 시뮬 끄기(로봇 STOP 아님)'} style={{ opacity: st!.sim_stop!.ok ? undefined : 0.55 }} onClick={endSim}>{st!.sim_stop!.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기'}</button>}
         {v.newVer && <button type="button" className="btn" onClick={() => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤') : location.reload())}>새로고침(새 판)</button>}
         <span style={{ fontSize: '12px', color: 'var(--muted)' }}>{ex}</span></div>}</>,
     // 이 지점에서 할 일 = 지금 지점의 수동 기록. 시안의 도착 판정·예시 사진은 넣지 않는다

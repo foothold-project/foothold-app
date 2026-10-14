@@ -468,6 +468,85 @@
       ],
       "title": "SimState",
       "type": "object"
+    },
+    "SimStopLast": {
+      "properties": {
+        "st": {
+          "enum": [
+            "ok",
+            "bad"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "st",
+        "text"
+      ],
+      "title": "SimStopLast",
+      "type": "object"
+    },
+    "SimStopState": {
+      "description": "«Gazebo 종료»(로봇 STOP 아님). 거부 이유·실행 판단의 정본은 서버. Gazebo 잔여 프로세스 0 은 확인 범위 밖",
+      "properties": {
+        "busy": {
+          "title": "Busy",
+          "type": "boolean"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimStopLast"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ledger_left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ledger Left"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "why",
+        "busy",
+        "on",
+        "ledger_left",
+        "last"
+      ],
+      "title": "SimStopState",
+      "type": "object"
     }
   },
   "$id": "fh-app/1/Status",
@@ -593,6 +672,17 @@
     },
     "sim_start": {
       "$ref": "#/$defs/SimStartState"
+    },
+    "sim_stop": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SimStopState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "state_age": {
       "anyOf": [

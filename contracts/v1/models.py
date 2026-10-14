@@ -71,7 +71,7 @@ class OpCmd(In):
 
 class OpRid(In):
     """응답(op=reply)이 오는 요청. rid 가 정수가 아니면 서버는 rid=null 로 답한다."""
-    op: Literal['photo', 'sim_start']
+    op: Literal['photo', 'sim_start', 'sim_stop']
     rid: Rid = None
 
 
@@ -114,6 +114,22 @@ class SimStartState(Out):
     session: Optional[SimSession]
 
 
+class SimStopLast(Out):
+    t: str                                  # 서버 HH:MM:SS
+    st: Literal['ok', 'bad']                # ok = ROS 세션 종료 확인(unit 비활성 + 상태 3 s 끊김)일 때만. 미확인·시간 초과 = bad
+    text: str
+
+
+class SimStopState(Out):
+    """«Gazebo 종료»(로봇 STOP 아님). 거부 이유·실행 판단의 정본은 서버. Gazebo 잔여 프로세스 0 은 확인 범위 밖"""
+    ok: bool                                # 지금 이 기기가 누를 수 있나
+    why: str                                # 못 누르는 이유('' = 가능)
+    busy: bool
+    on: bool                                # 시뮬 켜짐(상태 수신 중 또는 RL 세션 running/starting)
+    ledger_left: Optional[int]              # RL 기동 원장 남은 횟수, null = 미확인
+    last: Optional[SimStopLast]
+
+
 class Status(Out):
     """10 Hz 상태. 안전 판단(latch·applied·reason)의 정본은 서버. role 은 송신 허용에만 쓴다."""
     op: Literal['status']
@@ -136,6 +152,7 @@ class Status(Out):
     ver: str
     sim_start: SimStartState
     docs_rev: int
+    sim_stop: Optional[SimStopState] = None   # 없는 서버(이전 판)도 있음 — 없으면 버튼을 숨긴다
 
 
 class PhotoMeta(Out):
