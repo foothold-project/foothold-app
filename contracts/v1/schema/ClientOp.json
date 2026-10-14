@@ -36,6 +36,57 @@
       "title": "OpCmd",
       "type": "object"
     },
+    "OpMapGet": {
+      "description": "저장 지도 한 장. 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md).",
+      "properties": {
+        "building_id": {
+          "enum": [
+            "v5",
+            "rooms_a"
+          ],
+          "title": "Building Id",
+          "type": "string"
+        },
+        "floor_id": {
+          "enum": [
+            "floor1",
+            "floor2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version": {
+          "pattern": "^\\d{8}-\\d{6}-e\\d+$",
+          "title": "Map Version",
+          "type": "string"
+        },
+        "op": {
+          "const": "map_get",
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        }
+      },
+      "required": [
+        "op",
+        "building_id",
+        "floor_id",
+        "map_version"
+      ],
+      "title": "OpMapGet",
+      "type": "object"
+    },
     "OpRid": {
       "description": "응답(op=reply)이 오는 요청. rid 가 정수가 아니면 서버는 rid=null 로 답한다.",
       "properties": {
@@ -43,7 +94,8 @@
           "enum": [
             "photo",
             "sim_start",
-            "sim_stop"
+            "sim_stop",
+            "map_list"
           ],
           "title": "Op",
           "type": "string"
@@ -95,6 +147,8 @@
     "mapping": {
       "cmd": "#/$defs/OpCmd",
       "hidden": "#/$defs/OpSimple",
+      "map_get": "#/$defs/OpMapGet",
+      "map_list": "#/$defs/OpRid",
       "photo": "#/$defs/OpRid",
       "release": "#/$defs/OpSimple",
       "reset": "#/$defs/OpSimple",
@@ -115,6 +169,9 @@
     },
     {
       "$ref": "#/$defs/OpRid"
+    },
+    {
+      "$ref": "#/$defs/OpMapGet"
     }
   ]
 }

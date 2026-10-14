@@ -1,5 +1,207 @@
 {
   "$defs": {
+    "MapData": {
+      "properties": {
+        "building_id": {
+          "enum": [
+            "v5",
+            "rooms_a"
+          ],
+          "title": "Building Id",
+          "type": "string"
+        },
+        "epoch": {
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "floor_id": {
+          "enum": [
+            "floor1",
+            "floor2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "map_source": {
+          "enum": [
+            "slam",
+            "gt_raster"
+          ],
+          "title": "Map Source",
+          "type": "string"
+        },
+        "map_version": {
+          "title": "Map Version",
+          "type": "string"
+        },
+        "origin": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Origin",
+          "type": "array"
+        },
+        "png": {
+          "title": "Png",
+          "type": "string"
+        },
+        "resolution": {
+          "exclusiveMinimum": 0,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "saved_sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Saved Sim T"
+        },
+        "width": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "world_id": {
+          "enum": [
+            "v5_single",
+            "v5_building",
+            "rooms_a"
+          ],
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "world_id",
+        "building_id",
+        "floor_id",
+        "map_version",
+        "map_source",
+        "epoch",
+        "resolution",
+        "origin",
+        "width",
+        "height",
+        "saved_sim_t",
+        "png"
+      ],
+      "title": "MapData",
+      "type": "object"
+    },
+    "MapInfo": {
+      "description": "저장 지도 meta 요약(서버가 sha·크기 검증을 마친 것만). 행 순서는 PGM 그대로 — 첫 행 = y 가 가장 큰 쪽, origin = 왼쪽 아래 칸의 월드 좌표.",
+      "properties": {
+        "building_id": {
+          "enum": [
+            "v5",
+            "rooms_a"
+          ],
+          "title": "Building Id",
+          "type": "string"
+        },
+        "epoch": {
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "floor_id": {
+          "enum": [
+            "floor1",
+            "floor2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "map_source": {
+          "enum": [
+            "slam",
+            "gt_raster"
+          ],
+          "title": "Map Source",
+          "type": "string"
+        },
+        "map_version": {
+          "title": "Map Version",
+          "type": "string"
+        },
+        "origin": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Origin",
+          "type": "array"
+        },
+        "resolution": {
+          "exclusiveMinimum": 0,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "saved_sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Saved Sim T"
+        },
+        "width": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "world_id": {
+          "enum": [
+            "v5_single",
+            "v5_building",
+            "rooms_a"
+          ],
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "world_id",
+        "building_id",
+        "floor_id",
+        "map_version",
+        "map_source",
+        "epoch",
+        "resolution",
+        "origin",
+        "width",
+        "height",
+        "saved_sim_t"
+      ],
+      "title": "MapInfo",
+      "type": "object"
+    },
     "PhotoMeta": {
       "description": "photos.jsonl 한 줄 = 사진 저장 응답. 위치는 저장 요청 때의 최신 GT(프레임 동기 아님).",
       "properties": {
@@ -126,6 +328,32 @@
   "$id": "fh-app/1/Reply",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "map": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MapData"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "maps": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/MapInfo"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Maps"
+    },
     "ok": {
       "title": "Ok",
       "type": "boolean"

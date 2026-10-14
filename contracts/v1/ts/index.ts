@@ -50,6 +50,35 @@ export interface Event {
   text: string;
 }
 
+export interface MapData {
+  world_id: "v5_single" | "v5_building" | "rooms_a";
+  building_id: "v5" | "rooms_a";
+  floor_id: "floor1" | "floor2";
+  map_version: string;
+  map_source: "slam" | "gt_raster";
+  epoch: number;
+  resolution: number;
+  origin: number[];
+  width: number;
+  height: number;
+  saved_sim_t: number | null;
+  png: string;
+}
+
+export interface MapInfo {
+  world_id: "v5_single" | "v5_building" | "rooms_a";
+  building_id: "v5" | "rooms_a";
+  floor_id: "floor1" | "floor2";
+  map_version: string;
+  map_source: "slam" | "gt_raster";
+  epoch: number;
+  resolution: number;
+  origin: number[];
+  width: number;
+  height: number;
+  saved_sim_t: number | null;
+}
+
 export interface MediaEvent {
   t: string;
   st: "ok" | "warn" | "bad";
@@ -101,8 +130,16 @@ export interface OpCmd {
   fw: number;
 }
 
+export interface OpMapGet {
+  op: "map_get";
+  rid?: number | null;
+  building_id: "v5" | "rooms_a";
+  floor_id: "floor1" | "floor2";
+  map_version: string;
+}
+
 export interface OpRid {
-  op: "photo" | "sim_start" | "sim_stop";
+  op: "photo" | "sim_start" | "sim_stop" | "map_list";
   rid?: number | null;
 }
 
@@ -133,6 +170,8 @@ export interface Reply {
   ok: boolean;
   text: string;
   photo?: PhotoMeta | null;
+  maps?: MapInfo[] | null;
+  map?: MapData | null;
 }
 
 export interface Run {
@@ -296,7 +335,7 @@ export interface ZoneEnv {
   doc: Zone;
 }
 
-export type ClientOp = OpSimple | OpCmd | OpRid;
+export type ClientOp = OpSimple | OpCmd | OpRid | OpMapGet;
 export type ServerMsg = Status | Reply;
 export type DocEnvelope = ZoneEnv | TmplEnv | MissionEnv | RunEnv | NoteEnv;
 export type DocWrite = DocPut | DocDel;

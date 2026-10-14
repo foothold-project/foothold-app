@@ -71,11 +71,20 @@ class OpCmd(In):
 
 class OpRid(In):
     """응답(op=reply)이 오는 요청. rid 가 정수가 아니면 서버는 rid=null 로 답한다."""
-    op: Literal['photo', 'sim_start', 'sim_stop']
+    op: Literal['photo', 'sim_start', 'sim_stop', 'map_list']
     rid: Rid = None
 
 
-ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid], Field(discriminator='op')]
+class OpMapGet(In):
+    """저장 지도 한 장. 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md)."""
+    op: Literal['map_get']
+    rid: Rid = None
+    building_id: Literal['v5', 'rooms_a']
+    floor_id: Literal['floor1', 'floor2']
+    map_version: Annotated[str, Field(pattern=r'^\d{8}-\d{6}-e\d+$')]
+
+
+ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet], Field(discriminator='op')]
 
 # ---------------------------------------------------------------- WS 서버 → 화면
 
@@ -171,12 +180,33 @@ class PhotoMeta(Out):
     url: Photo
 
 
+class MapInfo(Out):
+    """저장 지도 meta 요약(서버가 sha·크기 검증을 마친 것만). 행 순서는 PGM 그대로 — 첫 행 = y 가 가장 큰 쪽, origin = 왼쪽 아래 칸의 월드 좌표."""
+    world_id: Literal['v5_single', 'v5_building', 'rooms_a']
+    building_id: Literal['v5', 'rooms_a']
+    floor_id: Literal['floor1', 'floor2']
+    map_version: str
+    map_source: Literal['slam', 'gt_raster']
+    epoch: Annotated[int, Field(ge=0)]
+    resolution: Annotated[Fin, Field(gt=0)]
+    origin: Annotated[list[Fin], Field(min_length=3, max_length=3)]
+    width: Annotated[int, Field(ge=1, le=2000)]
+    height: Annotated[int, Field(ge=1, le=2000)]
+    saved_sim_t: Optional[Fin]
+
+
+class MapData(MapInfo):
+    png: str        # base64 8비트 회색 PNG(0 막힘·205 미지·254 빈칸, trinary)
+
+
 class Reply(Out):
     op: Literal['reply']
     rid: Rid
     ok: bool
     text: str
     photo: Optional[PhotoMeta] = None       # op=photo 성공 때만
+    maps: Optional[list[MapInfo]] = None    # op=map_list 성공 때만
+    map: Optional[MapData] = None           # op=map_get 성공 때만
 
 
 ServerMsg = Annotated[Union[Status, Reply], Field(discriminator='op')]   # 텍스트 프레임. 바이너리 프레임 = JPEG 원본

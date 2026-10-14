@@ -17,7 +17,7 @@ Gazebo·정책·ingress 기동은 RL 소유. 이 서버는 Gazebo 를 띄우지 
 실행: source /opt/ros/jazzy/setup.bash; ROS_DOMAIN_ID=61 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST python3 sim/v2_link.py
 자체검사(ROS 없이): python3 sim/v2_link.py --selftest
 """
-import argparse, json, math, os, re, sqlite3, subprocess, sys, threading, time
+import argparse, base64, hashlib, json, math, os, re, sqlite3, struct, subprocess, sys, threading, time, zlib
 from collections import deque
 from pathlib import Path
 
@@ -771,6 +771,175 @@ def selftest_extra():
     s_.session = {'result': 'idle'}; assert s_.refuse(False) == ''
 
 
+# ---------------------------------------------------------------- 저장 지도(읽기만) — docs/CONTRACT-maps-sim-stop.md 3·4절
+# <maps_root>/<building_id>/<floor_id>/<map_version>/{map.pgm, map.yaml, meta.json}. 쓰기는 RL 구동기(/v2_map/save)만
+MAP_WORLDS = {'v5_single': ('v5', ('floor1',)), 'v5_building': ('v5', ('floor1', 'floor2')), 'rooms_a': ('rooms_a', ('floor1',))}
+MAP_FLOORS = {'v5': ('floor1', 'floor2'), 'rooms_a': ('floor1',)}
+MAP_VER = re.compile(r'\d{8}-\d{6}-e\d+')
+MAP_DIM, MAP_PNG_MAX, MAP_PGM_MAX = 2000, 512 * 1024, 4_100_000
+
+
+class MapErr(ValueError):
+    pass
+
+
+def read_pgm(b):
+    """P5·maxval 255 → (w, h, 화소 bytes). 그 밖은 MapErr"""
+    tok, i = [], 0
+    while len(tok) < 4:
+        while i < len(b) and b[i:i + 1].isspace():
+            i += 1
+        if b[i:i + 1] == b'#':
+            while i < len(b) and b[i:i + 1] != b'\n':
+                i += 1
+            continue
+        j = i
+        while j < len(b) and not b[j:j + 1].isspace():
+            j += 1
+        if j == i:
+            raise MapErr('PGM 머리 잘림')
+        tok.append(b[i:j]); i = j
+    if tok[0] != b'P5' or not all(t.isdigit() for t in tok[1:]):
+        raise MapErr('PGM 형식 아님(P5 만)')
+    w, h, mx = map(int, tok[1:])
+    if mx != 255 or not (1 <= w <= MAP_DIM and 1 <= h <= MAP_DIM):
+        raise MapErr(f'PGM 크기·최대값 범위 밖({w}×{h}, {mx})')
+    px = b[i + 1:]
+    if len(px) != w * h:
+        raise MapErr(f'PGM 화소 수 불일치({len(px)} ≠ {w * h})')
+    return w, h, px
+
+
+def png_gray(w, h, px):
+    """8비트 회색 PNG(표준 라이브러리만). 행 순서는 PGM 그대로(위 = y 큰 쪽)"""
+    ch = lambda t, d: struct.pack('>I', len(d)) + t + d + struct.pack('>I', zlib.crc32(t + d))
+    raw = b''.join(b'\0' + px[y * w:(y + 1) * w] for y in range(h))
+    return b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 0, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw, 9)) + ch(b'IEND', b'')
+
+
+def map_meta(m, b, f, v):
+    """meta.json 내용 검사 → 화면에 보낼 요약 dict. 이름·폴더와 어긋나거나 값이 이상하면 MapErr"""
+    fin = lambda x: type(x) in (int, float) and math.isfinite(x)
+    if not isinstance(m, dict) or m.get('schema') != 'v2_map_meta/1':
+        raise MapErr('meta 형식 아님')
+    if (m.get('building_id'), m.get('floor_id'), m.get('map_version')) != (b, f, v):
+        raise MapErr('meta 의 건물·층·버전이 폴더와 다름')
+    wd = MAP_WORLDS.get(m.get('world_id'))
+    if not wd or wd[0] != b or f not in wd[1]:
+        raise MapErr('meta world_id 가 건물·층과 맞지 않음')
+    o = m.get('origin')
+    if (m.get('map_source') not in ('slam', 'gt_raster') or type(m.get('epoch')) is not int or m['epoch'] < 0 or not fin(m.get('resolution')) or m['resolution'] <= 0
+            or not (isinstance(o, list) and len(o) == 3 and all(fin(x) for x in o))
+            or not all(type(m.get(k)) is int and 1 <= m[k] <= MAP_DIM for k in ('width', 'height'))
+            or not (isinstance(m.get('sha256'), str) and re.fullmatch(r'[0-9a-f]{64}', m['sha256']))
+            or not (m.get('saved_sim_t') is None or fin(m['saved_sim_t']))):
+        raise MapErr('meta 값 범위 밖')
+    return {k: m[k] for k in ('world_id', 'building_id', 'floor_id', 'map_version', 'map_source', 'epoch', 'resolution', 'origin', 'width', 'height', 'saved_sim_t')}
+
+
+class MapStore:
+    """저장 지도 읽기만. 이름은 허용목록·정규식, 경로는 루트 안(심볼릭 링크로 밖으로 나가면 거부). 버전 폴더는 바뀌지 않으므로 결과 캐시"""
+
+    def __init__(self, root):
+        self.root = Path(root).resolve() if root else None
+        self.cache = {}                     # ponytail: 최근 8장 FIFO — 지도 수가 많아지면 LRU 로
+
+    def _dir(self, b, f, v):
+        if not self.root:
+            raise MapErr('지도 폴더 미설정')
+        if b not in MAP_FLOORS or f not in MAP_FLOORS[b] or not (isinstance(v, str) and MAP_VER.fullmatch(v)):
+            raise MapErr('지도 이름이 허용목록·형식 밖')
+        d = (self.root / b / f / v).resolve()
+        if d.parent.parent.parent != self.root or not d.is_dir():
+            raise MapErr('지도 없음')
+        return d
+
+    def listing(self):
+        out, skipped = [], 0
+        for b, fl in MAP_FLOORS.items():
+            for f in fl:
+                base = self.root / b / f if self.root else None
+                for d in sorted(base.iterdir()) if base and base.is_dir() else []:
+                    try:                    # 목록에도 끝까지 검증된 것만(sha·크기·PNG 상한). ponytail: 지도 수십 장 넘으면 meta 만 보고 get 때 검증
+                        out.append({k: x for k, x in self.get(b, f, d.name).items() if k != 'png'})
+                    except (MapErr, OSError, ValueError):
+                        skipped += 1
+        return out, skipped
+
+    def get(self, b, f, v):
+        key = (b, f, v)
+        if key in self.cache:
+            return self.cache[key]
+        d = self._dir(b, f, v)
+        try:
+            m = json.loads((d / 'meta.json').read_text()); meta = map_meta(m, b, f, v)
+            if (d / 'map.pgm').stat().st_size > MAP_PGM_MAX:
+                raise MapErr('PGM 너무 큼')
+            raw = (d / 'map.pgm').read_bytes()
+        except OSError:
+            raise MapErr('지도 파일 읽기 실패')
+        except ValueError as e:
+            raise e if isinstance(e, MapErr) else MapErr('meta JSON 아님')
+        if hashlib.sha256(raw).hexdigest() != m['sha256']:
+            raise MapErr('PGM sha256 이 meta 와 다름')
+        w, h, px = read_pgm(raw)
+        if (w, h) != (meta['width'], meta['height']):
+            raise MapErr('PGM 크기가 meta 와 다름')
+        png = png_gray(w, h, px)
+        if len(png) > MAP_PNG_MAX:
+            raise MapErr(f'PNG {len(png)} B > 상한 {MAP_PNG_MAX} B')
+        r = {**meta, 'png': base64.b64encode(png).decode()}
+        if len(self.cache) >= 8:
+            self.cache.pop(next(iter(self.cache)))
+        self.cache[key] = r
+        return r
+
+
+def selftest_maps():
+    import tempfile
+    def unpng(p):                                   # 시험용: IDAT 풀어 화소 되찾기
+        i, idat = 8, b''
+        while i < len(p):
+            n, t = struct.unpack('>I4s', p[i:i + 8]); idat += p[i + 8:i + 8 + n] if t == b'IDAT' else b''; i += 12 + n
+        w, h = struct.unpack('>II', p[16:24]); r = zlib.decompress(idat)
+        return w, h, b''.join(r[y * (w + 1) + 1:(y + 1) * (w + 1)] for y in range(h))
+    px = bytes([0, 205, 254, 254, 0, 205])
+    assert read_pgm(b'P5\n# c\n3 2\n255\n' + px) == (3, 2, px) and unpng(png_gray(3, 2, px)) == (3, 2, px)
+    for bad in (b'P2\n3 2\n255\n' + px, b'P5\n3 2\n15\n' + px, b'P5\n3 2\n255\n' + px[:5], b'P5\n3', b'P5\n2001 1\n255\n' + bytes(2001)):
+        try:
+            read_pgm(bad); raise AssertionError(bad[:12])
+        except MapErr:
+            pass
+    with tempfile.TemporaryDirectory() as td:
+        root = Path(td) / 'maps'; s = MapStore(str(root))
+        def put(b, f, v, raw=b'P5\n3 2\n255\n' + px, **kw):
+            d = root / b / f / v; d.mkdir(parents=True, exist_ok=True); (d / 'map.pgm').write_bytes(raw)
+            m = {'schema': 'v2_map_meta/1', 'world_id': 'v5_building', 'building_id': b, 'floor_id': f, 'map_version': v, 'map_source': 'gt_raster',
+                 'epoch': 0, 'resolution': 0.05, 'origin': [-20, -14, 0], 'width': 3, 'height': 2, 'saved_sim_t': None, 'sha256': hashlib.sha256(raw).hexdigest(), **kw}
+            (d / 'meta.json').write_text(json.dumps(m))
+        V = '20261014-100000-e0'
+        put('v5', 'floor1', V); put('v5', 'floor2', V)
+        r = s.get('v5', 'floor1', V); assert r['map_source'] == 'gt_raster' and unpng(base64.b64decode(r['png'])) == (3, 2, px)
+        put('v5', 'floor1', '20261014-100001-e1', sha256='0' * 64)                         # sha 불일치
+        put('v5', 'floor1', '20261014-100002-e1', floor_id='floor2')                     # meta 층 어긋남
+        put('v5', 'floor1', '20261014-100003-e1', world_id='rooms_a')                    # world·건물 어긋남
+        put('v5', 'floor1', '20261014-100004-e1', width=4)                               # 크기 어긋남
+        put('v5', 'floor1', '20261014-100005-e1', resolution=float('nan'))
+        (root / 'v5' / 'floor1' / 'not-a-version').mkdir()
+        (root / 'v5' / 'floor1' / '20261014-100006-e1').symlink_to(root / 'v5' / 'floor2' / V)   # 다른 층으로 새는 링크
+        lst, sk = s.listing(); assert [x['floor_id'] for x in lst] == ['floor1', 'floor2'] and sk == 7, (lst, sk)
+        for args in [('v5', 'floor1', '20261014-100001-e1'), ('v5', 'floor1', '20261014-100004-e1'), ('v5', 'floor3', V), ('x', 'floor1', V),
+                     ('v5', 'floor1', '../floor2/' + V), ('v5', 'floor1', '20261014-999999-e1'), ('v5', 'floor1', '20261014-100006-e1'), ('v5', 'floor1', None)]:
+            try:
+                s.get(*args); raise AssertionError(args)
+            except MapErr:
+                pass
+        assert MapStore(None).listing() == ([], 0)
+    real = Path('/home/hyeon/Desktop/foothold/control-app/sim/worlds/v5/maps/v5-l1.pgm')     # 있으면 실제 크기 확인(읽기만)
+    if real.is_file():
+        w, h, q = read_pgm(real.read_bytes()); n = len(png_gray(w, h, q)); assert (w, h) == (800, 640) and n < MAP_PNG_MAX, n
+
+
 def selftest():
     t = [0.0]; c = Core(now=lambda: t[0]); F = (1.0, 0.0, 0.0); N = Z
 
@@ -840,7 +1009,7 @@ def selftest():
     c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
     st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
-    selftest_extra(); selftest_stop()
+    selftest_extra(); selftest_stop(); selftest_maps()
     print('selftest OK')
 
 
@@ -852,6 +1021,7 @@ def main():
     ap.add_argument('--media', default=os.path.join(repo, 'runs', 'app-media'), help='서버 보관 사진·사건 폴더')
     ap.add_argument('--sim-start', default=None, help='RL 래퍼(request_session.sh) 절대경로. 없으면 «시뮬 시작» 버튼은 이유만 보임')
     ap.add_argument('--store', default='json', help='공용 문서 저장: json(기본, <media>/docs.json) 또는 sqlite:<DB 경로>(없으면 docs.json 을 읽어 이전)')
+    ap.add_argument('--maps-root', default=None, help='저장 지도 루트(읽기만, <건물>/<층>/<버전>/). 없으면 지도 목록 빈 칸')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -874,6 +1044,7 @@ def main():
         core.ev('warn', docs_note); print(docs_note, flush=True)
     starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
     stopper = SimStop(starter.wrapper)
+    maps = MapStore(a.maps_root)
     photo_last = [0.0]
     if starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file():
         def poll_loop():
@@ -1055,12 +1226,30 @@ def main():
                 core.ev(st_, text)
         threading.Thread(target=run, daemon=True).start()
 
+    def map_op(c, rid, op, m):
+        """저장 지도 읽기(파일·sha·PNG 변환)는 IOLoop 밖. 연결마다 한 번에 하나 — 조종·STOP·영상 처리를 막지 않는다"""
+        if c.map_busy:
+            return reply(c, rid, False, '지도 요청 처리 중')
+        c.map_busy = True
+        work = (lambda: {'maps': maps.listing()[0]}) if op == 'map_list' else (lambda: {'map': maps.get(m.get('building_id'), m.get('floor_id'), m.get('map_version'))})
+        loop = tornado.ioloop.IOLoop.current()
+
+        def done(fut):
+            c.map_busy = False
+            try:
+                reply(c, rid, True, '', **fut.result())
+            except MapErr as e:
+                reply(c, rid, False, f'지도 · {e}')
+            except Exception as e:
+                reply(c, rid, False, f'지도 읽기 실패 · {type(e).__name__}')
+        loop.add_future(loop.run_in_executor(None, work), done)
+
     class WS(tornado.websocket.WebSocketHandler):
         def check_origin(self, origin):
             return origin in allowed_origins          # 다른 웹페이지가 이 포트로 조종하지 못하게
 
         def open(self):
-            self.cid = f'c{id(self)}'; self.cam_n = -1
+            self.cid = f'c{id(self)}'; self.cam_n = -1; self.map_busy = False
             # 보호 관문(v2_gate)이 붙인 «계정 · 기기». 8790 은 127.0.0.1 전용이라 이 PC 안의 프로세스만 쓸 수 있다(신뢰 경계 = 이 PC)
             self.gated = bool(actor_from_header(self.request.headers.get('X-FH-Actor', '')))   # 관문 로그인 신원(Gazebo 종료 조건)
             self.actor = actor_from_header(self.request.headers.get('X-FH-Actor', '')) or '이 PC(127.0.0.1)'
@@ -1099,6 +1288,8 @@ def main():
                 start_sim(self, rid)
             elif op == 'sim_stop':
                 stop_sim(self, rid)
+            elif op in ('map_list', 'map_get'):
+                map_op(self, rid, op, m)
 
         def on_close(self):
             clients.pop(self.cid, None)
