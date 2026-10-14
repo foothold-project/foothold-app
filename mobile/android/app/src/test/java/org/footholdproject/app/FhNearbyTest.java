@@ -73,7 +73,7 @@ public class FhNearbyTest {
     }
 
     @Test public void scanDedupsByOriginAndCaps16() throws Exception {
-        FhNearby.Scan s = new FhNearby.Scan();
+        FhNearby.Scan<FhNearby.Item> s = new FhNearby.Scan<>();
         assertTrue(s.add(FhNearby.item("a", 8453, Collections.singletonList(ip("192.168.0.7")), OK)));
         assertFalse(s.add(FhNearby.item("b(같은 주소)", 8453, Collections.singletonList(ip("192.168.0.7")), OK)));
         assertFalse(s.add(null));

@@ -82,7 +82,7 @@ public class FhGatePlugin extends Plugin {
     // ponytail: resolveService(36 deprecated)를 하나씩 순서대로 — minSdk 24 호환, 34 미만은 동시 resolve 가 FAILURE_ALREADY_ACTIVE.
     //           34+ registerServiceInfoCallback 으로 바꾸면 병렬·주소 갱신 가능(필요해지면)
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final FhNearby.Ctl nearby = new FhNearby.Ctl(new NsdPort());
+    private final FhNearby.Ctl<FhNearby.Item> nearby = new FhNearby.Ctl<>(new NsdPort());
 
     @PluginMethod
     public void discover(PluginCall call) {
@@ -98,7 +98,7 @@ public class FhGatePlugin extends Plugin {
     }
 
     /** Android 경계: NSD·타이머·Promise. 콜백은 전부 main 으로 post 해 제어기에 넘긴다. */
-    private final class NsdPort implements FhNearby.Ctl.Port {
+    private final class NsdPort implements FhNearby.Ctl.Port<FhNearby.Item> {
         private NsdManager nsd() {
             NsdManager m = (NsdManager) getContext().getSystemService(Context.NSD_SERVICE);
             if (m == null) throw new IllegalStateException("NSD 서비스 없음");
@@ -107,7 +107,7 @@ public class FhGatePlugin extends Plugin {
 
         @Override public boolean lanUp() { return FhGatePlugin.this.lanUp(); }
 
-        @Override public void start(FhNearby.Ctl.Run r) {
+        @Override public void start(FhNearby.Ctl.Run<FhNearby.Item> r) {
             NsdManager.DiscoveryListener l = new NsdManager.DiscoveryListener() {
                 @Override public void onStartDiscoveryFailed(String t, int code) { main.post(() -> nearby.startFailed(r)); }
                 @Override public void onStopDiscoveryFailed(String t, int code) {}   // 이미 끝낸 Promise 엔 못 실음 — 결과 stop 은 «requested»(확인 아님)
@@ -120,9 +120,9 @@ public class FhGatePlugin extends Plugin {
             nsd().discoverServices(FhNearby.TYPE, NsdManager.PROTOCOL_DNS_SD, l);
         }
 
-        @Override public void stop(FhNearby.Ctl.Run r) { nsd().stopServiceDiscovery((NsdManager.DiscoveryListener) r.handle); }
+        @Override public void stop(FhNearby.Ctl.Run<FhNearby.Item> r) { nsd().stopServiceDiscovery((NsdManager.DiscoveryListener) r.handle); }
 
-        @Override public void resolve(FhNearby.Ctl.Run r, Object svc) {
+        @Override public void resolve(FhNearby.Ctl.Run<FhNearby.Item> r, Object svc) {
             nsd().resolveService((NsdServiceInfo) svc, new NsdManager.ResolveListener() {
                 @Override public void onResolveFailed(NsdServiceInfo i, int code) { main.post(() -> nearby.resolved(r, null)); }
                 @Override public void onServiceResolved(NsdServiceInfo i) {
@@ -133,13 +133,13 @@ public class FhGatePlugin extends Plugin {
             });
         }
 
-        @Override public boolean after(FhNearby.Ctl.Run r, int ms) {
+        @Override public boolean after(FhNearby.Ctl.Run<FhNearby.Item> r, int ms) {
             Runnable t = () -> nearby.timeout(r);
             r.timer = t;
             return main.postDelayed(t, ms);
         }
 
-        @Override public void cancelTimer(FhNearby.Ctl.Run r) { if (r.timer != null) main.removeCallbacks(r.timer); }
+        @Override public void cancelTimer(FhNearby.Ctl.Run<FhNearby.Item> r) { if (r.timer != null) main.removeCallbacks(r.timer); }
 
         @Override public void done(Object call, long gen, List<FhNearby.Item> items, String why, String stop) {
             JSArray arr = new JSArray();
@@ -380,12 +380,22 @@ public class FhGatePlugin extends Plugin {
         return o;
     }
 
-    /** Android Keystore 의 AES-GCM 키(내보낼 수 없음)로 세션 덩어리를 암호화해 SharedPreferences 에 둔다. */
+    /** Android Keystore 의 AES-GCM 키(내보낼 수 없음)로 JSON 덩어리를 암호화해 SharedPreferences 에 둔다.
+     *  wipeBad = 못 푸는 보관본을 지우나. 세션(true): 키 분실·변조면 로그아웃 상태로. 로봇 등록부(false): 원본 보존 — 기기 키 소실 방지. */
     static final class KeystoreVault implements FhGateCore.Vault {
-        private static final String ALIAS = "fhgate.session", PREF = "fhgate", K = "blob";
+        private static final String K = "blob";
+        private final String ALIAS;
+        private final boolean wipeBad;
         private final SharedPreferences sp;
 
-        KeystoreVault(Context c) { sp = c.getSharedPreferences(PREF, Context.MODE_PRIVATE); }
+        KeystoreVault(Context c) { this(c, "fhgate.session", "fhgate", true); }
+
+        KeystoreVault(Context c, String alias, String pref, boolean wipeBad) {
+            ALIAS = alias; this.wipeBad = wipeBad;
+            sp = c.getSharedPreferences(pref, Context.MODE_PRIVATE);
+        }
+
+        @Override public boolean present() { return sp.contains(K); }
 
         private SecretKey key() throws Exception {
             KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
@@ -407,7 +417,7 @@ public class FhGatePlugin extends Plugin {
                 c.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, all, 0, 12));
                 return new String(c.doFinal(all, 12, all.length - 12), StandardCharsets.UTF_8);
             } catch (Exception e) {
-                sp.edit().remove(K).commit();   // 못 푸는 보관본(키 분실·변조)은 버리고 로그아웃 상태로
+                if (wipeBad) sp.edit().remove(K).commit();   // 세션: 못 푸는 보관본(키 분실·변조)은 버리고 로그아웃 상태로
                 return null;
             }
         }

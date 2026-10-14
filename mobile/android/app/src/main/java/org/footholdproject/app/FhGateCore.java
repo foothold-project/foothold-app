@@ -58,6 +58,8 @@ public final class FhGateCore {
         String load();
         boolean save(String json);
         boolean clear();
+        /** 보관본이 디스크에 «있나»(풀 수 있는지와 무관). load()==null 이 «없음»인지 «못 풂»인지 가르는 데 쓴다. */
+        default boolean present() { return load() != null; }
     }
 
     public static final class Resp {

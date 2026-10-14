@@ -20,9 +20,13 @@ final class FhNearby {
 
     private FhNearby() {}
 
-    static final class Item {
+    /** 탐색 후보 공통: 한 번의 탐색 안에서 같은 key 는 처음 것만(관문 = origin, 로봇 = sn — Go2Direct). */
+    interface Keyed { String key(); }
+
+    static final class Item implements Keyed {
         final String name, origin;
         Item(String name, String origin) { this.name = name; this.origin = origin; }
+        @Override public String key() { return origin; }
     }
 
     static int clampMs(Integer ms) {
@@ -90,37 +94,38 @@ final class FhNearby {
         return v == null ? null : new String(v, StandardCharsets.UTF_8);
     }
 
-    /** 한 번의 탐색 결과: 같은 origin 은 처음 것만, 최대 16. */
-    static final class Scan {
-        private final Map<String, Item> by = new LinkedHashMap<>();
-        boolean add(Item it) {
-            if (it == null || full() || by.containsKey(it.origin)) return false;
-            by.put(it.origin, it);
+    /** 한 번의 탐색 결과: 같은 key 는 처음 것만, 최대 16. */
+    static final class Scan<T extends Keyed> {
+        private final Map<String, T> by = new LinkedHashMap<>();
+        boolean add(T it) {
+            if (it == null || full() || by.containsKey(it.key())) return false;
+            by.put(it.key(), it);
             return true;
         }
         boolean full() { return by.size() >= MAX_ITEMS; }
-        List<Item> items() { return new ArrayList<>(by.values()); }
+        List<T> items() { return new ArrayList<>(by.values()); }
     }
 
     /**
      * 탐색 수명 제어기 — **모든 메서드는 한 직렬 스레드(Android = main Handler)에서만 부른다.** 시작·멈춤·pause·파괴·NSD 콜백이
      * 모두 이 한 줄을 지나므로 «멈춘 뒤 시작» 같은 순서 뒤집힘이 없다. NSD·타이머·Promise 는 Port 로 분리(시험은 가짜 Port).
+     * T = 후보 종류(관문 Item · 로봇 Go2Direct.Robot). 수명 규칙은 같다.
      */
-    static final class Ctl {
-        interface Port {
+    static final class Ctl<T extends Keyed> {
+        interface Port<T extends Keyed> {
             boolean lanUp();
-            void start(Run r);                         // NSD 탐색 시작 요청 — 실패는 RuntimeException
-            void stop(Run r);                          // NSD 탐색 멈춤 요청 — 실패는 RuntimeException
-            void resolve(Run r, Object svc);           // 비동기 — 결과는 같은 직렬 스레드로 resolved(r, item|null)
-            boolean after(Run r, int ms);              // ms 뒤 직렬 스레드에서 timeout(r). false = 예약 못 함
-            void cancelTimer(Run r);
-            void done(Object call, long gen, List<Item> items, String why, String stop);
+            void start(Run<T> r);                         // NSD 탐색 시작 요청 — 실패는 RuntimeException
+            void stop(Run<T> r);                          // NSD 탐색 멈춤 요청 — 실패는 RuntimeException
+            void resolve(Run<T> r, Object svc);           // 비동기 — 결과는 같은 직렬 스레드로 resolved(r, item|null)
+            boolean after(Run<T> r, int ms);              // ms 뒤 직렬 스레드에서 timeout(r). false = 예약 못 함
+            void cancelTimer(Run<T> r);
+            void done(Object call, long gen, List<T> items, String why, String stop);
             void fail(Object call, String code, String msg, long gen);
         }
 
-        static final class Run {
+        static final class Run<T extends Keyed> {
             final Object call; final long gen;
-            final Scan found = new Scan();
+            final Scan<T> found = new Scan<>();
             final ArrayDeque<Object> queue = new ArrayDeque<>();
             boolean started, resolving, ended;
             int tries;
@@ -129,16 +134,16 @@ final class FhNearby {
             Run(Object call, long gen) { this.call = call; this.gen = gen; }
         }
 
-        private final Port port;
-        private Run run;
+        private final Port<T> port;
+        private Run<T> run;
         private boolean paused, closed;
 
-        Ctl(Port port) { this.port = port; }
+        Ctl(Port<T> port) { this.port = port; }
 
         void discover(Object call, long gen, Integer ms) {
             if (closed) { port.fail(call, "stale", "앱 화면이 다시 만들어짐", gen); return; }
             if (run != null) { port.fail(call, "busy", "주변 검색이 이미 진행 중", gen); return; }
-            Run r = new Run(call, gen);
+            Run<T> r = new Run<>(call, gen);
             if (paused) { port.done(call, gen, new ArrayList<>(), "hidden", "none"); return; }   // 숨은 뒤 늦게 온 호출 — NSD 시작 0
             if (!port.lanUp()) { port.done(call, gen, new ArrayList<>(), "wifi", "none"); return; }
             run = r;
@@ -156,45 +161,45 @@ final class FhNearby {
         void resume() { paused = false; }
         void destroy() {
             closed = true;
-            Run r = run;
+            Run<T> r = run;
             if (r == null) return;
             String stop = finish(r);
             port.fail(r.call, "stale", "앱 화면이 다시 만들어짐 (stop " + stop + ")", r.gen);
         }
 
-        void startFailed(Run r) { if (live(r)) { r.started = false; end(r, "nsd"); } }   // 시작 실패면 NSD 쪽 탐색이 없음 — stop 부르지 않음
-        void timeout(Run r) { if (live(r)) end(r, null); }
+        void startFailed(Run<T> r) { if (live(r)) { r.started = false; end(r, "nsd"); } }   // 시작 실패면 NSD 쪽 탐색이 없음 — stop 부르지 않음
+        void timeout(Run<T> r) { if (live(r)) end(r, null); }
 
-        void found(Run r, Object svc) {
+        void found(Run<T> r, Object svc) {
             if (!live(r) || r.queue.size() >= 2 * MAX_ITEMS) return;
             r.queue.add(svc);
             next(r);
         }
 
-        void resolved(Run r, Item it) {
+        void resolved(Run<T> r, T it) {
             if (!live(r)) return;                      // 끝난 탐색의 늦은 resolve — 표시 0
             r.resolving = false;
             r.found.add(it);
             if (r.found.full()) end(r, null); else next(r);
         }
 
-        private void next(Run r) {
+        private void next(Run<T> r) {
             if (r.resolving || r.found.full() || r.tries >= 2 * MAX_ITEMS || r.queue.isEmpty()) return;
             r.resolving = true; r.tries++;
             Object svc = r.queue.poll();
             try { port.resolve(r, svc); } catch (RuntimeException e) { r.resolving = false; next(r); }
         }
 
-        private boolean live(Run r) { return r == run && !r.ended; }
+        private boolean live(Run<T> r) { return r == run && !r.ended; }
 
         /** 끝내기(한 번만). why 가 있으면 items []. stop = none(시작 안 됨)·requested(멈춤 요청 수락 — 실제 멈춤 확인 아님)·failed. */
-        private void end(Run r, String why) {
+        private void end(Run<T> r, String why) {
             if (r.ended) return;
             String stop = finish(r);
             port.done(r.call, r.gen, why == null ? r.found.items() : new ArrayList<>(), why, stop);
         }
 
-        private String finish(Run r) {
+        private String finish(Run<T> r) {
             r.ended = true;
             if (run == r) run = null;
             port.cancelTimer(r);
