@@ -72,8 +72,9 @@ export function useFitPhone() {
   const root = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const probe = document.createElement('div'); probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
-    const tip = document.createElement('div'); tip.textContent = '가로로 돌려 쓰세요 · 세로에서는 작게 보입니다'; tip.setAttribute('role', 'note');
-    tip.style.cssText = 'position:fixed;left:50%;bottom:8px;transform:translateX(-50%);z-index:60;padding:6px 12px;border-radius:8px;background:rgba(26,18,6,.92);color:#FFB547;font:600 13px/1.4 system-ui,sans-serif;pointer-events:none';
+    const tip = document.createElement('div'); tip.textContent = '가로로 돌려 쓰세요 · 세로에서는 작게 보입니다'; tip.setAttribute('role', 'note'); tip.className = 'lv-tip';
+    tip.style.cssText = 'position:fixed;left:50%;top:38%;transform:translateX(-50%);z-index:60;padding:6px 12px;border-radius:8px;background:rgba(26,18,6,.92);color:#FFB547;font:600 13px/1.4 system-ui,sans-serif;pointer-events:none';
+    // 세로 안내(tip)는 가운데 빈 영상 칸(top 38%) — 아래 막대·버튼 줄을 덮지 않게(실 APK 세로 412x842)
     document.body.append(probe, tip); const bg = document.body.style.background; document.body.style.background = '#05080A';
     const fit = () => {
       const el = root.current; if (!el) return;

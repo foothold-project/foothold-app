@@ -90,3 +90,30 @@ export function usePull(what: 'points' | 'follow', on: boolean) {
   }, [what, on]);
   return last;
 }
+
+// ── 빈칸 이유(사실만 — 센서 고장·출력 보장 단정 0, 자동 기동·옵션 변경 0). 순서: 실행 상태(미확인·꺼짐·평지·시작 중) → 외부카메라 켬/끔 → 지도 상태 → 발행 쪽(producer) 자기 진단 → link 수신 검사
+const PROD_KO: Record<string, string> = {
+  no_cloud: '라이다 점군 아직 안 옴 — 계속되면 기록 확인', no_frame: '렌더 영상 아직 안 옴 — 계속되면 기록 확인', reset: '리셋 중',
+  stale_epoch: '이전 회차 것이라 버림', not_localized: '위치 결속 미확인 — 기록 확인',
+  tf_stale: '좌표 변환(TF)이 늦음 — 계속되면 기록 확인', tf_lookup_failed: '좌표 변환(TF) 실패 — 계속되면 기록 확인',
+  sim_t_unknown: '발행 쪽이 시뮬 시각을 못 읽음 — 계속되면 기록 확인', no_stamp: '영상 시각 없음 — 계속되면 기록 확인',
+  future_stamp: '시각이 시뮬보다 앞서 버림 — 계속되면 기록 확인', out_of_order: '순서 뒤바뀐 영상 버림 — 계속되면 기록 확인',
+  empty: '유효한 점 0 — 계속되면 기록 확인', bad_cloud: '점군 형식 틀림 — 기록 확인', bad_image: '영상 형식 틀림 — 기록 확인',
+  too_large: '영상이 크기 상한 넘음 — 기록 확인', encode_error: '점군 압축 실패 — 기록 확인', unknown: '발행 쪽 이유 코드 모름 — 기록 확인',
+};
+const NEXT = '«지도 열기»에서 지도 시뮬(라이다 포함) 선택';
+/** 보조 뷰(points·follow) 빈칸 문구. st = link status. 영상이 지금 보이면 호출하지 않는다 */
+export function viewWhy(st: any, what: 'points' | 'follow'): string {
+  const ss = st?.map_start?.session, lv = st?.live_map, v = st?.views?.[what], p = v?.prod, r = ss?.result, run = ss?.runner;
+  const fc = what === 'follow' ? ' · «외부카메라» 체크' : '';
+  if (!['idle', 'starting', 'running'].includes(r)) return '시뮬 실행 상태 미확인 — 메뉴의 상태 원값 확인';
+  if (r === 'idle') return `시뮬 꺼짐 — ${NEXT}${fc}`;
+  if (run === 'ux_flat' || run === 'live_v2') return `평지 시뮬에는 이 센서가 없음 — ${NEXT}${fc}`;
+  if (run !== 'live_map') return '실행 중인 시뮬 종류 미확인 — 메뉴의 상태 원값 확인';
+  if (r === 'starting') return '지도 시뮬 시작 중';
+  if (what === 'follow' && p?.enabled === false) return '이번 지도 시뮬은 외부카메라 끔 — 다음 «지도 열기»에서 «외부카메라» 체크';
+  if (!lv || lv.st !== 'ok') return `지도 상태 기다림${lv?.why ? ` — ${lv.why}` : ''}`;
+  if (p?.reason === 'not_localized' && lv.mode === 'static' && lv.map_source === 'slam') return '저장 SLAM 지도는 위치추정 미연결 — 점군 위치 표시 불가';
+  if (p?.reason && p.reason !== 'ok') return `${PROD_KO[p.reason] ?? PROD_KO.unknown}${p.n_pub === 0 ? ' (이번 기동 발행 0)' : ''}`;
+  return v?.why ? `받는 쪽 검사: ${v.why}` : '받은 것 없음';
+}

@@ -1792,6 +1792,51 @@
       "title": "Status",
       "type": "object"
     },
+    "ViewProd": {
+      "description": "/v2_map/status 의 points_view·follow_cam 칸. reason = RL 코드(link 허용표 밖은 'unknown')",
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "n_pub": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Pub"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "reason",
+        "n_pub",
+        "enabled"
+      ],
+      "title": "ViewProd",
+      "type": "object"
+    },
     "ViewSrc": {
       "description": "보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok",
       "properties": {
@@ -1805,6 +1850,17 @@
             }
           ],
           "title": "Age S"
+        },
+        "prod": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ViewProd"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "seq": {
           "anyOf": [

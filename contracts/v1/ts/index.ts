@@ -425,11 +425,18 @@ export interface TmplMod {
   detail: string;
 }
 
+export interface ViewProd {
+  reason: string | null;
+  n_pub: number | null;
+  enabled: boolean | null;
+}
+
 export interface ViewSrc {
   st: "off" | "stale" | "bad" | "ok";
   why: string;
   seq: number | null;
   age_s: number | null;
+  prod?: ViewProd | null;
 }
 
 export interface Views {

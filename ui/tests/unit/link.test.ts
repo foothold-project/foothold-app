@@ -230,10 +230,12 @@ test('checkStatus: views 형식 틀림 → 그 뷰만 버림(상태·조종 관�
   const V = (points: any, follow: any = { st: 'ok', why: '', seq: 1, age_s: 0.1 }) => { const m: any = ST({ views: { points, follow } }); return [L.checkStatus(m), m.views]; };
   expect(V({ st: 'ok', why: '', seq: 3, age_s: 0.2 })[1].points.seq).toBe(3);
   for (const bad of [{ st: 'ok', why: '', seq: 0, age_s: 0.2 }, { st: 'ok', why: '', seq: 1.5, age_s: 0.2 }, { st: 'ok', why: '', seq: 3, age_s: -1 }, { st: 'ok', why: '', seq: 3, age_s: Infinity },
-    { st: 'great', why: '', seq: 3, age_s: 0 }, { st: 'ok', seq: 3, age_s: 0 }, 'x', null]) {
+    { st: 'great', why: '', seq: 3, age_s: 0 }, { st: 'ok', seq: 3, age_s: 0 }, 'x', null,
+    ...[{ reason: 1, n_pub: 0, enabled: true }, { reason: 'ok', n_pub: -1, enabled: null }, { reason: 'ok', n_pub: 0, enabled: 'yes' }, 'x'].map((prod) => ({ st: 'off', why: '', seq: null, age_s: null, prod }))]) {
     const [why, v] = V(bad); expect(why).toBe(null); expect(v.points).toBe(null); expect(v.follow.seq).toBe(1);
   }
   const m: any = ST({ views: 'x' }); expect(L.checkStatus(m)).toBe(null); expect(m.views).toBe(null);
+  expect(V({ st: 'off', why: '', seq: null, age_s: null, prod: { reason: 'sim_t_unknown', n_pub: 0, enabled: null } })[1].points.prod.reason).toBe('sim_t_unknown');   // 발행 쪽 진단 통과
 });
 
 test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·늦은 응답 모두 명령 0, 돌아와도 자동 복원 0', async () => {
