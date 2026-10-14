@@ -460,7 +460,8 @@ def actor_from_header(v):
 
 
 SESSION_RESULTS = {'starting', 'ready', 'already_running', 'resource_blocked', 'budget_exhausted', 'bad_args', 'failed'}
-START_TEXT = {'starting': '시뮬 기동 중 · 상태·영상 연결은 화면 표시로 판정(안전 준비 판정 아님)',
+START_TEXT = {'timeout': '래퍼 응답 시간 초과 — 결과 미확인(켜졌을 수 있음 · 상태·영상으로 확인 · 자동 재요청 없음)',
+              'starting': '시뮬 기동 중 · 상태·영상 연결은 화면 표시로 판정(안전 준비 판정 아님)',
               'ready': '시뮬 상태·영상 수신 확인(안전 준비 판정 아님 · STOP 상태)', 'already_running': '이미 실행 중',
               'resource_blocked': '자원 부족으로 기동 안 함', 'budget_exhausted': '사용 가능 횟수 소진(기동 안 함)', 'bad_args': '인자 거부(기동 안 함)', 'failed': '기동 실패'}
 
@@ -547,6 +548,9 @@ class SimStart:
         if self.ux:                  # 사용자 체험: 횟수 검사 대신 결속 확인 — 미확인이면 거부(제한 없음으로 단정 0)
             if self.usage() is None:
                 return '사용자 체험 경로 상태 조회 중' if self.session is None and not self.polled else '사용자 체험 경로 확인 못 함(상태가 «사용자 체험 · 횟수 제한 없음»이 아님) — 잠시 뒤 다시 확인'
+            a = unit_state(self.session)   # 같은 unit 이 확실히 꺼짐(inactive·failed)일 때만 — MapStart.unit_why 와 같은 규칙
+            if a not in UNIT_OFF:
+                return 'Gazebo unit 상태 미확인' if a is None else f'Gazebo unit {a} — 끈 뒤 다시'
             rip = self.session.get('request_in_progress')   # RL: marker pid+starttime 결속, 모르면 null — true·null 모두 거부(추측 허용 0)
             if rip is not False:
                 return '시작 요청 진행 중(RL)' if rip is True else '시작 요청 진행 여부 미확인 — 잠시 뒤 다시 확인'
@@ -569,12 +573,8 @@ class SimStart:
 
     def poll(self):
         """RL 상태 스크립트(읽기만, 약 0.05 s). 래퍼와 같은 폴더. 실패하면 None(추정 없음)"""
-        try:
-            r = subprocess.run(['bash', str(Path(self.wrapper).with_name(self.status_name))], capture_output=True, text=True, timeout=10)
-            d = json.loads(r.stdout.strip().splitlines()[-1])
-            self.session = d if isinstance(d, dict) and d.get('result') in ('running', 'starting', 'idle') else None
-        except Exception:
-            self.session = None
+        d = read_session(str(Path(self.wrapper).with_name(self.status_name)))   # 종료 코드 0 + schema v2_session/1 아니면 미확인
+        self.session = d if d and d.get('result') in ('running', 'starting', 'idle') else None
         self.sess_t = self.now() if self.session else None
         self.polled = True
         # 권장 주기: 켜지는 중 2 s, 그 밖 5 s
@@ -1681,6 +1681,16 @@ def selftest_ux():
         s2.last = -1e9
         assert m.refuse('rooms_a/f1', True, s2, False, False, None) == '' and m.state(True, s2, False, False, None)['usage_scope'] == 'user_experience'
         m.session = {**G, 'request_in_progress': True}; assert m.refuse('rooms_a/f1', True, s2, False, False, None).startswith('시작 요청 진행 중')
+        # 반례(Codex 10-14): 상태 스크립트 rc≠0 이면 그럴듯한 idle JSON 도 미확인 · unit 이 확실히 꺼짐(inactive·failed)일 때만 시작 가능
+        for body, ok in [("echo '" + json.dumps(G) + "'; exit 1\n", False), ("echo '" + json.dumps({**G, 'schema': 'x'}) + "'\n", False),
+                         ("echo '" + json.dumps({**G, 'active_state': 'failed'}) + "'\n", True)]:
+            (d / 'ux_status.sh').write_text(body); s2.poll()
+            assert (s2.refuse(False) == '') is ok and (s2.state(False)['ok']) is ok, body
+        for a_ in ('active', 'activating', 'deactivating', 'unknown', '', None):
+            s2.session = {**G, 'active_state': a_}; s2.sess_t = s2.now()
+            assert s2.refuse(False).startswith('Gazebo unit') and not s2.state(False)['ok'], a_
+        s2.session = {k: v for k, v in G.items() if k != 'active_state'}; assert s2.refuse(False) == 'Gazebo unit 상태 미확인'
+        assert not (d / 'CALLED').exists()   # 반례 전부에서 래퍼(시작·종료) 호출 0
         m.session = {**G, 'usage_scope': None, 'count_limit': 'unknown'}; assert m.refuse('rooms_a/f1', True, s2, False, False, None).startswith('사용자 체험 경로 확인 못 함')
         assert MapStart(str(d / 'ux_start.sh')).wrapper is None                        # 옛 이름(map_status.sh) 없으면 옛 경로로 안 붙음
         sp = SimStop(None, stop=str(d / 'stop_live.sh'), status=str(d / 'ux_status.sh'))
@@ -1986,11 +1996,12 @@ def main():
 
     def start_sim(c, rid):
         with lock:
-            why = 'Gazebo 종료 처리 중' if stopper.busy else starter.refuse(sim_live())
+            holder = clients[core.controller].actor if core.controller in clients and core.controller != c.cid else None
+            why = 'Gazebo 종료 처리 중' if stopper.busy else starter.refuse(sim_live()) or (f'{holder} 조종 중 — 그 기기에서 STOP·반납한 뒤' if holder else '')
             if why:
                 core.ev('warn', f'시뮬 시작 거부 · {why}'); return reply(c, rid, False, why)
             starter.busy = True; starter.last = time.monotonic()
-            core.latch = True; core._void()            # 시작 전에도 잠금 — 새 시뮬은 STOP 상태로 시작(계약), 앱도 같은 상태로
+            core.busy_sim('시뮬 시작 처리 중')          # 지도 체험과 같음: 조종권 해제·0·STOP 잠금·입력 폐기, 끝날 때까지 take·resume·reset 거부(끝나도 잠금 유지)
             core.ev('warn', f'시뮬 시작 요청(30분) · {c.actor} · STOP 상태로 시작')
         reply(c, rid, True, '시뮬 시작 요청함 — 아직 켜진 것 아님 · 결과는 «최근 시작 결과»에 표시')
 
@@ -1998,12 +2009,14 @@ def main():
             try:
                 r = subprocess.run(['bash', starter.wrapper, *starter.args], capture_output=True, text=True, timeout=240)
                 res, extra = (ux_result if starter.ux else parse_session)(r.stdout, r.returncode)
+            except subprocess.TimeoutExpired:   # 240 s ≥ RL ux_start 최대 대기(sctl 10 s·systemd-run 30·기동 30·state 8 등) — 넘으면 실패가 아니라 미확인
+                res, extra = 'timeout', ''
             except Exception as e:
                 res, extra = 'failed', type(e).__name__
             ok_ = res in ('starting', 'ready')
             text = START_TEXT[res]
             with lock:
-                starter.busy = False
+                starter.busy = False; core.sim_busy = ''   # 처리 중 표시만 해제 — 잠금·조종권 자동 복원 0
                 starter.result = {'t': time.strftime('%H:%M:%S'), 'st': 'ok' if ok_ else 'bad', 'text': f'{text}{" · " + extra if extra else ""}'[:200]}
                 core.ev('ok' if ok_ else 'bad', f'시뮬 시작 결과 · {starter.result["text"]}')
         threading.Thread(target=run, daemon=True).start()
@@ -2026,6 +2039,8 @@ def main():
             try:
                 r = subprocess.run(['bash', mapper.wrapper, *mapper.prefix, *args], capture_output=True, text=True, timeout=240)
                 res, extra = (ux_result if mapper.ux else map_result)(r.stdout, r.returncode)
+            except subprocess.TimeoutExpired:   # 240 s ≥ RL ux_start 최대 대기(sctl 10 s·systemd-run 30·기동 30·state 8 등) — 넘으면 실패가 아니라 미확인
+                res, extra = 'timeout', ''
             except Exception as e:
                 res, extra = 'failed', type(e).__name__
             text = START_TEXT[res]
