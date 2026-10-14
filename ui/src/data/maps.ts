@@ -1,6 +1,6 @@
 // 저장 지도(서버 관리, 읽기만) — docs/CONTRACT-maps-sim-stop.md. 보기 선택은 화면만 바꾼다: 실제 Gazebo world·조종 상태 변경 0
 import type { LiveMap, MapInfo } from '@contracts';
-import { ask } from './link';
+import { ask, useLink } from './link';
 
 export type Raster = { img: CanvasImageSource; res: number; ox: number; oy: number; w: number; h: number; label: string; noGrid?: boolean };   // noGrid: 좌표가 하나가 아닌 그림(층 나란히) — 격자 안 그림
 const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
@@ -59,6 +59,18 @@ export async function listMaps(): Promise<MapInfo[] | string> {
   const r = await ask('map_list');
   if (!r.ok) return r.text || '지도 목록 실패';
   return Array.isArray(r.maps) ? r.maps.filter(okInfo) : '지도 목록 형식 이상';
+}
+
+/** 화면 한 곳의 목록 조회 순번. n: 마지막 요청 번호(부르는 쪽이 세대 변경·화면 닫힘 때 n++ 로 걸린 요청 무효) · busy: 진행 중 요청의 연결 세대 */
+export type ListSeq = { n: number; busy: number | null };
+/** 목록 1회 조회. 이 연결에서 유효 status 를 받기 전·같은 세대 요청이 진행 중이면 안 보냄(link 는 연결마다 지도 요청 하나 — 겹치면 «처리 중» 거절).
+ *  결과는 보낼 때의 연결 세대·대상이 그대로이고 이 요청이 최신일 때만 채택 — 늦은 성공·실패 모두 새 결과를 덮지 않음. 자동 재시도 0 */
+export function loadList(q: ListSeq, set: (v: MapInfo[] | string) => void, get = listMaps): boolean {
+  const s = useLink.getState();
+  if (!s.open || s.stGen !== s.gen || q.busy === s.gen) return false;
+  const n = ++q.n, g0 = s.gen, p0 = s.provider; q.busy = g0;
+  get().then((v) => { if (q.busy === g0) q.busy = null; const t = useLink.getState(); if (q.n === n && t.gen === g0 && t.provider === p0) set(v); });
+  return true;
 }
 
 /** 한 장 받아 그림으로. 이름·크기·출처가 요청과 다르면 버린다(늦게 온 다른 지도 포함) */
