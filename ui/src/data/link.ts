@@ -91,6 +91,14 @@ export function checkStatus(m: any): string | null {
   const sp = m.sim_stop;    // 없으면 옛 서버(버튼 숨김). 있으면 화면이 읽는 칸 전부 검사
   if (sp !== undefined && sp !== null && (typeof sp !== 'object' || typeof sp.ok !== 'boolean' || typeof sp.why !== 'string' || typeof sp.busy !== 'boolean' || typeof sp.on !== 'boolean'
     || !(sp.ledger_left === null || int(sp.ledger_left)) || !(sp.last === null || (typeof sp.last === 'object' && (sp.last.st === 'ok' || sp.last.st === 'bad') && typeof sp.last.text === 'string')))) return 'sim_stop';
+  // 지도 칸(live_map·map_start·map_save): 틀리면 그 칸만 버림(조종 상태는 유지 — 지도 오류가 STOP·조종을 막지 않게)
+  const ob = (x: any) => !!x && typeof x === 'object', lv = m.live_map, ms = m.map_start, sv = m.map_save;
+  if (!(ob(lv) && typeof lv.st === 'string' && typeof lv.why === 'string')) m.live_map = null;
+  else if (lv.pose != null && !(ob(lv.pose) && ['x', 'y', 'yaw'].every((k) => fin(lv.pose[k])))) lv.pose = null;
+  if (!(ob(ms) && typeof ms.ok === 'boolean' && typeof ms.why === 'string' && typeof ms.busy === 'boolean'
+    && (ms.ledger === null || (ob(ms.ledger) && int(ms.ledger.used) && int(ms.ledger.max) && Array.isArray(ms.ledger.keys) && ms.ledger.keys.every((k: unknown) => typeof k === 'string')))
+    && (ms.last == null || (ob(ms.last) && typeof ms.last.t === 'string' && typeof ms.last.text === 'string')))) m.map_start = null;
+  if (!(ob(sv) && typeof sv.ok === 'boolean' && typeof sv.why === 'string' && typeof sv.busy === 'boolean')) m.map_save = null;
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
     for (const k of ['x', 'y', 'yaw', 'vx', 'vy', 'tilt_deg']) if (!nf(m.sim[k])) return `sim.${k}`;
@@ -100,11 +108,11 @@ export function checkStatus(m: any): string | null {
 }
 // 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로(live.js ask 와 같음)
 let rid = 0; const pending = new Map<number, (m: Reply) => void>();
-type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get';
-export const ask = (op: AskOp, extra: Record<string, string> = {}) => new Promise<Reply>((res) => {
+type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get' | 'map_live_get' | 'map_start' | 'map_save';
+export const ask = (op: AskOp, extra: Record<string, string> = {}, ms = 5000) => new Promise<Reply>((res) => {   // ms: 서버 쪽 제한이 더 긴 op(map_save 10 s)만 늘림
   const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text });
   if (!send({ ...extra, op, rid: id } as ClientOp)) return no('링크 끊김 — 보내지 못함');
-  const t = setTimeout(() => { pending.delete(id); no('서버 응답 없음(5 s)'); }, 5000);
+  const t = setTimeout(() => { pending.delete(id); no(`서버 응답 없음(${ms / 1000} s)`); }, ms);
   pending.set(id, (m) => { clearTimeout(t); res(m); });
 });
 

@@ -89,6 +89,75 @@
       "title": "OpMapGet",
       "type": "object"
     },
+    "OpMapStart": {
+      "description": "지도 체험 시작(RL start_map.sh 1회). 허용표·버전 규칙·원장·조종 상태는 서버가 다시 검사한다(docs/CONTRACT-maps-sim-stop.md 8절).",
+      "properties": {
+        "floor_id": {
+          "enum": [
+            "f1",
+            "l1",
+            "l2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d{8}-\\d{6}-e\\d+|gt-\\d{8})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Version"
+        },
+        "mode": {
+          "enum": [
+            "slam",
+            "static"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "op": {
+          "const": "map_start",
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        },
+        "world_id": {
+          "enum": [
+            "v5_single",
+            "v5_building",
+            "rooms_a"
+          ],
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "world_id",
+        "floor_id",
+        "mode"
+      ],
+      "title": "OpMapStart",
+      "type": "object"
+    },
     "OpRid": {
       "description": "응답(op=reply)이 오는 요청. rid 가 정수가 아니면 서버는 rid=null 로 답한다.",
       "properties": {
@@ -97,7 +166,9 @@
             "photo",
             "sim_start",
             "sim_stop",
-            "map_list"
+            "map_list",
+            "map_live_get",
+            "map_save"
           ],
           "title": "Op",
           "type": "string"
@@ -151,6 +222,9 @@
       "hidden": "#/$defs/OpSimple",
       "map_get": "#/$defs/OpMapGet",
       "map_list": "#/$defs/OpRid",
+      "map_live_get": "#/$defs/OpRid",
+      "map_save": "#/$defs/OpRid",
+      "map_start": "#/$defs/OpMapStart",
       "photo": "#/$defs/OpRid",
       "release": "#/$defs/OpSimple",
       "reset": "#/$defs/OpSimple",
@@ -174,6 +248,9 @@
     },
     {
       "$ref": "#/$defs/OpMapGet"
+    },
+    {
+      "$ref": "#/$defs/OpMapStart"
     }
   ]
 }

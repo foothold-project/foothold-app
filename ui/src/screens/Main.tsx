@@ -38,7 +38,7 @@ export default function Main() {
   const api = useRef<MapApi | null>(null), box = useRef<HTMLDivElement>(null);
   const [trail, setTrail] = useState(true), [zon, setZon] = useState(true), [, redraw] = useState(0);
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
-  const { raster, pickEl } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
+  const { raster, pickEl, pose } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
 
   const role = st?.role, ctl = v.linkOk && role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
@@ -113,8 +113,8 @@ export default function Main() {
     folP: { 'aria-pressed': robotMode, title: '로봇 중심(지도가 따라 움직임) ↔ 전체 보기', onClick: () => { mApi?.setMode(robotMode ? 'all' : 'robot'); redraw((n) => n + 1); } },
     zinP: { title: '확대', onClick: () => mApi?.zoomBy(1.5) }, zoutP: { title: '축소', onClick: () => mApi?.zoomBy(1 / 1.5) },
     map: <div style={{ position: 'relative', width: '100%', aspectRatio: '1000/620' }}>
-      <MapCanvas name="main" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={v.robot} trail={TRAIL.pts}
-        raster={raster} noRobot={!!raster} showTrail={trail && !raster} showZones={zon && !raster} wps={R && !raster ? R.wps : null} />
+      <MapCanvas name="main" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={raster ? pose : v.robot} trail={TRAIL.pts}
+        raster={raster} noRobot={!!raster && !pose} showTrail={trail && !raster} showZones={zon && !raster} wps={R && !raster ? R.wps : null} />
       {pickEl}</div>,
     stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist == null ? '미확인' : `${dist.toFixed(1)} m`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
     steps: R ? R.wps.map((x, i) => ({ n: i + 1, title: x.name || `지점 ${i + 1}`, cls: x.st === '방문' ? 'done' : x.st === '미방문' ? 'hold' : i === ci ? 'now' : '',

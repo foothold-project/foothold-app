@@ -100,12 +100,12 @@ export function MapCanvas(p: Props) {
       const q = o.small ? 0.75 : 1; g.beginPath(); g.moveTo(14 * q, 0); g.lineTo(-10 * q, 9 * q); g.lineTo(-5 * q, 0); g.lineTo(-10 * q, -9 * q); g.closePath(); g.fill(); g.restore();
       const tags = [];
       if (!fr) tags.push(`위치 오래됨 ${((performance.now() - r.t) / 1000).toFixed(0)} s`);
-      if (Math.abs(r.x) > FLOOR || Math.abs(r.y) > FLOOR) tags.push('도면 밖');   // 가두지 않고 그대로 그린다
+      if (r.x < B[0] || r.x > B[1] || r.y < B[2] || r.y > B[3]) tags.push('도면 밖');   // 바탕(도면 또는 지도) 범위 밖   // 가두지 않고 그대로 그린다
       if (tags.length) { g.font = `600 ${o.small ? 10 : 12}px sans-serif`; g.fillStyle = C.warn; g.fillText(tags.join(' · '), X(r.x) + 12, Y(r.y) - 12); }
     } else if (!o.noRobot && !rs) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText('위치 없음 · GT 미수신', W / 2, H / 2); g.textAlign = 'left'; }
     g.font = '600 11px sans-serif'; g.fillStyle = C.mut; g.textAlign = 'right'; g.fillText('N ↑', W - 8, H - 9); g.textAlign = 'left';
     if (!o.small) {
-      const t = `${rs ? `위치 미표시(지도와 결속 안 됨) · ${rs.label} · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : '바닥 ±10 m · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
+      const t = `${rs ? `${r ? '위치 = 실시간 지도 status' : '위치 미표시(지도와 결속 안 됨)'} · ${rs.label} · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : '바닥 ±10 m · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
     box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식

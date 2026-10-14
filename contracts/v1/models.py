@@ -54,7 +54,7 @@ Photo = Annotated[str, AfterValidator(_photo),
                   WithJsonSchema({'type': 'string', 'pattern': r'^media/photos/[0-9]{8}/[A-Za-z0-9_.-]{1,80}\.jpg$'})]
 DocId = Annotated[str, Field(pattern=r'^[a-z][A-Za-z0-9_]{1,40}$')]
 
-# ---------------------------------------------------------------- WS 화면 → 서버 (/ws, 관문 OPS 와 같은 9개)
+# ---------------------------------------------------------------- WS 화면 → 서버 (/ws, 관문 OPS 와 같은 목록)
 
 
 class OpSimple(In):
@@ -71,7 +71,7 @@ class OpCmd(In):
 
 class OpRid(In):
     """응답(op=reply)이 오는 요청. rid 가 정수가 아니면 서버는 rid=null 로 답한다."""
-    op: Literal['photo', 'sim_start', 'sim_stop', 'map_list']
+    op: Literal['photo', 'sim_start', 'sim_stop', 'map_list', 'map_live_get', 'map_save']
     rid: Rid = None
 
 
@@ -84,7 +84,17 @@ class OpMapGet(In):
     map_version: Annotated[str, Field(pattern=r'^(\d{8}-\d{6}-e\d+|gt-\d{8})$')]
 
 
-ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet], Field(discriminator='op')]
+class OpMapStart(In):
+    """지도 체험 시작(RL start_map.sh 1회). 허용표·버전 규칙·원장·조종 상태는 서버가 다시 검사한다(docs/CONTRACT-maps-sim-stop.md 8절)."""
+    op: Literal['map_start']
+    rid: Rid = None
+    world_id: Literal['v5_single', 'v5_building', 'rooms_a']
+    floor_id: Literal['f1', 'l1', 'l2']
+    mode: Literal['slam', 'static']
+    map_version: Optional[Annotated[str, Field(pattern=r'^(\d{8}-\d{6}-e\d+|gt-\d{8})$')]] = None   # static 만(필수), slam 은 없음
+
+
+ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet, OpMapStart], Field(discriminator='op')]
 
 # ---------------------------------------------------------------- WS 서버 → 화면
 
@@ -139,6 +149,63 @@ class SimStopState(Out):
     last: Optional[SimStopLast]
 
 
+class LiveGrid(Out):
+    seq: int                                # 서버가 새 격자를 결속할 때마다 +1 — 바뀌면 map_live_get
+    w: int; h: int
+    res: Fin
+    origin: Annotated[list[Fin], Field(min_length=3, max_length=3)]   # 왼쪽 아래 칸의 map 좌표(x, y, z). 회전 0 만
+
+
+class LivePose(Out):
+    x: Fin; y: Fin; yaw: Fin
+    source: Literal['slam_tf', 'gt_identity']   # slam_tf = SLAM 보정 / gt_identity = GT 기하 지도에 시뮬 GT(SLAM 아님)
+
+
+class LiveSave(Out):
+    ok: bool
+    map_version: Optional[str]
+    reason: str
+    epoch: Optional[int]
+
+
+class LiveMap(Out):
+    """/v2_map/* 실시간 지도 요약(서버 결속 정본). 경로 없음. st: off 미수신 · stale 3 s 끊김 · unknown 형식 모름 · reset 리셋 중 · wait 이번 epoch 지도 전 · bad 지도 오류 · ok 표시"""
+    st: Literal['off', 'stale', 'unknown', 'reset', 'wait', 'bad', 'ok']
+    why: str
+    age_s: Optional[Fin] = None
+    world_id: Optional[Literal['v5_single', 'v5_building', 'rooms_a']] = None
+    building_id: Optional[Literal['v5', 'v5_single', 'rooms_a']] = None
+    floor_id: Optional[Literal['f1', 'l1', 'l2']] = None
+    mode: Optional[Literal['slam', 'static']] = None
+    map_source: Optional[Literal['slam', 'gt_raster']] = None
+    map_version: Optional[str] = None
+    epoch: Optional[int] = None
+    sim_t: Optional[Fin] = None
+    scan: Optional[dict] = None             # {n, age_s}
+    slam: Optional[str] = None              # 현재 epoch 의 slam 수명주기 결과(ok = 활성화 성공)
+    last_save: Optional[LiveSave] = None
+    grid: Optional[LiveGrid] = None
+    pose: Optional[LivePose] = None
+    pose_why: Optional[str] = None
+
+
+class MapLedger(Out):
+    used: int; max: int
+    keys: list[str]                         # 이미 쓴 «지형/층» 키(지형·층마다 1회)
+
+
+class MapStartState(Out):
+    """지도 체험 시작. 원장은 지도 체험 것(map-20261014)만 — 기존 체험 원장(sim_stop.ledger_left)과 섞지 않는다"""
+    ok: bool; why: str; busy: bool
+    ledger: Optional[MapLedger]             # null = 미확인
+    session: Optional[dict]                 # {result, runner, world_id, floor_id, map_mode, remaining_s}
+    last: Optional[SimStopLast]
+
+
+class MapSaveState(Out):
+    ok: bool; why: str; busy: bool
+
+
 class Status(Out):
     """10 Hz 상태. 안전 판단(latch·applied·reason)의 정본은 서버. role 은 송신 허용에만 쓴다."""
     op: Literal['status']
@@ -162,6 +229,9 @@ class Status(Out):
     sim_start: SimStartState
     docs_rev: int
     sim_stop: Optional[SimStopState] = None   # 없는 서버(이전 판)도 있음 — 없으면 버튼을 숨긴다
+    live_map: Optional[LiveMap] = None
+    map_start: Optional[MapStartState] = None
+    map_save: Optional[MapSaveState] = None
 
 
 class PhotoMeta(Out):
@@ -207,6 +277,7 @@ class Reply(Out):
     photo: Optional[PhotoMeta] = None       # op=photo 성공 때만
     maps: Optional[list[MapInfo]] = None    # op=map_list 성공 때만
     map: Optional[MapData] = None           # op=map_get 성공 때만
+    live: Optional[dict] = None             # op=map_live_get 성공 때만 {seq, epoch, world_id, floor_id, png}
 
 
 ServerMsg = Annotated[Union[Status, Reply], Field(discriminator='op')]   # 텍스트 프레임. 바이너리 프레임 = JPEG 원본

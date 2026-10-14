@@ -96,7 +96,7 @@ class Core:
         self.reset_pending = None   # 요청 시각
         self.ep_change_t = None     # 마지막 episode 변경 시각
         self.sim_was_ok = False; self.bad_input = False; self.bad_state = False
-        self.sim_stopping = False   # Gazebo 끄기 처리 중: take·resume·reset 거부, cmd 폐기(서버 정본). 끝나도 잠금은 그대로(자동 복원 없음)
+        self.sim_busy = ''          # Gazebo 끄기·지도 체험 시작 처리 중(이유 글): take·resume·reset 거부, cmd 폐기(서버 정본). 끝나도 잠금은 그대로(자동 복원 없음)
 
     def ev(self, level, text):
         e = {'t': time.strftime('%H:%M:%S'), 'st': level, 'text': text}
@@ -112,8 +112,8 @@ class Core:
         self.intent = Z; self.intent_t = -1e9; self.need_neutral = True
 
     def sim_block(self):
-        if self.sim_stopping:
-            return 'Gazebo 종료 중'
+        if self.sim_busy:
+            return self.sim_busy
         if self.st is None:
             return '시뮬 상태 미수신'
         if self.now() - self.state_t > STATE_STALE:
@@ -147,8 +147,8 @@ class Core:
         return True
 
     def take(self, cid, who='이 기기'):
-        if self.sim_stopping:
-            self.ev('warn', f'조종권 거부 · Gazebo 종료 중 ({who})'); return False
+        if self.sim_busy:
+            self.ev('warn', f'조종권 거부 · {self.sim_busy} ({who})'); return False
         if self.controller not in (None, cid):
             return False
         if self.controller != cid:
@@ -195,7 +195,7 @@ class Core:
         return True
 
     def reset_begin(self, cid, ready):
-        why = 'Gazebo 종료 중' if self.sim_stopping else '조종권 없음' if cid != self.controller else '리셋 처리 중' if self.reset_pending else '' if ready else '리셋 서비스 미연결'
+        why = self.sim_busy or ('조종권 없음' if cid != self.controller else '리셋 처리 중' if self.reset_pending else '' if ready else '리셋 서비스 미연결')
         if why:
             self.ev('warn', f'시뮬 리셋 거부 · {why}'); return False
         self.reset_pending = self.now(); self.latch = True; self.resume_pending = None; self._void()
@@ -207,6 +207,12 @@ class Core:
             return                                   # 시간 초과로 이미 닫힘
         self.reset_pending = None; self.latch = True; self._void()
         self.ev('ok' if ok else 'bad', f'리셋 {"응답" if ok else "실패"}: {msg} · STOP 유지')
+
+    def busy_sim(self, why):
+        """지도 체험 시작 접수: 조종권 해제(누구든) · 0 · STOP 잠금 · 입력 폐기, 끝날 때까지 take·resume·reset·비영 거부(sim_busy). 끝나도 잠금 유지"""
+        if self.controller:
+            self.drop(self.controller, why)
+        self.latch = True; self.resume_pending = None; self._void(); self.sim_busy = why
 
     def want_stop_pub(self):
         """앱이 잠겼는데 시뮬이 아직 STOP 이 아니면 STOP 을 다시 보낸다(재개 대기 중은 제외)."""
@@ -453,7 +459,10 @@ def actor_from_header(v):
     return re.sub(r'[\x00-\x1f\x7f]', '', a).strip()[:48] or '관문 기기'
 
 
-SESSION_RESULTS = {'starting', 'ready', 'already_running', 'resource_blocked', 'budget_exhausted', 'failed'}
+SESSION_RESULTS = {'starting', 'ready', 'already_running', 'resource_blocked', 'budget_exhausted', 'bad_args', 'failed'}
+START_TEXT = {'starting': '시뮬 기동 중 · 상태·영상 연결은 화면 표시로 판정(안전 준비 판정 아님)',
+              'ready': '시뮬 상태·영상 수신 확인(안전 준비 판정 아님 · STOP 상태)', 'already_running': '이미 실행 중',
+              'resource_blocked': '자원 부족으로 기동 안 함', 'budget_exhausted': '기동 원장 소진', 'bad_args': '인자 거부(기동 안 함)', 'failed': '기동 실패'}
 
 
 def parse_session(out, code):
@@ -464,7 +473,7 @@ def parse_session(out, code):
         except ValueError:
             continue
         if isinstance(d, dict) and d.get('schema') == 'v2_session/1' and d.get('result') in SESSION_RESULTS:
-            extra = ' · '.join(f'{lab}{str(d[k])[:80]}' for k, lab in (('reason', ''), ('ends_at', '종료 예정 '), ('ledger_used', '기동 원장 ')) if d.get(k) is not None)
+            extra = ' · '.join(f'{lab}{str(d[k])[:80]}' for k, lab in (('reason', ''), ('ends_at', '종료 예정 '), ('ledger_used', '기동 원장 '), ('map_ledger_used', '지도 체험 원장 ')) if d.get(k) is not None)
             return d['result'], extra
     return 'failed', f'래퍼 응답 형식 틀림(종료 {code})'
 
@@ -648,14 +657,14 @@ def selftest_stop():
     t[0] = 0.0; c = Core(now=lambda: t[0])
     S = lambda stop: c.on_state({'schema': SCHEMA, 'episode': 0, 'stop_requested': stop, 'reset_in_progress': False, 'policy_running': True})
     S(False); assert c.take('a'); c.cmd('a', Z); c.cmd('a', (1.0, 0.0, 0.0)); assert c.applied() == (0.6, 0, 0)
-    c.drop('a', 'Gazebo 종료'); c.latch = True; c.resume_pending = None; c._void(); c.sim_stopping = True   # stop_sim 과 같은 순서
+    c.drop('a', 'Gazebo 종료'); c.latch = True; c.resume_pending = None; c._void(); c.sim_busy = 'Gazebo 종료 중'   # stop_sim 과 같은 순서
     S(True); assert c.sim_block() == 'Gazebo 종료 중'
     for cid in ('a', 'b'):
         assert not c.take(cid) and c.controller is None
         c.cmd(cid, Z); c.cmd(cid, (1.0, 0.0, 0.0)); assert c.applied() == Z
         assert not c.resume(cid) and c.resume_pending is None
         assert not c.reset_begin(cid, True) and c.reset_pending is None
-    c.sim_stopping = False                                                         # 끝남 → 자동 복원 없음
+    c.sim_busy = ''                                                                # 끝남 → 자동 복원 없음
     assert c.latch and c.controller is None and c.resume_pending is None and c.applied() == Z
     assert c.take('b'); c.cmd('b', Z); c.cmd('b', (1.0, 0.0, 0.0)); assert c.applied() == Z and c.latch   # STOP 잠금 유지
     # unit 값·상태 스크립트 형식
@@ -916,6 +925,421 @@ class MapStore:
         return r
 
 
+# ---------------------------------------------------------------- 실시간 지도·지도 체험 시작·저장 — docs/CONTRACT-maps-sim-stop.md 7~9절
+# RL 정본 map-20261014/MAP-CONTRACT.md §4·§5: /v2_map/status(JSON 1 Hz) · /v2_map/map(OccupancyGrid, transient_local) · /v2_map/save(Trigger)
+LIVE_STALE, POSE_AGE, POSE_SIM_GAP, STAMP_EPS, HOLD_MAX = 3.0, 2.0, 1.0, 1e-3, 40.0
+POSE_SRC = {('slam', 'slam'): 'slam_tf', ('static', 'gt_raster'): 'gt_identity'}     # (mode, map_source) → 허용 pose 출처. static+저장 slam = 없음
+NULL_KO = {'saved_slam_map_not_localized': '저장 SLAM 지도 — 위치 추정 없음', 'tf_stale': '위치 변환 오래됨', 'tf_lookup_failed': '위치 변환 없음'}
+CELL_OK = bytes(range(101)) + b'\xff'                                                # OccupancyGrid 칸 허용값 -1·0~100(int8 바이트)
+GRAY = bytes(254 if v <= 25 else 0 if 65 <= v <= 100 else 205 for v in range(256))  # int8 바이트(음수 = 128~255) → 자유 254·벽 0·모름 205
+fin = lambda x: type(x) in (int, float) and math.isfinite(x)
+safe_txt = lambda s, n=80: re.sub(r'/\S*', '<경로>', re.sub(r'[\x00-\x1f\x7f]', '', s))[:n] if isinstance(s, str) else ''   # 호스트 경로 지움
+
+
+def grid_png(g):
+    """받은 격자 dict(frame, w, h, res, origin[x,y,yaw], data=int8 바이트, 아래 행부터) → (PNG, '') | (None, 이유). 무거운 일이라 IOLoop·ROS 스레드 밖"""
+    w, h, o, q = g.get('w'), g.get('h'), g.get('origin'), g.get('q')
+    if g.get('frame') != 'map':
+        return None, f'격자 frame 이 map 아님({safe_txt(g.get("frame"), 20)})'
+    if not (type(w) is int and type(h) is int and 1 <= w <= MAP_DIM and 1 <= h <= MAP_DIM) or len(g.get('data') or b'') != w * h:
+        return None, '격자 크기 범위 밖·화소 수 불일치'
+    if not (fin(g.get('res')) and g['res'] > 0 and isinstance(o, (list, tuple)) and len(o) == 3 and all(fin(x) for x in o)
+            and isinstance(q, (list, tuple)) and len(q) == 4 and all(fin(x) for x in q) and abs(math.hypot(*q) - 1) <= 1e-3):
+        return None, '격자 해상도·원점(x,y,z)·자세(쿼터니언) 형식 틀림'
+    if abs(q[0]) > 1e-6 or abs(q[1]) > 1e-6 or abs(math.atan2(2 * q[3] * q[2], 1 - 2 * q[2] * q[2])) > 1e-6:
+        return None, '원점 회전 있는 격자는 그리지 않음(yaw 0 만)'
+    if g['data'].translate(None, CELL_OK):
+        return None, '격자 칸 값이 -1·0~100 밖'
+    px = g['data'].translate(GRAY)
+    png = png_gray(w, h, b''.join(px[y * w:(y + 1) * w] for y in range(h - 1, -1, -1)))   # 위 행부터(PGM·PNG 순서)
+    return (png, '') if len(png) <= MAP_PNG_MAX else (None, f'PNG {len(png)} B > 상한')
+
+
+class LiveMap:
+    """실시간 지도 결속(서버가 정본). 격자는 이 조건이 전부 맞을 때만 표시: status 3 s 안·형식 유효·map_accepting·map_error 없음·
+    status.map.epoch == epoch·격자 w/h/res/stamp == status.map·격자 수신 ≥ 결속 키를 처음 본 시각. 키 = (world, building, floor, mode, source, version, epoch).
+    키가 바뀌거나 조건이 깨지면 표시 격자·마커 즉시 버림(옛 epoch 늦은 격자는 수신 시각으로 거부). 앱 RESET·Gazebo 끄기 요청은 키가 바뀔 때까지 «리셋 중».
+    on_status/on_grid = ROS 스레드, commit = 변환 일꾼, view/png = 웹 스레드. 자체 lock(조종 lock 과 따로)"""
+
+    def __init__(self, now=time.monotonic):
+        self.now, self.lock, self.wake = now, threading.Lock(), threading.Event()
+        self.st = self.st_t = self.key = self.key_t = self.cand = self.pending = self.shown = self.hold_t = None
+        self.hold_key, self.seq, self.grid_why, self.st_sim = None, 0, '', None
+
+    @staticmethod
+    def key_of(d):
+        """status → (결속 키, '') | (None, 이유)"""
+        if not isinstance(d, dict) or d.get('schema') != 'v2_map_status/1':
+            return None, '지도 상태 형식 모름'
+        w, b, f, mode, src, ver, ep = (d.get(k) for k in ('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch'))
+        wd = MAP_WORLDS.get(w) if isinstance(w, str) else None
+        if not wd or wd[0] != b or f not in wd[1]:
+            return None, '지형·건물·층이 허용표 밖'
+        if mode not in ('slam', 'static') or src not in ('slam', 'gt_raster') or (mode == 'slam' and src != 'slam'):
+            return None, '지도 모드·출처 모름'
+        if (mode == 'slam' and ver is not None) or (mode == 'static' and not (isinstance(ver, str) and MAP_VER.fullmatch(ver))):
+            return None, '지도 버전 형식 틀림'
+        if d.get('map_frame') != 'map' or not (type(ep) is int and ep >= 1):
+            return None, '지도 frame·epoch 형식 틀림'
+        return (w, b, f, mode, src, ver, ep), ''
+
+    def _drop(self):
+        self.shown = self.pending = None
+
+    def _why(self, t):          # 지금 status 로 격자를 보일 수 없는 이유('' = 보일 수 있음). 이유가 있으면 표시 격자 버림
+        d = self.st
+        why = ('지도 상태 미수신' if d is None else f'지도 상태 {t - self.st_t:.0f} s 끊김' if t - self.st_t > LIVE_STALE
+               else self.key_of(d)[1] or ('리셋 중 — 이전 지도·위치 버림, 새 지도 기다림' if d.get('map_accepting') is not True
+                                         or (self.hold_t is not None and t - self.hold_t < HOLD_MAX) else '')
+               or (f'지도 오류 · {safe_txt(d.get("map_error"))}' if d.get('map_error') is not None else '')
+               or ('상태의 지도 epoch 가 현재 epoch 와 다름' if isinstance(d.get('map'), dict) and d['map'].get('epoch') != self.key[6] else ''))
+        if why:
+            self._drop()
+        if why.startswith('지도 상태') and d is not None and t - self.st_t > LIVE_STALE:
+            self.key = None                                 # 끊김 = 세션 경계 — 다시 오면 새 키(새 수신 시각)부터
+        return why
+
+    def _bind(self, g, t):      # 격자 g 가 지금 status 의 현재 epoch 지도인가 → '' | 이유
+        m, k = (self.st or {}).get('map'), self.key
+        if not isinstance(m, dict) or k is None:
+            return '상태에 지도 없음(이번 epoch 첫 지도 전)'
+        if m.get('epoch') != k[6]:
+            return '상태의 지도 epoch 가 현재 epoch 와 다름'
+        if g['t'] < self.key_t:
+            return '이전 결속 키 때 받은 격자(버림)'
+        res = m.get('resolution', m.get('res'))
+        if (g['w'], g['h']) != (m.get('width'), m.get('height')) or not fin(res) or abs(res - g['res']) > 1e-4:
+            return '격자 크기·해상도가 상태와 다름'
+        if k[3] == 'slam' and not (fin(m.get('stamp_sim')) and fin(g['stamp']) and abs(m['stamp_sim'] - g['stamp']) <= STAMP_EPS):
+            return '격자 stamp 가 상태와 다름 — 다음 상태 기다림'       # static 은 stamp 비교 안 함(RL 이 파일 지도를 stamp 없이 냄) — 저장 meta 대조로
+        return ''
+
+    def on_status(self, d):
+        with self.lock:
+            t = self.now(); self.st, self.st_t = d, t
+            k = self.key_of(d)[0]
+            prev = self.st_sim; self.st_sim = d.get('sim_t') if isinstance(d, dict) and fin(d.get('sim_t')) else None
+            if k is not None and k == self.key and prev is not None and self.st_sim is not None and self.st_sim < prev - 1.0:
+                self.key = None                             # 같은 키인데 sim 시계 되감김 = 새 기동(episode 1 재사용) — 새 키로
+            if k != self.key:
+                self.key, self.key_t = k, t; self._drop()
+                if k != self.hold_key:
+                    self.hold_t = None                      # 키가 바뀌면(새 epoch·세션) 리셋 표시 해제
+            if not self._why(t) and self.pending and not self._bind(self.pending[0], t):
+                self._show(*self.pending)
+
+    def on_grid(self, g):       # ROS 스레드: 최신 1장만 둔다(변환은 일꾼)
+        with self.lock:
+            g['t'] = self.now(); self.cand = g
+        self.wake.set()
+
+    def take(self):
+        with self.lock:
+            g, self.cand = self.cand, None
+            return g
+
+    def static_key(self):       # 일꾼이 lock 밖에서 저장 meta 를 읽을 키(static 일 때만)
+        with self.lock:
+            return self.key if self.key and self.key[3] == 'static' else None
+
+    def commit(self, g, png, why, key=None):
+        """key = static 저장 meta 를 대조한 키(그 사이 키가 바뀌었으면 거부)"""
+        with self.lock:
+            t = self.now()
+            why = (why or self._why(t) or ('지도 결속 키가 바뀜(버림)' if self.key and self.key[3] == 'static' and key != self.key else '')
+                   or self._bind(g, t))
+            if png and why.startswith('격자 stamp'):
+                self.pending = (g, png)                     # 상태가 한 박자 늦은 경우 — 다음 status 에서 다시 결속
+            elif not why:
+                self._show(g, png)
+            self.grid_why = why
+
+    def _show(self, g, png):
+        self.seq += 1; self.pending = None; self.grid_why = ''
+        self.shown = {'key': self.key, 'seq': self.seq, 'w': g['w'], 'h': g['h'], 'res': g['res'], 'origin': list(g['origin']), 'stamp': g['stamp'],
+                      'png': base64.b64encode(png).decode()}
+
+    def hold(self):             # 앱 RESET·Gazebo 끄기 요청: 응답 전에 격자·마커 버림, 키가 바뀔 때까지(최대 HOLD_MAX)
+        with self.lock:
+            self.hold_t, self.hold_key = self.now(), self.key; self._drop()
+
+    def release(self):          # RESET 실패 응답
+        with self.lock:
+            self.hold_t = None
+
+    def png(self):
+        with self.lock:
+            s = self.shown
+            return None if s is None else {'seq': s['seq'], 'epoch': s['key'][6], 'world_id': s['key'][0], 'floor_id': s['key'][2], 'png': s['png']}
+
+    def view(self):
+        """화면에 보낼 요약(경로·kids·maps_root 없음). st: off|stale|unknown|reset|wait|ok|bad"""
+        with self.lock:
+            t, d = self.now(), self.st
+            why = self._why(t)
+            if d is None:
+                return {'st': 'off', 'why': why}
+            k, kwhy = self.key_of(d)
+            st = ('stale' if t - self.st_t > LIVE_STALE else 'unknown' if kwhy else 'reset' if why.startswith('리셋') else 'bad' if why
+                  else 'ok' if self.shown else 'wait')
+            v = {'st': st, 'why': why or ('' if self.shown else self.grid_why or '이번 epoch 지도 기다림(slam 5 s·static 10 s 마다 발행)'),
+                 'age_s': round(t - self.st_t, 1)}
+            if k is None:
+                return v
+            v.update(zip(('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch'), k))
+            sc, ls, sl = d.get('scan'), d.get('last_save'), d.get('slam_lifecycle')
+            v['sim_t'] = d['sim_t'] if fin(d.get('sim_t')) else None
+            v['scan'] = {'n': sc['n'], 'age_s': sc.get('age_s') if fin(sc.get('age_s')) else None} if isinstance(sc, dict) and type(sc.get('n')) is int else None
+            v['slam'] = safe_txt(sl.get('state'), 24) if isinstance(sl, dict) and sl.get('epoch') == k[6] else None
+            v['last_save'] = ({'ok': ls.get('ok') is True, 'map_version': ls['map_version'] if isinstance(ls.get('map_version'), str) and MAP_VER.fullmatch(ls['map_version']) else None,
+                               'reason': safe_txt(ls.get('reason')), 'epoch': ls.get('epoch') if type(ls.get('epoch')) is int else None} if isinstance(ls, dict) else None)
+            s = self.shown
+            v['grid'] = None if s is None else {k_: s[k_] for k_ in ('seq', 'w', 'h', 'res', 'origin')}
+            p, want = d.get('pose_map'), POSE_SRC.get(k[3:5])
+            ok_p = (s is not None and isinstance(p, dict) and want and p.get('source') == want and all(fin(p.get(x)) for x in ('x', 'y', 'yaw', 'stamp_sim'))
+                    and fin(d.get('sim_t')) and abs(d['sim_t'] - p['stamp_sim']) <= POSE_SIM_GAP and t - self.st_t <= POSE_AGE)
+            v['pose'] = {'x': p['x'], 'y': p['y'], 'yaw': p['yaw'], 'source': want} if ok_p else None
+            v['pose_why'] = '' if ok_p else ('지도 없음' if s is None else NULL_KO.get(d.get('pose_map_null_reason'))
+                                             or ('이 지도는 위치 표시 안 함(저장 SLAM 지도)' if not want else '위치 형식 틀림·오래됨'))
+            return v
+
+
+def static_meta_why(g, key, get):
+    """static 격자 ↔ 저장 지도 meta(같은 건물·층·버전): 크기·해상도·원점 x,y 가 같아야. get = MapStore.get. → '' | 이유"""
+    if key is None:
+        return ''
+    try:
+        m = get(key[1], key[2], key[5])
+    except Exception as e:
+        return f'저장 지도 meta 확인 불가 · {safe_txt(str(e), 40)}'
+    if m['world_id'] != key[0] or m['map_source'] != key[4]:
+        return '저장 지도 meta 의 world·출처가 상태와 다름'
+    if (g['w'], g['h']) != (m['width'], m['height']) or abs(g['res'] - m['resolution']) > 1e-9 or any(abs(a - b) > 1e-6 for a, b in zip(g['origin'][:2], m['origin'][:2])):
+        return '격자가 저장 지도 meta(크기·해상도·원점)와 다름'
+    return ''
+
+
+def map_args(m, has_ver):
+    """map_start 요청 → (start_map.sh 인자, 원장 키, '') | (None, None, 이유). has_ver(b, f, v) = 저장 지도 폴더 있음"""
+    w, f, mode, v = (m.get(k) for k in ('world_id', 'floor_id', 'mode', 'map_version'))
+    wd = MAP_WORLDS.get(w) if isinstance(w, str) else None
+    if not wd or f not in wd[1]:
+        return None, None, '지형·층이 허용표 밖'
+    if mode not in ('slam', 'static'):
+        return None, None, '모드는 slam 또는 static'
+    if mode == 'slam' and v is not None:
+        return None, None, 'slam 은 지도 버전 없이 시작'
+    if mode == 'static' and not (isinstance(v, str) and MAP_VER.fullmatch(v) and has_ver(wd[0], f, v)):
+        return None, None, 'static 은 저장 지도 버전을 골라야 함(목록에 있는 것)'
+    return [w, f, mode] + ([v] if mode == 'static' else []), f'{w}/{f}', ''
+
+
+class MapStart:
+    """«지도 체험 시작» — RL start_map.sh 를 사용자가 확인 뒤 누를 때만 한 번(허용 인자만). 상태는 같은 폴더 map_status.sh(읽기만).
+    단일 unit 이라 기존 «시뮬 시작»과 busy·쿨다운을 같이 쓴다(SimStart.busy·last). 원장은 지도 체험 것만(기존 체험 원장과 섞지 않음)"""
+
+    def __init__(self, wrapper):
+        p = Path(wrapper) if wrapper else None
+        ok = bool(p and p.is_file() and p.with_name('map_status.sh').is_file())
+        self.wrapper = str(p) if ok else None
+        self.status_sh = str(p.with_name('map_status.sh')) if ok else None
+        self.session, self.last = None, None
+
+    def poll(self):
+        d = read_session(self.status_sh) if self.status_sh else None
+        self.session = d if d and d.get('result') in ('running', 'starting', 'idle') else None
+
+    def ledger(self):
+        s = self.session or {}
+        u, mx, ks = s.get('map_ledger_used'), s.get('map_ledger_max'), s.get('map_ledger_keys_used')
+        ok = type(u) is int and type(mx) is int and isinstance(ks, list) and all(isinstance(x, str) for x in ks)
+        return {'used': u, 'max': mx, 'keys': ks[:8]} if ok else None
+
+    def refuse(self, key, gated, starter, stopping, sim_live, holder_other):
+        if not self.wrapper:
+            return '지도 체험 시작 경로 미설정'
+        if not gated:
+            return '로그인한 기기에서만(관문 경유)'
+        if starter.busy:
+            return '시작 요청 처리 중'
+        if stopping:
+            return 'Gazebo 종료 처리 중'
+        if sim_live or any((x or {}).get('result') in ('running', 'starting') for x in (starter.session, self.session)):
+            return 'Gazebo 가 이미 켜짐 — 끈 뒤 다시(세계 변경 = 끄고 새로 시작)'
+        if holder_other:
+            return f'{holder_other} 조종 중 — 그 기기에서 STOP·반납한 뒤'
+        lg = self.ledger()
+        if lg is None:
+            return '지도 체험 원장 미확인'
+        if lg['used'] >= lg['max']:
+            return f'지도 체험 원장 소진 {lg["used"]}/{lg["max"]}'
+        if key and key in lg['keys']:
+            return f'{key} 는 이미 사용(지형·층마다 1회)'
+        left = SimStart.COOL - (starter.now() - starter.last)
+        return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
+
+    def state(self, gated, starter, stopping, sim_live, holder_other):
+        why = self.refuse(None, gated, starter, stopping, sim_live, holder_other)
+        s = self.session or {}
+        return {'ok': not why, 'why': why, 'busy': starter.busy, 'ledger': self.ledger(), 'last': self.last,
+                'session': {k: s.get(k) for k in ('result', 'runner', 'world_id', 'floor_id', 'map_mode', 'remaining_s')} if s else None}
+
+
+def save_refuse(gated, busy, v, ready):
+    if not gated:
+        return '로그인한 기기에서만(관문 경유)'
+    if busy:
+        return '저장 처리 중'
+    if v.get('mode') != 'slam' or v.get('st') != 'ok':
+        return 'SLAM 실시간 지도가 보일 때만 저장' + (f' · {v["why"]}' if v.get('why') else '')
+    return '' if ready else '저장 서비스 없음(/v2_map/save)'
+
+
+def save_result(success, message, ep_req, ep_now):
+    """Trigger 응답 → (ok, 글). message JSON 의 map_version(정규식)·reason 만 쓰고 path 는 버림"""
+    try:
+        d = json.loads(message)
+    except (TypeError, ValueError):
+        d = None
+    d = d if isinstance(d, dict) else {}
+    ver = d.get('map_version') if isinstance(d.get('map_version'), str) and MAP_VER.fullmatch(d['map_version']) else None
+    ok = success is True and ver is not None
+    text = f'지도 저장됨 · {ver}' if ok else f'지도 저장 실패 · {safe_txt(d.get("reason")) or "응답 형식 틀림"}'
+    return ok, text + (f' · 요청 때 epoch {ep_req}, 지금 {ep_now}' if ep_req != ep_now else '')
+
+
+def selftest_live():
+    t = [100.0]; L = LiveMap(now=lambda: t[0])
+    def S(ep=1, acc=True, mw=4, stamp=5.0, **kw):
+        d = {'schema': 'v2_map_status/1', 'world_id': 'rooms_a', 'building_id': 'rooms_a', 'floor_id': 'f1', 'mode': 'slam', 'map_source': 'slam',
+             'map_version': None, 'map_frame': 'map', 'epoch': ep, 'sim_t': 6.0, 'map_accepting': acc, 'map_error': None,
+             'map': None if mw is None else {'width': mw, 'height': 2, 'resolution': 0.05, 'n': 1, 'epoch': ep, 'stamp_sim': stamp},
+             'pose_map': {'x': 1.0, 'y': 2.0, 'yaw': 0.1, 'stamp_sim': 5.8, 'source': 'slam_tf'}, 'pose_map_null_reason': None,
+             'scan': {'n': 9, 'age_s': 0.1}, 'slam_lifecycle': {'epoch': ep, 'state': 'ok'}, 'last_save': None, 'maps_root': '/secret/maps', 'kids': {'slam': 1}}
+        d.update(kw); L.on_status(d)
+    metas = {('v5', 'l1', '20261014-120000-e1'): {'world_id': 'v5_building', 'map_source': 'slam', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]},
+             ('v5', 'l1', 'gt-20261012'): {'world_id': 'v5_building', 'map_source': 'gt_raster', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]}}
+    def get(b, f, v):
+        if (b, f, v) not in metas:
+            raise MapErr('지도 없음')
+        return metas[(b, f, v)]
+    def G(stamp=5.0, w=4, frame='map', data=None, origin=(-1.0, -2.0, 0.0), q=(0.0, 0.0, 0.0, 1.0)):
+        g = {'frame': frame, 'w': w, 'h': 2, 'res': 0.05, 'origin': origin, 'q': q, 'stamp': stamp, 'data': data if data is not None else bytes([0, 100, 255, 50] * (w // 2))}
+        L.on_grid(g); g2 = L.take(); png, why = grid_png(g2); k = L.static_key()   # 일꾼과 같은 순서: 변환 → (static) meta 대조 → commit
+        L.commit(g2, png, why or static_meta_why(g2, k, get), k)
+    def V():
+        return L.view()
+    assert V()['st'] == 'off'
+    g0 = {'frame': 'map', 'w': 2, 'h': 2, 'res': 0.05, 'origin': (0, 0, 0.3), 'q': (0, 0, 0, 1), 'data': bytes([0, 100, 255, 30])}
+    png, why = grid_png(g0); assert why == '' and png.startswith(b'\x89PNG')
+    i, idat = 8, b''                                   # 위아래: ROS data[0] = 아래 행 → PNG 첫 행 = data 의 마지막 행(저장 PGM 과 같은 방향)
+    while i < len(png):
+        n, ty = struct.unpack('>I4s', png[i:i + 8]); idat += png[i + 8:i + 8 + n] if ty == b'IDAT' else b''; i += 12 + n
+    assert zlib.decompress(idat) == b'\0' + bytes([205, 205]) + b'\0' + bytes([254, 0])
+    for bad in ({'frame': 'odom'}, {'w': 3}, {'w': 0}, {'w': True}, {'res': float('nan')}, {'res': 0}, {'origin': (0, float('inf'), 0)}, {'w': 2001},
+                {'q': (0, 0, 0.2, 0.98)}, {'q': (0.1, 0, 0, 0.995)}, {'q': (0, 0, 0, 2)}, {'q': (0, 0, 0, float('nan'))}, {'q': None},
+                {'data': bytes([0, 101, 0, 0])}, {'data': bytes([0, 0xfe, 0, 0])}):
+        assert grid_png({**g0, **bad})[0] is None, bad
+    # 정상: status 먼저 → 격자(같은 stamp) → 표시 + 마커, 경로·kids 미노출
+    S(); t[0] += 0.1; G(); v = V()
+    assert v['st'] == 'ok' and v['grid']['seq'] == 1 and v['pose']['source'] == 'slam_tf' and v['slam'] == 'ok', v
+    assert '/secret' not in json.dumps(v, ensure_ascii=False) and 'kids' not in v and L.png()['epoch'] == 1
+    # 격자가 status 보다 먼저(stamp 앞섬) → 대기 → 다음 status 에서 결속
+    t[0] += 1; G(stamp=10.0); assert V()['grid']['seq'] == 1
+    S(stamp=10.0); assert V()['grid']['seq'] == 2
+    # 모르는 status(틀린 world·building·frame·schema) → 즉시 버림
+    for bad in ({'world_id': 'v5'}, {'building_id': 'v5'}, {'map_frame': 'odom'}, {'schema': 'x'}, {'epoch': True}, {'mode': 'slam', 'map_source': 'gt_raster'}):
+        S(stamp=10.0); G(stamp=10.0); assert V()['st'] == 'ok', bad
+        S(stamp=10.0, **bad); v = V(); assert v['st'] == 'unknown' and v.get('grid') is None and L.png() is None, (bad, v)
+    # 틀린 frame 격자 → 표시 안 함
+    S(stamp=11.0); t[0] += 0.1; G(stamp=11.0, frame='odom'); assert V()['grid'] is None and 'frame' in V()['why']
+    # RESET: accepting false → 즉시 버림, 늦은 e1 격자(새 키 전 수신) 거부, e2 첫 지도 전 빈칸, e2 지도만 표시
+    G(stamp=11.0); assert V()['st'] == 'ok'
+    S(stamp=11.0, acc=False); v = V(); assert v['st'] == 'reset' and v['grid'] is None and v['pose'] is None
+    t[0] += 0.2; G(stamp=11.0); assert V()['grid'] is None                       # 리셋 중 늦은 e1
+    late = {'frame': 'map', 'w': 4, 'h': 2, 'res': 0.05, 'origin': (-1.0, -2.0, 0.0), 'q': (0, 0, 0, 1), 'stamp': 1.0, 'data': bytes(8)}
+    L.on_grid(late); late = L.take()                                               # e1 때 받은 격자(변환 지연)
+    t[0] += 0.2; S(ep=2, mw=None); assert V()['st'] == 'wait' and V()['grid'] is None
+    S(ep=2, stamp=1.0); L.commit(late, *grid_png(late)); assert V()['grid'] is None and '이전 결속' in V()['why']   # stamp 우연 일치여도 수신 시각으로 거부
+    t[0] += 0.1; G(stamp=1.0); v = V(); assert v['st'] == 'ok' and v['epoch'] == 2
+    S(ep=2, stamp=1.0, map={'width': 4, 'height': 2, 'resolution': 0.05, 'epoch': 1, 'stamp_sim': 1.0}); assert V()['grid'] is None   # 상태의 지도 epoch 어긋남
+    S(ep=2, stamp=None); G(stamp=1.0); assert V()['grid'] is None                 # slam 인데 상태 stamp null → 거부(0 으로 바꾸지 않음)
+    S(ep=2, stamp=1.0); G(stamp=1.0); assert V()['st'] == 'ok'
+    t[0] += 0.5; S(ep=2, stamp=1.0, sim_t=0.5); assert V()['grid'] is None         # 같은 키·sim 되감김 = 새 기동 → 새로 받은 격자만
+    G(stamp=1.0); assert V()['st'] == 'ok'
+    # 앱 RESET 요청 → 키 바뀔 때까지 리셋, 실패 응답이면 해제
+    S(ep=2, stamp=1.0); G(stamp=1.0); assert V()['st'] == 'ok'
+    L.hold(); assert V()['st'] == 'reset' and V()['grid'] is None
+    S(ep=2, stamp=1.0); G(stamp=1.0); assert V()['grid'] is None
+    L.release(); S(ep=2, stamp=1.0); G(stamp=1.0); assert V()['st'] == 'ok'
+    L.hold(); t[0] += 0.1; S(ep=3, stamp=0.5); G(stamp=0.5); assert V()['st'] == 'ok' and V()['epoch'] == 3
+    # 마커: 출처 어긋남·sim 1 s 넘게 차이·저장 SLAM static(null 이유) → 마커 0, 지도는 표시
+    S(ep=3, stamp=0.5, pose_map={'x': 1, 'y': 2, 'yaw': 0, 'stamp_sim': 5.8, 'source': 'gt_identity'}); assert V()['pose'] is None
+    S(ep=3, stamp=0.5, pose_map={'x': 1, 'y': 2, 'yaw': 0, 'stamp_sim': 4.5, 'source': 'slam_tf'}); assert V()['pose'] is None
+    S(ep=3, stamp=0.5); t[0] += 2.5; assert V()['pose'] is None and V()['grid'] is not None      # status 2 s 넘음 → 마커만 끔
+    t[0] += 0.6; v = V(); assert v['st'] == 'stale' and v['grid'] is None and L.png() is None    # 3 s 끊김 → 지도도 버림
+    t[0] += 1; S(ep=3, stamp=0.5); G(stamp=0.5); assert V()['st'] == 'ok'                      # 끊김 뒤 = 새 키 → 새로 받은 격자만
+    st_ = dict(world_id='v5_building', building_id='v5', floor_id='l1', mode='static', map_source='slam', map_version='20261014-120000-e1',
+               pose_map=None, pose_map_null_reason='saved_slam_map_not_localized')
+    t[0] += 0.1; S(ep=1, stamp=None, **st_); G(stamp=0.0); v = V()                # static: 상태 stamp null + 격자 stamp 0 → 정상(meta 대조로 결속)
+    assert v['st'] == 'ok' and v['pose'] is None and v['pose_why'].startswith('저장 SLAM'), v
+    S(ep=1, stamp=None, **st_); G(stamp=0.0, w=2); assert V()['grid']['seq'] == v['grid']['seq']   # meta 와 크기 다른 격자 → 안 바뀜(크기는 상태와도 달라 거부)
+    st_m = {**st_, 'map': {'width': 2, 'height': 2, 'resolution': 0.05, 'epoch': 1, 'stamp_sim': None}}
+    S(ep=1, **st_m); G(stamp=0.0, w=2); assert V()['grid']['seq'] == v['grid']['seq'] and 'meta' in L.grid_why   # 상태와는 맞아도 저장 meta 와 다르면 거부(같은 epoch 의 앞 격자 유지)
+    gt_ = dict(st_, map_source='gt_raster', map_version='gt-20261012', pose_map={'x': 1, 'y': 2, 'yaw': 0, 'stamp_sim': 5.9, 'source': 'gt_identity'}, pose_map_null_reason=None)
+    t[0] += 0.1; S(ep=1, stamp=None, **gt_); G(stamp=0.0); v = V(); assert v['st'] == 'ok' and v['pose']['source'] == 'gt_identity', v
+    t[0] += 0.1; S(ep=1, stamp=None, **{**gt_, 'map_version': 'gt-20261013'}); G(stamp=0.0); assert V()['grid'] is None and 'meta' in V()['why']   # meta 없는 버전
+    S(ep=1, stamp=None, **{**st_, 'map_version': None}); assert V()['st'] == 'unknown'
+    S(ep=1, stamp=0.0, map_error='map too large /x/y'); assert V()['st'] == 'bad' and '/x' not in V()['why']
+    # map_start 인자: 허용표·버전 규칙
+    has = lambda b, f, v: (b, f, v) == ('v5', 'l2', 'gt-20261012')
+    assert map_args({'world_id': 'v5_building', 'floor_id': 'l2', 'mode': 'static', 'map_version': 'gt-20261012'}, has) == (['v5_building', 'l2', 'static', 'gt-20261012'], 'v5_building/l2', '')
+    assert map_args({'world_id': 'rooms_a', 'floor_id': 'f1', 'mode': 'slam'}, has) == (['rooms_a', 'f1', 'slam'], 'rooms_a/f1', '')
+    for bad in ({'world_id': 'v5', 'floor_id': 'l1', 'mode': 'slam'}, {'world_id': 'rooms_a', 'floor_id': 'l1', 'mode': 'slam'},
+                {'world_id': 'rooms_a', 'floor_id': 'f1', 'mode': 'x'}, {'world_id': 'rooms_a', 'floor_id': 'f1', 'mode': 'slam', 'map_version': 'gt-20261012'},
+                {'world_id': 'v5_building', 'floor_id': 'l1', 'mode': 'static', 'map_version': 'gt-20261012'},
+                {'world_id': 'v5_building', 'floor_id': 'l2', 'mode': 'static', 'map_version': '../x'}, {'world_id': ['rooms_a'], 'floor_id': 'f1', 'mode': 'slam'},
+                {'world_id': 'v5_building', 'floor_id': 'l2', 'mode': 'static'}):
+        assert map_args(bad, has)[2], bad
+    # map_start 거부: 시작/종료 경합·켜짐·남의 조종·원장
+    import tempfile
+    with tempfile.TemporaryDirectory() as td:
+        (Path(td) / 'start_map.sh').write_text(''); (Path(td) / 'map_status.sh').write_text('')
+        tt = [1000.0]; sst = SimStart('/x', lambda: tt[0]); M = MapStart(str(Path(td) / 'start_map.sh'))
+        assert MapStart(str(Path(td) / 'none.sh')).refuse('rooms_a/f1', True, sst, False, False, None).endswith('미설정')
+        R = lambda key='rooms_a/f1', gated=True, stopping=False, live=False, other=None: M.refuse(key, gated, sst, stopping, live, other)
+        assert R() == '지도 체험 원장 미확인'
+        M.session = {'result': 'idle', 'map_ledger_used': 1, 'map_ledger_max': 4, 'map_ledger_keys_used': ['v5_single/f1']}
+        assert R() == '' and '이미 사용' in R('v5_single/f1') and R(gated=False).startswith('로그인')
+        assert R(stopping=True).startswith('Gazebo 종료') and R(live=True).startswith('Gazebo 가') and R(other='폰').startswith('폰')
+        sst.busy = True; assert R() == '시작 요청 처리 중'; sst.busy = False
+        sst.session = {'result': 'running'}; assert R().startswith('Gazebo 가'); sst.session = None
+        M.session['result'] = 'starting'; assert R().startswith('Gazebo 가'); M.session['result'] = 'idle'
+        sst.last = tt[0] - 10; assert R().startswith('방금'); sst.last = -1e9
+        M.session['map_ledger_used'] = 4; assert R().startswith('지도 체험 원장 소진')
+        M.session['map_ledger_keys_used'] = 'x'; assert M.ledger() is None and R() == '지도 체험 원장 미확인'
+    # 지도 체험 시작 접수(Core): 조종 중이던 기기도 해제·0·잠금, 처리 중 take/resume/reset/비영 거부·STOP 은 됨, 끝나도 자동 복원 0
+    c = Core(now=lambda: t[0]); c.on_state({'schema': SCHEMA, 'episode': 0, 'stop_requested': False, 'reset_in_progress': False, 'policy_running': True})
+    assert c.take('a'); c.cmd('a', Z); c.cmd('a', (1.0, 0.0, 0.0)); assert c.applied() == (0.6, 0, 0)
+    c.busy_sim('지도 체험 시작 처리 중'); assert c.controller is None and c.latch and c.applied() == Z
+    for cid in ('a', 'b'):
+        assert not c.take(cid) and not c.resume(cid) and not c.reset_begin(cid, True)
+        c.cmd(cid, Z); c.cmd(cid, (1.0, 0.0, 0.0)); assert c.applied() == Z
+    c.stop('b'); assert c.latch
+    c.sim_busy = ''; assert c.take('a'); c.cmd('a', Z); c.cmd('a', (1.0, 0.0, 0.0)); assert c.applied() == Z and c.latch
+    # 저장: 거부·응답 해석(경로 버림·epoch 바뀜·형식 틀림)
+    ok_v = {'st': 'ok', 'mode': 'slam'}
+    assert save_refuse(False, False, ok_v, True).startswith('로그인') and save_refuse(True, True, ok_v, True) == '저장 처리 중'
+    assert save_refuse(True, False, {'st': 'ok', 'mode': 'static'}, True).startswith('SLAM') and save_refuse(True, False, ok_v, False).startswith('저장 서비스')
+    assert save_refuse(True, False, {'st': 'reset', 'mode': 'slam', 'why': '리셋 중'}, True).endswith('리셋 중') and save_refuse(True, False, ok_v, True) == ''
+    msg = json.dumps({'map_version': '20261014-120000-e2', 'reason': 'user_save', 'path': '/home/u/maps/rooms_a/f1/20261014-120000-e2'})
+    assert save_result(True, msg, 2, 2) == (True, '지도 저장됨 · 20261014-120000-e2')
+    assert save_result(True, msg, 2, 3)[1].endswith('요청 때 epoch 2, 지금 3') and '/home' not in save_result(True, msg, 2, 3)[1]
+    ok_, txt = save_result(False, json.dumps({'map_version': None, 'reason': "save error FileExistsError: [Errno 17] File exists: '/home/u/maps/x'"}), 2, 2)
+    assert not ok_ and '/home' not in txt and '<경로>' in txt
+    assert save_result(True, 'not json', 1, 1)[0] is False and save_result(True, json.dumps({'map_version': '../x'}), 1, 1)[0] is False
+
+
 def selftest_maps():
     import tempfile
     def unpng(p):                                   # 시험용: IDAT 풀어 화소 되찾기
@@ -1052,7 +1476,7 @@ def selftest():
     c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
     st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
-    selftest_extra(); selftest_stop(); selftest_maps()
+    selftest_extra(); selftest_stop(); selftest_maps(); selftest_live()
     print('selftest OK')
 
 
@@ -1065,6 +1489,7 @@ def main():
     ap.add_argument('--sim-start', default=None, help='RL 래퍼(request_session.sh) 절대경로. 없으면 «시뮬 시작» 버튼은 이유만 보임')
     ap.add_argument('--store', default='json', help='공용 문서 저장: json(기본, <media>/docs.json) 또는 sqlite:<DB 경로>(없으면 docs.json 을 읽어 이전)')
     ap.add_argument('--maps-root', default=None, help='저장 지도 루트(읽기만, <건물>/<층>/<버전>/). 없으면 지도 목록 빈 칸')
+    ap.add_argument('--map-start', default=None, help='RL 지도 체험 시작(start_map.sh) 절대경로. 같은 폴더 map_status.sh 로 지도 원장 조회. 없으면 «지도 체험 시작» 이유만')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -1076,6 +1501,8 @@ def main():
     from geometry_msgs.msg import Twist
     from std_msgs.msg import Empty, String
     from sensor_msgs.msg import CompressedImage
+    from nav_msgs.msg import OccupancyGrid
+    from rclpy.qos import DurabilityPolicy
     from std_srvs.srv import Trigger
     import tornado.ioloop, tornado.web, tornado.websocket
 
@@ -1088,11 +1515,16 @@ def main():
     starter = SimStart(a.sim_start if a.sim_start and os.path.isfile(a.sim_start) else None)
     stopper = SimStop(starter.wrapper)
     maps = MapStore(a.maps_root)
+    mapper, live = MapStart(a.map_start), LiveMap()
+    save = {'busy': False, 'seq': 0, 'wait': {}}      # 지도 저장: 처리 중 1건, 요청 순번 → (연결, rid, 요청 때 epoch)
     photo_last = [0.0]
-    if starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file():
-        def poll_loop():
+    poll_start = bool(starter.wrapper and Path(starter.wrapper).with_name('session_status.sh').is_file())
+    if poll_start or mapper.status_sh:
+        def poll_loop():            # 상태 스크립트(읽기만) — 켜지는 중 2 s, 그 밖 5 s
             while True:
-                time.sleep(starter.poll())
+                dt = starter.poll() if poll_start else 5.0
+                mapper.poll()
+                time.sleep(2.0 if starter.busy or (mapper.session or {}).get('result') == 'starting' else dt)
         threading.Thread(target=poll_loop, daemon=True).start()
     ver = {'t': -1e9, 'v': '미확인'}
 
@@ -1133,6 +1565,8 @@ def main():
             ok, msg = False, f'예외 {type(e).__name__}'
         with lock:
             core.reset_done(ok, msg)
+        if not ok:
+            live.release()
 
     def on_cam(m):
         with lock:
@@ -1142,7 +1576,37 @@ def main():
             sim['jpeg_ep'] = core.episode
             sim['jpeg_reset'] = bool(core.reset_pending or (core.st or {}).get('reset_in_progress'))
 
+    def on_map_status(m):           # /v2_map/status(1 Hz) — 형식 틀림은 LiveMap 이 «모름»으로
+        try:
+            d = json.loads(m.data)
+        except Exception:
+            d = None
+        live.on_status(d)
+
+    def on_grid(m):                 # 최신 1장만 넘김(변환·검사는 일꾼). data 는 int8 배열 → 바이트 복사 한 번
+        i = m.info; o, q = i.origin.position, i.origin.orientation
+        live.on_grid({'frame': m.header.frame_id, 'w': i.width, 'h': i.height, 'res': i.resolution, 'origin': (o.x, o.y, o.z), 'q': (q.x, q.y, q.z, q.w),
+                      'stamp': m.header.stamp.sec + m.header.stamp.nanosec * 1e-9,
+                      'data': m.data.tobytes() if hasattr(m.data, 'tobytes') else bytes(x & 255 for x in m.data)})
+
+    def map_worker():               # ≤1 Hz: PNG 변환 + (static) 저장 meta 대조는 여기서 — ROS·IOLoop·조종 lock 밖
+        while True:
+            live.wake.wait(); live.wake.clear()
+            g = live.take()
+            if g:
+                try:
+                    png, why = grid_png(g); k = live.static_key()
+                    live.commit(g, png, why or static_meta_why(g, k, maps.get), k)
+                except Exception as e:
+                    live.commit(g, None, f'격자 처리 실패 · {type(e).__name__}')
+            time.sleep(1.0)
+
     node.create_subscription(String, '/v2_live/state', on_state, rel)
+    node.create_subscription(String, '/v2_map/status', on_map_status, rel)
+    node.create_subscription(OccupancyGrid, '/v2_map/map', on_grid,
+                             QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL, history=HistoryPolicy.KEEP_LAST))
+    cli_save = node.create_client(Trigger, '/v2_map/save')
+    threading.Thread(target=map_worker, daemon=True).start()
     node.create_subscription(CompressedImage, '/v2_live/camera/compressed', on_cam, QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST))
     threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
 
@@ -1162,6 +1626,7 @@ def main():
         cid = c.cid
         now = time.monotonic()
         v = version()
+        lv = live.view(); sv_why = save_refuse(c.gated, save['busy'], lv, cli_save.service_is_ready())
         with lock:
             holder = clients[core.controller].actor if core.controller in clients else None
             age = None if core.state_t is None else round(now - core.state_t, 2)
@@ -1172,7 +1637,9 @@ def main():
                     'sim_block': core.sim_block(), 'resume_pending': bool(core.resume_pending), 'reset_pending': core.reset_pending is not None,
                     'episode': core.episode, 'ros_domain': os.environ.get('ROS_DOMAIN_ID'), 'state_age': age, 'cam_age': cam_age, 'sim': core.st, 'events': list(core.events)[:6], 'note': PRESETS_NOTE,
                     'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live()), 'docs_rev': docs.rev,
-                    'sim_stop': stopper.state(c.gated, starter.busy, sim_live(), starter.session, holder if core.controller not in (None, cid) else None)}
+                    'sim_stop': stopper.state(c.gated, starter.busy, sim_live(), starter.session, holder if core.controller not in (None, cid) else None),
+                    'map_start': mapper.state(c.gated, starter, stopper.busy, sim_live(), holder if core.controller not in (None, cid) else None),
+                    'live_map': lv, 'map_save': {'ok': not sv_why, 'why': sv_why, 'busy': save['busy']}}
 
     def reply(c, rid, ok, text, **kw):
         try:
@@ -1228,13 +1695,79 @@ def main():
             except Exception as e:
                 res, extra = 'failed', type(e).__name__
             ok_ = res in ('starting', 'ready')
-            text = {'starting': '시뮬 기동 중 · 상태·영상 연결은 화면 표시로 판정(안전 준비 판정 아님)',
-                    'ready': '시뮬 상태·영상 수신 확인(안전 준비 판정 아님 · STOP 상태)', 'already_running': '이미 실행 중',
-                    'resource_blocked': '자원 부족으로 기동 안 함', 'budget_exhausted': '오늘 기동 횟수 소진', 'failed': '기동 실패'}[res]
+            text = START_TEXT[res]
             with lock:
                 starter.busy = False
                 core.ev('ok' if ok_ else 'bad', f'시뮬 시작 결과 · {text}{" · " + extra if extra else ""}')
         threading.Thread(target=run, daemon=True).start()
+
+    def start_map(c, rid, m):
+        """지도 체험 시작: 인자 허용표 검사 → 같은 조종 lock 에서 0·STOP 잠금·입력 폐기·조종권 해제 + 처리 중 take/resume/reset/비영 차단 → start_map.sh 1회.
+        재시도·연장·자동 take/resume 0. 끝나도 STOP 잠금 유지"""
+        args, key, why = map_args(m, lambda b, f, v: bool(maps.root) and (maps.root / b / f / v / 'meta.json').is_file())
+        with lock:
+            holder = clients[core.controller].actor if core.controller in clients and core.controller != c.cid else None
+            why = why or mapper.refuse(key, c.gated, starter, stopper.busy, sim_live(), holder)
+            if why:
+                core.ev('warn', f'지도 체험 시작 거부 · {why}'); return reply(c, rid, False, why)
+            starter.busy = True; starter.last = time.monotonic(); core.busy_sim('지도 체험 시작 처리 중')
+            core.ev('warn', f'지도 체험 시작 요청 · {key} {args[2]}{" " + args[3] if len(args) > 3 else ""} · {c.actor} · STOP 상태로 시작')
+        live.hold()
+        reply(c, rid, True, f'지도 체험 시작 요청함({key} {args[2]}) — 준비되면 지도·영상이 들어옵니다')
+
+        def run():
+            try:
+                r = subprocess.run(['bash', mapper.wrapper, *args], capture_output=True, text=True, timeout=240)
+                res, extra = parse_session(r.stdout, r.returncode)
+            except Exception as e:
+                res, extra = 'failed', type(e).__name__
+            text = START_TEXT[res]
+            with lock:
+                starter.busy = False; core.sim_busy = ''
+                mapper.last = {'t': time.strftime('%H:%M:%S'), 'st': 'ok' if res in ('starting', 'ready') else 'bad', 'text': f'{key} · {text}'}
+                core.ev(mapper.last['st'], f'지도 체험 시작 결과 · {key} · {text}{" · " + safe_txt(extra, 120) if extra else ""}')
+            mapper.poll()
+        threading.Thread(target=run, daemon=True).start()
+
+    def save_map(c, rid):
+        """/v2_map/save 1회, 10 s 제한. 응답의 path 는 버림. 시간 넘으면 «결과 미확인»(서버 저장은 늦게 끝날 수 있음 — 목록 재조회), 자동 재호출 0.
+        늦은 응답·연결 끊긴 뒤 응답은 사건으로만(요청 순번 대조)"""
+        v = live.view(); why = save_refuse(c.gated, save['busy'], v, cli_save.service_is_ready())
+        if why:
+            return reply(c, rid, False, why)
+        save['busy'] = True; save['seq'] += 1; n = save['seq']; save['wait'][n] = (c, rid, v['epoch'])
+        loop = tornado.ioloop.IOLoop.current()
+        with lock:
+            core.ev('ok', f'지도 저장 요청 · epoch {v["epoch"]} · {c.actor}')
+
+        def finish(n, ok, text, late=False):
+            w = save['wait'].pop(n, None)
+            if n == save['seq']:
+                save['busy'] = False
+            with lock:
+                core.ev('ok' if ok else 'warn', ('늦은 지도 저장 응답(현재 지도·결과로 쓰지 않음) · ' if late else '') + text)
+            if w and not late and w[0].cid in clients:
+                reply(w[0], w[1], ok, text)
+
+        def done(f):                # ROS 스레드
+            try:
+                r = f.result(); ok, text = save_result(r.success, r.message, None, None)
+            except Exception as e:
+                ok, text = False, f'지도 저장 결과 미확인 · {type(e).__name__} — 저장 지도 목록 다시 확인'
+            def on_loop():
+                w = save['wait'].get(n)
+                if w is None:       # 이미 시간 초과로 닫힘
+                    return finish(n, ok, text, late=True)
+                ep_now = live.view().get('epoch')
+                finish(n, ok, text + (f' · 요청 때 epoch {w[2]}, 지금 {ep_now}' if ep_now != w[2] else ''))
+            loop.add_callback(on_loop)
+
+        def timeout():
+            if n in save['wait']:
+                finish(n, False, '지도 저장 결과 미확인 · 10 s 안에 응답 없음(늦게 저장될 수 있음) — 저장 지도 목록 다시 확인')
+                save['wait'].pop(n, None)
+        cli_save.call_async(Trigger.Request()).add_done_callback(done)
+        loop.call_later(10.0, timeout)
 
     def stop_sim(c, rid):
         with lock:
@@ -1242,10 +1775,11 @@ def main():
             why = stopper.refuse(c.gated, starter.busy, sim_live(), starter.session, holder)
             if why:
                 core.ev('warn', f'Gazebo 종료 거부 · {why}'); return reply(c, rid, False, why)
-            stopper.busy = True; stopper.last_t = time.monotonic(); core.sim_stopping = True
+            stopper.busy = True; stopper.last_t = time.monotonic(); core.sim_busy = 'Gazebo 종료 중'
             core.drop(c.cid, 'Gazebo 종료')           # 본인 조종 중이면 입력 폐기·0·STOP 잠금·반납(다시 조종하려면 새 take)
             core.latch = True; core.resume_pending = None; core._void()
             core.ev('warn', f'Gazebo 종료 요청 · {c.actor} · 명령 0 잠금')
+        live.hold()                 # 지도·마커도 바로 버림(세션이 바뀔 때까지)
         reply(c, rid, True, 'Gazebo 종료 요청함 — ROS 세션 종료가 확인되면 표시합니다')
 
         def state_age():
@@ -1265,7 +1799,7 @@ def main():
             except Exception as e:
                 st_, text = 'bad', f'Gazebo 종료 확인 못 함 · {type(e).__name__}'
             with lock:
-                stopper.busy = False; core.sim_stopping = False; stopper.last = {'t': time.strftime('%H:%M:%S'), 'st': st_, 'text': text}
+                stopper.busy = False; core.sim_busy = ''; stopper.last = {'t': time.strftime('%H:%M:%S'), 'st': st_, 'text': text}
                 core.ev(st_, text)
         threading.Thread(target=run, daemon=True).start()
 
@@ -1320,6 +1854,7 @@ def main():
                         pub_resume.publish(Empty())
                 elif op == 'reset':
                     if core.reset_begin(self.cid, cli_reset.service_is_ready()):   # 잠금·입력 폐기를 요청 전에 확정
+                        live.hold()                         # 이전 epoch 지도·마커는 응답 전에 버림
                         pub_stop.publish(Empty())
                         cli_reset.call_async(Trigger.Request()).add_done_callback(reset_done)
                 elif op == 'hidden':
@@ -1333,6 +1868,13 @@ def main():
                 stop_sim(self, rid)
             elif op in ('map_list', 'map_get'):
                 map_op(self, rid, op, m)
+            elif op == 'map_live_get':
+                x = live.png()
+                reply(self, rid, bool(x), '' if x else '표시할 실시간 지도 없음', live=x)
+            elif op == 'map_start':
+                start_map(self, rid, m)
+            elif op == 'map_save':
+                save_map(self, rid)
 
         def on_close(self):
             clients.pop(self.cid, None)

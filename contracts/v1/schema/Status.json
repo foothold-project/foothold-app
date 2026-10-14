@@ -28,6 +28,455 @@
       "title": "Event",
       "type": "object"
     },
+    "LiveGrid": {
+      "properties": {
+        "h": {
+          "title": "H",
+          "type": "integer"
+        },
+        "origin": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Origin",
+          "type": "array"
+        },
+        "res": {
+          "title": "Res",
+          "type": "number"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "w": {
+          "title": "W",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "w",
+        "h",
+        "res",
+        "origin"
+      ],
+      "title": "LiveGrid",
+      "type": "object"
+    },
+    "LiveMap": {
+      "description": "/v2_map/* 실시간 지도 요약(서버 결속 정본). 경로 없음. st: off 미수신 · stale 3 s 끊김 · unknown 형식 모름 · reset 리셋 중 · wait 이번 epoch 지도 전 · bad 지도 오류 · ok 표시",
+      "properties": {
+        "age_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Age S"
+        },
+        "building_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "v5",
+                "v5_single",
+                "rooms_a"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Building Id"
+        },
+        "epoch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Epoch"
+        },
+        "floor_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "f1",
+                "l1",
+                "l2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor Id"
+        },
+        "grid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveGrid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "last_save": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveSave"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "map_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "slam",
+                "gt_raster"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Source"
+        },
+        "map_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Version"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "slam",
+                "static"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "pose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LivePose"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pose_why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pose Why"
+        },
+        "scan": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan"
+        },
+        "sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sim T"
+        },
+        "slam": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slam"
+        },
+        "st": {
+          "enum": [
+            "off",
+            "stale",
+            "unknown",
+            "reset",
+            "wait",
+            "bad",
+            "ok"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        },
+        "world_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "v5_single",
+                "v5_building",
+                "rooms_a"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "World Id"
+        }
+      },
+      "required": [
+        "st",
+        "why"
+      ],
+      "title": "LiveMap",
+      "type": "object"
+    },
+    "LivePose": {
+      "properties": {
+        "source": {
+          "enum": [
+            "slam_tf",
+            "gt_identity"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "yaw",
+        "source"
+      ],
+      "title": "LivePose",
+      "type": "object"
+    },
+    "LiveSave": {
+      "properties": {
+        "epoch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Epoch"
+        },
+        "map_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "map_version",
+        "reason",
+        "epoch"
+      ],
+      "title": "LiveSave",
+      "type": "object"
+    },
+    "MapLedger": {
+      "properties": {
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Keys",
+          "type": "array"
+        },
+        "max": {
+          "title": "Max",
+          "type": "integer"
+        },
+        "used": {
+          "title": "Used",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used",
+        "max",
+        "keys"
+      ],
+      "title": "MapLedger",
+      "type": "object"
+    },
+    "MapSaveState": {
+      "properties": {
+        "busy": {
+          "title": "Busy",
+          "type": "boolean"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "why",
+        "busy"
+      ],
+      "title": "MapSaveState",
+      "type": "object"
+    },
+    "MapStartState": {
+      "description": "지도 체험 시작. 원장은 지도 체험 것(map-20261014)만 — 기존 체험 원장(sim_stop.ledger_left)과 섞지 않는다",
+      "properties": {
+        "busy": {
+          "title": "Busy",
+          "type": "boolean"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimStopLast"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ledger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MapLedger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "why",
+        "busy",
+        "ledger",
+        "session",
+        "last"
+      ],
+      "title": "MapStartState",
+      "type": "object"
+    },
     "SimSession": {
       "properties": {
         "ends_at": {
@@ -610,6 +1059,39 @@
     "latch": {
       "title": "Latch",
       "type": "boolean"
+    },
+    "live_map": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LiveMap"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "map_save": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MapSaveState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "map_start": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MapStartState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "me": {
       "title": "Me",
