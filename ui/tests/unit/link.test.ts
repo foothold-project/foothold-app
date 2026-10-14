@@ -267,3 +267,55 @@ test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·
   expect(sent.slice(n2).filter((m) => m.op !== 'hidden')).toEqual([]);                       // 돌아와도 take·resume·cmd 자동 0
   expect(L.press('pv3', 9, { fx: 1, fy: 0, fw: 0 })).toBe(false);
 });
+
+test('끊긴 연결의 요청은 끊김 순간 실패 — 새 연결의 정상 응답 뒤에 늦은 «서버 응답 없음»이 덮지 않음(10-15 map_list), stGen 은 유효 status 뒤에만', async () => {
+  const reopen = async () => { const old = sock; step(1000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve(); sock.readyState = 1; sock.onopen(); };
+  const ready = () => { const s = L.useLink.getState(); return s.open && s.stGen === s.gen; };
+  await reopen(); msg(ST()); expect(ready()).toBe(true);
+  const done: string[] = [], tag = (k: string, p: Promise<any>) => p.then((r) => { done.push(`${k}:${r.ok}:${r.text}`); });
+  tag('A', L.ask('map_list')); sock.onclose({ code: 1011 }); await Promise.resolve();          // 관문이 upstream 없이 닫음
+  expect(done).toEqual(['A:false:연결 끊김 — 응답 못 받음']);                                    // 5 s 기다리지 않고 바로
+  await reopen(); expect(ready()).toBe(false);                                                  // 열렸지만 이 연결의 status 전 = 자동 조회 대상 아님
+  tag('B', L.ask('map_list')); sock.onclose({ code: 1011 }); await Promise.resolve();
+  await reopen(); msg(ST()); expect(ready()).toBe(true);
+  const c = L.ask('map_list'); tag('C', c); const q = last(sent); expect(q.op).toBe('map_list');
+  msg({ op: 'reply', rid: q.rid, ok: true, text: '', maps: [] }); await c;
+  step(10000); await Promise.resolve();
+  expect(done).toEqual(['A:false:연결 끊김 — 응답 못 받음', 'B:false:연결 끊김 — 응답 못 받음', 'C:true:']);   // 마지막 결과 = 정상 목록
+  expect(done.some((d) => d.includes('서버 응답 없음'))).toBe(false);
+});
+
+test('지도 목록 loadList: 서버 확인 전 0·같은 세대 겹침 0·늦은 A(성공/실패)·대상 전환·화면 닫힘 뒤 결과 채택 0, 실패 뒤 다시 불러오기 1회 회복·자동 재시도 0', async () => {
+  const M = await import('../../src/data/maps');
+  const reopen = async () => { const old = sock; sock.onclose({ code: 1006 }); step(1000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve(); sock.readyState = 1; sock.onopen(); };
+  const defer = () => { let r!: (v: any) => void; const p = new Promise<any>((x) => { r = x; }); return { p, r }; };
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+  const A_OK = [{ a: 1 }] as any, B = [{ b: 1 }] as any;
+  await reopen();
+  { const q = { n: 0, busy: null }, got: any[] = [], set = (v: any) => got.push(v);
+    expect(M.loadList(q, set, () => Promise.resolve(B))).toBe(false);            // 열렸지만 이 연결 status 전 — 안 보냄
+    msg(ST()); await flush(); expect(got).toEqual([]); }
+  for (const lateA of [A_OK, '서버 응답 없음(5 s)']) {                            // A 열림 중 조회 보류 → 새 세대 B 성공 → 늦은 A 성공/실패 둘 다 B 불변
+    const q = { n: 0, busy: null as number | null }, got: any[] = [], set = (v: any) => got.push(v), a = defer();
+    expect(M.loadList(q, set, () => a.p)).toBe(true);
+    expect(M.loadList(q, set, () => Promise.resolve(B))).toBe(false);            // 같은 세대 진행 중 → 겹쳐 보내지 않음
+    await reopen(); q.n++; msg(ST());                                             // 화면 effect 정리(세대 변경) 흉내
+    expect(M.loadList(q, set, () => Promise.resolve(B))).toBe(true); await flush();
+    a.r(lateA); await flush();
+    expect(got).toEqual([B]);
+  }
+  { const q = { n: 0, busy: null as number | null }, got: any[] = [], a = defer();   // 대상 전환(시뮬 → 실기 → 시뮬): 옛 대상 요청 결과 버림
+    expect(M.loadList(q, (v) => got.push(v), () => a.p)).toBe(true);
+    L.setProvider('go2_direct'); L.setProvider('simulation_gate'); msg(ST());
+    a.r(A_OK); await flush(); expect(got).toEqual([]); }
+  { const q = { n: 0, busy: null as number | null }, got: any[] = [], a = defer();   // 같은 세대 늦은 이전 load: 화면 닫힘·무효(n++) 뒤 도착 → 버림
+    expect(M.loadList(q, (v) => got.push(v), () => a.p)).toBe(true); q.n++;
+    a.r(A_OK); await flush(); expect(got).toEqual([]); }
+  { const q = { n: 0, busy: null as number | null }, got: any[] = [], set = (v: any) => got.push(v);   // 실 ask: 응답 없음 → 실패 표시 → 버튼 1회 → 회복
+    const nList = () => sent.filter((m) => m.op === 'map_list').length, n0 = nList();
+    expect(M.loadList(q, set)).toBe(true); step(5000); await flush();
+    expect(got).toEqual(['서버 응답 없음(5 s)']); step(20000); await flush(); expect(nList()).toBe(n0 + 1);   // 자동 재시도 0
+    expect(M.loadList(q, set)).toBe(true); const r = last(sent); expect(r.op).toBe('map_list');
+    msg({ op: 'reply', rid: r.rid, ok: true, text: '', maps: [] }); await flush();
+    expect(got).toEqual(['서버 응답 없음(5 s)', []]); expect(nList()).toBe(n0 + 2); }
+});

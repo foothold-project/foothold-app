@@ -1,10 +1,10 @@
 // 지도 보기 선택 — 화면만 바뀐다. 실제 Gazebo world·조종 상태 변경 0. op 는 map_list/map_get/map_live_get(읽기)뿐
 // 저장 지도: 위치 마커 0(결속 없음). 실시간(/v2_map): 서버가 status·epoch·격자형상을 결속한 격자 + 같은 status 의 pose 만 마커로.
 // 지도를 보는 동안 부르는 쪽은 GT 로봇·길·구역·경유점·탭 편집을 끈다(GT 좌표 ≠ 지도 좌표)
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { LiveMap, MapInfo } from '@contracts';
-import { BLD, FLOOR, WF, WORLD, allKey, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, listMaps, liveLabel, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
+import { BLD, FLOOR, WF, WORLD, allKey, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, liveLabel, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
 import { dropAll, useLink } from '../data/link';
 import type { Robot } from './MapCanvas';
 import { toast } from '../app/shell';
@@ -27,8 +27,10 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   const linked = useLink((x) => x.open), gen = useLink((x) => x.gen), lv = useLink((x) => x.st?.live_map) || null;
   const fresh = useLink((x) => x.open && x.lastMsg > 0 && performance.now() - x.lastMsg < 1000);   // tick(500 ms)마다 다시 계산 — 수신 1 s 끊기면 false
   const [geo, setGeo] = useState<{ key: string; gen: number; g: Geom; sha: string } | string | null>(null);   // 건물 전체 3D(GT 간략 기하) — 선택·연결 세대 결속
-  const load = () => { listMaps().then(setMaps); };
-  useEffect(() => { if (linked && !Array.isArray(maps)) load(); }, [linked]);   // 연결되면 목록 한 번, 고를 때 다시
+  const ready = useLink((x) => x.open && x.stGen === x.gen);   // 이 연결에서 유효 status 를 받은 뒤만(관문이 upstream 없이 곧 닫는 연결엔 안 보냄)
+  const lq = useRef({ n: 0, busy: null as number | null }).current, load = () => loadList(lq, setMaps);   // 늦은·겹친 결과 채택 0(세대·대상·최신 대조는 loadList)
+  // 새 연결·대상 = 옛 목록 무효(정본인 척 남지 않게) → 그 세대 첫 유효 status 뒤 1회. 세대 변경·화면 닫힘 때 걸린 요청 버림. 자동 재시도 0 — 실패면 «목록 다시 불러오기»·고를 때(onFocus)
+  useEffect(() => { setMaps(null); if (ready) load(); return () => { lq.n++; }; }, [ready, gen]);
 
   // 자동 실시간(앱 Codex 10-14): 사용자가 아직 안 골랐고 지금 지도 세션(live_map off·stale 아님)이 보일 때 한 번만 실시간으로.
   // 그 뒤로는 일반 선택과 같다 — 끊기면 빈 지도 + 이유(GT 자동 복귀 0). 사용자가 고른 GT·저장본은 빼앗지 않음
@@ -120,8 +122,9 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   const list = <span style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
     <span role="group" aria-label="실행 중 시뮬 보기" style={vrow}>
       {segB(sel === '', '실행 중 시뮬 GT 위치', () => pick(''))}{segB(live, '현재 열린 지도(실시간)', () => pick(LIVE))}</span>
-    {typeof maps === 'string' && <span className="lbl">{`저장 지도 목록 · ${maps}`}</span>}
-    {maps === null && <span className="lbl">저장 지도 목록 받는 중</span>}
+    {typeof maps === 'string' && <span style={{ ...vrow, alignItems: 'center' }}><span className="lbl">{`저장 지도 목록 · ${maps}`}</span>
+      <button type="button" className={B} disabled={!ready} title={ready ? undefined : '서버 연결 확인 전 — 확인되면 자동으로 1회 받음'} onClick={tap(() => { if (load()) setMaps(null); })}>목록 다시 불러오기</button></span>}
+    {maps === null && <span className="lbl">{ready ? '저장 지도 목록 받는 중' : '저장 지도 목록 · 서버 연결 확인 뒤 받음'}</span>}
     {Array.isArray(maps) && (Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => {
       const its = maps.filter((m) => m.world_id === w), multi = WF[w].length > 1, here = !!at && at[0] === BLD[w], op = openW === w;
       const nG = its.filter((m) => m.map_source === 'gt_raster').length, nS = its.length - nG;

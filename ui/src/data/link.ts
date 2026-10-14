@@ -10,9 +10,9 @@ import { T } from './transport';
 
 
 // provider: 지금 화면이 보는 실행 대상(계약 ProviderKind). 이 WS 로 명령을 보내는 건 simulation_gate 일 때만 — go2_direct 는 명령 미지원(capabilities.command=false)
-type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean; gen: number; provider: ProviderKind };   // gen: 연결 세대(열림·닫힘·대상 전환마다 +1)
+type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean; gen: number; stGen: number; provider: ProviderKind };   // stGen: 마지막 유효 status 를 받은 연결 세대(= gen 이면 이 연결에서 서버 확인됨)   // gen: 연결 세대(열림·닫힘·대상 전환마다 +1)
 // viewOnly: 이 화면이 «조종권 받기»를 누르기 전까지 cmd 를 보내지 않음. 처음 열 때·숨김·앱 pause/resume·재연결 뒤 다시 켜짐(서버 role 이 control 로 남아 있어도)
-export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true, gen: 0, provider: 'simulation_gate' }));
+export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true, gen: 0, stGen: -1, provider: 'simulation_gate' }));
 
 let ws: WebSocket | null = null, started = false, sig: string | null = null;
 const simOn = () => useLink.getState().provider === 'simulation_gate';   // 화면에 시뮬 상태·영상·길을 내보내도 되나(실기 대상이면 내부에서 받기만, 표시 0)
@@ -78,6 +78,7 @@ export function hide() { const s = useLink.getState(); dropAll(); if (s.provider
 export function setProvider(k: ProviderKind) {
   const s = useLink.getState(); if (s.provider === k) return;
   if (s.provider === 'simulation_gate') hide(); else dropAll();
+  failPending('대상이 바뀜 — 요청 취소');
   if (camURL) URL.revokeObjectURL(camURL); camURL = null; camT.length = 0; TRAIL.pts = []; TRAIL.last = null;   // 옛 대상의 영상·지나온 길 버림
   for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.removeAttribute('src');
   useLink.setState((x) => ({ provider: k, viewOnly: true, gen: x.gen + 1, st: null, bad: null }));   // 옛 대상 상태 버림 — 시뮬 복귀는 다음 status 부터(낡은 값 0)
@@ -149,6 +150,9 @@ export const ask = (op: AskOp, extra: Record<string, string | boolean> = {}, ms 
   const t = setTimeout(() => { pending.delete(id); no(`서버 응답 없음(${ms / 1000} s)`); }, ms);
   pending.set(id, (m) => { clearTimeout(t); if (useLink.getState().gen !== g0) no('연결·대상이 바뀜 — 늦은 응답 버림'); else res(m); });
 });
+// 연결이 끊기거나 대상이 바뀌면 걸린 요청을 그 자리에서 실패로 끝낸다(gen 올리기 전에 부름).
+// 안 하면 죽은 연결로 보낸 요청의 5 s 시간초과가 새 연결의 정상 응답 «뒤에» 터져 결과를 덮는다(10-15 map_list 재현)
+function failPending(text: string) { for (const [id, f] of pending) { pending.delete(id); f({ op: 'reply', rid: id, ok: false, text } as Reply); } }
 
 // Gazebo 끄기(로봇 STOP 아님): 폐기 → 확인창 → sim_stop. 결과(ROS 세션 종료 확인/못 함)는 서버 이벤트로 따로 온다 → 토스트 글 | null(취소)
 // 지금 켜진 쪽(runner) 원장만 말한다 — 지도 체험이면 지도 체험 원장, 기존 체험이면 기존 원장, 모르면 «미확인»(섞지 않음)
@@ -208,10 +212,10 @@ export function startLink() {
       refreshShared(st.docs_rev, (st.events || [])[0]);   // 공유 기록(임무·사진 목록) 갱신 신호 — 대상과 무관
       if (!simOn()) return;   // 실기 대상: 시뮬 status 는 화면 상태(st·지나온 길·신선도)로 내보내지 않음
       track(st);
-      useLink.setState((s) => ({ st, bad: null, lastMsg: performance.now(), firstVer: s.firstVer ?? st.ver }));
+      useLink.setState((s) => ({ st, bad: null, lastMsg: performance.now(), firstVer: s.firstVer ?? st.ver, stGen: s.gen }));
     };
     w.onclose = (e) => {
-      dropAll(); sig = null; if (ws === w) ws = null;
+      dropAll(); sig = null; if (ws === w) ws = null; failPending('연결 끊김 — 응답 못 받음');
       useLink.setState((s) => ({ open: false, viewOnly: true, gen: s.gen + 1 }));   // 끊기는 즉시 «끊김» 표시(1 s 기다리지 않음)
       if (e.code === 4401) { useLink.setState({ authEnd: true }); return; }   // 로그인 끝남: 다시 잇지 않음 → 화면이 로그인으로
       if (!closed) setTimeout(open, 1000);
