@@ -43,3 +43,7 @@
 ## 다시 빌드할 때
 
 `FH_GATE_CA=<운영 관문 ca.crt> node scripts/gate-profile.mjs --dev`(공개 CA 한 장만 검사해 `android/app/src/dev/res/raw/` 에 생성, git 제외) → `./gradlew assembleDev` → 끝나면 `--clean`. 실제 쓴 스크립트 사본 `runs/mobile-dev-apk-20261014-mapopen-1/dev-build-mapopen.sh`. 개인키·계정·토큰 파일은 읽지 않는다.
+
+## 새 APK 전달(10-14~)
+
+새 frozen APK 가 완성되면 원물 경로·SHA-256·UI/native 판·변경점·검증 한계를 한 묶음으로 **위키 단독 담당**에게 «게재 요청 + 검증 원물»로 넘긴다(위키 다운로드 탭에 버전별 게재). 앱 Codex 에도 같은 보고. 위키 사이트 수정·배포는 위키 담당만 하고, 모바일 쪽은 GitHub push·PR·사이트 업로드를 하지 않는다. 이 문서에는 파일 경로·SHA 만 적고 실주소는 적지 않는다.
