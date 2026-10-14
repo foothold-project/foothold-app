@@ -773,9 +773,12 @@ def selftest_extra():
 
 # ---------------------------------------------------------------- 저장 지도(읽기만) — docs/CONTRACT-maps-sim-stop.md 3·4절
 # <maps_root>/<building_id>/<floor_id>/<map_version>/{map.pgm, map.yaml, meta.json}. 쓰기는 RL 구동기(/v2_map/save)만
-MAP_WORLDS = {'v5_single': ('v5', ('floor1',)), 'v5_building': ('v5', ('floor1', 'floor2')), 'rooms_a': ('rooms_a', ('floor1',))}
-MAP_FLOORS = {'v5': ('floor1', 'floor2'), 'rooms_a': ('floor1',)}
-MAP_VER = re.compile(r'\d{8}-\d{6}-e\d+')
+# world 마다 건물 키가 따로(단층 v5_single ≠ 2층 건물 v5) — 같은 GT 원본을 써도 자산 부모 폴더는 분리
+# 층·버전·meta 키는 RL 정본 map-20261014/MAP-CONTRACT.md §1·§4(live_map.meta_check)와 같게
+MAP_WORLDS = {'v5_single': ('v5_single', ('f1',)), 'v5_building': ('v5', ('l1', 'l2')), 'rooms_a': ('rooms_a', ('f1',))}
+MAP_FLOORS = {b: fl for b, fl in MAP_WORLDS.values()}
+MAP_VER = re.compile(r'\d{8}-\d{6}-e\d+|gt-\d{8}')          # 저장본 / 사전 GT 래스터
+MAP_REASON = ('user_save', 'pre_reset_autosave', 'gt_raster_copy')
 MAP_DIM, MAP_PNG_MAX, MAP_PGM_MAX = 2000, 512 * 1024, 4_100_000
 
 
@@ -817,22 +820,40 @@ def png_gray(w, h, px):
     return b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 0, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw, 9)) + ch(b'IEND', b'')
 
 
+def yaml_check(txt, meta):
+    """map.yaml 의 resolution·origin 이 meta 와 같은지(RL live_map.meta_check 와 같은 파싱·허용오차). 아니면 MapErr"""
+    y = dict(l.split(':', 1) for l in txt.splitlines() if ':' in l)
+    try:
+        r, o = float(y.get('resolution', 'nan')), json.loads(y.get('origin', '[]').strip())
+        ok = abs(r - meta['resolution']) <= 1e-9 and len(o) == 3 and all(abs(a - b) <= 1e-6 for a, b in zip(o, meta['origin']))
+    except (ValueError, TypeError):
+        ok = False
+    if not ok:
+        raise MapErr('map.yaml resolution·origin 이 meta 와 다름')
+
+
 def map_meta(m, b, f, v):
-    """meta.json 내용 검사 → 화면에 보낼 요약 dict. 이름·폴더와 어긋나거나 값이 이상하면 MapErr"""
+    """meta.json 검사 → 화면에 보낼 요약 dict. RL live_map.meta_check 와 같은 규칙(yaml 은 yaml_check). 어긋나면 MapErr"""
     fin = lambda x: type(x) in (int, float) and math.isfinite(x)
-    if not isinstance(m, dict) or m.get('schema') != 'v2_map_meta/1':
-        raise MapErr('meta 형식 아님')
-    if (m.get('building_id'), m.get('floor_id'), m.get('map_version')) != (b, f, v):
+    hx = lambda x: isinstance(x, str) and re.fullmatch(r'[0-9a-f]{64}', x)
+    need = ('schema', 'world_id', 'building_id', 'floor_id', 'epoch', 'map_version', 'map_source', 'map_frame', 'resolution', 'origin',
+            'width', 'height', 'saved_sim_t', 'saved_wall', 'reason', 'sha256_pgm')
+    if not isinstance(m, dict) or m.get('schema') != 'v2_map_meta/1' or not all(k in m for k in need):
+        raise MapErr('meta 형식 아님(필수 키 없음)')
+    if not all(isinstance(m[k], str) for k in ('world_id', 'building_id', 'floor_id', 'map_version', 'map_source')):
+        raise MapErr('meta 이름 칸이 문자열 아님')
+    if (m['building_id'], m['floor_id'], m['map_version']) != (b, f, v):
         raise MapErr('meta 의 건물·층·버전이 폴더와 다름')
-    wd = MAP_WORLDS.get(m.get('world_id'))
+    wd = MAP_WORLDS.get(m['world_id'])
     if not wd or wd[0] != b or f not in wd[1]:
         raise MapErr('meta world_id 가 건물·층과 맞지 않음')
-    o = m.get('origin')
-    if (m.get('map_source') not in ('slam', 'gt_raster') or type(m.get('epoch')) is not int or m['epoch'] < 0 or not fin(m.get('resolution')) or m['resolution'] <= 0
+    src, ep, o = m['map_source'], m['epoch'], m['origin']
+    ok_ep = (src == 'slam' and type(ep) is int and ep >= 1) or (src == 'gt_raster' and ep is None)
+    if (not ok_ep or m['map_frame'] != 'map' or m['reason'] not in MAP_REASON or not fin(m['resolution']) or m['resolution'] <= 0
             or not (isinstance(o, list) and len(o) == 3 and all(fin(x) for x in o))
-            or not all(type(m.get(k)) is int and 1 <= m[k] <= MAP_DIM for k in ('width', 'height'))
-            or not (isinstance(m.get('sha256'), str) and re.fullmatch(r'[0-9a-f]{64}', m['sha256']))
-            or not (m.get('saved_sim_t') is None or fin(m['saved_sim_t']))):
+            or not all(type(m[k]) is int and 1 <= m[k] <= MAP_DIM for k in ('width', 'height'))
+            or not hx(m['sha256_pgm']) or not (m['saved_sim_t'] is None or fin(m['saved_sim_t']))
+            or (src == 'gt_raster' and not (isinstance(m.get('source_pgm'), str) and hx(m.get('source_sha256'))))):
         raise MapErr('meta 값 범위 밖')
     return {k: m[k] for k in ('world_id', 'building_id', 'floor_id', 'map_version', 'map_source', 'epoch', 'resolution', 'origin', 'width', 'height', 'saved_sim_t')}
 
@@ -862,7 +883,7 @@ class MapStore:
                 for d in sorted(base.iterdir()) if base and base.is_dir() else []:
                     try:                    # 목록에도 끝까지 검증된 것만(sha·크기·PNG 상한). ponytail: 지도 수십 장 넘으면 meta 만 보고 get 때 검증
                         out.append({k: x for k, x in self.get(b, f, d.name).items() if k != 'png'})
-                    except (MapErr, OSError, ValueError):
+                    except Exception:           # 지도 하나가 이상해도 다른 지도 목록은 유지(이상한 것만 뺌)
                         skipped += 1
         return out, skipped
 
@@ -872,7 +893,7 @@ class MapStore:
             return self.cache[key]
         d = self._dir(b, f, v)
         try:
-            m = json.loads((d / 'meta.json').read_text()); meta = map_meta(m, b, f, v)
+            m = json.loads((d / 'meta.json').read_text()); meta = map_meta(m, b, f, v); yaml_check((d / 'map.yaml').read_text(), meta)
             if (d / 'map.pgm').stat().st_size > MAP_PGM_MAX:
                 raise MapErr('PGM 너무 큼')
             raw = (d / 'map.pgm').read_bytes()
@@ -880,7 +901,7 @@ class MapStore:
             raise MapErr('지도 파일 읽기 실패')
         except ValueError as e:
             raise e if isinstance(e, MapErr) else MapErr('meta JSON 아님')
-        if hashlib.sha256(raw).hexdigest() != m['sha256']:
+        if hashlib.sha256(raw).hexdigest() != m['sha256_pgm']:
             raise MapErr('PGM sha256 이 meta 와 다름')
         w, h, px = read_pgm(raw)
         if (w, h) != (meta['width'], meta['height']):
@@ -912,24 +933,42 @@ def selftest_maps():
             pass
     with tempfile.TemporaryDirectory() as td:
         root = Path(td) / 'maps'; s = MapStore(str(root))
-        def put(b, f, v, raw=b'P5\n3 2\n255\n' + px, **kw):
-            d = root / b / f / v; d.mkdir(parents=True, exist_ok=True); (d / 'map.pgm').write_bytes(raw)
-            m = {'schema': 'v2_map_meta/1', 'world_id': 'v5_building', 'building_id': b, 'floor_id': f, 'map_version': v, 'map_source': 'gt_raster',
-                 'epoch': 0, 'resolution': 0.05, 'origin': [-20, -14, 0], 'width': 3, 'height': 2, 'saved_sim_t': None, 'sha256': hashlib.sha256(raw).hexdigest(), **kw}
-            (d / 'meta.json').write_text(json.dumps(m))
-        V = '20261014-100000-e0'
-        put('v5', 'floor1', V); put('v5', 'floor2', V)
-        r = s.get('v5', 'floor1', V); assert r['map_source'] == 'gt_raster' and unpng(base64.b64decode(r['png'])) == (3, 2, px)
-        put('v5', 'floor1', '20261014-100001-e1', sha256='0' * 64)                         # sha 불일치
-        put('v5', 'floor1', '20261014-100002-e1', floor_id='floor2')                     # meta 층 어긋남
-        put('v5', 'floor1', '20261014-100003-e1', world_id='rooms_a')                    # world·건물 어긋남
-        put('v5', 'floor1', '20261014-100004-e1', width=4)                               # 크기 어긋남
-        put('v5', 'floor1', '20261014-100005-e1', resolution=float('nan'))
-        (root / 'v5' / 'floor1' / 'not-a-version').mkdir()
-        (root / 'v5' / 'floor1' / '20261014-100006-e1').symlink_to(root / 'v5' / 'floor2' / V)   # 다른 층으로 새는 링크
-        lst, sk = s.listing(); assert [x['floor_id'] for x in lst] == ['floor1', 'floor2'] and sk == 7, (lst, sk)
-        for args in [('v5', 'floor1', '20261014-100001-e1'), ('v5', 'floor1', '20261014-100004-e1'), ('v5', 'floor3', V), ('x', 'floor1', V),
-                     ('v5', 'floor1', '../floor2/' + V), ('v5', 'floor1', '20261014-999999-e1'), ('v5', 'floor1', '20261014-100006-e1'), ('v5', 'floor1', None)]:
+        def put(b, f, v, raw=b'P5\n3 2\n255\n' + px, drop=(), yml='image: map.pgm\nmode: trinary\nresolution: 0.05\norigin: [-20, -14, 0]\nnegate: 0\n', **kw):
+            d = root / b / f / v; d.mkdir(parents=True, exist_ok=True); (d / 'map.pgm').write_bytes(raw); sh = hashlib.sha256(raw).hexdigest()
+            gt = kw.get('map_source') == 'gt_raster'
+            m = {'schema': 'v2_map_meta/1', 'world_id': 'v5_building', 'building_id': b, 'floor_id': f, 'map_version': v, 'map_source': 'slam', 'epoch': 1,
+                 'map_frame': 'map', 'resolution': 0.05, 'origin': [-20, -14, 0], 'width': 3, 'height': 2, 'saved_sim_t': 12.5, 'saved_wall': '2026-10-14T10:00:00+09:00',
+                 'reason': 'user_save', 'sha256_pgm': sh,
+                 **({'epoch': None, 'saved_sim_t': None, 'saved_wall': None, 'reason': 'gt_raster_copy', 'source_pgm': 'x/v5-l1.pgm', 'source_sha256': sh} if gt else {}), **kw}
+            for k in drop:
+                del m[k]
+            (d / 'meta.json').write_text(json.dumps(m)); (d / 'map.yaml').write_text(yml)
+        V, G, GT = '20261014-100000-e1', 'gt-20261012', {'map_source': 'gt_raster', 'epoch': None}
+        put('v5', 'l1', G, **GT); put('v5', 'l2', V)
+        r = s.get('v5', 'l1', G); assert r['map_source'] == 'gt_raster' and r['epoch'] is None and unpng(base64.b64decode(r['png'])) == (3, 2, px)
+        bad = [('20261014-100001-e1', {'sha256_pgm': '0' * 64}), ('20261014-100002-e1', {'floor_id': 'l2'}), ('20261014-100003-e1', {'world_id': 'rooms_a'}),
+               ('20261014-100004-e1', {'width': 4}), ('20261014-100005-e1', {'resolution': float('nan')}), ('20261014-100007-e1', {'world_id': ['v5_building']}),
+               ('20261014-100008-e1', {'world_id': 'v5_single'}), ('20261014-100009-e1', {'building_id': {'x': 1}}), ('20261014-100011-e1', {'epoch': 0}),
+               ('20261014-100012-e1', {'epoch': None}), ('20261014-100013-e1', {'map_frame': 'odom'}), ('20261014-100014-e1', {'reason': 'x'}),
+               ('gt-20261013', {'map_source': 'gt_raster', 'epoch': 1}),
+               ('gt-20261014', {'map_source': 'gt_raster', 'source_sha256': None})]
+        for v, kw in bad:
+            put('v5', 'l1', v, **kw)
+        put('v5', 'l1', '20261014-100019-e1', yml='resolution: 0.1\norigin: [-20, -14, 0]\n')     # yaml 해상도 어긋남
+        put('v5', 'l1', '20261014-100020-e1', yml='resolution: 0.05\norigin: [-20, -13, 0]\n')   # yaml 원점 어긋남
+        put('v5', 'l1', '20261014-100021-e1', yml='resolution: 0.05\n')                          # yaml 원점 없음
+        put('v5', 'l1', '20261014-100022-e1'); (root / 'v5' / 'l1' / '20261014-100022-e1' / 'map.yaml').unlink()   # yaml 파일 없음
+        put('v5', 'l1', '20261014-100016-e1', drop=('saved_wall',))                        # null 허용 키도 «키는 항상 있음»
+        put('v5', 'l1', '20261014-100017-e1', drop=('sha256_pgm',)); put('v5', 'l1', '20261014-100018-e1', drop=('saved_sim_t',))
+        (root / 'v5' / 'l1' / 'not-a-version').mkdir()
+        (root / 'v5' / 'l1' / '20261014-100006-e1').symlink_to(root / 'v5' / 'l2' / V)      # 다른 층으로 새는 링크
+        put('v5', 'l2', '20261014-100010-e2', saved_sim_t=None, saved_wall=None, note='추가 키 허용')
+        put('v5_single', 'f1', G, world_id='v5_single', **GT)                                # 단층은 따로 건물 키
+        lst, sk = s.listing(); assert [(x['building_id'], x['floor_id'], x['map_version']) for x in lst] == [
+            ('v5_single', 'f1', G), ('v5', 'l1', G), ('v5', 'l2', V), ('v5', 'l2', '20261014-100010-e2')] and sk == len(bad) + 9, (lst, sk)
+        assert lst[3]['saved_sim_t'] is None and lst[0]['world_id'] == 'v5_single' and 'note' not in lst[3]
+        for args in [('v5', 'l1', '20261014-100001-e1'), ('v5', 'l1', '20261014-100004-e1'), ('v5', 'l3', V), ('x', 'l1', V), ('v5', 'floor1', G),
+                     ('v5', 'l1', '../l2/' + V), ('v5', 'l1', '20261014-999999-e1'), ('v5', 'l1', '20261014-100006-e1'), ('v5', 'l1', None), ('v5', 'l1', 'gt-2026101')]:
             try:
                 s.get(*args); raise AssertionError(args)
             except MapErr:
@@ -938,6 +977,10 @@ def selftest_maps():
     real = Path('/home/hyeon/Desktop/foothold/control-app/sim/worlds/v5/maps/v5-l1.pgm')     # 있으면 실제 크기 확인(읽기만)
     if real.is_file():
         w, h, q = read_pgm(real.read_bytes()); n = len(png_gray(w, h, q)); assert (w, h) == (800, 640) and n < MAP_PNG_MAX, n
+    rl = Path('/home/hyeon/Desktop/foothold/control-app/experiments/33-foothold-v2-gazebo-20261012/map-20261014/maps')   # RL 정본 자산(읽기만)
+    if rl.is_dir():
+        lst, sk = MapStore(str(rl)).listing(); assert sk == 0 and {(x['building_id'], x['floor_id'], x['map_version']) for x in lst} >= {
+            ('v5_single', 'f1', 'gt-20261012'), ('v5', 'l1', 'gt-20261012'), ('v5', 'l2', 'gt-20261012')}, (lst, sk)
 
 
 def selftest():

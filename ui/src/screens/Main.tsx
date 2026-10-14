@@ -10,8 +10,7 @@ import { activeRun, docsOf, useDocs } from '../data/shared';
 import { curWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas, type MapApi } from '../map/MapCanvas';
-import { getMap, listMaps, mapKey, mapLabel, type Raster } from '../data/maps';
-import type { MapInfo } from '@contracts';
+import { useMapPick } from '../map/MapPick';
 import { MULTI, useDriveScreen, useHold } from '../app/drive';
 import { EndRow, WpActs } from '../app/runui';
 import { stopOn, stopProps, toast, whyProps } from '../app/shell';
@@ -39,18 +38,7 @@ export default function Main() {
   const api = useRef<MapApi | null>(null), box = useRef<HTMLDivElement>(null);
   const [trail, setTrail] = useState(true), [zon, setZon] = useState(true), [, redraw] = useState(0);
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
-  // 지도 보기 선택(저장 지도) — 화면만 바뀐다. 실제 Gazebo world·조종 상태 변경 0. 로봇·길·구역은 지도와 결속 확인 전 숨김
-  const [maps, setMaps] = useState<MapInfo[] | string | null>(null), [mapSel, setMapSel] = useState(''), [raster, setRaster] = useState<Raster | null>(null);
-  const selRef = useRef('');
-  const loadMaps = () => { listMaps().then(setMaps); };
-  const linked = useLink((x) => x.open);
-  useEffect(() => { if (linked && !Array.isArray(maps)) loadMaps(); }, [linked]);   // 연결되면 목록 한 번(읽기만), 고를 때 다시
-  const pickMap = async (key: string) => {
-    selRef.current = key; setMapSel(key); setRaster(null);
-    const m = Array.isArray(maps) ? maps.find((x) => mapKey(x) === key) : null; if (!m) return;
-    const r = await getMap(m); if (selRef.current !== key) return;   // 그사이 다른 지도를 골랐으면 버림
-    if (typeof r === 'string') { toast(`지도 · ${r}`); selRef.current = ''; setMapSel(''); } else setRaster(r);
-  };
+  const { raster, pickEl } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
 
   const role = st?.role, ctl = v.linkOk && role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
@@ -127,14 +115,7 @@ export default function Main() {
     map: <div style={{ position: 'relative', width: '100%', aspectRatio: '1000/620' }}>
       <MapCanvas name="main" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={v.robot} trail={TRAIL.pts}
         raster={raster} noRobot={!!raster} showTrail={trail && !raster} showZones={zon && !raster} wps={R && !raster ? R.wps : null} />
-      <select aria-label="지도 보기 선택(보기만 · 실제 world 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 Gazebo 지형·조종은 그대로" value={mapSel}
-        onFocus={loadMaps} onChange={(e) => pickMap(e.target.value)}
-        style={{ position: 'absolute', top: 8, left: 8, maxWidth: 'calc(100% - 16px)', minHeight: 32, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
-        <option value="">실행 중 시뮬 바닥 · GT 위치</option>
-        {Array.isArray(maps) && maps.map((m) => <option key={mapKey(m)} value={mapKey(m)}>{mapLabel(m)}</option>)}
-        {typeof maps === 'string' && <option disabled value="-">{`저장 지도 목록 · ${maps}`}</option>}
-        {Array.isArray(maps) && !maps.length && <option disabled value="-">저장 지도 없음</option>}
-      </select></div>,
+      {pickEl}</div>,
     stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist == null ? '미확인' : `${dist.toFixed(1)} m`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
     steps: R ? R.wps.map((x, i) => ({ n: i + 1, title: x.name || `지점 ${i + 1}`, cls: x.st === '방문' ? 'done' : x.st === '미방문' ? 'hold' : i === ci ? 'now' : '',
       sub: x.st === '방문' ? `방문 ${fmtT(x.at).slice(6)} · 사진 ${x.photos.length}${x.chk ? ` · ${x.chk}` : ''}` : x.st === '미방문' ? `미방문 · ${x.why}`

@@ -42,6 +42,7 @@
         "building_id": {
           "enum": [
             "v5",
+            "v5_single",
             "rooms_a"
           ],
           "title": "Building Id",
@@ -49,14 +50,15 @@
         },
         "floor_id": {
           "enum": [
-            "floor1",
-            "floor2"
+            "f1",
+            "l1",
+            "l2"
           ],
           "title": "Floor Id",
           "type": "string"
         },
         "map_version": {
-          "pattern": "^\\d{8}-\\d{6}-e\\d+$",
+          "pattern": "^(\\d{8}-\\d{6}-e\\d+|gt-\\d{8})$",
           "title": "Map Version",
           "type": "string"
         },

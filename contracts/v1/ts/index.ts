@@ -52,11 +52,11 @@ export interface Event {
 
 export interface MapData {
   world_id: "v5_single" | "v5_building" | "rooms_a";
-  building_id: "v5" | "rooms_a";
-  floor_id: "floor1" | "floor2";
+  building_id: "v5" | "v5_single" | "rooms_a";
+  floor_id: "f1" | "l1" | "l2";
   map_version: string;
   map_source: "slam" | "gt_raster";
-  epoch: number;
+  epoch: number | null;
   resolution: number;
   origin: number[];
   width: number;
@@ -67,11 +67,11 @@ export interface MapData {
 
 export interface MapInfo {
   world_id: "v5_single" | "v5_building" | "rooms_a";
-  building_id: "v5" | "rooms_a";
-  floor_id: "floor1" | "floor2";
+  building_id: "v5" | "v5_single" | "rooms_a";
+  floor_id: "f1" | "l1" | "l2";
   map_version: string;
   map_source: "slam" | "gt_raster";
-  epoch: number;
+  epoch: number | null;
   resolution: number;
   origin: number[];
   width: number;
@@ -133,8 +133,8 @@ export interface OpCmd {
 export interface OpMapGet {
   op: "map_get";
   rid?: number | null;
-  building_id: "v5" | "rooms_a";
-  floor_id: "floor1" | "floor2";
+  building_id: "v5" | "v5_single" | "rooms_a";
+  floor_id: "f1" | "l1" | "l2";
   map_version: string;
 }
 

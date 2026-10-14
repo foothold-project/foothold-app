@@ -11,12 +11,14 @@ import { GOTO_WHY, defMods } from '../data/tmpl';
 import { ZONE_NOTE } from '../data/facts';
 import { MODE_KO, MapCanvas, type MapApi } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
+import { useMapPick } from '../map/MapPick';
 import { Drawer, stopProps, toast, whyProps } from '../app/shell';
 
 
 export default function MMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, api = useRef<MapApi | null>(null), busy = useRef(false);
-  const [sel, setSel] = useState<number[] | null>(null), [layers, setLayers] = useState(false), [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
+  const { raster, pickEl } = useMapPick(false);   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
+  const [sel0, setSel] = useState<number[] | null>(null), sel = raster ? null : sel0, [layers, setLayers] = useState(false), [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [mid0, setMid] = useState(''), ms = docsOf(D, 'mission'), mid = ms.some((m) => m.id === mid0) ? mid0 : '';
   const d = sel && lk.robot?.fresh ? Math.hypot(lk.robot.x - sel[0], lk.robot.y - sel[1]) : null;
   const fresh = !!lk.robot?.fresh, [, redraw] = useState(0);
@@ -35,12 +37,12 @@ export default function MMap() {
 
   const v = {
     themeClass: themeClass(false), stopProps, status: <LiveStatus D={D} />,
-    hdrA: '지도', hdrB: `시뮬 바닥 ±10 m · ${fresh ? 'GT 위치 수신' : TRAIL.last ? 'GT 오래됨' : 'GT 미수신'}(SLAM 아님)`,
+    hdrA: '지도', hdrB: raster ? '저장 지도 · 위치 미표시' : `시뮬 바닥 ±10 m · ${fresh ? 'GT 위치 수신' : TRAIL.last ? 'GT 오래됨' : 'GT 미수신'}(SLAM 아님)`,
     layerP: { 'aria-label': '지도 보기·레이어', 'aria-expanded': layers, onClick: () => setLayers(!layers) },
-    map: <MapCanvas name="mmap" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} trail={TRAIL.pts} showTrail={trail} showZones={zon} sel={sel}
-      onTap={(x, y) => setSel([r2(x), r2(y)])} />,
+    map: <><MapCanvas name="mmap" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} trail={TRAIL.pts} showTrail={trail && !raster} showZones={zon && !raster} sel={sel}
+      raster={raster} noRobot={!!raster} onTap={raster ? undefined : (x, y) => setSel([r2(x), r2(y)])} /></>,
     fR: { 'data-m': 'robot', onClick: () => api.current?.setMode('robot') }, fI: { onClick: () => api.current?.zoomBy(1.5) }, fO: { onClick: () => api.current?.zoomBy(1 / 1.5) },
-    hint: sel ? `고른 지점 · ${zoneTxt(D, sel[0], sel[1])}` : '지도를 눌러 지점을 고르세요',
+    hint: raster ? '저장 지도 · 지점 고르기 꺼짐' : sel ? `고른 지점 · ${zoneTxt(D, sel[0], sel[1])}` : '지도를 눌러 지점을 고르세요',
     nb: sel ? '고른 지점' : '고른 지점 없음',
     xy: sel ? `x ${sgn(sel[0])} · y ${sgn(sel[1])} m` : s ? `로봇 GT ${posTxt(s.x, s.y)}` : '로봇 위치 없음(GT 미수신)',
     dist: sel ? (d == null ? '미확인' : `${d.toFixed(1)} m`) : '—',
@@ -55,6 +57,7 @@ export default function MMap() {
   };
   const B = (t: string, f: () => void) => <button type="button" className="lv-btn" onClick={() => { f(); redraw((n) => n + 1); }}>{t}</button>;
   const drawer = layers && <Drawer title="지도 보기" onClose={() => setLayers(false)}>
+      {pickEl}
       {B(`보기: ${MODE_KO[mode]} → ${mode === 'all' ? '로봇 중심' : '전체 보기'}`, () => api.current?.setMode(mode === 'all' ? 'robot' : 'all'))}
       {B(`지나온 길 ${trail ? '숨기기' : '보이기'}`, () => setTrail(!trail))}
       {B(`구역 ${zon ? '숨기기' : '보이기'}`, () => setZon(!zon))}

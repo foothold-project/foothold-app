@@ -159,17 +159,19 @@ test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', a
 
 test('저장 지도: 목록 형식 걸러냄 · 다른 지도 답 버림 · 요청은 이름만', async () => {
   const M = await import('../../src/data/maps');
-  const I = (o: any = {}) => ({ world_id: 'v5_building', building_id: 'v5', floor_id: 'floor1', map_version: '20261012-032800-e0', map_source: 'gt_raster', epoch: 0,
+  const I = (o: any = {}) => ({ world_id: 'v5_building', building_id: 'v5', floor_id: 'l1', map_version: 'gt-20261012', map_source: 'gt_raster', epoch: null,
     resolution: 0.05, origin: [-20, -14, 0], width: 800, height: 640, saved_sim_t: null, ...o });
   const reply = (o: any) => { const q = last(sent); msg({ op: 'reply', rid: q.rid, ok: true, text: '', ...o }); return q; };
   let p: Promise<any> = M.listMaps();
-  reply({ maps: [I(), I({ floor_id: 'floor9' }), I({ resolution: 0 }), I({ origin: [0, 0] }), I({ width: 2001 }), I({ map_source: 'x' })] });
-  expect((await p).map(M.mapKey)).toEqual(['v5/floor1/20261012-032800-e0']);
+  reply({ maps: [I(), I({ floor_id: 'floor1' }), I({ floor_id: 'f1' }), I({ epoch: 0 }), I({ map_source: 'slam' }), I({ map_source: 'slam', epoch: 2, map_version: '20261014-100000-e2' }), I({ world_id: 'v5_single' }), I({ world_id: ['v5_building'] }), I({ world_id: 'toString' }), I({ floor_id: 'constructor' }), I({ resolution: 0 }), I({ origin: [0, 0] }), I({ width: 2001 }), I({ map_source: 'x' })] });
+  expect((await p).map(M.mapKey)).toEqual(['v5/l1/gt-20261012', 'v5/l1/20261014-100000-e2']);
   p = M.getMap(I() as any);
-  const q = reply({ map: { ...I({ floor_id: 'floor2' }), png: 'AA==' } });                  // 다른 층 답 → 버림
-  expect(q).toMatchObject({ op: 'map_get', building_id: 'v5', floor_id: 'floor1', map_version: '20261012-032800-e0' });
+  const q = reply({ map: { ...I({ floor_id: 'l2' }), png: 'AA==' } });                  // 다른 층 답 → 버림
+  expect(q).toMatchObject({ op: 'map_get', building_id: 'v5', floor_id: 'l1', map_version: 'gt-20261012' });
   expect(await p).toBe('지도 형식 이상');
   p = M.getMap(I() as any); reply({ map: I() }); expect(await p).toBe('지도 형식 이상');             // png 없음
+  p = M.getMap(I() as any); reply({ map: { ...I({ world_id: 'v5_single', building_id: 'v5_single', floor_id: 'f1' }), png: 'AA==' } }); expect(await p).toBe('지도 형식 이상');   // 단층 지도(형식은 맞음)를 건물로 표시 0
+  { const S = I({ map_source: 'slam', epoch: 2, map_version: '20261014-100000-e2' }); p = M.getMap(S as any); reply({ map: { ...S, epoch: 3, png: 'AA==' } }); expect(await p).toBe('지도 형식 이상'); }   // 다른 epoch
   p = M.getMap(I() as any); reply({ map: { ...I({ origin: [-20, -14, 0.5] }), png: 'AA==' } }); expect(await p).toContain('회전');
   p = M.getMap(I() as any); { const z = last(sent); msg({ op: 'reply', rid: z.rid, ok: false, text: '지도 · 지도 없음' }); } expect(await p).toBe('지도 · 지도 없음');
   expect(M.mapLabel(I() as any)).toContain('GT 기하 지도(SLAM 아님)');

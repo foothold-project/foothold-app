@@ -79,9 +79,9 @@ class OpMapGet(In):
     """저장 지도 한 장. 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md)."""
     op: Literal['map_get']
     rid: Rid = None
-    building_id: Literal['v5', 'rooms_a']
-    floor_id: Literal['floor1', 'floor2']
-    map_version: Annotated[str, Field(pattern=r'^\d{8}-\d{6}-e\d+$')]
+    building_id: Literal['v5', 'v5_single', 'rooms_a']
+    floor_id: Literal['f1', 'l1', 'l2']
+    map_version: Annotated[str, Field(pattern=r'^(\d{8}-\d{6}-e\d+|gt-\d{8})$')]
 
 
 ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet], Field(discriminator='op')]
@@ -183,11 +183,11 @@ class PhotoMeta(Out):
 class MapInfo(Out):
     """저장 지도 meta 요약(서버가 sha·크기 검증을 마친 것만). 행 순서는 PGM 그대로 — 첫 행 = y 가 가장 큰 쪽, origin = 왼쪽 아래 칸의 월드 좌표."""
     world_id: Literal['v5_single', 'v5_building', 'rooms_a']
-    building_id: Literal['v5', 'rooms_a']
-    floor_id: Literal['floor1', 'floor2']
+    building_id: Literal['v5', 'v5_single', 'rooms_a']
+    floor_id: Literal['f1', 'l1', 'l2']
     map_version: str
     map_source: Literal['slam', 'gt_raster']
-    epoch: Annotated[int, Field(ge=0)]
+    epoch: Optional[Annotated[int, Field(ge=1)]]   # slam ≥1 · gt_raster null
     resolution: Annotated[Fin, Field(gt=0)]
     origin: Annotated[list[Fin], Field(min_length=3, max_length=3)]
     width: Annotated[int, Field(ge=1, le=2000)]

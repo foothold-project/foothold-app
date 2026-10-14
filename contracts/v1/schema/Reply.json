@@ -5,20 +5,29 @@
         "building_id": {
           "enum": [
             "v5",
+            "v5_single",
             "rooms_a"
           ],
           "title": "Building Id",
           "type": "string"
         },
         "epoch": {
-          "minimum": 0,
-          "title": "Epoch",
-          "type": "integer"
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Epoch"
         },
         "floor_id": {
           "enum": [
-            "floor1",
-            "floor2"
+            "f1",
+            "l1",
+            "l2"
           ],
           "title": "Floor Id",
           "type": "string"
@@ -109,20 +118,29 @@
         "building_id": {
           "enum": [
             "v5",
+            "v5_single",
             "rooms_a"
           ],
           "title": "Building Id",
           "type": "string"
         },
         "epoch": {
-          "minimum": 0,
-          "title": "Epoch",
-          "type": "integer"
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Epoch"
         },
         "floor_id": {
           "enum": [
-            "floor1",
-            "floor2"
+            "f1",
+            "l1",
+            "l2"
           ],
           "title": "Floor Id",
           "type": "string"
