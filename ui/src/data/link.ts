@@ -141,7 +141,7 @@ export function startLink() {
       if (bad) { dropAll(); useLink.setState({ st: null, bad, lastMsg: performance.now() }); return; }   // 미확인: 이전 st 로 조종 계속하지 않음
       const st = m as Status;
       if (st.latch) stopHeld = false;   // 서버가 STOP 잠금을 확인 — 이후는 latch 규칙이 막음
-      const s2 = [st.role, st.latch, st.reset_pending, st.resume_pending, st.episode, st.sim_block, st.ver, st.state_age != null && st.state_age <= 1].join('|');
+      const s2 = [st.role, st.latch, st.reset_pending, st.resume_pending, st.episode, st.sim_block, st.sim_stop?.busy, st.ver, st.state_age != null && st.state_age <= 1].join('|');
       if (s2 !== sig) { dropAll(); sig = s2; }   // 조종권·STOP·리셋·에피소드·시뮬·판·상태 신선도 변화 → 낡은 누름 폐기
       track(st);
       useLink.setState((s) => ({ st, bad: null, lastMsg: performance.now(), firstVer: s.firstVer ?? st.ver }));

@@ -149,4 +149,10 @@ test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', a
   const q = last(sent); expect(q.op).toBe('sim_stop');
   msg({ op: 'reply', rid: q.rid, ok: true, text: 'Gazebo 종료 요청함' });
   expect(await p).toBe('Gazebo 종료 요청함');
+  // 종료 처리 중: 서버 sim_block 'Gazebo 종료 중' + busy → 누름 거부·표시, 누르던 입력 폐기
+  L.sendOp('take'); msg(ST({ sim_stop: SP() })); expect(L.press('pc-t', 1, { fx: 1, fy: 0, fw: 0 })).toBe(true);
+  msg(ST({ sim_block: 'Gazebo 종료 중', sim_stop: SP({ busy: true }) }));
+  expect(L.driveBlock()).toBe('Gazebo 종료 중');
+  expect(L.press('pc-t2', 2, { fx: 1, fy: 0, fw: 0 })).toBe(false);
+  expect(L.move('pc-t', 1, { fx: 1, fy: 0, fw: 0 })).toBe(false);          // 서명 변화로 앞 누름 폐기됨
 });

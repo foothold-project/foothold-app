@@ -96,6 +96,7 @@ class Core:
         self.reset_pending = None   # 요청 시각
         self.ep_change_t = None     # 마지막 episode 변경 시각
         self.sim_was_ok = False; self.bad_input = False; self.bad_state = False
+        self.sim_stopping = False   # Gazebo 끄기 처리 중: take·resume·reset 거부, cmd 폐기(서버 정본). 끝나도 잠금은 그대로(자동 복원 없음)
 
     def ev(self, level, text):
         e = {'t': time.strftime('%H:%M:%S'), 'st': level, 'text': text}
@@ -111,6 +112,8 @@ class Core:
         self.intent = Z; self.intent_t = -1e9; self.need_neutral = True
 
     def sim_block(self):
+        if self.sim_stopping:
+            return 'Gazebo 종료 중'
         if self.st is None:
             return '시뮬 상태 미수신'
         if self.now() - self.state_t > STATE_STALE:
@@ -144,6 +147,8 @@ class Core:
         return True
 
     def take(self, cid, who='이 기기'):
+        if self.sim_stopping:
+            self.ev('warn', f'조종권 거부 · Gazebo 종료 중 ({who})'); return False
         if self.controller not in (None, cid):
             return False
         if self.controller != cid:
@@ -190,7 +195,7 @@ class Core:
         return True
 
     def reset_begin(self, cid, ready):
-        why = '조종권 없음' if cid != self.controller else '리셋 처리 중' if self.reset_pending else '' if ready else '리셋 서비스 미연결'
+        why = 'Gazebo 종료 중' if self.sim_stopping else '조종권 없음' if cid != self.controller else '리셋 처리 중' if self.reset_pending else '' if ready else '리셋 서비스 미연결'
         if why:
             self.ev('warn', f'시뮬 리셋 거부 · {why}'); return False
         self.reset_pending = self.now(); self.latch = True; self.resume_pending = None; self._void()
@@ -503,9 +508,12 @@ class SimStart:
 
 
 def read_session(status_sh, timeout=10.0):
-    """session_status.sh(RL, 읽기만) 한 번 → dict 또는 None(종료 코드≠0·시간 초과·형식 틀림 = 미확인, 추정 없음)"""
+    """session_status.sh(RL, 읽기만) 한 번 → dict 또는 None(종료 코드≠0·시간 초과·형식 틀림 = 미확인, 추정 없음).
+    timeout 이 유한 양수가 아니면 실행하지 않고 미확인(남은 시간 0 이하로 60 s 상한을 늘리지 않게)"""
+    if not (type(timeout) in (int, float) and math.isfinite(timeout) and timeout > 0):
+        return None
     try:
-        r = subprocess.run(['bash', status_sh], capture_output=True, text=True, timeout=max(0.1, timeout))
+        r = subprocess.run(['bash', status_sh], capture_output=True, text=True, timeout=timeout)
         d = json.loads(r.stdout.strip().splitlines()[-1])
         return d if r.returncode == 0 and isinstance(d, dict) and d.get('schema') == 'v2_session/1' else None
     except Exception:
@@ -634,7 +642,22 @@ def selftest_stop():
         assert go(0, ['inactive'], [bad_age])[0] == 'bad', bad_age
     assert go(0, ['inactive'], [9.0], wrap_cost=45.0)[0] == 'ok'                   # wrapper 45 s 뒤에도 상한 안
     assert go(0, ['active'], [9.0], wrap_cost=45.0, cost=10.0)[0] == 'bad'          # 조회 무응답(매번 상한까지) → 60 s 안에 닫힘
-    assert go(0, ['inactive'], [9.0], wrap_cost=59.5, cost=10.0)[0] in ('ok', 'bad')  # 남은 0.5 s 조회 — 상한 지킴(go 안 assert)
+    for to in (0, 0.0, -1.0, float('nan'), float('inf'), None):                     # 남은 시간 0 이하·비유한 → 실행 안 함·미확인
+        assert read_session('/nonexistent', to) is None, to
+    # 종료 처리 중 입력 경계(서버 정본, Core 만): 같은/새 연결 take·resume·reset 거부(→ on_message 의 pub_resume·리셋 서비스 호출 0), cmd 0
+    t[0] = 0.0; c = Core(now=lambda: t[0])
+    S = lambda stop: c.on_state({'schema': SCHEMA, 'episode': 0, 'stop_requested': stop, 'reset_in_progress': False, 'policy_running': True})
+    S(False); assert c.take('a'); c.cmd('a', Z); c.cmd('a', (1.0, 0.0, 0.0)); assert c.applied() == (0.6, 0, 0)
+    c.drop('a', 'Gazebo 종료'); c.latch = True; c.resume_pending = None; c._void(); c.sim_stopping = True   # stop_sim 과 같은 순서
+    S(True); assert c.sim_block() == 'Gazebo 종료 중'
+    for cid in ('a', 'b'):
+        assert not c.take(cid) and c.controller is None
+        c.cmd(cid, Z); c.cmd(cid, (1.0, 0.0, 0.0)); assert c.applied() == Z
+        assert not c.resume(cid) and c.resume_pending is None
+        assert not c.reset_begin(cid, True) and c.reset_pending is None
+    c.sim_stopping = False                                                         # 끝남 → 자동 복원 없음
+    assert c.latch and c.controller is None and c.resume_pending is None and c.applied() == Z
+    assert c.take('b'); c.cmd('b', Z); c.cmd('b', (1.0, 0.0, 0.0)); assert c.applied() == Z and c.latch   # STOP 잠금 유지
     # unit 값·상태 스크립트 형식
     for d, want in [({'active_state': 'inactive'}, 'inactive'), ({'active_state': ''}, None), ({'active_state': 'unknown'}, None),
                     ({'active_state': False}, None), ({'active_state': ' inactive'}, None), ({}, None), (None, None), ({'active_state': 'maintenance'}, None)]:
@@ -1005,7 +1028,7 @@ def main():
             why = stopper.refuse(c.gated, starter.busy, sim_live(), starter.session, holder)
             if why:
                 core.ev('warn', f'Gazebo 종료 거부 · {why}'); return reply(c, rid, False, why)
-            stopper.busy = True; stopper.last_t = time.monotonic()
+            stopper.busy = True; stopper.last_t = time.monotonic(); core.sim_stopping = True
             core.drop(c.cid, 'Gazebo 종료')           # 본인 조종 중이면 입력 폐기·0·STOP 잠금·반납(다시 조종하려면 새 take)
             core.latch = True; core.resume_pending = None; core._void()
             core.ev('warn', f'Gazebo 종료 요청 · {c.actor} · 명령 0 잠금')
@@ -1028,7 +1051,7 @@ def main():
             except Exception as e:
                 st_, text = 'bad', f'Gazebo 종료 확인 못 함 · {type(e).__name__}'
             with lock:
-                stopper.busy = False; stopper.last = {'t': time.strftime('%H:%M:%S'), 'st': st_, 'text': text}
+                stopper.busy = False; core.sim_stopping = False; stopper.last = {'t': time.strftime('%H:%M:%S'), 'st': st_, 'text': text}
                 core.ev(st_, text)
         threading.Thread(target=run, daemon=True).start()
 
