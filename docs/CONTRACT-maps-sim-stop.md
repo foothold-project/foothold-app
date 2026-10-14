@@ -53,7 +53,7 @@
 로봇 마커는 아래가 **모두** 맞을 때만 그린다. 하나라도 아니면 «위치 미표시(지도와 결속 안 됨)».
 - `/v2_map/status` 의 world_id·building_id·floor_id·epoch 가 보고 있는 지도 meta 와 같다.
 - `pose_map`(구동기가 map→base_footprint 를 조회해 넣은 값)이 있고 신선하다.
-- 늦게 온 이전 epoch 의 지도·자세는 버린다.
+- 늦게 온 이전 epoch 의 지도·자세는 버린다. 결속 구현 때 RL status 의 `map.epoch`·`map.stamp_sim`·`map_accepting`·`last_save.epoch` 로 판정(RESET 중 `map_accepting=false` 면 지도·마커 갱신 멈춤).
 - 출처 표기: `slam_tf`(SLAM 보정) / `gt_identity`(RL 이 worlds.json 지정 GT 폴더·기하 바이트 대조를 통과한 지도에만 냄). live GT 를 지도 origin 에 그냥 붙이지 않는다.
 - 저장 SLAM 지도를 static 으로 띄우면 RL 은 map→odom 을 내지 않고 `pose_map=null`·`pose_map_null_reason=saved_slam_map_not_localized` — 화면은 마커를 그리지 않는다(위치 추정 기능 없음).
 
