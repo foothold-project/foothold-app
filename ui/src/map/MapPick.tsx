@@ -21,7 +21,7 @@ export function useMapPick(overlay = true) {   // overlay=false: 서랍 안 등 
   const load = () => { listMaps().then(setMaps); };
   useEffect(() => { if (linked && !Array.isArray(maps)) load(); }, [linked]);   // 연결되면 목록 한 번, 고를 때 다시
 
-  // 실시간: 연결 끊김·수신 중단·세대 변경·st≠ok·K 변경이면 그림·마커 즉시 버림. 같은 K 의 새 seq 면 다시 받음(≤1 Hz, 받는 동안 같은 K 의 이전 seq 유지)
+  // 실시간: 연결 끊김·수신 중단·세대 변경·st≠ok·K 또는 seq 변경이면 그림·마커 즉시 버림. 새 seq 면 다시 받음(≤1 Hz) — 받는 동안 빈 칸·마커 0(옛 그림 + 새 pose 조합 금지)
   const ok = lv?.st === 'ok', k = ok ? keyOf(lv!) : null, seq = ok ? lv!.grid!.seq : null;
   useEffect(() => {
     if (sel !== LIVE) return;
@@ -44,7 +44,7 @@ export function useMapPick(overlay = true) {   // overlay=false: 서랍 안 등 
     if (typeof r === 'string') { toast(`지도 · ${r}`); setSerr(r); } else setSaved(r);   // 실패해도 GT 로 자동 복귀 0 — 선택 유지 + 빈 칸 + 이유
   };
   const live = sel === LIVE, on = sel !== '';
-  const showL = live && fresh && !!bound && bound.gen === gen && bound.k === k;   // 그리는 순간에도 현재 lv·연결로 다시 결속 확인
+  const showL = live && fresh && !!bound && bound.gen === gen && bound.k === k && bound.seq === seq;   // 그리는 순간에도 현재 lv·연결로 다시 결속 확인
   const raster = live ? (showL ? bound!.r : null) : saved;
   const p = showL ? lv?.pose : null;
   const pose: Robot = p ? { x: p.x, y: p.y, yaw: p.yaw, t: useLink.getState().lastMsg, fresh: true } : null;

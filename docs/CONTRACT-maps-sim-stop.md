@@ -86,7 +86,7 @@
 - 저장 지도 보기(`map_get`)는 이 결속을 쓰지 않고 마커를 그리지 않는다.
 - 표시 중 격자도 매 status 에 다시 대조: `status.map` 이 null·형식 틀림·epoch/K 변경·w/h/res 변경·(slam) stamp 변경이면 «새 격자 기다림»(st wait) + 격자·마커 0, 대기 격자도 버림. 새 판에 불량 격자가 와도 빈 상태가 기본(«마지막 지도» 유지 없음). `map_live_get` 도 같은 현재 검사.
 - status 선택 칸(`map_accepting`·`sim_t`·`map_error`·`pose_map_null_reason`·`map`·`pose_map`·`last_save`·`scan`·`slam_lifecycle`) 형이 틀리면 st unknown(예외로 ROS 콜백이 죽지 않음).
-- 화면: 지도 고르기의 «실시간 지도(/v2_map)». 그림은 (WS 열림 + 마지막 수신 1 s 안 + 같은 연결 세대 + `st == ok` + 받을 때의 K == 현재 K) 일 때만 그린다. 하나라도 아니면 즉시 버리고 이유 표시(조종 상태와 별개). 새 `grid.seq` 마다 `map_live_get` 으로 다시 받고, PNG decode 뒤 연결 세대·K·seq·선택이 바뀌었으면 버린다. 같은 K 의 새 seq 를 받는 동안은 이전 seq 그림 유지.
+- 화면: 지도 고르기의 «실시간 지도(/v2_map)». 그림은 (WS 열림 + 마지막 수신 1 s 안 + 같은 연결 세대 + `st == ok` + 받을 때의 K·seq == 현재 K·seq) 일 때만 그린다. 하나라도 아니면 즉시 버리고 이유 표시(조종 상태와 별개). 새 `grid.seq` 마다 `map_live_get` 으로 다시 받고, PNG decode 뒤 연결 세대·K·seq·선택이 바뀌었으면 버린다. 새 seq 를 받는 동안(같은 K 라도 지도 확장·원점 이동 가능)은 빈 칸·마커 0 — 옛 그림과 새 pose 를 합치지 않는다(slam 5 s 마다 잠깐 대기는 정상).
 - 클라이언트 검사(`live_map`): st 허용값·world/building/floor/mode/map_source 허용표·epoch 정수, ok 면 grid(seq·w/h 1~2000·res>0·원점 유한)와 결속 칸 필수 — 틀리면 지도 칸만 null(조종 상태 유지). pose 는 유한 x/y/yaw + source `slam_tf|gt_identity` 아니면 pose 만 null.
 - 지도 보기 중(실시간·저장 지도 선택)에는 그림이 없어도 GT 바닥으로 자동 대체하지 않는다: 빈 바탕 + 이유, GT 로봇·길·구역·경유점·초안 0, 탭·구역 편집 잠금. GT 바닥 복귀는 사용자가 «실행 중 시뮬 바닥»을 고를 때만(저장 지도 받기 실패도 선택 유지).
 - `live_map` 요약에는 경로(maps_root·저장 path)·kids 를 싣지 않는다.
