@@ -154,7 +154,7 @@ export default function Main() {
     drive: <><Pad k="pc" no={no} />
       {(showStart || showStop || v.newVer || ex) && <div className="lv-row" data-live-extra="1">
         {showStart && <button type="button" className="btn" title={st!.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st!.sim_start.ok ? undefined : 0.55 }} onClick={startSim}>시뮬 시작(30분)</button>}
-        {showStart && st!.map_start && <a className="btn" href="#/PcMap" title="기동은 지도 화면에서 직접 고르고 확인">{`지도 화면 · ${sx.map}`}</a>}
+        {showStart && st!.map_start && <button type="button" className="btn" title="기동은 지도 화면에서 직접 고르고 확인" onClick={() => { location.hash = '#/PcMap'; }}>{`지도 화면 · ${sx.map}`}</button>}
         {showStop && <button type="button" className="btn" disabled={st!.sim_stop!.busy} title={st!.sim_stop!.why || 'Gazebo 시뮬 끄기(로봇 STOP 아님)'} style={{ opacity: st!.sim_stop!.ok ? undefined : 0.55 }} onClick={endSim}>{st!.sim_stop!.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기'}</button>}
         {v.newVer && <button type="button" className="btn" onClick={() => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤') : location.reload())}>새로고침(새 판)</button>}
         <span style={{ fontSize: '12px', color: 'var(--muted)' }}>{ex}</span></div>}</>,

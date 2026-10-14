@@ -473,7 +473,7 @@ def parse_session(out, code):
         except ValueError:
             continue
         if isinstance(d, dict) and d.get('schema') == 'v2_session/1' and d.get('result') in SESSION_RESULTS:
-            extra = ' · '.join(f'{lab}{str(d[k])[:80]}' for k, lab in (('reason', ''), ('ends_at', '종료 예정 '), ('ledger_used', '기동 원장 '), ('map_ledger_used', '지도 체험 원장 ')) if d.get(k) is not None)
+            extra = ' · '.join(f'{lab}{str(d[k])[:80]}' for k, lab in (('reason', ''), ('ends_at', '종료 예정 '), ('ledger_used', '기존 평지 체험 사용 횟수 '), ('map_ledger_used', '지도 체험 사용 횟수 ')) if d.get(k) is not None)
             return d['result'], extra
     return 'failed', f'래퍼 응답 형식 틀림(종료 {code})'
 
