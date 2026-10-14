@@ -6,6 +6,7 @@
 // 로컬 epoch: logout·setGate·(자기 세대) 세션 끝에서 await 전에 즉시 +1. 모든 호출은 시작 때 epoch 를 잡고, 준비 await 뒤 «네이티브 호출 전»과
 //  응답 채택 때 다시 대조 — 보류된 state 응답이 늦게 풀려도 옛 계정·비밀번호로 새 문맥에 login 을 부르지 않는다. gen 은 앞으로만(옛 응답이 뒤로 덮지 않음).
 import { create } from 'zustand';
+import { healthOk, type Health } from './health';
 export type Res = { status: number; body: string };
 export type LoginResult = { ok: true; note?: string } | { ok: false; error: string };
 export type LogoutResult = { ok: boolean; note?: string };
@@ -25,6 +26,8 @@ export interface Transport {
   postDocs(body: unknown): Promise<Res>;            // 200·400·403·404·409·500·503 은 status 로(던지지 않음)
   photo(url: string): Promise<string | null>;       // img src — 네이티브는 blob:(부른 쪽이 revoke), 없으면 null
   wsUrl(): Promise<WsTarget>;
+  // 로그인 불요 관문 검사(①·⑥): 웹 GET api/health · 네이티브 FhGate.probe()(있을 때만). 로그인·조종 명령 0, 재시도 0. ms = 앱↔관문 HTTP 왕복
+  health(): Promise<Health>;
   onEnded(f: () => void): void;
   // B2 파일 저장(bundled B 만): 화면 글 또는 null(버림 — 준비·창 사이 로그아웃·주소 변경·세션 끝·화면 이탈). alive = 부른 화면이 아직 그대로인가
   saveFile?(name: string, blob: Blob, alive: () => boolean): Promise<string | null>;                     // 이 세대 세션 끝(만료·401)·주소 없음·잠김 → 로그인/주소 화면(자동 take/resume 없음)
@@ -55,7 +58,34 @@ const web: Transport = {
   async photo(url) { return url; },
   async wsUrl() { const u = new URL('ws', location.href); u.protocol = location.protocol === 'https:' ? 'wss:' : 'ws:'; u.hash = ''; u.search = ''; return { url: String(u) }; },
   onEnded() { /* 웹은 WS 4401 로 안다(link.ts) */ },
+  async health() {   // 유한: 전체 8 s 에 중단(본문 읽기 포함) · redirect 따라가지 않음 · 본문 4 KB 넘으면 버림
+    const t0 = performance.now(), ac = new AbortController(), tm = setTimeout(() => ac.abort(), HEALTH_MS);
+    try {
+      const r = await fetch('api/health', { cache: 'no-store', credentials: 'omit', redirect: 'error', signal: ac.signal });
+      const b = await capText(r, HEALTH_MAX), ms = performance.now() - t0;
+      if (b === null) return { ok: false, step: 'gate', why: '관문 판 확인 못 함(응답이 너무 큼 · 다른 서버)' };
+      if (healthOk(r.status, b)) return { ok: true, ms };
+      return { ok: false, step: r.status === 429 ? 'busy' : 'gate', why: r.status === 429 ? '검사 요청이 많음 — 잠시 뒤' : `관문 판 확인 못 함(HTTP ${r.status} · 옛 관문이거나 다른 서버)` };
+    } catch (e) {
+      // 브라우저는 네트워크 실패와 redirect 거부를 같은 TypeError 로 준다 — 둘을 가르지 않음
+      return { ok: false, step: 'reach', why: ac.signal.aborted ? `관문 응답 없음(${HEALTH_MS / 1000} s)` : `관문에 닿지 않음 또는 다른 주소로 보냄(거부) · ${(e as Error).message || e}` };
+    } finally { clearTimeout(tm); }
+  },
 };
+
+// 웹 관문 검사 한도 + 본문 상한 읽기(넘으면 null, 나머지는 읽지 않고 끊음)
+const HEALTH_MS = 8000, HEALTH_MAX = 4096;
+export async function capText(r: Response, max: number): Promise<string | null> {
+  if (!r.body) return '';
+  const rd = r.body.getReader(), parts: Uint8Array[] = []; let n = 0;
+  for (;;) {
+    const { done, value } = await rd.read(); if (done) break;
+    n += value.byteLength; if (n > max) { rd.cancel().catch(() => {}); return null; }
+    parts.push(value);
+  }
+  const all = new Uint8Array(n); let o = 0; for (const v of parts) { all.set(v, o); o += v.byteLength; }
+  return new TextDecoder().decode(all);
+}
 
 // 네이티브 오류 코드 → 화면 글(계약 FhCode). 토큰·비밀번호는 오류에 없다(계약)
 const MSG: Record<string, string> = {
@@ -167,6 +197,21 @@ export function nativeTransport(P: any): Transport {
       catch (e: any) { return { why: e?.message || String(e) }; }
     },
     onEnded(f) { ended.push(f); },
+    async health() {   // probe 는 gen 을 바꾸지 않음 — 호출 순간 epoch·gen 과 다르면 버림. call() 을 쓰지 않음(no_gate 로 세션 끝 처리하지 않게)
+      if (typeof P.probe !== 'function') return { ok: false, step: 'none', why: '이 앱 판에 검사 기능 없음 — 도달·인증서는 로그인 때 확인' };
+      const ep = epoch; await sync;
+      if (ep !== epoch) return { ok: false, step: 'none', why: STALE };   // 준비 중 주소 변경·로그아웃 → 옛 화면 의도로 새 관문에 probe 0
+      const g = gen, t0 = performance.now();
+      try {
+        const r = await P.probe(), ms = performance.now() - t0;
+        if (ep !== epoch || r?.gen !== g) return { ok: false, step: 'none', why: STALE };
+        return r.compat === true ? { ok: true, ms } : { ok: false, step: 'gate', why: `관문 판 확인 못 함(HTTP ${r.status} · 옛 관문이거나 다른 서버)` };
+      } catch (e: any) {   // 오류도 이 호출 gen 의 것만 단계에 붙임(옛 net/tls 를 새 주소 칸에 0)
+        if (ep !== epoch || e?.code === 'stale' || e?.data?.gen !== g) return { ok: false, step: 'none', why: STALE };
+        const step = ({ net: 'reach', tls: 'tls', redirect: 'gate', too_big: 'gate', busy: 'busy', no_gate: 'none' } as const)[e?.code as string] || 'gate';
+        return { ok: false, step, why: MSG[e?.code] || e?.message || String(e) };
+      }
+    },
     async saveFile(name, blob, alive) {
       const ep = epoch, g = gen;   // 저장 시작 문맥
       if (blob.size > SAVE_MAX) return MSG.too_big + '(5 MB 넘음 — 저장 안 됨)';   // 바이트 읽기 전에

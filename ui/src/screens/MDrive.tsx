@@ -1,20 +1,26 @@
 // 휴대폰 가로 조종(원본 틀): 카메라·작은 지도·상태 표시·막대 둘·STOP — web/live.js setupDrive/paintDrive 와 같은 규칙.
 // 입력·폐기·발행은 data/link.ts 하나. 처음·복귀·재연결은 보기 전용 — 막대 첫 누름은 «조종권 받기»만.
 import { useNote } from '../data/transport';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL, UNSUP, WHY } from '../data/facts';
 import { ask, camURL, dropAll, linkView, sendOp, showSimStop, stateRows, stopSim, TRAIL, useLink } from '../data/link';
-import { docsOf, useDocs } from '../data/shared';
+import { docsOf, useDocs, useMedia } from '../data/shared';
+import { MARK, STEPS, stageOf, warnsOf } from '../data/drive_stage';
+import { href } from '../data/hist';
+import { Photo } from '../app/Photo';
 import { shoot } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
-import { useDriveScreen, useFitPhone, useStick } from '../app/drive';
+import { useDriveScreen, useFitPhone, useGateRtt, useStick } from '../app/drive';
 import { Drawer, stopProps, toast, whyProps } from '../app/shell';
 import { auth, logoutNow } from '../data/auth';
 
 const MOVE = '이동 막대: 앞뒤와 옆걸음', ROT = '회전 막대: 왼쪽 오른쪽', FB = '앞뒤 막대';
 const SIM_OFF = ['시뮬 상태 미수신', '시뮬 상태 끊김'];
+// ④ 화면 나누기(화면 배치만 저장): 영상 크게 → 반반 → 지도 크게. 작은 칸을 누르면 다음으로(전환 전 입력 폐기)
+const SPLITS = ['cam', 'half', 'map'] as const; type Split = (typeof SPLITS)[number];
+const SPLIT_TXT: Record<Split, string> = { cam: '영상 크게', half: '반반', map: '지도 크게' };
 const big = (t: string, f: () => void) => <button key={t} type="button" onClick={f} style={{ height: '44px', minWidth: '88px', padding: '0 14px', border: '0', borderRadius: '22px', background: '#1A1206', color: '#FFB547', fontSize: '13px', fontWeight: '700' }}>{t}</button>;
 const hud = (good: boolean, label: string, val: string, mono = true) => <span className="hud"><span style={{ color: good ? '#5AA9FF' : '#FFB547' }}>●</span>{label}<span className={mono ? 'mono' : undefined}>{val}</span></span>;
 
@@ -23,7 +29,9 @@ export default function MDrive() {
   const D = useDocs(), L = useLink(), v = linkView(L), st = L.st, s = v.s, root = useFitPhone();
   const ctl = st?.role === 'control' && !L.viewOnly;
   const [lay, setLay] = useState(() => { const x = store.get('fh.live.layout', LAYOUTS[0]); return LAYOUTS.includes(x) ? x : LAYOUTS[0]; });
-  const [menu, setMenu] = useState(false);
+  const [menu, setMenu] = useState(false), [list, setList] = useState(false);
+  const [split, setSplit] = useState<Split>(() => { const x = store.get<string>('fh.live.split', 'cam'); return (SPLITS as readonly string[]).includes(x) ? (x as Split) : 'cam'; });
+  const M = useMedia(), rtt = useGateRtt();
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
   const sm = useStick(MOVE, ['fx', 'fy']), sr = useStick(ROT, [null, 'fw']), sf = useStick(FB, ['fx', null]);
 
@@ -45,18 +53,13 @@ export default function MDrive() {
     } catch (e) { toast(`전체화면이 막힘(${(e as Error).message || e}) · 홈 화면에 추가하면 주소창 없이 열립니다`); }
   };
 
-  // 가운데 알림: 끊김·형식 이상·STOP·리셋·넘어짐·조종권 — 없으면 숨김 (live.js paintDrive)
-  const msgs: string[] = [], btns: JSX.Element[] = [];
-  if (v.newVer) { msgs.push(`새 화면 판(${st!.ver})이 반영됨 · 이 화면은 ${L.firstVer} — 조종 없을 때 새로고침`); btns.push(big('새로고침', () => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤') : location.reload()))); }
-  if (!v.linkOk || !st) msgs.push(`링크 ${v.linkTxt} · 명령 0`);
-  else {
-    if (st.sim_block) msgs.push(`${st.sim_block} · 명령 0`);
-    if (st.reset_pending) msgs.push('시뮬 리셋 처리 중 · STOP 유지');
-    else if (st.resume_pending) msgs.push('STOP 해제 확인 대기 · 명령 0');
-    else if (v.latch) msgs.push(`STOP 요청 · 명령 0 잠금 · ${v.body} · ${RELURCH}`);
-    if (s?.fallen === true) msgs.push('넘어짐 · 시뮬 리셋 필요');
-    if (st.reason && !v.latch && !st.sim_block && st.reason !== '조종권 없음') msgs.push(st.reason);
-    if (!ctl) msgs.push(st.role === 'view_other' ? '다른 기기가 조종 중 · 보기 전용' : '«조종권 받기»(또는 막대 한 번) 뒤 STOP 해제 → 다시 누르면 움직임');
+  // ②③ 단계·경고 목록(data/drive_stage — 서버 원값만, 자동 take/resume 0). 가운데 알림 = 가장 중요한 경고 1개 + «목록 N» + 기존 큰 버튼
+  const sIn = { linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer };
+  const W = warnsOf(sIn), stg = stageOf(sIn), top = W[0];
+  useEffect(() => { if (!W.length) setList(false); }, [W.length]);   // 경고가 없어지면 목록 자동 닫힘
+  const btns: JSX.Element[] = [];
+  if (v.newVer) btns.push(big('새로고침', () => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤') : location.reload())));
+  if (v.linkOk && st) {
     if (SIM_OFF.includes(st.sim_block) && st.sim_start) btns.push(<span key="ss" title={st.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st.sim_start.ok ? undefined : 0.55 }}>{big('시뮬 시작(30분)', startSim)}</span>);
     if (!ctl && st.role !== 'view_other' && !st.sim_block) btns.push(big('조종권 받기', () => sendOp('take')));
     const can = ctl && !st.reset_pending && !st.resume_pending;
@@ -66,21 +69,40 @@ export default function MDrive() {
   const sq = (t: string, label: string, f: () => void) => <button type="button" className="pill" title={label} aria-label={label} onClick={f} style={{ width: '44px', padding: '0', justifyContent: 'center', fontSize: '18px' }}>{t}</button>;
   const fsOn = !!document.fullscreenElement;
   const why = (t: string) => ({ ...whyProps(t), className: 'pill lv-why' });
+  const openList = () => { dropAll(); setList(true); };
+  const cycle = (e: React.MouseEvent) => {   // 작은 칸 누름: 큰 지도 링크 대신 화면 나누기 전환(큰 지도는 메뉴에)
+    e.preventDefault(); e.stopPropagation(); dropAll();
+    const nx = SPLITS[(SPLITS.indexOf(split) + 1) % SPLITS.length]; if (!store.set('fh.live.split', nx)) toast('저장 실패 — 이번만 적용'); setSplit(nx);
+  };
+  const camEl = <><img data-live-cam="" alt="Gazebo 렌더 카메라" src={camURL || undefined} style={{ position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover', visibility: v.camOk ? 'visible' : 'hidden' }} />
+    <div style={{ position: 'absolute', inset: '0', display: 'grid', placeItems: 'center', color: '#9AA7B2', fontSize: split === 'map' ? '11px' : '14px', pointerEvents: 'none' }}>{v.camOk ? '' : `카메라 ${v.camTxt}`}</div></>;
+  const mapEl = (cap: boolean) => <><MapCanvas name="drive" small zones={D.err ? [] : docsOf(D, 'zone')} robot={v.robot} trail={TRAIL.pts} />
+    {cap && <div style={{ position: 'absolute', left: '0', right: '0', bottom: '0', padding: '2px 6px', fontSize: '10px', lineHeight: '1.4', color: '#E6EBEF', background: 'rgba(14,19,23,.78)', pointerEvents: 'none' }}>
+      {s ? `GT x ${sgn(s.x, 1)} y ${sgn(s.y, 1)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 위치 오래됨' : 'GT 위치 없음'}</div>}</>;
+  const half = (left: boolean, el: JSX.Element) => <div style={{ position: 'absolute', top: 0, bottom: 0, width: '50%', [left ? 'left' : 'right']: 0, overflow: 'hidden', background: '#05080A', ...(left ? { borderRight: '1px solid rgba(230,235,239,.35)' } : {}) }}>{el}</div>;
+  const ph = [...M.photos].sort((a, b) => (a.saved_at < b.saved_at ? 1 : -1))[0];   // ⑤ 서버에 저장된 마지막 사진
 
   const vals = {
     rootRef: root, stopProps, moveLeft: lay === LAYOUTS[1], rotLeft: lay !== LAYOUTS[1],
-    cam: <><img data-live-cam="" alt="Gazebo 렌더 카메라" src={camURL || undefined} style={{ position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover', visibility: v.camOk ? 'visible' : 'hidden' }} />
-      <div style={{ position: 'absolute', inset: '0', display: 'grid', placeItems: 'center', color: '#9AA7B2', fontSize: '14px', pointerEvents: 'none' }}>{v.camOk ? '' : `카메라 ${v.camTxt}`}</div></>,
-    mini: <><MapCanvas name="drive" small zones={D.err ? [] : docsOf(D, 'zone')} robot={v.robot} trail={TRAIL.pts} />
-      <div style={{ position: 'absolute', left: '0', right: '0', bottom: '0', padding: '2px 6px', fontSize: '10px', lineHeight: '1.4', color: '#E6EBEF', background: 'rgba(14,19,23,.78)', pointerEvents: 'none' }}>
-        {s ? `GT x ${sgn(s.x, 1)} y ${sgn(s.y, 1)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 위치 오래됨' : 'GT 위치 없음'}</div></>,
-    huds: <><span className="hud" style={{ background: 'rgba(56,198,217,.9)', color: '#061014', fontWeight: '700' }}>{ctl ? '직접 조종 · 시뮬 시험' : v.roleTxt}</span>
-      {hud(v.linkOk && !st?.sim_block, '링크 ', v.linkTxt)}{hud(v.camOk, '영상 ', v.camTxt)}{hud(false, '', '배터리 미연결', false)}
+    cam: split === 'cam' ? camEl : split === 'half' ? <>{half(true, camEl)}{half(false, <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>{mapEl(true)}</div>)}</> : <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: '#05080A' }}>{mapEl(true)}</div>,
+    mini: <div role="button" tabIndex={-1} aria-label={`화면 나누기: ${SPLIT_TXT[split]} — 눌러 바꾸기`} onClick={cycle} style={{ position: 'absolute', inset: 0, cursor: 'pointer', background: '#05080A' }}>
+      {split === 'cam' ? mapEl(true) : split === 'map' ? camEl : <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', fontSize: '12px', color: '#E6EBEF', lineHeight: 1.5 }}>반반 보기<br />눌러 바꾸기</div>}</div>,
+    huds: <><span className="hud" role="status" title={`다음: ${stg.next}`} aria-label={`조종 단계 ${STEPS[stg.i]}${stg.stop ? ` · 막힘 ${stg.stop}` : ''} · 다음 ${stg.next}`} style={{ background: stg.stop ? 'rgba(255,181,71,.92)' : 'rgba(56,198,217,.9)', color: '#061014', fontWeight: '700' }}>
+        {STEPS.map((n, k) => <span key={n} style={{ opacity: k === stg.i ? 1 : 0.45 }}>{k ? ' › ' : ''}{n}</span>)}</span>
+      {hud(v.linkOk && !st?.sim_block, '링크 ', v.linkTxt)}{hud(v.camOk, '영상 ', v.camTxt)}{hud(false, '', '배터리·온도 미연결', false)}
+      <span className="hud" title={rtt.why}><span style={{ color: rtt.ok ? '#5AA9FF' : '#FFB547' }}>●</span>{rtt.txt}</span>
       <span className="hud" title={RELURCH}>{TRIAL}</span><span className="hud">{s ? `${v.body} · 기울기 ${num(s.tilt_deg, 0, '°')}` : v.body}</span></>,
-    side: <div style={{ position: 'absolute', right: '44px', top: '86px', display: 'flex', gap: '8px', zIndex: 3 }}>
-      {sq('⛶', fsOn ? '전체화면 닫기' : '전체화면', fsToggle)}{sq('📷', '사진 찍기', photo)}{sq('ⓘ', '안내·설정', () => setMenu(true))}</div>,
-    banner: msgs.length || btns.length ? <>{msgs.join(' · ')}{btns}</> : '',
-    bannerS: { display: msgs.length || btns.length ? 'flex' : 'none', height: 'auto', minHeight: '30px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '420px', padding: '4px 12px' },
+    side: <><div style={{ position: 'absolute', right: '44px', top: '86px', display: 'flex', gap: '8px', zIndex: 3 }}>
+      {sq('⛶', fsOn ? '전체화면 닫기' : '전체화면', fsToggle)}{sq('📷', '사진 찍기', photo)}{sq('ⓘ', '안내·설정', () => setMenu(true))}</div>
+      {ph && <a href={href('MFinding', { url: ph.url })} aria-label={`마지막 저장 사진 ${ph.saved_at.slice(11, 19)} — 기록 열기`} style={{ position: 'absolute', right: '44px', top: '138px', width: '72px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1.5px solid rgba(230,235,239,.45)', zIndex: 3, background: '#05080A' }}>
+        <Photo src={ph.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a>}
+      {list && W.length > 0 && <div role="dialog" aria-label="경고 목록" style={{ position: 'absolute', left: '50%', top: '150px', transform: 'translateX(-50%)', boxSizing: 'border-box', width: '420px', maxHeight: '200px', overflowY: 'auto', zIndex: 5, padding: '8px 12px', borderRadius: '10px', background: 'rgba(14,19,23,.95)', color: '#E6EBEF', fontSize: '12px', lineHeight: 1.45 }}>
+        {W.map((w, k) => <div key={k} style={{ padding: '4px 0', borderTop: k ? '1px solid rgba(230,235,239,.15)' : 0 }}><b style={{ color: w.lvl === 'info' ? '#5AA9FF' : '#FFB547' }}>{`${MARK[w.lvl]} ${w.text}`}</b><br />{`해결: ${w.fix}`}</div>)}
+        {btns.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', justifyContent: 'center', paddingTop: '6px' }}>{btns}</div>}
+        <button type="button" onClick={() => setList(false)} style={{ height: '44px', width: '100%', marginTop: '4px', border: 0, borderRadius: '8px', background: 'rgba(230,235,239,.12)', color: '#E6EBEF', fontSize: '13px', fontWeight: 700 }}>목록 닫기</button></div>}</>,
+    // 목록이 열리면 가운데 알림은 숨기고 같은 큰 버튼을 목록 안에(가림 0)
+    banner: !list && (top || btns.length) ? <>{top && <span role="status">{`${MARK[top.lvl]} ${top.text} — ${top.fix}`}</span>}{W.length > 1 && !list && big(`목록 ${W.length}`, openList)}{btns}</> : '',
+    bannerS: { display: !list && (top || btns.length) ? 'flex' : 'none', height: 'auto', minHeight: '30px', flexWrap: 'wrap', justifyContent: 'center', maxWidth: '420px', padding: '4px 12px' },
     stickP: { [MOVE]: sm.props, [ROT]: sr.props, [FB]: sf.props }, knobR: { [MOVE]: sm.knob, [ROT]: sr.knob, [FB]: sf.knob },
     lbl: { '이동 · 앞뒤 · 옆': '이동 · 앞뒤 · 옆 · 뒤✕', 앞뒤: '앞뒤 · 뒤✕' },
     // 속도: 시험한 값은 0.6(보통)뿐 — 시안의 «느리게» 선택 표시를 «보통»으로 옮김
@@ -94,6 +116,7 @@ export default function MDrive() {
     <button type="button" onClick={() => { if (ctl) return toast('조종 중에는 바꾸지 않습니다 — 조종권 반납 뒤'); const nx = LAYOUTS[(LAYOUTS.indexOf(lay) + 1) % LAYOUTS.length]; if (!store.set('fh.live.layout', nx)) toast('저장 실패 — 이번만 적용'); setLay(nx); }}>{`막대 배치: ${lay} (눌러 바꾸기)`}</button>
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
     {v.linkOk && showSimStop(st) && <button type="button" disabled={st!.sim_stop!.busy} style={{ opacity: st!.sim_stop!.ok ? undefined : 0.55 }} onClick={async () => { setMenu(false); const t = await stopSim(st); if (t) toast(t); }}>{st!.sim_stop!.busy ? 'Gazebo 종료 확인 중' : 'Gazebo 끄기 (로봇 STOP 아님)'}<small style={{ display: 'block' }}>{st!.sim_stop!.why || '확인창 뒤 종료 · 자동 재시작 없음'}</small></button>}
+    <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`큰 지도 열기 · 지금 화면: ${SPLIT_TXT[split]}(작은 칸을 누르면 바뀜)`}</button>
     <button type="button" onClick={() => { location.hash = '#/MHistory'; }}>기록 보기(사진·조종 기록)</button>
     {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}{note && <small style={{ display: 'block' }}>{note}</small>}</button>}
     <p>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>

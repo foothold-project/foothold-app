@@ -11,7 +11,8 @@ import { curWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas, type MapApi } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
-import { MULTI, useDriveScreen, useHold } from '../app/drive';
+import { MULTI, useDriveScreen, useGateRtt, useHold } from '../app/drive';
+import { STEPS, stageOf } from '../data/drive_stage';
 import { EndRow, WpActs } from '../app/runui';
 import { stopOn, stopProps, toast, whyProps } from '../app/shell';
 
@@ -40,6 +41,7 @@ export default function Main() {
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
   const { raster, pickEl, pose, on, blank } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
+  const rtt = useGateRtt();   // ⑥ 앱↔관문 왕복(보일 때만 5 s)
 
   const role = st?.role, ctl = v.linkOk && role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
   const no = driveBlock(L);
@@ -94,6 +96,7 @@ export default function Main() {
   const motion = `보낸 명령 ${v.sent} · 시뮬 ${v.body}` + (s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : '')
     + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동 · 키: ↑ 앞, ↑ 누른 채 ←/→ 아크(←/→ 단독·↓ 는 서버가 0으로 막음)') + ` · 주의: ${RELURCH}`;
   const chip = (k: string, val: string, good: boolean) => ({ k, v: val, st: good ? 'ok' : 'warn', mark: good ? '●' : '▲' });
+  const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer });   // ② 작은 단계 표시(모드·motion 은 그대로)
   const mApi = api.current, robotMode = (mApi?.mode() || 'robot') === 'robot';
   const tog = (b: boolean, f: (x: boolean) => void, t: string) => ({ className: 'layer', 'aria-pressed': b, title: t, onClick: () => f(!b) });
 
@@ -102,7 +105,8 @@ export default function Main() {
     siteLine: `${TRIAL} · 판 ${L.firstVer || '—'}`,
     stepTitle: R ? `수동 임무 «${R.name}» · 방문 ${vis}/${R.wps.length}` : '직접 조종 · 진행 중 수동 임무 없음',
     modeLabel: mode, modeBg: `var(--${ctl && !v.latch ? 'acc-bg' : v.linkOk ? 'warn-bg' : 'bad-bg'})`, modeFg: `var(--${ctl && !v.latch ? 'accent' : v.linkOk ? 'warn' : 'bad'})`,
-    chips: [chip('링크', v.linkTxt, v.linkOk && !st?.sim_block), chip('위치', s ? (s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인') : '미연결', !!s), chip('영상', v.camTxt, v.camOk), chip('배터리', '미연결', false)],
+    chips: [chip('링크', v.linkTxt, v.linkOk && !st?.sim_block), chip('위치', s ? (s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인') : '미연결', !!s), chip('영상', v.camTxt, v.camOk), chip('배터리·온도', '미연결', false), chip('앱↔관문', rtt.txt.replace('앱↔관문 ', ''), rtt.ok),
+      chip('단계', stg.stop ? `${STEPS[stg.i]} · ${stg.stop}` : `${STEPS[stg.i]} · 다음 ${stg.next}`, !stg.stop && stg.i === 3)],
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelAsk: true, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,
     // 지도: 시뮬 바닥 도면 + GT 위치(SLAM 아님)

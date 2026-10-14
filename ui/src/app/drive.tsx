@@ -1,5 +1,6 @@
 // 조종 입력 손잡이(막대·누름 버튼) — live.js stick()/holdBtn() 과 같은 규칙. 값·폐기는 data/link.ts 누름 저장소가 정한다.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { T } from '../data/transport';
 import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, sendOp, useLink, type Axes } from '../data/link';
 import { toast } from './shell';
 
@@ -88,4 +89,21 @@ export function useFitPhone() {
     return () => { cancelAnimationFrame(raf); removeEventListener('resize', fit); visualViewport?.removeEventListener('resize', fit); probe.remove(); tip.remove(); document.body.style.background = bg; };
   }, []);
   return root;
+}
+
+/** ⑥ 앱↔관문 왕복(로그인 불요 관문 검사) — 화면이 보일 때만 5 s 마다 1회, 겹치지 않게. 로봇 링크 속도·대역폭이 아님 */
+export function useGateRtt(): { txt: string; ok: boolean; why: string } {
+  const [r, setR] = useState({ txt: '앱↔관문 확인 중', ok: false, why: '' });
+  useEffect(() => {
+    let live = true, busy = false;
+    const tick = async () => {
+      if (busy || document.visibilityState !== 'visible') return;
+      busy = true; const h = await T.health(); busy = false;
+      if (live) setR(h.ok ? { txt: `앱↔관문 ${Math.round(h.ms)} ms`, ok: true, why: '로그인 불요 관문 검사 HTTP 왕복 · 로봇 링크 속도 아님' }
+        : { txt: h.step === 'none' ? '앱↔관문 미측정' : '앱↔관문 확인 못 함', ok: false, why: h.why });
+    };
+    tick(); const id = setInterval(tick, 5000);
+    return () => { live = false; clearInterval(id); };
+  }, []);
+  return r;
 }

@@ -24,6 +24,21 @@ MSG_MAX = 1024
 # 로그인 전에도 열리는 것: 로그인 화면과 그 화면이 쓰는 파일, 설치 정보(아이콘·manifest), 공개 인증서, 시작 안내
 PUBLIC = re.compile(r'^(MLogin\.dc\.html|PcLogin\.dc\.html|dc\.js|live\.js|start\.html|manifest\.webmanifest|icons/[\w.-]+\.png)$')
 PHONE_UA = re.compile(r'iPhone|iPad|Android|Mobile', re.I)
+HEALTH = {'app': 'foothold-gate', 'api': 1}   # 로그인 불요 검사 응답 — 이 두 키뿐(계정·세션·버전 세부·IP·경로 0). 계약 docs/CONTRACT-ui-improve-20261014.md ①
+
+
+class Window:
+    """IP 당 per 초 창에 n 회까지(고정 창, now = time.monotonic). 로그인 실패 제한과 별개.
+    표가 cap 을 넘으면 통째로 비운다 — 이것은 메모리 보호일 뿐 보장된 IP 제한이 아니다(많은 IP 로 돌리면 개별 IP 카운트가 초기화됨)"""
+    def __init__(self, n=60, per=60.0, cap=4096):
+        self.n, self.per, self.cap, self.w = n, per, cap, {}
+
+    def allow(self, ip, now):
+        t0, c = self.w.get(ip, (now, 0))
+        if now - t0 >= self.per: t0, c = now, 0
+        if c >= self.n: return False
+        if ip not in self.w and len(self.w) >= self.cap: self.w.clear()   # ponytail: 넘치면 통째로 비움 — IP 를 많이 쓰면 횟수 제한이 풀림(보장 아님), 필요하면 LRU
+        self.w[ip] = (t0, c + 1); return True
 
 
 def gate_msg(raw):
@@ -61,6 +76,10 @@ def selftest():
     assert login_page('Main.dc.html', 'Mozilla/5.0 (X11; Linux x86_64)').startswith('PcLogin')
     from urllib.parse import parse_qs, urlsplit
     assert parse_qs(urlsplit(login_page('MDrive.dc.html?live=v2&stickLayout=a b', '')).query)['next'] == ['/MDrive.dc.html?live=v2&stickLayout=a b']
+    w = Window(3, 60.0, cap=2)
+    assert [w.allow('a', 0) for _ in range(4)] == [True, True, True, False] and w.allow('a', 60.0)   # 창 지나면 다시
+    assert w.allow('b', 1) and w.allow('c', 1) and len(w.w) == 1   # cap 넘으면 비우고 새로
+    assert set(HEALTH) == {'app', 'api'} and HEALTH['api'] >= 1
     print('[v2_gate] selftest OK')
 
 
@@ -166,6 +185,17 @@ def main():
     class Hosts(Base):                                # 시작 안내(QR)에 쓸 주소 — 이 관문에 닿은 사람에게만 보이는 정보
         def get(self):
             self.finish({'urls': [f'https://{h}:{a.port}/' for h in hosts if h != '127.0.0.1']})
+
+    health_w = Window()
+
+    class Health(Base):                               # 로그인 불요 검사(웹) — Host 는 이 관문, Origin 은 없거나 같은 출처. 쿠키 안 읽음
+        def get(self):
+            o = self.request.headers.get('Origin')
+            if self.request.host not in gate_hosts or (o is not None and not self.origin_ok()):
+                self.set_status(403); return self.finish({'error': '다른 출처'})
+            if not health_w.allow(self.request.remote_ip, time.monotonic()):
+                self.set_status(429); return self.finish({'error': '요청이 많음'})
+            self.finish(HEALTH)
 
     class Proxy(Base):                                # 사진·기록 목록 — 로그인 뒤에만 8790 으로 중계(GET 만)
         async def get(self, path):
@@ -328,6 +358,12 @@ def main():
             log(f'앱 로그아웃 {s["account"]}')
             self.finish({'ok': True})
 
+    class AppHealth(AppBase):                         # 로그인 불요 검사(앱) — Origin·Host 는 AppBase.prepare, Authorization 안 읽음
+        def get(self):
+            if not health_w.allow(self.request.remote_ip, time.monotonic()):
+                self.set_status(429); return self.finish({'error': '요청이 많음'})
+            self.finish(HEALTH)
+
     class AppNone(AppBase):                            # 없는 /api/app/* — 화면 페이지(로그인 redirect)로 떨어지지 않게
         def get(self, *_): self.set_status(404); self.finish({'error': '없음'})
         post = get
@@ -358,8 +394,8 @@ def main():
     app = tornado.web.Application([
         (r'/api/app/ws', AppBridge), (r'/api/app/login', AppLogin), (r'/api/app/whoami', AppWhoAmI), (r'/api/app/docs', AppDocs),
         (r'/api/app/(media|media/photos/\d{8}/[A-Za-z0-9_.-]{1,80}\.jpg)', AppMedia), (r'/api/app/ws-ticket', AppTicket), (r'/api/app/logout', AppLogout),
-        (r'/api/app/(.*)', AppNone),
-        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy),
+        (r'/api/app/health', AppHealth), (r'/api/app/(.*)', AppNone),
+        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy), (r'/api/health', Health),
         (r'/(api/media|media/photos/\d{8}/[\w.-]+\.jpg)', Proxy),
         (r'/(ca\.crt)', tornado.web.StaticFileHandler, {'path': str(state)}),     # 공개 인증서만
         (r'/(.*)', Page, {'path': a.web}),

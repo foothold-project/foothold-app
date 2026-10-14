@@ -162,3 +162,45 @@ describe('native 세대', () => {
     expect(await (await mk(P)).logout()).toEqual({ ok: false, note: expect.stringMatching(/저장 실패/) });
   });
 });
+
+describe('관문 검사 health (①) — 반례', () => {
+  it('네이티브: sync 보류 중 주소 변경 → 풀어도 probe 0회·STALE', async () => {
+    const P: any = fake(), st = P.later('state'); P.state = vi.fn(() => st.then(() => ({ ...P.s, loggedIn: false, stored: true })));
+    P.probe = vi.fn(async () => ({ status: 200, compat: true, api: 1, gen: P.s.gen }));
+    const t = await mk(P), { STALE } = await mod();
+    const h = t.health(); const g = t.setGate!('https://other.test:8453');
+    P.hold.state(null); await g;
+    expect(await h).toEqual({ ok: false, step: 'none', why: STALE }); expect(P.probe).not.toHaveBeenCalled();
+  });
+  it('네이티브: 응답 보류 → 로그아웃 → 풀기 = 옛 안내 0(STALE)', async () => {
+    const P: any = fake(); P.probe = vi.fn(() => P.later('probe'));
+    const t = await mk(P), { STALE } = await mod(); await tick();
+    const h = t.health(); await tick(); await t.logout(); P.hold.probe({ status: 200, compat: true, api: 1, gen: 1 });
+    expect(await h).toEqual({ ok: false, step: 'none', why: STALE });
+  });
+  it('네이티브: 다른 gen 의 tls 오류는 인증서 칸에 안 붙음, 같은 gen 이면 붙음', async () => {
+    const P: any = fake(); const t = await mk(P), { STALE } = await mod(); await tick();
+    P.probe = vi.fn(async () => { throw Object.assign(new Error('x'), { code: 'tls', data: { gen: 0 } }); });
+    expect(await t.health()).toEqual({ ok: false, step: 'none', why: STALE });
+    P.probe = vi.fn(async () => { throw Object.assign(new Error('x'), { code: 'tls', data: { gen: 1 } }); });
+    expect(await t.health()).toMatchObject({ ok: false, step: 'tls' });
+  });
+  const webT = async (f: any) => { await pick('https://gate.test:8453'); vi.stubGlobal('fetch', f); return (await mod()).T; };
+  it('웹: 무응답이면 8 s 에 끝남(«확인 중» 영구 0)', async () => {
+    vi.useFakeTimers();
+    try {
+      const t = await webT(vi.fn((_u: string, o: RequestInit) => new Promise((_r, rej) => o.signal!.addEventListener('abort', () => rej(new DOMException('aborted', 'AbortError'))))));
+      const h = t.health(); await vi.advanceTimersByTimeAsync(8000);
+      expect(await h).toMatchObject({ ok: false, step: 'reach', why: '관문 응답 없음(8 s)' });
+    } finally { vi.useRealTimers(); }
+  });
+  it('웹: redirect 따라가지 않음 · 본문 4 KB 넘으면 관문 아님 · 옛 관문 HTML 200 은 관문 아님', async () => {
+    const f = vi.fn(async (_u: string, _o: RequestInit) => { throw new TypeError('Failed to fetch'); });
+    expect(await (await webT(f)).health()).toMatchObject({ ok: false, step: 'reach' });
+    expect(f.mock.calls[0][1]).toMatchObject({ redirect: 'error', credentials: 'omit' }); expect(f.mock.calls[0][1].signal).toBeInstanceOf(AbortSignal);
+    // 맞는 본문 + 공백 5000 B: 상한이 없으면 JSON.parse 가 통과시킴 → 상한이 막아야 함
+    expect(await (await webT(async () => new Response('{"app":"foothold-gate","api":1}' + ' '.repeat(5000)))).health()).toMatchObject({ ok: false, step: 'gate', why: '관문 판 확인 못 함(응답이 너무 큼 · 다른 서버)' });
+    expect(await (await webT(async () => new Response('<html>old</html>'))).health()).toMatchObject({ ok: false, step: 'gate' });
+    expect(await (await webT(async () => new Response('{"app":"foothold-gate","api":1}'))).health()).toMatchObject({ ok: true });
+  });
+});
