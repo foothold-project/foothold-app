@@ -6,10 +6,11 @@
 
 | 항목 | 값 |
 |---|---|
-| 파일 | `mobile/out/foothold-android-dev-20261014.apk`(git 제외) · 사본 `~/Downloads/foothold-android-dev-20261014.apk` |
-| SHA-256 | `263b1bbe2fdb4b01bfa8a3b28a6a442e1a88403ac1927628f1a012688b8c3550` |
-| 화면(UI) 판 | `75c06111e829a799b9930095b366dc613df6eba8` — B2 저장·관문 주소 저장 포함 검수판, 파일 141개 sha 일치 |
-| 모바일 판 | 이 문서를 넣은 커밋(dev 빌드 타입). 빌드 당시 소스 = `c2ecab3` + 이 커밋의 dev 변경 |
+| 파일 | `mobile/out/foothold-android-dev-20261014-ux.apk`(git 제외) · 사본 `~/Downloads/foothold-android-dev-20261014-ux.apk` |
+| SHA-256 | `40b35a277aa5bce280f50447a7c6f7976952654eddfa697de4bb72aa2daea24b` |
+| 화면(UI) 판 | `89fd7c4f8e594c4dbffbcc4f0ed44e9042713ede` — 최종 검수판(연결 단계 확인·접속 프로필·QR 포함), 파일 143개 sha 일치 |
+| 모바일 판 | `6d4064f`(probe·CAMERA 권한 포함, 작업 트리 깨끗한 상태로 빌드) |
+| 옛 판 | `-20261014`(UI 75c0611)·`-maps`·`-maplive` APK 는 보존만 — 새로 설치할 것은 위 `-ux` 하나 |
 | 버전 이름 | `1.0-dev` |
 
 설치: 휴대폰으로 파일을 옮겨 열고 «출처를 알 수 없는 앱 설치»를 그 파일 관리자에만 허용한다. 기존 `org.footholdproject.app`(옛 debug 판)과 **별개 앱**으로 깔린다.
@@ -35,10 +36,10 @@
 
 ## 확인 안 한 것
 
-실제 휴대폰 설치·실행 · 이 dev 빌드의 실계정 로그인 · B2 저장 창 · 관문 주소 수정 · 실기기에서 운영 CA 신뢰 · HOME(앱 숨김) 때 앱 쪽 신호 · 앱 복귀(B7)·로그아웃(B8) 실행 · 물리 정지(STOP 명령 0 ≠ 정지).
+실제 휴대폰 설치·실행 · 실폰 QR 스캔·카메라 권한 창·WebView BarcodeDetector · 네이티브 probe 실호출 · iOS(빌드 없음) · 이 dev 빌드의 실계정 로그인 · B2 저장 창 · 관문 주소 수정 · 실기기에서 운영 CA 신뢰 · HOME(앱 숨김) 때 앱 쪽 신호 · 앱 복귀(B7)·로그아웃(B8) 실행 · 물리 정지(STOP 명령 0 ≠ 정지).
 에뮬레이터 bundled 시험 2회차(`runs/mobile-b-bundled-20261013-2`, fixture 빌드)는 **미완료**: 로그인·Keystore 복원·WS 표·take·HOME 서버 해제까지 PASS, HOME 때 OS 신호 FAIL, 복귀·로그아웃은 실행 전 멈춤.
-이 APK 는 빌드·APK 구조 대조만 했다(`runs/mobile-dev-apk-20261014-1` ALL PASS — 앱 id·서명·NSC·CA 한 장·`server.url` 없음·로그 끔·UI 번들 sha).
+이 APK 는 빌드·APK 구조 대조만 했다(`runs/mobile-dev-apk-20261014-rea-1` 23항목 ALL PASS — 앱 id·서명·NSC·CA 한 장·CAMERA 권한·`server.url` 없음·로그 끔·UI 번들 sha. 파일 이름만 `-rea`→`-ux` 로 바꾸고 다시 대조: `rename-ux-check.log`).
 
 ## 다시 빌드할 때
 
-`FH_GATE_CA=<운영 관문 ca.crt> node scripts/gate-profile.mjs --dev`(공개 CA 한 장만 검사해 `android/app/src/dev/res/raw/` 에 생성, git 제외) → `./gradlew assembleDev` → 끝나면 `--clean`. 실제 쓴 스크립트 사본 `runs/mobile-dev-apk-20261014-1/dev-build.sh`. 개인키·계정·토큰 파일은 읽지 않는다.
+`FH_GATE_CA=<운영 관문 ca.crt> node scripts/gate-profile.mjs --dev`(공개 CA 한 장만 검사해 `android/app/src/dev/res/raw/` 에 생성, git 제외) → `./gradlew assembleDev` → 끝나면 `--clean`. 실제 쓴 스크립트 사본 `runs/mobile-dev-apk-20261014-rea-1/dev-build-rea.sh`. 개인키·계정·토큰 파일은 읽지 않는다.

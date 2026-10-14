@@ -4,7 +4,7 @@
 
 ## 상태 (2026-10-14)
 
-**설치용 개발 APK(10-14)**: `out/foothold-android-dev-20261014.apk`(git 제외, sha256 `263b1bbe2fdb…c3550`) — 앱 id `org.footholdproject.app.dev`, UI `75c0611`, 운영 관문 공개 CA 한 장 신뢰, 로그 끔. 빌드·APK 구조 대조만(실제 휴대폰 0). **로그인은 `/api/app/*` 가 있는 관문에서만**(옛 운영 체크아웃 83b25ca 에만 없음 · 사용자용 서버 준비됨: 10-14 01:00 UI 75c0611 사본 관문 8453 · 실제 휴대폰 미검증) — 설치·미확인·연결 조건은 `docs/INSTALL-DEV.md`.
+**설치용 개발 APK(10-14 최종)**: `out/foothold-android-dev-20261014-ux.apk`(git 제외, sha256 `40b35a277aa5…a24b`) — 앱 id `org.footholdproject.app.dev`, UI `89fd7c4`, mobile `6d4064f`(probe·CAMERA), 운영 관문 공개 CA 한 장 신뢰, 로그 끔. 빌드·APK 구조 대조만(실제 휴대폰·실폰 QR·probe 실호출·iOS 0). **로그인은 `/api/app/*` 가 있는 관문에서만**(옛 운영 체크아웃 83b25ca 에만 없음 · 사용자용 서버 준비됨: 10-14 01:00 UI 75c0611 사본 관문 8453 · 실제 휴대폰 미검증) — 설치·미확인·연결 조건은 `docs/INSTALL-DEV.md`.
 
 | 구분 | 내용 |
 |---|---|
@@ -23,6 +23,9 @@
 | `mobile-a-gate-e2e-20261013-4/app-gate.apk` (`576bc9fc6444`) | gate | 1512a93(=5d29bd3, 외피 변경 없음) | 같음 | 같음 | 4회차 FAIL(다른 CA 단계 도구 예외) |
 | `mobile-a-gate-ssl-20261013-5/app-gate.apk` (`8a026b536769`) | gate | 3885275(`GateSslClient`) | 같음 | 같음 | 5회차 PASS(A 로그인·읽기 → 다른 CA 거부·안내) |
 | `out/foothold-android-dev-20261014.apk` (`263b1bbe2fdb`) | dev | c2ecab3 + dev 빌드 타입 커밋 | UI 75c0611(B2·주소 저장 포함) | 앱 안 React 번들, 관문 주소는 사용자가 입력 · 운영 공개 CA 한 장 · `loggingBehavior=none` | 빌드·구조 대조만(`runs/mobile-dev-apk-20261014-1`) |
+| `out/foothold-android-dev-20261014-maps.apk` (`3dfe37262d3d`) | dev | bcc0293 | UI 15d0a88 | 같음 | 구조 대조만(`runs/mobile-dev-apk-20261014-maps-1`) |
+| `out/foothold-android-dev-20261014-maplive.apk` (`e078ade1aad2`) | dev | bcc0293 | UI eb46259 | 같음 | 구조 대조만(`runs/mobile-dev-apk-20261014-maplive-1`) |
+| `out/foothold-android-dev-20261014-ux.apk` (`40b35a277aa5`) | dev | 6d4064f(probe·CAMERA) | UI 89fd7c4(최종 검수판) | 같음 + CAMERA 권한(required=false) | 구조 대조 23항목만(`runs/mobile-dev-apk-20261014-rea-1`) — **최종 설치판** |
 
 - 10-13 이전 빌드(위 표의 dev 판 위 행 전부)는 Capacitor 로그가 켜져 있어 로그인 인자가 기기 로그에 찍힌다 — 실계정에 쓰지 않는다. dev 판은 끔(구조 대조로 확인, 실제 휴대폰 미확인).
 - 기본 bundled 번들은 아직 e618139(브랜드 전)다. 최신 React 번들 + 네이티브 lifecycle 이 합의되면 다시 빌드한다.
