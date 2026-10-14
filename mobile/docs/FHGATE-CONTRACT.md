@@ -25,6 +25,8 @@ export interface FhGate {
   setGate(o: { origin: string }): Promise<FhState & { wiped: boolean }>;  // 바뀌면 로컬 로그아웃(gen+1)·기기 값 삭제
   login(o: { user: string; pw: string; label?: string }): Promise<{ account: string; device6: string; exp: number; gen: number; stored: boolean }>;   // gen = 로그인 뒤 새 gen
   probe(): Promise<{ status: number; compat: boolean; api: number | null; gen: number }>;   // 10-14 REA P1 — 아래 «probe»
+  discover(o?: { ms?: number }): Promise<{ gen: number; items: { name: string; origin: string; app: 'foothold-gate'; api: 1 }[]; why?: 'wifi' | 'nsd' | 'hidden' | 'cancelled' }>;   // 10-14 계약 D′ — 아래 «주변 관문 검색»
+  discoverStop(): Promise<void>;
   request(o: { op: 'whoami' | 'docs.get' | 'docs.post' | 'media.list'; body?: object }): Promise<{ status: number; body: string; gen: number }>;
   photo(o: { path: string }): Promise<{ status: 200 | 404; gen: number; mime?: 'image/jpeg'; base64?: string }>;
   wsTicket(): Promise<{ url: string; gen: number }>;                        // wss://<관문>/api/app/ws?t=<1회용 표>
@@ -45,6 +47,14 @@ export interface FhGate {
   - reject: `no_gate`(주소 없음) · `net`(접속 거부·시간 초과·DNS·경로 없음) · `tls`(다른 CA·SAN 불일치) · `redirect` · `too_big` · `busy` · `stale`(probe 중 주소 변경·로그아웃·화면 재생성 → 늦은 응답 버림, gen = 호출 순간). 화면 단계: net = 도달, tls = 인증서, compat false = 관문 판 확인 불가. 화면은 `typeof FhGate.probe === 'function'` 일 때만 부른다(옛 APK 대비).
   - 서버(UI mentor 소유): 관문 `GET /api/app/health` 공개(기존 `/api/app` 의 Origin·Host 검사), 본문 두 키뿐, `no-store`, IP 당 60 s 60회(429). whoami·login 으로 시험하지 않는다.
 - **접속 프로필·QR (10-14 합의, 네이티브 저장 0)** — 프로필(LAN / Tailscale)은 화면 `localStorage` `{v:1, profiles ≤ 8: {id, name ≤ 40, kind, origin}}`, 비밀 0. 쓸 때 `setGate` 가 origin 을 다시 검사한다(저장 ≠ 도달 ≠ 로그인). QR 은 **평문 origin 만** 만들고 받는다(계정·비밀번호·토큰·WS 표 0). 앱 안 스캔은 화면 `getUserMedia` + `BarcodeDetector`(없으면 버튼 숨김) — 네이티브는 매니페스트 `CAMERA` 권한 + `uses-feature camera required=false` 뿐(Capacitor 8.5.2 `BridgeWebChromeClient` 가 WebView 카메라 요청 때 런타임 권한을 묻고 거절이면 deny). 시스템 카메라 앱 → 앱 deep link 는 범위 밖. 실폰 카메라·권한창·WebView `BarcodeDetector` 지원은 미측정.
+- **주변 관문 검색 `discover` (10-14, 계약 D′ — UI mentor 합의, Android 전용)** — 같은 LAN 의 FOOTHOLD 관문을 DNS-SD 로 **목록만** 받는다. 연결·로그인·토큰·take·resume·probe·저장 0. 후보는 **미검증** — 사람이 고른 뒤 화면이 `setGate` → `probe` → 로그인 순서로 따로 한다.
+  - 광고(UI mentor 소유): 서비스 `_foothold-gate._tcp`(도메인 local), 인스턴스 «FOOTHOLD 관문 · <id8>»(id8 = 서버 인증서 DER SHA-256 앞 8 hex — 공개값, 신뢰 근거 아님), SRV 포트 = 관문 실제 포트, SRV 대상 `foothold-gate-<id8>.local`(시스템 호스트명 안 씀), A = 인증서 SAN 의 LAN IPv4. TXT `txtvers=1`·`app=foothold-gate`·`api=1`(≤ 256 B, 비밀·경로·사용자 0). 이 PC Avahi D-Bus 로 광고(sudo·시스템 설정 0), 관문 종료 때 철회.
+  - 네이티브: `NsdManager.discoverServices(_foothold-gate._tcp, DNS-SD)` → 찾은 것을 `resolveService` 로 **하나씩 순서대로**(minSdk 24 호환 — 34 미만은 동시 resolve 가 `FAILURE_ALREADY_ACTIVE`, 36 에서 deprecated 이나 대체 `registerServiceInfoCallback` 은 34+). `ms` 는 1000~8000 으로 자르고 기본 5000, 시간이 끝나면 `stopServiceDiscovery`. resolve 대기·시도는 32 개까지, 못 끝낸 것은 버림.
+  - 후보 규칙(`FhNearby.item`): TXT `app` = `foothold-gate`, `api` = `1` 정확 일치(그 밖 키는 무시·쓰지 않음). 주소는 resolve 결과 중 첫 **사설 IPv4**(10/8·172.16/12·192.168/16) — 루프백·0·멀티캐스트·169.254·공인·CGNAT 100.64/10(Tailscale)·IPv6 는 버림. origin = `https://<IPv4>[:<SRV 포트>]` 를 기존 `gateOrigin` 규칙에 통과시켜 만든다(443 은 생략 — `setGate` 와 같은 모양). 경로·사용자정보·호스트명은 들어갈 자리가 없다. `name` = 인스턴스 이름의 `\DDD` 해석 → 제어·서식(방향 바꾸기 포함) 문자 제거 → 64 자. 같은 origin 은 처음 것만, 최대 16 개. **서버 인증서 SAN 과 그 IP 의 대조는 여기서 안 함 — 고른 뒤 probe 가 한다.**
+  - 결과: 끝나면 resolve `{gen, items}` — 없으면 `items: []`(why 없음). `why`(이때 `items` 는 항상 `[]`): `wifi`(Wi-Fi·이더넷 망 없음 — VPN 만이면 여기), `nsd`(탐색 시작 실패), `hidden`(탐색 중 앱 pause → 바로 stop), `cancelled`(`discoverStop`). reject: `busy`(이미 진행 중, 한 번에 1개) · `stale`(Activity 파괴·화면 재생성). `gen` = 호출 순간 연결 세대(참고용 — 로그아웃·주소 변경이 목록을 무효로 만들지는 않음, 화면 쪽 패널 gen 으로 늦은 결과를 버린다).
+  - `discoverStop()` = 진행 중 탐색을 바로 stop, 그 Promise 는 `{items: [], why: 'cancelled'}`. 진행 중이 없으면 그냥 resolve. 화면은 패널 닫기·숨김·로그인 시작 때 부른다.
+  - 권한: `ACCESS_NETWORK_STATE`(일반 권한, 창 없음 — 망 종류 확인용)만 추가. targetSdk 36 은 INTERNET 으로 로컬망이 묵시 허용(공식 «Local network permission» 문서). NSD 는 시스템 프로세스가 수행해 `CHANGE_WIFI_MULTICAST_STATE`·MulticastLock 을 넣지 않음. **targetSdk 37(Android 17) 로 올리면** `ACCESS_LOCAL_NETWORK` 런타임 권한 또는 시스템 picker(`DiscoveryRequest.FLAG_SHOW_PICKER`)가 필요 — 기존 LAN HTTPS 연결도 같은 영향, 그때 권한 거절 `why` 를 따로 정한다.
+  - 범위: FOOTHOLD 관문(그 관문에 연결된 로봇 포함)만. **Go2 를 직접 찾는 기능 아님** — 확인된 공식 탐색 프로토콜·연결 어댑터 없음. Tailscale 은 LAN 검색 대상 아님(저장 프로필로). 웹 브라우저·iOS 에는 없음(`typeof FhGate.discover === 'function'` 일 때만 화면이 부른다).
 - **저장 `saveFile` (B2)** — Android 시스템 «다른 이름으로 저장» 창(SAF `ACTION_CREATE_DOCUMENT`)을 띄워 사람이 고른 곳에 쓴다. 로그인 세션과 무관(로컬 파일만, 네트워크 0).
   - `name`: ASCII `^foothold-v2-[a-z]{1,20}-[0-9]{10,16}\.(csv|json|jpg)$` 만(화면 `saveBlob` 이 이미 쓰는 꼴, 예 `foothold-v2-history-<ms>.csv`). 경로·URL·대문자·다른 확장자는 `bad_input`. 형식(MIME)은 확장자로 정한다 — `mime` 인자는 받지 않는다(csv `text/csv`, json `application/json`, jpg `image/jpeg`).
   - 내용: `base64`·`text` 중 **정확히 하나**. jpg 는 `base64` 만(시작 표지 FF D8 FF 검사). csv·json 은 둘 다 됨 — 화면 `saveBlob` 은 `base64`(Blob → base64) 하나로 보내면 된다. json 은 객체·배열 하나로 끝까지 파싱돼야 한다. 빈 내용 `bad_input`.
@@ -99,6 +109,7 @@ export interface FhGate {
 | 시한 | 연결 5 s · 읽기 1회 10 s · 본문 읽는 동안 전체 20 s(`deadline` → `net`). 응답 헤더 전까지는 연결·읽기 시한만 적용 | `classifyNativeErrors` |
 | 고정 op·경로·TLS·redirect | `OPS` 4개 + 사진 정규식(v2_link 와 같은 꼴) + `HttpsURLConnection` 기본 검사·`setInstanceFollowRedirects(false)` | `requestUses…`·`photoPathCheckedBeforeAnyNetwork`·`httpsTransportRefusesPlainHttp` |
 | probe(10-14) | `FhGateCore.probe`(인자 없음·`Authorization` 0·`sendShort` 연결 4 s·읽기 4 s·본문 중 8 s 검사(전체 상한 아님)·`healthApi` 정확 일치·동시 1·`staleCheck`) + 플러그인 `probe` | `FhGateCoreTest` 6개: 토큰 미전송·401 에도 세션 유지 · 호환 본문 정확 일치(11 반례·404/403/429/500/502 = compat false) · net/tls/too_big/redirect 단계(8 예외) · 주소 변경·로그아웃·파괴 뒤 늦은 응답 stale·실행 전 바뀌면 안 보냄 · 동시 busy · `sendShort` http 거부. 결함 주입 2종(토큰 붙이기·staleCheck 빼기)을 해당 시험이 잡음. 플러그인 층은 빌드만 |
+| 주변 관문 검색(10-14) | `FhNearby`(순수: TXT·사설 IPv4·`gateOrigin`·이름 정리·중복·16 상한·ms 자르기) + 플러그인 `discover`/`discoverStop`(`NsdManager` discover→순서 resolve→시한 stop, `handleOnPause` → hidden, `handleOnDestroy` → stale) | `FhNearbyTest` 6개: 사설 IPv4 만(15 반례 — 루프백·0·멀티캐스트·169.254·공인·CGNAT·IPv6·경계 172.15/172.32/192.169) · 여러 주소 중 첫 사설 IPv4 · 443 생략 · 포트 범위 · TXT 정확 일치(11 반례, 그 밖 키 무시) · 이름 `\DDD`·제어/방향 문자·64 자 · 중복·16 상한 · ms 1000~8000. 결함 주입 2종(사설 판정 없애기·api 검사 빼기)을 시험이 잡음. 플러그인 층은 빌드만 |
 | 저장(B2) | `FhSave`(순수: 이름·종류·JSON·JPEG 표지·5 MB·쓰고 닫기) + 플러그인 `saveFile`→SAF 창→`saveDone`(`@ActivityCallback`)→io 스레드 `openOutputStream(u,"wt")`→close 뒤 resolve, 실패 `deleteDocument` 시도. 결과에 URI·경로 없음 | `FhSaveTest` 6개(`saveKeepsItsOwnContext` — 끝내는 사건 3종 × 쓰기 전·중·뒤: gen 은 원 문맥, 지우기는 ①② 만, ③ 은 완성 파일 유지. `fixedNamesOnly` 3 통과·12 거부, `kindMustMatchField`, `jsonMustParseToTheEnd`, `sizeCap`, `writeSucceedsOnlyAfterClose` 쓰기·flush·close 실패 각각). 플러그인 층은 정적 빌드만 |
 | 로그아웃·주소 변경 | 로컬 먼저, 서버는 뒤에서 1회(실패 = `failed`), 다른 origin 이면 기기 값도 삭제·옛 관문으로 로그아웃 | `logoutIsLocalFirst…`·`gateChangeWipesSessionAndDevice` |
 
@@ -113,6 +124,7 @@ export interface FhGate {
 - 플러그인 층(Ctx 를 큐 전에 잡기·`done` 대조·거부 → `busy`/`stale`·파괴 순서)은 정적 빌드만 — JVM 시험은 Core 까지. Activity 재생성 때 옛 `handleOnDestroy` 가 새 `load` 보다 먼저인지는 미측정(먼저가 아니어도 옛 인스턴스는 닫힌 뒤 보관소를 못 씀).
 - 경합(큐 재정렬·동시 로그인·늦은 401·파괴 중 응답)은 mock 으로 순서를 고정해 확인 — 실제 스레드 경합 시험은 아님.
 - B2 저장 창 실동작(에뮬·실기기 미실행): 취소 때 결과 코드, `wt` 모드 지원 여부(공급자마다 다름 — 미지원이면 `io`), 실패 때 `deleteDocument` 성공 여부, 창이 열린 사이 Activity 재생성 경로(`stale`). 5 MB base64 의 브리지 메모리 비용.
+- 주변 관문 검색 실동작(실폰·에뮬 미실행): 실제 Android NSD 가 Avahi 광고를 찾는지·걸리는 시간, 일부 기기가 인스턴스 이름을 `\DDD` 로 돌려주는지, pause·파괴 때 stop 순서, 34+ 에서 `getHostAddresses` 순서. 망 종류 판정(`getAllNetworks` — 31 에서 deprecated)이 VPN·핫스팟에서 어떻게 나오는지.
 - WebView WS 의 TLS 오류는 JS `error` 이벤트에 원인이 없음(WHATWG) → 화면은 `request({op:'whoami'})` 로 원인을 다시 잰다(설계만).
 
 ## 6. iOS 인계 (같은 계약, 빌드·서명 환경 없음 → 코드 없음)
@@ -121,4 +133,5 @@ export interface FhGate {
 - **인증서 신뢰**: ATS 기본(예외 키 `NSAllowsArbitraryLoads` 등 없음). 사설 CA 관문을 쓸지·어떻게 믿게 할지는 배포처별 결정 — 미정.
 - **비밀 보관**: 세션 덩어리를 Keychain `kSecClassGenericPassword`, `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`(기기 백업으로 옮겨지지 않게). Keychain 은 인증서 신뢰와 무관.
 - 오류 분류: `NSURLErrorServerCertificate*`·`NSURLErrorSecureConnectionFailed` → `tls`, `CannotFindHost`·`CannotConnectToHost`·`TimedOut`·`NotConnectedToInternet` → `net`, 그 밖 `unknown`.
+- 주변 관문 검색: iOS 는 `NWBrowser`(Bonjour) + Info.plist `NSLocalNetworkUsageDescription`·`NSBonjourServices`(`_foothold-gate._tcp`) 가 필요한 것으로 알려져 있으나 미확인·코드 없음. 후보 규칙은 `FhNearbyTest` 표를 옮긴다.
 - 순수 로직(`gateOrigin`·사진 정규식·OPS·gen·상태 코드 매핑)은 `FhGateCoreTest` 의 같은 표를 XCTest 로 옮긴다. Mac·Xcode·서명 환경 확보 전에는 «iOS 준비됨»으로 표시하지 않는다.

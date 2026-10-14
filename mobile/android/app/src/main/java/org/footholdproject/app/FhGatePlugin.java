@@ -4,12 +4,21 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.net.ConnectivityManager;
+import android.net.Network;
+import android.net.NetworkCapabilities;
 import android.net.Uri;
+import android.net.nsd.NsdManager;
+import android.net.nsd.NsdServiceInfo;
+import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.provider.DocumentsContract;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import androidx.activity.result.ActivityResult;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -17,8 +26,12 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.IOException;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.RejectedExecutionException;
@@ -56,6 +69,132 @@ public class FhGatePlugin extends Plugin {
     protected void handleOnDestroy() {
         core.close();
         io.shutdown();
+        endScan(scan, null, true);
+    }
+
+    @Override
+    protected void handleOnPause() {
+        endScan(scan, "hidden", false);   // 화면이 숨으면 탐색을 바로 멈춘다(배경에서 멀티캐스트 계속 0)
+    }
+
+    // ── 주변 관문 검색(계약 D′): NSD 로 목록만. 연결·로그인·저장·probe 0, 후보는 미검증 ──
+    // ponytail: resolveService(36 deprecated)를 하나씩 순서대로 — minSdk 24 호환, 34 미만은 동시 resolve 가 FAILURE_ALREADY_ACTIVE.
+    //           34+ registerServiceInfoCallback 으로 바꾸면 병렬·주소 갱신 가능(필요해지면)
+    private final Handler main = new Handler(Looper.getMainLooper());
+    private volatile Scan scan;                                // 진행 중 탐색 하나(바꾸기는 nsdLock 안에서만)
+    private final Object nsdLock = new Object();
+
+    private static final class Scan {
+        final PluginCall call; final long gen; final FhNearby.Scan found = new FhNearby.Scan();
+        final ArrayDeque<NsdServiceInfo> queue = new ArrayDeque<>();
+        NsdManager.DiscoveryListener listener; Runnable timeout; boolean resolving, ended; int tries;
+        Scan(PluginCall call, long gen) { this.call = call; this.gen = gen; }
+    }
+
+    @PluginMethod
+    public void discover(PluginCall call) {
+        FhGateCore.Ctx c = core.ctx();
+        int ms = FhNearby.clampMs(call.getInt("ms"));
+        if (!core.current(c)) { reject(call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어짐", c.gen())); return; }
+        Scan s;
+        synchronized (nsdLock) {
+            if (scan != null) { reject(call, new FhGateCore.GateError("busy", "주변 검색이 이미 진행 중", c.gen())); return; }
+            s = scan = new Scan(call, c.gen());
+        }
+        if (!lanUp()) { endScan(s, "wifi", false); return; }
+        NsdManager nsd = (NsdManager) getContext().getSystemService(Context.NSD_SERVICE);
+        s.listener = new NsdManager.DiscoveryListener() {
+            @Override public void onStartDiscoveryFailed(String t, int code) { endScan(s, "nsd", false); }
+            @Override public void onStopDiscoveryFailed(String t, int code) {}
+            @Override public void onDiscoveryStarted(String t) {}
+            @Override public void onDiscoveryStopped(String t) {}
+            @Override public void onServiceLost(NsdServiceInfo i) {}   // 창이 짧아 목록에서 빼지 않음 — 고른 뒤 probe 가 도달을 확인
+            @Override public void onServiceFound(NsdServiceInfo i) {
+                synchronized (nsdLock) { if (s.ended || s.queue.size() >= 2 * FhNearby.MAX_ITEMS) return; s.queue.add(i); }
+                resolveNext(nsd, s);
+            }
+        };
+        s.timeout = () -> endScan(s, null, false);
+        main.postDelayed(s.timeout, ms);
+        try {
+            nsd.discoverServices(FhNearby.TYPE, NsdManager.PROTOCOL_DNS_SD, s.listener);
+        } catch (RuntimeException x) {
+            endScan(s, "nsd", false);
+        }
+    }
+
+    /** 진행 중 탐색을 바로 끝냄 — 그 Promise 는 items [] · why cancelled. 없으면 그냥 resolve. */
+    @PluginMethod
+    public void discoverStop(PluginCall call) {
+        endScan(scan, "cancelled", false);
+        call.resolve();
+    }
+
+    private void resolveNext(NsdManager nsd, Scan s) {
+        NsdServiceInfo next;
+        synchronized (nsdLock) {
+            if (s.ended || s.resolving || s.found.full() || s.tries >= 2 * FhNearby.MAX_ITEMS || (next = s.queue.poll()) == null) return;
+            s.resolving = true; s.tries++;
+        }
+        try {
+            nsd.resolveService(next, new NsdManager.ResolveListener() {
+                @Override public void onResolveFailed(NsdServiceInfo i, int code) { resolved(nsd, s, null); }
+                @Override public void onServiceResolved(NsdServiceInfo i) { resolved(nsd, s, i); }
+            });
+        } catch (RuntimeException x) {
+            resolved(nsd, s, null);
+        }
+    }
+
+    private void resolved(NsdManager nsd, Scan s, NsdServiceInfo i) {
+        boolean full;
+        synchronized (nsdLock) {
+            s.resolving = false;
+            if (s.ended) return;
+            if (i != null) {
+                List<InetAddress> a = Build.VERSION.SDK_INT >= 34 ? i.getHostAddresses() : (i.getHost() == null ? Collections.emptyList() : Collections.singletonList(i.getHost()));
+                s.found.add(FhNearby.item(i.getServiceName(), i.getPort(), a, i.getAttributes()));
+            }
+            full = s.found.full();
+        }
+        if (full) endScan(s, null, false); else resolveNext(nsd, s);
+    }
+
+    /** 탐색 끝내기(한 번만): 타이머 해제·NSD stop·Promise 정리. why 가 있으면(취소·숨김·실패) 모은 것도 버리고 items []. */
+    private void endScan(Scan s, String why, boolean destroyed) {
+        if (s == null) return;
+        synchronized (nsdLock) {
+            if (s.ended) return;
+            s.ended = true;
+            if (scan == s) scan = null;
+        }
+        if (s.timeout != null) main.removeCallbacks(s.timeout);
+        if (s.listener != null) {
+            try { ((NsdManager) getContext().getSystemService(Context.NSD_SERVICE)).stopServiceDiscovery(s.listener); } catch (RuntimeException ignored) { /* 시작 실패·이미 멈춤 — stop 할 것 없음 */ }
+        }
+        if (destroyed) { reject(s.call, new FhGateCore.GateError("stale", "앱 화면이 다시 만들어짐", s.gen)); return; }
+        JSArray items = new JSArray();
+        if (why == null) for (FhNearby.Item it : s.found.items()) {
+            JSObject o = new JSObject();
+            o.put("name", it.name); o.put("origin", it.origin); o.put("app", "foothold-gate"); o.put("api", 1);
+            items.put(o);
+        }
+        JSObject r = new JSObject();
+        r.put("gen", s.gen); r.put("items", items);
+        if (why != null) r.put("why", why);
+        s.call.resolve(r);
+    }
+
+    /** Wi-Fi·이더넷 망이 하나라도 있나(ACCESS_NETWORK_STATE, 일반 권한). VPN 만 있으면 false — Tailscale 은 LAN 검색 대상 아님. */
+    @SuppressWarnings("deprecation")
+    private boolean lanUp() {
+        ConnectivityManager cm = (ConnectivityManager) getContext().getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return false;
+        for (Network n : cm.getAllNetworks()) {
+            NetworkCapabilities nc = cm.getNetworkCapabilities(n);
+            if (nc != null && (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) return true;
+        }
+        return false;
     }
 
     @PluginMethod
