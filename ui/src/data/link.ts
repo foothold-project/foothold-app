@@ -9,9 +9,9 @@ import { num, ok, sgn } from './fmt';
 import { T } from './transport';
 
 
-type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean };
+type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean; gen: number };   // gen: 연결 세대(열림·닫힘마다 +1)
 // viewOnly: 이 화면이 «조종권 받기»를 누르기 전까지 cmd 를 보내지 않음. 처음 열 때·숨김·앱 pause/resume·재연결 뒤 다시 켜짐(서버 role 이 control 로 남아 있어도)
-export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true }));
+export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true, gen: 0 }));
 
 let ws: WebSocket | null = null, started = false, sig: string | null = null;
 export let camURL: string | null = null;   // 마지막 카메라 프레임(새로 그린 img 의 첫 src)
@@ -75,6 +75,7 @@ const ROLES = new Set(['control', 'view_other', 'view']);
 const nf = (v: unknown) => v === null || fin(v);
 const age = (v: unknown) => v === null || (fin(v) && v >= 0);   // 나이는 음수면 미확인
 const int = (v: unknown) => fin(v) && Number.isInteger(v);
+const LIVE_ST = ['off', 'stale', 'unknown', 'reset', 'wait', 'bad', 'ok'];
 const EVST = new Set(['ok', 'warn', 'bad']);
 export function checkStatus(m: any): string | null {
   if (!m || typeof m !== 'object' || m.op !== 'status') return 'op';
@@ -90,11 +91,19 @@ export function checkStatus(m: any): string | null {
   if (!ss || typeof ss !== 'object' || typeof ss.ok !== 'boolean' || typeof ss.why !== 'string' || !(ss.session === null || typeof ss.session === 'object')) return 'sim_start';
   const sp = m.sim_stop;    // 없으면 옛 서버(버튼 숨김). 있으면 화면이 읽는 칸 전부 검사
   if (sp !== undefined && sp !== null && (typeof sp !== 'object' || typeof sp.ok !== 'boolean' || typeof sp.why !== 'string' || typeof sp.busy !== 'boolean' || typeof sp.on !== 'boolean'
-    || !(sp.ledger_left === null || int(sp.ledger_left)) || !(sp.last === null || (typeof sp.last === 'object' && (sp.last.st === 'ok' || sp.last.st === 'bad') && typeof sp.last.text === 'string')))) return 'sim_stop';
+    || !(sp.ledger_left === null || int(sp.ledger_left)) || !(sp.ledger_kind == null || sp.ledger_kind === 'online' || sp.ledger_kind === 'map') || !(sp.last === null || (typeof sp.last === 'object' && (sp.last.st === 'ok' || sp.last.st === 'bad') && typeof sp.last.text === 'string')))) return 'sim_stop';
   // 지도 칸(live_map·map_start·map_save): 틀리면 그 칸만 버림(조종 상태는 유지 — 지도 오류가 STOP·조종을 막지 않게)
   const ob = (x: any) => !!x && typeof x === 'object', lv = m.live_map, ms = m.map_start, sv = m.map_save;
-  if (!(ob(lv) && typeof lv.st === 'string' && typeof lv.why === 'string')) m.live_map = null;
-  else if (lv.pose != null && !(ob(lv.pose) && ['x', 'y', 'yaw'].every((k) => fin(lv.pose[k])))) lv.pose = null;
+  const one = (v: unknown, xs: string[]) => v == null || xs.includes(v as string), grid = (g: any) => ob(g) && int(g.seq) && [g.w, g.h].every((n) => int(n) && n >= 1 && n <= 2000)
+    && fin(g.res) && g.res > 0 && Array.isArray(g.origin) && g.origin.length >= 2 && g.origin.every(fin);
+  if (!(ob(lv) && LIVE_ST.includes(lv.st) && typeof lv.why === 'string' && one(lv.world_id, ['v5_single', 'v5_building', 'rooms_a']) && one(lv.building_id, ['v5', 'v5_single', 'rooms_a'])
+    && one(lv.floor_id, ['f1', 'l1', 'l2']) && one(lv.mode, ['slam', 'static']) && one(lv.map_source, ['slam', 'gt_raster']) && (lv.map_version == null || typeof lv.map_version === 'string')
+    && (lv.epoch == null || int(lv.epoch)) && (lv.grid == null || grid(lv.grid)) && (lv.pose_why == null || typeof lv.pose_why === 'string')
+    && (lv.st !== 'ok' || (grid(lv.grid) && lv.world_id && lv.building_id && lv.floor_id && lv.mode && lv.map_source && int(lv.epoch))))) m.live_map = null;   // ok 인데 격자·결속 칸 빠짐 → 지도 칸만 버림
+  else {
+    if (lv.pose != null && !(ob(lv.pose) && ['x', 'y', 'yaw'].every((k) => fin(lv.pose[k])) && (lv.pose.source === 'slam_tf' || lv.pose.source === 'gt_identity'))) lv.pose = null;
+    if (lv.last_save != null && !(ob(lv.last_save) && typeof lv.last_save.ok === 'boolean' && (lv.last_save.map_version == null || typeof lv.last_save.map_version === 'string') && typeof lv.last_save.reason === 'string')) lv.last_save = null;
+  }
   if (!(ob(ms) && typeof ms.ok === 'boolean' && typeof ms.why === 'string' && typeof ms.busy === 'boolean'
     && (ms.ledger === null || (ob(ms.ledger) && int(ms.ledger.used) && int(ms.ledger.max) && Array.isArray(ms.ledger.keys) && ms.ledger.keys.every((k: unknown) => typeof k === 'string')))
     && (ms.last == null || (ob(ms.last) && typeof ms.last.t === 'string' && typeof ms.last.text === 'string')))) m.map_start = null;
@@ -117,10 +126,17 @@ export const ask = (op: AskOp, extra: Record<string, string> = {}, ms = 5000) =>
 });
 
 // Gazebo 끄기(로봇 STOP 아님): 폐기 → 확인창 → sim_stop. 결과(ROS 세션 종료 확인/못 함)는 서버 이벤트로 따로 온다 → 토스트 글 | null(취소)
+// 지금 켜진 쪽(runner) 원장만 말한다 — 지도 체험이면 지도 체험 원장, 기존 체험이면 기존 원장, 모르면 «미확인»(섞지 않음)
+const ledgerLine = (x: { ledger_left: number | null; ledger_kind?: 'online' | 'map' | null }) => {
+  const name = x.ledger_kind === 'map' ? '지도 체험 원장' : x.ledger_kind === 'online' ? '기존 체험(시뮬 시작) 원장' : '';
+  if (!name || x.ledger_left === null) return '\n· 켜진 쪽 원장 미확인';
+  return `\n· ${name} 남은 ${x.ledger_left}${x.ledger_left === 0 ? ' — 끄면 이 원장으로는 다시 켤 수 없습니다' : ''}`;
+};
+
 export async function stopSim(st: Status | null): Promise<string | null> {
   const x = st?.sim_stop; if (!x || !x.ok) return `Gazebo 끄기 안 됨 · ${x?.why || '서버 응답 없음'}`;
   dropAll();
-  if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 «시뮬 시작»을 직접 눌러야 하고 기존 기동 상한이 적용됩니다${x.ledger_left === 0 ? '\n· 남은 기동 0 — 끄면 다시 켤 수 없습니다' : ''}`)) return null;
+  if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 ${x.ledger_kind === 'map' ? '«지도 체험 시작»' : '«시뮬 시작»'}을 직접 눌러야 하고 기동 상한이 적용됩니다${ledgerLine(x)}`)) return null;
   return (await ask('sim_stop')).text || '응답 없음';
 }
 export const showSimStop = (st: Status | null) => !!st?.sim_stop && (st.sim_stop.on || st.sim_stop.busy);
@@ -137,7 +153,7 @@ export function startLink() {
     if (closed || useLink.getState().authEnd) return;
     if ('why' in u) { useLink.setState({ why: u.why }); setTimeout(open, 1000); return; }   // tls·net 등 원인은 연결 표시로(숨기지 않음)
     const w = ws = new WebSocket(u.url); w.binaryType = 'blob';
-    w.onopen = () => { dropAll(); hidSent = false; useLink.setState({ open: true, viewOnly: true, why: null }); };   // 재연결은 보기 전용부터
+    w.onopen = () => { dropAll(); hidSent = false; useLink.setState((s) => ({ open: true, viewOnly: true, why: null, gen: s.gen + 1 })); };   // 재연결은 보기 전용부터
     w.onmessage = (e) => {
       if (typeof e.data !== 'string') {   // 카메라 JPEG: fps 세기 + 화면의 img[data-live-cam] 에 바로 넣음(프레임마다 React 다시 그리지 않음)
         camT.push(performance.now()); if (camURL) URL.revokeObjectURL(camURL); camURL = URL.createObjectURL(e.data as Blob);
@@ -158,7 +174,7 @@ export function startLink() {
     };
     w.onclose = (e) => {
       dropAll(); sig = null; if (ws === w) ws = null;
-      useLink.setState({ open: false, viewOnly: true });   // 끊기는 즉시 «끊김» 표시(1 s 기다리지 않음)
+      useLink.setState((s) => ({ open: false, viewOnly: true, gen: s.gen + 1 }));   // 끊기는 즉시 «끊김» 표시(1 s 기다리지 않음)
       if (e.code === 4401) { useLink.setState({ authEnd: true }); return; }   // 로그인 끝남: 다시 잇지 않음 → 화면이 로그인으로
       if (!closed) setTimeout(open, 1000);
     };

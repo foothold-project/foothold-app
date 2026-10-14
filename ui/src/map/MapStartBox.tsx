@@ -8,10 +8,11 @@ import { toast } from '../app/shell';
 
 type W = keyof typeof WORLD;
 
-export function MapStartBox({ pc, onSaved }: { pc: boolean; onSaved?: () => void }) {
+// onShowLive: 지금 실시간 보기가 아닐 때만 받음 → «실시간 지도 보기» 버튼(화면 선택만 바꿈 · 시작·조종 0)
+export function MapStartBox({ pc, onSaved, onShowLive }: { pc: boolean; onSaved?: () => void; onShowLive?: () => void }) {
   const ms = useLink((x) => x.st?.map_start) || null, sv = useLink((x) => x.st?.map_save) || null, lv = useLink((x) => x.st?.live_map) || null;
   const [w, setW] = useState<W>('rooms_a'), [f, setF] = useState('f1'), [mode, setMode] = useState<'slam' | 'static'>('slam'), [ver, setVer] = useState('');
-  const [vers, setVers] = useState<MapInfo[] | string | null>(null);
+  const [vers, setVers] = useState<MapInfo[] | string | null>(null), [started, setStarted] = useState(false);
   const B = pc ? 'btn' : 'lv-btn', I = pc ? 'inp' : 'lv-inp', key = `${w}/${f}`, lg = ms?.ledger;
   const loadVers = () => { listMaps().then(setVers); };
   const mine = Array.isArray(vers) ? vers.filter((m) => m.building_id === BLD[w] && m.floor_id === f) : [];
@@ -24,7 +25,8 @@ export function MapStartBox({ pc, onSaved }: { pc: boolean; onSaved?: () => void
     if (mode === 'static' && !ver) return toast('저장 지도 버전을 고르세요');
     dropAll();
     if (!confirm(`지도 체험을 시작할까요?\n· ${WORLD[w]} ${FLOOR[f as keyof typeof FLOOR]} · ${mode === 'slam' ? 'SLAM 지도 만들기(직접 조종)' : `저장 지도 ${ver}`}\n· 지도 체험 원장 1회 사용${lg ? ` (지금 ${lg.used}/${lg.max})` : ''} — 기존 체험 원장과 별개\n· STOP 상태로 시작, 자동 재시작·연장 없음`)) return;
-    toast((await ask('map_start', { world_id: w, floor_id: f, mode, ...(mode === 'static' ? { map_version: ver } : {}) })).text || '응답 없음');
+    const r = await ask('map_start', { world_id: w, floor_id: f, mode, ...(mode === 'static' ? { map_version: ver } : {}) });
+    toast(r.text || '응답 없음'); if (r.ok) setStarted(true);
   };
   const save = async () => {
     if (!sv?.ok) return toast(`지도 저장 안 됨 · ${sv?.why || '서버 응답 없음'}`);
@@ -52,6 +54,7 @@ export function MapStartBox({ pc, onSaved }: { pc: boolean; onSaved?: () => void
     <button type="button" className={`${B} pri`} disabled={!can} onClick={start}>{used ? `${key} 사용함` : '지도 체험 시작'}</button>
     {ms && !ms.ok && <span style={{ color: 'var(--warn)' }}>{`시작 안 됨 · ${ms.why}`}</span>}
     {ms?.last && <span style={{ color: `var(--${ms.last.st === 'ok' ? 'ok' : 'bad'})` }}>{`최근 ${ms.last.t} · ${ms.last.text}`}</span>}
+    {onShowLive && (started || (lv && lv.st !== 'off')) && <button type="button" className={B} onClick={onShowLive}>실시간 지도 보기(화면만)</button>}
     <span className="lbl">위 «지도 보기» 선택은 화면만 바꿉니다. 세계·층을 바꾸는 건 이 버튼뿐(끄고 새로 시작).</span>
     {lv?.mode === 'slam' && <>
       <button type="button" className={B} disabled={!sv?.ok} onClick={save}>{sv?.busy ? '지도 저장 중…' : '지도 저장(SLAM)'}</button>

@@ -145,7 +145,8 @@ class SimStopState(Out):
     why: str                                # 못 누르는 이유('' = 가능)
     busy: bool
     on: bool                                # 시뮬 켜짐(상태 수신 중 또는 RL 세션 running/starting)
-    ledger_left: Optional[int]              # RL 기동 원장 남은 횟수, null = 미확인
+    ledger_left: Optional[int]              # 지금 unit 을 쓰는 쪽 원장의 남은 횟수, null = 미확인
+    ledger_kind: Optional[Literal['online', 'map']] = None   # online = 기존 체험(시뮬 시작) 원장 · map = 지도 체험 원장 · null = 미확인
     last: Optional[SimStopLast]
 
 

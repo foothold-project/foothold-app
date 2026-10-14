@@ -18,6 +18,7 @@ type Props = {
   draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number, k: number) => void;
   btns?: boolean;
   raster?: Raster | null;   // 저장 지도 보기: 바닥 도면 대신 이 그림. 로봇·길·구역·경유점은 부르는 쪽이 끈다(좌표계 결속 전)
+  blank?: string | null;    // 지도 보기 중인데 그림 없음: GT 바닥 대신 빈 바탕 + 이 이유만(로봇·길·구역·경유점·고른 점 0)
   api?: { current: MapApi | null };   // 화면의 자체 버튼(휴대폰 fab·레이어 서랍)이 보기 방식·확대를 바꿀 때   // live.js mapBtns(아이콘): 로봇 중심 · 전체 보기 · 확대 · 축소
 };
 
@@ -38,6 +39,10 @@ export function MapCanvas(p: Props) {
     const cs = getComputedStyle(el), col = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
     const C = { map: col('--map', '#0E1317'), bg: col('--bg', '#05080A'), line: col('--line2', '#34424D'), mut: col('--muted', '#9AA7B3'), acc: col('--accent', '#38C6D9'),
       bad: col('--bad', '#FF5A52'), warn: col('--warn', '#FFB547'), ok: col('--ok', '#5AA9FF') };
+    if (o.blank != null && !o.raster) {
+      g.fillStyle = C.bg; g.fillRect(0, 0, W, H); g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center';
+      g.fillText(o.blank || '지도 없음', W / 2, H / 2, W - 24); g.textAlign = 'left'; el.dataset.view = 'blank'; return;
+    }
     const rs = o.raster, B = rs ? [rs.ox, rs.ox + rs.w * rs.res, rs.oy, rs.oy + rs.h * rs.res] : [-FLOOR, FLOOR, -FLOOR, FLOOR];   // 바탕 범위 x0 x1 y0 y1
     const r = o.noRobot ? null : o.robot || null, fr = !!r?.fresh, showTrail = o.showTrail !== false, pts = showTrail ? o.trail || [] : [], wps = o.wps || [];
     let cx: number, cy: number, kBase: number;

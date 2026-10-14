@@ -69,7 +69,9 @@
 - 요청 시: 본인 조종 입력 폐기 → 명령 0 → STOP 잠금 → 조종권 반납.
 - 성공(«ROS 세션 종료 확인»)은 상태 조회 종료 코드 0 + `active_state ∈ {inactive, failed}` + 상태 수신 3 s 넘게 끊김일 때만. 그 밖은 «확인 못 함». Gazebo 잔여 프로세스는 확인 범위 밖.
 - 전체 60 s 안: wrapper 기다림 ≤45 s, 상태 조회마다 ≤min(10, 남은 시간). 실패·연결 끊김에도 결과 기록·busy 해제.
-- 자동 재시작 없음. 다시 하려면 «시뮬 시작»을 직접 누르고 해당 원장 상한을 쓴다.
+- 자동 재시작 없음. 다시 하려면 «시뮬 시작»(또는 «지도 체험 시작»)을 직접 누르고 해당 원장 상한을 쓴다.
+- 켜짐 판정: 상태 수신 중 또는 기존·지도 세션 running/starting 또는 같은 unit `active_state ∈ {active, activating, reloading, deactivating}`.
+- 남은 원장(`ledger_left` + `ledger_kind`): map_status.sh 의 `runner` 로 지금 unit 을 쓰는 쪽만 — `live_map` → 지도 체험 원장(4 − used), `live_v2` → 기존 체험 원장, 모름·꺼짐·조회 15 s 넘음 → null(«미확인»). 두 원장을 섞지 않는다.
 
 ## 7. 실시간 지도 결속 (`/v2_map/status` + `/v2_map/map`, 서버가 정본)
 
@@ -82,14 +84,21 @@
 - frame·형식이 틀린 새 격자는 채택하지 않고, 같은 K 의 마지막 정상 격자를 유지한다.
 - 위치 마커(실시간 보기만): 격자 표시 중 + 같은 status 의 `pose_map` 유한 + 출처가 모드와 맞음(slam→`slam_tf`, static+gt_raster→`gt_identity`) + |sim_t − pose.stamp_sim| ≤ 1 s + status 2 s 안. 아니면 마커 0 + 이유(`pose_map_null_reason` 한국어). 실시간 보기 중에는 Gazebo GT 마커·길·구역을 그리지 않는다(좌표계가 다름).
 - 저장 지도 보기(`map_get`)는 이 결속을 쓰지 않고 마커를 그리지 않는다.
-- 화면: 지도 고르기의 «실시간 지도(/v2_map)». 서버 `live_map.st != ok` 가 되면 그림을 즉시 버리고 이유를 표시, 새 `grid.seq` 마다 `map_live_get` 으로 다시 받고 seq·epoch·world·floor 가 받는 사이 바뀌었으면 버린다.
+- 표시 중 격자도 매 status 에 다시 대조: `status.map` 이 null·형식 틀림·epoch/K 변경·w/h/res 변경·(slam) stamp 변경이면 «새 격자 기다림»(st wait) + 격자·마커 0, 대기 격자도 버림. 새 판에 불량 격자가 와도 빈 상태가 기본(«마지막 지도» 유지 없음). `map_live_get` 도 같은 현재 검사.
+- status 선택 칸(`map_accepting`·`sim_t`·`map_error`·`pose_map_null_reason`·`map`·`pose_map`·`last_save`·`scan`·`slam_lifecycle`) 형이 틀리면 st unknown(예외로 ROS 콜백이 죽지 않음).
+- 화면: 지도 고르기의 «실시간 지도(/v2_map)». 그림은 (WS 열림 + 마지막 수신 1 s 안 + 같은 연결 세대 + `st == ok` + 받을 때의 K == 현재 K) 일 때만 그린다. 하나라도 아니면 즉시 버리고 이유 표시(조종 상태와 별개). 새 `grid.seq` 마다 `map_live_get` 으로 다시 받고, PNG decode 뒤 연결 세대·K·seq·선택이 바뀌었으면 버린다. 같은 K 의 새 seq 를 받는 동안은 이전 seq 그림 유지.
+- 클라이언트 검사(`live_map`): st 허용값·world/building/floor/mode/map_source 허용표·epoch 정수, ok 면 grid(seq·w/h 1~2000·res>0·원점 유한)와 결속 칸 필수 — 틀리면 지도 칸만 null(조종 상태 유지). pose 는 유한 x/y/yaw + source `slam_tf|gt_identity` 아니면 pose 만 null.
+- 지도 보기 중(실시간·저장 지도 선택)에는 그림이 없어도 GT 바닥으로 자동 대체하지 않는다: 빈 바탕 + 이유, GT 로봇·길·구역·경유점·초안 0, 탭·구역 편집 잠금. GT 바닥 복귀는 사용자가 «실행 중 시뮬 바닥»을 고를 때만(저장 지도 받기 실패도 선택 유지).
 - `live_map` 요약에는 경로(maps_root·저장 path)·kids 를 싣지 않는다.
 
 ## 8. 지도 체험 시작 (`map_start`, 개발판)
 
 - v2_link 인자 `--map-start <start_map.sh 절대경로>`(상태는 같은 폴더 `map_status.sh`, 읽기만). 없으면 버튼 거부(«경로 미설정»).
 - 인자: 허용표의 world·floor · mode `slam|static` · static 은 maps 목록에 있는 버전 필수, slam 은 버전 없음.
-- 거부: 관문 로그인 아님 · 시작 처리 중(기존 «시뮬 시작»과 같은 busy·120 s 쿨다운, 단일 unit) · Gazebo 종료 처리 중 · Gazebo 켜짐/세션 running·starting · 다른 기기 조종 중 · 지도 체험 원장 미확인·소진·그 world/floor 사용됨.
+- 거부: 관문 로그인 아님 · 시작 처리 중(기존 «시뮬 시작»과 같은 busy·120 s 쿨다운, 단일 unit) · Gazebo 종료 처리 중 · Gazebo 켜짐/세션 running·starting · 다른 기기 조종 중 · map_status 조회 15 s 넘음·실패 · unit `active_state` 미확인/`inactive|failed` 아님(deactivating 포함) · `request_in_progress` 가 정확히 false 아님 · 지도 체험 원장 미확인·소진·그 world/floor 사용됨.
+- 원장 검사: `ledger_id == map-20261014` · `map_ledger_max == 4` · 0 ≤ used ≤ max(정수) · 키는 허용표(4개) 안·중복 0·개수 == used. 하나라도 아니면 «미확인»(시작 거부).
+- 결과: `start_map.sh` 머리말 표(ready·starting 0, already_running 3, resource_blocked 4, budget_exhausted 5, bad_args 2, failed 1)와 종료 코드가 맞을 때만 그 결과. 어긋나면 «기동 실패»(성공 채택 0).
+- 수락 뒤 화면: 자동 시작·조종 없이 «실시간 지도 보기(화면만)» 버튼(지금 실시간 보기가 아닐 때)으로 지도 선택만 옮긴다.
 - 접수 시 같은 조종 lock 에서: 조종권 해제·명령 0·STOP 잠금·입력 폐기, 처리 중 take/resume/reset/비영 명령 차단(STOP·화면 숨김·반납은 그대로). 끝나도(성공·실패·시간 초과 240 s) 자동 복원·재시도·연장·take/resume 0, STOP 잠금 유지. 실시간 지도도 새 K 까지 «리셋 중».
 - 원장: 지도 체험(`map_ledger_used/max`·사용 키) 을 기존 체험 원장과 다른 줄·다른 이름으로 표시.
 - 화면: PC 지도 왼쪽 패널·폰 지도 서랍의 «지도 체험 시작» — 지형·층·모드·버전 선택 + 확인창. «지도 보기» 선택은 세계를 바꾸지 않는다.

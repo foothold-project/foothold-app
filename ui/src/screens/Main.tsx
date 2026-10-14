@@ -38,7 +38,7 @@ export default function Main() {
   const api = useRef<MapApi | null>(null), box = useRef<HTMLDivElement>(null);
   const [trail, setTrail] = useState(true), [zon, setZon] = useState(true), [, redraw] = useState(0);
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
-  const { raster, pickEl, pose } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
+  const { raster, pickEl, pose, on, blank } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
 
   const role = st?.role, ctl = v.linkOk && role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
@@ -106,15 +106,15 @@ export default function Main() {
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelAsk: true, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,
     // 지도: 시뮬 바닥 도면 + GT 위치(SLAM 아님)
-    mapTitle: raster ? `저장 지도 보기 · ${raster.label} · 실제 실행 world 와 별개 · 위치 미표시(결속 안 됨)` : s ? `지도·SLAM 아님 · 선은 ${s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인'} 위치 · x ${sgn(s.x)} y ${sgn(s.y)} m` : '지도·SLAM 아님 · 위치 미연결',
+    mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank} · 실제 실행 world 와 별개 · ${pose ? '위치 = 실시간 지도 status' : '위치 미표시'}` : s ? `지도·SLAM 아님 · 선은 ${s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인'} 위치 · x ${sgn(s.x)} y ${sgn(s.y)} m` : '지도·SLAM 아님 · 위치 미연결',
     layerP: [tog(trail, setTrail, 'Gazebo GT 지나온 길 보이기/숨기기'), layer(`측정값 — ${WHY['가스·측정값·통신 품질']}`), layer(`발견물 — ${WHY['AI 탐지·발견물 판독']}`),
       layer(`통신 품질 — ${WHY['가스·측정값·통신 품질']}`), tog(zon, setZon, '구역 표시 켜기/끄기(표시만 · 주행 제한 미연결)'), layer(`3D 점군 — ${WHY['뎁스 영상·3D 점군']}`)],
     findCnt: '—', legendHide: true,
     folP: { 'aria-pressed': robotMode, title: '로봇 중심(지도가 따라 움직임) ↔ 전체 보기', onClick: () => { mApi?.setMode(robotMode ? 'all' : 'robot'); redraw((n) => n + 1); } },
     zinP: { title: '확대', onClick: () => mApi?.zoomBy(1.5) }, zoutP: { title: '축소', onClick: () => mApi?.zoomBy(1 / 1.5) },
     map: <div style={{ position: 'relative', width: '100%', aspectRatio: '1000/620' }}>
-      <MapCanvas name="main" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={raster ? pose : v.robot} trail={TRAIL.pts}
-        raster={raster} noRobot={!!raster && !pose} showTrail={trail && !raster} showZones={zon && !raster} wps={R && !raster ? R.wps : null} />
+      <MapCanvas name="main" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
+        raster={raster} blank={blank} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on ? R.wps : null} />
       {pickEl}</div>,
     stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist == null ? '미확인' : `${dist.toFixed(1)} m`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
     steps: R ? R.wps.map((x, i) => ({ n: i + 1, title: x.name || `지점 ${i + 1}`, cls: x.st === '방문' ? 'done' : x.st === '미방문' ? 'hold' : i === ci ? 'now' : '',

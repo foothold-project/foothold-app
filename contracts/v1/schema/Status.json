@@ -962,6 +962,22 @@
             }
           ]
         },
+        "ledger_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "online",
+                "map"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ledger Kind"
+        },
         "ledger_left": {
           "anyOf": [
             {

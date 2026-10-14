@@ -339,6 +339,7 @@ export interface SimStopState {
   busy: boolean;
   on: boolean;
   ledger_left: number | null;
+  ledger_kind?: "online" | "map" | null;
   last: SimStopLast | null;
 }
 

@@ -553,10 +553,10 @@ class SimStop:
         self.status_sh = str(p.with_name('session_status.sh')) if self.wrapper and p.with_name('session_status.sh').is_file() else None
         self.now, self.busy, self.last_t, self.last = now, False, -1e9, None   # last = 마지막 결과 {t, st, text}
 
-    def on(self, sim_live, session):
-        return bool(sim_live or (session or {}).get('result') in ('running', 'starting'))
+    def on(self, sim_live, session, map_session=None):
+        return bool(sim_live or any((x or {}).get('result') in ('running', 'starting') or unit_state(x) in UNIT_LIVE for x in (session, map_session)))
 
-    def refuse(self, gated, starting, sim_live, session, holder_other):
+    def refuse(self, gated, starting, sim_live, session, holder_other, map_session=None):
         if not self.wrapper or not self.status_sh:
             return 'Gazebo 종료 경로 미설정'
         if not gated:
@@ -565,18 +565,25 @@ class SimStop:
             return 'Gazebo 종료 처리 중'
         if starting:
             return '시뮬 시작 요청 처리 중 — 끝난 뒤'
-        if not self.on(sim_live, session):
+        if not self.on(sim_live, session, map_session):
             return '켜진 Gazebo 없음'
         if holder_other:
             return f'{holder_other} 조종 중 — 그 기기에서 STOP·반납한 뒤'
         left = self.COOL - (self.now() - self.last_t)
         return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
 
-    def state(self, gated, starting, sim_live, session, holder_other):
-        why = self.refuse(gated, starting, sim_live, session, holder_other)
+    def state(self, gated, starting, sim_live, session, holder_other, runner=None, map_ledger=None, map_session=None):
+        """runner = 지금 unit 을 쓰는 쪽(MapStart.runner). 원장은 그 쪽 것만: live_v2 → 기존 체험 원장, live_map → 지도 체험 원장, 모름 → null"""
+        why = self.refuse(gated, starting, sim_live, session, holder_other, map_session)
         ss = session or {}
-        left = ss['ledger_max'] - ss['ledger_used'] if all(type(ss.get(k)) is int for k in ('ledger_max', 'ledger_used')) else None
-        return {'ok': not why, 'why': why, 'busy': self.busy, 'on': self.on(sim_live, session), 'ledger_left': left, 'last': self.last}
+        if runner == 'live_map':
+            kind, left = 'map', (map_ledger['max'] - map_ledger['used'] if map_ledger else None)
+        elif runner == 'live_v2':
+            kind = 'online'
+            left = ss['ledger_max'] - ss['ledger_used'] if all(type(ss.get(k)) is int for k in ('ledger_max', 'ledger_used')) else None
+        else:
+            kind, left = None, None
+        return {'ok': not why, 'why': why, 'busy': self.busy, 'on': self.on(sim_live, session, map_session), 'ledger_left': left, 'ledger_kind': kind, 'last': self.last}
 
 
 def stop_run(stopper, run_wrapper, read_unit, state_age, sleep=time.sleep):
@@ -621,9 +628,19 @@ def selftest_stop():
         assert '조종 중' in s.refuse(True, False, True, None, 'B · 폰')                        # 타인 holder: 거부
         s.busy = True; assert run() == 'Gazebo 종료 처리 중'; s.busy = False                  # 같은 rid 중복·연타
         s.last_t = 0.0; t[0] = 10.0; assert run().startswith('방금'); t[0] = 31.0; assert run() == ''
-        st = s.state(True, False, True, {'result': 'running', 'ledger_used': 8, 'ledger_max': 8}, None)
-        assert st['ok'] and st['on'] and st['ledger_left'] == 0 and st['last'] is None
-        assert s.state(True, False, True, {'ledger_used': '8', 'ledger_max': 8}, None)['ledger_left'] is None
+        on8 = {'result': 'running', 'ledger_used': 8, 'ledger_max': 8}
+        st = s.state(True, False, True, on8, None, 'live_v2')
+        assert st['ok'] and st['on'] and st['ledger_left'] == 0 and st['ledger_kind'] == 'online' and st['last'] is None
+        assert s.state(True, False, True, {'ledger_used': '8', 'ledger_max': 8}, None, 'live_v2')['ledger_left'] is None
+        # 번들4: 지도 체험 세션이면 지도 원장(남은 4−used), 기존 원장 8/8 을 쓰지 않음 · runner 모름 → null
+        st = s.state(True, False, True, on8, None, 'live_map', {'used': 1, 'max': 4, 'keys': ['rooms_a/f1']})
+        assert st['ledger_left'] == 3 and st['ledger_kind'] == 'map'
+        assert s.state(True, False, True, on8, None, 'live_map', None)['ledger_left'] is None
+        st = s.state(True, False, True, on8, None, None); assert st['ledger_left'] is None and st['ledger_kind'] is None
+        # 켜짐 판정은 같은 unit active_state 로도(지도 세션: 기존 세션 idle·sim_live 없음)
+        assert s.refuse(True, False, False, {'result': 'idle'}, None, {'result': 'running', 'active_state': 'active'}) == ''
+        assert s.refuse(True, False, False, {'result': 'idle'}, None, {'result': 'idle', 'active_state': 'activating'}) == ''
+        assert s.refuse(True, False, False, {'result': 'idle'}, None, {'result': 'idle', 'active_state': 'inactive'}) == '켜진 Gazebo 없음'
         # 실제 subprocess 한 번(모의 wrapper·모의 상태 스크립트 — 실제 stop_live 호출 0)
         assert subprocess.run(['bash', s.wrapper], timeout=10).returncode == 0 and (Path(td) / 'calls').read_text() == 'stop\n'
         assert read_session(s.status_sh)['active_state'] == 'inactive'
@@ -981,6 +998,12 @@ class LiveMap:
             return None, '지도 버전 형식 틀림'
         if d.get('map_frame') != 'map' or not (type(ep) is int and ep >= 1):
             return None, '지도 frame·epoch 형식 틀림'
+        sl = d.get('slam_lifecycle')                        # 선택 칸 형식(틀리면 상태 전체를 모름으로 — view·NULL_KO·ROS 스레드가 죽지 않게)
+        if (type(d.get('map_accepting')) is not bool or not (d.get('sim_t') is None or fin(d.get('sim_t')))
+                or any(d.get(x) is not None and not isinstance(d.get(x), str) for x in ('map_error', 'pose_map_null_reason'))
+                or any(d.get(x) is not None and not isinstance(d.get(x), dict) for x in ('map', 'pose_map', 'last_save', 'scan', 'slam_lifecycle'))
+                or (sl is not None and not isinstance(sl.get('state'), (str, type(None))))):
+            return None, '지도 상태 선택 칸 형식 틀림'
         return (w, b, f, mode, src, ver, ep), ''
 
     def _drop(self):
@@ -998,6 +1021,33 @@ class LiveMap:
         if why.startswith('지도 상태') and d is not None and t - self.st_t > LIVE_STALE:
             self.key = None                                 # 끊김 = 세션 경계 — 다시 오면 새 키(새 수신 시각)부터
         return why
+
+    def _shown_why(self):       # 표시 중 격자가 지금 status 와 아직 맞나('' = 맞음). 안 맞으면 새 올바른 격자 전까지 격자·마커 0
+        s, m, k = self.shown, (self.st or {}).get('map'), self.key
+        if s is None:
+            return ''
+        if not isinstance(m, dict) or s['key'] != k or m.get('epoch') != k[6]:
+            return '상태에 이 지도 없음 — 새 격자 기다림'
+        res = m.get('resolution', m.get('res'))
+        if (s['w'], s['h']) != (m.get('width'), m.get('height')) or not fin(res) or abs(res - s['res']) > 1e-4:
+            return '상태의 지도 크기·해상도가 바뀜 — 새 격자 기다림'
+        if k[3] == 'slam' and not (fin(m.get('stamp_sim')) and abs(m['stamp_sim'] - s['stamp']) <= STAMP_EPS):
+            return '상태의 지도 stamp 가 바뀜 — 새 격자 기다림'
+        return ''
+
+    def _check(self, t):        # 상태 수준 이유 → 표시 격자 대조. 이유가 있으면 표시 격자 버림(대기 격자는 아직 앞선 것만 남김)
+        why = self._why(t)
+        if not why and self.shown is not None:
+            why = self._shown_why()
+            if why:
+                self.shown = None; self.grid_why = why
+        if self.pending is not None and not self._ahead(self.pending[0]):
+            self.pending = None                             # 이미 지난 stamp 의 대기 격자는 다시 맞을 일 없음
+        return why
+
+    def _ahead(self, g):        # 대기 격자가 아직 status 보다 앞선 slam 격자인가
+        m = (self.st or {}).get('map')
+        return bool(self.key and self.key[3] == 'slam' and isinstance(m, dict) and fin(m.get('stamp_sim')) and fin(g.get('stamp')) and g['stamp'] > m['stamp_sim'] + STAMP_EPS)
 
     def _bind(self, g, t):      # 격자 g 가 지금 status 의 현재 epoch 지도인가 → '' | 이유
         m, k = (self.st or {}).get('map'), self.key
@@ -1027,6 +1077,7 @@ class LiveMap:
                     self.hold_t = None                      # 키가 바뀌면(새 epoch·세션) 리셋 표시 해제
             if not self._why(t) and self.pending and not self._bind(self.pending[0], t):
                 self._show(*self.pending)
+            self._check(t)
 
     def on_grid(self, g):       # ROS 스레드: 최신 1장만 둔다(변환은 일꾼)
         with self.lock:
@@ -1069,19 +1120,19 @@ class LiveMap:
 
     def png(self):
         with self.lock:
-            s = self.shown
+            self._check(self.now()); s = self.shown
             return None if s is None else {'seq': s['seq'], 'epoch': s['key'][6], 'world_id': s['key'][0], 'floor_id': s['key'][2], 'png': s['png']}
 
     def view(self):
         """화면에 보낼 요약(경로·kids·maps_root 없음). st: off|stale|unknown|reset|wait|ok|bad"""
         with self.lock:
             t, d = self.now(), self.st
-            why = self._why(t)
+            why = self._check(t)
             if d is None:
                 return {'st': 'off', 'why': why}
             k, kwhy = self.key_of(d)
-            st = ('stale' if t - self.st_t > LIVE_STALE else 'unknown' if kwhy else 'reset' if why.startswith('리셋') else 'bad' if why
-                  else 'ok' if self.shown else 'wait')
+            st = ('stale' if t - self.st_t > LIVE_STALE else 'unknown' if kwhy else 'reset' if why.startswith('리셋') else 'wait' if why.endswith('기다림')
+                  else 'bad' if why else 'ok' if self.shown else 'wait')
             v = {'st': st, 'why': why or ('' if self.shown else self.grid_why or '이번 epoch 지도 기다림(slam 5 s·static 10 s 마다 발행)'),
                  'age_s': round(t - self.st_t, 1)}
             if k is None:
@@ -1099,7 +1150,7 @@ class LiveMap:
             ok_p = (s is not None and isinstance(p, dict) and want and p.get('source') == want and all(fin(p.get(x)) for x in ('x', 'y', 'yaw', 'stamp_sim'))
                     and fin(d.get('sim_t')) and abs(d['sim_t'] - p['stamp_sim']) <= POSE_SIM_GAP and t - self.st_t <= POSE_AGE)
             v['pose'] = {'x': p['x'], 'y': p['y'], 'yaw': p['yaw'], 'source': want} if ok_p else None
-            v['pose_why'] = '' if ok_p else ('지도 없음' if s is None else NULL_KO.get(d.get('pose_map_null_reason'))
+            v['pose_why'] = '' if ok_p else ('지도 없음' if s is None else (NULL_KO.get(d.get('pose_map_null_reason')) if isinstance(d.get('pose_map_null_reason'), str) else None)
                                              or ('이 지도는 위치 표시 안 함(저장 SLAM 지도)' if not want else '위치 형식 틀림·오래됨'))
             return v
 
@@ -1138,22 +1189,48 @@ class MapStart:
     """«지도 체험 시작» — RL start_map.sh 를 사용자가 확인 뒤 누를 때만 한 번(허용 인자만). 상태는 같은 폴더 map_status.sh(읽기만).
     단일 unit 이라 기존 «시뮬 시작»과 busy·쿨다운을 같이 쓴다(SimStart.busy·last). 원장은 지도 체험 것만(기존 체험 원장과 섞지 않음)"""
 
-    def __init__(self, wrapper):
+    LEDGER_ID, LEDGER_MAX, FRESH = 'map-20261014', 4, 15.0      # RL map_status.sh 정본 상수 · 조회 결과 신선도(폴 2~5 s)
+    KEYS = {f'{w}/{f}' for w, (_, fl) in MAP_WORLDS.items() for f in fl}
+
+    def __init__(self, wrapper, now=time.monotonic):
         p = Path(wrapper) if wrapper else None
         ok = bool(p and p.is_file() and p.with_name('map_status.sh').is_file())
         self.wrapper = str(p) if ok else None
         self.status_sh = str(p.with_name('map_status.sh')) if ok else None
-        self.session, self.last = None, None
+        self.now, self.session, self.sess_t, self.last = now, None, None, None
 
     def poll(self):
         d = read_session(self.status_sh) if self.status_sh else None
         self.session = d if d and d.get('result') in ('running', 'starting', 'idle') else None
+        self.sess_t = self.now() if self.session else None
+
+    def fresh(self):
+        return self.session is not None and self.sess_t is not None and 0 <= self.now() - self.sess_t <= self.FRESH
 
     def ledger(self):
-        s = self.session or {}
+        """지도 체험 원장(map_status.sh) — ledger_id·max 정본 일치, 0≤used≤max, 키는 허용표·중복 0·개수 = used(키당 1회). 하나라도 아니면 None(미확인)"""
+        s = self.session if self.fresh() else {}
         u, mx, ks = s.get('map_ledger_used'), s.get('map_ledger_max'), s.get('map_ledger_keys_used')
-        ok = type(u) is int and type(mx) is int and isinstance(ks, list) and all(isinstance(x, str) for x in ks)
-        return {'used': u, 'max': mx, 'keys': ks[:8]} if ok else None
+        ok = (s.get('ledger_id') == self.LEDGER_ID and type(mx) is int and mx == self.LEDGER_MAX and type(u) is int and 0 <= u <= mx
+              and isinstance(ks, list) and all(isinstance(x, str) and x in self.KEYS for x in ks) and len(set(ks)) == len(ks) == u)
+        return {'used': u, 'max': mx, 'keys': list(ks)} if ok else None
+
+    def unit_why(self):
+        """같은 unit(fh-v2-live) 이 확실히 꺼져 있고 요청 진행 없음 → '' . 미확인·deactivating·켜짐 → 이유"""
+        if not self.fresh():
+            return '지도 체험 상태 조회 미확인(오래됨·실패)'
+        s = self.session; a = unit_state(s)
+        if a is None:
+            return 'Gazebo unit 상태 미확인'
+        if a not in UNIT_OFF:
+            return f'Gazebo unit {a} — 끈 뒤 다시(세계 변경 = 끄고 새로 시작)'
+        if s.get('request_in_progress') is not False:
+            return '시작 요청 진행 중(RL)' if s.get('request_in_progress') is True else '시작 요청 진행 여부 미확인'
+        return ''
+
+    def runner(self):           # 지금 unit 을 쓰는 쪽: 'live_map'(지도 체험) | 'live_v2'(기존 체험) | None(꺼짐·미확인)
+        s = self.session if self.fresh() else {}
+        return s.get('runner') if s.get('runner') in ('live_map', 'live_v2') and unit_state(s) in UNIT_LIVE else None
 
     def refuse(self, key, gated, starter, stopping, sim_live, holder_other):
         if not self.wrapper:
@@ -1168,6 +1245,9 @@ class MapStart:
             return 'Gazebo 가 이미 켜짐 — 끈 뒤 다시(세계 변경 = 끄고 새로 시작)'
         if holder_other:
             return f'{holder_other} 조종 중 — 그 기기에서 STOP·반납한 뒤'
+        uw = self.unit_why()
+        if uw:
+            return uw
         lg = self.ledger()
         if lg is None:
             return '지도 체험 원장 미확인'
@@ -1180,9 +1260,20 @@ class MapStart:
 
     def state(self, gated, starter, stopping, sim_live, holder_other):
         why = self.refuse(None, gated, starter, stopping, sim_live, holder_other)
-        s = self.session or {}
+        s = (self.session or {}) if self.fresh() else {}
         return {'ok': not why, 'why': why, 'busy': starter.busy, 'ledger': self.ledger(), 'last': self.last,
                 'session': {k: s.get(k) for k in ('result', 'runner', 'world_id', 'floor_id', 'map_mode', 'remaining_s')} if s else None}
+
+
+MAP_EXIT = {'ready': 0, 'starting': 0, 'already_running': 3, 'resource_blocked': 4, 'budget_exhausted': 5, 'bad_args': 2, 'failed': 1}   # start_map.sh 머리말
+
+
+def map_result(out, code):
+    """start_map.sh 출력 → (결과, 글). 결과와 종료 코드가 머리말 표와 안 맞으면 실패(성공 채택 0)"""
+    res, extra = parse_session(out, code)
+    if res in MAP_EXIT and MAP_EXIT[res] != code:
+        return 'failed', f'래퍼 결과({res})와 종료 코드({code}) 모순'
+    return res, extra
 
 
 def save_refuse(gated, busy, v, ready):
@@ -1285,12 +1376,26 @@ def selftest_live():
     assert v['st'] == 'ok' and v['pose'] is None and v['pose_why'].startswith('저장 SLAM'), v
     S(ep=1, stamp=None, **st_); G(stamp=0.0, w=2); assert V()['grid']['seq'] == v['grid']['seq']   # meta 와 크기 다른 격자 → 안 바뀜(크기는 상태와도 달라 거부)
     st_m = {**st_, 'map': {'width': 2, 'height': 2, 'resolution': 0.05, 'epoch': 1, 'stamp_sim': None}}
-    S(ep=1, **st_m); G(stamp=0.0, w=2); assert V()['grid']['seq'] == v['grid']['seq'] and 'meta' in L.grid_why   # 상태와는 맞아도 저장 meta 와 다르면 거부(같은 epoch 의 앞 격자 유지)
+    S(ep=1, **st_m); v2 = V(); assert v2['grid'] is None and v2['pose'] is None and v2['st'] == 'wait' and L.png() is None   # 상태 형상이 바뀜 → 앞 격자 버림(마지막 지도 유지 0)
+    G(stamp=0.0, w=2); assert V()['grid'] is None and 'meta' in L.grid_why        # 상태와는 맞아도 저장 meta 와 다르면 거부 → 빈 상태 유지
     gt_ = dict(st_, map_source='gt_raster', map_version='gt-20261012', pose_map={'x': 1, 'y': 2, 'yaw': 0, 'stamp_sim': 5.9, 'source': 'gt_identity'}, pose_map_null_reason=None)
     t[0] += 0.1; S(ep=1, stamp=None, **gt_); G(stamp=0.0); v = V(); assert v['st'] == 'ok' and v['pose']['source'] == 'gt_identity', v
     t[0] += 0.1; S(ep=1, stamp=None, **{**gt_, 'map_version': 'gt-20261013'}); G(stamp=0.0); assert V()['grid'] is None and 'meta' in V()['why']   # meta 없는 버전
     S(ep=1, stamp=None, **{**st_, 'map_version': None}); assert V()['st'] == 'unknown'
     S(ep=1, stamp=0.0, map_error='map too large /x/y'); assert V()['st'] == 'bad' and '/x' not in V()['why']
+    # 표시 중 격자 ↔ 현재 status: map None·크기·해상도·slam stamp 가 바뀌면 새 올바른 격자 전까지 격자·마커·png 0
+    t[0] += 0.1; S(ep=7, stamp=3.0); G(stamp=3.0); assert V()['st'] == 'ok'
+    for chg in ({'mw': None}, {'mw': 6}, {'stamp': 4.0}, {'map': {'width': 4, 'height': 2, 'resolution': 0.1, 'epoch': 7, 'stamp_sim': 3.0}}):
+        S(ep=7, stamp=3.0); G(stamp=3.0); assert V()['st'] == 'ok', chg
+        S(**{'ep': 7, 'stamp': 3.0, **chg}); v = V(); assert v['grid'] is None and v['pose'] is None and L.png() is None and v['st'] == 'wait', (chg, v)
+    S(ep=7, stamp=4.0); G(stamp=4.0); assert V()['st'] == 'ok'                    # 새 stamp 격자가 오면 다시 표시
+    G(stamp=5.0); assert L.pending is not None; S(ep=7, stamp=6.0); assert L.pending is None and V()['grid'] is None   # 지난 stamp 대기 격자 버림
+    # 선택 칸 형식 틀림(list 등) → 상태 전체 «모름», 예외 0
+    for bad in ({'map_error': ['x']}, {'pose_map_null_reason': ['tf_stale']}, {'slam_lifecycle': ['ok']}, {'slam_lifecycle': {'epoch': 7, 'state': ['ok']}},
+                {'map': [1]}, {'pose_map': 'x'}, {'last_save': 1}, {'scan': []}, {'map_accepting': 'yes'}, {'sim_t': 'now'}):
+        S(ep=7, stamp=4.0); G(stamp=4.0); assert V()['st'] == 'ok'
+        S(ep=7, stamp=4.0, **bad); v = V(); assert v['st'] == 'unknown' and v.get('grid') is None and L.png() is None, (bad, v)
+    S(ep=7, stamp=4.0, pose_map=None, pose_map_null_reason='tf_stale'); G(stamp=4.0); assert V()['pose_why'] == '위치 변환 오래됨'
     # map_start 인자: 허용표·버전 규칙
     has = lambda b, f, v: (b, f, v) == ('v5', 'l2', 'gt-20261012')
     assert map_args({'world_id': 'v5_building', 'floor_id': 'l2', 'mode': 'static', 'map_version': 'gt-20261012'}, has) == (['v5_building', 'l2', 'static', 'gt-20261012'], 'v5_building/l2', '')
@@ -1308,16 +1413,45 @@ def selftest_live():
         tt = [1000.0]; sst = SimStart('/x', lambda: tt[0]); M = MapStart(str(Path(td) / 'start_map.sh'))
         assert MapStart(str(Path(td) / 'none.sh')).refuse('rooms_a/f1', True, sst, False, False, None).endswith('미설정')
         R = lambda key='rooms_a/f1', gated=True, stopping=False, live=False, other=None: M.refuse(key, gated, sst, stopping, live, other)
-        assert R() == '지도 체험 원장 미확인'
-        M.session = {'result': 'idle', 'map_ledger_used': 1, 'map_ledger_max': 4, 'map_ledger_keys_used': ['v5_single/f1']}
+        M.now = lambda: tt[0]
+        assert R() == '지도 체험 상태 조회 미확인(오래됨·실패)'
+        GOOD = {'result': 'idle', 'ledger_id': 'map-20261014', 'active_state': 'inactive', 'request_in_progress': False,
+                'map_ledger_used': 1, 'map_ledger_max': 4, 'map_ledger_keys_used': ['v5_single/f1']}
+        M.session = dict(GOOD); M.sess_t = tt[0]
         assert R() == '' and '이미 사용' in R('v5_single/f1') and R(gated=False).startswith('로그인')
         assert R(stopping=True).startswith('Gazebo 종료') and R(live=True).startswith('Gazebo 가') and R(other='폰').startswith('폰')
         sst.busy = True; assert R() == '시작 요청 처리 중'; sst.busy = False
         sst.session = {'result': 'running'}; assert R().startswith('Gazebo 가'); sst.session = None
         M.session['result'] = 'starting'; assert R().startswith('Gazebo 가'); M.session['result'] = 'idle'
         sst.last = tt[0] - 10; assert R().startswith('방금'); sst.last = -1e9
-        M.session['map_ledger_used'] = 4; assert R().startswith('지도 체험 원장 소진')
+        M.session.update(map_ledger_used=4, map_ledger_keys_used=sorted(MapStart.KEYS)); assert R().startswith('지도 체험 원장 소진 4/4')
         M.session['map_ledger_keys_used'] = 'x'; assert M.ledger() is None and R() == '지도 체험 원장 미확인'
+        # 원장 엄격 검사(번들4): id·max·범위·키 허용표·중복·개수=used — 하나라도 틀리면 미확인 → 시작 거부
+        for k, v in [('ledger_id', 'map-x'), ('ledger_id', None), ('map_ledger_max', 5), ('map_ledger_max', 4.0), ('map_ledger_used', -1),
+                     ('map_ledger_used', 2), ('map_ledger_used', True), ('map_ledger_keys_used', ['v5_single/f1', 'v5_single/f1']),
+                     ('map_ledger_keys_used', ['v5_single/f9']), ('map_ledger_keys_used', [1]), ('map_ledger_keys_used', [])]:
+            M.session = {**GOOD, k: v}; assert M.ledger() is None and R() == '지도 체험 원장 미확인', (k, v)
+        M.session = {**GOOD, 'map_ledger_used': 0, 'map_ledger_keys_used': []}; assert M.ledger() == {'used': 0, 'max': 4, 'keys': []} and R() == ''
+        # unit 상태·요청 진행·조회 신선도: 미확인/deactivating/켜짐/요청 중 → 거부
+        for k, v, want in [('active_state', None, 'Gazebo unit 상태 미확인'), ('active_state', 'unknown', 'Gazebo unit 상태 미확인'),
+                           ('active_state', 'deactivating', 'Gazebo unit deactivating'), ('active_state', 'active', 'Gazebo unit active'),
+                           ('request_in_progress', True, '시작 요청 진행 중'), ('request_in_progress', None, '시작 요청 진행 여부 미확인'),
+                           ('request_in_progress', 'false', '시작 요청 진행 여부 미확인'), ('request_in_progress', 0, '시작 요청 진행 여부 미확인')]:
+            M.session = {**GOOD, k: v}; assert R().startswith(want), (k, v, R())
+        M.session = dict(GOOD); tt[0] += 16.0; assert R().startswith('지도 체험 상태 조회 미확인') and M.ledger() is None
+        M.sess_t = tt[0]; assert R() == ''
+        # runner: 같은 unit active 일 때만, 꺼짐·미확인·오래됨 → None
+        M.session = {**GOOD, 'active_state': 'active', 'runner': 'live_map'}; assert M.runner() == 'live_map'
+        M.session = {**GOOD, 'active_state': 'active', 'runner': 'live_v2'}; assert M.runner() == 'live_v2'
+        for bad in ({**GOOD, 'runner': 'live_map'}, {**GOOD, 'active_state': 'active', 'runner': 'unknown'}, {**GOOD, 'active_state': 'active'}):
+            M.session = bad; assert M.runner() is None, bad
+        M.session = {**GOOD, 'active_state': 'active', 'runner': 'live_map'}; tt[0] += 16.0; assert M.runner() is None
+    # 래퍼 결과·종료 코드 모순 → 실패(성공 채택 0)
+    J = lambda r: json.dumps({'schema': 'v2_session/1', 'result': r})
+    assert map_result(J('starting'), 0)[0] == 'starting' and map_result(J('ready'), 0)[0] == 'ready'
+    for r, code in [('starting', 1), ('ready', 3), ('starting', 5), ('budget_exhausted', 0), ('already_running', 0)]:
+        res, txt = map_result(J(r), code); assert res == 'failed' and '모순' in txt, (r, code)
+    assert map_result(J('budget_exhausted'), 5)[0] == 'budget_exhausted' and map_result('', 0)[0] != 'starting'
     # 지도 체험 시작 접수(Core): 조종 중이던 기기도 해제·0·잠금, 처리 중 take/resume/reset/비영 거부·STOP 은 됨, 끝나도 자동 복원 0
     c = Core(now=lambda: t[0]); c.on_state({'schema': SCHEMA, 'episode': 0, 'stop_requested': False, 'reset_in_progress': False, 'policy_running': True})
     assert c.take('a'); c.cmd('a', Z); c.cmd('a', (1.0, 0.0, 0.0)); assert c.applied() == (0.6, 0, 0)
@@ -1581,13 +1715,19 @@ def main():
             d = json.loads(m.data)
         except Exception:
             d = None
-        live.on_status(d)
+        try:
+            live.on_status(d)
+        except Exception as e:      # 형식 차단을 지나친 예외도 ROS spin 을 죽이지 않게(그 status 만 버림)
+            print(f'[v2_link] /v2_map/status 처리 실패 {type(e).__name__}', flush=True)
 
     def on_grid(m):                 # 최신 1장만 넘김(변환·검사는 일꾼). data 는 int8 배열 → 바이트 복사 한 번
-        i = m.info; o, q = i.origin.position, i.origin.orientation
-        live.on_grid({'frame': m.header.frame_id, 'w': i.width, 'h': i.height, 'res': i.resolution, 'origin': (o.x, o.y, o.z), 'q': (q.x, q.y, q.z, q.w),
-                      'stamp': m.header.stamp.sec + m.header.stamp.nanosec * 1e-9,
-                      'data': m.data.tobytes() if hasattr(m.data, 'tobytes') else bytes(x & 255 for x in m.data)})
+        try:
+            i = m.info; o, q = i.origin.position, i.origin.orientation
+            live.on_grid({'frame': m.header.frame_id, 'w': i.width, 'h': i.height, 'res': i.resolution, 'origin': (o.x, o.y, o.z), 'q': (q.x, q.y, q.z, q.w),
+                          'stamp': m.header.stamp.sec + m.header.stamp.nanosec * 1e-9,
+                          'data': m.data.tobytes() if hasattr(m.data, 'tobytes') else bytes(x & 255 for x in m.data)})
+        except Exception as e:
+            print(f'[v2_link] /v2_map/map 처리 실패 {type(e).__name__}', flush=True)
 
     def map_worker():               # ≤1 Hz: PNG 변환 + (static) 저장 meta 대조는 여기서 — ROS·IOLoop·조종 lock 밖
         while True:
@@ -1637,7 +1777,8 @@ def main():
                     'sim_block': core.sim_block(), 'resume_pending': bool(core.resume_pending), 'reset_pending': core.reset_pending is not None,
                     'episode': core.episode, 'ros_domain': os.environ.get('ROS_DOMAIN_ID'), 'state_age': age, 'cam_age': cam_age, 'sim': core.st, 'events': list(core.events)[:6], 'note': PRESETS_NOTE,
                     'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live()), 'docs_rev': docs.rev,
-                    'sim_stop': stopper.state(c.gated, starter.busy, sim_live(), starter.session, holder if core.controller not in (None, cid) else None),
+                    'sim_stop': stopper.state(c.gated, starter.busy, sim_live(), starter.session, holder if core.controller not in (None, cid) else None,
+                                              mapper.runner(), mapper.ledger(), mapper.session if mapper.fresh() else None),
                     'map_start': mapper.state(c.gated, starter, stopper.busy, sim_live(), holder if core.controller not in (None, cid) else None),
                     'live_map': lv, 'map_save': {'ok': not sv_why, 'why': sv_why, 'busy': save['busy']}}
 
@@ -1718,7 +1859,7 @@ def main():
         def run():
             try:
                 r = subprocess.run(['bash', mapper.wrapper, *args], capture_output=True, text=True, timeout=240)
-                res, extra = parse_session(r.stdout, r.returncode)
+                res, extra = map_result(r.stdout, r.returncode)
             except Exception as e:
                 res, extra = 'failed', type(e).__name__
             text = START_TEXT[res]
@@ -1772,7 +1913,7 @@ def main():
     def stop_sim(c, rid):
         with lock:
             holder = clients[core.controller].actor if core.controller in clients and core.controller != c.cid else None
-            why = stopper.refuse(c.gated, starter.busy, sim_live(), starter.session, holder)
+            why = stopper.refuse(c.gated, starter.busy, sim_live(), starter.session, holder, mapper.session if mapper.fresh() else None)
             if why:
                 core.ev('warn', f'Gazebo 종료 거부 · {why}'); return reply(c, rid, False, why)
             stopper.busy = True; stopper.last_t = time.monotonic(); core.sim_busy = 'Gazebo 종료 중'
