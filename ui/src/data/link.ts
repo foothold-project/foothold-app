@@ -100,9 +100,10 @@ export function checkStatus(m: any): string | null {
 }
 // 응답이 오는 요청(사진·시뮬 시작): 서버가 rid 로 답한다. 5 s 안에 답 없으면 실패로(live.js ask 와 같음)
 let rid = 0; const pending = new Map<number, (m: Reply) => void>();
-export const ask = (op: 'photo' | 'sim_start' | 'sim_stop') => new Promise<Reply>((res) => {
+type AskOp = 'photo' | 'sim_start' | 'sim_stop' | 'map_list' | 'map_get';
+export const ask = (op: AskOp, extra: Record<string, string> = {}) => new Promise<Reply>((res) => {
   const id = ++rid, no = (text: string) => res({ op: 'reply', rid: id, ok: false, text });
-  if (!send({ op, rid: id })) return no('링크 끊김 — 보내지 못함');
+  if (!send({ ...extra, op, rid: id } as ClientOp)) return no('링크 끊김 — 보내지 못함');
   const t = setTimeout(() => { pending.delete(id); no('서버 응답 없음(5 s)'); }, 5000);
   pending.set(id, (m) => { clearTimeout(t); res(m); });
 });

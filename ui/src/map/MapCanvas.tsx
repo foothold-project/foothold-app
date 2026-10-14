@@ -4,6 +4,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ZoneEnv } from '@contracts';
 import { ok, store } from '../data/fmt';
+import type { Raster } from '../data/maps';
 
 export const FLOOR = 10;   // online-20261012/gz/world_live.sdf: 평평한 바닥, 격자 선 −10~10 m
 export type Mode = 'robot' | 'all' | 'free';
@@ -16,6 +17,7 @@ type Props = {
   robot?: Robot; noRobot?: boolean; showTrail?: boolean; showZones?: boolean; hiZone?: string | null; hiWp?: number | null;
   draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number, k: number) => void;
   btns?: boolean;
+  raster?: Raster | null;   // 저장 지도 보기: 바닥 도면 대신 이 그림. 로봇·길·구역·경유점은 부르는 쪽이 끈다(좌표계 결속 전)
   api?: { current: MapApi | null };   // 화면의 자체 버튼(휴대폰 fab·레이어 서랍)이 보기 방식·확대를 바꿀 때   // live.js mapBtns(아이콘): 로봇 중심 · 전체 보기 · 확대 · 축소
 };
 
@@ -36,12 +38,13 @@ export function MapCanvas(p: Props) {
     const cs = getComputedStyle(el), col = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
     const C = { map: col('--map', '#0E1317'), bg: col('--bg', '#05080A'), line: col('--line2', '#34424D'), mut: col('--muted', '#9AA7B3'), acc: col('--accent', '#38C6D9'),
       bad: col('--bad', '#FF5A52'), warn: col('--warn', '#FFB547'), ok: col('--ok', '#5AA9FF') };
+    const rs = o.raster, B = rs ? [rs.ox, rs.ox + rs.w * rs.res, rs.oy, rs.oy + rs.h * rs.res] : [-FLOOR, FLOOR, -FLOOR, FLOOR];   // 바탕 범위 x0 x1 y0 y1
     const r = o.noRobot ? null : o.robot || null, fr = !!r?.fresh, showTrail = o.showTrail !== false, pts = showTrail ? o.trail || [] : [], wps = o.wps || [];
     let cx: number, cy: number, kBase: number;
     if (v.mode === 'robot' && r) { cx = r.x; cy = r.y; kBase = Math.min(W, H) / (o.small ? 6 : 10); }
     else if (v.mode === 'free') { [cx, cy] = v.c; kBase = v.kFree; }
     else {   // 전체 보기(또는 위치가 아직 없을 때): 바닥 + 지나온 길 + 로봇 + 경유점이 다 들어오게
-      const xs = [-FLOOR, FLOOR, ...pts.map((q) => q[0]), ...wps.map((w) => w.x)], ys = [-FLOOR, FLOOR, ...pts.map((q) => q[1]), ...wps.map((w) => w.y)];
+      const xs = [B[0], B[1], ...pts.map((q) => q[0]), ...wps.map((w) => w.x)], ys = [B[2], B[3], ...pts.map((q) => q[1]), ...wps.map((w) => w.y)];
       if (r) { xs.push(r.x); ys.push(r.y); }
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
       cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; kBase = Math.min(W / (x1 - x0 + 2), H / (y1 - y0 + 2));
@@ -50,14 +53,19 @@ export function MapCanvas(p: Props) {
     const X = (x: number) => W / 2 + (x - cx) * k, Y = (y: number) => H / 2 - (y - cy) * k;
     v.toWorld = (px, py) => [cx + (px - W / 2) / k, cy - (py - H / 2) / k];
     g.fillStyle = C.bg; g.fillRect(0, 0, W, H);
-    g.fillStyle = C.map; g.fillRect(X(-FLOOR), Y(FLOOR), 2 * FLOOR * k, 2 * FLOOR * k);
+    g.fillStyle = C.map; g.fillRect(X(B[0]), Y(B[3]), (B[1] - B[0]) * k, (B[3] - B[2]) * k);
+    if (rs) {   // 어두운 테마: 반전(빈칸 어둡게·벽 밝게). ctx.filter 없는 브라우저는 원래 색
+      const dark = /^#?[0-3]/.test(C.bg.replace('#', '')) || /rgb\(\s*\d{1,2}\s*,/.test(C.bg);
+      g.save(); g.imageSmoothingEnabled = k < 1 / rs.res; if (dark) g.filter = 'invert(1) brightness(.85)';
+      g.drawImage(rs.img, X(B[0]), Y(B[3]), (B[1] - B[0]) * k, (B[3] - B[2]) * k); g.restore();
+    }   // PGM 첫 행 = y 큰 쪽(위)
     if (k >= 4) {
       g.strokeStyle = 'rgba(128,140,150,.22)'; g.lineWidth = 1; g.beginPath();
-      for (let i = Math.max(-FLOOR, Math.ceil(cx - W / 2 / k)); i <= Math.min(FLOOR, cx + W / 2 / k); i++) { g.moveTo(X(i), Y(FLOOR)); g.lineTo(X(i), Y(-FLOOR)); }
-      for (let j = Math.max(-FLOOR, Math.ceil(cy - H / 2 / k)); j <= Math.min(FLOOR, cy + H / 2 / k); j++) { g.moveTo(X(-FLOOR), Y(j)); g.lineTo(X(FLOOR), Y(j)); }
+      for (let i = Math.max(Math.ceil(B[0]), Math.ceil(cx - W / 2 / k)); i <= Math.min(B[1], cx + W / 2 / k); i++) { g.moveTo(X(i), Y(B[3])); g.lineTo(X(i), Y(B[2])); }
+      for (let j = Math.max(Math.ceil(B[2]), Math.ceil(cy - H / 2 / k)); j <= Math.min(B[3], cy + H / 2 / k); j++) { g.moveTo(X(B[0]), Y(j)); g.lineTo(X(B[1]), Y(j)); }
       g.stroke();
     }
-    g.strokeStyle = C.line; g.lineWidth = 2; g.strokeRect(X(-FLOOR), Y(FLOOR), 2 * FLOOR * k, 2 * FLOOR * k);
+    g.strokeStyle = C.line; g.lineWidth = 2; g.strokeRect(X(B[0]), Y(B[3]), (B[1] - B[0]) * k, (B[3] - B[2]) * k);
     const poly = (q: number[][]) => { g.beginPath(); q.forEach((a, i) => (i ? g.lineTo(X(a[0]), Y(a[1])) : g.moveTo(X(a[0]), Y(a[1])))); };
     g.font = '600 12px sans-serif';
     if (o.showZones !== false) for (const z of o.zones || []) {
@@ -94,14 +102,14 @@ export function MapCanvas(p: Props) {
       if (!fr) tags.push(`위치 오래됨 ${((performance.now() - r.t) / 1000).toFixed(0)} s`);
       if (Math.abs(r.x) > FLOOR || Math.abs(r.y) > FLOOR) tags.push('도면 밖');   // 가두지 않고 그대로 그린다
       if (tags.length) { g.font = `600 ${o.small ? 10 : 12}px sans-serif`; g.fillStyle = C.warn; g.fillText(tags.join(' · '), X(r.x) + 12, Y(r.y) - 12); }
-    } else if (!o.noRobot) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText('위치 없음 · GT 미수신', W / 2, H / 2); g.textAlign = 'left'; }
+    } else if (!o.noRobot && !rs) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText('위치 없음 · GT 미수신', W / 2, H / 2); g.textAlign = 'left'; }
     g.font = '600 11px sans-serif'; g.fillStyle = C.mut; g.textAlign = 'right'; g.fillText('N ↑', W - 8, H - 9); g.textAlign = 'left';
     if (!o.small) {
-      const t = `격자 1 m · ${W < 520 ? '' : '바닥 ±10 m · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
+      const t = `${rs ? `${rs.label} · 위치 미표시(지도와 결속 안 됨) · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : '바닥 ±10 m · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
     box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
-    el.dataset.view = `${v.mode}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}`;   // 시험·상태 확인용
+    el.dataset.view = `${v.mode}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}${rs ? '|saved' : ''}`;   // 시험·상태 확인용
   };
 
   useLayoutEffect(draw);   // 값이 바뀔 때마다 다시 그림

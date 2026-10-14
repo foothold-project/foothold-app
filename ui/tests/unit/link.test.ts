@@ -156,3 +156,21 @@ test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', a
   expect(L.press('pc-t2', 2, { fx: 1, fy: 0, fw: 0 })).toBe(false);
   expect(L.move('pc-t', 1, { fx: 1, fy: 0, fw: 0 })).toBe(false);          // 서명 변화로 앞 누름 폐기됨
 });
+
+test('저장 지도: 목록 형식 걸러냄 · 다른 지도 답 버림 · 요청은 이름만', async () => {
+  const M = await import('../../src/data/maps');
+  const I = (o: any = {}) => ({ world_id: 'v5_building', building_id: 'v5', floor_id: 'floor1', map_version: '20261012-032800-e0', map_source: 'gt_raster', epoch: 0,
+    resolution: 0.05, origin: [-20, -14, 0], width: 800, height: 640, saved_sim_t: null, ...o });
+  const reply = (o: any) => { const q = last(sent); msg({ op: 'reply', rid: q.rid, ok: true, text: '', ...o }); return q; };
+  let p: Promise<any> = M.listMaps();
+  reply({ maps: [I(), I({ floor_id: 'floor9' }), I({ resolution: 0 }), I({ origin: [0, 0] }), I({ width: 2001 }), I({ map_source: 'x' })] });
+  expect((await p).map(M.mapKey)).toEqual(['v5/floor1/20261012-032800-e0']);
+  p = M.getMap(I() as any);
+  const q = reply({ map: { ...I({ floor_id: 'floor2' }), png: 'AA==' } });                  // 다른 층 답 → 버림
+  expect(q).toMatchObject({ op: 'map_get', building_id: 'v5', floor_id: 'floor1', map_version: '20261012-032800-e0' });
+  expect(await p).toBe('지도 형식 이상');
+  p = M.getMap(I() as any); reply({ map: I() }); expect(await p).toBe('지도 형식 이상');             // png 없음
+  p = M.getMap(I() as any); reply({ map: { ...I({ origin: [-20, -14, 0.5] }), png: 'AA==' } }); expect(await p).toContain('회전');
+  p = M.getMap(I() as any); { const z = last(sent); msg({ op: 'reply', rid: z.rid, ok: false, text: '지도 · 지도 없음' }); } expect(await p).toBe('지도 · 지도 없음');
+  expect(M.mapLabel(I() as any)).toContain('GT 기하 지도(SLAM 아님)');
+});
