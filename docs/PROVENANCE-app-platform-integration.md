@@ -4,10 +4,10 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `1f50327ce5de2afc034ca1ee51ae8216dd2c76cb` (`less82/app-ui-react-recovered`) | `ui` = `80a8ae3b9c0f1f7a65967cf3d850fbd268caa79f` | 그대로 |
-| `mobile/**` | `c9e253a5b4a4f7801b49c907c9061633f80e8c29` (`less82/app-contract-storage`) | `mobile` = `16258db6d3b191715086f65654ca2a2d463684d7` | 파일 단위 변경 0 |
+| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `e6cab23ad24866ed1ba6e8514d2f70f47557fbc3` (`less82/app-ui-react-recovered`) | `ui` = `d6d09618075cb90dc21bece0aa32dfdfad7a39f6` | 그대로 |
+| `mobile/**` | `713f15517241b8c69bfd285168fdb995b145119a` (`less82/app-contract-storage`) | `mobile` = `2f9944c2a21e5fad43d2790a3d948f4c2dabf16c` | 파일 단위 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md` 맨 앞 «현재 통합 개발판» 안내(기존 본문 그대로, «기존 웹 구현 기록»으로 구분) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 1f50327ce5de2afc034ca1ee51ae8216dd2c76cb HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only e6cab23ad24866ed1ba6e8514d2f70f47557fbc3 HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
