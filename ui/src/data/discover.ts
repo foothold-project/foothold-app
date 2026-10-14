@@ -12,7 +12,7 @@ const MAX = 16;
 export function cleanItems(raw: unknown): Item[] {
   const out: Item[] = [];
   for (const it of Array.isArray(raw) ? raw : []) {
-    if (!it || it.app !== 'foothold-gate' || String(it.api) !== '1' || typeof it.origin !== 'string') continue;
+    if (!it || it.app !== 'foothold-gate' || it.api !== 1 || typeof it.origin !== 'string' || typeof it.name !== 'string') continue;   // api 는 숫자 1 만(문자 '1' 변환 0)
     const g = gateOrigin(it.origin);
     if ('why' in g || g.origin !== it.origin) continue;
     const m = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(new URL(g.origin).hostname);
@@ -20,7 +20,7 @@ export function cleanItems(raw: unknown): Item[] {
     const [a, b] = [Number(m[1]), Number(m[2])];
     if (!(a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168))) continue;   // 공인·Tailscale·루프백 0
     if (out.some((x) => x.origin === g.origin)) continue;
-    const name = (typeof it.name === 'string' ? it.name : '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, 64);
+    const name = it.name.replace(/[\u0000-\u001f\u007f-\u009f]/g, '').trim().slice(0, 64);
     out.push({ name, origin: g.origin });
     if (out.length >= MAX) break;
   }
@@ -32,13 +32,16 @@ const WHY: Record<string, string> = {
   nsd: '기기의 주변 검색 기능이 응답하지 않음 — 주소 입력·QR 을 쓰세요',
   hidden: '앱이 화면 밖이라 검색 안 함 — 다시 검색',
 };
-/** 결과 → 화면 한 줄. cancelled 는 사용자가 멈춘 것이라 조용히 */
+const STOP = ['none', 'requested', 'failed'], WHYS = ['wifi', 'nsd', 'hidden', 'cancelled'];
+/** 결과 → 화면 한 줄. 계약(네이티브 2073a8e): {gen, items[], why?, stop} — stop 필수, why 는 정해진 넷만.
+ *  형식이 틀리거나 why 가 있거나 stop failed 면 목록 0(사유와 목록을 섞지 않음 — 고를 후보 없음). cancelled 는 사용자가 멈춘 것이라 조용히 */
 export function foundOf(r: any): Found {
-  const items = cleanItems(r?.items), why = typeof r?.why === 'string' ? r.why : '';
-  const msg = r?.stop === 'failed' ? '검색 정리 실패 — 앱을 다시 열어 주세요'
-    : why === 'cancelled' ? '' : WHY[why] || (why ? `검색 안 됨(${why.slice(0, 20)})` : '')
-    || (items.length ? '' : '찾은 관문 없음 — 같은 Wi-Fi 인지 · 관문 PC 에서 광고가 켜졌는지 확인, 또는 주소 입력·QR');
-  return { items, msg };
+  const ok = !!r && typeof r === 'object' && Number.isInteger(r.gen) && Array.isArray(r.items) && STOP.includes(r.stop) && (r.why === undefined || WHYS.includes(r.why));
+  if (!ok) return { items: [], msg: '주변 검색 응답 형식이 맞지 않음 — 주소 입력·QR 을 쓰세요' };
+  if (r.stop === 'failed') return { items: [], msg: '검색 정리 실패 — 앱을 다시 열어 주세요' };
+  if (r.why !== undefined) return { items: [], msg: r.why === 'cancelled' ? '' : WHY[r.why] };
+  const items = cleanItems(r.items);
+  return { items, msg: items.length ? '' : '찾은 관문 없음 — 같은 Wi-Fi 인지 · 관문 PC 에서 광고가 켜졌는지 확인, 또는 주소 입력·QR' };
 }
 export function errOf(e: any): string {
   const c = String(e?.code || e?.message || e);

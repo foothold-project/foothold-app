@@ -4,7 +4,7 @@ import { cleanItems, errOf, foundOf, startNearby, stopNearby, type NearbyApi } f
 
 const deferred = <T,>() => { let res!: (v: T) => void, rej!: (e: unknown) => void; const p = new Promise<T>((a, b) => { res = a; rej = b; }); return { p, res, rej }; };
 const tick = () => new Promise((r) => setTimeout(r, 0));
-const it1 = (o: object = {}) => ({ name: 'FOOTHOLD 관문 · d21e2e97', origin: 'https://192.168.21.242:8453', app: 'foothold-gate', api: 1, ...o });
+const it1 = (o: object = {}) => ({ name: 'FOOTHOLD 관문 · ab12cd34', origin: 'https://192.168.0.10:8453', app: 'foothold-gate', api: 1, ...o });
 
 describe('cleanItems', () => {
   it('사설 IPv4 https origin · app/api 일치만, 같은 origin 은 처음 것, 이름 정리', () => {
@@ -12,13 +12,13 @@ describe('cleanItems', () => {
       it1(), it1({ name: '두번째' }),                                    // 중복 → 처음 것
       it1({ origin: 'https://10.0.0.5:8453', name: 'a\u0000b\nc' }),    // 제어문자 제거
       it1({ origin: 'https://172.20.1.1:1', name: '' }),                // 빈 이름 허용(화면은 origin)
-      it1({ origin: 'https://8.8.8.8:8453' }), it1({ origin: 'https://100.116.47.42:8453' }), it1({ origin: 'https://127.0.0.1:8453' }),
+      it1({ origin: 'https://8.8.8.8:8453' }), it1({ origin: 'https://100.64.0.1:8453' }), it1({ origin: 'https://127.0.0.1:8453' }),
       it1({ origin: 'https://172.32.0.1:8453' }), it1({ origin: 'http://192.168.0.2:8453' }), it1({ origin: 'https://192.168.0.2:8453/x' }),
       it1({ origin: 'https://host.local:8453' }), it1({ origin: 'https://192.168.0.3:8453', app: 'other' }), it1({ origin: 'https://192.168.0.4:8453', api: 2 }),
       null, 'x', { origin: 5 },
     ]);
     expect(r).toEqual([
-      { name: 'FOOTHOLD 관문 · d21e2e97', origin: 'https://192.168.21.242:8453' },
+      { name: 'FOOTHOLD 관문 · ab12cd34', origin: 'https://192.168.0.10:8453' },
       { name: 'abc', origin: 'https://10.0.0.5:8453' },
       { name: '', origin: 'https://172.20.1.1:1' },
     ]);
@@ -27,13 +27,21 @@ describe('cleanItems', () => {
     expect(cleanItems(undefined)).toEqual([]);
   });
   it('문구: 없음·why·stop failed·cancelled 조용히·busy/stale', () => {
-    expect(foundOf({ items: [] }).msg).toMatch(/찾은 관문 없음/);
-    expect(foundOf({ items: [it1()] }).msg).toBe('');
-    expect(foundOf({ items: [], why: 'wifi' }).msg).toMatch(/Wi-Fi/);
-    expect(foundOf({ items: [], why: 'hidden' }).msg).toMatch(/화면 밖/);
-    expect(foundOf({ items: [], why: 'nsd' }).msg).toMatch(/주소 입력/);
-    expect(foundOf({ items: [], why: 'cancelled' }).msg).toBe('');
-    expect(foundOf({ items: [it1()], stop: 'failed' }).msg).toMatch(/검색 정리 실패/);
+    const R = (o: object = {}) => ({ gen: 1, items: [], stop: 'none', ...o });
+    expect(foundOf(R()).msg).toMatch(/찾은 관문 없음/);
+    expect(foundOf(R({ items: [it1()], stop: 'requested' }))).toEqual({ items: [{ name: 'FOOTHOLD 관문 · ab12cd34', origin: 'https://192.168.0.10:8453' }], msg: '' });
+    expect(foundOf(R({ why: 'wifi' })).msg).toMatch(/Wi-Fi/);
+    expect(foundOf(R({ why: 'hidden' })).msg).toMatch(/화면 밖/);
+    expect(foundOf(R({ why: 'nsd' })).msg).toMatch(/주소 입력/);
+    expect(foundOf(R({ why: 'cancelled', stop: 'requested' })).msg).toBe('');
+    // 사유·정리 실패와 목록을 섞지 않음 — 네이티브가 잘못 보내도 고를 후보 0
+    for (const why of ['wifi', 'nsd', 'hidden', 'cancelled']) expect(foundOf(R({ why, items: [it1()] })).items).toEqual([]);
+    expect(foundOf(R({ items: [it1()], stop: 'failed' }))).toEqual({ items: [], msg: '검색 정리 실패 — 앱을 다시 열어 주세요' });
+    // 형식 엄격: stop 필수·정해진 셋, why 정해진 넷, gen 정수, items 배열
+    for (const bad of [{ items: [it1()] }, R({ stop: 'ok', items: [it1()] }), R({ stop: undefined, items: [it1()] }), R({ why: 'timeout', items: [it1()] }), R({ why: '', items: [it1()] }),
+      R({ why: null, items: [it1()] }), R({ gen: '1', items: [it1()] }), R({ gen: 1.5 }), R({ items: 'x' }), null, 'x', [it1()]])
+      expect(foundOf(bad)).toEqual({ items: [], msg: '주변 검색 응답 형식이 맞지 않음 — 주소 입력·QR 을 쓰세요' });
+    expect(cleanItems([it1({ api: '1' }), it1({ api: true }), it1({ name: 5 }), it1({ name: undefined })])).toEqual([]);   // 숫자 1 만·이름 문자열만
     expect(errOf({ code: 'busy' })).toMatch(/정리하는 중/);
     expect(errOf({ code: 'stale' })).toBe('');
   });
@@ -45,7 +53,7 @@ describe('startNearby', () => {
     const { d, api } = mk(), done = vi.fn();
     const stop = startNearby(api, 5000, done); await tick();
     expect(api.discover).toHaveBeenCalledWith(5000);
-    d.res({ items: [it1()] }); await tick();
+    d.res({ gen: 1, stop: 'requested', items: [it1()] }); await tick();
     expect(done).toHaveBeenCalledTimes(1); expect(done.mock.calls[0][0].items).toHaveLength(1);
     stop(); await tick(); expect(api.stop).not.toHaveBeenCalled();
   });
@@ -54,7 +62,7 @@ describe('startNearby', () => {
     const stop = startNearby(api, 5000, done); await tick();
     stop(); stop(); await tick();
     expect(api.stop).toHaveBeenCalledTimes(1);
-    d.res({ items: [it1()] }); await tick();
+    d.res({ gen: 1, stop: 'requested', items: [it1()] }); await tick();
     expect(done).not.toHaveBeenCalled();
   });
   it('로그인 시작(stopNearby) → 사유로 끝냄, 늦은 결과 버림', async () => {
@@ -62,7 +70,7 @@ describe('startNearby', () => {
     startNearby(api, 5000, done); await tick();
     stopNearby(); await tick();
     expect(done).toHaveBeenCalledTimes(1); expect(done.mock.calls[0][0].msg).toMatch(/로그인 시작/);
-    d.res({ items: [it1()] }); await tick(); expect(done).toHaveBeenCalledTimes(1);
+    d.res({ gen: 1, stop: 'requested', items: [it1()] }); await tick(); expect(done).toHaveBeenCalledTimes(1);
   });
   it('다시 검색: 앞 검색 discoverStop 이 끝난 뒤에 새 discover(동시 1)', async () => {
     const order: string[] = [], s = deferred<void>();
@@ -74,7 +82,7 @@ describe('startNearby', () => {
     expect(order).toEqual(['discover', 'stop']);   // 정리 끝나기 전 새 discover 0
     s.res(); await tick(); await tick();
     expect(order).toEqual(['discover', 'stop', 'discover']);
-    d1.res({ items: [it1()] }); d2.res({ items: [] }); await tick();
+    d1.res({ gen: 1, stop: 'requested', items: [it1()] }); d2.res({ gen: 1, stop: 'requested', items: [] }); await tick();
     expect(done).toHaveBeenCalledTimes(1); expect(done.mock.calls[0][0].items).toEqual([]);   // 옛 결과 0
   });
   it('거부: busy 는 안내, stale 은 조용히', async () => {

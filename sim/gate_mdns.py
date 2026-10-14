@@ -9,7 +9,7 @@
 방법: 시스템 avahi-daemon 에 D-Bus(EntryGroup)로 등록. 설정 파일·방화벽·sudo 변경 0. 그룹은 이 프로세스의 D-Bus 연결에 묶여
 프로세스가 끝나면(INT·비정상 종료 모두) avahi 가 스스로 거둔다. 실패해도 관문은 계속 돈다(광고만 없음).
 """
-import hashlib, ipaddress, json, subprocess
+import hashlib, ipaddress, json, queue, subprocess, threading, time
 
 TYPE = '_foothold-gate._tcp'
 PRIV = [ipaddress.ip_network(n) for n in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16')]
@@ -83,18 +83,56 @@ class Advert:
             self.group = None
 
 
+class Runner:
+    """광고의 막힐 수 있는 일(ip 조회·D-Bus 등록·상태 조회·해제)을 관문 IOLoop 밖 전용 스레드 하나에서 차례로.
+    IOLoop 쪽은 넣기만 한다(막힘 0). 앞 일이 안 끝났으면 새 일은 버린다(동시 1 · 밀림 0). 실패는 광고만 멈추고 관문은 계속.
+    daemon 스레드라 걸린 일이 프로세스 종료를 붙잡지 않는다(그때는 D-Bus 연결이 끊기며 avahi 가 거둔다)."""
+    def __init__(self, make, log):
+        self.make, self.log, self.adv, self.lock, self.busy = make, log, None, threading.Lock(), False
+        self.idle, self.q = threading.Event(), queue.SimpleQueue()
+        self.idle.set(); threading.Thread(target=self._loop, name='gate-mdns', daemon=True).start()
+
+    def _loop(self):
+        while True:
+            fn = self.q.get()
+            try: fn()
+            except Exception as e: self.log(f'LAN 광고 작업 오류({type(e).__name__}) — 광고만 영향, 관문은 계속')
+            finally:
+                with self.lock: self.busy = False; self.idle.set()
+
+    def submit(self, fn):
+        with self.lock:
+            if self.busy: return False
+            self.busy = True; self.idle.clear()
+        self.q.put(fn); return True
+
+    def _start(self):
+        self.adv = self.make()
+        if not self.adv.start(): self.adv = None
+
+    def begin(self): return self.submit(self._start)
+    def tick(self): return self.submit(lambda: self.adv and self.adv.poll())
+
+    def close(self, timeout=4.0):
+        """종료 때 해제 — 전체 timeout 초 안에서만 기다린다. 앞 일이 걸려 있으면 해제를 건너뜀"""
+        end = time.monotonic() + timeout
+        if not self.idle.wait(timeout) or not self.submit(lambda: self.adv and self.adv.stop()):
+            self.log('LAN 광고 해제 건너뜀 — 앞 작업이 안 끝남(프로세스 종료 때 avahi 가 거둠)'); return False
+        return self.idle.wait(max(0.0, end - time.monotonic()))
+
+
 def selftest():
     der = b'\x30\x03\x02\x01\x01'; id8 = hashlib.sha256(der).hexdigest()[:8]
-    sans = 'DNS:localhost,IP:100.116.47.42,IP:127.0.0.1,IP:192.168.21.242,IP:10.1.2.3,IP:172.20.0.5,IP:172.32.0.1'
-    addrs = [(1, '127.0.0.1'), (2, '192.168.21.242'), (3, '100.116.47.42'), (4, '10.1.2.3'), (5, '172.20.0.5'), (6, '172.32.0.1'), (7, '192.168.9.9'), (2, '192.168.21.242')]
+    sans = 'DNS:localhost,IP:100.64.0.1,IP:127.0.0.1,IP:192.168.0.10,IP:10.1.2.3,IP:172.20.0.5,IP:172.32.0.1'
+    addrs = [(1, '127.0.0.1'), (2, '192.168.0.10'), (3, '100.64.0.1'), (4, '10.1.2.3'), (5, '172.20.0.5'), (6, '172.32.0.1'), (7, '192.168.9.9'), (2, '192.168.0.10')]
     r = records(der, 8453, addrs, sans, 1)
-    assert r['addrs'] == [(2, '192.168.21.242'), (4, '10.1.2.3'), (5, '172.20.0.5')], r['addrs']   # 루프백·tailscale·172.32·SAN 밖·중복 0
+    assert r['addrs'] == [(2, '192.168.0.10'), (4, '10.1.2.3'), (5, '172.20.0.5')], r['addrs']   # 루프백·tailscale·172.32·SAN 밖·중복 0
     assert r['name'] == f'FOOTHOLD 관문 · {id8}' and len(r['name'].encode()) <= 63 and r['host'] == f'foothold-gate-{id8}.local'
     assert r['port'] == 8453 and r['txt'] == ['txtvers=1', 'app=foothold-gate', 'api=1']
     blob = json.dumps(r, ensure_ascii=False)
     for bad in ('hyeon', 'less82', 'token', '/home', 'pid'):
         assert bad not in blob, bad
-    assert records(der, 8453, [(1, '127.0.0.1'), (3, '100.116.47.42')], sans, 1)['addrs'] == []   # LAN 없음 → 광고 안 함
+    assert records(der, 8453, [(1, '127.0.0.1'), (3, '100.64.0.1')], sans, 1)['addrs'] == []   # LAN 없음 → 광고 안 함
     msgs = []; assert Advert(records(der, 1, [], sans, 1), msgs.append).start() is False and '광고 안 함' in msgs[0]
     print('[gate_mdns] selftest OK')
 

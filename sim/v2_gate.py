@@ -81,7 +81,49 @@ def selftest():
     assert w.allow('b', 1) and w.allow('c', 1) and len(w.w) == 1   # cap 넘으면 비우고 새로
     assert set(HEALTH) == {'app', 'api'} and HEALTH['api'] >= 1
     sys.path.insert(0, str(HERE)); import gate_mdns; gate_mdns.selftest()
+    selftest_advert_loop()
     print('[v2_gate] selftest OK')
+
+
+def selftest_advert_loop():
+    """반례: 광고 상태 조회(가짜 D-Bus)가 걸려 있어도 IOLoop 의 다른 일·WS STOP 중계가 진행, 조회는 동시 1·밀림 0, 종료 해제는 제한 시간 안"""
+    import asyncio, threading, gate_mdns
+    import tornado.web
+    from tornado.httpserver import HTTPServer
+    from tornado.ioloop import PeriodicCallback
+    from tornado.testing import bind_unused_port
+    from tornado.websocket import WebSocketHandler, websocket_connect
+    hang, calls, live = threading.Event(), [], [0, 0]   # live = [지금 도는 조회 수, 최대]
+
+    class Fake:   # 실 avahi 대신 — poll 은 hang 이 풀릴 때까지 걸림
+        def start(self): return True
+        def poll(self):
+            live[0] += 1; live[1] = max(live); calls.append('poll')
+            try: hang.wait(5)
+            finally: live[0] -= 1
+        def stop(self): calls.append('stop')
+
+    class Relay(WebSocketHandler):   # STOP 중계 흉내(받은 글을 그대로 돌려줌)
+        def on_message(self, m): self.write_message(m)
+
+    async def go():
+        run = gate_mdns.Runner(Fake, lambda s: None)
+        sock, port = bind_unused_port(); srv = HTTPServer(tornado.web.Application([(r'/ws', Relay)])); srv.add_sockets([sock])
+        assert run.begin(); await asyncio.sleep(0.05)
+        pc = PeriodicCallback(run.tick, 10); pc.start(); await asyncio.sleep(0.1)   # 첫 조회가 걸린 채 틱 ~10번
+        ws = await websocket_connect(f'ws://127.0.0.1:{port}/ws'); t0 = time.monotonic()
+        for _ in range(20):
+            await ws.write_message('{"op":"stop"}'); assert await ws.read_message() == '{"op":"stop"}'
+        assert time.monotonic() - t0 < 1.0, '조회가 IOLoop 을 막음'
+        assert calls == ['poll'] and live[1] == 1, calls   # 걸린 동안 새 조회 0(밀림 0)
+        t0 = time.monotonic(); assert not run.close(0.2) and time.monotonic() - t0 < 0.5   # 걸린 동안 해제는 제한 시간 안에 포기
+        pc.stop(); hang.set(); await asyncio.sleep(0.1)
+        assert calls == ['poll'], calls   # 걸린 동안 버린 틱이 풀린 뒤 몰려 돌지 않음(밀림 0)
+        pc = PeriodicCallback(run.tick, 10); pc.start(); await asyncio.sleep(0.1); pc.stop()
+        assert calls.count('poll') >= 2 and live[1] == 1   # 풀리면 다시 조회
+        ws.close(); srv.stop()
+        assert run.close(1.0) and calls[-1] == 'stop'
+    asyncio.run(go())
 
 
 def main():
@@ -411,9 +453,9 @@ def main():
     elif a.advertise:
         import atexit, gate_mdns
         der = ssl.PEM_cert_to_DER_cert((state / 'cert.pem').read_text())   # 공개 인증서만(키 0)
-        adv = gate_mdns.Advert(gate_mdns.records(der, a.port, gate_mdns.iface_addrs(), sans, HEALTH['api']), log)
-        if adv.start():
-            tornado.ioloop.PeriodicCallback(adv.poll, 10000).start(); atexit.register(adv.stop)
+        # ip 조회·D-Bus 는 전용 스레드에서(IOLoop 막힘 0 · 상태 조회 동시 1), 종료 해제는 최대 4 초
+        run = gate_mdns.Runner(lambda: gate_mdns.Advert(gate_mdns.records(der, a.port, gate_mdns.iface_addrs(), sans, HEALTH['api']), log), log)
+        run.begin(); tornado.ioloop.PeriodicCallback(run.tick, 10000).start(); atexit.register(run.close)
     tornado.ioloop.IOLoop.current().start()
 
 

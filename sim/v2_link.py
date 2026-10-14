@@ -547,6 +547,9 @@ class SimStart:
         if self.ux:                  # 사용자 체험: 횟수 검사 대신 결속 확인 — 미확인이면 거부(제한 없음으로 단정 0)
             if self.usage() is None:
                 return '사용자 체험 경로 상태 조회 중' if self.session is None and not self.polled else '사용자 체험 경로 확인 못 함(상태가 «사용자 체험 · 횟수 제한 없음»이 아님) — 잠시 뒤 다시 확인'
+            rip = self.session.get('request_in_progress')   # RL: marker pid+starttime 결속, 모르면 null — true·null 모두 거부(추측 허용 0)
+            if rip is not False:
+                return '시작 요청 진행 중(RL)' if rip is True else '시작 요청 진행 여부 미확인 — 잠시 뒤 다시 확인'
             left = self.COOL - (self.now() - self.last)
             return f'방금 요청함 — {left:.0f} s 뒤 다시' if left > 0 else ''
         lg = self.ledger()           # 미확인(조회 전·실패·오래됨·형식 틀림)도 거부 — 0·허용으로 단정 0. 다음 폴 성공이면 자동으로 풀림(자동 기동 0)
@@ -1660,6 +1663,9 @@ def selftest_ux():
     st.polled = True; st.session, st.sess_t = {**G, 'ledger_used': 8, 'ledger_max': 8}, t[0]           # 옛 원장 칸이 있어도 무시
     assert st.refuse(False) == '' and st.ledger() is None and st.state(False)['usage_scope'] == 'user_experience'
     st.session = {**G, 'count_limit': 'unknown'}; assert st.refuse(False).startswith('사용자 체험 경로 확인 못 함') and st.state(False)['usage_scope'] is None
+    for rip, want in [(True, '시작 요청 진행 중'), (None, '시작 요청 진행 여부 미확인')]:
+        st.session = {**G, 'request_in_progress': rip}; assert st.refuse(False).startswith(want), rip
+    st.session = {k: v for k, v in G.items() if k != 'request_in_progress'}; assert st.refuse(False).startswith('시작 요청 진행 여부 미확인')
     st.session = {**G, 'result': 'running', 'active_state': 'active', 'runner': 'live_v2', 'usage_scope': 'experiment', 'count_limit': {'total': 8, 'test': 4}}
     assert st.refuse(False).startswith('시뮬 세션이 이미')                          # 실험 세션이 unit 사용 중
     st.session = dict(G); t[0] += SimStart.FRESH + 1; assert st.refuse(False).startswith('사용자 체험 경로 확인 못 함')   # 낡음
