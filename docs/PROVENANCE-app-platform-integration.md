@@ -17,7 +17,7 @@
 | 무엇 | 대상 | 결과 | 범위·한계 |
 |---|---|---|---|
 | UI 최종 소비자 검수 | UI `53aba2f`(화면 파일 143개, `.map` 제외) | 통과 | 가짜 생산자·격리 연결 기준. 실제 생산자(실 Gazebo·SLAM·라이다) 연결·실시간 갱신 속도·실센서 경계 미확인 |
-| APK 구조 대조 | `foothold-android-dev-20261015-viewfix.apk`(이 통합 뒤 빌드) | 빌드 뒤 기록 | — |
+| APK 구조 대조 | `foothold-android-dev-20261015-viewfix.apk` sha256 `7f381ae4e13afdd84076bf929a3b19c1cf63290f93125a14f686adf65e4411d0`(통합 `ecf388b` 에서 빌드, 이 문서 커밋과 ui·mobile 트리 같음) | 27/27 통과 | 앱 id·버전 8·`1.0.7-dev`·서명·CA 한 장·번들 파일별 sha(143)·server.url 없음 등. 실행 동작은 이 대조 범위 밖 |
 | 실APK 실행(에뮬) | 위 APK | 아직 안 함 | 별도 검수 뒤 예정 |
 
 ### 앞 판 — Android 개발 APK `dev-20261015-stability` (10-15)
