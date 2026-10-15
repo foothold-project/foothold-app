@@ -10,7 +10,7 @@ import { useEditor } from '../data/editor';
 import { linkView, useLink } from '../data/link';
 import { LIVE_MODS, MISSING_T, RULE_WHY, defMods, modDetail, tmplOf, tmpls } from '../data/tmpl';
 import { STOP_FACT, WHY } from '../data/facts';
-import { addPlan, gtHere, legLen, mapTxt, planMap, r2, rekey, startPolicy, startRun, wkey, zoneTxt, zonesAt } from '../data/run';
+import { addPlan, dupMission, gtHere, legLen, mapTxt, planMap, r2, rekey, startPolicy, startRun, wkey, zoneTxt, zonesAt } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
@@ -70,6 +70,12 @@ export default function PcPlan() {
         <button type="button" className="lv-btn" disabled={E.busy} onClick={() => { E.load(asked?.kind === 'mission' ? asked : null, blank()); shown.current = E.id; setWsel(null); }}>초안 버리고 요청 문서 열기</button>
       </div>
     </div>) : null;
+  const dup = () => {   // 저장된 판을 복제(초안 아님) → 새 문서 초안. 원본·주소의 원본 id 는 건드리지 않음
+    const src = E.id ? docById(D, E.id) : null; if (!src || src.kind !== 'mission') return toast('저장된 계획을 먼저 고르세요');
+    if (E.dirty && !confirm('저장 안 한 수정이 있습니다. 버리고 저장된 판을 복제할까요?')) return;
+    E.load(null, dupMission(src.doc)); E.dirty = true; shown.current = null; setWsel(null); setQ('mission', '');
+    toast(`«${src.doc.name}» 사본 초안 — 고친 뒤 저장하면 새 계획(원본 그대로)`);
+  };
   const toZone = (ty: string) => {
     if (st?.role === 'control') return toast('조종 중입니다 — 조종권 반납 뒤 지도 화면으로');
     if (E.dirty) toast('저장 안 한 계획은 이 탭에 보관 — 계획 화면으로 돌아오면 이어서 편집');   // R02: 버리지 않음(확인창 대신 보관)
@@ -182,7 +188,10 @@ export default function PcPlan() {
     planBox: <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <label className="lbl" htmlFor="plan">임무 계획</label>
-        <a href="#" style={{ fontSize: '12px', color: 'var(--accent)' }} onClick={(e) => { e.preventDefault(); openPlan(''); }}>+ 새 계획</a>
+        <span style={{ display: 'flex', gap: '12px' }}>
+          {E.id ? <a href="#" style={{ fontSize: '12px', color: 'var(--accent)' }} onClick={(e) => { e.preventDefault(); dup(); }}>복제해서 새 계획</a> : null}
+          <a href="#" style={{ fontSize: '12px', color: 'var(--accent)' }} onClick={(e) => { e.preventDefault(); openPlan(''); }}>+ 새 계획</a>
+        </span>
       </div>
       <select id="plan" className="inp" value={E.id || ''} onChange={(e) => openPlan(e.target.value)}>
         {[['', '+ 새 계획'], ...docsOf(D, 'mission').map((m) => [m.id, `${m.doc.name} · 지점 ${m.doc.wps.length}`])].map(([id, t]) => <option key={id} value={id}>{t}</option>)}

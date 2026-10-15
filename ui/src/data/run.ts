@@ -69,6 +69,9 @@ export function startPolicy(d: Mission, h: Here): { block: string | null; map: M
   if (b.map && h.map) return { block: null, map: b.map, line: `지도 ${mapTxt(b.map)} · 지금 시뮬과 같음` };
   return { block: null, map: null, line: `지도 미확인 · 기록만 — ${b.map ? `지금 ${h.why}` : b.why} (거리·지도 겹치기 표시 안 함)` };
 }
+/** 계획 복제(조금 바꿀 때만): 양식 참조·지점·할 일·메모·좌표 출처 그대로 깊은 사본, 이름 «… 사본»(60자). 저장 전 초안 — 저장하면 새 계획(원본 무변경).
+ *  출처는 원본 그대로(유효하면 유효, 미확인이면 미확인) — 지금 연결로 다시 붙이지 않음 */
+export const dupMission = (m: Mission): Mission => { const c = structuredClone(m); c.name = `${m.name.slice(0, 57)} 사본`; return c; };
 // 계획 스냅샷: 나중에 계획을 고쳐도 이 기록은 그대로. map = 시작 때 일치했을 때만, mrev = 시작한 계획 판
 const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: tmplOf(D, m.tmpl)!.name.slice(0, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
   wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev });

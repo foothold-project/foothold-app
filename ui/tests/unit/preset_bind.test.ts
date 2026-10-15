@@ -97,3 +97,16 @@ test('startRun 확인하는 사이 계획 판·층이 바뀌면 보내지 않음
   const b = await go(mi({ map: L1 }), () => onL(null, 'transit'));
   expect(b.r).toBeNull(); expect(b.sent).toHaveLength(0);
 });
+
+// ---- 복제(2묶음): 저장 전 초안, 출처·양식·할 일 그대로, 이름 «… 사본» ----
+const { dupMission } = await import('../../src/data/run');
+test('dupMission: 깊은 사본 · 이름 60자 안 · 출처 그대로(유효/미확인 유지) · 원본 무변경', () => {
+  const src = mi({ map: L1, tmpl: 't9', memo: 'm', name: '가'.repeat(60) });
+  const c = dupMission(src);
+  expect(c.name).toBe(`${'가'.repeat(57)} 사본`); expect(c.name.length).toBe(60);
+  expect([c.tmpl, c.memo, c.wps, c.map]).toEqual([src.tmpl, src.memo, src.wps, src.map]);
+  c.wps[0].x = 99; c.map!.world_id = 'x'; c.wps[0].mods.push('사진');
+  expect(src.wps[0].x).toBe(1); expect(src.map!.world_id).toBe('v5_building'); expect(src.wps[0].mods).toEqual([]);
+  expect(planMap(dupMission(src)).map).toEqual(L1);
+  const old = dupMission(mi()); expect('map' in old).toBe(false); expect(planMap(old).why).toMatch(/옛 계획/);
+});
