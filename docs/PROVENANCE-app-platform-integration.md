@@ -4,15 +4,23 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `a2f5c4023a0ec442a275a7771725598271b4d3ce` (`less82/app-ui-react-recovered`) | `ui` = `03d276a646bd749b65a7eaf5d8defb1e2772c168` | 그대로 |
-| `mobile/**` | `4975747dd459789fe19ed0c901b6ec683bb3be0a` (`less82/app-contract-storage`) | `mobile` = `f6e52659cd2ca70b341ecc7c371655eebb14fba4` | 파일 단위 변경 0 |
+| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `53aba2f5db70f9acaecc3f46499de24cb02e6cd2` (`less82/app-ui-react-recovered`) | `ui` = `c7797d402bcb3bf90089918e3ff70d2286d5752c` | 그대로 |
+| `mobile/**` | `926d5494c30c272ceefc92c04baaa12e856421f4` (`less82/app-contract-storage`) | `mobile` = `81ca7ec527fec6084d3e91c2dfcea45f7d314c5b` | 파일 단위 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md` 맨 앞 «현재 통합 개발판» 안내(기존 본문 그대로, «기존 웹 구현 기록»으로 구분) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only a2f5c4023a0ec442a275a7771725598271b4d3ce HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 53aba2f5db70f9acaecc3f46499de24cb02e6cd2 HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
-## 검증 실행 범위 — Android 개발 APK `dev-20261015-stability` (10-15)
+## 검증 실행 범위 — Android 개발 APK `dev-20261015-viewfix` (10-15)
+
+| 무엇 | 대상 | 결과 | 범위·한계 |
+|---|---|---|---|
+| UI 최종 소비자 검수 | UI `53aba2f`(화면 파일 143개, `.map` 제외) | 통과 | 가짜 생산자·격리 연결 기준. 실제 생산자(실 Gazebo·SLAM·라이다) 연결·실시간 갱신 속도·실센서 경계 미확인 |
+| APK 구조 대조 | `foothold-android-dev-20261015-viewfix.apk`(이 통합 뒤 빌드) | 빌드 뒤 기록 | — |
+| 실APK 실행(에뮬) | 위 APK | 아직 안 함 | 별도 검수 뒤 예정 |
+
+### 앞 판 — Android 개발 APK `dev-20261015-stability` (10-15)
 
 | 무엇 | 대상 | 결과 | 범위·한계 |
 |---|---|---|---|
