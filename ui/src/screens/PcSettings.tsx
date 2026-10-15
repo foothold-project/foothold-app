@@ -27,6 +27,8 @@ const TH = [['자동', null], ['어두운', 'dark'], ['밝은', 'light']] as con
 export default function PcSettings() {
   const note = useNote((s) => s.note);
   const D = useDocs(), L = useLink(), v = linkView(L), st = L.st;
+  const realVer = (x?: string | null) => !!x && !x.startsWith('미확인');
+  const verCmp = v.linkOk && !L.bad && !!st && L.stGen === L.gen && realVer(L.firstVer) && realVer(st.ver);
   const [, redraw] = useState(0), theme = store.get<string | null>('fh.live.theme', null);
   const lay0 = store.get('fh.live.layout', LAYOUTS[0]), [lay, setLay] = useState(LAYOUTS.includes(lay0) ? lay0 : LAYOUTS[0]);
   const [mm, setMm] = useState(store.get<string>('fh.live.mapmode', 'robot') === 'all' ? 'all' : 'robot');
@@ -49,8 +51,10 @@ export default function PcSettings() {
     val('미연결 — 가로 조종 화면 미니맵 위치 고정', true),
     val(`${location.host === '127.0.0.1:8790' || location.hostname === 'localhost' ? '이 PC' : '보호 주소(https)'} · ${v.linkOk ? '● 링크 정상' : `▲ 링크 ${v.linkTxt}`}`),
     val(GATED ? '보호 관문 인증서 사용 중 · 만료일은 앱에서 확인 안 함' : '해당 없음(이 PC 전용 주소 · TLS 없음)', !GATED),
-    // U5-b: 판 해시 = 개발자 모드. 운영은 기존 newVer(서버 판 ≠ 이 화면 판) 판정만 글로
-    <>{val(!L.firstVer || !st?.ver ? '미확인' : v.newVer ? '새 화면 판 반영됨 — 새로고침 필요' : '화면·서버 같은 판', !L.firstVer || !st?.ver)}
+    // U5-b B1(715): firstVer = 이 탭이 처음 받은 status.ver(화면 번들 해시 아님) · 서버 version() 실패값 = «미확인»(+수정) 문자열.
+    // 비교 = 이 연결의 신선한 수신(linkOk·bad 없음·stGen=gen) + 두 값 모두 실제 판일 때만, 범위는 «처음·지금 받은 서버 판 표기». 아니면 판 비교 미확인(warn — 꺼짐 아님)
+    <>{verCmp ? val(v.newVer ? '서버 판 바뀜(이 탭이 처음 받은 판과 다름) · 새로고침 권장' : '서버 판 그대로(이 탭이 처음 받은 판과 같음)')
+      : <span className="mono" style={{ color: 'var(--warn)' }}>판 비교 미확인</span>}
       <span data-dev>{val(` · 화면 ${L.firstVer || '미확인'} · 서버 ${st?.ver || '미확인'}`)}</span></>,
   ];
   const set = (b: string, lbl: string | null, ctl: JSX.Element) => (

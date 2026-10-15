@@ -73,12 +73,34 @@ test('지원 범위: UNSUP 전 항목 표로 그대로(원어 포함) · TERMS �
   expect(s).toMatch(/aria-disabled="true" title="계정 추가·편집 미연결 — 계정은 서버 관리자가 이 PC 에서 관리"/);
 });
 
-test('운영 기능 유지: 테마·막대 배치·지도 보기·로그아웃·보관 글 · 판 상태는 기존 newVer 판정만', () => {
-  let s = html(); const o = ops(s);
+test('운영 기능 유지: 테마·막대 배치·지도 보기·로그아웃·보관 글', () => {
+  const o = ops(html());
   expect(o).toContain('role="radiogroup" aria-label="테마"'); for (const t of F.LAYOUTS) expect(o).toContain(`<option value="${t}"`);
   expect(o).toContain('<option value="robot"'); expect(o).toContain('>로그아웃</button>');
   expect(o).toContain('서버 media 폴더 · 사진 최근 200 · 사건 최근 300 보관'); expect(o).toContain('CSV 내보내기(기록·사진 검토) · 보고서는 인쇄');
-  expect(o).toContain('화면·서버 같은 판');
-  link(V1, V2); s = ops(html()); expect(s).toContain('<span class="mono">새 화면 판 반영됨 — 새로고침 필요</span>'); expect(s).not.toContain('화면·서버 같은 판');
-  link(V1); s = ops(html()); expect(s).toContain('<span class="mono" style="color:var(--muted)">미확인</span>'); expect(html()).toContain(`미확인</span><span data-dev="true"><span class="mono"> · 화면 ${V1} · 서버 미확인</span></span>`);
+});
+
+// B1(715 review-395a234): firstVer = 이 탭이 처음 받은 status.ver · 서버 version() 실패값 = «미확인»(+수정) 문자열.
+// 비교는 이 연결의 신선한 수신 + 두 값 모두 실제 판일 때만, 범위는 «서버 판» 표기 — 화면 번들 일치·새 화면 반영 확정 글 0. 부족하면 warn «판 비교 미확인».
+test('판 상태: 신선·bad 없음·같은 세대·실제 판 두 개일 때만 서버 판 비교 · 나머지는 warn 미확인', () => {
+  const SAME = '<span class="mono">서버 판 그대로(이 탭이 처음 받은 판과 같음)</span>', CHG = '<span class="mono">서버 판 바뀜(이 탭이 처음 받은 판과 다름) · 새로고침 권장</span>';
+  const UNK = '<span class="mono" style="color:var(--warn)">판 비교 미확인</span>';
+  const one = () => { const s = html(), o = ops(s);
+    // PcSettings 값 칸의 옛 확정 글 0(공용 LiveStatus status.tsx:87 의 새 판 경고는 부모 잔여·범위 밖 — 여기서 검사 안 함)
+    for (const w of ['<span class="mono">화면·서버 같은 판', '<span class="mono">새 화면 판 반영됨']) expect(s).not.toContain(w);
+    return [SAME, CHG, UNK].filter((t) => o.includes(t)); };
+  const at = (first: string, ver: string | undefined, x: Record<string, unknown> = {}) => { link(first, ver); put(x); return one(); };
+  expect(at(V1, V1)).toEqual([SAME]);
+  expect(at(V1, V2)).toEqual([CHG]);
+  // 열린 채 오래됨 · 닫힘 · 형식 이상 · 새 세대/옛 st → 미확인, 같은 세대 수신 복원 → 다시 비교
+  expect(at(V1, V1, { lastMsg: performance.now() - 2000 })).toEqual([UNK]);
+  expect(at(V1, V2, { open: false })).toEqual([UNK]);
+  expect(at(V1, V1, { bad: 'ver' })).toEqual([UNK]);
+  expect(at(V1, V2, { gen: 2 })).toEqual([UNK]);
+  expect(at(V1, V2, { gen: 2, stGen: 2 })).toEqual([CHG]);
+  // 서버 «미확인»·«미확인+수정» 문자열은 판이 아님(양쪽·한쪽·접두)
+  for (const [a, b] of [['미확인', '미확인'], ['미확인+수정', '미확인+수정'], ['미확인', V1], [V1, '미확인'], [V1, '미확인+수정'], ['', V1]]) expect(at(a, b)).toEqual([UNK]);
+  expect(at(V1, undefined)).toEqual([UNK]);
+  // 원값·다시 확인 경로는 개발자 모드에 그대로
+  link(V1, V2); expect(html()).toContain(`<span data-dev="true"><span class="mono"> · 화면 ${V1} · 서버 ${V2}</span></span>`);
 });
