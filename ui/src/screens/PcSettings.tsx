@@ -10,6 +10,7 @@ import { logoutNow } from '../data/auth';
 import { useDocs } from '../data/shared';
 import { LiveStatus } from '../app/status';
 import { stopProps, toast, whyProps } from '../app/shell';
+import { setDev, useDev } from '../data/dev';
 
 const GATED = location.protocol === 'https:';   // 보호 관문으로 연 화면(로그인 세션 있음)
 const val = (t: string, off?: boolean, wrap?: boolean) => <span className="mono" style={{ color: off ? 'var(--muted)' : undefined, whiteSpace: wrap ? 'normal' : undefined }}>{t}</span>;
@@ -24,6 +25,7 @@ export default function PcSettings() {
   const D = useDocs(), L = useLink(), v = linkView(L), st = L.st;
   const [, redraw] = useState(0), theme = store.get<string | null>('fh.live.theme', null);
   const lay0 = store.get('fh.live.layout', LAYOUTS[0]), [lay, setLay] = useState(LAYOUTS.includes(lay0) ? lay0 : LAYOUTS[0]);
+  const dev = useDev((s) => s.on);
   const [mm, setMm] = useState(store.get<string>('fh.live.mapmode', 'robot') === 'all' ? 'all' : 'robot');
   const pickTheme = (t: string | null) => {
     if (t) { if (!store.set('fh.live.theme', t)) toast('테마 저장 실패(브라우저 저장소) — 이번 화면에만 적용'); }
@@ -62,9 +64,12 @@ export default function PcSettings() {
     accRows: <>{tr(st?.me || '미확인', '이 기기', '조종(조종권을 받을 때) · 임무 기록 · 사진 분류', st?.holder ? `조종 중 기기: ${st.holder}` : '조종 중인 기기 없음',
       GATED ? <><button type="button" className="btn" title="조종권 해제 · 명령 0 · STOP 잠금(서버) 뒤 로그인 화면" onClick={() => logoutNow().then((e) => e && toast(e))}>로그아웃</button>{note && <span className="lbl"> {note}</span>}</> : <span className="lbl">로그인 없음(이 PC 전용)</span>)}
       {tr('다른 계정', '—', '계정 목록 보기 미연결(서버 관리자만)', '—', <></>)}</>,
-    dispExtra: set('지도 기본 보기', '로봇 중심 = 지도가 움직임',
+    dispExtra: <>{set('지도 기본 보기', '로봇 중심 = 지도가 움직임',
       <select className="inp" value={mm} onChange={(e) => { setMm(e.target.value); if (!store.set('fh.live.mapmode', e.target.value)) toast('저장 실패 — 이번 화면에만'); }}>
-        <option value="robot">로봇 중심</option><option value="all">전체 보기</option></select>),
+        <option value="robot">로봇 중심</option><option value="all">전체 보기</option></select>)}
+      {/* U1-a: 개발자 모드 = 진단 정보 표시만(권한·안전·명령 무관). 주소 ?dev=1/0 으로도 바뀜 */}
+      {set('개발자 모드', '진단 정보 표시만 · 권한·안전 동작은 그대로 · 주소 ?dev=1 / ?dev=0',
+        <button type="button" className="sw" role="switch" aria-checked={dev} aria-label="개발자 모드" onClick={() => toast(setDev(!dev))}><span /></button>)}</>,
     // B2 R31: 이 빌드에 입구가 있는 기능은 «서버가 허용할 때만»으로(facts.ts 한 출처) · A2 용어 원문은 맨 아래
     limits: <section id="limits" className="card" aria-label="지원 범위와 한계"><h2>지원 범위와 한계(미제공·미연결·미검증 · 서버가 허용할 때만)</h2>
       <div>{UNSUP.map(([a, b]) => set(a, null, val(b, true, true)))}</div><p className="lbl" style={{ marginTop: 8 }}>{TERMS}</p></section>,

@@ -19,7 +19,7 @@ export function useRoute() {
 // ---- 전체화면 안 표시(10-15): 네이티브 전체화면이면 그 요소 밖 DOM 은 안 보인다 → 확인창·알림을 현재 fullscreenElement 안으로 옮겨 그린다 ----
 const fsSub = (f: () => void) => { document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); };
 const fsEl = () => { const e = document.fullscreenElement; return e && e !== document.documentElement && e !== document.body ? e : null; };   // 문서 전체(MDrive)면 원래 자리도 보임
-const InFs = ({ children }: { children: React.ReactNode }) => { const h = useSyncExternalStore(fsSub, fsEl); return h ? createPortal(children, h) : <>{children}</>; };
+export const InFs = ({ children }: { children: React.ReactNode }) => { const h = useSyncExternalStore(fsSub, fsEl); return h ? createPortal(children, h) : <>{children}</>; };
 
 // ---- 알림 ----
 const useToastS = create<{ t: string; n: number }>(() => ({ t: '', n: 0 }));

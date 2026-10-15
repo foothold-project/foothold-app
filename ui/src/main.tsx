@@ -11,6 +11,8 @@ import { StartAsk, Toast, useRoute, useStopKey } from './app/shell';
 import './live.css';
 import './brand.css';
 import { syncTheme } from './app/theme';
+import { devStart } from './data/dev';
+import { DevBadge } from './app/chip';
 
 // 옮긴 화면만 여기 있다. 나머지는 묶음 2·3 에서(아래 «아직 옮기지 않음» 안내).
 const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
@@ -49,9 +51,11 @@ function App() {
       </Suspense>
       <Toast />
       <StartAsk />
+      <DevBadge />
     </QueryClientProvider>
   );
 }
+devStart();   // 개발자 모드 초기값(URL > 저장값 > 꺼짐) — 표시만
 startLink();
 syncTheme();
 createRoot(document.getElementById('root')!).render(<App />);

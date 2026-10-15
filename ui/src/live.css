@@ -148,3 +148,13 @@ body:has(.lv-drawer) .lv-tip{display:none!important}
 /* B2 A3: PcPlan 도 다른 PC 화면처럼 STOP 을 첫 줄 오른쪽 끝에 — 상태 줄만 둘째 줄 전체로(STOP 크기·색 그대로) */
 .pcplan-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
 .pcplan-hdr>header>button[aria-label="비상 정지"]{margin-left:auto}
+/* UI-SIMPLIFY v3 U1-a: 개발자 모드(표시만) · 상태 칩 · «?» 도움말 */
+html:not(.fh-dev) [data-dev]{display:none!important}
+.lv-chip{display:inline-flex;align-items:center;gap:4px;min-height:22px;padding:0 8px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);font-size:12px;font-weight:600;white-space:nowrap}
+.lv-chip.off{color:var(--muted)}.lv-chip.ok{color:var(--ok);border-color:var(--ok)}.lv-chip.warn{color:var(--warn);border-color:var(--warn)}.lv-chip.bad{color:var(--bad);border-color:var(--bad)}
+.lv-help{display:inline-flex}
+.lv-q{min-width:24px;min-height:24px;padding:0;border-radius:12px;border:1px solid currentColor;background:transparent;color:inherit;font-size:12px;font-weight:700;line-height:1;cursor:pointer}
+.lv-q:focus-visible{outline:2px solid #8CC8FF;outline-offset:2px}
+.lv-pop{position:fixed;z-index:45;box-sizing:border-box;padding:10px 12px;border-radius:8px;background:rgba(8,11,14,.96);color:#E6EBEF;border:1px solid #3a4652;font-size:13px;font-weight:400;line-height:1.45;white-space:normal;text-align:left;box-shadow:0 6px 24px rgba(0,0,0,.45)}
+.lv-pop[hidden]{display:none}
+.lv-devbadge{position:fixed;left:6px;top:6px;z-index:70;pointer-events:none;padding:1px 6px;border-radius:6px;background:#7A3EB8;color:#FFFFFF;font-size:11px;font-weight:700}
