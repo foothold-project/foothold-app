@@ -19,11 +19,26 @@ from urllib.parse import quote
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-OPS = {'take', 'release', 'cmd', 'stop', 'resume', 'reset', 'hidden', 'photo', 'sim_start'}   # v2_link 가 받는 op 만
+OPS = {'take', 'release', 'cmd', 'stop', 'resume', 'reset', 'hidden', 'photo', 'sim_start', 'sim_stop', 'map_list', 'map_get', 'height_get', 'geom_get', 'map_live_get', 'map_start', 'map_save', 'view_get'}   # v2_link 가 받는 op 만
 MSG_MAX = 1024
 # 로그인 전에도 열리는 것: 로그인 화면과 그 화면이 쓰는 파일, 설치 정보(아이콘·manifest), 공개 인증서, 시작 안내
 PUBLIC = re.compile(r'^(MLogin\.dc\.html|PcLogin\.dc\.html|dc\.js|live\.js|start\.html|manifest\.webmanifest|icons/[\w.-]+\.png)$')
 PHONE_UA = re.compile(r'iPhone|iPad|Android|Mobile', re.I)
+HEALTH = {'app': 'foothold-gate', 'api': 1}   # 로그인 불요 검사 응답 — 이 두 키뿐(계정·세션·버전 세부·IP·경로 0). 계약 docs/CONTRACT-ui-improve-20261014.md ①
+
+
+class Window:
+    """IP 당 per 초 창에 n 회까지(고정 창, now = time.monotonic). 로그인 실패 제한과 별개.
+    표가 cap 을 넘으면 통째로 비운다 — 이것은 메모리 보호일 뿐 보장된 IP 제한이 아니다(많은 IP 로 돌리면 개별 IP 카운트가 초기화됨)"""
+    def __init__(self, n=60, per=60.0, cap=4096):
+        self.n, self.per, self.cap, self.w = n, per, cap, {}
+
+    def allow(self, ip, now):
+        t0, c = self.w.get(ip, (now, 0))
+        if now - t0 >= self.per: t0, c = now, 0
+        if c >= self.n: return False
+        if ip not in self.w and len(self.w) >= self.cap: self.w.clear()   # ponytail: 넘치면 통째로 비움 — IP 를 많이 쓰면 횟수 제한이 풀림(보장 아님), 필요하면 LRU
+        self.w[ip] = (t0, c + 1); return True
 
 
 def gate_msg(raw):
@@ -61,7 +76,54 @@ def selftest():
     assert login_page('Main.dc.html', 'Mozilla/5.0 (X11; Linux x86_64)').startswith('PcLogin')
     from urllib.parse import parse_qs, urlsplit
     assert parse_qs(urlsplit(login_page('MDrive.dc.html?live=v2&stickLayout=a b', '')).query)['next'] == ['/MDrive.dc.html?live=v2&stickLayout=a b']
+    w = Window(3, 60.0, cap=2)
+    assert [w.allow('a', 0) for _ in range(4)] == [True, True, True, False] and w.allow('a', 60.0)   # 창 지나면 다시
+    assert w.allow('b', 1) and w.allow('c', 1) and len(w.w) == 1   # cap 넘으면 비우고 새로
+    assert set(HEALTH) == {'app', 'api'} and HEALTH['api'] >= 1
+    sys.path.insert(0, str(HERE)); import gate_mdns; gate_mdns.selftest()
+    selftest_advert_loop()
     print('[v2_gate] selftest OK')
+
+
+def selftest_advert_loop():
+    """반례: 광고 상태 조회(가짜 D-Bus)가 걸려 있어도 IOLoop 의 다른 일·WS STOP 중계가 진행, 조회는 동시 1·밀림 0, 종료 해제는 제한 시간 안"""
+    import asyncio, threading, gate_mdns
+    import tornado.web
+    from tornado.httpserver import HTTPServer
+    from tornado.ioloop import PeriodicCallback
+    from tornado.testing import bind_unused_port
+    from tornado.websocket import WebSocketHandler, websocket_connect
+    hang, calls, live = threading.Event(), [], [0, 0]   # live = [지금 도는 조회 수, 최대]
+
+    class Fake:   # 실 avahi 대신 — poll 은 hang 이 풀릴 때까지 걸림
+        def start(self): return True
+        def poll(self):
+            live[0] += 1; live[1] = max(live); calls.append('poll')
+            try: hang.wait(5)
+            finally: live[0] -= 1
+        def stop(self): calls.append('stop')
+
+    class Relay(WebSocketHandler):   # STOP 중계 흉내(받은 글을 그대로 돌려줌)
+        def on_message(self, m): self.write_message(m)
+
+    async def go():
+        run = gate_mdns.Runner(Fake, lambda s: None)
+        sock, port = bind_unused_port(); srv = HTTPServer(tornado.web.Application([(r'/ws', Relay)])); srv.add_sockets([sock])
+        assert run.begin(); await asyncio.sleep(0.05)
+        pc = PeriodicCallback(run.tick, 10); pc.start(); await asyncio.sleep(0.1)   # 첫 조회가 걸린 채 틱 ~10번
+        ws = await websocket_connect(f'ws://127.0.0.1:{port}/ws'); t0 = time.monotonic()
+        for _ in range(20):
+            await ws.write_message('{"op":"stop"}'); assert await ws.read_message() == '{"op":"stop"}'
+        assert time.monotonic() - t0 < 1.0, '조회가 IOLoop 을 막음'
+        assert calls == ['poll'] and live[1] == 1, calls   # 걸린 동안 새 조회 0(밀림 0)
+        t0 = time.monotonic(); assert not run.close(0.2) and time.monotonic() - t0 < 0.5   # 걸린 동안 해제는 제한 시간 안에 포기
+        pc.stop(); hang.set(); await asyncio.sleep(0.1)
+        assert calls == ['poll'], calls   # 걸린 동안 버린 틱이 풀린 뒤 몰려 돌지 않음(밀림 0)
+        pc = PeriodicCallback(run.tick, 10); pc.start(); await asyncio.sleep(0.1); pc.stop()
+        assert calls.count('poll') >= 2 and live[1] == 1   # 풀리면 다시 조회
+        ws.close(); srv.stop()
+        assert run.close(1.0) and calls[-1] == 'stop'
+    asyncio.run(go())
 
 
 def main():
@@ -72,7 +134,9 @@ def main():
     ap.add_argument('--web', default=str(HERE.parent / 'web'))
     ap.add_argument('--gate-src', default=str(HERE.parent.parent / 'control-app' / 'ros'), help='phone_gate.py 가 있는 폴더(재사용)')
     ap.add_argument('--state', default=str(HERE.parent.parent / 'control-app' / '.gate'), help='계정·인증서 폴더(읽기만)')
+    ap.add_argument('--spa', action='store_true', help='React 빌드(ui/dist) 서빙: 정적 파일은 공개(코드뿐), 데이터·영상은 API·WS 에서만 로그인 확인. 로그인 화면은 앱 안 #/MLogin·#/PcLogin')
     ap.add_argument('--ttl', type=float, default=12 * 3600, help='로그인 세션 수명 s')
+    ap.add_argument('--advertise', action='store_true', help='--bind 0.0.0.0 일 때 같은 Wi-Fi 에 mDNS 광고(_foothold-gate._tcp, 비밀 0 — sim/gate_mdns.py)')
     ap.add_argument('--selftest', action='store_true')
     a = ap.parse_args()
     if a.selftest:
@@ -83,7 +147,9 @@ def main():
     import phone_gate as G                           # 운영 관문과 같은 계정 확인·세션·출처 검사
     from app_gateway import load_key                 # 읽기만(없거나 권한이 넓으면 기동 거부 — 새로 만들지 않음)
     import tornado.httpclient, tornado.ioloop, tornado.web, tornado.websocket
+    from tornado.log import access_log
     import ssl
+    sys.path.insert(0, str(HERE)); import app_auth as A   # 앱(bundled B) 전용 bearer·1회용 WS 표 — 쿠키 경로와 분리
 
     state = Path(a.state)
     for n in ('accounts.json', 'cert.pem', 'key.pem', 'hmac.key', 'sans'):
@@ -99,6 +165,7 @@ def main():
         sys.exit(f'[v2_gate] 인증서에 없는 주소 {missing} — 운영 관문(phone_gate) 재기동으로 인증서를 갱신한 뒤 다시')
     devkey = hmac.new(load_key(str(state / 'hmac.key')), b'fh2-device-id', hashlib.sha256).digest()
     sessions, rl = G.Sessions(a.ttl), G.RateLimit()
+    app_sessions, tickets = G.Sessions(a.ttl), A.Tickets()   # 앱 세션은 쿠키 세션과 따로(서로 로그아웃시키지 않음)
     gate_hosts = {f'{h}:{a.port}' for h in hosts} | {f'localhost:{a.port}', f'127.0.0.1:{a.port}'}
     COOKIE = dict(httponly=True, secure=True, samesite='Strict', path='/')
     UP_HTTP, UP_WS = f'http://{a.upstream}', f'ws://{a.upstream}/ws'
@@ -163,6 +230,17 @@ def main():
         def get(self):
             self.finish({'urls': [f'https://{h}:{a.port}/' for h in hosts if h != '127.0.0.1']})
 
+    health_w = Window()
+
+    class Health(Base):                               # 로그인 불요 검사(웹) — Host 는 이 관문, Origin 은 없거나 같은 출처. 쿠키 안 읽음
+        def get(self):
+            o = self.request.headers.get('Origin')
+            if self.request.host not in gate_hosts or (o is not None and not self.origin_ok()):
+                self.set_status(403); return self.finish({'error': '다른 출처'})
+            if not health_w.allow(self.request.remote_ip, time.monotonic()):
+                self.set_status(429); return self.finish({'error': '요청이 많음'})
+            self.finish(HEALTH)
+
     class Proxy(Base):                                # 사진·기록 목록 — 로그인 뒤에만 8790 으로 중계(GET 만)
         async def get(self, path):
             if not self.session(): self.set_status(401); return self.finish({'error': '로그인 필요'})
@@ -194,6 +272,8 @@ def main():
 
     class Page(tornado.web.StaticFileHandler):
         async def get(self, path, include_body=True):
+            if a.spa:                                 # 앱 한 장(index.html) + 빌드 자원. 로그인 없으면 앱이 WS 4401 을 보고 로그인 화면으로
+                return await super().get(path or 'index.html', include_body)
             if path in ('', 'index.html'):            # 첫 화면: 휴대폰은 조종, PC 는 관제
                 return self.redirect(('MDrive.dc.html' if PHONE_UA.search(self.request.headers.get('User-Agent', '')) else 'Main.dc.html') + '?live=v2')
             if not PUBLIC.match(path) and not sessions.get(self.get_cookie('fh2_s'), time.time()):
@@ -205,12 +285,17 @@ def main():
             self.set_header('X-Frame-Options', 'DENY')
 
     class Bridge(tornado.websocket.WebSocketHandler):
+        store = sessions                               # 앱 경로(AppBridge)는 app_sessions
+
         def check_origin(self, origin):
             return G.same_origin(origin, self.request.host, gate_hosts)
 
+        def auth_tok(self):
+            return self.get_cookie('fh2_s')
+
         async def open(self):
             self.up, self.gone = None, False
-            self.tok = self.get_cookie('fh2_s'); s = sessions.get(self.tok, time.time())
+            self.tok = self.auth_tok(); s = self.store.get(self.tok, time.time())
             if not s:
                 log(f'거부(로그인 없음) {self.request.remote_ip}'); return self.close(4401, 'login')
             actor = f'{s["account"]} · {s.get("label") or "기기 " + s["device"][:6]}'
@@ -219,7 +304,7 @@ def main():
                 up = await tornado.websocket.websocket_connect(req, on_message_callback=self.down)
             except OSError:
                 log('v2_link 없음'); return self.close(1011, 'upstream')
-            if self.gone or sessions.get(self.tok, time.time()) is not s:   # 기다리는 사이 닫힘·로그아웃
+            if self.gone or self.store.get(self.tok, time.time()) is not s:   # 기다리는 사이 닫힘·로그아웃
                 up.close(); return None if self.gone else self.close(4401, 'session')
             self.up, self.s = up, s
             s['conns'].add(self)
@@ -235,7 +320,7 @@ def main():
 
         def on_message(self, raw):                     # 화면 → v2_link
             if self.up is None: return
-            if not sessions.get(self.tok, time.time()):
+            if not self.store.get(self.tok, time.time()):
                 return self.close(4401, 'session')
             m = gate_msg(raw)
             if m is None:
@@ -247,22 +332,130 @@ def main():
             if self.up is not None:
                 self.up.close(); self.s['conns'].discard(self)
 
+    # ---- 앱(bundled B) 전용 경로 /api/app/* (계약 mobile/docs/FHGATE-CONTRACT.md §3) — 쿠키는 보지 않고 bearer 만. 3xx 없음 ----
+    class AppBase(Base):
+        def prepare(self):                             # Origin 은 앱 두 값 정확 일치 + Host 는 이 관문 주소(DNS 재바인딩)
+            if not A.origin_ok(self.request.headers.get('Origin')) or self.request.host not in gate_hosts:
+                self.set_status(403); self.finish({'error': '다른 출처'})
+
+        def session(self):
+            self.tok = A.bearer(self.request.headers.get('Authorization'))
+            return app_sessions.get(self.tok, time.time())
+
+        def origin_ok(self):
+            return True                                # prepare 에서 검사함
+
+    class AppLogin(AppBase):
+        async def post(self):
+            ip = self.request.remote_ip
+            if rl.blocked(ip, time.time()): self.set_status(429); return self.finish({'error': '실패가 많음 — 5분 뒤 다시'})
+            try:
+                b = A.login_body(json.loads(self.request.body))
+            except ValueError:
+                b = None
+            if b is None: self.set_status(400); return self.finish({'error': '형식'})
+            user, pw, label, dv = b
+            if login_slots.locked(): self.set_status(429); return self.finish({'error': '로그인이 몰려 있음 — 잠시 뒤 다시'})
+            async with login_slots:
+                ok = await asyncio.get_running_loop().run_in_executor(None, G.verify_pw, accounts, user, pw)
+            if not ok:
+                rl.failed(ip, time.time()); log(f'앱 로그인 실패 {ip}'); self.set_status(401)
+                return self.finish({'error': '계정 또는 비밀번호가 틀림'})
+            dev, cookie = G.dev_check(devkey, A.device_in(dv)), A.device_in(dv)
+            if dev is None:
+                dev, cookie = G.dev_issue(devkey)
+            tok = app_sessions.create(user, dev, time.time()); s = app_sessions.by_tok[tok]
+            s['label'] = clean_label(label)
+            log(f'앱 로그인 {user} 기기 {dev[:6]} {ip}')
+            self.finish(A.login_reply(tok, A.device_out(cookie), user, s['exp']))
+
+    class AppWhoAmI(AppBase):
+        def get(self):
+            s = self.session()
+            if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            self.finish(A.whoami_reply(s))
+
+    class AppDocs(AppBase, DocsProxy):                 # 기존 DocsProxy 그대로(작성자 = 앱 세션 계정·기기, 상태 코드·본문 그대로)
+        pass
+
+    class AppMedia(AppBase, Proxy):
+        async def get(self, path):
+            if '..' in path: self.set_status(404); return self.finish({'error': '없음'})   # 계약: ASCII 1~80자 · '..' 금지
+            await Proxy.get(self, 'api/media' if path == 'media' else path)
+
+    class AppTicket(AppBase):
+        def post(self):
+            s = self.session()
+            if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            t = tickets.issue(self.tok, self.request.host, self.request.headers.get('Origin'), time.time())
+            if t is None: self.set_status(429); return self.finish({'error': '표가 많음 — 잠시 뒤 다시'})
+            self.finish({'ticket': t, 'ttl_s': int(tickets.ttl)})   # 표 발급은 take/resume 을 보내지 않는다
+
+    class AppLogout(AppBase):
+        def post(self):
+            tok = A.bearer(self.request.headers.get('Authorization'))
+            s = app_sessions.get(tok, time.time()) and app_sessions.end(tok)
+            if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            tickets.drop_session(tok)
+            for c in list(s['conns']):
+                c.close(4401, 'logout')               # 중계 끊김 → v2_link: 조종권 해제 · 0 · STOP 잠금
+            log(f'앱 로그아웃 {s["account"]}')
+            self.finish({'ok': True})
+
+    class AppHealth(AppBase):                         # 로그인 불요 검사(앱) — Origin·Host 는 AppBase.prepare, Authorization 안 읽음
+        def get(self):
+            if not health_w.allow(self.request.remote_ip, time.monotonic()):
+                self.set_status(429); return self.finish({'error': '요청이 많음'})
+            self.finish(HEALTH)
+
+    class AppNone(AppBase):                            # 없는 /api/app/* — 화면 페이지(로그인 redirect)로 떨어지지 않게
+        def get(self, *_): self.set_status(404); self.finish({'error': '없음'})
+        post = get
+
+    class AppBridge(Bridge):                           # 1회용 표로만 연다(쿠키 무시). 보기 전용 시작은 v2_link 규칙 그대로
+        store = app_sessions
+
+        def check_origin(self, origin):
+            return A.origin_ok(origin) and self.request.host in gate_hosts
+
+        def auth_tok(self):
+            return tickets.consume(self.get_query_argument('t', None), self.request.host, self.request.headers.get('Origin'), time.time())
+
+    def log_req(h):                                    # 접근 로그: /api/app/* 는 질의(표)를 지운다
+        r = h.request; st = h.get_status()
+        (access_log.info if st < 400 else access_log.warning if st < 500 else access_log.error)(
+            '%d %s %s (%s) %.2fms', st, r.method, r.path if r.path.startswith('/api/app/') else r.uri, r.remote_ip, 1000.0 * r.request_time())
+
     def sweep():
-        for tok in sessions.expired(time.time()):
-            s = sessions.end(tok)
-            for c in list(s['conns']) if s else []:
-                c.close(4401, 'expired')
+        now = time.time()
+        for store in (sessions, app_sessions):
+            for tok in store.expired(now):
+                s = store.end(tok); tickets.drop_session(tok)
+                for c in list(s['conns']) if s else []:
+                    c.close(4401, 'expired')
+        tickets.sweep(now)
 
     app = tornado.web.Application([
-        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy),
+        (r'/api/app/ws', AppBridge), (r'/api/app/login', AppLogin), (r'/api/app/whoami', AppWhoAmI), (r'/api/app/docs', AppDocs),
+        (r'/api/app/(media|media/photos/\d{8}/[A-Za-z0-9_.-]{1,80}\.jpg)', AppMedia), (r'/api/app/ws-ticket', AppTicket), (r'/api/app/logout', AppLogout),
+        (r'/api/app/health', AppHealth), (r'/api/app/(.*)', AppNone),
+        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy), (r'/api/health', Health),
         (r'/(api/media|media/photos/\d{8}/[\w.-]+\.jpg)', Proxy),
         (r'/(ca\.crt)', tornado.web.StaticFileHandler, {'path': str(state)}),     # 공개 인증서만
         (r'/(.*)', Page, {'path': a.web}),
-    ], websocket_max_message_size=4 * 1024)
+    ], websocket_max_message_size=4 * 1024, log_function=log_req)
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH); ctx.load_cert_chain(str(state / 'cert.pem'), str(state / 'key.pem'))
     app.listen(a.port, address=a.bind, ssl_options=ctx, max_body_size=16 * 1024)   # 공용 문서(최대 12 KB)용
     tornado.ioloop.PeriodicCallback(sweep, 2000).start()
     for h in hosts: log(f'열기: https://{h}:{a.port}/  (계정 {len(accounts)}개 · 중계 {a.upstream})')
+    if a.advertise and a.bind not in ('0.0.0.0', ''):
+        log('LAN 광고 안 함 — --bind 0.0.0.0 일 때만')
+    elif a.advertise:
+        import atexit, gate_mdns
+        der = ssl.PEM_cert_to_DER_cert((state / 'cert.pem').read_text())   # 공개 인증서만(키 0)
+        # ip 조회·D-Bus 는 전용 스레드에서(IOLoop 막힘 0 · 상태 조회 동시 1), 종료 해제는 최대 4 초
+        run = gate_mdns.Runner(lambda: gate_mdns.Advert(gate_mdns.records(der, a.port, gate_mdns.iface_addrs(), sans, HEALTH['api']), log), log)
+        run.begin(); tornado.ioloop.PeriodicCallback(run.tick, 10000).start(); atexit.register(run.close)
     tornado.ioloop.IOLoop.current().start()
 
 

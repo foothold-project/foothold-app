@@ -1,0 +1,41 @@
+{
+  "$id": "fh-app/1/Capabilities",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "실행 대상이 지금 실제로 주는 것. false = 미지원·미연결 → 화면은 빈 칸 + 이유(시안 수치 0). 펌웨어·실기 미확인이면 false",
+  "properties": {
+    "command": {
+      "title": "Command",
+      "type": "boolean"
+    },
+    "depth": {
+      "title": "Depth",
+      "type": "boolean"
+    },
+    "follow_cam": {
+      "title": "Follow Cam",
+      "type": "boolean"
+    },
+    "map": {
+      "title": "Map",
+      "type": "boolean"
+    },
+    "points": {
+      "title": "Points",
+      "type": "boolean"
+    },
+    "rgb": {
+      "title": "Rgb",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "command",
+    "map",
+    "rgb",
+    "depth",
+    "points",
+    "follow_cam"
+  ],
+  "title": "Capabilities",
+  "type": "object"
+}

@@ -1,0 +1,150 @@
+/* web/live.js 공통 실연결 CSS 그대로(lv-* 클래스). 원본 시안 CSS 는 화면마다 따로(*.view.tsx CSS). */
+.lv-why{opacity:.5;cursor:help}
+[hidden]{display:none!important}   /* B2 R11: hidden 속성 = 숨김 확정(.btn 등 display 규칙이 UA [hidden] 을 이겨 미지원 버튼이 보이던 것, b2 QA PcMap·PcRobot) */
+.pill{white-space:nowrap}
+.lv-on{outline:3px solid var(--accent,#3ec7b4);outline-offset:2px}
+.lv-pad{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.lv-pad .btn{user-select:none;-webkit-user-select:none;touch-action:none}
+.lv-drawer{position:fixed;box-sizing:border-box;z-index:45;display:flex;flex-direction:column;gap:10px;padding:14px;overflow:auto;background:var(--panel,#12171C);color:var(--text,#E6EBEF);border:1px solid var(--line2,#34424D);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,.45);font:13px/1.5 'Pretendard Variable',Pretendard,'Malgun Gothic','Segoe UI',system-ui,sans-serif}
+.lv-drawer h2{font-size:16px;margin:0;flex:1}.lv-drawer h3{font-size:14px;margin:6px 0 0}
+.lv-drawer p{margin:0;color:var(--muted,#9AA7B3)}
+.lv-drawer button{min-height:44px;padding:0 14px;border:1px solid var(--line2,#34424D);border-radius:8px;background:var(--panel2,#182028);color:inherit;font:600 13px/1 inherit;cursor:pointer}
+.lv-drawer dl{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;margin:0}.lv-drawer dt{color:var(--muted,#9AA7B3)}.lv-drawer dd{margin:0;font-family:inherit;font-variant-numeric:tabular-nums;word-break:break-all}
+.lv-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.lv-photo{display:grid;grid-template-columns:120px 1fr;gap:8px;align-items:center}.lv-photo img{width:120px;border-radius:6px}
+.lv-big{position:fixed!important;inset:0!important;z-index:44!important;border-radius:0!important;aspect-ratio:auto!important}
+.lv-big img[data-live-cam],:fullscreen img[data-live-cam]{object-fit:contain!important}
+.lv-bigbar{position:absolute;left:10px;right:52px;top:10px;z-index:2;display:none;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border-radius:8px;background:rgba(5,8,10,.8);color:#E6EBEF;font-size:13px}
+.lv-bigbar .btn{height:44px;padding:0 14px;border:1px solid #34424D;border-radius:8px;background:#182028;color:#E6EBEF;font-weight:600}
+.lv-bigbar .lv-stop{border:0;background:#a3342a;color:#fff;font-weight:700;letter-spacing:.06em;min-width:96px}
+.lv-main{flex:1;min-width:0;display:grid;gap:14px;align-content:start;padding:16px}
+.lv-mbody{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:10px 14px}
+.lv-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
+.lv-card h2{margin:0;font-size:15px}.lv-card h3,.lv-mbody h3{margin:6px 0 0;font-size:13px}
+.lv-col{display:flex;flex-direction:column;gap:8px;min-width:0}
+.lv-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
+.lv-status{display:flex;flex-wrap:wrap;gap:4px 10px;align-items:center;font-size:12px;color:var(--muted)}
+.lv-status .lv-btn{min-height:30px;font-size:12px}
+.lv-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;text-decoration:none;cursor:pointer}
+.lv-btn.pri{border-color:var(--accent);background:var(--accent);color:var(--on-accent,#05080A)}
+.lv-btn.danger{border-color:var(--bad);color:var(--bad);background:transparent}
+.lv-btn[aria-pressed=true]{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+.lv-btn:disabled{opacity:.45;cursor:not-allowed}
+.lv-inp{min-height:40px;padding:6px 10px;border:1px solid var(--line2);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:14px;min-width:0}
+textarea.lv-inp{resize:vertical}
+.lv-item{display:flex;flex-direction:column;gap:4px;width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--text);font-family:inherit;font-size:13px;text-align:left;text-decoration:none;cursor:pointer}
+.lv-item[aria-current=true]{border-color:var(--accent)}
+.lv-ph{flex-direction:row;align-items:center}.lv-ph img{width:96px;height:64px;object-fit:cover;border-radius:6px;background:#05080A}
+.lv-tag{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:11px;background:var(--panel2);border:1px solid var(--line2);font-size:12px;font-weight:600}
+.lv-tag.ok{color:var(--ok);border-color:var(--ok)}.lv-tag.warn{color:var(--warn);border-color:var(--warn)}.lv-tag.bad{color:var(--bad);border-color:var(--bad)}.lv-tag.acc{color:var(--accent);border-color:var(--accent)}
+.lv-warnbox{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--warn);border-radius:8px;font-size:13px}
+.lv-map{position:relative;overflow:hidden;border-radius:8px;background:var(--map,#0E1317);min-height:120px}
+.lv-mapbtns{position:absolute;right:8px;top:8px;z-index:2;display:flex;flex-direction:column;align-items:flex-end;gap:6px}.lv-mapbtns>.lv-btn{width:44px;min-height:44px;padding:0;font-size:18px}
+.qd.f:not(.nopip) .qt.on .lv-mapbtns{right:calc(var(--tw) + 14px)}   /* 큰 칸: 오른쪽 작은 칸(PIP) 열이 지도 버튼을 덮던 것(10-15 QA hit false) — 그 왼쪽으로 */
+/* 10-15 ④ 글 있는 보기 버튼(전체 고정 · 로봇 중심) — 눌림 = 지금 방식 */
+.lv-mapseg{display:inline-flex;border-radius:8px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.45)}.lv-mapseg .lv-btn{min-height:44px;padding:0 10px;border-radius:0;font-size:13px;white-space:nowrap}.lv-mapseg .lv-btn+.lv-btn{border-left:0}
+.lv-mapseg .lv-btn[aria-pressed=true]{background:var(--acc-bg,rgba(56,198,217,.18));color:var(--text)}
+.lv-wp{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
+.lv-wp>b{display:grid;place-items:center;width:26px;height:26px;border-radius:13px;border:2px solid var(--accent);font-size:12px}
+.lv-thumb{width:72px;height:48px;object-fit:cover;border-radius:6px;background:#05080A}
+.lv-grid2{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.lv-g{display:flex;flex-direction:column;gap:2px;padding:8px;border-radius:8px;background:var(--panel2);font-size:13px;min-width:0;overflow-wrap:anywhere}.lv-g.warn b{color:var(--warn)}
+.lv-tbl{width:100%;border-collapse:collapse;font-size:13px}.lv-tbl th,.lv-tbl td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}.lv-tbl a{color:var(--accent)}
+.lv-dl{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:0;font-size:13px}.lv-dl dt{color:var(--muted)}.lv-dl dd{margin:0;overflow-wrap:anywhere}
+.lv-rep{padding:48px 56px;color:#111;font-size:13px;line-height:1.5}.lv-rep h1{font-size:22px;margin:0 0 6px}.lv-rep h2{font-size:16px;margin:22px 0 6px}.lv-rep h3{font-size:14px;margin:12px 0 4px}
+.lv-rep table{width:100%;border-collapse:collapse;margin:4px 0}.lv-rep th,.lv-rep td{border:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top}
+.lv-fstop{position:fixed;right:16px;bottom:16px;z-index:40;min-width:96px;height:56px;border:0;border-radius:10px;background:#a3342a;color:#fff;font-weight:700;letter-spacing:.06em;font-size:16px}
+@media (max-width:900px){.lv-main{grid-template-columns:minmax(0,1fr)!important}}
+@media print{.lv-noprint{display:none!important}body{background:#fff!important}}
+[data-live-drive] [role="group"]{touch-action:none}   /* 조종 막대: 끌기가 화면 스크롤·확대로 새지 않게 */
+/* Main(PC 조종) 머리줄: 시험 문구·임무 제목 줄이 좁은 폭(≈1024)에서 줄어들며 말줄임 — 칩이 모드 표시를 덮지 않게(전체 문구는 title) */
+[data-main] header>div:has(>span+span){flex-shrink:1;min-width:140px}
+[data-main] header>div:has(>span+span)>span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* 관제 4분할(app/Quad.tsx, 10-14) — 2×2 ↔ 큰 칸 1 + 작은 칸 3. 기존 색 토큰만 */
+.qd{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:6px}
+/* 크게 보기(10-14 PIP): 큰 칸이 격자 전체를 덮고, 작은 칸 3개는 같은 격자의 오른쪽 열에 겹쳐 놓임(오버레이). DOM 그대로 */
+.qd.f{position:relative;--tw:clamp(104px,22vw,200px);grid-template-columns:minmax(0,1fr) var(--tw);grid-template-rows:36px auto auto auto 1fr}
+.qt{display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--map,#0E1317);cursor:zoom-in}
+.qt.on{cursor:zoom-out}
+.qd.f .qt.on{grid-column:1/-1;grid-row:1/-1}
+.qd.f .qt.pip{grid-column:2;z-index:2;margin:0 8px 0 0;align-self:start;box-shadow:0 2px 10px rgba(0,0,0,.5);cursor:pointer}
+.qd.f .qt.p0{grid-row:2}.qd.f .qt.p1{grid-row:3}.qd.f .qt.p2{grid-row:4}
+.qd.nopip .qt.pip{display:none}
+.qpip{position:absolute;z-index:3;top:50%;right:calc(var(--tw) + 6px);transform:translateY(-50%);display:grid;place-items:center;width:28px;height:56px;padding:0;border:1px solid var(--line2);border-right:0;border-radius:8px 0 0 8px;background:var(--panel2);color:var(--text);font-size:22px;line-height:1;opacity:.92}
+.qd.nopip .qpip{right:7px}
+.qpip:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.qb{position:relative;flex:1;aspect-ratio:16/10;min-height:0;background:#05080A}
+.qd.f .qt.on .qb{flex:none;aspect-ratio:auto;height:var(--qbh,min(62vh,620px))}   /* flex:none — .qb 기본 flex:1(basis 0)이 세로 flex 에서 height 를 무시하던 것(10-15 QA 실측 197 px) */   /* 10-15 ①: --qbh = 화면 남는 높이(Quad.tsx 가 잼) */
+/* 브라우저 전체화면(이 묶음만): 창 전체 높이 − 칸 머리(30)·틈. STOP(.qfs-stop)은 아래 가운데 상시 */
+.qd:fullscreen{box-sizing:border-box;width:100vw;height:100vh;background:#05080A;align-content:start}
+.qd:fullscreen.f .qt.on .qb{height:calc(100vh - 46px)}
+.qfs{position:absolute;z-index:4;top:9px;right:44px;min-height:26px!important;padding:0 10px!important;font-size:12px!important}
+.qfs-stop{position:absolute;z-index:5;left:50%;bottom:14px;transform:translateX(-50%)}
+.qfs-stop .lv-stop{min-width:120px;height:56px;border:0;border-radius:10px;background:var(--stop,#D7261E);color:#fff;font-size:18px;font-weight:800;letter-spacing:.06em;box-shadow:0 2px 12px rgba(0,0,0,.6)}
+.qd.f .qt.pip .qb{flex:none;aspect-ratio:4/3}
+.qh{display:flex;align-items:center;justify-content:space-between;gap:6px;height:30px;padding:0 8px;border:0;border-bottom:1px solid var(--line);background:var(--panel2);font-size:12px;font-weight:600;text-align:left;min-width:0}
+.qh span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.qh[aria-pressed="true"]{background:var(--acc-bg);color:var(--text)}
+.qh:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.qd-empty{position:absolute;inset:0;display:grid;place-items:center;padding:12px;text-align:center;font-size:13px;line-height:1.45;color:var(--muted);pointer-events:none}
+.qd.f .qt.pip .qd-empty{font-size:11px;padding:6px}
+.qd-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 6px 6px;padding:6px 10px;border:1px dashed var(--line);border-radius:6px;font-size:12px;line-height:1.45;color:var(--muted)}
+.qd.f .qt.pip .qh{height:24px;font-size:11px}
+.qmode{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
+.qmode button{height:30px;padding:0 10px;border:0;background:transparent;font-size:12px;font-weight:600;color:var(--muted)}
+.qmode button[aria-pressed="true"]{background:var(--acc-bg);color:var(--text)}
+.qmode button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+
+/* 폰 화면(MHome·MMap·MLogin·MAlerts·MAlert·MHistory·MFinding) 틀 — 10-14: 폭을 화면에 맞춤(인라인 390px 가 왼쪽에 붙던 빈 띠).
+   10-15 R04: 높이도 화면에 맞춤(인라인 844 고정이면 가로 390 에서 아래 탭·STOP 이 화면 밖). 틀은 세로 flex — 본문만 스크롤, 탭·STOP 은 늘 화면 안.
+   100dvh 미지원 브라우저는 100vh. 배치·색은 그대로. 실폰 주소창 변화·키보드는 미검증 */
+#dc-root>div[style*="width: 390px"][style*="height: 844px"]{width:100%!important;height:100vh!important;height:100dvh!important}
+
+/* PC 관제(Main) 폰 폭(≤700px, iPhone 390·가로 844 의 좁은 쪽) — 10-14 진단: 머리줄 칩이 세로로 쌓여 잘리고 지도가 메뉴 아래로 밀림.
+   생성 틀(Main.view)의 인라인 스타일을 바꾸지 않고 여기서만 덮는다. 색·메뉴·STOP 은 그대로 */
+@media (max-width:700px){
+  [data-main] .fh header{flex-wrap:wrap!important;gap:6px 10px!important;padding:8px 10px!important}
+  [data-main] .fh header>div[style*="width: 1px"]{display:none}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
+  [data-main] .fh nav[aria-label="주 메뉴"]{flex:1 1 100%!important;flex-direction:row!important;justify-content:space-around;overflow-x:auto;padding:4px!important;border-right:0!important;border-bottom:1px solid var(--line)}
+  [data-main] .fh main{flex:1 1 100%!important;padding:6px!important}
+  [data-main] .fh main>section{flex:1 1 100%!important;max-width:none!important}
+}
+
+/* 가로 폰(높이 ≤500px, 844×390 등) — 10-14: 칩이 세로로 쌓여 머리줄이 높이 2/3 을 먹던 것.
+   머리줄 = 로고 · 상태 표시(보기 전용 등) · 칩 한 줄(가로로 밀어 봄) · STOP 만, 위에 고정. 제목·조작자 칸은 숨김(같은 정보는 아래 «상태 상세»).
+   관제 4분할은 남은 높이에 맞춤: 2×2 는 두 줄이 화면에 들어오게, 크게 보기는 왼쪽 큰 칸 + 오른쪽 작은 칸 3. PC·세로 폰은 그대로 */
+@media (orientation:landscape) and (max-height:500px){
+  [data-main] .fh header{position:sticky;top:0;z-index:20;flex-wrap:nowrap!important;gap:8px!important;padding:4px 8px!important;max-height:64px}
+  [data-main] .fh header>div[style*="width: 1px"],[data-main] .fh header>div[style*="flex-direction: column"],[data-main] .fh header>div[style*="padding: 0px 4px"]{display:none!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{flex:1 1 0!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"] .chip{flex:0 0 auto;white-space:nowrap}
+  .qd{--qa:calc(100vh - 150px);scroll-margin-top:68px}
+  .qd .qb{flex:none}
+  .qd:not(.f) .qb{aspect-ratio:auto;height:calc(var(--qa) / 2 - 33px)}
+  .qd.two:not(.f) .qb{height:calc(var(--qa) - 30px)}   /* B2: 보조 뷰 접힘 2칸 = 한 줄 → 높이 전부 */
+  .qd.f .qt.on .qb{height:calc(var(--qa) - 30px)}
+  /* 가로 폰 PIP: 높이가 모자라 작은 칸 머리줄을 숨기고(이름은 title) 세 칸이 큰 칸 높이 안에 들어오게 */
+  .qd.f{--ph:calc((var(--qa) - 36px) / 3 - 6px);--tw:calc(var(--ph) * 4 / 3 + 10px);grid-template-rows:36px auto auto auto 1fr}
+  .qd.f .qt.pip .qh{display:none}
+  .qd.f .qt.pip .qb{aspect-ratio:auto;height:var(--ph)}
+}
+/* 휴대폰 가로 조종(MDrive) 아래 가운데 줄: left:50% 절대 배치라 쓸 폭이 화면 절반뿐 → «조종권 반납»·«Gazebo 끄기»가 붙으면 속도 칸이 눌려 글자가 세로로 꺾이고 줄이 막대 위로 넘침(실 APK 866x364).
+   글자는 꺾지 않고, 줄 폭 = 양쪽 막대(가장자리 44 + 폭 176 + 여유 12 = 232 px) 사이로 두고 넘치면 위로 한 줄 더(배치·색·크기 무변경) */
+#dc-root div:has(>[role=radiogroup][aria-label="속도"]){width:max-content;max-width:calc(100% - 464px);flex-wrap:wrap;justify-content:center;align-items:center;row-gap:6px}
+#dc-root div:has(>[role=radiogroup][aria-label="속도"])>:not(span),#dc-root [role=radiogroup][aria-label="속도"]>*{flex:none;white-space:nowrap}
+#dc-root div:has(>[role=radiogroup][aria-label="속도"])>span{max-width:100%}
+/* 휴대폰 가로 조종 화면의 알림(토스트, 위 96 px 고정 3.5 s): 반투명이라 HUD 셋째 줄·작은 지도와 겹치면 둘 다 안 읽힘(실 APK 866x364) → 이 화면에서만 불투명 + 테두리(위치·크기·누름 통과 무변경) */
+body:has(#dc-root [role=group][aria-label*="막대"]) [data-live-toast]{background:#080B0E!important;box-shadow:0 0 0 1px rgba(230,235,239,.35)}
+/* 세로 안내(app/drive.tsx tip)는 서랍이 열려 있으면 숨김 — 서랍 버튼 위에 겹침(세로 390x844 모의) */
+body:has(.lv-drawer) .lv-tip{display:none!important}
+
+/* 폰 지도 머리(MMap 만, 10-15): 제목·레이어 버튼 한 행 + 연결 상태는 아래 별도 행 — 좁은 폭에서 제목이 한 글자씩 세로로 꺾이지 않게 */
+.mmap-hdr>header{flex-wrap:wrap;row-gap:6px}
+.mmap-hdr>header>div:first-of-type{flex:1 1 0;min-width:0}
+.mmap-hdr>header>div:first-of-type>span:first-child{white-space:nowrap}
+.mmap-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+/* B2 A3: PcPlan 도 다른 PC 화면처럼 STOP 을 첫 줄 오른쪽 끝에 — 상태 줄만 둘째 줄 전체로(STOP 크기·색 그대로) */
+.pcplan-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+.pcplan-hdr>header>button[aria-label="비상 정지"]{margin-left:auto}

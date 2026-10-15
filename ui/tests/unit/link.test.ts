@@ -1,0 +1,359 @@
+import { afterAll, beforeAll, expect, test, vi } from 'vitest';
+// 묶음 3 조종 경계(link.ts): 형식 검사·보기 전용·STOP 뒤 cmd 없음·생명주기 숨김 — 가짜 WebSocket/문서/Capacitor 로 node 에서 시험
+vi.mock('../../src/data/shared', () => ({ refreshShared: () => {} }));
+const sent: any[] = [], evs: Record<string, ((...a: any[]) => void)[]> = {}, cap: Record<string, ((...a: any[]) => void)[]> = {};
+let sock: any;
+class FakeWS { readyState = 0; binaryType = ''; onopen: any; onmessage: any; onclose: any; constructor() { sock = this; } send(t: string) { sent.push(JSON.parse(t)); } }
+const on = (k: string, f: any) => { (evs[k] ||= []).push(f); };
+(globalThis as any).window = globalThis;
+Object.assign(globalThis, {
+  WebSocket: FakeWS, location: { href: 'http://127.0.0.1:5181/', protocol: 'http:' }, addEventListener: on,
+  document: { hidden: false, addEventListener: on, querySelectorAll: () => [] }, screen: { orientation: { addEventListener: on } },
+  Capacitor: { Plugins: { App: { addListener: (k: string, f: any) => { (cap[k] ||= []).push(f); } } } },
+});
+const ST = (o: any = {}) => ({ op: 'status', ver: 'v1', role: 'control', latch: false, resume_pending: false, reset_pending: false, sim_block: '', episode: 1, state_age: 0.1, cam_age: null,
+  docs_rev: 1, applied: [0, 0, 0], events: [], reason: '', me: 'pc', holder: null, sim_start: { ok: true, why: '', busy: false, session: null }, sim: { x: 0, y: 0, yaw: 0, vx: 0, vy: 0, tilt_deg: 0, fallen: false, body_still: true }, ...o });
+let L: typeof import('../../src/data/link');
+const msg = (o: any) => sock.onmessage({ data: JSON.stringify(o) });
+const last = (a: any[]) => a[a.length - 1];
+const cmds = () => sent.filter((m) => m.op === 'cmd');
+const step = (ms: number) => { vi.advanceTimersByTime(ms); };
+beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'setInterval', 'performance'] });
+  vi.advanceTimersByTime(10);   // 가짜 performance.now 가 0 이면 «아직 메시지 없음»과 같아짐
+  L = await import('../../src/data/link'); L.startLink();
+  for (let i = 0; i < 10 && !sock; i++) await Promise.resolve();   // open 은 전송층 T.wsUrl() 을 기다린 뒤 연다
+  sock.readyState = 1; sock.onopen();
+});
+afterAll(() => { vi.useRealTimers(); });
+
+test('형식 검사: 명령 관문 칸·유한수치·배열', () => {
+  expect(L.checkStatus(ST())).toBeNull();
+  {   // 10-15 live_map.bound·grid.upd·stamp 형식: 틀리면 지도 칸만 버림, grid.upd 면 pose 0(옛 그림 + 새 위치 조합 0)
+    const K = { world_id: 'rooms_a', building_id: 'rooms_a', floor_id: 'f1', mode: 'slam', map_source: 'slam', map_version: null, epoch: 3 };
+    const G = { seq: 4, w: 4, h: 2, res: 0.05, origin: [-1, -2, 0], upd: false, stamp: 3 };
+    const P = { x: 1, y: 2, yaw: 0, source: 'slam_tf' };
+    const lm = (o: any) => { const m: any = ST({ live_map: { st: 'ok', why: '', bound: true, ...K, grid: G, pose: P, pose_why: '', ...o } }); L.checkStatus(m); return m.live_map; };
+    expect(lm({}).pose).toEqual(P);
+    expect(lm({ grid: { ...G, upd: true } }).pose).toBe(null);
+    for (const bad of [{ bound: 'yes' }, { bound: 1 }, { grid: { ...G, upd: 'true' } }, { grid: { ...G, stamp: '3' } }, { bound: true, epoch: null, st: 'wait', grid: null }])
+      expect(lm(bad)).toBe(null);
+    expect(lm({ st: 'wait', bound: true, grid: null, pose: null })?.bound).toBe(true);
+  }
+  expect(L.checkStatus(ST({ role: 'admin' }))).toBe('role');
+  expect(L.checkStatus(ST({ latch: 'false' }))).toBe('latch');
+  expect(L.checkStatus(ST({ applied: [0, '1', 0] }))).toBe('applied');
+  expect(L.checkStatus(ST({ applied: [0, 0] }))).toBe('applied');
+  expect(L.checkStatus(ST({ episode: '1' }))).toBe('episode/age/docs_rev');
+  expect(L.checkStatus(ST({ sim: { ...ST().sim, x: '0' } }))).toBe('sim.x');
+  expect(L.checkStatus(ST({ ver: '' }))).toBe('ver');
+  expect(L.checkStatus(null)).toBe('op');
+  // 계약 대조(앱 Codex 10-13): 음수 나이·정수 아닌 episode/docs_rev·화면이 읽는 이유/사건/시뮬 시작 형
+  expect(L.checkStatus(ST({ state_age: -0.1 }))).toBe('episode/age/docs_rev');
+  expect(L.checkStatus(ST({ cam_age: -1 }))).toBe('episode/age/docs_rev');
+  expect(L.checkStatus(ST({ episode: 1.5 }))).toBe('episode/age/docs_rev');
+  expect(L.checkStatus(ST({ docs_rev: 2.5 }))).toBe('episode/age/docs_rev');
+  expect(L.checkStatus(ST({ reason: null }))).toBe('reason/me/holder');
+  expect(L.checkStatus(ST({ holder: 3 }))).toBe('reason/me/holder');
+  expect(L.checkStatus(ST({ events: [{ t: '1', st: 'red', text: 'x' }] }))).toBe('events');
+  expect(L.checkStatus(ST({ events: [null] }))).toBe('events');
+  expect(L.checkStatus(ST({ sim_start: { ok: 'yes', why: '' } }))).toBe('sim_start');
+  expect(L.checkStatus(ST({ events: [{ t: '10:00:00', st: 'ok', text: 'a' }], episode: null }))).toBeNull();
+  // sim_start 새 칸(ledger·last): 없으면 옛 서버(통과), 있으면 정수·범위·형 검사
+  const SS = (o: any) => ST({ sim_start: { ...ST().sim_start, ...o } });
+  expect(L.checkStatus(SS({ ledger: { used: 8, max: 8 }, last: { t: '13:06:35', st: 'bad', text: 'x' } }))).toBeNull();
+  expect(L.checkStatus(SS({ ledger: null, last: null }))).toBeNull();
+  for (const bad of [{ ledger: { used: 9, max: 8 } }, { ledger: { used: -1, max: 8 } }, { ledger: { used: '8', max: 8 } }, { ledger: { used: 1.5, max: 8 } }, { last: { t: 1, st: 'bad', text: '' } }, { last: { t: '1', st: 'x', text: '' } }])
+    expect(L.checkStatus(SS(bad))).toBe('sim_start');
+  const T = (o: any) => L.startTxt(ST({ sim_start: { ...ST().sim_start, ...o }, ...('map' in o ? { map_start: { ledger: o.map } } : {}) }) as any);
+  expect(T({ ledger: { used: 8, max: 8 } }).left).toBe('기존 평지 체험 남은 0/8');
+  expect(T({}).left).toBe('기존 평지 체험 남은 횟수 미확인'); expect(T({}).last).toBe(''); expect(T({}).map).toBe('지도 시뮬 남은 횟수 미확인');
+  expect(T({ map: { used: 0, max: 4, keys: [] } }).map).toMatch('지도 시뮬 남은 4/4');
+  expect(T({ last: { t: '13:06:35', st: 'bad', text: '사용 가능 횟수 소진(기동 안 함)' } }).last).toBe('최근 시작 결과 13:06:35 · 안 켜짐 · 사용 가능 횟수 소진(기동 안 함)');
+  // 사용자 체험(usage_scope): 값은 experiment·user_experience·없음만, 사용자 체험인데 원장 숫자가 오면 모순 → 거부(지도 칸은 그 칸만 버림)
+  expect(L.checkStatus(SS({ usage_scope: 'user_experience', ledger: null }))).toBeNull();
+  expect(L.checkStatus(SS({ usage_scope: 'experiment', ledger: { used: 1, max: 8 } }))).toBeNull();
+  for (const bad of [{ usage_scope: 'user' }, { usage_scope: 1 }, { usage_scope: 'user_experience', ledger: { used: 0, max: 8 } }])
+    expect(L.checkStatus(SS(bad))).toBe('sim_start');
+  const MS = (o: any) => { const m: any = ST({ map_start: { ok: true, why: '', busy: false, ledger: null, last: null, ...o } }); L.checkStatus(m); return m.map_start; };
+  expect(MS({ usage_scope: 'user_experience' })).not.toBeNull();
+  expect(MS({ usage_scope: 'user_experience', ledger: { used: 0, max: 4, keys: [] } })).toBeNull();
+  expect(MS({ usage_scope: 'nope' })).toBeNull();
+  const U = L.startTxt(ST({ sim_start: { ...ST().sim_start, usage_scope: 'user_experience' }, map_start: { usage_scope: 'user_experience', ledger: null } }) as any);
+  expect(U.left).toBe('사용자 체험 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)'); expect(U.map).toBe('지도 시뮬 · 횟수 제한 없음(동시 1개 · 30분 뒤 자동 종료)');
+  expect(T({ usage_scope: 'experiment', ledger: { used: 8, max: 8 } }).left).toBe('기존 평지 체험 남은 0/8');
+});
+
+test('처음·재연결은 보기 전용: 서버 role=control 이어도 take 전엔 cmd 0건', () => {
+  msg(ST()); expect(L.press('a', 1, { fx: 1, fy: 0, fw: 0 })).toBe(false); step(200); expect(cmds()).toHaveLength(0);
+  expect(L.driveBlock()).toMatch('보기 전용');
+});
+
+test('take 뒤 20 Hz 발행·값 [-1,1] 자르기, 손 떼면 0', () => {
+  L.sendOp('take'); msg(ST());
+  expect(L.press('a', 1, { fx: 2, fy: 0, fw: -0.5 })).toBe(true); step(100);
+  expect(last(cmds())).toEqual({ op: 'cmd', fx: 1, fy: 0, fw: -0.5 });
+  expect(cmds().length).toBe(2);
+  L.lift('a', 1); step(50); expect(last(cmds())).toEqual({ op: 'cmd', fx: 0, fy: 0, fw: 0 });
+  expect(L.press('b', 1, { fx: NaN, fy: 0, fw: 0 })).toBe(false);
+});
+
+test('STOP: 누름 폐기·발행 멈춤 먼저 → latch=true 확인 전에도 cmd(0 포함) 섞이지 않음', () => {
+  L.press('a', 1, { fx: 1, fy: 0, fw: 0 }); const n0 = sent.length;
+  L.sendStop(); expect(last(sent)).toEqual({ op: 'stop' });
+  msg(ST()); step(200); expect(sent.slice(n0).map((m) => m.op)).toEqual(['stop']);   // 서버가 아직 latch=false 여도
+  msg(ST({ latch: true })); step(100); expect(sent.slice(n0).map((m) => m.op)).toEqual(['stop']);
+  const c = cmds().length; step(100); expect(cmds().length).toBe(c);                    // 잠금 중 0건
+  L.sendOp('resume'); msg(ST()); expect(L.press('a', 1, { fx: 0.5, fy: 0, fw: 0 })).toBe(true); step(50); expect(last(cmds())?.fx).toBe(0.5);
+});
+
+test('형식 실패 → st=null·누름 폐기·조종 안 함, 판 바뀜·리셋 대기도 막음', () => {
+  msg(ST({ applied: [0, 0, 'x'] })); const c = cmds().length; step(100);
+  expect(cmds().length).toBe(c); expect(L.useLink.getState().st).toBeNull(); expect(L.driveBlock()).toMatch('상태 미확인');
+  msg(ST()); expect(L.driveBlock()).toBeNull();
+  msg(ST({ ver: 'v2' })); expect(L.driveBlock()).toMatch('새 판'); msg(ST());
+  msg(ST({ reset_pending: true })); expect(L.driveBlock()).toMatch('대기'); msg(ST());
+});
+
+test('손가락 규칙: 같은 곳 두 번째·세 번째 손가락 → 모두 폐기, 다른 손가락 lift 무시, 취소 → 폐기', () => {
+  expect(L.press('a', 1, { fx: 1, fy: 0, fw: 0 })).toBe(true); expect(L.press('a', 2, { fx: 1, fy: 0, fw: 0 })).toBe(false); expect(L.pressed('a')).toBe(false);
+  L.press('a', 1, { fx: 0.2, fy: 0, fw: 0 }); L.press('b', 2, { fx: 0.2, fy: 0, fw: 0 }); expect(L.press('c', 3, { fx: 1, fy: 0, fw: 0 })).toBe(false); expect(L.pressed('a') || L.pressed('b')).toBe(false);
+  L.press('a', 1, { fx: 0.3, fy: 0, fw: 0 }); L.lift('a', 9); expect(L.pressed('a')).toBe(true); expect(L.move('a', 1, { fx: NaN, fy: 0, fw: 0 })).toBe(false); expect(L.pressed('a')).toBe(false);
+  L.press('a', 1, { fx: 0.3, fy: 0, fw: 0 }); L.press('b', 2, { fx: 0.3, fy: 0, fw: 0 }); L.cancel('b', 2); expect(L.pressed('a')).toBe(false);
+});
+
+test('소유: 누른 손가락만 owns · 폐기(STOP·전체화면) 뒤 낡은 손가락은 owns false → 손잡이·명령 못 바꿈', () => {
+  L.sendOp('take'); msg(ST());
+  L.press('a', 1, { fx: 0.5, fy: 0, fw: 0 }); expect(L.owns('a', 1)).toBe(true); expect(L.owns('a', 2)).toBe(false); expect(L.owns('b', 1)).toBe(false);
+  L.lift('a', 2); expect(L.owns('a', 1)).toBe(true);   // 다른 손가락 up 은 정리 못 함
+  evs.fullscreenchange[0](); expect(L.owns('a', 1)).toBe(false); expect(L.move('a', 1, { fx: 1, fy: 0, fw: 0 })).toBe(false);
+  L.press('a', 1, { fx: 0.5, fy: 0, fw: 0 }); L.sendStop(); expect(L.owns('a', 1)).toBe(false);
+  const n = cmds().length; expect(L.move('a', 1, { fx: 1, fy: 0, fw: 0 })).toBe(false); step(200); expect(cmds().length).toBe(n);
+  msg(ST({ latch: true })); L.sendOp('resume'); msg(ST());   // 잠금 확인 → 재개(다음 시험용)
+});
+
+test('화면 떠남(hide): 누름 폐기 + hidden + 보기 전용, 0 아닌 cmd 없음', () => {
+  L.sendOp('take'); msg(ST()); L.press('a', 1, { fx: 1, fy: 0, fw: 0 }); step(50);
+  const n = cmds().length; L.hide(); expect(last(sent)).toEqual({ op: 'hidden' }); expect(L.useLink.getState().viewOnly).toBe(true);
+  step(200); expect(cmds().slice(n).every((m) => !m.fx && !m.fy && !m.fw)).toBe(true); expect(L.driveBlock()).toMatch('보기 전용');
+  L.sendOp('take'); msg(ST());   // 다음 시험을 위해 조종 상태로 되돌림
+});
+
+test('상태 변화(에피소드) → 낡은 누름 폐기(다시 눌러야 함)', () => {
+  L.press('a', 1, { fx: 1, fy: 0, fw: 0 }); step(50); expect(last(cmds())?.fx).toBe(1);
+  msg(ST({ episode: 2 })); step(50); expect(last(cmds())?.fx).toBe(0);
+});
+
+test('생명주기: 앱 pause·문서 숨김 → hidden+보기 전용, resume → 보기 전용(재take 필요), 등록 한 번', () => {
+  expect(Object.keys(cap).sort()).toEqual(['appStateChange', 'pause', 'resume']);
+  expect(cap.pause.length + cap.resume.length + cap.appStateChange.length).toBe(3);
+  cap.pause[0](); expect(last(sent)).toEqual({ op: 'hidden' }); expect(L.useLink.getState().viewOnly).toBe(true);
+  L.sendOp('take'); msg(ST()); cap.resume[0](); expect(L.driveBlock()).toMatch('보기 전용');
+  L.sendOp('take'); (globalThis as any).document.hidden = true; evs.visibilitychange[0](); expect(last(sent)).toEqual({ op: 'hidden' }); (globalThis as any).document.hidden = false;
+  L.sendOp('take'); evs.blur[0](); expect(L.useLink.getState().viewOnly).toBe(true);
+  const h = sent.filter((m) => m.op === 'hidden').length; L.sendOp('take'); msg(ST());
+  cap.pause[0](); cap.appStateChange[0]({ isActive: false }); evs.blur[0](); msg(ST({ role: 'view' }));
+  (globalThis as any).document.hidden = true; evs.visibilitychange[0](); (globalThis as any).document.hidden = false;
+  expect(sent.filter((m) => m.op === 'hidden').length - h).toBe(1);   // 배경 한 번 → hidden 한 번
+});
+
+test('WS close → 즉시 끊김·보기 전용, 4401 은 다시 잇지 않음', () => {
+  L.sendOp('take'); msg(ST()); sock.onclose({ code: 1006 });
+  expect(L.useLink.getState().open).toBe(false); expect(L.linkView(L.useLink.getState()).linkOk).toBe(false); expect(L.driveBlock()).toMatch('링크');
+});
+
+test('단계 «조종 가능» = 실제 driveBlock null 일 때만(새 판·형식 이상·STOP ACK 전 각각 가능 표시 0)', async () => {
+  const { stageOf } = await import('../../src/data/drive_stage');
+  const stage = () => { const s = L.useLink.getState(), v = L.linkView(s);
+    return stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st: s.st, viewOnly: s.viewOnly, fallen: false, newVer: !!v.newVer, block: L.driveBlock(s) }); };
+  const able = () => { const g = stage(); return g.i === 3 && g.stop === null; };
+  const old = sock; step(10000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve();   // 앞 시험이 끊은 연결 → 재연결
+  sock.readyState = 1; sock.onopen?.();
+  L.sendOp('take'); msg(ST()); expect(L.driveBlock()).toBeNull(); expect(able()).toBe(true);        // 기준: 정상 안내 그대로
+  msg(ST({ ver: 'v2' })); expect(able()).toBe(false); expect(stage().stop).toMatch('새 판'); msg(ST());
+  L.useLink.setState({ bad: 'applied' }); expect(L.useLink.getState().st?.role).toBe('control');    // 옛 control·latch=false st 가 남은 형식 이상
+  expect(able()).toBe(false); expect(stage().stop).toMatch('상태 미확인'); L.useLink.setState({ bad: null });
+  L.sendStop(); msg(ST()); expect(L.driveBlock()).toBe('STOP 잠금'); expect(able()).toBe(false);     // ACK(latch=true) 전
+  msg(ST({ latch: true })); expect(stage()).toMatchObject({ i: 1, stop: null });
+  L.sendOp('resume'); msg(ST()); expect(able()).toBe(true);
+});
+
+test('Gazebo 끄기: sim_stop 형식·표시·확인창·취소 시 전송 0', async () => {
+  const SP = (o: any = {}) => ({ ok: true, why: '', busy: false, on: true, ledger_left: 2, last: null, ...o });
+  const old = sock; step(10000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve();   // 앞 시험이 끊은 연결 → 재연결
+  sock.readyState = 1; sock.onopen?.();
+  expect(L.checkStatus(ST())).toBe(null);                                   // 옛 서버(칸 없음) = 정상, 버튼 숨김
+  expect(L.checkStatus(ST({ sim_stop: SP() }))).toBe(null);
+  for (const bad of [SP({ ok: 'yes' }), SP({ on: 1 }), SP({ busy: null }), SP({ ledger_left: 1.5 }), SP({ last: { st: 'done', text: '' } }), SP({ ledger_kind: 'user', ledger_left: 3 }), SP({ ledger_kind: 'x' }), 'x'])
+    expect(L.checkStatus(ST({ sim_stop: bad }))).toBe('sim_stop');
+  expect(L.showSimStop(ST({ sim_stop: SP({ on: false }) }) as any)).toBe(false);
+  expect(L.showSimStop(ST({ sim_stop: SP({ on: false, busy: true }) }) as any)).toBe(true);
+  expect(await L.stopSim(ST({ sim_stop: SP({ ok: false, why: '다른 기기가 조종 중' }) }) as any)).toContain('다른 기기가 조종 중');
+  const asked: string[] = []; (globalThis as any).confirm = (t: string) => { asked.push(t); return false; };
+  const n = sent.length;
+  expect(await L.stopSim(ST({ sim_stop: SP({ ledger_left: 0, ledger_kind: 'online' }) }) as any)).toBe(null);
+  expect(sent.slice(n).some((m) => m.op === 'sim_stop')).toBe(false);       // 취소 → 보내지 않음
+  expect(asked[0]).toContain('로봇 STOP 아님'); expect(asked[0]).toContain('기존 체험(시뮬 시작) 원장 남은 0');
+  // 계약 sim_stop.ledger_kind: online/map 은 그 원장의 남은 수, 종류 미지정·남은 null 은 «원장 미확인»(남은 수를 지어내지 않음)
+  await L.stopSim(ST({ sim_stop: SP({ ledger_left: 0, ledger_kind: 'map' }) }) as any);
+  expect(asked[1]).toContain('지도 시뮬 원장 남은 0'); expect(asked[1]).toContain('«지도 열기»');
+  for (const sp of [SP({ ledger_left: 0 }), SP({ ledger_left: null, ledger_kind: 'online' })]) {
+    asked.length = 0; await L.stopSim(ST({ sim_stop: sp }) as any);
+    expect(asked[0]).toContain('켜진 쪽 원장 미확인'); expect(asked[0]).not.toContain('남은');
+  }
+  asked.length = 0; await L.stopSim(ST({ sim_stop: SP({ ledger_left: null, ledger_kind: 'user' }) }) as any);   // 사용자 체험: 횟수 문구 없음
+  expect(asked[0]).toContain('사용자 체험 — 횟수 제한 없음'); expect(asked[0]).not.toContain('기동 상한'); expect(asked[0]).not.toContain('원장');
+  expect(sent.slice(n).some((m) => m.op === 'sim_stop')).toBe(false);
+  (globalThis as any).confirm = () => true;
+  const p = L.stopSim(ST({ sim_stop: SP() }) as any);
+  const q = last(sent); expect(q.op).toBe('sim_stop');
+  msg({ op: 'reply', rid: q.rid, ok: true, text: 'Gazebo 종료 요청함' });
+  expect(await p).toBe('Gazebo 종료 요청함');
+  // 종료 처리 중: 서버 sim_block 'Gazebo 종료 중' + busy → 누름 거부·표시, 누르던 입력 폐기
+  L.sendOp('take'); msg(ST({ sim_stop: SP() })); expect(L.press('pc-t', 1, { fx: 1, fy: 0, fw: 0 })).toBe(true);
+  msg(ST({ sim_block: 'Gazebo 종료 중', sim_stop: SP({ busy: true }) }));
+  expect(L.driveBlock()).toBe('Gazebo 종료 중');
+  expect(L.press('pc-t2', 2, { fx: 1, fy: 0, fw: 0 })).toBe(false);
+  expect(L.move('pc-t', 1, { fx: 1, fy: 0, fw: 0 })).toBe(false);          // 서명 변화로 앞 누름 폐기됨
+});
+
+test('저장 지도: 목록 형식 걸러냄 · 다른 지도 답 버림 · 요청은 이름만', async () => {
+  const M = await import('../../src/data/maps');
+  const I = (o: any = {}) => ({ world_id: 'v5_building', building_id: 'v5', floor_id: 'l1', map_version: 'gt-20261012', map_source: 'gt_raster', epoch: null,
+    resolution: 0.05, origin: [-20, -14, 0], width: 800, height: 640, saved_sim_t: null, ...o });
+  const reply = (o: any) => { const q = last(sent); msg({ op: 'reply', rid: q.rid, ok: true, text: '', ...o }); return q; };
+  let p: Promise<any> = M.listMaps();
+  reply({ maps: [I(), I({ floor_id: 'floor1' }), I({ floor_id: 'f1' }), I({ epoch: 0 }), I({ map_source: 'slam' }), I({ map_source: 'slam', epoch: 2, map_version: '20261014-100000-e2' }), I({ world_id: 'v5_single' }), I({ world_id: ['v5_building'] }), I({ world_id: 'toString' }), I({ floor_id: 'constructor' }), I({ resolution: 0 }), I({ origin: [0, 0] }), I({ width: 2001 }), I({ map_source: 'x' })] });
+  expect((await p).map(M.mapKey)).toEqual(['v5/l1/gt-20261012', 'v5/l1/20261014-100000-e2']);
+  p = M.getMap(I() as any);
+  const q = reply({ map: { ...I({ floor_id: 'l2' }), png: 'AA==' } });                  // 다른 층 답 → 버림
+  expect(q).toMatchObject({ op: 'map_get', building_id: 'v5', floor_id: 'l1', map_version: 'gt-20261012' });
+  expect(await p).toBe('지도 형식 이상');
+  p = M.getMap(I() as any); reply({ map: I() }); expect(await p).toBe('지도 형식 이상');             // png 없음
+  p = M.getMap(I() as any); reply({ map: { ...I({ world_id: 'v5_single', building_id: 'v5_single', floor_id: 'f1' }), png: 'AA==' } }); expect(await p).toBe('지도 형식 이상');   // 단층 지도(형식은 맞음)를 건물로 표시 0
+  { const S = I({ map_source: 'slam', epoch: 2, map_version: '20261014-100000-e2' }); p = M.getMap(S as any); reply({ map: { ...S, epoch: 3, png: 'AA==' } }); expect(await p).toBe('지도 형식 이상'); }   // 다른 epoch
+  p = M.getMap(I() as any); reply({ map: { ...I({ origin: [-20, -14, 0.5] }), png: 'AA==' } }); expect(await p).toContain('회전');
+  p = M.getMap(I() as any); { const z = last(sent); msg({ op: 'reply', rid: z.rid, ok: false, text: '지도 · 지도 없음' }); } expect(await p).toBe('지도 · 지도 없음');
+  expect(M.mapLabel(I() as any)).toContain('시뮬 도면 지도');
+});
+
+test('checkStatus: views 형식 틀림 → 그 뷰만 버림(상태·조종 관문 유지)', () => {
+  const V = (points: any, follow: any = { st: 'ok', why: '', seq: 1, age_s: 0.1 }) => { const m: any = ST({ views: { points, follow } }); return [L.checkStatus(m), m.views]; };
+  expect(V({ st: 'ok', why: '', seq: 3, age_s: 0.2 })[1].points.seq).toBe(3);
+  for (const bad of [{ st: 'ok', why: '', seq: 0, age_s: 0.2 }, { st: 'ok', why: '', seq: 1.5, age_s: 0.2 }, { st: 'ok', why: '', seq: 3, age_s: -1 }, { st: 'ok', why: '', seq: 3, age_s: Infinity },
+    { st: 'great', why: '', seq: 3, age_s: 0 }, { st: 'ok', seq: 3, age_s: 0 }, 'x', null,
+    ...[{ reason: 1, n_pub: 0, enabled: true }, { reason: 'ok', n_pub: -1, enabled: null }, { reason: 'ok', n_pub: 0, enabled: 'yes' }, 'x'].map((prod) => ({ st: 'off', why: '', seq: null, age_s: null, prod }))]) {
+    const [why, v] = V(bad); expect(why).toBe(null); expect(v.points).toBe(null); expect(v.follow.seq).toBe(1);
+  }
+  const m: any = ST({ views: 'x' }); expect(L.checkStatus(m)).toBe(null); expect(m.views).toBe(null);
+  expect(V({ st: 'off', why: '', seq: null, age_s: null, prod: { reason: 'sim_t_unknown', n_pub: 0, enabled: null } })[1].points.prod.reason).toBe('sim_t_unknown');   // 발행 쪽 진단 통과
+});
+
+test('checkStatus follow /2 run: run_id 소문자 hex 정확히 32자만(끝 개행·대문자·31/33자·null 거부), 틀리면 그 뷰만 버림', async () => {
+  const { runId } = await import('../../src/data/fmt');
+  const R = '0123456789abcdef'.repeat(2), RUN = { run_id: R, epoch: 1, world_id: 'v5_building', building_id: 'v5', mode: 'slam' };
+  const F = (run: any) => { const m: any = ST({ views: { points: null, follow: { st: 'ok', why: '', seq: 1, age_s: 0.1, run } } }); return [L.checkStatus(m), m.views.follow]; };
+  expect(runId(R)).toBe(true); expect(F(RUN)[1].run.run_id).toBe(R); expect(F(null)[1].seq).toBe(1);
+  for (const id of [R + '\n', R + '\r\n', '\n' + R, R.toUpperCase(), R.slice(1), R + 'a', null, undefined, 32]) {
+    expect(runId(id)).toBe(false);
+    const [why, f] = F({ ...RUN, run_id: id }); expect(why).toBe(null); expect(f).toBe(null);
+  }
+  for (const run of [{ ...RUN, epoch: true }, { ...RUN, epoch: 0 }, { ...RUN, mode: 'x' }, 'x']) expect(F(run)[1]).toBe(null);
+  // raw 라이다 칸: 같은 검사, 없는 서버(칸 없음) = null, 틀리면 그 칸만 버림(조종 상태 통과)
+  const G = (lidar: any) => { const m: any = ST({ views: { points: null, follow: null, ...(lidar === 'absent' ? {} : { lidar }) } }); return [L.checkStatus(m), m.views.lidar]; };
+  expect(G({ st: 'ok', why: '', seq: 3, age_s: 0.4, run: RUN })[1].seq).toBe(3);
+  expect(G('absent')).toEqual([null, null]);
+  for (const bad of [{ st: 'ok', why: '', seq: 3, age_s: 0.4, run: { ...RUN, run_id: R + '\n' } }, { st: 'x', why: '', seq: 3, age_s: 0.4, run: RUN }, { st: 'ok', why: '', seq: true, age_s: 0.4, run: RUN }])
+    expect(G(bad)).toEqual([null, null]);
+});
+
+test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·늦은 응답 모두 명령 0, 돌아와도 자동 복원 0', async () => {
+  L.setProvider('simulation_gate'); L.sendOp('take'); msg(ST());
+  expect(L.press('pv', 7, { fx: 1, fy: 0, fw: 0 })).toBe(true); step(120);
+  expect(cmds().some((m) => m.fx === 1)).toBe(true);                                       // 시뮬 누름 실제 발행 확인(반례 전제)
+  (globalThis as any).confirm = () => true;
+  const late = L.ask('map_list'); const q = last(sent); expect(q.op).toBe('map_list');
+  const g0 = L.useLink.getState().gen, n = sent.length;
+  L.setProvider('go2_direct');
+  expect(sent.slice(n).map((m) => m.op)).toEqual(['hidden']);                                // 떠날 때 조종권 해제 1번만
+  expect(L.useLink.getState()).toMatchObject({ provider: 'go2_direct', viewOnly: true }); expect(L.useLink.getState().gen).toBe(g0 + 1);
+  const n2 = sent.length;
+  expect(L.move('pv', 7, { fx: 1, fy: 0, fw: 0 })).toBe(false);                             // 옛 pointerMove
+  msg(ST({ role: 'control' }));                                                              // 옛 WS status(서버가 아직 control)
+  // 실기 대상: 시뮬 status·영상·길은 화면 상태로 안 나감(위치·영상·단계·지도 표시 0)
+  expect(L.useLink.getState().st).toBe(null); expect(L.TRAIL.pts.length).toBe(0); expect(L.camURL).toBe(null);
+  msg(ST({ sim: { x: 5, y: 1, yaw: 0, vx: 0, vy: 0, tilt_deg: 0, fallen: false, body_still: true }, cam_age: 0.1 })); sock.onmessage({ data: new Blob([new Uint8Array([0xff, 0xd8])]) });
+  expect(L.useLink.getState().st).toBe(null); expect(L.TRAIL.pts.length).toBe(0); expect(L.camURL).toBe(null);
+  { const v = L.linkView(L.useLink.getState()); expect([v.linkOk, v.s, v.robot, v.camOk, v.latch]).toEqual([false, null, null, false, false]); expect(v.linkTxt).toMatch('실기'); }
+  expect(await L.startSimAsk(ST() as any)).toMatch('실기 대상');
+  msg({ op: 'reply', rid: q.rid, ok: true, text: '', maps: [] });                            // 늦은 응답
+  expect((await late).ok).toBe(false);
+  expect(L.press('pv2', 8, { fx: 1, fy: 0, fw: 0 })).toBe(false); expect(L.driveBlock()).toMatch('실기 모드');
+  expect(L.sendStop()).toBe(false); expect(L.sendOp('take')).toBe(false); expect((await L.ask('sim_stop')).text).toMatch('실기 모드');
+  step(500); expect(sent.length).toBe(n2);                                                   // 실기 모드: 시뮬 WS 송신 0(cmd 0 포함)
+  L.setProvider('simulation_gate'); msg(ST({ role: 'control' }));
+  expect(L.useLink.getState().viewOnly).toBe(true); step(300);
+  expect(sent.slice(n2).filter((m) => m.op !== 'hidden')).toEqual([]);                       // 돌아와도 take·resume·cmd 자동 0
+  expect(L.press('pv3', 9, { fx: 1, fy: 0, fw: 0 })).toBe(false);
+});
+
+test('끊긴 연결의 요청은 끊김 순간 실패 — 새 연결의 정상 응답 뒤에 늦은 «서버 응답 없음»이 덮지 않음(10-15 map_list), stGen 은 유효 status 뒤에만', async () => {
+  const reopen = async () => { const old = sock; step(1000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve(); sock.readyState = 1; sock.onopen(); };
+  const ready = () => { const s = L.useLink.getState(); return s.open && s.stGen === s.gen; };
+  await reopen(); msg(ST()); expect(ready()).toBe(true);
+  const done: string[] = [], tag = (k: string, p: Promise<any>) => p.then((r) => { done.push(`${k}:${r.ok}:${r.text}`); });
+  tag('A', L.ask('map_list')); sock.onclose({ code: 1011 }); await Promise.resolve();          // 관문이 upstream 없이 닫음
+  expect(done).toEqual(['A:false:연결 끊김 — 응답 못 받음']);                                    // 5 s 기다리지 않고 바로
+  await reopen(); expect(ready()).toBe(false);                                                  // 열렸지만 이 연결의 status 전 = 자동 조회 대상 아님
+  tag('B', L.ask('map_list')); sock.onclose({ code: 1011 }); await Promise.resolve();
+  await reopen(); msg(ST()); expect(ready()).toBe(true);
+  const c = L.ask('map_list'); tag('C', c); const q = last(sent); expect(q.op).toBe('map_list');
+  msg({ op: 'reply', rid: q.rid, ok: true, text: '', maps: [] }); await c;
+  step(10000); await Promise.resolve();
+  expect(done).toEqual(['A:false:연결 끊김 — 응답 못 받음', 'B:false:연결 끊김 — 응답 못 받음', 'C:true:']);   // 마지막 결과 = 정상 목록
+  expect(done.some((d) => d.includes('서버 응답 없음'))).toBe(false);
+});
+
+test('지도 목록 loadList: 서버 확인 전 0·같은 세대 겹침 0·늦은 A(성공/실패)·대상 전환·화면 닫힘 뒤 결과 채택 0, 실패 뒤 다시 불러오기 1회 회복·자동 재시도 0', async () => {
+  const M = await import('../../src/data/maps');
+  const reopen = async () => { const old = sock; sock.onclose({ code: 1006 }); step(1000); for (let i = 0; i < 10 && sock === old; i++) await Promise.resolve(); sock.readyState = 1; sock.onopen(); };
+  const defer = () => { let r!: (v: any) => void; const p = new Promise<any>((x) => { r = x; }); return { p, r }; };
+  const flush = async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); };
+  const A_OK = [{ a: 1 }] as any, B = [{ b: 1 }] as any;
+  await reopen();
+  { const q = { n: 0, busy: null }, got: any[] = [], set = (v: any) => got.push(v);
+    expect(M.loadList(q, set, () => Promise.resolve(B))).toBe(false);            // 열렸지만 이 연결 status 전 — 안 보냄
+    msg(ST()); await flush(); expect(got).toEqual([]); }
+  for (const lateA of [A_OK, '서버 응답 없음(5 s)']) {                            // A 열림 중 조회 보류 → 새 세대 B 성공 → 늦은 A 성공/실패 둘 다 B 불변
+    const q = { n: 0, busy: null as number | null }, got: any[] = [], set = (v: any) => got.push(v), a = defer();
+    expect(M.loadList(q, set, () => a.p)).toBe(true);
+    expect(M.loadList(q, set, () => Promise.resolve(B))).toBe(false);            // 같은 세대 진행 중 → 겹쳐 보내지 않음
+    await reopen(); q.n++; msg(ST());                                             // 화면 effect 정리(세대 변경) 흉내
+    expect(M.loadList(q, set, () => Promise.resolve(B))).toBe(true); await flush();
+    a.r(lateA); await flush();
+    expect(got).toEqual([B]);
+  }
+  { const q = { n: 0, busy: null as number | null }, got: any[] = [], a = defer();   // 대상 전환(시뮬 → 실기 → 시뮬): 옛 대상 요청 결과 버림
+    expect(M.loadList(q, (v) => got.push(v), () => a.p)).toBe(true);
+    L.setProvider('go2_direct'); L.setProvider('simulation_gate'); msg(ST());
+    a.r(A_OK); await flush(); expect(got).toEqual([]); }
+  { const q = { n: 0, busy: null as number | null }, got: any[] = [], a = defer();   // 같은 세대 늦은 이전 load: 화면 닫힘·무효(n++) 뒤 도착 → 버림
+    expect(M.loadList(q, (v) => got.push(v), () => a.p)).toBe(true); q.n++;
+    a.r(A_OK); await flush(); expect(got).toEqual([]); }
+  { const q = { n: 0, busy: null as number | null }, got: any[] = [], set = (v: any) => got.push(v);   // 실 ask: 응답 없음 → 실패 표시 → 버튼 1회 → 회복
+    const nList = () => sent.filter((m) => m.op === 'map_list').length, n0 = nList();
+    expect(M.loadList(q, set)).toBe(true); step(5000); await flush();
+    expect(got).toEqual(['서버 응답 없음(5 s)']); step(20000); await flush(); expect(nList()).toBe(n0 + 1);   // 자동 재시도 0
+    expect(M.loadList(q, set)).toBe(true); const r = last(sent); expect(r.op).toBe('map_list');
+    msg({ op: 'reply', rid: r.rid, ok: true, text: '', maps: [] }); await flush();
+    expect(got).toEqual(['서버 응답 없음(5 s)', []]); expect(nList()).toBe(n0 + 2); }
+});
+
+test('B2 발견: 실기→시뮬 복귀 직후(열림·신선한 lastMsg·st null) linkView 가 죽지 않고 «상태 수신 대기» · 명령 관문은 그대로 막음', () => {
+  L.setProvider('go2_direct'); L.setProvider('simulation_gate');
+  L.useLink.setState({ open: true, lastMsg: performance.now(), authEnd: false, bad: null });
+  const s = L.useLink.getState(); expect(s.st).toBe(null);
+  const v = L.linkView(s);
+  expect(v.linkTxt).toBe('상태 수신 대기'); expect([v.latch, v.simBlock, v.camOk, v.s]).toEqual([false, '', false, null]);
+  expect(L.driveBlock()).toMatch('상태 미확인');
+});
