@@ -4,7 +4,8 @@ import { Photo } from '../app/Photo';
 import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
-import { NOMOVE, RELURCH, TERMS, TRIAL, WHY } from '../data/facts';
+import { NOMOVE, RELURCH, TERMS, TRIAL_DEV, TRIAL_SAFE, WHY } from '../data/facts';
+import { HeadChips } from '../app/status';
 import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, startBlock, startDrive, startTxt, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
 import { pickWp, modDone, modTxt, shoot, runHere } from '../data/run';
@@ -106,11 +107,14 @@ export default function Main() {
 
   const vals = {
     themeClass: themeClass(true), stopProps,
-    siteLine: `${TRIAL} · 판 ${L.firstVer || '—'}`,
+    // U1-b: 진단(Gazebo·판)은 개발자 모드에서만 · 안전 문구(낙상·정지 지연 미검증)는 U2 대체 전까지 늘 보임
+    siteNode: <><span data-dev>{`${TRIAL_DEV} `}</span>{TRIAL_SAFE}<span data-dev>{` · 판 ${L.firstVer || '—'}`}</span></>,
     stepTitle: R ? `수동 임무 «${R.name}» · 방문 ${vis}/${R.wps.length}` : '직접 조종 · 진행 중 수동 임무 없음',
     modeLabel: mode, modeBg: `var(--${ctl && !v.latch ? 'acc-bg' : v.linkOk ? 'warn-bg' : 'bad-bg'})`, modeFg: `var(--${ctl && !v.latch ? 'accent' : v.linkOk ? 'warn' : 'bad'})`,
     // B2 R16: 같은 사실은 한 곳 — 링크 끊김은 모드 칸, 위치는 지도 제목, 영상은 RGB 칸, 배터리·온도(늘 미연결)와 앱↔관문 원값은 «상태 상세»
-    chips: [...(v.linkOk ? [chip('링크', v.linkTxt, !st?.sim_block)] : []), ...(v.linkOk && !rtt.ok ? [chip('앱↔관문', rtt.txt.replace('앱↔관문 ', ''), false)] : []),
+    // U1-b: 링크 칩은 공통 머리줄 칩(시뮬·연결·역할·잠금)으로 — 앱↔관문·단계는 그대로(U2)
+    head: <HeadChips />,
+    chips: [...(v.linkOk && !rtt.ok ? [chip('앱↔관문', rtt.txt.replace('앱↔관문 ', ''), false)] : []),
       chip('단계', stg.stop ? `${STEPS[stg.i]} · ${stg.stop}` : `${STEPS[stg.i]} · 다음 ${stg.next}`, !stg.stop && stg.i === 3)],
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelAsk: true, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,

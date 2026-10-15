@@ -27,7 +27,7 @@ export default function PcRobot() {
     themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
     hdrA: '로봇', hdrB: 'Go2 시뮬 · foothold-v2 Gazebo(실기 아님)',
     pill: `${v.linkOk ? '●' : '▲'} 링크 ${v.linkTxt}`, pillStyle: v.linkOk ? undefined : { color: 'var(--warn)', background: 'var(--warn-bg)' },
-    role: <span className="lbl">{`조종권: ${v.roleTxt}`}</span>,
+    role: <></>,   // U1-b: 조종권은 머리줄 역할 칩 한 곳(null 이면 view 기본 문구가 나와 빈 조각)
     bodyH: 'v2 시뮬 상태 원값 · 모터 온도·보행 모드 미제공', noSvg: true,
     bodyRows: rows([[s ? 'ok' : 'off', '몸', v.body], ['off', '보행 모드', '미제공'], ['off', '다리 모터 온도', '미제공'],
       [!s ? 'off' : s.fallen === true ? 'warn' : 'ok', '넘어짐', f(String(s?.fallen ?? '미확인'))], [s ? 'ok' : 'off', '기울기', f(num(s?.tilt_deg, 1, '°'))],

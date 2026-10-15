@@ -15,6 +15,7 @@ import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { BAND_H, PORTRAIT, useDriveScreen, useFitPhone, useGateRtt, useStick } from '../app/drive';
 import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
+import { DevMark, DevSwitch } from '../app/chip';
 import { auth, logoutNow } from '../data/auth';
 
 // R03 세로: 조종 틀(0.56 배 축소) 밖 아래 띠에 STOP(전폭·64 px)·현황·사진·메뉴(48 px)를 원래 크기로. 틀 안 STOP 은 세로에서만 숨김 —
@@ -133,7 +134,7 @@ export default function MDrive() {
     poseP: { ...why(`자세 — ${WHY['후진·제자리 회전·옆걸음·저속·자세']}`), style: { display: 'none' } }, backT: '현황',   // 자세(미지원)·속도·현황은 서랍
     // 아래 가운데 행동 칸: 다음 행동 1개 + (조종 중) 조종권 반납 — take/resume 은 «조종 시작» 하나(확인 1회, N1)
     give: <>{act && !list && <span data-act="1" style={{ display: 'contents' }}>{act}</span>}{ctl && <button type="button" className="pill" onClick={() => sendOp('release')}>조종권 반납</button>}</>,
-    simOff: null,   // Gazebo 끄기는 서랍(로봇 STOP 아님 문구 그대로)
+    simOff: <DevMark />,   // Gazebo 끄기는 서랍(로봇 STOP 아님 문구 그대로) · U1-b: 이 칸엔 개발자 모드 켜짐 표시(누르면 끔)만
   };
   const drawer = menu && <Drawer title="안내 · 설정" onClose={() => setMenu(false)}>
     <a className="pill" href={href('MHome')}>현황으로</a>
@@ -142,6 +143,7 @@ export default function MDrive() {
     <p>{`${TRIAL} · 배터리·온도 미연결 · 링크 왕복 ${rtt.txt} · ${s ? `${v.body} · 기울기 ${num(s.tilt_deg, 0, '°')}` : v.body}`}</p>
     <button type="button" onClick={fsToggle}>{fsOn ? '전체화면 닫기' : '전체화면(웹 · 앱은 원래 전체 화면)'}</button>
     <SimOff />
+    <DevSwitch text />
     <button type="button" onClick={() => { if (ctl) return toast('조종 중에는 바꾸지 않습니다 — 조종권 반납 뒤'); const nx = LAYOUTS[(LAYOUTS.indexOf(lay) + 1) % LAYOUTS.length]; if (!store.set('fh.live.layout', nx)) toast('저장 실패 — 이번만 적용'); setLay(nx); }}>{`막대 배치: ${lay} (눌러 바꾸기)`}</button>
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
     <button type="button" onClick={cycle}>{`화면 나누기: ${miniOn ? SPLIT_TXT[split] : '작은 지도 접힘(영상 크게)'} (눌러 바꾸기)`}</button>

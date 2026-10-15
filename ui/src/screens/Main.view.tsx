@@ -30,7 +30,7 @@ export function View({ v }: { v: Vals }) {
           <div style={{"display":"flex","flexDirection":"column","gap":"2px","minWidth":"0"}}>
             {" "}
             <span style={{"fontSize":"12px","color":"var(--muted)"}}>
-              {iv(v.siteLine)}
+              {v.siteNode ?? iv(v.siteLine)}
             </span>
             {" "}
             <span style={{"fontSize":"17px","fontWeight":"600"}}>
@@ -62,6 +62,7 @@ export function View({ v }: { v: Vals }) {
               </div>
               {" "}
             </Fragment>))}
+            {v.head ?? null}
             {" "}
           </div>
           {" "}
