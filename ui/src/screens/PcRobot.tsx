@@ -1,7 +1,7 @@
 // PC 로봇(원본 카드 틀): 시뮬 상태·연결·센서/보기·정지 계층.
 // U4-b: 값 없는 줄만 동적으로 접고(넘어짐·오래됨·잠금은 상시), 예시·추정 값 0, 진단(판 해시·원값·JSON)은 개발자 모드. 자세 명령은 보내지 않는다.
 import { CSS, View } from './PcRobot.view';
-import { deg, num, ok, posTxt, saveBlob, themeClass } from '../data/fmt';
+import { deg, num, ok, posTxt, saveBlob, sgn, themeClass } from '../data/fmt';
 import { RELURCH, RELURCH_OBS, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP, TRIAL_SAFE, WHY } from '../data/facts';
 import { linkView, stateRows, useLink } from '../data/link';
 import { useDocs } from '../data/shared';
@@ -21,7 +21,9 @@ const block = (its: It[], top0 = true) => { const on = its.filter((x) => x[2] !=
   return <>{rows(on, top0)}{off.length > 0 && <details data-none=""><summary className="lbl" style={{ padding: '8px 0', cursor: 'pointer' }}>{`값 없는 줄 ${off.length}개 ›`}</summary>{rows(off, false)}</details>}</>; };
 const OFF = { hidden: true, 'aria-hidden': true, tabIndex: -1 };   // B2 R11: 미연결·미검증 기능은 버튼 모양 0 — 숨기고 글로 설명
 const VIEWS: [k: 'follow' | 'lidar' | 'points', name: string][] = [['follow', '외부 3인칭 영상'], ['lidar', '라이다(센서 기준)'], ['points', '지도 누적 점군']];
-// B2(715): 계약 ViewSrc.st off = «미수신»(꺼짐 아님) — 받은 것 없음(warn). «꺼짐»은 명시 설정(follow prod.enabled === false)일 때만
+// B2(715): 계약 ViewSrc.st off = «미수신»(꺼짐 아님) — 받은 것 없음(warn).
+// B2-R(715): prod.enabled 는 run/epoch 결속이 없는 최근 발행 진단(계약 ViewProd) — false 여도 «꺼짐» 확정 0, 받은 것 없음 + 최근 진단 + 지금 실행 미확인(warn)
+const OFF_DIAG = '최근 발행 진단: 외부카메라 끔(지금 실행인지 미확인)';
 const VST: Record<string, [Lv, string]> = { ok: ['ok', '시뮬이 보냄'], stale: ['warn', '오래됨'], bad: ['warn', '오류'], off: ['warn', '받은 것 없음'] };
 // B3(715): 줄 값 = 그 줄의 필드 중 실제로 받은(유한 숫자, 0 포함) 것만 — 전부 없음 = null(접힘·warn), 일부만 = 받은 부분 보존 + 나머지 «미확인»(warn), 전부 = ok
 const part = (fs: unknown[], txt: string): [Lv, string | null] => { const n = fs.filter(ok).length; return [n === fs.length ? 'ok' : 'warn', n ? txt : null]; };
@@ -32,13 +34,13 @@ export default function PcRobot() {
   // B1(715): 잠금·보기 확정은 «현재 연결에서 받은 유효 status»가 있을 때만 — 머리줄 headChips 의 known(linkOk·bad 없음·st 있음) + 이 연결 세대(stGen === gen). 아니면 «확인 안 됨»(warn)
   const known = v.linkOk && !L.bad && !!st && L.stGen === L.gen;
   const latch: [Lv, string] = !known ? ['warn', '잠금 확인 안 됨'] : v.latch ? ['warn', '잠금 켜짐'] : ['ok', '잠금 꺼짐'];
-  const tilt = part([s?.tilt_deg], num(s?.tilt_deg, 1, '°')), spd = part([s?.vx, s?.vy], `${num(s?.vx)} · ${num(s?.vy)} m/s`), pos = part([s?.x, s?.y, s?.yaw], `${posTxt(s?.x, s?.y)} · ${deg(s?.yaw)}`);
+  const tilt = part([s?.tilt_deg], num(s?.tilt_deg, 1, '°')), spd = part([s?.vx, s?.vy], `${num(s?.vx)} · ${num(s?.vy)} m/s`), pos = part([s?.x, s?.y, s?.yaw], `${ok(s?.x) && ok(s?.y) ? posTxt(s?.x, s?.y) : `x ${sgn(s?.x, 2, ' m')} · y ${sgn(s?.y, 2, ' m')}`} · ${deg(s?.yaw)}`);   // B3-R: 축별 — 받은 축(0 포함) 보존, 빠진 축만 미확인
   // 보기(시뮬이 보내는 화면 자료) — 서버가 받은 상태 그대로(views[k].st). 실기 센서 연결·건강 판정 아님. 서버가 이 보기를 안 주면(이전 판) 줄 없음
   const vs = st?.views as Record<string, { st: string; why: string; age_s: number | null } | null | undefined> | undefined;
   const viewRows: It[] = VIEWS.flatMap(([k, n]): It[] => { const x = vs?.[k] as ({ st: string; why: string; age_s: number | null; prod?: { enabled?: boolean | null } | null } | null | undefined); if (!known) return [['warn', n, '확인 안 됨', true]]; if (!x) return [];
-    if (x.st === 'off' && k === 'follow' && x.prod?.enabled === false) return [['off', n, '꺼짐 · 이번 지도 시뮬에서 외부카메라 끔', true]];   // 명시 설정만 «꺼짐»
     const [lv, t] = VST[x.st] ?? ['warn', '확인 안 됨'], w = x.why && !(x.st === 'off' && x.why === t) ? ` · ${x.why}` : '';
-    return [[lv, n, `${t}${x.st === 'ok' && x.age_s != null ? ` · ${x.age_s.toFixed(1)} s 전` : ''}${x.st !== 'ok' ? w : ''}`, true]]; });
+    const dg = x.st === 'off' && k === 'follow' && x.prod?.enabled === false ? ` · ${OFF_DIAG}` : '';   // B2-R: 진단은 덧붙이기만(톤·«꺼짐» 확정 0)
+    return [[lv, n, `${t}${x.st === 'ok' && x.age_s != null ? ` · ${x.age_s.toFixed(1)} s 전` : ''}${x.st !== 'ok' ? w : ''}${dg}`, true]]; });
   const vals = {
     themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(v3 §3) — Main·PcMap 과 같음

@@ -98,7 +98,7 @@ test('B1: 유효 status 가 현재 연결에 없으면(형식 오류·st 없음�
   fresh({ latch: false }); put({ gen: 2, stGen: 2 }); o = ops(html()); expect(row(o, '앱 STOP → 서버')).toBe('잠금 꺼짐'); expect(tone(o, '앱 STOP → 서버')).toBe('ok');
 });
 
-test('B2: 보기 off = 미수신 «받은 것 없음»(warn) · 꺼짐은 외부카메라 명시 끔(prod.enabled false)만 · why 중복 0 · 키 전환 대기도 받은 것 없음', () => {
+test('B2: 보기 off = 미수신 «받은 것 없음»(warn) · 꺼짐 확정 0(명시 false 는 B2-R 시험) · why 중복 0 · 키 전환 대기도 받은 것 없음', () => {
   const off = (why: string, prod: unknown = null) => ({ st: 'off', why, seq: null, age_s: null, prod });
   fresh({ views: { follow: off('받은 것 없음', { reason: null, n_pub: 0, enabled: true }), points: off('받은 것 없음'), lidar: off('') } });
   let o = ops(html());
@@ -107,8 +107,27 @@ test('B2: 보기 off = 미수신 «받은 것 없음»(warn) · 꺼짐은 외부
   expect(o).not.toMatch(/>꺼짐/);
   fresh({ views: { follow: off('받은 것 없음', { reason: null, n_pub: 0, enabled: null }), points: off('키 바뀜 — 새 자료 기다림'), lidar: null } });   // enabled 모름·전환 대기
   o = ops(html()); expect(row(o, '외부 3인칭 영상')).toBe('받은 것 없음'); expect(row(o, '지도 누적 점군')).toBe('받은 것 없음 · 키 바뀜 — 새 자료 기다림');
-  fresh({ views: { follow: off('받은 것 없음', { reason: null, n_pub: 0, enabled: false }), points: off('받은 것 없음') } });   // 명시 끔
-  o = ops(html()); expect(row(o, '외부 3인칭 영상')).toBe('꺼짐 · 이번 지도 시뮬에서 외부카메라 끔'); expect(tone(o, '외부 3인칭 영상')).toBe('off'); expect(row(o, '지도 누적 점군')).toBe('받은 것 없음');
+});
+
+test('B2-R: prod.enabled=false 는 run/epoch 결속 없는 최근 발행 진단 — «꺼짐» 확정 0 · 받은 것 없음 + 최근 진단 + 지금 실행 미확인(warn) · reset/hold·전환·지연 prod 반례', () => {
+  const DG = '최근 발행 진단: 외부카메라 끔(지금 실행인지 미확인)', F0 = { reason: null, n_pub: 0, enabled: false };
+  const off = (why: string, prod: unknown = null, run: unknown = null) => ({ st: 'off', why, seq: null, age_s: null, prod, run });
+  const RUN = { run_id: 'a'.repeat(32), epoch: 2, world_id: 'w', building_id: 'b', mode: 'slam' };
+  const cases: [string, Record<string, unknown>, string][] = [
+    ['명시 false · run 없음', { views: { follow: off('받은 것 없음', F0), points: off('받은 것 없음') } }, `받은 것 없음 · ${DG}`],
+    ['reset/hold · run null · 이전 실행 진단 잔존', { reset_pending: true, views: { follow: off('받은 것 없음', F0, null), points: off('받은 것 없음') } }, `받은 것 없음 · ${DG}`],
+    ['전환 · 새 run 결속 + 지난 prod', { views: { follow: off('키 바뀜 — 새 자료 기다림', { reason: 'no_frame', n_pub: 12, enabled: false }, RUN), points: off('받은 것 없음') } }, `받은 것 없음 · 키 바뀜 — 새 자료 기다림 · ${DG}`],
+  ];
+  for (const [, x, want] of cases) {
+    fresh(x); const o = ops(html());
+    expect(row(o, '외부 3인칭 영상')).toBe(want); expect(tone(o, '외부 3인칭 영상')).toBe('warn'); expect(o).not.toMatch(/>꺼짐/); expect(o).not.toContain('이번 지도 시뮬에서 외부카메라 끔');
+  }
+  // 지연 prod: 지금 영상이 오는데(ok) 지난 진단 false — 진단 덧붙임 0, 받은 상태 그대로
+  fresh({ views: { follow: { st: 'ok', why: '', seq: 4, age_s: 0.3, prod: F0, run: RUN }, points: off('받은 것 없음') } });
+  let o = ops(html()); expect(row(o, '외부 3인칭 영상')).toBe('시뮬이 보냄 · 0.3 s 전'); expect(tone(o, '외부 3인칭 영상')).toBe('ok');
+  // points·lidar 는 enabled 를 봐도 진단 덧붙임 0(follow 만)
+  fresh({ views: { follow: off('받은 것 없음'), points: off('받은 것 없음', F0), lidar: off('', F0) } });
+  o = ops(html()); expect(row(o, '지도 누적 점군')).toBe('받은 것 없음'); expect(row(o, '라이다(센서 기준)')).toBe('받은 것 없음');
 });
 
 test('B3: 측정값은 필드별 — null 만 접힘(warn) · 0 은 유효 · 일부만 받으면 받은 부분 보존 + 미확인(warn) · 값 오면 복원 · 미확인 글 정상 톤 0', () => {
@@ -118,6 +137,10 @@ test('B3: 측정값은 필드별 — null 만 접힘(warn) · 0 은 유효 · �
   expect(row(o, '기울기')).toBe('0.0°'); expect(tone(o, '기울기')).toBe('ok'); expect(row(o, '속도(앞 · 옆)')).toBe('0.00 · 0.00 m/s'); expect(tone(o, '위치 · 방향')).toBe('ok'); expect(o).toContain('값 없는 줄 2개 ›');
   fresh({ sim: { ...SIM, vy: null, yaw: null } }); o = ops(html());   // 혼합: 받은 부분 보존
   expect(row(o, '속도(앞 · 옆)')).toBe('0.10 · 미확인 m/s'); expect(tone(o, '속도(앞 · 옆)')).toBe('warn'); expect(row(o, '위치 · 방향')).toBe('x +1.00 · y +2.00 m · 미확인'); expect(tone(o, '위치 · 방향')).toBe('warn');
+  // B3-R: 위치 축별 — x 만/y 만/0 만 받아도 받은 축 보존, 빠진 축만 미확인(warn)
+  fresh({ sim: { ...SIM, y: null } }); o = ops(html()); expect(row(o, '위치 · 방향')).toBe('x +1.00 m · y 미확인 · 0°'); expect(tone(o, '위치 · 방향')).toBe('warn');
+  fresh({ sim: { ...SIM, x: null, yaw: null } }); o = ops(html()); expect(row(o, '위치 · 방향')).toBe('x 미확인 · y +2.00 m · 미확인'); expect(tone(o, '위치 · 방향')).toBe('warn');
+  fresh({ sim: { ...SIM, x: 0, y: null, yaw: null } }); o = ops(html()); expect(row(o, '위치 · 방향')).toBe('x +0.00 m · y 미확인 · 미확인');
   fresh({ sim: { ...SIM, x: null, y: null, yaw: null, vx: null, vy: null } }); o = ops(html());
   expect(row(unf(o), '위치 · 방향')).toBeUndefined(); expect(row(unf(o), '속도(앞 · 옆)')).toBeUndefined(); expect(o).toContain('값 없는 줄 4개 ›');
   fresh(); o = ops(html()); expect(row(o, '위치 · 방향')).toBe('x +1.00 · y +2.00 m · 0°'); expect(o).toContain('값 없는 줄 2개 ›');   // 복원
