@@ -72,12 +72,18 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     const r = await getMap(m); if (usePick.getState().sel !== key) return;   // 그사이 다른 지도를 골랐으면 버림
     if (typeof r === 'string') { toast(`지도 · ${r}`); setSerr(r); } else { setSaved(r); setSerr(''); }   // 실패해도 GT 로 자동 복귀 0 — 선택 유지 + 빈 칸 + 이유
   };
+  const asked = useRef(0), did = useRef<{ t: number; sel: string; maps: unknown } | null>(null);   // 고른 횟수(동기 ref) · 마지막으로 받기 시작한 (고름·선택·목록)
   const pick = (key: string) => {
-    usePick.setState({ sel: key, touched: true, auto: false }); setSaved(null); setHOn(false); setHr(null); setBound(null); setLwhy(''); setSerr(''); setGeo(null); setRq((n) => n + 1);
-    if (key !== LIVE && key && !key.startsWith('g3d:')) loadSaved(key, maps);
+    asked.current++; usePick.setState({ sel: key, touched: true, auto: false }); setSaved(null); setHOn(false); setHr(null); setBound(null); setLwhy(''); setSerr(''); setGeo(null); setRq((n) => n + 1);
   };
-  // 다른 화면에서 고른 저장 지도로 이 화면이 열림 → 목록이 오면 이 화면도 받아 그림
-  useEffect(() => { if (sel && sel !== LIVE && !sel.startsWith('g3d:') && !saved && Array.isArray(maps)) loadSaved(sel, maps); }, [sel, maps]);
+  // 저장 지도 받기는 이 effect 하나만(M① 670 P1: pick 직접 호출 + 이 effect = 한 번 고를 때 map_get 2개 → 둘째가 map_busy «처리 중»).
+  // 고름(rq) · 다른 화면에서 고른 지도로 열림(sel) · 목록 도착(maps) 때 1회. 같은 보기를 다시 고르면 rq 로 다시 받음.
+  // 공유 선택(zustand)과 rq 갱신이 두 렌더로 갈라져도(이벤트 밖 호출) 같은 (고름·선택·목록)은 한 번만 — did 대조
+  useEffect(() => {
+    if (!sel || sel === LIVE || sel.startsWith('g3d:') || saved || !Array.isArray(maps)) return;
+    const d = did.current; if (d && d.t === asked.current && d.sel === sel && d.maps === maps) return;
+    did.current = { t: asked.current, sel, maps }; loadSaved(sel, maps);
+  }, [sel, maps, rq]);
   // 건물 전체 3D: 고를 때·연결 세대 바뀔 때 1회 받음. 늦은 답은 선택·세대가 그대로일 때만
   useEffect(() => {
     if (!sel.startsWith('g3d:') || !linked) return;

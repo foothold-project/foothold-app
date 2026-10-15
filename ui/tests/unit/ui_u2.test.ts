@@ -285,6 +285,9 @@ test('M①: 진행 중 선택 변경·새 연결(still 거짓) → null(버림) 
   expect(code(pickSrc)).not.toMatch(/Promise\.all\(fs\.map\(getMap\)\)/);
   expect(code(pickSrc)).toMatch(/useEffect\(\(\) => \(\) => \{ allN\.current\+\+; \}, \[\]\);/);   // 화면 닫힘 = 남은 층 요청 0
   expect(code(pickSrc)).toMatch(/getFloors\(fs, \(\) => allN\.current === t0 && usePick\.getState\(\)\.sel === key && useLink\.getState\(\)\.gen === g0\)/);
+  // 670 P1(092830d QA): 한 번 고를 때 loadSaved 1회 — pick 직접 호출 0, effect 하나(rq 포함)만
+  expect(code(pickSrc).match(/loadSaved\(/g)?.length).toBe(1);
+  expect(code(pickSrc)).toMatch(/did\.current = \{ t: asked\.current, sel, maps \}; loadSaved\(sel, maps\);\s*\}, \[sel, maps, rq\]\);/);   // 보조 — 실제 단일 소유 판정은 ui_m1_mount(장착)
   expect(code(pickSrc)).toMatch(/if \(rs === null\) return;\s*\n\s*if \(typeof rs === 'string'\) \{ setSerr\(rs\); return; \}\s*\n\s*setSaved\(stackFloors\(rs,/);
 });
 
