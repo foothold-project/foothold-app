@@ -36,6 +36,10 @@ test('devSearch: dev 만 바꾸고 다른 쿼리 순서·인코딩 보존, 중�
   expect(D.devSearch('', true)).toBe('?dev=1');
   expect(D.devSearch('?a=%20b+c&dev=1&z', false)).toBe('?a=%20b+c&z&dev=0');
   expect(D.devSearch('?dev=1&dev=0&developer=1', true)).toBe('?developer=1&dev=1');
+  // D1: 읽기와 같은 디코드 키 — 인코딩된 dev 도 지움, 다른 쿼리(인코딩된 비 dev 키 포함)는 원문·순서 그대로
+  expect(D.devSearch('?%64ev=1', false)).toBe('?dev=0');
+  expect(D.devSearch('?de%76=1&a=%20&dev=0&%64ev', true)).toBe('?a=%20&dev=1');
+  expect(D.devSearch('?%64ev2=1&x=%64ev&b=%E0%A4%A&de%76=0', false)).toBe('?%64ev2=1&x=%64ev&b=%E0%A4%A&dev=0');
 });
 
 test('devStart: URL 이 저장값보다 우선 · 저장 막힘이어도 URL 로 켜짐 · <html> 클래스', () => {
@@ -51,6 +55,19 @@ test('스위치: 입력 폐기 → 즉시 전환 · 저장값과 주소 dev 만 
   expect(drop).toHaveBeenCalledTimes(1); expect(D.useDev.getState().on).toBe(false); expect(cls.has('fh-dev')).toBe(false);
   expect(store['fh.dev']).toBe('0'); expect(url).toBe('/app/?q=1&dev=0#/PcPlan?mission=m1&dev=1');   // hash 안 dev 는 건드리지 않음
   D.devStart(); expect(D.useDev.getState().on).toBe(false);   // 새로 열어도 꺼짐(URL 이 다시 켜지 않음)
+});
+
+test('D1: 인코딩된 dev 로 켠 뒤 끄면 주소에 켜는 값이 남지 않아 재진입도 꺼짐 · 혼합 중복', () => {
+  for (const [u, hash] of [['/?%64ev=1#/Main?dev=1', '#/Main?dev=1'], ['/?a=1&de%76=1&dev=1&%64%65%76=1#/Main', '#/Main']]) {
+    setUrl(u); store['fh.dev'] = '1'; D.devStart(); expect(D.useDev.getState().on).toBe(true);
+    expect(D.setDev(false)).toBe(null);
+    expect(new URLSearchParams(L.search).getAll('dev')).toEqual(['0']); expect(L.hash).toBe(hash);   // hash 안 dev 무접촉
+    D.devStart(); expect(D.useDev.getState().on).toBe(false);
+  }
+  expect(url).toBe('/?a=1&dev=0#/Main');
+  // 주소 반영 실패: 이 탭은 꺼지지만 주소에 켜는 값이 남음 → 안내 글로 알림(재진입 시 URL 우선은 기존 규칙)
+  setUrl('/?%64ev=1'); D.devStart(); blockUrl = true;
+  const t = D.setDev(false); expect(D.useDev.getState().on).toBe(false); expect(t).toContain('주소'); expect(t).toContain('이 탭에만');
 });
 
 test('저장·주소가 막혀도 이 탭은 전환되고 알릴 글을 돌려줌', () => {

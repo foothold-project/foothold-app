@@ -12,9 +12,11 @@ const bit = (v: string | null | undefined) => (v === '1' ? true : v === '0' ? fa
 export function devInit(search: string, saved: string | null): boolean {
   return bit(new URLSearchParams(search).get('dev')) ?? bit(saved) ?? false;
 }
-/** hash 바깥 쿼리에서 dev 만 바꾼다(다른 쿼리 순서·인코딩 그대로, 중복 dev 는 하나로) */
+/** hash 바깥 쿼리에서 dev 만 바꾼다(다른 쿼리 순서·인코딩 그대로, 중복 dev 는 하나로).
+ *  dev 판별은 읽기(devInit 의 URLSearchParams)와 같은 디코드 키 — ?%64ev=1 · ?de%76=1 도 dev 로 지운다(남으면 재진입 때 다시 켜짐) */
+const keyOf = (p: string) => new URLSearchParams(p).keys().next().value;
 export function devSearch(search: string, on: boolean): string {
-  const ps = search.replace(/^\?/, '').split('&').filter((p) => p && !/^dev(=|$)/.test(p));
+  const ps = search.replace(/^\?/, '').split('&').filter((p) => p && keyOf(p) !== 'dev');
   return `?${[...ps, `dev=${on ? 1 : 0}`].join('&')}`;
 }
 
