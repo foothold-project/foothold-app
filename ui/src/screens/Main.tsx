@@ -7,13 +7,14 @@ import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
 import { NOMOVE, RELURCH, TRIAL, WHY } from '../data/facts';
 import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, startTxt, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
-import { curWp, modDone, modTxt, shoot } from '../data/run';
+import { pickWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas, type MapApi } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { MULTI, useDriveScreen, useGateRtt, useHold } from '../app/drive';
 import { STEPS, stageOf } from '../data/drive_stage';
 import { EndRow, WpActs } from '../app/runui';
+import { useSel } from '../data/scratch';
 import { SimOff, stopOn, stopProps, toast, whyProps } from '../app/shell';
 import { autoProvider, ModePick, OpsQuad } from '../app/OpsQuad';
 
@@ -79,7 +80,8 @@ export default function Main() {
   const photo = async () => { const p = await shoot(); if (p) toast(`사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`} · «사진 검토»에서 분류`); };
 
   // 수동 임무(운영자 기록 · 로봇 자동 완료 아님)
-  const run = activeRun(D), R = run?.doc, ci = R ? curWp(R) : -1, w = R && ci >= 0 ? R.wps[ci] : null;
+  const sel = useSel((x) => { const r = activeRun(D); return r ? x[r.id] : undefined; });
+  const run = activeRun(D), R = run?.doc, ci = R ? pickWp(R, sel).i : -1, w = R && ci >= 0 ? R.wps[ci] : null;
   const vis = R ? R.wps.filter((x) => x.st === '방문').length : 0;
   const dist = w && v.robot?.fresh ? Math.hypot(v.robot.x - w.x, v.robot.y - w.y) : null;
   const ph = R ? R.wps.flatMap((x, i) => x.photos.map((u) => [u, i] as const)).slice(-3) : [];
@@ -169,7 +171,7 @@ export default function Main() {
       {ph.map(([u, i]) => <div key={u} title={`WP${i + 1} 사진`} style={{ aspectRatio: '4/3', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--line)' }}>
         <a href={href('PcReview', { url: u })}><Photo src={u} alt={`WP${i + 1} 사진`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}</div> : <></>,
     askLbl: ph.length ? `이 임무의 사진 · ${[...new Set(ph.map(([, i]) => `WP${i + 1}`))].join(' · ')}` : R ? '이 임무에 붙인 사진 없음 — «📷 사진»으로 지금 지점에 붙입니다' : '',
-    askActs: run ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{w && <WpActs id={run.id} i={ci} w={w} />}<EndRow id={run.id} /></div> : null,
+    askActs: run ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{R && <WpActs id={run.id} R={R} i={ci} />}<EndRow id={run.id} /></div> : null,
     // 사건 기록: 서버 원값 최근 5건
     evLink: '조종·사진 기록', evHref: href('PcHistory'),
     events: (st ? st.events : []).slice(0, 5).map((e) => ({ t: e.t, st: e.st, mark: MARK[e.st] || '·', text: e.text })),

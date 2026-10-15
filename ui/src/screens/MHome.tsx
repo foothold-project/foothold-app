@@ -7,8 +7,9 @@ import { CSS, View } from './MHome.view';
 import { durTxt, store, themeClass, tms, wpName } from '../data/fmt';
 import { activeRun, alertsOf, docsOf, useDocs, useMedia } from '../data/shared';
 import { TRAIL, linkView, useLink } from '../data/link';
-import { attachPhoto, curWp, modDone, modTxt, runEnd, startRun } from '../data/run';
+import { attachPhoto, pickWp, modDone, modTxt, runEnd, startRun } from '../data/run';
 import { useEditor } from '../data/editor';
+import { useSel } from '../data/scratch';
 import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
@@ -16,10 +17,16 @@ import { stopProps, toast } from '../app/shell';
 import { Btn, WpActs } from '../app/runui';
 
 const READ = 'fh.live.alerts.read';
+// R04 가로(높이 ≤ 500): 본문 안 «조종 화면»이 스크롤 아래로 밀리므로 STOP 줄 왼쪽에도 같은 링크(STOP 크기·위치 규칙은 그대로, 줄 왼쪽만 비움)
+const DRIVE_CSS = `.mh-drive{display:none}
+@media (orientation: landscape) and (max-height: 500px){
+.mh-drive{display:flex;align-items:center;justify-content:center;position:fixed;left:16px;bottom:18px;width:160px;height:64px;z-index:5;border-radius:12px;background:var(--accent);color:var(--on-accent);font-weight:700;text-decoration:none;box-sizing:border-box}
+#dc-root div[style*="padding: 8px 16px 18px"]:has(>button[aria-label="비상 정지"]){padding-left:192px!important}}`;
 export default function MHome() {
   const D = useDocs(), M = useMedia(), lk = linkView(useLink()), E = useEditor<Mission>('mission');
   const [endOpen, setEndOpen] = useState(false), [pick, setPick] = useState('');
-  const run = activeRun(D), R = run?.doc, ci = R ? curWp(R) : -1, w = R && ci >= 0 ? R.wps[ci] : null;
+  const sel = useSel((x) => { const r = activeRun(D); return r ? x[r.id] : undefined; });
+  const run = activeRun(D), R = run?.doc, ci = R ? pickWp(R, sel).i : -1, w = R && ci >= 0 ? R.wps[ci] : null;
   const ms = docsOf(D, 'mission'), mid = ms.some((m) => m.id === pick) ? pick : ms[0]?.id || '';
   const d = w && lk.robot?.fresh ? Math.hypot(lk.robot.x - w.x, lk.robot.y - w.y) : null;
   const vis = R ? R.wps.filter((x) => x.st !== '대기').length : 0;
@@ -53,10 +60,10 @@ export default function MHome() {
     tiles: w && <>{w.photos.slice(-2).map((u) => <div key={u} style={tile}><a href={href('MFinding', { url: u })}><Photo src={u} alt="붙인 사진" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}
       <div role="button" tabIndex={0} className="lbl" onClick={cam} onKeyDown={(e) => { if (e.key === 'Enter') cam(); }}
         style={{ aspectRatio: '4/3', borderRadius: '6px', border: '1.5px dashed var(--line2)', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>{`📷 ${wpName(w, ci).split(' ')[0]} 사진`}</div></>,
-    acts: run && w ? <WpActs id={run.id} i={ci} w={w} /> : null,
+    acts: run && R ? <WpActs id={run.id} R={R} i={ci} /> : null,
     pbP: { onClick: pb, disabled: !R && !ms.length }, pbT: R ? (endOpen ? '임무 끝내기 닫기' : '임무 끝내기…') : '수동 진행 시작',
     ends: run && endOpen ? <div style={{ padding: '0 14px' }}><div className="lv-row">{(['완료', '실패', '중단'] as const).map((s) =>
       <Btn key={s} pri={s === '완료'} t={`임무 ${s}`} on={() => runEnd(run.id, s)} />)}</div></div> : null,
   };
-  return <><style>{CSS}</style><div id="dc-root"><View v={v} /></div></>;
+  return <><style>{CSS + DRIVE_CSS}</style><div id="dc-root"><View v={v} /><a className="mh-drive" href={href('MDrive')}>조종 화면</a></div></>;
 }

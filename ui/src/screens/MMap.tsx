@@ -16,6 +16,11 @@ import { MapStartBox } from '../map/MapStartBox';
 import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
 
 
+// R04 가로(높이 ≤ 500): 틀 높이 = 화면(100dvh)이어도 «고른 목표» 칸(min-height auto)이 안 줄어 주 메뉴·STOP 이 화면 밖으로 밀림.
+// 이 화면이 열려 있을 때만·가로 낮은 화면에서만: 그 칸은 줄어들며 안에서 스크롤, 지도 칸은 최소 96 px 유지. 세로·PC 배치는 그대로
+const LAND_CSS = `@media (orientation: landscape) and (max-height: 500px){
+#dc-root section[aria-label="고른 목표"]{min-height:0!important;overflow-y:auto!important}
+#dc-root div:has(>svg[role="img"][preserveAspectRatio]){min-height:96px!important}}`;
 export default function MMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, api = useRef<MapApi | null>(null), busy = useRef(false);
   const { raster, pickEl, pose, live, on, blank, showLive, reload, flat, view, legend, v3d } = useMapPick(false);   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
@@ -67,5 +72,5 @@ export default function MMap() {
       {B(`구역 ${zon ? '숨기기' : '보이기'}`, () => setZon(!zon))}
       <p className="lv-note">{`${flat ? '시뮬 바닥 도면 ±10 m · ' : ''}Gazebo GT 위치(SLAM 지도 아님). ${ZONE_NOTE}`}</p>
     </Drawer>;
-  return <><style>{CSS}</style><div id="dc-root"><View v={{ ...v, drawer }} /></div></>;
+  return <><style>{CSS + LAND_CSS}</style><div id="dc-root"><View v={{ ...v, drawer }} /></div></>;
 }

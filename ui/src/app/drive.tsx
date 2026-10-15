@@ -68,22 +68,26 @@ export function useHold(id: string, p: Axes) {
 export function useDriveScreen() { useEffect(() => () => hide(), []); }
 
 /** 휴대폰 가로 화면 맞춤(live.js fitPhone): 시안 844×390 배치 그대로, 안전 영역 안에 비율 축소·가로 늘림 */
+/** R03 세로 띠: 축소하지 않는 아래 줄(현황·사진·메뉴 48 + STOP 64 + 틈 8×3). 세로에서는 조종 틀이 이 높이만큼 위에서 끝난다 */
+export const BAND_H = 136;
+export const PORTRAIT = '(orientation: portrait)';   // 띠 표시·틀 안 STOP 숨김(CSS)과 같은 조건 하나
 export function useFitPhone() {
   const root = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const probe = document.createElement('div'); probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
-    const tip = document.createElement('div'); tip.textContent = '가로로 돌려 쓰세요 · 세로에서는 작게 보입니다'; tip.setAttribute('role', 'note'); tip.className = 'lv-tip';
+    const tip = document.createElement('div'); tip.textContent = '가로로 돌리면 막대가 크게 보입니다 · STOP 은 아래 줄'; tip.setAttribute('role', 'note'); tip.className = 'lv-tip';
     tip.style.cssText = 'position:fixed;left:50%;top:38%;transform:translateX(-50%);z-index:60;padding:6px 12px;border-radius:8px;background:rgba(26,18,6,.92);color:#FFB547;font:600 13px/1.4 system-ui,sans-serif;pointer-events:none';
     // 세로 안내(tip)는 가운데 빈 영상 칸(top 38%) — 아래 막대·버튼 줄을 덮지 않게(실 APK 세로 412x842)
     document.body.append(probe, tip); const bg = document.body.style.background; document.body.style.background = '#05080A';
     const fit = () => {
       const el = root.current; if (!el) return;
       const cs = getComputedStyle(probe), px = (k: 'paddingLeft' | 'paddingTop' | 'paddingRight' | 'paddingBottom') => parseFloat(cs[k]) || 0;
-      const l = px('paddingLeft'), t = px('paddingTop'), W = innerWidth - l - px('paddingRight'), H = innerHeight - t - px('paddingBottom');
+      const por = matchMedia(PORTRAIT).matches;
+      const l = px('paddingLeft'), t = px('paddingTop'), W = innerWidth - l - px('paddingRight'), H = innerHeight - t - px('paddingBottom') - (por ? BAND_H : 0);
       const k = Math.min(1, H / 390, W / 700);
       Object.assign(el.style, { position: 'fixed', left: `${l}px`, top: `${t}px`, width: `${W / k}px`, height: `${H / k}px`, transform: k < 1 ? `scale(${k})` : '', transformOrigin: '0 0' });
       el.dataset.liveFit = `${Math.round(W)}x${Math.round(H)}@${k.toFixed(2)}`;
-      tip.style.display = innerHeight > innerWidth ? 'block' : 'none';
+      tip.style.display = por ? 'block' : 'none';
     };
     addEventListener('resize', fit); visualViewport?.addEventListener('resize', fit); fit();
     const raf = requestAnimationFrame(() => requestAnimationFrame(fit));

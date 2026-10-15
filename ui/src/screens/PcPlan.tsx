@@ -24,7 +24,7 @@ const chip = (k: string, val: string, good: boolean) => (
   <div className={`chip ${good ? 'ok' : 'warn'}`} key={k}><span className="mk">{good ? '●' : '▲'}</span><span style={{ color: 'var(--muted)' }}>{k}</span><span className="mono" style={{ fontWeight: 600 }}>{val}</span></div>);
 
 export default function PcPlan() {
-  const D = useDocs(), L = useLink(), lk = linkView(L), st = L.st, E = useEditor<Mission>('mission'), { q, setQ } = useRoute();
+  const D = useDocs(), L = useLink(), lk = linkView(L), st = L.st, E = useEditor<Mission>('mission', 'PcPlan'), { q, setQ } = useRoute();
   const [tool, setTool0] = useState<Tool>('add'), [wsel, setWsel] = useState<number | null>(null), [meas, setMeas] = useState<number[][]>([]);
   const want = q.get('mission') || '', shown = useRef<string | null>(null);   // shown: 주소에 이미 반영한 id(새로 저장된 id 만 주소에 씀)
   const blank = (): Mission => ({ name: '', tmpl: q.get('tmpl') || 'base', memo: '', wps: [] });
@@ -34,7 +34,7 @@ export default function PcPlan() {
   useEffect(() => {   // 고른 계획을 편집기에 · 다른 기기가 고친 새 판은 깨끗할 때만 반영 · 저장 뒤 주소에 id
     if (want && E.id !== want && !E.dirty) { const x = docById(D, want); if (x) { E.load(x); shown.current = x.id; setWsel(null); return; } }
     const sc = E.stale(D); if (sc && !E.dirty) E.load(sc);
-    if (E.id && E.id !== shown.current) { shown.current = E.id; if (want !== E.id) setQ('mission', E.id); }   // 저장(새 문서)으로 생긴 id 만 — 사용자가 연 주소는 덮지 않음
+    if (E.id && !E.dirty && E.id !== shown.current) { shown.current = E.id; if (want !== E.id) setQ('mission', E.id); }   // 저장(새 문서)으로 생긴 id 만 — 사용자가 연 주소는 덮지 않음 · 이어 편집 중인 초안(dirty)은 주소를 바꾸지 않음
   });
   useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (E.dirty) e.preventDefault(); }; addEventListener('beforeunload', f); return () => removeEventListener('beforeunload', f); }, [E]);
 
@@ -51,8 +51,8 @@ export default function PcPlan() {
   };
   const toZone = (ty: string) => {
     if (st?.role === 'control') return toast('조종 중입니다 — 조종권 반납 뒤 지도 화면으로');
-    if (E.dirty && !confirm('저장 안 한 계획 수정이 있습니다. 지도 화면으로 갈까요?')) return;
-    E.dirty = false; location.hash = href('PcMap', { draw: ty });
+    if (E.dirty) toast('저장 안 한 계획은 이 탭에 보관 — 계획 화면으로 돌아오면 이어서 편집');   // R02: 버리지 않음(확인창 대신 보관)
+    location.hash = href('PcMap', { draw: ty });
   };
   const loadPrev = () => {
     const r = docsOf(D, 'run')[0]; if (!r) return toast('지난 수동 진행 기록이 없습니다');

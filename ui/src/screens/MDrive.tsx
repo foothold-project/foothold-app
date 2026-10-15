@@ -13,10 +13,16 @@ import { Photo } from '../app/Photo';
 import { shoot } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
-import { useDriveScreen, useFitPhone, useGateRtt, useStick } from '../app/drive';
+import { BAND_H, PORTRAIT, useDriveScreen, useFitPhone, useGateRtt, useStick } from '../app/drive';
 import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
 import { auth, logoutNow } from '../data/auth';
 
+// R03 세로: 조종 틀(0.56 배 축소) 밖 아래 띠에 STOP(전폭·64 px)·현황·사진·메뉴(48 px)를 원래 크기로. 틀 안 STOP 은 세로에서만 숨김 —
+// 선택자는 축소 틀([data-live-drive]) 안으로 한정(띠 STOP 은 틀 밖이라 영향 0). 같은 stopProps(누르는 순간 STOP·래치 그대로). 가로 배치는 바뀌지 않음
+const BAND_CSS = `.drv-band{display:none}
+@media ${PORTRAIT}{.drv-band{display:flex;flex-direction:column;gap:8px;position:fixed;left:0;right:0;bottom:0;z-index:40;box-sizing:border-box;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#05080A;box-shadow:0 -1px 0 rgba(230,235,239,.25)}
+.drv-band>*{flex-shrink:0}.drv-band>div{display:flex;gap:8px}.drv-band>div>*{flex:1;justify-content:center;height:48px;text-decoration:none}
+[data-live-drive] button[aria-label="비상 정지"]{visibility:hidden}}`;
 const MOVE = '이동 막대: 앞뒤와 옆걸음', ROT = '회전 막대: 왼쪽 오른쪽', FB = '앞뒤 막대';
 const SIM_OFF = ['시뮬 상태 미수신', '시뮬 상태 끊김'];
 // ④ 화면 나누기(화면 배치만 저장): 영상 크게 → 반반 → 지도 크게. 작은 칸을 누르면 다음으로(전환 전 입력 폐기)
@@ -129,5 +135,8 @@ export default function MDrive() {
     <h3>현재 v2 연결에서 안 되는 것(미제공·미연결·미검증)</h3><dl>{UNSUP.map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>
     <p>{`주의: ${RELURCH} · 원인 미확인`}</p>
   </Drawer>;
-  return <><style>{CSS}</style><div id="dc-root" className="fh"><View v={vals} />{drawer}</div></>;
+  const band = <div className="drv-band" role="group" aria-label="세로 조종 줄">
+    <div><a className="pill" href={href('MHome')}>현황</a><button type="button" className="pill" onClick={photo}>📷 사진</button><button type="button" className="pill" onClick={() => setMenu(true)}>ⓘ 메뉴</button></div>
+    <button type="button" {...stopProps} style={{ height: '64px', minHeight: '64px', flexShrink: 0, border: 0, borderRadius: '12px', background: '#a3342a', color: '#FFFFFF', fontSize: '20px', fontWeight: 700, letterSpacing: '.08em', boxShadow: '0 0 0 3px rgba(255,255,255,.18)' }}>STOP</button></div>;
+  return <><style>{CSS + BAND_CSS}</style><div id="dc-root" className="fh"><View v={vals} />{band}{drawer}</div></>;
 }
