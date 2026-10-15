@@ -45,7 +45,7 @@ export default function PcHistory() {
     rows: rows.length ? rows.slice(pg * N, pg * N + N).map((r, i) => (
       <tr key={`${r.at}${r.kind}${i}`}>
         <td className="mono">{fmtT(r.at).slice(0, 11)}</td>
-        <td><a href={r.href} style={{ color: 'inherit', fontWeight: '600' }}>{r.title}</a></td>
+        <td><a href={r.href} style={{ color: 'inherit', fontWeight: '600' }}>{r.show ?? r.title}</a></td>
         <td>{r.kind === '임무' ? r.tmpl || '—' : r.kind === '사진' ? '관찰 사진' : '서버 사건'}</td>
         <td>{r.kind === '사진' ? r.sub : '시뮬 바닥(±10 m)'}</td>
         <td>{r.by || '—'}</td><td className="mono r">{r.dur || '—'}</td><td className="mono r">{r.pts || '—'}</td>

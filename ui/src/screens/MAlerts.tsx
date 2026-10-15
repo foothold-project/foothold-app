@@ -3,6 +3,7 @@ import { useReducer } from 'react';
 import { CSS, View } from './MAlerts.view';
 import { LV, fmtT, themeClass, tms } from '../data/fmt';
 import { READ_NOTE, isUnread, markRead } from '../data/alerts';
+import { evShow } from '../data/facts';
 import { activeRun, alertsOf, noteOf, useDocs, useMedia } from '../data/shared';
 import { href } from '../data/hist';
 import { LiveStatus, MediaStale } from '../app/status';
@@ -33,7 +34,8 @@ export default function MAlerts() {
     const now = Date.now(); let grp: string | null = null;
     for (const e of shown) {
       const gn = now - tms(e.at) < 3600e3 ? '경보 · 최근 1시간' : '경보 · 이전'; if (gn !== grp) { grp = gn; g(gn); }
-      it({ ic: LV[e.st], lv: e.st, title: e.text, sub: '서버 사건 원문 · 원인 판단 없음', time: ago(e.at), href: href('MAlert', { at: e.at, t: e.text }), unread: isUnread(e) });
+      const sh = evShow(e.text);   // U3-a: 표시 문장만 — 주소·읽음 키는 원문
+      it({ ic: LV[e.st], lv: e.st, title: sh, sub: sh === e.text ? '서버 사건 원문 · 원인 판단 없음' : '서버 사건 · 원문은 상세 · 원인 판단 없음', time: ago(e.at), href: href('MAlert', { at: e.at, t: e.text }), unread: isUnread(e) });
     }
   }
   const v = {

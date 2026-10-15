@@ -4,7 +4,7 @@ import { Photo } from '../app/Photo';
 import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
-import { STOP_TIP, TERMS, TRIAL, WHY } from '../data/facts';
+import { STOP_TIP, TERMS, TRIAL, WHY, evShow } from '../data/facts';
 import { camChip, HeadChips } from '../app/status';
 import { Chip, DirTag, Help, SafeLine } from '../app/chip';
 import { camURL, driveBlock, dropAll, linkView, press, lift, sendOp, startBlock, startDrive, stateRows, TRAIL, useLink, type Axes } from '../data/link';
@@ -192,10 +192,10 @@ export default function Main() {
         <a href={href('PcReview', { url: u })}><Photo src={u} alt={`WP${i + 1} 사진`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}</div> : <></>,
     askLbl: ph.length ? `이 임무의 사진 · ${[...new Set(ph.map(([, i]) => `WP${i + 1}`))].join(' · ')}` : R ? '이 임무에 붙인 사진 없음 — «📷 사진»으로 지금 지점에 붙입니다' : '',
     askActs: run ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{R && <WpActs id={run.id} R={R} i={ci} />}<EndRow id={run.id} /></div> : null,
-    // 사건 기록: 서버 원값 최근 5건
+    // 사건 기록: 서버 최근 5건(U3-a 표시 문장 · 원문은 기록 → 사건 상세)
     panelAsk: !!run,   // U2: 진행 중 임무가 없으면 «이 지점에서 할 일» 카드 숨김
     evLink: '전체 기록 ›', evHref: href('PcHistory'),
-    events: (st ? st.events : []).slice(0, 5).map((e) => ({ t: e.t, st: e.st, mark: MARK[e.st] || '·', text: e.text })),
+    events: (st ? st.events : []).slice(0, 5).map((e) => ({ t: e.t, st: e.st, mark: MARK[e.st] || '·', text: evShow(e.text) }))   // U3-a §3 표시 문장 — 원문은 기록 → 사건 상세,
   };
   useEffect(() => {   // 말줄임된 머리줄 문구 전체를 title 로
     const sp = document.querySelectorAll<HTMLElement>('[data-main] header>div:has(>span+span)>span'); sp.forEach((e) => { e.title = e.textContent || ''; });

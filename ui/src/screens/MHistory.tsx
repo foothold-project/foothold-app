@@ -18,9 +18,9 @@ export default function MHistory() {
     const dt = dayTxt(r.at); if (dt !== day) { day = dt; out.push(<span className="day" key={`d${i}`}>{dt}</span>); }
     out.push(
       <a className="it" href={r.href} key={i}>
-        <b style={{ fontSize: '15px' }}>{r.title}</b>
+        <b style={{ fontSize: '15px' }}>{r.show ?? r.title}</b>
         <span className={`res ${r.lvl}`}>{`${LV[r.lvl] || '·'} ${r.res}`}</span>
-        <span className="lbl">{`${r.kind} · ${r.sub} · ${r.by || ''} · ${fmtT(r.at)}`}</span>
+        <span className="lbl">{`${r.kind} · ${r.show && r.show !== r.title ? '원문은 상세' : r.sub} · ${r.by || ''} · ${fmtT(r.at)}`}</span>
         <span />
         {r.extra ? <><span className="lbl" style={{ fontSize: '12px', color: 'var(--warn)', fontWeight: '600' }}>{r.extra}</span><span /></> : null}
       </a>);
