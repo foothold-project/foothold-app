@@ -95,7 +95,7 @@ export function StartAsk() {
     const gone = () => { if (askGone(box.current, mine)) { alive = false; cancelAnimationFrame(raf); } };
     const a = useAsk.getState().anchor;   // P2-B: 이 창(id)의 앵커 — 같은 글 재열기도 새 id 라 새 앵커·새 루프(옛 rAF 는 cleanup), 닫히면 answerAsk 가 참조를 버림
     const tick = () => {
-      if (!alive) return;
+      if (!mine()) return;   // R1(715 40625ca): 이 창(id)이 지금 열린 창일 때만 — 옛 창 tick 이 새 창 DOM 측정·배치(setAt)·자리 없음 취소/안내·다음 예약 0
       if (innerWidth !== W0 || innerHeight !== H0) { gone(); return; }
       const el = box.current, bd = body.current, rw = row.current;
       if (el && bd && rw) {
@@ -121,8 +121,9 @@ export function StartAsk() {
   useEffect(() => {
     if (text === null) return;
     no.current?.focus();
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); answerAsk(false); } };
-    addEventListener('keydown', k); return () => removeEventListener('keydown', k);
+    let alive = true; const my = id;   // R1: Escape 도 이 창(id)이 지금 열린 창일 때만 취소 — 옛 창 listener 가 새 창 답 0. STOP·Space 전역 취소는 별도 경로(그대로)
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape' && alive && useAsk.getState().id === my && useAsk.getState().text !== null) { e.preventDefault(); answerAsk(false); } };
+    addEventListener('keydown', k); return () => { alive = false; removeEventListener('keydown', k); };
   }, [text, id]);   // 새 창(같은 글 포함)마다 «취소» 초점 다시
   if (text === null) return null;
   const [head, ...rows] = text.split('\n');
