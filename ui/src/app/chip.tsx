@@ -5,7 +5,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { dropAll } from '../data/link';
 import { setDev, useDev } from '../data/dev';
 import { InTop, toast } from './shell';
-import { DIR_TAG, NOMOVE, RELURCH, SAFE_LINE, SAFE_NOTE, STOP_FACT, STOP_TIP, TRIAL_SAFE } from '../data/facts';
+import { DIR_TAG, NOMOVE, RELURCH, SAFE_LINE, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP, TRIAL_SAFE } from '../data/facts';
 
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
 export const TONE_ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
@@ -107,6 +107,8 @@ export function SafeLine({ className = '', style }: { className?: string; style?
       <span style={{ display: 'block', marginTop: 4 }}>{`주의: ${RELURCH}`}</span>
       <span style={{ display: 'block', marginTop: 4 }}>{TRIAL_SAFE}</span></Help></span>;
 }
+/** 통신 끊김 동작 ? — PcPlan·PcSettings 공용(같은 글). SAFE_NOTE·STOP_OBS·STOP_FACT 두 쌍·RELURCH 전문 */
+export const LostHelp = () => <Help label="통신 끊김 동작 · 설명"><span style={{ display: 'block' }}>{SAFE_NOTE}</span>{[STOP_OBS, `${STOP_FACT[0]} → ${STOP_FACT[1]}`, `${STOP_FACT[2]} → ${STOP_FACT[3]}`, `주의: ${RELURCH}`].map((t) => <span key={t} style={{ display: 'block', marginTop: 4 }}>{t}</span>)}</Help>;
 /** 막힌 방향 꼬리표(앞·앞+회전만) + ? NOMOVE — 허용 범위는 서버가 정한다(표시만) */
 export const DirTag = () => <span className="lv-dirtag">{DIR_TAG}<Help label={`${DIR_TAG} · 설명`}>{NOMOVE}</Help></span>;
 

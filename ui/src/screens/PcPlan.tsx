@@ -9,14 +9,14 @@ import { activeRun, docById, docsOf, useDocs } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { linkView, useLink } from '../data/link';
 import { LIVE_MODS, MISSING_T, RULE_WHY, defMods, modDetail, tmplOf, tmpls } from '../data/tmpl';
-import { RELURCH, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP, WHY } from '../data/facts';
+import { STOP_TIP, WHY } from '../data/facts';
 import { addPlan, dupMission, gtHere, legLen, mapTxt, planEdit, planMap, planOwn, r2, rekey, startPolicy, startRun, wkey, zoneTxt, zonesAt } from '../data/run';
 import type { Here } from '../data/run';
 import { href } from '../data/hist';
 import { useDev } from '../data/dev';
 import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
-import { Chip, Help } from '../app/chip';
+import { Chip, Help, LostHelp } from '../app/chip';
 import { stopProps, toast, useRoute } from '../app/shell';
 
 // ---- U5-a(v3 §4 PcPlan·§2-5): 지도 출처 운영 표시 — 판정은 gtHere·planMap·startPolicy 결과 그대로, 글만 줄인다(새 추정·자동 승격 0) ----
@@ -236,9 +236,9 @@ export default function PcPlan() {
     tplO: <>{T ? null : <option value={d.tmpl}>{MISSING_T}</option>}{tmpls(D).map((t) => <option key={t.id} value={t.id}>{t.locked ? `${t.name} (기본)` : t.name}</option>)}</>,
     tplHref: href('PcMissions', T ? { tmpl: T.id } : {}), ruleHref: href('PcMissions', T ? { tmpl: T.id } : {}),
     rH: `${ws.length}개 지점 · ${len.toFixed(1)} m 직선`, rList,
-    // U5-a: 공용 쉬운 말(U4-c 고정 규칙과 같은 글) + ? 전문(STOP_FACT·SAFE_NOTE·STOP_OBS·RELURCH 보존) · 동작·선택 불가 그대로
+    // U5-a: 공용 쉬운 말(U4-c 고정 규칙과 같은 글) + ? 전문(U5-b: 공용 LostHelp — STOP_FACT·SAFE_NOTE·STOP_OBS·RELURCH 보존) · 동작·선택 불가 그대로
     lost: <>{opt('입력 차단·잠금', '', <>조종 입력 0.3초 끊김 → 입력 차단 (몸 정지는 별도) · 화면을 떠나거나 신호 1초 끊김 → 입력 차단·잠금. 선택이 아니라 서버 고정 동작입니다.
-        <Help label="통신 끊김 동작 · 설명"><span style={{ display: 'block' }}>{SAFE_NOTE}</span><P t={STOP_OBS} /><P t={`${STOP_FACT[0]} → ${STOP_FACT[1]}`} /><P t={`${STOP_FACT[2]} → ${STOP_FACT[3]}`} /><P t={`주의: ${RELURCH}`} /></Help></>, true)}
+        <LostHelp /></>, true)}
       {opt('마지막 통신 지점으로 후퇴', ' · 미연결', `${GOTO} — 자동 후퇴는 실행하지 않습니다.`, false)}</>,
     aH: <Chip tone="off" text="자동 실행 안 함" why={RULE_WHY} whyLabel="경보 규칙 · 설명" />, aOpts: <></>,   // U5-a: U4-c 경보 규칙 칩과 같음(전문은 ?)
     cH: `${cks.filter((c) => c[0]).length} / ${cks.length}`,
