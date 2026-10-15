@@ -6,7 +6,7 @@ vi.mock('../../src/app/shell', async (orig) => ({ ...(await orig<typeof import('
 const mem = new Map<string, string>();
 (globalThis as any).localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
 const { cutName, mcasTxt, runEdit, startRun } = await import('../../src/data/run');
-const { qc, docsNow, saveDoc } = await import('../../src/data/shared');
+const { qc, docById, docsNow, saveDoc } = await import('../../src/data/shared');
 const { T } = await import('../../src/data/transport');
 
 const env = (id: string, kind: string, doc: unknown, rev = 1) => ({ id, kind, rev, by: 'A', at: 't', doc });
@@ -33,12 +33,17 @@ test('saveDoc: reason_code → reason · mcas_dropped → mcasDropped · code �
   expect('mcasDropped' in (await saveDoc({ op: 'put', id: 'r1', rev: 1, doc: RUN } as DocWrite))).toBe(false);
 });
 
-test('startRun: C 409 사유만 «다른 기기가 계획/양식을 바꿈», 진행 1개 409·400 은 기존 문구 · 자동 재시도 0', async () => {
-  for (const reason of ['mission_gone', 'mission_changed', 'tmpl_changed', 'snapshot_mismatch']) {
+test('startRun: C 409 사유만 «다른 기기가 계획/양식을 바꿈(짧은 사유)», 서버 문장 중복 0 · 진행 1개 409·400 은 기존 문구 · 자동 재시도 0', async () => {
+  const short: Record<string, string> = { mission_gone: '계획이 지워짐', mission_changed: '계획 판이 바뀜', tmpl_changed: '양식이 바뀌거나 지워짐', snapshot_mismatch: '계획 사본이 다름' };
+  for (const [reason, why] of Object.entries(short)) {
     put([env('m1', 'mission', mi(), 3)]); toasts.length = 0; let n = 0;
-    const r = await startRun(docsNow(), 'm1', async () => { n++; return { ok: false, code: 409, error: '서버 이유', reason }; }, { ask: async () => true });
-    expect(r).toBeNull(); expect(n).toBe(1); expect(last()).toBe('다른 기기가 계획/양식을 바꿈 — 시작 안 됨 · 다시 열어 확인(서버 이유)');
+    const r = await startRun(docsNow(), 'm1', async () => { n++; return { ok: false, code: 409, error: '다른 기기가 계획을 고침 — 시작 안 됨 · 다시 열어 확인', reason }; }, { ask: async () => true });
+    expect(r).toBeNull(); expect(n).toBe(1); expect(last()).toBe(`다른 기기가 계획/양식을 바꿈(${why}) — 시작 안 됨 · 다시 열어 확인`);
+    expect(last().split('다시 열어 확인').length).toBe(2); expect(last().split('시작 안 됨').length).toBe(2);
   }
+  put([env('m1', 'mission', mi(), 3)]); toasts.length = 0;
+  await startRun(docsNow(), 'm1', async () => ({ ok: false, code: 409, error: '서버 이유', reason: 'toString' }), { ask: async () => true });
+  expect(last()).toBe('시작 안 됨 · 서버 이유');   // 모르는 사유(프로토타입 이름 포함) = 일반 문구
   put([env('m1', 'mission', mi(), 3)]); toasts.length = 0;
   await startRun(docsNow(), 'm1', async () => ({ ok: false, code: 409, error: '이미 진행 중인 수동 임무가 있음 — 먼저 끝내세요' }), { ask: async () => true });
   expect(last()).toBe('시작 안 됨 · 이미 진행 중인 수동 임무가 있음 — 먼저 끝내세요');
@@ -64,9 +69,25 @@ test('runEdit: 서버가 mcas 를 떼면 기록됨 + 표시 해제 알림 · 결
 
 test('mcasTxt: 미대조 · 내장 기본 · 팀 양식 · 계획 판이 바뀌면 양식 종류 모름', () => {
   put([env('m1', 'mission', mi(), 1)]);
-  expect(mcasTxt(docsNow(), RUN)).toBe('서버 미대조 — 이 기기 캐시 기준으로 시작');
+  expect(mcasTxt(docsNow(), RUN)).toBe('서버 시작 대조 표시 없음');
   expect(mcasTxt(docsNow(), { ...RUN, mcas: 1 })).toBe('시작 때 서버가 계획 판·스냅샷 대조 · 양식: 내장 기본(이름 대조)');
   put([env('m1', 'mission', mi({ tmpl: '' }), 1)]); expect(mcasTxt(docsNow(), { ...RUN, mcas: 1 })).toMatch(/양식: 내장 기본\(이름 대조\)$/);
   put([env('m1', 'mission', mi({ tmpl: 't1' }), 1)]); expect(mcasTxt(docsNow(), { ...RUN, mcas: 1 })).toMatch(/양식: 이름·존재만\(본문 개정 미검증\)$/);
   put([env('m1', 'mission', mi(), 2)]); expect(mcasTxt(docsNow(), { ...RUN, mcas: 1 })).toMatch(/양식: 이름·존재만$/);
+});
+
+// root C1: 대조 통과 뒤 근거가 바뀌어 서버가 mcas 를 뗀 기록과, 처음부터 mcas 없는 기록의 Report 줄이 같은 중립 문구(과거 시작 방식 단정 0)
+test('Report mcas 줄: 낮춘 기록 == 처음부터 미표시 기록 · 캐시 시작 단정 0', async () => {
+  const src = Object.values(import.meta.glob<string>('../../src/screens/Report.tsx', { query: '?raw', import: 'default', eager: true }))[0];   // ux_b2 와 같은 방식(node 타입 없이)
+  expect(src).toContain('수동 진행(자동 이동·자동 완료 아님) · ${mcasTxt(D, R)}');   // Report tplLine 이 저장된 Run 으로 mcasTxt 를 부른다
+  put([env('m1', 'mission', mi(), 1), env('r1', 'run', { ...RUN, mcas: 1 })]);
+  expect(mcasTxt(docsNow(), docById(docsNow(), 'r1')!.doc as Run)).toMatch(/^시작 때 서버가 계획 판·스냅샷 대조/);
+  let body: any = null;
+  T.postDocs = async (b) => { body = b; return { status: 200, body: JSON.stringify({ ok: true, id: 'r1', rev: 2, kind: 'run', name: '', new: false, mcas_dropped: true }) }; };
+  await runEdit('r1', (d) => { d.wps[0].x = 9; }, '지점 고침');                // 근거 필드 변경 → 서버가 뗌
+  const { mcas: _, ...stored } = body.doc as Run;                              // 서버 runcas 가 저장하는 문서 = 보낸 문서 − mcas
+  put([env('m1', 'mission', mi(), 1), env('r1', 'run', stored, 2), env('r0', 'run', { ...RUN, mrev: undefined })]);
+  const lowered = mcasTxt(docsNow(), stored as Run), never = mcasTxt(docsNow(), { ...RUN, mrev: undefined } as Run);
+  expect(lowered).toBe('서버 시작 대조 표시 없음'); expect(never).toBe(lowered);
+  for (const t of [lowered, never]) expect(t).not.toMatch(/캐시|미대조|기준으로 시작/);
 });

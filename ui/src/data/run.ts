@@ -70,9 +70,10 @@ export const planMap = (d: { wps: Pt[]; map?: MapSrc }): Here => (!d.map ? { why
 export const sameMap = (a: MapSrc, b: MapSrc) => a.src === b.src && a.world_id === b.world_id && a.floor_id === b.floor_id && !!a.rid && a.rid === b.rid;
 /** 화면 표기: world · 층 (GT · SDF|기하 sha 앞 8자). 개정 기준 = world 원본 SDF / GT 기하 파일 — 그 SDF 가 부르는 메시·모델 파일은 대조 안 함 */
 export const mapTxt = (m: MapSrc) => `${m.world_id} · ${m.floor_id} (GT · ${!m.rid ? '개정 미확인' : `${m.rid[0] === 'w' ? 'SDF' : '기하'} ${m.rid.slice(2, 10)}`})`;
-/** 서버 시작 대조 표시(C) — mcas 는 «시작 순간 서버 대조»뿐(지도·기하·실제 환경 검증 아님). 양식 종류는 그 판(mrev)의 계획이 아직 있을 때만 */
+/** 서버 시작 대조 표시(C) — mcas 는 «시작 순간 서버 대조»뿐(지도·기하·실제 환경 검증 아님). 양식 종류는 그 판(mrev)의 계획이 아직 있을 때만
+ *  mcas 없음 = 지금 표시·근거가 없다는 것만(옛 앱 시작인지, 대조 뒤 근거가 바뀌어 서버가 뗐는지 구별할 이력 없음 → 과거 시작 방식 단정 0) */
 export function mcasTxt(D: Docs, R: Run) {
-  if (R.mcas !== 1) return '서버 미대조 — 이 기기 캐시 기준으로 시작';
+  if (R.mcas !== 1) return '서버 시작 대조 표시 없음';
   const m = docById(D, R.mission), t = m && m.kind === 'mission' && m.rev === R.mrev ? m.doc.tmpl : null;
   return `시작 때 서버가 계획 판·스냅샷 대조 · 양식: ${t == null ? '이름·존재만' : !t || t === 'base' ? '내장 기본(이름 대조)' : '이름·존재만(본문 개정 미검증)'}`;
 }
@@ -112,7 +113,8 @@ export const dupMission = (m: Mission): Mission => { const c = structuredClone(m
 const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: cutName(tmplOf(D, m.tmpl)!.name, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
   wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev });
 // C 서버가 시작을 거절한 사유(reason_code) — 이것만 «다른 기기가 바꿈» 문구. 진행 1개·rev 409 는 기존 문구 그대로
-const C_REASON = new Set(['mission_gone', 'mission_changed', 'tmpl_changed', 'snapshot_mismatch']);
+// C 409 사유 → 짧은 사유(서버 error 문장은 이미 «시작 안 됨 · 다시 열어 확인» 을 담아 중복 → 토스트엔 안 붙임). 그 밖의 409·400 은 서버 문장 그대로
+const C_REASON = new Map([['mission_gone', '계획이 지워짐'], ['mission_changed', '계획 판이 바뀜'], ['tmpl_changed', '양식이 바뀌거나 지워짐'], ['snapshot_mismatch', '계획 사본이 다름']]);
 // send: 화면의 editor.write(쓰기 한 번에 하나) — 두 번 눌러 진행 기록이 둘 생기지 않게. ask: 페이지 안 확인창(시험에서 바꿔 끼움)
 // own(E1): owner = 확인창 주인(이탈·대상 변경 때 dropAsk 로 닫힘), alive = 확인 뒤 «연 화면·고른 계획·편집기 세대가 그대로인가». 아니면 쓰기·화면 이동 0
 export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>, own: { owner?: unknown; alive?: () => boolean; ask?: (t: string) => Promise<boolean> } = {}) {
@@ -127,12 +129,12 @@ export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) 
   if (globalThis.location?.hash !== route || (own.alive && !own.alive())) { toast('확인하는 사이 화면·고른 계획이 바뀜 — 시작 안 됨'); return null; }
   // 확인 뒤 재검사 — 범위는 «이 기기가 지금까지 받은 문서 캐시 + 지금 링크 상태»뿐(서버 최신 판을 다시 읽지 않음).
   // C 서버는 Run 을 받는 순간 같은 잠금/트랜잭션 안에서 계획 판(mrev)·스냅샷·양식 이름을 대조 → 통과만 mcas=1, 다르면 409 + reason(쓰기 0).
-  // C 직전 서버는 대조하지 않음(mcas 없이 저장 = 화면 «서버 미대조»). 자동 재시도·최신 판 자동 대체 0
+  // C 직전 서버는 대조하지 않음(mcas 없이 저장 = 화면 «서버 시작 대조 표시 없음»). 자동 재시도·최신 판 자동 대체 0
   const D2 = docsNow(), x2 = docById(D2, m.id), m2 = x2 && x2.kind === 'mission' ? x2 : null, p2 = m2 ? startPolicy(m2.doc, gtHere()) : null, T2 = m2 ? tmplOf(D2, m2.doc.tmpl) : null;
   if (qc.getQueryState(['docs'])?.status === 'error') { toast('문서 다시 읽기 실패 — 최신 계획 미확인 · 시작 안 됨'); return null; }
   if (!m2 || m2.rev !== m.rev || !p2 || p2.block || p2.line !== p.line || !T2 || T2.name !== T.name) { toast('확인하는 사이 이 기기에 들어온 계획·양식 또는 지도 상태가 바뀜 — 다시 눌러 주세요'); return null; }
   const r = await send({ op: 'put', kind: 'run', id: null, doc: newRun(D2, m.id, m2.doc, p2.map, m2.rev) }); if (!r) return null;
-  toast(r.ok ? `수동 진행 시작 · 모든 기기 공유${p2.map ? '' : ' · 지도 미확인 · 기록만'}` : r.reason && C_REASON.has(r.reason) ? `다른 기기가 계획/양식을 바꿈 — 시작 안 됨 · 다시 열어 확인(${r.error})` : `시작 안 됨 · ${r.error}`);
+  toast(r.ok ? `수동 진행 시작 · 모든 기기 공유${p2.map ? '' : ' · 지도 미확인 · 기록만'}` : r.reason && C_REASON.has(r.reason) ? `다른 기기가 계획/양식을 바꿈(${C_REASON.get(r.reason)}) — 시작 안 됨 · 다시 열어 확인` : `시작 안 됨 · ${r.error}`);
   return r.ok ? r : null;
 }
 
