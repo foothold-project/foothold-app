@@ -17,10 +17,11 @@ const val = (t: string, off?: boolean, wrap?: boolean) => <span className="mono"
 const offRe = /미연결|미제공|해당 없음/;
 // U5-b(v3 §2-4·§2-5): 안전 정책 운영 = 쉬운 말(PcPlan·조종 화면과 같은 글) + ? 전문(STOP_FACT·SAFE_NOTE·STOP_OBS·RELURCH·NOMOVE·WHY 배터리)
 // 서버 고정 동작·값은 그대로 보여 주기만 — 새 예시값·정책 추정·실기 안전 보장 0
+// 670 395a §2 P2: .set 은 2열 grid — 값과 ?/DirTag 를 한 <span> 에 묶어 값 칸 자식 1개로(조각이면 ? 가 다음 줄 이름 칸으로 떨어짐)
 const batHelp = <Help label="배터리 · 설명">{WHY['배터리']}</Help>;
 const SAFETY: (string | JSX.Element)[] = ['조종 입력 0.3초 끊김 → 입력 차단 · 화면 신호 1초 끊김 → 입력 차단·잠금',
-  <>{val('입력 차단 (몸 정지는 별도) · 자동 후퇴 미연결')}<LostHelp /></>, '미연결 — 영상 멎음 자동 잠금 없음(화면에 영상 나이 표시)', '0.3 s (서버 고정)',
-  '해당 없음 — 자동 임무 미연결 · 사람이 «조종 시작»(확인 1회)', <>{val('시뮬에서 시험한 값만 · ')}<DirTag /></>, <>{val('값 없음', true)}{batHelp}</>];
+  <span>{val('입력 차단 (몸 정지는 별도) · 자동 후퇴 미연결')}<LostHelp /></span>, '미연결 — 영상 멎음 자동 잠금 없음(화면에 영상 나이 표시)', '0.3 s (서버 고정)',
+  '해당 없음 — 자동 임무 미연결 · 사람이 «조종 시작»(확인 1회)', <span>{val('시뮬에서 시험한 값만 · ')}<DirTag /></span>, <span>{val('값 없음', true)}{batHelp}</span>];
 const RECS = ['서버 media 폴더 · 사진 최근 200 · 사건 최근 300 보관', '공유 문서(구역·양식·계획·진행·분류) 전부 · 서버 docs', 'CSV 내보내기(기록·사진 검토) · 보고서는 인쇄', '값 없음'];
 const TH = [['자동', null], ['어두운', 'dark'], ['밝은', 'light']] as const;
 
@@ -53,9 +54,9 @@ export default function PcSettings() {
     val(GATED ? '보호 관문 인증서 사용 중 · 만료일은 앱에서 확인 안 함' : '해당 없음(이 PC 전용 주소 · TLS 없음)', !GATED),
     // U5-b B1(715): firstVer = 이 탭이 처음 받은 status.ver(화면 번들 해시 아님) · 서버 version() 실패값 = «미확인»(+수정) 문자열.
     // 비교 = 이 연결의 신선한 수신(linkOk·bad 없음·stGen=gen) + 두 값 모두 실제 판일 때만, 범위는 «처음·지금 받은 서버 판 표기». 아니면 판 비교 미확인(warn — 꺼짐 아님)
-    <>{verCmp ? val(v.newVer ? '서버 판 바뀜(이 탭이 처음 받은 판과 다름) · 새로고침 권장' : '서버 판 그대로(이 탭이 처음 받은 판과 같음)')
+    <span>{verCmp ? val(v.newVer ? '서버 판 바뀜(이 탭이 처음 받은 판과 다름) · 새로고침 권장' : '서버 판 그대로(이 탭이 처음 받은 판과 같음)')
       : <span className="mono" style={{ color: 'var(--warn)' }}>판 비교 미확인</span>}
-      <span data-dev>{val(` · 화면 ${L.firstVer || '미확인'} · 서버 ${st?.ver || '미확인'}`)}</span></>,
+      <span data-dev>{val(` · 화면 ${L.firstVer || '미확인'} · 서버 ${st?.ver || '미확인'}`)}</span></span>,   // P2: 판 요약+dev 원값 = 값 칸 자식 1개
   ];
   const set = (b: string, lbl: string | null, ctl: JSX.Element) => (
     <div className="set" key={b}><span className="t"><b>{b}</b>{lbl && <span className="lbl">{lbl}</span>}</span>{ctl}</div>);
