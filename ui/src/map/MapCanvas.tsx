@@ -42,7 +42,7 @@ export function MapCanvas(p: Props) {
       bad: col('--bad', '#FF5A52'), warn: col('--warn', '#FFB547'), ok: col('--ok', '#5AA9FF') };
     if (o.blank != null && !o.raster) {
       g.fillStyle = C.bg; g.fillRect(0, 0, W, H); g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center';
-      g.fillText(o.blank || '지도 없음', W / 2, H / 2, W - 24); g.textAlign = 'left'; el.dataset.view = 'blank'; return;
+      g.fillText(o.blank || '지도 없음', W / 2, H / 2, W - 24); g.textAlign = 'left'; el.dataset.view = 'blank'; el.dataset.raster = ''; return;
     }
     const rs = o.raster, B = rs ? [rs.ox, rs.ox + rs.w * rs.res, rs.oy, rs.oy + rs.h * rs.res] : [-FLOOR, FLOOR, -FLOOR, FLOOR];   // 바탕 범위 x0 x1 y0 y1
     const r = o.noRobot ? null : o.robot || null, fr = !!r?.fresh, showTrail = o.showTrail !== false, pts = showTrail ? o.trail || [] : [], wps = o.wps || [];
@@ -115,7 +115,11 @@ export function MapCanvas(p: Props) {
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
     box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
-    el.dataset.view = `${v.mode}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}${rs ? '|saved' : ''}`;   // 시험·상태 확인용
+    if (rs?.upd) {   // 실시간 지도 갱신 중 — 작은 표시(작은 지도 포함). 그림은 직전 검증본, 위치 마커는 부르는 쪽이 끔
+      g.font = `600 ${o.small ? 10 : 11}px sans-serif`; const tw = g.measureText('갱신 중').width; g.globalAlpha = 0.8; g.fillStyle = C.bg; g.fillRect(W - tw - 18, 6, tw + 12, 18); g.globalAlpha = 1; g.fillStyle = C.warn; g.fillText('갱신 중', W - tw - 12, 19);
+    }
+    el.dataset.view = `${v.mode}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}${rs ? '|saved' : ''}${rs?.upd ? '|upd' : ''}`;
+    el.dataset.raster = rs ? `${rs.w}x${rs.h}@${rs.ox},${rs.oy}` : '';   // 지금 그린 그림 신원(크기·원점) — 시험·상태 확인용   // 시험·상태 확인용
   };
 
   useLayoutEffect(draw);   // 값이 바뀔 때마다 다시 그림

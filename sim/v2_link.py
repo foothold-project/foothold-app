@@ -1105,6 +1105,9 @@ class MapStore:
 # ---------------------------------------------------------------- 실시간 지도·지도 체험 시작·저장 — docs/CONTRACT-maps-sim-stop.md 7~9절
 # RL 정본 map-20261014/MAP-CONTRACT.md §4·§5: /v2_map/status(JSON 1 Hz) · /v2_map/map(OccupancyGrid, transient_local) · /v2_map/save(Trigger)
 LIVE_STALE, POSE_AGE, POSE_SIM_GAP, STAMP_EPS, HOLD_MAX = 3.0, 2.0, 1.0, 1e-3, 40.0
+# UPD_MAX: SLAM 정상 확장 중 status 가 표시 격자보다 앞설 때(새 격자 변환·도착 대기) 표시 격자를 «갱신 중»으로 둘 수 있는 상한.
+# 시계 = 그 그림을 검증·표시한 시각(반복 status 로 연장 0). slam 발행 5 s + 변환(1500² ≈3 s) + status 1 Hz 를 덮고 한 주기 놓침은 덮지 않음 — 보정 손잡이(≤15 s)
+UPD_MAX = 12.0
 POSE_SRC = {('slam', 'slam'): 'slam_tf', ('static', 'gt_raster'): 'gt_identity'}     # (mode, map_source) → 허용 pose 출처. static+저장 slam = 없음
 NULL_KO = {'saved_slam_map_not_localized': '저장 SLAM 지도 — 위치 추정 없음', 'tf_stale': '위치 변환 오래됨', 'tf_lookup_failed': '위치 변환 없음'}
 # 연결 건물 층 context(RL CONN-UI-9 초안 connected.MAP_NULL_REASONS) — 결속 안 되면 RL 이 status.map·pose_map=null + 이 코드
@@ -1201,23 +1204,37 @@ class LiveMap:
             self.key = None                                 # 끊김 = 세션 경계 — 다시 오면 새 키(새 수신 시각)부터
         return why
 
-    def _shown_why(self):       # 표시 중 격자가 지금 status 와 아직 맞나('' = 맞음). 안 맞으면 새 올바른 격자 전까지 격자·마커 0
+    def _shown_why(self, t):    # 표시 중 격자가 지금 status 와 아직 맞나('' = 맞음). 안 맞으면 새 올바른 격자 전까지 격자·마커 0
         s, m, k = self.shown, (self.st or {}).get('map'), self.key
         if s is None:
             return ''
+        s['upd'] = False
         if not isinstance(m, dict) or s['key'] != k or m.get('epoch') != k[6]:
             return '상태에 이 지도 없음 — 새 격자 기다림'
         res = m.get('resolution', m.get('res'))
-        if (s['w'], s['h']) != (m.get('width'), m.get('height')) or not fin(res) or abs(res - s['res']) > 1e-4:
+        if not (fin(res) and res > 0) or abs(res - s['res']) > 1e-4:
             return '상태의 지도 크기·해상도가 바뀜 — 새 격자 기다림'
-        if (k[3] == 'slam' or k[7] is not None) and not (fin(m.get('stamp_sim')) and abs(m['stamp_sim'] - s['stamp']) <= STAMP_EPS):
-            return '상태의 지도 stamp 가 바뀜 — 새 격자 기다림'
-        return ''
+        if not all(type(m.get(x)) is int and 0 < m[x] <= 100000 for x in ('width', 'height')):   # 엄격 int(True==1·1.0==1 같은 값으로 «같은 크기» 통과 0)
+            return '상태의 지도 크기 형식 이상 — 새 격자 기다림'
+        if (k[3] == 'slam' or k[7] is not None) and not fin(m.get('stamp_sim')):
+            return '상태의 지도 stamp 형식 이상 — 새 격자 기다림'
+        same_wh = (s['w'], s['h']) == (m.get('width'), m.get('height'))
+        stamp_ok = not (k[3] == 'slam' or k[7] is not None) or (fin(m.get('stamp_sim')) and abs(m['stamp_sim'] - s['stamp']) <= STAMP_EPS)
+        if same_wh and stamp_ok:
+            return ''
+        # ── S2 유한 보유: 같은 K·slam·status 의 지도 메타가 형식 정상이고 표시 격자보다 «앞선» stamp 일 때만(정상 확장·새 격자 변환 대기).
+        #    시한 = 이 그림 검증 시각 + UPD_MAX(반복 status 로 연장 0). 마커는 view 에서 끔(옛 그림 + 새 위치 조합 0). 그 밖(역행·형식 이상)은 즉시 버림
+        if k[3] == 'slam' and m['stamp_sim'] > s['stamp'] + STAMP_EPS:   # (w/h·res·stamp 형식은 위에서 확인)
+            if t - s['t'] <= UPD_MAX:
+                s['upd'] = True
+                return ''
+            return f'새 격자가 {UPD_MAX:.0f} s 안 안 옴 — 새 격자 기다림'
+        return '상태의 지도 크기·해상도가 바뀜 — 새 격자 기다림' if not same_wh else '상태의 지도 stamp 가 바뀜 — 새 격자 기다림'
 
     def _check(self, t):        # 상태 수준 이유 → 표시 격자 대조. 이유가 있으면 표시 격자 버림(대기 격자는 아직 앞선 것만 남김)
         why = self._why(t)
         if not why and self.shown is not None:
-            why = self._shown_why()
+            why = self._shown_why(t)
             if why:
                 self.shown = None; self.grid_why = why
         if self.pending is not None and not self._ahead(self.pending[0]):
@@ -1254,8 +1271,8 @@ class LiveMap:
                 self.key, self.key_t = k, t; self._drop()
                 if k != self.hold_key:
                     self.hold_t = None                      # 키가 바뀌면(새 epoch·세션) 리셋 표시 해제
-            if not self._why(t) and self.pending and not self._bind(self.pending[0], t):
-                self._show(*self.pending)
+            if not self._why(t) and self.pending and self.pending[2] == self.key and not self._bind(self.pending[0], t):
+                self._show(*self.pending[:2])               # 앞선 격자: 보관 당시 K 와 같고 메타가 맞을 때만 같은 lock 안 원자 교체
             self._check(t)
 
     def on_grid(self, g):       # ROS 스레드: 최신 1장만 둔다(변환은 일꾼)
@@ -1278,8 +1295,8 @@ class LiveMap:
             t = self.now()
             why = (why or self._why(t) or ('지도 결속 키가 바뀜(버림)' if self.key and self.key[3] == 'static' and key != self.key else '')
                    or self._bind(g, t))
-            if png and why.startswith('격자 stamp'):
-                self.pending = (g, png)                     # 상태가 한 박자 늦은 경우 — 다음 status 에서 다시 결속
+            if png and (why.startswith('격자 stamp') or why.startswith('격자 크기') and self._ahead(g)):
+                self.pending = (g, png, self.key)           # 상태가 한 박자 늦은 경우(S1: 크기·원점이 바뀐 앞선 격자 포함) — 보관 당시 K 와 함께, 다음 status 에서 다시 결속
             elif not why:
                 self._show(g, png)
             self.grid_why = why
@@ -1287,7 +1304,7 @@ class LiveMap:
     def _show(self, g, png):
         self.seq += 1; self.pending = None; self.grid_why = ''
         self.shown = {'key': self.key, 'seq': self.seq, 'w': g['w'], 'h': g['h'], 'res': g['res'], 'origin': list(g['origin']), 'stamp': g['stamp'],
-                      'png': base64.b64encode(png).decode()}
+                      'png': base64.b64encode(png).decode(), 't': self.now(), 'upd': False}   # t = 검증·표시 시각(S2 보유 시한의 시계)
 
     def hold(self):             # 앱 RESET·Gazebo 끄기 요청: 응답 전에 격자·마커 버림, 키가 바뀔 때까지(최대 HOLD_MAX)
         with self.lock:
@@ -1308,13 +1325,13 @@ class LiveMap:
             t, d = self.now(), self.st
             why = self._check(t)
             if d is None:
-                return {'st': 'off', 'why': why}
+                return {'st': 'off', 'bound': False, 'why': why}
             k, kwhy = self.key_of(d)
             fh = kwhy in (FLOOR_HOLD, MAP_NULL_KO['context_mismatch']) or kwhy.startswith(FLOOR_MAPWAIT)   # 층 이탈·context 불일치 = 형식 정상 대기(모름 아님)
             st = ('stale' if t - self.st_t > LIVE_STALE else 'wait' if fh else 'unknown' if kwhy else 'reset' if why.startswith('리셋') else 'wait' if why.endswith('기다림')
                   else 'bad' if why else 'ok' if self.shown else 'wait')
             mn = MAP_NULL_KO.get(d.get('map_null_reason')) if d.get('map') is None else None
-            v = {'st': st, 'why': why or ('' if self.shown else mn or self.grid_why or '이번 epoch 지도 기다림(slam 5 s·static 10 s 마다 발행)'),
+            v = {'st': st, 'bound': self.key is not None and not self._why(t), 'why': why or ('' if self.shown else mn or self.grid_why or '이번 epoch 지도 기다림(slam 5 s·static 10 s 마다 발행)'),   # bound = 상태 수준만(Views.cur_key 와 같은 조건) — 격자 보유 만료·형상 거부로 follow/points 끄지 않음
                  'age_s': round(t - self.st_t, 1)}
             fr, fs_ = d.get('floor_rev'), d.get('floor_state')
             if (k or fh) and type(fr) is int and fr >= 0 and isinstance(d.get('world_id'), str) and d['world_id'] in MAP_WORLDS:   # 연결 건물 층 context(RL CONN-UI-9) — 형식 맞고 결속 또는 정상 층 대기일 때만
@@ -1340,13 +1357,13 @@ class LiveMap:
             v['last_save'] = ({'ok': ls.get('ok') is True, 'map_version': ls['map_version'] if isinstance(ls.get('map_version'), str) and MAP_VER.fullmatch(ls['map_version']) else None,
                                'reason': safe_txt(ls.get('reason')), 'epoch': ls.get('epoch') if type(ls.get('epoch')) is int else None} if isinstance(ls, dict) else None)
             s = self.shown
-            v['grid'] = None if s is None else {k_: s[k_] for k_ in ('seq', 'w', 'h', 'res', 'origin')}
+            v['grid'] = None if s is None else {**{k_: s[k_] for k_ in ('seq', 'w', 'h', 'res', 'origin', 'upd')}, 'stamp': s['stamp'] if fin(s['stamp']) else None}
             p, want = d.get('pose_map'), POSE_SRC.get(k[3:5])
-            ok_p = (s is not None and isinstance(p, dict) and want and p.get('source') == want and all(fin(p.get(x)) for x in ('x', 'y', 'yaw', 'stamp_sim'))
+            ok_p = (s is not None and not s['upd'] and isinstance(p, dict) and want and p.get('source') == want and all(fin(p.get(x)) for x in ('x', 'y', 'yaw', 'stamp_sim'))
                     and fin(d.get('sim_t')) and abs(d['sim_t'] - p['stamp_sim']) <= POSE_SIM_GAP and t - self.st_t <= POSE_AGE)
             v['pose'] = {'x': p['x'], 'y': p['y'], 'yaw': p['yaw'], 'source': want} if ok_p else None
             pr = d.get('pose_map_null_reason') if isinstance(d.get('pose_map_null_reason'), str) else None
-            v['pose_why'] = '' if ok_p else ((MAP_NULL_KO.get(pr) or '지도 없음') if s is None else (NULL_KO.get(pr) or MAP_NULL_KO.get(pr))   # 격자 없음: 연결 건물 구체 이유 먼저
+            v['pose_why'] = '' if ok_p else '지도 갱신 중(새 격자 받는 중) — 위치 표시 잠시 끔' if s is not None and s['upd'] else ((MAP_NULL_KO.get(pr) or '지도 없음') if s is None else (NULL_KO.get(pr) or MAP_NULL_KO.get(pr))   # 격자 없음: 연결 건물 구체 이유 먼저
                                              or ('이 지도는 위치 표시 안 함(저장 SLAM 지도)' if not want else '위치 형식 틀림·오래됨'))
             return v
 
@@ -1841,13 +1858,58 @@ def selftest_live():
     t[0] += 0.1; S(ep=1, stamp=None, **{**gt_, 'map_version': 'gt-20261013'}); G(stamp=0.0); assert V()['grid'] is None and 'meta' in V()['why']   # meta 없는 버전
     S(ep=1, stamp=None, **{**st_, 'map_version': None}); assert V()['st'] == 'unknown'
     S(ep=1, stamp=0.0, map_error='map too large /x/y'); assert V()['st'] == 'bad' and '/x' not in V()['why']
-    # 표시 중 격자 ↔ 현재 status: map None·크기·해상도·slam stamp 가 바뀌면 새 올바른 격자 전까지 격자·마커·png 0
+    # 표시 중 격자 ↔ 현재 status — 즉시 버림(경계 유지): map None·같은 stamp 에 크기만 바뀜·stamp 역행·nan·해상도 바뀜·형식 이상(bool·0·실수 w)
+    nan = float('nan'); M = lambda **kw: {'map': {'width': 4, 'height': 2, 'resolution': 0.05, 'epoch': 7, 'stamp_sim': 4.0, **kw}}
     t[0] += 0.1; S(ep=7, stamp=3.0); G(stamp=3.0); assert V()['st'] == 'ok'
-    for chg in ({'mw': None}, {'mw': 6}, {'stamp': 4.0}, {'map': {'width': 4, 'height': 2, 'resolution': 0.1, 'epoch': 7, 'stamp_sim': 3.0}}):
+    for chg in ({'mw': None}, {'mw': 6}, {'stamp': 2.0}, {'stamp': nan}, M(resolution=0.1), M(width=True), M(width=0), M(width=4.0), M(height=-2), M(stamp_sim='4'), M(epoch=6)):
         S(ep=7, stamp=3.0); G(stamp=3.0); assert V()['st'] == 'ok', chg
-        S(**{'ep': 7, 'stamp': 3.0, **chg}); v = V(); assert v['grid'] is None and v['pose'] is None and L.png() is None and v['st'] == 'wait', (chg, v)
-    S(ep=7, stamp=4.0); G(stamp=4.0); assert V()['st'] == 'ok'                    # 새 stamp 격자가 오면 다시 표시
-    G(stamp=5.0); assert L.pending is not None; S(ep=7, stamp=6.0); assert L.pending is None and V()['grid'] is None   # 지난 stamp 대기 격자 버림
+        S(**{'ep': 7, 'stamp': 3.0, **chg}); v = V(); assert v['grid'] is None and v['pose'] is None and L.png() is None and v['st'] in ('wait', 'bad'), (chg, v)   # epoch 어긋남 = bad(상태 수준)
+        assert v['bound'] == (L.cur_key() is not None), (chg, v)          # bound = 상태 수준만(Views.cur_key 와 같은 조건)
+        if 'map' in chg and chg['map'].get('epoch') == 7: assert v['bound'], (chg, v)   # 격자 형상 거부(형식 이상 포함)는 보조 뷰 결속을 끊지 않음
+    # 같은 크기 + bool/실수 크기: 1×1 표시 격자에 width True·1.0 → «같은 크기» 통과 0
+    for bw in (True, 1.0):
+        S(ep=7, stamp=3.0, mw=1); G(stamp=3.0, w=1, data=bytes([0, 100])); assert V()['st'] == 'ok' and V()['grid']['w'] == 1
+        S(ep=7, stamp=3.0, map={'width': bw, 'height': 2, 'resolution': 0.05, 'epoch': 7, 'stamp_sim': 3.0}); v = V()
+        assert v['grid'] is None and v['bound'] and '형식' in v['why'], (bw, v)
+    # S2 유한 보유: 같은 K·slam·형식 정상·앞선 stamp(크기 확장 포함) → 검증된 그림 유지 + upd + 마커 0 · bound 유지. 시한 = 검증 시각 + UPD_MAX(반복 status 연장 0)
+    S(ep=7, stamp=3.0); G(stamp=3.0); v = V(); n0 = v['grid']['seq']; assert v['grid']['upd'] is False and v['pose'] is not None and v['grid']['stamp'] == 3.0
+    t[0] += 1; S(ep=7, stamp=4.0, mw=6); v = V()
+    assert v['st'] == 'ok' and v['bound'] and v['grid']['seq'] == n0 and v['grid']['upd'] is True and v['pose'] is None and '갱신' in v['pose_why'] and L.png()['seq'] == n0, v
+    for _ in range(10):
+        t[0] += 1; S(ep=7, stamp=4.0, mw=6); assert V()['grid']['upd'] is True   # 검증 뒤 11 s — 반복 status 는 시한을 늘리지 않음
+    t[0] += UPD_MAX - 11 + 0.5; S(ep=7, stamp=4.0, mw=6); v = V()
+    assert v['grid'] is None and L.png() is None and v['st'] == 'wait' and v['bound'] and str(int(UPD_MAX)) in v['why'], v
+    assert L.cur_key() is not None                                               # 보유 만료 = 격자만 버림 — 보조 뷰(점군·3인칭) 결속 유지
+    # S1: 크기·원점 바뀐 앞선 격자가 status 보다 먼저 → pending(K 함께) → 다음 status 같은 lock 안 원자 교체(공백 0)
+    S(ep=7, stamp=10.0); G(stamp=10.0); n1 = V()['grid']['seq']
+    t[0] += 0.1; G(stamp=15.0, w=6, origin=(-2.0, -3.0, 0.0)); v = V()
+    assert L.pending is not None and v['grid']['seq'] == n1 and v['grid']['w'] == 4 and v['grid']['upd'] is False, v
+    t[0] += 0.3; S(ep=7, stamp=15.0, mw=6); v = V()
+    assert v['grid']['seq'] == n1 + 1 and v['grid']['w'] == 6 and v['grid']['origin'][:2] == [-2.0, -3.0] and v['grid']['upd'] is False and v['pose'] is not None, v
+    # 순서 반대: status 먼저(확장) → 보유(upd, 마커 0) → 격자 도착 → 교체(마커 복귀)
+    t[0] += 4.6; S(ep=7, stamp=20.0, mw=8); v = V(); assert v['grid']['seq'] == n1 + 1 and v['grid']['upd'] is True and v['pose'] is None
+    t[0] += 0.8; G(stamp=20.0, w=8); v = V(); assert v['grid']['seq'] == n1 + 2 and v['grid']['w'] == 8 and v['grid']['upd'] is False and v['pose'] is not None
+    # 연속 확장 30회(크기·원점·stamp 매번 바뀜), 도착 순서 교대 — 어느 순간에도 그림 0 없음, seq 는 한 번에 1씩
+    st0, w0, n2 = 20.0, 8, n1 + 2
+    for i in range(1, 31):
+        sp, w_ = st0 + 5 * i, w0 + 2 * i; o = (-1.0 - 0.1 * i, -2.0, 0.0)
+        for _ in range(4):                                   # 사이 status 1 Hz(옛 메타 그대로) — 그림 유지
+            t[0] += 1; S(ep=7, stamp=sp - 5, mw=w_ - 2); assert V()['grid']['upd'] is False
+        if i % 2:
+            t[0] += 0.7; G(stamp=sp, w=w_, origin=o); assert V()['grid']['seq'] == n2 + i - 1 and V()['grid']['upd'] is False
+            t[0] += 0.3; S(ep=7, stamp=sp, mw=w_)
+        else:
+            t[0] += 0.7; S(ep=7, stamp=sp, mw=w_); v = V(); assert v['grid'] is not None and v['grid']['upd'] is True and v['pose'] is None, (i, v)
+            t[0] += 0.3; G(stamp=sp, w=w_, origin=o)
+        v = V(); assert v['st'] == 'ok' and v['grid']['seq'] == n2 + i and v['grid']['w'] == w_ and v['grid']['upd'] is False, (i, v)
+    # 앞선 pending: 키가 바뀌면(새 epoch) 재채택 0 · 지난 stamp 대기 격자 버림
+    sp = st0 + 5 * 31; w_ = w0 + 62
+    t[0] += 1; G(stamp=sp + 5, w=w_ + 2); assert L.pending is not None
+    t[0] += 0.3; S(ep=8, stamp=sp + 5, mw=w_ + 2); v = V(); assert L.pending is None and v['grid'] is None and v['epoch'] == 8, v
+    t[0] += 0.1; S(ep=8, stamp=1.0); G(stamp=1.0); assert V()['st'] == 'ok'
+    G(stamp=0.5); assert V()['grid']['stamp'] == 1.0 and L.pending is None          # 뒤처진 격자: 대기·교체 0
+    t[0] += 0.1; S(ep=7, stamp=4.0); G(stamp=4.0); assert V()['st'] == 'ok'        # (아래 시험용 상태 복귀: ep 7 새 키)
+    G(stamp=5.0); assert L.pending is not None; S(ep=7, stamp=6.0); assert L.pending is None and V()['grid']['upd'] is True   # 지난 stamp 대기 격자 버림(그림은 보유)
     # 선택 칸 형식 틀림(list 등) → 상태 전체 «모름», 예외 0
     for bad in ({'map_error': ['x']}, {'pose_map_null_reason': ['tf_stale']}, {'slam_lifecycle': ['ok']}, {'slam_lifecycle': {'epoch': 7, 'state': ['ok']}},
                 {'map': [1]}, {'pose_map': 'x'}, {'last_save': 1}, {'scan': []}, {'map_accepting': 'yes'}, {'sim_t': 'now'}):

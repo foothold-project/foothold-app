@@ -92,3 +92,16 @@ test('gtFloors: 2층 건물 층 나란히 보기 = 층마다 GT 1장 · 원점·
   expect(allKey('v5_building')).toBe('all:v5_building');
   expect(allKey('v5_building').split('/').length).toBe(1);   // 저장본 키(건물/층/버전)와 안 겹침
 });
+
+test('liveShow(10-15 갱신 보유): 같은 K·세대만, 앞선 seq 는 검증 시각 + HOLD_MS 까지 held, 경계는 즉시 null', async () => {
+  const { liveShow, HOLD_MS } = await import('../../src/data/maps');
+  const b = { k: 'K', seq: 5, gen: 7, t: 1000 };
+  expect(liveShow(b, 'K', 5, 7, true, false, 1000)).toBe('show');
+  expect(liveShow(b, 'K', 5, 7, true, true, 1000)).toBe('held');                 // 서버 보유(grid.upd) → 마커 0
+  expect(liveShow(b, 'K', 6, 7, true, false, 1000 + HOLD_MS)).toBe('held');      // 새 seq 해독 중 — 시한 안
+  expect(liveShow(b, 'K', 6, 7, true, false, 1001 + HOLD_MS)).toBe(null);        // 시한 지남(반복 status 로 연장 0 — 시계는 b.t 하나)
+  for (const [k, seq, gen, fresh] of [['K2', 6, 7, true], ['K', 6, 8, true], ['K', 6, 7, false], [null, null, 7, true], ['K', 4, 7, true]] as any[])
+    expect(liveShow(b, k, seq, gen, fresh, false, 1000)).toBe(null);             // K·세대·끊김·st≠ok·seq 역행
+  expect(liveShow(null, 'K', 5, 7, true, false, 1000)).toBe(null);
+  expect(liveShow(b, 'K', 6, 7, true, false, 999)).toBe(null);                   // 시계 역행 = 보유 0
+});

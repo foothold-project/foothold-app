@@ -113,13 +113,16 @@ export function checkStatus(m: any): string | null {
   // 지도 칸(live_map·map_start·map_save): 틀리면 그 칸만 버림(조종 상태는 유지 — 지도 오류가 STOP·조종을 막지 않게)
   const ob = (x: any) => !!x && typeof x === 'object', lv = m.live_map, ms = m.map_start, sv = m.map_save;
   const one = (v: unknown, xs: string[]) => v == null || xs.includes(v as string), grid = (g: any) => ob(g) && int(g.seq) && [g.w, g.h].every((n) => int(n) && n >= 1 && n <= 2000)
-    && fin(g.res) && g.res > 0 && Array.isArray(g.origin) && g.origin.length >= 2 && g.origin.every(fin);
+    && fin(g.res) && g.res > 0 && Array.isArray(g.origin) && g.origin.length >= 2 && g.origin.every(fin)
+    && (g.upd == null || typeof g.upd === 'boolean') && (g.stamp == null || fin(g.stamp));   // upd·stamp: 10-15 갱신 보유(옛 서버엔 없음)
+  const keyed = (v: any) => !!(v.world_id && v.building_id && v.floor_id && v.mode && v.map_source && int(v.epoch));
   if (!(ob(lv) && LIVE_ST.includes(lv.st) && typeof lv.why === 'string' && one(lv.world_id, ['v5_single', 'v5_building', 'rooms_a']) && one(lv.building_id, ['v5', 'v5_single', 'rooms_a'])
     && one(lv.floor_id, ['f1', 'l1', 'l2']) && one(lv.mode, ['slam', 'static']) && one(lv.map_source, ['slam', 'gt_raster']) && (lv.map_version == null || typeof lv.map_version === 'string')
     && (lv.epoch == null || int(lv.epoch)) && (lv.grid == null || grid(lv.grid)) && (lv.pose_why == null || typeof lv.pose_why === 'string')
-    && (lv.st !== 'ok' || (grid(lv.grid) && lv.world_id && lv.building_id && lv.floor_id && lv.mode && lv.map_source && int(lv.epoch))))) m.live_map = null;   // ok 인데 격자·결속 칸 빠짐 → 지도 칸만 버림
+    && (lv.bound == null || (typeof lv.bound === 'boolean' && (!lv.bound || keyed(lv))))   // bound(상태 수준 결속) true 면 결속 칸 전부 있어야
+    && (lv.st !== 'ok' || (grid(lv.grid) && keyed(lv))))) m.live_map = null;   // ok 인데 격자·결속 칸 빠짐 → 지도 칸만 버림
   else {
-    if (lv.pose != null && !(ob(lv.pose) && ['x', 'y', 'yaw'].every((k) => fin(lv.pose[k])) && (lv.pose.source === 'slam_tf' || lv.pose.source === 'gt_identity'))) lv.pose = null;
+    if (lv.pose != null && (lv.grid?.upd === true || !(ob(lv.pose) && ['x', 'y', 'yaw'].every((k) => fin(lv.pose[k])) && (lv.pose.source === 'slam_tf' || lv.pose.source === 'gt_identity')))) lv.pose = null;   // 갱신 중(옛 그림) + 새 위치 조합 0
     if (lv.last_save != null && !(ob(lv.last_save) && typeof lv.last_save.ok === 'boolean' && (lv.last_save.map_version == null || typeof lv.last_save.map_version === 'string') && typeof lv.last_save.reason === 'string')) lv.last_save = null;
   }
   if (!(ob(ms) && typeof ms.ok === 'boolean' && typeof ms.why === 'string' && typeof ms.busy === 'boolean'

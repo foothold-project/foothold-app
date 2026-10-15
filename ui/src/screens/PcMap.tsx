@@ -85,10 +85,8 @@ export default function PcMap() {
     v3P: whyProps(`3D 점군 — ${WHY['뎁스 영상·3D 점군']}`),
     map: v3d || <MapCanvas name="pcmap" btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}
       raster={raster} blank={blank} flat={flat} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />,
-    gT: mv ? (live ? '현재 열린 지도 보기 중' : '저장 지도 보기 중') : dr ? `${dr.type} 구역 그리는 중` : E.id ? '구역 고름' : '구역',
     gL: mv ? '로봇·지나온 길·구역·그리던 초안은 숨김(초안은 보존). 구역 편집은 «실행 중 시뮬 바닥»으로 돌아가면 그대로 이어집니다.' : dr ? `지도를 눌러 꼭짓점 추가(3개 이상 · ${dr.pts.length}개) → 오른쪽에서 이름 넣고 저장. «구역 삭제»는 마지막 점 지우기. 끌면 지도 이동.`
       : '도구줄에서 진입 금지·감속 구역을 고른 뒤 지도를 눌러 그립니다. 지도의 구역을 누르면 고칠 수 있습니다.',
-    gS: <><span style={{ color: 'var(--warn)' }}>▲</span>{' 구역은 표시·공유만 · 주행 제한 미연결'}</>,
     zColor: { background: `var(--${ty === '감속' ? 'warn' : 'bad'})`, borderColor: `var(--${ty === '감속' ? 'warn' : 'bad'})` },
     zHead: dr ? `새 ${dr.type} 구역` : E.id && E.d ? `${lbl(E.d.type)} 구역 · 판 ${E.rev}` : '구역을 고르세요',
     zaLbl: '종류',

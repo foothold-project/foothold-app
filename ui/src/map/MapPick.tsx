@@ -1,10 +1,10 @@
 // 지도 보기 선택 — 화면만 바뀐다. 실제 Gazebo world·조종 상태 변경 0. op 는 map_list/map_get/map_live_get(읽기)뿐
 // 저장 지도: 위치 마커 0(결속 없음). 실시간(/v2_map): 서버가 status·epoch·격자형상을 결속한 격자 + 같은 status 의 pose 만 마커로.
 // 지도를 보는 동안 부르는 쪽은 GT 로봇·길·구역·경유점·탭 편집을 끈다(GT 좌표 ≠ 지도 좌표)
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { LiveMap, MapInfo } from '@contracts';
-import { BLD, FLOOR, WF, WORLD, allKey, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, liveLabel, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
+import { BLD, FLOOR, WF, WORLD, allKey, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
 import { dropAll, useLink } from '../data/link';
 import type { Robot } from './MapCanvas';
 import { toast } from '../app/shell';
@@ -13,7 +13,7 @@ import { Geom3D } from './Geom3D';
 
 const LIVE = 'live';
 const keyOf = (v: LiveMap) => [v.world_id, v.building_id, v.floor_id, v.mode, v.map_source, v.map_version, v.epoch, v.floor_rev ?? ''].join('|');   // 서버 결속 키 K(+연결 건물 층 세대)
-type Bound = { r: Raster; k: string; seq: number; gen: number };   // 실시간 그림 + 받을 때의 K·seq·연결 세대
+type Bound = { r: Raster; k: string; seq: number; gen: number; t: number };   // 실시간 그림(이미지+메타 한 덩어리) + 받을 때의 K·seq·연결 세대 + 검증 완료 시각(performance.now)
 
 // 선택은 화면들이 공유(관제·조종·지도 화면을 오가도 사용자가 고른 것 유지). touched = 사용자가 한 번이라도 직접 고름 → 그 뒤 자동 선택 0
 const usePick = create<{ sel: string; touched: boolean; auto: boolean }>(() => ({ sel: '', touched: false, auto: false }));
@@ -37,17 +37,19 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   // 그 뒤로는 일반 선택과 같다 — 끊기면 빈 지도 + 이유(GT 자동 복귀 0). 사용자가 고른 GT·저장본은 빼앗지 않음
   const seen = !!lv && lv.st !== 'off' && lv.st !== 'stale';
   useEffect(() => { if (!touched && sel === '' && seen && fresh) usePick.setState({ sel: LIVE, auto: true }); }, [seen, fresh, sel, touched]);
-  // 실시간: 연결 끊김·수신 중단·세대 변경·st≠ok·K 또는 seq 변경이면 그림·마커 즉시 버림. 새 seq 면 다시 받음(≤1 Hz) — 받는 동안 빈 칸·마커 0(옛 그림 + 새 pose 조합 금지)
+  // 실시간: 연결 끊김·수신 중단·세대 변경·st≠ok·K 변경이면 그림·마커 즉시 버림. 새 seq 면 다시 받음(≤1 Hz) — 받는 동안 같은 K·세대 직전 검증본을 HOLD_MS 까지 «갱신 중»으로(마커 0), 해독 끝나면 Raster 통째 교체
   const ok = lv?.st === 'ok', k = ok ? keyOf(lv!) : null, seq = ok ? lv!.grid!.seq : null;
   useEffect(() => {
     if (sel !== LIVE) return;
     if (!fresh || k == null || seq == null) { setBound(null); return; }
     if (bound && bound.k === k && bound.seq === seq && bound.gen === gen) return;
+    if (bound && (bound.k !== k || bound.gen !== gen)) setBound(null);   // 하드 경계(K·세대) = 직전 검증본도 즉시 버림
     let gone = false; const g0 = gen;
     getLive(lv!).then((r) => {   // getLive 의 마지막 await = image.decode — 그 뒤 연결 세대·K·seq·선택을 다시 대조
       const s = useLink.getState(), now = s.st?.live_map;
       if (gone || usePick.getState().sel !== LIVE || s.gen !== g0 || !s.open || now?.st !== 'ok' || now.grid?.seq !== seq || keyOf(now) !== k) return;
-      if (typeof r === 'string') { setBound(null); setLwhy(r); } else { setBound({ r, k, seq, gen: g0 }); setLwhy(''); }
+      // 실패(응답 seq 가 그새 앞섬·PNG 해독 실패 등): 같은 K·세대·연결이 위에서 확인됐으니 직전 검증본은 원래 시한(b.t 그대로 — 연장 0) 안에서만 보유, 오류 그림 채택 0
+      if (typeof r === 'string') setLwhy(r); else { setBound({ r, k, seq, gen: g0, t: performance.now() }); setLwhy(''); }   // 원자 교체: 이미지+메타+seq 한 번에
     });
     return () => { gone = true; };
   }, [sel, seq, k, fresh, gen, rq]);
@@ -78,7 +80,10 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     return () => { gone = true; };
   }, [sel, gen, linked, rq]);
   const live = sel === LIVE, on = sel !== '';
-  const showL = live && fresh && !!bound && bound.gen === gen && bound.k === k && bound.seq === seq;   // 그리는 순간에도 현재 lv·연결로 다시 결속 확인
+  // 그리는 순간에도 현재 lv·연결로 다시 결속 확인. 같은 seq = 정상, 앞선 seq 대기 = 검증 시각 + HOLD_MS 까지만 보유(K·세대·끊김은 위에서 즉시 버림)
+  const ls = live ? liveShow(bound, k, seq, gen, fresh, lv?.grid?.upd === true, performance.now()) : null;
+  const showL = !!ls, held = ls === 'held';   // held = 클라이언트 해독 대기 또는 서버 보유(grid.upd) — 옛 그림 + 새 pose 조합 0
+  const heldR = useMemo(() => bound && { ...bound.r, upd: true, label: `지도 갱신 중 · ${bound.r.label}` }, [bound]);
   // 높이색(GT 저장 지도만): 켤 때 1회 요청. 늦게 온 답은 선택·켬 상태가 그대로일 때만(다르면 버림). 자동 재요청 0
   const sm = !live && on && Array.isArray(maps) ? maps.find((m) => mapKey(m) === sel) : undefined, gt = !!saved && sm?.map_source === 'gt_raster';
   useEffect(() => {
@@ -89,8 +94,8 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     return () => { gone = true; };
   }, [hOn, gt, sel, saved, gen]);
   const hv = hOn && gt && hr && typeof hr !== 'string' && hr.key === sel && hr.gen === gen ? hr : null;   // 새 연결·대상엔 옛 높이 0
-  const raster = live ? (showL ? bound!.r : null) : hv ? hv.r : saved;
-  const p = showL ? lv?.pose : null;
+  const raster = live ? (showL ? (held ? heldR : bound!.r) : null) : hv ? hv.r : saved;
+  const p = showL && !held ? lv?.pose : null;
   const pose: Robot = p ? { x: p.x, y: p.y, yaw: p.yaw, t: useLink.getState().lastMsg, fresh: true } : null;
   const isAll = sel.startsWith('all:'), is3 = sel.startsWith('g3d:');
   const ss = useLink((x) => x.st?.map_start?.session) as Sess, at = runAt(ss);
@@ -102,8 +107,8 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     : !live ? (saved ? '' : serr ? `저장 지도 미표시 · ${serr}` : '저장 지도 받는 중')
     : !fresh ? '연결 끊김·수신 중단 — 실시간 지도·위치 버림(조종 상태와 별개)'
     : !lv || lv.st === 'off' ? '실시간 지도 상태 없음 — «지도 열기»로 지도 시뮬을 열면 들어옵니다'
-    : lv.st !== 'ok' ? `실시간 지도 미표시 · ${lv.why || lv.st}` : lwhy ? `실시간 지도 미표시 · ${lwhy}` : !raster ? '실시간 지도 받는 중'
-    : `${auto ? '자동 선택 · ' : ''}${liveLabel(lv)} · ${p ? `위치 ${p.source === 'slam_tf' ? 'SLAM 보정' : 'GT(지도와 같은 좌표)'}` : `위치 미표시 · ${lv.pose_why || '모름'}`}`;
+    : lv.st !== 'ok' ? `실시간 지도 미표시 · ${lv.why || lv.st}` : !raster ? (lwhy ? `실시간 지도 미표시 · ${lwhy}` : '실시간 지도 받는 중')
+    : held ? `${auto ? '자동 선택 · ' : ''}${liveLabel(lv)} · 지도 갱신 중(${lwhy ? `새 격자 못 받음 · ${lwhy} — 직전 지도` : '새 격자 받는 중'}) — 위치 표시 잠시 끔` : `${auto ? '자동 선택 · ' : ''}${liveLabel(lv)} · ${p ? `위치 ${p.source === 'slam_tf' ? 'SLAM 보정' : 'GT(지도와 같은 좌표)'}` : `위치 미표시 · ${lv.pose_why || '모름'}`}`;
   const blank = on && !raster ? (is3 && v3d ? '건물 전체 3D 는 «지도» 화면에서 봅니다' : note || '지도 없음') : null;   // MapCanvas blank — 지도 보기 중 그림 없음
   // 고른 저장 지도 ≠ 지금 열린 시뮬 지형·층이면 한 줄(보기는 화면만 — 시뮬은 그대로)
   const diff = sm && (!at || at[0] !== sm.building_id || at[1] !== sm.floor_id)

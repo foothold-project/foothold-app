@@ -22,6 +22,10 @@ test('viewKey: 대상·열림·1 s 신선도·live_map ok·뷰 ok/age/seq 하나
     expect(V.viewKey(snap(o, st), 'points', now)).toBe('');
   expect(V.viewKey(snap({ gen: 8 }), 'points', 1500)).not.toBe(ok);   // 세대가 바뀌면 다른 결속
   expect(V.viewKey(snap({}, { live_map: { st: 'ok', ...K, floor_rev: 2 } }), 'points', 1500)).not.toBe(ok);   // 연결 건물 층 세대가 바뀌면 다른 결속
+  // 10-15: 결속은 live_map.bound(상태 수준) — 격자만 기다림(st wait·bound true)이면 점군·3인칭 유지, bound false 면 st ok 여도 끊음. 옛 서버(bound 없음)는 st ok
+  expect(V.viewKey(snap({}, { live_map: { st: 'wait', bound: true, ...K } }), 'points', 1500)).toBe(ok);
+  for (const lm of [{ st: 'ok', bound: false, ...K }, { st: 'wait', ...K }, { st: 'ok', bound: 'yes', ...K }, { st: 'reset', bound: false, ...K }])
+    expect(V.viewKey(snap({}, { live_map: lm }), 'points', 1500)).toBe('');
 });
 
 test('addCloud: 정상 누적·같은 칸 중복 0·키/세대 바뀜 비움', () => {
