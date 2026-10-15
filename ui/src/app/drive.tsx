@@ -1,18 +1,19 @@
 // 조종 입력 손잡이(막대·누름 버튼) — live.js stick()/holdBtn() 과 같은 규칙. 값·폐기는 data/link.ts 누름 저장소가 정한다.
 import { useEffect, useRef, useState } from 'react';
 import { T } from '../data/transport';
-import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, sendOp, useLink, type Axes } from '../data/link';
+import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, startBlock, startDrive, type Axes } from '../data/link';
 import { toast } from './shell';
 
-/** 첫 누름: 조종 가능하면 누름, 아니면 «조종권 받기»만(손 떼고 다시 눌러야 움직임) 또는 막힌 이유 */
+/** 첫 누름: 조종 가능하면 누름, 아니면 «조종 시작» 확인 흐름(N1 — 이 누름은 움직이지 않음, 끝나면 손 떼고 새로) 또는 막힌 이유 */
 /** 입력은 두 곳까지(같은 곳 겹침·세 번째 입력 → 전부 멈춤) — link.press 정책 */
 export const MULTI = '동시 입력은 두 곳까지 — 모두 멈춤. 손 떼고 다시 누르세요';
 
 function tryPress(id: string, pid: number, p: Axes) {
-  const st = useLink.getState().st, no = driveBlock();
+  const no = driveBlock();
   if (!no) { if (press(id, pid, p)) return true; toast(MULTI); return false; }
-  if (st && (useLink.getState().viewOnly || st.role === 'view') && st.role !== 'view_other' && !st.sim_block && useLink.getState().open) { sendOp('take'); toast('조종권 받기 요청 — 손 떼고 다시 누르세요'); }
-  else toast(no);
+  const sb = startBlock();
+  if (!sb) void startDrive().then((t) => { if (t) toast(t); });
+  else toast(no.startsWith('보기 전용') ? `조종 시작 안 됨 · ${sb}` : no);   // 보기 전용인데 시작도 막힘(다른 기기 등) → «조종 시작을 누르세요» 대신 막힌 이유
   return false;
 }
 
@@ -64,7 +65,7 @@ export function useHold(id: string, p: Axes) {
 }
 
 /** 조종 화면 수명: 화면을 떠나면(SPA 경로 전환 = pagehide 아님) 숨김과 같게 — 누름 폐기 + hidden(조종 중이면) + 보기 전용.
- *  돌아오면 보기 전용부터(«조종권 받기» 뒤 새 누름만). 발행자는 link.ts 20 Hz 하나 그대로 */
+ *  돌아오면 보기 전용부터(«조종 시작» 확인 뒤 새 누름만). 발행자는 link.ts 20 Hz 하나 그대로 */
 export function useDriveScreen() { useEffect(() => () => hide(), []); }
 
 /** 휴대폰 가로 화면 맞춤(live.js fitPhone): 시안 844×390 배치 그대로, 안전 영역 안에 비율 축소·가로 늘림 */

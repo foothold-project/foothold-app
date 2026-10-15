@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
 import { NOMOVE, RELURCH, TERMS, TRIAL, WHY } from '../data/facts';
-import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, startTxt, stateRows, TRAIL, useLink, type Axes } from '../data/link';
+import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, startBlock, startDrive, startTxt, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
 import { pickWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
@@ -48,6 +48,9 @@ export default function Main() {
 
   const role = st?.role, ctl = v.linkOk && role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
   const no = driveBlock(L);
+  // N1: «조종 시작» 하나(확인 1회 → 조종권 + STOP 해제) — 조종 가능이면 상태 글만, 진행 중이면 단계 글. 반납은 따로
+  const sb = startBlock(L), goT = L.starting ?? (sb === '이미 조종 가능' ? '조종 가능' : '조종 시작');
+  const goP = { onClick: async () => { const t = await startDrive(); if (t) toast(t); }, disabled: !!sb, title: sb || '확인 1회 → 조종권 받기 + STOP 해제 · 그 뒤 손 떼고 새로 눌러야 움직임' };
 
   // 화살표 키: 조종권 있을 때 새로 누른 키만(반복·입력칸 제외), 떼면 0
   useEffect(() => {
@@ -149,12 +152,12 @@ export default function Main() {
     bigP: { title: '영상 크게 보기(STOP·조작 포함) · Esc 로 닫기', onClick: () => (big ? bigClose() : bigOpen()) },
     bigbar: big ? <div className="lv-bigbar" data-live-bigbar="1" style={{ display: 'flex' }}>
       <button type="button" className="btn lv-stop" aria-label="비상 정지(확대 화면)" {...stopOn}>STOP</button>
-      <button type="button" className="btn" disabled={!(ctl && v.latch && !busy)} onClick={() => sendOp('resume')}>STOP 해제</button>
+      <button type="button" className="btn" {...goP}>{goT}</button>
       <Pad k="big" no={no} /><span>{`${mode} · ${v.roleTxt} · 보낸 명령 ${v.sent} · ${v.body}`}</span>
       <button type="button" className="btn" onClick={bigClose}>닫기 (Esc)</button></div> : null,
-    // 조작줄: STOP 해제 · 조종권 · 시뮬 리셋
-    b1T: 'STOP 해제', b1P: { onClick: () => sendOp('resume'), disabled: !(ctl && v.latch && !busy) },
-    b2T: role === 'control' ? '조종권 반납' : '조종권 받기', b2P: { onClick: () => sendOp(role === 'control' && !L.viewOnly ? 'release' : 'take'), disabled: !v.linkOk || role === 'view_other', title: role === 'view_other' ? '다른 기기가 조종 중' : undefined },
+    // 조작줄: 조종 시작(N1) · 조종권 반납 · 시뮬 리셋
+    b1T: goT, b1P: goP,
+    b2T: '조종권 반납', b2P: { onClick: () => sendOp('release'), disabled: !v.linkOk || role !== 'control', title: role === 'view_other' ? '다른 기기가 조종 중' : role !== 'control' ? '조종권 없음' : '조종권 반납(명령 0 · STOP 잠금)' },
     b3T: '시뮬 리셋', b3P: { onClick: () => sendOp('reset'), disabled: !(ctl && !busy) },
     motion,
     drive: <><Pad k="pc" no={no} />

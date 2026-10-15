@@ -1,5 +1,5 @@
 // 조종 단계(②)·경고 목록(③) — 서버 상태 원값(role·latch·resume_pending·reset_pending·sim_block)과 링크 신선도만 본다.
-// 화면 표시용 순수 함수: 명령을 보내지 않는다(자동 take/resume 0 — 다음 행동은 사람이 기존 버튼으로). 계약 docs/CONTRACT-ui-improve-20261014.md ②③
+// 화면 표시용 순수 함수: 명령을 보내지 않는다(자동 take/resume 0 — 다음 행동은 사람이 «조종 시작» 확인으로). 계약 docs/CONTRACT-ui-improve-20261014.md ②③
 import type { Status } from '@contracts';
 import { RELURCH } from './facts';
 
@@ -20,9 +20,9 @@ export function stageOf(x: In): Stage {
   if (st.sim_block) return { i: 0, stop: st.sim_block, next: SIM_OFF.includes(st.sim_block) ? '시뮬이 꺼져 있음 — «시뮬 시작» 또는 대기' : '서버 이유가 풀릴 때까지 명령 0' };
   if (st.reset_pending) return { i: 2, stop: '시뮬 리셋 처리 중', next: '끝날 때까지 STOP 유지' };
   if (st.resume_pending) return { i: 2, stop: 'STOP 해제 확인 대기', next: '서버 확인 대기 · 명령 0' };
-  if (st.role === 'view_other') return { i: 0, stop: '다른 기기가 조종 중', next: '그 기기가 반납하면 «조종권 받기»' };
-  if (!ctlOf(x)) return { i: 0, stop: null, next: '«조종권 받기»(또는 막대 한 번)' };
-  if (st.latch) return { i: 1, stop: null, next: '«STOP 해제» → 손 떼고 다시 누르면 움직임' };
+  if (st.role === 'view_other') return { i: 0, stop: '다른 기기가 조종 중', next: '그 기기가 반납하면 «조종 시작»' };
+  if (!ctlOf(x)) return { i: 0, stop: null, next: '«조종 시작»(확인 1회 · 또는 막대 한 번)' };
+  if (st.latch) return { i: 1, stop: null, next: '«조종 시작»(확인 1회) → 손 떼고 다시 누르면 움직임' };
   if (x.block) return { i: 2, stop: x.block, next: '명령 0 — 이 이유가 풀려야 움직임' };   // 표시만 앞서가지 않게: 실제 차단과 모순 0
   return { i: 3, stop: null, next: '누르는 동안 이동 · 떼면 0' };
 }
@@ -40,12 +40,12 @@ export function warnsOf(x: In): Warn[] {
     if (off && ss?.last?.st === 'bad') add('warn', `최근 시작 결과 ${ss.last.t} · 안 켜짐`, ss.last.text);   // toast 만으로 숨기지 않음
     if (st.reset_pending) add('block', '시뮬 리셋 처리 중 · STOP 유지', '끝날 때까지 대기');
     else if (st.resume_pending) add('block', 'STOP 해제 확인 대기 · 명령 0', '서버 확인 대기');
-    else if (st.latch) add('block', 'STOP 잠금 · 명령 0', ctl ? '«STOP 해제» 뒤 손 떼고 다시 누름' : '«조종권 받기» 뒤 «STOP 해제»');
+    else if (st.latch) add('block', 'STOP 잠금 · 명령 0', '«조종 시작»(확인 1회) 뒤 손 떼고 다시 누름');
     if (st.latch) add('warn', RELURCH, '정지 직후 주변을 비워 두기 · 원인 미확인');
     if (x.fallen) add('warn', '넘어짐 · 명령은 막지 않음', '필요하면 «STOP» 뒤 «시뮬 리셋»(조종권 필요)');   // 낙상만으로는 Core·driveBlock 이 막지 않음(기존 계약) — 새 차단 0
     if (st.reason && !st.latch && !st.sim_block && st.reason !== '조종권 없음') add('warn', st.reason, '서버가 준 이유 — 메뉴 «상태 원값»에서 확인');
-    if (st.role === 'view_other') add('info', `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''} · 보기 전용`, '그 기기가 반납하면 «조종권 받기»');
-    else if (!ctl) add('info', '보기 전용', '«조종권 받기»(또는 막대 한 번)');
+    if (st.role === 'view_other') add('info', `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''} · 보기 전용`, '그 기기가 반납하면 «조종 시작»');
+    else if (!ctl) add('info', '보기 전용', '«조종 시작»(확인 1회 · 또는 막대 한 번)');
   }
   return w.map((v, i) => [v, i] as const).sort((a, b) => RANK[a[0].lvl] - RANK[b[0].lvl] || a[1] - b[1]).map(([v]) => v);
 }

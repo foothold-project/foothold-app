@@ -1,11 +1,11 @@
 // 휴대폰 가로 조종(원본 틀): 카메라·작은 지도·상태 표시·막대 둘·STOP — web/live.js setupDrive/paintDrive 와 같은 규칙.
-// 입력·폐기·발행은 data/link.ts 하나. 처음·복귀·재연결은 보기 전용 — 막대 첫 누름은 «조종권 받기»만.
+// 입력·폐기·발행은 data/link.ts 하나. 처음·복귀·재연결은 보기 전용 — 막대 첫 누름은 «조종 시작» 확인 흐름(그 누름은 움직이지 않음).
 import { useNote } from '../data/transport';
 import { useEffect, useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL, UNSUP, WHY } from '../data/facts';
-import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, sendOp, startTxt, stateRows, TRAIL, useLink } from '../data/link';
+import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, sendOp, startBlock, startDrive, startTxt, stateRows, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs, useMedia } from '../data/shared';
 import { MARK, STEPS, stageOf, warnsOf } from '../data/drive_stage';
 import { href } from '../data/hist';
@@ -30,7 +30,7 @@ const SIM_OFF = ['시뮬 상태 미수신', '시뮬 상태 끊김'];
 // ④ 화면 나누기(화면 배치만 저장): 영상 크게 → 반반 → 지도 크게. 작은 칸을 누르면 다음으로(전환 전 입력 폐기)
 const SPLITS = ['cam', 'half', 'map'] as const; type Split = (typeof SPLITS)[number];
 const SPLIT_TXT: Record<Split, string> = { cam: '영상 크게', half: '반반', map: '지도 크게' };
-const big = (t: string, f: () => void) => <button key={t} type="button" onClick={f} style={{ height: '44px', minWidth: '88px', padding: '0 14px', border: '0', borderRadius: '22px', background: '#1A1206', color: '#FFB547', fontSize: '13px', fontWeight: '700' }}>{t}</button>;
+const big = (t: string, f: () => void, off = false) => <button key={t} type="button" onClick={f} disabled={off} style={{ opacity: off ? 0.6 : undefined, height: '44px', minWidth: '88px', padding: '0 14px', border: '0', borderRadius: '22px', background: '#1A1206', color: '#FFB547', fontSize: '13px', fontWeight: '700' }}>{t}</button>;
 const hud = (good: boolean, label: string, val: string, mono = true) => <span className="hud"><span style={{ color: good ? '#5AA9FF' : '#FFB547' }}>●</span>{label}<span className={mono ? 'mono' : undefined}>{val}</span></span>;
 
 export default function MDrive() {
@@ -70,9 +70,11 @@ export default function MDrive() {
   if (v.linkOk && st) {
     if (SIM_OFF.includes(st.sim_block) && st.sim_start) btns.push(<span key="ss" title={st.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st.sim_start.ok ? undefined : 0.55 }}>{big('시뮬 시작(30분)', startSim)}</span>);
     if (SIM_OFF.includes(st.sim_block) && st.sim_start && !st.sim_start.ok && st.map_start) btns.push(big('지도 화면 (지도 열기)', () => { location.hash = '#/MMap'; }));   // 기존 체험이 막혀도 별도 경로 안내 — 기동은 지도 화면에서 사용자가 직접
-    if (!ctl && st.role !== 'view_other' && !st.sim_block) btns.push(big('조종권 받기', () => sendOp('take')));
+    // N1: 조종권 받기 + STOP 해제 → «조종 시작» 하나(확인 1회). 진행 중이면 단계 글(누를 수 없음)
+    const sb = startBlock(L);
+    if (L.starting) btns.push(big(L.starting, () => {}, true));
+    else if (!sb) btns.push(big('조종 시작', async () => { const t = await startDrive(); if (t) toast(t); }));
     const can = ctl && !st.reset_pending && !st.resume_pending;
-    if (can && v.latch) btns.push(big('STOP 해제', () => sendOp('resume')));
     if (can && (v.latch || s?.fallen === true)) btns.push(big('시뮬 리셋', () => sendOp('reset')));
   }
   const sq = (t: string, label: string, f: () => void) => <button type="button" className="pill" title={label} aria-label={label} onClick={f} style={{ width: '44px', padding: '0', justifyContent: 'center', fontSize: '18px' }}>{t}</button>;
@@ -129,7 +131,7 @@ export default function MDrive() {
     r0: { ...whyProps('저속 미검증 — 시험한 속도는 0.6 m/s 뿐'), 'aria-checked': false, style: { padding: '0 14px', border: '0', background: 'transparent', color: '#FFFFFF', fontSize: '13px', fontWeight: '600', opacity: 0.5 } },
     r1: { 'aria-checked': true, title: '앞 0.6 m/s (시험한 값)', style: { padding: '0 14px', border: '0', background: 'rgba(230,235,239,.92)', color: '#0B0E11', fontSize: '13px', fontWeight: '700' } },
     poseP: { ...why(`자세 — ${WHY['후진·제자리 회전·옆걸음·저속·자세']}`), style: { display: 'none' } }, backT: '현황',   // 자세(미지원)·속도·현황은 서랍
-    // 아래 가운데 행동 칸: 다음 행동 1개 + (조종 중) 조종권 반납 — take/resume 은 서로 다른 버튼 그대로(동시에 안 나옴)
+    // 아래 가운데 행동 칸: 다음 행동 1개 + (조종 중) 조종권 반납 — take/resume 은 «조종 시작» 하나(확인 1회, N1)
     give: <>{act && !list && <span data-act="1" style={{ display: 'contents' }}>{act}</span>}{ctl && <button type="button" className="pill" onClick={() => sendOp('release')}>조종권 반납</button>}</>,
     simOff: null,   // Gazebo 끄기는 서랍(로봇 STOP 아님 문구 그대로)
   };
