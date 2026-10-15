@@ -16,6 +16,7 @@ import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
 import { stopProps, toast } from '../app/shell';
 import { Btn, WpActs } from '../app/runui';
+import { SafeLine } from '../app/chip';
 
 // R04 가로(높이 ≤ 500): 본문 안 «조종 화면»이 스크롤 아래로 밀리므로 STOP 줄 왼쪽에도 같은 링크(STOP 크기·위치 규칙은 그대로, 줄 왼쪽만 비움)
 const DRIVE_CSS = `.mh-drive{display:none}
@@ -44,9 +45,10 @@ export default function MHome() {
   const cam = () => { if (!run || ci < 0) return toast('기록 중인 지점이 없습니다'); attachPhoto(run.id, ci); };
 
   const v = {
-    themeClass: themeClass(false), stopProps, isBase: true, isGas: false, hasFind: false, bodyOverflow: 'auto',
-    name: 'Go2 시뮬 · v2',
-    linkLine: <span style={{ fontSize: '13px', color: 'var(--muted)' }}>배터리 미제공</span>,   // B2 R16: 링크는 바로 아래 상태 줄(LiveStatus) 한 곳만
+    themeClass: themeClass(false), stopProps, safe: <p style={{ margin: '6px 0 0' }}><SafeLine /></p>,   // U2: STOP 바로 아래 안전 한 줄 + ?
+    isBase: true, isGas: false, hasFind: false, bodyOverflow: 'auto',
+    name: 'Go2 시뮬',
+    linkLine: <span style={{ fontSize: '13px', color: 'var(--muted)' }}>배터리 정보 없음</span>,   // B2 R16: 링크는 바로 아래 상태 줄(LiveStatus) 한 곳만
     status: <LiveStatus D={D} />,
     alertP: { href: href('MAlerts'), 'aria-label': `알림 ${unread}건(읽지 않음)` }, alertN: String(unread),
     missionLine: R ? `수동 진행 · ${R.tmpl || '양식 없음'} · ${durTxt(R.started)}` : '진행 중 수동 임무 없음', mtagHide: !R,

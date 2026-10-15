@@ -1,12 +1,25 @@
 // 조종 입력 손잡이(막대·누름 버튼) — live.js stick()/holdBtn() 과 같은 규칙. 값·폐기는 data/link.ts 누름 저장소가 정한다.
 import { useEffect, useRef, useState } from 'react';
 import { T } from '../data/transport';
-import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, startBlock, startDrive, type Axes } from '../data/link';
+import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, pressing, startBlock, startDrive, useLink, type Axes } from '../data/link';
+import { DIR_TAG } from '../data/facts';
 import { toast } from './shell';
 
 /** 첫 누름: 조종 가능하면 누름, 아니면 «조종 시작» 확인 흐름(N1 — 이 누름은 움직이지 않음, 끝나면 손 떼고 새로) 또는 막힌 이유 */
 /** 입력은 두 곳까지(같은 곳 겹침·세 번째 입력 → 전부 멈춤) — link.press 정책 */
 export const MULTI = '동시 입력은 두 곳까지 — 모두 멈춤. 손 떼고 다시 누르세요';
+
+/** U2 막힌 방향(후진·옆걸음·제자리 회전·저속): 서버가 0 으로 막고 이유(«… 미검증 — …»)를 status.reason 에 준다.
+ *  누르는 동안 그 이유가 처음 보이면 토스트 1회(같은 누름에서 같은 이유 반복 0 · 손 떼면 다시 1회). 허용 범위·발행은 그대로(표시만).
+ *  순수 판정: (지난번 말한 이유, 지금 누르는 중, 서버 이유) → [다음 기억, 띄울 글 | null] */
+export function dirWhy(said: string, on: boolean, reason: string | null | undefined): [string, string | null] {
+  if (!on) return ['', null];
+  const r = reason || '';
+  return /미검증/.test(r) && r !== said ? [r, `${r} · ${DIR_TAG}`] : [said, null];
+}
+export function useDirWhy() {
+  useEffect(() => { let said = ''; return useLink.subscribe((s) => { const [n, t] = dirWhy(said, pressing(), s.st?.reason); said = n; if (t) toast(t); }); }, []);
+}
 
 function tryPress(id: string, pid: number, p: Axes) {
   const no = driveBlock();

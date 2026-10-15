@@ -33,4 +33,8 @@ export const OBS_NOTE = 'AI 탐지 미연결 — 운영자가 찍어 등록한 �
 export const TRIAL_DEV = 'Gazebo · foothold-v2', TRIAL_SAFE = '시험 · 낙상·정지 지연 미검증';
 export const TRIAL = `${TRIAL_DEV} ${TRIAL_SAFE}`;
 export const RELURCH = '정지 뒤 1~2 s 안에 한 번 다시 움직일 수 있음(시뮬 기록 최대 약 .33 m/s·28°)';
+// U2(v3 §4 R9): 조종 화면 안전 한 줄 + ? 상세. 관측 숫자는 시뮬 시험 기록의 관측값이며 보장 범위(최대 거리·시간)가 아니다
+export const SAFE_LINE = 'STOP: 입력 차단·잠금 · 몸은 늦게 멈추거나 다시 움직일 수 있음';
+export const SAFE_NOTE = '아래 숫자는 시뮬 시험 기록에서 본 관측값입니다(그 시험 조건·표본에 한정 · 원인 미확인). 이 값 안에서 멈춘다는 보장이 아닙니다. 실기 미검증 · 낙상 미검증.';
+export const DIR_TAG = '앞·앞+회전만';
 export const NOMOVE = '후진·제자리 회전·옆걸음·저속은 시뮬에서 검증 안 됨 — 서버가 0으로 막습니다. 시험한 값: 앞 0.6 m/s, 앞+회전 ±0.5 rad/s(초당 약 29°)';

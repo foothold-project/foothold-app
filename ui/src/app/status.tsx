@@ -13,12 +13,13 @@ import { InFs, SimOff, toast, useRoute, whyProps } from './shell';
 
 type C = { k: 'sim' | 'link' | 'role' | 'lock'; tone: Tone; text: string; why: string };
 /** 머리줄 칩 4종(순수 — 시험용). 실기 대상이면 시뮬·역할 칩 없이 연결 «실기 미연결»만 */
-export function headChips(x: { provider: string; linkOk: boolean; everMsg: boolean; authEnd: boolean; bad: string | null; st: Status | null; viewOnly: boolean; linkTxt: string; roleTxt: string; latch: boolean }): C[] {
+export function headChips(x: { provider: string; linkOk: boolean; open?: boolean; everMsg: boolean; authEnd: boolean; bad: string | null; st: Status | null; viewOnly: boolean; linkTxt: string; roleTxt: string; latch: boolean }): C[] {
   const { st } = x, full = `링크 ${x.linkTxt}`;
   if (x.provider !== 'simulation_gate') return [{ k: 'link', tone: 'off', text: '실기 미연결', why: x.linkTxt }];
   const known = x.linkOk && !x.bad && !!st;   // 서버 상태를 지금 확인함
   const link: C = x.authEnd ? { k: 'link', tone: 'bad', text: '로그인 끝남', why: full }
-    : !x.linkOk ? (x.everMsg ? { k: 'link', tone: 'bad', text: '연결 끊김', why: full } : { k: 'link', tone: 'warn', text: '연결 중', why: full })
+    // U2(670 P3): 소켓은 열려 있는데 상태가 1 s 넘게 안 옴 = «상태 오래됨»(warn) · 소켓 닫힘 = «연결 끊김»(bad)
+    : !x.linkOk ? (!x.everMsg ? { k: 'link', tone: 'warn', text: '연결 중', why: full } : x.open ? { k: 'link', tone: 'warn', text: '상태 오래됨', why: full } : { k: 'link', tone: 'bad', text: '연결 끊김', why: full })
     : !known ? { k: 'link', tone: 'warn', text: '상태 확인 안 됨', why: full } : { k: 'link', tone: 'ok', text: '연결됨', why: full };
   const sb = st?.sim_block || '', sw = [full, sb && !full.includes(sb) && `시뮬 상태 ${sb}`, sessTxt(st) && `RL 세션 조회값 ${sessTxt(st)}(조회 시각 미표시 · 꺼짐 확정 아님)`, st?.sim_start?.why].filter(Boolean).join(' · ');
   const sim: C = !known ? { k: 'sim', tone: 'warn', text: '시뮬 확인 안 됨', why: full }
@@ -32,13 +33,19 @@ export function headChips(x: { provider: string; linkOk: boolean; everMsg: boole
     : st!.role === 'control' && !x.viewOnly ? { k: 'role', tone: 'ok', text: '이 기기 조종', why: x.roleTxt }
     : st!.role === 'view_other' ? { k: 'role', tone: 'warn', text: '다른 기기 조종 중', why: x.roleTxt } : { k: 'role', tone: 'off', text: '보기 전용', why: x.roleTxt };
   // B1(10-15 검토): 연결돼 있어도 유효한 현재 status 가 없으면(st 없음·형식 오류) 잠금도 미확인 — «해제» 확정 0
-  const lt = known ? LATCH_TXT(x) : `잠금 상태 미확인(${x.linkOk ? `연결은 됐으나 ${x.linkTxt}` : '서버 연결 끊김'})`;
+  const lt = known ? LATCH_TXT(x) : `잠금 상태 미확인(${x.linkOk ? `연결은 됐으나 ${x.linkTxt}` : x.open && x.everMsg ? '서버 상태 오래됨' : '서버 연결 끊김'})`;
   const lock: C = !known ? { k: 'lock', tone: 'warn', text: '잠금 확인 안 됨', why: lt } : x.latch ? { k: 'lock', tone: 'bad', text: 'STOP 잠금', why: lt } : { k: 'lock', tone: 'ok', text: '잠금 해제', why: lt };
   return [sim, link, role, lock];
 }
 export function useHeadChips() {
   const s = useLink(), v = linkView(s);
-  return headChips({ provider: s.provider, linkOk: v.linkOk, everMsg: !!s.lastMsg, authEnd: s.authEnd, bad: s.bad, st: s.st, viewOnly: s.viewOnly, linkTxt: v.linkTxt, roleTxt: v.roleTxt, latch: v.latch });
+  return headChips({ provider: s.provider, linkOk: v.linkOk, open: s.open, everMsg: !!s.lastMsg, authEnd: s.authEnd, bad: s.bad, st: s.st, viewOnly: s.viewOnly, linkTxt: v.linkTxt, roleTxt: v.roleTxt, latch: v.latch });
+}
+
+/** 영상 칩(R3·§3 «카메라 미연결 → 영상 없음»): 확인된 꺼짐(시뮬 카메라 off)만 off · 대기·없음은 warn. why = 원래 상태 글 */
+export function camChip(v: { camOk: boolean; camTxt: string }): { tone: Tone; text: string; why: string } {
+  return v.camOk ? { tone: 'ok', text: '영상 받음', why: v.camTxt } : v.camTxt.startsWith('꺼짐') ? { tone: 'off', text: '영상 꺼짐', why: v.camTxt }
+    : /^(리셋|새 프레임)/.test(v.camTxt) ? { tone: 'warn', text: '영상 대기', why: v.camTxt } : { tone: 'warn', text: '영상 없음', why: v.camTxt };
 }
 
 /** «시뮬 ▾»: 시작(30분)·리셋·지도 시뮬 열기·끄기. 실행 조건·확인창·권한·busy 는 기존 경로 그대로(startSimAsk·sendOp·MapStartBox·SimOff).
@@ -72,7 +79,7 @@ export function HeadChips() {
 
 export function LiveStatus({ D, style }: { D: Docs; style?: React.CSSProperties }) {
   const s = useLink(), st = s.st, v = linkView(s);
-  const reload = () => { if (st?.role === 'control') return toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤'); location.reload(); };
+  const reload = () => { if (st?.role === 'control') return toast('조종 중에는 새로고침하지 않습니다 — 조종 반납 뒤'); location.reload(); };
   return (
     <span className="lv-status" data-live-status="1" style={style}>
       <HeadChips />

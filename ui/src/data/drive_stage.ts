@@ -17,7 +17,7 @@ const ctlOf = (x: In) => !!x.st && x.st.role === 'control' && !x.viewOnly;
 export function stageOf(x: In): Stage {
   const st = x.st;
   if (!x.linkOk || !st) return { i: 0, stop: `링크 ${x.linkTxt}`, next: '연결 회복 대기 · 명령 0 · 다시 붙으면 보기 전용부터' };
-  if (st.sim_block) return { i: 0, stop: st.sim_block, next: SIM_OFF.includes(st.sim_block) ? '시뮬이 꺼져 있음 — «시뮬 시작» 또는 대기' : '서버 이유가 풀릴 때까지 명령 0' };
+  if (st.sim_block) return { i: 0, stop: st.sim_block, next: SIM_OFF.includes(st.sim_block) ? '시뮬 상태 확인 안 됨 — «시뮬 시작» 또는 대기'   /* U2(670 P2): 미수신·끊김 ≠ 꺼짐 */ : '서버 이유가 풀릴 때까지 명령 0' };
   if (st.reset_pending) return { i: 2, stop: '시뮬 리셋 처리 중', next: '끝날 때까지 STOP 유지' };
   if (st.resume_pending) return { i: 2, stop: 'STOP 해제 확인 대기', next: '서버 확인 대기 · 명령 0' };
   if (st.role === 'view_other') return { i: 0, stop: '다른 기기가 조종 중', next: '그 기기가 반납하면 «조종 시작»' };

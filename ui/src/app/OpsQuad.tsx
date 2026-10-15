@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { stopOn } from './shell';
 import { camURL, linkView, setProvider, useLink } from '../data/link';
 import { CLOUD, usePull, viewKey, viewWhy } from '../data/views';
+import { camChip } from './status';
 import { Cloud3D, LidarTop } from './Cloud3D';
 import { QEmpty, Quad, type QSize, type QTile } from './Quad';
 
@@ -44,8 +45,8 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
   const tiles: QTile[] = [
     { id: 'map', label: '지도', body: map },
     { id: 'rgb', label: 'RGB · 시뮬 카메라', body: (s) => <>
-      <img data-live-cam="" alt="Gazebo 렌더 카메라" src={camURL || undefined} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', visibility: camOk ? 'visible' : 'hidden' }} />
-      {!camOk && <QEmpty text={`카메라 ${camTxt}`} />}{s !== 'thumb' && rgbExtra}</> },
+      <img data-live-cam="" alt="시뮬 카메라 영상" src={camURL || undefined} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', visibility: camOk ? 'visible' : 'hidden' }} />
+      {!camOk && <QEmpty text={camChip({ camOk, camTxt }).text} />}{s !== 'thumb' && rgbExtra}</> },
     { id: 'follow', label: '외부 3인칭 · 시뮬 카메라', body: () => follow && fKey && follow.bind === fKey
       ? <img alt="Gazebo 렌더 3인칭 카메라" src={follow.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
       : <QEmpty text={vWhy('follow')} /> },

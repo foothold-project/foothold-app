@@ -56,6 +56,8 @@ export const lift = (id: string, pid: number) => { if (presses.get(id)?.pid === 
 /** 취소·포착 잃음: 이 곳 손가락이면 모두 폐기 */
 export const cancel = (id: string, pid: number) => { if (presses.get(id)?.pid === pid) dropAll(); };
 export const pressed = (id: string) => presses.has(id);
+/** 지금 누르고 있는 입력이 있나(막힌 방향 이유 1회 안내용 — 표시만) */
+export const pressing = () => presses.size > 0;
 /** 이 곳을 이 손가락이 지금 누르고 있나(폐기·STOP 뒤 낡은 손가락·hover 는 false) */
 export const owns = (id: string, pid: number) => presses.get(id)?.pid === pid;
 function tick20() {
@@ -419,7 +421,7 @@ export function linkView(s: LinkState) {
     camOk, camTxt: camOk ? `받음 ${(camT.length / 2).toFixed(0)} · 표시 ${(camS.length / 2).toFixed(0)} fps · ${st!.cam_age!.toFixed(1)} s` : sim?.camera === 'off' ? '꺼짐(시뮬)'
       : linkOk && st?.reset_pending ? '리셋 중 — 새 회차 프레임 대기' : linkOk && st && st.cam_age != null && st.cam_age < 2 ? '새 프레임 대기(연결·회차 바뀜)' : '미연결',
     robot: TRAIL.last ? { ...TRAIL.last, fresh: !!sim } : null, latch: !!(linkOk && st?.latch), simBlock: linkOk ? st?.sim_block || '' : '',
-    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : !st ? '상태 수신 대기' : st.sim_block || '정상',   // B2 발견(기존 결함): 대상 전환 직후 st=null·lastMsg 신선 → st! 접근으로 화면 전체가 꺼지던 것. 값 없음 = 대기(«정상» 대체 0)
+    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : s.open ? `상태 오래됨 ${age.toFixed(0)} s` : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : !st ? '상태 수신 대기' : st.sim_block || '정상',   // B2 발견(기존 결함): 대상 전환 직후 st=null·lastMsg 신선 → st! 접근으로 화면 전체가 꺼지던 것. 값 없음 = 대기(«정상» 대체 0)
     roleTxt: st?.role === 'control' ? '조종권 · 이 기기' : st?.role === 'view_other' ? `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}` : '보기 전용',
     newVer: !!(st && s.firstVer && st.ver && st.ver !== s.firstVer),
     body: !sim ? '몸 상태 미연결' : sim.fallen === true ? '넘어짐' : sim.fallen == null ? '넘어짐 미확인'

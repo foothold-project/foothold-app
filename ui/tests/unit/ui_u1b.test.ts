@@ -93,8 +93,9 @@ test('배지 → 머리줄 · 폰 서랍 스위치 · 안전 문구 유지 · �
   expect(statusSrc).toMatch(/<DevMark \/>/);
   expect(mdriveSrc).toMatch(/<DevSwitch text \/>/); expect(mdriveSrc).toMatch(/simOff: <DevMark \/>/);
   expect(F.TRIAL).toBe('Gazebo · foothold-v2 시험 · 낙상·정지 지연 미검증');
-  expect(mainSrc).toMatch(/<\/span>\{TRIAL_SAFE\}<span data-dev>/);     // 안전 부분은 data-dev 밖
-  expect(mainSrc).not.toMatch(/chip\('링크'/); expect(mainSrc).toMatch(/head: <HeadChips \/>/);
+  // U2: 제목 위 진단 줄은 전부 data-dev, 안전 부분(TRIAL_SAFE)은 SafeLine 의 ? 안(ui_u2 가 렌더 내용 검사)
+  expect(mainSrc).toMatch(/siteNode: <span data-dev>/); expect(mainSrc).toMatch(/<SafeLine \/>/);
+  expect(mainSrc).not.toMatch(/chip\('링크'/); expect(mainSrc).toMatch(/<HeadChips /);
 });
 
 // B3: 팝오버 자리 — 보이는 STOP(+8) 과 겹침 0 · 화면 안 · 최소 높이로 STOP·화면 끝을 넘지 않음 · 자리 없으면 null

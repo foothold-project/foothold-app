@@ -17,7 +17,7 @@ export function View({ v }: { v: Vals }) {
       {" "}
       <div className={`${str(v.themeClass)}` as any} style={{"minHeight":"100vh","display":"flex","flexDirection":"column"}}>
         {" "}
-        <header style={{"display":"flex","flexWrap":"nowrap","alignItems":"center","gap":"12px 16px","padding":"10px 16px","borderBottom":"1px solid var(--line)","background":"var(--panel)"}}>
+        <header style={{"display":"flex","flexWrap":"wrap","alignItems":"center","gap":"12px 16px","padding":"10px 16px","borderBottom":"1px solid var(--line)","background":"var(--panel)"}}>
           {" "}
           <div style={{"display":"flex","alignItems":"center","gap":"10px"}}>
             {" "}
@@ -86,7 +86,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
           </div>
           {" "}
-          <button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
+          <button aria-label="비상 정지" {...v.stopProps} style={{"flexShrink":"0","height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
             {" "}
             <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
               <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
@@ -98,11 +98,12 @@ export function View({ v }: { v: Vals }) {
                 {"STOP"}
               </span>
               <span style={{"fontSize":"11px"}}>
-                {"스페이스 · 명령 0·잠금"}
+                {v.stopSub ?? "스페이스 · 명령 0·잠금"}
               </span>
             </span>
             {" "}
           </button>
+          {v.stopHelp ?? null}
           {" "}
         </header>
         {" "}
@@ -757,6 +758,7 @@ export function View({ v }: { v: Vals }) {
                   </svg>
                   {v.b2T ?? "직접 조종"}
                 </button>
+                {v.b2Help ?? null}
                 {" "}
                 <button className="btn" {...v.b3P}>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -769,7 +771,7 @@ export function View({ v }: { v: Vals }) {
                 <div style={{"flex":"1"}} />
                 {" "}
                 <span style={{"fontSize":"12px","color":"var(--muted)"}}>
-                  {iv(v.motion)}
+                  {v.motionNode ?? iv(v.motion)}
                 </span>
                 {" "}
               </div>
