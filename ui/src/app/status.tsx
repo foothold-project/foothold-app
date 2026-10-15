@@ -55,17 +55,17 @@ export function SimMenu() {
   if (L.provider !== 'simulation_gate') return null;
   const ctl = v.linkOk && st?.role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
   const ss = st?.sim_start, off = v.linkOk && !!ss && ['시뮬 상태 미수신', '시뮬 상태 끊김'].includes(st!.sim_block);   // Main showStart 와 같은 조건
-  const sx = startTxt(st), onMapPage = name === 'PcMap' || name === 'MMap';
+  const sx = startTxt(st), onMapPage = name === 'MMap';   // U4-a: PcMap 은 지도 열기를 이 메뉴로(화면엔 저장만 — 같은 상자 두 번 장착 0)
   const item = (t: string, go: (() => void) | null, why: string) => go ? <button type="button" className="lv-btn" onClick={go}>{t}</button> : <button type="button" {...whyProps(why)} className="lv-btn lv-why">{t}</button>;
   return <span className="lv-help">
-    <button ref={P.b} type="button" className="lv-btn" aria-haspopup="true" aria-expanded={!!P.pos} onClick={P.toggle}>시뮬 ▾</button>
+    <button ref={P.b} type="button" className="lv-btn" data-simmenu="" aria-haspopup="true" aria-expanded={!!P.pos} onClick={P.toggle}>시뮬 ▾</button>
     {P.pos && <InFs><div ref={P.p as React.RefObject<HTMLDivElement>} role="dialog" aria-label="시뮬 메뉴" className="lv-pop lv-simmenu" style={P.style}>
       {!v.linkOk && <p className="lv-note">{`연결 확인 안 됨 — 시뮬 상태를 알 수 없어 조작하지 않음(${v.linkTxt})`}</p>}
       {ss && item('시뮬 시작(30분)', v.linkOk && off && ss.ok ? () => { P.close(false); startSimAsk(st).then(toast); } : null,
         !v.linkOk ? '연결 확인 안 됨' : !off ? `지금 시뮬 상태(${st!.sim_block || '실행 중'})에서는 시작 안 함` : ss.why || '서버가 시작을 허용하지 않음')}
       {item('시뮬 리셋', ctl && !busy ? () => { P.close(false); sendOp('reset'); } : null, !v.linkOk ? '연결 확인 안 됨' : !ctl ? '조종 중인 기기에서만(«조종 시작» 뒤)' : '리셋·재개 처리 중')}
       {st?.map_start && (onMapPage ? <p className="lv-note">지도 시뮬 열기는 이 화면의 «지도 열기» 상자에서</p>
-        : <div className="lv-simmap"><b>지도 시뮬 열기</b><MapStartBox pc={name.startsWith('Pc') || name === 'Main' || !name} /></div>)}
+        : <div className="lv-simmap"><b>지도 시뮬 열기</b><MapStartBox pc={name.startsWith('Pc') || name === 'Main' || !name} part={name === 'PcMap' ? 'open' : undefined} /></div>)}
       <SimOff className="lv-btn" />
       <p className="lv-note">{[ss && sx.left, st?.map_start && sx.map, sessTxt(st) && `시뮬 세션 ${sessTxt(st)}`, '30분 뒤 자동 종료 · 동시 1개'].filter(Boolean).join(' · ')}</p>
     </div></InFs>}
