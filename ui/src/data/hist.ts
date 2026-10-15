@@ -21,4 +21,12 @@ export function histRows(D: Docs, M: Media, pc: boolean): Row[] {
   }
   return rows.sort((a, b) => tms(b.at) - tms(a.at));
 }
+// R24 보고서 CSV = 고른 임무 하나: 그 임무 행 + 지점에 붙은 사진 + 임무 시작~종료(진행 중이면 지금) 시간 창 안 서버 사건.
+// 사건은 «시간 창 안»일 뿐 원인 연결이 아님 — detail 에 그대로 적는다.
+export const WIN_NOTE = '임무 시간 창 안 사건 · 원인 연결 아님';
+export function runRows(rows: Row[], run: { id: string; doc: { started: string; ended?: string | null; wps: { photos: string[] }[] } }, now = Date.now()): Row[] {
+  const ph = new Set(run.doc.wps.flatMap((w) => w.photos)), t0 = tms(run.doc.started), t1 = run.doc.ended ? tms(run.doc.ended) : now;
+  return rows.flatMap((r) => r.kind === '임무' ? (r.run === run.id ? [r] : []) : r.kind === '사진' ? (r.url && ph.has(r.url) ? [r] : [])
+    : t0 && tms(r.at) >= t0 && tms(r.at) <= t1 ? [{ ...r, sub: `${r.sub} · ${WIN_NOTE}` }] : []);
+}
 export const histCSV = (rs: Row[]) => csvOf(['at', 'kind', 'level', 'title', 'result', 'detail', 'by', 'photo'], rs.map((r) => [r.at, r.kind, r.lvl, r.title, r.res, r.sub, r.by, r.url]));

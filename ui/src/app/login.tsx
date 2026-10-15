@@ -2,6 +2,7 @@
 // 전송은 data/auth 의 `auth`(= transport T) 하나로만: 웹 쿠키 관문 또는 네이티브 B(앱 출처 + FhGate 있을 때만).
 import { useEffect, useRef, useState } from 'react';
 import { auth, gateOrigin, intent, safeNext } from '../data/auth';
+import { dropScratch } from '../data/scratch';
 import { nearbyApi, useNote } from '../data/transport';
 import { stopNearby } from '../data/discover';
 import { useRoute, whyProps } from './shell';
@@ -57,6 +58,7 @@ export function useLoginVals(phone: boolean) {
     }
     const my = ++intent.n; busy.current = false;
     setEd({ open: true, busy: true, err: '' });
+    dropScratch();   // 관문(대상) 바꾸기 시작 — 옛 대상의 초안·지점 선택 버림
     const err = await auth.setGate(g.origin);
     if (my !== intent.n) return;   // 그 사이 다른 요청·화면 떠남
     if (err) { setEd({ open: true, busy: false, err }); requestAnimationFrame(() => gin.current?.focus()); return; }

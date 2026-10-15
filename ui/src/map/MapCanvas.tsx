@@ -1,5 +1,7 @@
 // 공용 지도(Canvas) — web/live.js mapView 를 옮김. 그리는 순서·색·글·data-view 표시는 원본 그대로.
 // 시뮬 바닥 도면(±10 m, 1 m 격자) + 구역 + 경유점 + 지나온 길 + 로봇. 북쪽 위. 기본 로봇 중심(지도가 움직임), 손으로 끌면 따라가기 해제.
+// 보기 방식(10-15): «전체 고정» = 바탕(고른 지도 격자 또는 도면) + 경유점 범위에 맞춤, 로봇·지나온 길이 움직여도 시야 고정(새 격자 범위가 오면 그 범위로 다시 맞춤).
+//   «로봇 중심» = 신선한 위치만 따라감 — 위치가 없거나 오래되면 전체 범위 + 이유 글(따라가는 척 0). 손으로 끌기·전체 고정 중 확대/축소 = «손으로 옮김»(어느 버튼도 눌림 아님).
 // 위치는 Gazebo 정답 위치(GT)이지 SLAM 지도가 아니다. 위치가 없으면 «위치 없음 · GT 미수신», 오래되면 «위치 오래됨 N s», 도면 밖이면 «도면 밖».
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ZoneEnv } from '@contracts';
@@ -10,7 +12,7 @@ export const FLOOR = 10;   // online-20261012/gz/world_live.sdf: 평평한 바�
 export type Mode = 'robot' | 'all' | 'free';
 export type Robot = { x: number; y: number; yaw?: number | null; fallen?: boolean | null; t: number; fresh: boolean } | null;
 export type Wp = { x: number; y: number; st?: string };
-export const MODE_KO: Record<Mode, string> = { robot: '로봇 중심', all: '전체 보기', free: '손으로 옮김(◎ 로 복귀)' };
+export const MODE_KO: Record<Mode, string> = { robot: '로봇 중심', all: '전체 고정', free: '손으로 옮김' };
 
 type Props = {
   name?: string; small?: boolean; mode?: Mode; zones?: ZoneEnv[]; wps?: Wp[] | null; trail?: number[][];
@@ -47,11 +49,11 @@ export function MapCanvas(p: Props) {
     const rs = o.raster, B = rs ? [rs.ox, rs.ox + rs.w * rs.res, rs.oy, rs.oy + rs.h * rs.res] : [-FLOOR, FLOOR, -FLOOR, FLOOR];   // 바탕 범위 x0 x1 y0 y1
     const r = o.noRobot ? null : o.robot || null, fr = !!r?.fresh, showTrail = o.showTrail !== false, pts = showTrail ? o.trail || [] : [], wps = o.wps || [];
     let cx: number, cy: number, kBase: number;
-    if (v.mode === 'robot' && r) { cx = r.x; cy = r.y; kBase = Math.min(W, H) / (o.small ? 6 : 10); }
+    const follow = v.mode === 'robot' && !!r && fr;   // 로봇 중심은 신선한 위치만 따라감
+    if (follow) { cx = r!.x; cy = r!.y; kBase = Math.min(W, H) / (o.small ? 6 : 10); }
     else if (v.mode === 'free') { [cx, cy] = v.c; kBase = v.kFree; }
-    else {   // 전체 보기(또는 위치가 아직 없을 때): 바닥 + 지나온 길 + 로봇 + 경유점이 다 들어오게
-      const xs = [B[0], B[1], ...pts.map((q) => q[0]), ...wps.map((w) => w.x)], ys = [B[2], B[3], ...pts.map((q) => q[1]), ...wps.map((w) => w.y)];
-      if (r) { xs.push(r.x); ys.push(r.y); }
+    else {   // 전체 고정(또는 따라갈 위치 없음): 바탕 + 경유점(움직이지 않는 것)만 — 로봇·지나온 길이 움직여도 시야 그대로
+      const xs = [B[0], B[1], ...wps.map((w) => w.x)], ys = [B[2], B[3], ...wps.map((w) => w.y)];
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
       cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; kBase = Math.min(W / (x1 - x0 + 2), H / (y1 - y0 + 2));
     }
@@ -108,20 +110,27 @@ export function MapCanvas(p: Props) {
       if (!fr) tags.push(`위치 오래됨 ${((performance.now() - r.t) / 1000).toFixed(0)} s`);
       if (r.x < B[0] || r.x > B[1] || r.y < B[2] || r.y > B[3]) tags.push('도면 밖');   // 바탕(도면 또는 지도) 범위 밖   // 가두지 않고 그대로 그린다
       if (tags.length) { g.font = `600 ${o.small ? 10 : 12}px sans-serif`; g.fillStyle = C.warn; g.fillText(tags.join(' · '), X(r.x) + 12, Y(r.y) - 12); }
-    } else if (!o.noRobot && !rs) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText('위치 없음 · GT 미수신', W / 2, H / 2); g.textAlign = 'left'; }
+    } else if (!o.noRobot && !rs) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText(o.small ? '위치 없음' : '위치 없음 · 시뮬 위치 미수신', W / 2, H / 2); g.textAlign = 'left'; }
+    const off = r && (X(r.x) < 0 || X(r.x) > W || Y(r.y) < 0 || Y(r.y) > H);
+    const why = v.mode === 'robot' && !follow && !(o.noRobot || (o.blank != null && !rs)) ? (r ? '로봇 중심 · 위치 오래됨 — 따라가지 않음(전체 범위)' : '로봇 중심 · 위치 없음 — 따라가지 않음(전체 범위)')
+      : off && v.mode !== 'robot' ? '로봇이 화면 밖 — «로봇 중심»으로 보기' : '';
+    if (why) { g.font = `600 ${o.small ? 10 : 12}px sans-serif`; g.textAlign = 'center'; const tw = g.measureText(why).width; g.globalAlpha = 0.8; g.fillStyle = C.bg; g.fillRect(W / 2 - tw / 2 - 6, 6, tw + 12, 20); g.globalAlpha = 1; g.fillStyle = C.warn; g.fillText(why, W / 2, 21, W - 16); g.textAlign = 'left'; }
     g.font = '600 11px sans-serif'; g.fillStyle = C.mut; g.textAlign = 'right'; g.fillText('N ↑', W - 8, H - 9); g.textAlign = 'left';
     if (!o.small) {
-      const t = `${rs ? `${r ? '위치 = 실시간 지도 status' : '위치 미표시(지도와 결속 안 됨)'} · ${rs.label} · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : o.flat ? '바닥 ±10 m · ' : '지형 도면 없음 · '}${W < 520 ? 'GT 위치(SLAM 아님)' : 'Gazebo GT 위치(지도·SLAM 아님)'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
+      const t = `${rs ? `${r ? '위치 = 실시간 지도 status' : '위치 미표시(지도와 결속 안 됨)'} · ${rs.label} · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : o.flat ? '바닥 ±10 m · ' : '지형 도면 없음 · '}${W < 520 ? '시뮬 위치' : '위치 = 시뮬 위치'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
     box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
     if (rs?.upd) {   // 실시간 지도 갱신 중 — 작은 표시(작은 지도 포함). 그림은 직전 검증본, 위치 마커는 부르는 쪽이 끔
       g.font = `600 ${o.small ? 10 : 11}px sans-serif`; const tw = g.measureText('갱신 중').width; g.globalAlpha = 0.8; g.fillStyle = C.bg; g.fillRect(W - tw - 18, 6, tw + 12, 18); g.globalAlpha = 1; g.fillStyle = C.warn; g.fillText('갱신 중', W - tw - 12, 19);
     }
-    el.dataset.view = `${v.mode}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}${rs ? '|saved' : ''}${rs?.upd ? '|upd' : ''}`;
+    el.dataset.view = `${v.mode}${v.mode === 'robot' && !follow ? '-nopose' : ''}|${+v.zoom.toFixed(2)}|${showTrail ? 'trail' : 'notrail'}|${r ? (fr ? 'fresh' : 'stale') : 'none'}${rs ? '|saved' : ''}${rs?.upd ? '|upd' : ''}`;
+    el.dataset.fit = `${cx.toFixed(2)},${cy.toFixed(2)},${k.toFixed(2)}`;   // 지금 시야 중심·배율(px/m) — 전체 고정이 로봇 따라 안 움직이는지 확인용
     el.dataset.raster = rs ? `${rs.w}x${rs.h}@${rs.ox},${rs.oy}` : '';   // 지금 그린 그림 신원(크기·원점) — 시험·상태 확인용   // 시험·상태 확인용
   };
 
+  // 확대/축소: 로봇 중심은 따라가며 배율만(여전히 로봇 중심), 전체 고정은 더 이상 «전체»가 아니므로 지금 시야 그대로 «손으로 옮김»
+  const zoom = (f: number) => { const v = V.current; if (v.mode === 'all') { v.mode = 'free'; v.kFree = v.kBase * v.zoom; v.zoom = 1; } v.zoom = Math.min(8, Math.max(0.25, v.zoom * f)); };
   useLayoutEffect(draw);   // 값이 바뀔 때마다 다시 그림
   useEffect(() => {
     const el = cv.current!, box = el.parentElement!, ro = new ResizeObserver(draw); ro.observe(box);
@@ -140,20 +149,22 @@ export function MapCanvas(p: Props) {
       const tap = P.current.onTap; if (!d.moved && tap) { const r = el.getBoundingClientRect(); const [x, y] = v.toWorld(e.clientX - r.left, e.clientY - r.top); tap(x, y, v.k); }
     };
     const cancel = () => { drag = null; };
-    const wheel = (e: WheelEvent) => { if (P.current.small) return; e.preventDefault(); v.zoom = Math.min(8, Math.max(0.25, v.zoom * (e.deltaY < 0 ? 1.25 : 0.8))); draw(); };
+    const wheel = (e: WheelEvent) => { if (P.current.small) return; e.preventDefault(); zoom(e.deltaY < 0 ? 1.25 : 0.8); draw(); };
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', cancel);
     el.addEventListener('wheel', wheel, { passive: false });
     return () => { ro.disconnect(); el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', cancel); el.removeEventListener('wheel', wheel); };
   }, []);
 
   if (p.api) p.api.current = { mode: () => V.current.mode, setMode: (m) => { V.current.mode = m; V.current.zoom = 1; draw(); },
-    zoomBy: (f) => { V.current.zoom = Math.min(8, Math.max(0.25, V.current.zoom * f)); draw(); } };
+    zoomBy: (f) => { zoom(f); draw(); } };
   const v = V.current, b = (t: string, label: string, f: () => void, m?: Mode) => <button type="button" className="lv-btn" data-m={m} aria-label={label} title={label} onClick={() => { f(); draw(); }}>{t}</button>;
   return <>
     <canvas ref={cv} data-live-map={p.name || '1'} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', ...(p.small ? { pointerEvents: 'none' } : { cursor: 'crosshair' }) }} />
-    {p.btns && <div className="lv-mapbtns">
-      {b('◎', '로봇 중심(지도가 따라 움직임)', () => { v.mode = 'robot'; v.zoom = 1; }, 'robot')}{b('⤢', '전체 보기', () => { v.mode = 'all'; v.zoom = 1; }, 'all')}
-      {b('+', '확대', () => { v.zoom = Math.min(8, v.zoom * 1.5); })}{b('−', '축소', () => { v.zoom = Math.max(0.25, v.zoom / 1.5); })}
+    {p.btns && <div className="lv-mapbtns" data-noquad="">   {/* 보기만 바뀜(명령 0). 눌림 = 지금 방식(draw 가 data-m 으로 맞춤), 손으로 옮김이면 둘 다 안 눌림 */}
+      <span className="lv-mapseg" role="group" aria-label="지도 보기 방식">
+        {b('전체 고정', '전체 고정 — 지도 전체 범위, 로봇이 움직여도 시야 고정', () => { v.mode = 'all'; v.zoom = 1; }, 'all')}
+        {b('로봇 중심', '로봇 중심 — 신선한 위치를 따라감(위치 없으면 이유 표시)', () => { v.mode = 'robot'; v.zoom = 1; }, 'robot')}</span>
+      {b('+', '확대', () => zoom(1.5))}{b('−', '축소', () => zoom(1 / 1.5))}
     </div>}
   </>;
 }

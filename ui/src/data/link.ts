@@ -5,14 +5,14 @@
 import { create } from 'zustand';
 import type { ClientOp, ProviderKind, Reply, Status } from '@contracts';
 import { refreshShared } from './shared';
-import { num, ok, sgn } from './fmt';
+import { num, ok, runId, sgn } from './fmt';
 import { T } from './transport';
 
 
 // provider: 지금 화면이 보는 실행 대상(계약 ProviderKind). 이 WS 로 명령을 보내는 건 simulation_gate 일 때만 — go2_direct 는 명령 미지원(capabilities.command=false)
-type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean; gen: number; stGen: number; provider: ProviderKind };   // stGen: 마지막 유효 status 를 받은 연결 세대(= gen 이면 이 연결에서 서버 확인됨)   // gen: 연결 세대(열림·닫힘·대상 전환마다 +1)
-// viewOnly: 이 화면이 «조종권 받기»를 누르기 전까지 cmd 를 보내지 않음. 처음 열 때·숨김·앱 pause/resume·재연결 뒤 다시 켜짐(서버 role 이 control 로 남아 있어도)
-export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true, gen: 0, stGen: -1, provider: 'simulation_gate' }));
+type LinkState = { why: string | null; st: Status | null; lastMsg: number; firstVer: string | null; authEnd: boolean; tick: number; open: boolean; bad: string | null; viewOnly: boolean; gen: number; stGen: number; provider: ProviderKind; starting: string | null };   // starting: «조종 시작» 진행 단계 글(없으면 null)   // stGen: 마지막 유효 status 를 받은 연결 세대(= gen 이면 이 연결에서 서버 확인됨)   // gen: 연결 세대(열림·닫힘·대상 전환마다 +1)
+// viewOnly: 이 화면이 «조종 시작»(take)을 누르기 전까지 cmd 를 보내지 않음. 처음 열 때·숨김·앱 pause/resume·재연결 뒤 다시 켜짐(서버 role 이 control 로 남아 있어도)
+export const useLink = create<LinkState>(() => ({ why: null, st: null, lastMsg: 0, firstVer: null, authEnd: false, tick: 0, open: false, bad: null, viewOnly: true, gen: 0, stGen: -1, provider: 'simulation_gate', starting: null }));
 
 let ws: WebSocket | null = null, started = false, sig: string | null = null;
 const simOn = () => useLink.getState().provider === 'simulation_gate';   // 화면에 시뮬 상태·영상·길을 내보내도 되나(실기 대상이면 내부에서 받기만, 표시 0)
@@ -36,7 +36,7 @@ export function driveBlock(s = useLink.getState()): string | null {
   if (!s.open || !s.lastMsg || performance.now() - s.lastMsg > 1000) return s.why ? `링크 끊김 · ${s.why}` : '링크 끊김';
   if (s.bad || !st) return `상태 미확인(${s.bad || '없음'})`;
   if (s.firstVer && st.ver !== s.firstVer) return '새 판 — 새로고침';
-  if (s.viewOnly) return '보기 전용 — 조종권 받기를 누르세요';
+  if (s.viewOnly) return '보기 전용 — «조종 시작»을 누르세요';
   if (stopHeld || st.latch) return 'STOP 잠금';
   if (st.role !== 'control') return '조종권 없음';
   if (st.reset_pending || st.resume_pending || st.sim_block) return st.sim_block || '리셋/재개 대기';
@@ -65,22 +65,126 @@ function tick20() {
   send({ op: 'cmd', fx: c1(a.fx), fy: c1(a.fy), fw: c1(a.fw) });   // 손 떼면 0(서버 need_neutral·0.3 s deadman)
 }
 /** STOP: 누름 폐기·발행 멈춤을 먼저, 그다음 송신 */
-export const sendStop = () => { dropAll(); if (useLink.getState().provider !== 'simulation_gate') return false; stopHeld = true; return send({ op: 'stop' }); };   // 실기 모드: 시뮬로 보내지 않음(화면이 이유 안내)
+export const sendStop = () => { dropAll(); cancelStart(); if (useLink.getState().provider !== 'simulation_gate') return false; stopHeld = true; return send({ op: 'stop' }); };   // 실기 모드: 시뮬로 보내지 않음(화면이 이유 안내)
 /** 조종권·재개·리셋·놓기 — 전부 누름 폐기 뒤 송신. take 만 보기 전용을 푼다 */
-export const sendOp = (op: 'take' | 'release' | 'resume' | 'reset') => { dropAll(); if (useLink.getState().provider !== 'simulation_gate') return false; if (op === 'take') { hidSent = false; useLink.setState({ viewOnly: false }); } else if (op === 'release') useLink.setState({ viewOnly: true }); return send({ op }); };
+export const sendOp = (op: 'take' | 'release' | 'resume' | 'reset') => { dropAll(); if (useLink.getState().provider !== 'simulation_gate') return false; if (op === 'take') { hidSent = false; useLink.setState({ viewOnly: false }); } else if (op === 'release') { cancelStart(); useLink.setState({ viewOnly: true }); } else if (op === 'reset') cancelStart(); return send({ op }); };
 /** 숨김·떠남·앱 pause: 누름 폐기 + 서버에 hidden(조종권 해제) + 보기 전용 */
 // 배경 한 번에 pause·appStateChange·visibility·blur 로 3~4번 불림 → hidden 은 조종 중(take 뒤 또는 서버 role=control)일 때만 보냄(서버 drop 은 반복 무해)
 let hidSent = false;   // 이 연결에서 마지막 take 뒤 hidden 을 이미 보냄
-export function hide() { const s = useLink.getState(); dropAll(); if (s.provider === 'simulation_gate' && !hidSent && (!s.viewOnly || s.st?.role === 'control')) hidSent = send({ op: 'hidden' }); useLink.setState({ viewOnly: true }); }
+export function hide() { const s = useLink.getState(); dropAll(); cancelStart(); if (s.provider === 'simulation_gate' && !hidSent && (!s.viewOnly || s.st?.role === 'control')) hidSent = send({ op: 'hidden' }); useLink.setState({ viewOnly: true }); }
+
+// ---- N1 «조종 시작»(10-15 현민님 결정): 확인 1회 → take → (서버가 이 기기 조종권 확인) → resume(stop_gen) 1회 → (서버가 잠금 해제 확인) ----
+// 서버 Core 가 마지막 관문: resume 은 확인창을 연 순간의 status.stop_gen(잠금 세대)을 싣고, 서버 세대가 다르면 거부(CAS) — 확인 뒤 끼어든 STOP·잠금을 풀지 않는다.
+// 결속(확인창~성공): 연결 세대·대상·판·episode·리셋·잠금 세대·형식·신선도(1 s)·시뮬 막힘·다른 기기 점유·(take 뒤) 조종권 — 하나라도 바뀌면 그 순간 취소(sticky, 되돌아와도 취소).
+// 중단: STOP·숨김/이탈·반납·리셋 요청·새 시작 → startTok 이 바뀌어 다음 op 0. resume 은 한 번만(재시도 0). 성공해도 누름 폐기(서버 need_neutral 그대로).
+// 확인창은 페이지 안(비차단): 확인 중에도 status 를 계속 받고 STOP(버튼·Space)은 그대로 눌리며, 누르면 확인창이 바로 닫힌다. Escape·취소·이탈 = 취소.
+let startTok = 0;
+export const useAsk = create<{ text: string | null }>(() => ({ text: null }));
+let askDone: ((v: boolean) => void) | null = null;
+/** 페이지 안 확인창 답(취소·중단은 false). 열린 창이 없으면 아무것도 안 함 */
+export function answerAsk(v: boolean) { const f = askDone; askDone = null; if (useAsk.getState().text !== null) useAsk.setState({ text: null }); f?.(v); }
+const askInPage = (t: string) => new Promise<boolean>((res) => { answerAsk(false); askDone = res; useAsk.setState({ text: t }); });
+export function cancelStart() { startTok++; answerAsk(false); if (useLink.getState().starting !== null) useLink.setState({ starting: null }); }
+export const START_ASK = '조종을 시작할까요?\n· 로봇(시뮬) 주변과 시뮬 상태를 확인하세요\n· 확인하면 조종권을 받고 STOP 잠금을 풉니다\n· 그 뒤 손을 떼고 새로 눌러야 움직입니다 · STOP 은 언제든 즉시\n· 이 창이 열린 동안 STOP·리셋·연결 변화·다른 기기 점유가 생기면 취소됩니다';
+export const START_CANCEL = '조종 시작 중단 — STOP·숨김·반납·리셋 요청(보낸 다음 단계 0)';
+const halted = (w: string) => `조종 시작 중단 · ${w} — 보낸 다음 단계 0 · 다시 «조종 시작»`;
+/** «조종 시작»을 지금 할 수 없는 이유(없으면 null) — 표시·버튼 비활성용. 서버 거부는 그대로 별도 */
+export function startBlock(s = useLink.getState()): string | null {
+  const st = s.st;
+  if (s.provider !== 'simulation_gate') return '실기 모드 — 시뮬 조종 시작 안 함(Go2 명령 미지원)';
+  if (!s.open || !s.lastMsg || performance.now() - s.lastMsg > 1000) return '링크 끊김';
+  if (s.bad || !st || s.stGen !== s.gen) return '상태 미확인';
+  if (typeof st.stop_gen !== 'number') return '서버가 잠금 세대(stop_gen)를 안 줌 — 옛 서버라 «조종 시작» 불가(서버 갱신 필요)';
+  if (s.firstVer && st.ver !== s.firstVer) return '새 판 — 새로고침';
+  if (s.starting !== null) return s.starting;
+  if (st.role === 'view_other') return `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}`;
+  if (st.sim_block) return st.sim_block;
+  if (st.reset_pending) return '시뮬 리셋 처리 중';
+  if (st.resume_pending) return 'STOP 해제 확인 대기 중';
+  if (st.role === 'control' && !s.viewOnly && !st.latch && !stopHeld) return '이미 조종 가능';
+  return null;
+}
+/** 상태 조건 pred 를 만족하는 status 가 올 때까지(ms 안). 중단(live false)·시간 초과면 null */
+function until(pred: (s: LinkState) => boolean, live: () => boolean, ms: number): Promise<LinkState | null> {
+  return new Promise((res) => {
+    const done = (v: LinkState | null) => { clearTimeout(t); un(); res(v); };
+    const chk = (s: LinkState) => { if (!live()) done(null); else if (pred(s)) done(s); };
+    const t = setTimeout(() => done(null), ms), un = useLink.subscribe(chk);
+    chk(useLink.getState());   // 이미 만족(다음 status 를 기다리지 않음)
+  });
+}
+const TAKE_MS = 3000, RESUME_ACK_MS = 1500, RESUME_DONE_MS = 4500;   // 서버 RESUME_TIMEOUT 3 s + 여유
+/** «조종 시작» 전체. 반환 = 사람에게 보여 줄 결과 글(null = 확인창 취소, 보낸 것 0). ask 는 시험에서 바꿔 끼움 */
+export async function startDrive(ask: (t: string) => boolean | Promise<boolean> = askInPage): Promise<string | null> {
+  dropAll();
+  const b0 = startBlock(); if (b0) return `조종 시작 안 됨 · ${b0}`;   // 진행 중 시작이 있으면 그것도 이유(겹쳐 시작 0)
+  const s0 = useLink.getState(), k = { gen: s0.gen, prov: s0.provider, ver: s0.st!.ver, ep: s0.st!.episode, sg: s0.st!.stop_gen as number };
+  const tok = ++startTok; let dead = '', took = false;
+  const why = (s: LinkState): string => {   // 확인창을 연 순간과 달라진 것(없으면 '')
+    const st = s.st;
+    if (s.gen !== k.gen || s.provider !== k.prov) return '연결·대상 바뀜';
+    if (s.bad || !st || s.stGen !== s.gen) return '상태 형식 오류·미확인';
+    if (st.ver !== k.ver) return '새 판';
+    if (st.episode !== k.ep) return '시뮬 리셋(episode 바뀜)';
+    if (st.reset_pending) return '시뮬 리셋 처리 중';
+    if (st.stop_gen !== k.sg) return '새 STOP·잠금(잠금 세대 바뀜)';
+    if (st.sim_block) return st.sim_block;
+    if (st.role === 'view_other') return `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}`;
+    if (took && st.role !== 'control') return '조종권 잃음';
+    return '';
+  };
+  let prev = s0.lastMsg;   // 신선도: 받은 status 사이 간격이 1 s 를 넘은 적이 있으면(끊겼다 회복) 취소 — 회복 뒤 ACK 로 속행 0
+  const un = useLink.subscribe((s) => {   // 모든 상태 변화마다 — 중간 변화도 놓치지 않음(sticky)
+    if (dead || tok !== startTok) return;
+    if (s.lastMsg !== prev) { if (s.lastMsg - prev > 1000) dead = '링크 끊김(1 s 넘게 상태 없음)'; prev = s.lastMsg; }
+    dead ||= why(s); if (dead) answerAsk(false);
+  });
+  const live = () => tok === startTok && !dead && performance.now() - useLink.getState().lastMsg <= 1000;
+  const gone = () => {   // 중단: 조종권이 확인 안 됐으면 보기 전용으로
+    if (useLink.getState().st?.role !== 'control') useLink.setState({ viewOnly: true });
+    return tok !== startTok ? START_CANCEL : halted(dead || '링크 끊김(1 s 넘게 상태 없음)');
+  };
+  try {
+    useLink.setState({ starting: '확인 대기' });
+    const yes = await ask(START_ASK);
+    dropAll();   // 확인창 동안 누른 입력도 폐기
+    if (tok !== startTok || dead) return gone();
+    if (!yes) return null;
+    const b1 = startBlock({ ...useLink.getState(), starting: null }); if (b1) return `조종 시작 안 됨 · ${b1}`;   // 끊김(신선도) 등
+    let s = useLink.getState();
+    if (!(s.st?.role === 'control' && !s.viewOnly)) {
+      useLink.setState({ starting: '조종권 확인 중' });
+      const t0 = performance.now(); sendOp('take');
+      const r = await until((x) => x.lastMsg > t0 && (x.st?.role === 'control' || x.st?.role === 'view_other'), live, TAKE_MS);
+      if (!live()) return gone();
+      if (!r || r.st?.role !== 'control') { useLink.setState({ viewOnly: true }); return r ? '다른 기기가 조종 중 — 보기 전용(보낸 것: 조종권 요청뿐)' : '조종권 확인 못 함 — 보기 전용 · STOP 잠금 그대로'; }
+      s = r;
+    }
+    took = true;
+    if (s.st!.latch || stopHeld) {
+      useLink.setState({ starting: 'STOP 해제 확인 중' });
+      const t1 = performance.now(); dropAll(); send({ op: 'resume', stop_gen: k.sg });   // 서버가 세대 대조(CAS)
+      const a = await until((x) => x.lastMsg > t1 && !!x.st && (x.st.resume_pending || !x.st.latch || x.st.role !== 'control'), live, RESUME_ACK_MS);
+      if (!live()) return gone();
+      if (!a) return 'STOP 해제 거부·응답 없음 — 조종권은 이 기기 · STOP 잠금 유지(사유는 이벤트)';
+      const d = a.st!.resume_pending ? await until((x) => !!x.st && (!x.st.resume_pending || x.st.role !== 'control'), live, RESUME_DONE_MS) : a;
+      if (!live()) return gone();
+      if (!d || d.st!.role !== 'control' || d.st!.latch || d.st!.resume_pending) return 'STOP 해제 확인 안 됨(취소·시간 초과·다른 STOP) — STOP 잠금 유지';
+    }
+    dropAll();
+    return '조종 가능 — 손 떼고 새로 누르면 움직임';
+  } finally {
+    un(); if (tok === startTok) { answerAsk(false); useLink.setState({ starting: null }); }
+  }
+}
 
 /** 실행 대상 전환(화면 선택). 순서: 누름 폐기 → (시뮬 떠날 때) hidden = 조종권 해제 → 보기 전용 → 세대 +1(세대가 다른 늦은 응답·카메라·지도·점군 버림).
- *  돌아와도 조종권·STOP 해제 자동 복원 0(다시 «조종권 받기»). 같은 대상이면 아무것도 안 함 */
+ *  돌아와도 조종권·STOP 해제 자동 복원 0(다시 «조종 시작»). 같은 대상이면 아무것도 안 함 */
 export function setProvider(k: ProviderKind) {
   const s = useLink.getState(); if (s.provider === k) return;
   if (s.provider === 'simulation_gate') hide(); else dropAll();
   failPending('대상이 바뀜 — 요청 취소');
-  if (camURL) URL.revokeObjectURL(camURL); camURL = null; camT.length = 0; TRAIL.pts = []; TRAIL.last = null;   // 옛 대상의 영상·지나온 길 버림
-  for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.removeAttribute('src');
+  camClear(); camT.length = 0; TRAIL.pts = []; TRAIL.last = null;   // 옛 대상의 영상·지나온 길 버림(해독 중인 옛 프레임은 신원 대조로 버림)
   useLink.setState((x) => ({ provider: k, viewOnly: true, gen: x.gen + 1, st: null, bad: null }));   // 옛 대상 상태 버림 — 시뮬 복귀는 다음 status 부터(낡은 값 0)
 }
 
@@ -97,6 +201,7 @@ export function checkStatus(m: any): string | null {
   if (typeof m.ver !== 'string' || !m.ver) return 'ver';
   if (!ROLES.has(m.role)) return 'role';
   for (const k of ['latch', 'resume_pending', 'reset_pending']) if (typeof m[k] !== 'boolean') return k;
+  if (m.stop_gen !== undefined && !(int(m.stop_gen) && m.stop_gen >= 0)) return 'stop_gen';   // 칸 없음 = 옛 서버(«조종 시작»만 막힘), 있으면 0 이상 정수
   if (typeof m.sim_block !== 'string') return 'sim_block';
   if (!(m.episode === null || int(m.episode)) || !age(m.state_age) || !age(m.cam_age) || !int(m.docs_rev)) return 'episode/age/docs_rev';
   if (typeof m.reason !== 'string' || typeof m.me !== 'string' || !(m.holder === null || typeof m.holder === 'string')) return 'reason/me/holder';
@@ -134,8 +239,10 @@ export function checkStatus(m: any): string | null {
   const vone = (x: any) => ob(x) && ['off', 'bad', 'stale', 'ok'].includes(x.st) && typeof x.why === 'string'
     && (x.seq === null || (int(x.seq) && x.seq > 0)) && (x.age_s === null || (fin(x.age_s) && x.age_s >= 0))
     && (x.prod == null || (ob(x.prod) && (x.prod.reason === null || typeof x.prod.reason === 'string') && (x.prod.enabled === null || typeof x.prod.enabled === 'boolean')
-      && (x.prod.n_pub === null || (int(x.prod.n_pub) && x.prod.n_pub >= 0))));   // prod: 발행 쪽 진단(없으면 이전 서버)
-  if (m.views != null) { if (!ob(m.views)) m.views = null; else for (const k of ['points', 'follow']) if (!vone(m.views[k])) m.views[k] = null; }
+      && (x.prod.n_pub === null || (int(x.prod.n_pub) && x.prod.n_pub >= 0))))   // prod: 발행 쪽 진단(없으면 이전 서버)
+    && (x.run == null || (ob(x.run) && runId(x.run.run_id) && int(x.run.epoch) && x.run.epoch >= 1
+      && typeof x.run.world_id === 'string' && typeof x.run.building_id === 'string' && (x.run.mode === 'slam' || x.run.mode === 'static')));   // run: follow /2 결속 키(없으면 /1)
+  if (m.views != null) { if (!ob(m.views)) m.views = null; else for (const k of ['points', 'follow', 'lidar']) if (!vone(m.views[k])) m.views[k] = null; }   // lidar 없음(이전 서버) = null
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
     for (const k of ['x', 'y', 'yaw', 'vx', 'vy', 'tilt_deg']) if (!nf(m.sim[k])) return `sim.${k}`;
@@ -179,7 +286,7 @@ export async function startSimAsk(st: Status | null): Promise<string | null> {
   dropAll();
   const use = ss.usage_scope === 'user_experience' ? '사용자 체험 — 횟수 제한 없음(동시 1개)' : ss.usage_scope === 'experiment'
     ? `실험 원장 1회 사용${ss.ledger ? ` (지금 ${ss.ledger.used}/${ss.ledger.max})` : ''}` : '횟수 원장 사용 여부 미확인(옛 서버)';
-  if (!confirm(`Gazebo 시뮬을 30분 동안 시작할까요?\n· ${use}\n· STOP 상태로 시작합니다(«STOP 해제» 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음`)) return null;
+  if (!confirm(`Gazebo 시뮬을 30분 동안 시작할까요?\n· ${use}\n· STOP 상태로 시작합니다(«조종 시작» 확인 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음`)) return null;
   return (await ask('sim_start')).text || '응답 없음';
 }
 export const showSimStop = (st: Status | null) => !!st?.sim_stop && (st.sim_stop.on || st.sim_stop.busy);
@@ -198,10 +305,9 @@ export function startLink() {
     const w = ws = new WebSocket(u.url); w.binaryType = 'blob';
     w.onopen = () => { dropAll(); hidSent = false; useLink.setState((s) => ({ open: true, viewOnly: true, why: null, gen: s.gen + 1 })); };   // 재연결은 보기 전용부터
     w.onmessage = (e) => {
-      if (typeof e.data !== 'string') {   // 카메라 JPEG: fps 세기 + 화면의 img[data-live-cam] 에 바로 넣음(프레임마다 React 다시 그리지 않음)
+      if (typeof e.data !== 'string') {   // 카메라 JPEG: 받은 fps 세기 + 해독 끝난 최신 프레임만 img[data-live-cam] 에(camShow · 프레임마다 React 다시 그리지 않음)
         if (!simOn()) return;            // 실기 대상: 시뮬 영상 표시 0
-        camT.push(performance.now()); if (camURL) URL.revokeObjectURL(camURL); camURL = URL.createObjectURL(e.data as Blob);
-        for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.src = camURL;
+        camT.push(performance.now()); CAM.recv++; camShow(e.data as Blob, camTag());
         return;
       }
       let m: any; try { m = JSON.parse(e.data); } catch { m = null; }
@@ -210,15 +316,16 @@ export function startLink() {
       if (bad) { dropAll(); if (simOn()) useLink.setState({ st: null, bad, lastMsg: performance.now() }); return; }   // 미확인: 이전 st 로 조종 계속하지 않음
       const st = m as Status;
       if (st.latch) stopHeld = false;   // 서버가 STOP 잠금을 확인 — 이후는 latch 규칙이 막음
-      const s2 = [st.role, st.latch, st.reset_pending, st.resume_pending, st.episode, st.sim_block, st.sim_stop?.busy, st.ver, st.state_age != null && st.state_age <= 1].join('|');
+      const s2 = [st.role, st.latch, st.stop_gen, st.reset_pending, st.resume_pending, st.episode, st.sim_block, st.sim_stop?.busy, st.ver, st.state_age != null && st.state_age <= 1].join('|');
       if (s2 !== sig) { dropAll(); sig = s2; }   // 조종권·STOP·리셋·에피소드·시뮬·판·상태 신선도 변화 → 낡은 누름 폐기
       refreshShared(st.docs_rev, (st.events || [])[0]);   // 공유 기록(임무·사진 목록) 갱신 신호 — 대상과 무관
       if (!simOn()) return;   // 실기 대상: 시뮬 status 는 화면 상태(st·지나온 길·신선도)로 내보내지 않음
+      if (st.episode !== useLink.getState().st?.episode || (st.reset_pending && !useLink.getState().st?.reset_pending)) camClear();   // 회차 변경·리셋 시작 = 영상 경계
       track(st);
       useLink.setState((s) => ({ st, bad: null, lastMsg: performance.now(), firstVer: s.firstVer ?? st.ver, stGen: s.gen }));
     };
     w.onclose = (e) => {
-      dropAll(); sig = null; if (ws === w) ws = null; failPending('연결 끊김 — 응답 못 받음');
+      dropAll(); sig = null; if (ws === w) ws = null; failPending('연결 끊김 — 응답 못 받음'); camClear();
       useLink.setState((s) => ({ open: false, viewOnly: true, gen: s.gen + 1 }));   // 끊기는 즉시 «끊김» 표시(1 s 기다리지 않음)
       if (e.code === 4401) { useLink.setState({ authEnd: true }); return; }   // 로그인 끝남: 다시 잇지 않음 → 화면이 로그인으로
       if (!closed) setTimeout(open, 1000);
@@ -248,12 +355,39 @@ function lifecycle() {
   if (App?.addListener) {
     add('pause', hide);
     add('appStateChange', (x: { isActive?: boolean }) => { if (x?.isActive === false) hide(); });
-    add('resume', () => { dropAll(); useLink.setState({ viewOnly: true }); });   // 복귀: 누름 0 + 보기 전용(다시 «조종권 받기»)
+    add('resume', () => { dropAll(); cancelStart(); useLink.setState({ viewOnly: true }); });   // 복귀: 누름 0 + 진행 중 «조종 시작» 중단 + 보기 전용(다시 «조종 시작»)
   }
 }
 
 // ---- 카메라 fps(최근 2 s 받은 프레임 수) · 지나온 길(GT) — live.js camFrames·TRAIL·track() 와 같은 규칙 ----
-const camT: number[] = [];
+const camT: number[] = [], camS: number[] = [];   // 받은 시각 · 화면에 넣은 시각(최근 2 s)
+// 10-15 ②: 받자마자 img.src 를 바꾸고 이전 URL 을 바로 해제하던 방식은, 해독이 다음 프레임보다 늦으면 진행 중 해독이 새 src 로 취소돼 화면이 멈춘 것처럼 보일 수 있다.
+//   → 해독(Image.decode)이 끝난 프레임만 넣고, 넣은 «뒤에» 이전 URL 해제. 해독 중 새 프레임은 최신 1장만 대기(latest-only — 쌓기 0, 건너뛴 수는 CAM.skip).
+//   표시 상한은 서버 push 10 Hz(v2_link push 100 ms, 그 사이 새 프레임은 최신 1장만) — 이 앞단(producer·WS)의 간격은 여기서 못 고친다.
+export const CAM = { recv: 0, shown: 0, skip: 0, fail: 0, old: 0 };
+// 받은 순간의 신원(연결 세대·대상·회차·도착 시각)을 프레임과 함께 들고 다니고, 화면에 넣기 직전 지금과 대조 — 다르거나 도착 뒤 CAM_MAX_MS 넘게 걸린 해독은 버림(CAM.old)
+const CAM_MAX_MS = 1000;
+type CamTag = { gen: number; prov: ProviderKind; ep: number | null; t: number; edge: number };
+let camEdge = 0;   // 영상 경계 번호: camClear 마다 +1 — 그 전에 받은(해독 중 포함) 프레임은 영구 무효(리셋이 같은 회차로 끝나도 옛 해독 promote 0)
+let camBusy = false, camNext: { b: Blob; k: CamTag } | null = null;
+const camTag = (): CamTag => { const s = useLink.getState(); return { gen: s.gen, prov: s.provider, ep: s.st?.episode ?? null, t: performance.now(), edge: camEdge }; };
+const camLive = (k: CamTag) => { const s = useLink.getState(); return k.edge === camEdge && s.open && s.gen === k.gen && s.provider === k.prov && s.provider === 'simulation_gate' && s.stGen === s.gen && !!s.st && !s.st.reset_pending && (s.st.episode ?? null) === k.ep && performance.now() - k.t <= CAM_MAX_MS; };
+/** 영상 경계(연결 닫힘·대상 전환·회차 변경·리셋): 대기 프레임·지금 그림 버림(해독 중인 것은 promote 직전 대조로 버림) */
+export function camClear() {
+  camEdge++; camNext = null; if (camURL) URL.revokeObjectURL(camURL); camURL = null; camS.length = 0;
+  for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.removeAttribute('src');
+}
+function camShow(b: Blob, k: CamTag) {
+  if (camBusy) { if (camNext) CAM.skip++; camNext = { b, k }; return; }   // 해독 중: 최신 1장만 대기(그 신원 그대로)
+  camBusy = true; const u = URL.createObjectURL(b), im = new Image(); im.src = u;
+  im.decode().then(() => {
+    if (!camLive(k)) { URL.revokeObjectURL(u); CAM.old++; return; }   // 그새 연결·대상·회차·리셋이 바뀌었거나 너무 늦은 해독 → 버림
+    const old = camURL; camURL = u; CAM.shown++; camS.push(performance.now());
+    for (const img of document.querySelectorAll<HTMLImageElement>('img[data-live-cam]')) img.src = u;
+    if (old) URL.revokeObjectURL(old);
+  }, () => { URL.revokeObjectURL(u); CAM.fail++; })
+    .finally(() => { camBusy = false; const n = camNext; camNext = null; if (n) camShow(n.b, n.k); });   // 대기분은 받을 때 신원으로(새 신원 붙이기 0)
+}
 export const TRAIL = { pts: [] as number[][], ep: null as number | null, last: null as null | { x: number; y: number; yaw: number | null; fallen: boolean | null; t: number } };
 function track(m: Status) {
   if (m.episode !== TRAIL.ep) { TRAIL.pts = []; TRAIL.ep = m.episode; }   // 새 에피소드면 지나온 길을 새로
@@ -273,13 +407,15 @@ export function linkView(s: LinkState) {
   };
   const age = s.lastMsg ? (performance.now() - s.lastMsg) / 1000 : null, linkOk = s.open && age != null && age < 1, st = s.st;
   const sim = linkOk && st?.sim && st.state_age != null && st.state_age <= 1 ? st.sim : null;   // 신선한 시뮬 상태만(아니면 null = 미확인)
-  const camOk = !!(linkOk && st && st.cam_age != null && st.cam_age < 2), now = performance.now();
+  const camOk = !!(linkOk && st && st.cam_age != null && st.cam_age < 2 && camURL && !st.reset_pending), now = performance.now();   // 표시할 해독 프레임이 있을 때만(경계 뒤 새 프레임 전엔 이유 글)
   while (camT.length && now - camT[0] > 2000) camT.shift();
+  while (camS.length && now - camS[0] > 2000) camS.shift();
   return {
     linkOk, s: sim, fresh: !!(sim && TRAIL.last),
-    camOk, camTxt: camOk ? `${(camT.length / 2).toFixed(0)} fps · ${st!.cam_age!.toFixed(1)} s` : sim?.camera === 'off' ? '꺼짐(시뮬)' : '미연결',
+    camOk, camTxt: camOk ? `받음 ${(camT.length / 2).toFixed(0)} · 표시 ${(camS.length / 2).toFixed(0)} fps · ${st!.cam_age!.toFixed(1)} s` : sim?.camera === 'off' ? '꺼짐(시뮬)'
+      : linkOk && st?.reset_pending ? '리셋 중 — 새 회차 프레임 대기' : linkOk && st && st.cam_age != null && st.cam_age < 2 ? '새 프레임 대기(연결·회차 바뀜)' : '미연결',
     robot: TRAIL.last ? { ...TRAIL.last, fresh: !!sim } : null, latch: !!(linkOk && st?.latch), simBlock: linkOk ? st?.sim_block || '' : '',
-    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : st!.sim_block || '정상',
+    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : !st ? '상태 수신 대기' : st.sim_block || '정상',   // B2 발견(기존 결함): 대상 전환 직후 st=null·lastMsg 신선 → st! 접근으로 화면 전체가 꺼지던 것. 값 없음 = 대기(«정상» 대체 0)
     roleTxt: st?.role === 'control' ? '조종권 · 이 기기' : st?.role === 'view_other' ? `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}` : '보기 전용',
     newVer: !!(st && s.firstVer && st.ver && st.ver !== s.firstVer),
     body: !sim ? '몸 상태 미연결' : sim.fallen === true ? '넘어짐' : sim.fallen == null ? '넘어짐 미확인'
@@ -304,7 +440,7 @@ export function startTxt(st: Status | null) {
 // 상태 상세: 서버가 준 원값 그대로(가공·추정 없음) — live.js stateRows
 export function stateRows(s: LinkState): [string, string][] {
   const v = linkView(s), st = s.st, r: [string, string][] = [['링크', v.linkTxt], ['조종권', v.roleTxt], ['STOP 잠금', v.linkOk ? String(v.latch) : '미확인(링크 끊김)'], ['보낸 명령', v.sent],
-    ['서버 이유', st?.reason || '—'], ['state_age s', st ? num(st.state_age, 2) : '미확인'], ['cam_age s', st ? num(st.cam_age, 2) : '미확인'],
+    ['서버 이유', st?.reason || '—'], ['state_age s', st ? num(st.state_age, 2) : '미확인'], ['cam_age s', st ? num(st.cam_age, 2) : '미확인'], ['영상 프레임(이 화면)', `받음 ${CAM.recv} · 표시 ${CAM.shown} · 건너뜀 ${CAM.skip} · 늦음·경계 버림 ${CAM.old} · 해독 실패 ${CAM.fail}`],
     ['episode', st ? String(st.episode) : '미확인'], ['배터리', '미연결(시뮬에 값 없음)'], ['이 기기', st?.me || '미확인'],
     ['조종 중인 기기', st?.holder || '없음'], ['시뮬 세션(RL 상태)', sessTxt(st) || '미확인'], ['화면 판', `${s.firstVer || '미확인'} (서버 지금 ${st?.ver || '미확인'})`]];
   for (const [k, x] of Object.entries(st?.sim || {})) r.push([`sim.${k}`, typeof x === 'string' ? x : JSON.stringify(x)]);

@@ -38,6 +38,13 @@ export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) 
 
 // ---- 진행 기록(live.js 1139–1177) — 운영자가 눌러 기록, 자동 판정 없음 ----
 export const curWp = (R: Run) => R.wps.findIndex((w) => w.st === '대기');
+/** 기록 중인 지점: 이 기기에서 고른 번호(sel)가 이 기록에 있으면 그것, 아니면 첫 대기 지점. 방문 확인은 선택을 옮기지 않는다 —
+ *  다음 지점으로는 «다음 지점» 또는 지점 줄을 눌러서만(R01). next = 선택 뒤쪽 첫 대기 지점, 없으면 앞쪽, 그것도 없으면 -1 */
+export function pickWp(R: Run, sel: number | undefined) {
+  const i = sel != null && Number.isInteger(sel) && sel >= 0 && sel < R.wps.length ? sel : curWp(R);
+  const after = R.wps.findIndex((w, k) => k > i && w.st === '대기');
+  return { i, next: after >= 0 ? after : R.wps.findIndex((w, k) => k !== i && w.st === '대기') };
+}
 type Mod = RunWaypoint['mods'][number];
 export const modDone = (w: RunWaypoint, ty: Mod) => (ty === '사진' ? w.photos.length > 0 : ty === '운영자 확인' ? !!w.chk : w.st === '방문');
 export const modTxt = (w: RunWaypoint, ty: Mod) => (ty === '사진' ? `사진 · ${w.photos.length}장 붙임` : ty === '운영자 확인' ? `운영자 확인 · ${w.chk || '아직 판단 없음'}` : '대기 · 운영자가 지킴(자동 타이머 아님)');

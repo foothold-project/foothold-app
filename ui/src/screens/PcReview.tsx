@@ -10,7 +10,7 @@ import { alertsOf, docById, noteOf, useDocs, useMedia } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { nearOf, runsOf } from '../data/run';
 import { href } from '../data/hist';
-import { LiveStatus } from '../app/status';
+import { LiveStatus, MediaStale } from '../app/status';
 import { stopProps, toast, useRoute } from '../app/shell';
 
 const TABS = ['전체', '미분류', '확인', '보류', '제외'] as const;
@@ -21,7 +21,7 @@ const IMG: React.CSSProperties = { display: 'block', width: '100%', objectFit: '
 
 export default function PcReview() {
   const D = useDocs(), M = useMedia(), { q } = useRoute(), E = useEditor<Note>('note');
-  const [url, setUrl] = useState<string | null>(q.get('url')), [filt, setFilt] = useState<(typeof TABS)[number]>('전체');
+  const [url, setUrl] = useState<string | null>(q.get('url')), [filt, setFilt] = useState<(typeof TABS)[number]>(() => (TABS as readonly string[]).includes(q.get('f') || '') ? q.get('f') as (typeof TABS)[number] : '전체');
   const run = q.get('run') ? docById(D, q.get('run')!) : null, R = run?.kind === 'run' ? run.doc : null;
   const inRun = R ? new Set(R.wps.flatMap((w) => w.photos)) : null;
   const base = M.photos.filter((p) => !inRun || inRun.has(p.url));
@@ -37,24 +37,30 @@ export default function PcReview() {
     E.load(n || null, { photo: p.url, cls: '보류', memo: '' });
   });
   const pick = (x: string) => { if (E.dirty && !confirm('저장 안 한 메모가 있습니다. 버릴까요?')) return; setUrl(x); };
-  const judge = (c: Note['cls']) => { if (E.busy) return toast('저장 중 — 잠시 뒤 다시 누르세요'); if (!E.d || E.d.photo !== p?.url) return; E.d.cls = c; E.dirty = true; E.save(); };
+  // R12: 분류하면 그 사진을 고정(url) — 저장 뒤 필터에서 빠져도·충돌(409)·실패여도 대상·초안이 다른 사진으로 바뀌지 않음
+  const judge = (c: Note['cls']) => { if (E.busy) return toast('저장 중 — 잠시 뒤 다시 누르세요'); if (!E.d || E.d.photo !== p?.url) return; setUrl(p.url); E.d.cls = c; E.dirty = true; E.save(); };
+  const outside = !!p && !ps.some((x) => x.url === p.url);
+  // R24: CSV = 지금 보는 범위(임무 필터 × 탭) 그대로
+  const scope = `${R ? `임무 «${R.name}»` : '전체 사진'} · ${filt}`;
   const vis = R ? R.wps.filter((w) => w.st === '방문').length : 0, al = alertsOf(M).length;
 
   const v = {
-    themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
+    themeClass: themeClass(true), stopProps, status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
     hdrA: '사진 검토', hdrB: R ? `수동 임무 «${R.name}» 관찰 사진` : '관찰 사진 · 운영자 등록',
     sL: R ? `수동 임무 · 양식: ${R.tmpl || '—'} · ${R.status}` : '관찰 사진 검토 · 전체',
     sBig: `${LV.warn} 분류 대기 ${cnt('미분류')}장`, sBigS: { color: 'var(--warn)' }, sDesc: OBS_NOTE,
     stats: ([['소요', R ? durTxt(R.started, R.ended) : '—'], ['지점 방문', R ? `${vis} / ${R.wps.length}` : '—'], ['관찰 사진', String(base.length)], ['확인', String(cnt('확인'))], ['경보 사건', String(al)]] as const)
       .map(([a, b]) => <div key={a} style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}><span className="lbl">{a}</span>
         <span className="mono" style={{ fontSize: '20px', fontWeight: '600', color: a === '경보 사건' && al ? 'var(--bad)' : undefined }}>{b}</span></div>),
-    csvT: '사진 정보 내려받기 (CSV)',
-    csvP: { onClick: () => toast(!M.ok ? '서버 기록 미확인 — 내보내지 않음' : saveBlob(`foothold-v2-photos-${Date.now()}.csv`, new Blob([csvOf(['saved_at', 'frame_at', 'episode', 'x', 'y', 'yaw', 'by', 'cls', 'memo', 'url'],
-      M.photos.map((x) => { const nn = noteOf(D, x.url); return [x.saved_at, x.frame_at, x.episode, x.x, x.y, x.yaw, x.by, nn ? nn.doc.cls : '미분류', nn ? nn.doc.memo : '', x.url]; }))], { type: 'text/csv' }))) },
+    csvT: `보는 범위 CSV · ${scope} · ${ps.length}장`,
+    csvP: { onClick: () => toast(!M.ok ? '서버 기록 미확인 — 내보내지 않음' : saveBlob(`foothold-v2-photos-${run ? `run-${run.id}` : 'all'}-${filt}-${Date.now()}.csv`, new Blob([csvOf(['saved_at', 'frame_at', 'episode', 'x', 'y', 'yaw', 'by', 'cls', 'memo', 'url'],
+      ps.map((x) => { const nn = noteOf(D, x.url); return [x.saved_at, x.frame_at, x.episode, x.x, x.y, x.yaw, x.by, nn ? nn.doc.cls : '미분류', nn ? nn.doc.memo : '', x.url]; }))], { type: 'text/csv' }))
+      .then((x) => x && `${scope} · ${ps.length}행 · ${x}`)) },
     repT: '수동 임무 보고서', repP: { href: href('Report', run ? { run: run.id } : {}) },
     lhA: '관찰 사진', lhB: 'AI 탐지 미연결 · 운영자가 찍은 관찰',
     tabs: TABS.map((t) => <button key={t} type="button" className="tab" role="tab" aria-selected={t === filt} onClick={() => setFilt(t)}>{`${t} ${cnt(t)}`}</button>),
     fds: <div style={{ display: 'flex', flexDirection: 'column', gap: 'inherit', maxHeight: '640px', overflow: 'auto' }}>
+      {outside && <span className="lbl" role="status">{`고른 사진은 지금 필터(${filt}) 밖 · `}<button type="button" className="lv-btn" disabled={!ps.length} onClick={() => pick(ps[0].url)}>필터 안 첫 사진으로</button></span>}
       {!M.ok ? <span className="lbl">{M.err || '서버 기록 읽는 중…'}</span>
         : !ps.length ? <span className="lbl">해당 사진 없음 — 조종 화면·현황의 📷 로 찍습니다</span>
         : ps.slice(0, 120).map((x) => { const nn = noteOf(D, x.url); return (
@@ -69,15 +75,15 @@ export default function PcReview() {
     scS: p ? undefined : { visibility: 'hidden' as const },
   };
   if (p) {
-    const old = nearOf(M, p).find((x) => tms(x.frame_at) < tms(p.frame_at)), ed = E.d?.photo === p.url;
+    const old = nearOf(M, p).find((x) => tms(x.frame_at) < tms(p.frame_at)), ed = E.d?.photo === p.url, draft = ed && E.dirty;   // 남은 분류 초안 우선 표시
     Object.assign(v, {
-      scT: n ? `분류: ${n.doc.cls}` : '미분류 관찰', scB: n ? n.doc.cls : '미분류', scBP: { className: badgeCls(n) },
+      scT: draft ? `분류 초안: ${E.d!.cls} · 저장 안 됨${n ? ` (서버: ${n.doc.cls})` : ''}` : n ? `분류: ${n.doc.cls}` : '미분류 관찰', scB: n ? n.doc.cls : '미분류', scBP: { className: badgeCls(n) },
       scL: `${runsOf(D, p.url).join(', ') || '임무 지점 없음'} · ${posTxt(p.x, p.y)} · 방향 ${deg(p.yaw)} · ${fmtT(p.frame_at)}${n ? ` · 분류 ${n.by} ${fmtT(n.at)}` : ''}`,
       im1: <Photo src={p.url} alt={`관찰 사진 ${fmtT(p.frame_at)}`} style={IMG} />,
       c1: `Gazebo 렌더 · 프레임 수신 ${fmtT(p.frame_at)} · GT는 저장 요청 때 최신(프레임 동기 아님)`,
       im2: old ? <Photo src={old.url} alt={`같은 위치 이전 사진 ${fmtT(old.frame_at)}`} style={IMG} /> : null,
       c2: old ? `같은 위치(1 m 안) 이전 사진 · ${fmtT(old.frame_at)}` : '같은 위치(1 m 안) 이전 사진 없음',
-      j: CLS.map(([c]) => ({ type: 'button', 'aria-pressed': !!n && n.doc.cls === c, disabled: !ed, onClick: () => judge(c) })), jT: CLS.map(([, t]) => t),
+      j: CLS.map(([c]) => ({ type: 'button', 'aria-pressed': draft ? E.d!.cls === c : !!n && n.doc.cls === c, disabled: !ed, onClick: () => judge(c) })), jT: CLS.map(([, t]) => t),
       memoL: '메모 · 보고서에 함께 실립니다(모든 기기 공유)',
       memo: <textarea id="memo" rows={2} maxLength={400} placeholder="무엇을 봤는지·조치" disabled={!ed} value={ed ? E.d!.memo : ''}
         onChange={(e) => { if (E.d) { E.d.memo = e.target.value; E.dirty = true; E.touch(); } }} onBlur={() => { if (E.dirty && !E.busy) E.save(); }}

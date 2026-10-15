@@ -236,19 +236,24 @@ export interface OpMapStart {
   follow_cam?: boolean;
 }
 
+export interface OpResume {
+  op: "resume";
+  stop_gen?: number;
+}
+
 export interface OpRid {
   op: "photo" | "sim_start" | "sim_stop" | "map_list" | "map_live_get" | "map_save";
   rid?: number | null;
 }
 
 export interface OpSimple {
-  op: "take" | "release" | "stop" | "resume" | "reset" | "hidden";
+  op: "take" | "release" | "stop" | "reset" | "hidden";
 }
 
 export interface OpViewGet {
   op: "view_get";
   rid?: number | null;
-  what: "follow" | "points";
+  what: "follow" | "points" | "lidar";
 }
 
 export interface PhotoMeta {
@@ -398,6 +403,7 @@ export interface Status {
   op: "status";
   role: "control" | "view_other" | "view";
   latch: boolean;
+  stop_gen: number;
   applied: number[];
   reason: string;
   sim_block: string;
@@ -448,17 +454,27 @@ export interface ViewProd {
   enabled: boolean | null;
 }
 
+export interface ViewRun {
+  run_id: string;
+  epoch: number;
+  world_id: string;
+  building_id: string;
+  mode: "slam" | "static";
+}
+
 export interface ViewSrc {
   st: "off" | "stale" | "bad" | "ok";
   why: string;
   seq: number | null;
   age_s: number | null;
   prod?: ViewProd | null;
+  run?: ViewRun | null;
 }
 
 export interface Views {
   follow: ViewSrc;
   points: ViewSrc;
+  lidar?: ViewSrc | null;
 }
 
 export interface Waypoint {
@@ -483,7 +499,7 @@ export interface ZoneEnv {
   doc: Zone;
 }
 
-export type ClientOp = OpSimple | OpCmd | OpRid | OpMapGet | OpGeomGet | OpMapStart | OpViewGet;
+export type ClientOp = OpSimple | OpResume | OpCmd | OpRid | OpMapGet | OpGeomGet | OpMapStart | OpViewGet;
 export type ServerMsg = Status | Reply;
 export type DocEnvelope = ZoneEnv | TmplEnv | MissionEnv | RunEnv | NoteEnv;
 export type DocWrite = DocPut | DocDel;

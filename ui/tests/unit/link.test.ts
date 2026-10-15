@@ -234,7 +234,7 @@ test('저장 지도: 목록 형식 걸러냄 · 다른 지도 답 버림 · 요�
   { const S = I({ map_source: 'slam', epoch: 2, map_version: '20261014-100000-e2' }); p = M.getMap(S as any); reply({ map: { ...S, epoch: 3, png: 'AA==' } }); expect(await p).toBe('지도 형식 이상'); }   // 다른 epoch
   p = M.getMap(I() as any); reply({ map: { ...I({ origin: [-20, -14, 0.5] }), png: 'AA==' } }); expect(await p).toContain('회전');
   p = M.getMap(I() as any); { const z = last(sent); msg({ op: 'reply', rid: z.rid, ok: false, text: '지도 · 지도 없음' }); } expect(await p).toBe('지도 · 지도 없음');
-  expect(M.mapLabel(I() as any)).toContain('GT 기하 지도(SLAM 아님)');
+  expect(M.mapLabel(I() as any)).toContain('시뮬 도면 지도');
 });
 
 test('checkStatus: views 형식 틀림 → 그 뷰만 버림(상태·조종 관문 유지)', () => {
@@ -247,6 +247,24 @@ test('checkStatus: views 형식 틀림 → 그 뷰만 버림(상태·조종 관�
   }
   const m: any = ST({ views: 'x' }); expect(L.checkStatus(m)).toBe(null); expect(m.views).toBe(null);
   expect(V({ st: 'off', why: '', seq: null, age_s: null, prod: { reason: 'sim_t_unknown', n_pub: 0, enabled: null } })[1].points.prod.reason).toBe('sim_t_unknown');   // 발행 쪽 진단 통과
+});
+
+test('checkStatus follow /2 run: run_id 소문자 hex 정확히 32자만(끝 개행·대문자·31/33자·null 거부), 틀리면 그 뷰만 버림', async () => {
+  const { runId } = await import('../../src/data/fmt');
+  const R = '0123456789abcdef'.repeat(2), RUN = { run_id: R, epoch: 1, world_id: 'v5_building', building_id: 'v5', mode: 'slam' };
+  const F = (run: any) => { const m: any = ST({ views: { points: null, follow: { st: 'ok', why: '', seq: 1, age_s: 0.1, run } } }); return [L.checkStatus(m), m.views.follow]; };
+  expect(runId(R)).toBe(true); expect(F(RUN)[1].run.run_id).toBe(R); expect(F(null)[1].seq).toBe(1);
+  for (const id of [R + '\n', R + '\r\n', '\n' + R, R.toUpperCase(), R.slice(1), R + 'a', null, undefined, 32]) {
+    expect(runId(id)).toBe(false);
+    const [why, f] = F({ ...RUN, run_id: id }); expect(why).toBe(null); expect(f).toBe(null);
+  }
+  for (const run of [{ ...RUN, epoch: true }, { ...RUN, epoch: 0 }, { ...RUN, mode: 'x' }, 'x']) expect(F(run)[1]).toBe(null);
+  // raw 라이다 칸: 같은 검사, 없는 서버(칸 없음) = null, 틀리면 그 칸만 버림(조종 상태 통과)
+  const G = (lidar: any) => { const m: any = ST({ views: { points: null, follow: null, ...(lidar === 'absent' ? {} : { lidar }) } }); return [L.checkStatus(m), m.views.lidar]; };
+  expect(G({ st: 'ok', why: '', seq: 3, age_s: 0.4, run: RUN })[1].seq).toBe(3);
+  expect(G('absent')).toEqual([null, null]);
+  for (const bad of [{ st: 'ok', why: '', seq: 3, age_s: 0.4, run: { ...RUN, run_id: R + '\n' } }, { st: 'x', why: '', seq: 3, age_s: 0.4, run: RUN }, { st: 'ok', why: '', seq: true, age_s: 0.4, run: RUN }])
+    expect(G(bad)).toEqual([null, null]);
 });
 
 test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·늦은 응답 모두 명령 0, 돌아와도 자동 복원 0', async () => {
@@ -329,4 +347,13 @@ test('지도 목록 loadList: 서버 확인 전 0·같은 세대 겹침 0·늦�
     expect(M.loadList(q, set)).toBe(true); const r = last(sent); expect(r.op).toBe('map_list');
     msg({ op: 'reply', rid: r.rid, ok: true, text: '', maps: [] }); await flush();
     expect(got).toEqual(['서버 응답 없음(5 s)', []]); expect(nList()).toBe(n0 + 2); }
+});
+
+test('B2 발견: 실기→시뮬 복귀 직후(열림·신선한 lastMsg·st null) linkView 가 죽지 않고 «상태 수신 대기» · 명령 관문은 그대로 막음', () => {
+  L.setProvider('go2_direct'); L.setProvider('simulation_gate');
+  L.useLink.setState({ open: true, lastMsg: performance.now(), authEnd: false, bad: null });
+  const s = L.useLink.getState(); expect(s.st).toBe(null);
+  const v = L.linkView(s);
+  expect(v.linkTxt).toBe('상태 수신 대기'); expect([v.latch, v.simBlock, v.camOk, v.s]).toEqual([false, '', false, null]);
+  expect(L.driveBlock()).toMatch('상태 미확인');
 });

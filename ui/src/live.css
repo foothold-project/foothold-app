@@ -1,5 +1,6 @@
 /* web/live.js 공통 실연결 CSS 그대로(lv-* 클래스). 원본 시안 CSS 는 화면마다 따로(*.view.tsx CSS). */
 .lv-why{opacity:.5;cursor:help}
+[hidden]{display:none!important}   /* B2 R11: hidden 속성 = 숨김 확정(.btn 등 display 규칙이 UA [hidden] 을 이겨 미지원 버튼이 보이던 것, b2 QA PcMap·PcRobot) */
 .pill{white-space:nowrap}
 .lv-on{outline:3px solid var(--accent,#3ec7b4);outline-offset:2px}
 .lv-pad{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -38,7 +39,11 @@ textarea.lv-inp{resize:vertical}
 .lv-tag.ok{color:var(--ok);border-color:var(--ok)}.lv-tag.warn{color:var(--warn);border-color:var(--warn)}.lv-tag.bad{color:var(--bad);border-color:var(--bad)}.lv-tag.acc{color:var(--accent);border-color:var(--accent)}
 .lv-warnbox{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--warn);border-radius:8px;font-size:13px}
 .lv-map{position:relative;overflow:hidden;border-radius:8px;background:var(--map,#0E1317);min-height:120px}
-.lv-mapbtns{position:absolute;right:8px;top:8px;z-index:2;display:flex;flex-direction:column;gap:6px}.lv-mapbtns .lv-btn{width:44px;min-height:44px;padding:0;font-size:18px}
+.lv-mapbtns{position:absolute;right:8px;top:8px;z-index:2;display:flex;flex-direction:column;align-items:flex-end;gap:6px}.lv-mapbtns>.lv-btn{width:44px;min-height:44px;padding:0;font-size:18px}
+.qd.f:not(.nopip) .qt.on .lv-mapbtns{right:calc(var(--tw) + 14px)}   /* 큰 칸: 오른쪽 작은 칸(PIP) 열이 지도 버튼을 덮던 것(10-15 QA hit false) — 그 왼쪽으로 */
+/* 10-15 ④ 글 있는 보기 버튼(전체 고정 · 로봇 중심) — 눌림 = 지금 방식 */
+.lv-mapseg{display:inline-flex;border-radius:8px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.45)}.lv-mapseg .lv-btn{min-height:44px;padding:0 10px;border-radius:0;font-size:13px;white-space:nowrap}.lv-mapseg .lv-btn+.lv-btn{border-left:0}
+.lv-mapseg .lv-btn[aria-pressed=true]{background:var(--acc-bg,rgba(56,198,217,.18));color:var(--text)}
 .lv-wp{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
 .lv-wp>b{display:grid;place-items:center;width:26px;height:26px;border-radius:13px;border:2px solid var(--accent);font-size:12px}
 .lv-thumb{width:72px;height:48px;object-fit:cover;border-radius:6px;background:#05080A}
@@ -70,7 +75,13 @@ textarea.lv-inp{resize:vertical}
 .qd.nopip .qpip{right:7px}
 .qpip:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .qb{position:relative;flex:1;aspect-ratio:16/10;min-height:0;background:#05080A}
-.qd.f .qt.on .qb{aspect-ratio:auto;height:min(62vh,620px)}
+.qd.f .qt.on .qb{flex:none;aspect-ratio:auto;height:var(--qbh,min(62vh,620px))}   /* flex:none — .qb 기본 flex:1(basis 0)이 세로 flex 에서 height 를 무시하던 것(10-15 QA 실측 197 px) */   /* 10-15 ①: --qbh = 화면 남는 높이(Quad.tsx 가 잼) */
+/* 브라우저 전체화면(이 묶음만): 창 전체 높이 − 칸 머리(30)·틈. STOP(.qfs-stop)은 아래 가운데 상시 */
+.qd:fullscreen{box-sizing:border-box;width:100vw;height:100vh;background:#05080A;align-content:start}
+.qd:fullscreen.f .qt.on .qb{height:calc(100vh - 46px)}
+.qfs{position:absolute;z-index:4;top:9px;right:44px;min-height:26px!important;padding:0 10px!important;font-size:12px!important}
+.qfs-stop{position:absolute;z-index:5;left:50%;bottom:14px;transform:translateX(-50%)}
+.qfs-stop .lv-stop{min-width:120px;height:56px;border:0;border-radius:10px;background:var(--stop,#D7261E);color:#fff;font-size:18px;font-weight:800;letter-spacing:.06em;box-shadow:0 2px 12px rgba(0,0,0,.6)}
 .qd.f .qt.pip .qb{flex:none;aspect-ratio:4/3}
 .qh{display:flex;align-items:center;justify-content:space-between;gap:6px;height:30px;padding:0 8px;border:0;border-bottom:1px solid var(--line);background:var(--panel2);font-size:12px;font-weight:600;text-align:left;min-width:0}
 .qh span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -78,15 +89,17 @@ textarea.lv-inp{resize:vertical}
 .qh:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .qd-empty{position:absolute;inset:0;display:grid;place-items:center;padding:12px;text-align:center;font-size:13px;line-height:1.45;color:var(--muted);pointer-events:none}
 .qd.f .qt.pip .qd-empty{font-size:11px;padding:6px}
+.qd-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 6px 6px;padding:6px 10px;border:1px dashed var(--line);border-radius:6px;font-size:12px;line-height:1.45;color:var(--muted)}
 .qd.f .qt.pip .qh{height:24px;font-size:11px}
 .qmode{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
 .qmode button{height:30px;padding:0 10px;border:0;background:transparent;font-size:12px;font-weight:600;color:var(--muted)}
 .qmode button[aria-pressed="true"]{background:var(--acc-bg);color:var(--text)}
 .qmode button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
-/* 폰 화면(MHome·MMap·MLogin·MAlerts·MAlert·MHistory·MFinding) 틀 폭 — 10-14: 생성 틀 인라인 width 390px 가 왼쪽에 붙어
-   411·430 폰에서 오른쪽 빈 띠(가로에선 절반 이상). 폭만 화면에 맞춘다(높이 844·배치·색은 그대로) */
-#dc-root>div[style*="width: 390px"][style*="height: 844px"]{width:100%!important}
+/* 폰 화면(MHome·MMap·MLogin·MAlerts·MAlert·MHistory·MFinding) 틀 — 10-14: 폭을 화면에 맞춤(인라인 390px 가 왼쪽에 붙던 빈 띠).
+   10-15 R04: 높이도 화면에 맞춤(인라인 844 고정이면 가로 390 에서 아래 탭·STOP 이 화면 밖). 틀은 세로 flex — 본문만 스크롤, 탭·STOP 은 늘 화면 안.
+   100dvh 미지원 브라우저는 100vh. 배치·색은 그대로. 실폰 주소창 변화·키보드는 미검증 */
+#dc-root>div[style*="width: 390px"][style*="height: 844px"]{width:100%!important;height:100vh!important;height:100dvh!important}
 
 /* PC 관제(Main) 폰 폭(≤700px, iPhone 390·가로 844 의 좁은 쪽) — 10-14 진단: 머리줄 칩이 세로로 쌓여 잘리고 지도가 메뉴 아래로 밀림.
    생성 틀(Main.view)의 인라인 스타일을 바꾸지 않고 여기서만 덮는다. 색·메뉴·STOP 은 그대로 */
@@ -110,6 +123,7 @@ textarea.lv-inp{resize:vertical}
   .qd{--qa:calc(100vh - 150px);scroll-margin-top:68px}
   .qd .qb{flex:none}
   .qd:not(.f) .qb{aspect-ratio:auto;height:calc(var(--qa) / 2 - 33px)}
+  .qd.two:not(.f) .qb{height:calc(var(--qa) - 30px)}   /* B2: 보조 뷰 접힘 2칸 = 한 줄 → 높이 전부 */
   .qd.f .qt.on .qb{height:calc(var(--qa) - 30px)}
   /* 가로 폰 PIP: 높이가 모자라 작은 칸 머리줄을 숨기고(이름은 title) 세 칸이 큰 칸 높이 안에 들어오게 */
   .qd.f{--ph:calc((var(--qa) - 36px) / 3 - 6px);--tw:calc(var(--ph) * 4 / 3 + 10px);grid-template-rows:36px auto auto auto 1fr}
@@ -131,3 +145,6 @@ body:has(.lv-drawer) .lv-tip{display:none!important}
 .mmap-hdr>header>div:first-of-type{flex:1 1 0;min-width:0}
 .mmap-hdr>header>div:first-of-type>span:first-child{white-space:nowrap}
 .mmap-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+/* B2 A3: PcPlan 도 다른 PC 화면처럼 STOP 을 첫 줄 오른쪽 끝에 — 상태 줄만 둘째 줄 전체로(STOP 크기·색 그대로) */
+.pcplan-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+.pcplan-hdr>header>button[aria-label="비상 정지"]{margin-left:auto}

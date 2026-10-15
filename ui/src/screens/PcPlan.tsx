@@ -24,7 +24,7 @@ const chip = (k: string, val: string, good: boolean) => (
   <div className={`chip ${good ? 'ok' : 'warn'}`} key={k}><span className="mk">{good ? '●' : '▲'}</span><span style={{ color: 'var(--muted)' }}>{k}</span><span className="mono" style={{ fontWeight: 600 }}>{val}</span></div>);
 
 export default function PcPlan() {
-  const D = useDocs(), L = useLink(), lk = linkView(L), st = L.st, E = useEditor<Mission>('mission'), { q, setQ } = useRoute();
+  const D = useDocs(), L = useLink(), lk = linkView(L), st = L.st, E = useEditor<Mission>('mission', 'PcPlan'), { q, setQ } = useRoute();
   const [tool, setTool0] = useState<Tool>('add'), [wsel, setWsel] = useState<number | null>(null), [meas, setMeas] = useState<number[][]>([]);
   const want = q.get('mission') || '', shown = useRef<string | null>(null);   // shown: 주소에 이미 반영한 id(새로 저장된 id 만 주소에 씀)
   const blank = (): Mission => ({ name: '', tmpl: q.get('tmpl') || 'base', memo: '', wps: [] });
@@ -34,7 +34,7 @@ export default function PcPlan() {
   useEffect(() => {   // 고른 계획을 편집기에 · 다른 기기가 고친 새 판은 깨끗할 때만 반영 · 저장 뒤 주소에 id
     if (want && E.id !== want && !E.dirty) { const x = docById(D, want); if (x) { E.load(x); shown.current = x.id; setWsel(null); return; } }
     const sc = E.stale(D); if (sc && !E.dirty) E.load(sc);
-    if (E.id && E.id !== shown.current) { shown.current = E.id; if (want !== E.id) setQ('mission', E.id); }   // 저장(새 문서)으로 생긴 id 만 — 사용자가 연 주소는 덮지 않음
+    if (E.id && !E.dirty && E.id !== shown.current) { shown.current = E.id; if (want !== E.id) setQ('mission', E.id); }   // 저장(새 문서)으로 생긴 id 만 — 사용자가 연 주소는 덮지 않음 · 이어 편집 중인 초안(dirty)은 주소를 바꾸지 않음
   });
   useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (E.dirty) e.preventDefault(); }; addEventListener('beforeunload', f); return () => removeEventListener('beforeunload', f); }, [E]);
 
@@ -49,10 +49,20 @@ export default function PcPlan() {
     else if (tool === 'measure') setMeas((m) => (m.length >= 2 ? [[r2(x), r2(y)]] : [...m, [r2(x), r2(y)]]));
     else { const i = ws.findIndex((w) => Math.hypot(w.x - x, w.y - y) * k < 16); setWsel(i < 0 ? null : i); }
   };
+  // R02-C0: 주소가 가리키는 문서(want)와 편집 중 초안이 다를 때 — 둘 다 이름으로 알리고, 사용자가 고르게(주소·서버 판은 그대로)
+  const asked = want ? docById(D, want) : null, mine = E.id ? docById(D, E.id) : null;
+  const c0 = want && E.dirty && E.id !== want ? (
+    <div className="lv-warnbox" role="alert" data-c0="1">
+      <span>{`요청한 문서 «${asked?.kind === 'mission' ? asked.doc.name || '이름 없음' : '찾지 못함'}»와 다른 문서의 초안을 편집 중: «${d.name || '이름 없음'}»(${E.id ? `${mine?.kind === 'mission' ? `«${mine.doc.name}» ` : ''}판 ${E.rev}` : '새 문서'}) · 저장 안 됨`}</span>
+      <div className="lv-row">
+        <button type="button" className="lv-btn pri" disabled={E.busy} onClick={() => { const nm = d.name; E.save().then((r) => { if (r?.ok) toast(E.dirty ? `초안 판 ${r.rev} 저장됨 · 저장 중 고친 내용은 아직 저장 안 됨 — 요청한 문서로 옮기지 않음` : `초안 «${nm || '이름 없음'}» 저장됨 · 판 ${r.rev} — 요청한 문서를 엽니다`); /* dirty 면 effect 도 옮기지 않음(새 편집 보존) */ }); }}>이 초안 저장</button>
+        <button type="button" className="lv-btn" disabled={E.busy} onClick={() => { E.load(asked?.kind === 'mission' ? asked : null, blank()); shown.current = E.id; setWsel(null); }}>초안 버리고 요청 문서 열기</button>
+      </div>
+    </div>) : null;
   const toZone = (ty: string) => {
     if (st?.role === 'control') return toast('조종 중입니다 — 조종권 반납 뒤 지도 화면으로');
-    if (E.dirty && !confirm('저장 안 한 계획 수정이 있습니다. 지도 화면으로 갈까요?')) return;
-    E.dirty = false; location.hash = href('PcMap', { draw: ty });
+    if (E.dirty) toast('저장 안 한 계획은 이 탭에 보관 — 계획 화면으로 돌아오면 이어서 편집');   // R02: 버리지 않음(확인창 대신 보관)
+    location.hash = href('PcMap', { draw: ty });
   };
   const loadPrev = () => {
     const r = docsOf(D, 'run')[0]; if (!r) return toast('지난 수동 진행 기록이 없습니다');
@@ -126,8 +136,8 @@ export default function PcPlan() {
     </div></> : <span className="lbl">«측정 지점 추가» 도구로 지도를 누르면 지점이 생깁니다(30개까지). 끌면 지도 이동.</span>;
 
   // ---- 출발 전 점검: 막는 것은 «진행 중 임무 없음»·«계획 저장됨»뿐(기록을 시작할 뿐 로봇을 움직이지 않음) ----
-  const linkGood = lk.linkOk && !st?.sim_block, posTxt = lk.fresh ? 'Gazebo GT(SLAM 아님)' : lk.robot ? 'GT 오래됨' : 'GT 미수신';
-  const cks: [boolean, string, 1?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${lk.fresh ? 'Gazebo GT 수신(SLAM 아님)' : posTxt}`],
+  const linkGood = lk.linkOk && !st?.sim_block, posTxt = lk.fresh ? '시뮬 위치 수신' : lk.robot ? '시뮬 위치 오래됨' : '시뮬 위치 미수신';
+  const cks: [boolean, string, 1?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${posTxt}`],
     [lk.camOk, `영상 · ${lk.camTxt}`], [false, '배터리 · 미제공(v2 시뮬 상태에 값 없음)'],
     [!run, run ? `진행 중 수동 임무 «${run.doc.name}» — 먼저 끝내기` : '진행 중 수동 임무 없음', 1],
     [!!(E.id && !E.dirty && ws.length), !E.id ? '계획 저장 · 아직 저장 안 됨' : E.dirty ? '계획 저장 · 저장 안 한 수정 있음' : `계획 저장됨 · 지점 ${ws.length}개`, 1],
@@ -141,15 +151,15 @@ export default function PcPlan() {
     <label className={`opt${on ? ' on' : ''}`}><input type="radio" name="lost" checked={on} disabled readOnly /><span><b>{b}</b>{extra}<br /><span className="lbl">{lbl}</span></span></label>);
 
   const v = {
-    themeClass: themeClass(true), status: <LiveStatus D={D} />, stopProps,
+    themeClass: `${themeClass(true)} pcplan-hdr`, status: <LiveStatus D={D} />, stopProps,   // pcplan-hdr: B2 A3 STOP 첫 줄 오른쪽(live.css)
     hdrA: `임무 계획 · ${!E.id ? '새 계획 · 저장 안 됨' : E.dirty ? '저장 안 한 수정 있음' : `저장됨 · 판 ${E.rev}`}`, hdrB: d.name || '새 임무 계획',
     pill: run ? `수동 진행 중 · ${run.doc.name}` : '진행 중 임무 없음',
-    chips: <>{chip('링크', lk.linkTxt, linkGood)}{chip('위치', posTxt, lk.fresh)}{chip('배터리', '미제공', false)}</>,
+    chips: <>{chip('위치', posTxt, lk.fresh)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 미제공은 출발 전 점검 한 곳
     tSel: tp('sel'), tAdd: tp('add'), tMeas: tp('measure'), tNo: zp('금지'), tSlow: zp('감속'),
     prevP: { onClick: loadPrev }, prevT: '지난 수동 진행 경로 불러오기',
     map: <MapCanvas name="plan" btns wps={ws} hiWp={wsel} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} onTap={onTap}
       draft={tool === 'measure' && meas.length ? { type: '측정', pts: meas } : null} />,
-    ov1: <span style={OV}>{dot(false)}경로 검사 미연결(Nav2) · 거리는 직선</span>,
+    ov1: <span style={OV}>{dot(false)}경로 검사(자동 길찾기) 미연결 · 거리는 직선</span>,
     ov2: <span style={{ ...OV, border: '1px solid var(--warn)' }}>{dot(!zoneWarn)}{tool === 'measure'
       ? (meas.length === 2 ? `거리 재기: 직선 ${Math.hypot(meas[1][0] - meas[0][0], meas[1][1] - meas[0][1]).toFixed(2)} m` : '거리 재기: 지도에서 두 점을 누르세요')
       : inZ.length ? `${inZ.join(' · ')}(구역은 표시만)` : '구역 안 지점 없음'}</span>,
@@ -175,7 +185,7 @@ export default function PcPlan() {
     fb0: '미연결', fb0T: '자동 이동이 없어 시간 예측 미연결', fb1: `${len.toFixed(1)} m 직선`, fb2: '미제공',
     saveP: { onClick: save }, saveT: '계획 저장',
     startP: { onClick: start }, startT: run ? '진행 기록 화면(관제)' : '수동 진행 시작', startDis: !run && block.length > 0,
-    msg: E.msg,
+    msg: c0 ? <>{c0}{E.msg !== E.kept ? E.msg : null}</> : E.msg,
     why: run ? '▲ 수동 진행 중 — 관제 화면 «임무 단계»·휴대폰 «현황»에서 지점마다 기록' : block.length ? `▲ ${block.join(' · ')}` : '● 로봇은 자동으로 움직이지 않습니다 · 직접 조종하며 지점마다 기록',
   };
   return <><style>{CSS}</style><div id="dc-root"><View v={v} /></div></>;

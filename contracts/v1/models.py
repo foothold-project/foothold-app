@@ -58,7 +58,14 @@ DocId = Annotated[str, Field(pattern=r'^[a-z][A-Za-z0-9_]{1,40}$')]
 
 
 class OpSimple(In):
-    op: Literal['take', 'release', 'stop', 'resume', 'reset', 'hidden']
+    op: Literal['take', 'release', 'stop', 'reset', 'hidden']
+
+
+class OpResume(In):
+    """STOP 해제. stop_gen(10-15 N1) = «조종 시작» 확인 때 본 status.stop_gen — 서버의 지금 값과 다르면 거부(CAS, 재시도 없음).
+    없으면 옛 클라이언트(따로 누르는 «STOP 해제»)로 그대로 처리. 있는데 0 이상 정수가 아니면(null·bool·실수·문자) 거부."""
+    op: Literal['resume']
+    stop_gen: Annotated[int, Field(ge=0)] = None   # type: ignore[assignment]  # 기본 None = 칸 없음(옛 클라이언트), 명시 null 은 형식 오류
 
 
 class OpCmd(In):
@@ -106,10 +113,10 @@ class OpViewGet(In):
     """보조 관제 뷰 최신 1개(앱이 보고 있을 때만 ≤2 Hz 로 당겨 감 — 서버가 밀어넣지 않음). follow = Gazebo 렌더 3인칭, points = /v2_map/points_view"""
     op: Literal['view_get']
     rid: Rid = None
-    what: Literal['follow', 'points']
+    what: Literal['follow', 'points', 'lidar']   # lidar = /v2_map/points_lidar 센서 좌표 1 scan(누적 0)
 
 
-ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet, OpGeomGet, OpMapStart, OpViewGet], Field(discriminator='op')]
+ClientOp = Annotated[Union[OpSimple, OpResume, OpCmd, OpRid, OpMapGet, OpGeomGet, OpMapStart, OpViewGet], Field(discriminator='op')]
 
 # ---------------------------------------------------------------- WS 서버 → 화면
 
@@ -262,6 +269,15 @@ class ViewProd(Out):
     enabled: Optional[bool]                 # follow 만: 이번 지도 시뮬에서 외부카메라를 켰나(points 는 null — map 모드면 항상 발행)
 
 
+class ViewRun(Out):
+    """follow /2 결속 키 — 층·지도와 분리(RL FOLLOW-CONTRACT-v2)"""
+    run_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    epoch: int = Field(ge=1)
+    world_id: str
+    building_id: str
+    mode: Literal['slam', 'static']
+
+
 class ViewSrc(Out):
     """보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok"""
     st: Literal['off', 'stale', 'bad', 'ok']
@@ -269,11 +285,13 @@ class ViewSrc(Out):
     seq: Optional[int]                      # 서버가 받은 최신 것 번호 — 바뀌면 view_get
     age_s: Optional[Fin]                    # s, 마지막 수신 뒤(link 시계)
     prod: Optional[ViewProd] = None         # 발행 쪽(live_map) 자기 진단 — 지도 상태 3 s 안일 때만, 없으면 null
+    run: Optional[ViewRun] = None           # follow /2 결속 키(실행 번호·회차·world·건물·모드) — 있으면 화면은 지도 결속 대신 이것으로 묶음, 없으면 /1
 
 
 class Views(Out):
     follow: ViewSrc                         # /v2_map/follow_cam (std_msgs/String JSON v2_map/follow_cam/1, Gazebo 렌더 3인칭, 지도 체험 시작 때 고름)
     points: ViewSrc                         # /v2_map/points_view (map 프레임 축소 점군)
+    lidar: Optional[ViewSrc] = None         # /v2_map/points_lidar (lidar_link 원자료 1 scan, 센서 좌표·누적 0) — run 칸 늘 있음. 없는 서버(이전 판) = null
 
 
 class Status(Out):
@@ -281,6 +299,7 @@ class Status(Out):
     op: Literal['status']
     role: Literal['control', 'view_other', 'view']
     latch: bool
+    stop_gen: int                           # 잠금 세대(10-15 N1): 잠그는 모든 일마다 +1(이미 잠겼어도). 칸 없음 = 옛 서버 → 화면은 «조종 시작» 불가
     applied: Annotated[list[Fin], Field(min_length=3, max_length=3)]   # 지금 발행 중 (vx m/s, vy m/s, wz rad/s)
     reason: str
     sim_block: str                          # '' = 막힘 없음

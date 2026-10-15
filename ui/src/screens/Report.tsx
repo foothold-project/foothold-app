@@ -6,7 +6,8 @@ import { CSS, View } from './Report.view';
 import { MapCanvas } from '../map/MapCanvas';
 import { LV, durTxt, fmtT, saveBlob, wpName } from '../data/fmt';
 import { docById, docsOf, noteOf, useDocs, useMedia } from '../data/shared';
-import { histCSV, histRows, href } from '../data/hist';
+import { MediaStale } from '../app/status';
+import { histCSV, histRows, href, runRows } from '../data/hist';
 import { stopProps, toast, useRoute } from '../app/shell';
 
 // 결과 색 = 공식 토큰(Report 는 항상 밝음): 완료·확인 dim-ink, 진행·미확인 note-ink, 실패·중단 stop. 색 + 글자로 구분
@@ -48,7 +49,7 @@ export default function Report() {
           <td className="l">{w.chk ? `${w.chk} · 운영자` : '—'}</td><td className="l">{w.st === '미방문' ? `미방문 · ${w.why}` : w.st === '방문' ? '● 방문' : '대기'}</td>
         </tr>)),
       modNote: `지점마다 할 일: ${[...new Set(R.wps.flatMap((w) => w.mods))].join(' · ') || '이동만'}. 방문 시각은 운영자가 «방문 확인»을 누른 시각입니다(자동 도착 판정·도착 오차 미연결).`,
-      mapCap: '지점 위치(계획 스냅샷) · Gazebo GT 좌표 · 지나온 길은 저장하지 않음(미기록)',
+      mapCap: '지점 위치(계획 스냅샷) · 시뮬 위치 좌표 · 지나온 길은 저장하지 않음(미기록)',
       thumbs: ph.length ? ph.slice(0, 12).map(([u, i]) => {
         const f = M.photos.find((p) => p.url === u)?.frame_at, nn = noteOf(D, u);
         return (<div className="thumb" key={`${u}${i}`}><Photo src={u} alt={`WP${i + 1} 사진`} style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />
@@ -64,8 +65,11 @@ export default function Report() {
             : <option value="">{D.err ? '기록 읽기 실패 · 미확인' : '수동 임무 기록 없음'}</option>}
         </select>
         <button type="button" className="lv-btn pri" onClick={() => print()}>인쇄</button>
-        <button type="button" className="lv-btn" onClick={() => toast(saveBlob(`foothold-v2-history-${Date.now()}.csv`, new Blob([histCSV(histRows(D, M, true))], { type: 'text/csv' })))}>CSV 내보내기</button>
+        <button type="button" className="lv-btn" disabled={!run} onClick={() => { if (!run) return; const rs = runRows(histRows(D, M, true), run);
+          toast(saveBlob(`foothold-v2-run-${run.id}-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `임무 «${run.doc.name}» · ${rs.length}행 · ${x}`)); }}>{run ? `이 임무 CSV · «${run.doc.name}»` : '이 임무 CSV'}</button>
+        <button type="button" className="lv-btn" onClick={() => { const rs = histRows(D, M, true); toast(saveBlob(`foothold-v2-history-all-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `전체 기록 · ${rs.length}행 · ${x}`)); }}>전체 기록 CSV</button>
         <a className="lv-btn" href={href('PcHistory')}>기록 화면</a>
+        <MediaStale M={M} D={D} />
       </div>
       <div id="dc-root"><View v={v} /></div>
       <button type="button" className="lv-noprint lv-fstop" {...stopProps}>STOP</button>

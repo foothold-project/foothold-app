@@ -65,7 +65,7 @@ export function View({ v }: { v: Vals }) {
                 {"STOP"}
               </span>
               <span style={{"fontSize":"11px"}}>
-                {"스페이스 · 전체 정지"}
+                {"스페이스 · 명령 0·잠금"}
               </span>
             </span>
             {" "}
@@ -457,7 +457,7 @@ export function View({ v }: { v: Vals }) {
                   </span>
                 </div>
                 {" "}
-                </>)}<div className="eq" style={{"borderStyle":"dashed","background":"transparent"}}>
+                </>)}<div className="eq" style={{"borderStyle":"dashed","background":"transparent"}} {...v.eqCardP}>
                   <span className="ei" style={{"background":"var(--panel2)","color":"var(--muted)"}}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
                       <path d="M12 5v14M5 12h14" />

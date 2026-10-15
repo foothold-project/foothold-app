@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import type { Zone } from '@contracts';
 import { CSS, View } from './PcMap.view';
 import { deg, posTxt, saveBlob, themeClass } from '../data/fmt';
-import { WHY, ZONE_NOTE } from '../data/facts';
+import { ZONE_NOTE } from '../data/facts';
 import { docById, docsOf, useDocs } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { TRAIL, linkView, useLink } from '../data/link';
@@ -13,10 +13,9 @@ import { MapCanvas } from '../map/MapCanvas';
 import { MapStartBox } from '../map/MapStartBox';
 import { useMapPick } from '../map/MapPick';
 import { LiveStatus } from '../app/status';
-import { stopProps, toast, useRoute, whyProps } from '../app/shell';
+import { stopProps, toast, useRoute } from '../app/shell';
 
 const areaOf = (p: number[][]) => Math.abs(p.reduce((a, q, i) => { const n = p[(i + 1) % p.length]; return a + q[0] * n[1] - n[0] * q[1]; }, 0)) / 2;
-const why = (t: string, cls: string) => ({ ...whyProps(t), className: `${cls} lv-why` });
 const LOCK = '저장 지도 보기 중 — 구역은 «실행 중 시뮬 바닥»에서', BUSY = '구역 저장 중 — 끝난 뒤 다시', DIRTY = '저장 안 한 수정이 있습니다. 버릴까요?';
 type Draw = { type: Zone['type']; pts: number[][]; name: string } | null;
 
@@ -74,15 +73,15 @@ export default function PcMap() {
     posDot: s ? '●' : '▲', posDotS: { color: `var(--${s ? 'ok' : 'warn'})` },
     posTxt: s ? `GT ${posTxt(s.x, s.y)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 오래됨' : 'GT 미수신',
     newP: { className: 'btn pri', title: '«지도 열기»로 이동 — SLAM 지도 만들기·저장', onClick: () => { const el = document.getElementById('fh-mapopen'); el?.scrollIntoView({ block: 'start' }); (el?.querySelector('button[aria-pressed="true"]') as HTMLElement | null)?.focus(); } },   // 10-14: 미연결 안내만 하던 버튼 → 실제 «지도 열기» 상자로 이동(시작은 그 상자에서 확인 뒤)
-    lbl0: '지도 만들기·저장은 아래 «지도 열기»(SLAM 지도 만들기)와 «SLAM 지도 저장»으로 합니다. 위치 맞추기는 미연결.', lbl1: 'Gazebo · foothold-v2',
+    lbl0: '지도 만들기·저장은 아래 «지도 열기»(SLAM 지도 만들기)와 «SLAM 지도 저장»으로 합니다. 저장 SLAM 지도 위 위치 맞추기(재위치추정)는 미지원.', lbl1: 'Gazebo · foothold-v2',
     mpName: '시뮬 바닥 ±10 m', mpSub: '1 m 격자 · 사용 중 · 구역은 표시·공유만', oldHide: true,
     floorNote: <span style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{pickEl}<MapStartBox pc onSaved={reload} onShowLive={live ? undefined : showLive} onView={view} /><span>지도 보기는 화면만 바뀝니다 — 실제 world·층 전환·위치 맞추기 없음</span></span>,
-    tools: [{ ...why(`위치 맞추기 — ${WHY['SLAM 지도·위치 맞추기']}`, 'tool'), 'aria-pressed': false },   // 시안의 «눌림» 표시 제거(미연결 도구)
+    tools: [{ hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11: 미지원 «위치 맞추기» 도구 숨김(설명은 lbl0·설정 지원 범위)
       { 'aria-pressed': !mv && dr?.type === '금지', disabled: mv, onClick: () => startDraw('금지') },
       { 'aria-pressed': !mv && dr?.type === '감속', disabled: mv, onClick: () => startDraw('감속') },
-      { 'aria-pressed': !mv && !!E.id && !dr, disabled: mv, onClick: () => mv ? toast(LOCK) : () => (E.id ? zn.current?.focus() : toast('먼저 지도나 목록에서 구역을 고르세요')) },
-      why('지우개(잡음 정리) — SLAM 지도 미연결', 'tool')],
-    v3P: whyProps(`3D 점군 — ${WHY['뎁스 영상·3D 점군']}`),
+      { 'aria-pressed': !mv && !!E.id && !dr, disabled: mv, onClick: () => mv ? toast(LOCK) : E.id ? (zn.current?.focus(), zn.current?.select()) : toast('먼저 지도나 목록에서 구역을 고르세요') },   // R28: 함수 반환만 하던 분기 → 즉시 실행
+      { hidden: true, 'aria-hidden': true, tabIndex: -1 }],   // B2 R11: 미연결 지우개 숨김
+    v3P: { hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11/R31: 3D 점군은 관제 보조 뷰에만 — 여기 고르기 숨김
     map: v3d || <MapCanvas name="pcmap" btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}
       raster={raster} blank={blank} flat={flat} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />,
     gL: mv ? '로봇·지나온 길·구역·그리던 초안은 숨김(초안은 보존). 구역 편집은 «실행 중 시뮬 바닥»으로 돌아가면 그대로 이어집니다.' : dr ? `지도를 눌러 꼭짓점 추가(3개 이상 · ${dr.pts.length}개) → 오른쪽에서 이름 넣고 저장. «구역 삭제»는 마지막 점 지우기. 끌면 지도 이동.`
@@ -106,11 +105,11 @@ export default function PcMap() {
         <span className="lbl">{`${areaOf(z.doc.pts).toFixed(1)} m² · ${z.by}`}</span></span>))
       : <span className="lbl">{D.err ? `구역 목록 미확인 · ${D.err}` : D.rev == null ? '읽는 중…' : '저장된 구역 없음'}</span>,
     kv: (mv && !raster ? [['도면', v3d ? '건물 전체 3D · GT 간략 기하' : blank || '지도 없음'], ['위치', '미표시'], ['구역', '숨김 · 편집 잠금']] : raster ? [['도면', raster.label], ['크기', `${(raster.w * raster.res).toFixed(1)} × ${(raster.h * raster.res).toFixed(1)} m`], ['격자', '1 m'], ['위치', pose ? '실시간 status pose(같은 epoch·1 s 안)' : '미표시(지도와 결속 안 됨)'], ['구역', '숨김 · 편집 잠금']]
-      : [['도면', 'Gazebo 바닥(world_live.sdf)'], ['만든 사람', '시뮬 설정(앱 아님)'], ['크기', '20 × 20 m'], ['격자', '1 m'], ['방법', '시뮬 정답 위치(GT) · SLAM 미연결'],
+      : [['도면', 'Gazebo 바닥(world_live.sdf)'], ['만든 사람', '시뮬 설정(앱 아님)'], ['크기', '20 × 20 m'], ['격자', '1 m'], ['방법', '시뮬 바닥 도면(SLAM 지도 아님)'],
       ['위치 추정', 'Gazebo GT(추정 아님)'], ['구역', D.err ? '미확인' : `${zs.length}개 · 표시·공유만`]]).flatMap(([a, b]) => [<span key={a} className="lbl">{a}</span>, <span key={`${a}v`}>{b}</span>]),
     exT: '구역 내보내기 (JSON)',
     exP: { onClick: () => toast(D.err ? '구역 목록 미확인 — 내보내지 않음' : saveBlob(`foothold-v2-zones-${Date.now()}.json`, new Blob([JSON.stringify(zs.map((z) => ({ id: z.id, rev: z.rev, by: z.by, at: z.at, ...z.doc })), null, 1)], { type: 'application/json' }))) },
-    reP: why(`다시 만들기 — ${WHY['SLAM 지도·위치 맞추기']}`, 'btn'),
+    reP: { hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11: 이 바닥 도면 «다시 만들기» 없음 — 새 지도는 «지도 열기»(SLAM 지도 만들기)
   };
   return <><style>{CSS}</style><div id="dc-root"><View v={vals} /></div></>;
 }

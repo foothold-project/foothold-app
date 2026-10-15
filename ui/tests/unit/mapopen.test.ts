@@ -78,7 +78,7 @@ test('groupMaps: 지형 → 층 → 버전, 2층 건물만 층 표시', () => {
   expect(g.map((x) => x.label)).toEqual(['1층 건물', '2층 건물']);
   expect(g[1].items.map((m) => m.floor_id)).toEqual(['l1', 'l2']);
   expect(verLabel(g[1].items[0])).toBe('1층 · SLAM 저장 지도 · 20261014-170000-e2');
-  expect(verLabel(g[0].items[0])).toBe('GT 기하 지도(SLAM 아님) · gt-20261012');
+  expect(verLabel(g[0].items[0])).toBe('시뮬 도면 지도 · gt-20261012');
 });
 
 import { allKey, gtFloors } from '../../src/data/maps';

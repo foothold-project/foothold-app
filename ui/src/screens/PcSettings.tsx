@@ -4,7 +4,7 @@ import { useNote } from '../data/transport';
 import { useState } from 'react';
 import { CSS, View } from './PcSettings.view';
 import { store, themeClass } from '../data/fmt';
-import { LAYOUTS, STOP_FACT, UNSUP, WHY } from '../data/facts';
+import { LAYOUTS, STOP_FACT, TERMS, UNSUP, WHY } from '../data/facts';
 import { linkView, useLink } from '../data/link';
 import { logoutNow } from '../data/auth';
 import { useDocs } from '../data/shared';
@@ -15,7 +15,7 @@ const GATED = location.protocol === 'https:';   // 보호 관문으로 연 화�
 const val = (t: string, off?: boolean, wrap?: boolean) => <span className="mono" style={{ color: off ? 'var(--muted)' : undefined, whiteSpace: wrap ? 'normal' : undefined }}>{t}</span>;
 const offRe = /미연결|미제공|해당 없음/;
 const SAFETY = [`${STOP_FACT[0].replace(' 끊김', '')} → 명령 0 · 화면 신호 1 s → STOP 잠금`, STOP_FACT[1], '미연결 — 영상 멎음 자동 잠금 없음(화면에 영상 나이 표시)', '0.3 s (서버 고정)',
-  '해당 없음 — 자동 임무 미연결 · 사람이 «STOP 해제»', '앞 0.6 m/s · 회전 ±0.5 rad/s (시뮬에서 시험한 값만)', '미제공 — 배터리 값 없음'];
+  '해당 없음 — 자동 임무 미연결 · 사람이 «조종 시작»(확인 1회)', '앞 0.6 m/s · 앞+회전 ±0.5 rad/s(초당 약 29°) (시뮬에서 시험한 값만)', '미제공 — 배터리 값 없음'];
 const RECS = ['서버 media 폴더 · 사진 최근 200 · 사건 최근 300 보관', '공유 문서(구역·양식·계획·진행·분류) 전부 · 서버 docs', 'CSV 내보내기(기록·사진 검토) · 보고서는 인쇄', '미제공'];
 const TH = [['자동', null], ['어두운', 'dark'], ['밝은', 'light']] as const;
 
@@ -65,8 +65,9 @@ export default function PcSettings() {
     dispExtra: set('지도 기본 보기', '로봇 중심 = 지도가 움직임',
       <select className="inp" value={mm} onChange={(e) => { setMm(e.target.value); if (!store.set('fh.live.mapmode', e.target.value)) toast('저장 실패 — 이번 화면에만'); }}>
         <option value="robot">로봇 중심</option><option value="all">전체 보기</option></select>),
-    limits: <section id="limits" className="card" aria-label="현재 v2 연결의 한계"><h2>현재 v2 연결에서 안 되는 것(미제공·미연결·미검증)</h2>
-      <div>{UNSUP.map(([a, b]) => set(a, null, val(b, true, true)))}</div></section>,
+    // B2 R31: 이 빌드에 입구가 있는 기능은 «서버가 허용할 때만»으로(facts.ts 한 출처) · A2 용어 원문은 맨 아래
+    limits: <section id="limits" className="card" aria-label="지원 범위와 한계"><h2>지원 범위와 한계(미제공·미연결·미검증 · 서버가 허용할 때만)</h2>
+      <div>{UNSUP.map(([a, b]) => set(a, null, val(b, true, true)))}</div><p className="lbl" style={{ marginTop: 8 }}>{TERMS}</p></section>,
   };
   return <><style>{CSS}</style><div id="dc-root"><View v={vals} /></div></>;
 }

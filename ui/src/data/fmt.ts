@@ -3,6 +3,8 @@ import { T } from './transport';
 import type { RunWaypoint } from '@contracts';
 
 export const ok = (v: unknown): v is number => typeof v === 'number' && isFinite(v);
+// 실행 번호(run_id) = 소문자 hex 정확히 32자 — 서버 RUN_ID_RE.fullmatch 와 같은 뜻(길이도 함께 봄: 끝 개행·대문자·31/33자 거부). follow /2·raw 라이다 공용
+export const runId = (v: unknown): v is string => typeof v === 'string' && v.length === 32 && /^[0-9a-f]{32}$/.test(v);
 export const num = (v: unknown, d = 2, u = '') => (ok(v) ? v.toFixed(d) + u : '미확인');
 export const deg = (r: unknown) => (ok(r) ? (r * 180 / Math.PI).toFixed(0) + '°' : '미확인');
 export const sgn = (v: unknown, d = 2, u = '') => (ok(v) ? (v >= 0 ? '+' : '−') + Math.abs(v).toFixed(d) + u : '미확인');

@@ -199,6 +199,27 @@
       "title": "OpMapStart",
       "type": "object"
     },
+    "OpResume": {
+      "description": "STOP 해제. stop_gen(10-15 N1) = «조종 시작» 확인 때 본 status.stop_gen — 서버의 지금 값과 다르면 거부(CAS, 재시도 없음).\n없으면 옛 클라이언트(따로 누르는 «STOP 해제»)로 그대로 처리. 있는데 0 이상 정수가 아니면(null·bool·실수·문자) 거부.",
+      "properties": {
+        "op": {
+          "const": "resume",
+          "title": "Op",
+          "type": "string"
+        },
+        "stop_gen": {
+          "default": null,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "OpResume",
+      "type": "object"
+    },
     "OpRid": {
       "description": "응답(op=reply)이 오는 요청. rid 가 정수가 아니면 서버는 rid=null 로 답한다.",
       "properties": {
@@ -240,7 +261,6 @@
             "take",
             "release",
             "stop",
-            "resume",
             "reset",
             "hidden"
           ],
@@ -277,7 +297,8 @@
         "what": {
           "enum": [
             "follow",
-            "points"
+            "points",
+            "lidar"
           ],
           "title": "What",
           "type": "string"
@@ -307,7 +328,7 @@
       "photo": "#/$defs/OpRid",
       "release": "#/$defs/OpSimple",
       "reset": "#/$defs/OpSimple",
-      "resume": "#/$defs/OpSimple",
+      "resume": "#/$defs/OpResume",
       "sim_start": "#/$defs/OpRid",
       "sim_stop": "#/$defs/OpRid",
       "stop": "#/$defs/OpSimple",
@@ -319,6 +340,9 @@
   "oneOf": [
     {
       "$ref": "#/$defs/OpSimple"
+    },
+    {
+      "$ref": "#/$defs/OpResume"
     },
     {
       "$ref": "#/$defs/OpCmd"

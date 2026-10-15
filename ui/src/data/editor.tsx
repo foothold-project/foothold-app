@@ -5,10 +5,11 @@ import type { DocEnvelope, DocWrite } from '@contracts';
 import { docById, saveDoc, type Docs, type SaveRes } from './shared';
 import { fmtT } from './fmt';
 import { toast } from '../app/shell';
+import { ctx, drafts } from './scratch';
 
 type Kind = DocEnvelope['kind'];
 export type Editor<T> = {
-  kind: Kind; id: string | null; rev: number | null; d: T | null; dirty: boolean; busy: boolean; gen: number; msg: ReactNode;
+  kind: Kind; id: string | null; rev: number | null; d: T | null; dirty: boolean; busy: boolean; gen: number; msg: ReactNode; kept?: ReactNode;   // kept = 이어 편집 안내(화면이 더 구체적인 안내로 바꿀 수 있게)
   load(doc: { id: string; rev: number; doc: unknown } | null | undefined, init?: T): void;
   save(rev?: number | null): Promise<(SaveRes & { other?: boolean }) | null>;
   del(): Promise<(SaveRes & { same: boolean }) | null>;   // same: write() 와 같은 뜻 — 응답 때 같은 대상·같은 초안일 때만 화면 정리
@@ -71,10 +72,27 @@ function make<T>(kind: Kind, rebuild: () => void): Editor<T> {
 
 /** 화면 하나에 편집기 하나. 객체는 화면이 사는 동안 같은 것(ref) — 값이 바뀌면 touch()/load()/save() 가 다시 그린다.
  *  화면을 떠나면(unmount) gen 을 올려, 늦게 온 save/write 응답은 서버 결과 알림만 하고 이동·초안 정리는 하지 않는다.
- *  StrictMode 의 setup→cleanup→setup 에서도 gen 이 오를 뿐 다시 쓸 수 있다(진행 중 요청이 없을 때라 영향 없음). */
-export function useEditor<T>(kind: Kind): Editor<T> {
-  const [, bump] = useReducer((n: number) => n + 1, 0), r = useRef<Editor<T>>();
-  if (!r.current) r.current = make<T>(kind, bump);
-  useEffect(() => () => { r.current!.gen++; }, []);
+ *  StrictMode 의 setup→cleanup→setup 에서도 gen 이 오를 뿐 다시 쓸 수 있다(진행 중 요청이 없을 때라 영향 없음).
+ *  keep(R02): 이름이 있으면 저장 안 한 초안(dirty)을 화면을 떠날 때 탭 메모리(scratch.drafts, 키 kind:keep)에 두고, 다시 열 때 이어서 편집.
+ *   보관본은 «화면 밖에 있는 동안»만 있다 — 저장 실패·409·404·다른 문서 주소에서도 초안은 그대로(편집기 규칙),
+ *   깨끗한 상태(저장 성공·불러오기·버리기)로 떠나면 보관 0. 로그아웃·관문 변경·세션 끝(dropScratch)은 문맥 번호로 버림. */
+export function useEditor<T>(kind: Kind, keep?: string): Editor<T> {
+  const [, bump] = useReducer((n: number) => n + 1, 0), r = useRef<Editor<T>>(), at = useRef(ctx.n);
+  if (!r.current) {
+    const E = r.current = make<T>(kind, bump), k = `${kind}:${keep}`, h = keep ? drafts.get(k) : undefined;
+    if (h) {
+      drafts.delete(k); E.id = h.id; E.rev = h.rev; E.d = structuredClone(h.d) as T; E.dirty = true;
+      const nm = (h.d as { name?: unknown } | null)?.name;   // R02-C0: 어느 초안인지 이름으로
+      E.msg = E.kept = <div className="lv-warnbox" role="status"><span>{`저장 안 한 초안${typeof nm === 'string' ? ` «${nm || '이름 없음'}»` : ''}을 이어서 편집합니다${h.id ? ` (판 ${h.rev})` : '(새 문서)'} · 이 탭에만 보관 — 저장하거나 버리세요`}</span>
+        <div className="lv-row"><button type="button" className="lv-btn" onClick={() => E.load(null)}>초안 버리기</button></div></div>;
+    }
+  }
+  useEffect(() => {
+    if (keep) drafts.delete(`${kind}:${keep}`);   // 화면에 있는 동안 보관본 0(StrictMode 의 cleanup→setup 에서도 남지 않게)
+    return () => {
+      const E = r.current!; E.gen++;
+      if (keep && E.dirty && E.d && at.current === ctx.n) drafts.set(`${kind}:${keep}`, { id: E.id, rev: E.rev, d: structuredClone(E.d) });
+    };
+  }, [kind, keep]);
   return r.current;
 }

@@ -1,7 +1,7 @@
 // 3D 점군 누적 보기(canvas 2D 정사영, 드래그로 돌려 봄). 데이터는 data/views.ts CLOUD — 바뀐 때·드래그 때만 다시 그림.
 // 작은 칸은 일부(간격 추림)만 그린다. 로봇 표시 = 마지막 점군의 base_pose_map(map 프레임). Three.js 없이 충분(점 ≤30만, 정사영)
 import { useEffect, useRef } from 'react';
-import { CLOUD } from '../data/views';
+import { CLOUD, type Scan } from '../data/views';
 
 const LO = -0.5, HI = 2.0;   // 색 범위(로봇 기준 상대 높이 m)
 export const hue = (dz: number) => Math.round(200 - Math.max(0, Math.min(1, (dz - LO) / (HI - LO))) * 170);
@@ -57,4 +57,42 @@ export function Cloud3D({ small, bind, empty, big = false }: { small: boolean; b
   return <div style={{ position: 'absolute', inset: 0 }}>
     <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block', touchAction: small ? 'auto' : 'none' }} aria-label="3D 점군 누적 보기(드래그로 회전)" />
     <div ref={msg} className="qd-empty" />{big && bind && LEGEND}</div>;
+}
+
+// ── raw 라이다 1 scan: 센서 원점 위에서 본 평면(위 = x 앞, 왼쪽 = y 왼쪽), ±10 m, 1 m 눈금. 색 = 센서 기준 높이 z(map 높이·로봇 pose 0). 누적 0
+const LR = 10, ZL = -1, ZH = 1;
+const hueL = (z: number) => Math.round(200 - Math.max(0, Math.min(1, (z - ZL) / (ZH - ZL))) * 170);
+export function LidarTop({ scan, small }: { scan: Scan; small: boolean }) {
+  const cv = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const el = cv.current!; let w0 = 0, h0 = 0;
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1, W = el.clientWidth, H = el.clientHeight; w0 = W; h0 = H;
+      if (!W || !H) return;
+      if (el.width !== Math.round(W * dpr) || el.height !== Math.round(H * dpr)) { el.width = Math.round(W * dpr); el.height = Math.round(H * dpr); }
+      const g = el.getContext('2d')!; g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, W, H);
+      const s = Math.min(W, H) / (2 * LR), cx = W / 2, cy = H / 2;
+      for (let k = -LR; k <= LR; k++) {           // 1 m 눈금(5 m 마다 진하게)
+        g.strokeStyle = k % 5 ? 'rgba(255,255,255,.07)' : 'rgba(255,255,255,.18)'; g.lineWidth = 1; g.beginPath();
+        g.moveTo(cx + k * s, cy - LR * s); g.lineTo(cx + k * s, cy + LR * s); g.moveTo(cx - LR * s, cy + k * s); g.lineTo(cx + LR * s, cy + k * s); g.stroke();
+      }
+      const f = scan.xyz, r = small ? 1.2 : 2;
+      for (let i = 0; i < scan.n; i++) {
+        const x = f[i * 3], y = f[i * 3 + 1];
+        if (Math.abs(x) > LR || Math.abs(y) > LR) continue;
+        g.fillStyle = `hsl(${hueL(f[i * 3 + 2])} 80% 60%)`; g.fillRect(cx - y * s - r / 2, cy - x * s - r / 2, r, r);
+      }
+      g.fillStyle = '#fff'; g.beginPath(); g.moveTo(cx, cy - 7); g.lineTo(cx - 5, cy + 5); g.lineTo(cx + 5, cy + 5); g.closePath(); g.fill();   // 센서 원점(위 = 앞)
+    };
+    draw();
+    const t = setInterval(() => { if (el.clientWidth !== w0 || el.clientHeight !== h0) draw(); }, 250);
+    return () => clearInterval(t);
+  }, [scan, small]);
+  return <div style={{ position: 'absolute', inset: 0 }} data-lidar-raw={scan.seq}>
+    <canvas ref={cv} style={{ width: '100%', height: '100%', display: 'block' }} aria-label="실시간 라이다 1 scan, 센서 원점 위에서 본 평면(누적 없음)" />
+    {!small && <div aria-label="라이다 범례" style={{ position: 'absolute', right: 8, bottom: 8, padding: '4px 6px', borderRadius: 6, background: 'rgba(0,0,0,.55)', color: '#DDE5EC', fontSize: 10, lineHeight: 1.3, pointerEvents: 'none', maxWidth: 240 }}>
+      <div style={{ height: 8, borderRadius: 2, background: `linear-gradient(90deg, ${[0, 0.25, 0.5, 0.75, 1].map((t) => `hsl(${hueL(ZL + t * (ZH - ZL))} 80% 60%)`).join(',')})` }} />
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>{`${ZL} m`}</span><span>0</span><span>{`+${ZH} m`}</span></div>
+      <div>색 = 센서 기준 높이(라이다 원점 z) · 위 = 로봇 앞 · 눈금 1 m · ±{LR} m</div>
+      <div>{`1 scan · 점 ${scan.n}${scan.trunc ? ` / 원자료 ${scan.nRaw}(상한으로 일부)` : ''} · 지도·누적 아님`}</div></div>}</div>;
 }

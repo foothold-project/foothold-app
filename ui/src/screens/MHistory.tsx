@@ -4,7 +4,7 @@ import { CSS, View } from './MHistory.view';
 import { LV, dayTxt, fmtT, themeClass } from '../data/fmt';
 import { useDocs, useMedia } from '../data/shared';
 import { histRows, type Row } from '../data/hist';
-import { LiveStatus } from '../app/status';
+import { LiveStatus, MediaStale } from '../app/status';
 import { stopProps } from '../app/shell';
 
 const FL = ['전체', '수동 임무', '경보 · 중단', '확인 대기'];
@@ -27,8 +27,8 @@ export default function MHistory() {
   }
   if (M.ok && !rs.length) out.push(<span className="day" key="none">해당 기록 없음</span>);
   const v = {
-    themeClass: themeClass(false), stopProps, status: <LiveStatus D={D} />,
-    cnt: M.ok ? `서버 보관 · ${rs.length}건` : '—',
+    themeClass: themeClass(false), stopProps, status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
+    cnt: M.ok ? `${M.stale ? '보관 자료(재조회 실패)' : '서버 보관'} · ${rs.length}건` : '—',
     chipT: FL, chipOn: filt, chips: FL.map((_, i) => () => setFilt(i)),
     list: M.ok ? out : <span className="day">{M.err || '서버 기록 읽는 중…'}</span>,
     listOverflow: 'auto',   // 원본 틀은 넘침 숨김(예시 5건 기준) — 실기록은 길어서 스크롤

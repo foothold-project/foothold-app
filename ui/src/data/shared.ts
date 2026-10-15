@@ -8,18 +8,21 @@ export const qc = new QueryClient({ defaultOptions: { queries: { retry: false, s
 
 // 읽기·저장은 전송층 T 하나로(웹 쿠키 fetch 또는 네이티브 FhGate). 오류 의미는 그대로: 읽기 실패 = 던짐, 저장 = status 로
 const parse = (body: string) => { try { return JSON.parse(body); } catch { return {}; } };
+/** B2 A2: 상태 코드 대신 쉬운 말 — 원래 코드는 괄호에 남김 */
+export const httpTxt = (n: number) => `${n === 401 || n === 403 ? '권한 없음(다시 로그인)' : n === 404 ? '서버에 없음' : n === 409 ? '다른 기기가 먼저 바꿈' : n >= 500 ? '서버 오류' : '요청 실패'} (HTTP ${n})`;
 async function getJson<R>(what: 'docs' | 'media'): Promise<R> {
   const r = await T.get(what);
   const d = parse(r.body);
-  if (r.status < 200 || r.status >= 300) throw new Error(d.error || `HTTP ${r.status}`);
+  if (r.status < 200 || r.status >= 300) throw new Error(d.error || httpTxt(r.status));
   return d as R;
 }
 
-export type Docs = { list: DocEnvelope[]; rev: number | null; err: string };
+export type Docs = { list: DocEnvelope[]; rev: number | null; err: string; stale?: boolean; at?: number };   // stale·at: R25(옛 목록 + 재조회 실패)
 // 문서: 읽기 실패면 err 가 차고, 화면은 옛 목록을 확정값처럼 쓰지 않는다(보고서는 비우고 «미확인»). broken = 서버 저장소가 깨짐.
 export function useDocs(): Docs {
   const q = useQuery({ queryKey: ['docs'], queryFn: () => getJson<DocsList>('docs') });
-  return { list: q.data?.docs || [], rev: q.data ? q.data.rev : null, err: q.error ? `문서 읽기 실패 · ${q.error.message}` : q.data?.broken || '' };
+  return { list: q.data?.docs || [], rev: q.data ? q.data.rev : null, err: q.error ? `문서 읽기 실패 · ${q.error.message}` : q.data?.broken || '',
+    stale: isStale(!!q.data, !!q.error), at: q.data ? q.dataUpdatedAt : 0 };
 }
 // 지금 캐시에 있는 최신 문서(비동기 뒤 판 번호용 — live.js 전역 DOCS 와 같은 역할)
 export const docsNow = (): Docs => { const d = qc.getQueryData<DocsList>(['docs']); return { list: d?.docs || [], rev: d ? d.rev : null, err: '' }; };
@@ -29,12 +32,16 @@ export const docById = (D: Docs, id: string | null) => D.list.find((d) => d.id =
 export const noteOf = (D: Docs, url: string) => docsOf(D, 'note').find((n) => n.doc.photo === url);
 export const activeRun = (D: Docs): RunEnv | undefined => docsOf(D, 'run').find((d) => d.doc.status === '진행');
 
-export type Media = { photos: MediaList['photos']; events: MediaEvent[]; ok: boolean; err: string };
+// R25: stale = 옛 목록은 있는데 다시 읽기가 실패한 상태(정상과 구분해 표시) · at = 마지막으로 받은 시각(ms, 0 = 못 받음)
+export type Media = { photos: MediaList['photos']; events: MediaEvent[]; ok: boolean; err: string; stale: boolean; at: number };
 // 사진·사건: 한 번 읽힌 뒤 실패하면 옛 목록을 계속 보여 준다(live.js MEDIA.ok 규칙). 처음부터 못 읽으면 ok=false + err.
 export function useMedia(): Media {
   const q = useQuery({ queryKey: ['media'], queryFn: () => getJson<MediaList>('media') });
-  return { photos: q.data?.photos || [], events: q.data?.events || [], ok: !!q.data, err: q.error ? `서버 기록 읽기 실패 · ${q.error.message}` : '' };
+  return { photos: q.data?.photos || [], events: q.data?.events || [], ok: !!q.data, err: q.error ? `서버 기록 읽기 실패 · ${q.error.message}` : '',
+    stale: isStale(!!q.data, !!q.error), at: q.data ? q.dataUpdatedAt : 0 };
 }
+export const isStale = (hasData: boolean, hasErr: boolean) => hasData && hasErr;
+export const reread = (k: 'media' | 'docs') => qc.invalidateQueries({ queryKey: [k] });
 export const alertsOf = (M: Media) => M.events.filter((e) => e.st === 'warn' || e.st === 'bad');
 
 // 상태 메시지마다 부름: 판·최신 사건이 바뀌면 다시 읽기(실패 뒤엔 3 s 쉬고). 진행 중인 읽기는 끊지 않는다.
@@ -55,6 +62,6 @@ export async function saveDoc(m: DocWrite): Promise<SaveRes> {
     const r = await T.postDocs(m);
     const d = parse(r.body), ok = r.status >= 200 && r.status < 300;
     qc.invalidateQueries({ queryKey: ['docs'] }, { cancelRefetch: false });
-    return ok ? { ok: true, ...d } : { ok: false, code: r.status, error: d.error || `HTTP ${r.status}`, cur: d.cur };
+    return ok ? { ok: true, ...d } : { ok: false, code: r.status, error: d.error || httpTxt(r.status), cur: d.cur };
   } catch (e: any) { return { ok: false, code: 0, error: `서버에 닿지 않음 · ${e?.message || e}` }; }
 }
