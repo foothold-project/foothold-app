@@ -93,6 +93,11 @@
 - 보조 뷰는 서버가 밀어넣지 않는다: `status.views.{follow,points}` 의 seq 가 바뀌면 화면이 보고 있을 때만 `view_get` 으로 최신 1개를 받는다(≤2 Hz).
 - points: map 프레임 xyz(float32 LE, base64, n×12 바이트, n ≤ 4000). 결속 키(world·building·floor·mode·map_source·map_version·epoch)가 `live_map` 과 다르거나 `live_map.bound` 가 true 가 아니면(상태 수준 결속 — 리셋·끊김·층 이동·epoch 어긋남·형식 틀림) 화면은 누적하지 않는다. 격자 그림만의 대기(새 격자 변환·도착, `grid.upd`)는 점군·3인칭을 끄지 않는다(10-15 MAP-STABILITY). 누적은 시각화이며 SLAM 3D 지도가 아니다.
 - follow: Gazebo 렌더 3인칭 — RL `/v2_map/follow_cam`(std_msgs/String JSON, schema `v2_map/follow_cam/1`, JPEG base64 ≤64 000 B). 지도 체험 시작 때 `follow_cam: true`(strict bool, 실기 대상에선 보내지 않음)일 때만 켜진다. 평지 체험엔 없다. 웹이 그리는 «가상 3D 뷰»와 따로 표기한다.
+- follow /2(10-15, RL FOLLOW-CONTRACT-v2 sha256 0b663d6c): `status.follow_cam.schema` 가 `v2_map/follow_cam/2` 이면 3인칭은 층·지도와 분리된다(/1 은 위 그대로 병행, 서버는 한쪽만 받고 섞지 않음).
+  - 결속 키 = (run_id 소문자 hex 정확히 32자, epoch 정수 ≥1(bool 제외), world_id, building_id, mode ∈ slam|static). 서버 `LiveMap.follow_key()` 는 신선한 status · `follow_cam.run_id/epoch` 일치 · world/building 이 알려진 지도 · `last_reason != 'reset'` · 그 회차가 hold 아님일 때만 키를 준다. 층 태그(floor_state·floor_id)는 형식만 보고 표시 판단에 쓰지 않는다 → 층 이동(지도 결속 닫힘) 중에도 같은 실행이면 3인칭 계속.
+  - `views.follow.run`: /2 이면 항상 있음(키 객체 `ViewRun` 또는 null = 결속 없음, why «3인칭 실행 결속 없음(리셋 중·status 끊김·run_id/epoch 불일치)»). /1 이면 칸 없음. 화면은 run 칸이 있으면 지도 결속 대신 이 키 + 연결 세대로 묶고, run null·형식 틀림·`reset_pending !== false` 이면 빈 칸(/1 로 떨어지지 않음).
+  - 화면 표시: 요청→검증→해독→표시 전 구간 in-flight 1개(200 ms 주기, 새 seq 만). 해독 뒤 결속 재확인, 같은 결속 안에서 seq·stamp_sim 엄격 증가만 표시. 결속이 바뀌면(새 run/epoch) seq 되감김 허용, 옛 그림 즉시 버림.
+  - 호환 한계: 옛 공개 APK6 의 화면은 지도 키로만 결속하므로 /2 응답을 못 그릴 수 있다(새 APK8 로 검증 예정). /2 를 무검증 /1 로 위장하지 않는다.
 - 실시간 지도 갱신(10-15): 서버는 앞선 격자(status 보다 stamp 가 앞섬, 크기·원점 바뀜 포함)를 보관 당시 K 와 함께 대기시켰다가 다음 status 에서 메타가 맞으면 원자 교체한다. status 가 표시 그림보다 앞서면(같은 K·slam·형식 정상 메타·앞선 stamp) 그 그림을 검증 시각 + 12 s 까지만 `grid.upd=true` 로 보유하고 그동안 `pose=null`. map 없음·해상도 바뀜·stamp 역행·형식 이상·K/epoch/층 세대 변경·리셋·끊김은 즉시 버린다. 화면도 새 seq 해독 중엔 같은 K·연결 세대의 검증된 그림(이미지+메타 한 덩어리)을 같은 시한까지 보이고 마커 0 + «갱신 중».
 - 시각 판정(서버 `Views`, 기준시계 = `live_map` status 의 `sim_t`, 1 Hz): 추정 상한 hi = 마지막 sim_t + 그 status 뒤 흐른 벽시계(RTF ≤ 1 가정).
   - 받을 때 stamp_sim > hi + 0.5 s → «미래 시각»으로 **들이지 않음**(캐시 오염으로 다음 정상 프레임이 «역행» 거부되는 것 방지).

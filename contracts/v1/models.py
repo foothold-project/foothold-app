@@ -269,6 +269,15 @@ class ViewProd(Out):
     enabled: Optional[bool]                 # follow 만: 이번 지도 시뮬에서 외부카메라를 켰나(points 는 null — map 모드면 항상 발행)
 
 
+class ViewRun(Out):
+    """follow /2 결속 키 — 층·지도와 분리(RL FOLLOW-CONTRACT-v2)"""
+    run_id: str = Field(pattern=r'^[0-9a-f]{32}$')
+    epoch: int = Field(ge=1)
+    world_id: str
+    building_id: str
+    mode: Literal['slam', 'static']
+
+
 class ViewSrc(Out):
     """보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok"""
     st: Literal['off', 'stale', 'bad', 'ok']
@@ -276,6 +285,7 @@ class ViewSrc(Out):
     seq: Optional[int]                      # 서버가 받은 최신 것 번호 — 바뀌면 view_get
     age_s: Optional[Fin]                    # s, 마지막 수신 뒤(link 시계)
     prod: Optional[ViewProd] = None         # 발행 쪽(live_map) 자기 진단 — 지도 상태 3 s 안일 때만, 없으면 null
+    run: Optional[ViewRun] = None           # follow /2 결속 키(실행 번호·회차·world·건물·모드) — 있으면 화면은 지도 결속 대신 이것으로 묶음, 없으면 /1
 
 
 class Views(Out):

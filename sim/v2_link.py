@@ -1208,7 +1208,7 @@ class LiveMap:
 
     def __init__(self, now=time.monotonic):
         self.now, self.lock, self.wake = now, threading.Lock(), threading.Event()
-        self.st = self.st_t = self.key = self.key_t = self.cand = self.pending = self.shown = self.hold_t = None
+        self.st = self.st_t = self.key = self.key_t = self.cand = self.pending = self.shown = self.hold_t = self.hold_run = None
         self.hold_key, self.seq, self.grid_why, self.st_sim = None, 0, '', None
 
     @staticmethod
@@ -1366,6 +1366,8 @@ class LiveMap:
     def hold(self):             # 앱 RESET·Gazebo 끄기 요청: 응답 전에 격자·마커 버림, 키가 바뀔 때까지(최대 HOLD_MAX)
         with self.lock:
             self.hold_t, self.hold_key = self.now(), self.key; self._drop()
+            d = self.st if isinstance(self.st, dict) else {}
+            self.hold_run = (d.get('run_id'), d.get('epoch'))   # follow /2: 요청 당시 실행·회차 — 지도 키와 별개로 이것이 바뀌면 3인칭 hold 끝
 
     def release(self):          # RESET 실패 응답
         with self.lock:
@@ -1432,6 +1434,21 @@ class LiveMap:
         with self.lock:
             return self.key if self.st is not None and not self._why(self.now()) else None
 
+    def follow_key(self):       # follow 결속 방식: (False, None) = status 가 /2 를 안 알림 → 옛 /1(지도 키 cur_key) · (True, 키|None) = /2(층·지도 무관)
+        with self.lock:
+            d, t = self.st, self.now()
+            fc = d.get('follow_cam') if isinstance(d, dict) else None
+            if not (isinstance(fc, dict) and fc.get('schema') == FC2_SCHEMA):
+                return False, None
+            r, ep, w, b, mode = (d.get(x) for x in KEY2_NAMES)
+            ok = (d.get('schema') == 'v2_map_status/1' and self.st_t is not None and t - self.st_t <= LIVE_STALE   # 끊김 = 0
+                  and isinstance(r, str) and RUN_ID_RE.fullmatch(r) and fc.get('run_id') == r                    # 실행 번호 형식 · status 와 follow_cam 같은 실행
+                  and type(ep) is int and ep >= 1 and type(fc.get('epoch')) is int and fc['epoch'] == ep          # 회차(bool 제외) · follow 회차 = status 회차
+                  and isinstance(w, str) and w in MAP_WORLDS and MAP_WORLDS[w][0] == b and mode in ('slam', 'static')
+                  and fc.get('last_reason') != 'reset'                                                            # 생산자 RESET(받기 중단) 중 0
+                  and not (self.hold_t is not None and t - self.hold_t < HOLD_MAX and self.hold_run == (r, ep)))  # 앱 RESET·끄기 요청 뒤 같은 실행·회차 동안 0
+            return True, ((r, ep, w, b, mode) if ok else None)
+
     def prod(self):             # 보조 뷰 producer 자기 진단(/v2_map/status 의 points_view·follow_cam) → 앱 빈칸 이유. 3 s 안 status 만, 허용 코드만(그 밖 'unknown')
         with self.lock:
             d = self.st
@@ -1452,6 +1469,9 @@ class LiveMap:
 PV_SCHEMA, PV_MAX_N, PV_MAX_RAW, VIEW_MIN_DT, VIEW_STALE, PV_MAX_ABS = 'v2_map/points_view/1', 4000, 80000, 0.2, 3.0, 3000.0   # 좌표 |m| 상한(앱 0.1 m 칸 키 범위 안)
 VIEW_SIM_EPS = 0.5    # 뷰 stamp_sim 이 sim_t 추정 상한(마지막 1 Hz status sim_t + 그 뒤 벽시계)보다 이만큼 넘게 앞서면 시각 이상
 FC_SCHEMA, FC_MAX, FC_MAX_RAW = 'v2_map/follow_cam/1', 64000, 90000
+# follow /2(RL FOLLOW-CONTRACT-v2 0b663d6c §③, 10-15 합의): 층과 분리 — 결속 = (run_id, epoch, world, building, mode). 층 태그는 형식만(표시 판단 0)
+FC2_SCHEMA, RUN_ID_RE, FLOOR_ST = 'v2_map/follow_cam/2', re.compile(r'[0-9a-f]{32}'), ('on_floor', 'transit', 'unknown')
+KEY2_NAMES = ('run_id', 'epoch', 'world_id', 'building_id', 'mode')
 KEY_NAMES = ('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch', 'floor_rev')   # floor_rev = 연결 건물 층 context 세대(없는 world 는 None)
 PROD_REASONS = {   # RL map-20261014/points_view.py REASONS·FOLLOW_REASONS 와 같은 코드(앱 문구 표는 ui/src/app/OpsQuad.tsx)
     'points': ('ok', 'no_cloud', 'reset', 'floor_transit', 'stale_epoch', 'sim_t_unknown', 'future_stamp', 'not_localized', 'bad_cloud', 'tf_lookup_failed', 'tf_stale', 'empty', 'encode_error'),
@@ -1459,8 +1479,8 @@ PROD_REASONS = {   # RL map-20261014/points_view.py REASONS·FOLLOW_REASONS 와 
 
 
 class Views:
-    def __init__(self, key_fn, now=time.monotonic, sim_fn=lambda: None):   # sim_fn: (lo, hi) = LiveMap.sim_span() | None
-        self.key_fn, self.now, self.sim_fn, self.lock = key_fn, now, sim_fn, threading.Lock()
+    def __init__(self, key_fn, now=time.monotonic, sim_fn=lambda: None, fkey_fn=lambda: (False, None)):   # sim_fn: (lo, hi) = LiveMap.sim_span() | None · fkey_fn = LiveMap.follow_key
+        self.key_fn, self.now, self.sim_fn, self.fkey_fn, self.lock = key_fn, now, sim_fn, fkey_fn, threading.Lock()
         self.p = {'last': None, 'seq': 0, 't': None, 'why': '', 'key': None, 'drop': 0}
         self.f = {'last': None, 'seq': 0, 't': None, 'why': '', 'key': None, 'drop': 0}
 
@@ -1535,11 +1555,44 @@ class Views:
             return None, '3인칭 영상 형식 틀림(JPEG·64 000 B 이하)'
         return {'seq': seq, 'stamp_sim': d['stamp_sim'], 'width': w, 'height': h, 'jpeg': d['data_b64'], **dict(zip(KEY_NAMES, k))}, ''
 
+    @staticmethod
+    def follow2_why(d, k):
+        """follow_cam /2 JSON → (보관 dict, '') | (None, 이유). k = (run_id, epoch, world, building, mode). 기존 /1 형식 검사 전부 + run_id·층 태그 형식"""
+        if (not isinstance(d, dict) or d.get('schema') != FC2_SCHEMA or d.get('frame') != 'follow_cam' or d.get('source') != 'gazebo_render'
+                or d.get('format') != 'jpeg'):
+            return None, '3인칭 형식·출처 모름'
+        r = d.get('run_id')
+        if not (isinstance(r, str) and RUN_ID_RE.fullmatch(r)):
+            return None, '3인칭 실행 번호(run_id) 형식 틀림'
+        if not (type(d.get('epoch')) is int and type(d.get('seq')) is int and d['seq'] >= 1):
+            return None, '3인칭 epoch·seq 형식 틀림'
+        if tuple(d.get(x) for x in KEY2_NAMES) != k:
+            return None, '3인칭이 지금 실행·회차(run_id·epoch·world·모드)와 다름'
+        fs, fid, fr = d.get('floor_state'), d.get('floor_id'), d.get('floor_rev')
+        if not (fs in FLOOR_ST and ((isinstance(fid, str) and fid != '') if fs == 'on_floor' else fid is None) and type(fr) is int and fr >= 0):
+            return None, '3인칭 층 태그 형식 틀림'          # 형식만 — 층 태그로 숨기거나 층을 정하지 않음(계약 §③-6)
+        w, h = d.get('width'), d.get('height')
+        if not (type(w) is int and type(h) is int and 1 <= w <= 4096 and 1 <= h <= 4096 and finite(d.get('stamp_sim'))):
+            return None, '3인칭 크기·stamp 형식 틀림'
+        try:
+            raw = base64.b64decode(d.get('data_b64'), validate=True)
+        except Exception:
+            return None, '3인칭 영상 해독 실패'
+        if not (100 < len(raw) <= FC_MAX and raw[:3] == b'\xff\xd8\xff'):
+            return None, '3인칭 영상 형식 틀림(JPEG·64 000 B 이하)'
+        return {'seq': d['seq'], 'stamp_sim': d['stamp_sim'], 'width': w, 'height': h, 'jpeg': d['data_b64'], **dict(zip(KEY2_NAMES, k))}, ''
+
+    def _fk(self):              # follow 키: /2 면 (run 키|None, True), 아니면 옛 지도 키 그대로(/1)
+        v2, k2 = self.fkey_fn()
+        return (k2, True) if v2 else (self.key_fn(), False)
+
     def on_follow(self, txt):   # ROS 스레드: Gazebo 렌더 3인칭(JSON). 같은 키 안에서 seq·stamp 엄격 증가만
-        k, t = self.key_fn(), self.now()
+        (k, v2), t = self._fk(), self.now()
         with self.lock:
             s = self.f
             if not self._gate(s, k, t):
+                if v2 and k is None:
+                    s['why'] = '3인칭 실행 결속 없음(리셋 중·status 끊김·run_id/epoch 불일치)'
                 return
             if not isinstance(txt, str) or len(txt) > FC_MAX_RAW:
                 s['why'] = '3인칭 메시지 크기 상한 초과'; return
@@ -1547,7 +1600,7 @@ class Views:
                 d = json.loads(txt)
             except Exception:
                 d = None
-            v, why = self.follow_why(d, k)
+            v, why = self.follow2_why(d, k) if v2 else self.follow_why(d, k)   # /1·/2 섞어 받지 않음(status 가 정함)
             last = s['last']
             if v and last and (v['seq'] <= last['seq'] or v['stamp_sim'] <= last['stamp_sim']):
                 v, why = None, '옛 3인칭 프레임(seq·stamp 역행·중복)'
@@ -1579,12 +1632,15 @@ class Views:
         return None
 
     def view(self):
-        k, t = self.key_fn(), self.now()
+        (fk, v2), k, t = self._fk(), self.key_fn(), self.now()
         with self.lock:
-            return {'follow': self._one(self.f, t, k), 'points': self._one(self.p, t, k)}
+            f = self._one(self.f, t, fk)
+            if v2:   # /2 면 run 칸이 항상 있음: 결속 키 | null(결속 없음 — 화면은 안 보임). 칸 없음 = /1(지도 결속)
+                f['run'] = dict(zip(KEY2_NAMES, fk)) if fk is not None else None
+            return {'follow': f, 'points': self._one(self.p, t, k)}
 
     def get(self, what):        # → (dict, '') | (None, 이유). 오래된 것은 안 줌
-        k, t = self.key_fn(), self.now()
+        k, t = (self._fk()[0] if what == 'follow' else self.key_fn()), self.now()
         with self.lock:
             s = self.p if what == 'points' else self.f if what == 'follow' else None
             if s is None:
@@ -1639,6 +1695,31 @@ def selftest_views():
     lag[0] = 0.0; assert V.view()['follow']['st'] == 'bad'                                                               # 같은 프레임도 추정 상한(3.0+0.5)을 넘으면 이상(보이지 않음)
     key[0] = key[0][:6] + (6,); assert V.get('follow')[0] is None
     assert V.get('bogus')[0] is None
+    # follow /2: 결속 = fkey(실행 키), 지도 키(key)가 None(층 이동)이어도 받음 · 형식·키·순서·시각 반례 · view 에 run 칸
+    R2 = '0123456789abcdef' * 2; k2 = [(R2, 1, 'rooms_a', 'rooms_a', 'slam')]; v2on = [True]
+    V = Views(lambda: key[0], now=lambda: t[0], sim_fn=lambda: (sim[0], sim[0] + lag[0]) if finite(sim[0]) else None, fkey_fn=lambda: (v2on[0], k2[0]))
+    def f2(seq, k=None, stamp=None, data=b'\xff\xd8\xff' + b'0' * 200, **kw):
+        d = {'schema': FC2_SCHEMA, 'frame': 'follow_cam', 'source': 'gazebo_render', 'format': 'jpeg', 'width': 320, 'height': 240, 'seq': seq,
+             'stamp_sim': float(seq) if stamp is None else stamp, **dict(zip(KEY2_NAMES, k or k2[0])), 'floor_state': 'on_floor', 'floor_id': 'f1', 'floor_rev': 0,
+             'data_b64': base64.b64encode(data).decode()}
+        d.update(kw); return json.dumps(d)
+    sim[0], lag[0], key[0] = 3.0, 0.0, None; t[0] += 1.0
+    assert V.view()['follow']['run'] == dict(zip(KEY2_NAMES, k2[0]))
+    V.on_follow(f2(1)); f = V.get('follow')[0]; assert f and f['seq'] == 1 and f['run_id'] == R2 and f['epoch'] == 1, V.f['why']   # 지도 키 None(층 이동)에도 받음
+    t[0] += 0.21   # 과속 입력 창(VIEW_MIN_DT) 밖으로 한 번 — 이후 반례는 0.01 s 씩(오래됨 판정 안 걸리게)
+    for bad in (f2(2, data=b'\xff\xd8' + b'0' * 200), f2(1), f2(2, stamp=1.0), f2(2, run_id=R2.upper()), f2(2, run_id=R2[:31]), f2(2, run_id='f' * 32), f2(2, epoch=2),
+                f2(2, epoch=True), f2(True, stamp=9.0), f2(2, mode='static'), f2(2, schema=FC_SCHEMA), f2(2, stamp=float('nan')), f2(2, stamp=100.0),
+                f2(2, floor_state='on_floor', floor_id=None), f2(2, floor_state='transit', floor_id='f1'), f2(2, floor_state='x'), f2(2, floor_rev=-1), f2(2, floor_rev=True),
+                f2(2, data=b'\xff\xd8\xff' + b'0' * FC_MAX)):
+        t[0] += 0.01; V.on_follow(bad); g = V.get('follow'); assert g[0] and g[0]['seq'] == 1, (g[1], V.view()['follow'], V.f['why'], bad[-200:])
+    for fs in (dict(floor_state='transit', floor_id=None, floor_rev=1), dict(floor_state='unknown', floor_id=None, floor_rev=1)):   # 층 태그는 형식만 — 전이 중 프레임도 표시
+        t[0] += 0.21; sim[0] += 1.0; n = V.get('follow')[0]['seq'] + 1; V.on_follow(f2(n, stamp=sim[0], **fs)); assert V.get('follow')[0]['seq'] == n, V.f['why']
+    k2[0] = (R2, 2, 'rooms_a', 'rooms_a', 'slam'); assert V.get('follow')[0] is None and V.view()['follow']['st'] == 'off'   # 새 회차 = 옛것 즉시 버림
+    t[0] += 0.21; sim[0] = 0.6; V.on_follow(f2(1, stamp=0.5)); assert V.get('follow')[0]['seq'] == 1                                    # 새 회차는 seq·stamp 되감김 허용
+    k2[0] = None; assert V.get('follow')[0] is None and V.view()['follow']['run'] is None                                  # RESET·결속 없음 = 0, run 칸은 null
+    t[0] += 0.21; V.on_follow(f2(9, k=(R2, 2, 'rooms_a', 'rooms_a', 'slam'))); assert V.get('follow')[0] is None and '실행 결속 없음' in V.f['why']
+    v2on[0] = False; assert 'run' not in V.view()['follow']                                                                   # /1 이면 run 칸 없음
+    print('views follow/2 selftest ok')
     print('views selftest ok')
 
 
@@ -1839,6 +1920,25 @@ def selftest_live():
     assert L.prod() == {'points': {'reason': 'unknown', 'n_pub': None, 'enabled': None}, 'follow': {'reason': 'unknown', 'n_pub': None, 'enabled': None}}, L.prod()
     S(follow_cam={'enabled': False, 'n_pub': 0, 'last_reason': 'no_frame'}); assert L.prod() == {'points': None, 'follow': {'reason': 'no_frame', 'n_pub': 0, 'enabled': False}}
     t[0] += LIVE_STALE + 0.1; assert L.prod() == {'points': None, 'follow': None}
+    # follow /2 결속 키(RL FOLLOW-CONTRACT-v2): (run_id, epoch, world, building, mode) — 층·지도 상태 무관, run_id 엄격, RESET·hold 0
+    t[0] = 100.0; L = LiveMap(now=lambda: t[0]); R2 = '0123456789abcdef' * 2
+    def F(fc=None, **kw): S(run_id=kw.pop('run_id', R2), follow_cam={'schema': FC2_SCHEMA, 'run_id': R2, 'epoch': kw.get('ep', 1), 'last_reason': None, **(fc or {})}, **kw)
+    assert L.follow_key() == (False, None)                                                                     # status 없음 = /1
+    S(follow_cam={'schema': FC_SCHEMA}); assert L.follow_key() == (False, None)                                # /1 알림 = /1
+    F(); assert L.follow_key() == (True, (R2, 1, 'rooms_a', 'rooms_a', 'slam'))
+    F(floor_id=None, floor_state='transit', map=None, map_accepting=False); assert L.follow_key()[1] == (R2, 1, 'rooms_a', 'rooms_a', 'slam')   # 층 이동 중에도 유지
+    assert L.cur_key() is None                                                                                  # (지도 키는 닫힘 — /1 이면 끊겼던 것)
+    for bad in (dict(run_id=R2.upper()), dict(run_id=R2[:31]), dict(run_id=R2 + '\n'), dict(run_id=''), dict(run_id=None), dict(fc={'run_id': 'f' * 32}),
+                dict(fc={'epoch': 2}), dict(ep=True, fc={'epoch': True}), dict(ep=0, fc={'epoch': 0}), dict(fc={'last_reason': 'reset'}), dict(mode='odd'),
+                dict(world_id='v5_building'), dict(schema='v2_map_status/0')):
+        F(**bad); assert L.follow_key() == (True, None), bad
+    F(); t[0] += LIVE_STALE + 0.1; assert L.follow_key() == (True, None); t[0] -= LIVE_STALE + 0.1           # status 끊김
+    F(); L.hold(); assert L.follow_key() == (True, None)                                                       # 앱 RESET 요청 뒤 같은 실행·회차 0
+    F(ep=2); assert L.follow_key()[1] == (R2, 2, 'rooms_a', 'rooms_a', 'slam')                                # 새 회차 = hold 끝(지도 키와 무관)
+    F(ep=2); L.hold(); L.release(); assert L.follow_key()[1] is not None                                      # RESET 실패 응답 = hold 해제
+    TR = dict(floor_id=None, floor_state='transit', map=None, map_accepting=False)                            # 층 이동 중(지도 키 None 유지)에 RESET → 새 회차
+    F(ep=3, **TR); L.hold(); assert L.follow_key() == (True, None)
+    F(ep=4, **TR); assert L.cur_key() is None and L.follow_key()[1] == (R2, 4, 'rooms_a', 'rooms_a', 'slam')   # 지도 키가 안 바뀌어도 새 회차면 hold 끝
     t[0] = 100.0; L = LiveMap(now=lambda: t[0])
     metas = {('v5', 'l1', '20261014-120000-e1'): {'world_id': 'v5_building', 'map_source': 'slam', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]},
              ('v5', 'l1', 'gt-20261012'): {'world_id': 'v5_building', 'map_source': 'gt_raster', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]}}
@@ -2606,7 +2706,7 @@ def main():
     cli_save = node.create_client(Trigger, '/v2_map/save')
     threading.Thread(target=map_worker, daemon=True).start()
     node.create_subscription(CompressedImage, '/v2_live/camera/compressed', on_cam, QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST))
-    views = Views(live.cur_key, sim_fn=live.sim_span)     # 보조 관제 뷰: 최신 1개만, 앱이 view_get 으로 끌어감(push 0)
+    views = Views(live.cur_key, sim_fn=live.sim_span, fkey_fn=live.follow_key)     # 보조 관제 뷰: 최신 1개만, 앱이 view_get 으로 끌어감(push 0)
     q1 = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST)
     node.create_subscription(String, '/v2_map/points_view', lambda m: views.on_points(m.data), q1)
     node.create_subscription(String, '/v2_map/follow_cam', lambda m: views.on_follow(m.data), q1)

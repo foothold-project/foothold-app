@@ -249,6 +249,18 @@ test('checkStatus: views 형식 틀림 → 그 뷰만 버림(상태·조종 관�
   expect(V({ st: 'off', why: '', seq: null, age_s: null, prod: { reason: 'sim_t_unknown', n_pub: 0, enabled: null } })[1].points.prod.reason).toBe('sim_t_unknown');   // 발행 쪽 진단 통과
 });
 
+test('checkStatus follow /2 run: run_id 소문자 hex 정확히 32자만(끝 개행·대문자·31/33자·null 거부), 틀리면 그 뷰만 버림', async () => {
+  const { runId } = await import('../../src/data/fmt');
+  const R = '0123456789abcdef'.repeat(2), RUN = { run_id: R, epoch: 1, world_id: 'v5_building', building_id: 'v5', mode: 'slam' };
+  const F = (run: any) => { const m: any = ST({ views: { points: null, follow: { st: 'ok', why: '', seq: 1, age_s: 0.1, run } } }); return [L.checkStatus(m), m.views.follow]; };
+  expect(runId(R)).toBe(true); expect(F(RUN)[1].run.run_id).toBe(R); expect(F(null)[1].seq).toBe(1);
+  for (const id of [R + '\n', R + '\r\n', '\n' + R, R.toUpperCase(), R.slice(1), R + 'a', null, undefined, 32]) {
+    expect(runId(id)).toBe(false);
+    const [why, f] = F({ ...RUN, run_id: id }); expect(why).toBe(null); expect(f).toBe(null);
+  }
+  for (const run of [{ ...RUN, epoch: true }, { ...RUN, epoch: 0 }, { ...RUN, mode: 'x' }, 'x']) expect(F(run)[1]).toBe(null);
+});
+
 test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·늦은 응답 모두 명령 0, 돌아와도 자동 복원 0', async () => {
   L.setProvider('simulation_gate'); L.sendOp('take'); msg(ST());
   expect(L.press('pv', 7, { fx: 1, fy: 0, fw: 0 })).toBe(true); step(120);

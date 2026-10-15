@@ -454,12 +454,21 @@ export interface ViewProd {
   enabled: boolean | null;
 }
 
+export interface ViewRun {
+  run_id: string;
+  epoch: number;
+  world_id: string;
+  building_id: string;
+  mode: "slam" | "static";
+}
+
 export interface ViewSrc {
   st: "off" | "stale" | "bad" | "ok";
   why: string;
   seq: number | null;
   age_s: number | null;
   prod?: ViewProd | null;
+  run?: ViewRun | null;
 }
 
 export interface Views {

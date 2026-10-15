@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import type { ClientOp, ProviderKind, Reply, Status } from '@contracts';
 import { refreshShared } from './shared';
-import { num, ok, sgn } from './fmt';
+import { num, ok, runId, sgn } from './fmt';
 import { T } from './transport';
 
 
@@ -239,7 +239,9 @@ export function checkStatus(m: any): string | null {
   const vone = (x: any) => ob(x) && ['off', 'bad', 'stale', 'ok'].includes(x.st) && typeof x.why === 'string'
     && (x.seq === null || (int(x.seq) && x.seq > 0)) && (x.age_s === null || (fin(x.age_s) && x.age_s >= 0))
     && (x.prod == null || (ob(x.prod) && (x.prod.reason === null || typeof x.prod.reason === 'string') && (x.prod.enabled === null || typeof x.prod.enabled === 'boolean')
-      && (x.prod.n_pub === null || (int(x.prod.n_pub) && x.prod.n_pub >= 0))));   // prod: 발행 쪽 진단(없으면 이전 서버)
+      && (x.prod.n_pub === null || (int(x.prod.n_pub) && x.prod.n_pub >= 0))))   // prod: 발행 쪽 진단(없으면 이전 서버)
+    && (x.run == null || (ob(x.run) && runId(x.run.run_id) && int(x.run.epoch) && x.run.epoch >= 1
+      && typeof x.run.world_id === 'string' && typeof x.run.building_id === 'string' && (x.run.mode === 'slam' || x.run.mode === 'static')));   // run: follow /2 결속 키(없으면 /1)
   if (m.views != null) { if (!ob(m.views)) m.views = null; else for (const k of ['points', 'follow']) if (!vone(m.views[k])) m.views[k] = null; }
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';

@@ -1253,6 +1253,46 @@
       "title": "ViewProd",
       "type": "object"
     },
+    "ViewRun": {
+      "description": "follow /2 결속 키 — 층·지도와 분리(RL FOLLOW-CONTRACT-v2)",
+      "properties": {
+        "building_id": {
+          "title": "Building Id",
+          "type": "string"
+        },
+        "epoch": {
+          "minimum": 1,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "mode": {
+          "enum": [
+            "slam",
+            "static"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "world_id": {
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "epoch",
+        "world_id",
+        "building_id",
+        "mode"
+      ],
+      "title": "ViewRun",
+      "type": "object"
+    },
     "ViewSrc": {
       "description": "보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok",
       "properties": {
@@ -1271,6 +1311,17 @@
           "anyOf": [
             {
               "$ref": "#/$defs/ViewProd"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ViewRun"
             },
             {
               "type": "null"
