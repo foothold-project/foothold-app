@@ -18,7 +18,7 @@ import { STEPS, stageOf } from '../data/drive_stage';
 import { EndRow, WpActs } from '../app/runui';
 import { useSel } from '../data/scratch';
 import { stopOn, stopProps, toast, whyProps } from '../app/shell';
-import { autoProvider, ModePick, OpsQuad } from '../app/OpsQuad';
+import { autoProvider, OpsQuad } from '../app/OpsQuad';
 
 const MARK: Record<string, string> = { ok: '●', warn: '▲', bad: '■' };
 const KEYS: Record<string, Partial<Axes>> = { ArrowUp: { fx: 1 }, ArrowDown: { fx: -1 }, ArrowLeft: { fw: 1 }, ArrowRight: { fw: -1 } };
@@ -122,18 +122,19 @@ export default function Main() {
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,
     // 지도: 시뮬 바닥 도면 + GT 위치(SLAM 아님)
-    mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank} · 실제 실행 world 와 별개 · ${pose ? '위치 = 현재 열린 지도 상태' : '위치 미표시'}` : s ? `시뮬 도면 · 선은 ${s.source === 'gz_gt' ? '시뮬 위치' : s.source || '미확인'} · x ${sgn(s.x)} y ${sgn(s.y)} m` : '시뮬 도면 · 위치 미연결',
+    // U2-b: 운영 = 짧은 제목(«시뮬 도면 · 위치 미연결» 삭제 — 위치 없음은 지도 가운데 한 번) · 출처·좌표는 개발자 모드
+    mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank}` : <>{s ? '시뮬 바닥' : ''}<span data-dev>{s ? ` · 선은 ${s.source === 'gz_gt' ? '시뮬 위치' : s.source || '미확인'} · x ${sgn(s.x)} y ${sgn(s.y)} m` : ' · 위치 미연결'}</span></>,
     // B2 R11: 미연결 레이어(측정값·발견물·통신 품질·3D 점군)는 버튼 모양 0 — 숨기고 «상태 상세»의 지원 범위로(3D 점군은 관제 보조 뷰에 있음)
     layerP: [tog(trail, setTrail, '지나온 길(시뮬 위치) 보이기/숨기기'), layer(''), layer(''), layer(''), tog(zon, setZon, '구역 표시 켜기/끄기(표시만 · 주행 제한 미연결)'), layer('')],
     findCnt: '—', legendHide: true,
     // 10-15 ④: 머리줄 아이콘(◎·+·−) 대신 지도 칸 안 글 버튼(«전체 고정 / 로봇 중심» + 확대·축소) — 2×2·큰 칸·전체화면에서 같은 자리
     folP: layer(''), zinP: layer(''), zoutP: layer(''),
     // 관제 4분할(실기 Go2 | 시뮬 보조) — 지도 칸도 누름 = 확대 토글(끌기 6 px·버튼·고르기는 제외). 이 지도는 onTap 없음(점 찍기 0)
-    cardTitle: '관제', modePick: <ModePick />,
+    cardTitle: '관제', modePick: null,   // U2-b: «실기 Go2 · 준비 중 | 시뮬(보조)» 전환은 실기 연결이 생길 때까지 숨김(ModePick 은 그대로 둠)
     map: <OpsQuad camOk={v.camOk} camTxt={v.camTxt}
       rgbExtra={<button type="button" className="lv-btn" style={{ position: 'absolute', left: 8, bottom: 8 }} title="지금 영상 프레임을 사진으로(촬영 시각·시뮬 위치 기록)" onClick={photo}>사진 찍기</button>}
       map={(q) => <>
-        <MapCanvas name="main" small={q === 'thumb'} btns={q !== 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
+        <MapCanvas name="main" lean small={q === 'thumb'} btns={q !== 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
           raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on && here.ok ? R.wps : null} />
         {q !== 'thumb' && pickEl}</>} />,
     stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist != null ? `${dist.toFixed(1)} m` : here.ok ? '미확인' : `표시 안 함(${here.why})`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',

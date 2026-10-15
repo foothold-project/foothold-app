@@ -8,6 +8,7 @@ import { BLD, FLOOR, WF, WORLD, allKey, getHeight, getLive, getMap, groupMaps, g
 import { dropAll, useLink } from '../data/link';
 import type { Robot } from './MapCanvas';
 import { toast } from '../app/shell';
+import { Help } from '../app/chip';
 import { geomBind, getGeom, type Geom } from '../data/geom';
 import { Geom3D } from './Geom3D';
 
@@ -161,20 +162,22 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   </span>;
   const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */ } : { width: '100%' };
   const el = <span style={{ ...sty, display: 'flex', flexDirection: 'column', gap: 4 }}>
-    <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기(화면만 · 시뮬은 그대로)</span>
-    {overlay ? <select aria-label="지도 보기 선택(보기만 · 실제 world 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 Gazebo 지형·조종은 그대로" value={sel}
+    {overlay ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* U2-b(Main 만 overlay) */
+      : <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기(화면만 · 시뮬은 그대로)</span>}
+    {overlay ? <select aria-label="지도 보기 선택(보기만 · 실제 시뮬 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 시뮬 지형·조종은 그대로" value={sel}
       onFocus={load} onChange={(e) => pick(e.target.value)}
       style={{ minHeight: overlay ? 32 : 44, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
-      <option value="">{touched ? '실행 중 시뮬 GT 위치' : '실행 중 시뮬 GT 위치(지도 시뮬이 보이면 실시간 자동)'}</option>
+      <option value="">{touched ? '시뮬 위치' : '시뮬 위치(지도 시뮬이 보이면 실시간 자동)'}</option>
       <option value={LIVE}>현재 열린 지도(실시간 매핑)</option>
       {Array.isArray(maps) && groupMaps(maps).map((g) => <optgroup key={g.w} label={`저장 지도 보기 · ${g.label}`}>
-        {WF[g.w].length > 1 && <option value={allKey(g.w)}>층 나란히 보기 · GT 기하 2D</option>}
+        {WF[g.w].length > 1 && <option value={allKey(g.w)}>층 나란히 보기</option>}
         {g.items.map((m) => <option key={mapKey(m)} value={mapKey(m)}>{verLabel(m)}</option>)}</optgroup>)}
       {typeof maps === 'string' && <option disabled value="-">{`저장 지도 목록 · ${maps}`}</option>}
       {Array.isArray(maps) && !maps.length && <option disabled value="-">저장 지도 없음</option>}
     </select> : list}
     {!overlay && <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--muted)' }}>{`지금 열린 시뮬 · ${runLine(ss)}`}</span>}
-    {diff && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{diff}</span>}
+    {diff && overlay && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>보는 지도 ≠ 실행 지도<Help label="보는 지도 · 실행 지도 차이">{diff}</Help></span>}
+    {diff && !overlay && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{diff}</span>}
     {gt && <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)' }}>
       <input type="checkbox" checked={hOn} onChange={(e) => { setHOn(e.target.checked); setHr(null); }} />높이 색(GT 기하 · 센서 아님)</label>}
     {hOn && gt && (typeof hr === 'string' ? <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{`높이 미표시 · ${hr}`}</span>

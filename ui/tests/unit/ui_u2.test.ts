@@ -9,6 +9,9 @@ import mdriveSrc from '../../src/screens/MDrive.tsx?raw';
 import mhomeSrc from '../../src/screens/MHome.tsx?raw';
 import mhomeView from '../../src/screens/MHome.view.tsx?raw';
 import chipSrc from '../../src/app/chip.tsx?raw';
+import canvasSrc from '../../src/map/MapCanvas.tsx?raw';
+import pickSrc from '../../src/map/MapPick.tsx?raw';
+import quadSrc from '../../src/app/OpsQuad.tsx?raw';
 const { headChips, camChip } = await import('../../src/app/status');
 const { dirWhy } = await import('../../src/app/drive');
 const { stageOf } = await import('../../src/data/drive_stage');
@@ -72,4 +75,27 @@ test('MDrive·MHome 운영 문구: 조종 반납 · 막힌 방향 라벨 · 낡�
   expect(mdriveSrc).toMatch(/<p data-dev>\{`화면 판/); expect(mdriveSrc).toMatch(/\{TRIAL_SAFE\}<span data-dev>/);
   expect(code(mhomeSrc)).not.toMatch(/Go2 시뮬 · v2|배터리 미제공/); expect(mhomeView).not.toMatch(/명령 0·잠금/);
   expect(mhomeView).toMatch(/입력 차단·잠금/);
+});
+
+// ── U2-b: Main 지도 패널·보조 뷰(다른 화면 MapCanvas 글은 lean 없으면 그대로 — U3~5)
+test('U2-b 지도 캔버스(lean=Main 만): 가운데 위치 없음 하나 · 주황 띠 0 · 로봇 중심 회색+이유 · 1 m 축척만', () => {
+  expect(mainSrc).toMatch(/<MapCanvas name="main" lean /);
+  expect(canvasSrc).toMatch(/o\.small \|\| o\.lean \? '위치 없음'/);
+  expect(canvasSrc).toMatch(/const why = !o\.lean && v\.mode === 'robot'/);           // 띠는 lean 아닐 때만(다른 화면 글 무변경)
+  expect(canvasSrc).toMatch(/rb\.classList\.toggle\('lv-why', !!w\)/); expect(canvasSrc).toMatch(/if \(w\) toast\(w\)/);
+  expect(canvasSrc).toMatch(/if \(!o\.small && o\.lean\) \{[^\n]*\n[^\n]*\n\s*g\.font = '12px sans-serif'; g\.fillStyle = C\.mut; g\.fillText\('1 m'/);
+});
+
+test('U2-b 지도 보기(overlay=Main 만): 라벨 + ? · 보는 지도 ≠ 실행 지도 + ?(원문) · 선택지에 GT 0', () => {
+  expect(pickSrc).toMatch(/\{overlay \? <span[^>]*>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로<\/Help>/);
+  expect(pickSrc).toMatch(/\{diff && overlay && <span[^>]*>보는 지도 ≠ 실행 지도<Help [^>]*>\{diff\}<\/Help>/);
+  const sel = pickSrc.slice(pickSrc.indexOf('{overlay ? <select'), pickSrc.indexOf('</select>'));
+  expect(sel).not.toMatch(/GT|Gazebo|world/);
+});
+
+test('U2-b 관제 패널·보조 뷰: 실행 대상 전환 숨김 · 제목 짧게 · 칸 종류 구분 · 접힘 버튼 하나', () => {
+  expect(code(mainSrc)).toMatch(/modePick: null/); expect(code(mainSrc)).not.toMatch(/<ModePick|시뮬 도면/);
+  for (const l of ["'시뮬 외부 영상'", "'라이다 · 로봇 기준(한 스캔·누적 아님)'", "'점군 · 지도 기준 누적'"]) expect(quadSrc).toContain(`label: ${l}`);
+  expect(code(quadSrc)).not.toMatch(/Gazebo|3인칭|보조 뷰 2칸/);
+  expect(quadSrc).toMatch(/'외부 카메라 · 점군 ›'/); expect(quadSrc).toMatch(/<Help label="외부 카메라 · 점군 · 지금 이유">/);
 });

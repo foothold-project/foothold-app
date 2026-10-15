@@ -6,6 +6,7 @@ import { stopOn } from './shell';
 import { camURL, linkView, setProvider, useLink } from '../data/link';
 import { CLOUD, usePull, viewKey, viewWhy } from '../data/views';
 import { camChip } from './status';
+import { Help } from './chip';
 import { Cloud3D, LidarTop } from './Cloud3D';
 import { QEmpty, Quad, type QSize, type QTile } from './Quad';
 
@@ -47,12 +48,12 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
     { id: 'rgb', label: 'RGB · 시뮬 카메라', body: (s) => <>
       <img data-live-cam="" alt="시뮬 카메라 영상" src={camURL || undefined} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', visibility: camOk ? 'visible' : 'hidden' }} />
       {!camOk && <QEmpty text={camChip({ camOk, camTxt }).text} />}{s !== 'thumb' && rgbExtra}</> },
-    { id: 'follow', label: '외부 3인칭 · 시뮬 카메라', body: () => follow && fKey && follow.bind === fKey
-      ? <img alt="Gazebo 렌더 3인칭 카메라" src={follow.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
+    { id: 'follow', label: '시뮬 외부 영상', body: () => follow && fKey && follow.bind === fKey
+      ? <img alt="시뮬 외부 영상" src={follow.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
       : <QEmpty text={vWhy('follow')} /> },
     raw && lidar
-      ? { id: 'pts', label: '실시간 라이다 · 센서 기준(누적 없음)', body: (s) => <LidarTop scan={lidar} small={s === 'thumb'} /> }
-      : { id: 'pts', label: '3D 점군 누적 그림', body: (s) => <Cloud3D small={s === 'thumb'} big={s === 'big'} bind={pKey} empty={ptsWhy} /> },
+      ? { id: 'pts', label: '라이다 · 로봇 기준(한 스캔·누적 아님)', body: (s) => <LidarTop scan={lidar} small={s === 'thumb'} /> }
+      : { id: 'pts', label: '점군 · 지도 기준 누적', body: (s) => <Cloud3D small={s === 'thumb'} big={s === 'big'} bind={pKey} empty={ptsWhy} /> },
   ];
   // Quad 는 늘 같은 자리·같은 형제 순서 — tiles 만 바꿔 remount 0(크게 본 칸·PIP 선택 유지). 이유 줄은 둘 다 비었을 때만 Quad 뒤에
   const shown = open || fOk || pOk;
@@ -64,8 +65,8 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
 /** 보조 뷰 이유 줄(둘 다 비었을 때만): 두 칸의 지금 이유 + 펼치기/접기 */
 const AuxLine = ({ open, onClick, f, p }: { open: boolean; onClick: () => void; f: string; p: string }) =>
   <div className="qd-line" role="status" data-qd-aux={open ? 'open' : 'closed'}>
-    <span>{`보조 뷰 ${open ? '펼침' : '접힘'} · 외부 3인칭: ${f} · 3D 점군: ${p}`}</span>
-    <button type="button" className="lv-btn" aria-expanded={open} onClick={onClick}>{open ? '보조 뷰 접기' : '보조 뷰 2칸 펼치기'}</button></div>;
+    <button type="button" className="lv-btn" aria-expanded={open} onClick={onClick}>{open ? '외부 카메라 · 점군 접기' : '외부 카메라 · 점군 ›'}</button>
+    <Help label="외부 카메라 · 점군 · 지금 이유">{`외부 카메라: ${f} · 점군: ${p}`}</Help></div>;   {/* U2-b: 접힘 = 버튼 하나 + ? (이유 원문은 ? 안) */}
 
 /** 전체화면 안 STOP + 링크·잠금 한 줄 — 알림(toast)·확인창은 shell InFs 로 전체화면 안에 뜨지만 사라지므로, 지속 서버 상태는 이 줄로. 끊김·상태 미확인이면 «미확인»(잠김/안 잠김 단정 0) */
 function FsStop() {
