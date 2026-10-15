@@ -4,15 +4,23 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `4bcf014202ce44da8dd52a12df4ea95b018633bc` (`less82/app-ui-react-recovered`) | `ui` = `8585fbb07e6aa6f042011b60bf71cd73e712b0e8` | 그대로 |
-| `mobile/**` | `2c25ab5637bbbb945c31f4f0343a0f01ff42a10f` (`less82/app-contract-storage`) | `mobile` = `88dbd565fd5625193e627b4f1b8fbd2005d90b45` | 파일 단위 변경 0 |
+| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `a2f5c4023a0ec442a275a7771725598271b4d3ce` (`less82/app-ui-react-recovered`) | `ui` = `03d276a646bd749b65a7eaf5d8defb1e2772c168` | 그대로 |
+| `mobile/**` | `4975747dd459789fe19ed0c901b6ec683bb3be0a` (`less82/app-contract-storage`) | `mobile` = `f6e52659cd2ca70b341ecc7c371655eebb14fba4` | 파일 단위 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md` 맨 앞 «현재 통합 개발판» 안내(기존 본문 그대로, «기존 웹 구현 기록»으로 구분) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 4bcf014202ce44da8dd52a12df4ea95b018633bc HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only a2f5c4023a0ec442a275a7771725598271b4d3ce HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
-## 검증 실행 범위 — Android 개발 APK `dev-20261015-mapview` (10-15)
+## 검증 실행 범위 — Android 개발 APK `dev-20261015-stability` (10-15)
+
+| 무엇 | 대상 | 결과 | 범위·한계 |
+|---|---|---|---|
+| UI 단위·계약 시험 | UI `a2f5c40` | tsc · vitest 96/96 · 계약 생성물 16 일치 · pytest 130 통과 1 건너뜀 · 연결 중계 자체 시험 | UI 쪽 실행 |
+| 합성 화면 시험 | 합성 발행기(실 SLAM·실 Gazebo 아님) → 이 판 연결 중계 → 시험 관문 → 헤드리스 Chrome 두 화면 | PASS — 격자 65장(큰 격자 4), 정상 확장 구간 지도 빈칸 0 · 3인칭·점군 끊김 0 · 진짜 경계 뒤 옛 그림 0 · STOP 가림 0 · 페이지 예외 0 | 수정 되돌림 변이 6종 검출. 해독 지연은 주입한 비관 조건 — «갱신 중» 표본 약 61%는 실제 비율 아님. 실 SLAM 주행 확장 미확인 |
+| APK 구조 대조 · 실APK 실행 | `foothold-android-dev-20261015-stability.apk`(이 통합 뒤 빌드) | 빌드 뒤 기록 | 에뮬 실행은 별도 검수 뒤 1회만 예정 — 아직 안 함 |
+
+### 앞 판 — Android 개발 APK `dev-20261015-mapview` (10-15)
 
 | 무엇 | 대상 | 결과 | 범위·한계 |
 |---|---|---|---|
