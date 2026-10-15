@@ -1,7 +1,7 @@
 // 수동 임무 진행·지도 계산 공용 — web/live.js 908·919–921·1124–1136·1170 과 같은 규칙. 자동 이동·자동 완료 없음, 운영자가 눌러 기록.
 import type { DocWrite, MapSrc, Mission, Run, RunWaypoint } from '@contracts';
 import { activeRun, docById, docsNow, docsOf, qc, saveDoc, type Docs, type SaveRes } from './shared';
-import { ask, askPage, linkView, useLink } from './link';
+import { ask, askPage, dropAsk, linkView, useLink } from './link';
 import { WF } from './maps';
 import { geomRid } from './geom';
 import { MISSING_T, tmplOf } from './tmpl';
@@ -55,7 +55,10 @@ export function gtHere(s = useLink.getState()): Here {
     if (!f || f.state !== 'on_floor' || typeof f.current !== 'string' || !fl.includes(f.current)) return { why: '현재층 미확인' };
     floor_id = f.current;
   }
-  if (fl.length > 1) { const rid = geomRid(s, lv); return rid ? { map: { src: 'gt', world_id: lv.world_id, floor_id, key: '', rid } } : { why: '좌표 개정 미확인(GT 기하 파일 미검증)' }; }
+  if (fl.length > 1) {
+    const r = geomRid(s, lv);
+    return r.rid ? { map: { src: 'gt', world_id: lv.world_id, floor_id, key: '', rid: r.rid } } : { why: r.wait ? '좌표 개정 확인 중(GT 기하 파일 받는 중)' : `좌표 개정 미확인(GT 기하 파일 미검증 · ${r.why})` };
+  }
   const w = lv.world_src_sha256;
   if (typeof w !== 'string' || !/^[0-9a-f]{64}$/.test(w) || lv.spawn_floor !== fl[0]) return { why: '좌표 개정 미확인(world 원본 SDF sha 없음)' };
   return { map: { src: 'gt', world_id: lv.world_id, floor_id, key: '', rid: `w:${w}` } };
@@ -119,6 +122,18 @@ export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) 
   if (!m2 || m2.rev !== m.rev || !p2 || p2.block || p2.line !== p.line || !T2 || T2.name !== T.name) { toast('확인하는 사이 이 기기에 들어온 계획·양식 또는 지도 상태가 바뀜 — 다시 눌러 주세요'); return null; }
   const r = await send({ op: 'put', kind: 'run', id: null, doc: newRun(D2, m.id, m2.doc, p2.map, m2.rev) }); if (!r) return null;
   toast(r.ok ? `수동 진행 시작 · 모든 기기 공유${p2.map ? '' : ' · 지도 미확인 · 기록만'}` : `시작 안 됨 · ${r.error}`); return r.ok ? r : null;
+}
+
+// ---- 계획 편집기 ↔ 시작 확인창 결속(E1 + dirty) ----
+type PlanEd = { gen: number; id: string | null; dirty: boolean; touch(): void };
+/** 확인창을 여는 순간의 편집기 세대·선택 + 저장 안 한 수정 없음 — 확인 직후 하나라도 다르면 쓰기 0.
+ *  «서버에 저장된 판으로 시작하니 괜찮다»로 미저장 수정을 우회하지 않는다(화면의 계획 ≠ 시작될 계획) */
+export const planOwn = (E: PlanEd) => { const g0 = E.gen, id0 = E.id; return { owner: E, alive: () => E.gen === g0 && E.id === id0 && !E.dirty }; };
+/** 계획 편집 1회: 수정 표시 + 이 편집기가 연 시작 확인창만 취소(편집 내용·저장·서버 판 무변경 · N1 등 다른 주인 창 무영향) */
+export function planEdit(E: PlanEd, f: () => void) {
+  f(); E.dirty = true;
+  if (dropAsk(E)) toast('계획을 고쳐 시작 확인을 닫음 — 시작 안 됨 · 저장한 뒤 다시 누르세요');
+  E.touch();
 }
 
 // ---- 진행 기록(live.js 1139–1177) — 운영자가 눌러 기록, 자동 판정 없음 ----

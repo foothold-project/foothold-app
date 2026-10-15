@@ -65,23 +65,34 @@ export async function getGeom(building_id: 'v5'): Promise<{ g: Geom; sha: string
 type RidLv = { world_id?: string | null; world_src_sha256?: string | null; spawn_floor?: string | null; epoch?: number | null; geom?: { sha256?: string | null } | null; st?: string };
 type RidS = { gen: number; provider: string; st: { episode?: number | null; live_map?: unknown } | null };
 export const ridKey = (s: RidS, lv: RidLv) => [s.gen, s.provider, s.st?.episode, lv.world_id, lv.geom?.sha256, lv.world_src_sha256, lv.spawn_floor, lv.epoch].join('|');
-let ridG: { key: string; g: Geom; sha: string } | null = null, ridAsk: { key: string; t: number } | null = null;
+// G1(Codex P1): 빈 계획 화면도 매 그리기마다 이것을 불러(gtHere) 첫 점 전에 기하를 준비한다. 상태 = 확인됨(rid) · 받는 중(wait) · 실패/미확인(why).
+// 키가 바뀌면 옛 검증본을 버린다. 받는 중엔 같은 키로 다시 요청하지 않고(ask 5 s 제한이 끝을 보장), 실패 뒤 6 s 안 재요청 0.
+type RidAsk = { key: string; t: number; why?: string };   // why: undefined = 받는 중 · '' = 성공 · 글 = 실패 이유
+let ridG: { key: string; g: Geom; sha: string } | null = null, ridAsk: RidAsk | null = null;
 export const ridDeps = { get: (b: 'v5') => getGeom(b), now: () => performance.now(), cur: (): [RidS, RidLv | null] => { const s = useLink.getState(); return [s, (s.st?.live_map as RidLv | null | undefined) ?? null]; } };
-/** 연결 건물 rid 또는 null(미확인). 없으면 기하 받기를 한 번 요청(같은 키 실패 뒤 6 s 안 재요청 0 — 서버 geom_get 연결당 1건·5 s) */
-export function geomRid(s: RidS, lv: RidLv): string | null {
-  if (lv.world_id !== 'v5_building' || !hex(lv.geom?.sha256) || !hex(lv.world_src_sha256) || !lv.spawn_floor) return null;
+export type RidSt = { rid: string; why?: undefined; wait?: undefined } | { rid?: undefined; why: string; wait: boolean };
+const WAIT: RidSt = { why: 'GT 기하 파일 받는 중', wait: true };
+/** 연결 건물 rid · 받는 중 · 미확인 이유. 없으면 기하 받기를 한 번 요청 */
+export function geomRid(s: RidS, lv: RidLv): RidSt {
+  if (lv.world_id !== 'v5_building' || !hex(lv.geom?.sha256) || !hex(lv.world_src_sha256) || !lv.spawn_floor) return { why: '서버가 기하 sha·원본 SDF sha·기동 층을 안 줌', wait: false };
   const key = ridKey(s, lv);
-  if (ridG && ridG.key === key) return ridG.sha === lv.geom!.sha256 && geomBind(ridG.g, ridG.sha, lv.world_id, lv, lv.world_id) === 'ok' ? `g:${ridG.sha}` : null;
-  const now = ridDeps.now();
-  if (!ridAsk || ridAsk.key !== key || now - ridAsk.t > 6000) {
-    ridAsk = { key, t: now };
-    ridDeps.get('v5').then((x) => {
-      const [s2, lv2] = ridDeps.cur();
-      if (typeof x === 'string' || !lv2 || ridKey(s2, lv2) !== key || x.sha !== lv2.geom?.sha256) return;   // 요청 뒤 세대·출처가 바뀌었으면 버림
-      ridG = { key, g: x.g, sha: x.sha };
-    }, () => undefined);
+  if (ridG && ridG.key !== key) ridG = null;   // 키 전환 = 옛 검증본 폐기(되돌아와도 새로 받음)
+  if (ridG) {
+    const b = ridG.sha !== lv.geom!.sha256 ? '받은 기하 파일 sha ≠ 지금 기하' : geomBind(ridG.g, ridG.sha, lv.world_id, lv, lv.world_id);
+    return b === 'ok' ? { rid: `g:${ridG.sha}` } : { why: b, wait: false };
   }
-  return null;
+  const a = ridAsk && ridAsk.key === key ? ridAsk : null;
+  if (a && a.why === undefined) return WAIT;
+  if (a && a.why && ridDeps.now() - a.t <= 6000) return { why: a.why, wait: false };
+  const q: RidAsk = { key, t: ridDeps.now() }; ridAsk = q;
+  ridDeps.get('v5').then((x) => {
+    if (typeof x === 'string') { q.why = x; return; }
+    const [s2, lv2] = ridDeps.cur();
+    if (!lv2 || ridKey(s2, lv2) !== key) { q.why = '받는 사이 시뮬·연결이 바뀜'; return; }   // 요청 뒤 세대·출처가 바뀌었으면 버림
+    if (x.sha !== lv2.geom?.sha256) { q.why = '받은 기하 파일 sha ≠ 지금 기하'; return; }
+    q.why = ''; if (ridAsk === q) ridG = { key, g: x.g, sha: x.sha };
+  }, () => { q.why = '기하 받기 실패'; });
+  return WAIT;
 }
 /** 시험용: 보관·요청 기록 비우기 */
 export const ridReset = () => { ridG = null; ridAsk = null; };

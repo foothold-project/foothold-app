@@ -86,7 +86,7 @@ export function answerAsk(v: boolean) { const f = askDone; askDone = null; askOw
 /** 페이지 안 확인창(비차단): 기다리는 동안 status·문서가 계속 들어오고 STOP 은 그대로 눌리며 STOP·숨김·새 확인창이면 false. 열린 다른 확인창은 취소 */
 export const askPage = (t: string, ok?: string, owner?: unknown) => new Promise<boolean>((res) => { answerAsk(false); askDone = res; askOwner = owner ?? null; useAsk.setState({ text: t, ok }); });
 /** E1: 그 주인(편집기·화면)이 연 확인창만 닫기(취소) — 화면 이탈·다른 계획 열기·복제 때. 다른 주인의 창(N1 조종 시작 등)·조종권은 건드리지 않음 */
-export const dropAsk = (owner: unknown) => { if (owner != null && askOwner === owner) answerAsk(false); };
+export const dropAsk = (owner: unknown) => { if (owner == null || askOwner !== owner) return false; answerAsk(false); return true; };   // 닫았으면 true
 const askInPage = (t: string) => askPage(t);
 export function cancelStart() { startTok++; answerAsk(false); if (useLink.getState().starting !== null) useLink.setState({ starting: null }); }
 export const START_ASK = '조종을 시작할까요?\n· 로봇(시뮬) 주변과 시뮬 상태를 확인하세요\n· 확인하면 조종권을 받고 STOP 잠금을 풉니다\n· 그 뒤 손을 떼고 새로 눌러야 움직입니다 · STOP 은 언제든 즉시\n· 이 창이 열린 동안 STOP·리셋·연결 변화·다른 기기 점유가 생기면 취소됩니다';

@@ -10,7 +10,7 @@ import { useEditor } from '../data/editor';
 import { linkView, useLink } from '../data/link';
 import { LIVE_MODS, MISSING_T, RULE_WHY, defMods, modDetail, tmplOf, tmpls } from '../data/tmpl';
 import { STOP_FACT, WHY } from '../data/facts';
-import { addPlan, dupMission, gtHere, legLen, mapTxt, planMap, r2, rekey, startPolicy, startRun, wkey, zoneTxt, zonesAt } from '../data/run';
+import { addPlan, dupMission, gtHere, legLen, mapTxt, planEdit, planMap, planOwn, r2, rekey, startPolicy, startRun, wkey, zoneTxt, zonesAt } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
@@ -38,7 +38,7 @@ export default function PcPlan() {
   });
   useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (E.dirty) e.preventDefault(); }; addEventListener('beforeunload', f); return () => removeEventListener('beforeunload', f); }, [E]);
 
-  const edit = (f: () => void) => { f(); E.dirty = true; E.touch(); };
+  const edit = (f: () => void) => planEdit(E, f);
   const setTool = (t: Tool) => { setTool0(t); setMeas([]); };
   const openPlan = (id: string) => {
     if (E.dirty && !confirm('저장 안 한 수정이 있습니다. 버릴까요?')) return;
@@ -56,6 +56,7 @@ export default function PcPlan() {
         const m = a.act === 'bind' ? h.map : a.act === 'keep' ? d.map : undefined;
         if (m) d.map = { ...m, key: wkey(d.wps) }; else delete d.map;
       }); setWsel(d.wps.length - 1);
+      if (a.act === 'bind' && !h.map) toast(`지금 ${h.why} — 이 계획은 «지도 미확인 · 기록만»(나중에 확인돼도 자동으로 올리지 않음)`);
     }
     else if (tool === 'measure') setMeas((m) => (m.length >= 2 ? [[r2(x), r2(y)]] : [...m, [r2(x), r2(y)]]));
     else { const i = ws.findIndex((w) => Math.hypot(w.x - x, w.y - y) * k < 16); setWsel(i < 0 ? null : i); }
@@ -99,8 +100,8 @@ export default function PcPlan() {
   const start = async () => {
     if (run) { location.hash = href('Main'); return; }
     let same = true;   // 응답 사이 다른 계획을 열었거나 고쳤으면 화면은 그대로(초안 보존), 결과만 알림
-    const g0 = E.gen, id0 = E.id;   // E1: 확인창 사이 이탈(unmount)·다른 계획·복제 = gen 오름 → 쓰기 0(E.write 가 새 gen 을 잡아 옛 확인을 살리지 않게 확인 직후 대조)
-    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; }, { owner: E, alive: () => E.gen === g0 && E.id === id0 });
+    // E1: 확인창 사이 이탈(unmount)·다른 계획·복제(gen 오름)·같은 계획 수정(dirty) → 쓰기 0. 확인 직후 대조(E.write 가 새 gen 을 잡아 옛 확인을 살리지 않게)
+    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; }, planOwn(E));
     if (!r) return;
     if (same && !E.dirty) location.hash = href('Main'); else toast('수동 진행은 시작됨 · 모든 기기 공유 — 그사이 화면·계획이 바뀌어 자동으로 옮기지 않음(관제에서 기록)');
   };
@@ -157,12 +158,14 @@ export default function PcPlan() {
     </div></> : <span className="lbl">«측정 지점 추가» 도구로 지도를 누르면 지점이 생깁니다(30개까지). 끌면 지도 이동.</span>;
 
   // ---- 출발 전 점검: 막는 것은 «진행 중 임무 없음»·«계획 저장됨»뿐(기록을 시작할 뿐 로봇을 움직이지 않음) ----
-  const pm = ws.length ? planMap(d) : null, sp = ws.length ? startPolicy(d, gtHere(L)) : null;   // 좌표 출처·시작 정책(startRun 과 같은 함수)
+  // G1: 빈 계획에서도 매번 지금 지도를 판정 — 연결 건물이면 첫 점 전에 GT 기하를 받아 둠(받는 중/확인됨/미확인을 지도 칩에 표시)
+  const hNow = gtHere(L), pm = ws.length ? planMap(d) : null, sp = ws.length ? startPolicy(d, hNow) : null;   // 좌표 출처·시작 정책(startRun 과 같은 함수)
+  const firstTxt = hNow.map ? `첫 지점 결속 준비됨 · ${mapTxt(hNow.map)}` : `지금 ${hNow.why} · 지금 찍으면 기록만`;
   const linkGood = lk.linkOk && !st?.sim_block, posTxt = lk.fresh ? '시뮬 위치 수신' : lk.robot ? '시뮬 위치 오래됨' : '시뮬 위치 미수신';
   const cks: [boolean, string, 1?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${posTxt}`],
     [lk.camOk, `영상 · ${lk.camTxt}`], [false, '배터리 · 미제공(v2 시뮬 상태에 값 없음)'],
     [!run, run ? `진행 중 수동 임무 «${run.doc.name}» — 먼저 끝내기` : '진행 중 수동 임무 없음', 1],
-    [!!sp?.map, sp ? sp.block || sp.line : '지도 · 지점 없음', ...(sp?.block ? [1 as const] : [])] as [boolean, string, 1?],
+    [!!sp?.map, sp ? sp.block || sp.line : `지도 · 지점 없음 · ${firstTxt}`, ...(sp?.block ? [1 as const] : [])] as [boolean, string, 1?],
     [!!(E.id && !E.dirty && ws.length), !E.id ? '계획 저장 · 아직 저장 안 됨' : E.dirty ? '계획 저장 · 저장 안 한 수정 있음' : `계획 저장됨 · 지점 ${ws.length}개`, 1],
     ...(T ? [] : [[false, `임무 양식 · ${MISSING_T}`, 1] as [boolean, string, 1]])];   // 누락 양식은 기본으로 대신하지 않고 막음
   const block = cks.filter((c) => c[2] && !c[0]).map((c) => c[1]);
@@ -177,7 +180,7 @@ export default function PcPlan() {
     themeClass: `${themeClass(true)} pcplan-hdr`, status: <LiveStatus D={D} />, stopProps,   // pcplan-hdr: B2 A3 STOP 첫 줄 오른쪽(live.css)
     hdrA: `임무 계획 · ${!E.id ? '새 계획 · 저장 안 됨' : E.dirty ? '저장 안 한 수정 있음' : `저장됨 · 판 ${E.rev}`}`, hdrB: d.name || '새 임무 계획',
     pill: run ? `수동 진행 중 · ${run.doc.name}` : '진행 중 임무 없음',
-    chips: <>{chip('위치', posTxt, lk.fresh)}{chip('지도', !pm ? '지점 없음' : pm.map ? mapTxt(pm.map) : `미확인 · ${pm.why}`, !!pm?.map)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 미제공은 출발 전 점검 한 곳
+    chips: <>{chip('위치', posTxt, lk.fresh)}{chip('지도', !pm ? firstTxt : pm.map ? mapTxt(pm.map) : `미확인 · ${pm.why}`, pm ? !!pm.map : !!hNow.map)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 미제공은 출발 전 점검 한 곳
     tSel: tp('sel'), tAdd: tp('add'), tMeas: tp('measure'), tNo: zp('금지'), tSlow: zp('감속'),
     prevP: { onClick: loadPrev }, prevT: '지난 수동 진행 경로 불러오기',
     map: <MapCanvas name="plan" btns wps={ws} hiWp={wsel} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} onTap={onTap}

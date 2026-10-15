@@ -187,11 +187,11 @@ test('F4 단층 = w:<world 원본 SDF sha> · sha 없음·형식 틀림·spawn �
 });
 test('F4 연결 건물: 받기 전 미확인·같은 키 재요청 0 · 받은 뒤 g: · geomBind 실패(spawn SDF 다름)·live 기하 sha 다름 = 미확인', async () => {
   G.ridReset(); geoCalls = 0; geoHold(); onL('l1');
-  expect(gtHere().why).toBe('좌표 개정 미확인(GT 기하 파일 미검증)'); gtHere(); expect(geoCalls).toBe(1);
+  expect(gtHere().why).toBe('좌표 개정 확인 중(GT 기하 파일 받는 중)'); gtHere(); expect(geoCalls).toBe(1);
   geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);
   onL('l2'); expect(gtHere().map).toMatchObject({ floor_id: 'l2', rid: `g:${GS}` });            // 같은 개정, 현재층만 다름
   live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, world_src_sha256: SW2 });
-  expect(gtHere().why).toMatch(/미검증/);                                                         // 키 바뀜(SDF) → 새로 받기 전엔 미확인
+  expect(gtHere().map).toBeUndefined(); expect(gtHere().why).toMatch(/확인 중/);                    // 키 바뀜(SDF) → 옛 검증본 폐기·새로 받는 중
   expect(geoRes).toHaveLength(1); geoRes.shift()!(); await flush(); expect(gtHere().why).toMatch(/미검증/);   // 받은 기하의 sdf_sha256[l1] = SW ≠ live SW2 → geomBind 실패
   live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, spawn_floor: 'l2', world_src_sha256: SW2 });
   gtHere(); expect(geoRes).toHaveLength(1); geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);   // l2 기동 SDF 도 같은 기하 개정
@@ -201,14 +201,60 @@ test('F4 늦은 옛 응답: 요청 뒤 리셋(episode)·새 연결(gen)·live �
     () => live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: SW2 } })]) {
     G.ridReset(); geoRes = []; geoHold(); onL('l1'); gtHere(); change(); geoRes.shift()!(); await flush();
     onL('l1'); useLink.setState((s) => ({ st: { ...s.st, episode: undefined } as any })); geoHold();
-    expect(gtHere().why).toMatch(/미검증/);
+    expect(gtHere().map).toBeUndefined();
   }
   G.ridReset(); geoNow('f'.repeat(64)); onL('l1'); gtHere(); await flush(); expect(gtHere().why).toMatch(/미검증/);   // 응답 파일 sha ≠ live geom.sha256
+});
+// ---- G1(Codex P1): cold — 캐시 예열(beforeEach 의 gtHere+flush) 없이 빈 계획 화면 → 첫 점. 화면 onTap 과 같은 순서(gtHere → addPlan → bind 면 h.map) ----
+const tap = (d: Mission) => { const h = gtHere(), a = addPlan(d, h); d.wps.push({ x: d.wps.length, y: 0, name: '', mods: [] }); const m = a.act === 'bind' ? h.map : a.act === 'keep' ? d.map : undefined; if (m) d.map = { ...m, key: wkey(d.wps) }; else delete d.map; return a.act; };
+test('G1 cold: 빈 계획 화면 그리기(gtHere)만으로 기하 준비 → 첫 점 g:rid · 둘째 점 keep', async () => {
+  G.ridReset(); geoCalls = 0; geoHold(); onL('l1');
+  expect(gtHere().why).toMatch(/확인 중/); expect(geoCalls).toBe(1);                   // 화면 진입(첫 그리기) = 요청 1회, 받는 중 표시
+  gtHere(); gtHere(); expect(geoCalls).toBe(1);                                        // 다시 그려도 받는 중엔 재요청 0
+  geoRes.shift()!(); await flush();
+  const d = mi({ wps: [] }); expect(tap(d)).toBe('bind'); expect(planMap(d).map?.rid).toBe(`g:${GS}`);
+  expect(tap(d)).toBe('keep'); expect(planMap(d).map?.rid).toBe(`g:${GS}`);
+});
+test('G1 cold: 받는 중·실패 때 찍은 첫 점 = 기록만 · 나중에 받아져도 자동 승격 0 · 실패 뒤 6 s 안 재요청 0', async () => {
+  G.ridReset(); geoCalls = 0; geoHold(); onL('l1');
+  const d = mi({ wps: [] }); expect(tap(d)).toBe('bind'); expect(d.map).toBeUndefined();        // 받는 중 클릭 → 기록만
+  geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);                   // 늦게 성공
+  expect(planMap(d).map).toBeUndefined(); expect(tap(d)).toBe('none'); expect(d.map).toBeUndefined();
+  let t = 1000; const now0 = G.ridDeps.now; G.ridDeps.now = () => t;
+  try {
+    G.ridReset(); geoCalls = 0; G.ridDeps.get = async () => { geoCalls++; return '기하 받기 실패'; };
+    gtHere(); await flush(); expect(gtHere().why).toMatch(/미검증 · 기하 받기 실패/); expect(geoCalls).toBe(1);
+    const e = mi({ wps: [] }); expect(tap(e)).toBe('bind'); expect(e.map).toBeUndefined();
+    t += 5000; gtHere(); expect(geoCalls).toBe(1);                                               // 6 s 안 재요청 0
+    t += 2000; geoNow(); gtHere(); await flush(); expect(geoCalls).toBe(2); expect(gtHere().map?.rid).toBe(`g:${GS}`);   // 6 s 지난 뒤 1회 재요청 → 성공
+    expect(planMap(e).map).toBeUndefined(); expect(tap(e)).toBe('none');
+  } finally { G.ridDeps.now = now0; }
+});
+test('G1 키 전환: 받는 중 전환 → 옛 응답 0 · 확인된 키도 전환하면 폐기(되돌아와도 새로 받음)', async () => {
+  G.ridReset(); geoCalls = 0; geoHold(); onL('l1'); gtHere(); expect(geoCalls).toBe(1);
+  useLink.setState((s) => ({ gen: s.gen + 1 })); onL('l1');                                     // 새 연결(키 B)
+  geoRes.shift()!(); await flush();                                                             // 옛 키 A 응답 도착
+  expect(gtHere().map).toBeUndefined(); expect(gtHere().why).toMatch(/확인 중/); expect(geoCalls).toBe(2);   // B 로 새로 받는 중
+  geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);
+  const B = useLink.getState().st;
+  live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, epoch: 4 });   // 키 C
+  expect(gtHere().map).toBeUndefined(); expect(geoCalls).toBe(3);
+  useLink.setState({ st: B }); expect(gtHere().map).toBeUndefined(); expect(geoCalls).toBe(4);   // B 로 돌아와도 옛 검증본 재사용 0
+  geoRes.shift()!(); geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);
+});
+test('G1 키 A→B→A 왕복: 첫 A 요청의 늦은 응답은 보관 0(전환 뒤 옛 응답) · 새 A 요청 응답만 결속', async () => {
+  G.ridReset(); geoCalls = 0; geoHold(); onL('l1'); gtHere();                                   // A 요청 1
+  const A = useLink.getState().st;
+  live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, epoch: 4 }); gtHere();   // B 요청 2
+  useLink.setState({ st: A }); gtHere(); expect(geoCalls).toBe(3);                              // A 로 돌아옴 → A 요청 3
+  geoRes.shift()!(); await flush(); expect(gtHere().map).toBeUndefined(); expect(gtHere().why).toMatch(/확인 중/);   // 요청 1 응답(키는 같아도 옛 요청) = 버림
+  geoRes.shift()!(); geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);
 });
 test('F4 확인창 사이 rid 바뀌면 보내지 않음 · 보낸 Run.map 에 rid', async () => {
   const a = await go(mi({ map: L1 }), () => live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: SW2 } }));
   expect(a.r).toBeNull(); expect(a.sent).toHaveLength(0);
-  onL('l1'); const b = await go(mi({ map: L1 })); expect(((b.sent[0] as any).doc as Run).map?.rid).toBe(`g:${GS}`);
+  onL('l1'); expect(gtHere().map).toBeUndefined();                                  // 원래 키로 돌아와도 옛 검증본 재사용 0(G1) — 다시 받아야 결속
+  await flush(); const b = await go(mi({ map: L1 })); expect(((b.sent[0] as any).doc as Run).map?.rid).toBe(`g:${GS}`);
 });
 test('F4 확인창 사이 rid 가 앞 8자만 같고 뒤가 바뀌어도 값으로 잡음(문구 비교만으론 못 잡음)', async () => {
   const G2 = 'c'.repeat(8) + 'e'.repeat(56), GE = { ...GEO };
@@ -243,6 +289,24 @@ test('E1 확인 뒤 alive 거짓(이탈·A→B·복제 = 편집기 gen/선택 �
     (globalThis.location as any).hash = '#/PcPlan?mission=m1'; const ok = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true } as any; }, { ask: async () => true });
     expect(ok).toBeTruthy(); expect(sent).toHaveLength(1);
   } finally { vi.unstubAllGlobals(); }
+});
+test('dirty: 확인창 연 뒤 같은 계획 수정 = 그 창 취소·Run 0·편집 내용/판 그대로 · alive 만으로도 dirty 차단 · 저장(깨끗) 뒤 새 시작은 1건 · N1 창 무영향', async () => {
+  const L = await import('../../src/data/link'), { planEdit, planOwn } = await import('../../src/data/run');
+  const E = { gen: 1, id: 'm1' as string | null, rev: 4, dirty: false, d: { name: '계획' }, touch() {} };
+  put([env('m1', 'mission', mi({ map: L1 }), 4)]); const sent: DocWrite[] = [];
+  const sendF = async (w: DocWrite) => { sent.push(w); return { ok: true } as any; };
+  const p = startRun(docsNow(), 'm1', sendF, planOwn(E));
+  expect(L.useAsk.getState().text).not.toBeNull();
+  planEdit(E, () => { E.d.name = '고친 이름'; });                                   // 창 열린 채 같은 계획 수정
+  expect(L.useAsk.getState().text).toBeNull(); expect(await p).toBeNull(); expect(sent).toHaveLength(0);
+  expect(E).toMatchObject({ dirty: true, gen: 1, id: 'm1', rev: 4, d: { name: '고친 이름' } });   // 편집 복원·저장·판 변경 0
+  // 창 닫기 없이 확인 직후 대조만으로도(다른 경로로 dirty) 쓰기 0
+  E.dirty = false; const q = await startRun(docsNow(), 'm1', sendF, { ...planOwn(E), ask: async () => { E.dirty = true; return true; } });
+  expect(q).toBeNull(); expect(sent).toHaveLength(0);
+  E.dirty = false; const r = startRun(docsNow(), 'm1', sendF, planOwn(E)); L.answerAsk(true);   // 양성: 저장(깨끗) 뒤 새 시작
+  expect(await r).toBeTruthy(); expect(sent).toHaveLength(1);
+  const n1 = L.askPage('조종을 시작할까요?'); planEdit(E, () => {}); expect(L.useAsk.getState().text).not.toBeNull(); L.answerAsk(false); expect(await n1).toBe(false);
+  expect(L.dropAsk(E)).toBe(false);
 });
 test('복제 이름: 문자 단위로 자름(외톨이 surrogate 0) · UTF-16 60 상한 · UTF-8 왕복 같음', () => {
   const rt = (s: string) => new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(s)) === s && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
