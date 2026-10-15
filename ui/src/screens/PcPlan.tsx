@@ -99,7 +99,8 @@ export default function PcPlan() {
   const start = async () => {
     if (run) { location.hash = href('Main'); return; }
     let same = true;   // 응답 사이 다른 계획을 열었거나 고쳤으면 화면은 그대로(초안 보존), 결과만 알림
-    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; });
+    const g0 = E.gen, id0 = E.id;   // E1: 확인창 사이 이탈(unmount)·다른 계획·복제 = gen 오름 → 쓰기 0(E.write 가 새 gen 을 잡아 옛 확인을 살리지 않게 확인 직후 대조)
+    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; }, { owner: E, alive: () => E.gen === g0 && E.id === id0 });
     if (!r) return;
     if (same && !E.dirty) location.hash = href('Main'); else toast('수동 진행은 시작됨 · 모든 기기 공유 — 그사이 화면·계획이 바뀌어 자동으로 옮기지 않음(관제에서 기록)');
   };

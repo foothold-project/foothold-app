@@ -32,8 +32,9 @@ test('지금 지도: 연결 건물은 on_floor current 만 · transit/unknown·�
   onL(null, 'transit'); expect(gtHere().why).toBe('층 이동 중');
   onL(null, 'unknown'); expect(gtHere().why).toBe('현재층 미확인');
   live({ st: 'ok', bound: true, world_id: 'rooms_a', floor_id: 'f1', world_src_sha256: SS, spawn_floor: 'f1' }); expect(gtHere().map).toMatchObject({ world_id: 'rooms_a', floor_id: 'f1', rid: `w:${SS}` });   // 단층: floor 판정 없음
-  live({ st: 'stale', bound: true, world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().why).toBe('지금 지도 미수신');
-  live(null); expect(gtHere().why).toBe('지금 지도 미수신');
+  live({ st: 'stale', bound: true, world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().why).toBe('지도 미수신');
+  live(null); expect(gtHere().why).toBe('지도 미수신');
+  expect(startPolicy(mi({ map: L1 }), gtHere()).line).toBe('지도 미확인 · 기록만 — 지금 지도 미수신 (거리·지도 겹치기 표시 안 함)');   // «지금 지금» 0
   onL('l1'); live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { state: 'on_floor', current: 'l1' } }, false); expect(gtHere().why).toBe('연결 끊김');
 });
 
@@ -71,7 +72,7 @@ test('시작 정책 표: 일치 = 결속 · world/층 불일치 = 차단 · 출�
   single(); expect(startPolicy(mi({ map: L1 }), gtHere()).block).toMatch(/v5_building · l1.*v5_single · f1/);
   onL('l1');
   const old = startPolicy(mi(), gtHere());                                       // 옛 계획(map 없음)
-  expect([old.block, old.map]).toEqual([null, null]); expect(old.line).toMatch(/기록만 — 출처 기록 없음/);
+  expect([old.block, old.map]).toEqual([null, null]); expect(old.line).toMatch(/기록만 — 출처 미확인\(출처 기록 없음\)/);
   const moved = startPolicy(mi({ map: L1, wps: [...structuredClone(W1), { x: 9, y: 9, name: 'c', mods: [] }] }), gtHere());   // 옛 앱이 map 을 보존한 채 지점 추가
   expect([moved.block, moved.map]).toEqual([null, null]); expect(moved.line).toMatch(/출처 기록 뒤 좌표가 바뀜/);
   onL(null, 'transit'); const tr = startPolicy(mi({ map: L1 }), gtHere());
@@ -112,7 +113,7 @@ const env = (id: string, kind: string, doc: unknown, rev = 1) => ({ id, kind, re
 const go = async (m: Mission, onAsk?: () => unknown) => {
   put([env('m1', 'mission', m, 4)]); const sent: DocWrite[] = [];
   const ask = vi.fn(async () => { await onAsk?.(); return true; });
-  const r = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true, id: 'r1', rev: 1, kind: 'run', name: '', new: true } as any; }, ask);
+  const r = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true, id: 'r1', rev: 1, kind: 'run', name: '', new: true } as any; }, { ask });
   return { r, sent, ask: String((ask.mock.calls as unknown[][])[0]?.[0] ?? '') };
 };
 
@@ -145,7 +146,7 @@ test('dupMission: 깊은 사본 · 이름 60자 안 · 출처 그대로(유효/�
   c.wps[0].x = 99; c.map!.world_id = 'x'; c.wps[0].mods.push('사진');
   expect(src.wps[0].x).toBe(1); expect(src.map!.world_id).toBe('v5_building'); expect(src.wps[0].mods).toEqual([]);
   expect(planMap(dupMission(src)).map).toEqual(L1);
-  const old = dupMission(mi()); expect('map' in old).toBe(false); expect(planMap(old).why).toMatch(/옛 계획/);
+  const old = dupMission(mi()); expect('map' in old).toBe(false); expect(planMap(old).why).toBe('출처 미확인(출처 기록 없음)');
 });
 
 // F1: 확인창은 비차단 — 1 s 넘게 읽어도 그동안 status 가 들어오면 정상 시작 · 안 들어오면(끊김) 신선도 1 s 그대로 차단 · STOP 은 창을 닫아 보낸 것 0
@@ -172,8 +173,8 @@ test('F1 기본 확인창 = 페이지 안(단추 «진행 시작») · STOP(canc
 // ---- F4 개정 rid: 옛 출처 자동 승격 0 · 개정 다르면 다른 지도 · 단층 SDF · 연결 건물 검증 기하 · 늦은/다른 응답 버림 ----
 test('F4 rid 없는 옛 출처(1f93089~ec25939 저장) = 기록만 · rid 다르면 차단 · 같으면 결속', () => {
   const { rid: _r, ...old } = L1;
-  expect(planMap(mi({ map: old })).why).toMatch(/출처 개정 기록 없음/);
-  expect(startPolicy(mi({ map: old }), gtHere())).toMatchObject({ block: null, map: null, line: expect.stringMatching(/기록만 — 출처 개정 기록 없음/) });
+  expect(planMap(mi({ map: old })).why).toMatch(/^출처 미확인\(개정 기록 없음/);
+  expect(startPolicy(mi({ map: old }), gtHere())).toMatchObject({ block: null, map: null, line: expect.stringMatching(/기록만 — 출처 미확인\(개정 기록 없음/) });
   expect(addPlan(mi({ map: old }), gtHere()).act).toBe('none');
   expect(startPolicy(mi({ map: { ...L1, rid: `g:${'e'.repeat(64)}` } }), gtHere()).block).toMatch(/다른 지도.*기하 eeeeeeee.*기하 cccccccc/);
   expect(startPolicy(mi({ map: L1 }), gtHere()).map).toEqual(L1);
@@ -208,4 +209,48 @@ test('F4 확인창 사이 rid 바뀌면 보내지 않음 · 보낸 Run.map 에 r
   const a = await go(mi({ map: L1 }), () => live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: SW2 } }));
   expect(a.r).toBeNull(); expect(a.sent).toHaveLength(0);
   onL('l1'); const b = await go(mi({ map: L1 })); expect(((b.sent[0] as any).doc as Run).map?.rid).toBe(`g:${GS}`);
+});
+test('F4 확인창 사이 rid 가 앞 8자만 같고 뒤가 바뀌어도 값으로 잡음(문구 비교만으론 못 잡음)', async () => {
+  const G2 = 'c'.repeat(8) + 'e'.repeat(56), GE = { ...GEO };
+  const a = await go(mi({ map: L1 }), () => { G.ridReset(); geoNow(G2, GE); live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: G2 } }); gtHere(); return flush(); });
+  expect(a.r).toBeNull(); expect(a.sent).toHaveLength(0);
+});
+
+// ---- E1: 확인창 수명 = 연 화면(route)·주인·고른 계획/편집기 세대. 바뀌면 창 닫힘 + Run 쓰기 0 · 다른 주인의 창은 그대로 ----
+test('E1 주인 결속: 그 주인 dropAsk = 창 닫힘·Run 0 · 다른 주인 dropAsk 는 무영향 · 취소 뒤 새 시작은 정상', async () => {
+  const L = await import('../../src/data/link'), A = {}, B = {};
+  put([env('m1', 'mission', mi({ map: L1 }), 4)]); const sent: DocWrite[] = [];
+  const sendF = async (w: DocWrite) => { sent.push(w); return { ok: true } as any; };
+  const p = startRun(docsNow(), 'm1', sendF, { owner: A });
+  L.dropAsk(B); L.dropAsk(null); expect(L.useAsk.getState().text).not.toBeNull();             // 남의 창·주인 없음 = 그대로
+  L.dropAsk(A); expect(L.useAsk.getState().text).toBeNull(); expect(await p).toBeNull(); expect(sent).toHaveLength(0);
+  const q = startRun(docsNow(), 'm1', sendF, { owner: A }); L.answerAsk(true); expect(await q).toBeTruthy(); expect(sent).toHaveLength(1);   // 양성 대조
+  const n1 = L.askPage('조종을 시작할까요?'); L.dropAsk(A); expect(L.useAsk.getState().text).not.toBeNull(); L.answerAsk(false); expect(await n1).toBe(false);   // N1 창은 편집기 주인이 못 닫음
+});
+test('E1 확인 뒤 alive 거짓(이탈·A→B·복제 = 편집기 gen/선택 바뀜) 또는 route 바뀜 = 쓰기 0 · gen 을 확인 직후 대조(E.write 가 새 gen 을 잡아 살리지 않음)', async () => {
+  const E = { gen: 1, id: 'm1' }, g0 = E.gen, alive = () => E.gen === g0 && E.id === 'm1';
+  for (const change of [() => { E.gen++; }, () => { E.id = 'm2'; }]) {
+    E.gen = 1; E.id = 'm1';
+    put([env('m1', 'mission', mi({ map: L1 }), 4)]); const sent: DocWrite[] = [];
+    const r = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true } as any; }, { alive, ask: async () => { change(); return true; } });
+    expect(r).toBeNull(); expect(sent).toHaveLength(0);
+  }
+  vi.stubGlobal('location', { hash: '#/PcPlan?mission=m1' });
+  try {
+    put([env('m1', 'mission', mi({ map: L1 }), 4)]); const sent: DocWrite[] = [];
+    const r = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true } as any; }, { ask: async () => { (globalThis.location as any).hash = '#/PcHistory'; return true; } });
+    expect(r).toBeNull(); expect(sent).toHaveLength(0);
+    (globalThis.location as any).hash = '#/PcPlan?mission=m1'; const ok = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true } as any; }, { ask: async () => true });
+    expect(ok).toBeTruthy(); expect(sent).toHaveLength(1);
+  } finally { vi.unstubAllGlobals(); }
+});
+test('복제 이름: 문자 단위로 자름(외톨이 surrogate 0) · UTF-16 60 상한 · UTF-8 왕복 같음', () => {
+  const rt = (s: string) => new TextDecoder('utf-8', { fatal: true }).decode(new TextEncoder().encode(s)) === s && !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s);
+  for (const n of ['가'.repeat(56) + '🤖' + '나나', '🤖'.repeat(30), 'a' + '😀'.repeat(29), '가'.repeat(60), '짧은 이름 🤖']) {
+    const c = dupMission(mi({ name: n } as any)).name;
+    expect(rt(c)).toBe(true); expect(c.length).toBeLessThanOrEqual(60); expect(c.endsWith(' 사본')).toBe(true);
+    expect(n.startsWith(c.slice(0, -3))).toBe(true);
+  }
+  expect(dupMission(mi({ name: '가'.repeat(56) + '🤖나나' } as any)).name).toBe('가'.repeat(56) + ' 사본');
+  expect(dupMission(mi({ name: '짧은 이름 🤖' } as any)).name).toBe('짧은 이름 🤖 사본');
 });

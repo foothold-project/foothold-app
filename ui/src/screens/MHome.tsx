@@ -1,13 +1,13 @@
 // 휴대폰 현황(원본 틀): 진행 중 수동 임무 · 미니맵 · 지점에서 할 일 · 기록 버튼 — web/live.js pageMHome 과 같은 규칙.
 // 로봇은 자동으로 움직이지 않는다(자동 이동·도착 판정 미연결). 가스·발견물 칸은 실데이터가 없어 숨긴다(예시값 금지).
 import { Photo } from '../app/Photo';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Mission } from '@contracts';
 import { CSS, View } from './MHome.view';
 import { durTxt, themeClass, wpName } from '../data/fmt';
 import { unreadOf } from '../data/alerts';
 import { activeRun, alertsOf, docsOf, useDocs, useMedia } from '../data/shared';
-import { TRAIL, linkView, useLink } from '../data/link';
+import { TRAIL, dropAsk, linkView, useLink } from '../data/link';
 import { attachPhoto, pickWp, modDone, modTxt, runEnd, runHere, startRun } from '../data/run';
 import { useEditor } from '../data/editor';
 import { useSel } from '../data/scratch';
@@ -35,7 +35,12 @@ export default function MHome() {
   const rows: [boolean, string][] = w ? [[w.st !== '대기', '방문 기록 · 운영자가 «방문 확인»(자동 도착 판정 미연결)'], ...w.mods.map((ty): [boolean, string] => [modDone(w, ty), modTxt(w, ty)])]
     : [[false, R ? '대기 지점 없음' : '계획을 고르고 «수동 진행 시작»을 누르면 지점마다 할 일이 여기에 나옵니다']];
   const tile: React.CSSProperties = { aspectRatio: '4/3', borderRadius: '6px', background: '#0D1317', overflow: 'hidden' };
-  const pb = async () => { if (run) return setEndOpen(!endOpen); await startRun(D, mid, (m) => E.write(m).then((x) => x && x.r)); };
+  // E1: 확인창 주인 = 이 화면의 그 계획 선택. 다른 계획 고르기·화면 떠남 = 창 닫힘 + 확인 뒤 쓰기 0
+  const own = useRef({ mid, on: true }); own.current.mid = mid;
+  const [tag] = useState(() => ({}));
+  useEffect(() => { own.current.on = true; return () => { own.current.on = false; dropAsk(tag); }; }, [tag, mid]);
+  const pb = async () => { if (run) return setEndOpen(!endOpen); const m0 = mid;
+    await startRun(D, mid, (m) => E.write(m).then((x) => x && x.r), { owner: tag, alive: () => own.current.on && own.current.mid === m0 }); };
   const cam = () => { if (!run || ci < 0) return toast('기록 중인 지점이 없습니다'); attachPhoto(run.id, ci); };
 
   const v = {

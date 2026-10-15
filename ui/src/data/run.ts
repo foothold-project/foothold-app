@@ -42,7 +42,7 @@ export type Here = { map: MapSrc; why?: undefined } | { map?: undefined; why: st
 export function gtHere(s = useLink.getState()): Here {
   const lv = s.st?.live_map;
   if (!linkView(s).linkOk) return { why: '연결 끊김' };
-  if (!lv || lv.st === 'off' || lv.st === 'stale' || lv.st === 'unknown' || !lv.world_id) return { why: '지금 지도 미수신' };
+  if (!lv || lv.st === 'off' || lv.st === 'stale' || lv.st === 'unknown' || !lv.world_id) return { why: '지도 미수신' };   // 부르는 쪽이 «지금 …»을 붙임(«지금 지금» 중복 0)
   const f = lv.floor as { state?: unknown; current?: unknown } | null | undefined;
   if (f && f.state === 'transit') return { why: '층 이동 중' };
   if (lv.st === 'reset') return { why: '시뮬 리셋 중' };
@@ -61,7 +61,7 @@ export function gtHere(s = useLink.getState()): Here {
   return { map: { src: 'gt', world_id: lv.world_id, floor_id, key: '', rid: `w:${w}` } };
 }
 /** 문서의 출처: map 이 있고 개정 rid 가 있고(F4 — 없는 옛 출처는 자동 승격 0) 지문이 지금 좌표와 같을 때만. 지문(FNV)은 좌표 수정 감지 보조일 뿐 */
-export const planMap = (d: { wps: Pt[]; map?: MapSrc }): Here => (!d.map ? { why: '출처 기록 없음(옛 계획)' } : !d.map.rid ? { why: '출처 개정 기록 없음(옛 출처 — 지금 지도에서 다시 찍어야 확인)' }
+export const planMap = (d: { wps: Pt[]; map?: MapSrc }): Here => (!d.map ? { why: '출처 미확인(출처 기록 없음)' } : !d.map.rid ? { why: '출처 미확인(개정 기록 없음 — 지금 지도에서 다시 찍어야 확인)' }
   : d.map.key !== wkey(d.wps) ? { why: '출처 기록 뒤 좌표가 바뀜' } : { map: d.map });
 export const sameMap = (a: MapSrc, b: MapSrc) => a.src === b.src && a.world_id === b.world_id && a.floor_id === b.floor_id && !!a.rid && a.rid === b.rid;
 /** 화면 표기: world · 층 (GT · SDF|기하 sha 앞 8자). 개정 기준 = world 원본 SDF / GT 기하 파일 — 그 SDF 가 부르는 메시·모델 파일은 대조 안 함 */
@@ -93,12 +93,17 @@ export function startPolicy(d: Mission, h: Here): { block: string | null; map: M
 }
 /** 계획 복제(조금 바꿀 때만): 양식 참조·지점·할 일·메모·좌표 출처 그대로 깊은 사본, 이름 «… 사본»(60자). 저장 전 초안 — 저장하면 새 계획(원본 무변경).
  *  출처는 원본 그대로(유효하면 유효, 미확인이면 미확인) — 지금 연결로 다시 붙이지 않음 */
-export const dupMission = (m: Mission): Mission => { const c = structuredClone(m); c.name = `${m.name.slice(0, 57)} 사본`; return c; };
+// 자르기는 문자(code point) 단위로 — UTF-16 slice 는 이모지 반쪽(외톨이 surrogate)을 남겨 UTF-8 저장이 깨짐(Codex 9dc703e P2). 상한은 입력칸과 같은 UTF-16 길이
+// ponytail: 글자 묶음(👨‍👩‍👧 같은 ZWJ·국기)은 중간에서 끊길 수 있음(유효 UTF-8 은 유지) — 필요하면 Intl.Segmenter
+export const cutName = (s: string, n: number) => { let o = ''; for (const ch of s) { if (o.length + ch.length > n) break; o += ch; } return o; };
+export const dupMission = (m: Mission): Mission => { const c = structuredClone(m); c.name = `${cutName(m.name, 57)} 사본`; return c; };
 // 계획 스냅샷: 나중에 계획을 고쳐도 이 기록은 그대로. map = 시작 때 일치했을 때만, mrev = 시작한 계획 판
 const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: tmplOf(D, m.tmpl)!.name.slice(0, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
   wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev });
 // send: 화면의 editor.write(쓰기 한 번에 하나) — 두 번 눌러 진행 기록이 둘 생기지 않게. ask: 페이지 안 확인창(시험에서 바꿔 끼움)
-export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>, ask: (t: string) => Promise<boolean> = (t) => askPage(t, '진행 시작')) {
+// own(E1): owner = 확인창 주인(이탈·대상 변경 때 dropAsk 로 닫힘), alive = 확인 뒤 «연 화면·고른 계획·편집기 세대가 그대로인가». 아니면 쓰기·화면 이동 0
+export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>, own: { owner?: unknown; alive?: () => boolean; ask?: (t: string) => Promise<boolean> } = {}) {
+  const ask = own.ask ?? ((t: string) => askPage(t, '진행 시작', own.owner)), route = globalThis.location?.hash;
   const m = docById(D, mid); if (!m || m.kind !== 'mission') { toast('계획을 고르세요'); return null; }
   if (!m.doc.wps.length) { toast('지점이 없는 계획입니다 — 먼저 지점을 추가'); return null; }
   const T = tmplOf(D, m.doc.tmpl); if (!T) { toast(MISSING_T); return null; }
@@ -106,6 +111,7 @@ export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) 
   const p = startPolicy(m.doc, gtHere()); if (p.block) { toast(p.block); return null; }
   // 확인창은 페이지 안(비차단, F1): 기다리는 동안 status·문서 갱신이 계속 들어오므로 아래 재검사는 1 s 신선도를 그대로 쓴다. STOP 은 눌리고 창은 닫힘(취소)
   if (!(await ask(`«${m.doc.name}» 수동 진행을 시작할까요?\n· ${p.line}\n· 지점 ${m.doc.wps.length}개 · 양식 «${T.name}»\n· 로봇은 자동으로 움직이지 않습니다(직접 조종)\n· 방문·미방문·판단은 운영자가 눌러 기록`))) return null;
+  if (globalThis.location?.hash !== route || (own.alive && !own.alive())) { toast('확인하는 사이 화면·고른 계획이 바뀜 — 시작 안 됨'); return null; }
   // 확인 뒤 재검사 — 범위는 «이 기기가 지금까지 받은 문서 캐시 + 지금 링크 상태»뿐(서버 최신 판을 다시 읽지 않음).
   // 서버는 Run 을 받을 때 계획 판(mrev)·양식을 대조하지 않는다 → 아직 이 기기에 안 온 다른 기기 수정은 막지 못함(시작 원자성 미보장, Run.mrev 는 «이 기기가 본 판» 기록)
   const D2 = docsNow(), x2 = docById(D2, m.id), m2 = x2 && x2.kind === 'mission' ? x2 : null, p2 = m2 ? startPolicy(m2.doc, gtHere()) : null, T2 = m2 ? tmplOf(D2, m2.doc.tmpl) : null;
