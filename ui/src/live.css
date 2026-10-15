@@ -50,6 +50,19 @@ textarea.lv-inp{resize:vertical}
 [data-mapnarrow="1"]>.lv-mapbtns>.lv-btn{width:32px;min-height:32px;font-size:16px}
 [data-mapnarrow="1"] .lv-mapseg{flex-direction:column;width:100%}[data-mapnarrow="1"] .lv-mapseg .lv-btn{min-height:32px;padding:0 4px;font-size:11px}[data-mapnarrow="1"] .lv-mapseg .lv-btn+.lv-btn{border-left:1px solid var(--line2);border-top:0}
 [data-mapnarrow="1"]>.lv-mappick{top:4px!important;left:4px!important;max-width:calc(100% - 84px)!important;max-height:calc(100% - 8px);overflow:auto}
+/* M②(Codex N3·670): 낮은 칸(H<110·W≥330, 가로 844x390 보조 뷰 4칸 354×65) — 버튼 4개 한 줄(32 px · 칸 안), 지도 보기는 왼쪽(넘치면 묶음 안 스크롤) */
+[data-mapnarrow="row"]>.lv-mapbtns{top:4px;right:4px;gap:4px;flex-direction:row;align-items:center}
+[data-mapnarrow="row"]>.lv-mapbtns>.lv-btn{width:32px;min-height:32px;font-size:16px}
+[data-mapnarrow="row"] .lv-mapseg .lv-btn{min-height:32px;padding:0 6px;font-size:11px}
+[data-mapnarrow="row"]>.lv-mappick{top:4px!important;left:4px!important;max-width:calc(100% - 204px)!important;max-height:calc(100% - 8px);overflow:auto}
+/* M②(670 P2): 크게 보기 + 작은 칸(PIP) 열 — 버튼 열은 PIP 왼쪽(right: --tw + 14)으로 옮겼는데 지도 보기 최대 폭은 100%−200px 그대로라 «전체 고정»을 덮었다 → PIP 폭만큼 더 뺀다 */
+.qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"])>.lv-mappick{max-width:calc(100% - var(--tw) - 206px)!important}   /* !important = MapPick 인라인 100%−200px 덮기 */
+@media (max-width:700px){   /* 폰 세로 크게 보기 + PIP(390: 남는 폭 ≈260) — 버튼은 44 px 그대로 92 px 열(보기 방식 세로 + 확대·축소 한 줄)로 접고 지도 보기는 그 왼쪽 */
+  .qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"])>.lv-mapbtns{width:92px;flex-direction:row;flex-wrap:wrap;justify-content:flex-end;gap:4px}
+  .qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"]) .lv-mapseg{flex-direction:column;width:100%}
+  .qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"]) .lv-mapseg .lv-btn+.lv-btn{border-left:1px solid var(--line2);border-top:0}
+  .qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"])>.lv-mappick{max-width:calc(100% - var(--tw) - 122px)!important}
+}
 .lv-wp{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
 .lv-wp>b{display:grid;place-items:center;width:26px;height:26px;border-radius:13px;border:2px solid var(--accent);font-size:12px}
 .lv-thumb{width:72px;height:48px;object-fit:cover;border-radius:6px;background:#05080A}

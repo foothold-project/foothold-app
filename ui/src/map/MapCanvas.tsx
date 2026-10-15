@@ -40,6 +40,10 @@ export function scaleBar(k: number, maxPx: number, minPx = 24): { d: number; L: 
   return { d, L: d * k, t: d < 1 ? `${Math.round(d * 100)} cm` : `${d} m` };
 }
 
+// U2-b 보완 P2 · M②: Main(lean) 지도 칸 배치 — '1' = 좁은 칸(폰 세로 2×2 ≈177×111: 오른쪽 68 px 열 · 32 px), 'row' = 낮은 칸(H<110·W≥330,
+//   가로 폰 보조 뷰 4칸 ≈354×65 — 열 104 px 는 칸 밖이라 버튼 4개 한 줄 32 px). 썸네일·다른 화면 = ''(기존 자리)
+export const mapNarrow = (lean: boolean | undefined, small: boolean | undefined, W: number, H: number) =>
+  !lean || small ? '' : H < 110 && W >= 330 ? 'row' : W < 360 || H < 150 ? '1' : '';
 // U2-b 보완 B2: «로봇 중심» 버튼 이유(lean = Main 만). 그림 없음 · 이 지도에 결속된 위치 없음/갱신 중 · 위치 없음 · 위치 오래됨을 구분. 신선한 위치면 ''(따라감 성공 단정 글 0)
 export function robotWhy(o: { lean?: boolean; blank?: boolean; noRobot?: boolean; upd?: boolean; r: Robot }): string {
   if (!o.lean) return '';
@@ -64,7 +68,7 @@ export function MapCanvas(p: Props) {
     const cs = getComputedStyle(el), col = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
     const C = { map: col('--map', '#0E1317'), bg: col('--bg', '#05080A'), line: col('--line2', '#34424D'), mut: col('--muted', '#9AA7B3'), acc: col('--accent', '#38C6D9'),
       bad: col('--bad', '#FF5A52'), warn: col('--warn', '#FFB547'), ok: col('--ok', '#5AA9FF') };
-    box.dataset.mapnarrow = o.lean && !o.small && (W < 360 || H < 150) ? '1' : '';   // U2-b 보완 P2: Main 좁은 칸(폰 2×2) — live.css 가 지도 보기·버튼을 좁게 배치
+    box.dataset.mapnarrow = mapNarrow(o.lean, o.small, W, H);   // U2-b 보완 P2: Main 좁은 칸(폰 2×2) — live.css 가 지도 보기·버튼을 좁게 배치
     const sync = (w: string) => {   // 버튼 이유·눌림은 그림 없음(blank)에도 지금 상태로(옛 이유 잔존 0)
       const rb = box.querySelector<HTMLElement>('[data-m=robot]');   // lean: 띠 대신 버튼 회색 + 이유(누르면 토스트)
       if (rb) { rb.dataset.why = w; rb.classList.toggle('lv-why', !!w); rb.title = w || '로봇 중심 — 신선한 위치를 따라감(위치 없으면 이유 표시)'; }

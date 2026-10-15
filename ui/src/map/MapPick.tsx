@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { LiveMap, MapInfo } from '@contracts';
-import { BLD, FLOOR, WF, WORLD, allKey, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
+import { BLD, FLOOR, WF, WORLD, allKey, getFloors, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
 import { dropAll, useLink } from '../data/link';
 import type { Robot } from './MapCanvas';
 import { toast } from '../app/shell';
@@ -55,13 +55,18 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     return () => { gone = true; };
   }, [sel, seq, k, fresh, gen, rq]);
 
+  const allN = useRef(0);   // 층 나란히 받기 호출 번호 — 마지막 호출만 채택 · 화면 닫힘 = 번호 올림(남은 층 요청 0)
+  useEffect(() => () => { allN.current++; }, []);
   const loadSaved = async (key: string, list: MapInfo[] | string | null) => {
     if (key.startsWith('all:')) {   // 건물 전체 보기: 층별 GT 그림 나란히(보기만 · 좌표 결속·위치 마커 0)
       const w = key.slice(4), fs = Array.isArray(list) ? gtFloors(list, w) : '저장 지도 목록 받는 중';
       if (typeof fs === 'string') return setSerr(fs);
-      const rs = await Promise.all(fs.map(getMap)); if (usePick.getState().sel !== key) return;
-      const bad = rs.find((r): r is string => typeof r === 'string'); if (bad) { setSerr(bad); return; }
-      setSaved(stackFloors(rs as Raster[], fs.map((m) => `${FLOOR[m.floor_id as keyof typeof FLOOR] || m.floor_id} · GT 기하`), `${place(w, null).split(' · ')[0]} 층 나란히 · GT 기하 2D(SLAM·센서 아님)`)); setSerr(''); return;
+      // M①(670 P1): 동시 2요청(Promise.all) → 두 번째가 link map_busy 로 거절돼 «처리 중» 고정 — 한 층씩 차례로. 매 응답 뒤 최신 호출·선택·연결 세대 대조
+      const t0 = ++allN.current, g0 = useLink.getState().gen;
+      const rs = await getFloors(fs, () => allN.current === t0 && usePick.getState().sel === key && useLink.getState().gen === g0);
+      if (rs === null) return;   // 그새 다른 보기·다시 고름·새 연결 — 버림(옛 그림 섞임 0)
+      if (typeof rs === 'string') { setSerr(rs); return; }   // 다른 지도로 자동 복귀 0 — 선택 유지 + 빈 칸 + 이유
+      setSaved(stackFloors(rs, fs.map((m) => `${FLOOR[m.floor_id as keyof typeof FLOOR] || m.floor_id} · GT 기하`), `${place(w, null).split(' · ')[0]} 층 나란히 · GT 기하 2D(SLAM·센서 아님)`)); setSerr(''); return;
     }
     const m = Array.isArray(list) ? list.find((x) => mapKey(x) === key) : null; if (!m) return setSerr(Array.isArray(list) ? '목록에 없음 — 목록 다시 받기' : '저장 지도 목록 받는 중');
     const r = await getMap(m); if (usePick.getState().sel !== key) return;   // 그사이 다른 지도를 골랐으면 버림

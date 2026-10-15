@@ -215,7 +215,7 @@ test('P2 Main 전체화면: STOP 옆 안전 한 줄 + ?', () => {
 test('U2-b 보완 P2: Main 좁은 지도 칸 — lean 만 data-mapnarrow · 지도 보기 폭 확보 · 버튼 32 px 오른쪽 열(칸 안)', async () => {
   const fsm = 'node:fs';
   const css: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');
-  expect(canvasSrc).toMatch(/box\.dataset\.mapnarrow = o\.lean && !o\.small && \(W < 360 \|\| H < 150\) \? '1' : '';/);
+  expect(canvasSrc).toMatch(/box\.dataset\.mapnarrow = mapNarrow\(o\.lean, o\.small, W, H\);/);   // M②: 식은 mapNarrow(아래 M② 시험)
   expect(canvasSrc.indexOf('box.dataset.mapnarrow')).toBeLessThan(canvasSrc.indexOf('if (o.blank != null && !o.raster)'));   // 그림 없음에도 배치 맞춤
   expect(pickSrc).toMatch(/className=\{overlay \? 'lv-mappick' : undefined\}/);
   expect(css).toMatch(/\[data-mapnarrow="1"\]>\.lv-mappick\{[^}]*max-width:calc\(100% - 84px\)!important/);
@@ -252,4 +252,59 @@ test('R ③ DirTag 등 ? 팝오버: 활성 전체화면 요소 또는 body 로 p
 
 test('N2: 관문 «확인 중»도 미확인 톤(warn) · 확인된 꺼짐만 off', () => {
   expect(code(mainSrc)).toMatch(/!rtt\.ok && <Chip tone="warn" text=\{rtt\.txt\.replace/); expect(code(mainSrc)).not.toMatch(/endsWith\('확인 중'\) \? 'off'/);
+});
+
+// ── M 보완 ①(670 P1, root «지도잔여 좁은M보완 GO»): 층 나란히 = link 연결당 지도 요청 하나 → 한 층씩 차례로 · 매 응답 뒤 재대조 · 첫 실패 중단
+const MP = await import('../../src/data/maps');
+const FL = (f: string) => ({ world_id: 'v5_building', building_id: 'v5', floor_id: f, map_version: 'gt-1', map_source: 'gt_raster' }) as any;
+const RA = (f: string) => ({ img: null, res: 0.1, ox: -10, oy: -10, w: 200, h: 200, label: f }) as any;
+// 가짜 link: 연결당 한 번에 하나(진행 중이면 «지도 요청 처리 중» — v2_link map_op 와 같은 규칙), 응답은 수동으로 풀어 줌
+const fakeLink = (fail: Record<string, string> = {}) => {
+  const q: Array<() => void> = [], calls: string[] = []; let busy = false, maxIn = 0, n = 0;
+  const get = (m: any) => { calls.push(m.floor_id); if (busy) return Promise.resolve('지도 요청 처리 중'); busy = true; n++; maxIn = Math.max(maxIn, n);
+    return new Promise<any>((res) => q.push(() => { busy = false; n--; res(fail[m.floor_id] ?? RA(m.floor_id)); })); };
+  const flush = async () => { for (let i = 0; i < 20 && q.length; i++) { q.shift()!(); await new Promise((r) => setTimeout(r, 0)); } };
+  return { get, flush, calls, max: () => maxIn };
+};
+test('M①: 두 층 GT 모두 정상 → 1층 다음 2층 순서 · 동시 요청 0 · 결과 2장(아래층부터)', async () => {
+  const L = fakeLink(), p = MP.getFloors([FL('l1'), FL('l2')], () => true, L.get); await L.flush();
+  const r = await p; expect(Array.isArray(r) && r.map((x: any) => x.label)).toEqual(['l1', 'l2']); expect(L.calls).toEqual(['l1', 'l2']); expect(L.max()).toBe(1);
+  // 옛 방식(동시 2요청)은 같은 가짜 link 에서 둘째가 «처리 중»으로 거절 — 원결함 재현
+  const O = fakeLink(), old = Promise.all([FL('l1'), FL('l2')].map(O.get)); await O.flush(); expect((await old)[1]).toBe('지도 요청 처리 중');
+});
+test('M①: 둘째 층 실패 → 층 이름 + 원문 · 부분 그림 0 · 재시도 0', async () => {
+  const L = fakeLink({ l2: 'PNG 풀기 실패' }), p = MP.getFloors([FL('l1'), FL('l2')], () => true, L.get); await L.flush();
+  expect(await p).toBe('2층 · PNG 풀기 실패'); expect(L.calls).toEqual(['l1', 'l2']);
+  const E = fakeLink({ l1: '지도 없음' }), p2 = MP.getFloors([FL('l1'), FL('l2')], () => true, E.get); await E.flush();
+  expect(await p2).toBe('1층 · 지도 없음'); expect(E.calls).toEqual(['l1']);   // 첫 실패에서 멈춤 — 둘째 층 요청 0
+});
+test('M①: 진행 중 선택 변경·새 연결(still 거짓) → null(버림) · 다음 층 요청 0', async () => {
+  let ok = true; const L = fakeLink(), p = MP.getFloors([FL('l1'), FL('l2')], () => ok, L.get); ok = false; await L.flush();
+  expect(await p).toBeNull(); expect(L.calls).toEqual(['l1']);
+  // MapPick: 동시 요청 코드 0 · 최신 호출·선택·연결 세대 재대조 · 실패면 선택 유지 + 이유(자동 복귀 0)
+  expect(code(pickSrc)).not.toMatch(/Promise\.all\(fs\.map\(getMap\)\)/);
+  expect(code(pickSrc)).toMatch(/useEffect\(\(\) => \(\) => \{ allN\.current\+\+; \}, \[\]\);/);   // 화면 닫힘 = 남은 층 요청 0
+  expect(code(pickSrc)).toMatch(/getFloors\(fs, \(\) => allN\.current === t0 && usePick\.getState\(\)\.sel === key && useLink\.getState\(\)\.gen === g0\)/);
+  expect(code(pickSrc)).toMatch(/if \(rs === null\) return;\s*\n\s*if \(typeof rs === 'string'\) \{ setSerr\(rs\); return; \}\s*\n\s*setSaved\(stackFloors\(rs,/);
+});
+
+// ── M 보완 ②(670 P2 · Codex N3): Main 지도 칸 실제 영역에 맞춘 배치 — 지도 보기·전체 고정·로봇 중심·± 모두 칸 안 · 겹침 0 · 버튼 32 px 미만 0
+test('M②: mapNarrow 크기별 — 폰 2×2 177×111 = 1 · 가로 4칸 354×65 = row · 좁고 낮음 162×101 = 1 · 큰 칸·PC·가로 2칸 = 기존 · 썸네일·다른 화면 = 기존', async () => {
+  const { mapNarrow } = await import('../../src/map/MapCanvas');
+  expect(mapNarrow(true, false, 177, 111)).toBe('1'); expect(mapNarrow(true, false, 354, 65)).toBe('row'); expect(mapNarrow(true, false, 162, 101)).toBe('1');
+  for (const [w, h] of [[378, 520], [1428, 620], [410, 166], [832, 166], [684, 400]]) expect(mapNarrow(true, false, w, h)).toBe('');
+  expect(mapNarrow(true, true, 354, 65)).toBe(''); expect(mapNarrow(false, false, 354, 65)).toBe('');
+});
+test('M②: CSS 예산 — row 한 줄(32 px · 지도 보기 100%−204) · PIP 크게 보기 지도 보기 폭에서 PIP 열 뺌 · 폰 세로 PIP = 44 px 92 px 열', async () => {
+  const fsm = 'node:fs', css: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');
+  expect(css).toMatch(/\[data-mapnarrow="row"\]>\.lv-mapbtns\{[^}]*flex-direction:row/); expect(css).toMatch(/\[data-mapnarrow="row"\]>\.lv-mapbtns>\.lv-btn\{width:32px;min-height:32px/);
+  expect(css).toMatch(/\[data-mapnarrow="row"\] \.lv-mapseg \.lv-btn\{min-height:32px/); expect(css).toMatch(/\[data-mapnarrow="row"\]>\.lv-mappick\{[^}]*max-width:calc\(100% - 204px\)!important;max-height:calc\(100% - 8px\);overflow:auto/);
+  expect(css).toMatch(/\.qd\.f:not\(\.nopip\) \.qt\.on \.qb:not\(\[data-mapnarrow="1"\]\):not\(\[data-mapnarrow="row"\]\)>\.lv-mappick\{max-width:calc\(100% - var\(--tw\) - 206px\)!important\}/);
+  const m = css.slice(css.indexOf('@media (max-width:700px){   /* 폰 세로 크게 보기 + PIP')); expect(m.length).toBeGreaterThan(0);
+  expect(m).toMatch(/>\.lv-mapbtns\{width:92px;flex-direction:row;flex-wrap:wrap/); expect(m).toMatch(/>\.lv-mappick\{max-width:calc\(100% - var\(--tw\) - 122px\)!important\}/);
+  expect(m.slice(0, m.indexOf('\n}'))).not.toMatch(/min-height:(?:\d|[0-3]\d|4[0-3])px|width:(?:\d|[0-3]\d|4[0-3])px;min-height/);   // 이 블록에서 버튼 44 px 미만 0(기존 크기 유지)
+  // 예산(390 세로 크게 보기 + PIP): 칸 378 · --tw 104 → 버튼 열 오른쪽 끝 378−118=260 · 왼쪽 끝 168 / 지도 보기 8 + (378−104−122=152) = 160 < 168
+  const W = 378, tw = 104, btnL = W - (tw + 14) - 92, pickR = 8 + (W - tw - 122); expect(pickR).toBeLessThan(btnL);
+  // 예산(가로 4칸 354×65 row): 버튼 = 보기 방식 2×58 + 4 + 32 + 4 + 32 = 188 + 오른쪽 4 → 왼쪽 끝 354−192 / 지도 보기 4 + (354−204) = 154 < 162 · 높이 32 + 4 ≤ 65
+  expect(4 + (354 - 204)).toBeLessThan(354 - 192); expect(4 + 32).toBeLessThanOrEqual(65);
 });
