@@ -148,11 +148,11 @@ const NEU = '손을 한 번 뗀 뒤 다시 누르세요';
 test('A1: 조종 가능인데 서버가 막는 이유(새 누름 등)는 단계·본문에 · 클라이언트 막힘/잠금/보기 전용/빈 이유면 0', () => {
   const st = { ...ST, reason: NEU } as any;
   expect(srvWhy({ ...In0, st })).toBe(NEU);
-  const g = stageOf({ ...In0, st }); expect(g.i).toBe(3); expect(g.stop).toContain(NEU);   // «조종 가능»만 말하지 않음
+  const g = stageOf({ ...In0, st }); expect(g.i).toBe(3); expect(g.stop).toContain(NEU);   // 단계 번호는 그대로(i=3) · 막힘에 이유 원문
   expect(stageOf({ ...In0, st: { ...ST, reason: '' } as any }).stop).toBeNull();            // 막힘 풀림 = 서버가 '' → 조종 가능
   for (const x of [{ block: 'STOP 잠금' }, { st: { ...st, latch: true } }, { viewOnly: true }, { st: { ...st, role: 'view_other' } }, { linkOk: false }])
     expect(srvWhy({ ...In0, st, ...x } as any)).toBeNull();
-  expect(code(mainSrc)).toMatch(/noTxt \? `이동하려면: \$\{noTxt\}` : sw \? `지금 안 움직임: \$\{sw\}` : ctl \?/);
+  expect(code(mainSrc)).toMatch(/noTxt \? `이동하려면: \$\{noTxt\}` : sw \? `입력 적용 안 됨: \$\{sw\}` : ctl \?/);
   expect(code(mainSrc)).toMatch(/const sw = srvWhy\(\{[^}]*block: no \}\)/);                 // 실제 발행 판정(driveBlock)과 같은 block
 });
 
@@ -191,7 +191,8 @@ test('B3 가로 MDrive: 안전 줄은 HUD 흐름 마지막 줄(절대 위치 0) 
   const huds = mdriveSrc.slice(mdriveSrc.indexOf('huds: <>'), mdriveSrc.indexOf('side: <>'));
   expect(huds).toMatch(/<SafeLine className="drv-safe" \/><\/>/);
   expect(mdriveSrc.slice(mdriveSrc.indexOf('side: <>'), mdriveSrc.indexOf('banner:'))).not.toMatch(/SafeLine/);
-  expect(mdriveSrc).toMatch(/\.drv-safe\{flex:1 1 100%;max-width:calc\(100% - 12px\);/);   // 줄바꿈 뒤 옆 버튼(오른쪽 열 시작 = HUD 오른쪽 끝 −2 px)과 겹침 0 expect(mdriveSrc).not.toMatch(/\.drv-safe\{[^}]*position:absolute/);
+  expect(mdriveSrc).toMatch(/\.drv-safe\{flex:1 1 100%;max-width:calc\(100% - 12px\);/);   // 줄바꿈 뒤 옆 버튼(오른쪽 열 시작 = HUD 오른쪽 끝 −2 px)과 겹침 0
+  expect(mdriveSrc).not.toMatch(/\.drv-safe\{[^}]*position:absolute/);   // R ⑤: 3793b60 에선 이 줄이 // 주석 뒤에 붙어 실행 안 됨 → 별도 줄로
   expect(mdriveSrc).toMatch(/right: '44px', top: '86px', display: 'flex'/); expect(mdriveSrc).toMatch(/right: '44px', top: '138px', width: '72px'/);
 });
 
@@ -222,4 +223,33 @@ test('U2-b 보완 P2: Main 좁은 지도 칸 — lean 만 data-mapnarrow · 지�
   expect(css).toMatch(/\[data-mapnarrow="1"\] \.lv-mapseg \.lv-btn\{min-height:32px/);
   // 세로 예산: 위 4 + 보기 방식 2칸 32·32 + 간격 4 + 확대·축소 32 = 104 ≤ 111(폰 2×2 실측 칸 높이)
   expect(4 + 32 + 32 + 4 + 32).toBeLessThanOrEqual(111);
+});
+
+// ── R 보완(root «379 재검토 HOLD·R보완 GO»): R1 «조종 가능» 표면 글 · R2 몸 정지 단정 0 · DirTag ? 창 기준 · N2 확인 중 톤
+const DS = await import('../../src/data/drive_stage');
+test('R1·R2: 서버가 입력을 적용 안 하는 동안 보이는 단계 글 «입력 막힘» · 막힘 = «입력 적용 안 됨 · 원문» · 몸 정지 단정 0 · 이유 없어지면 복귀', () => {
+  const st = { ...ST, reason: NEU } as any, g = stageOf({ ...In0, st });
+  expect(g.i).toBe(3); expect(DS.stepLabel(g)).toBe('입력 막힘'); expect(g.stop).toBe(`입력 적용 안 됨 · ${NEU}`);
+  for (const t of [DS.stepLabel(g), g.stop!, g.next]) { expect(t).not.toMatch(/조종 가능|안 움직임|멈춤|정지함/); }
+  const ok = stageOf({ ...In0, st: { ...ST, reason: '' } as any }); expect(DS.stepLabel(ok)).toBe('조종 가능'); expect(ok.label).toBeUndefined();   // 회복 = 기존 글
+  for (const x of [{ st: { ...ST, role: 'view' } }, { st: { ...ST, latch: true } }, { block: 'STOP 잠금' }]) expect(stageOf({ ...In0, ...x } as any).label).toBeUndefined();   // 다른 단계 글 무변경
+  const all = [mainSrc, mdriveSrc, F.SAFE_LINE].map(code).join('\n');
+  expect(all).not.toMatch(/지금 안 움직임/); expect(code(mainSrc)).not.toMatch(/STEPS\[stg\.i\]/); expect(code(mdriveSrc)).not.toMatch(/STEPS\[stg\.i\]/);
+  expect(code(mainSrc)).toMatch(/text=\{`단계 \$\{stepLabel\(stg\)\}`\}/); expect(code(mdriveSrc)).toMatch(/aria-label=\{`조종 단계 \$\{stepLabel\(stg\)\}/); expect(code(mdriveSrc)).toMatch(/\{stepLabel\(stg\)\}<\/span>/);
+  // Main «조종 시작» 단추 글·설명: 표시만(startBlock·disabled 무변경)
+  expect(code(mainSrc)).toMatch(/goT = L\.starting \?\? \(live \? \(sw \? '입력 막힘' : '조종 가능'\) : '조종 시작'\)/); expect(code(mainSrc)).toMatch(/disabled: !!sb,/);
+  expect(code(mainSrc).indexOf('const sw = srvWhy(')).toBeLessThan(code(mainSrc).indexOf('const sb = startBlock(L)'));
+});
+
+test('R ③ DirTag 등 ? 팝오버: 활성 전체화면 요소 또는 body 로 portal(transform 조상 밖) · 서버 렌더는 제자리', async () => {
+  const fsm = 'node:fs', rd = async (f: string) => (await import(/* @vite-ignore */ fsm)).readFileSync(new URL(f, import.meta.url), 'utf8') as string;
+  const shell = await rd('../../src/app/shell.tsx');
+  expect(shell).toMatch(/const topEl = \(\) => fsEl\(\) \|\| document\.body;/);
+  expect(shell).toMatch(/export const InTop = [^\n]*useSyncExternalStore\(fsSub, topEl, \(\) => null\); return h \? createPortal\(children, h\) : <>\{children\}<\/>; \};/);
+  expect(chipSrc).toMatch(/<InTop><span id=\{id\}[^\n]*className="lv-pop"[^\n]*<\/InTop>/); expect(code(chipSrc)).not.toMatch(/<InFs>/);
+  expect(chipSrc).toMatch(/dropAll\(\);\n\s*const width/);   // 열 때 입력 폐기 그대로
+});
+
+test('N2: 관문 «확인 중»도 미확인 톤(warn) · 확인된 꺼짐만 off', () => {
+  expect(code(mainSrc)).toMatch(/!rtt\.ok && <Chip tone="warn" text=\{rtt\.txt\.replace/); expect(code(mainSrc)).not.toMatch(/endsWith\('확인 중'\) \? 'off'/);
 });

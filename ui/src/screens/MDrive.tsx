@@ -7,7 +7,7 @@ import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL_DEV, TRIAL_SAFE, UNSUP, WHY } from '../data/facts';
 import { camURL, startSimAsk, driveBlock, dropAll, linkView, sendOp, startBlock, startDrive, startTxt, stateRows, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs, useMedia } from '../data/shared';
-import { MARK, STEPS, stageOf, warnsOf } from '../data/drive_stage';
+import { MARK, stageOf, stepLabel, warnsOf } from '../data/drive_stage';
 import { href } from '../data/hist';
 import { Photo } from '../app/Photo';
 import { shoot } from '../data/run';
@@ -114,8 +114,8 @@ export default function MDrive() {
     cam: sp === 'cam' ? camEl : sp === 'half' ? <>{half(true, camEl)}{half(false, <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>{mapEl(true)}</div>)}</> : <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: '#05080A' }}>{mapEl(true)}</div>,
     mini: <div aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: '#05080A' }}>
       {sp === 'cam' ? mapEl(true) : sp === 'map' ? camEl : <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', fontSize: '12px', color: '#E6EBEF', lineHeight: 1.5 }}>반반 보기<br />누르면 큰 지도</div>}</div>,
-    huds: <><span className="hud" role="status" title={`다음: ${stg.next}`} aria-label={`조종 단계 ${STEPS[stg.i]}${stg.stop ? ` · 막힘 ${stg.stop}` : ''} · 다음 ${stg.next}`} style={{ background: stg.stop ? 'rgba(255,181,71,.92)' : 'rgba(56,198,217,.9)', color: '#061014', fontWeight: '700' }}>
-        {STEPS[stg.i]}</span>
+    huds: <><span className="hud" role="status" title={`다음: ${stg.next}`} aria-label={`조종 단계 ${stepLabel(stg)}${stg.stop ? ` · 막힘 ${stg.stop}` : ''} · 다음 ${stg.next}`} style={{ background: stg.stop ? 'rgba(255,181,71,.92)' : 'rgba(56,198,217,.9)', color: '#061014', fontWeight: '700' }}>
+        {stepLabel(stg)}</span>
       {top && <span className="hud" role="status" data-reason="1" title={`해결: ${top.fix}`} style={{ background: 'rgba(255,181,71,.92)', color: '#061014', fontWeight: '700' }}>{`${MARK[top.lvl]} ${top.text}`}</span>}
       {more && !list && <button type="button" className="hud" onClick={openList} style={{ border: 0, cursor: 'pointer', minHeight: '28px' }}>{`목록 ${Math.max(W.length, btns.length)}`}</button>}
       {HC.filter((c) => (c.k === 'link' || c.k === 'sim') && c.tone !== 'ok').map((c) => <Chip key={c.k} tone={c.tone} text={c.text} why={c.why} />)}

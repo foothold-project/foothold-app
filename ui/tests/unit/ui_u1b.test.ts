@@ -133,7 +133,7 @@ test('B3 소스: 모든 «비상 정지…» STOP · 전체화면 안 · 실제 
   expect(chipSrc).toMatch(/\[aria-label\^="비상 정지"\]/); expect(chipSrc).toMatch(/fs\.contains\(e\)/);
   expect(chipSrc).toMatch(/getBoundingClientRect\(\)\.height/); expect(chipSrc).not.toMatch(/Math\.max\(120/);
   expect(chipSrc).toMatch(/'fullscreenchange', shut/); expect(chipSrc).toMatch(/'scroll', out, true/);
-  expect(chipSrc).toMatch(/<InFs>/); expect(statusSrc).toMatch(/<InFs><div ref/);
+  expect(chipSrc).toMatch(/<InTop>/); expect(statusSrc).toMatch(/<InFs><div ref/);   // R ③: Help 는 InTop(활성 전체화면 요소 우선 → 없으면 body) — 전체화면 안 그리기는 그대로 포함
 });
 test('R1: 화면 밖·부분 밖 STOP 을 화면과 교차 — 외곽은 늘 [8, H-8] 안 · 내용이 커져도 안 스크롤', () => {
   const inV = (p: { top: number; maxHeight: number }, H: number) => p.top >= 8 && p.top + p.maxHeight <= H - 8;

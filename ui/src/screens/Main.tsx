@@ -14,7 +14,7 @@ import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { MULTI, useDirWhy, useDriveScreen, useGateRtt, useHold } from '../app/drive';
-import { STEPS, stageOf, srvWhy } from '../data/drive_stage';
+import { stageOf, srvWhy, stepLabel } from '../data/drive_stage';
 import { EndRow, WpActs } from '../app/runui';
 import { useSel } from '../data/scratch';
 import { stopOn, stopProps, toast, whyProps } from '../app/shell';
@@ -51,9 +51,12 @@ export default function Main() {
 
   const role = st?.role, ctl = v.linkOk && role === 'control' && !L.viewOnly;
   const no = driveBlock(L);
+  // U2 보완 A1: 클라이언트 막힘이 없어도 서버가 지금 입력을 적용 안 하는 이유(새 누름 필요 등)는 운영 본문에 짧게
+  const sw = srvWhy({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: false, newVer: !!v.newVer, block: no });
   // N1: «조종 시작» 하나(확인 1회 → 조종권 + STOP 해제) — 조종 가능이면 상태 글만, 진행 중이면 단계 글. 반납은 따로
-  const sb = startBlock(L), goT = L.starting ?? (sb === '이미 조종 가능' ? '조종 가능' : '조종 시작');
-  const goP = { onClick: async () => { const t = await startDrive(); if (t) toast(t); }, disabled: !!sb, title: sb || '확인 1회 → 조종권 받기 + STOP 해제 · 그 뒤 손 떼고 새로 눌러야 움직임' };
+  // R1: 서버가 입력을 적용 안 하는 동안(sw)은 단추 글·설명도 «조종 가능» 대신 지금 사실(표시만 — startBlock·disabled·N1 무변경)
+  const sb = startBlock(L), live = sb === '이미 조종 가능', goT = L.starting ?? (live ? (sw ? '입력 막힘' : '조종 가능') : '조종 시작');
+  const goP = { onClick: async () => { const t = await startDrive(); if (t) toast(t); }, disabled: !!sb, title: (live && sw ? `조종권 있음 · 입력 적용 안 됨: ${sw}` : sb) || '확인 1회 → 조종권 받기 + STOP 해제 · 그 뒤 손 떼고 새로 눌러야 움직임' };
 
   // 화살표 키: 조종권 있을 때 새로 누른 키만(반복·입력칸 제외), 떼면 0
   useEffect(() => {
@@ -101,10 +104,8 @@ export default function Main() {
   // U2(670 P2): 시뮬 미수신·끊김을 «시뮬 꺼짐»으로 단정하던 본문 글(ex)·시뮬 시작/지도/끄기 버튼은 지움 → 머리줄 칩(시뮬 확인 안 됨/끊김)과 «시뮬 ▾» 메뉴 한 곳
   // U2(§4): 운영 = 막힌 이유(R9)·넘어짐(항상 보존 경고)만 · 보낸 명령 수치·몸·기울기·서버 이유 원문은 개발자 모드 · 주의 문장은 안전 한 줄(SafeLine)로
   // U2 보완 ⑧: driveBlock «링크 끊김»은 표시만 연결 상태 글(연결 중·상태 오래됨·끊김)로 — 머리줄·단계와 같은 말(차단 조건 무변경)
-  // U2 보완 A1: 클라이언트 막힘이 없어도 서버가 지금 막는 이유(새 누름 필요 등)는 운영 본문에 짧게
   const noTxt = no && no.startsWith('링크 끊김') ? `링크 ${v.linkTxt}` : no;
-  const sw = srvWhy({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: false, newVer: !!v.newVer, block: no });
-  const motionNode = <>{noTxt ? `이동하려면: ${noTxt}` : sw ? `지금 안 움직임: ${sw}` : ctl ? '누르는 동안 이동 · 키 ↑ 앞, ↑ 누른 채 ←/→ 아크' : ''}
+  const motionNode = <>{noTxt ? `이동하려면: ${noTxt}` : sw ? `입력 적용 안 됨: ${sw}` : ctl ? '누르는 동안 이동 · 키 ↑ 앞, ↑ 누른 채 ←/→ 아크' : ''}
     {s?.fallen === true && <b style={{ color: 'var(--bad)' }}>{`${noTxt || sw || ctl ? ' · ' : ''}넘어짐`}</b>}
     <span data-dev>{` · 보낸 명령 ${v.sent} · 시뮬 ${v.body}${s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : ''}${v.linkOk && st?.reason ? ` · 서버 이유 ${st.reason}` : ''}`}</span></>;
   const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer, block: no });   // ② 작은 단계 표시(모드·motion 은 그대로)
@@ -121,8 +122,8 @@ export default function Main() {
     // U1-b: 링크 칩은 공통 머리줄 칩(시뮬·연결·역할·잠금)으로 — 앱↔관문·단계는 그대로(U2)
     // U2(670 P3): 단계는 짧은 칩 + ?(막힌 이유·다음 행동 전문) — 390 폭에서 글이 잘리지 않게
     // U2 보완 A4: rtt.ok=false 는 «확인 중·미측정·확인 못 함»이지 지연 판정이 아님 → 그 사실 그대로(느림 단정 0)
-    head: <>{v.linkOk && !rtt.ok && <Chip tone={rtt.txt.endsWith('확인 중') ? 'off' : 'warn'} text={rtt.txt.replace('앱↔관문 ', '관문 ')} why={rtt.why || rtt.txt} />}
-      <Chip tone={stg.stop ? 'warn' : stg.i === 3 ? 'ok' : 'off'} text={`단계 ${STEPS[stg.i]}`} why={`${stg.stop ? `막힘: ${stg.stop} · ` : ''}다음: ${stg.next}`} /><HeadChips /></>,
+    head: <>{v.linkOk && !rtt.ok && <Chip tone="warn" text={rtt.txt.replace('앱↔관문 ', '관문 ')} why={rtt.why || rtt.txt} />}
+      <Chip tone={stg.stop ? 'warn' : stg.i === 3 ? 'ok' : 'off'} text={`단계 ${stepLabel(stg)}`} why={`${stg.stop ? `막힘: ${stg.stop} · ` : ''}다음: ${stg.next}`} /><HeadChips /></>,
     chips: [],
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,

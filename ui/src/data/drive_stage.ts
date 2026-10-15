@@ -4,8 +4,10 @@ import type { Status } from '@contracts';
 import { RELURCH } from './facts';
 
 export const STEPS = ['보기', '조종권', 'STOP 해제', '조종 가능'] as const;
-/** i = 지금 칸(0~3). stop = 단계를 막는 이유(있으면 단계 대신 이것을 보여 줌). next = 다음 행동 한 줄 */
-export type Stage = { i: number; stop: string | null; next: string };
+/** i = 지금 칸(0~3). stop = 단계를 막는 이유(있으면 단계 대신 이것을 보여 줌). next = 다음 행동 한 줄. label = 칸 이름 대신 보일 지금 사실(있을 때만) */
+export type Stage = { i: number; stop: string | null; next: string; label?: string };
+/** 화면에 보이는 단계 글 — label 이 있으면 그것(R1: 서버가 입력을 적용 안 하는 동안 «조종 가능» 표면 글 0), 없으면 칸 이름 */
+export const stepLabel = (g: Stage) => g.label ?? STEPS[g.i];
 export type Lvl = 'block' | 'warn' | 'info';
 export type Warn = { lvl: Lvl; text: string; fix: string };
 // block = 실제 발행 판정 data/link driveBlock(L) 결과 그대로 — «조종 가능»은 이것이 null 일 때만(새 판·형식 이상·STOP ACK 전 stopHeld 포함)
@@ -33,7 +35,8 @@ function stage0(x: In): Stage {
   if (st.latch) return { i: 1, stop: null, next: '«조종 시작»(확인 1회) → 손 떼고 다시 누르면 움직임' };
   if (x.block) return { i: 2, stop: x.block, next: '명령 0 — 이 이유가 풀려야 움직임' };   // 표시만 앞서가지 않게: 실제 차단과 모순 0
   const sw = srvWhy(x);   // U2 보완 A1: 조종 가능 단계여도 서버가 지금 막는 이유가 있으면 «조종 가능»만 말하지 않음
-  if (sw) return { i: 3, stop: `지금 안 움직임 · ${sw}`, next: '이유대로 하면 누르는 동안 이동 · 떼면 0' };
+  // R1·R2: 단계 번호(i=3)는 그대로, 보이는 글만 지금 사실. 근거는 서버가 입력을 명령에 적용 안 함(reason)뿐 — 몸의 정지는 말하지 않음(몸은 늦게 멈추거나 다시 움직일 수 있음)
+  if (sw) return { i: 3, label: '입력 막힘', stop: `입력 적용 안 됨 · ${sw}`, next: '이유대로 하면 다시 누를 때 입력 적용 · 떼면 명령 0' };
   return { i: 3, stop: null, next: '누르는 동안 이동 · 떼면 0' };
 }
 

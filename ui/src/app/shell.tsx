@@ -19,6 +19,10 @@ export function useRoute() {
 // ---- 전체화면 안 표시(10-15): 네이티브 전체화면이면 그 요소 밖 DOM 은 안 보인다 → 확인창·알림을 현재 fullscreenElement 안으로 옮겨 그린다 ----
 const fsSub = (f: () => void) => { document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); };
 const fsEl = () => { const e = document.fullscreenElement; return e && e !== document.documentElement && e !== document.body ? e : null; };   // 문서 전체(MDrive)면 원래 자리도 보임
+// R(670 P2): ? 팝오버는 position:fixed — transform 조상(MDrive 틀 scale) 안에 있으면 fixed 가 그 틀 기준으로 풀려 화면 밖에 뜬다.
+//   → 활성 전체화면 요소가 있으면 그 안, 없으면 document.body 로 그린다(좌표는 늘 실제 창 기준). 서버 렌더(시험) = 제자리
+const topEl = () => fsEl() || document.body;
+export const InTop = ({ children }: { children: React.ReactNode }) => { const h = useSyncExternalStore(fsSub, topEl, () => null); return h ? createPortal(children, h) : <>{children}</>; };
 export const InFs = ({ children }: { children: React.ReactNode }) => { const h = useSyncExternalStore(fsSub, fsEl, () => null); /* 서버 렌더(시험) = 전체화면 없음 */ return h ? createPortal(children, h) : <>{children}</>; };
 
 // ---- 알림 ----

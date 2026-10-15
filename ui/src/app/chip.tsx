@@ -4,7 +4,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { dropAll } from '../data/link';
 import { setDev, useDev } from '../data/dev';
-import { InFs, toast } from './shell';
+import { InTop, toast } from './shell';
 import { DIR_TAG, NOMOVE, RELURCH, SAFE_LINE, SAFE_NOTE, STOP_FACT, STOP_TIP, TRIAL_SAFE } from '../data/facts';
 
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
@@ -61,7 +61,7 @@ type Pos = Placed & { width: number; ready: boolean };
 /** 단추 옆에 떠 있는 패널 공용: 열 때 누르던 입력 폐기(dropAll, 송신 0) · Escape·바깥 누름·크기/스크롤/전체화면 바뀜이면 닫힘.
  *  바깥 누름은 막지 않는다(기본 동작 취소 0). 자리는 실제 내용 높이를 잰 뒤(보이지 않게 한 번 그림) placePop 으로 —
  *  보이는 STOP 어느 것과도 겹치지 않게 놓아 STOP 첫 누름이 늘 STOP 에 닿는다. 자리가 없으면 펼치지 않고 알림.
- *  Escape 로 닫으면 연 단추로 초점(focusBack). 활성 전체화면이면 그 안에 그린다(InFs). */
+ *  Escape 로 닫으면 연 단추로 초점(focusBack). 활성 전체화면이면 그 안, 아니면 body 에 그린다(Help = InTop — transform 조상 영향 0). */
 export function usePop(maxW: number) {
   const [pos, setPos] = useState<Pos | null>(null);
   const b = useRef<HTMLButtonElement>(null), p = useRef<HTMLElement>(null);
@@ -94,7 +94,7 @@ export function Help({ label, children }: { label: string; children: React.React
   const P = usePop(320), id = useId();
   return <span className="lv-help">
     <button ref={P.b} type="button" className="lv-q" aria-label={label} aria-expanded={!!P.pos} aria-controls={id} onClick={P.toggle}>?</button>
-    <InFs><span id={id} ref={P.p as React.RefObject<HTMLSpanElement>} role="note" className="lv-pop" hidden={!P.pos} style={P.style}>{children}</span></InFs>
+    <InTop><span id={id} ref={P.p as React.RefObject<HTMLSpanElement>} role="note" className="lv-pop" hidden={!P.pos} style={P.style}>{children}</span></InTop>
   </span>;
 }
 
