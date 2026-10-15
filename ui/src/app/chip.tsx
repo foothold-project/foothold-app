@@ -26,13 +26,15 @@ const GAP = 8, MIN = 40;
  *  실제 내용 높이 h 가 들어가는 자리를 단추 바로 아래 → 위 순으로(가로는 단추 정렬 → 왼쪽 끝 → 오른쪽 끝),
  *  어디도 다 안 들어가면 가장 넓은 빈 띠에 줄여서(안은 스크롤). 빈 띠가 MIN 보다 좁으면 null(펼치지 않음) */
 export function placePop(trig: Box, h: number, width: number, W: number, H: number, stops: Box[]): Placed | null {
+  // R1: STOP 은 화면과 겹친 부분만(완전히 밖이면 무시) — 화면 밖 STOP 이 빈 띠를 화면 밖까지 늘리지 않게
+  const vis = stops.map((s) => ({ left: Math.max(0, s.left), top: Math.max(0, s.top), right: Math.min(W, s.right), bottom: Math.min(H, s.bottom) })).filter((s) => s.right > s.left && s.bottom > s.top);
   const lefts = [...new Set([Math.max(GAP * 2, Math.min(trig.left, W - GAP * 2 - width)), GAP * 2, W - GAP * 2 - width])];
   const all: (Placed & { fit: boolean; d: number })[] = [];
   for (const left of lefts) {
     // 이 가로 폭에 걸리는 STOP 의 세로 구간을 빼고 남는 빈 띠
-    const cut = stops.filter((s) => s.left - GAP < left + width && s.right + GAP > left).map((s) => [s.top - GAP, s.bottom + GAP]).sort((a, b) => a[0] - b[0]);
+    const cut = vis.filter((s) => s.left - GAP < left + width && s.right + GAP > left).map((s) => [s.top - GAP, s.bottom + GAP]).sort((a, b) => a[0] - b[0]);
     const bands: [number, number][] = []; let y = GAP;
-    for (const [a, b] of cut) { if (a > y) bands.push([y, a]); y = Math.max(y, b); }
+    for (const [a, b] of cut) { if (Math.min(a, H - GAP) > y) bands.push([y, Math.min(a, H - GAP)]); y = Math.max(y, b); }   // 띠는 늘 [GAP, H-GAP] 안
     if (H - GAP > y) bands.push([y, H - GAP]);
     const below = trig.bottom + 6, above = trig.top - 6;
     for (const [a, b] of bands) {
@@ -43,7 +45,8 @@ export function placePop(trig: Box, h: number, width: number, W: number, H: numb
   const fit = all.filter((c) => c.fit).sort((a, b) => a.d - b.d)[0];
   const best = fit || all.sort((a, b) => b.maxHeight - a.maxHeight)[0];
   if (!best || (!fit && best.maxHeight < MIN)) return null;
-  return { left: best.left, top: best.top, maxHeight: best.maxHeight };
+  const top = Math.max(GAP, best.top);   // 방어: 외곽(top·top+maxHeight)은 늘 [GAP, H-GAP] 안 — 내용이 커져도 안 스크롤
+  return { left: best.left, top, maxHeight: Math.min(best.maxHeight, H - GAP - top) };
 }
 /** 지금 보이는 STOP 사각형 전부 — «비상 정지»로 시작하는 이름(확대·전체화면 STOP 포함), 활성 전체화면이면 그 안의 것만 */
 function stopBoxes(): Box[] {

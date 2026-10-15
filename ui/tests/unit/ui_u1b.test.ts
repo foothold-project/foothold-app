@@ -134,3 +134,30 @@ test('B3 소스: 모든 «비상 정지…» STOP · 전체화면 안 · 실제 
   expect(chipSrc).toMatch(/'fullscreenchange', shut/); expect(chipSrc).toMatch(/'scroll', out, true/);
   expect(chipSrc).toMatch(/<InFs>/); expect(statusSrc).toMatch(/<InFs><div ref/);
 });
+test('R1: 화면 밖·부분 밖 STOP 을 화면과 교차 — 외곽은 늘 [8, H-8] 안 · 내용이 커져도 안 스크롤', () => {
+  const inV = (p: { top: number; maxHeight: number }, H: number) => p.top >= 8 && p.top + p.maxHeight <= H - 8;
+  // 반례: W390 H390 · 단추 [16,40]-[40,64] · STOP 완전히 아래 밖 [0,500]-[390,552] · 내용 400 → 이전 bottom 470
+  const p = placePop(R(16, 40, 24, 24), 400, 358, 390, 390, [R(0, 500, 390, 52)])!;
+  expect(inV(p, 390)).toBe(true); expect(p).toEqual({ left: 16, top: 70, maxHeight: 312 });
+  const cases: [ReturnType<typeof R>[], number][] = [
+    [[R(0, -200, 390, 52)], 400],                    // 완전히 위 밖
+    [[R(0, 360, 390, 60)], 400],                     // 부분 아래 밖
+    [[R(0, -30, 390, 60)], 400],                     // 부분 위 밖
+    [[R(0, -200, 390, 52), R(0, 500, 390, 52), R(0, 360, 390, 60), R(300, 150, 80, 80)], 400],   // 여러 STOP
+  ];
+  for (const [ss, h] of cases) for (const c of [100, h]) {   // 내용 100 → 400 증가
+    const q = placePop(R(16, 40, 24, 24), c, 358, 390, 390, ss)!;
+    expect(inV(q, 390)).toBe(true);
+    for (const s of ss) { const t = { left: Math.max(0, s.left), top: Math.max(0, s.top), right: Math.min(390, s.right), bottom: Math.min(390, s.bottom) };
+      if (t.right > t.left && t.bottom > t.top) expect(hit(q, 358, c, t)).toBe(false); }
+  }
+  // 양성 유지: 화면 안 STOP 회피 · 공간 < 40 거부
+  const on = R(16, 100, 358, 52), q2 = placePop(R(16, 40, 24, 24), 400, 358, 390, 390, [on])!;
+  expect(hit(q2, 358, 400, on)).toBe(false); expect(inV(q2, 390)).toBe(true);
+  expect(placePop(R(16, 10, 60, 24), 200, 358, 390, 120, [R(0, 40, 390, 200)])).toBe(null);
+});
+test('R1: 화면 밖 STOP 이 «아래에 다 들어감»으로 속이지 않음 — 실제로 다 들어가는 위쪽을 고름', () => {
+  // H390 · 단추 bottom 324 → 아래 실제 52 · 위 286. STOP 은 화면 밖 아래(700) — 띠를 화면 끝에서 자르지 않으면 아래가 «362 fit» 로 보임
+  const q = placePop(R(16, 300, 24, 24), 200, 358, 390, 390, [R(0, 700, 390, 52)])!;
+  expect(q.maxHeight).toBeGreaterThanOrEqual(200); expect(q.top + q.maxHeight).toBeLessThanOrEqual(294); expect(q.top).toBeGreaterThanOrEqual(8);
+});
