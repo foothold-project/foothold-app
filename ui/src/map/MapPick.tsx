@@ -154,7 +154,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
         {op && multi && tabOn === 'all' && <span className="lbl">층별 GT 기하 2D 지도를 위층부터 나란히 — 전체 3D 아님 · 위치·SLAM·센서 없음. 층 탭은 보기만(시뮬 층 바꾸기 아님)</span>}
         {op && multi && tabOn === 'g3d' && <span className="lbl">원본 SDF 충돌 상자 그대로 + 계단·경사로 구조상 연결 — GT 간략 기하(센서·주행 판정 아님). 실제 mesh 는 외곽 점선만</span>}
         {op && tabOn !== 'all' && tabOn !== 'g3d' && (<span role="group" aria-label="저장 지도 버전(보기만)" style={vrow}>
-            {vs.map((m) => segB(sel === mapKey(m), `${m.map_source === 'gt_raster' ? 'GT 기하 지도(SLAM 아님)' : 'SLAM 저장 지도'} · ${m.map_version}`, () => pick(mapKey(m))))}   {/* 층은 탭이 이미 말함 — 버전 줄엔 출처·버전만 */}
+            {vs.map((m) => segB(sel === mapKey(m), `${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 저장 지도'} · ${m.map_version}`, () => pick(mapKey(m))))}   {/* 층은 탭이 이미 말함 — 버전 줄엔 출처·버전만 */}
             {!vs.length && <span className="lbl">이 층 저장 지도 없음</span>}</span>)}
       </span>;
     })}

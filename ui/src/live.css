@@ -1,5 +1,6 @@
 /* web/live.js 공통 실연결 CSS 그대로(lv-* 클래스). 원본 시안 CSS 는 화면마다 따로(*.view.tsx CSS). */
 .lv-why{opacity:.5;cursor:help}
+[hidden]{display:none!important}   /* B2 R11: hidden 속성 = 숨김 확정(.btn 등 display 규칙이 UA [hidden] 을 이겨 미지원 버튼이 보이던 것, b2 QA PcMap·PcRobot) */
 .pill{white-space:nowrap}
 .lv-on{outline:3px solid var(--accent,#3ec7b4);outline-offset:2px}
 .lv-pad{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
@@ -78,6 +79,7 @@ textarea.lv-inp{resize:vertical}
 .qh:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .qd-empty{position:absolute;inset:0;display:grid;place-items:center;padding:12px;text-align:center;font-size:13px;line-height:1.45;color:var(--muted);pointer-events:none}
 .qd.f .qt.pip .qd-empty{font-size:11px;padding:6px}
+.qd-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 6px 6px;padding:6px 10px;border:1px dashed var(--line);border-radius:6px;font-size:12px;line-height:1.45;color:var(--muted)}
 .qd.f .qt.pip .qh{height:24px;font-size:11px}
 .qmode{display:inline-flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden}
 .qmode button{height:30px;padding:0 10px;border:0;background:transparent;font-size:12px;font-weight:600;color:var(--muted)}
@@ -111,6 +113,7 @@ textarea.lv-inp{resize:vertical}
   .qd{--qa:calc(100vh - 150px);scroll-margin-top:68px}
   .qd .qb{flex:none}
   .qd:not(.f) .qb{aspect-ratio:auto;height:calc(var(--qa) / 2 - 33px)}
+  .qd.two:not(.f) .qb{height:calc(var(--qa) - 30px)}   /* B2: 보조 뷰 접힘 2칸 = 한 줄 → 높이 전부 */
   .qd.f .qt.on .qb{height:calc(var(--qa) - 30px)}
   /* 가로 폰 PIP: 높이가 모자라 작은 칸 머리줄을 숨기고(이름은 title) 세 칸이 큰 칸 높이 안에 들어오게 */
   .qd.f{--ph:calc((var(--qa) - 36px) / 3 - 6px);--tw:calc(var(--ph) * 4 / 3 + 10px);grid-template-rows:36px auto auto auto 1fr}
@@ -132,3 +135,6 @@ body:has(.lv-drawer) .lv-tip{display:none!important}
 .mmap-hdr>header>div:first-of-type{flex:1 1 0;min-width:0}
 .mmap-hdr>header>div:first-of-type>span:first-child{white-space:nowrap}
 .mmap-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+/* B2 A3: PcPlan 도 다른 PC 화면처럼 STOP 을 첫 줄 오른쪽 끝에 — 상태 줄만 둘째 줄 전체로(STOP 크기·색 그대로) */
+.pcplan-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+.pcplan-hdr>header>button[aria-label="비상 정지"]{margin-left:auto}

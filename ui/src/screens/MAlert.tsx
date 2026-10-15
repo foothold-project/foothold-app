@@ -8,7 +8,7 @@ import { href } from '../data/hist';
 import { linkView, useLink } from '../data/link';
 import { LATCH_TXT, STOP_FACT, WHY } from '../data/facts';
 import { LiveStatus } from '../app/status';
-import { stopOn, stopProps, useRoute, whyProps } from '../app/shell';
+import { stopOn, stopProps, useRoute } from '../app/shell';
 
 
 export default function MAlert() {
@@ -16,7 +16,7 @@ export default function MAlert() {
   const e = M.events.find((x) => x.at === q.get('at') && x.text === q.get('t')), none = !q.get('at');
   const near = e ? M.events.filter((x) => x !== e && Math.abs(tms(x.at) - tms(e.at)) < 120e3).slice(0, 20) : [];
   const rows: [string, string, string][] = [[lk.linkOk && lk.latch ? '✓' : '·', LATCH_TXT(lk), lk.linkOk ? '지금' : '링크 끊김'], ['·', `서버 정지: ${STOP_FACT[0]} → 명령 0`, '항상'],
-    ['·', `자동 후퇴·자동 조치 — ${WHY['자동 목적지 이동·자동 복귀'].split(' — ')[0]}`, '실행 안 함']];
+    ['·', `자동 후퇴·자동 조치 — ${WHY['자동 목적지 이동·자동 복귀'].split(' — ')[0]}`, '실행 안 함'], ['·', '경보 공유 — 미연결(외부 알림·메시지 발송 없음)', '실행 안 함']];   // B2 R11: 공유 버튼 대신 사실 한 줄
   const v = {
     themeClass: themeClass(false), stopProps, status: <LiveStatus D={D} style={{ padding: '6px 14px' }} />,
     ...(e ? { lv: `${LV[e.st] || '·'} ${({ bad: '위험', warn: '경고' } as Record<string, string>)[e.st] || e.st}`, time: fmtT(e.at), title: e.text, sub: '서버 사건 원문 · Go2 시뮬(foothold-v2) · 원인 판단은 포함하지 않음' }
@@ -27,7 +27,7 @@ export default function MAlert() {
     trT: '앞뒤 2분 서버 사건', trS: `같은 시각 근처 원문 · ${READ_NOTE}`,
     near: <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>{e ? (near.length ? near.map((x, i) => <span className="lbl" key={i}>{`${fmtT(x.at)} ${LV[x.st] || '·'} ${x.text}`}</span>) : <span className="lbl">앞뒤 2분 안 다른 사건 없음</span>) : null}</div>,
     okT: '이 경보만 읽음 표시(이 기기)', okClick: () => { if (e) markRead([e], M.events); location.hash = href('MAlerts'); },   // R14: 이 사건 키 1개만
-    stopOn, stopT: 'STOP(명령 0 요청·잠금)', shareProps: whyProps('경보 공유 미연결 — 외부 알림·메시지 발송 없음'),
+    stopOn, stopT: 'STOP(명령 0 요청·잠금)', shareProps: { hidden: true, 'aria-hidden': true, tabIndex: -1 },
   };
   return <><style>{CSS}</style><div id="dc-root"><View v={v} /></div></>;
 }

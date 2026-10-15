@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { create } from 'zustand';
 import { dropAll, linkView, sendStop, showSimStop, stopSim, useLink } from '../data/link';
+import { STOP_TIP } from '../data/facts';
 
 // ---- 경로 ----
 const sub = (f: () => void) => { addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); };
@@ -37,7 +38,7 @@ export function useStopKey() {
 }
 /** live.js stopBtn(): 누르는 순간(pointerdown)·Enter 에 STOP. 이름표 없는 보조 STOP 버튼에도 쓴다 */
 export const stopOn = { onPointerDown: stopNow, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') stopNow(); } } as const;
-export const stopProps = { 'aria-label': '비상 정지', ...stopOn } as const;
+export const stopProps = { 'aria-label': '비상 정지', title: STOP_TIP, ...stopOn } as const;   // B2 R05: 효과 설명 한 문구(facts)
 /** live.js openDrawer(): 오른쪽(PC)·머리줄 아래 서랍. Esc·닫기로 닫음. (휴대폰 가로 조종 화면 배치는 묶음 3 에서) */
 export function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const x = useRef<HTMLButtonElement>(null), close = useRef(onClose); close.current = onClose;   // 다시 그릴 때마다 초점을 뺏지 않게 처음 한 번만

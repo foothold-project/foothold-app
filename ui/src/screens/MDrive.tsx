@@ -97,7 +97,7 @@ export default function MDrive() {
     raster={mp.raster} blank={mp.blank} noRobot={mOn && !mp.pose} showTrail={!mOn} flat={mp.flat} />
     {cap && <div style={{ position: 'absolute', left: '0', right: '0', bottom: '0', padding: '2px 6px', fontSize: '10px', lineHeight: '1.4', color: '#E6EBEF', background: 'rgba(14,19,23,.78)', pointerEvents: 'none' }}>
       {mOn ? (mp.raster ? `${mp.live ? '현재 열린 지도' : '저장 지도'} · ${mp.pose ? '위치 표시' : '위치 미표시'}` : '지도 없음 · 지도 화면에서 이유 확인')
-        : s ? `GT x ${sgn(s.x, 1)} y ${sgn(s.y, 1)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 위치 오래됨' : 'GT 위치 없음'}</div>}</>;
+        : s ? `시뮬 위치 x ${sgn(s.x, 1)} y ${sgn(s.y, 1)} · ${deg(s.yaw)}` : TRAIL.last ? '시뮬 위치 오래됨' : '시뮬 위치 없음'}</div>}</>;
   const half = (left: boolean, el: JSX.Element) => <div style={{ position: 'absolute', top: 0, bottom: 0, width: '50%', [left ? 'left' : 'right']: 0, overflow: 'hidden', background: '#05080A', ...(left ? { borderRight: '1px solid rgba(230,235,239,.35)' } : {}) }}>{el}</div>;
   const ph = [...M.photos].sort((a, b) => (a.saved_at < b.saved_at ? 1 : -1))[0];   // ⑤ 서버에 저장된 마지막 사진
 
@@ -150,7 +150,7 @@ export default function MDrive() {
     {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}{note && <small style={{ display: 'block' }}>{note}</small>}</button>}
     <p>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>
     <h3>상태 원값</h3><dl>{stateRows(L).slice(0, 13).map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>
-    <h3>현재 v2 연결에서 안 되는 것(미제공·미연결·미검증)</h3><dl>{UNSUP.map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>
+    <h3>지원 범위와 한계(미제공·미연결·미검증 · 서버가 허용할 때만)</h3><dl>{UNSUP.map(([a, b]) => [<dt key={a}>{a}</dt>, <dd key={`${a}v`}>{b}</dd>])}</dl>
     <p>{`주의: ${RELURCH} · 원인 미확인`}</p>
   </Drawer>;
   const band = <div className="drv-band" role="group" aria-label="세로 조종 줄">

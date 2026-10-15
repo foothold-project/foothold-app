@@ -234,7 +234,7 @@ test('저장 지도: 목록 형식 걸러냄 · 다른 지도 답 버림 · 요�
   { const S = I({ map_source: 'slam', epoch: 2, map_version: '20261014-100000-e2' }); p = M.getMap(S as any); reply({ map: { ...S, epoch: 3, png: 'AA==' } }); expect(await p).toBe('지도 형식 이상'); }   // 다른 epoch
   p = M.getMap(I() as any); reply({ map: { ...I({ origin: [-20, -14, 0.5] }), png: 'AA==' } }); expect(await p).toContain('회전');
   p = M.getMap(I() as any); { const z = last(sent); msg({ op: 'reply', rid: z.rid, ok: false, text: '지도 · 지도 없음' }); } expect(await p).toBe('지도 · 지도 없음');
-  expect(M.mapLabel(I() as any)).toContain('GT 기하 지도(SLAM 아님)');
+  expect(M.mapLabel(I() as any)).toContain('시뮬 도면 지도');
 });
 
 test('checkStatus: views 형식 틀림 → 그 뷰만 버림(상태·조종 관문 유지)', () => {
@@ -329,4 +329,13 @@ test('지도 목록 loadList: 서버 확인 전 0·같은 세대 겹침 0·늦�
     expect(M.loadList(q, set)).toBe(true); const r = last(sent); expect(r.op).toBe('map_list');
     msg({ op: 'reply', rid: r.rid, ok: true, text: '', maps: [] }); await flush();
     expect(got).toEqual(['서버 응답 없음(5 s)', []]); expect(nList()).toBe(n0 + 2); }
+});
+
+test('B2 발견: 실기→시뮬 복귀 직후(열림·신선한 lastMsg·st null) linkView 가 죽지 않고 «상태 수신 대기» · 명령 관문은 그대로 막음', () => {
+  L.setProvider('go2_direct'); L.setProvider('simulation_gate');
+  L.useLink.setState({ open: true, lastMsg: performance.now(), authEnd: false, bad: null });
+  const s = L.useLink.getState(); expect(s.st).toBe(null);
+  const v = L.linkView(s);
+  expect(v.linkTxt).toBe('상태 수신 대기'); expect([v.latch, v.simBlock, v.camOk, v.s]).toEqual([false, '', false, null]);
+  expect(L.driveBlock()).toMatch('상태 미확인');
 });

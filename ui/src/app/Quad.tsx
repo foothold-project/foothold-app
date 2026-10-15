@@ -41,7 +41,7 @@ export function Quad({ tiles, label }: { tiles: QTile[]; label: string }) {
     };
   }, []);
   const others = f ? tiles.filter((t) => t.id !== f).map((t) => t.id) : [];
-  return <div className={`qd${f ? ' f' : ''}${f && !pip ? ' nopip' : ''}`} role="group" aria-label={label}
+  return <div className={`qd${f ? ' f' : ''}${f && !pip ? ' nopip' : ''}${tiles.length === 2 ? ' two' : ''}`} role="group" aria-label={label}
     onPointerDownCapture={() => { mute.current = 0; }} onKeyDownCapture={() => { mute.current = 0; }}   // 새 누름 = 그 뒤 click 은 사용자가 의도한 것(삼키는 건 전환한 그 누름의 호환 click 뿐)
     onClickCapture={(e) => { if (performance.now() < mute.current) { e.preventDefault(); e.stopPropagation(); } }}>
     {tiles.map((t) => {

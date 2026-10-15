@@ -8,12 +8,12 @@ import { docById, docsOf, saveDoc, useDocs } from '../data/shared';
 import { TRAIL, linkView, useLink } from '../data/link';
 import { r2, zoneTxt } from '../data/run';
 import { GOTO_WHY, defMods } from '../data/tmpl';
-import { ZONE_NOTE } from '../data/facts';
+import { TERMS, ZONE_NOTE } from '../data/facts';
 import { MODE_KO, MapCanvas, type MapApi } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
 import { useMapPick } from '../map/MapPick';
 import { MapStartBox } from '../map/MapStartBox';
-import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
+import { Drawer, SimOff, stopProps, toast } from '../app/shell';
 
 
 // R04 가로(높이 ≤ 500): 틀 높이 = 화면(100dvh)이어도 «고른 목표» 칸(min-height auto)이 안 줄어 주 메뉴·STOP 이 화면 밖으로 밀림.
@@ -43,7 +43,7 @@ export default function MMap() {
 
   const v = {
     themeClass: `${themeClass(false)} mmap-hdr`, stopProps, status: <LiveStatus D={D} />,   // mmap-hdr: 390 머리 반응형(live.css)
-    hdrA: '지도', hdrB: v3d ? '건물 전체 3D' : on ? `${live ? '현재 열린 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 ±10 m' : 'GT 위치(지형 도면 없음)'} · ${fresh ? 'GT 위치 수신' : TRAIL.last ? 'GT 오래됨' : 'GT 미수신'}(SLAM 아님)`,
+    hdrA: '지도', hdrB: v3d ? '건물 전체 3D' : on ? `${live ? '현재 열린 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 ±10 m' : '지형 도면 없음'} · ${fresh ? '시뮬 위치 수신' : TRAIL.last ? '시뮬 위치 오래됨' : '시뮬 위치 미수신'}`,
     layerP: { 'aria-label': '지도 보기·레이어', 'aria-expanded': layers, onClick: () => setLayers(!layers) },
     map: v3d || <><MapCanvas name="mmap" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : lk.robot} trail={TRAIL.pts} showTrail={trail && !on} showZones={zon && !on} sel={sel}
       raster={raster} blank={blank} flat={flat} noRobot={on && !pose} onTap={on ? undefined : (x, y) => setSel([r2(x), r2(y)])} />
@@ -51,12 +51,12 @@ export default function MMap() {
     fR: { 'data-m': 'robot', onClick: () => api.current?.setMode('robot') }, fI: { onClick: () => api.current?.zoomBy(1.5) }, fO: { onClick: () => api.current?.zoomBy(1 / 1.5) },
     hint: on ? '지도 보기 중 · 지점 고르기 꺼짐' : sel ? `고른 지점 · ${zoneTxt(D, sel[0], sel[1])}` : '지도를 눌러 지점을 고르세요',
     nb: sel ? '고른 지점' : '고른 지점 없음',
-    xy: sel ? `x ${sgn(sel[0])} · y ${sgn(sel[1])} m` : s ? `로봇 GT ${posTxt(s.x, s.y)}` : '로봇 위치 없음(GT 미수신)',
+    xy: sel ? `x ${sgn(sel[0])} · y ${sgn(sel[1])} m` : s ? `로봇(시뮬 위치) ${posTxt(s.x, s.y)}` : '로봇 위치 없음(시뮬 위치 미수신)',
     dist: sel ? (d == null ? '미확인' : `${d.toFixed(1)} m`) : '—',
     eta: '미연결', etaTitle: '자동 이동이 없어 시간 예측 미연결',
-    chk: <><span style={{ color: 'var(--warn)' }}>▲</span>{' 경로 검사 미연결 · 직선 거리'}</>,
+    chk: <><span style={{ color: 'var(--warn)' }}>▲</span>{` 경로 검사 미연결 · 직선 거리 · ${GOTO_WHY}`}</>,
     cancelP: { disabled: !sel, onClick: () => setSel(null) },
-    goP: whyProps(GOTO_WHY),
+    goP: { hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11: 미연결 «이 목표로 이동» 큰 주 버튼 숨김 — 이유는 위 줄(chk)에
     addRow: sel ? <div className="lv-row">
       <select className="lv-inp" aria-label="지점을 넣을 계획" value={mid} onChange={(e) => setMid(e.target.value)}>
         <option value="">+ 새 계획으로</option>{ms.map((m) => <option key={m.id} value={m.id}>{`${m.doc.name} · 지점 ${m.doc.wps.length}`}</option>)}</select>
@@ -70,7 +70,8 @@ export default function MMap() {
       {B(`보기: ${MODE_KO[mode]} → ${mode === 'all' ? '로봇 중심' : '전체 보기'}`, () => api.current?.setMode(mode === 'all' ? 'robot' : 'all'))}
       {B(`지나온 길 ${trail ? '숨기기' : '보이기'}`, () => setTrail(!trail))}
       {B(`구역 ${zon ? '숨기기' : '보이기'}`, () => setZon(!zon))}
-      <p className="lv-note">{`${flat ? '시뮬 바닥 도면 ±10 m · ' : ''}Gazebo GT 위치(SLAM 지도 아님). ${ZONE_NOTE}`}</p>
+      <p className="lv-note">{`${flat ? '시뮬 바닥 도면 ±10 m · ' : ''}위치 = 시뮬 위치. ${ZONE_NOTE}`}</p>
+      <details className="lv-note"><summary>용어</summary>{TERMS}</details>
     </Drawer>;
   return <><style>{CSS + LAND_CSS}</style><div id="dc-root"><View v={{ ...v, drawer }} /></div></>;
 }

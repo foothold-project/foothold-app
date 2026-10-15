@@ -136,8 +136,8 @@ export default function PcPlan() {
     </div></> : <span className="lbl">«측정 지점 추가» 도구로 지도를 누르면 지점이 생깁니다(30개까지). 끌면 지도 이동.</span>;
 
   // ---- 출발 전 점검: 막는 것은 «진행 중 임무 없음»·«계획 저장됨»뿐(기록을 시작할 뿐 로봇을 움직이지 않음) ----
-  const linkGood = lk.linkOk && !st?.sim_block, posTxt = lk.fresh ? 'Gazebo GT(SLAM 아님)' : lk.robot ? 'GT 오래됨' : 'GT 미수신';
-  const cks: [boolean, string, 1?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${lk.fresh ? 'Gazebo GT 수신(SLAM 아님)' : posTxt}`],
+  const linkGood = lk.linkOk && !st?.sim_block, posTxt = lk.fresh ? '시뮬 위치 수신' : lk.robot ? '시뮬 위치 오래됨' : '시뮬 위치 미수신';
+  const cks: [boolean, string, 1?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${posTxt}`],
     [lk.camOk, `영상 · ${lk.camTxt}`], [false, '배터리 · 미제공(v2 시뮬 상태에 값 없음)'],
     [!run, run ? `진행 중 수동 임무 «${run.doc.name}» — 먼저 끝내기` : '진행 중 수동 임무 없음', 1],
     [!!(E.id && !E.dirty && ws.length), !E.id ? '계획 저장 · 아직 저장 안 됨' : E.dirty ? '계획 저장 · 저장 안 한 수정 있음' : `계획 저장됨 · 지점 ${ws.length}개`, 1],
@@ -151,15 +151,15 @@ export default function PcPlan() {
     <label className={`opt${on ? ' on' : ''}`}><input type="radio" name="lost" checked={on} disabled readOnly /><span><b>{b}</b>{extra}<br /><span className="lbl">{lbl}</span></span></label>);
 
   const v = {
-    themeClass: themeClass(true), status: <LiveStatus D={D} />, stopProps,
+    themeClass: `${themeClass(true)} pcplan-hdr`, status: <LiveStatus D={D} />, stopProps,   // pcplan-hdr: B2 A3 STOP 첫 줄 오른쪽(live.css)
     hdrA: `임무 계획 · ${!E.id ? '새 계획 · 저장 안 됨' : E.dirty ? '저장 안 한 수정 있음' : `저장됨 · 판 ${E.rev}`}`, hdrB: d.name || '새 임무 계획',
     pill: run ? `수동 진행 중 · ${run.doc.name}` : '진행 중 임무 없음',
-    chips: <>{chip('링크', lk.linkTxt, linkGood)}{chip('위치', posTxt, lk.fresh)}{chip('배터리', '미제공', false)}</>,
+    chips: <>{chip('위치', posTxt, lk.fresh)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 미제공은 출발 전 점검 한 곳
     tSel: tp('sel'), tAdd: tp('add'), tMeas: tp('measure'), tNo: zp('금지'), tSlow: zp('감속'),
     prevP: { onClick: loadPrev }, prevT: '지난 수동 진행 경로 불러오기',
     map: <MapCanvas name="plan" btns wps={ws} hiWp={wsel} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} onTap={onTap}
       draft={tool === 'measure' && meas.length ? { type: '측정', pts: meas } : null} />,
-    ov1: <span style={OV}>{dot(false)}경로 검사 미연결(Nav2) · 거리는 직선</span>,
+    ov1: <span style={OV}>{dot(false)}경로 검사(자동 길찾기) 미연결 · 거리는 직선</span>,
     ov2: <span style={{ ...OV, border: '1px solid var(--warn)' }}>{dot(!zoneWarn)}{tool === 'measure'
       ? (meas.length === 2 ? `거리 재기: 직선 ${Math.hypot(meas[1][0] - meas[0][0], meas[1][1] - meas[0][1]).toFixed(2)} m` : '거리 재기: 지도에서 두 점을 누르세요')
       : inZ.length ? `${inZ.join(' · ')}(구역은 표시만)` : '구역 안 지점 없음'}</span>,

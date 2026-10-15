@@ -40,7 +40,7 @@ export default function MHome() {
   const v = {
     themeClass: themeClass(false), stopProps, isBase: true, isGas: false, hasFind: false, bodyOverflow: 'auto',
     name: 'Go2 시뮬 · v2',
-    linkLine: <span style={{ fontSize: '13px', color: 'var(--muted)' }}><span style={{ color: `var(--${lk.linkOk ? 'ok' : 'warn'})` }}>{lk.linkOk ? '●' : '▲'}</span>{` 링크 ${lk.linkTxt} · 배터리 미제공`}</span>,
+    linkLine: <span style={{ fontSize: '13px', color: 'var(--muted)' }}>배터리 미제공</span>,   // B2 R16: 링크는 바로 아래 상태 줄(LiveStatus) 한 곳만
     status: <LiveStatus D={D} />,
     alertP: { href: href('MAlerts'), 'aria-label': `알림 ${unread}건(읽지 않음)` }, alertN: String(unread),
     missionLine: R ? `수동 진행 · ${R.tmpl || '양식 없음'} · ${durTxt(R.started)}` : '진행 중 수동 임무 없음', mtagHide: !R,

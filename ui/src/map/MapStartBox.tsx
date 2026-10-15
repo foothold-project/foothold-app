@@ -106,7 +106,7 @@ export function MapStartBox({ pc, onSaved, onShowLive, onView }: { pc: boolean; 
         <option value="slam">{TASK.slam}</option><option value="static">{TASK.static}</option></select>
       {mode === 'static' && <select className={I} aria-label="저장 지도 버전" value={ver} onFocus={() => { loadVers(); }} onChange={(e) => setVer(e.target.value)}>
         <option value="">버전 고르기</option>
-        {mine.map((m) => <option key={m.map_version} value={m.map_version}>{`${m.map_version} · ${m.map_source === 'gt_raster' ? 'GT 기하' : 'SLAM'}`}</option>)}
+        {mine.map((m) => <option key={m.map_version} value={m.map_version}>{`${m.map_version} · ${m.map_source === 'gt_raster' ? '시뮬 도면' : 'SLAM'}`}</option>)}
         {typeof vers === 'string' && <option disabled value="-">{`목록 · ${vers}`}</option>}
         {Array.isArray(vers) && !mine.length && <option disabled value="-">이 층 저장 지도 없음</option>}</select>}
     </span>

@@ -204,7 +204,7 @@ export function View({ v }: { v: Vals }) {
               {"STOP"}
             </span>
             <span style={{"fontSize":"13px"}}>
-              {"전체 정지"}
+              {"명령 0·잠금"}
             </span>
             {" "}
           </button>

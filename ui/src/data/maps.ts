@@ -37,9 +37,9 @@ export function gtFloors(ms: MapInfo[], w: string): MapInfo[] | string {
   if (gs.some((m) => m!.resolution !== a.resolution || m!.width !== a.width || m!.height !== a.height || m!.origin.some((x, i) => x !== a.origin[i]))) return '층 GT 지도의 원점·해상도·크기가 달라 나란히 못 그림';
   return gs as MapInfo[];
 }
-export const verLabel =(m: MapInfo) => `${(WF[m.world_id]?.length || 0) > 1 ? `${FLOOR[m.floor_id as keyof typeof FLOOR]} · ` : ''}${m.map_source === 'gt_raster' ? 'GT 기하 지도(SLAM 아님)' : 'SLAM 저장 지도'} · ${m.map_version}`;
+export const verLabel =(m: MapInfo) => `${(WF[m.world_id]?.length || 0) > 1 ? `${FLOOR[m.floor_id as keyof typeof FLOOR]} · ` : ''}${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 저장 지도'} · ${m.map_version}`;
 export const mapKey = (m: MapInfo) => `${m.building_id}/${m.floor_id}/${m.map_version}`;
-export const mapLabel = (m: MapInfo) => `${place(m.world_id, m.floor_id)} · ${m.map_source === 'gt_raster' ? 'GT 기하 지도(SLAM 아님)' : 'SLAM 저장 지도'} · ${m.map_version}`;
+export const mapLabel = (m: MapInfo) => `${place(m.world_id, m.floor_id)} · ${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 저장 지도'} · ${m.map_version}`;
 
 /** 층별 GT 그림을 위(높은 층)→아래로 쌓은 보기 전용 그림 한 장. 층 사이 띠 + 층 이름. 좌표 하나로 못 읽음 → noGrid·위치 마커 0 */
 export function stackFloors(rs: Raster[], names: string[], label: string): Raster {
@@ -132,7 +132,7 @@ function hsl(h: number, s: number, l: number): [number, number, number] {
 
 // ── 실시간 지도(/v2_map/map → 서버가 status·epoch·격자형상 결속 검사 후 PNG) — 서버 view.st==='ok' 일 때만 받는다
 export const liveLabel = (v: LiveMap) => v.world_id && v.floor_id   // epoch 등 기술 원값은 «지도 열기» 상태 상세·서버 상태에만
-  ? `현재 열린 지도 · ${place(v.world_id, v.floor_id)} · ${v.map_source === 'gt_raster' ? 'GT 기하 지도(SLAM 아님)' : 'SLAM 실시간 매핑'}`
+  ? `현재 열린 지도 · ${place(v.world_id, v.floor_id)} · ${v.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 실시간 매핑'}`
   : '현재 열린 지도';
 /** 지금 실제로 켜진 시뮬(서버 map_start.session) 한 줄 — 지형·층·작업·상태. 고른 것과 별개 */
 export type Sess = { result?: string; runner?: string; world_id?: string; floor_id?: string; map_mode?: string; remaining_s?: number } | null | undefined;

@@ -57,9 +57,9 @@ export default function MFinding() {
     cap: p ? `Gazebo 렌더(실카메라 아님) · 프레임 수신 ${fmtT(p.frame_at)} · episode ${p.episode}`
       : M.ok && only ? (left ? `이 목록엔 남은 사진 없음 — 건너뛴 미분류 ${left}장은 아직 분류 안 됨(완료 아님)` : '분류 대기 사진 없음 — 모두 분류했습니다') : M.ok ? '사진 없음 — 조종 화면·현황의 📷 로 찍은 사진이 여기 쌓입니다(서버 저장 · 모든 기기 공통)' : M.err || '서버 기록 읽는 중…',
     name: p ? (draft ? `분류 초안: ${E.d!.cls} · 저장 안 됨${n ? ` (서버: ${n.doc.cls})` : ''}` : n ? `분류: ${n.doc.cls}` : '미분류 관찰') : '—', dotS: { background: `var(--${lv})` }, confHide: true, hlbl: OBS_NOTE,
-    dt: ['임무 지점', 'GT 위치', '같은 위치'],
+    dt: ['임무 지점', '시뮬 위치', '같은 위치'],
     dd: !p ? ['—', '—', '—'] : [runsOf(D, p.url).join(', ') || '임무 지점에 붙지 않음',
-      p.x == null ? '위치 미확인' : `${posTxt(p.x, p.y)} · ${deg(p.yaw)} (저장 요청 때 최신 GT · 프레임 동기 아님)`,
+      p.x == null ? '위치 미확인' : `${posTxt(p.x, p.y)} · ${deg(p.yaw)} (저장 요청 때 최신 시뮬 위치 · 프레임 동기 아님)`,
       p.x == null ? '비교 불가(위치 없음)' : `반경 1 m 안 다른 사진 ${nearOf(M, p).length}장`],
     tagT: [...TAGS, '+ 직접 입력'],
     tagP: [...TAGS.map((t) => ({ type: 'button', disabled: !ed, 'aria-pressed': ed && E.d!.memo.split(' · ').includes(t), onClick: () => put((d) => { d.memo = tagMemo(d.memo, t); }) })),

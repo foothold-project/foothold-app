@@ -34,7 +34,7 @@ const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   PcLogin: lazy(() => import('./screens/PcLogin')),
   System: lazy(() => import('./screens/System')),
 };
-const HOME = 'PcHistory';
+const HOME = 'Main';   // B2 A1: PC 첫 화면 = 관제(기록은 메뉴)
 
 function App() {
   useStopKey();
@@ -45,7 +45,7 @@ function App() {
   return (
     <QueryClientProvider client={qc}>
       <Suspense fallback={<p className="lv-note">화면 여는 중…</p>}>
-        {S ? <S /> : <p className="lv-note" style={{ padding: 16 }}>{`«${name}» 화면은 아직 React 로 옮기지 않았습니다.`} <a href={`#/${HOME}`}>기록으로</a></p>}
+        {S ? <S /> : <p className="lv-note" style={{ padding: 16 }}>{`«${name}» 화면은 아직 React 로 옮기지 않았습니다.`} <a href={`#/${HOME}`}>관제로</a></p>}
       </Suspense>
       <Toast />
     </QueryClientProvider>

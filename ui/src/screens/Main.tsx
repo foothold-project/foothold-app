@@ -4,7 +4,7 @@ import { Photo } from '../app/Photo';
 import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
-import { NOMOVE, RELURCH, TRIAL, WHY } from '../data/facts';
+import { NOMOVE, RELURCH, TERMS, TRIAL, WHY } from '../data/facts';
 import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, startTxt, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
 import { pickWp, modDone, modTxt, shoot } from '../data/run';
@@ -21,7 +21,7 @@ import { autoProvider, ModePick, OpsQuad } from '../app/OpsQuad';
 const MARK: Record<string, string> = { ok: '●', warn: '▲', bad: '■' };
 const KEYS: Record<string, Partial<Axes>> = { ArrowUp: { fx: 1 }, ArrowDown: { fx: -1 }, ArrowLeft: { fw: 1 }, ArrowRight: { fw: -1 } };
 const typing = (e: KeyboardEvent) => { const t = e.target as HTMLElement | null; return !!t && (t.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName)); };
-const layer = (t: string) => ({ ...whyProps(t), className: 'layer lv-why', 'aria-pressed': false });
+const layer = (_t: string) => ({ style: { display: 'none' }, 'aria-hidden': true, tabIndex: -1 });   // B2 R11: 미연결 레이어 숨김(설명은 «상태 상세»)
 
 // 누르는 동안만 이동하는 버튼(live.js pad/holdBtn). 막혀 있으면 흐리게 + 이유를 title 로(누르면 이유 안내·조종권 받기)
 function Hold({ id, label, p, base, no }: { id: string; label: string; p: Partial<Axes>; base: string; no: string | null }) {
@@ -33,7 +33,7 @@ const Pad = ({ k, no }: { k: string; no: string | null }) => (
     <Hold id={`${k}L`} label="◀ 왼쪽 아크" p={{ fx: 1, fw: 1 }} base="누르는 동안 앞 0.6 m/s + 왼쪽 회전 0.5 rad/s" no={no} />
     <Hold id={`${k}F`} label="▲ 앞 0.6" p={{ fx: 1 }} base="누르는 동안 앞 0.6 m/s · 떼면 0" no={no} />
     <Hold id={`${k}R`} label="오른쪽 아크 ▶" p={{ fx: 1, fw: -1 }} base="누르는 동안 앞 0.6 m/s + 오른쪽 회전 0.5 rad/s" no={no} />
-    <button type="button" {...whyProps(NOMOVE)} className="btn lv-why">후진·제자리 회전 ⓘ</button>
+    <small title={NOMOVE} style={{ alignSelf: 'center', fontSize: '12px', color: 'var(--muted)' }}>후진·제자리 회전: 미검증 — 서버가 0으로 막음</small>   {/* B2 R11: 버튼 모양 0 */}
   </div>);
 
 export default function Main() {
@@ -88,12 +88,13 @@ export default function Main() {
   const rows: [boolean, string, string][] = w ? [[w.st !== '대기', '방문 기록 · 운영자 «방문 확인»(자동 도착 판정 미연결)', w.at ? fmtT(w.at).slice(6) : ''], ...w.mods.map((ty): [boolean, string, string] => [modDone(w, ty), modTxt(w, ty), ''])]
     : [[false, R ? '대기 지점 없음 — 아래에서 임무를 끝내세요' : '수동 진행을 시작하면 지금 지점에서 할 일이 여기에 나옵니다', '']];
 
-  const mode = !v.linkOk ? '링크 끊김' : st?.reset_pending ? '리셋 중' : st?.resume_pending ? 'STOP 해제 대기' : v.latch ? 'STOP 요청' : ctl ? '직접 조종' : '보기 전용';
+  const mode = !v.linkOk ? `링크 ${v.linkTxt}` : st?.reset_pending ? '리셋 중' : st?.resume_pending ? 'STOP 해제 대기' : v.latch ? 'STOP 요청' : ctl ? '직접 조종' : '보기 전용';
   const showStart = v.linkOk && !!st?.sim_start && ['시뮬 상태 미수신', '시뮬 상태 끊김'].includes(st.sim_block);
   const showStop = v.linkOk && showSimStop(st);
   const sx = startTxt(st);
   const ex = [showStart ? [`시뮬 꺼짐${st!.sim_start.why ? ` · ${st!.sim_start.why}` : ''}`, sx.left, sx.last].filter(Boolean).join(' · ') : sessTxt(st) ? `시뮬 세션 ${sessTxt(st)}` : '', v.newVer ? `새 화면 판 ${st!.ver} 반영됨(이 화면 ${L.firstVer})` : ''].filter(Boolean).join(' · ');
-  const motion = `보낸 명령 ${v.sent} · 시뮬 ${v.body}` + (s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : '')
+  // B2 R16: 링크가 끊기면 보낸 명령·몸 상태는 모두 «미확인» 반복이라 빼고 막힌 이유만(이유는 모드 칸과 같은 사실 → «이동하려면»만)
+  const motion = !v.linkOk ? `이동하려면: ${no || '링크 연결'} · 주의: ${RELURCH}` : `보낸 명령 ${v.sent} · 시뮬 ${v.body}` + (s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : '')
     + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동 · 키: ↑ 앞, ↑ 누른 채 ←/→ 아크(←/→ 단독·↓ 는 서버가 0으로 막음)') + ` · 주의: ${RELURCH}`;
   const chip = (k: string, val: string, good: boolean) => ({ k, v: val, st: good ? 'ok' : 'warn', mark: good ? '●' : '▲' });
   const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer, block: no });   // ② 작은 단계 표시(모드·motion 은 그대로)
@@ -105,14 +106,15 @@ export default function Main() {
     siteLine: `${TRIAL} · 판 ${L.firstVer || '—'}`,
     stepTitle: R ? `수동 임무 «${R.name}» · 방문 ${vis}/${R.wps.length}` : '직접 조종 · 진행 중 수동 임무 없음',
     modeLabel: mode, modeBg: `var(--${ctl && !v.latch ? 'acc-bg' : v.linkOk ? 'warn-bg' : 'bad-bg'})`, modeFg: `var(--${ctl && !v.latch ? 'accent' : v.linkOk ? 'warn' : 'bad'})`,
-    chips: [chip('링크', v.linkTxt, v.linkOk && !st?.sim_block), chip('위치', s ? (s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인') : '미연결', !!s), chip('영상', v.camTxt, v.camOk), chip('배터리·온도', '미연결', false), chip('앱↔관문', rtt.txt.replace('앱↔관문 ', ''), rtt.ok),
+    // B2 R16: 같은 사실은 한 곳 — 링크 끊김은 모드 칸, 위치는 지도 제목, 영상은 RGB 칸, 배터리·온도(늘 미연결)와 앱↔관문 원값은 «상태 상세»
+    chips: [...(v.linkOk ? [chip('링크', v.linkTxt, !st?.sim_block)] : []), ...(v.linkOk && !rtt.ok ? [chip('앱↔관문', rtt.txt.replace('앱↔관문 ', ''), false)] : []),
       chip('단계', stg.stop ? `${STEPS[stg.i]} · ${stg.stop}` : `${STEPS[stg.i]} · 다음 ${stg.next}`, !stg.stop && stg.i === 3)],
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelAsk: true, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,
     // 지도: 시뮬 바닥 도면 + GT 위치(SLAM 아님)
-    mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank} · 실제 실행 world 와 별개 · ${pose ? '위치 = 현재 열린 지도 상태' : '위치 미표시'}` : s ? `지도·SLAM 아님 · 선은 ${s.source === 'gz_gt' ? 'Gazebo GT' : s.source || '미확인'} 위치 · x ${sgn(s.x)} y ${sgn(s.y)} m` : '지도·SLAM 아님 · 위치 미연결',
-    layerP: [tog(trail, setTrail, 'Gazebo GT 지나온 길 보이기/숨기기'), layer(`측정값 — ${WHY['가스·측정값·통신 품질']}`), layer(`발견물 — ${WHY['AI 탐지·발견물 판독']}`),
-      layer(`통신 품질 — ${WHY['가스·측정값·통신 품질']}`), tog(zon, setZon, '구역 표시 켜기/끄기(표시만 · 주행 제한 미연결)'), layer(`3D 점군 — ${WHY['뎁스 영상·3D 점군']}`)],
+    mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank} · 실제 실행 world 와 별개 · ${pose ? '위치 = 현재 열린 지도 상태' : '위치 미표시'}` : s ? `시뮬 도면 · 선은 ${s.source === 'gz_gt' ? '시뮬 위치' : s.source || '미확인'} · x ${sgn(s.x)} y ${sgn(s.y)} m` : '시뮬 도면 · 위치 미연결',
+    // B2 R11: 미연결 레이어(측정값·발견물·통신 품질·3D 점군)는 버튼 모양 0 — 숨기고 «상태 상세»의 지원 범위로(3D 점군은 관제 보조 뷰에 있음)
+    layerP: [tog(trail, setTrail, '지나온 길(시뮬 위치) 보이기/숨기기'), layer(''), layer(''), layer(''), tog(zon, setZon, '구역 표시 켜기/끄기(표시만 · 주행 제한 미연결)'), layer('')],
     findCnt: '—', legendHide: true,
     folP: { 'aria-pressed': robotMode, title: '로봇 중심(지도가 따라 움직임) ↔ 전체 보기', onClick: () => { mApi?.setMode(robotMode ? 'all' : 'robot'); redraw((n) => n + 1); } },
     zinP: { title: '확대', onClick: () => mApi?.zoomBy(1.5) }, zoutP: { title: '축소', onClick: () => mApi?.zoomBy(1 / 1.5) },
@@ -134,7 +136,8 @@ export default function Main() {
         {R ? `계획 보기 · «${R.name}»(임무 계획)` : '임무 계획 열기 — 계획을 고르고 «수동 진행 시작»'}</a>
       <details style={{ padding: '4px 2px', fontSize: '13px' }}><summary style={{ cursor: 'pointer', minHeight: '32px', color: 'var(--accent)' }}>상태 상세 · 서버 원값 펼치기</summary>
         <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 14px', margin: '8px 0 0' }}>
-          {stateRows(L).map(([a, b]) => [<dt key={a} style={{ color: 'var(--muted)' }}>{a}</dt>, <dd key={`${a}v`} style={{ margin: 0 }}>{b}</dd>])}</dl></details></>,
+          {[...stateRows(L), ['배터리·온도', '미연결'], ['앱↔관문', rtt.txt], ['지도 레이어 미연결', `측정값·통신 품질 — ${WHY['가스·측정값·통신 품질']} · 발견물 — ${WHY['AI 탐지·발견물 판독']}`]].map(([a, b]) => [<dt key={a} style={{ color: 'var(--muted)' }}>{a}</dt>, <dd key={`${a}v`} style={{ margin: 0 }}>{b}</dd>])}</dl>
+        <p style={{ fontSize: '12px', color: 'var(--muted)', margin: '6px 0 0' }}>{TERMS}</p></details></>,
     // 영상: Gazebo 렌더 카메라 하나(실카메라·뎁스 아님)
     boxRef: box, boxCls: big === 'page' ? 'lv-big' : undefined, camHide: true,   // 영상은 4분할 RGB 칸으로 옮김(같은 img[data-live-cam])
     cam: <><img data-live-cam="" alt="Gazebo 렌더 카메라" src={camURL || undefined} style={{ position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover', visibility: v.camOk ? 'visible' : 'hidden' }} />

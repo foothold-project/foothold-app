@@ -49,7 +49,7 @@ export default function Report() {
           <td className="l">{w.chk ? `${w.chk} · 운영자` : '—'}</td><td className="l">{w.st === '미방문' ? `미방문 · ${w.why}` : w.st === '방문' ? '● 방문' : '대기'}</td>
         </tr>)),
       modNote: `지점마다 할 일: ${[...new Set(R.wps.flatMap((w) => w.mods))].join(' · ') || '이동만'}. 방문 시각은 운영자가 «방문 확인»을 누른 시각입니다(자동 도착 판정·도착 오차 미연결).`,
-      mapCap: '지점 위치(계획 스냅샷) · Gazebo GT 좌표 · 지나온 길은 저장하지 않음(미기록)',
+      mapCap: '지점 위치(계획 스냅샷) · 시뮬 위치 좌표 · 지나온 길은 저장하지 않음(미기록)',
       thumbs: ph.length ? ph.slice(0, 12).map(([u, i]) => {
         const f = M.photos.find((p) => p.url === u)?.frame_at, nn = noteOf(D, u);
         return (<div className="thumb" key={`${u}${i}`}><Photo src={u} alt={`WP${i + 1} 사진`} style={{ width: '100%', aspectRatio: '16/9', objectFit: 'cover', display: 'block' }} />

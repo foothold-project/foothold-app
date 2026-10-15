@@ -8,10 +8,12 @@ export const qc = new QueryClient({ defaultOptions: { queries: { retry: false, s
 
 // 읽기·저장은 전송층 T 하나로(웹 쿠키 fetch 또는 네이티브 FhGate). 오류 의미는 그대로: 읽기 실패 = 던짐, 저장 = status 로
 const parse = (body: string) => { try { return JSON.parse(body); } catch { return {}; } };
+/** B2 A2: 상태 코드 대신 쉬운 말 — 원래 코드는 괄호에 남김 */
+export const httpTxt = (n: number) => `${n === 401 || n === 403 ? '권한 없음(다시 로그인)' : n === 404 ? '서버에 없음' : n === 409 ? '다른 기기가 먼저 바꿈' : n >= 500 ? '서버 오류' : '요청 실패'} (HTTP ${n})`;
 async function getJson<R>(what: 'docs' | 'media'): Promise<R> {
   const r = await T.get(what);
   const d = parse(r.body);
-  if (r.status < 200 || r.status >= 300) throw new Error(d.error || `HTTP ${r.status}`);
+  if (r.status < 200 || r.status >= 300) throw new Error(d.error || httpTxt(r.status));
   return d as R;
 }
 
@@ -60,6 +62,6 @@ export async function saveDoc(m: DocWrite): Promise<SaveRes> {
     const r = await T.postDocs(m);
     const d = parse(r.body), ok = r.status >= 200 && r.status < 300;
     qc.invalidateQueries({ queryKey: ['docs'] }, { cancelRefetch: false });
-    return ok ? { ok: true, ...d } : { ok: false, code: r.status, error: d.error || `HTTP ${r.status}`, cur: d.cur };
+    return ok ? { ok: true, ...d } : { ok: false, code: r.status, error: d.error || httpTxt(r.status), cur: d.cur };
   } catch (e: any) { return { ok: false, code: 0, error: `서버에 닿지 않음 · ${e?.message || e}` }; }
 }

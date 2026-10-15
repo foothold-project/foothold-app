@@ -279,7 +279,7 @@ export function linkView(s: LinkState) {
     linkOk, s: sim, fresh: !!(sim && TRAIL.last),
     camOk, camTxt: camOk ? `${(camT.length / 2).toFixed(0)} fps · ${st!.cam_age!.toFixed(1)} s` : sim?.camera === 'off' ? '꺼짐(시뮬)' : '미연결',
     robot: TRAIL.last ? { ...TRAIL.last, fresh: !!sim } : null, latch: !!(linkOk && st?.latch), simBlock: linkOk ? st?.sim_block || '' : '',
-    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : st!.sim_block || '정상',
+    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : !st ? '상태 수신 대기' : st.sim_block || '정상',   // B2 발견(기존 결함): 대상 전환 직후 st=null·lastMsg 신선 → st! 접근으로 화면 전체가 꺼지던 것. 값 없음 = 대기(«정상» 대체 0)
     roleTxt: st?.role === 'control' ? '조종권 · 이 기기' : st?.role === 'view_other' ? `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}` : '보기 전용',
     newVer: !!(st && s.firstVer && st.ver && st.ver !== s.firstVer),
     body: !sim ? '몸 상태 미연결' : sim.fallen === true ? '넘어짐' : sim.fallen == null ? '넘어짐 미확인'
