@@ -242,7 +242,7 @@ export function checkStatus(m: any): string | null {
       && (x.prod.n_pub === null || (int(x.prod.n_pub) && x.prod.n_pub >= 0))))   // prod: 발행 쪽 진단(없으면 이전 서버)
     && (x.run == null || (ob(x.run) && runId(x.run.run_id) && int(x.run.epoch) && x.run.epoch >= 1
       && typeof x.run.world_id === 'string' && typeof x.run.building_id === 'string' && (x.run.mode === 'slam' || x.run.mode === 'static')));   // run: follow /2 결속 키(없으면 /1)
-  if (m.views != null) { if (!ob(m.views)) m.views = null; else for (const k of ['points', 'follow']) if (!vone(m.views[k])) m.views[k] = null; }
+  if (m.views != null) { if (!ob(m.views)) m.views = null; else for (const k of ['points', 'follow', 'lidar']) if (!vone(m.views[k])) m.views[k] = null; }   // lidar 없음(이전 서버) = null
   if (m.sim !== null) {
     if (typeof m.sim !== 'object') return 'sim';
     for (const k of ['x', 'y', 'yaw', 'vx', 'vy', 'tilt_deg']) if (!nf(m.sim[k])) return `sim.${k}`;

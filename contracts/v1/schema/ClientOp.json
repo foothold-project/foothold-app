@@ -297,7 +297,8 @@
         "what": {
           "enum": [
             "follow",
-            "points"
+            "points",
+            "lidar"
           ],
           "title": "What",
           "type": "string"

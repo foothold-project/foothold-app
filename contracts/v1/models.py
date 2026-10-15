@@ -113,7 +113,7 @@ class OpViewGet(In):
     """보조 관제 뷰 최신 1개(앱이 보고 있을 때만 ≤2 Hz 로 당겨 감 — 서버가 밀어넣지 않음). follow = Gazebo 렌더 3인칭, points = /v2_map/points_view"""
     op: Literal['view_get']
     rid: Rid = None
-    what: Literal['follow', 'points']
+    what: Literal['follow', 'points', 'lidar']   # lidar = /v2_map/points_lidar 센서 좌표 1 scan(누적 0)
 
 
 ClientOp = Annotated[Union[OpSimple, OpResume, OpCmd, OpRid, OpMapGet, OpGeomGet, OpMapStart, OpViewGet], Field(discriminator='op')]
@@ -291,6 +291,7 @@ class ViewSrc(Out):
 class Views(Out):
     follow: ViewSrc                         # /v2_map/follow_cam (std_msgs/String JSON v2_map/follow_cam/1, Gazebo 렌더 3인칭, 지도 체험 시작 때 고름)
     points: ViewSrc                         # /v2_map/points_view (map 프레임 축소 점군)
+    lidar: Optional[ViewSrc] = None         # /v2_map/points_lidar (lidar_link 원자료 1 scan, 센서 좌표·누적 0) — run 칸 늘 있음. 없는 서버(이전 판) = null
 
 
 class Status(Out):

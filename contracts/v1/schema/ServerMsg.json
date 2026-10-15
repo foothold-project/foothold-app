@@ -2085,6 +2085,17 @@
         "follow": {
           "$ref": "#/$defs/ViewSrc"
         },
+        "lidar": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ViewSrc"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "points": {
           "$ref": "#/$defs/ViewSrc"
         }

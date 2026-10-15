@@ -1435,10 +1435,16 @@ class LiveMap:
             return self.key if self.st is not None and not self._why(self.now()) else None
 
     def follow_key(self):       # follow 결속 방식: (False, None) = status 가 /2 를 안 알림 → 옛 /1(지도 키 cur_key) · (True, 키|None) = /2(층·지도 무관)
+        return self._run_key('follow_cam', FC2_SCHEMA)
+
+    def lidar_key(self):        # raw 라이다 결속 키 | None — follow /2 와 같은 실행 키(status.points_lidar 가 같은 run·epoch·reset 아님일 때만). /1 대안 없음
+        return self._run_key('points_lidar', PL_SCHEMA)[1]
+
+    def _run_key(self, src, schema):   # status[src] 가 schema 를 알리면 (True, (run_id, epoch, world, building, mode) | None), 아니면 (False, None)
         with self.lock:
             d, t = self.st, self.now()
-            fc = d.get('follow_cam') if isinstance(d, dict) else None
-            if not (isinstance(fc, dict) and fc.get('schema') == FC2_SCHEMA):
+            fc = d.get(src) if isinstance(d, dict) else None
+            if not (isinstance(fc, dict) and fc.get('schema') == schema):
                 return False, None
             r, ep, w, b, mode = (d.get(x) for x in KEY2_NAMES)
             ok = (d.get('schema') == 'v2_map_status/1' and self.st_t is not None and t - self.st_t <= LIVE_STALE   # 끊김 = 0
@@ -1453,9 +1459,9 @@ class LiveMap:
         with self.lock:
             d = self.st
             if not isinstance(d, dict) or self.st_t is None or self.now() - self.st_t > LIVE_STALE:
-                return {'points': None, 'follow': None}
+                return {'points': None, 'follow': None, 'lidar': None}
             out = {}
-            for k, src in (('points', 'points_view'), ('follow', 'follow_cam')):
+            for k, src in (('points', 'points_view'), ('follow', 'follow_cam'), ('lidar', 'points_lidar')):
                 x = d.get(src)
                 r, n, en = (x.get('last_reason'), x.get('n_pub'), x.get('enabled')) if isinstance(x, dict) else (None, None, None)
                 out[k] = None if not isinstance(x, dict) else {
@@ -1472,15 +1478,20 @@ FC_SCHEMA, FC_MAX, FC_MAX_RAW = 'v2_map/follow_cam/1', 64000, 90000
 # follow /2(RL FOLLOW-CONTRACT-v2 0b663d6c §③, 10-15 합의): 층과 분리 — 결속 = (run_id, epoch, world, building, mode). 층 태그는 형식만(표시 판단 0)
 FC2_SCHEMA, RUN_ID_RE, FLOOR_ST = 'v2_map/follow_cam/2', re.compile(r'[0-9a-f]{32}'), ('on_floor', 'transit', 'unknown')
 KEY2_NAMES = ('run_id', 'epoch', 'world_id', 'building_id', 'mode')
+# raw 라이다(RL POINTS-LIDAR-CONTRACT 652cf577, 10-15 합의): lidar_link 원자료 1 scan — 센서 좌표 그대로(누적·TF·pose·층 0). 결속 = follow /2 와 같은 실행 키
+PL_SCHEMA, PL_STALE = 'v2_map/points_lidar/1', 2.0      # 신선도: link 수신 뒤 2 s(합의)
+PL_FIX = {'frame': 'lidar_link', 'source': 'gazebo_gpu_lidar', 'axes': 'x_forward_y_left_z_up', 'origin': 'lidar_sensor', 'encoding': 'xyz_f32le_b64'}
 KEY_NAMES = ('world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch', 'floor_rev')   # floor_rev = 연결 건물 층 context 세대(없는 world 는 None)
 PROD_REASONS = {   # RL map-20261014/points_view.py REASONS·FOLLOW_REASONS 와 같은 코드(앱 문구 표는 ui/src/app/OpsQuad.tsx)
     'points': ('ok', 'no_cloud', 'reset', 'floor_transit', 'stale_epoch', 'sim_t_unknown', 'future_stamp', 'not_localized', 'bad_cloud', 'tf_lookup_failed', 'tf_stale', 'empty', 'encode_error'),
-    'follow': ('ok', 'no_frame', 'reset', 'floor_transit', 'stale_epoch', 'sim_t_unknown', 'no_stamp', 'future_stamp', 'out_of_order', 'bad_image', 'too_large')}
+    'follow': ('ok', 'no_frame', 'reset', 'floor_transit', 'stale_epoch', 'sim_t_unknown', 'no_stamp', 'future_stamp', 'out_of_order', 'bad_image', 'too_large'),
+    'lidar': ('ok', 'no_cloud', 'reset', 'stale_epoch', 'sim_t_unknown', 'future_stamp', 'bad_cloud', 'wrong_frame', 'out_of_order', 'empty', 'encode_error')}
 
 
 class Views:
-    def __init__(self, key_fn, now=time.monotonic, sim_fn=lambda: None, fkey_fn=lambda: (False, None)):   # sim_fn: (lo, hi) = LiveMap.sim_span() | None · fkey_fn = LiveMap.follow_key
-        self.key_fn, self.now, self.sim_fn, self.fkey_fn, self.lock = key_fn, now, sim_fn, fkey_fn, threading.Lock()
+    def __init__(self, key_fn, now=time.monotonic, sim_fn=lambda: None, fkey_fn=lambda: (False, None), lkey_fn=lambda: None):   # sim_fn: (lo, hi) = LiveMap.sim_span() | None · fkey_fn = LiveMap.follow_key · lkey_fn = LiveMap.lidar_key
+        self.key_fn, self.now, self.sim_fn, self.fkey_fn, self.lkey_fn, self.lock = key_fn, now, sim_fn, fkey_fn, lkey_fn, threading.Lock()
+        self.l = {'last': None, 'seq': 0, 't': None, 'why': '', 'key': None, 'drop': 0}
         self.p = {'last': None, 'seq': 0, 't': None, 'why': '', 'key': None, 'drop': 0}
         self.f = {'last': None, 'seq': 0, 't': None, 'why': '', 'key': None, 'drop': 0}
 
@@ -1582,6 +1593,53 @@ class Views:
             return None, '3인칭 영상 형식 틀림(JPEG·64 000 B 이하)'
         return {'seq': d['seq'], 'stamp_sim': d['stamp_sim'], 'width': w, 'height': h, 'jpeg': d['data_b64'], **dict(zip(KEY2_NAMES, k))}, ''
 
+    @staticmethod
+    def lidar_why(d, k):
+        """points_lidar JSON → (보관 dict, '') | (None, 이유). k = 실행 키(run_id, epoch, world, building, mode). 부분 표시 0(점 하나라도 틀리면 프레임 거부)"""
+        if not isinstance(d, dict) or d.get('schema') != PL_SCHEMA or any(d.get(a) != b for a, b in PL_FIX.items()):
+            return None, '라이다 형식·frame·출처 모름'
+        r = d.get('run_id')
+        if not (isinstance(r, str) and RUN_ID_RE.fullmatch(r)):
+            return None, '라이다 실행 번호(run_id) 형식 틀림'
+        n, nr, seq, ep, vx = (d.get(x) for x in ('n', 'n_raw', 'seq', 'epoch', 'voxel_m'))
+        if not (all(type(x) is int for x in (n, nr, seq, ep)) and 1 <= n <= PV_MAX_N and nr >= n and seq >= 1 and type(d.get('truncated')) is bool
+                and finite(vx) and vx > 0 and finite(d.get('stamp_sim'))):
+            return None, '라이다 n·seq·stamp·voxel 형식 틀림'
+        if tuple(d.get(x) for x in KEY2_NAMES) != k:
+            return None, '라이다가 지금 실행·회차(run_id·epoch·world·모드)와 다름'
+        try:
+            raw = base64.b64decode(d.get('xyz'), validate=True)
+        except Exception:
+            return None, '라이다 xyz 해독 실패'
+        if len(raw) != n * 12 or not all(math.isfinite(v) and abs(v) <= PV_MAX_ABS for v in struct.unpack(f'<{3 * n}f', raw)):
+            return None, '라이다 xyz 길이·값 틀림(n×12·유한·범위)'
+        return {'schema': PL_SCHEMA, **PL_FIX, 'seq': seq, 'stamp_sim': d['stamp_sim'], 'n': n, 'n_raw': nr, 'truncated': d['truncated'], 'voxel_m': vx,
+                'xyz': d['xyz'], **dict(zip(KEY2_NAMES, k))}, ''   # 검증한 고정칸(schema·frame·source·axes·origin·encoding)도 응답에 — 화면이 같은 6칸을 다시 대조
+
+    def on_lidar(self, txt):    # ROS 스레드: 같은 실행 키 안에서 seq·stamp 엄격 증가만, 미래 시각 0
+        k, t = self.lkey_fn(), self.now()
+        with self.lock:
+            s = self.l
+            if not self._gate(s, k, t):
+                if k is None:
+                    s['why'] = '라이다 실행 결속 없음(리셋 중·status 끊김·run_id/epoch 불일치·발행 알림 없음)'
+                return
+            if not isinstance(txt, str) or len(txt) > PV_MAX_RAW:
+                s['why'] = '라이다 메시지 크기 상한 초과'; return
+            try:
+                d = json.loads(txt)
+            except Exception:
+                d = None
+            v, why = self.lidar_why(d, k)
+            last = s['last']
+            if v and last and (v['seq'] <= last['seq'] or v['stamp_sim'] <= last['stamp_sim']):
+                v, why = None, '옛 라이다 scan(seq·stamp 역행·중복)'
+            if v and (tw := self._time_why(v['stamp_sim'])) and tw[0] == 'bad':
+                v, why = None, tw[1]
+            if not v:
+                s['why'] = why; return
+            s.update(last=v, t=t, why=''); s['seq'] += 1
+
     def _fk(self):              # follow 키: /2 면 (run 키|None, True), 아니면 옛 지도 키 그대로(/1)
         v2, k2 = self.fkey_fn()
         return (k2, True) if v2 else (self.key_fn(), False)
@@ -1610,12 +1668,12 @@ class Views:
                 s['why'] = why; return
             s.update(last=v, t=t, why=''); s['seq'] += 1
 
-    def _one(self, s, t, k):
+    def _one(self, s, t, k, stale=VIEW_STALE):
         if s['key'] != k:       # 지도 키가 바뀌었는데 새 메시지가 아직 없으면 옛것은 버린다
             s.update(last=None, key=k, t=None)
         age = None if s['t'] is None else round(t - s['t'], 1)
         st = ('off' if s['last'] is None and not s['why'] else 'bad' if s['last'] is None
-              else 'stale' if age > VIEW_STALE else 'ok')
+              else 'stale' if age > stale else 'ok')
         why = s['why'] or ('받은 것 없음' if st == 'off' else '오래됨' if st == 'stale' else '')
         if st == 'ok':          # 시뮬 시각 대조(기준시계 = live_map status sim_t, 1 Hz): 모름 → 안 줌 · 추정 상한+0.5 s 넘게 앞섬 → 이상 · 마지막 sim_t 보다 3 s 넘게 옛것 → 오래됨
             st, why = self._time_why(s['last']['stamp_sim']) or ('ok', '')
@@ -1637,15 +1695,17 @@ class Views:
             f = self._one(self.f, t, fk)
             if v2:   # /2 면 run 칸이 항상 있음: 결속 키 | null(결속 없음 — 화면은 안 보임). 칸 없음 = /1(지도 결속)
                 f['run'] = dict(zip(KEY2_NAMES, fk)) if fk is not None else None
-            return {'follow': f, 'points': self._one(self.p, t, k)}
+            lk = self.lkey_fn(); li = self._one(self.l, t, lk, PL_STALE)
+            li['run'] = dict(zip(KEY2_NAMES, lk)) if lk is not None else None   # 라이다는 늘 run 칸(키 | null)
+            return {'follow': f, 'points': self._one(self.p, t, k), 'lidar': li}
 
     def get(self, what):        # → (dict, '') | (None, 이유). 오래된 것은 안 줌
-        k, t = (self._fk()[0] if what == 'follow' else self.key_fn()), self.now()
+        k, t = (self._fk()[0] if what == 'follow' else self.lkey_fn() if what == 'lidar' else self.key_fn()), self.now()
         with self.lock:
-            s = self.p if what == 'points' else self.f if what == 'follow' else None
+            s = {'points': self.p, 'follow': self.f, 'lidar': self.l}.get(what)
             if s is None:
                 return None, '보기 종류 모름'
-            v = self._one(s, t, k)
+            v = self._one(s, t, k, PL_STALE if what == 'lidar' else VIEW_STALE)
             return (dict(s['last'], age_s=v['age_s']), '') if v['st'] == 'ok' else (None, v['why'] or '없음')
 
 
@@ -1720,6 +1780,30 @@ def selftest_views():
     t[0] += 0.21; V.on_follow(f2(9, k=(R2, 2, 'rooms_a', 'rooms_a', 'slam'))); assert V.get('follow')[0] is None and '실행 결속 없음' in V.f['why']
     v2on[0] = False; assert 'run' not in V.view()['follow']                                                                   # /1 이면 run 칸 없음
     print('views follow/2 selftest ok')
+    # raw 라이다: 실행 키 결속(지도 키 None 이어도) · 형식 반례(부분 표시 0) · seq·stamp 엄격 증가 · 미래 0 · 2 s 신선도 · 새 회차 되감김 · run 칸
+    lk = [(R2, 1, 'v5_building', 'v5', 'slam')]
+    V = Views(lambda: None, now=lambda: t[0], sim_fn=lambda: (sim[0], sim[0] + lag[0]) if finite(sim[0]) else None, lkey_fn=lambda: lk[0])
+    def lz(seq, k=None, stamp=None, pts=((1.0, 0.5, -0.2), (3.0, -1.0, 0.4)), **kw):
+        d = {'schema': PL_SCHEMA, **PL_FIX, **dict(zip(KEY2_NAMES, k or lk[0])), 'seq': seq, 'stamp_sim': float(seq) if stamp is None else stamp,
+             'voxel_m': 0.1, 'n': len(pts), 'n_raw': len(pts) + 3, 'truncated': False,
+             'xyz': base64.b64encode(struct.pack(f'<{3 * len(pts)}f', *[c for q in pts for c in q])).decode()}
+        d.update(kw); return json.dumps(d)
+    sim[0], lag[0] = 3.0, 0.0; t[0] += 1.0
+    assert V.view()['lidar']['st'] == 'off' and V.view()['lidar']['run']['run_id'] == R2 and 'lidar' not in V.view()['points']
+    V.on_lidar(lz(1)); g = V.get('lidar')[0]; assert g and g['seq'] == 1 and g['n'] == 2 and g['run_id'] == R2 and 'floor_id' not in g, V.l['why']
+    assert g['schema'] == PL_SCHEMA and all(g[a] == b for a, b in PL_FIX.items())                              # 응답에 고정칸 그대로(화면 lidarOf 가 요구)
+    for bad in (lz(2, frame='map'), lz(2, source='x'), lz(2, axes='x'), lz(2, origin='robot'), lz(2, encoding='xyz'), lz(2, schema='v2_map/points_view/1'),
+                lz(2, run_id='F' * 32), lz(2, run_id=R2 + '\n'), lz(2, epoch=True), lz(True), lz(2, n=3), lz(2, n_raw=1), lz(2, truncated=0),
+                lz(2, voxel_m=0), lz(2, voxel_m='0.1'), lz(2, stamp_sim=None), lz(2, pts=((1.0, float('nan'), 0.0),)), lz(2, pts=((1.0, 1e9, 0.0),)),
+                lz(2, k=('f' * 32, 1, 'v5_building', 'v5', 'slam')), lz(2, k=(R2, 2, 'v5_building', 'v5', 'slam')), lz(2, k=(R2, 1, 'v5_building', 'v5', 'static')),
+                lz(1), lz(2, stamp=1.0), lz(2, stamp=50.0), '{', 'x' * (PV_MAX_RAW + 1)):
+        t[0] += 0.21; V.on_lidar(bad); assert V.l['last']['seq'] == 1 and V.l['why'], (V.l['why'], bad[-160:])   # 거부(보관은 seq 1 그대로, 이유 있음)
+    t[0] += 0.21; V.on_lidar(lz(2, stamp=2.5)); assert V.get('lidar')[0]['seq'] == 2 and V.view()['lidar']['st'] == 'ok'
+    t[0] += PL_STALE + 0.1; assert V.view()['lidar']['st'] == 'stale' and V.get('lidar')[0] is None           # 2 s 신선도
+    k1, lk[0] = lk[0], None; t[0] += 0.21; V.on_lidar(lz(3, k=k1)); assert V.get('lidar')[0] is None and '결속 없음' in V.l['why'] and V.view()['lidar']['run'] is None
+    lk[0] = (R2, 2, 'v5_building', 'v5', 'slam'); t[0] += 0.21; V.on_lidar(lz(1, stamp=2.9)); g = V.get('lidar')[0]
+    assert g and g['seq'] == 1 and g['epoch'] == 2, V.l['why']                                                  # 새 회차 = seq 되감김 허용, 옛 scan 버림
+    print('views lidar selftest ok')
     print('views selftest ok')
 
 
@@ -1913,13 +1997,14 @@ def selftest_live():
              'scan': {'n': 9, 'age_s': 0.1}, 'slam_lifecycle': {'epoch': ep, 'state': 'ok'}, 'last_save': None, 'maps_root': '/secret/maps', 'kids': {'slam': 1}}
         d.update(kw); L.on_status(d)
     # 보조 뷰 producer 진단: 허용 코드만 통과 · 모르는 코드 'unknown' · 형식 틀림 None · status 3 s 넘으면 둘 다 None
-    assert L.prod() == {'points': None, 'follow': None}
+    assert L.prod() == {'points': None, 'follow': None, 'lidar': None}
     S(points_view={'n_pub': 0, 'last_reason': 'sim_t_unknown'}, follow_cam={'enabled': True, 'n_pub': 0, 'last_reason': 'sim_t_unknown'})
-    assert L.prod() == {'points': {'reason': 'sim_t_unknown', 'n_pub': 0, 'enabled': None}, 'follow': {'reason': 'sim_t_unknown', 'n_pub': 0, 'enabled': True}}, L.prod()
+    assert L.prod() == {'points': {'reason': 'sim_t_unknown', 'n_pub': 0, 'enabled': None}, 'follow': {'reason': 'sim_t_unknown', 'n_pub': 0, 'enabled': True}, 'lidar': None}, L.prod()
     S(points_view={'n_pub': -1, 'last_reason': '<script>'}, follow_cam={'enabled': 'yes', 'n_pub': 2.0, 'last_reason': 'no_cloud'})   # no_cloud 는 follow 코드 아님
-    assert L.prod() == {'points': {'reason': 'unknown', 'n_pub': None, 'enabled': None}, 'follow': {'reason': 'unknown', 'n_pub': None, 'enabled': None}}, L.prod()
-    S(follow_cam={'enabled': False, 'n_pub': 0, 'last_reason': 'no_frame'}); assert L.prod() == {'points': None, 'follow': {'reason': 'no_frame', 'n_pub': 0, 'enabled': False}}
-    t[0] += LIVE_STALE + 0.1; assert L.prod() == {'points': None, 'follow': None}
+    assert L.prod() == {'points': {'reason': 'unknown', 'n_pub': None, 'enabled': None}, 'follow': {'reason': 'unknown', 'n_pub': None, 'enabled': None}, 'lidar': None}, L.prod()
+    S(follow_cam={'enabled': False, 'n_pub': 0, 'last_reason': 'no_frame'}); assert L.prod() == {'points': None, 'follow': {'reason': 'no_frame', 'n_pub': 0, 'enabled': False}, 'lidar': None}
+    S(points_lidar={'n_pub': 3, 'last_reason': 'wrong_frame'}); assert L.prod()['lidar'] == {'reason': 'wrong_frame', 'n_pub': 3, 'enabled': None}
+    t[0] += LIVE_STALE + 0.1; assert L.prod() == {'points': None, 'follow': None, 'lidar': None}
     # follow /2 결속 키(RL FOLLOW-CONTRACT-v2): (run_id, epoch, world, building, mode) — 층·지도 상태 무관, run_id 엄격, RESET·hold 0
     t[0] = 100.0; L = LiveMap(now=lambda: t[0]); R2 = '0123456789abcdef' * 2
     def F(fc=None, **kw): S(run_id=kw.pop('run_id', R2), follow_cam={'schema': FC2_SCHEMA, 'run_id': R2, 'epoch': kw.get('ep', 1), 'last_reason': None, **(fc or {})}, **kw)
@@ -1939,6 +2024,16 @@ def selftest_live():
     TR = dict(floor_id=None, floor_state='transit', map=None, map_accepting=False)                            # 층 이동 중(지도 키 None 유지)에 RESET → 새 회차
     F(ep=3, **TR); L.hold(); assert L.follow_key() == (True, None)
     F(ep=4, **TR); assert L.cur_key() is None and L.follow_key()[1] == (R2, 4, 'rooms_a', 'rooms_a', 'slam')   # 지도 키가 안 바뀌어도 새 회차면 hold 끝
+    # raw 라이다 결속 키: follow /2 와 같은 실행 키 함수, status.points_lidar 의 schema·run·epoch·reset 만 따로 · 알림 없으면 None(/1 대안 0)
+    t[0] = 100.0; L = LiveMap(now=lambda: t[0])
+    def Lz(pl=None, **kw): S(run_id=kw.pop('run_id', R2), points_lidar={'schema': PL_SCHEMA, 'run_id': R2, 'epoch': kw.get('ep', 1), 'last_reason': 'ok', **(pl or {})}, **kw)
+    assert L.lidar_key() is None; S(); assert L.lidar_key() is None                                         # 알림 없음
+    Lz(); assert L.lidar_key() == (R2, 1, 'rooms_a', 'rooms_a', 'slam') and L.follow_key() == (False, None)   # 라이다 알림이 follow 를 /2 로 바꾸지 않음
+    Lz(**TR); assert L.lidar_key() == (R2, 1, 'rooms_a', 'rooms_a', 'slam')                                # 층 이동 중에도
+    for bad in (dict(pl={'last_reason': 'reset'}), dict(pl={'epoch': 2}), dict(pl={'run_id': 'f' * 32}), dict(pl={'schema': 'v2_map/points_lidar/0'}),
+                dict(ep=True), dict(run_id=R2 + '\n'), dict(run_id=R2.upper()), dict(mode='x'), dict(world_id='nope')):
+        Lz(**bad); assert L.lidar_key() is None, bad
+    Lz(); L.hold(); assert L.lidar_key() is None; Lz(ep=2); assert L.lidar_key()[1] == 2                     # 앱 RESET hold → 새 회차에 끝
     t[0] = 100.0; L = LiveMap(now=lambda: t[0])
     metas = {('v5', 'l1', '20261014-120000-e1'): {'world_id': 'v5_building', 'map_source': 'slam', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]},
              ('v5', 'l1', 'gt-20261012'): {'world_id': 'v5_building', 'map_source': 'gt_raster', 'width': 4, 'height': 2, 'resolution': 0.05, 'origin': [-1.0, -2.0, 0]}}
@@ -2706,10 +2801,11 @@ def main():
     cli_save = node.create_client(Trigger, '/v2_map/save')
     threading.Thread(target=map_worker, daemon=True).start()
     node.create_subscription(CompressedImage, '/v2_live/camera/compressed', on_cam, QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST))
-    views = Views(live.cur_key, sim_fn=live.sim_span, fkey_fn=live.follow_key)     # 보조 관제 뷰: 최신 1개만, 앱이 view_get 으로 끌어감(push 0)
+    views = Views(live.cur_key, sim_fn=live.sim_span, fkey_fn=live.follow_key, lkey_fn=live.lidar_key)     # 보조 관제 뷰: 최신 1개만, 앱이 view_get 으로 끌어감(push 0)
     q1 = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, history=HistoryPolicy.KEEP_LAST)
     node.create_subscription(String, '/v2_map/points_view', lambda m: views.on_points(m.data), q1)
     node.create_subscription(String, '/v2_map/follow_cam', lambda m: views.on_follow(m.data), q1)
+    node.create_subscription(String, '/v2_map/points_lidar', lambda m: views.on_lidar(m.data), q1)   # raw 라이다(센서 좌표 1 scan, RELIABLE depth1)
     # spin 은 명시 executor + 짧은 spin_once 반복: 끝낼 때 멈춤 → join(진행 중 콜백 끝남) → 그 뒤에 node·context 파괴.
     # (옛: daemon rclpy.spin 을 둔 채 destroy → 대기 중인 rcl 스레드와 경합, INT 종료 rc -6 «terminate called without an active exception»)
     from rclpy.executors import SingleThreadedExecutor

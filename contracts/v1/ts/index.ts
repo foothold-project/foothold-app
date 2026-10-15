@@ -253,7 +253,7 @@ export interface OpSimple {
 export interface OpViewGet {
   op: "view_get";
   rid?: number | null;
-  what: "follow" | "points";
+  what: "follow" | "points" | "lidar";
 }
 
 export interface PhotoMeta {
@@ -474,6 +474,7 @@ export interface ViewSrc {
 export interface Views {
   follow: ViewSrc;
   points: ViewSrc;
+  lidar?: ViewSrc | null;
 }
 
 export interface Waypoint {

@@ -259,6 +259,12 @@ test('checkStatus follow /2 run: run_id 소문자 hex 정확히 32자만(끝 개
     const [why, f] = F({ ...RUN, run_id: id }); expect(why).toBe(null); expect(f).toBe(null);
   }
   for (const run of [{ ...RUN, epoch: true }, { ...RUN, epoch: 0 }, { ...RUN, mode: 'x' }, 'x']) expect(F(run)[1]).toBe(null);
+  // raw 라이다 칸: 같은 검사, 없는 서버(칸 없음) = null, 틀리면 그 칸만 버림(조종 상태 통과)
+  const G = (lidar: any) => { const m: any = ST({ views: { points: null, follow: null, ...(lidar === 'absent' ? {} : { lidar }) } }); return [L.checkStatus(m), m.views.lidar]; };
+  expect(G({ st: 'ok', why: '', seq: 3, age_s: 0.4, run: RUN })[1].seq).toBe(3);
+  expect(G('absent')).toEqual([null, null]);
+  for (const bad of [{ st: 'ok', why: '', seq: 3, age_s: 0.4, run: { ...RUN, run_id: R + '\n' } }, { st: 'x', why: '', seq: 3, age_s: 0.4, run: RUN }, { st: 'ok', why: '', seq: true, age_s: 0.4, run: RUN }])
+    expect(G(bad)).toEqual([null, null]);
 });
 
 test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·늦은 응답 모두 명령 0, 돌아와도 자동 복원 0', async () => {
