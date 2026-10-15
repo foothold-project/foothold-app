@@ -9,7 +9,7 @@ import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, press, lift, s
 import { activeRun, docsOf, useDocs } from '../data/shared';
 import { pickWp, modDone, modTxt, shoot } from '../data/run';
 import { href } from '../data/hist';
-import { MapCanvas, type MapApi } from '../map/MapCanvas';
+import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { MULTI, useDriveScreen, useGateRtt, useHold } from '../app/drive';
 import { STEPS, stageOf } from '../data/drive_stage';
@@ -38,8 +38,8 @@ const Pad = ({ k, no }: { k: string; no: string | null }) => (
 
 export default function Main() {
   const D = useDocs(), L = useLink(), v = linkView(L), st = L.st, s = v.s;
-  const api = useRef<MapApi | null>(null), box = useRef<HTMLDivElement>(null);
-  const [trail, setTrail] = useState(true), [zon, setZon] = useState(true), [, redraw] = useState(0);
+  const box = useRef<HTMLDivElement>(null);
+  const [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
   const { raster, pickEl, pose, on, blank, flat } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
@@ -101,7 +101,6 @@ export default function Main() {
     + (v.linkOk && st?.reason && st.reason !== '조종권 없음' ? ` · ${st.reason}` : '') + (no ? ` · 이동하려면: ${no}` : ' · 버튼을 누르는 동안 이동 · 키: ↑ 앞, ↑ 누른 채 ←/→ 아크(←/→ 단독·↓ 는 서버가 0으로 막음)') + ` · 주의: ${RELURCH}`;
   const chip = (k: string, val: string, good: boolean) => ({ k, v: val, st: good ? 'ok' : 'warn', mark: good ? '●' : '▲' });
   const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer, block: no });   // ② 작은 단계 표시(모드·motion 은 그대로)
-  const mApi = api.current, robotMode = (mApi?.mode() || 'robot') === 'robot';
   const tog = (b: boolean, f: (x: boolean) => void, t: string) => ({ className: 'layer', 'aria-pressed': b, title: t, onClick: () => f(!b) });
 
   const vals = {
@@ -119,14 +118,14 @@ export default function Main() {
     // B2 R11: 미연결 레이어(측정값·발견물·통신 품질·3D 점군)는 버튼 모양 0 — 숨기고 «상태 상세»의 지원 범위로(3D 점군은 관제 보조 뷰에 있음)
     layerP: [tog(trail, setTrail, '지나온 길(시뮬 위치) 보이기/숨기기'), layer(''), layer(''), layer(''), tog(zon, setZon, '구역 표시 켜기/끄기(표시만 · 주행 제한 미연결)'), layer('')],
     findCnt: '—', legendHide: true,
-    folP: { 'aria-pressed': robotMode, title: '로봇 중심(지도가 따라 움직임) ↔ 전체 보기', onClick: () => { mApi?.setMode(robotMode ? 'all' : 'robot'); redraw((n) => n + 1); } },
-    zinP: { title: '확대', onClick: () => mApi?.zoomBy(1.5) }, zoutP: { title: '축소', onClick: () => mApi?.zoomBy(1 / 1.5) },
+    // 10-15 ④: 머리줄 아이콘(◎·+·−) 대신 지도 칸 안 글 버튼(«전체 고정 / 로봇 중심» + 확대·축소) — 2×2·큰 칸·전체화면에서 같은 자리
+    folP: layer(''), zinP: layer(''), zoutP: layer(''),
     // 관제 4분할(실기 Go2 | 시뮬 보조) — 지도 칸도 누름 = 확대 토글(끌기 6 px·버튼·고르기는 제외). 이 지도는 onTap 없음(점 찍기 0)
     cardTitle: '관제', modePick: <ModePick />,
     map: <OpsQuad camOk={v.camOk} camTxt={v.camTxt}
       rgbExtra={<button type="button" className="lv-btn" style={{ position: 'absolute', left: 8, bottom: 8 }} title="지금 영상 프레임을 사진으로(촬영 시각·GT 위치 기록)" onClick={photo}>사진 찍기</button>}
       map={(q) => <>
-        <MapCanvas name="main" api={api} small={q === 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
+        <MapCanvas name="main" small={q === 'thumb'} btns={q !== 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
           raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on ? R.wps : null} />
         {q !== 'thumb' && pickEl}</>} />,
     stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist == null ? '미확인' : `${dist.toFixed(1)} m`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',

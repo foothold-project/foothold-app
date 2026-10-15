@@ -1,5 +1,6 @@
 // 앱 틀: 해시 경로(#/화면?값) · 알림(toast) · STOP 버튼과 Space 단축키.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { answerAsk, dropAll, linkView, sendStop, showSimStop, stopSim, useAsk, useLink } from '../data/link';
 import { STOP_TIP } from '../data/facts';
@@ -14,6 +15,11 @@ export function useRoute() {
   const setQ = (k: string, v: string) => { q.set(k, v); history.replaceState(null, '', `#/${path}?${q}`); dispatchEvent(new HashChangeEvent('hashchange')); };
   return { name: path || '', q, setQ };
 }
+
+// ---- 전체화면 안 표시(10-15): 네이티브 전체화면이면 그 요소 밖 DOM 은 안 보인다 → 확인창·알림을 현재 fullscreenElement 안으로 옮겨 그린다 ----
+const fsSub = (f: () => void) => { document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); };
+const fsEl = () => { const e = document.fullscreenElement; return e && e !== document.documentElement && e !== document.body ? e : null; };   // 문서 전체(MDrive)면 원래 자리도 보임
+const InFs = ({ children }: { children: React.ReactNode }) => { const h = useSyncExternalStore(fsSub, fsEl); return h ? createPortal(children, h) : <>{children}</>; };
 
 // ---- 알림 ----
 const useToastS = create<{ t: string; n: number }>(() => ({ t: '', n: 0 }));
@@ -32,7 +38,7 @@ export function StartAsk() {
   }, [text]);
   if (text === null) return null;
   const [head, ...rows] = text.split('\n');
-  return <div role="alertdialog" aria-modal="false" aria-labelledby="fh-ask-h" data-start-ask="1" style={{ position: 'fixed', left: '50%', top: 56, transform: 'translateX(-50%)', zIndex: 60,
+  return <InFs><div role="alertdialog" aria-modal="false" aria-labelledby="fh-ask-h" data-start-ask="1" style={{ position: 'fixed', left: '50%', top: 56, transform: 'translateX(-50%)', zIndex: 60,
     width: 'min(380px, calc(100vw - 32px))', padding: '12px 14px', borderRadius: 10, background: 'rgba(8,11,14,.96)', color: '#E6EBEF', border: '1px solid #3a4652', fontSize: 13, boxShadow: '0 6px 24px rgba(0,0,0,.45)' }}>
     <div id="fh-ask-h" style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{head}</div>
     {rows.map((r) => <div key={r} style={{ lineHeight: 1.45 }}>{r}</div>)}
@@ -40,12 +46,12 @@ export function StartAsk() {
       <button type="button" className="btn" ref={no} onClick={() => answerAsk(false)}>취소</button>
       <button type="button" className="btn" data-ask-ok="1" onClick={() => answerAsk(true)}>조종 시작</button>
     </div>
-  </div>;
+  </div></InFs>;
 }
 export function Toast() {
   const { t, n } = useToastS();
   useEffect(() => { if (!t) return; const id = setTimeout(() => useToastS.setState({ t: '' }), 3500); return () => clearTimeout(id); }, [n]);
-  return t ? <div role="status" data-live-toast="1" style={{ position: 'fixed', left: '50%', top: 96, transform: 'translateX(-50%)', zIndex: 50, maxWidth: '90vw', padding: '8px 14px', borderRadius: 8, background: 'rgba(8,11,14,.92)', color: '#E6EBEF', fontSize: 13, pointerEvents: 'none' }}>{t}</div> : null;
+  return t ? <InFs><div role="status" data-live-toast="1" style={{ position: 'fixed', left: '50%', top: 96, transform: 'translateX(-50%)', zIndex: 50, maxWidth: '90vw', padding: '8px 14px', borderRadius: 8, background: 'rgba(8,11,14,.92)', color: '#E6EBEF', fontSize: 13, pointerEvents: 'none' }}>{t}</div></InFs> : null;
 }
 
 // ---- STOP: 누르는 순간(pointerdown) 보냄. 명령 0 요청일 뿐 몸 정지가 아님 ----

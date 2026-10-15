@@ -4,7 +4,7 @@
 import { useEffect, useState } from 'react';
 import { ask, useLink } from './link';
 
-export const VOX = 0.1, CAP = 300_000, POLL_MS = 500, MAX_ABS = 3000, SRC_AGE = 3;   // MAX_ABS: vkey 는 ±3276.7 m 까지 충돌 없음 → 그보다 작게 고정, 넘는 점이 하나라도 있으면 그 메시지 거부
+export const VOX = 0.1, CAP = 300_000, POLL_MS = 500, FOLLOW_MS = 200, MAX_ABS = 3000, SRC_AGE = 3;   // MAX_ABS: vkey 는 ±3276.7 m 까지 충돌 없음 → 그보다 작게 고정, 넘는 점이 하나라도 있으면 그 메시지 거부
 const KEYS = ['world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_version', 'epoch', 'floor_rev'] as const;   // floor_rev: 연결 건물 층 context 세대(없는 world 는 null)
 export type Pose = { x: number; y: number; z: number; yaw: number };
 type Snap = ReturnType<typeof useLink.getState>;
@@ -88,7 +88,7 @@ export function usePull(what: 'points' | 'follow', on: boolean) {
       const f = followOf(v, b0, req); if (!f) return;
       try { (await createImageBitmap(new Blob([Uint8Array.from(atob(v.jpeg), (ch) => ch.charCodeAt(0))], { type: 'image/jpeg' }))).close(); } catch { return; }   // 해독 안 되는 JPEG 는 안 보임
       if (alive && viewKey(useLink.getState(), what) === b0) { lastSeq = f.seq; setLast(f); }
-    }, POLL_MS);
+    }, what === 'follow' ? FOLLOW_MS : POLL_MS);   // 10-15: 3인칭은 최대 5 Hz(발행 ≈5 Hz · 요청 1개·새 seq 만 — 쌓기 0), 점군은 2 Hz 유지
     return () => { alive = false; clearInterval(t); if (what === 'points') clearCloud(); };
   }, [what, on]);
   return last;

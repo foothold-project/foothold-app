@@ -774,6 +774,31 @@ def selftest_stop():
             assert unit_state(read_session(str(f), timeout=1.0)) == want, body
 
 
+def cam_why(core, sim, now):
+    """지금 가진 카메라 프레임이 지금 회차와 연관 확인되는지 — 사진 저장·영상 push 공용(lock 안에서 부름). '' = 연관 확인.
+    10-15 ②: 영상 push 도 이 검사를 통과한 프레임만(전엔 jpeg_ep·리셋 대조 없이 새 프레임이면 보냄 → 리셋·새 episode 직후 옛 렌더가 새 회차 화면에 섞일 수 있었음)"""
+    st = core.st if core.state_t is not None and now - core.state_t <= 1.0 else None
+    # ponytail: 바뀐 직후 1 s 는 옛 렌더가 섞일 수 있어 거부(지연 실측 없음). 프레임에 episode 가 실리면 그걸로 대조
+    return ('시뮬 상태 없음(1 s 안)' if st is None else '리셋 중' if core.reset_pending or st.get('reset_in_progress') or sim['jpeg_reset']
+            else 'episode 바뀜(프레임과 연관 미확인)' if sim['jpeg_ep'] != core.episode
+            or (core.ep_change_t is not None and min(now, sim['jpeg_t']) - core.ep_change_t < 1.0) else '')
+
+
+def selftest_camwhy():
+    """영상 push·사진 공용 연관 검사: 상태 없음·리셋·옛 episode·바뀐 직후 1 s 프레임 거부, 그 뒤 새 프레임은 통과"""
+    t = [0.0]; c = Core(now=lambda: t[0])
+    S = lambda ep, rip=False: c.on_state({'schema': SCHEMA, 'episode': ep, 'stop_requested': True, 'reset_in_progress': rip, 'policy_running': True})
+    F = lambda: {'jpeg_t': t[0], 'jpeg_ep': c.episode, 'jpeg_reset': bool(c.reset_pending or (c.st or {}).get('reset_in_progress'))}
+    assert cam_why(c, {'jpeg_t': 0.0, 'jpeg_ep': None, 'jpeg_reset': False}, 0.0).startswith('시뮬 상태 없음')
+    S(1); f = F(); assert cam_why(c, f, t[0]) == ''                                 # 같은 회차·리셋 아님 → 보냄
+    t[0] = 2.0; S(1, rip=True); assert cam_why(c, F(), t[0]) == '리셋 중'           # 리셋 중 받은 프레임
+    t[0] = 3.0; S(2); assert 'episode' in cam_why(c, f, t[0])                        # 옛 회차 프레임(리셋 뒤에도 남은 sim['jpeg'])
+    t[0] = 3.5; f2 = F(); assert 'episode' in cam_why(c, f2, t[0])                   # 바뀐 직후 1 s 안 도착 프레임
+    t[0] = 4.6; S(2); assert 'episode' in cam_why(c, f2, t[0])                       # 그 프레임은 시간이 지나도 계속 거부
+    f3 = F(); assert cam_why(c, f3, t[0]) == ''                                      # 1 s 지난 뒤 새 프레임은 통과
+    t[0] = 6.0; assert cam_why(c, f3, t[0]).startswith('시뮬 상태 없음')             # 상태 끊김 1 s 넘음
+
+
 def selftest_stopgen():
     """N1 잠금 세대(CAS): 잠그는 모든 일마다 +1(이미 잠겼어도), gen 다른 resume 거부·재시도 없음, gen 없는 옛 클라이언트 resume 은 그대로"""
     t = [0.0]; c = Core(now=lambda: t[0])
@@ -2429,7 +2454,7 @@ def selftest():
     c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
     st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
-    selftest_extra(); selftest_stop(); selftest_stopgen(); selftest_maps(); selftest_live(); selftest_ux(); selftest_views(); selftest_geom()
+    selftest_extra(); selftest_stop(); selftest_stopgen(); selftest_camwhy(); selftest_maps(); selftest_live(); selftest_ux(); selftest_views(); selftest_geom()
     print('selftest OK')
 
 
@@ -2644,11 +2669,7 @@ def main():
                 return reply(c, rid, False, '사진 실패 · 너무 빠름(0.5 s 에 한 장)')
             if sim['jpeg'] is None or now - sim['jpeg_t'] > 1.0:
                 return reply(c, rid, False, '사진 실패 · 지금 받은 영상 없음(1 s 안의 프레임 없음)')
-            st = core.st if core.state_t is not None and now - core.state_t <= 1.0 else None
-            # ponytail: 바뀐 직후 1 s 는 옛 렌더가 섞일 수 있어 거부(지연 실측 없음). 프레임에 episode 가 실리면 그걸로 대조
-            why = ('시뮬 상태 없음(1 s 안)' if st is None else '리셋 중' if core.reset_pending or st.get('reset_in_progress') or sim['jpeg_reset']
-                   else 'episode 바뀜(프레임과 연관 미확인)' if sim['jpeg_ep'] != core.episode
-                   or (core.ep_change_t is not None and min(now, sim['jpeg_t']) - core.ep_change_t < 1.0) else '')
+            why = cam_why(core, sim, now)
             if why:
                 return reply(c, rid, False, f'사진 실패 · {why} — 잠시 뒤 다시')
             photo_last[0] = now
@@ -2913,6 +2934,8 @@ def main():
             s = snapshot(c)
             with lock:
                 jpeg, n = sim['jpeg'], sim['jpeg_n']
+                if jpeg and cam_why(core, sim, time.monotonic()):
+                    jpeg = None             # 지금 회차와 연관 미확인 프레임(리셋 중·옛 episode·바뀐 직후 1 s·상태 끊김)은 보내지 않음 — 화면은 cam_age 로 «미연결»
             try:
                 c.write_message(json.dumps(s, ensure_ascii=False))
                 if jpeg and n != c.cam_n:

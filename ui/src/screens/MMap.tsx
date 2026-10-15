@@ -45,10 +45,11 @@ export default function MMap() {
     themeClass: `${themeClass(false)} mmap-hdr`, stopProps, status: <LiveStatus D={D} />,   // mmap-hdr: 390 머리 반응형(live.css)
     hdrA: '지도', hdrB: v3d ? '건물 전체 3D' : on ? `${live ? '현재 열린 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 ±10 m' : '지형 도면 없음'} · ${fresh ? '시뮬 위치 수신' : TRAIL.last ? '시뮬 위치 오래됨' : '시뮬 위치 미수신'}`,
     layerP: { 'aria-label': '지도 보기·레이어', 'aria-expanded': layers, onClick: () => setLayers(!layers) },
-    map: v3d || <><MapCanvas name="mmap" api={api} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : lk.robot} trail={TRAIL.pts} showTrail={trail && !on} showZones={zon && !on} sel={sel}
+    map: v3d || <><MapCanvas name="mmap" api={api} btns zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : lk.robot} trail={TRAIL.pts} showTrail={trail && !on} showZones={zon && !on} sel={sel}
       raster={raster} blank={blank} flat={flat} noRobot={on && !pose} onTap={on ? undefined : (x, y) => setSel([r2(x), r2(y)])} />
       {legend && <div style={{ position: 'absolute', left: 8, right: 8, bottom: 30, zIndex: 2, pointerEvents: 'none' }}>{legend}</div>}</>,
-    fR: { 'data-m': 'robot', onClick: () => api.current?.setMode('robot') }, fI: { onClick: () => api.current?.zoomBy(1.5) }, fO: { onClick: () => api.current?.zoomBy(1 / 1.5) },
+    // 10-15 ④: 아이콘 fab(◎·+·−) 대신 지도 안 글 버튼(MapCanvas btns — 같은 자리 오른쪽 위)
+    fR: { hidden: true, tabIndex: -1 }, fI: { hidden: true, tabIndex: -1 }, fO: { hidden: true, tabIndex: -1 },
     hint: on ? '지도 보기 중 · 지점 고르기 꺼짐' : sel ? `고른 지점 · ${zoneTxt(D, sel[0], sel[1])}` : '지도를 눌러 지점을 고르세요',
     nb: sel ? '고른 지점' : '고른 지점 없음',
     xy: sel ? `x ${sgn(sel[0])} · y ${sgn(sel[1])} m` : s ? `로봇(시뮬 위치) ${posTxt(s.x, s.y)}` : '로봇 위치 없음(시뮬 위치 미수신)',
@@ -67,7 +68,7 @@ export default function MMap() {
   const drawer = layers && <Drawer title="지도 열기 · 보기" onClose={() => setLayers(false)}>
       {pickEl}
       <MapStartBox pc={false} onSaved={reload} onShowLive={live ? undefined : showLive} onView={view} />
-      {B(`보기: ${MODE_KO[mode]} → ${mode === 'all' ? '로봇 중심' : '전체 보기'}`, () => api.current?.setMode(mode === 'all' ? 'robot' : 'all'))}
+      {B(`보기: ${MODE_KO[mode]} → ${mode === 'all' ? '로봇 중심' : '전체 고정'}`, () => api.current?.setMode(mode === 'all' ? 'robot' : 'all'))}
       {B(`지나온 길 ${trail ? '숨기기' : '보이기'}`, () => setTrail(!trail))}
       {B(`구역 ${zon ? '숨기기' : '보이기'}`, () => setZon(!zon))}
       <p className="lv-note">{`${flat ? '시뮬 바닥 도면 ±10 m · ' : ''}위치 = 시뮬 위치. ${ZONE_NOTE}`}</p>

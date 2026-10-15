@@ -159,7 +159,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
       </span>;
     })}
   </span>;
-  const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 80px)' } : { width: '100%' };
+  const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */ } : { width: '100%' };
   const el = <span style={{ ...sty, display: 'flex', flexDirection: 'column', gap: 4 }}>
     <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기(화면만 · 시뮬은 그대로)</span>
     {overlay ? <select aria-label="지도 보기 선택(보기만 · 실제 world 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 Gazebo 지형·조종은 그대로" value={sel}

@@ -39,7 +39,11 @@ textarea.lv-inp{resize:vertical}
 .lv-tag.ok{color:var(--ok);border-color:var(--ok)}.lv-tag.warn{color:var(--warn);border-color:var(--warn)}.lv-tag.bad{color:var(--bad);border-color:var(--bad)}.lv-tag.acc{color:var(--accent);border-color:var(--accent)}
 .lv-warnbox{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--warn);border-radius:8px;font-size:13px}
 .lv-map{position:relative;overflow:hidden;border-radius:8px;background:var(--map,#0E1317);min-height:120px}
-.lv-mapbtns{position:absolute;right:8px;top:8px;z-index:2;display:flex;flex-direction:column;gap:6px}.lv-mapbtns .lv-btn{width:44px;min-height:44px;padding:0;font-size:18px}
+.lv-mapbtns{position:absolute;right:8px;top:8px;z-index:2;display:flex;flex-direction:column;align-items:flex-end;gap:6px}.lv-mapbtns>.lv-btn{width:44px;min-height:44px;padding:0;font-size:18px}
+.qd.f:not(.nopip) .qt.on .lv-mapbtns{right:calc(var(--tw) + 14px)}   /* 큰 칸: 오른쪽 작은 칸(PIP) 열이 지도 버튼을 덮던 것(10-15 QA hit false) — 그 왼쪽으로 */
+/* 10-15 ④ 글 있는 보기 버튼(전체 고정 · 로봇 중심) — 눌림 = 지금 방식 */
+.lv-mapseg{display:inline-flex;border-radius:8px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.45)}.lv-mapseg .lv-btn{min-height:44px;padding:0 10px;border-radius:0;font-size:13px;white-space:nowrap}.lv-mapseg .lv-btn+.lv-btn{border-left:0}
+.lv-mapseg .lv-btn[aria-pressed=true]{background:var(--acc-bg,rgba(56,198,217,.18));color:var(--text)}
 .lv-wp{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
 .lv-wp>b{display:grid;place-items:center;width:26px;height:26px;border-radius:13px;border:2px solid var(--accent);font-size:12px}
 .lv-thumb{width:72px;height:48px;object-fit:cover;border-radius:6px;background:#05080A}
@@ -71,7 +75,13 @@ textarea.lv-inp{resize:vertical}
 .qd.nopip .qpip{right:7px}
 .qpip:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .qb{position:relative;flex:1;aspect-ratio:16/10;min-height:0;background:#05080A}
-.qd.f .qt.on .qb{aspect-ratio:auto;height:min(62vh,620px)}
+.qd.f .qt.on .qb{flex:none;aspect-ratio:auto;height:var(--qbh,min(62vh,620px))}   /* flex:none — .qb 기본 flex:1(basis 0)이 세로 flex 에서 height 를 무시하던 것(10-15 QA 실측 197 px) */   /* 10-15 ①: --qbh = 화면 남는 높이(Quad.tsx 가 잼) */
+/* 브라우저 전체화면(이 묶음만): 창 전체 높이 − 칸 머리(30)·틈. STOP(.qfs-stop)은 아래 가운데 상시 */
+.qd:fullscreen{box-sizing:border-box;width:100vw;height:100vh;background:#05080A;align-content:start}
+.qd:fullscreen.f .qt.on .qb{height:calc(100vh - 46px)}
+.qfs{position:absolute;z-index:4;top:9px;right:44px;min-height:26px!important;padding:0 10px!important;font-size:12px!important}
+.qfs-stop{position:absolute;z-index:5;left:50%;bottom:14px;transform:translateX(-50%)}
+.qfs-stop .lv-stop{min-width:120px;height:56px;border:0;border-radius:10px;background:var(--stop,#D7261E);color:#fff;font-size:18px;font-weight:800;letter-spacing:.06em;box-shadow:0 2px 12px rgba(0,0,0,.6)}
 .qd.f .qt.pip .qb{flex:none;aspect-ratio:4/3}
 .qh{display:flex;align-items:center;justify-content:space-between;gap:6px;height:30px;padding:0 8px;border:0;border-bottom:1px solid var(--line);background:var(--panel2);font-size:12px;font-weight:600;text-align:left;min-width:0}
 .qh span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
