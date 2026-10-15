@@ -169,6 +169,16 @@ test('F1 기본 확인창 = 페이지 안(단추 «진행 시작») · STOP(canc
   const r3 = startRun(docsNow(), 'm1', sendF); put([env('m1', 'mission', m2, 4)]); L.answerAsk(true);
   expect(await r3).toBeNull(); expect(sent).toHaveLength(1);
 });
+test('P2-B startRun 앵커(배치만): own.anchor → 창 앵커·r0 · owner/«진행 시작»·취소 결과 그대로 · 앵커 없으면 null · 닫으면 버림', async () => {
+  const L = await import('../../src/data/link');
+  put([env('m1', 'mission', mi({ map: L1 }), 4), env('t1', 'tmpl', { name: 'T', desc: '', mods: [] })]); const sent: DocWrite[] = [];
+  const sendF = async (w: DocWrite) => { sent.push(w); return { ok: true } as any; };
+  const el = { isConnected: true, getBoundingClientRect: () => ({ left: 300, top: 260, right: 460, bottom: 300 }) } as unknown as Element, owner = {};
+  const p = startRun(docsNow(), 'm1', sendF, { owner, anchor: el }), s = L.useAsk.getState();
+  expect(s).toMatchObject({ ok: '진행 시작' }); expect(s.anchor?.el).toBe(el); expect(s.anchor?.r0).toEqual({ left: 300, top: 260, right: 460, bottom: 300 });
+  expect(L.dropAsk(owner)).toBe(true); expect(await p).toBeNull(); expect(sent).toHaveLength(0); expect(L.useAsk.getState()).toMatchObject({ text: null, anchor: null });
+  const q = startRun(docsNow(), 'm1', sendF); expect(L.useAsk.getState().anchor).toBeNull(); L.cancelStart(); expect(await q).toBeNull(); expect(sent).toHaveLength(0);
+});
 
 // ---- F4 개정 rid: 옛 출처 자동 승격 0 · 개정 다르면 다른 지도 · 단층 SDF · 연결 건물 검증 기하 · 늦은/다른 응답 버림 ----
 test('F4 rid 없는 옛 출처(1f93089~ec25939 저장) = 기록만 · rid 다르면 차단 · 같으면 결속', () => {

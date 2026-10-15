@@ -86,3 +86,46 @@ test('A1(670·715 78cc22e): StartAsk 측정 tick 안 style 쓰기 0 — 소스 �
   expect(tick).not.toMatch(/\.style\b/);          // 옛 판: maxHeight none·width·flex none 을 잠깐 써서 본문 scrollTop 이 0 으로 깎임
   expect(tick).toContain('bd.scrollHeight');       // 내용 전부 높이는 본문 scrollHeight 로 읽음
 });
+
+test('P2-B askAvoid: 앵커 없음 = [] · r0 는 늘(분리·숨김·FS 밖도 보수) · 현재 사각형은 연결·보임·크기>0·FS 안일 때만', async () => {
+  const { askAvoid } = await import('../../src/app/shell');
+  const r0 = B(100, 600, 290, 652), now = B(100, 400, 290, 452);
+  const el = (o: object = {}) => ({ isConnected: true, getBoundingClientRect: () => now, checkVisibility: () => true, ...o }) as unknown as Element;
+  expect(askAvoid(null, null)).toEqual([]);
+  expect(askAvoid({ el: el(), r0 }, null)).toEqual([r0, now]);                                        // 스크롤·resize 로 움직였으면 둘 다
+  expect(askAvoid({ el: el({ isConnected: false }), r0 }, null)).toEqual([r0]);                       // 분리
+  expect(askAvoid({ el: el({ checkVisibility: () => false }), r0 }, null)).toEqual([r0]);             // 숨김
+  expect(askAvoid({ el: el({ getBoundingClientRect: () => B(0, 0, 0, 0) }), r0 }, null)).toEqual([r0]);   // 크기 0
+  const a = { el: el(), r0 }, de = { contains: () => true } as unknown as Element;
+  expect(askAvoid(a, { contains: () => false } as unknown as Element, de)).toEqual([r0]);            // FS 밖: 현재는 안 그려짐, r0 는 남김
+  expect(askAvoid(a, { contains: (x: Element) => x === a.el } as unknown as Element, de)).toEqual([r0, now]);
+  expect(askAvoid(a, de, de)).toEqual([r0, now]);                                                     // 문서 전체 FS
+});
+
+test('P2-B 배치: STOP + 앵커 r0·현재를 함께 피함 · 현재만 피하면 r0(두 번째 누름 자리)를 덮는 반례', () => {
+  const stop = B(206, 196, 374, 248), r0 = B(16, 280, 374, 332), now = B(16, 600, 374, 652);   // 390×844 · 열 때 단추 r0, 스크롤 뒤 now
+  const both = ok(390, 844, [stop, r0, now]); expect(both.top).toBe(340);
+  const onlyNow = placeAsk(390, 844, N, [stop, now])!; expect(hit(onlyNow, r0)).toBe(true);
+});
+
+test('P2-B askPage: 같은 글 재열기 = 새 id·새 앵커(옛 창 false) · 답하면 앵커 버림 · dropAsk 도 · from 없음/분리 = null', async () => {
+  const L = await import('../../src/data/link');
+  const fe = (top: number, c = true) => ({ isConnected: c, getBoundingClientRect: () => ({ left: 0, top, right: 100, bottom: top + 44 }) }) as unknown as Element;
+  const a = fe(100), b = fe(300), own = {};
+  const p1 = L.askPage('같은 글', '진행 시작', own, a), id1 = L.useAsk.getState().id;
+  const p2 = L.askPage('같은 글', '진행 시작', own, b), s = L.useAsk.getState();
+  expect(await p1).toBe(false); expect(s.id).toBe(id1 + 1); expect(s.anchor?.el).toBe(b); expect(s.anchor?.r0.top).toBe(300);
+  L.answerAsk(true); expect(await p2).toBe(true); expect(L.useAsk.getState()).toMatchObject({ text: null, anchor: null });
+  const p3 = L.askPage('x', undefined, own, a); expect(L.dropAsk(own)).toBe(true); expect(await p3).toBe(false); expect(L.useAsk.getState().anchor).toBeNull();
+  const p4 = L.askPage('x'); expect(L.useAsk.getState().anchor).toBeNull(); L.answerAsk(false); await p4;
+  const p5 = L.askPage('x', undefined, undefined, fe(10, false)); expect(L.useAsk.getState().anchor).toBeNull(); L.answerAsk(false); await p5;
+});
+
+test('P2-B 연결(소스 정적 — 실제 click·초점·rAF 동작 증명 아님): 4 단추가 currentTarget 을 넘기고 StartAsk 두 effect 가 [text, id]', async () => {
+  const fsm = 'node:fs', rd = async (f: string) => (await import(/* @vite-ignore */ fsm)).readFileSync(new URL(f, import.meta.url), 'utf8') as string;
+  expect((await rd('../../src/app/shell.tsx')).match(/\}, \[text, id\]\)/g)).toHaveLength(2);   // 위치 루프 + «취소» 초점
+  expect(await rd('../../src/screens/Main.tsx')).toMatch(/startDrive\(undefined, e\.currentTarget\)/);
+  expect(await rd('../../src/screens/MDrive.tsx')).toMatch(/big\('조종 시작', async \(e\) => \{ const t = await startDrive\(undefined, e\.currentTarget\)/);
+  const pp = await rd('../../src/screens/PcPlan.tsx'); expect(pp).toMatch(/const from = e\?\.currentTarget;/); expect(pp).toMatch(/\{ \.\.\.planOwn\(E\), anchor: from \}/);
+  expect(await rd('../../src/screens/MHome.tsx')).toMatch(/alive: \(\) => own\.current\.on && own\.current\.mid === m0, anchor: e\?\.currentTarget \}/);
+});

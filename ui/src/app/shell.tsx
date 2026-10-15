@@ -2,7 +2,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
-import { answerAsk, dropAll, linkView, sendStop, showSimStop, stopSim, useAsk, useLink } from '../data/link';
+import { answerAsk, dropAll, linkView, sendStop, showSimStop, stopSim, useAsk, useLink, type AskAnchor } from '../data/link';
 import { STOP_TIP } from '../data/facts';
 import { stopBoxes, type Box, type Placed } from './chip';   // 순환 import(chip→shell) — 둘 다 최상위 실행에선 안 씀(함수 안 호출만)
 
@@ -55,9 +55,20 @@ export function placeAsk(W: number, H: number, need: { h: number; min: number; w
   const big = bands.filter(([a, b]) => b - a >= need.min).sort((p, q) => (q[1] - q[0]) - (p[1] - p[0]))[0];
   return big ? { left, width, top: big[0], maxHeight: big[1] - big[0] } : null;
 }
+/** P2-B: 창을 연 단추(앵커)의 회피 사각형(순수 — 시험용). 앵커 없으면 [](STOP 만 피함 — 패드 누름 경로·무인자 호출).
+ *  r0(여는 click 순간 자리)는 열린 동안 늘 피함 — 분리·숨김·전체화면 밖이어도(손가락이 있던 자리 · 보수, 자리 없음 취소가 늘 수 있음).
+ *  원요소가 지금 연결·보임·크기>0·(전체화면이면 그 안)일 때만 현재 사각형도 — 현재 자리만 피하면 단추가 움직이기 전 두 번째 누름 자리가 확인창 위일 수 있음 */
+export function askAvoid(a: AskAnchor | null, fs: Element | null, de?: Element | null): Box[] {
+  if (!a) return [];
+  const el = a.el, out: Box[] = [a.r0];
+  if (!el.isConnected || (fs && fs !== de && !fs.contains(el)) || el.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }) === false) return out;
+  const { left, top, right, bottom } = el.getBoundingClientRect();
+  if (right > left && bottom > top) out.push({ left, top, right, bottom });
+  return out;
+}
 export const ASK_NOROOM = '확인창을 둘 자리가 없어 취소함(STOP 을 가리지 않음 · 보낸 것 0) — 창을 키우거나 돌린 뒤 다시 누르세요';
 export function StartAsk() {
-  const text = useAsk((s) => s.text), ok = useAsk((s) => s.ok), no = useRef<HTMLButtonElement | null>(null);
+  const text = useAsk((s) => s.text), ok = useAsk((s) => s.ok), id = useAsk((s) => s.id), no = useRef<HTMLButtonElement | null>(null);
   const box = useRef<HTMLDivElement | null>(null), body = useRef<HTMLDivElement | null>(null), row = useRef<HTMLDivElement | null>(null);
   const [at, setAt] = useState<(Placed & { width: number }) | null>(null);
   // 배치만(10-16): 열린 동안 매 프레임 창 크기·보이는 STOP 사각형·필요 높이/폭을 재고, 바뀌었을 때만 다시 놓는다
@@ -69,10 +80,11 @@ export function StartAsk() {
   useLayoutEffect(() => {
     if (text === null) { setAt(null); return; }
     let raf = 0, last = '';
+    const a = useAsk.getState().anchor;   // P2-B: 이 창(id)의 앵커 — 같은 글 재열기도 새 id 라 새 앵커·새 루프(옛 rAF 는 cleanup), 닫히면 answerAsk 가 참조를 버림
     const tick = () => {
       const el = box.current, bd = body.current, rw = row.current;
       if (el && bd && rw) {
-        const W = innerWidth, H = innerHeight, st = stopBoxes(), width = Math.min(380, W - 32);
+        const W = innerWidth, H = innerHeight, st = [...stopBoxes(), ...askAvoid(a, document.fullscreenElement, document.documentElement)], width = Math.min(380, W - 32);
         const r = el.getBoundingClientRect(), bh = bd.scrollHeight;
         const h = Math.ceil(r.height - bd.getBoundingClientRect().height + bh);
         const ov = rw.scrollWidth - rw.clientWidth;   // 단추 줄이 넘치면 > 0
@@ -88,13 +100,13 @@ export function StartAsk() {
       raf = requestAnimationFrame(tick);
     };
     tick(); return () => cancelAnimationFrame(raf);
-  }, [text]);
+  }, [text, id]);
   useEffect(() => {
     if (text === null) return;
     no.current?.focus();
     const k = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); answerAsk(false); } };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
-  }, [text]);
+  }, [text, id]);   // 새 창(같은 글 포함)마다 «취소» 초점 다시
   if (text === null) return null;
   const [head, ...rows] = text.split('\n');
   // 자리 전(첫 그림)은 이전 자리(가운데·top 56) — layout effect 가 그리기 전에 옮기거나 닫는다

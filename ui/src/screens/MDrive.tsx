@@ -34,7 +34,7 @@ const SIM_OFF = ['시뮬 상태 미수신', '시뮬 상태 끊김'];
 // ④ 화면 나누기(화면 배치만 저장): 영상 크게 → 반반 → 지도 크게. 작은 칸을 누르면 다음으로(전환 전 입력 폐기)
 const SPLITS = ['cam', 'half', 'map'] as const; type Split = (typeof SPLITS)[number];
 const SPLIT_TXT: Record<Split, string> = { cam: '영상 크게', half: '반반', map: '지도 크게' };
-const big = (t: string, f: () => void, off = false) => <button key={t} type="button" onClick={f} disabled={off} style={{ opacity: off ? 0.6 : undefined, height: '44px', minWidth: '88px', padding: '0 14px', border: '0', borderRadius: '22px', background: '#1A1206', color: '#FFB547', fontSize: '13px', fontWeight: '700' }}>{t}</button>;
+const big = (t: string, f: (e: React.MouseEvent<HTMLButtonElement>) => void, off = false) => <button key={t} type="button" onClick={f} disabled={off} style={{ opacity: off ? 0.6 : undefined, height: '44px', minWidth: '88px', padding: '0 14px', border: '0', borderRadius: '22px', background: '#1A1206', color: '#FFB547', fontSize: '13px', fontWeight: '700' }}>{t}</button>;
 const hud = (good: boolean, label: string, val: string, mono = true) => <span className="hud"><span style={{ color: good ? '#5AA9FF' : '#FFB547' }}>●</span>{label}<span className={mono ? 'mono' : undefined}>{val}</span></span>;
 
 export default function MDrive() {
@@ -79,7 +79,7 @@ export default function MDrive() {
     // N1: 조종권 받기 + STOP 해제 → «조종 시작» 하나(확인 1회). 진행 중이면 단계 글(누를 수 없음)
     const sb = startBlock(L);
     if (L.starting) btns.push(big(L.starting, () => {}, true));
-    else if (!sb) btns.push(big('조종 시작', async () => { const t = await startDrive(); if (t) toast(t); }));
+    else if (!sb) btns.push(big('조종 시작', async (e) => { const t = await startDrive(undefined, e.currentTarget); if (t) toast(t); }));   // P2-B: 연 단추
     const can = ctl && !st.reset_pending && !st.resume_pending;
     if (can && (v.latch || s?.fallen === true)) btns.push(big('시뮬 리셋', () => sendOp('reset')));
   }

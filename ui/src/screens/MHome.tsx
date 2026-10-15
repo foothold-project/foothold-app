@@ -40,8 +40,8 @@ export default function MHome() {
   const own = useRef({ mid, on: true }); own.current.mid = mid;
   const [tag] = useState(() => ({}));
   useEffect(() => { own.current.on = true; return () => { own.current.on = false; dropAsk(tag); }; }, [tag, mid]);
-  const pb = async () => { if (run) return setEndOpen(!endOpen); const m0 = mid;
-    await startRun(D, mid, (m) => E.write(m).then((x) => x && x.r), { owner: tag, alive: () => own.current.on && own.current.mid === m0 }); };
+  const pb = async (e?: React.MouseEvent<HTMLElement>) => { if (run) return setEndOpen(!endOpen); const m0 = mid;   // P2-B: e.currentTarget = 연 단추(동기로 넘김)
+    await startRun(D, mid, (m) => E.write(m).then((x) => x && x.r), { owner: tag, alive: () => own.current.on && own.current.mid === m0, anchor: e?.currentTarget }); };
   const cam = () => { if (!run || ci < 0) return toast('기록 중인 지점이 없습니다'); attachPhoto(run.id, ci); };
 
   const v = {

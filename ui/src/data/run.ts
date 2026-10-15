@@ -117,8 +117,9 @@ const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: numb
 const C_REASON = new Map([['mission_gone', '계획이 지워짐'], ['mission_changed', '계획 판이 바뀜'], ['tmpl_changed', '양식이 바뀌거나 지워짐'], ['snapshot_mismatch', '계획 사본이 다름']]);
 // send: 화면의 editor.write(쓰기 한 번에 하나) — 두 번 눌러 진행 기록이 둘 생기지 않게. ask: 페이지 안 확인창(시험에서 바꿔 끼움)
 // own(E1): owner = 확인창 주인(이탈·대상 변경 때 dropAsk 로 닫힘), alive = 확인 뒤 «연 화면·고른 계획·편집기 세대가 그대로인가». 아니면 쓰기·화면 이동 0
-export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>, own: { owner?: unknown; alive?: () => boolean; ask?: (t: string) => Promise<boolean> } = {}) {
-  const ask = own.ask ?? ((t: string) => askPage(t, '진행 시작', own.owner)), route = globalThis.location?.hash;
+export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>, own: { owner?: unknown; alive?: () => boolean; ask?: (t: string) => Promise<boolean>; anchor?: Element | null } = {}) {
+  // P2-B: own.anchor = 연 단추(배치만)
+  const ask = own.ask ?? ((t: string) => askPage(t, '진행 시작', own.owner, own.anchor)), route = globalThis.location?.hash;
   const m = docById(D, mid); if (!m || m.kind !== 'mission') { toast('계획을 고르세요'); return null; }
   if (!m.doc.wps.length) { toast('지점이 없는 계획입니다 — 먼저 지점을 추가'); return null; }
   const T = tmplOf(D, m.doc.tmpl); if (!T) { toast(MISSING_T); return null; }

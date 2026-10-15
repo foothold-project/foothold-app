@@ -123,11 +123,12 @@ export default function PcPlan() {
     ws.forEach((w, i) => { if (!w.name.trim()) w.name = `지점 ${i + 1}`; });
     await E.save();
   };
-  const start = async () => {
+  const start = async (e?: React.MouseEvent<HTMLElement>) => {
     if (run) { location.hash = href('Main'); return; }
+    const from = e?.currentTarget;   // P2-B: 연 단추(이벤트 처리 중에만 유효 — await 전에 잡음)
     let same = true;   // 응답 사이 다른 계획을 열었거나 고쳤으면 화면은 그대로(초안 보존), 결과만 알림
     // E1: 확인창 사이 이탈(unmount)·다른 계획·복제(gen 오름)·같은 계획 수정(dirty) → 쓰기 0. 확인 직후 대조(E.write 가 새 gen 을 잡아 옛 확인을 살리지 않게)
-    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; }, planOwn(E));
+    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; }, { ...planOwn(E), anchor: from });
     if (!r) return;
     if (same && !E.dirty) location.hash = href('Main'); else toast('수동 진행은 시작됨 · 모든 기기 공유 — 그사이 화면·계획이 바뀌어 자동으로 옮기지 않음(관제에서 기록)');
   };

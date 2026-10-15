@@ -56,7 +56,8 @@ export default function Main() {
   // N1: «조종 시작» 하나(확인 1회 → 조종권 + STOP 해제) — 조종 가능이면 상태 글만, 진행 중이면 단계 글. 반납은 따로
   // R1: 서버가 입력을 적용 안 하는 동안(sw)은 단추 글·설명도 «조종 가능» 대신 지금 사실(표시만 — startBlock·disabled·N1 무변경)
   const sb = startBlock(L), live = sb === '이미 조종 가능', goT = L.starting ?? (live ? (sw ? '입력 막힘' : '조종 가능') : '조종 시작');
-  const goP = { onClick: async () => { const t = await startDrive(); if (t) toast(t); }, disabled: !!sb, title: (live && sw ? `조종권 있음 · 입력 적용 안 됨: ${sw}` : sb) || '확인 1회 → 조종권 받기 + STOP 해제 · 그 뒤 손 떼고 새로 눌러야 움직임' };
+  // P2-B: 연 단추(e.currentTarget) = 확인창이 덮지 않을 자리(배치만)
+  const goP = { onClick: async (e: React.MouseEvent<HTMLElement>) => { const t = await startDrive(undefined, e.currentTarget); if (t) toast(t); }, disabled: !!sb, title: (live && sw ? `조종권 있음 · 입력 적용 안 됨: ${sw}` : sb) || '확인 1회 → 조종권 받기 + STOP 해제 · 그 뒤 손 떼고 새로 눌러야 움직임' };
 
   // 화살표 키: 조종권 있을 때 새로 누른 키만(반복·입력칸 제외), 떼면 0
   useEffect(() => {

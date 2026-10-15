@@ -227,3 +227,15 @@ test('막힘: 리셋·시뮬 이상·실기 대상·겹친 시작은 확인창�
   L.answerAsk(true); await flush(); srv(); await flush(); srv(); simConfirm(); emit();
   expect(await p).toBe('조종 가능 — 손 떼고 새로 누르면 움직임');
 });
+
+test('P2-B 앵커(배치만): startDrive(undefined, 단추) → 창 앵커 · r0 = 여는 순간 사각형 사본 · 무인자/분리 요소 = 앵커 없음 · STOP 으로 닫히면 버림', async () => {
+  let r = { left: 10, top: 20, right: 110, bottom: 64 };
+  const el = { isConnected: true, getBoundingClientRect: () => r } as unknown as Element;
+  const p = L.startDrive(undefined, el), s1 = L.useAsk.getState();
+  expect(s1.text).toBe(L.START_ASK); expect(s1.anchor?.el).toBe(el); expect(s1.anchor?.r0).toEqual({ left: 10, top: 20, right: 110, bottom: 64 });
+  r = { left: 0, top: 500, right: 100, bottom: 544 }; expect(L.useAsk.getState().anchor?.r0.top).toBe(20);   // 단추가 움직여도 r0 는 여는 순간 값(현재 자리는 StartAsk 가 매 프레임 따로)
+  L.cancelStart(); await p; expect(L.useAsk.getState()).toMatchObject({ text: null, anchor: null }); expect(ops()).toEqual([]);
+  const q = L.startDrive(); expect(L.useAsk.getState().text).toBe(L.START_ASK); expect(L.useAsk.getState().anchor).toBeNull(); L.cancelStart(); await q;   // 무인자(패드 누름 경로) = STOP 만
+  const d = L.startDrive(undefined, { isConnected: false, getBoundingClientRect: () => r } as unknown as Element); expect(L.useAsk.getState().anchor).toBeNull(); L.cancelStart(); await d;
+  const n = L.startDrive(async () => false, el); expect(L.useAsk.getState().text).toBeNull(); await n;   // 주입 ask(시험) 는 그대로 — 앵커·페이지 창 0
+});
