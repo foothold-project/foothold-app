@@ -7,10 +7,11 @@ import { fmtT, themeClass } from '../data/fmt';
 import { docById, docsOf, useDocs } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { MOD_DEF, MOD_OFF, RULE_WHY, plain, tmpls } from '../data/tmpl';
-import { STOP_FACT } from '../data/facts';
+import { RELURCH, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP } from '../data/facts';
 import { href } from '../data/hist';
 import { LiveStatus } from '../app/status';
 import { stopProps, toast, useRoute, whyProps } from '../app/shell';
+import { Chip, Help } from '../app/chip';
 import { cutName } from '../data/run';
 
 const CATALOG = ['사진', '운영자 확인', 'AI 탐지', '가스 측정', '대기', '음성 방송'];
@@ -64,28 +65,35 @@ export default function PcMissions() {
   const cur = list.find((t) => t.id === sel) || list[0], mods = cur.mods, full = mods.length >= 6, has = (ty: string) => mods.some((m) => m.type === ty);
   const edit = (i: number) => { const y = prompt(`${mods[i].type} — 내용`, mods[i].detail); if (y == null || !y.trim()) return; upd(mods.map((x, j) => (j === i ? { ...x, detail: y.trim().slice(0, 80) } : x))); };
   const types = mods.map((m) => m.type);
-  const fixedRule = (c: string, a: string, k: number) => (
+  // U4-c 고정 규칙(서버 고정 · 끌 수 없음): 입력 0.3초 / 화면 1초 → 차단·잠금 «의미만». 몸 정지 시간은 이것과 다름 → 별도 ?(STOP 관측 전문 보존)
+  const fixedRule = (c: string, a: React.ReactNode, k: number) => (
     <div className="rule" key={k} style={{ borderStyle: 'dashed', color: 'var(--muted)' }}>
-      <span><span className="lbl">현재 v2 서버 · 항상 적용(끌 수 없음)</span><br />{c}</span><span aria-hidden="true">→</span><span><span className="lbl" /><br />{a}</span><span />
+      <span><span className="lbl">항상 적용</span><br />{c}</span><span aria-hidden="true">→</span><span><span className="lbl" /><br />{a}</span><span />
     </div>);
   const v = {
     themeClass: themeClass(true), status: <LiveStatus D={D} />, stopProps,
+    stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(v3 §3)
     count: `${list.length}개`,
     items: list.map((t) => {
       const used = runs.filter((r) => r.doc.tmpl === t.name).length, edited = t.locked ? '기본 제공' : `${t.by} · ${fmtT(t.at)}`;
       return { name: t.name, kind: t.kind, kindCls: kindCls(t.kind), summary: `이동 · ${t.mods.length ? t.mods.map((m) => m.type).join(' · ') : '할 일 없음'}`,
         meta: used ? `사용 ${used}회 · ${edited}` : edited, blocked: false, cls: t.id === cur.id ? 'sel' : '', pressed: String(t.id === cur.id), pick: () => pick(t.id) };
     }),
-    cur: { name: cur.name, desc: cur.desc, kind: cur.kind + (cur.locked ? ' 양식 · 잠김' : ' 양식'), kindCls: kindCls(cur.kind), locked: cur.locked,
-      saved: cur.locked ? '기본 제공 · 모든 기기 공통 · 고칠 수 없음' : E.busy ? '저장 중…' : orphan ? '서버 목록에 없음(지워졌거나 아직 안 읽힘) — 내 초안은 화면에 그대로' : E.dirty ? '저장 안 됨 — 입력 칸을 벗어나면 저장' : `자동 저장 · ${cur.by} · ${fmtT(cur.at)} · 판 ${E.rev}` },
+    cur: { name: cur.name, desc: cur.desc, kind: cur.kind + (cur.locked ? ' · 잠김' : ' 양식'), kindCls: kindCls(cur.kind), locked: cur.locked,   // U4-c: 잠김 = «기본 · 잠김» + «복제해서 고치세요»만
+      saved: cur.locked ? '' : E.busy ? '저장 중…' : orphan ? '서버 목록에 없음(지워졌거나 아직 안 읽힘) — 내 초안은 화면에 그대로' : E.dirty ? '저장 안 됨 — 입력 칸을 벗어나면 저장' : `자동 저장 · ${cur.by} · ${fmtT(cur.at)} · 판 ${E.rev}` },
     mods: mods.map((m, i) => ({ no: String(i + 1), type: m.type, detail: m.detail, cls: '', delLabel: `${m.type} 모듈 삭제`, del: () => upd(mods.filter((_, j) => j !== i)),
       detProps: cur.locked ? {} : { role: 'button', tabIndex: 0, title: '눌러서 내용 고치기', style: { cursor: 'pointer' }, onClick: () => edit(i), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') edit(i); } } })),
     noMods: mods.length === 0,
-    palette: CATALOG.map((ty) => ({ type: ty, add: () => upd([...mods, { type: ty as Tmpl['mods'][number]['type'], detail: MOD_DEF[ty] }]),
-      ...(MOD_OFF[ty] ? { off: true, why: MOD_OFF[ty] } : cur.locked ? { off: true, why: '기본 양식은 고칠 수 없습니다' } : has(ty) && ty !== '대기' ? { off: true, why: '이미 들어 있음' } : full ? { off: true, why: '모듈은 6개까지' } : { off: false, why: '' }) })),
-    offL: `${Object.keys(MOD_OFF).join(' · ')} — 현재 v2 연결에 미연결(저장·실행 안 함) · 열화상 — 장비 미등록`,
-    rules: [], ruleWhy: <div className="lbl">{RULE_WHY}</div>,
-    fixed: <>{fixedRule(STOP_FACT[0], STOP_FACT[1], 0)}{fixedRule(STOP_FACT[2], STOP_FACT[3], 1)}</>,
+    palette: CATALOG.map((ty) => { const why = MOD_OFF[ty] ? `아직 연결 안 됨 — ${MOD_OFF[ty]}` : cur.locked ? '기본 양식은 고칠 수 없습니다 · 복제해서 고치세요' : has(ty) && ty !== '대기' ? '이미 들어 있음' : full ? '모듈은 6개까지' : '';
+      // U4-c: 못 더하는 칩(미연결·잠김·중복·6개) = 회색(off) + 누르면 이유 토스트(더하기·저장 0)
+      return { type: ty, off: !!why, why, add: () => upd([...mods, { type: ty as Tmpl['mods'][number]['type'], detail: MOD_DEF[ty] }]), btnP: why ? { ...whyProps(why), className: 'pal lv-why' } : undefined }; }),
+    offL: '',   // U4-c: 미연결 문장 삭제(이유는 칩을 누르면)
+    lockNote: '복제해서 고치세요',
+    rules: [], ruleWhy: null, ruleSub: <Chip tone="off" text="자동 실행 안 함" why={RULE_WHY} whyLabel="경보 규칙 · 설명" />,
+    fixed: <>{fixedRule('조종 입력 0.3초 끊김', <>입력 차단 (몸 정지는 별도<Help label="몸 정지 · 설명"><span style={{ display: 'block' }}>{SAFE_NOTE}</span>
+        <span style={{ display: 'block', marginTop: 4 }}>{STOP_OBS}</span><span style={{ display: 'block', marginTop: 4 }}>{`${STOP_FACT[0]} → ${STOP_FACT[1]}`}</span>
+        <span style={{ display: 'block', marginTop: 4 }}>{`주의: ${RELURCH}`}</span></Help>)</>, 0)}
+      {fixedRule('화면을 떠나거나 신호 1초 끊김', <>입력 차단·잠금<Help label="화면·신호 끊김 · 설명">{`${STOP_FACT[2]} → ${STOP_FACT[3]}`}</Help></>, 1)}</>,
     addRuleProps: { ...whyProps(RULE_WHY), className: 'btn lv-why' },
     panels: uniq(types.map((t) => PANEL[t])), sections: uniq(types.map((t) => SEC[t])), cols: ['도착 시각', ...uniq(types.map((t) => COL[t])), '판정'].join(' · '),
     planHref: href('PcPlan', { tmpl: sel }),
