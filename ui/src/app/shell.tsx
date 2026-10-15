@@ -63,7 +63,9 @@ export function StartAsk() {
   // 배치만(10-16): 열린 동안 매 프레임 창 크기·보이는 STOP 사각형·필요 높이/폭을 재고, 바뀌었을 때만 다시 놓는다
   //   → 회전·전체화면 전환·머리줄 높이 변화로 STOP 이 움직여도 옛 좌표로 가리지 않음. 첫 자리는 그리기 전(layout effect)
   //   자리가 없으면 STOP 을 덮지 않고 기존 취소 경로(answerAsk(false)) + 안내 — 확인 true·다시 열기·재시도 0
-  // ponytail: 열린 동안 프레임마다 측정(잠깐 style 바꿔 자연 높이 읽음) — 오래 열린 창에 쓰면 ResizeObserver + resize/fullscreenchange 로
+  // A1(670·715 78cc22e): 측정은 읽기만 — 매 프레임 임시 style 쓰기 0(옛 판은 본문을 잠깐 펼쳐 넘침 0 → 본문 scrollTop 이 0 으로 깎임)
+  //   내용 전부 높이 = 창 높이 − 본문 칸 높이 + 본문 scrollHeight(줄어든 칸에서도 내용 전부). 크기가 바뀐 프레임은 옛 폭으로 재고 다음 프레임에 다시 맞춤
+  // ponytail: 열린 동안 프레임마다 레이아웃 읽기(부하 미측정) — 오래 열린 창에 쓰면 ResizeObserver + resize/fullscreenchange 로
   useLayoutEffect(() => {
     if (text === null) { setAt(null); return; }
     let raf = 0, last = '';
@@ -71,11 +73,10 @@ export function StartAsk() {
       const el = box.current, bd = body.current, rw = row.current;
       if (el && bd && rw) {
         const W = innerWidth, H = innerHeight, st = stopBoxes(), width = Math.min(380, W - 32);
-        const o = { mh: el.style.maxHeight, w: el.style.width, bf: bd.style.flex };
-        el.style.maxHeight = 'none'; el.style.width = `${width}px`; bd.style.flex = 'none';
-        const h = Math.ceil(el.getBoundingClientRect().height), bh = Math.ceil(bd.getBoundingClientRect().height);
-        const w = Math.ceil(width - rw.clientWidth + rw.scrollWidth);   // 단추 줄이 넘치면 scrollWidth > clientWidth
-        el.style.maxHeight = o.mh; el.style.width = o.w; bd.style.flex = o.bf;
+        const r = el.getBoundingClientRect(), bh = bd.scrollHeight;
+        const h = Math.ceil(r.height - bd.getBoundingClientRect().height + bh);
+        const ov = rw.scrollWidth - rw.clientWidth;   // 단추 줄이 넘치면 > 0
+        const w = ov > 0 ? Math.ceil(r.width + ov) : width;
         const need = { h, min: h - bh + Math.min(bh, 64), w };   // 본문 최소 = 제목 + 약 두 줄(64 px) — 단추 줄·여백·테두리는 전부
         const key = [W, H, h, need.min, w, ...st.flatMap((r) => [r.left, r.top, r.right, r.bottom])].join();
         if (key !== last) {

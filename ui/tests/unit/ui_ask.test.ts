@@ -78,3 +78,11 @@ test('StartAsk 첫 그림(SSR): 내용·단추 순서·초점 대상·z 60 그�
   expect(s).toMatch(/<div data-ask-body="1" style="flex:1 1 auto;min-height:0;overflow-y:auto"><div id="fh-ask-h"/);
   expect(s).toMatch(/<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;flex:none"><button type="button" style="[^"]*">취소<\/button><button type="button" style="[^"]*" data-ask-ok="1">조종 시작<\/button><\/div>/);
 });
+
+test('A1(670·715 78cc22e): StartAsk 측정 tick 안 style 쓰기 0 — 소스 정적 검사(실제 scrollTop 보존 증명 아님 · 670 실측 몫)', async () => {
+  const fsm = 'node:fs', src: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/app/shell.tsx', import.meta.url), 'utf8');
+  const tick = src.slice(src.indexOf('const tick = () => {'), src.indexOf('raf = requestAnimationFrame(tick)'));
+  expect(tick.length).toBeGreaterThan(200);
+  expect(tick).not.toMatch(/\.style\b/);          // 옛 판: maxHeight none·width·flex none 을 잠깐 써서 본문 scrollTop 이 0 으로 깎임
+  expect(tick).toContain('bd.scrollHeight');       // 내용 전부 높이는 본문 scrollHeight 로 읽음
+});
