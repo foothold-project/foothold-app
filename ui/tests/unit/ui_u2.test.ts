@@ -99,3 +99,75 @@ test('U2-b 관제 패널·보조 뷰: 실행 대상 전환 숨김 · 제목 짧�
   expect(code(quadSrc)).not.toMatch(/Gazebo|3인칭|보조 뷰 2칸/);
   expect(quadSrc).toMatch(/'외부 카메라 · 점군 ›'/); expect(quadSrc).toMatch(/<Help label="외부 카메라 · 점군 · 지금 이유">/);
 });
+
+// ── U2 보완(root GO): A1 서버 이유 · ⑧ 링크 표시 · A4 RTT · A3 새 누름 · B1~B3 · P2
+const { srvWhy } = await import('../../src/data/drive_stage');
+const { dirListener } = await import('../../src/app/drive');
+const LK = await import('../../src/data/link');
+const quad = quadSrc;
+const In0 = { linkOk: true, linkTxt: '정상', viewOnly: false, fallen: false, newVer: false, block: null as string | null };
+const NEU = '손을 한 번 뗀 뒤 다시 누르세요';
+
+test('A1: 조종 가능인데 서버가 막는 이유(새 누름 등)는 단계·본문에 · 클라이언트 막힘/잠금/보기 전용/빈 이유면 0', () => {
+  const st = { ...ST, reason: NEU } as any;
+  expect(srvWhy({ ...In0, st })).toBe(NEU);
+  const g = stageOf({ ...In0, st }); expect(g.i).toBe(3); expect(g.stop).toContain(NEU);   // «조종 가능»만 말하지 않음
+  expect(stageOf({ ...In0, st: { ...ST, reason: '' } as any }).stop).toBeNull();            // 막힘 풀림 = 서버가 '' → 조종 가능
+  for (const x of [{ block: 'STOP 잠금' }, { st: { ...st, latch: true } }, { viewOnly: true }, { st: { ...st, role: 'view_other' } }, { linkOk: false }])
+    expect(srvWhy({ ...In0, st, ...x } as any)).toBeNull();
+  expect(code(mainSrc)).toMatch(/noTxt \? `이동하려면: \$\{noTxt\}` : sw \? `지금 안 움직임: \$\{sw\}` : ctl \?/);
+  expect(code(mainSrc)).toMatch(/const sw = srvWhy\(\{[^}]*block: no \}\)/);                 // 실제 발행 판정(driveBlock)과 같은 block
+});
+
+test('⑧ 링크 표시: 본문 «링크 끊김» 단정 대신 연결 상태 글 · 넘어짐이면 다음 행동에 대처 먼저(판정 무변경)', () => {
+  expect(code(mainSrc)).toMatch(/no && no\.startsWith\('링크 끊김'\) \? `링크 \$\{v\.linkTxt\}` : no/);
+  const f = stageOf({ ...In0, viewOnly: true, fallen: true, st: ST as any });
+  expect(f.i).toBe(0); expect(f.next).toMatch(/^넘어짐 — /); expect(f.next).toContain('«조종 시작»');
+  expect(stageOf({ ...In0, fallen: true, linkOk: false, st: ST as any }).next).not.toMatch(/넘어짐/);   // 막힘이 있으면 막힘 안내 그대로
+});
+
+test('A4 RTT: 미측정·확인 못 함·확인 중을 «느림»으로 말하지 않음', () => {
+  expect(code(mainSrc)).not.toMatch(/응답 느림|느림/);
+  expect(code(mainSrc)).toMatch(/text=\{rtt\.txt\.replace\('앱↔관문 ', '관문 '\)\}/);
+  expect(code(mdriveSrc)).not.toMatch(/느림/);
+});
+
+test('A3 방향 안내: 빠른 놓기→재누름(사이 status 없음)도 누름마다 1회 · 같은 누름 반복 0 · 실제 press/lift 경계', () => {
+  LK.useLink.setState({ provider: 'simulation_gate', open: true, lastMsg: performance.now(), bad: null, viewOnly: false, firstVer: 'v', st: { ...ST, ver: 'v', reason: '' } as any } as any);
+  expect(LK.driveBlock()).toBeNull();
+  const out: string[] = [], l = dirListener((t) => out.push(t)), r = '후진 미검증 — 보내지 않음', S = { st: { reason: r } };
+  expect(LK.press('b', 1, { fx: -1, fy: 0, fw: 0 })).toBe(true); l(S); l(S); expect(out).toHaveLength(1);   // 같은 누름 = 1회
+  LK.lift('b', 1); expect(LK.press('b', 2, { fx: -1, fy: 0, fw: 0 })).toBe(true); l(S);                       // 사이 status 0
+  expect(out).toHaveLength(2);
+  LK.lift('b', 2); l({ st: { reason: '' } }); expect(out).toHaveLength(2);
+  expect(code(chipSrc + mainSrc)).not.toMatch(/pressN\+\+/);   // 계수는 link.ts press 성공에서만
+});
+
+test('B1 세로 띠: 조종 틀 예약 = 띠 실제 높이(safe-area·줄바꿈 포함) · 띠 크기 변화도 다시 맞춤', async () => {
+  const dsrc = (await import('../../src/app/drive.tsx?raw')).default;
+  expect(code(dsrc)).toMatch(/innerHeight - t - \(por \? bandH\(px\('paddingBottom'\)\) : px\('paddingBottom'\)\)/);
+  expect(code(dsrc)).toMatch(/querySelector\('\.drv-band'\)\?\.getBoundingClientRect\(\)\.height/);
+  expect(code(dsrc)).toMatch(/new ResizeObserver\(fit\)/); expect(code(dsrc)).toMatch(/ro\?\.disconnect\(\)/);
+});
+
+test('B3 가로 MDrive: 안전 줄은 HUD 흐름 마지막 줄(절대 위치 0) · 옆 버튼·사진은 원래 자리', () => {
+  const huds = mdriveSrc.slice(mdriveSrc.indexOf('huds: <>'), mdriveSrc.indexOf('side: <>'));
+  expect(huds).toMatch(/<SafeLine className="drv-safe" \/><\/>/);
+  expect(mdriveSrc.slice(mdriveSrc.indexOf('side: <>'), mdriveSrc.indexOf('banner:'))).not.toMatch(/SafeLine/);
+  expect(mdriveSrc).toMatch(/\.drv-safe\{flex:1 1 100%;/); expect(mdriveSrc).not.toMatch(/\.drv-safe\{[^}]*position:absolute/);
+  expect(mdriveSrc).toMatch(/right: '44px', top: '86px', display: 'flex'/); expect(mdriveSrc).toMatch(/right: '44px', top: '138px', width: '72px'/);
+});
+
+test('B2 Main 폰 머리줄: 칩 묶음 줄바꿈·가로 스크롤 0·칩 축소 0(≤700·가로 폰)', async () => {
+  const css = (await import('node:fs')).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');   // css ?raw 는 vitest 에서 빈 글
+  const grp = [...css.matchAll(/\[data-main\] \.fh header>div\[style\*="justify-content: flex-end"\]\{([^}]*)\}/g)].map((m) => m[1]);
+  expect(grp).toHaveLength(2);
+  for (const g of grp) { expect(g).toMatch(/flex-wrap:wrap!important/); expect(g).not.toMatch(/nowrap|overflow-x:auto/); }
+  expect(css.match(/\[data-main\] \.fh header>div\[style\*="justify-content: flex-end"\]>\*\{flex:0 0 auto!important\}/g)).toHaveLength(2);
+  expect(css).not.toMatch(/\[data-main\] \.fh header\{[^}]*flex-wrap:nowrap/);
+});
+
+test('P2 Main 전체화면: STOP 옆 안전 한 줄 + ?', () => {
+  const fs = quad.slice(quad.indexOf('function FsStop'));
+  expect(fs).toMatch(/<SafeLine style=/); expect(fs.indexOf('lv-stop')).toBeLessThan(fs.indexOf('<SafeLine'));
+});

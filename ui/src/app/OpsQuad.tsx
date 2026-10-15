@@ -6,7 +6,7 @@ import { stopOn } from './shell';
 import { camURL, linkView, setProvider, useLink } from '../data/link';
 import { CLOUD, usePull, viewKey, viewWhy } from '../data/views';
 import { camChip } from './status';
-import { Help } from './chip';
+import { Help, SafeLine } from './chip';
 import { Cloud3D, LidarTop } from './Cloud3D';
 import { QEmpty, Quad, type QSize, type QTile } from './Quad';
 
@@ -71,8 +71,9 @@ const AuxLine = ({ open, onClick, f, p }: { open: boolean; onClick: () => void; 
 /** 전체화면 안 STOP + 링크·잠금 한 줄 — 알림(toast)·확인창은 shell InFs 로 전체화면 안에 뜨지만 사라지므로, 지속 서버 상태는 이 줄로. 끊김·상태 미확인이면 «미확인»(잠김/안 잠김 단정 0) */
 function FsStop() {
   const L = useLink(), v = linkView(L), sure = v.linkOk && !L.bad && !!L.st && L.stGen === L.gen;   // 이 연결에서 받은 유효 상태일 때만 잠금 여부를 말함
-  return <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+  return <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
     <button type="button" className="lv-stop" aria-label="비상 정지(전체화면)" {...stopOn}>STOP</button>
     <span role="status" style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(5,8,10,.8)', color: !sure ? '#FF5A52' : v.latch ? '#FFB547' : '#E6EBEF', fontSize: 13, fontWeight: 600 }}>
-      {!v.linkOk ? `링크 ${v.linkTxt} — STOP 전달·잠금 미확인` : !sure ? 'STOP 잠금 미확인(상태 확인 전)' : v.latch ? '서버 상태: STOP 잠김' : `서버 상태: STOP 잠금 아님 · ${v.roleTxt}`}</span></div>;
+      {!v.linkOk ? `링크 ${v.linkTxt} — STOP 전달·잠금 미확인` : !sure ? 'STOP 잠금 미확인(상태 확인 전)' : v.latch ? '서버 상태: STOP 잠김' : `서버 상태: STOP 잠금 아님 · ${v.roleTxt}`}</span>
+    <SafeLine style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(5,8,10,.8)' }} /></div>;   {/* U2 보완 P2: 전체화면 안에도 안전 한 줄 + ?(STOP 오른쪽 — STOP 가림 0, ? 팝오버는 InFs 로 전체화면 안) */}
 }

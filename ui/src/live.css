@@ -106,7 +106,9 @@ textarea.lv-inp{resize:vertical}
 @media (max-width:700px){
   [data-main] .fh header{flex-wrap:wrap!important;gap:6px 10px!important;padding:8px 10px!important}
   [data-main] .fh header>div[style*="width: 1px"]{display:none}
-  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
+  /* U2 보완 B2: 칩 묶음은 줄바꿈(가로 스크롤로 칩·?·«시뮬 ▾»를 숨기지 않음) + 칩은 줄지 않음(.lv-chip·[data-head] 칩 겹침 원인) */
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:wrap!important;overflow:visible!important;justify-content:flex-start!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]>*{flex:0 0 auto!important}
   [data-main] .fh nav[aria-label="주 메뉴"]{flex:1 1 100%!important;flex-direction:row!important;justify-content:space-around;overflow-x:auto;padding:4px!important;border-right:0!important;border-bottom:1px solid var(--line)}
   [data-main] .fh main{flex:1 1 100%!important;padding:6px!important}
   [data-main] .fh main>section{flex:1 1 100%!important;max-width:none!important}
@@ -116,10 +118,12 @@ textarea.lv-inp{resize:vertical}
    머리줄 = 로고 · 상태 표시(보기 전용 등) · 칩 한 줄(가로로 밀어 봄) · STOP 만, 위에 고정. 제목·조작자 칸은 숨김(같은 정보는 아래 «상태 상세»).
    관제 4분할은 남은 높이에 맞춤: 2×2 는 두 줄이 화면에 들어오게, 크게 보기는 왼쪽 큰 칸 + 오른쪽 작은 칸 3. PC·세로 폰은 그대로 */
 @media (orientation:landscape) and (max-height:500px){
-  [data-main] .fh header{position:sticky;top:0;z-index:20;flex-wrap:nowrap!important;gap:8px!important;padding:4px 8px!important;max-height:64px}
+  [data-main] .fh header{position:sticky;top:0;z-index:20;flex-wrap:wrap!important;gap:4px 8px!important;padding:4px 8px!important}
   [data-main] .fh header>div[style*="width: 1px"],[data-main] .fh header>div[style*="flex-direction: column"],[data-main] .fh header>div[style*="padding: 0px 4px"]{display:none!important}
-  [data-main] .fh header>div[style*="justify-content: flex-end"]{flex:1 1 0!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
-  [data-main] .fh header>div[style*="justify-content: flex-end"] .chip{flex:0 0 auto;white-space:nowrap}
+  /* U2 보완 B2: 칩 묶음은 로고·모드·STOP 아래 자기 줄(STOP 밑에 깔리지 않게) + 줄바꿈 + 칩 축소 0 */
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:wrap!important;overflow:visible!important;justify-content:flex-start!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]>*{flex:0 0 auto!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"] .chip{white-space:nowrap}
   .qd{--qa:calc(100vh - 150px);scroll-margin-top:68px}
   .qd .qb{flex:none}
   .qd:not(.f) .qb{aspect-ratio:auto;height:calc(var(--qa) / 2 - 33px)}

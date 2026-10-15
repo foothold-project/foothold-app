@@ -25,7 +25,7 @@ const BAND_CSS = `.drv-band{display:none}
 @media ${PORTRAIT}{.drv-band{display:flex;flex-direction:column;gap:8px;position:fixed;left:0;right:0;bottom:0;z-index:40;box-sizing:border-box;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#05080A;box-shadow:0 -1px 0 rgba(230,235,239,.25)}
 .drv-band>*{flex-shrink:0}.drv-band>div{display:flex;gap:8px}.drv-band>div>*{flex:1;justify-content:center;height:48px;text-decoration:none}
 [data-live-drive] button[aria-label="비상 정지"],[data-live-drive] .drv-safe{visibility:hidden}}
-.drv-safe{position:absolute;right:44px;top:82px;width:146px;z-index:3;padding:4px 6px;border-radius:8px;background:rgba(5,8,10,.82);color:#FFB547;font-size:11px;line-height:1.3;box-sizing:border-box}
+.drv-safe{flex:1 1 100%;padding:4px 6px;border-radius:8px;background:rgba(5,8,10,.82);color:#FFB547;font-size:11px;line-height:1.3;box-sizing:border-box}
 .drv-band .lv-safe{font-size:12px;color:#FFB547}
 [data-live-drive] [role=radiogroup][aria-label="속도"],[data-live-drive] a.pill[href="#/MHome"]{display:none!important}`;   /* 원본 틀 인라인 display 를 이기려면 !important */
 // B1 가로 영상 우선: 원본 틀 아래 줄의 속도(고를 수 없음)·현황 링크는 숨기고 서랍으로(문구 그대로). 원본 틀은 재생성 0
@@ -121,11 +121,11 @@ export default function MDrive() {
       {HC.filter((c) => (c.k === 'link' || c.k === 'sim') && c.tone !== 'ok').map((c) => <Chip key={c.k} tone={c.tone} text={c.text} why={c.why} />)}
       {!v.camOk && <Chip tone={cc.tone} text={cc.text} why={cc.why} />}   {/* U2 R3·R5: 12자 이하 칩 + ? · 확인된 꺼짐만 off */}
       {!rtt.ok && <span className="hud" title={rtt.why}><span style={{ color: '#FFB547' }}>●</span>{rtt.txt}</span>}
-      {s?.fallen !== false && <span className="hud">{v.body}</span>}</>,   // 짧은 실제 막힘/미연결만 영상 위 — 정상 RTT·몸·기울기·시험 설명은 서랍
-    side: <><SafeLine className="drv-safe" />   {/* U2: STOP 바로 아래 안전 한 줄 + ?(가로) · 세로는 띠의 STOP 위 */}
-      <div style={{ position: 'absolute', right: '44px', top: '134px', display: 'flex', gap: '8px', zIndex: 3 }}>
+      {s?.fallen !== false && <span className="hud">{v.body}</span>}
+      <SafeLine className="drv-safe" /></>,   // U2 보완 B3: 가로 안전 한 줄은 HUD 흐름의 마지막 줄(폭 100%) — 줄바꿈 높이만큼 자연히 아래로, 오른쪽 열(STOP·옆 버튼·막대)과 분리 · 짧은 실제 막힘/미연결만 영상 위 — 정상 RTT·몸·기울기·시험 설명은 서랍
+    side: <><div style={{ position: 'absolute', right: '44px', top: '86px', display: 'flex', gap: '8px', zIndex: 3 }}>
       {sq('🗺', miniOn ? '작은 지도 접기' : '작은 지도 펼치기', toggleMini)}{sq('📷', '사진 찍기', photo)}{sq('ⓘ', '안내·설정', () => setMenu(true))}</div>
-      {ph && thumbOn && <a href={href('MFinding', { url: ph.url })} aria-label={`마지막 저장 사진 ${ph.saved_at.slice(11, 19)} — 기록 열기`} style={{ position: 'absolute', right: '44px', top: '186px', width: '72px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1.5px solid rgba(230,235,239,.45)', zIndex: 3, background: '#05080A' }}>
+      {ph && thumbOn && <a href={href('MFinding', { url: ph.url })} aria-label={`마지막 저장 사진 ${ph.saved_at.slice(11, 19)} — 기록 열기`} style={{ position: 'absolute', right: '44px', top: '138px', width: '72px', height: '48px', borderRadius: '8px', overflow: 'hidden', border: '1.5px solid rgba(230,235,239,.45)', zIndex: 3, background: '#05080A' }}>
         <Photo src={ph.url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a>}
       {list && W.length > 0 && <div role="dialog" aria-label="경고 목록" style={{ position: 'absolute', left: '50%', top: '150px', transform: 'translateX(-50%)', boxSizing: 'border-box', width: '420px', maxHeight: '200px', overflowY: 'auto', zIndex: 5, padding: '8px 12px', borderRadius: '10px', background: 'rgba(14,19,23,.95)', color: '#E6EBEF', fontSize: '12px', lineHeight: 1.45 }}>
         {W.map((w, k) => <div key={k} style={{ padding: '4px 0', borderTop: k ? '1px solid rgba(230,235,239,.15)' : 0 }}><b style={{ color: w.lvl === 'info' ? '#5AA9FF' : '#FFB547' }}>{`${MARK[w.lvl]} ${w.text}`}</b><br />{`해결: ${w.fix}`}</div>)}

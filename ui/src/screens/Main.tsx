@@ -14,7 +14,7 @@ import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { MULTI, useDirWhy, useDriveScreen, useGateRtt, useHold } from '../app/drive';
-import { STEPS, stageOf } from '../data/drive_stage';
+import { STEPS, stageOf, srvWhy } from '../data/drive_stage';
 import { EndRow, WpActs } from '../app/runui';
 import { useSel } from '../data/scratch';
 import { stopOn, stopProps, toast, whyProps } from '../app/shell';
@@ -100,8 +100,12 @@ export default function Main() {
   const modeTone = !known ? 'warn' : v.latch ? 'bad' : ctl && !st!.reset_pending && !st!.resume_pending ? 'acc' : 'warn';
   // U2(670 P2): 시뮬 미수신·끊김을 «시뮬 꺼짐»으로 단정하던 본문 글(ex)·시뮬 시작/지도/끄기 버튼은 지움 → 머리줄 칩(시뮬 확인 안 됨/끊김)과 «시뮬 ▾» 메뉴 한 곳
   // U2(§4): 운영 = 막힌 이유(R9)·넘어짐(항상 보존 경고)만 · 보낸 명령 수치·몸·기울기·서버 이유 원문은 개발자 모드 · 주의 문장은 안전 한 줄(SafeLine)로
-  const motionNode = <>{no ? `이동하려면: ${no}` : ctl ? '누르는 동안 이동 · 키 ↑ 앞, ↑ 누른 채 ←/→ 아크' : ''}
-    {s?.fallen === true && <b style={{ color: 'var(--bad)' }}>{`${no || ctl ? ' · ' : ''}넘어짐`}</b>}
+  // U2 보완 ⑧: driveBlock «링크 끊김»은 표시만 연결 상태 글(연결 중·상태 오래됨·끊김)로 — 머리줄·단계와 같은 말(차단 조건 무변경)
+  // U2 보완 A1: 클라이언트 막힘이 없어도 서버가 지금 막는 이유(새 누름 필요 등)는 운영 본문에 짧게
+  const noTxt = no && no.startsWith('링크 끊김') ? `링크 ${v.linkTxt}` : no;
+  const sw = srvWhy({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: false, newVer: !!v.newVer, block: no });
+  const motionNode = <>{noTxt ? `이동하려면: ${noTxt}` : sw ? `지금 안 움직임: ${sw}` : ctl ? '누르는 동안 이동 · 키 ↑ 앞, ↑ 누른 채 ←/→ 아크' : ''}
+    {s?.fallen === true && <b style={{ color: 'var(--bad)' }}>{`${noTxt || sw || ctl ? ' · ' : ''}넘어짐`}</b>}
     <span data-dev>{` · 보낸 명령 ${v.sent} · 시뮬 ${v.body}${s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : ''}${v.linkOk && st?.reason ? ` · 서버 이유 ${st.reason}` : ''}`}</span></>;
   const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer, block: no });   // ② 작은 단계 표시(모드·motion 은 그대로)
   const tog = (b: boolean, f: (x: boolean) => void, t: string) => ({ className: 'layer', 'aria-pressed': b, title: t, onClick: () => f(!b) });
@@ -116,7 +120,8 @@ export default function Main() {
     // B2 R16: 같은 사실은 한 곳 — 링크 끊김은 모드 칸, 위치는 지도 제목, 영상은 RGB 칸, 배터리·온도(늘 미연결)와 앱↔관문 원값은 «상태 상세»
     // U1-b: 링크 칩은 공통 머리줄 칩(시뮬·연결·역할·잠금)으로 — 앱↔관문·단계는 그대로(U2)
     // U2(670 P3): 단계는 짧은 칩 + ?(막힌 이유·다음 행동 전문) — 390 폭에서 글이 잘리지 않게
-    head: <>{v.linkOk && !rtt.ok && <Chip tone="warn" text="관문 응답 느림" why={rtt.why || rtt.txt} />}
+    // U2 보완 A4: rtt.ok=false 는 «확인 중·미측정·확인 못 함»이지 지연 판정이 아님 → 그 사실 그대로(느림 단정 0)
+    head: <>{v.linkOk && !rtt.ok && <Chip tone={rtt.txt.endsWith('확인 중') ? 'off' : 'warn'} text={rtt.txt.replace('앱↔관문 ', '관문 ')} why={rtt.why || rtt.txt} />}
       <Chip tone={stg.stop ? 'warn' : stg.i === 3 ? 'ok' : 'off'} text={`단계 ${STEPS[stg.i]}`} why={`${stg.stop ? `막힘: ${stg.stop} · ` : ''}다음: ${stg.next}`} /><HeadChips /></>,
     chips: [],
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelDet: false, panelGas: false,

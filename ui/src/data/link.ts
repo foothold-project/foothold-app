@@ -47,7 +47,7 @@ const ax = (p: Axes): Axes | null => (fin(p.fx) && fin(p.fy) && fin(p.fw) ? { fx
 export function press(id: string, pid: number, p: Axes) {
   if (presses.has(id) || presses.size >= 2) { dropAll(); return false; }
   const a = ax(p); if (driveBlock() || !a) return false;
-  presses.set(id, { pid, p: a }); return true;
+  presses.set(id, { pid, p: a }); pressN++; return true;
 }
 /** 누른 채 움직임: 같은 손가락만, 값 이상이면 모두 폐기 */
 export function move(id: string, pid: number, p: Axes) { const z = presses.get(id); if (!z || z.pid !== pid) return false; const a = ax(p); if (!a) { dropAll(); return false; } z.p = a; return true; }
@@ -58,6 +58,8 @@ export const cancel = (id: string, pid: number) => { if (presses.get(id)?.pid ==
 export const pressed = (id: string) => presses.has(id);
 /** 지금 누르고 있는 입력이 있나(막힌 방향 이유 1회 안내용 — 표시만) */
 export const pressing = () => presses.size > 0;
+let pressN = 0;   // U2 보완 A3: 성공한 누름 횟수(표시 경계용 읽기 전용 — 발행·차단 정책 무관)
+export const pressGen = () => pressN;
 /** 이 곳을 이 손가락이 지금 누르고 있나(폐기·STOP 뒤 낡은 손가락·hover 는 false) */
 export const owns = (id: string, pid: number) => presses.get(id)?.pid === pid;
 function tick20() {

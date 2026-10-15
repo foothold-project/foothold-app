@@ -1,7 +1,7 @@
 // 조종 입력 손잡이(막대·누름 버튼) — live.js stick()/holdBtn() 과 같은 규칙. 값·폐기는 data/link.ts 누름 저장소가 정한다.
 import { useEffect, useRef, useState } from 'react';
 import { T } from '../data/transport';
-import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, pressing, startBlock, startDrive, useLink, type Axes } from '../data/link';
+import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, pressGen, pressing, startBlock, startDrive, useLink, type Axes } from '../data/link';
 import { DIR_TAG } from '../data/facts';
 import { toast } from './shell';
 
@@ -17,8 +17,16 @@ export function dirWhy(said: string, on: boolean, reason: string | null | undefi
   const r = reason || '';
   return /미검증/.test(r) && r !== said ? [r, `${r} · ${DIR_TAG}`] : [said, null];
 }
+/** U2 보완 A3: 상태 구독 리스너 — 빠르게 떼고 다시 눌러(사이에 status 가 안 와) on 이 끊기지 않아도 새 누름(pressGen 변화)이면 다시 1회 */
+export function dirListener(say: (t: string) => void) {
+  let said = '', g = -1;
+  return (s: { st: { reason?: string | null } | null }) => {
+    const n0 = pressGen(); if (n0 !== g) { g = n0; said = ''; }
+    const [n, t] = dirWhy(said, pressing(), s.st?.reason); said = n; if (t) say(t);
+  };
+}
 export function useDirWhy() {
-  useEffect(() => { let said = ''; return useLink.subscribe((s) => { const [n, t] = dirWhy(said, pressing(), s.st?.reason); said = n; if (t) toast(t); }); }, []);
+  useEffect(() => useLink.subscribe(dirListener(toast)), []);
 }
 
 function tryPress(id: string, pid: number, p: Axes) {
@@ -82,9 +90,11 @@ export function useHold(id: string, p: Axes) {
 export function useDriveScreen() { useEffect(() => () => hide(), []); }
 
 /** 휴대폰 가로 화면 맞춤(live.js fitPhone): 시안 844×390 배치 그대로, 안전 영역 안에 비율 축소·가로 늘림 */
-/** R03 세로 띠: 축소하지 않는 아래 줄(현황·사진·메뉴 48 + STOP 64 + 틈 8×3). 세로에서는 조종 틀이 이 높이만큼 위에서 끝난다 */
+/** R03 세로 띠: 축소하지 않는 아래 줄. 세로에서는 조종 틀이 띠의 «실제» 높이(안전 줄 줄바꿈·safe-area 포함, U2 보완 A2)만큼 위에서 끝난다.
+ *  BAND_H 는 띠를 아직 못 잴 때만 쓰는 대체값(버튼 48 + STOP 64 + 틈 8×3) */
 export const BAND_H = 136;
 export const PORTRAIT = '(orientation: portrait)';   // 띠 표시·틀 안 STOP 숨김(CSS)과 같은 조건 하나
+const bandH = (pb: number) => { const h = document.querySelector('.drv-band')?.getBoundingClientRect().height; return h && h > 0 ? h : BAND_H + pb; };   // 띠 padding 이 safe-area 를 이미 포함
 export function useFitPhone() {
   const root = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -97,15 +107,17 @@ export function useFitPhone() {
       const el = root.current; if (!el) return;
       const cs = getComputedStyle(probe), px = (k: 'paddingLeft' | 'paddingTop' | 'paddingRight' | 'paddingBottom') => parseFloat(cs[k]) || 0;
       const por = matchMedia(PORTRAIT).matches;
-      const l = px('paddingLeft'), t = px('paddingTop'), W = innerWidth - l - px('paddingRight'), H = innerHeight - t - px('paddingBottom') - (por ? BAND_H : 0);
+      const l = px('paddingLeft'), t = px('paddingTop'), W = innerWidth - l - px('paddingRight'), H = innerHeight - t - (por ? bandH(px('paddingBottom')) : px('paddingBottom'));
       const k = Math.min(1, H / 390, W / 700);
       Object.assign(el.style, { position: 'fixed', left: `${l}px`, top: `${t}px`, width: `${W / k}px`, height: `${H / k}px`, transform: k < 1 ? `scale(${k})` : '', transformOrigin: '0 0' });
       el.dataset.liveFit = `${Math.round(W)}x${Math.round(H)}@${k.toFixed(2)}`;
       tip.style.display = por ? 'block' : 'none';
     };
+    // 띠 높이가 바뀌면(글 줄바꿈·글꼴·dev 전환) 다시 맞춤 — 창 크기 변화 없이도
+    const band = document.querySelector('.drv-band'), ro = band && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null; if (band) ro?.observe(band);
     addEventListener('resize', fit); visualViewport?.addEventListener('resize', fit); fit();
     const raf = requestAnimationFrame(() => requestAnimationFrame(fit));
-    return () => { cancelAnimationFrame(raf); removeEventListener('resize', fit); visualViewport?.removeEventListener('resize', fit); probe.remove(); tip.remove(); document.body.style.background = bg; };
+    return () => { ro?.disconnect(); cancelAnimationFrame(raf); removeEventListener('resize', fit); visualViewport?.removeEventListener('resize', fit); probe.remove(); tip.remove(); document.body.style.background = bg; };
   }, []);
   return root;
 }
