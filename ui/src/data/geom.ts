@@ -66,7 +66,9 @@ type RidLv = { world_id?: string | null; world_src_sha256?: string | null; spawn
 type RidS = { gen: number; provider: string; st: { episode?: number | null; live_map?: unknown } | null };
 export const ridKey = (s: RidS, lv: RidLv) => [s.gen, s.provider, s.st?.episode, lv.world_id, lv.geom?.sha256, lv.world_src_sha256, lv.spawn_floor, lv.epoch].join('|');
 // G1(Codex P1): 빈 계획 화면도 매 그리기마다 이것을 불러(gtHere) 첫 점 전에 기하를 준비한다. 상태 = 확인됨(rid) · 받는 중(wait) · 실패/미확인(why).
-// 키가 바뀌면 옛 검증본을 버린다. 받는 중엔 같은 키로 다시 요청하지 않고(ask 5 s 제한이 끝을 보장), 실패 뒤 6 s 안 재요청 0.
+// G2: gtHere 가 «실제로 관찰한» 관련 키 전환에서 옛 요청·검증본을 버린다 — 다른 키로 부름 · 기하 sha/SDF sha/기동 층 누락(아래 조기 반환) ·
+// 연결 건물 아닌 world(gtHere 가 ridReset). 부르지 않은 사이의 중간 상태는 알 수 없음(보장 0) — 그래서 쓸 때마다 지금 키·sha·geomBind 를 다시 대조.
+// 받는 중엔 같은 키로 다시 요청하지 않고(ask 5 s 제한이 끝을 보장), 실패 뒤 6 s 안 재요청 0. 새 타이머·구독 0.
 type RidAsk = { key: string; t: number; why?: string };   // why: undefined = 받는 중 · '' = 성공 · 글 = 실패 이유
 let ridG: { key: string; g: Geom; sha: string } | null = null, ridAsk: RidAsk | null = null;
 export const ridDeps = { get: (b: 'v5') => getGeom(b), now: () => performance.now(), cur: (): [RidS, RidLv | null] => { const s = useLink.getState(); return [s, (s.st?.live_map as RidLv | null | undefined) ?? null]; } };
@@ -74,7 +76,7 @@ export type RidSt = { rid: string; why?: undefined; wait?: undefined } | { rid?:
 const WAIT: RidSt = { why: 'GT 기하 파일 받는 중', wait: true };
 /** 연결 건물 rid · 받는 중 · 미확인 이유. 없으면 기하 받기를 한 번 요청 */
 export function geomRid(s: RidS, lv: RidLv): RidSt {
-  if (lv.world_id !== 'v5_building' || !hex(lv.geom?.sha256) || !hex(lv.world_src_sha256) || !lv.spawn_floor) return { why: '서버가 기하 sha·원본 SDF sha·기동 층을 안 줌', wait: false };
+  if (lv.world_id !== 'v5_building' || !hex(lv.geom?.sha256) || !hex(lv.world_src_sha256) || !lv.spawn_floor) { ridReset(); return { why: '서버가 기하 sha·원본 SDF sha·기동 층을 안 줌', wait: false }; }   // G2: 관찰한 누락 = 키 전환
   const key = ridKey(s, lv);
   if (ridG && ridG.key !== key) ridG = null;   // 키 전환 = 옛 검증본 폐기(되돌아와도 새로 받음)
   if (ridG) {
@@ -94,5 +96,5 @@ export function geomRid(s: RidS, lv: RidLv): RidSt {
   }, () => { q.why = '기하 받기 실패'; });
   return WAIT;
 }
-/** 시험용: 보관·요청 기록 비우기 */
-export const ridReset = () => { ridG = null; ridAsk = null; };
+/** 보관·요청 기록 비우기 — G2 키 전환 관찰 때(geomRid 조기 반환·gtHere 비연결건물 world)와 시험. 진행 중 요청은 ridAsk!==q 로 응답 보관 0 */
+export function ridReset() { ridG = null; ridAsk = null; }

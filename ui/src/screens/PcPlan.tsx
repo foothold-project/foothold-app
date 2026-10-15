@@ -20,8 +20,10 @@ type Tool = 'sel' | 'add' | 'measure';
 const GOTO = WHY['자동 목적지 이동·자동 복귀'];
 const OV = { display: 'flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 10px', borderRadius: '6px', background: 'var(--panel)', border: '1px solid var(--line2)', fontSize: '12px' } as const;
 const dot = (good: boolean) => <span style={{ color: good ? 'var(--ok)' : 'var(--warn)' }}>{good ? '●' : '▲'}</span>;
-const chip = (k: string, val: string, good: boolean) => (
-  <div className={`chip ${good ? 'ok' : 'warn'}`} key={k}><span className="mk">{good ? '●' : '▲'}</span><span style={{ color: 'var(--muted)' }}>{k}</span><span className="mono" style={{ fontWeight: 600 }}>{val}</span></div>);
+// wrap: 이 칩만 줄바꿈·폭 제한(폰 390 에서 «기록만»·이유가 첫 화면에 — 670 2129 P2). 공용 .chip(nowrap)·다른 칩 무변경
+const WRAP = { whiteSpace: 'normal', height: 'auto', minHeight: '34px', flexWrap: 'wrap', maxWidth: '100%', minWidth: 0, padding: '4px 10px' } as const;
+const chip = (k: string, val: string, good: boolean, wrap?: boolean) => (
+  <div className={`chip ${good ? 'ok' : 'warn'}`} key={k} style={wrap ? WRAP : undefined}><span className="mk">{good ? '●' : '▲'}</span><span style={{ color: 'var(--muted)' }}>{k}</span><span className="mono" style={{ fontWeight: 600, ...(wrap ? { overflowWrap: 'anywhere' as const } : {}) }}>{val}</span></div>);
 
 export default function PcPlan() {
   const D = useDocs(), L = useLink(), lk = linkView(L), st = L.st, E = useEditor<Mission>('mission', 'PcPlan'), { q, setQ } = useRoute();
@@ -180,7 +182,7 @@ export default function PcPlan() {
     themeClass: `${themeClass(true)} pcplan-hdr`, status: <LiveStatus D={D} />, stopProps,   // pcplan-hdr: B2 A3 STOP 첫 줄 오른쪽(live.css)
     hdrA: `임무 계획 · ${!E.id ? '새 계획 · 저장 안 됨' : E.dirty ? '저장 안 한 수정 있음' : `저장됨 · 판 ${E.rev}`}`, hdrB: d.name || '새 임무 계획',
     pill: run ? `수동 진행 중 · ${run.doc.name}` : '진행 중 임무 없음',
-    chips: <>{chip('위치', posTxt, lk.fresh)}{chip('지도', !pm ? firstTxt : pm.map ? mapTxt(pm.map) : `미확인 · ${pm.why}`, pm ? !!pm.map : !!hNow.map)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 미제공은 출발 전 점검 한 곳
+    chips: <>{chip('위치', posTxt, lk.fresh)}{chip('지도', !pm ? firstTxt : pm.map ? mapTxt(pm.map) : `미확인 · ${pm.why}`, pm ? !!pm.map : !!hNow.map, true)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 미제공은 출발 전 점검 한 곳
     tSel: tp('sel'), tAdd: tp('add'), tMeas: tp('measure'), tNo: zp('금지'), tSlow: zp('감속'),
     prevP: { onClick: loadPrev }, prevT: '지난 수동 진행 경로 불러오기',
     map: <MapCanvas name="plan" btns wps={ws} hiWp={wsel} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} onTap={onTap}

@@ -250,6 +250,25 @@ test('G1 키 A→B→A 왕복: 첫 A 요청의 늦은 응답은 보관 0(전환 
   geoRes.shift()!(); await flush(); expect(gtHere().map).toBeUndefined(); expect(gtHere().why).toMatch(/확인 중/);   // 요청 1 응답(키는 같아도 옛 요청) = 버림
   geoRes.shift()!(); geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);
 });
+// ---- G2(Codex 2129 P2): 조기 반환 경로(기하 sha 누락 · 단층 world)를 gtHere 가 관찰하면 옛 요청·검증본 폐기 — A 로 돌아와도 재사용·옛 응답 보관 0 ----
+const noSha = () => live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: null } });
+for (const [nm, mid] of [['기하 sha 누락', noSha], ['단층 world', () => single()]] as const) {
+  test(`G2 A→${nm}→A: 진행 중 요청의 늦은 응답 보관 0 · 새 요청만 결속`, async () => {
+    G.ridReset(); geoCalls = 0; geoHold(); onL('l1'); gtHere(); expect(geoCalls).toBe(1);       // A 요청 1(받는 중)
+    mid(); gtHere(); onL('l1');                                                                 // 중간 상태 관찰 → 같은 전체 키 A 복원
+    expect(gtHere().why).toMatch(/확인 중/); expect(geoCalls).toBe(2);                          // 받는 중이던 요청 1 을 기다리지 않고 새로 요청
+    geoRes.shift()!(); await flush(); expect(gtHere().map).toBeUndefined();                     // 요청 1 응답 = 버림
+    geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);
+  });
+  test(`G2 A→${nm}→A: 확인된 검증본 재사용 0 · 다시 받은 뒤 결속`, async () => {
+    G.ridReset(); geoCalls = 0; geoHold(); onL('l1'); gtHere(); geoRes.shift()!(); await flush();
+    expect(gtHere().map?.rid).toBe(`g:${GS}`); expect(geoCalls).toBe(1);
+    mid(); gtHere(); onL('l1');
+    expect(gtHere().map).toBeUndefined(); expect(geoCalls).toBe(2);
+    const d = mi({ wps: [] }); expect(tap(d)).toBe('bind'); expect(d.map).toBeUndefined();     // 다시 받기 전 첫 점 = 기록만
+    geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`); expect(tap(d)).toBe('none');   // 늦은 승격 0
+  });
+}
 test('F4 확인창 사이 rid 바뀌면 보내지 않음 · 보낸 Run.map 에 rid', async () => {
   const a = await go(mi({ map: L1 }), () => live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: SW2 } }));
   expect(a.r).toBeNull(); expect(a.sent).toHaveLength(0);

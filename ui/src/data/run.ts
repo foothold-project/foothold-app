@@ -3,7 +3,7 @@ import type { DocWrite, MapSrc, Mission, Run, RunWaypoint } from '@contracts';
 import { activeRun, docById, docsNow, docsOf, qc, saveDoc, type Docs, type SaveRes } from './shared';
 import { ask, askPage, dropAsk, linkView, useLink } from './link';
 import { WF } from './maps';
-import { geomRid } from './geom';
+import { geomRid, ridReset } from './geom';
 import { MISSING_T, tmplOf } from './tmpl';
 import { toast } from '../app/shell';
 import { wpName } from './fmt';
@@ -43,6 +43,7 @@ export function gtHere(s = useLink.getState()): Here {
   const lv = s.st?.live_map;
   if (!linkView(s).linkOk) return { why: '연결 끊김' };
   if (!lv || lv.st === 'off' || lv.st === 'stale' || lv.st === 'unknown' || !lv.world_id) return { why: '지도 미수신' };   // 부르는 쪽이 «지금 …»을 붙임(«지금 지금» 중복 0)
+  if (lv.world_id !== 'v5_building') ridReset();   // G2: 연결 건물 밖(단층·다른 world)을 관찰 = 키 전환 → 옛 기하 요청·검증본 폐기
   const f = lv.floor as { state?: unknown; current?: unknown } | null | undefined;
   if (f && f.state === 'transit') return { why: '층 이동 중' };
   if (lv.st === 'reset') return { why: '시뮬 리셋 중' };
