@@ -25,7 +25,7 @@ const BAND_CSS = `.drv-band{display:none}
 @media ${PORTRAIT}{.drv-band{display:flex;flex-direction:column;gap:8px;position:fixed;left:0;right:0;bottom:0;z-index:40;box-sizing:border-box;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#05080A;box-shadow:0 -1px 0 rgba(230,235,239,.25)}
 .drv-band>*{flex-shrink:0}.drv-band>div{display:flex;gap:8px}.drv-band>div>*{flex:1;justify-content:center;height:48px;text-decoration:none}
 [data-live-drive] button[aria-label="비상 정지"],[data-live-drive] .drv-safe{visibility:hidden}}
-.drv-safe{flex:1 1 100%;padding:4px 6px;border-radius:8px;background:rgba(5,8,10,.82);color:#FFB547;font-size:11px;line-height:1.3;box-sizing:border-box}
+.drv-safe{flex:1 1 100%;max-width:calc(100% - 12px);padding:4px 6px;border-radius:8px;background:rgba(5,8,10,.82);color:#FFB547;font-size:11px;line-height:1.3;box-sizing:border-box}
 .drv-band .lv-safe{font-size:12px;color:#FFB547}
 [data-live-drive] [role=radiogroup][aria-label="속도"],[data-live-drive] a.pill[href="#/MHome"]{display:none!important}`;   /* 원본 틀 인라인 display 를 이기려면 !important */
 // B1 가로 영상 우선: 원본 틀 아래 줄의 속도(고를 수 없음)·현황 링크는 숨기고 서랍으로(문구 그대로). 원본 틀은 재생성 0

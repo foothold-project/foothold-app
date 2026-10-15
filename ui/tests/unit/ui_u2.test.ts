@@ -154,17 +154,19 @@ test('B3 가로 MDrive: 안전 줄은 HUD 흐름 마지막 줄(절대 위치 0) 
   const huds = mdriveSrc.slice(mdriveSrc.indexOf('huds: <>'), mdriveSrc.indexOf('side: <>'));
   expect(huds).toMatch(/<SafeLine className="drv-safe" \/><\/>/);
   expect(mdriveSrc.slice(mdriveSrc.indexOf('side: <>'), mdriveSrc.indexOf('banner:'))).not.toMatch(/SafeLine/);
-  expect(mdriveSrc).toMatch(/\.drv-safe\{flex:1 1 100%;/); expect(mdriveSrc).not.toMatch(/\.drv-safe\{[^}]*position:absolute/);
+  expect(mdriveSrc).toMatch(/\.drv-safe\{flex:1 1 100%;max-width:calc\(100% - 12px\);/);   // 줄바꿈 뒤 옆 버튼(오른쪽 열 시작 = HUD 오른쪽 끝 −2 px)과 겹침 0 expect(mdriveSrc).not.toMatch(/\.drv-safe\{[^}]*position:absolute/);
   expect(mdriveSrc).toMatch(/right: '44px', top: '86px', display: 'flex'/); expect(mdriveSrc).toMatch(/right: '44px', top: '138px', width: '72px'/);
 });
 
 test('B2 Main 폰 머리줄: 칩 묶음 줄바꿈·가로 스크롤 0·칩 축소 0(≤700·가로 폰)', async () => {
-  const css = (await import('node:fs')).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');   // css ?raw 는 vitest 에서 빈 글
+  const fsm = 'node:fs';   // 형식 선언 없는 node 모듈 — 이름을 변수로(tsc 해석 0, vitest 실행만). css ?raw 는 vitest 에서 빈 글
+  const css: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');
   const grp = [...css.matchAll(/\[data-main\] \.fh header>div\[style\*="justify-content: flex-end"\]\{([^}]*)\}/g)].map((m) => m[1]);
   expect(grp).toHaveLength(2);
   for (const g of grp) { expect(g).toMatch(/flex-wrap:wrap!important/); expect(g).not.toMatch(/nowrap|overflow-x:auto/); }
   expect(css.match(/\[data-main\] \.fh header>div\[style\*="justify-content: flex-end"\]>\*\{flex:0 0 auto!important\}/g)).toHaveLength(2);
   expect(css).not.toMatch(/\[data-main\] \.fh header\{[^}]*flex-wrap:nowrap/);
+  expect(css).toMatch(/\.qd\{--qa:calc\(100vh - 194px\);scroll-margin-top:112px\}/);   // 가로 폰 머리줄 2줄(실측 105 px) → 2×2 화면 안
 });
 
 test('P2 Main 전체화면: STOP 옆 안전 한 줄 + ?', () => {

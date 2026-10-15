@@ -124,7 +124,8 @@ textarea.lv-inp{resize:vertical}
   [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:wrap!important;overflow:visible!important;justify-content:flex-start!important}
   [data-main] .fh header>div[style*="justify-content: flex-end"]>*{flex:0 0 auto!important}
   [data-main] .fh header>div[style*="justify-content: flex-end"] .chip{white-space:nowrap}
-  .qd{--qa:calc(100vh - 150px);scroll-margin-top:68px}
+  /* U2 보완 B2: 머리줄이 칩 줄(약 +44 px)만큼 높아져 2×2 가 화면 밖으로 나가지 않게 같은 만큼 줄임 */
+  .qd{--qa:calc(100vh - 194px);scroll-margin-top:112px}
   .qd .qb{flex:none}
   .qd:not(.f) .qb{aspect-ratio:auto;height:calc(var(--qa) / 2 - 33px)}
   .qd.two:not(.f) .qb{height:calc(var(--qa) - 30px)}   /* B2: 보조 뷰 접힘 2칸 = 한 줄 → 높이 전부 */
