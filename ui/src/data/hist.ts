@@ -32,3 +32,21 @@ export function runRows(rows: Row[], run: { id: string; doc: { started: string; 
     : t0 && tms(r.at) >= t0 && tms(r.at) <= t1 ? [{ ...r, sub: `${r.sub} · ${WIN_NOTE}` }] : []);
 }
 export const histCSV = (rs: Row[]) => csvOf(['at', 'kind', 'level', 'title', 'result', 'detail', 'by', 'photo'], rs.map((r) => [r.at, r.kind, r.lvl, r.title, r.res, r.sub, r.by, r.url]));
+// U3-b PcHistory 3탭 거르기(순수 함수 — 화면·CSV 가 같은 결과를 씀). 검색·기간은 모든 종류.
+// 탭 필터(양식·결과·운영자)는 그 값이 있는 종류에만: 양식·결과 = 임무, 운영자 = 임무·사진(사건 by '서버'는 기기 신원 아님 → 제외).
+// 검색 = 원문(title·sub·extra) + 사건 표시 문장(show). 행은 한 번만. tab = 현재 탭 행, every = 탭 종류 제한만 뺀 같은 조건(전체 기록 CSV).
+export type Tab = '임무' | '사진' | '사건';
+export type HF = { q: string; per: string; tpl: string; res: string; by: string };
+export const PERIOD: Record<string, number> = { '오늘': 1, '최근 7일': 7, '최근 30일': 30 };   // '전체' = 기간 제한 없음
+export const TAB_F: Record<Tab, ('tpl' | 'res' | 'by')[]> = { '임무': ['tpl', 'res', 'by'], '사진': ['by'], '사건': [] };
+export const RUN_RES: Record<string, (r: Row) => boolean> = { '완료': (r) => r.st === '완료', '진행': (r) => r.st === '진행', '실패 · 중단': (r) => /실패|중단/.test(r.st || '') };
+export function histFilter(all: Row[], tab: Tab, f: HF, now = Date.now()) {
+  const on = TAB_F[tab], days = PERIOD[f.per], qq = f.q.trim();
+  const ok = (r: Row) => (!days || now - tms(r.at) < days * 864e5)
+    && (!qq || `${r.title} ${r.sub} ${r.extra || ''} ${r.show || ''}`.includes(qq))
+    && (!on.includes('tpl') || !f.tpl || r.kind !== '임무' || r.tmpl === f.tpl)
+    && (!on.includes('res') || !RUN_RES[f.res] || r.kind !== '임무' || RUN_RES[f.res](r))
+    && (!on.includes('by') || !f.by || r.kind === '사건' || r.by === f.by);
+  const every = all.filter(ok);
+  return { tab: every.filter((r) => r.kind === tab), every };
+}

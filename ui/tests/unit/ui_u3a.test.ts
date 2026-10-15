@@ -109,12 +109,13 @@ test('MAlert 상세: at+원문으로 찾은 그 사건 — 제목은 표시 문�
 
 test('MHistory·PcHistory 화면: 사건 제목은 표시 문장, 링크는 원문 키 · 모르는 원문은 그대로', () => {
   for (const C of [MHistory, PcHistory]) {
+    R.q = new URLSearchParams(C === PcHistory ? { tab: '사건' } : {});   // U3-b: PcHistory 사건은 «사건» 탭
     const s = attrs(html(C));
     expect(s.match(/STOP · 입력 차단·잠금/g)?.length, C.name).toBe(2);
     expect(s).toContain('>넘어짐<');
     for (const e of [X, Y, Z, U]) expect(s, C.name).toContain(`href="#/MAlert?${new URLSearchParams({ at: e.at, t: e.text })}"`);
     expect(s).toContain(U.text);
-    expect(s).not.toContain('명령 0 잠금 (이 기기)<');
+    expect(s.replace(/원문: [^<]*/g, '')).not.toContain('명령 0 잠금 (이 기기)');   // 원문은 PcHistory 펼침 «원문: …» 안에만
   }
   const m = attrs(html(MHistory));
   expect(m).toContain('사건 · 원문은 상세 · 서버');
