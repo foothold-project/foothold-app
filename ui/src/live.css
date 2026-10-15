@@ -44,6 +44,12 @@ textarea.lv-inp{resize:vertical}
 /* 10-15 ④ 글 있는 보기 버튼(전체 고정 · 로봇 중심) — 눌림 = 지금 방식 */
 .lv-mapseg{display:inline-flex;border-radius:8px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.45)}.lv-mapseg .lv-btn{min-height:44px;padding:0 10px;border-radius:0;font-size:13px;white-space:nowrap}.lv-mapseg .lv-btn+.lv-btn{border-left:0}
 .lv-mapseg .lv-btn[aria-pressed=true]{background:var(--acc-bg,rgba(56,198,217,.18));color:var(--text)}
+/* U2-b 보완 P2: Main 좁은 지도 칸(폰 세로 2×2 ≈177×111 — MapCanvas 가 lean·W<360 또는 H<150 일 때만 data-mapnarrow=1). 오른쪽 열 = 보기 방식 세로 + 확대·축소 한 줄(32 px),
+   왼쪽 = 지도 보기(라벨·select·? 그대로, 칸보다 길면 스크롤). 큰 칸·전체화면·다른 화면 무변경 */
+[data-mapnarrow="1"]>.lv-mapbtns{top:4px;right:4px;gap:4px;flex-direction:row;flex-wrap:wrap;justify-content:flex-end;width:68px}
+[data-mapnarrow="1"]>.lv-mapbtns>.lv-btn{width:32px;min-height:32px;font-size:16px}
+[data-mapnarrow="1"] .lv-mapseg{flex-direction:column;width:100%}[data-mapnarrow="1"] .lv-mapseg .lv-btn{min-height:32px;padding:0 4px;font-size:11px}[data-mapnarrow="1"] .lv-mapseg .lv-btn+.lv-btn{border-left:1px solid var(--line2);border-top:0}
+[data-mapnarrow="1"]>.lv-mappick{top:4px!important;left:4px!important;max-width:calc(100% - 84px)!important;max-height:calc(100% - 8px);overflow:auto}
 .lv-wp{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
 .lv-wp>b{display:grid;place-items:center;width:26px;height:26px;border-radius:13px;border:2px solid var(--accent);font-size:12px}
 .lv-thumb{width:72px;height:48px;object-fit:cover;border-radius:6px;background:#05080A}

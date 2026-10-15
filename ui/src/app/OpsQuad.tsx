@@ -52,7 +52,7 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
       ? <img alt="시뮬 외부 영상" src={follow.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
       : <QEmpty text={vWhy('follow')} /> },
     raw && lidar
-      ? { id: 'pts', label: '라이다 · 로봇 기준(한 스캔·누적 아님)', body: (s) => <LidarTop scan={lidar} small={s === 'thumb'} /> }
+      ? { id: 'pts', label: '라이다 센서 기준 · 한 스캔', body: (s) => <LidarTop scan={lidar} small={s === 'thumb'} /> }
       : { id: 'pts', label: '점군 · 지도 기준 누적', body: (s) => <Cloud3D small={s === 'thumb'} big={s === 'big'} bind={pKey} empty={ptsWhy} /> },
   ];
   // Quad 는 늘 같은 자리·같은 형제 순서 — tiles 만 바꿔 remount 0(크게 본 칸·PIP 선택 유지). 이유 줄은 둘 다 비었을 때만 Quad 뒤에
@@ -66,7 +66,7 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
 const AuxLine = ({ open, onClick, f, p }: { open: boolean; onClick: () => void; f: string; p: string }) =>
   <div className="qd-line" role="status" data-qd-aux={open ? 'open' : 'closed'}>
     <button type="button" className="lv-btn" aria-expanded={open} onClick={onClick}>{open ? '외부 카메라 · 점군 접기' : '외부 카메라 · 점군 ›'}</button>
-    <Help label="외부 카메라 · 점군 · 지금 이유">{`외부 카메라: ${f} · 점군: ${p}`}</Help></div>;   {/* U2-b: 접힘 = 버튼 하나 + ? (이유 원문은 ? 안) */}
+    <Help label="외부 카메라 · 점군 · 지금 이유">{`외부 카메라 — ${f} · 점군 칸 — ${p}`}</Help></div>;   {/* U2-b: 접힘 = 버튼 하나 + ? (이유 원문은 ? 안) */}
 
 /** 전체화면 안 STOP + 링크·잠금 한 줄 — 알림(toast)·확인창은 shell InFs 로 전체화면 안에 뜨지만 사라지므로, 지속 서버 상태는 이 줄로. 끊김·상태 미확인이면 «미확인»(잠김/안 잠김 단정 0) */
 function FsStop() {

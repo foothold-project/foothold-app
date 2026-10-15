@@ -78,13 +78,49 @@ test('MDrive·MHome 운영 문구: 조종 반납 · 막힌 방향 라벨 · 낡�
 });
 
 // ── U2-b: Main 지도 패널·보조 뷰(다른 화면 MapCanvas 글은 lean 없으면 그대로 — U3~5)
-test('U2-b 지도 캔버스(lean=Main 만): 가운데 위치 없음 하나 · 주황 띠 0 · 로봇 중심 회색+이유 · 1 m 축척만', () => {
+test('U2-b 지도 캔버스(lean=Main 만): 가운데 위치 없음 하나 · 주황 띠 0 · 로봇 중심 회색+이유 · 축척만', () => {
   expect(mainSrc).toMatch(/<MapCanvas name="main" lean /);
   expect(canvasSrc).toMatch(/o\.small \|\| o\.lean \? '위치 없음'/);
   expect(canvasSrc).toMatch(/const why = !o\.lean && v\.mode === 'robot'/);           // 띠는 lean 아닐 때만(다른 화면 글 무변경)
   expect(canvasSrc).toMatch(/rb\.classList\.toggle\('lv-why', !!w\)/); expect(canvasSrc).toMatch(/if \(w\) toast\(w\)/);
-  expect(canvasSrc).toMatch(/if \(!o\.small && o\.lean\) \{[^\n]*\n[^\n]*\n\s*g\.font = '12px sans-serif'; g\.fillStyle = C\.mut; g\.fillText\('1 m'/);
+  expect(canvasSrc).toMatch(/if \(!o\.small && o\.lean\) \{[^\n]*\n\s*if \(sb\) \{ const L = sb\.L;[^\n]*\n\s*g\.font = '12px sans-serif'; g\.fillStyle = C\.mut; g\.fillText\(sb\.t, 15 \+ L/);
 });
+
+// ── U2-b 보완(root «U2-b 보완 GO — code B1 HOLD»): 축척 길이 = 표시 거리 · 버튼 이유 상태별 · 좁은 칸 배치 · 라이다 라벨
+const MC = await import('../../src/map/MapCanvas');
+test('U2-b 보완 B1: 축척 막대 길이 = 표시 거리 × 실제 배율(k<4 반례 포함) · 못 맞추면 막대 0', () => {
+  // codex 반례: 200 px 칸 · 범위 −10~10 m · 최저 배율 .25 → k ≈ 2.27 px/m. 옛 코드는 4 px 에 «1 m»(실제 1.76 m)
+  const k = Math.min(200 / 22, 200 / 22) * 0.25, b = MC.scaleBar(k, Math.min(120, 200 / 2 - 40))!;
+  expect(b.d).toBe(20); expect(b.t).toBe('20 m'); expect(b.L).toBeCloseTo(20 * k, 9); expect(b.L / k).toBeCloseTo(20, 9);
+  expect(MC.scaleBar(40, 120)).toEqual({ d: 1, L: 40, t: '1 m' });                     // 보통 배율 = 1 m 그대로(길이 = k)
+  expect(MC.scaleBar(300, 120)).toEqual({ d: 0.2, L: 60, t: '20 cm' });                // 크게 확대 = 칸 넘는 1 m 막대 대신 짧은 거리
+  for (const bad of [0, -1, NaN, Infinity]) expect(MC.scaleBar(bad, 120)).toBeNull();
+  expect(MC.scaleBar(5, 20)).toBeNull();                                                // 칸이 좁아 최소 길이도 못 그림 = 막대 0
+  for (let k2 = 0.01; k2 < 5000; k2 *= 1.07) {                                          // 배율 전 범위: 막대 px 와 글 거리가 늘 같은 것을 말함
+    const r = MC.scaleBar(k2, 120); if (!r) continue;
+    expect(r.L).toBeCloseTo(r.d * k2, 9); expect(r.L).toBeGreaterThanOrEqual(24); expect(r.L).toBeLessThanOrEqual(120);
+    expect(r.t).toBe(r.d < 1 ? `${Math.round(r.d * 100)} cm` : `${r.d} m`);
+  }
+  expect(canvasSrc).toMatch(/const sb = !o\.small && o\.lean && !rs\?\.noGrid \? scaleBar\(k,/);   // 층 나란히(복합 그림) = 축척 0
+  expect(canvasSrc).not.toMatch(/Math\.max\(4, k\)/);
+});
+
+test('U2-b 보완 B2: 로봇 중심 버튼 이유 — 그림 없음 / 결속 없음 / 갱신 중 / 위치 없음 / 오래됨 구분 · 신선하면 빈 글 · blank 에도 갱신', () => {
+  const R = (fresh: boolean) => ({ x: 0, y: 0, t: 0, fresh });
+  expect(MC.robotWhy({ lean: true, blank: true, r: null })).toMatch(/^지도 그림 없음/);
+  expect(MC.robotWhy({ lean: true, noRobot: true, r: null })).toMatch(/^이 지도에 결속된 위치 없음/);
+  expect(MC.robotWhy({ lean: true, noRobot: true, upd: true, r: null })).toMatch(/^지도 갱신 중 — 위치 표시 잠시 끔/);
+  expect(MC.robotWhy({ lean: true, r: null })).toMatch(/^위치 없음 —/);
+  expect(MC.robotWhy({ lean: true, r: R(false) })).toMatch(/^위치 오래됨 —/);
+  expect(MC.robotWhy({ lean: true, r: R(true) })).toBe('');
+  expect(MC.robotWhy({ lean: false, noRobot: true, r: null })).toBe('');               // 다른 화면(lean 없음) 무변경
+  for (const w of [MC.robotWhy({ lean: true, noRobot: true, r: null }), MC.robotWhy({ lean: true, blank: true, r: null })]) expect(w).not.toMatch(/^위치 없음|위치 오래됨|따라감/);
+  const blankPath = canvasSrc.slice(canvasSrc.indexOf('if (o.blank != null && !o.raster)'), canvasSrc.indexOf('const rs = o.raster'));
+  expect(blankPath).toMatch(/sync\(robotWhy\(\{ lean: o\.lean, blank: true, r: null \}\)\); return;/);
+  expect(canvasSrc).toMatch(/sync\(robotWhy\(\{ lean: o\.lean, noRobot: o\.noRobot, upd: !!rs\?\.upd, r \}\)\);/);
+  expect(canvasSrc).toMatch(/if \(w\) toast\(w\); f\(\); draw\(\);/);                    // 누름 = 토스트 + 보기만 전환(명령 0) 그대로
+});
+
 
 test('U2-b 지도 보기(overlay=Main 만): 라벨 + ? · 보는 지도 ≠ 실행 지도 + ?(원문) · 선택지에 GT 0', () => {
   expect(pickSrc).toMatch(/\{overlay \? <span[^>]*>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로<\/Help>/);
@@ -95,7 +131,8 @@ test('U2-b 지도 보기(overlay=Main 만): 라벨 + ? · 보는 지도 ≠ 실�
 
 test('U2-b 관제 패널·보조 뷰: 실행 대상 전환 숨김 · 제목 짧게 · 칸 종류 구분 · 접힘 버튼 하나', () => {
   expect(code(mainSrc)).toMatch(/modePick: null/); expect(code(mainSrc)).not.toMatch(/<ModePick|시뮬 도면/);
-  for (const l of ["'시뮬 외부 영상'", "'라이다 · 로봇 기준(한 스캔·누적 아님)'", "'점군 · 지도 기준 누적'"]) expect(quadSrc).toContain(`label: ${l}`);
+  for (const l of ["'시뮬 외부 영상'", "'라이다 센서 기준 · 한 스캔'", "'점군 · 지도 기준 누적'"]) expect(quadSrc).toContain(`label: ${l}`);
+  expect(quadSrc).not.toMatch(/로봇 기준\(한 스캔/); expect(quadSrc).not.toMatch(/점군: \$\{p\}/);   // 보완 ④: 몸 중심 오해 0 · «점군: 지도 누적:» 콜론 겹침 0
   expect(code(quadSrc)).not.toMatch(/Gazebo|3인칭|보조 뷰 2칸/);
   expect(quadSrc).toMatch(/'외부 카메라 · 점군 ›'/); expect(quadSrc).toMatch(/<Help label="외부 카메라 · 점군 · 지금 이유">/);
 });
@@ -172,4 +209,17 @@ test('B2 Main 폰 머리줄: 칩 묶음 줄바꿈·가로 스크롤 0·칩 축�
 test('P2 Main 전체화면: STOP 옆 안전 한 줄 + ?', () => {
   const fs = quad.slice(quad.indexOf('function FsStop'));
   expect(fs).toMatch(/<SafeLine style=/); expect(fs.indexOf('lv-stop')).toBeLessThan(fs.indexOf('<SafeLine'));
+});
+
+test('U2-b 보완 P2: Main 좁은 지도 칸 — lean 만 data-mapnarrow · 지도 보기 폭 확보 · 버튼 32 px 오른쪽 열(칸 안)', async () => {
+  const fsm = 'node:fs';
+  const css: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');
+  expect(canvasSrc).toMatch(/box\.dataset\.mapnarrow = o\.lean && !o\.small && \(W < 360 \|\| H < 150\) \? '1' : '';/);
+  expect(canvasSrc.indexOf('box.dataset.mapnarrow')).toBeLessThan(canvasSrc.indexOf('if (o.blank != null && !o.raster)'));   // 그림 없음에도 배치 맞춤
+  expect(pickSrc).toMatch(/className=\{overlay \? 'lv-mappick' : undefined\}/);
+  expect(css).toMatch(/\[data-mapnarrow="1"\]>\.lv-mappick\{[^}]*max-width:calc\(100% - 84px\)!important/);
+  expect(css).toMatch(/\[data-mapnarrow="1"\]>\.lv-mapbtns\{[^}]*width:68px/); expect(css).toMatch(/\[data-mapnarrow="1"\]>\.lv-mapbtns>\.lv-btn\{width:32px;min-height:32px/);
+  expect(css).toMatch(/\[data-mapnarrow="1"\] \.lv-mapseg \.lv-btn\{min-height:32px/);
+  // 세로 예산: 위 4 + 보기 방식 2칸 32·32 + 간격 4 + 확대·축소 32 = 104 ≤ 111(폰 2×2 실측 칸 높이)
+  expect(4 + 32 + 32 + 4 + 32).toBeLessThanOrEqual(111);
 });

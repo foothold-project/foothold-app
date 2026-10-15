@@ -161,12 +161,12 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     })}
   </span>;
   const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */ } : { width: '100%' };
-  const el = <span style={{ ...sty, display: 'flex', flexDirection: 'column', gap: 4 }}>
+  const el = <span className={overlay ? 'lv-mappick' : undefined} style={{ ...sty, display: 'flex', flexDirection: 'column', gap: 4 }}>   {/* lv-mappick: Main 좁은 칸 배치(live.css [data-mapnarrow]) */}
     {overlay ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* U2-b(Main 만 overlay) */
       : <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기(화면만 · 시뮬은 그대로)</span>}
     {overlay ? <select aria-label="지도 보기 선택(보기만 · 실제 시뮬 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 시뮬 지형·조종은 그대로" value={sel}
       onFocus={load} onChange={(e) => pick(e.target.value)}
-      style={{ minHeight: overlay ? 32 : 44, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
+      style={{ minHeight: overlay ? 32 : 44, minWidth: 0, maxWidth: '100%', font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
       <option value="">{touched ? '시뮬 위치' : '시뮬 위치(지도 시뮬이 보이면 실시간 자동)'}</option>
       <option value={LIVE}>현재 열린 지도(실시간 매핑)</option>
       {Array.isArray(maps) && groupMaps(maps).map((g) => <optgroup key={g.w} label={`저장 지도 보기 · ${g.label}`}>
