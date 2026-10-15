@@ -12,8 +12,11 @@ import { Help } from '../app/chip';
 type Lv = 'ok' | 'warn' | 'off';
 // U4-b(v3 §4 PcRobot): 줄 = [톤, 이름, 값(null = 받은 값 없음), keep(값 없어도 늘 보임 — 넘어짐·오래됨·잠금), dev(개발자 모드만)]
 type It = [Lv, string, string | null, boolean?, boolean?];
+// 670 P2(8373ea3): 긴 값(진단 덧붙임)이 auto 값 칸을 넓혀 이름 칸(1fr)이 한 글자 폭으로 밀림 → 이 화면 행만 국소 배치(전역 .row 무변경):
+// 이름 칸 최소 읽기 폭 확보 · 값 칸은 남는 폭 안에서 단어 단위 줄바꿈(생략·잘림 0) · 짧은 값 행은 이전과 같은 폭
+const ROW = { gridTemplateColumns: '18px minmax(min(7.5em, 45%), 1fr) minmax(0, max-content)', wordBreak: 'keep-all', overflowWrap: 'anywhere' } as const;
 const rows = (rs: It[], top0 = true) => rs.map(([lv, a, b, , dev], i) => (
-  <div className="row" key={a} data-dev={dev ? '' : undefined} style={top0 && !i ? { borderTop: '0' } : undefined}>
+  <div className="row" key={a} data-dev={dev ? '' : undefined} style={top0 && !i ? { ...ROW, borderTop: '0' } : ROW}>
     <span className={`m-${lv}`}>{lv === 'ok' ? '●' : lv === 'warn' ? '▲' : '○'}</span><span>{a}</span><b style={lv === 'off' ? { color: 'var(--muted)' } : lv === 'warn' ? { color: 'var(--warn)' } : undefined}>{b ?? '받은 값 없음'}</b>
   </div>));
 /** R4: 값 없는 줄만 접음(«값 없는 줄 n개 ›») — 값이 들어오면 그 줄은 밖으로 나옴. keep 줄(넘어짐·오래됨·잠금)은 접지 않음 */

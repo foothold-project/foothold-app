@@ -147,3 +147,14 @@ test('B3: 측정값은 필드별 — null 만 접힘(warn) · 0 은 유효 · �
   fresh({ sim: { ...SIM, fallen: null } }); o = ops(html()); expect(row(o, '몸')).toBe('넘어짐 미확인'); expect(tone(o, '몸')).toBe('warn'); expect(row(o, '넘어짐')).toBe('미확인');
   fresh({ sim: { ...SIM, vx: null } }); o = ops(html()); expect(row(o, '몸')).toBe('실측 속도 미확인'); expect(tone(o, '몸')).toBe('warn');
 });
+
+test('670 P2(8373ea3): 행 국소 배치 style — 이름 칸 최소 읽기 폭·값 칸 단어 줄바꿈 · 모든 PcRobot 행 동일 · 긴 진단 값 생략·잘림 0(실 배치 geometry 는 670)', () => {
+  const G = 'grid-template-columns:18px minmax(min(7.5em, 45%), 1fr) minmax(0, max-content);word-break:keep-all;overflow-wrap:anywhere';
+  fresh({ views: { follow: { st: 'off', why: '키 바뀜 — 새 자료 기다림', seq: null, age_s: null, prod: { reason: null, n_pub: 0, enabled: false } }, points: { st: 'off', why: '', seq: null, age_s: null } } });
+  const s = html();
+  expect(s).toContain(`<div class="row" style="${G}"><span class="m-warn">▲</span><span>외부 3인칭 영상</span><b style="color:var(--warn)">받은 것 없음 · 키 바뀜 — 새 자료 기다림 · 최근 발행 진단: 외부카메라 끔(지금 실행인지 미확인)</b>`);
+  const all = s.match(/<div class="row"[^>]*>/g) ?? [];
+  expect(all.length).toBeGreaterThan(10); for (const r of all) expect(r).toContain(`style="${G}`);   // 이 화면 행은 전부 같은 국소 배치(첫 행만 border-top:0 추가)
+  expect(s).toContain(`style="${G};border-top:0"`);
+  expect(s).toContain('.row{display:grid;grid-template-columns:18px 1fr auto;');   // 공용 CSS .row 규칙 무변경
+});
