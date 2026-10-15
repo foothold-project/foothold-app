@@ -1,7 +1,7 @@
 // PC 로봇(원본 카드 틀): 시뮬 상태·연결·센서/보기·정지 계층.
 // U4-b: 값 없는 줄만 동적으로 접고(넘어짐·오래됨·잠금은 상시), 예시·추정 값 0, 진단(판 해시·원값·JSON)은 개발자 모드. 자세 명령은 보내지 않는다.
 import { CSS, View } from './PcRobot.view';
-import { deg, num, posTxt, saveBlob, themeClass } from '../data/fmt';
+import { deg, num, ok, posTxt, saveBlob, themeClass } from '../data/fmt';
 import { RELURCH, RELURCH_OBS, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP, TRIAL_SAFE, WHY } from '../data/facts';
 import { linkView, stateRows, useLink } from '../data/link';
 import { useDocs } from '../data/shared';
@@ -21,16 +21,24 @@ const block = (its: It[], top0 = true) => { const on = its.filter((x) => x[2] !=
   return <>{rows(on, top0)}{off.length > 0 && <details data-none=""><summary className="lbl" style={{ padding: '8px 0', cursor: 'pointer' }}>{`값 없는 줄 ${off.length}개 ›`}</summary>{rows(off, false)}</details>}</>; };
 const OFF = { hidden: true, 'aria-hidden': true, tabIndex: -1 };   // B2 R11: 미연결·미검증 기능은 버튼 모양 0 — 숨기고 글로 설명
 const VIEWS: [k: 'follow' | 'lidar' | 'points', name: string][] = [['follow', '외부 3인칭 영상'], ['lidar', '라이다(센서 기준)'], ['points', '지도 누적 점군']];
-const VST: Record<string, [Lv, string]> = { ok: ['ok', '시뮬이 보냄'], stale: ['warn', '오래됨'], bad: ['warn', '오류'], off: ['off', '꺼짐'] };
+// B2(715): 계약 ViewSrc.st off = «미수신»(꺼짐 아님) — 받은 것 없음(warn). «꺼짐»은 명시 설정(follow prod.enabled === false)일 때만
+const VST: Record<string, [Lv, string]> = { ok: ['ok', '시뮬이 보냄'], stale: ['warn', '오래됨'], bad: ['warn', '오류'], off: ['warn', '받은 것 없음'] };
+// B3(715): 줄 값 = 그 줄의 필드 중 실제로 받은(유한 숫자, 0 포함) 것만 — 전부 없음 = null(접힘·warn), 일부만 = 받은 부분 보존 + 나머지 «미확인»(warn), 전부 = ok
+const part = (fs: unknown[], txt: string): [Lv, string | null] => { const n = fs.filter(ok).length; return [n === fs.length ? 'ok' : 'warn', n ? txt : null]; };
 
 export default function PcRobot() {
   const D = useDocs(), L = useLink(), v = linkView(L), s = v.s, st = L.st, sim = L.provider === 'simulation_gate';
-  const newVer = v.newVer, has = (x: string) => (s ? x : null);
-  const latch: [Lv, string] = !v.linkOk ? ['warn', '잠금 확인 안 됨'] : v.latch ? ['warn', '잠금 켜짐'] : ['ok', '잠금 꺼짐'];
+  const newVer = v.newVer;
+  // B1(715): 잠금·보기 확정은 «현재 연결에서 받은 유효 status»가 있을 때만 — 머리줄 headChips 의 known(linkOk·bad 없음·st 있음) + 이 연결 세대(stGen === gen). 아니면 «확인 안 됨»(warn)
+  const known = v.linkOk && !L.bad && !!st && L.stGen === L.gen;
+  const latch: [Lv, string] = !known ? ['warn', '잠금 확인 안 됨'] : v.latch ? ['warn', '잠금 켜짐'] : ['ok', '잠금 꺼짐'];
+  const tilt = part([s?.tilt_deg], num(s?.tilt_deg, 1, '°')), spd = part([s?.vx, s?.vy], `${num(s?.vx)} · ${num(s?.vy)} m/s`), pos = part([s?.x, s?.y, s?.yaw], `${posTxt(s?.x, s?.y)} · ${deg(s?.yaw)}`);
   // 보기(시뮬이 보내는 화면 자료) — 서버가 받은 상태 그대로(views[k].st). 실기 센서 연결·건강 판정 아님. 서버가 이 보기를 안 주면(이전 판) 줄 없음
   const vs = st?.views as Record<string, { st: string; why: string; age_s: number | null } | null | undefined> | undefined;
-  const viewRows: It[] = VIEWS.flatMap(([k, n]): It[] => { const x = vs?.[k]; if (!v.linkOk) return [['warn', n, '확인 안 됨', true]]; if (!x) return [];
-    const [lv, t] = VST[x.st] ?? ['warn', '확인 안 됨']; return [[lv, n, `${t}${x.st === 'ok' && x.age_s != null ? ` · ${x.age_s.toFixed(1)} s 전` : ''}${x.st !== 'ok' && x.why ? ` · ${x.why}` : ''}`, true]]; });
+  const viewRows: It[] = VIEWS.flatMap(([k, n]): It[] => { const x = vs?.[k] as ({ st: string; why: string; age_s: number | null; prod?: { enabled?: boolean | null } | null } | null | undefined); if (!known) return [['warn', n, '확인 안 됨', true]]; if (!x) return [];
+    if (x.st === 'off' && k === 'follow' && x.prod?.enabled === false) return [['off', n, '꺼짐 · 이번 지도 시뮬에서 외부카메라 끔', true]];   // 명시 설정만 «꺼짐»
+    const [lv, t] = VST[x.st] ?? ['warn', '확인 안 됨'], w = x.why && !(x.st === 'off' && x.why === t) ? ` · ${x.why}` : '';
+    return [[lv, n, `${t}${x.st === 'ok' && x.age_s != null ? ` · ${x.age_s.toFixed(1)} s 전` : ''}${x.st !== 'ok' ? w : ''}`, true]]; });
   const vals = {
     themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(v3 §3) — Main·PcMap 과 같음
@@ -38,14 +46,13 @@ export default function PcRobot() {
     pill: '',   // U4-b: 연결·역할·잠금은 머리줄 공통 칩(중복 0)
     role: <></>,   // U1-b: 조종권은 머리줄 역할 칩 한 곳(null 이면 view 기본 문구가 나와 빈 조각)
     bodyH: '', noSvg: true,
-    bodyRows: block([s ? ['ok', '몸', v.body, true] : ['warn', '몸', `확인 안 됨 · ${v.linkTxt}`, true],
+    bodyRows: block([s ? [v.body.includes('미확인') ? 'warn' : 'ok', '몸', v.body, true] : ['warn', '몸', `확인 안 됨 · ${v.linkTxt}`, true],   // B3: «미확인» 글은 정상 톤 0
       [s?.fallen === false ? 'ok' : 'warn', '넘어짐', s?.fallen === true ? '넘어짐' : s?.fallen === false ? '아님' : '미확인', true],
-      [s ? 'ok' : 'warn', '기울기', has(num(s?.tilt_deg, 1, '°'))], [s ? 'ok' : 'warn', '속도(앞 · 옆)', has(`${num(s?.vx)} · ${num(s?.vy)} m/s`)],
-      [s ? 'ok' : 'warn', '위치 · 방향', has(`${posTxt(s?.x, s?.y)} · ${deg(s?.yaw)}`)], ['off', '보행 모드', null], ['off', '다리 모터 온도', null]]),
+      [tilt[0], '기울기', tilt[1]], [spd[0], '속도(앞 · 옆)', spd[1]], [pos[0], '위치 · 방향', pos[1]], ['off', '보행 모드', null], ['off', '다리 모터 온도', null]]),
     bodyNote: <span data-dev="">넘어짐·기울기·속도는 Gazebo 시뮬 원값입니다. 판정 기준을 덧붙이지 않습니다. 보행 모드·다리 모터 온도는 미제공.</span>,
     batBig: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="m-off">○</span><span className="lbl" style={{ fontSize: 14 }}>배터리 값 없음</span><Help label="배터리 · 설명">{WHY['배터리']}</Help></span>,
     batBarHide: true, batLbl: '',
-    batRows: block([[v.linkOk ? 'ok' : 'warn', '연결 · 상태 나이', `${v.linkTxt} · ${st ? num(st.state_age, 2, ' s') : '미확인'}`, true],
+    batRows: block([[known ? 'ok' : 'warn', '연결 · 상태 나이', `${v.linkTxt} · ${st ? num(st.state_age, 2, ' s') : '미확인'}`, true],   // B1: 형식 오류·상태 없음 = «상태 미확인» 글이 정상 톤 0
       ...(newVer ? [['warn', '화면 판 ≠ 서버 판', '새로고침 필요', true] as It] : []),
       ['ok', '화면 판 · 서버 판', `${L.firstVer || '미확인'} · ${st?.ver || '미확인'}`, true, true],   // 해시 = 개발자 모드
       ['off', '전압 · 사이클', null], ['off', '로봇 PC', null]], false),

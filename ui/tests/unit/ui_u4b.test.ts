@@ -22,7 +22,7 @@ const ops = (s: string) => s.replace(/<(section|button)[^>]*hidden=""[\s\S]*?<\/
 const SIM = { fallen: false, tilt_deg: 2.3, vx: 0.1, vy: 0, x: 1, y: 2, yaw: 0, body_still: false, camera: 'on' };
 const ST = (x: Record<string, unknown> = {}) => ({ sim: SIM, state_age: 0.2, latch: true, applied: [0, 0, 0], ver: 'abc1234def', role: 'view', sim_block: '', cam_age: 9,
   views: { follow: { st: 'ok', why: '', seq: 3, age_s: 0.4 }, points: { st: 'off', why: '외부 끔', seq: null, age_s: null }, lidar: { st: 'stale', why: '3 s 전', seq: 2, age_s: 3 } }, ...x });
-const fresh = (x: Record<string, unknown> = {}) => put({ provider: 'simulation_gate', open: true, lastMsg: performance.now(), st: ST(x), firstVer: 'abc1234def', bad: null, authEnd: false });
+const fresh = (x: Record<string, unknown> = {}) => put({ provider: 'simulation_gate', open: true, lastMsg: performance.now(), st: ST(x), firstVer: 'abc1234def', bad: null, authEnd: false, gen: 1, stGen: 1 });   // 이 연결에서 받은 유효 status
 const row = (s: string, a: string) => s.match(new RegExp(`<span>${a.replace(/[()·.]/g, '\\$&')}</span><b[^>]*>([^<]*)</b>`))?.[1];
 beforeEach(() => { qc.clear(); put({ provider: 'simulation_gate', open: false, lastMsg: 0, st: null, firstVer: null, bad: null }); });
 
@@ -55,9 +55,9 @@ test('배터리 «값 없음» 회색 한 줄 + ? · 예시 0 · 장비 «등록
   expect(s).toMatch(/<section class="card" aria-label="자세 명령" hidden=""/); expect(o).not.toContain('일어서기');
 });
 
-test('센서/보기: 받은 보기 실제 상태(시뮬이 보냄·오래됨·꺼짐) · «RGB만»·«센서 없음» 단정 0 · 실기 센서는 접힘 · 링크 없으면 보기 «확인 안 됨»', () => {
+test('센서/보기: 받은 보기 실제 상태(시뮬이 보냄·오래됨·받은 것 없음) · «RGB만»·«센서 없음» 단정 0 · 실기 센서는 접힘 · 링크 없으면 보기 «확인 안 됨»', () => {
   fresh(); let o = ops(html());
-  expect(row(o, '외부 3인칭 영상')).toBe('시뮬이 보냄 · 0.4 s 전'); expect(row(o, '라이다(센서 기준)')).toBe('오래됨 · 3 s 전'); expect(row(o, '지도 누적 점군')).toBe('꺼짐 · 외부 끔');
+  expect(row(o, '외부 3인칭 영상')).toBe('시뮬이 보냄 · 0.4 s 전'); expect(row(o, '라이다(센서 기준)')).toBe('오래됨 · 3 s 전'); expect(row(o, '지도 누적 점군')).toBe('받은 것 없음 · 외부 끔');   // B2: off = 미수신(꺼짐 단정 0)
   expect(o).toContain('실기 센서 연결·건강 판정 아님'); expect(o).not.toMatch(/RGB 압축 영상만|RGB만|연결된 센서 없음/);
   expect(o).toMatch(/값 없는 줄 4개 ›<\/summary>[\s\S]*실기 L1 라이다/);
   fresh({ views: undefined }); o = ops(html()); expect(row(o, '외부 3인칭 영상')).toBeUndefined();   // 이전 서버(보기 없음) = 줄 없음(지어낸 값 0)
@@ -75,4 +75,52 @@ test('정지 계층 v3 값 · «알려진 정지 특성» 운영 경고(facts �
   expect(o).toMatch(/role="note" aria-label="알려진 정지 특성"[\s\S]*▲ 알려진 정지 특성[\s\S]*한 시뮬 관측에서 STOP 뒤 약 3\.6초[\s\S]*정지 뒤 다시 움직임 관측/);
   expect(s).toContain('aria-label="알려진 정지 특성 · 설명"'); for (const t of [F.SAFE_NOTE, F.STOP_FACT[1], F.RELURCH]) expect(s).toContain(t);   // 전문 = ? 안
   put({ open: false, lastMsg: 0, st: null }); expect(ops(html())).toContain('한 시뮬 관측에서 STOP 뒤');   // 연결 없어도 상시
+});
+
+// ── 보완(715 B1·B2·B3) 반례 ──
+const tone = (o: string, a: string) => o.match(new RegExp(`<span class="m-(\\w+)">[^<]*</span><span>${a.replace(/[()·.]/g, '\\$&')}</span>`))?.[1];
+const unf = (o: string) => o.replace(/<details data-none="">[\s\S]*?<\/details>/g, '');   // 펼친(밖) 줄만
+const folded = (o: string) => o.match(/<details data-none=""><summary[^>]*>[^<]*<\/summary>([\s\S]*?)<\/details>/)?.[1] ?? '';
+
+test('B1: 유효 status 가 현재 연결에 없으면(형식 오류·st 없음·이전 연결 세대) 잠금·보기 «확인 안 됨»(warn) — 머리줄과 같은 뜻 · 돌아오면 확정', () => {
+  // 열린 소켓·신선 lastMsg 인데 형식 오류(checkStatus 실패 경로: st=null·bad)
+  put({ provider: 'simulation_gate', open: true, lastMsg: performance.now(), st: null, bad: '형식', gen: 1, stGen: 1, firstVer: 'abc1234def', authEnd: false });
+  let s = html(), o = ops(s);
+  expect(row(o, '앱 STOP → 서버')).toBe('잠금 확인 안 됨'); expect(tone(o, '앱 STOP → 서버')).toBe('warn'); expect(o).not.toContain('잠금 꺼짐');
+  expect(s).toContain('잠금 확인 안 됨'); expect(tone(o, '연결 · 상태 나이')).toBe('warn');
+  // st 는 남았는데 bad(이전 st 유지 경로 가정) → 확정 0
+  fresh(); put({ bad: '형식' }); o = ops(html()); expect(row(o, '앱 STOP → 서버')).toBe('잠금 확인 안 됨'); expect(row(o, '외부 3인칭 영상')).toBe('확인 안 됨');
+  // 재연결: 새 연결(gen 2)에서 아직 status 못 받음 — 이전 연결 st(stGen 1)로 확정 0
+  fresh({ latch: false }); put({ gen: 2, stGen: 1 }); o = ops(html()); expect(row(o, '앱 STOP → 서버')).toBe('잠금 확인 안 됨'); expect(row(o, '라이다(센서 기준)')).toBe('확인 안 됨');
+  // 대상 전환 직후(st 없음·bad 없음)
+  fresh(); put({ st: null }); o = ops(html()); expect(row(o, '앱 STOP → 서버')).toBe('잠금 확인 안 됨');
+  // 복원: 이 연결에서 유효 status → 확정
+  fresh({ latch: false }); put({ gen: 2, stGen: 2 }); o = ops(html()); expect(row(o, '앱 STOP → 서버')).toBe('잠금 꺼짐'); expect(tone(o, '앱 STOP → 서버')).toBe('ok');
+});
+
+test('B2: 보기 off = 미수신 «받은 것 없음»(warn) · 꺼짐은 외부카메라 명시 끔(prod.enabled false)만 · why 중복 0 · 키 전환 대기도 받은 것 없음', () => {
+  const off = (why: string, prod: unknown = null) => ({ st: 'off', why, seq: null, age_s: null, prod });
+  fresh({ views: { follow: off('받은 것 없음', { reason: null, n_pub: 0, enabled: true }), points: off('받은 것 없음'), lidar: off('') } });
+  let o = ops(html());
+  expect(row(o, '외부 3인칭 영상')).toBe('받은 것 없음'); expect(row(o, '지도 누적 점군')).toBe('받은 것 없음'); expect(row(o, '라이다(센서 기준)')).toBe('받은 것 없음');
+  for (const n of ['외부 3인칭 영상', '지도 누적 점군', '라이다(센서 기준)']) expect(tone(o, n)).toBe('warn');
+  expect(o).not.toMatch(/>꺼짐/);
+  fresh({ views: { follow: off('받은 것 없음', { reason: null, n_pub: 0, enabled: null }), points: off('키 바뀜 — 새 자료 기다림'), lidar: null } });   // enabled 모름·전환 대기
+  o = ops(html()); expect(row(o, '외부 3인칭 영상')).toBe('받은 것 없음'); expect(row(o, '지도 누적 점군')).toBe('받은 것 없음 · 키 바뀜 — 새 자료 기다림');
+  fresh({ views: { follow: off('받은 것 없음', { reason: null, n_pub: 0, enabled: false }), points: off('받은 것 없음') } });   // 명시 끔
+  o = ops(html()); expect(row(o, '외부 3인칭 영상')).toBe('꺼짐 · 이번 지도 시뮬에서 외부카메라 끔'); expect(tone(o, '외부 3인칭 영상')).toBe('off'); expect(row(o, '지도 누적 점군')).toBe('받은 것 없음');
+});
+
+test('B3: 측정값은 필드별 — null 만 접힘(warn) · 0 은 유효 · 일부만 받으면 받은 부분 보존 + 미확인(warn) · 값 오면 복원 · 미확인 글 정상 톤 0', () => {
+  fresh({ sim: { ...SIM, tilt_deg: null } }); let o = ops(html());
+  expect(row(unf(o), '기울기')).toBeUndefined(); expect(folded(o)).toMatch(/m-warn">▲<\/span><span>기울기<\/span><b[^>]*>받은 값 없음</); expect(o).toContain('값 없는 줄 3개 ›');
+  fresh({ sim: { ...SIM, tilt_deg: 0, vx: 0, vy: 0, x: 0, y: 0, yaw: 0 } }); o = ops(html());   // 0 = 유효
+  expect(row(o, '기울기')).toBe('0.0°'); expect(tone(o, '기울기')).toBe('ok'); expect(row(o, '속도(앞 · 옆)')).toBe('0.00 · 0.00 m/s'); expect(tone(o, '위치 · 방향')).toBe('ok'); expect(o).toContain('값 없는 줄 2개 ›');
+  fresh({ sim: { ...SIM, vy: null, yaw: null } }); o = ops(html());   // 혼합: 받은 부분 보존
+  expect(row(o, '속도(앞 · 옆)')).toBe('0.10 · 미확인 m/s'); expect(tone(o, '속도(앞 · 옆)')).toBe('warn'); expect(row(o, '위치 · 방향')).toBe('x +1.00 · y +2.00 m · 미확인'); expect(tone(o, '위치 · 방향')).toBe('warn');
+  fresh({ sim: { ...SIM, x: null, y: null, yaw: null, vx: null, vy: null } }); o = ops(html());
+  expect(row(unf(o), '위치 · 방향')).toBeUndefined(); expect(row(unf(o), '속도(앞 · 옆)')).toBeUndefined(); expect(o).toContain('값 없는 줄 4개 ›');
+  fresh(); o = ops(html()); expect(row(o, '위치 · 방향')).toBe('x +1.00 · y +2.00 m · 0°'); expect(o).toContain('값 없는 줄 2개 ›');   // 복원
+  fresh({ sim: { ...SIM, fallen: null } }); o = ops(html()); expect(row(o, '몸')).toBe('넘어짐 미확인'); expect(tone(o, '몸')).toBe('warn'); expect(row(o, '넘어짐')).toBe('미확인');
+  fresh({ sim: { ...SIM, vx: null } }); o = ops(html()); expect(row(o, '몸')).toBe('실측 속도 미확인'); expect(tone(o, '몸')).toBe('warn');
 });
