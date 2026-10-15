@@ -26,10 +26,10 @@ const useToastS = create<{ t: string; n: number }>(() => ({ t: '', n: 0 }));
 const show = (t: string) => useToastS.setState((s) => ({ t, n: s.n + 1 }));
 /** 글 하나 또는 (저장처럼) 나중에 오는 결과 글 — 결과가 와야 띄운다 */
 export const toast = (t: string | null | Promise<string | null>) => { if (t instanceof Promise) t.then((x) => x && show(x)); else if (t) show(t); };
-/** N1 «조종 시작» 확인창(페이지 안·비차단). 화면을 덮지 않아 STOP(버튼·Space)은 그대로 눌리고, 누르면 이 창이 바로 닫힘(취소).
+/** 페이지 안 확인창(N1 «조종 시작» · 수동 진행 시작, 비차단). 화면을 덮지 않아 STOP(버튼·Space)은 그대로 눌리고, 누르면 이 창이 바로 닫힘(취소).
  *  초점은 «취소»(Enter 습관으로 시작되지 않게) · Escape = 취소 · 숨김/이탈/새 STOP/상태 변화도 취소(link.cancelStart·결속). */
 export function StartAsk() {
-  const text = useAsk((s) => s.text), no = useRef<HTMLButtonElement | null>(null);
+  const text = useAsk((s) => s.text), ok = useAsk((s) => s.ok), no = useRef<HTMLButtonElement | null>(null);
   useEffect(() => {
     if (text === null) return;
     no.current?.focus();
@@ -44,7 +44,7 @@ export function StartAsk() {
     {rows.map((r) => <div key={r} style={{ lineHeight: 1.45 }}>{r}</div>)}
     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
       <button type="button" className="btn" ref={no} onClick={() => answerAsk(false)}>취소</button>
-      <button type="button" className="btn" data-ask-ok="1" onClick={() => answerAsk(true)}>조종 시작</button>
+      <button type="button" className="btn" data-ask-ok="1" onClick={() => answerAsk(true)}>{ok || '조종 시작'}</button>
     </div>
   </div></InFs>;
 }

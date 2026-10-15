@@ -1,7 +1,8 @@
 // 수동 임무 진행·지도 계산 공용 — web/live.js 908·919–921·1124–1136·1170 과 같은 규칙. 자동 이동·자동 완료 없음, 운영자가 눌러 기록.
 import type { DocWrite, MapSrc, Mission, Run, RunWaypoint } from '@contracts';
 import { activeRun, docById, docsNow, docsOf, qc, saveDoc, type Docs, type SaveRes } from './shared';
-import { ask, linkView, useLink } from './link';
+import { ask, askPage, linkView, useLink } from './link';
+import { WF } from './maps';
 import { MISSING_T, tmplOf } from './tmpl';
 import { toast } from '../app/shell';
 import { wpName } from './fmt';
@@ -31,14 +32,26 @@ export const wkey = (wps: Pt[]) => {
   return h.toString(16).padStart(8, '0');
 };
 export type Here = { map: MapSrc; why?: undefined } | { map?: undefined; why: string };
-/** 지금 시뮬의 GT 좌표 기준: 링크 신선 + 실시간 지도 상태의 world·층. 연결 건물은 서버 층 판정 on_floor 일 때만(시작층·보는 층을 현재층으로 쓰지 않음) */
+/** 지금 시뮬의 GT 좌표 기준(world·현재층). 하나라도 못 믿으면 이유(= 미확인 · 기록만) — 확정으로 올리는 조건:
+ *  ① 링크 신선(1 s, 완화 없음) ② 서버 상태 수준 결속 bound=true 이고 st ok/wait(wait = 격자만 아직 — 상태는 결속). reset·bad·결속 불가는 미확인(F2)
+ *  ③ 아는 world·층 ④ 층이 둘 이상인 연결 건물은 서버 층 판정 floor 가 on_floor 이고 current 가 그 건물 층일 때만 — floor 누락·null·모르는 current 면
+ *     현재층 미확인(시작층 floor_id 로 대신하지 않음, F3). 단층 world 는 floor_id(그 world 층일 때만), floor 가 오면 같은 규칙 */
 export function gtHere(s = useLink.getState()): Here {
   const lv = s.st?.live_map;
   if (!linkView(s).linkOk) return { why: '연결 끊김' };
-  if (!lv || lv.st === 'off' || lv.st === 'stale' || lv.st === 'unknown' || !lv.world_id || !lv.floor_id) return { why: '지금 지도 미수신' };
-  const f = lv.floor as { state?: string; current?: string | null } | null | undefined;
-  if (f && (f.state !== 'on_floor' || typeof f.current !== 'string' || !f.current)) return { why: f.state === 'transit' ? '층 이동 중' : '현재층 미확인' };
-  return { map: { src: 'gt', world_id: lv.world_id, floor_id: f ? f.current! : lv.floor_id, key: '' } };
+  if (!lv || lv.st === 'off' || lv.st === 'stale' || lv.st === 'unknown' || !lv.world_id) return { why: '지금 지도 미수신' };
+  const f = lv.floor as { state?: unknown; current?: unknown } | null | undefined;
+  if (f && f.state === 'transit') return { why: '층 이동 중' };
+  if (lv.st === 'reset') return { why: '시뮬 리셋 중' };
+  if (lv.st === 'bad') return { why: '지도 오류' };
+  if (lv.bound !== true || (lv.st !== 'ok' && lv.st !== 'wait') || !lv.floor_id) return { why: '서버 결속 미확인' };
+  const fl = WF[lv.world_id];
+  if (!fl || !fl.includes(lv.floor_id)) return { why: '모르는 지도·층' };
+  if (fl.length > 1 || f) {
+    if (!f || f.state !== 'on_floor' || typeof f.current !== 'string' || !fl.includes(f.current)) return { why: '현재층 미확인' };
+    return { map: { src: 'gt', world_id: lv.world_id, floor_id: f.current, key: '' } };
+  }
+  return { map: { src: 'gt', world_id: lv.world_id, floor_id: lv.floor_id, key: '' } };
 }
 /** 문서의 출처: map 이 있고 지문이 지금 좌표와 같을 때만 */
 export const planMap = (d: { wps: Pt[]; map?: MapSrc }): Here => (!d.map ? { why: '출처 기록 없음(옛 계획)' } : d.map.key !== wkey(d.wps) ? { why: '출처 기록 뒤 좌표가 바뀜' } : { map: d.map });
@@ -75,19 +88,22 @@ export const dupMission = (m: Mission): Mission => { const c = structuredClone(m
 // 계획 스냅샷: 나중에 계획을 고쳐도 이 기록은 그대로. map = 시작 때 일치했을 때만, mrev = 시작한 계획 판
 const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: tmplOf(D, m.tmpl)!.name.slice(0, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
   wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev });
-// send: 화면의 editor.write(쓰기 한 번에 하나) — 두 번 눌러 진행 기록이 둘 생기지 않게
-export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>) {
+// send: 화면의 editor.write(쓰기 한 번에 하나) — 두 번 눌러 진행 기록이 둘 생기지 않게. ask: 페이지 안 확인창(시험에서 바꿔 끼움)
+export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>, ask: (t: string) => Promise<boolean> = (t) => askPage(t, '진행 시작')) {
   const m = docById(D, mid); if (!m || m.kind !== 'mission') { toast('계획을 고르세요'); return null; }
   if (!m.doc.wps.length) { toast('지점이 없는 계획입니다 — 먼저 지점을 추가'); return null; }
   const T = tmplOf(D, m.doc.tmpl); if (!T) { toast(MISSING_T); return null; }
   if (activeRun(D)) { toast('진행 중인 수동 임무가 있습니다 — 먼저 끝내세요'); return null; }
   const p = startPolicy(m.doc, gtHere()); if (p.block) { toast(p.block); return null; }
-  if (!confirm(`«${m.doc.name}» 수동 진행을 시작할까요?\n· ${p.line}\n· 지점 ${m.doc.wps.length}개 · 양식 «${T.name}»\n· 로봇은 자동으로 움직이지 않습니다(직접 조종)\n· 방문·미방문·판단은 운영자가 눌러 기록`)) return null;
-  // 확인하는 사이: 계획 판이 바뀌었거나 지도 판정이 달라졌으면 보내지 않음(다시 누르게 — 확인한 내용과 다른 기록 0)
-  const m2 = docById(docsNow(), m.id), p2 = m2 && m2.kind === 'mission' ? startPolicy(m2.doc, gtHere()) : null;
-  if (!m2 || m2.rev !== m.rev || !p2 || p2.block || p2.line !== p.line) { toast('확인하는 사이 계획 또는 지도 상태가 바뀜 — 다시 눌러 주세요'); return null; }
-  const r = await send({ op: 'put', kind: 'run', id: null, doc: newRun(D, m.id, m.doc, p.map, m.rev) }); if (!r) return null;
-  toast(r.ok ? `수동 진행 시작 · 모든 기기 공유${p.map ? '' : ' · 지도 미확인 · 기록만'}` : `시작 안 됨 · ${r.error}`); return r.ok ? r : null;
+  // 확인창은 페이지 안(비차단, F1): 기다리는 동안 status·문서 갱신이 계속 들어오므로 아래 재검사는 1 s 신선도를 그대로 쓴다. STOP 은 눌리고 창은 닫힘(취소)
+  if (!(await ask(`«${m.doc.name}» 수동 진행을 시작할까요?\n· ${p.line}\n· 지점 ${m.doc.wps.length}개 · 양식 «${T.name}»\n· 로봇은 자동으로 움직이지 않습니다(직접 조종)\n· 방문·미방문·판단은 운영자가 눌러 기록`))) return null;
+  // 확인 뒤 재검사 — 범위는 «이 기기가 지금까지 받은 문서 캐시 + 지금 링크 상태»뿐(서버 최신 판을 다시 읽지 않음).
+  // 서버는 Run 을 받을 때 계획 판(mrev)·양식을 대조하지 않는다 → 아직 이 기기에 안 온 다른 기기 수정은 막지 못함(시작 원자성 미보장, Run.mrev 는 «이 기기가 본 판» 기록)
+  const D2 = docsNow(), x2 = docById(D2, m.id), m2 = x2 && x2.kind === 'mission' ? x2 : null, p2 = m2 ? startPolicy(m2.doc, gtHere()) : null, T2 = m2 ? tmplOf(D2, m2.doc.tmpl) : null;
+  if (qc.getQueryState(['docs'])?.status === 'error') { toast('문서 다시 읽기 실패 — 최신 계획 미확인 · 시작 안 됨'); return null; }
+  if (!m2 || m2.rev !== m.rev || !p2 || p2.block || p2.line !== p.line || !T2 || T2.name !== T.name) { toast('확인하는 사이 이 기기에 들어온 계획·양식 또는 지도 상태가 바뀜 — 다시 눌러 주세요'); return null; }
+  const r = await send({ op: 'put', kind: 'run', id: null, doc: newRun(D2, m.id, m2.doc, p2.map, m2.rev) }); if (!r) return null;
+  toast(r.ok ? `수동 진행 시작 · 모든 기기 공유${p2.map ? '' : ' · 지도 미확인 · 기록만'}` : `시작 안 됨 · ${r.error}`); return r.ok ? r : null;
 }
 
 // ---- 진행 기록(live.js 1139–1177) — 운영자가 눌러 기록, 자동 판정 없음 ----

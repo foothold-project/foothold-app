@@ -79,11 +79,13 @@ export function hide() { const s = useLink.getState(); dropAll(); cancelStart();
 // 중단: STOP·숨김/이탈·반납·리셋 요청·새 시작 → startTok 이 바뀌어 다음 op 0. resume 은 한 번만(재시도 0). 성공해도 누름 폐기(서버 need_neutral 그대로).
 // 확인창은 페이지 안(비차단): 확인 중에도 status 를 계속 받고 STOP(버튼·Space)은 그대로 눌리며, 누르면 확인창이 바로 닫힌다. Escape·취소·이탈 = 취소.
 let startTok = 0;
-export const useAsk = create<{ text: string | null }>(() => ({ text: null }));
+export const useAsk = create<{ text: string | null; ok?: string }>(() => ({ text: null }));   // ok = 확인 단추 글(없으면 «조종 시작»)
 let askDone: ((v: boolean) => void) | null = null;
 /** 페이지 안 확인창 답(취소·중단은 false). 열린 창이 없으면 아무것도 안 함 */
 export function answerAsk(v: boolean) { const f = askDone; askDone = null; if (useAsk.getState().text !== null) useAsk.setState({ text: null }); f?.(v); }
-const askInPage = (t: string) => new Promise<boolean>((res) => { answerAsk(false); askDone = res; useAsk.setState({ text: t }); });
+/** 페이지 안 확인창(비차단): 기다리는 동안 status·문서가 계속 들어오고 STOP 은 그대로 눌리며 STOP·숨김·새 확인창이면 false. 열린 다른 확인창은 취소 */
+export const askPage = (t: string, ok?: string) => new Promise<boolean>((res) => { answerAsk(false); askDone = res; useAsk.setState({ text: t, ok }); });
+const askInPage = (t: string) => askPage(t);
 export function cancelStart() { startTok++; answerAsk(false); if (useLink.getState().starting !== null) useLink.setState({ starting: null }); }
 export const START_ASK = '조종을 시작할까요?\n· 로봇(시뮬) 주변과 시뮬 상태를 확인하세요\n· 확인하면 조종권을 받고 STOP 잠금을 풉니다\n· 그 뒤 손을 떼고 새로 눌러야 움직입니다 · STOP 은 언제든 즉시\n· 이 창이 열린 동안 STOP·리셋·연결 변화·다른 기기 점유가 생기면 취소됩니다';
 export const START_CANCEL = '조종 시작 중단 — STOP·숨김·반납·리셋 요청(보낸 다음 단계 0)';

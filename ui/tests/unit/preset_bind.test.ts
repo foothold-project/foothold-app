@@ -12,7 +12,7 @@ const L1: MapSrc = { src: 'gt', world_id: 'v5_building', floor_id: 'l1', key: wk
 const mi = (o: Partial<Mission> = {}): Mission => ({ name: '계획', tmpl: 'base', memo: '', wps: structuredClone(W1), ...o });
 // 링크 상태: 신선한 status + live_map(연결 건물이면 floor 판정)
 const live = (lv: Record<string, unknown> | null, fresh = true) => useLink.setState({ open: true, lastMsg: fresh ? performance.now() : performance.now() - 5000, provider: 'simulation_gate', st: { live_map: lv, applied: [0, 0, 0] } as any });
-const onL = (cur: string | null, state = 'on_floor', world = 'v5_building') => live({ st: 'ok', world_id: world, floor_id: 'l1', floor: { rev: 1, state, current: cur, reason: '' } });
+const onL = (cur: string | null, state = 'on_floor', world = 'v5_building') => live({ st: 'ok', bound: true, world_id: world, floor_id: 'l1', floor: { rev: 1, state, current: cur, reason: '' } });
 beforeEach(() => { mem.clear(); onL('l1'); });
 
 test('지금 지도: 연결 건물은 on_floor current 만 · transit/unknown·끊김·미수신은 이유', () => {
@@ -20,10 +20,36 @@ test('지금 지도: 연결 건물은 on_floor current 만 · transit/unknown·�
   onL('l2'); expect(gtHere().map?.floor_id).toBe('l2');                       // 시작층(floor_id l1)이 아니라 서버 현재층
   onL(null, 'transit'); expect(gtHere().why).toBe('층 이동 중');
   onL(null, 'unknown'); expect(gtHere().why).toBe('현재층 미확인');
-  live({ st: 'ok', world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().map).toMatchObject({ world_id: 'rooms_a', floor_id: 'f1' });   // 단층: floor 판정 없음
-  live({ st: 'stale', world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().why).toBe('지금 지도 미수신');
+  live({ st: 'ok', bound: true, world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().map).toMatchObject({ world_id: 'rooms_a', floor_id: 'f1' });   // 단층: floor 판정 없음
+  live({ st: 'stale', bound: true, world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().why).toBe('지금 지도 미수신');
   live(null); expect(gtHere().why).toBe('지금 지도 미수신');
-  onL('l1'); live({ st: 'ok', world_id: 'v5_building', floor_id: 'l1', floor: { state: 'on_floor', current: 'l1' } }, false); expect(gtHere().why).toBe('연결 끊김');
+  onL('l1'); live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { state: 'on_floor', current: 'l1' } }, false); expect(gtHere().why).toBe('연결 끊김');
+});
+
+// F2: 서버가 결속 불가로 내린 상태(reset·bad·bound false)는 GT 확정 0 — 격자만 아직인 wait(bound true)는 확정
+test('F2 결속 불가 = 미확인 · 격자 대기 wait+bound 는 확정', () => {
+  const B = { world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1', reason: '' } };
+  for (const [lv, why] of [[{ st: 'reset', bound: false }, '시뮬 리셋 중'], [{ st: 'bad', bound: false }, '지도 오류'], [{ st: 'reset', bound: true }, '시뮬 리셋 중'], [{ st: 'bad', bound: true }, '지도 오류'],
+    [{ st: 'ok', bound: false }, '서버 결속 미확인'], [{ st: 'wait', bound: false }, '서버 결속 미확인'], [{ st: 'ok' }, '서버 결속 미확인']] as const) {
+    live({ ...B, ...lv }); expect(gtHere()).toEqual({ why });
+    expect(startPolicy(mi({ map: L1 }), gtHere())).toMatchObject({ block: null, map: null });   // 출처 있는 계획도 결속 시작 0(기록만)
+    expect(addPlan(mi({ wps: [] }), gtHere())).toMatchObject({ act: 'bind', why });             // 빈 계획에 붙일 출처 없음(화면은 map 없이 둠)
+  }
+  live({ ...B, st: 'wait', bound: true }); expect(gtHere().map).toMatchObject({ world_id: 'v5_building', floor_id: 'l1' });
+});
+// F3: 연결 건물은 floor 판정 필수 — 누락·null·모르는 current 를 시작층 floor_id 로 대신하지 않음
+test('F3 연결 건물 floor 누락·null·모르는 current = 현재층 미확인 · 단층은 floor_id', () => {
+  const B = { st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1' };
+  for (const f of [undefined, null, { rev: 1, state: 'on_floor', current: null }, { rev: 1, state: 'on_floor', current: 'f1' }, { rev: 1, state: 'on_floor', current: 'l3' },
+    { rev: 1, state: 'on_floor', current: 2 }, { rev: 1, state: 'unknown', current: 'l1' }, { rev: 1, state: 'weird', current: 'l1' }]) {
+    live(f === undefined ? B : { ...B, floor: f }); expect(gtHere()).toEqual({ why: '현재층 미확인' });
+    expect(runHere({ wps: [], map: L1 } as unknown as Run).ok).toBe(false);
+  }
+  live({ ...B, floor_id: 'l3' }); expect(gtHere().why).toBe('모르는 지도·층');
+  live({ ...B, world_id: 'x_world', floor_id: 'l1' }); expect(gtHere().why).toBe('모르는 지도·층');
+  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'f1' }); expect(gtHere().map).toMatchObject({ world_id: 'v5_single', floor_id: 'f1' });
+  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'f1', floor: { rev: 1, state: 'unknown', current: null } }); expect(gtHere().why).toBe('현재층 미확인');
+  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'l2' }); expect(gtHere().why).toBe('모르는 지도·층');
 });
 
 test('시작 정책 표: 일치 = 결속 · world/층 불일치 = 차단 · 출처 없음/지문 어긋남/층 이동 중 = 기록만', () => {
@@ -31,7 +57,7 @@ test('시작 정책 표: 일치 = 결속 · world/층 불일치 = 차단 · 출�
   expect(ok.block).toBeNull(); expect(ok.map).toEqual(L1);
   onL('l2'); const fl = startPolicy(mi({ map: L1 }), gtHere());
   expect(fl.block).toMatch(/다른 지도.*l1.*l2/); expect(fl.map).toBeNull();
-  onL('l1', 'on_floor', 'v5_single'); expect(startPolicy(mi({ map: L1 }), gtHere()).block).toMatch(/v5_building.*v5_single/);
+  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'f1' }); expect(startPolicy(mi({ map: L1 }), gtHere()).block).toMatch(/v5_building · l1.*v5_single · f1/);
   onL('l1');
   const old = startPolicy(mi(), gtHere());                                       // 옛 계획(map 없음)
   expect([old.block, old.map]).toEqual([null, null]); expect(old.line).toMatch(/기록만 — 출처 기록 없음/);
@@ -72,11 +98,11 @@ test('runHere: 기록 출처가 지금 지도와 같을 때만 거리·겹치기
 // ---- startRun(모든 진입점 공통): 보내는 Run 문서와 확인창 사이 변화 ----
 const put = (docs: unknown[]) => qc.setQueryData(['docs'], { docs, rev: 1, broken: null });
 const env = (id: string, kind: string, doc: unknown, rev = 1) => ({ id, kind, rev, by: 'A', at: 't', doc });
-const go = async (m: Mission, onAsk?: () => void) => {
+const go = async (m: Mission, onAsk?: () => unknown) => {
   put([env('m1', 'mission', m, 4)]); const sent: DocWrite[] = [];
-  (globalThis as any).confirm = vi.fn(() => { onAsk?.(); return true; });
-  const r = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true, id: 'r1', rev: 1, kind: 'run', name: '', new: true } as any; });
-  return { r, sent, ask: String(((globalThis as any).confirm as any).mock.calls[0]?.[0] ?? '') };
+  const ask = vi.fn(async () => { await onAsk?.(); return true; });
+  const r = await startRun(docsNow(), 'm1', async (w) => { sent.push(w); return { ok: true, id: 'r1', rev: 1, kind: 'run', name: '', new: true } as any; }, ask);
+  return { r, sent, ask: String((ask.mock.calls as unknown[][])[0]?.[0] ?? '') };
 };
 
 test('startRun 일치: 확인 1회에 이름·지도·지점 수 · Run 에 map·mrev', async () => {
@@ -109,4 +135,25 @@ test('dupMission: 깊은 사본 · 이름 60자 안 · 출처 그대로(유효/�
   expect(src.wps[0].x).toBe(1); expect(src.map!.world_id).toBe('v5_building'); expect(src.wps[0].mods).toEqual([]);
   expect(planMap(dupMission(src)).map).toEqual(L1);
   const old = dupMission(mi()); expect('map' in old).toBe(false); expect(planMap(old).why).toMatch(/옛 계획/);
+});
+
+// F1: 확인창은 비차단 — 1 s 넘게 읽어도 그동안 status 가 들어오면 정상 시작 · 안 들어오면(끊김) 신선도 1 s 그대로 차단 · STOP 은 창을 닫아 보낸 것 0
+const tickWhile = (ms: number, beat: boolean) => new Promise<void>((res) => { const t0 = performance.now(), id = setInterval(() => { if (beat) useLink.setState({ lastMsg: performance.now() }); if (performance.now() - t0 >= ms) { clearInterval(id); res(); } }, 100); });
+test('F1 확인 1.3 s 동안 status 계속 = 결속 시작 · status 없음 = 시작 안 됨(1 s 완화 0)', async () => {
+  const a = await go(mi({ map: L1 }), () => tickWhile(1300, true));
+  expect(a.sent).toHaveLength(1); expect(((a.sent[0] as any).doc as Run).map).toEqual(L1);
+  onL('l1'); const b = await go(mi({ map: L1 }), () => tickWhile(1300, false));
+  expect(b.r).toBeNull(); expect(b.sent).toHaveLength(0);
+});
+test('F1 기본 확인창 = 페이지 안(단추 «진행 시작») · STOP(cancelStart) 이면 닫히고 보낸 것 0 · 양식이 사라지면 보내지 않음', async () => {
+  const L = await import('../../src/data/link');
+  put([env('m1', 'mission', mi({ map: L1 }), 4), env('t1', 'tmpl', { name: 'T', desc: '', mods: [] })]); const sent: DocWrite[] = [];
+  const sendF = async (w: DocWrite) => { sent.push(w); return { ok: true } as any; };
+  const p = startRun(docsNow(), 'm1', sendF);
+  expect(L.useAsk.getState()).toMatchObject({ ok: '진행 시작' }); expect(L.useAsk.getState().text).toMatch(/수동 진행을 시작할까요/);
+  L.cancelStart(); expect(await p).toBeNull(); expect(sent).toHaveLength(0); expect(L.useAsk.getState().text).toBeNull();
+  const q = startRun(docsNow(), 'm1', sendF); L.answerAsk(true); expect(await q).toBeTruthy(); expect(sent).toHaveLength(1);
+  const m2 = mi({ map: L1, tmpl: 't1' }); put([env('m1', 'mission', m2, 4), env('t1', 'tmpl', { name: 'T', desc: '', mods: [] })]);
+  const r3 = startRun(docsNow(), 'm1', sendF); put([env('m1', 'mission', m2, 4)]); L.answerAsk(true);
+  expect(await r3).toBeNull(); expect(sent).toHaveLength(1);
 });
