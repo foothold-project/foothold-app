@@ -33,6 +33,8 @@ export const OBS_NOTE = 'AI 탐지 미연결 — 운영자가 찍어 등록한 �
 export const TRIAL_DEV = 'Gazebo · foothold-v2', TRIAL_SAFE = '시험 · 낙상·정지 지연 미검증';
 export const TRIAL = `${TRIAL_DEV} ${TRIAL_SAFE}`;
 export const RELURCH = '정지 뒤 1~2 s 안에 한 번 다시 움직일 수 있음(시뮬 기록 최대 약 .33 m/s·28°)';
+// U4-b(v3 §4 PcRobot «알려진 정지 특성»): 위 STOP_FACT[1]·RELURCH 관측의 운영 짧은 글 — 같은 관측·같은 조건, 범위 넓힘·새 추정 0(시간/거리 상한 아님)
+export const STOP_OBS = '한 시뮬 관측에서 STOP 뒤 약 3.6초 동안 약 0.32 m 추가 이동(원인 미확인)', RELURCH_OBS = '정지 뒤 다시 움직임 관측(시뮬 · 원인 미확인)';
 // U2(v3 §4 R9): 조종 화면 안전 한 줄 + ? 상세. 관측 숫자는 시뮬 시험 기록의 관측값이며 보장 범위(최대 거리·시간)가 아니다
 export const SAFE_LINE = 'STOP: 입력 차단·잠금 · 몸은 늦게 멈추거나 다시 움직일 수 있음';
 export const SAFE_NOTE = '아래 숫자는 시뮬 시험 기록에서 본 관측값입니다(그 시험 조건·표본에 한정 · 원인 미확인). 이 값 안에서 멈춘다는 보장이 아닙니다. 실기 미검증 · 낙상 미검증.';
