@@ -40,6 +40,13 @@ test('devSearch: dev 만 바꾸고 다른 쿼리 순서·인코딩 보존, 중�
   expect(D.devSearch('?%64ev=1', false)).toBe('?dev=0');
   expect(D.devSearch('?de%76=1&a=%20&dev=0&%64ev', true)).toBe('?a=%20&dev=1');
   expect(D.devSearch('?%64ev2=1&x=%64ev&b=%E0%A4%A&de%76=0', false)).toBe('?%64ev2=1&x=%64ev&b=%E0%A4%A&dev=0');
+  // D2: 조각 맨 앞 ? 는 키의 일부(전체 search 와 같은 뜻) — 비 dev 키 ?dev·??dev 보존
+  expect(D.devSearch('?a=1&?dev=keep&dev=1', false)).toBe('?a=1&?dev=keep&dev=0');
+  expect(D.devSearch('??dev=1', true)).toBe('??dev=1&dev=1');
+  expect(D.devSearch('?%3Fdev=1&??dev&?%64ev=2&%64ev=1&dev', false)).toBe('?%3Fdev=1&??dev&?%64ev=2&dev=0');
+  for (const q of ['?a=1&?dev=keep&dev=1', '??dev=1', '?%3Fdev=1&??dev&?%64ev=2&%64ev=1&dev', '?x=%E0%A4%A&de%76=1#h'])   // 읽기와 정리가 같은 키를 dev 로 봄
+    expect(new URLSearchParams(D.devSearch(q, false)).getAll('dev')).toEqual(['0']);
+  expect(D.devInit('??dev=1', null)).toBe(false); expect(D.devInit('?a=1&?dev=1', null)).toBe(false);
 });
 
 test('devStart: URL 이 저장값보다 우선 · 저장 막힘이어도 URL 로 켜짐 · <html> 클래스', () => {

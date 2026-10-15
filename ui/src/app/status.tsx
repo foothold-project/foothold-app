@@ -1,5 +1,7 @@
 // 공통 머리줄 상태(UI-SIMPLIFY v3 R8 · U1-b): [시뮬] [연결] [역할] [잠금] 칩 + «시뮬 ▾» 메뉴 + 개발자 표시 + 문서 오류 + 새 판 차단.
-// 칩 글은 서버가 준 값으로만 정한다(새 추정 0). 미확인·끊김을 «꺼짐»으로 보이지 않는다 — 확인된 꺼짐 = 서버 세션 result 'idle' 일 때만.
+// 칩 글은 서버가 준 값으로만 정한다(새 추정 0). 미확인·끊김을 «꺼짐»으로 보이지 않는다.
+// B2(10-15 검토): 지금 계약의 session(result idle 등)은 조회 시각·신선도가 없고 unit·요청 진행과 따로라 «시뮬 꺼짐» 확정 근거가 못 된다
+// → 세션 값은 ? 안 원문으로만 · 칩은 «시뮬 확인 안 됨»(끊김은 서버 sim_block 그대로 «시뮬 끊김»).
 // 각 칩의 «?» 에 원래 상태 글(전문)을 그대로 둔다.
 import type { Status } from '@contracts';
 import { linkView, sendOp, sessTxt, startSimAsk, startTxt, useLink } from '../data/link';
@@ -7,7 +9,7 @@ import { reread, type Docs, type Media } from '../data/shared';
 import { LATCH_TXT } from '../data/facts';
 import { MapStartBox } from '../map/MapStartBox';
 import { Chip, DevMark, usePop, type Tone } from './chip';
-import { SimOff, toast, useRoute, whyProps } from './shell';
+import { InFs, SimOff, toast, useRoute, whyProps } from './shell';
 
 type C = { k: 'sim' | 'link' | 'role' | 'lock'; tone: Tone; text: string; why: string };
 /** 머리줄 칩 4종(순수 — 시험용). 실기 대상이면 시뮬·역할 칩 없이 연결 «실기 미연결»만 */
@@ -18,20 +20,20 @@ export function headChips(x: { provider: string; linkOk: boolean; everMsg: boole
   const link: C = x.authEnd ? { k: 'link', tone: 'bad', text: '로그인 끝남', why: full }
     : !x.linkOk ? (x.everMsg ? { k: 'link', tone: 'bad', text: '연결 끊김', why: full } : { k: 'link', tone: 'warn', text: '연결 중', why: full })
     : !known ? { k: 'link', tone: 'warn', text: '상태 확인 안 됨', why: full } : { k: 'link', tone: 'ok', text: '연결됨', why: full };
-  const sess = st?.sim_start?.session?.result, sb = st?.sim_block || '', sw = [full, sb && !full.includes(sb) && `시뮬 상태 ${sb}`, sessTxt(st) && `시뮬 세션 ${sessTxt(st)}`, st?.sim_start?.why].filter(Boolean).join(' · ');
+  const sb = st?.sim_block || '', sw = [full, sb && !full.includes(sb) && `시뮬 상태 ${sb}`, sessTxt(st) && `RL 세션 조회값 ${sessTxt(st)}(조회 시각 미표시 · 꺼짐 확정 아님)`, st?.sim_start?.why].filter(Boolean).join(' · ');
   const sim: C = !known ? { k: 'sim', tone: 'warn', text: '시뮬 확인 안 됨', why: full }
     : !sb ? { k: 'sim', tone: 'ok', text: '시뮬 실행', why: sw }
     : sb === '시뮬 상태 미수신' || sb === '시뮬 상태 끊김'
-      ? (sess === 'idle' ? { k: 'sim', tone: 'off', text: '시뮬 꺼짐', why: sw } : sess === 'starting' ? { k: 'sim', tone: 'warn', text: '시뮬 켜지는 중', why: sw }
-        : sb === '시뮬 상태 끊김' ? { k: 'sim', tone: 'bad', text: '시뮬 끊김', why: sw } : { k: 'sim', tone: 'warn', text: '시뮬 확인 안 됨', why: sw })
+      ? (sb === '시뮬 상태 끊김' ? { k: 'sim', tone: 'bad', text: '시뮬 끊김', why: sw } : { k: 'sim', tone: 'warn', text: '시뮬 확인 안 됨', why: sw })
     : sb === '시뮬 리셋 중' ? { k: 'sim', tone: 'warn', text: '시뮬 리셋 중', why: sw }
     : sb === '정책 미실행' ? { k: 'sim', tone: 'warn', text: '제어 준비 안 됨', why: sw }   // §7-1: policy_running=false 소비 사실만
     : { k: 'sim', tone: 'warn', text: '시뮬 처리 중', why: sw };
   const role: C = !known ? { k: 'role', tone: 'warn', text: '역할 확인 안 됨', why: x.roleTxt }
     : st!.role === 'control' && !x.viewOnly ? { k: 'role', tone: 'ok', text: '이 기기 조종', why: x.roleTxt }
     : st!.role === 'view_other' ? { k: 'role', tone: 'warn', text: '다른 기기 조종 중', why: x.roleTxt } : { k: 'role', tone: 'off', text: '보기 전용', why: x.roleTxt };
-  const lt = LATCH_TXT(x);
-  const lock: C = !x.linkOk ? { k: 'lock', tone: 'warn', text: '잠금 확인 안 됨', why: lt } : x.latch ? { k: 'lock', tone: 'bad', text: 'STOP 잠금', why: lt } : { k: 'lock', tone: 'ok', text: '잠금 해제', why: lt };
+  // B1(10-15 검토): 연결돼 있어도 유효한 현재 status 가 없으면(st 없음·형식 오류) 잠금도 미확인 — «해제» 확정 0
+  const lt = known ? LATCH_TXT(x) : `잠금 상태 미확인(${x.linkOk ? `연결은 됐으나 ${x.linkTxt}` : '서버 연결 끊김'})`;
+  const lock: C = !known ? { k: 'lock', tone: 'warn', text: '잠금 확인 안 됨', why: lt } : x.latch ? { k: 'lock', tone: 'bad', text: 'STOP 잠금', why: lt } : { k: 'lock', tone: 'ok', text: '잠금 해제', why: lt };
   return [sim, link, role, lock];
 }
 export function useHeadChips() {
@@ -50,7 +52,7 @@ export function SimMenu() {
   const item = (t: string, go: (() => void) | null, why: string) => go ? <button type="button" className="lv-btn" onClick={go}>{t}</button> : <button type="button" {...whyProps(why)} className="lv-btn lv-why">{t}</button>;
   return <span className="lv-help">
     <button ref={P.b} type="button" className="lv-btn" aria-haspopup="true" aria-expanded={!!P.pos} onClick={P.toggle}>시뮬 ▾</button>
-    {P.pos && <div ref={P.p as React.RefObject<HTMLDivElement>} role="dialog" aria-label="시뮬 메뉴" className="lv-pop lv-simmenu" style={P.style}>
+    {P.pos && <InFs><div ref={P.p as React.RefObject<HTMLDivElement>} role="dialog" aria-label="시뮬 메뉴" className="lv-pop lv-simmenu" style={P.style}>
       {!v.linkOk && <p className="lv-note">{`연결 확인 안 됨 — 시뮬 상태를 알 수 없어 조작하지 않음(${v.linkTxt})`}</p>}
       {ss && item('시뮬 시작(30분)', v.linkOk && off && ss.ok ? () => { P.close(false); startSimAsk(st).then(toast); } : null,
         !v.linkOk ? '연결 확인 안 됨' : !off ? `지금 시뮬 상태(${st!.sim_block || '실행 중'})에서는 시작 안 함` : ss.why || '서버가 시작을 허용하지 않음')}
@@ -59,7 +61,7 @@ export function SimMenu() {
         : <div className="lv-simmap"><b>지도 시뮬 열기</b><MapStartBox pc={name.startsWith('Pc') || name === 'Main' || !name} /></div>)}
       <SimOff className="lv-btn" />
       <p className="lv-note">{[ss && sx.left, st?.map_start && sx.map, sessTxt(st) && `시뮬 세션 ${sessTxt(st)}`, '30분 뒤 자동 종료 · 동시 1개'].filter(Boolean).join(' · ')}</p>
-    </div>}
+    </div></InFs>}
   </span>;
 }
 

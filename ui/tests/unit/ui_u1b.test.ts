@@ -32,13 +32,22 @@ test('연결 미확인은 «꺼짐»이 아님: 처음 연결 중 · 끊김 · �
   expect(t(H({ bad: 'x' }), 'link')).toBe('warn:상태 확인 안 됨');
   expect(t(H({ st: null }), 'link')).toBe('warn:상태 확인 안 됨');
   for (const c of [a, H({ linkOk: false }), H({ bad: 'x' })]) expect(c.every((x) => x.tone !== 'off')).toBe(true);
+  // B1: 연결은 됐어도(linkOk) 유효한 현재 status 가 없으면 잠금도 미확인 — «해제» 확정 0, 도움말도 «꺼짐» 아님
+  for (const o of [{ bad: '형식 x', st: null, linkTxt: '상태 미확인(형식 형식 x)' }, { st: null, linkTxt: '상태 수신 대기' }, { bad: 'role', linkTxt: '상태 미확인(형식 role)' }]) {
+    const l = by(H(o), 'lock'); expect(`${l.tone}:${l.text}`).toBe('warn:잠금 확인 안 됨');
+    expect(l.why).toContain('미확인'); expect(l.why).toContain(o.linkTxt); expect(l.why).not.toMatch(/꺼짐|해제/);
+  }
+  expect(by(H({ linkOk: false }), 'lock').why).toBe('잠금 상태 미확인(서버 연결 끊김)');
 });
 
-test('시뮬 칩: 꺼짐은 서버 세션 idle 일 때만 · 켜지는 중 · 끊김 · 리셋 · 정책 중립 · 기타 처리 중', () => {
+test('시뮬 칩(B2): 세션 조회값(idle·starting·running)으로 꺼짐·켜짐을 확정하지 않음 · 끊김 · 리셋 · 정책 중립 · 기타 처리 중', () => {
   const blk = (b: string, session: any = null) => t(H({ st: ST({ sim_block: b, sim_start: { ok: true, why: '', session } }) }), 'sim');
-  expect(blk('시뮬 상태 미수신', { result: 'idle' })).toBe('off:시뮬 꺼짐');
-  expect(blk('시뮬 상태 끊김', { result: 'idle' })).toBe('off:시뮬 꺼짐');
-  expect(blk('시뮬 상태 미수신', { result: 'starting' })).toBe('warn:시뮬 켜지는 중');
+  expect(blk('시뮬 상태 미수신', { result: 'idle' })).toBe('warn:시뮬 확인 안 됨');   // 신선도·unit·요청 진행 근거 없음 → 꺼짐 확정 0
+  expect(blk('시뮬 상태 끊김', { result: 'idle' })).toBe('bad:시뮬 끊김');
+  expect(blk('시뮬 상태 미수신', { result: 'starting' })).toBe('warn:시뮬 확인 안 됨');
+  for (const r of ['idle', 'starting', 'running', 'x']) for (const b of ['시뮬 상태 미수신', '시뮬 상태 끊김', '', '정책 미실행'])
+    expect(by(H({ st: ST({ sim_block: b, sim_start: { ok: false, why: '', session: { result: r } } }) }), 'sim').tone).not.toBe('off');
+  expect(by(H({ st: ST({ sim_block: '시뮬 상태 미수신', sim_start: { ok: false, why: 'w', session: { result: 'idle' } } }) }), 'sim').why).toContain('꺼짐 확정 아님');
   expect(blk('시뮬 상태 미수신')).toBe('warn:시뮬 확인 안 됨');          // 세션 모름 = 미확인
   expect(blk('시뮬 상태 미수신', { result: 'running' })).toBe('warn:시뮬 확인 안 됨');
   expect(blk('시뮬 상태 끊김')).toBe('bad:시뮬 끊김');
@@ -86,4 +95,42 @@ test('배지 → 머리줄 · 폰 서랍 스위치 · 안전 문구 유지 · �
   expect(F.TRIAL).toBe('Gazebo · foothold-v2 시험 · 낙상·정지 지연 미검증');
   expect(mainSrc).toMatch(/<\/span>\{TRIAL_SAFE\}<span data-dev>/);     // 안전 부분은 data-dev 밖
   expect(mainSrc).not.toMatch(/chip\('링크'/); expect(mainSrc).toMatch(/head: <HeadChips \/>/);
+});
+
+// B3: 팝오버 자리 — 보이는 STOP(+8) 과 겹침 0 · 화면 안 · 최소 높이로 STOP·화면 끝을 넘지 않음 · 자리 없으면 null
+const { placePop } = await import('../../src/app/chip');
+const R = (left: number, top: number, w: number, h: number) => ({ left, top, right: left + w, bottom: top + h });
+const hit = (p: { left: number; top: number; maxHeight: number }, w: number, h: number, s: ReturnType<typeof R>) => {
+  const bot = p.top + Math.min(h, p.maxHeight); return p.left < s.right && p.left + w > s.left && p.top < s.bottom && bot > s.top;
+};
+const inside = (p: { left: number; top: number; maxHeight: number }, w: number, h: number, W: number, H: number) => p.left >= 0 && p.left + w <= W && p.top >= 0 && p.top + Math.min(h, p.maxHeight) <= H;
+test('B3 반례: 아래 여유 72 · STOP 바로 아래 · 화면 바닥 근처 · 같은 줄 옆 STOP · 확대/전체화면 STOP', () => {
+  const W = 390, w = 358;
+  // 645 반례 1: 단추 아래 300, STOP top 380(여유 72) · 메뉴 높이 400 → STOP 침범 0
+  const s1 = R(16, 380, 358, 64), p1 = placePop(R(16, 270, 60, 24), 400, w, W, 844, [s1])!;
+  expect(hit(p1, w, 400, s1)).toBe(false); expect(inside(p1, w, 400, W, 844)).toBe(true);
+  // 실화면 QA: 390 PcSettings — STOP 이 칩 줄 바로 아래(남은 칸 ≈1) · «잠금 ?» 높이 90
+  const s2 = R(16, 170, 358, 52), p2 = placePop(R(300, 140, 24, 24), 90, w, W, 844, [s2])!;
+  expect(hit(p2, w, 90, s2)).toBe(false); for (const [x, y] of [[195, 196], [20, 174], [370, 174], [20, 218], [370, 218]]) expect(p2.left < x && x < p2.left + w && p2.top < y && y < p2.top + Math.min(90, p2.maxHeight)).toBe(false);
+  // 645 반례 2: STOP 없음, 높이 390 · 단추 bottom 370 → 화면 밖 0(위로)
+  const p3 = placePop(R(16, 346, 60, 24), 200, w, W, 390, [])!; expect(inside(p3, w, 200, W, 390)).toBe(true); expect(p3.top + p3.maxHeight).toBeLessThanOrEqual(340);
+  // PC: 같은 줄 오른쪽 STOP(위끝이 팝오버보다 위) — 겹침 0, 가로는 단추 쪽 유지
+  const s4 = R(1256, 25, 168, 52), p4 = placePop(R(1000, 30, 60, 24), 300, 320, 1440, 900, [s4])!;
+  expect(hit(p4, 320, 300, s4)).toBe(false); expect(Math.abs(p4.left - 1000)).toBeLessThan(120);
+  // 확대·전체화면 STOP 여러 개 동시
+  const ss = [R(0, 0, 390, 60), R(16, 780, 358, 56), R(300, 300, 80, 80)], p5 = placePop(R(16, 64, 60, 24), 500, w, W, 844, ss)!;
+  for (const s of ss) expect(hit(p5, w, 500, s)).toBe(false);
+  expect(inside(p5, w, 500, W, 844)).toBe(true);
+});
+test('B3 양성·부족 공간: 자리 있으면 단추 바로 아래 그대로 · 빈 띠 < 40 이면 펼치지 않음', () => {
+  expect(placePop(R(100, 40, 60, 24), 200, 320, 1440, 900, [R(1256, 25, 168, 52)])).toEqual({ left: 100, top: 70, maxHeight: 830 - 8 });
+  expect(placePop(R(16, 10, 60, 24), 200, 358, 390, 120, [R(0, 40, 390, 40)])).toBe(null);   // 위 32 · 아래 0(STOP 이 화면 대부분)
+  const small = placePop(R(16, 10, 60, 24), 20, 358, 390, 120, [R(0, 70, 390, 50)])!;        // 짧은 내용은 좁은 띠에도 들어감
+  expect(small.top).toBe(40); expect(small.top + 20).toBeLessThanOrEqual(62);
+});
+test('B3 소스: 모든 «비상 정지…» STOP · 전체화면 안 · 실제 높이 측정 · 120 하한 없음 · 스크롤·전체화면 바뀜 닫힘', () => {
+  expect(chipSrc).toMatch(/\[aria-label\^="비상 정지"\]/); expect(chipSrc).toMatch(/fs\.contains\(e\)/);
+  expect(chipSrc).toMatch(/getBoundingClientRect\(\)\.height/); expect(chipSrc).not.toMatch(/Math\.max\(120/);
+  expect(chipSrc).toMatch(/'fullscreenchange', shut/); expect(chipSrc).toMatch(/'scroll', out, true/);
+  expect(chipSrc).toMatch(/<InFs>/); expect(statusSrc).toMatch(/<InFs><div ref/);
 });

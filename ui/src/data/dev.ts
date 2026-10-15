@@ -13,8 +13,9 @@ export function devInit(search: string, saved: string | null): boolean {
   return bit(new URLSearchParams(search).get('dev')) ?? bit(saved) ?? false;
 }
 /** hash 바깥 쿼리에서 dev 만 바꾼다(다른 쿼리 순서·인코딩 그대로, 중복 dev 는 하나로).
- *  dev 판별은 읽기(devInit 의 URLSearchParams)와 같은 디코드 키 — ?%64ev=1 · ?de%76=1 도 dev 로 지운다(남으면 재진입 때 다시 켜짐) */
-const keyOf = (p: string) => new URLSearchParams(p).keys().next().value;
+ *  dev 판별은 읽기(devInit 의 URLSearchParams)와 같은 디코드 키 — ?%64ev=1 · ?de%76=1 도 dev 로 지운다(남으면 재진입 때 다시 켜짐).
+ *  D2(10-15 검토): 조각 앞에 '&' 를 붙여 파싱 — 조각 맨 앞 '?' 를 쿼리 접두로 다시 떼지 않게(전체 search 에서의 키와 같은 뜻: ?a=1&?dev=x 의 키는 '?dev') */
+const keyOf = (p: string) => new URLSearchParams(`&${p}`).keys().next().value;
 export function devSearch(search: string, on: boolean): string {
   const ps = search.replace(/^\?/, '').split('&').filter((p) => p && keyOf(p) !== 'dev');
   return `?${[...ps, `dev=${on ? 1 : 0}`].join('&')}`;
