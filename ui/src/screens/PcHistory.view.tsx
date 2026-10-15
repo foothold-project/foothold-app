@@ -155,7 +155,7 @@ export function View({ v }: { v: Vals }) {
                 <span className="mono" style={{"fontSize":"26px","fontWeight":"600","color":v.waitOn === false ? undefined : "var(--warn)"}}>
                   {v.stats?.[2]?.[1] ?? "1"}
                 </span>
-                {v.waitOn === false ? null : <a href="#/PcReview" style={{"fontSize":"12px","color":"var(--accent)"}}>
+                {v.waitOn === false ? (v.stats?.[2]?.[2] ? <span className="lbl">{v.stats[2][2]}</span> : null) : <a href="#/PcReview" style={{"fontSize":"12px","color":"var(--accent)"}}>
                   {v.stats?.[2]?.[2] ?? "지금 확인 →"}
                 </a>}
               </div>

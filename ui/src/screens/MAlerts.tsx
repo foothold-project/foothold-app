@@ -4,7 +4,7 @@ import { CSS, View } from './MAlerts.view';
 import { LV, fmtT, themeClass, tms } from '../data/fmt';
 import { READ_NOTE, isUnread, markRead } from '../data/alerts';
 import { evShow } from '../data/facts';
-import { activeRun, alertsOf, noteOf, useDocs, useMedia } from '../data/shared';
+import { activeRun, alertsOf, docsSt, noteOf, useDocs, useMedia } from '../data/shared';
 import { href } from '../data/hist';
 import { LiveStatus, MediaStale } from '../app/status';
 import { stopProps } from '../app/shell';
@@ -20,7 +20,7 @@ const Item = (x: It) => (
 
 export default function MAlerts() {
   const D = useDocs(), M = useMedia(), [, bump] = useReducer((x: number) => x + 1, 0);
-  const al = alertsOf(M), shown = M.ok ? al.slice(0, 150) : [], run = activeRun(D), wait = M.photos.filter((p) => !noteOf(D, p.url)).length;
+  const al = alertsOf(M), shown = M.ok ? al.slice(0, 150) : [], run = activeRun(D), wait = docsSt(D) ? 0 : M.photos.filter((p) => !noteOf(D, p.url)).length;   // 문서가 정상일 때만 «분류 대기»(못 읽음·오류·보관이면 대기로 단정 0 — 문서 오류는 상태 줄)
   const out: JSX.Element[] = [], g = (t: string) => out.push(<div className="grp" key={`g${out.length}`}>{t}</div>);
   const it = (x: It) => out.push(<Item key={out.length} {...x} />);
   if (run || wait) {

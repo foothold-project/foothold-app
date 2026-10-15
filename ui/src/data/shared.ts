@@ -41,6 +41,10 @@ export function useMedia(): Media {
     stale: isStale(!!q.data, !!q.error), at: q.data ? q.dataUpdatedAt : 0 };
 }
 export const isStale = (hasData: boolean, hasErr: boolean) => hasData && hasErr;
+// U3-b 보완(715 B1·670 P2): 소스 상태 — '' = 정상 응답·오류 0. 그 밖은 «기록 유무·분류 미확인»(정상 0/미분류로 단정하지 않음).
+// 문서: 읽는 중(rev null·err 0) · 못 읽음(rev null·err) · 저장소 오류(정상 HTTP + broken → rev 는 정수, err = broken) · 보관(옛 목록 + 재조회 실패)
+export const docsSt = (D: Docs) => D.rev == null ? (D.err ? '못 읽음' : '읽는 중') : D.stale ? '보관' : D.err ? '저장소 오류' : '';
+export const mediaSt = (M: Media) => !M.ok ? (M.err ? '못 읽음' : '읽는 중') : M.stale ? '보관' : '';
 export const reread = (k: 'media' | 'docs') => qc.invalidateQueries({ queryKey: [k] });
 export const alertsOf = (M: Media) => M.events.filter((e) => e.st === 'warn' || e.st === 'bad');
 

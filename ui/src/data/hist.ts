@@ -1,6 +1,6 @@
 // 기록 공용 행: 수동 임무·관찰 사진·서버 사건 (web/live.js histRows 와 같은 규칙). 화면 주소만 React 경로(#/화면?…)로.
 import { csvOf, durTxt, posTxt, tms } from './fmt';
-import { docsOf, noteOf, type Docs, type Media } from './shared';
+import { docsOf, docsSt, mediaSt, noteOf, type Docs, type Media } from './shared';
 import { evShow } from './facts';
 
 // title = 원문(검색·CSV·Report 그대로) · show = 화면 표시 문장(사건만, §3 evShow)
@@ -12,9 +12,13 @@ export const href = (screen: string, q: Record<string, string> = {}) => `#/${scr
 export function histRows(D: Docs, M: Media, pc: boolean): Row[] {
   const rows: Row[] = [];
   for (const e of M.events) if (e.st !== 'ok') rows.push({ at: e.at, kind: '사건', lvl: e.st, title: e.text, show: evShow(e.text), res: ({ bad: '위험', warn: '경고', ok: '정보' } as any)[e.st] || e.st, sub: '서버 사건 원문', by: '서버', href: href('MAlert', { at: e.at, t: e.text }) });
+  // 분류는 문서(note)에서 온다. 문서가 정상일 때만 «note 없음 = 미분류·분류 대기». 못 읽음·저장소 오류·읽는 중이면 «분류 미확인»(대기 아님),
+  // 보관(옛 목록 + 재조회 실패)이면 옛 분류값에 «(보관)» — 현재값 확정·새 추정 0. 보관 시각은 MediaStale 이 따로 보인다.
+  const dk = docsSt(D);
   for (const p of M.photos) {
-    const n = noteOf(D, p.url);
-    rows.push({ at: p.saved_at, kind: '사진', lvl: n ? (n.doc.cls === '확인' ? 'ok' : 'warn') : 'warn', title: '관찰 사진', res: n ? n.doc.cls : '미분류', wait: !n, sub: posTxt(p.x, p.y), by: p.by, extra: n?.doc.memo, url: p.url, href: href(pc ? 'PcReview' : 'MFinding', { url: p.url }) });
+    const n = !dk || dk === '보관' ? noteOf(D, p.url) : undefined;
+    rows.push({ at: p.saved_at, kind: '사진', lvl: n ? (n.doc.cls === '확인' ? 'ok' : 'warn') : dk ? '' : 'warn', title: '관찰 사진',
+      res: n ? (dk ? `${n.doc.cls}(보관)` : n.doc.cls) : dk ? '분류 미확인' : '미분류', wait: !n && !dk, sub: posTxt(p.x, p.y), by: p.by, extra: n?.doc.memo, url: p.url, href: href(pc ? 'PcReview' : 'MFinding', { url: p.url }) });
   }
   for (const d of docsOf(D, 'run')) {
     const r = d.doc, v = r.wps.filter((w) => w.st === '방문').length, ph = r.wps.reduce((a, w) => a + w.photos.length, 0);
@@ -31,6 +35,8 @@ export function runRows(rows: Row[], run: { id: string; doc: { started: string; 
   return rows.flatMap((r) => r.kind === '임무' ? (r.run === run.id ? [r] : []) : r.kind === '사진' ? (r.url && ph.has(r.url) ? [r] : [])
     : t0 && tms(r.at) >= t0 && tms(r.at) <= t1 ? [{ ...r, sub: `${r.sub} · ${WIN_NOTE}` }] : []);
 }
+// 소스 빠짐·보관(전체 기록 CSV 표기용) — 받은 행만 내보내는 기능은 그대로, «완전한 전체»로 표기하지 않기 위한 목록
+export const srcGaps = (D: Docs, M: Media) => [docsSt(D) && `임무·분류 문서 ${docsSt(D)}`, mediaSt(M) && `사진·사건 ${mediaSt(M)}`].filter(Boolean) as string[];
 export const histCSV = (rs: Row[]) => csvOf(['at', 'kind', 'level', 'title', 'result', 'detail', 'by', 'photo'], rs.map((r) => [r.at, r.kind, r.lvl, r.title, r.res, r.sub, r.by, r.url]));
 // U3-b PcHistory 3탭 거르기(순수 함수 — 화면·CSV 가 같은 결과를 씀). 검색·기간은 모든 종류.
 // 탭 필터(양식·결과·운영자)는 그 값이 있는 종류에만: 양식·결과 = 임무, 운영자 = 임무·사진(사건 by '서버'는 기기 신원 아님 → 제외).

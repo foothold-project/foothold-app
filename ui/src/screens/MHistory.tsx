@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { CSS, View } from './MHistory.view';
 import { LV, dayTxt, fmtT, themeClass } from '../data/fmt';
-import { useDocs, useMedia } from '../data/shared';
+import { docsSt, useDocs, useMedia } from '../data/shared';
 import { histRows, type Row } from '../data/hist';
 import { LiveStatus, MediaStale } from '../app/status';
 import { stopProps } from '../app/shell';
@@ -25,7 +25,9 @@ export default function MHistory() {
         {r.extra ? <><span className="lbl" style={{ fontSize: '12px', color: 'var(--warn)', fontWeight: '600' }}>{r.extra}</span><span /></> : null}
       </a>);
   }
-  if (M.ok && !rs.length) out.push(<span className="day" key="none">해당 기록 없음</span>);
+  // «확인 대기» 칩: 문서를 못 읽음·오류·보관이면 wait 가 꺼져 0건 — «없음»으로 단정하지 않고 분류 미확인 이유를 보임(670 P2)
+  const dk = docsSt(D);
+  if (M.ok && !rs.length) out.push(<span className="day" key="none">{filt === 3 && dk ? `분류 대기 미확인 — 문서 ${dk}` : '해당 기록 없음'}</span>);
   const v = {
     themeClass: themeClass(false), stopProps, status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
     cnt: M.ok ? `${M.stale ? '보관 자료(재조회 실패)' : '서버 보관'} · ${rs.length}건` : '—',
