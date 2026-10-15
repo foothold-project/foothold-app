@@ -129,3 +129,30 @@ test('P2-B 연결(소스 정적 — 실제 click·초점·rAF 동작 증명 아�
   const pp = await rd('../../src/screens/PcPlan.tsx'); expect(pp).toMatch(/const from = e\?\.currentTarget;/); expect(pp).toMatch(/\{ \.\.\.planOwn\(E\), anchor: from \}/);
   expect(await rd('../../src/screens/MHome.tsx')).toMatch(/alive: \(\) => own\.current\.on && own\.current\.mid === m0, anchor: e\?\.currentTarget \}/);
 });
+
+test('크기·전체화면 취소 askGone: 다른 창 id·닫힘이면 숨김·취소 0 · 이 창이면 실제 DOM 숨김·클릭 불가를 먼저 쓰고 그 뒤 answerAsk(false) · 두 번째 호출 0', async () => {
+  const L = await import('../../src/data/link'), { askGone } = await import('../../src/app/shell');
+  const log: [string, string, string | null][] = [];
+  const fake = () => ({ style: { set visibility(v: string) { log.push(['visibility', v, L.useAsk.getState().text]); }, set pointerEvents(v: string) { log.push(['pointerEvents', v, L.useAsk.getState().text]); } } }) as unknown as HTMLElement;
+  const p1 = L.askPage('창 A'), idA = L.useAsk.getState().id;
+  const mineOf = (my: number) => () => L.useAsk.getState().id === my && L.useAsk.getState().text !== null;
+  const p2 = L.askPage('창 B'), idB = L.useAsk.getState().id; expect(await p1).toBe(false);
+  const el = fake();
+  expect(askGone(el, mineOf(idA))).toBe(false); expect(log).toEqual([]); expect(L.useAsk.getState().text).toBe('창 B');   // 옛 창 콜백 → 새 창 무영향
+  expect(askGone(el, mineOf(idB))).toBe(true);
+  expect(log).toEqual([['visibility', 'hidden', '창 B'], ['pointerEvents', 'none', '창 B']]);   // 숨김이 취소(text=null)보다 먼저
+  expect(L.useAsk.getState()).toMatchObject({ text: null, anchor: null }); expect(await p2).toBe(false);
+  expect(askGone(el, mineOf(idB))).toBe(false); expect(log).toHaveLength(2);   // 닫힌 뒤(resize 와 tick 이 둘 다 와도) 한 번만
+  expect(askGone(null, () => false)).toBe(false);
+});
+
+test('크기·전체화면 취소 연결(소스 정적 — 실제 이벤트 순서·paint·클릭 불가 증명 아님): 리스너 짝·창 id 결속·key={id}·스크롤 사유 0', async () => {
+  const fsm = 'node:fs', s: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/app/shell.tsx', import.meta.url), 'utf8');
+  const fx = s.slice(s.indexOf('export function StartAsk'), s.indexOf('if (text === null) return null;'));
+  for (const [ev, tgt] of [['resize', ''], ['fullscreenchange', 'document.']]) {
+    expect(fx).toContain(`${tgt}addEventListener('${ev}', gone)`); expect(fx).toContain(`${tgt}removeEventListener('${ev}', gone)`);
+  }
+  expect(fx).toContain('useAsk.getState().id === my'); expect(fx).toMatch(/if \(innerWidth !== W0 \|\| innerHeight !== H0\) \{ gone\(\); return; \}/);
+  expect(fx).not.toMatch(/'scroll'|"scroll"|setTimeout|setInterval/);
+  expect(s).toContain('<InFs><div key={id} ref={box} role="alertdialog"');
+});

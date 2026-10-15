@@ -67,21 +67,36 @@ export function askAvoid(a: AskAnchor | null, fs: Element | null, de?: Element |
   return out;
 }
 export const ASK_NOROOM = '확인창을 둘 자리가 없어 취소함(STOP 을 가리지 않음 · 보낸 것 0) — 창을 키우거나 돌린 뒤 다시 누르세요';
+export const ASK_RESIZED = '화면 크기·전체화면이 바뀌어 시작 확인을 취소함(보낸 것 0) — 다시 누르세요';
+/** 크기·전체화면 변화 = 열린 시작 확인창 취소(root GO · 670 4a78f44 «크기 바뀐 첫 rAF 프레임 옛 자리/STOP 겹침»).
+ *  mine()(이 창 id 가 지금 열린 창)이 아니면 아무것도 안 함 — 옛 창 콜백이 새 창을 숨기거나 취소 0.
+ *  맞으면 실제 창 DOM 을 먼저 숨김·클릭 불가로 쓰고 기존 answerAsk(false) + 안내. React 가 창을 지우는 시점은 다음 렌더 — 그 사이는 이 직접 숨김만 막음(실 paint 미측정) */
+export function askGone(el: HTMLElement | null, mine: () => boolean): boolean {
+  if (!mine()) return false;
+  if (el) { el.style.visibility = 'hidden'; el.style.pointerEvents = 'none'; }
+  answerAsk(false); toast(ASK_RESIZED); return true;
+}
 export function StartAsk() {
   const text = useAsk((s) => s.text), ok = useAsk((s) => s.ok), id = useAsk((s) => s.id), no = useRef<HTMLButtonElement | null>(null);
   const box = useRef<HTMLDivElement | null>(null), body = useRef<HTMLDivElement | null>(null), row = useRef<HTMLDivElement | null>(null);
   const [at, setAt] = useState<(Placed & { width: number }) | null>(null);
-  // 배치만(10-16): 열린 동안 매 프레임 창 크기·보이는 STOP 사각형·필요 높이/폭을 재고, 바뀌었을 때만 다시 놓는다
-  //   → 회전·전체화면 전환·머리줄 높이 변화로 STOP 이 움직여도 옛 좌표로 가리지 않음. 첫 자리는 그리기 전(layout effect)
+  // 배치만(10-16): 열린 동안 매 프레임 보이는 STOP·연 단추 사각형·필요 높이/폭을 재고, 바뀌었을 때만 다시 놓는다(머리줄 높이 변화·앵커 이동). 첫 자리는 그리기 전(layout effect)
+  //   창 크기·전체화면이 바뀌면 다시 놓지 않고 취소(askGone) — resize·fullscreenchange 리스너 + tick 의 크기 비교(이벤트보다 rAF 가 먼저일 때). 본문 스크롤은 사유 아님
   //   자리가 없으면 STOP 을 덮지 않고 기존 취소 경로(answerAsk(false)) + 안내 — 확인 true·다시 열기·재시도 0
   // A1(670·715 78cc22e): 측정은 읽기만 — 매 프레임 임시 style 쓰기 0(옛 판은 본문을 잠깐 펼쳐 넘침 0 → 본문 scrollTop 이 0 으로 깎임)
   //   내용 전부 높이 = 창 높이 − 본문 칸 높이 + 본문 scrollHeight(줄어든 칸에서도 내용 전부). 크기가 바뀐 프레임은 옛 폭으로 재고 다음 프레임에 다시 맞춤
-  // ponytail: 열린 동안 프레임마다 레이아웃 읽기(부하 미측정) — 오래 열린 창에 쓰면 ResizeObserver + resize/fullscreenchange 로
+  // ponytail: 열린 동안 프레임마다 레이아웃 읽기(부하 미측정) — 오래 열린 창에 쓰면 ResizeObserver 로
+  // 휴대폰 주소창 접힘도 innerHeight 를 바꿔 취소될 수 있음(실폰 미측정 · 예외 정책 0)
   useLayoutEffect(() => {
     if (text === null) { setAt(null); return; }
-    let raf = 0, last = '';
+    let raf = 0, last = '', alive = true;
+    const my = id, W0 = innerWidth, H0 = innerHeight;   // 리스너·rAF 수명 = 이 창(id) — cleanup 이 해제
+    const mine = () => alive && useAsk.getState().id === my && useAsk.getState().text !== null;
+    const gone = () => { if (askGone(box.current, mine)) { alive = false; cancelAnimationFrame(raf); } };
     const a = useAsk.getState().anchor;   // P2-B: 이 창(id)의 앵커 — 같은 글 재열기도 새 id 라 새 앵커·새 루프(옛 rAF 는 cleanup), 닫히면 answerAsk 가 참조를 버림
     const tick = () => {
+      if (!alive) return;
+      if (innerWidth !== W0 || innerHeight !== H0) { gone(); return; }
       const el = box.current, bd = body.current, rw = row.current;
       if (el && bd && rw) {
         const W = innerWidth, H = innerHeight, st = [...stopBoxes(), ...askAvoid(a, document.fullscreenElement, document.documentElement)], width = Math.min(380, W - 32);
@@ -99,7 +114,9 @@ export function StartAsk() {
       }
       raf = requestAnimationFrame(tick);
     };
-    tick(); return () => cancelAnimationFrame(raf);
+    addEventListener('resize', gone); document.addEventListener('fullscreenchange', gone);
+    tick();
+    return () => { alive = false; cancelAnimationFrame(raf); removeEventListener('resize', gone); document.removeEventListener('fullscreenchange', gone); };
   }, [text, id]);
   useEffect(() => {
     if (text === null) return;
@@ -110,7 +127,7 @@ export function StartAsk() {
   if (text === null) return null;
   const [head, ...rows] = text.split('\n');
   // 자리 전(첫 그림)은 이전 자리(가운데·top 56) — layout effect 가 그리기 전에 옮기거나 닫는다
-  return <InFs><div ref={box} role="alertdialog" aria-modal="false" aria-labelledby="fh-ask-h" data-start-ask="1" style={{ position: 'fixed', zIndex: 60, boxSizing: 'border-box',
+  return <InFs><div key={id} ref={box} role="alertdialog" aria-modal="false" aria-labelledby="fh-ask-h" data-start-ask="1" style={{ position: 'fixed', zIndex: 60, boxSizing: 'border-box',
     ...(at ? { left: at.left, top: at.top, width: at.width, maxHeight: at.maxHeight } : { left: '50%', top: ASK_ANCHOR, transform: 'translateX(-50%)', width: 'min(380px, calc(100vw - 32px))' }),
     display: 'flex', flexDirection: 'column', overflow: 'hidden',
     padding: '12px 14px', borderRadius: 10, background: 'rgba(8,11,14,.96)', color: '#E6EBEF', border: '1px solid #3a4652', fontSize: 13, boxShadow: '0 6px 24px rgba(0,0,0,.45)' }}>
