@@ -3,6 +3,7 @@ import type { DocWrite, MapSrc, Mission, Run, RunWaypoint } from '@contracts';
 import { activeRun, docById, docsNow, docsOf, qc, saveDoc, type Docs, type SaveRes } from './shared';
 import { ask, askPage, linkView, useLink } from './link';
 import { WF } from './maps';
+import { geomRid } from './geom';
 import { MISSING_T, tmplOf } from './tmpl';
 import { toast } from '../app/shell';
 import { wpName } from './fmt';
@@ -35,7 +36,9 @@ export type Here = { map: MapSrc; why?: undefined } | { map?: undefined; why: st
 /** 지금 시뮬의 GT 좌표 기준(world·현재층). 하나라도 못 믿으면 이유(= 미확인 · 기록만) — 확정으로 올리는 조건:
  *  ① 링크 신선(1 s, 완화 없음) ② 서버 상태 수준 결속 bound=true 이고 st ok/wait(wait = 격자만 아직 — 상태는 결속). reset·bad·결속 불가는 미확인(F2)
  *  ③ 아는 world·층 ④ 층이 둘 이상인 연결 건물은 서버 층 판정 floor 가 on_floor 이고 current 가 그 건물 층일 때만 — floor 누락·null·모르는 current 면
- *     현재층 미확인(시작층 floor_id 로 대신하지 않음, F3). 단층 world 는 floor_id(그 world 층일 때만), floor 가 오면 같은 규칙 */
+ *     현재층 미확인(시작층 floor_id 로 대신하지 않음, F3). 단층 world 는 floor_id(그 world 층일 때만), floor 가 오면 같은 규칙
+ *  ⑤ 좌표 개정 rid(F4): PcPlan 좌표 = Gazebo world GT(그림 없이 찍음) → 그 world 를 정하는 원본으로 대조. 단층 = w:<기동 world 원본 SDF sha>(spawn_floor 가 그 층),
+ *     연결 건물 = g:<geom_get 으로 받아 geomBind ok 인 기하 파일 sha>(층마다 다른 기동 SDF 를 한 개정으로 묶음). 못 정하면 미확인. SDF include 메시·모델 파일은 미대조 */
 export function gtHere(s = useLink.getState()): Here {
   const lv = s.st?.live_map;
   if (!linkView(s).linkOk) return { why: '연결 끊김' };
@@ -47,16 +50,22 @@ export function gtHere(s = useLink.getState()): Here {
   if (lv.bound !== true || (lv.st !== 'ok' && lv.st !== 'wait') || !lv.floor_id) return { why: '서버 결속 미확인' };
   const fl = WF[lv.world_id];
   if (!fl || !fl.includes(lv.floor_id)) return { why: '모르는 지도·층' };
+  let floor_id: string = lv.floor_id;
   if (fl.length > 1 || f) {
     if (!f || f.state !== 'on_floor' || typeof f.current !== 'string' || !fl.includes(f.current)) return { why: '현재층 미확인' };
-    return { map: { src: 'gt', world_id: lv.world_id, floor_id: f.current, key: '' } };
+    floor_id = f.current;
   }
-  return { map: { src: 'gt', world_id: lv.world_id, floor_id: lv.floor_id, key: '' } };
+  if (fl.length > 1) { const rid = geomRid(s, lv); return rid ? { map: { src: 'gt', world_id: lv.world_id, floor_id, key: '', rid } } : { why: '좌표 개정 미확인(GT 기하 파일 미검증)' }; }
+  const w = lv.world_src_sha256;
+  if (typeof w !== 'string' || !/^[0-9a-f]{64}$/.test(w) || lv.spawn_floor !== fl[0]) return { why: '좌표 개정 미확인(world 원본 SDF sha 없음)' };
+  return { map: { src: 'gt', world_id: lv.world_id, floor_id, key: '', rid: `w:${w}` } };
 }
-/** 문서의 출처: map 이 있고 지문이 지금 좌표와 같을 때만 */
-export const planMap = (d: { wps: Pt[]; map?: MapSrc }): Here => (!d.map ? { why: '출처 기록 없음(옛 계획)' } : d.map.key !== wkey(d.wps) ? { why: '출처 기록 뒤 좌표가 바뀜' } : { map: d.map });
-export const sameMap = (a: MapSrc, b: MapSrc) => a.src === b.src && a.world_id === b.world_id && a.floor_id === b.floor_id;
-export const mapTxt = (m: MapSrc) => `${m.world_id} · ${m.floor_id} (GT)`;
+/** 문서의 출처: map 이 있고 개정 rid 가 있고(F4 — 없는 옛 출처는 자동 승격 0) 지문이 지금 좌표와 같을 때만. 지문(FNV)은 좌표 수정 감지 보조일 뿐 */
+export const planMap = (d: { wps: Pt[]; map?: MapSrc }): Here => (!d.map ? { why: '출처 기록 없음(옛 계획)' } : !d.map.rid ? { why: '출처 개정 기록 없음(옛 출처 — 지금 지도에서 다시 찍어야 확인)' }
+  : d.map.key !== wkey(d.wps) ? { why: '출처 기록 뒤 좌표가 바뀜' } : { map: d.map });
+export const sameMap = (a: MapSrc, b: MapSrc) => a.src === b.src && a.world_id === b.world_id && a.floor_id === b.floor_id && !!a.rid && a.rid === b.rid;
+/** 화면 표기: world · 층 (GT · SDF|기하 sha 앞 8자). 개정 기준 = world 원본 SDF / GT 기하 파일 — 그 SDF 가 부르는 메시·모델 파일은 대조 안 함 */
+export const mapTxt = (m: MapSrc) => `${m.world_id} · ${m.floor_id} (GT · ${!m.rid ? '개정 미확인' : `${m.rid[0] === 'w' ? 'SDF' : '기하'} ${m.rid.slice(2, 10)}`})`;
 /** 진행 기록을 지금 지도에 겹쳐도 되나 — 거리·지점 겹치기는 이것이 ok 일 때만 */
 export function runHere(R: Run | null | undefined, s = useLink.getState()): { ok: boolean; why: string } {
   if (!R) return { ok: false, why: '' };
@@ -79,7 +88,7 @@ export function addPlan(d: Mission, h: Here): { act: 'bind' | 'keep' | 'drop' | 
 export function startPolicy(d: Mission, h: Here): { block: string | null; map: MapSrc | null; line: string } {
   const b = planMap(d);
   if (b.map && h.map && !sameMap(b.map, h.map)) return { block: `다른 지도 · 계획 ${mapTxt(b.map)} ≠ 지금 ${mapTxt(h.map)} — 시작 안 됨(열기·편집은 가능, 맞는 지도·층에서 시작)`, map: null, line: '' };
-  if (b.map && h.map) return { block: null, map: b.map, line: `지도 ${mapTxt(b.map)} · 지금 시뮬과 같음` };
+  if (b.map && h.map) return { block: null, map: b.map, line: `지도 ${mapTxt(b.map)} · 지금 시뮬과 같은 GT 출처(SDF/기하 sha 기준 · 메시·모델 파일 미대조)` };
   return { block: null, map: null, line: `지도 미확인 · 기록만 — ${b.map ? `지금 ${h.why}` : b.why} (거리·지도 겹치기 표시 안 함)` };
 }
 /** 계획 복제(조금 바꿀 때만): 양식 참조·지점·할 일·메모·좌표 출처 그대로 깊은 사본, 이름 «… 사본»(60자). 저장 전 초안 — 저장하면 새 계획(원본 무변경).

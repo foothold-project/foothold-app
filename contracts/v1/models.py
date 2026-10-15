@@ -414,6 +414,9 @@ class MapSrc(Body):
     world_id: S(40)
     floor_id: S(40)
     key: S(16)
+    # 선택(10-15 F4): GT 좌표 기준 개정 — w:<기동 world 원본 SDF sha256>(단층) · g:<검증된 건물 GT 기하 파일 sha256>(연결 건물).
+    # 값이 있으면 정확 형식(null 불가), 없음 = 개정 미확인(앱은 기록만). SDF include 메시·모델 파일은 미포함(전체 환경 동일 보장 아님)
+    rid: Annotated[str, Field(pattern=r'^[wg]:[0-9a-f]{64}$')] = None
 
 
 class Mission(Body):

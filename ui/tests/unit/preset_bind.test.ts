@@ -6,21 +6,32 @@ const mem = new Map<string, string>();
 const { addPlan, gtHere, planMap, rekey, runHere, startPolicy, startRun, wkey } = await import('../../src/data/run');
 const { useLink } = await import('../../src/data/link');
 const { qc, docsNow } = await import('../../src/data/shared');
+const G = await import('../../src/data/geom');
+// F4 개정: 연결 건물 = 검증된 기하 파일 sha(g:), 단층 = world 원본 SDF sha(w:)
+const SW = 'a'.repeat(64), SW2 = 'b'.repeat(64), GS = 'c'.repeat(64), SS = 'd'.repeat(64);
+const GEO = { building_id: 'v5', label: '', sdf_sha256: { l1: SW, l2: SW2 }, floors: [], boxes: [], meshes: [], connectors: [] } as any;
+const ID = { world_src_sha256: SW, spawn_floor: 'l1', geom: { schema: 'v2_building_geom/1', sha256: GS }, epoch: 3 };
+let geoCalls = 0, geoRes: (() => void)[] = [];
+const flush = () => new Promise((r) => setTimeout(r, 0));
 
 const W1 = [{ x: 1, y: 2, name: 'a', mods: [] }, { x: -3.5, y: 4, name: 'b', mods: [] }] as Mission['wps'];
-const L1: MapSrc = { src: 'gt', world_id: 'v5_building', floor_id: 'l1', key: wkey(W1) };
+const L1: MapSrc = { src: 'gt', world_id: 'v5_building', floor_id: 'l1', key: wkey(W1), rid: `g:${GS}` };
 const mi = (o: Partial<Mission> = {}): Mission => ({ name: '계획', tmpl: 'base', memo: '', wps: structuredClone(W1), ...o });
 // 링크 상태: 신선한 status + live_map(연결 건물이면 floor 판정)
 const live = (lv: Record<string, unknown> | null, fresh = true) => useLink.setState({ open: true, lastMsg: fresh ? performance.now() : performance.now() - 5000, provider: 'simulation_gate', st: { live_map: lv, applied: [0, 0, 0] } as any });
-const onL = (cur: string | null, state = 'on_floor', world = 'v5_building') => live({ st: 'ok', bound: true, world_id: world, floor_id: 'l1', floor: { rev: 1, state, current: cur, reason: '' } });
-beforeEach(() => { mem.clear(); onL('l1'); });
+const onL = (cur: string | null, state = 'on_floor', world = 'v5_building') => live({ st: 'ok', bound: true, world_id: world, floor_id: 'l1', floor: { rev: 1, state, current: cur, reason: '' }, ...ID });
+const single = (o: object = {}) => live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'f1', world_src_sha256: SS, spawn_floor: 'f1', ...o });
+// 기하 받기 대역: 즉시(기본) 또는 손으로 풀기(hold) — 늦은 응답 시험용
+const geoNow = (sha = GS, g = GEO) => { G.ridDeps.get = async () => { geoCalls++; return { g, sha }; }; };
+const geoHold = (sha = GS) => { G.ridDeps.get = () => { geoCalls++; return new Promise((res) => geoRes.push(() => res({ g: GEO, sha }))); }; };
+beforeEach(async () => { mem.clear(); G.ridReset(); geoCalls = 0; geoRes = []; geoNow(); onL('l1'); gtHere(); await flush(); });
 
 test('지금 지도: 연결 건물은 on_floor current 만 · transit/unknown·끊김·미수신은 이유', () => {
   expect(gtHere().map).toMatchObject({ world_id: 'v5_building', floor_id: 'l1' });
   onL('l2'); expect(gtHere().map?.floor_id).toBe('l2');                       // 시작층(floor_id l1)이 아니라 서버 현재층
   onL(null, 'transit'); expect(gtHere().why).toBe('층 이동 중');
   onL(null, 'unknown'); expect(gtHere().why).toBe('현재층 미확인');
-  live({ st: 'ok', bound: true, world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().map).toMatchObject({ world_id: 'rooms_a', floor_id: 'f1' });   // 단층: floor 판정 없음
+  live({ st: 'ok', bound: true, world_id: 'rooms_a', floor_id: 'f1', world_src_sha256: SS, spawn_floor: 'f1' }); expect(gtHere().map).toMatchObject({ world_id: 'rooms_a', floor_id: 'f1', rid: `w:${SS}` });   // 단층: floor 판정 없음
   live({ st: 'stale', bound: true, world_id: 'rooms_a', floor_id: 'f1' }); expect(gtHere().why).toBe('지금 지도 미수신');
   live(null); expect(gtHere().why).toBe('지금 지도 미수신');
   onL('l1'); live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { state: 'on_floor', current: 'l1' } }, false); expect(gtHere().why).toBe('연결 끊김');
@@ -28,7 +39,7 @@ test('지금 지도: 연결 건물은 on_floor current 만 · transit/unknown·�
 
 // F2: 서버가 결속 불가로 내린 상태(reset·bad·bound false)는 GT 확정 0 — 격자만 아직인 wait(bound true)는 확정
 test('F2 결속 불가 = 미확인 · 격자 대기 wait+bound 는 확정', () => {
-  const B = { world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1', reason: '' } };
+  const B = { world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1', reason: '' }, ...ID };
   for (const [lv, why] of [[{ st: 'reset', bound: false }, '시뮬 리셋 중'], [{ st: 'bad', bound: false }, '지도 오류'], [{ st: 'reset', bound: true }, '시뮬 리셋 중'], [{ st: 'bad', bound: true }, '지도 오류'],
     [{ st: 'ok', bound: false }, '서버 결속 미확인'], [{ st: 'wait', bound: false }, '서버 결속 미확인'], [{ st: 'ok' }, '서버 결속 미확인']] as const) {
     live({ ...B, ...lv }); expect(gtHere()).toEqual({ why });
@@ -39,7 +50,7 @@ test('F2 결속 불가 = 미확인 · 격자 대기 wait+bound 는 확정', () =
 });
 // F3: 연결 건물은 floor 판정 필수 — 누락·null·모르는 current 를 시작층 floor_id 로 대신하지 않음
 test('F3 연결 건물 floor 누락·null·모르는 current = 현재층 미확인 · 단층은 floor_id', () => {
-  const B = { st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1' };
+  const B = { st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', ...ID };
   for (const f of [undefined, null, { rev: 1, state: 'on_floor', current: null }, { rev: 1, state: 'on_floor', current: 'f1' }, { rev: 1, state: 'on_floor', current: 'l3' },
     { rev: 1, state: 'on_floor', current: 2 }, { rev: 1, state: 'unknown', current: 'l1' }, { rev: 1, state: 'weird', current: 'l1' }]) {
     live(f === undefined ? B : { ...B, floor: f }); expect(gtHere()).toEqual({ why: '현재층 미확인' });
@@ -47,9 +58,9 @@ test('F3 연결 건물 floor 누락·null·모르는 current = 현재층 미확�
   }
   live({ ...B, floor_id: 'l3' }); expect(gtHere().why).toBe('모르는 지도·층');
   live({ ...B, world_id: 'x_world', floor_id: 'l1' }); expect(gtHere().why).toBe('모르는 지도·층');
-  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'f1' }); expect(gtHere().map).toMatchObject({ world_id: 'v5_single', floor_id: 'f1' });
-  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'f1', floor: { rev: 1, state: 'unknown', current: null } }); expect(gtHere().why).toBe('현재층 미확인');
-  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'l2' }); expect(gtHere().why).toBe('모르는 지도·층');
+  single(); expect(gtHere().map).toMatchObject({ world_id: 'v5_single', floor_id: 'f1' });
+  single({ floor: { rev: 1, state: 'unknown', current: null } }); expect(gtHere().why).toBe('현재층 미확인');
+  single({ floor_id: 'l2' }); expect(gtHere().why).toBe('모르는 지도·층');
 });
 
 test('시작 정책 표: 일치 = 결속 · world/층 불일치 = 차단 · 출처 없음/지문 어긋남/층 이동 중 = 기록만', () => {
@@ -57,7 +68,7 @@ test('시작 정책 표: 일치 = 결속 · world/층 불일치 = 차단 · 출�
   expect(ok.block).toBeNull(); expect(ok.map).toEqual(L1);
   onL('l2'); const fl = startPolicy(mi({ map: L1 }), gtHere());
   expect(fl.block).toMatch(/다른 지도.*l1.*l2/); expect(fl.map).toBeNull();
-  live({ st: 'ok', bound: true, world_id: 'v5_single', floor_id: 'f1' }); expect(startPolicy(mi({ map: L1 }), gtHere()).block).toMatch(/v5_building · l1.*v5_single · f1/);
+  single(); expect(startPolicy(mi({ map: L1 }), gtHere()).block).toMatch(/v5_building · l1.*v5_single · f1/);
   onL('l1');
   const old = startPolicy(mi(), gtHere());                                       // 옛 계획(map 없음)
   expect([old.block, old.map]).toEqual([null, null]); expect(old.line).toMatch(/기록만 — 출처 기록 없음/);
@@ -107,7 +118,7 @@ const go = async (m: Mission, onAsk?: () => unknown) => {
 
 test('startRun 일치: 확인 1회에 이름·지도·지점 수 · Run 에 map·mrev', async () => {
   const { sent, ask } = await go(mi({ map: L1 }));
-  expect(ask).toMatch(/«계획».*\n· 지도 v5_building · l1 \(GT\) · 지금 시뮬과 같음\n· 지점 2개/);
+  expect(ask).toMatch(/«계획».*\n· 지도 v5_building · l1 \(GT · 기하 cccccccc\) · 지금 시뮬과 같은 GT 출처\(SDF\/기하 sha 기준 · 메시·모델 파일 미대조\)\n· 지점 2개/);
   expect(sent).toHaveLength(1); const doc = (sent[0] as any).doc as Run;
   expect(doc.map).toEqual(L1); expect(doc.mrev).toBe(4); expect(doc.wps.map((w) => [w.x, w.y])).toEqual([[1, 2], [-3.5, 4]]);
 });
@@ -156,4 +167,45 @@ test('F1 기본 확인창 = 페이지 안(단추 «진행 시작») · STOP(canc
   const m2 = mi({ map: L1, tmpl: 't1' }); put([env('m1', 'mission', m2, 4), env('t1', 'tmpl', { name: 'T', desc: '', mods: [] })]);
   const r3 = startRun(docsNow(), 'm1', sendF); put([env('m1', 'mission', m2, 4)]); L.answerAsk(true);
   expect(await r3).toBeNull(); expect(sent).toHaveLength(1);
+});
+
+// ---- F4 개정 rid: 옛 출처 자동 승격 0 · 개정 다르면 다른 지도 · 단층 SDF · 연결 건물 검증 기하 · 늦은/다른 응답 버림 ----
+test('F4 rid 없는 옛 출처(1f93089~ec25939 저장) = 기록만 · rid 다르면 차단 · 같으면 결속', () => {
+  const { rid: _r, ...old } = L1;
+  expect(planMap(mi({ map: old })).why).toMatch(/출처 개정 기록 없음/);
+  expect(startPolicy(mi({ map: old }), gtHere())).toMatchObject({ block: null, map: null, line: expect.stringMatching(/기록만 — 출처 개정 기록 없음/) });
+  expect(addPlan(mi({ map: old }), gtHere()).act).toBe('none');
+  expect(startPolicy(mi({ map: { ...L1, rid: `g:${'e'.repeat(64)}` } }), gtHere()).block).toMatch(/다른 지도.*기하 eeeeeeee.*기하 cccccccc/);
+  expect(startPolicy(mi({ map: L1 }), gtHere()).map).toEqual(L1);
+});
+test('F4 단층 = w:<world 원본 SDF sha> · sha 없음·형식 틀림·spawn 다름 = 미확인', () => {
+  single(); expect(gtHere().map?.rid).toBe(`w:${SS}`);
+  for (const o of [{ world_src_sha256: undefined }, { world_src_sha256: null }, { world_src_sha256: 'D'.repeat(64) }, { world_src_sha256: 'd'.repeat(63) }, { spawn_floor: null }, { spawn_floor: 'l1' }]) {
+    single(o); expect(gtHere().why).toMatch(/좌표 개정 미확인\(world 원본 SDF/);
+  }
+});
+test('F4 연결 건물: 받기 전 미확인·같은 키 재요청 0 · 받은 뒤 g: · geomBind 실패(spawn SDF 다름)·live 기하 sha 다름 = 미확인', async () => {
+  G.ridReset(); geoCalls = 0; geoHold(); onL('l1');
+  expect(gtHere().why).toBe('좌표 개정 미확인(GT 기하 파일 미검증)'); gtHere(); expect(geoCalls).toBe(1);
+  geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);
+  onL('l2'); expect(gtHere().map).toMatchObject({ floor_id: 'l2', rid: `g:${GS}` });            // 같은 개정, 현재층만 다름
+  live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, world_src_sha256: SW2 });
+  expect(gtHere().why).toMatch(/미검증/);                                                         // 키 바뀜(SDF) → 새로 받기 전엔 미확인
+  expect(geoRes).toHaveLength(1); geoRes.shift()!(); await flush(); expect(gtHere().why).toMatch(/미검증/);   // 받은 기하의 sdf_sha256[l1] = SW ≠ live SW2 → geomBind 실패
+  live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, spawn_floor: 'l2', world_src_sha256: SW2 });
+  gtHere(); expect(geoRes).toHaveLength(1); geoRes.shift()!(); await flush(); expect(gtHere().map?.rid).toBe(`g:${GS}`);   // l2 기동 SDF 도 같은 기하 개정
+});
+test('F4 늦은 옛 응답: 요청 뒤 리셋(episode)·새 연결(gen)·live 기하 sha 바뀜·응답 sha 다름 = rid 붙임 0', async () => {
+  for (const change of [() => useLink.setState((s) => ({ st: { ...s.st, episode: 9 } as any })), () => useLink.setState((s) => ({ gen: s.gen + 1 })),
+    () => live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: SW2 } })]) {
+    G.ridReset(); geoRes = []; geoHold(); onL('l1'); gtHere(); change(); geoRes.shift()!(); await flush();
+    onL('l1'); useLink.setState((s) => ({ st: { ...s.st, episode: undefined } as any })); geoHold();
+    expect(gtHere().why).toMatch(/미검증/);
+  }
+  G.ridReset(); geoNow('f'.repeat(64)); onL('l1'); gtHere(); await flush(); expect(gtHere().why).toMatch(/미검증/);   // 응답 파일 sha ≠ live geom.sha256
+});
+test('F4 확인창 사이 rid 바뀌면 보내지 않음 · 보낸 Run.map 에 rid', async () => {
+  const a = await go(mi({ map: L1 }), () => live({ st: 'ok', bound: true, world_id: 'v5_building', floor_id: 'l1', floor: { rev: 1, state: 'on_floor', current: 'l1' }, ...ID, geom: { schema: 'v2_building_geom/1', sha256: SW2 } }));
+  expect(a.r).toBeNull(); expect(a.sent).toHaveLength(0);
+  onL('l1'); const b = await go(mi({ map: L1 })); expect(((b.sent[0] as any).doc as Run).map?.rid).toBe(`g:${GS}`);
 });

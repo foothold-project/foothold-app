@@ -1,6 +1,6 @@
 // 건물 전체 GT 간략 기하(RL v2_building_geom/1 · op geom_get 읽기만) — 센서·주행 판정 아님, 정밀도 주장 0.
 // 앱은 형식·결속을 다시 검사하고, 통과한 것만 그린다. 계단·경사로는 «구조상 연결»만(통과 가능 표시 0)
-import { ask } from './link';
+import { ask, useLink } from './link';
 
 type V3 = [number, number, number];
 export type GBox = { id: string; floor_id: string | null; kind: string; corners: V3[]; aabb: number[]; approximation: 'exact_box' };
@@ -58,3 +58,30 @@ export async function getGeom(building_id: 'v5'): Promise<{ g: Geom; sha: string
   const g = okGeom((r as any).geom, building_id);
   return typeof g === 'string' ? g : { g, sha };
 }
+
+// ---- 계획 좌표 개정 rid(10-15 F4) — 연결 건물 = «검증된» 기하 파일 sha(g:). 단층 w: 는 run.ts gtHere ----
+// 응답은 요청 때와 도착 때의 세대 키(연결 gen·provider·episode·world·live 기하 sha·live world 원본 SDF sha·spawn_floor·epoch)가 같을 때만 보관.
+// 쓸 때도 지금 키와 같고 geomBind(지금 live) == ok 일 때만 — 리셋·전환·새 연결 뒤 늦게 온 옛 응답으로 rid 를 붙이지 않는다.
+type RidLv = { world_id?: string | null; world_src_sha256?: string | null; spawn_floor?: string | null; epoch?: number | null; geom?: { sha256?: string | null } | null; st?: string };
+type RidS = { gen: number; provider: string; st: { episode?: number | null; live_map?: unknown } | null };
+export const ridKey = (s: RidS, lv: RidLv) => [s.gen, s.provider, s.st?.episode, lv.world_id, lv.geom?.sha256, lv.world_src_sha256, lv.spawn_floor, lv.epoch].join('|');
+let ridG: { key: string; g: Geom; sha: string } | null = null, ridAsk: { key: string; t: number } | null = null;
+export const ridDeps = { get: (b: 'v5') => getGeom(b), now: () => performance.now(), cur: (): [RidS, RidLv | null] => { const s = useLink.getState(); return [s, (s.st?.live_map as RidLv | null | undefined) ?? null]; } };
+/** 연결 건물 rid 또는 null(미확인). 없으면 기하 받기를 한 번 요청(같은 키 실패 뒤 6 s 안 재요청 0 — 서버 geom_get 연결당 1건·5 s) */
+export function geomRid(s: RidS, lv: RidLv): string | null {
+  if (lv.world_id !== 'v5_building' || !hex(lv.geom?.sha256) || !hex(lv.world_src_sha256) || !lv.spawn_floor) return null;
+  const key = ridKey(s, lv);
+  if (ridG && ridG.key === key) return ridG.sha === lv.geom!.sha256 && geomBind(ridG.g, ridG.sha, lv.world_id, lv, lv.world_id) === 'ok' ? `g:${ridG.sha}` : null;
+  const now = ridDeps.now();
+  if (!ridAsk || ridAsk.key !== key || now - ridAsk.t > 6000) {
+    ridAsk = { key, t: now };
+    ridDeps.get('v5').then((x) => {
+      const [s2, lv2] = ridDeps.cur();
+      if (typeof x === 'string' || !lv2 || ridKey(s2, lv2) !== key || x.sha !== lv2.geom?.sha256) return;   // 요청 뒤 세대·출처가 바뀌었으면 버림
+      ridG = { key, g: x.g, sha: x.sha };
+    }, () => undefined);
+  }
+  return null;
+}
+/** 시험용: 보관·요청 기록 비우기 */
+export const ridReset = () => { ridG = null; ridAsk = null; };

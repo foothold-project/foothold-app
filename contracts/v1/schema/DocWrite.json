@@ -121,6 +121,12 @@
           "title": "Key",
           "type": "string"
         },
+        "rid": {
+          "default": null,
+          "pattern": "^[wg]:[0-9a-f]{64}$",
+          "title": "Rid",
+          "type": "string"
+        },
         "src": {
           "const": "gt",
           "title": "Src",

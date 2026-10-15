@@ -45,6 +45,9 @@ CASES = [  # (kind, doc) — 좋은 것·나쁜 것 섞어서. 기대값은 v2_l
     ('mission', {**MI, 'map': {**MS, 'key': 'x' * 17}}), ('mission', {**MI, 'map': {**MS, 'world_id': 3}}), ('mission', {**MI, 'mrev': 1}),
     ('run', {**RUN, 'map': MS, 'mrev': 3}), ('run', {**RUN, 'mrev': 1}), ('run', {**RUN, 'map': MS}), ('run', {**RUN, 'mrev': 0}),
     ('run', {**RUN, 'mrev': True}), ('run', {**RUN, 'mrev': 1.0}), ('run', {**RUN, 'mrev': None}), ('run', {**RUN, 'map': []}),
+    # 10-15 F4: map.rid 선택 — w:/g: + 소문자 64 hex 만, null·대문자·63자·다른 접두·줄바꿈·숫자 거부
+    *[(k, {**B, 'map': {**MS, 'rid': r}}) for k, B in (('mission', MI), ('run', RUN)) for r in
+      ['w:' + 'a' * 64, 'g:' + '0' * 64, None, 'w:' + 'A' * 64, 'w:' + 'a' * 63, 'w:' + 'a' * 65, 's:' + 'a' * 64, 'w:' + 'a' * 64 + '\n', 'a' * 64, 3, 'g:' + 'g' * 64]],
 ]
 
 

@@ -302,7 +302,7 @@ class Media:
 
 
 # ---- 공용 문서(구역·임무·임무 진행·사진 분류) — PC·휴대폰이 같은 값을 본다 ----
-# 형식: ('s', 최대 글자) · ('n',) 유한 숫자 ±10000 · ('i',) 1 이상 정수 · ('e', 허용값) · ('l', 항목형식, 최대 개수[, 최소]) ·
+# 형식: ('s', 최대 글자) · ('n',) 유한 숫자 ±10000 · ('i',) 1 이상 정수 · ('e', 허용값) · ('r', 정규식, 설명) 글 전체 일치 · ('l', 항목형식, 최대 개수[, 최소]) ·
 #       dict = 이 키만(('o', 형식) 인 키는 없어도 됨 — 있으면 그 형식, null 불가) · 나머지 키는 전부 필요
 S = lambda n: ('s', n)
 N, PT = ('n',), ('l', ('n',), 2, 2)
@@ -311,7 +311,10 @@ MODS = ('e', {'사진', '운영자 확인', '대기'})   # 지금 앱으로 실�
 WP = {'x': N, 'y': N, 'name': S(40), 'mods': ('l', MODS, 3)}
 # 좌표 출처(10-15 프리셋 1단계): 지점을 찍거나 가져온 때의 GT world·현재층 + 그때 좌표 지문(key — 앱이 계산·대조, 서버는 형식만).
 # 선택 키 — 옛 문서(없음)·옛 서버 쓰기 경로 그대로. 없음 = «지도 미확인 · 기록만». SLAM 좌표 계획은 지원 미확인이라 src 는 gt 만
-MAPSRC = ('o', {'src': ('e', {'gt'}), 'world_id': S(40), 'floor_id': S(40), 'key': S(16)})
+# rid(10-15 F4, 선택) = 그 좌표의 GT 기준 개정: w:<기동 world 원본 SDF sha256>(단층) · g:<검증된 건물 GT 기하 파일 sha256>(연결 건물). 앱이 live_map 으로 정하고 서버는 형식만.
+#   SDF 가 include 하는 메시·모델 파일은 들어 있지 않다(«전체 환경 동일» 아님). rid 없는 출처 = 개정 미확인 → 앱은 기록만
+MAPSRC = ('o', {'src': ('e', {'gt'}), 'world_id': S(40), 'floor_id': S(40), 'key': S(16),
+                'rid': ('o', ('r', re.compile(r'[wg]:[0-9a-f]{64}'), 'w: 또는 g: + 소문자 64 hex'))})
 DOC_KINDS = {
     'zone': {'name': S(40), 'type': ('e', {'금지', '감속'}), 'pts': ('l', PT, 40, 3)},
     # 임무 양식: 지점에서 할 일(모듈). 경보 규칙은 자동 실행 미연결이라 저장하지 않는다
@@ -347,6 +350,8 @@ def doc_check(spec, v, path='doc'):
         return None if type(v) in (int, float) and math.isfinite(v) and abs(v) <= 1e4 else f'{path}: 유한 숫자(±10000)'
     if t == 'i':
         return None if type(v) is int and v >= 1 else f'{path}: 1 이상 정수'
+    if t == 'r':
+        return None if isinstance(v, str) and spec[1].fullmatch(v) else f'{path}: {spec[2]}'
     if t == 'e':
         return None if isinstance(v, str) and v in spec[1] else f'{path}: {sorted(spec[1])} 중 하나'
     if t == 'p':

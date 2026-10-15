@@ -155,6 +155,7 @@ export interface MapSrc {
   world_id: string;
   floor_id: string;
   key: string;
+  rid?: string;
 }
 
 export interface MapStartState {
