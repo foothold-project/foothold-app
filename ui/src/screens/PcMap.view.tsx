@@ -366,24 +366,7 @@ export function View({ v }: { v: Vals }) {
                   </g>
                 </svg>
                 {" "}
-                <div style={{"position":"absolute","left":"12px","top":"12px","maxWidth":"340px","display":"flex","flexDirection":"column","gap":"6px","padding":"12px 14px","borderRadius":"8px","background":"var(--panel)","border":"1px solid var(--line2)"}}>
-                  {" "}
-                  <b style={{"fontSize":"14px"}}>
-                    {v.gT ?? "위치 맞추기"}
-                  </b>
-                  {" "}
-                  <span className="lbl" style={{"lineHeight":"1.5"}}>
-                    {v.gL ?? "1 로봇이 실제로 있는 곳을 누르고 2 바라보는 방향으로 끌어 놓은 뒤 3 로봇을 조금 움직여 점이 모이는지 봅니다."}
-                  </span>
-                  {" "}
-                  <div style={{"display":"flex","alignItems":"center","gap":"8px","fontSize":"13px"}}>
-                    {v.gS ?? (<><span style={{"color":"var(--ok)"}}>
-                      {"●"}
-                    </span>
-                    {"점이 한곳에 모였습니다 · 이동 가능"}</>)}
-                  </div>
-                  {" "}
-                </div>
+                {/* 10-15: 지도 왼쪽 위 설명 카드(gT/gL/gS) 제거 — 지도를 가림. 작업 안내(gL)는 오른쪽 «선택한 구역» 카드로 옮김, 구역 한계는 zNote 가 이미 말함 */}
                 {" "}
               </div>
               {" "}
@@ -399,6 +382,7 @@ export function View({ v }: { v: Vals }) {
                     {v.zHead ?? "진입 금지 구역"}
                   </b>
                 </div>
+                {v.gL ? <span className="lbl" aria-label="지도 작업 안내" style={{"lineHeight":"1.5"}}>{v.gL}</span> : null}
                 {" "}
                 <label className="lbl" htmlFor="zn">
                   {"이름"}

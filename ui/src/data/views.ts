@@ -1,6 +1,6 @@
 // 보조 관제 뷰(시뮬) — RL VIEW-CONTRACT §1·§2 를 link 가 검증해 최신 1개만 들고 있고, 여기서 view_get 으로 끌어온다(≤2 Hz, 한 번에 하나).
 // 점군 누적: 결속 키(world·건물·층·모드·출처·버전·epoch·층세대) + 연결/대상 세대가 같을 때만 0.1 m 칸 하나에 점 하나, 상한 30만(넘으면 오래된 칸부터 버림).
-// 키·세대가 바뀌거나 지도 상태가 ok 아니면 비우고 쌓지 않는다. SLAM 3D 지도가 아니라 측정점 누적 시각화다(루프 폐합 0).
+// 키·세대가 바뀌거나 지도 상태 결속(live_map.bound)이 깨지면 비우고 쌓지 않는다(격자 그림 대기만으로는 안 비움). SLAM 3D 지도가 아니라 측정점 누적 시각화다(루프 폐합 0).
 import { useEffect, useState } from 'react';
 import { ask, useLink } from './link';
 
@@ -9,13 +9,16 @@ const KEYS = ['world_id', 'building_id', 'floor_id', 'mode', 'map_source', 'map_
 export type Pose = { x: number; y: number; z: number; yaw: number };
 type Snap = ReturnType<typeof useLink.getState>;
 const keyOf = (o: any) => KEYS.map((k) => JSON.stringify(o?.[k] ?? null)).join('|');
+/** 지도 상태 수준 결속(서버 live_map.bound — 리셋·끊김·층 이동·epoch 어긋남·형식 틀림이면 false). 격자 그림 대기(새 격자 변환·도착)와 분리 — 10-15 MAP-STABILITY.
+ *  bound 칸이 없는 옛 서버만 예전 기준(st ok) */
+export const lmBound = (lm: any) => !!lm && (lm.bound === true || (lm.bound == null && lm.st === 'ok'));
 
 /** 지금 이 뷰를 보이거나 쌓아도 되나 → 결속 문자열(지도 키 + 연결/대상 세대) | ''(안 됨).
- *  시뮬 대상 · WS 열림 · 마지막 메시지 ≤1 s(linkOk 와 같음) · live_map ok · 그 뷰 st ok·age ≤3 s·seq 정수 — 하나라도 아니면 '' */
+ *  시뮬 대상 · WS 열림 · 마지막 메시지 ≤1 s(linkOk 와 같음) · live_map.bound(상태 수준 결속 — 격자 그림 유무와 무관) · 그 뷰 st ok·age ≤3 s·seq 정수 — 하나라도 아니면 '' */
 export function viewKey(s: Snap, what: 'points' | 'follow', now = performance.now()): string {
   const st: any = s.st, lm = st?.live_map, src = st?.views?.[what];
   if (s.provider !== 'simulation_gate' || !s.open || !s.lastMsg || now - s.lastMsg > 1000) return '';
-  if (!lm || lm.st !== 'ok' || !src || src.st !== 'ok' || !(Number.isFinite(src.age_s) && src.age_s >= 0 && src.age_s <= SRC_AGE) || !(Number.isInteger(src.seq) && src.seq > 0)) return '';
+  if (!lmBound(lm) || !src || src.st !== 'ok' || !(Number.isFinite(src.age_s) && src.age_s >= 0 && src.age_s <= SRC_AGE) || !(Number.isInteger(src.seq) && src.seq > 0)) return '';
   return `${keyOf(lm)}#${s.gen}`;
 }
 const sameKey = (v: any, bind: string) => !!bind && `${keyOf(v)}#${bind.split('#').pop()}` === bind;
@@ -112,7 +115,7 @@ export function viewWhy(st: any, what: 'points' | 'follow'): string {
   if (run !== 'live_map') return '실행 중인 시뮬 종류 미확인 — 메뉴의 상태 원값 확인';
   if (r === 'starting') return '지도 시뮬 시작 중';
   if (what === 'follow' && p?.enabled === false) return '이번 지도 시뮬은 외부카메라 끔 — 다음 «지도 열기»에서 «외부카메라» 체크';
-  if (!lv || lv.st !== 'ok') return `지도 상태 기다림${lv?.why ? ` — ${lv.why}` : ''}`;
+  if (!lmBound(lv)) return `지도 상태 기다림${lv?.why ? ` — ${lv.why}` : ''}`;
   if (p?.reason === 'not_localized' && lv.mode === 'static' && lv.map_source === 'slam') return '저장 SLAM 지도는 위치추정 미연결 — 점군 위치 표시 불가';
   if (p?.reason && p.reason !== 'ok') return `${PROD_KO[p.reason] ?? PROD_KO.unknown}${p.n_pub === 0 ? ' (이번 기동 발행 0)' : ''}`;
   return v?.why ? `받는 쪽 검사: ${v.why}` : '받은 것 없음';

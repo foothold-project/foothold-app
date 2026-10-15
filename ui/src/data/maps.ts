@@ -2,7 +2,7 @@
 import type { LiveMap, MapInfo } from '@contracts';
 import { ask, useLink } from './link';
 
-export type Raster = { img: CanvasImageSource; res: number; ox: number; oy: number; w: number; h: number; label: string; noGrid?: boolean };   // noGrid: 좌표가 하나가 아닌 그림(층 나란히) — 격자 안 그림
+export type Raster = { img: CanvasImageSource; res: number; ox: number; oy: number; w: number; h: number; label: string; noGrid?: boolean; upd?: boolean };   // upd: 실시간 지도 갱신 중(이 그림은 직전 검증본 — 위치 마커 0)   // noGrid: 좌표가 하나가 아닌 그림(층 나란히) — 격자 안 그림
 const fin = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 export const WORLD = { v5_single: '1층 건물', v5_building: '2층 건물', rooms_a: '새 매핑 공간' } as const;   // 화면 이름만(계약 id 그대로)
 export const FLOOR = { f1: '1층', l1: '1층', l2: '2층' } as const;
@@ -143,6 +143,16 @@ export const runLine = (ss: Sess) => !ss ? '꺼짐 · 지도용 시뮬 없음(�
 /** 지도 시뮬이 켜져(시작 중·실행 중) 있으면 그 [건물 키, 층], 아니면 null */
 export const runAt = (ss: Sess) => ss?.runner === 'live_map' && (ss.result === 'running' || ss.result === 'starting') && ss.world_id && ss.floor_id
   ? [(BLD as Record<string, string>)[ss.world_id] || ss.world_id, ss.floor_id] as const : null;
+
+// 새 seq 해독 동안 같은 K·세대의 직전 검증본을 보이는 상한(서버 UPD_MAX 와 같은 값·같은 시계 의미: 검증 완료 시각 기준, 반복 status 로 연장 0) — 보정 손잡이(≤15 s)
+export const HOLD_MS = 12000;
+/** 실시간 그림 표시 판정: null = 안 보임 · 'show' = 지금 seq 그대로 · 'held' = 직전 검증본 보유(마커 0·«갱신 중»).
+ *  K·세대·끊김(fresh)·st≠ok(k/seq null) 은 즉시 null. 뒤처진·같은 seq 보유 연장 0 */
+export function liveShow(b: { k: string; seq: number; gen: number; t: number } | null, k: string | null, seq: number | null, gen: number, fresh: boolean, upd: boolean, now: number): null | 'show' | 'held' {
+  if (!b || !fresh || k == null || seq == null || b.gen !== gen || b.k !== k) return null;
+  if (b.seq === seq) return upd ? 'held' : 'show';
+  return b.seq < seq && now - b.t >= 0 && now - b.t <= HOLD_MS ? 'held' : null;
+}
 
 /** 지금 보이는 격자 한 장. 답의 seq·epoch·world·floor 가 요청 때 view 와 같아야(늦게 온 옛 epoch 버림) */
 export async function getLive(v: LiveMap): Promise<Raster | string> {

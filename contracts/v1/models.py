@@ -185,6 +185,8 @@ class LiveGrid(Out):
     w: int; h: int
     res: Fin
     origin: Annotated[list[Fin], Field(min_length=3, max_length=3)]   # 왼쪽 아래 칸의 map 좌표(x, y, z). 회전 0 만
+    stamp: Optional[Fin] = None             # 이 그림 격자의 sim 시각(header.stamp) — «지도 시각» 표시용
+    upd: bool = False                       # 갱신 중: 같은 K·slam 에서 status 가 이 그림보다 앞섬(새 격자 대기). 서버가 검증 시각 + 12 s 까지만 보유, 그동안 pose = null
 
 
 class LivePose(Out):
@@ -202,6 +204,7 @@ class LiveSave(Out):
 class LiveMap(Out):
     """/v2_map/* 실시간 지도 요약(서버 결속 정본). 경로 없음. st: off 미수신 · stale 3 s 끊김 · unknown 형식 모름 · reset 리셋 중 · wait 이번 epoch 지도 전 · bad 지도 오류 · ok 표시"""
     st: Literal['off', 'stale', 'unknown', 'reset', 'wait', 'bad', 'ok']
+    bound: bool = False                     # 상태 수준 결속(K 형식·status 3 s 안·accepting·오류 없음·epoch 일치·층 확정) — 그림 유무와 무관. 보조 뷰(점군·3인칭)는 st 가 아니라 이것으로 결속
     why: str
     age_s: Optional[Fin] = None
     world_id: Optional[Literal['v5_single', 'v5_building', 'rooms_a']] = None

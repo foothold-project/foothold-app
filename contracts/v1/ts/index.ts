@@ -65,10 +65,13 @@ export interface LiveGrid {
   h: number;
   res: number;
   origin: number[];
+  stamp?: number | null;
+  upd?: boolean;
 }
 
 export interface LiveMap {
   st: "off" | "stale" | "unknown" | "reset" | "wait" | "bad" | "ok";
+  bound?: boolean;
   why: string;
   age_s?: number | null;
   world_id?: "v5_single" | "v5_building" | "rooms_a" | null;

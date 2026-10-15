@@ -51,6 +51,23 @@
           "title": "Seq",
           "type": "integer"
         },
+        "stamp": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stamp"
+        },
+        "upd": {
+          "default": false,
+          "title": "Upd",
+          "type": "boolean"
+        },
         "w": {
           "title": "W",
           "type": "integer"
@@ -80,6 +97,11 @@
           ],
           "default": null,
           "title": "Age S"
+        },
+        "bound": {
+          "default": false,
+          "title": "Bound",
+          "type": "boolean"
         },
         "building_id": {
           "anyOf": [

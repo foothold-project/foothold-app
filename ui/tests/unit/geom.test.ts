@@ -43,13 +43,13 @@ test('geomBind: 기동 층(spawn_floor) 원본 SDF sha 로만 결속, 같은 wor
   expect(geomBind(g, F, W, null, W)).toMatch(/미확인/);
 });
 
-test('shown: 고른 층 진함·구조 중간·다른 층 흐림, 위층 숨김은 위층 소속·위층 높이 시작 구조만', () => {
-  const F = [{ floor_id: 'l1', z: 0 }, { floor_id: 'l2', z: 2.4 }];
-  expect(shown('l1', 0, 'l1', false, F)).toBeGreaterThan(shown(null, 0, 'l1', false, F));
-  expect(shown(null, 0, 'l1', false, F)).toBeGreaterThan(shown('l2', 2.4, 'l1', false, F));
-  expect(shown('l2', 2.4, 'l1', true, F)).toBe(0);
-  expect(shown(null, 2.4, 'l1', true, F)).toBe(0);
-  expect(shown(null, 0, 'l1', true, F)).toBeGreaterThan(0);
-  expect(shown('l1', 0, 'l2', true, F)).toBeGreaterThan(0);   // 2층 볼 때 아래층은 남김
+test('shown·floorCol(10-15 층 색): 전체 = 모든 층 보임·공통 구조 흐림, 층만 = 다른 층 0, 색은 floor_id 정본만(null·모르는 id = 중립)', async () => {
+  const { floorCol } = await import('../../src/map/Geom3D');
+  const F = [{ floor_id: 'l2', z: 2.4 }, { floor_id: 'l1', z: 0 }];   // 순서 뒤섞임 — 색은 높이순
+  expect(shown('l1', 0, 'all', F)).toBeGreaterThan(shown(null, 0, 'all', F)); expect(shown('l2', 2.4, 'all', F)).toBeGreaterThan(0);
+  expect(shown('l2', 2.4, 'l1', F)).toBe(0); expect(shown('l1', 0, 'l2', F)).toBe(0);
+  expect(shown(null, 2.4, 'l1', F)).toBe(0); expect(shown(null, 0, 'l1', F)).toBeGreaterThan(0); expect(shown(null, 2.4, 'l2', F)).toBeGreaterThan(0);
+  expect(floorCol('l1', F, 'N')).not.toBe(floorCol('l2', F, 'N')); expect(floorCol('l1', F, 'N')).toBe('#5AA9FF');
+  expect(floorCol(null, F, 'N')).toBe('N'); expect(floorCol('f9', F, 'N')).toBe('N');
 });
 

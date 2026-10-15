@@ -29,6 +29,17 @@ afterAll(() => { vi.useRealTimers(); });
 
 test('형식 검사: 명령 관문 칸·유한수치·배열', () => {
   expect(L.checkStatus(ST())).toBeNull();
+  {   // 10-15 live_map.bound·grid.upd·stamp 형식: 틀리면 지도 칸만 버림, grid.upd 면 pose 0(옛 그림 + 새 위치 조합 0)
+    const K = { world_id: 'rooms_a', building_id: 'rooms_a', floor_id: 'f1', mode: 'slam', map_source: 'slam', map_version: null, epoch: 3 };
+    const G = { seq: 4, w: 4, h: 2, res: 0.05, origin: [-1, -2, 0], upd: false, stamp: 3 };
+    const P = { x: 1, y: 2, yaw: 0, source: 'slam_tf' };
+    const lm = (o: any) => { const m: any = ST({ live_map: { st: 'ok', why: '', bound: true, ...K, grid: G, pose: P, pose_why: '', ...o } }); L.checkStatus(m); return m.live_map; };
+    expect(lm({}).pose).toEqual(P);
+    expect(lm({ grid: { ...G, upd: true } }).pose).toBe(null);
+    for (const bad of [{ bound: 'yes' }, { bound: 1 }, { grid: { ...G, upd: 'true' } }, { grid: { ...G, stamp: '3' } }, { bound: true, epoch: null, st: 'wait', grid: null }])
+      expect(lm(bad)).toBe(null);
+    expect(lm({ st: 'wait', bound: true, grid: null, pose: null })?.bound).toBe(true);
+  }
   expect(L.checkStatus(ST({ role: 'admin' }))).toBe('role');
   expect(L.checkStatus(ST({ latch: 'false' }))).toBe('latch');
   expect(L.checkStatus(ST({ applied: [0, '1', 0] }))).toBe('applied');
