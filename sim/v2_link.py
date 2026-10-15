@@ -21,6 +21,10 @@ import argparse, base64, hashlib, json, math, os, re, sqlite3, struct, subproces
 from collections import deque
 from pathlib import Path
 
+# C(10-15): 새 Run 의 계획 판 대조는 SQLite 저장소와 같은 함수 하나(server/runcas.py, 표준 라이브러리만). 뒤에 붙여 ROS 모듈을 가리지 않게
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from server.runcas import run_gate  # noqa: E402
+
 PRESETS_NOTE = '시험한 명령: 0 · 앞 0.6 · 앞 0.6 + 회전 ±0.5'
 SCHEMA = 'v2_live/state/1'
 DEAD = 0.3            # 입력 끊김 → 0 (s)
@@ -324,11 +328,13 @@ DOC_KINDS = {
     # 수동 임무 진행: 운영자가 직접 조종·확인해 적는 결과(로봇 자동 완료 아님). 계획을 시작 때 복사해 둔다
     'run': {'mode': ('e', {'수동'}), 'mission': S(40), 'tmpl': S(60), 'name': S(60), 'status': ('e', {'진행', '완료', '실패', '중단'}), 'started': S(32), 'ended': S(32), 'memo': S(400),
             'wps': ('l', {**WP, 'st': ('e', {'대기', '방문', '미방문'}), 'at': S(32), 'why': S(120), 'chk': ('e', {'', '확인', '보류', '제외'}), 'photos': ('l', PHOTO, 10)}, 30),
-            'map': MAPSRC, 'mrev': ('o', ('i',))},    # map = 시작 때 계획 출처가 지금 시뮬과 일치했을 때만 · mrev = 시작한 계획 판
+            'map': MAPSRC, 'mrev': ('o', ('i',)),    # map = 시작 때 계획 출처가 지금 시뮬과 일치했을 때만 · mrev = 시작한 계획 판
+            'mcas': ('o', ('1',))},                  # C: 서버가 시작 때 계획 판·스냅샷을 대조했음(서버만 붙임 — server/runcas.py). 정수 1 만
     # 사진 = 운영자 등록 관찰(AI 탐지 없음): 확인·보류·제외 + 메모
     'note': {'photo': PHOTO, 'cls': ('e', {'확인', '보류', '제외'}), 'memo': S(400)},
 }
 DOC_MAX, DOC_TOTAL = 12000, 2000          # 문서 하나 최대 바이트 · 전체 문서 수
+_SUR = re.compile('[\ud800-\udfff]')     # 파이썬 json 은 올바른 쌍을 한 글자로 합치므로 남은 surrogate = 외톨이
 
 
 def doc_check(spec, v, path='doc'):
@@ -344,8 +350,10 @@ def doc_check(spec, v, path='doc'):
                 return e
         return None
     t = spec[0]
-    if t == 's':
-        return None if isinstance(v, str) and len(v) <= spec[1] else f'{path}: 글 {spec[1]}자 이하'
+    if t == 's':        # 외톨이 surrogate(U+D800–DFFF) = UTF-8 저장 불가 → 400(C 개정 2 C절 — 전엔 인코딩 예외로 500)
+        return None if isinstance(v, str) and len(v) <= spec[1] and not _SUR.search(v) else f'{path}: 글 {spec[1]}자 이하(깨진 글자 없이)'
+    if t == '1':
+        return None if type(v) is int and v == 1 else f'{path}: 정수 1 만'
     if t == 'n':
         return None if type(v) in (int, float) and math.isfinite(v) and abs(v) <= 1e4 else f'{path}: 유한 숫자(±10000)'
     if t == 'i':
@@ -428,6 +436,14 @@ class Docs:
                     (kind == 'run' and doc['status'] == '진행' and x['doc'].get('status') == '진행') or
                     (kind == 'note' and x['doc'].get('photo') == doc['photo'])):
                 return 409, {'error': '이미 진행 중인 수동 임무가 있음 — 먼저 끝내세요' if kind == 'run' else '이 사진은 다른 기기가 먼저 분류함 — 최신 판 위에 다시', 'cur': x}
+        dropped = False
+        if kind == 'run':           # C: 계획 판·스냅샷 대조 + mcas 기입/유지/낮춤 — 이 lock 안(검사→쓰기 사이 다른 쓰기 0, 단일 프로세스 전제)
+            code, doc, dropped = run_gate(cur, doc, self.d.get)
+            if code is not None:
+                return code, doc
+            e = doc_check(DOC_KINDS[kind], doc)     # 기입·제거 뒤의 최종 문서로 형식·크기 다시
+            if e or len(json.dumps(doc, ensure_ascii=False).encode()) > DOC_MAX:
+                return 400, {'error': e or f'문서가 너무 큼({DOC_MAX} 바이트 이하 · 서버 표시 포함)'}
         if cur is None:
             if len(self.d) >= DOC_TOTAL:
                 return 400, {'error': f'문서 수 한도 {DOC_TOTAL}'}
@@ -436,7 +452,7 @@ class Docs:
                 if did not in self.d: break
         new[did] = {'id': did, 'kind': kind, 'rev': (cur['rev'] if cur else 0) + 1, 'by': actor, 'at': time.strftime('%Y-%m-%dT%H:%M:%S%z'), 'doc': doc}
         self._write(new); self.d = new; self.rev += 1
-        return 200, {'ok': True, 'id': did, 'rev': new[did]['rev'], 'kind': kind, 'name': doc.get('name', ''), 'new': cur is None}
+        return 200, {'ok': True, 'id': did, 'rev': new[did]['rev'], 'kind': kind, 'name': doc.get('name', ''), 'new': cur is None, **({'mcas_dropped': True} if dropped else {})}
 
     def _write(self, d):            # 실패하면 예외 — 호출자는 메모리를 바꾸지 않은 채 500
         tmp = self.path.with_suffix('.tmp')

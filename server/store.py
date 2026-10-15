@@ -11,6 +11,8 @@ import 때 pydantic 이 필요 없다 — v2_link(시스템 python + rclpy·torn
 import json, os, re, secrets, sqlite3, threading, time
 from pathlib import Path
 
+from .runcas import run_gate
+
 SCHEMA_VERSION = 1
 DOC_KINDS = ('zone', 'tmpl', 'mission', 'run', 'note')     # contracts.v1·v2_link 와 같은 값(시험이 대조)
 DOC_MAX, DOC_TOTAL = 12000, 2000
@@ -199,6 +201,15 @@ class Store:
         dup = self._dup(c, {'kind': kind}, did, doc)
         if dup:
             return 409, {'error': _dup_msg(kind), 'cur': dup}
+        dropped = False
+        if kind == 'run':                    # C: 계획 판·스냅샷 대조 — 이 트랜잭션(BEGIN IMMEDIATE) 안에서 읽고 같은 트랜잭션에서 쓴다(CAS)
+            code, doc, dropped = run_gate(cur, doc, lambda i: self._one(c, i))
+            if code is not None:
+                return code, doc
+            e = self.check(kind, doc)        # 기입·제거 뒤의 최종 문서로 형식·크기 다시
+            raw = json.dumps(doc, ensure_ascii=False)
+            if e or len(raw.encode()) > DOC_MAX:
+                return 400, {'error': e or f'문서가 너무 큼({DOC_MAX} 바이트 이하 · 서버 표시 포함)'}
         at = now_iso()
         if cur is None:
             if c.execute('SELECT count(*) FROM docs').fetchone()[0] >= DOC_TOTAL:
@@ -215,7 +226,12 @@ class Store:
             n = c.execute('UPDATE docs SET rev=?, by=?, at=?, doc=? WHERE id=? AND rev=?', (new_rev, actor, at, raw, did, cur['rev'])).rowcount
             assert n == 1                    # IMMEDIATE 잠금 안이라 위에서 읽은 판 그대로
         self._bump(c)
-        return 200, {'ok': True, 'id': did, 'rev': new_rev, 'kind': kind, 'name': doc.get('name', ''), 'new': cur is None}
+        return 200, {'ok': True, 'id': did, 'rev': new_rev, 'kind': kind, 'name': doc.get('name', ''), 'new': cur is None, **({'mcas_dropped': True} if dropped else {})}
+
+    @staticmethod
+    def _one(c, did):
+        row = c.execute('SELECT id, kind, rev, by, at, doc FROM docs WHERE id=?', (did,)).fetchone()
+        return _env(row) if row else None
 
     @staticmethod
     def _dup(c, m, did, doc):

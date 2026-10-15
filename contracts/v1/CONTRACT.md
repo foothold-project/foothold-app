@@ -74,6 +74,12 @@
 - 전체 판 `DocsList.rev` = `status.docs_rev`. 값이 바뀌면 화면이 다시 읽는다(값 자체에 의미는 없고 «바뀜»만 본다).
 - 고칠 때는 화면이 읽은 `rev` 를 보낸다. 다르면 **409 + `cur`**(지금 저장된 판)가 오고, 화면은 초안을 지우지 않는다.
 - 하나만 허용: `status:'진행'` 인 `run` 은 전체에서 하나, `note` 는 `photo` 당 하나. 겹치면 409 + 기존 문서.
+- **C 시작 대조(10-15)**: `mrev` 있는 새 `run` 은 같은 잠금/트랜잭션 안에서 계획(`mission`) 현재 판 == `mrev`, 이름·지점(x·y·name·mods)·`map`(있으면 전체) 사본,
+  양식(`''`·`'base'` = 내장 «지점 확인 다녀오기», 그 밖 = 있는 `tmpl` 문서) 이름의 `cut16(·,60)` == `run.tmpl` 을 대조한다. 통과면 서버가 `mcas: 1` 을 붙이고,
+  실패면 409 + `reason_code`(쓰기 0). `mcas` 는 서버만 — 새 `run` 에 보내거나 없는 기록에 넣으면 400 `mcas_forbidden`. 결과 편집은 echo·누락 모두 유지,
+  근거 필드(mode·mission·mrev·name·tmpl·started·map·지점 x·y·name·mods·개수)가 바뀌면 서버가 떼고 `DocPutOk.mcas_dropped: true`. 시작 뒤 계획 변경은 재대조 0.
+  `mrev` 없는 새 `run`(옛 앱)은 대조 0·`mcas` 0. 정본: `server/runcas.py`.
+- 모든 글 필드: 외톨이 surrogate(U+D800–DFFF) = 400.
 
 ## 오류(HTTP)
 
@@ -82,7 +88,7 @@
 | 400 | 형식(`error` = `doc.경로: 이유` 등) · 문서 수 한도 2000 · 본문 12000 B 초과 · (server/api 만) 요청 64 KiB 초과 |
 | 403 | 다른 출처 |
 | 404 | 없는 문서(다른 기기가 지웠을 수 있음) |
-| 409 | 판 충돌 또는 «하나만» 위반, `cur` 포함 |
+| 409 | 판 충돌 또는 «하나만» 위반, `cur` 포함 · C 시작 대조 실패는 `reason_code`(mission_gone·mission_changed·tmpl_changed·snapshot_mismatch) — `code` 는 HTTP 숫자 그대로 |
 | 500 | 저장 실패 — 이전 상태 그대로 |
 | 503 | 저장소 사용 불가(파일 손상 등, 원본 보존) — `DocsList.broken` 에 이유 |
 

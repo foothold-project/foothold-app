@@ -11,6 +11,7 @@ import { STOP_FACT } from '../data/facts';
 import { href } from '../data/hist';
 import { LiveStatus } from '../app/status';
 import { stopProps, toast, useRoute, whyProps } from '../app/shell';
+import { cutName } from '../data/run';
 
 const CATALOG = ['사진', '운영자 확인', 'AI 탐지', '가스 측정', '대기', '음성 방송'];
 const PANEL: Record<string, string> = { '사진': '사진 줄', '운영자 확인': '확인 요청 카드' };
@@ -89,7 +90,7 @@ export default function PcMissions() {
     panels: uniq(types.map((t) => PANEL[t])), sections: uniq(types.map((t) => SEC[t])), cols: ['도착 시각', ...uniq(types.map((t) => COL[t])), '판정'].join(' · '),
     planHref: href('PcPlan', { tmpl: sel }),
     add: () => create({ name: `새 임무 양식 ${new Date().toTimeString().slice(0, 5)}`, desc: '', mods: [{ type: '사진', detail: MOD_DEF['사진'] }] }, '새 양식 만듦'),
-    dup: () => create({ ...plain(cur), name: `${cur.name} 복사본`.slice(0, 60) }, '복제됨'),
+    dup: () => create({ ...plain(cur), name: cutName(`${cur.name} 복사본`, 60) }, '복제됨'),
     remove: async () => {
       if (cur.locked || !E.id || E.busy || !E.d) return;
       const sent = plain(E.d), from = selR.current, w = await E.write({ op: 'del', id: E.id, rev: E.rev! }); if (!w) return;   // 지운 것 = 보낸 때의 초안

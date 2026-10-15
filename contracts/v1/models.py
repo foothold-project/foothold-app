@@ -12,7 +12,7 @@
 import re
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, ValidationError, WithJsonSchema)
+from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, TypeAdapter, ValidationError, WithJsonSchema)
 
 CONTRACT_VERSION = 'fh-app/1'      # 메시지에 실리지 않는다 — 필드가 없으면 v1 (CONTRACT.md «버전»)
 
@@ -35,8 +35,23 @@ Num = Annotated[float, Field(ge=-1e4, le=1e4, allow_inf_nan=False)]      # 문�
 Rid = Optional[int]
 
 
+_SUR = re.compile('[\ud800-\udfff]')      # 외톨이 surrogate = UTF-8 저장 불가(v2_link doc_check 와 같은 뜻, C 개정 2 C절)
+
+
+def _nosur(v):
+    if _SUR.search(v):
+        raise ValueError('깨진 글자(외톨이 surrogate)')
+    return v
+
+
 def S(n):
-    return Annotated[str, Field(max_length=n)]
+    return Annotated[str, Field(max_length=n), AfterValidator(_nosur)]
+
+
+def _int1(v):                           # 정수 1 만 — Literal[1] 은 strict 에서도 True·1.0 을 받아서 앞에서 거른다
+    if type(v) is not int:
+        raise ValueError('정수 1 만')
+    return v
 
 
 # 서버가 만든 사진 경로만(임의 주소·javascript:·.. 불가). 서버 검사는 v2_link 와 같은 파이썬 정규식(\w 유니코드),
@@ -448,6 +463,9 @@ class Run(Body):
     wps: Annotated[list[RunWaypoint], Field(max_length=30)]
     map: MapSrc = None                      # 선택 — 시작 때 계획 출처가 지금 시뮬과 일치했을 때만(없음 = 지도 미확인 · 기록만)
     mrev: Annotated[int, Field(ge=1)] = None   # 선택 — 시작한 계획 판
+    # 선택(C) — 서버가 시작 때 계획 판(mrev)·스냅샷·양식 이름을 대조했음. 서버만 붙인다(새 Run 에 보내면 400, 결과 편집은 echo·누락 모두 유지,
+    # 근거 필드가 바뀌면 서버가 뗀다). 없음 = 이 기기 캐시 기준(서버 미대조). server/runcas.py
+    mcas: Annotated[Literal[1], BeforeValidator(_int1)] = None
 
 
 class Note(Body):
@@ -521,6 +539,7 @@ DocWrite = Annotated[Union[DocPut, DocDel], Field(discriminator='op')]
 
 class DocPutOk(Out):
     ok: Literal[True]; id: DocId; rev: int; kind: DocKind; name: str; new: bool
+    mcas_dropped: Optional[Literal[True]] = None   # C: 결과 편집에서 근거 필드가 바뀌어 서버가 mcas 를 뗌(평소 키 없음)
 
 
 class DocDelOk(Out):
@@ -531,6 +550,8 @@ class ApiError(Out):
     """400·403·404·409·500·503 공통. 409 는 cur(지금 저장된 판) 포함 — 화면은 초안을 지우지 않는다."""
     error: str
     cur: Optional[DocEnvelope] = None
+    # C 가 새로 내는 사유만(기존 rev 충돌·진행 1개 409 와 400 은 키 없음). HTTP 상태 코드와 별개
+    reason_code: Optional[Literal['mission_gone', 'mission_changed', 'tmpl_changed', 'snapshot_mismatch', 'mcas_forbidden']] = None
 
 
 class MediaEvent(Event):

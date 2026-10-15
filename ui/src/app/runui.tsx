@@ -1,6 +1,6 @@
 // 수동 임무 기록 버튼(휴대폰 현황·PC 조종 공용) — live.js btn/wpActs/endRow
 import type { Run, RunWaypoint } from '@contracts';
-import { attachPhoto, isoNow, pickWp, runEdit, runEnd } from '../data/run';
+import { attachPhoto, cutName, isoNow, pickWp, runEdit, runEnd } from '../data/run';
 import { useSel } from '../data/scratch';
 import { wpName } from '../data/fmt';
 
@@ -23,7 +23,7 @@ export function WpActs({ id, R, i }: { id: string; R: Run; i: number }) {
       {w && <div className="lv-row">
         {w.st === '대기' ? <>
           <Btn pri t="방문 확인" on={() => set({ st: '방문', at: isoNow(), why: '' }, `${n} 방문 확인`)} />
-          <Btn t="미방문…" on={() => { const y = prompt(`${n} 미방문 사유(예: 길 막힘·위험·시간 부족)`); if (y && y.trim()) set({ st: '미방문', at: '', why: y.trim().slice(0, 120) }, `${n} 미방문`); }} />
+          <Btn t="미방문…" on={() => { const y = prompt(`${n} 미방문 사유(예: 길 막힘·위험·시간 부족)`); if (y && y.trim()) set({ st: '미방문', at: '', why: cutName(y.trim(), 120) }, `${n} 미방문`); }} />
         </> : <>
           {next >= 0 && <Btn pri t={`다음 지점 ▸ WP${next + 1}`} on={() => pin(id, next)} />}
           <Btn t="대기로 되돌리기" on={() => set({ st: '대기', at: '', why: '' }, `${n} 되돌림`)} />

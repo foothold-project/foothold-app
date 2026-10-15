@@ -205,6 +205,12 @@
           "$ref": "#/$defs/MapSrc",
           "default": null
         },
+        "mcas": {
+          "const": 1,
+          "default": null,
+          "title": "Mcas",
+          "type": "integer"
+        },
         "memo": {
           "maxLength": 400,
           "title": "Memo",
@@ -665,6 +671,25 @@
     "error": {
       "title": "Error",
       "type": "string"
+    },
+    "reason_code": {
+      "anyOf": [
+        {
+          "enum": [
+            "mission_gone",
+            "mission_changed",
+            "tmpl_changed",
+            "snapshot_mismatch",
+            "mcas_forbidden"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason Code"
     }
   },
   "required": [

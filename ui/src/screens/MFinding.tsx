@@ -8,7 +8,7 @@ import { deg, fmtT, posTxt, themeClass } from '../data/fmt';
 import { OBS_NOTE } from '../data/facts';
 import { noteOf, useDocs, useMedia } from '../data/shared';
 import { useEditor } from '../data/editor';
-import { nearOf, runsOf, tagMemo } from '../data/run';
+import { cutName, nearOf, runsOf, tagMemo } from '../data/run';
 import { LiveStatus, MediaStale } from '../app/status';
 import { stopProps, toast, useRoute } from '../app/shell';
 import { href } from '../data/hist';
@@ -63,7 +63,7 @@ export default function MFinding() {
       p.x == null ? '비교 불가(위치 없음)' : `반경 1 m 안 다른 사진 ${nearOf(M, p).length}장`],
     tagT: [...TAGS, '+ 직접 입력'],
     tagP: [...TAGS.map((t) => ({ type: 'button', disabled: !ed, 'aria-pressed': ed && E.d!.memo.split(' · ').includes(t), onClick: () => put((d) => { d.memo = tagMemo(d.memo, t); }) })),
-      { type: 'button', disabled: !ed, 'aria-pressed': false, onClick: () => put((d) => { const y = prompt('메모(무엇을 봤는지·조치)', d.memo); if (y == null) return false; d.memo = y.trim().slice(0, 400); }) }],
+      { type: 'button', disabled: !ed, 'aria-pressed': false, onClick: () => put((d) => { const y = prompt('메모(무엇을 봤는지·조치)', d.memo); if (y == null) return false; d.memo = cutName(y.trim(), 400); }) }],
     memo: p ? <span className="lbl">{`메모: ${(ed && E.d!.memo) || '없음'}${n ? ` · ${n.by} · ${fmtT(n.at)}` : ''}`}{E.msg}{back}{undo}{reinc}</span> : <>{only && left ? <span className="lbl" role="status" data-notdone="1">{`이 목록엔 남은 사진 없음 — 건너뛴 미분류 ${left}장은 아직 분류 안 됨(완료 아님)`}</span> : null}{undo}{reinc}</>,
   };
   for (const [k, c, t] of CLS) { v[`${k}T`] = t; v[`${k}P`] = { type: 'button', disabled: !ed, 'aria-pressed': draft ? E.d!.cls === c : !!n && n.doc.cls === c, onClick: () => put((d) => { d.cls = c; }) }; }

@@ -9,6 +9,7 @@ import { docById, docsOf, noteOf, useDocs, useMedia } from '../data/shared';
 import { MediaStale } from '../app/status';
 import { histCSV, histRows, href, runRows } from '../data/hist';
 import { stopProps, toast, useRoute } from '../app/shell';
+import { mcasTxt } from '../data/run';
 
 // 결과 색 = 공식 토큰(Report 는 항상 밝음): 완료·확인 dim-ink, 진행·미확인 note-ink, 실패·중단 stop. 색 + 글자로 구분
 const COLOR: Record<string, string> = { '완료': 'var(--dim-ink)', '진행': 'var(--note-ink)', '실패': 'var(--stop)', '중단': 'var(--stop)' };
@@ -37,7 +38,7 @@ export default function Report() {
     const ph = R.wps.flatMap((w, i) => w.photos.map((u) => [u, i] as const));
     v = { ...blank, title: R.name, recNo: run!.id,
       place: 'Gazebo foothold-v2 시뮬 바닥(±10 m) · 실제 현장 아님', when: `${fmtT(R.started)} – ${R.ended ? fmtT(R.ended) : '진행 중'} · ${durTxt(R.started, R.ended)}`,
-      who: `마지막 기록 ${run!.by}`, robot: 'Go2 시뮬(Gazebo) · 실기 아님', tplLine: `${R.tmpl || '—'} · 수동 진행(자동 이동·자동 완료 아님)`,
+      who: `마지막 기록 ${run!.by}`, robot: 'Go2 시뮬(Gazebo) · 실기 아님', tplLine: `${R.tmpl || '—'} · 수동 진행(자동 이동·자동 완료 아님) · ${mcasTxt(D, R)}`,
       wpLine: `${R.wps.length}개 · 방문 ${vis} · 미방문 ${miss.length}`, resColor: COLOR[R.status] || 'var(--ink-2)',
       resHead: `${R.status === '완료' ? LV.ok : R.status === '진행' ? LV.warn : LV.bad} ${R.status === '진행' ? '진행 중(수동)' : R.status}`,
       resBody: R.memo || `방문 ${vis}/${R.wps.length} · 판단 확인 ${n('확인')} · 보류 ${n('보류')} · 제외 ${n('제외')}`,

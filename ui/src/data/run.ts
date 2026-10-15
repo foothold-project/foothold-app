@@ -70,6 +70,12 @@ export const planMap = (d: { wps: Pt[]; map?: MapSrc }): Here => (!d.map ? { why
 export const sameMap = (a: MapSrc, b: MapSrc) => a.src === b.src && a.world_id === b.world_id && a.floor_id === b.floor_id && !!a.rid && a.rid === b.rid;
 /** 화면 표기: world · 층 (GT · SDF|기하 sha 앞 8자). 개정 기준 = world 원본 SDF / GT 기하 파일 — 그 SDF 가 부르는 메시·모델 파일은 대조 안 함 */
 export const mapTxt = (m: MapSrc) => `${m.world_id} · ${m.floor_id} (GT · ${!m.rid ? '개정 미확인' : `${m.rid[0] === 'w' ? 'SDF' : '기하'} ${m.rid.slice(2, 10)}`})`;
+/** 서버 시작 대조 표시(C) — mcas 는 «시작 순간 서버 대조»뿐(지도·기하·실제 환경 검증 아님). 양식 종류는 그 판(mrev)의 계획이 아직 있을 때만 */
+export function mcasTxt(D: Docs, R: Run) {
+  if (R.mcas !== 1) return '서버 미대조 — 이 기기 캐시 기준으로 시작';
+  const m = docById(D, R.mission), t = m && m.kind === 'mission' && m.rev === R.mrev ? m.doc.tmpl : null;
+  return `시작 때 서버가 계획 판·스냅샷 대조 · 양식: ${t == null ? '이름·존재만' : !t || t === 'base' ? '내장 기본(이름 대조)' : '이름·존재만(본문 개정 미검증)'}`;
+}
 /** 진행 기록을 지금 지도에 겹쳐도 되나 — 거리·지점 겹치기는 이것이 ok 일 때만 */
 export function runHere(R: Run | null | undefined, s = useLink.getState()): { ok: boolean; why: string } {
   if (!R) return { ok: false, why: '' };
@@ -101,9 +107,12 @@ export function startPolicy(d: Mission, h: Here): { block: string | null; map: M
 // ponytail: 글자 묶음(👨‍👩‍👧 같은 ZWJ·국기)은 중간에서 끊길 수 있음(유효 UTF-8 은 유지) — 필요하면 Intl.Segmenter
 export const cutName = (s: string, n: number) => { let o = ''; for (const ch of s) { if (o.length + ch.length > n) break; o += ch; } return o; };
 export const dupMission = (m: Mission): Mission => { const c = structuredClone(m); c.name = `${cutName(m.name, 57)} 사본`; return c; };
-// 계획 스냅샷: 나중에 계획을 고쳐도 이 기록은 그대로. map = 시작 때 일치했을 때만, mrev = 시작한 계획 판
-const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: tmplOf(D, m.tmpl)!.name.slice(0, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
+// 계획 스냅샷: 나중에 계획을 고쳐도 이 기록은 그대로. map = 시작 때 일치했을 때만, mrev = 시작한 계획 판.
+// C: 서버가 같은 규칙으로 대조(Run.tmpl == cut16(양식 이름, 60) — server/runcas.py cut16 = cutName). mcas 는 서버만 붙임(여기서 보내면 400)
+const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: cutName(tmplOf(D, m.tmpl)!.name, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
   wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev });
+// C 서버가 시작을 거절한 사유(reason_code) — 이것만 «다른 기기가 바꿈» 문구. 진행 1개·rev 409 는 기존 문구 그대로
+const C_REASON = new Set(['mission_gone', 'mission_changed', 'tmpl_changed', 'snapshot_mismatch']);
 // send: 화면의 editor.write(쓰기 한 번에 하나) — 두 번 눌러 진행 기록이 둘 생기지 않게. ask: 페이지 안 확인창(시험에서 바꿔 끼움)
 // own(E1): owner = 확인창 주인(이탈·대상 변경 때 dropAsk 로 닫힘), alive = 확인 뒤 «연 화면·고른 계획·편집기 세대가 그대로인가». 아니면 쓰기·화면 이동 0
 export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) => Promise<SaveRes | null>, own: { owner?: unknown; alive?: () => boolean; ask?: (t: string) => Promise<boolean> } = {}) {
@@ -117,12 +126,14 @@ export async function startRun(D: Docs, mid: string | null, send: (m: DocWrite) 
   if (!(await ask(`«${m.doc.name}» 수동 진행을 시작할까요?\n· ${p.line}\n· 지점 ${m.doc.wps.length}개 · 양식 «${T.name}»\n· 로봇은 자동으로 움직이지 않습니다(직접 조종)\n· 방문·미방문·판단은 운영자가 눌러 기록`))) return null;
   if (globalThis.location?.hash !== route || (own.alive && !own.alive())) { toast('확인하는 사이 화면·고른 계획이 바뀜 — 시작 안 됨'); return null; }
   // 확인 뒤 재검사 — 범위는 «이 기기가 지금까지 받은 문서 캐시 + 지금 링크 상태»뿐(서버 최신 판을 다시 읽지 않음).
-  // 서버는 Run 을 받을 때 계획 판(mrev)·양식을 대조하지 않는다 → 아직 이 기기에 안 온 다른 기기 수정은 막지 못함(시작 원자성 미보장, Run.mrev 는 «이 기기가 본 판» 기록)
+  // C 서버는 Run 을 받는 순간 같은 잠금/트랜잭션 안에서 계획 판(mrev)·스냅샷·양식 이름을 대조 → 통과만 mcas=1, 다르면 409 + reason(쓰기 0).
+  // C 직전 서버는 대조하지 않음(mcas 없이 저장 = 화면 «서버 미대조»). 자동 재시도·최신 판 자동 대체 0
   const D2 = docsNow(), x2 = docById(D2, m.id), m2 = x2 && x2.kind === 'mission' ? x2 : null, p2 = m2 ? startPolicy(m2.doc, gtHere()) : null, T2 = m2 ? tmplOf(D2, m2.doc.tmpl) : null;
   if (qc.getQueryState(['docs'])?.status === 'error') { toast('문서 다시 읽기 실패 — 최신 계획 미확인 · 시작 안 됨'); return null; }
   if (!m2 || m2.rev !== m.rev || !p2 || p2.block || p2.line !== p.line || !T2 || T2.name !== T.name) { toast('확인하는 사이 이 기기에 들어온 계획·양식 또는 지도 상태가 바뀜 — 다시 눌러 주세요'); return null; }
   const r = await send({ op: 'put', kind: 'run', id: null, doc: newRun(D2, m.id, m2.doc, p2.map, m2.rev) }); if (!r) return null;
-  toast(r.ok ? `수동 진행 시작 · 모든 기기 공유${p2.map ? '' : ' · 지도 미확인 · 기록만'}` : `시작 안 됨 · ${r.error}`); return r.ok ? r : null;
+  toast(r.ok ? `수동 진행 시작 · 모든 기기 공유${p2.map ? '' : ' · 지도 미확인 · 기록만'}` : r.reason && C_REASON.has(r.reason) ? `다른 기기가 계획/양식을 바꿈 — 시작 안 됨 · 다시 열어 확인(${r.error})` : `시작 안 됨 · ${r.error}`);
+  return r.ok ? r : null;
 }
 
 // ---- 계획 편집기 ↔ 시작 확인창 결속(E1 + dirty) ----
@@ -159,7 +170,7 @@ export async function runEdit(id: string, fn: (d: Run) => boolean | void, what: 
   if (editing) return toast('기록 중 — 잠시 뒤 다시 누르세요');
   const doc = structuredClone(d.doc); if (fn(doc) === false) return;
   editing = true; let r: SaveRes; try { r = await saveDoc({ op: 'put', id, rev: d.rev, doc }); } finally { editing = false; }
-  toast(r.ok ? `${what} · 기록됨(운영자 기록 · 모든 기기 공유)` : r.code === 409 ? '다른 기기가 먼저 고침 — 최신 값으로 다시 눌러 주세요' : `기록 안 됨 · ${r.error}`);
+  toast(r.ok ? `${what} · 기록됨(운영자 기록 · 모든 기기 공유)${r.mcasDropped ? ' · 서버 시작 대조 표시 해제(근거 필드가 바뀜)' : ''}` : r.code === 409 ? '다른 기기가 먼저 고침 — 최신 값으로 다시 눌러 주세요' : `기록 안 됨 · ${r.error}`);
 }
 // 사진 = 서버가 받은 최신 프레임을 서버가 그 순간의 GT·에피소드와 함께 저장(화면은 요청만)
 export async function shoot() {
@@ -176,7 +187,7 @@ export function runEnd(id: string, status: '완료' | '실패' | '중단') {
   if (status === '완료' && left) return toast(`대기 지점 ${left}개 — 방문 확인하거나 미방문 사유를 적은 뒤 완료`);
   const memo = status === '완료' ? null : prompt(`${status} 사유(기록에 남음)`, d.doc.memo); if (status !== '완료' && (memo == null || !memo.trim())) return;
   if (!confirm(`수동 임무를 «${status}»로 끝낼까요? (운영자 기록 · 로봇 동작과 무관)`)) return;
-  runEdit(id, (x) => { x.status = status; x.ended = isoNow(); if (memo != null) x.memo = memo.trim().slice(0, 400); }, `임무 ${status}`);
+  runEdit(id, (x) => { x.status = status; x.ended = isoNow(); if (memo != null) x.memo = cutName(memo.trim(), 400); }, `임무 ${status}`);
 }
 /** 빠른 메모 칸: 같은 낱말이 있으면 빼고 없으면 붙임(' · ' 구분, 400자) — live.js tagMemo */
-export const tagMemo = (memo: string, t: string) => { const a = memo.split(' · ').filter(Boolean); return (a.includes(t) ? a.filter((x) => x !== t) : [...a, t]).join(' · ').slice(0, 400); };
+export const tagMemo = (memo: string, t: string) => { const a = memo.split(' · ').filter(Boolean); return cutName((a.includes(t) ? a.filter((x) => x !== t) : [...a, t]).join(' · '), 400); };
