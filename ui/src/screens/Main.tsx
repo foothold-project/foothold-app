@@ -7,7 +7,7 @@ import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
 import { NOMOVE, RELURCH, TERMS, TRIAL, WHY } from '../data/facts';
 import { ask, camURL, startSimAsk, driveBlock, dropAll, linkView, press, lift, sendOp, sessTxt, showSimStop, startBlock, startDrive, startTxt, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
-import { pickWp, modDone, modTxt, shoot } from '../data/run';
+import { pickWp, modDone, modTxt, shoot, runHere } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
@@ -86,7 +86,8 @@ export default function Main() {
   const sel = useSel((x) => { const r = activeRun(D); return r ? x[r.id] : undefined; });
   const run = activeRun(D), R = run?.doc, ci = R ? pickWp(R, sel).i : -1, w = R && ci >= 0 ? R.wps[ci] : null;
   const vis = R ? R.wps.filter((x) => x.st === '방문').length : 0;
-  const dist = w && v.robot?.fresh ? Math.hypot(v.robot.x - w.x, v.robot.y - w.y) : null;
+  const here = runHere(R, L);   // 거리·지점 겹치기는 기록 출처가 지금 지도와 같을 때만(10-15 프리셋 1단계)
+  const dist = w && here.ok && v.robot?.fresh ? Math.hypot(v.robot.x - w.x, v.robot.y - w.y) : null;
   const ph = R ? R.wps.flatMap((x, i) => x.photos.map((u) => [u, i] as const)).slice(-3) : [];
   const rows: [boolean, string, string][] = w ? [[w.st !== '대기', '방문 기록 · 운영자 «방문 확인»(자동 도착 판정 미연결)', w.at ? fmtT(w.at).slice(6) : ''], ...w.mods.map((ty): [boolean, string, string] => [modDone(w, ty), modTxt(w, ty), ''])]
     : [[false, R ? '대기 지점 없음 — 아래에서 임무를 끝내세요' : '수동 진행을 시작하면 지금 지점에서 할 일이 여기에 나옵니다', '']];
@@ -126,9 +127,9 @@ export default function Main() {
       rgbExtra={<button type="button" className="lv-btn" style={{ position: 'absolute', left: 8, bottom: 8 }} title="지금 영상 프레임을 사진으로(촬영 시각·GT 위치 기록)" onClick={photo}>사진 찍기</button>}
       map={(q) => <>
         <MapCanvas name="main" small={q === 'thumb'} btns={q !== 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
-          raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on ? R.wps : null} />
+          raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on && here.ok ? R.wps : null} />
         {q !== 'thumb' && pickEl}</>} />,
-    stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist == null ? '미확인' : `${dist.toFixed(1)} m`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
+    stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist != null ? `${dist.toFixed(1)} m` : here.ok ? '미확인' : `표시 안 함(${here.why})`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
     steps: R ? R.wps.map((x, i) => ({ n: i + 1, title: x.name || `지점 ${i + 1}`, cls: x.st === '방문' ? 'done' : x.st === '미방문' ? 'hold' : i === ci ? 'now' : '',
       sub: x.st === '방문' ? `방문 ${fmtT(x.at).slice(6)} · 사진 ${x.photos.length}${x.chk ? ` · ${x.chk}` : ''}` : x.st === '미방문' ? `미방문 · ${x.why}`
         : i === ci ? `기록 차례${x.photos.length ? ` · 사진 ${x.photos.length}` : ''}${x.chk ? ` · ${x.chk}` : ''} · 직접 조종` : '대기' })) : [],

@@ -18,6 +18,7 @@ RW = {**WP, 'st': '미방문', 'at': '', 'why': '길 막힘', 'chk': '', 'photos
 RUN = {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '중단', 'started': 't', 'ended': 't', 'memo': '', 'wps': [RW]}
 TM = {'name': 't', 'desc': '', 'mods': [{'type': '사진', 'detail': '전방 1장'}]}
 MI = {'name': 'm', 'tmpl': '', 'memo': '', 'wps': [WP]}
+MS = {'src': 'gt', 'world_id': 'v5_building', 'floor_id': 'l1', 'key': '0a1b2c3d'}
 nan, inf = float('nan'), float('inf')
 
 CASES = [  # (kind, doc) — 좋은 것·나쁜 것 섞어서. 기대값은 v2_link.doc_check 가 정한다
@@ -38,6 +39,12 @@ CASES = [  # (kind, doc) — 좋은 것·나쁜 것 섞어서. 기대값은 v2_l
     ('run', RUN), ('run', {**RUN, 'wps': [{**RW, 'chk': '맞음'}]}), ('run', {**RUN, 'mode': '자동'}), ('run', {**RUN, 'status': '진행'}),
     ('run', {**RUN, 'wps': [{**RW, 'photos': ['media/photos/20261013/a.jpg'] * 11}]}), ('run', {**RUN, 'wps': [{**RW, 'st': 'x'}]}),
     ('run', {k: v for k, v in RUN.items() if k != 'memo'}), ('run', {**RUN, 'memo': 'x' * 401}),
+    # 10-15 프리셋 1단계: 선택 키 map(좌표 출처)·mrev — 없음(옛 문서)도 통과, null·모르는 src·추가 키·bool 판은 거부
+    ('mission', {**MI, 'map': MS}), ('mission', {**MI, 'map': None}), ('mission', {**MI, 'map': {**MS, 'src': 'slam'}}),
+    ('mission', {**MI, 'map': {**MS, 'x': 1}}), ('mission', {**MI, 'map': {k: v for k, v in MS.items() if k != 'key'}}),
+    ('mission', {**MI, 'map': {**MS, 'key': 'x' * 17}}), ('mission', {**MI, 'map': {**MS, 'world_id': 3}}), ('mission', {**MI, 'mrev': 1}),
+    ('run', {**RUN, 'map': MS, 'mrev': 3}), ('run', {**RUN, 'mrev': 1}), ('run', {**RUN, 'map': MS}), ('run', {**RUN, 'mrev': 0}),
+    ('run', {**RUN, 'mrev': True}), ('run', {**RUN, 'mrev': 1.0}), ('run', {**RUN, 'mrev': None}), ('run', {**RUN, 'map': []}),
 ]
 
 

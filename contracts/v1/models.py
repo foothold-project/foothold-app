@@ -407,11 +407,21 @@ class Waypoint(Body):
     mods: Annotated[list[Mod], Field(max_length=3)]
 
 
+class MapSrc(Body):
+    """좌표 출처(선택 키 map — 없음 = «지도 미확인 · 기록만», null 불가). 지점을 찍거나 가져온 때의 GT world·현재층.
+    key = 그때 좌표 지문(앱이 계산·대조 — 출처를 모르는 옛 앱이 좌표를 고치면 어긋나 미확인으로 떨어짐). SLAM 계획은 지원 미확인(src gt 만)."""
+    src: Literal['gt']
+    world_id: S(40)
+    floor_id: S(40)
+    key: S(16)
+
+
 class Mission(Body):
     name: S(60)
     tmpl: S(40)
     memo: S(400)
     wps: Annotated[list[Waypoint], Field(max_length=30)]
+    map: MapSrc = None                      # 선택(키 없음 허용·null 불가) — 옛 문서·옛 서버 호환
 
 
 class RunWaypoint(Waypoint):
@@ -433,6 +443,8 @@ class Run(Body):
     ended: S(32)
     memo: S(400)
     wps: Annotated[list[RunWaypoint], Field(max_length=30)]
+    map: MapSrc = None                      # 선택 — 시작 때 계획 출처가 지금 시뮬과 일치했을 때만(없음 = 지도 미확인 · 기록만)
+    mrev: Annotated[int, Field(ge=1)] = None   # 선택 — 시작한 계획 판
 
 
 class Note(Body):

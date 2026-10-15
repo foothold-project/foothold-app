@@ -150,6 +150,13 @@ export interface MapSaveState {
   busy: boolean;
 }
 
+export interface MapSrc {
+  src: "gt";
+  world_id: string;
+  floor_id: string;
+  key: string;
+}
+
 export interface MapStartState {
   ok: boolean;
   why: string;
@@ -179,6 +186,7 @@ export interface Mission {
   tmpl: string;
   memo: string;
   wps: Waypoint[];
+  map?: MapSrc;
 }
 
 export interface MissionEnv {
@@ -299,6 +307,8 @@ export interface Run {
   ended: string;
   memo: string;
   wps: RunWaypoint[];
+  map?: MapSrc;
+  mrev?: number;
 }
 
 export interface RunEnv {

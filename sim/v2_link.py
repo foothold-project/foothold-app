@@ -302,21 +302,26 @@ class Media:
 
 
 # ---- 공용 문서(구역·임무·임무 진행·사진 분류) — PC·휴대폰이 같은 값을 본다 ----
-# 형식: ('s', 최대 글자) · ('n',) 유한 숫자 ±10000 · ('e', 허용값) · ('l', 항목형식, 최대 개수[, 최소]) · dict = 이 키만 전부 필요
+# 형식: ('s', 최대 글자) · ('n',) 유한 숫자 ±10000 · ('i',) 1 이상 정수 · ('e', 허용값) · ('l', 항목형식, 최대 개수[, 최소]) ·
+#       dict = 이 키만(('o', 형식) 인 키는 없어도 됨 — 있으면 그 형식, null 불가) · 나머지 키는 전부 필요
 S = lambda n: ('s', n)
 N, PT = ('n',), ('l', ('n',), 2, 2)
 PHOTO = ('p', re.compile(r'media/photos/\d{8}/[\w.-]{1,80}\.jpg'))      # 서버 사진 경로만(임의 주소·javascript:·.. 불가)
 MODS = ('e', {'사진', '운영자 확인', '대기'})   # 지금 앱으로 실제 할 수 있는 모듈만(가스·AI 탐지·음성 방송은 미연결 — 저장 형식에 없음)
 WP = {'x': N, 'y': N, 'name': S(40), 'mods': ('l', MODS, 3)}
+# 좌표 출처(10-15 프리셋 1단계): 지점을 찍거나 가져온 때의 GT world·현재층 + 그때 좌표 지문(key — 앱이 계산·대조, 서버는 형식만).
+# 선택 키 — 옛 문서(없음)·옛 서버 쓰기 경로 그대로. 없음 = «지도 미확인 · 기록만». SLAM 좌표 계획은 지원 미확인이라 src 는 gt 만
+MAPSRC = ('o', {'src': ('e', {'gt'}), 'world_id': S(40), 'floor_id': S(40), 'key': S(16)})
 DOC_KINDS = {
     'zone': {'name': S(40), 'type': ('e', {'금지', '감속'}), 'pts': ('l', PT, 40, 3)},
     # 임무 양식: 지점에서 할 일(모듈). 경보 규칙은 자동 실행 미연결이라 저장하지 않는다
     'tmpl': {'name': S(60), 'desc': S(120), 'mods': ('l', {'type': MODS, 'detail': S(80)}, 6)},
     # 임무 계획: 양식(tmpl id, 비면 기본 양식) + 경유점(지점마다 할 일)
-    'mission': {'name': S(60), 'tmpl': S(40), 'memo': S(400), 'wps': ('l', WP, 30)},
+    'mission': {'name': S(60), 'tmpl': S(40), 'memo': S(400), 'wps': ('l', WP, 30), 'map': MAPSRC},
     # 수동 임무 진행: 운영자가 직접 조종·확인해 적는 결과(로봇 자동 완료 아님). 계획을 시작 때 복사해 둔다
     'run': {'mode': ('e', {'수동'}), 'mission': S(40), 'tmpl': S(60), 'name': S(60), 'status': ('e', {'진행', '완료', '실패', '중단'}), 'started': S(32), 'ended': S(32), 'memo': S(400),
-            'wps': ('l', {**WP, 'st': ('e', {'대기', '방문', '미방문'}), 'at': S(32), 'why': S(120), 'chk': ('e', {'', '확인', '보류', '제외'}), 'photos': ('l', PHOTO, 10)}, 30)},
+            'wps': ('l', {**WP, 'st': ('e', {'대기', '방문', '미방문'}), 'at': S(32), 'why': S(120), 'chk': ('e', {'', '확인', '보류', '제외'}), 'photos': ('l', PHOTO, 10)}, 30),
+            'map': MAPSRC, 'mrev': ('o', ('i',))},    # map = 시작 때 계획 출처가 지금 시뮬과 일치했을 때만 · mrev = 시작한 계획 판
     # 사진 = 운영자 등록 관찰(AI 탐지 없음): 확인·보류·제외 + 메모
     'note': {'photo': PHOTO, 'cls': ('e', {'확인', '보류', '제외'}), 'memo': S(400)},
 }
@@ -326,9 +331,11 @@ DOC_MAX, DOC_TOTAL = 12000, 2000          # 문서 하나 최대 바이트 · �
 def doc_check(spec, v, path='doc'):
     """형식이 맞으면 None, 아니면 이유. bool 은 숫자로 받지 않는다"""
     if isinstance(spec, dict):
-        if not isinstance(v, dict) or set(v) != set(spec):
-            return f'{path}: 키가 {sorted(spec)} 이어야 함'
-        for k, s in spec.items():
+        opt = {k for k, s in spec.items() if isinstance(s, tuple) and s[0] == 'o'}
+        if not isinstance(v, dict) or not set(spec) - opt <= set(v) <= set(spec):
+            return f'{path}: 키가 {sorted(set(spec) - opt)}' + (f' (+ 선택 {sorted(opt)})' if opt else '') + ' 이어야 함'
+        for k in v:
+            s = spec[k][1] if k in opt else spec[k]
             e = doc_check(s, v[k], f'{path}.{k}')
             if e:
                 return e
@@ -338,6 +345,8 @@ def doc_check(spec, v, path='doc'):
         return None if isinstance(v, str) and len(v) <= spec[1] else f'{path}: 글 {spec[1]}자 이하'
     if t == 'n':
         return None if type(v) in (int, float) and math.isfinite(v) and abs(v) <= 1e4 else f'{path}: 유한 숫자(±10000)'
+    if t == 'i':
+        return None if type(v) is int and v >= 1 else f'{path}: 1 이상 정수'
     if t == 'e':
         return None if isinstance(v, str) and v in spec[1] else f'{path}: {sorted(spec[1])} 중 하나'
     if t == 'p':
