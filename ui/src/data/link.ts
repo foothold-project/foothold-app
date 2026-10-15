@@ -67,27 +67,34 @@ function tick20() {
 /** STOP: 누름 폐기·발행 멈춤을 먼저, 그다음 송신 */
 export const sendStop = () => { dropAll(); cancelStart(); if (useLink.getState().provider !== 'simulation_gate') return false; stopHeld = true; return send({ op: 'stop' }); };   // 실기 모드: 시뮬로 보내지 않음(화면이 이유 안내)
 /** 조종권·재개·리셋·놓기 — 전부 누름 폐기 뒤 송신. take 만 보기 전용을 푼다 */
-export const sendOp = (op: 'take' | 'release' | 'resume' | 'reset') => { dropAll(); if (useLink.getState().provider !== 'simulation_gate') return false; if (op === 'take') { hidSent = false; useLink.setState({ viewOnly: false }); } else if (op === 'release') { cancelStart(); useLink.setState({ viewOnly: true }); } return send({ op }); };
+export const sendOp = (op: 'take' | 'release' | 'resume' | 'reset') => { dropAll(); if (useLink.getState().provider !== 'simulation_gate') return false; if (op === 'take') { hidSent = false; useLink.setState({ viewOnly: false }); } else if (op === 'release') { cancelStart(); useLink.setState({ viewOnly: true }); } else if (op === 'reset') cancelStart(); return send({ op }); };
 /** 숨김·떠남·앱 pause: 누름 폐기 + 서버에 hidden(조종권 해제) + 보기 전용 */
 // 배경 한 번에 pause·appStateChange·visibility·blur 로 3~4번 불림 → hidden 은 조종 중(take 뒤 또는 서버 role=control)일 때만 보냄(서버 drop 은 반복 무해)
 let hidSent = false;   // 이 연결에서 마지막 take 뒤 hidden 을 이미 보냄
 export function hide() { const s = useLink.getState(); dropAll(); cancelStart(); if (s.provider === 'simulation_gate' && !hidSent && (!s.viewOnly || s.st?.role === 'control')) hidSent = send({ op: 'hidden' }); useLink.setState({ viewOnly: true }); }
 
-// ---- N1 «조종 시작»(10-15 현민님 결정): 확인 1회 → take → (서버가 이 기기 조종권 확인) → resume 1회 → (서버가 잠금 해제 확인) ----
-// 서버 op·계약·Core 무변경 — 같은 take/resume 을 UI 가 순서대로 보낼 뿐, 서버 거부 조건(다른 기기 점유·잠금·리셋·시뮬 이상·재개 확인)은 그대로 마지막 관문.
-// 중단: STOP·숨김/이탈·반납·연결 세대 변화(끊김·재연결·대상 전환)·새 시작 → startTok 이 바뀌어 진행 중 시퀀스는 다음 op 를 보내지 않는다(늦게 온 status 로 resume 0).
-// resume 은 한 번만 보낸다(재시도 0): 다른 기기 STOP 이 끼어든 뒤 재전송해 그 STOP 을 푸는 경합을 만들지 않기 위해. 실패하면 STOP 잠금 유지 + 이유 글.
-// 성공해도 누름 폐기 — 확인 뒤 손 떼고 새로 눌러야 움직임(서버 need_neutral 도 그대로).
+// ---- N1 «조종 시작»(10-15 현민님 결정): 확인 1회 → take → (서버가 이 기기 조종권 확인) → resume(stop_gen) 1회 → (서버가 잠금 해제 확인) ----
+// 서버 Core 가 마지막 관문: resume 은 확인창을 연 순간의 status.stop_gen(잠금 세대)을 싣고, 서버 세대가 다르면 거부(CAS) — 확인 뒤 끼어든 STOP·잠금을 풀지 않는다.
+// 결속(확인창~성공): 연결 세대·대상·판·episode·리셋·잠금 세대·형식·신선도(1 s)·시뮬 막힘·다른 기기 점유·(take 뒤) 조종권 — 하나라도 바뀌면 그 순간 취소(sticky, 되돌아와도 취소).
+// 중단: STOP·숨김/이탈·반납·리셋 요청·새 시작 → startTok 이 바뀌어 다음 op 0. resume 은 한 번만(재시도 0). 성공해도 누름 폐기(서버 need_neutral 그대로).
+// 확인창은 페이지 안(비차단): 확인 중에도 status 를 계속 받고 STOP(버튼·Space)은 그대로 눌리며, 누르면 확인창이 바로 닫힌다. Escape·취소·이탈 = 취소.
 let startTok = 0;
-export function cancelStart() { startTok++; if (useLink.getState().starting !== null) useLink.setState({ starting: null }); }
-export const START_ASK = '조종을 시작할까요?\n· 로봇(시뮬) 주변과 시뮬 상태를 확인하세요\n· 확인하면 조종권을 받고 STOP 잠금을 풉니다\n· 그 뒤 손을 떼고 새로 눌러야 움직입니다 · STOP 은 언제든 즉시';
-export const START_CANCEL = '조종 시작 중단 — STOP·숨김·반납·연결 변화(보낸 다음 단계 0)';
+export const useAsk = create<{ text: string | null }>(() => ({ text: null }));
+let askDone: ((v: boolean) => void) | null = null;
+/** 페이지 안 확인창 답(취소·중단은 false). 열린 창이 없으면 아무것도 안 함 */
+export function answerAsk(v: boolean) { const f = askDone; askDone = null; if (useAsk.getState().text !== null) useAsk.setState({ text: null }); f?.(v); }
+const askInPage = (t: string) => new Promise<boolean>((res) => { answerAsk(false); askDone = res; useAsk.setState({ text: t }); });
+export function cancelStart() { startTok++; answerAsk(false); if (useLink.getState().starting !== null) useLink.setState({ starting: null }); }
+export const START_ASK = '조종을 시작할까요?\n· 로봇(시뮬) 주변과 시뮬 상태를 확인하세요\n· 확인하면 조종권을 받고 STOP 잠금을 풉니다\n· 그 뒤 손을 떼고 새로 눌러야 움직입니다 · STOP 은 언제든 즉시\n· 이 창이 열린 동안 STOP·리셋·연결 변화·다른 기기 점유가 생기면 취소됩니다';
+export const START_CANCEL = '조종 시작 중단 — STOP·숨김·반납·리셋 요청(보낸 다음 단계 0)';
+const halted = (w: string) => `조종 시작 중단 · ${w} — 보낸 다음 단계 0 · 다시 «조종 시작»`;
 /** «조종 시작»을 지금 할 수 없는 이유(없으면 null) — 표시·버튼 비활성용. 서버 거부는 그대로 별도 */
 export function startBlock(s = useLink.getState()): string | null {
   const st = s.st;
   if (s.provider !== 'simulation_gate') return '실기 모드 — 시뮬 조종 시작 안 함(Go2 명령 미지원)';
   if (!s.open || !s.lastMsg || performance.now() - s.lastMsg > 1000) return '링크 끊김';
   if (s.bad || !st || s.stGen !== s.gen) return '상태 미확인';
+  if (typeof st.stop_gen !== 'number') return '서버가 잠금 세대(stop_gen)를 안 줌 — 옛 서버라 «조종 시작» 불가(서버 갱신 필요)';
   if (s.firstVer && st.ver !== s.firstVer) return '새 판 — 새로고침';
   if (s.starting !== null) return s.starting;
   if (st.role === 'view_other') return `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}`;
@@ -108,37 +115,67 @@ function until(pred: (s: LinkState) => boolean, live: () => boolean, ms: number)
 }
 const TAKE_MS = 3000, RESUME_ACK_MS = 1500, RESUME_DONE_MS = 4500;   // 서버 RESUME_TIMEOUT 3 s + 여유
 /** «조종 시작» 전체. 반환 = 사람에게 보여 줄 결과 글(null = 확인창 취소, 보낸 것 0). ask 는 시험에서 바꿔 끼움 */
-export async function startDrive(ask: (t: string) => boolean = (t) => confirm(t)): Promise<string | null> {
+export async function startDrive(ask: (t: string) => boolean | Promise<boolean> = askInPage): Promise<string | null> {
   dropAll();
   const b0 = startBlock(); if (b0) return `조종 시작 안 됨 · ${b0}`;   // 진행 중 시작이 있으면 그것도 이유(겹쳐 시작 0)
-  const tok = ++startTok;
-  if (!ask(START_ASK)) { dropAll(); return null; }   // 확인창 동안 누른 입력도 폐기
-  dropAll();
-  if (tok !== startTok) return START_CANCEL;          // 확인창 동안 STOP·숨김·반납
-  const b1 = startBlock(); if (b1) return `조종 시작 안 됨 · ${b1}`;   // 확인창 동안 바뀐 상태(다른 기기 점유·리셋·끊김…)
-  const g = useLink.getState().gen, live = () => tok === startTok && useLink.getState().gen === g;
-  const fin = (t: string) => { if (tok === startTok) useLink.setState({ starting: null }); return t; };
-  let s = useLink.getState();
-  if (!(s.st?.role === 'control' && !s.viewOnly)) {
-    useLink.setState({ starting: '조종권 확인 중' });
-    const t0 = performance.now(); sendOp('take');
-    const r = await until((x) => x.lastMsg > t0 && (x.st?.role === 'control' || x.st?.role === 'view_other'), live, TAKE_MS);
-    if (!live()) return START_CANCEL;
-    if (!r || r.st?.role !== 'control') { useLink.setState({ viewOnly: true }); return fin(r ? '다른 기기가 조종 중 — 보기 전용(보낸 것: 조종권 요청뿐)' : '조종권 확인 못 함 — 보기 전용 · STOP 잠금 그대로'); }
-    s = r;
+  const s0 = useLink.getState(), k = { gen: s0.gen, prov: s0.provider, ver: s0.st!.ver, ep: s0.st!.episode, sg: s0.st!.stop_gen as number };
+  const tok = ++startTok; let dead = '', took = false;
+  const why = (s: LinkState): string => {   // 확인창을 연 순간과 달라진 것(없으면 '')
+    const st = s.st;
+    if (s.gen !== k.gen || s.provider !== k.prov) return '연결·대상 바뀜';
+    if (s.bad || !st || s.stGen !== s.gen) return '상태 형식 오류·미확인';
+    if (st.ver !== k.ver) return '새 판';
+    if (st.episode !== k.ep) return '시뮬 리셋(episode 바뀜)';
+    if (st.reset_pending) return '시뮬 리셋 처리 중';
+    if (st.stop_gen !== k.sg) return '새 STOP·잠금(잠금 세대 바뀜)';
+    if (st.sim_block) return st.sim_block;
+    if (st.role === 'view_other') return `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}`;
+    if (took && st.role !== 'control') return '조종권 잃음';
+    return '';
+  };
+  let prev = s0.lastMsg;   // 신선도: 받은 status 사이 간격이 1 s 를 넘은 적이 있으면(끊겼다 회복) 취소 — 회복 뒤 ACK 로 속행 0
+  const un = useLink.subscribe((s) => {   // 모든 상태 변화마다 — 중간 변화도 놓치지 않음(sticky)
+    if (dead || tok !== startTok) return;
+    if (s.lastMsg !== prev) { if (s.lastMsg - prev > 1000) dead = '링크 끊김(1 s 넘게 상태 없음)'; prev = s.lastMsg; }
+    dead ||= why(s); if (dead) answerAsk(false);
+  });
+  const live = () => tok === startTok && !dead && performance.now() - useLink.getState().lastMsg <= 1000;
+  const gone = () => {   // 중단: 조종권이 확인 안 됐으면 보기 전용으로
+    if (useLink.getState().st?.role !== 'control') useLink.setState({ viewOnly: true });
+    return tok !== startTok ? START_CANCEL : halted(dead || '링크 끊김(1 s 넘게 상태 없음)');
+  };
+  try {
+    useLink.setState({ starting: '확인 대기' });
+    const yes = await ask(START_ASK);
+    dropAll();   // 확인창 동안 누른 입력도 폐기
+    if (tok !== startTok || dead) return gone();
+    if (!yes) return null;
+    const b1 = startBlock({ ...useLink.getState(), starting: null }); if (b1) return `조종 시작 안 됨 · ${b1}`;   // 끊김(신선도) 등
+    let s = useLink.getState();
+    if (!(s.st?.role === 'control' && !s.viewOnly)) {
+      useLink.setState({ starting: '조종권 확인 중' });
+      const t0 = performance.now(); sendOp('take');
+      const r = await until((x) => x.lastMsg > t0 && (x.st?.role === 'control' || x.st?.role === 'view_other'), live, TAKE_MS);
+      if (!live()) return gone();
+      if (!r || r.st?.role !== 'control') { useLink.setState({ viewOnly: true }); return r ? '다른 기기가 조종 중 — 보기 전용(보낸 것: 조종권 요청뿐)' : '조종권 확인 못 함 — 보기 전용 · STOP 잠금 그대로'; }
+      s = r;
+    }
+    took = true;
+    if (s.st!.latch || stopHeld) {
+      useLink.setState({ starting: 'STOP 해제 확인 중' });
+      const t1 = performance.now(); dropAll(); send({ op: 'resume', stop_gen: k.sg });   // 서버가 세대 대조(CAS)
+      const a = await until((x) => x.lastMsg > t1 && !!x.st && (x.st.resume_pending || !x.st.latch || x.st.role !== 'control'), live, RESUME_ACK_MS);
+      if (!live()) return gone();
+      if (!a) return 'STOP 해제 거부·응답 없음 — 조종권은 이 기기 · STOP 잠금 유지(사유는 이벤트)';
+      const d = a.st!.resume_pending ? await until((x) => !!x.st && (!x.st.resume_pending || x.st.role !== 'control'), live, RESUME_DONE_MS) : a;
+      if (!live()) return gone();
+      if (!d || d.st!.role !== 'control' || d.st!.latch || d.st!.resume_pending) return 'STOP 해제 확인 안 됨(취소·시간 초과·다른 STOP) — STOP 잠금 유지';
+    }
+    dropAll();
+    return '조종 가능 — 손 떼고 새로 누르면 움직임';
+  } finally {
+    un(); if (tok === startTok) { answerAsk(false); useLink.setState({ starting: null }); }
   }
-  if (s.st!.latch || stopHeld) {
-    useLink.setState({ starting: 'STOP 해제 확인 중' });
-    const t1 = performance.now(); sendOp('resume');
-    const a = await until((x) => x.lastMsg > t1 && !!x.st && (x.st.resume_pending || !x.st.latch || x.st.role !== 'control'), live, RESUME_ACK_MS);
-    if (!live()) return START_CANCEL;
-    if (!a) return fin('STOP 해제 거부·응답 없음 — 조종권은 이 기기 · STOP 잠금 유지(사유는 이벤트)');
-    const d = a.st!.resume_pending ? await until((x) => !!x.st && (!x.st.resume_pending || x.st.role !== 'control'), live, RESUME_DONE_MS) : a;
-    if (!live()) return START_CANCEL;
-    if (!d || d.st!.role !== 'control' || d.st!.latch || d.st!.resume_pending) return fin('STOP 해제 확인 안 됨(취소·시간 초과·다른 STOP) — STOP 잠금 유지');
-  }
-  dropAll();
-  return fin('조종 가능 — 손 떼고 새로 누르면 움직임');
 }
 
 /** 실행 대상 전환(화면 선택). 순서: 누름 폐기 → (시뮬 떠날 때) hidden = 조종권 해제 → 보기 전용 → 세대 +1(세대가 다른 늦은 응답·카메라·지도·점군 버림).
@@ -165,6 +202,7 @@ export function checkStatus(m: any): string | null {
   if (typeof m.ver !== 'string' || !m.ver) return 'ver';
   if (!ROLES.has(m.role)) return 'role';
   for (const k of ['latch', 'resume_pending', 'reset_pending']) if (typeof m[k] !== 'boolean') return k;
+  if (m.stop_gen !== undefined && !(int(m.stop_gen) && m.stop_gen >= 0)) return 'stop_gen';   // 칸 없음 = 옛 서버(«조종 시작»만 막힘), 있으면 0 이상 정수
   if (typeof m.sim_block !== 'string') return 'sim_block';
   if (!(m.episode === null || int(m.episode)) || !age(m.state_age) || !age(m.cam_age) || !int(m.docs_rev)) return 'episode/age/docs_rev';
   if (typeof m.reason !== 'string' || typeof m.me !== 'string' || !(m.holder === null || typeof m.holder === 'string')) return 'reason/me/holder';
@@ -278,7 +316,7 @@ export function startLink() {
       if (bad) { dropAll(); if (simOn()) useLink.setState({ st: null, bad, lastMsg: performance.now() }); return; }   // 미확인: 이전 st 로 조종 계속하지 않음
       const st = m as Status;
       if (st.latch) stopHeld = false;   // 서버가 STOP 잠금을 확인 — 이후는 latch 규칙이 막음
-      const s2 = [st.role, st.latch, st.reset_pending, st.resume_pending, st.episode, st.sim_block, st.sim_stop?.busy, st.ver, st.state_age != null && st.state_age <= 1].join('|');
+      const s2 = [st.role, st.latch, st.stop_gen, st.reset_pending, st.resume_pending, st.episode, st.sim_block, st.sim_stop?.busy, st.ver, st.state_age != null && st.state_age <= 1].join('|');
       if (s2 !== sig) { dropAll(); sig = s2; }   // 조종권·STOP·리셋·에피소드·시뮬·판·상태 신선도 변화 → 낡은 누름 폐기
       refreshShared(st.docs_rev, (st.events || [])[0]);   // 공유 기록(임무·사진 목록) 갱신 신호 — 대상과 무관
       if (!simOn()) return;   // 실기 대상: 시뮬 status 는 화면 상태(st·지나온 길·신선도)로 내보내지 않음

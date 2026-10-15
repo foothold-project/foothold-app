@@ -75,7 +75,7 @@ def test_cmd_matches_valid_axes(m):
 def test_client_ops_match_gate():
     import v2_gate as G
     ops = set()
-    for M in (C.OpSimple, C.OpCmd, C.OpRid, C.OpMapGet, C.OpMapStart, C.OpViewGet, C.OpGeomGet):
+    for M in (C.OpSimple, C.OpResume, C.OpCmd, C.OpRid, C.OpMapGet, C.OpMapStart, C.OpViewGet, C.OpGeomGet):
         ops |= set(M.model_fields['op'].annotation.__args__)
     assert ops == G.OPS
     for op in G.OPS:                                   # 미래 필드가 있어도 기존 op 를 거부하지 않는다
@@ -119,7 +119,7 @@ def test_sim_state_is_clean_state_output():
 
 
 def _status(**kw):
-    return {'op': 'status', 'role': 'view', 'latch': True, 'applied': [0.0, 0.0, 0.0], 'reason': '', 'sim_block': '시뮬 상태 미수신',
+    return {'op': 'status', 'role': 'view', 'latch': True, 'stop_gen': 0, 'applied': [0.0, 0.0, 0.0], 'reason': '', 'sim_block': '시뮬 상태 미수신',
             'resume_pending': False, 'reset_pending': False, 'episode': None, 'ros_domain': '61', 'state_age': None, 'cam_age': None,
             'sim': None, 'events': [{'t': '01:02:03', 'st': 'warn', 'text': 'x'}], 'note': L.PRESETS_NOTE, 'me': '이 PC(127.0.0.1)',
             'holder': None, 'ver': 'abc', 'sim_start': {'ok': False, 'why': 'RL 래퍼 미설정', 'busy': False, 'session': None}, 'docs_rev': 0, **kw}
@@ -187,3 +187,16 @@ def test_geom_limits_match_ui():
     lim = json.loads(re.sub(r'(\w+):', r'"\1":', re.search(r'GEOM_LIM = (\{[^}]*\})', ts).group(1)))
     kinds = tuple(json.loads(re.search(r'const KINDS = (\[[^\]]*\])', ts).group(1).replace("'", '"')))
     assert lim == L.GEOM_LIM and kinds == L.GEOM_KINDS
+
+
+@pytest.mark.parametrize('g,ok', [(None, False), (True, False), (-1, False), (1.5, False), ('3', False), (0, True), (7, True), ('absent', True)])
+def test_resume_stop_gen(g, ok):
+    """N1(10-15): resume.stop_gen — 칸 없음(옛 클라이언트)·0 이상 정수만. v2_link on_message 의 형식 검사와 같은 규칙"""
+    m = {'op': 'resume'} if g == 'absent' else {'op': 'resume', 'stop_gen': g}
+    try:
+        TypeAdapter(C.ClientOp).validate_python(m); got = True
+    except ValidationError:
+        got = False
+    assert got == ok
+    srv = 'stop_gen' not in m or (type(m['stop_gen']) is int and m['stop_gen'] >= 0)   # sim/v2_link.py on_message 'resume' 분기
+    assert srv == ok

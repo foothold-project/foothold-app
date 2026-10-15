@@ -86,6 +86,8 @@ class Core:
         self.now = now
         self.controller = None      # 조종권을 가진 연결 id
         self.latch = False          # 앱 STOP 래치
+        self.stop_gen = 0           # 잠금 세대(N1 10-15): 잠그는 모든 일(STOP — 이미 잠겼어도·조종권 해제·리셋·episode 변경·시뮬 STOP·시뮬 바쁨)마다 +1.
+                                    # «조종 시작» 확인 때 본 값과 resume 의 stop_gen 이 다르면 거부 — 확인 뒤 끼어든 STOP 을 풀지 않는다(CAS)
         self.need_neutral = True    # 손 뗌(0) 한 번을 받아야 움직임
         self.intent = Z; self.intent_t = -1e9
         self.reason = ''; self.out = Z   # out = 마지막으로 발행한 명령
@@ -107,6 +109,10 @@ class Core:
                 self.sink(e)
             except Exception:
                 pass
+
+    def _lock(self):
+        """잠금 + 재개 취소 + 입력 폐기 + 잠금 세대 +1(이미 잠겼어도)"""
+        self.latch = True; self.resume_pending = None; self._void(); self.stop_gen += 1
 
     def _void(self):
         """지금까지의 입력을 버린다. 다음 비영은 이 뒤에 새로 받은 손 뗌(0) 다음에만."""
@@ -137,14 +143,14 @@ class Core:
             self.ev('bad', '넘어짐 (시뮬 판정)')
         if self.episode is not None and d['episode'] != self.episode:
             self.ep_change_t = self.now()               # 사진: 바뀐 직후 도착한 프레임은 옛 episode 렌더일 수 있음
-            self.latch = True; self.resume_pending = None; self._void()
+            self._lock()
             self.ev('warn', f'새 에피소드 {d["episode"]} · STOP 유지')
         self.episode = d['episode']
         if self.resume_pending and self.state_seq > self.resume_pending[1] and not d['stop_requested']:
             self.resume_pending = None; self.latch = False; self._void()
             self.ev('ok', 'STOP 해제 확인(시뮬) · 새 입력 전까지 0')
         elif d['stop_requested'] and not self.latch:      # 시뮬이 STOP 상태(리셋 뒤 등)면 앱도 잠근다
-            self.latch = True; self._void(); self.ev('warn', '시뮬이 STOP 상태 · «STOP 해제» 필요')
+            self._lock(); self.ev('warn', '시뮬이 STOP 상태 · «STOP 해제» 필요')
         return True
 
     def take(self, cid, who='이 기기'):
@@ -159,7 +165,7 @@ class Core:
     def drop(self, cid, why):
         """조종권을 잃으면(반납·끊김·숨김·로그아웃) 0 + STOP 잠금 — 다음 조종자는 «STOP 해제»부터(정지 뒤 재움직임 원인 미확인이라 보수적으로)"""
         if self.controller == cid:
-            self.controller = None; self.latch = True; self.resume_pending = None; self._void()
+            self.controller = None; self._lock()
             self.ev('warn', f'조종권 해제 · {why} → 명령 0 · STOP 잠금')
 
     def cmd(self, cid, axes):
@@ -182,11 +188,13 @@ class Core:
             self.ev('bad', f'STOP 요청 · 명령 0 잠금 ({who})')
         elif self.resume_pending:
             self.ev('bad', f'STOP ({who}) · 재개 요청 취소')
-        self.latch = True; self.resume_pending = None; self._void()
+        self._lock()   # 이미 잠겼어도 세대 +1 — 확인창 동안 누른 남의 STOP 을 resume 이 풀지 못하게
 
-    def resume(self, cid):
-        """조종권 · 앱 래치 · 시뮬이 STOP 을 확인한 상태에서만. 성공해도 시뮬 해제 확인 전까지 0."""
+    def resume(self, cid, gen=None):
+        """조종권 · 앱 래치 · 시뮬이 STOP 을 확인한 상태에서만. 성공해도 시뮬 해제 확인 전까지 0.
+        gen(«조종 시작» 확인 때 본 stop_gen)이 오면 지금 세대와 같을 때만 — 다르면 거부(재시도 0, 사람 재확인). None = 옛 클라이언트(따로 누르는 «STOP 해제», 그 순간의 사람 행동)"""
         why = ('조종권 없음' if cid != self.controller else '잠금 아님' if not self.latch
+               else '잠금 세대 다름 — 확인 뒤 새 STOP·잠금(다시 «조종 시작»)' if gen is not None and gen != self.stop_gen
                else '리셋 처리 중' if self.reset_pending else '재개 확인 대기 중' if self.resume_pending
                else self.sim_block() or ('' if self.st['stop_requested'] else '시뮬 STOP 확인 전 — 잠시 뒤'))
         if why:
@@ -199,21 +207,21 @@ class Core:
         why = self.sim_busy or ('조종권 없음' if cid != self.controller else '리셋 처리 중' if self.reset_pending else '' if ready else '리셋 서비스 미연결')
         if why:
             self.ev('warn', f'시뮬 리셋 거부 · {why}'); return False
-        self.reset_pending = self.now(); self.latch = True; self.resume_pending = None; self._void()
+        self.reset_pending = self.now(); self._lock()
         self.ev('warn', '시뮬 리셋 요청 · STOP 잠금')
         return True
 
     def reset_done(self, ok, msg):
         if self.reset_pending is None:
             return                                   # 시간 초과로 이미 닫힘
-        self.reset_pending = None; self.latch = True; self._void()
+        self.reset_pending = None; self._lock()
         self.ev('ok' if ok else 'bad', f'리셋 {"응답" if ok else "실패"}: {msg} · STOP 유지')
 
     def busy_sim(self, why):
         """지도 체험 시작 접수: 조종권 해제(누구든) · 0 · STOP 잠금 · 입력 폐기, 끝날 때까지 take·resume·reset·비영 거부(sim_busy). 끝나도 잠금 유지"""
         if self.controller:
             self.drop(self.controller, why)
-        self.latch = True; self.resume_pending = None; self._void(); self.sim_busy = why
+        self._lock(); self.sim_busy = why
 
     def want_stop_pub(self):
         """앱이 잠겼는데 시뮬이 아직 STOP 이 아니면 STOP 을 다시 보낸다(재개 대기 중은 제외)."""
@@ -744,7 +752,7 @@ def selftest_stop():
     t[0] = 0.0; c = Core(now=lambda: t[0])
     S = lambda stop: c.on_state({'schema': SCHEMA, 'episode': 0, 'stop_requested': stop, 'reset_in_progress': False, 'policy_running': True})
     S(False); assert c.take('a'); c.cmd('a', Z); c.cmd('a', (1.0, 0.0, 0.0)); assert c.applied() == (0.6, 0, 0)
-    c.drop('a', 'Gazebo 종료'); c.latch = True; c.resume_pending = None; c._void(); c.sim_busy = 'Gazebo 종료 중'   # stop_sim 과 같은 순서
+    c.drop('a', 'Gazebo 종료'); c._lock(); c.sim_busy = 'Gazebo 종료 중'   # stop_sim 과 같은 순서
     S(True); assert c.sim_block() == 'Gazebo 종료 중'
     for cid in ('a', 'b'):
         assert not c.take(cid) and c.controller is None
@@ -764,6 +772,30 @@ def selftest_stop():
                            ("echo '{\"schema\":\"other\",\"active_state\":\"inactive\"}'", None), ('sleep 3', None)]:
             f = Path(td) / 'ss.sh'; f.write_text(body + '\n')
             assert unit_state(read_session(str(f), timeout=1.0)) == want, body
+
+
+def selftest_stopgen():
+    """N1 잠금 세대(CAS): 잠그는 모든 일마다 +1(이미 잠겼어도), gen 다른 resume 거부·재시도 없음, gen 없는 옛 클라이언트 resume 은 그대로"""
+    t = [0.0]; c = Core(now=lambda: t[0])
+    S = lambda stop, ep=0, rip=False: c.on_state({'schema': SCHEMA, 'episode': ep, 'stop_requested': stop, 'reset_in_progress': rip, 'policy_running': True})
+    S(True); g0 = c.stop_gen
+    c.stop('b'); assert c.latch and c.stop_gen == g0 + 1                         # 이미 잠김 + 남의 STOP → 세대 +1(옛 latch boolean 은 흔적 0)
+    assert c.take('a'); assert c.stop_gen == g0 + 1                              # take 는 세대 무관
+    assert not c.resume('a', g0) and c.resume_pending is None and c.latch        # 확인 때 본 g0 → 거부
+    assert c.resume('a', c.stop_gen) and c.resume_pending                        # 지금 세대 → 접수
+    g = c.stop_gen; c.stop('b'); assert c.stop_gen == g + 1 and c.resume_pending is None and c.latch   # 접수 뒤 STOP → 재개 취소 + 세대 +1
+    assert not c.resume('a', g)                                                  # 같은 옛 세대 재전송도 거부
+    g = c.stop_gen; c.drop('a', 'x'); assert c.stop_gen == g + 1 and c.controller is None   # 조종권 해제 = 잠금
+    g = c.stop_gen; c.drop('zz', 'x'); assert c.stop_gen == g                    # 남의 해제(조종권 없음)는 무관
+    assert c.take('a'); g = c.stop_gen; assert c.reset_begin('a', True) and c.stop_gen == g + 1
+    g = c.stop_gen; c.reset_done(True, 'ok'); assert c.stop_gen == g + 1          # 리셋 완료도 세대 +1 → 리셋 전 확인으로 재개 0
+    g = c.stop_gen; t[0] += 0.1; S(True, ep=1); assert c.stop_gen == g + 1        # episode 변경
+    g = c.stop_gen; assert c.resume('a', g); t[0] += 0.1; S(False, ep=1); assert not c.latch and c.stop_gen == g   # 정상 해제 = 세대 그대로
+    g = c.stop_gen; t[0] += 0.1; S(True, ep=1); assert c.latch and c.stop_gen == g + 1   # 시뮬이 스스로 STOP
+    g = c.stop_gen; c.busy_sim('지도 체험 시작'); assert c.stop_gen > g; c.sim_busy = ''
+    assert c.take('a'); c.stop('a'); t[0] += 0.1; S(True, ep=1)
+    assert c.resume('a') and c.resume_pending                                    # gen 없음 = 옛 클라이언트(따로 누르는 «STOP 해제») 그대로
+    c.stop('a'); assert not c.resume('a', -1)
 
 
 def selftest_extra():
@@ -2397,7 +2429,7 @@ def selftest():
     c.drop('a', '연결 끊김'); assert c.controller is None and c.applied() == Z and c.latch
     st(stop=True, ep=3); assert c.take('a') and c.resume('a'); c.drop('a', '로그아웃'); assert c.latch and not c.resume_pending   # 재개 대기 중 끊김도 잠금
     assert c.take('b'); c.cmd('b', F); assert c.applied() == Z         # 새 조종권도 손 뗌 먼저(+래치)
-    selftest_extra(); selftest_stop(); selftest_maps(); selftest_live(); selftest_ux(); selftest_views(); selftest_geom()
+    selftest_extra(); selftest_stop(); selftest_stopgen(); selftest_maps(); selftest_live(); selftest_ux(); selftest_views(); selftest_geom()
     print('selftest OK')
 
 
@@ -2588,7 +2620,7 @@ def main():
             cam_age = None if sim['jpeg_t'] is None else round(now - sim['jpeg_t'], 2)
             role = 'control' if core.controller == cid else ('view_other' if core.controller else 'view')
             # 서버 출력(applied)·이유는 누구나 같은 값을 읽는다. role 은 송신 허용에만 쓴다
-            return {'op': 'status', 'role': role, 'latch': core.latch, 'applied': list(core.out), 'reason': core.reason,
+            return {'op': 'status', 'role': role, 'latch': core.latch, 'stop_gen': core.stop_gen, 'applied': list(core.out), 'reason': core.reason,
                     'sim_block': core.sim_block(), 'resume_pending': bool(core.resume_pending), 'reset_pending': core.reset_pending is not None,
                     'episode': core.episode, 'ros_domain': os.environ.get('ROS_DOMAIN_ID'), 'state_age': age, 'cam_age': cam_age, 'sim': core.st, 'events': list(core.events)[:6], 'note': PRESETS_NOTE,
                     'me': c.actor, 'holder': holder, 'ver': v, 'sim_start': starter.state(sim_live()), 'docs_rev': docs.rev,
@@ -2740,7 +2772,7 @@ def main():
                 core.ev('warn', f'Gazebo 종료 거부 · {why}'); return reply(c, rid, False, why)
             stopper.busy = True; stopper.last_t = time.monotonic(); core.sim_busy = 'Gazebo 종료 중'
             core.drop(c.cid, 'Gazebo 종료')           # 본인 조종 중이면 입력 폐기·0·STOP 잠금·반납(다시 조종하려면 새 take)
-            core.latch = True; core.resume_pending = None; core._void()
+            core._lock()
             core.ev('warn', f'Gazebo 종료 요청 · {c.actor} · 명령 0 잠금')
         live.hold()                 # 지도·마커도 바로 버림(세션이 바뀔 때까지)
         reply(c, rid, True, 'Gazebo 종료 요청함 — ROS 세션 종료가 확인되면 표시합니다')
@@ -2837,7 +2869,10 @@ def main():
                 elif op == 'stop':
                     core.stop('이 기기' if core.controller == self.cid else '보기 전용 기기')
                 elif op == 'resume':
-                    if core.resume(self.cid):
+                    g = m.get('stop_gen')   # 없음 = 옛 클라이언트. 있으면 0 이상 정수만(bool·실수·문자 = 형식 오류 → 거부)
+                    if 'stop_gen' in m and not (type(g) is int and g >= 0):
+                        core.ev('warn', 'STOP 해제 거부 · stop_gen 형식 오류')
+                    elif core.resume(self.cid, g):
                         pub_resume.publish(Empty())
                 elif op == 'reset':
                     if core.reset_begin(self.cid, cli_reset.service_is_ready()):   # 잠금·입력 폐기를 요청 전에 확정

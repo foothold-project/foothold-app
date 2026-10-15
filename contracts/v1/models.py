@@ -58,7 +58,14 @@ DocId = Annotated[str, Field(pattern=r'^[a-z][A-Za-z0-9_]{1,40}$')]
 
 
 class OpSimple(In):
-    op: Literal['take', 'release', 'stop', 'resume', 'reset', 'hidden']
+    op: Literal['take', 'release', 'stop', 'reset', 'hidden']
+
+
+class OpResume(In):
+    """STOP 해제. stop_gen(10-15 N1) = «조종 시작» 확인 때 본 status.stop_gen — 서버의 지금 값과 다르면 거부(CAS, 재시도 없음).
+    없으면 옛 클라이언트(따로 누르는 «STOP 해제»)로 그대로 처리. 있는데 0 이상 정수가 아니면(null·bool·실수·문자) 거부."""
+    op: Literal['resume']
+    stop_gen: Annotated[int, Field(ge=0)] = None   # type: ignore[assignment]  # 기본 None = 칸 없음(옛 클라이언트), 명시 null 은 형식 오류
 
 
 class OpCmd(In):
@@ -109,7 +116,7 @@ class OpViewGet(In):
     what: Literal['follow', 'points']
 
 
-ClientOp = Annotated[Union[OpSimple, OpCmd, OpRid, OpMapGet, OpGeomGet, OpMapStart, OpViewGet], Field(discriminator='op')]
+ClientOp = Annotated[Union[OpSimple, OpResume, OpCmd, OpRid, OpMapGet, OpGeomGet, OpMapStart, OpViewGet], Field(discriminator='op')]
 
 # ---------------------------------------------------------------- WS 서버 → 화면
 
@@ -281,6 +288,7 @@ class Status(Out):
     op: Literal['status']
     role: Literal['control', 'view_other', 'view']
     latch: bool
+    stop_gen: int                           # 잠금 세대(10-15 N1): 잠그는 모든 일마다 +1(이미 잠겼어도). 칸 없음 = 옛 서버 → 화면은 «조종 시작» 불가
     applied: Annotated[list[Fin], Field(min_length=3, max_length=3)]   # 지금 발행 중 (vx m/s, vy m/s, wz rad/s)
     reason: str
     sim_block: str                          # '' = 막힘 없음

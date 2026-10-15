@@ -7,7 +7,7 @@ import { startLink, useLink } from './data/link';
 import { auth, isLogin, loginHash } from './data/auth';
 import { dropScratch } from './data/scratch';
 import { useEffect } from 'react';
-import { Toast, useRoute, useStopKey } from './app/shell';
+import { StartAsk, Toast, useRoute, useStopKey } from './app/shell';
 import './live.css';
 import './brand.css';
 import { syncTheme } from './app/theme';
@@ -48,6 +48,7 @@ function App() {
         {S ? <S /> : <p className="lv-note" style={{ padding: 16 }}>{`«${name}» 화면은 아직 React 로 옮기지 않았습니다.`} <a href={`#/${HOME}`}>관제로</a></p>}
       </Suspense>
       <Toast />
+      <StartAsk />
     </QueryClientProvider>
   );
 }

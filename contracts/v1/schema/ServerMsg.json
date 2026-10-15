@@ -1878,6 +1878,10 @@
           ],
           "title": "State Age"
         },
+        "stop_gen": {
+          "title": "Stop Gen",
+          "type": "integer"
+        },
         "ver": {
           "title": "Ver",
           "type": "string"
@@ -1898,6 +1902,7 @@
         "op",
         "role",
         "latch",
+        "stop_gen",
         "applied",
         "reason",
         "sim_block",
