@@ -20,7 +20,7 @@ export function Chip({ tone, text, why, whyLabel }: { tone: Tone; text: string; 
 /** 닫을 때 연 단추로 초점 — 단추가 문서에서 빠졌거나 안 보이면(숨김·해제) 옮기지 않는다(엉뚱한 곳·STOP 첫 누름 소비 0) */
 export function focusBack(e: HTMLElement | null) { if (e && e.isConnected && e.getClientRects().length) e.focus(); }
 
-type Box = { left: number; top: number; right: number; bottom: number };
+export type Box = { left: number; top: number; right: number; bottom: number };
 export type Placed = { left: number; top: number; maxHeight: number };
 const GAP = 8, MIN = 40;
 /** 팝오버 자리(순수 — 시험용): 화면 안(가장자리 GAP), 보이는 STOP 사각형(+GAP)과 겹침 0.
@@ -50,7 +50,7 @@ export function placePop(trig: Box, h: number, width: number, W: number, H: numb
   return { left: best.left, top, maxHeight: Math.min(best.maxHeight, H - GAP - top) };
 }
 /** 지금 보이는 STOP 사각형 전부 — «비상 정지»로 시작하는 이름(확대·전체화면 STOP 포함), 활성 전체화면이면 그 안의 것만 */
-function stopBoxes(): Box[] {
+export function stopBoxes(): Box[] {
   const fs = document.fullscreenElement;
   return [...document.querySelectorAll<HTMLElement>('[aria-label^="비상 정지"]')]
     .filter((e) => (!fs || fs === document.documentElement || fs.contains(e)) && (e.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }) ?? true))

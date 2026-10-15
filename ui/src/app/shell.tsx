@@ -1,9 +1,10 @@
 // 앱 틀: 해시 경로(#/화면?값) · 알림(toast) · STOP 버튼과 Space 단축키.
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { create } from 'zustand';
 import { answerAsk, dropAll, linkView, sendStop, showSimStop, stopSim, useAsk, useLink } from '../data/link';
 import { STOP_TIP } from '../data/facts';
+import { stopBoxes, type Box, type Placed } from './chip';   // 순환 import(chip→shell) — 둘 다 최상위 실행에선 안 씀(함수 안 호출만)
 
 // ---- 경로 ----
 const sub = (f: () => void) => { addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); };
@@ -36,8 +37,57 @@ export const toast = (t: string | null | Promise<string | null>) => { if (t inst
 const ASK_B: React.CSSProperties = { minHeight: 36, padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' };
 const ASK_NO: React.CSSProperties = { ...ASK_B, background: '#1C252D', color: '#E6EBEF', border: '1px solid #6B7a88' };
 const ASK_OK: React.CSSProperties = { ...ASK_B, background: '#E6EBEF', color: '#0A0E12', border: '1px solid #E6EBEF' };
+/** 확인창 자리(순수 — 시험용, 10-16 670 P2 «390 확인창이 STOP 덮음»). 폭 min(380, W−32) 가운데.
+ *  확인창 가로 범위에 걸치는 보이는 STOP(+8)이 세로를 잘라 만든 빈 띠 안에만 놓는다(화면 가장자리 8):
+ *  ① 머리줄 아래 56 에서 내용 전부 → ② 다른 띠에 내용 전부(56 에 가까운 것) → ③ 가장 넓은 띠가 need.min(단추 줄·여백·본문 최소) 이상이면 줄여서(본문만 안 스크롤)
+ *  ④ 그것도 없거나 단추 줄이 폭에 안 들어가면 null = 자리 없음(STOP 을 덮는 자리·z-index 로 올리기 0). need.w = 단추 줄이 넘치지 않는 최소 폭 */
+export const ASK_ANCHOR = 56;
+export function placeAsk(W: number, H: number, need: { h: number; min: number; w: number }, stops: Box[]): (Placed & { width: number }) | null {
+  const G = 8, width = Math.min(380, W - 32), left = (W - width) / 2;
+  if (width < need.w || H - 2 * G < need.min) return null;
+  const cut = stops.filter((s) => s.left - G < left + width && left < s.right + G).map((s) => [s.top - G, s.bottom + G]).sort((a, b) => a[0] - b[0]);
+  const bands: [number, number][] = []; let y = G;
+  for (const [a, b] of cut) { if (a > y) bands.push([y, Math.min(a, H - G)]); y = Math.max(y, b); }
+  if (H - G > y) bands.push([y, H - G]);
+  const full = bands.map(([a, b]) => ({ top: Math.min(Math.max(a, ASK_ANCHOR), b - need.h), a, b })).filter((c) => c.top >= c.a)
+    .sort((p, q) => Math.abs(p.top - ASK_ANCHOR) - Math.abs(q.top - ASK_ANCHOR))[0];
+  if (full) return { left, width, top: full.top, maxHeight: full.b - full.top };
+  const big = bands.filter(([a, b]) => b - a >= need.min).sort((p, q) => (q[1] - q[0]) - (p[1] - p[0]))[0];
+  return big ? { left, width, top: big[0], maxHeight: big[1] - big[0] } : null;
+}
+export const ASK_NOROOM = '확인창을 둘 자리가 없어 취소함(STOP 을 가리지 않음 · 보낸 것 0) — 창을 키우거나 돌린 뒤 다시 누르세요';
 export function StartAsk() {
   const text = useAsk((s) => s.text), ok = useAsk((s) => s.ok), no = useRef<HTMLButtonElement | null>(null);
+  const box = useRef<HTMLDivElement | null>(null), body = useRef<HTMLDivElement | null>(null), row = useRef<HTMLDivElement | null>(null);
+  const [at, setAt] = useState<(Placed & { width: number }) | null>(null);
+  // 배치만(10-16): 열린 동안 매 프레임 창 크기·보이는 STOP 사각형·필요 높이/폭을 재고, 바뀌었을 때만 다시 놓는다
+  //   → 회전·전체화면 전환·머리줄 높이 변화로 STOP 이 움직여도 옛 좌표로 가리지 않음. 첫 자리는 그리기 전(layout effect)
+  //   자리가 없으면 STOP 을 덮지 않고 기존 취소 경로(answerAsk(false)) + 안내 — 확인 true·다시 열기·재시도 0
+  // ponytail: 열린 동안 프레임마다 측정(잠깐 style 바꿔 자연 높이 읽음) — 오래 열린 창에 쓰면 ResizeObserver + resize/fullscreenchange 로
+  useLayoutEffect(() => {
+    if (text === null) { setAt(null); return; }
+    let raf = 0, last = '';
+    const tick = () => {
+      const el = box.current, bd = body.current, rw = row.current;
+      if (el && bd && rw) {
+        const W = innerWidth, H = innerHeight, st = stopBoxes(), width = Math.min(380, W - 32);
+        const o = { mh: el.style.maxHeight, w: el.style.width, bf: bd.style.flex };
+        el.style.maxHeight = 'none'; el.style.width = `${width}px`; bd.style.flex = 'none';
+        const h = Math.ceil(el.getBoundingClientRect().height), bh = Math.ceil(bd.getBoundingClientRect().height);
+        const w = Math.ceil(width - rw.clientWidth + rw.scrollWidth);   // 단추 줄이 넘치면 scrollWidth > clientWidth
+        el.style.maxHeight = o.mh; el.style.width = o.w; bd.style.flex = o.bf;
+        const need = { h, min: h - bh + Math.min(bh, 64), w };   // 본문 최소 = 제목 + 약 두 줄(64 px) — 단추 줄·여백·테두리는 전부
+        const key = [W, H, h, need.min, w, ...st.flatMap((r) => [r.left, r.top, r.right, r.bottom])].join();
+        if (key !== last) {
+          last = key; const p = placeAsk(W, H, need, st);
+          if (!p) { answerAsk(false); toast(ASK_NOROOM); return; }
+          setAt(p);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick(); return () => cancelAnimationFrame(raf);
+  }, [text]);
   useEffect(() => {
     if (text === null) return;
     no.current?.focus();
@@ -46,11 +96,16 @@ export function StartAsk() {
   }, [text]);
   if (text === null) return null;
   const [head, ...rows] = text.split('\n');
-  return <InFs><div role="alertdialog" aria-modal="false" aria-labelledby="fh-ask-h" data-start-ask="1" style={{ position: 'fixed', left: '50%', top: 56, transform: 'translateX(-50%)', zIndex: 60,
-    width: 'min(380px, calc(100vw - 32px))', padding: '12px 14px', borderRadius: 10, background: 'rgba(8,11,14,.96)', color: '#E6EBEF', border: '1px solid #3a4652', fontSize: 13, boxShadow: '0 6px 24px rgba(0,0,0,.45)' }}>
-    <div id="fh-ask-h" style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{head}</div>
-    {rows.map((r) => <div key={r} style={{ lineHeight: 1.45 }}>{r}</div>)}
-    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10 }}>
+  // 자리 전(첫 그림)은 이전 자리(가운데·top 56) — layout effect 가 그리기 전에 옮기거나 닫는다
+  return <InFs><div ref={box} role="alertdialog" aria-modal="false" aria-labelledby="fh-ask-h" data-start-ask="1" style={{ position: 'fixed', zIndex: 60, boxSizing: 'border-box',
+    ...(at ? { left: at.left, top: at.top, width: at.width, maxHeight: at.maxHeight } : { left: '50%', top: ASK_ANCHOR, transform: 'translateX(-50%)', width: 'min(380px, calc(100vw - 32px))' }),
+    display: 'flex', flexDirection: 'column', overflow: 'hidden',
+    padding: '12px 14px', borderRadius: 10, background: 'rgba(8,11,14,.96)', color: '#E6EBEF', border: '1px solid #3a4652', fontSize: 13, boxShadow: '0 6px 24px rgba(0,0,0,.45)' }}>
+    <div ref={body} data-ask-body="1" style={{ flex: '1 1 auto', minHeight: 0, overflowY: 'auto' }}>
+      <div id="fh-ask-h" style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{head}</div>
+      {rows.map((r) => <div key={r} style={{ lineHeight: 1.45 }}>{r}</div>)}
+    </div>
+    <div ref={row} style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 10, flex: 'none' }}>
       <button type="button" style={ASK_NO} ref={no} onClick={() => answerAsk(false)}>취소</button>
       <button type="button" style={ASK_OK} data-ask-ok="1" onClick={() => answerAsk(true)}>{ok || '조종 시작'}</button>
     </div>
