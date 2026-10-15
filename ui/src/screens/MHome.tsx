@@ -4,7 +4,8 @@ import { Photo } from '../app/Photo';
 import { useState } from 'react';
 import type { Mission } from '@contracts';
 import { CSS, View } from './MHome.view';
-import { durTxt, store, themeClass, tms, wpName } from '../data/fmt';
+import { durTxt, themeClass, wpName } from '../data/fmt';
+import { unreadOf } from '../data/alerts';
 import { activeRun, alertsOf, docsOf, useDocs, useMedia } from '../data/shared';
 import { TRAIL, linkView, useLink } from '../data/link';
 import { attachPhoto, pickWp, modDone, modTxt, runEnd, startRun } from '../data/run';
@@ -16,7 +17,6 @@ import { LiveStatus } from '../app/status';
 import { stopProps, toast } from '../app/shell';
 import { Btn, WpActs } from '../app/runui';
 
-const READ = 'fh.live.alerts.read';
 // R04 가로(높이 ≤ 500): 본문 안 «조종 화면»이 스크롤 아래로 밀리므로 STOP 줄 왼쪽에도 같은 링크(STOP 크기·위치 규칙은 그대로, 줄 왼쪽만 비움)
 const DRIVE_CSS = `.mh-drive{display:none}
 @media (orientation: landscape) and (max-height: 500px){
@@ -30,7 +30,7 @@ export default function MHome() {
   const ms = docsOf(D, 'mission'), mid = ms.some((m) => m.id === pick) ? pick : ms[0]?.id || '';
   const d = w && lk.robot?.fresh ? Math.hypot(lk.robot.x - w.x, lk.robot.y - w.y) : null;
   const vis = R ? R.wps.filter((x) => x.st !== '대기').length : 0;
-  const rd = store.get(READ, ''), unread = alertsOf(M).filter((e) => !rd || tms(e.at) > tms(rd)).length;
+  const unread = unreadOf(alertsOf(M)).length;
   const rows: [boolean, string][] = w ? [[w.st !== '대기', '방문 기록 · 운영자가 «방문 확인»(자동 도착 판정 미연결)'], ...w.mods.map((ty): [boolean, string] => [modDone(w, ty), modTxt(w, ty)])]
     : [[false, R ? '대기 지점 없음' : '계획을 고르고 «수동 진행 시작»을 누르면 지점마다 할 일이 여기에 나옵니다']];
   const tile: React.CSSProperties = { aspectRatio: '4/3', borderRadius: '6px', background: '#0D1317', overflow: 'hidden' };

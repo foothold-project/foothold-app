@@ -49,6 +49,16 @@ export default function PcPlan() {
     else if (tool === 'measure') setMeas((m) => (m.length >= 2 ? [[r2(x), r2(y)]] : [...m, [r2(x), r2(y)]]));
     else { const i = ws.findIndex((w) => Math.hypot(w.x - x, w.y - y) * k < 16); setWsel(i < 0 ? null : i); }
   };
+  // R02-C0: 주소가 가리키는 문서(want)와 편집 중 초안이 다를 때 — 둘 다 이름으로 알리고, 사용자가 고르게(주소·서버 판은 그대로)
+  const asked = want ? docById(D, want) : null, mine = E.id ? docById(D, E.id) : null;
+  const c0 = want && E.dirty && E.id !== want ? (
+    <div className="lv-warnbox" role="alert" data-c0="1">
+      <span>{`요청한 문서 «${asked?.kind === 'mission' ? asked.doc.name || '이름 없음' : '찾지 못함'}»와 다른 문서의 초안을 편집 중: «${d.name || '이름 없음'}»(${E.id ? `${mine?.kind === 'mission' ? `«${mine.doc.name}» ` : ''}판 ${E.rev}` : '새 문서'}) · 저장 안 됨`}</span>
+      <div className="lv-row">
+        <button type="button" className="lv-btn pri" disabled={E.busy} onClick={() => { const nm = d.name; E.save().then((r) => { if (r?.ok) toast(E.dirty ? `초안 판 ${r.rev} 저장됨 · 저장 중 고친 내용은 아직 저장 안 됨 — 요청한 문서로 옮기지 않음` : `초안 «${nm || '이름 없음'}» 저장됨 · 판 ${r.rev} — 요청한 문서를 엽니다`); /* dirty 면 effect 도 옮기지 않음(새 편집 보존) */ }); }}>이 초안 저장</button>
+        <button type="button" className="lv-btn" disabled={E.busy} onClick={() => { E.load(asked?.kind === 'mission' ? asked : null, blank()); shown.current = E.id; setWsel(null); }}>초안 버리고 요청 문서 열기</button>
+      </div>
+    </div>) : null;
   const toZone = (ty: string) => {
     if (st?.role === 'control') return toast('조종 중입니다 — 조종권 반납 뒤 지도 화면으로');
     if (E.dirty) toast('저장 안 한 계획은 이 탭에 보관 — 계획 화면으로 돌아오면 이어서 편집');   // R02: 버리지 않음(확인창 대신 보관)
@@ -175,7 +185,7 @@ export default function PcPlan() {
     fb0: '미연결', fb0T: '자동 이동이 없어 시간 예측 미연결', fb1: `${len.toFixed(1)} m 직선`, fb2: '미제공',
     saveP: { onClick: save }, saveT: '계획 저장',
     startP: { onClick: start }, startT: run ? '진행 기록 화면(관제)' : '수동 진행 시작', startDis: !run && block.length > 0,
-    msg: E.msg,
+    msg: c0 ? <>{c0}{E.msg !== E.kept ? E.msg : null}</> : E.msg,
     why: run ? '▲ 수동 진행 중 — 관제 화면 «임무 단계»·휴대폰 «현황»에서 지점마다 기록' : block.length ? `▲ ${block.join(' · ')}` : '● 로봇은 자동으로 움직이지 않습니다 · 직접 조종하며 지점마다 기록',
   };
   return <><style>{CSS}</style><div id="dc-root"><View v={v} /></div></>;

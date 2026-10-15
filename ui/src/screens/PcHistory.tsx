@@ -4,7 +4,7 @@ import { CSS, View } from './PcHistory.view';
 import { LV, fmtT, saveBlob, themeClass, tms } from '../data/fmt';
 import { alertsOf, useDocs, useMedia } from '../data/shared';
 import { histCSV, histRows, type Row } from '../data/hist';
-import { LiveStatus } from '../app/status';
+import { LiveStatus, MediaStale } from '../app/status';
 import { stopProps, toast } from '../app/shell';
 
 const PER: Record<string, number> = { '오늘': 1, '최근 7일': 7, '최근 30일': 30 };
@@ -29,7 +29,7 @@ export default function PcHistory() {
       style={off ? { opacity: '.5' } : cur ? { background: 'var(--acc-bg)', borderColor: 'var(--accent)' } : undefined}>{t}</button>;
   };
   const v = {
-    themeClass: themeClass(true), h2: '임무 기록 · 관찰 사진 · 서버 사건', status: <LiveStatus D={D} />, stopProps,
+    themeClass: themeClass(true), h2: '임무 기록 · 관찰 사진 · 서버 사건', status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>, stopProps,
     stats: [
       ['수동 임무 진행', String(runs.length), `완료 ${cnt((r) => r.st === '완료')} · 실패·중단 ${cnt((r) => /실패|중단/.test(r.st || ''))} · 진행 ${cnt((r) => r.st === '진행')}`],
       ['경보 사건(서버 최근 300)', String(al.length), '자동 경보 규칙 미연결 · 사건 원문'],

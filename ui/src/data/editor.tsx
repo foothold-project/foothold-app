@@ -9,7 +9,7 @@ import { ctx, drafts } from './scratch';
 
 type Kind = DocEnvelope['kind'];
 export type Editor<T> = {
-  kind: Kind; id: string | null; rev: number | null; d: T | null; dirty: boolean; busy: boolean; gen: number; msg: ReactNode;
+  kind: Kind; id: string | null; rev: number | null; d: T | null; dirty: boolean; busy: boolean; gen: number; msg: ReactNode; kept?: ReactNode;   // kept = 이어 편집 안내(화면이 더 구체적인 안내로 바꿀 수 있게)
   load(doc: { id: string; rev: number; doc: unknown } | null | undefined, init?: T): void;
   save(rev?: number | null): Promise<(SaveRes & { other?: boolean }) | null>;
   del(): Promise<(SaveRes & { same: boolean }) | null>;   // same: write() 와 같은 뜻 — 응답 때 같은 대상·같은 초안일 때만 화면 정리
@@ -82,7 +82,8 @@ export function useEditor<T>(kind: Kind, keep?: string): Editor<T> {
     const E = r.current = make<T>(kind, bump), k = `${kind}:${keep}`, h = keep ? drafts.get(k) : undefined;
     if (h) {
       drafts.delete(k); E.id = h.id; E.rev = h.rev; E.d = structuredClone(h.d) as T; E.dirty = true;
-      E.msg = <div className="lv-warnbox" role="status"><span>{`저장 안 한 초안을 이어서 편집합니다${h.id ? '' : '(새 문서)'} · 이 탭에만 보관 — 저장하거나 버리세요`}</span>
+      const nm = (h.d as { name?: unknown } | null)?.name;   // R02-C0: 어느 초안인지 이름으로
+      E.msg = E.kept = <div className="lv-warnbox" role="status"><span>{`저장 안 한 초안${typeof nm === 'string' ? ` «${nm || '이름 없음'}»` : ''}을 이어서 편집합니다${h.id ? ` (판 ${h.rev})` : '(새 문서)'} · 이 탭에만 보관 — 저장하거나 버리세요`}</span>
         <div className="lv-row"><button type="button" className="lv-btn" onClick={() => E.load(null)}>초안 버리기</button></div></div>;
     }
   }

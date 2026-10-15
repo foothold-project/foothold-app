@@ -15,11 +15,12 @@ async function getJson<R>(what: 'docs' | 'media'): Promise<R> {
   return d as R;
 }
 
-export type Docs = { list: DocEnvelope[]; rev: number | null; err: string };
+export type Docs = { list: DocEnvelope[]; rev: number | null; err: string; stale?: boolean; at?: number };   // stale·at: R25(옛 목록 + 재조회 실패)
 // 문서: 읽기 실패면 err 가 차고, 화면은 옛 목록을 확정값처럼 쓰지 않는다(보고서는 비우고 «미확인»). broken = 서버 저장소가 깨짐.
 export function useDocs(): Docs {
   const q = useQuery({ queryKey: ['docs'], queryFn: () => getJson<DocsList>('docs') });
-  return { list: q.data?.docs || [], rev: q.data ? q.data.rev : null, err: q.error ? `문서 읽기 실패 · ${q.error.message}` : q.data?.broken || '' };
+  return { list: q.data?.docs || [], rev: q.data ? q.data.rev : null, err: q.error ? `문서 읽기 실패 · ${q.error.message}` : q.data?.broken || '',
+    stale: isStale(!!q.data, !!q.error), at: q.data ? q.dataUpdatedAt : 0 };
 }
 // 지금 캐시에 있는 최신 문서(비동기 뒤 판 번호용 — live.js 전역 DOCS 와 같은 역할)
 export const docsNow = (): Docs => { const d = qc.getQueryData<DocsList>(['docs']); return { list: d?.docs || [], rev: d ? d.rev : null, err: '' }; };
@@ -29,12 +30,16 @@ export const docById = (D: Docs, id: string | null) => D.list.find((d) => d.id =
 export const noteOf = (D: Docs, url: string) => docsOf(D, 'note').find((n) => n.doc.photo === url);
 export const activeRun = (D: Docs): RunEnv | undefined => docsOf(D, 'run').find((d) => d.doc.status === '진행');
 
-export type Media = { photos: MediaList['photos']; events: MediaEvent[]; ok: boolean; err: string };
+// R25: stale = 옛 목록은 있는데 다시 읽기가 실패한 상태(정상과 구분해 표시) · at = 마지막으로 받은 시각(ms, 0 = 못 받음)
+export type Media = { photos: MediaList['photos']; events: MediaEvent[]; ok: boolean; err: string; stale: boolean; at: number };
 // 사진·사건: 한 번 읽힌 뒤 실패하면 옛 목록을 계속 보여 준다(live.js MEDIA.ok 규칙). 처음부터 못 읽으면 ok=false + err.
 export function useMedia(): Media {
   const q = useQuery({ queryKey: ['media'], queryFn: () => getJson<MediaList>('media') });
-  return { photos: q.data?.photos || [], events: q.data?.events || [], ok: !!q.data, err: q.error ? `서버 기록 읽기 실패 · ${q.error.message}` : '' };
+  return { photos: q.data?.photos || [], events: q.data?.events || [], ok: !!q.data, err: q.error ? `서버 기록 읽기 실패 · ${q.error.message}` : '',
+    stale: isStale(!!q.data, !!q.error), at: q.data ? q.dataUpdatedAt : 0 };
 }
+export const isStale = (hasData: boolean, hasErr: boolean) => hasData && hasErr;
+export const reread = (k: 'media' | 'docs') => qc.invalidateQueries({ queryKey: [k] });
 export const alertsOf = (M: Media) => M.events.filter((e) => e.st === 'warn' || e.st === 'bad');
 
 // 상태 메시지마다 부름: 판·최신 사건이 바뀌면 다시 읽기(실패 뒤엔 3 s 쉬고). 진행 중인 읽기는 끊지 않는다.

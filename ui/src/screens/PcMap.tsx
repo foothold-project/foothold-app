@@ -80,7 +80,7 @@ export default function PcMap() {
     tools: [{ ...why(`위치 맞추기 — ${WHY['SLAM 지도·위치 맞추기']}`, 'tool'), 'aria-pressed': false },   // 시안의 «눌림» 표시 제거(미연결 도구)
       { 'aria-pressed': !mv && dr?.type === '금지', disabled: mv, onClick: () => startDraw('금지') },
       { 'aria-pressed': !mv && dr?.type === '감속', disabled: mv, onClick: () => startDraw('감속') },
-      { 'aria-pressed': !mv && !!E.id && !dr, disabled: mv, onClick: () => mv ? toast(LOCK) : () => (E.id ? zn.current?.focus() : toast('먼저 지도나 목록에서 구역을 고르세요')) },
+      { 'aria-pressed': !mv && !!E.id && !dr, disabled: mv, onClick: () => mv ? toast(LOCK) : E.id ? (zn.current?.focus(), zn.current?.select()) : toast('먼저 지도나 목록에서 구역을 고르세요') },   // R28: 함수 반환만 하던 분기 → 즉시 실행
       why('지우개(잡음 정리) — SLAM 지도 미연결', 'tool')],
     v3P: whyProps(`3D 점군 — ${WHY['뎁스 영상·3D 점군']}`),
     map: v3d || <MapCanvas name="pcmap" btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}

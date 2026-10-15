@@ -6,7 +6,8 @@ import { CSS, View } from './Report.view';
 import { MapCanvas } from '../map/MapCanvas';
 import { LV, durTxt, fmtT, saveBlob, wpName } from '../data/fmt';
 import { docById, docsOf, noteOf, useDocs, useMedia } from '../data/shared';
-import { histCSV, histRows, href } from '../data/hist';
+import { MediaStale } from '../app/status';
+import { histCSV, histRows, href, runRows } from '../data/hist';
 import { stopProps, toast, useRoute } from '../app/shell';
 
 // 결과 색 = 공식 토큰(Report 는 항상 밝음): 완료·확인 dim-ink, 진행·미확인 note-ink, 실패·중단 stop. 색 + 글자로 구분
@@ -64,8 +65,11 @@ export default function Report() {
             : <option value="">{D.err ? '기록 읽기 실패 · 미확인' : '수동 임무 기록 없음'}</option>}
         </select>
         <button type="button" className="lv-btn pri" onClick={() => print()}>인쇄</button>
-        <button type="button" className="lv-btn" onClick={() => toast(saveBlob(`foothold-v2-history-${Date.now()}.csv`, new Blob([histCSV(histRows(D, M, true))], { type: 'text/csv' })))}>CSV 내보내기</button>
+        <button type="button" className="lv-btn" disabled={!run} onClick={() => { if (!run) return; const rs = runRows(histRows(D, M, true), run);
+          toast(saveBlob(`foothold-v2-run-${run.id}-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `임무 «${run.doc.name}» · ${rs.length}행 · ${x}`)); }}>{run ? `이 임무 CSV · «${run.doc.name}»` : '이 임무 CSV'}</button>
+        <button type="button" className="lv-btn" onClick={() => { const rs = histRows(D, M, true); toast(saveBlob(`foothold-v2-history-all-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `전체 기록 · ${rs.length}행 · ${x}`)); }}>전체 기록 CSV</button>
         <a className="lv-btn" href={href('PcHistory')}>기록 화면</a>
+        <MediaStale M={M} D={D} />
       </div>
       <div id="dc-root"><View v={v} /></div>
       <button type="button" className="lv-noprint lv-fstop" {...stopProps}>STOP</button>
