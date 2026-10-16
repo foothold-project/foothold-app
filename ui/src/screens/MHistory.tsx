@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { CSS, View } from './MHistory.view';
 import { LV, dayTxt, fmtT, themeClass } from '../data/fmt';
 import { docsSt, useDocs, useMedia } from '../data/shared';
-import { histRows, type Row } from '../data/hist';
+import { histRows, sevKeep, type Row } from '../data/hist';
 import { LiveStatus, MediaStale } from '../app/status';
 import { stopProps } from '../app/shell';
 
@@ -12,7 +12,7 @@ const FN: ((r: Row) => boolean)[] = [() => true, (r) => r.kind === '임무', (r)
 
 export default function MHistory() {
   const D = useDocs(), M = useMedia(), [filt, setFilt] = useState(0);
-  const rs = M.ok ? histRows(D, M, false).filter(FN[filt]) : [];
+  const rs = M.ok ? histRows(D, M, false).filter((r) => sevKeep(r) && FN[filt](r)) : [];   // 715 B1: 폰은 심각도 선택 없음 → 기본(위험·경고)으로 옛 목록 그대로(정보 사건 새 노출·200행 밀림 0)
   const out: JSX.Element[] = []; let day: string | null = null;
   for (const [i, r] of rs.slice(0, 200).entries()) {
     const dt = dayTxt(r.at); if (dt !== day) { day = dt; out.push(<span className="day" key={`d${i}`}>{dt}</span>); }

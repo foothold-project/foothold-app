@@ -31,7 +31,8 @@ export default function PcHistory() {
   const gaps = srcGaps(D, M);
   const tpls = [...new Set(runs.map((r) => r.tmpl).filter(Boolean))] as string[];
   const bys = [...new Set(all.filter((r) => r.kind === tab).map((r) => r.by).filter(Boolean))] as string[];
-  const hf: HF = { ...f, tpl: tpls.includes(f.tpl) ? f.tpl : '', by: bys.includes(f.by) ? f.by : '' };   // 목록에서 사라진 값이면 «모두»로
+  // 목록에서 사라진 값이면 «모두»로 · 심각도는 사건 탭에서만 유효(715 B2: 메뉴·주소로 탭이 바뀌면 go() 를 안 거쳐 f.sev 가 남음 → 숨은 값이 다른 탭 표·전체 CSV 의 사건을 거르지 않게 기본으로)
+  const hf: HF = { ...f, tpl: tpls.includes(f.tpl) ? f.tpl : '', by: bys.includes(f.by) ? f.by : '', sev: on.includes('sev') ? f.sev : SEV0 };
   const { tab: rows, every } = histFilter(all, tab, hf);
   const kinds = TABS.map(([k, l]) => `${l} ${every.filter((r) => r.kind === k).length}`).join(' · ');
   const pages = Math.max(1, Math.ceil(rows.length / N)), pg = Math.min(page, pages - 1), s0 = Math.max(0, Math.min(pg - 2, pages - 5));
