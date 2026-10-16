@@ -42,8 +42,8 @@ const ASK_OK: React.CSSProperties = { ...ASK_B, background: '#E6EBEF', color: '#
  *  ① 머리줄 아래 56 에서 내용 전부 → ② 다른 띠에 내용 전부(56 에 가까운 것) → ③ 가장 넓은 띠가 need.min(단추 줄·여백·본문 최소) 이상이면 줄여서(본문만 안 스크롤)
  *  ④ 그것도 없거나 단추 줄이 폭에 안 들어가면 null = 자리 없음(STOP 을 덮는 자리·z-index 로 올리기 0). need.w = 단추 줄이 넘치지 않는 최소 폭 */
 export const ASK_ANCHOR = 56;
-export function placeAsk(W: number, H: number, need: { h: number; min: number; w: number }, stops: Box[]): (Placed & { width: number }) | null {
-  const G = 8, width = Math.min(380, W - 32), left = (W - width) / 2;
+export function placeAsk(W: number, H: number, need: { h: number; min: number; w: number }, stops: Box[], wd?: number): (Placed & { width: number }) | null {   // wd: 폭 지정(U1-R3 STOP 알림 가로확장) — 없으면 확인창 폭
+  const G = 8, width = wd ?? Math.min(380, W - 32), left = (W - width) / 2;
   if (width < need.w || H - 2 * G < need.min) return null;
   const cut = stops.filter((s) => s.left - G < left + width && left < s.right + G).map((s) => [s.top - G, s.bottom + G]).sort((a, b) => a[0] - b[0]);
   const bands: [number, number][] = []; let y = G;
@@ -143,10 +143,11 @@ export function StartAsk() {
     <style>{'[data-start-ask] button:focus-visible{outline:2px solid #8CC8FF;outline-offset:2px}'}</style>
   </div></InFs>;
 }
+const useMerged = create<{ on: boolean }>(() => ({ on: false }));   // U1-R3: STOP 알림이 toast 원문을 합쳐 보이는 동안 원래 toast 는 숨김(읽는 면 하나 — 겹친 두 글 0)
 export function Toast() {
-  const { t, n } = useToastS();
+  const { t, n } = useToastS(), hid = useMerged((x) => x.on);
   useEffect(() => { if (!t) return; const id = setTimeout(() => useToastS.setState({ t: '' }), 3500); return () => clearTimeout(id); }, [n]);
-  return t ? <InFs><div role="status" data-live-toast="1" style={{ position: 'fixed', left: '50%', top: 96, transform: 'translateX(-50%)', zIndex: 50, maxWidth: '90vw', padding: '8px 14px', borderRadius: 8, background: 'rgba(8,11,14,.92)', color: '#E6EBEF', fontSize: 13, pointerEvents: 'none' }}>{t}</div></InFs> : null;
+  return t ? <InFs><div role="status" data-live-toast="1" aria-hidden={hid || undefined} style={{ visibility: hid ? 'hidden' : 'visible', position: 'fixed', left: '50%', top: 96, transform: 'translateX(-50%)', zIndex: 50, maxWidth: '90vw', padding: '8px 14px', borderRadius: 8, background: 'rgba(8,11,14,.92)', color: '#E6EBEF', fontSize: 13, pointerEvents: 'none' }}>{t}</div></InFs> : null;
 }
 
 // ---- STOP: 누르는 순간(pointerdown) 보냄. 명령 0 요청일 뿐 몸 정지가 아님 ----
@@ -158,7 +159,7 @@ export const STOP_WAIT_MS = 2000, STOP_SHOW_MS = 4000;   // 서버 status 는 10
 const BODY = ' · 몸이 멈췄는지 화면에서 확인';
 export const STOP_MSG = {
   wait: `STOP 보냄 — 서버 확인 기다리는 중${BODY}`,
-  ok: `STOP 서버 확인 — 잠금 켜짐(명령 0 유지)${BODY}`,
+  ok: `STOP 뒤 받은 서버 상태에서 잠금 확인(수신 당시 · 지금 상태 아님)${BODY}`,   // U1-R1: 고정 글이라 과거 관측만 — 현재 잠금·명령 0 유지·이 누름 처리·몸 정지 주장 0
   lost: `STOP 보낸 뒤 링크 끊김 — 서버 확인 못 함(잠금 미확인) · 다시 STOP${BODY}`,
   late: `STOP 서버 확인 없음(${STOP_WAIT_MS / 1000}초) — 잠금 미확인 · 다시 STOP${BODY}`,
 };
@@ -167,7 +168,7 @@ export type StopPhase = 'fail' | 'wait' | 'ok' | 'lost' | 'late';
 export const useStopN = create<{ r: StopRec | null }>(() => ({ r: null }));
 /** 순수(시험용): 누름 기록 + 지금 링크 상태 → 단계·글.
  *  확인 = 같은 연결(gen)에서 보낸 뒤(lastMsg > t) 받은 유효 status 가 latch 이고 잠금 세대가 보낼 때보다 큼(보낼 때 세대를 몰랐으면 latch 만).
- *  세대는 다른 기기 STOP·episode 변경으로도 오르므로 «이 누름이 잠갔다»가 아니라 «지금 서버 잠금 켜짐»까지만 말한다 */
+ *  세대는 다른 기기 STOP·reset·episode 변경으로도 오르고, 끝 단계 글은 고정되므로 «그때 받은 상태에서 잠금»까지만 말한다(U1-R1 — 이 누름 처리·지금 잠금 아님) */
 export function stopPhase(r: StopRec, s: ReturnType<typeof useLink.getState>, now: number): [StopPhase, string] {
   if (!r.sent) return ['fail', r.fail];
   const st = s.st, g = st?.stop_gen;
@@ -180,46 +181,69 @@ export const stopNow = () => {
   const sent = sendStop(), fail = sent ? '' : useLink.getState().provider !== 'simulation_gate' ? STOP_FAIL_REAL : STOP_FAIL_LINK;
   useStopN.setState((x) => ({ r: { seq: (x.r?.seq ?? 0) + 1, t, sent, fail, gen: useLink.getState().gen, sg: typeof sg === 'number' ? sg : undefined } }));
 };
-/** STOP 결과 알림(비차단): pointer-events 0·초점 0·role=status. 보이는 STOP·열린 확인창·알림(toast)을 피해 placeAsk 로 놓고, 자리가 없으면 그리지 않는다(가리기 0).
- *  다시 누르면 새 기록으로 바뀜. 끝 단계(실패·확인·끊김·초과)는 그 순간 글로 고정해 STOP_SHOW_MS 동안 보인 뒤 사라짐 */
-// ponytail: 보이는 동안(최대 약 6 s) 프레임마다 자리 재기 — 오래 띄우게 되면 ResizeObserver 로
+/** 순수(시험용) U1-R3: 알림 자리 — 자리 없다고 버리지 않는다. hs = 숨은 측정 요소로 잰 높이(c 가운데 폭·알림만 / ct 가운데 폭·알림+toast 원문 / f 가로확장 W−16·알림+toast).
+ *  ① 가운데 · STOP·확인창·toast 피함 → ①′ 가운데 · STOP·확인창만 피함 + toast 원문을 알림 안에 합침(merge — 겹쳐도 읽힘) → ② 가로확장 + 합침
+ *  → ③ 글 전부 들어갈 띠가 없으면 가장 큰 빈 띠(높이 ≥ NOTE_MINH, STOP·확인창 피함)에 높이 = 띠 · 알림 본문만 스크롤(clip) → null = 한 줄 띠도 없는 극단 viewport(측정 범위 밖) */
+export const NOTE_MINH = 40, STOP_READ_MS = 12000;   // 한 줄+여백 · 잘린(clip) 알림 표시 시간(스크롤해 읽을 시간 — 조정 지점)
+export type NotePos = Placed & { width: number; merge: boolean; clip: boolean };
+export function placeNote(W: number, H: number, hs: { c: number; ct: number; f: number }, hard: Box[], soft: Box[]): NotePos | null {
+  const mt = soft.length > 0, A = (h: number, min: number, st: Box[], wd?: number) => placeAsk(W, H, { h, min, w: 0 }, st, wd);
+  const a = A(hs.c, hs.c, [...hard, ...soft]); if (a) return { ...a, merge: false, clip: false };
+  const b = A(hs.ct, hs.ct, hard); if (b) return { ...b, merge: mt, clip: false };
+  // 가로확장: 글 전부 들어가면 그대로(②) · 아니면 가장 큰 띠에 본문 스크롤(③) → 그다음 가운데 폭 본문 스크롤. placeAsk 가 «전부 들어감»을 먼저 찾음
+  for (const [h, wd] of [[hs.f, W - 16], [hs.ct, undefined]] as const) { const p = A(h, Math.min(h, NOTE_MINH), hard, wd); if (p) return { ...p, merge: mt, clip: p.maxHeight < h }; }
+  return null;
+}
+const NOTE_CSS = 'box-sizing:border-box;padding:8px 12px;border-left:4px solid;font-size:13px;line-height:1.4;white-space:pre-line;';   // 알림과 숨은 측정 요소가 같은 글자 상자
+/** STOP 결과 알림(비차단): 초점 0·role=status. 자리는 placeNote(STOP·확인창 가림 0 · 자리 없음이어도 합침·가로확장·본문 스크롤로 읽힘). 활성 전체화면이면 그 안(InFs).
+ *  pointer 는 잘린(clip) 알림만 받음(본문 스크롤 — STOP·확인창 위가 아님), 그 밖은 0. 다시 누르면 새 기록으로 바뀜.
+ *  끝 단계(실패·확인·끊김·초과)는 그 순간 글로 고정, 끝 단계에 들어간 실제 시각(performance.now — seq 결속)부터 STOP_SHOW_MS(잘림이면 STOP_READ_MS) 뒤 사라짐(U1-R2) */
+// ponytail: 보이는 동안 프레임마다 자리 재기 — 오래 띄우게 되면 ResizeObserver 로
 export function StopNote() {
-  const r = useStopN((x) => x.r), s = useLink();
-  const [now, setNow] = useState(() => performance.now());
-  const fin = useRef<{ seq: number; p: [StopPhase, string]; t: number } | null>(null);
-  const box = useRef<HTMLDivElement | null>(null);
-  const [at, setAt] = useState<(Placed & { width: number }) | null>(null);
+  const r = useStopN((x) => x.r), s = useLink(), tt = useToastS((x) => x.t);
+  const [, setTick] = useState(0);   // 다시 그리기 신호만 — 시각은 렌더마다 performance.now()(U1-R2: 멈춘 시계 값으로 끝 단계 시각을 적지 않음)
+  const fin = useRef<{ seq: number; p: [StopPhase, string]; t: number } | null>(null), txt = useRef('');
+  const [at, setAt] = useState<{ seq: number; v: NotePos | null } | null>(null);
+  const now = performance.now();
   let p: [StopPhase, string] | null = null;
-  if (r) {
+  if (r) {   // 렌더 중 ref 고정 — 같은 ref 라 StrictMode 이중 렌더도 같은 결과
     if (fin.current?.seq === r.seq) p = fin.current.p;
     else { p = stopPhase(r, s, now); if (p[0] !== 'wait') fin.current = { seq: r.seq, p, t: now }; }
   }
-  const on = !!r && !(fin.current?.seq === r.seq && now - fin.current.t > STOP_SHOW_MS);
-  useEffect(() => {   // 링크 메시지가 끊겨도 단계(초과·사라짐)가 넘어가게 시계만 돌림
+  txt.current = p ? p[1] : '';
+  const pos = r && at?.seq === r.seq ? at.v : null;
+  const on = !!r && !(fin.current?.seq === r.seq && now - fin.current.t > (pos?.clip ? STOP_READ_MS : STOP_SHOW_MS));
+  useEffect(() => {   // 링크 메시지가 끊겨도 단계(초과·사라짐)가 넘어가게 다시 그림
     if (!on) return;
-    const id = setInterval(() => setNow(performance.now()), 200); return () => clearInterval(id);
+    const id = setInterval(() => setTick((n) => n + 1), 200); return () => clearInterval(id);
   }, [on, r?.seq]);
+  const merged = on && !!pos?.merge && !!tt;
+  useLayoutEffect(() => { useMerged.setState({ on: merged }); }, [merged]);   // 그리기 전에 원래 toast 숨김/복귀
+  useLayoutEffect(() => () => useMerged.setState({ on: false }), []);
   useLayoutEffect(() => {
-    if (!on) { setAt(null); return; }
+    if (!on || !r) { setAt(null); return; }
     let raf = 0, last = '';
+    const seq = r.seq, m = document.createElement('div');   // 숨은 측정 요소 — 폭·글을 바꿔 높이만 잼(보이는 알림 폭이 바뀌어도 자리 판단이 오락가락하지 않게)
+    m.setAttribute('data-stop-measure', '1'); m.setAttribute('aria-hidden', 'true'); m.style.cssText = `${NOTE_CSS}position:fixed;left:0;top:0;visibility:hidden;pointer-events:none`;
+    const hAt = (w: number, t: string) => { m.style.width = `${w}px`; m.textContent = t; return Math.ceil(m.getBoundingClientRect().height); };
+    const rects = (q: string) => [...document.querySelectorAll(q)].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
     const tick = () => {
-      const el = box.current;
-      if (el) {
-        const W = innerWidth, H = innerHeight, h = Math.ceil(el.getBoundingClientRect().height);
-        const others = [...document.querySelectorAll('[data-start-ask],[data-live-toast]')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
-        const st = [...stopBoxes(), ...others], key = [W, H, h, ...st.flatMap((b) => [b.left, b.top, b.right, b.bottom])].join();
-        if (key !== last) { last = key; setAt(placeAsk(W, H, { h, min: h, w: 0 }, st)); }
-      }
+      const host = topEl(); if (m.parentNode !== host) host.appendChild(m);   // 전체화면 들고 남 = 같은 글꼴 환경에서 잼
+      const hard = [...stopBoxes(), ...rects('[data-start-ask]')], soft = rects('[data-live-toast]');
+      const W = innerWidth, H = innerHeight, t = txt.current, t2 = useToastS.getState().t, both = t2 && soft.length ? `${t}\n${t2}` : t;   // 보이는 toast 가 있을 때만 합칠 글로 잼
+      const key = [W, H, t, t2, ...[...hard, ...soft].flatMap((b) => [b.left, b.top, b.right, b.bottom])].join();
+      if (key !== last) { last = key; const cw = Math.min(380, W - 32); setAt({ seq, v: placeNote(W, H, { c: hAt(cw, t), ct: hAt(cw, both), f: hAt(W - 16, both) }, hard, soft) }); }
       raf = requestAnimationFrame(tick);
     };
-    tick(); return () => cancelAnimationFrame(raf);
+    tick(); return () => { cancelAnimationFrame(raf); m.parentNode?.removeChild(m); };
   }, [on, r?.seq]);
   if (!on || !p) return null;
-  const bad = p[0] !== 'ok' && p[0] !== 'wait';
-  return <InFs><div ref={box} role="status" aria-live="polite" data-stop-note={p[0]} style={{ position: 'fixed', zIndex: 50, pointerEvents: 'none', boxSizing: 'border-box',
-    left: at?.left ?? 0, top: at?.top ?? 0, width: at?.width ?? 'min(380px,calc(100vw - 32px))', visibility: at ? 'visible' : 'hidden',
+  const bad = p[0] !== 'ok' && p[0] !== 'wait', clip = !!pos?.clip;
+  return <InFs><div role="status" aria-live="polite" data-stop-note={p[0]} data-stop-clip={clip ? '1' : undefined} style={{ position: 'fixed', zIndex: 51 /* toast(50) 위 — 합친 글이 늦게 뜬 toast 에 덮이지 않게 */, boxSizing: 'border-box',
+    pointerEvents: clip ? 'auto' : 'none', overflowY: clip ? 'auto' : 'hidden', overscrollBehavior: 'contain', whiteSpace: 'pre-line',
+    left: pos?.left ?? 0, top: pos?.top ?? 0, width: pos?.width ?? 'min(380px,calc(100vw - 32px))', maxHeight: pos?.maxHeight, visibility: pos ? 'visible' : 'hidden',
     padding: '8px 12px', borderRadius: 8, background: 'rgba(8,11,14,.94)', color: '#E6EBEF', fontSize: 13, lineHeight: 1.4,
-    borderLeft: `4px solid ${bad ? '#FF8A80' : p[0] === 'ok' ? '#8CC8FF' : '#C9D3DB'}` }}>{p[1]}</div></InFs>;
+    borderLeft: `4px solid ${bad ? '#FF8A80' : p[0] === 'ok' ? '#8CC8FF' : '#C9D3DB'}` }}>{merged ? `${p[1]}\n${tt}` : p[1]}</div></InFs>;
 }
 // 글자 입력 중(입력칸·여러 줄·고르기·편집 가능 영역·한글 조합 중)인 키는 단축키로 쓰지 않는다. STOP 버튼은 언제나 동작.
 const typing = (e: KeyboardEvent) => { const t = e.target as HTMLElement | null; return !!(e.isComposing || e.keyCode === 229 || (t && t.nodeType === 1 && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))); };
