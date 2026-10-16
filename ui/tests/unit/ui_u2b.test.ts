@@ -64,6 +64,8 @@ const click = async (i: number) => { await React.act(async () => { btns()[i].pro
 const pickW = async (w: string) => { await React.act(async () => { sel().props.onChange({ target: { value: w } }); }); };
 const settle = async () => { for (let i = 0; i < 4; i++) await React.act(async () => { await Promise.resolve(); }); };
 const READ = ['map_list', 'map_get', 'map_live_get', 'geom_get'];
+const { renderToStaticMarkup } = await import('react-dom/server');
+const PcView = (await import('../../src/screens/PcMap.view')).View;
 
 test('실행 중 2층 건물 SLAM — 지형 기본 = 실행 지형 · 2D=층 나란히 · 3D=입체 기하 · SLAM=실시간 · 눌림은 지금 보기 · 읽기 op 만', async () => {
   link(SESS('slam')); await mount(MAPS);
@@ -129,7 +131,11 @@ test('R3 같은 저장 시각: 글자 순(e9>e10) 아님 · 고정 규칙(epoch 
   link(SESS('static')); await mount(T);
   await click(2);
   expect(R.asked.filter((a) => a.op === 'map_get').pop()!.x).toEqual({ building_id: 'v5', floor_id: 'l1', map_version: '20261013-080000-e10' });
-  expect(msg()).toBe('같은 저장 시각 3개 — 선후 모름 · 고정 규칙(epoch 큰 것 → 층 순)으로 1층 · SLAM 저장 지도 · 20261013-080000-e10 표시');
+  const T0 = '같은 저장 시각 3개 — 선후 모름 · 고정 규칙(epoch 큰 것 → 층 순)으로 1층 · SLAM 저장 지도 · 20261013-080000-e10 고름';
+  await settle(); expect([msg(), R.p.raster]).toEqual([`${T0} · 받기 실패 — 그림 없음(가운데 이유)`, null]);   // G2: 받기 실패에 «표시» 단정 0 · 선택(눌림)은 유지
+  expect(st()[2]).toBe('SLAM:on');
+  R.mapOk = true; await click(2); await settle();
+  expect([msg(), R.p.raster?.label]).toEqual([`${T0} · 표시 중`, '2층 건물 · 1층 · SLAM 저장 지도 · 20261013-080000-e10']);   // 정상 그림 받은 뒤에만 «표시 중»
   await pickW('v5_single');
   expect([R.asked.filter((a) => a.op === 'map_get').pop()!.x.map_version, msg()]).toEqual(['20261014-000000-e1', null]);   // 더 늦은 시각 = e1 이라도 최신 · 동률 아님 = 글 0
 });
@@ -143,4 +149,16 @@ test('SLAM 실행이 아닐 때(저장 지도 시뮬·꺼짐) = 그 지형 최�
   await React.act(async () => { R.p.view('v5_single/f1/gt-20261001'); }); expect(sel().props.value).toBe('v5_single');   // 목록 전 저장본 보기 = 지형은 키에서(«지형 고르기» 아님)
   await pickW('v5_building'); expect([sel().props.value, st()]).toEqual(['v5_building', ['2D:off(저장 지도 목록 받는 중)', '3D:on', 'SLAM:off(저장 지도 목록 받는 중)']]);   // 2D/SLAM 못 고름 → 3D
   expect(R.sent).toEqual([]);
+});
+
+test('G1 배치: bar = 흐름 줄(absolute 0) · 실제 PcMap View 에서 도구줄 뒤·그림 칸(position:relative) 앞 · 그림 칸 밖(3D 층 단추·캔버스 층 이름·오른쪽 단추와 다른 상자)', async () => {
+  link(SESS('slam')); await mount(MAPS);
+  expect([R.p.bar.props.style.position, R.p.bar.props.style.zIndex]).toEqual([undefined, undefined]);
+  const s = renderToStaticMarkup(React.createElement(PcView, { v: { mapBar: R.p.bar, map: React.createElement('i', { 'data-pic': '' }) } }));
+  const i = { tb: s.indexOf('role="toolbar"'), bar: s.indexOf('data-mapview-bar'), rel: s.indexOf('<div style="position:relative">'), pic: s.indexOf('data-pic') };
+  expect(i.tb >= 0 && i.tb < i.bar && i.bar < i.rel && i.rel < i.pic).toBe(true);
+  expect(s.slice(i.bar, i.rel).endsWith('</span></span>')).toBe(true);   // bar 상자(단추 묶음 포함)가 그림 칸 열리기 전에 닫힘
+  expect(s.match(/data-mapview-bar/g)!.length).toBe(1);
+  const src = Object.values(import.meta.glob<string>('../../src/screens/PcMap.tsx', { query: '?raw', import: 'default', eager: true }))[0];   // PcMap 연결(장착 렌더 시험 없음 — 소스 계약만): bar 는 mapBar 로만, 그림 칸(map)엔 없음
+  expect([src.includes('mapBar: bar,'), /map: <>\{bar\}/.test(src)]).toEqual([true, false]);
 });

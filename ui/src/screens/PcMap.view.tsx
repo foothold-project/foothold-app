@@ -256,6 +256,7 @@ export function View({ v }: { v: Vals }) {
                 {" "}
               </div>
               {" "}
+              {v.mapBar ?? null}
               <div style={{"position":"relative"}}>
                 {" "}
                 {v.map ?? null}

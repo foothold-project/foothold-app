@@ -94,8 +94,9 @@ export default function PcMap() {
       { 'aria-pressed': !mv && !!E.id && !dr, disabled: mv, onClick: () => mv ? toast(LOCK) : E.id ? (zn.current?.focus(), zn.current?.select()) : toast('먼저 지도나 목록에서 구역을 고르세요') },   // R28: 함수 반환만 하던 분기 → 즉시 실행
       { hidden: true, 'aria-hidden': true, tabIndex: -1 }],   // B2 R11: 미연결 지우개 숨김
     v3P: { hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11/R31: 3D 점군은 관제 보조 뷰에만 — 여기 고르기 숨김
-    map: <>{bar}{v3d || <MapCanvas name="pcmap" lean btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}
-      raster={raster} blank={blank} flat={flat} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />}</>,   // U2-b: 왼쪽 위 지형+2D/3D/SLAM(보기만)
+    mapBar: bar,   // G1: 지도 그림 칸 밖(View 가 도구줄 아래에 둠)
+    map: <>{v3d || <MapCanvas name="pcmap" lean btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}
+      raster={raster} blank={blank} flat={flat} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />}</>,
     gL: mv ? '로봇·지나온 길·구역·그리던 초안은 숨김(초안은 보존). 구역 편집은 «실행 중 시뮬 바닥»으로 돌아가면 그대로 이어집니다.' : dr ? `지도를 눌러 꼭짓점 추가(3개 이상 · ${dr.pts.length}개) → 오른쪽에서 이름 넣고 저장. «구역 삭제»는 마지막 점 지우기. 끌면 지도 이동.`
       : '도구줄에서 진입 금지·감속 구역을 고른 뒤 지도를 눌러 그립니다. 지도의 구역을 누르면 고칠 수 있습니다.',
     zColor: { background: `var(--${ty === '감속' ? 'warn' : 'bad'})`, borderColor: `var(--${ty === '감속' ? 'warn' : 'bad'})` },
