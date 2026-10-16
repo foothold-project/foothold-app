@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { CSS, View } from './PcHistory.view';
 import { LV, fmtT, saveBlob, themeClass } from '../data/fmt';
 import { docsSt, mediaSt, reread, useDocs, useMedia } from '../data/shared';
-import { histCSV, histFilter, histRows, href, srcGaps, TAB_F, type HF, type Row, type Tab } from '../data/hist';
+import { histCSV, histFilter, histRows, href, SEV, SEV0, srcGaps, TAB_F, type HF, type Row, type Tab } from '../data/hist';
 import { LiveStatus, MediaStale, localT } from '../app/status';
 import { stopProps, toast, useRoute } from '../app/shell';
 
@@ -13,8 +13,8 @@ const TABS: [Tab, string, string][] = [['임무', '임무', 'mission'], ['사진
 const COLS: Record<Tab, string[]> = { '임무': ['일시', '임무', '양식', '운영자', '소요', '지점', '결과', '사진', '보고서'], '사진': ['일시', '분류', '위치', '찍은 사람', '메모', '사진'], '사건': ['일시', '사건', '심각도', '상세'] };
 const RIGHT = new Set(['소요', '지점', '사진']);
 const PH: Record<Tab, string> = { '임무': '임무 이름 · 양식 · 메모', '사진': '위치 · 메모', '사건': '사건 문장 · 원문' };
-const NOTE: Record<Tab, string> = { '임무': '임무 기록 전부(서버 문서)', '사진': '받은 최근 사진 200장 안에서', '사건': '받은 최근 사건 300건 안에서(정보 사건 제외)' };
-const F0: HF = { q: '', per: '최근 30일', tpl: '', res: '모든 결과', by: '' };
+const NOTE: Record<Tab, string> = { '임무': '임무 기록 전부(서버 문서)', '사진': '받은 최근 사진 200장 안에서', '사건': '받은 최근 사건 300건 안에서' };
+const F0: HF = { q: '', per: '최근 30일', tpl: '', res: '모든 결과', by: '', sev: SEV0 };
 
 export default function PcHistory() {
   const D = useDocs(), M = useMedia(), { q: rq, setQ } = useRoute();
@@ -36,7 +36,7 @@ export default function PcHistory() {
   const kinds = TABS.map(([k, l]) => `${l} ${every.filter((r) => r.kind === k).length}`).join(' · ');
   const pages = Math.max(1, Math.ceil(rows.length / N)), pg = Math.min(page, pages - 1), s0 = Math.max(0, Math.min(pg - 2, pages - 5));
   const opts = (first: string | null, vals: string[]) => <>{first != null && <option value="">{first}</option>}{vals.map((x) => <option key={x} value={x}>{x}</option>)}</>;
-  const hide = (k: 'tpl' | 'res' | 'by') => (on.includes(k) ? {} : { hidden: true, 'aria-hidden': true, tabIndex: -1 });
+  const hide = (k: 'tpl' | 'res' | 'by' | 'sev') => (on.includes(k) ? {} : { hidden: true, 'aria-hidden': true, tabIndex: -1 });
   const pb = (t: string, p: number, lab?: string, cur?: boolean) => {
     const off = p < 0 || p >= pages;
     return <button key={`${t}${p}`} className="btn" aria-label={lab} aria-current={cur ? 'page' : undefined} disabled={off} onClick={() => setPage(p)}
@@ -66,7 +66,7 @@ export default function PcHistory() {
           <a className="btn" href={href('PcPlan')} title="임무 계획에서 계획을 고르고 «수동 진행 시작»" style={{ textDecoration: 'none' }}>임무 시작</a></span>))
       : one(dk ? '해당 기록 없음(보관 자료 기준)' : '해당 기록 없음'))
     : !M.ok ? (M.err ? why(`${M.err} — ${tab === '사진' ? '관찰 사진' : '사건'} 유무 미확인`, 'media') : one('서버 기록 읽는 중…'))
-      : !all.some((r) => r.kind === tab) ? (mk ? why(`${old(M.at)}에 ${tab === '사진' ? '관찰 사진' : '경고·위험 사건'} 0 — 지금 유무 미확인`, 'media') : one(tab === '사진' ? '받은 관찰 사진 없음' : '받은 경고·위험 사건 없음'))
+      : !all.some((r) => r.kind === tab) ? (mk ? why(`${old(M.at)}에 ${tab === '사진' ? '관찰 사진' : '사건'} 0 — 지금 유무 미확인`, 'media') : one(tab === '사진' ? '받은 관찰 사진 없음' : '받은 사건 없음'))
       : one(mk ? '해당 기록 없음(보관 자료 기준)' : '해당 기록 없음');
   const st = (fn: (r: Row) => boolean) => runs.filter(fn).length, bad = M.events.filter((e) => e.st === 'bad').length, warn = M.events.filter((e) => e.st === 'warn').length;
   const wait = ph.filter((r) => r.wait).length;
@@ -87,6 +87,7 @@ export default function PcHistory() {
     sPer: { p: { value: f.per, onChange: set('per') }, o: opts(null, ['최근 30일', '오늘', '최근 7일', '전체']) },
     sTpl: { p: { value: hf.tpl, onChange: set('tpl'), ...hide('tpl') }, o: opts('모든 양식', tpls) },
     sRes: { p: { value: f.res, onChange: set('res'), ...hide('res') }, o: opts(null, ['모든 결과', '완료', '진행', '실패 · 중단']) },
+    sSev: { p: { value: f.sev, onChange: set('sev'), ...hide('sev') }, o: opts(null, Object.keys(SEV)) },   // U2-a: 사건 탭만 보임 · 기본 위험·경고
     sBy: { p: { value: hf.by, onChange: set('by'), ...hide('by') }, o: opts(tab === '사진' ? '모든 찍은 사람' : '모든 운영자', bys) },
     // CSV: 행수는 실제 배열. 자료를 못 받은 탭은 0행 저장 대신 끔(이유는 표 안 «다시 읽기»), 보관·분류 미확인·빠진 소스는 글자·title·토스트·파일명에 표시
     exT: noSrc ? `${tLabel} 탭 CSV · 자료 못 읽음` : `${tLabel} 탭 CSV · ${rows.length}행${tabGap ? ` · ${tabGap}` : ''}`,

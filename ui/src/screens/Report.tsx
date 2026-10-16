@@ -7,7 +7,7 @@ import { MapCanvas } from '../map/MapCanvas';
 import { LV, durTxt, fmtT, saveBlob, wpName } from '../data/fmt';
 import { docById, docsOf, noteOf, useDocs, useMedia } from '../data/shared';
 import { MediaStale } from '../app/status';
-import { histCSV, histRows, href, runRows, srcGaps } from '../data/hist';
+import { histCSV, histRows, href, runRows, sevKeep, srcGaps } from '../data/hist';
 import { stopProps, toast, useRoute } from '../app/shell';
 import { mcasTxt } from '../data/run';
 
@@ -66,10 +66,10 @@ export default function Report() {
             : <option value="">{D.err ? '기록 읽기 실패 · 미확인' : '수동 임무 기록 없음'}</option>}
         </select>
         <button type="button" className="lv-btn pri" onClick={() => print()}>인쇄</button>
-        <button type="button" className="lv-btn" disabled={!run} onClick={() => { if (!run) return; const rs = runRows(histRows(D, M, true), run);
+        <button type="button" className="lv-btn" disabled={!run} onClick={() => { if (!run) return; const rs = runRows(histRows(D, M, true).filter((r) => sevKeep(r)), run);
           toast(saveBlob(`foothold-v2-run-${run.id}-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `임무 «${run.doc.name}» · ${rs.length}행 · ${x}`)); }}>{run ? `이 임무 CSV · «${run.doc.name}»` : '이 임무 CSV'}</button>
         {/* 소스를 못 읽었거나 보관이면 «완전한 전체»로 표기하지 않음(받은 행만 내보내는 기능은 그대로) */}
-        <button type="button" className="lv-btn" title={gaps.length ? `완전한 전체 기록 아님 — ${gaps.join(' · ')}` : undefined} onClick={() => { const rs = histRows(D, M, true);
+        <button type="button" className="lv-btn" title={gaps.length ? `완전한 전체 기록 아님 — ${gaps.join(' · ')}` : undefined} onClick={() => { const rs = histRows(D, M, true).filter((r) => sevKeep(r));
           toast(saveBlob(`foothold-v2-history-${gaps.length ? 'partial' : 'all'}-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `${gaps.length ? `일부 기록(${gaps.join(' · ')})` : '전체 기록'} · ${rs.length}행 · ${x}`)); }}>{gaps.length ? '받은 기록 CSV · 일부' : '전체 기록 CSV'}</button>
         <a className="lv-btn" href={href('PcHistory')}>기록 화면</a>
         <MediaStale M={M} D={D} />

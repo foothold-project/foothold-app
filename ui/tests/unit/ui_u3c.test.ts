@@ -101,12 +101,12 @@ test('P3 사진·사건 못 읽음: 0 단정·0행 정상 CSV 0 · 이유 + 다�
   for (const tab of ['사진', '사건']) {
     const s = html(PcHistory, tab);
     expect(s).toContain(`서버 기록 읽기 실패 · HTTP 502 — ${tab === '사진' ? '관찰 사진' : '사건'} 유무 미확인`);
-    expect(s).not.toContain('받은 관찰 사진 없음'); expect(s).not.toContain('받은 경고·위험 사건 없음');
+    expect(s).not.toContain('받은 관찰 사진 없음'); expect(s).not.toContain('받은 사건 없음');
     expect(s).toMatch(new RegExp(`<button[^>]*disabled=""[^>]*>${tab === '사진' ? '관찰 사진' : '사건'} 탭 CSV · 자료 못 읽음<`));
     expect(s).toContain('받은 기록 CSV · 1행 · 일부'); expect(s).toContain('사진·사건 못 읽음');
   }
   set('ok', 'stale', [], { photos: [], events: [] }); const s = html(PcHistory, '사건');
-  expect(s).toMatch(/보관 자료\(마지막 받음 [^)]+ · 재조회 실패\)에 경고·위험 사건 0 — 지금 유무 미확인/);
+  expect(s).toMatch(/보관 자료\(마지막 받음 [^)]+ · 재조회 실패\)에 사건 0 — 지금 유무 미확인/);
 });
 
 test('srcGaps · MAlerts: 문서 이상이면 «분류 대기» 항목 0, 정상이면 유지', () => {

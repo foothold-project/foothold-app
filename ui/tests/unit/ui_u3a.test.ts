@@ -14,7 +14,7 @@ const React = await import('react');
 const { renderToStaticMarkup } = await import('react-dom/server');
 const { QueryClientProvider } = await import('@tanstack/react-query');
 const { evShow } = await import('../../src/data/facts');
-const { histRows, histCSV } = await import('../../src/data/hist');
+const { histRows, histCSV, sevKeep } = await import('../../src/data/hist');
 const { alertKey, markRead, unreadOf } = await import('../../src/data/alerts');
 const { qc } = await import('../../src/data/shared');
 const MAlerts = (await import('../../src/screens/MAlerts')).default;
@@ -62,8 +62,9 @@ const D = { list: [], rev: 0, err: '' };
 beforeEach(() => { mem.clear(); qc.clear(); qc.setQueryData(['media'], { photos: [], events: [X, Y, Z, U] }); qc.setQueryData(['docs'], { docs: [], rev: 0 }); R.q = new URLSearchParams(); });
 
 test('기록 행: title·href·CSV 는 원문, show 만 표시 문장 · 같은 at 다른 원문은 두 행', () => {
-  const rows = histRows(D as any, M([X, Y, Z, U, ev('조종권 얻음 · 이 기기', 'ok')]) as any, true);
-  expect(rows.map((r) => r.title)).toEqual([X.text, Y.text, Z.text, U.text]);   // ok 사건은 기존대로 기록에서 뺌
+  const raw = histRows(D as any, M([X, Y, Z, U, ev('조종권 얻음 · 이 기기', 'ok')]) as any, true), rows = raw.filter((r) => sevKeep(r));
+  expect(raw.length).toBe(5);   // U2-a: ok(정보) 사건도 행으로 남고 기본 심각도(sevKeep)가 뺌
+  expect(rows.map((r) => r.title)).toEqual([X.text, Y.text, Z.text, U.text]);
   expect(rows.map((r) => r.show)).toEqual(['STOP · 입력 차단·잠금', 'STOP · 입력 차단·잠금', '넘어짐', U.text]);
   expect(rows.map((r) => r.sub)).toEqual(Array(4).fill('서버 사건 원문'));
   expect(rows[0].href).not.toBe(rows[1].href);

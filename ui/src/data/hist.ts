@@ -11,7 +11,7 @@ export const href = (screen: string, q: Record<string, string> = {}) => `#/${scr
 
 export function histRows(D: Docs, M: Media, pc: boolean): Row[] {
   const rows: Row[] = [];
-  for (const e of M.events) if (e.st !== 'ok') rows.push({ at: e.at, kind: '사건', lvl: e.st, title: e.text, show: evShow(e.text), res: ({ bad: '위험', warn: '경고', ok: '정보' } as any)[e.st] || e.st, sub: '서버 사건 원문', by: '서버', href: href('MAlert', { at: e.at, t: e.text }) });
+  for (const e of M.events) rows.push({ at: e.at, kind: '사건', lvl: e.st, title: e.text, show: evShow(e.text), res: ({ bad: '위험', warn: '경고', ok: '정보' } as any)[e.st] || e.st, sub: '서버 사건 원문', by: '서버', href: href('MAlert', { at: e.at, t: e.text }) });
   // 분류는 문서(note)에서 온다. 문서가 정상일 때만 «note 없음 = 미분류·분류 대기». 못 읽음·저장소 오류·읽는 중이면 «분류 미확인»(대기 아님),
   // 보관(옛 목록 + 재조회 실패)이면 옛 분류값에 «(보관)» — 현재값 확정·새 추정 0. 보관 시각은 MediaStale 이 따로 보인다.
   const dk = docsSt(D);
@@ -42,9 +42,14 @@ export const histCSV = (rs: Row[]) => csvOf(['at', 'kind', 'level', 'title', 're
 // 탭 필터(양식·결과·운영자)는 그 값이 있는 종류에만: 양식·결과 = 임무, 운영자 = 임무·사진(사건 by '서버'는 기기 신원 아님 → 제외).
 // 검색 = 원문(title·sub·extra) + 사건 표시 문장(show). 행은 한 번만. tab = 현재 탭 행, every = 탭 종류 제한만 뺀 같은 조건(전체 기록 CSV).
 export type Tab = '임무' | '사진' | '사건';
-export type HF = { q: string; per: string; tpl: string; res: string; by: string };
+export type HF = { q: string; per: string; tpl: string; res: string; by: string; sev?: string };
+// U2-a(10-16): 사건 심각도 거르기 — 위험(bad)·경고(warn)·정보(ok). 기본 = 정보 아님(옛 histRows 사전 제외와 같은 결과 · 알 수 없는 st 도 남김).
+//   사건 행에만, 탭과 무관하게 적용(다른 탭에선 늘 기본값 — go() 가 F0 로 되돌림). 원문 title·at·href(키)·CSV 열은 그대로.
+export const SEV0 = '위험·경고';
+export const SEV: Record<string, (lvl: string) => boolean> = { '위험·경고': (l) => l !== 'ok', '위험': (l) => l === 'bad', '경고': (l) => l === 'warn', '정보': (l) => l === 'ok', '모두': () => true };
+export const sevKeep = (r: Row, sev = SEV0) => r.kind !== '사건' || (SEV[sev] ?? SEV[SEV0])(r.lvl);
 export const PERIOD: Record<string, number> = { '오늘': 1, '최근 7일': 7, '최근 30일': 30 };   // '전체' = 기간 제한 없음
-export const TAB_F: Record<Tab, ('tpl' | 'res' | 'by')[]> = { '임무': ['tpl', 'res', 'by'], '사진': ['by'], '사건': [] };
+export const TAB_F: Record<Tab, ('tpl' | 'res' | 'by' | 'sev')[]> = { '임무': ['tpl', 'res', 'by'], '사진': ['by'], '사건': ['sev'] };
 export const RUN_RES: Record<string, (r: Row) => boolean> = { '완료': (r) => r.st === '완료', '진행': (r) => r.st === '진행', '실패 · 중단': (r) => /실패|중단/.test(r.st || '') };
 export function histFilter(all: Row[], tab: Tab, f: HF, now = Date.now()) {
   const on = TAB_F[tab], days = PERIOD[f.per], qq = f.q.trim();
@@ -52,7 +57,8 @@ export function histFilter(all: Row[], tab: Tab, f: HF, now = Date.now()) {
     && (!qq || `${r.title} ${r.sub} ${r.extra || ''} ${r.show || ''}`.includes(qq))
     && (!on.includes('tpl') || !f.tpl || r.kind !== '임무' || r.tmpl === f.tpl)
     && (!on.includes('res') || !RUN_RES[f.res] || r.kind !== '임무' || RUN_RES[f.res](r))
-    && (!on.includes('by') || !f.by || r.kind === '사건' || r.by === f.by);
+    && (!on.includes('by') || !f.by || r.kind === '사건' || r.by === f.by)
+    && sevKeep(r, f.sev);
   const every = all.filter(ok);
   return { tab: every.filter((r) => r.kind === tab), every };
 }
