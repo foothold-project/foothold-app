@@ -4,15 +4,27 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `53aba2f5db70f9acaecc3f46499de24cb02e6cd2` (`less82/app-ui-react-recovered`) | `ui` = `c7797d402bcb3bf90089918e3ff70d2286d5752c` | 그대로 |
-| `mobile/**` | `926d5494c30c272ceefc92c04baaa12e856421f4` (`less82/app-contract-storage`) | `mobile` = `81ca7ec527fec6084d3e91c2dfcea45f7d314c5b` | 파일 단위 변경 0 |
+| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `e8256009c78fbe6c1fbbc18445b13ff8ec7ebe9b` (`less82/app-ui-react-recovered`) | `ui` = `1f6904a454964604d9d4029506c78ccee73a4994` | 그대로 |
+| `mobile/**` | `2a4dc56e6315c7e7da7ce650daf051a3473e1f7b` (`less82/app-contract-storage`) | `mobile` = `c6988f72a6ff1814c1bb0a7b41f778220cb99592` | 파일 단위 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md` 맨 앞 «현재 통합 개발판» 안내(기존 본문 그대로, «기존 웹 구현 기록»으로 구분) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 53aba2f5db70f9acaecc3f46499de24cb02e6cd2 HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only e8256009c78fbe6c1fbbc18445b13ff8ec7ebe9b HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
-## 검증 실행 범위 — Android 개발 APK `dev-20261015-viewfix` (10-15)
+## 검증 실행 범위 — Android 개발 APK `dev-20261016-simplify` (10-16)
+
+APK 출처: **APK = frozen 화면 파일(UI `e825600`, 화면 파일 174개 — `.map` 33 제외 141개가 번들) + native(`mobile/` 위 트리)만.** 이 브랜치의 `server/`·`sim/`·`contracts/` 는 APK 에 들어가지 않고, 이 통합에서 실행·운영 반영하지 않는다. 통합 뒤 backend 쪽 파일이 바뀌어도 APK 내용과 무관하다.
+
+| 무엇 | 대상 | 결과 | 범위·한계 |
+|---|---|---|---|
+| UI 코드 좁은 검토 | UI `e825600`(직전 `055824d` 대비 6파일 +76/−11) | 지정 범위 통과 | UI 단위 시험 영향 21파일 166/166 · 전체 44파일 369/369 · 빌드 exit 0 은 UI 쪽 제출 기록(이 통합에서 재실행 0) |
+| UI 화면 QA | UI `e825600` 웹 화면 · Chrome 화면 폭 1440·1280·390·844 · 격리 시험 서버·가짜 생산자 | 지정 범위 새 차단 0 | 남은 관찰: PC 첫 화면 «설정» 메뉴 아래로 밀림(스크롤 접근 가능) · 사건 기록 아래로 감(배치 요청대로) · 큰 칸(PIP)·전체화면 누름 미측정. 관제 STOP 사각형 높이 52 px(지도 화면 64 px 검사와 별개). 실 로그인·명령·로봇 정지 범위 밖 |
+| 운영 서버 호환 | UI `e825600` ↔ 운영 기준판 `5f39a23` | 소스 읽기 대조 일치 | `sim`·`server`·`contracts`·`tools`·`ui/package.json`·잠금 파일 트리 해시 같음 · 화면 송신 명령·HTTP 경로·문서 판 번호 필드 같음 · 네이티브 플러그인 호출면 `53aba2f` 와 같은 7종. 운영 실제 응답·지금 운영 판 재확인은 범위 밖 |
+| APK 구조 대조 | `foothold-android-dev-20261016-simplify.apk`(이 통합 뒤 빌드) | 빌드 뒤 기록 | — |
+| 실APK 실행(에뮬) | 위 APK | 실행 0 | 디스크 여유가 에뮬 조건(8192 MiB)에 못 미침 |
+
+### 직전 공개 판 — Android 개발 APK `dev-20261015-viewfix` (10-15)
 
 | 무엇 | 대상 | 결과 | 범위·한계 |
 |---|---|---|---|
