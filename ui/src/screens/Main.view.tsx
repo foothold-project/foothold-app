@@ -1002,6 +1002,7 @@ export function View({ v }: { v: Vals }) {
                 {" "}
               </>) : null}
               {" "}
+              {v.runPanel ?? null}
               <div style={{"background":"var(--panel)","border":"1px solid var(--line)","borderRadius":"10px","padding":"12px 12px 4px","display":"flex","flexDirection":"column"}}>
                 {" "}
                 <div style={{"display":"flex","alignItems":"center","gap":"8px","paddingBottom":"8px"}}>

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
 import { STOP_TIP, TERMS, TRIAL, WHY, evShow } from '../data/facts';
-import { camChip, HeadChips } from '../app/status';
+import { camChip, HeadChips, SimRun } from '../app/status';
 import { Chip, DirTag, Help, SafeLine } from '../app/chip';
 import { camURL, driveBlock, dropAll, linkView, press, lift, sendOp, startBlock, startDrive, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
@@ -43,7 +43,8 @@ export default function Main() {
   const box = useRef<HTMLDivElement>(null);
   const [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
-  const { raster, pickEl, pose, on, blank, flat } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0
+  const [mp, setMp] = useState(''), msl = docsOf(D, 'mission'), mSel = msl.some((m) => m.id === mp) ? mp : '';   // U2-c 오른쪽 «임무»: 고른 저장 임무(이 화면 메모리만 · 문서·op 0) → «임무 시작» 링크가 임무 계획에서 그 계획을 엶
+  const { raster, pickEl, pose, on, blank, flat } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0 · U2-c: 오른쪽 «지도 보기» 칸(지도 칸 위 겹침 0)
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
   useEffect(autoProvider, []);   // 실기 우선: Go2Direct 플러그인 있는 판에서만 처음 한 번(연결·명령 0)
   const rtt = useGateRtt();   // ⑥ 앱↔관문 왕복(보일 때만 5 s)
@@ -142,15 +143,12 @@ export default function Main() {
       rgbExtra={<button type="button" className="lv-btn" style={{ position: 'absolute', left: 8, bottom: 8 }} title="지금 영상 프레임을 사진으로(촬영 시각·시뮬 위치 기록)" onClick={photo}>사진 찍기</button>}
       map={(q) => <>
         <MapCanvas name="main" lean small={q === 'thumb'} btns={q !== 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
-          raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on && here.ok ? R.wps : null} />
-        {q !== 'thumb' && pickEl}</>} />,
+          raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on && here.ok ? R.wps : null} /></>} />,
     stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist != null ? `${dist.toFixed(1)} m` : here.ok ? '미확인' : `표시 안 함(${here.why})`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
     steps: R ? R.wps.map((x, i) => ({ n: i + 1, title: x.name || `지점 ${i + 1}`, cls: x.st === '방문' ? 'done' : x.st === '미방문' ? 'hold' : i === ci ? 'now' : '',
       sub: x.st === '방문' ? `방문 ${fmtT(x.at).slice(6)} · 사진 ${x.photos.length}${x.chk ? ` · ${x.chk}` : ''}` : x.st === '미방문' ? `미방문 · ${x.why}`
         : i === ci ? `기록 차례${x.photos.length ? ` · 사진 ${x.photos.length}` : ''}${x.chk ? ` · ${x.chk}` : ''} · 직접 조종` : '대기' })) : [],
     afterSteps: <>
-      {R ? <a href={href('PcPlan', R.mission ? { mission: R.mission } : {})} style={{ color: 'var(--accent)', fontSize: '13px', padding: '4px 2px' }}>{`계획 보기 · «${R.name}»(임무 계획)`}</a>
-        : <a className="btn" href={href('PcPlan')} title="임무 계획에서 계획을 고르고 «수동 진행 시작»" style={{ alignSelf: 'flex-start', textDecoration: 'none' }}>임무 시작</a>}
       <details data-dev style={{ padding: '4px 2px', fontSize: '13px' }}><summary style={{ cursor: 'pointer', minHeight: '32px', color: 'var(--accent)' }}>상태 상세 · 서버 원값 펼치기</summary>
         <dl style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '2px 14px', margin: '8px 0 0' }}>
           {[...stateRows(L), ['배터리·온도', '미연결'], ['앱↔관문', rtt.txt], ['지도 레이어 미연결', `측정값·통신 품질 — ${WHY['가스·측정값·통신 품질']} · 발견물 — ${WHY['AI 탐지·발견물 판독']}`]].map(([a, b]) => [<dt key={a} style={{ color: 'var(--muted)' }}>{a}</dt>, <dd key={`${a}v`} style={{ margin: 0 }}>{b}</dd>])}</dl>
@@ -195,6 +193,17 @@ export default function Main() {
     askActs: run ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{R && <WpActs id={run.id} R={R} i={ci} />}<EndRow id={run.id} /></div> : null,
     // 사건 기록: 서버 최근 5건(U3-a 표시 문장 · 원문은 기록 → 사건 상세)
     panelAsk: !!run,   // U2: 진행 중 임무가 없으면 «이 지점에서 할 일» 카드 숨김
+    // U2-c: 오른쪽 열 = 시뮬 실행(«시뮬 ▾»와 같은 SimRun — 조건·확인창·리셋·끄기 그대로) · 지도 보기(보기만 · 읽기 op) · 임무(저장 계획 고르기 → 임무 계획) · 그 아래 사건 기록
+    runPanel: <div data-runpanel="" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+      {L.provider === 'simulation_gate' && <section aria-label="시뮬 실행" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>시뮬 실행</span><SimRun /></section>}
+      <section aria-label="지도 보기(보기만)">{pickEl}</section>
+      <section aria-label="임무" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>임무</span>
+        {R ? <a href={href('PcPlan', R.mission ? { mission: R.mission } : {})} style={{ color: 'var(--accent)', fontSize: '13px', padding: '4px 2px' }}>{`계획 보기 · «${R.name}»(임무 계획)`}</a>
+          : <><select className="inp" aria-label="저장 임무 고르기(고르기만 · 시작 아님)" value={mSel} onChange={(e) => setMp(e.target.value)}>
+              <option value="">{D.err ? `저장 임무 목록 · ${D.err}` : msl.length ? '저장 임무 고르기' : '저장 임무 없음 — 임무 계획에서 만들기'}</option>
+              {msl.map((m) => <option key={m.id} value={m.id}>{`${m.doc.name} · 지점 ${m.doc.wps.length}`}</option>)}</select>
+            <a className="btn" href={href('PcPlan', mSel ? { mission: mSel } : {})} title="임무 계획에서 계획을 고르고 «수동 진행 시작»" style={{ alignSelf: 'flex-start', textDecoration: 'none' }}>임무 시작</a></>}
+      </section></div>,
     evLink: '전체 기록 ›', evHref: href('PcHistory'),
     events: (st ? st.events : []).slice(0, 5).map((e) => ({ t: e.t, st: e.st, mark: MARK[e.st] || '·', text: evShow(e.text) }))   // U3-a §3 표시 문장 — 원문은 기록 → 사건 상세,
   };

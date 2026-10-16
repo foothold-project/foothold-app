@@ -122,10 +122,10 @@ test('U2-b 보완 B2: 로봇 중심 버튼 이유 — 그림 없음 / 결속 없
 });
 
 
-test('U2-b 지도 보기(overlay=Main 만): 라벨 + ? · 보는 지도 ≠ 실행 지도 + ?(원문) · 선택지에 GT 0', () => {
-  expect(pickSrc).toMatch(/\{overlay \? <span[^>]*>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로<\/Help>/);
-  expect(pickSrc).toMatch(/\{diff && overlay && <span[^>]*>보는 지도 ≠ 실행 지도<Help [^>]*>\{diff\}<\/Help>/);
-  const sel = pickSrc.slice(pickSrc.indexOf('{overlay ? <select'), pickSrc.indexOf('</select>'));
+test('U2-b 지도 보기(drop=Main 만 · U2-c 이름): 라벨 + ? · 보는 지도 ≠ 실행 지도 + ?(원문) · 선택지에 GT 0', () => {
+  expect(pickSrc).toMatch(/\{drop \? <span[^>]*>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로<\/Help>/);
+  expect(pickSrc).toMatch(/\{diff && drop && <span[^>]*>보는 지도 ≠ 실행 지도<Help [^>]*>\{diff\}<\/Help>/);
+  const i0 = pickSrc.indexOf('{drop ? <select'); expect(i0).toBeGreaterThan(0); const sel = pickSrc.slice(i0, pickSrc.indexOf('</select>', i0));
   expect(sel).not.toMatch(/GT|Gazebo|world/);
 });
 
@@ -217,8 +217,8 @@ test('U2-b 보완 P2: Main 좁은 지도 칸 — lean 만 data-mapnarrow · 지�
   const css: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');
   expect(canvasSrc).toMatch(/box\.dataset\.mapnarrow = mapNarrow\(o\.lean, o\.small, W, H\);/);   // M②: 식은 mapNarrow(아래 M② 시험)
   expect(canvasSrc.indexOf('box.dataset.mapnarrow')).toBeLessThan(canvasSrc.indexOf('if (o.blank != null && !o.raster)'));   // 그림 없음에도 배치 맞춤
-  expect(pickSrc).toMatch(/className=\{overlay \? 'lv-mappick' : undefined\}/);
-  expect(css).toMatch(/\[data-mapnarrow="1"\]>\.lv-mappick\{[^}]*max-width:calc\(100% - 84px\)!important/);
+  expect(pickSrc).not.toMatch(/lv-mappick|position: 'absolute', top: 8, left: 8/);   // U2-c: 지도 보기 = 관제 오른쪽 칸(지도 칸 안 겹침 0 · 아래 ui_u2c)
+  expect(css.replace('.lv-mappick 규칙 삭제', '')).not.toMatch(/lv-mappick/);
   expect(css).toMatch(/\[data-mapnarrow="1"\]>\.lv-mapbtns\{[^}]*width:68px/); expect(css).toMatch(/\[data-mapnarrow="1"\]>\.lv-mapbtns>\.lv-btn\{width:32px;min-height:32px/);
   expect(css).toMatch(/\[data-mapnarrow="1"\] \.lv-mapseg \.lv-btn\{min-height:32px/);
   // 세로 예산: 위 4 + 보기 방식 2칸 32·32 + 간격 4 + 확대·축소 32 = 104 ≤ 111(폰 2×2 실측 칸 높이)
@@ -301,13 +301,11 @@ test('M②: mapNarrow 크기별 — 폰 2×2 177×111 = 1 · 가로 4칸 354×65
 test('M②: CSS 예산 — row 한 줄(32 px · 지도 보기 100%−204) · PIP 크게 보기 지도 보기 폭에서 PIP 열 뺌 · 폰 세로 PIP = 44 px 92 px 열', async () => {
   const fsm = 'node:fs', css: string = (await import(/* @vite-ignore */ fsm)).readFileSync(new URL('../../src/live.css', import.meta.url), 'utf8');
   expect(css).toMatch(/\[data-mapnarrow="row"\]>\.lv-mapbtns\{[^}]*flex-direction:row/); expect(css).toMatch(/\[data-mapnarrow="row"\]>\.lv-mapbtns>\.lv-btn\{width:32px;min-height:32px/);
-  expect(css).toMatch(/\[data-mapnarrow="row"\] \.lv-mapseg \.lv-btn\{min-height:32px/); expect(css).toMatch(/\[data-mapnarrow="row"\]>\.lv-mappick\{[^}]*max-width:calc\(100% - 204px\)!important;max-height:calc\(100% - 8px\);overflow:auto/);
-  expect(css).toMatch(/\.qd\.f:not\(\.nopip\) \.qt\.on \.qb:not\(\[data-mapnarrow="1"\]\):not\(\[data-mapnarrow="row"\]\)>\.lv-mappick\{max-width:calc\(100% - var\(--tw\) - 206px\)!important\}/);
+  expect(css).toMatch(/\[data-mapnarrow="row"\] \.lv-mapseg \.lv-btn\{min-height:32px/);
   const m = css.slice(css.indexOf('@media (max-width:700px){   /* 폰 세로 크게 보기 + PIP')); expect(m.length).toBeGreaterThan(0);
-  expect(m).toMatch(/>\.lv-mapbtns\{width:92px;flex-direction:row;flex-wrap:wrap/); expect(m).toMatch(/>\.lv-mappick\{max-width:calc\(100% - var\(--tw\) - 122px\)!important\}/);
+  expect(m).toMatch(/>\.lv-mapbtns\{width:92px;flex-direction:row;flex-wrap:wrap/);
   expect(m.slice(0, m.indexOf('\n}'))).not.toMatch(/min-height:(?:\d|[0-3]\d|4[0-3])px|width:(?:\d|[0-3]\d|4[0-3])px;min-height/);   // 이 블록에서 버튼 44 px 미만 0(기존 크기 유지)
   // 예산(390 세로 크게 보기 + PIP): 칸 378 · --tw 104 → 버튼 열 오른쪽 끝 378−118=260 · 왼쪽 끝 168 / 지도 보기 8 + (378−104−122=152) = 160 < 168
-  const W = 378, tw = 104, btnL = W - (tw + 14) - 92, pickR = 8 + (W - tw - 122); expect(pickR).toBeLessThan(btnL);
   // 예산(가로 4칸 354×65 row): 버튼 = 보기 방식 2×58 + 4 + 32 + 4 + 32 = 188 + 오른쪽 4 → 왼쪽 끝 354−192 / 지도 보기 4 + (354−204) = 154 < 162 · 높이 32 + 4 ≤ 65
-  expect(4 + (354 - 204)).toBeLessThan(354 - 192); expect(4 + 32).toBeLessThanOrEqual(65);
+  expect(4 + 32).toBeLessThanOrEqual(65);
 });

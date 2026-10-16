@@ -92,7 +92,8 @@ test('② LAND_CSS: 고른 목표 안 스크롤·지도 최소 96 은 높이 조
 
 test('③ fit3d 는 MMap 만 명시(기본 거짓) · PcMap·Main·MDrive 호출 그대로', async () => {
   const mp = await rd('../../src/map/MapPick.tsx');
-  expect(mp).toContain('export function useMapPick(overlay = true, pc = false, fit3d = false)'); expect(mp).toContain('fit={fit3d}');
+  // U2-c: 첫 인자 이름 overlay → drop(뜻: 관제 오른쪽 칸 드롭다운)
+  expect(mp).toContain('export function useMapPick(drop = true, pc = false, fit3d = false)'); expect(mp).toContain('fit={fit3d}');
   expect(await rd('../../src/screens/MMap.tsx')).toContain('useMapPick(false, false, true)');
   expect(await rd('../../src/screens/PcMap.tsx')).toContain('useMapPick(false, true)');
   expect(await rd('../../src/screens/Main.tsx')).toContain('useMapPick()');

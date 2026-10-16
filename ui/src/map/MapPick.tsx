@@ -19,8 +19,8 @@ type Bound = { r: Raster; k: string; seq: number; gen: number; t: number };   //
 // 선택은 화면들이 공유(관제·조종·지도 화면을 오가도 사용자가 고른 것 유지). touched = 사용자가 한 번이라도 직접 고름 → 그 뒤 자동 선택 0
 const usePick = create<{ sel: string; touched: boolean; auto: boolean }>(() => ({ sel: '', touched: false, auto: false }));
 // on = 지도 보기 중(sel ≠ GT). 이때 부르는 쪽은 그림이 없어도 GT 로봇·길·구역·경유점·초안·탭 편집 0 + blank 이유를 그린다. GT 복귀는 사용자가 직접 고를 때만
-export function useMapPick(overlay = true, pc = false, fit3d = false) {   // fit3d: 3D 덧칸을 작은 지도 칸에 맞춤(670 a9db ③ · MMap 만 참)
-  // overlay=false: 서랍 안 등 흐름 배치(폰 — 지도 위 안내를 가리지 않게) → 건물별 목록. overlay(관제 작은 지도) = 기존 select. pc: 버튼 클래스
+export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d: 3D 덧칸을 작은 지도 칸에 맞춤(670 a9db ③ · MMap 만 참)
+  // drop=false: 건물별 목록(폰 서랍·PC 지도). drop(관제 오른쪽 «지도 보기» 칸 — U2-c 전엔 지도 칸 위 겹침) = select 드롭다운. pc: 버튼 클래스
   const GT = pc ? '시뮬 ' : 'GT ';   // U4-a(PcMap = pc 만): 운영 글의 «GT» → «시뮬»(v3 §3 «Gazebo GT 위치 → 시뮬 위치»). 뜻(센서·SLAM 아님)은 글·? 에 그대로. 폰·관제 글 무변경
   const [ow, setOw] = useState<string | null>(null), [of, setOf] = useState('');   // 목록에서 펼친 건물 · 그 안 층 탭(층 id·'all') — 화면만
   const [msg, setMsg] = useState<{ sel: string; t: string; tie?: boolean } | null>(null);   // U2-b 보완(715 R1·R3·R4): bar 안내 글(읽기 · 누름/터치/키보드로 보임) — 그 보기(sel)일 때만
@@ -236,14 +236,14 @@ export function useMapPick(overlay = true, pc = false, fit3d = false) {   // fit
         <span role="status" title={`${msg.t}${msg.tie ? tieR : ''}`} style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>
           {msg.tie ? `${!raster ? (serr ? '받기 실패' : '받는 중') : '표시 중'} · ${msg.t}` : msg.t}</span>   {/* 동률: 받기 결과(tieR 와 같은 말)를 앞에 — 말줄임에 안 잘림 */}
         <Help label="지도 보기 안내 · 전문">{`${msg.t}${msg.tie ? tieR : ''}`}</Help></span>)}</span>;
-  const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */ } : { width: '100%' };
-  const el = <span className={overlay ? 'lv-mappick' : undefined} style={{ ...sty, display: 'flex', flexDirection: 'column', gap: 4 }}>   {/* lv-mappick: Main 좁은 칸 배치(live.css [data-mapnarrow]) */}
-    {overlay ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* U2-b(Main 만 overlay) */
+  // U2-c: 모든 배치가 흐름(지도 칸 위 겹침 0) — 관제는 오른쪽 칸(drop), 폰 서랍·PC 지도는 목록
+  const el = <span style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
+    {drop ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* 관제(Main)만 drop */
       : pc ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기 · 화면만<Help label="지도 보기 · 설명">지도 보기는 화면만 바뀝니다 — 실제 world·층 전환·위치 맞추기 없음. 시뮬은 그대로이고, 실제 시뮬 지형·층은 «시뮬 ▾ → 지도 시뮬 열기»(끄고 새로 열기)로만 바뀝니다.</Help></span>   /* U4-a(PcMap): 아래 설명 문단 → ? */
       : <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기(화면만 · 시뮬은 그대로)</span>}
-    {overlay ? <select aria-label="지도 보기 선택(보기만 · 실제 시뮬 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 시뮬 지형·조종은 그대로" value={sel}
+    {drop ? <select aria-label="지도 보기 선택(보기만 · 실제 시뮬 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 시뮬 지형·조종은 그대로" value={sel}
       onFocus={load} onChange={(e) => pick(e.target.value)}
-      style={{ minHeight: overlay ? 32 : 44, minWidth: 0, maxWidth: '100%', font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
+      style={{ minHeight: drop ? 32 : 44, minWidth: 0, maxWidth: '100%', font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
       <option value="">{touched ? '시뮬 위치' : '시뮬 위치(지도 시뮬이 보이면 실시간 자동)'}</option>
       <option value={LIVE}>현재 열린 지도(실시간 매핑)</option>
       {Array.isArray(maps) && groupMaps(maps).map((g) => <optgroup key={g.w} label={`저장 지도 보기 · ${g.label}`}>
@@ -252,9 +252,9 @@ export function useMapPick(overlay = true, pc = false, fit3d = false) {   // fit
       {typeof maps === 'string' && <option disabled value="-">{`저장 지도 목록 · ${maps}`}</option>}
       {Array.isArray(maps) && !maps.length && <option disabled value="-">저장 지도 없음</option>}
     </select> : list}
-    {!overlay && <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--muted)' }}>{`지금 열린 시뮬 · ${runLine(ss)}`}</span>}
-    {diff && overlay && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>보는 지도 ≠ 실행 지도<Help label="보는 지도 · 실행 지도 차이">{diff}</Help></span>}
-    {diff && !overlay && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{diff}</span>}
+    <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--muted)' }}>{`지금 열린 시뮬 · ${runLine(ss)}`}</span>   {/* U2-c: 관제에도 — 보는 지도와 실행 지형 구별 */}
+    {diff && drop && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>보는 지도 ≠ 실행 지도<Help label="보는 지도 · 실행 지도 차이">{diff}</Help></span>}
+    {diff && !drop && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{diff}</span>}
     {gt && <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)' }}>
       <input type="checkbox" checked={hOn} onChange={(e) => { setHOn(e.target.checked); setHr(null); }} />{`높이 색(${GT}기하 · 센서 아님)`}</label>}
     {hOn && gt && (typeof hr === 'string' ? <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{`높이 미표시 · ${hr}`}</span>
