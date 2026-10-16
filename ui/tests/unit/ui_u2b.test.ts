@@ -154,6 +154,7 @@ test('SLAM 실행이 아닐 때(저장 지도 시뮬·꺼짐) = 그 지형 최�
 test('G1 배치: bar = 흐름 줄(absolute 0) · 실제 PcMap View 에서 도구줄 뒤·그림 칸(position:relative) 앞 · 그림 칸 밖(3D 층 단추·캔버스 층 이름·오른쪽 단추와 다른 상자)', async () => {
   link(SESS('slam')); await mount(MAPS);
   expect([R.p.bar.props.style.position, R.p.bar.props.style.zIndex]).toEqual([undefined, undefined]);
+  expect([R.p.bar.props.style.padding, R.p.bar.props.style.borderBottom]).toEqual(['6px 10px', '1px solid var(--line)']);   // PC = 도구줄 아래 흐름 줄(폰 머리줄 분기와 따로 · MMap 장착 뒤에도 그대로)
   const s = renderToStaticMarkup(React.createElement(PcView, { v: { mapBar: R.p.bar, map: React.createElement('i', { 'data-pic': '' }) } }));
   const i = { tb: s.indexOf('role="toolbar"'), bar: s.indexOf('data-mapview-bar'), rel: s.indexOf('<div style="position:relative">'), pic: s.indexOf('data-pic') };
   expect(i.tb >= 0 && i.tb < i.bar && i.bar < i.rel && i.rel < i.pic).toBe(true);

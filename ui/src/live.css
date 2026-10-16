@@ -169,6 +169,9 @@ body:has(.lv-drawer) .lv-tip{display:none!important}
 .mmap-hdr>header>div:first-of-type{flex:1 1 0;min-width:0}
 .mmap-hdr>header>div:first-of-type>span:first-child{white-space:nowrap}
 .mmap-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+/* U2-b 폰 지도 «지형 + 2D/3D/SLAM»(MapPick bar): 세로 = 연결 상태 아래 자기 줄(지도 바로 위) · 가로 낮은 화면(MMap LAND_CSS 와 같은 조건) = 제목 옆 같은 줄(머리 높이 그대로 — 설계 목표, 겹침·높이 실측 0) */
+.mmap-hdr>header>[data-mapview-bar]{order:4;flex:1 1 100%}
+@media (orientation: landscape) and (max-height: 500px){.mmap-hdr>header>[data-mapview-bar]{order:0;flex:0 1 auto}}
 /* B2 A3: PcPlan 도 다른 PC 화면처럼 STOP 을 첫 줄 오른쪽 끝에 — 상태 줄만 둘째 줄 전체로(STOP 크기·색 그대로) */
 .pcplan-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
 .pcplan-hdr>header>button[aria-label="비상 정지"]{margin-left:auto}

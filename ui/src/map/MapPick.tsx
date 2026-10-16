@@ -218,12 +218,17 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   // G1(670 관찰 1·6): bar = 지도 그림 칸 밖 흐름 줄(PcMap.view 가 도구줄 아래 · 그림 칸(position:relative) 위에 둠) — 그림 칸 안 3D 층 단추·캔버스 층 이름·안내·오른쪽 단추와 다른 상자(z-index 경쟁 0)
   // G2: 같은 저장 시각 글은 «고름»(선택)까지만 말하고, 받기 결과는 지금 그림으로 따로 — 표시 중 / 받기 실패 / 받는 중(실패에도 «표시» 단정 0)
   const tieR = !raster ? (serr ? ' · 받기 실패 — 그림 없음(가운데 이유)' : ' · 받는 중') : ' · 표시 중';
-  const bar = <span data-mapview-bar="" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', padding: '6px 10px', borderBottom: '1px solid var(--line)' }}>
-    <select aria-label="지도 지형 보기(보기만 · 실행 지형 안 바뀜)" title="보는 지형만 바뀝니다 — 시뮬 시작 지형은 «시뮬 ▾»" value={vW} onChange={(e) => pickW(e.target.value)}
-      style={{ minHeight: 32, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
+  // 폰(MMap · pc 아님) = 지도 칸 밖 머리줄 안(live.css .mmap-hdr: 세로 = 지도 바로 위 자기 줄 · 가로 낮은 화면 = 제목 옆 — STOP·지도 최소 96 px 유지 목표 — 실측 0).
+  // PC 는 c237425 G1 그대로(도구줄 아래 흐름 줄 · padding·아래 경계선). 폰은 머리줄이 테두리를 가짐 → 여백·선 0. 지형·단추는 안 꺾임(flex 0 0 auto) ·
+  // 이유 글(R1·R3·R4)이 있을 때만 다음 줄(그동안 머리줄 높이 한 줄 늘어남 — 가로 낮은 화면 실측 0)
+  const barSty: React.CSSProperties = pc ? { padding: '6px 10px', borderBottom: '1px solid var(--line)' } : { minWidth: 0 };
+  const fix = pc ? {} : { flex: '0 0 auto' };
+  const bar = <span data-mapview-bar="" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', ...barSty }}>
+    <select aria-label="지도 지형 보기(보기만 · 실행 지형 안 바뀜)" title={`보는 지형만 바뀝니다 — 시뮬 시작 지형은 ${pc ? '«시뮬 ▾»' : '«지도 열기 · SLAM 저장» 서랍의 «지도 열기»'}`} value={vW} onChange={(e) => pickW(e.target.value)}
+      style={{ ...fix, minHeight: pc ? 32 : 40, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
       {!vW && <option value="" disabled>지형 고르기</option>}
       {(Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => <option key={w} value={w}>{`${WORLD[w]}${runTag(w)}`}</option>)}</select>
-    <span role="group" aria-label={`${vW ? WORLD[vW as keyof typeof WORLD] : '지형 미정'} 보기 방식(보기만)`} style={{ display: 'flex', gap: 4 }}>
+    <span role="group" aria-label={`${vW ? WORLD[vW as keyof typeof WORLD] : '지형 미정'} 보기 방식(보기만)`} style={{ display: 'flex', gap: 4, ...fix }}>
       {(['2D', '3D', 'SLAM'] as const).map((x) => segV(x, md[x]))}</span>
     {msg && msg.sel === sel && <span role="status" style={{ flexBasis: '100%', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{`${msg.t}${msg.tie ? tieR : ''}`}</span>}</span>;
   const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */ } : { width: '100%' };
