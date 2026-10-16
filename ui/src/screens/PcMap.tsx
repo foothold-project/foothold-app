@@ -26,7 +26,7 @@ export default function PcMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, E = useEditor<Zone>('zone'), { q } = useRoute();
   const Z = useRef<Draw>(null), zn = useRef<HTMLInputElement>(null), dr = Z.current;
   const zs = D.err ? [] : docsOf(D, 'zone');
-  const { raster, pickEl, pose, live, on: mv, blank, reload, flat, view, v3d } = useMapPick(false, true);   // mv = 지도 보기 중(그림 없어도 잠금)   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·초안 숨김, 구역 편집 잠금(초안은 그대로 보존)
+  const { raster, pickEl, pose, live, on: mv, blank, reload, flat, view, v3d, bar } = useMapPick(false, true);   // mv = 지도 보기 중(그림 없어도 잠금)   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·초안 숨김, 구역 편집 잠금(초안은 그대로 보존)
 
   useEffect(() => { const sc = E.stale(D); if (sc && !E.dirty) E.load(sc); });   // 다른 기기가 고친 새 판(내 수정 없을 때만)
   const lost = () => !!(E.dirty || Z.current?.pts.length) && !confirm(DIRTY);
@@ -94,8 +94,8 @@ export default function PcMap() {
       { 'aria-pressed': !mv && !!E.id && !dr, disabled: mv, onClick: () => mv ? toast(LOCK) : E.id ? (zn.current?.focus(), zn.current?.select()) : toast('먼저 지도나 목록에서 구역을 고르세요') },   // R28: 함수 반환만 하던 분기 → 즉시 실행
       { hidden: true, 'aria-hidden': true, tabIndex: -1 }],   // B2 R11: 미연결 지우개 숨김
     v3P: { hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11/R31: 3D 점군은 관제 보조 뷰에만 — 여기 고르기 숨김
-    map: v3d || <MapCanvas name="pcmap" lean btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}
-      raster={raster} blank={blank} flat={flat} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />,
+    map: <>{bar}{v3d || <MapCanvas name="pcmap" lean btns zones={zs} robot={mv ? pose : lk.robot} trail={TRAIL.pts} draft={mv ? null : dr} hiZone={mv ? null : E.id} onTap={mv ? undefined : onTap}
+      raster={raster} blank={blank} flat={flat} noRobot={mv && !pose} showTrail={!mv} showZones={!mv} />}</>,   // U2-b: 왼쪽 위 지형+2D/3D/SLAM(보기만)
     gL: mv ? '로봇·지나온 길·구역·그리던 초안은 숨김(초안은 보존). 구역 편집은 «실행 중 시뮬 바닥»으로 돌아가면 그대로 이어집니다.' : dr ? `지도를 눌러 꼭짓점 추가(3개 이상 · ${dr.pts.length}개) → 오른쪽에서 이름 넣고 저장. «구역 삭제»는 마지막 점 지우기. 끌면 지도 이동.`
       : '도구줄에서 진입 금지·감속 구역을 고른 뒤 지도를 눌러 그립니다. 지도의 구역을 누르면 고칠 수 있습니다.',
     zColor: { background: `var(--${ty === '감속' ? 'warn' : 'bad'})`, borderColor: `var(--${ty === '감속' ? 'warn' : 'bad'})` },
