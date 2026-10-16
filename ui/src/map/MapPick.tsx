@@ -22,7 +22,7 @@ const usePick = create<{ sel: string; touched: boolean; auto: boolean }>(() => (
 export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서랍 안 등 흐름 배치(폰 — 지도 위 안내를 가리지 않게) → 건물별 목록. overlay(관제 작은 지도) = 기존 select. pc: 버튼 클래스
   const GT = pc ? '시뮬 ' : 'GT ';   // U4-a(PcMap = pc 만): 운영 글의 «GT» → «시뮬»(v3 §3 «Gazebo GT 위치 → 시뮬 위치»). 뜻(센서·SLAM 아님)은 글·? 에 그대로. 폰·관제 글 무변경
   const [ow, setOw] = useState<string | null>(null), [of, setOf] = useState('');   // 목록에서 펼친 건물 · 그 안 층 탭(층 id·'all') — 화면만
-  const [vw, setVw] = useState<string | null>(null);   // U2-b 왼쪽 위 지형 select(보기만) — 고르기 전엔 보는 지도·실행 지형에서 계산
+  const [msg, setMsg] = useState<{ sel: string; t: string } | null>(null);   // U2-b 보완(715 R1·R3·R4): bar 안내 글(읽기 · 누름/터치/키보드로 보임) — 그 보기(sel)일 때만
   const [maps, setMaps] = useState<MapInfo[] | string | null>(null), [saved, setSaved] = useState<Raster | null>(null);
   const { sel, touched, auto } = usePick();
   const [bound, setBound] = useState<Bound | null>(null), [lwhy, setLwhy] = useState(''), [serr, setSerr] = useState('');
@@ -76,7 +76,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   };
   const asked = useRef(0), did = useRef<{ t: number; sel: string; maps: unknown } | null>(null);   // 고른 횟수(동기 ref) · 마지막으로 받기 시작한 (고름·선택·목록)
   const pick = (key: string) => {
-    asked.current++; usePick.setState({ sel: key, touched: true, auto: false }); setSaved(null); setHOn(false); setHr(null); setBound(null); setLwhy(''); setSerr(''); setGeo(null); setVw(null); setRq((n) => n + 1);
+    asked.current++; usePick.setState({ sel: key, touched: true, auto: false }); setSaved(null); setHOn(false); setHr(null); setBound(null); setLwhy(''); setSerr(''); setGeo(null); setMsg(null); setRq((n) => n + 1);
   };
   // 저장 지도 받기는 이 effect 하나만(M① 670 P1: pick 직접 호출 + 이 effect = 한 번 고를 때 map_get 2개 → 둘째가 map_busy «처리 중»).
   // 고름(rq) · 다른 화면에서 고른 지도로 열림(sel) · 목록 도착(maps) 때 1회. 같은 보기를 다시 고르면 rq 로 다시 받음.
@@ -176,32 +176,53 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
     })}
   </span>;
   // ── U2-b(결정 7): PC 지도 탭 왼쪽 위 «지형 + 2D/3D/SLAM» — 보기 전용(pick 만 · op 는 map_list/map_get/map_live_get/geom_get 읽기뿐).
-  // 실행 지형·기동·조종 op 0(시뮬 시작 지형은 «시뮬 ▾»). 지형 = 직접 고른 값(그 지형에 볼 지도가 없을 때만 남음) → 보는 지도 → 실행 중 지도 시뮬 → 첫 지형.
-  // 눌림은 지금 sel 에서 계산(거짓 눌림 0). 3D = 기존 건물 입체 기하(2층 건물만) · SLAM = 이 지형 지도 시뮬이 SLAM 으로 실행 중이면 실시간, 아니면 최신 SLAM 저장본
-  const runW = at && ss!.world_id! in WORLD ? ss!.world_id! : null;
-  const vW = (vw && vw in WORLD ? vw : null) || (selW && selW in WORLD ? selW : null) || runW || 'v5_single';
-  const last = (w: string, src: string) => Array.isArray(maps) ? maps.filter((m) => m.world_id === w && m.map_source === src).sort((a, b) => (a.map_version < b.map_version ? -1 : a.map_version > b.map_version ? 1 : 0)).pop() : undefined;   // map_version 글자 순 = 시각 순(MAP_VER·gt-날짜)
+  // 실행 지형·기동·조종 op 0(시뮬 시작 지형은 «시뮬 ▾»). 눌림은 지금 sel 에서 계산(거짓 눌림 0). 3D = 기존 건물 입체 기하(2층 건물만)
+  // ── 보완(715 R1~R4, 이 bar 안에서만 — 공용 runAt/liveShow·좌표 정책 무변경)
+  // R1: select = 실제 보기의 지형. 볼 지도 없는 지형을 고르면 보기·select 그대로 + «볼 지도 없음 · 보던 화면 그대로» 글(지형만 기억 0)
+  // R2: «실행 중»·SLAM 실시간은 이 연결의 유효 status(열림·형식 정상·stGen=gen·수신 1 s 안) + running 일 때만. starting = «시작 중»(실시간 아님) · 그 밖 = «실행 상태 미확인»
+  // R3: 최신 = map_version 의 저장 시각(YYYYMMDD-HHMMSS · gt-YYYYMMDD) 순. 같은 시각 여럿 = 선후 모름 → 고정 규칙(epoch 큰 것 → 층 순)으로 하나 + 그 한계를 글로(epoch 는 세션 안 번호 — 전역 시각 아님)
+  // R4: 못 보는 단추 = aria-disabled(초점·누름 가능) — 누르면 이유 글만(요청·실행 0)
+  const okSt = useLink((x) => !x.bad && x.stGen === x.gen) && fresh;   // 열림은 fresh 안에(open && 수신 1 s 안)
+  const runW = at && ss!.world_id! in WORLD ? ss!.world_id! : null, rw = okSt ? runW : null;
+  const runTag = (w: string) => w !== runW ? '' : !okSt ? ' · 실행 상태 미확인' : ss!.result === 'running' ? ' · 실행 중' : ' · 시작 중';
+  const liveOk = (w: string) => rw === w && ss!.result === 'running' && ss!.map_mode === 'slam';
+  const keyW = !on || live ? null : (Object.keys(WORLD) as string[]).find((w) => (BLD as Record<string, string>)[w] === sel.split('/')[0]) ?? null;   // 목록 전 저장본 보기도 지형은 키에서
+  const vW = (selW && selW in WORLD ? selW : null) || keyW || (sel === '' || live ? rw : null) || '';   // '' = 지형 미정(«지형 고르기»)
+  const tsOf = (v: string) => v.replace(/^gt-/, '').replace(/-e\d+$/, '');   // 고정 폭 숫자 = 글자 순이 시각 순
+  const last = (w: string, src: string) => {
+    const ms = Array.isArray(maps) ? maps.filter((m) => m.world_id === w && m.map_source === src) : []; if (!ms.length) return null;
+    const top = ms.reduce((a, m) => (tsOf(m.map_version) > a ? tsOf(m.map_version) : a), '');
+    const tie = ms.filter((m) => tsOf(m.map_version) === top).sort((a, b) => (b.epoch ?? 0) - (a.epoch ?? 0) || WF[w].indexOf(a.floor_id) - WF[w].indexOf(b.floor_id));
+    return { m: tie[0], note: tie.length > 1 ? `같은 저장 시각 ${tie.length}개 — 선후 모름 · 고정 규칙(epoch 큰 것 → 층 순)으로 ${verLabel(tie[0])} 표시` : '' };
+  };
   const noList = Array.isArray(maps) ? '' : typeof maps === 'string' ? `저장 지도 목록 · ${maps}` : '저장 지도 목록 받는 중';
-  type Md = { k: string; why: string };
+  type Md = { k: string; why: string; note?: string };
   const modes = (w: string): Record<'2D' | '3D' | 'SLAM', Md> => {
+    if (!w) { const z = { k: '', why: '지형 먼저 고르기' }; return { '2D': z, '3D': z, SLAM: z }; }
     const g = WF[w].length > 1 ? (Array.isArray(maps) ? gtFloors(maps, w) : noList) : null, gt = last(w, 'gt_raster'), sl = last(w, 'slam');
-    return { '2D': g !== null ? (typeof g === 'string' ? { k: '', why: g } : { k: allKey(w), why: '' }) : gt ? { k: mapKey(gt), why: '' } : { k: '', why: noList || '이 지형 시뮬 도면 지도 없음' },
+    const sStart = rw === w && ss!.result === 'starting' && ss!.map_mode === 'slam';
+    return { '2D': g !== null ? (typeof g === 'string' ? { k: '', why: g } : { k: allKey(w), why: '' }) : gt ? { k: mapKey(gt.m), why: '', note: gt.note } : { k: '', why: noList || '이 지형 시뮬 도면 지도 없음' },
       '3D': w === 'v5_building' ? { k: `g3d:${w}`, why: '' } : { k: '', why: '입체 기하는 2층 건물만' },
-      SLAM: runW === w && ss?.map_mode === 'slam' ? { k: LIVE, why: '' } : sl ? { k: mapKey(sl), why: '' } : { k: '', why: noList || '이 지형 SLAM 저장 지도 없음' } };
+      SLAM: liveOk(w) ? { k: LIVE, why: '' } : sl ? { k: mapKey(sl.m), why: '', note: sl.note } : { k: '', why: noList || `이 지형 SLAM 저장 지도 없음${sStart ? ' · SLAM 시뮬 시작 중 — 실행 확인 뒤 실시간' : ''}` } };
   };
-  const nowMode = (w: string) => sel === allKey(w) || (sm?.world_id === w && sm.map_source === 'gt_raster') ? '2D' : sel === `g3d:${w}` ? '3D'
-    : (live && runW === w && ss?.map_mode === 'slam') || (sm?.world_id === w && sm.map_source === 'slam') ? 'SLAM' : '';
+  const nowMode = (w: string) => !w ? '' : sel === allKey(w) || (sm?.world_id === w && sm.map_source === 'gt_raster') ? '2D' : sel === `g3d:${w}` ? '3D'
+    : (live && liveOk(w)) || (sm?.world_id === w && sm.map_source === 'slam') ? 'SLAM' : '';
   const md = modes(vW), cur = nowMode(vW);
-  const pickW = (w: string) => {   // 지형 바꿈: 지금 방식 → 2D → SLAM → 3D 중 볼 수 있는 첫 것. 없으면 지형만 기억(보는 그림 그대로 · 단추에 이유)
-    const m = modes(w), k = [cur, '2D', 'SLAM', '3D'].filter(Boolean).map((x) => m[x as keyof typeof m].k).find(Boolean);
-    dropAll(); if (k) pick(k); else setVw(w);
+  const go = (d: Md) => { pick(d.k); if (d.note) setMsg({ sel: d.k, t: d.note }); };
+  const pickW = (w: string) => {   // 지형 바꿈: 지금 방식 → 2D → SLAM → 3D 중 볼 수 있는 첫 것. 없으면 보기·select 그대로 + 이유 글
+    const m = modes(w), d = [cur, '2D', 'SLAM', '3D'].filter(Boolean).map((x) => m[x as keyof typeof m]).find((y) => y.k);
+    dropAll(); if (d) go(d); else setMsg({ sel, t: `${WORLD[w as keyof typeof WORLD]} — 볼 지도 없음(${(['2D', '3D', 'SLAM'] as const).map((x) => `${x} ${m[x].why}`).join(' · ')}) · 보던 화면 그대로` });
   };
+  const segV = (x: '2D' | '3D' | 'SLAM', d: Md) => d.k ? segB(cur === x, x, () => go(d))
+    : <button key={x} type="button" className={`${B} lv-why`} aria-disabled="true" aria-pressed={false} title={d.why} onClick={tap(() => setMsg({ sel, t: `${x} 못 봄 · ${d.why}` }))}>{x}</button>;
   const bar = <span data-mapview-bar="" style={{ position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */, display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
     <select aria-label="지도 지형 보기(보기만 · 실행 지형 안 바뀜)" title="보는 지형만 바뀝니다 — 시뮬 시작 지형은 «시뮬 ▾»" value={vW} onChange={(e) => pickW(e.target.value)}
       style={{ minHeight: 32, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
-      {(Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => <option key={w} value={w}>{`${WORLD[w]}${w === runW ? ' · 실행 중' : ''}`}</option>)}</select>
-    <span role="group" aria-label={`${WORLD[vW as keyof typeof WORLD]} 보기 방식(보기만)`} style={{ display: 'flex', gap: 4 }}>
-      {(['2D', '3D', 'SLAM'] as const).map((x) => segB(cur === x, x, () => pick(md[x].k), md[x].k ? undefined : md[x].why))}</span></span>;
+      {!vW && <option value="" disabled>지형 고르기</option>}
+      {(Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => <option key={w} value={w}>{`${WORLD[w]}${runTag(w)}`}</option>)}</select>
+    <span role="group" aria-label={`${vW ? WORLD[vW as keyof typeof WORLD] : '지형 미정'} 보기 방식(보기만)`} style={{ display: 'flex', gap: 4 }}>
+      {(['2D', '3D', 'SLAM'] as const).map((x) => segV(x, md[x]))}</span>
+    {msg && msg.sel === sel && <span role="status" style={{ flexBasis: '100%', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{msg.t}</span>}</span>;
   const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */ } : { width: '100%' };
   const el = <span className={overlay ? 'lv-mappick' : undefined} style={{ ...sty, display: 'flex', flexDirection: 'column', gap: 4 }}>   {/* lv-mappick: Main 좁은 칸 배치(live.css [data-mapnarrow]) */}
     {overlay ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* U2-b(Main 만 overlay) */
