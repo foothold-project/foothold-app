@@ -252,7 +252,7 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
       {typeof maps === 'string' && <option disabled value="-">{`저장 지도 목록 · ${maps}`}</option>}
       {Array.isArray(maps) && !maps.length && <option disabled value="-">저장 지도 없음</option>}
     </select> : list}
-    <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--muted)' }}>{`지금 열린 시뮬 · ${runLine(ss)}`}</span>   {/* U2-c: 관제에도 — 보는 지도와 실행 지형 구별 */}
+    <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--muted)' }}>{`${drop ? '받은 시뮬 상태(조회값 · 지금 실행 확정 아님)' : '지금 열린 시뮬'} · ${runLine(ss)}`}</span>   {/* U2-c: 관제에도 — 보는 지도와 실행 지형 구별 · drop(관제만): 받은 session 조회값이라 현재 실행 확정 아님(공용 runLine·다른 화면 글 그대로) */}
     {diff && drop && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>보는 지도 ≠ 실행 지도<Help label="보는 지도 · 실행 지도 차이">{diff}</Help></span>}
     {diff && !drop && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{diff}</span>}
     {gt && <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)' }}>

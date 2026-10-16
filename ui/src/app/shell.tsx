@@ -7,6 +7,7 @@ import { STOP_TIP } from '../data/facts';
 import { stopBoxes, type Box, type Placed } from './chip';   // 순환 import(chip→shell) — 둘 다 최상위 실행에선 안 씀(함수 안 호출만)
 
 // ---- 경로 ----
+export const HOME = 'Main';   // B2 A1: PC 첫 화면 = 관제(기록은 메뉴) · 빈 hash·#/·#/?값 도 이 화면(main.tsx 와 메뉴 분기가 같은 값을 씀 — 055824d C1)
 const sub = (f: () => void) => { addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); };
 export function useRoute() {
   const h = useSyncExternalStore(sub, () => location.hash);

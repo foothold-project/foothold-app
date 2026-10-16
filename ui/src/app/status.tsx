@@ -9,7 +9,7 @@ import { reread, type Docs, type Media } from '../data/shared';
 import { LATCH_TXT } from '../data/facts';
 import { MapStartBox } from '../map/MapStartBox';
 import { Chip, DevMark, usePop, type Tone } from './chip';
-import { InFs, SimOff, toast, useRoute, whyProps } from './shell';
+import { HOME, InFs, SimOff, toast, useRoute, whyProps } from './shell';
 
 type C = { k: 'sim' | 'link' | 'role' | 'lock'; tone: Tone; text: string; why: string };
 /** 머리줄 칩 4종(순수 — 시험용). 실기 대상이면 시뮬·역할 칩 없이 연결 «실기 미연결»만 */
@@ -75,7 +75,7 @@ export function SimMenu() {
   return <span className="lv-help">
     <button ref={P.b} type="button" className="lv-btn" data-simmenu="" aria-haspopup="true" aria-expanded={!!P.pos} onClick={P.toggle}>시뮬 ▾</button>
     {P.pos && <InFs><div ref={P.p as React.RefObject<HTMLDivElement>} role="dialog" aria-label="시뮬 메뉴" className="lv-pop lv-simmenu" style={P.style}>
-      {name === 'Main' ? <><p className="lv-note">관제 화면에서는 오른쪽 «시뮬 실행» 칸에서 엽니다(같은 조건·확인창)</p>
+      {(name || HOME) === 'Main' ? <><p className="lv-note">관제 화면에서는 오른쪽 «시뮬 실행» 칸에서 엽니다(같은 조건·확인창)</p>
         <button type="button" className="lv-btn" onClick={() => { P.close(false); document.querySelector<HTMLElement>('[data-runpanel]')?.scrollIntoView({ block: 'nearest' }); }}>시뮬 실행 칸 보기</button></>
         : <SimRun close={() => P.close(false)} />}
     </div></InFs>}

@@ -7,7 +7,7 @@ import { startLink, useLink } from './data/link';
 import { auth, isLogin, loginHash } from './data/auth';
 import { dropScratch } from './data/scratch';
 import { useEffect } from 'react';
-import { StartAsk, StopNote, Toast, useRoute, useStopKey } from './app/shell';
+import { HOME, StartAsk, StopNote, Toast, useRoute, useStopKey } from './app/shell';
 import './live.css';
 import './brand.css';
 import { syncTheme } from './app/theme';
@@ -35,7 +35,6 @@ const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   PcLogin: lazy(() => import('./screens/PcLogin')),
   System: lazy(() => import('./screens/System')),
 };
-const HOME = 'Main';   // B2 A1: PC 첫 화면 = 관제(기록은 메뉴)
 
 function App() {
   useStopKey();

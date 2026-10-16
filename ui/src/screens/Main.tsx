@@ -200,7 +200,7 @@ export default function Main() {
       <section aria-label="임무" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>임무</span>
         {R ? <a href={href('PcPlan', R.mission ? { mission: R.mission } : {})} style={{ color: 'var(--accent)', fontSize: '13px', padding: '4px 2px' }}>{`계획 보기 · «${R.name}»(임무 계획)`}</a>
           : <><select className="inp" aria-label="저장 임무 고르기(고르기만 · 시작 아님)" value={mSel} onChange={(e) => setMp(e.target.value)}>
-              <option value="">{D.err ? `저장 임무 목록 · ${D.err}` : msl.length ? '저장 임무 고르기' : '저장 임무 없음 — 임무 계획에서 만들기'}</option>
+              <option value="">{D.err ? `${D.stale ? '보관 목록(재조회 실패)' : '저장 임무 목록 못 읽음'} · ${D.err}` : D.rev === null ? '저장 임무 목록 읽는 중' : msl.length ? '저장 임무 고르기' : '저장 임무 없음 — 임무 계획에서 만들기'}</option>
               {msl.map((m) => <option key={m.id} value={m.id}>{`${m.doc.name} · 지점 ${m.doc.wps.length}`}</option>)}</select>
             <a className="btn" href={href('PcPlan', mSel ? { mission: mSel } : {})} title="임무 계획에서 계획을 고르고 «수동 진행 시작»" style={{ alignSelf: 'flex-start', textDecoration: 'none' }}>임무 시작</a></>}
       </section></div>,
