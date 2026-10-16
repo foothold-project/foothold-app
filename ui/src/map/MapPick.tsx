@@ -19,7 +19,8 @@ type Bound = { r: Raster; k: string; seq: number; gen: number; t: number };   //
 // 선택은 화면들이 공유(관제·조종·지도 화면을 오가도 사용자가 고른 것 유지). touched = 사용자가 한 번이라도 직접 고름 → 그 뒤 자동 선택 0
 const usePick = create<{ sel: string; touched: boolean; auto: boolean }>(() => ({ sel: '', touched: false, auto: false }));
 // on = 지도 보기 중(sel ≠ GT). 이때 부르는 쪽은 그림이 없어도 GT 로봇·길·구역·경유점·초안·탭 편집 0 + blank 이유를 그린다. GT 복귀는 사용자가 직접 고를 때만
-export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서랍 안 등 흐름 배치(폰 — 지도 위 안내를 가리지 않게) → 건물별 목록. overlay(관제 작은 지도) = 기존 select. pc: 버튼 클래스
+export function useMapPick(overlay = true, pc = false, fit3d = false) {   // fit3d: 3D 덧칸을 작은 지도 칸에 맞춤(670 a9db ③ · MMap 만 참)
+  // overlay=false: 서랍 안 등 흐름 배치(폰 — 지도 위 안내를 가리지 않게) → 건물별 목록. overlay(관제 작은 지도) = 기존 select. pc: 버튼 클래스
   const GT = pc ? '시뮬 ' : 'GT ';   // U4-a(PcMap = pc 만): 운영 글의 «GT» → «시뮬»(v3 §3 «Gazebo GT 위치 → 시뮬 위치»). 뜻(센서·SLAM 아님)은 글·? 에 그대로. 폰·관제 글 무변경
   const [ow, setOw] = useState<string | null>(null), [of, setOf] = useState('');   // 목록에서 펼친 건물 · 그 안 층 탭(층 id·'all') — 화면만
   const [msg, setMsg] = useState<{ sel: string; t: string; tie?: boolean } | null>(null);   // U2-b 보완(715 R1·R3·R4): bar 안내 글(읽기 · 누름/터치/키보드로 보임) — 그 보기(sel)일 때만
@@ -115,7 +116,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   const ss = useLink((x) => x.st?.map_start?.session) as Sess, at = runAt(ss);
   const gk = is3 && geo && typeof geo !== 'string' && geo.key === sel && geo.gen === gen ? geo : null;
   const gbind = gk ? geomBind(gk.g, gk.sha, at ? ss!.world_id : null, lv as any, sel.slice(4)) : '';   // 결속 = 런 안 불변 spawn_floor 원본 SDF sha(live_map)
-  const v3d = gk && (gbind === 'ok' || gbind === '') ? <Geom3D g={gk.g} bind={gbind} /> : null;   // 같은 world 인데 미확인·불일치면 그리지 않음
+  const v3d = gk && (gbind === 'ok' || gbind === '') ? <Geom3D g={gk.g} bind={gbind} fit={fit3d} /> : null;   // 같은 world 인데 미확인·불일치면 그리지 않음 · fit3d = 부르는 화면이 명시(MMap 만 · 기본 거짓)
   const note = !on ? '' : is3 ? (gk ? (v3d ? `건물 전체 3D · ${GT}간략 기하(센서·주행 판정 아님) · 위치·SLAM 겹치지 않음` : `건물 3D 미표시 · ${gbind}`)
       : typeof geo === 'string' ? `건물 3D 미표시 · ${geo}` : '건물 3D 기하 받는 중') : isAll ? (saved ? `층 나란히 보기 · ${GT}기하 2D(SLAM·센서 아님) · 위층부터 · 전체 3D 아님 · 위치·격자 표시 없음` : serr ? `층 나란히 보기 미표시 · ${serr}` : '층 나란히 보기 받는 중')
     : !live ? (saved ? '' : serr ? `저장 지도 미표시 · ${serr}` : '저장 지도 받는 중')
@@ -220,7 +221,7 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
   const tieR = !raster ? (serr ? ' · 받기 실패 — 그림 없음(가운데 이유)' : ' · 받는 중') : ' · 표시 중';
   // 폰(MMap · pc 아님) = 지도 칸 밖 머리줄 안(live.css .mmap-hdr: 세로 = 지도 바로 위 자기 줄 · 가로 낮은 화면 = 제목 옆 — STOP·지도 최소 96 px 유지 목표 — 실측 0).
   // PC 는 c237425 G1 그대로(도구줄 아래 흐름 줄 · padding·아래 경계선). 폰은 머리줄이 테두리를 가짐 → 여백·선 0. 지형·단추는 안 꺾임(flex 0 0 auto) ·
-  // 이유 글(R1·R3·R4)이 있을 때만 다음 줄(그동안 머리줄 높이 한 줄 늘어남 — 가로 낮은 화면 실측 0)
+  // 이유 글(R1·R3·R4): PC = 다음 줄 전문 그대로 · 폰 = 같은 줄 9em 한 줄 + ? 전문(670 a9db ① 가로 낮은 창 header 228 → STOP 화면 밖 보완 · 세로 좁으면 bar 둘째 줄)
   const barSty: React.CSSProperties = pc ? { padding: '6px 10px', borderBottom: '1px solid var(--line)' } : { minWidth: 0 };
   const fix = pc ? {} : { flex: '0 0 auto' };
   const bar = <span data-mapview-bar="" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', ...barSty }}>
@@ -230,7 +231,11 @@ export function useMapPick(overlay = true, pc = false) {   // overlay=false: 서
       {(Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => <option key={w} value={w}>{`${WORLD[w]}${runTag(w)}`}</option>)}</select>
     <span role="group" aria-label={`${vW ? WORLD[vW as keyof typeof WORLD] : '지형 미정'} 보기 방식(보기만)`} style={{ display: 'flex', gap: 4, ...fix }}>
       {(['2D', '3D', 'SLAM'] as const).map((x) => segV(x, md[x]))}</span>
-    {msg && msg.sel === sel && <span role="status" style={{ flexBasis: '100%', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{`${msg.t}${msg.tie ? tieR : ''}`}</span>}</span>;
+    {msg && msg.sel === sel && (pc ? <span role="status" style={{ flexBasis: '100%', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{`${msg.t}${msg.tie ? tieR : ''}`}</span>
+      : <span style={{ flex: '1 1 9em', width: '9em', minWidth: 0, display: 'flex', alignItems: 'center', gap: 4 }}>   {/* 670 a9db ①: 폰은 같은 줄 한 칸(머리줄을 여러 줄로 밀지 않음) — 짧은 한 줄 + ? 전문(title·Help 모두 전문 · 내용 소실 0) */}
+        <span role="status" title={`${msg.t}${msg.tie ? tieR : ''}`} style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>
+          {msg.tie ? `${!raster ? (serr ? '받기 실패' : '받는 중') : '표시 중'} · ${msg.t}` : msg.t}</span>   {/* 동률: 받기 결과(tieR 와 같은 말)를 앞에 — 말줄임에 안 잘림 */}
+        <Help label="지도 보기 안내 · 전문">{`${msg.t}${msg.tie ? tieR : ''}`}</Help></span>)}</span>;
   const sty: React.CSSProperties = overlay ? { position: 'absolute', top: 8, left: 8, zIndex: 2, maxWidth: 'calc(100% - 200px)' /* 오른쪽 위 보기 버튼 자리 */ } : { width: '100%' };
   const el = <span className={overlay ? 'lv-mappick' : undefined} style={{ ...sty, display: 'flex', flexDirection: 'column', gap: 4 }}>   {/* lv-mappick: Main 좁은 칸 배치(live.css [data-mapnarrow]) */}
     {overlay ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* U2-b(Main 만 overlay) */

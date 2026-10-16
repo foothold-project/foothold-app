@@ -17,13 +17,21 @@ import { Drawer, SimOff, stopProps, toast } from '../app/shell';
 
 
 // R04 가로(높이 ≤ 500): 틀 높이 = 화면(100dvh)이어도 «고른 목표» 칸(min-height auto)이 안 줄어 주 메뉴·STOP 이 화면 밖으로 밀림.
-// 이 화면이 열려 있을 때만·가로 낮은 화면에서만: 그 칸은 줄어들며 안에서 스크롤, 지도 칸은 최소 96 px 유지. 세로·PC 배치는 그대로
-const LAND_CSS = `@media (orientation: landscape) and (max-height: 500px){
-#dc-root section[aria-label="고른 목표"]{min-height:0!important;overflow-y:auto!important}
-#dc-root div:has(>svg[role="img"][preserveAspectRatio]){min-height:96px!important}}`;
+// 이 화면이 열려 있을 때만: 그 칸은 줄어들며 안에서 스크롤, 지도 칸은 최소 96 px 유지(실제 3D 도 — 숨은 바탕 svg 가 남음).
+// 670 a9db ②(세로 360×640 지도 2 px): 높이 조건 없이 — 남는 높이가 96 px 이상이면 flex 가 줄이지 않으므로 넓은 세로(390×844)는 그대로. STOP·주 메뉴 크기 변경 0
+const LAND_CSS = `#dc-root section[aria-label="고른 목표"]{min-height:0!important;overflow-y:auto!important}
+#dc-root div:has(>svg[role="img"][preserveAspectRatio]){min-height:96px!important}
+@media (max-height: 500px){
+#dc-root .mmap-hdr>header{padding-top:6px!important;padding-bottom:4px!important}
+#dc-root section[aria-label="고른 목표"]{margin-top:4px!important;padding-top:6px!important;padding-bottom:6px!important}
+#dc-root nav[aria-label="주 메뉴"]{margin-top:0!important}
+#dc-root div:has(>button[aria-label="비상 정지"]){padding-top:4px!important;padding-bottom:6px!important}}`;
+// 높이 예산(root r2 · 4 검수창 STOP 64 전체·주 메뉴 전부 화면 안): 낮은 창(높이 ≤ 500)에서만 바깥 여백·비상호작용 padding 만 줄임 — 단추·메뉴·STOP 크기 0 변경.
+// 계산(670 844×390 실측 header 108 · 지도 98 · section 최소 30(padding 28+선 2) · 메뉴 63 · STOP 칸 90 = 399): 줄임 header 14 · section 6+16 · 메뉴 위 10 · STOP 칸 16 = 62
+// → 740×360 고정 합 ≈ 94+4+14+53+74 = 239 · 지도 ≈ 121(≥ 96). 실측 0 — 670 이 4창에서 STOP 사각형·메뉴 bottom ≤ 화면 높이 확인
 export default function MMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, api = useRef<MapApi | null>(null), busy = useRef(false);
-  const { raster, pickEl, pose, live, on, blank, showLive, reload, flat, view, legend, v3d, bar } = useMapPick(false);   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
+  const { raster, pickEl, pose, live, on, blank, showLive, reload, flat, view, legend, v3d, bar } = useMapPick(false, false, true);   // fit3d 참: 3D 덧칸을 이 화면 작은 지도 칸에 맞춤(670 a9db ③) · 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·지점 고르기 끔(좌표 결속 전)
   const [sel0, setSel] = useState<number[] | null>(null), sel = on ? null : sel0, [layers, setLayers] = useState(false), [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [mid0, setMid] = useState(''), ms = docsOf(D, 'mission'), mid = ms.some((m) => m.id === mid0) ? mid0 : '';
   const d = sel && lk.robot?.fresh ? Math.hypot(lk.robot.x - sel[0], lk.robot.y - sel[1]) : null;
