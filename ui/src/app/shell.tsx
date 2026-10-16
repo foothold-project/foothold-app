@@ -150,7 +150,77 @@ export function Toast() {
 }
 
 // ---- STOP: 누르는 순간(pointerdown) 보냄. 명령 0 요청일 뿐 몸 정지가 아님 ----
-export const stopNow = () => { if (!sendStop()) toast(useLink.getState().provider !== 'simulation_gate' ? '실기 모드 — Go2 비상 정지 미연결(명령 미지원) · 로봇 리모컨으로 정지하세요' : '링크 끊김 — STOP 을 보내지 못함(서버 와치독이 명령 0 유지)'); };
+// U1(10-16 현민님 «STOP 누르면 화면에 알림»): 송신은 그대로 먼저·즉시(확인창 0). 알림은 송신 뒤 기록만 남기고 StopNote 가 비차단으로 그린다(누름 가로채기·초점·전송·조종권·N1 무관).
+//   단계: 실패(보내지 못함) / 보냄·서버 확인 대기 / 서버 확인(잠금 켜짐) / 링크 끊김(미확인) / 시간 초과(미확인). 어느 단계도 «몸 정지»라 하지 않는다.
+export const STOP_FAIL_REAL = '실기 모드 — Go2 비상 정지 미연결(명령 미지원) · 로봇 리모컨으로 정지하세요';
+export const STOP_FAIL_LINK = '링크 끊김 — STOP 을 보내지 못함(서버 와치독이 명령 0 유지)';
+export const STOP_WAIT_MS = 2000, STOP_SHOW_MS = 4000;   // 서버 status 는 100 ms 마다 — 2 s 안 확인이 없으면 미확인으로(조정 지점)
+const BODY = ' · 몸이 멈췄는지 화면에서 확인';
+export const STOP_MSG = {
+  wait: `STOP 보냄 — 서버 확인 기다리는 중${BODY}`,
+  ok: `STOP 서버 확인 — 잠금 켜짐(명령 0 유지)${BODY}`,
+  lost: `STOP 보낸 뒤 링크 끊김 — 서버 확인 못 함(잠금 미확인) · 다시 STOP${BODY}`,
+  late: `STOP 서버 확인 없음(${STOP_WAIT_MS / 1000}초) — 잠금 미확인 · 다시 STOP${BODY}`,
+};
+export type StopRec = { seq: number; t: number; sent: boolean; fail: string; gen: number; sg: number | undefined };
+export type StopPhase = 'fail' | 'wait' | 'ok' | 'lost' | 'late';
+export const useStopN = create<{ r: StopRec | null }>(() => ({ r: null }));
+/** 순수(시험용): 누름 기록 + 지금 링크 상태 → 단계·글.
+ *  확인 = 같은 연결(gen)에서 보낸 뒤(lastMsg > t) 받은 유효 status 가 latch 이고 잠금 세대가 보낼 때보다 큼(보낼 때 세대를 몰랐으면 latch 만).
+ *  세대는 다른 기기 STOP·episode 변경으로도 오르므로 «이 누름이 잠갔다»가 아니라 «지금 서버 잠금 켜짐»까지만 말한다 */
+export function stopPhase(r: StopRec, s: ReturnType<typeof useLink.getState>, now: number): [StopPhase, string] {
+  if (!r.sent) return ['fail', r.fail];
+  const st = s.st, g = st?.stop_gen;
+  if (s.gen === r.gen && s.stGen === s.gen && s.lastMsg > r.t && st?.latch && (r.sg === undefined || (typeof g === 'number' && g > r.sg))) return ['ok', STOP_MSG.ok];
+  if (s.gen !== r.gen || !s.open) return ['lost', STOP_MSG.lost];
+  return now - r.t > STOP_WAIT_MS ? ['late', STOP_MSG.late] : ['wait', STOP_MSG.wait];
+}
+export const stopNow = () => {
+  const s0 = useLink.getState(), sg = s0.st?.stop_gen, t = performance.now();   // 보내기 전 세대·시각(응답은 같은 동기 처리 안에 오지 않음)
+  const sent = sendStop(), fail = sent ? '' : useLink.getState().provider !== 'simulation_gate' ? STOP_FAIL_REAL : STOP_FAIL_LINK;
+  useStopN.setState((x) => ({ r: { seq: (x.r?.seq ?? 0) + 1, t, sent, fail, gen: useLink.getState().gen, sg: typeof sg === 'number' ? sg : undefined } }));
+};
+/** STOP 결과 알림(비차단): pointer-events 0·초점 0·role=status. 보이는 STOP·열린 확인창·알림(toast)을 피해 placeAsk 로 놓고, 자리가 없으면 그리지 않는다(가리기 0).
+ *  다시 누르면 새 기록으로 바뀜. 끝 단계(실패·확인·끊김·초과)는 그 순간 글로 고정해 STOP_SHOW_MS 동안 보인 뒤 사라짐 */
+// ponytail: 보이는 동안(최대 약 6 s) 프레임마다 자리 재기 — 오래 띄우게 되면 ResizeObserver 로
+export function StopNote() {
+  const r = useStopN((x) => x.r), s = useLink();
+  const [now, setNow] = useState(() => performance.now());
+  const fin = useRef<{ seq: number; p: [StopPhase, string]; t: number } | null>(null);
+  const box = useRef<HTMLDivElement | null>(null);
+  const [at, setAt] = useState<(Placed & { width: number }) | null>(null);
+  let p: [StopPhase, string] | null = null;
+  if (r) {
+    if (fin.current?.seq === r.seq) p = fin.current.p;
+    else { p = stopPhase(r, s, now); if (p[0] !== 'wait') fin.current = { seq: r.seq, p, t: now }; }
+  }
+  const on = !!r && !(fin.current?.seq === r.seq && now - fin.current.t > STOP_SHOW_MS);
+  useEffect(() => {   // 링크 메시지가 끊겨도 단계(초과·사라짐)가 넘어가게 시계만 돌림
+    if (!on) return;
+    const id = setInterval(() => setNow(performance.now()), 200); return () => clearInterval(id);
+  }, [on, r?.seq]);
+  useLayoutEffect(() => {
+    if (!on) { setAt(null); return; }
+    let raf = 0, last = '';
+    const tick = () => {
+      const el = box.current;
+      if (el) {
+        const W = innerWidth, H = innerHeight, h = Math.ceil(el.getBoundingClientRect().height);
+        const others = [...document.querySelectorAll('[data-start-ask],[data-live-toast]')].map((e) => e.getBoundingClientRect()).filter((b) => b.width > 0 && b.height > 0);
+        const st = [...stopBoxes(), ...others], key = [W, H, h, ...st.flatMap((b) => [b.left, b.top, b.right, b.bottom])].join();
+        if (key !== last) { last = key; setAt(placeAsk(W, H, { h, min: h, w: 0 }, st)); }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    tick(); return () => cancelAnimationFrame(raf);
+  }, [on, r?.seq]);
+  if (!on || !p) return null;
+  const bad = p[0] !== 'ok' && p[0] !== 'wait';
+  return <InFs><div ref={box} role="status" aria-live="polite" data-stop-note={p[0]} style={{ position: 'fixed', zIndex: 50, pointerEvents: 'none', boxSizing: 'border-box',
+    left: at?.left ?? 0, top: at?.top ?? 0, width: at?.width ?? 'min(380px,calc(100vw - 32px))', visibility: at ? 'visible' : 'hidden',
+    padding: '8px 12px', borderRadius: 8, background: 'rgba(8,11,14,.94)', color: '#E6EBEF', fontSize: 13, lineHeight: 1.4,
+    borderLeft: `4px solid ${bad ? '#FF8A80' : p[0] === 'ok' ? '#8CC8FF' : '#C9D3DB'}` }}>{p[1]}</div></InFs>;
+}
 // 글자 입력 중(입력칸·여러 줄·고르기·편집 가능 영역·한글 조합 중)인 키는 단축키로 쓰지 않는다. STOP 버튼은 언제나 동작.
 const typing = (e: KeyboardEvent) => { const t = e.target as HTMLElement | null; return !!(e.isComposing || e.keyCode === 229 || (t && t.nodeType === 1 && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))); };
 export function useStopKey() {
