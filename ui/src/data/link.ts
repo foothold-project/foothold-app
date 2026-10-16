@@ -101,6 +101,8 @@ export const askPage = (t: string, ok?: string, owner?: unknown, from?: Element 
 /** E1: 그 주인(편집기·화면)이 연 확인창만 닫기(취소) — 화면 이탈·다른 계획 열기·복제 때. 다른 주인의 창(N1 조종 시작 등)·조종권은 건드리지 않음 */
 export const dropAsk = (owner: unknown) => { if (owner == null || askOwner !== owner) return false; answerAsk(false); return true; };   // 닫았으면 true
 export function cancelStart() { startTok++; answerAsk(false); if (useLink.getState().starting !== null) useLink.setState({ starting: null }); }
+/** SLAM-1 r2: 기존 중단 세대 읽기만(STOP·숨김/이탈·반납·복귀·조종 시작이 올림 — 올리는 곳·조건 변경 0). 지도 시작 확인 뒤 송신 직전 대조용 */
+export const startGen = () => startTok;
 export const START_ASK = '조종을 시작할까요?\n· 로봇(시뮬) 주변과 시뮬 상태를 확인하세요\n· 확인하면 조종권을 받고 STOP 잠금을 풉니다\n· 그 뒤 손을 떼고 새로 눌러야 움직입니다 · STOP 은 언제든 즉시\n· 이 창이 열린 동안 STOP·리셋·연결 변화·다른 기기 점유가 생기면 취소됩니다';
 export const START_CANCEL = '조종 시작 중단 — STOP·숨김·반납·리셋 요청(보낸 다음 단계 0)';
 const halted = (w: string) => `조종 시작 중단 · ${w} — 보낸 다음 단계 0 · 다시 «조종 시작»`;
@@ -297,16 +299,7 @@ export async function stopSim(st: Status | null): Promise<string | null> {
   if (!confirm(`Gazebo 시뮬을 끌까요? (로봇 STOP 아님)\n· 조종 중이면 명령 0·STOP 잠금 뒤 조종권 반납\n· 자동 재시작 없음 — 다시 하려면 ${x.ledger_kind === 'map' ? '«지도 열기»' : '«시뮬 시작»'}을 직접 눌러야 합니다${x.ledger_kind === 'user' ? '' : ' · 기동 상한이 적용됩니다'}${ledgerLine(x)}`)) return null;
   return (await ask('sim_stop')).text || '응답 없음';
 }
-/** 시뮬 시작 확인 → 요청. 확인창 문구는 서버 usage_scope 대로: 사용자 체험 = 횟수 제한 없음 · 실험 = 실험 원장 1회 · 칸 없음 = 미확인(옛 서버) */
-export async function startSimAsk(st: Status | null): Promise<string | null> {
-  const ss = st?.sim_start; if (!ss || !ss.ok) return `시뮬 시작 안 됨 · ${ss?.why || '서버 응답 없음'}`;
-  if (useLink.getState().provider !== 'simulation_gate') return '실기 대상 — 시뮬 시작 안 함(«시뮬(보조)»로 바꾼 뒤)';
-  dropAll();
-  const use = ss.usage_scope === 'user_experience' ? '사용자 체험 — 횟수 제한 없음(동시 1개)' : ss.usage_scope === 'experiment'
-    ? `실험 원장 1회 사용${ss.ledger ? ` (지금 ${ss.ledger.used}/${ss.ledger.max})` : ''}` : '횟수 원장 사용 여부 미확인(옛 서버)';
-  if (!confirm(`Gazebo 시뮬을 30분 동안 시작할까요?\n· ${use}\n· STOP 상태로 시작합니다(«조종 시작» 확인 뒤 조종)\n· 30분 뒤 자동 종료, 연장 없음`)) return null;
-  return (await ask('sim_start')).text || '응답 없음';
-}
+// SLAM-1: 평지 시작 확인(startSimAsk · op sim_start)은 삭제 — 새 UI 의 시뮬 시작은 map/MapStartBox openMapAsk(map_start mode slam · 버전 없음) 하나. 서버·계약의 sim_start 는 그대로(옛 앱·직접 API)
 export const showSimStop = (st: Status | null) => !!st?.sim_stop && (st.sim_stop.on || st.sim_stop.busy);
 
 /** 로그아웃·주소 변경 직전: WS 닫고 다시 잇지 않음(새로 읽을 때까지) */

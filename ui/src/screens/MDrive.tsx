@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 import { CSS, View } from './MDrive.view';
 import { deg, num, sgn, store } from '../data/fmt';
 import { LAYOUTS, NOMOVE, RELURCH, TRIAL_DEV, TRIAL_SAFE, UNSUP, WHY } from '../data/facts';
-import { camURL, startSimAsk, driveBlock, dropAll, linkView, sendOp, startBlock, startDrive, startTxt, stateRows, TRAIL, useLink } from '../data/link';
+import { camURL, driveBlock, dropAll, linkView, sendOp, startBlock, startDrive, startTxt, stateRows, TRAIL, useLink } from '../data/link';
 import { docsOf, useDocs, useMedia } from '../data/shared';
 import { MARK, stageOf, stepLabel, warnsOf } from '../data/drive_stage';
 import { href } from '../data/hist';
@@ -53,7 +53,6 @@ export default function MDrive() {
   const HC = useHeadChips(), cc = camChip(v);
   const sm = useStick(MOVE, ['fx', 'fy']), sr = useStick(ROT, [null, 'fw']), sf = useStick(FB, ['fx', null]);
 
-  const startSim = async () => toast(await startSimAsk(st));
   const photo = async () => { const p = await shoot(); if (p) setShotAt(Date.now()); if (p) toast(`사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`} · «관찰»에서 분류`); };
   const fsToggle = async () => {
     dropAll();   // 전체화면 진입·나옴 전 폐기(fullscreenchange 도 link.ts 에서 폐기)
@@ -74,8 +73,8 @@ export default function MDrive() {
   const btns: JSX.Element[] = [];
   if (v.newVer) btns.push(big('새로고침', () => (ctl ? toast('조종 중에는 새로고침하지 않습니다 — 조종 반납 뒤') : location.reload())));
   if (v.linkOk && st) {
-    if (SIM_OFF.includes(st.sim_block) && st.sim_start) btns.push(<span key="ss" title={st.sim_start.why || '30분 시뮬 시작(STOP 상태로)'} style={{ opacity: st.sim_start.ok ? undefined : 0.55 }}>{big('시뮬 시작(30분)', startSim)}</span>);
-    if (SIM_OFF.includes(st.sim_block) && st.sim_start && !st.sim_start.ok && st.map_start) btns.push(big('지도 화면 (지도 열기)', () => { location.hash = '#/MMap'; }));   // 기존 체험이 막혀도 별도 경로 안내 — 기동은 지도 화면에서 사용자가 직접
+    // SLAM-1: 평지 «시뮬 시작(30분)» 큰 단추 삭제 — 시작은 지도 화면 «지도 열기»(SLAM) 하나. 이 단추는 화면 이동만(기동·지형 고르기 0 — 숨은 rooms_a 빠른 시작 0)
+    if (SIM_OFF.includes(st.sim_block) && st.map_start) btns.push(big('시뮬 시작 — 지도 화면에서', () => { location.hash = '#/MMap'; }));
     // N1: 조종권 받기 + STOP 해제 → «조종 시작» 하나(확인 1회). 진행 중이면 단계 글(누를 수 없음)
     const sb = startBlock(L);
     if (L.starting) btns.push(big(L.starting, () => {}, true));
@@ -155,8 +154,7 @@ export default function MDrive() {
     <p>{`앞뒤 막대: 앞만 움직입니다. 뒤로 당기면 후진 미검증이라 서버가 0으로 막습니다(이유 표시). ${NOMOVE}`}</p>
     <button type="button" onClick={cycle}>{`화면 나누기: ${miniOn ? SPLIT_TXT[split] : '작은 지도 접힘(영상 크게)'} (눌러 바꾸기)`}</button>
     <button type="button" onClick={() => { location.hash = '#/MMap'; }}>큰 지도 열기(지도 화면)</button>
-    {st?.sim_start && <p>{[startTxt(st).left, startTxt(st).last].filter(Boolean).join(' · ')}</p>}
-    {st?.map_start && <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`지도 열기는 지도 화면에서 · ${startTxt(st).map}`}</button>}
+    {st?.map_start && <button type="button" onClick={() => { location.hash = '#/MMap'; }}>{`시뮬 시작(지도 열기 · SLAM)은 지도 화면에서 · ${startTxt(st).map}`}</button>}
     <button type="button" onClick={() => { location.hash = '#/MHistory'; }}>기록 보기(사진·조종 기록)</button>
     {auth.gated && <button type="button" onClick={() => logoutNow().then((e) => e && toast(e))}>{`로그아웃 · ${st?.me || ''}`}{note && <small style={{ display: 'block' }}>{note}</small>}</button>}
     <p data-dev>{`화면 판 ${L.firstVer || '미확인'} · 서버 판 ${st?.ver || '미확인'}`}</p>

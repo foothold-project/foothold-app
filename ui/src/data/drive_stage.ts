@@ -27,7 +27,7 @@ export function stageOf(x: In): Stage {
 function stage0(x: In): Stage {
   const st = x.st;
   if (!x.linkOk || !st) return { i: 0, stop: `링크 ${x.linkTxt}`, next: '연결 회복 대기 · 명령 0 · 다시 붙으면 보기 전용부터' };
-  if (st.sim_block) return { i: 0, stop: st.sim_block, next: SIM_OFF.includes(st.sim_block) ? '시뮬 상태 확인 안 됨 — «시뮬 시작» 또는 대기'   /* U2(670 P2): 미수신·끊김 ≠ 꺼짐 */ : '서버 이유가 풀릴 때까지 명령 0' };
+  if (st.sim_block) return { i: 0, stop: st.sim_block, next: SIM_OFF.includes(st.sim_block) ? '시뮬 상태 확인 안 됨 — 지도 화면 «지도 열기»(시뮬 시작) 또는 대기'   /* U2(670 P2): 미수신·끊김 ≠ 꺼짐 */ : '서버 이유가 풀릴 때까지 명령 0' };
   if (st.reset_pending) return { i: 2, stop: '시뮬 리셋 처리 중', next: '끝날 때까지 STOP 유지' };
   if (st.resume_pending) return { i: 2, stop: 'STOP 해제 확인 대기', next: '서버 확인 대기 · 명령 0' };
   if (st.role === 'view_other') return { i: 0, stop: '다른 기기가 조종 중', next: '그 기기가 반납하면 «조종 시작»' };
@@ -48,9 +48,9 @@ export function warnsOf(x: In): Warn[] {
   if (x.newVer && st) add('block', `새 화면 판(${st.ver}) · 명령 0`, '조종하지 않을 때 새로고침');   // driveBlock 이 실제로 막음
   if (!x.linkOk || !st) add('block', `링크 ${x.linkTxt} · 명령 0`, '휴대폰 네트워크·관문 PC 확인 — 다시 붙으면 보기 전용부터');
   else {
-    const off = SIM_OFF.includes(st.sim_block), ss = st.sim_start;
-    if (st.sim_block) add('block', `${st.sim_block} · 명령 0`, !off ? '서버 이유가 풀릴 때까지 대기' : ss && !ss.ok ? `시뮬 시작 불가 — ${ss.why}` : '«시뮬 시작»(STOP 상태로 시작) 또는 RL 쪽 상태 확인');
-    if (off && ss?.last?.st === 'bad') add('warn', `최근 시작 결과 ${ss.last.t} · 안 켜짐`, ss.last.text);   // toast 만으로 숨기지 않음
+    const off = SIM_OFF.includes(st.sim_block), ss = st.map_start;   // SLAM-1: 시작 = map_start 하나(평지 sim_start 칸으로 판단·안내 0)
+    if (st.sim_block) add('block', `${st.sim_block} · 명령 0`, !off ? '서버 이유가 풀릴 때까지 대기' : ss && !ss.ok ? `시뮬 시작 불가 — ${ss.why}` : '시뮬 상태가 안 들어옴(꺼짐 확정 아님) — 지도 화면 «지도 열기»(SLAM · STOP 상태로 시작) 또는 RL 쪽 상태 확인');
+    if (off && ss?.last?.st === 'bad') add('warn', `최근 시작 결과 ${ss.last.t} · 실패·결과 미확인`, ss.last.text);   // toast 만으로 숨기지 않음 · r2: 서버 bad 에는 시간 초과도 들어감 → «안 켜짐» 단정 0
     if (st.reset_pending) add('block', '시뮬 리셋 처리 중 · STOP 유지', '끝날 때까지 대기');
     else if (st.resume_pending) add('block', 'STOP 해제 확인 대기 · 명령 0', '서버 확인 대기');
     else if (st.latch) add('block', 'STOP 잠금 · 명령 0', '«조종 시작»(확인 1회) 뒤 손 떼고 다시 누름');

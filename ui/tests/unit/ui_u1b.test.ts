@@ -84,7 +84,7 @@ test('메뉴·팝오버는 기존 경로만 · 송신은 누름 때 · STOP 첫 
   expect(statusSrc).not.toMatch(/sendStop|sendOp\('(take|resume|release)'\)|startDrive|setInterval|setTimeout|preventDefault|stopPropagation/);
   expect(statusSrc.match(/sendOp\(/g)!.length).toBe(1);
   expect(statusSrc).toMatch(/onClick=\{go\}/);
-  expect(statusSrc).toMatch(/startSimAsk\(st\)/);                       // 시뮬 시작은 기존 확인창
+  expect(statusSrc).not.toMatch(/startSimAsk|'시뮬 시작\(30분\)'/);      // SLAM-1: 평지 시작 항목 0 — 시작은 MapStartBox(페이지 안 확인창)
   expect(statusSrc).toMatch(/onMapPage \?/);                            // 지도 화면에선 상자 중복 장착 0
 });
 

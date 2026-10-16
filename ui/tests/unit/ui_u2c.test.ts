@@ -71,7 +71,7 @@ test('오른쪽 칸: 시뮬 실행 → 지도 보기(보기만) → 임무 차�
   expect(i.every((x, k) => x >= 0 && (k === 0 || x > i[k - 1]))).toBe(true);
   expect(s.match(/aria-label="지도 보기 선택\(보기만 · 실제 시뮬 안 바뀜\)"/g)!.length).toBe(1);
   expect(s).toContain('받은 시뮬 상태(조회값 · 지금 실행 확정 아님) · '); expect(s).not.toContain('지금 열린 시뮬 · ');   // 보완 P2: 관제(drop)만 — 받은 session 조회값
-  expect(s).toMatch(/>시뮬 리셋</); expect(s).toMatch(/>시뮬 시작\(30분\)</);   // 메뉴와 같은 항목(SimRun)
+  expect(s).toMatch(/>시뮬 리셋</); expect(s).not.toMatch(/>시뮬 시작\(30분\)</);   // 메뉴와 같은 항목(SimRun) · SLAM-1: 평지 시작 항목 0
   expect(s.indexOf('2층 점검 · 지점 1')).toBeLessThan(s.indexOf('1층 순찰 · 지점 2'));
   expect(s).toContain('href="#/PcPlan"');   // 고르기 전 = 임무 계획 그대로
   expect(R.sent.filter((o) => o !== 'drop')).toEqual([]); expect(R.asked.every((o) => READ.includes(o))).toBe(true);

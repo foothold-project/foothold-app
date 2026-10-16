@@ -39,12 +39,18 @@ describe('warnsOf', () => {
     const w = warnsOf(x({ viewOnly: false, fallen: true }, { role: 'control', latch: false }));
     expect(w.map((v) => v.lvl)).toEqual(['warn']); expect(w[0].fix).toMatch('STOP');
   });
-  it('시뮬 꺼짐 + 시작 불가면 이유를 해결 안내로, 최근 실패 결과는 주의로 계속 표시(toast 만으로 숨기지 않음)', () => {
-    const ss = { ok: false, why: '기존 평지 체험 사용 가능 횟수 소진(8/8)', busy: false, session: null, ledger: { used: 8, max: 8 }, last: { t: '13:06:35', st: 'bad', text: '사용 가능 횟수 소진(기동 안 함)' } };
-    const w = warnsOf(x({}, { sim_block: '시뮬 상태 미수신', sim_start: ss }));
-    expect(w[0]).toMatchObject({ lvl: 'block', fix: '시뮬 시작 불가 — 기존 평지 체험 사용 가능 횟수 소진(8/8)' });
-    expect(w.find((v) => v.text.startsWith('최근 시작 결과 13:06:35'))).toMatchObject({ lvl: 'warn', fix: '사용 가능 횟수 소진(기동 안 함)' });
-    expect(warnsOf(x({}, { sim_block: '시뮬 상태 미수신', sim_start: { ...ss, ok: true, why: '', last: null } }))[0].fix).toMatch('«시뮬 시작»');
+  it('시뮬 꺼짐 + 시작 불가면 이유를 해결 안내로, 최근 실패 결과는 주의로 계속 표시(toast 만으로 숨기지 않음) — SLAM-1: 시작 = map_start 칸', () => {
+    const ms = { ok: false, why: '지도 체험 원장 소진 3/3', busy: false, session: null, ledger: { used: 3, max: 3, keys: [] }, last: { t: '13:06:35', st: 'bad', text: 'rooms_a/f1 · 기동 실패' } };
+    const w = warnsOf(x({}, { sim_block: '시뮬 상태 미수신', map_start: ms }));
+    expect(w[0]).toMatchObject({ lvl: 'block', fix: '시뮬 시작 불가 — 지도 체험 원장 소진 3/3' });
+    expect(w.find((v) => v.text.startsWith('최근 시작 결과 13:06:35'))).toMatchObject({ lvl: 'warn', fix: 'rooms_a/f1 · 기동 실패' });
+    expect(w.map((v) => v.text).join()).toMatch('13:06:35 · 실패·결과 미확인'); expect(w.map((v) => v.text + v.fix).join()).not.toMatch(/안 켜짐/);   // r2: bad 에 시간 초과 포함 — 꺼짐 단정 0
+    expect(warnsOf(x({}, { sim_block: '시뮬 상태 미수신', map_start: { ...ms, ok: true, why: '', last: null } }))[0].fix).toMatch('꺼짐 확정 아님');   // 미수신 ≠ 꺼짐
+    expect(warnsOf(x({}, { sim_block: '시뮬 상태 미수신', map_start: { ...ms, ok: true, why: '', last: null } }))[0].fix).toMatch('«지도 열기»(SLAM');
+    // 반례: 평지 sim_start 칸만 거부·실패여도 안내·주의에 평지 이유를 쓰지 않음(새 UI 는 평지 시작을 안 보냄)
+    const flat = { ok: false, why: '기존 평지 체험 사용 가능 횟수 소진(8/8)', busy: false, session: null, last: { t: '12:00:00', st: 'bad', text: '평지 실패' } };
+    const w2 = warnsOf(x({}, { sim_block: '시뮬 상태 미수신', sim_start: flat, map_start: { ...ms, ok: true, why: '', last: null } }));
+    expect(w2[0].fix).toMatch('«지도 열기»(SLAM'); expect(w2.map((v) => v.text + v.fix).join()).not.toMatch(/평지/);
   });
   it('조종 가능 상태는 경고 0', () => {
     expect(warnsOf(x({ viewOnly: false }, { role: 'control', latch: false }))).toEqual([]);
