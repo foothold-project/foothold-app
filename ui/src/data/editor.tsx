@@ -6,6 +6,7 @@ import { docById, saveDoc, type Docs, type SaveRes } from './shared';
 import { fmtT } from './fmt';
 import { toast } from '../app/shell';
 import { ctx, drafts } from './scratch';
+import { dropAsk } from './link';
 
 type Kind = DocEnvelope['kind'];
 export type Editor<T> = {
@@ -23,7 +24,7 @@ function make<T>(kind: Kind, rebuild: () => void): Editor<T> {
   const box = (t: string, ...b: ReactNode[]) => { E.msg = <div className="lv-warnbox" role="alert"><span>{t}</span><div className="lv-row">{b}</div></div>; rebuild(); };
   const E: Editor<T> = {
     kind, id: null, rev: null, d: null, dirty: false, busy: false, gen: 0, msg: null,
-    load(doc, init) { E.gen++; E.id = doc ? doc.id : null; E.rev = doc ? doc.rev : null; E.d = structuredClone((doc ? doc.doc : init) ?? null) as T | null; E.dirty = false; E.msg = null; rebuild(); },
+    load(doc, init) { E.gen++; dropAsk(E); E.id = doc ? doc.id : null; E.rev = doc ? doc.rev : null; E.d = structuredClone((doc ? doc.doc : init) ?? null) as T | null; E.dirty = false; E.msg = null; rebuild(); },
     async save(rev = E.rev) {
       if (E.busy) return null; E.busy = true; say('저장 중…');
       const sent = JSON.stringify(E.d), gen = E.gen;   // 보낸 판 그대로 — 저장 중 입력은 E.d 에만 쌓임
@@ -90,7 +91,7 @@ export function useEditor<T>(kind: Kind, keep?: string): Editor<T> {
   useEffect(() => {
     if (keep) drafts.delete(`${kind}:${keep}`);   // 화면에 있는 동안 보관본 0(StrictMode 의 cleanup→setup 에서도 남지 않게)
     return () => {
-      const E = r.current!; E.gen++;
+      const E = r.current!; E.gen++; dropAsk(E);
       if (keep && E.dirty && E.d && at.current === ctx.n) drafts.set(`${kind}:${keep}`, { id: E.id, rev: E.rev, d: structuredClone(E.d) });
     };
   }, [kind, keep]);

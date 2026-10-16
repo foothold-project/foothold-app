@@ -58,11 +58,12 @@ export function View({ v }: { v: Vals }) {
                 {"STOP"}
               </span>
               <span style={{"fontSize":"11px"}}>
-                {"스페이스 · 명령 0·잠금"}
+                {v.stopSub ?? "스페이스 · 명령 0·잠금"}
               </span>
             </span>
             {" "}
           </button>
+          {v.stopHelp ?? null}
           {" "}
         </header>
         {" "}

@@ -41,6 +41,18 @@ export const verLabel =(m: MapInfo) => `${(WF[m.world_id]?.length || 0) > 1 ? `$
 export const mapKey = (m: MapInfo) => `${m.building_id}/${m.floor_id}/${m.map_version}`;
 export const mapLabel = (m: MapInfo) => `${place(m.world_id, m.floor_id)} · ${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 저장 지도'} · ${m.map_version}`;
 
+/** 층 나란히 보기의 층별 GT 를 받음. link 는 연결마다 지도 요청 하나(map_busy — 겹치면 «지도 요청 처리 중» 거절) → 한 층씩 차례로(M①).
+ *  매 응답 뒤 still() 이 거짓이면 null(버림 · 다음 층 요청 0). 첫 실패에서 멈춤 = 그 층 이름 + 서버/해독 원문(부분 그림 0 · 자동 재시도 0) */
+export async function getFloors(fs: MapInfo[], still: () => boolean, get: (m: MapInfo) => Promise<Raster | string> = getMap): Promise<Raster[] | string | null> {
+  const rs: Raster[] = [];
+  for (const m of fs) {
+    const r = await get(m); if (!still()) return null;
+    if (typeof r === 'string') return `${FLOOR[m.floor_id as keyof typeof FLOOR] || m.floor_id} · ${r}`;
+    rs.push(r);
+  }
+  return rs;
+}
+
 /** 층별 GT 그림을 위(높은 층)→아래로 쌓은 보기 전용 그림 한 장. 층 사이 띠 + 층 이름. 좌표 하나로 못 읽음 → noGrid·위치 마커 0 */
 export function stackFloors(rs: Raster[], names: string[], label: string): Raster {
   const a = rs[0], gap = Math.round(a.h * 0.06), c = document.createElement('canvas');

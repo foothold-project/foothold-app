@@ -6,6 +6,7 @@ export const CONTRACT_VERSION = "fh-app/1";
 export interface ApiError {
   error: string;
   cur?: ZoneEnv | TmplEnv | MissionEnv | RunEnv | NoteEnv | null;
+  reason_code?: "mission_gone" | "mission_changed" | "tmpl_changed" | "snapshot_mismatch" | "mcas_forbidden" | null;
 }
 
 export interface Capabilities {
@@ -45,6 +46,7 @@ export interface DocPutOk {
   kind: "zone" | "tmpl" | "mission" | "run" | "note";
   name: string;
   new: boolean;
+  mcas_dropped?: true | null;
 }
 
 export interface DocsList {
@@ -150,6 +152,14 @@ export interface MapSaveState {
   busy: boolean;
 }
 
+export interface MapSrc {
+  src: "gt";
+  world_id: string;
+  floor_id: string;
+  key: string;
+  rid?: string;
+}
+
 export interface MapStartState {
   ok: boolean;
   why: string;
@@ -179,6 +189,7 @@ export interface Mission {
   tmpl: string;
   memo: string;
   wps: Waypoint[];
+  map?: MapSrc;
 }
 
 export interface MissionEnv {
@@ -299,6 +310,9 @@ export interface Run {
   ended: string;
   memo: string;
   wps: RunWaypoint[];
+  map?: MapSrc;
+  mrev?: number;
+  mcas?: 1;
 }
 
 export interface RunEnv {

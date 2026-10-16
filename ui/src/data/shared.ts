@@ -41,6 +41,10 @@ export function useMedia(): Media {
     stale: isStale(!!q.data, !!q.error), at: q.data ? q.dataUpdatedAt : 0 };
 }
 export const isStale = (hasData: boolean, hasErr: boolean) => hasData && hasErr;
+// U3-b 보완(715 B1·670 P2): 소스 상태 — '' = 정상 응답·오류 0. 그 밖은 «기록 유무·분류 미확인»(정상 0/미분류로 단정하지 않음).
+// 문서: 읽는 중(rev null·err 0) · 못 읽음(rev null·err) · 저장소 오류(정상 HTTP + broken → rev 는 정수, err = broken) · 보관(옛 목록 + 재조회 실패)
+export const docsSt = (D: Docs) => D.rev == null ? (D.err ? '못 읽음' : '읽는 중') : D.stale ? '보관' : D.err ? '저장소 오류' : '';
+export const mediaSt = (M: Media) => !M.ok ? (M.err ? '못 읽음' : '읽는 중') : M.stale ? '보관' : '';
 export const reread = (k: 'media' | 'docs') => qc.invalidateQueries({ queryKey: [k] });
 export const alertsOf = (M: Media) => M.events.filter((e) => e.st === 'warn' || e.st === 'bad');
 
@@ -56,12 +60,15 @@ export function refreshShared(docsRev: number | null | undefined, head: { t: str
 }
 
 // 공용 문서 저장 — web/live.js saveDoc 과 같은 규칙. 저장 뒤 목록은 늘 다시 읽는다(성공·실패 모두).
-export type SaveRes = { ok: true; id: string; rev: number } | { ok: false; code: number; error: string; cur?: DocEnvelope | null };
+// code = HTTP 상태(숫자) 그대로 — 409 초안 보존 경로 무변경. reason = 서버 본문 reason_code(C 가 새로 내는 사유만, 그 밖엔 없음)
+// mcasDropped = 결과 편집에서 근거 필드가 바뀌어 서버가 «시작 대조» 표시(mcas)를 뗌
+export type SaveRes = { ok: true; id: string; rev: number; mcasDropped?: true } | { ok: false; code: number; error: string; cur?: DocEnvelope | null; reason?: string };
 export async function saveDoc(m: DocWrite): Promise<SaveRes> {
   try {
     const r = await T.postDocs(m);
     const d = parse(r.body), ok = r.status >= 200 && r.status < 300;
     qc.invalidateQueries({ queryKey: ['docs'] }, { cancelRefetch: false });
-    return ok ? { ok: true, ...d } : { ok: false, code: r.status, error: d.error || httpTxt(r.status), cur: d.cur };
+    return ok ? { ok: true, ...d, ...(d.mcas_dropped === true ? { mcasDropped: true as const } : {}) }
+      : { ok: false, code: r.status, error: d.error || httpTxt(r.status), cur: d.cur, ...(typeof d.reason_code === 'string' ? { reason: d.reason_code } : {}) };
   } catch (e: any) { return { ok: false, code: 0, error: `서버에 닿지 않음 · ${e?.message || e}` }; }
 }

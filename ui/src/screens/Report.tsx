@@ -7,14 +7,15 @@ import { MapCanvas } from '../map/MapCanvas';
 import { LV, durTxt, fmtT, saveBlob, wpName } from '../data/fmt';
 import { docById, docsOf, noteOf, useDocs, useMedia } from '../data/shared';
 import { MediaStale } from '../app/status';
-import { histCSV, histRows, href, runRows } from '../data/hist';
+import { histCSV, histRows, href, runRows, sevKeep, srcGaps } from '../data/hist';
 import { stopProps, toast, useRoute } from '../app/shell';
+import { mcasTxt } from '../data/run';
 
 // 결과 색 = 공식 토큰(Report 는 항상 밝음): 완료·확인 dim-ink, 진행·미확인 note-ink, 실패·중단 stop. 색 + 글자로 구분
 const COLOR: Record<string, string> = { '완료': 'var(--dim-ink)', '진행': 'var(--note-ink)', '실패': 'var(--stop)', '중단': 'var(--stop)' };
 
 export default function Report() {
-  const D = useDocs(), M = useMedia(), { q, setQ } = useRoute();
+  const D = useDocs(), M = useMedia(), { q, setQ } = useRoute(), gaps = srcGaps(D, M);
   const runs = D.err ? [] : docsOf(D, 'run'), want = q.get('run');
   const pick = D.err ? null : want ? docById(D, want) : runs.find((r) => r.doc.status !== '진행') || runs[0];
   const run = pick && pick.kind === 'run' ? pick : null, R = run?.doc;
@@ -37,7 +38,7 @@ export default function Report() {
     const ph = R.wps.flatMap((w, i) => w.photos.map((u) => [u, i] as const));
     v = { ...blank, title: R.name, recNo: run!.id,
       place: 'Gazebo foothold-v2 시뮬 바닥(±10 m) · 실제 현장 아님', when: `${fmtT(R.started)} – ${R.ended ? fmtT(R.ended) : '진행 중'} · ${durTxt(R.started, R.ended)}`,
-      who: `마지막 기록 ${run!.by}`, robot: 'Go2 시뮬(Gazebo) · 실기 아님', tplLine: `${R.tmpl || '—'} · 수동 진행(자동 이동·자동 완료 아님)`,
+      who: `마지막 기록 ${run!.by}`, robot: 'Go2 시뮬(Gazebo) · 실기 아님', tplLine: `${R.tmpl || '—'} · 수동 진행(자동 이동·자동 완료 아님) · ${mcasTxt(D, R)}`,
       wpLine: `${R.wps.length}개 · 방문 ${vis} · 미방문 ${miss.length}`, resColor: COLOR[R.status] || 'var(--ink-2)',
       resHead: `${R.status === '완료' ? LV.ok : R.status === '진행' ? LV.warn : LV.bad} ${R.status === '진행' ? '진행 중(수동)' : R.status}`,
       resBody: R.memo || `방문 ${vis}/${R.wps.length} · 판단 확인 ${n('확인')} · 보류 ${n('보류')} · 제외 ${n('제외')}`,
@@ -65,9 +66,11 @@ export default function Report() {
             : <option value="">{D.err ? '기록 읽기 실패 · 미확인' : '수동 임무 기록 없음'}</option>}
         </select>
         <button type="button" className="lv-btn pri" onClick={() => print()}>인쇄</button>
-        <button type="button" className="lv-btn" disabled={!run} onClick={() => { if (!run) return; const rs = runRows(histRows(D, M, true), run);
+        <button type="button" className="lv-btn" disabled={!run} onClick={() => { if (!run) return; const rs = runRows(histRows(D, M, true).filter((r) => sevKeep(r)), run);
           toast(saveBlob(`foothold-v2-run-${run.id}-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `임무 «${run.doc.name}» · ${rs.length}행 · ${x}`)); }}>{run ? `이 임무 CSV · «${run.doc.name}»` : '이 임무 CSV'}</button>
-        <button type="button" className="lv-btn" onClick={() => { const rs = histRows(D, M, true); toast(saveBlob(`foothold-v2-history-all-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `전체 기록 · ${rs.length}행 · ${x}`)); }}>전체 기록 CSV</button>
+        {/* 소스를 못 읽었거나 보관이면 «완전한 전체»로 표기하지 않음(받은 행만 내보내는 기능은 그대로) */}
+        <button type="button" className="lv-btn" title={gaps.length ? `완전한 전체 기록 아님 — ${gaps.join(' · ')}` : undefined} onClick={() => { const rs = histRows(D, M, true).filter((r) => sevKeep(r));
+          toast(saveBlob(`foothold-v2-history-${gaps.length ? 'partial' : 'all'}-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `${gaps.length ? `일부 기록(${gaps.join(' · ')})` : '전체 기록'} · ${rs.length}행 · ${x}`)); }}>{gaps.length ? '받은 기록 CSV · 일부' : '전체 기록 CSV'}</button>
         <a className="lv-btn" href={href('PcHistory')}>기록 화면</a>
         <MediaStale M={M} D={D} />
       </div>

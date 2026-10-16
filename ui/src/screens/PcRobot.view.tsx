@@ -39,9 +39,9 @@ export function View({ v }: { v: Vals }) {
             {" "}
           </div>
           {" "}
-          <span style={{"height":"26px","padding":"0 10px","borderRadius":"999px","display":"flex","alignItems":"center","fontSize":"12px","fontWeight":"600","background":"var(--ok-bg)","color":"var(--ok)",...v.pillStyle}}>
+          {v.pill === '' ? null : <span style={{"height":"26px","padding":"0 10px","borderRadius":"999px","display":"flex","alignItems":"center","fontSize":"12px","fontWeight":"600","background":"var(--ok-bg)","color":"var(--ok)",...v.pillStyle}}>
             {v.pill ?? "● 연결됨 · 대기"}
-          </span>
+          </span>}{/* U4-b: '' = 안 그림(연결은 머리줄 공통 칩) */}
           {" "}
           <div style={{"flex":"1"}} />
           {" "}
@@ -65,11 +65,12 @@ export function View({ v }: { v: Vals }) {
                 {"STOP"}
               </span>
               <span style={{"fontSize":"11px"}}>
-                {"스페이스 · 명령 0·잠금"}
+                {v.stopSub ?? "스페이스 · 명령 0·잠금"}
               </span>
             </span>
             {" "}
           </button>
+          {v.stopHelp ?? null}
           {" "}
         </header>
         {" "}
@@ -480,7 +481,7 @@ export function View({ v }: { v: Vals }) {
               {" "}
             </section>
             {" "}
-            <section className="card" aria-label="자세 명령">
+            <section className="card" aria-label="자세 명령" {...v.poseCardP}>
               {" "}
               <h2>
                 {"자세 명령 "}
@@ -587,6 +588,7 @@ export function View({ v }: { v: Vals }) {
                 </div></>)}
                 {" "}
               </div>
+              {v.stopFacts ?? null}{/* U4-b: «알려진 정지 특성» 묶음 */}
               {" "}
               <div style={{"display":"flex","gap":"8px"}}>
                 <button className="btn" style={{"flex":"1"}} {...v.testP}>

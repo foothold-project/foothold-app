@@ -39,13 +39,13 @@ export function View({ v }: { v: Vals }) {
             {" "}
           </div>
           {" "}
-          <span style={{"height":"26px","padding":"0 10px","borderRadius":"999px","display":"flex","alignItems":"center","fontSize":"12px","fontWeight":"600","background":"var(--acc-bg)","color":"var(--accent)"}}>
-            {v.pill ?? "임무에 사용 중"}
-          </span>
+          {v.pill ? <span style={{"height":"26px","padding":"0 10px","borderRadius":"999px","display":"flex","alignItems":"center","fontSize":"12px","fontWeight":"600","background":"var(--acc-bg)","color":"var(--accent)"}}>
+            {v.pill}
+          </span> : null}{/* U4-a: 보기만일 때만 — 시뮬 배지는 머리줄 공통 칩 */}
           {" "}
           <div style={{"flex":"1"}} />
           {" "}
-          <div style={{"display":"flex","alignItems":"center","gap":"6px","height":"34px","padding":"0 10px","border":"1px solid var(--line)","borderRadius":"6px","fontSize":"13px","background":"var(--panel2)"}}>
+          <div data-dev="" style={{"display":"flex","alignItems":"center","gap":"6px","height":"34px","padding":"0 10px","border":"1px solid var(--line)","borderRadius":"6px","fontSize":"13px","background":"var(--panel2)"}}>{/* U4-a: 위치 상자(GT 좌표) = 개발자 모드 */}
             <span style={{"color":"var(--ok)","fontSize":"11px",...v.posDotS}}>
               {v.posDot ?? "●"}
             </span>
@@ -70,11 +70,12 @@ export function View({ v }: { v: Vals }) {
                 {"STOP"}
               </span>
               <span style={{"fontSize":"11px"}}>
-                {"스페이스 · 명령 0·잠금"}
+                {v.stopSub ?? "스페이스 · 명령 0·잠금"}
               </span>
             </span>
             {" "}
           </button>
+          {v.stopHelp ?? null}
           {" "}
         </header>
         {" "}
@@ -154,7 +155,7 @@ export function View({ v }: { v: Vals }) {
                 {v.lbl0 ?? "로봇을 직접 조종해 한 바퀴 돌면 SLAM이 지도를 만듭니다. 끝나면 저장합니다."}
               </span>
               {" "}
-              <span className="lbl" style={{"paddingTop":"6px"}}>
+              <span className="lbl" data-dev="" style={{"paddingTop":"6px"}}>
                 {v.lbl1 ?? "B1 · [현장명]"}
               </span>
               {" "}
@@ -255,6 +256,7 @@ export function View({ v }: { v: Vals }) {
                 {" "}
               </div>
               {" "}
+              {v.mapBar ?? null}
               <div style={{"position":"relative"}}>
                 {" "}
                 {v.map ?? null}

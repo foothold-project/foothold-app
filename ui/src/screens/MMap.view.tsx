@@ -35,6 +35,7 @@ export function View({ v }: { v: Vals }) {
           </div>
           {" "}
           {v.status ?? null}
+          {v.mapBar ?? null}
           <button className="fab" aria-label="지도 레이어" {...v.layerP}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
               <path d="M12 3l9 5-9 5-9-5z" />

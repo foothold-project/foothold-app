@@ -9,7 +9,7 @@ export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:
 /** 원본 틀이 읽는 값 이름 */
 export type Vals = { themeClass?: any; missionLine?: any; isBase?: any; isGas?: any; hasFind?: any;
   name?: any; linkLine?: any; status?: any; alertP?: any; alertN?: any; mtagHide?: any; big?: any; segsP?: any; segs?: any; rest?: any; pick?: any; map?: any;
-  bodyOverflow?: any; tTitle?: any; tSub?: any; grid?: any; tilesHide?: any; tiles?: any; acts?: any; pbP?: any; pbT?: any; ends?: any; stopProps?: any };
+  bodyOverflow?: any; tTitle?: any; tSub?: any; grid?: any; tilesHide?: any; tiles?: any; acts?: any; pbP?: any; pbT?: any; ends?: any; stopProps?: any; safe?: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -373,10 +373,11 @@ export function View({ v }: { v: Vals }) {
               {"STOP"}
             </span>
             <span style={{"fontSize":"13px"}}>
-              {"명령 0·잠금"}
+              {"입력 차단·잠금"}
             </span>
             {" "}
           </button>
+          {v.safe ?? null}
           {" "}
         </div>
         {" "}

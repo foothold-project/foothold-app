@@ -130,3 +130,21 @@ def test_bad_store_spec_refuses_to_start(tmp_path, spec):
 def test_store_constants_match():
     assert set(S.DOC_KINDS) == set(L.DOC_KINDS) == set(C.DOC_KINDS)
     assert (S.DOC_MAX, S.DOC_TOTAL) == (L.DOC_MAX, L.DOC_TOTAL) == (C.DOC_MAX, C.DOC_TOTAL)
+
+
+# 10-15 프리셋 1단계: 옛 문서(map 없음)와 새 문서(map·mrev)가 섞인 저장소가 json·sqlite 둘 다 기동되고, 옛 앱 재저장(map 빠짐)은 그대로 받는다
+MS = {'src': 'gt', 'world_id': 'v5_building', 'floor_id': 'l1', 'key': '0a1b2c3d'}
+WP0 = {'x': 1, 'y': 2.25, 'name': '계단', 'mods': ['사진']}
+
+
+@pytest.mark.parametrize('kind', ['json', 'sqlite'])
+def test_mixed_old_new_mission_docs_load(tmp_path, kind):
+    d = tmp_path / 'm'; d.mkdir(); env = lambda i, k, doc: {'id': i, 'kind': k, 'rev': 1, 'by': 'A', 'at': 't', 'doc': doc}
+    old = {'name': '옛', 'tmpl': '', 'memo': '', 'wps': [WP0]}
+    (d / 'docs.json').write_text(json.dumps({'m1': env('m1', 'mission', old), 'm2': env('m2', 'mission', {**old, 'name': '새', 'map': MS}),
+                                             'r1': env('r1', 'run', {**GO, 'status': '중단', 'mrev': 1, 'map': MS})}, ensure_ascii=False), encoding='utf-8')
+    s, note = (L.Docs(d), '') if kind == 'json' else L.open_docs(f'sqlite:{tmp_path / "m.sqlite"}', d)
+    assert note == '' and s.listing()['broken'] is None and len(s.listing()['docs']) == 3
+    c, r = s.apply({'op': 'put', 'id': 'm2', 'rev': 1, 'doc': {**old, 'name': '옛 앱 재저장'}}, 'B')   # 옛 앱: map 을 모름 → 빠진 채 저장(서버가 채우지 않음 = 미확인)
+    assert c == 200 and 'map' not in {x['id']: x for x in s.listing()['docs']}['m2']['doc']
+    assert s.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**old, 'map': None}}, 'B')[0] == 400

@@ -24,8 +24,11 @@ export const floorCol = (fl: string | null, floors: { floor_id: string; z: numbe
   return i < 0 ? neutral : FLOOR_COL[i % FLOOR_COL.length];
 };
 
-export function Geom3D({ g, bind }: { g: Geom; bind: string }) {
-  const cv = useRef<HTMLCanvasElement>(null), view = useRef({ a: -0.6, b: 0.9 });
+// fit 일 때 덧칸이 비워 둘 위 높이 = MMap 지도 칸 왼쪽 위 안내 카드(top 10 + 글 12px·위아래 6 + 선 2 ≈ 32) + 틈 10. 안내 카드 크기를 바꾸면 같이 바꿈
+const FIT_TOP = 52;
+export function Geom3D({ g, bind, fit = false }: { g: Geom; bind: string; fit?: boolean }) {
+  const cv = useRef<HTMLCanvasElement>(null), view = useRef({ a: -0.6, b: 0.9 }), ovr = useRef<HTMLDivElement>(null);   // ovr: 덧칸(draw 안의 col = 색 함수와 이름 분리)
+  const [tight, setTight] = useState(false);   // fit(MMap 만)에서 덧칸이 «칸 높이 − FIT_TOP − 8» 보다 큼 → 덧칸 안 스크롤(670 a9db ③ 96 px 칸 위로 넘침)
   const [vw, setVw] = useState('all');   // 'all' = 전체(층 색 비교) · 층 id = 그 층만 — 보기만(시뮬 층 바꾸기 아님)
   useEffect(() => {
     const el = cv.current!, v = view.current;
@@ -34,6 +37,7 @@ export function Geom3D({ g, bind }: { g: Geom; bind: string }) {
     const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys), 1);
     const draw = () => {
       const dpr = window.devicePixelRatio || 1, W = el.clientWidth, H = el.clientHeight; if (!W || !H) return;
+      setTight(fit && !!ovr.current && ovr.current.scrollHeight > H - FIT_TOP - 8);   // 크기 바뀔 때(ResizeObserver)마다 — 같은 값이면 React 가 다시 그리지 않음
       if (el.width !== Math.round(W * dpr) || el.height !== Math.round(H * dpr)) { el.width = Math.round(W * dpr); el.height = Math.round(H * dpr); }
       const c = el.getContext('2d')!; c.setTransform(dpr, 0, 0, dpr, 0, 0);
       const cs = getComputedStyle(el), col = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
@@ -80,11 +84,12 @@ export function Geom3D({ g, bind }: { g: Geom; bind: string }) {
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move); el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); el.addEventListener('lostpointercapture', end);
     el.dataset.floorView = vw; draw();   // floorView: 시험·상태 확인용
     return () => { ro.disconnect(); el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', end); el.removeEventListener('pointercancel', end); el.removeEventListener('lostpointercapture', end); };
-  }, [g, vw]);
+  }, [g, vw, fit]);
   const nM = g.meshes.length, chip: React.CSSProperties = { fontSize: 11, lineHeight: 1.35, padding: '3px 6px', borderRadius: 4, background: 'rgba(0,0,0,.6)', color: '#DDE5EC' };
   return <>
     <canvas ref={cv} data-live-map="geom3d" aria-label="건물 전체 3D · GT 간략 기하(드래그로 회전)" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', cursor: 'grab' }} />
-    <div style={{ position: 'absolute', left: 8, right: 64, bottom: 8, zIndex: 2, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>{/* 왼쪽 아래 한 열 — 위쪽은 지도 화면 안내 카드, 오른쪽은 기존 확대·로봇 버튼 열 */}
+    <div ref={ovr} data-g3d-tight={tight ? '' : undefined} style={{ position: 'absolute', left: 8, right: 64, bottom: 8, zIndex: 2, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start',
+      ...(tight ? { maxHeight: `calc(100% - ${FIT_TOP + 8}px)`, overflowY: 'auto', pointerEvents: 'auto' } : {}) }}>{/* tight: 위 FIT_TOP 은 비움(MMap 왼쪽 위 안내 카드와 겹침 0) · 층 단추(맨 위)가 먼저 보이고 범례·상태 칩은 덧칸 안 스크롤 · 3D 드래그 = 오른쪽 56 px 띠 + 위 띠(안내 카드 밖) · fit 거짓(PcMap·Main·MDrive)은 그대로 */}{/* 왼쪽 아래 한 열 — 위쪽은 지도 화면 안내 카드, 오른쪽은 기존 확대·로봇 버튼 열 */}
     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', pointerEvents: 'auto' }}>
       <span role="group" aria-label="3D 층 보기(보기만)" style={{ display: 'flex', gap: 4 }}>
         <button type="button" className="lv-btn" aria-pressed={vw === 'all'} style={{ minHeight: 32 }} onClick={() => setVw('all')}>전체 비교</button>

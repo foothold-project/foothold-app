@@ -6,7 +6,7 @@ import { READ_NOTE, markRead } from '../data/alerts';
 import { useDocs, useMedia } from '../data/shared';
 import { href } from '../data/hist';
 import { linkView, useLink } from '../data/link';
-import { LATCH_TXT, STOP_FACT, WHY } from '../data/facts';
+import { LATCH_TXT, STOP_FACT, WHY, evShow } from '../data/facts';
 import { LiveStatus } from '../app/status';
 import { stopOn, stopProps, useRoute } from '../app/shell';
 
@@ -19,7 +19,7 @@ export default function MAlert() {
     ['·', `자동 후퇴·자동 조치 — ${WHY['자동 목적지 이동·자동 복귀'].split(' — ')[0]}`, '실행 안 함'], ['·', '경보 공유 — 미연결(외부 알림·메시지 발송 없음)', '실행 안 함']];   // B2 R11: 공유 버튼 대신 사실 한 줄
   const v = {
     themeClass: themeClass(false), stopProps, status: <LiveStatus D={D} style={{ padding: '6px 14px' }} />,
-    ...(e ? { lv: `${LV[e.st] || '·'} ${({ bad: '위험', warn: '경고' } as Record<string, string>)[e.st] || e.st}`, time: fmtT(e.at), title: e.text, sub: '서버 사건 원문 · Go2 시뮬(foothold-v2) · 원인 판단은 포함하지 않음' }
+    ...(e ? { lv: `${LV[e.st] || '·'} ${({ bad: '위험', warn: '경고' } as Record<string, string>)[e.st] || e.st}`, time: fmtT(e.at), title: evShow(e.text), sub: `${evShow(e.text) === e.text ? '서버 사건 원문' : `원문: ${e.text}`} · Go2 시뮬(foothold-v2) · 원인 판단은 포함하지 않음` }   // U3-a: 제목만 표시 문장, 원문 전문은 이 줄
       : { lv: !M.ok ? '읽는 중…' : none ? '고른 경보 없음' : '사건을 찾지 못함', time: '', title: !M.ok ? M.err || '' : none ? '알림 목록에서 경보를 고르세요' : '서버 최근 300건 밖이거나 주소가 틀렸습니다', sub: '' }),
     valDisplay: 'none',
     didT: '지금 서버·로봇 상태', didL: '이 앱에서 지금 할 수 있는 조치: STOP · 직접 조종. 자동 규칙에 따른 조치는 미연결입니다.',

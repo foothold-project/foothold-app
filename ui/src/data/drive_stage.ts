@@ -4,8 +4,10 @@ import type { Status } from '@contracts';
 import { RELURCH } from './facts';
 
 export const STEPS = ['보기', '조종권', 'STOP 해제', '조종 가능'] as const;
-/** i = 지금 칸(0~3). stop = 단계를 막는 이유(있으면 단계 대신 이것을 보여 줌). next = 다음 행동 한 줄 */
-export type Stage = { i: number; stop: string | null; next: string };
+/** i = 지금 칸(0~3). stop = 단계를 막는 이유(있으면 단계 대신 이것을 보여 줌). next = 다음 행동 한 줄. label = 칸 이름 대신 보일 지금 사실(있을 때만) */
+export type Stage = { i: number; stop: string | null; next: string; label?: string };
+/** 화면에 보이는 단계 글 — label 이 있으면 그것(R1: 서버가 입력을 적용 안 하는 동안 «조종 가능» 표면 글 0), 없으면 칸 이름 */
+export const stepLabel = (g: Stage) => g.label ?? STEPS[g.i];
 export type Lvl = 'block' | 'warn' | 'info';
 export type Warn = { lvl: Lvl; text: string; fix: string };
 // block = 실제 발행 판정 data/link driveBlock(L) 결과 그대로 — «조종 가능»은 이것이 null 일 때만(새 판·형식 이상·STOP ACK 전 stopHeld 포함)
@@ -14,16 +16,27 @@ export type In = { linkOk: boolean; linkTxt: string; st: Status | null; viewOnly
 const SIM_OFF = ['시뮬 상태 미수신', '시뮬 상태 끊김'];
 const ctlOf = (x: In) => !!x.st && x.st.role === 'control' && !x.viewOnly;
 
+/** 서버가 지금 명령을 0 으로 둔 이유 중 driveBlock 이 못 보는 것(«손을 한 번 뗀 뒤 다시 누르세요»·방향 미검증 등) — 조종 중·클라이언트 막힘 없을 때만.
+ *  표시만: 서버 status.reason 원문 그대로(차단·권한 판단은 서버·driveBlock 그대로). 막힘이 풀리면 서버가 '' 로 비운다 */
+export const srvWhy = (x: In): string | null => (x.linkOk && x.st && ctlOf(x) && !x.st.latch && !x.block && x.st.reason) || null;
+
 export function stageOf(x: In): Stage {
+  const g = stage0(x);   // U2 보완: 넘어짐이면 «다음»에 넘어짐 대처를 먼저(단계·막힘 판정은 그대로 — 표시 우선순위만)
+  return x.fallen && !g.stop ? { ...g, next: `넘어짐 — 필요하면 «STOP» 뒤 «시뮬 리셋»(조종권 필요) · 그 밖: ${g.next}` } : g;
+}
+function stage0(x: In): Stage {
   const st = x.st;
   if (!x.linkOk || !st) return { i: 0, stop: `링크 ${x.linkTxt}`, next: '연결 회복 대기 · 명령 0 · 다시 붙으면 보기 전용부터' };
-  if (st.sim_block) return { i: 0, stop: st.sim_block, next: SIM_OFF.includes(st.sim_block) ? '시뮬이 꺼져 있음 — «시뮬 시작» 또는 대기' : '서버 이유가 풀릴 때까지 명령 0' };
+  if (st.sim_block) return { i: 0, stop: st.sim_block, next: SIM_OFF.includes(st.sim_block) ? '시뮬 상태 확인 안 됨 — «시뮬 시작» 또는 대기'   /* U2(670 P2): 미수신·끊김 ≠ 꺼짐 */ : '서버 이유가 풀릴 때까지 명령 0' };
   if (st.reset_pending) return { i: 2, stop: '시뮬 리셋 처리 중', next: '끝날 때까지 STOP 유지' };
   if (st.resume_pending) return { i: 2, stop: 'STOP 해제 확인 대기', next: '서버 확인 대기 · 명령 0' };
   if (st.role === 'view_other') return { i: 0, stop: '다른 기기가 조종 중', next: '그 기기가 반납하면 «조종 시작»' };
   if (!ctlOf(x)) return { i: 0, stop: null, next: '«조종 시작»(확인 1회 · 또는 막대 한 번)' };
   if (st.latch) return { i: 1, stop: null, next: '«조종 시작»(확인 1회) → 손 떼고 다시 누르면 움직임' };
   if (x.block) return { i: 2, stop: x.block, next: '명령 0 — 이 이유가 풀려야 움직임' };   // 표시만 앞서가지 않게: 실제 차단과 모순 0
+  const sw = srvWhy(x);   // U2 보완 A1: 조종 가능 단계여도 서버가 지금 막는 이유가 있으면 «조종 가능»만 말하지 않음
+  // R1·R2: 단계 번호(i=3)는 그대로, 보이는 글만 지금 사실. 근거는 서버가 입력을 명령에 적용 안 함(reason)뿐 — 몸의 정지는 말하지 않음(몸은 늦게 멈추거나 다시 움직일 수 있음)
+  if (sw) return { i: 3, label: '입력 막힘', stop: `입력 적용 안 됨 · ${sw}`, next: '이유대로 하면 다시 누를 때 입력 적용 · 떼면 명령 0' };
   return { i: 3, stop: null, next: '누르는 동안 이동 · 떼면 0' };
 }
 

@@ -9,22 +9,46 @@ import { activeRun, docById, docsOf, useDocs } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { linkView, useLink } from '../data/link';
 import { LIVE_MODS, MISSING_T, RULE_WHY, defMods, modDetail, tmplOf, tmpls } from '../data/tmpl';
-import { STOP_FACT, WHY } from '../data/facts';
-import { legLen, r2, startRun, zoneTxt, zonesAt } from '../data/run';
+import { STOP_TIP, WHY } from '../data/facts';
+import { addPlan, dupMission, gtHere, legLen, mapTxt, planEdit, planMap, planOwn, r2, rekey, startPolicy, startRun, wkey, zoneTxt, zonesAt } from '../data/run';
+import type { Here } from '../data/run';
 import { href } from '../data/hist';
+import { useDev } from '../data/dev';
 import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
+import { Chip, Help, LostHelp } from '../app/chip';
 import { stopProps, toast, useRoute } from '../app/shell';
+
+// ---- U5-a(v3 §4 PcPlan·§2-5): 지도 출처 운영 표시 — 판정은 gtHere·planMap·startPolicy 결과 그대로, 글만 줄인다(새 추정·자동 승격 0) ----
+// 전문(GT·SDF/기하 sha·실패 이유)은 «?» 와 개발자 모드(기존 문구 그대로). 빈 계획 = «첫 점» 준비, 지점 있는 계획 = 계획 출처 대 지금 시작 상태로 구분
+export const SRC_NOTE = '출처 일치 = 시뮬 좌표 출처(지도·층·개정 sha)만 대조한 것 — 실제 환경·경로 안전·SLAM 위치 확인이 아님';
+/** gtHere 이유의 운영 짧은 글: «좌표 개정 확인 중(GT 기하 …)» → «좌표 개정 확인 중». 다른 이유엔 괄호 없음(그대로) */
+export const hereShort = (why: string) => why.split('(')[0].trim();
+/** «확인 중» = gtHere 가 GT 기하 파일을 받는 중(G1 대기)일 때만 — 나머지 이유는 «미확인» */
+const waiting = (h: Here) => !h.map && h.why.startsWith('좌표 개정 확인 중');
+export function srcView(pm: Here | null, h: Here, sp: { block: string | null; map: unknown } | null): { good: boolean; text: string; line: string } {
+  const now = (x: Here) => (waiting(x) ? '출처 확인 중 · 기록만' : '출처 미확인 · 기록만');
+  if (!pm || !sp) return h.map ? { good: true, text: '첫 점 · 출처 확인됨', line: '지도 · 지점 없음 · 첫 점은 지금 지도 출처로 기록' }
+    : { good: false, text: `첫 점 · ${now(h)}`, line: `지도 · 지점 없음 · 지금 ${hereShort(h.why)} · 지금 찍으면 기록만` };
+  if (sp.block) return { good: false, text: '지도·층·출처 다름', line: '지도·층·출처 다름 — 시작 안 됨 · 맞는 지도·층에서 시작(열기·편집은 가능)' };
+  if (sp.map) return { good: true, text: '출처 일치', line: '지도 · 출처 일치 · 지금 시뮬과 같은 출처' };
+  const why = pm.map ? `지금 ${hereShort(h.why ?? "")}` : pm.why.replace(/^출처 미확인\((.*)\)$/, '$1');
+  const text = pm.map ? now(h) : '출처 미확인 · 기록만';
+  return { good: false, text, line: `지도 · ${text} — ${why} (거리·지도 겹치기 표시 안 함)` };
+}
 
 type Tool = 'sel' | 'add' | 'measure';
 const GOTO = WHY['자동 목적지 이동·자동 복귀'];
 const OV = { display: 'flex', alignItems: 'center', gap: '6px', height: '30px', padding: '0 10px', borderRadius: '6px', background: 'var(--panel)', border: '1px solid var(--line2)', fontSize: '12px' } as const;
 const dot = (good: boolean) => <span style={{ color: good ? 'var(--ok)' : 'var(--warn)' }}>{good ? '●' : '▲'}</span>;
-const chip = (k: string, val: string, good: boolean) => (
-  <div className={`chip ${good ? 'ok' : 'warn'}`} key={k}><span className="mk">{good ? '●' : '▲'}</span><span style={{ color: 'var(--muted)' }}>{k}</span><span className="mono" style={{ fontWeight: 600 }}>{val}</span></div>);
+// wrap: 이 칩만 줄바꿈·폭 제한(폰 390 에서 «기록만»·이유가 첫 화면에 — 670 2129 P2). 공용 .chip(nowrap)·다른 칩 무변경
+const WRAP = { whiteSpace: 'normal', height: 'auto', minHeight: '34px', flexWrap: 'wrap', maxWidth: '100%', minWidth: 0, padding: '4px 10px' } as const;
+const chip = (k: string, val: string, good: boolean, wrap?: boolean, help?: React.ReactNode) => (
+  <div className={`chip ${good ? 'ok' : 'warn'}`} key={k} style={wrap ? WRAP : undefined}><span className="mk">{good ? '●' : '▲'}</span><span style={{ color: 'var(--muted)' }}>{k}</span><span className="mono" style={{ fontWeight: 600, ...(wrap ? { overflowWrap: 'anywhere' as const } : {}) }}>{val}</span>{help}</div>);
+const P = ({ t }: { t: string }) => <span style={{ display: 'block', marginTop: 4 }}>{t}</span>;
 
 export default function PcPlan() {
-  const D = useDocs(), L = useLink(), lk = linkView(L), st = L.st, E = useEditor<Mission>('mission', 'PcPlan'), { q, setQ } = useRoute();
+  const D = useDocs(), L = useLink(), lk = linkView(L), st = L.st, E = useEditor<Mission>('mission', 'PcPlan'), { q, setQ } = useRoute(), dev = useDev((s) => s.on);
   const [tool, setTool0] = useState<Tool>('add'), [wsel, setWsel] = useState<number | null>(null), [meas, setMeas] = useState<number[][]>([]);
   const want = q.get('mission') || '', shown = useRef<string | null>(null);   // shown: 주소에 이미 반영한 id(새로 저장된 id 만 주소에 씀)
   const blank = (): Mission => ({ name: '', tmpl: q.get('tmpl') || 'base', memo: '', wps: [] });
@@ -38,14 +62,28 @@ export default function PcPlan() {
   });
   useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (E.dirty) e.preventDefault(); }; addEventListener('beforeunload', f); return () => removeEventListener('beforeunload', f); }, [E]);
 
-  const edit = (f: () => void) => { f(); E.dirty = true; E.touch(); };
+  const edit = (f: () => void) => planEdit(E, f);
   const setTool = (t: Tool) => { setTool0(t); setMeas([]); };
   const openPlan = (id: string) => {
     if (E.dirty && !confirm('저장 안 한 수정이 있습니다. 버릴까요?')) return;
     E.load(docById(D, id) || null, blank()); shown.current = E.id; setWsel(null); setQ('mission', id);
   };
   const onTap = (x: number, y: number, k: number) => {
-    if (tool === 'add') { if (ws.length >= 30) return toast('지점은 30개까지'); if (!tmplOf(D, d.tmpl)) toast(`${MISSING_T} · 이 지점 할 일은 비워 둠`); edit(() => ws.push({ x: r2(x), y: r2(y), name: '', mods: defMods(D, d.tmpl) })); setWsel(ws.length - 1); }
+    if (tool === 'add') {
+      if (ws.length >= 30) return toast('지점은 30개까지');
+      // 좌표 출처는 찍는 순간의 지도(저장 때 붙이지 않음). 다른/모르는 지도에서 더하면 확인 뒤 «기록만»으로 낮춤 — 올리는 길 0
+      const h = gtHere(L), a = addPlan(d, h);
+      // U5-a: 운영은 짧은 이유(지도·층·출처 다름 / 지금 이유), 개발자 모드는 기존 전문 — 확인창 동작·판정 그대로
+      const dropWhy = dev ? a.why : h.map ? '지금 지도·층·출처가 이 계획과 다름' : `지금 ${hereShort(h.why)}`;
+      if (a.act === 'drop' && !confirm(`${dropWhy}\n이 지점을 더하면 이 계획은 «${dev ? '지도 미확인' : '출처 미확인'} · 기록만»이 됩니다(거리·지도 겹치기 표시 안 함). 더할까요?`)) return;
+      if (!tmplOf(D, d.tmpl)) toast(`${MISSING_T} · 이 지점 할 일은 비워 둠`);
+      edit(() => {
+        d.wps.push({ x: r2(x), y: r2(y), name: '', mods: defMods(D, d.tmpl) });
+        const m = a.act === 'bind' ? h.map : a.act === 'keep' ? d.map : undefined;
+        if (m) d.map = { ...m, key: wkey(d.wps) }; else delete d.map;
+      }); setWsel(d.wps.length - 1);
+      if (a.act === 'bind' && !h.map) toast(dev ? `지금 ${h.why} — 이 계획은 «지도 미확인 · 기록만»(나중에 확인돼도 자동으로 올리지 않음)` : `지금 ${hereShort(h.why)} — 이 계획은 «출처 미확인 · 기록만»(나중에 확인돼도 자동으로 올리지 않음)`);
+    }
     else if (tool === 'measure') setMeas((m) => (m.length >= 2 ? [[r2(x), r2(y)]] : [...m, [r2(x), r2(y)]]));
     else { const i = ws.findIndex((w) => Math.hypot(w.x - x, w.y - y) * k < 16); setWsel(i < 0 ? null : i); }
   };
@@ -59,6 +97,12 @@ export default function PcPlan() {
         <button type="button" className="lv-btn" disabled={E.busy} onClick={() => { E.load(asked?.kind === 'mission' ? asked : null, blank()); shown.current = E.id; setWsel(null); }}>초안 버리고 요청 문서 열기</button>
       </div>
     </div>) : null;
+  const dup = () => {   // 저장된 판을 복제(초안 아님) → 새 문서 초안. 원본·주소의 원본 id 는 건드리지 않음
+    const src = E.id ? docById(D, E.id) : null; if (!src || src.kind !== 'mission') return toast('저장된 계획을 먼저 고르세요');
+    if (E.dirty && !confirm('저장 안 한 수정이 있습니다. 버리고 저장된 판을 복제할까요?')) return;
+    E.load(null, dupMission(src.doc)); E.dirty = true; shown.current = null; setWsel(null); setQ('mission', '');
+    toast(`«${src.doc.name}» 사본 초안 — 고친 뒤 저장하면 새 계획(원본 그대로)`);
+  };
   const toZone = (ty: string) => {
     if (st?.role === 'control') return toast('조종 중입니다 — 조종권 반납 뒤 지도 화면으로');
     if (E.dirty) toast('저장 안 한 계획은 이 탭에 보관 — 계획 화면으로 돌아오면 이어서 편집');   // R02: 버리지 않음(확인창 대신 보관)
@@ -67,19 +111,24 @@ export default function PcPlan() {
   const loadPrev = () => {
     const r = docsOf(D, 'run')[0]; if (!r) return toast('지난 수동 진행 기록이 없습니다');
     if (ws.length && !confirm(`지금 지점 ${ws.length}개를 «${r.doc.name}» 기록의 지점 ${r.doc.wps.length}개로 바꿀까요?`)) return;
-    edit(() => { d.wps = r.doc.wps.slice(0, 30).map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice() })); }); setWsel(null);
+    edit(() => {   // 가져온 좌표는 그 기록의 출처를 그대로(지금 연결로 다시 붙이지 않음) — 기록에 유효한 출처가 없으면 미확인
+      d.wps = r.doc.wps.slice(0, 30).map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice() }));
+      const b = planMap(r.doc); if (b.map && b.map.key === wkey(d.wps)) d.map = { ...b.map }; else delete d.map;
+    }); setWsel(null);
   };
-  const mv = (i: number, s: number) => { const j = i + s; if (j < 0 || j >= ws.length) return; edit(() => { [ws[i], ws[j]] = [ws[j], ws[i]]; }); setWsel(j); };
+  const mv = (i: number, s: number) => { const j = i + s; if (j < 0 || j >= ws.length) return; edit(() => rekey(d, () => { [ws[i], ws[j]] = [ws[j], ws[i]]; })); setWsel(j); };
   const save = async () => {
     if (!d.name.trim()) { document.getElementById('pname')?.focus(); return toast('계획 이름을 넣으세요'); }
     if (!ws.length) return toast('지도에서 지점을 1개 이상 찍으세요');
     ws.forEach((w, i) => { if (!w.name.trim()) w.name = `지점 ${i + 1}`; });
     await E.save();
   };
-  const start = async () => {
+  const start = async (e?: React.MouseEvent<HTMLElement>) => {
     if (run) { location.hash = href('Main'); return; }
+    const from = e?.currentTarget;   // P2-B: 연 단추(이벤트 처리 중에만 유효 — await 전에 잡음)
     let same = true;   // 응답 사이 다른 계획을 열었거나 고쳤으면 화면은 그대로(초안 보존), 결과만 알림
-    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; });
+    // E1: 확인창 사이 이탈(unmount)·다른 계획·복제(gen 오름)·같은 계획 수정(dirty) → 쓰기 0. 확인 직후 대조(E.write 가 새 gen 을 잡아 옛 확인을 살리지 않게)
+    const r = await startRun(D, E.id, async (m) => { const w = await E.write(m); if (w) same = w.same; return w && w.r; }, { ...planOwn(E), anchor: from });
     if (!r) return;
     if (same && !E.dirty) location.hash = href('Main'); else toast('수동 진행은 시작됨 · 모든 기기 공유 — 그사이 화면·계획이 바뀌어 자동으로 옮기지 않음(관제에서 기록)');
   };
@@ -125,7 +174,7 @@ export default function PcPlan() {
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', gridColumn: '1/-1' }}>
         {sb('↑', () => mv(i, -1), '위로')}{sb('↓', () => mv(i, 1), '아래로')}
-        {sb('삭제', () => { edit(() => { ws.splice(i, 1); }); setWsel(null); })}{sb('선택 해제', () => setWsel(null))}
+        {sb('삭제', () => { edit(() => rekey(d, () => { ws.splice(i, 1); })); setWsel(null); })}{sb('선택 해제', () => setWsel(null))}
       </div>
     </div>;
   });
@@ -136,10 +185,18 @@ export default function PcPlan() {
     </div></> : <span className="lbl">«측정 지점 추가» 도구로 지도를 누르면 지점이 생깁니다(30개까지). 끌면 지도 이동.</span>;
 
   // ---- 출발 전 점검: 막는 것은 «진행 중 임무 없음»·«계획 저장됨»뿐(기록을 시작할 뿐 로봇을 움직이지 않음) ----
+  // G1: 빈 계획에서도 매번 지금 지도를 판정 — 연결 건물이면 첫 점 전에 GT 기하를 받아 둠(받는 중/확인됨/미확인을 지도 칩에 표시)
+  const hNow = gtHere(L), pm = ws.length ? planMap(d) : null, sp = ws.length ? startPolicy(d, hNow) : null;   // 좌표 출처·시작 정책(startRun 과 같은 함수)
+  const firstTxt = hNow.map ? `첫 지점 결속 준비됨 · ${mapTxt(hNow.map)}` : `지금 ${hNow.why} · 지금 찍으면 기록만`;
   const linkGood = lk.linkOk && !st?.sim_block, posTxt = lk.fresh ? '시뮬 위치 수신' : lk.robot ? '시뮬 위치 오래됨' : '시뮬 위치 미수신';
-  const cks: [boolean, string, 1?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${posTxt}`],
-    [lk.camOk, `영상 · ${lk.camTxt}`], [false, '배터리 · 미제공(v2 시뮬 상태에 값 없음)'],
+  // U5-a: 지도 칩·점검 줄 — 운영 = srcView 짧은 글 + ?(기존 전문·SRC_NOTE), 개발자 모드 = 기존 문구 그대로
+  const sv = srcView(pm, hNow, sp), oldChip = !pm ? firstTxt : pm.map ? mapTxt(pm.map) : `미확인 · ${pm.why}`, oldLine = sp ? sp.block || sp.line : `지도 · 지점 없음 · ${firstTxt}`;
+  const srcHelp = <Help label="지도 출처 · 설명"><span style={{ display: 'block' }}>{oldChip}</span>{sp ? <P t={oldLine} /> : null}<P t={SRC_NOTE} /></Help>;
+  const batHelp = <Help label="배터리 · 설명">{WHY['배터리']}</Help>;
+  const cks: [boolean, string, 1?, React.ReactNode?][] = [[linkGood, `로봇 링크 · ${lk.linkTxt}`], [lk.fresh, `위치 · ${posTxt}`],
+    [lk.camOk, `영상 · ${lk.camTxt}`], [false, '배터리 · 값 없음', undefined, batHelp],
     [!run, run ? `진행 중 수동 임무 «${run.doc.name}» — 먼저 끝내기` : '진행 중 수동 임무 없음', 1],
+    [!!sp?.map, dev ? oldLine : sv.line, sp?.block ? 1 : undefined, dev ? undefined : srcHelp],
     [!!(E.id && !E.dirty && ws.length), !E.id ? '계획 저장 · 아직 저장 안 됨' : E.dirty ? '계획 저장 · 저장 안 한 수정 있음' : `계획 저장됨 · 지점 ${ws.length}개`, 1],
     ...(T ? [] : [[false, `임무 양식 · ${MISSING_T}`, 1] as [boolean, string, 1]])];   // 누락 양식은 기본으로 대신하지 않고 막음
   const block = cks.filter((c) => c[2] && !c[0]).map((c) => c[1]);
@@ -147,14 +204,14 @@ export default function PcPlan() {
   const zoneWarn = inZ.length > 0 && tool !== 'measure';
   const tp = (t: Tool) => ({ 'aria-pressed': String(tool === t) as 'true' | 'false', onClick: () => setTool(t) });
   const zp = (ty: '금지' | '감속') => ({ 'aria-pressed': 'false' as const, title: `${ty} 구역은 지도 화면에서 그립니다(표시·공유만 · ${WHY['구역 주행 제한(피하기·감속)']})`, onClick: () => toZone(ty) });
-  const opt = (b: string, extra: string, lbl: string, on: boolean) => (
+  const opt = (b: string, extra: string, lbl: React.ReactNode, on: boolean) => (
     <label className={`opt${on ? ' on' : ''}`}><input type="radio" name="lost" checked={on} disabled readOnly /><span><b>{b}</b>{extra}<br /><span className="lbl">{lbl}</span></span></label>);
 
   const v = {
     themeClass: `${themeClass(true)} pcplan-hdr`, status: <LiveStatus D={D} />, stopProps,   // pcplan-hdr: B2 A3 STOP 첫 줄 오른쪽(live.css)
     hdrA: `임무 계획 · ${!E.id ? '새 계획 · 저장 안 됨' : E.dirty ? '저장 안 한 수정 있음' : `저장됨 · 판 ${E.rev}`}`, hdrB: d.name || '새 임무 계획',
     pill: run ? `수동 진행 중 · ${run.doc.name}` : '진행 중 임무 없음',
-    chips: <>{chip('위치', posTxt, lk.fresh)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 미제공은 출발 전 점검 한 곳
+    chips: <>{chip('위치', posTxt, lk.fresh)}{dev ? chip('지도', oldChip, pm ? !!pm.map : !!hNow.map, true) : chip('지도', sv.text, sv.good, true, srcHelp)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 값 없음은 출발 전 점검 한 곳 · U5-a 지도 칩 운영/개발자
     tSel: tp('sel'), tAdd: tp('add'), tMeas: tp('measure'), tNo: zp('금지'), tSlow: zp('감속'),
     prevP: { onClick: loadPrev }, prevT: '지난 수동 진행 경로 불러오기',
     map: <MapCanvas name="plan" btns wps={ws} hiWp={wsel} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} onTap={onTap}
@@ -166,7 +223,10 @@ export default function PcPlan() {
     planBox: <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
         <label className="lbl" htmlFor="plan">임무 계획</label>
-        <a href="#" style={{ fontSize: '12px', color: 'var(--accent)' }} onClick={(e) => { e.preventDefault(); openPlan(''); }}>+ 새 계획</a>
+        <span style={{ display: 'flex', gap: '12px' }}>
+          {E.id ? <a href="#" style={{ fontSize: '12px', color: 'var(--accent)' }} onClick={(e) => { e.preventDefault(); dup(); }}>복제해서 새 계획</a> : null}
+          <a href="#" style={{ fontSize: '12px', color: 'var(--accent)' }} onClick={(e) => { e.preventDefault(); openPlan(''); }}>+ 새 계획</a>
+        </span>
       </div>
       <select id="plan" className="inp" value={E.id || ''} onChange={(e) => openPlan(e.target.value)}>
         {[['', '+ 새 계획'], ...docsOf(D, 'mission').map((m) => [m.id, `${m.doc.name} · 지점 ${m.doc.wps.length}`])].map(([id, t]) => <option key={id} value={id}>{t}</option>)}
@@ -177,12 +237,15 @@ export default function PcPlan() {
     tplO: <>{T ? null : <option value={d.tmpl}>{MISSING_T}</option>}{tmpls(D).map((t) => <option key={t.id} value={t.id}>{t.locked ? `${t.name} (기본)` : t.name}</option>)}</>,
     tplHref: href('PcMissions', T ? { tmpl: T.id } : {}), ruleHref: href('PcMissions', T ? { tmpl: T.id } : {}),
     rH: `${ws.length}개 지점 · ${len.toFixed(1)} m 직선`, rList,
-    lost: <>{opt('명령 0 요청 · 잠금', '', `현재 v2 서버: ${STOP_FACT[0]} → ${STOP_FACT[1]}. ${STOP_FACT[2]} → ${STOP_FACT[3]}. 선택이 아니라 서버 고정 동작입니다.`, true)}
+    // U5-a: 공용 쉬운 말(U4-c 고정 규칙과 같은 글) + ? 전문(U5-b: 공용 LostHelp — STOP_FACT·SAFE_NOTE·STOP_OBS·RELURCH 보존) · 동작·선택 불가 그대로
+    lost: <>{opt('입력 차단·잠금', '', <>조종 입력 0.3초 끊김 → 입력 차단 (몸 정지는 별도) · 화면을 떠나거나 신호 1초 끊김 → 입력 차단·잠금. 선택이 아니라 서버 고정 동작입니다.
+        <LostHelp /></>, true)}
       {opt('마지막 통신 지점으로 후퇴', ' · 미연결', `${GOTO} — 자동 후퇴는 실행하지 않습니다.`, false)}</>,
-    aH: '미연결', aOpts: <div className="opt" style={{ cursor: 'default' }}><span className="lbl">{RULE_WHY}</span></div>,
+    aH: <Chip tone="off" text="자동 실행 안 함" why={RULE_WHY} whyLabel="경보 규칙 · 설명" />, aOpts: <></>,   // U5-a: U4-c 경보 규칙 칩과 같음(전문은 ?)
     cH: `${cks.filter((c) => c[0]).length} / ${cks.length}`,
-    cList: <>{cks.map(([good, t]) => <div className="ck" key={t}><span className={`m ${good ? 'ok' : 'warn'}`}>{good ? '●' : '▲'}</span><span>{t}</span><span /></div>)}</>,
-    fb0: '미연결', fb0T: '자동 이동이 없어 시간 예측 미연결', fb1: `${len.toFixed(1)} m 직선`, fb2: '미제공',
+    cList: <>{cks.map(([good, t, , hp]) => <div className="ck" key={t}><span className={`m ${good ? 'ok' : 'warn'}`}>{good ? '●' : '▲'}</span><span>{t}{hp}</span><span /></div>)}</>,
+    fb0: '미연결', fb0T: '자동 이동이 없어 시간 예측 미연결', fb1: `${len.toFixed(1)} m 직선`, fb2: <>값 없음{batHelp}</>,
+    stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(v3 §3 — PcMissions·PcRobot 와 같음)
     saveP: { onClick: save }, saveT: '계획 저장',
     startP: { onClick: start }, startT: run ? '진행 기록 화면(관제)' : '수동 진행 시작', startDis: !run && block.length > 0,
     msg: c0 ? <>{c0}{E.msg !== E.kept ? E.msg : null}</> : E.msg,

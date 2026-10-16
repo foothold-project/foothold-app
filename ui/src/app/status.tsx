@@ -1,21 +1,100 @@
-// 상태 줄(링크·STOP 잠금·조종권·시뮬·공유 문서 오류·새 판) — web/live.js paintStatus 와 같은 글.
-import { linkView, sessTxt, useLink } from '../data/link';
+// 공통 머리줄 상태(UI-SIMPLIFY v3 R8 · U1-b): [시뮬] [연결] [역할] [잠금] 칩 + «시뮬 ▾» 메뉴 + 개발자 표시 + 문서 오류 + 새 판 차단.
+// 칩 글은 서버가 준 값으로만 정한다(새 추정 0). 미확인·끊김을 «꺼짐»으로 보이지 않는다.
+// B2(10-15 검토): 지금 계약의 session(result idle 등)은 조회 시각·신선도가 없고 unit·요청 진행과 따로라 «시뮬 꺼짐» 확정 근거가 못 된다
+// → 세션 값은 ? 안 원문으로만 · 칩은 «시뮬 확인 안 됨»(끊김은 서버 sim_block 그대로 «시뮬 끊김»).
+// 각 칩의 «?» 에 원래 상태 글(전문)을 그대로 둔다.
+import type { Status } from '@contracts';
+import { dropAll, linkView, sendOp, sessTxt, startSimAsk, startTxt, useLink } from '../data/link';
 import { reread, type Docs, type Media } from '../data/shared';
-import { toast } from './shell';
+import { LATCH_TXT } from '../data/facts';
+import { MapStartBox } from '../map/MapStartBox';
+import { Chip, DevMark, usePop, type Tone } from './chip';
+import { HOME, InFs, SimOff, toast, useRoute, whyProps } from './shell';
 
-const dot = (good: boolean, t: string) => <span><span style={{ color: `var(${good ? '--ok' : '--warn'})` }}>{good ? '●' : '▲'}</span>{` ${t}`}</span>;
+type C = { k: 'sim' | 'link' | 'role' | 'lock'; tone: Tone; text: string; why: string };
+/** 머리줄 칩 4종(순수 — 시험용). 실기 대상이면 시뮬·역할 칩 없이 연결 «실기 미연결»만 */
+export function headChips(x: { provider: string; linkOk: boolean; open?: boolean; everMsg: boolean; authEnd: boolean; bad: string | null; st: Status | null; viewOnly: boolean; linkTxt: string; roleTxt: string; latch: boolean }): C[] {
+  const { st } = x, full = `링크 ${x.linkTxt}`;
+  if (x.provider !== 'simulation_gate') return [{ k: 'link', tone: 'off', text: '실기 미연결', why: x.linkTxt }];
+  const known = x.linkOk && !x.bad && !!st;   // 서버 상태를 지금 확인함
+  const link: C = x.authEnd ? { k: 'link', tone: 'bad', text: '로그인 끝남', why: full }
+    // U2(670 P3): 소켓은 열려 있는데 상태가 1 s 넘게 안 옴 = «상태 오래됨»(warn) · 소켓 닫힘 = «연결 끊김»(bad)
+    : !x.linkOk ? (!x.everMsg ? { k: 'link', tone: 'warn', text: '연결 중', why: full } : x.open ? { k: 'link', tone: 'warn', text: '상태 오래됨', why: full } : { k: 'link', tone: 'bad', text: '연결 끊김', why: full })
+    : !known ? { k: 'link', tone: 'warn', text: '상태 확인 안 됨', why: full } : { k: 'link', tone: 'ok', text: '연결됨', why: full };
+  const sb = st?.sim_block || '', sw = [full, sb && !full.includes(sb) && `시뮬 상태 ${sb}`, sessTxt(st) && `RL 세션 조회값 ${sessTxt(st)}(조회 시각 미표시 · 꺼짐 확정 아님)`, st?.sim_start?.why].filter(Boolean).join(' · ');
+  const sim: C = !known ? { k: 'sim', tone: 'warn', text: '시뮬 확인 안 됨', why: full }
+    : !sb ? { k: 'sim', tone: 'ok', text: '시뮬 실행', why: sw }
+    : sb === '시뮬 상태 미수신' || sb === '시뮬 상태 끊김'
+      ? (sb === '시뮬 상태 끊김' ? { k: 'sim', tone: 'bad', text: '시뮬 끊김', why: sw } : { k: 'sim', tone: 'warn', text: '시뮬 확인 안 됨', why: sw })
+    : sb === '시뮬 리셋 중' ? { k: 'sim', tone: 'warn', text: '시뮬 리셋 중', why: sw }
+    : sb === '정책 미실행' ? { k: 'sim', tone: 'warn', text: '제어 준비 안 됨', why: sw }   // §7-1: policy_running=false 소비 사실만
+    : { k: 'sim', tone: 'warn', text: '시뮬 처리 중', why: sw };
+  const role: C = !known ? { k: 'role', tone: 'warn', text: '역할 확인 안 됨', why: x.roleTxt }
+    : st!.role === 'control' && !x.viewOnly ? { k: 'role', tone: 'ok', text: '이 기기 조종', why: x.roleTxt }
+    : st!.role === 'view_other' ? { k: 'role', tone: 'warn', text: '다른 기기 조종 중', why: x.roleTxt } : { k: 'role', tone: 'off', text: '보기 전용', why: x.roleTxt };
+  // B1(10-15 검토): 연결돼 있어도 유효한 현재 status 가 없으면(st 없음·형식 오류) 잠금도 미확인 — «해제» 확정 0
+  const lt = known ? LATCH_TXT(x) : `잠금 상태 미확인(${x.linkOk ? `연결은 됐으나 ${x.linkTxt}` : x.open && x.everMsg ? '서버 상태 오래됨' : '서버 연결 끊김'})`;
+  const lock: C = !known ? { k: 'lock', tone: 'warn', text: '잠금 확인 안 됨', why: lt } : x.latch ? { k: 'lock', tone: 'bad', text: 'STOP 잠금', why: lt } : { k: 'lock', tone: 'ok', text: '잠금 해제', why: lt };
+  return [sim, link, role, lock];
+}
+export function useHeadChips() {
+  const s = useLink(), v = linkView(s);
+  return headChips({ provider: s.provider, linkOk: v.linkOk, open: s.open, everMsg: !!s.lastMsg, authEnd: s.authEnd, bad: s.bad, st: s.st, viewOnly: s.viewOnly, linkTxt: v.linkTxt, roleTxt: v.roleTxt, latch: v.latch });
+}
+
+/** 영상 칩(R3·§3 «카메라 미연결 → 영상 없음»): 확인된 꺼짐(시뮬 카메라 off)만 off · 대기·없음은 warn. why = 원래 상태 글 */
+export function camChip(v: { camOk: boolean; camTxt: string }): { tone: Tone; text: string; why: string } {
+  return v.camOk ? { tone: 'ok', text: '영상 받음', why: v.camTxt } : v.camTxt.startsWith('꺼짐') ? { tone: 'off', text: '영상 꺼짐', why: v.camTxt }
+    : /^(리셋|새 프레임)/.test(v.camTxt) ? { tone: 'warn', text: '영상 대기', why: v.camTxt } : { tone: 'warn', text: '영상 없음', why: v.camTxt };
+}
+
+/** «시뮬 ▾»: 시작(30분)·리셋·지도 시뮬 열기·끄기. 실행 조건·확인창·권한·busy 는 기존 경로 그대로(startSimAsk·sendOp·MapStartBox·SimOff).
+ *  열면 누르던 입력 폐기(usePop) · 닫혀도 자동 재출발 0 · 지도 화면에서는 그 화면의 상자를 쓰라고만(같은 패널 두 번 장착 0)
+ *  U2-c: 본문(SimRun)은 관제(Main) 오른쪽 «시뮬 실행» 칸과 같은 코드 — 관제에서는 메뉴가 그 칸으로 안내만(두 번 장착 0) */
+export function SimRun({ close }: { close?: () => void }) {
+  const L = useLink(), v = linkView(L), st = L.st, { name } = useRoute();
+  if (L.provider !== 'simulation_gate') return null;
+  const ctl = v.linkOk && st?.role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
+  const ss = st?.sim_start, off = v.linkOk && !!ss && ['시뮬 상태 미수신', '시뮬 상태 끊김'].includes(st!.sim_block);   // Main showStart 와 같은 조건
+  const sx = startTxt(st), onMapPage = name === 'MMap';   // U4-a: PcMap 은 지도 열기를 이 메뉴로(화면엔 저장만 — 같은 상자 두 번 장착 0)
+  const item = (t: string, go: (() => void) | null, why: string) => go ? <button type="button" className="lv-btn" onClick={go}>{t}</button> : <button type="button" {...whyProps(why)} className="lv-btn lv-why">{t}</button>;
+  return <>
+    {!v.linkOk && <p className="lv-note">{`연결 확인 안 됨 — 시뮬 상태를 알 수 없어 조작하지 않음(${v.linkTxt})`}</p>}
+    {ss && item('시뮬 시작(30분)', v.linkOk && off && ss.ok ? () => { close?.(); startSimAsk(st).then(toast); } : null,
+      !v.linkOk ? '연결 확인 안 됨' : !off ? `지금 시뮬 상태(${st!.sim_block || '실행 중'})에서는 시작 안 함` : ss.why || '서버가 시작을 허용하지 않음')}
+    {item('시뮬 리셋', ctl && !busy ? () => { close?.(); dropAll(); sendOp('reset'); } : null,   /* dropAll: 메뉴는 열 때(usePop) 이미 폐기 · 관제 칸은 여기서(누르던 입력 0) */ !v.linkOk ? '연결 확인 안 됨' : !ctl ? '조종 중인 기기에서만(«조종 시작» 뒤)' : '리셋·재개 처리 중')}
+    {st?.map_start && (onMapPage ? <p className="lv-note">지도 시뮬 열기는 이 화면의 «지도 열기» 상자에서</p>
+      : <div className="lv-simmap"><b>지도 시뮬 열기</b><MapStartBox pc={name.startsWith('Pc') || name === 'Main' || !name} part={name === 'PcMap' ? 'open' : undefined} /></div>)}
+    <SimOff className="lv-btn" />
+    <p className="lv-note">{[ss && sx.left, st?.map_start && sx.map, sessTxt(st) && `시뮬 세션 ${sessTxt(st)}`, '30분 뒤 자동 종료 · 동시 1개'].filter(Boolean).join(' · ')}</p>
+  </>;
+}
+export function SimMenu() {
+  const L = useLink(), { name } = useRoute(), P = usePop(380);
+  if (L.provider !== 'simulation_gate') return null;
+  return <span className="lv-help">
+    <button ref={P.b} type="button" className="lv-btn" data-simmenu="" aria-haspopup="true" aria-expanded={!!P.pos} onClick={P.toggle}>시뮬 ▾</button>
+    {P.pos && <InFs><div ref={P.p as React.RefObject<HTMLDivElement>} role="dialog" aria-label="시뮬 메뉴" className="lv-pop lv-simmenu" style={P.style}>
+      {(name || HOME) === 'Main' ? <><p className="lv-note">관제 화면에서는 오른쪽 «시뮬 실행» 칸에서 엽니다(같은 조건·확인창)</p>
+        <button type="button" className="lv-btn" onClick={() => { P.close(false); document.querySelector<HTMLElement>('[data-runpanel]')?.scrollIntoView({ block: 'nearest' }); }}>시뮬 실행 칸 보기</button></>
+        : <SimRun close={() => P.close(false)} />}
+    </div></InFs>}
+  </span>;
+}
+
+/** 칩 4종 + «시뮬 ▾» + 개발자 표시 — 상태 줄(LiveStatus)과 Main 머리줄 공용 */
+export function HeadChips() {
+  return <>{useHeadChips().map((c) => <span key={c.k} data-head={c.k} style={{ display: 'inline-flex' }}><Chip tone={c.tone} text={c.text} why={c.why} /></span>)}<SimMenu /><DevMark /></>;
+}
 
 export function LiveStatus({ D, style }: { D: Docs; style?: React.CSSProperties }) {
-  const s = useLink(), v = linkView(s), st = s.st, sess = sessTxt(st);
-  const reload = () => { if (st?.role === 'control') return toast('조종 중에는 새로고침하지 않습니다 — 조종권 반납 뒤'); location.reload(); };
+  const s = useLink(), st = s.st, v = linkView(s);
+  const reload = () => { if (st?.role === 'control') return toast('조종 중에는 새로고침하지 않습니다 — 조종 반납 뒤'); location.reload(); };
   return (
     <span className="lv-status" data-live-status="1" style={style}>
-      {dot(v.linkOk && !v.simBlock, `링크 ${v.linkTxt}`)}
-      {dot(v.linkOk && !v.latch, !v.linkOk ? '잠금 상태 미확인(서버 연결 끊김)' : v.latch ? 'STOP 잠금' : 'STOP 해제됨')}
-      <span>{v.roleTxt}</span>
-      {sess && <span>{`시뮬 ${sess}`}</span>}
+      <HeadChips />
       {D.err && <span style={{ color: 'var(--bad)' }}>{`공유 문서: ${D.err}`}</span>}
-      {v.newVer && <><span style={{ color: 'var(--warn)' }}>{`새 화면 판 ${st!.ver} 반영됨(이 화면 ${s.firstVer})`}</span><button type="button" className="lv-btn" onClick={reload}>새로고침(새 판)</button></>}
+      {v.newVer && <><span style={{ color: 'var(--warn)' }}>{`새 화면 판 반영됨 — 새로고침 필요`}<span data-dev>{` (서버 ${st!.ver} · 이 화면 ${s.firstVer})`}</span></span><button type="button" className="lv-btn" onClick={reload}>새로고침(새 판)</button></>}
     </span>
   );
 }

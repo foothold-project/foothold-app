@@ -47,7 +47,7 @@ const ax = (p: Axes): Axes | null => (fin(p.fx) && fin(p.fy) && fin(p.fw) ? { fx
 export function press(id: string, pid: number, p: Axes) {
   if (presses.has(id) || presses.size >= 2) { dropAll(); return false; }
   const a = ax(p); if (driveBlock() || !a) return false;
-  presses.set(id, { pid, p: a }); return true;
+  presses.set(id, { pid, p: a }); pressN++; return true;
 }
 /** 누른 채 움직임: 같은 손가락만, 값 이상이면 모두 폐기 */
 export function move(id: string, pid: number, p: Axes) { const z = presses.get(id); if (!z || z.pid !== pid) return false; const a = ax(p); if (!a) { dropAll(); return false; } z.p = a; return true; }
@@ -56,6 +56,10 @@ export const lift = (id: string, pid: number) => { if (presses.get(id)?.pid === 
 /** 취소·포착 잃음: 이 곳 손가락이면 모두 폐기 */
 export const cancel = (id: string, pid: number) => { if (presses.get(id)?.pid === pid) dropAll(); };
 export const pressed = (id: string) => presses.has(id);
+/** 지금 누르고 있는 입력이 있나(막힌 방향 이유 1회 안내용 — 표시만) */
+export const pressing = () => presses.size > 0;
+let pressN = 0;   // U2 보완 A3: 성공한 누름 횟수(표시 경계용 읽기 전용 — 발행·차단 정책 무관)
+export const pressGen = () => pressN;
 /** 이 곳을 이 손가락이 지금 누르고 있나(폐기·STOP 뒤 낡은 손가락·hover 는 false) */
 export const owns = (id: string, pid: number) => presses.get(id)?.pid === pid;
 function tick20() {
@@ -79,11 +83,23 @@ export function hide() { const s = useLink.getState(); dropAll(); cancelStart();
 // 중단: STOP·숨김/이탈·반납·리셋 요청·새 시작 → startTok 이 바뀌어 다음 op 0. resume 은 한 번만(재시도 0). 성공해도 누름 폐기(서버 need_neutral 그대로).
 // 확인창은 페이지 안(비차단): 확인 중에도 status 를 계속 받고 STOP(버튼·Space)은 그대로 눌리며, 누르면 확인창이 바로 닫힌다. Escape·취소·이탈 = 취소.
 let startTok = 0;
-export const useAsk = create<{ text: string | null }>(() => ({ text: null }));
-let askDone: ((v: boolean) => void) | null = null;
-/** 페이지 안 확인창 답(취소·중단은 false). 열린 창이 없으면 아무것도 안 함 */
-export function answerAsk(v: boolean) { const f = askDone; askDone = null; if (useAsk.getState().text !== null) useAsk.setState({ text: null }); f?.(v); }
-const askInPage = (t: string) => new Promise<boolean>((res) => { answerAsk(false); askDone = res; useAsk.setState({ text: t }); });
+// P2-B(10-16 670 78cc22e «확인 단추가 방금 누른 시작 단추 위»): 창을 연 단추(앵커) = UI 배치 메타데이터만 — 답·주인·정책·전송 무관.
+//   r0 = 여는 click → askPage 동기 경로에서 찍은 첫 사각형(손가락이 있던 자리), el = 열린 동안 현재 자리를 다시 읽을 원요소. id = 창마다 +1(같은 글 재열기도 새 창)
+export type AskAnchor = { el: Element; r0: { left: number; top: number; right: number; bottom: number } };
+export const useAsk = create<{ text: string | null; ok?: string; id: number; anchor: AskAnchor | null }>(() => ({ text: null, id: 0, anchor: null }));   // ok = 확인 단추 글(없으면 «조종 시작»)
+let askDone: ((v: boolean) => void) | null = null, askOwner: unknown = null, askSeq = 0;
+/** 페이지 안 확인창 답(취소·중단은 false). 열린 창이 없으면 아무것도 안 함. 닫으면 앵커 참조도 버림 */
+export function answerAsk(v: boolean) { const f = askDone; askDone = null; askOwner = null; if (useAsk.getState().text !== null) useAsk.setState({ text: null, anchor: null }); f?.(v); }
+const anchorOf = (el?: Element | null): AskAnchor | null => {   // 분리된 요소·없음 = 앵커 없음(STOP 만 피함)
+  if (!el || !el.isConnected) return null;
+  const { left, top, right, bottom } = el.getBoundingClientRect(); return { el, r0: { left, top, right, bottom } };
+};
+/** 페이지 안 확인창(비차단): 기다리는 동안 status·문서가 계속 들어오고 STOP 은 그대로 눌리며 STOP·숨김·새 확인창이면 false. 열린 다른 확인창은 취소.
+ *  from = 이 창을 연 단추(선택 · 배치만) — 여는 click 처리 안에서 동기로 넘겨야 r0 가 그 순간 자리 */
+export const askPage = (t: string, ok?: string, owner?: unknown, from?: Element | null) => new Promise<boolean>((res) => {
+  answerAsk(false); askDone = res; askOwner = owner ?? null; useAsk.setState({ text: t, ok, id: ++askSeq, anchor: anchorOf(from) }); });
+/** E1: 그 주인(편집기·화면)이 연 확인창만 닫기(취소) — 화면 이탈·다른 계획 열기·복제 때. 다른 주인의 창(N1 조종 시작 등)·조종권은 건드리지 않음 */
+export const dropAsk = (owner: unknown) => { if (owner == null || askOwner !== owner) return false; answerAsk(false); return true; };   // 닫았으면 true
 export function cancelStart() { startTok++; answerAsk(false); if (useLink.getState().starting !== null) useLink.setState({ starting: null }); }
 export const START_ASK = '조종을 시작할까요?\n· 로봇(시뮬) 주변과 시뮬 상태를 확인하세요\n· 확인하면 조종권을 받고 STOP 잠금을 풉니다\n· 그 뒤 손을 떼고 새로 눌러야 움직입니다 · STOP 은 언제든 즉시\n· 이 창이 열린 동안 STOP·리셋·연결 변화·다른 기기 점유가 생기면 취소됩니다';
 export const START_CANCEL = '조종 시작 중단 — STOP·숨김·반납·리셋 요청(보낸 다음 단계 0)';
@@ -114,8 +130,10 @@ function until(pred: (s: LinkState) => boolean, live: () => boolean, ms: number)
   });
 }
 const TAKE_MS = 3000, RESUME_ACK_MS = 1500, RESUME_DONE_MS = 4500;   // 서버 RESUME_TIMEOUT 3 s + 여유
-/** «조종 시작» 전체. 반환 = 사람에게 보여 줄 결과 글(null = 확인창 취소, 보낸 것 0). ask 는 시험에서 바꿔 끼움 */
-export async function startDrive(ask: (t: string) => boolean | Promise<boolean> = askInPage): Promise<string | null> {
+/** «조종 시작» 전체. 반환 = 사람에게 보여 줄 결과 글(null = 확인창 취소, 보낸 것 0). ask 는 시험에서 바꿔 끼움.
+ *  from = 연 단추(P2-B 배치만, 기본 ask 일 때만 쓰임) — 없으면(패드 누름 경로·무인자 호출) STOP 만 피함 */
+export async function startDrive(ask?: (t: string) => boolean | Promise<boolean>, from?: Element | null): Promise<string | null> {
+  ask ??= (t: string) => askPage(t, undefined, undefined, from);
   dropAll();
   const b0 = startBlock(); if (b0) return `조종 시작 안 됨 · ${b0}`;   // 진행 중 시작이 있으면 그것도 이유(겹쳐 시작 0)
   const s0 = useLink.getState(), k = { gen: s0.gen, prov: s0.provider, ver: s0.st!.ver, ep: s0.st!.episode, sg: s0.st!.stop_gen as number };
@@ -415,7 +433,7 @@ export function linkView(s: LinkState) {
     camOk, camTxt: camOk ? `받음 ${(camT.length / 2).toFixed(0)} · 표시 ${(camS.length / 2).toFixed(0)} fps · ${st!.cam_age!.toFixed(1)} s` : sim?.camera === 'off' ? '꺼짐(시뮬)'
       : linkOk && st?.reset_pending ? '리셋 중 — 새 회차 프레임 대기' : linkOk && st && st.cam_age != null && st.cam_age < 2 ? '새 프레임 대기(연결·회차 바뀜)' : '미연결',
     robot: TRAIL.last ? { ...TRAIL.last, fresh: !!sim } : null, latch: !!(linkOk && st?.latch), simBlock: linkOk ? st?.sim_block || '' : '',
-    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : !st ? '상태 수신 대기' : st.sim_block || '정상',   // B2 발견(기존 결함): 대상 전환 직후 st=null·lastMsg 신선 → st! 접근으로 화면 전체가 꺼지던 것. 값 없음 = 대기(«정상» 대체 0)
+    linkTxt: s.authEnd ? '로그인 끝남 · 다시 로그인 필요' : !linkOk ? (age == null ? '연결 중' : s.open ? `상태 오래됨 ${age.toFixed(0)} s` : `끊김 ${age.toFixed(0)} s`) : s.bad ? `상태 미확인(형식 ${s.bad})` : !st ? '상태 수신 대기' : st.sim_block || '정상',   // B2 발견(기존 결함): 대상 전환 직후 st=null·lastMsg 신선 → st! 접근으로 화면 전체가 꺼지던 것. 값 없음 = 대기(«정상» 대체 0)
     roleTxt: st?.role === 'control' ? '조종권 · 이 기기' : st?.role === 'view_other' ? `다른 기기가 조종 중${st.holder ? ` · ${st.holder}` : ''}` : '보기 전용',
     newVer: !!(st && s.firstVer && st.ver && st.ver !== s.firstVer),
     body: !sim ? '몸 상태 미연결' : sim.fallen === true ? '넘어짐' : sim.fallen == null ? '넘어짐 미확인'

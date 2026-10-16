@@ -9,7 +9,7 @@ export const PREVIEW = {"width":1440,"height":940};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);--ok-bg:rgba(90,169,255,.10);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08);--ok-bg:rgba(31,95,191,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,select{font:inherit;color:inherit}\nbutton{cursor:pointer}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}\n.lbl{font-size:12px;color:var(--muted)}\n.sel{height:40px;padding:0 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:13px}\n.btn{height:40px;padding:0 14px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:13px}\ntable{border-collapse:collapse;width:100%;font-size:13px}\nth{font-size:12px;font-weight:600;color:var(--muted);text-align:left;padding:10px 12px;border-bottom:1px solid var(--line2);white-space:nowrap}\ntd{padding:12px;border-bottom:1px solid var(--line);white-space:nowrap}\ntr:hover td{background:var(--panel2)}\n.r{text-align:right}\n.res{font-size:12px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap}\n.res.ok{color:var(--ok);background:var(--ok-bg)}\n.res.warn{color:var(--warn);background:var(--warn-bg)}\n.res.bad{color:var(--bad);background:var(--bad-bg)}\n.res.stop{color:var(--muted);border:1px solid var(--line2)}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { h2?: any; status?: any; stopProps?: any; stats?: any; qProps?: any; sPer?: any; sTpl?: any; sRes?: any; sBy?: any; exP?: any; exT?: any; rows?: any; pgL?: any; pages?: any; themeClass?: any };
+export type Vals = { tabs?: any; thead?: any; ex2?: any; waitOn?: any; h2?: any; status?: any; stopProps?: any; stats?: any; qProps?: any; sPer?: any; sTpl?: any; sRes?: any; sBy?: any; sSev?: any; exP?: any; exT?: any; rows?: any; pgL?: any; pages?: any; themeClass?: any };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -148,16 +148,16 @@ export function View({ v }: { v: Vals }) {
                 </span>
               </div>
               {" "}
-              <div className="card" style={{"padding":"14px 16px","display":"flex","flexDirection":"column","gap":"4px","borderColor":"var(--warn)"}}>
+              <div className="card" style={{"padding":"14px 16px","display":"flex","flexDirection":"column","gap":"4px","borderColor":v.waitOn === false ? "var(--line)" : "var(--warn)"}}>{/* U3-b: 분류 대기 0 이면 강조·링크 끔 */}
                 <span className="lbl">
                   {v.stats?.[2]?.[0] ?? "발견물 확인 대기"}
                 </span>
-                <span className="mono" style={{"fontSize":"26px","fontWeight":"600","color":"var(--warn)"}}>
+                <span className="mono" style={{"fontSize":"26px","fontWeight":"600","color":v.waitOn === false ? undefined : "var(--warn)"}}>
                   {v.stats?.[2]?.[1] ?? "1"}
                 </span>
-                <a href="#/PcReview" style={{"fontSize":"12px","color":"var(--accent)"}}>
+                {v.waitOn === false ? (v.stats?.[2]?.[2] ? <span className="lbl">{v.stats[2][2]}</span> : null) : <a href="#/PcReview" style={{"fontSize":"12px","color":"var(--accent)"}}>
                   {v.stats?.[2]?.[2] ?? "지금 확인 →"}
-                </a>
+                </a>}
               </div>
               {" "}
               <div className="card" style={{"padding":"14px 16px","display":"flex","flexDirection":"column","gap":"4px"}}>
@@ -176,6 +176,7 @@ export function View({ v }: { v: Vals }) {
             {" "}
             <section aria-label="기록 목록" className="card" style={{"display":"flex","flexDirection":"column"}}>
               {" "}
+              {v.tabs ?? null}
               <div role="search" style={{"display":"flex","flexWrap":"wrap","gap":"8px","alignItems":"center","padding":"12px 14px","borderBottom":"1px solid var(--line)"}}>
                 {" "}
                 <label style={{"position":"relative","flex":"1 1 220px","maxWidth":"320px"}}>
@@ -241,6 +242,8 @@ export function View({ v }: { v: Vals }) {
                 </>)}
 </select>
                 {" "}
+                <select className="sel" aria-label="심각도" {...v.sSev?.p}>{v.sSev?.o}</select>
+                {" "}
                 <select className="sel" aria-label="운영자" {...v.sBy?.p}>
 {v.sBy?.o ?? (<>
                   <option>
@@ -254,6 +257,7 @@ export function View({ v }: { v: Vals }) {
                 <button className="btn" {...v.exP}>
                   {v.exT ?? "선택 내보내기 (PDF · CSV)"}
                 </button>
+                {v.ex2 ?? null}
                 {" "}
               </div>
               {" "}
@@ -261,7 +265,7 @@ export function View({ v }: { v: Vals }) {
                 {" "}
                 <table>
                   <thead>
-                    <tr>
+                    {v.thead ?? (<tr>
                       <th>
                         {"일시"}
                       </th>
@@ -292,7 +296,7 @@ export function View({ v }: { v: Vals }) {
                       <th>
                         {"보고서"}
                       </th>
-                    </tr>
+                    </tr>)}
                   </thead>
                   <tbody>
 {v.rows ?? (<>

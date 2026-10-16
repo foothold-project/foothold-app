@@ -107,9 +107,53 @@
       "title": "DocPut",
       "type": "object"
     },
+    "MapSrc": {
+      "additionalProperties": false,
+      "description": "좌표 출처(선택 키 map — 없음 = «지도 미확인 · 기록만», null 불가). 지점을 찍거나 가져온 때의 GT world·현재층.\nkey = 그때 좌표 지문(앱이 계산·대조 — 출처를 모르는 옛 앱이 좌표를 고치면 어긋나 미확인으로 떨어짐). SLAM 계획은 지원 미확인(src gt 만).",
+      "properties": {
+        "floor_id": {
+          "maxLength": 40,
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "key": {
+          "maxLength": 16,
+          "title": "Key",
+          "type": "string"
+        },
+        "rid": {
+          "default": null,
+          "pattern": "^[wg]:[0-9a-f]{64}$",
+          "title": "Rid",
+          "type": "string"
+        },
+        "src": {
+          "const": "gt",
+          "title": "Src",
+          "type": "string"
+        },
+        "world_id": {
+          "maxLength": 40,
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "src",
+        "world_id",
+        "floor_id",
+        "key"
+      ],
+      "title": "MapSrc",
+      "type": "object"
+    },
     "Mission": {
       "additionalProperties": false,
       "properties": {
+        "map": {
+          "$ref": "#/$defs/MapSrc",
+          "default": null
+        },
         "memo": {
           "maxLength": 400,
           "title": "Memo",
@@ -184,6 +228,16 @@
           "title": "Ended",
           "type": "string"
         },
+        "map": {
+          "$ref": "#/$defs/MapSrc",
+          "default": null
+        },
+        "mcas": {
+          "const": 1,
+          "default": null,
+          "title": "Mcas",
+          "type": "integer"
+        },
         "memo": {
           "maxLength": 400,
           "title": "Memo",
@@ -198,6 +252,12 @@
           "const": "수동",
           "title": "Mode",
           "type": "string"
+        },
+        "mrev": {
+          "default": null,
+          "minimum": 1,
+          "title": "Mrev",
+          "type": "integer"
         },
         "name": {
           "maxLength": 60,

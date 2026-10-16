@@ -12,7 +12,7 @@
 import re
 from typing import Annotated, Literal, Optional, Union
 
-from pydantic import (AfterValidator, BaseModel, ConfigDict, Field, StrictBool, TypeAdapter, ValidationError, WithJsonSchema)
+from pydantic import (AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, StrictBool, TypeAdapter, ValidationError, WithJsonSchema)
 
 CONTRACT_VERSION = 'fh-app/1'      # 메시지에 실리지 않는다 — 필드가 없으면 v1 (CONTRACT.md «버전»)
 
@@ -35,8 +35,23 @@ Num = Annotated[float, Field(ge=-1e4, le=1e4, allow_inf_nan=False)]      # 문�
 Rid = Optional[int]
 
 
+_SUR = re.compile('[\ud800-\udfff]')      # 외톨이 surrogate = UTF-8 저장 불가(v2_link doc_check 와 같은 뜻, C 개정 2 C절)
+
+
+def _nosur(v):
+    if _SUR.search(v):
+        raise ValueError('깨진 글자(외톨이 surrogate)')
+    return v
+
+
 def S(n):
-    return Annotated[str, Field(max_length=n)]
+    return Annotated[str, Field(max_length=n), AfterValidator(_nosur)]
+
+
+def _int1(v):                           # 정수 1 만 — Literal[1] 은 strict 에서도 True·1.0 을 받아서 앞에서 거른다
+    if type(v) is not int:
+        raise ValueError('정수 1 만')
+    return v
 
 
 # 서버가 만든 사진 경로만(임의 주소·javascript:·.. 불가). 서버 검사는 v2_link 와 같은 파이썬 정규식(\w 유니코드),
@@ -407,11 +422,24 @@ class Waypoint(Body):
     mods: Annotated[list[Mod], Field(max_length=3)]
 
 
+class MapSrc(Body):
+    """좌표 출처(선택 키 map — 없음 = «지도 미확인 · 기록만», null 불가). 지점을 찍거나 가져온 때의 GT world·현재층.
+    key = 그때 좌표 지문(앱이 계산·대조 — 출처를 모르는 옛 앱이 좌표를 고치면 어긋나 미확인으로 떨어짐). SLAM 계획은 지원 미확인(src gt 만)."""
+    src: Literal['gt']
+    world_id: S(40)
+    floor_id: S(40)
+    key: S(16)
+    # 선택(10-15 F4): GT 좌표 기준 개정 — w:<기동 world 원본 SDF sha256>(단층) · g:<검증된 건물 GT 기하 파일 sha256>(연결 건물).
+    # 값이 있으면 정확 형식(null 불가), 없음 = 개정 미확인(앱은 기록만). SDF include 메시·모델 파일은 미포함(전체 환경 동일 보장 아님)
+    rid: Annotated[str, Field(pattern=r'^[wg]:[0-9a-f]{64}$')] = None
+
+
 class Mission(Body):
     name: S(60)
     tmpl: S(40)
     memo: S(400)
     wps: Annotated[list[Waypoint], Field(max_length=30)]
+    map: MapSrc = None                      # 선택(키 없음 허용·null 불가) — 옛 문서·옛 서버 호환
 
 
 class RunWaypoint(Waypoint):
@@ -433,6 +461,11 @@ class Run(Body):
     ended: S(32)
     memo: S(400)
     wps: Annotated[list[RunWaypoint], Field(max_length=30)]
+    map: MapSrc = None                      # 선택 — 시작 때 계획 출처가 지금 시뮬과 일치했을 때만(없음 = 지도 미확인 · 기록만)
+    mrev: Annotated[int, Field(ge=1)] = None   # 선택 — 시작한 계획 판
+    # 선택(C) — 서버가 시작 때 계획 판(mrev)·스냅샷·양식 이름을 대조했음. 서버만 붙인다(새 Run 에 보내면 400, 결과 편집은 echo·누락 모두 유지,
+    # 근거 필드가 바뀌면 서버가 뗀다). 없음 = 이 기기 캐시 기준(서버 미대조). server/runcas.py
+    mcas: Annotated[Literal[1], BeforeValidator(_int1)] = None
 
 
 class Note(Body):
@@ -506,6 +539,7 @@ DocWrite = Annotated[Union[DocPut, DocDel], Field(discriminator='op')]
 
 class DocPutOk(Out):
     ok: Literal[True]; id: DocId; rev: int; kind: DocKind; name: str; new: bool
+    mcas_dropped: Optional[Literal[True]] = None   # C: 결과 편집에서 근거 필드가 바뀌어 서버가 mcas 를 뗌(평소 키 없음)
 
 
 class DocDelOk(Out):
@@ -516,6 +550,8 @@ class ApiError(Out):
     """400·403·404·409·500·503 공통. 409 는 cur(지금 저장된 판) 포함 — 화면은 초안을 지우지 않는다."""
     error: str
     cur: Optional[DocEnvelope] = None
+    # C 가 새로 내는 사유만(기존 rev 충돌·진행 1개 409 와 400 은 키 없음). HTTP 상태 코드와 별개
+    reason_code: Optional[Literal['mission_gone', 'mission_changed', 'tmpl_changed', 'snapshot_mismatch', 'mcas_forbidden']] = None
 
 
 class MediaEvent(Event):

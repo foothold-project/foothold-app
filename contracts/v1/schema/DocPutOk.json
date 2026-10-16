@@ -18,6 +18,19 @@
       "title": "Kind",
       "type": "string"
     },
+    "mcas_dropped": {
+      "anyOf": [
+        {
+          "const": true,
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mcas Dropped"
+    },
     "name": {
       "title": "Name",
       "type": "string"

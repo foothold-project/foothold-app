@@ -5,6 +5,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { stopOn } from './shell';
 import { camURL, linkView, setProvider, useLink } from '../data/link';
 import { CLOUD, usePull, viewKey, viewWhy } from '../data/views';
+import { camChip } from './status';
+import { Help, SafeLine } from './chip';
 import { Cloud3D, LidarTop } from './Cloud3D';
 import { QEmpty, Quad, type QSize, type QTile } from './Quad';
 
@@ -44,14 +46,14 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
   const tiles: QTile[] = [
     { id: 'map', label: '지도', body: map },
     { id: 'rgb', label: 'RGB · 시뮬 카메라', body: (s) => <>
-      <img data-live-cam="" alt="Gazebo 렌더 카메라" src={camURL || undefined} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', visibility: camOk ? 'visible' : 'hidden' }} />
-      {!camOk && <QEmpty text={`카메라 ${camTxt}`} />}{s !== 'thumb' && rgbExtra}</> },
-    { id: 'follow', label: '외부 3인칭 · 시뮬 카메라', body: () => follow && fKey && follow.bind === fKey
-      ? <img alt="Gazebo 렌더 3인칭 카메라" src={follow.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
+      <img data-live-cam="" alt="시뮬 카메라 영상" src={camURL || undefined} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain', visibility: camOk ? 'visible' : 'hidden' }} />
+      {!camOk && <QEmpty text={camChip({ camOk, camTxt }).text} />}{s !== 'thumb' && rgbExtra}</> },
+    { id: 'follow', label: '시뮬 외부 영상', body: () => follow && fKey && follow.bind === fKey
+      ? <img alt="시뮬 외부 영상" src={follow.url} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'contain' }} />
       : <QEmpty text={vWhy('follow')} /> },
     raw && lidar
-      ? { id: 'pts', label: '실시간 라이다 · 센서 기준(누적 없음)', body: (s) => <LidarTop scan={lidar} small={s === 'thumb'} /> }
-      : { id: 'pts', label: '3D 점군 누적 그림', body: (s) => <Cloud3D small={s === 'thumb'} big={s === 'big'} bind={pKey} empty={ptsWhy} /> },
+      ? { id: 'pts', label: '라이다 센서 기준 · 한 스캔', body: (s) => <LidarTop scan={lidar} small={s === 'thumb'} /> }
+      : { id: 'pts', label: '점군 · 지도 기준 누적', body: (s) => <Cloud3D small={s === 'thumb'} big={s === 'big'} bind={pKey} empty={ptsWhy} /> },
   ];
   // Quad 는 늘 같은 자리·같은 형제 순서 — tiles 만 바꿔 remount 0(크게 본 칸·PIP 선택 유지). 이유 줄은 둘 다 비었을 때만 Quad 뒤에
   const shown = open || fOk || pOk;
@@ -63,14 +65,15 @@ export function OpsQuad({ map, camOk, camTxt, rgbExtra }: { map: (s: QSize) => R
 /** 보조 뷰 이유 줄(둘 다 비었을 때만): 두 칸의 지금 이유 + 펼치기/접기 */
 const AuxLine = ({ open, onClick, f, p }: { open: boolean; onClick: () => void; f: string; p: string }) =>
   <div className="qd-line" role="status" data-qd-aux={open ? 'open' : 'closed'}>
-    <span>{`보조 뷰 ${open ? '펼침' : '접힘'} · 외부 3인칭: ${f} · 3D 점군: ${p}`}</span>
-    <button type="button" className="lv-btn" aria-expanded={open} onClick={onClick}>{open ? '보조 뷰 접기' : '보조 뷰 2칸 펼치기'}</button></div>;
+    <button type="button" className="lv-btn" aria-expanded={open} onClick={onClick}>{open ? '외부 카메라 · 점군 접기' : '외부 카메라 · 점군 ›'}</button>
+    <Help label="외부 카메라 · 점군 · 지금 이유">{`외부 카메라 — ${f} · 점군 칸 — ${p}`}</Help></div>;   {/* U2-b: 접힘 = 버튼 하나 + ? (이유 원문은 ? 안) */}
 
 /** 전체화면 안 STOP + 링크·잠금 한 줄 — 알림(toast)·확인창은 shell InFs 로 전체화면 안에 뜨지만 사라지므로, 지속 서버 상태는 이 줄로. 끊김·상태 미확인이면 «미확인»(잠김/안 잠김 단정 0) */
 function FsStop() {
   const L = useLink(), v = linkView(L), sure = v.linkOk && !L.bad && !!L.st && L.stGen === L.gen;   // 이 연결에서 받은 유효 상태일 때만 잠금 여부를 말함
-  return <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+  return <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
     <button type="button" className="lv-stop" aria-label="비상 정지(전체화면)" {...stopOn}>STOP</button>
     <span role="status" style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(5,8,10,.8)', color: !sure ? '#FF5A52' : v.latch ? '#FFB547' : '#E6EBEF', fontSize: 13, fontWeight: 600 }}>
-      {!v.linkOk ? `링크 ${v.linkTxt} — STOP 전달·잠금 미확인` : !sure ? 'STOP 잠금 미확인(상태 확인 전)' : v.latch ? '서버 상태: STOP 잠김' : `서버 상태: STOP 잠금 아님 · ${v.roleTxt}`}</span></div>;
+      {!v.linkOk ? `링크 ${v.linkTxt} — STOP 전달·잠금 미확인` : !sure ? 'STOP 잠금 미확인(상태 확인 전)' : v.latch ? '서버 상태: STOP 잠김' : `서버 상태: STOP 잠금 아님 · ${v.roleTxt}`}</span>
+    <SafeLine style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(5,8,10,.8)' }} /></div>;   {/* U2 보완 P2: 전체화면 안에도 안전 한 줄 + ?(STOP 오른쪽 — STOP 가림 0, ? 팝오버는 InFs 로 전체화면 안) */}
 }

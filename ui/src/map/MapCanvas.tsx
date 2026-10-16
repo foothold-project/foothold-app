@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef } from 'react';
 import type { ZoneEnv } from '@contracts';
 import { ok, store } from '../data/fmt';
 import type { Raster } from '../data/maps';
+import { toast } from '../app/shell';
 
 export const FLOOR = 10;   // online-20261012/gz/world_live.sdf: 평평한 바닥, 격자 선 −10~10 m
 export type Mode = 'robot' | 'all' | 'free';
@@ -21,11 +22,36 @@ type Props = {
   btns?: boolean;
   raster?: Raster | null;   // 저장 지도 보기: 바닥 도면 대신 이 그림. 로봇·길·구역·경유점은 부르는 쪽이 끈다(좌표계 결속 전)
   blank?: string | null;
+  lean?: boolean;          // U2-b(Main 만): 운영 짧은 글 — 가운데 «위치 없음» 하나 · 로봇 중심 주황 띠 0(버튼 회색+이유) · 아래 줄 «1 m» 축척만. 다른 화면은 U3~5 에서
   flat?: boolean;          // 지금 켜진 시뮬이 원본 평지 체험일 때만 «바닥 ±10 m» 라벨(아니면 지형 도면 없음 — GT 위치·1 m 격자만)    // 지도 보기 중인데 그림 없음: GT 바닥 대신 빈 바탕 + 이 이유만(로봇·길·구역·경유점·고른 점 0)
   api?: { current: MapApi | null };   // 화면의 자체 버튼(휴대폰 fab·레이어 서랍)이 보기 방식·확대를 바꿀 때   // live.js mapBtns(아이콘): 로봇 중심 · 전체 보기 · 확대 · 축소
 };
 
 export type MapApi = { mode: () => Mode; setMode: (m: Mode) => void; zoomBy: (f: number) => void };
+
+// U2-b 보완 B1: 축척 막대 = 표시 거리 d(m) × 지금 배율 k(px/m). 1 m 가 너무 짧거나(<minPx) 길면(>maxPx) 1·2·5 단위로 바꾸고 글도 같은 d.
+// 맞는 d 가 없으면 null(막대 0) — 길이와 글이 다른 막대는 그리지 않음
+const NICE = [0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500];
+export function scaleBar(k: number, maxPx: number, minPx = 24): { d: number; L: number; t: string } | null {
+  if (!(k > 0) || !Number.isFinite(k)) return null;
+  const fit = NICE.filter((d) => d * k >= minPx && d * k <= maxPx);
+  if (!fit.length) return null;
+  const d = fit.reduce((a, b) => (Math.abs(Math.log(b)) < Math.abs(Math.log(a)) ? b : a));   // 1 m 에 가장 가까운 것
+  return { d, L: d * k, t: d < 1 ? `${Math.round(d * 100)} cm` : `${d} m` };
+}
+
+// U2-b 보완 P2 · M②: Main(lean) 지도 칸 배치 — '1' = 좁은 칸(폰 세로 2×2 ≈177×111: 오른쪽 68 px 열 · 32 px), 'row' = 낮은 칸(H<110·W≥330,
+//   가로 폰 보조 뷰 4칸 ≈354×65 — 열 104 px 는 칸 밖이라 버튼 4개 한 줄 32 px). 썸네일·다른 화면 = ''(기존 자리)
+export const mapNarrow = (lean: boolean | undefined, small: boolean | undefined, W: number, H: number) =>
+  !lean || small ? '' : H < 110 && W >= 330 ? 'row' : W < 360 || H < 150 ? '1' : '';
+// U2-b 보완 B2: «로봇 중심» 버튼 이유(lean = Main 만). 그림 없음 · 이 지도에 결속된 위치 없음/갱신 중 · 위치 없음 · 위치 오래됨을 구분. 신선한 위치면 ''(따라감 성공 단정 글 0)
+export function robotWhy(o: { lean?: boolean; blank?: boolean; noRobot?: boolean; upd?: boolean; r: Robot }): string {
+  if (!o.lean) return '';
+  if (o.blank) return '지도 그림 없음 — 로봇 중심 불가(이유는 지도 가운데)';
+  if (o.noRobot) return o.upd ? '지도 갱신 중 — 위치 표시 잠시 끔 · 로봇 중심 불가(전체 범위)' : '이 지도에 결속된 위치 없음 — 로봇 중심 불가(전체 범위)';
+  if (!o.r) return '위치 없음 — 로봇 중심 불가(전체 범위)';
+  return o.r.fresh ? '' : '위치 오래됨 — 로봇 중심 불가(전체 범위)';
+}
 
 export function MapCanvas(p: Props) {
   const cv = useRef<HTMLCanvasElement>(null);
@@ -42,9 +68,16 @@ export function MapCanvas(p: Props) {
     const cs = getComputedStyle(el), col = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
     const C = { map: col('--map', '#0E1317'), bg: col('--bg', '#05080A'), line: col('--line2', '#34424D'), mut: col('--muted', '#9AA7B3'), acc: col('--accent', '#38C6D9'),
       bad: col('--bad', '#FF5A52'), warn: col('--warn', '#FFB547'), ok: col('--ok', '#5AA9FF') };
+    box.dataset.mapnarrow = mapNarrow(o.lean, o.small, W, H);   // U2-b 보완 P2: Main 좁은 칸(폰 2×2) — live.css 가 지도 보기·버튼을 좁게 배치
+    const sync = (w: string) => {   // 버튼 이유·눌림은 그림 없음(blank)에도 지금 상태로(옛 이유 잔존 0)
+      const rb = box.querySelector<HTMLElement>('[data-m=robot]');   // lean: 띠 대신 버튼 회색 + 이유(누르면 토스트)
+      if (rb) { rb.dataset.why = w; rb.classList.toggle('lv-why', !!w); rb.title = w || '로봇 중심 — 신선한 위치를 따라감(위치 없으면 이유 표시)'; }
+      box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
+    };
     if (o.blank != null && !o.raster) {
       g.fillStyle = C.bg; g.fillRect(0, 0, W, H); g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center';
-      g.fillText(o.blank || '지도 없음', W / 2, H / 2, W - 24); g.textAlign = 'left'; el.dataset.view = 'blank'; el.dataset.raster = ''; return;
+      g.fillText(o.blank || '지도 없음', W / 2, H / 2, W - 24); g.textAlign = 'left'; el.dataset.view = 'blank'; el.dataset.raster = ''; el.dataset.scale = '';
+      sync(robotWhy({ lean: o.lean, blank: true, r: null })); return;
     }
     const rs = o.raster, B = rs ? [rs.ox, rs.ox + rs.w * rs.res, rs.oy, rs.oy + rs.h * rs.res] : [-FLOOR, FLOOR, -FLOOR, FLOOR];   // 바탕 범위 x0 x1 y0 y1
     const r = o.noRobot ? null : o.robot || null, fr = !!r?.fresh, showTrail = o.showTrail !== false, pts = showTrail ? o.trail || [] : [], wps = o.wps || [];
@@ -110,17 +143,22 @@ export function MapCanvas(p: Props) {
       if (!fr) tags.push(`위치 오래됨 ${((performance.now() - r.t) / 1000).toFixed(0)} s`);
       if (r.x < B[0] || r.x > B[1] || r.y < B[2] || r.y > B[3]) tags.push('도면 밖');   // 바탕(도면 또는 지도) 범위 밖   // 가두지 않고 그대로 그린다
       if (tags.length) { g.font = `600 ${o.small ? 10 : 12}px sans-serif`; g.fillStyle = C.warn; g.fillText(tags.join(' · '), X(r.x) + 12, Y(r.y) - 12); }
-    } else if (!o.noRobot && !rs) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText(o.small ? '위치 없음' : '위치 없음 · 시뮬 위치 미수신', W / 2, H / 2); g.textAlign = 'left'; }
+    } else if (!o.noRobot && !rs) { g.font = '600 13px sans-serif'; g.fillStyle = C.warn; g.textAlign = 'center'; g.fillText(o.small || o.lean ? '위치 없음' : '위치 없음 · 시뮬 위치 미수신', W / 2, H / 2); g.textAlign = 'left'; }
     const off = r && (X(r.x) < 0 || X(r.x) > W || Y(r.y) < 0 || Y(r.y) > H);
-    const why = v.mode === 'robot' && !follow && !(o.noRobot || (o.blank != null && !rs)) ? (r ? '로봇 중심 · 위치 오래됨 — 따라가지 않음(전체 범위)' : '로봇 중심 · 위치 없음 — 따라가지 않음(전체 범위)')
+    sync(robotWhy({ lean: o.lean, noRobot: o.noRobot, upd: !!rs?.upd, r }));
+    const why = !o.lean && v.mode === 'robot' && !follow && !(o.noRobot || (o.blank != null && !rs)) ? (r ? '로봇 중심 · 위치 오래됨 — 따라가지 않음(전체 범위)' : '로봇 중심 · 위치 없음 — 따라가지 않음(전체 범위)')
       : off && v.mode !== 'robot' ? '로봇이 화면 밖 — «로봇 중심»으로 보기' : '';
     if (why) { g.font = `600 ${o.small ? 10 : 12}px sans-serif`; g.textAlign = 'center'; const tw = g.measureText(why).width; g.globalAlpha = 0.8; g.fillStyle = C.bg; g.fillRect(W / 2 - tw / 2 - 6, 6, tw + 12, 20); g.globalAlpha = 1; g.fillStyle = C.warn; g.fillText(why, W / 2, 21, W - 16); g.textAlign = 'left'; }
     g.font = '600 11px sans-serif'; g.fillStyle = C.mut; g.textAlign = 'right'; g.fillText('N ↑', W - 8, H - 9); g.textAlign = 'left';
-    if (!o.small) {
+    const sb = !o.small && o.lean && !rs?.noGrid ? scaleBar(k, Math.min(120, W / 2 - 40)) : null;   // 층 나란히(복합 그림·좌표 하나로 못 읽음)면 축척 0
+    el.dataset.scale = sb ? `${sb.d}|${sb.L.toFixed(2)}|${k.toFixed(4)}` : '';   // 시험용: 표시 거리·막대 px·배율
+    if (!o.small && o.lean) {   // lean: 축척 막대만 — 길이 L = d·k, 글 = d
+      if (sb) { const L = sb.L; g.strokeStyle = C.mut; g.lineWidth = 2; g.beginPath(); g.moveTo(9, H - 12); g.lineTo(9 + L, H - 12); g.moveTo(9, H - 16); g.lineTo(9, H - 8); g.moveTo(9 + L, H - 16); g.lineTo(9 + L, H - 8); g.stroke();
+        g.font = '12px sans-serif'; g.fillStyle = C.mut; g.fillText(sb.t, 15 + L, H - 8); }
+    } else if (!o.small) {
       const t = `${rs ? `${r ? '위치 = 실시간 지도 status' : '위치 미표시(지도와 결속 안 됨)'} · ${rs.label} · 격자 1 m` : `격자 1 m · ${W < 520 ? '' : o.flat ? '바닥 ±10 m · ' : '지형 도면 없음 · '}${W < 520 ? '시뮬 위치' : '위치 = 시뮬 위치'}`} · ${MODE_KO[v.mode]} ×${+v.zoom.toFixed(2)}${showTrail ? '' : ' · 길 숨김'}`;
       g.font = '12px sans-serif'; const w = g.measureText(t).width; g.globalAlpha = 0.75; g.fillStyle = C.bg; g.fillRect(4, H - 24, w + 10, 20); g.globalAlpha = 1; g.fillStyle = C.mut; g.fillText(t, 9, H - 9);
     }
-    box.querySelectorAll<HTMLElement>('[data-m]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.m === v.mode)));   // live.js 1024: 눌림 = 지금 방식
     if (rs?.upd) {   // 실시간 지도 갱신 중 — 작은 표시(작은 지도 포함). 그림은 직전 검증본, 위치 마커는 부르는 쪽이 끔
       g.font = `600 ${o.small ? 10 : 11}px sans-serif`; const tw = g.measureText('갱신 중').width; g.globalAlpha = 0.8; g.fillStyle = C.bg; g.fillRect(W - tw - 18, 6, tw + 12, 18); g.globalAlpha = 1; g.fillStyle = C.warn; g.fillText('갱신 중', W - tw - 12, 19);
     }
@@ -157,7 +195,7 @@ export function MapCanvas(p: Props) {
 
   if (p.api) p.api.current = { mode: () => V.current.mode, setMode: (m) => { V.current.mode = m; V.current.zoom = 1; draw(); },
     zoomBy: (f) => { zoom(f); draw(); } };
-  const v = V.current, b = (t: string, label: string, f: () => void, m?: Mode) => <button type="button" className="lv-btn" data-m={m} aria-label={label} title={label} onClick={() => { f(); draw(); }}>{t}</button>;
+  const v = V.current, b = (t: string, label: string, f: () => void, m?: Mode) => <button type="button" className="lv-btn" data-m={m} aria-label={label} title={label} onClick={(e) => { const w = (e.currentTarget as HTMLElement).dataset.why; if (w) toast(w); f(); draw(); }}>{t}</button>;
   return <>
     <canvas ref={cv} data-live-map={p.name || '1'} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', touchAction: 'none', ...(p.small ? { pointerEvents: 'none' } : { cursor: 'crosshair' }) }} />
     {p.btns && <div className="lv-mapbtns" data-noquad="">   {/* 보기만 바뀜(명령 0). 눌림 = 지금 방식(draw 가 data-m 으로 맞춤), 손으로 옮김이면 둘 다 안 눌림 */}

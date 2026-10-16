@@ -7,10 +7,11 @@ import { startLink, useLink } from './data/link';
 import { auth, isLogin, loginHash } from './data/auth';
 import { dropScratch } from './data/scratch';
 import { useEffect } from 'react';
-import { StartAsk, Toast, useRoute, useStopKey } from './app/shell';
+import { HOME, StartAsk, StopNote, Toast, useRoute, useStopKey } from './app/shell';
 import './live.css';
 import './brand.css';
 import { syncTheme } from './app/theme';
+import { devStart } from './data/dev';
 
 // 옮긴 화면만 여기 있다. 나머지는 묶음 2·3 에서(아래 «아직 옮기지 않음» 안내).
 const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
@@ -34,7 +35,6 @@ const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   PcLogin: lazy(() => import('./screens/PcLogin')),
   System: lazy(() => import('./screens/System')),
 };
-const HOME = 'Main';   // B2 A1: PC 첫 화면 = 관제(기록은 메뉴)
 
 function App() {
   useStopKey();
@@ -48,10 +48,12 @@ function App() {
         {S ? <S /> : <p className="lv-note" style={{ padding: 16 }}>{`«${name}» 화면은 아직 React 로 옮기지 않았습니다.`} <a href={`#/${HOME}`}>관제로</a></p>}
       </Suspense>
       <Toast />
+      <StopNote />
       <StartAsk />
     </QueryClientProvider>
   );
 }
+devStart();   // 개발자 모드 초기값(URL > 저장값 > 꺼짐) — 표시만
 startLink();
 syncTheme();
 createRoot(document.getElementById('root')!).render(<App />);

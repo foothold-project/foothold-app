@@ -44,6 +44,20 @@ textarea.lv-inp{resize:vertical}
 /* 10-15 ④ 글 있는 보기 버튼(전체 고정 · 로봇 중심) — 눌림 = 지금 방식 */
 .lv-mapseg{display:inline-flex;border-radius:8px;overflow:hidden;box-shadow:0 1px 6px rgba(0,0,0,.45)}.lv-mapseg .lv-btn{min-height:44px;padding:0 10px;border-radius:0;font-size:13px;white-space:nowrap}.lv-mapseg .lv-btn+.lv-btn{border-left:0}
 .lv-mapseg .lv-btn[aria-pressed=true]{background:var(--acc-bg,rgba(56,198,217,.18));color:var(--text)}
+/* U2-b 보완 P2: Main 좁은 지도 칸(폰 세로 2×2 ≈177×111 — MapCanvas 가 lean·W<360 또는 H<150 일 때만 data-mapnarrow=1). 오른쪽 열 = 보기 방식 세로 + 확대·축소 한 줄(32 px),
+   큰 칸·전체화면·다른 화면 무변경. U2-c: 지도 보기는 관제 오른쪽 칸으로(지도 칸 안 겹침 0 — .lv-mappick 규칙 삭제) */
+[data-mapnarrow="1"]>.lv-mapbtns{top:4px;right:4px;gap:4px;flex-direction:row;flex-wrap:wrap;justify-content:flex-end;width:68px}
+[data-mapnarrow="1"]>.lv-mapbtns>.lv-btn{width:32px;min-height:32px;font-size:16px}
+[data-mapnarrow="1"] .lv-mapseg{flex-direction:column;width:100%}[data-mapnarrow="1"] .lv-mapseg .lv-btn{min-height:32px;padding:0 4px;font-size:11px}[data-mapnarrow="1"] .lv-mapseg .lv-btn+.lv-btn{border-left:1px solid var(--line2);border-top:0}
+/* M②(Codex N3·670): 낮은 칸(H<110·W≥330, 가로 844x390 보조 뷰 4칸 354×65) — 버튼 4개 한 줄(32 px · 칸 안) */
+[data-mapnarrow="row"]>.lv-mapbtns{top:4px;right:4px;gap:4px;flex-direction:row;align-items:center}
+[data-mapnarrow="row"]>.lv-mapbtns>.lv-btn{width:32px;min-height:32px;font-size:16px}
+[data-mapnarrow="row"] .lv-mapseg .lv-btn{min-height:32px;padding:0 6px;font-size:11px}
+@media (max-width:700px){   /* 폰 세로 크게 보기 + PIP(390: 남는 폭 ≈260) — 버튼은 44 px 그대로 92 px 열(보기 방식 세로 + 확대·축소 한 줄)로 접음 */
+  .qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"])>.lv-mapbtns{width:92px;flex-direction:row;flex-wrap:wrap;justify-content:flex-end;gap:4px}
+  .qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"]) .lv-mapseg{flex-direction:column;width:100%}
+  .qd.f:not(.nopip) .qt.on .qb:not([data-mapnarrow="1"]):not([data-mapnarrow="row"]) .lv-mapseg .lv-btn+.lv-btn{border-left:1px solid var(--line2);border-top:0}
+}
 .lv-wp{display:grid;grid-template-columns:28px minmax(0,1fr) auto;gap:8px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
 .lv-wp>b{display:grid;place-items:center;width:26px;height:26px;border-radius:13px;border:2px solid var(--accent);font-size:12px}
 .lv-thumb{width:72px;height:48px;object-fit:cover;border-radius:6px;background:#05080A}
@@ -106,7 +120,9 @@ textarea.lv-inp{resize:vertical}
 @media (max-width:700px){
   [data-main] .fh header{flex-wrap:wrap!important;gap:6px 10px!important;padding:8px 10px!important}
   [data-main] .fh header>div[style*="width: 1px"]{display:none}
-  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
+  /* U2 보완 B2: 칩 묶음은 줄바꿈(가로 스크롤로 칩·?·«시뮬 ▾»를 숨기지 않음) + 칩은 줄지 않음(.lv-chip·[data-head] 칩 겹침 원인) */
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:wrap!important;overflow:visible!important;justify-content:flex-start!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]>*{flex:0 0 auto!important}
   [data-main] .fh nav[aria-label="주 메뉴"]{flex:1 1 100%!important;flex-direction:row!important;justify-content:space-around;overflow-x:auto;padding:4px!important;border-right:0!important;border-bottom:1px solid var(--line)}
   [data-main] .fh main{flex:1 1 100%!important;padding:6px!important}
   [data-main] .fh main>section{flex:1 1 100%!important;max-width:none!important}
@@ -116,11 +132,14 @@ textarea.lv-inp{resize:vertical}
    머리줄 = 로고 · 상태 표시(보기 전용 등) · 칩 한 줄(가로로 밀어 봄) · STOP 만, 위에 고정. 제목·조작자 칸은 숨김(같은 정보는 아래 «상태 상세»).
    관제 4분할은 남은 높이에 맞춤: 2×2 는 두 줄이 화면에 들어오게, 크게 보기는 왼쪽 큰 칸 + 오른쪽 작은 칸 3. PC·세로 폰은 그대로 */
 @media (orientation:landscape) and (max-height:500px){
-  [data-main] .fh header{position:sticky;top:0;z-index:20;flex-wrap:nowrap!important;gap:8px!important;padding:4px 8px!important;max-height:64px}
+  [data-main] .fh header{position:sticky;top:0;z-index:20;flex-wrap:wrap!important;gap:4px 8px!important;padding:4px 8px!important}
   [data-main] .fh header>div[style*="width: 1px"],[data-main] .fh header>div[style*="flex-direction: column"],[data-main] .fh header>div[style*="padding: 0px 4px"]{display:none!important}
-  [data-main] .fh header>div[style*="justify-content: flex-end"]{flex:1 1 0!important;flex-wrap:nowrap!important;overflow-x:auto;justify-content:flex-start!important}
-  [data-main] .fh header>div[style*="justify-content: flex-end"] .chip{flex:0 0 auto;white-space:nowrap}
-  .qd{--qa:calc(100vh - 150px);scroll-margin-top:68px}
+  /* U2 보완 B2: 칩 묶음은 로고·모드·STOP 아래 자기 줄(STOP 밑에 깔리지 않게) + 줄바꿈 + 칩 축소 0 */
+  [data-main] .fh header>div[style*="justify-content: flex-end"]{order:9;flex:1 1 100%!important;flex-wrap:wrap!important;overflow:visible!important;justify-content:flex-start!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"]>*{flex:0 0 auto!important}
+  [data-main] .fh header>div[style*="justify-content: flex-end"] .chip{white-space:nowrap}
+  /* U2 보완 B2: 머리줄이 칩 줄(약 +44 px)만큼 높아져 2×2 가 화면 밖으로 나가지 않게 같은 만큼 줄임 */
+  .qd{--qa:calc(100vh - 194px);scroll-margin-top:112px}
   .qd .qb{flex:none}
   .qd:not(.f) .qb{aspect-ratio:auto;height:calc(var(--qa) / 2 - 33px)}
   .qd.two:not(.f) .qb{height:calc(var(--qa) - 30px)}   /* B2: 보조 뷰 접힘 2칸 = 한 줄 → 높이 전부 */
@@ -145,6 +164,25 @@ body:has(.lv-drawer) .lv-tip{display:none!important}
 .mmap-hdr>header>div:first-of-type{flex:1 1 0;min-width:0}
 .mmap-hdr>header>div:first-of-type>span:first-child{white-space:nowrap}
 .mmap-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
+/* U2-b 폰 지도 «지형 + 2D/3D/SLAM»(MapPick bar): 세로 = 연결 상태 아래 자기 줄(지도 바로 위) · 가로 낮은 화면(MMap LAND_CSS 와 같은 조건) = 제목 옆 같은 줄(머리 높이 그대로 — 설계 목표, 겹침·높이 실측 0) */
+.mmap-hdr>header>[data-mapview-bar]{order:4;flex:1 1 100%}
+@media (orientation: landscape) and (max-height: 500px){.mmap-hdr>header>[data-mapview-bar]{order:0;flex:0 1 auto}}
 /* B2 A3: PcPlan 도 다른 PC 화면처럼 STOP 을 첫 줄 오른쪽 끝에 — 상태 줄만 둘째 줄 전체로(STOP 크기·색 그대로) */
 .pcplan-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
 .pcplan-hdr>header>button[aria-label="비상 정지"]{margin-left:auto}
+/* UI-SIMPLIFY v3 U1-a: 개발자 모드(표시만) · 상태 칩 · «?» 도움말 */
+html:not(.fh-dev) [data-dev]{display:none!important}
+.lv-chip{display:inline-flex;align-items:center;gap:4px;min-height:22px;padding:0 8px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);font-size:12px;font-weight:600;white-space:nowrap}
+.lv-chip.off{color:var(--muted)}.lv-chip.ok{color:var(--ok);border-color:var(--ok)}.lv-chip.warn{color:var(--warn);border-color:var(--warn)}.lv-chip.bad{color:var(--bad);border-color:var(--bad)}
+.lv-help{display:inline-flex}
+.lv-q{min-width:24px;min-height:24px;padding:0;border-radius:12px;border:1px solid currentColor;background:transparent;color:inherit;font-size:12px;font-weight:700;line-height:1;cursor:pointer}
+.lv-q:focus-visible{outline:2px solid #8CC8FF;outline-offset:2px}
+.lv-pop{position:fixed;z-index:45;box-sizing:border-box;padding:10px 12px;border-radius:8px;background:rgba(8,11,14,.96);color:#E6EBEF;border:1px solid #3a4652;font-size:13px;font-weight:400;line-height:1.45;white-space:normal;text-align:left;box-shadow:0 6px 24px rgba(0,0,0,.45);overflow:auto}
+.lv-simmenu{display:flex;flex-direction:column;align-items:stretch;gap:8px}
+.lv-simmenu .lv-note{margin:0;color:#9AA6B2;font-size:12px}
+.lv-simmap{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid #3a4652}
+.lv-pop[hidden]{display:none}
+.lv-safe{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;font-weight:600;color:var(--warn);line-height:1.35}
+.lv-dirtag{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.lv-devmark{min-height:24px;padding:0 8px;border-radius:6px;border:0;background:#7A3EB8;color:#FFFFFF;font-size:11px;font-weight:700;cursor:pointer}
+.lv-devmark:focus-visible{outline:2px solid #8CC8FF;outline-offset:2px}
