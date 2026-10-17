@@ -2898,6 +2898,7 @@ def main():
             why = cam_why(core, sim, now)
             if why:
                 return reply(c, rid, False, f'사진 실패 · {why} — 잠시 뒤 다시')
+            st = core.st            # 10-17: 미정의 st(NameError) 수정 — cam_why 통과 = 같은 lock 안에서 core.st 가 1 s 안의 최신 상태(None 아님)
             photo_last[0] = now
             jpeg = sim['jpeg']
             meta = {'frame_at': time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(sim['jpeg_wall'])) + f'.{int(sim["jpeg_wall"] % 1 * 1000):03d}' + time.strftime('%z'),
