@@ -16,9 +16,15 @@ native 변경(10-18 `fcb212e`): `FhGateCore` 고정 op 에 `rehearsal.get`(GET `
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
-## 다음 판 준비 — Android 개발 APK code 11 · `1.0.10-dev` (10-18, **빌드 0**)
+## 로컬 빌드 — Android 개발 APK code 11 · `1.0.10-dev` (10-18, **로컬 빌드 1회 · 공개 0**)
 
-이 통합 커밋은 빌드 전 준비다. APK 빌드·구조 대조·실행은 아직 하지 않았고, UI 화면 QA 수용과 최종 pin 뒤 따로 한다. push·tag·공개 업로드 0.
+빌드 입력은 통합 `6d6cfdecf42d5fc94079020552d0219a88d26a30`(ui 트리 `c415ca3`, mobile 트리 `5769f47`)과 frozen 화면 파일(UI `0314495`, 184개 — `.map` 38 제외 146개가 번들)이다. 이 문서 커밋은 문서만 바꿔 ui·mobile 트리가 빌드 입력과 같다. push·tag·공개 업로드 0.
+
+| 무엇 | 대상 | 결과 | 범위·한계 |
+|---|---|---|---|
+| APK 구조 대조 | `foothold-android-dev-20261018-fleet.apk` sha256 `ae2a73f9ce5fd3abc597c8408755e6ec0b282a2b9f565bb33d10ce1743904267`(7579798 bytes) | 28/28 통과 | 앱 id·버전 11·`1.0.10-dev`·서명(옛 개발판과 같은 디버그 인증서)·CA 한 장·권한·server.url 없음·관문 고정 op `rehearsal` 2개·화면 파일: frozen 원본 184개 sha 일치(빌드 뒤 무변경) + APK 번들 .map 제외 146개 파일별 sha 일치. 실행 동작은 이 대조 범위 밖 |
+
+미측정: 이 APK 실행(에뮬·실폰·WebView)·실 로그인·리허설 저장/파일 저장·실기·Nav2·물리 리허설. 새 화면의 저장·분석은 새 서버 API 가 필요하다(APK 를 새로 만든 것 ≠ 서버 지원).
 
 ## 검증 실행 범위 — Android 개발 APK `dev-20261017-slamstart` (10-17)
 

@@ -9,7 +9,7 @@
 
 소스 변경, 운영 웹 반영, APK 빌드는 각각 별도로 검증한다. APK에 서버 코드가 들어가는 것은 아니며, 실제 휴대폰/WebView와 물리 실행의 미확인 사항을 구조 검사 결과로 대신하지 않는다.
 
-> **통합 브랜치 현재(2026-10-18)** — 최종 UI `0314495`(`e75a40b` + 현장 화면 폰 가로 보완) + `mobile/` `fcb212e`(관문 고정 op `rehearsal.get`·`rehearsal.post` 추가, versionCode 11 · `1.0.10-dev` 준비). APK11 은 아직 빌드하지 않았다. 실 Go2 연결은 미구현이고 기존 단일 시뮬 제어 경로를 유지한다. 출처·검사: [통합 출처](docs/PROVENANCE-app-platform-integration.md)
+> **통합 브랜치 현재(2026-10-18)** — 최종 UI `0314495`(`e75a40b` + 현장 화면 폰 가로 보완) + `mobile/` `fcb212e`(관문 고정 op `rehearsal.get`·`rehearsal.post` 추가, versionCode 11 · `1.0.10-dev`). APK11 은 통합 `6d6cfde` 를 입력으로 로컬에서 한 번 빌드했다(구조 대조 28/28 · 번들 화면 파일 146개 sha 일치). 실행(에뮬·실폰·WebView)·실 로그인·파일 저장은 미측정이고 공개·태그·업로드는 하지 않았다. 실 Go2 연결은 미구현이고 기존 단일 시뮬 제어 경로를 유지한다. 출처·검사: [통합 출처](docs/PROVENANCE-app-platform-integration.md)
 
 ## 이전 통합 개발판 기록(2026-10-17 · APK10)
 
