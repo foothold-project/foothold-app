@@ -15,8 +15,17 @@ import { SceneCanvas, robotTags } from '../map/SceneCanvas';
 const LIVE = '';   // «내 로봇» 값: '' = 연결 로봇, 그 밖 = 계획 로봇 id
 type Tab = 'now' | 'map' | 'report' | 'hist';
 // 가로(높이 ≤ 500): 왼쪽 지도/영상 · 오른쪽 상태 — STOP 은 오른쪽 아래 그대로
+// 가로 최소 보완(VISUAL-IMPLEMENTED-CHECK 358ed282 L1~L5): 칩 4개 한 줄 · 머리 여백 축소 · 영상+영상칩 한 칸(빈 카드 0) · 칸 위 정렬 · 조종/STOP 줄은 오른쪽 열 위에만.
+// L7(14d58f24 §5): 가로에서 영상 썸네일(a)만 높이 상한 — 영상칩·이유 문구가 하단 탭 위로. 앞 vh 줄 = dvh 미지원 WebView 대체 · 244 = 머리126+여백12+gap8+칩30+탭64+4(추정)
+//   media 로 바꿀 값만 클래스로 옮김(인라인은 media 가 못 덮음) — 세로 값은 그대로(10px 16px·gap 8·2열·gap 6·left 0·영상 칸 gap 12)
 const CSS = `.fd-body{display:grid;gap:12px;padding:12px 16px 168px}
-@media (orientation: landscape) and (max-height: 500px){.fd-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding-bottom:150px}}`;
+.fd-header{padding:10px 16px;gap:8px}
+.fd-chips{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.fd-video{display:grid;gap:12px;align-content:start}
+.fd-act{left:0}
+@media (orientation: landscape) and (max-height: 500px){.fd-body{grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding-bottom:150px;align-items:start}
+.fd-header{padding:6px 16px;gap:4px}.fd-chips{grid-template-columns:repeat(4,minmax(0,1fr))}.fd-video{gap:8px}.fd-act{left:50%}
+.fd-thumb{max-height:calc(100vh - 244px);max-height:max(88px,calc(100dvh - 244px))}}`;
 
 /** 계획 로봇의 경로 요약(설계도 점의 기하 길이·점 수만 — 실제 위치와의 거리 계산 0) */
 export function routeSummary(s: Scene, robot: string, scRoutes: string[]) {
@@ -64,7 +73,7 @@ export default function Field() {
       </>}
   </div>;
 
-  const thumb = <a href="#/MDrive" aria-label="조종 화면에서 영상 보기" style={{ position: 'relative', display: 'block', aspectRatio: '16/9', borderRadius: 8, overflow: 'hidden', background: 'var(--panel2)', color: 'var(--muted)' }}>
+  const thumb = <a className="fd-thumb" href="#/MDrive" aria-label="조종 화면에서 영상 보기" style={{ position: 'relative', display: 'block', aspectRatio: '16/9', borderRadius: 8, overflow: 'hidden', background: 'var(--panel2)', color: 'var(--muted)' }}>
     <img data-live-cam="" alt="" src={camURL || undefined} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', visibility: v.camOk ? 'visible' : 'hidden' }} />
     {!v.camOk && <span style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', fontSize: 13 }}>{v.camTxt}</span>}
   </a>;
@@ -78,8 +87,7 @@ export default function Field() {
   </div>;
 
   const now = <>
-    {plan ? null : thumb}
-    {!plan && <Chip tone={cam.tone} text={cam.text} why={cam.why} />}
+    {!plan && <div className="fd-video">{thumb}<Chip tone={cam.tone} text={cam.text} why={cam.why} /></div>}
     <section style={{ display: 'grid', gap: 6 }}>
       <h2 style={{ margin: 0, fontSize: 15 }}>{plan ? `${tags.get(plan)?.tag} 계획` : '짝지은 계획'}</h2>
       {!sc ? <><p style={{ margin: 0 }}>고른 계획 없음 · PC 지도 편집에서 저장한 프로젝트·배치안을 아래에서 직접 고릅니다</p>{pick}</>
@@ -104,7 +112,7 @@ export default function Field() {
         style={{ minHeight: 44, fontWeight: view === k ? 700 : 400, background: view === k ? 'var(--acc-bg)' : undefined }}>{k === 'live' ? '실측' : '계획'}</button>)}
     </div>
     <p className="lv-note" style={{ margin: 0 }}>좌표 정합 미확인 · 실측과 계획은 겹쳐 그리지 않습니다</p>
-    {view === 'live' ? <p style={{ margin: 0, fontSize: 13 }}>{`기존 연결 대상의 실측 · ${liveName} · ${liveTxt}`}</p> : null}
+    {view === 'live' ? <p style={{ margin: 0, fontSize: 13 }}>{`실측 · ${liveName} · ${liveTxt}`}</p> : null}
     {view === 'live' ? <div style={{ position: 'relative', height: 320 }}><MapCanvas name="field-live" small trail={TRAIL.pts} robot={v.robot} showTrail /></div>
       : s ? <SceneCanvas scene={s} floor={fl} scenario={sc} analysis={null} issues={[]} focus={null} sel={rb ? { k: 'robot', id: rb.id } : null} height={320}
         label={`계획 지도 · ${s.name}${sc ? ` · ${sc.name}` : ''}`} />
@@ -119,7 +127,7 @@ export default function Field() {
   return <>
     <style>{CSS}</style>
     <div id="dc-root"><div className={themeClass(false)} style={{ minHeight: '100dvh', background: 'var(--bg)', color: 'var(--text)', fontSize: 14 }}>
-      <header style={{ position: 'sticky', top: 0, zIndex: 3, padding: '10px 16px', background: 'var(--panel)', borderBottom: plan ? '2px dashed var(--line2)' : '1px solid var(--line)', display: 'grid', gap: 8 }}>
+      <header className="fd-header" style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--panel)', borderBottom: plan ? '2px dashed var(--line2)' : '1px solid var(--line)', display: 'grid' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <img src={`${import.meta.env.BASE_URL}brand/assets/logo/v1/foothold-favicon.svg`} alt="FOOTHOLD" width={18} height={18} />
           <label style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, minWidth: 0, fontWeight: 600 }}>내 로봇
@@ -130,14 +138,14 @@ export default function Field() {
         </div>
         {plan && <p role="status" style={{ margin: 0, fontSize: 13 }}>계획 대상 · 연결 없음 · 계획 조작은 로봇 명령 없음 · STOP은 기존 연결 대상에 요청</p>}
         <p className="lv-note" style={{ margin: 0, fontSize: 12 }}>{`아래 상태 = ${liveName}(${liveTxt})${plan ? ' · 고른 계획 로봇 아님' : ''}`}</p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>{chips.map((c) => <Chip key={c.k} tone={c.tone} text={c.text} why={c.why} />)}</div>
+        <div className="fd-chips">{chips.map((c) => <Chip key={c.k} tone={c.tone} text={c.text} why={c.why} />)}</div>
       </header>
       <main className="fd-body">{body}</main>
-      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 64, zIndex: 4, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', pointerEvents: 'none' }}>
+      <div className="fd-act" style={{ position: 'fixed', right: 0, bottom: 64, zIndex: 4, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', pointerEvents: 'none' }}>
         {driveOff ? <span className="lv-note" style={{ pointerEvents: 'auto', flex: 1, minHeight: 48, display: 'flex', alignItems: 'center' }}>{`조종 화면 열기 꺼짐 · ${driveOff}`}</span>
           : <a className="lv-btn pri" href="#/MDrive" style={{ pointerEvents: 'auto', flex: 1, minHeight: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>조종 화면 열기</a>}
         <button type="button" {...stopProps} style={{ pointerEvents: 'auto', height: 64, minWidth: 112, padding: '0 14px', border: 0, borderRadius: 12, background: 'var(--stop)', color: '#FFFFFF', fontWeight: 700, letterSpacing: '.06em', boxShadow: '0 0 0 3px rgba(215,38,30,.22)' }}>
-          {plan ? `STOP · 연결된 ${liveName}` : 'STOP'}</button>
+          {plan ? `STOP · ${liveName}` : 'STOP'}</button>
       </div>
       <nav aria-label="현장 탭" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 4, height: 64, display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', background: 'var(--panel)', borderTop: '1px solid var(--line)' }}>
         {([['now', '현황'], ['map', '지도'], ['report', '보고'], ['hist', '기록']] as const).map(([k, t]) => <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}
