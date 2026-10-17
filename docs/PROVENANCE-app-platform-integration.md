@@ -4,11 +4,13 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `e0abe9875925f0569b90018291b49b2ebaedde3a` (`less82/app-ui-react-recovered`) | `ui` = `2bcdb79cfb2fe3d549fce10a972344358c4fb6e9` | 그대로 |
+| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `0ae1245ef32b76a83f1485db7054868087ebae70` (`less82/app-ui-react-recovered`, UI `e0abe98` + 서버 사진 저장 fix — `sim/v2_link.py` 1줄 · `tools/take_photo_check.py`) | `ui` = `2bcdb79cfb2fe3d549fce10a972344358c4fb6e9`(`e0abe98` 과 같음) | 그대로 |
 | `mobile/**` | `26491491b5543ad64e35481179ae78e19d3dcc0a` (`less82/app-contract-storage`) | `mobile` = `2934d4efa59934f0f014652fe695c2a727d46a09` | 파일 단위 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md` 맨 앞 «현재 통합 개발판» 안내(기존 본문 그대로, «기존 웹 구현 기록»으로 구분) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only e0abe9875925f0569b90018291b49b2ebaedde3a HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 0ae1245ef32b76a83f1485db7054868087ebae70 HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
+
+서버 사진 저장 fix `0ae1245`(10-17, 부모 UI `e0abe98`): 사진 저장 처리의 미정의 변수 오류(NameError) 1줄 수정 + 회귀 시험. 서버 쪽 코드라 APK 와 무관 — APK10 `dev-20261017-slamstart` 은 이 fix 전 `e0abe98` 화면 파일로 빌드한 그대로이고, 사진 응답은 연결한 운영 서버 판에 따른다. 운영 반영은 10-17 서버 교체 뒤 운영 쪽 상태 점검 통과까지(실제 사진 촬영 동작 확인은 아님).
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
