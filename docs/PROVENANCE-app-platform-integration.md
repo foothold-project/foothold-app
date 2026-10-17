@@ -4,15 +4,27 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `e8256009c78fbe6c1fbbc18445b13ff8ec7ebe9b` (`less82/app-ui-react-recovered`) | `ui` = `1f6904a454964604d9d4029506c78ccee73a4994` | 그대로 |
-| `mobile/**` | `2a4dc56e6315c7e7da7ce650daf051a3473e1f7b` (`less82/app-contract-storage`) | `mobile` = `c6988f72a6ff1814c1bb0a7b41f778220cb99592` | 파일 단위 변경 0 |
+| 현재 UI final — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `e0abe9875925f0569b90018291b49b2ebaedde3a` (`less82/app-ui-react-recovered`) | `ui` = `2bcdb79cfb2fe3d549fce10a972344358c4fb6e9` | 그대로 |
+| `mobile/**` | `26491491b5543ad64e35481179ae78e19d3dcc0a` (`less82/app-contract-storage`) | `mobile` = `2934d4efa59934f0f014652fe695c2a727d46a09` | 파일 단위 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md` 맨 앞 «현재 통합 개발판» 안내(기존 본문 그대로, «기존 웹 구현 기록»으로 구분) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only e8256009c78fbe6c1fbbc18445b13ff8ec7ebe9b HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only e0abe9875925f0569b90018291b49b2ebaedde3a HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
-## 검증 실행 범위 — Android 개발 APK `dev-20261016-simplify` (10-16)
+## 검증 실행 범위 — Android 개발 APK `dev-20261017-slamstart` (10-17)
+
+APK 출처: **APK = frozen 화면 파일(UI `e0abe98`, 화면 파일 174개 — `.map` 33 제외 141개가 번들) + native(`mobile/` 위 트리)만.** 이 브랜치의 `server/`·`sim/`·`contracts/` 는 APK 에 들어가지 않고, 이 통합에서 실행·운영 반영하지 않는다.
+
+| 무엇 | 대상 | 결과 | 범위·한계 |
+|---|---|---|---|
+| UI 코드 좁은 검토 | UI `e0abe98`(직전 `e825600` 대비 화면 5파일 + 시험 6파일) | 지정 범위 통과 | 시작 확인 수명·같은 기기 STOP 취소·요청 결과 문구. 다른 기기 STOP 세대·카메라 지원 변화 전 범위는 보장 범위 밖. UI 쪽 제출 기록(이 통합에서 재실행 0) |
+| UI 화면 QA | UI `e0abe98` 웹 화면 · Chrome PC 폭·폰 폭 390 · 격리 시험 서버·가짜 응답(시작 요청은 보내기 전 차단) | 지정 범위 측정 통과 | 시작 확인 3경로 각 요청 1건 · 취소 3경로 보낸 것 0 · 확인창 8개 화면 안·겹침 0. 전체화면 중 확인창 미측정 · 폰 폭 결과 줄은 서랍 아래. 실제 서버 수락·Gazebo/SLAM 기동·실폰 범위 밖 |
+| 운영 서버 호환 | UI `e0abe98` ↔ 운영 기준판 `5f39a23` | 소스 읽기 대조 일치 | `sim`·`server`·`contracts`·`tools`·`ui/package.json`·잠금 파일·빌드 설정 트리 해시 같음 · 화면 송신 명령 21종 모두 서버에 있음(`e825600` 대비 `sim_start` 한 줄 빠짐) · 네이티브 플러그인 호출면 `e825600` 과 같음. 지도 시작 때 센서 구성은 운영 PC 쪽 시작 스크립트가 정함(APK 무관). 알려진 서버 결함: 사진 저장 처리 기존 오류(APK 로 해결 안 됨) |
+| APK 구조 대조 | `foothold-android-dev-20261017-slamstart.apk`(이 통합 뒤 빌드) | 빌드 뒤 기록 | — |
+| 실APK 실행(에뮬) | 위 APK | 실행 0 | 디스크 여유가 에뮬 조건(8192 MiB)에 못 미침 |
+
+### 직전 공개 판 — Android 개발 APK `dev-20261016-simplify` (10-16)
 
 APK 출처: **APK = frozen 화면 파일(UI `e825600`, 화면 파일 174개 — `.map` 33 제외 141개가 번들) + native(`mobile/` 위 트리)만.** 이 브랜치의 `server/`·`sim/`·`contracts/` 는 APK 에 들어가지 않고, 이 통합에서 실행·운영 반영하지 않는다. 통합 뒤 backend 쪽 파일이 바뀌어도 APK 내용과 무관하다.
 
@@ -25,7 +37,7 @@ APK 출처: **APK = frozen 화면 파일(UI `e825600`, 화면 파일 174개 — 
 | 실APK 실행(에뮬) | 위 APK | 실행 0 | 디스크 여유가 에뮬 조건(8192 MiB)에 못 미침 |
 | 빌드 자원 | 저메모리 1회 빌드(Gradle daemon 없음·작업자 1·힙 1024 MiB) | 빌드 rc 0, 남은 Gradle daemon 0 | 1 s 관측: 빌드 프로세스 RSS 최대 764 MiB · 시스템 여유 메모리 최소 5164 MiB(관측 기록이지 상한 보장 아님). APK 바이트가 빌드 옵션과 무관함은 비교하지 않음 |
 
-### 직전 공개 판 — Android 개발 APK `dev-20261015-viewfix` (10-15)
+### 이전 공개 판 — Android 개발 APK `dev-20261015-viewfix` (10-15)
 
 | 무엇 | 대상 | 결과 | 범위·한계 |
 |---|---|---|---|
