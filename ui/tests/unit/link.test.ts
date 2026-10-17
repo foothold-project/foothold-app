@@ -285,7 +285,7 @@ test('실행 대상 전환(시뮬 → 실기): 누르던 입력·늦은 상태·
   msg(ST({ sim: { x: 5, y: 1, yaw: 0, vx: 0, vy: 0, tilt_deg: 0, fallen: false, body_still: true }, cam_age: 0.1 })); sock.onmessage({ data: new Blob([new Uint8Array([0xff, 0xd8])]) });
   expect(L.useLink.getState().st).toBe(null); expect(L.TRAIL.pts.length).toBe(0); expect(L.camURL).toBe(null);
   { const v = L.linkView(L.useLink.getState()); expect([v.linkOk, v.s, v.robot, v.camOk, v.latch]).toEqual([false, null, null, false, false]); expect(v.linkTxt).toMatch('실기'); }
-  expect(await L.startSimAsk(ST() as any)).toMatch('실기 대상');
+  expect((L as any).startSimAsk).toBe(undefined);                                            // SLAM-1: 평지 시작 확인 삭제(새 UI 의 시작은 MapStartBox.openMapAsk 하나)
   msg({ op: 'reply', rid: q.rid, ok: true, text: '', maps: [] });                            // 늦은 응답
   expect((await late).ok).toBe(false);
   expect(L.press('pv2', 8, { fx: 1, fy: 0, fw: 0 })).toBe(false); expect(L.driveBlock()).toMatch('실기 모드');
