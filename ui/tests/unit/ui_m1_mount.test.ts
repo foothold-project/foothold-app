@@ -43,11 +43,11 @@ const flush1 = async () => { const f = L.q.shift(); expect(f, '풀 응답 없음
 const text = (n: any): string => (n == null || typeof n === 'boolean' ? '' : typeof n === 'string' || typeof n === 'number' ? String(n) : Array.isArray(n) ? n.map(text).join(' ')
   : n.props ? text(n.props.children) + ' ' + (typeof n.props.title === 'string' ? n.props.title : '') : '');
 
-async function mount(keep = false) {   // keep=false: 앞 시험이 남긴 공유 선택(usePick)을 목록 도착 전에 비움 — keep=true 는 «다른 화면에서 고른 지도로 열림»
+async function mount(keep = false, drop = true) {   // keep=false: 앞 시험이 남긴 공유 선택(usePick)을 목록 도착 전에 비움 — keep=true 는 «다른 화면에서 고른 지도로 열림»
   L.busy = false; L.log = []; L.q = []; L.fail = {}; L.list = LIST;
   useLink.setState({ open: true, gen: (useLink.getState().gen || 0) + 1, provider: 'simulation_gate' } as any); useLink.setState({ stGen: useLink.getState().gen } as any);
   const out: { r: any } = { r: null };
-  function H() { out.r = useMapPick(true, false); return null; }
+  function H() { out.r = useMapPick(drop, false); return null; }
   const root: any = createRoot({ nodeType: 1, tagName: 'DIV', nodeName: 'DIV', namespaceURI: 'http://www.w3.org/1999/xhtml', addEventListener: () => {}, removeEventListener: () => {}, ownerDocument: doc } as any);
   const u0 = root.unmount.bind(root); let up = true; root.unmount = () => { if (up) { up = false; u0(); } }; roots.push(root);
   await React.act(async () => { root.render(React.createElement(H)); }); await tick();
@@ -74,8 +74,8 @@ test('M① 장착: 층 나란히 선택 1회(첫 응답 지연) → 1층 요청 
 
 test('M① 장착: 단일 저장 지도 선택 1회 → 요청 1 · 표시 · 다시 누름 = 요청 1 더', async () => {
   const m = await mount(); await m.pick(ROOM); expect(L.log).toEqual(['get:f1']);
-  await flush1(); expect(shown(m.out)).toMatch(/SLAM 저장 지도/); expect(L.log).toEqual(['get:f1']);
-  await m.pick(ROOM); expect(L.log).toEqual(['get:f1', 'get:f1']); await flush1(); expect(shown(m.out)).toMatch(/SLAM 저장 지도/);
+  await flush1(); expect(shown(m.out)).toMatch(/저장한 지도/); expect(L.log).toEqual(['get:f1']);
+  await m.pick(ROOM); expect(L.log).toEqual(['get:f1', 'get:f1']); await flush1(); expect(shown(m.out)).toMatch(/저장한 지도/);
   await React.act(async () => m.root.unmount());
 });
 
@@ -118,10 +118,10 @@ test('M① 장착: 목록 다시 받기(같은 선택 진행 중) — 목록 요
 });
 
 test('M① 장착: 다른 화면에서 고른 저장 지도로 열림 → 목록 도착 뒤 1회 받음(화면 복귀 로딩 유지)', async () => {
-  const a = await mount(); await a.pick(SING); await flush1(); expect(shown(a.out)).toMatch(/SLAM 저장 지도/);
+  const a = await mount(); await a.pick(SING); await flush1(); expect(shown(a.out)).toMatch(/저장한 지도/);
   await React.act(async () => a.root.unmount());
   const b = await mount(true);                          // 새 화면: 목록 받은 뒤 같은 선택(sel 유지)을 effect 가 1회 받음
-  expect(L.log).toEqual(['get:f1']); await flush1(); expect(shown(b.out)).toMatch(/SLAM 저장 지도/); expect(L.log).toEqual(['get:f1']);
+  expect(L.log).toEqual(['get:f1']); await flush1(); expect(shown(b.out)).toMatch(/저장한 지도/); expect(L.log).toEqual(['get:f1']);
   await React.act(async () => b.root.unmount());
 });
 
@@ -129,5 +129,20 @@ test('M① 장착: 단일 저장 지도 A→B(A 응답 지연) — A 늦은 응�
   const m = await mount(); await m.pick(ROOM); await m.pick(SING);
   expect(L.log).toEqual(['get:f1', 'get:f1:거절']); expect(text(m.out.r.pickEl)).toMatch(/지도 요청 처리 중/);
   await flush1(); expect(shown(m.out)).toBeNull(); expect(L.log.length).toBe(2);   // 옛 A 그림 채택 0 · 자동 재시도 0
-  await m.pick(SING); expect(L.log.slice(2)).toEqual(['get:f1']); await flush1(); expect(shown(m.out)).toMatch(/SLAM 저장 지도/);
+  await m.pick(SING); expect(L.log.slice(2)).toEqual(['get:f1']); await flush1(); expect(shown(m.out)).toMatch(/저장한 지도/);
+});
+
+
+test('지형 목록: 건물 카드 대신 지형/지도 드롭다운 · 선택한 지형 지도만 표시 · 고르기는 읽기 요청만', async () => {
+  const m = await mount(false, false);
+  const nodes = (n: any): any[] => n == null || typeof n !== 'object' ? [] : Array.isArray(n) ? n.flatMap(nodes) : [n, ...nodes(n.props?.children)];
+  const find = (label: string) => nodes(m.out.r.pickEl).find((n) => n.type === 'select' && n.props['aria-label'] === label);
+  expect(find('살펴볼 지형')).toBeTruthy();
+  expect(nodes(m.out.r.pickEl).some((n) => n.type === 'button' && n.props['aria-expanded'] !== undefined)).toBe(false);
+  await React.act(async () => { find('살펴볼 지형').props.onChange({ target: { value: 'rooms_a' } }); });
+  expect(L.log).toEqual(['get:f1']);
+  const options = nodes(find('선택한 지형의 지도')).filter((n) => n.type === 'option').map((n) => n.props.value);
+  expect(options).toEqual(['', ROOM]);
+  await flush1(); expect(shown(m.out)).toContain('새 매핑 공간');
+  expect(L.log.every((s) => s.startsWith('get:'))).toBe(true);
 });

@@ -3,7 +3,7 @@
 // B2(10-15 검토): 지금 계약의 session(result idle 등)은 조회 시각·신선도가 없고 unit·요청 진행과 따로라 «시뮬 꺼짐» 확정 근거가 못 된다
 // → 세션 값은 ? 안 원문으로만 · 칩은 «시뮬 확인 안 됨»(끊김은 서버 sim_block 그대로 «시뮬 끊김»).
 // 각 칩의 «?» 에 원래 상태 글(전문)을 그대로 둔다.
-import type { Status } from '@contracts';
+import type { MapInfo, Status } from '@contracts';
 import { dropAll, linkView, sendOp, sessTxt, startTxt, useLink } from '../data/link';
 import { reread, type Docs, type Media } from '../data/shared';
 import { LATCH_TXT } from '../data/facts';
@@ -52,7 +52,7 @@ export function camChip(v: { camOk: boolean; camTxt: string }): { tone: Tone; te
  *  SLAM-1: 평지 «시뮬 시작(30분)»(op sim_start) 항목 삭제 — 시작은 MapStartBox 하나(확인 = 페이지 안 StartAsk).
  *  열면 누르던 입력 폐기(usePop) · 닫혀도 자동 재출발 0 · 지도 화면에서는 그 화면의 상자를 쓰라고만(같은 패널 두 번 장착 0)
  *  U2-c: 본문(SimRun)은 관제(Main) 오른쪽 «시뮬 실행» 칸과 같은 코드 — 관제에서는 메뉴가 그 칸으로 안내만(두 번 장착 0) */
-export function SimRun({ close }: { close?: () => void }) {
+export function SimRun({ close, catalog, reloadCatalog }: { close?: () => void; catalog?: MapInfo[] | string | null; reloadCatalog?: () => unknown }) {
   const L = useLink(), v = linkView(L), st = L.st, { name } = useRoute();
   if (L.provider !== 'simulation_gate') return null;
   const ctl = v.linkOk && st?.role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
@@ -62,7 +62,7 @@ export function SimRun({ close }: { close?: () => void }) {
     {!v.linkOk && <p className="lv-note">{`연결 확인 안 됨 — 시뮬 상태를 알 수 없어 조작하지 않음(${v.linkTxt})`}</p>}
     {item('시뮬 리셋', ctl && !busy ? () => { close?.(); dropAll(); sendOp('reset'); } : null,   /* dropAll: 메뉴는 열 때(usePop) 이미 폐기 · 관제 칸은 여기서(누르던 입력 0) */ !v.linkOk ? '연결 확인 안 됨' : !ctl ? '조종 중인 기기에서만(«조종 시작» 뒤)' : '리셋·재개 처리 중')}
     {st?.map_start && (onMapPage ? <p className="lv-note">지도 시뮬 열기는 이 화면의 «지도 열기» 상자에서</p>
-      : <div className="lv-simmap"><b>지도 시뮬 열기</b><MapStartBox pc={name.startsWith('Pc') || name === 'Main' || !name} part={name === 'PcMap' ? 'open' : undefined} /></div>)}
+      : <div className="lv-simmap"><MapStartBox pc={name.startsWith('Pc') || name === 'Main' || !name} part={name === 'PcMap' || (name || HOME) === 'Main' ? 'open' : undefined} preview={(name || HOME) === 'Main'} catalog={catalog} reloadCatalog={reloadCatalog} /></div>)}
     <SimOff className="lv-btn" />
     <p className="lv-note">{[st?.map_start && sx.map, sessTxt(st) && `시뮬 세션 ${sessTxt(st)}`, '30분 뒤 자동 종료 · 동시 1개'].filter(Boolean).join(' · ')}</p>
   </>;

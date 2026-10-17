@@ -71,12 +71,12 @@ export default function MMap() {
       <select className="lv-inp" aria-label="지점을 넣을 계획" value={mid} onChange={(e) => setMid(e.target.value)}>
         <option value="">+ 새 계획으로</option>{ms.map((m) => <option key={m.id} value={m.id}>{`${m.doc.name} · 지점 ${m.doc.wps.length}`}</option>)}</select>
       <button type="button" className="lv-btn pri" onClick={add}>계획에 지점 추가</button></div>
-      : <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button type="button" className="lv-btn pri" onClick={() => setLayers(true)}>지도 열기 · SLAM 저장</button><SimOff className="lv-btn" /></span>,   // 지도 열기·저장 입구를 화면에 늘 보이게(서랍) + 끄기 입구(STOP 은 위쪽 따로)
+      : <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button type="button" className="lv-btn pri" onClick={() => setLayers(true)}>시뮬 실행 · 지도 관리</button><SimOff className="lv-btn" /></span>,   // 지도 열기·저장 입구를 화면에 늘 보이게(서랍) + 끄기 입구(STOP 은 위쪽 따로)
   };
   const B = (t: string, f: () => void) => <button type="button" className="lv-btn" onClick={() => { f(); redraw((n) => n + 1); }}>{t}</button>;
   const drawer = layers && <Drawer title="지도 열기 · 보기" onClose={() => setLayers(false)}>
       {pickEl}
-      <p className="lv-note">아래 «지도 열기»는 시뮬 실행(실행 지형·층을 바꿈)입니다 — 지도 위 «지형 · 2D/3D/SLAM»과 위 «지도 보기»는 보기만 바뀌고 시뮬은 그대로입니다.</p>
+      <p className="lv-note">«시뮬 실행»으로 선택한 지형을 시작합니다. 위 «지도 보기»는 화면만 바꿉니다.</p>
       <MapStartBox pc={false} onSaved={reload} onShowLive={live ? undefined : showLive} onView={view} />
       {B(`보기: ${MODE_KO[mode]} → ${mode === 'all' ? '로봇 중심' : '전체 고정'}`, () => api.current?.setMode(mode === 'all' ? 'robot' : 'all'))}
       {B(`지나온 길 ${trail ? '숨기기' : '보이기'}`, () => setTrail(!trail))}

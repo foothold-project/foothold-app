@@ -79,10 +79,10 @@ export default function PcMap() {
     pill: mv ? (live ? '현재 열린 지도(보기만)' : '저장 지도(보기만)') : '',
     posDot: s ? '●' : '▲', posDotS: { color: `var(--${s ? 'ok' : 'warn'})` },   // 위치 상자 = 개발자 모드(view data-dev). 운영은 지도 캔버스의 «위치 없음/오래됨»
     posTxt: s ? `GT ${posTxt(s.x, s.y)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 오래됨' : 'GT 미수신',
-    newP: sim ? { className: 'btn pri', title: '시뮬 ▾ → 지도 시뮬 열기(SLAM 지도 만들기)', onClick: openSimMenu }   // U4-a: 지도 열기 상자는 시뮬 메뉴로 옮김 — 버튼은 그 메뉴를 연다(시작은 메뉴 안 확인창 뒤)
+    newP: sim ? { className: 'btn pri', title: '시뮬 ▾ → 시뮬 실행', onClick: openSimMenu }   // U4-a: 지도 열기 상자는 시뮬 메뉴로 옮김 — 버튼은 그 메뉴를 연다(시작은 메뉴 안 확인창 뒤)
       : { ...whyProps('시뮬 연결에서만 — 지금은 지도 시뮬을 열 수 없음'), className: 'btn pri lv-why' },
-    lbl0: <>{'새 지도: «시뮬 ▾»의 «SLAM 지도 만들기»로 열고 조종 → 아래 «SLAM 지도 저장»'}<Help label="지도 · 설명">
-      <span style={{ display: 'block' }}>지도 만들기는 «시뮬 ▾ → 지도 시뮬 열기»(SLAM 지도 만들기), 저장은 이 화면의 «SLAM 지도 저장»으로 합니다. 저장 SLAM 지도 위 위치 맞추기(재위치추정)는 미지원.</span>
+    lbl0: <>{'«시뮬 ▾»에서 지형을 골라 실행한 뒤, 만든 지도를 저장할 수 있습니다.'}<Help label="지도 · 설명">
+      <span style={{ display: 'block' }}>지도 만들기는 «시뮬 ▾ → 시뮬 실행», 저장은 이 화면의 «지도 저장»으로 합니다. 저장 SLAM 지도 위 위치 맞추기(재위치추정)는 미지원.</span>
       <span style={{ display: 'block', marginTop: 6 }}>지도 보기는 화면만 바뀝니다 — 실제 world·층 전환·위치 맞추기 없음.</span>
       <span style={{ display: 'block', marginTop: 6 }}>저장 지도는 높이가 없는 2D 점유 격자(occupancy)입니다 — 계단·벽 높이 정보 없음.</span></Help></>,   // U4-a: 아래 설명 문단 → ?(U5 지원 범위 전까지 여기 보존)
     lbl1: 'Gazebo · foothold-v2',   // view data-dev
@@ -123,7 +123,7 @@ export default function PcMap() {
       ['위치 추정', 'Gazebo GT(추정 아님)', 1], ['구역', D.err ? '미확인' : `${zs.length}개`]]) as [string, string, number?][]).flatMap(([a, b, d]) => [<span key={a} className="lbl" data-dev={d ? '' : undefined}>{a}</span>, <span key={`${a}v`} data-dev={d ? '' : undefined}>{b}</span>]),
     exT: '구역 내보내기 (JSON)',
     exP: { onClick: () => toast(D.err ? '구역 목록 미확인 — 내보내지 않음' : saveBlob(`foothold-v2-zones-${Date.now()}.json`, new Blob([JSON.stringify(zs.map((z) => ({ id: z.id, rev: z.rev, by: z.by, at: z.at, ...z.doc })), null, 1)], { type: 'application/json' }))) },
-    reP: { hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11: 이 바닥 도면 «다시 만들기» 없음 — 새 지도는 «지도 열기»(SLAM 지도 만들기)
+    reP: { hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11: 이 바닥 도면 «다시 만들기» 없음 — 새 지도는 «지도 열기»(새 지도 만들기)
   };
   return <><style>{CSS}</style><div id="dc-root"><View v={vals} /></div></>;
 }

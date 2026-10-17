@@ -14,7 +14,7 @@ test('place: 단층은 지형 이름만, 2층 건물만 층, 모르는 id 는 �
 
 test('runLine·runAt: 지금 열린 지형·층·작업, 고른 것과 별개', () => {
   const s = { runner: 'live_map', result: 'running', world_id: 'v5_building', floor_id: 'l1', map_mode: 'static', remaining_s: 600 };
-  expect(runLine(s)).toBe('2층 건물 · 1층 · 저장 지도로 시뮬 열기(SLAM 생성 없음) · 실행 중 · 남은 10분');
+  expect(runLine(s)).toBe('2층 건물 · 1층 · 저장한 지도로 실행 · 실행 중 · 남은 10분');
   expect(runAt(s)).toEqual(['v5', 'l1']);
   expect(runAt({ ...s, result: 'stopped' })).toBeNull();
   expect(runLine({ runner: 'ux_flat', result: 'running' })).toContain('평지 시뮬');
@@ -77,7 +77,7 @@ test('groupMaps: 지형 → 층 → 버전, 2층 건물만 층 표시', () => {
   const g = groupMaps([MI({ floor_id: 'l2' }), MI({ world_id: 'v5_single', building_id: 'v5_single', floor_id: 'f1', map_source: 'gt_raster', epoch: null, map_version: 'gt-20261012' }), MI()]);
   expect(g.map((x) => x.label)).toEqual(['1층 건물', '2층 건물']);
   expect(g[1].items.map((m) => m.floor_id)).toEqual(['l1', 'l2']);
-  expect(verLabel(g[1].items[0])).toBe('1층 · SLAM 저장 지도 · 20261014-170000-e2');
+  expect(verLabel(g[1].items[0])).toBe('1층 · 저장한 지도 · 20261014-170000-e2');
   expect(verLabel(g[0].items[0])).toBe('시뮬 도면 지도 · gt-20261012');
 });
 

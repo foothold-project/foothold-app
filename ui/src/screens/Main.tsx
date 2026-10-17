@@ -44,7 +44,7 @@ export default function Main() {
   const [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
   const [mp, setMp] = useState(''), msl = docsOf(D, 'mission'), mSel = msl.some((m) => m.id === mp) ? mp : '';   // U2-c 오른쪽 «임무»: 고른 저장 임무(이 화면 메모리만 · 문서·op 0) → «임무 시작» 링크가 임무 계획에서 그 계획을 엶
-  const { raster, pickEl, pose, on, blank, flat } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0 · U2-c: 오른쪽 «지도 보기» 칸(지도 칸 위 겹침 0)
+  const { maps, reload: reloadMaps, raster, pickEl, pose, on, blank, flat } = useMapPick();   // 지도 보기 선택(저장 지도) — 화면만, 실제 world·조종 변경 0 · U2-c: 오른쪽 «지도 보기» 칸(지도 칸 위 겹침 0)
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
   useEffect(autoProvider, []);   // 실기 우선: Go2Direct 플러그인 있는 판에서만 처음 한 번(연결·명령 0)
   const rtt = useGateRtt();   // ⑥ 앱↔관문 왕복(보일 때만 5 s)
@@ -195,7 +195,7 @@ export default function Main() {
     panelAsk: !!run,   // U2: 진행 중 임무가 없으면 «이 지점에서 할 일» 카드 숨김
     // U2-c: 오른쪽 열 = 시뮬 실행(«시뮬 ▾»와 같은 SimRun — 조건·확인창·리셋·끄기 그대로) · 지도 보기(보기만 · 읽기 op) · 임무(저장 계획 고르기 → 임무 계획) · 그 아래 사건 기록
     runPanel: <div data-runpanel="" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-      {L.provider === 'simulation_gate' && <section aria-label="시뮬 실행" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>시뮬 실행</span><SimRun /></section>}
+      {L.provider === 'simulation_gate' && <section aria-label="시뮬 실행" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>시뮬 실행</span><SimRun catalog={maps} reloadCatalog={reloadMaps} /></section>}
       <section aria-label="지도 보기(보기만)">{pickEl}</section>
       <section aria-label="임무" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>임무</span>
         {R ? <a href={href('PcPlan', R.mission ? { mission: R.mission } : {})} style={{ color: 'var(--accent)', fontSize: '13px', padding: '4px 2px' }}>{`계획 보기 · «${R.name}»(임무 계획)`}</a>

@@ -87,7 +87,7 @@ test('R1 정상 그림 A → 볼 지도 없는 B: select·그림 A 그대로 + �
   expect([sel().props.value, st()[0], A?.label, A?.w]).toEqual(['v5_single', '2D:on', '1층 건물 · 시뮬 도면 지도 · gt-20261001', 10]);   // 정상 그림 실제로 받음
   const n = R.asked.length; await pickW('rooms_a');
   expect([sel().props.value, R.p.raster, R.p.on, R.asked.length]).toEqual(['v5_single', A, true, n]);   // select 는 실제 보기(A) · 그림 A · 요청 0
-  expect(msg()).toBe('새 매핑 공간 — 볼 지도 없음(2D 이 지형 시뮬 도면 지도 없음 · 3D 입체 기하는 2층 건물만 · SLAM 이 지형 SLAM 저장 지도 없음) · 보던 화면 그대로');
+  expect(msg()).toBe('새 매핑 공간 — 볼 지도 없음(2D 이 지형 시뮬 도면 지도 없음 · 3D 입체 기하는 2층 건물만 · SLAM 이 지형 저장한 지도 없음) · 보던 화면 그대로');
   await click(1);   // R4: 1층 건물 3D = 못 봄 → 누르면 이유 글(aria-disabled · 초점 가능)
   expect([st()[1], msg(), R.asked.length, R.p.raster]).toEqual(['3D:off(입체 기하는 2층 건물만)', '3D 못 봄 · 입체 기하는 2층 건물만', n, A]);
   expect(btns()[1].props.disabled).toBeUndefined();   // disabled 아님 = 키보드 초점·터치 누름으로 이유 읽음
@@ -131,11 +131,11 @@ test('R3 같은 저장 시각: 글자 순(e9>e10) 아님 · 고정 규칙(epoch 
   link(SESS('static')); await mount(T);
   await click(2);
   expect(R.asked.filter((a) => a.op === 'map_get').pop()!.x).toEqual({ building_id: 'v5', floor_id: 'l1', map_version: '20261013-080000-e10' });
-  const T0 = '같은 저장 시각 3개 — 선후 모름 · 고정 규칙(epoch 큰 것 → 층 순)으로 1층 · SLAM 저장 지도 · 20261013-080000-e10 고름';
+  const T0 = '같은 저장 시각 3개 — 선후 모름 · 고정 규칙(epoch 큰 것 → 층 순)으로 1층 · 저장한 지도 · 20261013-080000-e10 고름';
   await settle(); expect([msg(), R.p.raster]).toEqual([`${T0} · 받기 실패 — 그림 없음(가운데 이유)`, null]);   // G2: 받기 실패에 «표시» 단정 0 · 선택(눌림)은 유지
   expect(st()[2]).toBe('SLAM:on');
   R.mapOk = true; await click(2); await settle();
-  expect([msg(), R.p.raster?.label]).toEqual([`${T0} · 표시 중`, '2층 건물 · 1층 · SLAM 저장 지도 · 20261013-080000-e10']);   // 정상 그림 받은 뒤에만 «표시 중»
+  expect([msg(), R.p.raster?.label]).toEqual([`${T0} · 표시 중`, '2층 건물 · 1층 · 저장한 지도 · 20261013-080000-e10']);   // 정상 그림 받은 뒤에만 «표시 중»
   await pickW('v5_single');
   expect([R.asked.filter((a) => a.op === 'map_get').pop()!.x.map_version, msg()]).toEqual(['20261014-000000-e1', null]);   // 더 늦은 시각 = e1 이라도 최신 · 동률 아님 = 글 0
 });
