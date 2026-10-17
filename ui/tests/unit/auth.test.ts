@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('../../src/data/link', () => ({ dropAll: () => {}, hide: () => {} }));
 vi.stubGlobal('location', { protocol: 'https:', hash: '' }); vi.stubGlobal('navigator', { userAgent: 'node' });
-const { safeNext, gateOrigin } = await import('../../src/data/auth');
+const { safeNext, gateOrigin, entryHash, newEntry } = await import('../../src/data/auth');
 
 describe('safeNext', () => {
   it('앱 해시 경로만 통과', () => {
@@ -11,7 +11,25 @@ describe('safeNext', () => {
   });
   it('그 밖은 기본 화면', () => {
     for (const x of [null, '', 'https://evil.example/', '//evil.example', '/Main.dc.html', '#/MLogin?next=x', '#/PcLogin', '#//evil', '#/Main#x', '#/Main?a b', 'javascript:alert(1)'])
-      expect([safeNext(x, true), safeNext(x, false)]).toEqual(['#/MDrive', '#/Main']);
+      expect([safeNext(x, true), safeNext(x, false)]).toEqual(['#/Field', '#/Fleet']);
+  });
+});
+
+// 첫 입구(10-18 root): 빈 주소만 새 입구 — 화면 이름·질의가 있으면 그대로(자동 이동 0)
+describe('entryHash', () => {
+  it('빈 주소만 폰 Field · PC Fleet', () => {
+    for (const h of ['', '#', '#/']) expect([entryHash(h, true), entryHash(h, false)]).toEqual(['#/Field', '#/Fleet']);
+    expect([newEntry(true), newEntry(false)]).toEqual(['#/Field', '#/Fleet']);
+  });
+  it('명시 주소·임무 질의·deep link 는 건드리지 않음', () => {
+    const known = (n: string) => ['Main', 'MDrive', 'PcMap', 'MFinding', 'Fleet', 'Field'].includes(n);
+    for (const h of ['#/Main', '#/MDrive', '#/Main?mission=m1', '#/PcMap?draw=1', '#/MFinding', '#/Fleet', '#/Nope?x=1', '#/?mission=m1'])
+      expect([entryHash(h, true, known), entryHash(h, false, known)]).toEqual([null, null]);
+  });
+  it('없는 화면 이름 + 질의 없음 → 새 입구(known 이 있을 때만)', () => {
+    const known = (n: string) => n === 'Main';
+    expect([entryHash('#/Nope', true, known), entryHash('#/Nope', false, known)]).toEqual(['#/Field', '#/Fleet']);
+    expect(entryHash('#/Nope', false)).toBe(null);
   });
 });
 

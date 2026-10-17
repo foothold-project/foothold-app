@@ -22,8 +22,9 @@ export interface Transport {
   setGate?(origin: string): Promise<string | null>; // 네이티브만: 관문 주소 바꾸기(오류 글 또는 null)
   login(user: string, pw: string, label: string): Promise<LoginResult>;
   logout(): Promise<LogoutResult>;
-  get(what: 'docs' | 'media'): Promise<Res>;
+  get(what: 'docs' | 'media' | 'rehearsal'): Promise<Res>;   // rehearsal = 리허설 계획 저장소 목록(API.md — 계획·기하 검토, 실측 0)
   postDocs(body: unknown): Promise<Res>;            // 200·400·403·404·409·500·503 은 status 로(던지지 않음)
+  postRehearsal(body: unknown): Promise<Res>;       // 리허설 계획 저장·불러오기·내보내기(op 는 body 안, API.md) — postDocs 와 같은 status 규칙
   photo(url: string): Promise<string | null>;       // img src — 네이티브는 blob:(부른 쪽이 revoke), 없으면 null
   wsUrl(): Promise<WsTarget>;
   // 로그인 불요 관문 검사(①·⑥): 웹 GET api/health · 네이티브 FhGate.probe()(있을 때만). 로그인·조종 명령 0, 재시도 0. ms = 앱↔관문 HTTP 왕복
@@ -53,6 +54,10 @@ const web: Transport = {
   async get(what) { const r = await fetch(`api/${what}`, { cache: 'no-store', credentials: 'same-origin' }); return { status: r.status, body: await r.text() }; },
   async postDocs(body) {
     const r = await fetch('api/docs', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return { status: r.status, body: await r.text() };
+  },
+  async postRehearsal(body) {
+    const r = await fetch('api/rehearsal', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     return { status: r.status, body: await r.text() };
   },
   async photo(url) { return url; },
@@ -183,8 +188,9 @@ export function nativeTransport(P: any): Transport {
       } catch (e) { return { ok: false, error: ep === epoch ? why(e) : STALE }; }
     },
     async logout() { const { ep: _, ...r } = await logoutRaw(); return r; },
-    get: (what) => call(() => P.request({ op: what === 'docs' ? 'docs.get' : 'media.list' })).then((r: any) => ({ status: r.status, body: r.body })),
+    get: (what) => call(() => P.request({ op: what === 'docs' ? 'docs.get' : what === 'rehearsal' ? 'rehearsal.get' : 'media.list' })).then((r: any) => ({ status: r.status, body: r.body })),
     postDocs: (body) => call(() => P.request({ op: 'docs.post', body })).then((r: any) => ({ status: r.status, body: r.body })),
+    postRehearsal: (body) => call(() => P.request({ op: 'rehearsal.post', body })).then((r: any) => ({ status: r.status, body: r.body })),   // FhGateCore OPS 2개(rehearsal.get·post) — 모바일 담당 확장
     async photo(url) {
       const r: any = await call(() => P.photo({ path: url }));
       if (r.status !== 200 || typeof r.base64 !== 'string') return null;

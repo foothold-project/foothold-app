@@ -2710,6 +2710,7 @@ def main():
     from nav_msgs.msg import OccupancyGrid
     from rclpy.qos import DurabilityPolicy
     from std_srvs.srv import Trigger
+    import asyncio
     import tornado.ioloop, tornado.web, tornado.websocket
 
     core = Core(); lock = threading.Lock()
@@ -3215,7 +3216,54 @@ def main():
                     core.ev('ok', f'{KIND_KO[r["kind"]]} {"삭제" if m.get("op") == "del" else "추가" if r.get("new") else "수정"} · {r["name"] or r["id"]} · {actor}')
             self.set_status(code); self.finish(r)
 
-    app = tornado.web.Application([(r'/ws', WS), (r'/api/media', MediaList), (r'/api/docs', DocsAPI),
+    # 계획 변환/파일 쓰기는 조종 lock 밖의 전용 경계에서만 수행한다.
+    # 저장소가 없거나 손상돼도 기존 조종 서버는 기동하며 새 API만 503으로 닫힌다.
+    rehearsal_store = None
+    rehearsal_init_lock = threading.Lock()
+    rehearsal_slots = asyncio.Semaphore(1)
+
+    def rehearsal_work(method, raw, actor):
+        nonlocal rehearsal_store
+        try:
+            from server.rehearsal import Store
+            from server.rehearsal_http import handle_get, handle_post
+            with rehearsal_init_lock:
+                if rehearsal_store is None:
+                    rehearsal_store = Store(Path(a.media) / 'rehearsal')
+            return handle_get(rehearsal_store) if method == 'GET' else handle_post(rehearsal_store, raw, actor)
+        except Exception as e:
+            print(f'[rehearsal] 요청 실패: {type(e).__name__}', flush=True)
+            return 503, {'error': '계획 저장소를 사용할 수 없습니다. 기존 자료를 보존하고 다시 확인하세요.'}
+
+    class RehearsalAPI(tornado.web.RequestHandler):
+        """로컬 관문 경유 계획 API. 로봇 명령·조종권·기존 문서에는 접근하지 않는다."""
+        def set_default_headers(self):
+            self.set_header('Cache-Control', 'no-store')
+
+        def write_error(self, status_code, **kwargs):
+            # 본문 파서가 get/post 전 거부하는 경우에도 계획 API는 JSON으로 닫힌다.
+            self.set_header('Content-Type', 'application/json; charset=UTF-8')
+            self.finish({'error': f'계획 요청을 처리할 수 없습니다 (HTTP {status_code})'})
+
+        async def respond(self, method):
+            self.set_header('Cache-Control', 'no-store')
+            if method == 'POST' and self.request.headers.get('Origin') not in allowed_origins:
+                self.set_status(403); return self.finish({'error': '다른 출처'})
+            if self.request.headers.get('Content-Encoding', 'identity').lower() not in ('', 'identity'):
+                self.set_status(400); return self.finish({'error': '압축된 계획 요청은 지원하지 않습니다'})
+            if len(self.request.body) > 256 * 1024:
+                self.set_status(413); return self.finish({'error': '요청이 256 KiB 를 넘습니다'})
+            if rehearsal_slots.locked():
+                self.set_status(503); return self.finish({'error': '다른 계획 요청을 처리 중입니다. 잠시 뒤 다시 시도하세요.'})
+            actor = actor_from_header(self.request.headers.get('X-FH-Actor', '')) or '이 PC(127.0.0.1)'
+            async with rehearsal_slots:
+                code, result = await tornado.ioloop.IOLoop.current().run_in_executor(None, rehearsal_work, method, self.request.body, actor)
+            self.set_status(code); self.finish(result)
+
+        async def get(self): await self.respond('GET')
+        async def post(self): await self.respond('POST')
+
+    app = tornado.web.Application([(r'/ws', WS), (r'/api/media', MediaList), (r'/api/docs', DocsAPI), (r'/api/rehearsal', RehearsalAPI),
                                    (r'/media/(photos/\d{8}/[\w.-]+\.jpg)', NoCache, {'path': a.media}),
                                    (r'/(.*)', NoCache, {'path': a.web, 'default_filename': 'index.html'})])
     app.listen(a.port, address='127.0.0.1')

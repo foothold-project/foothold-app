@@ -1,0 +1,186 @@
+{
+ "schema": "fh_rehearsal_scene/2",
+ "name": "QA 형식 판 2",
+ "world": {
+  "origin": [
+   0,
+   0
+  ],
+  "size": [
+   20,
+   12
+  ],
+  "resolution": 0.05,
+  "background": null
+ },
+ "floors": [
+  {
+   "id": "f1",
+   "name": "1층",
+   "z": 0,
+   "height": 3.0
+  }
+ ],
+ "elements": [
+  {
+   "id": "w_s",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    0.1,
+    0.1
+   ],
+   "b": [
+    19.9,
+    0.1
+   ],
+   "thickness": 0.2,
+   "height": 2.5
+  },
+  {
+   "id": "w_e",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    19.9,
+    0.1
+   ],
+   "b": [
+    19.9,
+    11.9
+   ],
+   "thickness": 0.2,
+   "height": 2.5
+  },
+  {
+   "id": "w_n",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    19.9,
+    11.9
+   ],
+   "b": [
+    0.1,
+    11.9
+   ],
+   "thickness": 0.2,
+   "height": 2.5
+  },
+  {
+   "id": "w_w",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    0.1,
+    11.9
+   ],
+   "b": [
+    0.1,
+    0.1
+   ],
+   "thickness": 0.2,
+   "height": 2.5
+  },
+  {
+   "id": "b1",
+   "type": "box",
+   "floor": "f1",
+   "center": [
+    10,
+    6
+   ],
+   "size": [
+    1,
+    1,
+    1
+   ],
+   "yaw": 0
+  }
+ ],
+ "robots": [
+  {
+   "id": "r1",
+   "name": "R1 계획",
+   "model": "go2_proxy",
+   "floor": "f1",
+   "pose": [
+    2,
+    2,
+    0
+   ],
+   "sensors": [
+    {
+     "id": "r1_lidar",
+     "kind": "lidar_l1",
+     "mount": [
+      0.2,
+      0,
+      0.3,
+      0
+     ]
+    },
+    {
+     "id": "r1_cam",
+     "kind": "camera",
+     "mount": [
+      0.3,
+      0,
+      0.25,
+      0
+     ]
+    }
+   ]
+  }
+ ],
+ "equipment": [
+  {
+   "id": "e_cam",
+   "kind": "camera_fixed",
+   "floor": "f1",
+   "pose": [
+    18,
+    10,
+    3.14
+   ],
+   "label": "<img src=x onerror=alert(1)>"
+  }
+ ],
+ "routes": [
+  {
+   "id": "rt1",
+   "robot": "r1",
+   "floor": "f1",
+   "points": [
+    [
+     2,
+     2
+    ],
+    [
+     8,
+     2
+    ],
+    [
+     8,
+     9
+    ],
+    [
+     16,
+     9
+    ]
+   ]
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "sc_a",
+   "name": "배치안 A",
+   "robots": [
+    "r1"
+   ],
+   "routes": [
+    "rt1"
+   ]
+  }
+ ]
+}

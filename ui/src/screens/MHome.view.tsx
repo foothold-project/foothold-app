@@ -61,6 +61,10 @@ export function View({ v }: { v: Vals }) {
         {" "}
         <div style={{"flex":"1","minHeight":"0","overflow":"hidden","overflowY":v.bodyOverflow,"display":"flex","flexDirection":"column","gap":"10px","padding":"0 16px"}}>
           {" "}
+          {/* 새 기획 10-18: 현장 모드 입구(링크만 — 이 화면 기능 변경 0) */}
+          <a className="card" href="#/Field" style={{"flexShrink":"0","minHeight":"52px","display":"flex","alignItems":"center","justifyContent":"space-between","padding":"0 14px","textDecoration":"none","color":"var(--accent)","fontWeight":"700","border":"1px solid var(--accent)"}}>
+            <span>{"현장 모드 (내 로봇)"}</span><span aria-hidden="true">{"›"}</span>
+          </a>
           <section className="card" aria-label="진행 중 임무" style={{"overflow":"hidden"}}>
             {" "}
             <div style={{"padding":"12px 14px 10px","display":"flex","flexDirection":"column","gap":"8px"}}>

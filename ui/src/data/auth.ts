@@ -15,7 +15,16 @@ const LOGIN = ['MLogin', 'PcLogin'];
 export const isLogin = (name: string) => LOGIN.includes(name);
 /** 로그인 뒤 돌아갈 곳: 이 앱의 해시 경로만(다른 주소·로그인 화면 제외) */
 export const safeNext = (nx: string | null, phone = PHONE) =>
-  nx && /^#\/[A-Za-z]+(\?[^#\s]*)?$/.test(nx) && !isLogin(nx.slice(2).split('?')[0]) ? nx : phone ? '#/MDrive' : '#/Main';
+  nx && /^#\/[A-Za-z]+(\?[^#\s]*)?$/.test(nx) && !isLogin(nx.slice(2).split('?')[0]) ? nx : newEntry(phone);
+/** 새 기획 기본 입구(10-18 root): 폰 = 현장(Field) · PC = 전체 관제(Fleet). HOME('Main')·메뉴 분기는 그대로 — 기존 제어 경로 유지 */
+export const newEntry = (phone = PHONE) => (phone ? '#/Field' : '#/Fleet');
+/** 앱을 처음 열 때만: 빈 주소(«»·«#»·«#/») 또는 없는 화면 이름 + 질의 없음 → 새 입구. 있는 화면·질의(임무·deep link)는 null(자동 이동 0).
+ *  known 이 없으면 빈 주소만 */
+export function entryHash(hash: string, phone = PHONE, known?: (name: string) => boolean): string | null {
+  const [name, q = ''] = hash.replace(/^#\/?/, '').split('?');
+  if (q) return null;
+  return !name || (known && !known(name)) ? newEntry(phone) : null;
+}
 export const loginHash = (next = location.hash) => `#/${PHONE ? 'MLogin' : 'PcLogin'}?next=${encodeURIComponent(next)}`;
 
 /** 로그아웃: 누름 폐기 · hidden(조종권 해제 · 0 · STOP 잠금은 서버) → 세션 끝 → 로그인 화면(새로 읽어 링크도 새로) */

@@ -1,0 +1,298 @@
+{
+ "schema": "fh_rehearsal_scene/1",
+ "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+ "world": {
+  "origin": [
+   0,
+   0
+  ],
+  "size": [
+   20,
+   12
+  ],
+  "resolution": 0.05,
+  "background": null
+ },
+ "floors": [
+  {
+   "id": "f1",
+   "name": "1층",
+   "z": 0,
+   "height": 3.0
+  },
+  {
+   "id": "f2",
+   "name": "2층",
+   "z": 3.0,
+   "height": 3.0
+  }
+ ],
+ "elements": [
+  {
+   "id": "w_s",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    0.1,
+    0.1
+   ],
+   "b": [
+    19.9,
+    0.1
+   ],
+   "thickness": true,
+   "height": 2.5
+  },
+  {
+   "id": "w_e",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    19.9,
+    0.1
+   ],
+   "b": [
+    19.9,
+    11.9
+   ],
+   "thickness": 0.2,
+   "height": 2.5
+  },
+  {
+   "id": "w_n",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    19.9,
+    11.9
+   ],
+   "b": [
+    0.1,
+    11.9
+   ],
+   "thickness": 0.2,
+   "height": 2.5
+  },
+  {
+   "id": "w_w",
+   "type": "wall",
+   "floor": "f1",
+   "a": [
+    0.1,
+    11.9
+   ],
+   "b": [
+    0.1,
+    0.1
+   ],
+   "thickness": 0.2,
+   "height": 2.5
+  },
+  {
+   "id": "st1",
+   "type": "stairs",
+   "floor": "f1",
+   "to_floor": "f2",
+   "start": [
+    12,
+    3
+   ],
+   "yaw": 0,
+   "steps": 15,
+   "riser": 0.2,
+   "tread": 0.3,
+   "width": 1.2
+  },
+  {
+   "id": "w2",
+   "type": "wall",
+   "floor": "f2",
+   "a": [
+    2,
+    8
+   ],
+   "b": [
+    8,
+    8
+   ],
+   "thickness": 0.2,
+   "height": 2.0
+  },
+  {
+   "id": "b_str",
+   "type": "box",
+   "floor": "f1",
+   "center": [
+    5,
+    9
+   ],
+   "size": [
+    "1",
+    1,
+    1
+   ],
+   "yaw": 0
+  },
+  {
+   "id": "st_bad",
+   "type": "stairs",
+   "floor": "f1",
+   "to_floor": "f2",
+   "start": [
+    3,
+    9
+   ],
+   "yaw": 0,
+   "steps": 14,
+   "riser": 0.2,
+   "tread": 0.3,
+   "width": 1.0
+  }
+ ],
+ "robots": [
+  {
+   "id": "r1",
+   "name": "R1 계획",
+   "model": "go2_proxy",
+   "floor": "f1",
+   "pose": [
+    2,
+    2,
+    0
+   ],
+   "sensors": [
+    {
+     "id": "rt1",
+     "kind": "lidar_l1",
+     "mount": [
+      0.2,
+      0,
+      0.3,
+      0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "R2",
+   "name": "R2 계획",
+   "model": "go2_proxy",
+   "floor": "f2",
+   "pose": [
+    4,
+    4,
+    0
+   ],
+   "sensors": [
+    {
+     "id": "r2_lidar",
+     "kind": "lidar_l2",
+     "mount": [
+      0.2,
+      0,
+      0.3,
+      0
+     ]
+    },
+    {
+     "id": "r2_depth",
+     "kind": "depth",
+     "mount": [
+      0.3,
+      0,
+      0.2,
+      0
+     ]
+    }
+   ]
+  }
+ ],
+ "equipment": [
+  {
+   "id": "e_relay",
+   "kind": "relay",
+   "floor": "f2",
+   "pose": [
+    6,
+    6,
+    1e999
+   ],
+   "label": "중계기"
+  }
+ ],
+ "routes": [
+  {
+   "id": "rt1",
+   "robot": "r1",
+   "floor": "f1",
+   "points": [
+    [
+     2,
+     2
+    ],
+    [
+     2,
+     6
+    ],
+    [
+     10,
+     6
+    ]
+   ]
+  },
+  {
+   "id": "rt2",
+   "robot": "r2",
+   "floor": "f2",
+   "points": [
+    [
+     4,
+     4
+    ],
+    [
+     10,
+     4
+    ],
+    [
+     10,
+     6
+    ]
+   ]
+  }
+ ],
+ "scenarios": [
+  {
+   "id": "sc_a",
+   "name": "배치안 A",
+   "robots": [
+    "r1",
+    "r2"
+   ],
+   "routes": [
+    "rt1",
+    "rt2"
+   ]
+  },
+  {
+   "id": "sc_b",
+   "name": "배치안 B",
+   "robots": [
+    "r1"
+   ],
+   "routes": [
+    "rt1",
+    "rt_none"
+   ]
+  },
+  {
+   "id": "sc_c",
+   "name": "배치안 C",
+   "robots": [
+    "r1"
+   ],
+   "routes": [
+    "rt2"
+   ]
+  }
+ ]
+}
