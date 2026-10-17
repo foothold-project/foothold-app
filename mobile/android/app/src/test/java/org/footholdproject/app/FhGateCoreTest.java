@@ -386,6 +386,41 @@ public class FhGateCoreTest {
         assertEquals("redirect", code(() -> c.request(c.ctx(), "whoami", null)));
     }
 
+    // 10-18 rehearsal 2 op — 고정 경로·bearer·Origin, POST 코드 표 그대로 통과, 표 밖 코드는 오류, 재시도 0, 1 MiB 상한
+    @Test public void rehearsalOpsFixedPathCodesAndLimits() throws Exception {
+        FhGateCore c = loggedIn();
+        net.a = r -> json(200, "{\"plans\":[]}");
+        assertEquals(200, c.request(c.ctx(), "rehearsal.get", null).resp.status);
+        Req g = net.reqs.get(0);
+        assertEquals("GET", g.method); assertEquals(GATE + "/api/app/rehearsal", g.url); assertNull(g.body);
+        assertEquals("Bearer " + TOK, g.h.get("Authorization")); assertEquals("https://localhost", g.h.get("Origin"));
+        int[] pass = {200, 400, 403, 404, 409, 413, 422, 500, 503, 507};
+        for (int s : pass) { net.a = q -> json(s, "{\"e\":1}"); FhGateCore.Result res = c.request(c.ctx(), "rehearsal.post", "{\"op\":\"export\"}"); assertEquals(s, res.resp.status); assertTrue(res.resp.text().contains("e")); }
+        Req p = net.reqs.get(1);
+        assertEquals("POST", p.method); assertEquals(GATE + "/api/app/rehearsal", p.url);
+        assertEquals("{\"op\":\"export\"}", p.body);
+        assertEquals(FhGateCore.JSON_MAX, p.max); assertEquals(FhGateCore.JSON_MAX, g.max);   // 응답 상한 1 MiB 그대로(확대 0)
+        assertEquals(1 + pass.length, net.reqs.size());                       // 상태마다 정확히 1회(재시도 0)
+        for (int s : new int[]{404, 409, 413, 500, 503}) { net.a = q -> json(s, "{}"); assertEquals("GET " + s, "server", code(() -> c.request(c.ctx(), "rehearsal.get", null))); }   // GET 은 200 만 통과
+        net.a = q -> json(403, "{}");
+        assertEquals("origin", code(() -> c.request(c.ctx(), "rehearsal.get", null)));
+        net.a = q -> json(502, "{}");
+        assertEquals("server", code(() -> c.request(c.ctx(), "rehearsal.post", "{}")));   // 표 밖 코드는 본문 넘기지 않음
+        net.a = q -> json(301, "");
+        assertEquals("redirect", code(() -> c.request(c.ctx(), "rehearsal.post", "{}")));
+        int n = net.reqs.size();
+        assertEquals("bad_input", code(() -> c.request(c.ctx(), "rehearsal.post", null)));
+        assertEquals("too_big", code(() -> c.request(c.ctx(), "rehearsal.post", "\"" + "x".repeat(FhGateCore.JSON_MAX) + "\"")));
+        assertEquals("bad_input", code(() -> c.request(c.ctx(), "rehearsal.put", "{}")));
+        assertEquals("bad_input", code(() -> c.request(c.ctx(), "/api/app/rehearsal", null)));
+        assertEquals(n, net.reqs.size());                                     // 위 넷은 네트워크 0
+        net.a = q -> { throw new IOException("too_big"); };                    // 응답이 1 MiB 넘음(전송 층) → status 아님
+        assertEquals("too_big", code(() -> c.request(c.ctx(), "rehearsal.post", "{}")));
+        net.a = q -> json(401, "{}");
+        assertEquals("auth", code(() -> c.request(c.ctx(), "rehearsal.post", "{}")));
+        assertEquals("no_session", code(() -> c.request(c.ctx(), "rehearsal.get", null)));
+    }
+
     @Test public void photoPathCheckedBeforeAnyNetwork() throws Exception {
         FhGateCore c = loggedIn();
         for (String p : new String[]{"media/photos/2026101/a.jpg", "media/photos/20261013/../x.jpg", "media/photos/20261013/a.png", "/media/photos/20261013/a.jpg",

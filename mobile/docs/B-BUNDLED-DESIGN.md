@@ -23,7 +23,7 @@ bundled 화면 출처는 Android `https://localhost`, iOS `capacitor://localhost
 |---|---|---|
 | `setGate(origin)` | 정규화된 origin 또는 거부 이유 | — |
 | `login(user, pw, label)` | `{account, device6, exp}` | 세션 토큰·기기 id 원값 |
-| `request(op, body?)` — op 은 고정 목록(`whoami`·`docs.get`·`docs.post`·`media.list`) | 응답 JSON·상태 코드 | Authorization 값 |
+| `request(op, body?)` — op 은 고정 목록(`whoami`·`docs.get`·`docs.post`·`media.list` · 10-18 `rehearsal.get`·`rehearsal.post`) | 응답 JSON·상태 코드 | Authorization 값 |
 | `photo(path)` | 바이트(크기 상한 안) — §2.2 | — |
 | `wsTicket()` | `{url, gen}` — 1회용 표가 든 WS 주소(≤30 s) | 세션 토큰 |
 | `logout(reason)` | 즉시 `{ok:true, server:'pending'}`, 뒤에 `server` 결과 이벤트 | — |

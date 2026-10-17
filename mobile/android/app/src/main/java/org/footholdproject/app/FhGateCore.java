@@ -155,6 +155,10 @@ public final class FhGateCore {
         // 기존 /api/docs 쓰기가 화면까지 넘기던 코드(400·403·404·409 cur·500·503) 그대로. 409 는 «다른 사람이 먼저 고침» — 재시도 없음
         OPS.put("docs.post", new Op("POST", "/api/app/docs", codes(200, 400, 403, 404, 409, 500, 503)));
         OPS.put("media.list", new Op("GET", "/api/app/media", codes(200)));
+        // 10-18 리허설(계획 작성) — 관문이 세션+Origin+actor 로 같은 정책. POST 상태 코드는 본문과 함께 화면까지(재시도 0).
+        // 요청·응답 본문 모두 JSON_MAX(1 MiB) 안 — 넘는 응답은 status 가 아니라 too_big 오류(413 은 서버가 보낸 것만 화면까지)
+        OPS.put("rehearsal.get", new Op("GET", "/api/app/rehearsal", codes(200)));
+        OPS.put("rehearsal.post", new Op("POST", "/api/app/rehearsal", codes(200, 400, 403, 404, 409, 413, 422, 500, 503, 507)));
     }
 
     private final Transport net;
