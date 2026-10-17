@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { qc } from './data/shared';
 import { startLink, useLink } from './data/link';
-import { auth, isLogin, loginHash } from './data/auth';
+import { PHONE, auth, entryHash, isLogin, loginHash } from './data/auth';
 import { dropScratch } from './data/scratch';
 import { useEffect } from 'react';
 import { HOME, StartAsk, StopNote, Toast, useRoute, useStopKey } from './app/shell';
@@ -34,6 +34,9 @@ const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   MLogin: lazy(() => import('./screens/MLogin')),
   PcLogin: lazy(() => import('./screens/PcLogin')),
   System: lazy(() => import('./screens/System')),
+  Fleet: lazy(() => import('./screens/Fleet')),           // 새 기획(10-18): PC 전체 관제 — 보기·계획만, 새 명령 경로 0
+  MapEditor: lazy(() => import('./screens/MapEditor')),   // PC 지도 편집기 — /api/rehearsal 저장·검토·내보내기
+  Field: lazy(() => import('./screens/Field')),           // 폰 현장(내 로봇) — 조종은 #/MDrive 이동만
 };
 
 function App() {
@@ -54,6 +57,7 @@ function App() {
   );
 }
 devStart();   // 개발자 모드 초기값(URL > 저장값 > 꺼짐) — 표시만
+{ const e = entryHash(location.hash, PHONE, (n) => n in SCREENS); if (e) history.replaceState(null, '', e); }   // 첫 입구 한 번만(빈 주소만 · 기록 쌓지 않음 → 뒤로 = 앱 밖 그대로). 그 뒤 해시 변화·크기 변화로 자동 이동 0
 startLink();
 syncTheme();
 createRoot(document.getElementById('root')!).render(<App />);

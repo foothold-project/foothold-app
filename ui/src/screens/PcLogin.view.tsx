@@ -126,15 +126,14 @@ export function View({ v }: { v: Vals }) {
               {v.dvIn ?? <input id="dv" className="inp" defaultValue="관제 노트북 1" />}
             </div>
             {" "}
-            <label style={{"display":"flex","gap":"10px","alignItems":"center","fontSize":"14px"}} {...v.keepP}>
-              <input type="checkbox" defaultChecked={!!(true)} style={{"width":"18px","height":"18px","accentColor":"var(--accent)"}} {...v.keepIn} />
-              {v.keepT ?? "이 기기에서 로그인 유지 (12시간)"}
-            </label>
+            <p className="lbl" style={{ margin: 0, fontSize: 12, lineHeight: 1.5 }}>
+              {v.keepT ?? "로그인은 최대 12시간 유지됩니다."}
+            </p>
             {v.msg}
             {" "}
-            <a href="#/Main" style={{"height":"52px","borderRadius":"8px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"16px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none"}} {...v.loginP}>
+            <button type="submit" style={{"height":"52px","border":0,"cursor":"pointer","fontFamily":"inherit","borderRadius":"8px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"16px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none"}} {...v.loginP}>
               {"로그인"}
-            </a>
+            </button>
             {" "}
             <div style={{"display":"flex","justifyContent":"space-between","gap":"12px","fontSize":"13px"}}>
               {" "}

@@ -25,6 +25,13 @@ MSG_MAX = 1024
 PUBLIC = re.compile(r'^(MLogin\.dc\.html|PcLogin\.dc\.html|dc\.js|live\.js|start\.html|manifest\.webmanifest|icons/[\w.-]+\.png)$')
 PHONE_UA = re.compile(r'iPhone|iPad|Android|Mobile', re.I)
 HEALTH = {'app': 'foothold-gate', 'api': 1}   # 로그인 불요 검사 응답 — 이 두 키뿐(계정·세션·버전 세부·IP·경로 0). 계약 docs/CONTRACT-ui-improve-20261014.md ①
+REHEARSAL_PATHS = frozenset(('/api/rehearsal', '/api/app/rehearsal'))
+REHEARSAL_MAX = 256 * 1024
+
+
+def request_body_ok(path, size):
+    """새 계획 자료만 256 KiB. 기존 로그인·문서 등은 종전 16 KiB 제한 유지."""
+    return type(size) is int and 0 <= size <= (REHEARSAL_MAX if path in REHEARSAL_PATHS else 16 * 1024)
 
 
 class Window:
@@ -146,7 +153,7 @@ def main():
     sys.path.insert(0, a.gate_src)
     import phone_gate as G                           # 운영 관문과 같은 계정 확인·세션·출처 검사
     from app_gateway import load_key                 # 읽기만(없거나 권한이 넓으면 기동 거부 — 새로 만들지 않음)
-    import tornado.httpclient, tornado.ioloop, tornado.web, tornado.websocket
+    import tornado.httpclient, tornado.ioloop, tornado.web, tornado.websocket, tornado.simple_httpclient
     from tornado.log import access_log
     import ssl
     sys.path.insert(0, str(HERE)); import app_auth as A   # 앱(bundled B) 전용 bearer·1회용 WS 표 — 쿠키 경로와 분리
@@ -174,6 +181,10 @@ def main():
     log = lambda s: print(f'[v2_gate] {time.strftime("%H:%M:%S")} {s}', flush=True)   # 쿠키·비밀번호·키는 찍지 않는다
 
     class Base(tornado.web.RequestHandler):
+        def prepare(self):
+            if not request_body_ok(self.request.path, len(self.request.body)):
+                self.set_status(413); self.finish({'error': '요청 자료가 너무 큽니다'})
+
         def session(self):
             return sessions.get(self.get_cookie('fh2_s'), time.time())
 
@@ -253,22 +264,57 @@ def main():
             self.finish(r.body or b'')
 
     class DocsProxy(Base):                            # 공용 문서(구역·임무·진행·분류) — 로그인 뒤에만. 쓰기는 같은 출처 + 작성자(계정 · 기기)를 붙여 중계
+        upstream_path = '/api/docs'
+        pass_codes = (200, 400, 403, 404, 409, 500, 503)
+
+        async def fetch_upstream(self, method, body, headers):
+            return await tornado.httpclient.AsyncHTTPClient().fetch(f'{UP_HTTP}{self.upstream_path}', method=method, body=body, headers=headers, raise_error=False, request_timeout=10)
+
         async def fwd(self, method, body=None):
             s = self.session()
             if not s: self.set_status(401); return self.finish({'error': '로그인 필요'})
+            if self.upstream_path == '/api/rehearsal' and self.request.headers.get('Content-Encoding', 'identity').lower() not in ('', 'identity'):
+                self.set_status(400); return self.finish({'error': '압축된 계획 요청은 지원하지 않습니다'})
             h = {'Origin': UP_ORIGIN, 'Content-Type': 'application/json'}
             if method == 'POST':
                 if not self.origin_ok(): self.set_status(403); return self.finish({'error': '다른 출처'})
                 h['X-FH-Actor'] = quote(f'{s["account"]} · {s.get("label") or "기기 " + s["device"][:6]}', safe='')
             try:
-                r = await tornado.httpclient.AsyncHTTPClient().fetch(f'{UP_HTTP}/api/docs', method=method, body=body, headers=h, raise_error=False, request_timeout=10)
-            except OSError:
+                r = await self.fetch_upstream(method, body, h)
+            except tornado.web.HTTPError as e:
+                self.set_status(e.status_code); return self.finish({'error': '다른 계획 요청을 처리 중입니다. 잠시 뒤 다시 시도하세요.'})
+            except (OSError, tornado.httpclient.HTTPClientError):
                 self.set_status(502); return self.finish({'error': 'v2_link 없음'})
-            self.set_status(r.code if r.code in (200, 400, 403, 404, 409, 500, 503) else 502)
+            if self.upstream_path == '/api/rehearsal' and len(r.body or b'') > 1024 * 1024:
+                self.set_status(502); return self.finish({'error': '계획 응답이 너무 큽니다'})
+            self.set_status(r.code if r.code in self.pass_codes else 502)
             self.set_header('Content-Type', 'application/json'); self.finish(r.body or b'{}')
 
         async def get(self): await self.fwd('GET')
         async def post(self): await self.fwd('POST', self.request.body)
+
+    class RehearsalProxy(DocsProxy):
+        """계획 자료 전용. 조종 WS·권한·명령 경로와 분리하며 같은 세션/출처 검사 적용."""
+        upstream_path = '/api/rehearsal'
+        pass_codes = (200, 400, 403, 404, 409, 413, 422, 500, 503, 507)
+        slots = asyncio.Semaphore(2)
+
+        def write_error(self, status_code, **kwargs):
+            self.set_header('Content-Type', 'application/json; charset=UTF-8')
+            self.finish({'error': f'계획 요청을 처리할 수 없습니다 (HTTP {status_code})'})
+
+        async def fetch_upstream(self, method, body, headers):
+            if self.slots.locked():
+                raise tornado.web.HTTPError(503)
+            async with self.slots:
+                # 독립 client의 실제 수신 상한. 기존 사진/docs client 설정은 바꾸지 않는다.
+                client = tornado.simple_httpclient.SimpleAsyncHTTPClient(force_instance=True, max_clients=1,
+                    max_body_size=1024 * 1024, max_buffer_size=1024 * 1024 + 65536)
+                try:
+                    return await client.fetch(f'{UP_HTTP}{self.upstream_path}', method=method, body=body, headers=headers,
+                                              raise_error=False, request_timeout=10)
+                finally:
+                    client.close()
 
     class Page(tornado.web.StaticFileHandler):
         async def get(self, path, include_body=True):
@@ -335,6 +381,8 @@ def main():
     # ---- 앱(bundled B) 전용 경로 /api/app/* (계약 mobile/docs/FHGATE-CONTRACT.md §3) — 쿠키는 보지 않고 bearer 만. 3xx 없음 ----
     class AppBase(Base):
         def prepare(self):                             # Origin 은 앱 두 값 정확 일치 + Host 는 이 관문 주소(DNS 재바인딩)
+            if not request_body_ok(self.request.path, len(self.request.body)):
+                self.set_status(413); return self.finish({'error': '요청 자료가 너무 큽니다'})
             if not A.origin_ok(self.request.headers.get('Origin')) or self.request.host not in gate_hosts:
                 self.set_status(403); self.finish({'error': '다른 출처'})
 
@@ -376,6 +424,9 @@ def main():
             self.finish(A.whoami_reply(s))
 
     class AppDocs(AppBase, DocsProxy):                 # 기존 DocsProxy 그대로(작성자 = 앱 세션 계정·기기, 상태 코드·본문 그대로)
+        pass
+
+    class AppRehearsal(AppBase, RehearsalProxy):
         pass
 
     class AppMedia(AppBase, Proxy):
@@ -436,16 +487,16 @@ def main():
         tickets.sweep(now)
 
     app = tornado.web.Application([
-        (r'/api/app/ws', AppBridge), (r'/api/app/login', AppLogin), (r'/api/app/whoami', AppWhoAmI), (r'/api/app/docs', AppDocs),
+        (r'/api/app/ws', AppBridge), (r'/api/app/login', AppLogin), (r'/api/app/whoami', AppWhoAmI), (r'/api/app/docs', AppDocs), (r'/api/app/rehearsal', AppRehearsal),
         (r'/api/app/(media|media/photos/\d{8}/[A-Za-z0-9_.-]{1,80}\.jpg)', AppMedia), (r'/api/app/ws-ticket', AppTicket), (r'/api/app/logout', AppLogout),
         (r'/api/app/health', AppHealth), (r'/api/app/(.*)', AppNone),
-        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy), (r'/api/health', Health),
+        (r'/ws', Bridge), (r'/api/login', Login), (r'/api/whoami', WhoAmI), (r'/api/logout', Logout), (r'/api/hosts', Hosts), (r'/api/docs', DocsProxy), (r'/api/rehearsal', RehearsalProxy), (r'/api/health', Health),
         (r'/(api/media|media/photos/\d{8}/[\w.-]+\.jpg)', Proxy),
         (r'/(ca\.crt)', tornado.web.StaticFileHandler, {'path': str(state)}),     # 공개 인증서만
         (r'/(.*)', Page, {'path': a.web}),
     ], websocket_max_message_size=4 * 1024, log_function=log_req)
     ctx = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH); ctx.load_cert_chain(str(state / 'cert.pem'), str(state / 'key.pem'))
-    app.listen(a.port, address=a.bind, ssl_options=ctx, max_body_size=16 * 1024)   # 공용 문서(최대 12 KB)용
+    app.listen(a.port, address=a.bind, ssl_options=ctx, max_body_size=REHEARSAL_MAX)   # 경로별 기존 16 KiB는 Base/AppBase.prepare에서 유지
     tornado.ioloop.PeriodicCallback(sweep, 2000).start()
     for h in hosts: log(f'열기: https://{h}:{a.port}/  (계정 {len(accounts)}개 · 중계 {a.upstream})')
     if a.advertise and a.bind not in ('0.0.0.0', ''):

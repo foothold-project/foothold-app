@@ -82,15 +82,14 @@ export function View({ v }: { v: Vals }) {
             {v.pwIn ?? <input id="mpw" className="inp" type="password" defaultValue="password" autoComplete="current-password" />}
           </div>
           {" "}
-          <label style={{"display":"flex","gap":"10px","alignItems":"center","fontSize":"14px","minHeight":"44px"}} {...v.keepP}>
-            <input type="checkbox" defaultChecked={!!(true)} style={{"width":"20px","height":"20px","accentColor":"var(--accent)"}} {...v.keepIn} />
-            {v.keepT ?? "이 휴대폰에서 로그인 유지"}
-          </label>
+          <p className="lbl" style={{ margin: 0, fontSize: 12, lineHeight: 1.5 }}>
+            {v.keepT ?? "로그인은 최대 12시간 유지됩니다."}
+          </p>
           {v.msg}
           {" "}
-          <a href="#/MHome" style={{"height":"56px","borderRadius":"12px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"17px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","marginTop":"auto"}} {...v.loginP}>
+          <button type="submit" style={{"height":"56px","border":0,"cursor":"pointer","fontFamily":"inherit","borderRadius":"12px","background":"var(--accent)","color":"var(--on-accent)","fontWeight":"700","fontSize":"17px","display":"flex","alignItems":"center","justifyContent":"center","textDecoration":"none","marginTop":"auto"}} {...v.loginP}>
             {"로그인"}
-          </a>
+          </button>
           {" "}
           <a href="#/MHome" style={{"height":"44px","display":"flex","alignItems":"center","justifyContent":"center","fontSize":"14px","fontWeight":"600","color":"var(--accent)","textDecoration":"none"}} {...v.viewP}>
             {"보기 전용으로 들어가기"}

@@ -38,8 +38,8 @@ test('확인 1회 = map_start 1회 · mode slam · map_version 없음 · 고른 
   const q = starts(); expect(q.length).toBe(1);
   expect(q[0]).toMatchObject({ op: 'map_start', world_id: 'v5_building', floor_id: 'l2', mode: 'slam', follow_cam: false });
   expect('map_version' in q[0]).toBe(false);
-  expect(asked[0]).toMatch(/^Gazebo 시뮬을 시작할까요\? — SLAM 지도 만들기/); expect(asked[0]).toContain('2층 건물 · 2층'); expect(asked[0]).toContain('STOP 잠금 상태로 시작');
-  expect(asked[0]).toContain('저장 지도 버전 없이 시작'); expect(asked[0]).not.toMatch(/조종권을 받|STOP 잠금을 풉/);   // 조종 시작과 섞지 않음
+  expect(asked[0]).toMatch(/^시뮬을 실행할까요\?/); expect(asked[0]).toContain('2층 건물 · 2층'); expect(asked[0]).toContain('STOP 잠금 상태로 시작');
+  expect(asked[0]).toContain('기존 지도 이어 만들기는 아직 지원하지 않음'); expect(asked[0]).not.toMatch(/조종권을 받|STOP 잠금을 풉/);   // 조종 시작과 섞지 않음
   msg({ op: 'reply', rid: q[0].rid, ok: true, text: '지도 체험 시작 요청함(v5_building/l2 slam) — 준비되면 지도·영상이 들어옵니다' });
   expect(await p).toMatchObject({ ok: true, sent: true }); expect(sent.slice(n).filter((m) => m.op === 'take' || m.op === 'resume').length).toBe(0);   // 자동 take/resume 0
   sent.length = 0;
@@ -51,7 +51,7 @@ test('취소 = 보낸 것 0 · null(조용히)', async () => {
 
 test('실제 페이지 안 확인창(askPage): STOP 누르면 창 닫힘 → 보낸 것 0(중단 이유 글) · 확인 단추 글 = «시뮬 시작»', async () => {
   const own = {}, p = B.openMapAsk(SEL, own);
-  expect(L.useAsk.getState().text).toMatch(/^Gazebo 시뮬을 시작할까요/); expect(L.useAsk.getState().ok).toBe(B.MAP_ASK_OK);
+  expect(L.useAsk.getState().text).toMatch(/^시뮬을 실행할까요/); expect(L.useAsk.getState().ok).toBe(B.MAP_ASK_OK);
   L.sendStop();                                         // sendStop → cancelStart → answerAsk(false)
   expect(L.useAsk.getState().text).toBe(null);
   expect(await p).toMatchObject({ ok: false, sent: false, text: expect.stringMatching(/STOP·숨김·이탈.*보낸 것 0/) }); expect(starts().length).toBe(0); expect(sent.some((m) => m.op === 'stop')).toBe(true);   // r2: startGen 이 바뀜 → 이유 글
@@ -119,7 +119,7 @@ test('소스: 새 UI 시작 경로에 평지 sim_start·static 실행·native co
     expect(box).not.toMatch(/confirm\(/); expect(box).not.toMatch(/mode: 'static'|map_version: ver|aria-label="여는 방식"|aria-label="저장 지도 버전"/);
     expect(box).toMatch(/ask\('map_start', \{ world_id: sel\.w, floor_id: sel\.f, mode: 'slam', follow_cam: sel\.fc \}\)/);
     expect(box).toMatch(/useEffect\(chg, \[w, f, fcOn\]\);/); expect(box).toMatch(/useEffect\(\(\) => \{ if \(part !== 'save'\) form\.current = mapFormOpen\(\); \}, \[\]\);/);
-    for (const h of ['onClick={() => { chg(); setW(p.w);', 'onClick={() => { chg(); setF(k); }}', 'onChange={(e) => { chg(); setFc(e.target.checked); }}']) expect(box).toContain(h);   // 단추는 렌더 전 동기 무효
+    for (const h of ['onChange={(e) => { chg(); const next = e.target.value as W;', 'onClick={() => { chg(); setF(k); }}', 'onChange={(e) => { chg(); setFc(e.target.checked); }}']) expect(box).toContain(h);   // 선택 변경은 렌더 전 동기 무효
     expect(lk).toMatch(/export const startGen = \(\) => startTok;/); expect(lk.match(/startTok\+\+|\+\+startTok/g)!.length).toBe(2);   // 읽기만 추가 · 올리는 곳 그대로(cancelStart·startDrive)
     expect(md).not.toMatch(/'시뮬 시작\(30분\)'/); expect(stt).not.toMatch(/'시뮬 시작\(30분\)'/);
   });

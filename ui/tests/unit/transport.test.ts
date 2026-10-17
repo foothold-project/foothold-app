@@ -75,6 +75,16 @@ describe('native 세대', () => {
     await expect(t.get('media')).resolves.toEqual({ status: 200, body: '{"docs":[]}' });
     expect(P.request).toHaveBeenLastCalledWith({ op: 'media.list' });
   });
+  it('리허설 계획 조회·저장 = 네이티브 op rehearsal.get·rehearsal.post, 다른 gen 은 stale(docs 와 같은 call 경유)', async () => {
+    const P = fake(); const t = await mk(P);
+    await expect(t.get('rehearsal')).resolves.toEqual({ status: 200, body: '{"docs":[]}' });
+    expect(P.request).toHaveBeenLastCalledWith({ op: 'rehearsal.get' });
+    const body = { op: 'save', id: 'p1', rev: 0 };
+    await expect(t.postRehearsal(body)).resolves.toEqual({ status: 200, body: '{"docs":[]}' });
+    expect(P.request).toHaveBeenLastCalledWith({ op: 'rehearsal.post', body });
+    P.request.mockResolvedValueOnce({ gen: 9, status: 200, body: '{}' });
+    await expect(t.postRehearsal(body)).rejects.toThrow(/옛 응답/);
+  });
   it('sessionEnded·no_session 은 이 세대일 때만 끝 처리', async () => {
     const P = fake(); const t = await mk(P); const f = vi.fn(); t.onEnded(f);
     await t.wsUrl();

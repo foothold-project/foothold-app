@@ -119,6 +119,17 @@ export function View({ v }: { v: Vals }) {
               {"로봇"}
             </a>
             {" "}
+            {/* 새 기획 10-18: 전체 관제·지도 편집 입구(링크만) */}
+            <a className="nav" href="#/Fleet">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
+              {"전체 관제"}
+            </a>
+            {" "}
+            <a className="nav" href="#/MapEditor">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M14 14l4-4 2 2-4 4h-2z" /></svg>
+              {"지도 편집"}
+            </a>
+            {" "}
             <div style={{"flex":"1"}} />
             {" "}
             <a className="nav" href="#/PcSettings">

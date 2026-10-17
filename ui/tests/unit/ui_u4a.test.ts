@@ -52,9 +52,9 @@ test('MapStartBox pc part=save: 저장만 · 막히면 회색(aria-disabled, nat
   st({ map_save: { ok: false, why: `${LIVE_WHY} · 지도 상태 7 s 끊김` }, live_map: { st: 'stale', mode: 'slam' } });
   const s = box({ part: 'save' }), o = ops(s);
   expect(s).not.toContain('id="fh-mapopen"'); expect(s).not.toContain('지도 열기 ·'); expect(s).not.toContain('role="group" aria-label="지형"');
-  expect(s).toMatch(/<button[^>]*aria-disabled="true"[^>]*title="SLAM 실시간 지도가 보일 때만 저장 · 지도 상태 끊김\(오래됨\) — 지도 상태가 다시 들어오면 저장\(자동 재시도 없음\)"[^>]*>SLAM 지도 저장<\/button>/);
-  expect(s).not.toMatch(/<button[^>]*disabled=""[^>]*>SLAM 지도 저장/);
-  expect(o).toContain('>저장 안 됨</span><span style="color:var(--warn)">SLAM 실시간 지도가 보일 때만 저장 · 지도 상태 끊김(오래됨)</span>');   // 줄 자체(버튼 title 만으로 통과 0)
+  expect(s).toMatch(/<button[^>]*aria-disabled="true"[^>]*title="실시간 지도가 보일 때만 저장 · 지도 상태 끊김\(오래됨\) — 지도 상태가 다시 들어오면 저장\(자동 재시도 없음\)"[^>]*>지도 저장<\/button>/);
+  expect(s).not.toMatch(/<button[^>]*disabled=""[^>]*>지도 저장/);
+  expect(o).toContain('>저장 안 됨</span><span style="color:var(--warn)">실시간 지도가 보일 때만 저장 · 지도 상태 끊김(오래됨)</span>');   // 줄 자체(버튼 title 만으로 통과 0)
   expect(o).toContain('>다음</span><span>지도 상태가 다시 들어오면 저장(자동 재시도 없음)</span>'); expect(o).not.toContain('7 s 끊김');
   expect(s).toMatch(/data-dev=""[^>]*>[\s\S]*?원문[\s\S]*?7 s 끊김/);
   expect(o).not.toContain('2D 점유 격자');   // PcMap 은 ? 로 옮김
@@ -63,18 +63,18 @@ test('MapStartBox pc part=save: 저장만 · 막히면 회색(aria-disabled, nat
   expect(n).toContain('저장 상태 확인 안 됨'); expect(n).not.toContain('저장할 수 있음');
   // 저장 가능 = 일반 안내 + 실제 버튼(aria-disabled 0)
   st({ map_save: { ok: true }, live_map: { st: 'ok', mode: 'slam', world_id: 'v5_single', floor_id: 'f1' } }); const k = box({ part: 'save' });
-  expect(k).toMatch(/<button type="button" class="btn">SLAM 지도 저장<\/button>/); expect(k).toContain('새 버전으로 저장'); expect(k).not.toContain('저장 안 됨');
+  expect(k).toMatch(/<button type="button" class="btn">지도 저장<\/button>/); expect(k).toContain('새 버전으로 저장'); expect(k).not.toContain('저장 안 됨');
 });
 
 test('MapStartBox pc part=open(시뮬 메뉴): 지도 열기만 · 고른 곳/지금 실행/기술 원값 dev · 고른 곳≠지금 실행 운영 · 저장 0 · pc=false 기존 그대로', () => {
   st({ map_save: { ok: false, why: LIVE_WHY } });
   const s = box({ part: 'open' }), o = ops(s);
-  expect(s).toContain('id="fh-mapopen"'); expect(s).not.toContain('SLAM 지도 저장'); expect(s).not.toContain('Gazebo');
+  expect(s).toContain('id="fh-mapopen"'); expect(s).not.toContain('지도 저장'); expect(s).not.toContain('Gazebo');
   expect(o).not.toMatch(/>고른 곳</); expect(o).not.toMatch(/>지금 실행</); expect(o).not.toContain('world_id=');
   expect(o).toContain('고른 곳 ≠ 지금 실행(1층 건물'); expect(o).toContain('바꾸려면 시뮬 끄고 새로 열기');
   expect(s).toMatch(/<details data-dev="">/);
   const m = html(React.createElement(MapStartBox, { pc: false }));   // 폰 지도: 두 부분 · 기존 문구 · dev 표시 0
-  expect(m).toContain('지도 열기 · Gazebo 시뮬 시작'); expect(m).toContain('SLAM 지도 저장'); expect(m).toMatch(/<button[^>]*disabled=""[^>]*>SLAM 지도 저장/);
+  expect(m).toContain('시뮬 실행'); expect(m).toContain('지도 저장'); expect(m).toMatch(/<button[^>]*disabled=""[^>]*>지도 저장/);
   expect(m).toContain('고른 곳과 지금 실행 중인 곳이 다릅니다'); expect(m).not.toContain('data-dev'); expect(m).toContain('2D 점유 격자');
 });
 
@@ -95,6 +95,6 @@ test('PcMap 렌더: 제목 «시뮬 바닥» · lean 캔버스 · 구역 «표�
 test('소스 결속: PcMap 캔버스 lean · SimMenu 는 PcMap 에서 part open(MMap 만 안내) · 새 지도 = 시뮬 메뉴 열기(시뮬 아니면 whyProps)', async () => {
   const pm = await rd('../../src/screens/PcMap.tsx'), sm = await rd('../../src/app/status.tsx');
   expect(pm).toMatch(/<MapCanvas name="pcmap" lean /); expect(pm).toMatch(/<MapStartBox pc part="save"/);
-  expect(sm).toMatch(/onMapPage = name === 'MMap';/); expect(sm).toMatch(/part=\{name === 'PcMap' \? 'open' : undefined\}/); expect(sm).toContain('data-simmenu=""');
+  expect(sm).toMatch(/onMapPage = name === 'MMap';/); expect(sm).toMatch(/part=\{name === 'PcMap' \|\| \(name \|\| HOME\) === 'Main' \? 'open' : undefined\}/); expect(sm).toContain('data-simmenu=""');
   expect(pm).toMatch(/newP: sim \? \{[^}]*onClick: openSimMenu \}\s*(\/\/[^\n]*)?\n\s*: \{ \.\.\.whyProps\(/);
 });

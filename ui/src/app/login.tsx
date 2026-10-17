@@ -127,11 +127,9 @@ export function useLoginVals(phone: boolean) {
     idIn: <input id={ids[0]} ref={id} className="inp" autoComplete="username" maxLength={64} />,
     pwIn: <input id={ids[1]} ref={pw} className="inp" type="password" autoComplete="current-password" maxLength={256} />,
     dvIn: <input id="dv" ref={dv} className="inp" maxLength={40} placeholder="예: 관제 노트북 · 기록에 남음" />,
-    keepP: { title: '로그인은 12시간 유지(관문을 다시 켜면 다시 로그인)' },
-    keepIn: { disabled: true, checked: true, readOnly: true, defaultChecked: undefined },
-    keepT: '로그인 12시간 유지 · 관문 재시작 시 다시 로그인',
+    keepT: '로그인은 최대 12시간 유지됩니다. 서버를 다시 켜면 다시 로그인해 주세요.',
     msg: <div role="alert" style={{ minHeight: 20, fontSize: 13, color: msg?.ok ? 'var(--ok)' : 'var(--bad, #FF5A4F)' }}>{[msg?.t, note].filter(Boolean).join(' · ')}</div>,
-    loginP: { href: undefined, role: 'button', tabIndex: 0, onClick: go, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') go(e); } },
+    loginP: { type: 'submit' as const },   // 클릭·입력칸 Enter 모두 formP.onSubmit 한 경로(중복 전송 방지 busy도 그대로)
     viewP: { ...whyProps('보기 전용 계정은 없습니다 — 로그인 뒤 조종권을 받지 않으면 보기 전용(STOP 은 누구나)'), href: undefined },
     rl: FAILS,
   };

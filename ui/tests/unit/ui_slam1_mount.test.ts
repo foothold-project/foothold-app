@@ -12,6 +12,7 @@ class N {
   nodeValue = ''; _t = ''; namespaceURI = 'http://www.w3.org/1999/xhtml'; isConnected = true;
   constructor(public nodeName: string, public nodeType = 1) {}
   get tagName() { return this.nodeName; } get ownerDocument() { return doc; }
+  get options(): N[] { return this.children.flatMap((c) => c.nodeName === 'OPTION' ? [c] : c.options); }
   get firstChild() { return this.children[0] ?? null; } get lastChild() { return this.children[this.children.length - 1] ?? null; }
   get textContent(): string { return this.nodeType === 3 ? this.nodeValue : this._t + this.children.map((c) => c.textContent).join(''); }
   set textContent(v: string) { this.children = []; this._t = v; }
@@ -37,6 +38,7 @@ const { createRoot } = await import('react-dom/client');
 const L = await import('../../src/data/link');
 const { SimMenu } = await import('../../src/app/status');
 const { MapStartBox } = await import('../../src/map/MapStartBox');
+const mapsModule = await import('../../src/data/maps');
 const all = (n: N): N[] => [n, ...n.children.flatMap(all)];
 const props = (n: N): any => Object.entries(n).find(([k]) => k.startsWith('__reactProps$'))![1];
 const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
@@ -56,17 +58,74 @@ const menu = async () => {
   const b = all(host).find((n) => n.attrs['data-simmenu'] !== undefined)!;
   const toggle = async () => { await React.act(async () => { props(b).onClick(); }); };
   const box = () => all(host).find((n) => n.attrs.id === 'fh-mapopen') ?? null;
-  const startBtn = () => all(box()!).find((n) => n.nodeName === 'BUTTON' && n.textContent.startsWith('지도 열기 · '))!;
-  const terrain = (i: number) => all(all(box()!).find((n) => n.attrs['aria-label'] === '지형')!).filter((n) => n.nodeName === 'BUTTON')[i];
+  const startBtn = () => all(box()!).find((n) => n.nodeName === 'BUTTON' && n.textContent === '시뮬 실행')!;
+  const terrain = () => all(box()!).find((n) => n.nodeName === 'SELECT' && n.attrs['aria-label'] === '시작 지형')!;
+  const chooseTerrain = (w: string) => props(terrain()).onChange({ target: { value: w } });
   const start = async () => { let p: Promise<unknown> | undefined; await React.act(async () => { const s = startBtn(); p = props(s).onClick({ currentTarget: s }); }); return [p!] as const; };   // act 를 끝까지 기다림(겹친 act 0) · 확인 대기 promise 는 배열로 넘김(await 로 풀리지 않게)
-  return { host, toggle, box, startBtn, terrain, start };
+  return { host, toggle, box, startBtn, terrain, chooseTerrain, start };
 };
 const asking = () => L.useAsk.getState().text;
+
+const META = (w: string, b: string, f: string) => ({ world_id: w, building_id: b, floor_id: f, map_source: 'gt_raster', map_version: 'gt-test', epoch: null, width: 200, height: 200, resolution: 0.1, origin: [0, 0, 0] });
+const CATALOG = [META('v5_single', 'v5_single', 'f1'), META('v5_building', 'v5', 'l1'), META('v5_building', 'v5', 'l2')] as any;
+const previewBox = async () => {
+  fresh();
+  const host = new N('DIV'), root: any = createRoot(host as any); roots.push(root);
+  await React.act(async () => { root.render(React.createElement(MapStartBox, { pc: true, part: 'open', preview: true, catalog: CATALOG })); });
+  return { host, choose: (w: string) => props(all(host).find((n) => n.attrs['aria-label'] === '시작 지형')!).onChange({ target: { value: w } }),
+    run: () => all(host).find((n) => n.nodeName === 'BUTTON' && n.textContent === '시뮬 실행')! };
+};
+const raster = (src: string) => ({ img: { src }, w: 200, h: 200, res: 0.1, ox: 0, oy: 0, label: src }) as any;
+
+test('관제: 미선택/불러오는 중은 실행 불가 · 바뀐 지형의 늦은 그림 폐기 · 현재 2D 도면 후에만 실행 가능', async () => {
+  const pending: ((r: any) => void)[] = [];
+  const get = vi.spyOn(mapsModule, 'getMap').mockImplementation(() => new Promise((resolve) => pending.push(resolve)));
+  try {
+    const M = await previewBox();
+    expect(props(M.run()).disabled).toBe(true); expect(get).not.toHaveBeenCalled();
+    expect(M.host.textContent).not.toContain('만든 지도 보관');
+    await React.act(async () => { M.choose('v5_single'); });
+    expect(props(M.run()).disabled).toBe(true);
+    await React.act(async () => { M.choose('v5_building'); });
+    await React.act(async () => { pending[0](raster('old-single')); });
+    expect(props(M.run()).disabled).toBe(true); expect(all(M.host).filter((n) => n.nodeName === 'IMG')).toHaveLength(0);
+    await React.act(async () => { pending[1](raster('current-building-l1')); });
+    expect(props(M.run()).disabled).toBe(false);
+    expect(all(M.host).find((n) => n.nodeName === 'IMG')!.attrs.src).toBe('current-building-l1');
+    const l2 = all(M.host).find((n) => n.nodeName === 'BUTTON' && n.textContent === '2층(l2)')!;
+    await React.act(async () => { props(l2).onClick(); });
+    expect(props(M.run()).disabled).toBe(true); expect(get.mock.calls[get.mock.calls.length - 1][0].floor_id).toBe('l2');
+    expect(starts()).toHaveLength(0);
+  } finally { get.mockRestore(); }
+});
+
+test('관제: 미리보기 실패는 실행 차단 · 다시 받기 성공 뒤 활성 · 서버 시작 불가 관문 유지', async () => {
+  const get = vi.spyOn(mapsModule, 'getMap').mockResolvedValueOnce('PNG 풀기 실패').mockResolvedValue(raster('retry-ok'));
+  try {
+    const M = await previewBox(); await React.act(async () => { M.choose('v5_single'); });
+    expect(props(M.run()).disabled).toBe(true); expect(M.host.textContent).toContain('PNG 풀기 실패');
+    const retry = all(M.host).find((n) => n.nodeName === 'BUTTON' && n.textContent === '미리보기 다시 받기')!;
+    await React.act(async () => { props(retry).onClick(); });
+    expect(props(M.run()).disabled).toBe(false);
+    await React.act(async () => { L.useLink.setState({ st: { ...ST, map_start: { ...ST.map_start, ok: false, why: '실행 중' } } as any }); });
+    expect(props(M.run()).disabled).toBe(true); expect(starts()).toHaveLength(0);
+  } finally { get.mockRestore(); }
+});
+
+test('관제: 새 매핑 공간은 기존 도면 없음 명시 · 선택 전 시작 0 · 선택 뒤 빈 공간 안내', async () => {
+  const get = vi.spyOn(mapsModule, 'getMap');
+  try {
+    const M = await previewBox(); expect(props(M.run()).disabled).toBe(true);
+    await React.act(async () => { M.choose('rooms_a'); });
+    expect(M.host.textContent).toContain('기존 도면 없음'); expect(M.host.textContent).toContain('실행 후 지도가 만들어집니다');
+    expect(props(M.run()).disabled).toBe(false); expect(get).not.toHaveBeenCalled(); expect(starts()).toHaveLength(0);
+  } finally { get.mockRestore(); }
+});
 
 test('정상: 메뉴에서 «지도 열기» → 확인창 → 메뉴 닫힘(본문 해제 · 일시 소멸) → 확인 = map_start 1회(고른 값 그대로)', async () => {
   const M = await menu(); await M.toggle(); expect(M.box()).not.toBe(null);
   const [p] = await M.start();
-  expect(asking()).toMatch(/^Gazebo 시뮬을 시작할까요/);
+  expect(asking()).toMatch(/^시뮬을 실행할까요/);
   await M.toggle(); expect(M.box()).toBe(null);                  // 확인창을 누르면 바깥 누름으로 메뉴가 닫히는 것과 같은 상태(본문 해제)
   expect(asking()).not.toBe(null);                               // 일시 소멸만으로는 확인창 무효 0(R1)
   fresh(); await React.act(async () => { L.answerAsk(true); }); await p; await flush();
@@ -85,24 +144,29 @@ test('다시 열기 = 새 양식: 옛 확인창 닫힘 · 그 뒤 옛 창에 tru
 test('다시 열기 + 새 선택: 새 양식의 확인만 보냄(옛 선택 0) · 1회', async () => {
   const M = await menu(); await M.toggle(); const [p1] = await M.start();
   await M.toggle(); await M.toggle(); await p1;
-  await React.act(async () => { props(M.terrain(1)).onClick(); });
+  expect(M.terrain().options.filter((n) => n.attrs.value).map((n) => [n.attrs.value, n.textContent])).toEqual([
+    ['v5_single', '1층 건물'], ['v5_building', '2층 건물'], ['rooms_a', '새 매핑 공간'],
+  ]);
+  await React.act(async () => { M.chooseTerrain('v5_building'); });
+  expect(props(M.terrain()).value).toBe('v5_building');
+  expect(starts()).toHaveLength(0);
   const [p2] = await M.start();
   fresh(); await React.act(async () => { L.answerAsk(true); }); await p2; await flush();
   expect(starts().length).toBe(1);
-  expect(starts()[0].world_id).not.toBe('rooms_a');               // 첫 지형(rooms_a 기본)이 아닌 새로 고른 지형
+  expect(starts()[0]).toMatchObject({ world_id: 'v5_building', floor_id: 'l1' });
 });
 
-test('선택 변경(click = 렌더 전 동기 무효): 확인창이 열린 채 지형을 바꾸면 창 닫힘 · 그 뒤 true 0', async () => {
+test('드롭다운 변경 = 렌더 전 동기 무효: 확인창이 열린 채 지형을 바꾸면 창 닫힘 · 그 뒤 true 0', async () => {
   const M = await menu(); await M.toggle(); const [p] = await M.start();
-  await React.act(async () => { props(M.terrain(1)).onClick(); });
+  await React.act(async () => { M.chooseTerrain('v5_building'); });
   expect(asking()).toBe(null);
   fresh(); await React.act(async () => { L.answerAsk(true); }); await p; await flush();
   expect(starts().length).toBe(0); expect(M.box()!.textContent).toMatch(/고른 지형·층·카메라/);
 });
 
-test('true 로 답한 같은 틱에 선택 click·STOP·숨김·화면 이동 → 송신 직전 대조로 보낸 것 0', async () => {
+test('true 로 답한 같은 틱에 드롭다운 변경·STOP·숨김·화면 이동 → 송신 직전 대조로 보낸 것 0', async () => {
   const acts: [string, (M: Awaited<ReturnType<typeof menu>>) => void, RegExp][] = [
-    ['선택 click', (M) => { props(M.terrain(1)).onClick(); }, /고른 지형·층·카메라 바뀜/],
+    ['드롭다운 변경', (M) => { M.chooseTerrain('v5_building'); }, /고른 지형·층·카메라 바뀜/],
     ['STOP', () => { L.sendStop(); }, /STOP·숨김·이탈/],
     ['숨김', () => { L.hide(); }, /STOP·숨김·이탈/],
     ['화면 이동', () => { (globalThis as any).location.hash = '#/Main'; (evs.hashchange || []).slice().forEach((f) => f()); }, /화면 바뀜/],
@@ -121,7 +185,7 @@ test('새 주인(다른 시작 상자)이 장착되면 옛 상자 확인은 무�
   const host2 = new N('DIV'), r2: any = createRoot(host2 as any); roots.push(r2);
   await React.act(async () => { r2.render(React.createElement(MapStartBox, { pc: true })); });   // 다른 화면·다른 상자 = 새 양식
   expect(asking()).toBe(null); await p1;
-  const b2 = all(host2).find((n) => n.nodeName === 'BUTTON' && n.textContent.startsWith('지도 열기 · '))!;
+  const b2 = all(host2).find((n) => n.nodeName === 'BUTTON' && n.textContent === '시뮬 실행')!;
   let p2: Promise<unknown> | undefined; await React.act(async () => { p2 = props(b2).onClick({ currentTarget: b2 }); });
   fresh(); await React.act(async () => { L.answerAsk(true); }); await p2; await flush();
   expect(starts().length).toBe(1);

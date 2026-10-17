@@ -60,7 +60,7 @@ test('폰 bar: 겹침 배치 아님(흐름 · 머리줄 CSS 가 자리) · lv-bt
   expect([bar().props.style.position, bar().props.style.padding, bar().props.style.borderBottom, bar().props.style.minWidth]).toEqual([undefined, undefined, undefined, 0]);   // 폰 = 머리줄 안 흐름(PC 도구줄 아래 줄의 여백·선 없음)
   expect(bar().props['data-mapview-bar']).toBe('');
   const sel = bar().props.children[0];
-  expect([sel.props.value, sel.props.title, sel.props.style.minHeight]).toEqual(['v5_building', expect.stringContaining('서랍의 «지도 열기»'), 40]);
+  expect([sel.props.value, sel.props.title, sel.props.style.minHeight]).toEqual(['v5_building', expect.stringContaining('서랍의 «시뮬 실행»'), 40]);
   expect([sel.props.style.flex, bar().props.children[1].props.style.flex]).toEqual(['0 0 auto', '0 0 auto']);   // 폰: 지형·단추 묶음은 안 꺾임(이유 글만 다음 줄)
   expect(btns().map((b) => [b.props.className, b.props.children])).toEqual([['lv-btn lv-why', '2D'], ['lv-btn', '3D'], ['lv-btn', 'SLAM']]);   // 2D = 1층 GT 없음 → aria-disabled(누르면 이유 글 · 31d235b R4)
 });

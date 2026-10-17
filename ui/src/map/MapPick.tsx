@@ -22,7 +22,7 @@ const usePick = create<{ sel: string; touched: boolean; auto: boolean }>(() => (
 export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d: 3D 덧칸을 작은 지도 칸에 맞춤(670 a9db ③ · MMap 만 참)
   // drop=false: 건물별 목록(폰 서랍·PC 지도). drop(관제 오른쪽 «지도 보기» 칸 — U2-c 전엔 지도 칸 위 겹침) = select 드롭다운. pc: 버튼 클래스
   const GT = pc ? '시뮬 ' : 'GT ';   // U4-a(PcMap = pc 만): 운영 글의 «GT» → «시뮬»(v3 §3 «Gazebo GT 위치 → 시뮬 위치»). 뜻(센서·SLAM 아님)은 글·? 에 그대로. 폰·관제 글 무변경
-  const [ow, setOw] = useState<string | null>(null), [of, setOf] = useState('');   // 목록에서 펼친 건물 · 그 안 층 탭(층 id·'all') — 화면만
+  const [ow, setOw] = useState<string | null>(null);   // 목록에서 펼친 건물 · 그 안 층 탭(층 id·'all') — 화면만
   const [msg, setMsg] = useState<{ sel: string; t: string; tie?: boolean } | null>(null);   // U2-b 보완(715 R1·R3·R4): bar 안내 글(읽기 · 누름/터치/키보드로 보임) — 그 보기(sel)일 때만
   const [maps, setMaps] = useState<MapInfo[] | string | null>(null), [saved, setSaved] = useState<Raster | null>(null);
   const { sel, touched, auto } = usePick();
@@ -136,8 +136,6 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   // ── 건물별 목록(흐름 배치): 건물 3행 → 펼치면 (2층 건물) 현재층·1층·2층·전체 보기 탭 → 버전. 누르면 보기 선택만(시뮬·조종 0). 펼침·탭 바꿈 = 배치 변경 → dropAll(기존 규칙)
   const B = pc ? 'btn' : 'lv-btn', tap = (f: () => void) => () => { dropAll(); f(); };
   const selW = isAll || is3 ? sel.slice(4) : sm?.world_id || null, openW = ow ?? selW;
-  const card = (hi: boolean): React.CSSProperties => ({ display: 'flex', flexDirection: 'column', gap: 4, padding: 10, width: '100%', boxSizing: 'border-box', textAlign: 'left', font: 'inherit', color: 'inherit', cursor: 'pointer',
-    border: `1px solid var(--${hi ? 'accent' : 'line'})`, borderRadius: 8, background: hi ? 'var(--acc-bg, transparent)' : 'var(--panel2)' });
   const segB = (on: boolean, t: string, f: () => void, dis?: string) => <button key={t} type="button" className={`${B}${on ? ' pri' : ''}`} aria-pressed={on} disabled={!!dis} title={dis} onClick={tap(f)}>{t}</button>;
   const vrow = { display: 'flex', gap: 6, flexWrap: 'wrap' } as const;
   const list = <span style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -146,35 +144,27 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
     {typeof maps === 'string' && <span style={{ ...vrow, alignItems: 'center' }}><span className="lbl">{`저장 지도 목록 · ${maps}`}</span>
       <button type="button" className={B} disabled={!ready} title={ready ? undefined : '서버 연결 확인 전 — 확인되면 자동으로 1회 받음'} onClick={tap(() => { if (load()) setMaps(null); })}>목록 다시 불러오기</button></span>}
     {maps === null && <span className="lbl">{ready ? '저장 지도 목록 받는 중' : '저장 지도 목록 · 서버 연결 확인 뒤 받음'}</span>}
-    {Array.isArray(maps) && (Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => {
-      const its = maps.filter((m) => m.world_id === w), multi = WF[w].length > 1, here = !!at && at[0] === BLD[w], op = openW === w;
-      const nG = its.filter((m) => m.map_source === 'gt_raster').length, nS = its.length - nG;
-      // 현재층 = 서버 층 판정(live_map.floor, GT 기하 판정) 이 on_floor 일 때만. 열 때 고른 층은 «시작층»으로만(현재층으로 표시 0 — root 10-14)
-      const sf = here ? FLOOR[at![1] as keyof typeof FLOOR] || at![1] : '';
-      const fl = here && lv && lv.st !== 'stale' && lv.st !== 'unknown' && lv.world_id === ss!.world_id ? lv.floor as { state?: string; current?: string | null } | null | undefined : null;
-      const cf = fl?.state === 'on_floor' && typeof fl.current === 'string' && WF[w].includes(fl.current) ? fl.current : '';
-      const curT = cf ? `현재층 ${FLOOR[cf as keyof typeof FLOOR] || cf}` : fl?.state === 'transit' ? '층 이동 중' : '현재층 미확인';
-      const tabF = of && of !== 'all' ? of : (sm?.world_id === w ? sm.floor_id : WF[w][0]);
-      const tabOn = of || (isAll && selW === w ? 'all' : is3 && selW === w ? 'g3d' : tabF);   // 층 탭(보기만) — 현재층 탭은 계약 전 비활성
-      const vs = its.filter((m) => !multi || m.floor_id === tabF);
-      return <span key={w} style={card(selW === w)}>
-        <button type="button" aria-expanded={op} onClick={tap(() => { setOw(op ? '' : w); setOf(''); })} style={{ all: 'unset', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <b style={{ fontSize: 14 }}>{`${op ? '▾' : '▸'} ${WORLD[w]}`}</b>
-          <span className="lbl">{`${multi ? '1·2층' : '단층'} · ${pc ? '시뮬 도면' : 'GT 기하'} ${nG} · SLAM 저장 ${nS}${w === 'rooms_a' ? ' · SLAM 지도 만들기용' : ''}${here ? ` · 지금 열림 · 시작층 ${sf} · ${curT}` : ''}`}</span></button>
-        {op && multi && <span role="group" aria-label={`${WORLD[w]} 층 보기(화면만)`} style={vrow}>
-          {segB(false, curT, () => setOf(cf), cf ? undefined : !here ? '이 건물 지도 시뮬이 꺼져 있음' : fl?.state === 'transit' ? '층 사이 이동 중 — 도착 층이 확정되면 표시' : `층 판정 없음 — 시작층(${sf})만 압니다`)}   {/* 누르면 그 층 보기(화면만) */}
-          {WF[w].map((f) => segB(tabOn === f, FLOOR[f as keyof typeof FLOOR] || f, () => setOf(f)))}
-          {segB(tabOn === 'all', '층 나란히 보기', () => { setOf('all'); pick(allKey(w)); })}
-          {segB(tabOn === 'g3d', '전체 3D', () => { setOf('g3d'); pick(`g3d:${w}`); })}</span>}
-        {op && multi && tabOn === 'all' && (pc ? <span className="lbl">층별 시뮬 도면을 위층부터 나란히 · 보기만<Help label="층 나란히 보기 · 설명">층별 GT 기하 2D 지도를 위층부터 나란히 — 전체 3D 아님 · 위치·SLAM·센서 없음. 층 탭은 보기만(시뮬 층 바꾸기 아님)</Help></span>
-          : <span className="lbl">층별 GT 기하 2D 지도를 위층부터 나란히 — 전체 3D 아님 · 위치·SLAM·센서 없음. 층 탭은 보기만(시뮬 층 바꾸기 아님)</span>)}
-        {op && multi && tabOn === 'g3d' && (pc ? <span className="lbl">건물 간략 기하 3D · 센서 아님<Help label="전체 3D · 설명">원본 SDF 충돌 상자 그대로 + 계단·경사로 구조상 연결 — GT 간략 기하(센서·주행 판정 아님). 실제 mesh 는 외곽 점선만</Help></span>
-          : <span className="lbl">원본 SDF 충돌 상자 그대로 + 계단·경사로 구조상 연결 — GT 간략 기하(센서·주행 판정 아님). 실제 mesh 는 외곽 점선만</span>)}
-        {op && tabOn !== 'all' && tabOn !== 'g3d' && (<span role="group" aria-label="저장 지도 버전(보기만)" style={vrow}>
-            {vs.map((m) => segB(sel === mapKey(m), `${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 저장 지도'} · ${m.map_version}`, () => pick(mapKey(m))))}   {/* 층은 탭이 이미 말함 — 버전 줄엔 출처·버전만 */}
-            {!vs.length && <span className="lbl">이 층 저장 지도 없음</span>}</span>)}
-      </span>;
-    })}
+    <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span className="lbl">지형</span>
+      <select aria-label="살펴볼 지형" className={pc ? 'inp' : 'lv-inp'} value={openW || ''} style={{ width: '100%', minWidth: 0, minHeight: 40, padding: '0 10px', boxSizing: 'border-box', border: '1px solid var(--line2)', borderRadius: 6, background: 'var(--panel2)', color: 'inherit', font: 'inherit' }}
+        onChange={(e) => { const w = e.target.value; setOw(w); pickW(w); }}>
+        <option value="" disabled>지형을 고르세요</option>
+        {(Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => <option key={w} value={w}>{WORLD[w]}</option>)}
+      </select>
+    </label>
+    {openW && <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <span className="lbl">볼 지도</span>
+      <select aria-label="선택한 지형의 지도" className={pc ? 'inp' : 'lv-inp'} style={{ width: '100%', minWidth: 0, minHeight: 40, padding: '0 10px', boxSizing: 'border-box', border: '1px solid var(--line2)', borderRadius: 6, background: 'var(--panel2)', color: 'inherit', font: 'inherit' }}
+        value={selW === openW ? sel : ''} onChange={(e) => { dropAll(); pick(e.target.value); }}>
+        <option value="" disabled>지도를 고르세요</option>
+        {WF[openW].length > 1 && <option value={allKey(openW)}>모든 층 · 2D</option>}
+        {openW === 'v5_building' && <option value={`g3d:${openW}`}>건물 전체 · 3D</option>}
+        {Array.isArray(maps) && maps.filter((m) => m.world_id === openW).map((m) => <option key={mapKey(m)} value={mapKey(m)}>
+          {`${WF[openW].length > 1 ? `${FLOOR[m.floor_id as keyof typeof FLOOR]} · ` : ''}${m.map_source === 'gt_raster' ? '기본 도면' : '저장한 지도'} · ${m.map_version}`}
+        </option>)}
+      </select>
+    </label>}
+
   </span>;
   // ── U2-b(결정 7): PC 지도 탭 왼쪽 위 «지형 + 2D/3D/SLAM» — 보기 전용(pick 만 · op 는 map_list/map_get/map_live_get/geom_get 읽기뿐).
   // 실행 지형·기동·조종 op 0(시뮬 시작 지형은 «시뮬 ▾»). 눌림은 지금 sel 에서 계산(거짓 눌림 0). 3D = 기존 건물 입체 기하(2층 건물만)
@@ -204,7 +194,7 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
     const sStart = rw === w && ss!.result === 'starting' && ss!.map_mode === 'slam';
     return { '2D': g !== null ? (typeof g === 'string' ? { k: '', why: g } : { k: allKey(w), why: '' }) : gt ? { k: mapKey(gt.m), why: '', note: gt.note } : { k: '', why: noList || '이 지형 시뮬 도면 지도 없음' },
       '3D': w === 'v5_building' ? { k: `g3d:${w}`, why: '' } : { k: '', why: '입체 기하는 2층 건물만' },
-      SLAM: liveOk(w) ? { k: LIVE, why: '' } : sl ? { k: mapKey(sl.m), why: '', note: sl.note } : { k: '', why: noList || `이 지형 SLAM 저장 지도 없음${sStart ? ' · SLAM 시뮬 시작 중 — 실행 확인 뒤 실시간' : ''}` } };
+      SLAM: liveOk(w) ? { k: LIVE, why: '' } : sl ? { k: mapKey(sl.m), why: '', note: sl.note } : { k: '', why: noList || `이 지형 저장한 지도 없음${sStart ? ' · SLAM 시뮬 시작 중 — 실행 확인 뒤 실시간' : ''}` } };
   };
   const nowMode = (w: string) => !w ? '' : sel === allKey(w) || (sm?.world_id === w && sm.map_source === 'gt_raster') ? '2D' : sel === `g3d:${w}` ? '3D'
     : (live && liveOk(w)) || (sm?.world_id === w && sm.map_source === 'slam') ? 'SLAM' : '';
@@ -225,7 +215,7 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   const barSty: React.CSSProperties = pc ? { padding: '6px 10px', borderBottom: '1px solid var(--line)' } : { minWidth: 0 };
   const fix = pc ? {} : { flex: '0 0 auto' };
   const bar = <span data-mapview-bar="" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', ...barSty }}>
-    <select aria-label="지도 지형 보기(보기만 · 실행 지형 안 바뀜)" title={`보는 지형만 바뀝니다 — 시뮬 시작 지형은 ${pc ? '«시뮬 ▾»' : '«지도 열기 · SLAM 저장» 서랍의 «지도 열기»'}`} value={vW} onChange={(e) => pickW(e.target.value)}
+    <select aria-label="지도 지형 보기(보기만 · 실행 지형 안 바뀜)" title={`보는 지형만 바뀝니다 — 시뮬 시작 지형은 ${pc ? '«시뮬 ▾»' : '«시뮬 실행 · 지도 관리» 서랍의 «시뮬 실행»'}`} value={vW} onChange={(e) => pickW(e.target.value)}
       style={{ ...fix, minHeight: pc ? 32 : 40, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
       {!vW && <option value="" disabled>지형 고르기</option>}
       {(Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => <option key={w} value={w}>{`${WORLD[w]}${runTag(w)}`}</option>)}</select>
@@ -260,10 +250,10 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
     {hOn && gt && (typeof hr === 'string' ? <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{`높이 미표시 · ${hr}`}</span>
       : !hv ? <span style={{ fontSize: 11, padding: '2px 6px', background: 'var(--bg)', color: 'var(--muted)' }}>높이 받는 중</span>
       : hLeg)}
-    {note && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: `var(--${raster ? 'muted' : 'warn'})` }}>{note}</span>}
+    {note && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: `var(--${raster ? 'muted' : 'warn'})` }}>{isAll && raster ? <>여러 층의 2D 지도<Help label="2D 지도 설명">{note}</Help></> : note}</span>}
   </span>;
   const showLive = () => pick(LIVE);   // 지도 체험 시작 수락 뒤 «실시간 지도 보기»(화면만 — 시작·조종 0)
   // GT 바닥 도면(±10 m 평지)이라고 쓰는 건 지금 켜진 쪽이 원본 평지 체험일 때만(지도 체험·모름이면 «지형 도면 없음»)
   const runner = useLink((x) => (x.st?.map_start?.session as any)?.runner), flat = runner === 'live_v2' || runner === 'ux_flat';
-  return { v3d, legend: hLeg || null, raster, pickEl: el, pose, live, on, blank, showLive, reload: load, flat, auto, view: pick, bar };
+  return { maps, v3d, legend: hLeg || null, raster, pickEl: el, pose, live, on, blank, showLive, reload: load, flat, auto, view: pick, bar };
 }

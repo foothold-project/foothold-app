@@ -37,9 +37,9 @@ export function gtFloors(ms: MapInfo[], w: string): MapInfo[] | string {
   if (gs.some((m) => m!.resolution !== a.resolution || m!.width !== a.width || m!.height !== a.height || m!.origin.some((x, i) => x !== a.origin[i]))) return '층 GT 지도의 원점·해상도·크기가 달라 나란히 못 그림';
   return gs as MapInfo[];
 }
-export const verLabel =(m: MapInfo) => `${(WF[m.world_id]?.length || 0) > 1 ? `${FLOOR[m.floor_id as keyof typeof FLOOR]} · ` : ''}${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 저장 지도'} · ${m.map_version}`;
+export const verLabel =(m: MapInfo) => `${(WF[m.world_id]?.length || 0) > 1 ? `${FLOOR[m.floor_id as keyof typeof FLOOR]} · ` : ''}${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : '저장한 지도'} · ${m.map_version}`;
 export const mapKey = (m: MapInfo) => `${m.building_id}/${m.floor_id}/${m.map_version}`;
-export const mapLabel = (m: MapInfo) => `${place(m.world_id, m.floor_id)} · ${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 저장 지도'} · ${m.map_version}`;
+export const mapLabel = (m: MapInfo) => `${place(m.world_id, m.floor_id)} · ${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : '저장한 지도'} · ${m.map_version}`;
 
 /** 층 나란히 보기의 층별 GT 를 받음. link 는 연결마다 지도 요청 하나(map_busy — 겹치면 «지도 요청 처리 중» 거절) → 한 층씩 차례로(M①).
  *  매 응답 뒤 still() 이 거짓이면 null(버림 · 다음 층 요청 0). 첫 실패에서 멈춤 = 그 층 이름 + 서버/해독 원문(부분 그림 0 · 자동 재시도 0) */
@@ -148,7 +148,7 @@ export const liveLabel = (v: LiveMap) => v.world_id && v.floor_id   // epoch 등
   : '현재 열린 지도';
 /** 지금 실제로 켜진 시뮬(서버 map_start.session) 한 줄 — 지형·층·작업·상태. 고른 것과 별개 */
 export type Sess = { result?: string; runner?: string; world_id?: string; floor_id?: string; map_mode?: string; remaining_s?: number } | null | undefined;
-export const TASK = { slam: 'SLAM 지도 만들기', static: '저장 지도로 시뮬 열기(SLAM 생성 없음)' } as const;
+export const TASK = { slam: '새 지도 만들기', static: '저장한 지도로 실행' } as const;
 export const runLine = (ss: Sess) => !ss ? '꺼짐 · 지도용 시뮬 없음(또는 상태 미확인)' : ss.runner === 'live_map'
   ? `${place(ss.world_id, ss.floor_id)} · ${ss.map_mode === 'slam' ? TASK.slam : ss.map_mode === 'static' ? TASK.static : '작업 미확인'} · ${ss.result === 'starting' ? '시작 중' : ss.result === 'running' ? '실행 중' : ss.result || '상태 미확인'}${typeof ss.remaining_s === 'number' ? ` · 남은 ${Math.max(0, Math.round(ss.remaining_s / 60))}분` : ''}`
   : ss.runner === 'ux_flat' || ss.runner === 'live_v2' ? `평지 시뮬(지도·라이다 없음) · ${ss.result || '상태 미확인'}` : `꺼짐 · ${ss.result || '상태 미확인'}`;

@@ -1,5 +1,16 @@
 # foothold-app
 
+현재 앱은 `ui/`의 React 화면과 인증 관문(`sim/v2_gate.py`)·연결 서버(`sim/v2_link.py`)를 사용한다. 아래의 `web/` 시안과 초기 연결 기록은 이전 구현 자료다. 시안용 값과 실제 연결 상태를 구분하며, 실 Go2·다중 로봇 물리 리허설·자동 이동의 성공을 뜻하지 않는다.
+
+새 리허설 작업은 PC 전체 관제 `#/Fleet`, 지도 편집 `#/MapEditor`, 휴대폰 현장 `#/Field`를 추가한다. 빈 주소의 첫 입구만 PC/휴대폰에 맞추며 기존 `#/Main`·`#/MDrive` 등 명시한 화면과 제어 경로를 유지한다. 편집·저장·2D 기하 검토·세계/지도 묶음 생성은 로봇 명령이나 Gazebo 기동을 하지 않는다.
+
+- [새 화면과 자료 보관·기능 범위](docs/REHEARSAL.md)
+- [리허설 API·JSON·상한 계약](docs/CONTRACT-rehearsal.md)
+
+소스 변경, 운영 웹 반영, APK 빌드는 각각 별도로 검증한다. APK에 서버 코드가 들어가는 것은 아니며, 실제 휴대폰/WebView와 물리 실행의 미확인 사항을 구조 검사 결과로 대신하지 않는다.
+
+## 이전 통합 개발판 기록(2026-10-17 · APK10)
+
 > **현재 통합 개발판** — 브랜치 `less82/app-platform-integration` (2026-10-17)
 > - 구성: `ui/` React·TypeScript 19화면 · `mobile/` Capacitor Android 외피(iOS 는 프로젝트만) · `sim/` Python 관문(`v2_gate.py`·`app_auth.py`)과 링크(`v2_link.py`)
 > - 화면: 관제 4분할·큰 칸+작은 화면(PIP) · 지도 열기·저장 · GT 높이 레이어 · 가로 조종 화면 정리 · 3D·외부 카메라 빈칸에 이유 표시 · 연결 건물(1·2층 한 건물) 지도 열기(시작층만 고름) · 건물 전체 3D(GT 간략 기하)
