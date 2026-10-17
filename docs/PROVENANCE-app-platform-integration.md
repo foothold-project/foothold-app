@@ -4,11 +4,11 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 UI 후보 — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `e75a40b26bd37f6ac81ae726bfadf6c41c07c723` (`less82/app-ui-react-recovered`, 리허설 계획·지도 편집·현장 화면 — R28 `a0d4df9`·사진 fix `0ae1245` 포함) | `ui` = `dcf2aeaab79e8fb5980409ef548f604955f35a5b` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `e75a40b`). 화면 QA 수용 전 후보 — 최종 pin 은 바뀔 수 있음 |
+| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `0314495388274e1b1feddee1c1fbd7468cc3e7aa` (`less82/app-ui-react-recovered`, 부모 `e75a40b` 리허설 계획·지도 편집·현장 화면 + `Field.tsx` 폰 가로 상태 가림 보완 1파일 — R28 `a0d4df9`·사진 fix `0ae1245` 포함) | `ui` = `c415ca3f35e5a4ea5495b749e06827366608e0f0` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `0314495`, 서버 쪽 트리는 `e75a40b` 와 같음). 670 좁은 폰 화면 QA 진행 중 |
 | `mobile/**` | `fcb212e89b78b5327c4c9aa40599087300f490cd` (`less82/app-contract-storage`) | `mobile` = `5769f471a1bf932941ba4f77d9122bb69f7f3444` | 파일 단위 변경 0. 직전 `2649149`(트리 `2934d4e`) 대비 5파일: 버전 11·`1.0.10` · 관문 고정 op `rehearsal.get`·`rehearsal.post` 추가와 그 시험 · 계약 문서 2 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md`: 맨 위는 UI 후보의 새 머리 그대로, 그 아래 «이전 통합 개발판 기록(2026-10-17 · APK10)» 절에 직전 통합 머리 전체 보존, 옛 web 기록 1벌(10-18 merge 충돌 해소) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only e75a40b26bd37f6ac81ae726bfadf6c41c07c723 HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 0314495388274e1b1feddee1c1fbd7468cc3e7aa HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
 
 서버 사진 저장 fix `0ae1245`(10-17, 부모 UI `e0abe98`): 사진 저장 처리의 미정의 변수 오류(NameError) 1줄 수정 + 회귀 시험. 서버 쪽 코드라 APK 와 무관 — APK10 `dev-20261017-slamstart` 은 이 fix 전 `e0abe98` 화면 파일로 빌드한 그대로이고, 사진 응답은 연결한 운영 서버 판에 따른다. 운영 반영은 10-17 서버 교체 뒤 운영 쪽 상태 점검 통과까지(실제 사진 촬영 동작 확인은 아님).
 
