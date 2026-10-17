@@ -1,0 +1,2128 @@
+{
+  "$defs": {
+    "Event": {
+      "properties": {
+        "st": {
+          "enum": [
+            "ok",
+            "warn",
+            "bad"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "st",
+        "text"
+      ],
+      "title": "Event",
+      "type": "object"
+    },
+    "LiveGrid": {
+      "properties": {
+        "h": {
+          "title": "H",
+          "type": "integer"
+        },
+        "origin": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Origin",
+          "type": "array"
+        },
+        "res": {
+          "title": "Res",
+          "type": "number"
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "stamp": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Stamp"
+        },
+        "upd": {
+          "default": false,
+          "title": "Upd",
+          "type": "boolean"
+        },
+        "w": {
+          "title": "W",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "w",
+        "h",
+        "res",
+        "origin"
+      ],
+      "title": "LiveGrid",
+      "type": "object"
+    },
+    "LiveMap": {
+      "description": "/v2_map/* 실시간 지도 요약(서버 결속 정본). 경로 없음. st: off 미수신 · stale 3 s 끊김 · unknown 형식 모름 · reset 리셋 중 · wait 이번 epoch 지도 전 · bad 지도 오류 · ok 표시",
+      "properties": {
+        "age_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Age S"
+        },
+        "bound": {
+          "default": false,
+          "title": "Bound",
+          "type": "boolean"
+        },
+        "building_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "v5",
+                "v5_single",
+                "rooms_a"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Building Id"
+        },
+        "epoch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Epoch"
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor"
+        },
+        "floor_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "f1",
+                "l1",
+                "l2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor Id"
+        },
+        "floor_rev": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor Rev"
+        },
+        "geom": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geom"
+        },
+        "grid": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveGrid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "last_save": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveSave"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "map_source": {
+          "anyOf": [
+            {
+              "enum": [
+                "slam",
+                "gt_raster"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Source"
+        },
+        "map_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Version"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "enum": [
+                "slam",
+                "static"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mode"
+        },
+        "pose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LivePose"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "pose_why": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pose Why"
+        },
+        "scan": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scan"
+        },
+        "sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sim T"
+        },
+        "slam": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Slam"
+        },
+        "spawn_floor": {
+          "anyOf": [
+            {
+              "enum": [
+                "f1",
+                "l1",
+                "l2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spawn Floor"
+        },
+        "st": {
+          "enum": [
+            "off",
+            "stale",
+            "unknown",
+            "reset",
+            "wait",
+            "bad",
+            "ok"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        },
+        "world_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "v5_single",
+                "v5_building",
+                "rooms_a"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "World Id"
+        },
+        "world_src_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "World Src Sha256"
+        }
+      },
+      "required": [
+        "st",
+        "why"
+      ],
+      "title": "LiveMap",
+      "type": "object"
+    },
+    "LivePose": {
+      "properties": {
+        "source": {
+          "enum": [
+            "slam_tf",
+            "gt_identity"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "yaw",
+        "source"
+      ],
+      "title": "LivePose",
+      "type": "object"
+    },
+    "LiveSave": {
+      "properties": {
+        "epoch": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Epoch"
+        },
+        "map_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "map_version",
+        "reason",
+        "epoch"
+      ],
+      "title": "LiveSave",
+      "type": "object"
+    },
+    "MapData": {
+      "properties": {
+        "building_id": {
+          "enum": [
+            "v5",
+            "v5_single",
+            "rooms_a"
+          ],
+          "title": "Building Id",
+          "type": "string"
+        },
+        "epoch": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Epoch"
+        },
+        "floor_id": {
+          "enum": [
+            "f1",
+            "l1",
+            "l2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "map_source": {
+          "enum": [
+            "slam",
+            "gt_raster"
+          ],
+          "title": "Map Source",
+          "type": "string"
+        },
+        "map_version": {
+          "title": "Map Version",
+          "type": "string"
+        },
+        "origin": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Origin",
+          "type": "array"
+        },
+        "png": {
+          "title": "Png",
+          "type": "string"
+        },
+        "resolution": {
+          "exclusiveMinimum": 0,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "saved_sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Saved Sim T"
+        },
+        "width": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "world_id": {
+          "enum": [
+            "v5_single",
+            "v5_building",
+            "rooms_a"
+          ],
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "world_id",
+        "building_id",
+        "floor_id",
+        "map_version",
+        "map_source",
+        "epoch",
+        "resolution",
+        "origin",
+        "width",
+        "height",
+        "saved_sim_t",
+        "png"
+      ],
+      "title": "MapData",
+      "type": "object"
+    },
+    "MapInfo": {
+      "description": "저장 지도 meta 요약(서버가 sha·크기 검증을 마친 것만). 행 순서는 PGM 그대로 — 첫 행 = y 가 가장 큰 쪽, origin = 왼쪽 아래 칸의 월드 좌표.",
+      "properties": {
+        "building_id": {
+          "enum": [
+            "v5",
+            "v5_single",
+            "rooms_a"
+          ],
+          "title": "Building Id",
+          "type": "string"
+        },
+        "epoch": {
+          "anyOf": [
+            {
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Epoch"
+        },
+        "floor_id": {
+          "enum": [
+            "f1",
+            "l1",
+            "l2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "map_source": {
+          "enum": [
+            "slam",
+            "gt_raster"
+          ],
+          "title": "Map Source",
+          "type": "string"
+        },
+        "map_version": {
+          "title": "Map Version",
+          "type": "string"
+        },
+        "origin": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Origin",
+          "type": "array"
+        },
+        "resolution": {
+          "exclusiveMinimum": 0,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "saved_sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Saved Sim T"
+        },
+        "width": {
+          "maximum": 2000,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        },
+        "world_id": {
+          "enum": [
+            "v5_single",
+            "v5_building",
+            "rooms_a"
+          ],
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "world_id",
+        "building_id",
+        "floor_id",
+        "map_version",
+        "map_source",
+        "epoch",
+        "resolution",
+        "origin",
+        "width",
+        "height",
+        "saved_sim_t"
+      ],
+      "title": "MapInfo",
+      "type": "object"
+    },
+    "MapLedger": {
+      "properties": {
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Keys",
+          "type": "array"
+        },
+        "max": {
+          "title": "Max",
+          "type": "integer"
+        },
+        "used": {
+          "title": "Used",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used",
+        "max",
+        "keys"
+      ],
+      "title": "MapLedger",
+      "type": "object"
+    },
+    "MapSaveState": {
+      "properties": {
+        "busy": {
+          "title": "Busy",
+          "type": "boolean"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "why",
+        "busy"
+      ],
+      "title": "MapSaveState",
+      "type": "object"
+    },
+    "MapStartState": {
+      "description": "지도 체험 시작. 원장은 지도 체험 것(map-20261014)만 — 기존 체험 원장(sim_stop.ledger_left)과 섞지 않는다",
+      "properties": {
+        "busy": {
+          "title": "Busy",
+          "type": "boolean"
+        },
+        "follow_cam_ok": {
+          "default": false,
+          "title": "Follow Cam Ok",
+          "type": "boolean"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimStopLast"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ledger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MapLedger"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Session"
+        },
+        "usage_scope": {
+          "anyOf": [
+            {
+              "enum": [
+                "experiment",
+                "user_experience"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usage Scope"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "why",
+        "busy",
+        "ledger",
+        "session",
+        "last"
+      ],
+      "title": "MapStartState",
+      "type": "object"
+    },
+    "PhotoMeta": {
+      "description": "photos.jsonl 한 줄 = 사진 저장 응답. 위치는 저장 요청 때의 최신 GT(프레임 동기 아님).",
+      "properties": {
+        "by": {
+          "title": "By",
+          "type": "string"
+        },
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "camera": {
+          "title": "Camera",
+          "type": "string"
+        },
+        "episode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Episode"
+        },
+        "frame_at": {
+          "title": "Frame At",
+          "type": "string"
+        },
+        "frame_stamp_sim_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Stamp Sim S"
+        },
+        "gt_age_s": {
+          "title": "Gt Age S",
+          "type": "number"
+        },
+        "gt_note": {
+          "title": "Gt Note",
+          "type": "string"
+        },
+        "saved_at": {
+          "title": "Saved At",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "url": {
+          "pattern": "^media/photos/[0-9]{8}/[A-Za-z0-9_.-]{1,80}\\.jpg$",
+          "title": "Url",
+          "type": "string"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Yaw"
+        }
+      },
+      "required": [
+        "frame_at",
+        "frame_stamp_sim_s",
+        "episode",
+        "by",
+        "source",
+        "x",
+        "y",
+        "yaw",
+        "gt_note",
+        "gt_age_s",
+        "camera",
+        "saved_at",
+        "bytes",
+        "url"
+      ],
+      "title": "PhotoMeta",
+      "type": "object"
+    },
+    "Reply": {
+      "properties": {
+        "geom": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geom"
+        },
+        "geom_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Geom Sha256"
+        },
+        "height": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Height"
+        },
+        "live": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Live"
+        },
+        "map": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MapData"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "maps": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MapInfo"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Maps"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "op": {
+          "const": "reply",
+          "title": "Op",
+          "type": "string"
+        },
+        "photo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PhotoMeta"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rid"
+        },
+        "save": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Save"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        },
+        "view": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "View"
+        }
+      },
+      "required": [
+        "op",
+        "rid",
+        "ok",
+        "text"
+      ],
+      "title": "Reply",
+      "type": "object"
+    },
+    "SimSession": {
+      "properties": {
+        "ends_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ends At"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "remaining_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Remaining S"
+        },
+        "result": {
+          "anyOf": [
+            {
+              "enum": [
+                "running",
+                "starting",
+                "idle"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Result"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        }
+      },
+      "required": [
+        "result",
+        "reason",
+        "started_at",
+        "ends_at",
+        "remaining_s"
+      ],
+      "title": "SimSession",
+      "type": "object"
+    },
+    "SimStartLast": {
+      "properties": {
+        "st": {
+          "enum": [
+            "ok",
+            "bad"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "st",
+        "text"
+      ],
+      "title": "SimStartLast",
+      "type": "object"
+    },
+    "SimStartLedger": {
+      "description": "기존(평지) 체험 원장 — RL session_status.sh 읽기만. 누적 횟수(날짜로 다시 채워지지 않음). 신선·정수·max 정본 8·0≤used≤max 일 때만, 아니면 상위가 null(미확인)",
+      "properties": {
+        "max": {
+          "title": "Max",
+          "type": "integer"
+        },
+        "used": {
+          "title": "Used",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "used",
+        "max"
+      ],
+      "title": "SimStartLedger",
+      "type": "object"
+    },
+    "SimStartState": {
+      "properties": {
+        "busy": {
+          "title": "Busy",
+          "type": "boolean"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimStartLast"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ledger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimStartLedger"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "session": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimSession"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "usage_scope": {
+          "anyOf": [
+            {
+              "enum": [
+                "experiment",
+                "user_experience"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usage Scope"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "why",
+        "busy",
+        "session"
+      ],
+      "title": "SimStartState",
+      "type": "object"
+    },
+    "SimState": {
+      "description": "status.sim = v2_link clean_state() 결과. 관문값 4개는 항상 형식이 맞다(아니면 sim 자체를 받지 않음).\n나머지는 시뮬이 형식에 맞게 보냈을 때만 값, 아니면 null(=미확인). 키는 항상 모두 있다.",
+      "properties": {
+        "body_still": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Body Still"
+        },
+        "camera": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Camera"
+        },
+        "cmd_age_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cmd Age S"
+        },
+        "cmd_applied": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cmd Applied"
+        },
+        "cmd_tested": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cmd Tested"
+        },
+        "episode": {
+          "title": "Episode",
+          "type": "integer"
+        },
+        "fallback_active": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fallback Active"
+        },
+        "fallen": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fallen"
+        },
+        "online_ready": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Online Ready"
+        },
+        "plugin_mode": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Plugin Mode"
+        },
+        "policy_running": {
+          "title": "Policy Running",
+          "type": "boolean"
+        },
+        "reset_in_progress": {
+          "title": "Reset In Progress",
+          "type": "boolean"
+        },
+        "resume_wait": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Resume Wait"
+        },
+        "rtf": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Rtf"
+        },
+        "safe_fallback_verified": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Safe Fallback Verified"
+        },
+        "sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sim T"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "stop_requested": {
+          "title": "Stop Requested",
+          "type": "boolean"
+        },
+        "terrain_input": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Terrain Input"
+        },
+        "tilt_deg": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tilt Deg"
+        },
+        "ttl_expired": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ttl Expired"
+        },
+        "ttl_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ttl S"
+        },
+        "vx": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vx"
+        },
+        "vy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Vy"
+        },
+        "wz": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wz"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Yaw"
+        },
+        "z": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Z"
+        }
+      },
+      "required": [
+        "episode",
+        "stop_requested",
+        "reset_in_progress",
+        "policy_running",
+        "sim_t",
+        "x",
+        "y",
+        "z",
+        "yaw",
+        "vx",
+        "vy",
+        "wz",
+        "tilt_deg",
+        "rtf",
+        "cmd_age_s",
+        "ttl_s",
+        "fallen",
+        "body_still",
+        "resume_wait",
+        "ttl_expired",
+        "cmd_tested",
+        "fallback_active",
+        "online_ready",
+        "safe_fallback_verified",
+        "source",
+        "terrain_input",
+        "camera",
+        "plugin_mode",
+        "cmd_applied"
+      ],
+      "title": "SimState",
+      "type": "object"
+    },
+    "SimStopLast": {
+      "properties": {
+        "st": {
+          "enum": [
+            "ok",
+            "bad"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "st",
+        "text"
+      ],
+      "title": "SimStopLast",
+      "type": "object"
+    },
+    "SimStopState": {
+      "description": "«Gazebo 종료»(로봇 STOP 아님). 거부 이유·실행 판단의 정본은 서버. Gazebo 잔여 프로세스 0 은 확인 범위 밖",
+      "properties": {
+        "busy": {
+          "title": "Busy",
+          "type": "boolean"
+        },
+        "last": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimStopLast"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ledger_kind": {
+          "anyOf": [
+            {
+              "enum": [
+                "online",
+                "map",
+                "user"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ledger Kind"
+        },
+        "ledger_left": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ledger Left"
+        },
+        "ok": {
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "on": {
+          "title": "On",
+          "type": "boolean"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ok",
+        "why",
+        "busy",
+        "on",
+        "ledger_left",
+        "last"
+      ],
+      "title": "SimStopState",
+      "type": "object"
+    },
+    "Status": {
+      "description": "10 Hz 상태. 안전 판단(latch·applied·reason)의 정본은 서버. role 은 송신 허용에만 쓴다.",
+      "properties": {
+        "applied": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Applied",
+          "type": "array"
+        },
+        "cam_age": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Cam Age"
+        },
+        "docs_rev": {
+          "title": "Docs Rev",
+          "type": "integer"
+        },
+        "episode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Episode"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/Event"
+          },
+          "maxItems": 6,
+          "title": "Events",
+          "type": "array"
+        },
+        "holder": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Holder"
+        },
+        "latch": {
+          "title": "Latch",
+          "type": "boolean"
+        },
+        "live_map": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LiveMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "map_save": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MapSaveState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "map_start": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MapStartState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "me": {
+          "title": "Me",
+          "type": "string"
+        },
+        "note": {
+          "title": "Note",
+          "type": "string"
+        },
+        "op": {
+          "const": "status",
+          "title": "Op",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "reset_pending": {
+          "title": "Reset Pending",
+          "type": "boolean"
+        },
+        "resume_pending": {
+          "title": "Resume Pending",
+          "type": "boolean"
+        },
+        "role": {
+          "enum": [
+            "control",
+            "view_other",
+            "view"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "ros_domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ros Domain"
+        },
+        "sim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimState"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sim_block": {
+          "title": "Sim Block",
+          "type": "string"
+        },
+        "sim_start": {
+          "$ref": "#/$defs/SimStartState"
+        },
+        "sim_stop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SimStopState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "state_age": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "State Age"
+        },
+        "stop_gen": {
+          "title": "Stop Gen",
+          "type": "integer"
+        },
+        "ver": {
+          "title": "Ver",
+          "type": "string"
+        },
+        "views": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Views"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "op",
+        "role",
+        "latch",
+        "stop_gen",
+        "applied",
+        "reason",
+        "sim_block",
+        "resume_pending",
+        "reset_pending",
+        "episode",
+        "ros_domain",
+        "state_age",
+        "cam_age",
+        "sim",
+        "events",
+        "note",
+        "me",
+        "holder",
+        "ver",
+        "sim_start",
+        "docs_rev"
+      ],
+      "title": "Status",
+      "type": "object"
+    },
+    "ViewProd": {
+      "description": "/v2_map/status 의 points_view·follow_cam 칸. reason = RL 코드(link 허용표 밖은 'unknown')",
+      "properties": {
+        "enabled": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Enabled"
+        },
+        "n_pub": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "N Pub"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "reason",
+        "n_pub",
+        "enabled"
+      ],
+      "title": "ViewProd",
+      "type": "object"
+    },
+    "ViewRun": {
+      "description": "follow /2 결속 키 — 층·지도와 분리(RL FOLLOW-CONTRACT-v2)",
+      "properties": {
+        "building_id": {
+          "title": "Building Id",
+          "type": "string"
+        },
+        "epoch": {
+          "minimum": 1,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "mode": {
+          "enum": [
+            "slam",
+            "static"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "run_id": {
+          "pattern": "^[0-9a-f]{32}$",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "world_id": {
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_id",
+        "epoch",
+        "world_id",
+        "building_id",
+        "mode"
+      ],
+      "title": "ViewRun",
+      "type": "object"
+    },
+    "ViewSrc": {
+      "description": "보조 뷰 출처 상태. st: off 미수신 · stale 끊김 · bad 형식·결속 틀림(이번 것 버림) · ok",
+      "properties": {
+        "age_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Age S"
+        },
+        "prod": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ViewProd"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ViewRun"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "seq": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Seq"
+        },
+        "st": {
+          "enum": [
+            "off",
+            "stale",
+            "bad",
+            "ok"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "why": {
+          "title": "Why",
+          "type": "string"
+        }
+      },
+      "required": [
+        "st",
+        "why",
+        "seq",
+        "age_s"
+      ],
+      "title": "ViewSrc",
+      "type": "object"
+    },
+    "Views": {
+      "properties": {
+        "follow": {
+          "$ref": "#/$defs/ViewSrc"
+        },
+        "lidar": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ViewSrc"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "points": {
+          "$ref": "#/$defs/ViewSrc"
+        }
+      },
+      "required": [
+        "follow",
+        "points"
+      ],
+      "title": "Views",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ServerMsg",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "reply": "#/$defs/Reply",
+      "status": "#/$defs/Status"
+    },
+    "propertyName": "op"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/Status"
+    },
+    {
+      "$ref": "#/$defs/Reply"
+    }
+  ]
+}

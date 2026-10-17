@@ -1,0 +1,366 @@
+{
+  "$defs": {
+    "OpCmd": {
+      "description": "20 Hz. 손 뗌 = 0,0,0. 형식이 틀리면 서버는 거부가 아니라 «명령 0 + 입력 무효화»로 처리한다.",
+      "properties": {
+        "fw": {
+          "maximum": 1,
+          "minimum": -1,
+          "title": "Fw",
+          "type": "number"
+        },
+        "fx": {
+          "maximum": 1,
+          "minimum": -1,
+          "title": "Fx",
+          "type": "number"
+        },
+        "fy": {
+          "maximum": 1,
+          "minimum": -1,
+          "title": "Fy",
+          "type": "number"
+        },
+        "op": {
+          "const": "cmd",
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "fx",
+        "fy",
+        "fw"
+      ],
+      "title": "OpCmd",
+      "type": "object"
+    },
+    "OpGeomGet": {
+      "description": "건물 전체 GT 간략 기하(RL v2_building_geom/1, 읽기만 · 센서·주행 판정 아님). 10-15 root GO — 서버 --geom-root 안 정해진 파일만·≤512KB·엄격 검사·연결당 1건·5 s.",
+      "properties": {
+        "building_id": {
+          "const": "v5",
+          "title": "Building Id",
+          "type": "string"
+        },
+        "op": {
+          "const": "geom_get",
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        }
+      },
+      "required": [
+        "op",
+        "building_id"
+      ],
+      "title": "OpGeomGet",
+      "type": "object"
+    },
+    "OpMapGet": {
+      "description": "저장 지도 한 장(map_get) 또는 그 지도의 GT 높이 레이어(height_get). 이름은 서버 허용목록·정규식으로 다시 검사한다(docs/CONTRACT-maps-sim-stop.md).",
+      "properties": {
+        "building_id": {
+          "enum": [
+            "v5",
+            "v5_single",
+            "rooms_a"
+          ],
+          "title": "Building Id",
+          "type": "string"
+        },
+        "floor_id": {
+          "enum": [
+            "f1",
+            "l1",
+            "l2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version": {
+          "pattern": "^(\\d{8}-\\d{6}-e\\d+|gt-\\d{8})$",
+          "title": "Map Version",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "map_get",
+            "height_get"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        }
+      },
+      "required": [
+        "op",
+        "building_id",
+        "floor_id",
+        "map_version"
+      ],
+      "title": "OpMapGet",
+      "type": "object"
+    },
+    "OpMapStart": {
+      "description": "지도 체험 시작(RL start_map.sh 1회). 허용표·버전 규칙·원장·조종 상태는 서버가 다시 검사한다(docs/CONTRACT-maps-sim-stop.md 8절).",
+      "properties": {
+        "floor_id": {
+          "enum": [
+            "f1",
+            "l1",
+            "l2"
+          ],
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "follow_cam": {
+          "default": false,
+          "title": "Follow Cam",
+          "type": "boolean"
+        },
+        "map_version": {
+          "anyOf": [
+            {
+              "pattern": "^(\\d{8}-\\d{6}-e\\d+|gt-\\d{8})$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Version"
+        },
+        "mode": {
+          "enum": [
+            "slam",
+            "static"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "op": {
+          "const": "map_start",
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        },
+        "world_id": {
+          "enum": [
+            "v5_single",
+            "v5_building",
+            "rooms_a"
+          ],
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "world_id",
+        "floor_id",
+        "mode"
+      ],
+      "title": "OpMapStart",
+      "type": "object"
+    },
+    "OpResume": {
+      "description": "STOP 해제. stop_gen(10-15 N1) = «조종 시작» 확인 때 본 status.stop_gen — 서버의 지금 값과 다르면 거부(CAS, 재시도 없음).\n없으면 옛 클라이언트(따로 누르는 «STOP 해제»)로 그대로 처리. 있는데 0 이상 정수가 아니면(null·bool·실수·문자) 거부.",
+      "properties": {
+        "op": {
+          "const": "resume",
+          "title": "Op",
+          "type": "string"
+        },
+        "stop_gen": {
+          "default": null,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "OpResume",
+      "type": "object"
+    },
+    "OpRid": {
+      "description": "응답(op=reply)이 오는 요청. rid 가 정수가 아니면 서버는 rid=null 로 답한다.",
+      "properties": {
+        "op": {
+          "enum": [
+            "photo",
+            "sim_start",
+            "sim_stop",
+            "map_list",
+            "map_live_get",
+            "map_save"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "OpRid",
+      "type": "object"
+    },
+    "OpSimple": {
+      "properties": {
+        "op": {
+          "enum": [
+            "take",
+            "release",
+            "stop",
+            "reset",
+            "hidden"
+          ],
+          "title": "Op",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "title": "OpSimple",
+      "type": "object"
+    },
+    "OpViewGet": {
+      "description": "보조 관제 뷰 최신 1개(앱이 보고 있을 때만 ≤2 Hz 로 당겨 감 — 서버가 밀어넣지 않음). follow = Gazebo 렌더 3인칭, points = /v2_map/points_view",
+      "properties": {
+        "op": {
+          "const": "view_get",
+          "title": "Op",
+          "type": "string"
+        },
+        "rid": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rid"
+        },
+        "what": {
+          "enum": [
+            "follow",
+            "points",
+            "lidar"
+          ],
+          "title": "What",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op",
+        "what"
+      ],
+      "title": "OpViewGet",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ClientOp",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "cmd": "#/$defs/OpCmd",
+      "geom_get": "#/$defs/OpGeomGet",
+      "height_get": "#/$defs/OpMapGet",
+      "hidden": "#/$defs/OpSimple",
+      "map_get": "#/$defs/OpMapGet",
+      "map_list": "#/$defs/OpRid",
+      "map_live_get": "#/$defs/OpRid",
+      "map_save": "#/$defs/OpRid",
+      "map_start": "#/$defs/OpMapStart",
+      "photo": "#/$defs/OpRid",
+      "release": "#/$defs/OpSimple",
+      "reset": "#/$defs/OpSimple",
+      "resume": "#/$defs/OpResume",
+      "sim_start": "#/$defs/OpRid",
+      "sim_stop": "#/$defs/OpRid",
+      "stop": "#/$defs/OpSimple",
+      "take": "#/$defs/OpSimple",
+      "view_get": "#/$defs/OpViewGet"
+    },
+    "propertyName": "op"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/OpSimple"
+    },
+    {
+      "$ref": "#/$defs/OpResume"
+    },
+    {
+      "$ref": "#/$defs/OpCmd"
+    },
+    {
+      "$ref": "#/$defs/OpRid"
+    },
+    {
+      "$ref": "#/$defs/OpMapGet"
+    },
+    {
+      "$ref": "#/$defs/OpGeomGet"
+    },
+    {
+      "$ref": "#/$defs/OpMapStart"
+    },
+    {
+      "$ref": "#/$defs/OpViewGet"
+    }
+  ]
+}

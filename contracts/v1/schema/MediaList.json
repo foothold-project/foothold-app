@@ -1,0 +1,189 @@
+{
+  "$defs": {
+    "MediaEvent": {
+      "properties": {
+        "at": {
+          "title": "At",
+          "type": "string"
+        },
+        "st": {
+          "enum": [
+            "ok",
+            "warn",
+            "bad"
+          ],
+          "title": "St",
+          "type": "string"
+        },
+        "t": {
+          "title": "T",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "st",
+        "text",
+        "at"
+      ],
+      "title": "MediaEvent",
+      "type": "object"
+    },
+    "PhotoMeta": {
+      "description": "photos.jsonl 한 줄 = 사진 저장 응답. 위치는 저장 요청 때의 최신 GT(프레임 동기 아님).",
+      "properties": {
+        "by": {
+          "title": "By",
+          "type": "string"
+        },
+        "bytes": {
+          "title": "Bytes",
+          "type": "integer"
+        },
+        "camera": {
+          "title": "Camera",
+          "type": "string"
+        },
+        "episode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Episode"
+        },
+        "frame_at": {
+          "title": "Frame At",
+          "type": "string"
+        },
+        "frame_stamp_sim_s": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Frame Stamp Sim S"
+        },
+        "gt_age_s": {
+          "title": "Gt Age S",
+          "type": "number"
+        },
+        "gt_note": {
+          "title": "Gt Note",
+          "type": "string"
+        },
+        "saved_at": {
+          "title": "Saved At",
+          "type": "string"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "url": {
+          "pattern": "^media/photos/[0-9]{8}/[A-Za-z0-9_.-]{1,80}\\.jpg$",
+          "title": "Url",
+          "type": "string"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Yaw"
+        }
+      },
+      "required": [
+        "frame_at",
+        "frame_stamp_sim_s",
+        "episode",
+        "by",
+        "source",
+        "x",
+        "y",
+        "yaw",
+        "gt_note",
+        "gt_age_s",
+        "camera",
+        "saved_at",
+        "bytes",
+        "url"
+      ],
+      "title": "PhotoMeta",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MediaList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "GET /api/media. 최신 먼저, 사진 ≤200 · 사건 ≤300. 깨진 줄은 서버가 건너뜀.",
+  "properties": {
+    "events": {
+      "items": {
+        "$ref": "#/$defs/MediaEvent"
+      },
+      "title": "Events",
+      "type": "array"
+    },
+    "photos": {
+      "items": {
+        "$ref": "#/$defs/PhotoMeta"
+      },
+      "title": "Photos",
+      "type": "array"
+    },
+    "ver": {
+      "title": "Ver",
+      "type": "string"
+    }
+  },
+  "required": [
+    "photos",
+    "events",
+    "ver"
+  ],
+  "title": "MediaList",
+  "type": "object"
+}
