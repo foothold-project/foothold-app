@@ -981,7 +981,7 @@ def selftest_extra():
 MAP_WORLDS = {'v5_single': ('v5_single', ('f1',)), 'v5_building': ('v5', ('l1', 'l2')), 'rooms_a': ('rooms_a', ('f1',))}
 MAP_FLOORS = {b: fl for b, fl in MAP_WORLDS.values()}
 MAP_VER = re.compile(r'\d{8}-\d{6}-e\d+|gt-\d{8}')          # 저장본 / 사전 GT 래스터
-MAP_REASON = ('user_save', 'pre_reset_autosave', 'gt_raster_copy')
+MAP_REASON = ('user_save', 'pre_reset_autosave', 'gt_raster_copy', 'floor_leave')   # floor_leave = RL 구동기 층 이탈 자동 저장(SR live_map do_save) — 10-18 생산자 계약과 맞춤, 다른 관문 그대로
 MAP_DIM, MAP_PNG_MAX, MAP_PGM_MAX = 2000, 512 * 1024, 4_100_000
 
 
@@ -2366,7 +2366,9 @@ def selftest_maps():
                ('20261014-100008-e1', {'world_id': 'v5_single'}), ('20261014-100009-e1', {'building_id': {'x': 1}}), ('20261014-100011-e1', {'epoch': 0}),
                ('20261014-100012-e1', {'epoch': None}), ('20261014-100013-e1', {'map_frame': 'odom'}), ('20261014-100014-e1', {'reason': 'x'}),
                ('gt-20261013', {'map_source': 'gt_raster', 'epoch': 1}),
-               ('gt-20261014', {'map_source': 'gt_raster', 'source_sha256': None})]
+               ('gt-20261014', {'map_source': 'gt_raster', 'source_sha256': None}),
+               ('20261014-100023-e1', {'reason': 'floor_left'}), ('20261014-100024-e1', {'reason': 'floor_leave', 'sha256_pgm': '0' * 64}),   # floor_leave 도 철자·sha·층 관문 그대로
+               ('20261014-100025-e1', {'reason': 'floor_leave', 'floor_id': 'l2'})]
         for v, kw in bad:
             put('v5', 'l1', v, **kw)
         put('v5', 'l1', '20261014-100019-e1', yml='resolution: 0.1\norigin: [-20, -14, 0]\n')     # yaml 해상도 어긋남
@@ -2379,9 +2381,11 @@ def selftest_maps():
         (root / 'v5' / 'l1' / '20261014-100006-e1').symlink_to(root / 'v5' / 'l2' / V)      # 다른 층으로 새는 링크
         put('v5', 'l2', '20261014-100010-e2', saved_sim_t=None, saved_wall=None, note='추가 키 허용')
         put('v5_single', 'f1', G, world_id='v5_single', **GT)                                # 단층은 따로 건물 키
+        put('v5', 'l2', '20261014-100026-e3', reason='floor_leave', floor_rev=15, spawn_floor='l1', map_to_odom=[0.0, 0.0, 0.0], posegraph={'ok': True})   # 층 이탈 저장본(추가 키 포함) 통과
         lst, sk = s.listing(); assert [(x['building_id'], x['floor_id'], x['map_version']) for x in lst] == [
-            ('v5_single', 'f1', G), ('v5', 'l1', G), ('v5', 'l2', V), ('v5', 'l2', '20261014-100010-e2')] and sk == len(bad) + 9, (lst, sk)
+            ('v5_single', 'f1', G), ('v5', 'l1', G), ('v5', 'l2', V), ('v5', 'l2', '20261014-100010-e2'), ('v5', 'l2', '20261014-100026-e3')] and sk == len(bad) + 9, (lst, sk)
         assert lst[3]['saved_sim_t'] is None and lst[0]['world_id'] == 'v5_single' and 'note' not in lst[3]
+        assert lst[4]['map_source'] == 'slam' and lst[4]['epoch'] == 1 and not {'floor_rev', 'map_to_odom', 'posegraph', 'reason'} & set(lst[4])   # 요약 칸 그대로(추가 키 비노출)
         for args in [('v5', 'l1', '20261014-100001-e1'), ('v5', 'l1', '20261014-100004-e1'), ('v5', 'l3', V), ('x', 'l1', V), ('v5', 'floor1', G),
                      ('v5', 'l1', '../l2/' + V), ('v5', 'l1', '20261014-999999-e1'), ('v5', 'l1', '20261014-100006-e1'), ('v5', 'l1', None), ('v5', 'l1', 'gt-2026101')]:
             try:

@@ -167,7 +167,7 @@ export default function Main() {
       <button type="button" className="btn" {...goP}>{goT}</button>
       {ctl && <Pad k="big" no={no} />}<span>{`${mode} · ${v.roleTxt}`}<span data-dev>{` · 보낸 명령 ${v.sent} · ${v.body}`}</span></span><SafeLine />
       <button type="button" className="btn" onClick={bigClose}>닫기 (Esc)</button></div> : null,
-    // 조작줄: 조종 시작(N1, startBlock 그대로 — 조종권+STOP 잠금이면 다시 «조종 시작») · 조종 반납(조종권 있을 때만) · 시뮬 리셋은 «시뮬 ▾» 메뉴로
+    // 조작줄: 조종 시작(N1, startBlock 그대로 — 조종권+STOP 잠금이면 다시 «조종 시작») · 조종 반납(조종권 있을 때만) · 시뮬 리셋은 오른쪽 «시뮬 실행» 칸(SimReset)
     b1T: goT, b1P: goP,
     b2T: '조종 반납', b2P: { onClick: () => sendOp('release'), hidden: role !== 'control', disabled: !v.linkOk || role !== 'control', title: !v.linkOk ? '연결 확인 안 됨' : '조종 반납(입력 차단·잠금)' },
     b2Help: role === 'control' ? <Help label="조종 반납 · 설명">반납하면 다른 기기가 «조종 시작»으로 조종할 수 있습니다 · 반납하면 입력 차단·잠금</Help> : null,

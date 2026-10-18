@@ -10,7 +10,7 @@ import { r2, zoneTxt } from '../data/run';
 import { GOTO_WHY, defMods } from '../data/tmpl';
 import { TERMS, ZONE_NOTE } from '../data/facts';
 import { MODE_KO, MapCanvas, type MapApi } from '../map/MapCanvas';
-import { LiveStatus } from '../app/status';
+import { LiveStatus, SimReset } from '../app/status';
 import { useMapPick } from '../map/MapPick';
 import { MapStartBox } from '../map/MapStartBox';
 import { Drawer, SimOff, stopProps, toast } from '../app/shell';
@@ -71,7 +71,7 @@ export default function MMap() {
       <select className="lv-inp" aria-label="지점을 넣을 계획" value={mid} onChange={(e) => setMid(e.target.value)}>
         <option value="">+ 새 계획으로</option>{ms.map((m) => <option key={m.id} value={m.id}>{`${m.doc.name} · 지점 ${m.doc.wps.length}`}</option>)}</select>
       <button type="button" className="lv-btn pri" onClick={add}>계획에 지점 추가</button></div>
-      : <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button type="button" className="lv-btn pri" onClick={() => setLayers(true)}>시뮬 실행 · 지도 관리</button><SimOff className="lv-btn" /></span>,   // 지도 열기·저장 입구를 화면에 늘 보이게(서랍) + 끄기 입구(STOP 은 위쪽 따로)
+      : <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}><button type="button" className="lv-btn pri" onClick={() => setLayers(true)}>시뮬 실행 · 지도 관리</button><SimReset t="리셋" /><SimOff className="lv-btn" /></span>,   // 지도 열기·저장 입구를 화면에 늘 보이게(서랍) + 리셋(10-18 root D8: 상단 «시뮬 ▾» 제거로 옮김 · 같은 SimReset) + 끄기 입구(STOP 은 위쪽 따로)
   };
   const B = (t: string, f: () => void) => <button type="button" className="lv-btn" onClick={() => { f(); redraw((n) => n + 1); }}>{t}</button>;
   const drawer = layers && <Drawer title="지도 열기 · 보기" onClose={() => setLayers(false)}>

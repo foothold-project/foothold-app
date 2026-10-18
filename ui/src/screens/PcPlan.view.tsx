@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":1120};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--bad-strong:#B3261E;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--gridc:rgba(154,167,179,.07);--bad-bg:rgba(255,90,82,.13);--warn-bg:rgba(255,181,71,.12);--ok-bg:rgba(90,169,255,.10);--acc-bg:rgba(56,198,217,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--bad-strong:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--gridc:rgba(18,23,28,.06);--bad-bg:rgba(179,38,30,.08);--warn-bg:rgba(154,88,0,.09);--ok-bg:rgba(31,95,191,.08);--acc-bg:rgba(0,109,122,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,select{font:inherit;color:inherit}\nbutton{cursor:pointer}\n.chip{display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;background:var(--panel2);white-space:nowrap}\n.chip .mk{font-size:11px;color:var(--ok)}\n.btn{height:44px;padding:0 16px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px}\n.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\n.btn.pri[disabled]{background:var(--line);border-color:var(--line);color:var(--muted);cursor:not-allowed}\n.btn.sm{height:34px;padding:0 10px;font-size:13px}\n.tool{height:38px;padding:0 10px;border:1px solid transparent;border-radius:6px;background:transparent;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}\n.tool[aria-pressed=\"true\"]{background:var(--acc-bg);border-color:var(--accent);color:var(--text)}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}\n.sec{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}\n.sec h3{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}\n.lbl{font-size:12px;color:var(--muted)}\n.inp{height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:14px;box-sizing:border-box;width:100%}\n.wp{display:grid;grid-template-columns:18px 28px 1fr auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}\n.wp.sel{border-color:var(--accent);background:var(--acc-bg)}\n.num{width:26px;height:26px;border-radius:50%;border:2px solid var(--accent);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--accent)}\n.act{font-size:11px;padding:2px 7px;border-radius:4px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}\n.opt{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.45;cursor:pointer}\n.opt.on{border-color:var(--accent);background:var(--acc-bg)}\n.opt input{margin:3px 0 0;accent-color:var(--accent);width:16px;height:16px}\n.ck{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13px}\n.ck .m.ok{color:var(--ok)}.ck .m.warn{color:var(--warn)}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any; hdrA?: any; hdrB?: any; pill?: any; chips?: any; status?: any; stopProps?: any; tSel?: any; tAdd?: any; tNo?: any; tSlow?: any; tMeas?: any; prevP?: any; prevT?: any; map?: any; ov1?: any; ov2?: any; planBox?: any; tplP?: any; tplO?: any; tplHref?: any; rH?: any; rList?: any; lost?: any; aH?: any; aOpts?: any; ruleHref?: any; cH?: any; cList?: any; fb0?: any; fb0T?: any; fb1?: any; fb2?: any; saveP?: any; saveT?: any; startP?: any; startT?: any; startDis?: any; msg?: any; why?: any; stopSub?: any; stopHelp?: any; };
+export type Vals = { themeClass?: any; hdrA?: any; hdrB?: any; pill?: any; chips?: any; status?: any; stopProps?: any; tSel?: any; tAdd?: any; tNo?: any; tSlow?: any; tMeas?: any; prevP?: any; prevT?: any; map?: any; ov1?: any; ov2?: any; planBox?: any; tplP?: any; tplO?: any; tplHref?: any; tplHelp?: any; rH?: any; rList?: any; lost?: any; aH?: any; aOpts?: any; cH?: any; cList?: any; fb1?: any; saveP?: any; saveT?: any; startP?: any; startT?: any; startDis?: any; msg?: any; why?: any; stopSub?: any; stopHelp?: any; };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -118,7 +118,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <nav aria-label="주 메뉴" style={{"flex":"0 0 76px","display":"flex","flexDirection":"column","alignItems":"center","gap":"4px","padding":"12px 6px","borderRight":"1px solid var(--line)","background":"var(--panel)"}}>
             {" "}
-            <a className="nav" href="#/Main">
+            <a className="nav" href="#/Fleet">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="8" />
                 <circle cx="12" cy="12" r="3" />
@@ -127,7 +127,7 @@ export function View({ v }: { v: Vals }) {
               {"관제"}
             </a>
             {" "}
-            <a className="nav cur" href="#/PcMissions" aria-current="page">
+            <a className="nav cur" href="#/PcPlan" aria-current="page">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <path d="M4 19l5-14 5 9 3-4 3 9" />
                 <circle cx="9" cy="5" r="1.5" />
@@ -157,17 +157,6 @@ export function View({ v }: { v: Vals }) {
                 <path d="M9 21h6M12 18v3M9 9h.01M15 9h.01" />
               </svg>
               {"로봇"}
-            </a>
-            {" "}
-            {/* 새 기획 10-18: 전체 관제·지도 편집 입구(링크만) */}
-            <a className="nav" href="#/Fleet">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
-              {"전체 관제"}
-            </a>
-            {" "}
-            <a className="nav" href="#/MapEditor">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M14 14l4-4 2 2-4 4h-2z" /></svg>
-              {"지도 편집"}
             </a>
             {" "}
             <div style={{"flex":"1"}} />
@@ -200,7 +189,7 @@ export function View({ v }: { v: Vals }) {
                     <circle cx="12" cy="10" r="3" />
                     <path d="M12 21s-7-6-7-11a7 7 0 0114 0c0 5-7 11-7 11z" />
                   </svg>
-                  {"측정 지점 추가"}
+                  {"지점 추가"}
                 </button>
                 {" "}
                 <button className="tool" aria-pressed="false" {...v.tNo}>
@@ -371,7 +360,7 @@ export function View({ v }: { v: Vals }) {
                 <div style={{"display":"flex","justifyContent":"space-between","alignItems":"baseline"}}>
                   <label className="lbl" htmlFor="tpl">
                     {"임무 양식"}
-                  </label>
+                  </label>{v.tplHelp}
                   <a href={v.tplHref ?? "#/PcMissions"} style={{"fontSize":"12px","color":"var(--accent)"}}>
                     {"양식 관리 →"}
                   </a>
@@ -390,10 +379,6 @@ export function View({ v }: { v: Vals }) {
                   </option>
                   </>)}
                 </select>
-                {" "}
-                <span className="lbl">
-                  {"양식이 지점마다 할 일의 기본값을 정합니다. 지점별로 더하거나 뺄 수 있습니다."}
-                </span>
                 {" "}
               </div>
               {" "}
@@ -655,10 +640,6 @@ export function View({ v }: { v: Vals }) {
                   </div>
                   </>)}
                   {" "}
-                  <a href={v.ruleHref ?? "#/PcMissions"} style={{"fontSize":"12px","color":"var(--accent)"}}>
-                    {"양식에서 규칙 고치기 →"}
-                  </a>
-                  {" "}
                 </div>
                 {" "}
               </div>
@@ -764,31 +745,11 @@ export function View({ v }: { v: Vals }) {
                   {" "}
                   <span>
                     <span className="lbl">
-                      {"예상 시간"}
-                    </span>
-                    {" "}
-                    <b className="mono" title={v.fb0T}>
-                      {v.fb0 ?? "18분"}
-                    </b>
-                  </span>
-                  {" "}
-                  <span>
-                    <span className="lbl">
                       {"거리"}
                     </span>
                     {" "}
                     <b className="mono">
                       {v.fb1 ?? "148 m"}
-                    </b>
-                  </span>
-                  {" "}
-                  <span>
-                    <span className="lbl">
-                      {"배터리 사용"}
-                    </span>
-                    {" "}
-                    <b className="mono">
-                      {v.fb2 ?? "약 29%"}
                     </b>
                   </span>
                   {" "}

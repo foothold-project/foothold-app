@@ -36,7 +36,7 @@ const set = (d: S, m: S, docs: any[] = [], media: any = { photos: [PH], events: 
   if (m === 'fail' || m === 'stale') fail('media', m === 'stale');
 };
 const card = (s: string, name: string) => s.match(new RegExp(`>${name}</span><span class="mono"[^>]*>([^<]*)</span>(?:<span class="lbl">([^<]*)</span>)?`))?.slice(1, 3);
-const NOT_EMPTY_CLAIM = ['아직 임무 기록이 없습니다', 'href="#/PcPlan"'];
+const NOT_EMPTY_CLAIM = ['아직 임무 기록이 없습니다', '>임무 시작</a>'];   // 10-18 요청 6·8: 주 메뉴 «임무» = #/PcPlan 이라 href 만으론 메뉴와 구분 0 → 빈 기록의 «임무 시작» 링크 글로 좁힘
 beforeEach(() => set('ok', 'ok'));
 
 test('경계: 실제 useDocs 가 계약 broken 을 D.err 로 노출 → docsSt «저장소 오류» · 최초 실패 «못 읽음» · 보관 · 정상 ""', () => {

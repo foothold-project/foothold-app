@@ -1,23 +1,23 @@
 // «지도 열기»: 지도용 Gazebo 시뮬을 1회 시작(op map_start → RL 래퍼) + «SLAM 지도 저장»(op map_save → /v2_map/save).
 // 위의 «지도 보기» 선택(화면만)과 별개 — 실제 Gazebo 지형·층을 바꾸는 건 이 상자의 «지도 열기» 버튼뿐(끄고 새로 열기).
-// 10-18 저장 지도 시작(root SAVED-START · 결정 A 대체): «시작 지도» 기본 = 저장한 지도로 열기(map_start mode static + 목록에 있는 map_version 정확히),
-//   «새 지도 만들기»(mode slam · map_version 없음)는 직접 고를 때만. 저장본 = 고른 지형·층의 map_source slam 만(GT·다른 지형·층 대체 0) — 1개면 그것, 여러 개면 직접 고르기 전 실행 0,
-//   0개·목록 읽는 중·목록 실패면 저장 시작 0(새 지도 자동 전환 0). 서버·계약 변경 0. 평지 sim_start 는 새 UI 에서 보내지 않음(옛 앱·직접 API 는 서버가 계속 받음).
-// 상시 표시: 고른 곳 · 지금 실제 실행 중인 곳 · 열 수 있나(서버 why) · 다음 행동 · 마지막 요청 결과. 자동 기동·중단·재시도 0.
+// 10-18 floor-mission 요청 2(59e0c5a «저장한 지도로 열기/새 지도 만들기» 선택 대체): 시작은 늘 새 SLAM 세션(map_start mode slam · map_version 없음 — 옛 호출 그대로).
+//   저장 목록은 시작 확인 결속에 넣지 않음(목록·미리보기 변화로 확인 취소 0 — 715 CODEX-DIRECTION 5). openMapAsk 의 static 분기는 옛 호출·시험용으로 남김(이 상자는 안 보냄).
+//   요청 4: 성공 요청 추적 글(«이 기기 요청 · 시각 · 지형 → 요청 수락…») 삭제 · 실패·취소·막힘·다른 곳 실행·미저장만 짧게(useRes 수명 그대로 — 표시만).
+// 자동 기동·중단·재시도 0.
 import { useEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { MapInfo } from '@contracts';
 import { ask, askPage, dropAll, dropAsk, startGen, useLink } from '../data/link';
 import { whyProps } from '../app/shell';
-import { BLD, FLOOR, TASK, WF, loadList, mapKey, listMaps, place, runAt, runLine, savedOf, staticSeen, useCatalog, type ListSeq, type Sess } from '../data/maps';
+import { BLD, FLOOR, TASK, WF, loadList, mapKey, listMaps, place, runAt, runLine, staticSeen, useCatalog, type ListSeq, type Sess } from '../data/maps';
 import { TerrainPreview, useTerrainPreview } from './TerrainPreview';
 import { Help } from '../app/chip';
 
 type W = 'v5_single' | 'v5_building' | 'rooms_a';
 const PLACES: { w: W; sub: string }[] = [
-  { w: 'v5_single', sub: '단층 · 계단 위끝 낭떠러지 있음' },
-  { w: 'v5_building', sub: '1·2층이 연결된 한 건물 · 시작층만 고름 · 실제 계단·경사로 통과 미검증' },
-  { w: 'rooms_a', sub: '방 여러 개 · 저장한 지도를 열거나 새 지도를 만들며 직접 이동' },
+  { w: 'v5_single', sub: '단층 · 계단 위끝 낭떠러지' },
+  { w: 'v5_building', sub: '2층 건물 · 계단 통과 미검증' },
+  { w: 'rooms_a', sub: '방 여러 개' },
 ];
 type Res = { t: string; ok: boolean; text: string; what: string; key?: string; sent?: boolean } | null;   // key = 목록에서 확인된 저장본(보기 버튼) · sent = 확인 뒤 ask 호출함(시도 — 실제 WS 송신 증거 아님)
 // 마지막 요청 결과는 화면을 오가도 남게(이 기기 메모리만 — 새로고침하면 서버 «최근 결과»만)
@@ -87,6 +87,9 @@ export function mapFormOpen(): number { kill(cur, '새 시작 양식이 열림(�
 /** 양식의 고른 값 변경 → 그 양식의 송신 전 요청만 무효(다른 양식·보낸 요청 그대로). 무효로 만들었으면 true */
 export function mapFormChanged(id: number): boolean { return cur?.form === id ? kill(cur, CHG) : false; }
 /** 반환: null = 사람이 취소(보낸 것 0 · 알림 없음) · sent 거짓 = 안 보냄(글에 이유) · sent 참 = 확인 뒤 ask 호출함(실제 WS 송신 여부는 text 원문 — «보내지 못함» 가능 · ok = 서버가 요청 수락 — 켜짐·지도 준비 아님 / 거짓 = 미송신·거부·시간 초과·결과 미확인 — 켜짐 여부 단정 0) */
+/** 시작 확인창에서 뺀 내부 설명(요청 4) — 상자 ? 로 */
+const START_HELP = '미리보기의 기본 도면은 예고일 뿐 저장본 복원이 아닙니다 — 실행하면 새로 그립니다(기존 지도 이어 만들기 미지원). 실행 뒤 다른 층으로 가면 그 층의 최근 저장 지도를 보여 주고, 실시간 지도가 오면 바꿉니다(위치 표시 없음). '
+  + '요청 수락은 실행 완료가 아닙니다. 확인 창이 열린 동안 STOP·화면 이동·연결 변화·고른 값 변경이 생기면 취소됩니다. 움직이려면 따로 «조종 시작». 자동 재시작·연장 없음.';
 export async function openMapAsk(sel: MapSel, owner: object, from?: Element | null, confirmFn?: (t: string) => boolean | Promise<boolean>, form?: MapForm): Promise<{ ok: boolean; text: string; sent: boolean } | null> {
   const s0 = useLink.getState(), m0 = s0.st?.map_start, key = `${sel.w}/${sel.f}`, no = (text: string) => ({ ok: false, text, sent: false });
   if (s0.provider !== 'simulation_gate') return no('실기 대상 — 시뮬 시작 안 함(보낸 것 0)');
@@ -114,12 +117,12 @@ export async function openMapAsk(sel: MapSel, owner: object, from?: Element | nu
     : cur !== req ? '새 시작 확인이 열림'
     : form && formSeq !== form.id ? '새 시작 양식이 열림(메뉴 다시 열기·다른 상자)'
     : form && !same(form.cur(), sel) ? CHG : '';
-  const use = ux ? '사용자 체험 — 횟수 제한 없음(동시 1개)'
-    : k.scope === 'experiment' ? `지도 원장 1회 사용 (${lg ? `지금 ${lg.used}/${lg.max}` : '원장 미확인'})`
-    : `사용 범위 미확인(서버가 안 알림) — 지도 원장을 1회 쓸 수 있음${lg ? ` (지금 ${lg.used}/${lg.max})` : ''}`;
-  const how = st ? `저장한 지도 ${sel.v}를 그림으로 열기 — 로봇 위치를 이 지도에 맞추지 않음(위치 표시 없음) · 이어 그리기·저장 없음 · 이 지도로 자동 길찾기 없음${sel.w === 'v5_building' ? ' · 다른 층으로 가면 그 층 지도는 빈칸(자동으로 불러오지 않음)' : ''}`
-    : '새 지도를 만들며 시작(기존 지도 이어 만들기는 아직 지원하지 않음 · 미리보기의 기본 도면은 예고일 뿐 저장본 복원 아님 — 실행하면 새로 그림)';
-  const text = `시뮬을 실행할까요?\n· 지형·시작층: ${sel.label}\n· ${how}\n· 외부 3인칭 카메라: ${sel.fc ? '켬 — 렌더 1개 추가, 부하 미검증' : '끔'}\n· ${use}\n· STOP 잠금 상태로 시작 — 움직이려면 따로 «조종 시작»\n· 30분 뒤 자동 종료 · 자동 재시작·연장 없음\n· 이 창이 열린 동안 STOP·화면 이동·연결 변화·고른 값 변경이 생기면 취소`;
+  // 요청 4(root 운영글): 확인문 = 선택·결과만 짧게(지형·층 / 할 일 / 카메라 / STOP 잠금·30분 + 체험 아닐 때만 원장 1회). 내부 전문(기본 도면 예고·이어 만들기 미지원·창 열린 동안 취소 조건·렌더 부하)은
+  //   상자의 ?(START_HELP)·카메라 ? 로. 무효 감시·권한·원장·송신 직전 대조 로직은 그대로
+  const use = ux ? '' : k.scope === 'experiment' ? `\n· 지도 원장 1회 사용 (${lg ? `지금 ${lg.used}/${lg.max}` : '원장 미확인'})`
+    : `\n· 사용 범위 미확인 — 지도 원장 1회 쓸 수 있음${lg ? ` (지금 ${lg.used}/${lg.max})` : ''}`;
+  const how = st ? `저장한 지도 ${sel.v} 열기 · 위치 표시 없음` : '새 지도 만들며 시작';
+  const text = `시뮬을 실행할까요?\n· ${sel.label} · ${how}\n· 외부 카메라 ${sel.fc ? '켬' : '끔'}\n· STOP 잠금으로 시작 · 30분 뒤 자동 종료${use}`;
   kill(cur, '새 시작 확인이 열림');   // 앞 요청(송신 전) 무효 — askPage 도 앞 창을 false 로 닫음
   const req: Req = { form: form?.id ?? -1, dead: '', sent: false, owner }; cur = req;
   const un = useLink.subscribe((s) => { if (!req.dead && !req.sent) { const d = why(s); if (d) kill(req, d); } });
@@ -174,33 +177,23 @@ export function MapStartBox({ pc, part, preview = false, catalog, reloadCatalog,
   }, [selfLoad, ready, g]);
   const cat = catalog !== undefined ? catalog : selfLoad ? selfCat : shared.gen === g ? shared.v : null;
   const reloadCat = catalog !== undefined ? reloadCatalog : selfLoad ? loadSelf : shared.reload ?? undefined;
-  // 시작 지도: 기본 저장(root override — 0개여도 새 지도 자동 선택 0). pick = 직접(또는 1개일 때 고정한) 버전 — 목록이 바뀌어 없어지면 다른 버전으로 자동 바꾸지 않고 비움
-  const [sm, setSm] = useState<'static' | 'slam'>('static'), [pick, setPick] = useState('');
-  const cands = w ? savedOf(cat, w, f) : null;
-  const lt = cands ? cands.map((m) => m.map_version).join(',') : typeof cat === 'string' ? `!${cat}` : '…';
-  const slt = sm === 'static' ? lt : '';   // 목록 토큰은 저장 시작에만 결속(새 지도 확인창은 목록 도착으로 무효 0)
-  const ver = sm !== 'static' || !cands ? null : pick ? (cands.some((m) => m.map_version === pick) ? pick : null) : cands.length === 1 ? cands[0].map_version : null;
-  const gone = sm === 'static' && !!pick && !!cands && !ver;
-  useEffect(() => { if (!pick && cands?.length === 1) setPick(cands[0].map_version); }, [pick, lt]);   // 1개 자동 = 그 버전에 고정(뒤에 목록이 바뀌어도 새 1개로 갈아끼우지 않음)
-  const pv = useTerrainPreview(w, f, cat, preview, reloadCat, sm === 'static' ? ver ?? '' : undefined);   // S1(715): 새 지도 만들기 = 저장본 유무와 무관하게 기존 기본 도면 미리보기 관문(예고) · 저장 모드만 고른 저장본 PNG(GT 대체 0)
+  const pv = useTerrainPreview(w, f, cat, preview, reloadCat);   // 기본 도면 미리보기 관문(예고 · 저장본 복원 아님). 저장 SLAM 초기 표시(요청 3)는 RL 계약 뒤 따로
   const [fc, setFc] = useState(true);   // fc: 외부 3인칭 렌더(기본 켬 — 서버 래퍼가 지원할 때만 보이고 보냄)
   const { open: rOpen, save: rSave } = useRes();
   const B = pc ? 'btn' : 'lv-btn', I = pc ? 'inp' : 'lv-inp', key = `${w}/${f}`, lg = ms?.ledger, ux = ms?.usage_scope === 'user_experience';
   const used = !ux && !!lg && lg.keys.includes(key), fcOn = fc && ms?.follow_cam_ok === true;
-  const can = !!w && !!ms?.ok && !used && (sm === 'slam' || !!ver) && (!preview || pv.ready);
-  const verWhy = !cands ? (typeof cat === 'string' ? `지도 목록을 받지 못함 · ${cat}` : '지도 목록 읽는 중') : !cands.length ? '저장한 지도 없음 — «새 지도 만들기»를 직접 고르세요'
-    : gone ? '고른 저장 지도가 지금 목록에 없음 — 다시 고르세요' : '저장한 지도 버전을 고르세요';
-  const sel = `${place(w, f)} · ${sm === 'static' ? `${TASK.static} · ${ver ?? '버전 미정'}` : `${TASK.slam}(직접 조종)`}`;
+  const can = !!w && !!ms?.ok && !used && (!preview || pv.ready);
+  const sel = `${place(w, f)} · ${TASK.slam}(직접 조종)`;
 
   // 지금 실제로 켜진 것(서버 세션 — 고른 것과 별개)
   const ss = ms?.session as Sess, run = runLine(ss), at = runAt(ss), seen = staticSeen(ss, lv);   // seen: 저장 지도 세션의 실제 표시 확인(요청 수락·시작 중 ≠ 준비)
   const other = !!w && !!at && `${at[0]}/${at[1]}` !== `${BLD[w]}/${f}`;
 
-  latest.current = { w, f, fc: fcOn, label: place(w, f), mode: sm, v: ver, lt: slt };   // 렌더마다 지금 고른 값 — 송신 직전 대조(r2 R2) · 상자가 일시로 사라져도 마지막 값
+  latest.current = { w, f, fc: fcOn, label: place(w, f), mode: 'slam', v: null, lt: '' };   // 렌더마다 지금 고른 값 — 송신 직전 대조(r2 R2) · 상자가 일시로 사라져도 마지막 값
   useEffect(() => { if (part !== 'save') form.current = mapFormOpen(); }, []);   // r2 R1: 장착 = 새 양식 → 앞 양식이 연 송신 전 확인 무효(메뉴 다시 열기). 일시 소멸(unmount)만으로는 무효 0
   // 고른 지형·층·카메라가 바뀌면 이 양식의 송신 전 요청을 무효(true 로 답한 뒤여도 — 요청 기록에 남김). 첫 장착 땐 요청 없음
-  const chg = () => { if (mapFormChanged(form.current)) useRes.setState({ open: { t: now(), ok: false, text: '고른 지형·층·카메라·시작 지도(또는 저장 목록)가 바뀌어 시작 확인을 닫음 — 보낸 것 0 · 다시 누르세요', what: sel, sent: false } }); };
-  useEffect(chg, [w, f, fcOn, sm, ver, slt]);   // 서버 쪽 카메라 지원 변화(fcOn)도 · 단추는 아래 onClick 에서 동기로 먼저(렌더 전 같은 틱 확인도 무효)
+  const chg = () => { if (mapFormChanged(form.current)) useRes.setState({ open: { t: now(), ok: false, text: '고른 지형·층·카메라가 바뀌어 시작 확인을 닫음 · 다시 누르세요', what: sel, sent: false } }); };
+  useEffect(chg, [w, f, fcOn]);   // 서버 쪽 카메라 지원 변화(fcOn)도 · 단추는 아래 onClick 에서 동기로 먼저(렌더 전 같은 틱 확인도 무효)
   const start = async (e: React.MouseEvent<HTMLButtonElement>) => {
     if (!can) return;
     const r = await openMapAsk(latest.current!, own, e.currentTarget, undefined, { id: form.current, cur: () => latest.current! });   // 연 단추 = 여는 click 안에서 동기로(StartAsk 회피 r0)
@@ -222,11 +215,10 @@ export function MapStartBox({ pc, part, preview = false, catalog, reloadCatalog,
   return <div id={part === 'save' ? undefined : 'fh-mapopen'} style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12 }}>
     {part !== 'save' && <>
     {!pc && <b style={{ fontSize: 13 }}>시뮬 실행</b>}
-    <span className="lbl">지형을 고르고 시뮬을 실행하세요. 실행 전 한 번 더 확인합니다.</span>
     <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <span className="lbl">시작 지형</span>
       <select aria-label="시작 지형" className={I} value={w} style={{ width: '100%', minWidth: 0, minHeight: 40, padding: '0 10px', boxSizing: 'border-box', border: '1px solid var(--line2)', borderRadius: 6, background: 'var(--panel2)', color: 'inherit', font: 'inherit' }}
-        onChange={(e) => { chg(); const next = e.target.value as W; setW(next); setF(WF[next][0]); setSm('static'); setPick(''); }}>
+        onChange={(e) => { chg(); const next = e.target.value as W; setW(next); setF(WF[next][0]); }}>
         <option value="" disabled>지형을 고르세요</option>
         {PLACES.map((p) => <option key={p.w} value={p.w}>{place(p.w, WF[p.w][0]).split(' · ')[0]}</option>)}
       </select>
@@ -234,62 +226,45 @@ export function MapStartBox({ pc, part, preview = false, catalog, reloadCatalog,
     {w && <span className="lbl">{PLACES.find((p) => p.w === w)!.sub}</span>}
     {w && WF[w].length > 1 && <span role="group" aria-label="시작층(2층 건물 · 열 때만)" style={row}>
       <span className="lbl">시작층</span>
-      {WF[w].map((k) => <button key={k} {...seg(f === k)} onClick={() => { chg(); setF(k); setSm('static'); setPick(''); }}>{`${FLOOR[k as keyof typeof FLOOR]}(${k})`}</button>)}</span>}
-    {w && <span role="group" aria-label="시작 지도" style={row}>
-      <span className="lbl">시작 지도</span>
-      <button {...seg(sm === 'static')} onClick={() => { chg(); setSm('static'); }}>저장한 지도로 열기</button>
-      <button {...seg(sm === 'slam')} onClick={() => { chg(); setSm('slam'); }}>새 지도 만들기</button></span>}
-    {w && sm === 'static' && <>
-      {cands && (cands.length > 1 || gone) ? <select aria-label="저장한 지도 버전" className={I} value={ver ?? ''} style={{ minHeight: 40, padding: '0 10px', border: '1px solid var(--line2)', borderRadius: 6, background: 'var(--panel2)', color: 'inherit', font: 'inherit' }}
-          onChange={(e) => { chg(); setPick(e.target.value); }}>
-          <option value="" disabled>고르세요</option>
-          {cands.map((m) => <option key={m.map_version} value={m.map_version}>{m.map_version}</option>)}</select>
-        : cands?.length === 1 ? <span className="lbl">{`저장한 지도 · ${place(w, f)} · ${cands[0].map_version}`}</span> : null}
-      {!ver && <span role="status" className="lbl" style={cands && !cands.length ? undefined : { color: 'var(--warn)' }}>{cands && !cands.length
-        ? '저장한 지도 없음 · «새 지도 만들기»를 직접 고르세요(다른 지형·층 지도나 기본 도면으로 대신 열지 않음)' : gone ? `${verWhy}(다른 버전으로 자동으로 바꾸지 않음)` : cands ? verWhy : `${verWhy}${typeof cat === 'string' ? '' : '…'}`}</span>}
-      {typeof cat === 'string' && reloadCat && <button type="button" className={B} onClick={() => { reloadCat(); }}>지도 목록 다시 읽기</button>}
-      <span className="lbl">{`저장한 지도는 그림으로만 보입니다 · 로봇 위치를 이 지도에 맞추지 않아 위치 표시 없음 · 이어 그리기·저장 안 됨 · 이 지도로 자동 길찾기 없음${w === 'v5_building' ? ' · 다른 층으로 가면 그 층 지도는 빈칸(자동으로 불러오지 않음)' : ''}`}</span>
-    </>}
+      {WF[w].map((k) => <button key={k} {...seg(f === k)} onClick={() => { chg(); setF(k); }}>{`${FLOOR[k as keyof typeof FLOOR]}(${k})`}</button>)}</span>}
     {preview && <TerrainPreview w={w} f={f} preview={pv} />}
     {ms?.follow_cam_ok === true && <label style={{ ...row, gap: 4 }}><input type="checkbox" checked={fc} onChange={(e) => { chg(); setFc(e.target.checked); }} />
       외부 시점 카메라<Help label="외부 시점 카메라 설명">로봇 바깥에서 보는 카메라를 추가합니다. 렌더 작업이 하나 늘며 성능 영향은 확인되지 않았습니다.</Help></label>}
     <button type="button" className={`${B} pri`} disabled={!can} onClick={start}
-      title={!w ? '먼저 지형을 고르세요' : sm === 'static' && !ver ? verWhy : preview && !pv.ready ? '2D 미리보기를 확인한 뒤 실행할 수 있습니다' : ms?.why || undefined}>시뮬 실행</button>
+      title={!w ? '먼저 지형을 고르세요' : preview && !pv.ready ? '2D 미리보기를 확인한 뒤 실행할 수 있습니다' : ms?.why || undefined}>시뮬 실행</button>
     {used && <span role="status" className="lbl">이 지형은 시작 횟수를 이미 사용했습니다.</span>}
-    <div role="status" hidden={preview && !!ms?.ok && !other && !rOpen} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '6px 8px', border: '1px solid var(--line2)', borderRadius: 6 }}>
+    <div role="status" hidden={preview && !!ms?.ok && !other && (!rOpen || rOpen.ok)} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '6px 8px', border: '1px solid var(--line2)', borderRadius: 6 }}>
       {kv('고른 곳', sel, undefined, true)}
       {kv('지금 실행', run, other ? 'warn' : undefined, true)}
       {other && kv('', pc ? `고른 곳 ≠ 지금 실행(${run}) — 바꾸려면 시뮬 끄고 새로 열기` : '고른 곳과 지금 실행 중인 곳이 다릅니다 — 바꾸려면 끄고 새로 열기', 'warn')}
       {kv('열 수 있나', !ms ? '서버 상태 없음(연결 확인)' : ms.ok ? '열 수 있음' : `안 됨 · ${ms.why}`, ms?.ok ? 'ok' : 'warn', !!ms?.ok)}
       {ms && !ms.ok && kv('다음', nextStep(ms.why))}
-      {rOpen && kv('이 기기 요청', `${rOpen.t} · ${rOpen.what} → ${reqLine(rOpen)}`, rOpen.ok ? 'ok' : 'warn')}   {/* r3: 요청 처리 결과/안 보냄 구분 · «보냄» 단정 0 · 시간 초과·거부를 «안 켜짐»으로 단정 0 */}
-      {rOpen && !rOpen.ok && kv('다음', nextStep(rOpen.text))}
+      {rOpen && !rOpen.ok && kv('시작 결과', rOpen.text, 'warn')}   {/* 요청 4: 실패·취소·미송신만 한 줄(서버·이 기기 원문 — «안 켜짐» 단정 0) · 성공 추적 줄 삭제 */}
       {ms?.last && kv('서버 최근', `${ms.last.t} · ${ms.last.text}`, ms.last.st === 'ok' ? 'ok' : 'bad', ms.last.st === 'ok')}
       <details data-dev={pc ? '' : undefined}><summary className="lbl">상태 상세(기술 원값)</summary>
-        <span className="lbl" style={{ wordBreak: 'break-all' }}>{`고른 것 world_id=${w} floor_id=${f} mode=${sm}${sm === 'static' ? ` map_version=${ver ?? '-'}` : ''} · 실행 runner=${ss?.runner ?? '-'} world_id=${ss?.world_id ?? '-'} floor_id=${ss?.floor_id ?? '-'} map_mode=${ss?.map_mode ?? '-'} result=${ss?.result ?? '-'} · 실시간 지도 st=${lv?.st ?? '-'} epoch=${lv?.epoch ?? '-'} topic=/v2_map/map`}</span></details>
+        <span className="lbl" style={{ wordBreak: 'break-all' }}>{`고른 것 world_id=${w} floor_id=${f} mode=slam · 실행 runner=${ss?.runner ?? '-'} world_id=${ss?.world_id ?? '-'} floor_id=${ss?.floor_id ?? '-'} map_mode=${ss?.map_mode ?? '-'} result=${ss?.result ?? '-'} · 실시간 지도 st=${lv?.st ?? '-'} epoch=${lv?.epoch ?? '-'} topic=/v2_map/map`}</span></details>
     </div>
     {seen === 'saved' && <span role="status" className="lbl" style={{ color: 'var(--warn)' }}>
       {`지금 실행 중 = 저장한 지도 보기(위치 없음) · 로봇 위치를 지도에 맞추지 않음 · 이어 그리기·저장 없음 · 자동 길찾기 없음${ss!.world_id === 'v5_building' ? ' · 다른 층은 빈칸' : ''}`}</span>}   {/* 출처 = 서버 session + live_map 수신 확인(숨김 상자 밖 — 한계 숨김 0) */}
     {seen === 'wait' && <span role="status" className="lbl">{`${ss!.result === 'starting' ? '저장 지도 시작 처리 중' : '저장 지도 세션 실행 중'} · 지도 표시·출처 확인 전`}</span>}   {/* P2-3(715): 시작 중·미수신·다른 층은 사실만 — 저장 그림 보기로 단정 0 · GT static 은 SLAM 그림 한계 줄 0 */}
     {onShowLive && (rOpen?.ok || (lv && lv.st !== 'off')) && <button type="button" className={B} onClick={onShowLive}>현재 열린 지도 보기(화면만)</button>}
-    <span className="lbl">동시에 하나만 실행 · 30분 뒤 자동 종료</span>
+    <span className="lbl">동시에 하나만 실행 · 30분 뒤 자동 종료<Help label="시뮬 실행 · 설명">{START_HELP}</Help></span>
     </>}
 
     {part !== 'open' && <>
     <b style={{ fontSize: 13, marginTop: part === 'save' ? 0 : 6 }}>만든 지도 보관</b>
     {pc ? <>   {/* U4-a: 막히면 회색(aria-disabled) + 누르면 지금 이유 · 다음(전송 0, save() 의 sv.ok 관문 그대로). 일반 조건 글로 지금 이유를 덮지 않음 */}
-      {!blk && <span className="lbl">{lv?.mode === 'slam' && lv.st === 'ok' ? `${place(lv.world_id, lv.floor_id)}에 새 버전으로 저장(버전 이름 = 저장 시각·epoch, 서버가 정함 · 덮어쓰기 없음)` : '저장할 수 있음(서버 확인)'}</span>}
+      {!blk && lv?.mode === 'slam' && lv.st === 'ok' && <span className="lbl">{`${place(lv.world_id, lv.floor_id)}에 새 버전으로 저장`}</span>}
       <button type="button" {...(blk ? { ...whyProps(`${plainSave(blk.txt)} — ${blk.next}`), className: `${B} lv-why` } : { className: B, onClick: save })}>{sv?.busy ? '지도 저장 중…' : '지도 저장'}</button>
       {blk && <>{kv('저장 안 됨', plainSave(blk.txt), 'warn')}{kv('다음', blk.next)}{blk.raw && blk.raw !== blk.txt && kv('원문', blk.raw, undefined, true)}</>}
     </> : <>
-    <span className="lbl">{lv?.mode === 'slam' && lv.st === 'ok' ? `${place(lv.world_id, lv.floor_id)}에 새 버전으로 저장(버전 이름 = 저장 시각·epoch, 서버가 정함 · 덮어쓰기 없음)` : '시뮬을 실행한 뒤 만들어진 지도를 저장할 수 있습니다'}</span>
+    {lv?.mode === 'slam' && lv.st === 'ok' && <span className="lbl">{`${place(lv.world_id, lv.floor_id)}에 새 버전으로 저장`}</span>}
     <button type="button" className={B} disabled={!sv?.ok} onClick={save}>{sv?.busy ? '지도 저장 중…' : '지도 저장'}</button>
     {sv && !sv.ok && !sv.busy && <>{kv('저장 안 됨', plainSave(sv.why || ''), 'warn')}{kv('다음', nextStep(sv.why))}</>}
     </>}
-    {rSave && kv('이 기기 저장', `${rSave.t} · ${rSave.text}`, rSave.ok ? 'ok' : 'bad')}
+    {rSave && (rSave.ok ? kv('저장됨', rSave.what, 'ok') : kv('저장 결과', rSave.text, 'bad'))}   {/* 요청 4: 성공은 저장본 이름만 · 실패는 원문 한 줄 */}
     {rSave?.key && onView && <button type="button" className={B} onClick={() => onView(rSave.key!)}>{`저장한 버전 보기(화면만)${rSave.ok ? '' : ' · 요청 때 지도'}`}</button>}
-    {lv?.last_save && kv('서버 최근', `${lv.last_save.ok ? '성공' : '실패'} · ${lv.last_save.map_version || '버전 없음'}${lv.last_save.reason ? ` · ${lv.last_save.reason}` : ''}`)}
-    {part !== 'save' && <span className="lbl">저장 지도는 높이가 없는 2D 점유 격자(occupancy)입니다 — 계단·벽 높이 정보 없음.</span>}   {/* save(PcMap): 지도 «?» 설명으로 옮김 */}
+    {lv?.last_save && kv('서버 최근', `${lv.last_save.ok ? '성공' : '실패'} · ${lv.last_save.map_version || '버전 없음'}${lv.last_save.reason ? ` · ${lv.last_save.reason}` : ''}`, undefined, lv.last_save.ok)}   {/* 성공 = 개발자 모드 */}
     </>}
   </div>;
 }

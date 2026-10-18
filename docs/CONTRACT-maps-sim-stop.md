@@ -32,7 +32,7 @@
 - `map_version` 정규식 `^(\d{8}-\d{6}-e\d+|gt-\d{8})$` — 저장본 `YYYYmmdd-HHMMSS-e<epoch>`, 사전 GT `gt-YYYYMMDD`. building_id·floor_id 는 위 표의 고정 허용목록.
 - 쓰기: RL 구동기 `/v2_map/save`(Trigger) 만. 임시 폴더에 다 쓴 뒤 rename(원자). 기존 버전 덮어쓰기 없음 — 같은 층 재저장 = 새 버전.
 - 읽기: v2_link 는 `<MAPS_ROOT>` 아래를 **읽기만**. 경로·파일 이름은 서버가 만든다. 클라이언트가 보낸 래스터를 정본으로 올리지 않는다.
-- `meta.json`(RL `meta_check` 와 같은 규칙, 추가 키 허용): 필수 키 schema `v2_map_meta/1`·world_id·building_id·floor_id·epoch·map_version·map_source·map_frame(`map`)·resolution·origin[x,y,yaw]·width·height(≤2000)·saved_sim_t·saved_wall·reason(`user_save|pre_reset_autosave|gt_raster_copy`)·sha256_pgm. 값 null 은 epoch·saved_sim_t·saved_wall 만(키는 항상 있음). epoch: slam 정수 ≥1 / gt_raster null. gt_raster 는 source_pgm·source_sha256 필수. 화면은 origin yaw 0 만 그린다. map.yaml 대조는 RL 쪽(화면은 yaml 을 안 씀).
+- `meta.json`(RL `meta_check` 와 같은 규칙, 추가 키 허용): 필수 키 schema `v2_map_meta/1`·world_id·building_id·floor_id·epoch·map_version·map_source·map_frame(`map`)·resolution·origin[x,y,yaw]·width·height(≤2000)·saved_sim_t·saved_wall·reason(`user_save|pre_reset_autosave|gt_raster_copy|floor_leave`)·sha256_pgm. 값 null 은 epoch·saved_sim_t·saved_wall 만(키는 항상 있음). epoch: slam 정수 ≥1 / gt_raster null. gt_raster 는 source_pgm·source_sha256 필수. 화면은 origin yaw 0 만 그린다. map.yaml 대조는 RL 쪽(화면은 yaml 을 안 씀).
 - maps root: RL 단계 폴더의 `maps/`(절대경로는 status.maps_root 로도 실림). v2_link 는 `--maps-root` 로 받는다.
 - meta 하나가 틀리면 그 지도만 목록에서 빠진다(다른 지도는 유지). 화면은 받은 답의 world·건물·층·버전·epoch·출처가 고른 것과 모두 같을 때만 그린다.
 

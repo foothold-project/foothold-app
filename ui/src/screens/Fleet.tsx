@@ -167,8 +167,7 @@ export default function Fleet() {
         {s?.scenarios.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
       </select></label>
     <ModeSwitch mode={mode} set={setMode} />
-    <a className="btn" href="#/MapEditor" style={{ textDecoration: 'none', color: 'inherit', minHeight: 44 }}>지도 편집</a>
-    <a className="btn" href="#/Main" style={{ textDecoration: 'none', color: 'inherit', minHeight: 44 }}>단일 조종 →</a>
+    <a className="btn" href="#/Main" style={{ textDecoration: 'none', color: 'inherit', minHeight: 44 }}>조종 화면</a>
     {!wide && mid && <button type="button" className="btn" onClick={() => setDrawer(true)} style={{ minHeight: 44 }}>{mode === 'rehearsal' ? '비교' : '경고'}</button>}
   </>;
 
@@ -218,7 +217,7 @@ export default function Fleet() {
   const grid: React.CSSProperties = wide ? { display: 'grid', gridTemplateColumns: '300px minmax(0,1fr) 380px', gap: 12, padding: 12 }
     : mid ? { display: 'grid', gridTemplateColumns: '300px minmax(0,1fr)', gap: 12, padding: 12 } : { display: 'grid', gap: 12, padding: 12 };
   return (
-    <PcFrame cur="Fleet" sub="전체 관제" title={s ? s.name : '전체 관제'} head={head}>
+    <PcFrame cur="Fleet" title={s ? s.name : '관제'} head={head}>
       <ModeBand mode={mode} live={liveOf(v, direct)} />
       <div style={grid}>
         {robots}

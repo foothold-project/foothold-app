@@ -415,7 +415,7 @@ export default function MapEditor() {
   const grid: React.CSSProperties = wide ? { display: 'grid', gridTemplateColumns: viewOnly ? '1fr 320px' : '64px 1fr 320px', gap: 12, padding: 12 } : { display: 'grid', gridTemplateColumns: viewOnly ? '1fr' : '64px 1fr', gap: 12, padding: 12 };
 
   return (
-    <PcFrame cur="MapEditor" sub="지도 편집" title={s.name} head={head}>
+    <PcFrame cur="PcMap" sub="지도 편집" title={s.name} head={head}>
       {!viewOnly && !wide && <div role="note" style={{ padding: '8px 16px', fontSize: 13, background: 'var(--panel2)' }}>편집은 1280px 이상 권장</div>}
       {viewOnly && <div role="note" style={{ padding: '8px 16px', fontSize: 14, background: 'var(--panel2)' }}>보기 전용 · 이 폭에서는 편집 도구를 숨깁니다</div>}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '10px 12px 0', alignItems: 'center' }}>

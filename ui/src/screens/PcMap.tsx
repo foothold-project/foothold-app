@@ -10,23 +10,20 @@ import { useEditor } from '../data/editor';
 import { TRAIL, linkView, useLink } from '../data/link';
 import { r2, zonesAt } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
-import { MapStartBox } from '../map/MapStartBox';
 import { useMapPick } from '../map/MapPick';
 import { LiveStatus } from '../app/status';
-import { stopProps, toast, useRoute, whyProps } from '../app/shell';
+import { stopProps, toast, useRoute } from '../app/shell';
 import { Chip, Help } from '../app/chip';
 
 const areaOf = (p: number[][]) => Math.abs(p.reduce((a, q, i) => { const n = p[(i + 1) % p.length]; return a + q[0] * n[1] - n[0] * q[1]; }, 0)) / 2;
 const LOCK = '저장 지도 보기 중 — 구역은 «실행 중 시뮬 바닥»에서', BUSY = '구역 저장 중 — 끝난 뒤 다시', DIRTY = '저장 안 한 수정이 있습니다. 버릴까요?';
-// U4-a «새 지도 만들기» → 머리줄 «시뮬 ▾» 메뉴를 연다(지도 열기는 그 메뉴 — 열기 전 확인창·권한·busy 그대로). 이미 열려 있으면 그대로(닫지 않음)
-const openSimMenu = () => { const b = document.querySelector<HTMLButtonElement>('[data-simmenu]'); if (!b) return toast('시뮬 메뉴 없음 — 시뮬 연결에서만 지도 시뮬을 엽니다'); if (b.getAttribute('aria-expanded') !== 'true') b.click(); b.focus(); };
 type Draw = { type: Zone['type']; pts: number[][]; name: string } | null;
 
 export default function PcMap() {
   const D = useDocs(), lk = linkView(useLink()), s = lk.s, E = useEditor<Zone>('zone'), { q } = useRoute();
   const Z = useRef<Draw>(null), zn = useRef<HTMLInputElement>(null), dr = Z.current;
   const zs = D.err ? [] : docsOf(D, 'zone');
-  const { raster, pickEl, pose, live, on: mv, blank, reload, flat, view, v3d, bar } = useMapPick(false, true);   // mv = 지도 보기 중(그림 없어도 잠금)   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·초안 숨김, 구역 편집 잠금(초안은 그대로 보존)
+  const { raster, pickEl, pose, live, on: mv, blank, flat, v3d, bar } = useMapPick(false, true);   // mv = 지도 보기 중(그림 없어도 잠금)   // 저장 지도 보기: 화면만. 보는 동안 로봇·길·구역·초안 숨김, 구역 편집 잠금(초안은 그대로 보존)
 
   useEffect(() => { const sc = E.stale(D); if (sc && !E.dirty) E.load(sc); });   // 다른 기기가 고친 새 판(내 수정 없을 때만)
   const lost = () => !!(E.dirty || Z.current?.pts.length) && !confirm(DIRTY);
@@ -70,7 +67,6 @@ export default function PcMap() {
 
   const ty = dr ? dr.type : E.d?.type, on = !mv && !!(dr || E.id);
   const lbl = (t: Zone['type']) => (t === '금지' ? '진입 금지' : '감속');
-  const sim = useLink((x) => x.provider) === 'simulation_gate';
   const vals = {
     themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // U4: 공용 STOP 글(v3 §3) — Main 과 같음
@@ -79,16 +75,13 @@ export default function PcMap() {
     pill: mv ? (live ? '현재 열린 지도(보기만)' : '저장 지도(보기만)') : '',
     posDot: s ? '●' : '▲', posDotS: { color: `var(--${s ? 'ok' : 'warn'})` },   // 위치 상자 = 개발자 모드(view data-dev). 운영은 지도 캔버스의 «위치 없음/오래됨»
     posTxt: s ? `GT ${posTxt(s.x, s.y)} · ${deg(s.yaw)}` : TRAIL.last ? 'GT 오래됨' : 'GT 미수신',
-    newP: sim ? { className: 'btn pri', title: '시뮬 ▾ → 시뮬 실행', onClick: openSimMenu }   // U4-a: 지도 열기 상자는 시뮬 메뉴로 옮김 — 버튼은 그 메뉴를 연다(시작은 메뉴 안 확인창 뒤)
-      : { ...whyProps('시뮬 연결에서만 — 지금은 지도 시뮬을 열 수 없음'), className: 'btn pri lv-why' },
-    lbl0: <>{'«시뮬 ▾»에서 지형을 골라 실행한 뒤, 만든 지도를 저장할 수 있습니다.'}<Help label="지도 · 설명">
-      <span style={{ display: 'block' }}>지도 만들기는 «시뮬 ▾ → 시뮬 실행», 저장은 이 화면의 «지도 저장»으로 합니다. 저장 SLAM 지도 위 위치 맞추기(재위치추정)는 미지원.</span>
-      <span style={{ display: 'block', marginTop: 6 }}>지도 보기는 화면만 바뀝니다 — 실제 world·층 전환·위치 맞추기 없음.</span>
-      <span style={{ display: 'block', marginTop: 6 }}>저장 지도는 높이가 없는 2D 점유 격자(occupancy)입니다 — 계단·벽 높이 정보 없음.</span></Help></>,   // U4-a: 아래 설명 문단 → ?(U5 지원 범위 전까지 여기 보존)
+    // 10-18 요청 5: «새 지도 만들기» = 지도 편집 화면(#/MapEditor)으로 이동만(명령·시뮬 조작 0 · 편집기 주소 그대로). 그 아래 옛 부품(긴 설명·저장본 자리표시·지도 저장 상자)은 뺌 —
+    //   지도 저장(map_save)은 조종 화면 «시뮬 실행» 칸(SimRun)으로 옮김. 지도 보기 선택(pickEl)·지도 그림은 그대로
+    newP: { className: 'btn pri', onClick: () => { location.hash = '#/MapEditor'; } },
     lbl1: 'Gazebo · foothold-v2',   // view data-dev
-    mpName: '시뮬 바닥', mpSub: '1 m 격자 · 사용 중', oldHide: true,
-    floorNote: <span style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>{pickEl}<MapStartBox pc part="save" onSaved={reload} onView={view} /></span>,   // 지도 열기(층·새 매핑·외부 카메라·시작)는 «시뮬 ▾»
-    tools: [{ hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11: 미지원 «위치 맞추기» 도구 숨김(설명은 lbl0·설정 지원 범위)
+    oldHide: true,
+    floorNote: pickEl,
+    tools: [{ hidden: true, 'aria-hidden': true, tabIndex: -1 },   // B2 R11: 미지원 «위치 맞추기» 도구 숨김(설명은 설정 지원 범위)
       { 'aria-pressed': !mv && dr?.type === '금지', disabled: mv, onClick: () => startDraw('금지') },
       { 'aria-pressed': !mv && dr?.type === '감속', disabled: mv, onClick: () => startDraw('감속') },
       { 'aria-pressed': !mv && !!E.id && !dr, disabled: mv, onClick: () => mv ? toast(LOCK) : E.id ? (zn.current?.focus(), zn.current?.select()) : toast('먼저 지도나 목록에서 구역을 고르세요') },   // R28: 함수 반환만 하던 분기 → 즉시 실행

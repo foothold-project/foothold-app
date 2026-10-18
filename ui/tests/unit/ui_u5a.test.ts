@@ -85,9 +85,9 @@ test('개발자 모드: 지도 칩·점검 줄은 기존 문구 그대로(GT·SD
 
 test('통신 끊김·경보 규칙·배터리: 쉬운 말 + ? 전문 보존(STOP_FACT·SAFE_NOTE·STOP_OBS·RELURCH·RULE_WHY·WHY 배터리) · 선택 불가 그대로', () => {
   const s = html(), o = ops(s);
-  expect(o).toContain('<b>입력 차단·잠금</b>'); expect(o).toContain('조종 입력 0.3초 끊김 → 입력 차단 (몸 정지는 별도) · 화면을 떠나거나 신호 1초 끊김 → 입력 차단·잠금');
+  expect(o).toContain('<b>입력 차단·잠금</b>'); expect(o).toContain(' · 서버 고정'); expect(o).not.toContain('조종 입력 0.3초 끊김');   // M9(디자인 정본): 짧은 글 + ? — 0.3 s/1 s 전문은 LostHelp(아래 STOP_FACT 보존 검사)
   for (const t of [F.SAFE_NOTE, F.STOP_OBS, `${F.STOP_FACT[0]} → ${F.STOP_FACT[1]}`, `${F.STOP_FACT[2]} → ${F.STOP_FACT[3]}`, `주의: ${F.RELURCH}`, RULE_WHY, F.WHY['배터리']]) expect(s).toContain(t);
   expect(s.match(/<input type="radio" name="lost"[^>]*>/g)!.every((x) => x.includes('disabled'))).toBe(true);
-  expect(s.split('aria-label="배터리 · 설명"').length - 1).toBe(2);   // 점검 줄 + 배터리 사용 두 곳 모두
-  expect(o).toContain('자동 실행 안 함'); expect(o).toContain('배터리 · 값 없음'); expect(o).toMatch(/배터리 사용<\/span> <b class="mono"[^>]*>값 없음/);
+  expect(s.split('aria-label="배터리 · 설명"').length - 1).toBe(1);   // M11(디자인 정본): 배터리 사용 칸 삭제 → 점검 줄 한 곳(전문 WHY 배터리 보존)
+  expect(o).toContain('자동 실행 안 함'); expect(o).toContain('배터리 · 값 없음'); expect(o).not.toContain('배터리 사용');
 });
