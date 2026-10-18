@@ -4,17 +4,26 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `59e0c5a5827991358611761326cbe47f1402c49d` (`less82/app-ui-react-recovered`, 부모 `bd5aa8b` PC 메뉴 아이콘·이름 가독성 ← `0314495` 직전 APK11 판 — 이번 두 커밋은 `ui/` 12파일만) | `ui` = `f5ace9fba99f75f649b1db81bacfa97824da7008` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `59e0c5a`, ui 밖 트리는 `0314495` 와 같음) |
-| `mobile/**` | `03c2a5279a620c26b9c113aa74e52bf8dc3d4ec9` (`less82/app-contract-storage`) | `mobile` = `9b38ccc9c6610ad3643f71d7c998ff762e90eb14` | 파일 단위 변경 0. 직전 `fcb212e`(트리 `5769f47`, APK11) 대비 build.gradle 두 줄: versionCode 12 · `1.0.11` (`-dev` suffix 그대로) — native 소스·권한·인증·관문 op 6개·서명 변경 0 |
+| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `ebe65e5859504466856be0616c1759c497c38145` (`less82/app-ui-react-recovered`, 부모 `59e0c5a` 직전 APK12 판 — `ui/` 28파일 + `sim/v2_link.py`(meta reason `floor_leave` 허용 + selftest_maps 반례 3) + `docs/CONTRACT-maps-sim-stop.md` 한 줄) | `ui` = `cb2e269dc56266b99af06cf814c72b2422a04662` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `ebe65e5`). 새 WS op·native 변경 0 |
+| `mobile/**` | `b84c32e730e52ab380aff237e6df9053706d7351` (`less82/app-contract-storage`) | `mobile` = `1269dfe2a7dcd71a451059865591cd087a77eac4` | 파일 단위 변경 0. 직전 `03c2a52`(트리 `9b38ccc`, APK12) 대비 build.gradle 두 줄: versionCode 13 · `1.0.12` (`-dev` suffix 그대로) — native 소스·권한·인증·관문 op 6개·서명 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md`: 맨 위는 UI 후보의 새 머리 그대로, 그 아래 «이전 통합 개발판 기록(2026-10-17 · APK10)» 절에 직전 통합 머리 전체 보존, 옛 web 기록 1벌(10-18 merge 충돌 해소) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 59e0c5a5827991358611761326cbe47f1402c49d HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only ebe65e5859504466856be0616c1759c497c38145 HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
 
 서버 사진 저장 fix `0ae1245`(10-17, 부모 UI `e0abe98`): 사진 저장 처리의 미정의 변수 오류(NameError) 1줄 수정 + 회귀 시험. 서버 쪽 코드라 APK 와 무관 — APK10 `dev-20261017-slamstart` 은 이 fix 전 `e0abe98` 화면 파일로 빌드한 그대로이고, 사진 응답은 연결한 운영 서버 판에 따른다. 운영 반영은 10-17 서버 교체 뒤 운영 쪽 상태 점검 통과까지(실제 사진 촬영 동작 확인은 아님).
 
 native 변경(10-18 `fcb212e`): `FhGateCore` 고정 op 에 `rehearsal.get`(GET `/api/app/rehearsal`, 200 만 통과)·`rehearsal.post`(POST 같은 경로, 200·400·403·404·409·413·422·500·503·507 은 status 로 화면까지) 두 개만 추가. 권한·인증·토큰·WS·주소·서명·TTL·STOP·본문 상한(1 MiB) 변경 0, 재시도 0. 시험 `FhGateCoreTest` 34/34(JVM 단위 — Android 빌드·실폰 아님). 리허설 화면은 계획 작성 기능이며 실제 연결 로봇·Gazebo 물리 리허설·Nav2 결과가 아니다.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
+
+## 다음 판 준비 — Android 개발 APK code 13 · `1.0.12-dev` (10-18, **빌드 0**)
+
+이 통합 커밋은 빌드 전 준비다. APK 빌드·구조 대조·실행은 아직 하지 않았다. push·tag·공개 업로드 0. 아래 APK12 절의 «이 절을 쓴 문서 커밋» 은 `6993c25` 를 말하며, APK12 빌드 입력(`544817c`)·APK·BUILD-INFO·SUMS 는 바뀌지 않는다.
+
+- 예정 입력: 이 브랜치 통합 커밋(ui 트리 `cb2e269dc56266b99af06cf814c72b2422a04662` = 최종 웹 `ebe65e5859504466856be0616c1759c497c38145`, mobile 트리 `1269dfe2a7dcd71a451059865591cd087a77eac4` = `b84c32e`) + frozen 화면 파일 `frozen-ebe65e5`(184개 — `.map` 38 제외 146개가 번들 예정, 목록 TSV sha256 `ac11ed9809662ccff1553e71608e418a2f41e553838c2d34f6a4291c1516b37c`, index.html sha256 `8fd5f0e468c719729e08e4e914ad492a57ada6acd775e95dd622a924a3eea190`)
+- 화면 변경 범위(UI 판 기준, 이 문서는 요약만): 시뮬은 늘 새 SLAM 으로 시작하고 같은 층 저장 지도 그림을 임시로 먼저 보여 준 뒤 검증된 실시간 지도로 바꾼다 · 위쪽 시뮬 메뉴 삭제(시작·중지는 본문 조작 위치에 유지) · 메뉴·지도 편집 진입 정리 · 임무 화면은 기존 계획 화면 재배치. 서버 쪽은 저장 지도 meta reason `floor_leave` 허용뿐(새 op 0)
+- 미포함(단정): 저장 지도 그림 표시 ≠ SLAM graph 복원·현재 위치 정합·이어 그리기. 임무 화면의 센서 측정·자동 주행·자동 후퇴는 작동 기능이 아니다. 실제 Gazebo 기동은 측정하지 않았다
+- 미완료: 670 화면 QA · 서버 호환 근거(APK-COMPAT) · 운영 웹 반영. 이 셋이 끝나기 전에는 빌드하지 않는다
 
 ## 로컬 빌드 — Android 개발 APK code 12 · `1.0.11-dev` (10-18, **로컬 빌드 1회 · 공개 0**)
 

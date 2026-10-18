@@ -9,7 +9,7 @@
 
 소스 변경, 운영 웹 반영, APK 빌드는 각각 별도로 검증한다. APK에 서버 코드가 들어가는 것은 아니며, 실제 휴대폰/WebView와 물리 실행의 미확인 사항을 구조 검사 결과로 대신하지 않는다.
 
-> **통합 브랜치 현재(2026-10-18)** — 최종 웹 `59e0c5a`(`0314495` + PC 메뉴 아이콘·이름 가독성 `bd5aa8b` + 시뮬 시작 기본 «저장한 지도로 열기» `59e0c5a`, ui 밖 트리는 `0314495` 와 같음) + `mobile/` `03c2a52`(versionCode 12 · `1.0.11-dev`, 직전 `fcb212e` 대비 버전 두 줄만). APK12(`foothold-android-dev-20261018-savedmap.apk`, sha256 `79e6da0e7bdfd9ef…`)를 빌드 입력 `544817c` 로 로컬 1회 빌드했다 — 구조 대조 28/28 · 번들 146 일치, 실행 미측정, 공개 0. 이 머리를 고친 문서 커밋은 빌드 입력이 아니다(ui·mobile 트리는 `544817c` 와 같음). 직전 APK11 원물은 그대로 보존한다. 실 Go2 연결은 미구현이고 기존 단일 시뮬 제어 경로를 유지한다. 출처·검사: [통합 출처](docs/PROVENANCE-app-platform-integration.md)
+> **통합 브랜치 현재(2026-10-18)** — 최종 웹 `ebe65e5`(`59e0c5a` + 층별 저장 지도 표시·메뉴·임무 화면 정리, 서버 쪽은 `sim/v2_link.py` 저장 지도 meta reason 에 `floor_leave` 허용과 그 시험·계약 문서 한 줄) + `mobile/` `b84c32e`(versionCode 13 · `1.0.12-dev`, 직전 `03c2a52` 대비 버전 두 줄만). APK13 은 **아직 빌드하지 않았다**(준비 통합, 공개 0). 직전 APK12(`foothold-android-dev-20261018-savedmap.apk`, sha256 `79e6da0e7bdfd9ef…`)와 그 원물은 그대로 보존한다. 실 Go2 연결은 미구현이고 기존 단일 시뮬 제어 경로를 유지한다. 출처·검사: [통합 출처](docs/PROVENANCE-app-platform-integration.md)
 
 ## 이전 통합 개발판 기록(2026-10-17 · APK10)
 
