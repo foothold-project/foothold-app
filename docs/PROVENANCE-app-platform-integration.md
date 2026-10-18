@@ -4,17 +4,28 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `83154335e92d000d278ec2297517631523d5675a` (`less82/app-ui-react-recovered`, 부모 `ebe65e5` 직전 APK13 판, 중간 후보 `eeadd77` 을 대신하는 최종판 — `ui/` 12파일 + ui 밖 11파일(`contracts/v1` 문서·스키마·ts, `server/runcas.py`, `sim/v2_link.py`, `tests/backend` 2) — ui 밖 11파일은 backend 호환 판 `902c916` 과 같음) | `ui` = `ea3b74d882d15aa8a0df6a7805972f522938bc98` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `8315433`) |
-| `mobile/**` | `59cf3b25edb5321ccd166bb59e6addae945557f5` (`less82/app-contract-storage`) | `mobile` = `9922832a3a50bc0eb47293db47cffb0c9adfb8a9` | 파일 단위 변경 0. 직전 `b84c32e`(트리 `1269dfe`, APK13) 대비 build.gradle 두 줄: versionCode 14 · `1.0.13` (`-dev` suffix 그대로) — native 소스·권한·인증·관문 op·서명 변경 0 |
+| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `98242c7b89e2b0c9417b49eca46a6a72a95cc437` (`less82/app-ui-react-recovered`, 부모 `8315433` 직전 APK14 판 — `8315433` 대비 `ui/` 76파일(시험 20 포함) + ui 밖 11파일(`contracts/v1` 문서·스키마·ts, `server/runcas.py`, `sim/v2_link.py`, `tests/backend` 2) — ui 밖 11파일은 backend 호환 판 `8833876` 과 같음) | `ui` = `9066f57847d696b7639db018ec17b91e95137a45` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `98242c7`) |
+| `mobile/**` | `a8c3da718a98cb91c6e44c807e0ec944d9b7ddf4` (`less82/app-contract-storage`) | `mobile` = `83f43b9f36dbc6f65ba5eca9ea5218a82a4e3bf2` | 파일 단위 변경 0. 직전 `59cf3b2`(트리 `9922832a`, APK14) 대비 build.gradle 두 줄: versionCode 15 · `1.0.14` (`-dev` suffix 그대로) — native 소스·권한·인증·관문 op·서명 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md`: 맨 위는 UI 후보의 새 머리 그대로, 그 아래 «이전 통합 개발판 기록(2026-10-17 · APK10)» 절에 직전 통합 머리 전체 보존, 옛 web 기록 1벌(10-18 merge 충돌 해소) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 83154335e92d000d278ec2297517631523d5675a HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 98242c7b89e2b0c9417b49eca46a6a72a95cc437 HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
 
 서버 사진 저장 fix `0ae1245`(10-17, 부모 UI `e0abe98`): 사진 저장 처리의 미정의 변수 오류(NameError) 1줄 수정 + 회귀 시험. 서버 쪽 코드라 APK 와 무관 — APK10 `dev-20261017-slamstart` 은 이 fix 전 `e0abe98` 화면 파일로 빌드한 그대로이고, 사진 응답은 연결한 운영 서버 판에 따른다. 운영 반영은 10-17 서버 교체 뒤 운영 쪽 상태 점검 통과까지(실제 사진 촬영 동작 확인은 아님).
 
 native 변경(10-18 `fcb212e`): `FhGateCore` 고정 op 에 `rehearsal.get`(GET `/api/app/rehearsal`, 200 만 통과)·`rehearsal.post`(POST 같은 경로, 200·400·403·404·409·413·422·500·503·507 은 status 로 화면까지) 두 개만 추가. 권한·인증·토큰·WS·주소·서명·TTL·STOP·본문 상한(1 MiB) 변경 0, 재시도 0. 시험 `FhGateCoreTest` 34/34(JVM 단위 — Android 빌드·실폰 아님). 리허설 화면은 계획 작성 기능이며 실제 연결 로봇·Gazebo 물리 리허설·Nav2 결과가 아니다.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
+
+## 다음 판 준비 — Android 개발 APK code 15 · `1.0.14-dev` (10-19, **빌드 0**)
+
+이 통합은 빌드 전 최종 source 다. APK 빌드·구조 대조·실행은 아직 하지 않았다. push·tag·공개 업로드 0. 아래 APK14·APK13 절의 «공개 0» 은 빌드 당시 기록이고, 두 APK 는 그 뒤 위키 직접 다운로드로 공개됐다(GitHub release 없음). APK14 빌드 입력(`80cdc9f`)·APK·BUILD-INFO·SUMS 는 바뀌지 않는다.
+
+- 예정 입력: 이 브랜치 통합 커밋(ui 트리 `9066f57847d696b7639db018ec17b91e95137a45` = 최종 웹 `98242c7b89e2b0c9417b49eca46a6a72a95cc437`, mobile 트리 `83f43b9f36dbc6f65ba5eca9ea5218a82a4e3bf2` = `a8c3da7`) + frozen 화면 파일 `frozen-98242c7`(목록 TSV sha256 `167ee91eccd5622875ab0cb425637d2760bfb34d9c264523231fa2b2283eb03f`, index.html sha256 `1049aac9f9917d1d6f98701fd470a3fdb1070f46ef291ffcb9214ffbb8137ee2`, 파일 수는 빌드 때 목록으로 다시 센다)
+- 최종 UI 통합: `98242c7` 은 이미 들어 있는 `8315433` 의 단일 부모 후속이라 normal merge 충돌 0(merge `872d0d8`). 결과 ui 트리 = `98242c7` ui 트리, ui 밖 코드 = `98242c7`, mobile 트리는 이 문서 커밋에서 `a8c3da7` 로 교체
+- 서버 호환 근거: APK-COMPAT 최종 `98242c7` 후속 `bc6b9be3`(앞 `4309e0d`·`136ac5a`·`6016c36` 문서 승계). 새 서버는 운영에 먼저 반영됐다. APK14 는 출발점 좌표가 있는 계획 시작에서, APK13 은 종료 방식이 있는 계획 시작에서 409 가 날 수 있다(편집 보존과 진행 시작 호환은 다름)
+- native: 버전 두 줄 외 변경 0 — 새 native op·플러그인 메서드·서버 경로 0. UI 가 기존 op `whoami` 를 앱 시작 때 처음 호출하므로 만료 토큰이면 로컬 로그아웃과 초안 폐기가 앞당겨질 수 있다(실폰 미측정)
+- 검증 범위: 타입·영향 시험·브라우저 항목별 신규 관측과 기존 통과 승계, 운영 R34 49개 통과. 단일 최종 전체 시험 통과가 아니다. 실폰·WebView·IME·가상 키보드 미측정
+- 미포함(단정): 새 임무는 **수동 계획 생성·저장·진행 기록** 범위다 — 자동 이동·자동 촬영·자동 복귀·도착 판정은 미구현이다. 실제 로봇·실 Gazebo 실행 검증 없음
 
 ## 로컬 빌드 — Android 개발 APK code 14 · `1.0.13-dev` (10-19, **로컬 빌드 1회 · 공개 0**)
 
