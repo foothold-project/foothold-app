@@ -186,3 +186,14 @@ html:not(.fh-dev) [data-dev]{display:none!important}
 .lv-dirtag{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .lv-devmark{min-height:24px;padding:0 8px;border-radius:6px;border:0;background:#7A3EB8;color:#FFFFFF;font-size:11px;font-weight:700;cursor:pointer}
 .lv-devmark:focus-visible{outline:2px solid #8CC8FF;outline-offset:2px}
+
+/* PC 왼쪽 주 메뉴 가독성(10-18 design-nav.md 1f6f5465 N1·N2, root 결정: 폭 701px 이상만).
+   폰 Main(≤700 가로 메뉴, 위 [data-main] 규칙)·폰 세로에서 연 PC 주소는 그대로. 가로 폰(844)은 701 이상이라 적용됨.
+   .fh .nav(0,2,0) 가 각 화면 CSS 의 .nav(0,1,0) 를 이김. 폰 아래 메뉴(.tabb)는 class 가 달라 해당 없음.
+   flex-basis 는 inline flex(0 0 76px)를 이기려고 !important. :has 미지원이면 76px 막대 그대로(항목 64px).
+   overflow-y 는 막대 높이 상한이 없어(바깥이 min-height 100vh) 보통 동작 안 함 — 설정은 페이지 스크롤로 닿음, 독립 스크롤 보장 0. */
+@media (min-width:701px){
+  .fh .nav{width:100%;box-sizing:border-box;font-size:13px;line-height:1.25;text-align:center;word-break:keep-all}
+  .fh .nav.cur{font-weight:600}
+  .fh nav:has(> a.nav){flex-basis:88px!important;overflow-y:auto}
+}
