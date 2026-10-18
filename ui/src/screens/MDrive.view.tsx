@@ -94,18 +94,6 @@ export function View({ v }: { v: Vals }) {
 </>}
         </div>
         {" "}
-        <button aria-label="비상 정지" {...v.stopProps} style={{"position":"absolute","right":"44px","top":"14px","width":"132px","height":"64px","border":"0","borderRadius":"12px","background":"#a3342a","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"8px","boxShadow":"0 0 0 3px rgba(255,255,255,.18)"}}>
-          {" "}
-          <svg width="24" height="24" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-            <rect x="8" y="8" width="8" height="8" fill="#FFFFFF" />
-          </svg>
-          {" "}
-          <span style={{"fontWeight":"700","fontSize":"20px","letterSpacing":".08em"}}>
-            {"STOP"}
-          </span>
-          {" "}
-        </button>
 {v.side ?? null}
         {" "}
         <div style={{"position":"absolute","left":"50%","top":"150px","transform":"translateX(-50%)","display":"flex","alignItems":"center","gap":"6px","height":"30px","padding":"0 12px","borderRadius":"15px","background":"rgba(220,154,48,.92)","color":"#12161d","fontSize":"12px","fontWeight":"700", ...(v.bannerS || {})}}>

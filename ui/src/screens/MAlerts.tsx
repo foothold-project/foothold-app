@@ -7,7 +7,6 @@ import { evShow } from '../data/facts';
 import { activeRun, alertsOf, docsSt, noteOf, useDocs, useMedia } from '../data/shared';
 import { href } from '../data/hist';
 import { LiveStatus, MediaStale } from '../app/status';
-import { stopProps } from '../app/shell';
 
 const ago = (at: string) => { const m = Math.round((Date.now() - tms(at)) / 60000); return m < 1 ? '방금' : m < 60 ? `${m}분 전` : fmtT(at).slice(0, 11); };
 type It = { ic: string; lv: string; title: string; sub: string; time: string; href: string; unread: boolean };
@@ -39,7 +38,7 @@ export default function MAlerts() {
     }
   }
   const v = {
-    themeClass: themeClass(false), stopProps, status: <><LiveStatus D={D} style={{ padding: '4px 14px' }} /><MediaStale M={M} D={D} /></>,
+    themeClass: themeClass(false), status: <><LiveStatus D={D} style={{ padding: '4px 14px' }} /><MediaStale M={M} D={D} /></>,
     readAll: () => { markRead(shown, al); bump(); },   // R14: 지금 그려진 경보 키만(표시 밖·뒤에 온 경보 0)
     readAllT: `보이는 경보 ${shown.length}건 읽음 표시(이 기기)`,
     list: out, foot: `${READ_NOTE} · 이 기기에만 저장 · 잠금 화면·푸시 알림 미연결(화면이 켜져 있어야 함)`,

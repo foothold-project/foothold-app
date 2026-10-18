@@ -8,7 +8,7 @@ import chipSrc from '../../src/app/chip.tsx?raw';
 import mainSrc from '../../src/screens/Main.tsx?raw';
 import mdriveSrc from '../../src/screens/MDrive.tsx?raw';
 import mainSrcMain from '../../src/main.tsx?raw';
-const { headChips } = await import('../../src/app/status');
+const { statusRows: headChips } = await import('../../src/app/status');   // 10-19: 옛 4칩 판정 = «상태 ▾» 상세(statusRows) 그대로 — 머리줄 3칩은 ui_g3_chips
 const { focusBack } = await import('../../src/app/chip');
 const F = await import('../../src/data/facts');
 
@@ -93,7 +93,7 @@ test('배지 → 머리줄 · 폰 서랍 스위치 · 안전 문구 유지 · �
   expect(F.TRIAL).toBe('Gazebo · foothold-v2 시험 · 낙상·정지 지연 미검증');
   // U2: 제목 위 진단 줄은 전부 data-dev, 안전 부분(TRIAL_SAFE)은 SafeLine 의 ? 안(ui_u2 가 렌더 내용 검사)
   expect(mainSrc).toMatch(/siteNode: <span data-dev>/); expect(mainSrc).toMatch(/<SafeLine \/>/);
-  expect(mainSrc).not.toMatch(/chip\('링크'/); expect(mainSrc).toMatch(/<HeadChips /);
+  expect(mainSrc).not.toMatch(/chip\('링크'/); expect(mainSrc).toMatch(/<HeadChips main /);
 });
 
 // B3: 팝오버 자리 — 보이는 STOP(+8) 과 겹침 0 · 화면 안 · 최소 높이로 STOP·화면 끝을 넘지 않음 · 자리 없으면 null

@@ -5,15 +5,15 @@
 형식 검사(doc_check / contracts check_doc)·크기·진행 1개(409) 를 통과한 뒤에 부르고, 반환 문서로 형식·크기를 다시 검사한다.
 표준 라이브러리만(시스템 python 의 v2_link 와 pydantic 쓰는 쪽이 같이 import).
 
-보장: mcas 있는 Run = 생성 순간 서버의 Mission 현재 판 == mrev, 이름·지점(x·y·name·mods)·map(있으면 rid 포함 전체)·finish(R3, 키 유무·값)가 그 판의 사본,
+보장: mcas 있는 Run = 생성 순간 서버의 Mission 현재 판 == mrev, 이름·지점(x·y·name·mods)·map(있으면 rid 포함 전체)·finish(R3, 키 유무·값)·start(계획 출발점 S, 키 유무·값·출처 map 포함)가 그 판의 사본,
       양식은 그 순간 존재·이름 같음(''·'base' = 내장 기본 양식). 결과 편집(방문·사진·끝내기)은 근거 필드가 같으면 mcas 유지, 다르면 낮춤.
-안 함: 양식 본문 개정·할 일 목록 · map 이 지금 시뮬과 같은지(UI gtHere 몫) · 시작 뒤 Mission 변경 재대조 · 다른 기기의 저장 안 한 초안.
+안 함: 양식 본문 개정·할 일 목록 · map 이 지금 시뮬과 같은지(UI gtHere 몫) · start 와 Mission.map 의 관계(형식만, UI 몫) · 시작 뒤 Mission 변경 재대조 · 다른 기기의 저장 안 한 초안.
 """
 
 BASE_TMPL_NAME = '지점 확인 다녀오기'     # ui/src/data/tmpl.ts BASE_T.name 과 같아야 한다(시험이 TS 원문과 대조)
 BASE_IDS = ('', 'base')                    # Mission.tmpl 이 이 값이면 내장 기본 양식(서버 문서 아님). 서버 발급 ID(t…)와 겹치지 않음
 REASONS = ('mission_gone', 'mission_changed', 'tmpl_changed', 'snapshot_mismatch', 'mcas_forbidden')
-_R = ('mode', 'mission', 'mrev', 'name', 'tmpl', 'started', 'map', 'finish')     # 검증 근거 필드(Run 최상위) — 나머지는 결과 필드. finish = R3
+_R = ('mode', 'mission', 'mrev', 'name', 'tmpl', 'started', 'map', 'finish', 'start')     # 검증 근거 필드(Run 최상위) — 나머지는 결과 필드. finish = R3, start = 계획 출발점 S(10-19)
 _WP_R = ('x', 'y', 'name', 'mods')                                     # 지점의 근거 필드 — st·at·why·chk·photos 는 결과
 
 
@@ -71,6 +71,7 @@ def run_gate(cur, doc, get):
     W = M['wps']
     if doc['name'] != M['name'] or len(doc['wps']) != len(W) or any(tuple(a[k] for k in _WP_R) != tuple(b[k] for k in _WP_R) for a, b in zip(doc['wps'], W)) \
             or ('map' in doc and doc['map'] != M.get('map')) \
-            or ('finish' in doc) != ('finish' in M) or doc.get('finish') != M.get('finish'):   # R3: 종료 방식은 키 유무까지 사본(없음 = 미지정, 채움·추정 0)
+            or ('finish' in doc) != ('finish' in M) or doc.get('finish') != M.get('finish') \
+            or ('start' in doc) != ('start' in M) or doc.get('start') != M.get('start'):   # R3·S: 종료 방식·출발점은 키 유무까지 사본(없음 = 미지정, 채움·추정 0)
         return _no(409, 'snapshot_mismatch', '기록이 계획 판의 사본과 다름 — 시작 안 됨 · 다시 열어 확인', m)
     return None, {**out, 'mcas': 1}, False

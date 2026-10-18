@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":1120};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--bad-strong:#B3261E;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--gridc:rgba(154,167,179,.07);--bad-bg:rgba(255,90,82,.13);--warn-bg:rgba(255,181,71,.12);--ok-bg:rgba(90,169,255,.10);--acc-bg:rgba(56,198,217,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--bad-strong:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--gridc:rgba(18,23,28,.06);--bad-bg:rgba(179,38,30,.08);--warn-bg:rgba(154,88,0,.09);--ok-bg:rgba(31,95,191,.08);--acc-bg:rgba(0,109,122,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,select{font:inherit;color:inherit}\nbutton{cursor:pointer}\n.chip{display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;background:var(--panel2);white-space:nowrap}\n.chip .mk{font-size:11px;color:var(--ok)}\n.btn{height:44px;padding:0 16px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px}\n.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\n.btn.pri[disabled]{background:var(--line);border-color:var(--line);color:var(--muted);cursor:not-allowed}\n.btn.sm{height:34px;padding:0 10px;font-size:13px}\n.tool{height:38px;padding:0 10px;border:1px solid transparent;border-radius:6px;background:transparent;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}\n.tool[aria-pressed=\"true\"]{background:var(--acc-bg);border-color:var(--accent);color:var(--text)}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}\n.sec{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}\n.sec h3{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}\n.lbl{font-size:12px;color:var(--muted)}\n.inp{height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:14px;box-sizing:border-box;width:100%}\n.wp{display:grid;grid-template-columns:18px 28px 1fr auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}\n.wp.sel{border-color:var(--accent);background:var(--acc-bg)}\n.num{width:26px;height:26px;border-radius:50%;border:2px solid var(--accent);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--accent)}\n.act{font-size:11px;padding:2px 7px;border-radius:4px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}\n.opt{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.45;cursor:pointer}\n.opt.on{border-color:var(--accent);background:var(--acc-bg)}\n.opt input{margin:3px 0 0;accent-color:var(--accent);width:16px;height:16px}\n.ck{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13px}\n.ck .m.ok{color:var(--ok)}.ck .m.warn{color:var(--warn)}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any; hdrA?: any; hdrB?: any; pill?: any; chips?: any; status?: any; stopProps?: any; tSel?: any; tAdd?: any; zoneP?: any; steps?: any; tMeas?: any; prevP?: any; prevT?: any; map?: any; ov1?: any; ov2?: any; planBox?: any; tplP?: any; tplO?: any; tplHref?: any; tplHelp?: any; lost?: any; aH?: any; aOpts?: any; cH?: any; cList?: any; stopSub?: any; stopHelp?: any; cfm?: any; over?: any; foot?: any; mapAct?: any; };
+export type Vals = { top?: any; mk?: any; legend?: any; themeClass?: any; hdrA?: any; hdrB?: any; pill?: any; chips?: any; status?: any; stopProps?: any; tSel?: any; tAdd?: any; zone?: any; steps?: any; tMeas?: any; prevP?: any; prevT?: any; map?: any; ov1?: any; ov2?: any; planBox?: any; tplP?: any; tplO?: any; tplHref?: any; tplHelp?: any; lost?: any; aH?: any; aOpts?: any; cH?: any; cList?: any; stopSub?: any; stopHelp?: any; cfm?: any; over?: any; foot?: any; mapAct?: any; };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -93,23 +93,6 @@ export function View({ v }: { v: Vals }) {
           </div>
           {" "}
           {v.status ?? null}
-          <button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
-            {" "}
-            <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-              <rect x="8" y="8" width="8" height="8" fill="#FFFFFF" />
-            </svg>
-            {" "}
-            <span style={{"display":"flex","flexDirection":"column","alignItems":"flex-start","lineHeight":"1.1"}}>
-              <span style={{"fontWeight":"700","fontSize":"19px","letterSpacing":".08em"}}>
-                {"STOP"}
-              </span>
-              <span style={{"fontSize":"11px"}}>
-                {v.stopSub ?? "스페이스 · 명령 0·잠금"}
-              </span>
-            </span>
-            {" "}
-          </button>
           {v.stopHelp ?? null}
           {" "}
         </header>
@@ -125,6 +108,14 @@ export function View({ v }: { v: Vals }) {
                 <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
               </svg>
               {"관제"}
+            </a>
+            {" "}
+            <a className="nav" href="#/Main">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 7l-1.5 1.5M12 7l1.5 1.5M12 17l-1.5-1.5M12 17l1.5-1.5M7 12l1.5-1.5M7 12l1.5 1.5M17 12l-1.5-1.5M17 12l-1.5 1.5" />
+              </svg>
+              {"조종"}
             </a>
             {" "}
             <a className="nav cur" href="#/PcPlan" aria-current="page">
@@ -200,9 +191,7 @@ export function View({ v }: { v: Vals }) {
                 </button>
                 {" "}
                 <div style={{"flex":"1"}} />
-                <button className="btn sm" {...v.zoneP}>
-                  {"진입 금지·감속 →"}
-                </button>
+                {v.zone ?? null}
                 {" "}
                 <button className="btn sm" {...v.prevP}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -314,7 +303,11 @@ export function View({ v }: { v: Vals }) {
                   </g>
                 </svg>
                 {" "}
-                <div style={{"position":"absolute","left":"12px","bottom":"34px","display":"flex","flexWrap":"wrap","gap":"6px"}}>
+                {v.over ?? null}
+              </div>
+              {" "}
+              <div className="pp-band2">
+                  {v.legend ?? null}
                   {" "}
                   {v.ov1 ?? (<>
                   <span style={{"display":"flex","alignItems":"center","gap":"6px","height":"30px","padding":"0 10px","borderRadius":"6px","background":"var(--panel)","border":"1px solid var(--line2)","fontSize":"12px"}}>
@@ -336,13 +329,13 @@ export function View({ v }: { v: Vals }) {
                   {" "}
                 </div>
                 {" "}
-                {v.over ?? null}
-              </div>
-              {" "}
               {v.foot ?? null}
             </section>
             {" "}
-            <aside aria-label="임무 설정" className="card" style={{"flex":"1 1 400px","minWidth":"0","maxWidth":"480px","display":"flex","flexDirection":"column"}}>
+            <aside aria-label="임무 설정" className="card pp-aside" style={{"flex":"1 1 400px","minWidth":"0","maxWidth":"480px","display":"flex","flexDirection":"column"}}>
+              {/* 10-19 ROOT 11: 위 = 복구 안내·되돌리기 띠(top) · 가운데 = 단계 스크롤(pp-scroll) · 아래 = 만들기 띠(mk) */}
+              {v.top ?? null}
+              <div className="pp-scroll">
               {v.planBox ?? null}
               {v.steps ?? null}
               {/* R3b: 양식·통신 끊김·경보·점검은 «진행 설정» 접기 안(막는 이유는 시작 단추 옆 v.why 에 늘 보임) */}
@@ -569,6 +562,8 @@ export function View({ v }: { v: Vals }) {
                 {" "}
               </div>
               </details>
+              </div>
+              {v.mk ?? null}
             </aside>
             {" "}
           </main>

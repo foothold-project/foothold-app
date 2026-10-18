@@ -191,6 +191,7 @@ export interface Mission {
   wps: Waypoint[];
   map?: MapSrc;
   finish?: "출발점 복귀" | "마지막 지점 종료";
+  start?: PlanStart;
 }
 
 export interface MissionEnv {
@@ -285,6 +286,12 @@ export interface PhotoMeta {
   url: string;
 }
 
+export interface PlanStart {
+  x: number;
+  y: number;
+  map: MapSrc;
+}
+
 export interface Reply {
   op: "reply";
   rid: number | null;
@@ -314,6 +321,7 @@ export interface Run {
   map?: MapSrc;
   mrev?: number;
   finish?: "출발점 복귀" | "마지막 지점 종료";
+  start?: PlanStart;
   mcas?: 1;
 }
 

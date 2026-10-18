@@ -7,8 +7,8 @@ import { setDev, useDev } from '../data/dev';
 import { InTop, toast } from './shell';
 import { DIR_TAG, NOMOVE, RELURCH, SAFE_LINE, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP, TRIAL_SAFE } from '../data/facts';
 
-export type Tone = 'off' | 'ok' | 'warn' | 'bad';
-export const TONE_ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
+export type Tone = 'off' | 'ok' | 'warn' | 'bad' | 'lock';   // lock = STOP 잠금 칩만(10-19 UX-SPEC 2-2: 중립 테두리 · 채운 빨강은 STOP 단추 하나)
+export const TONE_ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■', lock: '■' };
 
 export function Chip({ tone, text, why, whyLabel }: { tone: Tone; text: string; why?: React.ReactNode; whyLabel?: string }) {
   return <span className={`lv-chip ${tone}`} data-tone={tone}>
@@ -57,12 +57,20 @@ export function stopBoxes(): Box[] {
     .map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
 }
 
-type Pos = Placed & { width: number; ready: boolean };
+/** 10-19(ROOT-IMPLEMENT 3): 도움말·«상태» 패널이 덮지 않을 칸 = STOP + [data-pop-avoid](프로젝트 선택칸 등). StartAsk·StopNote 는 stopBoxes 그대로 */
+export function avoidBoxes(): Box[] {
+  return [...stopBoxes(), ...[...document.querySelectorAll<HTMLElement>('[data-pop-avoid]')].filter((e) => e.checkVisibility?.() ?? true).map((e) => e.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0)];
+}
+type Pos = Placed & { width: number; ready: boolean; inline?: boolean };
+/** 10-19(ROOT CODEX-G3 R2): 지금 열린 떠 있는 패널(Help·«상태») 수 — 화면 Esc(PcPlan)는 >0 이면 양보(같은 keydown 에서 패널만 닫힘).
+ *  닫힘 state 반영 전(같은 keydown 안)에도 셈이 남아 있어 리스너 순서와 무관 */
+let openN = 0;
+export const popOpen = () => openN > 0;
 /** 단추 옆에 떠 있는 패널 공용: 열 때 누르던 입력 폐기(dropAll, 송신 0) · Escape·바깥 누름·크기/스크롤/전체화면 바뀜이면 닫힘.
  *  바깥 누름은 막지 않는다(기본 동작 취소 0). 자리는 실제 내용 높이를 잰 뒤(보이지 않게 한 번 그림) placePop 으로 —
  *  보이는 STOP 어느 것과도 겹치지 않게 놓아 STOP 첫 누름이 늘 STOP 에 닿는다. 자리가 없으면 펼치지 않고 알림.
  *  Escape 로 닫으면 연 단추로 초점(focusBack). 활성 전체화면이면 그 안, 아니면 body 에 그린다(Help = InTop — transform 조상 영향 0). */
-export function usePop(maxW: number) {
+export function usePop(maxW: number, opt: { inline?: boolean } = {}) {   // inline: 자리 없으면 토스트·닫힘 대신 본문 흐름 안 펼침(«상태» 만 — ROOT CODEX-G3 R1)
   const [pos, setPos] = useState<Pos | null>(null);
   const b = useRef<HTMLButtonElement>(null), p = useRef<HTMLElement>(null);
   const open = () => {
@@ -73,20 +81,22 @@ export function usePop(maxW: number) {
   const close = (focus: boolean) => { setPos(null); if (focus) focusBack(b.current); };
   useLayoutEffect(() => {   // 그리기 전: 실제 높이를 재고 자리 확정
     if (!pos || pos.ready || !p.current || !b.current) return;
-    const h = Math.ceil(p.current.getBoundingClientRect().height), at = placePop(b.current.getBoundingClientRect(), h, pos.width, innerWidth, innerHeight, stopBoxes());
+    const h = Math.ceil(p.current.getBoundingClientRect().height), at = placePop(b.current.getBoundingClientRect(), h, pos.width, innerWidth, innerHeight, avoidBoxes());
+    if (!at && opt.inline) { setPos({ ...pos, ready: true, inline: true }); return; }   // 호출부가 머리줄 아래 본문을 밀어 펼침(STOP·프로젝트 칸 덮음 0)
     if (!at) { setPos(null); toast('화면에 펼칠 자리가 없습니다 — 화면을 키우거나 돌린 뒤 다시'); return; }
     setPos({ ...at, width: pos.width, ready: true });
   }, [pos]);
   useEffect(() => {
     if (!pos) return;
-    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close(true); };
+    openN++;
+    const k = (e: KeyboardEvent) => { if (e.key === 'Escape') close(true); };   // 화면 Esc(PcPlan 등)는 popOpen() 이면 양보(그쪽에서 확인 — 전파 막기 0)
     const out = (e: Event) => { const t = e.target as Node; if (!p.current?.contains(t) && !b.current?.contains(t)) close(false); };
     const shut = () => close(false);
-    addEventListener('keydown', k); addEventListener('pointerdown', out, true); addEventListener('resize', shut); addEventListener('scroll', out, true); document.addEventListener('fullscreenchange', shut);
-    return () => { removeEventListener('keydown', k); removeEventListener('pointerdown', out, true); removeEventListener('resize', shut); removeEventListener('scroll', out, true); document.removeEventListener('fullscreenchange', shut); };
+    addEventListener('keydown', k); addEventListener('pointerdown', out, true); addEventListener('resize', shut); if (!pos.inline) addEventListener('scroll', out, true); document.addEventListener('fullscreenchange', shut);
+    return () => { openN--; removeEventListener('keydown', k); removeEventListener('pointerdown', out, true); removeEventListener('resize', shut); removeEventListener('scroll', out, true); document.removeEventListener('fullscreenchange', shut); };
   }, [pos]);
   return { pos, b, p, toggle: () => (pos ? close(false) : open()), close,
-    style: pos ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.ready ? pos.maxHeight : undefined, visibility: pos.ready ? undefined : 'hidden' as const } : undefined };
+    style: pos && !pos.inline ? { left: pos.left, top: pos.top, width: pos.width, maxHeight: pos.ready ? pos.maxHeight : undefined, visibility: pos.ready ? undefined : 'hidden' as const } : undefined };
 }
 
 /** «?» 도움말 — 전문은 닫혀 있어도 DOM(hidden)에 남아 aria-controls 로 이어진다(지워서 금지어 검사를 통과시키지 않음). */

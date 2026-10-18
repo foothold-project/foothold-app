@@ -10,7 +10,7 @@ import { noteOf, useDocs, useMedia } from '../data/shared';
 import { useEditor } from '../data/editor';
 import { cutName, nearOf, runsOf, tagMemo } from '../data/run';
 import { LiveStatus, MediaStale } from '../app/status';
-import { stopProps, toast, useRoute } from '../app/shell';
+import { toast, useRoute } from '../app/shell';
 import { href } from '../data/hist';
 
 const TAGS = ['미끄럼 주의', '누수 의심', '조치 필요'];
@@ -51,7 +51,7 @@ export default function MFinding() {
   const nav = (k: number, t: string, l: string) => <button type="button" className="lv-btn" aria-label={l} disabled={!p} onClick={() => go(k)} style={{ minWidth: '44px', height: '44px' }}>{t}</button>;
 
   const v: Record<string, unknown> = {
-    themeClass: themeClass(false), stopProps, status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
+    themeClass: themeClass(false), status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
     ttl: only ? '분류 대기' : '관찰 사진', prev: nav(1, '‹', '이전(더 오래된) 사진'), next: nav(-1, '›', '다음(더 최근) 사진'), cnt: only ? `미분류 남은 ${left}장${skipped ? ` · 건너뜀 ${skipped}` : ''}` : p ? `${i + 1} / ${ps.length}` : '0 / 0',
     img: p ? <Photo src={p.url} alt={`관찰 사진 ${fmtT(p.frame_at)}`} style={IMG} /> : null,
     cap: p ? `Gazebo 렌더(실카메라 아님) · 프레임 수신 ${fmtT(p.frame_at)} · episode ${p.episode}`

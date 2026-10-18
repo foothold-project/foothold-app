@@ -111,7 +111,7 @@ export function useLoginVals(phone: boolean) {
     busy.current = true; setMsg({ t: '확인 중…' }); const my = ++intent.n;
     const r = await auth.login(u, p, dv.current ? dv.current.value : phone ? '휴대폰' : '');
     if (my !== intent.n) return;   // 그 사이 로그아웃·화면 떠남·새 요청 → 옛 결과 버림
-    if (r.ok) { setMsg({ t: '로그인됨 — 여는 중', ok: true }); location.replace(next); location.reload(); return; }   // 새로 읽어 링크도 새 세션으로
+    if (r.ok) { dropScratch(); setMsg({ t: '로그인됨 — 여는 중', ok: true }); location.replace(next); location.reload(); return; }   // 새로 읽어 링크도 새 세션으로 · 옛 문맥 초안 폐기(영속 초안 nonce 교체)
     busy.current = false; setLoginBad(true); setMsg({ t: r.error });
   };
   const ids = phone ? ['mid', 'mpw'] : ['id', 'pw'];

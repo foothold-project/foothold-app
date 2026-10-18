@@ -247,16 +247,30 @@ export function StopNote() {
     borderLeft: `4px solid ${bad ? '#FF8A80' : p[0] === 'ok' ? '#8CC8FF' : '#C9D3DB'}` }}>{merged ? `${p[1]}\n${tt}` : p[1]}</div></InFs>;
 }
 // 글자 입력 중(입력칸·여러 줄·고르기·편집 가능 영역·한글 조합 중)인 키는 단축키로 쓰지 않는다. STOP 버튼은 언제나 동작.
-const typing = (e: KeyboardEvent) => { const t = e.target as HTMLElement | null; return !!(e.isComposing || e.keyCode === 229 || (t && t.nodeType === 1 && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))); };
+export const typing = (e: Pick<KeyboardEvent, 'isComposing' | 'keyCode' | 'target'>) => { const t = e.target as HTMLElement | null; return !!(e.isComposing || e.keyCode === 229 || (t && t.nodeType === 1 && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName)))); };
+/** 10-19(ROOT-IMPLEMENT 2) 순수: Space 키 처리 — 'stop' 보냄 · 'hold' 기본 동작만 막음(길게 누름 자동 반복 = 첫 keydown 만 송신) · null 관여 0(입력 중·다른 키).
+ *  입력 예외(typing)·전역 Space 정책은 그대로. 확인·권한 조건을 STOP 앞에 넣지 않음 */
+export const spaceKey = (e: Pick<KeyboardEvent, 'code' | 'repeat' | 'isComposing' | 'keyCode' | 'target'>): 'stop' | 'hold' | null =>
+  e.code !== 'Space' || typing(e) ? null : e.repeat ? 'hold' : 'stop';
+/** App 에서 한 번만 장착(main.tsx) — 전역 keydown 리스너 1개 */
 export function useStopKey() {
   useEffect(() => {
-    const k = (e: KeyboardEvent) => { if (!typing(e) && e.code === 'Space') { e.preventDefault(); stopNow(); } };
+    const k = (e: KeyboardEvent) => { const a = spaceKey(e); if (!a) return; e.preventDefault(); if (a === 'stop') stopNow(); };
     addEventListener('keydown', k); return () => removeEventListener('keydown', k);
   }, []);
 }
 /** live.js stopBtn(): 누르는 순간(pointerdown)·Enter 에 STOP. 이름표 없는 보조 STOP 버튼에도 쓴다 */
 export const stopOn = { onPointerDown: stopNow, onKeyDown: (e: React.KeyboardEvent) => { if (e.key === 'Enter') stopNow(); } } as const;
 export const stopProps = { 'aria-label': '비상 정지', title: STOP_TIP, ...stopOn } as const;   // B2 R05: 효과 설명 한 문구(facts)
+/** 10-19 공통 STOP(ROOT-IMPLEMENT 1): 모든 화면에 이것 하나 — 창 기준 top 8 · right 12 · 144×64(live.css .fh-stop · 머리줄 예약도 거기).
+ *  InTop = 활성 전체화면 요소 안, 아니면 document.body(transform 조상 0 → 늘 같은 창 좌표). App 이 Suspense 밖에서 모든 route(로그인 포함)에 그려 화면 읽는 중에도 누를 수 있음.
+ *  동작 = stopProps 그대로(pointerdown·Enter → stopNow → sendStop · 입력 폐기·확인 취소·권한 정책 변경 0). 이름표 정확히 «비상 정지»(stopBoxes·Drawer fit). 인쇄 제외 */
+export const STOP_BOX = { top: 8, right: 12, width: 144, height: 64 } as const;
+export function GlobalStop() {
+  return <InTop><button type="button" {...stopProps} className="fh-stop lv-noprint" data-fh-stop="1">
+    <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
+    <span className="fh-stop-t"><span>STOP</span><small>Space · 정지 요청</small></span></button></InTop>;
+}
 /** live.js openDrawer(): 오른쪽(PC)·머리줄 아래 서랍. Esc·닫기로 닫음. (휴대폰 가로 조종 화면 배치는 묶음 3 에서) */
 export function Drawer({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const x = useRef<HTMLButtonElement>(null), close = useRef(onClose); close.current = onClose;   // 다시 그릴 때마다 초점을 뺏지 않게 처음 한 번만

@@ -118,6 +118,17 @@ test('srcGaps · MAlerts: 문서 이상이면 «분류 대기» 항목 0, 정상
   set('ok', 'ok'); expect(html(MAlerts)).toContain('관찰 사진 분류 대기 1장');
 });
 
+// CODEX-G2 R1(10-19): 결과 칸 색(resColor)이 S 문구 변경 주석에 삼켜져 전부 기본 ink-2 가 됐던 회귀 — 실제 Report 렌더의 결과 테두리 style 로 확인(색 정의는 HEAD 그대로)
+test('Report 결과 색: 완료·진행·실패·중단이 결과 칸 테두리에 각자 색(기본 ink-2 로 뭉침 0) · 기록 없음 = ink-2', async () => {
+  const Report = (await import('../../src/screens/Report')).default;
+  const run = (status: string) => ({ kind: 'run', id: 'r1', at: at(1), by: 'kim', rev: 1, doc: { mode: '수동', mission: 'm1', tmpl: 'base', name: '계획', status, started: at(5), ended: status === '진행' ? '' : at(1), memo: '',
+    wps: [{ x: 1, y: 2, name: 'a', mods: [], st: '방문', at: at(2), why: '', chk: '', photos: [] }], mrev: 1 } });
+  const border = (s: string) => s.match(/border:2px solid ([^;"]+)/)?.[1];
+  const got = Object.fromEntries(['완료', '진행', '실패', '중단'].map((st) => { set('ok', 'ok', [run(st)]); return [st, border(html(Report))]; }));
+  expect(got).toEqual({ '완료': 'var(--dim-ink)', '진행': 'var(--note-ink)', '실패': 'var(--stop)', '중단': 'var(--stop)' });
+  set('ok', 'ok', []); expect(border(html(Report))).toBe('var(--ink-2)');
+});
+
 test('Report 전체 CSV 버튼: 소스 이상이면 «받은 기록 CSV · 일부» + title, 정상이면 기존 «전체 기록 CSV»', async () => {
   const Report = (await import('../../src/screens/Report')).default;
   set('broken', 'ok'); const s = html(Report);

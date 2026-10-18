@@ -6,7 +6,7 @@ import { LV, fmtT, saveBlob, themeClass } from '../data/fmt';
 import { docsSt, mediaSt, reread, useDocs, useMedia } from '../data/shared';
 import { histCSV, histFilter, histRows, href, SEV, SEV0, srcGaps, TAB_F, type HF, type Row, type Tab } from '../data/hist';
 import { LiveStatus, MediaStale, localT } from '../app/status';
-import { stopProps, toast, useRoute } from '../app/shell';
+import { toast, useRoute } from '../app/shell';
 
 const N = 20;
 const TABS: [Tab, string, string][] = [['임무', '임무', 'mission'], ['사진', '관찰 사진', 'photo'], ['사건', '사건', 'event']];
@@ -72,7 +72,7 @@ export default function PcHistory() {
   const st = (fn: (r: Row) => boolean) => runs.filter(fn).length, bad = M.events.filter((e) => e.st === 'bad').length, warn = M.events.filter((e) => e.st === 'warn').length;
   const wait = ph.filter((r) => r.wait).length;
   const v = {
-    themeClass: themeClass(true), h2: '기록', status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>, stopProps,
+    themeClass: themeClass(true), h2: '기록', status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
     stats: [
       ['임무', !dk || dk === '보관' ? String(runs.length) : '—', dk === '보관' ? '보관 자료 · 재조회 실패' : dk ? `문서 ${dk}` : ([['완료', st((r) => r.st === '완료')], ['실패·중단', st((r) => /실패|중단/.test(r.st || ''))], ['진행', st((r) => r.st === '진행')]] as [string, number][])
         .filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(' · ')],   // 0 인 보조 항목은 접음 · 문서 오류면 0 단정 대신 «—»

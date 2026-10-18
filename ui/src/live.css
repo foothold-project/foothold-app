@@ -16,7 +16,6 @@
 .lv-big img[data-live-cam],:fullscreen img[data-live-cam]{object-fit:contain!important}
 .lv-bigbar{position:absolute;left:10px;right:52px;top:10px;z-index:2;display:none;flex-wrap:wrap;gap:8px;align-items:center;padding:8px;border-radius:8px;background:rgba(5,8,10,.8);color:#E6EBEF;font-size:13px}
 .lv-bigbar .btn{height:44px;padding:0 14px;border:1px solid #34424D;border-radius:8px;background:#182028;color:#E6EBEF;font-weight:600}
-.lv-bigbar .lv-stop{border:0;background:#a3342a;color:#fff;font-weight:700;letter-spacing:.06em;min-width:96px}
 .lv-main{flex:1;min-width:0;display:grid;gap:14px;align-content:start;padding:16px}
 .lv-mbody{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:10px;padding:10px 14px}
 .lv-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
@@ -67,9 +66,32 @@ textarea.lv-inp{resize:vertical}
 .lv-dl{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;margin:0;font-size:13px}.lv-dl dt{color:var(--muted)}.lv-dl dd{margin:0;overflow-wrap:anywhere}
 .lv-rep{padding:48px 56px;color:#111;font-size:13px;line-height:1.5}.lv-rep h1{font-size:22px;margin:0 0 6px}.lv-rep h2{font-size:16px;margin:22px 0 6px}.lv-rep h3{font-size:14px;margin:12px 0 4px}
 .lv-rep table{width:100%;border-collapse:collapse;margin:4px 0}.lv-rep th,.lv-rep td{border:1px solid #bbb;padding:4px 6px;text-align:left;vertical-align:top}
-.lv-fstop{position:fixed;right:16px;bottom:16px;z-index:40;min-width:96px;height:56px;border:0;border-radius:10px;background:#a3342a;color:#fff;font-weight:700;letter-spacing:.06em;font-size:16px}
+/* 10-19 공통 STOP(shell GlobalStop · ROOT-IMPLEMENT 1): 모든 화면 창 기준 같은 자리·크기. 창 기준 정확히 top 8 · right 12 · 144×64(ROOT/QA 확정 · safe-area 가산 미채택) · UX-SPEC 1-1 모양(채움 #a3342a 고정 = brand.css .fh 의 STOP 채움값 — body 포털은 .fh 밖이라 var(--stop) 이면 :root 공식값(흰 글자 3.14:1)이 됨) · z 70 = 확인창(60)·알림(50/51)·서랍 위 */
+.fh-stop{position:fixed;top:8px;right:12px;width:144px;height:64px;z-index:70;box-sizing:border-box;margin:0;padding:0 8px;border:0;border-radius:10px;background:#a3342a;color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;cursor:pointer;touch-action:manipulation;box-shadow:0 0 0 3px rgba(215,38,30,.22);transform:none;white-space:nowrap}
+.fh-stop-t{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}.fh-stop-t>span{font-weight:700;font-size:19px;letter-spacing:.08em}.fh-stop-t>small{font-size:11px;font-weight:500;white-space:nowrap}
+@media print{.fh-stop{display:none!important}}
+/* G4(ROOT U1b 경계 · 10-19): fixed right:12px 의 기준(뷰포트 폭)이 세로 스크롤바 생김/없음에 따라 바뀌어 STOP x 가 밀리던 것 — 스크롤바 자리를 늘 비워 둠(내용 없는 화면도 같은 폭).
+   겹치는 스크롤바(폰·macOS)는 영향 0. 가로 넘침: 흐름 안 100vw 요소 0(팝오버·서랍 100vw 는 fixed + min 상한). 픽셀 동일은 670 실측 전 미확인 */
+html{scrollbar-gutter:stable}
+.fh-stop:focus-visible{outline:3px solid #8CC8FF;outline-offset:2px}
+/* 머리줄 예약: 공통 STOP 이 있는 동안 모든 화면 머리줄 오른쪽 168·높이 80 비움(줄바꿈돼도 STOP 아래로 내용이 들어가지 않음). 머리줄 밖 상태 줄도 오른쪽 비움 */
+/* UX2FIX(b): 예약 3규칙은 화면(screen)에서만 — 인쇄 때 숨은 GlobalStop DOM 이 :has 를 참으로 만들어 Report 인쇄 틀 header 가 바뀌던 것. 화면 예약·특이도 그대로 */
+@media screen{
+body:has([data-fh-stop]) header{padding-right:168px!important;min-height:80px;box-sizing:border-box}
+body:has([data-fh-stop]) [data-live-status]:not(header [data-live-status]){padding-right:168px!important}
+}
+/* FIX2c(715 P2 · ROOT): Main 좁은 폭(≤700·가로 폰) 머리줄 padding 단축형 [data-main] .fh header(0,2,1)!important 가 위 예약(0,1,2) 오른쪽 168 을 10/8 로 덮던 것 —
+   같은 예약을 Main 에만 더 높은 특이도(0,3,2)로 다시 걺. padding-right 만 · 다른 padding·STOP 좌표·제어 0. 픽셀은 670 측정 전 미확인 */
+@media screen{body:has([data-fh-stop]) [data-main] .fh header{padding-right:168px!important}}
+/* 전체화면·확대 화면 안 조작 줄도 STOP 자리를 비움(같은 창 좌표) */
+.lv-bigbar{right:168px!important}
+:fullscreen .qfs{right:168px!important}
 @media (max-width:900px){.lv-main{grid-template-columns:minmax(0,1fr)!important}}
 @media print{.lv-noprint{display:none!important}body{background:#fff!important}}
+/* UX2FIX(670 U1-390 Report iw 794): 794×1123 인쇄 틀이 문서 흐름에서 폰 레이아웃 뷰포트를 794 로 넓히던 것 — 화면에서만 틀을 창 폭 칸에 가두고 가로 스크롤. 인쇄(@media print)·틀 크기 0 변경 */
+@media screen{.rp-frame{max-width:100%;overflow-x:auto}}
+/* UX2FIX(a-ALT · ROOT GO): MDrive 시안 틀(인라인 844×390 relative)을 첫 프레임부터 흐름 밖(fixed)으로 — 고정 요소를 문서 내용 폭에서 빼 폰 뷰포트 확장을 막기 위함(실 trace 미확인). fit() 이 늘 주던 같은 fixed 를 초기에만 미리 보장 · left/top/크기·계산·명령 0 변경. useFitPhone useLayoutEffect 와 함께 */
+[data-live-drive]{position:fixed!important}
 [data-live-drive] [role="group"]{touch-action:none}   /* 조종 막대: 끌기가 화면 스크롤·확대로 새지 않게 */
 /* Main(PC 조종) 머리줄: 시험 문구·임무 제목 줄이 좁은 폭(≈1024)에서 줄어들며 말줄임 — 칩이 모드 표시를 덮지 않게(전체 문구는 title) */
 [data-main] header>div:has(>span+span){flex-shrink:1;min-width:140px}
@@ -90,12 +112,16 @@ textarea.lv-inp{resize:vertical}
 .qpip:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .qb{position:relative;flex:1;aspect-ratio:16/10;min-height:0;background:#05080A}
 .qd.f .qt.on .qb{flex:none;aspect-ratio:auto;height:var(--qbh,min(62vh,620px))}   /* flex:none — .qb 기본 flex:1(basis 0)이 세로 flex 에서 height 를 무시하던 것(10-15 QA 실측 197 px) */   /* 10-15 ①: --qbh = 화면 남는 높이(Quad.tsx 가 잼) */
-/* 브라우저 전체화면(이 묶음만): 창 전체 높이 − 칸 머리(30)·틈. STOP(.qfs-stop)은 아래 가운데 상시 */
+/* 브라우저 전체화면(이 묶음만): 창 전체 높이 − 칸 머리(30)·틈. 아래 가운데 .qfs-stop = 상태 줄·안전선만(10-19 STOP 은 공통 GlobalStop 이 이 요소 안 오른쪽 위로) */
 .qd:fullscreen{box-sizing:border-box;width:100vw;height:100vh;background:#05080A;align-content:start}
 .qd:fullscreen.f .qt.on .qb{height:calc(100vh - 46px)}
+/* UX2FIX-D(UGEO2 main1440-fs RESV ctrl 2 · ROOT 1d): 이 묶음 전체화면에서 공통 STOP 예약칸(위 80 · 오른쪽 168)에 제어 상자 0 —
+   작은 칸(PIP) 첫 줄을 80 아래로(첫 행 36→74 = 패딩 6 + 74 → 다음 행 시작 86) · 큰 칸 머리 단추(.qh) 오른쪽 끝을 예약 밖으로(margin-right 168 → 끝 = 폭−175).
+   영상 바탕(.qb)·.qfs right168·STOP·fit·조작 0 변경. 픽셀은 실측 전 미확인 */
+.qd:fullscreen.f{grid-template-rows:74px auto auto auto 1fr}
+.qd:fullscreen.f .qt.on>.qh{margin-right:168px}
 .qfs{position:absolute;z-index:4;top:9px;right:44px;min-height:26px!important;padding:0 10px!important;font-size:12px!important}
 .qfs-stop{position:absolute;z-index:5;left:50%;bottom:14px;transform:translateX(-50%)}
-.qfs-stop .lv-stop{min-width:120px;height:56px;border:0;border-radius:10px;background:var(--stop,#D7261E);color:#fff;font-size:18px;font-weight:800;letter-spacing:.06em;box-shadow:0 2px 12px rgba(0,0,0,.6)}
 .qd.f .qt.pip .qb{flex:none;aspect-ratio:4/3}
 .qh{display:flex;align-items:center;justify-content:space-between;gap:6px;height:30px;padding:0 8px;border:0;border-bottom:1px solid var(--line);background:var(--panel2);font-size:12px;font-weight:600;text-align:left;min-width:0}
 .qh span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -169,11 +195,11 @@ body:has(.lv-drawer) .lv-tip{display:none!important}
 @media (orientation: landscape) and (max-height: 500px){.mmap-hdr>header>[data-mapview-bar]{order:0;flex:0 1 auto}}
 /* B2 A3: PcPlan 도 다른 PC 화면처럼 STOP 을 첫 줄 오른쪽 끝에 — 상태 줄만 둘째 줄 전체로(STOP 크기·색 그대로) */
 .pcplan-hdr>header>.lv-status{order:3;flex:1 1 100%;min-width:0}
-.pcplan-hdr>header>button[aria-label="비상 정지"]{margin-left:auto}
 /* UI-SIMPLIFY v3 U1-a: 개발자 모드(표시만) · 상태 칩 · «?» 도움말 */
 html:not(.fh-dev) [data-dev]{display:none!important}
 .lv-chip{display:inline-flex;align-items:center;gap:4px;min-height:22px;padding:0 8px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);font-size:12px;font-weight:600;white-space:nowrap}
 .lv-chip.off{color:var(--muted)}.lv-chip.ok{color:var(--ok);border-color:var(--ok)}.lv-chip.warn{color:var(--warn);border-color:var(--warn)}.lv-chip.bad{color:var(--bad);border-color:var(--bad)}
+.lv-chip.lock{color:var(--text);border:1.5px solid var(--text);background:transparent}   /* 10-19 잠금 칩만 — bad 토큰 변경 0 */
 .lv-help{display:inline-flex}
 .lv-q{min-width:24px;min-height:24px;padding:0;border-radius:12px;border:1px solid currentColor;background:transparent;color:inherit;font-size:12px;font-weight:700;line-height:1;cursor:pointer}
 .lv-q:focus-visible{outline:2px solid #8CC8FF;outline-offset:2px}
@@ -182,6 +208,8 @@ html:not(.fh-dev) [data-dev]{display:none!important}
 .lv-simmenu .lv-note{margin:0;color:#9AA6B2;font-size:12px}
 .lv-simmap{display:flex;flex-direction:column;gap:6px;padding-top:6px;border-top:1px solid #3a4652}
 .lv-pop[hidden]{display:none}
+/* 10-19 «상태» 인라인 대체(자리 없음): 머리줄 flex-wrap 새 줄 = 본문을 밀어냄(fixed 0 → STOP·프로젝트 칸 덮음 0) · 색은 .lv-pop 과 같은 값 */
+.lv-pop-inline{flex:1 1 100%;box-sizing:border-box;max-width:100%;padding:8px 10px;border-radius:8px;background:rgba(8,11,14,.96);color:#E6EBEF;border:1px solid #3a4652;font-size:13px;line-height:1.45;white-space:normal;text-align:left}
 .lv-safe{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;font-weight:600;color:var(--warn);line-height:1.35}
 .lv-dirtag{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
 .lv-devmark{min-height:24px;padding:0 8px;border-radius:6px;border:0;background:#7A3EB8;color:#FFFFFF;font-size:11px;font-weight:700;cursor:pointer}

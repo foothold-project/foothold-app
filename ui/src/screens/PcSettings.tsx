@@ -9,7 +9,7 @@ import { linkView, useLink } from '../data/link';
 import { logoutNow } from '../data/auth';
 import { useDocs } from '../data/shared';
 import { LiveStatus } from '../app/status';
-import { stopProps, toast, whyProps } from '../app/shell';
+import { toast, whyProps } from '../app/shell';
 import { DevSwitch, DirTag, Help, LostHelp } from '../app/chip';
 
 const GATED = location.protocol === 'https:';   // 보호 관문으로 연 화면(로그인 세션 있음)
@@ -63,7 +63,7 @@ export default function PcSettings() {
   const tr = (a: string, b: string, c: string, d: string, e: JSX.Element) => (
     <tr key={a}><td style={{ fontWeight: '600' }}>{a}</td><td>{b}</td><td className="lbl">{c}</td><td className="mono">{d}</td><td>{e}</td></tr>);
   const vals = {
-    themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
+    themeClass: themeClass(true), status: <LiveStatus D={D} />,
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(PcRobot·PcMissions·PcPlan 과 같음)
     hdrA: '설정', hdrNote: '여기서 바꾸는 값은 이 브라우저에만 저장(테마·막대 배치·지도 보기) · 변경 기록 미연결',
     sv, lostLbl: '직접 조종 중 · 서버 고정 동작(자율 이동 미연결)',

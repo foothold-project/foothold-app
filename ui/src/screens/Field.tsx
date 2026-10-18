@@ -1,10 +1,9 @@
 // #/Field — 폰 현장 «내 로봇» 입구(새 기획 10-18, SPEC §5). 기존 폰 화면(MHome·MDrive·MMap·MFinding·MHistory)은 그대로 두고 링크만.
-// 새 명령 경로 0: 이 화면은 sendOp·startDrive·setProvider 를 부르지 않음. STOP = 기존 stopProps(stopNow). 조종은 #/MDrive 로 이동만.
+// 새 명령 경로 0: 이 화면은 sendOp·startDrive·setProvider 를 부르지 않음. STOP = 공통 GlobalStop(기존 stopProps/stopNow). 조종은 #/MDrive 로 이동만.
 // 내 로봇 고르기 = 화면 표시만. 실측(MapCanvas)과 계획(SceneCanvas)은 «실측 | 계획» 전환 — 겹쳐 그리지 않고 거리·지남 계산 0(좌표 정합 근거 없음, root 10-18).
 import { useEffect, useMemo, useState } from 'react';
 import { Chip } from '../app/chip';
 import { camChip, useHeadChips } from '../app/status';
-import { stopProps } from '../app/shell';
 import { SourceTag, listErr, liveOf, useProject, useProjects } from '../app/fleetui';
 import { TRAIL, camURL, linkView, useLink } from '../data/link';
 import { themeClass } from '../data/fmt';
@@ -19,7 +18,7 @@ type Tab = 'now' | 'map' | 'report' | 'hist';
 // L7(14d58f24 §5): 가로에서 영상 썸네일(a)만 높이 상한 — 영상칩·이유 문구가 하단 탭 위로. 앞 vh 줄 = dvh 미지원 WebView 대체 · 244 = 머리126+여백12+gap8+칩30+탭64+4(추정)
 //   media 로 바꿀 값만 클래스로 옮김(인라인은 media 가 못 덮음) — 세로 값은 그대로(10px 16px·gap 8·2열·gap 6·left 0·영상 칸 gap 12)
 const CSS = `.fd-body{display:grid;gap:12px;padding:12px 16px 168px}
-.fd-header{padding:10px 16px;gap:8px}
+.fd-header{padding:10px 16px;gap:8px;grid-template-columns:minmax(0,1fr)}   /* UX2FIX(670 U1-390 SELECT 우끝 317 > 예약 222): 자동 트랙 하한 = select 최장 옵션 min-content → 0 하한으로 헤더 내용 폭(예약 168 뺀 폭) 안에서 줄어듦 */
 .fd-chips{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .fd-video{display:grid;gap:12px;align-content:start}
 .fd-act{left:0}
@@ -144,8 +143,7 @@ export default function Field() {
       <div className="fd-act" style={{ position: 'fixed', right: 0, bottom: 64, zIndex: 4, display: 'flex', alignItems: 'center', gap: 12, padding: '8px 16px', pointerEvents: 'none' }}>
         {driveOff ? <span className="lv-note" style={{ pointerEvents: 'auto', flex: 1, minHeight: 48, display: 'flex', alignItems: 'center' }}>{`조종 화면 열기 꺼짐 · ${driveOff}`}</span>
           : <a className="lv-btn pri" href="#/MDrive" style={{ pointerEvents: 'auto', flex: 1, minHeight: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>조종 화면 열기</a>}
-        <button type="button" {...stopProps} style={{ pointerEvents: 'auto', height: 64, minWidth: 112, padding: '0 14px', border: 0, borderRadius: 12, background: 'var(--stop)', color: '#FFFFFF', fontWeight: 700, letterSpacing: '.06em', boxShadow: '0 0 0 3px rgba(215,38,30,.22)' }}>
-          {plan ? `STOP · ${liveName}` : 'STOP'}</button>
+        {/* 10-19: 현장 STOP 삭제 — 공통 GlobalStop(오른쪽 위 고정) */}
       </div>
       <nav aria-label="현장 탭" style={{ position: 'fixed', left: 0, right: 0, bottom: 0, zIndex: 4, height: 64, display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', background: 'var(--panel)', borderTop: '1px solid var(--line)' }}>
         {([['now', '현황'], ['map', '지도'], ['report', '보고'], ['hist', '기록']] as const).map(([k, t]) => <button key={k} type="button" aria-pressed={tab === k} onClick={() => setTab(k)}

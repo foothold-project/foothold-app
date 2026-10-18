@@ -5,8 +5,8 @@ import { deg, num, ok, posTxt, saveBlob, sgn, themeClass } from '../data/fmt';
 import { RELURCH, RELURCH_OBS, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP, TRIAL_SAFE, WHY } from '../data/facts';
 import { linkView, stateRows, useLink } from '../data/link';
 import { useDocs } from '../data/shared';
-import { LiveStatus } from '../app/status';
-import { stopProps, toast, whyProps } from '../app/shell';
+import { LiveStatus, gateWait, useHeadChips } from '../app/status';
+import { toast, whyProps } from '../app/shell';
 import { Help } from '../app/chip';
 
 type Lv = 'ok' | 'warn' | 'off';
@@ -36,24 +36,29 @@ export default function PcRobot() {
   const newVer = v.newVer;
   // B1(715): 잠금·보기 확정은 «현재 연결에서 받은 유효 status»가 있을 때만 — 머리줄 headChips 의 known(linkOk·bad 없음·st 있음) + 이 연결 세대(stGen === gen). 아니면 «확인 안 됨»(warn)
   const known = v.linkOk && !L.bad && !!st && L.stGen === L.gen;
-  const latch: [Lv, string] = !known ? ['warn', '잠금 확인 안 됨'] : v.latch ? ['warn', '잠금 켜짐'] : ['ok', '잠금 꺼짐'];
+  // ---- G4(ROOT 3 · UX-SPEC 2-4 · 10-19): 상위 원인 하나 — 유효 status 가 없으면(known 거짓) 종속 줄(몸·넘어짐 미확인·자세값·카메라·보기·잠금)은 ▲ 대신 회색 «대기» ----
+  // 원인 칸은 하나만 ▲: 관문 미확인(머리줄 관문 칩 ≠ 정상) = «관문 먼저» · 관문은 정상인데 이 연결의 status 없음(시뮬 미수신 등 · G3 정책) = «상태 먼저» → 원인 글은 아래 «연결 · 상태 나이» 줄(▲ 그대로)
+  // 정상 톤으로 바꾸기 0(회색 = 판단 보류) · 받은 넘어짐(true)은 늘 ▲ · known 이면 기존 줄 그대로(독립 사실: 넘어짐·리셋·다른 기기·잠금·정지 특성)
+  const gw = gateWait(useHeadChips()), dep = !known, W = `미확인 · ${gw ? '대기(관문 먼저)' : '대기(상태 먼저)'}`;
+  const dn = (r: It): It => (dep && r[0] !== 'off' ? ['off', r[1], r[2] == null ? null : W, ...r.slice(3)] as It : r);   // 종속 줄 낮춤 — 유효 status 없이 받은 옛 값의 ●(정상)도 회색(근거 없는 정상 0) · 원인 글은 상위 원인 줄에
+  const latch: [Lv, string] = !known ? ['off', `잠금 ${W}`] : v.latch ? ['warn', '잠금 켜짐'] : ['ok', '잠금 꺼짐'];
   const tilt = part([s?.tilt_deg], num(s?.tilt_deg, 1, '°')), spd = part([s?.vx, s?.vy], `${num(s?.vx)} · ${num(s?.vy)} m/s`), pos = part([s?.x, s?.y, s?.yaw], `${ok(s?.x) && ok(s?.y) ? posTxt(s?.x, s?.y) : `x ${sgn(s?.x, 2, ' m')} · y ${sgn(s?.y, 2, ' m')}`} · ${deg(s?.yaw)}`);   // B3-R: 축별 — 받은 축(0 포함) 보존, 빠진 축만 미확인
   // 보기(시뮬이 보내는 화면 자료) — 서버가 받은 상태 그대로(views[k].st). 실기 센서 연결·건강 판정 아님. 서버가 이 보기를 안 주면(이전 판) 줄 없음
   const vs = st?.views as Record<string, { st: string; why: string; age_s: number | null } | null | undefined> | undefined;
-  const viewRows: It[] = VIEWS.flatMap(([k, n]): It[] => { const x = vs?.[k] as ({ st: string; why: string; age_s: number | null; prod?: { enabled?: boolean | null } | null } | null | undefined); if (!known) return [['warn', n, '확인 안 됨', true]]; if (!x) return [];
+  const viewRows: It[] = VIEWS.flatMap(([k, n]): It[] => { const x = vs?.[k] as ({ st: string; why: string; age_s: number | null; prod?: { enabled?: boolean | null } | null } | null | undefined); if (!known) return [['off', n, W, true]]; if (!x) return [];
     const [lv, t] = VST[x.st] ?? ['warn', '확인 안 됨'], w = x.why && !(x.st === 'off' && x.why === t) ? ` · ${x.why}` : '';
     const dg = x.st === 'off' && k === 'follow' && x.prod?.enabled === false ? ` · ${OFF_DIAG}` : '';   // B2-R: 진단은 덧붙이기만(톤·«꺼짐» 확정 0)
     return [[lv, n, `${t}${x.st === 'ok' && x.age_s != null ? ` · ${x.age_s.toFixed(1)} s 전` : ''}${x.st !== 'ok' ? w : ''}${dg}`, true]]; });
   const vals = {
-    themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
+    themeClass: themeClass(true), status: <LiveStatus D={D} />,
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(v3 §3) — Main·PcMap 과 같음
     hdrA: '로봇', hdrB: sim ? 'Go2 시뮬' : 'Go2 실기 · 명령 미지원',
     pill: '',   // U4-b: 연결·역할·잠금은 머리줄 공통 칩(중복 0)
     role: <></>,   // U1-b: 조종권은 머리줄 역할 칩 한 곳(null 이면 view 기본 문구가 나와 빈 조각)
     bodyH: '', noSvg: true,
-    bodyRows: block([s ? [v.body.includes('미확인') ? 'warn' : 'ok', '몸', v.body, true] : ['warn', '몸', `확인 안 됨 · ${v.linkTxt}`, true],   // B3: «미확인» 글은 정상 톤 0
-      [s?.fallen === false ? 'ok' : 'warn', '넘어짐', s?.fallen === true ? '넘어짐' : s?.fallen === false ? '아님' : '미확인', true],
-      [tilt[0], '기울기', tilt[1]], [spd[0], '속도(앞 · 옆)', spd[1]], [pos[0], '위치 · 방향', pos[1]], ['off', '보행 모드', null], ['off', '다리 모터 온도', null]]),
+    bodyRows: block(([s ? [v.body.includes('미확인') ? 'warn' : 'ok', '몸', v.body, true] : ['warn', '몸', `확인 안 됨 · ${v.linkTxt}`, true],   // B3: «미확인» 글은 정상 톤 0
+      s?.fallen === true ? ['warn', '넘어짐', '넘어짐', true] : [s?.fallen === false && !dep ? 'ok' : 'warn', '넘어짐', s?.fallen === false && !dep ? '아님' : '미확인', true],   // G4: 받은 넘어짐은 dn 밖(늘 ▲) · 옛 «아님»을 known 없이 정상 0
+      [tilt[0], '기울기', tilt[1]], [spd[0], '속도(앞 · 옆)', spd[1]], [pos[0], '위치 · 방향', pos[1]], ['off', '보행 모드', null], ['off', '다리 모터 온도', null]] as It[]).map((r, i) => (i === 1 && s?.fallen === true ? r : dn(r)))),
     bodyNote: <span data-dev="">넘어짐·기울기·속도는 Gazebo 시뮬 원값입니다. 판정 기준을 덧붙이지 않습니다. 보행 모드·다리 모터 온도는 미제공.</span>,
     batBig: <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="m-off">○</span><span className="lbl" style={{ fontSize: 14 }}>배터리 값 없음</span><Help label="배터리 · 설명">{WHY['배터리']}</Help></span>,
     batBarHide: true, batLbl: '',
@@ -61,8 +66,9 @@ export default function PcRobot() {
       ...(newVer ? [['warn', '화면 판 ≠ 서버 판', '새로고침 필요', true] as It] : []),
       ['ok', '화면 판 · 서버 판', `${L.firstVer || '미확인'} · ${st?.ver || '미확인'}`, true, true],   // 해시 = 개발자 모드
       ['off', '전압 · 사이클', null], ['off', '로봇 PC', null]], false),
+    // G4: 실제 받은 영상(camOk)은 독립 사실 — 낮추지 않음
     // 센서: 보기 수신(시뮬 화면 자료)과 실기 센서 연결을 나눔 — «RGB만»·«센서 없음» 고정 단정 0
-    sensRows: <>{block([[v.camOk ? 'ok' : 'warn', '전방 카메라 영상(RGB)', v.camTxt, true], ...viewRows])}
+    sensRows: <>{block([v.camOk ? ['ok', '전방 카메라 영상(RGB)', v.camTxt, true] : dn(['warn', '전방 카메라 영상(RGB)', v.camTxt, true]), ...viewRows])}
       <span className="lbl" style={{ display: 'block', padding: '6px 0' }}>위는 시뮬이 보내는 보기 · 실기 센서 연결·건강 판정 아님</span>
       {block([['off', '실기 L1 라이다', null], ['off', '실기 IMU', null], ['off', '실기 뎁스 카메라 D435i', null], ['off', '실기 XT-16 라이다', null]], false)}</>,
     eqH: '등록된 장비 없음',

@@ -2,7 +2,6 @@
 // 실기(go2_direct): 지금 판엔 연결 없음 → 4칸 모두 빈 상태 + 이유(가짜 값 0). Go2Direct 계약(mobile docs/GO2DIRECT-CONTRACT.md) 문구 그대로.
 // 시뮬: 지도(MapCanvas) · RGB(Gazebo 렌더) · 외부 3인칭(Gazebo 렌더, «지도 열기» 외부카메라 체크 때만) · 3D 점군 누적(시각화, SLAM 3D 지도 아님).
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { stopOn } from './shell';
 import { camURL, linkView, setProvider, useLink } from '../data/link';
 import { CLOUD, usePull, viewKey, viewWhy } from '../data/views';
 import { camChip } from './status';
@@ -72,7 +71,7 @@ const AuxLine = ({ open, onClick, f, p }: { open: boolean; onClick: () => void; 
 function FsStop() {
   const L = useLink(), v = linkView(L), sure = v.linkOk && !L.bad && !!L.st && L.stGen === L.gen;   // 이 연결에서 받은 유효 상태일 때만 잠금 여부를 말함
   return <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-    <button type="button" className="lv-stop" aria-label="비상 정지(전체화면)" {...stopOn}>STOP</button>
+    {/* 10-19: 전체화면 STOP 삭제 — 공통 GlobalStop(InTop → 이 전체화면 요소 안, top8·right12·144×64) */}
     <span role="status" style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(5,8,10,.8)', color: !sure ? '#FF5A52' : v.latch ? '#FFB547' : '#E6EBEF', fontSize: 13, fontWeight: 600 }}>
       {!v.linkOk ? `링크 ${v.linkTxt} — STOP 전달·잠금 미확인` : !sure ? 'STOP 잠금 미확인(상태 확인 전)' : v.latch ? '서버 상태: STOP 잠김' : `서버 상태: STOP 잠금 아님 · ${v.roleTxt}`}</span>
     <SafeLine style={{ padding: '4px 8px', borderRadius: 6, background: 'rgba(5,8,10,.8)' }} /></div>;   {/* U2 보완 P2: 전체화면 안에도 안전 한 줄 + ?(STOP 오른쪽 — STOP 가림 0, ? 팝오버는 InFs 로 전체화면 안) */}

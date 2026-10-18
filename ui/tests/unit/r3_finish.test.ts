@@ -1,5 +1,5 @@
 // R3 종료 방식(Mission.finish · ROOT 결정 cc2755b9 · 715 계약 1ce061ed): newRun 은 계획에 키가 있을 때만 같은 값 사본 · 없으면 키 0 ·
-// 표기 = 값 그대로 / 계획 키 없음 «종료 방식 미지정» / Run 키 없음 «종료 방식 기록 없음»(계획 값으로 채움 0) · 사본은 원본 값 그대로(옛 사본은 ③ 요구) · 서버 409 사유 문구.
+// 표기 = 값 그대로 / 계획 키 없음 «종료 방식 미지정» / Run 키 없음 «종료 방식 기록 없음»(계획 값으로 채움 0) · 사본은 원본 값 그대로(옛 사본은 ④ 요구) · 서버 409 사유 문구.
 // 실제 run.ts·hist.ts 함수를 부름(소스 미러 0). 서버 대조 자체는 backend 시험(RL) 범위.
 import { beforeEach, expect, test, vi } from 'vitest';
 import type { DocWrite, Mission, Run } from '@contracts';
@@ -7,7 +7,7 @@ const T0 = vi.hoisted(() => ({ toasts: [] as string[] }));
 vi.mock('../../src/app/shell', async (orig) => ({ ...(await orig<any>()), toast: (t: string) => { T0.toasts.push(t); } }));
 const mem = new Map<string, string>();
 (globalThis as any).localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
-const { dupMission, finishText, startRun } = await import('../../src/data/run');
+const { dupMission, finishText, startRun, startText } = await import('../../src/data/run');
 const { histRows } = await import('../../src/data/hist');
 const { createWhy } = await import('../../src/screens/plan2d');
 const { useLink } = await import('../../src/data/link');
@@ -49,14 +49,27 @@ test('표기: 값 그대로 · 계획 키 없음 «종료 방식 미지정» · 
   expect(finishText(run())).toBe('종료 방식 기록 없음'); expect(finishText(run({ finish: '출발점 복귀' }))).toBe('출발점 복귀');
   put([env('m1', 'mission', mi({ finish: '출발점 복귀' }), 4), env('r1', 'run', run()), env('r2', 'run', run({ finish: '마지막 지점 종료', started: '2026-10-18T01:00:00Z' }))]);
   const rows = histRows(docsNow(), { ok: true, photos: [], events: [] } as any, true).filter((x) => x.kind === '임무');
-  expect(rows.find((x) => x.run === 'r1')).toMatchObject({ fin: '종료 방식 기록 없음' });
+  expect(rows.find((x) => x.run === 'r1')).toMatchObject({ fin: '종료 방식 기록 없음 · 출발점 좌표 기록 없음' });
   expect(rows.find((x) => x.run === 'r1')!.sub).toContain(' · 종료 방식 기록 없음 · 방문 0/1');
-  expect(rows.find((x) => x.run === 'r2')).toMatchObject({ fin: '마지막 지점 종료' });
+  expect(rows.find((x) => x.run === 'r1')!.sub).toMatch(/ · 출발점 좌표 기록 없음$/);   // S11: 폰 기록 한 줄(MHistory r.sub)에도 R0 표기 · 계획 S 로 채움 0
+  expect(rows.find((x) => x.run === 'r2')).toMatchObject({ fin: '마지막 지점 종료 · 출발점 좌표 기록 없음' });
 });
 
-test('사본(dup) = 새 임무: 원본 값 그대로 · 옛 원본(키 없음) 사본은 키 없음 → ③ 명시 선택 요구(id 없음) · 원본 id 있는 옛 임무는 요구 0', () => {
+test('사본(dup) = 새 임무: 원본 값 그대로 · 옛 원본(키 없음) 사본은 키 없음 → ④ 명시 선택 요구(id 없음) · 원본 id 있는 옛 임무는 요구 0', () => {
   const a = dupMission(mi({ finish: '마지막 지점 종료' })); expect(a.finish).toBe('마지막 지점 종료'); expect(createWhy(a, true, true)).toBe('');
   const b = dupMission(mi()); expect('finish' in b).toBe(false);
-  expect(createWhy(b, true, true)).toBe('③ 종료 방식을 고르세요');
+  expect(createWhy(b, true, true)).toBe('만들려면: ④ 종료 방식');
   expect(createWhy(mi(), false, true)).toBe('');
+});
+
+// ROOT 8 계획 출발점 S: newRun 은 계획에 start 가 있을 때만 깊은 사본(값 같음 · 참조 다름) · 없으면 키 0 · 표기는 «계획 출처 · 실측 아님»
+test('start 사본: 계획 S 그대로 깊은 사본 · 없으면 Run 키 없음 · startText 는 계획 출처 표기(실측 단정 0)', async () => {
+  const S = { x: 1.234, y: -5.6, map: { world_id: 'v5_single', floor_id: 'f1', rid: 'r1', key: 'k1' } } as NonNullable<Mission['start']>;
+  const m = mi({ finish: '출발점 복귀', start: structuredClone(S) });
+  const { doc } = await go(m);
+  expect(doc!.start).toEqual(S); expect(doc!.start).not.toBe(m.start); expect(doc!.start!.map).not.toBe(m.start!.map);
+  const { doc: d2 } = await go(mi({ finish: '출발점 복귀' }));
+  expect('start' in d2!).toBe(false);
+  expect(startText(doc!)).toBe('계획 출발점 X 1.23 · Y -5.60 (계획 출처 · 실측 아님)');
+  expect(startText(d2!)).toBe('출발점 좌표 기록 없음');
 });

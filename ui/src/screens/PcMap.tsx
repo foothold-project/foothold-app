@@ -12,7 +12,7 @@ import { r2, zonesAt } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { LiveStatus } from '../app/status';
-import { stopProps, toast, useRoute } from '../app/shell';
+import { toast, useRoute } from '../app/shell';
 import { Chip, Help } from '../app/chip';
 
 const areaOf = (p: number[][]) => Math.abs(p.reduce((a, q, i) => { const n = p[(i + 1) % p.length]; return a + q[0] * n[1] - n[0] * q[1]; }, 0)) / 2;
@@ -68,7 +68,7 @@ export default function PcMap() {
   const ty = dr ? dr.type : E.d?.type, on = !mv && !!(dr || E.id);
   const lbl = (t: Zone['type']) => (t === '금지' ? '진입 금지' : '감속');
   const vals = {
-    themeClass: themeClass(true), stopProps, status: <LiveStatus D={D} />,
+    themeClass: themeClass(true), status: <LiveStatus D={D} />,
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // U4: 공용 STOP 글(v3 §3) — Main 과 같음
     // U4-a: 제목 «시뮬 바닥»(출처·도면 크기는 개발자 모드 지도 정보) · 지도 보기 중이면 그 지도 + 위치 결속 짧게. 페이지 알약 = 보기만일 때만(시뮬 배지는 머리줄 공통 칩)
     hdrA: '지도', hdrB: v3d ? '건물 전체 3D · 간략 기하(센서 아님)' : mv ? `${raster ? raster.label.replace(/GT /g, '시뮬 ') : live ? '현재 열린 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : '시뮬 바닥',

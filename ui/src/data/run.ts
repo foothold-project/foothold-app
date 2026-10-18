@@ -112,7 +112,9 @@ export const dupMission = (m: Mission): Mission => { const c = structuredClone(m
 // C: 서버가 같은 규칙으로 대조(Run.tmpl == cut16(양식 이름, 60) — server/runcas.py cut16 = cutName). mcas 는 서버만 붙임(여기서 보내면 400)
 const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: cutName(tmplOf(D, m.tmpl)!.name, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
   wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev,
-  ...(m.finish ? { finish: m.finish } : {}) });   // R3: 종료 방식 = 계획에 키가 있을 때만 같은 값 사본(키 없음 그대로 · 서버가 mrev 대조에 포함)
+  ...(m.finish ? { finish: m.finish } : {}), ...(m.start ? { start: structuredClone(m.start) } : {}) });   // ROOT 8: S = 계획에 키가 있을 때만 깊은 사본(server/runcas.py 가 키 유무까지 대조) · Run.map 을 S 로 채우지 않음
+/** ROOT 8 · SPEC 2-5 진행 기록 S 표기 — 계획 값으로 거꾸로 채우기 0 · 실측 아님 */
+export const startText = (r: Run) => r.start ? `계획 출발점 X ${r.start.x.toFixed(2)} · Y ${r.start.y.toFixed(2)} (계획 출처 · 실측 아님)` : '출발점 좌표 기록 없음';   // R3: 종료 방식 = 계획에 키가 있을 때만 같은 값 사본(키 없음 그대로 · 서버가 mrev 대조에 포함)
 /** R3 종료 방식 표기 — 값 그대로. 키 없음 = 계획 «종료 방식 미지정» · 진행 기록(Run) «종료 방식 기록 없음»(그 당시 기록 없음 — 계획 값으로 채우지 않음) */
 export const finishText = (x: Mission | Run) => x.finish ?? ('mode' in x ? '종료 방식 기록 없음' : '종료 방식 미지정');
 // C 서버가 시작을 거절한 사유(reason_code) — 이것만 «다른 기기가 바꿈» 문구. 진행 1개·rev 409 는 기존 문구 그대로

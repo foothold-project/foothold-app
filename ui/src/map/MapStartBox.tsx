@@ -161,7 +161,7 @@ export function saveBlock(sv: { ok: boolean; why?: string | null; busy?: boolean
 // part(U4-a PcMap): 'open' = 지도 열기만(PC 시뮬 메뉴) · 'save' = SLAM 지도 저장만(PC 지도 화면) · 없음 = 둘 다(폰 지도·다른 화면 시뮬 메뉴 — 기존 그대로).
 // pc: 고른 곳·지금 실행·열 수 있음·서버 최근(성공)·기술 원값 = 개발자 모드(data-dev) / 고른 곳 ≠ 지금 실행·막힌 이유·다음·이 기기 결과·실패는 운영에 남김
 // onShowLive: 지금 실시간 보기가 아닐 때만 받음 → «실시간 지도 보기»(화면 선택만 · 시작·조종 0). onView(key): 저장 지도 보기 선택(화면만)
-export function MapStartBox({ pc, part, preview = false, catalog, reloadCatalog, onSaved, onShowLive, onView }: { pc: boolean; part?: 'open' | 'save'; preview?: boolean; catalog?: MapInfo[] | string | null; reloadCatalog?: () => unknown; onSaved?: () => void; onShowLive?: () => void; onView?: (key: string) => void }) {
+export function MapStartBox({ pc, part, preview = false, catalog, reloadCatalog, onSaved, onShowLive, onView, pri = true }: { pri?: boolean; pc: boolean; part?: 'open' | 'save'; preview?: boolean; catalog?: MapInfo[] | string | null; reloadCatalog?: () => unknown; onSaved?: () => void; onShowLive?: () => void; onView?: (key: string) => void }) {
   const ms = useLink((x) => x.st?.map_start) || null, sv = useLink((x) => x.st?.map_save) || null, lv = useLink((x) => x.st?.live_map) || null;
   const [w, setW] = useState<W | ''>(preview ? '' : 'rooms_a'), [f, setF] = useState('f1'), own = useRef({}).current, form = useRef(0), latest = useRef<MapSel | null>(null);   // 관제에서는 직접 고르기 전 실행 불가
   // 목록 출처(10-18): 부모가 준 catalog > 같은 화면 지도 보기(useMapPick)가 받은 공유 목록(같은 연결 세대만) > 없으면 이 상자가 1회 조회. 겹친 map_list(map_busy) 0 · 자동 재시도 0
@@ -230,7 +230,7 @@ export function MapStartBox({ pc, part, preview = false, catalog, reloadCatalog,
     {preview && <TerrainPreview w={w} f={f} preview={pv} />}
     {ms?.follow_cam_ok === true && <label style={{ ...row, gap: 4 }}><input type="checkbox" checked={fc} onChange={(e) => { chg(); setFc(e.target.checked); }} />
       외부 시점 카메라<Help label="외부 시점 카메라 설명">로봇 바깥에서 보는 카메라를 추가합니다. 렌더 작업이 하나 늘며 성능 영향은 확인되지 않았습니다.</Help></label>}
-    <button type="button" className={`${B} pri`} disabled={!can} onClick={start}
+    <button type="button" className={`${B}${pri ? ' pri' : ''}`} disabled={!can} onClick={start}
       title={!w ? '먼저 지형을 고르세요' : preview && !pv.ready ? '2D 미리보기를 확인한 뒤 실행할 수 있습니다' : ms?.why || undefined}>시뮬 실행</button>
     {used && <span role="status" className="lbl">이 지형은 시작 횟수를 이미 사용했습니다.</span>}
     <div role="status" hidden={preview && !!ms?.ok && !other && (!rOpen || rOpen.ok)} style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: '6px 8px', border: '1px solid var(--line2)', borderRadius: 6 }}>

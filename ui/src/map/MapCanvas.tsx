@@ -18,7 +18,9 @@ export const MODE_KO: Record<Mode, string> = { robot: '로봇 중심', all: '전
 type Props = {
   name?: string; small?: boolean; mode?: Mode; zones?: ZoneEnv[]; wps?: Wp[] | null; trail?: number[][];
   robot?: Robot; noRobot?: boolean; showTrail?: boolean; showZones?: boolean; hiZone?: string | null; hiWp?: number | null;
-  draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number, k: number) => void;
+  draft?: { type: string; pts: number[][] } | null; sel?: number[] | null;
+  start?: number[] | null;   // 계획 출발점 S(ROOT 8 · SPEC 2-2): 둥근 사각형 «S» · S→1·복귀 선 0 · 전체 고정 시야에 포함. 그릴지는 부르는 쪽(sView ok)이 정함
+  onTap?: (x: number, y: number, k: number) => void;
   btns?: boolean;
   onDown?: () => void;   // 누름 시작(왼쪽 버튼) 알림 — 부르는 쪽이 이 시점 수명을 잡아 up 때 대조(누름 중 도구·도면·문서가 바뀌면 탭 무시). 없으면 기존 그대로
   raster?: Raster | null;   // 저장 지도 보기: 바닥 도면 대신 이 그림. 로봇·길·구역·경유점은 부르는 쪽이 끈다(좌표계 결속 전)
@@ -68,7 +70,7 @@ export function MapCanvas(p: Props) {
     const g = el.getContext('2d'); if (!g) return; g.setTransform(dpr, 0, 0, dpr, 0, 0);
     const cs = getComputedStyle(el), col = (n: string, d: string) => cs.getPropertyValue(n).trim() || d;
     const C = { map: col('--map', '#0E1317'), bg: col('--bg', '#05080A'), line: col('--line2', '#34424D'), mut: col('--muted', '#9AA7B3'), acc: col('--accent', '#38C6D9'),
-      bad: col('--bad', '#FF5A52'), warn: col('--warn', '#FFB547'), ok: col('--ok', '#5AA9FF') };
+      bad: col('--bad', '#FF5A52'), warn: col('--warn', '#FFB547'), ok: col('--ok', '#5AA9FF'), txt: col('--text', '#E6EBEF') };
     box.dataset.mapnarrow = mapNarrow(o.lean, o.small, W, H);   // U2-b 보완 P2: Main 좁은 칸(폰 2×2) — live.css 가 지도 보기·버튼을 좁게 배치
     const sync = (w: string) => {   // 버튼 이유·눌림은 그림 없음(blank)에도 지금 상태로(옛 이유 잔존 0)
       const rb = box.querySelector<HTMLElement>('[data-m=robot]');   // lean: 띠 대신 버튼 회색 + 이유(누르면 토스트)
@@ -87,7 +89,7 @@ export function MapCanvas(p: Props) {
     if (follow) { cx = r!.x; cy = r!.y; kBase = Math.min(W, H) / (o.small ? 6 : 10); }
     else if (v.mode === 'free') { [cx, cy] = v.c; kBase = v.kFree; }
     else {   // 전체 고정(또는 따라갈 위치 없음): 바탕 + 경유점(움직이지 않는 것)만 — 로봇·지나온 길이 움직여도 시야 그대로
-      const xs = [B[0], B[1], ...wps.map((w) => w.x)], ys = [B[2], B[3], ...wps.map((w) => w.y)];
+      const sp = o.start ? [o.start] : [], xs = [B[0], B[1], ...wps.map((w) => w.x), ...sp.map((q) => q[0])], ys = [B[2], B[3], ...wps.map((w) => w.y), ...sp.map((q) => q[1])];
       const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
       cx = (x0 + x1) / 2; cy = (y0 + y1) / 2; kBase = Math.min(W / (x1 - x0 + 2), H / (y1 - y0 + 2));
     }
@@ -129,6 +131,10 @@ export function MapCanvas(p: Props) {
         if (!o.small) { g.fillStyle = w.st === '방문' ? C.bg : c; g.fillText(w.st === '미방문' ? '×' : String(i + 1), X(w.x), Y(w.y) + 0.5); }
       });
       g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+    }
+    if (o.start && !o.small) {   // S: 채움 = 글자색, 글 = 바탕색(번호 원·로봇 화살표와 다른 모양) · 선 0
+      const sx = X(o.start[0]), sy = Y(o.start[1]); g.beginPath(); if (g.roundRect) g.roundRect(sx - 11, sy - 11, 22, 22, 5); else g.rect(sx - 11, sy - 11, 22, 22); g.fillStyle = C.txt; g.fill();
+      g.font = '700 13px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = C.map; g.fillText('S', sx, sy + 0.5); g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     }
     if (showTrail && pts.length > 1) { g.strokeStyle = C.acc; g.globalAlpha = 0.8; g.lineWidth = o.small ? 2 : 3; poly(pts); g.stroke(); g.globalAlpha = 1; }
     g.strokeStyle = C.mut; g.lineWidth = 1; g.beginPath(); g.moveTo(X(0) - 6, Y(0)); g.lineTo(X(0) + 6, Y(0)); g.moveTo(X(0), Y(0) - 6); g.lineTo(X(0), Y(0) + 6); g.stroke();
@@ -206,4 +212,21 @@ export function MapCanvas(p: Props) {
       {b('+', '확대', () => zoom(1.5))}{b('−', '축소', () => zoom(1 / 1.5))}
     </div>}
   </>;
+}
+
+// ---- UX-SPEC 3-4 범례(지도 아래 띠 · 도면 밖): 부르는 쪽이 MapCanvas 에 넘긴 값 그대로 = 실제로 그리는 표식만 · 위 그리기와 같은 모양·색을 14px 로 ----
+// 바꿀 때: 위 그리기(로봇 화살표·지나온 길·번호 원·구역 색)를 바꾸면 여기도 함께. PcPlan 은 출발점 S 포함 자기 범례(pp-lg) 그대로.
+const lgI = (t: string, svg: React.ReactNode) => <span key={t} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">{svg}</svg>{t}</span>;
+export function MapLegend({ robot, noRobot, trail, wps, zones, note }: { robot?: Robot; noRobot?: boolean; trail: boolean; wps: boolean; zones: ZoneEnv[]; note: React.ReactNode }) {
+  const r = noRobot ? null : robot || null, ban = zones.some((z) => z.doc.type === '금지'), slow = zones.some((z) => z.doc.type !== '금지');
+  const it = [
+    r && lgI(!r.fresh ? '로봇(위치 오래됨)' : r.fallen === true ? '로봇(넘어짐)' : '로봇',
+      <path d="M12 7L0 11.5 2.5 7 0 2.5z" fill={!r.fresh ? 'var(--muted)' : r.fallen === true ? 'var(--bad)' : 'var(--accent)'} fillOpacity={r.fresh ? 1 : 0.45} />),
+    trail && lgI('지나온 길', <line x1="1" y1="7" x2="13" y2="7" stroke="var(--accent)" strokeOpacity=".8" strokeWidth="3" />),
+    wps && lgI('목적지 번호', <circle cx="7" cy="7" r="5.5" fill="none" stroke="var(--accent)" strokeWidth="1.5" />),
+    ban && lgI('진입 금지 구역', <rect x="1.5" y="1.5" width="11" height="11" fill="var(--bad)" fillOpacity=".18" stroke="var(--bad)" strokeWidth="1.5" />),
+    slow && lgI('감속 구역', <rect x="1.5" y="1.5" width="11" height="11" fill="var(--warn)" fillOpacity=".18" stroke="var(--warn)" strokeWidth="1.5" />),
+    (ban || slow) && <span key="zn" style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>{note}</span>,
+  ].filter(Boolean);
+  return it.length ? <div aria-label="지도 범례" data-legend="" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '4px 16px', fontSize: 12, color: 'var(--text)' }}>{it}</div> : null;
 }

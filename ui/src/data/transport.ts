@@ -22,6 +22,7 @@ export interface Transport {
   setGate?(origin: string): Promise<string | null>; // 네이티브만: 관문 주소 바꾸기(오류 글 또는 null)
   login(user: string, pw: string, label: string): Promise<LoginResult>;
   logout(): Promise<LogoutResult>;
+  whoami(): Promise<Res>;                           // 기존 GET api/whoami(웹 쿠키) · 네이티브 request op 'whoami' — 200 {account,device,label,exp} · 401 로그인 필요. 읽기만(persistDraft 문맥 확인)
   get(what: 'docs' | 'media' | 'rehearsal'): Promise<Res>;   // rehearsal = 리허설 계획 저장소 목록(API.md — 계획·기하 검토, 실측 0)
   postDocs(body: unknown): Promise<Res>;            // 200·400·403·404·409·500·503 은 status 로(던지지 않음)
   postRehearsal(body: unknown): Promise<Res>;       // 리허설 계획 저장·불러오기·내보내기(op 는 body 안, API.md) — postDocs 와 같은 status 규칙
@@ -51,6 +52,7 @@ const web: Transport = {
     catch { note(SRV_FAIL); }   // 서버 세션은 만료·관문 재시작으로 끝남
     return { ok: true };
   },
+  async whoami() { const r = await fetch('api/whoami', { cache: 'no-store', credentials: 'same-origin' }); return { status: r.status, body: await r.text() }; },
   async get(what) { const r = await fetch(`api/${what}`, { cache: 'no-store', credentials: 'same-origin' }); return { status: r.status, body: await r.text() }; },
   async postDocs(body) {
     const r = await fetch('api/docs', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -188,6 +190,7 @@ export function nativeTransport(P: any): Transport {
       } catch (e) { return { ok: false, error: ep === epoch ? why(e) : STALE }; }
     },
     async logout() { const { ep: _, ...r } = await logoutRaw(); return r; },
+    whoami: () => call(() => P.request({ op: 'whoami' })).then((r: any) => ({ status: r.status, body: r.body })),
     get: (what) => call(() => P.request({ op: what === 'docs' ? 'docs.get' : what === 'rehearsal' ? 'rehearsal.get' : 'media.list' })).then((r: any) => ({ status: r.status, body: r.body })),
     postDocs: (body) => call(() => P.request({ op: 'docs.post', body })).then((r: any) => ({ status: r.status, body: r.body })),
     postRehearsal: (body) => call(() => P.request({ op: 'rehearsal.post', body })).then((r: any) => ({ status: r.status, body: r.body })),   // FhGateCore OPS 2개(rehearsal.get·post) — 모바일 담당 확장

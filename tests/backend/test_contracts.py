@@ -19,6 +19,7 @@ RUN = {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '�
 TM = {'name': 't', 'desc': '', 'mods': [{'type': '사진', 'detail': '전방 1장'}]}
 MI = {'name': 'm', 'tmpl': '', 'memo': '', 'wps': [WP]}
 MS = {'src': 'gt', 'world_id': 'v5_building', 'floor_id': 'l1', 'key': '0a1b2c3d'}
+SP = {'x': 1.5, 'y': -2, 'map': {**MS, 'key': '9f8e7d6c'}}      # 10-19 계획 출발점(출처 key = [S] 한 점 지문)
 nan, inf = float('nan'), float('inf')
 
 CASES = [  # (kind, doc) — 좋은 것·나쁜 것 섞어서. 기대값은 v2_link.doc_check 가 정한다
@@ -52,6 +53,13 @@ CASES = [  # (kind, doc) — 좋은 것·나쁜 것 섞어서. 기대값은 v2_l
     *[(k, {**B, 'finish': f}) for k, B in (('mission', MI), ('run', RUN)) for f in
       ['출발점 복귀', '마지막 지점 종료', None, '', 'return_to_start', 'hold', '출발점 복귀 ', ' 마지막 지점 종료', 1, 0, True, ['출발점 복귀'], {'v': '출발점 복귀'}]],
     ('run', {**RUN, 'finish': '출발점 복귀', 'map': MS, 'mrev': 2}), ('mission', {**MI, 'finish': '마지막 지점 종료', 'map': MS}),
+    # 10-19 계획 출발점 start 선택 키 {x, y, map(MapSrc 필수)} — 키 없음(위 MI·RUN)·정상만 통과. null·빈·map 누락/null/다른 src·추가 키·문자·bool·inf·nan·범위 밖 거부
+    *[(k, {**B, 'start': st}) for k, B in (('mission', MI), ('run', RUN)) for st in
+      [SP, {**SP, 'map': {**MS, 'rid': 'g:' + 'a' * 64}}, {**SP, 'x': 10000, 'y': -10000}, {**SP, 'x': 0.0},
+       None, {}, [1, 2], 'S', {'x': 1, 'y': 2}, {**SP, 'z': 0}, {**SP, 'x': '1'}, {**SP, 'x': True}, {**SP, 'y': inf}, {**SP, 'x': nan},
+       {**SP, 'x': 10000.1}, {**SP, 'map': None}, {**SP, 'map': {}}, {**SP, 'map': {**MS, 'src': 'slam'}},
+       {**SP, 'map': {k2: v for k2, v in MS.items() if k2 != 'key'}}, {**SP, 'map': {**MS, 'rid': None}}, {**SP, 'map': {**MS, 'x': 1}}, {**SP, 'map': {**MS, 'key': 'x' * 17}}]],
+    ('run', {**RUN, 'start': SP, 'finish': '출발점 복귀', 'map': MS, 'mrev': 2}), ('mission', {**MI, 'start': SP, 'map': {**MS, 'world_id': 'v5_single'}}),   # 관계 검사 0
 ]
 
 

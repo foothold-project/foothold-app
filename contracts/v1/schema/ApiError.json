@@ -66,6 +66,10 @@
           "title": "Name",
           "type": "string"
         },
+        "start": {
+          "$ref": "#/$defs/PlanStart",
+          "default": null
+        },
         "tmpl": {
           "maxLength": 40,
           "title": "Tmpl",
@@ -201,6 +205,34 @@
       "title": "NoteEnv",
       "type": "object"
     },
+    "PlanStart": {
+      "additionalProperties": false,
+      "description": "계획 출발점 S(10-19, 선택 키 start — 없음 = 출발점 미지정, null 불가). 사용자가 지도에서 고른 GT 좌표 하나.\nmap = S 를 고른 때의 출처(필수, MapSrc 와 같은 형식) — map.key 는 [S] 한 점의 좌표 지문(UI wkey([S])). 계획 map(지점 출처)과 별개.\n서버는 형식만 검사하고 start ↔ Mission.map 관계는 보지 않는다(UI 몫). 로봇 이동·자동 복귀 수행 아님.",
+      "properties": {
+        "map": {
+          "$ref": "#/$defs/MapSrc"
+        },
+        "x": {
+          "maximum": 10000.0,
+          "minimum": -10000.0,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 10000.0,
+          "minimum": -10000.0,
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "map"
+      ],
+      "title": "PlanStart",
+      "type": "object"
+    },
     "Run": {
       "additionalProperties": false,
       "description": "수동 임무 진행(운영자 기록 — 로봇 자동 완료 아님). status=진행 은 전체에서 하나만.",
@@ -254,6 +286,10 @@
           "maxLength": 60,
           "title": "Name",
           "type": "string"
+        },
+        "start": {
+          "$ref": "#/$defs/PlanStart",
+          "default": null
         },
         "started": {
           "maxLength": 32,

@@ -5,7 +5,6 @@ import { LV, dayTxt, fmtT, themeClass } from '../data/fmt';
 import { docsSt, useDocs, useMedia } from '../data/shared';
 import { histRows, sevKeep, type Row } from '../data/hist';
 import { LiveStatus, MediaStale } from '../app/status';
-import { stopProps } from '../app/shell';
 
 const FL = ['전체', '수동 임무', '경보 · 중단', '확인 대기'];
 const FN: ((r: Row) => boolean)[] = [() => true, (r) => r.kind === '임무', (r) => (r.kind === '사건' && r.lvl !== 'ok') || (r.kind === '임무' && /실패|중단/.test(r.st || '')), (r) => !!r.wait];
@@ -29,7 +28,7 @@ export default function MHistory() {
   const dk = docsSt(D);
   if (M.ok && !rs.length) out.push(<span className="day" key="none">{filt === 3 && dk ? `분류 대기 미확인 — 문서 ${dk}` : '해당 기록 없음'}</span>);
   const v = {
-    themeClass: themeClass(false), stopProps, status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
+    themeClass: themeClass(false), status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
     cnt: M.ok ? `${M.stale ? '보관 자료(재조회 실패)' : '서버 보관'} · ${rs.length}건` : '—',
     chipT: FL, chipOn: filt, chips: FL.map((_, i) => () => setFilt(i)),
     list: M.ok ? out : <span className="day">{M.err || '서버 기록 읽는 중…'}</span>,

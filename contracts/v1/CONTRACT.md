@@ -74,15 +74,22 @@
 - 전체 판 `DocsList.rev` = `status.docs_rev`. 값이 바뀌면 화면이 다시 읽는다(값 자체에 의미는 없고 «바뀜»만 본다).
 - 고칠 때는 화면이 읽은 `rev` 를 보낸다. 다르면 **409 + `cur`**(지금 저장된 판)가 오고, 화면은 초안을 지우지 않는다.
 - 하나만 허용: `status:'진행'` 인 `run` 은 전체에서 하나, `note` 는 `photo` 당 하나. 겹치면 409 + 기존 문서.
-- **C 시작 대조(10-15)**: `mrev` 있는 새 `run` 은 같은 잠금/트랜잭션 안에서 계획(`mission`) 현재 판 == `mrev`, 이름·지점(x·y·name·mods)·`map`(있으면 전체)·`finish`(R3, 키 유무·값) 사본,
+- **C 시작 대조(10-15)**: `mrev` 있는 새 `run` 은 같은 잠금/트랜잭션 안에서 계획(`mission`) 현재 판 == `mrev`, 이름·지점(x·y·name·mods)·`map`(있으면 전체)·`finish`(R3, 키 유무·값)·`start`(10-19, 키 유무·값·출처 포함) 사본,
   양식(`''`·`'base'` = 내장 «지점 확인 다녀오기», 그 밖 = 있는 `tmpl` 문서) 이름의 `cut16(·,60)` == `run.tmpl` 을 대조한다. 통과면 서버가 `mcas: 1` 을 붙이고,
   실패면 409 + `reason_code`(쓰기 0). `mcas` 는 서버만 — 새 `run` 에 보내거나 없는 기록에 넣으면 400 `mcas_forbidden`. 결과 편집은 echo·누락 모두 유지,
-  근거 필드(mode·mission·mrev·name·tmpl·started·map·finish·지점 x·y·name·mods·개수)가 바뀌면 서버가 떼고 `DocPutOk.mcas_dropped: true`. 시작 뒤 계획 변경은 재대조 0.
+  근거 필드(mode·mission·mrev·name·tmpl·started·map·finish·start·지점 x·y·name·mods·개수)가 바뀌면 서버가 떼고 `DocPutOk.mcas_dropped: true`. 시작 뒤 계획 변경은 재대조 0.
   `mrev` 없는 새 `run`(옛 앱)은 대조 0·`mcas` 0. 정본: `server/runcas.py`.
 - **임무 종료 방식 `finish`(R3, 10-18)**: `mission`·`run` 의 선택 키. 값은 `'출발점 복귀'` | `'마지막 지점 종료'` 둘뿐(null·빈 값·다른 문자열·숫자·bool = 400).
   계획의 «의도»만 저장한다 — 출발점 = 그 진행(`run`)을 시작한 순간 로봇이 있던 곳이며 좌표는 저장하지 않는다. 자동 복귀 수행·복귀 결과 기록이 아니다(수동 진행에서는 운영자가 직접 돌아온다).
   키 없음 = 종료 방식 미지정(옛 계획) · 옛 `run` 은 «기록 없음». 이름·메모·중복 좌표로 추정하거나 계획 값으로 채우지 않는다.
   `run.finish` 는 시작 때 계획 값의 사본(계획에 없으면 키도 없음). `finish` 가 든 쓰기는 이 키를 모르는 옛 서버에서 400 이므로 서버를 먼저 반영한다.
+  계획에 `start` 가 있으면 «출발점» 은 그 계획 좌표 S 의 의도 표시일 뿐이다(로봇이 S 에서 시작했는지·S 로 돌아왔는지 서버는 모른다).
+- **계획 출발점 `start`(10-19)**: `mission`·`run` 의 선택 키 `{x, y, map}` — 세 키 모두 필수·다른 키 0, `start` 자체 null = 400. `x`·`y` = 지점과 같은 유한 수 ±10000(bool·문자 = 400).
+  `map` = S 를 고른 때의 출처, 형식은 `MapSrc` 와 같음(`src:'gt'`·world_id·floor_id·key, rid 선택). `map.key` = S 한 점의 좌표 지문(UI `wkey([S])`). 계획 `map`(지점 출처)과 별개이며
+  서버는 형식만 검사한다 — `start` ↔ `mission.map` 관계·지금 시뮬과의 정합은 UI 몫(관계가 어긋나도 저장). 로봇 이동·자동 복귀를 하지 않는다. 키 없음 = 출발점 미지정(추정·채움 0).
+  `run.start` 는 시작 때 계획 값의 사본(계획에 없으면 키도 없음) — `mrev` 있는 새 `run` 에서 다르면 409 `snapshot_mismatch`. 그래서 `start` 를 모르는 옛 앱이 `start` 있는 계획으로 시작하면 409(쓰기 0, 다시 열기 안내).
+  `run.map`(시작 때 현재 실측 정합)과 뜻이 다르다. 옛 화면이 계획을 고칠 때는 모르는 `start` 키를 그대로 보존한다. `start` 가 든 문서는 이 키를 모르는 옛 서버에서 400 이므로 서버를 먼저 반영하고,
+  되돌림은 `start` 를 아는 backend 를 유지한 판으로만 한다.
 - 모든 글 필드: 외톨이 surrogate(U+D800–DFFF) = 400.
 
 ## 오류(HTTP)

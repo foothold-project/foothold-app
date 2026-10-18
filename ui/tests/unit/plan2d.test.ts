@@ -1,8 +1,12 @@
-import { afterEach, beforeEach, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeEach, expect, test } from 'vitest';
 // 임무 2D(SPEC 59dbad0e · ROOT 경계 fed508f6): plan2d 순수 helper(첫 점 rid·확정 대조·추가 관문·이어 붙이기 지문·프리셋·도면 범위)와
 // usePlanTerrain(직렬 슬롯·늦은 응답 폐기·기하 실패 = ok+이유·자동 재시도 0·«다시 읽기»)를 실제 코드로 본다.
 // 대체 = 읽기 deps(손으로 푸는 약속) · 가짜 DOM(createRoot 장착용 최소 노드). 실제 서버 슬롯·브라우저 그림은 범위 밖(670·운영 미측정).
 const mem = new Map<string, string>();
+// 가짜 전역은 원래 descriptor 를 먼저 보관 → afterAll 에서 root 정리 뒤 되돌림(없던 키 delete) — 단일 fork 뒤 파일 오염 0(ROOT fixture 독립성)
+const GKEYS = ['localStorage', 'window', 'document', 'IS_REACT_ACT_ENVIRONMENT', 'HTMLIFrameElement', 'addEventListener', 'removeEventListener'];
+const SAVED = GKEYS.map((k) => [k, Object.getOwnPropertyDescriptor(globalThis, k)] as const);
+const restoreG = () => { for (const [k, d] of SAVED) { if (d) Object.defineProperty(globalThis, k, d); else delete (globalThis as any)[k]; } };
 (globalThis as any).localStorage = { getItem: (k: string) => mem.get(k) ?? null, setItem: (k: string, v: string) => void mem.set(k, v), removeItem: (k: string) => void mem.delete(k) };
 class N {   // 가짜 DOM — pcplan2d_mount 의 N 과 같은 기본 API(react-dom 이 모듈 초기화·root 장착에 부르는 것)
   children: N[] = []; parentNode: N | null = null; attrs: Record<string, string> = {}; style: Record<string, any> = { setProperty(k: string, v: string) { (this as any)[k] = v; } };
@@ -139,6 +143,7 @@ const answer = async (i: number, v: unknown) => { await React.act(async () => { 
 const linkOn = (gen = 1, provider = 'simulation_gate') => useLink.setState({ open: true, gen, stGen: gen, provider } as any);
 beforeEach(() => { q.length = 0; busy = 0; peak = 0; R.v = null; linkOn(); });
 afterEach(async () => { for (const r of roots.splice(0)) await React.act(async () => r.unmount()); });
+afterAll(async () => { for (const r of roots.splice(0)) await React.act(async () => r.unmount()); restoreG(); });
 
 test('hook: 선택 없음 = off · 연결 없음/status 전 = nolink(요청 0) · 단층 = 목록→도면 후 ok(geo null)', async () => {
   await mount(null); expect(R.v.k).toBe('off');
@@ -209,23 +214,55 @@ test('hook N1: 완료된 A → B(미완료) → A 복귀 = 새 요청이 끝나�
   expect(R.v).toMatchObject({ k: 'ok', ras: RAS2 }); expect(R.v.n).toBeGreaterThan(n1);
 });
 
-// ---- R3b 새 임무 만들기 helper(SPEC-CREATE-R3 8299013f · ROOT 결정 cc2755b9) ----
-test('R3b flowTxt: 종료 방식 없으면 흐름 없음 · 출발점 복귀 = 끝에 «시작 위치로 복귀» · 마지막 지점 종료 = 마지막 줄에 «여기서 종료» · 이름 비면 «지점 n»', () => {
-  const W = [{ x: 0, y: 0, name: '창고 앞', mods: ['사진'] }, { x: 1, y: 0, name: ' ', mods: ['운영자 확인'] }] as Mission['wps'];
-  expect(P.flowTxt(W, undefined)).toBeNull(); expect(P.flowTxt([], '출발점 복귀')).toBeNull();
-  expect(P.flowTxt(W, '출발점 복귀')).toEqual(['임무 시작 위치', '1 창고 앞 · 사진 기록', '2 지점 2 · 지점 확인', '시작 위치로 복귀']);
-  expect(P.flowTxt(W, '마지막 지점 종료')).toEqual(['임무 시작 위치', '1 창고 앞 · 사진 기록', '2 지점 2 · 지점 확인 · 여기서 종료']);
-  expect(P.flowTxt([W[0]], '마지막 지점 종료')).toEqual(['임무 시작 위치', '1 창고 앞 · 사진 기록 · 여기서 종료']);
+// ---- R3b·ROOT 7·8 새 임무 만들기 helper(SPEC-CREATE-R3 · ROOT-IMPLEMENT-DEPLOY 24434027 · UX-SPEC R1 5-1·5-3·5-6) ----
+const W2 = [{ x: 0, y: 0, name: '창고 앞', mods: ['사진'] }, { x: 1, y: 0, name: ' ', mods: ['운영자 확인'] }] as Mission['wps'];
+test('flowTxt: 종료 방식 없으면 흐름 없음 · S 없으면 «임무 시작 위치»/«시작 위치로 복귀» · S 있으면 «S 출발점»/«S 로 복귀» · 이름 비면 «지점 n»', () => {
+  expect(P.flowTxt(W2, undefined)).toBeNull(); expect(P.flowTxt([], '출발점 복귀')).toBeNull(); expect(P.flowTxt([], '출발점 복귀', true)).toBeNull();
+  expect(P.flowTxt(W2, '출발점 복귀')).toEqual(['임무 시작 위치', '1 창고 앞 · 사진 기록', '2 지점 2 · 지점 확인', '시작 위치로 복귀']);
+  expect(P.flowTxt(W2, '마지막 지점 종료')).toEqual(['임무 시작 위치', '1 창고 앞 · 사진 기록', '2 지점 2 · 지점 확인 · 여기서 종료']);
+  expect(P.flowTxt([W2[0]], '마지막 지점 종료')).toEqual(['임무 시작 위치', '1 창고 앞 · 사진 기록 · 여기서 종료']);
+  expect(P.flowTxt(W2, '출발점 복귀', true)).toEqual(['S 출발점', '1 창고 앞 · 사진 기록', '2 지점 2 · 지점 확인', 'S 로 복귀']);
+  expect(P.flowTxt(W2, '마지막 지점 종료', true)).toEqual(['S 출발점', '1 창고 앞 · 사진 기록', '2 지점 2 · 지점 확인 · 여기서 종료']);
   expect(P.FINISH.map((f) => f.v)).toEqual(['출발점 복귀', '마지막 지점 종료']);
 });
-test('R3b createWhy: 맨 앞 빠진 것 하나(① → ② → ③(새 임무만) → 이름) · 옛 임무(id 있음) 키 없음은 ③ 요구 0', () => {
+test('createWhy: 빠진 것 전부 한 줄(① 지형 · ③ 목적지 · ④ 종료 방식(새 임무만) · ⑥ 이름) · ② 출발점 S 는 선택(막지 않음) · 옛 임무(id 있음) 키 없음은 ④ 요구 0', () => {
   const W = [{ x: 0, y: 0, name: '', mods: [] }] as Mission['wps'];
   const m = (o: Partial<Mission> = {}): Mission => ({ name: '', tmpl: 'base', memo: '', wps: [], ...o });
-  expect(P.createWhy(m(), true, false)).toBe('① 지형을 고르세요');
-  expect(P.createWhy(m(), true, true)).toBe('② 목적지를 하나 이상 찍으세요');
-  expect(P.createWhy(m({ wps: W }), true, true)).toBe('③ 종료 방식을 고르세요');
-  expect(P.createWhy(m({ wps: W, finish: '출발점 복귀' }), true, true)).toBe('이름을 넣으세요');
+  expect(P.createWhy(m(), true, false)).toBe('만들려면: ① 지형 · ③ 목적지 1곳 이상 · ④ 종료 방식 · ⑥ 이름');
+  expect(P.createWhy(m(), true, true)).toBe('만들려면: ③ 목적지 1곳 이상 · ④ 종료 방식 · ⑥ 이름');
+  expect(P.createWhy(m({ wps: W }), true, true)).toBe('만들려면: ④ 종료 방식 · ⑥ 이름');
+  expect(P.createWhy(m({ wps: W, finish: '출발점 복귀' }), true, true)).toBe('만들려면: ⑥ 이름');
+  expect(P.createWhy(m({ wps: W, finish: '출발점 복귀', name: '   ' }), true, true)).toBe('만들려면: ⑥ 이름');   // 공백만 = 이름 없음
   expect(P.createWhy(m({ wps: W, finish: '마지막 지점 종료', name: 'x' }), true, true)).toBe('');
   expect(P.createWhy(m({ wps: W, name: '옛' }), false, false)).toBe('');           // 옛 임무: 키 없음 그대로 저장 허용(지형 없는 목록만 계획 포함)
-  expect(P.createWhy(m({ wps: W }), false, true)).toBe('이름을 넣으세요');
+  expect(P.createWhy(m({ wps: W }), false, true)).toBe('만들려면: ⑥ 이름');
+  expect(P.createWhy(m({ wps: W, finish: '출발점 복귀', name: 'x' }), true, true)).toBe('');   // S 없음 = 막힘 0(ROOT 8 선택)
+  expect(P.createWhy(m({ name: 'x', finish: '출발점 복귀', start: { x: 1, y: 1, map: { world_id: 'v5_single', floor_id: 'f1', key: 'k' } } as any }), true, true)).toBe('만들려면: ③ 목적지 1곳 이상');   // S 만으론 목적지 대신 0
+});
+test('autoName: «{지형·층} 임무 MM-DD HH:mm» · 지형 미정 «임무 …» · 60자 안 · mdhm 두 자리', () => {
+  const t = new Date(2026, 9, 9, 7, 5);
+  expect(P.mdhm(t)).toBe('10-09 07:05');
+  expect(P.autoName(null, t)).toBe('임무 10-09 07:05');
+  const a = P.autoName({ w: 'v5_single', f: 'f1' }, t); expect(a.endsWith(' 임무 10-09 07:05')).toBe(true); expect(a.length).toBeLessThanOrEqual(60); expect(a.startsWith('임무')).toBe(false);
+});
+test('mkStart: start.map = 받은 출처 + key = wkey([S]) · 받은 출처 객체 변경 0', () => {
+  const src = { world_id: 'v5_single', floor_id: 'f1', rid: 'r9', key: 'old' } as any, before = JSON.stringify(src);
+  const s = P.mkStart(1.25, -2, src);
+  expect(s).toMatchObject({ x: 1.25, y: -2, map: { world_id: 'v5_single', floor_id: 'f1', rid: 'r9' } }); expect(s.map.key).not.toBe('old');
+  expect(P.mkStart(1.25, -2, { world_id: 'v5_single', floor_id: 'f1' } as any).map.key).toBe(s.map.key);   // key 는 좌표로만(출처 무관)
+  expect(P.mkStart(1.26, -2, src).map.key).not.toBe(s.map.key); expect(JSON.stringify(src)).toBe(before);
+});
+test('sView: 없음 none · 같은 도면·자기 key·부모 같은 지형/rid = ok · 그 밖 other(이유) — 원문 그대로 돌려줌(고침 0)', () => {
+  const T = { w: 'v5_single', f: 'f1' } as any, s = P.mkStart(1, 2, { world_id: 'v5_single', floor_id: 'f1', rid: 'r1' } as any);
+  const m = (o: Partial<Mission> = {}): Mission => ({ name: '', tmpl: 'base', memo: '', wps: [], ...o });
+  expect(P.sView(m(), T)).toEqual({ k: 'none' });
+  expect(P.sView(m({ start: s }), T)).toEqual({ k: 'ok', s });
+  expect(P.sView(m({ start: s, map: { world_id: 'v5_single', floor_id: 'f1', rid: 'r1', key: 'x' } as any }), T).k).toBe('ok');
+  expect(P.sView(m({ start: s, map: { world_id: 'v5_single', floor_id: 'f1', key: 'x' } as any }), T).k).toBe('ok');   // rid 없는 연관 = ok
+  const o = (mm: Mission, t: any = T) => { const v = P.sView(mm, t); expect(v.k).toBe('other'); return v.k === 'other' ? v.why : ''; };
+  expect(o(m({ start: s }), null)).toContain('지형 정보 없는');
+  expect(o(m({ start: s }), { w: 'v5_single', f: 'f2' })).toContain('지형·층');
+  const moved = { ...s, x: 1.5 }; const before = JSON.stringify(moved); expect(o(m({ start: moved }))).toContain('좌표가 바뀜'); expect(JSON.stringify(moved)).toBe(before);
+  expect(o(m({ start: s, map: { world_id: 'v5_building', floor_id: 'f1', key: 'x' } as any }))).toContain('목적지 계획');
+  expect(o(m({ start: s, map: { world_id: 'v5_single', floor_id: 'f1', rid: 'r2', key: 'x' } as any }))).toContain('좌표 기준');
 });

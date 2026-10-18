@@ -11,7 +11,7 @@ import { useEditor } from '../data/editor';
 import { nearOf, runsOf } from '../data/run';
 import { href } from '../data/hist';
 import { LiveStatus, MediaStale } from '../app/status';
-import { stopProps, toast, useRoute } from '../app/shell';
+import { toast, useRoute } from '../app/shell';
 
 const TABS = ['전체', '미분류', '확인', '보류', '제외'] as const;
 const CLS = [['확인', '확인 · 기록에 남김'], ['제외', '제외'], ['보류', '보류 · 다음에 다시 보기']] as const;
@@ -45,7 +45,7 @@ export default function PcReview() {
   const vis = R ? R.wps.filter((w) => w.st === '방문').length : 0, al = alertsOf(M).length;
 
   const v = {
-    themeClass: themeClass(true), stopProps, status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
+    themeClass: themeClass(true), status: <><LiveStatus D={D} /><MediaStale M={M} D={D} /></>,
     hdrA: '사진 검토', hdrB: R ? `수동 임무 «${R.name}» 관찰 사진` : '관찰 사진 · 운영자 등록',
     sL: R ? `수동 임무 · 양식: ${R.tmpl || '—'} · ${R.status}` : '관찰 사진 검토 · 전체',
     sBig: `${LV.warn} 분류 대기 ${cnt('미분류')}장`, sBigS: { color: 'var(--warn)' }, sDesc: OBS_NOTE,

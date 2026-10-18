@@ -2,7 +2,7 @@
 import { csvOf, durTxt, posTxt, tms } from './fmt';
 import { docsOf, docsSt, mediaSt, noteOf, type Docs, type Media } from './shared';
 import { evShow } from './facts';
-import { finishText } from './run';
+import { finishText, startText } from './run';
 
 // title = 원문(검색·CSV·Report 그대로) · show = 화면 표시 문장(사건만, §3 evShow)
 export type Row = { at: string; kind: '사건' | '사진' | '임무'; lvl: string; title: string; show?: string; res: string; sub: string; by?: string; href: string;
@@ -25,7 +25,8 @@ export function histRows(D: Docs, M: Media, pc: boolean): Row[] {
     const r = d.doc, v = r.wps.filter((w) => w.st === '방문').length, ph = r.wps.reduce((a, w) => a + w.photos.length, 0);
     // R3: fin = 종료 방식 기록 사본 그대로(키 없음 «종료 방식 기록 없음» · 계획 값으로 채움 0)
     rows.push({ at: r.started || d.at, kind: '임무', lvl: r.status === '완료' ? 'ok' : r.status === '진행' ? 'warn' : 'bad', title: r.name, res: r.status === '진행' ? '진행(수동)' : r.status, st: r.status, tmpl: r.tmpl, wait: r.status === '진행',
-      fin: finishText(r), sub: `${r.tmpl || '양식 없음'} · ${finishText(r)} · 방문 ${v}/${r.wps.length} · ${durTxt(r.started, r.ended)}`, by: d.by, dur: durTxt(r.started, r.ended), pts: `${v}/${r.wps.length}`, photos: ph, extra: r.memo, run: d.id, href: href('Report', { run: d.id }) });
+      fin: `${finishText(r)} · ${startText(r)}`, sub: `${r.tmpl || '양식 없음'} · ${finishText(r)} · 방문 ${v}/${r.wps.length} · ${durTxt(r.started, r.ended)} · ${startText(r)}`, by: d.by,   // S11: 폰 기록 한 줄에도 Run 자체 S 사본(계획 보충 0) — PC 표는 fin 칸에만(중복 0)
+      dur: durTxt(r.started, r.ended), pts: `${v}/${r.wps.length}`, photos: ph, extra: r.memo, run: d.id, href: href('Report', { run: d.id }) });
   }
   return rows.sort((a, b) => tms(b.at) - tms(a.at));
 }

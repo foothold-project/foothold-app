@@ -436,6 +436,15 @@ class MapSrc(Body):
     rid: Annotated[str, Field(pattern=r'^[wg]:[0-9a-f]{64}$')] = None
 
 
+class PlanStart(Body):
+    """계획 출발점 S(10-19, 선택 키 start — 없음 = 출발점 미지정, null 불가). 사용자가 지도에서 고른 GT 좌표 하나.
+    map = S 를 고른 때의 출처(필수, MapSrc 와 같은 형식) — map.key 는 [S] 한 점의 좌표 지문(UI wkey([S])). 계획 map(지점 출처)과 별개.
+    서버는 형식만 검사하고 start ↔ Mission.map 관계는 보지 않는다(UI 몫). 로봇 이동·자동 복귀 수행 아님."""
+    x: Num
+    y: Num
+    map: MapSrc
+
+
 class Mission(Body):
     name: S(60)
     tmpl: S(40)
@@ -443,6 +452,7 @@ class Mission(Body):
     wps: Annotated[list[Waypoint], Field(max_length=30)]
     map: MapSrc = None                      # 선택(키 없음 허용·null 불가) — 옛 문서·옛 서버 호환
     finish: Finish = None                   # 선택(R3, 키 없음 허용·null 불가) — 없음 = 종료 방식 미지정. 자동 복귀 수행·시작 좌표 기록 아님
+    start: PlanStart = None                 # 선택(10-19, 키 없음 허용·null 불가) — 계획 출발점 S(고른 때 출처 포함). 없음 = 미지정
 
 
 class RunWaypoint(Waypoint):
@@ -467,6 +477,7 @@ class Run(Body):
     map: MapSrc = None                      # 선택 — 시작 때 계획 출처가 지금 시뮬과 일치했을 때만(없음 = 지도 미확인 · 기록만)
     mrev: Annotated[int, Field(ge=1)] = None   # 선택 — 시작한 계획 판
     finish: Finish = None                   # 선택(R3) — 시작 때 계획 finish 사본(키 유무까지). mrev 있는 새 Run 은 서버가 대조(server/runcas.py)
+    start: PlanStart = None                 # 선택(10-19) — 시작 때 계획 start 사본(키 유무·값·출처 map 까지). Run.map(현재 실측 정합)과 별개, 서버 대조(runcas)
     # 선택(C) — 서버가 시작 때 계획 판(mrev)·스냅샷·양식 이름을 대조했음. 서버만 붙인다(새 Run 에 보내면 400, 결과 편집은 echo·누락 모두 유지,
     # 근거 필드가 바뀌면 서버가 뗀다). 없음 = 이 기기 캐시 기준(서버 미대조). server/runcas.py
     mcas: Annotated[Literal[1], BeforeValidator(_int1)] = None

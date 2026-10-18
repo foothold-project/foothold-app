@@ -82,7 +82,7 @@ test('PcMap 렌더(요청 4·5): «지도» 칸 = 새 지도 만들기 + 지도 
   st({ map_save: { ok: false, why: `${LIVE_WHY} · ${FLOOR_HOLD}` }, live_map: { st: 'hold', mode: 'slam' } });
   const s = html(React.createElement(PcMap)), o = ops(s);
   expect(o).toContain('aria-label="지도"'); expect(o).toMatch(/새 지도 만들기<\/button>/); expect(o).not.toContain('±10');   // (첫 판의 '시뮬 바닥' 부정 단언 철회 — 지도 보기 선택(pickEl)의 정상 항목 이름)
-  expect(s).toContain('스페이스 · 입력 차단·잠금'); expect(s).not.toContain('명령 0·잠금<'); expect(s).toContain('aria-label="STOP 설명"'); expect(s).toContain(STOP_TIP);
+  expect(s).not.toContain('aria-label="비상 정지"'); expect(s).not.toContain('스페이스 · 입력 차단·잠금'); expect(s).not.toContain('명령 0·잠금<'); expect(s).toContain('aria-label="STOP 설명"'); expect(s).toContain(STOP_TIP);   // FIX2b(ROOT 결정 1): G1 = 화면별 STOP 삭제 → 이 화면 STOP 0 · 공용 STOP 존재·title(STOP_TIP)·송신은 ui_g1_stop(실제 App)
   expect(s).toMatch(/lv-chip warn[^>]*>[\s\S]*?<span>표시만<\/span>[\s\S]*?aria-label="구역 · 설명"/); expect(s).toContain(ZONE_NOTE);
   expect(o).not.toContain('지도 저장'); expect(o).not.toContain(FLOOR_HOLD);   // 요청 5: 저장 상자는 조종 화면 SimRun 으로(이 화면 중복 0)
   expect(o).toMatch(/>크기<\/span><span>(20 × 20 m|도면 없음)</); expect(o).toMatch(/>격자<\/span><span>1 m</); expect(o).toMatch(/>구역<\/span><span>(\d+개|미확인)</);
