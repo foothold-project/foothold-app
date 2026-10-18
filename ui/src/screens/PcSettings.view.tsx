@@ -71,7 +71,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <nav aria-label="주 메뉴" style={{"flex":"0 0 76px","display":"flex","flexDirection":"column","alignItems":"center","gap":"4px","padding":"12px 6px","borderRight":"1px solid var(--line)","background":"var(--panel)"}}>
             {" "}
-            <a className="nav" href="#/Main">
+            <a className="nav" href="#/Fleet">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="8" />
                 <circle cx="12" cy="12" r="3" />
@@ -80,7 +80,7 @@ export function View({ v }: { v: Vals }) {
               {"관제"}
             </a>
             {" "}
-            <a className="nav" href="#/PcMissions">
+            <a className="nav" href="#/PcPlan">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <path d="M4 19l5-14 5 9 3-4 3 9" />
                 <circle cx="9" cy="5" r="1.5" />
@@ -110,17 +110,6 @@ export function View({ v }: { v: Vals }) {
                 <path d="M9 21h6M12 18v3M9 9h.01M15 9h.01" />
               </svg>
               {"로봇"}
-            </a>
-            {" "}
-            {/* 새 기획 10-18: 전체 관제·지도 편집 입구(링크만) */}
-            <a className="nav" href="#/Fleet">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
-              {"전체 관제"}
-            </a>
-            {" "}
-            <a className="nav" href="#/MapEditor">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M14 14l4-4 2 2-4 4h-2z" /></svg>
-              {"지도 편집"}
             </a>
             {" "}
             <div style={{"flex":"1"}} />

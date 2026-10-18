@@ -1,5 +1,5 @@
 import { beforeEach, expect, test, vi } from 'vitest';
-// U4-a PcMap: 제목 «시뮬 바닥» · 지도 열기 → 시뮬 메뉴(part open) · 화면엔 SLAM 저장만(part save) · 저장 막힘 = 지금 이유 + 다음(일반 문구로 덮기 0) · 진단 = data-dev.
+// U4-a PcMap(10-18 요청 4·5 반영: «새 지도 만들기» = 지도 편집 화면 이동 · 그 아래 옛 설명·저장본 자리·저장 상자 삭제 — 저장은 조종 화면 SimRun) · MapStartBox part open/save 표시 · 저장 막힘 = 지금 이유 + 다음(일반 문구로 덮기 0) · 진단 = data-dev.
 // 실제 MapStartBox·PcMap 을 react-dom/server 로 그림(useLink 상태 주입). 대체: useRoute·console.error(useLayoutEffect 경고)·useLink 서버 스냅샷만.
 const R = vi.hoisted(() => ({ name: 'PcMap' }));
 vi.mock('../../src/app/shell', async (orig) => ({ ...(await orig<typeof import('../../src/app/shell')>()), useRoute: () => ({ name: R.name, q: new URLSearchParams(), setQ: () => {} }) }));
@@ -75,26 +75,25 @@ test('MapStartBox pc part=open(시뮬 메뉴): 지도 열기만 · 고른 곳/�
   expect(s).toMatch(/<details data-dev="">/);
   const m = html(React.createElement(MapStartBox, { pc: false }));   // 폰 지도: 두 부분 · 기존 문구 · dev 표시 0
   expect(m).toContain('시뮬 실행'); expect(m).toContain('지도 저장'); expect(m).toMatch(/<button[^>]*disabled=""[^>]*>지도 저장/);
-  expect(m).toContain('고른 곳과 지금 실행 중인 곳이 다릅니다'); expect(m).not.toContain('data-dev'); expect(m).toContain('2D 점유 격자');
+  expect(m).toContain('고른 곳과 지금 실행 중인 곳이 다릅니다'); expect(m).not.toContain('data-dev'); expect(m).not.toContain('2D 점유 격자');   // 10-18 요청 4: 상자 아래 occupancy 설명 줄 삭제
 });
 
-test('PcMap 렌더: 제목 «시뮬 바닥» · lean 캔버스 · 구역 «표시만»+ZONE_NOTE ? · 지도 정보 운영/dev · STOP 공용 글 · 운영 글 금지어 0', () => {
+test('PcMap 렌더(요청 4·5): «지도» 칸 = 새 지도 만들기 + 지도 보기만 · 시작·저장 상자 0 · 구역 «표시만»+ZONE_NOTE ? · 지도 정보 운영/dev · STOP 공용 글 · 운영 글 금지어 0', () => {
   st({ map_save: { ok: false, why: `${LIVE_WHY} · ${FLOOR_HOLD}` }, live_map: { st: 'hold', mode: 'slam' } });
   const s = html(React.createElement(PcMap)), o = ops(s);
-  expect(o).toContain('>시뮬 바닥<'); expect(o).not.toContain('시뮬 바닥 도면'); expect(o).not.toContain('±10');
+  expect(o).toContain('aria-label="지도"'); expect(o).toMatch(/새 지도 만들기<\/button>/); expect(o).not.toContain('±10');   // (첫 판의 '시뮬 바닥' 부정 단언 철회 — 지도 보기 선택(pickEl)의 정상 항목 이름)
   expect(s).toContain('스페이스 · 입력 차단·잠금'); expect(s).not.toContain('명령 0·잠금<'); expect(s).toContain('aria-label="STOP 설명"'); expect(s).toContain(STOP_TIP);
   expect(s).toMatch(/lv-chip warn[^>]*>[\s\S]*?<span>표시만<\/span>[\s\S]*?aria-label="구역 · 설명"/); expect(s).toContain(ZONE_NOTE);
-  expect(o).toContain('층 이동이 끝나 그 층 지도가 보이면 저장'); expect(o).toContain(FLOOR_HOLD);   // 저장 막힘 지금 이유 = 운영
+  expect(o).not.toContain('지도 저장'); expect(o).not.toContain(FLOOR_HOLD);   // 요청 5: 저장 상자는 조종 화면 SimRun 으로(이 화면 중복 0)
   expect(o).toMatch(/>크기<\/span><span>(20 × 20 m|도면 없음)</); expect(o).toMatch(/>격자<\/span><span>1 m</); expect(o).toMatch(/>구역<\/span><span>(\d+개|미확인)</);
   for (const d of ['만든 사람', '위치 추정', '>방법<', 'world_live.sdf', 'foothold-v2']) expect(o).not.toContain(d);   // dev
   for (const w of ['GT ', 'Gazebo', '±10 m', '(SLAM 지도 아님)', 'v2']) expect(o).not.toContain(w);
   expect(o).not.toContain('id="fh-mapopen"');   // 지도 열기는 시뮬 메뉴(화면 중복 장착 0)
-  expect(s).toContain('aria-label="지도 · 설명"'); expect(s).toContain('2D 점유 격자'); expect(s).toContain('재위치추정');   // 설명 전문 보존(? 안)
+  expect(s).not.toContain('aria-label="지도 · 설명"'); expect(s).not.toContain('«시뮬 ▾»');   // 요청 4: 옛 긴 설명·메뉴 안내 삭제
 });
 
-test('소스 결속: PcMap 캔버스 lean · SimMenu 는 PcMap 에서 part open(MMap 만 안내) · 새 지도 = 시뮬 메뉴 열기(시뮬 아니면 whyProps)', async () => {
-  const pm = await rd('../../src/screens/PcMap.tsx'), sm = await rd('../../src/app/status.tsx');
-  expect(pm).toMatch(/<MapCanvas name="pcmap" lean /); expect(pm).toMatch(/<MapStartBox pc part="save"/);
-  expect(sm).toMatch(/onMapPage = name === 'MMap';/); expect(sm).toMatch(/part=\{name === 'PcMap' \|\| \(name \|\| HOME\) === 'Main' \? 'open' : undefined\}/); expect(sm).toContain('data-simmenu=""');
-  expect(pm).toMatch(/newP: sim \? \{[^}]*onClick: openSimMenu \}\s*(\/\/[^\n]*)?\n\s*: \{ \.\.\.whyProps\(/);
+test('소스 결속(요청 5): PcMap 캔버스 lean · «새 지도 만들기» = #/MapEditor 이동만(시뮬 메뉴 열기·명령 0)', async () => {
+  const pm = await rd('../../src/screens/PcMap.tsx');
+  expect(pm).toMatch(/<MapCanvas name="pcmap" lean /);
+  expect(pm).toMatch(/newP: \{ className: 'btn pri', onClick: \(\) => \{ location\.hash = '#\/MapEditor'; \} \}/);
 });

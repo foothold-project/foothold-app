@@ -44,7 +44,7 @@ export function TerrainPreview({ w, f, preview }: { w: string; f: string; previe
             : preview.ver === '' ? '저장한 지도를 정하면 그 그림이 표시됩니다(저장본이 없으면 그림 없음 — 기본 도면으로 대신하지 않음)' : '미리보기 불러오는 중…')}
         </span>}
     </div>
-    <figcaption style={{ padding: '5px 8px', fontSize: 11, color: 'var(--muted)' }}>{w ? `${place(w, f)} · ${preview.ver ? `저장한 지도 ${preview.ver}(그림만 · 위치 없음)` : preview.ver != null ? '저장한 지도 미정' : preview.empty ? '기존 도면 없음' : '2D 미리보기(기본 도면 · 예고일 뿐 저장본 복원 아님 · 실행하면 새로 그림)'}` : '지형 미선택'}</figcaption>
+    <figcaption style={{ padding: '5px 8px', fontSize: 11, color: 'var(--muted)' }}>{w ? `${place(w, f)} · ${preview.ver ? `저장한 지도 ${preview.ver}(그림만 · 위치 없음)` : preview.ver != null ? '저장한 지도 미정' : preview.empty ? '기존 도면 없음' : '2D 미리보기 · 기본 도면'}` : '지형 미선택'}</figcaption>
     {w && preview.error && <button type="button" className="btn" onClick={preview.retry}>미리보기 다시 받기</button>}
   </figure>;
 }

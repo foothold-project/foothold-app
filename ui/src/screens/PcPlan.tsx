@@ -153,7 +153,7 @@ export default function PcPlan() {
         </div>{dist}
       </div>;
     }
-    const ro = (id: string, t: string) => <input id={id} className="inp mono" value="미연결" readOnly title={`${t} — ${GOTO} · 도착은 운영자가 «방문 확인»으로 기록`} />;
+    // M7(10-18): 도착 판정 반경·방향 읽기 전용 «미연결» 칸 삭제 — 자동 도착처럼 보임. 도착 = 운영자 «방문 확인»(관제) 그대로
     const sb = (t: string, f: () => void, lab?: string) => <button type="button" className="btn sm" aria-label={lab} onClick={f}>{t}</button>;
     return <div key={i} className="wp sel" style={{ gridTemplateColumns: '18px 28px 1fr auto' }}>
       {head}<span className="num mono" style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}>{i + 1}</span>
@@ -167,10 +167,6 @@ export default function PcPlan() {
             onChange={(e) => edit(() => { const on = e.target.checked; w.mods = LIVE_MODS.filter((t) => (t === ty ? on : w.mods.includes(t))); })} />
           {` ${ty} · ${modDetail(D, d.tmpl, ty)}`}
         </label>)}
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}><label className="lbl" htmlFor="rad">도착 판정 반경</label>{ro('rad', '도착 판정 반경')}</div>
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '4px' }}><label className="lbl" htmlFor="hdg">도착 방향</label>{ro('hdg', '도착 방향')}</div>
-        </div>
       </div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', gridColumn: '1/-1' }}>
         {sb('↑', () => mv(i, -1), '위로')}{sb('↓', () => mv(i, 1), '아래로')}
@@ -181,8 +177,8 @@ export default function PcPlan() {
   const rList = ws.length ? <>{rows}
     <div className="wp" style={{ opacity: 0.8 }}><span />
       <span className="mono" style={{ width: '26px', height: '26px', border: '2px solid var(--text)', borderRadius: '4px', display: 'grid', placeItems: 'center', fontSize: '12px', fontWeight: 700 }}>S</span>
-      <span style={{ fontSize: '13px', fontWeight: 600 }}>{`출발점 복귀 — ${GOTO.split(' — ')[0]} · 직접 조종`}</span><span className="mono lbl">—</span>
-    </div></> : <span className="lbl">«측정 지점 추가» 도구로 지도를 누르면 지점이 생깁니다(30개까지). 끌면 지도 이동.</span>;
+      <span style={{ fontSize: '13px', fontWeight: 600 }}>출발점 복귀 · 직접 조종</span><span className="mono lbl">—</span>
+    </div></> : <span className="lbl">지도를 눌러 지점 추가 · 최대 30</span>;   // M5
 
   // ---- 출발 전 점검: 막는 것은 «진행 중 임무 없음»·«계획 저장됨»뿐(기록을 시작할 뿐 로봇을 움직이지 않음) ----
   // G1: 빈 계획에서도 매번 지금 지도를 판정 — 연결 건물이면 첫 점 전에 GT 기하를 받아 둠(받는 중/확인됨/미확인을 지도 칩에 표시)
@@ -213,10 +209,10 @@ export default function PcPlan() {
     pill: run ? `수동 진행 중 · ${run.doc.name}` : '진행 중 임무 없음',
     chips: <>{chip('위치', posTxt, lk.fresh)}{dev ? chip('지도', oldChip, pm ? !!pm.map : !!hNow.map, true) : chip('지도', sv.text, sv.good, true, srcHelp)}</>,   // B2 R16: 링크는 상태 줄 · 배터리 값 없음은 출발 전 점검 한 곳 · U5-a 지도 칩 운영/개발자
     tSel: tp('sel'), tAdd: tp('add'), tMeas: tp('measure'), tNo: zp('금지'), tSlow: zp('감속'),
-    prevP: { onClick: loadPrev }, prevT: '지난 수동 진행 경로 불러오기',
+    prevP: { onClick: loadPrev }, prevT: '지난 경로 불러오기',   // 10-18 SPEC-MISSION M2(동작 loadPrev 그대로)
     map: <MapCanvas name="plan" btns wps={ws} hiWp={wsel} zones={D.err ? [] : docsOf(D, 'zone')} robot={lk.robot} onTap={onTap}
       draft={tool === 'measure' && meas.length ? { type: '측정', pts: meas } : null} />,
-    ov1: <span style={OV}>{dot(false)}경로 검사(자동 길찾기) 미연결 · 거리는 직선</span>,
+    ov1: <span style={OV}>{dot(false)}거리 = 직선<Help label="거리 · 설명">경로 검사(자동 길찾기) 미연결 · 거리는 직선</Help></span>,   // M3
     ov2: <span style={{ ...OV, border: '1px solid var(--warn)' }}>{dot(!zoneWarn)}{tool === 'measure'
       ? (meas.length === 2 ? `거리 재기: 직선 ${Math.hypot(meas[1][0] - meas[0][0], meas[1][1] - meas[0][1]).toFixed(2)} m` : '거리 재기: 지도에서 두 점을 누르세요')
       : inZ.length ? `${inZ.join(' · ')}(구역은 표시만)` : '구역 안 지점 없음'}</span>,
@@ -235,16 +231,17 @@ export default function PcPlan() {
     </div>,
     tplP: { value: T ? T.id : d.tmpl, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => { const id = e.target.value; edit(() => { d.tmpl = id; }); if (ws.length && confirm('지점마다 할 일을 이 양식 기본값으로 바꿀까요?')) edit(() => { for (const w of ws) w.mods = defMods(D, id); }); } },
     tplO: <>{T ? null : <option value={d.tmpl}>{MISSING_T}</option>}{tmpls(D).map((t) => <option key={t.id} value={t.id}>{t.locked ? `${t.name} (기본)` : t.name}</option>)}</>,
-    tplHref: href('PcMissions', T ? { tmpl: T.id } : {}), ruleHref: href('PcMissions', T ? { tmpl: T.id } : {}),
+    tplHref: href('PcMissions', T ? { tmpl: T.id } : {}),   // M10: 경보 규칙 «양식에서 규칙 고치기» 링크 삭제(양식 화면도 규칙 추가 막힘 — 막다른 길)
+    tplHelp: <Help label="임무 양식 · 설명">양식이 지점마다 할 일의 기본값을 정합니다. 지점별로 더하거나 뺄 수 있습니다.</Help>,   // M4
     rH: `${ws.length}개 지점 · ${len.toFixed(1)} m 직선`, rList,
     // U5-a: 공용 쉬운 말(U4-c 고정 규칙과 같은 글) + ? 전문(U5-b: 공용 LostHelp — STOP_FACT·SAFE_NOTE·STOP_OBS·RELURCH 보존) · 동작·선택 불가 그대로
-    lost: <>{opt('입력 차단·잠금', '', <>조종 입력 0.3초 끊김 → 입력 차단 (몸 정지는 별도) · 화면을 떠나거나 신호 1초 끊김 → 입력 차단·잠금. 선택이 아니라 서버 고정 동작입니다.
-        <LostHelp /></>, true)}
-      {opt('마지막 통신 지점으로 후퇴', ' · 미연결', `${GOTO} — 자동 후퇴는 실행하지 않습니다.`, false)}</>,
+    // M9(10-18): 짧은 글 + ? · 둘 다 선택 불가(disabled) 그대로 — 0.3 s/1 s 전문은 LostHelp(STOP_FACT·SAFE_NOTE·STOP_OBS·RELURCH)
+    lost: <>{opt('입력 차단·잠금', ' · 서버 고정', <LostHelp />, true)}
+      {opt('마지막 통신 지점으로 후퇴', '', <Chip tone="off" text="미연결" why={`${GOTO} — 자동 후퇴는 실행하지 않습니다.`} whyLabel="후퇴 · 설명" />, false)}</>,
     aH: <Chip tone="off" text="자동 실행 안 함" why={RULE_WHY} whyLabel="경보 규칙 · 설명" />, aOpts: <></>,   // U5-a: U4-c 경보 규칙 칩과 같음(전문은 ?)
     cH: `${cks.filter((c) => c[0]).length} / ${cks.length}`,
     cList: <>{cks.map(([good, t, , hp]) => <div className="ck" key={t}><span className={`m ${good ? 'ok' : 'warn'}`}>{good ? '●' : '▲'}</span><span>{t}{hp}</span><span /></div>)}</>,
-    fb0: '미연결', fb0T: '자동 이동이 없어 시간 예측 미연결', fb1: `${len.toFixed(1)} m 직선`, fb2: <>값 없음{batHelp}</>,
+    fb1: `${len.toFixed(1)} m 직선`,   // M11: 예상 시간·배터리 사용 칸 삭제(값 없는 칸 · 배터리 «값 없음»은 점검 줄)
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(v3 §3 — PcMissions·PcRobot 와 같음)
     saveP: { onClick: save }, saveT: '계획 저장',
     startP: { onClick: start }, startT: run ? '진행 기록 화면(관제)' : '수동 진행 시작', startDis: !run && block.length > 0,

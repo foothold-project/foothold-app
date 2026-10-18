@@ -83,7 +83,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <nav aria-label="주 메뉴" style={{"flex":"0 0 76px","display":"flex","flexDirection":"column","alignItems":"center","gap":"4px","padding":"12px 6px","borderRight":"1px solid var(--line)","background":"var(--panel)"}}>
             {" "}
-            <a className="nav" href="#/Main">
+            <a className="nav" href="#/Fleet">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="8" />
                 <circle cx="12" cy="12" r="3" />
@@ -92,7 +92,7 @@ export function View({ v }: { v: Vals }) {
               {"관제"}
             </a>
             {" "}
-            <a className="nav" href="#/PcMissions">
+            <a className="nav" href="#/PcPlan">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <path d="M4 19l5-14 5 9 3-4 3 9" />
                 <circle cx="9" cy="5" r="1.5" />
@@ -124,17 +124,6 @@ export function View({ v }: { v: Vals }) {
               {"로봇"}
             </a>
             {" "}
-            {/* 새 기획 10-18: 전체 관제·지도 편집 입구(링크만) */}
-            <a className="nav" href="#/Fleet">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M3 10h18M9 10v10" /></svg>
-              {"전체 관제"}
-            </a>
-            {" "}
-            <a className="nav" href="#/MapEditor">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true"><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M14 14l4-4 2 2-4 4h-2z" /></svg>
-              {"지도 편집"}
-            </a>
-            {" "}
             <div style={{"flex":"1"}} />
             {" "}
             <a className="nav" href="#/PcSettings">
@@ -149,10 +138,10 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <main style={{"flex":"999 1 600px","minWidth":"0","display":"flex","flexWrap":"wrap","gap":"12px","padding":"12px","alignContent":"flex-start"}}>
             {" "}
-            <section aria-label="저장된 지도" className="card" style={{"flex":"1 1 240px","maxWidth":"280px","minWidth":"0","padding":"14px","display":"flex","flexDirection":"column","gap":"10px"}}>
+            <section aria-label="지도" className="card" style={{"flex":"1 1 240px","maxWidth":"280px","minWidth":"0","padding":"14px","display":"flex","flexDirection":"column","gap":"10px"}}>
               {" "}
               <span style={{"fontWeight":"600","fontSize":"15px"}}>
-                {"저장된 지도"}
+                {"지도"}
               </span>
               {" "}
               <button className="btn pri" style={{"width":"100%"}} {...v.newP}>
@@ -162,23 +151,11 @@ export function View({ v }: { v: Vals }) {
                 {"새 지도 만들기"}
               </button>
               {" "}
-              <span className="lbl" style={{"lineHeight":"1.5"}}>
-                {v.lbl0 ?? "로봇을 직접 조종해 한 바퀴 돌면 SLAM이 지도를 만듭니다. 끝나면 저장합니다."}
-              </span>
-              {" "}
               <span className="lbl" data-dev="" style={{"paddingTop":"6px"}}>
                 {v.lbl1 ?? "B1 · [현장명]"}
               </span>
               {" "}
-              <button className="mp sel">
-                <b style={{"fontSize":"14px"}}>
-                  {v.mpName ?? "펌프실 v3"}
-                </b>
-                <span className="lbl">
-                  {v.mpSub ?? "10-10 14:20 · 46 × 27 m · 사용 중"}
-                </span>
-              </button>
-              {" "}
+              {/* 10-18 요청 5: 새 지도 만들기 아래 옛 설명·저장본 자리표시 삭제 — 지도 보기 선택(floorNote)만 */}
               {v.oldHide ? null : (<>
               <button className="mp">
                 <b style={{"fontSize":"14px"}}>

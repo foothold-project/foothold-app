@@ -104,53 +104,44 @@ test('관제 칸의 시뮬 리셋 = 누르던 입력 폐기(dropAll) 뒤 reset �
   expect(R.sent).toEqual(['drop', 'reset']);
 });
 
-test('소스: 지도 칸 안 pickEl 0 · 임무 링크는 오른쪽 칸으로 · runPanel 은 사건 기록 바로 앞 · Main 의 «시뮬 ▾»는 안내만(두 번 장착 0)', async () => {
-  const m = await rd('../../src/screens/Main.tsx'), vw = await rd('../../src/screens/Main.view.tsx'), sm = await rd('../../src/app/status.tsx');
+test('소스: 지도 칸 안 pickEl 0 · 임무 링크는 오른쪽 칸으로 · runPanel 은 사건 기록 바로 앞', async () => {
+  const m = await rd('../../src/screens/Main.tsx'), vw = await rd('../../src/screens/Main.view.tsx');
   expect(m).not.toMatch(/q !== 'thumb' && pickEl/);
   expect(m.match(/\{pickEl\}/g)!.length).toBe(1); expect(m).toMatch(/aria-label="지도 보기\(보기만\)">\{pickEl\}/);
   expect(m.match(/>임무 시작</g)!.length).toBe(1); expect(m.match(/계획 보기 · «\$\{R\.name\}»/g)!.length).toBe(1);
   const a = vw.indexOf('{v.runPanel ?? null}'), b = vw.indexOf('"사건 기록"');
   expect(a > 0 && a < b).toBe(true);
-  expect(sm).toMatch(/\(name \|\| HOME\) === 'Main' \? <><p className="lv-note">관제 화면에서는 오른쪽 «시뮬 실행» 칸에서 엽니다/);   // 보완 C1: 빈 name = HOME
-  expect(sm).toMatch(/: <SimRun close=\{\(\) => P\.close\(false\)\} \/>\}/);
 });
 
-// ── 055824d 보완(715 C1 P1 · P2) ──
-const { SimMenu } = await import('../../src/app/status');
-const menuBody = async () => {   // 실제 «시뮬 ▾»를 장착 → 단추 onClick(usePop toggle)으로 열고 → 열린 본문 반환
-  const host = new N('DIV'), root: any = createRoot(host as any); roots.push(root);
-  await React.act(async () => { root.render(wrap(React.createElement(SimMenu))); });
-  const b = all(host).find((n) => n.attrs['data-simmenu'] !== undefined)!;
-  await React.act(async () => { props(b).onClick(); });
-  expect(b.attrs['aria-expanded']).toBe('true');
-  return all(host).find((n) => n.attrs['aria-label'] === '시뮬 메뉴')!;
-};
+// ── 055824d 보완(715 C1 P1 · P2) → 10-18 요청 7: 머리줄 «시뮬 ▾»(SimMenu) 삭제 — 시뮬 실행 = 관제 오른쪽 칸 하나(옛 «메뉴는 안내만» 검사 대체 · 이유 P/UI-TEST-REMOVED-1018.md)
+const { HeadChips } = await import('../../src/app/status');
+const draw = async (el: any) => { const host = new N('DIV'), root: any = createRoot(host as any); roots.push(root); await React.act(async () => { root.render(wrap(el)); }); return host; };
 const bodies = (...h: N[]) => h.reduce((k, n) => k + all(n).filter((x) => x.nodeName === 'BUTTON' && x.textContent === '시뮬 리셋').length, 0);   // SimRun 본문 수(리셋 단추 = SimRun 안에만)
 const maps = (...h: N[]) => h.reduce((k, n) => k + all(n).filter((x) => x.attrs.class === 'lv-simmap').length, 0);   // MapStartBox(지도 시뮬 열기) 수
+const noMenu = (h: N) => { expect(all(h).some((x) => x.attrs['data-simmenu'] !== undefined || x.attrs['aria-label'] === '시뮬 메뉴')).toBe(false); expect(all(h).some((x) => x.nodeName === 'BUTTON' && /^시뮬 ▾$|^시뮬 실행$|^시뮬 리셋$/.test(x.textContent))).toBe(false); };
 
-test('C1: 빈 hash·#·#/·#/?값·#/Main·#/Main?값 = 관제 → 오른쪽 SimRun 1 + 메뉴는 안내만(SimRun·지도 상자 합계 1)', async () => {
+test('C1: 빈 hash·#·#/·#/?값·#/Main·#/Main?값 = 관제 → 오른쪽 SimRun 1 · 머리줄(실제 head)에 시뮬 메뉴·단추 0', async () => {
   for (const h of ['', '#', '#/', '#/?q=thumb', '#/Main', '#/Main?q=thumb']) {
     (globalThis as any).location.hash = h;
     await mount();
-    const p = await panel(), m = await menuBody();
-    expect([h, bodies(p), bodies(m)]).toEqual([h, 1, 0]); expect([h, maps(p) + maps(m)]).toEqual([h, 1]);
-    expect(m.textContent).toContain('관제 화면에서는 오른쪽 «시뮬 실행» 칸에서 엽니다');
-    expect(all(m).some((x) => x.nodeName === 'BUTTON' && x.textContent === '시뮬 실행 칸 보기')).toBe(true);
+    const p = await panel(), hd = await draw(R.v.head);
+    expect([h, bodies(p), bodies(hd)]).toEqual([h, 1, 0]); expect([h, maps(p) + maps(hd)]).toEqual([h, 1]);
+    noMenu(hd);
     for (const r of roots.splice(0)) await React.act(async () => r.unmount());
   }
 });
 
-test('C1: 다른 화면(#/MDrive·#/PcMap·#/Mainx)은 오른쪽 칸 없음 → 메뉴에 SimRun 1(안내 0)', async () => {
+test('C1: 다른 화면(#/MDrive·#/PcMap·#/Mainx)의 공용 머리줄 칩(HeadChips)에도 시뮬 메뉴·SimRun 0', async () => {
   for (const h of ['#/MDrive', '#/PcMap?x=1', '#/Mainx']) {
     (globalThis as any).location.hash = h;
     useLink.setState({ open: true, gen: 1, stGen: 1, lastMsg: performance.now(), provider: 'simulation_gate', viewOnly: false, st: structuredClone(ST) as any });
-    const m = await menuBody();
-    expect([h, bodies(m)]).toEqual([h, 1]); expect(m.textContent).not.toContain('관제 화면에서는 오른쪽');
+    const hd = await draw(React.createElement(HeadChips));
+    expect([h, bodies(hd), maps(hd)]).toEqual([h, 0, 0]); noMenu(hd);
     for (const r of roots.splice(0)) await React.act(async () => r.unmount());
   }
 });
 
-test('C1 소스: main.tsx 와 메뉴가 같은 HOME(shell) · 화면 고르기 = SCREENS[name || HOME]', async () => {
+test('C1 소스: main.tsx 와 관제 판정이 같은 HOME(shell) · 화면 고르기 = SCREENS[name || HOME]', async () => {
   const mn = await rd('../../src/main.tsx'), sh = await rd('../../src/app/shell.tsx');
   expect(sh).toMatch(/export const HOME = 'Main';/);
   expect(mn).not.toMatch(/const HOME =/); expect(mn).toMatch(/import \{ HOME, [^}]*\} from '\.\/app\/shell';/); expect(mn).toMatch(/SCREENS\[name \|\| HOME\]/);

@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { LiveMap, MapInfo } from '@contracts';
-import { BLD, FLOOR, WF, WORLD, allKey, getFloors, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, useCatalog, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
+import { BLD, FLOOR, WF, WORLD, allKey, getFloors, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, useCatalog, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, latestSaved, tsOf, type HeightInfo, type Raster, type Sess } from '../data/maps';
 import { dropAll, useLink } from '../data/link';
 import type { Robot } from './MapCanvas';
 import { toast } from '../app/shell';
@@ -45,9 +45,24 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   useEffect(() => { if (!touched && sel === '' && seen && fresh) usePick.setState({ sel: LIVE, auto: true }); }, [seen, fresh, sel, touched]);
   // 실시간: 연결 끊김·수신 중단·세대 변경·st≠ok·K 변경이면 그림·마커 즉시 버림. 새 seq 면 다시 받음(≤1 Hz) — 받는 동안 같은 K·세대 직전 검증본을 HOLD_MS 까지 «갱신 중»으로(마커 0), 해독 끝나면 Raster 통째 교체
   const ok = lv?.st === 'ok', k = ok ? keyOf(lv!) : null, seq = ok ? lv!.grid!.seq : null;
+  // ── 층 저장 지도 대체(10-18 요청 1·3 · root 최소안 · 715 bd979410 · root SRC1153 보완): 실시간 보기(LIVE)에서만. 수동 GT·저장본·다른 층 보기는 건드리지 않음.
+  // 현재층 신원(fbKey) = 이 연결의 신선한 live_map(st wait|ok) + world·building(BLD 대조)·epoch. 시작 정보(runAt) 대체 0 · reset/stale/unknown/bad/off/transit = fbKey 없음.
+  //   연결 건물(층 여럿): floor{state on_floor·current(그 world 층)·rev} 필수 — 서버는 K 없는 정상 층 대기(st wait)에도 이 칸을 보냄(v2_link view) → mode·floor_id 요구 0.
+  //   단층(v5_single·rooms_a): floor 칸 없음 — full key floor_id 가 그 world 의 유일 층이고 floor_rev 없음일 때만 · rev = null.
+  const fl = (lv?.floor || null) as { state?: unknown; current?: unknown; rev?: unknown } | null, w0 = lv?.world_id, wf = w0 ? WF[w0] : undefined;
+  const idOk = sel === LIVE && fresh && !!lv && (lv.st === 'wait' || lv.st === 'ok') && !!wf && lv.building_id === (BLD as Record<string, string>)[w0!] && Number.isInteger(lv.epoch);
+  const floorNow = !idOk ? null : wf!.length > 1
+    ? (fl?.state === 'on_floor' && typeof fl.current === 'string' && wf!.includes(fl.current) && Number.isInteger(fl.rev) ? { f: fl.current, rev: fl.rev as number } : null)
+    : (lv!.floor_id === wf![0] && lv!.floor_rev == null ? { f: wf![0], rev: null } : null);
+  const liveFor = !!floorNow && lv!.st === 'ok' && lv!.floor_id === floorNow.f && (lv!.floor_rev ?? null) === floorNow.rev;   // 서버 실시간 격자가 이 층·rev 것
+  const fbKey = floorNow ? [gen, w0, lv!.building_id, lv!.epoch, floorNow.rev ?? '-', floorNow.f].join('|') : '';
+  // fb = 이 fbKey 에서 고정한 저장본 1개 · fbTok = 하드 경계 번호(fbKey·다시 고름 바뀌면 +1 → 늦은 답 버림) · lpend/spend = 이 hook 의 진행 중 map_live_get/대체 map_get 수(옛 fbKey 요청 포함)
+  const [fb, setFb] = useState<{ k: string; m: MapInfo | null; r?: Raster; why?: string } | null>(null), fbTok = useRef(0), [lpend, setLpend] = useState(0), [spend, setSpend] = useState(0);
+  const liveBlock = !!fbKey && !liveFor;   // 신원은 섰는데 서버 실시간이 이 층·rev 아님 = 화면에 안 낼 다른 문맥 read 0
   useEffect(() => {
     if (sel !== LIVE) return;
-    if (!fresh || k == null || seq == null) { setBound(null); return; }
+    if (!fresh || k == null || seq == null || liveBlock) { setBound(null); return; }
+    if (spend > 0) return;   // 같은 연결 지도 요청 하나(map_busy) — 대체 map_get 이 끝나면 deps(spend)로 다시
     if (bound && bound.k === k && bound.seq === seq && bound.gen === gen) return;
     if (bound && (bound.k !== k || bound.gen !== gen)) setBound(null);   // 하드 경계(K·세대) = 직전 검증본도 즉시 버림
     let gone = false; const g0 = gen;
@@ -56,9 +71,23 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
       if (gone || usePick.getState().sel !== LIVE || s.gen !== g0 || !s.open || now?.st !== 'ok' || now.grid?.seq !== seq || keyOf(now) !== k) return;
       // 실패(응답 seq 가 그새 앞섬·PNG 해독 실패 등): 같은 K·세대·연결이 위에서 확인됐으니 직전 검증본은 원래 시한(b.t 그대로 — 연장 0) 안에서만 보유, 오류 그림 채택 0
       if (typeof r === 'string') setLwhy(r); else { setBound({ r, k, seq, gen: g0, t: performance.now() }); setLwhy(''); }   // 원자 교체: 이미지+메타+seq 한 번에
-    });
+    }).finally(() => setLpend((n) => n - 1));
+    setLpend((n) => n + 1);
     return () => { gone = true; };
-  }, [sel, seq, k, fresh, gen, rq]);
+  }, [sel, seq, k, fresh, gen, rq, liveBlock, spend > 0]);
+  // 저장본 대체: fbKey·다시 고름(rq) 바뀜 = 하드 경계(번호 +1 · 고정본 철회). 고르기 = latestSaved(같은 world/building/floor·slam 검증본 최신 1) · fbKey 당 1회(목록 재수신 갈아끼우기 0)
+  // 시작 조건: 서버 실시간이 이 층 것이 아님(liveFor 거짓) · 진행 중 map_live_get 0 · 목록 있음. 답은 같은 번호·LIVE 일 때만 · 자동 재시도 0(다시 고르면 다시 받음)
+  useEffect(() => { fbTok.current++; setFb(null); }, [fbKey, rq]);
+  useEffect(() => {
+    if (!fbKey || fb || liveFor || lpend > 0 || spend > 0 || !Array.isArray(maps)) return;   // 옛 fbKey 의 map_get 이 아직이면 끝난 뒤(deps spend)
+    const t = ++fbTok.current, k0 = fbKey, m = latestSaved(maps, w0!, floorNow!.f);
+    if (!m) { setFb({ k: k0, m: null, why: '저장 지도 없음' }); return; }
+    setFb({ k: k0, m }); setSpend((n) => n + 1);
+    const done = (o: { r?: Raster; why?: string }) => { if (fbTok.current === t && usePick.getState().sel === LIVE) setFb({ k: k0, m, ...o }); };
+    // 요청 4: 라벨 = 출처·층만(버전·epoch 원값은 기본 글 0 · 고른 본 원값 = fb.m)
+    getMap(m).then((r) => done(typeof r === 'string' ? { why: r } : { r: { ...r, label: `저장 지도 · ${FLOOR[m.floor_id as keyof typeof FLOOR] || m.floor_id}` } }),
+      () => done({ why: '저장 지도 받기 실패' })).finally(() => setSpend((n) => n - 1));
+  }, [fbKey, rq, maps, fb, liveFor, lpend, spend]);
 
   const allN = useRef(0);   // 층 나란히 받기 호출 번호 — 마지막 호출만 채택 · 화면 닫힘 = 번호 올림(남은 층 요청 0)
   useEffect(() => () => { allN.current++; }, []);
@@ -101,6 +130,9 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   const ls = live ? liveShow(bound, k, seq, gen, fresh, lv?.grid?.upd === true, performance.now()) : null;
   const showL = !!ls, held = ls === 'held';   // held = 클라이언트 해독 대기 또는 서버 보유(grid.upd) — 옛 그림 + 새 pose 조합 0
   const heldR = useMemo(() => bound && { ...bound.r, upd: true, label: `지도 갱신 중 · ${bound.r.label}` }, [bound]);
+  // 저장본은 이 fbKey 의 검증 완료 실시간 그림(같은 K 결속 · liveShow)이 생길 때까지 보임 → 그 순간 실시간으로 통째 교체. 서버 ok 알림만으론 안 버림
+  const liveHere = liveFor && showL, fbShow = !!fbKey && !liveHere && (!liveFor || fb?.k === fbKey);
+  const fbR = fbShow && fb?.k === fbKey ? fb.r || null : null;
   // 높이색(GT 저장 지도만): 켤 때 1회 요청. 늦게 온 답은 선택·켬 상태가 그대로일 때만(다르면 버림). 자동 재요청 0
   const sm = !live && on && Array.isArray(maps) ? maps.find((m) => mapKey(m) === sel) : undefined, gt = !!saved && sm?.map_source === 'gt_raster';
   useEffect(() => {
@@ -111,8 +143,8 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
     return () => { gone = true; };
   }, [hOn, gt, sel, saved, gen]);
   const hv = hOn && gt && hr && typeof hr !== 'string' && hr.key === sel && hr.gen === gen ? hr : null;   // 새 연결·대상엔 옛 높이 0
-  const raster = live ? (showL ? (held ? heldR : bound!.r) : null) : hv ? hv.r : saved;
-  const p = showL && !held ? lv?.pose : null;
+  const raster = live ? (fbShow ? fbR : showL ? (held ? heldR : bound!.r) : null) : hv ? hv.r : saved;
+  const p = showL && !held && !fbShow ? lv?.pose : null;   // 저장 지도 대체 중 = 마커 0
   const pose: Robot = p ? { x: p.x, y: p.y, yaw: p.yaw, t: useLink.getState().lastMsg, fresh: true } : null;
   const isAll = sel.startsWith('all:'), is3 = sel.startsWith('g3d:');
   const ss = useLink((x) => x.st?.map_start?.session) as Sess, at = runAt(ss);
@@ -124,6 +156,7 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
     : !live ? (saved ? '' : serr ? `저장 지도 미표시 · ${serr}` : '저장 지도 받는 중')
     : !fresh ? '연결 끊김·수신 중단 — 실시간 지도·위치 버림(조종 상태와 별개)'
     : !lv || lv.st === 'off' ? '실시간 지도 상태 없음 — «지도 열기»로 지도 시뮬을 열면 들어옵니다'
+    : fbShow ? `${place(w0, floorNow!.f)} · ${fbR ? '저장 지도 · 위치 없음 — 실시간 지도가 오면 바뀜' : fb?.k === fbKey && fb.why ? `${fb.why} — 실시간 지도 기다림` : '저장 지도 받는 중'}`
     : lv.st !== 'ok' ? `실시간 지도 미표시 · ${lv.why || lv.st}` : !raster ? (lwhy ? `실시간 지도 미표시 · ${lwhy}` : '실시간 지도 받는 중')
     : held ? `${auto ? '자동 선택 · ' : ''}${liveLabel(lv)} · 지도 갱신 중(${lwhy ? `새 격자 못 받음 · ${lwhy} — 직전 지도` : '새 격자 받는 중'}) — 위치 표시 잠시 끔` : `${auto ? '자동 선택 · ' : ''}${liveLabel(lv)} · ${p ? `위치 ${p.source === 'slam_tf' ? 'SLAM 보정' : `${pc ? '시뮬 위치' : 'GT'}(지도와 같은 좌표)`}` : `위치 미표시 · ${lv.pose_why || '모름'}`}`;
   const blank = on && !raster ? (is3 && v3d ? '건물 전체 3D 는 «지도» 화면에서 봅니다' : note || '지도 없음') : null;   // MapCanvas blank — 지도 보기 중 그림 없음
@@ -169,7 +202,7 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
 
   </span>;
   // ── U2-b(결정 7): PC 지도 탭 왼쪽 위 «지형 + 2D/3D/SLAM» — 보기 전용(pick 만 · op 는 map_list/map_get/map_live_get/geom_get 읽기뿐).
-  // 실행 지형·기동·조종 op 0(시뮬 시작 지형은 «시뮬 ▾»). 눌림은 지금 sel 에서 계산(거짓 눌림 0). 3D = 기존 건물 입체 기하(2층 건물만)
+  // 실행 지형·기동·조종 op 0(시뮬 시작 지형은 조종 화면 «시뮬 실행» 칸). 눌림은 지금 sel 에서 계산(거짓 눌림 0). 3D = 기존 건물 입체 기하(2층 건물만)
   // ── 보완(715 R1~R4, 이 bar 안에서만 — 공용 runAt/liveShow·좌표 정책 무변경)
   // R1: select = 실제 보기의 지형. 볼 지도 없는 지형을 고르면 보기·select 그대로 + «볼 지도 없음 · 보던 화면 그대로» 글(지형만 기억 0)
   // R2: «실행 중»·SLAM 실시간은 이 연결의 유효 status(열림·형식 정상·stGen=gen·수신 1 s 안) + running 일 때만. starting = «시작 중»(실시간 아님) · 그 밖 = «실행 상태 미확인»
@@ -181,7 +214,6 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   const liveOk = (w: string) => rw === w && ss!.result === 'running' && ss!.map_mode === 'slam';
   const keyW = !on || live ? null : (Object.keys(WORLD) as string[]).find((w) => (BLD as Record<string, string>)[w] === sel.split('/')[0]) ?? null;   // 목록 전 저장본 보기도 지형은 키에서
   const vW = (selW && selW in WORLD ? selW : null) || keyW || (sel === '' || live ? rw : null) || '';   // '' = 지형 미정(«지형 고르기»)
-  const tsOf = (v: string) => v.replace(/^gt-/, '').replace(/-e\d+$/, '');   // 고정 폭 숫자 = 글자 순이 시각 순
   const last = (w: string, src: string) => {
     const ms = Array.isArray(maps) ? maps.filter((m) => m.world_id === w && m.map_source === src) : []; if (!ms.length) return null;
     const top = ms.reduce((a, m) => (tsOf(m.map_version) > a ? tsOf(m.map_version) : a), '');
@@ -217,7 +249,7 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   const barSty: React.CSSProperties = pc ? { padding: '6px 10px', borderBottom: '1px solid var(--line)' } : { minWidth: 0 };
   const fix = pc ? {} : { flex: '0 0 auto' };
   const bar = <span data-mapview-bar="" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', ...barSty }}>
-    <select aria-label="지도 지형 보기(보기만 · 실행 지형 안 바뀜)" title={`보는 지형만 바뀝니다 — 시뮬 시작 지형은 ${pc ? '«시뮬 ▾»' : '«시뮬 실행 · 지도 관리» 서랍의 «시뮬 실행»'}`} value={vW} onChange={(e) => pickW(e.target.value)}
+    <select aria-label="지도 지형 보기(보기만 · 실행 지형 안 바뀜)" title={`보는 지형만 바뀝니다 — 시뮬 시작 지형은 ${pc ? '조종 화면 «시뮬 실행» 칸' : '«시뮬 실행 · 지도 관리» 서랍의 «시뮬 실행»'}`} value={vW} onChange={(e) => pickW(e.target.value)}
       style={{ ...fix, minHeight: pc ? 32 : 40, font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
       {!vW && <option value="" disabled>지형 고르기</option>}
       {(Object.keys(WORLD) as (keyof typeof WORLD)[]).map((w) => <option key={w} value={w}>{`${WORLD[w]}${runTag(w)}`}</option>)}</select>
@@ -231,7 +263,7 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   // U2-c: 모든 배치가 흐름(지도 칸 위 겹침 0) — 관제는 오른쪽 칸(drop), 폰 서랍·PC 지도는 목록
   const el = <span style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
     {drop ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* 관제(Main)만 drop */
-      : pc ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기 · 화면만<Help label="지도 보기 · 설명">지도 보기는 화면만 바뀝니다 — 실제 world·층 전환·위치 맞추기 없음. 시뮬은 그대로이고, 실제 시뮬 지형·층은 «시뮬 ▾ → 지도 시뮬 열기»(끄고 새로 열기)로만 바뀝니다.</Help></span>   /* U4-a(PcMap): 아래 설명 문단 → ? */
+      : pc ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기 · 화면만<Help label="지도 보기 · 설명">화면만 바뀝니다 — 시뮬 지형·층·위치는 그대로입니다.</Help></span>   /* U4-a(PcMap): 아래 설명 문단 → ? */
       : <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기(화면만 · 시뮬은 그대로)</span>}
     {drop ? <select aria-label="지도 보기 선택(보기만 · 실제 시뮬 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 시뮬 지형·조종은 그대로" value={sel}
       onFocus={load} onChange={(e) => pick(e.target.value)}

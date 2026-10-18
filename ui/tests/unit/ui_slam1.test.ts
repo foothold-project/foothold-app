@@ -39,8 +39,8 @@ test('확인 1회 = map_start 1회 · mode slam · map_version 없음 · 고른 
   const q = starts(); expect(q.length).toBe(1);
   expect(q[0]).toMatchObject({ op: 'map_start', world_id: 'v5_building', floor_id: 'l2', mode: 'slam', follow_cam: false });
   expect('map_version' in q[0]).toBe(false);
-  expect(asked[0]).toMatch(/^시뮬을 실행할까요\?/); expect(asked[0]).toContain('2층 건물 · 2층'); expect(asked[0]).toContain('STOP 잠금 상태로 시작');
-  expect(asked[0]).toContain('기존 지도 이어 만들기는 아직 지원하지 않음'); expect(asked[0]).not.toMatch(/조종권을 받|STOP 잠금을 풉/);   // 조종 시작과 섞지 않음
+  expect(asked[0]).toMatch(/^시뮬을 실행할까요\?/); expect(asked[0]).toContain('2층 건물 · 2층'); expect(asked[0]).toContain('새 지도 만들며 시작');   // 요청 4: 선택 정보만(내부 전문 복제 0)
+  expect(asked[0].split('\n').length).toBeLessThanOrEqual(5); expect(asked[0]).not.toMatch(/조종권을 받|STOP 잠금을 풉/);   // 짧은 줄 · 조종 시작과 섞지 않음
   msg({ op: 'reply', rid: q[0].rid, ok: true, text: '지도 체험 시작 요청함(v5_building/l2 slam) — 준비되면 지도·영상이 들어옵니다' });
   expect(await p).toMatchObject({ ok: true, sent: true }); expect(sent.slice(n).filter((m) => m.op === 'take' || m.op === 'resume').length).toBe(0);   // 자동 take/resume 0
   sent.length = 0;
@@ -119,11 +119,9 @@ test('소스: 새 UI 시작 경로에 평지 sim_start·native confirm 0 · stat
     for (const s of [box, stt, md, lk]) { expect(s).not.toMatch(/startSimAsk\(/); expect(s).not.toMatch(/ask\('sim_start'/); }
     expect(box).not.toMatch(/confirm\(/); expect(box).not.toMatch(/aria-label="여는 방식"|gt_raster' *&& *sm/);
     expect(box).toMatch(/if \(st && !sel\.v\) return no\(/);   // 버전 없는 static 송신 0
-    expect(box).toMatch(/useState<'static' \| 'slam'>\('static'\)/);   // 기본 = 저장(0개여도 새 지도 자동 선택 0 — 아래 setSm('slam') 은 단추 onClick 하나뿐)
-    expect(box.match(/setSm\('slam'\)/g)!.length).toBe(1);
-    expect(box).toMatch(/useEffect\(chg, \[w, f, fcOn, sm, ver, slt\]\);/); expect(box).toMatch(/useEffect\(\(\) => \{ if \(part !== 'save'\) form\.current = mapFormOpen\(\); \}, \[\]\);/);
-    for (const h of ['onChange={(e) => { chg(); const next = e.target.value as W;', "onClick={() => { chg(); setF(k); setSm('static'); setPick(''); }}", 'onChange={(e) => { chg(); setFc(e.target.checked); }}',
-      "onClick={() => { chg(); setSm('static'); }}", "onClick={() => { chg(); setSm('slam'); }}", 'onChange={(e) => { chg(); setPick(e.target.value); }}']) expect(box).toContain(h);   // 선택 변경은 렌더 전 동기 무효
+    // 10-18 요청 2: 저장/새 지도 모드 상태(sm·ver·slt) 삭제 — 옛 static 기본·setSm 소스 regex 2개 삭제(이유 UI-TEST-REMOVED-1018.md) · 무효 deps 는 현행 값으로 1:1 교체
+    expect(box).toMatch(/useEffect\(chg, \[w, f, fcOn\]\);/); expect(box).toMatch(/useEffect\(\(\) => \{ if \(part !== 'save'\) form\.current = mapFormOpen\(\); \}, \[\]\);/);
+    // 10-18: 핸들러 전체 문자열 소스 검사 삭제(사라진 setSm/setPick 구현 중복 검사) — 선택 변경 동기 무효는 ui_slam1_mount 실장착(드롭다운·같은 틱 4종)이 봄
     expect(lk).toMatch(/export const startGen = \(\) => startTok;/); expect(lk.match(/startTok\+\+|\+\+startTok/g)!.length).toBe(2);   // 읽기만 추가 · 올리는 곳 그대로(cancelStart·startDrive)
     expect(md).not.toMatch(/'시뮬 시작\(30분\)'/); expect(stt).not.toMatch(/'시뮬 시작\(30분\)'/);
   });
@@ -175,7 +173,7 @@ test('원장: 열린 동안 used/max 변화·이 지형·층 사용됨 = 취소 
   await B.openMapAsk(SEL, {}, null, (t) => { asked.push(t); return false; });
   msg(ST({ map_start: MS({ usage_scope: 'experiment', ledger: null }) }));
   await B.openMapAsk(SEL, {}, null, (t) => { asked.push(t); return false; });
-  expect(asked[0]).toContain('사용 범위 미확인(서버가 안 알림)'); expect(asked[0]).not.toContain('사용자 체험');
+  expect(asked[0]).toContain('사용 범위 미확인'); expect(asked[0]).not.toContain('사용자 체험');
   expect(asked[1]).toContain('지도 원장 1회 사용 (원장 미확인)');
   expect(starts().length).toBe(0); msg(ST());
 });
@@ -209,9 +207,8 @@ test('저장 지도: 확인 1회 = map_start 1회 · mode static · 고른 map_v
   const p = B.openMapAsk(SV, {}, null, (t) => { asked.push(t); return true; }); await flush();
   const q = starts(); expect(q.length).toBe(1);
   expect(q[0]).toMatchObject({ op: 'map_start', world_id: 'v5_building', floor_id: 'l1', mode: 'static', map_version: '20260101-000000-e1', follow_cam: false });
-  expect(asked[0]).toContain('저장한 지도 20260101-000000-e1를 그림으로 열기'); expect(asked[0]).toContain('위치 표시 없음');
-  for (const t of ['이어 그리기·저장 없음', '자동 길찾기 없음', '다른 층으로 가면 그 층 지도는 빈칸']) expect(asked[0]).toContain(t);
-  expect(asked[0]).not.toContain('새 지도를 만들며 시작');
+  expect(asked[0]).toContain('저장한 지도 20260101-000000-e1 열기'); expect(asked[0]).toContain('위치 표시 없음');
+  expect(asked[0]).not.toContain('새 지도 만들며 시작');
   msg({ op: 'reply', rid: q[0].rid, ok: true, text: '지도 체험 시작 요청함' }); expect(await p).toMatchObject({ ok: true, sent: true });
   sent.length = 0;
 });

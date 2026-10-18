@@ -1,4 +1,4 @@
-// 공통 머리줄 상태(UI-SIMPLIFY v3 R8 · U1-b): [시뮬] [연결] [역할] [잠금] 칩 + «시뮬 ▾» 메뉴 + 개발자 표시 + 문서 오류 + 새 판 차단.
+// 공통 머리줄 상태(UI-SIMPLIFY v3 R8 · U1-b): [시뮬] [연결] [역할] [잠금] 칩 + 개발자 표시(10-18 «시뮬 ▾» 삭제) + 문서 오류 + 새 판 차단.
 // 칩 글은 서버가 준 값으로만 정한다(새 추정 0). 미확인·끊김을 «꺼짐»으로 보이지 않는다.
 // B2(10-15 검토): 지금 계약의 session(result idle 등)은 조회 시각·신선도가 없고 unit·요청 진행과 따로라 «시뮬 꺼짐» 확정 근거가 못 된다
 // → 세션 값은 ? 안 원문으로만 · 칩은 «시뮬 확인 안 됨»(끊김은 서버 sim_block 그대로 «시뮬 끊김»).
@@ -8,8 +8,8 @@ import { dropAll, linkView, sendOp, sessTxt, startTxt, useLink } from '../data/l
 import { reread, type Docs, type Media } from '../data/shared';
 import { LATCH_TXT } from '../data/facts';
 import { MapStartBox } from '../map/MapStartBox';
-import { Chip, DevMark, usePop, type Tone } from './chip';
-import { HOME, InFs, SimOff, toast, useRoute, whyProps } from './shell';
+import { Chip, DevMark, type Tone } from './chip';
+import { SimOff, toast, whyProps } from './shell';
 
 type C = { k: 'sim' | 'link' | 'role' | 'lock'; tone: Tone; text: string; why: string };
 /** 머리줄 칩 4종(순수 — 시험용). 실기 대상이면 시뮬·역할 칩 없이 연결 «실기 미연결»만 */
@@ -48,41 +48,32 @@ export function camChip(v: { camOk: boolean; camTxt: string }): { tone: Tone; te
     : /^(리셋|새 프레임)/.test(v.camTxt) ? { tone: 'warn', text: '영상 대기', why: v.camTxt } : { tone: 'warn', text: '영상 없음', why: v.camTxt };
 }
 
-/** «시뮬 ▾»: 리셋·시뮬 시작(지도 열기 = SLAM 지도 만들기 하나)·끄기. 실행 조건·권한·busy 는 기존 경로 그대로(sendOp·MapStartBox·SimOff).
+/** 조종 화면(Main) 오른쪽 «시뮬 실행» 칸: 리셋·시뮬 시작(MapStartBox — 새 SLAM 지도 만들기 하나)·지도 저장·끄기. 실행 조건·권한·busy 는 기존 경로 그대로(sendOp·MapStartBox·SimOff).
  *  SLAM-1: 평지 «시뮬 시작(30분)»(op sim_start) 항목 삭제 — 시작은 MapStartBox 하나(확인 = 페이지 안 StartAsk).
- *  열면 누르던 입력 폐기(usePop) · 닫혀도 자동 재출발 0 · 지도 화면에서는 그 화면의 상자를 쓰라고만(같은 패널 두 번 장착 0)
- *  U2-c: 본문(SimRun)은 관제(Main) 오른쪽 «시뮬 실행» 칸과 같은 코드 — 관제에서는 메뉴가 그 칸으로 안내만(두 번 장착 0) */
-export function SimRun({ close, catalog, reloadCatalog }: { close?: () => void; catalog?: MapInfo[] | string | null; reloadCatalog?: () => unknown }) {
-  const L = useLink(), v = linkView(L), st = L.st, { name } = useRoute();
+ *  10-18 요청 5·7: 머리줄 «시뮬 ▾» 삭제 → PC 시뮬 조작 입구는 이 칸 하나 · PcMap 의 «만든 지도 보관»(map_save)도 이 칸으로 옮김(part 없음 = 열기+저장) */
+/** 시뮬 리셋 단추 하나 — 옛 «시뮬 ▾» 항목 그대로(조건 linkOk·조종 역할·보기 전용 아님·리셋/재개 처리 중 아님 · dropAll 뒤 sendOp reset). Main «시뮬 실행» 칸·폰 MMap 본문(10-18 root D8) 공용 — 새 제어 경로 0 */
+export function SimReset({ t, className = 'lv-btn' }: { t: string; className?: string }) {
+  const L = useLink(), v = linkView(L), st = L.st;
   if (L.provider !== 'simulation_gate') return null;
   const ctl = v.linkOk && st?.role === 'control' && !L.viewOnly, busy = v.linkOk && !!(st?.reset_pending || st?.resume_pending);
-  const sx = startTxt(st), onMapPage = name === 'MMap';   // U4-a: PcMap 은 지도 열기를 이 메뉴로(화면엔 저장만 — 같은 상자 두 번 장착 0)
-  const item = (t: string, go: (() => void) | null, why: string) => go ? <button type="button" className="lv-btn" onClick={go}>{t}</button> : <button type="button" {...whyProps(why)} className="lv-btn lv-why">{t}</button>;
+  return ctl && !busy ? <button type="button" className={className} onClick={() => { dropAll(); sendOp('reset'); }}>{t}</button>   /* dropAll: 누르던 입력 0 */
+    : <button type="button" {...whyProps(!v.linkOk ? '연결 확인 안 됨' : !ctl ? '조종 중인 기기에서만(«조종 시작» 뒤)' : '리셋·재개 처리 중')} className={`${className} lv-why`}>{t}</button>;
+}
+export function SimRun({ catalog, reloadCatalog }: { catalog?: MapInfo[] | string | null; reloadCatalog?: () => unknown }) {
+  const L = useLink(), v = linkView(L), st = L.st;
+  if (L.provider !== 'simulation_gate') return null;
+  const ux = st?.map_start?.usage_scope === 'user_experience';
   return <>
-    {!v.linkOk && <p className="lv-note">{`연결 확인 안 됨 — 시뮬 상태를 알 수 없어 조작하지 않음(${v.linkTxt})`}</p>}
-    {item('시뮬 리셋', ctl && !busy ? () => { close?.(); dropAll(); sendOp('reset'); } : null,   /* dropAll: 메뉴는 열 때(usePop) 이미 폐기 · 관제 칸은 여기서(누르던 입력 0) */ !v.linkOk ? '연결 확인 안 됨' : !ctl ? '조종 중인 기기에서만(«조종 시작» 뒤)' : '리셋·재개 처리 중')}
-    {st?.map_start && (onMapPage ? <p className="lv-note">지도 시뮬 열기는 이 화면의 «지도 열기» 상자에서</p>
-      : <div className="lv-simmap"><MapStartBox pc={name.startsWith('Pc') || name === 'Main' || !name} part={name === 'PcMap' || (name || HOME) === 'Main' ? 'open' : undefined} preview={(name || HOME) === 'Main'} catalog={catalog} reloadCatalog={reloadCatalog} /></div>)}
+    {!v.linkOk && <p className="lv-note">{`연결 확인 안 됨 — 조작하지 않음`}<span data-dev>{` (${v.linkTxt})`}</span></p>}
+    <SimReset t="시뮬 리셋" />
+    {st?.map_start && <div className="lv-simmap"><MapStartBox pc preview catalog={catalog} reloadCatalog={reloadCatalog} /></div>}
     <SimOff className="lv-btn" />
-    <p className="lv-note">{[st?.map_start && sx.map, sessTxt(st) && `시뮬 세션 ${sessTxt(st)}`, '30분 뒤 자동 종료 · 동시 1개'].filter(Boolean).join(' · ')}</p>
+    {(sessTxt(st) || (st?.map_start && !ux)) && <p className="lv-note">{[st?.map_start && !ux && startTxt(st).map, sessTxt(st) && `시뮬 ${sessTxt(st)}`].filter(Boolean).join(' · ')}</p>}
   </>;
 }
-export function SimMenu() {
-  const L = useLink(), { name } = useRoute(), P = usePop(380);
-  if (L.provider !== 'simulation_gate') return null;
-  return <span className="lv-help">
-    <button ref={P.b} type="button" className="lv-btn" data-simmenu="" aria-haspopup="true" aria-expanded={!!P.pos} onClick={P.toggle}>시뮬 ▾</button>
-    {P.pos && <InFs><div ref={P.p as React.RefObject<HTMLDivElement>} role="dialog" aria-label="시뮬 메뉴" className="lv-pop lv-simmenu" style={P.style}>
-      {(name || HOME) === 'Main' ? <><p className="lv-note">관제 화면에서는 오른쪽 «시뮬 실행» 칸에서 엽니다(같은 조건·확인창)</p>
-        <button type="button" className="lv-btn" onClick={() => { P.close(false); document.querySelector<HTMLElement>('[data-runpanel]')?.scrollIntoView({ block: 'nearest' }); }}>시뮬 실행 칸 보기</button></>
-        : <SimRun close={() => P.close(false)} />}
-    </div></InFs>}
-  </span>;
-}
-
-/** 칩 4종 + «시뮬 ▾» + 개발자 표시 — 상태 줄(LiveStatus)과 Main 머리줄 공용 */
+/** 칩 4종 + 개발자 표시 — 상태 줄(LiveStatus)과 Main 머리줄 공용. 10-18 요청 7: 머리줄 «시뮬 ▾» 삭제 — 시뮬 실행·리셋·끄기는 조종 화면(Main) 오른쪽 «시뮬 실행» 칸(SimRun)·폰 지도(MMap) 본문 */
 export function HeadChips() {
-  return <>{useHeadChips().map((c) => <span key={c.k} data-head={c.k} style={{ display: 'inline-flex' }}><Chip tone={c.tone} text={c.text} why={c.why} /></span>)}<SimMenu /><DevMark /></>;
+  return <>{useHeadChips().map((c) => <span key={c.k} data-head={c.k} style={{ display: 'inline-flex' }}><Chip tone={c.tone} text={c.text} why={c.why} /></span>)}<DevMark /></>;
 }
 
 export function LiveStatus({ D, style }: { D: Docs; style?: React.CSSProperties }) {

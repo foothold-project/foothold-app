@@ -92,6 +92,12 @@ export const useCatalog = create<{ v: MapInfo[] | string | null; gen: number; ow
 /** 이 지형·층의 저장 SLAM 본만(GT·다른 지형·층 제외 · 목록 순서 그대로). 목록이 아니면 null — 읽는 중·실패를 «0개»로 바꾸지 않음 */
 export const savedOf = (cat: MapInfo[] | string | null | undefined, w: string, f: string) => !Array.isArray(cat) ? null
   : cat.filter((m) => m.map_source === 'slam' && m.world_id === w && m.building_id === (BLD as Record<string, string>)[w] && m.floor_id === f);
+/** map_version 의 저장 시각(YYYYMMDD-HHMMSS · gt-YYYYMMDD) — 고정 폭 숫자라 글자 순 = 시각 순 */
+export const tsOf = (v: string) => v.replace(/^gt-/, '').replace(/-e\d+$/, '');
+/** 층 저장 지도 대체(10-18 요청 1·3 · root 최소안): savedOf 검증 목록 중 저장 시각 최신 1개(같은 시각 = epoch 큰 것). 0개·목록 아님 = null.
+ *  ponytail: «최신» 한 규칙뿐 — 알려진 칸·품질 최대 선택은 root 불채택(새 정책) */
+export const latestSaved = (cat: MapInfo[] | string | null | undefined, w: string, f: string) => (savedOf(cat, w, f) || [])
+  .reduce<MapInfo | null>((a, m) => !a || tsOf(m.map_version) > tsOf(a.map_version) || (tsOf(m.map_version) === tsOf(a.map_version) && (m.epoch ?? 0) > (a.epoch ?? 0)) ? m : a, null);
 
 /** 한 장 받아 그림으로. 이름·크기·출처가 요청과 다르면 버린다(늦게 온 다른 지도 포함) */
 export async function getMap(m: MapInfo): Promise<Raster | string> {

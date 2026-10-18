@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-// UI-SIMPLIFY v3 U1-b: 공통 머리줄 칩(서버 값만 · 미확인≠꺼짐) · «시뮬 ▾» 메뉴(기존 경로만) · 개발자 표시 이동 · 초점 되돌림 가드.
+// UI-SIMPLIFY v3 U1-b: 공통 머리줄 칩(서버 값만 · 미확인≠꺼짐) · (10-18 요청 7: «시뮬 ▾» 메뉴 삭제 — 시뮬 조작은 SimRun/SimReset 본문, 리셋 실제 장착 검사 = ui_u2c) · 개발자 표시 이동 · 초점 되돌림 가드.
 vi.mock('../../src/data/shared', () => ({ refreshShared: () => {}, reread: () => {} }));
 (globalThis as any).window = globalThis;
 Object.assign(globalThis, { location: { href: 'http://127.0.0.1/', protocol: 'http:', hash: '', search: '', pathname: '/' }, addEventListener: () => {}, document: { hidden: false, addEventListener: () => {}, querySelectorAll: () => [] } });
@@ -83,9 +83,7 @@ test('메뉴·팝오버는 기존 경로만 · 송신은 누름 때 · STOP 첫 
   expect(chipSrc).not.toMatch(/preventDefault|stopPropagation|sendOp|sendStop/);
   expect(statusSrc).not.toMatch(/sendStop|sendOp\('(take|resume|release)'\)|startDrive|setInterval|setTimeout|preventDefault|stopPropagation/);
   expect(statusSrc.match(/sendOp\(/g)!.length).toBe(1);
-  expect(statusSrc).toMatch(/onClick=\{go\}/);
   expect(statusSrc).not.toMatch(/startSimAsk|'시뮬 시작\(30분\)'/);      // SLAM-1: 평지 시작 항목 0 — 시작은 MapStartBox(페이지 안 확인창)
-  expect(statusSrc).toMatch(/onMapPage \?/);                            // 지도 화면에선 상자 중복 장착 0
 });
 
 test('배지 → 머리줄 · 폰 서랍 스위치 · 안전 문구 유지 · 링크 칩 대체', () => {
@@ -133,7 +131,7 @@ test('B3 소스: 모든 «비상 정지…» STOP · 전체화면 안 · 실제 
   expect(chipSrc).toMatch(/\[aria-label\^="비상 정지"\]/); expect(chipSrc).toMatch(/fs\.contains\(e\)/);
   expect(chipSrc).toMatch(/getBoundingClientRect\(\)\.height/); expect(chipSrc).not.toMatch(/Math\.max\(120/);
   expect(chipSrc).toMatch(/'fullscreenchange', shut/); expect(chipSrc).toMatch(/'scroll', out, true/);
-  expect(chipSrc).toMatch(/<InTop>/); expect(statusSrc).toMatch(/<InFs><div ref/);   // R ③: Help 는 InTop(활성 전체화면 요소 우선 → 없으면 body) — 전체화면 안 그리기는 그대로 포함
+  expect(chipSrc).toMatch(/<InTop>/);   // R ③: Help 는 InTop(활성 전체화면 요소 우선 → 없으면 body) — 전체화면 안 그리기는 그대로 포함
 });
 test('R1: 화면 밖·부분 밖 STOP 을 화면과 교차 — 외곽은 늘 [8, H-8] 안 · 내용이 커져도 안 스크롤', () => {
   const inV = (p: { top: number; maxHeight: number }, H: number) => p.top >= 8 && p.top + p.maxHeight <= H - 8;
