@@ -16,7 +16,9 @@ const PcMissions = (await import('../../src/screens/PcMissions')).default;
 
 const html = () => renderToStaticMarkup(React.createElement(QueryClientProvider, { client: qc }, React.createElement(PcMissions))).replace(/&quot;/g, '"').replace(/&amp;/g, '&');
 // 운영 글 = ? 설명(role="note" 팝오버) 제거 뒤 태그·속성(title 등) 뺀 보이는 글
-const ops = (s: string) => s.replace(/<span id="[^"]*" role="note" class="lv-pop"[\s\S]*?<\/span>(?=<\/span>)/g, '').replace(/<[^>]+>/g, ' ');
+const ops = (s: string) => s.replace(/<span id="[^"]*" role="note" class="lv-pop"[\s\S]*?<\/span>(?=<\/span>)/g, '')
+  // FIX2b(ROOT 결정 4): 숨긴 «상태 상세» = ? 전문처럼 운영 글 검사에서만 제외(hidden+region+이름 정확히 · 보이는 region·원문 DOM 그대로)
+  .replace(/<span id="[^"]*" role="region" aria-label="상태 상세" class="lv-pop" hidden=""[^>]*>(?:<span[^>]*><b>[^<]*<\/b>[^<]*<\/span>)*<\/span>/g, '').replace(/<[^>]+>/g, ' ');
 const TEAM = { id: 't1', kind: 'tmpl', rev: 2, by: 'op', at: '2026-10-16T00:00:00Z', doc: { name: '팀 양식', desc: '', mods: [{ type: '사진', detail: '' }] } };
 beforeEach(() => { qc.clear(); SEL = 'base'; qc.setQueryData(['docs'], { docs: [TEAM], rev: 3 }); });
 
@@ -24,7 +26,7 @@ test('기본 양식: «기본 · 잠김» + «복제해서 고치세요» · 옛
   const s = html(), o = ops(s);
   expect(o).toContain('기본 · 잠김'); expect(o).toContain('복제해서 고치세요');
   for (const w of ['기본 양식 · 잠김', '기본 제공 · 모든 기기 공통', '기본 양식은 지우거나 고칠 수 없습니다']) expect(o).not.toContain(w);
-  expect(s).toContain('스페이스 · 입력 차단·잠금'); expect(s).toContain('aria-label="STOP 설명"'); expect(s).toContain(F.STOP_TIP);
+  expect(s).not.toContain('aria-label="비상 정지"'); expect(s).not.toContain('스페이스 · 입력 차단·잠금'); expect(s).toContain('aria-label="STOP 설명"'); expect(s).toContain(F.STOP_TIP);   // FIX2b(ROOT 결정 1): G1 = 화면별 STOP 삭제 → 이 화면 STOP 0 · 공용 STOP 존재·title(STOP_TIP)·송신은 ui_g1_stop(실제 App)
 });
 
 test('모듈 칩: 미연결(AI 탐지·가스·음성) = 회색 aria-disabled + «아직 연결 안 됨» title · native disabled 0 · 미연결 문장 0 · 팀 양식의 사진은 실제 버튼', () => {

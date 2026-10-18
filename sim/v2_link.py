@@ -317,22 +317,29 @@ WP = {'x': N, 'y': N, 'name': S(40), 'mods': ('l', MODS, 3)}
 # 선택 키 — 옛 문서(없음)·옛 서버 쓰기 경로 그대로. 없음 = «지도 미확인 · 기록만». SLAM 좌표 계획은 지원 미확인이라 src 는 gt 만
 # rid(10-15 F4, 선택) = 그 좌표의 GT 기준 개정: w:<기동 world 원본 SDF sha256>(단층) · g:<검증된 건물 GT 기하 파일 sha256>(연결 건물). 앱이 live_map 으로 정하고 서버는 형식만.
 #   SDF 가 include 하는 메시·모델 파일은 들어 있지 않다(«전체 환경 동일» 아님). rid 없는 출처 = 개정 미확인 → 앱은 기록만
-MAPSRC = ('o', {'src': ('e', {'gt'}), 'world_id': S(40), 'floor_id': S(40), 'key': S(16),
-                'rid': ('o', ('r', re.compile(r'[wg]:[0-9a-f]{64}'), 'w: 또는 g: + 소문자 64 hex'))})
-# 임무 종료 방식(R3, 선택 키) — 계획 의도만: 출발점 = 진행을 시작한 곳(좌표 저장 0). 없음 = 종료 방식 미지정(옛 계획, 추정·자동 채움 0)
+MAPSRC_D = {'src': ('e', {'gt'}), 'world_id': S(40), 'floor_id': S(40), 'key': S(16),
+            'rid': ('o', ('r', re.compile(r'[wg]:[0-9a-f]{64}'), 'w: 또는 g: + 소문자 64 hex'))}
+MAPSRC = ('o', MAPSRC_D)
+# 임무 종료 방식(R3, 선택 키) — 계획 의도만. 출발점 = 계획 출발점 start 가 있으면 그 계획 좌표(의도 표시만, 자동 복귀 0), 없으면 진행을 시작한 곳(좌표 기록 없음).
+# 없음 = 종료 방식 미지정(옛 계획, 추정·자동 채움 0)
 FINISH = ('o', ('e', {'출발점 복귀', '마지막 지점 종료'}))
+# 계획 출발점 S(10-19, 선택 키) — 사용자가 도면에 찍은 계획 좌표(실제 로봇 위치·측정·자동 이동 아님). 자기 좌표 출처 map(MapSrc 본문, 필수)을 함께 둔다:
+#   map.key = S 한 점의 좌표 지문(앱이 계산·대조), 지점 지문(Mission.map.key)·Run.map 의 뜻은 그대로. 서버는 형식만(start ↔ Mission.map 관계 검사 0 —
+#   옛 앱이 모르는 start 를 보존한 채 map 을 고쳐도 저장되게). 없음 = 옛 문서(추정·자동 채움 0). Run.start = 시작 때 계획 start 사본(키 유무까지, runcas 대조)
+START = ('o', {'x': N, 'y': N, 'map': MAPSRC_D})
 DOC_KINDS = {
     'zone': {'name': S(40), 'type': ('e', {'금지', '감속'}), 'pts': ('l', PT, 40, 3)},
     # 임무 양식: 지점에서 할 일(모듈). 경보 규칙은 자동 실행 미연결이라 저장하지 않는다
     'tmpl': {'name': S(60), 'desc': S(120), 'mods': ('l', {'type': MODS, 'detail': S(80)}, 6)},
     # 임무 계획: 양식(tmpl id, 비면 기본 양식) + 경유점(지점마다 할 일)
-    'mission': {'name': S(60), 'tmpl': S(40), 'memo': S(400), 'wps': ('l', WP, 30), 'map': MAPSRC, 'finish': FINISH},
+    'mission': {'name': S(60), 'tmpl': S(40), 'memo': S(400), 'wps': ('l', WP, 30), 'map': MAPSRC, 'finish': FINISH, 'start': START},
     # 수동 임무 진행: 운영자가 직접 조종·확인해 적는 결과(로봇 자동 완료 아님). 계획을 시작 때 복사해 둔다
     'run': {'mode': ('e', {'수동'}), 'mission': S(40), 'tmpl': S(60), 'name': S(60), 'status': ('e', {'진행', '완료', '실패', '중단'}), 'started': S(32), 'ended': S(32), 'memo': S(400),
             'wps': ('l', {**WP, 'st': ('e', {'대기', '방문', '미방문'}), 'at': S(32), 'why': S(120), 'chk': ('e', {'', '확인', '보류', '제외'}), 'photos': ('l', PHOTO, 10)}, 30),
             'map': MAPSRC, 'mrev': ('o', ('i',)),    # map = 시작 때 계획 출처가 지금 시뮬과 일치했을 때만 · mrev = 시작한 계획 판
             'mcas': ('o', ('1',)),                   # C: 서버가 시작 때 계획 판·스냅샷을 대조했음(서버만 붙임 — server/runcas.py). 정수 1 만
-            'finish': FINISH},                       # R3: 시작 때 계획 finish 사본(키 유무까지) — mrev 있는 새 Run 은 runcas 가 대조
+            'finish': FINISH,                        # R3: 시작 때 계획 finish 사본(키 유무까지) — mrev 있는 새 Run 은 runcas 가 대조
+            'start': START},                         # 시작 때 계획 start 사본(키 유무·출처까지) — Run.map(실측 일치) 과 별개, mrev 있는 새 Run 은 runcas 가 대조
     # 사진 = 운영자 등록 관찰(AI 탐지 없음): 확인·보류·제외 + 메모
     'note': {'photo': PHOTO, 'cls': ('e', {'확인', '보류', '제외'}), 'memo': S(400)},
 }
@@ -929,6 +936,35 @@ def selftest_extra():
             assert c == 409 and r['reason_code'] == 'snapshot_mismatch' and len(d.d) == n0, (c, r)
         c, r = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**base_run, 'finish': '출발점 복귀'}}, 'A')
         assert c == 200 and d.d[r['id']]['doc'].get('mcas') == 1 and d.d[r['id']]['doc']['finish'] == '출발점 복귀', r
+        # 계획 출발점 S(10-19): 선택 키 {x, y, map(MapSrc 본문 필수)} — 서버는 형식만(start ↔ Mission.map 관계 검사 0), Run 사본은 키 유무·값(출처 포함) 대조
+        ms = {'src': 'gt', 'world_id': 'v5_building', 'floor_id': 'l1', 'key': '0123abcd'}
+        sp = {'x': 1.5, 'y': -2, 'map': ms}
+        for ok in (sp, {**sp, 'map': {**ms, 'rid': 'g:' + 'a' * 64}}, {'x': 10000, 'y': -10000, 'map': ms}):
+            assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**mi, 'start': ok}}, 'A')[0] == 200, ok
+            assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**rn, 'start': ok}}, 'A')[0] == 200, ok      # mrev 없음 = 대조 0
+        # 관계 검사 0: 계획 map 이 없거나 S 출처와 달라도 저장(옛 앱이 모르는 start 를 보존한 채 map 을 고치는 경로)
+        assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**mi, 'map': {**ms, 'world_id': 'v5_single'}, 'start': sp}}, 'A')[0] == 200
+        for bad in (None, {}, [1, 2], 'S', {'x': 1, 'y': 2}, {**sp, 'z': 0}, {**sp, 'x': '1'}, {**sp, 'x': True}, {**sp, 'y': float('inf')},
+                    {**sp, 'x': float('nan')}, {**sp, 'x': 10000.5}, {**sp, 'map': None}, {**sp, 'map': {}}, {**sp, 'map': {**ms, 'src': 'slam'}},
+                    {**sp, 'map': {k: v for k, v in ms.items() if k != 'key'}}, {**sp, 'map': {**ms, 'rid': None}}, {**sp, 'map': {**ms, 'extra': 1}}):
+            assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**mi, 'start': bad}}, 'A')[0] == 400, bad
+            assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**rn, 'start': bad}}, 'A')[0] == 400, bad
+        # mrev 있는 새 Run: 계획 start 와 키 유무·값(출처 포함)이 같아야 시작 — 다르면 409 snapshot_mismatch·쓰기 0. Run.map 없음(기록만)이어도 start 는 사본
+        c, r = d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**mi, 'finish': '출발점 복귀', 'start': sp}}, 'A'); assert c == 200
+        base_s = {**rn, 'mission': r['id'], 'tmpl': BASE_TMPL_NAME, 'status': '완료', 'mrev': 1, 'finish': '출발점 복귀'}
+        n0 = len(d.d)
+        for bad_doc in (base_s, {**base_s, 'start': {**sp, 'x': 2}}, {**base_s, 'start': {**sp, 'map': {**ms, 'floor_id': 'l2'}}}):   # 없음(옛 앱) · 좌표 다름 · 출처 다름
+            c, r = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': bad_doc}, 'A')
+            assert c == 409 and r['reason_code'] == 'snapshot_mismatch' and len(d.d) == n0, (c, r)
+        c, r = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**base_s, 'start': sp}}, 'A')
+        assert c == 200 and d.d[r['id']]['doc'].get('mcas') == 1 and d.d[r['id']]['doc']['start'] == sp and 'map' not in d.d[r['id']]['doc'], r
+        sid = r['id']
+        c, r = d.apply({'op': 'put', 'id': sid, 'rev': 1, 'doc': {**base_s, 'start': sp, 'memo': '결과'}}, 'A')        # 결과 편집 = 근거 같음 → mcas 유지
+        assert c == 200 and d.d[sid]['doc'].get('mcas') == 1 and 'mcas_dropped' not in r, r
+        c, r = d.apply({'op': 'put', 'id': sid, 'rev': 2, 'doc': {**base_s, 'start': {**sp, 'y': 3}}}, 'A')          # start 바뀜 → mcas 낮춤
+        assert c == 200 and 'mcas' not in d.d[sid]['doc'] and r.get('mcas_dropped') is True, r
+        c, r = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**base_run, 'finish': '출발점 복귀', 'start': sp}}, 'A')   # 계획엔 start 없음
+        assert c == 409 and r['reason_code'] == 'snapshot_mismatch', (c, r)
         # 하나만: 같은 사진 분류를 두 기기가 동시에 새로 만들면 둘째는 409 + 기존 문서 → 그 id·rev 로 고침(중복 없음)
         c, r = d.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': {**n, 'cls': '보류'}}, 'B'); assert c == 409 and r['cur']['doc']['photo'] == n['photo'], r
         assert d.apply({'op': 'put', 'id': r['cur']['id'], 'rev': r['cur']['rev'], 'doc': {**n, 'cls': '보류'}}, 'B')[0] == 200

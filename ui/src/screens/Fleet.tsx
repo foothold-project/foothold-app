@@ -1,11 +1,11 @@
 // #/Fleet — PC 전체 관제(새 기획 10-18, SPEC §2·§3). 리허설(저장 설계도의 배치안 보기·비교) | 현장 관제(연결 로봇 상태 + 실측 궤적 별도 패널).
-// 새 명령 경로 0: STOP = 기존 stopProps(stopNow) · 조종은 #/Main 으로 이동만. 계획 지도 위에 실측 궤적·실제 위치를 얹지 않음(좌표 정합 근거 없음 — root 10-18).
+// 새 명령 경로 0: STOP = 공통 GlobalStop(기존 stopProps/stopNow) · 조종은 #/Main 으로 이동만. 계획 지도 위에 실측 궤적·실제 위치를 얹지 않음(좌표 정합 근거 없음 — root 10-18).
 // 비교 값은 API 가 준 것만(analyze) — 예상 시간·센서 범위 같은 행은 만들지 않음. «추천» 0.
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { ModeBand, ModeSwitch, PcFrame, SourceTag, listErr, liveOf, saveMode, savedMode, useProject, useProjects, useSavedAnalysis, useWidth, type Mode } from '../app/fleetui';
+import { ModeBand, ModeSwitch, PcFrame, SourceTag, listErr, liveOf, memGet, memSet, saveMode, savedMode, useProject, useProjects, useSavedAnalysis, useWidth, type Mode } from '../app/fleetui';
 import { Chip } from '../app/chip';
 import { camChip, useHeadChips } from '../app/status';
-import { Drawer, stopProps } from '../app/shell';
+import { Drawer, useRoute, whyProps } from '../app/shell';
 import { TRAIL, linkView, useLink } from '../data/link';
 import { alertsOf, useMedia } from '../data/shared';
 import { type Analysis, type Exported, type Scenario, type Scene, SH, brokenTxt, damagedTxt, kib, r3, rcall, saveExport, EXPORT_NOTE } from '../data/rehearsal';
@@ -107,11 +107,7 @@ function LiveCard({ s, sc, pair, setPair }: { s: Scene | null; sc: Scenario | nu
         {sc.robots.map((id) => <option key={id} value={id}>{`이 연결을 ${tags.get(id)?.tag} 로 보기 · ${s?.robots.find((r) => r.id === id)?.name || id}`}</option>)}
       </select></label>}
     {pair && <span className="lbl">좌표 정합 미확인 — 이름표만 같음</span>}
-    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-      <a className="btn" href="#/Main" style={{ textDecoration: 'none', color: 'inherit', minHeight: 44 }}>조종 화면</a>
-      <div style={{ flex: 1 }} />
-      <button type="button" {...stopProps} style={{ minHeight: 44, minWidth: 88, border: 0, borderRadius: 8, background: 'var(--stop)', color: '#FFFFFF', fontWeight: 700, letterSpacing: '.06em' }}>STOP</button>
-    </div>
+    {/* 10-19: 카드 안 두 번째 STOP 삭제(공통 GlobalStop 하나) · «조종 화면» 링크 삭제(입구 = 주 메뉴 «조종» 하나 · UX-SPEC 3-1) */}
   </article>;
 }
 
@@ -133,42 +129,59 @@ function PlanCard({ s, sc, a, id, tag, i, on, show }: { s: Scene; sc: Scenario; 
   </article>;
 }
 
+const SC_ALL = Symbol('전체');   // 기억/재읽기 «전체» 표지(배치안 id 와 겹침 0)
 export default function Fleet() {
   const W = useWidth(), L = useLink(), v = linkView(L), M = useMedia();
   const [mode, setModeS] = useState<Mode>(() => savedMode() || (v.s ? 'live' : 'rehearsal'));   // 몸 상태가 있을 때만 관제로 시작(관문만 떠 있으면 리허설)
   const setMode = (m: Mode) => { setModeS(m); saveMode(m); };
   const P = useProjects();
-  const [pid, setPid] = useState<string | null>(null), [scId, setScId] = useState<string | null>(null);
+  // ROOT 5 · UX-SPEC 4 기억: URL > localStorage > (목록이 1개면 그것) > 고르세요. 저장은 사용자가 고를 때만 · 없는 id 를 다른 프로젝트로 바꾸지 않음
+  const Rt = useRoute();
+  const [pid, setPid0] = useState<string | null>(() => Rt.q.get('project') || memGet('fh.fleet.pid'));
+  // 배치안 기억: fh.fleet.sc = 고른 id · fh.fleet.scAll = «전체»를 고름(id 와 겹치지 않게 별도 키) · 둘 다 없음 = 기억 없음 → 첫 배치안.
+  // scWant = 프로젝트를 읽은 뒤 1회 적용할 값, 적용 뒤 undefined(같은 프로젝트 재읽기 = 지금 선택 유지)
+  const scWant = useRef<string | typeof SC_ALL | null | undefined>(Rt.q.get('sc') || memGet('fh.fleet.sc') || (memGet('fh.fleet.scAll') ? SC_ALL : null));
+  const [scId, setScId0] = useState<string | null>(null), [scGone, setScGone] = useState(''), scNow = useRef(scId); scNow.current = scId;
+  const setPid = (id: string | null) => { setPid0(id); memSet('fh.fleet.pid', id); memSet('fh.fleet.sc', null); memSet('fh.fleet.scAll', null); scWant.current = null; setScId0(null); setScGone(''); if (Rt.name === 'Fleet') { Rt.setQ('sc', ''); Rt.setQ('project', id || ''); } };   // 다른 프로젝트를 고름 = 옛 배치안 기억은 그 프로젝트 것 → 비움
+  const setScId = (id: string | null) => { setScId0(id); memSet('fh.fleet.sc', id); memSet('fh.fleet.scAll', id ? null : '1'); setScGone(''); if (Rt.name === 'Fleet') Rt.setQ('sc', id || ''); };
   const G = useProject(pid), s = G.st === 'ok' ? G.data!.scene : null, meta = G.st === 'ok' ? G.data!.project : null;
   const A = useSavedAnalysis(meta?.id || null, meta?.rev || null), an = A.st === 'ok' ? A.data : null;
   const [floor, setFloor] = useState(''), [focus, setFocus] = useState<Focus>(null), [pair, setPair] = useState(''), [sel, setSel] = useState<string | null>(null);
   const [drawer, setDrawer] = useState(false);
-  useEffect(() => { if (s) { setFloor(s.floors[0]?.id || ''); setScId(s.scenarios[0]?.id || null); setPair(''); } }, [s]);
+  // 판을 읽으면(첫 읽기 = 기억/URL 값 · 같은 프로젝트 재읽기 = 지금 선택): «전체» = 그대로 · 이 판에 있는 id = 그것 · 없어진 id = «전체» + 안내(다른 배치안으로 바꿈 0) · 기억 없음 = 첫 배치안(지금 규칙)
+  useEffect(() => { if (!s) return; setFloor(s.floors[0]?.id || ''); setPair('');
+    const w = scWant.current; scWant.current = undefined;
+    const c = w === undefined ? scNow.current ?? SC_ALL : w;
+    if (c === SC_ALL) { setScId0(null); if (w !== undefined) setScGone(''); }   // 재읽기 때 «전체»(없어진 배치 해소 포함)는 안내 유지
+    else if (c && s.scenarios.some((x) => x.id === c)) { setScId0(c); setScGone(''); } else if (c) { setScId0(null); setScGone(c); } else { setScId0(s.scenarios[0]?.id || null); setScGone(''); } }, [s]);
   const sc = s?.scenarios.find((x) => x.id === scId) || null, tags = useMemo(() => (s ? robotTags(s, sc) : new Map<string, { tag: string; i: number }>()), [s, sc]);
   const projects = P.st === 'ok' ? P.data!.projects : [], broken = P.st === 'ok' ? brokenTxt(P.data!) : null, damaged = P.st === 'ok' ? damagedTxt(P.data!) : null;
   const listRev = pid ? projects.find((p) => p.id === pid)?.rev : undefined, gone = P.st === 'ok' && !broken && !!pid && listRev === undefined;
+  useEffect(() => { if (!pid && P.st === 'ok' && !broken && projects.length === 1) setPid0(projects[0].id); }, [P.st, projects.length]);   // 첫 진입 1개 = 그것(기억 저장 0)
   const direct = L.provider !== 'simulation_gate';   // 실기 Go2 선택 — 직접 연결 미구현이라 연결 0대(linkView 가 linkOk=false 로 줌)
   const wide = W >= 1280, mid = W >= 960;
+  const cmpWhy = mode !== 'rehearsal' ? '' : !meta ? '프로젝트를 고르면 비교할 수 있습니다' : !an ? '검토 결과가 아직 없습니다' : '';
 
   const head = <>
     <label className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>프로젝트
-      <select className="inp" style={{ width: 200, minHeight: 44 }} value={pid || ''} onChange={(e) => setPid(e.target.value || null)} disabled={P.st !== 'ok'}>
+      <select className="inp" data-pop-avoid="1" style={{ width: 200, minHeight: 44 }} value={pid || ''} onChange={(e) => setPid(e.target.value || null)} disabled={P.st !== 'ok'}>
         <option value="">{P.st === 'loading' ? '읽는 중…' : P.st === 'err' ? '불러오지 못함' : broken ? '저장소 이상' : projects.length ? '고르세요' : '없음'}</option>
         {projects.map((p) => <option key={p.id} value={p.id}>{`${p.name} · r${p.rev}`}</option>)}
       </select></label>
     {/* 목록·계획 다시 읽기 = 누를 때만(자동 폴링·자동 새 판 전환 0) · 고른 프로젝트·배치안은 그대로(WORDING-CHECK §2) */}
     <button type="button" className="btn" onClick={P.reload} disabled={P.st === 'loading'} style={{ minHeight: 44 }}>목록 새로 읽기</button>
-    {gone && <span role="status" className="lbl">고른 프로젝트가 목록에 없습니다</span>}
+    {gone && <span role="status" style={{ fontSize: 13 }}>{`고른 프로젝트가 목록에 없습니다 · ${pid}`}</span>}
+    {scGone && <span role="status" style={{ fontSize: 13 }}>{`고른 배치안이 이 판에 없습니다 · ${scGone}`}</span>}
     {meta && <span className="lbl">{`읽은 판 r${meta.rev}${listRev && listRev !== meta.rev ? ` · 목록은 r${listRev}(계획 다시 읽기로 바꿈)` : ''}`}</span>}
     {meta && <button type="button" className="btn" onClick={G.reload} style={{ minHeight: 44 }}>계획 다시 읽기</button>}
     <label className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>배치안
-      <select className="inp" style={{ width: 160, minHeight: 44 }} value={scId || ''} onChange={(e) => setScId(e.target.value || null)} disabled={!s}>
+      <select className="inp" data-pop-avoid="1" style={{ width: 160, minHeight: 44 }} value={scId || ''} onChange={(e) => setScId(e.target.value || null)} disabled={!s}>
         <option value="">{s ? '전체' : '—'}</option>
         {s?.scenarios.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
       </select></label>
     <ModeSwitch mode={mode} set={setMode} />
-    <a className="btn" href="#/Main" style={{ textDecoration: 'none', color: 'inherit', minHeight: 44 }}>조종 화면</a>
-    {!wide && mid && <button type="button" className="btn" onClick={() => setDrawer(true)} style={{ minHeight: 44 }}>{mode === 'rehearsal' ? '비교' : '경고'}</button>}
+    {/* ROOT 12 · UX-SPEC 5-7: 비교 = 프로젝트·검토 결과 없으면 이유와 함께 막음(열어서 빈 판 보이기 0) · 경고 서랍은 그대로 */}
+    {!wide && mid && <button type="button" style={{ minHeight: 44 }} {...(cmpWhy ? { ...whyProps(cmpWhy), className: 'btn lv-why' } : { className: 'btn', onClick: () => setDrawer(true) })}>{mode === 'rehearsal' ? '비교' : '경고'}</button>}
   </>;
 
   // ---- 가운데: 계획 지도 ----

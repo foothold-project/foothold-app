@@ -1,5 +1,5 @@
 // 조종 입력 손잡이(막대·누름 버튼) — live.js stick()/holdBtn() 과 같은 규칙. 값·폐기는 data/link.ts 누름 저장소가 정한다.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { T } from '../data/transport';
 import { cancel, driveBlock, hide, lift, move, onDrop, owns, press, pressGen, pressing, startBlock, startDrive, useLink, type Axes } from '../data/link';
 import { DIR_TAG } from '../data/facts';
@@ -91,15 +91,17 @@ export function useDriveScreen() { useEffect(() => () => hide(), []); }
 
 /** 휴대폰 가로 화면 맞춤(live.js fitPhone): 시안 844×390 배치 그대로, 안전 영역 안에 비율 축소·가로 늘림 */
 /** R03 세로 띠: 축소하지 않는 아래 줄. 세로에서는 조종 틀이 띠의 «실제» 높이(안전 줄 줄바꿈·safe-area 포함, U2 보완 A2)만큼 위에서 끝난다.
- *  BAND_H 는 띠를 아직 못 잴 때만 쓰는 대체값(버튼 48 + STOP 64 + 틈 8×3) */
-export const BAND_H = 136;
-export const PORTRAIT = '(orientation: portrait)';   // 띠 표시·틀 안 STOP 숨김(CSS)과 같은 조건 하나
+ *  BAND_H 는 띠를 아직 못 잴 때만 쓰는 대체값(버튼 48 + 틈 8×2 · 10-19 띠 STOP 삭제) */
+export const BAND_H = 64;
+const STOP_RES = { w: 168, h: 80 } as const;   // 공통 STOP 예약 칸(live.css 머리줄 예약과 같은 값)
+export const PORTRAIT = '(orientation: portrait)';   // 띠 표시(CSS)·틀 내림과 같은 조건 하나
 const bandH = (pb: number) => { const h = document.querySelector('.drv-band')?.getBoundingClientRect().height; return h && h > 0 ? h : BAND_H + pb; };   // 띠 padding 이 safe-area 를 이미 포함
 export function useFitPhone() {
   const root = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+  // UX2FIX(a · 670 390 MDrive 로딩 rect 234/688): 첫 fit 을 페인트 전으로 — useEffect 면 시안 틀 844×390 이 흐름 안에서 한 번 그려져 폰 뷰포트가 844 로 넓어짐. 본문·정리·계산 그대로
+  useLayoutEffect(() => {
     const probe = document.createElement('div'); probe.style.cssText = 'position:fixed;visibility:hidden;pointer-events:none;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
-    const tip = document.createElement('div'); tip.textContent = '가로로 돌리면 막대가 크게 보입니다 · STOP 은 아래 줄'; tip.setAttribute('role', 'note'); tip.className = 'lv-tip';
+    const tip = document.createElement('div'); tip.textContent = '가로로 돌리면 막대가 크게 보입니다 · STOP 은 오른쪽 위'; tip.setAttribute('role', 'note'); tip.className = 'lv-tip';
     tip.style.cssText = 'position:fixed;left:50%;top:38%;transform:translateX(-50%);z-index:60;padding:6px 12px;border-radius:8px;background:rgba(26,18,6,.92);color:#FFB547;font:600 13px/1.4 system-ui,sans-serif;pointer-events:none';
     // 세로 안내(tip)는 가운데 빈 영상 칸(top 38%) — 아래 막대·버튼 줄을 덮지 않게(실 APK 세로 412x842)
     document.body.append(probe, tip); const bg = document.body.style.background; document.body.style.background = '#05080A';
@@ -107,8 +109,12 @@ export function useFitPhone() {
       const el = root.current; if (!el) return;
       const cs = getComputedStyle(probe), px = (k: 'paddingLeft' | 'paddingTop' | 'paddingRight' | 'paddingBottom') => parseFloat(cs[k]) || 0;
       const por = matchMedia(PORTRAIT).matches;
-      const l = px('paddingLeft'), t = px('paddingTop'), W = innerWidth - l - px('paddingRight'), H = innerHeight - t - (por ? bandH(px('paddingBottom')) : px('paddingBottom'));
-      const k = Math.min(1, H / 390, W / 700);
+      const l = px('paddingLeft'), W = innerWidth - l - px('paddingRight'), bot = por ? bandH(px('paddingBottom')) : px('paddingBottom');
+      const kOf = (t: number) => Math.min(1, (innerHeight - t - bot) / 390, W / 700);
+      // 10-19 공통 STOP(창 top 8·right 12·144×64) 자리: 틀 오른쪽 위 HUD 줄(right 190·top 14)·옆 단추(right 44·top 86)가 축소돼 STOP 칸(오른쪽 168·위 80)에
+      // 들어가면(세로는 항상 · 가로는 작은 창) 틀 전체를 80 아래로 내림. 가로 보통 창(k≈1)은 그대로
+      const t0 = px('paddingTop'), k0 = kOf(t0), t = por || 190 * k0 < STOP_RES.w || t0 + 86 * k0 < STOP_RES.h ? t0 + STOP_RES.h : t0;
+      const H = innerHeight - t - bot, k = kOf(t);
       Object.assign(el.style, { position: 'fixed', left: `${l}px`, top: `${t}px`, width: `${W / k}px`, height: `${H / k}px`, transform: k < 1 ? `scale(${k})` : '', transformOrigin: '0 0' });
       el.dataset.liveFit = `${Math.round(W)}x${Math.round(H)}@${k.toFixed(2)}`;
       tip.style.display = por ? 'block' : 'none';

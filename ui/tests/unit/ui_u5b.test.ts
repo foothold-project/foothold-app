@@ -25,6 +25,8 @@ const html = () => draw(PcSettings);
 const ops = (s: string) => s.replace(/<style>[\s\S]*?<\/style>/g, '')
   .replace(/(<button aria-label="비상 정지") title="[^"]*"/, '$1')
   .replace(/<span id="[^"]*" role="note" class="lv-pop"[\s\S]*?<\/span>(?=<\/span>)/g, '')
+  // FIX2b(ROOT 결정 4): 숨긴 «상태 상세» = ? 전문처럼 운영 글 검사에서만 제외(hidden+region+이름 정확히 · 보이는 region·원문 DOM 그대로)
+  .replace(/<span id="[^"]*" role="region" aria-label="상태 상세" class="lv-pop" hidden=""[^>]*>(?:<span[^>]*><b>[^<]*<\/b>[^<]*<\/span>)*<\/span>/g, '')
   .replace(/<section id="limits"[\s\S]*?<\/section>/, '')
   .replace(/<span data-dev="true"><span[^>]*>[^<]*<\/span><\/span>/g, '');
 const text = (s: string) => s.replace(/<[^>]+>/g, ' ');
@@ -41,7 +43,7 @@ test('운영 글 금지어 0(지원 범위·? 팝오버·data-dev 제외) · 판
 
 test('공용 STOP 글 + ? · 개발자 스위치 = 공용 DevSwitch 1개(중복 0)', () => {
   const s = html();
-  expect(s).toContain('스페이스 · 입력 차단·잠금'); expect(s).not.toContain('스페이스 · 명령 0·잠금');
+  expect(s).not.toContain('aria-label="비상 정지"'); expect(s).not.toContain('스페이스 · 입력 차단·잠금'); expect(s).not.toContain('스페이스 · 명령 0·잠금');   // FIX2b(ROOT 결정 1): G1 = 화면별 STOP 삭제 → 이 화면 STOP 0 · 공용 STOP 존재·title(STOP_TIP)·송신은 ui_g1_stop(실제 App)
   expect(s).toContain('aria-label="STOP 설명"'); expect(pops(s)).toContain(F.STOP_TIP);
   expect(s.match(/role="switch"/g)).toHaveLength(1);
   expect(s).toContain('<button type="button" class="sw" role="switch" aria-checked="false" aria-label="개발자 모드"><span></span></button>');

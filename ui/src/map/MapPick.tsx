@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { LiveMap, MapInfo } from '@contracts';
-import { BLD, FLOOR, WF, WORLD, allKey, getFloors, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, useCatalog, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, latestSaved, tsOf, type HeightInfo, type Raster, type Sess } from '../data/maps';
+import { BLD, FLOOR, WF, WORLD, allKey, getFloors, getHeight, getLive, getMap, gtFloors, hHue, loadList, useCatalog, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, latestSaved, tsOf, type HeightInfo, type Raster, type Sess } from '../data/maps';
 import { dropAll, useLink } from '../data/link';
 import type { Robot } from './MapCanvas';
 import { toast } from '../app/shell';
@@ -260,22 +260,38 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
         <span role="status" title={`${msg.t}${msg.tie ? tieR : ''}`} style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>
           {msg.tie ? `${!raster ? (serr ? '받기 실패' : '받는 중') : '표시 중'} · ${msg.t}` : msg.t}</span>   {/* 동률: 받기 결과(tieR 와 같은 말)를 앞에 — 말줄임에 안 잘림 */}
         <Help label="지도 보기 안내 · 전문">{`${msg.t}${msg.tie ? tieR : ''}`}</Help></span>)}</span>;
+  // 10-19 drop 기본 목록: 지형·층마다 latestSaved(검증 SLAM 최신 1 · 없으면 null = 회색 줄, GT 대체 0)
+  // ROOT 빈 지형 경계: 대표가 하나도 없는 지형은 줄 0(지형마다 «없음» 늘리지 않음) · 대표 있는 지형의 빠진 층만 회색 줄
+  const reps = drop && Array.isArray(maps) ? (Object.keys(WORLD) as (keyof typeof WORLD)[])
+    .map((w) => WF[w].map((f) => ({ w, f, m: latestSaved(maps, w, f) }))).filter((rs) => rs.some((r) => r.m)).flat() : null;
+  // 목록 밖 지금 값의 이름 = «{출처} · {지형·층}»(날짜·판 이름 0 · 모르면 이름 없이). '' = 꺼짐 줄이 따로 보임
+  const farOf = (k: string) => { const m = Array.isArray(maps) ? maps.find((x) => mapKey(x) === k) : undefined, W = (WORLD as Record<string, string>)[k.slice(4)] || k.slice(4);
+    return m ? `${m.map_source === 'gt_raster' ? '시뮬 도면 지도' : '저장한 지도'} · ${place(m.world_id, m.floor_id)}` : k.startsWith('all:') ? `층 나란히 · ${W}` : k.startsWith('g3d:') ? `3D · ${W}` : ''; };
+  // 목록 받기 전(reps 없음)은 목록 안/밖을 모름 → «목록 확인 전» 줄만(밖이라고 단정 0)
+  const far = !drop || sel === '' || sel === LIVE || reps?.some((r) => r.m && mapKey(r.m) === sel) ? null
+    : !reps ? '보는 중 · 저장 지도 목록 확인 전' : `보는 중${farOf(sel) ? ` · ${farOf(sel)}` : ''} · 기본 목록 밖`;
   // U2-c: 모든 배치가 흐름(지도 칸 위 겹침 0) — 관제는 오른쪽 칸(drop), 폰 서랍·PC 지도는 목록
   const el = <span style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: 4 }}>
     {drop ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로</Help></span>   /* 관제(Main)만 drop */
       : pc ? <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기 · 화면만<Help label="지도 보기 · 설명">화면만 바뀝니다 — 시뮬 지형·층·위치는 그대로입니다.</Help></span>   /* U4-a(PcMap): 아래 설명 문단 → ? */
       : <span style={{ fontSize: 11, color: 'var(--muted)' }}>지도 보기(화면만 · 시뮬은 그대로)</span>}
-    {drop ? <select aria-label="지도 보기 선택(보기만 · 실제 시뮬 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 시뮬 지형·조종은 그대로" value={sel}
-      onFocus={load} onChange={(e) => pick(e.target.value)}
-      style={{ minHeight: drop ? 32 : 44, minWidth: 0, maxWidth: '100%', font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
-      <option value="">{touched ? '시뮬 위치' : '시뮬 위치(지도 시뮬이 보이면 실시간 자동)'}</option>
-      <option value={LIVE}>현재 열린 지도(실시간 매핑)</option>
-      {Array.isArray(maps) && groupMaps(maps).map((g) => <optgroup key={g.w} label={`저장 지도 보기 · ${g.label}`}>
-        {WF[g.w].length > 1 && <option value={allKey(g.w)}>층 나란히 보기</option>}
-        {g.items.map((m) => <option key={mapKey(m)} value={mapKey(m)}>{verLabel(m)}</option>)}</optgroup>)}
-      {typeof maps === 'string' && <option disabled value="-">{`저장 지도 목록 · ${maps}`}</option>}
-      {Array.isArray(maps) && !maps.length && <option disabled value="-">저장 지도 없음</option>}
-    </select> : list}
+    {drop ? <><span style={{ display: 'flex', gap: 4, minWidth: 0 }}>
+      {/* ---- 10-19 지도 선택 정리(ROOT-DECISIONS 7): 기본 = 실시간 + 지형·층마다 검증 최신 저장 지도 1줄(날짜·판 이름 노출 0) ----
+          GT 도면·옛 판·층 나란히는 지도 탭(목록형)에만. 값이 옵션에 없으면 브라우저가 첫 줄 글을 보여 줘서(거짓 이름) 지금 값을 비활성 줄로 보임 · 자동 교체 0 */}
+      <select aria-label="지도 보기 선택(보기만 · 실제 시뮬 안 바뀜)" title="지도 보기 선택 — 화면만 바뀝니다. 실제 시뮬 지형·조종은 그대로" value={sel}
+        onFocus={load} onChange={(e) => pick(e.target.value)}
+        style={{ flex: '1 1 auto', minHeight: 32, minWidth: 0, maxWidth: '100%', font: 'inherit', fontSize: 12, background: 'var(--bg)', color: 'var(--fg, inherit)', border: '1px solid var(--line2)', borderRadius: 6 }}>
+        {sel === '' && <option disabled value="">지도 보기 꺼짐 · 고르세요</option>}
+        {far && <option disabled value={sel}>{far}</option>}
+        <option value={LIVE}>현재 지도(실시간)</option>
+        {!!reps?.length && <optgroup label="저장 지도 · 층마다 최신 1개">
+          {reps.map(({ w, f, m }) => m ? <option key={mapKey(m)} value={mapKey(m)}>{`${place(w, f)} 저장 지도`}</option>
+            : <option key={`${w}/${f}`} disabled value={`-none:${w}/${f}`}>{`${place(w, f)} · 저장 지도 없음`}</option>)}</optgroup>}
+        {typeof maps === 'string' && <option disabled value="-">{`저장 지도 목록 · ${maps}`}</option>}
+        {reps && !reps.length && <option disabled value="-">저장 지도 없음</option>}   {/* 검증 저장본 전체 0 = 안내 1줄(빈 묶음 0) */}
+      </select>
+      {on && <button type="button" className={B} title="관제 기본 화면(시뮬 위치)으로 — 화면만" onClick={() => pick('')}>지도 보기 끄기</button>}</span>
+      <a href="#/PcMap" style={{ fontSize: 11, color: 'var(--muted)' }}>다른 판·시뮬 도면 → 지도 탭</a></> : list}
     <span style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--muted)' }}>{`${drop ? '받은 시뮬 상태(조회값 · 지금 실행 확정 아님)' : '지금 열린 시뮬'} · ${runLine(ss)}`}</span>   {/* U2-c: 관제에도 — 보는 지도와 실행 지형 구별 · drop(관제만): 받은 session 조회값이라 현재 실행 확정 아님(공용 runLine·다른 화면 글 그대로) */}
     {diff && drop && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>보는 지도 ≠ 실행 지도<Help label="보는 지도 · 실행 지도 차이">{diff}</Help></span>}
     {diff && !drop && <span role="status" style={{ fontSize: 11, padding: '2px 6px', borderRadius: 4, background: 'var(--bg)', color: 'var(--warn)' }}>{diff}</span>}

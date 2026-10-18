@@ -278,6 +278,71 @@ def test_finish_no_mrev_not_compared(env):
     assert c == 200 and 'mcas' not in env_of(s, r['id'])['doc'] and env_of(s, r['id'])['doc']['finish'] == '마지막 지점 종료'
 
 
+# ---------------------------------------------------------------- 10-19 계획 출발점 start: 시작 사본 대조(키 유무·값·출처)·결과 편집 낮춤·옛 앱 409
+SP = {'x': 0.5, 'y': -1.25, 'map': {**MS, 'key': '9f8e7d6c'}}
+
+
+def set_start(s, mid, st):
+    """계획에 start 를 넣는다(st=None 이면 키를 뺀다) — 판 +1. 관계 검사 0 이라 계획 map 과 출처가 달라도 저장된다"""
+    e = env_of(s, mid); M = {k: v for k, v in e['doc'].items() if k != 'start'}
+    assert s.apply({'op': 'put', 'id': mid, 'rev': e['rev'], 'doc': {**M, **({'start': st} if st else {})}}, 'C')[0] == 200
+
+
+@pytest.mark.parametrize('which', ['mid', 'bid'])
+def test_start_copy_passes(env, which):
+    s, tid, mid, bid = env
+    x = mid if which == 'mid' else bid                       # bid = 계획 map 없음(Run.map 도 없음) — start 는 그래도 사본
+    set_start(s, x, SP)
+    c, r = put_run(s, new_run(s, x, start=copy.deepcopy(SP)))
+    doc = env_of(s, r['id'])['doc']
+    assert c == 200 and doc['mcas'] == 1 and doc['start'] == SP and ('map' in doc) == (which == 'mid'), r
+
+
+@pytest.mark.parametrize('case', ['old_app', 'run_extra', 'xy', 'src_floor', 'src_key', 'src_rid'])
+def test_start_mismatch_409(env, case):
+    s, tid, mid, bid = env
+    if case != 'run_extra':
+        set_start(s, mid, SP)
+    d = new_run(s, mid)                                     # 옛 newRun = start 사본 안 함
+    if case == 'run_extra': d['start'] = SP                 # 계획엔 없는데 Run 에 채움(추정 0)
+    elif case == 'xy': d['start'] = {**SP, 'x': 0.6}
+    elif case == 'src_floor': d['start'] = {**SP, 'map': {**SP['map'], 'floor_id': 'l2'}}
+    elif case == 'src_key': d['start'] = {**SP, 'map': {**SP['map'], 'key': '00000000'}}
+    elif case == 'src_rid': d['start'] = {**SP, 'map': {**SP['map'], 'rid': 'w:' + 'b' * 64}}
+    n0 = len(s.listing()['docs'])
+    c, r = put_run(s, d)
+    assert c == 409 and r['reason_code'] == 'snapshot_mismatch' and len(s.listing()['docs']) == n0, r
+
+
+@pytest.mark.parametrize('edit', ['same', 'change', 'drop'])
+def test_start_result_edit(env, edit):
+    s, tid, mid, bid = env
+    set_start(s, mid, SP)
+    rid = put_run(s, new_run(s, mid, start=copy.deepcopy(SP)))[1]['id']
+    d = copy.deepcopy(env_of(s, rid)['doc']); d['memo'] = '출발점 확인'
+    if edit == 'change': d['start'] = {**SP, 'y': 3}
+    elif edit == 'drop': del d['start']                      # start 를 모르는 앱이 키를 버리고 고쳐 씀
+    c, r = put_run(s, d, rid, 1)
+    keep = edit == 'same'
+    assert c == 200 and ('mcas' in env_of(s, rid)['doc']) == keep and r.get('mcas_dropped', False) is (not keep), r
+
+
+def test_start_no_mrev_not_compared(env):
+    s, tid, mid, bid = env
+    set_start(s, mid, SP)
+    d = new_run(s, mid, start={**SP, 'x': 9}); del d['mrev']   # mrev 모르는 앱 = 대조 0 → 저장·mcas 0
+    c, r = put_run(s, d)
+    assert c == 200 and 'mcas' not in env_of(s, r['id'])['doc'] and env_of(s, r['id'])['doc']['start']['x'] == 9
+
+
+@pytest.mark.parametrize('bad', [None, {}, {'x': 1, 'y': 2}, {**SP, 'map': None}, {**SP, 'x': True}, {**SP, 'extra': 1}])
+def test_start_bad_shape_400(env, bad):
+    s, tid, mid, bid = env
+    e = env_of(s, mid)
+    assert s.apply({'op': 'put', 'id': mid, 'rev': e['rev'], 'doc': {**e['doc'], 'start': bad}}, 'C')[0] == 400
+    assert put_run(s, new_run(s, mid, start=bad))[0] == 400 and env_of(s, mid)['rev'] == e['rev']
+
+
 def test_rev_conflict_on_run_edit_has_no_reason(env):
     s, tid, mid, bid = env
     rid = put_run(s, new_run(s, mid))[1]['id']

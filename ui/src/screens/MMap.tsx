@@ -9,11 +9,12 @@ import { TRAIL, linkView, useLink } from '../data/link';
 import { r2, zoneTxt } from '../data/run';
 import { GOTO_WHY, defMods } from '../data/tmpl';
 import { TERMS, ZONE_NOTE } from '../data/facts';
-import { MODE_KO, MapCanvas, type MapApi } from '../map/MapCanvas';
+import { MODE_KO, MapCanvas, MapLegend, type MapApi } from '../map/MapCanvas';
 import { LiveStatus, SimReset } from '../app/status';
 import { useMapPick } from '../map/MapPick';
 import { MapStartBox } from '../map/MapStartBox';
-import { Drawer, SimOff, stopProps, toast } from '../app/shell';
+import { Drawer, SimOff, toast } from '../app/shell';
+import { Help } from '../app/chip';
 
 
 // R04 가로(높이 ≤ 500): 틀 높이 = 화면(100dvh)이어도 «고른 목표» 칸(min-height auto)이 안 줄어 주 메뉴·STOP 이 화면 밖으로 밀림.
@@ -24,8 +25,7 @@ const LAND_CSS = `#dc-root section[aria-label="고른 목표"]{min-height:0!impo
 @media (max-height: 500px){
 #dc-root .mmap-hdr>header{padding-top:6px!important;padding-bottom:4px!important}
 #dc-root section[aria-label="고른 목표"]{margin-top:4px!important;padding-top:6px!important;padding-bottom:6px!important}
-#dc-root nav[aria-label="주 메뉴"]{margin-top:0!important}
-#dc-root div:has(>button[aria-label="비상 정지"]){padding-top:4px!important;padding-bottom:6px!important}}`;
+#dc-root nav[aria-label="주 메뉴"]{margin-top:0!important}}`;   /* 10-19: 본문 STOP 칸 삭제(공통 GlobalStop) */
 // 높이 예산(root r2 · 4 검수창 STOP 64 전체·주 메뉴 전부 화면 안): 낮은 창(높이 ≤ 500)에서만 바깥 여백·비상호작용 padding 만 줄임 — 단추·메뉴·STOP 크기 0 변경.
 // 계산(670 844×390 실측 header 108 · 지도 98 · section 최소 30(padding 28+선 2) · 메뉴 63 · STOP 칸 90 = 399): 줄임 header 14 · section 6+16 · 메뉴 위 10 · STOP 칸 16 = 62
 // → 740×360 고정 합 ≈ 94+4+14+53+74 = 239 · 지도 ≈ 121(≥ 96). 실측 0 — 670 이 4창에서 STOP 사각형·메뉴 bottom ≤ 화면 높이 확인
@@ -50,13 +50,16 @@ export default function MMap() {
   const mode = api.current?.mode() || 'robot';
 
   const v = {
-    themeClass: `${themeClass(false)} mmap-hdr`, stopProps, status: <LiveStatus D={D} />,   // mmap-hdr: 390 머리 반응형(live.css)
+    themeClass: `${themeClass(false)} mmap-hdr`, status: <LiveStatus D={D} />,   // mmap-hdr: 390 머리 반응형(live.css)
     hdrA: '지도', hdrB: v3d ? '건물 전체 3D' : on ? `${live ? '현재 열린 지도' : '저장 지도'} · ${!raster ? '지도 없음' : pose ? '위치 표시' : '위치 미표시'}` : `${flat ? '시뮬 바닥 ±10 m' : '지형 도면 없음'} · ${fresh ? '시뮬 위치 수신' : TRAIL.last ? '시뮬 위치 오래됨' : '시뮬 위치 미수신'}`,
     layerP: { 'aria-label': '지도 보기·레이어', 'aria-expanded': layers, onClick: () => setLayers(!layers) },
     mapBar: bar,   // U2-b 폰: 머리줄 안 «지형 + 2D/3D/SLAM»(세로 = 지도 바로 위 자기 줄 · 가로 = 제목 옆)(보기만 — 지도 보기 중 지점 고르기·구역·길 잠금은 아래 on 그대로)
     map: v3d || <><MapCanvas name="mmap" api={api} btns zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : lk.robot} trail={TRAIL.pts} showTrail={trail && !on} showZones={zon && !on} sel={sel}
       raster={raster} blank={blank} flat={flat} noRobot={on && !pose} onTap={on ? undefined : (x, y) => setSel([r2(x), r2(y)])} />
       {legend && <div style={{ position: 'absolute', left: 8, right: 8, bottom: 30, zIndex: 2, pointerEvents: 'none' }}>{legend}</div>}</>,
+    // UX-SPEC 3-4: 지도 아래 띠(도면 밖) = 위 MapCanvas 에 넘기는 값 그대로(경유점·출발점은 이 화면에서 안 그림 → 범례 0) · 3D 보기 중엔 0
+    legend: v3d ? null : <MapLegend robot={on ? pose : lk.robot} noRobot={on && !pose} trail={trail && !on && TRAIL.pts.length > 1} wps={false}
+      zones={zon && !on && !D.err ? docsOf(D, 'zone') : []} note={<>표시만 · 주행 제한 미연결<Help label="구역 · 설명">{ZONE_NOTE}</Help></>} />,
     // 10-15 ④: 아이콘 fab(◎·+·−) 대신 지도 안 글 버튼(MapCanvas btns — 같은 자리 오른쪽 위)
     fR: { hidden: true, tabIndex: -1 }, fI: { hidden: true, tabIndex: -1 }, fO: { hidden: true, tabIndex: -1 },
     hint: on ? '지도 보기 중 · 지점 고르기 꺼짐' : sel ? `고른 지점 · ${zoneTxt(D, sel[0], sel[1])}` : '지도를 눌러 지점을 고르세요',

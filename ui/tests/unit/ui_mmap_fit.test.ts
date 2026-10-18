@@ -87,7 +87,7 @@ test('② LAND_CSS: 고른 목표 안 스크롤·지도 최소 96 은 높이 조
   const props = [...low.matchAll(/\{([^}]*)\}/g)].flatMap((x) => x[1].split(';').filter(Boolean).map((d) => d.split(':')[0]));
   expect(props.length).toBeGreaterThan(0);
   expect(props.every((p) => /^(padding|margin)-(top|bottom)$/.test(p))).toBe(true);   // STOP·메뉴·단추 크기(height·min-height·font) 변경 0
-  expect(low).toContain('div:has(>button[aria-label="비상 정지"])'); expect(low).toContain('nav[aria-label="주 메뉴"]');
+  expect(low).not.toContain('비상 정지'); expect(low).toContain('nav[aria-label="주 메뉴"]');   // 10-19 G1: 폰 하단 STOP 삭제(공통 GlobalStop) → 그 칸 규칙도 없음
 });
 
 test('③ fit3d 는 MMap 만 명시(기본 거짓) · PcMap·Main·MDrive 호출 그대로', async () => {

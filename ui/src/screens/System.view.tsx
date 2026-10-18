@@ -7,7 +7,7 @@ export const PREVIEW = {"width":1440,"height":1560};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--stop:#D7261E;--acc-bg:rgba(56,198,217,.12);--warn-bg:rgba(255,181,71,.12);--bad-bg:rgba(255,90,82,.13);--ok-bg:rgba(90,169,255,.10);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--stop:#C8201A;--acc-bg:rgba(0,109,122,.08);--warn-bg:rgba(154,88,0,.09);--bad-bg:rgba(179,38,30,.08);--ok-bg:rgba(31,95,191,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton{font:inherit;color:inherit}\nh2{margin:0;font-size:20px;font-weight:700}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px;display:flex;flex-direction:column;gap:14px}\n.lbl{font-size:12px;color:var(--muted)}\n.sw{display:grid;grid-template-columns:40px 1fr auto auto;gap:12px;align-items:center;font-size:13px;padding:6px 0;border-top:1px solid var(--line)}\n.sw i{width:40px;height:28px;border-radius:4px;border:1px solid rgba(128,128,128,.35);display:block}\n.pr{display:flex;flex-direction:column;gap:4px;padding:14px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}\n.btn{height:44px;padding:0 16px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any; [slot: string]: any };   // 손 연결: 표본 STOP 을 실제 STOP 으로(stopP)
+export type Vals = { themeClass?: any; [slot: string]: any };   // 10-19: 표본 STOP 삭제(공통 GlobalStop)
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -401,21 +401,10 @@ export function View({ v }: { v: Vals }) {
               {" "}
               <div style={{"display":"flex","flexWrap":"wrap","gap":"16px","alignItems":"center"}}>
                 {" "}
-                <button aria-label="비상 정지" style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}} {...v.stopP}>
-                  {" "}
-                  <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-                    <rect x="8" y="8" width="8" height="8" fill="#FFFFFF" />
-                  </svg>
-                  {" "}
-                  <span style={{"fontWeight":"700","fontSize":"19px","letterSpacing":".08em"}}>
-                    {"STOP"}
-                  </span>
-                  {" "}
-                </button>
+                {/* 10-19: 표본 STOP 삭제 — 실제 STOP 은 공통 GlobalStop 하나(이 화면에도 오른쪽 위) */}
                 {" "}
                 <span className="lbl" style={{"flex":"1","minWidth":"220px","lineHeight":"1.55"}}>
-                  {"PC: 머리줄 오른쪽 끝, 52 px, 스페이스 키. 휴대폰 세로: 맨 아래 전체 폭 64 px. 휴대폰 가로: 오른쪽 위 132×64. 해제는 STOP과 다른 자리의 «정지 해제» → «임무 계속» 두 번."}
+                  {"모든 화면(PC·휴대폰·전체화면): 창 오른쪽 위 고정 한 곳(위 8 · 오른쪽 12 · 144×64 px), 스페이스 키(입력칸 제외). 해제는 STOP과 다른 자리의 «정지 해제» → «임무 계속» 두 번."}
                 </span>
                 {" "}
               </div>

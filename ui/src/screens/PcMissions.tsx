@@ -10,7 +10,7 @@ import { MOD_DEF, MOD_OFF, RULE_WHY, plain, tmpls } from '../data/tmpl';
 import { RELURCH, SAFE_NOTE, STOP_FACT, STOP_OBS, STOP_TIP } from '../data/facts';
 import { href } from '../data/hist';
 import { LiveStatus } from '../app/status';
-import { stopProps, toast, useRoute, whyProps } from '../app/shell';
+import { toast, useRoute, whyProps } from '../app/shell';
 import { Chip, Help } from '../app/chip';
 import { cutName } from '../data/run';
 
@@ -71,7 +71,7 @@ export default function PcMissions() {
       <span><span className="lbl">항상 적용</span><br />{c}</span><span aria-hidden="true">→</span><span><span className="lbl" /><br />{a}</span><span />
     </div>);
   const v = {
-    themeClass: themeClass(true), status: <LiveStatus D={D} />, stopProps,
+    themeClass: themeClass(true), status: <LiveStatus D={D} />,
     stopSub: '스페이스 · 입력 차단·잠금', stopHelp: <Help label="STOP 설명">{STOP_TIP}</Help>,   // 공용 STOP 글(v3 §3)
     count: `${list.length}개`,
     items: list.map((t) => {

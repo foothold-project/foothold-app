@@ -41,3 +41,6 @@ export async function saveBlob(name: string, blob: Blob): Promise<string | null>
     setTimeout(() => URL.revokeObjectURL(a.href), 10000); return `내려받기 요청: ${name} · 안 보이면 브라우저 다운로드 목록·권한 확인`;
   } catch (e: any) { return `내려받기 실패: ${e?.message || e}`; }
 }
+// UX-SPEC 4 조회 기억(관제 프로젝트·배치안 · 임무 지형·층): 모든 접근 try/catch · 실패 = 기본값(빈 값) · 화면에 «기억» 표시 0
+export const memGet = (k: string): string | null => { try { const v = localStorage.getItem(k); return v ? v : null; } catch { return null; } };
+export const memSet = (k: string, v: string | null) => { try { if (v) localStorage.setItem(k, v); else localStorage.removeItem(k); } catch { /* 기억 못 해도 화면은 그대로 */ } };

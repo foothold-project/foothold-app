@@ -8,8 +8,8 @@ import { LV, durTxt, fmtT, saveBlob, wpName } from '../data/fmt';
 import { docById, docsOf, noteOf, useDocs, useMedia } from '../data/shared';
 import { MediaStale } from '../app/status';
 import { histCSV, histRows, href, runRows, sevKeep, srcGaps } from '../data/hist';
-import { stopProps, toast, useRoute } from '../app/shell';
-import { mcasTxt } from '../data/run';
+import { toast, useRoute } from '../app/shell';
+import { mcasTxt, startText } from '../data/run';
 
 // 결과 색 = 공식 토큰(Report 는 항상 밝음): 완료·확인 dim-ink, 진행·미확인 note-ink, 실패·중단 stop. 색 + 글자로 구분
 const COLOR: Record<string, string> = { '완료': 'var(--dim-ink)', '진행': 'var(--note-ink)', '실패': 'var(--stop)', '중단': 'var(--stop)' };
@@ -39,7 +39,7 @@ export default function Report() {
     v = { ...blank, title: R.name, recNo: run!.id,
       place: 'Gazebo foothold-v2 시뮬 바닥(±10 m) · 실제 현장 아님', when: `${fmtT(R.started)} – ${R.ended ? fmtT(R.ended) : '진행 중'} · ${durTxt(R.started, R.ended)}`,
       who: `마지막 기록 ${run!.by}`, robot: 'Go2 시뮬(Gazebo) · 실기 아님', tplLine: `${R.tmpl || '—'} · 수동 진행(자동 이동·자동 완료 아님) · ${mcasTxt(D, R)}`,
-      wpLine: `${R.wps.length}개 · 방문 ${vis} · 미방문 ${miss.length}`, resColor: COLOR[R.status] || 'var(--ink-2)',
+      wpLine: `${R.wps.length}개 · 방문 ${vis} · 미방문 ${miss.length} · ${startText(R)}`, resColor: COLOR[R.status] || 'var(--ink-2)',   // ROOT 8: 계획 S 사본만(실측 아님) · 키 없음 = «출발점 좌표 기록 없음» · CODEX-G2 R1: 결과 색 항목은 주석 밖(기존 COLOR 그대로)
       resHead: `${R.status === '완료' ? LV.ok : R.status === '진행' ? LV.warn : LV.bad} ${R.status === '진행' ? '진행 중(수동)' : R.status}`,
       resBody: R.memo || `방문 ${vis}/${R.wps.length} · 판단 확인 ${n('확인')} · 보류 ${n('보류')} · 제외 ${n('제외')}`,
       todo: miss.length ? miss.map((w) => `${wpName(w, R.wps.indexOf(w))}: ${w.why}`).join(' · ') : R.wps.some((w) => w.chk === '보류') ? '보류 판단 지점 다시 확인' : '없음',
@@ -60,7 +60,8 @@ export default function Report() {
   return (
     <>
       <style>{CSS}</style>
-      <div className="lv-row lv-noprint" style={{ maxWidth: 794, margin: '12px auto', padding: '0 8px' }}>
+      {/* 10-19 G1 R1(P2): 이 조작 줄은 header 가 아니라 전역 예약이 안 먹음 → 공통 STOP 칸(오른쪽 168 · 높이 80) 직접 예약. lv-noprint 라 인쇄물 영향 0 */}
+      <div className="lv-row lv-noprint" style={{ maxWidth: 794, margin: '12px auto', padding: '0 168px 0 8px', minHeight: 80, boxSizing: 'border-box' }}>
         <select className="lv-inp" aria-label="보고서로 볼 수동 임무" value={run ? run.id : ''} onChange={(e) => setQ('run', e.target.value)}>
           {runs.length ? runs.map((r) => <option key={r.id} value={r.id}>{`${r.doc.name} · ${r.doc.status} · ${fmtT(r.doc.started)}`}</option>)
             : <option value="">{D.err ? '기록 읽기 실패 · 미확인' : '수동 임무 기록 없음'}</option>}
@@ -74,8 +75,8 @@ export default function Report() {
         <a className="lv-btn" href={href('PcHistory')}>기록 화면</a>
         <MediaStale M={M} D={D} />
       </div>
-      <div id="dc-root"><View v={v} /></div>
-      <button type="button" className="lv-noprint lv-fstop" {...stopProps}>STOP</button>
+      <div id="dc-root" className="rp-frame"><View v={v} /></div>
+      {/* 10-19: 보고서 STOP 삭제 — 공통 GlobalStop(인쇄 제외 lv-noprint 그대로) */}
     </>
   );
 }

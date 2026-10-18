@@ -14,17 +14,17 @@ import { shoot } from '../data/run';
 import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { PORTRAIT, useDirWhy, useDriveScreen, useFitPhone, useGateRtt, useStick } from '../app/drive';
-import { Drawer, SimOff, stopProps, toast, whyProps } from '../app/shell';
+import { Drawer, SimOff, toast, whyProps } from '../app/shell';
 import { Chip, DevMark, DevSwitch, DirTag, SafeLine } from '../app/chip';
-import { camChip, useHeadChips } from '../app/status';
+import { camChip, gateWait, useHeadChips } from '../app/status';
 import { auth, logoutNow } from '../data/auth';
 
-// R03 세로: 조종 틀(0.56 배 축소) 밖 아래 띠에 STOP(전폭·64 px)·현황·사진·메뉴(48 px)를 원래 크기로. 틀 안 STOP 은 세로에서만 숨김 —
-// 선택자는 축소 틀([data-live-drive]) 안으로 한정(띠 STOP 은 틀 밖이라 영향 0). 같은 stopProps(누르는 순간 STOP·래치 그대로). 가로 배치는 바뀌지 않음
+// R03 세로: 조종 틀(0.56 배 축소) 밖 아래 띠에 현황·사진·메뉴(48 px)를 원래 크기로(10-19: 띠·틀 STOP 삭제 → 공통 GlobalStop). 틀 안 STOP 도 삭제(UX-SPEC 1-3).
+// 공통 STOP 은 body 포털(축소 transform 밖) → 가로·세로 모두 창 기준 같은 자리. 가로 배치는 바뀌지 않음
 const BAND_CSS = `.drv-band{display:none}
 @media ${PORTRAIT}{.drv-band{display:flex;flex-direction:column;gap:8px;position:fixed;left:0;right:0;bottom:0;z-index:40;box-sizing:border-box;padding:8px 8px calc(8px + env(safe-area-inset-bottom));background:#05080A;box-shadow:0 -1px 0 rgba(230,235,239,.25)}
 .drv-band>*{flex-shrink:0}.drv-band>div{display:flex;gap:8px}.drv-band>div>*{flex:1;justify-content:center;height:48px;text-decoration:none}
-[data-live-drive] button[aria-label="비상 정지"],[data-live-drive] .drv-safe{visibility:hidden}}
+[data-live-drive] .drv-safe{visibility:hidden}}
 .drv-safe{flex:1 1 100%;max-width:calc(100% - 12px);padding:4px 6px;border-radius:8px;background:rgba(5,8,10,.82);color:#FFB547;font-size:11px;line-height:1.3;box-sizing:border-box}
 .drv-band .lv-safe{font-size:12px;color:#FFB547}
 [data-live-drive] [role=radiogroup][aria-label="속도"],[data-live-drive] a.pill[href="#/MHome"]{display:none!important}`;   /* 원본 틀 인라인 display 를 이기려면 !important */
@@ -50,7 +50,7 @@ export default function MDrive() {
   const M = useMedia(), rtt = useGateRtt();
   useDriveScreen();   // 화면을 떠나면 폐기 + hidden + 보기 전용
   useDirWhy();   // U2: 막힌 방향(뒤로 당김·옆·제자리 회전) → 서버 이유 토스트 1회(Main 과 같음)
-  const HC = useHeadChips(), cc = camChip(v);
+  const HC = useHeadChips(), cc = camChip(v, gateWait(HC));
   const sm = useStick(MOVE, ['fx', 'fy']), sr = useStick(ROT, [null, 'fw']), sf = useStick(FB, ['fx', null]);
 
   const photo = async () => { const p = await shoot(); if (p) setShotAt(Date.now()); if (p) toast(`사진 서버 저장 · 프레임 수신 ${p.frame_at.slice(11, 19)} · ${p.x == null ? '위치 미확인' : `x ${sgn(p.x)} y ${sgn(p.y)} m · 방향 ${deg(p.yaw)}`} · «관찰»에서 분류`); };
@@ -109,7 +109,7 @@ export default function MDrive() {
   const ph = [...M.photos].sort((a, b) => (a.saved_at < b.saved_at ? 1 : -1))[0];   // ⑤ 서버에 저장된 마지막 사진
 
   const vals = {
-    rootRef: root, stopProps, moveLeft: lay === LAYOUTS[1], rotLeft: lay !== LAYOUTS[1],
+    rootRef: root, moveLeft: lay === LAYOUTS[1], rotLeft: lay !== LAYOUTS[1],
     cam: sp === 'cam' ? camEl : sp === 'half' ? <>{half(true, camEl)}{half(false, <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>{mapEl(true)}</div>)}</> : <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: '#05080A' }}>{mapEl(true)}</div>,
     mini: <div aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: '#05080A' }}>
       {sp === 'cam' ? mapEl(true) : sp === 'map' ? camEl : <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', textAlign: 'center', fontSize: '12px', color: '#E6EBEF', lineHeight: 1.5 }}>반반 보기<br />누르면 큰 지도</div>}</div>,
@@ -117,7 +117,7 @@ export default function MDrive() {
         {stepLabel(stg)}</span>
       {top && <span className="hud" role="status" data-reason="1" title={`해결: ${top.fix}`} style={{ background: 'rgba(255,181,71,.92)', color: '#061014', fontWeight: '700' }}>{`${MARK[top.lvl]} ${top.text}`}</span>}
       {more && !list && <button type="button" className="hud" onClick={openList} style={{ border: 0, cursor: 'pointer', minHeight: '28px' }}>{`목록 ${Math.max(W.length, btns.length)}`}</button>}
-      {HC.filter((c) => (c.k === 'link' || c.k === 'sim') && c.tone !== 'ok').map((c) => <Chip key={c.k} tone={c.tone} text={c.text} why={c.why} />)}
+      {HC.filter((c) => c.tone === 'warn' || c.tone === 'bad' || c.tone === 'lock').map((c) => <Chip key={c.k} tone={c.tone} text={c.text} why={c.why} />)}{/* 10-19 칩 3: 경고·끊김·잠금만(관문 대기 중 종속 «대기»·정상은 HUD 에 안 띄움 — 다른 기기 조종·STOP 잠금은 늘 밖) */}
       {!v.camOk && <Chip tone={cc.tone} text={cc.text} why={cc.why} />}   {/* U2 R3·R5: 12자 이하 칩 + ? · 확인된 꺼짐만 off */}
       {!rtt.ok && <span className="hud" title={rtt.why}><span style={{ color: '#FFB547' }}>●</span>{rtt.txt}</span>}
       {s?.fallen !== false && <span className="hud">{v.body}</span>}
@@ -165,6 +165,6 @@ export default function MDrive() {
   const band = <div className="drv-band" role="group" aria-label="세로 조종 줄">
     <div><a className="pill" href={href('MHome')}>현황</a><button type="button" className="pill" onClick={photo}>📷 사진</button><button type="button" className="pill" onClick={() => setMenu(true)}>ⓘ 메뉴</button></div>
     <SafeLine />
-    <button type="button" {...stopProps} style={{ height: '64px', minHeight: '64px', flexShrink: 0, border: 0, borderRadius: '12px', background: '#a3342a', color: '#FFFFFF', fontSize: '20px', fontWeight: 700, letterSpacing: '.08em', boxShadow: '0 0 0 3px rgba(255,255,255,.18)' }}>STOP</button></div>;
+    {/* 10-19: 띠 STOP 삭제 — 공통 GlobalStop(top8·right12·144×64, 틀 밖 body) 하나 */}</div>;
   return <><style>{CSS + BAND_CSS + (miniOn ? '' : '[data-live-drive] a[aria-label="큰 지도 열기"]{display:none!important}')}</style><div id="dc-root" className="fh"><View v={vals} />{band}{drawer}</div></>;
 }

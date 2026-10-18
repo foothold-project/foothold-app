@@ -39,10 +39,6 @@ export function View({ v }: { v: Vals }) {
             {" "}
           </div>
           {" "}
-          <span style={css(`height:26px;padding:0 10px;border-radius:999px;display:flex;align-items:center;font-size:12px;font-weight:600;background:${str(v.modeBg)};color:${str(v.modeFg)}`)}>
-            {iv(v.modeLabel)}
-          </span>
-          {" "}
           <div style={{"flex":"1"}} />
           {" "}
           <div style={{"display":"flex","flexWrap":"wrap","gap":"6px","flex":"0 1 auto","minWidth":"0","justifyContent":"flex-end"}}>
@@ -78,31 +74,11 @@ export function View({ v }: { v: Vals }) {
                 {v.opName ?? "운영자 A"}
               </span>
               {" "}
-              <span style={{"fontSize":"11px","color":"var(--muted)"}}>
-                {v.opRole ?? "조종권 · 이 기기"}
-              </span>
-              {" "}
+              {/* UX2FIX(DESIGN · ROOT 4): 역할 줄(opRole) 삭제 — 머리줄 ③ 조작 칩과 같은 상태 중복 */}
             </div>
             {" "}
           </div>
           {" "}
-          <button aria-label="비상 정지" {...v.stopProps} style={{"flexShrink":"0","height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
-            {" "}
-            <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-              <rect x="8" y="8" width="8" height="8" fill="#FFFFFF" />
-            </svg>
-            {" "}
-            <span style={{"display":"flex","flexDirection":"column","alignItems":"flex-start","lineHeight":"1.1"}}>
-              <span style={{"fontWeight":"700","fontSize":"19px","letterSpacing":".08em"}}>
-                {"STOP"}
-              </span>
-              <span style={{"fontSize":"11px"}}>
-                {v.stopSub ?? "스페이스 · 명령 0·잠금"}
-              </span>
-            </span>
-            {" "}
-          </button>
           {v.stopHelp ?? null}
           {" "}
         </header>
@@ -267,13 +243,21 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <nav aria-label="주 메뉴" style={{"flex":"0 0 76px","display":"flex","flexDirection":"column","alignItems":"center","gap":"4px","padding":"12px 6px","borderRight":"1px solid var(--line)","background":"var(--panel)"}}>
             {" "}
-            <a className="nav cur" href="#/Fleet" aria-current="page">
+            <a className="nav" href="#/Fleet">
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
                 <circle cx="12" cy="12" r="8" />
                 <circle cx="12" cy="12" r="3" />
                 <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
               </svg>
               {"관제"}
+            </a>
+            {" "}
+            <a className="nav cur" href="#/Main" aria-current="page">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 7l-1.5 1.5M12 7l1.5 1.5M12 17l-1.5-1.5M12 17l1.5-1.5M7 12l1.5-1.5M7 12l1.5 1.5M17 12l-1.5-1.5M17 12l-1.5 1.5" />
+              </svg>
+              {"조종"}
             </a>
             {" "}
             <a className="nav" href="#/PcPlan">
@@ -555,48 +539,7 @@ export function View({ v }: { v: Vals }) {
                   </g>
                 </svg>)}
                 {" "}
-                <div style={{"display":"flex","flexWrap":"wrap","gap":"6px 16px","padding":"10px 12px","borderTop":"1px solid var(--line)","fontSize":"12px","color":"var(--muted)","visibility":v.legendHide ? "hidden" : undefined}}>
-                  {" "}
-                  <span style={{"display":"flex","alignItems":"center","gap":"6px"}}>
-                    <svg width="22" height="6" aria-hidden="true">
-                      <line x1="0" y1="3" x2="22" y2="3" style={{"stroke":"var(--accent)"}} strokeWidth="3" />
-                    </svg>
-                    {"지나온 경로"}
-                  </span>
-                  {" "}
-                  <span style={{"display":"flex","alignItems":"center","gap":"6px"}}>
-                    <svg width="22" height="6" aria-hidden="true">
-                      <line x1="0" y1="3" x2="22" y2="3" style={{"stroke":"var(--muted)"}} strokeWidth="2" strokeDasharray="5 4" />
-                    </svg>
-                    {"남은 경로"}
-                  </span>
-                  {" "}
-                  <span style={{"display":"flex","alignItems":"center","gap":"6px"}}>
-                    <span style={{"width":"12px","height":"12px","borderRadius":"50%","background":"var(--ok)"}} />
-                    {"측정 완료"}
-                  </span>
-                  {" "}
-                  <span style={{"display":"flex","alignItems":"center","gap":"6px"}}>
-                    <span style={{"width":"12px","height":"12px","borderRadius":"50%","border":"2px solid var(--accent)"}} />
-                    {"다음 지점"}
-                  </span>
-                  {" "}
-                  <span style={{"display":"flex","alignItems":"center","gap":"6px"}}>
-                    <span style={{"width":"10px","height":"10px","transform":"rotate(45deg)","background":"var(--warn)"}} />
-                    {"발견물"}
-                  </span>
-                  {" "}
-                  <span style={{"display":"flex","alignItems":"center","gap":"6px"}}>
-                    <span style={{"width":"14px","height":"10px","background":"var(--bad-bg)","border":"1px solid var(--bad)"}} />
-                    {"진입 금지"}
-                  </span>
-                  {" "}
-                  <span style={{"display":"flex","alignItems":"center","gap":"6px"}}>
-                    <span style={{"width":"14px","height":"10px","background":"var(--warn-bg)","border":"1px dashed var(--warn)"}} />
-                    {"통신 약함"}
-                  </span>
-                  {" "}
-                </div>
+                {v.legend ? <div style={{"padding":"10px 12px","borderTop":"1px solid var(--line)"}}>{v.legend}</div> : null}
                 {" "}
               </div>
               {" "}

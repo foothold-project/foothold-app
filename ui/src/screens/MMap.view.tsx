@@ -119,6 +119,7 @@ export function View({ v }: { v: Vals }) {
           </span>
           {" "}
         </div>
+        {v.legend ? <div style={{"margin":"6px 16px 0"}}>{v.legend}</div> : null}
         {" "}
         <section aria-label="고른 목표" style={{"margin":"10px 16px 0","padding":"14px","border":"1px solid var(--accent)","borderRadius":"12px","background":"var(--panel)","display":"flex","flexDirection":"column","gap":"10px"}}>
           {" "}
@@ -218,25 +219,6 @@ export function View({ v }: { v: Vals }) {
           {" "}
         </nav>
         {" "}
-        <div style={{"padding":"8px 16px 18px","background":"var(--panel)"}}>
-          {" "}
-          <button aria-label="비상 정지" {...v.stopProps} style={{"width":"100%","height":"64px","border":"0","borderRadius":"12px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","justifyContent":"center","gap":"12px"}}>
-            {" "}
-            <svg width="28" height="28" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-              <rect x="8" y="8" width="8" height="8" fill="#FFFFFF" />
-            </svg>
-            {" "}
-            <span style={{"fontWeight":"700","fontSize":"22px","letterSpacing":".1em"}}>
-              {"STOP"}
-            </span>
-            <span style={{"fontSize":"13px"}}>
-              {"명령 0·잠금"}
-            </span>
-            {" "}
-          </button>
-          {" "}
-        </div>
         {" "}
         {v.drawer ?? null}
       </div>

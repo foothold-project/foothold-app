@@ -4,20 +4,21 @@ import { Photo } from '../app/Photo';
 import { useEffect, useRef, useState } from 'react';
 import { CSS, View } from './Main.view';
 import { deg, durTxt, fmtT, num, sgn, themeClass, wpName } from '../data/fmt';
-import { STOP_TIP, TERMS, TRIAL, WHY, evShow } from '../data/facts';
-import { camChip, HeadChips, SimRun } from '../app/status';
-import { Chip, DirTag, Help, SafeLine } from '../app/chip';
+import { STOP_TIP, TERMS, TRIAL, WHY, ZONE_NOTE, evShow } from '../data/facts';
+import { camChip, gateWait, HeadChips, SimRun, useHeadChips } from '../app/status';
+import { DirTag, Help, SafeLine } from '../app/chip';
 import { camURL, driveBlock, dropAll, linkView, press, lift, sendOp, startBlock, startDrive, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
-import { finishText, pickWp, modDone, modTxt, shoot, runHere } from '../data/run';
+import { finishText, startText, pickWp, modDone, modTxt, shoot, runHere } from '../data/run';
 import { href } from '../data/hist';
-import { MapCanvas } from '../map/MapCanvas';
+import { MapCanvas, MapLegend } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
 import { MULTI, useDirWhy, useDriveScreen, useGateRtt, useHold } from '../app/drive';
 import { stageOf, srvWhy, stepLabel } from '../data/drive_stage';
+import type { Stage } from '../data/drive_stage';
 import { EndRow, WpActs } from '../app/runui';
 import { useSel } from '../data/scratch';
-import { stopOn, stopProps, toast, whyProps } from '../app/shell';
+import { toast, whyProps } from '../app/shell';
 import { autoProvider, OpsQuad } from '../app/OpsQuad';
 
 const MARK: Record<string, string> = { ok: '●', warn: '▲', bad: '■' };
@@ -38,8 +39,13 @@ const Pad = ({ k, no }: { k: string; no: string | null }) => (
     <DirTag />   {/* U2: 막힌 방향 = 꼬리표 + ? NOMOVE(허용 범위 변경 0) · 막힌 방향 입력은 useDirWhy 토스트 1회 */}
   </div>);
 
+// G4(UX-SPEC 3-3 표): 단계 → 주행동. none = 강조 단추 0(연결 회복 대기·리셋/해제 확인 대기·조종 가능·임무 없음) · 판단은 표시용(명령 0)
+type Act = 'none' | 'sim' | 'b1' | 'ask';
+export const nowAct = (g: Stage, link: boolean, simBlk: boolean, simGate: boolean, run: boolean): Act =>   // 시뮬 막힘인데 시뮬 관문이 아니면 = 서버 이유 대기(none · 조종 시작 강조 0)
+  !link ? 'none' : simBlk ? (simGate ? 'sim' : 'none') : g.stop === '시뮬 리셋 처리 중' || g.stop === 'STOP 해제 확인 대기' ? 'none' : g.i < 2 ? 'b1' : run ? 'ask' : 'none';
+const NOW_WHERE: Record<Exclude<Act, 'none'>, string> = { sim: '아래 «시뮬 실행» 칸의 «시뮬 실행»', b1: '조작줄 «조종 시작»(확인 1회)', ask: '«이 지점에서 할 일» 카드' };
 export default function Main() {
-  const D = useDocs(), L = useLink(), v = linkView(L), st = L.st, s = v.s;
+  const D = useDocs(), L = useLink(), v = linkView(L), st = L.st, s = v.s, cam = camChip(v, gateWait(useHeadChips(true)));   // 10-19: 관문이 정상일 때만 영상 경고(상위 원인 하나)
   const box = useRef<HTMLDivElement>(null);
   const [trail, setTrail] = useState(true), [zon, setZon] = useState(true);
   const [big, setBig] = useState<null | 'fs' | 'page'>(null);
@@ -99,8 +105,9 @@ export default function Main() {
   const rows: [boolean, string, string][] = w ? [[w.st !== '대기', '방문 기록 · 운영자 «방문 확인»(자동 도착 판정 미연결)', w.at ? fmtT(w.at).slice(6) : ''], ...w.mods.map((ty): [boolean, string, string] => [modDone(w, ty), modTxt(w, ty), ''])]
     : [[false, R ? '대기 지점 없음 — 아래에서 임무를 끝내세요' : '수동 진행을 시작하면 지금 지점에서 할 일이 여기에 나옵니다', '']];
 
-  // U2(§3): 알약 = 잠금 사실 — 이 연결에서 유효 status 를 받았을 때만 잠김/풀림을 말함(머리줄 잠금 칩과 같은 «known»)
-  const known = v.linkOk && !L.bad && !!st;
+  // U2(§3): mode = 잠금 사실 — 이 연결에서 유효 status 를 받았을 때만 잠김/풀림을 말함(머리줄 잠금 칩과 같은 «known»)
+  // FIX2b(ROOT · G3 CURRENT): 표시 세대 기준 stGen===gen 도 같이(status.tsx hx·PcRobot known 과 같은 조건) · 머리줄 알약은 삭제(③ 조작 칩이 같은 역할) — mode 는 확대 조작줄 글에만
+  const known = v.linkOk && !L.bad && !!st && L.stGen === L.gen;
   const mode = !known ? '잠금 확인 안 됨' : st!.reset_pending ? '리셋 중' : st!.resume_pending ? 'STOP 해제 대기' : v.latch ? 'STOP 잠금' : ctl ? '직접 조종' : '보기 전용';
   const modeTone = !known ? 'warn' : v.latch ? 'bad' : ctl && !st!.reset_pending && !st!.resume_pending ? 'acc' : 'warn';
   // U2(670 P2): 시뮬 미수신·끊김을 «시뮬 꺼짐»으로 단정하던 본문 글(ex)·시뮬 시작/지도/끄기 버튼은 지움 → 머리줄 칩(시뮬 확인 안 됨/끊김)과 «시뮬 ▾» 메뉴 한 곳
@@ -111,10 +118,21 @@ export default function Main() {
     {s?.fallen === true && <b style={{ color: 'var(--bad)' }}>{`${noTxt || sw || ctl ? ' · ' : ''}넘어짐`}</b>}
     <span data-dev>{` · 보낸 명령 ${v.sent} · 시뮬 ${v.body}${s ? ` · 기울기 ${num(s.tilt_deg, 0, '°')}` : ''}${v.linkOk && st?.reason ? ` · 서버 이유 ${st.reason}` : ''}`}</span></>;
   const stg = stageOf({ linkOk: v.linkOk, linkTxt: v.linkTxt, st, viewOnly: L.viewOnly, fallen: s?.fallen === true, newVer: !!v.newVer, block: no });   // ② 작은 단계 표시(모드·motion 은 그대로)
+  // ---- G4(ROOT 4 · UX-SPEC 3-3): 오른쪽 열 «지금 할 일» — 단계마다 주행동 하나만 pri(표시 강조뿐 · startBlock·disabled·조종권·확인창·불가 이유 변경 0) ----
+  const act = nowAct(stg, v.linkOk && !!st, !!st?.sim_block, L.provider === 'simulation_gate', !!run);
+  // 접는 칸: 사용자가 여닫은 상태는 그대로 · 단계가 바뀌어도 다시 접지 않음 · 주행동이 그 칸이면 한 번 펼침(닫기 0)
+  const [opn, setOpn] = useState({ sim: false, map: false, mis: false });
+  useEffect(() => { if (act === 'sim' || act === 'ask') setOpn((o) => ({ ...o, [act === 'sim' ? 'sim' : 'mis']: true })); }, [act]);
+  const fold = (k: keyof typeof opn, sum: string, body: React.ReactNode) =>
+    <details open={opn[k]} onToggle={(e) => { const o = (e.currentTarget as HTMLDetailsElement).open; setOpn((x) => (x[k] === o ? x : { ...x, [k]: o })); }}>
+      <summary style={{ cursor: 'pointer', minHeight: '32px', fontWeight: 600 }}>{sum}</summary>{body}</details>;
+  const ms = st?.map_start;
+  const simSum = !v.linkOk ? '시뮬 실행 · 연결 확인 안 됨 — 조작하지 않음' : ms && !ms.ok ? `시뮬 실행 · 시작 불가 — ${ms.why || '서버 이유 없음'}` : '시뮬 실행 · 리셋 · 시작 · 지도 저장 · 끄기';
+  const misSum = R ? `임무 · «${R.name}» 진행 중` : D.err ? `임무 · 시작 전 · 저장 임무 목록 못 읽음 — ${D.err}` : '임무 · 시작 전';
   const tog = (b: boolean, f: (x: boolean) => void, t: string) => ({ className: 'layer', 'aria-pressed': b, title: t, onClick: () => f(!b) });
 
   const vals = {
-    themeClass: themeClass(true), stopProps,
+    themeClass: themeClass(true),
     // U2: 제목 위 진단 줄 전부 개발자 모드 — 안전 부분(TRIAL_SAFE)은 안전 한 줄(SafeLine)의 ? 로 옮김
     siteNode: <span data-dev>{`${TRIAL} · 판 ${L.firstVer || '—'}`}</span>,
     stepTitle: R ? `수동 임무 «${R.name}» · 방문 ${vis}/${R.wps.length}` : ctl && !v.latch ? '직접 조종' : '대기 중',
@@ -124,8 +142,9 @@ export default function Main() {
     // U1-b: 링크 칩은 공통 머리줄 칩(시뮬·연결·역할·잠금)으로 — 앱↔관문·단계는 그대로(U2)
     // U2(670 P3): 단계는 짧은 칩 + ?(막힌 이유·다음 행동 전문) — 390 폭에서 글이 잘리지 않게
     // U2 보완 A4: rtt.ok=false 는 «확인 중·미측정·확인 못 함»이지 지연 판정이 아님 → 그 사실 그대로(느림 단정 0)
-    head: <>{v.linkOk && !rtt.ok && <Chip tone="warn" text={rtt.txt.replace('앱↔관문 ', '관문 ')} why={rtt.why || rtt.txt} />}
-      <Chip tone={stg.stop ? 'warn' : stg.i === 3 ? 'ok' : 'off'} text={`단계 ${stepLabel(stg)}`} why={`${stg.stop ? `막힘: ${stg.stop} · ` : ''}다음: ${stg.next}`} /><HeadChips /></>,
+    // G4(ROOT3 · UX-SPEC 2 요약 칩 최대 3): 관문 응답·단계 칩 → «상태 ▾» 상세 행 · 단계·막힘은 오른쪽 «지금 할 일» 카드에 늘 밖으로
+    head: <HeadChips main extra={[['영상', cam.text, cam.why], ['단계', stepLabel(stg), `${stg.stop ? `막힘: ${stg.stop} · ` : ''}다음: ${stg.next}`],
+      ...(v.linkOk && !rtt.ok ? [['관문 응답', rtt.txt.replace('앱↔관문 ', '관문 '), rtt.why || rtt.txt] as [string, string, string]] : [])]} />,
     chips: [],
     isGas: false, isDetAlarm: false, isAsk: false, isLost: false, panelDet: false, panelGas: false,
     opInit: (st?.me || '?').slice(0, 1).toUpperCase(), opName: st?.me ? `이 기기 · ${st.me}` : '이 기기 · 미확인', opRole: v.roleTxt,
@@ -134,7 +153,10 @@ export default function Main() {
     mapTitle: on ? `지도 보기 · ${raster ? raster.label : blank}` : <>{s ? '시뮬 바닥' : ''}<span data-dev>{s ? ` · 선은 ${s.source === 'gz_gt' ? '시뮬 위치' : s.source || '미확인'} · x ${sgn(s.x)} y ${sgn(s.y)} m` : ' · 위치 미연결'}</span></>,
     // B2 R11: 미연결 레이어(측정값·발견물·통신 품질·3D 점군)는 버튼 모양 0 — 숨기고 «상태 상세»의 지원 범위로(3D 점군은 관제 보조 뷰에 있음)
     layerP: [tog(trail, setTrail, '지나온 길(시뮬 위치) 보이기/숨기기'), layer(''), layer(''), layer(''), tog(zon, setZon, '구역 표시 켜기/끄기(표시만 · 주행 제한 미연결)'), layer('')],
-    findCnt: '—', legendHide: true,
+    findCnt: '—',
+    // UX-SPEC 3-4: 지도 아래 띠 = 아래 MapCanvas 에 넘기는 값 그대로(그리는 표식만 · 옛 예시 범례 «남은 경로·측정 완료·발견물·통신 약함» 삭제)
+    legend: <MapLegend robot={on ? pose : v.robot} noRobot={on && !pose} trail={trail && !on && TRAIL.pts.length > 1} wps={!!(R && !on && here.ok && R.wps.length)}
+      zones={zon && !on && !D.err ? docsOf(D, 'zone') : []} note={<>표시만 · 주행 제한 미연결<Help label="구역 · 설명">{ZONE_NOTE}</Help></>} />,
     // 10-15 ④: 머리줄 아이콘(◎·+·−) 대신 지도 칸 안 글 버튼(«전체 고정 / 로봇 중심» + 확대·축소) — 2×2·큰 칸·전체화면에서 같은 자리
     folP: layer(''), zinP: layer(''), zoutP: layer(''),
     // 관제 4분할(실기 Go2 | 시뮬 보조) — 지도 칸도 누름 = 확대 토글(끌기 6 px·버튼·고르기는 제외). 이 지도는 onTap 없음(점 찍기 0)
@@ -144,7 +166,7 @@ export default function Main() {
       map={(q) => <>
         <MapCanvas name="main" lean small={q === 'thumb'} btns={q !== 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
           raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on && here.ok ? R.wps : null} /></>} />,
-    stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${finishText(R)} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist != null ? `${dist.toFixed(1)} m` : here.ok ? '미확인' : `표시 안 함(${here.why})`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
+    stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${finishText(R)} · ${startText(R)} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist != null ? `${dist.toFixed(1)} m` : here.ok ? '미확인' : `표시 안 함(${here.why})`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
     steps: R ? R.wps.map((x, i) => ({ n: i + 1, title: x.name || `지점 ${i + 1}`, cls: x.st === '방문' ? 'done' : x.st === '미방문' ? 'hold' : i === ci ? 'now' : '',
       sub: x.st === '방문' ? `방문 ${fmtT(x.at).slice(6)} · 사진 ${x.photos.length}${x.chk ? ` · ${x.chk}` : ''}` : x.st === '미방문' ? `미방문 · ${x.why}`
         : i === ci ? `기록 차례${x.photos.length ? ` · 사진 ${x.photos.length}` : ''}${x.chk ? ` · ${x.chk}` : ''} · 직접 조종` : '대기' })) : [],
@@ -156,19 +178,19 @@ export default function Main() {
     // 영상: Gazebo 렌더 카메라 하나(실카메라·뎁스 아님)
     boxRef: box, boxCls: big === 'page' ? 'lv-big' : undefined, camHide: true,   // 영상은 4분할 RGB 칸으로 옮김(같은 img[data-live-cam])
     cam: <><img data-live-cam="" alt="시뮬 카메라 영상" src={camURL || undefined} style={{ position: 'absolute', inset: '0', width: '100%', height: '100%', objectFit: 'cover', visibility: v.camOk ? 'visible' : 'hidden' }} />
-      <div style={{ position: 'absolute', inset: '0', display: 'grid', placeItems: 'center', color: '#9AA7B2', fontSize: '14px', pointerEvents: 'none' }}>{v.camOk ? '' : camChip(v).text}</div></>,
-    vlabel: v.camOk ? '시뮬 카메라' : camChip(v).text, recHide: true,
+      <div style={{ position: 'absolute', inset: '0', display: 'grid', placeItems: 'center', color: '#9AA7B2', fontSize: '14px', pointerEvents: 'none' }}>{v.camOk ? '' : cam.text}</div></>,
+    vlabel: v.camOk ? '시뮬 카메라' : cam.text, recHide: true,
     frontP: { 'aria-pressed': true, title: '전방 시뮬 카메라 — 유일한 영상', onClick: () => toast('전방 시뮬 카메라가 유일한 영상입니다') },
     depthP: whyProps(`뎁스 — ${WHY['뎁스 영상·3D 점군']}`),
     shotP: { title: '지금 영상 프레임을 사진으로(촬영 시각·시뮬 위치 기록)', onClick: photo },
     bigP: { title: '영상 크게 보기(STOP·조작 포함) · Esc 로 닫기', onClick: () => (big ? bigClose() : bigOpen()) },
     bigbar: big ? <div className="lv-bigbar" data-live-bigbar="1" style={{ display: 'flex' }}>
-      <button type="button" className="btn lv-stop" aria-label="비상 정지(확대 화면)" {...stopOn}>STOP</button>
+      {/* 10-19: 확대 화면 STOP 삭제 — 공통 GlobalStop 이 InTop 으로 전체화면 안·밖 같은 자리(top8·right12) */}
       <button type="button" className="btn" {...goP}>{goT}</button>
       {ctl && <Pad k="big" no={no} />}<span>{`${mode} · ${v.roleTxt}`}<span data-dev>{` · 보낸 명령 ${v.sent} · ${v.body}`}</span></span><SafeLine />
       <button type="button" className="btn" onClick={bigClose}>닫기 (Esc)</button></div> : null,
     // 조작줄: 조종 시작(N1, startBlock 그대로 — 조종권+STOP 잠금이면 다시 «조종 시작») · 조종 반납(조종권 있을 때만) · 시뮬 리셋은 오른쪽 «시뮬 실행» 칸(SimReset)
-    b1T: goT, b1P: goP,
+    b1T: goT, b1P: act === 'b1' ? { ...goP, className: 'btn pri' } : goP,   // 주행동일 때만 pri · 자리·조건 그대로
     b2T: '조종 반납', b2P: { onClick: () => sendOp('release'), hidden: role !== 'control', disabled: !v.linkOk || role !== 'control', title: !v.linkOk ? '연결 확인 안 됨' : '조종 반납(입력 차단·잠금)' },
     b2Help: role === 'control' ? <Help label="조종 반납 · 설명">반납하면 다른 기기가 «조종 시작»으로 조종할 수 있습니다 · 반납하면 입력 차단·잠금</Help> : null,
     b3T: '', b3P: { hidden: true },
@@ -190,20 +212,25 @@ export default function Main() {
       {ph.map(([u, i]) => <div key={u} title={`WP${i + 1} 사진`} style={{ aspectRatio: '4/3', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--line)' }}>
         <a href={href('PcReview', { url: u })}><Photo src={u} alt={`WP${i + 1} 사진`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} /></a></div>)}</div> : <></>,
     askLbl: ph.length ? `이 임무의 사진 · ${[...new Set(ph.map(([, i]) => `WP${i + 1}`))].join(' · ')}` : R ? '이 임무에 붙인 사진 없음 — «📷 사진»으로 지금 지점에 붙입니다' : '',
-    askActs: run ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{R && <WpActs id={run.id} R={R} i={ci} />}<EndRow id={run.id} /></div> : null,
+    askActs: run ? <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>{R && <WpActs id={run.id} R={R} i={ci} pri={act === 'ask'} />}<EndRow id={run.id} /></div> : null,
     // 사건 기록: 서버 최근 5건(U3-a 표시 문장 · 원문은 기록 → 사건 상세)
     panelAsk: !!run,   // U2: 진행 중 임무가 없으면 «이 지점에서 할 일» 카드 숨김
     // U2-c: 오른쪽 열 = 시뮬 실행(«시뮬 ▾»와 같은 SimRun — 조건·확인창·리셋·끄기 그대로) · 지도 보기(보기만 · 읽기 op) · 임무(저장 계획 고르기 → 임무 계획) · 그 아래 사건 기록
     runPanel: <div data-runpanel="" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '10px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
-      {L.provider === 'simulation_gate' && <section aria-label="시뮬 실행" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>시뮬 실행</span><SimRun catalog={maps} reloadCatalog={reloadMaps} /></section>}
-      <section aria-label="지도 보기(보기만)">{pickEl}</section>
-      <section aria-label="임무" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><span style={{ fontWeight: '600' }}>임무</span>
+      <section aria-label="지금 할 일" data-now={act} style={{ display: 'flex', flexDirection: 'column', gap: '4px', padding: '10px 12px', border: '1px solid var(--line2)', borderRadius: '8px' }}>
+        <b>{`지금 할 일 · ${stepLabel(stg)}`}</b>
+        {stg.stop && <span>{`■ ${stg.stop}`}</span>}
+        <span>{stg.next}</span>
+        {act !== 'none' && <span className="lbl" style={{ color: 'var(--text)' }}>{NOW_WHERE[act]}</span>}</section>
+      {L.provider === 'simulation_gate' && fold('sim', simSum, <section aria-label="시뮬 실행" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}><SimRun catalog={maps} reloadCatalog={reloadMaps} pri={act === 'sim'} /></section>)}
+      {fold('map', `지도 보기 · ${on ? (raster ? raster.label : blank || '지도 없음') : '시뮬 바닥(기본)'}`, <section aria-label="지도 보기(보기만)">{pickEl}</section>)}
+      {fold('mis', misSum, <section aria-label="임무" style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {R ? <a href={href('PcPlan', R.mission ? { mission: R.mission } : {})} style={{ color: 'var(--accent)', fontSize: '13px', padding: '4px 2px' }}>{`계획 보기 · «${R.name}»(임무 계획)`}</a>
           : <><select className="inp" aria-label="저장 임무 고르기(고르기만 · 시작 아님)" value={mSel} onChange={(e) => setMp(e.target.value)}>
               <option value="">{D.err ? `${D.stale ? '보관 목록(재조회 실패)' : '저장 임무 목록 못 읽음'} · ${D.err}` : D.rev === null ? '저장 임무 목록 읽는 중' : msl.length ? '저장 임무 고르기' : '저장 임무 없음 — 임무 계획에서 만들기'}</option>
               {msl.map((m) => <option key={m.id} value={m.id}>{`${m.doc.name} · 지점 ${m.doc.wps.length}`}</option>)}</select>
             <a className="btn" href={href('PcPlan', mSel ? { mission: mSel } : {})} title="임무 계획에서 계획을 고르고 «수동 진행 시작»" style={{ alignSelf: 'flex-start', textDecoration: 'none' }}>임무 시작</a></>}
-      </section></div>,
+      </section>)}</div>,
     evLink: '전체 기록 ›', evHref: href('PcHistory'),
     events: (st ? st.events : []).slice(0, 5).map((e) => ({ t: e.t, st: e.st, mark: MARK[e.st] || '·', text: evShow(e.text) }))   // U3-a §3 표시 문장 — 원문은 기록 → 사건 상세,
   };

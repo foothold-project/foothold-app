@@ -7,11 +7,12 @@ import { startLink, useLink } from './data/link';
 import { PHONE, auth, entryHash, isLogin, loginHash } from './data/auth';
 import { dropScratch } from './data/scratch';
 import { useEffect } from 'react';
-import { HOME, StartAsk, StopNote, Toast, useRoute, useStopKey } from './app/shell';
+import { GlobalStop, HOME, StartAsk, StopNote, Toast, useRoute, useStopKey } from './app/shell';
 import './live.css';
 import './brand.css';
 import { syncTheme } from './app/theme';
 import { devStart } from './data/dev';
+import { check as pdCheck } from './data/persistDraft';
 
 // 옮긴 화면만 여기 있다. 나머지는 묶음 2·3 에서(아래 «아직 옮기지 않음» 안내).
 const SCREENS: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
@@ -47,6 +48,7 @@ function App() {
   useEffect(() => { if (authEnd && auth.gated && !isLogin(name)) location.replace(loginHash()); }, [authEnd, name]);
   return (
     <QueryClientProvider client={qc}>
+      <GlobalStop />{/* 10-19 공통 STOP 하나 — 모든 route(로그인 2화면 포함, ROOT 최신 결정) · Suspense 밖(화면 여는 중에도) */}
       <Suspense fallback={<p className="lv-note">화면 여는 중…</p>}>
         {S ? <S /> : <p className="lv-note" style={{ padding: 16 }}>{`«${name}» 화면은 아직 React 로 옮기지 않았습니다.`} <a href={`#/${HOME}`}>관제로</a></p>}
       </Suspense>
@@ -59,5 +61,6 @@ function App() {
 devStart();   // 개발자 모드 초기값(URL > 저장값 > 꺼짐) — 표시만
 { const e = entryHash(location.hash, PHONE, (n) => n in SCREENS); if (e) history.replaceState(null, '', e); }   // 첫 입구 한 번만(빈 주소만 · 기록 쌓지 않음 → 뒤로 = 앱 밖 그대로). 그 뒤 해시 변화·크기 변화로 자동 이동 0
 startLink();
+void pdCheck();   // 10-19 ROOT 10: 영속 초안 문맥 확인은 앱 시작 1회(whoami 유효 뒤에만 복원 · off/폐기 뒤 자동 재확인 루프 0)
 syncTheme();
 createRoot(document.getElementById('root')!).render(<App />);

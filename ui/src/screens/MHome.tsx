@@ -8,21 +8,20 @@ import { durTxt, themeClass, wpName } from '../data/fmt';
 import { unreadOf } from '../data/alerts';
 import { activeRun, alertsOf, docsOf, useDocs, useMedia } from '../data/shared';
 import { TRAIL, dropAsk, linkView, useLink } from '../data/link';
-import { attachPhoto, finishText, pickWp, modDone, modTxt, runEnd, runHere, startRun } from '../data/run';
+import { attachPhoto, finishText, startText, pickWp, modDone, modTxt, runEnd, runHere, startRun } from '../data/run';
 import { useEditor } from '../data/editor';
 import { useSel } from '../data/scratch';
 import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { LiveStatus } from '../app/status';
-import { stopProps, toast } from '../app/shell';
+import { toast } from '../app/shell';
 import { Btn, WpActs } from '../app/runui';
 import { SafeLine } from '../app/chip';
 
 // R04 가로(높이 ≤ 500): 본문 안 «조종 화면»이 스크롤 아래로 밀리므로 STOP 줄 왼쪽에도 같은 링크(STOP 크기·위치 규칙은 그대로, 줄 왼쪽만 비움)
 const DRIVE_CSS = `.mh-drive{display:none}
 @media (orientation: landscape) and (max-height: 500px){
-.mh-drive{display:flex;align-items:center;justify-content:center;position:fixed;left:16px;bottom:18px;width:160px;height:64px;z-index:5;border-radius:12px;background:var(--accent);color:var(--on-accent);font-weight:700;text-decoration:none;box-sizing:border-box}
-#dc-root div[style*="padding: 8px 16px 18px"]:has(>button[aria-label="비상 정지"]){padding-left:192px!important}}`;
+.mh-drive{display:flex;align-items:center;justify-content:center;position:fixed;left:16px;bottom:18px;width:160px;height:64px;z-index:5;border-radius:12px;background:var(--accent);color:var(--on-accent);font-weight:700;text-decoration:none;box-sizing:border-box}}`;   /* 10-19: STOP 줄 왼쪽 비움 규칙 삭제 — STOP 은 공통 GlobalStop(오른쪽 위) */
 export default function MHome() {
   const D = useDocs(), M = useMedia(), L = useLink(), lk = linkView(L), E = useEditor<Mission>('mission');
   const [endOpen, setEndOpen] = useState(false), [pick, setPick] = useState('');
@@ -45,13 +44,13 @@ export default function MHome() {
   const cam = () => { if (!run || ci < 0) return toast('기록 중인 지점이 없습니다'); attachPhoto(run.id, ci); };
 
   const v = {
-    themeClass: themeClass(false), stopProps, safe: <p style={{ margin: '6px 0 0' }}><SafeLine /></p>,   // U2: STOP 바로 아래 안전 한 줄 + ?
+    themeClass: themeClass(false), safe: <p style={{ margin: '6px 0 0' }}><SafeLine /></p>,   // U2: STOP 바로 아래 안전 한 줄 + ?
     isBase: true, isGas: false, hasFind: false, bodyOverflow: 'auto',
     name: 'Go2 시뮬',
     linkLine: <span style={{ fontSize: '13px', color: 'var(--muted)' }}>배터리 정보 없음</span>,   // B2 R16: 링크는 바로 아래 상태 줄(LiveStatus) 한 곳만
     status: <LiveStatus D={D} />,
     alertP: { href: href('MAlerts'), 'aria-label': `알림 ${unread}건(읽지 않음)` }, alertN: String(unread),
-    missionLine: R ? `수동 진행 · ${R.tmpl || '양식 없음'} · ${finishText(R)} · ${durTxt(R.started)}` : '진행 중 수동 임무 없음', mtagHide: !R,
+    missionLine: R ? `수동 진행 · ${R.tmpl || '양식 없음'} · ${finishText(R)} · ${startText(R)} · ${durTxt(R.started)}` : '진행 중 수동 임무 없음', mtagHide: !R,
     big: R ? `${vis}/${R.wps.length} · ${w ? `${wpName(w, ci)} 기록 차례` : '모든 지점 기록됨'}` : '시작할 계획을 고르세요',
     segsP: { style: { display: 'grid', gap: '4px', gridTemplateColumns: `repeat(${Math.max(1, R ? R.wps.length : 1)},minmax(0,1fr))` }, 'aria-label': R ? `${R.wps.length}지점 중 ${vis}지점 기록` : '진행 중 임무 없음' },
     segs: (R ? R.wps : []).map((x, i) => <span key={i} style={{ height: '6px', borderRadius: '3px', background: `var(--${x.st === '방문' ? 'ok' : x.st === '미방문' ? 'warn' : i === ci ? 'accent' : 'line'})` }} />),

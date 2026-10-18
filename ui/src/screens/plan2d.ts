@@ -2,13 +2,13 @@
 // 공용 run.ts(rekey/planMap/startPolicy/startRun/addPlan)·계약·서버는 바꾸지 않고 import 만 한다. 읽기 op 만(map_list·map_get·geom_get).
 // 도면 = 참고 그림(GT 래스터 개정은 계획 기준과 대조하지 않음). 로봇 마커·실측 겹치기 0.
 import { useEffect, useRef, useState } from 'react';
-import type { MapInfo, MapSrc, Mission, Waypoint } from '@contracts';
-import { WF, getMap, listMaps, tsOf } from '../data/maps';
+import type { MapInfo, MapSrc, Mission, PlanStart, Waypoint } from '@contracts';
+import { WF, getMap, listMaps, place, tsOf } from '../data/maps';
 import type { Raster } from '../data/maps';
 import { getGeom } from '../data/geom';
 import type { Geom } from '../data/geom';
 import { useLink } from '../data/link';
-import { planMap, rekey, wkey } from '../data/run';
+import { cutName, planMap, rekey, wkey } from '../data/run';
 import type { Here } from '../data/run';
 
 type Mod = Waypoint['mods'][number];
@@ -122,14 +122,39 @@ export const FINISH: readonly { v: Finish; sub: string }[] = [
   { v: '출발점 복귀', sub: '진행을 시작한 곳으로 · 직접 조종' },
   { v: '마지막 지점 종료', sub: '마지막 목적지에서 끝' },
 ];
-/** ④ 흐름: 시작 위치 → n 이름 · 할 일 … → 복귀 / 여기서 종료. 이름 비면 «지점 n». 종료 방식 없으면 null(흐름 안 보임) */
-export const flowTxt = (wps: readonly Waypoint[], f: Mission['finish']): string[] | null => {
+/** ⑤ 흐름(SPEC 2-4): S 있음 = «S 출발점 → … → S 로 복귀/여기서 종료», 없음 = 기존 «임무 시작 위치 → … → 시작 위치로 복귀». 이름 비면 «지점 n».
+ *  종료 방식 없으면 null(흐름 안 보임). hasS = 화면에 S 가 있는지(그림 여부와 무관 — 다른 도면 S 도 계획 출발점) */
+export const flowTxt = (wps: readonly Waypoint[], f: Mission['finish'], hasS = false): string[] | null => {
   if (!wps.length || !f) return null;
   const s = wps.map((w, i) => `${i + 1} ${w.name.trim() || `지점 ${i + 1}`} · ${modsTxt(w.mods)}`);
-  return ['임무 시작 위치', ...(f === '출발점 복귀' ? [...s, '시작 위치로 복귀'] : [...s.slice(0, -1), `${s[s.length - 1]} · 여기서 종료`])];
+  return [hasS ? 'S 출발점' : '임무 시작 위치', ...(f === '출발점 복귀' ? [...s, hasS ? 'S 로 복귀' : '시작 위치로 복귀'] : [...s.slice(0, -1), `${s[s.length - 1]} · 여기서 종료`])];
 };
-/** ⑤ 못 누르는 이유 — 맨 앞 빠진 것 하나. ③ 요구는 새 임무(아직 id 없음 · 사본 포함)만 — 원본 id 있는 옛 임무는 키 없음 그대로 저장 */
-export const createWhy = (d: Mission, isNew: boolean, terr: boolean) =>
-  !d.wps.length ? (terr ? '② 목적지를 하나 이상 찍으세요' : '① 지형을 고르세요')
-  : isNew && !d.finish ? '③ 종료 방식을 고르세요'
-  : !d.name.trim() ? '이름을 넣으세요' : '';
+/** 만들기 막힘(UX-SPEC 5-3 · ROOT 7): 빠진 것 전부(번호순). ④ 요구는 새 임무(아직 id 없음 · 사본 포함)만 — 원본 id 있는 옛 임무는 키 없음 그대로 저장.
+ *  ② 출발점은 선택(ROOT 8) — 막지 않음. 글 = «만들려면: …», 빈 배열 = 진행 */
+export const createMiss = (d: Mission, isNew: boolean, terr: boolean) => [
+  ...(!terr && !d.wps.length ? ['① 지형'] : []), ...(!d.wps.length ? ['③ 목적지 1곳 이상'] : []),
+  ...(isNew && !d.finish ? ['④ 종료 방식'] : []), ...(!d.name.trim() ? ['⑥ 이름'] : [])];
+export const createWhy = (d: Mission, isNew: boolean, terr: boolean) => { const m = createMiss(d, isNew, terr); return m.length ? `만들려면: ${m.join(' · ')}` : ''; };
+
+/** 새 임무 이름(ROOT 7 · UX-SPEC 5-3): 문서를 만드는 순간 1회 «{지형·층} 임무 MM-DD HH:mm»(지형 미정이면 «임무 …») · 60자 안 */
+export const mdhm = (now: Date | number) => { const t = new Date(now), p = (n: number) => String(n).padStart(2, '0'); return `${p(t.getMonth() + 1)}-${p(t.getDate())} ${p(t.getHours())}:${p(t.getMinutes())}`; };
+export const autoName = (t: Terr | null, now: Date | number = new Date()) => cutName(`${t ? `${place(t.w, t.f)} ` : ''}임무 ${mdhm(now)}`, 60);
+
+// ---- 계획 출발점 S(ROOT 8 · SPEC 2-2·2-3) — start = {x, y, map}, map.key = wkey([S]) · 목적지 지문(Mission.map)과 따로 ----
+/** S 만들기: 출처는 목적지 첫 점과 같은 firstSrc(호출부) · 옮기기는 pinRid(옛 S 출처, 지금 firstSrc) 로 낮추기만(승격 0) */
+export const mkStart = (x: number, y: number, src: MapSrc): PlanStart => ({ x, y, map: { ...src, key: wkey([{ x, y }]) } });
+export type SView = { k: 'none' } | { k: 'ok'; s: PlanStart } | { k: 'other'; s: PlanStart; why: string };
+/** 지도에 그릴 수 있나(SPEC 2-3 «다른 도면 좌표»): 선택 지형·층과 같음 · 자기 key 일치 · 목적지 계획(부모 map)과 지형·층 같음 · rid 가 둘 다 있으면 같음.
+ *  아니면 other(숫자 카드만 · 그림·옮기기 꺼짐 · 원문 보존). rid 없는 연관은 ok(기록만 칩은 기존 그대로) */
+export function sView(d: Mission, t: Terr | null): SView {
+  const s = d.start; if (!s) return { k: 'none' };
+  const m = s.map, p = d.map;
+  const why = !t ? '지형 정보 없는 계획 — 지도에 안 그림'
+    : !m || m.world_id !== t.w || m.floor_id !== t.f ? '출발점 지형·층이 지금 도면과 다름'
+    : m.key !== wkey([s]) ? '출처 기록 뒤 출발점 좌표가 바뀜'
+    : p && (p.world_id !== m.world_id || p.floor_id !== m.floor_id) ? '목적지 계획과 출발점 지형·층이 다름'
+    : p?.rid && m.rid && p.rid !== m.rid ? '목적지 계획과 출발점 좌표 기준이 다름' : '';
+  return why ? { k: 'other', s, why } : { k: 'ok', s };
+}
+/** S 옮기기 관문: S 자기 출처에 srcGate 와 같은 규칙(기하·실행 world 대조) — 막히면 이유(옛 S 그대로) */
+export const sGate = (s: PlanStart, t: Terr, h: Here, geo: Geo) => srcGate({ name: '', tmpl: '', memo: '', wps: [{ x: s.x, y: s.y, name: '', mods: [] }], map: s.map }, t, h, geo);

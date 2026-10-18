@@ -1,9 +1,8 @@
 // 새 기획(10-18) 공용 부품 — #/Fleet·#/MapEditor(PC 틀)·#/Field 가 같이 씀.
-// STOP 은 기존 stopProps(stopNow) 그대로 — 새 명령 경로 0. 색은 브랜드 토큰만(새 색 0).
+// STOP 은 공통 GlobalStop(shell, 기존 stopProps/stopNow 그대로) — 새 명령 경로 0. 색은 브랜드 토큰만(새 색 0).
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { BrandLogo } from './BrandLogo';
 import { LiveStatus } from './status';
-import { stopProps } from './shell';
 import { PHONE } from '../data/auth';
 import { themeClass } from '../data/fmt';
 import { useDocs } from '../data/shared';
@@ -29,21 +28,24 @@ export type Mode = 'rehearsal' | 'live';
 const MKEY = 'fh.fleet.mode';
 export const savedMode = (): Mode | null => { try { const v = localStorage.getItem(MKEY); return v === 'rehearsal' || v === 'live' ? v : null; } catch { return null; } };
 export const saveMode = (m: Mode) => { try { localStorage.setItem(MKEY, m); } catch { /* 기억 못 해도 화면은 그대로 */ } };
+// ROOT 5 · UX-SPEC 4 조회 기억(fh.fleet.pid · fh.fleet.sc · fh.plan.wf): 사용자가 고른 값만 저장 · 읽기 실패 = 기억 없음 · 연결·조종권·STOP 과 무관
+export { memGet, memSet } from '../data/fmt';   // 조회 기억(try/catch · 실패 = 기본값) — 임무 탭도 같이 씀
 export function ModeSwitch({ mode, set }: { mode: Mode; set: (m: Mode) => void }) {
   const b = (m: Mode, t: string) => <button type="button" className="tool" aria-pressed={mode === m} onClick={() => set(m)} style={{ minHeight: 44 }}>{t}</button>;
   return <div role="group" aria-label="모드" style={{ display: 'flex', gap: 2, padding: 2, border: '1px solid var(--line)', borderRadius: 8 }}>{b('rehearsal', '리허설')}{b('live', '현장 관제')}</div>;
 }
 // 연결 로봇 수 = 신선한 몸 상태(linkView.s)가 있을 때만 1. linkOk 는 관문 status WS 신선도라 Gazebo 꺼짐·몸 상태 없음도 참 → 그때는 0대 + «관문 연결 · 몸 상태 미확인»(root 10-18).
 // direct = 실기 Go2 선택(직접 연결 미구현 · linkView 가 linkOk=false). 상태칩·STOP 은 기존 그대로 — 이 값은 «몇 대» 글에만.
-export type LiveN = { n: 0 | 1; txt: string };
+export type LiveN = { n: 0 | 1; txt: string; direct?: true };   // direct = 실기 선택 갈래(배너 문구만 다름)
 export const liveOf = (v: { linkOk: boolean; s: unknown }, direct: boolean): LiveN =>
-  v.s ? { n: 1, txt: '연결됨 · 시뮬' } : v.linkOk ? { n: 0, txt: '관문 연결 · 몸 상태 미확인' } : direct ? { n: 0, txt: '실기 Go2 선택됨 · 미연결(직접 연결 준비 중)' } : { n: 0, txt: '연결 없음' };
+  v.s ? { n: 1, txt: '연결됨 · 시뮬' } : v.linkOk ? { n: 0, txt: '관문 연결 · 몸 상태 미확인' } : direct ? { n: 0, txt: '실기 Go2 선택됨 · 미연결(직접 연결 준비 중)', direct: true } : { n: 0, txt: '연결 없음' };
 export function ModeBand({ mode, live }: { mode: Mode; live: LiveN }) {
   const r = mode === 'rehearsal';
   return <div role="status" data-mode={mode} style={{ padding: '8px 16px', fontSize: 13, background: r ? 'var(--paper-2, var(--panel2))' : 'var(--acc-bg)',
     borderTop: r ? '2px dashed var(--line)' : '3px solid var(--accent)', color: 'var(--text)' }}>
-    {r ? '리허설 · 계획과 2D 기하 검토만 · STOP은 기존 연결 대상에 요청'
-      : live.n ? '현장 관제 · 연결 로봇 1대(시뮬)' : `현장 관제 · 연결 로봇 0대 · ${live.txt}`}
+    {/* UX-SPEC 3-2 표 그대로 · 실기를 작동처럼 보이게 하는 숫자·초록 0 */}
+    {r ? '리허설 · 저장한 배치안을 2D로 검토 · 로봇에 명령 안 보냄 · STOP 은 오른쪽 위(연결된 대상에 요청)'
+      : live.n ? '현장 관제 · 연결 로봇 1대(시뮬)' : live.direct ? '현장 관제 · 실기 직접 연결은 아직 없음 · 연결 로봇 0대' : `현장 관제 · 연결 로봇 0대 · ${live.txt}`}
   </div>;
 }
 
@@ -51,15 +53,16 @@ export function ModeBand({ mode, live }: { mode: Mode; live: LiveN }) {
 export function PcOnlyBand() {
   const w = useWidth();
   if (!PHONE && w >= 600) return null;
-  return <div role="note" style={{ padding: '10px 16px', fontSize: 14, background: 'var(--warn-bg)', borderBottom: '1px solid var(--line)' }}>
+  return <div role="note" style={{ padding: '10px 168px 10px 16px', minHeight: 80, boxSizing: 'border-box', fontSize: 14, background: 'var(--warn-bg)', borderBottom: '1px solid var(--line)' }}>
     PC 화면입니다 · 현장에서는 <a href="#/Field" style={{ color: 'var(--accent)', fontWeight: 600 }}>현장 모드</a></div>;
 }
 
 // ---- PC 틀: 머리(로고·제목·상태칩·STOP 원래 마크업) + 주 메뉴 + 본문 ----
-// ── 주 메뉴(10-18 floor-mission 요청 6: «관제» = #/Fleet · 조종 화면 #/Main 은 관제 안 단추 · 지도 편집은 지도 화면 «새 지도 만들기»로 — 메뉴 항목 0)(이전: design-nav.md 1f6f5465 N3·N4): 순서·아이콘 = 다른 PC 화면 8곳과 같게. 그림은 PcMap.view 84–145행 SVG 그대로 복사(새 그림 0) ──
+// ── 주 메뉴(10-19 UX-SPEC 3-1: 관제·조종·임무·기록·지도·로봇·(아래)설정 7칸 — 조종 #/Main 은 메뉴 칸 · 이전 10-18: 관제 안 단추 · 지도 편집은 지도 화면 «새 지도 만들기»로 — 메뉴 항목 0)(이전: design-nav.md 1f6f5465 N3·N4): 순서·아이콘 = 다른 PC 화면 8곳과 같게. 그림은 PcMap.view 84–145행 SVG 그대로 복사(새 그림 0) ──
 const I = (c: React.ReactNode) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{c}</svg>;
 const NAV: [string, string, React.ReactNode][] = [
   ['Fleet', '관제', I(<><circle cx="12" cy="12" r="8" /><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M2 12h3M19 12h3" /></>)],
+  ['Main', '조종', I(<><circle cx="12" cy="12" r="8" /><path d="M12 7l-1.5 1.5M12 7l1.5 1.5M12 17l-1.5-1.5M12 17l1.5-1.5M7 12l1.5-1.5M7 12l1.5 1.5M17 12l-1.5-1.5M17 12l-1.5 1.5" /></>)],   // UX-SPEC 3-1: 조종 입구 = 메뉴 한 칸(Fleet 안 링크 삭제) · 기존 조종 그림 없음 → 같은 규격 새 선 그림(새 색 0)
   ['PcPlan', '임무', I(<><path d="M4 19l5-14 5 9 3-4 3 9" /><circle cx="9" cy="5" r="1.5" /></>)],
   ['PcHistory', '기록', I(<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>)],
   ['PcMap', '지도', I(<><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></>)],
@@ -82,10 +85,7 @@ export function PcFrame({ cur, title, sub, head, children }: { cur: string; titl
         {head}
         <div style={{ flex: 1 }} />
         <LiveStatus D={D} />
-        <button type="button" {...stopProps} style={{ height: 52, minWidth: 136, padding: '0 18px', border: 0, borderRadius: 8, background: 'var(--stop)', color: '#FFFFFF', display: 'flex', alignItems: 'center', gap: 10, boxShadow: '0 0 0 3px rgba(215,38,30,.22)' }}>
-          <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
-          <span style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1 }}><span style={{ fontWeight: 700, fontSize: 19, letterSpacing: '.08em' }}>STOP</span><span style={{ fontSize: 11 }}>스페이스 · 명령 0 요청 · 잠금</span></span>
-        </button>
+        {/* 10-19: 머리줄 STOP 삭제 — 공통 GlobalStop(shell · top8·right12·144×64). 머리줄 오른쪽 168 은 live.css 가 예약 */}
       </header>
       <div style={{ flex: 1, display: 'flex', minHeight: 0 }}>
         <nav aria-label="주 메뉴" style={{ flex: '0 0 76px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '12px 6px', borderRight: '1px solid var(--line)', background: 'var(--panel)' }}>

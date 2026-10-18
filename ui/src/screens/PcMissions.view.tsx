@@ -42,23 +42,6 @@ export function View({ v }: { v: Vals }) {
           <div style={{"flex":"1"}} />
           {" "}
           {v.status ?? null}
-<button aria-label="비상 정지" {...v.stopProps} style={{"height":"52px","minWidth":"136px","padding":"0 18px","border":"0","borderRadius":"8px","background":"var(--stop)","color":"#FFFFFF","display":"flex","alignItems":"center","gap":"10px","boxShadow":"0 0 0 3px rgba(215,38,30,.22)"}}>
-            {" "}
-            <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" />
-              <rect x="8" y="8" width="8" height="8" fill="#FFFFFF" />
-            </svg>
-            {" "}
-            <span style={{"display":"flex","flexDirection":"column","alignItems":"flex-start","lineHeight":"1.1"}}>
-              <span style={{"fontWeight":"700","fontSize":"19px","letterSpacing":".08em"}}>
-                {"STOP"}
-              </span>
-              <span style={{"fontSize":"11px"}}>
-                {v.stopSub ?? "스페이스 · 명령 0·잠금"}
-              </span>
-            </span>
-            {" "}
-          </button>
           {v.stopHelp ?? null}
           {" "}
         </header>
@@ -74,6 +57,14 @@ export function View({ v }: { v: Vals }) {
                 <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
               </svg>
               {"관제"}
+            </a>
+            {" "}
+            <a className="nav" href="#/Main">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+                <circle cx="12" cy="12" r="8" />
+                <path d="M12 7l-1.5 1.5M12 7l1.5 1.5M12 17l-1.5-1.5M12 17l1.5-1.5M7 12l1.5-1.5M7 12l1.5 1.5M17 12l-1.5-1.5M17 12l-1.5 1.5" />
+              </svg>
+              {"조종"}
             </a>
             {" "}
             <a className="nav cur" href="#/PcPlan" aria-current="page">

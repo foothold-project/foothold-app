@@ -12,7 +12,7 @@ import chipSrc from '../../src/app/chip.tsx?raw';
 import canvasSrc from '../../src/map/MapCanvas.tsx?raw';
 import pickSrc from '../../src/map/MapPick.tsx?raw';
 import quadSrc from '../../src/app/OpsQuad.tsx?raw';
-const { headChips, camChip } = await import('../../src/app/status');
+const { statusRows: headChips, camChip } = await import('../../src/app/status');   // 10-19: 옛 판정 = 상세 행(statusRows)
 const { dirWhy } = await import('../../src/app/drive');
 const { stageOf } = await import('../../src/data/drive_stage');
 const F = await import('../../src/data/facts');
@@ -65,7 +65,7 @@ test('Main: 시뮬 꺼짐 단정·시작 버튼 제거 · 리셋 버튼 숨김 �
   expect(code(mainSrc)).not.toMatch(/시뮬 꺼짐|SimOff|startSimAsk|조종권 반납|Gazebo 렌더|GT /);
   expect(mainSrc).toMatch(/b3P: \{ hidden: true \}/);
   expect(mainSrc).toMatch(/b2T: '조종 반납'/); expect(mainSrc).toMatch(/hidden: role !== 'control'/);
-  expect(mainView).toMatch(/"flexWrap":"wrap"/); expect(mainView).toMatch(/"flexShrink":"?0/);
+  expect(mainView).toMatch(/"flexWrap":"wrap"/); expect(mainView).not.toMatch(/aria-label="비상 정지"|v\.stopSub|stopProps/);   // FIX2b(ROOT 결정 1): G1 = 화면별 STOP 삭제 → 이 화면 STOP 0 · 공용 STOP 존재·title(STOP_TIP)·송신은 ui_g1_stop(실제 App)
   expect(mainSrc).toMatch(/siteNode: <span data-dev>/);
 });
 
@@ -74,7 +74,7 @@ test('MDrive·MHome 운영 문구: 조종 반납 · 막힌 방향 라벨 · 낡�
   expect(mdriveSrc).toMatch(/앞만\(뒤·옆✕\)/); expect(mdriveSrc).toMatch(/<DirTag \/>/); expect(mdriveSrc).toMatch(/useDirWhy\(\)/);
   expect(mdriveSrc).toMatch(/<p data-dev>\{`화면 판/); expect(mdriveSrc).toMatch(/\{TRIAL_SAFE\}<span data-dev>/);
   expect(code(mhomeSrc)).not.toMatch(/Go2 시뮬 · v2|배터리 미제공/); expect(mhomeView).not.toMatch(/명령 0·잠금/);
-  expect(mhomeView).toMatch(/입력 차단·잠금/);
+  expect(mhomeView).not.toMatch(/aria-label="비상 정지"|입력 차단·잠금/);   // FIX2b(ROOT 결정 1): G1 = 화면별 STOP 삭제 → 이 화면 STOP 0 · 공용 STOP 존재·title(STOP_TIP)·송신은 ui_g1_stop(실제 App)
 });
 
 // ── U2-b: Main 지도 패널·보조 뷰(다른 화면 MapCanvas 글은 lean 없으면 그대로 — U3~5)
@@ -125,8 +125,8 @@ test('U2-b 보완 B2: 로봇 중심 버튼 이유 — 그림 없음 / 결속 없
 test('U2-b 지도 보기(drop=Main 만 · U2-c 이름): 라벨 + ? · 보는 지도 ≠ 실행 지도 + ?(원문) · 선택지에 GT 0', () => {
   expect(pickSrc).toMatch(/\{drop \? <span[^>]*>지도 보기<Help label="지도 보기 · 설명">화면만 바뀜 · 시뮬은 그대로<\/Help>/);
   expect(pickSrc).toMatch(/\{diff && drop && <span[^>]*>보는 지도 ≠ 실행 지도<Help [^>]*>\{diff\}<\/Help>/);
-  const i0 = pickSrc.indexOf('{drop ? <select'); expect(i0).toBeGreaterThan(0); const sel = pickSrc.slice(i0, pickSrc.indexOf('</select>', i0));
-  expect(sel).not.toMatch(/GT|Gazebo|world/);
+  // FIX2b(ROOT 결정 2): 옛 «{drop ? <select» 구조 슬라이스 + 소스 단어(GT·Gazebo·world) 금지 단언 제거 — MapPick 0d2e297c(보존)에서 그 구조가 없고, 소스 단어 검사는 실제 선택지 검증이 아님.
+  // 기본 목록 GT 0·대표 선택·옛 선택 유지의 완료 근거 = 670 U13 실제 옵션/읽기 op(필수). 라벨·도움말 단언(위 2줄)은 유지.
 });
 
 test('U2-b 관제 패널·보조 뷰: 실행 대상 전환 숨김 · 제목 짧게 · 칸 종류 구분 · 접힘 버튼 하나', () => {
@@ -165,7 +165,7 @@ test('⑧ 링크 표시: 본문 «링크 끊김» 단정 대신 연결 상태 �
 
 test('A4 RTT: 미측정·확인 못 함·확인 중을 «느림»으로 말하지 않음', () => {
   expect(code(mainSrc)).not.toMatch(/응답 느림|느림/);
-  expect(code(mainSrc)).toMatch(/text=\{rtt\.txt\.replace\('앱↔관문 ', '관문 '\)\}/);
+  expect(code(mainSrc)).toMatch(/\['관문 응답', rtt\.txt\.replace\('앱↔관문 ', '관문 '\)/);   // G4 요약칩 3: RTT 칩 → HeadChips 상세 행
   expect(code(mdriveSrc)).not.toMatch(/느림/);
 });
 
@@ -182,7 +182,7 @@ test('A3 방향 안내: 빠른 놓기→재누름(사이 status 없음)도 누�
 
 test('B1 세로 띠: 조종 틀 예약 = 띠 실제 높이(safe-area·줄바꿈 포함) · 띠 크기 변화도 다시 맞춤', async () => {
   const dsrc = (await import('../../src/app/drive.tsx?raw')).default;
-  expect(code(dsrc)).toMatch(/innerHeight - t - \(por \? bandH\(px\('paddingBottom'\)\) : px\('paddingBottom'\)\)/);
+  expect(code(dsrc)).toMatch(/bot = por \? bandH\(px\('paddingBottom'\)\) : px\('paddingBottom'\)/); expect(code(dsrc)).toMatch(/const H = innerHeight - t - bot\b/);   // FIX2b(ROOT 결정 3): G1 STOP 자리 확보로 bot·H 분리 — 띠 실제 높이 예약 의미 그대로
   expect(code(dsrc)).toMatch(/querySelector\('\.drv-band'\)\?\.getBoundingClientRect\(\)\.height/);
   expect(code(dsrc)).toMatch(/new ResizeObserver\(fit\)/); expect(code(dsrc)).toMatch(/ro\?\.disconnect\(\)/);
 });
@@ -207,9 +207,9 @@ test('B2 Main 폰 머리줄: 칩 묶음 줄바꿈·가로 스크롤 0·칩 축�
   expect(css).toMatch(/\.qd\{--qa:calc\(100vh - 194px\);scroll-margin-top:112px\}/);   // 가로 폰 머리줄 2줄(실측 105 px) → 2×2 화면 안
 });
 
-test('P2 Main 전체화면: STOP 옆 안전 한 줄 + ?', () => {
+test('P2 Main 전체화면: 안전 한 줄 + ? (10-19 G1: 화면 안 STOP 삭제 — 공통 GlobalStop 이 전체화면 안으로)', () => {
   const fs = quad.slice(quad.indexOf('function FsStop'));
-  expect(fs).toMatch(/<SafeLine style=/); expect(fs.indexOf('lv-stop')).toBeLessThan(fs.indexOf('<SafeLine'));
+  expect(fs).toMatch(/<SafeLine style=/); expect(fs).not.toMatch(/lv-stop|\{\.\.\.stopOn\}/);
 });
 
 test('U2-b 보완 P2: Main 좁은 지도 칸 — lean 만 data-mapnarrow · 지도 보기 폭 확보 · 버튼 32 px 오른쪽 열(칸 안)', async () => {
@@ -235,7 +235,8 @@ test('R1·R2: 서버가 입력을 적용 안 하는 동안 보이는 단계 글 
   for (const x of [{ st: { ...ST, role: 'view' } }, { st: { ...ST, latch: true } }, { block: 'STOP 잠금' }]) expect(stageOf({ ...In0, ...x } as any).label).toBeUndefined();   // 다른 단계 글 무변경
   const all = [mainSrc, mdriveSrc, F.SAFE_LINE].map(code).join('\n');
   expect(all).not.toMatch(/지금 안 움직임/); expect(code(mainSrc)).not.toMatch(/STEPS\[stg\.i\]/); expect(code(mdriveSrc)).not.toMatch(/STEPS\[stg\.i\]/);
-  expect(code(mainSrc)).toMatch(/text=\{`단계 \$\{stepLabel\(stg\)\}`\}/); expect(code(mdriveSrc)).toMatch(/aria-label=\{`조종 단계 \$\{stepLabel\(stg\)\}/); expect(code(mdriveSrc)).toMatch(/\{stepLabel\(stg\)\}<\/span>/);
+  // G4 요약칩 3: 단계 칩 → 상세 행 + «지금 할 일» 카드 제목(밖에 보임)
+  expect(code(mainSrc)).toMatch(/\['단계', stepLabel\(stg\), /); expect(code(mainSrc)).toMatch(/`지금 할 일 · \$\{stepLabel\(stg\)\}`/); expect(code(mdriveSrc)).toMatch(/aria-label=\{`조종 단계 \$\{stepLabel\(stg\)\}/); expect(code(mdriveSrc)).toMatch(/\{stepLabel\(stg\)\}<\/span>/);
   // Main «조종 시작» 단추 글·설명: 표시만(startBlock·disabled 무변경)
   expect(code(mainSrc)).toMatch(/goT = L\.starting \?\? \(live \? \(sw \? '입력 막힘' : '조종 가능'\) : '조종 시작'\)/); expect(code(mainSrc)).toMatch(/disabled: !!sb,/);
   expect(code(mainSrc).indexOf('const sw = srvWhy(')).toBeLessThan(code(mainSrc).indexOf('const sb = startBlock(L)'));
@@ -251,7 +252,8 @@ test('R ③ DirTag 등 ? 팝오버: 활성 전체화면 요소 또는 body 로 p
 });
 
 test('N2: 관문 «확인 중»도 미확인 톤(warn) · 확인된 꺼짐만 off', () => {
-  expect(code(mainSrc)).toMatch(/!rtt\.ok && <Chip tone="warn" text=\{rtt\.txt\.replace/); expect(code(mainSrc)).not.toMatch(/endsWith\('확인 중'\) \? 'off'/);
+  // G4: 칩 대신 상세 행 — «확인 중» 포함 !ok 전부 행으로 보임(off 로 숨김 0)
+  expect(code(mainSrc)).toMatch(/v\.linkOk && !rtt\.ok \? \[\['관문 응답', rtt\.txt\.replace/); expect(code(mainSrc)).not.toMatch(/endsWith\('확인 중'\) \? 'off'/);
 });
 
 // ── M 보완 ①(670 P1, root «지도잔여 좁은M보완 GO»): 층 나란히 = link 연결당 지도 요청 하나 → 한 층씩 차례로 · 매 응답 뒤 재대조 · 첫 실패 중단
