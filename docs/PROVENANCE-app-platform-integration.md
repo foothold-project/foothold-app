@@ -4,17 +4,26 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `0314495388274e1b1feddee1c1fbd7468cc3e7aa` (`less82/app-ui-react-recovered`, 부모 `e75a40b` 리허설 계획·지도 편집·현장 화면 + `Field.tsx` 폰 가로 상태 가림 보완 1파일 — R28 `a0d4df9`·사진 fix `0ae1245` 포함) | `ui` = `c415ca3f35e5a4ea5495b749e06827366608e0f0` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `0314495`, 서버 쪽 트리는 `e75a40b` 와 같음). 670 좁은 폰 화면 QA 진행 중 |
-| `mobile/**` | `fcb212e89b78b5327c4c9aa40599087300f490cd` (`less82/app-contract-storage`) | `mobile` = `5769f471a1bf932941ba4f77d9122bb69f7f3444` | 파일 단위 변경 0. 직전 `2649149`(트리 `2934d4e`) 대비 5파일: 버전 11·`1.0.10` · 관문 고정 op `rehearsal.get`·`rehearsal.post` 추가와 그 시험 · 계약 문서 2 |
+| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `59e0c5a5827991358611761326cbe47f1402c49d` (`less82/app-ui-react-recovered`, 부모 `bd5aa8b` PC 메뉴 아이콘·이름 가독성 ← `0314495` 직전 APK11 판 — 이번 두 커밋은 `ui/` 12파일만) | `ui` = `f5ace9fba99f75f649b1db81bacfa97824da7008` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `59e0c5a`, ui 밖 트리는 `0314495` 와 같음) |
+| `mobile/**` | `03c2a5279a620c26b9c113aa74e52bf8dc3d4ec9` (`less82/app-contract-storage`) | `mobile` = `9b38ccc9c6610ad3643f71d7c998ff762e90eb14` | 파일 단위 변경 0. 직전 `fcb212e`(트리 `5769f47`, APK11) 대비 build.gradle 두 줄: versionCode 12 · `1.0.11` (`-dev` suffix 그대로) — native 소스·권한·인증·관문 op 6개·서명 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md`: 맨 위는 UI 후보의 새 머리 그대로, 그 아래 «이전 통합 개발판 기록(2026-10-17 · APK10)» 절에 직전 통합 머리 전체 보존, 옛 web 기록 1벌(10-18 merge 충돌 해소) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 0314495388274e1b1feddee1c1fbd7468cc3e7aa HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 59e0c5a5827991358611761326cbe47f1402c49d HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
 
 서버 사진 저장 fix `0ae1245`(10-17, 부모 UI `e0abe98`): 사진 저장 처리의 미정의 변수 오류(NameError) 1줄 수정 + 회귀 시험. 서버 쪽 코드라 APK 와 무관 — APK10 `dev-20261017-slamstart` 은 이 fix 전 `e0abe98` 화면 파일로 빌드한 그대로이고, 사진 응답은 연결한 운영 서버 판에 따른다. 운영 반영은 10-17 서버 교체 뒤 운영 쪽 상태 점검 통과까지(실제 사진 촬영 동작 확인은 아님).
 
 native 변경(10-18 `fcb212e`): `FhGateCore` 고정 op 에 `rehearsal.get`(GET `/api/app/rehearsal`, 200 만 통과)·`rehearsal.post`(POST 같은 경로, 200·400·403·404·409·413·422·500·503·507 은 status 로 화면까지) 두 개만 추가. 권한·인증·토큰·WS·주소·서명·TTL·STOP·본문 상한(1 MiB) 변경 0, 재시도 0. 시험 `FhGateCoreTest` 34/34(JVM 단위 — Android 빌드·실폰 아님). 리허설 화면은 계획 작성 기능이며 실제 연결 로봇·Gazebo 물리 리허설·Nav2 결과가 아니다.
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
+
+## 다음 판 준비 — Android 개발 APK code 12 · `1.0.11-dev` (10-18, **빌드 0**)
+
+이 통합 커밋은 빌드 전 준비다. APK 빌드·구조 대조·실행은 아직 하지 않았다. push·tag·공개 업로드 0. 아래 APK11 절의 «이 문서 커밋» 은 그 절을 쓴 `db3cf99` 를 말하며, APK11 빌드 입력(`6d6cfde`)·APK·BUILD-INFO·SUMS 는 바뀌지 않는다.
+
+- 예정 입력: 이 브랜치 통합 커밋(ui 트리 `f5ace9fba99f75f649b1db81bacfa97824da7008` = 최종 웹 `59e0c5a5827991358611761326cbe47f1402c49d`, mobile 트리 `9b38ccc9c6610ad3643f71d7c998ff762e90eb14` = `03c2a52`) + frozen 화면 파일 `frozen-59e0c5a`(184개 — `.map` 38 제외 146개가 번들 예정, 목록 TSV sha256 `0c87b818571baaf052244ca3400f32831459ffe161f0903b67a51362ef19e0f3`, index.html sha256 `47eeb8305c8c24e07f37c00500290188c8824fc9fdb634a674d1632b0eaa1c93`, 빌드 근거 `UI-PINS-TkNtR5`)
+- 화면 변경 범위: PC 메뉴 아이콘·이름 가독성 복구 · 시뮬 시작의 «시작 지도» 기본 = 고른 지형·층의 저장 SLAM 지도로 열기(기존 `map_start` static + 목록에 있는 `map_version`), «새 지도 만들기» 는 직접 고를 때만. 서버·계약·native op·센서 변경 0
+- 미포함(단정): 저장 지도 열기는 **저장 지도를 그림으로 보기**만 기본으로 한다 — 로봇 현재 위치를 그 지도에 맞추기(정합)·이어 그리기·다른 층 지도 자동 복원은 포함하지 않는다. 실제 Gazebo 기동은 이 판에서 측정하지 않았다
+- 미완료: 670 화면 QA · 서버 호환 근거 · 운영 웹 R31 반영. 이 셋이 끝나기 전에는 빌드하지 않는다
 
 ## 로컬 빌드 — Android 개발 APK code 11 · `1.0.10-dev` (10-18, **로컬 빌드 1회 · 공개 0**)
 
