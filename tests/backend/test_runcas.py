@@ -38,13 +38,13 @@ def env_of(s, i):
 
 
 def new_run(s, mid, **kw):
-    """C 직전 앱(1c01d93~bf4f4d8) newRun 과 같은 필드: 계획 판 사본 + mrev(+map 은 결속일 때만)"""
+    """C 직전 앱(1c01d93~bf4f4d8) newRun 과 같은 필드: 계획 판 사본 + mrev(+map 은 결속일 때만). R3: 계획에 finish 가 있으면 사본(없으면 키 없음)"""
     m = env_of(s, mid)
     M = m['doc']; t = {x['id']: x for x in s.listing()['docs']}.get(M['tmpl'])
     tn = RC.BASE_TMPL_NAME if M['tmpl'] in ('', 'base') or t is None or t['kind'] != 'tmpl' else t['doc']['name']   # 없는 양식 = 옛 앱이 base 로 대체했다고 가정
     d = {'mode': '수동', 'mission': mid, 'tmpl': RC.cut16(tn, 60), 'name': M['name'], 'status': '진행', 'started': '2026-10-15T18:00:00+0900', 'ended': '', 'memo': '',
          'wps': [{**w, 'mods': list(w['mods']), 'st': '대기', 'at': '', 'why': '', 'chk': '', 'photos': []} for w in M['wps']],
-         **({'map': dict(M['map'])} if 'map' in M else {}), 'mrev': m['rev']}
+         **({'map': dict(M['map'])} if 'map' in M else {}), **({'finish': M['finish']} if 'finish' in M else {}), 'mrev': m['rev']}
     d.update(kw)
     return d
 
@@ -199,7 +199,7 @@ def test_result_edit_keeps_mcas(env, echo):
     assert c == 200 and 'mcas_dropped' not in r and env_of(s, rid)['doc']['mcas'] == 1 and env_of(s, rid)['doc']['status'] == '완료'
 
 
-@pytest.mark.parametrize('field', ['name', 'mission', 'mrev', 'tmpl', 'started', 'mode', 'map_drop', 'map_rid', 'wp_x', 'wp_mods', 'wp_count'])
+@pytest.mark.parametrize('field', ['name', 'mission', 'mrev', 'tmpl', 'started', 'mode', 'map_drop', 'map_rid', 'wp_x', 'wp_mods', 'wp_count', 'finish_add'])
 def test_basis_change_drops_mcas(env, field):
     s, tid, mid, bid = env
     rid = put_run(s, new_run(s, mid))[1]['id']
@@ -214,12 +214,68 @@ def test_basis_change_drops_mcas(env, field):
     elif field == 'map_rid': d['map']['rid'] = 'w:' + 'c' * 64
     elif field == 'wp_x': d['wps'][0]['x'] = 9
     elif field == 'wp_mods': d['wps'][0]['mods'] = []
+    elif field == 'finish_add': d['finish'] = '출발점 복귀'   # R3: 계획엔 없던 종료 방식을 결과 편집에서 붙임
     else: d['wps'].append({**d['wps'][0]})
     c, r = put_run(s, d, rid, 1)
     assert c == 200 and r['mcas_dropped'] is True and 'mcas' not in env_of(s, rid)['doc'], r
     assert C.DocPutOk.model_validate(r).mcas_dropped is True
     c, r = put_run(s, {**env_of(s, rid)['doc'], 'mcas': 1}, rid, 2)      # 낮춘 뒤 다시 올리기 0
     assert c == 400 and r['reason_code'] == 'mcas_forbidden'
+
+
+# ---------------------------------------------------------------- R3 finish: 시작 사본 대조(키 유무·값)·결과 편집 낮춤·옛 앱
+
+
+def set_finish(s, mid, f):
+    """계획에 finish 를 넣는다(f=None 이면 키를 뺀다) — 판 +1"""
+    e = env_of(s, mid); M = {k: v for k, v in e['doc'].items() if k != 'finish'}
+    assert s.apply({'op': 'put', 'id': mid, 'rev': e['rev'], 'doc': {**M, **({'finish': f} if f else {})}}, 'C')[0] == 200
+
+
+@pytest.mark.parametrize('f', ['출발점 복귀', '마지막 지점 종료'])
+def test_finish_copy_passes(env, f):
+    s, tid, mid, bid = env
+    for x in (mid, bid):
+        set_finish(s, x, f)
+        c, r = put_run(s, new_run(s, x))
+        doc = env_of(s, r['id'])['doc']
+        assert c == 200 and doc['mcas'] == 1 and doc['finish'] == f, r
+        put_run(s, {**doc, 'status': '중단'}, r['id'], 1)
+
+
+@pytest.mark.parametrize('case', ['run_missing', 'run_extra', 'value'])
+def test_finish_mismatch_409(env, case):
+    s, tid, mid, bid = env
+    if case != 'run_extra':
+        set_finish(s, mid, '출발점 복귀')
+    d = new_run(s, mid)
+    if case == 'run_missing': del d['finish']                 # 옛 newRun(사본 안 함)이 finish 있는 계획을 시작
+    elif case == 'run_extra': d['finish'] = '출발점 복귀'      # 계획엔 없는데 Run 에 채움(추정 0)
+    else: d['finish'] = '마지막 지점 종료'
+    n0 = len(s.listing()['docs'])
+    c, r = put_run(s, d)
+    assert c == 409 and r['reason_code'] == 'snapshot_mismatch' and len(s.listing()['docs']) == n0, r
+
+
+@pytest.mark.parametrize('edit', ['same', 'change', 'drop'])
+def test_finish_result_edit(env, edit):
+    s, tid, mid, bid = env
+    set_finish(s, mid, '출발점 복귀')
+    rid = put_run(s, new_run(s, mid))[1]['id']
+    d = copy.deepcopy(env_of(s, rid)['doc']); d['memo'] = '복귀 확인'
+    if edit == 'change': d['finish'] = '마지막 지점 종료'
+    elif edit == 'drop': del d['finish']                       # finish 를 모르는 옛 앱이 고쳐 씀
+    c, r = put_run(s, d, rid, 1)
+    keep = edit == 'same'
+    assert c == 200 and ('mcas' in env_of(s, rid)['doc']) == keep and r.get('mcas_dropped', False) is (not keep), r
+
+
+def test_finish_no_mrev_not_compared(env):
+    s, tid, mid, bid = env
+    set_finish(s, mid, '출발점 복귀')
+    d = new_run(s, mid); del d['mrev']; d['finish'] = '마지막 지점 종료'   # mrev 모르는 앱 = 대조 0 → 저장·mcas 0
+    c, r = put_run(s, d)
+    assert c == 200 and 'mcas' not in env_of(s, r['id'])['doc'] and env_of(s, r['id'])['doc']['finish'] == '마지막 지점 종료'
 
 
 def test_rev_conflict_on_run_edit_has_no_reason(env):

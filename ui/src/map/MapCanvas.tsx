@@ -20,6 +20,7 @@ type Props = {
   robot?: Robot; noRobot?: boolean; showTrail?: boolean; showZones?: boolean; hiZone?: string | null; hiWp?: number | null;
   draft?: { type: string; pts: number[][] } | null; sel?: number[] | null; onTap?: (x: number, y: number, k: number) => void;
   btns?: boolean;
+  onDown?: () => void;   // 누름 시작(왼쪽 버튼) 알림 — 부르는 쪽이 이 시점 수명을 잡아 up 때 대조(누름 중 도구·도면·문서가 바뀌면 탭 무시). 없으면 기존 그대로
   raster?: Raster | null;   // 저장 지도 보기: 바닥 도면 대신 이 그림. 로봇·길·구역·경유점은 부르는 쪽이 끈다(좌표계 결속 전)
   blank?: string | null;
   lean?: boolean;          // U2-b(Main 만): 운영 짧은 글 — 가운데 «위치 없음» 하나 · 로봇 중심 주황 띠 0(버튼 회색+이유) · 아래 줄 «1 m» 축척만. 다른 화면은 U3~5 에서
@@ -174,7 +175,7 @@ export function MapCanvas(p: Props) {
     const el = cv.current!, box = el.parentElement!, ro = new ResizeObserver(draw); ro.observe(box);
     let drag: { id: number; x: number; y: number; c: number[]; moved: boolean } | null = null;
     const v = V.current;
-    const down = (e: PointerEvent) => { if (e.button) return; drag = { id: e.pointerId, x: e.clientX, y: e.clientY, c: v.c.slice(), moved: false }; el.setPointerCapture(e.pointerId); };
+    const down = (e: PointerEvent) => { if (e.button) return; drag = { id: e.pointerId, x: e.clientX, y: e.clientY, c: v.c.slice(), moved: false }; el.setPointerCapture(e.pointerId); P.current.onDown?.(); };
     const move = (e: PointerEvent) => {
       if (!drag || drag.id !== e.pointerId) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;

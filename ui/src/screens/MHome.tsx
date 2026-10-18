@@ -8,7 +8,7 @@ import { durTxt, themeClass, wpName } from '../data/fmt';
 import { unreadOf } from '../data/alerts';
 import { activeRun, alertsOf, docsOf, useDocs, useMedia } from '../data/shared';
 import { TRAIL, dropAsk, linkView, useLink } from '../data/link';
-import { attachPhoto, pickWp, modDone, modTxt, runEnd, runHere, startRun } from '../data/run';
+import { attachPhoto, finishText, pickWp, modDone, modTxt, runEnd, runHere, startRun } from '../data/run';
 import { useEditor } from '../data/editor';
 import { useSel } from '../data/scratch';
 import { href } from '../data/hist';
@@ -51,7 +51,7 @@ export default function MHome() {
     linkLine: <span style={{ fontSize: '13px', color: 'var(--muted)' }}>배터리 정보 없음</span>,   // B2 R16: 링크는 바로 아래 상태 줄(LiveStatus) 한 곳만
     status: <LiveStatus D={D} />,
     alertP: { href: href('MAlerts'), 'aria-label': `알림 ${unread}건(읽지 않음)` }, alertN: String(unread),
-    missionLine: R ? `수동 진행 · ${R.tmpl || '양식 없음'} · ${durTxt(R.started)}` : '진행 중 수동 임무 없음', mtagHide: !R,
+    missionLine: R ? `수동 진행 · ${R.tmpl || '양식 없음'} · ${finishText(R)} · ${durTxt(R.started)}` : '진행 중 수동 임무 없음', mtagHide: !R,
     big: R ? `${vis}/${R.wps.length} · ${w ? `${wpName(w, ci)} 기록 차례` : '모든 지점 기록됨'}` : '시작할 계획을 고르세요',
     segsP: { style: { display: 'grid', gap: '4px', gridTemplateColumns: `repeat(${Math.max(1, R ? R.wps.length : 1)},minmax(0,1fr))` }, 'aria-label': R ? `${R.wps.length}지점 중 ${vis}지점 기록` : '진행 중 임무 없음' },
     segs: (R ? R.wps : []).map((x, i) => <span key={i} style={{ height: '6px', borderRadius: '3px', background: `var(--${x.st === '방문' ? 'ok' : x.st === '미방문' ? 'warn' : i === ci ? 'accent' : 'line'})` }} />),

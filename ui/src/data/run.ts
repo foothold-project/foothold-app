@@ -111,7 +111,10 @@ export const dupMission = (m: Mission): Mission => { const c = structuredClone(m
 // 계획 스냅샷: 나중에 계획을 고쳐도 이 기록은 그대로. map = 시작 때 일치했을 때만, mrev = 시작한 계획 판.
 // C: 서버가 같은 규칙으로 대조(Run.tmpl == cut16(양식 이름, 60) — server/runcas.py cut16 = cutName). mcas 는 서버만 붙임(여기서 보내면 400)
 const newRun = (D: Docs, mid: string, m: Mission, map: MapSrc | null, mrev: number): Run => ({ mode: '수동', mission: mid, tmpl: cutName(tmplOf(D, m.tmpl)!.name, 60), name: m.name, status: '진행', started: isoNow(), ended: '', memo: '',
-  wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev });
+  wps: m.wps.map((w) => ({ x: w.x, y: w.y, name: w.name, mods: w.mods.slice(), st: '대기', at: '', why: '', chk: '', photos: [] })), ...(map ? { map: { ...map } } : {}), mrev,
+  ...(m.finish ? { finish: m.finish } : {}) });   // R3: 종료 방식 = 계획에 키가 있을 때만 같은 값 사본(키 없음 그대로 · 서버가 mrev 대조에 포함)
+/** R3 종료 방식 표기 — 값 그대로. 키 없음 = 계획 «종료 방식 미지정» · 진행 기록(Run) «종료 방식 기록 없음»(그 당시 기록 없음 — 계획 값으로 채우지 않음) */
+export const finishText = (x: Mission | Run) => x.finish ?? ('mode' in x ? '종료 방식 기록 없음' : '종료 방식 미지정');
 // C 서버가 시작을 거절한 사유(reason_code) — 이것만 «다른 기기가 바꿈» 문구. 진행 1개·rev 409 는 기존 문구 그대로
 // C 409 사유 → 짧은 사유(서버 error 문장은 이미 «시작 안 됨 · 다시 열어 확인» 을 담아 중복 → 토스트엔 안 붙임). 그 밖의 409·400 은 서버 문장 그대로
 const C_REASON = new Map([['mission_gone', '계획이 지워짐'], ['mission_changed', '계획 판이 바뀜'], ['tmpl_changed', '양식이 바뀌거나 지워짐'], ['snapshot_mismatch', '계획 사본이 다름']]);
