@@ -16,16 +16,24 @@ native 변경(10-18 `fcb212e`): `FhGateCore` 고정 op 에 `rehearsal.get`(GET `
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
-## 다음 판 준비 — Android 개발 APK code 15 · `1.0.14-dev` (10-19, **빌드 0**)
+## 로컬 빌드 — Android 개발 APK code 15 · `1.0.14-dev` (10-19, **로컬 빌드 1회**)
 
-이 통합은 빌드 전 최종 source 다. APK 빌드·구조 대조·실행은 아직 하지 않았다. push·tag·공개 업로드 0. 아래 APK14·APK13 절의 «공개 0» 은 빌드 당시 기록이고, 두 APK 는 그 뒤 위키 직접 다운로드로 공개됐다(GitHub release 없음). APK14 빌드 입력(`80cdc9f`)·APK·BUILD-INFO·SUMS 는 바뀌지 않는다.
+빌드 입력은 통합 `aeec7539f0989cb08c3defd5fcd81d53e7b49a5b` 이다. 이 절을 쓴 문서 커밋은 README·이 문서만 바꿔 ui·mobile 트리가 빌드 입력과 같다. BUILD-INFO 의 입력 커밋 값(`aeec753`)은 그대로 둔다. GitHub push·tag·release 0. 아래 APK14·APK13 절의 «공개 0» 은 빌드 당시 기록이고, 두 APK 는 그 뒤 위키 직접 다운로드로 공개됐다(GitHub release 없음). APK14 빌드 입력(`80cdc9f`)·APK·BUILD-INFO·SUMS 는 바뀌지 않는다.
 
-- 예정 입력: 이 브랜치 통합 커밋(ui 트리 `9066f57847d696b7639db018ec17b91e95137a45` = 최종 웹 `98242c7b89e2b0c9417b49eca46a6a72a95cc437`, mobile 트리 `83f43b9f36dbc6f65ba5eca9ea5218a82a4e3bf2` = `a8c3da7`) + frozen 화면 파일 `frozen-98242c7`(목록 TSV sha256 `167ee91eccd5622875ab0cb425637d2760bfb34d9c264523231fa2b2283eb03f`, index.html sha256 `1049aac9f9917d1d6f98701fd470a3fdb1070f46ef291ffcb9214ffbb8137ee2`, 파일 수는 빌드 때 목록으로 다시 센다)
+| 무엇 | 대상 | 결과 | 범위·한계 |
+|---|---|---|---|
+| APK 구조 대조 | `foothold-android-dev-20261019-ux-startpoint.apk` sha256 `f09b0e8009aad2160ac0985cd3db2e0c7ffb377d1510fd46b05a8636e224c4a3`(7592582 bytes) | 28항목 통과 | 앱 id·버전 15·`1.0.14-dev`·서명(옛 개발판과 같은 디버그 인증서)·CA 한 장·개인키 0·권한·SOURCE ui 판 `98242c7`·화면 파일: frozen 원본 184개 sha 일치(빌드 뒤 무변경) + APK 번들 .map 제외 146개 파일별 sha 일치. 실행 동작은 이 대조 범위 밖 |
+| 함께 낸 파일 | `BUILD-INFO.md` sha256 `4327310bf0ce567ad4467219c842f82ca50684655aae5a1271df55f14f8fdec0`(4052 bytes) · `SHA256SUMS.txt` sha256 `24facb1351334081fead8c161e9e81efcc32c6da25d8919612e225ee17a6aab8`(114 bytes) | SUMS 대조 OK | BUILD-INFO 의 «공개 업로드 0» 은 빌드 시점 문구 |
+| 빌드 자원 한도 | 전용 사용자 scope(메모리 2 GiB·swap 0·CPU 200%·프로세스 384·최대 300 s) 안에서 한 번 | 빌드 rc 0 · OOM 0 · 프로세스 한도 도달 0 · 빌드 뒤 남은 프로세스 0 · scope 메모리 최고 약 1.18 GiB | 빌드 전 여유 메모리 3000 MiB·load 6·디스크 1280 MiB 기준(이 scope 한도와 함께일 때만) · 힙·작업자 수 그대로 |
+
+- 입력: 이 브랜치 통합 커밋(ui 트리 `9066f57847d696b7639db018ec17b91e95137a45` = 최종 웹 `98242c7b89e2b0c9417b49eca46a6a72a95cc437`, mobile 트리 `83f43b9f36dbc6f65ba5eca9ea5218a82a4e3bf2` = `a8c3da7`) + frozen 화면 파일 `frozen-98242c7`(목록 TSV sha256 `167ee91eccd5622875ab0cb425637d2760bfb34d9c264523231fa2b2283eb03f`, index.html sha256 `1049aac9f9917d1d6f98701fd470a3fdb1070f46ef291ffcb9214ffbb8137ee2`, 빌드 때 목록으로 다시 센 파일 수 184 — `.map` 38 제외 146개가 번들)
 - 최종 UI 통합: `98242c7` 은 이미 들어 있는 `8315433` 의 단일 부모 후속이라 normal merge 충돌 0(merge `872d0d8`). 결과 ui 트리 = `98242c7` ui 트리, ui 밖 코드 = `98242c7`, mobile 트리는 이 문서 커밋에서 `a8c3da7` 로 교체
 - 서버 호환 근거: APK-COMPAT 최종 `98242c7` 후속 `bc6b9be3`(앞 `4309e0d`·`136ac5a`·`6016c36` 문서 승계). 새 서버는 운영에 먼저 반영됐다. APK14 는 출발점 좌표가 있는 계획 시작에서, APK13 은 종료 방식이 있는 계획 시작에서 409 가 날 수 있다(편집 보존과 진행 시작 호환은 다름)
 - native: 버전 두 줄 외 변경 0 — 새 native op·플러그인 메서드·서버 경로 0. UI 가 기존 op `whoami` 를 앱 시작 때 처음 호출하므로 만료 토큰이면 로컬 로그아웃과 초안 폐기가 앞당겨질 수 있다(실폰 미측정)
 - 검증 범위: 타입·영향 시험·브라우저 항목별 신규 관측과 기존 통과 승계, 운영 R34 49개 통과. 단일 최종 전체 시험 통과가 아니다. 실폰·WebView·IME·가상 키보드 미측정
-- 미포함(단정): 새 임무는 **수동 계획 생성·저장·진행 기록** 범위다 — 자동 이동·자동 촬영·자동 복귀·도착 판정은 미구현이다. 실제 로봇·실 Gazebo 실행 검증 없음
+- 임무 범위와 한계(단정): 새 임무는 **수동 계획 생성·저장·진행 기록** 범위다 — 자동 이동·자동 촬영·자동 복귀·도착 판정은 미구현이다. 실제 로봇·실 Gazebo 실행 검증 없음
+
+미측정: 이 APK 실행(에뮬·실폰·WebView·IME)·실 로그인·실주행·실기·실제 Gazebo 기동·실제 서버 409 응답(APK 를 새로 만든 것 ≠ 서버 지원).
 
 ## 로컬 빌드 — Android 개발 APK code 14 · `1.0.13-dev` (10-19, **로컬 빌드 1회 · 공개 0**)
 
