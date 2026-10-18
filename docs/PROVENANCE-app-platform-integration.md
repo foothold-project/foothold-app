@@ -16,14 +16,19 @@ native 변경(10-18 `fcb212e`): `FhGateCore` 고정 op 에 `rehearsal.get`(GET `
 
 한계(이 판): Go2Direct 는 순수 코어·JVM 시험만 — Android 플러그인과 실제 UDP/HTTP Port 는 미구현(실로봇 연결 불가). 실폰·iOS·실기 확인 0.
 
-## 다음 판 준비 — Android 개발 APK code 12 · `1.0.11-dev` (10-18, **빌드 0**)
+## 로컬 빌드 — Android 개발 APK code 12 · `1.0.11-dev` (10-18, **로컬 빌드 1회 · 공개 0**)
 
-이 통합 커밋은 빌드 전 준비다. APK 빌드·구조 대조·실행은 아직 하지 않았다. push·tag·공개 업로드 0. 아래 APK11 절의 «이 문서 커밋» 은 그 절을 쓴 `db3cf99` 를 말하며, APK11 빌드 입력(`6d6cfde`)·APK·BUILD-INFO·SUMS 는 바뀌지 않는다.
+빌드 입력은 통합 `544817cfa21abf8fe8c2fcefe1ee7d746d3708a5`(ui 트리 `f5ace9fba99f75f649b1db81bacfa97824da7008` = 최종 웹 `59e0c5a5827991358611761326cbe47f1402c49d`, mobile 트리 `9b38ccc9c6610ad3643f71d7c998ff762e90eb14` = `03c2a52`)과 frozen 화면 파일 `frozen-59e0c5a`(184개 — `.map` 38 제외 146개가 번들, 목록 TSV sha256 `0c87b818571baaf052244ca3400f32831459ffe161f0903b67a51362ef19e0f3`, index.html sha256 `47eeb8305c8c24e07f37c00500290188c8824fc9fdb634a674d1632b0eaa1c93`)이다. 이 절을 쓴 문서 커밋은 문서만 바꿔 ui·mobile 트리가 빌드 입력과 같다. push·tag·공개 업로드 0.
 
-- 예정 입력: 이 브랜치 통합 커밋(ui 트리 `f5ace9fba99f75f649b1db81bacfa97824da7008` = 최종 웹 `59e0c5a5827991358611761326cbe47f1402c49d`, mobile 트리 `9b38ccc9c6610ad3643f71d7c998ff762e90eb14` = `03c2a52`) + frozen 화면 파일 `frozen-59e0c5a`(184개 — `.map` 38 제외 146개가 번들 예정, 목록 TSV sha256 `0c87b818571baaf052244ca3400f32831459ffe161f0903b67a51362ef19e0f3`, index.html sha256 `47eeb8305c8c24e07f37c00500290188c8824fc9fdb634a674d1632b0eaa1c93`, 빌드 근거 `UI-PINS-TkNtR5`)
+| 무엇 | 대상 | 결과 | 범위·한계 |
+|---|---|---|---|
+| APK 구조 대조 | `foothold-android-dev-20261018-savedmap.apk` sha256 `79e6da0e7bdfd9ef02383aa844f2c8ebf93f46f2b5031393832c2587ade4a0fc`(7582418 bytes) | 28/28 통과 | 앱 id·버전 12·`1.0.11-dev`·서명(옛 개발판과 같은 디버그 인증서)·CA 한 장·권한·server.url 없음·관문 고정 op `rehearsal` 2개·SOURCE ui 판 `59e0c5a`·화면 파일: frozen 원본 184개 sha 일치(빌드 뒤 무변경) + APK 번들 .map 제외 146개 파일별 sha 일치. 실행 동작은 이 대조 범위 밖 |
+| 빌드 자원 한도 | 전용 사용자 scope(메모리 2 GiB·swap 0·CPU 200%·프로세스 384·최대 300 s) 안에서 한 번 | 빌드 rc 0 · OOM 0 · 프로세스 한도 도달 0 · 빌드 뒤 남은 프로세스 0 · scope 메모리 최고 약 1.34 GiB | 빌드 전 여유 메모리 기준은 5000 MiB(이 scope 한도와 함께일 때만) · 디스크 2048 MiB·load 기준·힙·작업자 수 그대로 |
+
 - 화면 변경 범위: PC 메뉴 아이콘·이름 가독성 복구 · 시뮬 시작의 «시작 지도» 기본 = 고른 지형·층의 저장 SLAM 지도로 열기(기존 `map_start` static + 목록에 있는 `map_version`), «새 지도 만들기» 는 직접 고를 때만. 서버·계약·native op·센서 변경 0
 - 미포함(단정): 저장 지도 열기는 **저장 지도를 그림으로 보기**만 기본으로 한다 — 로봇 현재 위치를 그 지도에 맞추기(정합)·이어 그리기·다른 층 지도 자동 복원은 포함하지 않는다. 실제 Gazebo 기동은 이 판에서 측정하지 않았다
-- 미완료: 670 화면 QA · 서버 호환 근거 · 운영 웹 R31 반영. 이 셋이 끝나기 전에는 빌드하지 않는다
+
+미측정: 이 APK 실행(에뮬·실폰·WebView)·실 로그인·파일 저장·실기·Nav2·물리 리허설·실제 Gazebo 기동(APK 를 새로 만든 것 ≠ 서버 지원).
 
 ## 로컬 빌드 — Android 개발 APK code 11 · `1.0.10-dev` (10-18, **로컬 빌드 1회 · 공개 0**)
 
