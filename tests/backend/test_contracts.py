@@ -48,6 +48,10 @@ CASES = [  # (kind, doc) — 좋은 것·나쁜 것 섞어서. 기대값은 v2_l
     # 10-15 F4: map.rid 선택 — w:/g: + 소문자 64 hex 만, null·대문자·63자·다른 접두·줄바꿈·숫자 거부
     *[(k, {**B, 'map': {**MS, 'rid': r}}) for k, B in (('mission', MI), ('run', RUN)) for r in
       ['w:' + 'a' * 64, 'g:' + '0' * 64, None, 'w:' + 'A' * 64, 'w:' + 'a' * 63, 'w:' + 'a' * 65, 's:' + 'a' * 64, 'w:' + 'a' * 64 + '\n', 'a' * 64, 3, 'g:' + 'g' * 64]],
+    # 10-18 R3: finish 선택 키 — 두 값·키 없음(위 MI·RUN)만 통과. null·빈 값·영문·앞뒤 공백·숫자·bool·목록·사전 거부
+    *[(k, {**B, 'finish': f}) for k, B in (('mission', MI), ('run', RUN)) for f in
+      ['출발점 복귀', '마지막 지점 종료', None, '', 'return_to_start', 'hold', '출발점 복귀 ', ' 마지막 지점 종료', 1, 0, True, ['출발점 복귀'], {'v': '출발점 복귀'}]],
+    ('run', {**RUN, 'finish': '출발점 복귀', 'map': MS, 'mrev': 2}), ('mission', {**MI, 'finish': '마지막 지점 종료', 'map': MS}),
 ]
 
 
