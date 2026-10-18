@@ -4,11 +4,11 @@
 
 | 부분 | 출처 커밋 | 트리 해시 | 비고 |
 |---|---|---|---|
-| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `eeadd77f40152fa5f087fe96011a56616958f51a` (`less82/app-ui-react-recovered`, 부모 `ebe65e5` 직전 APK13 판 — `ui/` 12파일 + ui 밖 11파일(`contracts/v1` 문서·스키마·ts, `server/runcas.py`, `sim/v2_link.py`, `tests/backend` 2) — ui 밖 11파일은 backend 호환 판 `902c916` 과 같음) | `ui` = `2f7dc146af4346e5ca7a642bc5cf3c8f2d1ba507` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `eeadd77`) |
+| 현재 최종 UI — `ui/`·`server/`·`contracts/`·`sim/`·`web/`·`tests/`·`tools/` 등 | `83154335e92d000d278ec2297517631523d5675a` (`less82/app-ui-react-recovered`, 부모 `ebe65e5` 직전 APK13 판, 중간 후보 `eeadd77` 을 대신하는 최종판 — `ui/` 12파일 + ui 밖 11파일(`contracts/v1` 문서·스키마·ts, `server/runcas.py`, `sim/v2_link.py`, `tests/backend` 2) — ui 밖 11파일은 backend 호환 판 `902c916` 과 같음) | `ui` = `ea3b74d882d15aa8a0df6a7805972f522938bc98` | 그대로(ui·server·sim·contracts·tools·tests 트리 = `8315433`) |
 | `mobile/**` | `59cf3b25edb5321ccd166bb59e6addae945557f5` (`less82/app-contract-storage`) | `mobile` = `9922832a3a50bc0eb47293db47cffb0c9adfb8a9` | 파일 단위 변경 0. 직전 `b84c32e`(트리 `1269dfe`, APK13) 대비 build.gradle 두 줄: versionCode 14 · `1.0.13` (`-dev` suffix 그대로) — native 소스·권한·인증·관문 op·서명 변경 0 |
 | `docs/PROVENANCE-app-platform-integration.md`(이 문서) · `docs/GITHUB-WORKFLOW.md` · 루트 `.gitignore` 경로 보강 · 루트 `README.md`: 맨 위는 UI 후보의 새 머리 그대로, 그 아래 «이전 통합 개발판 기록(2026-10-17 · APK10)» 절에 직전 통합 머리 전체 보존, 옛 web 기록 1벌(10-18 merge 충돌 해소) | 이 브랜치에서 추가 | — | 작업 방식은 GITHUB-WORKFLOW.md |
 
-검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only eeadd77f40152fa5f087fe96011a56616958f51a HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
+검사(통합 커밋마다): `git rev-parse HEAD:mobile` = 위 mobile 트리, `git rev-parse HEAD:ui` = 위 ui 트리, `git diff --name-only 83154335e92d000d278ec2297517631523d5675a HEAD` 는 `mobile/`·위 두 문서·`.gitignore`·`README.md` 뿐. (APK10 빌드 통합 `c0f031e` 의 기준은 `e0abe98` — 그 뒤 서버 fix merge 로 `sim/`·`tools/` 만 달라졌고 ui·mobile 트리는 같다.)
 
 서버 사진 저장 fix `0ae1245`(10-17, 부모 UI `e0abe98`): 사진 저장 처리의 미정의 변수 오류(NameError) 1줄 수정 + 회귀 시험. 서버 쪽 코드라 APK 와 무관 — APK10 `dev-20261017-slamstart` 은 이 fix 전 `e0abe98` 화면 파일로 빌드한 그대로이고, 사진 응답은 연결한 운영 서버 판에 따른다. 운영 반영은 10-17 서버 교체 뒤 운영 쪽 상태 점검 통과까지(실제 사진 촬영 동작 확인은 아님).
 
@@ -20,10 +20,12 @@ native 변경(10-18 `fcb212e`): `FhGateCore` 고정 op 에 `rehearsal.get`(GET `
 
 이 통합 커밋은 빌드 전 준비다. APK 빌드·구조 대조·실행은 아직 하지 않았다. push·tag·공개 업로드 0. 아래 APK13 절의 «이 절을 쓴 문서 커밋» 은 `58ffa44` 를 말하며, APK13 빌드 입력(`3076979`)·APK·BUILD-INFO·SUMS 는 바뀌지 않는다.
 
-- 예정 입력: 이 브랜치 통합 커밋(ui 트리 `2f7dc146af4346e5ca7a642bc5cf3c8f2d1ba507` = 최종 웹 `eeadd77f40152fa5f087fe96011a56616958f51a`, mobile 트리 `9922832a3a50bc0eb47293db47cffb0c9adfb8a9` = `59cf3b2`) + frozen 화면 파일 `frozen-eeadd77`(184개 — `.map` 38 제외 146개가 번들 예정, 목록 TSV sha256 `6a9395c22ecb0b35cbae470c50b6e4bf3652bc854e172ddcbcab36003eca252a`, index.html sha256 `76c5d435edd842658211db5f02aa8c3b83139578f06741711f9b35e2850e1a9e`)
+- 예정 입력: 이 브랜치 통합 커밋(ui 트리 `ea3b74d882d15aa8a0df6a7805972f522938bc98` = 최종 웹 `83154335e92d000d278ec2297517631523d5675a`, mobile 트리 `9922832a3a50bc0eb47293db47cffb0c9adfb8a9` = `59cf3b2`) + frozen 화면 파일 `frozen-8315433`(184개 — `.map` 38 제외 146개가 번들 예정, 목록 TSV sha256 `d656fe738e49768dab8b240d3bb55fc6fe271699be2b3310880c778ec4987dfd`, index.html sha256 `e5032a42020dc94fb934fe8ed105741b97b617d1e4f48a2eadf13dabca25c5cb`). 중간 후보 `eeadd77`·`f13e0a2` 의 화면 파일과 섞지 않는다
+- 최종 UI 통합: `8315433` 은 `eeadd77` 의 후손이 아니라 `ebe65e5` 의 단일 부모 최종판이라, normal merge 에서 `eeadd77` 과 다른 3파일(`ui/src/screens/PcPlan.tsx`·`PcPlan.view.tsx`·`ui/tests/unit/pcplan2d_mount.test.ts`)이 충돌했고 그 3파일만 `8315433` 원문으로 해소했다(merge `138c556`). 결과 ui 트리 = `8315433` ui 트리, ui 밖 코드 = `8315433`, mobile 트리 = `59cf3b2`
+- 서버 호환 근거: APK-COMPAT `0b18a806` 및 최종 `8315433` 후속 `6b39a072`. Mission·Run 종료 방식 선택 키를 서버 계약에 추가, native 호출면·새 op 변경 0. 새 계획 종료 방식이 있는 자료는 새 서버가 필요하고 APK13 으로 진행하면 409 가 날 수 있다
 - 화면 변경 범위(UI 판 기준, 이 문서는 요약만): 임무 탭의 첫 동작 = 새 임무 만들기(지형·층 → 2D 지도 → 목적지·지점 → 할 일 프리셋 → 종료/복귀 방식 확인 → 이름 붙여 저장 → 다시 열어 수정). 서버 쪽은 종료/복귀를 이름·메모 추정이 아닌 계약 구조로 저장하는 최소 계약
 - 미포함(단정): 새 임무는 **계획 생성·저장·수동 진행** 범위다 — 실제 자동 이동·도착 사진·자동 복귀 엔진은 미구현·미검증이다. 도면 업로드·세계 생성·Gazebo 기동·Nav2 실행은 이 판에 없다
-- 미완료: 715 영향 검토 · 670 화면 QA · R33 · 서버 호환 근거(APK-COMPAT) 최종본 · 운영 웹 반영. 끝나기 전에는 빌드하지 않는다
+- 미완료: 715 최종 후보 검토 · 670 화면 QA(E8·E9) · R33 · 운영 웹 반영. 끝나기 전에는 빌드하지 않는다
 
 ## 로컬 빌드 — Android 개발 APK code 13 · `1.0.12-dev` (10-18, **로컬 빌드 1회 · 공개 0**)
 
