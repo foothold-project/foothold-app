@@ -1,7 +1,7 @@
 // 지도 열기 문구·상태(10-14): 화면 이름·실행 중 한 줄·다음 행동·높이 화소 해석·Quad 누름 판정
 import { expect, test, vi } from 'vitest';
 vi.mock('../../src/data/shared', () => ({ refreshShared: () => {} }));
-import { place, runAt, runLine, relM } from '../../src/data/maps';
+import { liveLabel, place, runAt, runLine, relM } from '../../src/data/maps';
 import { nextStep } from '../../src/map/MapStartBox';
 import { tapOk } from '../../src/app/Quad';
 
@@ -104,4 +104,31 @@ test('liveShow(10-15 갱신 보유): 같은 K·세대만, 앞선 seq 는 검증 
     expect(liveShow(b, k, seq, gen, fresh, false, 1000)).toBe(null);             // K·세대·끊김·st≠ok·seq 역행
   expect(liveShow(null, 'K', 5, 7, true, false, 1000)).toBe(null);
   expect(liveShow(b, 'K', 6, 7, true, false, 999)).toBe(null);                   // 시계 역행 = 보유 0
+});
+
+test('liveLabel(10-18): 출처는 서버 mode·map_source 둘 다 — static+저장 slam 을 «실시간 매핑»으로 쓰지 않음', () => {
+  const v = { st: 'ok', why: '', world_id: 'v5_building', floor_id: 'l1' } as any;
+  expect(liveLabel({ ...v, mode: 'slam', map_source: 'slam' })).toBe('현재 열린 지도 · 2층 건물 · 1층 · SLAM 실시간 매핑');
+  expect(liveLabel({ ...v, mode: 'static', map_source: 'slam', map_version: '20260101-000000-e1' })).toBe('현재 열린 지도 · 2층 건물 · 1층 · 저장한 지도 보기(위치 없음) · 20260101-000000-e1');
+  expect(liveLabel({ ...v, mode: 'static', map_source: 'slam', map_version: null })).toBe('현재 열린 지도 · 2층 건물 · 1층 · 저장한 지도 보기(위치 없음)');
+  expect(liveLabel({ ...v, mode: 'static', map_source: 'gt_raster' })).toContain('시뮬 도면 지도');
+  expect(liveLabel({ ...v, mode: null, map_source: 'slam' })).toContain('지도 출처 미확인');
+});
+
+import { staticSeen } from '../../src/data/maps';
+test('staticSeen(10-18 P2-3): 저장 그림 보기 = live_map ok·static·slam·세션과 같은 world/floor 수신 때만 · 시작 중/미수신/다른 층 = 확인 전 · GT static ≠ 저장', () => {
+  const ss = (o: object = {}) => ({ runner: 'live_map', result: 'running', world_id: 'v5_building', floor_id: 'l1', map_mode: 'static', ...o });
+  const lv = (o: object = {}) => ({ st: 'ok' as const, why: '', world_id: 'v5_building' as const, floor_id: 'l1' as const, mode: 'static' as const, map_source: 'slam' as const, ...o });
+  expect(staticSeen(ss(), lv())).toBe('saved');                                          // 양성
+  expect(staticSeen(ss({ result: 'starting' }), lv())).toBe('saved');                    // 수신이 기준(세션 글자 아님)
+  expect(staticSeen(ss({ result: 'starting' }), null)).toBe('wait');                     // 요청 수락·시작 중 ≠ 준비
+  expect(staticSeen(ss(), lv({ st: 'wait' }))).toBe('wait');
+  expect(staticSeen(ss(), lv({ map_source: undefined }))).toBe('wait');                  // 출처 미수신(옛 판은 저장 보기로 단정)
+  expect(staticSeen(ss(), lv({ mode: 'slam' }))).toBe('wait');
+  expect(staticSeen(ss(), lv({ floor_id: 'l2' }))).toBe('wait');                         // 세션과 다른 층
+  expect(staticSeen(ss(), lv({ world_id: 'rooms_a' }))).toBe('wait');
+  expect(staticSeen(ss(), lv({ map_source: 'gt_raster' }))).toBe('gt');                  // 옛 앱 static GT — SLAM 그림 한계 줄 0
+  expect(staticSeen(ss({ map_mode: 'slam' }), lv({ mode: 'slam' }))).toBeNull();
+  expect(staticSeen(ss({ result: 'stopped' }), lv())).toBeNull();
+  expect(staticSeen(null, lv())).toBeNull();
 });

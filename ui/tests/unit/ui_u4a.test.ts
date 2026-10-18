@@ -42,7 +42,7 @@ test('saveBlock 순수: 지금 이유를 덮지 않음 · 끊긴 초·서비스 
   expect(saveBlock({ ok: false, why: `${LIVE_WHY} · 지도 오류 · decode` })!.next).toBe('오류 원문을 확인한 뒤, 지도가 다시 보이면 저장');
   const svc = saveBlock({ ok: false, why: '저장 서비스 없음(/v2_map/save)' })!;
   expect(svc.txt).toBe('저장 서비스 없음'); expect(svc.raw).toBe('저장 서비스 없음(/v2_map/save)');
-  expect(saveBlock({ ok: false, why: LIVE_WHY }, 'static')!.txt).toBe(`${LIVE_WHY} · 지금은 저장 지도로 연 시뮬(SLAM 만들기 아님)`);
+  expect(saveBlock({ ok: false, why: LIVE_WHY }, 'static')!.txt).toBe(`${LIVE_WHY} · 지금은 저장한 지도를 보는 중이라 새로 저장할 지도가 없음 · 새 지도는 시뮬을 끄고 «새 지도 만들기»로 열기`);
   expect(saveBlock({ ok: false, why: LIVE_WHY }, 'slam')!.txt).toBe(LIVE_WHY);
   expect(saveBlock({ ok: false, why: '' })!.txt).toBe('저장 안 됨 · 서버 이유 없음');
   expect(saveBlock({ ok: false, why: '로그인한 기기에서만(관문 경유)' })!.txt).toBe('로그인한 기기에서만(관문 경유)');   // 모르는 이유 = 원문 그대로

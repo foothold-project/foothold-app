@@ -1,5 +1,6 @@
 // 저장 지도(서버 관리, 읽기만) — docs/CONTRACT-maps-sim-stop.md. 보기 선택은 화면만 바꾼다: 실제 Gazebo world·조종 상태 변경 0
 import type { LiveMap, MapInfo } from '@contracts';
+import { create } from 'zustand';
 import { ask, useLink } from './link';
 
 export type Raster = { img: CanvasImageSource; res: number; ox: number; oy: number; w: number; h: number; label: string; noGrid?: boolean; upd?: boolean };   // upd: 실시간 지도 갱신 중(이 그림은 직전 검증본 — 위치 마커 0)   // noGrid: 좌표가 하나가 아닌 그림(층 나란히) — 격자 안 그림
@@ -85,6 +86,13 @@ export function loadList(q: ListSeq, set: (v: MapInfo[] | string) => void, get =
   return true;
 }
 
+/** 시작 상자가 쓸 지도 목록(10-18 저장 지도 시작) — 화면의 지도 보기(useMapPick)가 받은 목록을 나눔: 같은 연결의 지도 요청이 겹치면 서버가 «지도 요청 처리 중»(map_busy)으로 거절하므로
+ *  지도 보기가 장착된 화면(owners>0)에서는 시작 상자가 따로 요청하지 않는다. owners 0 이면 시작 상자가 스스로 loadList 1회. gen = 그 목록을 받은 연결 세대(다르면 안 씀) */
+export const useCatalog = create<{ v: MapInfo[] | string | null; gen: number; owners: number; reload: (() => unknown) | null }>(() => ({ v: null, gen: -1, owners: 0, reload: null }));
+/** 이 지형·층의 저장 SLAM 본만(GT·다른 지형·층 제외 · 목록 순서 그대로). 목록이 아니면 null — 읽는 중·실패를 «0개»로 바꾸지 않음 */
+export const savedOf = (cat: MapInfo[] | string | null | undefined, w: string, f: string) => !Array.isArray(cat) ? null
+  : cat.filter((m) => m.map_source === 'slam' && m.world_id === w && m.building_id === (BLD as Record<string, string>)[w] && m.floor_id === f);
+
 /** 한 장 받아 그림으로. 이름·크기·출처가 요청과 다르면 버린다(늦게 온 다른 지도 포함) */
 export async function getMap(m: MapInfo): Promise<Raster | string> {
   const r = await ask('map_get', { building_id: m.building_id, floor_id: m.floor_id, map_version: m.map_version });
@@ -143,8 +151,13 @@ function hsl(h: number, s: number, l: number): [number, number, number] {
 }
 
 // ── 실시간 지도(/v2_map/map → 서버가 status·epoch·격자형상 결속 검사 후 PNG) — 서버 view.st==='ok' 일 때만 받는다
+// 10-18 저장 지도 시작: 서버 view 의 mode·map_source 둘 다로 판정(static+저장 slam 을 «실시간 매핑»으로 보이지 않게). 버전 원값은 서버가 보낸 것만
+const srcLabel = (v: LiveMap) => v.map_source === 'gt_raster' ? '시뮬 도면 지도'
+  : v.map_source === 'slam' && v.mode === 'slam' ? 'SLAM 실시간 매핑'
+  : v.map_source === 'slam' && v.mode === 'static' ? `저장한 지도 보기(위치 없음)${v.map_version ? ` · ${v.map_version}` : ''}`
+  : '지도 출처 미확인';
 export const liveLabel = (v: LiveMap) => v.world_id && v.floor_id   // epoch 등 기술 원값은 «지도 열기» 상태 상세·서버 상태에만
-  ? `현재 열린 지도 · ${place(v.world_id, v.floor_id)} · ${v.map_source === 'gt_raster' ? '시뮬 도면 지도' : 'SLAM 실시간 매핑'}`
+  ? `현재 열린 지도 · ${place(v.world_id, v.floor_id)} · ${srcLabel(v)}`
   : '현재 열린 지도';
 /** 지금 실제로 켜진 시뮬(서버 map_start.session) 한 줄 — 지형·층·작업·상태. 고른 것과 별개 */
 export type Sess = { result?: string; runner?: string; world_id?: string; floor_id?: string; map_mode?: string; remaining_s?: number } | null | undefined;
@@ -152,6 +165,10 @@ export const TASK = { slam: '새 지도 만들기', static: '저장한 지도로
 export const runLine = (ss: Sess) => !ss ? '꺼짐 · 지도용 시뮬 없음(또는 상태 미확인)' : ss.runner === 'live_map'
   ? `${place(ss.world_id, ss.floor_id)} · ${ss.map_mode === 'slam' ? TASK.slam : ss.map_mode === 'static' ? TASK.static : '작업 미확인'} · ${ss.result === 'starting' ? '시작 중' : ss.result === 'running' ? '실행 중' : ss.result || '상태 미확인'}${typeof ss.remaining_s === 'number' ? ` · 남은 ${Math.max(0, Math.round(ss.remaining_s / 60))}분` : ''}`
   : ss.runner === 'ux_flat' || ss.runner === 'live_v2' ? `평지 시뮬(지도·라이다 없음) · ${ss.result || '상태 미확인'}` : `꺼짐 · ${ss.result || '상태 미확인'}`;
+/** 저장 지도(static) 세션의 실제 표시 확인(10-18 P2-3) — 요청 수락·시작 중 ≠ 준비. null = 켜진 static 세션 아님 ·
+ *  'saved' = live_map st ok·mode static·map_source slam·세션과 같은 world/floor 수신 · 'gt' = 같은 조건의 기본 도면(옛 앱 static GT — SLAM 그림 한계 줄 0) · 'wait' = 그 밖(시작 중·미수신·다른 층 등 확인 전) */
+export const staticSeen = (ss: Sess, lv: LiveMap | null | undefined): 'saved' | 'gt' | 'wait' | null => !runAt(ss) || ss!.map_mode !== 'static' ? null
+  : lv?.st === 'ok' && lv.mode === 'static' && lv.world_id === ss!.world_id && lv.floor_id === ss!.floor_id && lv.map_source ? (lv.map_source === 'slam' ? 'saved' : 'gt') : 'wait';
 /** 지도 시뮬이 켜져(시작 중·실행 중) 있으면 그 [건물 키, 층], 아니면 null */
 export const runAt = (ss: Sess) => ss?.runner === 'live_map' && (ss.result === 'running' || ss.result === 'starting') && ss.world_id && ss.floor_id
   ? [(BLD as Record<string, string>)[ss.world_id] || ss.world_id, ss.floor_id] as const : null;
