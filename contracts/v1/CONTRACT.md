@@ -74,11 +74,15 @@
 - 전체 판 `DocsList.rev` = `status.docs_rev`. 값이 바뀌면 화면이 다시 읽는다(값 자체에 의미는 없고 «바뀜»만 본다).
 - 고칠 때는 화면이 읽은 `rev` 를 보낸다. 다르면 **409 + `cur`**(지금 저장된 판)가 오고, 화면은 초안을 지우지 않는다.
 - 하나만 허용: `status:'진행'` 인 `run` 은 전체에서 하나, `note` 는 `photo` 당 하나. 겹치면 409 + 기존 문서.
-- **C 시작 대조(10-15)**: `mrev` 있는 새 `run` 은 같은 잠금/트랜잭션 안에서 계획(`mission`) 현재 판 == `mrev`, 이름·지점(x·y·name·mods)·`map`(있으면 전체) 사본,
+- **C 시작 대조(10-15)**: `mrev` 있는 새 `run` 은 같은 잠금/트랜잭션 안에서 계획(`mission`) 현재 판 == `mrev`, 이름·지점(x·y·name·mods)·`map`(있으면 전체)·`finish`(R3, 키 유무·값) 사본,
   양식(`''`·`'base'` = 내장 «지점 확인 다녀오기», 그 밖 = 있는 `tmpl` 문서) 이름의 `cut16(·,60)` == `run.tmpl` 을 대조한다. 통과면 서버가 `mcas: 1` 을 붙이고,
   실패면 409 + `reason_code`(쓰기 0). `mcas` 는 서버만 — 새 `run` 에 보내거나 없는 기록에 넣으면 400 `mcas_forbidden`. 결과 편집은 echo·누락 모두 유지,
-  근거 필드(mode·mission·mrev·name·tmpl·started·map·지점 x·y·name·mods·개수)가 바뀌면 서버가 떼고 `DocPutOk.mcas_dropped: true`. 시작 뒤 계획 변경은 재대조 0.
+  근거 필드(mode·mission·mrev·name·tmpl·started·map·finish·지점 x·y·name·mods·개수)가 바뀌면 서버가 떼고 `DocPutOk.mcas_dropped: true`. 시작 뒤 계획 변경은 재대조 0.
   `mrev` 없는 새 `run`(옛 앱)은 대조 0·`mcas` 0. 정본: `server/runcas.py`.
+- **임무 종료 방식 `finish`(R3, 10-18)**: `mission`·`run` 의 선택 키. 값은 `'출발점 복귀'` | `'마지막 지점 종료'` 둘뿐(null·빈 값·다른 문자열·숫자·bool = 400).
+  계획의 «의도»만 저장한다 — 출발점 = 그 진행(`run`)을 시작한 순간 로봇이 있던 곳이며 좌표는 저장하지 않는다. 자동 복귀 수행·복귀 결과 기록이 아니다(수동 진행에서는 운영자가 직접 돌아온다).
+  키 없음 = 종료 방식 미지정(옛 계획) · 옛 `run` 은 «기록 없음». 이름·메모·중복 좌표로 추정하거나 계획 값으로 채우지 않는다.
+  `run.finish` 는 시작 때 계획 값의 사본(계획에 없으면 키도 없음). `finish` 가 든 쓰기는 이 키를 모르는 옛 서버에서 400 이므로 서버를 먼저 반영한다.
 - 모든 글 필드: 외톨이 surrogate(U+D800–DFFF) = 400.
 
 ## 오류(HTTP)

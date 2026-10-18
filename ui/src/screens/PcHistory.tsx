@@ -46,7 +46,7 @@ export default function PcHistory() {
   const csv = (rs: Row[], name: string, what: string) => toast(saveBlob(`foothold-v2-history-${name}-${Date.now()}.csv`, new Blob([histCSV(rs)], { type: 'text/csv' })).then((x) => x && `${what} · ${rs.length}행 · ${x}`));
   const res = (r: Row) => <span className={`res ${r.lvl}`}>{`${LV[r.lvl] || '·'} ${r.res}`}</span>;
   const cell = (r: Row): JSX.Element[] => tab === '임무' ? [
-    <td key="n"><a href={r.href} style={{ color: 'inherit', fontWeight: '600' }}>{r.title}</a></td>, <td key="t">{r.tmpl || '—'}</td>, <td key="b">{r.by || '—'}</td>,
+    <td key="n"><a href={r.href} style={{ color: 'inherit', fontWeight: '600' }}>{r.title}</a>{r.fin ? <span className="lbl" style={{ display: 'block' }}>{r.fin}</span> : null}</td>, <td key="t">{r.tmpl || '—'}</td>, <td key="b">{r.by || '—'}</td>,
     <td key="d" className="mono r">{r.dur || '—'}</td>, <td key="p" className="mono r">{r.pts || '—'}</td>, <td key="r">{res(r)}</td>, <td key="f" className="mono r">{String(r.photos ?? 0)}</td>,
     <td key="h"><a href={r.href} style={{ color: 'var(--accent)' }}>보고서</a></td>]
     : tab === '사진' ? [<td key="r">{res(r)}</td>, <td key="s" className="mono">{r.sub}</td>, <td key="b">{r.by || '—'}</td>, <td key="m" style={{ whiteSpace: 'normal' }}>{r.extra || '—'}</td>,

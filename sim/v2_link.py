@@ -319,17 +319,20 @@ WP = {'x': N, 'y': N, 'name': S(40), 'mods': ('l', MODS, 3)}
 #   SDF 가 include 하는 메시·모델 파일은 들어 있지 않다(«전체 환경 동일» 아님). rid 없는 출처 = 개정 미확인 → 앱은 기록만
 MAPSRC = ('o', {'src': ('e', {'gt'}), 'world_id': S(40), 'floor_id': S(40), 'key': S(16),
                 'rid': ('o', ('r', re.compile(r'[wg]:[0-9a-f]{64}'), 'w: 또는 g: + 소문자 64 hex'))})
+# 임무 종료 방식(R3, 선택 키) — 계획 의도만: 출발점 = 진행을 시작한 곳(좌표 저장 0). 없음 = 종료 방식 미지정(옛 계획, 추정·자동 채움 0)
+FINISH = ('o', ('e', {'출발점 복귀', '마지막 지점 종료'}))
 DOC_KINDS = {
     'zone': {'name': S(40), 'type': ('e', {'금지', '감속'}), 'pts': ('l', PT, 40, 3)},
     # 임무 양식: 지점에서 할 일(모듈). 경보 규칙은 자동 실행 미연결이라 저장하지 않는다
     'tmpl': {'name': S(60), 'desc': S(120), 'mods': ('l', {'type': MODS, 'detail': S(80)}, 6)},
     # 임무 계획: 양식(tmpl id, 비면 기본 양식) + 경유점(지점마다 할 일)
-    'mission': {'name': S(60), 'tmpl': S(40), 'memo': S(400), 'wps': ('l', WP, 30), 'map': MAPSRC},
+    'mission': {'name': S(60), 'tmpl': S(40), 'memo': S(400), 'wps': ('l', WP, 30), 'map': MAPSRC, 'finish': FINISH},
     # 수동 임무 진행: 운영자가 직접 조종·확인해 적는 결과(로봇 자동 완료 아님). 계획을 시작 때 복사해 둔다
     'run': {'mode': ('e', {'수동'}), 'mission': S(40), 'tmpl': S(60), 'name': S(60), 'status': ('e', {'진행', '완료', '실패', '중단'}), 'started': S(32), 'ended': S(32), 'memo': S(400),
             'wps': ('l', {**WP, 'st': ('e', {'대기', '방문', '미방문'}), 'at': S(32), 'why': S(120), 'chk': ('e', {'', '확인', '보류', '제외'}), 'photos': ('l', PHOTO, 10)}, 30),
             'map': MAPSRC, 'mrev': ('o', ('i',)),    # map = 시작 때 계획 출처가 지금 시뮬과 일치했을 때만 · mrev = 시작한 계획 판
-            'mcas': ('o', ('1',))},                  # C: 서버가 시작 때 계획 판·스냅샷을 대조했음(서버만 붙임 — server/runcas.py). 정수 1 만
+            'mcas': ('o', ('1',)),                   # C: 서버가 시작 때 계획 판·스냅샷을 대조했음(서버만 붙임 — server/runcas.py). 정수 1 만
+            'finish': FINISH},                       # R3: 시작 때 계획 finish 사본(키 유무까지) — mrev 있는 새 Run 은 runcas 가 대조
     # 사진 = 운영자 등록 관찰(AI 탐지 없음): 확인·보류·제외 + 메모
     'note': {'photo': PHOTO, 'cls': ('e', {'확인', '보류', '제외'}), 'memo': S(400)},
 }
@@ -903,9 +906,29 @@ def selftest_extra():
         wp = {'x': 1, 'y': 2, 'name': '계단 앞', 'mods': ['사진', '운영자 확인']}
         assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {'name': 'm', 'tmpl': '', 'memo': '', 'wps': [wp]}}, 'A')[0] == 200
         assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {'name': 'm', 'tmpl': '', 'memo': '', 'wps': [{**wp, 'mods': ['사진'] * 4}]}}, 'A')[0] == 400
+        # R3 finish: 선택 키 — 두 값·키 없음만 통과, null·빈 값·영문·숫자·bool·목록·앞뒤 공백은 400(mission·run 같은 형식)
+        mi = {'name': 'm', 'tmpl': '', 'memo': '', 'wps': [wp]}
+        for fv in ('출발점 복귀', '마지막 지점 종료'):
+            assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**mi, 'finish': fv}}, 'A')[0] == 200, fv
+        for bad in (None, '', 'return_to_start', '출발점 복귀 ', 1, True, ['출발점 복귀'], {'x': 1}):
+            assert d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**mi, 'finish': bad}}, 'A')[0] == 400, bad
         rw = {**wp, 'st': '미방문', 'at': '', 'why': '길 막힘', 'chk': '', 'photos': ['media/photos/20261013/a.jpg']}
         assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '중단', 'started': 't', 'ended': 't', 'memo': '', 'wps': [rw]}}, 'A')[0] == 200
         assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '중단', 'started': 't', 'ended': 't', 'memo': '', 'wps': [{**rw, 'chk': '맞음'}]}}, 'A')[0] == 400
+        rn = {'mode': '수동', 'mission': 'm1', 'tmpl': 't', 'name': 'm', 'status': '중단', 'started': 't', 'ended': 't', 'memo': '', 'wps': [rw]}
+        assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**rn, 'finish': '출발점 복귀'}}, 'A')[0] == 200     # mrev 없음 = 대조 0
+        for bad in (None, '', 'hold', 0, ['마지막 지점 종료']):
+            assert d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**rn, 'finish': bad}}, 'A')[0] == 400, bad
+        # R3 서버 경로: mrev 있는 새 Run 은 계획 finish 와 키 유무·값이 같아야 시작(다르면 409 snapshot_mismatch, 쓰기 0)
+        c, r = d.apply({'op': 'put', 'kind': 'mission', 'id': None, 'doc': {**mi, 'finish': '출발점 복귀'}}, 'A'); assert c == 200
+        from server.runcas import BASE_TMPL_NAME      # tmpl '' = 내장 기본 양식 → Run.tmpl 은 그 이름(60자 이내라 자름 없음)
+        base_run = {**rn, 'mission': r['id'], 'tmpl': BASE_TMPL_NAME, 'status': '완료', 'mrev': 1}
+        n0 = len(d.d)
+        for bad_doc in (base_run, {**base_run, 'finish': '마지막 지점 종료'}):      # 계획엔 있고 Run 엔 없음 · 값 다름
+            c, r = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': bad_doc}, 'A')
+            assert c == 409 and r['reason_code'] == 'snapshot_mismatch' and len(d.d) == n0, (c, r)
+        c, r = d.apply({'op': 'put', 'kind': 'run', 'id': None, 'doc': {**base_run, 'finish': '출발점 복귀'}}, 'A')
+        assert c == 200 and d.d[r['id']]['doc'].get('mcas') == 1 and d.d[r['id']]['doc']['finish'] == '출발점 복귀', r
         # 하나만: 같은 사진 분류를 두 기기가 동시에 새로 만들면 둘째는 409 + 기존 문서 → 그 id·rev 로 고침(중복 없음)
         c, r = d.apply({'op': 'put', 'kind': 'note', 'id': None, 'doc': {**n, 'cls': '보류'}}, 'B'); assert c == 409 and r['cur']['doc']['photo'] == n['photo'], r
         assert d.apply({'op': 'put', 'id': r['cur']['id'], 'rev': r['cur']['rev'], 'doc': {**n, 'cls': '보류'}}, 'B')[0] == 200

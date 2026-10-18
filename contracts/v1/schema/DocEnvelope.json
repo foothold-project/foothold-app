@@ -43,6 +43,15 @@
     "Mission": {
       "additionalProperties": false,
       "properties": {
+        "finish": {
+          "default": null,
+          "enum": [
+            "출발점 복귀",
+            "마지막 지점 종료"
+          ],
+          "title": "Finish",
+          "type": "string"
+        },
         "map": {
           "$ref": "#/$defs/MapSrc",
           "default": null
@@ -199,6 +208,15 @@
         "ended": {
           "maxLength": 32,
           "title": "Ended",
+          "type": "string"
+        },
+        "finish": {
+          "default": null,
+          "enum": [
+            "출발점 복귀",
+            "마지막 지점 종료"
+          ],
+          "title": "Finish",
           "type": "string"
         },
         "map": {

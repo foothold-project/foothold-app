@@ -190,6 +190,7 @@ export interface Mission {
   memo: string;
   wps: Waypoint[];
   map?: MapSrc;
+  finish?: "출발점 복귀" | "마지막 지점 종료";
 }
 
 export interface MissionEnv {
@@ -312,6 +313,7 @@ export interface Run {
   wps: RunWaypoint[];
   map?: MapSrc;
   mrev?: number;
+  finish?: "출발점 복귀" | "마지막 지점 종료";
   mcas?: 1;
 }
 

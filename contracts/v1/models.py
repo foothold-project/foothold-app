@@ -395,6 +395,8 @@ ServerMsg = Annotated[Union[Status, Reply], Field(discriminator='op')]   # 텍�
 # ---------------------------------------------------------------- 공용 문서 본문(doc) — v2_link DOC_KINDS 와 같은 형식
 
 Mod = Literal['사진', '운영자 확인', '대기']     # 지금 앱으로 실제 할 수 있는 모듈만
+# 임무 종료 방식(R3, 선택 키 finish) — 계획의 의도만. 출발점 = 진행(Run)을 시작한 곳(좌표 저장 0) · 없음 = 종료 방식 미지정(옛 계획, 추정 0)
+Finish = Literal['출발점 복귀', '마지막 지점 종료']
 Point = Annotated[list[Num], Field(min_length=2, max_length=2)]
 
 
@@ -440,6 +442,7 @@ class Mission(Body):
     memo: S(400)
     wps: Annotated[list[Waypoint], Field(max_length=30)]
     map: MapSrc = None                      # 선택(키 없음 허용·null 불가) — 옛 문서·옛 서버 호환
+    finish: Finish = None                   # 선택(R3, 키 없음 허용·null 불가) — 없음 = 종료 방식 미지정. 자동 복귀 수행·시작 좌표 기록 아님
 
 
 class RunWaypoint(Waypoint):
@@ -463,6 +466,7 @@ class Run(Body):
     wps: Annotated[list[RunWaypoint], Field(max_length=30)]
     map: MapSrc = None                      # 선택 — 시작 때 계획 출처가 지금 시뮬과 일치했을 때만(없음 = 지도 미확인 · 기록만)
     mrev: Annotated[int, Field(ge=1)] = None   # 선택 — 시작한 계획 판
+    finish: Finish = None                   # 선택(R3) — 시작 때 계획 finish 사본(키 유무까지). mrev 있는 새 Run 은 서버가 대조(server/runcas.py)
     # 선택(C) — 서버가 시작 때 계획 판(mrev)·스냅샷·양식 이름을 대조했음. 서버만 붙인다(새 Run 에 보내면 400, 결과 편집은 echo·누락 모두 유지,
     # 근거 필드가 바뀌면 서버가 뗀다). 없음 = 이 기기 캐시 기준(서버 미대조). server/runcas.py
     mcas: Annotated[Literal[1], BeforeValidator(_int1)] = None

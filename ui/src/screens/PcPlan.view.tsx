@@ -8,7 +8,7 @@ export const PREVIEW = {"width":1440,"height":1120};
 export const FONTS = ["https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap"];
 export const CSS = "\nbody{margin:0}\n.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--bad-strong:#B3261E;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--gridc:rgba(154,167,179,.07);--bad-bg:rgba(255,90,82,.13);--warn-bg:rgba(255,181,71,.12);--ok-bg:rgba(90,169,255,.10);--acc-bg:rgba(56,198,217,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}\n.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--bad-strong:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--gridc:rgba(18,23,28,.06);--bad-bg:rgba(179,38,30,.08);--warn-bg:rgba(154,88,0,.09);--ok-bg:rgba(31,95,191,.08);--acc-bg:rgba(0,109,122,.08)}\n.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}\nbutton,input,select{font:inherit;color:inherit}\nbutton{cursor:pointer}\n.chip{display:flex;align-items:center;gap:6px;height:34px;padding:0 10px;border:1px solid var(--line);border-radius:6px;font-size:13px;background:var(--panel2);white-space:nowrap}\n.chip .mk{font-size:11px;color:var(--ok)}\n.btn{height:44px;padding:0 16px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px}\n.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}\n.btn.pri[disabled]{background:var(--line);border-color:var(--line);color:var(--muted);cursor:not-allowed}\n.btn.sm{height:34px;padding:0 10px;font-size:13px}\n.tool{height:38px;padding:0 10px;border:1px solid transparent;border-radius:6px;background:transparent;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}\n.tool[aria-pressed=\"true\"]{background:var(--acc-bg);border-color:var(--accent);color:var(--text)}\n.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}\n.sec{padding:14px 16px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}\n.sec h3{margin:0;font-size:14px;font-weight:600;display:flex;align-items:center;gap:8px}\n.lbl{font-size:12px;color:var(--muted)}\n.inp{height:40px;padding:0 12px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);font-size:14px;box-sizing:border-box;width:100%}\n.wp{display:grid;grid-template-columns:18px 28px 1fr auto;gap:10px;align-items:center;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2)}\n.wp.sel{border-color:var(--accent);background:var(--acc-bg)}\n.num{width:26px;height:26px;border-radius:50%;border:2px solid var(--accent);display:grid;place-items:center;font-size:12px;font-weight:700;color:var(--accent)}\n.act{font-size:11px;padding:2px 7px;border-radius:4px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}\n.opt{display:flex;gap:10px;align-items:flex-start;padding:10px;border:1px solid var(--line);border-radius:8px;font-size:13px;line-height:1.45;cursor:pointer}\n.opt.on{border-color:var(--accent);background:var(--acc-bg)}\n.opt input{margin:3px 0 0;accent-color:var(--accent);width:16px;height:16px}\n.ck{display:grid;grid-template-columns:18px 1fr auto;gap:10px;align-items:center;padding:9px 0;border-top:1px solid var(--line);font-size:13px}\n.ck .m.ok{color:var(--ok)}.ck .m.warn{color:var(--warn)}\n.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}\n.nav:hover{color:var(--text);background:var(--panel2)}\n.nav.cur{color:var(--text);background:var(--acc-bg)}\n.nav.cur svg{color:var(--accent)}\n/* 승인 수정(10-12): PC 머리줄(STOP 포함)은 스크롤해도 화면 위에 남는다 — 불투명 배경(--panel)이 아래 내용을 가린 채 위에 놓임 */\nheader{position:sticky;top:0;z-index:10}\n";
 /** 원본 틀이 읽는 값 이름 */
-export type Vals = { themeClass?: any; hdrA?: any; hdrB?: any; pill?: any; chips?: any; status?: any; stopProps?: any; tSel?: any; tAdd?: any; tNo?: any; tSlow?: any; tMeas?: any; prevP?: any; prevT?: any; map?: any; ov1?: any; ov2?: any; planBox?: any; tplP?: any; tplO?: any; tplHref?: any; tplHelp?: any; rH?: any; rList?: any; lost?: any; aH?: any; aOpts?: any; cH?: any; cList?: any; fb1?: any; saveP?: any; saveT?: any; startP?: any; startT?: any; startDis?: any; msg?: any; why?: any; stopSub?: any; stopHelp?: any; };
+export type Vals = { themeClass?: any; hdrA?: any; hdrB?: any; pill?: any; chips?: any; status?: any; stopProps?: any; tSel?: any; tAdd?: any; zoneP?: any; steps?: any; tMeas?: any; prevP?: any; prevT?: any; map?: any; ov1?: any; ov2?: any; planBox?: any; tplP?: any; tplO?: any; tplHref?: any; tplHelp?: any; lost?: any; aH?: any; aOpts?: any; cH?: any; cList?: any; stopSub?: any; stopHelp?: any; cfm?: any; over?: any; foot?: any; mapAct?: any; };
 
 export function View({ v }: { v: Vals }) {
   return (
@@ -173,7 +173,7 @@ export function View({ v }: { v: Vals }) {
           {" "}
           <main style={{"flex":"999 1 600px","minWidth":"0","display":"flex","flexWrap":"wrap","gap":"12px","padding":"12px","alignContent":"flex-start"}}>
             {" "}
-            <section aria-label="경로 지도" className="card" style={{"flex":"999 1 620px","minWidth":"0","overflow":"hidden","display":"flex","flexDirection":"column"}}>
+            <section aria-label="경로 지도" className={v.mapAct ? "card act" : "card"} style={{"flex":"999 1 620px","minWidth":"0","overflow":"hidden","display":"flex","flexDirection":"column"}}>
               {" "}
               <div role="toolbar" aria-label="지도 도구" style={{"display":"flex","flexWrap":"wrap","alignItems":"center","gap":"4px","padding":"8px 10px","borderBottom":"1px solid var(--line)"}}>
                 {" "}
@@ -189,23 +189,7 @@ export function View({ v }: { v: Vals }) {
                     <circle cx="12" cy="10" r="3" />
                     <path d="M12 21s-7-6-7-11a7 7 0 0114 0c0 5-7 11-7 11z" />
                   </svg>
-                  {"지점 추가"}
-                </button>
-                {" "}
-                <button className="tool" aria-pressed="false" {...v.tNo}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <rect x="4" y="4" width="16" height="16" />
-                    <path d="M4 4l16 16" />
-                  </svg>
-                  {"진입 금지 구역"}
-                </button>
-                {" "}
-                <button className="tool" aria-pressed="false" {...v.tSlow}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-                    <path d="M4 18a8 8 0 0116 0" />
-                    <path d="M12 18l4-6" />
-                  </svg>
-                  {"감속 구역"}
+                  {"목적지 추가"}
                 </button>
                 {" "}
                 <button className="tool" aria-pressed="false" {...v.tMeas}>
@@ -216,6 +200,9 @@ export function View({ v }: { v: Vals }) {
                 </button>
                 {" "}
                 <div style={{"flex":"1"}} />
+                <button className="btn sm" {...v.zoneP}>
+                  {"진입 금지·감속 →"}
+                </button>
                 {" "}
                 <button className="btn sm" {...v.prevP}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
@@ -226,7 +213,8 @@ export function View({ v }: { v: Vals }) {
                 {" "}
               </div>
               {" "}
-              <div style={{"position":"relative"}}>
+              {v.cfm ?? null}
+              <div className="pp-maparea" style={{"position":"relative"}}>
                 {v.map ?? null}
                 {" "}
                 <svg viewBox="0 0 1000 620" style={{"width":"100%","height":"auto","display":"block",...(v.map ? { visibility: "hidden" } : {})}} role="img" aria-label="임무 계획 지도: 측정 지점 4곳과 계획 경로, 선택된 3번 지점, 진입 금지 구역, 지난 순찰의 통신 약함 구역">
@@ -348,13 +336,23 @@ export function View({ v }: { v: Vals }) {
                   {" "}
                 </div>
                 {" "}
+                {v.over ?? null}
               </div>
               {" "}
+              {v.foot ?? null}
             </section>
             {" "}
             <aside aria-label="임무 설정" className="card" style={{"flex":"1 1 400px","minWidth":"0","maxWidth":"480px","display":"flex","flexDirection":"column"}}>
               {v.planBox ?? null}
-              {" "}
+              {v.steps ?? null}
+              {/* R3b: 양식·통신 끊김·경보·점검은 «진행 설정» 접기 안(막는 이유는 시작 단추 옆 v.why 에 늘 보임) */}
+              <details style={{"borderTop":"1px solid var(--line)"}}>
+                <summary style={{"cursor":"pointer","padding":"12px 16px","fontSize":"13px","fontWeight":"600"}}>
+                  {"진행 설정 ▾ "}
+                  <span className="lbl" style={{"fontWeight":"400"}}>
+                    {"양식 기본 · 통신이 끊기면 · 경보 규칙 · 출발 전 점검"}
+                  </span>
+                </summary>
               <div style={{"padding":"14px 16px","display":"flex","flexDirection":"column","gap":"10px"}}>
                 {" "}
                 <div style={{"display":"flex","justifyContent":"space-between","alignItems":"baseline"}}>
@@ -381,174 +379,6 @@ export function View({ v }: { v: Vals }) {
                 </select>
                 {" "}
               </div>
-              {" "}
-              <div className="sec">
-                {" "}
-                <h3>
-                  {"경로 "}
-                  <span className="mono" style={{"fontSize":"12px","color":"var(--muted)","fontWeight":"500"}}>
-                    {v.rH ?? "4개 지점 · 148 m"}
-                  </span>
-                </h3>
-                {" "}
-                <div style={{"display":"flex","flexDirection":"column","gap":"6px"}}>
-                  {" "}
-                  {v.rList ?? (<>
-                  <div className="wp">
-                    <span aria-hidden="true" style={{"color":"var(--muted)"}}>
-                      {"⋮⋮"}
-                    </span>
-                    <span className="num mono">
-                      {"1"}
-                    </span>
-                    <div style={{"display":"flex","flexDirection":"column","gap":"4px","minWidth":"0"}}>
-                      <span style={{"fontSize":"13px","fontWeight":"600"}}>
-                        {"계단실 하부"}
-                      </span>
-                      <div style={{"display":"flex","gap":"4px","flexWrap":"wrap"}}>
-                        <span className="act">
-                          {"가스 측정 30초"}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="mono lbl">
-                      {"22 m"}
-                    </span>
-                  </div>
-                  {" "}
-                  <div className="wp">
-                    <span aria-hidden="true" style={{"color":"var(--muted)"}}>
-                      {"⋮⋮"}
-                    </span>
-                    <span className="num mono">
-                      {"2"}
-                    </span>
-                    <div style={{"display":"flex","flexDirection":"column","gap":"4px","minWidth":"0"}}>
-                      <span style={{"fontSize":"13px","fontWeight":"600"}}>
-                        {"펌프실 A"}
-                      </span>
-                      <div style={{"display":"flex","gap":"4px","flexWrap":"wrap"}}>
-                        <span className="act">
-                          {"사진 3방향"}
-                        </span>
-                        <span className="act">
-                          {"탐지"}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="mono lbl">
-                      {"41 m"}
-                    </span>
-                  </div>
-                  {" "}
-                  <div className="wp sel" style={{"gridTemplateColumns":"18px 28px 1fr auto"}}>
-                    {" "}
-                    <span aria-hidden="true" style={{"color":"var(--muted)"}}>
-                      {"⋮⋮"}
-                    </span>
-                    <span className="num mono" style={{"background":"var(--accent)","color":"var(--on-accent)"}}>
-                      {"3"}
-                    </span>
-                    {" "}
-                    <div style={{"display":"flex","flexDirection":"column","gap":"4px","minWidth":"0"}}>
-                      <span style={{"fontSize":"13px","fontWeight":"600"}}>
-                        {"집수정"}
-                      </span>
-                      <span className="lbl">
-                        {"이 지점에서 할 일"}
-                      </span>
-                    </div>
-                    {" "}
-                    <span className="mono lbl">
-                      {"74 m"}
-                    </span>
-                    {" "}
-                    <div style={{"gridColumn":"2 / -1","display":"flex","flexDirection":"column","gap":"8px","paddingTop":"4px"}}>
-                      {" "}
-                      <label style={{"display":"flex","gap":"8px","alignItems":"center","fontSize":"13px"}}>
-                        <input type="checkbox" defaultChecked={!!(true)} style={{"accentColor":"var(--accent)","width":"16px","height":"16px"}} />
-                        {"가스 측정 · 값이 안정될 때까지 최대 "}
-                        <span className="mono">
-                          {"60"}
-                        </span>
-                        {"초"}
-                      </label>
-                      {" "}
-                      <label style={{"display":"flex","gap":"8px","alignItems":"center","fontSize":"13px"}}>
-                        <input type="checkbox" defaultChecked={!!(true)} style={{"accentColor":"var(--accent)","width":"16px","height":"16px"}} />
-                        {"사진 · 전방 1장 + 개구부 쪽 1장"}
-                      </label>
-                      {" "}
-                      <label style={{"display":"flex","gap":"8px","alignItems":"center","fontSize":"13px"}}>
-                        <input type="checkbox" defaultChecked={!!(true)} style={{"accentColor":"var(--accent)","width":"16px","height":"16px"}} />
-                        {"AI 탐지 · 물고임 · 쓰러진 사람 · 연기"}
-                      </label>
-                      {" "}
-                      <div style={{"display":"flex","gap":"8px"}}>
-                        {" "}
-                        <div style={{"flex":"1","display":"flex","flexDirection":"column","gap":"4px"}}>
-                          <label className="lbl" htmlFor="rad">
-                            {"도착 판정 반경"}
-                          </label>
-                          <input id="rad" className="inp mono" defaultValue="0.5 m" />
-                        </div>
-                        {" "}
-                        <div style={{"flex":"1","display":"flex","flexDirection":"column","gap":"4px"}}>
-                          <label className="lbl" htmlFor="hdg">
-                            {"도착 방향"}
-                          </label>
-                          <input id="hdg" className="inp mono" defaultValue="남 · 180°" />
-                        </div>
-                        {" "}
-                      </div>
-                      {" "}
-                    </div>
-                    {" "}
-                  </div>
-                  {" "}
-                  <div className="wp">
-                    <span aria-hidden="true" style={{"color":"var(--muted)"}}>
-                      {"⋮⋮"}
-                    </span>
-                    <span className="num mono">
-                      {"4"}
-                    </span>
-                    <div style={{"display":"flex","flexDirection":"column","gap":"4px","minWidth":"0"}}>
-                      <span style={{"fontSize":"13px","fontWeight":"600"}}>
-                        {"배관 구역"}
-                      </span>
-                      <div style={{"display":"flex","gap":"4px","flexWrap":"wrap"}}>
-                        <span className="act">
-                          {"탐지"}
-                        </span>
-                        <span className="act">
-                          {"사진"}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="mono lbl">
-                      {"96 m"}
-                    </span>
-                  </div>
-                  {" "}
-                  <div className="wp" style={{"opacity":".8"}}>
-                    <span />
-                    <span className="mono" style={{"width":"26px","height":"26px","border":"2px solid var(--text)","borderRadius":"4px","display":"grid","placeItems":"center","fontSize":"12px","fontWeight":"700"}}>
-                      {"S"}
-                    </span>
-                    <span style={{"fontSize":"13px","fontWeight":"600"}}>
-                      {"출발점으로 복귀"}
-                    </span>
-                    <span className="mono lbl">
-                      {"148 m"}
-                    </span>
-                  </div>
-                  </>)}
-                  {" "}
-                </div>
-                {" "}
-              </div>
-              {" "}
               <div className="sec">
                 {" "}
                 <h3>
@@ -738,42 +568,7 @@ export function View({ v }: { v: Vals }) {
                 </div>
                 {" "}
               </div>
-              {" "}
-              <div style={{"marginTop":"auto","padding":"14px 16px","borderTop":"1px solid var(--line)","display":"flex","flexDirection":"column","gap":"10px","background":"var(--panel2)","borderRadius":"0 0 10px 10px"}}>
-                {" "}
-                <div style={{"display":"flex","flexWrap":"wrap","gap":"6px 16px","fontSize":"13px"}}>
-                  {" "}
-                  <span>
-                    <span className="lbl">
-                      {"거리"}
-                    </span>
-                    {" "}
-                    <b className="mono">
-                      {v.fb1 ?? "148 m"}
-                    </b>
-                  </span>
-                  {" "}
-                </div>
-                {" "}
-                <div style={{"display":"flex","gap":"8px"}}>
-                  {" "}
-                  <button className="btn" style={{"flex":"1"}} {...v.saveP}>
-                    {v.saveT ?? "양식으로 저장"}
-                  </button>
-                  {" "}
-                  <button className="btn pri" style={{"flex":"2"}} disabled={v.startDis ?? true} aria-describedby="why" {...v.startP}>
-                    {v.startT ?? "임무 시작"}
-                  </button>
-                  {" "}
-                </div>
-                {v.msg ?? null}
-                {" "}
-                <span id="why" style={{"fontSize":"12px","color":"var(--warn)"}}>
-                  {v.why ?? "▲ 점검 2개가 남아 아직 시작할 수 없습니다"}
-                </span>
-                {" "}
-              </div>
-              {" "}
+              </details>
             </aside>
             {" "}
           </main>

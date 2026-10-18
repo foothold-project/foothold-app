@@ -9,7 +9,7 @@ import { camChip, HeadChips, SimRun } from '../app/status';
 import { Chip, DirTag, Help, SafeLine } from '../app/chip';
 import { camURL, driveBlock, dropAll, linkView, press, lift, sendOp, startBlock, startDrive, stateRows, TRAIL, useLink, type Axes } from '../data/link';
 import { activeRun, docsOf, useDocs } from '../data/shared';
-import { pickWp, modDone, modTxt, shoot, runHere } from '../data/run';
+import { finishText, pickWp, modDone, modTxt, shoot, runHere } from '../data/run';
 import { href } from '../data/hist';
 import { MapCanvas } from '../map/MapCanvas';
 import { useMapPick } from '../map/MapPick';
@@ -144,7 +144,7 @@ export default function Main() {
       map={(q) => <>
         <MapCanvas name="main" lean small={q === 'thumb'} btns={q !== 'thumb'} zones={D.err ? [] : docsOf(D, 'zone')} robot={on ? pose : v.robot} trail={TRAIL.pts}
           raster={raster} blank={blank} flat={flat} noRobot={on && !pose} showTrail={trail && !on} showZones={zon && !on} wps={R && !on && here.ok ? R.wps : null} /></>} />,
-    stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist != null ? `${dist.toFixed(1)} m` : here.ok ? '미확인' : `표시 안 함(${here.why})`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
+    stepHead: R ? `경과 ${durTxt(R.started)} · 방문 ${vis}/${R.wps.length} · ${finishText(R)} · ${ci < 0 ? '모든 지점 기록됨' : `다음 지점 직선 ${dist != null ? `${dist.toFixed(1)} m` : here.ok ? '미확인' : `표시 안 함(${here.why})`}`} · 자동 이동 미연결` : '진행 중 수동 임무 없음',
     steps: R ? R.wps.map((x, i) => ({ n: i + 1, title: x.name || `지점 ${i + 1}`, cls: x.st === '방문' ? 'done' : x.st === '미방문' ? 'hold' : i === ci ? 'now' : '',
       sub: x.st === '방문' ? `방문 ${fmtT(x.at).slice(6)} · 사진 ${x.photos.length}${x.chk ? ` · ${x.chk}` : ''}` : x.st === '미방문' ? `미방문 · ${x.why}`
         : i === ci ? `기록 차례${x.photos.length ? ` · 사진 ${x.photos.length}` : ''}${x.chk ? ` · ${x.chk}` : ''} · 직접 조종` : '대기' })) : [],
