@@ -232,3 +232,35 @@ test('R3b 저장 관문 404: 옛 계획(id·키 없음) 저장 = 키 없이 1회
   await m.click(/^새 문서로 저장$/);
   expect(posts).toHaveLength(2); expect(posts[1]).toMatchObject({ op: 'put', id: null, doc: { name: '옛 계획', finish: '마지막 지점 종료' } });
 });
+
+// ---- E6c(QA3 · ROOT GO): 저장 중 화면 이탈 → 늦은 응답(판 2) → 복귀. 서버 본문 = 보관 초안이면 새 판·깨끗, 한 글자라도 다르면 초안 보존 ----
+const O6 = { name: '옛 계획', tmpl: 'base', memo: '', wps: [{ x: 1, y: 1, name: '가', mods: ['사진'] }] };
+const env6 = (rev: number, d: unknown) => ({ id: 'm1', kind: 'mission', rev, by: 'u', at: '2026-10-19T00:00:00', doc: d });
+const e6c = async (more?: string) => {
+  qc.setQueryData(['docs'], { docs: [env6(1, O6)], rev: 1 }); R.q = new URLSearchParams('mission=m1');
+  let done!: (v: unknown) => void; const sent: any[] = [];
+  vi.spyOn(T, 'postDocs').mockImplementation(((b: any) => { sent.push(b); return new Promise((r) => { done = r; }); }) as any);
+  vi.spyOn(T, 'get').mockImplementation((async () => ({ status: 200, body: JSON.stringify(qc.getQueryData(['docs'])) })) as any);
+  const m = await mount(), nm = (h: N, v: string) => React.act(async () => props(nameIn(h)).onChange({ target: { value: v }, currentTarget: { value: v } }));
+  await nm(m.host, 'Z 계획'); await m.click(/^변경 저장$/); expect(sent).toHaveLength(1); expect(sent[0]).toMatchObject({ op: 'put', id: 'm1', rev: 1, doc: { name: 'Z 계획' } });
+  if (more) await nm(m.host, more);
+  const r = roots.pop(); await React.act(async () => r.unmount());                     // 저장 응답 전 이탈 = 옛 판 1 로 보관
+  expect(drafts.get('mission:PcPlan')).toMatchObject({ id: 'm1', rev: 1, d: { name: more ?? 'Z 계획' } });
+  await React.act(async () => { done({ status: 200, body: JSON.stringify({ ok: true, id: 'm1', rev: 2, kind: 'mission', name: 'Z 계획' }) }); await flush(); });
+  expect(R.toasts).toContain('앞 문서 저장됨 · 판 2');
+  qc.setQueryData(['docs'], { docs: [env6(2, sent[0].doc)], rev: 2 });               // 서버 판 2 = 보낸 본문 그대로
+  const m2 = await mount();
+  return { m2, sent, name: () => (props(nameIn(m2.host)).value as string) };
+};
+
+test('E6c 같은 본문: 저장 중 이탈 → 판 2 응답 → 복귀 = 새 판 2 · 깨끗(dirty 0) · 추가 쓰기 0', async () => {
+  const { m2, sent, name } = await e6c();
+  expect(m2.text()).toContain('저장됨 · 판 2'); expect(m2.text()).not.toContain('저장 안 한 수정 있음');
+  expect(name()).toBe('Z 계획'); expect(sent).toHaveLength(1); expect(drafts.has('mission:PcPlan')).toBe(false);
+});
+
+test('E6c 다른 본문: 저장 중 Y 로 더 고치고 이탈 → 판 2(Z) 응답 → 복귀 = 초안 Y 보존 · dirty 유지 · 추가 쓰기 0', async () => {
+  const { m2, sent, name } = await e6c('Y 계획');
+  expect(m2.text()).toContain('저장 안 한 수정 있음'); expect(m2.text()).not.toContain('저장됨 · 판 2');
+  expect(name()).toBe('Y 계획'); expect(sent).toHaveLength(1);
+});

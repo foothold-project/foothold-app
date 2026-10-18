@@ -59,7 +59,7 @@ const PCSS = `.pcplan-hdr .card.act{border-color:var(--accent)}
 .pcplan-hdr .pp-msg{position:absolute;inset:0;display:grid;place-items:center;text-align:center;color:var(--muted);font-size:14px;padding:16px}
 .pcplan-hdr .pp-msg b{display:block;color:var(--text);font-size:15px;margin-bottom:6px}
 .pcplan-hdr .pp-band{position:absolute;top:10px;left:50%;transform:translateX(-50%);font-size:12px;background:var(--panel);padding:4px 10px;border-radius:6px;border:1px solid var(--accent);pointer-events:none;white-space:nowrap;max-width:calc(100% - 24px);overflow:hidden;text-overflow:ellipsis}
-.pcplan-hdr .pp-pop{position:absolute;right:12px;top:44px;width:236px;background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:4px}
+.pcplan-hdr .pp-pop{position:absolute;z-index:3;right:12px;top:44px;width:236px;background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:8px;display:flex;flex-direction:column;gap:4px}
 .pcplan-hdr .pp-pop .h{font-size:12px;color:var(--muted);padding:2px 2px 4px}
 .pcplan-hdr .pp-pre{display:flex;flex-direction:column;align-items:flex-start;text-align:left;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);color:var(--text)}
 .pcplan-hdr .pp-pre b{font-size:13px}.pcplan-hdr .pp-pre span{font-size:11px;color:var(--muted)}
@@ -85,6 +85,7 @@ const PCSS = `.pcplan-hdr .card.act{border-color:var(--accent)}
 @media (max-width:640px){
   .pcplan-hdr nav[aria-label="주 메뉴"]{flex:1 1 100%!important;flex-direction:row!important;justify-content:space-around;overflow-x:auto;padding:4px!important;border-right:0!important;border-bottom:1px solid var(--line)}
   .pcplan-hdr .pp-pop{left:16px;right:auto;top:auto;bottom:48px}
+  .pcplan-hdr .pp-maparea{min-height:360px}
 }`;
 
 export default function PcPlan() {
@@ -126,7 +127,8 @@ export default function PcPlan() {
 
   useEffect(() => {   // 고른 계획을 편집기에 · 다른 기기가 고친 새 판은 깨끗할 때만 반영 · 저장 뒤 주소에 id
     if (want && E.id !== want && !E.dirty) { const x = docById(D, want); if (x) { E.load(x); shown.current = x.id; setWsel(null); return; } }
-    const sc = E.stale(D); if (sc && !E.dirty) E.load(sc);
+    // E6c: 저장 중 떠났다 돌아오면 보관 초안은 옛 판·dirty — 서버 새 판 본문이 초안과 정확히 같으면(그 저장이 반영됨) 새 판으로 깨끗하게, 한 글자라도 다르면 초안 보존
+    const sc = E.stale(D); if (sc && (!E.dirty || JSON.stringify(sc.doc) === JSON.stringify(E.d))) E.load(sc);
     if (E.id && !E.dirty && E.id !== shown.current) { shown.current = E.id; if (want !== E.id) setQ('mission', E.id); }   // 저장(새 문서)으로 생긴 id 만 — 사용자가 연 주소는 덮지 않음 · 이어 편집 중인 초안(dirty)은 주소를 바꾸지 않음
   });
   useEffect(() => { const f = (e: BeforeUnloadEvent) => { if (E.dirty) e.preventDefault(); }; addEventListener('beforeunload', f); return () => removeEventListener('beforeunload', f); }, [E]);

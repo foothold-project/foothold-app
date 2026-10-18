@@ -214,7 +214,7 @@ export function View({ v }: { v: Vals }) {
               </div>
               {" "}
               {v.cfm ?? null}
-              <div style={{"position":"relative"}}>
+              <div className="pp-maparea" style={{"position":"relative"}}>
                 {v.map ?? null}
                 {" "}
                 <svg viewBox="0 0 1000 620" style={{"width":"100%","height":"auto","display":"block",...(v.map ? { visibility: "hidden" } : {})}} role="img" aria-label="임무 계획 지도: 측정 지점 4곳과 계획 경로, 선택된 3번 지점, 진입 금지 구역, 지난 순찰의 통신 약함 구역">
