@@ -195,5 +195,7 @@ html:not(.fh-dev) [data-dev]{display:none!important}
 @media (min-width:701px){
   .fh .nav{width:100%;box-sizing:border-box;font-size:13px;line-height:1.25;text-align:center;word-break:keep-all}
   .fh .nav.cur{font-weight:600}
-  .fh nav:has(> a.nav){flex-basis:88px!important;overflow-y:auto}
+  .fh nav:has(> a.nav){overflow-y:auto}
 }
+/* 10-18 NAV 좁은 폭 후속: 막대 폭 88 은 740px 이상만(701–739 는 각 화면 inline 76 그대로 — Main 본문 줄바꿈 경계를 옛 판과 같게). 13px·width100·선택 굵게·SVG 는 701 이상 유지 */
+@media (min-width:740px){ .fh nav:has(> a.nav){flex-basis:88px!important} }

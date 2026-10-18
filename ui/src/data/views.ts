@@ -166,7 +166,7 @@ export function viewWhy(st: any, what: What): string {
     return v.why ? `받는 쪽 검사: ${v.why}` : '받은 것 없음';
   }
   if (!lmBound(lv)) return `지도 상태 기다림${lv?.why ? ` — ${lv.why}` : ''}`;
-  if (p?.reason === 'not_localized' && lv.mode === 'static' && lv.map_source === 'slam') return '저장 SLAM 지도는 위치추정 미연결 — 점군 위치 표시 불가';
+  if (p?.reason === 'not_localized' && lv.mode === 'static' && lv.map_source === 'slam') return '저장한 지도와 로봇 위치를 맞추지 않음 — 위치 표시 없음';
   if (p?.reason && p.reason !== 'ok') return `${PROD_KO[p.reason] ?? PROD_KO.unknown}${p.n_pub === 0 ? ' (이번 기동 발행 0)' : ''}`;
   return v?.why ? `받는 쪽 검사: ${v.why}` : '받은 것 없음';
 }

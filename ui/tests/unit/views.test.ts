@@ -72,7 +72,7 @@ test('viewWhy: 분기마다 반례 1개(미확인·꺼짐·평지·종류 미확
   expect(W(S('running', 'live_map', vw('follow', { reason: 'no_frame', n_pub: 0, enabled: false })), 'follow')).toMatch(/외부카메라 끔/);
   expect(W(S('running', 'live_map', { live_map: { st: 'wait', why: '이번 epoch 지도 기다림' } }), 'points')).toBe('지도 상태 기다림 — 이번 epoch 지도 기다림');
   const saved = { live_map: { st: 'ok', ...K, mode: 'static', map_source: 'slam', map_version: '20261014-173008-e1' } };
-  expect(W(S('running', 'live_map', { ...saved, ...vw('points', { reason: 'not_localized', n_pub: 0, enabled: null }) }), 'points')).toBe('저장 SLAM 지도는 위치추정 미연결 — 점군 위치 표시 불가');
+  expect(W(S('running', 'live_map', { ...saved, ...vw('points', { reason: 'not_localized', n_pub: 0, enabled: null }) }), 'points')).toBe('저장한 지도와 로봇 위치를 맞추지 않음 — 위치 표시 없음');
   expect(W(S('running', 'live_map', vw('points', { reason: 'not_localized', n_pub: 0, enabled: null })), 'points')).toBe('위치 결속 미확인 — 기록 확인 (이번 기동 발행 0)');
   expect(W(S('running', 'live_map', vw('follow', { reason: 'sim_t_unknown', n_pub: 0, enabled: true })), 'follow')).toBe('발행 쪽이 시뮬 시각을 못 읽음 — 계속되면 기록 확인 (이번 기동 발행 0)');
   expect(W(S('running', 'live_map', vw('points', { reason: 'zzz', n_pub: null, enabled: null })), 'points')).toMatch(/코드 모름/);

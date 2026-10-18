@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
-// SLAM-1(root 결정 A · 2026-10-16): 새 UI 의 시뮬 시작 = MapStartBox.openMapAsk 하나 → map_start(mode slam · map_version 없음) 1회.
+// SLAM-1(2026-10-16) → 10-18 SAVED-START(결정 A 대체): 새 UI 의 시뮬 시작 = MapStartBox.openMapAsk 하나 → map_start 1회.
+//   새 지도 = mode slam · map_version 없음(옛 호출 그대로) · 저장 지도 = mode static + 고른 map_version 정확히(없으면 송신 0).
 // 확인은 페이지 안 StartAsk(askPage) 재사용 — native confirm 0. 결속(연결 세대·대상·시작 가능·사용 범위·카메라·화면)이 바뀌면 취소, 송신 직전 한 번 더 대조.
 // 가짜 WebSocket/문서(link.test 와 같은 틀)로 node 에서 helper 직접 호출 — 실제 상자·메뉴 장착 반례는 ui_slam1_mount, 화면 배치·실제 STOP 접근은 670 화면 QA 몫
 // r2(715 R1·R2): 양식·요청 수명 · true 뒤 송신 전 무효 · 원장 · 보냄/안 보냄 구분. r3(715 P2-1): sent = ask 호출(시도) · 미송신 반례 · max 단독. 이 사본은 미실행
@@ -110,16 +111,19 @@ test('반복 누름: 응답 전 두 번째 시작은 보낸 것 0 · 외부 카�
   expect(starts().length).toBe(0); msg(ST());
 });
 
-test('소스: 새 UI 시작 경로에 평지 sim_start·static 실행·native confirm 0', () => {
+test('소스: 새 UI 시작 경로에 평지 sim_start·native confirm 0 · static 은 고른 버전으로만', () => {
   const fsm = 'node:fs';
   return import(/* @vite-ignore */ fsm).then(({ readFileSync }) => {
     const rd = (p: string) => readFileSync(new URL(`../../src/${p}`, import.meta.url), 'utf8') as string;
     const box = rd('map/MapStartBox.tsx'), stt = rd('app/status.tsx'), md = rd('screens/MDrive.tsx'), lk = rd('data/link.ts');
     for (const s of [box, stt, md, lk]) { expect(s).not.toMatch(/startSimAsk\(/); expect(s).not.toMatch(/ask\('sim_start'/); }
-    expect(box).not.toMatch(/confirm\(/); expect(box).not.toMatch(/mode: 'static'|map_version: ver|aria-label="여는 방식"|aria-label="저장 지도 버전"/);
-    expect(box).toMatch(/ask\('map_start', \{ world_id: sel\.w, floor_id: sel\.f, mode: 'slam', follow_cam: sel\.fc \}\)/);
-    expect(box).toMatch(/useEffect\(chg, \[w, f, fcOn\]\);/); expect(box).toMatch(/useEffect\(\(\) => \{ if \(part !== 'save'\) form\.current = mapFormOpen\(\); \}, \[\]\);/);
-    for (const h of ['onChange={(e) => { chg(); const next = e.target.value as W;', 'onClick={() => { chg(); setF(k); }}', 'onChange={(e) => { chg(); setFc(e.target.checked); }}']) expect(box).toContain(h);   // 선택 변경은 렌더 전 동기 무효
+    expect(box).not.toMatch(/confirm\(/); expect(box).not.toMatch(/aria-label="여는 방식"|gt_raster' *&& *sm/);
+    expect(box).toMatch(/if \(st && !sel\.v\) return no\(/);   // 버전 없는 static 송신 0
+    expect(box).toMatch(/useState<'static' \| 'slam'>\('static'\)/);   // 기본 = 저장(0개여도 새 지도 자동 선택 0 — 아래 setSm('slam') 은 단추 onClick 하나뿐)
+    expect(box.match(/setSm\('slam'\)/g)!.length).toBe(1);
+    expect(box).toMatch(/useEffect\(chg, \[w, f, fcOn, sm, ver, slt\]\);/); expect(box).toMatch(/useEffect\(\(\) => \{ if \(part !== 'save'\) form\.current = mapFormOpen\(\); \}, \[\]\);/);
+    for (const h of ['onChange={(e) => { chg(); const next = e.target.value as W;', "onClick={() => { chg(); setF(k); setSm('static'); setPick(''); }}", 'onChange={(e) => { chg(); setFc(e.target.checked); }}',
+      "onClick={() => { chg(); setSm('static'); }}", "onClick={() => { chg(); setSm('slam'); }}", 'onChange={(e) => { chg(); setPick(e.target.value); }}']) expect(box).toContain(h);   // 선택 변경은 렌더 전 동기 무효
     expect(lk).toMatch(/export const startGen = \(\) => startTok;/); expect(lk.match(/startTok\+\+|\+\+startTok/g)!.length).toBe(2);   // 읽기만 추가 · 올리는 곳 그대로(cancelStart·startDrive)
     expect(md).not.toMatch(/'시뮬 시작\(30분\)'/); expect(stt).not.toMatch(/'시뮬 시작\(30분\)'/);
   });
@@ -196,4 +200,47 @@ test('r3 P2-1: 링크가 닫히는 중(readyState 3 · close 이벤트 전) = as
   expect(B.reqLine({ ok: false, text: '시작 확인 취소 · x — 보낸 것 0', sent: false })).toMatch(/^안 보냄 · /);
   expect(B.reqLine({ ok: true, text: 'x', sent: true })).toMatch(/^요청 수락\(아직 켜진 것 아님/);
   sock.readyState = 1; sent.length = 0; msg(ST());
+});
+
+// ── 10-18 SAVED-START 반례(helper · 이 사본 미실행) ──
+const SV = { ...SEL, f: 'l1', label: '2층 건물 · 1층', mode: 'static' as const, v: '20260101-000000-e1', lt: '20260101-000000-e1' };
+test('저장 지도: 확인 1회 = map_start 1회 · mode static · 고른 map_version 정확히 · 한계 줄(위치 없음·이어 그리기·저장·자동 길찾기·다른 층 빈칸)', async () => {
+  const asked: string[] = [];
+  const p = B.openMapAsk(SV, {}, null, (t) => { asked.push(t); return true; }); await flush();
+  const q = starts(); expect(q.length).toBe(1);
+  expect(q[0]).toMatchObject({ op: 'map_start', world_id: 'v5_building', floor_id: 'l1', mode: 'static', map_version: '20260101-000000-e1', follow_cam: false });
+  expect(asked[0]).toContain('저장한 지도 20260101-000000-e1를 그림으로 열기'); expect(asked[0]).toContain('위치 표시 없음');
+  for (const t of ['이어 그리기·저장 없음', '자동 길찾기 없음', '다른 층으로 가면 그 층 지도는 빈칸']) expect(asked[0]).toContain(t);
+  expect(asked[0]).not.toContain('새 지도를 만들며 시작');
+  msg({ op: 'reply', rid: q[0].rid, ok: true, text: '지도 체험 시작 요청함' }); expect(await p).toMatchObject({ ok: true, sent: true });
+  sent.length = 0;
+});
+
+test('저장 지도: 버전 없음(null·빈 글) = 확인창 안 엶 · 보낸 것 0', async () => {
+  for (const v of [null, '', undefined]) {
+    let opened = false;
+    const r = await B.openMapAsk({ ...SV, v }, {}, null, () => { opened = true; return true; });
+    expect(r).toMatchObject({ ok: false, sent: false }); expect(r!.text).toMatch(/버전을 고르지 않음 — 보낸 것 0/); expect(opened).toBe(false);
+  }
+  expect(starts().length).toBe(0);
+});
+
+test('저장 지도: true 뒤 송신 전 다른 버전·목록 변경(늦은 목록)·새 지도로 전환·STOP·연결 세대 → 보낸 것 0(마지막 값 자동 갈아끼우기 0)', async () => {
+  let cur: any = SV;
+  const cases: [string, () => void, RegExp][] = [
+    ['다른 버전', () => { cur = { ...SV, v: '20260102-000000-e2' }; }, /고른 지형·층·카메라 바뀜/],
+    ['같은 버전·늦은 목록(토큰만 바뀜)', () => { cur = { ...SV, lt: '20260101-000000-e1,20261018-000000-e1' }; }, /고른 지형·층·카메라 바뀜/],
+    ['버전이 목록에서 사라짐(v null)', () => { cur = { ...SV, v: null, lt: '' }; }, /고른 지형·층·카메라 바뀜/],
+    ['새 지도로 전환', () => { cur = { ...SV, mode: 'slam', v: null }; }, /고른 지형·층·카메라 바뀜/],
+    ['STOP', () => { L.sendStop(); }, /STOP·숨김·이탈/],
+    ['연결 끊김(세대 +1 · 마지막 경우)', () => { sock.onclose({ code: 1006 }); }, /연결·대상 바뀜/],
+  ];
+  for (const [, act, re] of cases) {
+    cur = SV;
+    msg(ST()); sent.length = 0;
+    const F = { id: B.mapFormOpen(), cur: () => cur };
+    const r = await B.openMapAsk(SV, {}, null, () => { act(); return true; }, F);
+    expect(r).toMatchObject({ ok: false, sent: false }); expect(r!.text).toMatch(re); expect(r!.text).toMatch(/보낸 것 0/); expect(starts().length).toBe(0);
+  }
+  vi.advanceTimersByTime(1000); await flush(); sock.readyState = 1; sock.onopen(); msg(ST()); sent.length = 0;   // 재연결(link 1 s 뒤 새 소켓) — 뒤 시험 영향 0
 });

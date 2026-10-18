@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { create } from 'zustand';
 import type { LiveMap, MapInfo } from '@contracts';
-import { BLD, FLOOR, WF, WORLD, allKey, getFloors, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
+import { BLD, FLOOR, WF, WORLD, allKey, getFloors, getHeight, getLive, getMap, groupMaps, gtFloors, hHue, loadList, useCatalog, liveLabel, liveShow, mapKey, place, stackFloors, verLabel, runAt, runLine, type HeightInfo, type Raster, type Sess } from '../data/maps';
 import { dropAll, useLink } from '../data/link';
 import type { Robot } from './MapCanvas';
 import { toast } from '../app/shell';
@@ -33,9 +33,11 @@ export function useMapPick(drop = true, pc = false, fit3d = false) {   // fit3d:
   const [geo, setGeo] = useState<{ key: string; gen: number; g: Geom; sha: string } | string | null>(null);   // 건물 전체 3D(GT 간략 기하) — 선택·연결 세대 결속
   const [rq, setRq] = useState(0);   // 고를 때마다 +1 — 같은 보기를 다시 눌러도(pick 이 그림을 비움) 실시간·전체 3D 를 다시 받음(저장 지도의 loadSaved 재요청과 같은 규칙, real-04 고착)
   const ready = useLink((x) => x.open && x.stGen === x.gen);   // 이 연결에서 유효 status 를 받은 뒤만(관문이 upstream 없이 곧 닫는 연결엔 안 보냄)
-  const lq = useRef({ n: 0, busy: null as number | null }).current, load = () => loadList(lq, setMaps);   // 늦은·겹친 결과 채택 0(세대·대상·최신 대조는 loadList)
+  const lq = useRef({ n: 0, busy: null as number | null }).current, load = () => loadList(lq, (v) => { setMaps(v); useCatalog.setState({ v, gen: useLink.getState().gen }); });   // 늦은·겹친 결과 채택 0(세대·대상·최신 대조는 loadList)
+  // 10-18 저장 지도 시작: 이 목록을 시작 상자와 나눔(useCatalog) — 같은 화면의 시작 상자가 따로 map_list 를 보내 map_busy 로 거절되지 않게. 장착 수만 셈
+  useEffect(() => { useCatalog.setState((c) => ({ owners: c.owners + 1, reload: load })); return () => useCatalog.setState((c) => ({ owners: c.owners - 1, ...(c.owners <= 1 ? { v: null, reload: null } : {}) })); }, []);
   // 새 연결·대상 = 옛 목록 무효(정본인 척 남지 않게) → 그 세대 첫 유효 status 뒤 1회. 세대 변경·화면 닫힘 때 걸린 요청 버림. 자동 재시도 0 — 실패면 «목록 다시 불러오기»·고를 때(onFocus)
-  useEffect(() => { setMaps(null); if (ready) load(); return () => { lq.n++; }; }, [ready, gen]);
+  useEffect(() => { setMaps(null); useCatalog.setState({ v: null, gen }); if (ready) load(); return () => { lq.n++; }; }, [ready, gen]);
 
   // 자동 실시간(앱 Codex 10-14): 사용자가 아직 안 골랐고 지금 지도 세션(live_map off·stale 아님)이 보일 때 한 번만 실시간으로.
   // 그 뒤로는 일반 선택과 같다 — 끊기면 빈 지도 + 이유(GT 자동 복귀 0). 사용자가 고른 GT·저장본은 빼앗지 않음
