@@ -192,7 +192,7 @@ Zenoh(zenoh-bridge-ros2dds) 는 **개발자 진단용**(로봇 토픽을 개발 
 
 | 항목 | 방법 (제안) | 확인 상태 |
 |---|---|---|
-| 에이전트 위치 | Go2 EDU 온보드 컴퓨터, 아니면 로봇에 얹은 소형 PC(유선 연결) | 기종 미확인 |
+| 에이전트 위치 | Go2 EDU 온보드 컴퓨터 (사양 부족 시 소형 PC 추가) | 기종 EDU 확정(10-19). 온보드 컴퓨터 사양·ROS 2 설치 상태는 실기 확인 |
 | 이동 명령 | Unitree SDK2 SportClient `Move(vx, vy, wz)` / `StopMove()` (go2_adapter 규칙: 0.3 s 감시, 끊기면 Move(0) → StopMove 한 번 → 잠금, 해제는 0 입력 1 s 연속) | 오프라인 준비판만 있음 |
 | 배터리 | `LowState.bms_state.soc` (토픽 `/lowstate` 또는 `/lf/lowstate`, DDS `rt/lf/bmsstate`) | 제품 책임자 "받을 수 있음" 확인. 정확한 토픽은 실기 `ros2 topic list` 로 확인 |
 | 부착 장치 | 에이전트가 시작 때 장치 목록을 보고(이름·종류·연결 상태). 화면은 받은 것만 그림 | 센서 구성(D435i, L1/L2, XT-16)은 제안 |
