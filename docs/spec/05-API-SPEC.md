@@ -17,7 +17,7 @@
 
 ### 1.1 주소·형식
 - 기본 주소: `https://<현장 서버>/api/v1`
-- 본문: JSON (UTF-8). 시각: ISO 8601 UTC (`2026-10-19T05:02:11.123Z`). ID: UUID 문자열.
+- 본문: JSON (UTF-8). 시각: ISO 8601 UTC (`2026-10-19T05:02:11.123Z`). ID: UUID 문자열. 예외: 사건(`events`)·알림(`notifications`)·조종권 기록(`lease_log`)은 DB 의 bigint 를 **십진 문자열**로 보낸다(`"184467"`). JS number 로 바꾸지 않는다.
 - 길이 단위 m, 각도 rad, 속도 m/s·rad/s. 좌표는 지도 판의 좌표계(`map` 프레임).
 
 ### 1.2 인증
@@ -29,8 +29,9 @@
 | 로봇 에이전트 | `Authorization: Bearer <agent_token>` (등록 때 1회 발급) |
 
 ### 1.3 판(버전)과 충돌
-- 편집 가능한 자원은 `version`(정수)을 가진다. 응답 헤더 `ETag: "<version>"`.
-- 수정 요청은 `If-Match: "<version>"` 필수. 다르면 **409** + 현재 값.
+- `version`·`If-Match` 는 **임무(`missions`)·시나리오(`scenarios`) 본체**에만 쓴다. 응답 헤더 `ETag: "<version>"`, 수정 요청은 `If-Match: "<version>"` 필수, 다르면 **409** + 현재 값.
+- 지도는 `version` 대신 새 판 저장 때의 `base_version_id` 로 같은 검사를 한다(다르면 409). `map_versions.number` 는 화면에 보이는 판 번호일 뿐 충돌 검사에 쓰지 않는다.
+- 그 밖의 수정 가능 자원(계정·로봇·장소/건물/층·조직 설정)은 총괄만 고치는 드문 수정이라 마지막 저장이 이기고, 바뀐 내용은 사건으로 남긴다.
 
 ### 1.4 오류 형식
 ```json
@@ -221,11 +222,11 @@
 | POST | `/runs/precheck` | `{assignment_id}` → 점검 항목별 결과 | A, O(내) |
 | POST | `/runs` | 시작 `{assignment_id, emergency_reason?: string}` → 점검 실패 시 422. `emergency_reason` 은 "배정 미승인" 하나만 실패했을 때만 허용 | A, O(내) |
 | GET | `/runs` | 목록 `?robot_id=&status=&from&to` | 로그인(운영자는 범위 제한) |
-| GET | `/runs/{id}` | 상세(지점별 결과·경로·사진) | 로그인 |
+| GET | `/runs/{id}` | 상세(지점별 결과·경로·사진) | 로그인(목록과 같은 범위 판정) |
 | POST | `/runs/{id}/pause` · `/resume` · `/abort` · `/return` | 실행 제어 | A, O(내) |
 | POST | `/runs/{id}/floor-confirm` | 층 전환 구간 "n층 도착" 확인 `{floor_id}` | A, O(내) |
 | POST | `/runs/{id}/operator-confirm` | 작업 `OPERATOR_CONFIRM` 응답 `{step, answer: "OK"|"NG", memo}` | A, O(내) |
-| GET | `/runs/{id}/report` | 인쇄용 보고서(PDF) | 로그인 |
+| GET | `/runs/{id}/report` | 인쇄용 보고서(PDF) | 로그인(목록과 같은 범위 판정) |
 
 **점검 결과**
 ```json
@@ -265,11 +266,15 @@
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
 | GET | `/events` | 사건 `?category=&severity=&robot_id=&user_id=&run_id=&from&to` | 로그인(운영자는 범위 제한) |
-| GET | `/events/export.csv` | 같은 필터로 CSV | 로그인 |
+| GET | `/events/export.csv` | 같은 필터로 CSV | 로그인(`/events` 와 같은 범위 판정) |
 | GET | `/notifications` | 내 알림 `?unread=1` | 로그인 |
 | POST | `/notifications/read` | `{ids}` 또는 `{all:true}` | 로그인 |
 | POST | `/push/subscribe` | Web Push 구독 등록 | 로그인 |
-| GET | `/media/{id}` | 사진 파일 | 로그인(범위 제한) |
+| GET | `/org/settings` | 조직 기준값 ([06 organizations.settings](06-DB-DESIGN.md#31-조직사람)) | 로그인 |
+| PATCH | `/org/settings` | 기준값 고치기. 범위: `battery_low_pct` 5~50, `run_min_battery_pct` 10~90, `deviation_m` 0.5~5, `lease_request_timeout_s` 5~30, `link_loss_wait_s` 0~60. 바꾼 값은 다음 실행부터 적용하고, 실행 중인 것은 `run.start` 때 받은 값을 쓴다 | A |
+| GET | `/media/{id}` | 사진 파일 | 로그인(그 사진이 붙은 실행·사건과 같은 범위 판정) |
+
+- 범위 판정은 서버가 요청마다 한다. 목록에서 안 보이는 실행·사건·사진을 ID 로 직접 요청하면 **404**(있다는 사실도 숨김). 운영 관리자가 남의 로봇에 대해 볼 수 있는 것은 관제의 로봇 요약 객체뿐이다.
 
 **사건 객체**
 ```json
@@ -337,7 +342,7 @@
 | `event` | `{code, severity, robot_at, data}` (서버가 문장을 만든다) | 생길 때. 끊김 중 쌓은 것은 재연결 때 순서대로 |
 | `run.update` | `{run_id, status, step, progress, path_deviation_m?, fail_code?}` | 바뀔 때 |
 | `cmd.ack` | `{seq, applied:[…], reason?}` | 10 Hz 로 묶어서(마지막 seq) |
-| `media` | `{kind:"photo", run_id?, step?, upload_id}` (사진은 먼저 `/uploads` 로 올림) | 찍을 때 |
+| `media` | `{kind:"photo", run_id?, step?, upload_id}` (사진은 먼저 §10.4 `/agent/uploads` 로 올림) | 찍을 때 |
 | 이진 | 영상 프레임(§9.3 형식, robot 칸은 비움) | 서버가 켰을 때만 |
 
 ### 10.2 서버 → 에이전트
@@ -351,17 +356,26 @@
 | `run.start` | `{run_id, plan:{segments:[{floor_id, map_version_id, goals:[…], connector?}]}, missions:{…}, policy:{link_loss_wait_s:30}}` | 실행 내려보내기 |
 | `run.control` | `{run_id, op:"pause"|"resume"|"abort"|"return"}` | 실행 제어 |
 | `run.confirm` | `{run_id, kind:"FLOOR"|"OPERATOR", data}` | 사람 확인 결과 전달 |
-| `map.sync` | `{versions:[{id, floor_id, sha256, url}]}` | 승인 판 미리 내려받기 |
+| `map.sync` | `{versions:[{id, floor_id, sha256, url}]}` | 승인 판 미리 내려받기. `url` 은 §10.4 의 에이전트 지도 경로 |
 | `floor.set` | `{floor_id}` | 사람 입력 층 |
 | `slam` | `{op:"start"|"save"|"cancel", floor_id}` | 새 지도 |
 
 ### 10.3 에이전트 쪽 필수 규칙 (서버가 무엇을 보내든)
+감시 장치의 모드별 구분은 [04 §3.2](04-ARCHITECTURE.md#32-연결-끊김-처리)가 정본이다.
 1. `lease_id` 가 지금 값과 다르거나 `null` 이면 cmd 거부.
-2. cmd 가 0.3 s 안 오면 0 명령 + 잠금.
-3. 잠금 상태에서는 `unlock` 뒤 중립 입력 한 번이 와야 움직임.
-4. 속도 한계·명령 단계화는 에이전트 설정이 정본(서버 값으로 늘릴 수 없음).
-5. 서버 연결이 끊기면 조종 중 → 즉시 정지·잠금, 실행 중 → `link_loss_wait_s` 뒤 정지·잠금.
-6. 재시작하면 잠금 상태로 시작.
+2. 사람이 조종권을 가진 동안: 서버 cmd 가 0.3 s 안 오면 0 명령 + 입력 폐기, 다시 움직이려면 새 중립 입력(deadman, 현재 Core 동작. 잠금 추가는 PRD Q7).
+3. 실행이 조종권을 가진 동안: 서버 cmd 감시는 쓰지 않고, 에이전트 안 임무 실행기의 명령에 같은 0.3 s 감시를 건다.
+4. STOP 잠금 상태에서는 `unlock` 뒤 중립 입력 한 번이 와야 움직임.
+5. 속도 한계·명령 단계화는 에이전트 설정이 정본(서버 값으로 늘릴 수 없음).
+6. 실행 중 서버 연결이 끊기면 마지막 서버 메시지 시각부터 `link_loss_wait_s` 유예: 그 안에 다음 지점에 닿으면 그 앞에서 대기, 시간이 먼저 끝나면 그 자리에서 정지·잠금. 재연결돼도 대기는 사람이 재개할 때까지 유지.
+7. 재시작하면 잠금 상태로 시작.
+
+### 10.4 에이전트 REST (에이전트 토큰 전용)
+에이전트 토큰은 아래 경로만 쓸 수 있고, 사람 계정 API 는 403. 사람 계정 쿠키·토큰으로 아래 경로를 부르면 403. 사람 계정 토큰을 로봇에 넣어 쓰지 않는다.
+| 메서드 | 경로 | 설명 | 허용 범위 |
+|---|---|---|---|
+| POST | `/agent/uploads` | 사진 올리기 → `{upload_id, sha256}` | 토큰의 로봇만. `run_id` 를 붙이면 그 로봇의 진행 중 실행만. 받은 `upload_id` 는 같은 로봇의 `media` 메시지에서 한 번만 쓸 수 있다 |
+| GET | `/agent/map-versions/{id}/image` | 지도 이미지(png) | 서버가 그 로봇에 `map.sync`·`run.start` 로 내려보낸 판만 |
 
 ---
 

@@ -22,7 +22,7 @@
 | 메뉴 | — | 10곳에 따로 하드코딩 |
 | 로봇 모델 | — | 1대 전제(`LiveN = 0|1`, 로봇 바꾸면 새로 고침) |
 | 서버 `sim/v2_link.py` | 3,358줄 | 로봇 1대 = 프로세스 1개, 인증 없음, **안전 판단 Core 가 여기 있음**(셀프테스트 10개·assert 약 443개) |
-| 서버 `sim/v2_gate.py` | 743줄(작업 사본) | 로그인·권한. 계정은 파일, 세션은 메모리 |
+| 서버 `sim/v2_gate.py` | 743줄(미커밋 작업 사본 관측, 이 저장소 HEAD 는 514줄) | 로그인·권한. 계정은 파일, 세션은 메모리 |
 | 저장 `server/` | 1,833줄 | SQLite 저장소·판 충돌(runcas)·리허설. 백엔드 시험 98개 |
 | 계약 `contracts/v1` | 1,135줄 | Pydantic → TS 생성 |
 | 화면 시험 | 59개 파일, 약 568개 | |
@@ -56,9 +56,9 @@ B 를 버린 이유: 안전 Core 와 수백 개 시험, 디자인 토큰은 **�
 |---|---|---|
 | 브랜드 토큰·글꼴·로고 | `ui/public/brand/**`, `ui/src/brand.css`, `BrandLogo.tsx`, `theme.ts` | 새 웹 앱 그대로 |
 | 화면 CSS·칩 | `ui/src/live.css`, `app/chip.tsx` | 새 웹 앱 (칩은 상태 표시 하나로 정리) |
-| 안전 Core (deadman 0.3 s, 잠금·stop_gen CAS·중립 확인, 명령 단계화, 입력 검사) | `sim/v2_link.py` Core(약 84~265행) + 셀프테스트 | 로봇 에이전트 |
+| 안전 Core (deadman 0.3 s = 0 명령 + 입력 폐기·새 중립 필요, STOP 잠금·stop_gen CAS·중립 확인, 명령 단계화, 입력 검사) | `sim/v2_link.py` Core(약 84~265행) + 셀프테스트 | 로봇 에이전트 |
 | Go2 어댑터 규칙 | 기존 control-app 의 Go2 어댑터 | 로봇 에이전트 (실기 R4) |
-| 인증 방식 (scrypt, 쿠키 속성, WS 1회용 티켓, 속도 제한, 메시지마다 권한 재확인) | `sim/v2_gate.py`, `sim/app_auth.py`, `ros/phone_gate.py` | 관제 서버 |
+| 인증 방식 (scrypt, 쿠키 속성, WS 1회용 티켓, 속도 제한, 메시지마다 권한 재확인) | `sim/v2_gate.py`, `sim/app_auth.py`, 게이트 인증 모듈(이 저장소 밖 원본 — R0 전에 확보) | 관제 서버 |
 | 계약 생성 방식 (Pydantic → JSON Schema → TS) | `contracts/v1`, `tools/generate_contracts.py` | 관제 서버 (모델은 새로) |
 | 화면 순수 로직 | `data/geom.ts`, `maps.ts`, `plan2d`, `persistDraft.ts` | 새 웹 앱 (필요한 것만) |
 | 판 충돌 규칙·부분 고유 색인 | `server/store.py`, `server/runcas.py` | PostgreSQL 설계([06](06-DB-DESIGN.md)) |
@@ -89,6 +89,6 @@ B 를 버린 이유: 안전 Core 와 수백 개 시험, 디자인 토큰은 **�
 | 두 앱 병행 중 헷갈림 | 새 앱은 다른 포트·주소. 운영 주소는 하나 |
 | Nav2 자율 이동이 안 됨 | R0' 결과로 PRD MS-05 범위 조정 |
 
-## 6. 확인 요청
-- 이 결정(C)으로 진행해도 되는지.
-- 새 코드 위치: 같은 저장소의 `apps/` 아래로 정함([08 §5](08-DEV-PROCESS.md)). 바꾸려면 R0 시작 전에.
+## 6. 확정된 것과 남은 것
+- 확정(2026-10-19): 방식 C. 새 코드 위치는 같은 저장소의 `apps/` 아래([08 §5](08-DEV-PROCESS.md)).
+- 남은 것: 미커밋 작업 사본 보존(§4-1), 저장소 밖 게이트 인증 원본 확보, deadman 잠금 정책(PRD Q7).
