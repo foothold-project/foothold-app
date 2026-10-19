@@ -204,6 +204,19 @@ describe('조종 화면', () => {
     expect(w.of('hidden')).toHaveLength(2);
   });
 
+  it('요청이 시간 초과로 끝난 뒤(«계속 조종합니다») 화면을 숨겨 반납하면 그 안내를 지운다', () => {
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    recv(ask());
+    recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'TIMEOUT' });
+    expect(text()).toContain('계속 조종합니다');
+    hide();
+    expect(w.of('hidden')).toHaveLength(1);
+    expect(text()).not.toContain('계속 조종합니다');
+    expect(btn('조종 시작')).toBeTruthy();
+  });
+
   it('요청 창: Enter·Space·키보드 click 은 넘기기를 누르지 않고, Space 는 STOP, 방향키는 조종 — 마우스로만 넘김', () => {
     mount(false, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');

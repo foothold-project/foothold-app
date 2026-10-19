@@ -296,7 +296,7 @@ function leave(id: string) {
   if (!l.lease && l.busy !== 'take') return;
   send({ t: 'hidden', robot: id });
   if (l.lease) gone.add(l.lease);
-  set(id, { lease: null, busy: null, neutral: false, incoming: null });
+  set(id, { lease: null, busy: null, neutral: false, incoming: null, notice: undefined });   // «계속 조종합니다» 같은 앞 안내를 남기지 않음
 }
 const onVisible = () => { if (hiddenPage()) for (const [id] of live) leave(id); };
 const onPageHide = () => { for (const [id] of live) leave(id); };
