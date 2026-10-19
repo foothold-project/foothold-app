@@ -1,9 +1,10 @@
 // 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제만 가짜 데이터로 목록·요약을 채운다. 빈 칸(.fh-slot)은 다음 작업 자리.
-import { useState } from 'react';
 import { APPROVALS, FLOORS, ROBOTS, SCENARIOS, driveBlock, eventsFor, floorName, robotStatus, robotsFor, userName, type Robot, type Tone, type User } from './fake';
+import { Drive } from './drive';
 import type { TabId } from './menu';
 
-export type Ctx = { user: User; robot: Robot; pick: (id: string) => void; go: (t: TabId) => void; phone: boolean; light: boolean; setLight: (v: boolean) => void };
+/** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. stop = 머리줄 STOP 과 같음 */
+export type Ctx = { user: User; robot: Robot; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; stop: () => void; phone: boolean; light: boolean; setLight: (v: boolean) => void };
 
 const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
 /** 상태 표시 하나: 모양 + 짧은 글(색만으로 구분 0). 원본 ui/src/app/chip.tsx 의 Chip 모양 */
@@ -13,9 +14,9 @@ const Slot = ({ text, h }: { text: string; h?: number }) => <div className="fh-s
 const soon = { disabled: true, 'aria-describedby': 'fh-soon' } as const;
 const pct = (b: number | null) => (b == null ? '' : `${b}%`);
 
-/** 조종 단추: 못 하면 비활성 + 이유를 글로 함께(title 에만 두지 않음) */
-function DriveButton({ c, r, label, onClick }: { c: Ctx; r: Robot; label: string; onClick: () => void }) {
-  const why = driveBlock(c.user, r), id = `why-${r.id}`;
+/** 조종 단추: 못 하면 비활성 + 이유를 글로 함께(title 에만 두지 않음). wait = 권한은 있지만 지금 기다려야 하는 이유 */
+export function DriveButton({ c, r, label, onClick, wait }: { c: Ctx; r: Robot; label: string; onClick: () => void; wait?: string }) {
+  const why = driveBlock(c.user, r) ?? (wait || null), id = `why-${r.id}`;
   return <div className="fh-row">
     <button type="button" className="btn pri" disabled={!!why} aria-describedby={why ? id : undefined} onClick={onClick}>{label}</button>
     {why && <span id={id} className="fh-why" data-why>{why}</span>}
@@ -46,23 +47,12 @@ function Fleet(c: Ctx) {
     </section>
     <section className="lv-card" aria-label="로봇 상세">
       <div className="fh-row"><h2>{r.name}</h2><Chip {...s} /></div>
-      <DriveButton c={c} r={r} label="조종하기" onClick={() => c.go('drive')} />
+      <DriveButton c={c} r={r} label="조종하기" onClick={() => c.go('drive', r.id)} />
       <p className="lv-note">{floorName(r.floor)}{r.mission ? ` · ${r.mission}` : ''}{r.battery != null ? ` · 배터리 ${r.battery}%` : ''}</p>
       <Slot text="위치·그래프·최근 사건 자리" />
     </section>
     {c.user.role === 'ORG_ADMIN' && <section className="lv-card" aria-label="운영 관리자"><h2>운영 관리자</h2><Slot text="운영자별 로봇 수 자리" h={80} /></section>}
   </>;
-}
-
-function Drive(c: Ctx) {
-  const [on, setOn] = useState(false), r = c.robot, s = robotStatus(r);
-  return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="조종">
-    <div className="fh-row"><h2>{r.name}</h2><Chip {...(on ? { tone: 'ok' as Tone, text: '조종 중(나)' } : s)} /><span className="mono">{pct(r.battery)}</span><span className="fh-grow" />
-      {on ? <button type="button" className="btn" onClick={() => setOn(false)}>조종 끝내기</button> : <DriveButton c={c} r={r} label="조종 시작" onClick={() => setOn(true)} />}</div>
-    <Slot text="영상 자리" h={c.phone ? 200 : 360} />
-    {!c.phone && <Slot text="지도 자리" h={120} />}
-    {r.mission && <p className="lv-note">시나리오 실행 중: {r.mission}</p>}
-  </section>;
 }
 
 function Mission() {
