@@ -2,6 +2,7 @@
 
 이 저장소의 Git 작업 정본은 [docs/GITHUB-WORKFLOW.md](docs/GITHUB-WORKFLOW.md)다. 2026-10-19 사용자가 요청한 `main` / `dev` 운영 방식을 적용한다. 이전 문서의 «main 없음», «기본 브랜치 변경 금지», «feature/two-device를 신규 PR의 기준으로 사용»은 이 전환 범위에서 대체한다.
 
+- 웹·앱 기획 정본은 `docs/spec/`. 새 앱 재구축(`apps/**`)은 [docs/spec/08-DEV-PROCESS.md](docs/spec/08-DEV-PROCESS.md)의 역할·검토·합치는 관문·금지 사항을 따른다. 조정 세션이 준 작업 지시서의 «소유» 경로 밖은 고치지 않고, 검토 작업이면 지적만 한다.
 - `main`: 검증 기록을 갖춘 배포 기준. 직접 기능 개발·미검증 변경 반영 금지.
 - `dev`: 다음 버전 통합과 검증. 기능별 작업은 별도 브랜치에서 하고 PR의 대상은 `dev`로 한다.
 - 기본 흐름은 `feature/*` 또는 기존 담당 브랜치 → `dev` → 검증 → PR → `main`이다. 배포용 PR은 정확한 대상 커밋, 검증 결과와 미검증 범위, 되돌림 방법을 적는다.
