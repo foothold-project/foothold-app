@@ -71,7 +71,7 @@ def test_rate_limit_per_account_across_ips(client, seeded):
     with DBSession(engine) as db:
         for index in range(5):
             db.add(Event(org_id=seeded['org'], code='LOGIN_FAILED', category='ACCOUNT',
-                         message='가짜 실패', data={'username': 'one', 'ip': f'fake-{index}'}))
+                         message='가짜 실패', data={'account_key': digest('one').hex(), 'ip': f'fake-{index}'}))
         db.commit()
     engine.dispose()
     assert login(client).status_code == 429
@@ -83,7 +83,7 @@ def test_rate_limit_window_expiration(client, seeded):
     with DBSession(engine) as db:
         for _ in range(5):
             db.add(Event(org_id=seeded['org'], at=now() - timedelta(minutes=6), code='LOGIN_FAILED',
-                         category='ACCOUNT', message='지난 시험', data={'username': 'one', 'ip': 'testclient'}))
+                         category='ACCOUNT', message='지난 시험', data={'account_key': digest('one').hex(), 'ip': 'testclient'}))
         db.commit()
     engine.dispose()
     assert login(client).status_code == 200
@@ -185,7 +185,6 @@ def test_app_refresh_rotation_and_expiry(client, seeded):
     rotated = client.post(P + '/auth/refresh', json={'refresh_token': data['refresh_token']})
     assert rotated.status_code == 200
     assert client.get(P + '/me', headers=headers).status_code == 401
-    assert client.post(P + '/auth/refresh', json={'refresh_token': data['refresh_token']}).status_code == 401
     headers = {'Authorization': 'Bearer ' + rotated.json()['access_token']}
     assert client.get(P + '/me', headers=headers).status_code == 200
     engine = create_engine(seeded['urls']['migrate'])

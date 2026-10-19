@@ -48,16 +48,42 @@ SELECT/INSERT 및 시퀀스 사용 권한만 부여한다. `fh_app`은 다른 �
 
 - 웹 로그인·로그아웃, `/me` 조회/수정·비밀번호 변경, 계정 관리·기기 세션 폐기.
 - 앱 access 15분, refresh 30일. 갱신 때 두 토큰을 회전하며 최초 refresh 만료 시각을 늘리지 않는다.
+  사용한 refresh 해시를 세션의 `retired_refresh_hashes`에 보관하고 재사용을 발견하면
+  해당 기기 세션을 폐기하고 `SESSION_REVOKED`(`reason=REFRESH_REUSED`) 사건을 남긴다.
+  정상 갱신은 `TOKEN_REFRESHED` 사건으로 기록한다. 원문 토큰은 저장하거나 기록하지 않는다.
 - 웹 세션 기본 24시간. 로그인 응답의 `csrf_token`을 `X-FH-CSRF`에 넣어 변경 요청을 보낸다.
-  세션마다 CSRF 값이 다르므로 재로그인 응답 값을 사용한다. 로그아웃 후 쿠키와 세션을 폐기한다.
+  새로고침·새 탭에서는 쿠키로 `GET /api/v1/auth/session`을 불러
+  `{client: "web", csrf_token}`을 다시 얻는다. 응답은 `Cache-Control: no-store`다.
+  CSRF는 HttpOnly 세션 토큰을 키로 한 HMAC-SHA256(고정 메시지 `fh-csrf/1`) 값으로,
+  같은 세션의 탭끼리는 같고 재로그인하면 달라진다. DB에는 그 값의 sha256만 저장한다.
+  조회 때 다른 탭의 값을 무효화하지 않으며, 이전 골격의 세션은 처음 조회 때 해시를 갱신한다.
+  앱 bearer로 조회하면 `{client: "app", csrf_token: null}`이며 인증 토큰은 반환하지 않는다.
+  이 경로는 05 §1.2의 웹 쿠키·변경 요청 헤더 규칙을 구체화한 계약이다.
+  조정 세션에서 명세의 CSRF 획득 경로를 후속 반영해야 한다. 로그아웃 후 쿠키와 세션을 폐기한다.
   로그인은 JSON 자격 증명, 앱 갱신은 refresh 토큰으로 인증하므로 기존 세션 CSRF를 요구하지 않는다.
 - 비밀번호 scrypt n=16384/r=8/p=1. DB에는 세션·refresh·CSRF 원문 대신 sha256만 저장한다.
+  `/me/password`의 현재 비밀번호 확인도 계정별 실패 5회/5분으로 제한하며 실패는
+  `PASSWORD_CHANGE_FAILED`, 제한 거절은 `PASSWORD_CHANGE_RATE_LIMITED`로 기록한다.
+  비밀번호 최소 길이 정책은 미정이며 이번 수정에서는 기존 최소 1글자를 유지한다.
+- 잠기지 않고 보관되지 않은 마지막 `ORG_ADMIN`의 강등·잠금·삭제는
+  `409 LAST_ORG_ADMIN`으로 거부한다. 조직 행을 잠가 두 총괄의 동시 변경도 직렬화한다.
 - 실패 5회/5분을 IP와 계정 각각에 적용한다. PostgreSQL 사건 조회와 트랜잭션 advisory lock을
   사용하여 여러 프로세스·재시작 사이에서도 제한을 공유한다. 실패 5건 뒤 6번째 요청부터 429다.
-  IP는 직접 연결 주소다. 프록시 헤더 신뢰는 운영자가 신뢰할 프록시만 uvicorn에 설정해야 한다.
+  제한 거절은 `LOGIN_RATE_LIMITED`로 기록하고 실패 횟수 집계에서는 제외한다.
+  입력 username 원문은 사건에 보관하지 않고 DB와 같은 소문자 정규화 후 sha256 `account_key`로 집계한다.
+  IP는 ASGI의 `request.client.host`다. uvicorn은 기본으로 proxy headers를 켜고
+  127.0.0.1 프록시를 신뢰하므로 위 실행 예의 로컬 프록시 뒤에서는 X-Forwarded-For가 반영될 수 있다.
+  운영자는 `--forwarded-allow-ips`에 신뢰할 프록시만 지정해야 하며, 그 프록시는 외부에서 온
+  X-Forwarded-For를 그대로 넘기지 않고 실제 접속 주소로 덮어써야 한다.
+  프록시가 주소를 전달하지 않으면 모든 사용자가 프록시 IP 하나의 실패 한도를 공유한다.
 - 로그인·실패·로그아웃·계정 변경·조직 설정 변경은 같은 DB에 한국어 사건으로 남긴다.
-- 로봇 목록 `scope=mine|all`, UUID 순서 cursor 목록. 서버가 매 요청 DB의 역할·조직·담당을 확인한다.
+- 로봇 목록 `scope=mine|all`, 사용자·세션·로봇 목록은 `(created_at, id)` 순서의 불투명 cursor를 쓴다.
+  서버가 매 요청 DB의 역할·조직·담당을 확인한다. 요약 보기는 `ROBOT_SUMMARY`,
+  담당 로봇의 상세·기록 보기는 `ROBOT_READ`(범위 밖 404), 조종·배정은 `O_OWN`(담당 밖 403)으로 구분한다.
 - 조직 설정 GET/PATCH와 명세의 각 범위 검사. 변경은 마지막 저장이 이기며 사건을 남긴다.
+- 응답 계약의 모든 시각은 DB 시간대와 무관하게 UTC `Z`로 정규화한다.
+  NUL 문자열과 DB 입력 오류는 400 VALIDATION, 그 밖의 DB·서버 오류는 500 INTERNAL_ERROR
+  ApiError 형식으로 돌려주며 SQL·입력 원문·예외 상세를 응답하지 않는다.
 
 조정 세션이 확인한 명세 해석: `scope=all`과 `/robots/{id}`는 조직 안 다른 담당자의
 로봇도 **관제 요약 객체만** 허용한다. 다른 조직·없는 ID는 404다. 이번 골격에서는 모든

@@ -1,5 +1,5 @@
 {
-  "$id": "fh-app/1/Error",
+  "$id": "fh-app/1/ErrorBody",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
@@ -19,8 +19,9 @@
   },
   "required": [
     "code",
-    "message"
+    "message",
+    "detail"
   ],
-  "title": "Error",
+  "title": "ErrorBody",
   "type": "object"
 }

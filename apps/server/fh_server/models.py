@@ -65,6 +65,7 @@ class Session(Tenant, Base):
     # Extensions needed for rotating app credentials and session-bound CSRF.
     refresh_hash: Mapped[bytes | None] = mapped_column(LargeBinary, unique=True)
     refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retired_refresh_hashes: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     csrf_hash: Mapped[bytes | None] = mapped_column(LargeBinary)
 
 

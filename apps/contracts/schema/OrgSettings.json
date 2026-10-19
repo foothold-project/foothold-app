@@ -39,6 +39,13 @@
       "type": "integer"
     }
   },
+  "required": [
+    "battery_low_pct",
+    "run_min_battery_pct",
+    "deviation_m",
+    "lease_request_timeout_s",
+    "link_loss_wait_s"
+  ],
   "title": "OrgSettings",
   "type": "object"
 }

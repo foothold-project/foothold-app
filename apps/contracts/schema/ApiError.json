@@ -1,6 +1,6 @@
 {
   "$defs": {
-    "Error": {
+    "ErrorBody": {
       "additionalProperties": false,
       "properties": {
         "code": {
@@ -19,9 +19,10 @@
       },
       "required": [
         "code",
-        "message"
+        "message",
+        "detail"
       ],
-      "title": "Error",
+      "title": "ErrorBody",
       "type": "object"
     }
   },
@@ -30,7 +31,7 @@
   "additionalProperties": false,
   "properties": {
     "error": {
-      "$ref": "#/$defs/Error"
+      "$ref": "#/$defs/ErrorBody"
     }
   },
   "required": [

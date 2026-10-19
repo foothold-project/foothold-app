@@ -1,23 +1,24 @@
 """REST scope only: authentication, accounts, robot summaries, organization settings."""
 import base64
 from contextlib import asynccontextmanager
+import json
 import os
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Request, Response, Query
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from sqlalchemy import create_engine, func, select, text, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import create_engine, func, or_, select, text, tuple_, update
+from sqlalchemy.exc import DataError, DBAPIError, IntegrityError
 from sqlalchemy.orm import Session as DBSession, sessionmaker
 from starlette.exceptions import HTTPException
 
 from apps.contracts import models as C
 from .models import Event, Organization, Robot, Session, User, now
-from .security import digest, hash_password, token, verify_password
+from .security import digest, hash_password, token, verify_password, web_csrf
 
 
 @dataclass(frozen=True)
@@ -43,14 +44,21 @@ def fail(status, code, message):
 
 def authorize(user: User, permission: str, robot: Robot | None = None):
     """One A/O policy, used on every request (no cached role/ownership claims)."""
-    if robot is not None and robot.org_id != user.org_id:
+    if robot is not None and (robot.org_id != user.org_id or getattr(robot, 'archived_at', None)):
         fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+    valid_role = user.role in ('ORG_ADMIN', 'OPERATOR')
+    owns = user.role == 'ORG_ADMIN' or (robot is not None and robot.owner_user_id == user.id)
+    if permission == 'ROBOT_READ' and not owns:
+        fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+    if permission == 'O_OWN' and not owns:
+        fail(403, 'NOT_ROBOT_OWNER', '담당 로봇만 조종하거나 배정할 수 있습니다.')
     allowed = {
-        'LOGIN': user.role in ('ORG_ADMIN', 'OPERATOR'),
+        'LOGIN': valid_role,
         'A': user.role == 'ORG_ADMIN',
-        'O': user.role in ('ORG_ADMIN', 'OPERATOR'),
-        'O_OWN': user.role == 'ORG_ADMIN' or (
-            robot is not None and robot.org_id == user.org_id and robot.owner_user_id == user.id),
+        'O': valid_role,
+        'ROBOT_SUMMARY': valid_role and robot is not None,
+        'ROBOT_READ': valid_role and robot is not None and owns,
+        'O_OWN': valid_role and robot is not None and owns,
     }
     if not allowed.get(permission, False):
         fail(403, 'FORBIDDEN', '권한이 없습니다.')
@@ -80,20 +88,45 @@ def cursor_value(cursor):
     if not cursor:
         return None
     try:
-        return UUID(base64.urlsafe_b64decode(cursor.encode()).decode())
-    except (ValueError, UnicodeError):
+        if len(cursor) > 512:
+            raise ValueError('cursor too long')
+        stamp, identifier = json.loads(base64.b64decode(cursor.encode(), altchars=b'-_', validate=True))
+        at = datetime.fromisoformat(stamp)
+        if at.tzinfo is None or at.utcoffset() is None:
+            raise ValueError('timezone required')
+        return at, UUID(identifier)
+    except (ValueError, UnicodeError, TypeError):
         fail(400, 'VALIDATION', '목록 위치가 올바르지 않습니다.')
 
 
 def page(db, query, model, limit, cursor, serialize):
     after = cursor_value(cursor)
     if after:
-        query = query.where(model.id > after)
-    rows = list(db.scalars(query.order_by(model.id).limit(limit + 1)))
+        query = query.where(tuple_(model.created_at, model.id) > after)
+    rows = list(db.scalars(query.order_by(model.created_at, model.id).limit(limit + 1)))
     has_more = len(rows) > limit
     rows = rows[:limit]
-    next_cursor = base64.urlsafe_b64encode(str(rows[-1].id).encode()).decode() if has_more else None
+    next_cursor = None
+    if has_more:
+        row = rows[-1]
+        value = [row.created_at.astimezone(timezone.utc).isoformat(), str(row.id)]
+        next_cursor = base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
     return {'items': [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
+
+
+def revoke_user_sessions(db, user):
+    db.execute(update(Session).where(Session.org_id == user.org_id, Session.user_id == user.id,
+                                    Session.revoked_at.is_(None)).values(revoked_at=now()))
+
+
+def protect_last_admin(db, user, values=None, *, archive=False):
+    values = values or {}
+    removing = archive or values.get('role', user.role) != 'ORG_ADMIN' or values.get('locked', user.locked)
+    if user.role == 'ORG_ADMIN' and not user.locked and not user.archived_at and removing:
+        remaining = db.scalar(select(User.id).where(User.org_id == user.org_id, User.id != user.id,
+            User.role == 'ORG_ADMIN', User.locked.is_(False), User.archived_at.is_(None)).limit(1))
+        if not remaining:
+            fail(409, 'LAST_ORG_ADMIN', '마지막 총괄 계정은 강등·잠금·삭제할 수 없습니다.')
 
 
 def create_app(settings: Settings | None = None):
@@ -145,6 +178,17 @@ def create_app(settings: Settings | None = None):
         return JSONResponse(status_code=409, content={'error': {
             'code': 'VERSION_CONFLICT', 'message': '같은 값이 있거나 상태가 바뀌었습니다.', 'detail': {}}})
 
+    @app.exception_handler(DataError)
+    async def data_error(request, exc):
+        return JSONResponse(status_code=400, content={'error': {
+            'code': 'VALIDATION', 'message': '입력 형식을 확인하세요.', 'detail': {}}})
+
+    @app.exception_handler(DBAPIError)
+    @app.exception_handler(Exception)
+    async def internal_error(request, exc):
+        return JSONResponse(status_code=500, content={'error': {
+            'code': 'INTERNAL_ERROR', 'message': '요청을 처리하지 못했습니다.', 'detail': {}}})
+
     def database():
         with factory() as db:
             yield db
@@ -183,26 +227,31 @@ def create_app(settings: Settings | None = None):
     @app.post(prefix + '/auth/login', response_model=C.LoginResponse)
     def login(body: C.LoginRequest, request: Request, response: Response, db: DB):
         username = db.scalar(select(func.lower(body.username)))
+        account_key = digest(username).hex()
         ip = request.client.host if request.client else 'unknown'
         # Transaction locks serialize failures per IP and account across workers.
-        for key in sorted([f'login:ip:{ip}', f'login:user:{settings.org_id}:{username}']):
+        for key in sorted([f'login:ip:{ip}', f'login:user:{settings.org_id}:{account_key}']):
             db.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': key})
         recent = select(func.count()).select_from(Event).where(
             Event.org_id == settings.org_id, Event.code == 'LOGIN_FAILED',
             Event.at > now() - timedelta(minutes=5))
         limited = any(db.scalar(recent.where(Event.data[key].astext == value)) >= 5
-                      for key, value in [('ip', ip), ('username', username)])
+                      for key, value in [('ip', ip), ('account_key', account_key)])
         if limited:
+            event(db, settings.org_id, 'LOGIN_RATE_LIMITED', '로그인 횟수 제한으로 거절했습니다.',
+                  data={'ip': ip, 'account_key': account_key}, severity='WARN')
+            db.commit()
             fail(429, 'RATE_LIMITED', '로그인 시도가 많습니다. 잠시 뒤 다시 시도하세요.')
         user = db.scalar(select(User).where(User.org_id == settings.org_id,
             func.lower(User.username) == username, User.archived_at.is_(None)))
         correct = verify_password(body.password, user.password_hash if user else dummy_hash)
         if not user or not correct or user.locked:
             event(db, settings.org_id, 'LOGIN_FAILED', '로그인에 실패했습니다.',
-                  user.id if user else None, {'ip': ip, 'username': username}, 'WARN')
+                  user.id if user else None, {'ip': ip, 'account_key': account_key}, 'WARN')
             db.commit()  # Authentication failure must survive the error response.
             fail(401, 'AUTH_REQUIRED', '계정 또는 비밀번호를 확인하세요.')
-        access, refresh, csrf = token(), token(), token()
+        access, refresh = token(), token()
+        csrf = web_csrf(access)
         session = Session(org_id=user.org_id, user_id=user.id, client=body.client,
             token_hash=digest(access), device_label=body.device_label,
             expires_at=now() + timedelta(seconds=settings.web_session_seconds if body.client == 'web' else 900),
@@ -212,6 +261,7 @@ def create_app(settings: Settings | None = None):
         db.add(session)
         event(db, user.org_id, 'LOGIN', f'{user.display_name}님이 로그인했습니다.', user.id)
         result = C.LoginResponse(**user_object(db, user).model_dump())
+        response.headers['Cache-Control'] = 'no-store'
         if body.client == 'web':
             response.set_cookie('fh_s', access, max_age=settings.web_session_seconds,
                                 httponly=True, secure=True, samesite='strict', path='/api/v1')
@@ -222,16 +272,37 @@ def create_app(settings: Settings | None = None):
 
     @app.post(prefix + '/auth/refresh', response_model=C.TokenResponse)
     def refresh(body: C.RefreshRequest, db: DB):
+        refresh_hash = digest(body.refresh_token)
         session = db.scalar(select(Session).where(Session.org_id == settings.org_id,
-            Session.client == 'app', Session.refresh_hash == digest(body.refresh_token),
+            Session.client == 'app', or_(Session.refresh_hash == refresh_hash,
+                Session.retired_refresh_hashes.contains([refresh_hash.hex()])),
             Session.revoked_at.is_(None), Session.refresh_expires_at > now()).with_for_update())
         user = db.get(User, session.user_id) if session else None
         if not user or user.locked or user.archived_at:
             fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
+        if session.refresh_hash != refresh_hash:
+            session.revoked_at = now()
+            event(db, user.org_id, 'SESSION_REVOKED', '갱신 토큰 재사용으로 기기 로그인을 종료했습니다.',
+                  user.id, {'session_id': str(session.id), 'reason': 'REFRESH_REUSED'}, 'WARN')
+            db.commit()
+            fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
         access, refresh = token(), token()
+        session.retired_refresh_hashes = [*session.retired_refresh_hashes, refresh_hash.hex()]
         session.token_hash, session.refresh_hash = digest(access), digest(refresh)
         session.expires_at, session.last_seen_at = now() + timedelta(minutes=15), now()
+        event(db, user.org_id, 'TOKEN_REFRESHED', '앱 로그인 토큰을 갱신했습니다.', user.id,
+              {'session_id': str(session.id)})
         return C.TokenResponse(access_token=access, refresh_token=refresh)
+
+    @app.get(prefix + '/auth/session', response_model=C.SessionInfo)
+    def session_info(request: Request, response: Response, auth: Identity):
+        _, session = auth
+        csrf = None
+        if session.client == 'web':
+            csrf = web_csrf(request.cookies['fh_s'])
+            session.csrf_hash = digest(csrf)
+        response.headers['Cache-Control'] = 'no-store'
+        return C.SessionInfo(client=session.client, csrf_token=csrf)
 
     @app.post(prefix + '/auth/logout', status_code=204)
     def logout(response: Response, auth: Identity, db: DB):
@@ -257,12 +328,32 @@ def create_app(settings: Settings | None = None):
 
     @app.post(prefix + '/me/password', status_code=204)
     def password(body: C.PasswordChange, auth: Identity, db: DB):
-        user = auth[0]
+        user, session = auth
+        # Lock before flushing last_seen_at: other devices must not hold session
+        # row locks while waiting for the account lock and bulk revocation.
+        with db.no_autoflush:
+            db.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
+                       {'key': f'password:{user.org_id}:{user.id}'})
+        db.refresh(user)
+        db.refresh(session)
+        if user.locked or user.archived_at or session.revoked_at or session.expires_at <= now():
+            fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
+        session.last_seen_at = now()
+        failures = db.scalar(select(func.count()).select_from(Event).where(
+            Event.org_id == user.org_id, Event.user_id == user.id,
+            Event.code == 'PASSWORD_CHANGE_FAILED', Event.at > now() - timedelta(minutes=5)))
+        if failures >= 5:
+            event(db, user.org_id, 'PASSWORD_CHANGE_RATE_LIMITED', '비밀번호 확인 횟수 제한으로 거절했습니다.',
+                  user.id, severity='WARN')
+            db.commit()
+            fail(429, 'RATE_LIMITED', '비밀번호 확인 시도가 많습니다. 잠시 뒤 다시 시도하세요.')
         if not verify_password(body.current_password, user.password_hash):
+            event(db, user.org_id, 'PASSWORD_CHANGE_FAILED', '현재 비밀번호 확인에 실패했습니다.',
+                  user.id, severity='WARN')
+            db.commit()
             fail(403, 'FORBIDDEN', '현재 비밀번호를 확인하세요.')
         user.password_hash = hash_password(body.new_password)
-        db.execute(update(Session).where(Session.org_id == user.org_id, Session.user_id == user.id,
-                                        Session.revoked_at.is_(None)).values(revoked_at=now()))
+        revoke_user_sessions(db, user)
         event(db, user.org_id, 'PASSWORD_CHANGED', '비밀번호를 변경했습니다.', user.id)
 
     @app.get(prefix + '/users', response_model=C.UserList)
@@ -283,10 +374,16 @@ def create_app(settings: Settings | None = None):
         event(db, actor.org_id, 'USER_CREATED', '계정을 만들었습니다.', actor.id, {'user_id': str(user.id), 'role': user.role})
         return user_object(db, user)
 
-    def find_user(db, actor, user_id):
+    def find_user(db, actor, user_id, *, admin_change=False):
+        if admin_change:
+            with db.no_autoflush:
+                db.scalar(select(Organization).where(Organization.id == actor.org_id).with_for_update())
+            db.refresh(actor)
+            if actor.locked or actor.archived_at:
+                fail(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
         authorize(actor, 'A')
         user = db.scalar(select(User).where(User.org_id == actor.org_id, User.id == user_id,
-                                           User.archived_at.is_(None)))
+                                           User.archived_at.is_(None)).execution_options(populate_existing=True))
         if not user:
             fail(404, 'NOT_FOUND', '계정을 찾을 수 없습니다.')
         return user
@@ -294,14 +391,15 @@ def create_app(settings: Settings | None = None):
     @app.patch(prefix + '/users/{user_id}', response_model=C.User)
     def patch_user(user_id: UUID, body: C.UserPatch, auth: Identity, db: DB):
         actor = auth[0]
-        user = find_user(db, actor, user_id)
+        user = find_user(db, actor, user_id, admin_change=True)
         values = body.model_dump(exclude_unset=True)
         if any(value is None for value in values.values()):
             fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
+        protect_last_admin(db, user, values)
         for key, value in values.items():
             setattr(user, key, value)
         if values.get('locked'):
-            db.execute(update(Session).where(Session.user_id == user.id).values(revoked_at=now()))
+            revoke_user_sessions(db, user)
         event(db, actor.org_id, 'USER_UPDATED', '계정 권한·정보를 변경했습니다.', actor.id,
               {'user_id': str(user.id), **values})
         return user_object(db, user)
@@ -309,12 +407,13 @@ def create_app(settings: Settings | None = None):
     @app.delete(prefix + '/users/{user_id}', status_code=204)
     def delete_user(user_id: UUID, auth: Identity, db: DB):
         actor = auth[0]
-        user = find_user(db, actor, user_id)
+        user = find_user(db, actor, user_id, admin_change=True)
+        protect_last_admin(db, user, archive=True)
         if db.scalar(select(Robot.id).where(Robot.org_id == actor.org_id, Robot.owner_user_id == user.id,
                                            Robot.archived_at.is_(None)).limit(1)):
             fail(409, 'VERSION_CONFLICT', '담당 로봇을 먼저 변경하세요.')
         user.archived_at = now()
-        db.execute(update(Session).where(Session.user_id == user.id).values(revoked_at=now()))
+        revoke_user_sessions(db, user)
         event(db, actor.org_id, 'USER_ARCHIVED', '계정을 보관했습니다.', actor.id, {'user_id': str(user.id)})
 
     @app.get(prefix + '/users/{user_id}/sessions', response_model=C.SessionList)
@@ -331,9 +430,10 @@ def create_app(settings: Settings | None = None):
             Session.user_id == user_id, Session.id == session_id))
         if not session:
             fail(404, 'NOT_FOUND', '기기를 찾을 수 없습니다.')
-        session.revoked_at = now()
-        event(db, actor.org_id, 'SESSION_REVOKED', '기기 로그인을 종료했습니다.', actor.id,
-              {'session_id': str(session_id)})
+        if session.revoked_at is None:
+            session.revoked_at = now()
+            event(db, actor.org_id, 'SESSION_REVOKED', '기기 로그인을 종료했습니다.', actor.id,
+                  {'session_id': str(session_id)})
 
     @app.get(prefix + '/robots', response_model=C.RobotList)
     def robots(auth: Identity, db: DB, scope: Literal['mine', 'all'] = 'mine',
@@ -352,6 +452,7 @@ def create_app(settings: Settings | None = None):
                                            Robot.archived_at.is_(None)))
         if not row:
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+        authorize(user, 'ROBOT_SUMMARY', row)
         # This skeleton only exposes summary fields, including for non-owners.
         return robot_object(db, row)
 

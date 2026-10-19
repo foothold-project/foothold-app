@@ -4,7 +4,7 @@
 export const CONTRACT_VERSION = "fh-api/1";
 
 export interface ApiError {
-  error: Error;
+  error: ErrorBody;
 }
 
 export interface Battery {
@@ -26,10 +26,10 @@ export interface Device {
   state: "OK" | "MISSING" | "ERROR";
 }
 
-export interface Error {
+export interface ErrorBody {
   code: string;
   message: string;
-  detail?: Record<string, unknown>;
+  detail: Record<string, unknown>;
 }
 
 export interface Event {
@@ -77,30 +77,30 @@ export interface LoginResponse {
   locked: boolean;
   robot_ids: string[];
   created_at: string;
-  csrf_token?: string | null;
-  access_token?: string | null;
-  refresh_token?: string | null;
+  csrf_token: string | null;
+  access_token: string | null;
+  refresh_token: string | null;
 }
 
 export interface MePatch {
-  display_name?: string | null;
-  notify_prefs?: Record<string, boolean> | null;
+  display_name?: string;
+  notify_prefs?: Record<string, boolean>;
 }
 
 export interface OrgSettings {
+  battery_low_pct: number;
+  run_min_battery_pct: number;
+  deviation_m: number;
+  lease_request_timeout_s: number;
+  link_loss_wait_s: number;
+}
+
+export interface OrgSettingsPatch {
   battery_low_pct?: number;
   run_min_battery_pct?: number;
   deviation_m?: number;
   lease_request_timeout_s?: number;
   link_loss_wait_s?: number;
-}
-
-export interface OrgSettingsPatch {
-  battery_low_pct?: number | null;
-  run_min_battery_pct?: number | null;
-  deviation_m?: number | null;
-  lease_request_timeout_s?: number | null;
-  link_loss_wait_s?: number | null;
 }
 
 export interface PasswordChange {
@@ -152,6 +152,11 @@ export interface Session {
   revoked_at: string | null;
 }
 
+export interface SessionInfo {
+  client: "web" | "app";
+  csrf_token: string | null;
+}
+
 export interface SessionList {
   items: Session[];
   next_cursor: string | null;
@@ -185,7 +190,7 @@ export interface UserList {
 }
 
 export interface UserPatch {
-  display_name?: string | null;
-  role?: "ORG_ADMIN" | "OPERATOR" | null;
-  locked?: boolean | null;
+  display_name?: string;
+  role?: "ORG_ADMIN" | "OPERATOR";
+  locked?: boolean;
 }

@@ -53,7 +53,8 @@ def iface(name, s):
 def build():
     files, defs, tops = {}, {}, []
     for name, T in models.TOP.items():
-        s = TypeAdapter(T).json_schema(ref_template='#/$defs/{model}')
+        mode = 'validation' if T in models.REQUEST_MODELS else 'serialization'
+        s = TypeAdapter(T).json_schema(ref_template='#/$defs/{model}', mode=mode)
         s = {'$schema': 'https://json-schema.org/draft/2020-12/schema', '$id': f'fh-app/1/{name}', **s}
         files[f'schema/{name}.json'] = json.dumps(s, ensure_ascii=False, indent=2, sort_keys=True) + '\n'
         defs.update(s.get('$defs', {}))
@@ -72,14 +73,21 @@ def build():
     return files
 
 
+def stale_files(files):
+    actual = [*OUT.joinpath('schema').rglob('*.json'), *OUT.joinpath('ts').rglob('*.ts')]
+    return sorted(str(p.relative_to(OUT)) for p in actual if str(p.relative_to(OUT)) not in files)
+
+
 def main():
     files = build()
     if '--check' in sys.argv:
         bad = [p for p, c in files.items() if not (OUT / p).is_file() or (OUT / p).read_text(encoding='utf-8') != c]
-        stale = sorted(str(p.relative_to(OUT)) for p in (OUT / 'schema').glob('*.json') if str(p.relative_to(OUT)) not in files)
+        stale = stale_files(files)
         if bad or stale:
             print('생성물 불일치:', bad + stale); return 1
         print(f'생성물 일치 {len(files)}개'); return 0
+    for old in stale_files(files):
+        (OUT / old).unlink()
     for p, c in files.items():
         (OUT / p).parent.mkdir(parents=True, exist_ok=True); (OUT / p).write_text(c, encoding='utf-8')
     print(f'썼음 {len(files)}개')

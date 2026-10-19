@@ -4,46 +4,22 @@
   "additionalProperties": false,
   "properties": {
     "display_name": {
-      "anyOf": [
-        {
-          "maxLength": 128,
-          "minLength": 1,
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Display Name"
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
     },
     "locked": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Locked"
+      "title": "Locked",
+      "type": "boolean"
     },
     "role": {
-      "anyOf": [
-        {
-          "enum": [
-            "ORG_ADMIN",
-            "OPERATOR"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
+      "enum": [
+        "ORG_ADMIN",
+        "OPERATOR"
       ],
-      "default": null,
-      "title": "Role"
+      "title": "Role",
+      "type": "string"
     }
   },
   "title": "UserPatch",

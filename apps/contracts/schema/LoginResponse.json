@@ -85,7 +85,10 @@
     "role",
     "locked",
     "robot_ids",
-    "created_at"
+    "created_at",
+    "csrf_token",
+    "access_token",
+    "refresh_token"
   ],
   "title": "LoginResponse",
   "type": "object"

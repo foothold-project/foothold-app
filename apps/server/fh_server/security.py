@@ -11,6 +11,11 @@ def digest(value: str) -> bytes:
     return hashlib.sha256(value.encode()).digest()
 
 
+def web_csrf(session_token: str) -> str:
+    """Stable across tabs, secret without the HttpOnly session credential."""
+    return hmac.new(session_token.encode(), b'fh-csrf/1', hashlib.sha256).hexdigest()
+
+
 def hash_password(password: str) -> str:
     salt = secrets.token_bytes(16)
     derived = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1)
