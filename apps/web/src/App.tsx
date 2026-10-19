@@ -1,11 +1,11 @@
 // 화면 틀(03 UX §3): PC = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문, 폰(768px 미만) = 머리줄 + 본문 + 하단 탭 3개.
-// 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 가짜 데이터만 — 서버 호출 0.
+// 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서), 나머지는 가짜.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { BrandLogo } from './BrandLogo';
-import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lostText, myRobots, robotStatus, robotsFor, type Robot } from './fake';
+import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotStatus, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { drive } from './fakeDrive';
-import { BODY, type Ctx } from './screens';
+import { BODY, Settings, type Ctx } from './screens';
 
 // 폭 768px 미만 = 폰(02 §1.3). 예외: 손가락 입력이고 가로이며 높이 480px 이하면 눕힌 폰 — 폰 조종 탭은 가로 화면(03 §5.7·§7).
 // 마우스 쓰는 낮은 PC 창(1440×400 등)은 PC 틀 유지(10-19 조정 결정 R1)
@@ -21,16 +21,17 @@ export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) 
   </button>;
 }
 
-export function App({ initialUser = USERS[0].id }: { initialUser?: string }) {
+/** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨).
+ *  logout 이 있으면 머리줄에 로그아웃. note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
+export function App({ user = USERS[0], robots = ROBOTS, logout, note, dev }: { user?: User; robots?: Robot[]; logout?: () => void; note?: string; dev?: string }) {
   const phone = usePhone();
   // 원하는 탭(주소)과 보이는 탭을 나눈다: 보이는 탭은 렌더마다 지금 틀(PC/폰)에서 도출 — 폭이 바뀌어 틀에 없는 탭이면 첫 탭(B1)
   const [want, setWant] = useState(() => location.hash), tab = tabFromHash(want, phone), sub = want.split('/')[2];
-  const [uid, setUid] = useState(initialUser), user = USERS.find((u) => u.id === uid) ?? USERS[0];
-  // 고를 수 있는 로봇: PC 는 전체(관제 보기), 폰은 내 로봇만(B4). 고른 값이 범위 밖이면 첫 로봇
-  const pool = phone ? myRobots(user) : robotsFor(user);
+  // 고를 수 있는 로봇: PC 는 전체(관제 보기, 내 로봇 먼저), 폰은 내 로봇만(B4). 고른 값이 범위 밖이면 첫 로봇
+  const pool = phone ? myRobots(user, robots) : robotsFor(user, robots);
   // PC 조종 탭은 #/drive/<로봇 id> 이면 그 로봇 화면(F-TO-01). 폰은 머리줄에서 고른 로봇
   const open = !phone && tab === 'drive' && pool.some((r) => r.id === sub), path = open ? `#/drive/${sub}` : `#/${tab}`;
-  const [rid, setRid] = useState(''), robot = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // ponytail: 담당 로봇 0대 운영자는 가짜 자료에 없음 — 실제 자료 붙일 때 빈 화면 처리
+  const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
   const [stopped, setStopped] = useState(''), [light, setLight] = useState(false);   // stopped = 마지막으로 STOP 한 로봇 이름
   // STOP 대상(F-COM-01) = 지금 화면이 가리키는 로봇: 폰은 머리줄에서 고른 로봇, PC 는 관제에서 고른 로봇·조종 화면의 로봇.
   // 그 밖(조종 목록·임무·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지
@@ -52,9 +53,9 @@ export function App({ initialUser = USERS[0].id }: { initialUser?: string }) {
   }, []);
 
   const cur = tabsFor(phone).find((t) => t.id === tab)!;
-  const problems = pool.filter((r) => !r.online);
-  const attention = ROBOTS.filter((r) => robotStatus(r).tone === 'warn' || robotStatus(r).tone === 'bad').length;
-  const ctx: Ctx = { user, robot, pick: setRid, go, open, phone, light, setLight };
+  const problems = pool.filter(lost);
+  const attention = pool.filter((r) => robotStatus(r).tone === 'warn' || robotStatus(r).tone === 'bad').length;
+  const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight } : null;
   const Body = BODY[tab];
 
   const link = (t: Tab, cls: string) => {
@@ -67,14 +68,16 @@ export function App({ initialUser = USERS[0].id }: { initialUser?: string }) {
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'}>
     <header className="fh-head">
       {phone
-        ? <select className="fh-user" aria-label="로봇 고르기" value={robot.id} onChange={(e) => setRid(e.target.value)}>
+        ? <select className="fh-user" aria-label="로봇 고르기" value={robot?.id ?? ''} onChange={(e) => setRid(e.target.value)}>
             {pool.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select>
         : <><BrandLogo h={24} /><div className="fh-sep" /><h1>{labelOf(cur, user.role)}</h1></>}
       <span className="fh-grow" />
       <span className="fh-dot ok"><i aria-hidden="true">●</i>연결</span>
       {!phone && <span className="fh-dot" aria-label={`알림 ${attention}건`}><i aria-hidden="true">🔔</i>{attention}</span>}
-      {!phone && <select className="fh-user" aria-label="사용자" value={uid} onChange={(e) => setUid(e.target.value)}>
-        {USERS.map((u) => <option key={u.id} value={u.id}>{u.name}({ROLE_NAME[u.role]})</option>)}</select>}
+      {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
+      {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
+      {phone && tab === 'history' && logout && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
+        <div className="card"><button type="button" className="btn" onClick={logout}>로그아웃</button></div></details>}
       <Stop phone={phone} onStop={stop} />
     </header>
     {choose != null && !target && <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
@@ -85,13 +88,17 @@ export function App({ initialUser = USERS[0].id }: { initialUser?: string }) {
       <button type="button" className="fh-stop" disabled={!choose} onClick={stop}>정지</button>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
     </div>}
+    {dev && <p className="fh-dev" data-dev>{dev}</p>}
     <div className="fh-band" role="status" data-band>{[
+      note && <span key="note">▲ {note}</span>,
       stopped && <span key="stop">■ {stopped} 정지 요청됨 — 이 시험 화면은 아직 로봇에 보내지 않습니다.</span>,
       ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),
     ].filter(Boolean)}</div>
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={labelOf(cur, user.role)}><Body key={`${tab}-${robot.id}-${uid}`} {...ctx} />
+      <main className="fh-main" aria-label={labelOf(cur, user.role)}>{ctx ? <Body key={`${tab}-${ctx.robot.id}-${user.id}`} {...ctx} />
+        : tab === 'settings' ? <Settings user={user} light={light} setLight={setLight} />
+        : <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p></section>}
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>
     {phone && <nav className="fh-tabs" aria-label="주 메뉴">{PHONE_TABS.map((t) => link(t, 'tabb'))}</nav>}

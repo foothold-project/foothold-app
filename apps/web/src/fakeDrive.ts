@@ -140,6 +140,7 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
     },
     release(robot, user) {
       const s = st[robot];
+      if (!s) return;   // 이 중재기에 없는 로봇(목록이 바뀐 뒤 정리): 돌려줄 조종권·요청이 없다
       if (s.holder === user) vacate(robot, halt, { [user]: undefined });
       else if (s.request?.from === user) { clearTimeout(timers.get(`rq:${robot}`)); set(robot, { request: null }); }   // 떠난 화면에 조종권이 넘어가지 않게
     },
