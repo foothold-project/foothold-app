@@ -35,7 +35,7 @@ PyPI의 대체 rclpy 패키지를 설치하지 않는다. 기존 `[test,link]` e
 python3 -m pip install -e './apps/agent[test,link]'
 # 설치된 Jazzy 환경을 읽은 후, 위 환경 변수들을 별도로 설정한 상태에서만 실행
 source /opt/ros/jazzy/setup.bash
-PYTHONPATH=apps/agent python3 -m foothold_agent.ros_bridge
+PYTHONPATH="apps/agent:${PYTHONPATH:-}" python3 -m foothold_agent.ros_bridge
 ```
 
 진입점 자체는 이번 작업에서 시뮬이나 서버에 연결하여 실행하지 않았다.
