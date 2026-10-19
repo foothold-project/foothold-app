@@ -517,3 +517,67 @@ def test_session_uses_monotonic_default_but_allows_injected_clock():
     s = Session()
     assert s.now is time.monotonic and s.core.now is time.monotonic
     assert s.core.latch and zero(s.tick())
+
+
+@pytest.mark.parametrize("axis", [10**400, -(10**400)], ids=["huge-positive", "huge-negative"])
+def test_huge_integer_server_axes_are_invalid_without_stopping_session(axis):
+    h = Harness()
+    frame = {"t": "cmd", "lease_id": "lease-a", "seq": 3, "axes": [axis, 0, 0]}
+    wire = json.dumps(frame)
+    assert len(wire.encode()) < 4096
+    assert zero(h.s.receive(wire))
+    assert not h.s.core.latch and h.s.core.need_neutral
+    h.seq = 3
+    h.cmd(N)
+    assert not zero(h.cmd(F))
+
+
+@pytest.mark.parametrize("wait", [10**400, -(10**400)], ids=["huge-positive", "huge-negative"])
+def test_huge_integer_run_policy_is_rejected_without_raising(wait):
+    h = Harness()
+    h.lease("run-lease", "RUN")
+    assert zero(h.s.receive({"t": "run.start", "run_id": "r",
+        "plan": {"segments": []}, "missions": {}, "policy": {"link_loss_wait_s": wait}}))
+    assert h.s.run is None
+    h.s.receive({"t": "run.start", "run_id": "r", "plan": {"segments": []}, "missions": {}})
+    assert h.s.run["run_id"] == "r"
+
+
+@pytest.mark.parametrize("axis", [10**400, -(10**400)], ids=["huge-positive", "huge-negative"])
+def test_huge_integer_executor_axes_are_invalid_without_stopping_session(axis):
+    h = Harness("RUN")
+    assert zero(h.s.executor_command("run-a", [axis, 0, 0]))
+    assert h.s.run["status"] == "RUNNING"
+    h.s.executor_command("run-a", N)
+    assert not zero(h.s.executor_command("run-a", F))
+
+
+@pytest.mark.parametrize("frame", ["{", b"\xff", "[]", "true", {},
+                                   {"t": []}, {"t": ""}, {"t": None}])
+def test_unparseable_or_missing_envelope_does_not_refresh_link_clock(frame):
+    h = Harness("RUN", wait=0)
+    for i in range(1, 81):
+        h.t = i / 20
+        h.state()
+        h.s.executor_command("run-a", F)
+        h.s.receive(frame)
+    assert h.s.last_server == 0
+    assert h.s.link_lost and h.s.core.latch
+    assert h.s.run["status"] == "PAUSED" and h.s.run["wait_reason"] == "LINK_LOSS_TIMEOUT"
+
+
+def test_valid_unknown_envelope_uses_original_receive_time(monkeypatch):
+    import foothold_agent.link.session as session_module
+
+    h = Harness("RUN")
+    h.t = 0.1
+    original = json.loads
+
+    def slower_parse(raw):
+        result = original(raw)
+        h.t = 0.2
+        return result
+
+    monkeypatch.setattr(session_module.json, "loads", slower_parse)
+    h.s.receive('{"t":"future.message"}')
+    assert h.s.last_server == 0.1

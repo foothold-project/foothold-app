@@ -460,3 +460,201 @@ def test_queue_overflow_reconnects_instead_of_terminating_client():
             finally:
                 await cancel(task)
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("zero_also_fails", [False, True])
+def test_stop_failure_still_attempts_apply_zero_and_preserves_first_error(zero_also_fails):
+    from foothold_agent.link.session import MotionCommand
+
+    class SelectiveSink(FakeMotionSink):
+        velocity = (0.6, 0, 0)
+
+        def __init__(self):
+            super().__init__()
+            self.original_error = OSError("first stop failed")
+
+        def apply(self, command):
+            super().apply(command)
+            if command.kind == "stop":
+                raise self.original_error
+            if zero_also_fails:
+                raise RuntimeError("later apply failed")
+            self.velocity = command.velocity
+
+    session = Session()
+    sink = SelectiveSink()
+    client = Client(session, sink, Settings("ws://127.0.0.1:1", "fake-test-token"))
+    with pytest.raises(LocalPortError) as caught:
+        client._emit(session.shutdown())
+    assert [c.kind for _, c in sink.commands] == ["stop", "apply"]
+    assert sink.commands[-1][1] == MotionCommand(velocity=Z)
+    assert caught.value.__cause__ is sink.original_error
+    if not zero_also_fails:
+        assert sink.velocity == Z
+
+
+def test_run_shutdown_preserves_initial_output_error_and_still_applies_zero(monkeypatch):
+    async def scenario():
+        from foothold_agent.link.session import MotionCommand
+
+        class StopFails(FakeMotionSink):
+            def apply(self, command):
+                super().apply(command)
+                if command.kind == "stop":
+                    raise OSError("subsequent shutdown stop failed")
+
+        original = OSError("original output error")
+        sink = StopFails()
+        session = Session()
+        client = Client(session, sink, Settings("ws://127.0.0.1:1", "fake-test-token"))
+
+        async def failing_watchdog():
+            sink.apply(MotionCommand(velocity=(0.6, 0, 0)))
+            raise LocalPortError("initial failure") from original
+
+        async def idle_network():
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(client, "_watchdog", failing_watchdog)
+        monkeypatch.setattr(client, "_network", idle_network)
+        with pytest.raises(LocalPortError) as caught:
+            await client.run()
+        assert caught.value.__cause__ is original
+        assert any(c.kind == "apply" and c.velocity == Z for _, c in sink.commands)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("durations,expected", [
+    ([1.2, 1.2, 1.2], [0.25, 0.5, 1.0]),
+    ([1.2, 3.1, 1.2], [0.25, 0.25, 0.5]),
+])
+def test_backoff_reset_measures_connected_time_not_handshake(monkeypatch, durations, expected):
+    async def scenario():
+        import websockets.asyncio.client as ws_client
+
+        now = [0.0]
+        waits = []
+        attempt = [0]
+        session = Session(lambda: now[0])
+        client = Client(session, FakeMotionSink(), Settings("ws://127.0.0.1:1", "fake-test-token"))
+
+        class Done(Exception):
+            pass
+
+        class FakeSocket:
+            async def send(self, message):
+                pass
+
+        class SlowHandshake:
+            async def __aenter__(self):
+                now[0] += 2  # handshake time must never count as connected time
+                return FakeSocket()
+
+            async def __aexit__(self, *args):
+                pass
+
+        async def reader(ws):
+            now[0] += durations[attempt[0]]
+            attempt[0] += 1
+
+        async def sleep(delay):
+            waits.append(delay)
+            now[0] += delay
+            if len(waits) == 3:
+                raise Done
+
+        monkeypatch.setattr(ws_client, "connect", lambda *args, **kw: SlowHandshake())
+        monkeypatch.setattr(client, "_reader", reader)
+        monkeypatch.setattr(asyncio, "sleep", sleep)
+        with pytest.raises(Done):
+            await client._network()
+        assert waits == expected
+    asyncio.run(scenario())
+
+
+def test_huge_integer_frame_is_discarded_and_websocket_client_keeps_running():
+    async def scenario():
+        session = Session()
+        sink = FakeMotionSink()
+        completed = asyncio.get_running_loop().create_future()
+
+        async def server(ws):
+            try:
+                await until_message(ws, "hello")
+                await until_message(ws, "state")
+                await ws.send(json.dumps({"t": "lease", "lease_id": "a", "holder_type": "USER"}))
+                await until_message(ws, "state")
+                state(session, True)
+                await ws.send(json.dumps({"t": "unlock", "lease_id": "a", "stop_gen": session.core.stop_gen}))
+                await until_message(ws, "state")
+                state(session)
+                for seq, axes in ((1, [0, 0, 0]), (2, [1, 0, 0])):
+                    await ws.send(json.dumps({"t": "cmd", "lease_id": "a", "seq": seq, "axes": axes}))
+                assert (await until_message(ws, "cmd.ack"))["applied"] == [0.6, 0, 0]
+                await ws.send(json.dumps({"t": "cmd", "lease_id": "a", "seq": 3,
+                                          "axes": [10**400, 0, 0]}))
+                ack = await until_message(ws, "cmd.ack")
+                assert ack["seq"] == 3 and ack["applied"] == [0, 0, 0]
+                assert not task.done() and not session.core.latch
+                for seq, axes in ((4, [0, 0, 0]), (5, [1, 0, 0])):
+                    await ws.send(json.dumps({"t": "cmd", "lease_id": "a", "seq": seq, "axes": axes}))
+                assert (await until_message(ws, "cmd.ack"))["applied"] == [0.6, 0, 0]
+                completed.set_result(True)
+                await ws.wait_closed()
+            except Exception as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            task = asyncio.create_task(Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token")).run())
+            try:
+                await asyncio.wait_for(completed, 3)
+            finally:
+                await cancel(task)
+    asyncio.run(scenario())
+
+
+def test_disconnect_output_failure_is_not_hidden_by_transport_error(monkeypatch):
+    async def scenario():
+        import websockets.asyncio.client as ws_client
+
+        class Sink(FakeMotionSink):
+            armed = False
+
+            def __init__(self):
+                super().__init__()
+                self.errors = []
+
+            def apply(self, command):
+                super().apply(command)
+                if self.armed and command.kind == "stop":
+                    exc = OSError("stop failure during disconnect")
+                    self.errors.append(exc)
+                    raise exc
+
+        class FakeConnection:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def send(self, message):
+                pass
+
+        sink = Sink()
+        client = Client(Session(), sink, Settings("ws://127.0.0.1:1", "fake-test-token"))
+
+        async def broken_reader(ws):
+            sink.armed = True
+            raise ConnectionResetError("transport disconnected")
+
+        monkeypatch.setattr(ws_client, "connect", lambda *args, **kw: FakeConnection())
+        monkeypatch.setattr(client, "_reader", broken_reader)
+        with pytest.raises(LocalPortError) as caught:
+            await asyncio.wait_for(client.run(), 1)
+        assert caught.value.__cause__ is sink.errors[0]
+        assert any(c.kind == "apply" and c.velocity == Z for _, c in sink.commands)
+    asyncio.run(scenario())

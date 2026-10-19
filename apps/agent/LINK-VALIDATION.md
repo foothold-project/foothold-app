@@ -6,7 +6,7 @@
 ## 결과와 범위
 
 - sans-I/O `link/session.py`: 주입 단조 시계, 초기 잠금, lease·seq·새 중립·CAS unlock,
-  사람 deadman, RUN 로컬 실행기 감시, 마지막 서버 프레임부터 3 s 검출·0~30 s 유예,
+  사람 deadman, RUN 로컬 실행기 감시, 마지막 유효 서버 봉투부터 3 s 검출·0~30 s 유예,
   지점 대기, 재연결 그 자리 정지 후 hello와 실행/lease 사본, 즉시 state 넘김 확인.
 - `link/client.py`: 선택 의존성 `websockets==15.0.1`, 환경 변수 주소·에이전트 토큰,
   지수 재연결, 독립 20 Hz 감시, 쓰기 시간 제한, 명령 자동 재시도 없음,
@@ -19,14 +19,14 @@ Python 3.12.3 / pytest 9.1.1 / websockets 15.0.1, 별도 임시 가상환경에�
 
 | 명령·검사 | 결과 |
 |---|---|
-| `python -m pytest apps/agent -q` | 최초 제출 79 passed → 검토 수정 후 116 passed, 기존 32 포함, skip 0 |
+| `python -m pytest apps/agent -q` | 최초 79 → Claude 수정 116 → Codex 수정 148 passed, 기존 32 포함, skip 0 |
 | `python apps/agent/tools/check_link_mutations.py` | 최초 10/10 → 검토 수정 후 17/17 변이를 pytest assertion 실패로 검출 |
 | `git diff --check` | 통과 |
 | Core·기존 시험의 기준 대비 diff | 0 |
 
 수동 deadman은 정확히 0.3 s에서 이전 Core대로 유지, 초과 시 0·입력 폐기·새 중립이며
 잠금 추가 0이다. 새 명령을 받기 **전에** 만료를 판정해서 늦은 비영 입력으로 deadman을
-피할 수 없다. 연결 검출은 정확히 3 s, 유예 만료는 마지막 프레임으로부터 설정값에 도달한
+피할 수 없다. 연결 검출은 정확히 3 s, 유예 만료는 마지막 유효 봉투의 수신 시각으로부터 설정값에 도달한
 때다. 30 s 설정에서 29.95 s 진행·30 s 정지, 0/3 s 설정에서 검출 즉시 정지를 확인했다.
 
 가짜 서버는 같은 프로세스 asyncio, `127.0.0.1`에 OS가 정한 임의 포트만 사용했다.
@@ -43,7 +43,9 @@ ROS·Nav2·Gazebo·운영 포트·운영 서버·실폰·실로봇 접촉 0. 실
 
 `tools/check_link_mutations.py`는 임시 패키지 사본만 바꾸며 본 작업 트리 Core를 바꾸지 않는다.
 Session 변이는 `test_link_session.py`, Client 종료 변이는 취소 회귀 시험을 실행해
-assertion 실패가 나야 검출로 센다(수집 오류 제외).
+pytest hook이 기록한 AssertionError/명시적 pytest.fail만 검출로 센다.
+RuntimeError·TypeError·setup/teardown·수집/내부 오류·보고서 누락·시간 초과는 ERROR이며
+검출로 세지 않는다. assertion과 실행 오류가 섞인 경우도 ERROR다.
 
 | 일부러 깨뜨린 판정 | 결과 | 주 검출 시험 |
 |---|---|---|
@@ -88,7 +90,8 @@ assertion 실패가 나야 검출로 센다(수집 오류 제외).
 5. **지원 밖 메시지**: streams/map.sync/floor.set/slam/run.confirm/run.control.return은
    이 작업에서 안전하게 무시한다. 실제 미디어·지도·임무 실행·사람 확인을 구현했다고
    주장하지 않는다. 단계 진행/완료 보고와 실행 계획 유효성 검사는 후속 실행기 범위다.
-6. **연결 복구/경계**: 3 s 무수신 뒤 같은 소켓에서 프레임이 다시 와도 재연결로 보아
+6. **연결 복구/경계**: 조정 결정(아래 Codex 수정 R4)에 따라 해석 가능한 봉투만 연결
+   생존으로 센다. 3 s 무수신 뒤 같은 소켓에서 유효 봉투가 다시 와도 재연결로 보아
    정지·잠금·hello하며 그 프레임의 조종 명령은 실행하지 않는다. 유예 만료와 지점 도착이
    같은 시각이면 만료를 먼저 적용한다. 재연결 hello의 lease는 상태 사본이며 서버가 lease를
    다시 확인해 주기 전에는 cmd/unlock/실행 재개를 허용하지 않는다.
@@ -130,3 +133,32 @@ R3·R8·R9·R12 구현은 조정 지시로 이번 범위에서 제외했다. R3�
 R8 송신 메시지 크기 검사·R12 지원 밖 명령 거부 사건은 후속이며, R9 현장 사설 CA
 설정은 미구현·미검증임을 README에 명시했다. ROS 다리·실제 sink 자체 감시·실기는
 이번에도 검증하지 않았고 Core·기존 32개 시험의 판정/기대값 변경은 0이다.
+
+
+## Codex 독립 검토 후 수정 (PR #8, 기준 head 7e79795)
+
+막는 지적 0건 이후 조정 요청 R1~R5를 반영했다. 수정 전 연결부/도구 시험 모듈에서
+**23 failed, 87 passed**를 확인했다. 큰 정수의 서버 축·유예 정책·로컬 실행기 축에서
+OverflowError, stop 실패 뒤 apply(0) 생략과 최초 오류 덮어쓰기, 느린 handshake 뒤
+백오프 초기화, 파싱 불가 프레임의 연결 유예 연장, RuntimeError/TypeError를 변이 검출로
+잘못 세는 문제를 각각 재현했다. 이후 가짜 WS의 큰 정수 수신 뒤 정상 입력 복구와
+실제 pytest 하위 프로세스의 AssertionError/pytest.fail/RuntimeError 유형 관찰도 추가했다.
+assertion과 수집 오류를 함께 실행하는 경우의 구분 시험도 수정 전 실패를 확인한 뒤 보강했다.
+
+| 항목 | 변경·검증 |
+|---|---|
+| R1 | 연결부에서 숫자 타입과 축 -1~1/유예 0~30을 float 변환 전에 검사; ±10**400도 입력 오류로 처리; 서버·실행기·정책 6개 경계와 가짜 WS 생존/정상 입력 복구 |
+| R2 | stop 실패 뒤에도 apply(0)를 별도 시도; 출력 실패 뒤 unlock/비영 시도 금지; 첫 출력 오류 보존; shutdown 실패도 원래 오류를 덮지 않음; 재연결 가능한 통신 오류로 로컬 출력 오류를 숨기지 않음 |
+| R3 | WS context 진입 직후부터 연결 유지 시간을 측정, disconnect 시각까지 3 s 이상일 때만 간격 초기화; 2 s handshake+1.2 s 연결에서 0.25/0.5/1.0 s 검증 |
+| R4 | 조정 결정: 파싱 가능한 JSON 객체 + 비어 있지 않은 문자열 t만 생존 봉투; 미지 t 포함, 본문 오류가 명령/권한을 허용하지는 않음; 수신 최초 단조 시각 보존; 8종 잘못된 프레임 20 Hz에도 유예 0에서 3 s 검출·잠금 |
+| R5 | pytest 전용 hook의 구조화 예외 유형으로 판정; AssertionError/명시적 pytest.fail만 KILLED; 실행 오류·혼합 오류·누락·시간 초과는 ERROR; 가짜 결과 6종·실제 하위 pytest 예외 3종·assertion과 수집 오류 혼합으로 구분 검증 |
+
+R4는 정본의 «아무 프레임»을 해석 가능한 앱 봉투로 좁힌 조정 결정이다. 04/05 정본
+문서는 수정하지 않았으며 후속 반영 대상이다. 잘못된 lease는 유효한 t=lease 봉투에서
+즉시 권한 없음으로 처리한다. JSON 파싱 불가 프레임은 연결 시각뿐 아니라 수동 입력
+시각·조종권·잠금 세대도 갱신하지 않는다. proto 불일치의 즉시 정지·재연결은 별도 유지한다.
+
+최종 `python -m pytest apps/agent -q`: **148 passed, skip 0**(기존 32 포함).
+구조화 판정으로 다시 실행한 변이는 **17/17 KILLED, ERROR 0, SURVIVED 0**이다.
+Core·기존 두 시험 파일의 diff 0, 변경은 apps/agent/**뿐이며 실제 서버·ROS·Gazebo·실기
+접촉은 없다. 고장 sink의 물리적 정지를 보증하는 검증은 아니며 독립 감시 구현은 후속이다.

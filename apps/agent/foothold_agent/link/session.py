@@ -11,11 +11,24 @@ import json
 import time
 from typing import Callable
 
-from foothold_agent.safety.core import Core, DEAD, Z, finite, valid_axes
+from foothold_agent.safety.core import Core, DEAD, Z, valid_axes
 
 LINK_TIMEOUT = 3.0
 REPORT_INTERVAL = 0.1
 TERMINAL = {"COMPLETED", "ABORTED", "FAILED"}
+
+
+def _bounded_number(value, low, high):
+    # Compare integers before any float conversion. NaN/inf also fail the range.
+    return type(value) in (int, float) and low <= value <= high
+
+
+def _axes(value, *, local=False):
+    types = (list, tuple) if local else (list,)
+    if (not isinstance(value, types) or len(value) != 3
+            or not all(_bounded_number(x, -1, 1) for x in value)):
+        return None
+    return valid_axes(dict(zip(("fx", "fy", "fw"), value)))
 
 
 @dataclass(frozen=True)
@@ -38,7 +51,7 @@ class _MemoryCore(Core):
 
 
 class Session:
-    """One robot, one serialized caller; no sockets, clocks, prints or ROS I/O.
+    """One robot, one serialized caller; no sockets, prints or ROS I/O.
 
     Frames use the flat {t, ...body} form. Unsupported map/media/SLAM operations
     are ignored: this link cannot download files, execute plans or enable streams.
@@ -231,14 +244,10 @@ class Session:
                 self.executor_t = self.now()
 
     def receive(self, frame):
+        received_at = self.now()
         self._advance()
         if not self.connected or self.reconnect_required:
             return self._finish()
-        was_lost = self.link_lost
-        self.last_server = self.now()  # any frame, including ping / malformed JSON
-        if was_lost:
-            # Traffic resuming on a half-open socket is also a reconnection.
-            return self.connect()
         if isinstance(frame, (str, bytes)):
             try:
                 frame = json.loads(frame)
@@ -246,8 +255,16 @@ class Session:
                 return self._finish()
         if isinstance(frame, dict) and "proto" in frame and frame["proto"] != "fh-agent/1":
             return self.protocol_mismatch()
-        if not isinstance(frame, dict) or not isinstance(frame.get("t"), str):
+        if (not isinstance(frame, dict) or not isinstance(frame.get("t"), str)
+                or not frame["t"]):
             return self._finish()
+        # Coordinator decision: only a parseable application envelope is liveness
+        # evidence. Unknown nonempty t is allowed; malformed bodies never gain
+        # command authority. Keep receipt time, not the time parsing finished.
+        was_lost = self.link_lost
+        self.last_server = received_at
+        if was_lost:
+            return self.connect()
         kind = frame["t"]
         actions = ()
         if kind == "lease":
@@ -269,10 +286,7 @@ class Session:
                     and type(seq) is int and seq >= 0 and seq > self.last_seq):
                 self.last_seq = seq
                 self.ack_pending = True
-                axes = frame.get("axes")
-                axes = valid_axes(dict(zip(("fx", "fy", "fw"), axes))) if (
-                    isinstance(axes, list) and len(axes) == 3) else None
-                self.core.cmd(self.lease_id, axes)
+                self.core.cmd(self.lease_id, _axes(frame.get("axes")))
             elif self.holder_type == "RUN":
                 # The server cannot overwrite *or invalidate* local executor intent.
                 if not self._run_server_cmd_reported:
@@ -290,7 +304,7 @@ class Session:
                     and isinstance(frame.get("plan"), dict)
                     and isinstance(frame["plan"].get("segments"), list)
                     and isinstance(frame.get("missions"), dict)
-                    and finite(wait) and 0 <= wait <= 30):
+                    and _bounded_number(wait, 0, 30)):
                 self.core._void()
                 self.link_loss_wait_s = float(wait)
                 self.run = {"run_id": frame["run_id"], "status": "RUNNING", "step": 0}
@@ -316,8 +330,7 @@ class Session:
         self._advance()
         if (self.run is not None and self.run["run_id"] == run_id
                 and self.run["status"] not in TERMINAL):
-            valid = valid_axes(dict(zip(("fx", "fy", "fw"), axes))) if (
-                isinstance(axes, (list, tuple)) and len(axes) == 3) else None
+            valid = _axes(axes, local=True)
             if valid is not None:
                 self.executor_t = self.now()
             # Executor health is independent of command authority: while waiting

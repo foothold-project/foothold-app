@@ -6,6 +6,7 @@ A mutant is killed only by an actual test assertion failure, not collection erro
 
 from pathlib import Path
 import shutil
+import json
 import subprocess
 import sys
 import tempfile
@@ -63,20 +64,43 @@ def main():
             if text.count(before) != 1:
                 raise RuntimeError(f"mutation target is not unique: {label}")
             source.write_text(text.replace(before, after, 1))
-            result = subprocess.run(
-                [sys.executable, "-m", "pytest",
-                 ("tests/test_link_client.py::test_cancel_while_moving_requests_stop_zero_and_latch"
-                  if target == "link/client.py" else "tests/test_link_session.py"),
-                 "-q", "--tb=no"],
-                cwd=copy, text=True, capture_output=True, timeout=30,
-            )
-            assertions = [line.split("::", 1)[-1].split(" - ", 1)[0]
-                          for line in result.stdout.splitlines()
-                          if line.startswith("FAILED tests/test_link_")]
-            killed = result.returncode == 1 and bool(assertions)
-            print(f"| {label} | {'KILLED' if killed else 'NOT KILLED / ERROR'} | "
-                  f"{', '.join(assertions[:3])} |")
-            if not killed:
+            # Observe exception types inside pytest; FAILED summary text also
+            # includes runtime errors and is not evidence of an assertion kill.
+            shutil.copyfile(ROOT / "tools/mutation_reporter.py",
+                            copy / "foothold_link_mutation_probe.py")
+            report = copy / "mutation-result.json"
+            try:
+                result = subprocess.run(
+                    [sys.executable, "-m", "pytest",
+                     ("tests/test_link_client.py::test_cancel_while_moving_requests_stop_zero_and_latch"
+                      if target == "link/client.py" else "tests/test_link_session.py"),
+                     "-q", "--tb=no", "-p", "foothold_link_mutation_probe",
+                     "--link-mutation-report", str(report)],
+                    cwd=copy, text=True, capture_output=True, timeout=30,
+                )
+            except subprocess.TimeoutExpired:
+                failures += 1
+                print(f"| {label} | ERROR | pytest timeout |")
+                continue
+            try:
+                data = json.loads(report.read_text())
+                assertions = data["assertions"]
+                errors = data["errors"]
+                valid = (isinstance(assertions, list) and isinstance(errors, list)
+                         and data["collected"] > 0 and data["exitstatus"] == result.returncode)
+            except (OSError, ValueError, KeyError, TypeError):
+                assertions, errors, valid = [], [], False
+            if not valid or errors or result.returncode not in (0, 1):
+                verdict = "ERROR"
+            elif result.returncode == 1 and assertions:
+                verdict = "KILLED"
+            elif result.returncode == 0 and not assertions:
+                verdict = "SURVIVED"
+            else:
+                verdict = "ERROR"
+            names = [name.split("::", 1)[-1] for name in assertions[:3]]
+            print(f"| {label} | {verdict} | {', '.join(names)} |")
+            if verdict != "KILLED":
                 failures += 1
                 print(result.stdout + result.stderr, file=sys.stderr)
     return bool(failures)

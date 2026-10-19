@@ -8,7 +8,8 @@ import os
 from urllib.parse import urlsplit
 
 from .interfaces import Executor, MotionSink
-from .session import Effects, Session
+from .session import Effects, MotionCommand, Session
+from foothold_agent.safety.core import Z
 
 TICK_S = 0.05
 
@@ -63,11 +64,25 @@ class Client:
 
     def _emit(self, effects: Effects):
         # This ordering is mandatory: stop/apply locally before hello or state ACK.
+        first_error = None
+        zero_attempted = False
         for command in effects.motion:
+            if first_error is not None and not (command.kind == "stop" or (
+                    command.kind == "apply" and command.velocity == Z)):
+                continue  # never try an unlock/nonzero command after output failure
+            zero_attempted |= command.kind == "apply" and command.velocity == Z
             try:
                 self.sink.apply(command)
             except Exception as exc:
-                raise LocalPortError("motion sink failed") from exc
+                if first_error is None:
+                    first_error = exc
+        if first_error is not None:
+            if not zero_attempted:
+                try:
+                    self.sink.apply(MotionCommand(velocity=Z))
+                except Exception:
+                    pass  # retain the first failure, even if zero also failed
+            raise LocalPortError("motion sink failed") from first_error
         if self._outgoing is not None:
             for message in effects.messages:
                 try:
@@ -125,7 +140,7 @@ class Client:
 
         delay = self.settings.retry_initial_s
         while True:
-            started = self.session.now()
+            connected_for = 0.0
             try:
                 async with connect(
                     self.settings.url,
@@ -134,6 +149,7 @@ class Client:
                     open_timeout=2, close_timeout=0.2, max_size=4096,
                     compression=None,
                 ) as websocket:
+                    connected_at = self.session.now()
                     queue = asyncio.Queue(maxsize=128)
                     self._outgoing = queue
                     self._overflow = asyncio.Event()
@@ -141,17 +157,29 @@ class Client:
                     reader = asyncio.create_task(self._reader(websocket))
                     writer = asyncio.create_task(self._writer(websocket, queue))
                     overflow = asyncio.create_task(self._overflow.wait())
+                    pending_error = None
                     try:
                         done, _ = await asyncio.wait((reader, writer, overflow),
                                                      return_when=asyncio.FIRST_COMPLETED)
                         for task in done:
                             task.result()
+                    except BaseException as exc:
+                        pending_error = exc
+                        raise
                     finally:
+                        connected_for = self.session.now() - connected_at
                         # Discard this connection's buffered ACKs/state; never replay them.
                         self._outgoing = None
                         self._overflow = None
                         try:
-                            self._emit(self.session.disconnect())
+                            effects = (self.session.shutdown() if isinstance(pending_error, LocalPortError)
+                                       else self.session.disconnect())
+                            self._emit(effects)
+                        except LocalPortError:
+                            # Preserve the first *output* failure, but never hide
+                            # one behind a reconnectable socket/timeout error.
+                            if not isinstance(pending_error, LocalPortError):
+                                raise
                         finally:
                             reader.cancel()
                             writer.cancel()
@@ -168,7 +196,7 @@ class Client:
                     self._emit(self.session.protocol_mismatch())
             except (OSError, InvalidHandshake, asyncio.TimeoutError):
                 pass  # transport only; never catch a local sink/executor failure
-            if self.session.now() - started >= 3:
+            if connected_for >= 3:
                 delay = self.settings.retry_initial_s
             await asyncio.sleep(delay)
             delay = min(delay * 2, self.settings.retry_max_s)
@@ -176,16 +204,23 @@ class Client:
     async def run(self):
         watchdog = asyncio.create_task(self._watchdog())
         network = asyncio.create_task(self._network())
+        pending_error = None
         try:
             done, _ = await asyncio.wait((watchdog, network), return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()
+        except BaseException as exc:
+            pending_error = exc
+            raise
         finally:
             self._outgoing = None
             # Stop BEFORE awaiting cancellation of socket tasks, even on cancellation
             # or a local port failure. A failing hardware sink cannot be hidden.
             try:
                 self._emit(self.session.shutdown())
+            except Exception:
+                if pending_error is None:
+                    raise
             finally:
                 watchdog.cancel()
                 network.cancel()
