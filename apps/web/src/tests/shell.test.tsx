@@ -1,6 +1,6 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { USERS } from '../fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
@@ -8,13 +8,18 @@ import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null, box: HTMLDivElement;
+// matchMedia 모의: 폭 변경 이벤트까지 흉내(resize(true/false) 로 768px 경계를 넘김)
+let isPhone = false, listeners = new Set<() => void>();
 function mount(phone: boolean, user = 'u-kim', hash = '') {
-  window.matchMedia = ((q: string) => ({ matches: phone, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  isPhone = phone; listeners = new Set();
+  window.matchMedia = ((q: string) => ({ get matches() { return isPhone; }, media: q,
+    addEventListener(_e: string, f: () => void) { listeners.add(f); }, removeEventListener(_e: string, f: () => void) { listeners.delete(f); } })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App initialUser={user} />); });
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); });
+const resize = (phone: boolean) => act(() => { isPhone = phone; listeners.forEach((f) => f()); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s)!;
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
@@ -114,7 +119,7 @@ describe('STOP 상시 표시', () => {
 });
 
 // 03 UX §2 운영 화면 금지어
-const BANNED = [/관문/, /링크/, /명령 0/, /deadman/i, /Gazebo/i, /GT/, /v2/, /rad\/s/, /HTTP\s*\d/, /\b[0-9a-f]{7,}\b/i, /미제공/, /원값/, /리허설/, /배치안/, /SLAM/, /Nav2/];
+const BANNED = [/정지·잠금 상태입니다/, /관문/, /링크/, /명령 0/, /deadman/i, /Gazebo/i, /GT/, /v2/, /rad\/s/, /HTTP\s*\d/, /\b[0-9a-f]{7,}\b/i, /미제공/, /원값/, /리허설/, /배치안/, /SLAM/, /Nav2/];
 describe('금지어 0', () => {
   for (const phone of [false, true]) for (const u of USERS) it(`${phone ? '폰' : 'PC'} · ${u.name}`, () => {
     mount(phone, u.id);
@@ -136,5 +141,115 @@ describe('브랜드 원본 사본', () => {
     const b = Object.fromEntries(Object.entries(orig).map(([p, v]) => [key(p), v]));
     expect(Object.keys(a).length).toBeGreaterThan(5);
     expect(a).toEqual(b);
+  });
+});
+
+// ── PR #5 검토(Codex) 막는 것 B1~B4 회귀. 검토자 재현 5개(runs/review-pr5-probe.test.tsx)를 옮기고 범위를 넓힘
+describe('B1 폭 전환', () => {
+  it('[재현] PC 관제에서 폰 폭으로 바뀌어도 STOP을 유지한다', () => {
+    mount(false, 'u-lee', '#/fleet');
+    expect(() => resize(true)).not.toThrow();
+    expect($('[data-stop]')).not.toBeNull();
+  });
+  it('[재현] 폰 시나리오에서 PC 폭으로 바뀌어도 STOP을 유지한다', () => {
+    mount(true, 'u-lee', '#/scenario');
+    expect(() => resize(false)).not.toThrow();
+    expect($('[data-stop]')).not.toBeNull();
+  });
+  it('양방향 전환: 본문·제목·현재 표시·주소가 지금 틀의 유효한 탭', () => {
+    mount(false, 'u-lee', '#/map');
+    resize(true);
+    expect($('main').getAttribute('aria-label')).toBe('조종');
+    expect($('nav a[aria-current="page"]').getAttribute('href')).toBe('#/drive');
+    expect(location.hash).toBe('#/drive');
+    resize(false);
+    expect($('h1').textContent).toBe('조종');
+    expect($('main').textContent).toContain('영상 자리');
+  });
+});
+
+describe('B2 연결 끊김 문구', () => {
+  it('[재현] 연결 끊김 띠는 마지막 확인과 현재 미확인을 표시한다', () => {
+    mount(false, 'u-lee', '#/fleet');
+    const text = $('[data-band]').textContent!;
+    expect(text).toContain('마지막 확인: 정지 잠금(13:40:05)');
+    expect(text).toContain('지금 상태는 알 수 없습니다');
+    expect(text).not.toContain('로봇은 정지·잠금 상태입니다');
+  });
+  it('기록의 끊김 사건도 마지막 확인 + 미확인(02 F-LG-02)', () => {
+    mount(false, 'u-kim', '#/history');
+    expect($('main').textContent).toContain('마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.');
+  });
+});
+
+describe('B3 기록 범위', () => {
+  const hist = (u: string) => { mount(false, u, '#/history'); return $('main').textContent!; };
+  it('[재현] 박OO의 PC 기록에는 이OO 로봇의 사건이 없다', () => {
+    expect(hist('u-park')).not.toContain('Go2-3이 계획 경로에서');
+  });
+  it('운영자: 내 로봇 사건 + 남의 로봇에서 한 내 행동만', () => {
+    const park = hist('u-park');
+    expect(park).toContain('Go2-7 배터리');
+    expect(park).toContain('박OO님이 Go2-3 STOP');   // 내 행동
+    expect(park).not.toContain('이OO님이 Go2-3 조종을 끝냈습니다');
+    expect(park).not.toContain('Go2-1과 연결이 끊겼습니다');
+    act(() => root?.unmount()); box.remove();
+    const lee = hist('u-lee');
+    expect(lee).toContain('Go2-3이 계획 경로에서');
+    expect(lee).toContain('Go2-1과 연결이 끊겼습니다');
+    expect(lee).not.toContain('Go2-7 배터리');
+  });
+  it('총괄은 전체', () => {
+    const kim = hist('u-kim');
+    for (const t of ['Go2-3이 계획 경로에서', 'Go2-7 배터리', 'Go2-1과 연결이 끊겼습니다']) expect(kim).toContain(t);
+  });
+});
+
+describe('B4 폰 로봇 범위', () => {
+  const options = () => [...box.querySelectorAll('select[aria-label="로봇 고르기"] option')].map((o) => o.textContent);
+  it('[재현] 폰 운영자 로봇 선택에는 담당 로봇만 나온다', () => {
+    mount(true, 'u-park', '#/history');
+    expect(options()).toEqual(['Go2-7']);
+  });
+  it('PC 에서 남의 로봇을 고른 채 폰으로 바뀌면 내 로봇으로 보정, 남의 시나리오·기록 0', () => {
+    mount(false, 'u-park', '#/fleet');
+    click(robotRow('Go2-3'));
+    resize(true);
+    expect($<HTMLSelectElement>('select[aria-label="로봇 고르기"]').value).toBe('r7');
+    click($('nav a[href="#/scenario"]'));
+    expect($('main').textContent).not.toContain('2층 순찰');
+    click($('nav a[href="#/history"]'));
+    expect($('main').textContent).not.toContain('Go2-3');
+  });
+  it('끊김 띠도 폰에서는 내 로봇만', () => {
+    mount(true, 'u-park', '#/drive');
+    expect($('[data-band]').textContent).not.toContain('Go2-1');
+  });
+});
+
+describe('R2·R3 보강', () => {
+  it('STOP 은 머리줄 맨 오른쪽(마지막) 요소 — PC·폰', () => {
+    for (const phone of [false, true]) {
+      mount(phone, 'u-lee', '#/history');
+      expect($('header').lastElementChild).toBe($('[data-stop]'));
+      act(() => root?.unmount()); box.remove();
+    }
+    mount(false);
+  });
+  it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
+    const MARK: Record<string, string> = { fleet: '주의 필요', drive: '영상 자리', mission: '새 시나리오', approval: '결재함', history: '계획 경로에서', map: '편집', settings: '화면 밝기' };
+    mount(false);
+    for (const [id, m] of Object.entries(MARK)) {
+      click($(`nav a[href="#/${id}"]`));
+      const text = $('main').textContent!;
+      expect(text, id).toContain(m);
+      for (const [o, om] of Object.entries(MARK)) if (o !== id) expect(text, `${id} 에 ${o} 내용`).not.toContain(om);
+    }
+  });
+  it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {
+    mount(false, 'u-kim', '#/approval');
+    const b = $$('main button').find((x) => x.textContent === '승인') as HTMLButtonElement;
+    expect(b.disabled).toBe(true);
+    expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toContain('준비 중');
   });
 });

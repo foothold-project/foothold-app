@@ -64,3 +64,6 @@ button{cursor:pointer}
 .fh-slot{min-height:160px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:8px;color:var(--muted);font-size:14px}
 .fh.phone .fh-head{padding:6px 8px;gap:8px}
 .fh.phone .fh-main{padding:8px;gap:8px}
+.fh button[disabled]{cursor:not-allowed}
+.fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}
+.fh-main:not(:has([aria-describedby="fh-soon"])) #fh-soon{display:none}   /* 준비 중 단추가 없는 탭에서는 숨김 */

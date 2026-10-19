@@ -2,11 +2,17 @@
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };
 export type Floor = { id: string; site: string; name: string };
-export type Robot = { id: string; name: string; owner: string; floor: string; battery: number | null; state: 'mission' | 'idle' | 'offline'; mission?: string };
+/** 로봇 요약 상태(02 §4 «로봇 요약 상태와 실행 상태»). 끊긴 로봇이면 마지막 확인 값 */
+export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' | 'IDLE';
+/** online = connection ONLINE. seenAt = 마지막 확인 시각. mission = current_run(끝나지 않은 실행) 이름 */
+export type Robot = { id: string; name: string; owner: string; floor: string; battery: number | null; online: boolean; seenAt: string; status: Status; mission?: string };
 export type Approval = { id: string; kind: string; target: string; by: string; at: string };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
+/** actor = 행동한 사람(없으면 로봇·시스템 사건) */
+export type Event = { id: string; at: string; tone: Tone; robot: string; actor?: string; text: string };
 
 export const ROLE_NAME: Record<Role, string> = { ORG_ADMIN: '총괄', OPERATOR: '운영 관리자' };
+export const STATUS_NAME: Record<Status, string> = { STOP_LATCHED: '정지 잠금', ERROR: '오류', TELEOP: '사람 조종', PAUSED: '일시정지', RUNNING: '임무 중', IDLE: '대기' };
 
 export const USERS: User[] = [
   { id: 'u-kim', name: '김OO', role: 'ORG_ADMIN' },
@@ -20,9 +26,9 @@ export const FLOORS: Floor[] = [
 ];
 
 export const ROBOTS: Robot[] = [
-  { id: 'r3', name: 'Go2-3', owner: 'u-lee', floor: 'f2', battery: 82, state: 'mission', mission: '2층 순찰 3/5' },
-  { id: 'r7', name: 'Go2-7', owner: 'u-park', floor: 'f1', battery: 15, state: 'idle' },
-  { id: 'r1', name: 'Go2-1', owner: 'u-lee', floor: 'f1', battery: null, state: 'offline' },
+  { id: 'r3', name: 'Go2-3', owner: 'u-lee', floor: 'f2', battery: 82, online: true, seenAt: '14:05:20', status: 'RUNNING', mission: '2층 순찰 3/5' },
+  { id: 'r7', name: 'Go2-7', owner: 'u-park', floor: 'f1', battery: 15, online: true, seenAt: '14:05:20', status: 'IDLE' },
+  { id: 'r1', name: 'Go2-1', owner: 'u-lee', floor: 'f1', battery: null, online: false, seenAt: '13:40:05', status: 'STOP_LATCHED' },
 ];
 
 export const APPROVALS: Approval[] = [
@@ -35,28 +41,40 @@ export const SCENARIOS = [
   { id: 's2', name: '1층 점검', floor: 'f1', points: 3, meters: 40, robot: 'r1', last: '' },
 ];
 
-export const EVENTS = [
-  { at: '14:02', tone: 'warn' as Tone, robot: 'r3', text: 'Go2-3이 계획 경로에서 1.8 m 벗어났습니다.' },
-  { at: '13:55', tone: 'ok' as Tone, robot: 'r3', text: '이OO님이 Go2-3 조종을 끝냈습니다.' },
-  { at: '13:40', tone: 'bad' as Tone, robot: 'r1', text: 'Go2-1 연결이 끊겼습니다. 로봇은 정지·잠금 상태입니다.' },
-];
-
-export const userName =(id: string) => USERS.find((u) => u.id === id)?.name ?? '알 수 없음';
+export const userName = (id: string) => USERS.find((u) => u.id === id)?.name ?? '알 수 없음';
 export const floorName = (id: string) => { const f = FLOORS.find((x) => x.id === id); return f ? `${f.site} ${f.name}` : ''; };
 
-/** 상태 표시 하나(03 UX §4): 회색 = 꺼짐, 주황 = 나빠짐, 빨강 = 끊김 */
+/** 연결 끊김 문구: 끊긴 동안 상태를 단정하지 않고 «마지막 확인 + 미확인»(02 F-COM-02) */
+export const lostText = (r: Robot) => `${r.name} 연결이 끊겼습니다. 마지막 확인: ${STATUS_NAME[r.status]}(${r.seenAt}). 지금 상태는 알 수 없습니다.`;
+
+export const EVENTS: Event[] = [
+  { id: 'e5', at: '14:02', tone: 'warn', robot: 'r3', text: 'Go2-3이 계획 경로에서 1.8 m 벗어났습니다.' },
+  { id: 'e4', at: '13:58', tone: 'bad', robot: 'r3', actor: 'u-park', text: '박OO님이 Go2-3 STOP 을 눌렀습니다.' },
+  { id: 'e3', at: '13:55', tone: 'ok', robot: 'r3', actor: 'u-lee', text: '이OO님이 Go2-3 조종을 끝냈습니다.' },
+  // 02 F-LG-02 LINK_LOST 문장 틀
+  { id: 'e2', at: '13:40', tone: 'bad', robot: 'r1', text: 'Go2-1과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.' },
+  { id: 'e1', at: '13:20', tone: 'warn', robot: 'r7', text: 'Go2-7 배터리가 15%로 낮습니다.' },
+];
+
+/** 상태 표시 하나(03 UX §4): 회색 = 꺼짐, 주황 = 나빠짐, 빨강 = 잠금·끊김 */
 export function robotStatus(r: Robot): { tone: Tone; text: string } {
-  if (r.state === 'offline') return { tone: 'bad', text: '끊김' };
+  if (!r.online) return { tone: 'bad', text: '끊김' };
+  if (r.status === 'STOP_LATCHED' || r.status === 'ERROR') return { tone: 'bad', text: STATUS_NAME[r.status] };
   if (r.battery != null && r.battery < 20) return { tone: 'warn', text: '배터리 낮음' };
-  return r.state === 'mission' ? { tone: 'ok', text: '임무 중' } : { tone: 'off', text: '대기' };
+  if (r.status === 'PAUSED') return { tone: 'warn', text: STATUS_NAME[r.status] };
+  return { tone: r.status === 'IDLE' ? 'off' : 'ok', text: STATUS_NAME[r.status] };
 }
 
 /** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×). 할 수 있으면 null */
 export function driveBlock(u: User, r: Robot): string | null {
   if (u.role !== 'ORG_ADMIN' && r.owner !== u.id) return `${userName(r.owner)}님의 로봇입니다. 내 로봇만 조종할 수 있습니다.`;
-  if (r.state === 'offline') return '연결이 끊겨 조종할 수 없습니다. 현장에서 로봇 전원을 확인하세요.';
+  if (!r.online) return '연결이 끊겨 조종할 수 없습니다. 현장에서 로봇 전원을 확인하세요.';
   return null;
 }
 
-/** 운영자는 내 로봇을 먼저(02 기능 §1.1) */
-export const robotsFor = (u: User) => (u.role === 'ORG_ADMIN' ? ROBOTS : [...ROBOTS.filter((r) => r.owner === u.id), ...ROBOTS.filter((r) => r.owner !== u.id)]);
+/** PC 관제: 모두 보임, 운영자는 내 로봇을 먼저(02 기능 §1.1) */
+export const robotsFor = (u: User) => (u.role === 'ORG_ADMIN' ? ROBOTS : [...myRobots(u), ...ROBOTS.filter((r) => r.owner !== u.id)]);
+/** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체 */
+export const myRobots = (u: User) => (u.role === 'ORG_ADMIN' ? ROBOTS : ROBOTS.filter((r) => r.owner === u.id));
+/** 기록 범위(02 기능 §10): 총괄 전체, 운영자는 내 로봇 사건 + 내 행동 */
+export const eventsFor = (u: User) => (u.role === 'ORG_ADMIN' ? EVENTS : EVENTS.filter((e) => e.actor === u.id || myRobots(u).some((r) => r.id === e.robot)));
