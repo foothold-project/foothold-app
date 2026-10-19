@@ -14,7 +14,7 @@ const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '�
 export const Chip = ({ tone, text }: { tone: Tone; text: string }) => <span className={`lv-chip ${tone}`} data-tone={tone}><span aria-hidden="true">{ICON[tone]}</span><span>{text}</span></span>;
 const Slot = ({ text, h }: { text: string; h?: number }) => <div className="fh-slot" style={h ? { minHeight: h } : undefined}>{text}</div>;
 /** 아직 동작이 없는 단추: 비활성 + 본문 아래 «준비 중» 글에 이음(권한 때문인 비활성과 구분 — 권한은 DriveButton 처럼 자기 이유) */
-const soon = { disabled: true, 'aria-describedby': 'fh-soon' } as const;
+export const soon = { disabled: true, 'aria-describedby': 'fh-soon' } as const;
 const pct = (b: number | null) => (b == null ? '' : `${b}%`);
 
 /** 조종 단추: 못 하면 비활성 + 이유를 글로 함께(title 에만 두지 않음). wait = 권한은 있지만 지금 기다려야 하는 이유 */

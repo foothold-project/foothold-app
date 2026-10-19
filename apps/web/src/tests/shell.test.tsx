@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from '../fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
+import { FakeWS, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -19,6 +20,12 @@ function mount(phone: boolean, user = 'u-kim', hash = '', robots: Robot[] = ROBO
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === user)} robots={robots} />); });
 }
+/** 실시간 연결을 열고 목록 값과 같은 첫 state 를 보냄(서버는 에이전트 없는 로봇도 OFFLINE state 를 보낸다) */
+const feed = (robots: Robot[] = ROBOTS) => act(() => {
+  FakeWS.last.open();
+  for (const r of robots) FakeWS.last.recv(r.online ? state(r.id, { status: r.status, battery: r.battery == null ? null : { soc: r.battery, updated_at: '' } })
+    : state(r.id, { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null }));
+});
 const resize = (phone: boolean) => act(() => { isPhone = phone; listeners.forEach((f) => f()); });
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); });
 
@@ -68,7 +75,7 @@ describe('탭 전환', () => {
 
 describe('역할 전환', () => {
   it('운영자로 바꾸면 «내 요청»이 보이고 남의 로봇 조종 단추는 비활성 + 이유', () => {
-    mount(false);
+    mount(false); feed();
     click(robotRow('Go2-7'));
     expect($<HTMLButtonElement>('[aria-label="로봇 상세"] .btn.pri').disabled).toBe(false);   // 총괄은 남의 로봇도 조종
 
@@ -113,10 +120,12 @@ describe('STOP 상시 표시', () => {
       expect($('[data-band][role="status"]')).not.toBeNull();
     }
   });
-  it('STOP 을 누르면 띠에 «정지 요청됨»', () => {
+  it('STOP 을 누르면 실시간 연결로 보내고, 서버가 받으면 띠에 «정지 요청됨»', () => {
     mount(false);
+    act(() => FakeWS.last.open());
     click($('[aria-label="비상 정지"]'));
-    expect($('[data-band]').textContent).toContain('정지 요청됨');
+    expect(FakeWS.last.of('stop')).toMatchObject([{ robot: 'r3' }]);
+    expect($('[data-band]').textContent).toContain('Go2-3 정지 요청됨');
   });
 });
 
@@ -172,7 +181,7 @@ describe('B1 폭 전환', () => {
 
 describe('B2 연결 끊김 문구', () => {
   it('[재현] 연결 끊김 띠는 마지막 확인과 현재 미확인을 표시한다', () => {
-    mount(false, 'u-lee', '#/fleet');
+    mount(false, 'u-lee', '#/fleet'); feed();
     const text = $('[data-band]').textContent!;
     expect(text).toContain('마지막 확인: 정지 잠금(13:40:05)');
     expect(text).toContain('지금 상태는 알 수 없습니다');
