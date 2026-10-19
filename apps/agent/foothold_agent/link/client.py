@@ -12,14 +12,15 @@ from .session import Effects, MotionCommand, Session
 from foothold_agent.safety.core import Z
 
 TICK_S = 0.05
+FATAL_CLOSE_CODES = (4401, 4403)
 
 
 @dataclass(frozen=True)
 class Settings:
     url: str = field(repr=False)
     token: str = field(repr=False)
-    retry_initial_s: float = 0.25
-    retry_max_s: float = 8.0
+    retry_initial_s: float = 1.0
+    retry_max_s: float = 10.0
 
     def __post_init__(self):
         url = urlsplit(self.url)
@@ -29,7 +30,7 @@ class Settings:
             raise ValueError("agent URL requires WSS (WS allowed only on loopback)")
         if not self.token or any(c.isspace() or ord(c) < 32 for c in self.token):
             raise ValueError("agent token must be a nonempty header value")
-        if not 0 < self.retry_initial_s <= self.retry_max_s <= 30:
+        if not 0 < self.retry_initial_s <= self.retry_max_s <= 10:
             raise ValueError("invalid reconnect backoff")
 
     @classmethod
@@ -43,6 +44,22 @@ class Settings:
 
 class LocalPortError(RuntimeError):
     """A local output port failed; never classify it as a reconnectable socket error."""
+
+
+class ReconnectForbidden(RuntimeError):
+    """Authorization/configuration must be fixed before explicitly starting again."""
+
+    def __init__(self, close_code):
+        self.close_code = close_code
+        super().__init__(f"agent connection rejected ({close_code}); automatic reconnect disabled")
+
+
+def _note_output_error(pending_error, error, phase):
+    # Keep cancellation/first-error semantics, with inspectable diagnostics even
+    # on Python 3.10 (BaseException.add_note was added in 3.11).
+    pending_error.output_errors = (*getattr(pending_error, "output_errors", ()), error)
+    if hasattr(pending_error, "add_note"):
+        pending_error.add_note(f"Local motion output failed during {phase}; see output_errors")
 
 
 class Client:
@@ -136,11 +153,12 @@ class Client:
     async def _network(self):
         # Optional dependency is deliberately lazy; sans-I/O import needs stdlib only.
         from websockets.asyncio.client import connect
-        from websockets.exceptions import ConnectionClosed, InvalidHandshake
+        from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
 
         delay = self.settings.retry_initial_s
         while True:
             connected_for = 0.0
+            retry_code = None
             try:
                 async with connect(
                     self.settings.url,
@@ -172,13 +190,19 @@ class Client:
                         self._outgoing = None
                         self._overflow = None
                         try:
-                            effects = (self.session.shutdown() if isinstance(pending_error, LocalPortError)
-                                       else self.session.disconnect())
+                            if isinstance(pending_error, ConnectionClosed):
+                                code = pending_error.rcvd.code if pending_error.rcvd else 1006
+                                effects = self.session.transport_closed(code, retry=code not in FATAL_CLOSE_CODES)
+                            else:
+                                effects = (self.session.shutdown() if isinstance(pending_error, LocalPortError)
+                                           else self.session.disconnect())
                             self._emit(effects)
-                        except LocalPortError:
+                        except LocalPortError as exc:
                             # Preserve the first *output* failure, but never hide
                             # one behind a reconnectable socket/timeout error.
-                            if not isinstance(pending_error, LocalPortError):
+                            if isinstance(pending_error, (LocalPortError, asyncio.CancelledError)):
+                                _note_output_error(pending_error, exc, "disconnect")
+                            else:
                                 raise
                         finally:
                             reader.cancel()
@@ -186,6 +210,9 @@ class Client:
                             overflow.cancel()
                             await asyncio.gather(reader, writer, overflow, return_exceptions=True)
             except ConnectionClosed as exc:
+                retry_code = exc.rcvd.code if exc.rcvd else 1006
+                if retry_code in FATAL_CLOSE_CODES:
+                    raise ReconnectForbidden(retry_code) from exc
                 reason = exc.rcvd.reason if exc.rcvd is not None else ""
                 try:
                     declaration = json.loads(reason)
@@ -194,10 +221,18 @@ class Client:
                 if (isinstance(declaration, dict) and "proto" in declaration
                         and declaration["proto"] != "fh-agent/1"):
                     self._emit(self.session.protocol_mismatch())
+            except InvalidStatus as exc:
+                # ASGI authorization rejection before accept is HTTP 401/403,
+                # rather than a negotiated WebSocket close frame.
+                if exc.response.status_code in (401, 403):
+                    code = 4401 if exc.response.status_code == 401 else 4403
+                    self._emit(self.session.transport_closed(code, retry=False))
+                    raise ReconnectForbidden(code) from exc
             except (OSError, InvalidHandshake, asyncio.TimeoutError):
                 pass  # transport only; never catch a local sink/executor failure
             if connected_for >= 3:
                 delay = self.settings.retry_initial_s
+            self._emit(self.session.transport_retry(delay, retry_code))
             await asyncio.sleep(delay)
             delay = min(delay * 2, self.settings.retry_max_s)
 
@@ -218,9 +253,10 @@ class Client:
             # or a local port failure. A failing hardware sink cannot be hidden.
             try:
                 self._emit(self.session.shutdown())
-            except Exception:
+            except Exception as exc:
                 if pending_error is None:
                     raise
+                _note_output_error(pending_error, exc, "shutdown")
             finally:
                 watchdog.cancel()
                 network.cancel()

@@ -223,7 +223,7 @@ def test_executor_fake_is_local_zero_heartbeat_and_disconnect_doesnt_retry_unloc
         sink = FakeMotionSink()
         fake = FakeExecutor()
         session.connect()
-        session.receive({"t": "lease", "lease_id": "a", "holder_type": "RUN"})
+        session.receive({"t": "lease", "lease_id": "a", "holder_type": "RUN:r"})
         session.receive({"t": "run.start", "run_id": "r", "plan": {"segments": []}, "missions": {}})
         client = Client(session, sink, Settings("ws://127.0.0.1:1", "fake-test-token"), fake)
         task = asyncio.create_task(client._watchdog())
@@ -536,7 +536,7 @@ def test_backoff_reset_measures_connected_time_not_handshake(monkeypatch, durati
         waits = []
         attempt = [0]
         session = Session(lambda: now[0])
-        client = Client(session, FakeMotionSink(), Settings("ws://127.0.0.1:1", "fake-test-token"))
+        client = Client(session, FakeMotionSink(), Settings("ws://127.0.0.1:1", "fake-test-token", 0.25, 8))
 
         class Done(Exception):
             pass
@@ -657,4 +657,225 @@ def test_disconnect_output_failure_is_not_hidden_by_transport_error(monkeypatch)
             await asyncio.wait_for(client.run(), 1)
         assert caught.value.__cause__ is sink.errors[0]
         assert any(c.kind == "apply" and c.velocity == Z for _, c in sink.commands)
+    asyncio.run(scenario())
+
+
+def test_nonzero_apply_failure_alone_attempts_zero_without_shutdown():
+    from foothold_agent.link.session import MotionCommand
+
+    class Sink(FakeMotionSink):
+        def apply(self, command):
+            super().apply(command)
+            if command.velocity != Z:
+                raise OSError("nonzero apply failed")
+
+    sink = Sink()
+    client = Client(Session(), sink, Settings("ws://127.0.0.1:1", "fake-test-token"))
+    with pytest.raises(LocalPortError):
+        client._emit(Effects((MotionCommand(velocity=(0.6, 0, 0)),)))
+    assert [c.velocity for _, c in sink.commands] == [(0.6, 0, 0), Z]
+    assert all(c.kind == "apply" for _, c in sink.commands)
+
+
+def test_cancelled_error_retains_shutdown_sink_failure_trace(monkeypatch):
+    async def scenario():
+        from foothold_agent.link.session import MotionCommand
+
+        class Sink(FakeMotionSink):
+            error = OSError("stop failed during cancellation")
+
+            def apply(self, command):
+                super().apply(command)
+                if command.kind == "stop":
+                    raise self.error
+
+        ready = asyncio.Event()
+        sink = Sink()
+        client = Client(Session(), sink, Settings("ws://127.0.0.1:1", "fake-test-token"))
+
+        async def moving_watchdog():
+            sink.apply(MotionCommand(velocity=(0.6, 0, 0)))
+            ready.set()
+            await asyncio.Event().wait()
+
+        async def idle_network():
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(client, "_watchdog", moving_watchdog)
+        monkeypatch.setattr(client, "_network", idle_network)
+        task = asyncio.create_task(client.run())
+        await ready.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError) as caught:
+            await task
+        errors = getattr(caught.value, "output_errors", ())
+        assert errors and errors[0].__cause__ is sink.error
+        if hasattr(caught.value, "add_note"):
+            assert caught.value.__notes__
+        assert any(c.kind == "apply" and c.velocity == Z for _, c in sink.commands)
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("close_code", [4401, 4403])
+def test_authorization_close_is_terminal_and_stops_without_reconnect(close_code):
+    async def scenario():
+        session = Session()
+        sink = FakeMotionSink()
+        attempts = []
+
+        async def server(ws):
+            attempts.append(ws)
+            await until_message(ws, "hello")
+            await ws.close(close_code, "access refused")
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            client = Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token", 0.01, 0.04))
+            # A terminal authorization close must finish, rather than loop until
+            # this timeout or require us to cancel the client.
+            try:
+                await asyncio.wait_for(client.run(), 0.5)
+            except asyncio.TimeoutError:
+                pytest.fail("authorization close retried instead of ending")
+            except RuntimeError as exc:
+                assert getattr(exc, "close_code", None) == close_code
+            else:
+                pytest.fail("terminal close must report its reason to the caller")
+        assert len(attempts) == 1
+        assert session.core.latch and sink.commands[-1][1].velocity == Z
+    asyncio.run(scenario())
+
+
+def test_second_hello_1012_reconnects_and_records_close_and_backoff():
+    async def scenario():
+        clock = [0.0]
+        session = Session(lambda: clock[0])
+        sink = FakeMotionSink()
+        completed = asyncio.get_running_loop().create_future()
+        attempts = 0
+
+        async def server(ws):
+            nonlocal attempts
+            try:
+                attempts += 1
+                await until_message(ws, "hello")
+                if attempts == 1:
+                    clock[0] = 3.01
+                    await ws.send(json.dumps({"t": "ping"}))
+                    hello = await until_message(ws, "hello")
+                    assert hello["latched"]
+                    await ws.close(1012, "second hello requires a fresh socket")
+                else:
+                    events = []
+                    while len(events) < 2:
+                        m = json.loads(await ws.recv())
+                        if m.get("code") in ("SERVER_CLOSED", "SERVER_RETRY"):
+                            events.append(m)
+                    closed = next(m for m in events if m["code"] == "SERVER_CLOSED")
+                    assert closed["data"]["close_code"] == 1012 and closed["data"]["retry"]
+                    assert sink.commands[-1][1].velocity == Z and not task.done()
+                    completed.set_result(True)
+                    await ws.wait_closed()
+            except Exception as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            task = asyncio.create_task(Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token", 0.01, 0.04)).run())
+            try:
+                await asyncio.wait_for(completed, 1)
+            except asyncio.TimeoutError:
+                pytest.fail("1012 close must reconnect and retain close/backoff events")
+            finally:
+                if not task.done():
+                    await cancel(task)
+                elif task.exception() is not None:
+                    pytest.fail("1012 must remain reconnectable, not terminate Client.run")
+        assert attempts == 2
+    asyncio.run(scenario())
+
+
+def test_default_close_backoff_matches_api_spec():
+    settings = Settings("wss://example.invalid/api/v1/agent/ws", "fake-test-token")
+    assert settings.retry_initial_s == 1 and settings.retry_max_s == 10
+
+
+@pytest.mark.parametrize("status,close_code", [(401, 4401), (403, 4403)])
+def test_handshake_authorization_rejection_does_not_retry(status, close_code):
+    async def scenario():
+        from websockets.http11 import Response
+        from websockets.datastructures import Headers
+
+        attempts = []
+
+        async def reject(connection, request):
+            attempts.append(request)
+            return Response(status, "Rejected", Headers(), b"")
+
+        session = Session()
+        sink = FakeMotionSink()
+        async with serve(lambda ws: ws.wait_closed(), "127.0.0.1", 0, process_request=reject) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            client = Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token", 0.01, 0.04))
+            try:
+                await asyncio.wait_for(client.run(), 0.5)
+            except asyncio.TimeoutError:
+                pytest.fail("HTTP authorization rejection must not retry")
+            except RuntimeError as exc:
+                assert getattr(exc, "close_code", None) == close_code
+            else:
+                pytest.fail("HTTP rejection must be reported to the caller")
+        assert len(attempts) == 1 and session.core.latch
+        assert sink.commands[-1][1].velocity == Z
+    asyncio.run(scenario())
+
+
+def test_repeated_1013_close_backs_off_and_records_each_attempt():
+    async def scenario():
+        session = Session()
+        sink = FakeMotionSink()
+        observed = []
+        original = session._event
+
+        def event(code, **data):
+            observed.append((code, data))
+            original(code, **data)
+
+        session._event = event
+        attempts = 0
+        completed = asyncio.get_running_loop().create_future()
+
+        async def server(ws):
+            nonlocal attempts
+            try:
+                attempts += 1
+                await until_message(ws, "hello")
+                if attempts <= 3:
+                    await ws.close(1013, "busy")
+                else:
+                    completed.set_result(True)
+                    await ws.wait_closed()
+            except Exception as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            task = asyncio.create_task(Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token", 0.01, 0.04)).run())
+            try:
+                await asyncio.wait_for(completed, 1)
+            except asyncio.TimeoutError:
+                pytest.fail("retryable close must back off and keep reconnecting")
+            finally:
+                await cancel(task)
+        retries = [data["delay_s"] for code, data in observed if code == "SERVER_RETRY"]
+        closed = [data for code, data in observed if code == "SERVER_CLOSED"]
+        assert retries == [0.01, 0.02, 0.04]
+        assert len(closed) == 3 and all(d == {"close_code": 1013, "retry": True} for d in closed)
+        assert attempts == 4 and sink.commands[-1][1].velocity == Z
     asyncio.run(scenario())

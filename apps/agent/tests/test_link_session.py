@@ -40,7 +40,8 @@ class Harness:
             "policy_running": True, **kw})
 
     def lease(self, lease, holder="USER"):
-        return self.s.receive({"t": "lease", "lease_id": lease, "holder_type": holder})
+        return self.s.receive({"t": "lease", "lease_id": lease,
+                               "holder_type": "RUN:run-a" if holder == "RUN" else holder})
 
     def unlock(self):
         self.state(True)
@@ -245,7 +246,7 @@ def test_executor_zero_heartbeat_in_pause_is_alive_and_manual_is_separate():
 @pytest.mark.parametrize("bad", [-1, 30.01, True, None, "30", float("nan"), float("inf")])
 def test_server_cannot_extend_grace_or_invent_policy(bad):
     h = Harness()
-    h.lease("run-lease", "RUN")
+    h.lease("run-lease", "RUN:r")
     h.s.receive({"t": "run.start", "run_id": "r", "plan": {"segments": []},
                  "missions": {}, "policy": {"link_loss_wait_s": bad}})
     assert h.s.run is None and zero(h.s.tick())
@@ -535,7 +536,7 @@ def test_huge_integer_server_axes_are_invalid_without_stopping_session(axis):
 @pytest.mark.parametrize("wait", [10**400, -(10**400)], ids=["huge-positive", "huge-negative"])
 def test_huge_integer_run_policy_is_rejected_without_raising(wait):
     h = Harness()
-    h.lease("run-lease", "RUN")
+    h.lease("run-lease", "RUN:r")
     assert zero(h.s.receive({"t": "run.start", "run_id": "r",
         "plan": {"segments": []}, "missions": {}, "policy": {"link_loss_wait_s": wait}}))
     assert h.s.run is None
@@ -581,3 +582,70 @@ def test_valid_unknown_envelope_uses_original_receive_time(monkeypatch):
     monkeypatch.setattr(session_module.json, "loads", slower_parse)
     h.s.receive('{"t":"future.message"}')
     assert h.s.last_server == 0.1
+
+
+@pytest.mark.parametrize("seq", [2**53, 10**400], ids=["past-json-safe", "huge"])
+def test_seq_upper_bound_cannot_poison_lease(seq):
+    h = Harness()
+    previous = h.s.last_seq
+    assert zero(h.cmd(N, seq=seq))
+    assert h.s.last_seq == previous
+    h.cmd(N)
+    assert not zero(h.cmd(F))
+
+
+def test_seq_json_safe_boundary_is_accepted():
+    h = Harness()
+    assert not zero(h.cmd(F, seq=2**53 - 1))
+    assert h.s.last_seq == 2**53 - 1
+
+
+def test_invalid_free_lease_does_not_increment_an_already_locked_generation():
+    s = Session(lambda: 0)
+    s.connect()
+    gen = s.core.stop_gen
+    for _ in range(3):
+        e = s.receive({"t": "lease", "lease_id": "bad", "holder_type": "FREE"})
+        assert zero(e) and s.core.latch and s.core.need_neutral
+        assert s.core.stop_gen == gen
+        assert any(m.get("code") == "LEASE_INVALID" for m in e.messages)
+
+
+@pytest.mark.parametrize("holder", ["RUN", "RUN:", "RUN:   "])
+def test_run_owner_without_nonempty_qualified_id_revokes_authority(holder):
+    h = Harness()
+    assert zero(h.s.receive({"t": "lease", "lease_id": "run-lease", "holder_type": holder}))
+    assert h.s.lease_id is None and h.s.holder_run_id is None and not h.s.lease_confirmed
+    assert h.s.core.latch and h.s.core.need_neutral
+    h.s.receive({"t": "run.start", "run_id": "arbitrary", "plan": {"segments": []}, "missions": {}})
+    assert h.s.run is None
+    assert zero(h.s.executor_command("arbitrary", F))
+
+
+def test_run_start_requires_matching_bound_owner_even_with_other_gates_open():
+    h = Harness()
+    h.lease("run-lease", "RUN:run-a")
+    h.unlock()
+    h.s.holder_run_id = None  # isolate binding from the lease parser's defense
+    h.s.receive({"t": "run.start", "run_id": "run-a", "plan": {"segments": []}, "missions": {}})
+    assert h.s.run is None
+
+
+def test_run_resume_requires_matching_bound_owner_even_with_other_gates_open():
+    h = Harness("RUN")
+    h.s.receive({"t": "run.control", "run_id": "run-a", "op": "pause"})
+    h.s.holder_run_id = None
+    h.s.receive({"t": "run.control", "run_id": "run-a", "op": "resume"})
+    assert h.s.run["status"] == "PAUSED"
+
+
+@pytest.mark.parametrize("bound", [None, "other-run"])
+def test_executor_requires_exact_owner_for_commands_and_health(monkeypatch, bound):
+    h = Harness("RUN")
+    h.s.holder_run_id = bound
+    before = h.s.executor_t
+    h.t = 0.05
+    calls = []
+    monkeypatch.setattr(h.s.core, "cmd", lambda *args: calls.append(args))
+    h.s.executor_command("run-a", N)
+    assert not calls and h.s.executor_t == before

@@ -19,8 +19,8 @@ Python 3.12.3 / pytest 9.1.1 / websockets 15.0.1, 별도 임시 가상환경에�
 
 | 명령·검사 | 결과 |
 |---|---|
-| `python -m pytest apps/agent -q` | 최초 79 → Claude 수정 116 → Codex 수정 148 passed, 기존 32 포함, skip 0 |
-| `python apps/agent/tools/check_link_mutations.py` | 최초 10/10 → 검토 수정 후 17/17 변이를 pytest assertion 실패로 검출 |
+| `python -m pytest apps/agent -q` | 최초 79 → Claude 수정 116 → Codex 수정 148 → 최종 맞물림 수정 168 passed, 기존 32 포함, skip 0 |
+| `python apps/agent/tools/check_link_mutations.py` | 최초 10/10 → 검토 17/17 → 최종 32/32 assertion 검출, ERROR 0 |
 | `git diff --check` | 통과 |
 | Core·기존 시험의 기준 대비 diff | 0 |
 
@@ -72,11 +72,13 @@ RuntimeError·TypeError·setup/teardown·수집/내부 오류·보고서 누락�
    재접속한다. 이 필드·거부/닫기 형식은 정본 문서 후속 반영 대상이다.
 2. **봉투·크기·순번**: §9의 flat `{t,...body}`와 4 KiB 제한을 에이전트에도 적용했다.
    §10에는 별도 봉투·id/robot 필요 여부·크기·seq 초기값/상한·재연결 때 seq 범위가 없다.
-   이 구현은 seq를 0 이상 정수로 받고 lease 변경 때만 초기화하며 동일 lease 재연결에서는
+   이 구현은 seq를 0~2**53-1 정수로 받고 상한 밖에서는 마지막 값을 갱신하지 않는다.
+   lease 변경 때만 초기화하며 동일 lease 재연결에서는
    마지막 seq를 보존한다. 클라이언트는 인증된 한 로봇 연결로 취급한다.
 3. **RUN lease 연결/잠금 해제**: 04 §4.2는 주인을 `RUN:<run_id>`로 쓰고 05는 holder_type을
-   `RUN`으로 쓴다. 두 표기를 모두 받아 후자는 미지정, 전자는 실행 ID를 보존해 대조하며
-   holder/실행 ID만 달라져도 즉시 0·입력 폐기한다. lease의 독립 run_id 필드와 run.start의
+   `RUN`으로 쓴다. 최종 조정 결정으로 RUN:<id>만 유효하게 받고, 접두어 없는 RUN/빈 ID는
+   조종권 없음으로 처리한다. run.start·resume·실행기 명령/health는 holder_run_id와 정확히
+   대조하며 holder/실행 ID만 달라져도 즉시 0·입력 폐기한다. lease의 독립 run_id 필드와 run.start의
    lease_id는 여전히 없다. 현재 RUN lease와 맞는 run.start 하나만 수락하며 실제 계획
    실행은 하지 않는다.
    자동 unlock은 하지 않는다. Core에 필요한 로컬 STOP/해제 피드백은 이후 ROS 다리가
@@ -162,3 +164,45 @@ R4는 정본의 «아무 프레임»을 해석 가능한 앱 봉투로 좁힌 �
 구조화 판정으로 다시 실행한 변이는 **17/17 KILLED, ERROR 0, SURVIVED 0**이다.
 Core·기존 두 시험 파일의 diff 0, 변경은 apps/agent/**뿐이며 실제 서버·ROS·Gazebo·실기
 접촉은 없다. 고장 sink의 물리적 정지를 보증하는 검증은 아니며 독립 감시 구현은 후속이다.
+
+
+## 합치기 전 Claude r2 권고·PR #10 맞물림 수정 (기준 head 44bf39f)
+
+수정 전 새 Session/Client 시험에서 **13 failed, 110 passed**를 확인했다. 큰 seq의 lease
+고착, 취소 중 sink 오류 흔적 소실, FREE 잘못된 lease의 세대 증가, bare RUN 권한 수락,
+누락된 실행 ID 바인딩, 인증 닫기 재접속, 1012 사건 누락과 기본 재시도 간격 차이를 재현했다.
+기존부터 맞던 apply(0) 단독 경로는 별도 시험과 제거 변이로 고정했다.
+
+| 항목 | 수정·검증 |
+|---|---|
+| A/N1 seq | 0~2**53-1만 수락; 2**53·10**400은 마지막 seq를 오염시키지 않고 0·입력 폐기, 새 정상 중립/명령 복구; 상한 경계 수락 |
+| A/N2 취소 sink 진단 | CancelledError/기존 오류는 보존하면서 output_errors에 LocalPortError(원래 cause 포함)를 붙임; Python 3.11+는 add_note도 추가; 정지·0 시도 유지 |
+| A/N3 FREE invalid | 이미 조종권 없음·잠금이면 _void만 수행, 반복 잘못된 lease 3건에도 stop_gen 일정; LEASE_INVALID 사건은 유지; 실제 STOP 세대 규칙은 Core 그대로 |
+| A/N5 apply(0) 단독 | 비영 apply 하나만 실패하는 _emit 단독 호출에서도 다음 apply(Z)를 시도; Client.shutdown 이중 방어에 기대지 않는 시험·변이 |
+| B/I1 RUN 소유자 | USER 또는 RUN:<id>만 유효; bare RUN·빈 ID는 즉시 조종권 없음; run.start/resume/실행기 cmd·health의 실행 ID 정확 일치; 미지정 ID를 허용하는 대체 경로 제거 |
+| B/I2 닫기 정책 | 4401/4403은 정지·잠금·lease 미확인 뒤 ReconnectForbidden으로 종료, 자동 재접속 0; handshake HTTP 401/403도 같은 의미로 거부; 사유 코드는 호출자에 보존 |
+| B/I2 반복·사건 | 기본 1/2/4/8/10 s 백오프, 3 s 연결 유지 시만 초기화; 닫기/재시도 코드·간격 사건; 1013 반복 3회와 재접속 4회 모의 검증 |
+| B/I4 두 번째 hello | 3 s 무수신 뒤 유효 ping → 같은 소켓 두 번째 hello → 서버 1012 → 새 소켓에 정지 후 hello; 1012는 재시도 대상이고 닫기/백오프 사건이 순서대로 전달됨 |
+
+정본 05 §9.4의 4401/4403 «재연결 안 함»과 기본 1 s·최대 10 s를 적용했다. 반복되는
+1013도 첫 재시도 1 s 뒤에는 같은 지수 백오프를 적용한다는 조정 요청에 맞췄다.
+빠른 모의 시험에서는 Settings로 더 짧은 간격을 명시하며 기본 운영값은 그대로 검사한다.
+사건은 메모리 큐 범위다. 인증 종료 시에는 연결이 없으므로 사건을 서버에 보냈다고
+주장하지 않으며, 호출자가 ReconnectForbidden.close_code와 Session을 보관/진단해야 한다.
+
+최종 시험: **168 passed, skip 0**, 기존 Core 32개 포함. 변이는 기존 17개+추가 15개,
+총 **32/32 KILLED, ERROR 0, SURVIVED 0**이다. 추가 대상은 seq 상한·취소 진단·FREE 세대·
+단독 0 재시도·bare RUN·시작/재개/실행기 바인딩·인증 닫기·1012·닫기/재시도 사건·백오프·
+기본 간격/상한이다. Client 변이는 해당 정책 시험을 선택하며 Session 변이도 필요한 경우
+WS 시험을 선택한다. assertion과 실행 오류를 구분하는 이전 판정은 유지했다.
+
+엄격한 RUN:<id>로 인해 기존 «holder 비교 하나만 제거» 변이는 run_id 비교가 같은 변경을
+항상 잡아 SURVIVED였다. 그 결과를 숨기지 않고, 검출하려던 실제 결함인 «동일 lease의
+소유자(holder+run_id) 변경 검사 제거»로 변이 범위를 맞춰 두 방향 변경 시험의 실패를 확인했다.
+Core·기존 두 시험 파일은 변경 0이며, 기존 연결부 모의 RUN 프레임만 새 조정 계약의
+RUN:<id>로 갱신했다. 실제 PR #10 서버 통합은 조정 세션 범위이며 여기서는 가짜 서버만 사용했다.
+
+**후속만 기록(A/N4)**: bridge 상태의 `x:10**400` 같은 큰 정수는 원본 Core.clean_state의
+finite()/float 변환에서 OverflowError가 날 수 있다. Core와 on_robot_state 경로는 이번에
+고치지 않았다. bridge 통합 때 범위 검사 또는 잘못된 상태 무시 방식을 별도 결정해야 한다.
+ROS·Gazebo·운영 서버·실기 접촉은 이번에도 0이며 실제 sink 감시/물리 정지는 미검증이다.

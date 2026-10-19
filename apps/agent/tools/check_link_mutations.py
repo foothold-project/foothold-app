@@ -22,8 +22,8 @@ MUTATIONS = [
      'self.core.drop(self.core.controller, "server lease")', 'self.core.controller = None'),
     ("RUN accepts server cmd", "link/session.py",
      'self.lease_confirmed and self.holder_type == "USER"', 'self.lease_confirmed'),
-    ("same lease holder change missed", "link/session.py",
-     ' or holder != self.holder_type', ''),
+    ("same lease owner change missed", "link/session.py",
+     ' or holder != self.holder_type or run_id != self.holder_run_id', ''),
     ("invalid lease ignored", "link/session.py",
      'if invalid:\n            self._event("LEASE_INVALID")',
      'if invalid:\n            return'),
@@ -35,6 +35,38 @@ MUTATIONS = [
      'self.core.stop("client shutdown")', 'self.core._void()'),
     ("client cancellation has no shutdown", "link/client.py",
      'self._emit(self.session.shutdown())', 'pass'),
+    ("seq upper bound removed", "link/session.py",
+     '0 <= seq <= MAX_SEQ', 'seq >= 0'),
+    ("cancel output failure trace removed", "link/client.py",
+     '_note_output_error(pending_error, exc, "shutdown")', 'pass'),
+    ("invalid FREE lease advances generation", "link/session.py",
+     'elif invalid and not self.core.latch:', 'elif invalid:'),
+    ("standalone zero fallback removed", "link/client.py",
+     'if not zero_attempted:', 'if False:'),
+    ("bare RUN owner accepted", "link/session.py",
+     'elif holder == "RUN":\n            holder = None',
+     'elif holder == "RUN":\n            run_id = None'),
+    ("run start binding removed", "link/session.py",
+     'and self.holder_run_id == frame["run_id"]', 'and True'),
+    ("run resume binding removed", "link/session.py",
+     'and self.holder_run_id == self.run["run_id"]):', 'and True):'),
+    ("executor command health binding removed", "link/session.py",
+     'and self.holder_run_id == run_id\n                and self.run["status"]',
+     'and self.run["status"]'),
+    ("authorization close retried", "link/client.py",
+     'FATAL_CLOSE_CODES = (4401, 4403)', 'FATAL_CLOSE_CODES = ()'),
+    ("1012 incorrectly terminal", "link/client.py",
+     'FATAL_CLOSE_CODES = (4401, 4403)', 'FATAL_CLOSE_CODES = (4401, 4403, 1012)'),
+    ("close event removed", "link/session.py",
+     'self._event("SERVER_CLOSED", close_code=close_code, retry=retry)', 'pass'),
+    ("retry event removed", "link/client.py",
+     'self._emit(self.session.transport_retry(delay, retry_code))', 'pass'),
+    ("retry backoff fixed", "link/client.py",
+     'delay = min(delay * 2, self.settings.retry_max_s)', 'delay = self.settings.retry_initial_s'),
+    ("default retry interval shortened", "link/client.py",
+     'retry_initial_s: float = 1.0', 'retry_initial_s: float = 0.25'),
+    ("default retry cap lowered", "link/client.py",
+     'retry_max_s: float = 10.0', 'retry_max_s: float = 8.0'),
     ("duplicate seq accepted", "link/session.py", "seq > self.last_seq", "seq >= self.last_seq"),
     ("reconnect has no STOP latch", "link/session.py",
      'self.core.stop("connection/reconnection")', 'self.core._void()'),
@@ -48,6 +80,21 @@ MUTATIONS = [
     ("server axes exceed speed cap", "safety/core.py",
      "return (0.6, 0.0, wz), ''", "return (1.2, 0.0, wz), ''"),
 ]
+
+
+# Client probes are selected by the changed policy, including Session-originated
+# transport events. Assertion failures, not slow blanket runs, prove each change.
+PROBE_TESTS = {
+    "cancel output failure trace removed": "test_cancelled_error_retains_shutdown_sink_failure_trace",
+    "standalone zero fallback removed": "test_nonzero_apply_failure_alone_attempts_zero_without_shutdown",
+    "authorization close retried": "test_authorization_close_is_terminal_and_stops_without_reconnect",
+    "1012 incorrectly terminal": "test_second_hello_1012_reconnects_and_records_close_and_backoff",
+    "close event removed": "test_second_hello_1012_reconnects_and_records_close_and_backoff",
+    "retry event removed": "test_repeated_1013_close_backs_off_and_records_each_attempt",
+    "retry backoff fixed": "test_repeated_1013_close_backs_off_and_records_each_attempt",
+    "default retry interval shortened": "test_default_close_backoff_matches_api_spec",
+    "default retry cap lowered": "test_default_close_backoff_matches_api_spec",
+}
 
 
 def main():
@@ -70,10 +117,12 @@ def main():
                             copy / "foothold_link_mutation_probe.py")
             report = copy / "mutation-result.json"
             try:
+                probe = PROBE_TESTS.get(label)
+                tests = ("tests/test_link_client.py::" + probe if probe else
+                         "tests/test_link_client.py::test_cancel_while_moving_requests_stop_zero_and_latch"
+                         if target == "link/client.py" else "tests/test_link_session.py")
                 result = subprocess.run(
-                    [sys.executable, "-m", "pytest",
-                     ("tests/test_link_client.py::test_cancel_while_moving_requests_stop_zero_and_latch"
-                      if target == "link/client.py" else "tests/test_link_session.py"),
+                    [sys.executable, "-m", "pytest", tests,
                      "-q", "--tb=no", "-p", "foothold_link_mutation_probe",
                      "--link-mutation-report", str(report)],
                     cwd=copy, text=True, capture_output=True, timeout=30,
