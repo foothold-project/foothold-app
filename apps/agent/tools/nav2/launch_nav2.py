@@ -6,6 +6,9 @@ No recovery/smoother/collision/docking node is implicitly brought up.
 import os
 from pathlib import Path
 
+# The straight BT needs exactly these lifecycle servers, shared with readiness.
+LIFECYCLE_NODES = ('controller_server', 'planner_server', 'bt_navigator')
+
 # Every potential command-producing role has an explicit disposition. Adding a
 # role requires review: none may publish directly into the bridge command set.
 COMMAND_ROLES = {
@@ -42,5 +45,5 @@ def generate_launch_description():
     nodes.append(Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
                       name='fh_nav_lifecycle_manager', parameters=[{
                           'use_sim_time': True, 'autostart': True,
-                          'node_names': ['controller_server', 'planner_server', 'bt_navigator']}]))
+                          'node_names': list(LIFECYCLE_NODES)}]))
     return LaunchDescription(nodes)

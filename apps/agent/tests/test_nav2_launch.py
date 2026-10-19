@@ -37,3 +37,29 @@ def test_lifecycle_names_match_exactly_the_launched_straight_servers(description
     launched=[n.kw['name'] for n in description if n is not manager]
     assert lifecycle==['controller_server','planner_server','bt_navigator']
     assert len(lifecycle)==len(set(lifecycle)) and set(lifecycle)==set(launched)
+
+
+def test_adapter_clients_match_actual_straight_lifecycle_servers(description,monkeypatch):
+    from test_nav2_review import ros_stub
+    _,adapter,_,_=ros_stub(monkeypatch,[.1])
+    launched={n.kw['name'] for n in description if n.kw['name']!='fh_nav_lifecycle_manager'}
+    assert set(adapter.lifecycle_clients)==set(launch_nav2.LIFECYCLE_NODES)==launched
+
+
+@pytest.mark.parametrize('mode,ready',[
+    ('all_active',True),('missing',False),('inactive',False),('extra',False),
+    ('same_count_wrong_name',False),('stale',False)])
+def test_lifecycle_ready_requires_exact_names_active_and_original_freshness(monkeypatch,mode,ready):
+    from test_nav2_review import ros_stub
+    _,adapter,_,_=ros_stub(monkeypatch,[.1])
+    names=('controller_server','planner_server','bt_navigator')
+    adapter.lifecycle={name:(True,.1) for name in names}
+    if mode=='missing':adapter.lifecycle.pop('planner_server')
+    if mode=='inactive':adapter.lifecycle['planner_server']=(False,.1)
+    if mode=='extra':adapter.lifecycle['behavior_server']=(True,.1)
+    if mode=='same_count_wrong_name':
+        adapter.lifecycle.pop('planner_server')
+        adapter.lifecycle['unexpected_server']=(True,.1)
+    if mode=='stale':adapter.lifecycle['planner_server']=(True,-1.400001)
+    adapter.spin()
+    assert adapter.snapshot()['lifecycle_ready'] is ready

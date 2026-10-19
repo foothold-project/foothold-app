@@ -14,6 +14,7 @@ import time
 
 from odometry import SimOdom, angle
 from prepare import WORLD_SHA
+from launch_nav2 import LIFECYCLE_NODES
 
 
 class ActionMailbox:
@@ -82,7 +83,7 @@ class RosAdapter:
         node.set_parameters([Parameter('use_sim_time', value=True)])
         self.navigator = ActionClient(node, NavigateToPose, '/navigate_to_pose')
         self.lifecycle_clients = {name: node.create_client(GetState, '/'+name+'/get_state')
-                                  for name in ('controller_server', 'planner_server', 'behavior_server', 'bt_navigator')}
+                                  for name in LIFECYCLE_NODES}
         self.lifecycle_pending = {}
         reliable = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
         sensor = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
@@ -288,7 +289,7 @@ class RosAdapter:
                     'frames_ready': self.graph_ok and self.map_identity and pose_agrees
                     and self.aligned_samples >= self.policy['alignment_samples']
                     and now-self.odom_at <= self.prereg['fresh_state_s'],
-                    'map_ready': map_ok, 'lifecycle_ready': len(self.lifecycle) == 4
+                    'map_ready': map_ok, 'lifecycle_ready': set(self.lifecycle) == set(LIFECYCLE_NODES)
                     and all(ok and now-at <= 1.5 for ok, at in self.lifecycle.values())}
         with self.lock:
             self.view = snapshot
