@@ -1,0 +1,31 @@
+{
+  "$id": "fh-app/1/AgentStop",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "by_user_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "By User Id"
+    },
+    "t": {
+      "const": "stop",
+      "default": "stop",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "by_user_id"
+  ],
+  "title": "AgentStop",
+  "type": "object"
+}

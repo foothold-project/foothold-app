@@ -1,0 +1,47 @@
+{
+  "$id": "fh-app/1/AgentLease",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "holder_type": {
+      "anyOf": [
+        {
+          "enum": [
+            "USER",
+            "RUN"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Holder Type"
+    },
+    "lease_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Lease Id"
+    },
+    "t": {
+      "const": "lease",
+      "default": "lease",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "lease_id",
+    "holder_type"
+  ],
+  "title": "AgentLease",
+  "type": "object"
+}

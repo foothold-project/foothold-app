@@ -1,0 +1,199 @@
+{
+  "$defs": {
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "CAMERA_RGB",
+            "CAMERA_DEPTH",
+            "LIDAR",
+            "BATTERY",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "OK",
+            "MISSING",
+            "ERROR"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "label",
+        "state"
+      ],
+      "title": "Device",
+      "type": "object"
+    },
+    "RunCopy": {
+      "additionalProperties": false,
+      "properties": {
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "step": {
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "wait_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wait Reason"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "step"
+      ],
+      "title": "RunCopy",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/AgentHello",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent_version": {
+      "maxLength": 128,
+      "title": "Agent Version",
+      "type": "string"
+    },
+    "devices": {
+      "items": {
+        "$ref": "#/$defs/Device"
+      },
+      "title": "Devices",
+      "type": "array"
+    },
+    "firmware": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Firmware"
+    },
+    "last_floor_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Last Floor Id"
+    },
+    "latched": {
+      "title": "Latched",
+      "type": "boolean"
+    },
+    "lease_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Lease Id"
+    },
+    "map_versions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Map Versions",
+      "type": "array"
+    },
+    "proto": {
+      "const": "fh-agent/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Robot Model"
+    },
+    "run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunCopy"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "stop_gen": {
+      "minimum": 0,
+      "title": "Stop Gen",
+      "type": "integer"
+    },
+    "t": {
+      "const": "hello",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "proto",
+    "agent_version",
+    "robot_model",
+    "firmware",
+    "devices",
+    "map_versions",
+    "last_floor_id",
+    "latched",
+    "stop_gen",
+    "lease_id",
+    "run"
+  ],
+  "title": "AgentHello",
+  "type": "object"
+}

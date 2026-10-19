@@ -1,0 +1,62 @@
+{
+  "$id": "fh-app/1/ScreenSub",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "proto": {
+      "anyOf": [
+        {
+          "const": "fh-rt/1",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proto"
+    },
+    "robots": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "title": "Robots",
+      "type": "array"
+    },
+    "streams": {
+      "items": {
+        "enum": [
+          "state",
+          "rgb",
+          "depth",
+          "lidar",
+          "map"
+        ],
+        "type": "string"
+      },
+      "title": "Streams",
+      "type": "array"
+    },
+    "t": {
+      "const": "sub",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "t",
+    "robots",
+    "streams"
+  ],
+  "title": "ScreenSub",
+  "type": "object"
+}

@@ -1,0 +1,37 @@
+{
+  "$id": "fh-app/1/ScreenPing",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "proto": {
+      "anyOf": [
+        {
+          "const": "fh-rt/1",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Proto"
+    },
+    "t": {
+      "const": "ping",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "t"
+  ],
+  "title": "ScreenPing",
+  "type": "object"
+}

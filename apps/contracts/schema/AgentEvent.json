@@ -1,0 +1,56 @@
+{
+  "$id": "fh-app/1/AgentEvent",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "code": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Code",
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": true,
+      "title": "Data",
+      "type": "object"
+    },
+    "robot_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Robot At"
+    },
+    "severity": {
+      "enum": [
+        "INFO",
+        "WARN",
+        "ERROR",
+        "info",
+        "warn",
+        "error"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "t": {
+      "const": "event",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "code",
+    "severity",
+    "robot_at",
+    "data"
+  ],
+  "title": "AgentEvent",
+  "type": "object"
+}

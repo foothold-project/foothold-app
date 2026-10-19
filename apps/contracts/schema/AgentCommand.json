@@ -1,0 +1,48 @@
+{
+  "$id": "fh-app/1/AgentCommand",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "axes": {
+      "items": {
+        "maximum": 1,
+        "minimum": -1,
+        "type": "number"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Axes",
+      "type": "array"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "seq": {
+      "minimum": 0,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "cmd",
+      "default": "cmd",
+      "title": "T",
+      "type": "string"
+    },
+    "t_server": {
+      "format": "date-time",
+      "title": "T Server",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "lease_id",
+    "seq",
+    "axes",
+    "t_server"
+  ],
+  "title": "AgentCommand",
+  "type": "object"
+}

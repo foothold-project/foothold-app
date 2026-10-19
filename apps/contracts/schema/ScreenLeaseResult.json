@@ -1,0 +1,61 @@
+{
+  "$id": "fh-app/1/ScreenLeaseResult",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "error": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    },
+    "request_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Request Id"
+    },
+    "result": {
+      "enum": [
+        "ACCEPTED",
+        "DECLINED",
+        "TIMEOUT",
+        "CANCELED"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "t": {
+      "const": "lease.result",
+      "default": "lease.result",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "robot",
+    "request_id",
+    "result",
+    "error"
+  ],
+  "title": "ScreenLeaseResult",
+  "type": "object"
+}

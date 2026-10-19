@@ -1,0 +1,64 @@
+{
+  "$id": "fh-app/1/ScreenLeaseUpdate",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "holder": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Holder"
+    },
+    "lease_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lease Id"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "since": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Since"
+    },
+    "t": {
+      "const": "lease",
+      "default": "lease",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "robot",
+    "holder",
+    "lease_id",
+    "since"
+  ],
+  "title": "ScreenLeaseUpdate",
+  "type": "object"
+}

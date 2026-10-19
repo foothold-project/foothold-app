@@ -1,4 +1,4 @@
-# 관제 서버 골격 (W2-A)
+# 관제 서버 — 골격과 실시간 (W2-A · W3-B)
 
 정본: `docs/spec/04-ARCHITECTURE.md`, `05-API-SPEC.md`, `06-DB-DESIGN.md`.
 저장소 루트에서 실행한다. Python 3.12, PostgreSQL 16을 사용한다.
@@ -103,7 +103,8 @@ SELECT/INSERT 및 시퀀스 사용 권한만 부여한다. `fh_app`은 도메인
 원격측정·실행·사건·사진 ID는 404로 숨겨야 한다. 현재 수신 상태가 없으므로
 `connection=OFFLINE`, 그 밖의 미수신 값은 null, 장치·주의 목록은 빈 목록이다.
 
-WS·티켓·에이전트·조종권·STOP·지도·임무·결재·기록 조회·CSV·원격측정 API는 구현하지 않았다.
+티켓·지도·임무·결재·기록 조회·CSV·원격측정 REST API는 구현하지 않았다.
+WS·에이전트 연결·조종권·STOP의 구현 범위는 아래 실시간 절을 따른다.
 이들을 위한 가짜 응답 경로나 빈 서비스는 만들지 않았다. 계약의 로봇 요약 필드는
 명세대로 전체 구조를 정의하지만 상태 수신 기능을 구현했다는 뜻은 아니다.
 층·실행·결재 표가 아직 없어 `last_floor_id`, 사건의 `run_id`/`approval_id`는 UUID 열만 두고
@@ -146,3 +147,47 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
 기존 안전 검사는 `python3 sim/v2_link.py --selftest`로 ROS 없이 실행할 수 있다.
 실제 HTTPS 프록시·브라우저·앱·실폰·로봇 연결은 이 시험 범위 밖이다.
 로그인 보호는 DB 사건 보존 기간(최소 5분 유지)에 의존하고, 여러 조직 운영·RLS는 후속 범위다.
+
+
+## 실시간 연결 (W3-B)
+
+하나의 조직은 서버 프로세스 **1개**로 실행한다(`uvicorn --workers 1`).
+시작 때 전용 PostgreSQL 세션 advisory lock을 얻은 프로세스만 실시간 중재기를 연다.
+다른 프로세스는 REST 조회·인증을 제공할 수 있지만 WS는 1013, HTTP STOP은 503으로 거부한다.
+이 잠금은 STOP·cmd 경로와 분리돼 있다. 소유 잠금이 사라지면 lease를 비우고 연결을 닫는다.
+서버를 새로 시작하면 사람 조종권·요청·재요청 제한은 모두 메모리에서 새로 시작한다.
+
+- 화면: `/api/v1/ws`. 웹은 `fh_s` 쿠키와 정확한 Origin 일치, 앱은 Bearer.
+  프록시 뒤에서는 `FH_WS_ORIGIN=https://<화면 출처>`를 명시한다(와일드카드·경로 없음).
+  첫 메시지는 `proto: "fh-rt/1"`을 포함한다. 예: `{t:"ping",id:"…",proto:"fh-rt/1"}`.
+- 에이전트: `/api/v1/agent/ws`, 로봇 전용 Bearer, 최초 `hello.proto="fh-agent/1"`.
+  두 프로토콜 이름은 WS subprotocol 협상 헤더에 넣지 않는다.
+  한 연결의 텍스트 JSON은 4 KiB까지다. 영상 바이너리 중계는 이번 범위 밖이다.
+- `sub`는 상세 권한(`ROBOT_READ`)을 확인한다. 운영자는 담당 로봇만 실시간 상세를 받는다.
+  STOP은 요약 보기(`ROBOT_SUMMARY`) 권한이므로 조직 안 다른 담당자의 로봇도 가능하다.
+  조종은 기존 `authorize(..., 'O_OWN', robot)` 한 함수로 판정한다.
+  메시지 처리·상태/사건 전송·권한 변경 감시 때 DB의 현재 세션·역할·담당을 읽는다.
+- 조종권은 사용자·세션·연결에 묶인다. 유효 cmd(0 포함)만 heartbeat를 갱신한다.
+  50 ms보다 빠른 명령, 중복/역순 seq, 다른 lease_id는 거부한다. `ping`은 heartbeat가 아니다.
+  `lease.request`는 조직 설정의 기본 10 s, 거절·TIMEOUT 확정부터 30 s 재요청 제한이다.
+- 최초 take와 넘김 모두 `lease=null → stop → latched/applied=0/새 stop_gen`을 확인하고
+  새 lease를 발급한다. 2 s 확인 실패는 FREE다. unlock은 최신 stop_gen CAS를 검사하며,
+  에이전트의 로컬 STOP·중립 관문을 대신하지 않는다.
+- 서버는 에이전트에 1 s마다 ping을 보낸다. 마지막 수신부터 3 s면 연결을 닫고 사람 lease를 정리한다.
+  hello의 사람 lease 사본은 복원하지 않는다. 진행 중 run 사본은 메모리에서 PAUSED로 맞추고,
+  정지 확인 뒤 RUN lease로 예약한다. 실행·지도·업로드 처리는 후속 확장 지점이다.
+- STOP과 cmd 인증은 읽기 전용 풀을 쓰며 REST identity의 조직 잠금·last_seen_at 쓰기를 하지 않는다.
+  STOP은 에이전트 송신 큐에 먼저 넣고 사건은 별도 풀/큐에서 기록한다. 감사 DB 잠금은
+  1 s 제한으로 재시도한다. 큐가 가득 차면 새 조종을 막고 조종권을 비운다.
+  감사 큐는 메모리이므로 프로세스 종료 전 미기록 건의 내구성은 보장하지 않는다.
+- `POST /api/v1/robots/{id}/stop`은 HTTP 대체 경로(쿠키에는 CSRF 헤더 필요)다.
+  응답 202는 요청 접수이며 실제 정지·몸의 속도 0 확인을 뜻하지 않는다.
+- `POST /api/v1/robots/{id}/agent-token`은 총괄만 호출하는 재발급 API다.
+  응답의 `agent_token`을 한 번만 보여 주며 `Cache-Control: no-store`다.
+  기존 `robots.agent_token_hash` 열에는 SHA-256만 저장하고 원문은 사건에 넣지 않는다.
+  기존 연결도 다음 수신 메시지의 인증 검사에서 예전 토큰을 거부한다.
+
+`0004_lease_log`는 조종권 감사 표와 INSERT/SELECT 전용 권한을 추가한다.
+기존 0001의 agent_token_hash를 재사용하며 중복 열을 추가하지 않는다.
+0004 downgrade는 조종권 감사 기록을 삭제하므로 자료가 있는 DB에서 되돌림은 별도 보존 계획이 필요하다.
+시험·변이 검출·문서 차이와 미검증 범위는 [REALTIME-VALIDATION.md](REALTIME-VALIDATION.md)를 본다.

@@ -1,0 +1,30 @@
+{
+  "$id": "fh-app/1/AgentUnlock",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "stop_gen": {
+      "minimum": 0,
+      "title": "Stop Gen",
+      "type": "integer"
+    },
+    "t": {
+      "const": "unlock",
+      "default": "unlock",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "lease_id",
+    "stop_gen"
+  ],
+  "title": "AgentUnlock",
+  "type": "object"
+}
