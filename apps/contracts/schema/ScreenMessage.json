@@ -1,0 +1,313 @@
+{
+  "$defs": {
+    "ScreenCmd": {
+      "additionalProperties": false,
+      "properties": {
+        "axes": {
+          "items": {
+            "maximum": 1,
+            "minimum": -1,
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Axes",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot": {
+          "format": "uuid",
+          "title": "Robot",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "t": {
+          "const": "cmd",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "lease_id",
+        "seq",
+        "axes"
+      ],
+      "title": "ScreenCmd",
+      "type": "object"
+    },
+    "ScreenLease": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot": {
+          "format": "uuid",
+          "title": "Robot",
+          "type": "string"
+        },
+        "t": {
+          "enum": [
+            "lease.take",
+            "lease.request",
+            "lease.release",
+            "hidden",
+            "stop"
+          ],
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t"
+      ],
+      "title": "ScreenLease",
+      "type": "object"
+    },
+    "ScreenPing": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
+        },
+        "t": {
+          "const": "ping",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "t"
+      ],
+      "title": "ScreenPing",
+      "type": "object"
+    },
+    "ScreenRespond": {
+      "additionalProperties": false,
+      "properties": {
+        "accept": {
+          "title": "Accept",
+          "type": "boolean"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "robot": {
+          "format": "uuid",
+          "title": "Robot",
+          "type": "string"
+        },
+        "t": {
+          "const": "lease.respond",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "request_id",
+        "accept"
+      ],
+      "title": "ScreenRespond",
+      "type": "object"
+    },
+    "ScreenSub": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robots": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 100,
+          "title": "Robots",
+          "type": "array"
+        },
+        "streams": {
+          "items": {
+            "enum": [
+              "state",
+              "rgb",
+              "depth",
+              "lidar",
+              "map"
+            ],
+            "type": "string"
+          },
+          "title": "Streams",
+          "type": "array"
+        },
+        "t": {
+          "const": "sub",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "t",
+        "robots",
+        "streams"
+      ],
+      "title": "ScreenSub",
+      "type": "object"
+    },
+    "ScreenUnlock": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot": {
+          "format": "uuid",
+          "title": "Robot",
+          "type": "string"
+        },
+        "stop_gen": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        },
+        "t": {
+          "const": "unlock",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "lease_id",
+        "stop_gen"
+      ],
+      "title": "ScreenUnlock",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ScreenMessage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "cmd": "#/$defs/ScreenCmd",
+      "hidden": "#/$defs/ScreenLease",
+      "lease.release": "#/$defs/ScreenLease",
+      "lease.request": "#/$defs/ScreenLease",
+      "lease.respond": "#/$defs/ScreenRespond",
+      "lease.take": "#/$defs/ScreenLease",
+      "ping": "#/$defs/ScreenPing",
+      "stop": "#/$defs/ScreenLease",
+      "sub": "#/$defs/ScreenSub",
+      "unlock": "#/$defs/ScreenUnlock"
+    },
+    "propertyName": "t"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/ScreenSub"
+    },
+    {
+      "$ref": "#/$defs/ScreenLease"
+    },
+    {
+      "$ref": "#/$defs/ScreenRespond"
+    },
+    {
+      "$ref": "#/$defs/ScreenCmd"
+    },
+    {
+      "$ref": "#/$defs/ScreenUnlock"
+    },
+    {
+      "$ref": "#/$defs/ScreenPing"
+    }
+  ]
+}

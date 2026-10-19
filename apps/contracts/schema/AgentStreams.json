@@ -1,0 +1,38 @@
+{
+  "$id": "fh-app/1/AgentStreams",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "depth": {
+      "title": "Depth",
+      "type": "boolean"
+    },
+    "lidar": {
+      "title": "Lidar",
+      "type": "boolean"
+    },
+    "map": {
+      "title": "Map",
+      "type": "boolean"
+    },
+    "rgb": {
+      "title": "Rgb",
+      "type": "boolean"
+    },
+    "t": {
+      "const": "streams",
+      "default": "streams",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "rgb",
+    "depth",
+    "lidar",
+    "map"
+  ],
+  "title": "AgentStreams",
+  "type": "object"
+}

@@ -137,3 +137,24 @@ Index('events_robot_at', Event.robot_id, Event.at.desc())
 Index('events_run_at', Event.run_id, Event.at)
 Index('events_category_at', Event.category, Event.at.desc())
 Index('auth_rate_windows_org_start', AuthRateWindow.org_id, AuthRateWindow.window_start)
+
+
+class LeaseLog(Tenant, Base):
+    __tablename__ = 'lease_log'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'other_user_id'], ['users.org_id', 'users.id']),
+        CheckConstraint("op IN ('TAKE','RELEASE','REQUEST','ACCEPT','DECLINE','TIMEOUT','EXPIRE','RUN_TAKE','RUN_PAUSE_TAKEOVER')", name='lease_log_op'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    op: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    other_user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    session_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+Index('lease_log_org_robot_at', LeaseLog.org_id, LeaseLog.robot_id, LeaseLog.at.desc())

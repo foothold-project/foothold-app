@@ -1,0 +1,41 @@
+{
+  "$id": "fh-app/1/RunCopy",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "maxLength": 64,
+      "title": "Status",
+      "type": "string"
+    },
+    "step": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Step",
+      "type": "integer"
+    },
+    "wait_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Wait Reason"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "step"
+  ],
+  "title": "RunCopy",
+  "type": "object"
+}

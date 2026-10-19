@@ -1,0 +1,264 @@
+{
+  "$defs": {
+    "Battery": {
+      "additionalProperties": false,
+      "properties": {
+        "soc": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Soc",
+          "type": "number"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "soc",
+        "updated_at"
+      ],
+      "title": "Battery",
+      "type": "object"
+    },
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "CAMERA_RGB",
+            "CAMERA_DEPTH",
+            "LIDAR",
+            "BATTERY",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "OK",
+            "MISSING",
+            "ERROR"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "label",
+        "state"
+      ],
+      "title": "Device",
+      "type": "object"
+    },
+    "Location": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y",
+        "yaw",
+        "confidence",
+        "updated_at"
+      ],
+      "title": "Location",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ScreenState",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "applied": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Applied"
+    },
+    "battery": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Battery"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "connection": {
+      "enum": [
+        "ONLINE",
+        "OFFLINE"
+      ],
+      "title": "Connection",
+      "type": "string"
+    },
+    "devices": {
+      "items": {
+        "$ref": "#/$defs/Device"
+      },
+      "title": "Devices",
+      "type": "array"
+    },
+    "latched": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Latched"
+    },
+    "latency_ms": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Latency Ms"
+    },
+    "location": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Location"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "speed": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Speed"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "enum": [
+            "IDLE",
+            "TELEOP",
+            "RUNNING",
+            "PAUSED",
+            "STOP_LATCHED",
+            "ERROR"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Status"
+    },
+    "stop_gen": {
+      "anyOf": [
+        {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Stop Gen"
+    },
+    "t": {
+      "const": "state",
+      "default": "state",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "robot",
+    "connection",
+    "status",
+    "battery",
+    "location",
+    "devices",
+    "speed",
+    "latency_ms",
+    "latched",
+    "stop_gen",
+    "applied"
+  ],
+  "title": "ScreenState",
+  "type": "object"
+}

@@ -239,3 +239,100 @@ R1은 이전 기록의 «1013 반복도 지수 증가» 선택을 폐기하고 0
 기존 지수 백오프 변이는 1013 고정 시험 대신 실제 모의 HTTP 503 반복 시험으로 검증한다.
 Core·기존 두 시험 파일 diff 0, apps/agent/** 밖 변경 0, 실서버·ROS·Gazebo·실기 접촉 0이다.
 이 집계는 메모리 범위이며 전송 중 단절의 ACK/중복 제거·디스크 내구성을 추가한 것은 아니다.
+
+## PR #10 독립 검토 B1 조정 계약: stop_ref (4552c06 이후)
+
+이 절은 서버 작업자가 조정 세션의 명시적 확장 소유 범위에서 작성했다. dev에 합쳐진
+PR #8 e0cd274를 서버 브랜치에 일반 merge한 뒤 `link/session.py`와 새 시험·변이 도구만
+고쳤다. `safety/core.py`, 기존 Core 시험2개와 안전 상수/기대값은 변경하지 않았다.
+
+서버의 STOP 확인을 stop_gen 증가 추정에서 **이번 STOP의 인과 식별자** 대조로 바꿨다.
+
+- server→agent stop에는 `stop_ref: int`(1~2**53-1)가 있다. 에이전트는 lease/user 확인을
+  기다리지 않고 기존 Core.stop을 호출한다. 그 뒤 Core가 latched이고 applied=0일 때만
+  유효한 ref를 보관한다. Client의 로컬 motion 적용 후 state 송신 순서는 그대로다.
+- agent→server state에는 `stop_ref`(0~2**53-1)를 넣는다. 0은 해당 서버 연결에서 적용한
+  STOP이 없다는 뜻이다. lease-null·로컬 STOP 자체로 새 서버 ref를 만들거나 추정하지 않는다.
+  새 connect마다 ref를0으로 비워 이전 연결/서버 epoch의 응답을 재사용하지 않는다.
+- 잘못된 ref(null·0·음수·bool·실수·2**53)는 STOP 자체를 막지 않지만 새 ref를 확인하지 않는다.
+  정지 적용 전 상태(미잠금 또는 비영 applied)도 새 ref를 확인하지 않는다.
+- seq·unlock stop_gen·stop_ref는 같은 2**53-1 상한을 쓴다. 원본 Core의 내부 stop_gen이
+  그 범위를 소진하는 극단 경계에서는 링크가 STOP_GEN_EXHAUSTED를 기록하고 조종권
+  확인을 무효화한다. wire 세대는 상한에서 포화 표시하고 ref는0으로 두므로 새 grant를
+  확인할 수 없다. Core 내부 정수/잠금/CAS를 수정하거나 wrap하지 않는다.
+- 서버는 같은 ref + latched + applied0을2 s 안에 받아야 take/넘김을 완료한다. 늦은 이전
+  반납/취소 state와 로컬 STOP이 섞여도 새 grant를 만들 수 없다. 마감과 새 grant는 서버 책임이다.
+
+새 `tests/test_stop_reference.py`는 ref 회신·잘못된 입력6종·재연결 초기화·미적용2종·
+unlock 경계·세대 소진2종을 검사한다. 서버의 새 회귀는 실제 Session으로 검토 재현을
+옮겨 이전 반납 state를 새 STOP을 전달하기 전에 주입한다. 이는 단순 +1 가짜 모델을
+보완하는 시험이며 실제 기체의 물리적 정지 확인은 아니다.
+
+서버·agent의 계약 변경은 함께 갱신해야 한다. stop_ref가 없는 구버전은 새 서버에서
+정지 확인을 완료하지 못한다. 이 작업에서 Client의 사건 큐/오프라인 내구성·ROS 다리·
+실제 sink·안전 Core 정책은 바꾸지 않았다. 실제 uvicorn 통합은 loopback 포트0의 OS 배정
+fd와 기존 임시 PostgreSQL, 메모리 fake bridge/sink로만 실행한다. 운영8453/8792·ROS·
+Gazebo·실기 접촉0, 배포 없음이다.
+
+### 이번 실행 결과
+
+- `PYTHONPATH=apps/agent python -m pytest apps/agent/tests -q`: **187 passed** (4.56 s), 기존 Core32개 포함.
+- `PYTHONPATH=apps/agent python -m pytest apps/server apps/agent/tests -q`: **419 passed**
+  (서버232+에이전트187, 106.24 s), Starlette 안내1건, skip0.
+- `python apps/agent/tools/check_link_mutations.py`: **46/46 KILLED**, ERROR0·SURVIVED0.
+  기존39개+ref회신/범위/잠금/적용0/재연결·unlock상한·wire세대포화7개다.
+- 실제 uvicorn+현재 Client: take→unlock→중립→비영 cmd→요청/수락 넘김→STOP 통과.
+  별도 소유 잠금 소실→1013재시도3회 이상→해제 후 인증된ping복귀도 **1 passed** (7.43 s).
+- 생성물61개 일치·wire객체 소비 tsc·Alembic 왕복 통과. 서버 검증 수정표는
+  `apps/server/REALTIME-VALIDATION.md`의 Codex 독립 검토+Claude r3 절을 참조한다.
+
+### 이번 최종 변이 표
+
+| Mutation | Result | Assertion-failing tests |
+|---|---|---|
+| loss boundary >3s | KILLED | test_loss_detection_3s_and_grace_from_last_frame_boundary[0], test_loss_detection_3s_and_grace_from_last_frame_boundary[3], test_loss_detection_3s_and_grace_from_last_frame_boundary[30] |
+| grace starts at detection | KILLED | test_loss_detection_3s_and_grace_from_last_frame_boundary[3], test_loss_detection_3s_and_grace_from_last_frame_boundary[30], test_last_any_frame_not_remote_timestamp_drives_loss_and_grace |
+| lease drop keeps old intent | KILLED | test_lease_null_is_immediate_even_if_stop_never_arrives, test_changed_lease_without_null_stops_and_locks, test_invalid_lease_revokes_authority_immediately[USER-frame0] |
+| RUN accepts server cmd | KILLED | test_run_server_cmd_cannot_create_movement_between_executor_ticks, test_run_server_cmd_leaves_executor_intent_and_neutral_gate_untouched |
+| same lease owner change missed | KILLED | test_qualified_run_holder_is_normalized_bound_and_switch_discards_input, test_same_lease_holder_change_immediately_zero_latches_discards[USER-RUN], test_same_lease_holder_change_immediately_zero_latches_discards[RUN-USER] |
+| invalid lease ignored | KILLED | test_invalid_lease_revokes_authority_immediately[USER-frame0], test_invalid_lease_revokes_authority_immediately[USER-frame1], test_invalid_lease_revokes_authority_immediately[USER-frame2] |
+| invalid executor axes refresh health | KILLED | test_invalid_executor_axes_at_20hz_do_not_refresh_watchdog |
+| unconfirmed lease cmd accepted | KILLED | test_unconfirmed_lease_cmd_never_reaches_core_even_with_other_gates_open |
+| session shutdown has no latch | KILLED | test_shutdown_from_moving_state_outputs_stop_zero_and_latch |
+| client cancellation has no shutdown | KILLED | test_cancel_while_moving_requests_stop_zero_and_latch |
+| seq upper bound removed | KILLED | test_seq_upper_bound_cannot_poison_lease[past-json-safe], test_seq_upper_bound_cannot_poison_lease[huge] |
+| cancel output failure trace removed | KILLED | test_cancelled_error_retains_shutdown_sink_failure_trace |
+| invalid FREE lease advances generation | KILLED | test_invalid_free_lease_does_not_increment_an_already_locked_generation |
+| standalone zero fallback removed | KILLED | test_nonzero_apply_failure_alone_attempts_zero_without_shutdown |
+| bare RUN owner accepted | KILLED | test_run_owner_without_nonempty_qualified_id_revokes_authority[RUN] |
+| run start binding removed | KILLED | test_qualified_run_holder_is_normalized_bound_and_switch_discards_input, test_run_start_requires_matching_bound_owner_even_with_other_gates_open |
+| run resume binding removed | KILLED | test_qualified_run_holder_is_normalized_bound_and_switch_discards_input, test_run_resume_requires_matching_bound_owner_even_with_other_gates_open |
+| executor command health binding removed | KILLED | test_executor_requires_exact_owner_for_commands_and_health[None], test_executor_requires_exact_owner_for_commands_and_health[other-run] |
+| authorization close retried | KILLED | test_authorization_close_is_terminal_and_stops_without_reconnect[4401], test_authorization_close_is_terminal_and_stops_without_reconnect[4403] |
+| 1012 incorrectly terminal | KILLED | test_second_hello_1012_reconnects_and_records_close_and_backoff |
+| close event removed | KILLED | test_second_hello_1012_reconnects_and_records_close_and_backoff |
+| retry event removed | KILLED | test_repeated_1013_close_uses_fixed_interval_and_records_each_attempt |
+| retry backoff fixed | KILLED | test_exponential_backoff_against_same_process_rejecting_server |
+| default retry interval shortened | KILLED | test_default_close_backoff_matches_api_spec |
+| default retry cap lowered | KILLED | test_default_close_backoff_matches_api_spec |
+| offline retry aggregation removed | KILLED | test_offline_retry_summary_is_bounded_and_retains_count_and_time_range |
+| offline retry counter frozen | KILLED | test_offline_retry_summary_is_bounded_and_retains_count_and_time_range |
+| shutdown pause reason overwritten | KILLED | test_client_auth_close_preserves_paused_reason_and_nonretry_event[4401], test_client_auth_close_preserves_paused_reason_and_nonretry_event[4403] |
+| reconnect pause reason overwritten | KILLED | test_reconnect_and_shutdown_preserve_existing_pause_reason |
+| fatal close event marked retryable | KILLED | test_client_auth_close_preserves_paused_reason_and_nonretry_event[4401], test_client_auth_close_preserves_paused_reason_and_nonretry_event[4403] |
+| old paused run health watched under new owner | KILLED | test_paused_old_executor_is_not_failed_after_owner_changes_to_another_run |
+| 1013 incorrectly uses exponential backoff | KILLED | test_repeated_1013_close_uses_fixed_interval_and_records_each_attempt |
+| duplicate seq accepted | KILLED | test_non_increasing_and_malformed_seq_discard_input[2] |
+| reconnect has no STOP latch | KILLED | test_next_waypoint_wait_wins_before_grace_and_cannot_auto_resume, test_reconnect_stops_before_hello_with_lease_run_copy_and_events_in_order, test_half_open_link_resuming_also_stops_and_hello |
+| unlock ignores generation | KILLED | test_unlock_requires_current_lease_integer_generation_and_local_confirmation, test_unlock_safe_integer_upper_bound |
+| executor watchdog disabled | KILLED | test_executor_watchdog_uses_local_commands_even_when_server_pings_and_cmds, test_invalid_active_run_control_fields_do_not_crash_or_change_status, test_invalid_executor_axes_at_20hz_do_not_refresh_watchdog |
+| deadman lengthened | KILLED | test_deadman_exact_boundary_no_new_lock_and_cannot_bypass_with_late_cmd, test_executor_watchdog_uses_local_commands_even_when_server_pings_and_cmds, test_invalid_active_run_control_fields_do_not_crash_or_change_status |
+| fresh neutral bypassed | KILLED | test_handoff_state_ack_then_new_lease_locked_and_new_neutral, test_changed_lease_without_null_stops_and_locks, test_deadman_exact_boundary_no_new_lock_and_cannot_bypass_with_late_cmd |
+| server axes exceed speed cap | KILLED | test_lease_null_is_immediate_even_if_stop_never_arrives, test_handoff_state_ack_then_new_lease_locked_and_new_neutral, test_changed_lease_without_null_stops_and_locks |
+| STOP reference echo removed | KILLED | test_stop_reference_echo_only_after_latched_zero, test_invalid_reference_still_stops_without_acknowledging[None], test_invalid_reference_still_stops_without_acknowledging[0] |
+| STOP reference upper bound removed | KILLED | test_invalid_reference_still_stops_without_acknowledging[9007199254740992] |
+| STOP reference latch guard removed | KILLED | test_unapplied_stop_never_echoes_new_reference[unlatched] |
+| reconnect retains old STOP reference | KILLED | test_reference_boundary_and_reconnect_epoch |
+| unlock generation upper bound removed | KILLED | test_unlock_safe_integer_upper_bound |
+| STOP reference zero-output guard removed | KILLED | test_unapplied_stop_never_echoes_new_reference[nonzero] |
+| wire generation exceeds safe integer | KILLED | test_core_generation_exhaustion_is_bounded_and_never_confirms[connect], test_core_generation_exhaustion_is_bounded_and_never_confirms[stop] |

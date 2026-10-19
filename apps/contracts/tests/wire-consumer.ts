@@ -1,0 +1,16 @@
+// Real flat wire objects. These literals are validated by Python and JSON Schema too.
+import type { ScreenCmd, ScreenMessage, ScreenLeaseUpdate, ScreenLeaseResult, ScreenReply, AgentState, AgentStop } from '../ts/index';
+export const command: ScreenCmd = {"t":"cmd","id":"cmd","robot":"00000000-0000-0000-0000-000000000001","lease_id":"00000000-0000-0000-0000-000000000002","seq":1,"axes":[0,0,0]};
+export const subsequent: ScreenMessage = {"t":"ping","id":"followup"};
+export const first: ScreenMessage = {"t":"ping","id":"first","proto":"fh-rt/1"};
+export const observer: ScreenLeaseUpdate = {"t":"lease","robot":"00000000-0000-0000-0000-000000000001","holder":null,"since":null};
+export const success: ScreenLeaseResult = {"t":"lease.result","robot":"00000000-0000-0000-0000-000000000001","request_id":null,"result":"ACCEPTED"};
+export const reply: ScreenReply = {"t":"reply","id":"stop","ok":true};
+export const stopped: AgentState = {"t":"state","pose":{"floor_id":null,"x":null,"y":null,"yaw":null,"confidence":null},"speed":null,"battery":{"soc":null},"latched":true,"stop_gen":3,"stop_ref":2,"applied":[0,0,0],"mode":"FREE"};
+export const stop: AgentStop = {"t":"stop","by_user_id":null,"stop_ref":2};
+// @ts-expect-error An omitted followup proto is allowed; explicit null is invalid.
+const nullProto: ScreenMessage = {t:'ping',id:'bad',proto:null};
+void [command, subsequent, first, observer, success, reply, stopped, stop, nullProto];
+// @ts-expect-error The server always sends the response envelope tag.
+const missingReplyTag: ScreenReply = {id:'tag',ok:true};
+void missingReplyTag;

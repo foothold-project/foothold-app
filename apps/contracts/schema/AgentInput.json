@@ -1,0 +1,7 @@
+{
+  "$id": "fh-app/1/AgentInput",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {},
+  "title": "AgentInput",
+  "type": "object"
+}

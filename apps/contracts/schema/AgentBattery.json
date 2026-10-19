@@ -1,0 +1,36 @@
+{
+  "$id": "fh-app/1/AgentBattery",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "soc": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Soc"
+    },
+    "voltage": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Voltage"
+    }
+  },
+  "required": [
+    "soc"
+  ],
+  "title": "AgentBattery",
+  "type": "object"
+}

@@ -52,15 +52,20 @@ def iface(name, s):
 
 def build():
     files, defs, tops = {}, {}, []
+    def register(name, body):
+        if name in defs and defs[name] != body:
+            raise ValueError('Conflicting schema definition: ' + name)
+        defs[name] = body
     for name, T in models.TOP.items():
         mode = 'validation' if T in models.REQUEST_MODELS else 'serialization'
         s = TypeAdapter(T).json_schema(ref_template='#/$defs/{model}', mode=mode)
         s = {'$schema': 'https://json-schema.org/draft/2020-12/schema', '$id': f'fh-app/1/{name}', **s}
         files[f'schema/{name}.json'] = json.dumps(s, ensure_ascii=False, indent=2, sort_keys=True) + '\n'
-        defs.update(s.get('$defs', {}))
+        for key, definition in s.get('$defs', {}).items():
+            register(key, definition)
         body = {k: v for k, v in s.items() if k not in ('$defs', '$schema', '$id')}
         if body.get('title') == name and body.get('type') == 'object':
-            defs[name] = body
+            register(name, body)
         else:
             tops.append(f'export type {name} = {ts(body)};')
     out = [HEAD, f'export const CONTRACT_VERSION = {json.dumps('fh-api/1')};\n']

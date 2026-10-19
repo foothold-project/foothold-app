@@ -27,10 +27,12 @@ class Settings:
     database_url: str
     org_id: UUID
     web_session_seconds: int = 86400
+    ws_origin: str | None = None
 
     @classmethod
     def from_env(cls):
-        return cls(os.environ['FH_DATABASE_URL'], UUID(os.environ['FH_ORG_ID']))
+        return cls(os.environ['FH_DATABASE_URL'], UUID(os.environ['FH_ORG_ID']),
+                   ws_origin=os.environ.get('FH_WS_ORIGIN'))
 
 
 class APIError(Exception):
@@ -156,9 +158,11 @@ def create_app(settings: Settings | None = None):
                 FROM pg_roles WHERE rolname = current_user"""))
             if unsafe:
                 raise RuntimeError('Server must use a restricted fh_app database role')
+        await app.state.realtime.start()
         try:
             yield
         finally:
+            await app.state.realtime.close()
             engine.dispose()
 
     app = FastAPI(title='FOOTHOLD control API', version='1', lifespan=lifespan)
@@ -486,4 +490,21 @@ def create_app(settings: Settings | None = None):
         event(db, user.org_id, 'ORG_SETTINGS_UPDATED', '조직 기준값을 변경했습니다.', user.id, values)
         return result
 
+    @app.post(prefix + '/robots/{robot_id}/agent-token', response_model=C.AgentTokenResponse)
+    def agent_token(robot_id: UUID, auth: Identity, db: DB, response: Response):
+        user = auth[0]
+        authorize(user, 'A')
+        row = db.scalar(select(Robot).where(Robot.id == robot_id, Robot.org_id == user.org_id,
+                                           Robot.archived_at.is_(None)).with_for_update())
+        if not row:
+            fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+        raw = token()
+        row.agent_token_hash = digest(raw)
+        event(db, user.org_id, 'AGENT_TOKEN_ROTATED', '로봇 인증 토큰을 재발급했습니다.',
+              user.id, {'robot_id': str(robot_id)})
+        response.headers['Cache-Control'] = 'no-store'
+        return C.AgentTokenResponse(agent_token=raw)
+
+    from .realtime import install
+    install(app, settings, factory, authorize, APIError)
     return app

@@ -3,7 +3,7 @@ from datetime import timezone
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -23,16 +23,20 @@ class Contract(BaseModel):
     @model_validator(mode='before')
     @classmethod
     def reject_nul(cls, value):
-        def visit(item):
-            if isinstance(item, str) and '\x00' in item:
-                raise ValueError('NUL is not allowed')
+        def visit(item, depth=0):
+            if depth > 64:
+                raise ValueError('JSON nesting exceeds 64')
+            if isinstance(item, str):
+                item.encode('utf-8')  # PostgreSQL UTF8 cannot store lone surrogates.
+                if '\x00' in item:
+                    raise ValueError('NUL is not allowed')
             if isinstance(item, dict):
                 for key, child in item.items():
-                    visit(key)
-                    visit(child)
+                    visit(key, depth + 1)
+                    visit(child, depth + 1)
             elif isinstance(item, (list, tuple)):
                 for child in item:
-                    visit(child)
+                    visit(child, depth + 1)
         visit(value)
         return value
 
@@ -222,8 +226,267 @@ class SessionList(Contract):
     next_cursor: str | None
 
 
+# FH-SPEC-05 §§9–10: flat envelopes, no WebSocket subprotocol header.
+Axis = Annotated[float, Field(ge=-1, le=1, strict=True)]
+Axes = Annotated[list[Axis], Field(min_length=3, max_length=3)]
+Vector3 = Annotated[list[float], Field(min_length=3, max_length=3)]
+MAX_SAFE_INTEGER = 2**53 - 1
+Sequence = Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER, strict=True)]
+StopReference = Annotated[int, Field(gt=0, le=MAX_SAFE_INTEGER, strict=True)]
+
+
+class ScreenEnvelope(Contract):
+    id: str = Field(min_length=1, max_length=128)
+    proto: Literal['fh-rt/1'] = omitted(description='첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.')
+
+
+class ScreenRobot(ScreenEnvelope):
+    robot: UUID
+
+
+class ScreenSub(ScreenEnvelope):
+    t: Literal['sub']
+    robots: list[UUID] = Field(max_length=100)
+    streams: list[Literal['state', 'rgb', 'depth', 'lidar', 'map']]
+
+
+class ScreenLease(ScreenRobot):
+    t: Literal['lease.take', 'lease.request', 'lease.release', 'hidden', 'stop']
+
+
+class ScreenRespond(ScreenRobot):
+    t: Literal['lease.respond']
+    request_id: UUID
+    accept: bool = Field(strict=True)
+
+
+class ScreenCmd(ScreenRobot):
+    t: Literal['cmd']
+    lease_id: UUID
+    seq: Sequence
+    axes: Axes
+
+
+class ScreenUnlock(ScreenRobot):
+    t: Literal['unlock']
+    lease_id: UUID
+    stop_gen: Sequence
+
+
+class ScreenPing(ScreenEnvelope):
+    t: Literal['ping']
+
+
+ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing,
+                          Field(discriminator='t')]
+
+
+class AgentInput(Contract):
+    model_config = ConfigDict(extra='ignore', allow_inf_nan=False,
+                              json_schema_serialization_defaults_required=True)
+
+
+
+class RunCopy(AgentInput):
+    run_id: UUID
+    status: str = Field(max_length=64)
+    step: Sequence
+    wait_reason: str | None = None
+
+
+class AgentHello(AgentInput):
+    t: Literal['hello']
+    proto: Literal['fh-agent/1']
+    agent_version: str = Field(max_length=128)
+    robot_model: str | None
+    firmware: str | None
+    devices: list[Device]
+    map_versions: list[str]
+    last_floor_id: UUID | None
+    latched: bool = Field(strict=True)
+    stop_gen: Sequence
+    lease_id: UUID | None
+    run: RunCopy | None
+
+
+class AgentPose(AgentInput):
+    floor_id: UUID | None
+    x: float | None
+    y: float | None
+    yaw: float | None
+    confidence: Annotated[float, Field(ge=0, le=1)] | None
+
+
+class AgentBattery(AgentInput):
+    soc: Annotated[float, Field(ge=0, le=100)] | None
+    voltage: float | None = None
+
+
+class AgentState(AgentInput):
+    t: Literal['state']
+    pose: AgentPose
+    speed: float | None
+    battery: AgentBattery
+    latched: bool = Field(strict=True)
+    stop_gen: Sequence
+    stop_ref: Sequence
+    applied: Vector3
+    mode: str = Field(max_length=64)
+    devices_changed: list[Device] | None = None
+
+
+class AgentPing(AgentInput):
+    t: Literal['ping']
+
+
+class AgentEvent(AgentInput):
+    t: Literal['event']
+    code: str = Field(min_length=1, max_length=128)
+    severity: Literal['INFO', 'WARN', 'ERROR', 'info', 'warn', 'error']
+    robot_at: UTCDateTime | None
+    data: dict[str, JsonValue]
+
+    @model_validator(mode='after')
+    def storable_json(self):
+        import json
+        # Also checks finite numbers in recursive JsonValue leaves.
+        json.dumps(self.data, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        return self
+
+
+class AgentRunUpdate(AgentInput):
+    t: Literal['run.update']
+    run_id: UUID
+    status: str = Field(max_length=64)
+    step: Sequence
+    progress: Progress | None
+    path_deviation_m: float | None = None
+    fail_code: str | None = None
+
+
+class AgentCmdAck(AgentInput):
+    t: Literal['cmd.ack']
+    seq: int = Field(ge=-1, le=MAX_SAFE_INTEGER, strict=True)
+    applied: Vector3
+    reason: str | None = None
+
+
+class AgentMedia(AgentInput):
+    t: Literal['media']
+    kind: Literal['photo']
+    run_id: UUID | None = None
+    step: Sequence | None = None
+    upload_id: UUID
+
+
+AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia,
+                         Field(discriminator='t')]
+
+
+class AgentLease(Contract):
+    t: Literal['lease'] = 'lease'
+    lease_id: UUID | None
+    holder_type: Literal['USER'] | Annotated[str, Field(pattern=r'^RUN:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')] | None
+
+
+class AgentCommand(Contract):
+    t: Literal['cmd'] = 'cmd'
+    lease_id: UUID
+    seq: Sequence
+    axes: Axes
+    t_server: UTCDateTime
+
+
+class AgentStop(Contract):
+    t: Literal['stop'] = 'stop'
+    by_user_id: UUID | None
+    stop_ref: StopReference
+
+
+class AgentUnlock(Contract):
+    t: Literal['unlock'] = 'unlock'
+    lease_id: UUID
+    stop_gen: Sequence
+
+
+class AgentServerPing(Contract):
+    t: Literal['ping'] = 'ping'
+    t_server: UTCDateTime
+
+
+class AgentStreams(Contract):
+    t: Literal['streams'] = 'streams'
+    rgb: bool
+    depth: bool
+    lidar: bool
+    map: bool
+
+
+class ScreenReply(Contract):
+    model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
+        required=[key for key in schema.get('required', []) if key != 'error']))
+    t: Literal['reply'] = 'reply'
+    id: str
+    ok: bool
+    error: ErrorBody | None = None
+
+
+class ScreenLeaseUpdate(Contract):
+    model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
+        required=[key for key in schema.get('required', []) if key != 'lease_id']))
+    t: Literal['lease'] = 'lease'
+    robot: UUID
+    holder: dict[str, Any] | None
+    lease_id: UUID | None = None
+    since: UTCDateTime | None
+
+
+class ScreenLeaseRequested(Contract):
+    t: Literal['lease.requested'] = 'lease.requested'
+    robot: UUID
+    request_id: UUID
+    requester: dict[str, str]
+    expires_at: UTCDateTime
+
+
+class ScreenLeaseResult(Contract):
+    model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
+        required=[key for key in schema.get('required', []) if key != 'error']))
+    t: Literal['lease.result'] = 'lease.result'
+    robot: UUID
+    request_id: UUID | None
+    result: Literal['ACCEPTED', 'DECLINED', 'TIMEOUT', 'CANCELED']
+    error: str | None = None
+
+
+class ScreenState(Contract):
+    t: Literal['state'] = 'state'
+    robot: UUID
+    connection: Literal['ONLINE', 'OFFLINE']
+    status: Literal['IDLE', 'TELEOP', 'RUNNING', 'PAUSED', 'STOP_LATCHED', 'ERROR'] | None
+    battery: Battery | None
+    location: Location | None
+    devices: list[Device]
+    speed: float | None
+    latency_ms: float | None
+    latched: bool | None
+    stop_gen: Sequence | None
+    applied: Vector3 | None
+
+
+class AgentTokenResponse(Contract):
+    agent_token: str
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
 REQUEST_MODELS = {LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch}
+
+TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)
+REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,
+                       AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia, ScreenMessage, AgentMessage})
+# Nested input models must have the same mode as their enclosing input union.
+REQUEST_MODELS.update(T for T in TOP.values() if isinstance(T, type)
+                      and issubclass(T, (AgentInput, ScreenEnvelope)))
