@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 번호 | FH-SPEC-06 |
-| 판 | 0.2 (초안, 검토 대기) |
+| 판 | 0.3 (초안, 검토 대기) |
 | 작성일 | 2026-10-19 |
 | DB | PostgreSQL 16 (제안) |
 | 상위 문서 | [04 아키텍처](04-ARCHITECTURE.md) · [05 API](05-API-SPEC.md) |
@@ -71,7 +71,7 @@ erDiagram
 
 ## 3. 테이블
 
-자료형 약속: `id uuid PK default gen_random_uuid()`, 시각 `timestamptz`, 모든 테이블에 `org_id uuid NOT NULL` (조직 분리. 아래 표에서는 생략).
+자료형 약속: `id uuid PK default gen_random_uuid()`, 시각 `timestamptz`, 모든 테이블에 `org_id uuid NOT NULL` (조직 분리. 아래 표에서는 생략). 조직 안의 행을 가리키는 FK 는 `(org_id, 열) → (org_id, id)` 복합 FK 로 걸어 다른 조직의 행을 가리키지 못하게 한다. 아직 만들지 않은 표(`floors`·`runs`·`approvals` 등)를 가리키는 열은 FK 없이 uuid 로 두고, 그 표를 만드는 이관에서 FK 를 추가한다(§6).
 
 ### 3.1 조직·사람
 
@@ -100,10 +100,24 @@ erDiagram
 |---|---|---|
 | id | uuid PK | |
 | user_id | uuid FK | |
-| token_hash | bytea | 세션/리프레시 토큰 sha256 (원문 저장 안 함) |
-| client | text | `web` / `app` |
+| token_hash | bytea | 웹 세션 토큰 또는 앱 `access_token` 의 sha256 (원문 저장 안 함). `UNIQUE` |
+| client | text | `web` / `app` (CHECK) |
 | device_label | text | "이OO 폰" |
-| created_at, last_seen_at, expires_at, revoked_at | timestamptz | |
+| created_at, last_seen_at, expires_at, revoked_at | timestamptz | 웹은 기본 24시간, 앱 access 는 15분 |
+| refresh_hash | bytea NULL | 앱 `refresh_token` sha256. `UNIQUE`. 웹은 NULL |
+| refresh_expires_at | timestamptz NULL | 앱 refresh 만료(30일) |
+| retired_refresh_hashes | jsonb | 이미 바꾼 refresh 해시 목록(0002). 다시 쓰이면 그 세션을 끝낸다 |
+| csrf_hash | bytea NULL | 웹 CSRF 값 sha256. 앱은 NULL |
+
+**auth_rate_windows** (0003, 로그인·비밀번호 실패 제한 창. 덧붙이기만 하는 사건 대신 고쳐 쓰는 집계)
+| 열 | 형 | 설명 |
+|---|---|---|
+| key_type | text | `LOGIN_IP` / `LOGIN_ACCOUNT` / `PASSWORD_ACCOUNT` (CHECK). PK(org_id, key_type, key_hash, window_start) |
+| key_hash | text | IP·계정의 해시 |
+| window_start | timestamptz | 제한 창 시작 |
+| denied_count | bigint | 거부 수 (> 0) |
+| user_id | uuid FK NULL | |
+| data | jsonb | |
 
 지금은 세션이 게이트 메모리에만 있어 재시작하면 모두 로그아웃된다 → DB 로 옮긴다.
 
@@ -116,8 +130,8 @@ erDiagram
 | name | text | `UNIQUE(org_id, name)` |
 | model | text | `unitree_go2` 등 |
 | owner_user_id | uuid FK NULL | 담당 운영 관리자 1명 (PRD Q4) |
-| agent_token_hash | bytea | 에이전트 토큰 sha256 |
-| last_floor_id | uuid FK NULL | 마지막 확인 층 |
+| agent_token_hash | bytea NOT NULL | 에이전트 토큰 sha256. 총괄의 재발급([05 §3](05-API-SPEC.md#3-로봇))이 덮어쓰면 옛 토큰은 바로 무효 |
+| last_floor_id | uuid NULL | 마지막 확인 층. FK 는 `floors` 표를 만들 때 추가 |
 | last_floor_source | text | `HUMAN` / `AUTO` |
 | last_seen_at | timestamptz | |
 | created_at, archived_at | timestamptz | |
@@ -282,11 +296,14 @@ erDiagram
 |---|---|---|
 | id | bigserial PK | |
 | robot_id | uuid FK | |
-| op | text | `TAKE` `RELEASE` `REQUEST` `ACCEPT` `DECLINE` `TIMEOUT` `EXPIRE` `RUN_TAKE` `RUN_PAUSE_TAKEOVER` |
-| user_id | uuid NULL | |
-| other_user_id | uuid NULL | 요청자/받은 사람 |
-| session_id | uuid NULL | |
+| op | text | `TAKE` `RELEASE` `REQUEST` `ACCEPT` `DECLINE` `TIMEOUT` `EXPIRE` `RUN_TAKE` `RUN_PAUSE_TAKEOVER` (CHECK) |
+| user_id | uuid FK NULL | |
+| other_user_id | uuid FK NULL | 요청자/받은 사람 |
+| session_id | uuid NULL | FK 없음 |
 | at | timestamptz | |
+
+- 이관 0004 가 만들고, 0005 가 색인 `lease_log_org_robot_at (org_id, robot_id, at DESC)` 를 더했다.
+- 정지 확인 실패·STOP 은 `lease_log` 가 아니라 `events`(`SAFETY`)에 남는다.
 
 서버가 재시작되면 메모리 조종권은 모두 사라지고, 로봇 에이전트도 잠금 상태가 된다(안전 쪽으로 실패).
 
@@ -302,7 +319,7 @@ erDiagram
 | code | text | `ROUTE_DEVIATION` 등 |
 | severity | text | `INFO` `WARN` `ERROR` |
 | message | text | 저장 때 만든 한국어 문장 ([02 F-LG-02](02-FUNCTIONAL-SPEC.md#f-lg-02-문장-틀-예)) |
-| robot_id, user_id, run_id, approval_id | NULL 허용 | |
+| robot_id, user_id, run_id, approval_id | NULL 허용 | robot_id·user_id 는 FK. run_id·approval_id 의 FK 는 `runs`·`approvals` 표를 만들 때 추가 |
 | data | jsonb | 원값 |
 
 - 색인: `(org_id, at DESC)`, `(robot_id, at DESC)`, `(run_id, at)`, `(category, at DESC)`.
@@ -366,6 +383,7 @@ erDiagram
 
 ## 6. 이관·백업
 - 스키마 이관 도구: Alembic. 이관 파일은 저장소에 넣고 서버 시작 때 자동 적용하지 않는다(사람이 실행).
+- 지금까지의 이관(`apps/server/migrations`): 0001 organizations·users·robots·sessions·events, 0002 `sessions.retired_refresh_hashes`, 0003 `auth_rate_windows`, 0004 `lease_log`, 0005 `lease_log` 색인. `floors`·`runs`·`approvals` 등을 가리키는 FK(`robots.last_floor_id`, `events.run_id`·`approval_id` …)는 그 표를 만드는 이관에서 함께 추가한다.
 - 백업: 매일 `pg_dump -Fc` + 파일 저장소 복사(rsync). 7일·4주·6달 보관.
 - 복구 시험: 한 달에 한 번 빈 DB 에 복구해서 서버를 띄워 본다.
 - 지금 자료 옮기기: 기존 docs(zone·tmpl·mission·run·note)와 사진은 일회성 이관 스크립트로 옮긴다. 구역 → 해당 층 지도 판의 `features.zones`, tmpl → missions, mission → scenarios, run → runs(`emergency=false`, 수동 기록이라 `plan` 비움). 이관 범위는 [07](07-ADR-001-REBUILD.md) 에서 정한다.
@@ -375,7 +393,7 @@ erDiagram
 ## 7. 접근 권한 (DB 계정)
 | DB 계정 | 권한 |
 |---|---|
-| `fh_app` (서버) | 모든 테이블 SELECT/INSERT/UPDATE. `events`·`lease_log` 는 INSERT/SELECT 만 |
+| `fh_app` (서버) | 모든 테이블 SELECT/INSERT/UPDATE. `events`·`lease_log` 는 INSERT/SELECT 만. `auth_rate_windows` 는 DELETE 도 |
 | `fh_migrate` | 스키마 변경 |
 | `fh_readonly` | 보고·백업용 SELECT |
 
@@ -388,3 +406,4 @@ erDiagram
 |---|---|---|
 | 0.1 | 2026-10-19 | 최초 작성 |
 | 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
+| 0.3 | 2026-10-19 | dev 이관 0001~0005 반영: `sessions` 열(refresh_hash·refresh_expires_at·retired_refresh_hashes·csrf_hash), `auth_rate_windows`, `lease_log`(0004)·색인(0005), 복합 FK 규칙, 아직 없는 표(floors·runs·approvals)를 가리키는 FK 는 그 표를 만들 때 추가 |
