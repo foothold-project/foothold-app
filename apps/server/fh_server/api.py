@@ -19,6 +19,7 @@ from starlette.exceptions import HTTPException
 from apps.contracts import models as C
 from .models import Event, Organization, Robot, Session, User, now
 from .security import digest, hash_password, token, verify_password, web_csrf
+from .rate_limits import close_rate_windows, record_rate_limit
 
 
 @dataclass(frozen=True)
@@ -119,6 +120,15 @@ def revoke_user_sessions(db, user):
                                     Session.revoked_at.is_(None)).values(revoked_at=now()))
 
 
+def lock_organization(db, org_id):
+    # All authenticated writes take this before flushing sessions/users.
+    # NO KEY UPDATE still serializes writers, while permitting FK KEY SHARE
+    # checks from login/refresh and deferred audit insertion.
+    with db.no_autoflush:
+        return db.scalar(select(Organization).where(Organization.id == org_id)
+                         .with_for_update(key_share=True))
+
+
 def protect_last_admin(db, user, values=None, *, archive=False):
     values = values or {}
     removing = archive or values.get('role', user.role) != 'ORG_ADMIN' or values.get('locked', user.locked)
@@ -209,6 +219,11 @@ def create_app(settings: Settings | None = None):
         session = db.scalar(select(Session).where(Session.org_id == settings.org_id,
             Session.token_hash == digest(raw), Session.client == client,
             Session.revoked_at.is_(None), Session.expires_at > now()))
+        if session and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            lock_organization(db, settings.org_id)
+            db.refresh(session)
+            if session.revoked_at or session.expires_at <= now():
+                fail(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
         user = db.get(User, session.user_id) if session else None
         if not user or user.locked or user.archived_at or user.org_id != settings.org_id:
             fail(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
@@ -232,16 +247,15 @@ def create_app(settings: Settings | None = None):
         # Transaction locks serialize failures per IP and account across workers.
         for key in sorted([f'login:ip:{ip}', f'login:user:{settings.org_id}:{account_key}']):
             db.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'), {'key': key})
+        close_rate_windows(db, settings.org_id, now())
         recent = select(func.count()).select_from(Event).where(
             Event.org_id == settings.org_id, Event.code == 'LOGIN_FAILED',
             Event.at > now() - timedelta(minutes=5))
-        limited = any(db.scalar(recent.where(Event.data[key].astext == value)) >= 5
-                      for key, value in [('ip', ip), ('account_key', account_key)])
-        if limited:
-            event(db, settings.org_id, 'LOGIN_RATE_LIMITED', '로그인 횟수 제한으로 거절했습니다.',
-                  data={'ip': ip, 'account_key': account_key}, severity='WARN')
-            db.commit()
-            fail(429, 'RATE_LIMITED', '로그인 시도가 많습니다. 잠시 뒤 다시 시도하세요.')
+        for key_type, field, value in [('LOGIN_IP', 'ip', ip), ('LOGIN_ACCOUNT', 'account_key', account_key)]:
+            if db.scalar(recent.where(Event.data[field].astext == value)) >= 5:
+                record_rate_limit(db, settings.org_id, key_type, value, now(), data={field: value})
+                db.commit()
+                fail(429, 'RATE_LIMITED', '로그인 시도가 많습니다. 잠시 뒤 다시 시도하세요.')
         user = db.scalar(select(User).where(User.org_id == settings.org_id,
             func.lower(User.username) == username, User.archived_at.is_(None)))
         correct = verify_password(body.password, user.password_hash if user else dummy_hash)
@@ -329,8 +343,8 @@ def create_app(settings: Settings | None = None):
     @app.post(prefix + '/me/password', status_code=204)
     def password(body: C.PasswordChange, auth: Identity, db: DB):
         user, session = auth
-        # Lock before flushing last_seen_at: other devices must not hold session
-        # row locks while waiting for the account lock and bulk revocation.
+        # identity already holds the organization lock. The account advisory
+        # lock follows it, before session/user writes or bulk revocation.
         with db.no_autoflush:
             db.execute(text('SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))'),
                        {'key': f'password:{user.org_id}:{user.id}'})
@@ -339,12 +353,12 @@ def create_app(settings: Settings | None = None):
         if user.locked or user.archived_at or session.revoked_at or session.expires_at <= now():
             fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
         session.last_seen_at = now()
+        close_rate_windows(db, user.org_id, now())
         failures = db.scalar(select(func.count()).select_from(Event).where(
             Event.org_id == user.org_id, Event.user_id == user.id,
             Event.code == 'PASSWORD_CHANGE_FAILED', Event.at > now() - timedelta(minutes=5)))
         if failures >= 5:
-            event(db, user.org_id, 'PASSWORD_CHANGE_RATE_LIMITED', '비밀번호 확인 횟수 제한으로 거절했습니다.',
-                  user.id, severity='WARN')
+            record_rate_limit(db, user.org_id, 'PASSWORD_ACCOUNT', str(user.id), now(), user_id=user.id)
             db.commit()
             fail(429, 'RATE_LIMITED', '비밀번호 확인 시도가 많습니다. 잠시 뒤 다시 시도하세요.')
         if not verify_password(body.current_password, user.password_hash):
@@ -376,8 +390,7 @@ def create_app(settings: Settings | None = None):
 
     def find_user(db, actor, user_id, *, admin_change=False):
         if admin_change:
-            with db.no_autoflush:
-                db.scalar(select(Organization).where(Organization.id == actor.org_id).with_for_update())
+            lock_organization(db, actor.org_id)
             db.refresh(actor)
             if actor.locked or actor.archived_at:
                 fail(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
@@ -467,7 +480,7 @@ def create_app(settings: Settings | None = None):
         values = body.model_dump(exclude_unset=True)
         if any(value is None for value in values.values()):
             fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
-        org = db.scalar(select(Organization).where(Organization.id == user.org_id).with_for_update())
+        org = lock_organization(db, user.org_id)
         result = C.OrgSettings.model_validate({**org.settings, **values})
         org.settings = result.model_dump()
         event(db, user.org_id, 'ORG_SETTINGS_UPDATED', '조직 기준값을 변경했습니다.', user.id, values)

@@ -26,12 +26,18 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
             command.upgrade(config, 'head')
             with engine.connect() as conn:
                 assert conn.scalar(text('SELECT retired_refresh_hashes FROM sessions')) == []
+            command.downgrade(config, '0002')
+            assert 'auth_rate_windows' not in inspect(engine).get_table_names()
+            with engine.connect() as conn:
+                assert conn.scalar(text('SELECT count(*) FROM sessions')) == 1
+                assert conn.scalar(text('SELECT retired_refresh_hashes FROM sessions')) == []
+            command.upgrade(config, 'head')
             command.downgrade(config, '0001')
             assert 'retired_refresh_hashes' not in {c['name'] for c in inspect(engine).get_columns('sessions')}
             with engine.connect() as conn:
                 assert conn.scalar(text('SELECT count(*) FROM sessions')) == 1
             command.upgrade(config, 'head')
-            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'alembic_version'}
+            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'alembic_version'}
             assert set(inspect(engine).get_table_names()) == expected
             command.downgrade(config, 'base')
             assert set(inspect(engine).get_table_names()) == {'alembic_version'}

@@ -114,7 +114,26 @@ class Event(Tenant, Base):
     data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
 
 
+class AuthRateWindow(Tenant, Base):
+    """Mutable denial counters; each closed key/window produces one audit row."""
+    __tablename__ = 'auth_rate_windows'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        CheckConstraint("key_type IN ('LOGIN_IP','LOGIN_ACCOUNT','PASSWORD_ACCOUNT')", name='rate_window_key_type'),
+        CheckConstraint('denied_count > 0', name='rate_window_positive_count'),
+    )
+    org_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    key_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    key_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    denied_count: Mapped[int] = mapped_column(BigInteger, default=1, server_default=text('1'))
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+
 Index('events_org_at', Event.org_id, Event.at.desc())
 Index('events_robot_at', Event.robot_id, Event.at.desc())
 Index('events_run_at', Event.run_id, Event.at)
 Index('events_category_at', Event.category, Event.at.desc())
+Index('auth_rate_windows_org_start', AuthRateWindow.org_id, AuthRateWindow.window_start)

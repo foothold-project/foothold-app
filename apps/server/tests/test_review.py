@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session as DBSession
 from apps.contracts import models as C
 from apps.server.fh_server import api
 from apps.server.fh_server.api import APIError, Settings, authorize, create_app
-from apps.server.fh_server.models import Event, Robot, Session, User, now
+from apps.server.fh_server.models import AuthRateWindow, Event, Robot, Session, User, now
 from apps.server.fh_server.security import digest, hash_password
 from .conftest import login
 from .test_api import P, csrf
@@ -182,7 +182,9 @@ def test_r2_password_guess_limit_is_account_wide_and_audited(client, seeded):
         rows = list(db.scalars(select(Event).where(Event.user_id == seeded['users']['one'],
             Event.code.in_(['PASSWORD_CHANGE_FAILED', 'PASSWORD_CHANGE_RATE_LIMITED']))))
         assert [r.code for r in rows].count('PASSWORD_CHANGE_FAILED') == 5
-        assert [r.code for r in rows].count('PASSWORD_CHANGE_RATE_LIMITED') == 1
+        assert [r.code for r in rows].count('PASSWORD_CHANGE_RATE_LIMITED') == 0
+        pending = db.scalar(select(AuthRateWindow).where(AuthRateWindow.user_id == seeded['users']['one']))
+        assert pending.key_type == 'PASSWORD_ACCOUNT' and pending.denied_count == 1
         assert 'fake-wrong-private' not in str([r.data for r in rows])
         db.execute(update(Event).where(Event.code == 'PASSWORD_CHANGE_FAILED').values(at=now() - timedelta(minutes=6)))
         db.commit()
@@ -316,11 +318,14 @@ def test_r10_limited_attempts_are_audited_without_unknown_username(client, seede
     with DBSession(engine) as db:
         records = list(db.scalars(select(Event).order_by(Event.id)))
         assert [r.code for r in records].count('LOGIN_FAILED') == 5
-        assert [r.code for r in records].count('LOGIN_RATE_LIMITED') == 2
+        assert [r.code for r in records].count('LOGIN_RATE_LIMITED') == 0
+        assert db.scalar(select(AuthRateWindow)).denied_count == 2
         assert raw not in str([r.data for r in records])
         assert all('username' not in r.data for r in records)
         assert records[0].data['account_key'] == digest(raw).hex()
         db.execute(update(Event).where(Event.code == 'LOGIN_FAILED').values(at=now() - timedelta(minutes=6)))
+        db.add(Event(org_id=seeded['org'], category='ACCOUNT', code='LOGIN_RATE_LIMITED',
+                     severity='WARN', message='시험 요약', data={'count': 2}))
         db.commit()
     engine.dispose()
     # The recent LOGIN_RATE_LIMITED events do not prolong the failure window.
