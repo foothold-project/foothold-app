@@ -14,7 +14,7 @@ import time
 
 from odometry import SimOdom, angle
 from prepare import WORLD_SHA
-from launch_nav2 import LIFECYCLE_NODES
+from launch_nav2 import COMMAND_ROLES, LIFECYCLE_NODES
 
 
 class ActionMailbox:
@@ -263,7 +263,8 @@ class RosAdapter:
             self.last_graph = now
             infos = self.node.get_publishers_info_by_topic('/fh_nav/intent')
             self.graph_ok = bool(infos) and all(i.topic_type == 'geometry_msgs/msg/Twist'
-                and i.node_name in ('controller_server', 'behavior_server') for i in infos)
+                and i.node_name in {n for n, topic in COMMAND_ROLES.items()
+                                    if topic == '/fh_nav/intent'} for i in infos)
         if now-self.last_snapshot < self.policy['snapshot_interval_s']:
             return
         self.last_snapshot = now

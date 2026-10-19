@@ -16,7 +16,22 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 AGENT = HERE.parents[1]
-MUTATIONS = [('callback_expiry_check_removed', 'foothold_agent/executor/nav2/intent.py',
+MUTATIONS = [
+    ('terminal_owner_journal_discarded', 'tools/nav2/runner.py',
+     '        if owner is not None:\n            attempt(lambda: drain(owner.journal))',
+     '        if False:\n            attempt(lambda: drain(owner.journal))'),
+    ('runner_full_swallowed', 'tools/nav2/runner.py',
+     '            drain(owner.journal)',
+     '            try:\n                drain(owner.journal)\n            except Exception:\n                owner.journal.clear()'),
+    ('empty_exception_reason_restored', 'tools/nav2/runner.py',
+     'return str(exc) or type(exc).__name__', 'return str(exc)'),
+    ('journal_close_error_swallowed', 'tools/nav2/runner.py',
+     '        attempt(log.close)',
+     '        try:\n            log.close()\n        except BaseException:\n            pass'),
+    ('disabled_behavior_publisher_allowed', 'tools/nav2/ros_adapter.py',
+     "{n for n, topic in COMMAND_ROLES.items()\n                                    if topic == '/fh_nav/intent'}",
+     "('controller_server', 'behavior_server')"),
+    ('callback_expiry_check_removed', 'foothold_agent/executor/nav2/intent.py',
     'if self._expire_locked():', 'if False:'),
     ('expiry_latch_recomputed', 'foothold_agent/executor/nav2/intent.py',
      'return self._deadline_expired',
@@ -186,7 +201,8 @@ def main():
         shutil.copytree(AGENT/'tools/nav2', root/'tools/nav2', ignore=shutil.ignore_patterns('__pycache__'))
         shutil.copytree(AGENT/'tools/sim', root/'tools/sim', ignore=shutil.ignore_patterns('__pycache__'))
         (root/'tests').mkdir()
-        for name in ('test_nav2_tools.py', 'test_executor_nav2.py', 'test_nav2_review.py'):
+        for name in ('test_nav2_tools.py', 'test_executor_nav2.py', 'test_nav2_review.py',
+                     'test_nav2_journal.py', 'test_nav2_launch.py'):
             shutil.copyfile(AGENT/'tests'/name, root/'tests'/name)
         shutil.copyfile(AGENT/'tools/mutation_reporter.py', root/'probe.py')
         env = {**os.environ, 'PYTHONPATH': str(root), 'PYTHONDONTWRITEBYTECODE': '1',

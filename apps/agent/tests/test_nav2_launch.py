@@ -27,6 +27,7 @@ def test_straight_launch_omits_behavior_server_and_its_command_remaps(descriptio
     assert 'behavior_server' not in nodes
     assert launch_nav2.COMMAND_ROLES['behavior_server']=='DISABLED'
     assert not any(n['package']=='nav2_behaviors' for n in nodes.values())
+    assert '\nbehavior_server:' not in (NAV/'nav2_params.yaml').read_text()
     for name in ('controller_server','planner_server','bt_navigator'):
         assert all(destination=='/fh_nav/intent' for _,destination in nodes[name]['remappings'])
 
@@ -63,3 +64,15 @@ def test_lifecycle_ready_requires_exact_names_active_and_original_freshness(monk
     if mode=='stale':adapter.lifecycle['planner_server']=(True,-1.400001)
     adapter.spin()
     assert adapter.snapshot()['lifecycle_ready'] is ready
+
+
+@pytest.mark.parametrize('publishers,ready', [
+    (['controller_server'], True), (['behavior_server'], False),
+    (['controller_server', 'behavior_server'], False), ([], False),
+])
+def test_intent_graph_only_accepts_enabled_command_roles(monkeypatch,publishers,ready):
+    from test_nav2_review import ros_stub
+    node,adapter,_,_=ros_stub(monkeypatch,[.1])
+    node.infos=[N(topic_type='geometry_msgs/msg/Twist',node_name=name) for name in publishers]
+    adapter.spin()
+    assert adapter.graph_ok is ready
