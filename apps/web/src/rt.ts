@@ -74,7 +74,8 @@ const waiting = new Map<string, (r: ScreenReply) => void>();
 const revoked = new Map<string, number>();
 let lastRevoked: Revoked | null = null;
 // 서버가 받아 둔 구독(마지막으로 ok 받은 sub). sub 가 거절되면 서버는 이전 구독을 그대로 둔다(apps/server README «S0»)
-let held: string[] = [], subTries = 0, subRetry: ReturnType<typeof setTimeout> | undefined, missedKey = '';
+// robots = 화면이 원하는 구독, held = 서버가 받아들인 구독, sending = 답을 기다리는 sub(한 번에 하나 — 서버도 연결당 대기 구독 1개)
+let held: string[] = [], sending: string[] | null = null, subTries = 0, subRetry: ReturnType<typeof setTimeout> | undefined, missedKey = '';
 /** 구독 거절(404): 목록의 로봇 중 실시간으로 볼 수 없는 것이 있음. again = 같은 목록이 또 거절됨(목록을 다시 받지 않는다) */
 export type Missed = { n: number; again: boolean };
 let lastMissed: Missed | null = null;
@@ -107,21 +108,28 @@ function drop(code?: number) {
   ws.close(code);
 }
 
-/** 지금 robots 를 구독. 404 = 목록의 어떤 로봇을 서버가 모름 → 서버에 남은 구독으로 되돌리고 목록을 한 번 다시 받게 알린다(같은 목록이 또 거절되면 다음 목록 갱신까지 기다림),
- *  503 = 서버가 앞선 구독 확인 중 → 1·2·4·8·10 s 뒤 다시(즉시 반복 안 함). 4401/4403 은 서버가 연결을 닫는다(closed) */
+/** 지금 robots 를 구독. 앞 sub 의 답을 기다리는 중이면 보내지 않고, 답이 오면 그동안 바뀐 목록을 이어 보낸다(늦은 성공도 held 에 남는다).
+ *  404 = 목록의 어떤 로봇을 서버가 모름 → 서버에 남은 구독(held)으로 되돌리고 목록을 한 번 다시 받게 알린다(같은 목록이 또 거절되면 다음 목록 갱신까지 기다림),
+ *  503(SERVER_BUSY·POLICY_STALE 등 일시 오류) = 1·2·4·8·10 s 뒤 다시(즉시 반복 안 함). 4401/4403 은 서버가 연결을 닫는다(closed) */
 function subscribe() {
   clearTimeout(subRetry);
-  const ids = robots;
+  if (sending) return;
+  const ids = sending = robots;
   send({ t: 'sub', robots: ids, streams: ['state'] }, (r) => {
-    if (ids !== robots) return;   // 뒤에 보낸 sub 가 있다
-    if (r.ok) { held = ids; subTries = 0; missedKey = ''; return; }
+    sending = null;
     const code = r.error?.code;
-    if (code === 'SERVER_BUSY') { subRetry = setTimeout(subscribe, Math.min(10, 2 ** subTries++) * 1000); return; }
-    if (code !== 'NOT_FOUND') return;
-    const again = missedKey === ids.join();
-    missedKey = ids.join(); robots = held;
-    lastMissed = { n: (lastMissed?.n ?? 0) + 1, again };
-    emit();
+    if (code === 'NETWORK') return;   // 연결이 끝남 — 다시 열리면 처음부터 보낸다
+    if (r.ok) { held = ids; subTries = 0; if (ids === robots) missedKey = ''; }
+    else if (ids !== robots) { /* 그사이 목록이 바뀜 — 바뀐 목록을 바로 보낸다 */ }
+    else if (r.error?.detail?.status === 503) { subRetry = setTimeout(subscribe, Math.min(10, 2 ** subTries++) * 1000); return; }
+    else if (code === 'NOT_FOUND') {
+      const again = missedKey === ids.join();
+      missedKey = ids.join(); robots = held;
+      lastMissed = { n: (lastMissed?.n ?? 0) + 1, again };
+      emit();
+      return;
+    }
+    if (ids !== robots) subscribe();
   });
 }
 
@@ -134,7 +142,7 @@ function open() {
   ws.onopen = () => {
     if (ws !== sock) return;
     lastRx = lastPing = up = now();
-    held = []; subTries = 0;
+    held = []; sending = null; subTries = 0;
     setLink({ at: 'open' });
     subscribe();
   };
@@ -236,9 +244,10 @@ function onLease(m: ScreenLeaseUpdate) {
     notice: l.busy === 'take' || l.outgoing ? '조종권을 받았습니다. 잠금 해제 후 조종하세요.' : undefined,
   });
   if (!lease && l.lease) Object.assign(p, { neutral: false, incoming: null });
-  // 내가 요청한 로봇의 조종권이 비면 넘김이 시작된 것 — 수락이면 곧 내 lease, 아니면 CANCELED 결과가 뒤따른다
-  if (!holder && l.outgoing && !lease) Object.assign(p, { busy: 'take', outgoing: null });
-  if (holder && !lease && l.busy === 'take') p.busy = null;
+  // 내가 요청한 로봇의 조종권이 비면 넘김이 시작된 것 — 수락이면 곧 내 lease, 아니면 CANCELED 결과가 뒤따른다.
+  // 정지 확인 중(최대 2 s)에도 서버가 취소를 받으므로 요청(outgoing)은 확정(내 lease)·결과까지 남긴다
+  if (!holder && l.outgoing && !lease) p.busy = 'take';
+  if (holder && !lease && l.busy === 'take') Object.assign(p, { busy: null, outgoing: null });
   set(m.robot, p);
   if (lease && (!active.has(m.robot) || hiddenPage())) leave(m.robot);   // 떠났거나 숨긴 화면은 조종권을 갖지 않는다
 }
@@ -253,13 +262,15 @@ function onRequested(m: ScreenLeaseRequested) {
 function onResult(m: ScreenLeaseResult) {
   // 내 take 의 결과(request_id null)도 ACCEPTED 로 온다 — 지금 lease 를 쥐었다고 넘긴 쪽이 아니다
   const l = get(m.robot), giver = l.busy === 'give' || (!!l.incoming && l.incoming.id === m.request_id), asker = !!l.outgoing || l.busy === 'take';
+  const moving = l.busy === 'give' || l.busy === 'take';   // 수락 뒤 정지 확인 중이던 넘김 — 취소되면 조종권은 이미 비었다
   if (!giver && !asker) return;
   const err = m.error ? RESULT_ERR[m.error] ?? say({ code: m.error, message: '', detail: {} }) : undefined;
   if (m.result === 'ACCEPTED') return set(m.robot, giver ? { busy: null, incoming: null, notice: '조종권을 넘겼습니다. 보는 중입니다.' } : {});
   // 요청자가 취소해도 양쪽에 같은 CANCELED 가 온다 — 요청자의 대기 표시와 조종권자의 «넘겨줄까요» 창을 둘 다 닫는다
   if (m.result === 'CANCELED') return set(m.robot, {
     busy: null, outgoing: null, incoming: null, failed: m.error === 'STOP_CONFIRM_FAILED',
-    notice: err ?? (giver ? '요청이 취소되었습니다. 계속 조종합니다.' : l.outgoing?.canceling ? '요청을 취소했습니다.' : get(m.robot).holder ? '요청이 취소되었습니다.' : FREE_TEXT),
+    notice: err ?? (moving && giver ? `요청자가 넘김을 취소했습니다. ${FREE_TEXT}` : giver ? '요청이 취소되었습니다. 계속 조종합니다.'
+      : l.outgoing?.canceling ? `요청을 취소했습니다.${moving ? ` ${FREE_TEXT}` : ''}` : get(m.robot).holder ? '요청이 취소되었습니다.' : FREE_TEXT),
   });
   if (giver) return set(m.robot, { incoming: null, notice: m.result === 'TIMEOUT' ? '응답하지 않아 요청이 끝났습니다. 계속 조종합니다.' : undefined });
   set(m.robot, { outgoing: null, cooldown: now() + COOLDOWN_S * 1000,
@@ -307,7 +318,7 @@ export const rt = {
   /** 로그아웃·화면 내림: 쥔 조종권을 먼저 돌려주고 닫는다 */
   disconnect() {
     for (const [id] of live) leave(id);
-    want = false; robots = []; held = []; missedKey = ''; lastMissed = null; stopBeat(); clearTimeout(retry); clearTimeout(subRetry);
+    want = false; robots = []; held = []; sending = null; missedKey = ''; lastMissed = null; stopBeat(); clearTimeout(retry); clearTimeout(subRetry);
     document.removeEventListener('visibilitychange', onVisible); removeEventListener('pagehide', onPageHide);
     era.abort(); era = new AbortController(); drop(1000);
     live.clear(); last.clear(); active.clear(); gone.clear(); waiting.clear(); revoked.clear(); lastRevoked = null;
@@ -350,6 +361,7 @@ export const rt = {
     set(id, { outgoing: { ...o, canceling: true } });
     send({ t: 'lease.cancel', robot: id }, (r) => {
       const left = get(id).outgoing;
+      if (!r.ok && !left && get(id).lease) return set(id, { notice: '취소하기 전에 조종권을 받았습니다. 조종하지 않으려면 [조종 끝내기]를 누르세요.' });
       if (r.ok || !left) return;   // 요청이 이미 다른 결과로 끝났으면 그 안내를 둔다
       set(id, { outgoing: { until: left.until }, notice: say(r.error) });
     });

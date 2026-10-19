@@ -110,8 +110,8 @@ function Screen(c: Ctx) {
     else rt.take(r.id);
   };
   const wait = link !== 'open' ? '서버 연결이 끊겨 조종할 수 없습니다. 다시 연결되면 누르세요.'
-    : l.busy ? BUSY_TEXT[l.busy]
     : l.outgoing?.canceling ? '요청을 취소하는 중입니다.'
+    : l.busy ? BUSY_TEXT[l.busy]
     : l.outgoing ? `${l.holder?.name || '조종하는 사람'}님에게 요청했습니다. (${secs(l.outgoing.until, now)}초)`
     : l.cooldown > now ? `${secs(l.cooldown, now)}초 뒤 다시 요청할 수 있습니다.` : '';
   const q = mine && l.incoming && l.incoming.until > now ? l.incoming : null;
