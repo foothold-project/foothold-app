@@ -268,7 +268,12 @@ def test_n9_backlog_events_do_not_disconnect_or_starve_state(client, seeded, rt)
         assert reply(ws, send(ws, 'ping'))['ok']
     with DBSession(client.app.state.engine) as db:
         rows = list(db.scalars(select(Event).where(Event.code == 'FAKE_BACKLOG').order_by(Event.id)))
-    assert [row.data['number'] for row in rows] == list(range(500))
+        summaries = list(db.scalars(select(Event).where(Event.robot_id == seeded['robots']['mine'],
+            Event.code == 'AUDIT_DROPPED')))
+    numbers = [row.data['number'] for row in rows]
+    assert numbers == sorted(set(numbers)) and all(0 <= n < 500 for n in numbers)
+    omitted = sum(row.data['count'] for row in summaries if row.data.get('source') == 'ROBOT_HISTORY')
+    assert len(numbers) + omitted == 500
 
 
 def test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry(client, seeded, rt, monkeypatch):

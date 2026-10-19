@@ -40,26 +40,29 @@ def run(client, callback):
 def test_b1_repeated_denied_stop_agent_events_bounded_and_new_take_survives(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
     async def flood():
-        # Hold the writer to model a database unavailable throughout the burst.
-        auditor = rt.tasks[1]
-        auditor.cancel()
-        await asyncio.gather(auditor, return_exceptions=True)
-        for i in range(20_000):
-            for body in ({'op': 'CMD_SEQ', 'user_id': str(seeded['users']['one'])},
-                         {'op': 'STOP', 'user_id': str(seeded['users']['one'])},
-                         {'op': 'AGENT_EVENT', 'code': 'REPEATED_AGENT_WARNING'}):
-                rt.apply([Effect('audit', rid, body)])
-        assert len(rt.audit._queue.memory) <= rt.audit.maxsize
-        assert sum(e.body['op'] == 'STOP' for e in rt.audit._queue) == 20_000
-        assert len(rt.audit_groups) <= 3
-        assert not rt.failed and rt.audit_overloaded
-        # Verify all STOP records survived capacity; this bulk review probe
-        # does not spend minutes inserting 20,000 synthetic records.
+        rt.tasks[1].cancel()
+        await asyncio.gather(rt.tasks[1], return_exceptions=True)
+        accepted = 0
+        for n in range(5_000):
+            if not rt.audit.admission_open(rid):
+                break
+            rt.apply([Effect('audit', rid, {'op': 'STOP', 'data': {'number': n},
+                                          'user_id': str(seeded['users']['one'])})])
+            accepted += 1
+            await asyncio.sleep(0)
+        assert 1 <= accepted <= 480
+        rt.block_archive_source(rid, 'CAPACITY')
+        channel = rt.audit.channel(rid)
+        await channel.queue._queue.writable()
+        records = await rt.audit._queue.snapshot()
+        assert [e.body['data']['number'] for e in records if e.body['op'] == 'STOP'] == list(range(accepted))
+        assert not rt.failed and not rt.audit_overloaded
         while not rt.audit.empty():
-            rt.audit.get_nowait()
+            await rt.audit.get()
             rt.audit.task_done()
-        rt.flush_audits()
-        assert not rt.audit_overloaded
+        await channel.queue._queue.writable()
+        assert channel.blocked  # recovery does not silently resume a lease
+        channel.retry_at = rt.clock() - 1  # explicitly advance the reconnect gate
         rt.tasks[1] = asyncio.create_task(rt.auditor())
     run(client, flood)
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:

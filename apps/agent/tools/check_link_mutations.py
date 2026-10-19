@@ -111,17 +111,31 @@ MUTATIONS = [
     ('safety spill dropped', 'link/history.py', '            if not self.ordinary:\n                if not self.safety(message):', '            if not self.ordinary:\n                if True:'),
     ('ordinary evicts safety', 'link/history.py', '            if not self.ordinary:\n                if not self.safety(message):', '            if not self.ordinary:\n                self.memory.popleft()\n                self.dropped += 1\n                if not self.safety(message):'),
     ('restored retry summary detached', 'link/session.py', "self._retry_event = next((m for _, m in self._messages.memory if m.get('code') == 'SERVER_RETRY'), None)", 'self._retry_event = None'),
-    ('history I/O failure skips physical stop', 'link/client.py', "self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))", 'pass'),
+    ('history I/O failure skips physical stop', 'link/client.py', "                    self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))", '                    pass'),
     ('protocol stop waits behind teardown', 'link/client.py', '                                if code == PROTOCOL_CLOSE_CODE or legacy_protocol:\n                                    self._emit(self.session.protocol_mismatch())', '                                if False:\n                                    self._emit(self.session.protocol_mismatch())'),
-    ('bridge safety record demoted', 'link/session.py', '"LEASE_INVALID", "BRIDGE_STATE_INVALID"}', '"LEASE_INVALID"}'),
+    ('bridge safety record demoted', 'link/session.py', '"LEASE_INVALID", "BRIDGE_STATE_INVALID", "HISTORY_STORAGE_BLOCKED"}', '"LEASE_INVALID", "HISTORY_STORAGE_BLOCKED"}'),
     ('run transition record demoted', 'link/session.py', "or m.get('t') == 'run.update'", 'or False'),
     ('authorization close record demoted', 'link/session.py', "(m.get('code') == 'SERVER_CLOSED' and", "(False and m.get('code') == 'SERVER_CLOSED' and"),
+    ('STOP sink prehistory callback removed', 'link/client.py', "        if self.session.core.latch:\n            self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))\n        elif self.session.core.applied() == Z:\n            self._emit(Effects((MotionCommand(velocity=Z),)))", '        pass'),
+    ('file INSERT blocks watchdog', 'link/history.py', "                self.io.submit('insert', sequence, message)", "                self._disk().execute('INSERT INTO history VALUES (?, ?)', (sequence, pickle.dumps(message)))\n                self.io.submit('peek')"),
+    ('storage pressure admission never stops', 'link/history.py', '    HIGH_WATER = 64', '    HIGH_WATER = 1000000'),
+    ('server archive close skips immediate stop', 'link/client.py', "if code == 1013 and pending_error.rcvd.reason == 'ROBOT_ARCHIVE_LIMIT':", 'if False:'),
+    ('storage safety record demoted', 'link/session.py', '"LEASE_INVALID", "BRIDGE_STATE_INVALID", "HISTORY_STORAGE_BLOCKED"}', '"LEASE_INVALID", "BRIDGE_STATE_INVALID"}'),
+    ('physical file cap omitted', 'link/history.py', "self.spill.execute('PRAGMA max_page_count=2048')", "self.spill.execute('PRAGMA max_page_count=0')"),
+
 ]
 
 
 # Client probes are selected by the changed policy, including Session-originated
 # transport events. Assertion failures, not slow blanket runs, prove each change.
 PROBE_TESTS = {
+    'STOP sink prehistory callback removed': 'tests/test_link_storage.py::test_stop_and_watchdog_precede_gated_file_io',
+    'file INSERT blocks watchdog': 'tests/test_link_storage.py::test_file_wait_does_not_occupy_the_watchdog_event_loop',
+    'storage pressure admission never stops': 'tests/test_link_storage.py::test_storage_pressure_reserves_unsent_history_and_never_auto_unlocks',
+    'server archive close skips immediate stop': 'tests/test_link_storage.py::test_server_archive_limit_stops_before_waiting_for_writer_cancellation',
+    'storage safety record demoted': 'tests/test_link_followup.py::test_full_safety_buffer_rejects_ordinary_without_evicting_safety',
+    'physical file cap omitted': 'tests/test_link_storage.py::test_spill_file_has_enforced_eight_mib_limit',
+
     'bridge safety record demoted': 'tests/test_link_followup.py::test_full_safety_buffer_rejects_ordinary_without_evicting_safety',
     'run transition record demoted': 'tests/test_link_followup.py::test_run_transitions_are_not_evicted_at_capacity',
     'authorization close record demoted': 'tests/test_link_followup.py::test_authorization_close_records_are_not_evicted_at_capacity',

@@ -130,6 +130,39 @@ class Client:
         self.executor = executor
         self._outgoing = None
         self._overflow = None
+        self.storage_blocked = False
+        self.session.emit_history = False
+        self.session.before_history = self._before_history
+        self._ensure_history()
+
+    def _ensure_history(self):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # run()/the first async entry installs the worker
+        self.session._messages.background(
+            lambda error: self._storage_problem(type(error).__name__),
+            lambda: self._storage_problem('BACKPRESSURE'))
+
+    def _before_history(self):
+        # Session is synchronous: publish its already-decided safe motion before
+        # even submitting file work. The callback never publishes nonzero/unlock.
+        if self.session.core.latch:
+            self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))
+        elif self.session.core.applied() == Z:
+            self._emit(Effects((MotionCommand(velocity=Z),)))
+        self._ensure_history()
+
+    def _storage_problem(self, reason):
+        if self.storage_blocked:
+            return
+        self.storage_blocked = True
+        self._outgoing = None
+        # Physical STOP/zero precede metadata, error events and worker waits.
+        self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))
+        if self._overflow is not None:
+            self._overflow.set()
+        self._emit(self.session.storage_blocked(reason))
 
     def _emit(self, effects: Effects):
         # This ordering is mandatory: stop/apply locally before hello or state ACK.
@@ -169,7 +202,8 @@ class Client:
 
     def on_robot_state(self, raw):
         """Local bridge feedback, called on the owning event loop."""
-        self._emit(self.session.on_robot_state(raw))
+        self._ensure_history()
+        self._emit(self.session.on_robot_state(raw, record_errors=not self.storage_blocked))
 
     def waypoint_reached(self, run_id):
         """Local executor observation; never inferred from a server message."""
@@ -179,7 +213,7 @@ class Client:
         while True:
             self._emit(self.session.tick())
             run = self.session.run
-            if self.executor is not None and run is not None:
+            if self.executor is not None and run is not None and not self.storage_blocked:
                 axes = self.executor.poll(deepcopy(run))
                 if axes is not None:
                     self._emit(self.session.executor_command(run["run_id"], axes))
@@ -205,7 +239,16 @@ class Client:
                 index += 1
             while live:
                 await self.session.history_ready.wait()
-                messages = self.session.pop_history(1)
+                try:
+                    messages = self.session.pop_history(1)
+                except Exception:
+                    if self.session._messages.io is None or self.session._messages.io.error is None:
+                        raise
+                    await self.session._messages.writable()
+                    continue
+                if not messages:
+                    await self.session._messages.readable()
+                    continue
                 index = 0
                 for message in messages:
                     await queue.put(message)
@@ -215,12 +258,16 @@ class Client:
 
     async def _reader(self, websocket):
         while True:
+            if self.storage_blocked:
+                return
             try:
                 frame = await asyncio.wait_for(websocket.recv(), TICK_S)
             except asyncio.TimeoutError:
                 if self.session.link_lost or self.session.reconnect_required:
                     return
                 continue
+            if self.storage_blocked:
+                return
             self._emit(self.session.receive(frame))
             if self.session.reconnect_required:
                 return
@@ -232,6 +279,8 @@ class Client:
 
         delay = self.settings.retry_initial_s
         while True:
+            await self.session._messages.writable()
+            self.storage_blocked = False  # Core stays latched, old lease cleared
             connected_for = 0.0
             retry_code = None
             protocol_wait = False
@@ -274,6 +323,8 @@ class Client:
                                 legacy_protocol = code == 4403 and pending_error.rcvd.reason.startswith('PROTOCOL_MISMATCH')
                                 if code == PROTOCOL_CLOSE_CODE or legacy_protocol:
                                     self._emit(self.session.protocol_mismatch())
+                                if code == 1013 and pending_error.rcvd.reason == 'ROBOT_ARCHIVE_LIMIT':
+                                    self._storage_problem('SERVER_ARCHIVE_LIMIT')
                                 effects = self.session.transport_closed(code, retry=code not in FATAL_CLOSE_CODES or legacy_protocol)
                             else:
                                 effects = (self.session.shutdown() if isinstance(pending_error, LocalPortError)
@@ -293,7 +344,7 @@ class Client:
                             replay.cancel()
                             await asyncio.gather(reader, writer, overflow, replay, return_exceptions=True)
                             self.session.restore(queue.unsent())
-                            self.session.emit_history = True
+                            self.session.emit_history = False
             except ConnectionClosed as exc:
                 retry_code = exc.rcvd.code if exc.rcvd else 1006
                 reason = exc.rcvd.reason if exc.rcvd is not None else ""
@@ -328,6 +379,7 @@ class Client:
             delay = min(delay * 2, self.settings.retry_max_s)
 
     async def run(self):
+        self._ensure_history()
         watchdog = asyncio.create_task(self._watchdog())
         network = asyncio.create_task(self._network())
         pending_error = None
@@ -358,3 +410,4 @@ class Client:
                 watchdog.cancel()
                 network.cancel()
                 await asyncio.gather(watchdog, network, return_exceptions=True)
+                self.session._messages.close()

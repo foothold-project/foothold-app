@@ -399,3 +399,30 @@ README·PR에 명시하며 정확히 한 번 전달을 주장하지 않는다. C
 - agent 변이: **62/62 KILLED, exit 0**, ERROR·SURVIVED 0. 프로토콜 정지는 writer 취소 gate보다 앞서는지 RUN 비영 출력에서 검사한다. 이전 실행의 비고유 anchor와
   FIFO 위반의 KeyError는 검출로 세지 않았고, assertion으로 판정하도록 시험을 고친 뒤 전체 재실행했다.
 - 서버 전체 **267 passed, 1 warning in 165.38s (0:02:45)**(변이 도구 정상 기준 실행, 실제 Client 정상/300 ms DB 지연 + 400건 backlog 통합 포함), 계약 생성물 **61개 일치**, wire 소비 tsc **exit 0**, Python/JSON Schema wire 대조 **1 passed**다. 서버 변이는 **108/108 assertion 검출, exit 0**, ERROR·MISSED 0이다. 상세 부하 표본과 재-take·거부 수는 서버 검증표에 적었다.
+
+## PR #13 재확인 r2 보완 (891d1f8 이후)
+
+| 경계 | 회귀와 판정 |
+|---|---|
+| Codex R2-1: 기록보다 sink STOP | RUN 비영 상태+255건 안전 사건에서 INSERT를 gate로 막는다. Client의 pre-history 콜백이 sink STOP·apply(0)를 **INSERT 시작 전** 출력해야 한다. 파일 제출 전에 출력하는 고침을 제거하면 실패한다. 기한이 지난 link/executor 전환의 기록보다도 수신 STOP을 먼저 처리한다. |
+| 감시·수신 루프 | SQLite 생성/INSERT/SELECT/DELETE/정리는 이력별 지연 생성 daemon 1개가 처리한다. 별도 스레드는 watchdog이 3번 진행해야 INSERT gate를 해제한다. 동기 파일 I/O를 복원하면 watchdog 진행 assertion이 실패한다. 런타임/Client에서만 비동기 경계를 사용하며 단독 sans-I/O Session은 호출자의 출력·기록 책임이다. |
+| 배압/복구 | 파일 작업 63개에서는 열리고 64개부터 즉시 STOP·0·잠금 및 옛 lease/intent 폐기다. 실행 중 포함 최대 256개이며 RAM 255건, file head 1건이다. 이미 미송신인 128개 outbox+in-flight 1개 복원 여유를 예약한다. 외부 입력을 닫고 1000개 비정상 bridge 입력이 작업을 늘리지 않는지, watchdog/bridge 유효 피드백은 계속 진행하는지 검사한다. |
+| 자동 재개 방지 | 작업이 전부 끝나 정상이어야 새 연결을 허용한다. 이때도 Core 잠금·0·미확인 lease를 유지하고 새 lease→신선한 정지 확인→unlock→새 중립 후에만 비영 출력이 가능하다. HISTORY_STORAGE_BLOCKED는 안전 사건이며 기존 PAUSED 이유를 보존한다. 저장 고장 정책은 Q7 링크 단절 유예와 별개다. |
+| 물리 상한 | 임시 SQLite는 8 MiB, 캐시 128 KiB다. 9 MiB 삽입이 SQLITE_FULL이고 파일 크기가 상한 이내인지 검사한다. 공간 부족은 저장소 복구가 필요하고 STOP/0을 먼저 출력한다. daemon은 정지 출력 전에 join하지 않으며 이미 접수한 작업·안전 기록을 소유한다. |
+| 서버별 기록 초과 | `1013 + ROBOT_ARCHIVE_LIMIT`를 받으면 writer 취소 완료를 기다리지 않고 로컬 STOP·0·잠금과 lease 폐기를 적용한다. RUN 비영 출력과 writer 취소 gate에서 확인한다. 일반 1013/Q7·fh-agent/2·4406/옛 4403 proto 느린 30 s 대기는 유지한다. |
+
+모든 File I/O 복구는 원본/순서를 유지한 재시도이며 안전 사건을 축출하지 않는다.
+파일은 프로세스 수명 동안의 배압 장치이지 서버 수신 ACK·정확히 한 번 전송·재시작
+복구 저널이 아니다. 안전 Core와 기존 Core 시험은 수정하지 않았다. 서버의 로봇별
+FIFO·공정 순환·512건/2 MiB/8 MiB 및 HTTP STOP 예외는 서버 검증표를 따른다.
+
+### r2 실행 결과
+
+- agent pytest **227 passed**, 5.29 s, 기존 Core 포함.
+- agent 변이 **68/68 KILLED, exit 0**, ERROR·SURVIVED 0. 새 6개는 sink 선출력,
+  watchdog 비동기 경계, 저장 고수위, 서버 기록 초과 STOP, 저장 오류 안전 사건,
+  파일 물리 한도 제거를 각각 assertion으로 검출했다.
+- 계약 생성물 **61개 일치**, wire 소비 tsc **exit 0**, Python/JSON Schema wire **1 passed**.
+- 서버 전체 **293 passed, 1 warning in 167.48s (0:02:47)**, Alembic 왕복·메타데이터 차이 0 및 실제 Client 정상/300 ms DB+400건 backlog 통합 포함. 서버 변이는 **127/127 assertion 검출·exit 0**, ERROR·MISSED 0다.
+- ROS·Gazebo·실기·운영/미리보기 서비스 접촉 0. 실제 네트워크는 loopback port 0 fd와
+  가짜 sink/bridge다. API 정본 동기화·두 모델 재검토·dev 통합은 조정 세션의 후속 관문이다.

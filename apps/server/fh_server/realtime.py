@@ -5,6 +5,7 @@ row/advisory locks and never update session.last_seen_at. Audit writes have thei
 own connection pool/worker; a blocked insert cannot delay STOP or lease null.
 """
 import asyncio
+import threading
 from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from datetime import timedelta
@@ -18,18 +19,20 @@ from uuid import UUID, uuid4
 from types import SimpleNamespace, MappingProxyType
 from functools import lru_cache
 from collections.abc import Mapping
+from collections import OrderedDict
 
 from fastapi import Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
 from pydantic import TypeAdapter, ValidationError
-from sqlalchemy import create_engine, select, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy import create_engine, select, text, event, inspect, and_
+from sqlalchemy.orm import sessionmaker, Session as ORMSession
 from sqlalchemy.exc import DBAPIError, DataError, IntegrityError, StatementError, TimeoutError as PoolTimeout
 
 from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
 from .security import digest
-from .history import History
+from .history import History, HistoryPending
 
 log = logging.getLogger(__name__)
 SCREEN = TypeAdapter(C.ScreenMessage)
@@ -41,46 +44,10 @@ DB_READ_TIMEOUT = 2.0
 TRANSIENT_DB = (DBAPIError, OSError, asyncio.TimeoutError, PoolTimeout)
 SAFETY_CODES = {'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT', 'EXECUTOR_STALLED',
                 'PROTOCOL_MISMATCH', 'TRANSPORT_BACKPRESSURE', 'STOP_GEN_EXHAUSTED',
-                'LEASE_INVALID', 'BRIDGE_STATE_INVALID'}
+                'LEASE_INVALID', 'BRIDGE_STATE_INVALID', 'HISTORY_STORAGE_BLOCKED'}
 
 
-class AuditQueue(asyncio.Queue):
-    """One runtime FIFO: evict ordinary history first, spill safety-only excess.
-
-    No reconnect can create another backlog. A popped record remains owned by
-    the single auditor until INSERT succeeds (independent of socket lifetime).
-    """
-    @staticmethod
-    def urgent(effect):
-        body = effect.body
-        return (body.get('op') in ('STOP', 'STOP_CONFIRM_FAILED', 'TAKE', 'RELEASE',
-                'REQUEST', 'ACCEPT', 'DECLINE', 'TIMEOUT', 'EXPIRE',
-                'RUN_PAUSE_TAKEOVER', 'AUDIT_DROPPED', 'AGENT_CONNECTED',
-                'AGENT_DISCONNECTED', 'AGENT_PROTOCOL_MISMATCH', 'AGENT_BACKLOG_OVERFLOW')
-                or body.get('code') in SAFETY_CODES
-                or body.get('severity', '').upper() in ('ERROR', 'CRITICAL', 'BAD'))
-
-    def _init(self, maxsize):
-        self._queue = History(maxsize, self.urgent, lambda e: e.body.get('_count', 1))
-
-    def put_nowait(self, effect):
-        before = len(self._queue)
-        if not self._queue.append(effect):
-            raise asyncio.QueueFull
-        evicted = before + 1 - len(self._queue)
-        self._unfinished_tasks += 1 - evicted
-        self._finished.clear()
-        self._wakeup_next(self._getters)
-
-    async def put(self, effect):
-        self.put_nowait(effect)
-
-    def _get(self):
-        return self._queue.pop()
-
-    def take_dropped(self):
-        count, self._queue.dropped = self._queue.dropped, 0
-        return count
+from .audit import AuditQueue, FairAuditQueue, SourceArchiveFull
 
 
 class BoundAgentHeaders(dict):
@@ -249,7 +216,7 @@ class Realtime:
         self.screens: dict[str, Peer] = {}
         self.agents: dict[str, Peer] = {}
         self.runs: dict[str, dict] = {}  # executor persistence is a later task
-        self.audit = AuditQueue(4096)
+        self.audit = FairAuditQueue(self)
         self.audit_engine = create_engine(settings.database_url, pool_size=1, max_overflow=0,
                                          connect_args={'options': '-c lock_timeout=1000 -c statement_timeout=2000'})
         self.audit_factory = sessionmaker(self.audit_engine, expire_on_commit=False)
@@ -272,19 +239,27 @@ class Realtime:
         self.view_factory = sessionmaker(self.view_engine, expire_on_commit=False)
         self.control_factory = sessionmaker(self.control_engine, expire_on_commit=False)
         self.agent_factory = sessionmaker(self.agent_engine, expire_on_commit=False)
-        self.stop_engine = create_engine(settings.database_url, pool_size=2, max_overflow=0, pool_timeout=2,
+        self.stop_engine = create_engine(settings.database_url, pool_size=12, max_overflow=0, pool_timeout=2,
             connect_args={'options': '-c default_transaction_read_only=on -c statement_timeout=2000',
                           'connect_timeout': 2})
         self.stop_factory = sessionmaker(self.stop_engine, expire_on_commit=False)
-        self.stop_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix='fh-stop')
+        self.stop_executor = ThreadPoolExecutor(max_workers=12, thread_name_prefix='fh-stop')
+        self.stop_slots = asyncio.Semaphore(12)
+        self.stop_cache = OrderedDict()
+        self.stop_cache_lock = threading.RLock()
+        self.stop_cache_epoch = 0
+        self.stop_cache_ttl = .25
+        self.stop_listeners = []
         self.policy_peers = {}
         self.policy_members = {}
         self.policy_controls = set()
         self.policy_pipelines = {}
         self.agent_pipeline = None
         self.archive_tasks = set()
+        self.archive_closers = set()
         self.audit_groups = {}
         self.audit_dropped = 0
+        self.source_drop_total = 0
         self.audit_overloaded = False
         self.audit_storage_failed = False
         self.audit_budget = 20.0
@@ -337,6 +312,7 @@ class Realtime:
             # REST replicas may serve authentication/accounts, but cannot open
             # another realtime authority or accept a STOP they cannot deliver.
             self.failed = True
+        self.watch_stop_invalidations()
         self.tasks = [asyncio.create_task(self.ticker()), asyncio.create_task(self.auditor()),
                       asyncio.create_task(self.ownership_watch())]
 
@@ -418,9 +394,9 @@ class Realtime:
         self.starts -= 1
         if self.starts:
             return
-        for task in self.tasks:
+        for task in self.tasks + list(self.archive_closers):
             task.cancel()
-        await asyncio.gather(*self.tasks, return_exceptions=True)
+        await asyncio.gather(*self.tasks, *self.archive_closers, return_exceptions=True)
         await asyncio.gather(*(p.close() for p in set(self.policy_pipelines.values()) | set(self.policy_loads.values())))
         self.policy_loads.clear()
         self.policy_pipelines.clear()
@@ -447,8 +423,102 @@ class Realtime:
                     connection.close()
             with suppress(Exception):
                 await self.read(release)
+        self.audit._queue.close()
+        for name, callback in self.stop_listeners:
+            event.remove(ORMSession, name, callback)
+        self.stop_listeners.clear()
         self.audit_engine.dispose()
         self.read_engine.dispose()
+
+    def invalidate_stop_cache(self):
+        with self.stop_cache_lock:
+            self.stop_cache_epoch += 1
+            self.stop_cache.clear()
+
+    def watch_stop_invalidations(self):
+        marker = ('fh-stop-dirty', id(self))
+        fields = {User: ('locked', 'archived_at', 'role', 'org_id'),
+                  Session: ('revoked_at', 'expires_at', 'token_hash', 'csrf_hash', 'client', 'user_id', 'org_id'),
+                  Robot: ('archived_at', 'org_id')}
+        def flushed(db, *_):
+            for row in db.dirty | db.deleted:
+                if type(row) in fields and (row in db.deleted or any(
+                        inspect(row).attrs[field].history.has_changes() for field in fields[type(row)])):
+                    db.info[marker] = True
+        def executed(state):
+            if state.is_update or state.is_delete:
+                table = getattr(getattr(state.statement, 'table', None), 'name', None)
+                if table in ('users', 'sessions', 'robots'):
+                    state.session.info[marker] = True
+        def committed(db):
+            if db.info.pop(marker, False):
+                self.invalidate_stop_cache()
+        def rolled_back(db):
+            db.info.pop(marker, None)
+        for name, callback in (('before_flush', flushed), ('do_orm_execute', executed),
+                               ('after_commit', committed), ('after_rollback', rolled_back)):
+            event.listen(ORMSession, name, callback)
+            self.stop_listeners.append((name, callback))
+
+    def stop_key(self, headers, cookies, rid):
+        auth = headers.get('authorization')
+        raw, client = ((auth[7:], 'app') if auth and auth.startswith('Bearer ') else
+                       ('', 'app') if auth else (cookies.get('fh_s'), 'web'))
+        if not raw:
+            raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
+        csrf = headers.get('x-fh-csrf') if client == 'web' else None
+        return (digest(raw), client, str(rid), digest(csrf) if csrf else None)
+
+    def load_stop_scope(self, key):
+        token_hash, client, rid, csrf = key
+        with self.stop_factory() as db:
+            row = db.execute(select(User, Session, Robot).join(Session, Session.user_id == User.id)
+                .outerjoin(Robot, and_(Robot.id == UUID(rid), Robot.org_id == User.org_id))
+                .where(User.org_id == self.settings.org_id, Session.org_id == self.settings.org_id,
+                    Session.token_hash == token_hash, Session.client == client,
+                    Session.revoked_at.is_(None), Session.expires_at > now())).first()
+            if row is None or row.User.locked or row.User.archived_at:
+                raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
+            user, session, robot = row
+            self.authorize(user, 'LOGIN')
+            if client == 'web' and (not csrf or not session.csrf_hash or not hmac.compare_digest(csrf, session.csrf_hash)):
+                raise self.api_error(403, 'FORBIDDEN', '요청 확인 값을 확인하세요.')
+            if robot is None:
+                raise self.api_error(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+            self.authorize(user, 'ROBOT_SUMMARY', robot)
+            return Actor(str(user.id), str(session.id), str(uuid4()), user.display_name, user.role), session.expires_at
+
+    async def stop_actor(self, headers, cookies, rid):
+        key, started = self.stop_key(headers, cookies, rid), self.clock()
+        with self.stop_cache_lock:
+            epoch = self.stop_cache_epoch
+            cached = self.stop_cache.get(key)
+            if cached and started - cached[0] <= self.stop_cache_ttl and cached[2] > now():
+                self.stop_cache.move_to_end(key)
+                return cached[1], epoch
+        if self.stop_slots.locked():
+            raise self.api_error(503, 'SERVER_BUSY', '정지 접수를 확인하지 못했습니다.')
+        await self.stop_slots.acquire()
+        future = asyncio.get_running_loop().run_in_executor(self.stop_executor, self.load_stop_scope, key)
+        def finished(done):
+            self.stop_slots.release()
+            if not done.cancelled():
+                done.exception()  # observe a read that outlived its caller deadline
+        future.add_done_callback(finished)
+        try:
+            actor, expires = await asyncio.wait_for(asyncio.shield(future), DB_READ_TIMEOUT)
+        except TRANSIENT_DB as exc:
+            raise self.api_error(503, 'SERVER_BUSY', '정지 접수를 확인하지 못했습니다.') from exc
+        with self.stop_cache_lock:
+            if expires <= now():
+                raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
+            if epoch != self.stop_cache_epoch:
+                raise self.api_error(503, 'SERVER_BUSY', '권한 변경 후 정지를 다시 요청하세요.')
+            if self.clock() - started <= self.stop_cache_ttl:
+                self.stop_cache[key] = (started, actor, expires)
+                while len(self.stop_cache) > 256:
+                    self.stop_cache.popitem(last=False)
+        return actor, epoch
 
     def identity(self, headers, cookies, connection, *, factory=None):
         """Read-only identity: deliberately does not call REST's writing identity."""
@@ -700,14 +770,23 @@ class Realtime:
     def queue_audit(self, effect):
         accepted = True
         try:
+            if not isinstance(self.audit, FairAuditQueue) and self.audit._queue.io is not None:
+                # Reserve space for revocation/connection teardown of every
+                # already-admitted context before closing further admission.
+                self.audit._queue.io.reserve(256 + 4 * (len(self.arbiter.robots) + len(self.agents) + len(self.screens)))
             self.audit.put_nowait(effect)
+        except SourceArchiveFull:
+            self.block_archive_source(effect.robot, 'CAPACITY')
+            return False
         except asyncio.QueueFull:
             accepted = False
         except Exception:
-            self.audit_storage_failed = self.audit_overloaded = True
-            self.emergency_free()
+            self.fail_audit_storage()
             raise
-        self.audit_dropped += self.audit.take_dropped()
+        if isinstance(self.audit, FairAuditQueue):
+            self.source_drop_total += self.audit.take_dropped()
+        else:
+            self.audit_dropped += self.audit.take_dropped()
         if self.audit.full() and not self.audit_overloaded:
             self.audit_overloaded = True
             self.free_pending = True
@@ -715,6 +794,9 @@ class Realtime:
         return accepted
 
     def note_audit(self, rid, body):
+        if (isinstance(self.audit, FairAuditQueue) and not self.audit.admission_open(rid)
+                and body['op'] not in self.audit.RESERVED):
+            return
         # Preserve transitions individually; repeatable external input is bounded
         # by (robot, user, code), 256 groups and a global 20/s first-event budget.
         op = body['op']
@@ -740,6 +822,8 @@ class Realtime:
         self.queue_audit(stamped)
 
     def flush_audits(self):
+        if isinstance(self.audit, FairAuditQueue):
+            self.audit.flush_drop_summaries()
         at = self.clock()
         for key, group in list(self.audit_groups.items()):
             if at - group['since'] < 1:
@@ -894,7 +978,10 @@ class Realtime:
                 await peer.socket.close(code=1013)
 
     async def receive(self, ws, *, agent=False):
+        await self.audit._queue.writable()
         packet = await ws.receive()
+        # A frame already waiting on recv has not yet been accepted by us.
+        await self.audit._queue.writable()
         if packet['type'] == 'websocket.disconnect':
             raise WebSocketDisconnect(packet.get('code', 1000))
         raw = packet.get('text')
@@ -987,8 +1074,17 @@ class Realtime:
                     settings = self.cached_access(peer, robots, policy, safety=safe)
                     if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock'):
                         self.policy_controls.add(actor.session)
+                    if rid and isinstance(self.audit, FairAuditQueue) and not self.audit.admission_open(rid):
+                        if msg.t == 'stop':
+                            self.apply([e for e in self.arbiter.stop(rid, actor) if e.target != 'audit'])
+                        raise LeaseError('ROBOT_ARCHIVE_BUSY', '로봇 기록 저장을 확인하세요.', 503)
                     self.apply(self.arbiter.tick())  # expiry before new input
-                    if (self.failed or self.audit_overloaded or self.owner_uncertain) and not safe:
+                    if msg.t == 'lease.take' and self.audit_storage_failed:
+                        io = self.audit._queue.io
+                        if io is not None and not io.pending and io.error is None and not self.audit.full():
+                            self.audit_storage_failed = False
+                            self.audit_overloaded = False
+                    if (self.failed or self.audit_overloaded or self.owner_uncertain) and not safe and msg.t not in ('ping', 'sub'):
                         raise LeaseError('SERVER_BUSY', '서버 기록을 확인하고 있습니다.', 503)
                     if msg.t == 'stop':
                         self.apply(self.arbiter.stop(rid, actor))
@@ -1225,6 +1321,9 @@ class Realtime:
         except TRANSIENT_DB:
             await self.retry_later(ws)
             return
+        if isinstance(self.audit, FairAuditQueue) and not self.audit.reconnect_allowed(rid):
+            await self.retry_later(ws)
+            return
         await ws.accept()
         peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock(), auth_checked=auth_started,
                     budget_at=self.clock(), archive_budget_at=self.clock())
@@ -1317,10 +1416,18 @@ class Realtime:
                 if msg.t == 'state':
                     self.accept_state(rid, peer, msg)
                 elif msg.t == 'event':
-                    effect = Effect('audit', rid, {'op': 'AGENT_EVENT', 'at': now(), **msg.model_dump(mode='json')})
+                    effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'op': 'AGENT_EVENT', 'at': now()})
                     # Parsing never waits behind archival pacing. Exhaustion is
                     # explicit and fail-safe rather than silently losing events.
-                    self.queue_audit(effect)
+                    if isinstance(self.audit, FairAuditQueue) and not self.audit.event_allowed(rid):
+                        self.block_archive_source(rid, 'EVENT_RATE')
+                        if getattr(peer, 'archive_close', None):
+                            await asyncio.shield(peer.archive_close)
+                        return
+                    if not self.queue_audit(effect):
+                        if getattr(peer, 'archive_close', None):
+                            await asyncio.shield(peer.archive_close)
+                        return
                     await asyncio.sleep(0)
                 elif msg.t == 'run.update':
                     # Placeholder: accept matching paused/terminal reports only;
@@ -1393,6 +1500,10 @@ class Realtime:
             await asyncio.sleep(0.025)
             self.apply(self.arbiter.tick())
             self.flush_audits()
+            if len(self.tasks) > 1 and self.tasks[1].done() and not self.tasks[1].cancelled():
+                self.tasks[1].exception()  # observe a failed consumer before replacement
+                self.fail_audit_storage()
+                self.tasks[1] = asyncio.create_task(self.auditor())
             at = self.clock()
             for rid, peer in list(self.agents.items()):
                 if at - peer.last_rx >= 3 and not peer.closing and not peer.audit_waiting:
@@ -1448,9 +1559,64 @@ class Realtime:
             return True
         return not isinstance(exc, TRANSIENT_DB)
 
+    def block_archive_source(self, rid, reason):
+        if not isinstance(self.audit, FairAuditQueue):
+            self.fail_audit_storage(reason)
+            return
+        channel = self.audit.channel(rid)
+        if channel.blocked:
+            return
+        channel.blocked = True
+        channel.retry_at = self.clock() + 1
+        # Physical delivery is scheduled before diagnostic/file work, and only
+        # this robot is revoked. Other robots retain their leases and budgets.
+        self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+        peer = self.agents.get(rid)
+        if peer is not None:
+            peer.auth_checked = float('-inf')
+            peer.closing = True
+            task = asyncio.create_task(self.close_archive_source(rid, peer))
+            peer.archive_close = task
+            self.archive_closers.add(task)
+            task.add_done_callback(self.archive_closers.discard)
+        self.queue_audit(Effect('audit', rid, {'op': 'HISTORY_STORAGE_BLOCKED', 'at': now(),
+            'code': 'HISTORY_STORAGE_BLOCKED', 'data': {'reason': reason}}))
+
+    async def close_archive_source(self, rid, peer):
+        try:
+            await self.send_body(peer, {'t': 'lease', 'lease_id': None, 'holder_type': None})
+            await self.send_body(peer, {'t': 'stop', 'by_user_id': None,
+                                       'stop_ref': self.arbiter.robot(rid).stop_ref})
+        except (Exception, asyncio.CancelledError):
+            pass  # the close reason is also an explicit storage-stop signal
+        finally:
+            with suppress(Exception):
+                await peer.socket.close(code=1013, reason='ROBOT_ARCHIVE_LIMIT')
+
+    def fail_audit_storage(self, reason="DEQUEUE_FAILED"):
+        # A failed dequeue has not transferred ownership: retain the FIFO head
+        # and latch the input gate even if earlier drains cleared overload.
+        first = not self.audit_storage_failed
+        self.audit_storage_failed = self.audit_overloaded = True
+        if first:
+            self.emergency_free()
+            robot = next(iter(self.arbiter.robots), None)
+            if robot is not None:
+                try:
+                    self.queue_audit(Effect('audit', robot, {'op': 'HISTORY_STORAGE_BLOCKED',
+                        'code': 'HISTORY_STORAGE_BLOCKED', 'at': now(), 'data': {'reason': reason}}))
+                except Exception:
+                    log.warning('History fault event could not be retained')
+
     async def auditor(self):
         while True:
-            effect = await self.audit.get()
+            try:
+                effect = await self.audit.get()
+            except Exception as exc:
+                self.fail_audit_storage()
+                log.warning('Realtime history dequeue unavailable (%s); retrying', type(exc).__name__)
+                await asyncio.sleep(.5)
+                continue
             while True:
                 try:
                     ev = await asyncio.to_thread(self.record, effect)
@@ -1463,7 +1629,8 @@ class Realtime:
                             self.audit_dropped += 1
                             break
                         effect = Effect('audit', effect.robot, {'op': 'AUDIT_QUARANTINED',
-                            'at': now(), 'data': {'count': 1, 'error_type': type(exc).__name__}})
+                            'at': effect.body.get('at', now()), 'data': {'count': 1, 'error_type': type(exc).__name__,
+                                **{k: v for k, v in effect.body.get('data', {}).items() if k in ('server_received_at', 'robot_sequence')}}})
                         continue
                     log.warning('Realtime audit unavailable; retrying')
                     await asyncio.sleep(0.5)
@@ -1477,25 +1644,39 @@ def install(app, settings, factory, authorize, api_error):
     app.add_api_websocket_route('/api/v1/ws', realtime.screen_ws)
     app.add_api_websocket_route('/api/v1/agent/ws', realtime.agent_ws)
 
-    def check_csrf(actor, headers):
-        with realtime.stop_factory() as db:
-            session = db.get(Session, UUID(actor.session))
-            csrf = headers.get('x-fh-csrf')
-            if not csrf or not session or digest(csrf) != session.csrf_hash:
-                raise api_error(403, 'FORBIDDEN', '요청 확인 값을 확인하세요.')
+    class StopResponse(JSONResponse):
+        def __init__(self, records, reservations):
+            super().__init__({'requested': True}, status_code=202)
+            self.records, self.reservations = records, reservations
+        async def __call__(self, scope, receive, send):
+            try:
+                await super().__call__(scope, receive, send)
+            finally:
+                # The response object owns the accepted records even if sending
+                # is cancelled. No file/DB operation precedes response delivery.
+                if self.reservations is not None:
+                    for reservation in self.reservations:
+                        realtime.audit.commit(reservation)
+                else:
+                    realtime.apply(self.records)
 
     @app.post('/api/v1/robots/{robot_id}/stop', status_code=202)
     async def stop(robot_id: UUID, request: Request):
         if realtime.owner_connection is None:
             raise api_error(503, 'SERVER_BUSY', '실시간 중재기 연결을 확인하세요.')
-        async def reserved(function):
-            async with asyncio.timeout(DB_READ_TIMEOUT):
-                return await asyncio.get_running_loop().run_in_executor(realtime.stop_executor, function)
-        actor = await reserved(lambda: realtime.identity(request.headers, request.cookies,
-                                                       str(uuid4()), factory=realtime.stop_factory))
-        # HTTP fallback retains CSRF (WS uses Origin). Read it without writing.
-        if not request.headers.get('authorization'):
-            await reserved(lambda: check_csrf(actor, request.headers))
-        await reserved(lambda: realtime.access(actor, [str(robot_id)], 'ROBOT_SUMMARY', factory=realtime.stop_factory))
-        realtime.apply(realtime.arbiter.stop(str(robot_id), actor))
-        return {'requested': True}
+        actor, epoch = await realtime.stop_actor(request.headers, request.cookies, robot_id)
+        with realtime.stop_cache_lock:
+            if epoch != realtime.stop_cache_epoch:
+                raise api_error(503, 'SERVER_BUSY', '권한 변경 후 정지를 다시 요청하세요.')
+            effects = realtime.arbiter.stop(str(robot_id), actor)
+            safety = [e for e in effects if e.target != 'audit']
+            records = [e for e in effects if e.target == 'audit']
+            try:
+                reservations = ([realtime.audit.reserve(e) for e in records]
+                                if isinstance(realtime.audit, FairAuditQueue) else None)
+            except SourceArchiveFull:
+                realtime.apply(safety)
+                realtime.block_archive_source(str(robot_id), 'CAPACITY')
+                raise api_error(503, 'SERVER_BUSY', '로봇 정지 접수 기록을 확인하지 못했습니다.')
+            realtime.apply(safety)
+        return StopResponse(records, reservations)

@@ -165,7 +165,7 @@ def test_failed_write_keeps_unsent_history_and_discards_old_telemetry():
         q.put_nowait({'t': 'cmd.ack', 'seq': 999})
         s._event('NEW_DISCONNECT_EVENT')
         s.restore(q.unsent())
-        restored = s.connect().messages
+        restored = s.connect().messages + tuple(s.pop_history(MAX_BUFFER - 1))
         assert [m['code'] for m in restored if m['t'] == 'event'] == ['FIRST', 'SECOND', 'NEW_DISCONNECT_EVENT']
         assert not any(m.get('seq') == 999 or m.get('stop_ref') == 999 for m in restored)
     asyncio.run(check())
@@ -189,7 +189,7 @@ def test_all_safety_offline_capacity_spills_without_eviction_and_keeps_fifo():
 
 @pytest.mark.parametrize('code', ['SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT', 'EXECUTOR_STALLED',
     'PROTOCOL_MISMATCH', 'TRANSPORT_BACKPRESSURE', 'STOP_GEN_EXHAUSTED',
-    'LEASE_INVALID', 'BRIDGE_STATE_INVALID'])
+    'LEASE_INVALID', 'BRIDGE_STATE_INVALID', 'HISTORY_STORAGE_BLOCKED'])
 def test_full_safety_buffer_rejects_ordinary_without_evicting_safety(code):
     s = Session()
     for n in range(MAX_BUFFER - 1):

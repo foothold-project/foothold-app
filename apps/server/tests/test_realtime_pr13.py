@@ -245,7 +245,7 @@ def test_batched_reads_reserve_control_and_agent_capacity_under_viewer_load(clie
         assert len(rt.policy_pipelines) == 2
         assert len(rt.agents) == (10 if viewers == 20 else 1)
         assert rt.auth_executor is not rt.control_executor is not rt.agent_executor
-        assert all(p.executor._work_queue.qsize() == 0 for p in rt.policy_pipelines.values())
+        assert all(len(p.pending) <= p.limit for p in rt.policy_pipelines.values())
         print(f'VIEWERS={viewers} USERS={len(set(usernames))} DELAY={delay}: cmd={sum(a["ok"] for a in answers)}/20 take_errors={errors} cmd_errors={[a['error']['code'] for a in answers if not a['ok']]} SQL={counts}')
 
 
@@ -285,14 +285,30 @@ def test_multiple_spills_have_independent_storage_and_reuse_after_drain():
 def test_shared_read_capacity_never_builds_executor_queue():
     from concurrent.futures import ThreadPoolExecutor
     from apps.server.fh_server.realtime import ReadAhead
-    gate = threading.Event()
+    gate, all_started = threading.Event(), threading.Event()
+    lock = threading.Lock()
+    started = 0
+    clock = [0.0]
+    def blocked():
+        nonlocal started
+        with lock:
+            started += 1
+            if started == 8:
+                all_started.set()
+        gate.wait(3)
     async def check():
         executor = ThreadPoolExecutor(max_workers=8)
-        pipelines = [ReadAhead(lambda: gate.wait(2), time.monotonic, executor) for _ in range(10)]
+        pipelines = [ReadAhead(blocked, lambda: clock[0], executor) for _ in range(10)]
         try:
-            await asyncio.sleep(.15)
-            assert executor._work_queue.qsize() == 0
-            assert sum(len(p.pending) for p in pipelines) <= 8
+            assert await asyncio.to_thread(all_started.wait, 2)
+            # Every reserved job has actually started and none can complete.
+            # Advancing eligibility cannot admit a ninth job behind these eight.
+            clock[0] += 10
+            for _ in range(10):
+                await asyncio.sleep(.003)
+            assert sum(p.submitted for p in pipelines) == started == 8
+            assert sum(len(p.pending) for p in pipelines) == 8
+            assert all(p.capacity.locked() for p in pipelines)
         finally:
             gate.set()
             await asyncio.gather(*(p.close() for p in pipelines))

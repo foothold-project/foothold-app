@@ -136,9 +136,13 @@ def test_400_event_backlog_does_not_delay_take_confirmation_or_safety(client, se
         run(client, drain)
     with DBSession(client.app.state.engine) as db:
         rows = list(db.scalars(select(Event).where(Event.code.in_(['FAKE_HISTORY', 'LINK_LOSS_TIMEOUT'])).order_by(Event.id)))
+        summaries = list(db.scalars(select(Event).where(Event.robot_id == seeded['robots']['mine'],
+            Event.code == 'AUDIT_DROPPED')))
     ordinary = [r.data['number'] for r in rows if r.code == 'FAKE_HISTORY']
-    assert ordinary == list(range(400))
-    assert next(i for i, r in enumerate(rows) if r.code == 'LINK_LOSS_TIMEOUT') == 400
+    assert ordinary == sorted(set(ordinary)) and all(0 <= n < 400 for n in ordinary)
+    omitted = sum(r.data['count'] for r in summaries if r.data.get('source') == 'ROBOT_HISTORY')
+    assert len(ordinary) + omitted == 400
+    assert next(i for i, r in enumerate(rows) if r.code == 'LINK_LOSS_TIMEOUT') == len(ordinary)
 
 
 @pytest.mark.parametrize('phase', ['hello', 'followup'])

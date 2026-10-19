@@ -35,3 +35,11 @@ AGENT_PROTOCOL_MISMATCH 사건을 남긴다. Client는 0·잠금 및 기존 대�
 프로세스 수명 동안 파일로 보존한다. 4406의 이유 문자열은 정확히 `PROTOCOL_MISMATCH`다.
 옛 서버의 4403이라도 이유가 `PROTOCOL_MISMATCH`로 시작하면 새 Client는 같은 느린
 재연결 정책을 적용한다. 이유 없는 인증/권한 4403과 구별한다.
+
+서버 저장 순서는 로봇별 수신 FIFO이며 서로 다른 로봇은 공정하게 섞일 수 있다.
+기존 Event.data에 서버가 `server_received_at`(UTC ISO)·`robot_sequence`(로봇별 순번)를
+부여한다. 화면 타입은 바꾸지 않는다. 로봇별 접수 한도 512건·2 MiB(진단용 32건·32 KiB
+포함), 초과분 파일 8 MiB를 넘기 전에 STOP·FREE 후 `1013 + ROBOT_ARCHIVE_LIMIT`로
+그 로봇 연결만 닫는다. 이미 접수한 안전 사건은 버리지 않는다. Client는 이 이유를 받으면
+즉시 로컬 STOP·0·잠금과 lease 폐기를 적용하며 재연결이 자동 주행 재개를 뜻하지 않는다.
+상세 접수/복구·HTTP STOP 최초 인증 예외는 서버 README를 따른다.

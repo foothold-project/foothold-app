@@ -728,3 +728,66 @@ Codex 합성 재현의 독립 10흐름/64스레드/450 ms에서 500 ms 이하 �
 원본 검토자의 agent 안전 버퍼 재현도 현재 코드에서 **1 passed**였다. 옛 연결별 archive의
 내부 상태를 전제한 재현은 새 런타임 소유권 회귀로, 독립 10흐름 합성은 앞의 조정 승인
 기준으로 대체했다. 양쪽 검토와 dev 통합은 남은 관문이다.
+
+## PR #13 재확인 r2 보완 (891d1f8 이후)
+
+앞 절의 전역 4096건 FIFO·HTTP STOP 2개 슬롯·무상한 안전 spill 설명은 아래로
+대체한다. 500 ms 권한 상한과 무ACK/재시작 복구 한계는 그대로다. 조정 승인에 따라
+같은 로봇의 수신 FIFO를 보장하며 서로 다른 로봇은 공정하게 순환한다.
+
+| 지적 | 고침과 제거 시 실패하는 회귀 |
+|---|---|
+| Codex R2-1 / Claude N5 | 실제 런타임의 파일 생성·INSERT·SELECT·DELETE·정리를 이력별 지연 생성 daemon 작업자로 옮겼다. `test_gated_robot_file_write_does_not_occupy_other_robots_event_loop`는 INSERT gate를 독립 스레드가 잡은 동안 다른 로봇 STOP의 DB 기록이 끝나야 gate를 푼다. 같은 고침을 agent의 sink 선출력·watchdog gate로도 검사한다. 동기 INSERT 복원 변이를 assertion으로 검출한다. |
+| Codex R2-2 | dequeue까지 auditor 오류 경계에 넣고 소비자 고장은 입력 차단을 유지하며 재시도한다. 예기치 않은 task 종료는 감시가 교체한다. RAM 8건 뒤 파일 SELECT 오류→차단/소비자 생존→9건 원순서 복구를 검사한다. 실제 로봇별 INSERT/SELECT/DELETE 오류는 해당 로봇만 차단하고 다른 로봇 기록은 진행한다. |
+| Codex R2-3 / Claude N1 | 순간 `_work_queue.qsize()==0`을 없앴다. 8개 작업이 실제 시작한 gate를 기다리고 완료를 막은 뒤, 읽기 가능 시각을 진행시켜도 총 제출·실행·예약이 8개를 넘지 않는지 검사한다. 부하 시험은 각 미완료 수≤실행 몫을 검사한다. 대기 슬롯 제거 변이가 실패하며 500 ms는 늘리지 않았다. |
+| Claude B5 | 로봇별 event 100개/s·순간 512개, 512건·2 MiB 논리 한도, 물리 파일 8 MiB를 적용했다. 기록 480건/2 MiB−32 KiB 뒤의 32건·32 KiB는 EXPIRE/연결 종료/저장 오류/누락 수용이다. 안전 사건만 차도 다음 입력을 승인하지 않고 그 로봇 STOP·FREE·1013로 닫는다. 일반/info, 안전/warn, 임의/error 폭주 각각에서 다른 로봇 lease·cmd·STOP·DB 기록 및 전역 busy=거짓을 검사한다. 접수한 안전 사건은 축출하지 않는다. |
+| B5 저장·순서 경계 | RAM 64건/로봇·파일 작업 256개(64개에서 접수 닫기), 대기 응답 예약·DB in-flight까지 논리 한도에 포함한다. 예약 응답이 역순 완료돼도 로봇 FIFO를 지킨다. 480+32건/바이트 한도/물리 8 MiB/로봇 공정 순환을 별도 검사한다. 파일 오류 복구 후 66개 안전 사건의 번호·server_received_at·robot_sequence를 확인한다. 차단 후 EXPIRE·AGENT_DISCONNECTED도 진단용 예약으로 남는지 검사한다. |
+| Claude B6 | 검증된 HTTP STOP 캐시 250 ms/256키, 같은 프로세스 ORM commit 무효화·조회 중 세대 검사, 최초 opaque-token은 단일 SELECT 예외를 적용했다. cold 전용 12개 슬롯과 연결을 쓰며 6명×450 ms는 모두 202, SELECT도 6회다. warm은 DB 호출 금지 gate에서도 202, cold 포화는 503이다. 조회 중 세션 만료도 응답/적용 전에 다시 검사한다. 초기 DB 연결 실패는 전역 무효화 콜백을 등록하지 않으며 정상 close 때 해제한다. 사용자 잠금·보관·역할/조직·session 폐기·logout은 시각 고정 상태에서 즉시 캐시가 사라진다. |
+| HTTP 응답과 보존 | 접수 기록을 RAM에 예약하고 STOP을 적용한 다음 202를 보낸다. ASGI body 전송을 gate로 막아 파일/DB 기록이 시작되지 않았는지, 취소 후에도 원본이 저장되는지, 그동안 다른 로봇 기록이 진행하는지 검사한다. 차단 중 새 접수는 성공 응답을 하지 않는다. |
+
+모든 사건 data에 신뢰된 서버 `server_received_at`·로봇별 `robot_sequence`를 부여한다.
+Event.at과 함께 후속 CSV/시각순 표시의 정렬 근거다. 같은 로봇 일반 사건 생략 후
+남은 사건의 FIFO와 AUDIT_DROPPED의 정확한 count를 400/500 backlog 회귀에 반영했다.
+안전 사건은 앞으로 재정렬하지 않으며 최신 state/ACK만 이력을 앞설 수 있다.
+
+### 복구·자원·정본 동기화
+
+- 파일 오류는 해당 로봇의 원본/작업을 보유해 재시도한다. 64건·256 KiB 이하,
+  파일 작업 0·오류 없음, 최소 1 s 후 새 연결부터 허용하며 옛 lease는 복원하지 않는다.
+  새 lease·신선한 로컬 정지 피드백·unlock·중립이 필요하다. 저장 오류 STOP은 Q7
+  링크 단절 유예와 별개다. 8 MiB/디스크 오류는 저장소를 먼저 복구한다.
+- 예기치 않은 유일 DB auditor의 고장은 조직 입력을 차단한다. 원인을 해결하고 보유한
+  미기록 건을 확인한 뒤 운영자 재시작이 필요하다. 로봇별 파일 오류와 구별한다(Claude N4).
+- HTTP STOP 캐시는 조회 시작부터 250 ms 이내이고 실제 세션 만료도 검사한다.
+  동일 프로세스 ORM logout/폐기/사용자 잠금·보관·역할/조직/세션 토큰·로봇 조직/보관
+  변경은 commit 때 즉시 무효화한다. 외부 프로세스/raw SQL은 TTL로 제한한다.
+  첫 opaque-token 조회 예외는 인증·CSRF·scope를 알기 위한 것이며 미인증 STOP은 없다.
+- DB 상한은 실시간 81(4+8+32+24+12+audit 1)+REST 15=프로세스당 96개다.
+  운영 max_connections에는 관리·마이그레이션·다른 프로세스/복제본도 계산해야 한다(Claude N3).
+  최초 인증 가용 3개에 30개 연결이 몰리는 재시작 측정/증설은 전체 DB 예산을 포함한
+  별도 부하 작업으로 남긴다(N2). 이 PR에서 무조건 늘리지 않은 이유다.
+- 450 ms는 여전히 500 ms 상한에 근접한다(N6). 완료 시각으로 새로 찍지 않으며
+  거부/lease 폐기·명시적 재-take가 필요할 수 있다. 연속 조종 보증은 아니다.
+- 소유 경로 밖 API 정본 §9·§10에 fh-agent/2·4406, 로봇별 FIFO/한도·수신시각/순번,
+  HTTP 최초 인증 예외 및 저장 오류와 Q7 분리를 반영하는 일은 조정 세션에 남긴다.
+  화면 fh-rt/1·Screen*·안전 Core·기존 Core 시험 변경은 0이다.
+
+### r2 실행 결과
+
+| 검사 | 실제 결과 |
+|---|---|
+| 서버 전체 pytest (변이 도구 정상 기준 실행) | **293 passed, 1 warning in 167.48s (0:02:47)**, Alembic head→base→head·메타데이터 차이 0 포함 |
+| agent 전체 pytest | **227 passed**, 5.29 s, 기존 Core 포함 |
+| 서버 변이 | **127/127 assertion 검출, exit 0**, ERROR·MISSED 0 (기존 108+새 19) |
+| agent 변이 | **68/68 KILLED, exit 0**, ERROR·SURVIVED 0 (기존 62+새 6) |
+| 계약 generate --check / wire 소비 tsc / Python·JSON Schema wire | **61개 일치 / exit 0 / 1 passed** |
+| 실제 uvicorn + Client | 정상 및 300 ms DB·400건 backlog에서 take→unlock→중립→비영 가짜 sink→넘김→STOP→0 통과 |
+| 새 저장 경계 단독 pytest | **26 passed**, 15.35 s; agent 새 저장 경계도 전체 227개에 포함 |
+| 변경 범위/정적 검사 | git diff --check 통과, Core·기존 Core 시험·웹·Screen* 변경 0 |
+
+
+초기 r2 전체 실행은 282 passed/2 failed였으며 실패는 이전 400/500개 일반 사건을
+모두 보존한다고 단정한 시험이었다. 조정된 일반 사건 생략+count+남은 FIFO 기준으로
+고친 뒤 최종 전체를 다시 실행했다. 자체 점검의 차단 후 EXPIRE/연결 종료 예약 보완을
+넣기 위해 중단한 121개 실행과 캐시/변이 표적 경계 보완 중 중단한 실행들은 전체 통과로 세지 않았다. 변이의 AttributeError나 실행/
+수집 오류는 검출로 세지 않고, 존재 assertion을 먼저 검사하도록 고친 뒤 재실행했다.

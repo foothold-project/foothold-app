@@ -22,7 +22,7 @@ MAX_SEQ = 2**53 - 1
 MAX_BUFFER = 256
 SAFETY_EVENTS = {"SERVER_LINK_LOST", "LINK_LOSS_TIMEOUT", "EXECUTOR_STALLED",
                  "PROTOCOL_MISMATCH", "TRANSPORT_BACKPRESSURE", "STOP_GEN_EXHAUSTED",
-                 "LEASE_INVALID", "BRIDGE_STATE_INVALID"}
+                 "LEASE_INVALID", "BRIDGE_STATE_INVALID", "HISTORY_STORAGE_BLOCKED"}
 TERMINAL = {"COMPLETED", "ABORTED", "FAILED"}
 
 
@@ -98,11 +98,14 @@ class Session:
                                  lambda m: m.get('data', {}).get('count', 1) if m.get('code') == 'LINK_BUFFER_DROPPED' else 1)
         self.history_ready = asyncio.Event()
         self.emit_history = True
+        self.before_history = None
         self._retry_event = None
         self._buffer_dropped = 0
 
     def retain(self, messages):
         """FIFO survivors, ordinary-first eviction, safety-only disk spill."""
+        if self.before_history is not None:
+            self.before_history()
         for message in messages:
             if message.get('t') in ('event', 'run.update'):
                 try:
@@ -252,6 +255,20 @@ class Session:
         self._event("PROTOCOL_MISMATCH")
         return self._finish((MotionCommand("stop"),), state=True)
 
+    def storage_blocked(self, reason):
+        # This is a local storage fault, not the link-loss Q7 policy. No later
+        # recovery may reuse this lease or replay its motion/unlock intent.
+        self.connected = False
+        self.core.stop('history storage blocked')
+        if self.core.controller is not None:
+            self.core.drop(self.core.controller, 'history storage blocked')
+        self.lease_confirmed = False
+        self.lease_id = self.holder_type = self.holder_run_id = None
+        self.core._void()
+        self._pause('HISTORY_STORAGE_BLOCKED', preserve_reason=True)
+        self._event('HISTORY_STORAGE_BLOCKED', reason=reason)
+        return self._finish((MotionCommand('stop'),))
+
     def transport_overflow(self):
         """Drop this transport, retain a stopped snapshot for the next hello."""
         self.connected = False
@@ -301,7 +318,7 @@ class Session:
         self._pause("CLIENT_SHUTDOWN", preserve_reason=True)
         return self._finish((MotionCommand("stop"),))
 
-    def on_robot_state(self, raw):
+    def on_robot_state(self, raw, *, record_errors=True):
         self._advance()
         # Core's math.isfinite/float conversion cannot accept arbitrary Python
         # integers. Reject such feedback before Core; do not refresh state age.
@@ -311,7 +328,8 @@ class Session:
                 values += raw["cmd_applied"]
             if any(type(v) is int and not -sys.float_info.max <= v <= sys.float_info.max
                    for v in values):
-                self._event("BRIDGE_STATE_INVALID", reason="NUMBER_RANGE")
+                if record_errors:
+                    self._event("BRIDGE_STATE_INVALID", reason="NUMBER_RANGE")
                 return self._finish()
         self.core.on_state(raw)
         return self._finish()
@@ -358,14 +376,23 @@ class Session:
 
     def receive(self, frame):
         received_at = self.now()
-        self._advance()
-        if not self.connected or self.reconnect_required:
-            return self._finish()
         if isinstance(frame, (str, bytes)):
             try:
                 frame = json.loads(frame)
             except (ValueError, UnicodeError, RecursionError):
+                self._advance()
                 return self._finish()
+        urgent_stop = (self.connected and not self.reconnect_required
+                       and isinstance(frame, dict) and frame.get('t') == 'stop')
+        if urgent_stop:
+            self.core.stop("server STOP")  # no lease or user check on STOP
+            if self.before_history is not None:
+                self.before_history()
+        # A due link/executor transition can itself produce history. The STOP
+        # above must reach the sink before advancing any such transition.
+        self._advance()
+        if not self.connected or self.reconnect_required:
+            return self._finish()
         if isinstance(frame, dict) and "proto" in frame and frame["proto"] != "fh-agent/2":
             return self.protocol_mismatch()
         if (not isinstance(frame, dict) or not isinstance(frame.get("t"), str)
@@ -383,7 +410,6 @@ class Session:
         if kind == "lease":
             self._lease(frame)
         elif kind == "stop":
-            self.core.stop("server STOP")  # no lease or user check on STOP
             self._pause("STOP")
             ref = frame.get("stop_ref")
             if (type(ref) is int and 0 < ref <= MAX_SEQ

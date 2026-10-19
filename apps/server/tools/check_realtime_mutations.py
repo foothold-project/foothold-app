@@ -53,7 +53,7 @@ MUTATIONS = [
      '            if False:\n                pass', REVIEW + '::test_disconnect_pending_transfer_is_revoked'),
     ('safety enqueue keeps stale cmd', R, "if body['t'] in ('stop', 'lease', 'cmd'):", "if body['t'] == 'cmd':", REVIEW + '::test_safety_enqueue_discards_pre_stop_commands'),
     ('requester gone accepted', R, 'if pending.actor.connection not in self.screens:', 'if False:', REVIEW + '::test_disconnected_requester_cannot_be_granted_even_before_cleanup'),
-    ('failed input gate ignored', R, "if (self.failed or self.audit_overloaded or self.owner_uncertain) and not safe:", 'if False:', REVIEW + '::test_failed_runtime_refuses_existing_connection_control_but_allows_stop'),
+    ('failed input gate ignored', R, "if (self.failed or self.audit_overloaded or self.owner_uncertain) and not safe and msg.t not in ('ping', 'sub'):", 'if False:', REVIEW + '::test_failed_runtime_refuses_existing_connection_control_but_allows_stop'),
     ('audit overflow does not revoke', R, '            self.audit_overloaded = True\n            self.free_pending = True\n            self.finish_effects()', '            self.audit_overloaded = True', REVIEW + '::test_b1_full_queue_revokes_notifies_keeps_stop_and_recovers'),
     ('delivery policy omitted', R, "self.cached_access(peer, [body['robot']], 'ROBOT_READ')", 'pass', REVIEW + '::test_r7_delivery_checks_cached_policy_without_db'),
     ('replaced state handler gate omitted', R,
@@ -90,15 +90,15 @@ MUTATIONS = [
     ('N4 screen denial bypasses ingress', R, '                if not self.ingress_allowed(peer):', '                if False:', R2 + '::test_n4_screen_denials_spend_ingress_before_validation'),
     ('N4 malformed agent bypasses ingress', 'apps/server/fh_server/realtime.py', 'admitted = True if archive else self.ingress_allowed(peer)', 'admitted = True', 'apps/server/tests/test_realtime_r2.py::test_n4_agent_invalid_frames_are_budgeted'),
     ('N5 emergency interleaves accepted batch', R, '            self.free_pending = True\n            self.finish_effects()', '            self.free_pending = False\n            self.emergency_free()', R2 + '::test_n5_overflow_free_follows_entire_accepted_effect_batch'),
-    ('N6 startup standby never elects', R, '            self.failed = True\n        self.tasks', '            self.failed = True\n            return\n        self.tasks', R2 + '::test_n6_startup_standby_acquires_after_owner_stops'),
+    ('N6 startup standby never elects', R, '            self.failed = True\n        self.watch_stop_invalidations()\n        self.tasks', '            self.failed = True\n            return\n        self.watch_stop_invalidations()\n        self.tasks', R2 + '::test_n6_startup_standby_acquires_after_owner_stops'),
     ('N7 policy transient disconnects', R, '                except TRANSIENT_DB:\n                    age = self.clock() - peer.policy.checked', '                except TRANSIENT_DB:\n                    await self.deny_screen(peer, 1013)\n                    return\n                    age = self.clock() - peer.policy.checked', R2 + '::test_n7_single_policy_db_error_retries_without_dropping_lease'),
     ('N7 agent auth transient disconnects', R, '            except TRANSIENT_DB:\n                if self.agents.get(rid) is not peer:', '            except TRANSIENT_DB:\n                await peer.socket.close(code=1013)\n                return\n                if self.agents.get(rid) is not peer:', 'apps/server/tests/test_realtime_pr13.py::test_brief_agent_verifier_error_retries_before_revoking_fresh_authority'),
     ('N7 uncertain ownership disconnects', R, '                    self.owner_error_since = self.clock()\n                    self.emergency_free()', '                    self.owner_error_since = self.clock()\n                    self.emergency_free()\n                    for peer in self.agents.values():\n                        asyncio.create_task(peer.socket.close(code=1013))', R2 + '::test_n7_unknown_ownership_frees_but_keeps_stop_and_rechecks'),
     ('N7 stale policy fails to revoke', R, '                    if age > 0.5 and not peer.stale_revoked:\n                        self.revoke_actor(peer.actor)', '                    if False:\n                        self.revoke_actor(peer.actor)', R2 + '::test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry'),
     ('N7 retry grace unbounded', R, 'DB_RETRY_GRACE = 5.0', 'DB_RETRY_GRACE = 50.0', R2 + '::test_n7_retry_grace_is_bounded_and_closes_temporarily'),
     ('N8 duplicate RUN release restored', 'apps/server/fh_server/leases.py', 'effects = self.begin(robot, actor, op=None)', 'effects = self.begin(robot, actor)', R2 + '::test_n8_run_takeover_has_no_duplicate_release'),
-    ('M4 event backlog discarded', 'apps/server/fh_server/realtime.py', '                    self.queue_audit(effect)', '                    pass', 'apps/server/tests/test_realtime_r2.py::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
-    ('M4 events bypass bounded audit queue', 'apps/server/fh_server/realtime.py', '        self._unfinished_tasks += 1 - evicted', '        self._unfinished_tasks += 1', 'apps/server/tests/test_realtime_pr13.py::test_audit_capacity_evicts_only_ordinary_and_retains_fifo_and_safety'),
+    ('M4 event backlog discarded', 'apps/server/fh_server/realtime.py', '                    if not self.queue_audit(effect):', '                    if False:', 'apps/server/tests/test_realtime_r2.py::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
+    ('M4 events bypass bounded audit queue', 'apps/server/fh_server/audit.py', '        self._unfinished_tasks += 1 - evicted', '        self._unfinished_tasks += 1', 'apps/server/tests/test_realtime_pr13.py::test_audit_capacity_evicts_only_ordinary_and_retains_fifo_and_safety'),
 
     ('N7 stale read mislabeled forbidden', R, "                except LeaseError:\n                    # A stale snapshot is uncertainty, not an authorization denial.", "                except LeaseError:\n                    await self.deny_screen(peer, 4403)\n                    return\n                    # A stale snapshot is uncertainty, not an authorization denial.", R2 + '::test_n7_stale_successful_read_is_not_a_permanent_authorization_denial'),
 
@@ -119,7 +119,7 @@ MUTATIONS = [
     ('M6 default uses obsolete agent', 'apps/server/tools/check_agent_reconnect.py', "default='WORKTREE'", "default='e0cd2741ef9aecfc5cdd4c4962044213640a2428'", '@agent-reconnect'),
     ('M5 owner cleanup blocks safety loop', R, 'await self.read(conn.close)', 'conn.close()', R3 + '::test_m5_failed_owner_read_cleanup_never_blocks_stop'),
     ('W4 bounded read overlap removed', 'apps/server/fh_server/realtime.py', 'len(self.pending) < self.limit', 'len(self.pending) < 1', 'apps/server/tests/test_realtime_followup.py::test_read_ahead_has_finite_pending_slots_and_start_based_age'),
-    ('W4 archival reader blocks state', 'apps/server/fh_server/realtime.py', '                    self.queue_audit(effect)', '                    self.queue_audit(effect)\n                    await asyncio.sleep(.01)', 'apps/server/tests/test_realtime_followup.py::test_400_event_backlog_does_not_delay_take_confirmation_or_safety'),
+    ('W4 archival reader blocks state', 'apps/server/fh_server/realtime.py', '                    if not self.queue_audit(effect):', '                    await asyncio.sleep(.01)\n                    if not self.queue_audit(effect):', 'apps/server/tests/test_realtime_followup.py::test_400_event_backlog_does_not_delay_take_confirmation_or_safety'),
     ('W4 event FIFO reversed', 'apps/server/fh_server/history.py', 'sequence, result = self.memory.popleft()', 'sequence, result = self.memory.pop()', 'apps/server/tests/test_realtime_pr13.py::test_audit_capacity_evicts_only_ordinary_and_retains_fifo_and_safety'),
     ('W4 robot recheck scans fleet', 'apps/server/fh_server/realtime.py', 'if bound is not None:', 'if False:', 'apps/server/tests/test_realtime_followup.py::test_bound_agent_recheck_reads_one_robot_and_compares_digest'),
     ('W4 hello protocol rejection mislabeled auth', 'apps/server/fh_server/realtime.py', "                        await ws.close(code=4406, reason='PROTOCOL_MISMATCH')", "                        await ws.close(code=4403, reason='PROTOCOL_MISMATCH')", 'apps/server/tests/test_realtime_followup.py::test_old_agent_proto_is_explicit_protocol_close_with_reason_audit[hello]'),
@@ -143,6 +143,29 @@ MUTATIONS = [
     ('PR13 memoized rights bypass session revocation', R, 'or row.revoked_at or row.expires_at <= now()', 'or row.expires_at <= now()', 'apps/server/tests/test_realtime_pr13.py::test_live_rows_still_control_memoized_rights_and_session_validity'),
     ('PR13 screen denial allows input until close', 'apps/server/fh_server/realtime.py', '        peer.closing = True\n        peer.revoke_on_close = True', '        peer.revoke_on_close = True', 'apps/server/tests/test_realtime_pr13.py::test_known_screen_denial_blocks_input_before_close_finishes'),
     ('PR13 known agent denial leaves fresh authority', 'apps/server/fh_server/realtime.py', '            except self.api_error:\n                if self.agents.get(rid) is peer:\n                    self.retire_agent(rid, peer)', "            except self.api_error:\n                if self.agents.get(rid) is peer:\n                    self.apply(self.arbiter.revoke(rid, op='EXPIRE'))", 'apps/server/tests/test_realtime_pr13.py::test_known_agent_denial_cannot_confirm_a_new_take_during_close'),
+    ('R2 dequeue fault fails open', 'apps/server/fh_server/realtime.py', "            except Exception as exc:\n                self.fail_audit_storage()\n                log.warning('Realtime history dequeue", "            except Exception as exc:\n                log.warning('Realtime history dequeue", 'apps/server/tests/test_realtime_storage.py::test_dequeue_failure_latches_gate_and_keeps_auditor_alive'),
+    ('R2 storage fault clears input gate', 'apps/server/fh_server/realtime.py', '        self.audit_storage_failed = self.audit_overloaded = True', '        self.audit_storage_failed = self.audit_overloaded = False', 'apps/server/tests/test_realtime_storage.py::test_dequeue_failure_latches_gate_and_keeps_auditor_alive'),
+    ('R2 dead auditor not supervised', 'apps/server/fh_server/realtime.py', 'if len(self.tasks) > 1 and self.tasks[1].done() and not self.tasks[1].cancelled():', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_failed_auditor_is_restarted_with_gate_closed'),
+    ('R2 robot event rate bypassed', 'apps/server/fh_server/realtime.py', 'if isinstance(self.audit, FairAuditQueue) and not self.audit.event_allowed(rid):', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_one_robot_event_flood_cannot_revoke_or_starve_another[NOTE-info]'),
+    ('R2 robot count unbounded', 'apps/server/fh_server/audit.py', '    MAX_RECORDS = 512', '    MAX_RECORDS = 1000000', 'apps/server/tests/test_realtime_storage.py::test_record_reservations_have_480_admission_slots_and_32_safety_slots'),
+    ('R2 robot bytes unbounded', 'apps/server/fh_server/audit.py', '    MAX_BYTES = 2 * 1024 * 1024', '    MAX_BYTES = 200 * 1024 * 1024', 'apps/server/tests/test_realtime_storage.py::test_payload_quota_and_response_reservations_are_bounded_and_keep_robot_fifo'),
+    ('R2 source fault revokes whole fleet', 'apps/server/fh_server/realtime.py', "        self.apply(self.arbiter.revoke(rid, op='EXPIRE'))\n        peer = self.agents.get(rid)", '        self.emergency_free()\n        peer = self.agents.get(rid)', 'apps/server/tests/test_realtime_storage.py::test_one_robot_event_flood_cannot_revoke_or_starve_another[NOTE-info]'),
+    ('R2 fair robot rotation removed', 'apps/server/fh_server/audit.py', '            self.channels.move_to_end(rid)', '            pass', 'apps/server/tests/test_realtime_storage.py::test_fair_consumer_cannot_drain_one_robot_before_another_ready_robot'),
+    ('R2 response reservation FIFO ignored', 'apps/server/fh_server/audit.py', '            while c.staged and c.staged[0][1]:', '            while c.staged:', 'apps/server/tests/test_realtime_storage.py::test_payload_quota_and_response_reservations_are_bounded_and_keep_robot_fifo'),
+    ('R2 STOP audit runs before response', 'apps/server/fh_server/realtime.py', '        async def __call__(self, scope, receive, send):\n            try:', '        async def __call__(self, scope, receive, send):\n            if self.reservations is not None:\n                for reservation in self.reservations:\n                    realtime.audit.commit(reservation)\n            try:', 'apps/server/tests/test_realtime_storage.py::test_cancelled_http_response_still_owns_stop_record_and_does_not_block_other_robot'),
+    ('R2 STOP cache invalidation removed', 'apps/server/fh_server/realtime.py', '            self.stop_cache_epoch += 1\n            self.stop_cache.clear()', '            pass', 'apps/server/tests/test_realtime_storage.py::test_cached_http_stop_is_invalidated_immediately_by_account_or_session_change[lock]'),
+    ('R2 STOP cold read ignores revocation', 'apps/server/fh_server/realtime.py', 'if epoch != self.stop_cache_epoch:', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_cold_authorization_crossing_revocation_cannot_publish_a_cached_stop'),
+    ('R2 warm STOP waits for DB', 'apps/server/fh_server/realtime.py', 'if cached and started - cached[0] <= self.stop_cache_ttl and cached[2] > now():', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_warm_http_stop_never_waits_for_db_and_saturation_is_explicit'),
+    ('R2 cold STOP has only two slots', 'apps/server/fh_server/realtime.py', 'self.stop_slots = asyncio.Semaphore(12)', 'self.stop_slots = asyncio.Semaphore(2)', 'apps/server/tests/test_realtime_storage.py::test_six_cold_http_stops_use_one_read_each_and_all_are_accepted'),
+    ('R2 physical file cap omitted', 'apps/server/fh_server/history.py', "self.spill.execute('PRAGMA max_page_count=2048')", "self.spill.execute('PRAGMA max_page_count=0')", 'apps/server/tests/test_realtime_storage.py::test_spill_file_has_enforced_eight_mib_limit'),
+    ('R2 file INSERT blocks event loop', 'apps/server/fh_server/history.py', "                self.io.submit('insert', sequence, message)", "                self._disk().execute('INSERT INTO history VALUES (?, ?)', (sequence, pickle.dumps(message)))\n                self.io.submit('peek')", 'apps/server/tests/test_realtime_storage.py::test_gated_robot_file_write_does_not_occupy_other_robots_event_loop'),
+
+    ('R2 blocked source drops shutdown safety', 'apps/server/fh_server/realtime.py', "and body['op'] not in self.audit.RESERVED", 'and True', 'apps/server/tests/test_realtime_storage.py::test_source_shutdown_preserves_reserved_expiry_and_disconnect_records'),
+
+    ('R2 failed startup leaks STOP cache hooks', 'apps/server/fh_server/realtime.py', '        self.owner_connection = self.read_engine.connect()', '        self.watch_stop_invalidations()\n        self.owner_connection = self.read_engine.connect()', 'apps/server/tests/test_realtime_storage.py::test_failed_start_does_not_register_global_stop_cache_listeners'),
+
+    ('R2 cold STOP accepts session expired during read', 'apps/server/fh_server/realtime.py', 'if expires <= now():', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_cold_stop_rechecks_session_expiry_after_the_read'),
+
 ]
 
 
@@ -169,6 +192,10 @@ def run(tree, tests):
 
 
 def main():
+    # Reject stale probes before spending a full database/integration baseline.
+    for name, path, before, _, _ in MUTATIONS:
+        if before not in (ROOT / path).read_text():
+            raise SystemExit('Mutation target missing: ' + name)
     failed = []
     with tempfile.TemporaryDirectory(prefix='fh-realtime-mutations-') as folder:
         tree = Path(folder)
@@ -188,7 +215,7 @@ def main():
             original = file.read_text()
             if before not in original:
                 raise SystemExit('Mutation target missing: ' + name)
-            file.write_text(original.replace(before, after) if name == 'M5 read client deadline removed' else original.replace(before, after, 1))
+            file.write_text(original.replace(before, after) if name in ('M5 read client deadline removed', 'R2 STOP cold read ignores revocation') else original.replace(before, after, 1))
             try:
                 code, output = run(tree, [test])
             finally:

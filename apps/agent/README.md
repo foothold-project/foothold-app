@@ -98,9 +98,22 @@ run.start·재개·실행기 명령/감시는 바인딩된 실행 ID와 정확�
 일반 사건부터 버리고 `LINK_BUFFER_DROPPED.data.count`로 누락 수를 알린다. 안전 사건만
 남았으면 새 일반 사건을 버리고, 새 안전 사건은 프로세스 전용 임시 SQLite 파일에 넘긴다.
 안전 코드는 SERVER_LINK_LOST, LINK_LOSS_TIMEOUT, EXECUTOR_STALLED, PROTOCOL_MISMATCH,
-TRANSPORT_BACKPRESSURE, STOP_GEN_EXHAUSTED, LEASE_INVALID, BRIDGE_STATE_INVALID이며,
-run.update와 인증/프로토콜 거부 SERVER_CLOSED도 보존한다. 파일 오류는 영구 오류로
-드러내고 Client는 물리 STOP·apply(0)를 따로 시도한다. 파일은 재시작 복구 저널이 아니다.
+TRANSPORT_BACKPRESSURE, STOP_GEN_EXHAUSTED, LEASE_INVALID, BRIDGE_STATE_INVALID,
+HISTORY_STORAGE_BLOCKED이며,
+run.update와 인증/프로토콜 거부 SERVER_CLOSED도 보존한다. Client는 파일 제출·run.update
+보관 **전에 sink STOP·apply(0)**를 출력한다. SQLite 생성/INSERT/SELECT/DELETE/정리는
+이력별 지연 생성 daemon 작업자 1개가 맡고 재접속마다 새 작업자를 만들지 않는다.
+파일은 물리 8 MiB·캐시 128 KiB, 파일 작업은 실행 중 포함 최대 256개이며 64개부터
+접수를 닫아 watchdog/수신 루프가 파일 대기를 하지 않게 한다. RAM 255건 + 파일 작업
+최대 256건 + 파일 head 1건이며 송신 큐 128건·in-flight 1건의 실패 복원을 위해 여유를
+예약한다. 이력 파일 오류/고수위는 즉시 STOP·0·잠금, 옛 lease/intent 폐기와
+HISTORY_STORAGE_BLOCKED 기록으로 드러낸다. 막힌 동안 외부 실행기 입력은 접수하지
+않고 bridge 유효 피드백·감시 시계는 계속 처리한다. 이미 접수한 안전 사건은 축출하지
+않으며 파일 작업/미송신 기록이 각 소유자에 남는다. 파일이 정상이고 작업이 모두 끝난
+뒤 새 연결은 가능하지만 자동 unlock/재개하지 않는다. 새 lease→신선한 정지 피드백→
+unlock→새 중립 절차가 필요하다. 공간 부족은 저장소를 먼저 복구한다. 이 정책은 Q7
+링크 단절 유예와 별개이며, 파일은 재시작 복구 저널이 아니다. sans-I/O Session을
+단독 사용하면 호출자가 기록 I/O·출력 순서를 책임지며 실제 비동기 경계는 Client다.
 
 hello와 교체 가능한 최신 state/ACK만 사건 이력을 앞설 수 있다. 사건·run.update끼리는
 재정렬하지 않으며, 재연결 중 새로 생긴 사건도 같은 FIFO 펌프를 거친다. 송신 큐는
@@ -116,6 +129,8 @@ hello와 교체 가능한 최신 state/ACK만 사건 이력을 앞설 수 있다
 알 수 없다. 프로토콜 거부를 확인하면 소켓 작업 취소 완료를 기다리기 전에 STOP·0을 출력한다.
 새 Client는 옛 서버의 `4403 + PROTOCOL_MISMATCH*` 이유도 정지·잠금과
 최소 30 s 재접속 대기로 처리한다. 다른 4401/4403 인증 거부는 영구 중단한다.
+서버의 로봇별 기록 한도 `1013 + ROBOT_ARCHIVE_LIMIT`도 teardown 대기 전에 로컬
+STOP·0·잠금과 lease 폐기를 적용한다. 다른 1013의 기존 고정 재시도/Q7 정책은 유지한다.
 원격측정이 연결되지 않은 필드는 `null`이고
 `event.robot_at`도 `null`이다(주입 단조 시각은 `data.monotonic_s`). 미디어·이진·업로드,
 지도 다운로드·SLAM·층 변경·사람 확인·return 경로 실행은 후속 작업이며 해당 프레임은
