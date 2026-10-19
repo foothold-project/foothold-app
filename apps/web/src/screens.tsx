@@ -41,7 +41,7 @@ function Fleet(c: Ctx) {
       <ul className="fh-list">{list.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
         <button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
           <Chip {...t} /><b>{x.name}</b><span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
-          {c.user.role === 'OPERATOR' && !mine && <span className="lbl">{userName(x.owner)}</span>}
+          {c.user.role === 'OPERATOR' && !mine && <span className="lbl">{userName(x.owner)} · 보기 전용</span>}
         </button></li>; })}</ul>
     </section>
     <section className="lv-card" aria-label="지도">

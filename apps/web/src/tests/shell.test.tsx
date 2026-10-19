@@ -10,7 +10,7 @@ import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '.
 let root: Root | null = null, box: HTMLDivElement;
 // matchMedia 모의: 폭 변경 이벤트까지 흉내(resize(true/false) 로 768px 경계를 넘김)
 let isPhone = false, listeners = new Set<() => void>();
-/** robots = 서버 /robots 응답(기본 = 가짜 3대 전부). 운영 관리자 scope=mine 응답은 mine(id) */
+/** robots = 서버 /robots?scope=all 응답(기본 = 가짜 3대 전부) */
 function mount(phone: boolean, user = 'u-kim', hash = '', robots: Robot[] = ROBOTS) {
   isPhone = phone; listeners = new Set();
   window.matchMedia = ((q: string) => ({ get matches() { return isPhone; }, media: q,
@@ -27,7 +27,6 @@ const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.childNodes[1].textContent);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const robotRow = (name: string) => $$('[aria-label="로봇 목록"] button').find((b) => b.textContent!.includes(name))!;
-const mine = (id: string) => ROBOTS.filter((r) => r.owner === id);
 /** 다른 사람으로 로그인한 것처럼 같은 틀을 다시 그림(가짜 역할 전환 고르개는 없앰 — 역할은 서버 /me) */
 const pickUser = (id: string) => act(() => { root!.render(<App user={USERS.find((u) => u.id === id)} robots={ROBOTS} />); });
 
@@ -76,7 +75,7 @@ describe('역할 전환', () => {
     pickUser('u-lee');
     expect(navLabels()).toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
-    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-7', 'Go2-1']);   // 서버 응답 순서 그대로
+    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 내 로봇 먼저, 남의 로봇은 보기 전용
 
     click(robotRow('Go2-7'));
     const btn = $<HTMLButtonElement>('[aria-label="로봇 상세"] .btn.pri');
@@ -208,16 +207,16 @@ describe('B3 기록 범위', () => {
   });
 });
 
-// 로봇 범위는 서버가 정한다(운영 관리자 GET /robots?scope=mine). 화면은 받은 목록 그대로 — 아래는 담당만 받은 운영자
+// 서버는 전체(scope=all)를 주고, 폰은 내 로봇만(02 §1.2)
 describe('B4 폰 로봇 범위', () => {
   const options = () => [...box.querySelectorAll('select[aria-label="로봇 고르기"] option')].map((o) => o.textContent);
   it('[재현] 폰 운영자 로봇 선택에는 담당 로봇만 나온다', () => {
-    mount(true, 'u-park', '#/history', mine('u-park'));
+    mount(true, 'u-park', '#/history');
     expect(options()).toEqual(['Go2-7']);
   });
-  it('PC 에서 폰으로 바뀌어도 받은 로봇만, 남의 시나리오·기록 0', () => {
-    mount(false, 'u-park', '#/fleet', mine('u-park'));
-    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-7']);
+  it('PC 에서 남의 로봇을 고른 채 폰으로 바뀌면 내 로봇으로 보정, 남의 시나리오·기록 0', () => {
+    mount(false, 'u-park', '#/fleet');
+    click(robotRow('Go2-3'));
     resize(true);
     expect($<HTMLSelectElement>('select[aria-label="로봇 고르기"]').value).toBe('r7');
     click($('nav a[href="#/scenario"]'));
@@ -225,8 +224,8 @@ describe('B4 폰 로봇 범위', () => {
     click($('nav a[href="#/history"]'));
     expect($('main').textContent).not.toContain('Go2-3');
   });
-  it('끊김 띠도 받은 로봇만', () => {
-    mount(true, 'u-park', '#/drive', mine('u-park'));
+  it('끊김 띠도 폰에서는 내 로봇만', () => {
+    mount(true, 'u-park', '#/drive');
     expect($('[data-band]').textContent).not.toContain('Go2-1');
   });
 });

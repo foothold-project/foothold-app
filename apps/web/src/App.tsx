@@ -2,7 +2,7 @@
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서), 나머지는 가짜.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { BrandLogo } from './BrandLogo';
-import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, robotStatus, type Robot, type User } from './fake';
+import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotStatus, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { drive } from './fakeDrive';
 import { BODY, Settings, type Ctx } from './screens';
@@ -21,14 +21,14 @@ export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) 
   </button>;
 }
 
-/** user·robots = 서버 /me·/robots 값(시험은 가짜 자료). robots 는 서버가 정한 범위 그대로 — 화면에서 거르지 않는다.
+/** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨).
  *  logout 이 있으면 머리줄에 로그아웃. note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
 export function App({ user = USERS[0], robots = ROBOTS, logout, note, dev }: { user?: User; robots?: Robot[]; logout?: () => void; note?: string; dev?: string }) {
   const phone = usePhone();
   // 원하는 탭(주소)과 보이는 탭을 나눈다: 보이는 탭은 렌더마다 지금 틀(PC/폰)에서 도출 — 폭이 바뀌어 틀에 없는 탭이면 첫 탭(B1)
   const [want, setWant] = useState(() => location.hash), tab = tabFromHash(want, phone), sub = want.split('/')[2];
-  // 고를 수 있는 로봇 = 서버가 준 목록(운영 관리자는 담당만, 총괄은 전체). 고른 값이 범위 밖이면 첫 로봇
-  const pool = robots;
+  // 고를 수 있는 로봇: PC 는 전체(관제 보기, 내 로봇 먼저), 폰은 내 로봇만(B4). 고른 값이 범위 밖이면 첫 로봇
+  const pool = phone ? myRobots(user, robots) : robotsFor(user, robots);
   // PC 조종 탭은 #/drive/<로봇 id> 이면 그 로봇 화면(F-TO-01). 폰은 머리줄에서 고른 로봇
   const open = !phone && tab === 'drive' && pool.some((r) => r.id === sub), path = open ? `#/drive/${sub}` : `#/${tab}`;
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
@@ -76,6 +76,8 @@ export function App({ user = USERS[0], robots = ROBOTS, logout, note, dev }: { u
       {!phone && <span className="fh-dot" aria-label={`알림 ${attention}건`}><i aria-hidden="true">🔔</i>{attention}</span>}
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
+      {phone && tab === 'history' && logout && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
+        <div className="card"><button type="button" className="btn" onClick={logout}>로그아웃</button></div></details>}
       <Stop phone={phone} onStop={stop} />
     </header>
     {choose != null && !target && <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">

@@ -272,7 +272,7 @@ describe('조종 화면', () => {
   });
 
   it('폰: 조종 탭 바로 조종 화면, 왼쪽 전후·오른쪽 회전 조이스틱, STOP 64px 머리줄 오른쪽 끝', () => {
-    mount(true, 'u-park', '#/drive', ROBOTS.filter((r) => r.owner === 'u-park'));   // 운영자 폰 = 서버가 준 담당 로봇
+    mount(true, 'u-park', '#/drive');
     expect($('header').lastElementChild).toBe($('[data-stop]'));
     expect(parseInt($('[data-stop]').style.minHeight)).toBeGreaterThanOrEqual(64);
     click(btn('조종 시작')); click(btn('잠금 해제')); tick(100);

@@ -76,8 +76,10 @@ export function driveBlock(u: User, r: Robot): string | null {
   return null;
 }
 
-/** 가짜 기록 범위용 내 로봇: 운영자는 담당 로봇만, 총괄은 전체. 화면의 로봇 목록은 서버 응답 그대로(App robots) */
-export const myRobots = (u: User) => (u.role === 'ORG_ADMIN' ? ROBOTS : ROBOTS.filter((r) => r.owner === u.id));
+/** PC 관제·조종 고르기(02 기능 §1.1): 서버가 준 전체(scope=all), 운영자는 내 로봇을 먼저 */
+export const robotsFor = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : [...myRobots(u, list), ...list.filter((r) => r.owner !== u.id)]);
+/** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체 */
+export const myRobots = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : list.filter((r) => r.owner === u.id));
 /** 기록 범위(02 기능 §10): 총괄 전체, 운영자는 내 로봇 사건 + 내 행동 */
 export function eventsFor(u: User) {
   const known = EVENTS.filter((e) => ROBOTS.some((r) => r.id === e.robot));   // 서버 로봇으로 바뀌면 가짜 사건은 0건

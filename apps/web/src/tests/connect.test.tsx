@@ -39,8 +39,8 @@ const signedIn = (me: User, robots: RobotSummary[], more: typeof routes = {}) =>
 
 let root: ReactRoot | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
-async function open(hash = '#/fleet') {
-  window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+async function open(hash = '#/fleet', phone = false) {
+  window.matchMedia = ((q: string) => ({ matches: phone, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
@@ -137,13 +137,43 @@ describe('로그인·세션', () => {
   });
 });
 
-describe('로봇 목록 = 서버 응답 그대로', () => {
-  it('운영 관리자는 scope=mine 으로 받고, 받은 것은 화면에서 거르지 않는다(남의 로봇이 와도 보임)', async () => {
-    serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영'), robot('r-b', 'Go2-B', 'o2', '박운영')]));
+describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
+  const ROBOTS = [robot('r-b', 'Go2-B', 'o2', '박운영'), robot('r-a', 'Go2-A', 'o1', '이운영')];
+  const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
+  const row = (name: string) => [...box.querySelectorAll('[aria-label="로봇 목록"] button')].find((b) => b.textContent!.includes(name))!;
+  it('운영 관리자도 scope=all: 내 로봇 먼저, 남의 로봇은 보기 전용 + 조종 비활성 이유, STOP 은 됨', async () => {
+    serve(signedIn(LEE, ROBOTS));
     await open();
-    expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=mine');
+    expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=all');
     expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-A', 'Go2-B']);
-    expect($('[aria-label="로봇 목록"]')!.textContent).toContain('박운영');   // 남의 로봇 담당자 이름은 서버 owner 값
+    expect(row('Go2-B').textContent).toContain('박운영 · 보기 전용');   // 담당자 이름은 서버 owner 값
+    expect(row('Go2-A').textContent).not.toContain('보기 전용');
+    expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '전체')!.querySelector('b')!.textContent).toBe('2');   // 전체 = scope=all 기준
+
+    click(row('Go2-B'));
+    const go = $<HTMLButtonElement>('[aria-label="로봇 상세"] .btn.pri')!;
+    expect(go.disabled).toBe(true);
+    expect(document.getElementById(go.getAttribute('aria-describedby')!)!.textContent).toContain('박운영님의 로봇입니다');
+    click($('[data-stop]')!);
+    expect($('[data-band]')!.textContent).toContain('Go2-B 정지 요청됨');
+
+    click($('nav a[href="#/drive"]')!);   // 조종 고르기도 전체, 남의 로봇은 조종 비활성 + 이유(F-COM-04)
+    const card = [...box.querySelectorAll('.dv-card')].find((li) => li.textContent!.includes('Go2-B'))!;
+    expect(card.querySelector('[data-why]')!.textContent).toContain('내 로봇만 조종할 수 있습니다');
+  });
+  it('폰: 내 로봇만, 기록 탭 머리줄 ⋯ 에 로그아웃 하나', async () => {
+    serve(signedIn(LEE, ROBOTS, { 'POST /auth/logout': { status: 204 } }));
+    await open('#/fleet', true);
+    expect([...box.querySelectorAll('select[aria-label="로봇 고르기"] option')].map((o) => o.textContent)).toEqual(['Go2-A']);
+    expect($('summary[aria-label="더 보기"]')).toBeNull();   // 기록 탭에만
+    click($('nav a[href="#/history"]')!);
+    expect($('header')!.lastElementChild).toBe($('[data-stop]'));   // STOP 은 여전히 맨 오른쪽
+    const more = $('header details')!;
+    expect([...more.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['로그아웃']);
+    click(more.querySelector('button')!);
+    await flush();
+    expect(calls.some((c) => c.method === 'POST' && c.path === '/auth/logout')).toBe(true);
+    expect($('main[aria-label="로그인"]')).not.toBeNull();
   });
   it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));

@@ -85,3 +85,7 @@ button{cursor:pointer}
 .fh-login form{width:100%;max-width:400px;display:flex;flex-direction:column;gap:18px}
 .fh-login h2{margin:0;font-size:26px;font-weight:700}
 .fh-login .btn.pri{height:52px;font-size:16px}
+.fh-more{position:relative}
+.fh-more>summary{list-style:none;display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:20px;cursor:pointer}
+.fh-more>summary::-webkit-details-marker{display:none}
+.fh-more>.card{position:absolute;right:0;top:calc(100% + 6px);z-index:20;padding:8px;white-space:nowrap}

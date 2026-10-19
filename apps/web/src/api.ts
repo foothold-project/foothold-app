@@ -47,7 +47,7 @@ export const api = {
   async session() { const r = await call<SessionInfo>('GET', '/auth/session'); csrf = r.csrf_token; return r; },
   async logout() { await call<void>('POST', '/auth/logout'); csrf = null; },
   me: () => call<User>('GET', '/me'),
-  /** 서버가 정한 범위 그대로(화면에서 거르지 않음). 쪽 넘김(§1.5)을 끝까지 */
+  /** 쪽 넘김(§1.5)을 끝까지. 화면은 scope=all(02 §1.1) */
   async robots(scope: 'mine' | 'all') {
     const all: RobotSummary[] = [];
     for (let cursor: string | null = ''; cursor != null;) {

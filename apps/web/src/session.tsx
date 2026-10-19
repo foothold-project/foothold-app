@@ -1,5 +1,5 @@
 // 로그인·세션(05 API §2). 열 때 GET /auth/session 으로 CSRF 를 다시 받아 세션을 잇고, 401 이면 로그인 화면.
-// 로그인되면 역할은 /me, 로봇 목록은 /robots(총괄 all, 운영 관리자 mine — 서버 응답 그대로) → App.
+// 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=all(운영 관리자도 전체 — 남의 로봇은 보기 전용, 02 §1.1) → App.
 import { useEffect, useState, type FormEvent } from 'react';
 import type { RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { App } from './App';
@@ -27,7 +27,7 @@ export function Root() {
   const toLogin = (note?: string) => setSt({ at: 'login', note });
   const enter = async () => {
     const me = toUser(await api.me());
-    const robots = (await api.robots(me.role === 'ORG_ADMIN' ? 'all' : 'mine')).map(toRobot);
+    const robots = (await api.robots('all')).map(toRobot);
     setServerData(me, robots);
     resetDrive();   // 가짜 조종 중재기를 서버 로봇 목록으로 새로(조종권·잠금 규칙은 그대로)
     setSt((s) => ({ at: 'app', user: me, robots, n: (s.at === 'app' ? s.n : 0) + 1 }));
