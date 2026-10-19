@@ -205,8 +205,9 @@ class RosNode:
     thread-safe publishers only for emergency ZERO/STOP, including executor stall.
     """
 
-    def __init__(self, config, *, now=time.monotonic):
+    def __init__(self, config, *, now=time.monotonic, extension_factory=None):
         self.config, self.now = config, now
+        self.extension_factory, self.extension = extension_factory, None
         self.sink = self.inputs = None
         self.error = None
         self._closing = threading.Event()
@@ -291,6 +292,8 @@ class RosNode:
             for topic, (typ, _, _) in SENSOR_TOPICS.items():
                 node.create_subscription(getattr(sensor_messages, typ), topic,
                     lambda m, key=topic: self.inputs.sensor(key), sensor_qos)
+            if self.extension_factory is not None:
+                self.extension = self.extension_factory(node)
             executor = SingleThreadedExecutor(context=context)
             executor.add_node(node)
             self.sink.flush()  # startup ZERO/STOP before network connection/hello
@@ -299,6 +302,8 @@ class RosNode:
             while time.monotonic() < startup_until and not self._closing.is_set():
                 executor.spin_once(timeout_sec=0.01)
                 require_single_writer(node)
+                if self.extension is not None:
+                    self.extension.spin()
                 self.sink.flush()
             require_single_writer(node)
             self._loop.call_soon_threadsafe(self._set_ready)
@@ -306,6 +311,8 @@ class RosNode:
                 executor.spin_once(timeout_sec=0.01)
                 require_single_writer(node)
                 self.inputs.stale()
+                if self.extension is not None:
+                    self.extension.spin()
                 self.sink.flush()
         except BaseException as exc:
             self.error = exc
