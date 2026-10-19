@@ -14,6 +14,15 @@ import sys
 import tempfile
 
 MUTATIONS = [
+    ("PR17 incomplete close destroys publishers", "node.py", 'return  # incomplete output: never ACK/destroy live publishers', 'pass'),
+    ("PR17 thread creation skips emergency", "sink.py", '                self._finish_close()\n', '                pass\n'),
+    ("PR17 device receipts refreshed by display", "node.py", '"received_monotonic_s": self.devices[device["key"]]', '"received_monotonic_s": self.now()'),
+    ("PR17 stale sensor accepted", "node.py", 'if 0 <= self.now() - receipt <= STATE_STALE:', 'if True:'),
+    ("PR17 stale sensor display stays OK", "node.py", '"OK" if 0 <= self.now() - receipt <= STATE_STALE else "MISSING"', '"OK"'),
+    ("PR17 startup devices discarded", "__main__.py", 'client.update_devices(bridge.inputs.device_observations())', 'client.update_devices([])'),
+    ("PR17 same stamp fall invisible", "node.py", 'gates += (bool(raw.get("fallen")),)', 'pass'),
+    ("PR17 same stamp fall recovery refreshes Core", "telemetry.py", 'if self._conservative.get("fallen"):', 'if False:'),
+
     ("domain61 permitted", "config.py", '"ROS_DOMAIN_ID": "93"', '"ROS_DOMAIN_ID": "61"'),
     ("Twist SI scaling", "sink.py", 'message.angular.z = velocity',
      'message.angular.z = tuple(x * 2 for x in velocity)'),
@@ -52,7 +61,12 @@ MUTATIONS = [
     ("R5 generation captured after validation", "node.py", 'frame = (accepted, received_at, generation, self.gate.progress_at)', 'frame = (accepted, received_at, self.sink.feedback_generation(), self.gate.progress_at)'),
     ("B3 mailbox loses pending safety edge", "node.py", 'self.mailbox.put(safety=frame)', 'pass'),
     ("B3 telemetry source freshness extended", "telemetry.py", 'and 0 <= self.now() - s["progress_monotonic_s"] <= STATE_STALE', 'and True'),
-    ("N1 second close skips emergency completion", "sink.py", 'self._close_complete.wait()', 'pass'),
+    ("N1 second close skips emergency completion", "sink.py", 'if not self._close_complete.wait(timeout=1.0):', 'if False:'),
+    ("R3-1 same stamp refreshes Core", "node.py", 'if stamp != self._core_stamp or gates != self._core_gates:', 'if True:'),
+    ("R3-2 watchdog join unbounded", "sink.py", 'self._watchdog.join(timeout=0.5)', 'self._watchdog.join()'),
+    ("R3-2 concurrent close unbounded", "sink.py", 'self._close_complete.wait(timeout=1.0)', 'self._close_complete.wait(timeout=10.0)'),
+    ("telemetry not delivered to Client", "node.py", 'self.on_telemetry(self.telemetry.snapshot())', 'pass'),
+    ("sensor receipts discarded", "node.py", 'self.devices[key] = receipt', 'pass'),
     ("old episode admitted", "telemetry.py", 'ep < self.episode:', 'False:'),
     ("NaN accepted", "telemetry.py", 'not number(raw[k]) for k in NUM', 'False for k in NUM'),
     ("source rewind admitted", "telemetry.py", 'stamp < self.sim_t:', 'False:'),
@@ -68,7 +82,11 @@ def main():
     mutations = [("R4 independent watchdog absent in DDS/Core integration", "sink.py",
                   'self._closed.wait(0.005)', 'self._closed.wait(60)')] if synthetic else MUTATIONS
     targets = ["tests/test_ros_bridge_synthetic.py"] if synthetic else [
-        "tests/test_ros_bridge.py", "tests/test_ros_bridge_review.py", "tests/test_ros_bridge_node.py"]
+        "tests/test_ros_bridge.py", "tests/test_ros_bridge_review.py", "tests/test_ros_bridge_node.py",
+        "tests/test_agent_telemetry.py"]
+    # These two loopback acceptance tests run in the full suite. They cannot
+    # distinguish ROS stub mutants and need not allocate ports for every copy.
+    selection = [] if synthetic else ["-k", "not client_fake_server and not reserved_socket"]
     child_env = dict(os.environ)
     if synthetic:
         # The observer parent is not a DDS participant and must not look like a
@@ -89,6 +107,7 @@ def main():
             target.write_text(original.replace(before, after))
             report = dest / "report.json"
             result = subprocess.run([sys.executable, "-m", "pytest", *targets,
+                *selection,
                 "-q", "--tb=short", "-p", "foothold_link_mutation_probe", "--link-mutation-report", str(report)],
                 cwd=dest, env=child_env, capture_output=True, text=True, timeout=25)
             data = json.loads(report.read_text()) if report.exists() else {}

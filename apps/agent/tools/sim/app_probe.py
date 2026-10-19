@@ -19,6 +19,16 @@ from isolation import stamp, write
 ROOT = Path(__file__).resolve().parents[4]
 
 
+def http_client(base):
+    import httpx
+    return httpx.Client(base_url=base, timeout=3, trust_env=False)
+
+
+def screen_connect(url, token):
+    from websockets.sync.client import connect
+    return connect(url, proxy=None, additional_headers={'authorization': 'Bearer ' + token})
+
+
 def bind_server_socket():
     """Reserve one permitted loopback socket; never try a production port."""
     sock = socket.socket()
@@ -39,7 +49,6 @@ def probe(folder, ros_environment, simulation):
     import httpx
     from sqlalchemy import create_engine, select
     from sqlalchemy.orm import Session
-    from websockets.sync.client import connect
     from apps.server.tests.postgres import temporary_postgres
     from apps.server.fh_server.bootstrap import organization
     from apps.server.fh_server.models import Robot, Event
@@ -77,7 +86,7 @@ def probe(folder, ros_environment, simulation):
                 server = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.server.fh_server.main:app',
                     '--fd', str(sock.fileno()), '--workers', '1', '--ws-max-size', '4096', '--no-proxy-headers'],
                     cwd=ROOT, env=env, stdout=server_log, stderr=server_log, pass_fds=(sock.fileno(),))
-                with httpx.Client(base_url=base, timeout=3, trust_env=False) as http:
+                with http_client(base) as http:
                     deadline = time.monotonic() + 12
                     while time.monotonic() < deadline:
                         try:
@@ -122,8 +131,7 @@ def probe(folder, ros_environment, simulation):
                     bridge = subprocess.Popen([sys.executable, '-m', 'foothold_agent.ros_bridge'], cwd=ROOT,
                         env=bridge_env, stdout=bridge_log, stderr=bridge_log)
                     samples = []
-                    with connect(base.replace('http:', 'ws:') + '/api/v1/ws', proxy=None, additional_headers={
-                            'authorization': 'Bearer ' + operator}) as screen:
+                    with screen_connect(base.replace('http:', 'ws:') + '/api/v1/ws', operator) as screen:
                         screen.send(json.dumps({'t': 'sub', 'id': 'd1-observe', 'proto': 'fh-rt/1',
                             'robots': [robot_id], 'streams': ['state']}))
                         deadline = time.monotonic() + 18

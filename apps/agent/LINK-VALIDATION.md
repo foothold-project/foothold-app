@@ -433,3 +433,106 @@ FIFO·공정 순환·512건/2 MiB/8 MiB 및 HTTP STOP 예외는 서버 검증표
 서버 B7 슬롯 대기·join 보완이며 agent 코드·Core·기존 Core 시험 변경은 없다.
 저장 고장이 지속되면 writable 대기 동안 오프라인이고 복구 전 재접속을 시도하지
 않는 점을 README에 명시했다. 이번 실행은 agent **227 passed**(5.41 s)·변이 **68/68 KILLED·exit 0**다. 서버 전체 **300 passed**와 실제 Client 정상/300 ms DB+400건 backlog 통합을 통과했고, 최종 서버 변이는 **130/130 assertion 검출·exit 0**다.
+
+## A1b 측정값 송신·검토 후속 (2026-10-20)
+
+기준 `origin/dev` 2901f73, 브랜치 `feature/agent-telemetry`. 소유 agent 경로만
+변경했으며 safety/Core·기존 Core 시험·server/contracts/web/docs diff는 0이다.
+
+- `Session.update_telemetry()` / `Client.update_telemetry()`는 정제된 로컬 snapshot을
+  복사한다. 측정 캐시는 Core 안전 피드백·명령·lease·deadman을 갱신하지 않는다.
+  매 `_state()`마다 검증한 simulation clock과 수신/progress의 단조 나이 ≤1초를
+  확인한다. 무효/미확인 clock·역행·RESET·stale·미측정 값은 null이며 0/가짜
+  battery를 만들지 않는다. RESET 캐시 무효화가 Core의 state 송신보다 먼저다.
+- pose는 현 계약의 floor_id/x/y/yaw/confidence만 투영한다. map_version_id·SHA·
+  episode·run/source/시각은 로컬 provenance이며 WS에 추가하지 않는다. 기본 실행의
+  MapBinding은 없으므로 pose 각 칸은 null이다. D5 전 서버 location도 null이다.
+- 실제 수신한 L1 cloud·D435i RGB/depth 구독만 다음 hello.devices에 넣는다.
+  센서 자료 대신 시각 3개만 보관하며 수신 전 목록은 비어 있다. 1초 초과는 MISSING이다.
+- PR15 R3-1: 같은 stamp 측정 변화는 캐시에만 반영한다. Core는 달라진 안전 관문이나
+  새 원천 stamp만 받으므로 cmd_age_s 반복으로 «시뮬 상태 끊김»이 가려지지 않는다.
+  owning loop가 mailbox 합침 후 판정하므로 새 stamp 뒤 같은 stamp 측정이 와도
+  Core의 새 원천 표본을 잃지 않는다.
+- PR15 R3-2: 종료 비상 출력은 daemon에서 시도하고 watchdog join ≤0.5초,
+  첫/후속 close 완료 대기 ≤1초다. timeout을 오류로 드러내고 완료 전 publisher를
+  ACK/destroy하지 않는다. 멎은 publisher 호출을 강제로 취소한다고 주장하지 않는다.
+- PR16 권고 1~3·5: HTTP/WS proxy 무시를 가짜 transport 시험·변이로 고정하고,
+  test_motion은 websockets 설치 없이 가짜 모듈로 돈다. validator PYTHONPATH를
+  한 명령에만 한정했고 runtime 상속이 원래 값임을 실제 가짜 shell로 검사한다.
+  README는 사람의 판정 대신 측정 기준점·시간 분해·미관측 수신 시각을 기록한다.
+
+실행 환경 Python 3.12.3 / pytest 9.1.1 / websockets 15.0.1. `python`은 agent의
+기존 임시 가상환경이며 실제 서버 통합은 server requirements-test가 있는 별도
+가상환경에서 실행했다.
+
+| 실행 명령 | 결과 |
+|---|---|
+| `PYTHONPATH=apps/agent python -m pytest apps/agent -q` | **391 passed, 1 skipped**, 합성 ROS opt-in만 제외 |
+| `PYTHONPATH=apps/agent python apps/agent/tools/check_link_mutations.py` | **73/73 KILLED, ERROR 0** |
+| `PYTHONPATH=apps/agent python -m foothold_agent.ros_bridge.check_mutations` | **41/41 KILLED, ERROR 0**, 새 R3-1/R3-2·Client 전달·devices 포함 |
+| `python -m pytest apps/agent/tools/sim -q` | **52 passed**, 가상환경과 websockets 없는 시스템 Python 각각 실행 |
+| `python apps/agent/tools/sim/check_mutations.py --report <local-report.json>` | **18/18 KILLED**, proxy 2개·PYTHONPATH 누출 새 변이 포함 |
+| `PYTHONPATH=.:apps/agent python apps/agent/tools/check_telemetry_integration.py` | **PASS**, 기존 서버 실제 Client 통합 |
+| `git diff --check` / 금지 경로 diff | **통과 / 0** |
+
+새 `test_agent_telemetry.py`는 측정값·각 null 조건·가짜 battery 없음·devices·
+R3-1/R3-2·첫 송신 전 RESET 무효화·coalescing·진입점 연결·유한 숫자 경계를 검사한다.
+가짜 서버 Client 시험은 loopback 9060에서 측정 speed=.5와 pose=(2,3,.25) 뒤,
+새 callback 없이 stale null을 수신한다. 기존 서버 통합 도구는 9060–9079 중 직접
+bind한 포트와 private Unix-socket PostgreSQL만 사용한다. 인증/계약/소유 검사를
+통과한 accept_state를 관측해 speed·pose 수락을 확인하고 화면 WS의 .5→null과
+서버 location=null(D5)을 대조한다. 두 경로 모두 battery.soc=null이다.
+
+시뮬·ROS 노드·systemd unit·domain 61·실기 접촉 0. 합성 ROS 시험도 이번에는
+실행하지 않았다. 실제 sensor QoS/수신·기존 D1 unit 변경·0.30초 burst 기동 확인은
+조정 세션의 후속 1회 검증 범위이며, 여기의 순수 시험으로 대체하지 않는다.
+안전 출력/상태 경계를 건드리므로 dev 합치기 전 두 모델 검토가 필요하다.
+
+### PR17 검토 후속 — B1 및 R1~R7
+
+- Codex B1 / Claude R1: devices의 원래 `received_monotonic_s`를 Session까지
+  전달한다. hello와 매 state의 `devices_changed`에서 다시 만료를 계산하므로 ROS
+  입력이 모두 없어도 OK가 굳지 않는다. 목록은 매 state에 반복해 송신 큐의 최신
+  state 교체에도 변경이 사라지지 않게 했다. 수신 시각은 wire에 넣지 않는다.
+  state t=0 → lidar t=0.5 → stale t=1.1 → 무입력 t=30의 MISSING과,
+  state 없이 센서만 수신한 경우·재연결 없이 회복한 경우를 고정했다.
+- Claude R2: 실제 RosNode finally를 stub으로 실행해 sink.close 예외 뒤 ACK·
+  destroy·executor/context 정리 미실행을 검사한다. return을 지우는 변이를 추가했다.
+- Claude R3: Session의 수신 나이·progress 나이·각 음수 나이·location freshness를
+  개별 snapshot/변이로 검사한다. 두 나이를 한꺼번에 없애는 이전 변이도 유지한다.
+- Claude R4: 종료 스레드 생성/시작 실패 때 호출 스레드에서 비상 0/STOP·정리를
+  시도한다. 이 자원 고갈 대안은 동기식이며, 영구히 멎은 publisher의 실행 시간
+  상한은 보장하지 않는다. 일반 스레드 경로의 join/wait 제한은 유지한다.
+- Codex R1 / Claude R5: 새 WS 시험과 기존 서버 통합 도구가 공유하는 예약 함수는
+  loopback 9060–9079의 빈 socket을 먼저 bind하고 serve/Client에 같은 socket/port를
+  준다. 다른 예약을 건너뛰는 회귀도 추가했다.
+- Claude R6: 시작 seed의 Session/Telemetry에 같은 가짜 시계를 주입한다.
+  두 close 호출자 시험은 1초 제한에 3초의 스케줄링 여유를 두고, 영구 publisher
+  해제는 finally에서 한다.
+- Claude R7: 공유 단조 시계 조건을 문서화했다. 같은 stamp의 새 fallen=true는
+  Core의 기존 표시 사건에 바로 전달하고, 원천 전진 전의 false 회복은 보수적으로
+  보존해 반복 토글로 Core 수신 시각을 늘리지 못하게 했다. devices 만료·stale
+  sensor bundle·시작 seed도 별도 변이로 고정한다.
+
+기존 서버 실제 Client 통합에서 측정 speed/pose 수락→stale null에 더해,
+화면의 센서 목록이 연결 중 OK→MISSING으로 바뀌는 것을 확인했다. 새 검사 역시
+ROS·시뮬·systemd·domain61·실기 없이 실행한다. Core와 기존 Core 시험은 변경하지 않는다.
+
+후속 최종 실행 결과(Python/pytest/WS 버전은 위와 같음):
+
+| 검사 | 결과 |
+|---|---|
+| 전체 `pytest apps/agent -q` | **408 passed, 1 skipped**, 9.41초 |
+| link 변이 도구 | **80/80 KILLED, ERROR 0** |
+| 다리 변이 도구 | **49/49 KILLED, ERROR 0** |
+| 시스템 Python의 sim 도구 시험 | **52 passed** |
+| sim 도구 변이 | **18/18 KILLED** |
+| 실제 Client/기존 서버/private PostgreSQL | **PASS**, speed/pose→stale null 및 연결 중 devices OK→MISSING |
+| 금지 경로·기존 Core 시험 diff / `git diff --check` | **0 / 통과** |
+
+초기 반복 검증에서 제한 포트의 TIME_WAIT가 소진돼 시험 ERROR가 드러났다.
+예약 함수에 SO_REUSEADDR와 독점 listen을 함께 적용했다(SO_REUSEPORT는 쓰지 않음).
+다리 변이는 해당 ROS stub 변이를 구분하지 못하는 두 소켓 시험을 제외한다.
+두 시험은 전체 pytest에서 실제로 실행하며, 최종 전체/서버 통합 재실행도 통과했다.
+수신 시각 보존·hello 재계산 2개와 신선도 경계 5개를 link 변이에 추가했고, 다리에는
+미완료 close·스레드 생성 실패·devices 시각/만료/seed·같은 stamp 낙상 8개를 추가했다.

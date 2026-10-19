@@ -19,9 +19,15 @@ async def run(config):
         loop.add_signal_handler(sig, stop.set)
     try:
         # A closure defers Client construction until local startup ZERO/STOP.
-        sink = await bridge.start(lambda raw: client.on_robot_state(raw) if client is not None else None)
+        sink = await bridge.start(lambda raw: client.on_robot_state(raw) if client is not None else None,
+            on_telemetry=lambda snapshot: client.update_telemetry(snapshot) if client is not None else None,
+            on_devices=lambda devices: client.update_devices(devices) if client is not None else None)
         session = Session()  # always starts latched, including process restart
         client = Client(session, sink, config.settings)
+        # Startup callbacks may have run before Client existed. Seed hello from
+        # actual receptions, then update via the serialized callbacks above.
+        client.update_telemetry(bridge.inputs.telemetry.snapshot())
+        client.update_devices(bridge.inputs.device_observations())
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(bridge.wait_failure()),
                  asyncio.create_task(stop.wait())]
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
