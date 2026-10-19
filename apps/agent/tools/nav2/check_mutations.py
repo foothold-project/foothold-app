@@ -16,7 +16,7 @@ import tempfile
 
 HERE = Path(__file__).resolve().parent
 AGENT = HERE.parents[1]
-MUTATIONS = [('original_receive_deadline_bypassed',
+MUTATIONS = [('approval_reuse_allowed', 'tools/nav2/ledger.py', 'os.O_WRONLY | os.O_CREAT | os.O_EXCL', 'os.O_WRONLY | os.O_CREAT')] + [('original_receive_deadline_bypassed',
   'foothold_agent/executor/nav2/owner.py',
   'if not self._stopping and self.executor.source_expired():',
   'if False:'),

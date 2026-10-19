@@ -69,8 +69,9 @@ runner 기본은 OFFLINE_PLAN_ONLY다. 실행은 별도 승인 + FH_NAV2_EXECUTE
 launch description의 모든 velocity 출력은 /fh_nav/intent로만 remap하며 recovery/smoother/
 collision_monitor/docking 노드는 기동 목록에 없다. 기존 다리 확장만 같은 노드에 붙는다.
 
-실험은 `ledger.py register --experiment <새 runs 경로> --receipt <승인 JSON>`으로 한 번
-등록한다. 승인에는 experiment_id, approval_id, 현재 preregistration.json의 canonical
+실험은 `ledger.py register --experiment runs/nav2-experiments/<experiment_id> --receipt <승인 JSON>`으로 한 번
+등록한다. ID마다 정해진 원장 경로 하나만 허용하고 승인 ID도 원자적으로 한 번만 소비한다.
+같은 승인/실험을 새 출력 폴더에 복제해 다시 시작하는 경로는 없다. 승인에는 experiment_id, approval_id, 현재 preregistration.json의 canonical
 SHA256(`ledger.digest`), approved_trials=[1,2,3,4]가 필요하다. runner가 원장을 자동 생성하거나
 --history로 성공 표본을 고르는 기능은 없다. 새 회차 시작 전 flock 아래 attempt_started를
 append+fsync한다. 같은 회차/실패·BLOCKED 뒤/미정리·중단된 attempt 뒤 재호출은 HOLD다.

@@ -18,8 +18,13 @@ from trial import Trial, aggregate
 from prepare import GTWorld
 
 
+@pytest.fixture(autouse=True)
+def ledger_root(tmp_path,monkeypatch):
+    monkeypatch.setattr('ledger.EXPERIMENTS_ROOT',tmp_path/'runs/nav2-experiments')
+
 def register(tmp_path, name='experiment'):
-    return Ledger.register(tmp_path/name, C, {'experiment_id': name, 'approval_id': 'safety-approval',
+    from ledger import EXPERIMENTS_ROOT
+    return Ledger.register(EXPERIMENTS_ROOT/name, C, {'experiment_id': name, 'approval_id': 'safety-approval-'+name,
         'preregistration_sha256': digest(C), 'approved_trials': [1,2,3,4]})
 
 
@@ -450,5 +455,15 @@ def test_fresh_operator_confirmation_and_fresh_goal_go_are_required(tmp_path):
     other=register(tmp_path,'second')
     for i in range(1,5): succeed(other,i)
     with pytest.raises(ValueError,match='fresh goal-phase GO'):
-        other.approve_go({'experiment_id':'second','approval_id':'safety-approval',
+        other.approve_go({'experiment_id':'second','approval_id':other.registration['approval_id'],
             'preregistration_sha256':digest(C),'approved_trials':list(range(5,11))})
+
+
+def test_registration_cannot_fork_the_same_experiment_or_reuse_approval(tmp_path):
+    from ledger import EXPERIMENTS_ROOT
+    ledger=register(tmp_path)
+    approval={k:ledger.registration[k] for k in ('experiment_id','approval_id','preregistration_sha256','approved_trials')}
+    with pytest.raises(ValueError,match='canonical'):
+        Ledger.register(tmp_path/'other-parent/experiment',C,approval)
+    with pytest.raises(ValueError,match='already consumed'):
+        Ledger.register(EXPERIMENTS_ROOT/'fork',C,{**approval,'experiment_id':'fork'})

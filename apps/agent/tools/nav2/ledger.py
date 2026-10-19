@@ -10,10 +10,37 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import time
 from uuid import uuid4
 
+
+EXPERIMENTS_ROOT = Path(__file__).resolve().parents[4]/'runs/nav2-experiments'
+
+def canonical_folder(experiment_id):
+    if not isinstance(experiment_id,str) or re.fullmatch(r'[A-Za-z0-9_-]{1,80}',experiment_id) is None:
+        raise ValueError('invalid experiment ID')
+    return EXPERIMENTS_ROOT.resolve()/experiment_id
+
+def consume_approval(approval):
+    approval_id = approval.get('approval_id')
+    if not isinstance(approval_id,str) or not approval_id.strip():
+        raise ValueError('explicit approval ID required')
+    used = EXPERIMENTS_ROOT/'.used-approvals'
+    used.mkdir(parents=True,exist_ok=True)
+    path = used/hashlib.sha256(approval_id.encode()).hexdigest()
+    try:
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    except FileExistsError:
+        raise ValueError('approval already consumed; new approval required') from None
+    with os.fdopen(fd,'w') as file:
+        file.write(json.dumps(approval,sort_keys=True)+'\n')
+        file.flush();os.fsync(file.fileno())
+    for folder in (used,EXPERIMENTS_ROOT,EXPERIMENTS_ROOT.parent):
+        directory = os.open(folder,os.O_RDONLY|os.O_DIRECTORY)
+        try: os.fsync(directory)
+        finally: os.close(directory)
 
 def digest(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
@@ -30,6 +57,8 @@ class Ledger:
     def __init__(self, folder, config):
         self.folder, self.config = Path(folder), config
         self.registration = json.loads((self.folder/'registration.json').read_text())
+        if self.folder.resolve() != canonical_folder(self.registration['experiment_id']):
+            raise ValueError('experiment ID must use its unique canonical ledger path')
         if self.registration['preregistration_sha256'] != digest(config):
             raise ValueError('preregistration differs; new approval/registration required')
         if not (self.folder/'attempts.jsonl').is_file():
@@ -42,7 +71,10 @@ class Ledger:
                 or approval.get('approved_trials') != [1, 2, 3, 4]):
             raise ValueError('explicit safety-four approval with matching preregistration required')
         folder = Path(folder)
+        if folder.resolve() != canonical_folder(approval['experiment_id']):
+            raise ValueError('experiment ID must use its unique canonical ledger path')
         folder.mkdir(parents=True, exist_ok=False)
+        consume_approval(approval)
         sync_file(folder/'registration.json', {**approval, 'schema': 'fh-nav2-ledger/1',
                   'registered_wall': time.time(), 'approval_sha256': digest(approval)})
         with (folder/'attempts.jsonl').open('x') as file:
@@ -58,7 +90,8 @@ class Ledger:
     @contextmanager
     def locked(self):
         # Separate processes serialize reservation, result and cleanup appends.
-        with (self.folder/'attempts.jsonl').open('r+') as file:
+        fd = os.open(self.folder/'attempts.jsonl',os.O_RDWR|os.O_APPEND)
+        with os.fdopen(fd,'r+') as file:
             fcntl.flock(file, fcntl.LOCK_EX)
             rows, previous = [], digest(self.registration)
             for line in file:
@@ -104,6 +137,7 @@ class Ledger:
                     or receipt.get('approved_trials') != list(range(5, 11))
                     or any(r['event'] == 'goal_phase_approved' for r in rows)):
                 raise ValueError('fresh goal-phase GO requires clean successful safety four')
+            consume_approval(receipt)
             append({'event': 'goal_phase_approved', 'receipt': receipt, 'receipt_sha256': digest(receipt)})
 
     def reserve(self, trial, isolated_start_id, confirmation):
