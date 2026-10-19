@@ -20,7 +20,7 @@ from starlette.exceptions import HTTPException
 from apps.contracts import models as C
 from .models import Event, Organization, Robot, RobotDevice, Session, User, now
 from .security import digest, hash_password, token, verify_password, web_csrf
-from .robots import attention, live_state, robot_object, robot_objects
+from .robots import attention, device_error, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 
 
@@ -579,7 +579,8 @@ def create_app(settings: Settings | None = None):
                 operators.append(C.OperatorCount(user_id=operator.id, display_name=operator.display_name,
                     robot_count=sum(row.owner_user_id == operator.id for row in rows)))
         return C.Dashboard(robots_total=len(rows), robots_online=sum(online for _, online, _ in snapshots),
-            robots_attention=sum(bool(attention(online, state, row.id in error_ids, policy))
+            robots_attention=sum(bool(attention(online, state,
+                device_error(app.state.realtime, str(row.id), row.id in error_ids), policy))
                 for row, online, state in snapshots), robots_running=0,
             approvals_pending=0, operators=operators)
 

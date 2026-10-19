@@ -40,6 +40,18 @@ def live_state(realtime, rid):
     return online, dict(peer.state) if fresh else {}
 
 
+def reported_devices(realtime, rid):
+    peer = realtime.agents.get(rid)
+    return peer.state.get('devices', []) if peer and not peer.closing else None
+
+
+def device_error(realtime, rid, stored_error):
+    # A connected agent's complete inventory supersedes persisted states;
+    # omitted stored devices become MISSING, including any old ERROR.
+    reported = reported_devices(realtime, rid)
+    return any(d['state'] == 'ERROR' for d in reported) if reported is not None else stored_error
+
+
 def attention(online, state, device_error, settings):
     if not online:
         return ['OFFLINE']
@@ -73,9 +85,9 @@ def robot_objects(db, robots, user, realtime):
         full = user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id
         online, state = live_state(realtime, str(robot.id)) if full else (False, {})
         inventory = devices.get(robot.id, {})
-        peer = realtime.agents.get(str(robot.id)) if full else None
-        if peer and not peer.closing:
-            reported = {d['key']: C.Device(**d) for d in peer.state.get('devices', [])}
+        live_devices = reported_devices(realtime, str(robot.id)) if full else None
+        if live_devices is not None:
+            reported = {d['key']: C.Device(**d) for d in live_devices}
             inventory = {key: value.model_copy(update={'state': 'MISSING'})
                          for key, value in inventory.items() if key not in reported} | reported
         lease = None

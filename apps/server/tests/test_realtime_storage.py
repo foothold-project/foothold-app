@@ -79,29 +79,57 @@ def test_failed_auditor_is_restarted_with_gate_closed(client, rt):
 
 
 @pytest.mark.parametrize('code,severity', [('NOTE', 'info'), ('LINK_LOSS_TIMEOUT', 'warn'), ('CUSTOM', 'error')])
-def test_one_robot_event_flood_cannot_revoke_or_starve_another(client, seeded, rt, code, severity):
+def test_one_robot_event_flood_cannot_revoke_or_starve_another(client, seeded, rt, monkeypatch, code, severity):
     a, b = str(seeded['robots']['mine']), str(seeded['robots']['theirs'])
+    from collections import deque
+    import sys
+    transitions = deque(maxlen=16)
+    original = rt.apply
+    def trace(effects):
+        effects = list(effects)
+        related = [e.body for e in effects if e.robot == b]
+        if related:
+            peer = rt.agents.get(b)
+            transitions.append((sys._getframe(1).f_code.co_name, related,
+                rt.clock()-peer.auth_checked if peer else None,
+                rt.clock()-peer.last_rx if peer else None,
+                [(rt.clock()-p.policy.checked, p.policy.rights.get(b))
+                    for p in rt.screens.values() if p.policy], rt.owner_uncertain))
+        return original(effects)
+    monkeypatch.setattr(rt, 'apply', trace)
     other = {**seeded, 'robots': {**seeded['robots'], 'mine': seeded['robots']['theirs']}}
     with agent(client, seeded) as ag_a, agent(client, other) as ag_b, screen(client, app_token(client, 'two')) as ws:
         lease = take(ws, ag_b, b)
         # Send a burst on the owning event loop so processing cannot be paced by
         # hundreds of TestClient thread round trips (the prior reproduction race).
         async def flood():
-            for n in range(1500):
-                try:
-                    await ag_a._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps({
-                        't': 'event', 'code': code, 'severity': severity, 'robot_at': None,
-                        'data': {'number': n, 'pad': 'x' * 3500}})})
-                except Exception:
-                    break
-            for _ in range(600):
-                if rt.audit.channel(a).blocked:
-                    break
-                await asyncio.sleep(.005)
-            assert rt.audit.channel(a).blocked, 'A single source must be rate/quota bounded'
+            # B is an active healthy connection. Its normal transport heartbeat
+            # separates source isolation from the independent 3 s idle timeout.
+            # Keep real clocks and authorization refreshes during the flood.
+            async def heartbeat():
+                while True:
+                    await ag_b._receive_tx.send({'type': 'websocket.receive', 'text': '{"t":"ping"}'})
+                    await asyncio.sleep(.1)
+            active = asyncio.create_task(heartbeat())
+            try:
+                for n in range(1500):
+                    try:
+                        await ag_a._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps({
+                            't': 'event', 'code': code, 'severity': severity, 'robot_at': None,
+                            'data': {'number': n, 'pad': 'x' * 3500}})})
+                    except Exception:
+                        break
+                for _ in range(600):
+                    if rt.audit.channel(a).blocked:
+                        break
+                    await asyncio.sleep(.005)
+                assert rt.audit.channel(a).blocked, 'A single source must be rate/quota bounded'
+            finally:
+                active.cancel()
+                await asyncio.gather(active, return_exceptions=True)
         run(client, flood)
         assert not rt.audit_overloaded and not rt.audit_storage_failed
-        assert rt.arbiter.robot(b).holder is not None
+        assert rt.arbiter.robot(b).holder is not None, list(transitions)
         assert rt.arbiter.robot(b).holder.lease_id == lease
         assert reply(ws, send(ws, 'cmd', b, lease_id=lease, seq=1, axes=[0, 0, 0]))['ok']
         assert reply(ws, send(ws, 'stop', b))['ok']

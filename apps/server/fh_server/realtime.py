@@ -664,10 +664,14 @@ class Realtime:
         self.policy_controls.discard(sid)
         self.policy_loads.pop(sid, None)
         self.policy_cache.pop(sid, None)
-        for lane, pending in list(self.policy_pipelines.items()):
-            if not self.policy_peers:
-                self.policy_pipelines.pop(lane, None)
-                await pending.close()
+        if not self.policy_peers:
+            pipelines = list(self.policy_pipelines.values())
+            self.policy_pipelines.clear()
+            # Retire every producer before yielding: the close caller can be
+            # cancelled, or another peer can register while shutdown waits.
+            for pending in pipelines:
+                pending.task.cancel()
+            await asyncio.gather(*(pending.close() for pending in pipelines))
 
     async def refresh_policy(self, peer):
         sid = peer.actor.session
@@ -1134,20 +1138,27 @@ class Realtime:
             return
         peer = Peer(ws, actor=actor, last_rx=self.clock(), budget_at=self.clock())
         accepted = False
+        rejection = None
         try:
             try:
                 await self.refresh_policy(peer)
             except self.api_error as exc:
-                await ws.close(code=4401 if exc.status == 401 else 4403)
+                rejection = 4401 if exc.status == 401 else 4403
                 return
             except TRANSIENT_DB:
-                await self.retry_later(ws)
+                rejection = 1013
                 return
             await ws.accept()
             accepted = True
         finally:
             if not accepted:
                 await self.release_policy(peer)
+                # Finish cleanup before publishing a close, which lets the
+                # client cancel the ASGI task immediately on receipt.
+                if rejection == 1013:
+                    await self.retry_later(ws)
+                elif rejection is not None:
+                    await ws.close(code=rejection)
         self.screens[cid] = peer
         sender = asyncio.create_task(self.writer(peer, True))
         urgent_sender = asyncio.create_task(self.replies(peer))
@@ -1181,6 +1192,8 @@ class Realtime:
                     if not safe and rid in self.robot_changes:
                         raise LeaseError('POLICY_STALE', '담당 변경을 확인하고 있습니다.', 503)
                     settings = self.cached_access(peer, robots, policy, safety=safe)
+                    if msg.t in ('lease.take', 'lease.request') and rid in peer.revoked_robots:
+                        raise LeaseError('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.')
                     if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock'):
                         self.policy_controls.add(actor.session)
                     if rid and isinstance(self.audit, FairAuditQueue) and not self.audit.admission_open(rid):
@@ -1487,6 +1500,9 @@ class Realtime:
             if old:
                 old.closing = True
                 await old.socket.close(code=1012)
+            # A validated hello starts a new metadata generation even when the
+            # old socket's finally runs after this peer has replaced it.
+            self.inventory.forget(rid)
             self.agents[rid] = peer
             self.inventory.submit(rid, [d.model_dump(mode='json') for d in hello.devices],
                 hello.robot_model, digest(ws.headers.get('authorization', '')[7:]))

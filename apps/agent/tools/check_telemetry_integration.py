@@ -1,7 +1,8 @@
 """ROS-free actual Client -> existing server -> private PostgreSQL acceptance.
 
 Explicit invocation only, no robot commands, no ROS/systemd/simulation. Requires
-apps/server/requirements-test.txt and agent [link]. Binds 127.0.0.1:9040..9059.
+apps/server/requirements-test.txt and agent [link]. Reserves a loopback socket;
+FH_TEST_PORT_RANGE optionally restricts the available ports.
 """
 import asyncio
 import json
@@ -15,9 +16,17 @@ import socket
 
 @contextmanager
 def server_socket():
+    scoped = os.environ.get('FH_TEST_PORT_RANGE')
+    if scoped:
+        first, last = map(int, scoped.split(':'))
+        if not 1024 <= first <= last <= 65535:
+            raise ValueError('invalid FH_TEST_PORT_RANGE')
+        ports = range(first, last + 1)
+    else:
+        ports = (0,)
     with socket.socket() as sock:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        for port in range(9040, 9060):
+        for port in ports:
             try:
                 sock.bind(('127.0.0.1', port))
                 sock.listen(1)
@@ -25,7 +34,7 @@ def server_socket():
             except OSError:
                 continue
         else:
-            raise RuntimeError('no S1 test port available')
+            raise RuntimeError('no available loopback test port')
         yield sock
 
 ROOT = Path(__file__).resolve().parents[3]

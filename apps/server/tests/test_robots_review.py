@@ -126,6 +126,12 @@ def test_inventory_row_lock_does_not_block_state_ping_or_stop_confirmation(clien
 
 def test_duplicate_device_frame_cannot_close_agent_or_discard_lease(client, seeded, rt, monkeypatch):
     rid = seeded['robots']['mine']
+    # This test changes no policy. Freeze its monotonic clock so the real DB
+    # authorization snapshots stay fresh while testing malformed inventory.
+    # The 500 ms rejection boundary is covered separately with a stale policy.
+    fixed = rt.clock()
+    monkeypatch.setattr(rt, 'clock', lambda: fixed)
+    monkeypatch.setattr(rt.arbiter, 'clock', rt.clock)
     from collections import deque
     import sys
     effects = deque(maxlen=40)

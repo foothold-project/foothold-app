@@ -1,6 +1,6 @@
 # W3-B 실시간 서버 검증 기록
 
-최신 결과와 계약은 문서 끝의 «PR #18 1차 검토 수정» 절을 따른다.
+최신 결과와 계약은 문서 끝의 «PR #18 2차 검토 수정» 절을 따른다.
 이전 절은 해당 커밋의 실행 이력이다.
 
 
@@ -1026,3 +1026,70 @@ dashboard 범위, 담당 변경 때 총괄 holder 유지다. 모든 정상 기�
 기존 안전 문턱·기대값·500ms 권한 상한은 낮추지 않았다. 모든 시험은
 `FH_TEST_PORT_RANGE=9040:9059`와 전용 임시 PostgreSQL Unix socket만 사용한다.
 실제 로봇·ROS·Gazebo·운영/미리보기·배포는 범위 밖이다.
+
+
+## PR #18 2차 검토 수정
+
+2026-10-20. 기준 75a8c741의 Codex R2-B1~B3 및 Claude 권고 1~3을 반영한다.
+수동 변경 소유는 apps/server와 기존 추가 허용된 agent 통합 도구 하나이며, 계약·스키마·
+마이그레이션·웹·안전 Core·leases.py 변경은 없다. UNKNOWN 웹 처리는 조정 지시대로 W2 범위다.
+
+- dashboard의 장치 오류는 DB ERROR 집합만 쓰던 경로를 고쳐 목록·상세와 공통으로
+  연결된 peer의 완전한 최신 devices를 우선한다. 장치 저장을 막은 채 ERROR 진입·
+  DB ERROR/메모리 OK 회복·목록에서 삭제(MISSING) 세 경우의 주의 수가 일치한다.
+  기존 장치 일괄 조회와 2대/12대 쿼리 수 일정 회귀는 유지한다.
+- 마지막 장치 저장 실패는 1초 간격으로 최초 포함 최대 3회 시도한다. 더 최신 snapshot이
+  있으면 옛 실패 snapshot을 복원하지 않는다. 3회 실패한 같은 snapshot의 반복 state는
+  한도를 재설정하지 않으며, 실제 변경이나 새 연결 hello는 새 한도를 받는다.
+  실패는 AGENT_INVENTORY_FAILED 사건으로만 남기고 수신·STOP·lease와 분리한다.
+- hello 모델은 같은 토큰/연결 세대에서 마지막 non-null 값을 보존하므로 state의 None이
+  덮지 않는다. 저장 슬롯 대기 중 hello→state를 합쳐도 실제 Robot.model과 최신 장치가
+  함께 저장되는 회귀를 추가했다. forget/토큰 변경 시 세대·모델·재시도를 폐기한다.
+  이전 쓰기가 실패하는 중 같은 토큰으로 재접속해도 새 hello를 옛 실행 작업과 중복으로
+  취급하지 않는다. 새 hello는 이전 소켓의 finally 실행 순서에 관계없이 저장 세대를
+  명시적으로 새로 시작한다. 로봇별 실행1/최신대기1·독립 풀2·98개 연결 예산은 유지한다.
+- 담당 one→two→one으로 돌아온 화면은 `sub` 전 take/request를
+  **409 SUBSCRIPTION_REQUIRED**로 거절한다. holder/transfer/request 및 STOP 참조를
+  바꾸지 않고, 재구독 뒤 lease가 에이전트와 화면 양쪽에 전달됨을 시험한다.
+- agent telemetry 도구는 예약 소켓을 끝까지 잡고 `FH_TEST_PORT_RANGE`가 있으면 그
+  범위만 사용한다. 범위가 없으면 OS 배정 loopback 포트를 사용하며 작업자 포트 상수는 없다.
+  예약 포트가 사용 중일 때 다른 포트로 넘어가지 않는 단일 범위 시험을 추가했다.
+- 1차에서 한 번 있었던 take 초기 lease-null은 두 검토가 기존 POLICY_STALE fail-safe
+  경계로 판정했다. 중복 장치 시험은 정책을 바꾸지 않는 동안 단조 시계를 고정하여 실제
+  DB에서 검증한 정책의 신선도를 일정하게 한다. 별도 시험은 STOP 확인 순간 정책 나이를
+  0/501ms로 고정해 정상 grant / lease-null→STOP·holder/transfer 없음·cmd/unlock 없음을
+  각각 단언한다. 제품의 500ms 문턱·안전 출력·거부 경로는 바꾸지 않는다.
+- 전체 반복에서 기존 preaccept 인증 거부 시험이 `concurrent.futures.CancelledError`로
+  실패했다. close 전달 뒤 producer를 순서대로 await하던 중 ASGI 취소가 끼면 control
+  producer가 남는 것을 독립 재현했다. 마지막 peer가 나갈 때 모든 producer를 먼저
+  등록부에서 분리·취소하고 함께 종료를 기다리며, preaccept 거부 close는 정리가 끝난
+  뒤 알린다. 정상 거부/일시 오류의 close 순간 등록부가 비었는지와 취소 중 모든 producer가
+  정리되는지를 결정적으로 단언한다. 기존 preaccept 취소 전파 기대값은 유지한다.
+- 같은 반복의 CUSTOM-error 홍수 시험은 B의 holder 없음으로 한 번 실패했다. 최초 표본의
+  회수 출처는 확보하지 못했고 단독 새 프로세스 10회는 모두 통과했다. B를 정상 활성
+  연결로 시험하도록 홍수 중 100ms 간격 ping을 보내 유휴 3초 만료와 source 격리를
+  구분한다. 실제 시계·권한 갱신과 holder/명령/STOP/저장 한도 검증은 유지하고, 재발하면
+  회수 호출 출처·권한/agent 인증 나이·last_rx 나이를 출력하도록 진단을 추가했다.
+
+### 검증
+
+| 검사 | 최종 수정 트리 결과 |
+|---|---|
+| 전체 pytest 1/3 | **340 passed**, 198.91 s |
+| 전체 pytest 2/3 | **340 passed**, 199.91 s |
+| 전체 pytest 3/3 | **340 passed**, 199.54 s — 3회 연속 통과 |
+| Alembic 왕복·ORM 차이·DB 권한 | 전체 실행마다 통과 |
+| 실제 uvicorn + Client 등록·담당 변경·삭제 | 전체 실행마다 통과 |
+| 검토 대상 변이 | 정상 기준 31 passed 뒤 **14/14 assertion 검출** |
+| 전체 변이의 정상 기준 | **340 passed**, 198.45 s |
+| 전체 변이 | **171/171 assertion 검출**, 수집·실행 오류/미검출 0 |
+| 계약 생성물·TypeScript | **67개 일치**, contracts strict tsc 통과 |
+| 기존 안전 selftest | **selftest OK**, 원본·기대값 변경 0 |
+| 별도 telemetry Client | **PASS**, 환경 범위 예약 포트·pose/map_version_id null→stale null·장치 OK→MISSING |
+
+보강 중이던 전체 실행 한 번은 재연결 세대 회귀를 추가하기 위해 101 passed/46.50초에서
+수동 중단(exit 2)했으며 최종 연속 통과에 포함하지 않는다. 최종 검토 대상 정상 기준은
+31 passed/15.17초이고, 새 변이 14개 모두 assertion 실패로 검출했다. preaccept/홍수/2차
+관련 최종 집중 시험은 22 passed/9.53초다. 보강 전 전체 반복은 337 passed/198.78초 뒤
+2 failed·335 passed/197.71초였으며, 실패 이름은 위 preaccept[denied]·홍수[CUSTOM-error]다.
+이 실패 실행을 최종 연속 통과에 포함하지 않는다.

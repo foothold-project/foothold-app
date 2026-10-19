@@ -172,16 +172,25 @@ DB와 사건에는 sha256만 저장하며 조회·수정 응답에는 토큰이 
 화면 proto는 fh-rt/1 그대로이며 기존 웹은 모르는 t를 무시한다(알림 표시는 후속 W2).
 세션 폐기는 기존 4401, 명시적인 범위 밖 `sub` 재시도 거부는 기존 4403이다.
 새 담당자가 조종권을 자동으로 받거나 총괄이 강제로 인수하는 기능은 추가하지 않았다.
+회수됐던 화면이 다시 담당을 받으면 먼저 해당 로봇을 `sub`로 다시 구독해야 한다.
+재구독 전 `lease.take`·`lease.request`는 409 SUBSCRIPTION_REQUIRED이며 STOP·ping은 유지한다.
 
 `GET /dashboard`는 총괄에게 조직 전체, 운영자에게 담당 로봇의 total·online·attention을
 반환한다. attention은 OFFLINE·배터리 기준 미만·ERROR·STOP_LATCHED·장치 ERROR 중
 하나라도 있는 로봇 수다(중복 합산 없음). `robots_running=0`, `approvals_pending=0`은
 실행·결재 구현 전의 값이다. `operators`는 총괄에게 운영자별 담당 로봇 수를, 운영자에게
 빈 배열을 반환한다. 장치 저장은 migration 0006으로 추가한다.
+장치 오류는 목록·상세·dashboard 모두 연결된 에이전트의 최신 장치 목록을 기준으로 한다.
+DB의 옛 ERROR가 현재 목록에서 빠졌으면 MISSING이며 주의로 세지 않는다.
 장치 저장은 수신 루프와 별개의 연결·작업자(각 2개)에서 처리한다. 로봇별 실행 중 1개·최신 대기
 1개만 유지하고 동일 목록을 다시 쓰지 않는다. 저장 실패는 AGENT_INVENTORY_FAILED 사건이며
 state·STOP 확인·ping 수신이나 조종권을 끊지 않는다. hello·state의 중복 장치 key는 거부하고
 잘못된 hello는 AGENT_INVALID_HELLO로 기록한다.
+마지막 snapshot 저장 실패는 1초 간격으로 최초 시도 포함 최대 3회 시도한다. 소진된 동일
+snapshot의 반복 state는 재시도를 재개하지 않으며, 변경된 snapshot 또는 재연결 hello는 새
+한도로 저장한다. 실패 시마다 사건을 남기고 더 최신 snapshot이 있으면 그것을 우선한다.
+hello의 non-null 모델은 같은 연결 세대의 후속 state에 보존한다. 단절·삭제·토큰 변경 때
+이전 세대의 대기/재시도/모델을 폐기하며, 이미 실행 중인 쓰기는 토큰·보관 상태를 검사한다.
 
 회수 시 해당 로봇의 대기 비공개 프레임을 지우며, 송신 lock을 얻은 뒤에도 로봇별 세대·권한을
 검사한다. 안전 출력 뒤 기존 fh-rt/1 lease-null을 먼저 보내고 subscription.revoked를 보낸다.
