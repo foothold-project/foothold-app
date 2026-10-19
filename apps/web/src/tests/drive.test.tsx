@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScreenState } from '../../../contracts/ts';
 import { App } from '../App';
-import { ROBOTS, USERS, type Robot } from '../fake';
+import { ROBOTS, USERS, type Robot } from './fixtures';
 import { tabFromHash } from '../menu';
 import { api, onAuthLost as setAuthLost } from '../api';
 import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, rt } from '../rt';
@@ -674,7 +674,7 @@ describe('PR #12 검토 1차', () => {
     const f = me(200); vi.stubGlobal('fetch', f);
     mount(false, 'u-kim', '#/fleet');
     tick(60_000);
-    expect(f).not.toHaveBeenCalled();
+    expect((f.mock.calls as unknown as [string][]).filter(([u]) => !/\/(dashboard|robots\/)/.test(String(u)))).toEqual([]);   // 관제 요약·상세 말고 인증 확인(REST)은 0
     expect($('header [data-link]').textContent).toContain('연결 끊김');
     expect(FakeWS.all.length).toBeGreaterThan(3);
   });

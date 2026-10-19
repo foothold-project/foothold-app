@@ -175,13 +175,13 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
   const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
   const row = (name: string) => [...box.querySelectorAll('[aria-label="로봇 목록"] button')].find((b) => b.textContent!.includes(name))!;
   it('운영 관리자도 scope=all: 내 로봇 먼저, 남의 로봇은 보기 전용 + 조종 비활성 이유, STOP 은 됨', async () => {
-    serve(signedIn(LEE, ROBOTS));
+    serve(signedIn(LEE, ROBOTS, { 'GET /dashboard': { status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } } }));
     await open();
     expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=all');
     expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-A', 'Go2-B']);
     expect(row('Go2-B').textContent).toContain('박운영 · 보기 전용');   // 담당자 이름은 서버 owner 값
     expect(row('Go2-A').textContent).not.toContain('보기 전용');
-    expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '전체')!.querySelector('b')!.textContent).toBe('2');   // 전체 = scope=all 기준
+    expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '내 로봇')!.querySelector('b')!.textContent).toBe('1');   // 요약은 서버가 담당 범위로 센 값(목록은 전체)
 
     click(row('Go2-B'));
     const go = $<HTMLButtonElement>('[aria-label="로봇 상세"] .btn.pri')!;

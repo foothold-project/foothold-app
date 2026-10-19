@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
-import { ROBOTS, USERS, type Robot } from '../fake';
+import { ROBOTS, USERS, type Robot } from './fixtures';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 import { FakeWS, state } from './fakeWs';
 
