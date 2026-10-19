@@ -1,6 +1,6 @@
 // 로그인·세션(05 API §2). 열 때 GET /auth/session 으로 CSRF 를 다시 받아 세션을 잇고, 401 이면 로그인 화면.
 // 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=all(운영 관리자도 전체 — 남의 로봇은 보기 전용, 02 §1.1) → App.
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { App } from './App';
 import { BrandLogo } from './BrandLogo';
@@ -23,11 +23,13 @@ export const toRobot = (r: RobotSummary): Robot => ({
   listedAt: clock(new Date().toISOString()),
 });
 
-type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; n: number; note?: string };
+/** cancel = 이 로그인 세션에 묶인 취소 신호(화면 요청에 넘김) — 세션이 끝나면 거둬, 늦게 온 답(앞 세션의 401 등)이 다음 세션의 인증을 건드리지 않게 */
+type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; n: number; cancel: AbortSignal; note?: string };
 
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' });
-  const toLogin = (note?: string) => setSt({ at: 'login', note });
+  const live = useRef<AbortController | null>(null);   // 지금 로그인 세션의 취소 신호
+  const toLogin = (note?: string) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); };
   // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇을 비운다. 실시간 연결·조종권은 App 이 내려가며 돌려주고 닫는다.
   // 조직 기준값은 설정 화면 상태라 App 이 내려가며 같이 사라진다
   useEffect(() => { if (st.at === 'login') clearServerData(); }, [st.at]);
@@ -35,7 +37,9 @@ export function Root() {
     const me = toUser(await api.me());
     const robots = (await api.robots('all')).map(toRobot);
     setServerData(me, robots);
-    setSt((s) => ({ at: 'app', user: me, robots, n: (s.at === 'app' ? s.n : 0) + 1 }));
+    live.current?.abort();
+    const g = live.current = new AbortController();
+    setSt((s) => ({ at: 'app', user: me, robots, n: (s.at === 'app' ? s.n : 0) + 1, cancel: g.signal }));
   };
   // 남의 로봇은 실시간 구독이 안 돼(서버가 4403) 목록 요약을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면).
   // 갱신은 이 로그인 세션(사용자·n)에 묶는다: 세션이 바뀌면 진행 중인 요청을 거두고 늦은 답은 버린다. 앞 요청이 안 끝났으면 다음은 건너뜀
@@ -59,7 +63,7 @@ export function Root() {
     return () => { clearInterval(i); gone.abort(); };
   }, [session]);
   useEffect(() => {
-    onAuthLost(() => toLogin(ENDED));
+    onAuthLost((why) => toLogin(why ?? ENDED));
     api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message));
   }, []);
   const logout = () => api.logout().then(() => toLogin(),
@@ -67,7 +71,9 @@ export function Root() {
 
   if (st.at === 'wait') return <div className="fh"><p className="lv-note" style={{ padding: 16 }} role="status">불러오는 중…</p></div>;
   if (st.at === 'login') return <Login note={st.note} enter={enter} />;
-  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} logout={logout} note={st.note} dev={DEV_NOTE} />;
+  // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
+  const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
+  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} dev={DEV_NOTE} />;
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
