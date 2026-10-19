@@ -19,7 +19,7 @@ export class FakeWS {
     if (r) this.recv({ t: 'reply', id: m.id, ok: true, ...r });
   }
   close(code = 1000) { if (this.readyState !== 3) this.drop(code); }
-  open() { this.readyState = 1; this.onopen?.({}); }
+  open() { if (this.readyState !== 0) return; this.readyState = 1; this.onopen?.({}); }   // 닫힌(버린) 소켓은 열리지 않는다
   recv(m: object) { this.onmessage?.({ data: JSON.stringify(m) }); }
   drop(code: number) { this.readyState = 3; this.onclose?.({ code }); }
   of(t: string) { return this.sent.filter((m) => m.t === t); }

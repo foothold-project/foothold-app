@@ -6,7 +6,7 @@ import type { OrgSettings, RobotSummary, User } from '../../../contracts/ts';
 import { api } from '../api';
 import { ROBOTS as MEM_ROBOTS, USERS as MEM_USERS } from '../fake';
 import { rt } from '../rt';
-import { Root } from '../session';
+import { LIST_MS, Root } from '../session';
 import { FakeWS, lease, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -211,9 +211,40 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
     expect(calls.some((c) => c.method === 'POST' && c.path === '/auth/logout')).toBe(true);
     expect($('main[aria-label="로그인"]')).not.toBeNull();
   });
+  it('[B6] 운영 관리자: 구독 못 하는 남의 로봇의 조종권자는 목록 값으로, 목록은 주기적으로 다시 받아 갱신', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const other = robot('r-b', 'Go2-B', 'o2', '박운영');
+      serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영'), { ...other, lease: { holder_type: 'USER', user: { id: 'o2', display_name: '박운영' }, since: '2026-10-19T00:00:00Z' } }]));
+      await open('#/drive/r-b');
+      expect($('[aria-label="조종"]')!.textContent).toContain('박운영님 조종 중(목록');
+      expect($('[aria-label="조종"]')!.textContent).toContain('확인 안 됨');
+      const n = calls.filter((c) => c.path.startsWith('/robots')).length;
+      routes['GET /robots'] = { status: 200, body: { items: [robot('r-a', 'Go2-A', 'o1', '이운영'), other], next_cursor: null } };
+      act(() => { vi.advanceTimersByTime(LIST_MS); });
+      await flush();
+      expect(calls.filter((c) => c.path.startsWith('/robots')).length).toBe(n + 1);
+      expect($('[aria-label="조종"]')!.textContent).toContain('조종권자 확인 안 됨');   // 목록의 null 을 «없음»으로 단정하지 않음
+      expect($('[aria-label="조종"]')!.textContent).not.toContain('조종하는 사람 없음');
+    } finally { vi.useRealTimers(); }
+  });
+  it('[B6] 총괄은 모두 실시간 구독이라 목록을 다시 받지 않음', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      serve(signedIn(KIM, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
+      await open();
+      const n = calls.length;
+      act(() => { vi.advanceTimersByTime(LIST_MS * 3); });
+      await flush();
+      expect(calls.filter((c) => c.path.startsWith('/robots')).length).toBe(calls.slice(0, n).filter((c) => c.path.startsWith('/robots')).length);
+    } finally { vi.useRealTimers(); }
+  });
   it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
     await open();
+    expect($('[aria-label="로봇 목록"]')!.textContent).toContain('상태 확인 중');   // 첫 state 전
+    // 서버는 에이전트가 없는 로봇도 OFFLINE·상태 없음 state 를 보낸다
+    act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
     expect($('[aria-label="로봇 목록"]')!.textContent).toContain('연결 전');
     expect($('[data-band]')!.textContent).toBe('');
     expect($('[aria-label="로봇 상세"] [data-why]')!.textContent).toContain('아직 연결되지 않아');

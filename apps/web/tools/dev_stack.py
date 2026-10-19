@@ -32,10 +32,12 @@ def server(folder: Path, port: int):
     # apps/server/tests/postgres.py 와 같은 방식(유닉스 소켓만, TCP 안 엶) — 자료 폴더만 작업 폴더 안
     data, sock = folder / 'pg', folder / 's'
     sock.mkdir(parents=True, exist_ok=True)
-    initdb(['--auth=trust', '--encoding=UTF8', '--locale=C', '-U', 'postgres'], pgdata=data)
-    pg_ctl(['-w', '-o', f'-h "" -k {sock} -p 5432', '-l', str(folder / 'pg.log'), 'start'], pgdata=data)
+    # SIGTERM 도 Ctrl+C 처럼 — 시작·종료 중 어디서 와도 아래 finally 가 uvicorn·PostgreSQL 을 끈다
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt))
     uv = None
     try:
+        initdb(['--auth=trust', '--encoding=UTF8', '--locale=C', '-U', 'postgres'], pgdata=data)
+        pg_ctl(['-w', '-o', f'-h "" -k {sock} -p 5432', '-l', str(folder / 'pg.log'), 'start'], pgdata=data)
         url = lambda user: URL.create('postgresql+psycopg', username=user, database='postgres',
                                       query={'host': str(sock), 'port': '5432'}).render_as_string(hide_password=False)
         with create_engine(url('postgres')).begin() as c:
@@ -64,14 +66,21 @@ def server(folder: Path, port: int):
         uv = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.server.fh_server.main:app', '--host', '127.0.0.1', '--port', str(port),
                                '--ws-max-size', '4096', '--workers', '1', '--no-proxy-headers'], cwd=ROOT, env=env)
         print(f'서버 {stack["base"]} — 계정·토큰은 {folder / "stack.json"}', flush=True)
-        signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt))
         uv.wait()
     except KeyboardInterrupt:
         pass
     finally:
-        if uv and uv.poll() is None:
-            uv.terminate(); uv.wait(10)
-        pg_ctl(['-w', '-m', 'fast', 'stop'], pgdata=data)
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)   # 정리 중 두 번째 SIGTERM 이 정리를 끊지 않게
+        try:
+            if uv and uv.poll() is None:
+                uv.terminate()
+                try:
+                    uv.wait(10)
+                except subprocess.TimeoutExpired:
+                    uv.kill(); uv.wait()
+        finally:
+            if (data / 'postmaster.pid').exists():
+                pg_ctl(['-w', '-m', 'fast', 'stop'], pgdata=data)
 
 
 def agent(folder: Path):

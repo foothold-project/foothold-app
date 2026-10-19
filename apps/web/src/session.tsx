@@ -10,6 +10,8 @@ import { clearServerData, setServerData, type Robot, type User } from './fake';
 /** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 영상·지도·임무가 서버에서 오면 지운다 */
 export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·조직 기준값과 로봇 연결·상태·배터리·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·임무·결재·기록은 아직 가짜입니다.';
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
+/** 운영 관리자가 구독하지 못하는 남의 로봇 요약(조종권자 등)을 다시 받는 간격 */
+export const LIST_MS = 10_000;
 
 const toUser = (u: ApiUser): User => ({ id: u.id, name: u.display_name, role: u.role });
 const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
@@ -17,6 +19,8 @@ export const toRobot = (r: RobotSummary): Robot => ({
   id: r.id, name: r.name, owner: r.owner?.id ?? '', ownerName: r.owner?.display_name, floor: r.location?.floor_id ?? '',
   battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
   mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined,
+  holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
+  listedAt: clock(new Date().toISOString()),
 });
 
 type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; n: number; note?: string };
@@ -33,6 +37,18 @@ export function Root() {
     setServerData(me, robots);
     setSt((s) => ({ at: 'app', user: me, robots, n: (s.at === 'app' ? s.n : 0) + 1 }));
   };
+  // 남의 로봇은 실시간 구독이 안 돼(서버가 4403) 목록 요약을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면)
+  const polling = st.at === 'app' && st.user.role !== 'ORG_ADMIN';
+  useEffect(() => {
+    if (!polling) return;
+    const i = setInterval(() => api.robots('all').then((rs) => setSt((s) => {
+      if (s.at !== 'app') return s;
+      const robots = rs.map(toRobot);
+      setServerData(s.user, robots);
+      return { ...s, robots };
+    }), () => {}), LIST_MS);
+    return () => clearInterval(i);
+  }, [polling]);
   useEffect(() => {
     onAuthLost(() => toLogin(ENDED));
     api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message));

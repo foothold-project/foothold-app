@@ -6,8 +6,11 @@ export type Floor = { id: string; site: string; name: string };
 /** 로봇 요약 상태(02 §4 «로봇 요약 상태와 실행 상태»). 끊긴 로봇이면 마지막 확인 값 */
 export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' | 'IDLE';
 /** online = connection ONLINE. status null = 아직 상태를 받은 적 없음(연결 전). seenAt = 마지막 확인 시각. mission = current_run(끝나지 않은 실행) 이름.
- *  unknown = 서버와의 실시간 연결이 끊겨 지금 상태를 알 수 없음(rt.withLive) */
-export type Robot = { id: string; name: string; owner: string; ownerName?: string; floor: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string; unknown?: boolean };
+ *  unknown = 지금 상태를 단정할 수 없음(rt.withLive): link 실시간 끊김, wait 첫 state 전, summary 구독 안 하는 로봇(목록 요약 값뿐).
+ *  holder·listedAt = 목록 요약의 조종권자와 그 목록을 받은 시각(구독 안 하는 로봇의 조종권자 표시용) */
+export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
+export type Robot = { id: string; name: string; owner: string; ownerName?: string; floor: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
+  unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string };
 export type Approval = { id: string; kind: string; target: string; by: string; at: string };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
 /** actor = 행동한 사람(없으면 로봇·시스템 사건) */
@@ -62,6 +65,8 @@ export const EVENTS: Event[] = [
 
 /** 상태 표시 하나(03 UX §4): 회색 = 꺼짐, 주황 = 나빠짐, 빨강 = 잠금·끊김 */
 export function robotStatus(r: Robot): { tone: Tone; text: string } {
+  if (r.unknown === 'summary') return { tone: 'off', text: '확인 안 됨' };
+  if (r.unknown === 'wait') return { tone: 'off', text: '상태 확인 중' };
   if (r.unknown) return { tone: 'bad', text: '상태 모름' };
   if (!r.online) return r.status ? { tone: 'bad', text: '끊김' } : { tone: 'off', text: '연결 전' };
   if (!r.status) return { tone: 'off', text: '상태 확인 중' };
@@ -74,7 +79,8 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
 /** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×). 할 수 있으면 null */
 export function driveBlock(u: User, r: Robot): string | null {
   if (u.role !== 'ORG_ADMIN' && r.owner !== u.id) return `${userName(r.owner)}님의 로봇입니다. 내 로봇만 조종할 수 있습니다.`;
-  if (r.unknown) return '서버 연결이 끊겨 조종할 수 없습니다. 네트워크를 확인하세요.';
+  if (r.unknown === 'link') return '서버 연결이 끊겨 조종할 수 없습니다. 네트워크를 확인하세요.';
+  if (r.unknown) return '로봇 상태를 확인하는 중입니다. 잠시 뒤 다시 누르세요.';
   if (!r.online) return r.status ? '연결이 끊겨 조종할 수 없습니다. 현장에서 로봇 전원을 확인하세요.' : '로봇이 아직 연결되지 않아 조종할 수 없습니다. 현장에서 로봇 전원을 확인하세요.';
   return null;
 }

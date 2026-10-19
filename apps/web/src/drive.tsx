@@ -1,7 +1,7 @@
 // 조종 탭(02 기능 F-TO-01~05, 03 UX §5.2·§5.7). 조종권·잠금·STOP 은 실시간 연결(rt.ts)만 부른다 — 판정은 서버 중재기.
 // 영상·지도·시나리오 제어는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
-import { ROLE_NAME, driveBlock, robotStatus, type Robot, type Role, type Tone } from './fake';
+import { ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
 import { Chip, DriveButton, soon, type Ctx } from './screens';
 import './drive.css';
@@ -19,14 +19,20 @@ const clamp = (v: number) => Math.max(-1, Math.min(1, v));
 /** 조종권 요청 창 단추는 마우스·터치로만(F-TO-04 규칙 4): 키보드로 생긴 click 은 detail 0 */
 const pointerOnly = (f: () => void) => (e: MouseEvent) => { if (e.detail > 0) f(); };
 
-function holderText(l: Live, me: string) {
+function who(h: Holder | null, me: string) {
+  if (!h) return '조종하는 사람 없음';
+  if (h.type === 'RUN') return '시나리오 실행 중';
+  return h.id === me ? '다른 창에서 조종 중(나)' : `${h.name}님 조종 중`;
+}
+/** 구독 안 하는 로봇은 목록 요약의 조종권자 + 받은 시각. 목록의 null 은 «없음»으로 단정하지 않는다(서버 목록 lease 가 아직 늘 null) */
+function holderText(l: Live, me: string, r: Robot) {
+  if (r.unknown === 'summary') return r.holder ? `${who(r.holder, me)}(목록 ${r.listedAt})` : '조종권자 확인 안 됨';
   if (l.lease) return '조종 중(나)';
   if (l.busy) return '조종권 넘기는 중';
-  if (!l.holder) return '조종하는 사람 없음';
-  if (l.holder.type === 'RUN') return '시나리오 실행 중';
-  return l.holder.id === me ? '다른 창에서 조종 중(나)' : `${l.holder.name}님 조종 중`;
+  return who(l.holder, me);
 }
-function lockChip(l: Live): { tone: Tone; text: string } {
+function lockChip(l: Live, r: Robot): { tone: Tone; text: string } {
+  if (r.unknown === 'summary') return { tone: 'off', text: '확인 안 됨' };
   if (l.failed) return { tone: 'bad', text: '정지 확인 실패' };
   if (l.busy) return { tone: 'warn', text: '정지 확인 중' };
   if (!l.state || l.state.connection !== 'ONLINE') return { tone: 'off', text: '상태 모름' };
@@ -52,7 +58,7 @@ function Card({ c, r }: { c: Ctx; r: Robot }) {
   const why = driveBlock(c.user, r), id = `why-${r.id}`;
   return <li className="card dv-card">
     <div className="fh-row"><b>{r.name}</b><Chip {...robotStatus(r)} /><span className="mono">{pct(r.battery)}</span></div>
-    <span className="lbl">{holderText(rt.get(r.id), c.user.id)}</span>
+    <span className="lbl">{holderText(rt.get(r.id), c.user.id, r)}</span>
     <button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기' : '직접 조종'}</button>
     {why && <span id={id} className="fh-why" data-why>{why}</span>}
   </li>;
@@ -107,7 +113,7 @@ function Screen(c: Ctx) {
     : l.outgoing ? `${l.holder?.name || '조종하는 사람'}님에게 요청했습니다. (${secs(l.outgoing.until, now)}초)`
     : l.cooldown > now ? `${secs(l.cooldown, now)}초 뒤 다시 요청할 수 있습니다.` : '';
   const q = mine && l.incoming && l.incoming.until > now ? l.incoming : null;
-  const lock = lockChip(l), ready = mine && lock.text === '움직일 수 있음', speed = l.state?.speed;
+  const lock = lockChip(l, r), ready = mine && lock.text === '움직일 수 있음', speed = l.state?.speed;
 
   const actions = mine
     ? <div className="fh-row">{l.state?.latched !== false && <button type="button" className="btn pri" onClick={() => rt.unlock(r.id)}>잠금 해제</button>}
@@ -115,7 +121,7 @@ function Screen(c: Ctx) {
     : <DriveButton c={c} r={r} label="조종 시작" onClick={() => start()} wait={wait} />;
   const line = <div className="fh-row dv-line" aria-label="상태">
     {!c.phone && <h2>{r.name}</h2>}
-    <span>{holderText(l, me)}</span>
+    <span>{holderText(l, me, r)}</span>
     {r.online && speed != null && <span className="mono">{speed.toFixed(1)} m/s</span>}
     {r.online && !c.phone && l.state?.latency_ms != null && <span className="mono">지연 {l.state.latency_ms} ms</span>}
     <span className="mono">{pct(r.battery)}</span>

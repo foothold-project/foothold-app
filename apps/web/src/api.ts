@@ -10,6 +10,7 @@ const FALLBACK: Record<number, string> = {
   429: '요청이 많습니다. 잠시 뒤 다시 시도하세요.',
 };
 const NETWORK = '서버에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요.';
+const SLOW = '서버가 제시간에 답하지 않았습니다.';
 
 /** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못함 */
 export class ApiFail extends Error {
@@ -23,16 +24,20 @@ export const onAuthLost = (f: () => void) => { authLost = f; };
 /** 로그인이 끝났다(401·실시간 4401) — CSRF 를 버리고 화면은 로그인으로 */
 export const expireAuth = () => { csrf = null; authLost(); };
 
-async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+/** ms = 답을 기다리는 한도(없으면 브라우저 기본). 넘으면 요청을 끊고 status 0 */
+async function call<T>(method: string, path: string, body?: unknown, ms?: number): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (method !== 'GET' && csrf) headers['X-FH-CSRF'] = csrf;
-  let res: Response;
+  const stop = new AbortController(), timer = ms ? setTimeout(() => stop.abort(), ms) : undefined;
+  let res: Response, data: unknown;
   try {
-    res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', body: body === undefined ? undefined : JSON.stringify(body) });
-  } catch { throw new ApiFail(0, 'NETWORK', NETWORK); }
-  if (res.status === 204) return undefined as T;
-  const data: unknown = await res.json().catch(() => null);
+    try {
+      res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', signal: stop.signal, body: body === undefined ? undefined : JSON.stringify(body) });
+    } catch { throw new ApiFail(0, 'NETWORK', stop.signal.aborted ? SLOW : NETWORK); }
+    if (res.status === 204) return undefined as T;
+    data = await res.json().catch(() => null);
+  } finally { clearTimeout(timer); }
   if (res.ok) return data as T;
   const e = (data as Partial<ApiError> | null)?.error;
   if (res.status === 401 && path !== '/auth/login' && path !== '/auth/session') expireAuth();
@@ -61,5 +66,5 @@ export const api = {
   settings: () => call<OrgSettings>('GET', '/org/settings'),
   saveSettings: (p: OrgSettingsPatch) => call<OrgSettings>('PATCH', '/org/settings', p),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
-  stop: (robot: string) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`),
+  stop: (robot: string, ms?: number) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, ms),
 };

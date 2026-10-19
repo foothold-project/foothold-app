@@ -4,17 +4,19 @@
 import { useSyncExternalStore } from 'react';
 import type { ErrorBody, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenReply, ScreenState } from '../../contracts/ts';
 import { api, expireAuth, type ApiFail } from './api';
-import type { Robot, Status } from './fake';
+import type { Holder, Robot, Status } from './fake';
 
 /** 요청 응답(조직 기본값)·재요청 제한·무수신 끊김·연결 확인·입력 주기 */
 export const REQUEST_S = 10, COOLDOWN_S = 30, SILENT_MS = 3000, PING_MS = 1000, CMD_MS = 50;
+/** STOP 응답 시한: WS 답이 이만큼 없으면 HTTP 대체 경로(서버는 받는 즉시 답한다), HTTP 도 이만큼 없으면 실패. 재시도 간격 초기화 = 3 s 유지(§9.4).
+ *  수락 전 거부가 REST 로그인 정상인데도 이만큼 이어지면 권한·접속 출처 거부(HTTP 403)로 본다 */
+export const STOP_WS_MS = 2000, STOP_HTTP_MS = 5000, STEADY_MS = 3000, REFUSED_MAX = 3;
 export const FAIL_TEXT = '로봇 정지 확인 실패. 조종권은 비어 있고 로봇은 정지 요청 상태입니다. 현장을 확인한 뒤 다시 조종 시작하세요.';
 export const FREE_TEXT = '조종권이 비었습니다. [조종 시작]으로 받을 수 있습니다.';
 const LINK_LOST = '서버 연결이 끊겼습니다.';
 
 /** idle = 연결 안 함, connecting = 첫 연결 중, lost = 끊김(다시 연결 중), denied = 서버가 거부(다시 연결 안 함) */
 export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number };
-export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
 /** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | failed. 로봇이 멈췄는지는 state 로만 본다 */
 export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'failed'; at: number; n: number; why?: string };   // at = 이 단계가 된 때
 export type Live = {
@@ -67,7 +69,7 @@ const active = new Set<string>();   // 조종 화면이 열린 로봇 — 그 �
 const gone = new Set<string>();     // 내가 돌려준 lease — 반납 전에 나간 늦은 알림이 되살리지 않게
 const waiting = new Map<string, (r: ScreenReply) => void>();
 const subs = new Set<() => void>();
-let ver = 0, n = 0, seq = 0, tries = 0, lastRx = 0, lastPing = 0, want = false;
+let ver = 0, n = 0, seq = 0, tries = 0, refused = 0, lastRx = 0, lastPing = 0, want = false;
 let sock: WebSocket | null = null, robots: string[] = [];
 let retry: ReturnType<typeof setTimeout> | undefined, beat: ReturnType<typeof setInterval> | undefined;
 
@@ -86,14 +88,23 @@ function send(body: Record<string, unknown>, done?: (r: ScreenReply) => void) {
   return true;
 }
 
+/** 지금 소켓을 버림: 처리기를 떼고 닫는다(연결 중이어도 — 나중에 열려 자원이 남지 않게) */
+function drop(code?: number) {
+  const ws = sock; sock = null;
+  if (!ws) return;
+  ws.onopen = ws.onmessage = ws.onclose = null;
+  ws.close(code);
+}
+
 function open() {
-  clearTimeout(retry);
+  clearTimeout(retry); drop();
   if (link.at !== 'lost') setLink({ at: 'connecting' });
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/ws`);
+  let up = -1;   // 열린 시각(-1 = 수락 전)
   sock = ws; lastRx = now();
   ws.onopen = () => {
     if (ws !== sock) return;
-    lastRx = lastPing = now();
+    lastRx = lastPing = up = now(); refused = 0;
     setLink({ at: 'open' });
     send({ t: 'sub', robots, streams: ['state'] });
   };
@@ -101,25 +112,41 @@ function open() {
     if (ws !== sock || typeof e.data !== 'string') return;
     let m: { t?: unknown };
     try { m = JSON.parse(e.data); } catch { return; }
-    lastRx = now(); tries = 0;
+    lastRx = now();
     receive(m);
   };
-  ws.onclose = (e) => { if (ws === sock) closed(e.code); };
+  ws.onclose = (e) => { if (ws === sock) closed(e.code, up < 0 ? -1 : now() - up); };
 }
 
-/** 연결이 끝남: 조종권·요청은 연결에 묶여 있어 모두 비운다(서버도 이 연결의 lease 를 쓰지 못하게 한다) */
-function closed(code: number) {
+const DENIED = { 401: '로그인이 끝났습니다. 다시 로그인하세요.', 403: '서버가 실시간 연결을 거부했습니다(권한 없음). 다시 로그인하거나 총괄 운영 관리자에게 권한을 확인하세요.' };
+/** 영구 거부(4401/4403, 수락 전 HTTP 401/403): 다시 연결하지 않는다. 401 이면 로그인 화면 */
+function deny(status: 401 | 403) {
+  want = false; stopBeat(); clearTimeout(retry); drop();
+  setLink({ at: 'denied', why: DENIED[status] });
+  if (status === 401) expireAuth();
+}
+
+/** 수락 전에 끊김: 브라우저는 HTTP 401/403 도 1006 으로만 알린다. REST 로 로그인을 확인해 401 이면 로그인 화면,
+ *  로그인은 정상인데 수락 전 거부가 이어지면 권한·접속 출처 거부로 보고 멈춘다. REST 도 안 닿으면 서버·네트워크 문제 — 계속 다시 연결 */
+function probe() {
+  api.me().then(() => { if (link.at === 'lost' && ++refused >= REFUSED_MAX) deny(403); },
+    (e: ApiFail) => { if (link.at === 'denied' || !want) return; if (e.status === 401 || e.status === 403) deny(e.status); });
+}
+
+/** 연결이 끝남(upMs = 열려 있던 시간, -1 = 수락 전): 조종권·요청은 연결에 묶여 있어 모두 비운다(서버도 이 연결의 lease 를 쓰지 못하게 한다) */
+function closed(code: number, upMs: number) {
   sock = null;
   for (const [id, l] of live) live.set(id, { ...l, state: null, holder: null, lease: null, busy: null, incoming: null, outgoing: null, neutral: false });
   const fail = [...waiting.values()]; waiting.clear();
   fail.forEach((f) => f({ t: 'reply', id: '', ok: false, error: { code: 'NETWORK', message: LINK_LOST, detail: {} } }));
-  if (code === 4401) { want = false; stopBeat(); setLink({ at: 'denied', why: '로그인이 끝났습니다. 다시 로그인하세요.' }); expireAuth(); return; }
-  if (code === 4403) { want = false; stopBeat(); setLink({ at: 'denied', why: '서버가 실시간 연결을 거부했습니다(권한 없음). 다시 로그인하거나 총괄 운영 관리자에게 권한을 확인하세요.' }); return; }
+  if (code === 4401 || code === 4403) return deny(code === 4401 ? 401 : 403);
   if (!want) { setLink({ at: 'idle' }); return; }
-  // 1013 서버 바쁨·1012 다시 연결 요청은 1 s, 그 밖은 1·2·4·8·10 s(§9.4)
+  // 1013 서버 바쁨·1012 다시 연결 요청은 1 s, 그 밖은 1·2·4·8·10 s — 3 s 넘게 유지된 연결이 끊기면 다시 1 s 부터(§9.4)
+  if (upMs >= STEADY_MS) tries = 0;
   const ms = code === 1013 || code === 1012 ? 1000 : Math.min(10, 2 ** tries++) * 1000;
   setLink({ at: 'lost', why: LINK_LOST, retryAt: now() + ms });
   retry = setTimeout(open, ms);
+  if (upMs < 0) probe();
 }
 
 /** 1 s 마다 ping(조종 중에도 — 받는 쪽 3 s 판정용), 3 s 동안 아무것도 못 받으면 끊김으로 보고 다시 연결 */
@@ -128,7 +155,8 @@ function startBeat() {
   beat = setInterval(() => {
     if (!sock) return;
     const t = now();
-    if (t - lastRx >= SILENT_MS) { const ws = sock; closed(4000); ws.onclose = null; ws.close(); return; }
+    // 열린 채 조용함 = 유지된 연결이 끊김(1 s 부터), 수락 전 3 s 넘게 매달림 = 거부가 아니라 시간 초과(REST 확인 안 함)
+    if (t - lastRx >= SILENT_MS) { const up = sock.readyState === 1; drop(); closed(4000, up ? STEADY_MS : 0); return; }
     if (sock.readyState === 1 && t - lastPing >= PING_MS) { lastPing = t; send({ t: 'ping' }); }
   }, 250);
 }
@@ -219,9 +247,9 @@ export const rt = {
   /** 로그아웃·화면 내림: 쥔 조종권을 먼저 돌려주고 닫는다 */
   disconnect() {
     for (const [id] of live) leave(id);
-    want = false; stopBeat(); clearTimeout(retry);
+    want = false; robots = []; stopBeat(); clearTimeout(retry);
     document.removeEventListener('visibilitychange', onVisible); removeEventListener('pagehide', onPageHide);
-    const ws = sock; sock = null; ws?.close(1000);
+    drop(1000); refused = 0;
     live.clear(); last.clear(); active.clear(); gone.clear(); waiting.clear();
     link = { at: 'idle' }; emit();
   },
@@ -231,9 +259,11 @@ export const rt = {
   watch(id: string) { active.add(id); return () => { active.delete(id); leave(id); }; },
 
   take(id: string) {
-    set(id, { notice: undefined, failed: false });
+    // 받는 중은 보내기 전에 — 결과(CANCELED 등)가 응답보다 먼저 와도 내 것으로 처리한다
+    set(id, { notice: undefined, failed: false, busy: 'take' });
     send({ t: 'lease.take', robot: id }, (r) => {
-      if (r.ok) { if (!get(id).lease) set(id, { busy: 'take' }); return; }
+      if (r.ok) return;
+      set(id, { busy: null });
       if (r.error?.code === 'LEASE_HELD' && get(id).holder?.type === 'USER') return rt.request(id);
       set(id, { notice: say(r.error) });
     });
@@ -270,12 +300,22 @@ export const rt = {
     else if (!l.neutral) { if (!fx && !fw) set(id, { neutral: true }); axes = [0, 0, 0]; }
     send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes });
   },
-  /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼으면 HTTP 대체 경로, 그것도 안 되면 실패를 그대로 */
+  /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼거나 STOP_WS_MS 안에 답이 없으면 HTTP 대체 경로(같은 STOP 을 한 번 더 — 정지는 겹쳐도 안전),
+   *  그것도 STOP_HTTP_MS 안에 안 되면 실패를 그대로. 대체 경로로 넘어간 뒤 늦게 온 WS 답은 버린다(새 STOP·실패를 덮지 않게) */
   stop(id: string) {
     const k = ++n, mark = (s: Pick<Stop, 'phase' | 'why'>) => { if (get(id).stop?.n === k) set(id, { stop: { ...s, at: now(), n: k } }); };
     set(id, { stop: { phase: 'sending', at: now(), n: k } });
-    const http = () => api.stop(id).then(() => mark({ phase: 'fallback' }), (e: ApiFail) => mark({ phase: 'failed', why: e.message }));
-    send({ t: 'stop', robot: id }, (r) => (r.ok ? mark({ phase: 'sent' }) : r.error?.code === 'NETWORK' ? http() : mark({ phase: 'failed', why: say(r.error) })));
+    let via: 'ws' | 'http' = 'ws';
+    const http = () => {
+      via = 'http'; clearTimeout(late);
+      api.stop(id, STOP_HTTP_MS).then(() => mark({ phase: 'fallback' }), (e: ApiFail) => mark({ phase: 'failed', why: e.message }));
+    };
+    const late = setTimeout(() => { if (via === 'ws') http(); }, STOP_WS_MS);
+    send({ t: 'stop', robot: id }, (r) => {
+      if (via !== 'ws') return;
+      clearTimeout(late);
+      if (r.ok) mark({ phase: 'sent' }); else if (r.error?.code === 'NETWORK') http(); else mark({ phase: 'failed', why: say(r.error) });
+    });
   },
   subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },
 };
@@ -285,12 +325,15 @@ const version = () => ver;
 export const useRt = () => useSyncExternalStore(rt.subscribe, version);
 export const useLive = (id: string) => { useRt(); return get(id); };
 
-/** 서버 목록 값 위에 실시간 state 를 얹는다. 실시간이 끊기면 상태를 단정하지 않는다(unknown).
- *  끊긴 로봇은 마지막 ONLINE 상태 + 그 시각(02 F-COM-02) */
+/** 서버 목록 값 위에 실시간 state 를 얹는다. 상태를 단정할 수 없으면 unknown(02 F-COM-02):
+ *  link = 실시간이 끊김, wait = 이번 연결의 첫 state 전(소켓이 열린 것은 로봇 확인이 아니다),
+ *  summary = 구독하지 않는 로봇(운영 관리자에게 남의 로봇) — 목록 요약 값뿐이고 서버의 목록 연결값은 아직 실제가 아니라 확인 안 됨.
+ *  끊긴 로봇은 마지막 ONLINE 상태 + 그 시각 */
 export function withLive(r: Robot): Robot {
-  if (link.at === 'lost' || link.at === 'denied') return { ...r, online: false, unknown: true };
+  if (!robots.includes(r.id)) return { ...r, online: false, unknown: 'summary' };
+  if (link.at === 'lost' || link.at === 'denied') return { ...r, online: false, unknown: 'link' };
   const s = live.get(r.id)?.state;
-  if (!s) return r;
+  if (!s) return { ...r, online: false, unknown: 'wait' };
   if (s.connection === 'ONLINE') return { ...r, online: true, status: s.status, battery: s.battery?.soc ?? null, seenAt: clock() };
   const k = last.get(r.id);
   return { ...r, online: false, status: k?.status ?? r.status, battery: k?.battery ?? r.battery, seenAt: k?.at ?? r.seenAt };
