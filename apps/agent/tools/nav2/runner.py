@@ -89,6 +89,10 @@ def classify_rejection(trial, executor):
         trial.finish('FAILED', 'UNSUPPORTED_COMMAND')
 
 
+def failure_reason(exc):
+    return str(exc) or type(exc).__name__
+
+
 async def _execute(args, config, policy):
     # This function was NOT executed in A3a-1. Node construction occurs only here.
     from foothold_agent.ros_bridge.config import validate_isolation
@@ -127,9 +131,19 @@ async def _execute(args, config, policy):
     manual = name.startswith('manual')
     trigger = None
     seq = 0
+    failures = []
 
     def emit(record):
         log.emit({'schema': 'fh-nav2-trial/1', **record})
+
+    def drain(records):
+        submitted = 0
+        try:
+            for event in records:
+                emit(event)
+                submitted += 1
+        finally:
+            del records[:submitted]  # retain the unsent suffix, never replay a submitted prefix
 
     def feed_state(raw):
         if owner is not None:
@@ -152,6 +166,11 @@ async def _execute(args, config, policy):
             if not manual and executor.binding is None and session.run and session.run['status'] in ('RUNNING', 'PAUSED'):
                 owner._apply(session.executor_command(run_id, Z))
             owner.tick()
+            # Preflight/RESUME also produce sink/session evidence. Submit each
+            # tick, before yielding to the writer, rather than bursting the
+            # entire startup backlog into its bounded queue at the first goal.
+            # Keep overflow/disk errors fatal and retain unsubmitted records.
+            drain(owner.journal)
 
         deadline = time.monotonic()+10
         # Actual STOP/zero, time, lifecycle and GT preflight; never unlock here.
@@ -307,40 +326,56 @@ async def _execute(args, config, policy):
                 owner.receive({'t': 'cmd', 'lease_id': session.lease_id, 'seq': seq,
                                'axes': [1, 0, 0] if allowed is True else [0, 0, 0]})
             idle_tick()
-            for event in owner.journal:
-                emit(event)
-            owner.journal.clear()
-            for event in trial.records:
-                emit(event)
-            trial.records.clear()
+            drain(trial.records)
             await asyncio.sleep(.05)
         else:
             trial.finish('FAILED', 'HARD_LIMIT')
     except BaseException as exc:
+        failures.append(exc)
         if trial is not None:
-            trial.finish('BLOCKED_NOT_STARTED' if trial.status == 'NOT_STARTED' else 'FAILED', type(exc).__name__)
-        emit({'event': 'exception', 'type': type(exc).__name__, 'reason': str(exc)})
-        raise
+            trial.finish('BLOCKED_NOT_STARTED' if trial.status == 'NOT_STARTED' else 'FAILED', failure_reason(exc))
     finally:
-        try:
+        def attempt(operation):
             try:
-                if owner is not None:
-                    owner.close()  # fixture ends -> 0 BEFORE ROS close/cancel
-            finally:
-                bridge.close()
-        finally:
-            for pool in (pose_pool, path_pool, resource_pool):
-                pool.shutdown(wait=False, cancel_futures=True)
-            if trial is not None:
-                for event in trial.records:
-                    emit(event)
-                (args.output/'result.json').write_text(json.dumps({
-                    'trial': name, 'status': trial.status, 'reason': trial.reason,
-                    'isolated_start_id': args.isolated_start_id, 'cleanup_verified': False,
-                    'cleanup_reason': 'external native/Nav supervisor must verify owned process/cgroup cleanup',
-                    'adapter_counts': executor.counts, 'metrics': trial.metrics,
-                    'r0_complete': False}, indent=2)+'\n')
-            log.close()
+                operation()
+            except BaseException as exc:
+                failures.append(exc)
+
+        if owner is not None:
+            attempt(owner.close)  # fixture ends -> 0 BEFORE ROS close/cancel
+        attempt(bridge.close)
+        for pool in (pose_pool, path_pool, resource_pool):
+            attempt(lambda p=pool: p.shutdown(wait=False, cancel_futures=True))
+        # Includes terminal owner.stop() before break AND close() effects, even
+        # when close/bridge teardown raises. A failed drain cannot skip result
+        # writing or journal closure, or leave a successful result behind.
+        if owner is not None:
+            attempt(lambda: drain(owner.journal))
+        if failures:
+            attempt(lambda: emit({'event': 'exception', 'type': type(failures[0]).__name__,
+                                  'reason': failure_reason(failures[0])}))
+        if trial is not None:
+            attempt(lambda: drain(trial.records))
+        attempt(log.close)
+        result = {
+            'trial': name, 'status': trial.status if trial else 'BLOCKED_NOT_STARTED',
+            'reason': trial.reason if trial else 'NOT_STARTED',
+            'isolated_start_id': args.isolated_start_id, 'cleanup_verified': False,
+            'cleanup_reason': 'external native/Nav supervisor must verify owned process/cgroup cleanup',
+            'adapter_counts': executor.counts, 'metrics': trial.metrics if trial else {},
+            'r0_complete': False}
+        if failures:
+            result.update(status='FAILED' if getattr(args, 'started', False) else 'BLOCKED_NOT_STARTED',
+                          reason=failure_reason(failures[0]),
+                          errors=[{'type': type(e).__name__, 'reason': failure_reason(e)} for e in failures],
+                          unsubmitted_owner_records=len(owner.journal) if owner else 0,
+                          unsubmitted_trial_records=len(trial.records) if trial else 0)
+        (args.output/'result.json').write_text(json.dumps(result, indent=2)+'\n')
+    if failures:
+        if hasattr(failures[0], 'add_note'):
+            for exc in failures[1:]:
+                failures[0].add_note(type(exc).__name__+': '+failure_reason(exc))
+        raise failures[0]
 
 
 async def execute(args, config, policy):
@@ -366,10 +401,16 @@ async def execute(args, config, policy):
         return result
     except BaseException as exc:
         result = {'trial': config['trials'][args.trial-1],
-            'status': 'FAILED' if args.started else 'BLOCKED_NOT_STARTED', 'reason': str(exc),
+            'status': 'FAILED' if args.started else 'BLOCKED_NOT_STARTED', 'reason': failure_reason(exc),
             'isolated_start_id': args.isolated_start_id, 'cleanup_verified': False, 'r0_complete': False}
         if output_created:
-            (args.output/'result.json').write_text(json.dumps(result, indent=2)+'\n')
+            result_path = args.output/'result.json'
+            try:
+                details = json.loads(result_path.read_text())
+            except (OSError, ValueError):
+                details = {}
+            result = {**details, **result}  # preserve teardown/recording failure evidence
+            result_path.write_text(json.dumps(result, indent=2)+'\n')
         raise
     finally:
         if result is not None:
