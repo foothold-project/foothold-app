@@ -14,6 +14,7 @@ function stopText(r: Robot, l: Live) {
   if (!s) return '';
   if (s.phase === 'sending') return `■ ${r.name} 정지 요청을 보내는 중입니다.`;
   if (s.phase === 'failed') return `▲ ${r.name} 정지 요청을 보내지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
+  if (s.phase === 'unsure') return `▲ ${r.name} 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. ${s.why ?? ''} 현장에서 로봇을 직접 멈추세요.`;
   // 대체 경로로 보낸 뒤에는 다시 연결되어 요청 뒤 state 가 와야 로봇 확인을 본다
   if (s.phase === 'fallback' && !(st && l.stateAt > s.at)) return `■ ${r.name} 정지 요청됨(대체 경로) — 실시간 연결이 끊겨 로봇 확인은 보이지 않습니다. 현장을 확인하세요.`;
   if (!st || l.stateAt <= s.at) return `■ ${r.name} 정지 요청됨 — 서버가 받았습니다. 로봇 확인을 기다립니다.`;
@@ -43,7 +44,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, note, de
   useRt();
   const robots = listed.map(withLive), net = rt.link();
   // 상태 구독은 볼 수 있는 로봇만: 총괄 전체, 운영 관리자는 담당 로봇(남의 로봇은 목록 요약만 — 구독하면 서버가 연결을 닫는다)
-  useEffect(() => { rt.connect(listed.filter((r) => user.role === 'ORG_ADMIN' || r.owner === user.id).map((r) => r.id)); return () => rt.disconnect(); }, []);
+  const mine = listed.filter((r) => user.role === 'ORG_ADMIN' || r.owner === user.id).map((r) => r.id).join();
+  useEffect(() => { rt.connect(mine ? mine.split(',') : []); return () => rt.disconnect(); }, []);
+  useEffect(() => rt.follow(mine ? mine.split(',') : []), [mine]);   // 목록 갱신으로 담당이 바뀌면 구독도(소켓은 그대로)
   // 원하는 탭(주소)과 보이는 탭을 나눈다: 보이는 탭은 렌더마다 지금 틀(PC/폰)에서 도출 — 폭이 바뀌어 틀에 없는 탭이면 첫 탭(B1)
   const [want, setWant] = useState(() => location.hash), tab = tabFromHash(want, phone), sub = want.split('/')[2];
   // 고를 수 있는 로봇: PC 는 전체(관제 보기, 내 로봇 먼저), 폰은 내 로봇만(B4). 고른 값이 범위 밖이면 첫 로봇
@@ -112,7 +115,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, note, de
     {dev && <p className="fh-dev" data-dev>{dev}</p>}
     <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
-      (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 다시 연결하는 중입니다.' : ''}
+      (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
         {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,
       stopped && <span key="stop" data-stop-band>{stopText(stopped, rt.get(stopped.id))}</span>,
       ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),

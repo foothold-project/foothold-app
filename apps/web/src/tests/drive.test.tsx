@@ -7,8 +7,8 @@ import type { ScreenState } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from '../fake';
 import { tabFromHash } from '../menu';
-import { onAuthLost } from '../api';
-import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REFUSED_MAX, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS } from '../rt';
+import { api, onAuthLost as setAuthLost } from '../api';
+import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, rt } from '../rt';
 import { FakeWS, fail, lease, state } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -551,7 +551,7 @@ describe('PR #12 검토 1차', () => {
     recv({ t: 'reply', id: w.of('stop')[0].id, ok: false, error: { code: 'SERVER_BUSY', message: '', detail: {} } });
     expect(band()).toContain('정지 요청됨(대체 경로)');
   });
-  it('[B1] HTTP 대체 경로도 답이 없으면 시한 뒤 «보내지 못했습니다·현장에서 직접», 늦은 WS 성공이 실패를 덮지 않음', async () => {
+  it('[B1·N2] WS·HTTP 모두 답이 없으면 «보냈지만 접수 확인 못함·현장에서 직접»(보내지 못했다고 단정 안 함)', async () => {
     mount(false, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
     vi.stubGlobal('fetch', hang);
@@ -561,14 +561,65 @@ describe('PR #12 검토 1차', () => {
     tick(STOP_HTTP_MS - 1); await settle();
     expect(band()).toContain('정지 요청을 보내는 중');
     tick(1); await settle();
-    expect(band()).toContain('Go2-7 정지 요청을 보내지 못했습니다. 서버가 제시간에 답하지 않았습니다.');
+    expect(band()).toContain('Go2-7 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다. 서버가 제시간에 답하지 않았습니다.');
     expect(band()).toContain('현장에서 로봇을 직접 멈추세요');
+    expect(band()).not.toContain('보내지 못했습니다');
+  });
+  it('[N2] HTTP 대체 경로 중에 같은 STOP 의 WS 접수가 오면 성공 — 뒤의 HTTP 시한 초과가 거짓 실패로 덮지 않음', async () => {
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    vi.stubGlobal('fetch', hang);
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    tick(STOP_WS_MS); await settle();
+    tick(500);
     recv({ t: 'reply', id: w.of('stop')[0].id, ok: true });
-    expect(band()).toContain('정지 요청을 보내지 못했습니다');
+    tick(STOP_HTTP_MS); await settle();
+    expect(band()).toContain('Go2-7 정지 요청됨 — 서버가 받았습니다.');
+    expect(band()).not.toMatch(/보내지 못했습니다|확인하지 못했습니다/);
+  });
+  it('[N2] 대체 경로로 넘어간 뒤 늦게 온 WS 거절은 무시(HTTP 결과를 따름)', async () => {
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(null, { status: 202 })));
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    tick(STOP_WS_MS); await settle();
+    recv({ t: 'reply', id: w.of('stop')[0].id, ok: false, error: { code: 'SERVER_BUSY', message: '', detail: {} } });
+    expect(band()).toContain('정지 요청됨(대체 경로)');
+  });
+  it('[N3] 로그아웃하면 앞 세션 STOP 의 대체 경로 타이머·HTTP 를 거둠 — 다음 계정의 CSRF 로 앞 로봇에 보내지 않음', async () => {
+    const calls: [string, RequestInit][] = [];
+    vi.stubGlobal('fetch', vi.fn(async (u: string, init: RequestInit) => { calls.push([u, init]); return new Response(JSON.stringify({ csrf_token: 'B-csrf', requested: true }), { status: 200 }); }));
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = null;
+    click($('[data-stop]'));
+    act(() => root?.unmount()); root = null;                // 로그아웃 = App 이 내려가며 rt.disconnect
+    await api.login('next', 'pw');
+    tick(STOP_WS_MS * 5); await settle();
+    expect(calls.map(([u]) => u)).toEqual(['/api/v1/auth/login']);
+  });
+  it('[N3] 이미 나간 대체 경로 HTTP 도 로그아웃 때 끊고, 그 결과(401 포함)는 다음 세션에 반영하지 않음', async () => {
+    const lost = vi.fn(); setAuthLost(lost);
+    let signal: AbortSignal | undefined, answer = (_: Response) => {};
+    vi.stubGlobal('fetch', vi.fn((_u: string, init: RequestInit) => { signal = init.signal!; return new Promise<Response>((r) => { answer = r; }); }));
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    w.auto = (m) => (m.t === 'ping' ? { ok: true } : undefined);
+    click($('[data-stop]'));
+    tick(STOP_WS_MS); await settle();
+    expect(signal?.aborted).toBe(false);
+    act(() => root?.unmount()); root = null;
+    expect(signal?.aborted).toBe(true);
+    answer(new Response(JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: '', detail: {} } }), { status: 401 }));   // 끊김을 무시하고 늦게 온 401
+    await settle();
+    expect(lost).not.toHaveBeenCalled();
+    setAuthLost(() => {});
   });
 
   it('[B2] 수락 전 끊김(1006) + REST 401 → 로그인 화면, 다시 연결 안 함', async () => {
-    const lost = vi.fn(); onAuthLost(lost);
+    const lost = vi.fn(); setAuthLost(lost);
     vi.stubGlobal('fetch', me(401));
     mount(false, 'u-kim', '#/fleet');
     act(() => FakeWS.last.drop(1006));                     // 열리기 전에 닫힘 = 브라우저가 HTTP 401/403 을 알리는 방식
@@ -577,19 +628,24 @@ describe('PR #12 검토 1차', () => {
     expect($('header [data-link]').textContent).toContain('연결 거부');
     tick(60_000);
     expect(FakeWS.all).toHaveLength(1);
-    onAuthLost(() => {});
+    setAuthLost(() => {});
   });
-  it(`[B2] 수락 전 끊김이 REST 로그인 정상인데 ${REFUSED_MAX}번 이어지면 권한·출처 거부로 멈춤`, async () => {
+  it('[N1] REST 로그인 정상 + 수락 전 끊김(1006)이 몇 번이든 거부로 단정하지 않고 늘려 가며 «연결 재시도 중»', async () => {
     vi.stubGlobal('fetch', me(200));
     mount(false, 'u-kim', '#/fleet');
-    for (let i = 1; i < REFUSED_MAX; i++) { act(() => FakeWS.last.drop(1006)); await settle(); tick(2 ** (i - 1) * 1000); }
-    expect(FakeWS.all).toHaveLength(REFUSED_MAX);
+    for (let i = 0; i < 6; i++) { act(() => FakeWS.last.drop(1006)); await settle(); tick(Math.min(10, 2 ** i) * 1000); }
+    expect(FakeWS.all).toHaveLength(7);
     expect($('header [data-link]').textContent).toContain('연결 끊김');
+    expect(band()).toContain('연결 재시도 중입니다');
+    expect(band()).not.toContain('거부');
+  });
+  it('[N1] REST 403 이면 영구 거부(다시 연결 안 함)', async () => {
+    vi.stubGlobal('fetch', me(403));
+    mount(false, 'u-kim', '#/fleet');
     act(() => FakeWS.last.drop(1006)); await settle();
     expect($('header [data-link]').textContent).toContain('연결 거부');
-    expect(band()).toContain('서버가 실시간 연결을 거부했습니다');
     tick(60_000);
-    expect(FakeWS.all).toHaveLength(REFUSED_MAX);
+    expect(FakeWS.all).toHaveLength(1);
   });
   it('[B2] 수락 전 3 s 매달림(시간 초과)은 거부로 세지 않음 — REST 확인 없이 다시 연결', () => {
     const f = me(200); vi.stubGlobal('fetch', f);
@@ -597,14 +653,14 @@ describe('PR #12 검토 1차', () => {
     tick(60_000);
     expect(f).not.toHaveBeenCalled();
     expect($('header [data-link]').textContent).toContain('연결 끊김');
-    expect(FakeWS.all.length).toBeGreaterThan(REFUSED_MAX);
+    expect(FakeWS.all.length).toBeGreaterThan(3);
   });
   it('[B2] 수락 전 끊김이라도 REST 도 안 닿으면(서버·네트워크) 계속 다시 연결, 열린 뒤 끊김은 REST 확인 안 함', async () => {
     const f = vi.fn(async () => { throw new TypeError('offline'); });
     vi.stubGlobal('fetch', f);
     mount(false, 'u-kim', '#/fleet');
-    for (let i = 0; i < REFUSED_MAX + 1; i++) { act(() => FakeWS.last.drop(1006)); await settle(); tick(2 ** i * 1000); }
-    expect(FakeWS.all).toHaveLength(REFUSED_MAX + 2);
+    for (let i = 0; i < 4; i++) { act(() => FakeWS.last.drop(1006)); await settle(); tick(2 ** i * 1000); }
+    expect(FakeWS.all).toHaveLength(5);
     serve(KIM, 'r3');
     f.mockClear();
     act(() => w.drop(1006)); await settle();
@@ -670,6 +726,26 @@ describe('PR #12 검토 1차', () => {
     serve(LEE, 'r3', 'r1');
     expect(text()).toContain('조종권자 확인 안 됨');
     expect(text()).not.toContain('조종하는 사람 없음');
+  });
+
+  it('[N5] 담당 로봇이 바뀌면(목록 갱신) 같은 소켓으로 sub 를 다시 보내고, 빠진 로봇은 조종권을 돌려줌', () => {
+    const mine = [ROBOTS[0], { ...ROBOTS[1], owner: 'u-lee' }, ROBOTS[2]];   // r7 이 이운영 담당이 됨
+    mount(false, 'u-lee', '#/drive/r7');
+    serve(LEE, 'r3', 'r1');
+    expect(btn('조종 시작').disabled).toBe(true);
+    act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={mine} />));
+    expect(FakeWS.all).toHaveLength(1);
+    expect(end(w.of('sub'))).toMatchObject({ robots: ['r3', 'r7', 'r1'] });
+    expect(text()).toContain('로봇 상태를 확인하는 중입니다');
+    act(() => push('r7'));
+    expect(btn('조종 시작').disabled).toBe(false);
+    click(btn('조종 시작'));
+    expect(text()).toContain('조종 중(나)');
+    act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />));   // 다시 남의 로봇
+    expect(end(w.of('sub'))).toMatchObject({ robots: ['r3', 'r1'] });
+    expect(w.of('hidden')).toMatchObject([{ robot: 'r7' }]);
+    expect(text()).toContain('확인 안 됨');
+    expect(FakeWS.all).toHaveLength(1);
   });
 
   it('[C1] 3 s 를 못 버틴 연결이 끊기면 재시도 간격을 늘리고, 3 s 넘게 유지된 뒤 끊기면 1 s 부터', () => {

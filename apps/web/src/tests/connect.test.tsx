@@ -239,6 +239,55 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
       expect(calls.filter((c) => c.path.startsWith('/robots')).length).toBe(calls.slice(0, n).filter((c) => c.path.startsWith('/robots')).length);
     } finally { vi.useRealTimers(); }
   });
+  it('[N4] 앞 사람의 늦은 목록 응답은 버림 — 로그아웃 뒤 다음 계정의 목록·화면을 덮지 않음', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      const PARK: User = { ...LEE, id: 'o2', username: 'park', display_name: '박운영' };
+      let me = LEE, hold: ((r: Response) => void) | null = null, signal: AbortSignal | undefined;
+      serve(signedIn(LEE, [], {
+        'GET /me': () => ({ status: 200, body: me }),
+        'GET /robots': () => ({ status: 200, body: { items: [robot(`r-${me.id}`, `Go2-${me.display_name}`, me.id, me.display_name)], next_cursor: null } }),
+        'POST /auth/logout': { status: 204 },
+        'POST /auth/login': () => { me = PARK; return { status: 200, body: { ...PARK, csrf_token: 'csrf-2', access_token: null, refresh_token: null } }; },
+      }));
+      const base = globalThis.fetch;
+      vi.stubGlobal('fetch', (u: string, init: RequestInit = {}) => {
+        if (me === LEE && u.includes('/robots?') && calls.some((c) => c.path.startsWith('/robots'))) { signal = init.signal!; return new Promise<Response>((r) => { hold = r; }); }
+        return base(u, init);
+      });
+      await open();
+      act(() => { vi.advanceTimersByTime(LIST_MS); });
+      await flush();
+      expect(hold).not.toBeNull();
+      act(() => btn('로그아웃')!.click());
+      await flush();
+      expect(signal?.aborted).toBe(true);
+      await login('park', 'pw');
+      expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-박운영']);
+      hold!(new Response(JSON.stringify({ items: [robot('r-o1', 'Go2-이운영', 'o1', '이운영')], next_cursor: null }), { status: 200 }));
+      await flush();
+      expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-박운영']);
+      expect(MEM_ROBOTS.map((r) => r.name)).toEqual(['Go2-박운영']);
+      expect($('.fh-me')!.textContent).toBe('박운영(운영 관리자)');
+    } finally { vi.useRealTimers(); }
+  });
+  it('[N5] 목록 갱신으로 내 담당이 된 로봇은 같은 소켓으로 다시 구독 → 상태를 받으면 조종 가능', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      serve(signedIn(LEE, [robot('r-c', 'Go2-C', 'o2', '박운영')]));
+      await open('#/drive/r-c');
+      const w = FakeWS.last;
+      act(() => w.open());
+      expect(w.of('sub')).toMatchObject([{ robots: [] }]);
+      routes['GET /robots'] = { status: 200, body: { items: [robot('r-c', 'Go2-C', 'o1', '이운영')], next_cursor: null } };
+      act(() => { vi.advanceTimersByTime(LIST_MS); });
+      await flush();
+      expect(w.of('sub')).toMatchObject([{ robots: [] }, { robots: ['r-c'] }]);
+      expect(FakeWS.all).toHaveLength(1);
+      act(() => w.recv(state('r-c')));
+      expect(btn('조종 시작')!.disabled).toBe(false);
+    } finally { vi.useRealTimers(); }
+  });
   it('상태를 받은 적 없는 로봇은 «연결 전»(끊김 경보 아님) + 조종 불가 이유, 개발용 표시', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
     await open();

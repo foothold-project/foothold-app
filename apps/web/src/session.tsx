@@ -37,18 +37,27 @@ export function Root() {
     setServerData(me, robots);
     setSt((s) => ({ at: 'app', user: me, robots, n: (s.at === 'app' ? s.n : 0) + 1 }));
   };
-  // 남의 로봇은 실시간 구독이 안 돼(서버가 4403) 목록 요약을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면)
-  const polling = st.at === 'app' && st.user.role !== 'ORG_ADMIN';
+  // 남의 로봇은 실시간 구독이 안 돼(서버가 4403) 목록 요약을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면).
+  // 갱신은 이 로그인 세션(사용자·n)에 묶는다: 세션이 바뀌면 진행 중인 요청을 거두고 늦은 답은 버린다. 앞 요청이 안 끝났으면 다음은 건너뜀
+  const session = st.at === 'app' && st.user.role !== 'ORG_ADMIN' ? `${st.user.id}-${st.n}` : '';
   useEffect(() => {
-    if (!polling) return;
-    const i = setInterval(() => api.robots('all').then((rs) => setSt((s) => {
-      if (s.at !== 'app') return s;
-      const robots = rs.map(toRobot);
-      setServerData(s.user, robots);
-      return { ...s, robots };
-    }), () => {}), LIST_MS);
-    return () => clearInterval(i);
-  }, [polling]);
+    if (!session) return;
+    const gone = new AbortController();
+    let busy = false;
+    const i = setInterval(() => {
+      if (busy) return;
+      busy = true;
+      api.robots('all', gone.signal).then((rs) => {
+        const robots = rs.map(toRobot);
+        setSt((s) => {
+          if (s.at !== 'app' || `${s.user.id}-${s.n}` !== session) return s;
+          setServerData(s.user, robots);
+          return { ...s, robots };
+        });
+      }, () => {}).finally(() => { busy = false; });
+    }, LIST_MS);
+    return () => { clearInterval(i); gone.abort(); };
+  }, [session]);
   useEffect(() => {
     onAuthLost(() => toLogin(ENDED));
     api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message));

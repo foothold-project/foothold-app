@@ -8,17 +8,16 @@ import type { Holder, Robot, Status } from './fake';
 
 /** 요청 응답(조직 기본값)·재요청 제한·무수신 끊김·연결 확인·입력 주기 */
 export const REQUEST_S = 10, COOLDOWN_S = 30, SILENT_MS = 3000, PING_MS = 1000, CMD_MS = 50;
-/** STOP 응답 시한: WS 답이 이만큼 없으면 HTTP 대체 경로(서버는 받는 즉시 답한다), HTTP 도 이만큼 없으면 실패. 재시도 간격 초기화 = 3 s 유지(§9.4).
- *  수락 전 거부가 REST 로그인 정상인데도 이만큼 이어지면 권한·접속 출처 거부(HTTP 403)로 본다 */
-export const STOP_WS_MS = 2000, STOP_HTTP_MS = 5000, STEADY_MS = 3000, REFUSED_MAX = 3;
+/** STOP 응답 시한: WS 답이 이만큼 없으면 HTTP 대체 경로(서버는 받는 즉시 답한다), HTTP 도 이만큼 없으면 접수 확인 못함. 재시도 간격 초기화 = 3 s 유지(§9.4) */
+export const STOP_WS_MS = 2000, STOP_HTTP_MS = 5000, STEADY_MS = 3000;
 export const FAIL_TEXT = '로봇 정지 확인 실패. 조종권은 비어 있고 로봇은 정지 요청 상태입니다. 현장을 확인한 뒤 다시 조종 시작하세요.';
 export const FREE_TEXT = '조종권이 비었습니다. [조종 시작]으로 받을 수 있습니다.';
 const LINK_LOST = '서버 연결이 끊겼습니다.';
 
 /** idle = 연결 안 함, connecting = 첫 연결 중, lost = 끊김(다시 연결 중), denied = 서버가 거부(다시 연결 안 함) */
 export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number };
-/** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | failed. 로봇이 멈췄는지는 state 로만 본다 */
-export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'failed'; at: number; n: number; why?: string };   // at = 이 단계가 된 때
+/** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | unsure(보냈지만 접수 답을 못 받음) | failed(보내지 못함). 로봇이 멈췄는지는 state 로만 본다 */
+export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string };   // at = 이 단계가 된 때
 export type Live = {
   state: ScreenState | null;
   stateAt: number;
@@ -69,7 +68,8 @@ const active = new Set<string>();   // 조종 화면이 열린 로봇 — 그 �
 const gone = new Set<string>();     // 내가 돌려준 lease — 반납 전에 나간 늦은 알림이 되살리지 않게
 const waiting = new Map<string, (r: ScreenReply) => void>();
 const subs = new Set<() => void>();
-let ver = 0, n = 0, seq = 0, tries = 0, refused = 0, lastRx = 0, lastPing = 0, want = false;
+let ver = 0, n = 0, seq = 0, tries = 0, lastRx = 0, lastPing = 0, want = false;
+let era = new AbortController();   // 이번 로그인 세션: 끊으면(disconnect) 그 세션이 시작한 STOP 타이머·HTTP 를 모두 거둔다
 let sock: WebSocket | null = null, robots: string[] = [];
 let retry: ReturnType<typeof setTimeout> | undefined, beat: ReturnType<typeof setInterval> | undefined;
 
@@ -104,7 +104,7 @@ function open() {
   sock = ws; lastRx = now();
   ws.onopen = () => {
     if (ws !== sock) return;
-    lastRx = lastPing = up = now(); refused = 0;
+    lastRx = lastPing = up = now();
     setLink({ at: 'open' });
     send({ t: 'sub', robots, streams: ['state'] });
   };
@@ -126,11 +126,11 @@ function deny(status: 401 | 403) {
   if (status === 401) expireAuth();
 }
 
-/** 수락 전에 끊김: 브라우저는 HTTP 401/403 도 1006 으로만 알린다. REST 로 로그인을 확인해 401 이면 로그인 화면,
- *  로그인은 정상인데 수락 전 거부가 이어지면 권한·접속 출처 거부로 보고 멈춘다. REST 도 안 닿으면 서버·네트워크 문제 — 계속 다시 연결 */
+/** 수락 전에 끊김: 브라우저는 HTTP 401/403 도 503 도 1006 으로만 알린다. REST 가 401/403 이면 영구 거부로 멈추고,
+ *  그 밖(REST 정상·안 닿음)은 원인을 단정하지 않고 늘려 가며 계속 다시 연결한다(10-19 조정 결정) */
 function probe() {
-  api.me().then(() => { if (link.at === 'lost' && ++refused >= REFUSED_MAX) deny(403); },
-    (e: ApiFail) => { if (link.at === 'denied' || !want) return; if (e.status === 401 || e.status === 403) deny(e.status); });
+  const s = era.signal;
+  api.me().catch((e: ApiFail) => { if (!s.aborted && want && (e.status === 401 || e.status === 403)) deny(e.status); });
 }
 
 /** 연결이 끝남(upMs = 열려 있던 시간, -1 = 수락 전): 조종권·요청은 연결에 묶여 있어 모두 비운다(서버도 이 연결의 lease 를 쓰지 못하게 한다) */
@@ -249,9 +249,18 @@ export const rt = {
     for (const [id] of live) leave(id);
     want = false; robots = []; stopBeat(); clearTimeout(retry);
     document.removeEventListener('visibilitychange', onVisible); removeEventListener('pagehide', onPageHide);
-    drop(1000); refused = 0;
+    era.abort(); era = new AbortController(); drop(1000);
     live.clear(); last.clear(); active.clear(); gone.clear(); waiting.clear();
     link = { at: 'idle' }; emit();
+  },
+  /** 상태를 받을 로봇이 바뀜(목록 갱신으로 담당이 바뀜 등): 빠진 로봇은 조종권을 돌려주고 상태를 지우며, 열려 있으면 sub 를 다시 보낸다.
+   *  소켓은 그대로(쥔 조종권을 잃지 않게) */
+  follow(ids: string[]) {
+    if (ids.join() === robots.join()) return;
+    for (const id of robots) if (!ids.includes(id)) { leave(id); live.delete(id); last.delete(id); }
+    robots = ids;
+    send({ t: 'sub', robots, streams: ['state'] });
+    emit();
   },
   /** 끊김·거부 뒤 [다시 연결] */
   reconnect() { if (!want) { want = true; startBeat(); } tries = 0; open(); },
@@ -301,20 +310,25 @@ export const rt = {
     send({ t: 'cmd', robot: id, lease_id: l.lease, seq: ++seq, axes });
   },
   /** STOP — 어떤 상태에서도 바로. 실시간이 끊겼거나 STOP_WS_MS 안에 답이 없으면 HTTP 대체 경로(같은 STOP 을 한 번 더 — 정지는 겹쳐도 안전),
-   *  그것도 STOP_HTTP_MS 안에 안 되면 실패를 그대로. 대체 경로로 넘어간 뒤 늦게 온 WS 답은 버린다(새 STOP·실패를 덮지 않게) */
+   *  그것도 안 되면: WS 로 보낸 적이 있거나 시한 초과면 «접수 확인 못함», 아니면 «보내지 못함».
+   *  같은 STOP 의 WS 접수(ok)는 늦게 와도 반영하고 뒤의 HTTP 실패가 덮지 않는다. 대체 경로로 넘어간 뒤의 늦은 WS 거절은 버린다.
+   *  타이머·HTTP 는 이 로그인 세션에 묶여 로그아웃·계정 전환 때 거둔다(다음 사람의 CSRF 로 나가지 않게) */
   stop(id: string) {
-    const k = ++n, mark = (s: Pick<Stop, 'phase' | 'why'>) => { if (get(id).stop?.n === k) set(id, { stop: { ...s, at: now(), n: k } }); };
+    const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'>) => { if (!s.aborted && get(id).stop?.n === k) set(id, { stop: { ...p, at: now(), n: k } }); };
     set(id, { stop: { phase: 'sending', at: now(), n: k } });
-    let via: 'ws' | 'http' = 'ws';
+    let via: 'ws' | 'http' = 'ws', acked = false, viaWs = false;   // viaWs = WS 로 실제로 보냄(닫혀 있으면 send 가 바로 답을 불러 false)
     const http = () => {
       via = 'http'; clearTimeout(late);
-      api.stop(id, STOP_HTTP_MS).then(() => mark({ phase: 'fallback' }), (e: ApiFail) => mark({ phase: 'failed', why: e.message }));
+      api.stop(id, { ms: STOP_HTTP_MS, cancel: s }).then(() => { if (!acked) mark({ phase: 'fallback' }); }, (e: ApiFail) => {
+        if (!acked && e.code !== 'CANCELED') mark({ phase: viaWs || e.code === 'TIMEOUT' ? 'unsure' : 'failed', why: e.message });
+      });
     };
     const late = setTimeout(() => { if (via === 'ws') http(); }, STOP_WS_MS);
-    send({ t: 'stop', robot: id }, (r) => {
+    viaWs = send({ t: 'stop', robot: id }, (r) => {
+      if (r.ok) { acked = true; clearTimeout(late); return mark({ phase: 'sent' }); }
       if (via !== 'ws') return;
       clearTimeout(late);
-      if (r.ok) mark({ phase: 'sent' }); else if (r.error?.code === 'NETWORK') http(); else mark({ phase: 'failed', why: say(r.error) });
+      if (r.error?.code === 'NETWORK') http(); else mark({ phase: 'failed', why: say(r.error) });
     });
   },
   subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },

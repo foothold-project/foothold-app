@@ -24,20 +24,24 @@ export const onAuthLost = (f: () => void) => { authLost = f; };
 /** 로그인이 끝났다(401·실시간 4401) — CSRF 를 버리고 화면은 로그인으로 */
 export const expireAuth = () => { csrf = null; authLost(); };
 
-/** ms = 답을 기다리는 한도(없으면 브라우저 기본). 넘으면 요청을 끊고 status 0 */
-async function call<T>(method: string, path: string, body?: unknown, ms?: number): Promise<T> {
+/** ms = 답을 기다리는 한도(넘으면 끊고 TIMEOUT), cancel = 부른 쪽이 거둠(세션이 끝남 등 — CANCELED, 401 이어도 로그인 정리 안 함) */
+type Opt = { ms?: number; cancel?: AbortSignal };
+async function call<T>(method: string, path: string, body?: unknown, { ms, cancel }: Opt = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (method !== 'GET' && csrf) headers['X-FH-CSRF'] = csrf;
-  const stop = new AbortController(), timer = ms ? setTimeout(() => stop.abort(), ms) : undefined;
+  if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);
+  const stop = new AbortController(), timer = ms ? setTimeout(() => stop.abort(), ms) : undefined, off = () => stop.abort();
+  cancel?.addEventListener('abort', off);
   let res: Response, data: unknown;
   try {
     try {
       res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', signal: stop.signal, body: body === undefined ? undefined : JSON.stringify(body) });
-    } catch { throw new ApiFail(0, 'NETWORK', stop.signal.aborted ? SLOW : NETWORK); }
+    } catch { throw cancel?.aborted ? new ApiFail(0, 'CANCELED', NETWORK) : stop.signal.aborted ? new ApiFail(0, 'TIMEOUT', SLOW) : new ApiFail(0, 'NETWORK', NETWORK); }
     if (res.status === 204) return undefined as T;
     data = await res.json().catch(() => null);
-  } finally { clearTimeout(timer); }
+  } finally { clearTimeout(timer); cancel?.removeEventListener('abort', off); }
+  if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);   // 거둔 뒤 온 답(앞 세션의 401 등)은 반영하지 않는다
   if (res.ok) return data as T;
   const e = (data as Partial<ApiError> | null)?.error;
   if (res.status === 401 && path !== '/auth/login' && path !== '/auth/session') expireAuth();
@@ -55,10 +59,10 @@ export const api = {
   async logout() { await call<void>('POST', '/auth/logout'); csrf = null; },
   me: () => call<User>('GET', '/me'),
   /** 쪽 넘김(§1.5)을 끝까지. 화면은 scope=all(02 §1.1) */
-  async robots(scope: 'mine' | 'all') {
+  async robots(scope: 'mine' | 'all', cancel?: AbortSignal) {
     const all: RobotSummary[] = [];
     for (let cursor: string | null = ''; cursor != null;) {
-      const r: RobotList = await call<RobotList>('GET', `/robots?scope=${scope}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`);
+      const r: RobotList = await call<RobotList>('GET', `/robots?scope=${scope}&limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, { cancel });
       all.push(...r.items); cursor = r.next_cursor;
     }
     return all;
@@ -66,5 +70,5 @@ export const api = {
   settings: () => call<OrgSettings>('GET', '/org/settings'),
   saveSettings: (p: OrgSettingsPatch) => call<OrgSettings>('PATCH', '/org/settings', p),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
-  stop: (robot: string, ms?: number) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, ms),
+  stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
 };
