@@ -1,0 +1,176 @@
+{
+  "$schema": "https://tr.designtokens.org/format/",
+  "$description": "FOOTHOLD Design System v1 canonical token source. Light is the default value; dark-mode values live in $extensions.foothold.mode.dark.",
+  "$extensions": {
+    "foothold": {
+      "version": "1.0.0",
+      "modes": ["light", "dark"],
+      "sourceOfTruth": true,
+      "generatedFiles": ["foothold.tokens.css"],
+      "compatibility": "Existing web CSS custom properties remain the public interface until Claude Code migrates the build."
+    }
+  },
+  "primitive": {
+    "color": {
+      "paper": {
+        "$type": "color",
+        "$value": "#f6f5f1",
+        "$description": "Warm paper canvas.",
+        "$extensions": { "foothold": { "mode": { "dark": "#12161d" } } }
+      },
+      "paper-secondary": {
+        "$type": "color",
+        "$value": "#eeece6",
+        "$description": "Secondary warm paper surface.",
+        "$extensions": { "foothold": { "mode": { "dark": "#191e27" } } }
+      },
+      "card": {
+        "$type": "color",
+        "$value": "#fff",
+        "$description": "Elevated card surface.",
+        "$extensions": { "foothold": { "mode": { "dark": "#181d26" } } }
+      },
+      "ink": {
+        "$type": "color",
+        "$value": "#161c26",
+        "$description": "Primary engineering ink.",
+        "$extensions": { "foothold": { "mode": { "dark": "#e9e7e1" } } }
+      },
+      "ink-secondary": {
+        "$type": "color",
+        "$value": "#4a5566",
+        "$description": "Secondary text.",
+        "$extensions": { "foothold": { "mode": { "dark": "#adb5c1" } } }
+      },
+      "ink-caption": {
+        "$type": "color",
+        "$value": "#7c8798",
+        "$description": "Caption and provenance text.",
+        "$extensions": { "foothold": { "mode": { "dark": "#7d8693" } } }
+      },
+      "rule": {
+        "$type": "color",
+        "$value": "#d9d6cd",
+        "$description": "Rule and divider.",
+        "$extensions": { "foothold": { "mode": { "dark": "#2b323d" } } }
+      },
+      "teal-brand": {
+        "$type": "color",
+        "$value": "#0e7a6e",
+        "$description": "FOOTHOLD brand teal.",
+        "$extensions": { "foothold": { "mode": { "dark": "#3ec7b4" } } }
+      },
+      "teal-soft": {
+        "$type": "color",
+        "$value": "#e0f0ed",
+        "$description": "Soft adopted-state surface.",
+        "$extensions": { "foothold": { "mode": { "dark": "#11302c" } } }
+      },
+      "teal-ink-on-soft": {
+        "$type": "color",
+        "$value": "#0b6459",
+        "$description": "Accessible teal text on a soft surface in light mode.",
+        "$extensions": { "foothold": { "mode": { "dark": "#3ec7b4" } } }
+      },
+      "amber": {
+        "$type": "color",
+        "$value": "#a86a08",
+        "$description": "Caution and unverified state.",
+        "$extensions": { "foothold": { "mode": { "dark": "#dc9a30" } } }
+      },
+      "amber-soft": {
+        "$type": "color",
+        "$value": "#fbf0dc",
+        "$description": "Soft caution surface.",
+        "$extensions": { "foothold": { "mode": { "dark": "#332710" } } }
+      },
+      "amber-ink-on-soft": {
+        "$type": "color",
+        "$value": "#8a5600",
+        "$description": "Accessible amber text on a soft surface in light mode.",
+        "$extensions": { "foothold": { "mode": { "dark": "#dc9a30" } } }
+      },
+      "red": {
+        "$type": "color",
+        "$value": "#a3342a",
+        "$description": "Failure and prohibition state.",
+        "$extensions": { "foothold": { "mode": { "dark": "#e56d5e" } } }
+      },
+      "red-soft": {
+        "$type": "color",
+        "$value": "#fbe9e7",
+        "$description": "Soft failure surface.",
+        "$extensions": { "foothold": { "mode": { "dark": "#331c19" } } }
+      },
+      "grid": {
+        "$type": "color",
+        "$value": "rgba(22,28,38,.04)",
+        "$description": "Technical editorial grid.",
+        "$extensions": { "foothold": { "mode": { "dark": "rgba(233,231,225,.035)" } } }
+      }
+    },
+    "layout": {
+      "measure": { "$type": "dimension", "$value": "720px", "$description": "Readable document measure." },
+      "nav": { "$type": "dimension", "$value": "268px", "$description": "Existing navigation width." }
+    }
+  },
+  "semantic": {
+    "color": {
+      "surface": {
+        "canvas": { "$type": "color", "$value": "{primitive.color.paper}", "$extensions": { "foothold": { "css": "--paper" } } },
+        "canvas-secondary": { "$type": "color", "$value": "{primitive.color.paper-secondary}", "$extensions": { "foothold": { "css": "--paper-2" } } },
+        "card": { "$type": "color", "$value": "{primitive.color.card}", "$extensions": { "foothold": { "css": "--card" } } }
+      },
+      "content": {
+        "primary": { "$type": "color", "$value": "{primitive.color.ink}", "$extensions": { "foothold": { "css": "--ink" } } },
+        "secondary": { "$type": "color", "$value": "{primitive.color.ink-secondary}", "$extensions": { "foothold": { "css": "--ink-2" } } },
+        "caption": { "$type": "color", "$value": "{primitive.color.ink-caption}", "$extensions": { "foothold": { "css": "--ink-3" } } },
+        "adopted-on-soft": { "$type": "color", "$value": "{primitive.color.teal-ink-on-soft}", "$extensions": { "foothold": { "css": "--dim-ink" } } },
+        "caution-on-soft": { "$type": "color", "$value": "{primitive.color.amber-ink-on-soft}", "$extensions": { "foothold": { "css": "--note-ink" } } }
+      },
+      "border": {
+        "default": { "$type": "color", "$value": "{primitive.color.rule}", "$extensions": { "foothold": { "css": "--rule" } } }
+      },
+      "brand": {
+        "primary": { "$type": "color", "$value": "{primitive.color.teal-brand}", "$extensions": { "foothold": { "css": "--brand" } } }
+      },
+      "state": {
+        "adopted": { "$type": "color", "$value": "{semantic.color.brand.primary}", "$extensions": { "foothold": { "css": "--dim", "cssValue": "var(--brand)", "deprecatedAlias": false } } },
+        "adopted-soft": { "$type": "color", "$value": "{primitive.color.teal-soft}", "$extensions": { "foothold": { "css": "--dim-soft" } } },
+        "caution": { "$type": "color", "$value": "{primitive.color.amber}", "$extensions": { "foothold": { "css": "--note" } } },
+        "caution-soft": { "$type": "color", "$value": "{primitive.color.amber-soft}", "$extensions": { "foothold": { "css": "--note-soft" } } },
+        "danger": { "$type": "color", "$value": "{primitive.color.red}", "$extensions": { "foothold": { "css": "--stop" } } },
+        "danger-soft": { "$type": "color", "$value": "{primitive.color.red-soft}", "$extensions": { "foothold": { "css": "--stop-soft" } } }
+      },
+      "decorative": {
+        "grid": { "$type": "color", "$value": "{primitive.color.grid}", "$extensions": { "foothold": { "css": "--grid" } } }
+      }
+    },
+    "layout": {
+      "measure": { "$type": "dimension", "$value": "{primitive.layout.measure}", "$extensions": { "foothold": { "css": "--measure" } } },
+      "nav": { "$type": "dimension", "$value": "{primitive.layout.nav}", "$extensions": { "foothold": { "css": "--nav" } } }
+    }
+  },
+  "component": {
+    "badge": {
+      "adopted-surface": { "$type": "color", "$value": "{semantic.color.state.adopted-soft}" },
+      "adopted-content": { "$type": "color", "$value": "{semantic.color.content.adopted-on-soft}" },
+      "caution-surface": { "$type": "color", "$value": "{semantic.color.state.caution-soft}" },
+      "caution-content": { "$type": "color", "$value": "{semantic.color.content.caution-on-soft}" }
+    },
+    "panel": {
+      "surface": { "$type": "color", "$value": "{semantic.color.surface.card}" },
+      "border": { "$type": "color", "$value": "{semantic.color.border.default}" }
+    },
+    "hero": {
+      "surface": { "$type": "color", "$value": "{semantic.color.surface.canvas}" },
+      "accent": { "$type": "color", "$value": "{semantic.color.brand.primary}" },
+      "title": { "$type": "color", "$value": "{semantic.color.content.primary}" }
+    },
+    "diagram-node": {
+      "surface": { "$type": "color", "$value": "{semantic.color.surface.card}" },
+      "outline": { "$type": "color", "$value": "{semantic.color.border.default}" },
+      "verified": { "$type": "color", "$value": "{semantic.color.state.adopted}" }
+    }
+  }
+}

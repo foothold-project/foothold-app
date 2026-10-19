@@ -1,0 +1,91 @@
+/* GENERATED FILE — edit foothold.tokens.json, then run generate_tokens.py. */
+/* Canonical source: brand/tokens/foothold.tokens.json */
+:root{
+  --paper:#f6f5f1;
+  --paper-2:#eeece6;
+  --card:#fff;
+  --ink:#161c26;
+  --ink-2:#4a5566;
+  --ink-3:#7c8798;
+  --dim-ink:#0b6459;
+  --note-ink:#8a5600;
+  --rule:#d9d6cd;
+  --brand:#0e7a6e;
+  --dim:var(--brand);
+  --dim-soft:#e0f0ed;
+  --note:#a86a08;
+  --note-soft:#fbf0dc;
+  --stop:#a3342a;
+  --stop-soft:#fbe9e7;
+  --grid:rgba(22,28,38,.04);
+  --measure:720px;
+  --nav:268px;
+}
+
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#12161d;
+    --paper-2:#191e27;
+    --card:#181d26;
+    --ink:#e9e7e1;
+    --ink-2:#adb5c1;
+    --ink-3:#7d8693;
+    --dim-ink:#3ec7b4;
+    --note-ink:#dc9a30;
+    --rule:#2b323d;
+    --brand:#3ec7b4;
+    --dim:var(--brand);
+    --dim-soft:#11302c;
+    --note:#dc9a30;
+    --note-soft:#332710;
+    --stop:#e56d5e;
+    --stop-soft:#331c19;
+    --grid:rgba(233,231,225,.035);
+    --measure:720px;
+    --nav:268px;
+  }
+}
+
+:root[data-theme="dark"]{
+  --paper:#12161d;
+  --paper-2:#191e27;
+  --card:#181d26;
+  --ink:#e9e7e1;
+  --ink-2:#adb5c1;
+  --ink-3:#7d8693;
+  --dim-ink:#3ec7b4;
+  --note-ink:#dc9a30;
+  --rule:#2b323d;
+  --brand:#3ec7b4;
+  --dim:var(--brand);
+  --dim-soft:#11302c;
+  --note:#dc9a30;
+  --note-soft:#332710;
+  --stop:#e56d5e;
+  --stop-soft:#331c19;
+  --grid:rgba(233,231,225,.035);
+  --measure:720px;
+  --nav:268px;
+}
+
+:root[data-theme="light"]{
+  --paper:#f6f5f1;
+  --paper-2:#eeece6;
+  --card:#fff;
+  --ink:#161c26;
+  --ink-2:#4a5566;
+  --ink-3:#7c8798;
+  --dim-ink:#0b6459;
+  --note-ink:#8a5600;
+  --rule:#d9d6cd;
+  --brand:#0e7a6e;
+  --dim:var(--brand);
+  --dim-soft:#e0f0ed;
+  --note:#a86a08;
+  --note-soft:#fbf0dc;
+  --stop:#a3342a;
+  --stop-soft:#fbe9e7;
+  --grid:rgba(22,28,38,.04);
+  --measure:720px;
+  --nav:268px;
+}
