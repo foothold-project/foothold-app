@@ -14,7 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 from apps.contracts import models as C
 from apps.server.fh_server.leases import Actor, Effect
 from apps.server.fh_server.models import Event, LeaseLog, now
-from apps.server.fh_server.realtime import Peer, Policy
+from apps.server.fh_server.realtime import AuditQueue, Peer, Policy
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take, drain_audit
 
 
@@ -40,18 +40,29 @@ def run(client, callback):
 def test_b1_repeated_denied_stop_agent_events_bounded_and_new_take_survives(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
     async def flood():
-        # Hold the writer to model a database unavailable throughout the burst.
-        auditor = rt.tasks[1]
-        auditor.cancel()
-        await asyncio.gather(auditor, return_exceptions=True)
-        for i in range(20_000):
-            for body in ({'op': 'CMD_SEQ', 'user_id': str(seeded['users']['one'])},
-                         {'op': 'STOP', 'user_id': str(seeded['users']['one'])},
-                         {'op': 'AGENT_EVENT', 'code': 'REPEATED_AGENT_WARNING'}):
-                rt.apply([Effect('audit', rid, body)])
-        assert rt.audit.qsize() <= 3
-        assert len(rt.audit_groups) <= 3
+        rt.tasks[1].cancel()
+        await asyncio.gather(rt.tasks[1], return_exceptions=True)
+        accepted = 0
+        for n in range(5_000):
+            if not rt.audit.admission_open(rid):
+                break
+            rt.apply([Effect('audit', rid, {'op': 'STOP', 'data': {'number': n},
+                                          'user_id': str(seeded['users']['one'])})])
+            accepted += 1
+            await asyncio.sleep(0)
+        assert 1 <= accepted <= 480
+        rt.block_archive_source(rid, 'CAPACITY')
+        channel = rt.audit.channel(rid)
+        await channel.queue._queue.writable()
+        records = await rt.audit._queue.snapshot()
+        assert [e.body['data']['number'] for e in records if e.body['op'] == 'STOP'] == list(range(accepted))
         assert not rt.failed and not rt.audit_overloaded
+        while not rt.audit.empty():
+            await rt.audit.get()
+            rt.audit.task_done()
+        await channel.queue._queue.writable()
+        assert channel.blocked  # recovery does not silently resume a lease
+        channel.retry_at = rt.clock() - 1  # explicitly advance the reconnect gate
         rt.tasks[1] = asyncio.create_task(rt.auditor())
     run(client, flood)
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
@@ -69,7 +80,7 @@ def test_b1_full_queue_revokes_notifies_keeps_stop_and_recovers(client, seeded, 
             rt.tasks[1].cancel()
             await asyncio.gather(rt.tasks[1], return_exceptions=True)
             original = rt.audit
-            rt.audit = asyncio.Queue(2)
+            rt.audit = AuditQueue(2)
             for i in range(3):
                 rt.apply([Effect('audit', rid, {'op': 'TAKE', 'user_id': str(seeded['users']['one'])})])
             assert rt.audit_overloaded
@@ -103,11 +114,16 @@ def test_b2_stop_bypasses_slow_db_and_twenty_queued_commands(client, seeded, rt,
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         lease = take(ws, ag, rid)
-        original = rt.load_policy
-        def slow(actor):
-            time.sleep(.1)  # same delay the review injected for every DB read
-            return original(actor)
-        monkeypatch.setattr(rt, 'load_policy', slow)
+        import threading
+        entered, release, finished = threading.Event(), threading.Event(), threading.Event()
+        original = rt.load_policy_batch
+        def slow(lane):
+            entered.set()
+            release.wait(5)
+            finished.set()
+            return original(lane)
+        monkeypatch.setattr(rt, 'load_policy_batch', slow)
+        assert entered.wait(1)
         # Prequeue all frames together, including STOP; never wait for cmd replies.
         async def backlog():
             for seq in range(20):
@@ -117,11 +133,13 @@ def test_b2_stop_bypasses_slow_db_and_twenty_queued_commands(client, seeded, rt,
             await ws._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps({
                 't': 'stop', 'id': 'urgent-stop', 'robot': rid})})
             return begin
-        begin = run(client, backlog)
-        receive(ag, 'stop', timeout=.1)
-        elapsed = time.monotonic() - begin
-        assert elapsed < .1, elapsed
-        assert reply(ws, 'urgent-stop')['ok']
+        run(client, backlog)
+        try:
+            receive(ag, 'stop')
+            assert reply(ws, 'urgent-stop')['ok']
+            assert not finished.is_set(), 'STOP waited for the blocked policy read'
+        finally:
+            release.set()
 
 
 def test_b1_connection_ingress_bound_closes_flooder_only(client, seeded, rt):
@@ -201,10 +219,15 @@ def test_safety_enqueue_discards_pre_stop_commands(client, seeded, rt):
     run(client, check)
 
 
-def test_r3_auth_close_revokes_before_watch_can_be_cancelled(client, seeded, rt):
+def test_r3_auth_close_revokes_before_watch_can_be_cancelled(client, seeded, rt, monkeypatch):
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
+        async def hold_snapshot(peer):
+            pass
+        # This test deliberately expires the cached snapshot, not the valid DB
+        # session. Hold that fixture so read-ahead cannot restore the DB value.
+        monkeypatch.setattr(rt, 'refresh_policy', hold_snapshot)
         async def expire_cached_session():
             peer = next(p for p in rt.screens.values() if p.actor.user == str(seeded['users']['one']))
             peer.policy = replace(peer.policy, expires_at=now() - timedelta(seconds=1))
@@ -431,7 +454,8 @@ def test_b1_real_ws_cmd_and_stop_floods_allow_fresh_take(client, seeded, rt):
                     receive(ws, 'never', timeout=2)
                 assert error.value.code == 1013
         assert not rt.failed and not rt.audit_overloaded
-        assert rt.audit.qsize() < 20
+        assert len(rt.audit._queue.memory) <= rt.audit.maxsize
+        assert rt.audit.qsize() <= 110  # each accepted STOP remains individual
         with screen(client, headers) as fresh:
             assert reply(fresh, send(fresh, 'lease.take', rid))['ok']
             gen = 2

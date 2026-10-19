@@ -5,17 +5,24 @@ observer is replaced with an in-memory observer. Local state is never invented:
 on_robot_state() must receive real bridge feedback before Core can allow motion.
 """
 
+from .history import History
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
 import json
 import time
 from typing import Callable
+import sys
 
 from foothold_agent.safety.core import Core, DEAD, Z, valid_axes
 
 LINK_TIMEOUT = 3.0
 REPORT_INTERVAL = 0.1
 MAX_SEQ = 2**53 - 1
+MAX_BUFFER = 256
+SAFETY_EVENTS = {"SERVER_LINK_LOST", "LINK_LOSS_TIMEOUT", "EXECUTOR_STALLED",
+                 "PROTOCOL_MISMATCH", "TRANSPORT_BACKPRESSURE", "STOP_GEN_EXHAUSTED",
+                 "LEASE_INVALID", "BRIDGE_STATE_INVALID", "HISTORY_STORAGE_BLOCKED"}
 TERMINAL = {"COMPLETED", "ABORTED", "FAILED"}
 
 
@@ -78,6 +85,7 @@ class Session:
         self._generation_exhausted = False
         self.connected = False
         self.reconnect_required = False
+        self.protocol_rejected = False
         self.last_server = None
         self.link_lost = False
         self.run = None
@@ -85,21 +93,69 @@ class Session:
         self.executor_t = None
         self.last_report = float("-inf")
         self.ack_pending = False
-        self._messages = []
+        self._messages = History(MAX_BUFFER - 1, lambda m: m.get('code') in SAFETY_EVENTS or m.get('t') == 'run.update'
+                                 or (m.get('code') == 'SERVER_CLOSED' and m.get('data', {}).get('close_code') in (4401, 4403, 4406)),
+                                 lambda m: m.get('data', {}).get('count', 1) if m.get('code') == 'LINK_BUFFER_DROPPED' else 1)
+        self.history_ready = asyncio.Event()
+        self.emit_history = True
+        self.before_history = None
         self._retry_event = None
+        self._buffer_dropped = 0
+
+    def retain(self, messages):
+        """FIFO survivors, ordinary-first eviction, safety-only disk spill."""
+        if self.before_history is not None:
+            self.before_history()
+        for message in messages:
+            if message.get('t') in ('event', 'run.update'):
+                try:
+                    self._messages.append(deepcopy(message))
+                except Exception:
+                    self.core.stop('history storage unavailable')
+                    self.core._void()
+                    raise
+        self._buffer_dropped += self._messages.dropped
+        self._messages.dropped = 0
+        if self._messages or self._buffer_dropped:
+            self.history_ready.set()
+        if self._retry_event is not None and not any(m is self._retry_event for _, m in self._messages.memory):
+            self._retry_event = None
+
+    def pop_history(self, limit=1):
+        messages = self._messages.drain(limit)
+        if self._retry_event is not None and any(m is self._retry_event for m in messages):
+            self._retry_event = None
+        if not self._messages and self._buffer_dropped:
+            messages.append({'t': 'event', 'code': 'LINK_BUFFER_DROPPED', 'severity': 'warn',
+                             'robot_at': None, 'data': {'count': self._buffer_dropped}})
+            self._buffer_dropped = 0
+        if not self._messages and not self._buffer_dropped:
+            self.history_ready.clear()
+        return messages
 
     def _event(self, code, **data):
-        self._messages.append({"t": "event", "code": code, "severity": "warn",
-                               "robot_at": None, "data": {"monotonic_s": self.now(), **data}})
+        self.retain([{"t": "event", "code": code, "severity": "warn",
+                      "robot_at": None, "data": {"monotonic_s": self.now(), **data}}])
+
+    def restore(self, messages):
+        """Unsent older history precedes events generated during disconnect."""
+        messages = [deepcopy(m) for m in messages if m.get('t') in ('event', 'run.update')]
+        for message in reversed(messages):
+            self._messages.append(message, front=True)
+        self._buffer_dropped += self._messages.dropped
+        self._messages.dropped = 0
+        if self._messages or self._buffer_dropped:
+            self.history_ready.set()
+        self._retry_event = next((m for _, m in self._messages.memory if m.get('code') == 'SERVER_RETRY'), None)
 
     def _run_status(self, status, reason=None):
         if self.run is None or self.run["status"] in TERMINAL:
             return
         self.run.update(status=status, wait_reason=reason)
-        self._messages.append({"t": "run.update", "run_id": self.run["run_id"],
+        self.retain([{"t": "run.update", "run_id": self.run["run_id"],
                                "status": status, "step": self.run["step"],
                                "progress": None,
-                               **({"fail_code": reason} if status == "FAILED" else {})})
+                               **({"fail_code": reason} if status == "FAILED" else {})}])
 
     def _pause(self, reason, *, preserve_reason=False):
         self.core._void()
@@ -156,8 +212,8 @@ class Session:
             self.stop_ref = 0  # never confirm a new grant with an exhausted CAS domain
         messages = []
         if self.connected:
-            messages, self._messages = self._messages, []
-            self._retry_event = None
+            if self.emit_history:
+                messages = self.pop_history(MAX_BUFFER - 1)
             if state or self.now() - self.last_report >= REPORT_INTERVAL:
                 messages.append(self._state())
                 if self.ack_pending:
@@ -181,27 +237,43 @@ class Session:
         self.connected = True
         self.stop_ref = 0  # a new transport cannot acknowledge an earlier server epoch
         self.reconnect_required = False
+        self.protocol_rejected = False
         self.last_server = self.now()
         self.link_lost = False
-        hello = {**deepcopy(self.identity), "t": "hello", "proto": "fh-agent/1", "latched": self.core.latch,
+        hello = {**deepcopy(self.identity), "t": "hello", "proto": "fh-agent/2", "latched": self.core.latch,
                  "stop_gen": self._generation(), "lease_id": self.lease_id,
                  "run": deepcopy(self.run)}
         effects = self._finish((MotionCommand("stop"),), state=True)
         return Effects(effects.motion, (hello,) + effects.messages)
 
     def protocol_mismatch(self):
+        self.protocol_rejected = True
         self.core.stop("protocol mismatch")
-        self._pause("PROTOCOL_MISMATCH")
+        self._pause("PROTOCOL_MISMATCH", preserve_reason=True)
         self.lease_confirmed = False
         self.reconnect_required = True
         self._event("PROTOCOL_MISMATCH")
         return self._finish((MotionCommand("stop"),), state=True)
 
+    def storage_blocked(self, reason):
+        # This is a local storage fault, not the link-loss Q7 policy. No later
+        # recovery may reuse this lease or replay its motion/unlock intent.
+        self.connected = False
+        self.core.stop('history storage blocked')
+        if self.core.controller is not None:
+            self.core.drop(self.core.controller, 'history storage blocked')
+        self.lease_confirmed = False
+        self.lease_id = self.holder_type = self.holder_run_id = None
+        self.core._void()
+        self._pause('HISTORY_STORAGE_BLOCKED', preserve_reason=True)
+        self._event('HISTORY_STORAGE_BLOCKED', reason=reason)
+        return self._finish((MotionCommand('stop'),))
+
     def transport_overflow(self):
         """Drop this transport, retain a stopped snapshot for the next hello."""
         self.connected = False
         self.core.stop("outgoing queue full")
-        self._pause("TRANSPORT_BACKPRESSURE")
+        self._pause("TRANSPORT_BACKPRESSURE", preserve_reason=True)
         self.lease_confirmed = False
         self.reconnect_required = True
         self._event("TRANSPORT_BACKPRESSURE")
@@ -229,7 +301,8 @@ class Session:
                         attempts=1, first_at_s=now, last_at_s=now)
             # Retain the first occurrence's queue position, so independent safety
             # events keep their FIFO order while retries consume one entry.
-            self._retry_event = self._messages[-1]
+            self._retry_event = next((m for _, m in reversed(self._messages.memory)
+                                      if m.get('code') == 'SERVER_RETRY'), None)
         else:
             data = self._retry_event["data"]
             data["attempts"] += 1
@@ -245,8 +318,19 @@ class Session:
         self._pause("CLIENT_SHUTDOWN", preserve_reason=True)
         return self._finish((MotionCommand("stop"),))
 
-    def on_robot_state(self, raw):
+    def on_robot_state(self, raw, *, record_errors=True):
         self._advance()
+        # Core's math.isfinite/float conversion cannot accept arbitrary Python
+        # integers. Reject such feedback before Core; do not refresh state age.
+        if isinstance(raw, dict):
+            values = list(raw.values())
+            if isinstance(raw.get("cmd_applied"), list):
+                values += raw["cmd_applied"]
+            if any(type(v) is int and not -sys.float_info.max <= v <= sys.float_info.max
+                   for v in values):
+                if record_errors:
+                    self._event("BRIDGE_STATE_INVALID", reason="NUMBER_RANGE")
+                return self._finish()
         self.core.on_state(raw)
         return self._finish()
 
@@ -292,15 +376,24 @@ class Session:
 
     def receive(self, frame):
         received_at = self.now()
-        self._advance()
-        if not self.connected or self.reconnect_required:
-            return self._finish()
         if isinstance(frame, (str, bytes)):
             try:
                 frame = json.loads(frame)
             except (ValueError, UnicodeError, RecursionError):
+                self._advance()
                 return self._finish()
-        if isinstance(frame, dict) and "proto" in frame and frame["proto"] != "fh-agent/1":
+        urgent_stop = (self.connected and not self.reconnect_required
+                       and isinstance(frame, dict) and frame.get('t') == 'stop')
+        if urgent_stop:
+            self.core.stop("server STOP")  # no lease or user check on STOP
+            if self.before_history is not None:
+                self.before_history()
+        # A due link/executor transition can itself produce history. The STOP
+        # above must reach the sink before advancing any such transition.
+        self._advance()
+        if not self.connected or self.reconnect_required:
+            return self._finish()
+        if isinstance(frame, dict) and "proto" in frame and frame["proto"] != "fh-agent/2":
             return self.protocol_mismatch()
         if (not isinstance(frame, dict) or not isinstance(frame.get("t"), str)
                 or not frame["t"]):
@@ -317,7 +410,6 @@ class Session:
         if kind == "lease":
             self._lease(frame)
         elif kind == "stop":
-            self.core.stop("server STOP")  # no lease or user check on STOP
             self._pause("STOP")
             ref = frame.get("stop_ref")
             if (type(ref) is int and 0 < ref <= MAX_SEQ

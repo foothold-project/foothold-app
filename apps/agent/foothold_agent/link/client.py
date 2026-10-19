@@ -5,6 +5,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 import json
 import os
+from collections import deque
 from urllib.parse import urlsplit
 
 from .interfaces import Executor, MotionSink
@@ -13,6 +14,57 @@ from foothold_agent.safety.core import Z
 
 TICK_S = 0.05
 FATAL_CLOSE_CODES = (4401, 4403)
+PROTOCOL_CLOSE_CODE = 4406
+PROTOCOL_RETRY_S = 30.0
+
+
+class Outbox:
+    """128 FIFO discrete frames plus coalesced state/ACK ahead of history."""
+    def __init__(self):
+        self.frames = deque()
+        self.telemetry = {}
+        self.ready = asyncio.Event()
+        self.inflight = None
+
+    def put_nowait(self, message):
+        if message['t'] in ('state', 'cmd.ack'):
+            self.telemetry[message['t']] = message
+        else:
+            if len(self.frames) >= 128:
+                raise asyncio.QueueFull
+            self.frames.append(message)
+        self.ready.set()
+
+    async def put(self, message):
+        while True:
+            try:
+                self.put_nowait(message)
+                return
+            except asyncio.QueueFull:
+                await asyncio.sleep(.005)
+
+    async def get(self):
+        while True:
+            await self.ready.wait()
+            index = next((i for i, m in enumerate(self.frames) if m['t'] == 'hello'), None)
+            if index is not None:
+                message = self.frames[index]
+                del self.frames[index]
+            elif self.telemetry:
+                key = 'state' if 'state' in self.telemetry else 'cmd.ack'
+                message = self.telemetry.pop(key)
+            elif self.frames:
+                message = self.frames.popleft()
+            else:
+                self.ready.clear()
+                continue
+            if not self.frames and not self.telemetry:
+                self.ready.clear()
+            self.inflight = message
+            return message
+
+    def unsent(self):
+        return ([self.inflight] if self.inflight else []) + list(self.frames)
 
 
 @dataclass(frozen=True)
@@ -78,6 +130,39 @@ class Client:
         self.executor = executor
         self._outgoing = None
         self._overflow = None
+        self.storage_blocked = False
+        self.session.emit_history = False
+        self.session.before_history = self._before_history
+        self._ensure_history()
+
+    def _ensure_history(self):
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return  # run()/the first async entry installs the worker
+        self.session._messages.background(
+            lambda error: self._storage_problem(type(error).__name__),
+            lambda: self._storage_problem('BACKPRESSURE'))
+
+    def _before_history(self):
+        # Session is synchronous: publish its already-decided safe motion before
+        # even submitting file work. The callback never publishes nonzero/unlock.
+        if self.session.core.latch:
+            self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))
+        elif self.session.core.applied() == Z:
+            self._emit(Effects((MotionCommand(velocity=Z),)))
+        self._ensure_history()
+
+    def _storage_problem(self, reason):
+        if self.storage_blocked:
+            return
+        self.storage_blocked = True
+        self._outgoing = None
+        # Physical STOP/zero precede metadata, error events and worker waits.
+        self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))
+        if self._overflow is not None:
+            self._overflow.set()
+        self._emit(self.session.storage_blocked(reason))
 
     def _emit(self, effects: Effects):
         # This ordering is mandatory: stop/apply locally before hello or state ACK.
@@ -101,13 +186,14 @@ class Client:
                     pass  # retain the first failure, even if zero also failed
             raise LocalPortError("motion sink failed") from first_error
         if self._outgoing is not None:
-            for message in effects.messages:
+            for index, message in enumerate(effects.messages):
                 try:
                     self._outgoing.put_nowait(message)
                 except asyncio.QueueFull:
                     # A slow connection must not terminate the local watchdog.
                     # Detach before emitting STOP so no safety response re-enters
                     # the saturated queue; the network task closes and reconnects.
+                    self.session.retain(effects.messages[index:])
                     self._outgoing = None
                     if self._overflow is not None:
                         self._overflow.set()
@@ -116,7 +202,8 @@ class Client:
 
     def on_robot_state(self, raw):
         """Local bridge feedback, called on the owning event loop."""
-        self._emit(self.session.on_robot_state(raw))
+        self._ensure_history()
+        self._emit(self.session.on_robot_state(raw, record_errors=not self.storage_blocked))
 
     def waypoint_reached(self, run_id):
         """Local executor observation; never inferred from a server message."""
@@ -126,7 +213,7 @@ class Client:
         while True:
             self._emit(self.session.tick())
             run = self.session.run
-            if self.executor is not None and run is not None:
+            if self.executor is not None and run is not None and not self.storage_blocked:
                 axes = self.executor.poll(deepcopy(run))
                 if axes is not None:
                     self._emit(self.session.executor_command(run["run_id"], axes))
@@ -137,15 +224,50 @@ class Client:
             message = await queue.get()
             # Bounded writes cannot suspend the local watchdog.
             await asyncio.wait_for(websocket.send(json.dumps(message, allow_nan=False)), 0.2)
+            queue.inflight = None
+
+    async def _replay(self, queue, messages, *, live=False):
+        # Only replaceable telemetry may pass event history. Events and run
+        # transitions use one serialized FIFO pump, including newly generated
+        # history while a reconnect backlog is still draining.
+        messages = sorted(messages, key=lambda m: 0 if m['t'] == 'hello' else
+                          1 if m['t'] in ('state', 'cmd.ack') else 2)
+        index = 0
+        try:
+            for message in messages:
+                await queue.put(message)
+                index += 1
+            while live:
+                await self.session.history_ready.wait()
+                try:
+                    messages = self.session.pop_history(1)
+                except Exception:
+                    if self.session._messages.io is None or self.session._messages.io.error is None:
+                        raise
+                    await self.session._messages.writable()
+                    continue
+                if not messages:
+                    await self.session._messages.readable()
+                    continue
+                index = 0
+                for message in messages:
+                    await queue.put(message)
+                    index += 1
+        finally:
+            self.session.restore(messages[index:])
 
     async def _reader(self, websocket):
         while True:
+            if self.storage_blocked:
+                return
             try:
                 frame = await asyncio.wait_for(websocket.recv(), TICK_S)
             except asyncio.TimeoutError:
                 if self.session.link_lost or self.session.reconnect_required:
                     return
                 continue
+            if self.storage_blocked:
+                return
             self._emit(self.session.receive(frame))
             if self.session.reconnect_required:
                 return
@@ -157,8 +279,11 @@ class Client:
 
         delay = self.settings.retry_initial_s
         while True:
+            await self.session._messages.writable()
+            self.storage_blocked = False  # Core stays latched, old lease cleared
             connected_for = 0.0
             retry_code = None
+            protocol_wait = False
             try:
                 async with connect(
                     self.settings.url,
@@ -168,16 +293,19 @@ class Client:
                     compression=None,
                 ) as websocket:
                     connected_at = self.session.now()
-                    queue = asyncio.Queue(maxsize=128)
+                    queue = Outbox()
                     self._outgoing = queue
                     self._overflow = asyncio.Event()
-                    self._emit(self.session.connect())
+                    self.session.emit_history = False
+                    effects = self.session.connect()
+                    self._emit(Effects(effects.motion))
+                    replay = asyncio.create_task(self._replay(queue, effects.messages, live=True))
                     reader = asyncio.create_task(self._reader(websocket))
                     writer = asyncio.create_task(self._writer(websocket, queue))
                     overflow = asyncio.create_task(self._overflow.wait())
                     pending_error = None
                     try:
-                        done, _ = await asyncio.wait((reader, writer, overflow),
+                        done, _ = await asyncio.wait((reader, writer, overflow, replay),
                                                      return_when=asyncio.FIRST_COMPLETED)
                         for task in done:
                             task.result()
@@ -192,7 +320,12 @@ class Client:
                         try:
                             if isinstance(pending_error, ConnectionClosed):
                                 code = pending_error.rcvd.code if pending_error.rcvd else 1006
-                                effects = self.session.transport_closed(code, retry=code not in FATAL_CLOSE_CODES)
+                                legacy_protocol = code == 4403 and pending_error.rcvd.reason.startswith('PROTOCOL_MISMATCH')
+                                if code == PROTOCOL_CLOSE_CODE or legacy_protocol:
+                                    self._emit(self.session.protocol_mismatch())
+                                if code == 1013 and pending_error.rcvd.reason == 'ROBOT_ARCHIVE_LIMIT':
+                                    self._storage_problem('SERVER_ARCHIVE_LIMIT')
+                                effects = self.session.transport_closed(code, retry=code not in FATAL_CLOSE_CODES or legacy_protocol)
                             else:
                                 effects = (self.session.shutdown() if isinstance(pending_error, LocalPortError)
                                            else self.session.disconnect())
@@ -208,19 +341,26 @@ class Client:
                             reader.cancel()
                             writer.cancel()
                             overflow.cancel()
-                            await asyncio.gather(reader, writer, overflow, return_exceptions=True)
+                            replay.cancel()
+                            await asyncio.gather(reader, writer, overflow, replay, return_exceptions=True)
+                            self.session.restore(queue.unsent())
+                            self.session.emit_history = False
             except ConnectionClosed as exc:
                 retry_code = exc.rcvd.code if exc.rcvd else 1006
-                if retry_code in FATAL_CLOSE_CODES:
-                    raise ReconnectForbidden(retry_code) from exc
                 reason = exc.rcvd.reason if exc.rcvd is not None else ""
+                legacy_protocol = retry_code == 4403 and reason.startswith('PROTOCOL_MISMATCH')
+                if retry_code in FATAL_CLOSE_CODES and not legacy_protocol:
+                    raise ReconnectForbidden(retry_code) from exc
                 try:
                     declaration = json.loads(reason)
                 except (ValueError, RecursionError):
                     declaration = {"proto": reason} if reason.startswith("fh-agent/") else {}
-                if (isinstance(declaration, dict) and "proto" in declaration
-                        and declaration["proto"] != "fh-agent/1"):
-                    self._emit(self.session.protocol_mismatch())
+                if (retry_code == PROTOCOL_CLOSE_CODE or legacy_protocol or
+                        isinstance(declaration, dict) and "proto" in declaration
+                        and declaration["proto"] != "fh-agent/2"):
+                    if not self.session.protocol_rejected:
+                        self._emit(self.session.protocol_mismatch())
+                    protocol_wait = True
             except InvalidStatus as exc:
                 # ASGI authorization rejection before accept is HTTP 401/403,
                 # rather than a negotiated WebSocket close frame.
@@ -232,11 +372,14 @@ class Client:
                 pass  # transport only; never catch a local sink/executor failure
             if connected_for >= 3 or retry_code == 1013:
                 delay = self.settings.retry_initial_s
-            self._emit(self.session.transport_retry(delay, retry_code))
-            await asyncio.sleep(delay)
+            protocol_wait |= self.session.protocol_rejected
+            wait = max(PROTOCOL_RETRY_S, delay) if protocol_wait else delay
+            self._emit(self.session.transport_retry(wait, retry_code))
+            await asyncio.sleep(wait)
             delay = min(delay * 2, self.settings.retry_max_s)
 
     async def run(self):
+        self._ensure_history()
         watchdog = asyncio.create_task(self._watchdog())
         network = asyncio.create_task(self._network())
         pending_error = None
@@ -252,7 +395,13 @@ class Client:
             # Stop BEFORE awaiting cancellation of socket tasks, even on cancellation
             # or a local port failure. A failing hardware sink cannot be hidden.
             try:
-                self._emit(self.session.shutdown())
+                try:
+                    effects = self.session.shutdown()
+                except Exception:
+                    # History I/O failure cannot prevent physical STOP/zero.
+                    self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))
+                    raise
+                self._emit(effects)
             except Exception as exc:
                 if pending_error is None:
                     raise
@@ -261,3 +410,4 @@ class Client:
                 watchdog.cancel()
                 network.cancel()
                 await asyncio.gather(watchdog, network, return_exceptions=True)
+                self.session._messages.close()

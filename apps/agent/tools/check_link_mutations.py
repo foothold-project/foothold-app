@@ -33,8 +33,7 @@ MUTATIONS = [
      'self.lease_confirmed and self.holder_type == "USER"', 'self.holder_type == "USER"'),
     ("session shutdown has no latch", "link/session.py",
      'self.core.stop("client shutdown")', 'self.core._void()'),
-    ("client cancellation has no shutdown", "link/client.py",
-     'self._emit(self.session.shutdown())', 'pass'),
+    ('client cancellation has no shutdown', 'link/client.py', '                    effects = self.session.shutdown()', '                    effects = Effects(())'),
     ("seq upper bound removed", "link/session.py",
      '0 <= seq <= MAX_SEQ', 'seq >= 0'),
     ("cancel output failure trace removed", "link/client.py",
@@ -60,7 +59,7 @@ MUTATIONS = [
     ("close event removed", "link/session.py",
      'self._event("SERVER_CLOSED", close_code=close_code, retry=retry)', 'pass'),
     ("retry event removed", "link/client.py",
-     'self._emit(self.session.transport_retry(delay, retry_code))', 'pass'),
+     'self._emit(self.session.transport_retry(wait, retry_code))', 'pass'),
     ("retry backoff fixed", "link/client.py",
      'delay = min(delay * 2, self.settings.retry_max_s)', 'delay = self.settings.retry_initial_s'),
     ("default retry interval shortened", "link/client.py",
@@ -101,12 +100,51 @@ MUTATIONS = [
     ('unlock generation upper bound removed', 'link/session.py', '0 <= gen <= MAX_SEQ', 'gen >= 0'),
     ('STOP reference zero-output guard removed', 'link/session.py', 'and self.core.latch and self.core.applied() == Z', 'and self.core.latch'),
     ('wire generation exceeds safe integer', 'link/session.py', 'return min(MAX_SEQ, self.core.stop_gen)', 'return self.core.stop_gen'),
+    ('offline buffer unbounded', 'link/session.py', 'History(MAX_BUFFER - 1, lambda m:', 'History(100000, lambda m:'),
+    ('backpressure wait reason overwritten', 'link/session.py', 'self._pause("TRANSPORT_BACKPRESSURE", preserve_reason=True)', 'self._pause("TRANSPORT_BACKPRESSURE")'),
+    ('protocol wait reason overwritten', 'link/session.py', 'self._pause("PROTOCOL_MISMATCH", preserve_reason=True)', 'self._pause("PROTOCOL_MISMATCH")'),
+    ('bridge integer guard removed', 'link/session.py', 'if any(type(v) is int and not -sys.float_info.max <= v <= sys.float_info.max', 'if any(False and type(v) is int and not -sys.float_info.max <= v <= sys.float_info.max'),
+    ('state priority removed', 'link/client.py', 'elif self.telemetry:', 'elif self.telemetry and not self.frames:'),
+    ('first replay is synchronous overflow', 'link/client.py', '                for message in messages:\n                    await queue.put(message)', '                for message in messages:\n                    queue.put_nowait(message)'),
+    ('protocol slow wait removed', 'link/client.py', 'PROTOCOL_RETRY_S = 30.0', 'PROTOCOL_RETRY_S = 1.0'),
+    ('event FIFO reversed', 'link/client.py', 'message = self.frames.popleft()', 'message = self.frames.pop()'),
+    ('safety spill dropped', 'link/history.py', '            if not self.ordinary:\n                if not self.safety(message):', '            if not self.ordinary:\n                if True:'),
+    ('ordinary evicts safety', 'link/history.py', '            if not self.ordinary:\n                if not self.safety(message):', '            if not self.ordinary:\n                self.memory.popleft()\n                self.dropped += 1\n                if not self.safety(message):'),
+    ('restored retry summary detached', 'link/session.py', "self._retry_event = next((m for _, m in self._messages.memory if m.get('code') == 'SERVER_RETRY'), None)", 'self._retry_event = None'),
+    ('history I/O failure skips physical stop', 'link/client.py', "                    self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))", '                    pass'),
+    ('protocol stop waits behind teardown', 'link/client.py', '                                if code == PROTOCOL_CLOSE_CODE or legacy_protocol:\n                                    self._emit(self.session.protocol_mismatch())', '                                if False:\n                                    self._emit(self.session.protocol_mismatch())'),
+    ('bridge safety record demoted', 'link/session.py', '"LEASE_INVALID", "BRIDGE_STATE_INVALID", "HISTORY_STORAGE_BLOCKED"}', '"LEASE_INVALID", "HISTORY_STORAGE_BLOCKED"}'),
+    ('run transition record demoted', 'link/session.py', "or m.get('t') == 'run.update'", 'or False'),
+    ('authorization close record demoted', 'link/session.py', "(m.get('code') == 'SERVER_CLOSED' and", "(False and m.get('code') == 'SERVER_CLOSED' and"),
+    ('STOP sink prehistory callback removed', 'link/client.py', "        if self.session.core.latch:\n            self._emit(Effects((MotionCommand('stop'), MotionCommand(velocity=Z))))\n        elif self.session.core.applied() == Z:\n            self._emit(Effects((MotionCommand(velocity=Z),)))", '        pass'),
+    ('file INSERT blocks watchdog', 'link/history.py', "                self.io.submit('insert', sequence, message)", "                self._disk().execute('INSERT INTO history VALUES (?, ?)', (sequence, pickle.dumps(message)))\n                self.io.submit('peek')"),
+    ('storage pressure admission never stops', 'link/history.py', '    HIGH_WATER = 64', '    HIGH_WATER = 1000000'),
+    ('server archive close skips immediate stop', 'link/client.py', "if code == 1013 and pending_error.rcvd.reason == 'ROBOT_ARCHIVE_LIMIT':", 'if False:'),
+    ('storage safety record demoted', 'link/session.py', '"LEASE_INVALID", "BRIDGE_STATE_INVALID", "HISTORY_STORAGE_BLOCKED"}', '"LEASE_INVALID", "BRIDGE_STATE_INVALID"}'),
+    ('physical file cap omitted', 'link/history.py', "self.spill.execute('PRAGMA max_page_count=2048')", "self.spill.execute('PRAGMA max_page_count=0')"),
+
 ]
 
 
 # Client probes are selected by the changed policy, including Session-originated
 # transport events. Assertion failures, not slow blanket runs, prove each change.
 PROBE_TESTS = {
+    'STOP sink prehistory callback removed': 'tests/test_link_storage.py::test_stop_and_watchdog_precede_gated_file_io',
+    'file INSERT blocks watchdog': 'tests/test_link_storage.py::test_file_wait_does_not_occupy_the_watchdog_event_loop',
+    'storage pressure admission never stops': 'tests/test_link_storage.py::test_storage_pressure_reserves_unsent_history_and_never_auto_unlocks',
+    'server archive close skips immediate stop': 'tests/test_link_storage.py::test_server_archive_limit_stops_before_waiting_for_writer_cancellation',
+    'storage safety record demoted': 'tests/test_link_followup.py::test_full_safety_buffer_rejects_ordinary_without_evicting_safety',
+    'physical file cap omitted': 'tests/test_link_storage.py::test_spill_file_has_enforced_eight_mib_limit',
+
+    'bridge safety record demoted': 'tests/test_link_followup.py::test_full_safety_buffer_rejects_ordinary_without_evicting_safety',
+    'run transition record demoted': 'tests/test_link_followup.py::test_run_transitions_are_not_evicted_at_capacity',
+    'authorization close record demoted': 'tests/test_link_followup.py::test_authorization_close_records_are_not_evicted_at_capacity',
+    'protocol stop waits behind teardown': 'tests/test_link_followup.py::test_protocol_close_stops_before_waiting_for_writer_cancellation',
+    'event FIFO reversed': 'tests/test_link_followup.py::test_outbox_coalesces_telemetry_and_preserves_event_fifo',
+    'safety spill dropped': 'tests/test_link_followup.py::test_all_safety_offline_capacity_spills_without_eviction_and_keeps_fifo',
+    'ordinary evicts safety': 'tests/test_link_followup.py::test_full_safety_buffer_rejects_ordinary_without_evicting_safety',
+    'restored retry summary detached': 'tests/test_link_followup.py::test_retry_summary_survives_failed_write_restore',
+    'history I/O failure skips physical stop': 'tests/test_link_followup.py::test_history_storage_error_cannot_skip_physical_stop_and_zero',
     "shutdown pause reason overwritten": "test_client_auth_close_preserves_paused_reason_and_nonretry_event",
     "fatal close event marked retryable": "test_client_auth_close_preserves_paused_reason_and_nonretry_event",
     "1013 incorrectly uses exponential backoff": "test_repeated_1013_close_uses_fixed_interval_and_records_each_attempt",
@@ -119,6 +157,13 @@ PROBE_TESTS = {
     "retry backoff fixed": "test_exponential_backoff_against_same_process_rejecting_server",
     "default retry interval shortened": "test_default_close_backoff_matches_api_spec",
     "default retry cap lowered": "test_default_close_backoff_matches_api_spec",
+    'offline buffer unbounded': 'tests/test_link_followup.py::test_offline_buffer_is_bounded_and_loss_is_counted',
+    'backpressure wait reason overwritten': 'tests/test_link_followup.py::test_transport_failures_preserve_existing_wait_reason',
+    'protocol wait reason overwritten': 'tests/test_link_followup.py::test_transport_failures_preserve_existing_wait_reason',
+    'bridge integer guard removed': 'tests/test_link_followup.py::test_bridge_large_integers_never_enter_core_or_refresh_health',
+    'state priority removed': 'tests/test_link_followup.py::test_outbox_coalesces_telemetry_and_preserves_event_fifo',
+    'first replay is synchronous overflow': 'tests/test_link_followup.py::test_full_offline_buffer_recovers_on_first_connection_with_backpressure',
+    'protocol slow wait removed': 'tests/test_link_followup.py::test_protocol_4406_stops_and_waits_at_least_30s_before_retry',
 }
 
 
@@ -143,7 +188,7 @@ def main():
             report = copy / "mutation-result.json"
             try:
                 probe = PROBE_TESTS.get(label)
-                tests = ("tests/test_link_client.py::" + probe if probe else
+                tests = (probe if probe and "::" in probe else "tests/test_link_client.py::" + probe if probe else
                          "tests/test_link_client.py::test_cancel_while_moving_requests_stop_zero_and_latch"
                          if target == "link/client.py" else "tests/test_link_session.py")
                 selected = [tests] if probe or target == "link/client.py" else [tests, "tests/test_stop_reference.py"]

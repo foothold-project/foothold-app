@@ -296,7 +296,7 @@ class RunCopy(AgentInput):
 
 class AgentHello(AgentInput):
     t: Literal['hello']
-    proto: Literal['fh-agent/1']
+    proto: Literal['fh-agent/2']
     agent_version: str = Field(max_length=128)
     robot_model: str | None
     firmware: str | None

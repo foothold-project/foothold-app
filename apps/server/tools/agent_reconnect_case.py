@@ -12,6 +12,11 @@ def test_real_pr8_client_keeps_retrying_after_owner_loss_and_reconnects(seeded, 
     from foothold_agent.link.client import Client, Settings
     from foothold_agent.link.session import Session
 
+    # An explicitly requested historical package can predate the current wire
+    # contract. Diagnose that as a failed compatibility assertion, not a ping
+    # timeout / execution error after repeatedly rejecting its hello.
+    assert Session().connect().messages[0]['proto'] == 'fh-agent/2', 'Agent wire contract must be fh-agent/2'
+
     async def check(server):
         class ObservedSession(Session):
             def __init__(self):

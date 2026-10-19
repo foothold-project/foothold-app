@@ -69,7 +69,7 @@ def test_fake_server_header_handoff_ack_stop_before_hello_reconnect():
                 hello = await until_message(ws, "hello")
                 assert sink.commands[-1][1].velocity == Z
                 assert any(c.kind == "stop" for _, c in sink.commands)
-                assert hello["latched"] and hello["proto"] == "fh-agent/1"
+                assert hello["latched"] and hello["proto"] == "fh-agent/2"
                 if len(connections) == 1:
                     await until_message(ws, "state")  # consume startup snapshot
                     await ws.send(json.dumps({"t": "lease", "lease_id": "lease-a", "holder_type": "USER"}))
@@ -274,7 +274,9 @@ def test_env_only_settings_secret_repr_and_validation(monkeypatch):
 
 
 @pytest.mark.parametrize("via_close", [False, True])
-def test_protocol_mismatch_response_or_close_latches_before_reconnect(via_close):
+def test_protocol_mismatch_response_or_close_latches_before_reconnect(via_close, monkeypatch):
+    from foothold_agent.link import client as module
+    monkeypatch.setattr(module, "PROTOCOL_RETRY_S", .01)
     async def scenario():
         session = Session(time.monotonic)
         sink = FakeMotionSink()
@@ -287,13 +289,13 @@ def test_protocol_mismatch_response_or_close_latches_before_reconnect(via_close)
             try:
                 attempts += 1
                 hello = await until_message(ws, "hello")
-                assert hello["proto"] == "fh-agent/1"
+                assert hello["proto"] == "fh-agent/2"
                 if attempts == 1:
                     first_gen = session.core.stop_gen
                     if via_close:
-                        await ws.close(4000, json.dumps({"proto": "fh-agent/2"}))
+                        await ws.close(4000, json.dumps({"proto": "fh-agent/99"}))
                     else:
-                        await ws.send(json.dumps({"t": "error", "proto": "fh-agent/2"}))
+                        await ws.send(json.dumps({"t": "error", "proto": "fh-agent/99"}))
                         await ws.wait_closed()
                 else:
                     assert hello["stop_gen"] >= first_gen + 2  # mismatch STOP, then reconnect STOP
@@ -427,10 +429,10 @@ def test_queue_overflow_reconnects_instead_of_terminating_client():
                     initial_gen = session.core.stop_gen
                     # Deterministically saturate this connection's bounded queue
                     # in one event-loop callback, without waiting for OS buffers.
-                    while not client._outgoing.full():
-                        client._outgoing.put_nowait({"t": "state"})
+                    while len(client._outgoing.frames) < 128:
+                        client._outgoing.put_nowait({"t": "event", "code": "FAKE_HISTORY"})
                     count = len(sink.commands)
-                    client._emit(Effects((), ({"t": "state"},)))
+                    client._emit(Effects((), ({"t": "event", "code": "FAKE_EXTRA"},)))
                     after = [c for _, c in sink.commands[count:]]
                     assert any(c.kind == "stop" for c in after)
                     assert after[-1].velocity == Z and session.core.latch
@@ -914,9 +916,10 @@ def test_long_outage_recovers_on_first_socket_with_original_safety_events_in_ord
                 while True:
                     msg = json.loads(await ws.recv())
                     received.append(msg)
-                    if msg["t"] == "state":
+                    if msg.get("code") == "SERVER_RETRY":
                         break
-                order = [(m["t"], m.get("code"), m.get("status")) for m in received]
+                assert received[0]["t"] == "state"  # safety snapshot bypasses history
+                order = [(m["t"], m.get("code"), m.get("status")) for m in received if m["t"] != "state"]
                 assert order[:4] == [
                     ("event", "SERVER_LINK_LOST", None),
                     ("run.update", None, "PAUSED"),

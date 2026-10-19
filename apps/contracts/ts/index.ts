@@ -33,7 +33,7 @@ export interface AgentEvent {
 
 export interface AgentHello {
   t: "hello";
-  proto: "fh-agent/1";
+  proto: "fh-agent/2";
   agent_version: string;
   robot_model: string | null;
   firmware: string | null;

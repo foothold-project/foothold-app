@@ -62,7 +62,7 @@ def app_token(client, username='one'):
 
 
 def hello(**kw):
-    return dict(t='hello', proto='fh-agent/1', agent_version='fake-test', robot_model=None,
+    return dict(t='hello', proto='fh-agent/2', agent_version='fake-test', robot_model=None,
         firmware=None, devices=[], map_versions=[], last_floor_id=None, latched=True,
         stop_gen=1, lease_id=None, run=None, **kw)
 
@@ -434,7 +434,7 @@ def test_agent_protocol_credentials_and_hello_deadline(client, seeded, rt):
         ag.send_json({**hello(), 'proto': 'wrong/1'})
         with pytest.raises(WebSocketDisconnect) as error:
             receive(ag)
-        assert error.value.code == 4403
+        assert error.value.code == 4406
 
 
 def test_lease_audit_append_only_and_tenant_constraints(client, seeded, rt):
@@ -498,15 +498,15 @@ def test_replaced_agent_late_state_cannot_confirm_new_connection_stop(client, se
     entered, release = threading.Event(), threading.Event()
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as old:
-        original = rt.agent_identity
+        original = rt.load_agent_batch
         gate = [True]
-        def blocked(headers):
+        def blocked():
             if gate[0]:
                 gate[0] = False
                 entered.set()
                 assert release.wait(2)
-            return original(headers)
-        monkeypatch.setattr(rt, 'agent_identity', blocked)
+            return original()
+        monkeypatch.setattr(rt, 'load_agent_batch', blocked)
         old.send_json(state(99))
         assert entered.wait(1)
         try:

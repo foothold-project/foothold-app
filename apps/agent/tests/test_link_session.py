@@ -342,7 +342,7 @@ def test_any_server_operations_during_stop_do_not_bypass_core():
 
 def test_protocol_mismatch_stops_latches_and_rejects_authority():
     h = Harness()
-    e = h.s.receive({"t": "ping", "proto": "fh-agent/2"})
+    e = h.s.receive({"t": "ping", "proto": "fh-agent/99"})
     assert zero(e) and h.s.core.latch and h.s.reconnect_required
     assert not h.s.lease_confirmed
     assert zero(h.cmd(N)) and zero(h.cmd(F))
@@ -362,7 +362,7 @@ def test_invalid_active_run_control_fields_do_not_crash_or_change_status():
 
 def test_protocol_rejection_cannot_be_undone_by_queued_lease_unlock():
     h = Harness()
-    h.s.receive({"proto": "fh-agent/2"})
+    h.s.receive({"proto": "fh-agent/99"})
     h.lease("lease-a")
     h.state(True)
     e = h.s.receive({"t": "unlock", "lease_id": "lease-a", "stop_gen": h.s.core.stop_gen})
