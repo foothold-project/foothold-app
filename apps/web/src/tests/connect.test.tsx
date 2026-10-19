@@ -226,6 +226,46 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
   });
 });
 
+// R2-B1: 조종 화면이 열린 채 세션이 끝나면 화면 정리(조종권 반납)가 갈아 끼운 빈 중재기를 건드려 흰 화면이 됐다
+describe('조종 화면에서 세션이 끝남(로그아웃·401)', () => {
+  const live = { ...robot('r-k', 'Go2-K', 'a1', '김총괄'), connection: 'ONLINE' as const, status: 'IDLE' as const };
+  const cases: [string, boolean, 'logout' | '401'][] = [['PC 조종 화면 · 로그아웃', false, 'logout'], ['PC 조종 화면 · 401', false, '401'], ['폰 조종 탭 · 401', true, '401']];
+  for (const [name, phone, how] of cases) it(name, async () => {
+    serve(signedIn(KIM, [live], { 'POST /auth/logout': { status: 204 } }));
+    const errors: unknown[] = [], onErr = (e: ErrorEvent) => errors.push(e.error);
+    addEventListener('error', onErr);
+    await open(phone ? '#/drive' : '#/drive/r-k', phone);
+    act(() => btn('조종 시작')!.click());
+    const old = drive;
+    expect(old.get('r-k').holder).toBe('a1');
+    if (how === 'logout') act(() => btn('로그아웃')!.click());
+    else { routes['GET /me'] = NO_LOGIN; await act(async () => { await api.me().catch(() => {}); }); }
+    await flush();
+    removeEventListener('error', onErr);
+    expect(errors).toEqual([]);
+    expect($('main[aria-label="로그인"]')).not.toBeNull();   // 흰 화면이 아니라 로그인 화면
+    expect(old.get('r-k').holder).toBeNull();   // 쓰던 중재기에 조종권을 돌려줌(정지·반납)
+    expect(drive).not.toBe(old);
+    expect(drive.get('r-k')).toBeUndefined();
+    expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);
+  });
+  it('폰 조종 탭에서 조종하다 기록 탭 ⋯ 로그아웃', async () => {
+    serve(signedIn(KIM, [live], { 'POST /auth/logout': { status: 204 } }));
+    await open('#/drive', true);
+    act(() => btn('조종 시작')!.click());
+    const old = drive;
+    act(() => ($('nav a[href="#/history"]') as HTMLElement).click());
+    act(() => ($('header details button') as HTMLElement).click());
+    await flush();
+    expect($('main[aria-label="로그인"]')).not.toBeNull();
+    expect(old.get('r-k').holder).toBeNull();
+    expect([MEM_USERS.length, MEM_ROBOTS.length, drive.get('r-k')]).toEqual([0, 0, undefined]);
+  });
+  it('중재기에 없는 로봇 ID 를 정리해도 예외 없음', () => {
+    expect(() => drive.release('없는-로봇', 'a1')).not.toThrow();
+  });
+});
+
 describe('조직 기준값', () => {
   it('운영 관리자: 값은 보이지만 저장 비활성 + 이유, PATCH 0', async () => {
     serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
