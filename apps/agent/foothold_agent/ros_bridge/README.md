@@ -42,6 +42,29 @@ PYTHONPATH="apps/agent:${PYTHONPATH:-}" python3 -m foothold_agent.ros_bridge
 새 Session은 항상 STOP 잠금으로 시작한다. 매 연결도 기존 Client가 먼저 정지하며,
 재시작·재접속·상태 회복으로 RESUME을 만들지 않는다.
 
+## 격리 시뮬 연결
+
+별도 승인된 첫 실제 연결은 [D1 실행 도구와 안내](../../tools/sim/README.md)를 사용한다.
+`SIM_SOURCE`·`SIM_ROS_SETUP`·새 `SIM_RUN_DIR`를 환경으로 지정하고,
+`FH_SIM_D1_RUN=1`로 기동한다. 도구가 자식에만 domain 93/LOCALHOST를 주고,
+새 unit과 자원 감시기·private PostgreSQL·loopback 9020–9039 서버·실제 다리를
+순서대로 실행한다. 비밀번호와 발급된 에이전트 토큰은 메모리/자식 환경에만 둔다.
+기본은 STOP 유지 관찰이며, 조종은 별도 `FH_SIM_D1_MOTION=1`과 GT 여유 검사를
+통과해야 한다. 기존 실행 래퍼나 domain 61 관찰 노드를 추가하지 않는다.
+
+원본 런타임의 manifest는 종료 시에만 저장된다. 실행 중에는 `/proc`의 소유
+cgroup·PID/start_ticks·domain·새 partition과 실제 ROS 상태를 확인하고,
+종료 뒤 native manifest·원장 SHA·자식 정리·포트 반납·보호 대상 불변을 대조한다.
+
+2026-10-20 실제 D1에서는 hello 수락과 화면 WS ONLINE/STOP_LATCHED를 확인했다.
+STOP 버튼→ROS 0/STOP은 0.0387/0.0389초, policy 0은 0.0515초,
+몸의 정지 표식은 2.0644초였다. 마지막 **화면 send 직전**→ROS 0은 0.3534초였다.
+에이전트의 cmd **수신 기준** 0.3초 만료와 측정 시작점이 다르고, 50 ms tick·일반
+출력 주기·전달 지연이 포함된다. Claude 검토는 약 0.40초+전달 지연의 설계 범위에
+맞으며 05 위반의 증거가 아니라고 판단했다. 시뮬 GT 제한 직진 시험이며 실기 검증이 아니다.
+REST `/robots` 요약의 고정 OFFLINE/null과 측정 원격측정의 null은 기존 서버/B 단계
+공백으로 남는다. 측정 방법·조건·변위·자원·미검증 범위는 실행 도구 안내를 따른다.
+
 ## 출력과 수신
 
 - Core 출력의 m/s·rad/s를 Twist `linear.x/y`, `angular.z`에 그대로 넣는다.
