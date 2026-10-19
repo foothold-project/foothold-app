@@ -8,7 +8,7 @@ import time
 import pytest
 
 from foothold_agent.link.client import Client, LocalPortError, Settings
-from foothold_agent.link.session import Session
+from foothold_agent.link.session import Effects, Session
 from foothold_agent.safety.core import SCHEMA, Z
 
 websockets = pytest.importorskip("websockets", reason="install the agent [link] extra for WS tests")
@@ -347,4 +347,116 @@ def test_exponential_backoff_against_same_process_rejecting_server():
         # Broad lower bounds tolerate host scheduling while distinguishing each step.
         assert all(gap >= expected for gap, expected in zip(gaps, (0.018, 0.038, 0.078, 0.078)))
         assert len(sink.commands) >= 3 and all(c.velocity == Z for _, c in sink.commands)
+    asyncio.run(scenario())
+
+
+def test_cancel_while_moving_requests_stop_zero_and_latch():
+    async def scenario():
+        session = Session(time.monotonic)
+        sink = FakeMotionSink()
+        moving = asyncio.Event()
+        completed = asyncio.get_running_loop().create_future()
+
+        async def server(ws):
+            try:
+                await until_message(ws, "hello")
+                await until_message(ws, "state")
+                await ws.send(json.dumps({"t": "lease", "lease_id": "a", "holder_type": "USER"}))
+                await until_message(ws, "state")
+                state(session, True)
+                await ws.send(json.dumps({"t": "unlock", "lease_id": "a", "stop_gen": session.core.stop_gen}))
+                await until_message(ws, "state")
+                state(session)
+                for seq, axes in ((1, [0, 0, 0]), (2, [1, 0, 0])):
+                    await ws.send(json.dumps({"t": "cmd", "lease_id": "a", "seq": seq, "axes": axes}))
+                ack = await until_message(ws, "cmd.ack")
+                assert ack["applied"] == [0.6, 0, 0]
+                moving.set()
+                await ws.wait_closed()
+                completed.set_result(True)
+            except Exception as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            task = asyncio.create_task(Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token")).run())
+            try:
+                await asyncio.wait_for(moving.wait(), 3)
+                count = len(sink.commands)
+                await cancel(task)
+                after = [c for _, c in sink.commands[count:]]
+                assert any(c.kind == "stop" for c in after)
+                assert after[-1].velocity == Z and session.core.latch
+                assert not session.connected
+                await asyncio.wait_for(completed, 1)
+            finally:
+                if not task.done():
+                    await cancel(task)
+    asyncio.run(scenario())
+
+
+def test_queue_overflow_reconnects_instead_of_terminating_client():
+    async def scenario():
+        session = Session(time.monotonic)
+        sink = FakeMotionSink()
+        completed = asyncio.get_running_loop().create_future()
+        attempts = 0
+        initial_gen = 0
+
+        async def server(ws):
+            nonlocal attempts, initial_gen
+            try:
+                attempts += 1
+                hello = await until_message(ws, "hello")
+                assert hello["latched"]
+                if attempts == 1:
+                    await until_message(ws, "state")
+                    # Enter real Session motion through its normal local/remote
+                    # ports, synchronously so no writer can drain during saturation.
+                    client._emit(session.receive({"t": "lease", "lease_id": "a", "holder_type": "USER"}))
+                    client.on_robot_state({"schema": SCHEMA, "episode": 0,
+                        "stop_requested": True, "reset_in_progress": False, "policy_running": True})
+                    client._emit(session.receive({"t": "unlock", "lease_id": "a", "stop_gen": session.core.stop_gen}))
+                    client.on_robot_state({"schema": SCHEMA, "episode": 0,
+                        "stop_requested": False, "reset_in_progress": False, "policy_running": True})
+                    for seq, axes in ((1, [0, 0, 0]), (2, [1, 0, 0])):
+                        client._emit(session.receive({"t": "cmd", "lease_id": "a", "seq": seq, "axes": axes}))
+                    assert sink.commands[-1][1].velocity == (0.6, 0, 0)
+                    initial_gen = session.core.stop_gen
+                    # Deterministically saturate this connection's bounded queue
+                    # in one event-loop callback, without waiting for OS buffers.
+                    while not client._outgoing.full():
+                        client._outgoing.put_nowait({"t": "state"})
+                    count = len(sink.commands)
+                    client._emit(Effects((), ({"t": "state"},)))
+                    after = [c for _, c in sink.commands[count:]]
+                    assert any(c.kind == "stop" for c in after)
+                    assert after[-1].velocity == Z and session.core.latch
+                    assert not task.done()
+                    # Drain the old socket so its bounded inbound queue cannot
+                    # delay processing the close handshake.
+                    async for _ in ws:
+                        pass
+                else:
+                    assert hello["stop_gen"] >= initial_gen + 2
+                    assert sink.commands[-1][1].velocity == Z
+                    assert not task.done()
+                    completed.set_result(True)
+                    await ws.wait_closed()
+            except Exception as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            client = Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token", 0.01, 0.04))
+            task = asyncio.create_task(client.run())
+            try:
+                await asyncio.wait_for(completed, 3)
+                assert attempts >= 2 and not task.done()
+            finally:
+                await cancel(task)
     asyncio.run(scenario())

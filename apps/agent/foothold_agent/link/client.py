@@ -59,6 +59,7 @@ class Client:
         self.settings = settings
         self.executor = executor
         self._outgoing = None
+        self._overflow = None
 
     def _emit(self, effects: Effects):
         # This ordering is mandatory: stop/apply locally before hello or state ACK.
@@ -69,7 +70,17 @@ class Client:
                 raise LocalPortError("motion sink failed") from exc
         if self._outgoing is not None:
             for message in effects.messages:
-                self._outgoing.put_nowait(message)
+                try:
+                    self._outgoing.put_nowait(message)
+                except asyncio.QueueFull:
+                    # A slow connection must not terminate the local watchdog.
+                    # Detach before emitting STOP so no safety response re-enters
+                    # the saturated queue; the network task closes and reconnects.
+                    self._outgoing = None
+                    if self._overflow is not None:
+                        self._overflow.set()
+                    self._emit(self.session.transport_overflow())
+                    break
 
     def on_robot_state(self, raw):
         """Local bridge feedback, called on the owning event loop."""
@@ -125,23 +136,27 @@ class Client:
                 ) as websocket:
                     queue = asyncio.Queue(maxsize=128)
                     self._outgoing = queue
+                    self._overflow = asyncio.Event()
                     self._emit(self.session.connect())
                     reader = asyncio.create_task(self._reader(websocket))
                     writer = asyncio.create_task(self._writer(websocket, queue))
+                    overflow = asyncio.create_task(self._overflow.wait())
                     try:
-                        done, _ = await asyncio.wait((reader, writer),
+                        done, _ = await asyncio.wait((reader, writer, overflow),
                                                      return_when=asyncio.FIRST_COMPLETED)
                         for task in done:
                             task.result()
                     finally:
                         # Discard this connection's buffered ACKs/state; never replay them.
                         self._outgoing = None
+                        self._overflow = None
                         try:
                             self._emit(self.session.disconnect())
                         finally:
                             reader.cancel()
                             writer.cancel()
-                            await asyncio.gather(reader, writer, return_exceptions=True)
+                            overflow.cancel()
+                            await asyncio.gather(reader, writer, overflow, return_exceptions=True)
             except ConnectionClosed as exc:
                 reason = exc.rcvd.reason if exc.rcvd is not None else ""
                 try:

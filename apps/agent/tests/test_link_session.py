@@ -380,3 +380,140 @@ def test_healthy_executor_stays_paused_while_waiting_for_lease_reconciliation():
         assert zero(h.s.executor_command("run-a", N))
     assert h.s.run["status"] == "PAUSED" and h.s.core.latch
     assert not h.s.lease_confirmed
+
+
+@pytest.mark.parametrize("frame", [
+    {"lease_id": "lease-b", "holder_type": "FREE"},
+    {"lease_id": "lease-b", "holder_type": None},
+    {"lease_id": "lease-b", "holder_type": []},
+    {"lease_id": "lease-b", "holder_type": "RUN:"},
+    {"lease_id": "lease-b", "holder_type": "RUN:   "},
+    {"lease_id": "", "holder_type": "USER"},
+    {"lease_id": "   ", "holder_type": "USER"},
+    {"lease_id": 7, "holder_type": "USER"},
+    {"lease_id": True, "holder_type": "USER"},
+    {"lease_id": [], "holder_type": "USER"},
+    {"lease_id": "lease-b"},
+    {"holder_type": None},
+    {},
+])
+@pytest.mark.parametrize("holder", ["USER", "RUN"])
+def test_invalid_lease_revokes_authority_immediately(frame, holder):
+    h = Harness(holder)
+    effects = h.s.receive({"t": "lease", **frame})
+    assert zero(effects)
+    assert h.s.core.latch and h.s.core.need_neutral and h.s.core.intent == Z
+    assert h.s.lease_id is None and h.s.holder_type is None
+    assert h.s.core.controller is None and not h.s.lease_confirmed
+    assert h.s.last_seq == -1
+    assert any(m.get("code") == "LEASE_INVALID" for m in effects.messages)
+    assert zero(h.cmd(N, lease_id="lease-a"))
+    assert zero(h.cmd(F, lease_id="lease-a"))
+    if holder == "RUN":
+        assert h.s.run["status"] == "PAUSED"
+        assert zero(h.s.executor_command("run-a", F))
+
+
+def test_qualified_run_holder_is_normalized_bound_and_switch_discards_input():
+    h = Harness()
+    assert zero(h.lease("run-lease", "RUN:run-a"))
+    assert h.s.core.latch and h.s.core.need_neutral
+    assert h.s.holder_type == "RUN" and h.s.holder_run_id == "run-a"
+    assert zero(h.cmd(N, lease_id="lease-a")) and zero(h.cmd(F, lease_id="lease-a"))
+    h.unlock()
+    for run_id in ("other-run", "run-a"):
+        h.s.receive({"t": "run.start", "run_id": run_id,
+                     "plan": {"segments": []}, "missions": {}})
+        if run_id == "other-run":
+            assert h.s.run is None
+    h.s.executor_command("run-a", N)
+    assert not zero(h.s.executor_command("run-a", F))
+    assert zero(h.lease("run-lease", "RUN:run-b"))
+    assert h.s.holder_run_id == "run-b"
+    assert h.s.core.latch and h.s.core.need_neutral
+    assert h.s.run["status"] == "PAUSED"
+    h.unlock()
+    h.s.receive({"t": "run.control", "run_id": "run-a", "op": "resume"})
+    assert h.s.run["status"] == "PAUSED"  # run-a no longer owns this qualified lease
+    assert zero(h.s.executor_command("run-a", N))
+    assert zero(h.s.executor_command("run-a", F))
+
+
+@pytest.mark.parametrize("holder,new_holder", [("USER", "RUN"), ("RUN", "USER")])
+def test_same_lease_holder_change_immediately_zero_latches_discards(holder, new_holder):
+    h = Harness(holder)
+    assert zero(h.lease("lease-a", new_holder))
+    assert h.s.core.latch and h.s.core.need_neutral and h.s.core.intent == Z
+    assert h.s.last_seq == -1 and h.s.holder_type == new_holder
+    if holder == "RUN":
+        assert h.s.run["status"] == "PAUSED"
+
+
+def test_run_server_cmd_cannot_create_movement_between_executor_ticks():
+    h = Harness("RUN")
+    h.s.executor_command("run-a", N)
+    assert zero(h.cmd(N))
+    assert zero(h.cmd(F))
+    assert h.s.core.intent == Z
+    assert h.s.last_seq == -1
+
+
+def test_run_server_cmd_leaves_executor_intent_and_neutral_gate_untouched():
+    h = Harness("RUN")
+    before = (h.s.core.intent, h.s.core.intent_t, h.s.core.need_neutral)
+    events = []
+    for axes in (N, F, [float("nan"), 0, 0]):
+        effects = h.cmd(axes)
+        assert not zero(effects)
+        assert (h.s.core.intent, h.s.core.intent_t, h.s.core.need_neutral) == before
+        events += [m for m in effects.messages if m.get("code") == "RUN_SERVER_CMD_IGNORED"]
+    assert len(events) == 1
+    assert not zero(h.s.executor_command("run-a", F))
+
+
+def test_invalid_executor_axes_at_20hz_do_not_refresh_watchdog():
+    h = Harness("RUN")
+    for i in range(1, 7):
+        h.t = i / 20
+        h.state()
+        assert zero(h.s.executor_command("run-a", [float("nan"), 0, 0]))
+    assert h.s.run["status"] == "RUNNING"  # exactly .3 keeps original strict >
+    h.t = 0.300001
+    assert zero(h.s.executor_command("run-a", [float("nan"), 0, 0]))
+    assert h.s.run["status"] == "FAILED" and h.s.run["wait_reason"] == "EXECUTOR_STALLED"
+
+
+def test_unconfirmed_lease_cmd_never_reaches_core_even_with_other_gates_open(monkeypatch):
+    h = Harness()
+    h.s.connect()
+    # Open the independent Core latch gate to isolate lease-confirmation defense.
+    h.state(True)
+    assert h.s.core.resume("lease-a", h.s.core.stop_gen)
+    h.state(False)
+    assert not h.s.core.latch and not h.s.lease_confirmed
+    calls = []
+    original = h.s.core.cmd
+
+    def spy(cid, axes):
+        calls.append((cid, axes))
+        return original(cid, axes)
+
+    monkeypatch.setattr(h.s.core, "cmd", spy)
+    assert zero(h.cmd(N)) and zero(h.cmd(F))
+    assert not calls and h.s.core.intent == Z and h.s.core.need_neutral
+
+
+def test_shutdown_from_moving_state_outputs_stop_zero_and_latch():
+    h = Harness()
+    effects = h.s.shutdown()
+    assert any(c.kind == "stop" for c in effects.motion)
+    assert zero(effects) and h.s.core.latch
+    assert not h.s.connected and h.s.core.need_neutral
+
+
+def test_session_uses_monotonic_default_but_allows_injected_clock():
+    import time
+
+    s = Session()
+    assert s.now is time.monotonic and s.core.now is time.monotonic
+    assert s.core.latch and zero(s.tick())

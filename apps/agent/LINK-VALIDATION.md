@@ -19,8 +19,8 @@ Python 3.12.3 / pytest 9.1.1 / websockets 15.0.1, 별도 임시 가상환경에�
 
 | 명령·검사 | 결과 |
 |---|---|
-| `python -m pytest apps/agent -q` | 79 passed, 기존 32 포함, skip 0 |
-| `python apps/agent/tools/check_link_mutations.py` | 10/10 변이를 pytest assertion 실패로 검출 |
+| `python -m pytest apps/agent -q` | 최초 제출 79 passed → 검토 수정 후 116 passed, 기존 32 포함, skip 0 |
+| `python apps/agent/tools/check_link_mutations.py` | 최초 10/10 → 검토 수정 후 17/17 변이를 pytest assertion 실패로 검출 |
 | `git diff --check` | 통과 |
 | Core·기존 시험의 기준 대비 diff | 0 |
 
@@ -42,7 +42,8 @@ ROS·Nav2·Gazebo·운영 포트·운영 서버·실폰·실로봇 접촉 0. 실
 ## 변이 시험
 
 `tools/check_link_mutations.py`는 임시 패키지 사본만 바꾸며 본 작업 트리 Core를 바꾸지 않는다.
-새 `test_link_session.py`만 실행해 assertion 실패가 나야 검출로 센다(수집 오류 제외).
+Session 변이는 `test_link_session.py`, Client 종료 변이는 취소 회귀 시험을 실행해
+assertion 실패가 나야 검출로 센다(수집 오류 제외).
 
 | 일부러 깨뜨린 판정 | 결과 | 주 검출 시험 |
 |---|---|---|
@@ -59,7 +60,7 @@ ROS·Nav2·Gazebo·운영 포트·운영 서버·실폰·실로봇 접촉 0. 실
 
 최초 새 시험에서 DEAD 상수를 구현과 같이 읽어 deadman 연장 변이를 놓쳤다.
 새 연결부 시험의 시간 기준을 명세의 0.3 s 리터럴로 고친 뒤 검출됨을 확인했다.
-기존 시험을 바꾼 것은 아니다. 이 표는 선정한 10개 변이의 결과이며 전체 결함 검출 주장이 아니다.
+기존 시험을 바꾼 것은 아니다. 이 표는 선정한 변이의 결과이며 전체 결함 검출 주장이 아니다.
 
 ## 문서 모호점·후속 계약 결정 (명세 파일 수정 0)
 
@@ -71,8 +72,11 @@ ROS·Nav2·Gazebo·운영 포트·운영 서버·실폰·실로봇 접촉 0. 실
    §10에는 별도 봉투·id/robot 필요 여부·크기·seq 초기값/상한·재연결 때 seq 범위가 없다.
    이 구현은 seq를 0 이상 정수로 받고 lease 변경 때만 초기화하며 동일 lease 재연결에서는
    마지막 seq를 보존한다. 클라이언트는 인증된 한 로봇 연결로 취급한다.
-3. **RUN lease 연결/잠금 해제**: lease에는 RUN의 run_id가 없고 run.start에는 lease_id가
-   없다. 현재 RUN lease에서 받은 run.start 하나만 수락하며 실제 계획 실행은 하지 않는다.
+3. **RUN lease 연결/잠금 해제**: 04 §4.2는 주인을 `RUN:<run_id>`로 쓰고 05는 holder_type을
+   `RUN`으로 쓴다. 두 표기를 모두 받아 후자는 미지정, 전자는 실행 ID를 보존해 대조하며
+   holder/실행 ID만 달라져도 즉시 0·입력 폐기한다. lease의 독립 run_id 필드와 run.start의
+   lease_id는 여전히 없다. 현재 RUN lease와 맞는 run.start 하나만 수락하며 실제 계획
+   실행은 하지 않는다.
    자동 unlock은 하지 않는다. Core에 필요한 로컬 STOP/해제 피드백은 이후 ROS 다리가
    제공해야 하며 서버 메시지로 합성하지 않는다. 실제 자율 실행 시작·재개와 사람 unlock
    연계는 후속 서버/실행기 통합 계약 대상이다.
@@ -93,3 +97,36 @@ ROS·Nav2·Gazebo·운영 포트·운영 서버·실폰·실로봇 접촉 0. 실
 여기서는 로컬 정지 출력을 적용한 뒤 `state(latched=true, applied=0, 증가한 stop_gen)`를
 즉시 보내는 것까지 검증했다. 몸의 속도 0 확인이나 서버 전체 넘김을 검증한 것이 아니다.
 `dev` 통합은 안전 범위의 Claude·Codex 두 모델 검토와 조정 세션의 합침 관문이 남아 있다.
+
+
+## Claude 검토 후 수정 (PR #8, 기준 head 42266b1)
+
+조정 요청 범위 B1·B2·R1·R2·R4·R5·R6·R7·R10·R11을 반영했다.
+수정 전 추가 시험 실행에서 **31 failed, 53 passed**를 관측했다(추가 시험 작성 시점,
+두 연결부 시험 모듈). USER/RUN 전진 중 잘못된 lease가 옛 권한을 유지하는 B1,
+RUN:<id> 무시, 서버 cmd가 실행기 의도를 지우는 R1, 기본 시계 API, 큐 포화 예외를
+실제로 재현했다. 취소 시험은 기본 시계 오류와 분리하기 위해 명시 단조 시계로 고쳤으며,
+원래 코드에서 맞던 안전 방어는 별도 변이로 제거해 새 시험이 실패하는 것을 확인했다.
+
+| 항목 | 변경·검증 |
+|---|---|
+| B1 | 13종 잘못된 lease × USER/RUN, 즉시 0·잠금·입력 폐기·옛 cmd 거부·LEASE_INVALID; RUN:<id> 정규화·실행 대조·소유자 변경 폐기 |
+| B2 | RUN 중 executor 0 다음 서버 N/F로 비영 출력 생성 불가; 같은 lease USER↔RUN 즉시 0·잠금·폐기; 두 변이 검출 |
+| R1 | RUN 서버 cmd는 실행기 intent/intent_t/중립 관문을 그대로 두고 폐기; lease별 RUN_SERVER_CMD_IGNORED 1회 |
+| R2 | 전진 중 Client.run 취소, 마지막 sink stop·0·잠금; Session.shutdown도 전진에서 검증; 두 종료 변이 검출 |
+| R4 | 잘못된 실행기 축을 20 Hz로 보내도 health 갱신 안 됨, 정확히 .3 s 유지·초과 FAILED; 해당 변이 검출 |
+| R5 | 재연결 lease 미확인 상태에서 독립 Core 잠금 관문을 열어도 cmd가 Core.cmd에 닿지 않음; 확인 관문 제거 변이 검출 |
+| R6 | 실제 가짜 WS 연결 송신 큐 128 포화 → 즉시 정지·연결 교체·새 hello, Client.run 계속 생존; 포화 중 로컬 감시 유지 |
+| R7 | MotionSink 독립 감시 계약 명시: 0.3 s 안 새 apply 없으면 0/StopMove, stop/unlock은 갱신 금지 |
+| R10 | README에 /api/v1/agent/ws 예시와 05 제목 차이를 기록; 하드코딩 없음 |
+| R11 | Session 기본 시계를 time.monotonic으로 지정, 시험 시계 주입 유지 |
+
+추가 변이 7개는 RUN 서버 cmd 수락, 동일 lease holder 변경 누락, 잘못된 lease 무시,
+잘못된 실행기 축도 health 갱신, lease 재확인 생략, Session 종료 잠금 제거,
+Client 취소 shutdown 생략이다. 기존 10개와 함께 **17/17**을 assertion 실패로 검출했다.
+
+R3·R8·R9·R12 구현은 조정 지시로 이번 범위에서 제외했다. R3의 출력 순서는 현재 코드
+구조에 의한 보장이며 큐 삽입 순서 변이를 독립적으로 구분하는 시험은 추가하지 않았다.
+R8 송신 메시지 크기 검사·R12 지원 밖 명령 거부 사건은 후속이며, R9 현장 사설 CA
+설정은 미구현·미검증임을 README에 명시했다. ROS 다리·실제 sink 자체 감시·실기는
+이번에도 검증하지 않았고 Core·기존 32개 시험의 판정/기대값 변경은 0이다.

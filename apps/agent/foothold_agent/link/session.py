@@ -8,6 +8,7 @@ on_robot_state() must receive real bridge feedback before Core can allow motion.
 from copy import deepcopy
 from dataclasses import dataclass
 import json
+import time
 from typing import Callable
 
 from foothold_agent.safety.core import Core, DEAD, Z, finite, valid_axes
@@ -44,7 +45,7 @@ class Session:
     The executor and bridge feed their observations through the local methods.
     """
 
-    def __init__(self, now: Callable[[], float], *, identity: dict | None = None):
+    def __init__(self, now: Callable[[], float] = time.monotonic, *, identity: dict | None = None):
         self.now = now
         self.core = _MemoryCore(now=now)
         self.core.stop("startup")
@@ -55,6 +56,8 @@ class Session:
         }
         self.lease_id = None
         self.holder_type = None
+        self.holder_run_id = None
+        self._run_server_cmd_reported = False
         self.lease_confirmed = False
         self.last_seq = -1
         self.connected = False
@@ -159,6 +162,16 @@ class Session:
         self._event("PROTOCOL_MISMATCH")
         return self._finish((MotionCommand("stop"),), state=True)
 
+    def transport_overflow(self):
+        """Drop this transport, retain a stopped snapshot for the next hello."""
+        self.connected = False
+        self.core.stop("outgoing queue full")
+        self._pause("TRANSPORT_BACKPRESSURE")
+        self.lease_confirmed = False
+        self.reconnect_required = True
+        self._event("TRANSPORT_BACKPRESSURE")
+        return self._finish((MotionCommand("stop"),))
+
     def disconnect(self):
         # A socket close doesn't restart the last-frame grace clock. The caller
         # must continue tick() while connecting/backing off.
@@ -182,21 +195,35 @@ class Session:
     def _lease(self, frame):
         lease = frame.get("lease_id")
         holder = frame.get("holder_type")
-        if "lease_id" not in frame or (lease is not None and
-                (not isinstance(lease, str) or not lease or holder not in ("USER", "RUN"))):
-            return
-        changed = lease != self.lease_id or holder != self.holder_type
+        run_id = None
+        # Architecture names a run owner RUN:<id>; API calls its type RUN.
+        # Preserve the qualifier so changing only the owner is still a handoff.
+        if isinstance(holder, str) and holder.startswith("RUN:"):
+            run_id = holder[4:]
+            holder = "RUN" if run_id.strip() else None
+        invalid = "lease_id" not in frame or (lease is not None and (
+            not isinstance(lease, str) or not lease.strip()
+            or holder not in ("USER", "RUN")))
+        if invalid:
+            self._event("LEASE_INVALID")
+        if invalid or lease is None:
+            lease, holder, run_id = None, None, None
+        changed = lease != self.lease_id or holder != self.holder_type or run_id != self.holder_run_id
         if lease is None or changed:
             if self.core.controller is not None:
                 self.core.drop(self.core.controller, "server lease")
+            elif invalid:
+                self.core.stop("invalid lease")
             else:
                 self.core._void()
             if self.holder_type == "RUN":
                 self._pause("LEASE_CHANGED")
             self.last_seq = -1
             self.ack_pending = False
+            self._run_server_cmd_reported = False
         self.lease_id = lease
-        self.holder_type = holder if lease is not None else None
+        self.holder_type = holder
+        self.holder_run_id = run_id
         self.lease_confirmed = lease is not None
         if lease is not None:
             self.core.take(lease)
@@ -246,6 +273,11 @@ class Session:
                 axes = valid_axes(dict(zip(("fx", "fy", "fw"), axes))) if (
                     isinstance(axes, list) and len(axes) == 3) else None
                 self.core.cmd(self.lease_id, axes)
+            elif self.holder_type == "RUN":
+                # The server cannot overwrite *or invalidate* local executor intent.
+                if not self._run_server_cmd_reported:
+                    self._event("RUN_SERVER_CMD_IGNORED")
+                    self._run_server_cmd_reported = True
             else:
                 self.core._void()
         elif kind == "run.start":
@@ -253,6 +285,7 @@ class Session:
             wait = policy.get("link_loss_wait_s", 30) if isinstance(policy, dict) else None
             if (self.lease_confirmed and self.holder_type == "RUN"
                     and isinstance(frame.get("run_id"), str) and frame["run_id"]
+                    and self.holder_run_id in (None, frame["run_id"])
                     and (self.run is None or self.run["status"] in TERMINAL)
                     and isinstance(frame.get("plan"), dict)
                     and isinstance(frame["plan"].get("segments"), list)
@@ -270,7 +303,8 @@ class Session:
                     self._pause("OPERATOR")
                     if op == "abort":
                         self._run_status("ABORTED")
-                elif op == "resume" and self.lease_confirmed and self.holder_type == "RUN":
+                elif (op == "resume" and self.lease_confirmed and self.holder_type == "RUN"
+                      and self.holder_run_id in (None, self.run["run_id"])):
                     self.core._void()
                     self._run_status("RUNNING")
                 # return needs a planner: unsupported, never creates motion.
@@ -288,7 +322,8 @@ class Session:
                 self.executor_t = self.now()
             # Executor health is independent of command authority: while waiting
             # for lease reconciliation it must still emit 0, without moving.
-            if self.lease_confirmed and self.holder_type == "RUN":
+            if (self.lease_confirmed and self.holder_type == "RUN"
+                    and self.holder_run_id in (None, run_id)):
                 self.core.cmd(self.lease_id, valid if self.run["status"] == "RUNNING" else Z)
         return self._finish()
 

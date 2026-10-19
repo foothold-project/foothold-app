@@ -11,6 +11,11 @@ class MotionSink(Protocol):
 
         The bridge must subsequently feed Session.on_robot_state(). Never claim
         a successful physical stop from the returned command or network state.
+
+        The sink MUST independently command zero / StopMove if no new `apply`
+        arrives within 0.3 s, including when the owning event loop is blocked.
+        `stop` / `unlock` calls must not refresh that independent apply watchdog.
+        This is a required hardware-adapter contract, not implemented by Client.
         """
         ...
 
