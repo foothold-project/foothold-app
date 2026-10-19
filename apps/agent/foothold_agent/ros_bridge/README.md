@@ -2,8 +2,8 @@
 
 `python3 -m foothold_agent.ros_bridge` 실행 진입점과 `MotionSink` 구현이다.
 Gazebo·정책·RESET·Nav2·실기 SDK를 실행하거나 연결하는 코드는 없다.
-안전 판단은 기존 Core와 Session이 담당한다. 이 작업은 `link/**`, `safety/**`,
-기존 시험 기대값을 바꾸지 않는다. 기준은 `docs/spec/05-API-SPEC.md` §10,
+안전 판단은 기존 Core와 Session이 담당한다. A1b는 `link/**`에 측정 캐시 진입점을
+추가하며, `safety/**`와 기존 Core 시험 기대값은 바꾸지 않는다. 기준은 `docs/spec/05-API-SPEC.md` §10,
 `04-ARCHITECTURE.md` §3과 조사 `sim-plan-bridge.md`·ROS/API/격리 보고서다.
 
 ## 설정과 실행 경계
@@ -26,7 +26,7 @@ DDS discovery server·static peers·외부 Cyclone/FastDDS 프로필 및 FASTDDS
 WSS 연결은 서버 통신이며 ROS 발견 범위와 별개다. 토큰이 어느 로봇에 속하는지의
 정본은 서버 인증이다. 설정한 UUID와 인증 대상 대조는 이 다리가 추측하지 않는다.
 
-ROS 의존성은 OS의 Jazzy `rclpy`, `geometry_msgs`, `nav_msgs`, `std_msgs`를 사용한다.
+ROS 의존성은 OS의 Jazzy `rclpy`, `geometry_msgs`, `nav_msgs`, `std_msgs`, `sensor_msgs`를 사용한다.
 PyPI의 대체 rclpy 패키지를 설치하지 않는다. 기존 `[test,link]` extra가 pytest와
 `websockets==15.0.1`을 제공하므로 새 optional dependency는 추가하지 않았다.
 
@@ -60,10 +60,11 @@ cgroup·PID/start_ticks·domain·새 partition과 실제 ROS 상태를 확인하
 STOP 버튼→ROS 0/STOP은 0.0387/0.0389초, policy 0은 0.0515초,
 몸의 정지 표식은 2.0644초였다. 마지막 **화면 send 직전**→ROS 0은 0.3534초였다.
 에이전트의 cmd **수신 기준** 0.3초 만료와 측정 시작점이 다르고, 50 ms tick·일반
-출력 주기·전달 지연이 포함된다. Claude 검토는 약 0.40초+전달 지연의 설계 범위에
-맞으며 05 위반의 증거가 아니라고 판단했다. 시뮬 GT 제한 직진 시험이며 실기 검증이 아니다.
-REST `/robots` 요약의 고정 OFFLINE/null과 측정 원격측정의 null은 기존 서버/B 단계
-공백으로 남는다. 측정 방법·조건·변위·자원·미검증 범위는 실행 도구 안내를 따른다.
+출력 주기·전달 지연이 포함된다. 0.30초 만료 + tick 0–0.05초 + 일반 출력
+0–0.05초의 명목 범위에 전달 지연이 더해진다. 이 기록에는 에이전트 수신 시각이
+없으므로 수신 기준의 정확한 만료 시간을 계산할 수 없다. 시뮬 GT 제한 직진 시험이며 실기 검증이 아니다.
+D1 당시 REST `/robots` 요약과 측정값은 OFFLINE/null이었다. A1b는 측정 송신을
+연결했으며 REST 집계는 서버 S1 범위다. A1b의 실제 시뮬 연결은 재검증하지 않았다. 측정 방법·조건·변위·자원·미검증 범위는 실행 도구 안내를 따른다.
 
 ## 출력과 수신
 
@@ -88,13 +89,21 @@ REST `/robots` 요약의 고정 OFFLINE/null과 측정 원격측정의 null은 �
 - `rclpy` 생성·spin·일반 발행·destroy는 전용 스레드에서 한다. 독립 watchdog과
   shutdown의 비상 0/STOP만 thread-safe publisher를 사용할 수 있다.
   종료 비상 0/STOP 뒤 reliable ACK를 전체 최대 1초 기다린 후 node를 파괴한다.
+  비상 종료는 전용 daemon에서 시도하며 watchdog join은 최대 0.5초, 각 close 호출의
+  완료 대기는 최대 1초다. 시간 초과는 오류로 남기고 publisher를 ACK/destroy하지 않는다.
+  멎은 publisher를 강제로 중단하거나 완료했다고 간주하지 않는다.
   여러 스레드가 close해도 첫 비상 발행·watchdog 정리의 완료 Event를 기다린 뒤
   ACK 대기로 넘어가며, ACK 시간 초과는 오류로 남긴다. 이벤트 루프나 executor spin 정지는 감시하지만, 프로세스 전체 정지·GIL 독점·OS
   스케줄링 지연·영구히 멎은 publisher API는 같은 프로세스 스레드로 보장할 수 없다.
   하위 ingress TTL은 별도 방어이며 이 감시 시험을 대신하지 않는다.
 
 `/v2_live/cmd_vel`, `/v2_live/stop`, `/v2_live/resume` 발행,
-`/v2_live/state`, `/v2_live/odom`, `/v2_map/status` 구독만 있다.
+`/v2_live/state`, `/v2_live/odom`, `/v2_map/status`를 구독한다.
+센서 존재 확인은 `/v2_map/points`(L1), `/v2_live/camera/compressed`(D435i RGB),
+`/v2_live/sensor/d435i/depth/image_mm`(D435i depth)를 best-effort/volatile/depth 1로
+구독하고 실제 콜백의 시각만 보관한다. 영상·점군 복사/저장/relay는 하지 않는다.
+실제 수신 전에는 hello.devices에 넣지 않으며 수신 뒤 1초가 넘으면 MISSING이다.
+재연결 hello는 최신 관측 목록을 쓰며 battery 장치를 추측해서 추가하지 않는다.
 QoS는 reliable/volatile/KEEP_LAST depth 1이다. 기존 depth 10 계약과 통신 가능한
 reliability/durability를 유지하면서 오래된 출력·수신 큐를 제한한다.
 
@@ -105,11 +114,11 @@ terminal 0/STOP으로 종료한다. ROS graph 관측이며 전역 배타 예약�
 ROS 콜백은 Core를 호출하지 않는다. state/odom/map 최신 캐시를 크기 1 bundle로
 합치고, 예약 callback도 한 개만 두어 `loop.call_soon_threadsafe()`로 전달한다.
 거부 사유와 최신 안전 전이 1건은 drain까지 보존하므로 뒤의 정상 표본이
-무효화·입력 폐기를 지우지 못한다. 안전 전이를 먼저 Core에 전달한 뒤 최신 상태를 전달한다.
+무효화·입력 폐기를 지우지 못한다. 안전 전이를 먼저 Core에 전달한 뒤 최신 측정 캐시를 갱신한다. 새 원천 stamp는 Core에도 전달한다.
 소유 루프에서 실제 수신 나이를 다시 검사한 뒤 기존 `Client.on_robot_state()`로
 넣는다. schema·관문 타입·유한 숫자·episode 순서·sim 시각·수신 나이를 검사하고
 Core의 `clean_state`는 그대로 재사용한다. stamp와 정제 내용까지 같은 중복만
-hold/STOP 없이 버린다. 같은 stamp여도 바뀐 관문·측정 내용은 전달하며, 특히
+hold/STOP 없이 버린다. 같은 stamp의 새 측정은 캐시에 넣고 달라진 안전 관문만 Core에 전달하며, 특히
 policy_running=false·stop_requested=true·reset_in_progress=true는 즉시 0/입력 폐기
 경로로 전달한다. 같은 stamp의 후속 회복으로 이 관문을 지우지 않으며 원천 시각
 전진 후에도 Core의 잠금·새 중립 절차는 그대로다. 같은 stamp 갱신은 원천 progress
@@ -120,13 +129,19 @@ policy_running=false·stop_requested=true·reset_in_progress=true는 즉시 0/�
 ## 원격측정과 B 단계 필요 변경
 
 `Telemetry.snapshot()`은 **로컬 정제 캐시**이며 새 WS 메시지가 아니다.
+소유 루프의 `Client.update_telemetry(snapshot)` → `Session.update_telemetry(snapshot)`으로
+전달한다. Session은 매 state 생성 시 simulation clock·수신/원천 progress 나이 ≤1초를
+재검사하고 계약의 speed·pose·battery만 복사한다. RESET/거부 입력은 안전 상태 전달보다
+먼저 측정 캐시를 비운다. 측정 갱신은 Core 피드백·권한·출력·deadman을 갱신하지 않는다.
 속력은 state의 body COM `hypot(vx,vy)`(m/s)로 정의한다. odom은 base 원점
 측정임을 구분하며 COM 속도나 map 위치로 바꾸지 않는다. 실제 원천의 header는
 wall clock일 수 있어 node는 header_stamp/clock=unverified로 전달하고, 정제 캐시는
 odom=null·odom_reason=clock_unverified를 유지한다. sim 시계로 이름을 바꾸거나
 추측 변환하지 않는다. 명시적으로 검증한 simulation clock 표본만 캐시에 허용한다.
 원천 sim 시각·실제 수신 monotonic·마지막 원천 전진 monotonic·episode·source를
-별도 보관한다. 같은 stamp의 새 정보도 실제 수신 시각을 기록하지만 freshness는
+별도 보관한다. 같은 stamp의 새 측정 정보는 Core 수신 시각을 갱신하지 않는다. 안전 관문이
+달라진 표본만 Core에 전달하며 새 원천 시각은 mailbox가 합쳐도 전달한다.
+같은 stamp의 새 정보도 실제 수신 시각을 기록하지만 freshness는
 마지막 원천 전진 시각보다 늘어나지 않는다.
 시각 역행·RESET·stale에는 null로 비운다. odom/map 시각 역행도 해당 episode에서
 격리한다. confidence·battery는 null이며 미측정 속도를 0으로 만들지 않는다.
@@ -139,15 +154,17 @@ UUID, SHA, episode, run)이 `/v2_map/status.pose_map`과 맞고 시각·source�
 
 PR #13 반영 뒤 별도 B 단계에서 필요한 변경:
 
-1. `Session.update_telemetry()`와 소유 루프용 Client 공개 진입점을 추가하고,
-   `_state()`에 정제된 speed·pose·battery를 연결한다. 현 A1 실행의 서버 state는
-   기존 Session대로 측정값 null이다. Core 안전 입력과 측정 캐시는 분리한다.
+1. **A1b 완료**: Session/Client 공개 측정 진입점과 `_state()` 투영을 연결했다.
+   pose는 현 계약의 floor_id/x/y/yaw/confidence만 보내며 map_version_id·SHA·episode·
+   run/source/시각은 wire에 추가하지 않는다. 등록 결속이 없으면 모든 pose 칸은 null이다.
+   시뮬 battery는 실제 원천이 없으므로 soc=null이다. Core 안전 입력과 측정 캐시는 분리한다.
 2. map_version_id·floor·SHA·원천 episode/run 결속을 계약(Pydantic→TS)과 서버
    Location 변환에 합의한다. 지금 API pose에는 map_version_id가 없고 서버
    location은 null이다. `MapBinding` 등록/갱신 경로도 그 계약에 맞춰 연결한다.
 3. 정제 캐시의 bounded 진단을 실제 event code/서버 문구와 합의하여 전달한다.
    현재 진단은 로컬 30건 링뿐이며 전송/영구 저장을 주장하지 않는다.
-4. telemetry GET 집계·영상/바이너리 relay·센서 devices·Nav2 실행기는 별도다.
+4. **A1b devices 완료**: 실제 구독 수신 기준으로 hello를 채운다.
+   telemetry GET 집계·영상/바이너리 relay·Nav2 실행기는 별도다.
    이 다리만으로 지도 마커·영상·그래프·임무 실행이 완성되지 않는다.
 
 문서/계약 모호점:
@@ -270,3 +287,13 @@ Claude/Codex N-1 재확인: owner 선행과 ROS finally 선행 양쪽에서 첫 
 ZERO/STOP → ACK 2건 → destroy 순서를
 검사한다. 완료 대기를 생략한 변이는 이 회귀의 assertion으로 실패한다. N-2의 같은
 stamp STOP 관문 변화는 B3 회귀/변이에 포함되며, 위 물리 정체 제한을 명시했다.
+
+## A1b 순수 검증 (2026-10-20)
+
+전체 agent **391 passed, 1 skipped**(ROS opt-in 제외), link 변이 **73/73 KILLED**,
+다리 변이 **41/41 KILLED**, sim 도구 **52 passed** 및 변이 **18/18 KILLED**. 새 측정·소유 루프·null 조건·
+숫자 정제·devices·R3-1/R3-2 회귀는 `tests/test_agent_telemetry.py`에 있다.
+실제 Client와 기존 서버/임시 PostgreSQL 통합에서 speed=.5·pose 수락 후 stale null,
+없는 battery=null, D5 미정 location=null을 확인했다. 재현 명령은
+[LINK-VALIDATION.md](../../LINK-VALIDATION.md)의 A1b 절을 따른다.
+시뮬·ROS·systemd를 기동하지 않았으며 실제 센서 구독/QoS와 D1 기동 후속은 미검증이다.

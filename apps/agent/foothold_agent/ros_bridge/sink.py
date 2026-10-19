@@ -32,6 +32,7 @@ class RosSink:
         self._output_lock = threading.RLock()
         self._closed = threading.Event()
         self._close_complete = threading.Event()
+        self._close_error = None
         self._pending = Z
         self._stopped = True
         self._held = False
@@ -212,14 +213,24 @@ class RosSink:
             first = not self._closed.is_set()
             if first:
                 self._closed.set()
-        if not first:
-            # A second caller (notably ROS finally) must not ACK/destroy while
-            # the owner is still waiting to dispatch its emergency ZERO/STOP.
-            self._close_complete.wait()
-            return
+        if first:
+            # Keep publishers alive on timeout: incomplete close cannot ACK/destroy.
+            threading.Thread(target=self._finish_close, name="ros-sink-close", daemon=True).start()
+        if not self._close_complete.wait(timeout=1.0):
+            with self._lock:
+                self._close_error = RuntimeError("ROS sink close timed out; publishers retained")
+                self.error = self.error or self._close_error
+            raise self._close_error
+        if self._close_error is not None:
+            raise self._close_error
+
+    def _finish_close(self):
         try:
             self._emergency()
             if self._watchdog is not None and self._watchdog is not threading.current_thread():
-                self._watchdog.join()  # completion means stopped, not a join timeout
+                self._watchdog.join(timeout=0.5)
+                if self._watchdog.is_alive():
+                    self._close_error = RuntimeError("ROS watchdog did not stop")
+                    self.error = self.error or self._close_error
         finally:
             self._close_complete.set()

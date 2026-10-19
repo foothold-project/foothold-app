@@ -205,6 +205,14 @@ class Client:
         self._ensure_history()
         self._emit(self.session.on_robot_state(raw, record_errors=not self.storage_blocked))
 
+    def update_telemetry(self, snapshot):
+        """Local measured snapshot, called on the owning event loop."""
+        self.session.update_telemetry(snapshot)
+
+    def update_devices(self, devices):
+        """Observed sensor inventory, called on the owning event loop."""
+        self.session.update_devices(devices)
+
     def waypoint_reached(self, run_id):
         """Local executor observation; never inferred from a server message."""
         self._emit(self.session.waypoint_reached(run_id))

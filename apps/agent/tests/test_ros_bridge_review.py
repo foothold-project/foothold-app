@@ -213,7 +213,8 @@ def test_changed_same_stamp_measurement_preserves_progress_age():
     h.clock.t += .1
     h.inputs.state(state(sim_t=stamp, stop_requested=False, vx=.2))
     h.loop.drain()
-    assert h.session.core.st["vx"] == .2
+    assert h.session.core.st["vx"] == .3
+    assert h.inputs.telemetry.state["vx"] == .2
     assert not h.sink._held and not h.session.core.latch
     assert h.inputs.last_state == progress
     assert h.inputs.telemetry.snapshot()["observation"]["received_monotonic_s"] == h.clock.t

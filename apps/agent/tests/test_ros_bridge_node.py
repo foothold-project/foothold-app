@@ -70,7 +70,7 @@ def ros(monkeypatch):
     def create_node(*args, **kwargs):
         trace.node_options = kwargs
         return Node()
-    policy = SimpleNamespace(KEEP_LAST="KEEP_LAST", RELIABLE="RELIABLE", VOLATILE="VOLATILE")
+    policy = SimpleNamespace(KEEP_LAST="KEEP_LAST", RELIABLE="RELIABLE", BEST_EFFORT="BEST_EFFORT", VOLATILE="VOLATILE")
     modules = {
         "rclpy": SimpleNamespace(init=init, create_node=create_node),
         "rclpy.context": SimpleNamespace(Context=Context),
@@ -81,6 +81,7 @@ def ros(monkeypatch):
         "geometry_msgs.msg": SimpleNamespace(Twist=Twist),
         "nav_msgs.msg": SimpleNamespace(Odometry=object),
         "std_msgs.msg": SimpleNamespace(Empty=object, String=object),
+        "sensor_msgs": SimpleNamespace(msg=SimpleNamespace(Image=object, CompressedImage=object, PointCloud2=object)),
     }
     for name, module in modules.items():
         monkeypatch.setitem(sys.modules, name, module)
@@ -98,11 +99,13 @@ def test_node_thread_qos_startup_stop_and_shutdown(ros):
         sink = await node.start(lambda raw: None)
         assert ros.init["domain_id"] == 93 and ros.init["args"] == []
         assert ros.node_options["use_global_arguments"] is False
-        assert set(ros.subscriptions) == {"/v2_live/state", "/v2_live/odom", "/v2_map/status"}
+        from foothold_agent.ros_bridge.node import SENSOR_TOPICS
+        assert set(ros.subscriptions) == {"/v2_live/state", "/v2_live/odom", "/v2_map/status", *SENSOR_TOPICS}
         assert all(q == {"depth": 1, "history": "KEEP_LAST", "reliability": "RELIABLE",
-                         "durability": "VOLATILE"} for q in ros.qos)
+                         "durability": "VOLATILE"} for q in ros.qos[:6])
+        assert all(q["reliability"] == "BEST_EFFORT" and q["depth"] == 1 for q in ros.qos[6:])
         assert [e[0] for e in ros.events[:2]] == ["/v2_live/cmd_vel", "/v2_live/stop"]
-        assert all(e[1] in {"agent-rclpy", "ros-output-watchdog"} for e in ros.events)
+        assert all(e[1] in {"agent-rclpy", "ros-output-watchdog", "ros-sink-close"} for e in ros.events)
         assert not any(e[0] == "/v2_live/resume" for e in ros.events)
         node.close()
         assert not node._thread.is_alive() and not sink._watchdog.is_alive()
@@ -176,15 +179,15 @@ def test_close_completes_emergency_before_ack_and_destroy(ros, first):
         errors = []
         original_emergency = sink._emergency
         def paused_emergency():
-            first_thread = "owner-close" if first == "owner" else "agent-rclpy"
+            first_thread = "ros-sink-close"
             if threading.current_thread().name == first_thread:
                 started.set()
                 assert release.wait(2)
             original_emergency()
         class Completion:
-            def wait(self):
+            def wait(self, timeout=None):
                 waiting.set()
-                complete.wait()
+                return complete.wait(timeout)
             def set(self):
                 complete.set()
         sink._close_complete = Completion()

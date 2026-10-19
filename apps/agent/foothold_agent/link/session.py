@@ -92,6 +92,7 @@ class Session:
         self.link_loss_wait_s = 30.0
         self.executor_t = None
         self.last_report = float("-inf")
+        self._telemetry = None
         self.ack_pending = False
         self._messages = History(MAX_BUFFER - 1, lambda m: m.get('code') in SAFETY_EVENTS or m.get('t') == 'run.update'
                                  or (m.get('code') == 'SERVER_CLOSED' and m.get('data', {}).get('close_code') in (4401, 4403, 4406)),
@@ -194,12 +195,23 @@ class Session:
         return min(MAX_SEQ, self.core.stop_gen)
 
     def _state(self):
-        # Unavailable telemetry stays unknown; it is never reported as measured 0.
-        return {"t": "state", "pose": {"floor_id": self.identity["last_floor_id"],
-                "x": None, "y": None, "yaw": None, "confidence": None},
-                "speed": None, "battery": {"soc": None},
+        from .telemetry import project
+        return {"t": "state", **project(self._telemetry, self.now()),
                 "latched": self.core.latch, "stop_gen": self._generation(),
                 "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
+
+    def update_telemetry(self, snapshot):
+        """Owning-loop, already sanitized local measurements, separate from Core.
+
+        Receipt/progress times use this Session's monotonic clock. Projection on
+        every state emission expires measurements even if the bridge falls silent.
+        Passing None invalidates the measured cache. No motion effects are made.
+        """
+        self._telemetry = deepcopy(snapshot) if isinstance(snapshot, dict) else None
+
+    def update_devices(self, devices):
+        """Actual locally observed sensors; used by the next hello."""
+        self.identity["devices"] = deepcopy(devices)
 
     def _finish(self, actions=(), *, state=False):
         self._advance()

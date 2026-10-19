@@ -60,10 +60,15 @@ class LatestMailbox:
 class Inputs:
     """No Core access from ROS callbacks: only Client.on_robot_state on its owner."""
 
-    def __init__(self, loop, sink, on_state, *, telemetry=None, now=time.monotonic, on_error=None):
+    def __init__(self, loop, sink, on_state, *, telemetry=None, now=time.monotonic, on_error=None,
+                 on_telemetry=None, on_devices=None):
         self.sink, self.on_state, self.now = sink, on_state, now
         self.telemetry = telemetry if telemetry is not None else Telemetry(now=now)
         self.on_error = on_error
+        self.on_telemetry, self.on_devices = on_telemetry, on_devices
+        self.devices = {}
+        self._sensor_receipts = {}  # ROS thread only
+        self._core_gates = self._core_stamp = None  # owning loop only
         self.gate = StateGate()  # exclusively used by the ROS thread
         self.last_state = None
         self.mailbox = LatestMailbox(loop, self._consume)
@@ -102,10 +107,15 @@ class Inputs:
             self.last_state = None
             self.reject("stale")
 
+    def sensor(self, key):
+        self._sensor_receipts[key] = self.now()
+        self.mailbox.put(sensors=self._sensor_receipts)
+
     def _consume(self, bundle):
         try:
             if "invalid" in bundle:
                 self.telemetry.invalidate(bundle["invalid"])
+                self._publish_telemetry()
             safety = bundle.get("safety")
             if safety is not None and safety != bundle.get("state"):
                 self._deliver_state(safety)
@@ -117,6 +127,13 @@ class Inputs:
             if "map" in bundle:
                 raw, receipt = bundle["map"]
                 self.telemetry.update_map(raw, receipt)
+            self._publish_telemetry()
+            if "sensors" in bundle:
+                for key, receipt in bundle["sensors"].items():
+                    if 0 <= self.now() - receipt <= STATE_STALE:
+                        self.devices[key] = receipt
+            if self.on_devices is not None:
+                self.on_devices(self.device_snapshot())
         except BaseException as exc:
             self.sink.fail(exc)
             if self.on_error is not None:
@@ -135,10 +152,29 @@ class Inputs:
         elif raw["stop_requested"]:
             self.sink.observe_stop(generation)
         self.telemetry.update_state(raw, receipt, progress_at=progress_at)
-        self.on_state(raw)  # existing public Client entrypoint, owning asyncio loop
+        self._publish_telemetry()
+        gates = tuple(raw[k] for k in ("stop_requested", "reset_in_progress", "policy_running"))
+        stamp = (raw["episode"], raw["sim_t"])
+        if stamp != self._core_stamp or gates != self._core_gates:
+            self._core_stamp, self._core_gates = stamp, gates
+            self.on_state(raw)  # measurement-only updates cannot refresh Core.state_t
+
+    def _publish_telemetry(self):
+        if self.on_telemetry is not None:
+            self.on_telemetry(self.telemetry.snapshot())
+
+    def device_snapshot(self):
+        return [{"key": key, "kind": SENSOR_TOPICS[key][1], "label": SENSOR_TOPICS[key][2],
+                 "state": "OK" if 0 <= self.now() - receipt <= STATE_STALE else "MISSING"}
+                for key, receipt in sorted(self.devices.items())]
 
 
 COMMAND_TOPICS = ("/v2_live/cmd_vel", "/v2_live/stop", "/v2_live/resume")
+SENSOR_TOPICS = {
+    "/v2_map/points": ("PointCloud2", "LIDAR", "L1 lidar"),
+    "/v2_live/camera/compressed": ("CompressedImage", "CAMERA_RGB", "D435i RGB"),
+    "/v2_live/sensor/d435i/depth/image_mm": ("Image", "CAMERA_DEPTH", "D435i depth"),
+}
 
 
 def require_single_writer(node):
@@ -176,11 +212,12 @@ class RosNode:
         if self._failure is not None and not self._failure.done():
             self._failure.set_result(exc)
 
-    async def start(self, on_state):
+    async def start(self, on_state, *, on_telemetry=None, on_devices=None):
         validate_isolation()  # check again immediately before creating any DDS participant
         self._loop = asyncio.get_running_loop()
         self._ready = self._loop.create_future()
         self._failure = self._loop.create_future()
+        self._on_telemetry, self._on_devices = on_telemetry, on_devices
         self._thread = threading.Thread(target=self._run, args=(on_state,), name="agent-rclpy", daemon=True)
         self._thread.start()
         await self._ready
@@ -204,6 +241,7 @@ class RosNode:
             from geometry_msgs.msg import Twist
             from nav_msgs.msg import Odometry
             from std_msgs.msg import Empty, String
+            from sensor_msgs import msg as sensor_messages
 
             context = Context()
             rclpy.init(args=[], context=context, domain_id=93)
@@ -218,7 +256,8 @@ class RosNode:
             stop_publishers = (velocity, stop)
             self.sink = RosSink(lambda v: velocity.publish(twist_message(v, Twist)),
                                 lambda: stop.publish(Empty()), lambda: resume.publish(Empty()), now=self.now)
-            self.inputs = Inputs(self._loop, self.sink, on_state, now=self.now, on_error=self._notify_failure)
+            self.inputs = Inputs(self._loop, self.sink, on_state, now=self.now, on_error=self._notify_failure,
+                                 on_telemetry=self._on_telemetry, on_devices=self._on_devices)
             node.create_subscription(String, "/v2_live/state", lambda m: self.inputs.state(m.data), qos)
 
             def odom(m):
@@ -239,6 +278,13 @@ class RosNode:
 
             node.create_subscription(Odometry, "/v2_live/odom", odom, qos)
             node.create_subscription(String, "/v2_map/status", map_status, qos)
+            # Metadata only: no images/clouds copied into the owning loop or persisted.
+            # Best effort readers also match reliable publishers and depth is one.
+            sensor_qos = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST,
+                                   reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE)
+            for topic, (typ, _, _) in SENSOR_TOPICS.items():
+                node.create_subscription(getattr(sensor_messages, typ), topic,
+                    lambda m, key=topic: self.inputs.sensor(key), sensor_qos)
             executor = SingleThreadedExecutor(context=context)
             executor.add_node(node)
             self.sink.flush()  # startup ZERO/STOP before network connection/hello
@@ -265,7 +311,12 @@ class RosNode:
                 self.inputs.mailbox.close()
             # Publishers/context stay alive until the emergency watchdog has stopped.
             if self.sink is not None:
-                self.sink.close()
+                try:
+                    self.sink.close()
+                except BaseException as exc:
+                    self.error = self.error or exc
+                    self._loop.call_soon_threadsafe(self._set_failed, exc)
+                    return  # incomplete output: never ACK/destroy live publishers
             try:
                 if stop_publishers:
                     wait_for_stop_acks(stop_publishers, Duration)

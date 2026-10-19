@@ -1,7 +1,6 @@
 """Measured values with separate simulation time, receipt time and map identity.
 
-This cache is local only. Session telemetry injection is deliberately a B-stage
-change; these dictionaries are not new fh-agent/1 message types.
+Snapshots are local input to Session; provenance never adds wire-contract fields.
 """
 
 from collections import deque
@@ -155,7 +154,7 @@ class Telemetry:
                       "received_monotonic_s": received_at,
                       "progress_monotonic_s": self._gate.progress_at if progress_at is None else progress_at,
                       "vx": raw.get("vx"),
-                      "vy": raw.get("vy"), "source": raw.get("source")}
+                      "vy": raw.get("vy"), "source": raw.get("source"), "clock": "simulation"}
 
     def update_odom(self, sample):
         # No episode field exists on ROS Odometry. Associate only with current
@@ -216,6 +215,7 @@ class Telemetry:
         self.location = {"floor_id": b.floor_id, "map_version_id": b.map_version_id,
                          "sha256": b.sha256, "x": p["x"], "y": p["y"], "yaw": p["yaw"],
                          "confidence": None, "episode": b.episode, "source": p["source"],
+                         "clock": "simulation", "progress_monotonic_s": s["progress_monotonic_s"],
                          "sim_t": p["stamp_sim"], "received_monotonic_s": received_at}
 
     def snapshot(self):
