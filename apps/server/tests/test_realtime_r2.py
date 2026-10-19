@@ -274,6 +274,7 @@ def test_n9_backlog_events_do_not_disconnect_or_starve_state(client, seeded, rt)
     assert numbers == sorted(set(numbers)) and all(0 <= n < 500 for n in numbers)
     omitted = sum(row.data['count'] for row in summaries if row.data.get('source') == 'ROBOT_HISTORY')
     assert len(numbers) + omitted == 500
+    assert numbers  # controlled latest-61 bound is tested separately from safety transitions
 
 
 def test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry(client, seeded, rt, monkeypatch):

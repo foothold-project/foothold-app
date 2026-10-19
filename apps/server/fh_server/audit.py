@@ -280,8 +280,10 @@ class FairAuditQueue:
         c.queue.task_done()
         self.changed.set()
     async def join(self):
+        # Seed once: repeated producer wake-ups must not make summaries evict
+        # the entire ordinary backlog. The normal auditor/ticker flush follows.
+        self.flush_drop_summaries()
         while True:
-            self.flush_drop_summaries()
             if not self._unfinished_tasks:
                 return
             self.changed.clear()

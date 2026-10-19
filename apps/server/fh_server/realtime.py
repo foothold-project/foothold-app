@@ -496,17 +496,22 @@ class Realtime:
             if cached and started - cached[0] <= self.stop_cache_ttl and cached[2] > now():
                 self.stop_cache.move_to_end(key)
                 return cached[1], epoch
-        if self.stop_slots.locked():
-            raise self.api_error(503, 'SERVER_BUSY', '정지 접수를 확인하지 못했습니다.')
-        await self.stop_slots.acquire()
-        future = asyncio.get_running_loop().run_in_executor(self.stop_executor, self.load_stop_scope, key)
         def finished(done):
             self.stop_slots.release()
             if not done.cancelled():
                 done.exception()  # observe a read that outlived its caller deadline
-        future.add_done_callback(finished)
         try:
-            actor, expires = await asyncio.wait_for(asyncio.shield(future), DB_READ_TIMEOUT)
+            # Admission waiting and the read share one deadline. Only submitted
+            # work owns a slot after cancellation; no executor backlog is added.
+            async with asyncio.timeout(DB_READ_TIMEOUT):
+                await self.stop_slots.acquire()
+                try:
+                    future = asyncio.get_running_loop().run_in_executor(self.stop_executor, self.load_stop_scope, key)
+                except BaseException:
+                    self.stop_slots.release()
+                    raise
+                future.add_done_callback(finished)
+                actor, expires = await asyncio.shield(future)
         except TRANSIENT_DB as exc:
             raise self.api_error(503, 'SERVER_BUSY', '정지 접수를 확인하지 못했습니다.') from exc
         with self.stop_cache_lock:

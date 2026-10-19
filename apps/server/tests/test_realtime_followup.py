@@ -142,6 +142,7 @@ def test_400_event_backlog_does_not_delay_take_confirmation_or_safety(client, se
     assert ordinary == sorted(set(ordinary)) and all(0 <= n < 400 for n in ordinary)
     omitted = sum(r.data['count'] for r in summaries if r.data.get('source') == 'ROBOT_HISTORY')
     assert len(ordinary) + omitted == 400
+    assert ordinary  # protected transitions also occupy this integration FIFO
     assert next(i for i, r in enumerate(rows) if r.code == 'LINK_LOSS_TIMEOUT') == len(ordinary)
 
 

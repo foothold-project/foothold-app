@@ -220,6 +220,7 @@ def test_cached_http_stop_is_invalidated_immediately_by_account_or_session_chang
 
 
 def test_warm_http_stop_never_waits_for_db_and_saturation_is_explicit(client, seeded, rt, monkeypatch):
+    from apps.server.fh_server import realtime as module
     rid, headers = str(seeded['robots']['mine']), app_token(client)
     monkeypatch.setattr(rt, 'clock', lambda: 0)
     assert client.post(f'/api/v1/robots/{rid}/stop', headers=headers).status_code == 202
@@ -228,6 +229,7 @@ def test_warm_http_stop_never_waits_for_db_and_saturation_is_explicit(client, se
     monkeypatch.setattr(rt, 'load_stop_scope', forbidden)
     assert client.post(f'/api/v1/robots/{rid}/stop', headers=headers).status_code == 202
     other = app_token(client, 'two')
+    monkeypatch.setattr(module, 'DB_READ_TIMEOUT', .05)
     async def saturate():
         for _ in range(12):
             await rt.stop_slots.acquire()

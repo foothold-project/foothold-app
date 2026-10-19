@@ -426,3 +426,10 @@ FIFO·공정 순환·512건/2 MiB/8 MiB 및 HTTP STOP 예외는 서버 검증표
 - 서버 전체 **293 passed, 1 warning in 167.48s (0:02:47)**, Alembic 왕복·메타데이터 차이 0 및 실제 Client 정상/300 ms DB+400건 backlog 통합 포함. 서버 변이는 **127/127 assertion 검출·exit 0**, ERROR·MISSED 0다.
 - ROS·Gazebo·실기·운영/미리보기 서비스 접촉 0. 실제 네트워크는 loopback port 0 fd와
   가짜 sink/bridge다. API 정본 동기화·두 모델 재검토·dev 통합은 조정 세션의 후속 관문이다.
+
+
+## PR #13 3차 후속
+
+서버 B7 슬롯 대기·join 보완이며 agent 코드·Core·기존 Core 시험 변경은 없다.
+저장 고장이 지속되면 writable 대기 동안 오프라인이고 복구 전 재접속을 시도하지
+않는 점을 README에 명시했다. 이번 실행은 agent **227 passed**(5.41 s)·변이 **68/68 KILLED·exit 0**다. 서버 전체 **300 passed**와 실제 Client 정상/300 ms DB+400건 backlog 통합을 통과했고, 최종 서버 변이는 **130/130 assertion 검출·exit 0**다.
