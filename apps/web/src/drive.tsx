@@ -1,7 +1,7 @@
 // 조종 탭(02 기능 F-TO-01~05, 03 UX §5.2·§5.7). 조종권·잠금은 가짜 중재기 DriveApi(fakeDrive.ts)만 부른다 — 서버 붙일 때 그 모듈만 바꾼다.
 // 영상·지도는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type PointerEvent } from 'react';
-import { ROLE_NAME, USERS, driveBlock, robotStatus, robotsFor, userName, type Robot, type Tone } from './fake';
+import { ROLE_NAME, USERS, driveBlock, robotStatus, userName, type Robot, type Tone } from './fake';
 import { REQUEST_S, drive, type Axes, type DriveState } from './fakeDrive';
 import { Chip, DriveButton, type Ctx } from './screens';
 import './drive.css';
@@ -39,7 +39,7 @@ export function Drive(c: Ctx) {
 function Picker(c: Ctx) {
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="로봇 고르기">
     <h2>조종할 로봇</h2>
-    <ul className="dv-cards">{robotsFor(c.user).map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
+    <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
   </section>;
 }
 function Card({ c, r }: { c: Ctx; r: Robot }) {

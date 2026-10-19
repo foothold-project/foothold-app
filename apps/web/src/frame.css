@@ -70,3 +70,18 @@ button{cursor:pointer}
 .fh button[disabled]{cursor:not-allowed}
 .fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}
 .fh-main:not(:has([aria-describedby="fh-soon"])) #fh-soon{display:none}   /* 준비 중 단추가 없는 탭에서는 숨김 */
+
+/* 3부 — 서버 연결(로그인·조직 기준값). .inp 는 원본 로그인 화면(ui/src/screens/PcLogin.view.tsx CSS) 값 그대로 */
+.inp{height:48px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:15px;box-sizing:border-box;width:100%}
+.inp:focus{outline:2px solid var(--accent);outline-offset:1px}
+.inp[readonly]{color:var(--muted)}
+.fh-me{font-size:14px;white-space:nowrap}
+.fh-dev{margin:0;padding:6px 16px;border-bottom:1px dashed var(--line2);background:var(--panel2);color:var(--muted);font-size:12px;line-height:1.45}
+.fh-form{display:flex;flex-direction:column;gap:12px}
+.fh-field{display:flex;flex-direction:column;gap:6px;font-size:14px}
+.fh-msg{margin:0;font-size:14px;line-height:1.5;color:var(--bad)}
+.fh-msg.ok{color:var(--muted)}
+.fh-login{flex:1;display:flex;align-items:center;justify-content:center;padding:48px 16px;box-sizing:border-box}
+.fh-login form{width:100%;max-width:400px;display:flex;flex-direction:column;gap:18px}
+.fh-login h2{margin:0;font-size:26px;font-weight:700}
+.fh-login .btn.pri{height:52px;font-size:16px}
