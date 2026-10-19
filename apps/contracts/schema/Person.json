@@ -1,0 +1,22 @@
+{
+  "$id": "fh-app/1/Person",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "display_name"
+  ],
+  "title": "Person",
+  "type": "object"
+}

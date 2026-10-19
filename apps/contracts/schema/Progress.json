@@ -1,0 +1,23 @@
+{
+  "$id": "fh-app/1/Progress",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "done": {
+      "minimum": 0,
+      "title": "Done",
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "done",
+    "total"
+  ],
+  "title": "Progress",
+  "type": "object"
+}

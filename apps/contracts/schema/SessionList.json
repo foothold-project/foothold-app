@@ -1,0 +1,93 @@
+{
+  "$defs": {
+    "Session": {
+      "additionalProperties": false,
+      "properties": {
+        "client": {
+          "enum": [
+            "web",
+            "app"
+          ],
+          "title": "Client",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "device_label": {
+          "title": "Device Label",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "last_seen_at": {
+          "format": "date-time",
+          "title": "Last Seen At",
+          "type": "string"
+        },
+        "revoked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Revoked At"
+        }
+      },
+      "required": [
+        "id",
+        "client",
+        "device_label",
+        "created_at",
+        "last_seen_at",
+        "expires_at",
+        "revoked_at"
+      ],
+      "title": "Session",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/SessionList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/Session"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "title": "SessionList",
+  "type": "object"
+}

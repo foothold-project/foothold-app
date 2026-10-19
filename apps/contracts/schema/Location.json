@@ -1,0 +1,51 @@
+{
+  "$id": "fh-app/1/Location",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    },
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "title": "Yaw",
+      "type": "number"
+    }
+  },
+  "required": [
+    "floor_id",
+    "map_version_id",
+    "x",
+    "y",
+    "yaw",
+    "confidence",
+    "updated_at"
+  ],
+  "title": "Location",
+  "type": "object"
+}
