@@ -86,9 +86,12 @@ describe('역할 전환', () => {
     click(robotRow('Go2-3'));
     expect($<HTMLButtonElement>('[aria-label="로봇 상세"] .btn.pri').disabled).toBe(false);
 
-    click(robotRow('Go2-7'));
-    click($('nav a[href="#/drive"]'));
-    expect($<HTMLButtonElement>('[aria-label="조종"] .btn.pri').disabled).toBe(true);
+    click($('nav a[href="#/drive"]'));   // 조종 탭: 로봇 고르기(F-TO-01) → 남의 로봇은 «보기» + 이유
+    const card = $$('.dv-card').find((li) => li.textContent!.includes('Go2-7'))!;
+    expect(card.querySelector('[data-why]')!.textContent).toContain('내 로봇만 조종할 수 있습니다');
+    click(card.querySelector('button')!);
+    const start = $$('[aria-label="조종"] button').find((b) => b.textContent === '조종 시작') as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
     expect($('[aria-label="조종"] [data-why]').textContent).toContain('내 로봇만 조종할 수 있습니다');
   });
   it('운영자 «내 요청»에는 내가 낸 요청만', () => {
@@ -164,7 +167,7 @@ describe('B1 폭 전환', () => {
     expect(location.hash).toBe('#/drive');
     resize(false);
     expect($('h1').textContent).toBe('조종');
-    expect($('main').textContent).toContain('영상 자리');
+    expect($('main').textContent).toContain('조종할 로봇');
   });
 });
 
@@ -237,7 +240,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', drive: '영상 자리', mission: '새 시나리오', approval: '결재함', history: '계획 경로에서', map: '편집', settings: '화면 밝기' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', drive: '조종할 로봇', mission: '새 시나리오', approval: '결재함', history: '계획 경로에서', map: '편집', settings: '화면 밝기' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       click($(`nav a[href="#/${id}"]`));

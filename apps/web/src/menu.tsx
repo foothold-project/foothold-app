@@ -36,8 +36,8 @@ export const PHONE_TABS: Tab[] = [
 
 export const tabsFor = (phone: boolean) => (phone ? PHONE_TABS : [...PC_TABS, PC_BOTTOM]);
 export const labelOf = (t: Tab, role: Role) => (typeof t.label === 'string' ? t.label : t.label[role]);
-/** 주소(#/<id>)에서 탭 고르기 — 이 틀에 없는 탭이면 첫 탭 */
+/** 주소(#/<id>[/<로봇 id>])에서 탭 고르기 — 이 틀에 없는 탭이면 첫 탭 */
 export function tabFromHash(hash: string, phone: boolean): TabId {
-  const id = hash.replace(/^#\/?/, ''), all = tabsFor(phone);
+  const id = hash.replace(/^#\/?/, '').split('/')[0], all = tabsFor(phone);   // #/drive/<로봇 id> 도 조종 탭
   return (all.find((t) => t.id === id) ?? all[0]).id;
 }
