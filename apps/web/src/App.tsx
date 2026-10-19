@@ -1,14 +1,15 @@
 // 화면 틀(03 UX §3): PC = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문, 폰(768px 미만) = 머리줄 + 본문 + 하단 탭 3개.
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 가짜 데이터만 — 서버 호출 0.
-import { useEffect, useState, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { BrandLogo } from './BrandLogo';
-import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lostText, myRobots, robotStatus, robotsFor } from './fake';
+import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lostText, myRobots, robotStatus, robotsFor, type Robot } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { drive } from './fakeDrive';
 import { BODY, type Ctx } from './screens';
 
-// 폭 768px 미만 = 폰(02 §1.3). 가로로 눕힌 폰(높이 480px 이하 가로)도 폰 틀 — 폰 조종 탭은 가로 화면(03 §5.7·§7)
-const PHONE_Q = '(max-width: 767.98px), (orientation: landscape) and (max-height: 480px)';
+// 폭 768px 미만 = 폰(02 §1.3). 예외: 손가락 입력이고 가로이며 높이 480px 이하면 눕힌 폰 — 폰 조종 탭은 가로 화면(03 §5.7·§7).
+// 마우스 쓰는 낮은 PC 창(1440×400 등)은 PC 틀 유지(10-19 조정 결정 R1)
+const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientation: landscape) and (max-height: 480px)';
 const watchPhone = (f: () => void) => { const m = matchMedia(PHONE_Q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
 export const usePhone = () => useSyncExternalStore(watchPhone, () => matchMedia(PHONE_Q).matches);
 
@@ -31,16 +32,29 @@ export function App({ initialUser = USERS[0].id }: { initialUser?: string }) {
   const open = !phone && tab === 'drive' && pool.some((r) => r.id === sub), path = open ? `#/drive/${sub}` : `#/${tab}`;
   const [rid, setRid] = useState(''), robot = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // ponytail: 담당 로봇 0대 운영자는 가짜 자료에 없음 — 실제 자료 붙일 때 빈 화면 처리
   const [stopped, setStopped] = useState(''), [light, setLight] = useState(false);   // stopped = 마지막으로 STOP 한 로봇 이름
+  // STOP 대상(F-COM-01) = 지금 화면이 가리키는 로봇: 폰은 머리줄에서 고른 로봇, PC 는 관제에서 고른 로봇·조종 화면의 로봇.
+  // 그 밖(조종 목록·임무·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지
+  const target = phone || open || tab === 'fleet' ? robot : null;
+  const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
 
   useEffect(() => { const f = () => setWant(location.hash); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
   useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
   const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; setWant(h); location.hash = h; };
-  const stop = () => { drive.stop(robot.id, user.id); setStopped(robot.name); };   // F-COM-01: 지금 화면이 가리키는 로봇
+  const halt = (r: Robot) => { drive.stop(r.id, user.id); setStopped(r.name); setChoose(null); };
+  const stop = () => { const r = target ?? pool.find((x) => x.id === choose); if (r) halt(r); else setChoose(pool.find((x) => drive.get(x.id).holder === user.id)?.id ?? ''); };
+  // Space = STOP, 모든 화면(F-COM-01). 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
+  const stopKey = useRef(stop); stopKey.current = stop;
+  useEffect(() => {
+    const down = (e: KeyboardEvent) => { if (e.code !== 'Space') return; e.preventDefault(); if (!e.repeat) stopKey.current(); };
+    const up = (e: KeyboardEvent) => { if (e.code === 'Space') e.preventDefault(); };
+    addEventListener('keydown', down, true); addEventListener('keyup', up, true);
+    return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); };
+  }, []);
 
   const cur = tabsFor(phone).find((t) => t.id === tab)!;
   const problems = pool.filter((r) => !r.online);
   const attention = ROBOTS.filter((r) => robotStatus(r).tone === 'warn' || robotStatus(r).tone === 'bad').length;
-  const ctx: Ctx = { user, robot, pick: setRid, go, open, stop, phone, light, setLight };
+  const ctx: Ctx = { user, robot, pick: setRid, go, open, phone, light, setLight };
   const Body = BODY[tab];
 
   const link = (t: Tab, cls: string) => {
@@ -63,6 +77,14 @@ export function App({ initialUser = USERS[0].id }: { initialUser?: string }) {
         {USERS.map((u) => <option key={u.id} value={u.id}>{u.name}({ROLE_NAME[u.role]})</option>)}</select>}
       <Stop phone={phone} onStop={stop} />
     </header>
+    {choose != null && !target && <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
+      <span>어느 로봇을 정지할까요?</span>
+      <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
+        {!choose && <option value="">로봇 고르기</option>}
+        {pool.map((r) => <option key={r.id} value={r.id}>{r.name}{drive.get(r.id).holder === user.id ? ' (내가 조종 중)' : ''}</option>)}</select>
+      <button type="button" className="fh-stop" disabled={!choose} onClick={stop}>정지</button>
+      <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
+    </div>}
     <div className="fh-band" role="status" data-band>{[
       stopped && <span key="stop">■ {stopped} 정지 요청됨 — 이 시험 화면은 아직 로봇에 보내지 않습니다.</span>,
       ...problems.map((r) => <span key={r.id}>▲ {lostText(r)} 현장에서 로봇 전원과 통신을 확인하세요.</span>),

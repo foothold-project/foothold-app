@@ -16,6 +16,8 @@ export type DriveState = {
   cooldown: Record<string, number>;            // 사용자별 재요청 가능 시각(ms)
   notice: Record<string, string | undefined>;  // 사용자별 알림 한 줄
   run: Run | null;
+  /** 넘김 2단계 정지 확인: 요청됨 → (확인되면 null + 잠금) | 실패. 실패는 «정지 잠금»이 아니다(확정 안 됨) */
+  stopCheck: 'asked' | 'failed' | null;
 };
 export type TakeResult = 'TAKEN' | 'HELD' | 'RUN_ACTIVE' | 'FORBIDDEN';
 export type RequestResult = 'SENT' | 'COOLDOWN' | 'BUSY' | 'FORBIDDEN';
@@ -27,12 +29,13 @@ export interface DriveApi {
   take(robot: string, user: string, pauseRun?: boolean): TakeResult;
   request(robot: string, user: string): RequestResult;
   respond(robot: string, user: string, accept: boolean): void;
-  /** 조종 끝내기: 0 명령 + 잠금 + 반납 */
+  /** 조종 끝내기·화면 떠남: 0 명령 + 잠금 + 반납. 내 대기 요청도 거둔다 */
   release(robot: string, user: string): void;
-  /** 화면 숨김·떠남: release 와 같음 */
+  /** 화면 숨김: 조종권만 0·잠금·반납(대기 요청은 남김 — 숨긴 사이 넘겨받으면 화면이 바로 이것을 다시 부른다) */
   hidden(robot: string, user: string): void;
   unlock(robot: string, user: string): void;
-  /** 50 ms 마다(0 포함). 조종권 심장 박동을 겸한다 */
+  /** 50 ms 마다(0 포함). 조종권 심장 박동을 겸한다.
+   *  ponytail: 0.3 s 입력 끊김 → 0 명령(데드맨)은 로봇 에이전트 몫이라 이 가짜는 흉내 내지 않는다 — 여기서는 15 s 조종권 만료만 */
   cmd(robot: string, user: string, axes: Axes): void;
   stop(robot: string, user: string): void;
   pauseRun(robot: string, user: string, paused: boolean): void;
@@ -49,28 +52,38 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
   for (const r of ROBOTS) {
     const m = r.mission?.match(/^(.*) (\d+)\/(\d+)$/);   // ponytail: 실행 진행은 가짜 자료의 «이름 n/m» 글에서 — 계약의 run 객체가 오면 그것으로
     st[r.id] = { holder: null, latched: r.status === 'STOP_LATCHED', neutral: false, axes: [0, 0], request: null, cooldown: {}, notice: {},
-      run: m ? { name: m[1], step: +m[2], total: +m[3], paused: r.status === 'PAUSED' } : null, ...seed[r.id] };
+      run: m ? { name: m[1], step: +m[2], total: +m[3], paused: r.status === 'PAUSED' } : null, stopCheck: null, ...seed[r.id] };
   }
   const set = (robot: string, p: Partial<DriveState>) => { st[robot] = { ...st[robot], ...p }; subs.forEach((f) => f()); };
   const later = (key: string, s: number, f: () => void) => { clearTimeout(timers.get(key)); timers.set(key, setTimeout(f, s * 1000)); };
   const allowed = (robot: string, user: string) => !driveBlock(USERS.find((u) => u.id === user)!, ROBOTS.find((r) => r.id === robot)!);
-  const halt = { axes: [0, 0] as Axes, latched: true, neutral: false };   // 0 명령 + 잠금
-  const beat = (robot: string) => later(`hb:${robot}`, HEARTBEAT_S, () => vacate(robot, { axes: [0, 0], neutral: false }));   // 규칙 6: 잠금은 아님(PRD Q7)
+  const halt = { axes: [0, 0] as Axes, latched: true, neutral: false, stopCheck: null };   // 0 명령 + 잠금(확인됨)
+  // 규칙 6: 마지막 입력 + 15 s 가 마감. 잠금은 아님(PRD Q7)
+  const until: Record<string, number> = {};
+  const beat = (robot: string) => { until[robot] = Date.now() + HEARTBEAT_S * 1000; later(`hb:${robot}`, HEARTBEAT_S, () => expire(robot)); };
+
+  /** 시간 기준(B1): 만료는 타이머가 돈 때가 아니라 마감 시각으로 판정 — 모든 처리 앞에서 먼저 확정한다.
+   *  ponytail: 벽시계(Date.now) 기준 — 시계를 뒤로 돌리면 마감이 늘어난다. 서버는 단조 시계로 */
+  function expire(robot: string) {
+    const now = Date.now(), q = st[robot].request;
+    if (q && q.expiresAt <= now) close(robot, q.id, true);
+    if (st[robot].holder && until[robot] <= now) vacate(robot, { axes: [0, 0], neutral: false });
+  }
 
   /** 조종권 비움 — 대기 요청은 끝내고, 기다리던 사람(대기 요청자·재요청 제한 중인 사람)에게 «비었습니다» */
   function vacate(robot: string, p: Partial<DriveState>, notice: Record<string, string | undefined> = {}) {
     const s = st[robot], now = Date.now();
-    clearTimeout(timers.get(`hb:${robot}`)); clearTimeout(timers.get(`rq:${robot}`));
+    clearTimeout(timers.get(`hb:${robot}`)); clearTimeout(timers.get(`rq:${robot}`)); delete until[robot];
     const waiting = [...(s.request ? [s.request.from] : []), ...Object.keys(s.cooldown).filter((u) => s.cooldown[u] > now)];
     set(robot, { ...p, holder: null, request: null, notice: { ...s.notice, ...Object.fromEntries(waiting.map((u) => [u, FREE_TEXT])), ...notice } });
   }
-  /** 거절·자동 거절: 기존 조종 유지, 요청자는 30 s 재요청 제한(기준 = 확정된 때) */
+  /** 거절·자동 거절: 기존 조종 유지, 요청자는 30 s 재요청 제한(기준 = 확정된 때 — 자동 거절은 마감 시각) */
   function close(robot: string, id: string, timeout: boolean) {
     const s = st[robot];
     if (s.request?.id !== id) return;
     clearTimeout(timers.get(`rq:${robot}`));
-    const from = s.request.from;
-    set(robot, { request: null, cooldown: { ...s.cooldown, [from]: Date.now() + COOLDOWN_S * 1000 },
+    const { from, expiresAt } = s.request;
+    set(robot, { request: null, cooldown: { ...s.cooldown, [from]: (timeout ? expiresAt : Date.now()) + COOLDOWN_S * 1000 },
       notice: { ...s.notice, [from]: timeout ? '응답이 없어 요청이 끝났습니다.' : `${userName(s.holder!)}님이 거절했습니다.` } });
   }
   const quiet = (s: DriveState, user: string) => ({ ...s.notice, [user]: undefined });
@@ -79,6 +92,7 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
     get: (robot) => st[robot],
     subscribe: (f) => { subs.add(f); return () => { subs.delete(f); }; },
     take(robot, user, pauseRun = false) {
+      expire(robot);
       const s = st[robot];
       if (!allowed(robot, user)) return 'FORBIDDEN';
       if (s.holder === user) return 'TAKEN';
@@ -89,6 +103,7 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
       return 'TAKEN';
     },
     request(robot, user) {
+      expire(robot);
       const s = st[robot], now = Date.now();
       if (!allowed(robot, user)) return 'FORBIDDEN';
       if ((s.cooldown[user] ?? 0) > now) return 'COOLDOWN';
@@ -99,25 +114,34 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
       return 'SENT';
     },
     respond(robot, user, accept) {
+      expire(robot);
       const s = st[robot];
       if (s.holder !== user || !s.request) return;
       if (!accept) return close(robot, s.request.id, false);
-      // 넘김 순서: 1) 옛 조종권 입력 막음(0 명령·입력 폐기) 2) stop → 0·잠금 확인 3) 새 조종권자는 잠금 상태로 시작 4) 확인 실패 → 비움 + 정지 요청 상태 + 둘 다 알림
+      // 넘김 순서: 1) 옛 조종권 비움 + 0 명령·입력 폐기, 정지 요청 2) 정지 확인 3) 확인되면 잠금 + 새 조종권(잠금 상태로 시작)
+      // 4) 확인 실패 → 조종권 빈 채 «정지 확인 실패»(잠금 확정 아님) + 둘 다 알림
       const from = s.request.from;
-      if (!confirmStop(robot)) return vacate(robot, halt, { [user]: FAIL_TEXT, [from]: FAIL_TEXT });
-      clearTimeout(timers.get(`rq:${robot}`));
-      set(robot, { ...halt, holder: from, request: null, notice: { ...s.notice, [user]: '조종권을 넘겼습니다. 보는 중입니다.', [from]: '조종권을 받았습니다. 잠금 해제 후 조종하세요.' } });
+      clearTimeout(timers.get(`rq:${robot}`)); clearTimeout(timers.get(`hb:${robot}`)); delete until[robot];
+      set(robot, { holder: null, request: null, axes: [0, 0], neutral: false, stopCheck: 'asked' });
+      if (!confirmStop(robot)) return vacate(robot, { stopCheck: 'failed' }, { [user]: FAIL_TEXT, [from]: FAIL_TEXT });
+      set(robot, { ...halt, holder: from, notice: { ...s.notice, [user]: '조종권을 넘겼습니다. 보는 중입니다.', [from]: '조종권을 받았습니다. 잠금 해제 후 조종하세요.' } });
       beat(robot);
     },
     release(robot, user) {
+      const s = st[robot];
+      if (s.holder === user) vacate(robot, halt, { [user]: undefined });
+      else if (s.request?.from === user) { clearTimeout(timers.get(`rq:${robot}`)); set(robot, { request: null }); }   // 떠난 화면에 조종권이 넘어가지 않게
+    },
+    hidden(robot, user) {
       if (st[robot].holder === user) vacate(robot, halt, { [user]: undefined });
     },
-    hidden: (robot, user) => api.release(robot, user),
     unlock(robot, user) {
+      expire(robot);
       const s = st[robot];
       if (s.holder === user && s.latched) set(robot, { latched: false, neutral: false, notice: quiet(s, user) });
     },
     cmd(robot, user, [fx, fw]) {
+      expire(robot);   // 마감이 지난 뒤 늦게 온 입력은 조종권을 늘리지 않는다
       const s = st[robot];
       if (s.holder !== user) return;
       beat(robot);

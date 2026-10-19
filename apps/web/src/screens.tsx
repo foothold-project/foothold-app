@@ -4,7 +4,7 @@ import { Drive } from './drive';
 import type { TabId } from './menu';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. stop = 머리줄 STOP 과 같음 */
-export type Ctx = { user: User; robot: Robot; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; stop: () => void; phone: boolean; light: boolean; setLight: (v: boolean) => void };
+export type Ctx = { user: User; robot: Robot; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean; light: boolean; setLight: (v: boolean) => void };
 
 const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
 /** 상태 표시 하나: 모양 + 짧은 글(색만으로 구분 0). 원본 ui/src/app/chip.tsx 의 Chip 모양 */

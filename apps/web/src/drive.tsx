@@ -1,5 +1,5 @@
 // 조종 탭(02 기능 F-TO-01~05, 03 UX §5.2·§5.7). 조종권·잠금은 가짜 중재기 DriveApi(fakeDrive.ts)만 부른다 — 서버 붙일 때 그 모듈만 바꾼다.
-// 영상·지도는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음, Space = STOP(03 §7: 이 화면에서 Space·방향키는 조종 전용).
+// 영상·지도는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type PointerEvent } from 'react';
 import { ROLE_NAME, USERS, driveBlock, robotStatus, robotsFor, userName, type Robot, type Tone } from './fake';
 import { REQUEST_S, drive, type Axes, type DriveState } from './fakeDrive';
@@ -24,6 +24,8 @@ function holderText(s: DriveState, me: string) {
   return s.run && !s.run.paused ? '시나리오 실행 중' : '조종하는 사람 없음';
 }
 function lockChip(s: DriveState, me: string): { tone: Tone; text: string } {
+  if (s.stopCheck === 'failed') return { tone: 'bad', text: '정지 확인 실패' };
+  if (s.stopCheck === 'asked') return { tone: 'warn', text: '정지 요청됨' };
   if (s.latched) return { tone: 'bad', text: '정지 잠금' };
   if (s.holder !== me) return { tone: 'off', text: '보는 중' };
   return s.neutral ? { tone: 'ok', text: '움직일 수 있음' } : { tone: 'warn', text: '중립 확인 중' };
@@ -63,36 +65,35 @@ function Screen(c: Ctx) {
     const { keys: k, pad, stick } = input.current;
     return [Math.max(0, clamp(+k.has('f') + pad[0] + stick[0])), clamp(+k.has('l') - +k.has('r') + pad[1] + stick[1])];   // 후진은 막음(PRD Q1)
   };
-  const stop = useRef(c.stop); stop.current = c.stop;
 
-  // 키보드(F-TO-05). 요청 창이 떠 있어도 Space 는 STOP, 방향키는 조종 — Space 는 눌린 단추를 누르지 않게 막는다
+  // 키보드(F-TO-05). 요청 창이 떠 있어도 방향키는 조종
   useEffect(() => {
     const KEY: Record<string, string> = { KeyW: 'f', ArrowUp: 'f', KeyS: 'b', ArrowDown: 'b', KeyA: 'l', ArrowLeft: 'l', KeyD: 'r', ArrowRight: 'r' };
     const keys = input.current.keys;
     const down = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (e.code === 'Space') { e.preventDefault(); if (!e.repeat) stop.current(); return; }
       const k = KEY[e.code]; if (!k) return;
       e.preventDefault(); keys.add(k); if (k === 'b') setBack(true);
     };
     const up = (e: KeyboardEvent) => {
-      if (e.code === 'Space') e.preventDefault();
       const k = KEY[e.code]; if (k) { keys.delete(k); if (k === 'b') setBack(false); }
     };
     const blur = () => keys.clear();
     addEventListener('keydown', down, true); addEventListener('keyup', up, true); addEventListener('blur', blur);
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); removeEventListener('blur', blur); };
   }, []);
-  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸
+  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 숨긴 화면은 조종권을 갖지 않는다: 숨긴 사이 넘겨받으면 바로 반납(B3)
   useEffect(() => {
     if (!mine) return;
-    const i = setInterval(() => drive.cmd(r.id, me, axes()), 50);
+    const hid = () => document.visibilityState === 'hidden';
+    if (hid()) return drive.hidden(r.id, me);
+    const i = setInterval(() => hid() ? drive.hidden(r.id, me) : drive.cmd(r.id, me, axes()), 50);
     return () => clearInterval(i);
   }, [mine, r.id, me]);
-  // 화면 숨김·떠남 → 정지·잠금·반납(F-TO-03)
+  // 화면 숨김 → 정지·잠금·반납, 떠남 → 그것 + 내 대기 요청 거둠(F-TO-03)
   useEffect(() => {
     const vis = () => { if (document.visibilityState === 'hidden') drive.hidden(r.id, me); };
-    const leave = () => drive.hidden(r.id, me);
+    const leave = () => drive.release(r.id, me);
     document.addEventListener('visibilitychange', vis); addEventListener('pagehide', leave);
     return () => { document.removeEventListener('visibilitychange', vis); removeEventListener('pagehide', leave); leave(); };
   }, [r.id, me]);
@@ -125,6 +126,10 @@ function Screen(c: Ctx) {
     {actions}
   </div>;
   const note = s.notice[me] && <p className="dv-note" role="status">{s.notice[me]}</p>;
+  const views = <div className="dv-views" aria-label="보기">
+    {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', c.phone ? '지도' : '지도 크게']] as const).map(([v, t]) =>
+      <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
+  </div>;
 
   return <section className={`dv${c.phone ? ' ph' : ''}`} style={{ flexBasis: '100%' }} aria-label="조종">
     {!c.phone && <>{line}{note}</>}
@@ -133,7 +138,7 @@ function Screen(c: Ctx) {
         {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}
         <button type="button" className="dv-mini" aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
           {view === 'map' ? <Video small /> : <MapView />}</button>
-        {c.phone && <div className="dv-hud">{line}{note}</div>}
+        {c.phone && <div className="dv-hud">{line}{views}{note}</div>}
         {mine && from && <div className="dv-ask" role="dialog" aria-labelledby="dv-ask-t" aria-live="assertive">
           <b id="dv-ask-t">조종권 요청</b>
           <p>{ROLE_NAME[from.role]} {from.name}님이 {r.name} 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
@@ -155,10 +160,7 @@ function Screen(c: Ctx) {
           : <MouseBar on={ready} set={(a) => { input.current.pad = a; }} />)}
         {back && mine && <span className="dv-back" role="status">후진은 아직 지원하지 않습니다</span>}
       </div>
-      {!c.phone && <div className="dv-views" aria-label="보기">
-        {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도 크게']] as const).map(([v, t]) =>
-          <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
-      </div>}
+      {!c.phone && views}
     </div>
     {s.run && <div className="fh-row dv-run">
       <span>시나리오 {s.run.paused ? '일시정지' : '실행 중'}: {s.run.name} {s.run.step}/{s.run.total}</span>

@@ -81,8 +81,10 @@ describe('가짜 중재기 — 조종권 요청 (F-TO-04)', () => {
     d.request('r7', 'u-kim');
     d.respond('r7', 'u-park', true);
     const s = d.get('r7');
-    expect([s.holder, s.latched, s.axes]).toEqual([null, true, [0, 0]]);
+    expect([s.holder, s.stopCheck, s.latched, s.axes]).toEqual([null, 'failed', false, [0, 0]]);   // 잠금 확정 아님(확인 안 됨)
     expect([s.notice['u-park'], s.notice['u-kim']]).toEqual([FAIL_TEXT, FAIL_TEXT]);
+    expect(d.take('r7', 'u-kim')).toBe('TAKEN');   // 다시 받으면 잠금 상태로 시작
+    expect([d.get('r7').stopCheck, d.get('r7').latched]).toEqual([null, true]);
   });
   it(`${REQUEST_S} s 응답 없으면 자동 거절 — 기존 조종 유지`, () => {
     const d = held();
@@ -277,5 +279,139 @@ describe('조종 화면', () => {
     act(() => { fwd.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); turn.dispatchEvent(new MouseEvent('pointerup', { bubbles: true })); });
     tick(100);
     expect(r7().axes).toEqual([0, 0]);
+  });
+});
+
+// ── PR #7 검토(Codex) 막는 것 B1~B6 재현 7개 — 검토자 runs/review-pr7.test.tsx 를 같은 조건으로 옮김
+describe('PR #7 검토 재현', () => {
+  beforeEach(() => { vi.setSystemTime(100000); });
+  afterEach(() => { delete (document as { visibilityState?: string }).visibilityState; });
+  it('[B1] 타이머 콜백이 늦어도 10 s 지난 요청은 넘기지 않는다', () => {
+    const d = createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
+    d.request('r7', 'u-kim'); vi.setSystemTime(111000); d.respond('r7', 'u-park', true);
+    expect(d.get('r7').holder).toBe('u-park');
+  });
+  it('[B2] 정지 확인 전에 옛 조종권·입력이 먼저 비워진다', () => {
+    let observed: unknown;
+    const d = createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true, axes: [1, 0] } }, () => {
+      observed = { holder: d.get('r7').holder, axes: d.get('r7').axes }; return true;
+    });
+    d.request('r7', 'u-kim'); d.respond('r7', 'u-park', true);
+    expect(observed).toEqual({ holder: null, axes: [0, 0] });
+  });
+  it('[B2] 정지 확인 실패를 «정지 잠금»으로 보이지 않는다', () => {
+    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } }, () => false);
+    mount(false, 'u-kim', '#/drive/r7');
+    act(() => { drive.request('r7', 'u-kim'); drive.respond('r7', 'u-park', true); });
+    expect(box.querySelector('.lv-chip')?.textContent).not.toContain('정지 잠금');
+  });
+  it('[B4] 관제에서 Space 는 고른 로봇을 STOP', () => {
+    mount(false, 'u-kim', '#/fleet');
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true })); });
+    expect(drive.get('r3').latched).toBe(true);
+  });
+  it('[B3] 요청자 화면이 숨겨진 뒤 넘겨받은 조종권은 바로 반납', () => {
+    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
+    mount(false, 'u-kim', '#/drive/r7');
+    act(() => { drive.request('r7', 'u-kim'); });
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    act(() => { drive.respond('r7', 'u-park', true); });
+    tick(100);
+    expect(drive.get('r7').holder).toBeNull();
+  });
+  it('[B6] 폰에도 뎁스 보기', () => {
+    mount(true, 'u-park', '#/drive');
+    expect([...box.querySelectorAll('button')].some((b) => b.textContent === '뎁스')).toBe(true);
+  });
+  it('[B5] 로봇이 정해지지 않은 화면의 STOP 은 첫 로봇을 멈추지 않는다', () => {
+    mount(false, 'u-kim', '#/drive');
+    act(() => { box.querySelector<HTMLButtonElement>('[data-stop]')!.click(); });
+    expect(drive.get('r3').latched).toBe(false);
+  });
+});
+
+// ── 조정 결정 R2: 지연 콜백·시각 변경·숨김 중 배정·정지 확인 전 입력 차단, B4·B5 보강
+describe('시간 기준·넘김 순서 (R2)', () => {
+  beforeEach(() => { vi.setSystemTime(100000); });
+  afterEach(() => { delete (document as { visibilityState?: string }).visibilityState; });
+  const held = (confirm?: (r: string) => boolean) => createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true } }, confirm);
+  it('지연 콜백: 타이머 없이 마감이 지나면 다음 처리에서 자동 거절 확정, 재요청 제한은 마감 시각부터', () => {
+    const d = held();
+    d.request('r7', 'u-kim');
+    vi.setSystemTime(100000 + REQUEST_S * 1000 + 5000);   // 타이머는 아직 안 돎
+    expect(d.request('r7', 'u-kim')).toBe('COOLDOWN');
+    expect([d.get('r7').request, d.get('r7').notice['u-kim']]).toEqual([null, '응답이 없어 요청이 끝났습니다.']);
+    expect(d.get('r7').cooldown['u-kim']).toBe(100000 + (REQUEST_S + COOLDOWN_S) * 1000);
+    vi.setSystemTime(100000 + (REQUEST_S + COOLDOWN_S) * 1000);
+    expect(d.request('r7', 'u-kim')).toBe('SENT');
+  });
+  it(`지연 콜백: ${HEARTBEAT_S} s 마감이 지난 뒤 늦게 온 입력은 조종권을 늘리지 않는다`, () => {
+    const d = createFakeDrive();
+    d.take('r7', 'u-park'); d.unlock('r7', 'u-park'); d.cmd('r7', 'u-park', [0, 0]);
+    vi.setSystemTime(100000 + HEARTBEAT_S * 1000);
+    d.cmd('r7', 'u-park', [1, 0]);
+    expect([d.get('r7').holder, d.get('r7').axes]).toEqual([null, [0, 0]]);
+  });
+  it('시각 변경(절전 뒤 시계가 20 s 앞으로): 요청 창의 넘기기·조종 입력 모두 만료로 처리', () => {
+    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
+    mount(false, 'u-park', '#/drive/r7');
+    act(() => { drive.request('r7', 'u-kim'); });
+    act(() => { vi.setSystemTime(Date.now() + 20000); });
+    clickWith($('[data-ask="give"]'), 1);
+    expect(r7().holder).not.toBe('u-kim');
+    expect(r7().request).toBeNull();
+  });
+  it('숨김 중 배정 — 반대 순서: 떠난 화면(탭 이동)의 대기 요청은 거둬져 넘김이 일어나지 않는다', () => {
+    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
+    mount(false, 'u-kim', '#/drive/r7');
+    click(btn('조종 시작'));
+    expect(r7().request?.from).toBe('u-kim');
+    click($('a[href="#/fleet"]'));
+    expect(r7().request).toBeNull();
+    act(() => { drive.respond('r7', 'u-park', true); });
+    expect(r7().holder).toBe('u-park');
+  });
+  it('정지 확인 전 입력 차단: 확인 중에 옛·새 조종권자 입력이 모두 버려진다', () => {
+    let seen: unknown;
+    const d = held(() => { d.cmd('r7', 'u-park', [1, 0]); d.cmd('r7', 'u-kim', [1, 0]); seen = [d.get('r7').stopCheck, d.get('r7').axes]; return true; });
+    d.cmd('r7', 'u-park', [1, 0]);
+    d.request('r7', 'u-kim'); d.respond('r7', 'u-park', true);
+    expect(seen).toEqual(['asked', [0, 0]]);
+    expect([d.get('r7').holder, d.get('r7').latched, d.get('r7').stopCheck]).toEqual(['u-kim', true, null]);
+  });
+  it('정지 확인 중·실패 칩은 «정지 요청됨»·«정지 확인 실패»', () => {
+    resetDrive({ r7: { holder: null, latched: false, stopCheck: 'asked' } });
+    mount(false, 'u-kim', '#/drive/r7');
+    expect($('.lv-chip').textContent).toContain('정지 요청됨');
+    act(() => { root?.unmount(); }); box.remove();
+    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } }, () => false);
+    mount(false, 'u-kim', '#/drive/r7');
+    act(() => { drive.request('r7', 'u-kim'); drive.respond('r7', 'u-park', true); });
+    expect($('.lv-chip').textContent).toContain('정지 확인 실패');
+  });
+  it('Space STOP 은 수정키가 눌려 있어도 동작(수정키 거름보다 먼저)', () => {
+    mount(false, 'u-kim', '#/fleet');
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', ctrlKey: true, bubbles: true, cancelable: true })); });
+    expect(drive.get('r3').latched).toBe(true);
+  });
+  it('대상 없는 화면: STOP → 로봇 고르기(내 조종권 로봇이 기본) → 다시 STOP 또는 [정지] = 그 로봇만', () => {
+    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
+    mount(false, 'u-park', '#/drive');
+    act(() => { $('[data-stop]').click(); });
+    expect($<HTMLSelectElement>('select[aria-label="정지할 로봇"]').value).toBe('r7');
+    expect([drive.get('r3').latched, r7().latched]).toEqual([false, false]);   // 펼치기만, 아직 아무것도 안 멈춤
+    key('keydown', 'Space');
+    expect([drive.get('r3').latched, r7().latched]).toEqual([false, true]);
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    expect(text()).toContain('Go2-7 정지 요청됨');
+  });
+  it('대상 없는 화면에서 조종권이 없으면 기본 없음 — 고르기 전에는 [정지]가 눌리지 않는다', () => {
+    mount(false, 'u-kim', '#/drive');
+    key('keydown', 'Space');
+    expect($<HTMLSelectElement>('select[aria-label="정지할 로봇"]').value).toBe('');
+    expect(btn('정지').disabled).toBe(true);
+    key('keydown', 'Space');
+    expect([drive.get('r3').latched, r7().latched]).toEqual([false, false]);
   });
 });

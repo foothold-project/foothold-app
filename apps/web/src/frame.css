@@ -41,6 +41,9 @@ button{cursor:pointer}
 .fh-stop{flex:none;min-width:120px;box-sizing:border-box;margin:0;padding:0 12px;border:0;border-radius:10px;background:#a3342a;color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;cursor:pointer;touch-action:manipulation;box-shadow:0 0 0 3px rgba(215,38,30,.22);white-space:nowrap}
 .fh-stop-t{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}.fh-stop-t>span{font-weight:700;font-size:19px;letter-spacing:.08em}.fh-stop-t>small{font-size:11px;font-weight:500;white-space:nowrap}
 .fh-stop:focus-visible{outline:3px solid #8CC8FF;outline-offset:2px}
+/* 대상 없는 화면의 STOP → 정지할 로봇 고르기(F-COM-01) */
+.fh-pick{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line2);background:var(--panel);font-size:14px}
+.fh-pick .fh-stop{min-height:44px}.fh-pick .fh-stop:disabled{opacity:.45;cursor:not-allowed}
 .fh-band{display:flex;flex-direction:column;gap:4px;padding:10px 16px;border-bottom:1px solid var(--bad);background:var(--bad-bg);font-size:14px}
 .fh-band:empty{display:none}
 .fh-body{flex:1;display:flex;min-height:0}
