@@ -2,7 +2,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
-import { USERS } from '../fake';
+import { ROBOTS, USERS, type Robot } from '../fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -10,13 +10,14 @@ import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '.
 let root: Root | null = null, box: HTMLDivElement;
 // matchMedia 모의: 폭 변경 이벤트까지 흉내(resize(true/false) 로 768px 경계를 넘김)
 let isPhone = false, listeners = new Set<() => void>();
-function mount(phone: boolean, user = 'u-kim', hash = '') {
+/** robots = 서버 /robots?scope=all 응답(기본 = 가짜 3대 전부) */
+function mount(phone: boolean, user = 'u-kim', hash = '', robots: Robot[] = ROBOTS) {
   isPhone = phone; listeners = new Set();
   window.matchMedia = ((q: string) => ({ get matches() { return isPhone; }, media: q,
     addEventListener(_e: string, f: () => void) { listeners.add(f); }, removeEventListener(_e: string, f: () => void) { listeners.delete(f); } })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<App initialUser={user} />); });
+  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === user)} robots={robots} />); });
 }
 const resize = (phone: boolean) => act(() => { isPhone = phone; listeners.forEach((f) => f()); });
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); });
@@ -26,10 +27,8 @@ const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
 const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.childNodes[1].textContent);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const robotRow = (name: string) => $$('[aria-label="로봇 목록"] button').find((b) => b.textContent!.includes(name))!;
-function pickUser(id: string) {
-  const s = $<HTMLSelectElement>('select[aria-label="사용자"]');
-  act(() => { s.value = id; s.dispatchEvent(new Event('change', { bubbles: true })); });
-}
+/** 다른 사람으로 로그인한 것처럼 같은 틀을 다시 그림(가짜 역할 전환 고르개는 없앰 — 역할은 서버 /me) */
+const pickUser = (id: string) => act(() => { root!.render(<App user={USERS.find((u) => u.id === id)} robots={ROBOTS} />); });
 
 describe('메뉴 정의(한 곳)', () => {
   it('PC 6탭 + 설정, 폰 3탭', () => {
@@ -76,7 +75,7 @@ describe('역할 전환', () => {
     pickUser('u-lee');
     expect(navLabels()).toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
-    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 내 로봇 먼저
+    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 내 로봇 먼저, 남의 로봇은 보기 전용
 
     click(robotRow('Go2-7'));
     const btn = $<HTMLButtonElement>('[aria-label="로봇 상세"] .btn.pri');
@@ -208,6 +207,7 @@ describe('B3 기록 범위', () => {
   });
 });
 
+// 서버는 전체(scope=all)를 주고, 폰은 내 로봇만(02 §1.2)
 describe('B4 폰 로봇 범위', () => {
   const options = () => [...box.querySelectorAll('select[aria-label="로봇 고르기"] option')].map((o) => o.textContent);
   it('[재현] 폰 운영자 로봇 선택에는 담당 로봇만 나온다', () => {

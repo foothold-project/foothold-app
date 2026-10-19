@@ -3,17 +3,19 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
+import { ROBOTS, USERS, type Robot } from '../fake';
 import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, HEARTBEAT_S, REQUEST_S, createFakeDrive, drive, resetDrive } from '../fakeDrive';
 import { tabFromHash } from '../menu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null, box: HTMLDivElement;
-function mount(phone: boolean, user: string, hash: string) {
+/** robots = 서버 /robots 응답(기본 = 가짜 3대 전부) */
+function mount(phone: boolean, user: string, hash: string, robots: Robot[] = ROBOTS) {
   window.matchMedia = ((q: string) => ({ matches: phone, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<App initialUser={user} />); });
+  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === user)} robots={robots} />); });
 }
 // 판정은 단조 시계(performance.now): advanceTimersByTime 은 그것도 움직이고, setSystemTime(벽시계)은 움직이지 않는다
 beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); resetDrive(); });
