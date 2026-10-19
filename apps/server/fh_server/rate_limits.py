@@ -6,6 +6,7 @@ from sqlalchemy.dialects.postgresql import insert
 
 from .models import AuthRateWindow, Event
 from .security import digest
+from .event_messages import render
 
 
 def window_start(at):
@@ -33,12 +34,11 @@ def close_rate_windows(db, org_id, at):
         start = row.window_start.astimezone(timezone.utc)
         password = row.key_type == 'PASSWORD_ACCOUNT'
         code = 'PASSWORD_CHANGE_RATE_LIMITED' if password else 'LOGIN_RATE_LIMITED'
-        label = '비밀번호 확인' if password else '로그인'
-        db.add(Event(org_id=row.org_id, user_id=row.user_id, category='ACCOUNT', code=code,
-            severity='WARN', message=f'{label} 횟수 제한으로 {row.denied_count}회 거절했습니다.',
+        db.add(render(db, Event(org_id=row.org_id, user_id=row.user_id, category='ACCOUNT', code=code,
+            severity='WARN',
             data={**row.data, 'key_type': row.key_type, 'count': row.denied_count,
                   'window_start': start.isoformat().replace('+00:00', 'Z'),
-                  'window_end': (start + timedelta(minutes=5)).isoformat().replace('+00:00', 'Z')}))
+                  'window_end': (start + timedelta(minutes=5)).isoformat().replace('+00:00', 'Z')})))
         # Deleting the mutable counter and appending its immutable summary are
         # committed together, so a crash cannot lose or duplicate the summary.
         db.delete(row)

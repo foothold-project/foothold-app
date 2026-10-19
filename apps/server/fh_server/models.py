@@ -100,6 +100,7 @@ class Event(Tenant, Base):
         ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
         CheckConstraint("category IN ('RUN','ROUTE','LINK','LEASE','APPROVAL','SAFETY','ACCOUNT')", name='event_category'),
         CheckConstraint("severity IN ('INFO','WARN','ERROR')", name='event_severity'),
+        UniqueConstraint('org_id', 'id'),
     )
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
@@ -137,7 +138,30 @@ Index('events_org_at', Event.org_id, Event.at.desc())
 Index('events_robot_at', Event.robot_id, Event.at.desc())
 Index('events_run_at', Event.run_id, Event.at)
 Index('events_category_at', Event.category, Event.at.desc())
+Index('events_org_at_id', Event.org_id, Event.at.desc(), Event.id.desc())
 Index('auth_rate_windows_org_start', AuthRateWindow.org_id, AuthRateWindow.window_start)
+
+
+class Notification(Tenant, Base):
+    __tablename__ = 'notifications'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'event_id'], ['events.org_id', 'events.id']),
+        UniqueConstraint('user_id', 'event_id', 'kind'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[UUID] = mapped_column(PGUUID)
+    event_id: Mapped[int | None] = mapped_column(BigInteger)
+    kind: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    link: Mapped[str] = mapped_column(Text)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+Index('notifications_user_created_id', Notification.user_id, Notification.created_at.desc(), Notification.id.desc())
+Index('notifications_user_unread', Notification.user_id, postgresql_where=text('read_at IS NULL'))
 
 
 class LeaseLog(Tenant, Base):

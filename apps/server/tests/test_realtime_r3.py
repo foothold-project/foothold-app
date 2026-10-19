@@ -118,7 +118,8 @@ def test_b2_auditor_quarantines_permanent_but_retries_transient(client, seeded, 
         if effect.body['op'] == 'FAKE_POISON':
             calls.append(effect)
             if failure == 'transient' and len(calls) > 1:
-                return original(Effect('audit', rid, {'op': 'FAKE_RECOVERED', 'at': now()}))
+                # Recovery must be a valid server event under the closed S2 registry.
+                return original(Effect('audit', rid, {'op': 'AGENT_CONNECTED', 'at': now()}))
             if failure == 'data':
                 raise DataError('fake-data', {}, Exception('fake permanent data'))
             if failure == 'unicode':

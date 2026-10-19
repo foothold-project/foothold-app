@@ -1,6 +1,7 @@
 # W3-B 실시간 서버 검증 기록
 
-최신 결과와 계약은 문서 끝의 «S0 서버 후속» 절을 따른다.
+최신 S2 결과는 문서 끝의 «S2 사건 기록·CSV·알림함» 절을 따른다.
+기존 실시간 계약은 «S0 서버 후속»과 그 후속 검토 절을 따른다.
 이전 절은 해당 커밋의 실행 이력이다.
 
 
@@ -1256,3 +1257,103 @@ FH_TEST_PORT_RANGE=9150:9169 python apps/server/tools/check_realtime_mutations.p
 생성물·TypeScript·selftest는 이번에 해당 파일이 바뀌지 않아 반복하지 않았다.
 시험은 127.0.0.1:9150~9169의 일회용 PostgreSQL/uvicorn과 가짜 peers만 사용한다.
 운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기에는 접촉하지 않았다.
+
+## S2 사건 기록·CSV·알림함 (2026-10-20)
+
+`feature/server-events`, 기준 `origin/dev=69a08b5`. 수동 변경 소유는
+`apps/server/**`, `apps/contracts/**`이며 웹·에이전트·docs/spec·안전 Core 변경은 없다.
+기능 브랜치의 폐기 가능 PostgreSQL/가짜 peers 검증이고 dev 통합·배포 결과가 아니다.
+
+- `events_api.py`: 조직 범위 안에서 총괄 전체, 운영자 현재 담당 활성 로봇 **또는**
+  본인 행동. 담당 변경은 다음 요청에서 판정한다. 목록/상세/CSV가 같은 정책을 쓰며
+  범위 밖·다른 조직·없는 ID는 같은 404다. D3의 다른 로봇에 한 본인 행동은 임시 허용한다.
+- 7종 분류·심각도·로봇·사람·기간(양 끝 포함)·run_id, 최신 `(at,id)` 역순 cursor.
+  run 표 구현 전에는 이미 보이는 사건으로 run_id 범위를 판정한다. 같은 시각 여러 행을
+  작은 페이지로 읽어도 빠짐/중복이 없고 UTC/시간대 입력을 검사한다.
+- CSV는 같은 필터·범위·저장 문장·data를 내보낸다. 수식 시작 문자와 선행 공백/탭/개행,
+  쉼표·따옴표·줄바꿈을 검사한다. 10,000행 상한 초과는 400이며 부분 성공으로 숨기지 않는다.
+- `event_messages.py`: 모든 서버 사건 코드의 단일 틀, 저장 시각·이름·값·한글/숫자 조사.
+  소스에서 쓰는 코드와 틀을 대조하며 미등록 서버 코드는 실패한다. 에이전트의 열린
+  코드 확장은 명시적인 AGENT_EVENT 틀로 코드·data·robot_at을 보존한다. 옛 행은 고치지 않는다.
+- 사건 UPDATE/DELETE API가 없고 실제 fh_app UPDATE/DELETE/TRUNCATE 거절을 검사한다.
+  0008은 사건 FK용 조직 복합 고유 제약과 목록 색인만 더하고 기존 사건 권한은 유지한다.
+- 0008 `notifications`: 사건과 같은 트랜잭션에서 생성하고 조직/수신자 FK를 강제한다.
+  현재 연결한 알림은 조종권 요청(현재 holder), 연결 끊김·실패/완료·배터리 부족·이탈
+  (총괄과 현재 담당)이다. 알림 설정 false·잠금/보관 계정 제외, 무관한 STOP 등은 알리지 않는다.
+- 알림함은 본인 것만 최신순·cursor·전체 안 읽음 수를 반환한다. 읽음은 ids 또는 all:true,
+  CSRF 유지, 최초 read_at 보존. 다른/없는 ID가 섞이면 같은 404로 전체 거절한다.
+  Web Push·WS notify 배송·화면 배지·결재 연결(S4)은 별도 범위다.
+- 실제 uvicorn은 가짜 에이전트의 ROUTE_DEVIATION 수신 → 필터된 문장/robot_at 확인 →
+  같은 CSV → 본인 알림 조회/읽음/안 읽음 0까지 HTTP와 WS의 실제 TCP로 검사한다.
+
+### 실행 이력
+
+Python 3.12.3/기존 requirements-test 환경, pgserver PostgreSQL16/private Unix socket을 썼다.
+시험과 변이는 한 번에 한 프로세스씩 실행했으며 모든 DB 번호·uvicorn 포트는
+`FH_TEST_PORT_RANGE=9240:9259`로 제한했다. 운영·미리보기·다른 작업자 포트·ROS·Gazebo·
+실기 접촉과 배포는 없다. 기존 selftest도 외부 연결 없는 selftest 모드로만 실행했다.
+
+초기 집중은 **76 passed/32.80s**(Alembic 왕복·실제 uvicorn 포함)였다. 초기 전체는
+**394 passed/2 failed/345.10s**이며 성공으로 세지 않는다. 실패는
+`test_b2_auditor_quarantines_permanent_but_retries_transient[transient]`가 복구 표본으로
+미등록 FAKE_RECOVERED 코드를 실제 저장기에 보내 새 단일 틀 검사에서 격리된 것과,
+`test_b3_wire_fixture_python_and_schema_match`가 새 TS 예제의 따옴표 없는 키를 JSON으로
+읽으려 한 것이다. 복구 표본을 등록된 AGENT_CONNECTED로, TS 예제를 실제 JSON 리터럴로
+고쳤다. 기존 격리/재시도 횟수·STOP 기대값·안전 시간 문턱은 바꾸지 않았다.
+
+수정 뒤 S2+해당 기존 R3 회귀는 **60 passed/29.25s**, 최종 기간/DB 권한 경계 보강은
+별도로 **2 passed/1.96s**다. 초기 문장 틀 소스 대조 시험은 누락된 서버 오류 틀을 찾아
+**15 passed/1 failed/5.11s**였고 해당 틀을 추가한 뒤 위 집중 실행이 통과했다.
+기존 Starlette/httpx 사용 중단 경고 1개는 그대로이며 성공/실패 판정에 섞지 않는다.
+
+### 최종 정상 기준
+
+| 검사 | 실제 결과 |
+|---|---|
+| 변이 도구의 최종 서버 전체 정상 기준 | **397 passed**,335.13s |
+| Alembic head(0008)→base→head·metadata diff 0·DB 권한 | 최종 전체 정상 기준에 포함하여 통과 |
+| 0007 이름 재사용 downgrade 원자적 거절·다시 upgrade | 최종 전체 정상 기준에 포함하여 통과 |
+| 실제 uvicorn 사건→필터→CSV→본인 알림 읽음 | 초기 집중·수정 후 집중·최종 전체 정상 기준에서 통과 |
+| 계약 generate --check | **72개 일치** |
+| contracts npm ci·strict tsc | 성공·exit0; 새 알림 bigint 문자열의 TS 소비 예제 포함 |
+| 기존 안전 selftest | **selftest OK**, 원본·기대값 변경0 |
+
+최종 전체 정상 기준은 변이 도구가 임시 사본에서 **변이 적용 전** 실행한 서버 pytest
+전체다(`python -m pytest -q -x -p no:cacheprovider ... apps/server/tests`).
+명령의 python은 위 Python3.12/requirements-test 환경을 뜻한다.
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py apps/server/tests/test_events_wire.py apps/server/tests/test_realtime_r3.py -q -x --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py::test_filters_inclusive_utc_seven_categories_and_cursor_ties apps/server/tests/test_events.py::test_event_database_append_only_without_app_start -q --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py
+python apps/contracts/generate.py --check
+npm ci --prefix apps/contracts --ignore-scripts
+npm run --prefix apps/contracts typecheck
+python3 sim/v2_link.py --selftest
+```
+
+전체 변이 225개 실행은 **223개 assertion 검출**, **2개 실행 오류**로 exit1이었다.
+오류는 CSV 보호 제거 때 보호된 행을 찾는 `next()`가 StopIteration을 낸 것과,
+읽음 저장 제거 때 None에 `.endswith()`를 호출한 AttributeError다. 도구가 두 오류를
+검출 성공으로 세지 않는 것을 유지했다. 제품 코드는 바꾸지 않고 보호된 CSV 행의 수와
+read_at 문자열 존재를 먼저 단언하여 고장 자체가 명시적인 assertion 실패가 되도록 했다.
+그 뒤 해당 두 변이만 `--match`로 다시 검사하며, 이 실행도 서버 전체 정상 기준을 먼저
+실행한다. 나머지 223개에 쓰인 제품 소스와 기존 기대값은 바뀌지 않았다.
+
+
+보강 후 선택 실행의 최종 정상 기준은 **397 passed/330.98s**, 해당 변이는
+**2/2 assertion 검출, exit0, 실행/수집 오류·미검출0**이다. 앞선 정상 기준의
+397 passed/335.13s와 같은 제품 코드에서 시험의 명시적 단언만 보강했다.
+따라서 전체 225개 고장 판정은 **223개 전체 실행 + 보강된 2개 재실행**으로 모두
+assertion 검출을 확인했다(단일 전체 실행 225/225 통과로 표현하지 않는다).
+새 S2 판정은 이 중25개이며, CSV 범위/수식/상한·누락 틀·사건 수정 API/DB 권한·
+알림 범위/읽음/필터/대상/설정/연결 누락까지 포함한다.
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py --match 'S2 CSV formula guard removed' --match 'S2 notification read not persisted'
+```
+
+두 변이 실행의 임시 사본이 종료 후 제거된 것을 확인했다. 시험용 PostgreSQL은
+각 fixture의 finally에서 종료·삭제되며 실제 운영 DB나 프로세스는 건드리지 않았다.
+코드는 변경 커밋을 revert하고, 0008 downgrade가 알림을 지우므로 자료 보존·승인된
+이관 절차를 먼저 따른다. D3·CSV 상한·수신자 규칙과 정본의 미정/확장 사항은 PR에 적는다.

@@ -24,3 +24,12 @@ import type { ScreenServerPing } from '../ts/index';
 export const serverPing: ScreenServerPing = {"t":"ping","t_server":"2026-10-20T00:00:00Z"};
 export const cancelRequest: ScreenMessage = {"t":"lease.cancel","id":"cancel","robot":"00000000-0000-0000-0000-000000000001"};
 void [serverPing, cancelRequest];
+
+import type { EventList, NotificationList, NotificationsRead } from '../ts/index';
+export const emptyEvents: EventList = {"items": [], "next_cursor": null};
+export const inbox: NotificationList = {"items": [{"id": "9007199254740993", "event_id": "9007199254740994", "kind": "LINK_LOST", "title": "연결 끊김", "body": "로봇과 연결이 끊겼습니다.", "link": "#/history?event_id=9007199254740994", "read_at": null, "created_at": "2026-10-20T00:00:00Z"}], "next_cursor": null, "unread_count": 1};
+export const readInbox: NotificationsRead = {"ids": ["9007199254740993"]};
+export const readAllInbox: NotificationsRead = {"all": true};
+// @ts-expect-error Notification identifiers must never be represented as JS numbers.
+const numericNotice: NotificationsRead = {ids: [9007199254740993]};
+void [emptyEvents, inbox, readInbox, readAllInbox, numericNotice];

@@ -1,0 +1,24 @@
+{
+  "$id": "fh-app/1/NotificationsRead",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "all": {
+      "const": true,
+      "title": "All",
+      "type": "boolean"
+    },
+    "ids": {
+      "items": {
+        "pattern": "^[1-9][0-9]{0,18}$",
+        "type": "string"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Ids",
+      "type": "array"
+    }
+  },
+  "title": "NotificationsRead",
+  "type": "object"
+}

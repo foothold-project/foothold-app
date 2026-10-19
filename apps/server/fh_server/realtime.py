@@ -32,6 +32,8 @@ from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
 from .inventory import InventoryWriter
 from .robots import live_state
+from .event_messages import render, CATEGORIES
+from .notifications import append_for_event
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
 from .security import digest
 from .history import History, HistoryPending
@@ -1801,16 +1803,6 @@ class Realtime:
         if op == 'TAKE' and not body.get('user_id'):
             op = 'RUN_TAKE'
         user = UUID(body['user_id']) if body.get('user_id') else None
-        messages = {'TAKE': '조종권을 받았습니다.', 'RELEASE': '조종권을 반납했습니다.',
-            'REQUEST': '조종권을 요청했습니다.', 'ACCEPT': '조종권을 넘겼습니다.',
-            'DECLINE': '조종권 요청을 거절했습니다.', 'TIMEOUT': '응답이 없어 조종권 요청이 끝났습니다.',
-            'EXPIRE': '조종권이 만료되었습니다.', 'STOP': '정지를 요청했습니다.',
-            'RUN_PAUSE_TAKEOVER': '실행을 일시정지하고 사람이 조종권을 받았습니다.',
-            'AUDIT_DROPPED': '감사 기록 일부를 묶거나 생략했습니다.',
-            'STOP_CONFIRM_FAILED': '로봇 정지 확인에 실패했습니다.',
-            'AGENT_INVENTORY_FAILED': '로봇 장치 정보를 저장하지 못했습니다.',
-            'AGENT_INVALID_HELLO': '로봇 장치 목록·초기 연결 정보가 올바르지 않습니다.',
-            'AGENT_CONNECTED': '로봇이 연결되었습니다.', 'AGENT_DISCONNECTED': '로봇 연결이 끊겼습니다.'}
         with self.audit_factory.begin() as db:
             if op in ('TAKE', 'RELEASE', 'REQUEST', 'ACCEPT', 'DECLINE', 'TIMEOUT', 'EXPIRE', 'RUN_TAKE', 'RUN_PAUSE_TAKEOVER'):
                 db.add(LeaseLog(org_id=self.settings.org_id, robot_id=rid, op=op, user_id=user,
@@ -1819,12 +1811,14 @@ class Realtime:
             ev = Event(org_id=self.settings.org_id, robot_id=rid, user_id=user, at=body['at'],
                 category='SAFETY' if op in ('STOP', 'STOP_CONFIRM_FAILED') else 'LINK' if op.startswith('AGENT_') else 'LEASE',
                 code=body.get('code', op), severity=body.get('severity', 'INFO').upper(),
-                message=messages.get(op, '로봇 상태 변화가 기록되었습니다.'),
                 robot_at=body.get('robot_at'), data=body.get('data', {}))
             if isinstance(ev.robot_at, str):
                 from datetime import datetime
                 ev.robot_at = datetime.fromisoformat(ev.robot_at)
+            ev.category = CATEGORIES.get(ev.code, ev.category)
+            render(db, ev, agent=op == 'AGENT_EVENT', other_user_id=body.get('other_user_id'))
             db.add(ev)
+            append_for_event(db, ev, other_user_id=body.get('other_user_id'))
             db.flush()
             return C.Event(
                 id=str(ev.id), at=ev.at, robot_at=ev.robot_at, category=ev.category, code=ev.code,
