@@ -30,7 +30,8 @@ from sqlalchemy.exc import DBAPIError, DataError, IntegrityError, StatementError
 
 from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
-from .robots import save_inventory
+from .inventory import InventoryWriter
+from .robots import live_state
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
 from .security import digest
 from .history import History, HistoryPending
@@ -163,6 +164,9 @@ class Peer:
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     archive: asyncio.Queue | None = None
     state_sent: float = float('-inf')
+    state_received_at: float = float('-inf')
+    delivery_epochs: dict = field(default_factory=dict)
+    revoked_robots: set = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -219,12 +223,14 @@ class Realtime:
         self.robot_changes = set()
         self.robot_changed_at = {}
         self.deleted_robots = set()
-        self.last_states = {}
+        self.deleted_at = {}
         self.runs: dict[str, dict] = {}  # executor persistence is a later task
         self.audit = FairAuditQueue(self)
         self.audit_engine = create_engine(settings.database_url, pool_size=1, max_overflow=0,
                                          connect_args={'options': '-c lock_timeout=1000 -c statement_timeout=2000'})
         self.audit_factory = sessionmaker(self.audit_engine, expire_on_commit=False)
+        self.inventory = InventoryWriter(settings, self.clock, lambda rid, error: self.note_audit(rid,
+            {'op': 'AGENT_INVENTORY_FAILED', 'severity': 'WARN', 'data': {'error_type': error}}))
         self.tasks = []
         self.failed = False
         self.owner_connection = None
@@ -399,6 +405,7 @@ class Realtime:
         self.starts -= 1
         if self.starts:
             return
+        await self.inventory.close()
         for task in self.tasks + list(self.archive_closers):
             task.cancel()
         await asyncio.gather(*self.tasks, *self.archive_closers, return_exceptions=True)
@@ -723,26 +730,43 @@ class Realtime:
     def end_robot_change(self, rid):
         self.robot_changes.discard(rid)
 
-    def revoke_robot_peer(self, peer, rid, reason='ACCESS_REVOKED'):
+    def revoke_robot_peer(self, peer, rid, reason='ACCESS_REVOKED', force=False):
         r = self.arbiter.robots.get(rid)
+        controlled = bool(r and ((r.holder and r.holder.actor == peer.actor)
+            or (r.transfer and r.transfer.actor == peer.actor)))
         if r:
-            if ((r.holder and r.holder.actor == peer.actor)
-                    or (r.transfer and r.transfer.actor == peer.actor)):
+            if controlled:
                 self.apply(self.arbiter.revoke(rid, peer.actor))
             elif r.request and r.request.actor == peer.actor:
                 self.apply(self.arbiter.cancel_request(rid))
-        # Enqueue the notification only after the safe agent outputs. A queued
-        # private delivery is independently rechecked by writer before send.
-        if rid in peer.subscriptions:
-            self.put(peer, C.ScreenSubscriptionRevoked(robot=rid, reason=reason).model_dump(mode='json'))
-            peer.subscriptions.pop(rid, None)
-            self.streams()
+        affected = rid in peer.subscriptions or controlled or force
+        if not affected or rid in peer.revoked_robots:
+            return
+        peer.delivery_epochs[rid] = peer.delivery_epochs.get(rid, 0) + 1
+        peer.revoked_robots.add(rid)
+        retained = []
+        while not peer.queue.empty():
+            item = peer.queue.get_nowait()
+            payload = item.get('_delivery', item.get('_revocation', item))
+            if str(payload.get('robot')) != rid:
+                retained.append(item)
+        for item in retained:
+            peer.queue.put_nowait(item)
+        # This constant, non-private control message clears legacy fh-rt/1 UI
+        # state even after ROBOT_READ was lost. Safe agent outputs precede it.
+        self.put(peer, {'_revocation': {'t': 'lease', 'robot': rid, 'holder': None,
+            'lease_id': None, 'since': None}})
+        self.put(peer, C.ScreenSubscriptionRevoked(robot=rid, reason=reason).model_dump(mode='json'))
+        peer.subscriptions.pop(rid, None)
+        self.streams()
 
     def robot_changed(self, rid, old_owner=None, deleted=False):
         if old_owner is not None:
             self.robot_changed_at[(rid, old_owner)] = self.clock()
         if deleted:
             self.deleted_robots.add(rid)
+            self.deleted_at[rid] = self.clock()
+            self.inventory.forget(rid)
         # Ordinary socket loss retains a holder for 15 s. Reassignment must
         # revoke that actor too, even though it no longer has a screen peer.
         r = self.arbiter.robots.get(rid)
@@ -753,12 +777,21 @@ class Realtime:
             self.apply(self.arbiter.cancel_request(rid))
         for peer in list(self.screens.values()):
             if deleted or (old_owner is not None and peer.actor.user == old_owner):
-                self.revoke_robot_peer(peer, rid, 'ROBOT_DELETED' if deleted else 'ACCESS_REVOKED')
+                self.revoke_robot_peer(peer, rid, 'ROBOT_DELETED' if deleted else 'ACCESS_REVOKED',
+                    force=actor == peer.actor)
 
     def cached_access(self, peer, robots, permission, *, safety=False):
         policy = peer.policy
         if policy is None or policy.expires_at <= now() or peer.closing:
             raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
+        if permission in ('ROBOT_READ', 'O_OWN') and any(
+                rid in peer.revoked_robots and (permission not in policy.rights.get(rid, ())
+                    or policy.checked < self.robot_changed_at.get((rid, peer.actor.user), float('-inf')))
+                for rid in robots):
+            # A known revocation is a denial, not transient policy uncertainty.
+            # A later fresh grant may permit a new subscription generation.
+            raise self.api_error(404 if permission == 'ROBOT_READ' else 403,
+                'NOT_FOUND' if permission == 'ROBOT_READ' else 'NOT_ROBOT_OWNER', '로봇 접근 권한이 없습니다.')
         # Previously verified STOP scope stays usable during a slow refresh.
         # Motion is disabled once its authorization snapshot is 500 ms old.
         if not safety and self.clock() - policy.checked > 0.5:
@@ -921,6 +954,10 @@ class Realtime:
     def put(self, peer, body):
         if peer.closing:
             return
+        if peer.actor and 'robot' in body and body.get('t') != 'subscription.revoked':
+            body = {'_delivery': body}
+        if '_delivery' in body:
+            body = {**body, '_epoch': peer.delivery_epochs.get(str(body['_delivery']['robot']), 0)}
         try:
             (peer.urgent if body.get('t') == 'reply' else peer.queue).put_nowait(body)
         except asyncio.QueueFull:
@@ -991,9 +1028,15 @@ class Realtime:
                 (records if effect.target == 'audit' else safety).append(effect)
         self.apply(safety + records)
 
-    async def send_body(self, peer, body):
+    async def send_body(self, peer, body, delivery=None):
         async with peer.send_lock:
+            if delivery is not None:
+                rid, epoch = delivery
+                if rid in peer.revoked_robots or epoch != peer.delivery_epochs.get(rid, 0):
+                    return False
+                self.cached_access(peer, [body['robot']], 'ROBOT_READ')
             await asyncio.wait_for(peer.socket.send_json(body), timeout=0.25)
+            return True
 
     async def replies(self, peer):
         try:
@@ -1007,29 +1050,35 @@ class Realtime:
     async def writer(self, peer, screen=False):
         try:
             while True:
-                body = await peer.queue.get()
-                if '_delivery' in body:
-                    body = body['_delivery']
-                    try:
-                        async with asyncio.timeout(DB_RETRY_GRACE):
-                            while True:
+                queued = await peer.queue.get()
+                body = queued.get('_delivery', queued.get('_revocation', queued))
+                private = '_delivery' in queued or (screen and 'robot' in body
+                    and body.get('t') != 'subscription.revoked' and '_revocation' not in queued)
+                if not private:
+                    await self.send_body(peer, body)
+                    continue
+                rid = str(body['robot'])
+                epoch = queued.get('_epoch', peer.delivery_epochs.get(rid, 0))
+                try:
+                    async with asyncio.timeout(DB_RETRY_GRACE):
+                        while True:
+                            if rid in peer.revoked_robots or epoch != peer.delivery_epochs.get(rid, 0):
+                                break
+                            try:
+                                await self.send_body(peer, body, delivery=(rid, epoch))
+                                break
+                            except LeaseError:
                                 try:
-                                    self.cached_access(peer, [body['robot']], 'ROBOT_READ')
-                                    break
-                                except LeaseError:
-                                    try:
-                                        await self.refresh_policy(peer)
-                                        await asyncio.sleep(.005)
-                                    except TRANSIENT_DB:
-                                        await asyncio.sleep(0.1)
-                    except self.api_error as exc:
-                        if exc.status == 401:
-                            await self.deny_screen(peer, 4401)
-                            return
-                        self.revoke_robot_peer(peer, body['robot'],
-                            'ROBOT_DELETED' if body['robot'] in self.deleted_robots else 'ACCESS_REVOKED')
-                        continue
-                await self.send_body(peer, body)
+                                    await self.refresh_policy(peer)
+                                    await asyncio.sleep(.005)
+                                except TRANSIENT_DB:
+                                    await asyncio.sleep(0.1)
+                except self.api_error as exc:
+                    if exc.status == 401:
+                        await self.deny_screen(peer, 4401)
+                        return
+                    self.revoke_robot_peer(peer, rid,
+                        'ROBOT_DELETED' if rid in self.deleted_robots else 'ACCESS_REVOKED')
         except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
             peer.closing = True
             with suppress(Exception):
@@ -1149,6 +1198,7 @@ class Realtime:
                     if msg.t == 'stop':
                         self.apply(self.arbiter.stop(rid, actor))
                     if msg.t == 'sub':
+                        peer.revoked_robots.difference_update(robots)
                         peer.subscriptions = {r: set(msg.streams) for r in robots}
                         self.streams()
                         for robot in robots:
@@ -1275,9 +1325,9 @@ class Realtime:
                 for rid, streams in peer.subscriptions.items():
                     if 'state' in streams:
                         agent = self.agents.get(rid)
-                        state = dict(agent.state) if agent else {}
+                        online, state = live_state(self, rid)
                         self.put(peer, C.ScreenState(robot=rid,
-                            connection='ONLINE' if agent and not agent.closing else 'OFFLINE',
+                            connection='ONLINE' if online else 'OFFLINE',
                             status=state.get('status'), battery=state.get('battery'),
                             location=state.get('location'), devices=state.get('devices', []),
                             speed=state.get('speed'), latency_ms=None, latched=state.get('latched'),
@@ -1420,9 +1470,8 @@ class Realtime:
                         hello = C.AgentHello.model_validate(raw)
                         break
                     except ValidationError:
-                        self.note_audit(rid, {'op': 'AGENT_INVALID_FRAME'})
-            await asyncio.to_thread(save_inventory, self.audit_factory, self.settings.org_id, rid,
-                [d.model_dump(mode='json') for d in hello.devices], hello.robot_model)
+                        self.note_audit(rid, {'op': 'AGENT_INVALID_HELLO', 'severity': 'WARN',
+                            'data': {'reason': 'INVALID_DEVICE_INVENTORY_OR_HELLO'}})
             # Metadata writes can wait behind a row/audit lock. Revalidate the
             # token before publishing a connected peer or granting authority.
             auth_started = self.clock()
@@ -1439,6 +1488,8 @@ class Realtime:
                 old.closing = True
                 await old.socket.close(code=1012)
             self.agents[rid] = peer
+            self.inventory.submit(rid, [d.model_dump(mode='json') for d in hello.devices],
+                hello.robot_model, digest(ws.headers.get('authorization', '')[7:]))
             r = self.arbiter.robot(rid)
             fresh_reference = r.stop_ref < C.MAX_SAFE_INTEGER
             r.stop_gen = hello.stop_gen
@@ -1504,8 +1555,8 @@ class Realtime:
                 if msg.t == 'state':
                     accepted = self.accept_state(rid, peer, msg)
                     if accepted and msg.devices_changed is not None:
-                        await asyncio.to_thread(save_inventory, self.audit_factory, self.settings.org_id, rid,
-                            [d.model_dump(mode='json') for d in msg.devices_changed])
+                        self.inventory.submit(rid, [d.model_dump(mode='json') for d in msg.devices_changed],
+                            None, digest(ws.headers.get('authorization', '')[7:]))
                 elif msg.t == 'event':
                     effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'op': 'AGENT_EVENT', 'at': now()})
                     # Parsing never waits behind archival pacing. Exhaustion is
@@ -1550,6 +1601,7 @@ class Realtime:
         finally:
             if self.agents.get(rid) is peer:
                 self.agents.pop(rid, None)
+                self.inventory.forget(rid)
                 self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
                 self.apply([Effect('audit', rid, {'op': 'AGENT_DISCONNECTED'})])
             peer.closing = True
@@ -1567,12 +1619,13 @@ class Realtime:
         data = msg.model_dump(mode='json')
         peer.state.update({k: data[k] for k in ('speed', 'latched', 'stop_gen', 'applied')})
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
-        peer.state['location'] = C.Location(**data['pose'], updated_at=now()).model_dump(mode='json')
+        peer.state['location'] = (C.Location(**data['pose'], updated_at=now()).model_dump(mode='json')
+            if any(data['pose'][key] is not None for key in ('x', 'y', 'yaw')) else None)
         run = self.runs.get(rid)
         peer.state['status'] = 'STOP_LATCHED' if msg.latched else 'PAUSED' if run and run['status'] == 'PAUSED' else 'RUNNING' if msg.mode == 'RUN' else 'TELEOP' if msg.mode == 'USER' else 'IDLE'
         if msg.devices_changed is not None:
             peer.state['devices'] = data['devices_changed']
-        self.last_states[rid] = dict(peer.state)
+        peer.state_received_at = self.clock()
         pending = self.arbiter.robot(rid).transfer
         if pending and pending.actor:
             try:
@@ -1595,6 +1648,19 @@ class Realtime:
                 self.fail_audit_storage()
                 self.tasks[1] = asyncio.create_task(self.auditor())
             at = self.clock()
+            # No authorization snapshot survives this grace period (motion is
+            # bounded by 500 ms, unverified peers close after 5 s).
+            self.robot_changed_at = {key: stamp for key, stamp in self.robot_changed_at.items()
+                                     if at - stamp <= DB_RETRY_GRACE + 1}
+            for rid, stamp in list(self.deleted_at.items()):
+                if at - stamp > DB_RETRY_GRACE + 1 and rid not in self.agents:
+                    self.arbiter.robots.pop(rid, None)
+                    self.runs.pop(rid, None)
+                    self.deleted_at.pop(rid)
+                    self.deleted_robots.discard(rid)
+                    for screen in self.screens.values():
+                        screen.delivery_epochs.pop(rid, None)
+                        screen.revoked_robots.discard(rid)
             for rid, peer in list(self.agents.items()):
                 if at - peer.last_rx >= 3 and not peer.closing and not peer.audit_waiting:
                     peer.closing = True
@@ -1617,6 +1683,8 @@ class Realtime:
             'RUN_PAUSE_TAKEOVER': '실행을 일시정지하고 사람이 조종권을 받았습니다.',
             'AUDIT_DROPPED': '감사 기록 일부를 묶거나 생략했습니다.',
             'STOP_CONFIRM_FAILED': '로봇 정지 확인에 실패했습니다.',
+            'AGENT_INVENTORY_FAILED': '로봇 장치 정보를 저장하지 못했습니다.',
+            'AGENT_INVALID_HELLO': '로봇 장치 목록·초기 연결 정보가 올바르지 않습니다.',
             'AGENT_CONNECTED': '로봇이 연결되었습니다.', 'AGENT_DISCONNECTED': '로봇 연결이 끊겼습니다.'}
         with self.audit_factory.begin() as db:
             if op in ('TAKE', 'RELEASE', 'REQUEST', 'ACCEPT', 'DECLINE', 'TIMEOUT', 'EXPIRE', 'RUN_TAKE', 'RUN_PAUSE_TAKEOVER'):

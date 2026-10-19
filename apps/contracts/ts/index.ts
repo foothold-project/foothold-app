@@ -289,7 +289,7 @@ export interface RobotSummary {
   name: string;
   model: string;
   owner: Person | null;
-  connection: "ONLINE" | "OFFLINE";
+  connection: "ONLINE" | "OFFLINE" | "UNKNOWN";
   status: "IDLE" | "TELEOP" | "RUNNING" | "PAUSED" | "STOP_LATCHED" | "ERROR" | null;
   battery: Battery | null;
   location: Location | null;

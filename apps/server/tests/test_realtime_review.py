@@ -296,7 +296,9 @@ def test_r7_delivery_checks_cached_policy_without_db(client, seeded, rt, monkeyp
         peer.policy = replace(policy, rights={})
         peer.queue.put_nowait({'_delivery': {'t': 'event', 'robot': rid}})
         await asyncio.sleep(.01)
-        assert len(sink.messages) == 2
+        assert len(sink.messages) == 3
+        assert sink.messages[-2]['t'] == 'lease' and sink.messages[-2]['holder'] is None
+        assert sink.messages[-2]['lease_id'] is None
         assert sink.messages[-1] == {'t': 'subscription.revoked', 'robot': rid, 'reason': 'ACCESS_REVOKED'}
         assert sink.closed == []
         assert peer.subscriptions == {'other': {'state'}}

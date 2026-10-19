@@ -18,9 +18,9 @@ from sqlalchemy.orm import Session as DBSession, sessionmaker
 from starlette.exceptions import HTTPException
 
 from apps.contracts import models as C
-from .models import Event, Organization, Robot, Session, User, now
+from .models import Event, Organization, Robot, RobotDevice, Session, User, now
 from .security import digest, hash_password, token, verify_password, web_csrf
-from .robots import robot_object
+from .robots import attention, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 
 
@@ -97,7 +97,7 @@ def cursor_value(cursor):
         fail(400, 'VALIDATION', '목록 위치가 올바르지 않습니다.')
 
 
-def page(db, query, model, limit, cursor, serialize):
+def page(db, query, model, limit, cursor, serialize, serialize_many=None):
     after = cursor_value(cursor)
     if after:
         query = query.where(tuple_(model.created_at, model.id) > after)
@@ -109,7 +109,7 @@ def page(db, query, model, limit, cursor, serialize):
         row = rows[-1]
         value = [row.created_at.astimezone(timezone.utc).isoformat(), str(row.id)]
         next_cursor = base64.urlsafe_b64encode(json.dumps(value).encode()).decode()
-    return {'items': [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
+    return {'items': serialize_many(db, rows) if serialize_many else [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
 
 
 def revoke_user_sessions(db, user):
@@ -455,7 +455,8 @@ def create_app(settings: Settings | None = None):
         query = select(Robot).where(Robot.org_id == user.org_id, Robot.archived_at.is_(None))
         if scope == 'mine':
             query = query.where(Robot.owner_user_id == user.id)
-        return page(db, query, Robot, limit, cursor, lambda db, row: robot_object(db, row, user, app.state.realtime))
+        return page(db, query, Robot, limit, cursor, None,
+            lambda db, rows: robot_objects(db, rows, user, app.state.realtime))
 
     @app.get(prefix + '/robots/{robot_id}', response_model=C.RobotSummary)
     def robot(robot_id: UUID, auth: Identity, db: DB):
@@ -505,10 +506,13 @@ def create_app(settings: Settings | None = None):
         user = auth[0]
         authorize(user, 'A')
         rt, rid = app.state.realtime, str(robot_id)
-        rt.begin_robot_change(rid)
+        row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        changing_owner = ('owner_user_id' in body.model_fields_set
+                          and body.owner_user_id != row.owner_user_id)
+        if changing_owner:
+            rt.begin_robot_change(rid)
         try:
             def write():
-                row = find_robot(db, user, robot_id)
                 values = body.model_dump(exclude_unset=True)
                 if 'name' in values and values['name'] is None:
                     fail(400, 'VALIDATION', '이름을 입력하세요.')
@@ -527,7 +531,8 @@ def create_app(settings: Settings | None = None):
                 rt.robot_changed(rid, old_owner=str(old_owner) if old_owner else None)
             return await asyncio.to_thread(robot_object, db, row, user, rt)
         finally:
-            rt.end_robot_change(rid)
+            if changing_owner:
+                rt.end_robot_change(rid)
 
     @app.delete(prefix + '/robots/{robot_id}', status_code=204)
     async def delete_robot(robot_id: UUID, auth: Identity, db: DB):
@@ -563,15 +568,19 @@ def create_app(settings: Settings | None = None):
         if user.role != 'ORG_ADMIN':
             query = query.where(Robot.owner_user_id == user.id)
         rows = list(db.scalars(query))
-        summaries = [robot_object(db, row, user, app.state.realtime) for row in rows]
+        error_ids = set(db.scalars(select(RobotDevice.robot_id).where(RobotDevice.org_id == user.org_id,
+            RobotDevice.robot_id.in_([r.id for r in rows]), RobotDevice.state == 'ERROR').distinct()))
+        policy = C.OrgSettings.model_validate(db.get(Organization, user.org_id).settings)
+        snapshots = [(row, *live_state(app.state.realtime, str(row.id))) for row in rows]
         operators = []
         if user.role == 'ORG_ADMIN':
             for operator in db.scalars(select(User).where(User.org_id == user.org_id,
                     User.role == 'OPERATOR', User.archived_at.is_(None)).order_by(User.created_at, User.id)):
                 operators.append(C.OperatorCount(user_id=operator.id, display_name=operator.display_name,
                     robot_count=sum(row.owner_user_id == operator.id for row in rows)))
-        return C.Dashboard(robots_total=len(rows), robots_online=sum(r.connection == 'ONLINE' for r in summaries),
-            robots_attention=sum(bool(r.attention) for r in summaries), robots_running=0,
+        return C.Dashboard(robots_total=len(rows), robots_online=sum(online for _, online, _ in snapshots),
+            robots_attention=sum(bool(attention(online, state, row.id in error_ids, policy))
+                for row, online, state in snapshots), robots_running=0,
             approvals_pending=0, operators=operators)
 
     @app.get(prefix + '/org/settings', response_model=C.OrgSettings)

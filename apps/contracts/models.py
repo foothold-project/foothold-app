@@ -171,7 +171,7 @@ class RobotSummary(Contract):
     name: str
     model: str
     owner: Person | None
-    connection: Literal['ONLINE', 'OFFLINE']
+    connection: Literal['ONLINE', 'OFFLINE', 'UNKNOWN']
     status: Literal['IDLE', 'TELEOP', 'RUNNING', 'PAUSED', 'STOP_LATCHED', 'ERROR'] | None
     battery: Battery | None
     location: Location | None
@@ -341,6 +341,12 @@ class AgentState(AgentInput):
     applied: Vector3
     mode: str = Field(max_length=64)
     devices_changed: list[Device] | None = None
+
+    @model_validator(mode='after')
+    def unique_devices(self):
+        if self.devices_changed is not None and len({d.key for d in self.devices_changed}) != len(self.devices_changed):
+            raise ValueError('duplicate device key')
+        return self
 
 
 class AgentPing(AgentInput):

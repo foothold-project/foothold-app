@@ -296,7 +296,8 @@
     "connection": {
       "enum": [
         "ONLINE",
-        "OFFLINE"
+        "OFFLINE",
+        "UNKNOWN"
       ],
       "title": "Connection",
       "type": "string"

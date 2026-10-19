@@ -1,7 +1,7 @@
 """ROS-free actual Client -> existing server -> private PostgreSQL acceptance.
 
 Explicit invocation only, no robot commands, no ROS/systemd/simulation. Requires
-apps/server/requirements-test.txt and agent [link]. Binds 127.0.0.1:9060..9079.
+apps/server/requirements-test.txt and agent [link]. Binds 127.0.0.1:9040..9059.
 """
 import asyncio
 import json
@@ -10,7 +10,23 @@ from pathlib import Path
 import threading
 import time
 
-from foothold_agent.link.testing import reserved_socket as server_socket
+from contextlib import contextmanager
+import socket
+
+@contextmanager
+def server_socket():
+    with socket.socket() as sock:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        for port in range(9040, 9060):
+            try:
+                sock.bind(('127.0.0.1', port))
+                sock.listen(1)
+                break
+            except OSError:
+                continue
+        else:
+            raise RuntimeError('no S1 test port available')
+        yield sock
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -110,7 +126,9 @@ def main():
                             'state': 'OK', 'received_monotonic_s': received}])
                         frame = await wait_screen(.5)
                         assert frame['devices'][0]['state'] == 'OK'
-                        assert frame['location'] is None  # D5: server cannot invent map_version_id
+                        assert frame['location'] is not None
+                        assert frame['location']['x'] == 2. and frame['location']['y'] == 3.
+                        assert frame['location']['yaw'] == .25 and frame['location']['map_version_id'] is None
                         assert any(s['speed'] == .5 and s['pose']['x'] == 2. for s in accepted)
                         frame = await wait_screen(None)
                         assert frame['location'] is None
@@ -121,7 +139,7 @@ def main():
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
             asyncio.run(check())
-            print('PASS: actual Client/server accepted speed=.5 and pose=(2,3,.25), then stale null; live devices OK -> MISSING; battery unknown; D5 location null')
+            print('PASS: actual Client/server accepted speed=.5 and pose=(2,3,.25), then stale null; live devices OK -> MISSING; battery unknown; pose mapped with map_version_id null, stale location null')
         finally:
             server.should_exit = True
             thread.join(10)

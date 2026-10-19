@@ -108,7 +108,8 @@ def screen(client, headers, **initial):
 
 def take(ws, ag, rid, gen=3):
     ident = send(ws, 'lease.take', rid)
-    assert reply(ws, ident)['ok']
+    result = reply(ws, ident)
+    assert result['ok'], result
     assert receive(ag, 'lease')['lease_id'] is None
     stop = receive(ag, 'stop')
     ag.send_json(state(gen, stop_ref=stop['stop_ref']))

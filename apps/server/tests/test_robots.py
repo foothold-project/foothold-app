@@ -90,7 +90,7 @@ def test_rest_summaries_reflect_state_and_mask_other_owner(client, seeded, rt, m
         listing = client.get(P + '/robots', headers=own).json()['items'][0]
         assert listing == detail
         masked = client.get(P + '/robots/' + str(rid), headers=other).json()
-        assert masked['connection'] == 'OFFLINE'
+        assert masked['connection'] == 'UNKNOWN'
         assert all(masked[k] is None for k in ('status', 'battery', 'location', 'lease', 'current_run'))
         assert masked['devices'] == masked['attention'] == []
         dash = client.get(P + '/dashboard', headers=admin).json()
@@ -99,9 +99,15 @@ def test_rest_summaries_reflect_state_and_mask_other_owner(client, seeded, rt, m
         assert {r['user_id']: r['robot_count'] for r in dash['operators']}[str(seeded['users']['one'])] == 1
         scoped = client.get(P + '/dashboard', headers=other).json()
         assert scoped['robots_total'] == 1 and scoped['robots_online'] == 0 and scoped['operators'] == []
-        with DBSession(client.app.state.engine) as db:
-            row = db.get(RobotDevice, (rid, 'rgb'))
-            assert row.state == 'OK' and row.updated_at
+        deadline = time.monotonic() + 3
+        while True:
+            with DBSession(client.app.state.engine) as db:
+                row = db.get(RobotDevice, (rid, 'rgb'))
+                if row is not None:
+                    assert row.state == 'OK' and row.updated_at
+                    break
+            assert time.monotonic() < deadline
+            time.sleep(.01)
     with agent(client, seeded, devices=[]) as ag:
         detail = client.get(P + '/robots/' + str(rid), headers=own).json()
         assert detail['devices'][0]['state'] == 'MISSING'
@@ -137,6 +143,8 @@ def test_assignment_stops_before_revoke_notification_and_keeps_other_subscriptio
             assert result.status_code == 200, result.text
             assert receive(ag, 'lease')['lease_id'] is None
             receive(ag, 'stop')
+            clear = receive(ws, 'lease', predicate=lambda m: m['holder'] is None)
+            assert clear['lease_id'] is None
             revoked = receive(ws, 'subscription.revoked')
             assert revoked == {'t': 'subscription.revoked', 'robot': str(rid), 'reason': 'ACCESS_REVOKED'}
             assert order[:3] == [('agent', 'lease'), ('agent', 'stop'), ('screen', 'subscription.revoked')]

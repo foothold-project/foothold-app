@@ -1,6 +1,6 @@
 # W3-B 실시간 서버 검증 기록
 
-최신 결과와 계약은 문서 끝의 «S1 로봇 관리·관제 실제값» 절을 따른다.
+최신 결과와 계약은 문서 끝의 «PR #18 1차 검토 수정» 절을 따른다.
 이전 절은 해당 커밋의 실행 이력이다.
 
 
@@ -933,3 +933,96 @@ dashboard 범위, 담당 변경 때 총괄 holder 유지다. 모든 정상 기�
 실행·결재·시계열 그래프·지도 판 결정·알림 UI는 후속 범위이며 실폰·실로봇 검증이 아니다.
 코드는 변경 커밋의 git revert로 되돌린다. migration 0006 downgrade는 장치 목록을 삭제하므로
 자료가 있는 DB에서는 백업·별도 이관 계획이 필요하다. 배포는 수행하지 않았다.
+
+
+## PR #18 1차 검토 수정
+
+2026-10-20. PR #18의 9b2e727에 대한 Codex B1~B4·Claude B1~B3 및 권고를 반영한다.
+`origin/dev=506c735`(PR #17 포함)를 merge commit fe422046으로 합쳤다. 소유 추가는
+`apps/agent/tools/check_telemetry_integration.py` 한 파일뿐이며, dev 병합 이외의
+에이전트·웹·docs/spec·안전 Core·leases.py 변경은 없다.
+
+### 회수·배송 (Codex B1 / Claude B1)
+
+- state를 포함한 모든 로봇별 비공개 메시지는 배송 세대와 ROBOT_READ를 검사한다.
+  send lock을 얻은 뒤 송신 직전 다시 검사하므로, lock 대기 중 회수·재구독이 있어도
+  이전 세대의 배터리·pose·사건·lease가 다시 배송되지 않는다.
+- 회수 시 그 로봇의 대기 프레임을 지우고 다른 로봇 프레임은 유지한다. 기존
+  arbiter의 에이전트 lease-null → STOP 출력 뒤, 옛 담당 화면에 기존 fh-rt/1
+  `{t:lease,holder:null,lease_id:null,since:null}`을 보내고 subscription.revoked를 보낸다.
+  이 정적인 권한 해제 통지에는 이미 잃은 ROBOT_READ를 요구하지 않는다.
+- 실시간 화면은 새 revoked를 몰라도 기존 lease-null로 조종 중 표시·입력을 비운다.
+  알려진 회수는 일시적인 POLICY_STALE이 아닌 권한 거부로 처리한다. 다시 담당을
+  받은 뒤 fresh policy가 허용하면 새 세대로 구독할 수 있다.
+
+### 장치 저장 분리 (Codex B2 / Claude B2)
+
+- `inventory.py`: 감사·조종·인증과 별도의 DB 연결/작업자 각 2개. 로봇별 저장 중 1개와
+  최신 대기 1개만 두며 중간 변경은 최신으로 합친다. 동일 장치 목록은 다시 쓰지 않는다.
+  PR #17의 매 state devices_changed도 수신 루프를 기다리게 하거나 매번 DB를 쓰게 하지 않는다.
+- hello와 state의 장치 key 중복은 검증으로 거부한다. 잘못된 hello는
+  AGENT_INVALID_HELLO, 저장 실패는 AGENT_INVENTORY_FAILED(WARN)로 남긴다.
+  저장 실패가 에이전트 연결·조종권을 회수하지 않는다. 장치 쓰기 잠금은 DB 1초·statement
+  2초로 제한하고, 저장할 때 토큰 hash·보관 상태를 다시 검사한다.
+- 장치 쓰기가 로봇 행 잠금에 걸린 동안에도 state·ping과 take의 STOP 확인을 처리하고
+  0.75초 안에 lease를 발급하는 회귀를 추가했다. 잠금 만료 뒤에도 holder·cmd가 유지된다.
+- 연결이 끝나면 대기 snapshot을 버리고 실행 중 쓰기가 끝난 뒤 작업을 제거한다.
+  프로세스 DB 상한은 기존 96개+장치 전용 2개=98개다. 기존 안전 풀·상한은 유지했다.
+
+### 요약·일괄 조회 (Claude B3 / Codex B3)
+
+- 실제 OFFLINE에서는 status·battery·location을 null로, attention은 OFFLINE만 반환한다.
+  단절된 state 사본을 별도 캐시에 남기지 않는다. 연결이 살아 있고 ping만 와도 마지막 state가
+  3초 넘게 오래되면 측정값을 null로 표시한다(소켓 생존 ONLINE과 측정 신선도 구분).
+- x·y·yaw가 모두 null이면 Location 자체를 null로 하여 새 updated_at을 만들지 않는다.
+  유효 pose는 에이전트 값을 전달하고 map_version_id 미수신은 null이다.
+- 남의 로봇은 조정 결정으로 connection=UNKNOWN. 식별·담당자 외의 status·battery·pose·
+  lease·실행·장치는 숨긴다. 총괄·담당에게는 실제 ONLINE/OFFLINE을 반환한다.
+  dev 웹은 session.tsx와 rt.ts에서 ONLINE 비교로 분기하므로 UNKNOWN이 예외를 내지 않는다.
+  읽기 확인만 했으며 UNKNOWN 문구·화면 갱신은 웹 담당 범위다.
+- 담당자·장치·조직 설정을 일괄 조회한다. dashboard는 장치 객체를 로봇마다 만들지 않고
+  ERROR인 robot_id만 일괄 집계한다. 2대와 12대 모두 목록 SELECT6/장치SELECT1,
+  dashboard SELECT6/장치SELECT1로 일정한 회귀가 통과했다(인증 조회 포함).
+
+### 통합·권고·흔들림
+
+- 허용된 agent 통합 도구의 Location 기대값을 유효 pose 객체/map_version_id null 및
+  stale location null로 맞추고 그 도구의 포트를 9040~9059로 제한했다. 합친 트리에서
+  실제 Client→서버→DB의 speed=.5·pose=(2,3,.25)·배터리 unknown·장치 OK→MISSING을 확인했다.
+- 이름만 바꾸거나 같은 담당자를 다시 보낼 때는 robot_changes를 걸지 않아 기존 조종을 막지 않는다.
+- 삭제 tombstone·담당 변경 판정은 권한 유예보다 긴 6초 뒤 정리한다. 삭제 에이전트가 남아
+  있으면 종료를 기다리고, 이후 lease/run 캐시도 지운다. stop_ref를 유지해야 하는 살아 있는
+  로봇의 arbiter 기록은 건드리지 않는다.
+- 권고 R6(보관 이름 재사용)은 기존 정본 UNIQUE(org_id,name)를 변경하는 별도 이관·정책
+  문제이므로 유지했다. 이번 수정에 새 마이그레이션은 없다.
+- 검토에서 이름을 남기지 못한 1회 실패와 별도로, 수정 중 재현한 흔들림의 이름은
+  `test_assignment_stops_before_revoke_notification_and_keeps_other_subscription[two]`였다.
+  회수 후 재구독이 snapshot 시점에 따라 4403 대신 POLICY_STALE reply를 받는 경합이었다.
+  known revocation을 즉시 거부하도록 고쳤고, 이후 전체 실행은 -rf로 실패 이름까지 확인했다.
+- 새 변이의 초기 실행에서 pytest.raises 실패가 AnyIO portal을 종료한 것과 생성 전 task의
+  cleanup 오류가 있었다. 이를 검출로 세지 않고 일반 thread에서 상태를 assert하고
+  존재하는 task만 정리하도록 시험을 고쳤다. 수정 후 검토 대상 변이 17/17을 assertion으로 검출했다.
+- 전체 반복 초기 2회차에는 새 `test_duplicate_device_frame_cannot_close_agent_or_discard_lease`의
+  take 초기화에서 예상 밖 lease=null이 한 번 나왔다(중복 장치 frame을 보내기 전).
+  해제 효과의 호출 출처·agent/화면 권한 snapshot 나이를 실패 시 출력하도록 진단을 추가했다.
+  해당 시험의 새 프로세스 20회와 이후 전체 3회·변이 도구 정상 기준에서는 재현되지 않았다. 이 표본의 원인은
+  확정하지 않았으며 null 무시·재시도·기대값 완화로 통과시키지 않았다.
+
+### 검증
+
+| 검사 | 최종 수정 트리 결과 |
+|---|---|
+| 서버 전체 pytest 1/3 | **324 passed**, 192.12 s |
+| 서버 전체 pytest 2/3 | **324 passed**, 193.99 s |
+| 서버 전체 pytest 3/3 | **324 passed**, 192.83 s — 3회 연속 통과 |
+| Alembic 왕복·ORM 차이·DB 권한 | 위 전체 실행마다 통과(0006/head→base→head 포함) |
+| 실제 uvicorn + Client 등록·담당 변경·삭제 | 위 전체 실행마다 통과(test_robots_wire.py) |
+| 별도 agent telemetry Client 통합 | **PASS**, 유효 pose/map_version_id null→stale null, 장치 OK→MISSING |
+| 검토 대상 변이 | 정상 기준 25개 통과 후 **17/17 assertion 검출** |
+| 전체 변이의 정상 기준 | **324 passed**, 194.10 s |
+| 전체 변이 | **157/157 assertion 검출**, 수집·실행 오류/미검출 0 |
+| 계약 생성물·TypeScript | **67개 일치**, contracts strict tsc exit 0 |
+
+기존 안전 문턱·기대값·500ms 권한 상한은 낮추지 않았다. 모든 시험은
+`FH_TEST_PORT_RANGE=9040:9059`와 전용 임시 PostgreSQL Unix socket만 사용한다.
+실제 로봇·ROS·Gazebo·운영/미리보기·배포는 범위 밖이다.
