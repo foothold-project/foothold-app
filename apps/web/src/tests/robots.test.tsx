@@ -7,7 +7,7 @@ import type { Dashboard, RobotSummary, User } from '../../../contracts/ts';
 import { now, rt } from '../rt';
 import { Root } from '../session';
 import { ROBOT_BUSY, ROBOT_GONE, ROBOT_IN_USE } from '../screens/settings';
-import { FakeWS, lease, state, type Msg } from './fakeWs';
+import { FakeWS, fail, lease, state, type Msg } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -154,7 +154,7 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     expect(line('담당')).toBe('이운영');
     expect(line('배터리')).toBe('64%');
     expect(line('위치')).toMatch(/^x 1\.3 m · y -3\.0 m \(\d\d:\d\d:\d\d\)$/);
-    expect([...card('장치').querySelectorAll('li')].map((li) => li.textContent)).toEqual(['앞 카메라카메라●정상', '라이다라이다▲끊김']);
+    expect([...card('장치').querySelectorAll('li')].map((li) => li.textContent)).toEqual(['앞 카메라카메라●정상', '라이다라이다▲연결 끊겨 확인 안 됨']);
     expect(card('로봇 상세').textContent).not.toMatch(/임무|층/);
   });
   it('null 은 null 대로: 배터리 «측정 안 됨», 위치 «위치 없음», 장치 «장치 정보 없음», 담당 없음', async () => {
@@ -439,6 +439,39 @@ describe('subscription.revoked(05 §9)', () => {
     act(() => { w.recv({ t: 'subscription.revoked', robot: 'r-a', reason: 'ROBOT_DELETED' }); });
     await flush();
     expect($('header')!.lastElementChild).toBe($('[data-stop]'));
+    stopOk();
+  });
+});
+
+describe('sub 404(apps/server README «S0» — 등록·담당 변경 직후 서버가 정책을 한 번 더 확인)', () => {
+  it('목록의 새 로봇을 서버가 모르면 그 sub 만 거절: 이전 구독·state 유지, 새 로봇은 «확인 안 됨», 목록은 한 번만 다시 받음', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    serve(signedIn(LEE, [RA]));
+    await open('#/fleet');
+    const w = FakeWS.last;
+    w.auto = (m: Msg) => ((m.robots as string[] | undefined)?.includes('r-b') ? fail('NOT_FOUND', '로봇을 찾을 수 없습니다.') : { ok: true });
+    act(() => { w.open(); w.recv(state('r-a')); });
+    const mineB = { ...RB, owner: RA.owner };
+    routes['GET /robots'] = { status: 200, body: { items: [RA, mineB], next_cursor: null } };
+    routes['GET /robots/r-b'] = { status: 200, body: mineB };
+    const n = lists();
+    act(() => { vi.advanceTimersByTime(10_000); });        // 운영 관리자 목록 주기 갱신 → r-b 가 내 담당
+    await flush();
+    expect(subs(w)).toEqual([['r-a'], ['r-a', 'r-b'], ['r-a', 'r-b']]);   // 거절 → 목록 한 번 다시 받고 다시 sub → 또 거절이면 멈춤
+    expect(lists()).toBe(n + 2);
+    expect(card('로봇 목록').textContent).not.toContain('로봇이 없습니다');
+    expect($('[data-missed]')!.textContent).toContain('실시간 상태를 받을 수 없는 로봇이 있습니다');
+    expect($('[data-missed]')!.textContent).toContain('다음 목록 갱신 때 다시 확인합니다.');
+    expect($('header [data-link]')).toBeNull();            // 연결은 그대로
+    act(() => w.recv(state('r-a', { battery: { soc: 33, updated_at: AT } })));
+    expect(row('Go2-A').textContent).toContain('33%');
+    expect(row('Go2-B').textContent).toContain('확인 안 됨');
+    w.auto = () => ({ ok: true });                         // 서버 정책이 따라잡음 → 다음 목록 갱신에 다시 구독
+    act(() => { vi.advanceTimersByTime(10_000); });
+    await flush();
+    expect(subs(w).pop()).toEqual(['r-a', 'r-b']);
+    act(() => w.recv(state('r-b')));
+    expect(row('Go2-B').textContent).not.toContain('확인 안 됨');
     stopOk();
   });
 });
