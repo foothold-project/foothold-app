@@ -4,31 +4,15 @@ Explicit invocation only, no robot commands, no ROS/systemd/simulation. Requires
 apps/server/requirements-test.txt and agent [link]. Binds 127.0.0.1:9060..9079.
 """
 import asyncio
-from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
-import socket
 import threading
 import time
 
+from foothold_agent.link.testing import reserved_socket as server_socket
+
 ROOT = Path(__file__).resolve().parents[3]
-
-
-@contextmanager
-def server_socket():
-    sock = socket.socket()
-    try:
-        for port in range(9060, 9080):
-            try:
-                sock.bind(('127.0.0.1', port))
-            except OSError:
-                continue
-            yield sock
-            return
-        raise RuntimeError('no authorized loopback port available')
-    finally:
-        sock.close()
 
 
 def main():
@@ -122,18 +106,22 @@ def main():
                             'map_accepting': True, 'sim_t': 1., 'pose_map': {'source': 'gt_identity',
                                 'stamp_sim': 1., 'x': 2., 'y': 3., 'yaw': .25}}, received)
                         client.update_telemetry(cache.snapshot())
+                        client.update_devices([{'key': 'test-lidar', 'kind': 'LIDAR', 'label': 'L1',
+                            'state': 'OK', 'received_monotonic_s': received}])
                         frame = await wait_screen(.5)
+                        assert frame['devices'][0]['state'] == 'OK'
                         assert frame['location'] is None  # D5: server cannot invent map_version_id
                         assert any(s['speed'] == .5 and s['pose']['x'] == 2. for s in accepted)
                         frame = await wait_screen(None)
                         assert frame['location'] is None
+                        assert frame['devices'][0]['state'] == 'MISSING'
                         assert accepted[-1]['speed'] is None and accepted[-1]['pose']['x'] is None
                         assert all(s['battery']['soc'] is None for s in accepted)
                 finally:
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
             asyncio.run(check())
-            print('PASS: actual Client/server accepted speed=.5 and pose=(2,3,.25), then stale null; battery unknown; D5 location null')
+            print('PASS: actual Client/server accepted speed=.5 and pose=(2,3,.25), then stale null; live devices OK -> MISSING; battery unknown; D5 location null')
         finally:
             server.should_exit = True
             thread.join(10)

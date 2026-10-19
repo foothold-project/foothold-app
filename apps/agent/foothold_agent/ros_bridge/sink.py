@@ -215,7 +215,12 @@ class RosSink:
                 self._closed.set()
         if first:
             # Keep publishers alive on timeout: incomplete close cannot ACK/destroy.
-            threading.Thread(target=self._finish_close, name="ros-sink-close", daemon=True).start()
+            try:
+                threading.Thread(target=self._finish_close, name="ros-sink-close", daemon=True).start()
+            except Exception:
+                # Resource exhaustion cannot suppress the final ZERO/STOP.
+                # Without a new thread this best-effort fallback is synchronous.
+                self._finish_close()
         if not self._close_complete.wait(timeout=1.0):
             with self._lock:
                 self._close_error = RuntimeError("ROS sink close timed out; publishers retained")

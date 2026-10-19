@@ -222,3 +222,25 @@ def test_close_completes_emergency_before_ack_and_destroy(ros, first):
         destroy = next(i for i, e in enumerate(ros.events) if e[0] == "destroy_node")
         assert len(acks) == 2 and max(zero, stop) < min(acks) < destroy
     asyncio.run(run())
+
+
+def test_incomplete_close_retains_publishers_without_ack_or_destroy(ros, monkeypatch):
+    async def run():
+        node = RosNode(config())
+        sink = await node.start(lambda raw: None)
+        original_close = sink.close
+        def incomplete():
+            raise RuntimeError('incomplete close for test')
+        monkeypatch.setattr(sink, 'close', incomplete)
+        ros.events.clear()
+        try:
+            node._closing.set()  # exercise the actual ROS finally branch
+            with pytest.raises(RuntimeError, match='ROS bridge failed'):
+                await asyncio.wait_for(node.wait_failure(), 3)
+            node._thread.join(timeout=3)
+            assert not node._thread.is_alive()
+            assert not any(e[0] in {'acked', 'destroy_node', 'executor_shutdown', 'context_shutdown'}
+                           for e in ros.events)
+        finally:
+            original_close()  # stop only the stub sink watchdog, never real ROS
+    asyncio.run(run())

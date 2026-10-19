@@ -75,6 +75,8 @@ class Session:
             "devices": [], "map_versions": [], "last_floor_id": None,
             **deepcopy(identity or {}),
         }
+        self._devices = []
+        self.update_devices(self.identity["devices"])
         self.lease_id = None
         self.holder_type = None
         self.holder_run_id = None
@@ -197,21 +199,41 @@ class Session:
     def _state(self):
         from .telemetry import project
         return {"t": "state", **project(self._telemetry, self.now()),
+                "devices_changed": self._device_snapshot(),
                 "latched": self.core.latch, "stop_gen": self._generation(),
                 "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
 
     def update_telemetry(self, snapshot):
         """Owning-loop, already sanitized local measurements, separate from Core.
 
-        Receipt/progress times use this Session's monotonic clock. Projection on
-        every state emission expires measurements even if the bridge falls silent.
+        The producer and Session must share the same monotonic clock, including
+        injected test clocks; timestamps from different clocks cannot be mixed.
+        Projection on every state emission expires measurements even if the
+        bridge falls silent.
         Passing None invalidates the measured cache. No motion effects are made.
         """
         self._telemetry = deepcopy(snapshot) if isinstance(snapshot, dict) else None
 
     def update_devices(self, devices):
-        """Actual locally observed sensors; used by the next hello."""
-        self.identity["devices"] = deepcopy(devices)
+        """Local descriptors with original received_monotonic_s (never on wire).
+
+        Omitted receipt means a fresh local observation now. Never refresh a
+        cached descriptor's receipt merely because its display status changed.
+        """
+        self._devices = [{**deepcopy(device),
+                          "received_monotonic_s": device.get("received_monotonic_s", self.now())}
+                         for device in devices]
+        self.identity["devices"] = self._device_snapshot()
+
+    def _device_snapshot(self):
+        from .telemetry import number, STALE_S
+        result = []
+        for device in self._devices:
+            receipt = device["received_monotonic_s"]
+            fresh = number(receipt) and 0 <= self.now() - receipt <= STALE_S
+            result.append({**{k: device[k] for k in ("key", "kind", "label")},
+                           "state": device["state"] if fresh else "MISSING"})
+        return result
 
     def _finish(self, actions=(), *, state=False):
         self._advance()
@@ -253,6 +275,7 @@ class Session:
         self.last_server = self.now()
         self.link_lost = False
         hello = {**deepcopy(self.identity), "t": "hello", "proto": "fh-agent/2", "latched": self.core.latch,
+                 "devices": self._device_snapshot(),
                  "stop_gen": self._generation(), "lease_id": self.lease_id,
                  "run": deepcopy(self.run)}
         effects = self._finish((MotionCommand("stop"),), state=True)

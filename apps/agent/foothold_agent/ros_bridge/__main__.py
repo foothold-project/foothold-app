@@ -27,7 +27,7 @@ async def run(config):
         # Startup callbacks may have run before Client existed. Seed hello from
         # actual receptions, then update via the serialized callbacks above.
         client.update_telemetry(bridge.inputs.telemetry.snapshot())
-        client.update_devices(bridge.inputs.device_snapshot())
+        client.update_devices(bridge.inputs.device_observations())
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(bridge.wait_failure()),
                  asyncio.create_task(stop.wait())]
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

@@ -133,7 +133,7 @@ class Inputs:
                     if 0 <= self.now() - receipt <= STATE_STALE:
                         self.devices[key] = receipt
             if self.on_devices is not None:
-                self.on_devices(self.device_snapshot())
+                self.on_devices(self.device_observations())
         except BaseException as exc:
             self.sink.fail(exc)
             if self.on_error is not None:
@@ -154,6 +154,7 @@ class Inputs:
         self.telemetry.update_state(raw, receipt, progress_at=progress_at)
         self._publish_telemetry()
         gates = tuple(raw[k] for k in ("stop_requested", "reset_in_progress", "policy_running"))
+        gates += (bool(raw.get("fallen")),)
         stamp = (raw["episode"], raw["sim_t"])
         if stamp != self._core_stamp or gates != self._core_gates:
             self._core_stamp, self._core_gates = stamp, gates
@@ -167,6 +168,11 @@ class Inputs:
         return [{"key": key, "kind": SENSOR_TOPICS[key][1], "label": SENSOR_TOPICS[key][2],
                  "state": "OK" if 0 <= self.now() - receipt <= STATE_STALE else "MISSING"}
                 for key, receipt in sorted(self.devices.items())]
+
+    def device_observations(self):
+        """Keep receipt provenance for Session's input-independent expiry."""
+        return [{**device, "received_monotonic_s": self.devices[device["key"]]}
+                for device in self.device_snapshot()]
 
 
 COMMAND_TOPICS = ("/v2_live/cmd_vel", "/v2_live/stop", "/v2_live/resume")

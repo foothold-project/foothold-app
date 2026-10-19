@@ -74,6 +74,8 @@ class StateGate:
             cleaned["stop_requested"] |= self._conservative["stop_requested"]
             cleaned["reset_in_progress"] |= self._conservative["reset_in_progress"]
             cleaned["policy_running"] &= self._conservative["policy_running"]
+            if self._conservative.get("fallen"):
+                cleaned["fallen"] = True  # show the edge once; no same-stamp recovery
             self.reason = "same_stamp_update"
         else:
             self.sim_t = stamp

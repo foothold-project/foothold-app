@@ -92,6 +92,8 @@ D1 당시 REST `/robots` 요약과 측정값은 OFFLINE/null이었다. A1b는 �
   비상 종료는 전용 daemon에서 시도하며 watchdog join은 최대 0.5초, 각 close 호출의
   완료 대기는 최대 1초다. 시간 초과는 오류로 남기고 publisher를 ACK/destroy하지 않는다.
   멎은 publisher를 강제로 중단하거나 완료했다고 간주하지 않는다.
+  스레드 생성 실패 시에는 호출 스레드에서 0/STOP과 정리를 시도한다. 이 자원 고갈
+  대안 경로는 동기식이므로 영구히 멎은 publisher의 실행 시간 상한을 보장하지 않는다.
   여러 스레드가 close해도 첫 비상 발행·watchdog 정리의 완료 Event를 기다린 뒤
   ACK 대기로 넘어가며, ACK 시간 초과는 오류로 남긴다. 이벤트 루프나 executor spin 정지는 감시하지만, 프로세스 전체 정지·GIL 독점·OS
   스케줄링 지연·영구히 멎은 publisher API는 같은 프로세스 스레드로 보장할 수 없다.
@@ -103,7 +105,10 @@ D1 당시 REST `/robots` 요약과 측정값은 OFFLINE/null이었다. A1b는 �
 `/v2_live/sensor/d435i/depth/image_mm`(D435i depth)를 best-effort/volatile/depth 1로
 구독하고 실제 콜백의 시각만 보관한다. 영상·점군 복사/저장/relay는 하지 않는다.
 실제 수신 전에는 hello.devices에 넣지 않으며 수신 뒤 1초가 넘으면 MISSING이다.
-재연결 hello는 최신 관측 목록을 쓰며 battery 장치를 추측해서 추가하지 않는다.
+원래 수신 monotonic을 Session까지 보존해 입력이 완전히 끊겨도 재연결 hello와
+각 state의 `devices_changed`에서 1초 만료를 다시 계산한다. 최신 목록을 state마다
+반복하므로 송신 큐의 최신 state 합침에도 변경이 사라지지 않는다. battery 장치를
+추측해서 추가하지 않는다.
 QoS는 reliable/volatile/KEEP_LAST depth 1이다. 기존 depth 10 계약과 통신 가능한
 reliability/durability를 유지하면서 오래된 출력·수신 큐를 제한한다.
 
@@ -118,7 +123,7 @@ ROS 콜백은 Core를 호출하지 않는다. state/odom/map 최신 캐시를 �
 소유 루프에서 실제 수신 나이를 다시 검사한 뒤 기존 `Client.on_robot_state()`로
 넣는다. schema·관문 타입·유한 숫자·episode 순서·sim 시각·수신 나이를 검사하고
 Core의 `clean_state`는 그대로 재사용한다. stamp와 정제 내용까지 같은 중복만
-hold/STOP 없이 버린다. 같은 stamp의 새 측정은 캐시에 넣고 달라진 안전 관문만 Core에 전달하며, 특히
+hold/STOP 없이 버린다. 같은 stamp의 새 측정은 캐시에 넣고 달라진 안전 관문·새 낙상 표식만 Core에 전달하며, 특히
 policy_running=false·stop_requested=true·reset_in_progress=true는 즉시 0/입력 폐기
 경로로 전달한다. 같은 stamp의 후속 회복으로 이 관문을 지우지 않으며 원천 시각
 전진 후에도 Core의 잠금·새 중립 절차는 그대로다. 같은 stamp 갱신은 원천 progress
@@ -140,7 +145,7 @@ odom=null·odom_reason=clock_unverified를 유지한다. sim 시계로 이름을
 추측 변환하지 않는다. 명시적으로 검증한 simulation clock 표본만 캐시에 허용한다.
 원천 sim 시각·실제 수신 monotonic·마지막 원천 전진 monotonic·episode·source를
 별도 보관한다. 같은 stamp의 새 측정 정보는 Core 수신 시각을 갱신하지 않는다. 안전 관문이
-달라진 표본만 Core에 전달하며 새 원천 시각은 mailbox가 합쳐도 전달한다.
+달라진 표본과 새 낙상 표식만 Core에 전달하며 새 원천 시각은 mailbox가 합쳐도 전달한다.
 같은 stamp의 새 정보도 실제 수신 시각을 기록하지만 freshness는
 마지막 원천 전진 시각보다 늘어나지 않는다.
 시각 역행·RESET·stale에는 null로 비운다. odom/map 시각 역행도 해당 episode에서
@@ -297,3 +302,15 @@ stamp STOP 관문 변화는 B3 회귀/변이에 포함되며, 위 물리 정체 
 없는 battery=null, D5 미정 location=null을 확인했다. 재현 명령은
 [LINK-VALIDATION.md](../../LINK-VALIDATION.md)의 A1b 절을 따른다.
 시뮬·ROS·systemd를 기동하지 않았으며 실제 센서 구독/QoS와 D1 기동 후속은 미검증이다.
+
+PR17 검토 후속은 [LINK-VALIDATION.md](../../LINK-VALIDATION.md)의 B1/R1~R7 절에
+기록한다. 수신 시각이 hello/state 생성까지 보존되는 무입력 재연결·센서 단독 수신과,
+미완료 close의 ACK/destroy 금지·스레드 생성 실패 대안·개별 신선도 검사를 추가했다.
+같은 stamp의 새 낙상 표식은 기존 Core 사건에 즉시 전달하며, 같은 stamp의 회복은
+원천 전진까지 보존한다. Core 안전 판정·기존 Core 시험은 그대로다.
+
+PR17 후속 최종: 전체 **408 passed, 1 skipped**, link **80/80**, 다리 **49/49**,
+sim 도구 **52 passed**·변이 **18/18 KILLED**. 실제 Client/기존 서버 통합도
+측정값→stale null과 연결 중 devices OK→MISSING으로 통과했다. 고정 9060 대신
+9060–9079의 빈 listener를 먼저 예약한다. 다리 변이는 두 소켓 수용 시험을 제외하고,
+전체 pytest에서 그 두 시험을 실행한다. 시뮬/ROS/unit 실제 기동은 추가하지 않았다.

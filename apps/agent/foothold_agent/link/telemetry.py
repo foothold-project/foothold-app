@@ -16,8 +16,10 @@ def number(value):
 
 def fresh(observation, now):
     return (isinstance(observation, dict) and observation.get("clock") == "simulation"
-            and all(number(observation.get(k)) and 0 <= now - observation[k] <= STALE_S
-                    for k in ("received_monotonic_s", "progress_monotonic_s")))
+            and number(observation.get("received_monotonic_s"))
+            and number(observation.get("progress_monotonic_s"))
+            and 0 <= now - observation["received_monotonic_s"] <= STALE_S
+            and 0 <= now - observation["progress_monotonic_s"] <= STALE_S)
 
 
 def project(snapshot, now):
