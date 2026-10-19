@@ -212,21 +212,36 @@ def test_m1_stop_reply_bypasses_notification_waiting_for_policy(client, seeded, 
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
         assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
-        original = rt.load_policy
-        def slow(actor):
-            time.sleep(.8)
-            return original(actor)
-        monkeypatch.setattr(rt, 'load_policy', slow)
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+        original = rt.refresh_policy
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def blocked(peer):
+            entered.set()
+            await release.wait()
+            return await original(peer)
+        monkeypatch.setattr(rt, 'refresh_policy', blocked)
         async def stale():
             peer = next(iter(rt.screens.values()))
             peer.policy = replace(peer.policy, checked=rt.clock() - 1)
             rt.policy_cache[peer.actor.session] = peer.policy
             rt.apply([rt.arbiter.announce(rid)])
+            await asyncio.wait_for(entered.wait(), 1)
         run(client, stale)
-        begin = time.monotonic()
-        assert reply(ws, send(ws, 'stop', rid))['ok']
-        assert time.monotonic() - begin < .1
-        receive(ag, 'stop')
+        pool = ThreadPoolExecutor(1)
+        future = pool.submit(reply, ws, send(ws, 'stop', rid))
+        try:
+            try:
+                result = future.result(timeout=1)
+            except FutureTimeout:
+                pytest.fail('STOP reply waited for an unrelated notification policy refresh')
+            assert result['ok']
+            receive(ag, 'stop')
+        finally:
+            async def unblock():
+                release.set()
+            run(client, unblock)
+            pool.shutdown(wait=True)
+
 
 
 @pytest.mark.parametrize('kind', ['lease.release', 'hidden'])
@@ -247,15 +262,15 @@ def test_m2_release_not_blocked_by_stale_robot_auth(client, seeded, rt, kind):
 
 
 def test_m3_policy_and_robot_auth_age_start_before_db_read(client, seeded, rt, monkeypatch):
-    original_policy, original_agent = rt.load_policy, rt.agent_identity
+    original_policy, original_agent = rt.load_policy_batch, rt.load_agent_batch
     def slow_policy(actor):
         time.sleep(.6)
         return original_policy(actor)
-    def slow_agent(headers):
+    def slow_agent():
         time.sleep(.6)
-        return original_agent(headers)
-    monkeypatch.setattr(rt, 'load_policy', slow_policy)
-    monkeypatch.setattr(rt, 'agent_identity', slow_agent)
+        return original_agent()
+    monkeypatch.setattr(rt, 'load_policy_batch', slow_policy)
+    monkeypatch.setattr(rt, 'load_agent_batch', slow_agent)
     with agent(client, seeded) as ag, client.websocket_connect('wss://testserver/api/v1/ws', headers=app_token(client)) as ws:
         assert not reply(ws, send(ws, 'ping', proto='fh-rt/1'))['ok']
         time.sleep(.25)  # let the 600ms agent recheck finish, then inspect its start timestamp
@@ -274,30 +289,29 @@ def test_m5_stalled_db_has_client_deadline_and_stop_stays_live(client, seeded, r
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
         gate = threading.Event()
-        original = rt.load_policy
+        original = rt.load_policy_batch
         def stalled(actor):
             gate.wait(2)
             return original(actor)
         monkeypatch.setattr(module, 'DB_READ_TIMEOUT', .05)
-        monkeypatch.setattr(rt, 'load_policy', stalled)
+        monkeypatch.setattr(rt, 'load_policy_batch', stalled)
         async def expire():
             peer = next(iter(rt.screens.values()))
             peer.policy = replace(peer.policy, checked=rt.clock() - 1)
             rt.policy_cache[peer.actor.session] = peer.policy
-            # Use a new controlled read to test the deadline. A previously
-            # completed, valid read-ahead snapshot may otherwise win this fixture.
-            pending = module.ReadAhead(lambda: gate.wait(2), rt.clock, rt.auth_executor)
+            # Stop every old producer so no completed valid snapshot can
+            # replace this fixture. Exercise the actual refresh_policy path.
+            await asyncio.gather(*(p.close() for p in rt.policy_pipelines.values()))
+            rt.policy_pipelines.clear()
+            rt.policy_loads.clear()
             started = rt.clock()
             timed_out = False
             try:
-                try:
-                    await pending.next()
-                except asyncio.TimeoutError:
-                    timed_out = True
-                assert timed_out, 'A stalled read must reach its client deadline'
-                assert rt.clock() - started < .2
-            finally:
-                await pending.close()
+                await rt.refresh_policy(peer)
+            except asyncio.TimeoutError:
+                timed_out = True
+            assert timed_out, 'A stalled refresh must reach its client deadline'
+            assert rt.clock() - started < .2
         try:
             run(client, expire)
             begin = time.monotonic()
@@ -449,11 +463,11 @@ def test_c3_matching_current_run_terminal_releases_only_its_lease(client, seeded
 
 def test_m5_failed_owner_read_cleanup_never_blocks_stop(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
-    entered, closed = threading.Event(), threading.Event()
+    entered, closed, release = threading.Event(), threading.Event(), threading.Event()
     class SlowConnection:
         def close(self):
             entered.set()
-            time.sleep(.4)
+            release.wait(3)
             closed.set()
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
@@ -464,11 +478,17 @@ def test_m5_failed_owner_read_cleanup_never_blocks_stop(client, seeded, rt):
             return rt.dispose_owner(pending, SlowConnection())
         future = client.portal.start_task_soon(setup)
         assert entered.wait(1)
-        begin = time.monotonic()
-        assert reply(ws, send(ws, 'stop', rid))['ok']
-        receive(ag, 'stop', timeout=.1)
-        assert time.monotonic() - begin < .1
+        try:
+            from starlette.websockets import WebSocketDisconnect
+            try:
+                assert reply(ws, send(ws, 'stop', rid))['ok']
+                receive(ag, 'stop')
+            except WebSocketDisconnect:
+                pytest.fail('Owner cleanup blocked STOP until its authorized socket was lost')
+            assert not closed.is_set(), 'STOP waited for owner connection cleanup'
+        finally:
+            release.set()
         async def finish():
-            await future.result()
+            await asyncio.wait_for(future.result(), 1)
         run(client, finish)
         assert closed.is_set()

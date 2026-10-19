@@ -661,3 +661,70 @@ Python 3.12 전용 venv·임시 PostgreSQL에서 실행했다. Starlette/httpx �
 지원 계약 assertion으로 실패를 설명하도록 고쳤다. 그 이전의 MISSED/ERROR 실행을 검출로 세지 않고
 전체 91개를 다시 실행했다. agent 변이 53/53도 exit 0이다. 양쪽 검증은 실행한 소스/모의 범위이며
 안전 범위의 Claude·Codex 검토 및 dev 통합은 조정 세션의 후속 관문으로 남는다.
+
+## PR #13 두 모델 검토 보완
+
+앞 W4-B 절은 `d371f0d` 당시의 기록이다. 아래가 현재 사건 순서·포화·읽기 자원의 기준이며,
+연결별 archive/안전 우선 재정렬/흐름별 21개·공유 64개 설명을 대체한다.
+
+| 검토 지적 | 현재 동작과 고침을 빼면 실패하는 회귀 |
+|---|---|
+| 퇴역 작업자·수락 전 누수 | 연결별 archive 작업자 제거, 런타임 FIFO·auditor 각 1개. 기록 중 마지막 건도 소켓에서 취소하지 않는다. 재접속 12회·중단된 auditor·1칸 메모리에서 안전 사건 12건을 FIFO로 저장한다. 수락 전 401·DB 오류·취소는 producer/roster를 정리한다. 같은 세션의 수락 대기 소비자가 남았으면 공유 producer를 유지한다. |
+| 안전 사건 유실·FIFO | 4096건 RAM + 안전 전용 초과분 SQLite 파일. 일반 사건부터 생략하고 count를 보존한다. 모두 안전이면 새 일반 사건을 버리고 안전 기록은 파일로 넘긴다. FIFO는 생략 후 남은 순서이며 안전 우선 재정렬은 없다. 1000건 안전 초과/12회 재접속/마지막 in-flight/강제 FREE의 EXPIRE/파일 독립성을 검사한다. |
+| 공유 executor·풀 자기 포화 | 조직별 조회·조종 snapshot 각 1개, 연결된 로봇 토큰 snapshot 1개. 조회 8/조종 32/로봇 24개 executor·풀을 분리하고 사전 실행 슬롯·미완료 상한을 맞춘다. 담당자 없는 조회 전용 세션은 별도 100 ms 묶음이며 담당자는 조종용을 미리 준비한다. 현재 DB 행 값이 동일할 때만 순수 ACL 계산을 최대 256키로 공유하며 세션·LOGIN·판정 나이는 매번 새로 확인한다. 읽기 시작 기준 500 ms 유지. 빠른 DB 100 ms, 지연 시 조종 15 ms/로봇 인증 20 ms까지 적응한다. 조종 snapshot을 미리 준비하고 10 ms 위상을 둔다. 로봇 행 재사용도 같은 소켓/토큰과 시작 시각으로 검증한다. 일반 인증 풀 4개와 HTTP STOP 전용 2개는 분리한다. 일반 인증·조회 풀을 실제로 모두 점유해도 take·비영 cmd·STOP·반납이 동작하는지 검사한다. |
+| 내부 오류·취소·worker 고장 | 내부 ValidationError는 1011이며 proto 전용 4406과 구별한다. 알려진 거부는 닫기 gate를 기다리기 전에 화면 입력과 로봇 take/state 확인을 막는다. 바깥 취소는 정리 후 전파한다. 죽은 snapshot producer는 감시가 교체한다. M5는 오래된 producer를 정리한 뒤 실제 refresh_policy를 멈춰 2초 읽기 시한 경로를 검사한다. |
+| 판·순서 계약 | fh-agent/2·화면 fh-rt/1 유지. 이유는 정확히 PROTOCOL_MISMATCH. 새 Client는 옛 서버의 4403+PROTOCOL_MISMATCH*도 30초 이상 대기로 처리한다. hello와 후속 proto 경로를 별도 변이로 검사한다. |
+
+### 부하 측정과 한계
+
+Codex 합성 재현의 독립 10흐름/64스레드/450 ms에서 500 ms 이하 표본 300/400(75%)은
+안정 상태에서 지속 보장할 수 없다. 읽기 하나의 신선한 구간은 50 ms이므로
+`64 / 0.45 × 0.05 / 10 ≈ 71.1%`(약 284/400)가 고르게 측정한 시간 평균 처리량 상한이다(유한 순간 표본의 절대 상한을 뜻하지 않는다). 완료 시각으로 다시 찍거나
+500 ms를 늘리지 않았다. 조정 결정에 따라 합성 시험은 총 실행 상한·executor 대기 0으로
+고정하고, 실제 조직별 묶음 경로에서 20화면/20사용자·10로봇을 검사한다.
+
+450 ms는 스케줄링·checkout·SQL·판정 비용을 합친 500 ms 상한까지 약 50 ms만 남긴다.
+넘긴 요청은 거부하고 lease를 폐기하므로 **연속 조종 성공을 보장하지 않는다**.
+부하 시험의 명시적 재-take·취소·거부 수를 성공 수와 함께 보고한다. 회귀 기준은 단일 화면 36/40(연결 점유는 30/40), 다중 화면 15/20 및 각 로봇 신선 판정 15/20 이상이다. 초기 연속 표본의 18/40·다중 사용자 17/20도 관측했으며, 이 시험은 재-take를 숨긴 연속 조종 보증이 아니다. 제품 Client에 자동
+조종권 재획득이나 명령 재생을 넣지 않았다. admission 부하에는 1013 대기가 남을 수 있다.
+
+기록 초과분 파일은 프로세스 수명 동안의 배압 장치다. 저장 공간/I/O·프로세스 손실을
+넘는 무한 보존·서버 수신 ACK·정확히 한 번 전송·재시작 복구는 구현하지 않았다.
+파일 쓰기 오류는 안전 FREE/입력 차단으로 드러낸다. STOP 출력은 기록보다 먼저 처리한다.
+
+### PR #13 최종 실행 결과
+
+서버 변이 도구는 임시 복사본에서 서버 전체 pytest를 기준 실행한 뒤 각 결함을 주입했다.
+
+| 검사 | 실제 결과 |
+|---|---|
+| 서버 전체 `python -m pytest -q -x apps/server/tests` (변이 도구의 정상 기준 실행) | **267 passed, 1 warning in 165.38s (0:02:45)**, Alembic head→base→head·메타데이터 차이 0 포함 |
+| agent 전체 `PYTHONPATH=apps/agent python -m pytest -q apps/agent/tests` | **220 passed**, 5.07 s, 기존 Core 포함 |
+| `python apps/server/tools/check_realtime_mutations.py` | **108/108 assertion 검출, exit 0**, ERROR·MISSED 0 |
+| `python apps/agent/tools/check_link_mutations.py` | **62/62 KILLED, exit 0**, ERROR·SURVIVED 0 |
+| `python apps/contracts/generate.py --check` / wire 소비 tsc / Python·JSON Schema wire 대조 | **61개 일치 / exit 0 / 1 passed** |
+| 실제 uvicorn + Client 정상 및 300 ms DB·400건 backlog | take→unlock→중립→비영 가짜 sink 적용→넘김→STOP→0 통과 |
+| `git diff --check` | 통과 |
+
+생산 코드의 마지막 별도 전체 실행은 **265 passed (177.07 s)**였고 이후 생산 코드 변경 없이
+회귀 2개 및 결정적 오류 주입/STOP gate를 보완했다. 마지막 부하 표본은 다음과 같다.
+
+| 주입/부하 | 명령 성공 | 거부·명시적 재-take |
+|---|---|---|
+| 함수 앞 300 ms | 40/40 | 거부·재-take 0 |
+| 함수 앞 450 ms | 40/40 | take 거부 17(확인 취소 1·POLICY_STALE 16), 재-take 1 |
+| 연결 점유 300 ms | 40/40 | 거부·재-take 0 |
+| 연결 점유 450 ms | 39/40 | 입력 POLICY_STALE 1·take POLICY_STALE 2, 재-take 2 |
+| 6화면/1사용자, 300 ms 및 450 ms | 각각 20/20 | take 거부·재-take 0 |
+| 20화면/20사용자/10로봇, 450 ms | 20/20 | take 거부 0·재-take 1, 로봇 신선 표본 200/200 |
+
+20화면 idle 300 ms 동안 view+control SQL은 합계 6회였다. 다중 사용자 설정/부하 중
+최대 읽기는 view 663/control 722/agent 713 ms도 관측했다. 이 읽기를 신선하다고
+다시 찍지 않으며, 위 성공 수는 연속 조종이나 한 번의 take 성공을 뜻하지 않는다.
+
+이전 변이 실행의 임시 디스크 부족, 정상 묶음 조회에 가린 단일 오류, gate 정리 오류는
+검출로 세지 않았다. watcher 오류 경계와 STOP/정리 순서를 직접 검사하고, AnyIO portal을
+종료시키는 pytest 실패 대신 assertion으로 판정한 뒤 전체 108개를 다시 실행했다.
+원본 검토자의 agent 안전 버퍼 재현도 현재 코드에서 **1 passed**였다. 옛 연결별 archive의
+내부 상태를 전제한 재현은 새 런타임 소유권 회귀로, 독립 10흐름 합성은 앞의 조정 승인
+기준으로 대체했다. 양쪽 검토와 dev 통합은 남은 관문이다.

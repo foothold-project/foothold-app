@@ -5,6 +5,8 @@ observer is replaced with an in-memory observer. Local state is never invented:
 on_robot_state() must receive real bridge feedback before Core can allow motion.
 """
 
+from .history import History
+import asyncio
 from copy import deepcopy
 from dataclasses import dataclass
 import json
@@ -19,7 +21,8 @@ REPORT_INTERVAL = 0.1
 MAX_SEQ = 2**53 - 1
 MAX_BUFFER = 256
 SAFETY_EVENTS = {"SERVER_LINK_LOST", "LINK_LOSS_TIMEOUT", "EXECUTOR_STALLED",
-                 "PROTOCOL_MISMATCH", "TRANSPORT_BACKPRESSURE", "STOP_GEN_EXHAUSTED"}
+                 "PROTOCOL_MISMATCH", "TRANSPORT_BACKPRESSURE", "STOP_GEN_EXHAUSTED",
+                 "LEASE_INVALID", "BRIDGE_STATE_INVALID"}
 TERMINAL = {"COMPLETED", "ABORTED", "FAILED"}
 
 
@@ -90,28 +93,42 @@ class Session:
         self.executor_t = None
         self.last_report = float("-inf")
         self.ack_pending = False
-        self._messages = []
+        self._messages = History(MAX_BUFFER - 1, lambda m: m.get('code') in SAFETY_EVENTS or m.get('t') == 'run.update'
+                                 or (m.get('code') == 'SERVER_CLOSED' and m.get('data', {}).get('close_code') in (4401, 4403, 4406)),
+                                 lambda m: m.get('data', {}).get('count', 1) if m.get('code') == 'LINK_BUFFER_DROPPED' else 1)
+        self.history_ready = asyncio.Event()
+        self.emit_history = True
         self._retry_event = None
         self._buffer_dropped = 0
 
     def retain(self, messages):
-        """Bound offline memory. Report loss explicitly; never retain ACK/state.
-
-        Prefer recent safety events over ordinary history. This is in-memory
-        best effort, not an acknowledged or durable event transport.
-        """
+        """FIFO survivors, ordinary-first eviction, safety-only disk spill."""
         for message in messages:
-            if message.get("t") not in ("event", "run.update"):
-                continue
-            if len(self._messages) >= MAX_BUFFER - 1:
-                index = next((i for i, m in enumerate(self._messages)
-                              if m.get("code") not in SAFETY_EVENTS), 0)
-                removed = self._messages.pop(index)
-                if removed is self._retry_event:
-                    self._retry_event = None
-                self._buffer_dropped += (removed.get("data", {}).get("count", 1)
-                                         if removed.get("code") == "LINK_BUFFER_DROPPED" else 1)
-            self._messages.append(deepcopy(message))
+            if message.get('t') in ('event', 'run.update'):
+                try:
+                    self._messages.append(deepcopy(message))
+                except Exception:
+                    self.core.stop('history storage unavailable')
+                    self.core._void()
+                    raise
+        self._buffer_dropped += self._messages.dropped
+        self._messages.dropped = 0
+        if self._messages or self._buffer_dropped:
+            self.history_ready.set()
+        if self._retry_event is not None and not any(m is self._retry_event for _, m in self._messages.memory):
+            self._retry_event = None
+
+    def pop_history(self, limit=1):
+        messages = self._messages.drain(limit)
+        if self._retry_event is not None and any(m is self._retry_event for m in messages):
+            self._retry_event = None
+        if not self._messages and self._buffer_dropped:
+            messages.append({'t': 'event', 'code': 'LINK_BUFFER_DROPPED', 'severity': 'warn',
+                             'robot_at': None, 'data': {'count': self._buffer_dropped}})
+            self._buffer_dropped = 0
+        if not self._messages and not self._buffer_dropped:
+            self.history_ready.clear()
+        return messages
 
     def _event(self, code, **data):
         self.retain([{"t": "event", "code": code, "severity": "warn",
@@ -119,9 +136,14 @@ class Session:
 
     def restore(self, messages):
         """Unsent older history precedes events generated during disconnect."""
-        current, self._messages = self._messages, []
-        self._retry_event = None
-        self.retain([*messages, *current])
+        messages = [deepcopy(m) for m in messages if m.get('t') in ('event', 'run.update')]
+        for message in reversed(messages):
+            self._messages.append(message, front=True)
+        self._buffer_dropped += self._messages.dropped
+        self._messages.dropped = 0
+        if self._messages or self._buffer_dropped:
+            self.history_ready.set()
+        self._retry_event = next((m for _, m in self._messages.memory if m.get('code') == 'SERVER_RETRY'), None)
 
     def _run_status(self, status, reason=None):
         if self.run is None or self.run["status"] in TERMINAL:
@@ -187,12 +209,8 @@ class Session:
             self.stop_ref = 0  # never confirm a new grant with an exhausted CAS domain
         messages = []
         if self.connected:
-            messages, self._messages = self._messages, []
-            self._retry_event = None
-            if self._buffer_dropped:
-                messages.append({"t": "event", "code": "LINK_BUFFER_DROPPED", "severity": "warn",
-                                 "robot_at": None, "data": {"count": self._buffer_dropped}})
-                self._buffer_dropped = 0
+            if self.emit_history:
+                messages = self.pop_history(MAX_BUFFER - 1)
             if state or self.now() - self.last_report >= REPORT_INTERVAL:
                 messages.append(self._state())
                 if self.ack_pending:
@@ -266,7 +284,8 @@ class Session:
                         attempts=1, first_at_s=now, last_at_s=now)
             # Retain the first occurrence's queue position, so independent safety
             # events keep their FIFO order while retries consume one entry.
-            self._retry_event = self._messages[-1]
+            self._retry_event = next((m for _, m in reversed(self._messages.memory)
+                                      if m.get('code') == 'SERVER_RETRY'), None)
         else:
             data = self._retry_event["data"]
             data["attempts"] += 1

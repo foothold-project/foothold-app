@@ -498,15 +498,15 @@ def test_replaced_agent_late_state_cannot_confirm_new_connection_stop(client, se
     entered, release = threading.Event(), threading.Event()
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as old:
-        original = rt.agent_identity
+        original = rt.load_agent_batch
         gate = [True]
-        def blocked(headers):
+        def blocked():
             if gate[0]:
                 gate[0] = False
                 entered.set()
                 assert release.wait(2)
-            return original(headers)
-        monkeypatch.setattr(rt, 'agent_identity', blocked)
+            return original()
+        monkeypatch.setattr(rt, 'load_agent_batch', blocked)
         old.send_json(state(99))
         assert entered.wait(1)
         try:

@@ -6,6 +6,7 @@ from pathlib import Path
 from dataclasses import replace
 
 import pytest
+from anyio import WouldBlock
 from sqlalchemy import event, select
 from sqlalchemy.orm import Session as DBSession
 from starlette.websockets import WebSocketDisconnect
@@ -15,74 +16,93 @@ from apps.server.fh_server.models import Event
 from apps.server.fh_server.leases import Effect
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take
 from .test_realtime_review import run
+from .test_realtime_pr13 import slow_screen
 
 
 @pytest.mark.parametrize('delay', [.3, .45])
 @pytest.mark.parametrize('mode', ['call', 'connection'])
 def test_slow_reads_keep_20hz_commands_and_take_available(client, seeded, rt, monkeypatch, delay, mode):
-    original_policy, original_agent = rt.load_policy, rt.agent_identity
+    original_policy, original_agent = rt.load_policy_batch, rt.load_agent_batch
     def policy(actor):
         time.sleep(delay)
         return original_policy(actor)
-    def identity(headers):
+    def identity():
         time.sleep(delay)
-        return original_agent(headers)
+        return original_agent()
     if mode == 'call':
-        monkeypatch.setattr(rt, 'load_policy', policy)
-        monkeypatch.setattr(rt, 'agent_identity', identity)
+        monkeypatch.setattr(rt, 'load_policy_batch', policy)
+        monkeypatch.setattr(rt, 'load_agent_batch', identity)
     else:
         def delay_connection(conn, cursor, statement, parameters, context, many):
             # Sleep after checkout: model latency while the DB connection is
             # occupied, rather than sleeping outside the pool in a wrapper.
-            if 'robots.id =' in statement:
+            if conn.engine is rt.agent_engine or 'robots.id =' in statement:
                 time.sleep(delay)  # bound agent check: one SELECT
             elif 'FROM robots' in statement or 'JOIN sessions' in statement:
                 time.sleep(delay / 2)  # policy: two SELECTs total
-        event.listen(rt.read_engine, 'before_cursor_execute', delay_connection)
+        for engine in (rt.read_engine, rt.view_engine, rt.control_engine, rt.agent_engine):
+            event.listen(engine, 'before_cursor_execute', delay_connection)
     rid = str(seeded['robots']['mine'])
-    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+    with agent(client, seeded) as ag, slow_screen(client, app_token(client)) as ws:
         time.sleep(.7)  # fill the overlapping read pipeline, no policy age relaxation
         # 450ms leaves only a 50ms freshness window. Sample explicit take
         # attempts across it; a stale attempt must remain rejected, never gain
         # a post-read TTL. Even after warming, scheduling can consume that window.
-        take_errors = []
-        for attempt in range(10):
-            result = reply(ws, send(ws, 'lease.take', rid))
-            if result['ok']:
+        take_errors, retakes = [], []
+        def acquire():
+            for attempt in range(25):
+                result = reply(ws, send(ws, 'lease.take', rid))
+                if not result['ok']:
+                    take_errors.append(result['error']['code'])
+                    assert result['error']['code'] in ('POLICY_STALE', 'ROBOT_AUTH_PENDING'), result
+                    time.sleep(.02)
+                    continue
                 receive(ag, 'lease')
                 stop = receive(ag, 'stop')
                 async def feedback():
-                    # Like a real Client, keep reporting the applied STOP at
-                    # 10Hz. A single stale-auth sample must not stand in for the
-                    # whole two-second confirmation interval.
-                    async with asyncio.timeout(1.5):
+                    reference = stop['stop_ref']
+                    async with asyncio.timeout(1.8):
                         while rt.arbiter.robot(rid).holder is None and rt.arbiter.robot(rid).transfer:
+                            while True:
+                                try:
+                                    packet = ag._send_rx.receive_nowait()
+                                except WouldBlock:
+                                    break
+                                frame = json.loads(packet.get('text', '{}'))
+                                if frame.get('t') == 'stop':
+                                    reference = frame['stop_ref']
                             await ag._receive_tx.send({'type': 'websocket.receive', 'text':
-                                json.dumps(state(3, stop_ref=stop['stop_ref']))})
-                            await asyncio.sleep(.1)
-                    assert rt.arbiter.robot(rid).holder is not None
-                run(client, feedback)
-                lease = receive(ws, 'lease', predicate=lambda m: bool(m.get('lease_id')))['lease_id']
-                break
-            take_errors.append(result['error']['code'])
-            assert result['error']['code'] in ('POLICY_STALE', 'ROBOT_AUTH_PENDING'), result
-            time.sleep(.01)
-        else:
-            pytest.fail(f'No fresh take window within 100ms: {take_errors}')
+                                json.dumps(state(3, stop_ref=reference))})
+                            await asyncio.sleep(.05)
+                    return rt.arbiter.robot(rid).holder
+                holder = run(client, feedback)
+                if holder:
+                    return receive(ws, 'lease', predicate=lambda m: m.get('lease_id') == holder.lease_id)['lease_id']
+                take_errors.append('CONFIRM_CANCELED')
+            pytest.fail(f'No fresh take window: {take_errors}')
+        lease = acquire()
         accepted, errors = 0, []
         for seq in range(40):
+            if rt.arbiter.robot(rid).holder is None:
+                retakes.append(seq)
+                lease = acquire()  # explicit test input; no product auto-retry
             started = time.monotonic()
             result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=seq, axes=[0, 0, 0]))
             accepted += result['ok']
             if not result['ok']:
                 errors.append(result['error']['code'])
             time.sleep(max(0, .05 - (time.monotonic() - started)))
-        print(f'DB_DELAY={delay} ({mode}): CMD {accepted}/40, errors={errors}, take_rejections={take_errors}')
-        # Connection checkout/query scheduling consumes part of the remaining
-        # 50ms window under load. Require a substantial improvement over the
-        # previous 0/40, without weakening the independent 500ms safety gate.
+        print(f'DB_DELAY={delay} ({mode}): CMD {accepted}/40, errors={errors}, '
+              f'take_rejections={take_errors}, explicit_retakes={retakes}')
         minimum = 30 if mode == 'connection' else 36
         assert accepted >= minimum, (accepted, errors)
+        async def discard_observed_frames():
+            while True:
+                try:
+                    ag._send_rx.receive_nowait()
+                except WouldBlock:
+                    return
+        run(client, discard_observed_frames)
         before = time.monotonic()
         assert reply(ws, send(ws, 'stop', rid))['ok']
         receive(ag, 'stop', timeout=.15)
@@ -118,7 +138,7 @@ def test_400_event_backlog_does_not_delay_take_confirmation_or_safety(client, se
         rows = list(db.scalars(select(Event).where(Event.code.in_(['FAKE_HISTORY', 'LINK_LOSS_TIMEOUT'])).order_by(Event.id)))
     ordinary = [r.data['number'] for r in rows if r.code == 'FAKE_HISTORY']
     assert ordinary == list(range(400))
-    assert next(i for i, r in enumerate(rows) if r.code == 'LINK_LOSS_TIMEOUT') < 200
+    assert next(i for i, r in enumerate(rows) if r.code == 'LINK_LOSS_TIMEOUT') == 400
 
 
 @pytest.mark.parametrize('phase', ['hello', 'followup'])
@@ -138,7 +158,7 @@ def test_old_agent_proto_is_explicit_protocol_close_with_reason_audit(client, se
             with pytest.raises(WebSocketDisconnect) as error:
                 receive(ag, 'never')
     assert error.value.code == 4406
-    assert error.value.reason == 'PROTOCOL_MISMATCH: expected fh-agent/2'
+    assert error.value.reason == 'PROTOCOL_MISMATCH'
     run(client, rt.audit.join)
     with DBSession(client.app.state.engine) as db:
         assert db.scalar(select(Event).where(Event.code == 'AGENT_PROTOCOL_MISMATCH'))
@@ -169,11 +189,12 @@ def test_read_ahead_has_finite_pending_slots_and_start_based_age(rt):
     import threading
     gate = threading.Event()
     async def check():
-        pipeline = ReadAhead(lambda: gate.wait(2), rt.clock, rt.auth_executor)
+        pipeline = ReadAhead(lambda: gate.wait(2), rt.clock, rt.control_executor)
         try:
             await asyncio.sleep(.7)
-            assert len(pipeline.pending) <= 21
-            assert len(pipeline.pending) >= 10  # sequential refresh would starve .45s reads
+            assert len(pipeline.pending) <= 32
+            assert len(pipeline.pending) >= 20  # sequential refresh would starve .45s reads
+            pipeline.next_start = float('inf')
             existing_starts = set(pipeline.pending.values())
             released = rt.clock()
             gate.set()
@@ -182,6 +203,7 @@ def test_read_ahead_has_finite_pending_slots_and_start_based_age(rt):
         finally:
             gate.set()
             await pipeline.close()
+            await asyncio.gather(*pipeline.pending, return_exceptions=True)
     asyncio.run(check())
 
 
@@ -247,30 +269,24 @@ def test_real_old_declared_proto_enters_stopped_slow_retry(seeded, tmp_path, mon
         asyncio.run(check(server))
 
 
-def test_archival_worker_keeps_global_audit_full_fail_safe(client, rt):
-    from .test_realtime_review import Sink
-    from apps.server.fh_server.realtime import Peer
+def test_global_audit_full_preserves_safety_and_frees_control(client, rt):
     from apps.server.fh_server.leases import Actor
     async def check():
         rt.tasks[1].cancel()
         await asyncio.gather(rt.tasks[1], return_exceptions=True)
         saved = rt.audit
         rt.audit = AuditQueue(1)
-        effect = Effect('audit', 'r', {'op': 'AGENT_EVENT', 'code': 'FAKE_HISTORY'})
-        rt.audit.put_nowait(effect)
         actor = Actor('u', 's', 'c')
         rt.arbiter.take('r', actor)
         rt.arbiter.state('r', True, [0, 0, 0], 1, 1)
         assert rt.arbiter.robot('r').holder
-        peer = Peer(Sink())
-        peer.archive.put_nowait(effect)
-        worker = asyncio.create_task(rt.agent_archive(peer))
         try:
-            await asyncio.sleep(.02)
+            for op in ('STOP', 'EXPIRE', 'RELEASE'):
+                assert rt.queue_audit(Effect('audit', 'r', {'op': op}))
             assert rt.audit_overloaded and rt.arbiter.robot('r').holder is None
-            assert not worker.done()  # bounded global queue applies backpressure
+            assert len(rt.audit._queue.memory) == 1
+            assert rt.audit.qsize() == 4
+            assert [rt.audit.get_nowait().body['op'] for _ in range(4)] == ['STOP', 'EXPIRE', 'EXPIRE', 'RELEASE']
         finally:
-            worker.cancel()
-            await asyncio.gather(worker, return_exceptions=True)
             rt.audit = saved
     run(client, check)

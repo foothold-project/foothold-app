@@ -18,7 +18,7 @@ from apps.server.fh_server.api import Settings, create_app
 from apps.server.fh_server.leases import Actor, Effect
 from apps.server.fh_server.models import Event, LeaseLog, now
 from apps.server.fh_server import realtime as module
-from apps.server.fh_server.realtime import Peer, Policy
+from apps.server.fh_server.realtime import AuditQueue, Peer, Policy
 from .test_realtime import agent, app_token, receive, receive_open, reply, rt, screen, send, state, take, drain_audit
 from .test_realtime_review import Sink, run
 
@@ -112,7 +112,7 @@ def test_n5_overflow_free_follows_entire_accepted_effect_batch(client, seeded, r
         a, b = Peer(Sink(), actor=one, policy=policy, subscriptions={rid: set()}), Peer(Sink(), actor=two, policy=policy, subscriptions={rid: set()})
         rt.screens = {one.connection: a, two.connection: b}
         rt.agents = {rid: Peer(Sink(), auth_checked=rt.clock())}
-        rt.audit = asyncio.Queue(1)
+        rt.audit = AuditQueue(1)
         rt.audit.put_nowait(Effect('audit', rid, {'op': 'TAKE'}))
         try:
             arb = rt.arbiter
@@ -153,18 +153,24 @@ def test_n7_single_policy_db_error_retries_without_dropping_lease(client, seeded
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         lease = take(ws, ag, rid)
-        original, errors = rt.load_policy, []
-        def once(actor):
+        original, errors = rt.refresh_policy, []
+        async def once(peer):
             if not errors:
-                errors.append(True)
+                errors.append('failed')
                 raise temporary_db_error()
-            return original(actor)
-        monkeypatch.setattr(rt, 'load_policy', once)
+            result = await original(peer)
+            errors.append('recovered')
+            return result
+        # A second healthy grouped lane may mask a single SQL failure. Inject
+        # at the actual watcher boundary to prove its transient-error policy.
+        monkeypatch.setattr(rt, 'refresh_policy', once)
         async def recover():
-            async with asyncio.timeout(1):
-                while not errors:
-                    await asyncio.sleep(.01)
-            await asyncio.sleep(.15)
+            for _ in range(150):
+                if 'recovered' in errors:
+                    break
+                await asyncio.sleep(.01)
+            assert 'recovered' in errors, 'The watcher disconnected instead of retrying'
+            assert all(not peer.closing for peer in rt.screens.values())
             assert rt.arbiter.robot(rid).holder is not None
             assert rt.arbiter.robot(rid).holder.lease_id == lease
         run(client, recover)
@@ -176,13 +182,13 @@ def test_n7_single_agent_auth_db_error_keeps_connection(client, seeded, rt, monk
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         lease = take(ws, ag, rid)
-        original, errors = rt.agent_identity, []
-        def once(headers):
+        original, errors = rt.load_agent_batch, []
+        def once():
             if not errors:
                 errors.append(True)
                 raise temporary_db_error()
-            return original(headers)
-        monkeypatch.setattr(rt, 'agent_identity', once)
+            return original()
+        monkeypatch.setattr(rt, 'load_agent_batch', once)
         async def wait():
             await asyncio.sleep(.3)
             assert errors
@@ -269,12 +275,12 @@ def test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry(client, 
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
-        original = rt.load_policy
+        original = rt.load_policy_batch
         failures = []
         def unavailable(actor):
             failures.append(True)
             raise temporary_db_error()
-        monkeypatch.setattr(rt, 'load_policy', unavailable)
+        monkeypatch.setattr(rt, 'load_policy_batch', unavailable)
         async def age():
             peer = next(iter(rt.screens.values()))
             peer.policy = replace(peer.policy, checked=rt.clock() - .7)
@@ -288,7 +294,7 @@ def test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry(client, 
         ident = send(ws, 'stop', rid)
         receive_open(ag, 'stop', timeout=.1)  # writer may wait for DB; STOP never does
         assert reply(ws, ident)['ok']  # priority reply must precede deferred FREE
-        monkeypatch.setattr(rt, 'load_policy', original)
+        monkeypatch.setattr(rt, 'load_policy_batch', original)
         assert receive_open(ws, 'lease', predicate=lambda x: x['holder'] is None)['holder'] is None
 
 
@@ -296,10 +302,18 @@ def test_n7_stale_agent_auth_blocks_authority_but_stop_is_still_forwarded(client
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
-        original = rt.agent_identity
-        def unavailable(headers):
+        original = rt.load_agent_batch
+        def unavailable():
             raise temporary_db_error()
-        monkeypatch.setattr(rt, 'agent_identity', unavailable)
+        original_policy = rt.load_policy_batch
+        def acl_only(lane):
+            batch = original_policy(lane)
+            # Isolate loss of every token-verification source while real ACL
+            # SQL and read-ahead keep running. No stale permission is invented.
+            batch.agents = None
+            return batch
+        monkeypatch.setattr(rt, 'load_policy_batch', acl_only)
+        monkeypatch.setattr(rt, 'load_agent_batch', unavailable)
         async def age():
             peer = rt.agents[rid]
             peer.auth_checked = rt.clock() - .7
@@ -310,18 +324,27 @@ def test_n7_stale_agent_auth_blocks_authority_but_stop_is_still_forwarded(client
         run(client, age)
         receive_open(ag, 'lease'); receive_open(ag, 'stop')
         result = reply(ws, send(ws, 'lease.take', rid))
+        assert not result['ok'], result
         assert result['error']['code'] == 'ROBOT_AUTH_PENDING'
         assert reply(ws, send(ws, 'stop', rid))['ok']
         receive_open(ag, 'stop', timeout=.1)
-        monkeypatch.setattr(rt, 'agent_identity', original)
+        monkeypatch.setattr(rt, 'load_agent_batch', original)
 
 
 def test_n7_retry_grace_is_bounded_and_closes_temporarily(client, seeded, rt, monkeypatch):
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag:
-        def unavailable(headers):
+        def unavailable():
             raise temporary_db_error()
-        monkeypatch.setattr(rt, 'agent_identity', unavailable)
+        original_policy = rt.load_policy_batch
+        def acl_only(lane):
+            batch = original_policy(lane)
+            # Isolate loss of every token-verification source while real ACL
+            # SQL and read-ahead keep running. No stale permission is invented.
+            batch.agents = None
+            return batch
+        monkeypatch.setattr(rt, 'load_policy_batch', acl_only)
+        monkeypatch.setattr(rt, 'load_agent_batch', unavailable)
         async def expired():
             await asyncio.sleep(.15)
             rt.agents[rid].auth_checked = rt.clock() - 6
