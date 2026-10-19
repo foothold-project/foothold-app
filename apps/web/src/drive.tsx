@@ -25,7 +25,7 @@ function who(h: Holder | null, me: string) {
   return h.id === me ? '다른 창에서 조종 중(나)' : `${h.name}님 조종 중`;
 }
 /** 구독 안 하는 로봇은 목록 요약의 조종권자 + 받은 시각. 목록의 null 은 «없음»으로 단정하지 않는다(서버 목록 lease 가 아직 늘 null) */
-function holderText(l: Live, me: string, r: Robot) {
+export function holderText(l: Live, me: string, r: Robot) {
   if (r.unknown === 'summary') return r.holder ? `${who(r.holder, me)}(목록 ${r.listedAt})` : '조종권자 확인 안 됨';
   if (l.lease) return '조종 중(나)';
   if (l.busy) return '조종권 넘기는 중';

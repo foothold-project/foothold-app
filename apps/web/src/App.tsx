@@ -39,16 +39,17 @@ export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) 
   </button>;
 }
 
-/** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨).
- *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). cancel = 이 로그인 세션의 취소 신호(화면 요청용). note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
-export function App({ user = USERS[0], robots: listed = ROBOTS, logout, setMe = () => {}, cancel, note, dev }: { user?: User; robots?: Robot[]; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string; dev?: string }) {
+/** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
+ *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
+ *  note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
+export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, logout, setMe = () => {}, cancel, note, dev }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string; dev?: string }) {
   const phone = usePhone();
   useRt();
   const robots = listed.map(withLive), net = rt.link();
   // 상태 구독은 볼 수 있는 로봇만: 총괄 전체, 운영 관리자는 담당 로봇(남의 로봇은 목록 요약만 — 구독하면 서버가 연결을 닫는다)
   const mine = listed.filter((r) => user.role === 'ORG_ADMIN' || r.owner === user.id).map((r) => r.id).join();
   useEffect(() => { rt.connect(mine ? mine.split(',') : []); return () => rt.disconnect(); }, []);
-  useEffect(() => rt.follow(mine ? mine.split(',') : []), [mine]);   // 목록 갱신으로 담당이 바뀌면 구독도(소켓은 그대로)
+  useEffect(() => rt.follow(mine ? mine.split(',') : [], fresh), [mine, fresh]);   // 목록 갱신으로 담당이 바뀌면 구독도(소켓은 그대로)
   // 원하는 탭(주소)과 보이는 탭을 나눈다: 보이는 탭은 렌더마다 지금 틀(PC/폰)에서 도출 — 폭이 바뀌어 틀에 없는 탭이면 첫 탭(B1)
   const [want, setWant] = useState(() => location.hash), tab = tabFromHash(want, phone), sub = want.split('/')[2];
   // 고를 수 있는 로봇: PC 는 전체(관제 보기, 내 로봇 먼저), 폰은 내 로봇만(B4). 고른 값이 범위 밖이면 첫 로봇
@@ -62,6 +63,16 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, setMe = 
   // 그 밖(조종 목록·임무·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지
   const target = phone || open || tab === 'fleet' ? robot : null;
   const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
+  // 서버가 구독을 거둠(담당 바뀜·로봇 지움): 그 로봇 조종 화면을 닫고 이유를 띠에, 목록은 다시 받는다. STOP 은 그대로 둔다
+  const rv = rt.revoked(), [gone, setGone] = useState('');
+  useEffect(() => {
+    if (!rv) return;
+    const name = listed.find((r) => r.id === rv.robot)?.name ?? '로봇', closing = open && sub === rv.robot;
+    if (closing) go('drive');
+    setGone(rv.reason === 'ROBOT_DELETED' ? `${name} 로봇이 지워져 목록에서 뺍니다.${closing ? ' 조종 화면을 닫았습니다.' : ''}`
+      : `${name} 로봇의 담당이 바뀌어 이제 조종할 수 없습니다.${closing ? ' 조종 화면을 닫았습니다.' : ''} 필요하면 총괄 운영 관리자에게 문의하세요.`);
+    refresh();
+  }, [rv?.n]);
 
   useEffect(() => { const f = () => setWant(location.hash); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
   useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
@@ -80,7 +91,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, setMe = 
   const cur = tabsFor(phone).find((t) => t.id === tab)!;
   const problems = pool.filter(lost);
   const attention = pool.filter((r) => robotStatus(r).tone === 'warn' || robotStatus(r).tone === 'bad').length;
-  const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight, setMe, cancel } : null;
+  const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight, setMe, refresh, cancel } : null;
   const Body = BODY[tab];
 
   const link = (t: Tab, cls: string) => {
@@ -118,6 +129,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, setMe = 
     {dev && <p className="fh-dev" data-dev>{dev}</p>}
     <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
+      gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
       (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
         {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,
       stopped && <span key="stop" data-stop-band>{stopText(stopped, rt.get(stopped.id))}</span>,
@@ -125,8 +137,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, setMe = 
     ].filter(Boolean)}</div>
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={labelOf(cur, user.role)}>{ctx ? <Body key={`${tab}-${ctx.robot.id}-${user.id}`} {...ctx} />
-        : tab === 'settings' ? <Settings user={user} light={light} setLight={setLight} setMe={setMe} cancel={cancel} />
+      <main className="fh-main" aria-label={labelOf(cur, user.role)}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
+        : ctx ? <Body key={`${tab}-${ctx.robot.id}-${user.id}`} {...ctx} />
         : <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p></section>}
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>

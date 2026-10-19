@@ -1,6 +1,6 @@
-// 설정 탭(02 F-ST-01·02, 03 UX §5) — 개인 설정·내 정보·조직 기준값(서버 값). 계정 관리(05 §2 /users)는 총괄에게만 보인다(01 AU-04: 권한 없는 기능은 숨김).
+// 설정 탭(02 F-ST-01·02, 03 UX §5) — 개인 설정·내 정보·조직 기준값(서버 값). 계정 관리(05 §2 /users)·로봇 등록(05 §3)은 총괄에게만 보인다(01 AU-04: 권한 없는 기능은 숨김).
 import { useEffect, useState, type FormEvent } from 'react';
-import type { OrgSettings, Session, User as ApiUser } from '../../../contracts/ts';
+import type { OrgSettings, RobotSummary, Session, User as ApiUser } from '../../../contracts/ts';
 import { api, expireAuth, type ApiFail } from '../api';
 import { ROLE_NAME, type Role, type User } from '../fake';
 import { Chip, type Ctx } from '../screens';
@@ -11,7 +11,7 @@ const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
 const Note = ({ msg }: { msg: Msg }) => (msg ? <p style={WRAP} className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p> : null);
 
 /** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다 */
-export function Settings(c: Pick<Ctx, 'user' | 'light' | 'setLight' | 'setMe' | 'cancel'>) {
+export function Settings(c: Pick<Ctx, 'user' | 'light' | 'setLight' | 'setMe' | 'refresh' | 'cancel'>) {
   const admin = c.user.role === 'ORG_ADMIN';
   return <>
     <section className="lv-card" aria-label="개인 설정">
@@ -21,6 +21,7 @@ export function Settings(c: Pick<Ctx, 'user' | 'light' | 'setLight' | 'setMe' | 
     <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />
     <OrgLimits admin={admin} cancel={c.cancel} />
     {admin && <Accounts me={c.user} cancel={c.cancel} />}
+    {admin && <Robots refresh={c.refresh} cancel={c.cancel} />}
   </>;
 }
 
@@ -180,14 +181,18 @@ function NewAccount({ close, done, cancel }: { close: () => void; done: (u: ApiU
 
 /** 만든 직후 한 번만 보임 — 닫으면 화면 어디에도 남지 않는다 */
 function TempPassword({ name, username, pw, close }: { name: string; username: string; pw: string; close: () => void }) {
+  return <Once label="임시 비밀번호" value={pw} close={close} text={`${name}(${username}) 계정을 만들었습니다. 임시 비밀번호를 본인에게 전하고, 첫 로그인 뒤 «내 정보»에서 바꾸게 하세요.`} />;
+}
+/** 한 번만 보이는 비밀 값(임시 비밀번호·로봇 토큰) + 복사. 값은 부른 쪽 상태에만 있고 닫으면 버린다 */
+function Once({ label, value, text, close, more }: { label: string; value: string; text: string; close: () => void; more?: string }) {
   const [msg, setMsg] = useState<Msg>(null);
-  const copy = () => (navigator.clipboard ? navigator.clipboard.writeText(pw) : Promise.reject()).then(
+  const copy = () => (navigator.clipboard ? navigator.clipboard.writeText(value) : Promise.reject()).then(
     () => setMsg({ text: '복사했습니다.', ok: true }), () => setMsg({ text: '복사하지 못했습니다. 글자를 직접 골라 복사하세요.' }));
-  return <div className="card fh-form" role="group" aria-label="임시 비밀번호" style={{ padding: 12 }}>
-    <span style={WRAP}>{name}({username}) 계정을 만들었습니다. 임시 비밀번호를 본인에게 전하고, 첫 로그인 뒤 «내 정보»에서 바꾸게 하세요.</span>
-    <div className="fh-row"><input className="inp mono" readOnly value={pw} aria-label="임시 비밀번호" style={{ flex: '1 1 160px', width: 'auto', minWidth: 0 }} onFocus={(e) => e.currentTarget.select()} />
+  return <div className="card fh-form" role="group" aria-label={label} style={{ padding: 12 }}>
+    <span style={WRAP}>{text}</span>
+    <div className="fh-row"><input className="inp mono" readOnly value={value} aria-label={label} style={{ flex: '1 1 160px', width: 'auto', minWidth: 0 }} onFocus={(e) => e.currentTarget.select()} />
       <button type="button" className="btn pri" onClick={copy}>복사</button><button type="button" className="btn" onClick={close}>닫기</button></div>
-    <span className="lbl">닫으면 다시 볼 수 없습니다.</span>
+    <span className="lbl">닫으면 다시 볼 수 없습니다.{more ? ` ${more}` : ''}</span>
     <Note msg={msg} />
   </div>;
 }
@@ -254,4 +259,120 @@ function Devices({ u, cancel }: { u: ApiUser } & Cancel) {
       <button type="button" className="btn" disabled={!!busy} onClick={() => end(s)}>로그아웃시키기</button></li>)}</ul>}
     <Note msg={msg} />
   </div>;
+}
+
+// ── 로봇(총괄, 05 §3 POST·PATCH·DELETE /robots · agent-token) ──
+/** 409 는 code 로 이 화면에 맞는 문구(05 §1.4). 지울 때 조종권·넘김·진행 중 실행이 있으면 VERSION_CONFLICT(apps/server) */
+export const ROBOT_IN_USE = '누군가 조종 중이거나 조종권을 넘기는 중, 또는 실행 중이라 지울 수 없습니다. 조종을 끝내거나 실행을 멈춘 뒤 다시 누르세요.';
+export const ROBOT_GONE = '이 로봇은 이미 지워졌습니다. 목록을 다시 받았습니다.';
+export const ROBOT_BUSY = '서버가 이 로봇의 다른 변경을 처리하는 중입니다. 잠시 뒤 다시 누르세요.';
+const LOST_TOKEN = '잃어버리면 [토큰 다시 받기]로 새로 받으세요.';
+const robotFail = (e: unknown) => {
+  const f = e as ApiFail;
+  return f.code === 'VERSION_CONFLICT' ? ROBOT_IN_USE : f.status === 404 ? ROBOT_GONE : f.code === 'SERVER_BUSY' ? ROBOT_BUSY : f.message;
+};
+type Token = { text: string; value: string };
+
+/** 담당 고르기: 잠기지 않은 운영 관리자 + «담당 없음». 지금 담당이 목록에 없으면(잠김 등) 그 이름도 둔다 */
+function OwnerSelect({ ops, value, onChange, current }: { ops: ApiUser[]; value: string; onChange?: (v: string) => void; current?: RobotSummary['owner'] }) {
+  const extra = current && !ops.some((u) => u.id === current.id) ? [current] : [];
+  return <label className="fh-field"><span>담당 운영 관리자</span><select className="inp" name="owner" value={value} onChange={(e) => onChange?.(e.target.value)}>
+    <option value="">담당 없음</option>
+    {ops.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+    {extra.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}</select></label>;
+}
+
+function Robots({ refresh, cancel }: { refresh: () => void } & Cancel) {
+  const [list, setList] = useState<RobotSummary[] | null>(null), [ops, setOps] = useState<ApiUser[]>([]), [sel, setSel] = useState('');
+  const [msg, setMsg] = useState<Msg>(null), [adding, setAdding] = useState(false), [token, setToken] = useState<Token | null>(null);
+  const load = () => api.robots('all', cancel).then(setList, (e: ApiFail) => setMsg({ text: e.message }));
+  useEffect(() => {
+    load();
+    api.users(cancel).then((us) => setOps(us.filter((u) => u.role === 'OPERATOR' && !u.locked)), (e: ApiFail) => setMsg({ text: `담당자 목록을 받지 못했습니다. ${e.message}` }));
+  }, []);
+  // 바꾼 뒤에는 이 목록과 관제·조종 목록(App)을 함께 다시 받는다
+  const changed = () => { load(); refresh(); };
+  const cur = list?.find((r) => r.id === sel);
+  return <>
+    <section className="lv-card" aria-label="로봇">
+      <div className="fh-row"><h2 className="fh-grow">로봇{list ? ` (${list.length})` : ''}</h2>
+        {!adding && <button type="button" className="btn pri" onClick={() => { setAdding(true); setToken(null); setMsg(null); }}>로봇 등록</button>}</div>
+      {adding && <NewRobot ops={ops} cancel={cancel} close={() => setAdding(false)} done={(r, value) => {
+        setAdding(false); setSel(r.id); changed();
+        setToken({ value, text: `${r.name} 로봇을 등록했습니다. 아래 토큰을 로봇 에이전트 설정에 넣으면 연결됩니다.` });
+      }} />}
+      {token && <Once label="로봇 토큰" value={token.value} text={token.text} more={LOST_TOKEN} close={() => setToken(null)} />}
+      {list && !list.length && <p className="lv-note">등록된 로봇이 없습니다.</p>}
+      {list && !!list.length && <ul className="fh-list">{list.map((r) => <li key={r.id}>
+        <button type="button" aria-pressed={r.id === sel} style={{ flexWrap: 'wrap' }} onClick={() => { setSel(r.id); setMsg(null); }}>
+          <b style={WRAP}>{r.name}</b><span className="fh-grow">{r.owner?.display_name ?? '담당 없음'}</span></button></li>)}</ul>}
+      <Note msg={msg} />
+    </section>
+    {cur && <RobotEdit key={cur.id} r={cur} ops={ops} cancel={cancel} changed={changed} showToken={(value) => setToken({ value, text: `${cur.name} 로봇의 새 토큰입니다. 예전 토큰은 더 이상 쓸 수 없습니다. 로봇 에이전트 설정을 이 토큰으로 바꾸세요.` })}
+      gone={(text) => { setSel(''); setToken(null); setMsg({ text, ok: true }); changed(); }} />}
+  </>;
+}
+
+function NewRobot({ ops, close, done, cancel }: { ops: ApiUser[]; close: () => void; done: (r: RobotSummary, token: string) => void } & Cancel) {
+  const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false), [owner, setOwner] = useState('');
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (busy) return;
+    const name = String(new FormData(e.currentTarget).get('name')).trim();
+    if (!name) return setMsg({ text: '로봇 이름을 입력하세요.' });
+    setBusy(true);
+    // 토큰은 이 함수 안에서 바로 넘기고 다른 곳에 두지 않는다(05 §3 — 응답에서 한 번만)
+    try { const r = await api.createRobot({ name, owner_user_id: owner || null }, cancel); done(r.robot, r.agent_token); }
+    catch (err) { setMsg({ text: robotFail(err) }); setBusy(false); }
+  };
+  return <form className="fh-form" onSubmit={submit} noValidate aria-label="로봇 등록">
+    <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" autoComplete="off" maxLength={128} autoFocus /></label>
+    <OwnerSelect ops={ops} value={owner} onChange={setOwner} />
+    <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>등록</button><button type="button" className="btn" onClick={close}>취소</button>
+      <span className="lbl">로봇 토큰은 등록할 때 한 번만 보입니다.</span></div>
+    <Note msg={msg} />
+  </form>;
+}
+
+function RobotEdit({ r, ops, changed, gone, showToken, cancel }: { r: RobotSummary; ops: ApiUser[]; changed: () => void; gone: (text: string) => void; showToken: (t: string) => void } & Cancel) {
+  const [name, setName] = useState(r.name), [owner, setOwner] = useState(r.owner?.id ?? '');
+  const [ask, setAsk] = useState<'token' | 'delete' | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
+  const run = async (f: () => Promise<string | void>) => {
+    if (busy) return;
+    setBusy(true); setAsk(null); setMsg(null);
+    try { const t = await f(); if (t) setMsg({ text: t, ok: true }); }
+    catch (err) {
+      if ((err as ApiFail).status === 404) return gone(ROBOT_GONE);
+      setMsg({ text: robotFail(err) });
+    } finally { setBusy(false); }
+  };
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    const v = name.trim(), was = r.owner?.id ?? '', patch = { ...(v !== r.name && { name: v }), ...(owner !== was && { owner_user_id: owner || null }) };
+    if (!v) return setMsg({ text: '로봇 이름을 입력하세요.' });
+    if (!Object.keys(patch).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
+    run(async () => { await api.saveRobot(r.id, patch, cancel); changed(); return '저장했습니다.'; });
+  };
+  const reissue = () => run(async () => showToken((await api.robotToken(r.id, cancel)).agent_token));
+  const del = () => run(async () => { await api.deleteRobot(r.id, cancel); gone(`${r.name} 로봇을 지웠습니다.`); });
+  return <section className="lv-card" aria-label="로봇 설정">
+    <div className="fh-row"><h2 className="fh-grow" style={WRAP}>{r.name}</h2><span className="lbl">{r.model}</span></div>
+    <form className="fh-form" onSubmit={save} noValidate>
+      <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
+      <OwnerSelect ops={ops} value={owner} onChange={setOwner} current={r.owner} />
+      <span className="lbl">담당을 바꾸거나 없애면 예전 담당자의 조종이 끝나고 로봇이 정지합니다.</span>
+      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>저장</button></div>
+    </form>
+    <div className="fh-row">
+      <button type="button" className="btn" disabled={busy} onClick={() => setAsk('token')}>토큰 다시 받기</button>
+      <button type="button" className="btn" disabled={busy} onClick={() => setAsk('delete')}>로봇 지우기</button>
+    </div>
+    {ask && <div className="fh-row" role="group" aria-label="확인">
+      <span style={WRAP}>{ask === 'token' ? `${r.name} 토큰을 새로 받을까요? 예전 토큰은 바로 못 쓰게 되어 새 토큰을 넣을 때까지 로봇이 연결되지 않습니다.`
+        : `${r.name} 로봇을 지울까요? 로봇이 더 이상 연결되지 않고 되돌릴 수 없습니다. 기록은 남습니다.`}</span>
+      <button type="button" className="btn pri" onClick={ask === 'token' ? reissue : del}>{ask === 'token' ? '토큰 다시 받기' : '지우기'}</button>
+      <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
+    </div>}
+    <Note msg={msg} />
+  </section>;
 }

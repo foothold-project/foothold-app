@@ -1,16 +1,18 @@
-// 가짜 데이터(서버 호출 0). 로봇 3대·층 2개·사용자 3명. 로그인하면 USERS·ROBOTS 는 서버 값(/me·/robots)으로 바뀐다(setServerData).
-// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 층·결재·시나리오·사건은 아직 가짜.
+// 화면 자료 모양 + 아직 가짜인 묶음. USERS·ROBOTS 는 처음 비어 있고 로그인하면 서버 값(/me·/robots)으로 채운다(setServerData).
+// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 층(지도 탭)·결재·시나리오·사건은 아직 가짜.
+import type { Device, Location, RobotSummary } from '../../contracts/ts';
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };
 export type Floor = { id: string; site: string; name: string };
 /** 로봇 요약 상태(02 §4 «로봇 요약 상태와 실행 상태»). 끊긴 로봇이면 마지막 확인 값 */
 export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' | 'IDLE';
 /** online = connection ONLINE. status null = 아직 상태를 받은 적 없음(연결 전). seenAt = 마지막 확인 시각. mission = current_run(끝나지 않은 실행) 이름.
+ *  location·devices = 서버 요약값(구독 로봇은 실시간 state 가 덮음). null·빈 목록 = 받은 값 없음 — 화면은 지어내지 않는다.
  *  unknown = 지금 상태를 단정할 수 없음(rt.withLive): link 실시간 끊김, wait 첫 state 전, summary 구독 안 하는 로봇(목록 요약 값뿐).
  *  holder·listedAt = 목록 요약의 조종권자와 그 목록을 받은 시각(구독 안 하는 로봇의 조종권자 표시용) */
 export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
-export type Robot = { id: string; name: string; owner: string; ownerName?: string; floor: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
-  unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string };
+export type Robot = { id: string; name: string; owner: string; ownerName?: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
+  unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[] };
 export type Approval = { id: string; kind: string; target: string; by: string; at: string };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
 /** actor = 행동한 사람(없으면 로봇·시스템 사건) */
@@ -19,22 +21,14 @@ export type Event = { id: string; at: string; tone: Tone; robot: string; actor?:
 export const ROLE_NAME: Record<Role, string> = { ORG_ADMIN: '총괄', OPERATOR: '운영 관리자' };
 export const STATUS_NAME: Record<Status, string> = { STOP_LATCHED: '정지 잠금', ERROR: '오류', TELEOP: '사람 조종', PAUSED: '일시정지', RUNNING: '임무 중', IDLE: '대기' };
 
-export const USERS: User[] = [
-  { id: 'u-kim', name: '김OO', role: 'ORG_ADMIN' },
-  { id: 'u-lee', name: '이OO', role: 'OPERATOR' },
-  { id: 'u-park', name: '박OO', role: 'OPERATOR' },
-];
+export const USERS: User[] = [];
 
 export const FLOORS: Floor[] = [
   { id: 'f1', site: '본관', name: '1층' },
   { id: 'f2', site: '본관', name: '2층' },
 ];
 
-export const ROBOTS: Robot[] = [
-  { id: 'r3', name: 'Go2-3', owner: 'u-lee', floor: 'f2', battery: 82, online: true, seenAt: '14:05:20', status: 'RUNNING', mission: '2층 순찰 3/5' },
-  { id: 'r7', name: 'Go2-7', owner: 'u-park', floor: 'f1', battery: 15, online: true, seenAt: '14:05:20', status: 'IDLE' },
-  { id: 'r1', name: 'Go2-1', owner: 'u-lee', floor: 'f1', battery: null, online: false, seenAt: '13:40:05', status: 'STOP_LATCHED' },
-];
+export const ROBOTS: Robot[] = [];
 
 export const APPROVALS: Approval[] = [
   { id: 'a1', kind: '지도 수정', target: '본관 2층', by: 'u-park', at: '10:42' },
@@ -47,7 +41,8 @@ export const SCENARIOS = [
 ];
 
 export const userName = (id: string) => USERS.find((u) => u.id === id)?.name ?? ROBOTS.find((r) => r.owner === id)?.ownerName ?? '알 수 없음';
-export const floorName = (id: string) => { const f = FLOORS.find((x) => x.id === id); return f ? `${f.site} ${f.name}` : ''; };
+/** 담당자 이름(담당 없음이면 그렇게) */
+export const ownerName = (r: Robot) => (r.owner ? r.ownerName ?? userName(r.owner) : '담당 없음');
 
 /** 연결 끊김 문구: 끊긴 동안 상태를 단정하지 않고 «마지막 확인 + 미확인»(02 F-COM-02) */
 export const lostText = (r: Robot) => `${r.name} 연결이 끊겼습니다. 마지막 확인: ${r.status ? STATUS_NAME[r.status] : '없음'}(${r.seenAt}). 지금 상태는 알 수 없습니다.`;
@@ -78,7 +73,7 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
 
 /** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×). 할 수 있으면 null */
 export function driveBlock(u: User, r: Robot): string | null {
-  if (u.role !== 'ORG_ADMIN' && r.owner !== u.id) return `${userName(r.owner)}님의 로봇입니다. 내 로봇만 조종할 수 있습니다.`;
+  if (u.role !== 'ORG_ADMIN' && r.owner !== u.id) return `${r.owner ? `${ownerName(r)}님의 로봇입니다` : '담당자가 없는 로봇입니다'}. 내 로봇만 조종할 수 있습니다.`;
   if (r.unknown === 'link') return '서버 연결이 끊겨 조종할 수 없습니다. 네트워크를 확인하세요.';
   if (r.unknown) return '로봇 상태를 확인하는 중입니다. 잠시 뒤 다시 누르세요.';
   if (!r.online) return r.status ? '연결이 끊겨 조종할 수 없습니다. 현장에서 로봇 전원을 확인하세요.' : '로봇이 아직 연결되지 않아 조종할 수 없습니다. 현장에서 로봇 전원을 확인하세요.';
@@ -94,6 +89,16 @@ export function eventsFor(u: User) {
   const known = EVENTS.filter((e) => ROBOTS.some((r) => r.id === e.robot));   // 서버 로봇으로 바뀌면 가짜 사건은 0건
   return u.role === 'ORG_ADMIN' ? known : known.filter((e) => e.actor === u.id || myRobots(u).some((r) => r.id === e.robot));
 }
+
+const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
+/** 서버 로봇 요약(05 §3) → 화면 값. 층은 이름을 줄 서버 자료가 아직 없어 쓰지 않는다 */
+export const toRobot = (r: RobotSummary): Robot => ({
+  id: r.id, name: r.name, owner: r.owner?.id ?? '', ownerName: r.owner?.display_name,
+  battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
+  mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined,
+  holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
+  listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices,
+});
 
 /** 로그인 뒤 서버 값으로 바꿔 끼움 */
 export function setServerData(me: User, robots: Robot[]) {

@@ -2,7 +2,7 @@
 // 조종권·넘김·정지 확인 판정은 서버 중재기가 한다. 여기는 서버가 준 lease·state 를 그대로 들고,
 // 화면 쪽 안전 규칙(넘김 중·잠금 중 0, 새 조종권은 새 중립부터, 숨기거나 떠나면 반납)만 더한다. 시각 판정은 단조 시계.
 import { useSyncExternalStore } from 'react';
-import type { ErrorBody, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenReply, ScreenState } from '../../contracts/ts';
+import type { ErrorBody, ScreenLeaseRequested, ScreenLeaseResult, ScreenLeaseUpdate, ScreenReply, ScreenState, ScreenSubscriptionRevoked } from '../../contracts/ts';
 import { api, expireAuth, type ApiFail } from './api';
 import type { Holder, Robot, Status } from './fake';
 
@@ -18,6 +18,8 @@ const LINK_LOST = '서버 연결이 끊겼습니다.';
 export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number };
 /** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | unsure(보냈지만 접수 답을 못 받음) | failed(보내지 못함). 로봇이 멈췄는지는 state 로만 본다 */
 export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string };   // at = 이 단계가 된 때
+/** 서버가 이 화면의 구독을 거둠(담당 바뀜·로봇 지움, apps/server README). n = 몇 번째인지(화면이 한 번씩 처리) */
+export type Revoked = { robot: string; reason: ScreenSubscriptionRevoked['reason']; n: number };
 export type Live = {
   state: ScreenState | null;
   stateAt: number;
@@ -67,6 +69,9 @@ const last = new Map<string, { status: Status | null; battery: number | null; at
 const active = new Set<string>();   // 조종 화면이 열린 로봇 — 그 밖의 로봇에 온 내 lease 는 바로 돌려준다
 const gone = new Set<string>();     // 내가 돌려준 lease — 반납 전에 나간 늦은 알림이 되살리지 않게
 const waiting = new Map<string, (r: ScreenReply) => void>();
+// 구독을 거둔 로봇 → 그 시각. 그 뒤에 요청한 목록이 다시 볼 수 있다고 할 때까지 sub 에 넣지 않는다(범위 밖 sub 는 서버가 4403 으로 연결 전체를 닫는다)
+const revoked = new Map<string, number>();
+let lastRevoked: Revoked | null = null;
 const subs = new Set<() => void>();
 let ver = 0, n = 0, seq = 0, tries = 0, lastRx = 0, lastPing = 0, want = false;
 let era = new AbortController();   // 이번 로그인 세션: 끊으면(disconnect) 그 세션이 시작한 STOP 타이머·HTTP 를 모두 거둔다
@@ -169,7 +174,8 @@ function receive(m: { t?: unknown }) {
     case 'lease': return onLease(m as ScreenLeaseUpdate);
     case 'lease.requested': return onRequested(m as ScreenLeaseRequested);
     case 'lease.result': return onResult(m as ScreenLeaseResult);
-    // ping·event·notify·run 은 받은 것(생존)만 센다 — 사건·알림·실행 화면은 다음 작업
+    case 'subscription.revoked': return onRevoked(m as ScreenSubscriptionRevoked);
+    // ping·event·notify·run·모르는 t 는 받은 것(생존)만 센다 — 사건·알림·실행 화면은 다음 작업
   }
 }
 
@@ -223,6 +229,19 @@ function onResult(m: ScreenLeaseResult) {
     notice: m.result === 'TIMEOUT' ? '응답이 없어 요청이 끝났습니다.' : `${l.holder?.name || '조종권자'}님이 거절했습니다.` });
 }
 
+/** 구독 회수: 서버가 조종권을 먼저 비우고(lease null → 정지) 보낸다. 이 로봇의 조종권·요청·상태를 버리고 구독에서 뺀다 — STOP 결과 줄만 남긴다.
+ *  다른 로봇 구독과 소켓은 그대로 */
+function onRevoked(m: ScreenSubscriptionRevoked) {
+  if (typeof m.robot !== 'string') return;
+  const l = get(m.robot);
+  if (l.lease) gone.add(l.lease);
+  live.set(m.robot, { ...EMPTY, stop: l.stop }); last.delete(m.robot);
+  revoked.set(m.robot, now());
+  robots = robots.filter((id) => id !== m.robot);
+  lastRevoked = { robot: m.robot, reason: m.reason === 'ROBOT_DELETED' ? 'ROBOT_DELETED' : 'ACCESS_REVOKED', n: (lastRevoked?.n ?? 0) + 1 };
+  emit();
+}
+
 /** 숨기거나 떠남: 조종권(또는 넘겨받는 중인 것)을 0·잠금·반납 */
 function leave(id: string) {
   const l = get(id);
@@ -238,6 +257,8 @@ export const rt = {
   now,
   get,
   link: () => link,
+  /** 마지막 구독 회수(없으면 null) */
+  revoked: () => lastRevoked,
   /** 로그인 뒤 한 번. ids = 상태를 받을 로봇(총괄 전체, 운영 관리자는 담당 로봇만 — 남의 로봇을 구독하면 서버가 연결을 닫는다) */
   connect(ids: string[]) {
     robots = ids; want = true; tries = 0;
@@ -250,12 +271,14 @@ export const rt = {
     want = false; robots = []; stopBeat(); clearTimeout(retry);
     document.removeEventListener('visibilitychange', onVisible); removeEventListener('pagehide', onPageHide);
     era.abort(); era = new AbortController(); drop(1000);
-    live.clear(); last.clear(); active.clear(); gone.clear(); waiting.clear();
+    live.clear(); last.clear(); active.clear(); gone.clear(); waiting.clear(); revoked.clear(); lastRevoked = null;
     link = { at: 'idle' }; emit();
   },
   /** 상태를 받을 로봇이 바뀜(목록 갱신으로 담당이 바뀜 등): 빠진 로봇은 조종권을 돌려주고 상태를 지우며, 열려 있으면 sub 를 다시 보낸다.
-   *  소켓은 그대로(쥔 조종권을 잃지 않게) */
-  follow(ids: string[]) {
+   *  소켓은 그대로(쥔 조종권을 잃지 않게). at = 그 목록을 요청한 시각(now()) — 회수 뒤에 요청한 목록이어야 거둔 로봇을 다시 구독한다 */
+  follow(ids: string[], at = 0) {
+    for (const [id, t] of revoked) if (t < at) revoked.delete(id);
+    ids = ids.filter((id) => !revoked.has(id));
     if (ids.join() === robots.join()) return;
     for (const id of robots) if (!ids.includes(id)) { leave(id); live.delete(id); last.delete(id); }
     robots = ids;

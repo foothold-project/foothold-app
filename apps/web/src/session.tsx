@@ -1,30 +1,24 @@
 // 로그인·세션(05 API §2). 열 때 GET /auth/session 으로 CSRF 를 다시 받아 세션을 잇고, 401 이면 로그인 화면.
 // 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=all(운영 관리자도 전체 — 남의 로봇은 보기 전용, 02 §1.1) → App.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { RobotSummary, User as ApiUser } from '../../contracts/ts';
+import type { User as ApiUser } from '../../contracts/ts';
 import { App } from './App';
 import { BrandLogo } from './BrandLogo';
 import { api, onAuthLost, type ApiFail } from './api';
-import { clearServerData, setServerData, type Robot, type User } from './fake';
+import { clearServerData, setServerData, toRobot, type Robot, type User } from './fake';
+import { now } from './rt';
 
 /** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 영상·지도·임무가 서버에서 오면 지운다 */
-export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·조직 기준값과 로봇 연결·상태·배터리·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·임무·결재·기록은 아직 가짜입니다.';
+export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·로봇 등록·조직 기준값과 로봇 연결·상태·배터리·장치·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·층·임무·결재·기록은 아직 가짜입니다.';
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자가 구독하지 못하는 남의 로봇 요약(조종권자 등)을 다시 받는 간격 */
 export const LIST_MS = 10_000;
 
 const toUser = (u: ApiUser): User => ({ id: u.id, name: u.display_name, role: u.role });
-const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
-export const toRobot = (r: RobotSummary): Robot => ({
-  id: r.id, name: r.name, owner: r.owner?.id ?? '', ownerName: r.owner?.display_name, floor: r.location?.floor_id ?? '',
-  battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
-  mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined,
-  holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
-  listedAt: clock(new Date().toISOString()),
-});
 
-/** cancel = 이 로그인 세션에 묶인 취소 신호(화면 요청에 넘김) — 세션이 끝나면 거둬, 늦게 온 답(앞 세션의 401 등)이 다음 세션의 인증을 건드리지 않게 */
-type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; n: number; cancel: AbortSignal; note?: string };
+/** cancel = 이 로그인 세션에 묶인 취소 신호(화면 요청에 넘김) — 세션이 끝나면 거둬, 늦게 온 답(앞 세션의 401 등)이 다음 세션의 인증을 건드리지 않게.
+ *  fresh = 지금 robots 를 요청한 시각(now()) — 더 늦게 요청한 목록만 덮어쓴다 */
+type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; fresh: number; n: number; cancel: AbortSignal; note?: string };
 
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' });
@@ -35,11 +29,23 @@ export function Root() {
   useEffect(() => { if (st.at === 'login') clearServerData(); }, [st.at]);
   const enter = async () => {
     const me = toUser(await api.me());
-    const robots = (await api.robots('all')).map(toRobot);
+    const fresh = now(), robots = (await api.robots('all')).map(toRobot);
     setServerData(me, robots);
     live.current?.abort();
     const g = live.current = new AbortController();
-    setSt((s) => ({ at: 'app', user: me, robots, n: (s.at === 'app' ? s.n : 0) + 1, cancel: g.signal }));
+    setSt((s) => ({ at: 'app', user: me, robots, fresh, n: (s.at === 'app' ? s.n : 0) + 1, cancel: g.signal }));
+  };
+  /** 목록 다시 받기 — 이 로그인 세션(사용자·n)에 묶는다: 세션이 바뀌었거나 더 늦게 요청한 목록이 이미 왔으면 버린다 */
+  const reload = (session: string, cancel: AbortSignal) => {
+    const fresh = now();
+    return api.robots('all', cancel).then((rs) => {
+      const robots = rs.map(toRobot);
+      setSt((s) => {
+        if (s.at !== 'app' || `${s.user.id}-${s.n}` !== session || fresh <= s.fresh) return s;
+        setServerData(s.user, robots);
+        return { ...s, robots, fresh };
+      });
+    });
   };
   // 남의 로봇은 실시간 구독이 안 돼(서버가 4403) 목록 요약을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면).
   // 갱신은 이 로그인 세션(사용자·n)에 묶는다: 세션이 바뀌면 진행 중인 요청을 거두고 늦은 답은 버린다. 앞 요청이 안 끝났으면 다음은 건너뜀
@@ -51,14 +57,7 @@ export function Root() {
     const i = setInterval(() => {
       if (busy) return;
       busy = true;
-      api.robots('all', gone.signal).then((rs) => {
-        const robots = rs.map(toRobot);
-        setSt((s) => {
-          if (s.at !== 'app' || `${s.user.id}-${s.n}` !== session) return s;
-          setServerData(s.user, robots);
-          return { ...s, robots };
-        });
-      }, () => {}).finally(() => { busy = false; });
+      reload(session, gone.signal).catch(() => {}).finally(() => { busy = false; });
     }, LIST_MS);
     return () => { clearInterval(i); gone.abort(); };
   }, [session]);
@@ -73,7 +72,9 @@ export function Root() {
   if (st.at === 'login') return <Login note={st.note} enter={enter} />;
   // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
-  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} dev={DEV_NOTE} />;
+  // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
+  const refresh = () => { reload(`${st.user.id}-${st.n}`, st.cancel).catch(() => {}); };
+  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} dev={DEV_NOTE} />;
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {

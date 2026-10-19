@@ -2,6 +2,7 @@
 
   python apps/web/tools/dev_stack.py server <폴더> [포트]   임시 PostgreSQL(폴더 안)·마이그레이션·조직/계정 3개/로봇 1대·uvicorn
   python apps/web/tools/dev_stack.py agent <폴더>           apps/agent Client + 가짜 브리지(메모리 sink) — 끄면 «로봇 끊김»
+      FH_AGENT_TOKEN=<토큰> 을 주면 stack.json 대신 그 토큰으로 붙는다(화면에서 새로 등록한 로봇 확인용)
 
 계정 비밀번호·로봇 토큰은 실행할 때마다 새로 만들어 <폴더>/stack.json 에만 쓴다(커밋 금지 — 폴더는 runs/ 아래).
 Ctrl+C(또는 SIGTERM)로 uvicorn·PostgreSQL 까지 모두 끈다. 포트는 127.0.0.1 만.
@@ -106,7 +107,7 @@ def agent(folder: Path):
     async def main():
         bridge = Bridge()
         client = Client(Session(asyncio.get_running_loop().time), bridge,
-                        Settings(url=stack['base'].replace('http', 'ws', 1) + '/api/v1/agent/ws', token=stack['agent_token']))
+                        Settings(url=stack['base'].replace('http', 'ws', 1) + '/api/v1/agent/ws', token=os.environ.get('FH_AGENT_TOKEN') or stack['agent_token']))
         task = asyncio.create_task(client.run())
         last = None
         while not task.done():

@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { ApiError, LoginResponse, MePatch, OrgSettings, OrgSettingsPatch, PasswordChange, RobotSummary, Session, SessionInfo, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { AgentTokenResponse, ApiError, Dashboard, LoginResponse, MePatch, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -69,6 +69,15 @@ export const api = {
   me: (cancel?: AbortSignal) => call<User>('GET', '/me', undefined, { cancel }),
   /** 화면은 scope=all(02 §1.1) */
   robots: (scope: 'mine' | 'all', cancel?: AbortSignal) => pages<RobotSummary>(`/robots?scope=${scope}`, cancel),
+  /** 한 대(05 §3). 담당 밖 운영 관리자에게는 요약만(실시간 값 null·UNKNOWN) */
+  robot: (id: string, cancel?: AbortSignal) => call<RobotSummary>('GET', `/robots/${encodeURIComponent(id)}`, undefined, { cancel }),
+  /** 관제 요약(05 §4) — 총괄 조직 전체, 운영 관리자는 담당 범위 */
+  dashboard: (cancel?: AbortSignal) => call<Dashboard>('GET', '/dashboard', undefined, { cancel }),
+  // 로봇 등록·바꾸기(총괄, 05 §3). agent_token 은 응답에서 한 번만 온다 — 부른 쪽이 보여 주고 버린다
+  createRobot: (p: RobotCreate, cancel?: AbortSignal) => call<RobotCreated>('POST', '/robots', p, { cancel }),
+  saveRobot: (id: string, p: RobotPatch, cancel?: AbortSignal) => call<RobotSummary>('PATCH', `/robots/${encodeURIComponent(id)}`, p, { cancel }),
+  deleteRobot: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/robots/${encodeURIComponent(id)}`, undefined, { cancel }),
+  robotToken: (id: string, cancel?: AbortSignal) => call<AgentTokenResponse>('POST', `/robots/${encodeURIComponent(id)}/agent-token`, undefined, { cancel }),
   // 설정 탭 요청은 cancel(로그인 세션의 취소 신호)을 받는다 — 세션이 끝난 뒤 온 답은 CANCELED 로 버려 다음 세션의 인증을 건드리지 않음
   /** 내 이름(05 §2 PATCH /me) */
   saveMe: (p: MePatch, cancel?: AbortSignal) => call<User>('PATCH', '/me', p, { cancel }),
