@@ -2,6 +2,7 @@
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서),
 // 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 나머지는 가짜.
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotStatus, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
@@ -39,8 +40,8 @@ export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) 
 }
 
 /** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨).
- *  logout 이 있으면 머리줄에 로그아웃. note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
-export function App({ user = USERS[0], robots: listed = ROBOTS, logout, note, dev }: { user?: User; robots?: Robot[]; logout?: () => void; note?: string; dev?: string }) {
+ *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
+export function App({ user = USERS[0], robots: listed = ROBOTS, logout, setMe = () => {}, note, dev }: { user?: User; robots?: Robot[]; logout?: () => void; setMe?: (u: ApiUser) => void; note?: string; dev?: string }) {
   const phone = usePhone();
   useRt();
   const robots = listed.map(withLive), net = rt.link();
@@ -79,7 +80,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, note, de
   const cur = tabsFor(phone).find((t) => t.id === tab)!;
   const problems = pool.filter(lost);
   const attention = pool.filter((r) => robotStatus(r).tone === 'warn' || robotStatus(r).tone === 'bad').length;
-  const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight } : null;
+  const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight, setMe } : null;
   const Body = BODY[tab];
 
   const link = (t: Tab, cls: string) => {
@@ -125,7 +126,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, note, de
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
       <main className="fh-main" aria-label={labelOf(cur, user.role)}>{ctx ? <Body key={`${tab}-${ctx.robot.id}-${user.id}`} {...ctx} />
-        : tab === 'settings' ? <Settings user={user} light={light} setLight={setLight} />
+        : tab === 'settings' ? <Settings user={user} light={light} setLight={setLight} setMe={setMe} />
         : <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p></section>}
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>

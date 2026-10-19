@@ -59,7 +59,7 @@ export function Root() {
     return () => { clearInterval(i); gone.abort(); };
   }, [session]);
   useEffect(() => {
-    onAuthLost(() => toLogin(ENDED));
+    onAuthLost((why) => toLogin(why ?? ENDED));
     api.session().then(enter).catch((e: ApiFail) => toLogin(e.status === 401 ? undefined : e.message));
   }, []);
   const logout = () => api.logout().then(() => toLogin(),
@@ -67,7 +67,9 @@ export function Root() {
 
   if (st.at === 'wait') return <div className="fh"><p className="lv-note" style={{ padding: 16 }} role="status">불러오는 중…</p></div>;
   if (st.at === 'login') return <Login note={st.note} enter={enter} />;
-  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} logout={logout} note={st.note} dev={DEV_NOTE} />;
+  // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
+  const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
+  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} logout={logout} setMe={setMe} note={st.note} dev={DEV_NOTE} />;
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
