@@ -179,12 +179,18 @@ function receive(m: { t?: unknown }) {
   }
 }
 
+/** 상세 서랍에 보이는 위치(0.1 m·초)·장치 — 이것만 바뀌어도 다시 그린다 */
+const shown = (s: ScreenState) => {
+  const l = s.location;
+  return JSON.stringify([l && [l.x?.toFixed(1), l.y?.toFixed(1), l.updated_at.slice(0, 19)], s.devices]);
+};
 function onState(s: ScreenState) {
   const l = get(s.robot);
   if (s.connection === 'ONLINE') last.set(s.robot, { status: s.status, battery: s.battery?.soc ?? null, at: clock() });
   const p = l.state;
   // 화면에 보이는 값이 바뀔 때만 다시 그림(10 Hz 그대로 그리지 않음)
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
+    && shown(p) === shown(s)
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }

@@ -37,27 +37,32 @@ export function DriveButton({ c, r, label, onClick, wait }: { c: Ctx; r: Robot; 
 /** 관제 요약을 다시 받는 간격(05 §4 — 화면 WS 에 요약 메시지가 없다) */
 export const DASH_MS = 10_000;
 type Count = Exclude<keyof Dashboard, 'operators'>;
+const COUNTS: Count[] = ['robots_total', 'robots_online', 'robots_running', 'robots_attention', 'approvals_pending'];
+const isDash = (x: Dashboard | null) => !!x && Array.isArray(x.operators) && COUNTS.every((k) => Number.isInteger(x[k]) && x[k] >= 0);
 
-function Fleet(c: Ctx) {
-  const admin = c.user.role === 'ORG_ADMIN', r = c.robot;
-  // 요약 수치는 서버 값 그대로(운영 관리자는 서버가 담당 범위로 셈). 못 받으면 «—» + 이유, 받은 뒤 실패하면 이전 값 그대로
-  const [d, setD] = useState<Dashboard | null>(null), [dErr, setDErr] = useState('');
+/** 관제 요약(GET /dashboard, DASH_MS 마다) — 로봇 0대여도 보인다. 수치는 서버 값 그대로(운영 관리자는 서버가 담당 범위로 셈).
+ *  못 받으면 «—» + 이유, 받은 뒤 실패하면 이전 값 그대로 */
+function useDash(cancel?: AbortSignal) {
+  const [d, setD] = useState<Dashboard | null>(null), [err, setErr] = useState('');
   useEffect(() => {
-    const get = () => api.dashboard(c.cancel).then((x) => { if (!Array.isArray(x?.operators)) return setDErr('요약 형식이 맞지 않습니다.'); setD(x); setDErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setDErr(e.message); });
+    const get = () => api.dashboard(cancel).then((x) => { if (!isDash(x)) return setErr('요약 형식이 맞지 않습니다.'); setD(x); setErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(e.message); });
     get();
     const i = setInterval(get, DASH_MS);
     return () => clearInterval(i);
   }, []);
-  const n = (k: Count) => (d ? d[k] : '—');
+  return [d, err] as const;
+}
+
+/** 로봇 0대의 관제: 요약·운영 관리자 표 + 빈 목록 안내(children) */
+export function EmptyFleet({ user, cancel, children }: { user: User; cancel?: AbortSignal; children: ReactNode }) {
+  const [d, err] = useDash(cancel);
+  return <><Kpi user={user} d={d} err={err} />{children}<Operators user={user} d={d} /></>;
+}
+
+function Fleet(c: Ctx) {
+  const admin = c.user.role === 'ORG_ADMIN', r = c.robot, [d, err] = useDash(c.cancel);
   return <>
-    <section className="card fh-kpi" aria-label="요약">
-      <div><span>{admin ? '전체' : '내 로봇'}</span><b>{n('robots_total')}</b></div>
-      <div><span>연결</span><b>{n('robots_online')}</b></div>
-      <div><span>임무 중</span><b>{n('robots_running')}</b></div>
-      <div className={d?.robots_attention ? 'bad' : ''}><span>주의 필요</span><b>{n('robots_attention')}</b></div>
-      <div><span>{admin ? '결재 대기' : '내 요청'}</span><b>{n('approvals_pending')}</b></div>
-      {dErr && <p className="fh-msg" role="alert">요약을 받지 못했습니다. {dErr}</p>}
-    </section>
+    <Kpi user={c.user} d={d} err={err} />
     <section className="lv-card" aria-label="로봇 목록">
       <h2>로봇</h2>
       <ul className="fh-list">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
@@ -70,14 +75,32 @@ function Fleet(c: Ctx) {
       <h2>지도</h2>
       <Slot text="지도 자리" h={240} />
     </section>
-    <Detail key={r.id} {...c} />
-    {admin && <section className="lv-card" aria-label="운영 관리자">
-      <h2>운영 관리자{d ? ` ${d.operators.length}명` : ''}</h2>
-      {d && !d.operators.length && <p className="lv-note">운영 관리자 계정이 없습니다.</p>}
-      {d && !!d.operators.length && <ul className="fh-list">{d.operators.map((o) => <li key={o.user_id} className="fh-row">
-        <span className="fh-grow">{o.display_name}</span><span className="mono">로봇 {o.robot_count}대</span></li>)}</ul>}
-    </section>}
+    {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
+    <Detail key={`${r.id}-${r.owner}`} {...c} />
+    <Operators user={c.user} d={d} />
   </>;
+}
+
+function Kpi({ user, d, err }: { user: User; d: Dashboard | null; err: string }) {
+  const admin = user.role === 'ORG_ADMIN', n = (k: Count) => (d ? d[k] : '—');
+  return <section className="card fh-kpi" aria-label="요약">
+    <div><span>{admin ? '전체' : '내 로봇'}</span><b>{n('robots_total')}</b></div>
+    <div><span>연결</span><b>{n('robots_online')}</b></div>
+    <div><span>임무 중</span><b>{n('robots_running')}</b></div>
+    <div className={d?.robots_attention ? 'bad' : ''}><span>주의 필요</span><b>{n('robots_attention')}</b></div>
+    <div><span>{admin ? '결재 대기' : '내 요청'}</span><b>{n('approvals_pending')}</b></div>
+    {err && <p className="fh-msg" role="alert">요약을 받지 못했습니다. {err}</p>}
+  </section>;
+}
+
+function Operators({ user, d }: { user: User; d: Dashboard | null }) {
+  if (user.role !== 'ORG_ADMIN') return null;
+  return <section className="lv-card" aria-label="운영 관리자">
+    <h2>운영 관리자{d ? ` ${d.operators.length}명` : ''}</h2>
+    {d && !d.operators.length && <p className="lv-note">운영 관리자 계정이 없습니다.</p>}
+    {d && !!d.operators.length && <ul className="fh-list">{d.operators.map((o) => <li key={o.user_id} className="fh-row">
+      <span className="fh-grow">{o.display_name}</span><span className="mono">로봇 {o.robot_count}대</span></li>)}</ul>}
+  </section>;
 }
 
 const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_DEPTH: '뎁스 카메라', LIDAR: '라이다', BATTERY: '배터리', OTHER: '기타' };

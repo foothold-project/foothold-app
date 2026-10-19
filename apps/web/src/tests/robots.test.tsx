@@ -111,13 +111,27 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
   });
   it('요약 실패(403·500·네트워크·형식 틀림) → 숫자를 지어내지 않고 «—» + 이유', async () => {
     for (const [rep, says] of [[err(403, 'FORBIDDEN', '권한이 없습니다.'), '권한이 없습니다.'], [err(500, 'INTERNAL', '서버 오류'), ''],
-      [() => { throw new TypeError('Failed to fetch'); }, '서버에 연결하지 못했습니다'], [{ status: 200, body: {} }, '요약 형식이 맞지 않습니다']] as const) {
+      [() => { throw new TypeError('Failed to fetch'); }, '서버에 연결하지 못했습니다'], [{ status: 200, body: {} }, '요약 형식이 맞지 않습니다'],
+      [{ status: 200, body: { ...DASH, robots_total: '2' } }, '요약 형식이 맞지 않습니다'], [{ status: 200, body: { ...DASH, robots_online: null } }, '요약 형식이 맞지 않습니다']] as const) {
       serve(signedIn(KIM, [RA], { 'GET /dashboard': rep as Reply }));
       await open('#/fleet');
       expect(Object.values(kpi())).toEqual(['—', '—', '—', '—', '—']);
       expect(card('요약').querySelector('[role="alert"]')!.textContent).toContain(`요약을 받지 못했습니다. ${says}`);
       act(() => root!.unmount()); box.remove();
     }
+  });
+  it('로봇 0대: 선택 로봇 없이도 GET /dashboard·요약·운영 관리자 표, «로봇 없음»', async () => {
+    serve(signedIn(KIM, [], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 0, robots_online: 0, robots_attention: 0 } } }));
+    await open('#/fleet');
+    expect(sent('GET', '/dashboard')).toHaveLength(1);
+    expect(kpi()).toEqual({ 전체: '0', 연결: '0', '임무 중': '0', '주의 필요': '0', '결재 대기': '0' });
+    expect(card('운영 관리자').textContent).toContain('운영 관리자 2명');
+    expect(card('로봇 없음').textContent).toContain('로봇이 없습니다');
+    act(() => root!.unmount()); box.remove();
+    serve(signedIn(LEE, [], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 0, robots_online: 0, robots_attention: 0, operators: [] } } }));
+    await open('#/fleet');
+    expect(kpi()['내 로봇']).toBe('0');
+    expect($('[aria-label="운영 관리자"]')).toBeNull();
   });
   it('요약을 10 s 마다 다시 받는다(화면 WS 에 요약 없음)', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
@@ -161,6 +175,43 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     expect(card('로봇 상세').querySelector('h2 + *')!.textContent).toBe('○확인 안 됨');
     expect(btn('조종하기', card('로봇 상세'))!.disabled).toBe(true);
     stopOk();
+  });
+  it('위치·장치만 바뀐 state 도 상세를 다시 그린다', async () => {
+    serve(signedIn(KIM, [RA]));
+    await open('#/fleet');
+    const w = live(KIM);
+    act(() => w.recv(state('r-a', { location: RA.location, devices: RA.devices })));
+    await click(row('Go2-A'));
+    act(() => w.recv(state('r-a', { location: { ...RA.location!, x: 9 }, devices: [{ ...RA.devices[0], state: 'ERROR' }] })));
+    expect(line('위치')).toContain('x 9.0 m');
+    expect(line('장치')).toContain('오류');
+  });
+  it('열린 상세의 담당이 바뀌면 다시 받아 조종 가능, 옛 요청의 늦은 답은 버린다', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    serve(signedIn(LEE, [RA, RB_HIDDEN]));
+    const served = globalThis.fetch;
+    let late!: () => void, held = false;
+    vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+      if (held || !url.endsWith('/robots/r-b')) return served(url, init);
+      held = true;
+      return new Promise<Response>((ok) => { late = () => ok(served(url, init) as unknown as Response); });
+    });
+    await open('#/fleet');
+    const w = live(LEE);
+    await click(row('Go2-B'));
+    expect(line('담당')).toBe('박운영');
+    const mine = { ...RB, owner: RA.owner, connection: 'ONLINE' as const };
+    routes['GET /robots'] = { status: 200, body: { items: [RA, mine], next_cursor: null } };
+    routes['GET /robots/r-b'] = { status: 200, body: mine };
+    act(() => { vi.advanceTimersByTime(10_000); });
+    await flush();
+    act(() => w.recv(state('r-b')));
+    routes['GET /robots/r-b'] = { status: 200, body: RB_HIDDEN };
+    await act(async () => late());
+    await flush();
+    expect(sent('GET', '/robots/r-b')).toHaveLength(2);
+    expect(line('담당')).toBe('이운영');
+    expect(btn('조종하기', card('로봇 상세'))!.disabled).toBe(false);
   });
   it('상세 404 → «찾을 수 없음» + 목록 다시 받기, 그 밖 실패는 이유', async () => {
     serve(signedIn(KIM, [RA], { 'GET /robots/r-a': err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.') }));
