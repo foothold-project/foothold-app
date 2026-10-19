@@ -168,3 +168,93 @@ def test_approved_unlock_discards_old_local_velocity_before_resume():
     sink.flush()
     assert ("resume",) in out
     assert all(value == Z for kind, *rest in out if kind == "velocity" for value in rest)
+
+
+@pytest.mark.parametrize("change", [{"policy_running": False}, {"stop_requested": True}, {"reset_in_progress": True}])
+def test_same_stamp_safety_transition_and_recovery_cannot_restore_motion(change):
+    h = Harness()
+    h.moving()
+    stamp, progress = h.session.core.st["sim_t"], h.inputs.last_state
+    raw = state(sim_t=stamp, stop_requested=False)
+    raw.update(change)
+    h.clock.t += .01
+    h.inputs.state(raw)
+    h.loop.drain()
+    h.clock.t += .06
+    h.cmd([1, 0, 0])
+    assert h.session.core.out == Z
+    assert h.inputs.last_state == progress
+    assert all(h.session.core.st[k] == v for k, v in change.items())
+    # Only content changes may be forwarded: identical repeats do not touch Core.
+    core_receipt = h.session.core.state_t
+    h.clock.t += .01
+    h.inputs.state(raw)
+    h.loop.drain()
+    assert h.session.core.state_t == core_receipt
+    # A same-clock recovery, including different measurements, cannot clear gates.
+    h.inputs.state(state(sim_t=stamp, stop_requested=False, vx=.2))
+    h.loop.drain()
+    assert all(h.session.core.st[k] == v for k, v in change.items())
+    h.cmd([0, 0, 0])
+    h.clock.t += .06
+    h.cmd([1, 0, 0])
+    assert h.session.core.out == Z
+    assert h.inputs.last_state == progress
+    h.clock.t = progress + 1.001
+    h.inputs.stale()
+    h.loop.drain()
+    assert h.sink._held and h.inputs.telemetry.snapshot()["speed"] is None
+
+
+def test_changed_same_stamp_measurement_preserves_progress_age():
+    h = Harness()
+    h.moving()
+    stamp, progress = h.session.core.st["sim_t"], h.inputs.last_state
+    h.clock.t += .1
+    h.inputs.state(state(sim_t=stamp, stop_requested=False, vx=.2))
+    h.loop.drain()
+    assert h.session.core.st["vx"] == .2
+    assert not h.sink._held and not h.session.core.latch
+    assert h.inputs.last_state == progress
+    assert h.inputs.telemetry.snapshot()["observation"]["received_monotonic_s"] == h.clock.t
+    assert h.inputs.telemetry.snapshot()["observation"]["progress_monotonic_s"] == progress
+    h.clock.t = progress + 1.001
+    assert h.inputs.telemetry.snapshot()["speed"] is None
+
+
+def test_receive_entry_generation_precedes_validation_barrier():
+    import threading
+    clock, loop = Clock(), Loop()
+    sink, _ = make_sink(clock)
+    inputs = Inputs(loop, sink, lambda raw: None, now=clock)
+    accepted, release = threading.Event(), threading.Event()
+    accept = inputs.gate.accept
+    def paused(*args):
+        result = accept(*args)
+        accepted.set()
+        assert release.wait(1)
+        return result
+    inputs.gate.accept = paused
+    producer = threading.Thread(target=lambda: inputs.state(state()))
+    producer.start()
+    assert accepted.wait(1)
+    try:
+        sink.hold()
+    finally:
+        release.set()
+        producer.join(timeout=1)
+    assert not producer.is_alive()
+    loop.drain()
+    assert sink._held
+
+
+def test_pending_same_stamp_safety_edge_survives_newer_mailbox_state():
+    h = Harness()
+    h.moving()
+    stamp = h.session.core.st["sim_t"]
+    h.inputs.state(state(sim_t=stamp, stop_requested=False, policy_running=False))
+    h.inputs.state(state(sim_t=stamp + .1, stop_requested=False, policy_running=True))
+    assert len(h.loop.calls) == 1
+    h.loop.drain()
+    assert h.session.core.out == Z and h.session.core.need_neutral
+    assert h.sink._held

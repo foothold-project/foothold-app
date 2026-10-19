@@ -23,8 +23,8 @@ def number(value):
 class StateGate:
     """ROS-thread validator. A rewind quarantines an episode until a newer episode.
 
-    Equal stamps are ignored by Inputs without a hold or clock refresh: a replay/paused simulator must
-    not keep a moving Core alive merely by refreshing the receipt timestamp.
+    Identical contents at equal stamps are ignored. Changed safety gates are
+    conservative until source progress; receive time never replaces progress age.
     """
 
     def __init__(self):
@@ -32,8 +32,12 @@ class StateGate:
         self.sim_t = None
         self.quarantined = False
         self.reason = "unseen"
+        self.advanced = False
+        self.progress_at = None
+        self._last_input = self._conservative = None
 
     def accept(self, raw, received_at, now):
+        self.advanced = False
         try:
             cleaned = clean_state(raw)
         except (OverflowError, TypeError):
@@ -53,15 +57,32 @@ class StateGate:
             return None
         if ep != self.episode:
             self.episode, self.sim_t, self.quarantined = ep, None, False
+            self._last_input = self._conservative = None
         if self.quarantined:
             self.reason = "time_rewind"
             return None
-        if self.sim_t is not None and stamp <= self.sim_t:
-            self.quarantined = stamp < self.sim_t
-            self.reason = "time_rewind" if self.quarantined else "duplicate_stamp"
+        if self.sim_t is not None and stamp < self.sim_t:
+            self.quarantined = True
+            self.reason = "time_rewind"
             return None
-        self.sim_t = stamp
-        self.reason = "reset" if cleaned["reset_in_progress"] else "accepted"
+        if self.sim_t is not None and stamp == self.sim_t:
+            if cleaned == self._last_input:
+                self.reason = "duplicate_stamp"
+                return None
+            self._last_input = dict(cleaned)
+            # Same-clock recovery cannot erase a safety observation. Only source
+            # progress may replace it; Core still requires its own resume/neutral.
+            cleaned["stop_requested"] |= self._conservative["stop_requested"]
+            cleaned["reset_in_progress"] |= self._conservative["reset_in_progress"]
+            cleaned["policy_running"] &= self._conservative["policy_running"]
+            self.reason = "same_stamp_update"
+        else:
+            self.sim_t = stamp
+            self.progress_at = received_at
+            self.advanced = True
+            self._last_input = dict(cleaned)
+            self.reason = "reset" if cleaned["reset_in_progress"] else "accepted"
+        self._conservative = dict(cleaned)
         # Preserve schema for Core.clean_state; cleaned itself intentionally omits it.
         return {"schema": raw["schema"], **cleaned}
 
@@ -113,9 +134,11 @@ class Telemetry:
             self.events.append({"reason": reason, "received_monotonic_s": self.now()})
         self._reason = reason
 
-    def update_state(self, raw, received_at):
+    def update_state(self, raw, received_at, *, progress_at=None):
         raw = self._gate.accept(raw, received_at, self.now())
         if raw is None:
+            if self._gate.reason == "duplicate_stamp":
+                return
             self.invalidate(self._gate.reason)
             return
         if self._epoch != raw["episode"]:
@@ -129,7 +152,9 @@ class Telemetry:
             self.invalidate("episode_changed")
         self._reason = None
         self.state = {"episode": raw["episode"], "sim_t": raw["sim_t"],
-                      "received_monotonic_s": received_at, "vx": raw.get("vx"),
+                      "received_monotonic_s": received_at,
+                      "progress_monotonic_s": self._gate.progress_at if progress_at is None else progress_at,
+                      "vx": raw.get("vx"),
                       "vy": raw.get("vy"), "source": raw.get("source")}
 
     def update_odom(self, sample):
@@ -161,6 +186,7 @@ class Telemetry:
         return (s is not None and number(stamp) and number(receipt)
                 and 0 <= self.now() - receipt <= STATE_STALE
                 and 0 <= self.now() - s["received_monotonic_s"] <= STATE_STALE
+                and 0 <= self.now() - s["progress_monotonic_s"] <= STATE_STALE
                 and 0 <= s["sim_t"] - stamp <= STATE_STALE)
 
     def update_map(self, status, received_at):

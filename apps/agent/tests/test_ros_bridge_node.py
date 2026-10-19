@@ -165,3 +165,57 @@ def test_startup_writer_conflict_prevents_ready(ros):
         assert not any(e[0] == "/v2_live/resume" for e in ros.events)
         assert any(e[0] == "/v2_live/stop" for e in ros.events)
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("first", ["owner", "ros"])
+def test_close_completes_emergency_before_ack_and_destroy(ros, first):
+    async def run():
+        node = RosNode(config())
+        sink = await node.start(lambda raw: None)
+        started, release, waiting, complete = (threading.Event() for _ in range(4))
+        errors = []
+        original_emergency = sink._emergency
+        def paused_emergency():
+            first_thread = "owner-close" if first == "owner" else "agent-rclpy"
+            if threading.current_thread().name == first_thread:
+                started.set()
+                assert release.wait(2)
+            original_emergency()
+        class Completion:
+            def wait(self):
+                waiting.set()
+                complete.wait()
+            def set(self):
+                complete.set()
+        sink._close_complete = Completion()
+        sink._emergency = paused_emergency
+        ros.events.clear()
+        def close():
+            try:
+                node.close()
+            except BaseException as exc:
+                errors.append(exc)
+        owner = threading.Thread(target=close, name="owner-close")
+        try:
+            if first == "ros":
+                node._closing.set()  # make ROS finally the first close caller
+                assert started.wait(1)
+                owner.start()
+            else:
+                owner.start()
+                assert started.wait(1)
+            assert waiting.wait(1), "second close did not wait for the first emergency"
+            assert not any(e[0] in {"acked", "destroy_node"} for e in ros.events)
+        finally:
+            release.set()
+            if owner.ident is not None:
+                owner.join(timeout=2)
+            else:
+                node.close()
+        assert not owner.is_alive() and not node._thread.is_alive() and not errors
+        zero = max(i for i, e in enumerate(ros.events) if e[0] == "/v2_live/cmd_vel")
+        stop = max(i for i, e in enumerate(ros.events) if e[0] == "/v2_live/stop")
+        acks = [i for i, e in enumerate(ros.events) if e[0] == "acked"]
+        destroy = next(i for i, e in enumerate(ros.events) if e[0] == "destroy_node")
+        assert len(acks) == 2 and max(zero, stop) < min(acks) < destroy
+    asyncio.run(run())

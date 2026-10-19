@@ -73,6 +73,7 @@ class Inputs:
         self.mailbox.put(state=None, invalid=reason)
 
     def state(self, raw, received_at=None):
+        generation = self.sink.feedback_generation()
         received_at = self.now() if received_at is None else received_at
         if isinstance(raw, str):
             try:
@@ -88,8 +89,13 @@ class Inputs:
                 return  # no refresh, no hold; receipt/state stale clocks still expire
             self.reject(self.gate.reason)
             return
-        self.last_state = received_at
-        self.mailbox.put(state=(accepted, received_at, self.sink.feedback_generation()))
+        frame = (accepted, received_at, generation, self.gate.progress_at)
+        if self.gate.advanced:
+            self.last_state = received_at
+        elif (accepted["stop_requested"] or accepted["reset_in_progress"] or not accepted["policy_running"]):
+            self.sink.hold()
+            self.mailbox.put(safety=frame)
+        self.mailbox.put(state=frame)
 
     def stale(self):
         if self.last_state is not None and self.now() - self.last_state > STATE_STALE:
@@ -100,19 +106,12 @@ class Inputs:
         try:
             if "invalid" in bundle:
                 self.telemetry.invalidate(bundle["invalid"])
+            safety = bundle.get("safety")
+            if safety is not None and safety != bundle.get("state"):
+                self._deliver_state(safety)
             item = bundle.get("state")
             if item is not None:
-                raw, receipt, generation = item
-                if not 0 <= self.now() - receipt <= STATE_STALE:
-                    self.sink.hold()
-                    self.telemetry.invalidate("mailbox_stale")
-                    return
-                if raw["reset_in_progress"]:
-                    self.sink.hold()
-                elif raw["stop_requested"]:
-                    self.sink.observe_stop(generation)
-                self.telemetry.update_state(raw, receipt)
-                self.on_state(raw)  # existing public Client entrypoint, owning asyncio loop
+                self._deliver_state(item)
             if "odom" in bundle:
                 self.telemetry.update_odom(bundle["odom"])
             if "map" in bundle:
@@ -124,6 +123,19 @@ class Inputs:
                 self.on_error(exc)
             else:
                 raise
+
+    def _deliver_state(self, item):
+        raw, receipt, generation, progress_at = item
+        if not 0 <= self.now() - receipt <= STATE_STALE:
+            self.sink.hold()
+            self.telemetry.invalidate("mailbox_stale")
+            return
+        if raw["reset_in_progress"]:
+            self.sink.hold()
+        elif raw["stop_requested"]:
+            self.sink.observe_stop(generation)
+        self.telemetry.update_state(raw, receipt, progress_at=progress_at)
+        self.on_state(raw)  # existing public Client entrypoint, owning asyncio loop
 
 
 COMMAND_TOPICS = ("/v2_live/cmd_vel", "/v2_live/stop", "/v2_live/resume")

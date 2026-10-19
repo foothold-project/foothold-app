@@ -31,6 +31,7 @@ class RosSink:
         self._lock = threading.RLock()  # memory only; NEVER held across ROS calls
         self._output_lock = threading.RLock()
         self._closed = threading.Event()
+        self._close_complete = threading.Event()
         self._pending = Z
         self._stopped = True
         self._held = False
@@ -208,9 +209,17 @@ class RosSink:
 
     def close(self):
         with self._lock:
-            if self._closed.is_set():
-                return
-            self._closed.set()
-        self._emergency()
-        if self._watchdog is not None and self._watchdog is not threading.current_thread():
-            self._watchdog.join(timeout=0.5)
+            first = not self._closed.is_set()
+            if first:
+                self._closed.set()
+        if not first:
+            # A second caller (notably ROS finally) must not ACK/destroy while
+            # the owner is still waiting to dispatch its emergency ZERO/STOP.
+            self._close_complete.wait()
+            return
+        try:
+            self._emergency()
+            if self._watchdog is not None and self._watchdog is not threading.current_thread():
+                self._watchdog.join()  # completion means stopped, not a join timeout
+        finally:
+            self._close_complete.set()

@@ -60,12 +60,13 @@ PYTHONPATH="apps/agent:${PYTHONPATH:-}" python3 -m foothold_agent.ros_bridge
   뒤 `>=0.3 s`면 대기 명령 폐기·0/STOP이다. stop/unlock은 이 시계를 늘리지 않는다.
   ROS flush가 0.3 s 진행하지 않으면 fresh apply가 있어도 출력 오류로 종료한다.
   executor/콜백 오류와 shutdown도 0/STOP을 각각 시도하고 오류를 숨기지 않는다.
-- 나쁜/오래된 수신은 즉시 출력 hold를 건다. 수신 때의 출력 세대와 일치하는 신선한 실제 STOP 확인 뒤 새 승인
+- 나쁜/오래된 수신은 즉시 출력 hold를 건다. 수신 진입(파싱·검증 전)에 포착한 출력 세대와 일치하는 신선한 실제 STOP 확인 뒤 새 승인
   unlock이 있어야 비영 경로가 열린다. 다리가 Core의 latch/controller/세대를 쓰지 않는다.
 - `rclpy` 생성·spin·일반 발행·destroy는 전용 스레드에서 한다. 독립 watchdog과
   shutdown의 비상 0/STOP만 thread-safe publisher를 사용할 수 있다.
   종료 비상 0/STOP 뒤 reliable ACK를 전체 최대 1초 기다린 후 node를 파괴한다.
-  ACK 시간 초과는 오류로 남긴다. 이벤트 루프나 executor spin 정지는 감시하지만, 프로세스 전체 정지·GIL 독점·OS
+  여러 스레드가 close해도 첫 비상 발행·watchdog 정리의 완료 Event를 기다린 뒤
+  ACK 대기로 넘어가며, ACK 시간 초과는 오류로 남긴다. 이벤트 루프나 executor spin 정지는 감시하지만, 프로세스 전체 정지·GIL 독점·OS
   스케줄링 지연·영구히 멎은 publisher API는 같은 프로세스 스레드로 보장할 수 없다.
   하위 ingress TTL은 별도 방어이며 이 감시 시험을 대신하지 않는다.
 
@@ -80,11 +81,17 @@ terminal 0/STOP으로 종료한다. ROS graph 관측이며 전역 배타 예약�
 
 ROS 콜백은 Core를 호출하지 않는다. state/odom/map 최신 캐시를 크기 1 bundle로
 합치고, 예약 callback도 한 개만 두어 `loop.call_soon_threadsafe()`로 전달한다.
-거부 사유는 drain까지 보존하므로 뒤의 정상 표본이 무효화를 지우지 못한다.
+거부 사유와 최신 안전 전이 1건은 drain까지 보존하므로 뒤의 정상 표본이
+무효화·입력 폐기를 지우지 못한다. 안전 전이를 먼저 Core에 전달한 뒤 최신 상태를 전달한다.
 소유 루프에서 실제 수신 나이를 다시 검사한 뒤 기존 `Client.on_robot_state()`로
 넣는다. schema·관문 타입·유한 숫자·episode 순서·sim 시각·수신 나이를 검사하고
-Core의 `clean_state`는 그대로 재사용한다. 동일 sim stamp는 hold/STOP 없이 버리고 수신·Core stale 시계를 갱신하지 않는다.
-반복되어 1초를 넘으면 기존 stale 관문으로 정지한다. 한 번의 중복은 잠금을 만들지 않으며,
+Core의 `clean_state`는 그대로 재사용한다. stamp와 정제 내용까지 같은 중복만
+hold/STOP 없이 버린다. 같은 stamp여도 바뀐 관문·측정 내용은 전달하며, 특히
+policy_running=false·stop_requested=true·reset_in_progress=true는 즉시 0/입력 폐기
+경로로 전달한다. 같은 stamp의 후속 회복으로 이 관문을 지우지 않으며 원천 시각
+전진 후에도 Core의 잠금·새 중립 절차는 그대로다. 같은 stamp 갱신은 원천 progress
+시계를 늘리지 않는다. 반복되어 1초를 넘으면 stale 관문으로 정지한다. 물리 정체로 stamp가 전진하지 않으면 STOP 해제도 허용하지 않는다(N-2 가용성 제한).
+내용까지 같은 중복 한 번은 잠금을 만들지 않으며,
 같은 episode의 시각 역행은 더 큰 episode가 올 때까지 격리한다.
 
 ## 원격측정과 B 단계 필요 변경
@@ -95,7 +102,9 @@ Core의 `clean_state`는 그대로 재사용한다. 동일 sim stamp는 hold/STO
 wall clock일 수 있어 node는 header_stamp/clock=unverified로 전달하고, 정제 캐시는
 odom=null·odom_reason=clock_unverified를 유지한다. sim 시계로 이름을 바꾸거나
 추측 변환하지 않는다. 명시적으로 검증한 simulation clock 표본만 캐시에 허용한다.
-원천 sim 시각·수신 monotonic·episode·source를 함께 보관한다.
+원천 sim 시각·실제 수신 monotonic·마지막 원천 전진 monotonic·episode·source를
+별도 보관한다. 같은 stamp의 새 정보도 실제 수신 시각을 기록하지만 freshness는
+마지막 원천 전진 시각보다 늘어나지 않는다.
 시각 역행·RESET·stale에는 null로 비운다. odom/map 시각 역행도 해당 episode에서
 격리한다. confidence·battery는 null이며 미측정 속도를 0으로 만들지 않는다.
 
@@ -147,8 +156,8 @@ python apps/agent/tools/check_link_mutations.py
 PYTHONPATH=apps/agent python -m foothold_agent.ros_bridge.check_mutations
 ```
 
-최종 결과: 전체 **269 passed, 1 skipped**(합성 ROS는 기본 opt-in 제외),
-기존 link 돌연변이 **46/46 KILLED**, 새 ROS 다리 돌연변이 **27/27 KILLED**.
+최종 결과: 전체 **277 passed, 1 skipped**(합성 ROS는 기본 opt-in 제외),
+기존 link 돌연변이 **46/46 KILLED**, 새 ROS 다리 돌연변이 **36/36 KILLED**.
 기존 Core 셀프테스트와 WS 실제 loopback 시험을 모두 포함한다.
 
 합성 명령(동일 가상환경의 python):
@@ -168,7 +177,7 @@ false 피드백→새 중립→SI 비영 발행을 확인했다. 실제 비영 �
 차단하고 독립 peer가 마지막 apply 뒤 0.28~0.38초 내 0/STOP을 수신하는지 측정한다.
 이 단계에서만 ROS flush의 보조 watchdog 검사를 시험 fixture가 제외하므로, 독립
 감시 스레드를 60초 지연한 사본은 같은 합성 시험에서 assertion으로 실패한다.
-실측은 Twist 0=0.3032초, STOP=0.3034초였다.
+실측은 Twist 0=0.3039초, STOP=0.3041초였다.
 합성 중 두 번째 cmd writer 생성도 terminal 거부됨을 확인한다. **1 passed**. Jazzy는 LOCALHOST_ONLY deprecated 경고를 출력했으며
 설정을 적용한다고 명시했다. Gazebo·정책·RESET·운영 서버·domain 61 참가·실기 접촉 0.
 
@@ -197,6 +206,13 @@ false 피드백→새 중립→SI 비영 발행을 확인했다. 실제 비영 �
 | R-7 미확인 odom clock 사유 소실 | KILLED |
 | R-8 ACK timeout 무시 / node ACK 대기 삭제 (각 1개) | KILLED |
 | R-9 CWD DDS 프로필 자동 읽기 허용 | KILLED |
+| B3 같은 stamp 안전 변화 폐기 | KILLED |
+| B3 같은 stamp policy/STOP/RESET 회복 허용 (각 1개) | KILLED |
+| B3 같은 stamp로 입력 freshness 연장 | KILLED |
+| B3 같은 stamp로 측정 freshness 연장 | KILLED |
+| B3 mailbox가 앞선 안전 전이 폐기 | KILLED |
+| R-5 검증 뒤 세대 포착 | KILLED |
+| N-1 두 번째 close가 비상 발행 완료 대기 생략 | KILLED |
 | 이전 episode 수락 | KILLED |
 | NaN 수락 | KILLED |
 | sim 시각 역행 수락 | KILLED |
@@ -207,7 +223,7 @@ false 피드백→새 중립→SI 비영 발행을 확인했다. 실제 비영 �
 이 PR은 안전 범위다. `dev` 반영 전 Claude·Codex 두 모델 검토와 조정 세션의
 수용 기준 재실행이 필요하다. 초안 PR 제출은 merge나 배포를 뜻하지 않는다.
 
-PR15 두 모델 검토 수정은 위 27개 stub 변이와 별도 **R-4 합성 변이 1/1 KILLED**로
+PR15 두 모델 검토 수정은 위 36개 stub 변이와 별도 **R-4 합성 변이 1/1 KILLED**로
 검증했다. 합성 변이 관측 부모는 domain93 참가자가 아니므로 부모의 ROS_DOMAIN_ID를
 설정하지 않고, 도구가 자식에게만 93/LOCALHOST/opt-in을 주입한다:
 
@@ -221,3 +237,13 @@ PYTHONPATH="apps/agent:${PYTHONPATH:-}" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
 검토 권고 처리: R-5 세대 검사, R-7/Codex R2 clock 미확인 null, R-8 ACK 대기,
 R-9 자동 프로필 거부는 구현했다. R-6은 위 재기동 절차를 명시하고 자동 episode
 초기화는 안전상 도입하지 않았다. B 단계 서버 원격측정/지도 계약 범위는 그대로다.
+
+B3/R-5 재확인: 외부 재현의 policy 중지·STOP·RESET 3개, 수신/검증 barrier 1개, 종료 순서 1개를
+포함해 **282 passed, 1 skipped**(agent 자체 277 + 외부 재현 5)였다. 회복·반복 중복·
+최신 mailbox 덮어쓰기·진입 세대 경합은 저장소 회귀로도 추가했다. Core/link 수정 0.
+
+Claude/Codex N-1 재확인: owner 선행과 ROS finally 선행 양쪽에서 첫 close를 비상
+발행 직전 barrier에 멈추고 두 번째 close가 완료를 기다리는지, 실제
+ZERO/STOP → ACK 2건 → destroy 순서를
+검사한다. 완료 대기를 생략한 변이는 이 회귀의 assertion으로 실패한다. N-2의 같은
+stamp STOP 관문 변화는 B3 회귀/변이에 포함되며, 위 물리 정체 제한을 명시했다.
