@@ -4,6 +4,8 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrgSettings, RobotSummary, User } from '../../../contracts/ts';
 import { api } from '../api';
+import { ROBOTS as MEM_ROBOTS, USERS as MEM_USERS } from '../fake';
+import { drive } from '../fakeDrive';
 import { Root } from '../session';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -123,6 +125,36 @@ describe('로그인·세션', () => {
     await open('#/settings');
     expect($('main[aria-label="로그인"]')).not.toBeNull();
     expect($('[role="alert"]')!.textContent).toBe('로그인이 끝났습니다. 다시 로그인하세요.');
+    expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);   // 401 뒤 메모리에도 이전 자료 0
+  });
+  it('B1 총괄 로그아웃 → 운영 관리자 로그인: 이전 사용자·로봇·조종 상태가 메모리·화면에 0', async () => {
+    let me = KIM;
+    const mine = { a1: [robot('r-k', 'Go2-K', 'a1', '김총괄')], o1: [robot('r-l', 'Go2-L', 'o1', '이운영')] };
+    serve(signedIn(KIM, [], {
+      'GET /me': () => ({ status: 200, body: me }),
+      'GET /robots': () => ({ status: 200, body: { items: mine[me.id as 'a1' | 'o1'], next_cursor: null } }),
+      'POST /auth/logout': { status: 204 },
+      'POST /auth/login': () => { me = LEE; return { status: 200, body: { ...LEE, csrf_token: 'csrf-2', access_token: null, refresh_token: null } }; },
+    }));
+    await open();
+    expect($('[aria-label="로봇 목록"]')!.textContent).toContain('Go2-K');
+    act(() => btn('로그아웃')!.click());
+    await flush();
+    expect($('main[aria-label="로그인"]')).not.toBeNull();
+    expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);
+    expect(drive.get('r-k')).toBeUndefined();   // 가짜 조종 중재기도 새로
+    expect(box.textContent).not.toMatch(/김총괄|Go2-K/);
+
+    const seen: string[] = [];   // 운영 관리자 로그인 동안 그려진 모든 화면에 이전 자료가 한 번도 없는지
+    const watch = new MutationObserver(() => seen.push(box.textContent!));
+    watch.observe(box, { childList: true, subtree: true, characterData: true });
+    await login('lee', 'pw');
+    watch.disconnect();
+    expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
+    expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-L']);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.filter((t) => /김총괄|Go2-K/.test(t))).toEqual([]);
+    expect(MEM_ROBOTS.map((r) => r.name)).toEqual(['Go2-L']);
   });
   it('틀림(401)·제한(429)은 서버 문구 그대로, 로그인 화면 유지', async () => {
     serve({ 'GET /auth/session': NO_LOGIN, 'POST /auth/login': err(401, 'AUTH_REQUIRED', '계정 또는 비밀번호를 확인하세요.') });

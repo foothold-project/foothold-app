@@ -91,3 +91,5 @@ export function setServerData(me: User, robots: Robot[]) {
   USERS.splice(0, USERS.length, me);
   ROBOTS.splice(0, ROBOTS.length, ...robots);
 }
+/** 세션이 끝나면(로그아웃·401) 이전 사용자·로봇을 메모리에서 지움 — 다음 사람에게 남지 않게 */
+export const clearServerData = () => { USERS.length = 0; ROBOTS.length = 0; };

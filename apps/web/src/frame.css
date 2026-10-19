@@ -66,6 +66,7 @@ button{cursor:pointer}
 .fh-why{font-size:14px;color:var(--muted)}
 .fh-slot{min-height:160px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:8px;color:var(--muted);font-size:14px}
 .fh.phone .fh-head{padding:6px 8px;gap:8px}
+.fh.phone .fh-user{min-width:0;text-overflow:ellipsis}   /* 좁은 폰: 로봇 고르기가 줄고 ⋯·STOP 은 그대로(B2) */
 .fh.phone .fh-main{padding:8px;gap:8px}
 .fh button[disabled]{cursor:not-allowed}
 .fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}

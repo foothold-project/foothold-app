@@ -5,7 +5,7 @@ import type { RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { App } from './App';
 import { BrandLogo } from './BrandLogo';
 import { api, onAuthLost, type ApiFail } from './api';
-import { setServerData, type Robot, type User } from './fake';
+import { clearServerData, setServerData, type Robot, type User } from './fake';
 import { resetDrive } from './fakeDrive';
 
 /** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 실시간 연결이 붙으면 지운다 */
@@ -24,7 +24,9 @@ type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user
 
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' });
-  const toLogin = (note?: string) => setSt({ at: 'login', note });
+  // 로그인 화면으로 가는 길은 모두 여기(로그아웃·401·세션 없음): 이전 사용자·로봇·가짜 조종 상태를 먼저 비운다.
+  // 조직 기준값은 설정 화면 상태라 App 이 내려가며 같이 사라진다
+  const toLogin = (note?: string) => { clearServerData(); resetDrive(); setSt({ at: 'login', note }); };
   const enter = async () => {
     const me = toUser(await api.me());
     const robots = (await api.robots('all')).map(toRobot);
