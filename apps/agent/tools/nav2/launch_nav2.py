@@ -10,7 +10,7 @@ from pathlib import Path
 # role requires review: none may publish directly into the bridge command set.
 COMMAND_ROLES = {
     'controller_server': '/fh_nav/intent',
-    'behavior_server': '/fh_nav/intent',  # zero configured behaviors
+    'behavior_server': 'DISABLED',  # straight BT has no recovery actions
     'velocity_smoother': 'DISABLED',
     'collision_monitor': 'DISABLED',
     'docking_server': 'DISABLED',
@@ -30,7 +30,7 @@ def generate_launch_description():
     nodes = []
     for package, executable in (
             ('nav2_controller', 'controller_server'), ('nav2_planner', 'planner_server'),
-            ('nav2_behaviors', 'behavior_server'), ('nav2_bt_navigator', 'bt_navigator')):
+            ('nav2_bt_navigator', 'bt_navigator')):
         overrides = {'use_sim_time': True}
         if executable == 'bt_navigator':
             overrides['default_nav_to_pose_bt_xml'] = bt
@@ -42,5 +42,5 @@ def generate_launch_description():
     nodes.append(Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
                       name='fh_nav_lifecycle_manager', parameters=[{
                           'use_sim_time': True, 'autostart': True,
-                          'node_names': ['controller_server', 'planner_server', 'behavior_server', 'bt_navigator']}]))
+                          'node_names': ['controller_server', 'planner_server', 'bt_navigator']}]))
     return LaunchDescription(nodes)
