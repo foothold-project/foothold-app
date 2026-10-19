@@ -5,6 +5,7 @@ Each transport mutation names a regression test. No production service is touche
 the tests use the existing disposable PostgreSQL harness and ASGI fake peers.
 """
 from pathlib import Path
+import argparse
 import shutil
 import json
 import os
@@ -373,9 +374,37 @@ MUTATIONS = [
      'apps/server/tests/test_server_followup.py::test_unknown_sub_refresh_is_bounded_and_does_not_block_existing_stop'),
 
     ('S0 empty lane skips valid policy snapshot', R,
-     "                    await asyncio.sleep(.002)\n            if isinstance(cached, self.api_error):",
-     "                    after = started\n            if isinstance(cached, self.api_error):",
-     'apps/server/tests/test_server_followup.py::test_sub_refreshes_snapshot_after_robot_write_and_missing_keeps_connection[register]'),
+     "after if after is not None else float('-inf')",
+     'max(q.stamp for q in self.policy_pipelines.values())',
+     'apps/server/tests/test_server_followup.py::test_policy_refresh_waits_for_either_lane_without_crossing_watermarks'),
+
+    ('S0R21 canceled request bypasses cooldown', L,
+     '            r.cooldown[actor.user] = self.clock() + 30\n            return self.cancel_request(robot)',
+     '            return self.cancel_request(robot)',
+     PURE + '::test_cancel_counts_as_request_and_cooldown_follows_user[False]'),
+    ('S0R21 canceled transfer bypasses cooldown', L,
+     '            r.cooldown[actor.user] = self.clock() + 30\n            return self.revoke(robot, actor)',
+     '            return self.revoke(robot, actor)',
+     PURE + '::test_cancel_counts_as_request_and_cooldown_follows_user[True]'),
+    ('S0R21 expiry cancel silently succeeds', L,
+     "        raise LeaseError('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.')",
+     '        return []',
+     PURE + '::test_cancel_and_expiry_emit_one_terminal_result_per_recipient[False]'),
+    ('S0R21 confirmation cancel revokes new holder', L,
+     "        raise LeaseError('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.')",
+     '        return self.revoke(robot, actor)',
+     PURE + '::test_cancel_and_confirmation_emit_one_terminal_result_per_recipient[False]'),
+    ('S0R21 reused names silently downgraded', 'apps/server/migrations/versions/0007_robot_active_name.py',
+     "op.create_unique_constraint('robots_org_id_name_key', 'robots', ['org_id', 'name'])", 'pass',
+     'apps/server/tests/test_migrations.py::test_reused_archived_name_rejects_downgrade_atomically'),
+    ('S0R21 cancel blocked by archive admission', R,
+     "rid and msg.t != 'lease.cancel' and isinstance(self.audit, FairAuditQueue)",
+     'rid and isinstance(self.audit, FairAuditQueue)',
+     'apps/server/tests/test_server_followup.py::test_request_cancel_survives_archive_admission_closed'),
+    ('S0R21 policy refresh polls empty lane', R,
+     "                    waits = [asyncio.create_task(p.next(after=max(p.stamp,\n                                 after if after is not None else float('-inf'))))\n                             for p in self.policy_pipelines.values()]",
+     "                    await asyncio.sleep(.002)\n                    continue\n                    waits = []",
+     'apps/server/tests/test_server_followup.py::test_policy_refresh_waits_for_either_lane_without_crossing_watermarks'),
 
 ]
 
@@ -404,6 +433,14 @@ def run(tree, tests):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--match', action='append', default=[],
+                        help='Run matching mutation names only (repeatable); retain the full server baseline')
+    args = parser.parse_args()
+    mutations = [m for m in MUTATIONS if not args.match or any(
+        needle.casefold() in m[0].casefold() for needle in args.match)]
+    if not mutations:
+        parser.error('No mutation names match')
     # Reject stale probes before spending a full database/integration baseline.
     for name, path, before, _, _ in MUTATIONS:
         if before not in (ROOT / path).read_text():
@@ -422,7 +459,7 @@ def main():
         print('Full server baseline: ' + summary, flush=True)
         print('| Broken decision | Detection |', flush=True)
         print('|---|---|', flush=True)
-        for name, path, before, after, test in MUTATIONS:
+        for name, path, before, after, test in mutations:
             file = tree / path
             original = file.read_text()
             if before not in original:
@@ -439,7 +476,7 @@ def main():
                 print(output, flush=True)
     if failed:
         raise SystemExit('Undetected mutations: ' + ', '.join(failed))
-    print(f'{len(MUTATIONS)}/{len(MUTATIONS)} detected by assertion failures (no execution/collection errors)')
+    print(f'{len(mutations)}/{len(mutations)} detected by assertion failures (no execution/collection errors)')
 
 
 if __name__ == '__main__':

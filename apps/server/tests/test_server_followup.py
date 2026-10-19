@@ -12,7 +12,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session as DBSession
 
 from apps.contracts import models as C
-from apps.server.fh_server.models import Robot, Session, User, Event
+from apps.server.fh_server.models import Robot, Session, User, Event, now
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take
 from .test_realtime_review import run
 
@@ -65,6 +65,73 @@ def test_requester_cancel_closes_both_dialogs_and_blocks_late_grant(client, seed
             assert record.holder.lease_id == lease
             assert not reply(holder, send(holder, 'lease.respond', rid, request_id=req['request_id'], accept=True))['ok']
         assert not reply(requester, send(requester, 'lease.cancel', rid))['ok']
+
+
+@pytest.mark.parametrize('accepted', [False, True])
+def test_request_cancel_survives_archive_admission_closed(client, seeded, rt, monkeypatch, accepted):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client, 'one')) as holder, \
+            screen(client, app_token(client, 'admin')) as requester:
+        lease = take(holder, ag, rid)
+        assert reply(requester, send(requester, 'lease.request', rid))['ok']
+        req = receive(holder, 'lease.requested')
+        if accepted:
+            assert reply(holder, send(holder, 'lease.respond', rid, request_id=req['request_id'], accept=True))['ok']
+            receive(ag, 'lease')
+            stop = receive(ag, 'stop')
+        monkeypatch.setattr(rt.audit, 'admission_open', lambda _: False)
+        assert reply(requester, send(requester, 'lease.cancel', rid))['ok']
+        result = receive(holder, 'lease.result')
+        assert result['result'] == 'CANCELED' and result['request_id'] == req['request_id']
+        record = rt.arbiter.robot(rid)
+        assert record.request is None and record.transfer is None
+        if accepted:
+            ag.send_json(state(4, stop_ref=stop['stop_ref']))
+            assert reply(requester, send(requester, 'ping'))['ok']
+            assert record.holder is None
+        else:
+            assert record.holder.lease_id == lease
+        refused = reply(requester, send(requester, 'lease.request', rid))
+        assert not refused['ok'] and refused['error']['code'] == 'ROBOT_ARCHIVE_BUSY'
+
+
+def test_policy_refresh_waits_for_either_lane_without_crossing_watermarks(client, rt):
+    from apps.server.fh_server.leases import Actor
+    from apps.server.fh_server.realtime import Peer, Policy
+    from .test_realtime_review import Sink
+    async def check():
+        peer = Peer(Sink(), actor=Actor('user', 'session', 'connection'))
+        policy = Policy(rights={}, settings=C.OrgSettings(), expires_at=now(), checked=10.5)
+        class Lane:
+            def __init__(self, stamp):
+                self.stamp, self.latest = stamp, {}
+                self.task = asyncio.current_task()
+                self.changed, self.calls = asyncio.Event(), []
+            async def next(self, after=None):
+                self.calls.append(after)
+                while self.stamp <= after:
+                    self.changed.clear()
+                    await self.changed.wait()
+                return self.latest, self.stamp
+        view, control = Lane(11), Lane(9)
+        rt.policy_pipelines = {'view': view, 'control': control}
+        async def publish():
+            # The empty view lane is newer than the valid control result.
+            for _ in range(3):
+                await asyncio.sleep(0)
+            control.latest, control.stamp = {'session': policy}, 10.5
+            control.changed.set()
+        producer = asyncio.create_task(publish())
+        try:
+            await rt.refresh_policy(peer, after=10)
+            assert peer.policy == policy
+            assert view.calls == [11] and control.calls == [10]
+        finally:
+            producer.cancel()
+            await asyncio.gather(producer, return_exceptions=True)
+            rt.policy_pipelines.clear()
+            await rt.release_policy(peer)
+    run(client, check)
 
 
 def test_twenty_cold_stops_ignore_unrelated_token_refresh(client, seeded, rt, monkeypatch):

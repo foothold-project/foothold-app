@@ -1212,3 +1212,47 @@ python3 sim/v2_link.py --selftest
 정본 차이 목록은 PR 본문에 기록하고 docs/spec는 변경하지 않는다.
 코드는 변경 커밋을 revert한다. 0007 downgrade는 보관 이름 재사용의 중복이 남으면
 거절되므로 백업·이름 조정 등 승인된 이관이 먼저 필요하다. 과거 행을 자동 변경하지 않는다.
+
+
+## PR #21 두 모델 검토 후속 (2026-10-20)
+
+Claude B1: 요청자가 취소한 대기 요청과 STOP 확인 중인 넘김 모두 취소 확정부터
+사용자별 30초 제한에 센다. 고정 시계로 20회 재요청·다른 연결/세션 우회·취소 후
+29.999초 거절/30초 허용을 검증한다. 거절·TIMEOUT의 기존 제한 기준은 그대로다.
+Codex 권고 2건도 영구 회귀로 추가했다. 만료/수락 확정과 취소의 양쪽 순서는 각
+수신자에게 종결 결과가 정확히 1회이고 holder를 잘못 바꾸지 않는다. 이름 재사용 뒤
+0007→0006은 자료·부분 인덱스·Alembic 버전을 보존하며 거절하고, 명시적으로 보관
+이름을 조정하면 0006→head 왕복과 metadata diff 0이 통과한다. 새 migration은 없다.
+
+Claude R1: 화면별 2ms polling 대신 두 공유 lane의 새 결과를 기다린다. 빈 lane은
+자신의 watermark만 전진시키고 다른 lane의 유효 스냅숏을 건너뛰지 않는다. 대기
+작업은 완료/취소/2초 시한 때 회수하며 공유 producer cadence와 500ms 신선도는
+그대로다. R4: 기록 admission이 닫혀도 권한 있는 동일 요청자 연결의 취소는 처리한다.
+대기 취소는 holder를 유지하고, 수락 뒤 취소는 lease-null/STOP을 유지한다. 새 요청의
+503 admission 제한도 시험한다. 기록 큐의 용량·예약 정책은 바꾸지 않는다. 기존처럼
+대기 취소의 별도 감사 op는 없고, 닫힌 admission에서 수락 뒤 취소의 RELEASE는
+note_audit 경로에서 생략될 수 있다. 취소는 새 조종권·이동 권한을 발급하지 않는다.
+
+Claude R3의 실제 시계 홍수 시험은 완화하거나 통과 재시도하지 않았다. 실제
+스케줄러·DB 지연을 포함한 가용성 gate이므로 안전 쪽 POLICY_STALE도 가용성 실패로
+드러내야 PR18 관측 재발을 숨기지 않는다. 바쁜 호스트의 실패가 안전 규칙 위반이라는
+뜻은 아니며, 안전성은 별도의 고정 시계 0/500/501ms 회수·STOP 시험으로 판정한다.
+이 유지 이유는 PR 본문에도 적었다. 화면 sub404 reply 복구는 W2 소유이므로 제외했다.
+
+- 관련 정상 회귀: **54 passed**,23.62s.
+- 서버 전체 정상 기준: **374 passed**,310.83s, 요청된 1회만 실행했다.
+- 관련 변이: **29/29 assertion 검출**, exit 0. 기존 S0 22개와 검토 후속 7개만
+  실행했으며 실행/수집 오류·MISSED는 0이다. 취소 제한 제거·만료/확정 뒤 잘못된
+  취소·downgrade 무검사 통과·혼잡 때 취소 503·정책 polling/잘못된 watermark를 검출한다.
+- 전체에는 Alembic 왕복·이름 재사용 downgrade 거절·실제 uvicorn+가짜 Client 통합과
+  실제 시계 홍수·STOP·기존 권한 회수 시험이 포함된다.
+
+```sh
+FH_TEST_PORT_RANGE=9150:9169 python -m pytest apps/server/tests/test_leases.py apps/server/tests/test_migrations.py apps/server/tests/test_server_followup.py -q -x --tb=short
+FH_TEST_PORT_RANGE=9150:9169 python apps/server/tools/check_realtime_mutations.py --match S0
+```
+
+변이 선택 실행도 정상 서버 전체를 먼저 실행하며, 실행/수집 오류는 검출로 세지 않는다.
+생성물·TypeScript·selftest는 이번에 해당 파일이 바뀌지 않아 반복하지 않았다.
+시험은 127.0.0.1:9150~9169의 일회용 PostgreSQL/uvicorn과 가짜 peers만 사용한다.
+운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기에는 접촉하지 않았다.

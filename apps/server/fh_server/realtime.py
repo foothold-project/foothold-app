@@ -728,10 +728,6 @@ class Realtime:
                     min_interval=.015 if purpose == 'control' else .1)
         pending = self.policy_pipelines[lane]
         self.policy_loads[sid] = pending
-        if lane == 'control' and pending.stamp == float('-inf'):
-            # Keep the already warm observer snapshot while reserved reads fill;
-            # promotion never extends its start-based lifetime.
-            pending = self.policy_pipelines.get('view', pending)
         cached = self.policy_cache.get(sid)
         if cached is None or self.clock() - cached.checked >= .035 or (after is not None and cached.checked <= after):
             async with asyncio.timeout(DB_READ_TIMEOUT):
@@ -742,20 +738,22 @@ class Realtime:
                     if available:
                         best = max(available, key=lambda p: p.stamp)
                         batch, started = best.latest, best.stamp
-                    else:
-                        batch, started = await pending.next(after=after)
-                    # Never replace a fresh observer result with an older
-                    # reserved result during promotion (or vice versa).
-                    for candidate in self.policy_pipelines.values():
-                        if (candidate.stamp > started and isinstance(candidate.latest, dict)
-                                and sid in candidate.latest):
-                            batch, started = candidate.latest, candidate.stamp
-                    if sid in batch:
                         cached = batch[sid]
                         break
-                    # An empty result from the other lane must not move the
-                    # requested watermark past this session's reserved result.
-                    await asyncio.sleep(.002)
+                    # Wait for either shared lane to advance, without polling
+                    # per screen. Empty batches advance only their own lane's
+                    # watermark; they cannot skip the other lane's snapshot.
+                    waits = [asyncio.create_task(p.next(after=max(p.stamp,
+                                 after if after is not None else float('-inf'))))
+                             for p in self.policy_pipelines.values()]
+                    try:
+                        done, _ = await asyncio.wait(waits, return_when=asyncio.FIRST_COMPLETED)
+                        for task in done:
+                            task.result()
+                    finally:
+                        for task in waits:
+                            task.cancel()
+                        await asyncio.gather(*waits, return_exceptions=True)
             if isinstance(cached, self.api_error):
                 raise cached
             cached = replace(cached, checked=min(started, cached.checked))
@@ -1300,7 +1298,8 @@ class Realtime:
                         raise LeaseError('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.')
                     if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock'):
                         self.policy_controls.add(actor.session)
-                    if rid and isinstance(self.audit, FairAuditQueue) and not self.audit.admission_open(rid):
+                    if (rid and msg.t != 'lease.cancel' and isinstance(self.audit, FairAuditQueue)
+                            and not self.audit.admission_open(rid)):
                         if msg.t == 'stop':
                             self.apply([e for e in self.arbiter.stop(rid, actor) if e.target != 'audit'])
                         raise LeaseError('ROBOT_ARCHIVE_BUSY', '로봇 기록 저장을 확인하세요.', 503)

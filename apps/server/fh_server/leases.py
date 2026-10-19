@@ -115,10 +115,12 @@ class Arbiter:
     def cancel(self, robot, actor):
         r = self.robot(robot)
         if r.request and r.request.actor == actor:
+            r.cooldown[actor.user] = self.clock() + 30
             return self.cancel_request(robot)
         # Accept may have won the race, but STOP confirmation has not granted
         # the lease yet. Cancel that transfer too, preserving lease-null/STOP.
         if r.transfer and r.transfer.request and r.transfer.actor == actor:
+            r.cooldown[actor.user] = self.clock() + 30
             return self.revoke(robot, actor)
         raise LeaseError('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.')
 
