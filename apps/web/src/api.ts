@@ -20,6 +20,8 @@ let csrf: string | null = null;
 let authLost = () => {};
 /** 로그인·세션 확인 밖의 요청이 401 이면 부른다 — 화면은 로그인으로 */
 export const onAuthLost = (f: () => void) => { authLost = f; };
+/** 로그인이 끝났다(401·실시간 4401) — CSRF 를 버리고 화면은 로그인으로 */
+export const expireAuth = () => { csrf = null; authLost(); };
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
@@ -33,7 +35,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const data: unknown = await res.json().catch(() => null);
   if (res.ok) return data as T;
   const e = (data as Partial<ApiError> | null)?.error;
-  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/session') { csrf = null; authLost(); }
+  if (res.status === 401 && path !== '/auth/login' && path !== '/auth/session') expireAuth();
   throw new ApiFail(res.status, e?.code ?? 'INTERNAL_ERROR', e?.message || (FALLBACK[res.status] ?? '요청을 처리하지 못했습니다. 잠시 뒤 다시 시도하세요.'));
 }
 
@@ -58,4 +60,6 @@ export const api = {
   },
   settings: () => call<OrgSettings>('GET', '/org/settings'),
   saveSettings: (p: OrgSettingsPatch) => call<OrgSettings>('PATCH', '/org/settings', p),
+  /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
+  stop: (robot: string) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`),
 };

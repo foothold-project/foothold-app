@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from '../fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
+import { FakeWS } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -113,10 +114,12 @@ describe('STOP 상시 표시', () => {
       expect($('[data-band][role="status"]')).not.toBeNull();
     }
   });
-  it('STOP 을 누르면 띠에 «정지 요청됨»', () => {
+  it('STOP 을 누르면 실시간 연결로 보내고, 서버가 받으면 띠에 «정지 요청됨»', () => {
     mount(false);
+    act(() => FakeWS.last.open());
     click($('[aria-label="비상 정지"]'));
-    expect($('[data-band]').textContent).toContain('정지 요청됨');
+    expect(FakeWS.last.of('stop')).toMatchObject([{ robot: 'r3' }]);
+    expect($('[data-band]').textContent).toContain('Go2-3 정지 요청됨');
   });
 });
 

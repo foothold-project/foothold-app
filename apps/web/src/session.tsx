@@ -6,14 +6,13 @@ import { App } from './App';
 import { BrandLogo } from './BrandLogo';
 import { api, onAuthLost, type ApiFail } from './api';
 import { clearServerData, setServerData, type Robot, type User } from './fake';
-import { resetDrive } from './fakeDrive';
 
-/** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 실시간 연결이 붙으면 지운다 */
-export const DEV_NOTE = '개발용 표시: 계정·역할·로봇 목록·조직 기준값은 서버 값입니다. 로봇 상태·영상·조종·임무·결재·기록·지도는 실시간 연결 전이라 가짜입니다.';
+/** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 영상·지도·임무가 서버에서 오면 지운다 */
+export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·조직 기준값과 로봇 연결·상태·배터리·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·임무·결재·기록은 아직 가짜입니다.';
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 
 const toUser = (u: ApiUser): User => ({ id: u.id, name: u.display_name, role: u.role });
-const clock = (at?: string) => (at ? new Date(at).toLocaleTimeString('ko-KR', { hour12: false }) : '');
+const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
 export const toRobot = (r: RobotSummary): Robot => ({
   id: r.id, name: r.name, owner: r.owner?.id ?? '', ownerName: r.owner?.display_name, floor: r.location?.floor_id ?? '',
   battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
@@ -25,15 +24,13 @@ type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' });
   const toLogin = (note?: string) => setSt({ at: 'login', note });
-  // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇·가짜 조종 상태를 비운다. 효과에서 하는 까닭: 내려간
-  // App(조종 화면)의 정리 효과가 먼저 돌아 쓰던 중재기에 조종권을 돌려준 뒤에 갈아 끼워야 한다(PR #9 R2-B1).
+  // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇을 비운다. 실시간 연결·조종권은 App 이 내려가며 돌려주고 닫는다.
   // 조직 기준값은 설정 화면 상태라 App 이 내려가며 같이 사라진다
-  useEffect(() => { if (st.at === 'login') { clearServerData(); resetDrive(); } }, [st.at]);
+  useEffect(() => { if (st.at === 'login') clearServerData(); }, [st.at]);
   const enter = async () => {
     const me = toUser(await api.me());
     const robots = (await api.robots('all')).map(toRobot);
     setServerData(me, robots);
-    resetDrive();   // 가짜 조종 중재기를 서버 로봇 목록으로 새로(조종권·잠금 규칙은 그대로)
     setSt((s) => ({ at: 'app', user: me, robots, n: (s.at === 'app' ? s.n : 0) + 1 }));
   };
   useEffect(() => {

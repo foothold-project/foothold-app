@@ -1,17 +1,17 @@
-// 조종 탭(02 기능 F-TO-01~05, 03 UX §5.2·§5.7). 조종권·잠금은 가짜 중재기 DriveApi(fakeDrive.ts)만 부른다 — 서버 붙일 때 그 모듈만 바꾼다.
-// 영상·지도는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
-import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type PointerEvent } from 'react';
-import { ROLE_NAME, USERS, driveBlock, robotStatus, userName, type Robot, type Tone } from './fake';
-import { REQUEST_S, drive, type Axes, type DriveState } from './fakeDrive';
-import { Chip, DriveButton, type Ctx } from './screens';
+// 조종 탭(02 기능 F-TO-01~05, 03 UX §5.2·§5.7). 조종권·잠금·STOP 은 실시간 연결(rt.ts)만 부른다 — 판정은 서버 중재기.
+// 영상·지도·시나리오 제어는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { ROLE_NAME, driveBlock, robotStatus, type Robot, type Role, type Tone } from './fake';
+import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
+import { Chip, DriveButton, soon, type Ctx } from './screens';
 import './drive.css';
 
-const useDrive = (id: string) => useSyncExternalStore((f) => drive.subscribe(f), () => drive.get(id));
-/** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 중재기 판정 시계(단조) */
+type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
+/** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 단조 시계 */
 function useNow(on: boolean) {
   const [, tick] = useState(0);
   useEffect(() => { if (!on) return; const i = setInterval(() => tick((n) => n + 1), 200); return () => clearInterval(i); }, [on]);
-  return drive.now();
+  return rt.now();
 }
 const secs = (until: number, now: number) => Math.max(0, Math.ceil((until - now) / 1000));
 const pct = (b: number | null) => (b == null ? '' : `${b}%`);
@@ -19,17 +19,22 @@ const clamp = (v: number) => Math.max(-1, Math.min(1, v));
 /** 조종권 요청 창 단추는 마우스·터치로만(F-TO-04 규칙 4): 키보드로 생긴 click 은 detail 0 */
 const pointerOnly = (f: () => void) => (e: MouseEvent) => { if (e.detail > 0) f(); };
 
-function holderText(s: DriveState, me: string) {
-  if (s.holder) return s.holder === me ? '조종 중(나)' : `${userName(s.holder)}님 조종 중`;
-  return s.run && !s.run.paused ? '시나리오 실행 중' : '조종하는 사람 없음';
+function holderText(l: Live, me: string) {
+  if (l.lease) return '조종 중(나)';
+  if (l.busy) return '조종권 넘기는 중';
+  if (!l.holder) return '조종하는 사람 없음';
+  if (l.holder.type === 'RUN') return '시나리오 실행 중';
+  return l.holder.id === me ? '다른 창에서 조종 중(나)' : `${l.holder.name}님 조종 중`;
 }
-function lockChip(s: DriveState, me: string): { tone: Tone; text: string } {
-  if (s.stopCheck === 'failed') return { tone: 'bad', text: '정지 확인 실패' };
-  if (s.stopCheck === 'asked') return { tone: 'warn', text: '정지 요청됨' };
-  if (s.latched) return { tone: 'bad', text: '정지 잠금' };
-  if (s.holder !== me) return { tone: 'off', text: '보는 중' };
-  return s.neutral ? { tone: 'ok', text: '움직일 수 있음' } : { tone: 'warn', text: '중립 확인 중' };
+function lockChip(l: Live): { tone: Tone; text: string } {
+  if (l.failed) return { tone: 'bad', text: '정지 확인 실패' };
+  if (l.busy) return { tone: 'warn', text: '정지 확인 중' };
+  if (!l.state || l.state.connection !== 'ONLINE') return { tone: 'off', text: '상태 모름' };
+  if (l.state.latched !== false) return { tone: 'bad', text: '정지 잠금' };
+  if (!l.lease) return { tone: 'off', text: '보는 중' };
+  return l.neutral ? { tone: 'ok', text: '움직일 수 있음' } : { tone: 'warn', text: '중립 확인 중' };
 }
+const BUSY_TEXT = { take: '로봇 정지를 확인한 뒤 조종권을 받습니다.', give: '조종권을 넘기는 중입니다. 로봇 정지를 확인하고 있습니다.' };
 
 export function Drive(c: Ctx) {
   return c.phone || c.open ? <Screen {...c} /> : <Picker {...c} />;
@@ -37,16 +42,17 @@ export function Drive(c: Ctx) {
 
 /** F-TO-01: 탭에 그냥 들어오면 로봇 카드 목록 */
 function Picker(c: Ctx) {
+  useRt();
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="로봇 고르기">
     <h2>조종할 로봇</h2>
     <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
   </section>;
 }
 function Card({ c, r }: { c: Ctx; r: Robot }) {
-  const s = useDrive(r.id), why = driveBlock(c.user, r), id = `why-${r.id}`;
+  const why = driveBlock(c.user, r), id = `why-${r.id}`;
   return <li className="card dv-card">
     <div className="fh-row"><b>{r.name}</b><Chip {...robotStatus(r)} /><span className="mono">{pct(r.battery)}</span></div>
-    <span className="lbl">{holderText(s, c.user.id)}</span>
+    <span className="lbl">{holderText(rt.get(r.id), c.user.id)}</span>
     <button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기' : '직접 조종'}</button>
     {why && <span id={id} className="fh-why" data-why>{why}</span>}
   </li>;
@@ -54,13 +60,12 @@ function Card({ c, r }: { c: Ctx; r: Robot }) {
 
 /** F-TO-02~05: 조종 화면 */
 function Screen(c: Ctx) {
-  const r = c.robot, me = c.user.id, s = useDrive(r.id), mine = s.holder === me, why = driveBlock(c.user, r);
+  const r = c.robot, me = c.user.id, l = useLive(r.id), mine = !!l.lease, link = rt.link().at;
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false);
   const input = useRef({ keys: new Set<string>(), pad: [0, 0] as Axes, stick: [0, 0] as Axes });
-  const cool = s.holder && s.holder !== me ? s.cooldown[me] ?? 0 : 0;
-  const now = useNow(!!s.request || cool > drive.now());
+  const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
   const axes = (): Axes => {
     const { keys: k, pad, stick } = input.current;
     return [Math.max(0, clamp(+k.has('f') + pad[0] + stick[0])), clamp(+k.has('l') - +k.has('r') + pad[1] + stick[1])];   // 후진은 막음(PRD Q1)
@@ -82,50 +87,43 @@ function Screen(c: Ctx) {
     addEventListener('keydown', down, true); addEventListener('keyup', up, true); addEventListener('blur', blur);
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); removeEventListener('blur', blur); };
   }, []);
-  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 숨긴 화면은 조종권을 갖지 않는다: 숨긴 사이 넘겨받으면 바로 반납(B3)
+  // 이 화면이 이 로봇을 연 동안만 조종권을 쥔다: 떠나면 반납, 숨기면 정지·잠금·반납(F-TO-03) — rt 가 처리
+  useEffect(() => rt.watch(r.id), [r.id]);
+  // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다)
   useEffect(() => {
     if (!mine) return;
-    const hid = () => document.visibilityState === 'hidden';
-    if (hid()) return drive.hidden(r.id, me);
-    const i = setInterval(() => hid() ? drive.hidden(r.id, me) : drive.cmd(r.id, me, axes()), 50);
+    const i = setInterval(() => rt.cmd(r.id, axes()), CMD_MS);
     return () => clearInterval(i);
-  }, [mine, r.id, me]);
-  // 화면 숨김 → 정지·잠금·반납, 떠남 → 그것 + 내 대기 요청 거둠(F-TO-03)
-  useEffect(() => {
-    const vis = () => { if (document.visibilityState === 'hidden') drive.hidden(r.id, me); };
-    const leave = () => drive.release(r.id, me);
-    document.addEventListener('visibilitychange', vis); addEventListener('pagehide', leave);
-    return () => { document.removeEventListener('visibilitychange', vis); removeEventListener('pagehide', leave); leave(); };
-  }, [r.id, me]);
+  }, [mine, r.id]);
 
   const start = (pauseRun = false) => {
     setAsk(false);
-    const res = drive.take(r.id, me, pauseRun);
-    if (res === 'RUN_ACTIVE') setAsk(true);
-    else if (res === 'HELD') drive.request(r.id, me);
+    if (l.holder?.type === 'RUN' && !pauseRun) return setAsk(true);
+    if (l.holder?.type === 'USER') rt.request(r.id);
+    else rt.take(r.id);
   };
-  const myReq = s.request?.from === me ? s.request : null;
-  const wait = myReq ? `${userName(s.holder!)}님에게 요청했습니다. (${secs(myReq.expiresAt, now)}초)`
-    : s.request && !mine ? '다른 사람의 요청을 처리하는 중입니다. 잠시 뒤 다시 누르세요.'
-    : cool > now ? `${secs(cool, now)}초 뒤 다시 요청할 수 있습니다.` : '';
-  const from = s.request && USERS.find((u) => u.id === s.request!.from)!;
-  const lock = lockChip(s, me), ready = mine && !s.latched && s.neutral;
+  const wait = link !== 'open' ? '서버 연결이 끊겨 조종할 수 없습니다. 다시 연결되면 누르세요.'
+    : l.busy ? BUSY_TEXT[l.busy]
+    : l.outgoing ? `${l.holder?.name || '조종하는 사람'}님에게 요청했습니다. (${secs(l.outgoing.until, now)}초)`
+    : l.cooldown > now ? `${secs(l.cooldown, now)}초 뒤 다시 요청할 수 있습니다.` : '';
+  const q = mine && l.incoming && l.incoming.until > now ? l.incoming : null;
+  const lock = lockChip(l), ready = mine && lock.text === '움직일 수 있음', speed = l.state?.speed;
 
   const actions = mine
-    ? <div className="fh-row">{s.latched && <button type="button" className="btn pri" onClick={() => drive.unlock(r.id, me)}>잠금 해제</button>}
-        <button type="button" className="btn" onClick={() => drive.release(r.id, me)}>조종 끝내기</button></div>
+    ? <div className="fh-row">{l.state?.latched !== false && <button type="button" className="btn pri" onClick={() => rt.unlock(r.id)}>잠금 해제</button>}
+        <button type="button" className="btn" onClick={() => rt.release(r.id)}>조종 끝내기</button></div>
     : <DriveButton c={c} r={r} label="조종 시작" onClick={() => start()} wait={wait} />;
   const line = <div className="fh-row dv-line" aria-label="상태">
     {!c.phone && <h2>{r.name}</h2>}
-    <span>{holderText(s, me)}</span>
-    {r.online && <span className="mono">{(s.axes[0] * 0.6).toFixed(1)} m/s</span>}
-    {r.online && !c.phone && <span className="mono">지연 85 ms</span>}
+    <span>{holderText(l, me)}</span>
+    {r.online && speed != null && <span className="mono">{speed.toFixed(1)} m/s</span>}
+    {r.online && !c.phone && l.state?.latency_ms != null && <span className="mono">지연 {l.state.latency_ms} ms</span>}
     <span className="mono">{pct(r.battery)}</span>
     <Chip {...lock} />
     <span className="fh-grow" />
     {actions}
   </div>;
-  const note = s.notice[me] && <p className="dv-note" role="status">{s.notice[me]}</p>;
+  const note = l.notice && <p className="dv-note" role="status">{l.notice}</p>;
   const views = <div className="dv-views" aria-label="보기">
     {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', c.phone ? '지도' : '지도 크게']] as const).map(([v, t]) =>
       <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
@@ -139,19 +137,19 @@ function Screen(c: Ctx) {
         <button type="button" className="dv-mini" aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
           {view === 'map' ? <Video small /> : <MapView />}</button>
         {c.phone && <div className="dv-hud">{line}{views}{note}</div>}
-        {mine && from && <div className="dv-ask" role="dialog" aria-labelledby="dv-ask-t" aria-live="assertive">
+        {q && <div className="dv-ask" role="dialog" aria-labelledby="dv-ask-t" aria-live="assertive">
           <b id="dv-ask-t">조종권 요청</b>
-          <p>{ROLE_NAME[from.role]} {from.name}님이 {r.name} 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
-          <div className="dv-bar" aria-label={`남은 시간 ${secs(s.request!.expiresAt, now)}초`}><i style={{ width: `${Math.max(0, s.request!.expiresAt - now) / (REQUEST_S * 10)}%` }} /></div>
+          <p>{ROLE_NAME[q.role as Role] ?? ''} {q.name}님이 {r.name} 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
+          <div className="dv-bar" aria-label={`남은 시간 ${secs(q.until, now)}초`}><i style={{ width: `${(Math.max(0, q.until - now) / q.ms) * 100}%` }} /></div>
           <div className="fh-row">
-            <button type="button" className="btn" data-ask="give" onClick={pointerOnly(() => drive.respond(r.id, me, true))}>넘기기</button>
-            <button type="button" className="btn" data-ask="keep" onClick={pointerOnly(() => drive.respond(r.id, me, false))}>계속 조종</button>
+            <button type="button" className="btn" data-ask="give" onClick={pointerOnly(() => rt.respond(r.id, true))}>넘기기</button>
+            <button type="button" className="btn" data-ask="keep" onClick={pointerOnly(() => rt.respond(r.id, false))}>계속 조종</button>
             <span className="lbl">마우스나 터치로 누르세요</span>
           </div>
         </div>}
-        {ask && s.run && <div className="dv-ask" role="dialog" aria-labelledby="dv-run-t">
+        {ask && l.holder?.type === 'RUN' && <div className="dv-ask" role="dialog" aria-labelledby="dv-run-t">
           <b id="dv-run-t">조종 시작</b>
-          <p>{r.name}이 «{s.run.name}»을 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</p>
+          <p>{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</p>
           <div className="fh-row"><button type="button" className="btn pri" onClick={() => start(true)}>일시정지하고 조종</button><button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>
         </div>}
         {mine && (c.phone
@@ -162,13 +160,11 @@ function Screen(c: Ctx) {
       </div>
       {!c.phone && views}
     </div>
-    {s.run && <div className="fh-row dv-run">
-      <span>시나리오 {s.run.paused ? '일시정지' : '실행 중'}: {s.run.name} {s.run.step}/{s.run.total}</span>
-      <div className="dv-bar dv-grow"><i style={{ width: `${(s.run.step / s.run.total) * 100}%` }} /></div>
-      {s.run.paused
-        ? <button type="button" className="btn" disabled={!!why || !!s.holder} onClick={() => drive.pauseRun(r.id, me, false)}>다시 시작</button>
-        : <button type="button" className="btn" disabled={!!why} onClick={() => drive.pauseRun(r.id, me, true)}>일시정지</button>}
-      <button type="button" className="btn" disabled={!!why} onClick={() => drive.abortRun(r.id, me)}>중단</button>
+    {r.mission && <div className="fh-row dv-run">
+      <span>시나리오: {r.mission}</span>
+      <span className="fh-grow" />
+      <button type="button" className="btn" {...soon}>일시정지</button>
+      <button type="button" className="btn" {...soon}>중단</button>
     </div>}
   </section>;
 }
