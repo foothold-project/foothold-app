@@ -6,7 +6,8 @@ import { BrandLogo } from './BrandLogo';
 import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotStatus, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
-import { BODY, Settings, type Ctx } from './screens';
+import { BODY, type Ctx } from './screens';
+import { Settings } from './screens/settings';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
