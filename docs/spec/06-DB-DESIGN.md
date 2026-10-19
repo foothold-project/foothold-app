@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 번호 | FH-SPEC-06 |
-| 판 | 0.1 (초안, 검토 대기) |
+| 판 | 0.2 (초안, 검토 대기) |
 | 작성일 | 2026-10-19 |
 | DB | PostgreSQL 16 (제안) |
 | 상위 문서 | [04 아키텍처](04-ARCHITECTURE.md) · [05 API](05-API-SPEC.md) |
@@ -15,11 +15,11 @@
 | # | 원칙 | 내용 |
 |---|---|---|
 | D1 | 정본은 서버 DB 하나 | 로봇마다 따로 쌓던 지금 구조(docs.json/SQLite·events.jsonl)를 하나로 모은다 |
-| D2 | 판은 고치지 않는다 | 임무·시나리오·지도는 "본체 + 판" 두 테이블. 판 행은 만든 뒤 바꾸지 않는다. 배정·실행·결재는 판을 가리킨다 |
+| D2 | 판은 고치지 않는다 | 임무·시나리오·지도는 "본체 + 판" 두 테이블. 판의 **내용**(지도 이미지·요소·좌표계, 임무·시나리오 본문)은 만든 뒤 바꾸지 않는다. 예외로 지도 판의 승인 `status` 만 바뀐다. 배정·실행·결재는 판을 가리킨다 |
 | D3 | 사건은 덧붙이기만 | `events` 는 INSERT 만. UPDATE·DELETE 권한을 앱 계정에서 뺀다 |
 | D4 | 큰 파일은 파일 저장소 | 지도 이미지·사진·보고서는 디스크, DB 에는 경로·sha256·크기만 (지금 사진 방식과 같음) |
 | D5 | 빠르게 바뀌는 상태는 메모리 | 로봇 현재 위치·속도·조종권 heartbeat 는 서버 메모리. DB 에는 바뀐 사건과 요약만 |
-| D6 | 낙관적 잠금 | 편집 자원은 `version` 정수. 저장 때 비교, 다르면 409 (지금 rev·409 규칙 유지) |
+| D6 | 낙관적 잠금 | 임무·시나리오 본체만 `version` 정수, 저장 때 비교·다르면 409 (지금 rev·409 규칙 유지). 지도는 새 판 저장 때 `base_version_id` 로 같은 검사. 그 밖(계정·로봇·장소/건물/층·조직 설정·`/me` 의 내 정보)은 마지막 저장이 이기고 사건을 남긴다 ([05 §1.3](05-API-SPEC.md#13-판버전과-충돌)) |
 | D7 | 지우지 않고 보관 | 사용자·로봇·임무·시나리오는 `archived_at` 으로 숨김. 기록이 가리키는 대상이 사라지지 않게 |
 
 ### 1.1 왜 PostgreSQL 인가 (지금 계획은 SQLite)
@@ -80,7 +80,7 @@ erDiagram
 |---|---|---|
 | id | uuid PK | |
 | name | text | |
-| settings | jsonb | 기준값: `battery_low_pct`(20), `run_min_battery_pct`(30), `deviation_m`(1.5), `lease_request_timeout_s`(10), `link_loss_wait_s`(30) |
+| settings | jsonb | 기준값: `battery_low_pct`(20), `run_min_battery_pct`(30), `deviation_m`(1.5), `lease_request_timeout_s`(10), `link_loss_wait_s`(30). 읽기·고치기는 [05 `/org/settings`](05-API-SPEC.md#8-기록알림) |
 | created_at | timestamptz | |
 
 **users**
@@ -148,7 +148,8 @@ erDiagram
 | id | uuid PK | |
 | floor_id | uuid FK | |
 | number | int | 층 안 판 번호 `UNIQUE(floor_id, number)` |
-| base_version_id | uuid FK NULL | 어느 판을 고쳤는지 |
+| base_version_id | uuid FK NULL | 만들 때의 승인 판(충돌 검사 기준) |
+| copied_from_id | uuid FK NULL | 되돌리기 때 내용을 복사해 온 옛 판 |
 | status | text | `PENDING` / `APPROVED` / `REJECTED` / `SUPERSEDED` |
 | image_path | text | 파일 저장소 경로 |
 | image_sha256 | bytea | |
@@ -159,6 +160,15 @@ erDiagram
 | created_at | timestamptz | |
 
 - 승인되면 `floors.approved_map_version_id` 를 바꾸고 이전 승인 판은 `SUPERSEDED`. 한 트랜잭션.
+- `SUPERSEDED` 는 «지금 승인 판이 아님»만 뜻한다. 그 판으로 이미 시작한 실행은 끝까지 그 판을 쓴다.
+- 되돌리기(rollback)는 옛 판을 다시 승인하지 않고, 옛 판 내용을 복사한 새 판(`source=ROLLBACK`, `copied_from_id`=옛 판, `base_version_id`=요청 당시 승인 판)을 만들어 같은 승인 절차를 밟는다.
+
+| 지금 상태 | 일 | 다음 상태 |
+|---|---|---|
+| `PENDING` | 승인 | `APPROVED` (이전 승인 판 → `SUPERSEDED`) |
+| `PENDING` | 거절 | `REJECTED` |
+| `PENDING` | 기준 판이 그사이 바뀜 | 승인 시 `STALE` 오류, `PENDING` 유지 |
+| `APPROVED` | 다른 판 승인 | `SUPERSEDED` |
 
 **floor_connectors**
 | 열 | 형 | 설명 |
@@ -377,3 +387,4 @@ erDiagram
 | 판 | 날짜 | 내용 |
 |---|---|---|
 | 0.1 | 2026-10-19 | 최초 작성 |
+| 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
