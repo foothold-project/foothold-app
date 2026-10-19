@@ -286,7 +286,7 @@ describe('조종 화면', () => {
     expect(btn('조종 시작').disabled).toBe(false);
     w.auto = (m) => (m.t === 'lease.request' ? fail('LEASE_REQUEST_COOLDOWN', 'cooldown') : { ok: true });
     click(btn('조종 시작'));
-    expect(text()).toContain('거절된 뒤 30초 안에는 다시 요청할 수 없습니다. 잠시 뒤 다시 누르세요.');
+    expect(text()).toContain('요청이 거절·시간 초과·취소로 끝난 뒤 30초 안에는 다시 요청할 수 없습니다. 잠시 뒤 다시 누르세요.');
     expect(text()).not.toContain('cooldown');
   });
 
@@ -851,5 +851,114 @@ describe('PR #12 검토 1차', () => {
     expect(text()).toContain('로봇을 다시 연결해야 조종권을 줄 수 있습니다');
     expect(text()).not.toContain('조종권 넘기는 중');
     expect(btn('조종 시작').disabled).toBe(false);
+  });
+});
+
+describe('S0 서버 후속(apps/server README «S0»)', () => {
+  const stopOn = () => { const s = $<HTMLButtonElement>('[data-stop]'); expect(s.disabled).toBe(false); expect(s.hidden).toBe(false); };
+
+  it('요청자: 서버 답 전에도 [요청 취소] → lease.cancel, CANCELED 로 대기 표시가 닫힘. 화면이 30 s 를 따로 세지 않고 서버 제한 응답을 안내', () => {
+    mount(false, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    recv(lease('r7', PARK));
+    w.auto = (m) => (m.t === 'lease.request' ? undefined : { ok: true });   // 요청의 답이 아직 안 옴
+    click(btn('조종 시작'));
+    expect(text()).toContain('박OO님에게 요청했습니다.');
+    click(btn('요청 취소'));
+    expect(w.of('lease.cancel')).toMatchObject([{ robot: 'r7' }]);
+    expect(text()).toContain('요청을 취소하는 중입니다.');
+    expect(btn('요청 취소').disabled).toBe(true);
+    stopOn();
+    recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED' });
+    expect(btn('요청 취소')).toBeUndefined();
+    expect(text()).toContain('요청을 취소했습니다.');
+    expect(text()).not.toContain('초 뒤 다시 요청할 수 있습니다');
+    expect(btn('조종 시작').disabled).toBe(false);
+    w.auto = (m) => (m.t === 'lease.request' ? fail('LEASE_REQUEST_COOLDOWN', '30초 뒤 다시 요청하세요.') : { ok: true });
+    click(btn('조종 시작'));
+    expect(text()).toContain('요청이 거절·시간 초과·취소로 끝난 뒤 30초 안에는 다시 요청할 수 없습니다.');
+    expect(btn('요청 취소')).toBeUndefined();
+    stopOn();
+  });
+
+  it('조종권자: 요청자가 취소한 CANCELED 로 «넘겨주시겠습니까» 창이 닫히고 계속 조종', () => {
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    recv(ask());
+    expect($('[role="dialog"]')).not.toBeNull();
+    recv({ t: 'lease.result', robot: 'r7', request_id: 'q1', result: 'CANCELED' });
+    expect(box.querySelector('[role="dialog"]')).toBeNull();
+    expect(text()).toContain('요청이 취소되었습니다. 계속 조종합니다.');
+    expect(text()).toContain('움직일 수 있음');
+    stopOn();
+  });
+
+  it('취소가 늦음(LEASE_REQUEST_STALE) → 쉬운 문구, 서버 문장·코드는 그대로 안 보임', () => {
+    mount(false, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    recv(lease('r7', PARK));
+    w.auto = (m) => (m.t === 'lease.cancel' ? fail('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.') : { ok: true });
+    click(btn('조종 시작'));
+    click(btn('요청 취소'));
+    expect(text()).toContain('요청이 이미 끝났습니다(넘겨받는 중이거나 거절·시간 초과). 지금 조종권 상태를 확인하세요.');
+    expect(text()).not.toContain('LEASE_REQUEST_STALE');
+    expect(btn('요청 취소').disabled).toBe(false);
+    stopOn();
+  });
+
+  it('조종 중 3 s 무수신 → 0 한 번 보내고 cmd 멈춤, «연결 끊김», STOP 은 그대로', () => {
+    mount(false, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    ready();
+    key('keydown', 'KeyW'); tick(100);
+    expect(lastAxes()).toEqual([1, 0, 0]);
+    w.auto = null;                                         // 서버가 말이 없어짐(ping·state 없음)
+    let waited = 0;
+    while (!box.querySelector('header [data-link]') && waited < 4000) { tick(50); waited += 50; }
+    expect(waited).toBeGreaterThanOrEqual(2900);           // 3 s(0.25 s 간격 확인) 전에는 끊김으로 보지 않음
+    expect(waited).toBeLessThanOrEqual(3300);
+    expect(cmds().slice(-2).map((m) => String(m.axes))).toEqual(['1,0,0', '0,0,0']);   // 끊김 직전까지 조종, 끊으며 0
+    const n = cmds().length;
+    tick(2000);
+    expect(cmds().length).toBe(n);                         // 그 뒤 cmd 0건(새 소켓에도)
+    expect(FakeWS.all.slice(1).every((s) => s.of('cmd').length === 0)).toBe(true);
+    expect($('header [data-link]').textContent).toContain('연결 끊김');
+    stopOn();
+  });
+
+  it('서버 ping 만 와도(다른 답·state 없음) 연결 유지 — 화면이 ping 에 답할 의무는 없다', () => {
+    mount(false, 'u-kim', '#/fleet');
+    serve(KIM, 'r3', 'r7', 'r1');
+    w.auto = null;
+    for (let i = 0; i < 10; i++) { tick(1000); recv({ t: 'ping', t_server: new Date().toISOString() }); }
+    expect(box.querySelector('header [data-link]')).toBeNull();
+    expect(FakeWS.all).toHaveLength(1);
+  });
+
+  it('sub 503 SERVER_BUSY → 1·2 s 늘려 다시(즉시 반복 없음), 받아들여지면 멈춤', () => {
+    mount(false, 'u-kim', '#/fleet');
+    w = FakeWS.last;
+    let busy = 2;
+    w.auto = (m) => (m.t === 'sub' && busy-- > 0 ? fail('SERVER_BUSY', '앞선 구독 확인을 기다리고 있습니다.') : { ok: true });
+    act(() => { w.open(); });
+    expect(w.of('sub')).toHaveLength(1);
+    tick(999); expect(w.of('sub')).toHaveLength(1);
+    tick(1); expect(w.of('sub')).toHaveLength(2);
+    tick(1999); expect(w.of('sub')).toHaveLength(2);
+    tick(1); expect(w.of('sub')).toHaveLength(3);
+    tick(20_000); expect(w.of('sub')).toHaveLength(3);
+    expect(w.of('sub').map((m) => m.robots)).toEqual([['r3', 'r7', 'r1'], ['r3', 'r7', 'r1'], ['r3', 'r7', 'r1']]);
+    stopOn();
+  });
+
+  it('take 409 SUBSCRIPTION_REQUIRED → 다시 열라는 안내(서버 코드 안 보임)', () => {
+    mount(false, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    w.auto = (m) => (m.t === 'lease.take' ? fail('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.') : { ok: true });
+    click(btn('조종 시작'));
+    expect(text()).toContain('목록을 새로 받은 뒤 로봇 화면을 다시 열어 주세요.');
+    expect(text()).not.toContain('SUBSCRIPTION_REQUIRED');
+    stopOn();
   });
 });

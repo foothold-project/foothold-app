@@ -73,6 +73,13 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       : `${name} 로봇의 담당이 바뀌어 이제 조종할 수 없습니다.${closing ? ' 조종 화면을 닫았습니다.' : ''} 필요하면 총괄 운영 관리자에게 문의하세요.`);
     refresh();
   }, [rv?.n]);
+  // 서버가 sub 를 거절(404 — 목록의 어떤 로봇을 실시간으로 모름): 다른 구독은 그대로, 그 로봇은 «확인 안 됨». 처음이면 목록을 다시 받는다
+  const ms = rt.missed(), [missed, setMissed] = useState('');
+  useEffect(() => {
+    if (!ms) return;
+    setMissed(`목록의 로봇 중 실시간 상태를 받을 수 없는 로봇이 있습니다(지워졌거나 담당이 바뀌었을 수 있음).${ms.again ? ' 다음 목록 갱신 때 다시 확인합니다.' : ' 목록을 다시 받습니다.'}`);
+    if (!ms.again) refresh();
+  }, [ms?.n]);
 
   useEffect(() => { const f = () => setWant(location.hash); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
   useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
@@ -131,6 +138,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
       gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
+      missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
       (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
         {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,
       stopped && <span key="stop" data-stop-band>{stopText(stopped, rt.get(stopped.id))}</span>,

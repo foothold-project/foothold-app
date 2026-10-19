@@ -111,6 +111,7 @@ function Screen(c: Ctx) {
   };
   const wait = link !== 'open' ? '서버 연결이 끊겨 조종할 수 없습니다. 다시 연결되면 누르세요.'
     : l.busy ? BUSY_TEXT[l.busy]
+    : l.outgoing?.canceling ? '요청을 취소하는 중입니다.'
     : l.outgoing ? `${l.holder?.name || '조종하는 사람'}님에게 요청했습니다. (${secs(l.outgoing.until, now)}초)`
     : l.cooldown > now ? `${secs(l.cooldown, now)}초 뒤 다시 요청할 수 있습니다.` : '';
   const q = mine && l.incoming && l.incoming.until > now ? l.incoming : null;
@@ -119,7 +120,8 @@ function Screen(c: Ctx) {
   const actions = mine
     ? <div className="fh-row">{l.state?.latched !== false && <button type="button" className="btn pri" onClick={() => rt.unlock(r.id)}>잠금 해제</button>}
         <button type="button" className="btn" onClick={() => rt.release(r.id)}>조종 끝내기</button></div>
-    : <DriveButton c={c} r={r} label="조종 시작" onClick={() => start()} wait={wait} />;
+    : <><DriveButton c={c} r={r} label="조종 시작" onClick={() => start()} wait={wait} />
+        {l.outgoing && <button type="button" className="btn" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</>;
   const line = <div className="fh-row dv-line" aria-label="상태">
     {!c.phone && <h2>{r.name}</h2>}
     <span>{holderText(l, me, r)}</span>
