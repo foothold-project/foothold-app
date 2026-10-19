@@ -111,7 +111,9 @@ def scenario(tmp_path, monkeypatch):
     clock = Clock()
     monkeypatch.setattr(motion, 'time', clock)
     monkeypatch.setattr(motion, 'stamp', lambda: {'utc': 'synthetic', 'mono': clock.now})
-    import websockets.sync.client
+    # The exercise's transport is fully faked: no optional package is required.
+    transport = SimpleNamespace(connect=None)
+    monkeypatch.setitem(sys.modules, 'websockets.sync.client', transport)
 
     def run(*, fault=None, stop_failure=False, stop_timeout=False, reject_proof=None):
         peer = Peer(tmp_path, clock, fault, stop_failure, stop_timeout)
@@ -122,7 +124,7 @@ def scenario(tmp_path, monkeypatch):
         def prove(world, state):
             proofs.append((clock.now, dict(state)))
             return {'pass': len(proofs) != reject_proof, 'source_sha256': {str(world): 'test-world-sha'}}
-        monkeypatch.setattr(websockets.sync.client, 'connect', connect)
+        monkeypatch.setattr(transport, 'connect', connect)
         monkeypatch.setattr(motion, 'prove', prove)
         def execute():
             return motion.exercise(tmp_path, 'http://127.0.0.1:9020', 'test-access', 'test-robot',

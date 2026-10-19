@@ -197,8 +197,7 @@ class Simulation:
         # No credentials are passed to this shell, its argv or journal.
         script = ('set -e; source "$1"; export ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST '
                   'ROS_LOCALHOST_ONLY=1 GZ_IP=127.0.0.1 PYTHONDONTWRITEBYTECODE=1 ROS_LOG_DIR="$4"; '
-                  'export PYTHONPATH="$5:${PYTHONPATH:-}"; '
-                  '/usr/bin/python3 -c "from foothold_agent.ros_bridge.config import validate_isolation; validate_isolation()"; '
+                  'PYTHONPATH="$5:${PYTHONPATH:-}" /usr/bin/python3 -c "from foothold_agent.ros_bridge.config import validate_isolation; validate_isolation()"; '
                   'exec /usr/bin/python3 "$2/live_map.py" --isolated-verify --sensor-profile l1-d435i-c2-min '
                   f'--purpose session --world-id {WORLD_ID} --floor-id {FLOOR_ID} --map-mode static --map-version {GT_VERSION} --out "$3"')
         args = ['systemd-run', '--user', '--unit=' + self.unit, '--collect', '--property=MemoryMax=1500M',

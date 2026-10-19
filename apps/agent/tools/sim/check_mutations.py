@@ -18,6 +18,10 @@ HERE = Path(__file__).resolve().parent
 AGENT = HERE.parents[1]
 
 MUTATIONS = [
+    ('http_proxy_enabled', 'app_probe.py', 'trust_env=False', 'trust_env=True'),
+    ('ws_proxy_enabled', 'app_probe.py', 'proxy=None, ', ''),
+    ('validator_path_leaks_to_runtime', 'isolation.py', 'PYTHONPATH="$5:${PYTHONPATH:-}" /usr/bin/python3', 'export PYTHONPATH="$5:${PYTHONPATH:-}"; /usr/bin/python3'),
+
     ('unit_domain_61', 'isolation.py', 'export ROS_DOMAIN_ID=93', 'export ROS_DOMAIN_ID=61'),
     ('unit_fixed_name', 'isolation.py', "self.unit = 'fh-rb-sim-' + tag + '.service'", "self.unit = 'fh-rb-sim-fixed.service'"),
     ('live_main_domain_ignored', 'isolation.py', "main['domain'] != '93'", 'False'),

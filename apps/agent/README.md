@@ -132,8 +132,14 @@ hello와 교체 가능한 최신 state/ACK만 사건 이력을 앞설 수 있다
 최소 30 s 재접속 대기로 처리한다. 다른 4401/4403 인증 거부는 영구 중단한다.
 서버의 로봇별 기록 한도 `1013 + ROBOT_ARCHIVE_LIMIT`도 teardown 대기 전에 로컬
 STOP·0·잠금과 lease 폐기를 적용한다. 다른 1013의 기존 고정 재시도/Q7 정책은 유지한다.
-원격측정이 연결되지 않은 필드는 `null`이고
-`event.robot_at`도 `null`이다(주입 단조 시각은 `data.monotonic_s`). 미디어·이진·업로드,
+로컬 정제 측정은 같은 소유 루프의 `client.update_telemetry(snapshot)`으로 입력한다.
+Core 안전 피드백인 `on_robot_state`와 별도이며 매 송신마다 원천/수신 나이를 재검사한다.
+현 계약의 speed·pose·battery만 전송하고 미측정·무효·stale 필드는 `null`이다.
+시뮬 배터리 원천과 등록 지도 결속은 추측하지 않는다.
+로컬 sensor 관측은 원래 `received_monotonic_s`와 함께 `client.update_devices(devices)`로
+넣는다. Session이 hello와 각 state의 `devices_changed`에서 만료를 다시 계산한다.
+다리와 Session은 같은 단조 시계(시험의 주입 시계도 포함)를 사용해야 한다.
+`event.robot_at`은 `null`이다(주입 단조 시각은 `data.monotonic_s`). 미디어·이진·업로드,
 지도 다운로드·SLAM·층 변경·사람 확인·return 경로 실행은 후속 작업이며 해당 프레임은
 무시한다. 실제 임무 계획을 실행하는 기능은 없다.
 

@@ -13,6 +13,20 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MUTATIONS = [
+    ('telemetry receipt age ignored', 'link/telemetry.py', '0 <= now - observation["received_monotonic_s"] <= STALE_S', 'True'),
+    ('telemetry progress age ignored', 'link/telemetry.py', '0 <= now - observation["progress_monotonic_s"] <= STALE_S', 'True'),
+    ('telemetry future receipt admitted', 'link/telemetry.py', '0 <= now - observation["received_monotonic_s"] <= STALE_S', 'now - observation["received_monotonic_s"] <= STALE_S'),
+    ('telemetry future progress admitted', 'link/telemetry.py', '0 <= now - observation["progress_monotonic_s"] <= STALE_S', 'now - observation["progress_monotonic_s"] <= STALE_S'),
+    ('telemetry location age ignored', 'link/telemetry.py', 'isinstance(location, dict) and fresh(location, now)', 'isinstance(location, dict)'),
+    ('device age ignored', 'link/session.py', 'fresh = number(receipt) and 0 <= self.now() - receipt <= STALE_S', 'fresh = True'),
+    ('hello reuses old device status', 'link/session.py', '"devices": self._device_snapshot(),', '"devices": deepcopy(self.identity["devices"]),'),
+
+    ('telemetry state disconnected', 'link/session.py', '**project(self._telemetry, self.now())', '**project(None, self.now())'),
+    ('telemetry source age ignored', 'link/telemetry.py', 'and 0 <= now - observation["received_monotonic_s"] <= STALE_S\n            and 0 <= now - observation["progress_monotonic_s"] <= STALE_S', 'and True'),
+    ('telemetry clock unverified admitted', 'link/telemetry.py', 'observation.get("clock") == "simulation"', 'True'),
+    ('missing measured speed becomes zero', 'link/telemetry.py', 'result = {"speed": None,', 'result = {"speed": 0,'),
+    ('verified map pose disconnected', 'link/telemetry.py', 'if valid_floor and all(', 'if False and all('),
+
     ("loss boundary >3s", "link/session.py",
      "self.now() - self.last_server >= LINK_TIMEOUT", "self.now() - self.last_server > LINK_TIMEOUT"),
     ("grace starts at detection", "link/session.py",
@@ -129,6 +143,18 @@ MUTATIONS = [
 # Client probes are selected by the changed policy, including Session-originated
 # transport events. Assertion failures, not slow blanket runs, prove each change.
 PROBE_TESTS = {
+    **{name: 'tests/test_agent_telemetry.py::test_session_independently_checks_each_measurement_clock'
+       for name in ('telemetry receipt age ignored', 'telemetry progress age ignored',
+                    'telemetry future receipt admitted', 'telemetry future progress admitted', 'telemetry location age ignored')},
+    'device age ignored': 'tests/test_agent_telemetry.py::test_device_expiry_without_any_later_input_on_hello_and_connected_state',
+    'hello reuses old device status': 'tests/test_agent_telemetry.py::test_device_expiry_without_any_later_input_on_hello_and_connected_state',
+
+    'telemetry state disconnected': 'tests/test_agent_telemetry.py::test_measured_projection_is_copied_contract_only_and_never_refreshes_core',
+    'telemetry source age ignored': 'tests/test_agent_telemetry.py::test_measured_projection_is_copied_contract_only_and_never_refreshes_core',
+    'telemetry clock unverified admitted': 'tests/test_agent_telemetry.py::test_each_invalid_measurement_condition_clears_wire_values[clock_unverified]',
+    'missing measured speed becomes zero': 'tests/test_agent_telemetry.py::test_each_invalid_measurement_condition_clears_wire_values[missing]',
+    'verified map pose disconnected': 'tests/test_agent_telemetry.py::test_measured_projection_is_copied_contract_only_and_never_refreshes_core',
+
     'STOP sink prehistory callback removed': 'tests/test_link_storage.py::test_stop_and_watchdog_precede_gated_file_io',
     'file INSERT blocks watchdog': 'tests/test_link_storage.py::test_file_wait_does_not_occupy_the_watchdog_event_loop',
     'storage pressure admission never stops': 'tests/test_link_storage.py::test_storage_pressure_reserves_unsent_history_and_never_auto_unlocks',

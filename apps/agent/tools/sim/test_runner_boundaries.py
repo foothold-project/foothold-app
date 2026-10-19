@@ -63,11 +63,12 @@ def test_post_source_unit_environment_checked_before_fake_entry(simulation, monk
     (simulation.source / 'live_map.py').write_text(
         'import json,os\nfrom pathlib import Path\n'
         'Path(os.environ["TEST_CAPTURE"]).write_text(json.dumps({k:os.environ.get(k) for k in '
-        '["ROS_DOMAIN_ID","ROS_AUTOMATIC_DISCOVERY_RANGE","ROS_LOCALHOST_ONLY"]}))\n')
+        '["ROS_DOMAIN_ID","ROS_AUTOMATIC_DISCOVERY_RANGE","ROS_LOCALHOST_ONLY","PYTHONPATH"]}))\n')
     if override == 'sourced':
         simulation.setup.write_text('export ROS_STATIC_PEERS=forbidden-test-peer\n')
     env = {k: v for k, v in os.environ.items() if not k.startswith(('ROS_', 'RMW_', 'FAST', 'CYCLONE'))}
     env['TEST_CAPTURE'] = str(capture)
+    env['PYTHONPATH'] = '/test-inherited-path'
     if override == 'inherited':
         env['CYCLONEDDS_URI'] = 'forbidden-test-profile'
     # Only an empty fake setup and a fake Python entry; never systemd/live ROS.
@@ -76,7 +77,8 @@ def test_post_source_unit_environment_checked_before_fake_entry(simulation, monk
     if override == 'none':
         assert result.returncode == 0
         assert json.loads(capture.read_text()) == {'ROS_DOMAIN_ID': '93',
-            'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST', 'ROS_LOCALHOST_ONLY': '1'}
+            'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST', 'ROS_LOCALHOST_ONLY': '1',
+            'PYTHONPATH': '/test-inherited-path'}
     else:
         assert result.returncode != 0
         assert not capture.exists()
@@ -168,3 +170,17 @@ def test_server_socket_tries_only_authorized_loopback_ports(monkeypatch, all_bus
             bound = None
         assert bound is sock
         assert tried == [('127.0.0.1', 9020), ('127.0.0.1', 9021)]
+
+
+def test_app_probe_http_and_ws_ignore_environment_proxies(monkeypatch):
+    from types import SimpleNamespace
+    http, ws = Mock(), Mock()
+    monkeypatch.setenv('HTTP_PROXY', 'http://bad-proxy.invalid:1')
+    monkeypatch.setenv('HTTPS_PROXY', 'http://bad-proxy.invalid:1')
+    monkeypatch.setenv('ALL_PROXY', 'http://bad-proxy.invalid:1')
+    monkeypatch.setitem(sys.modules, 'httpx', SimpleNamespace(Client=http))
+    monkeypatch.setitem(sys.modules, 'websockets.sync.client', SimpleNamespace(connect=ws))
+    app_probe.http_client('http://127.0.0.1:9061')
+    app_probe.screen_connect('ws://127.0.0.1:9061/api/v1/ws', 'fake-only')
+    assert http.call_args.kwargs['trust_env'] is False
+    assert ws.call_args.kwargs.get('proxy', 'missing') is None
