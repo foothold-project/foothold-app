@@ -634,7 +634,7 @@ describe('PR #12 검토 1차', () => {
     act(() => root?.unmount()); root = null;                // 로그아웃 = App 이 내려가며 rt.disconnect
     await api.login('next', 'pw');
     tick(STOP_WS_MS * 5); await settle();
-    expect(calls.map(([u]) => u)).toEqual(['/api/v1/auth/login']);
+    expect(calls.map(([u]) => u).filter((u) => !u.includes('/notifications'))).toEqual(['/api/v1/auth/login']);   // 알림 종의 목록 요청 말고
   });
   it('[N3] 이미 나간 대체 경로 HTTP 도 로그아웃 때 끊고, 그 결과(401 포함)는 다음 세션에 반영하지 않음', async () => {
     const lost = vi.fn(); setAuthLost(lost);
@@ -687,7 +687,7 @@ describe('PR #12 검토 1차', () => {
     const f = me(200); vi.stubGlobal('fetch', f);
     mount(false, 'u-kim', '#/fleet');
     tick(60_000);
-    expect((f.mock.calls as unknown as [string][]).filter(([u]) => !/\/(dashboard|robots\/)/.test(String(u)))).toEqual([]);   // 관제 요약·상세 말고 인증 확인(REST)은 0
+    expect((f.mock.calls as unknown as [string][]).filter(([u]) => !/\/(dashboard|robots\/|notifications|events)/.test(String(u)))).toEqual([]);   // 관제 요약·상세·알림·최근 사건 말고 인증 확인(REST)은 0
     expect($('header [data-link]').textContent).toContain('연결 끊김');
     expect(FakeWS.all.length).toBeGreaterThan(3);
   });

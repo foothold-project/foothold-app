@@ -1,0 +1,414 @@
+// W3 기록·알림 화면(01 LG-01·02·04·05, 02 F-LG·F-COM-03, 03 §5.5, 05 §8 — S2 /events·/notifications).
+// fetch 는 가짜 서버, WebSocket 은 FakeWS. 화면은 서버가 준 목록·문장만 그리고 필터는 요청 매개변수로만 넘긴다.
+// 401·403·404·400 EXPORT_LIMIT·네트워크 실패, cursor 더 보기, 늦은 답 버림, 알림 읽음·모두 읽음, 어긋난 응답·실패에도 STOP 이 그대로인지 본다.
+import { act } from 'react';
+import { createRoot, type Root as ReactRoot } from 'react-dom/client';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Event as Ev, Notification, RobotSummary, User } from '../../../contracts/ts';
+import { Root } from '../session';
+import { tabFromHash } from '../menu';
+
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
+const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
+const PARK: User = { ...KIM, id: 'o2', username: 'park', display_name: '박운영', role: 'OPERATOR', robot_ids: ['r-b'] };
+const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner.id, display_name: owner.display_name },
+  connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] });
+const RA = robot('r-a', 'Go2-A', LEE), RB = robot('r-b', 'Go2-B', PARK);
+const NOW = new Date().toISOString();
+const ev = (id: string, p: Partial<Ev> = {}): Ev => ({ id, at: NOW, robot_at: null, category: 'ROUTE', code: 'ROUTE_DEVIATION', severity: 'WARN',
+  message: `사건 ${id} 문장`, robot_id: 'r-a', user_id: null, run_id: null, data: {}, ...p });
+const note = (id: string, p: Partial<Notification> = {}): Notification => ({ id, event_id: id, kind: 'LINK_LOST', title: '연결 끊김', body: `알림 ${id} 본문`,
+  link: `#/history?event_id=${id}`, read_at: null, created_at: NOW, ...p });
+const list = (items: Ev[], next_cursor: string | null = null) => ({ status: 200, body: { items, next_cursor } });
+const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
+
+type Reply = { status: number; body?: unknown };
+type Route = Reply | ((q: URLSearchParams, body?: unknown) => Reply | Promise<Reply>);
+type Call = { method: string; path: string; q: URLSearchParams; body?: unknown };
+let calls: Call[] = [], routes: Record<string, Route> = {};
+function serve(r: typeof routes) {
+  routes = r; calls = [];
+  vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+    const method = init.method ?? 'GET', [path, qs = ''] = url.replace(/^\/api\/v1/, '').split('?'), q = new URLSearchParams(qs);
+    const body = init.body ? JSON.parse(String(init.body)) : undefined;
+    calls.push({ method, path, q, body });
+    const hit = routes[`${method} ${path}`], rep = typeof hit === 'function' ? await hit(q, body) : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
+    return new Response(rep.status === 204 ? null : typeof rep.body === 'string' ? rep.body : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
+  });
+}
+const signedIn = (me: User, more: typeof routes = {}) => ({
+  'GET /auth/session': { status: 200, body: { client: 'web', csrf_token: 'csrf-1' } },
+  'GET /me': { status: 200, body: me },
+  'GET /robots': { status: 200, body: { items: [RA, RB], next_cursor: null } },
+  'GET /dashboard': { status: 200, body: { robots_total: 2, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } },
+  'GET /robots/r-a': { status: 200, body: RA }, 'GET /robots/r-b': { status: 200, body: RB },
+  'GET /notifications': { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } },
+  'GET /events': list([]),
+  ...more,
+});
+const sent = (method: string, path: string) => calls.filter((c) => c.method === method && c.path === path);
+/** 마지막 목록 요청의 매개변수(limit 빼고) */
+const lastQuery = (path = '/events') => { const all = sent('GET', path), q = new URLSearchParams(all[all.length - 1].q); q.delete('limit'); return Object.fromEntries(q); };
+
+let root: ReactRoot | null = null, box: HTMLDivElement;
+const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
+async function open(hash: string, phone = false) {
+  window.matchMedia = ((q: string) => ({ matches: phone, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  location.hash = hash;
+  box = document.createElement('div'); document.body.append(box);
+  act(() => { root = createRoot(box); root.render(<Root />); });
+  await flush();
+}
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
+const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
+const card = (label: string) => $(`[aria-label="${label}"]`)!;
+const click = async (b: Element | undefined | null) => { expect(b).toBeTruthy(); act(() => (b as HTMLElement).click()); await flush(); };
+const setVal = async (el: HTMLInputElement | HTMLSelectElement, v: string) => {
+  act(() => {
+    Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')!.set!.call(el, v);
+    el.dispatchEvent(new Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }));
+  });
+  await flush();
+};
+const rows = () => [...card('사건').querySelectorAll('li')].map((l) => l.textContent);
+const alertText = () => [...box.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ');
+/** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 */
+const stopOk = () => {
+  const s = $<HTMLButtonElement>('[data-stop]');
+  expect(s).toBeTruthy();
+  expect(s!.disabled).toBe(false);
+  expect($('header')!.lastElementChild).toBe(s);
+};
+
+describe('기록 탭 — 서버 목록 그대로', () => {
+  it('최신순 목록·서버 문장 그대로·분류 이름과 심각도 모양, 처음 요청은 필터 없이 limit=50', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('9', { category: 'LINK', severity: 'ERROR', message: 'Go2-A과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.' }),
+      ev('8', { category: 'ACCOUNT', severity: 'INFO', message: '김총괄님이 계정을 만들었습니다.', robot_id: null })]) }));
+    await open('#/history');
+    expect(Object.fromEntries(sent('GET', '/events')[0].q)).toEqual({ limit: '50' });
+    expect(rows()).toHaveLength(2);
+    expect(rows()[0]).toContain('Go2-A과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.');
+    expect(rows()[0]).toContain('연결');
+    expect(rows()[1]).toContain('계정');
+    expect(card('사건').querySelector('li [data-tone]')!.getAttribute('data-tone')).toBe('bad');
+    expect(rows()[0]).toMatch(/^\d{1,2}\/\d{1,2} \d\d:\d\d/);   // 현지 날짜·시각
+    stopOk();
+  });
+  it('cursor 로 «더 보기» — 다음 쪽을 이어 붙이고 끝이면 단추가 없어짐', async () => {
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('cursor') === 'c1' ? list([ev('1')]) : list([ev('3'), ev('2')], 'c1')) }));
+    await open('#/history');
+    expect(rows()).toHaveLength(2);
+    await click(btn('더 보기'));
+    expect(lastQuery()).toEqual({ cursor: 'c1' });
+    expect(rows().map((r) => r!.match(/사건 (\d)/)![1])).toEqual(['3', '2', '1']);
+    expect(btn('더 보기')).toBeUndefined();
+  });
+  it('분류 7종·로봇·기간 → 요청 매개변수(화면이 따로 거르지 않음)', async () => {
+    // 서버가 무엇을 돌려주든 그대로 그린다 — 필터와 다른 분류·로봇의 행도 화면이 지우지 않는다
+    serve(signedIn(KIM, { 'GET /events': list([ev('5', { category: 'ACCOUNT', robot_id: 'r-b', message: '서버가 준 행' })]) }));
+    await open('#/history');
+    const kinds = [...card('분류').querySelectorAll('button')].map((b) => b.textContent);
+    expect(kinds).toEqual(['전체', '임무', '이탈', '연결', '조종권', '결재', '안전', '계정']);
+    for (const [name, code] of [['임무', 'RUN'], ['이탈', 'ROUTE'], ['연결', 'LINK'], ['조종권', 'LEASE'], ['결재', 'APPROVAL'], ['안전', 'SAFETY'], ['계정', 'ACCOUNT']]) {
+      await click(btn(name));
+      expect(lastQuery()).toEqual({ category: code });
+      expect(btn(name)!.getAttribute('aria-pressed')).toBe('true');
+      expect(rows()[0]).toContain('서버가 준 행');
+    }
+    await click(btn('이탈'));
+    await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-a');
+    expect(lastQuery()).toEqual({ category: 'ROUTE', robot_id: 'r-a' });
+    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026-10-01');
+    await setVal($<HTMLInputElement>('[aria-label="기간 끝"]')!, '2026-10-02');
+    expect(lastQuery()).toEqual({ category: 'ROUTE', robot_id: 'r-a', from: new Date('2026-10-01T00:00:00').toISOString(), to: new Date('2026-10-02T23:59:59.999').toISOString() });
+    expect(rows()).toEqual([expect.stringContaining('서버가 준 행')]);
+    await click(btn('전체'));
+    expect(lastQuery()).toEqual({ robot_id: 'r-a', from: new Date('2026-10-01T00:00:00').toISOString(), to: new Date('2026-10-02T23:59:59.999').toISOString() });
+  });
+  it('필터를 바꾸면 앞 요청의 늦은 답은 버린다', async () => {
+    const wait: ((r: Reply) => void)[] = [];
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('category') ? list([ev('2', { message: '새 필터 결과' })]) : new Promise<Reply>((r) => wait.push(r))) }));
+    await open('#/history');
+    await click(btn('안전'));
+    expect(rows()).toEqual([expect.stringContaining('새 필터 결과')]);
+    wait[0](list([ev('1', { message: '옛 필터 결과' })])); await flush();
+    expect(rows()).toEqual([expect.stringContaining('새 필터 결과')]);
+  });
+  it('빈 목록 문구: 필터 없음 / 필터 있음', async () => {
+    serve(signedIn(KIM));
+    await open('#/history');
+    expect(card('기록').textContent).toContain('아직 기록이 없습니다.');
+    await click(btn('결재'));
+    expect(card('기록').textContent).toContain('조건에 맞는 기록이 없습니다.');
+  });
+});
+
+// 10-20 조정 결정 B: 서버 문장 맨 앞 «HH:MM » 접두만 떼고 at 의 현지 날짜·시각을 따로 보인다. 접두가 없으면 그대로, CSV 는 서버 문장 그대로
+describe('시각 접두', () => {
+  const AT = '2026-10-19T23:47:00Z', d = new Date(AT), local = `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`;
+  it('UTC 접두·KST 접두·접두 없음 — 사건 목록', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([
+      ev('3', { at: AT, message: '23:47 김총괄님이 로그인했습니다.' }),          // 지금 서버(UTC 접두)
+      ev('2', { at: AT, message: '08:47 박운영님이 로그인했습니다.' }),          // 고친 서버(조직 시간대 접두)
+      ev('1', { at: AT, message: 'Go2-7이 12:30 에 연결되었습니다.' }),          // 접두 없음 — 문장 가운데 시각은 그대로
+    ]) }));
+    await open('#/history');
+    const sentences = [...card('사건').querySelectorAll('li')].map((l) => l.lastElementChild!.textContent);
+    expect(sentences).toEqual(['김총괄님이 로그인했습니다.', '박운영님이 로그인했습니다.', 'Go2-7이 12:30 에 연결되었습니다.']);
+    for (const li of card('사건').querySelectorAll('li')) expect(li.firstElementChild!.textContent).toBe(local);
+  });
+  it('알림 본문도 같은 규칙, 서랍 «최근 사건»도', async () => {
+    serve(signedIn(KIM, {
+      'GET /notifications': { status: 200, body: { items: [note('1', { body: '23:47 Go2-7과 연결이 끊겼습니다.', created_at: AT }), note('2', { body: 'Go2-7 배터리가 낮습니다.', created_at: AT })], next_cursor: null, unread_count: 2 } },
+      'GET /events': list([ev('1', { at: AT, message: '08:47 Go2-7이 연결되었습니다.' })]),
+    }));
+    await open('#/fleet');
+    const notes = [...card('알림 목록').querySelectorAll('li')].map((l) => l.textContent);
+    expect(notes[0]).toBe(`●새 알림연결 끊김 Go2-7과 연결이 끊겼습니다.${local}`);
+    expect(notes[1]).toBe(`●새 알림연결 끊김 Go2-7 배터리가 낮습니다.${local}`);
+    expect(card('최근 사건').textContent).toContain(`${local}`);
+    expect(card('최근 사건').textContent).not.toContain('08:47 Go2-7');
+  });
+});
+
+describe('기록 탭 — 오류', () => {
+  it('401 → 로그인 화면', async () => {
+    serve(signedIn(KIM, { 'GET /events': err(401, 'AUTH_REQUIRED', '로그인이 필요합니다.') }));
+    await open('#/history');
+    expect($('form')).toBeTruthy();
+    expect(box.textContent).toContain('로그인이 끝났습니다');
+  });
+  it('403 → 서버 문장, STOP 그대로', async () => {
+    serve(signedIn(LEE, { 'GET /events': err(403, 'FORBIDDEN', '권한이 없습니다.') }));
+    await open('#/history');
+    expect(alertText()).toContain('기록을 받지 못했습니다. 권한이 없습니다.');
+    stopOk();
+  });
+  it('404(범위 밖) → 무엇이 + 어떻게', async () => {
+    serve(signedIn(LEE, { 'GET /events': (q) => (q.get('robot_id') ? err(404, 'NOT_FOUND', '기록을 찾을 수 없습니다.') : list([ev('1')])) }));
+    await open('#/history');
+    await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-a');
+    expect(alertText()).toContain('기록을 찾을 수 없습니다. 로봇 담당이 바뀌었거나 지워졌을 수 있습니다. 필터를 바꿔 다시 보세요.');
+    expect(rows()).toEqual([]);   // 앞 필터의 목록을 남기지 않음
+    expect(alertText()).not.toMatch(/404|HTTP/);
+  });
+  it('네트워크 실패 → 문구 + 다시 시도', async () => {
+    let down = true;
+    serve(signedIn(KIM, { 'GET /events': () => { if (down) throw new TypeError('Failed to fetch'); return list([ev('1')]); } }));
+    await open('#/history');
+    expect(alertText()).toContain('서버에 연결하지 못했습니다');
+    stopOk();
+    down = false;
+    await click(btn('다시 시도'));
+    expect(rows()).toHaveLength(1);
+    expect(alertText()).toBe('');
+  });
+  it('더 보기 실패 → 받은 목록 그대로, 다시 시도하면 같은 cursor', async () => {
+    let down = false;
+    serve(signedIn(KIM, { 'GET /events': (q) => { if (q.get('cursor') && down) throw new TypeError('x'); return q.get('cursor') ? list([ev('1')]) : list([ev('2')], 'c1'); } }));
+    await open('#/history');
+    down = true;
+    await click(btn('더 보기'));
+    expect(rows()).toHaveLength(1);
+    expect(alertText()).toContain('서버에 연결하지 못했습니다');
+    down = false;
+    await click(btn('다시 시도'));
+    expect(lastQuery()).toEqual({ cursor: 'c1' });
+    expect(rows()).toHaveLength(2);
+  });
+  it('어긋난 응답(목록 아님·문장 아님)도 화면을 깨지 않음 — 오류 한 줄 + STOP 그대로', async () => {
+    for (const body of [{ csrf_token: 'x' }, { items: [{ id: '1', at: NOW, message: { x: 1 } }], next_cursor: null }]) {
+      serve(signedIn(KIM, { 'GET /events': { status: 200, body }, 'GET /notifications': { status: 200, body: { items: 'x' } } }));
+      await open('#/history');
+      expect(alertText()).toContain('받은 기록 형식이 맞지 않습니다');
+      stopOk();
+      act(() => root?.unmount()); root = null; box.remove();
+    }
+  });
+  it('기록·알림 요청이 끝까지 답하지 않아도 STOP 은 보이고 눌림', async () => {
+    serve(signedIn(KIM, { 'GET /events': () => new Promise<Reply>(() => {}), 'GET /notifications': () => new Promise<Reply>(() => {}) }));
+    await open('#/history');
+    expect(card('기록').textContent).toContain('기록을 불러오는 중');
+    stopOk();
+  });
+});
+
+describe('CSV 내보내기', () => {
+  let saved: { href: string; download: string }[] = [];
+  beforeEach(() => {
+    saved = [];
+    URL.createObjectURL = vi.fn(() => 'blob:csv');
+    URL.revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { saved.push({ href: this.href, download: this.download }); });
+  });
+  it('지금 필터 그대로(cursor·limit 없이) 받아 파일로 저장', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('2')], 'c1'), 'GET /events/export.csv': { status: 200, body: '\ufeffid,at\n2,x\n' } }));
+    await open('#/history');
+    await click(btn('계정'));
+    await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-b');
+    await click(btn('내보내기'));
+    expect(Object.fromEntries(sent('GET', '/events/export.csv')[0].q)).toEqual({ category: 'ACCOUNT', robot_id: 'r-b' });
+    expect(saved).toEqual([{ href: 'blob:csv', download: expect.stringMatching(/^기록-\d{4}-\d\d-\d\d\.csv$/) }]);
+    expect(await ((URL.createObjectURL as ReturnType<typeof vi.fn>).mock.calls[0][0] as Blob).text()).toContain('id,at\n2,x');   // 서버 본문 그대로
+    expect(card('기록').textContent).toContain('CSV 파일로 내려받았습니다');
+  });
+  it('400 EXPORT_LIMIT → 기간을 줄이라는 쉬운 안내, 파일 없음', async () => {
+    serve(signedIn(KIM, { 'GET /events/export.csv': err(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.') }));
+    await open('#/history');
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('기간을 줄이거나 분류·로봇을 골라 다시 내보내세요');
+    expect(saved).toEqual([]);
+    expect(btn('내보내기')!.disabled).toBe(false);
+  });
+  it('네트워크 실패·403 → 무엇이 + 서버 문장', async () => {
+    serve(signedIn(KIM, { 'GET /events/export.csv': () => { throw new TypeError('x'); } }));
+    await open('#/history');
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('내보내지 못했습니다. 서버에 연결하지 못했습니다');
+    act(() => root?.unmount()); root = null; box.remove();
+    serve(signedIn(LEE, { 'GET /events/export.csv': err(403, 'FORBIDDEN', '권한이 없습니다.') }));
+    await open('#/history');
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('내보내지 못했습니다. 권한이 없습니다.');
+    expect(saved).toEqual([]);
+  });
+});
+
+describe('운영 관리자 — 서버가 준 것만', () => {
+  it('목록은 서버 응답 그대로(남의 로봇에 한 내 행동 포함), 로봇 고르기는 내 로봇만', async () => {
+    serve(signedIn(LEE, { 'GET /events': list([ev('2', { robot_id: 'r-a', message: 'Go2-A 내 로봇 사건' }), ev('1', { category: 'SAFETY', robot_id: 'r-b', user_id: 'o1', message: '이운영님이 Go2-B STOP 을 눌렀습니다.' })]) }));
+    await open('#/history');
+    expect(rows()).toHaveLength(2);
+    expect(rows()[1]).toContain('이운영님이 Go2-B STOP 을 눌렀습니다.');
+    expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['전체', 'Go2-A']);
+  });
+});
+
+describe('폰 기록', () => {
+  it('머리줄에서 고른 내 로봇의 서버 기록, 분류·내보내기 없음', async () => {
+    serve(signedIn(PARK, { 'GET /events': list([ev('1', { robot_id: 'r-b', message: 'Go2-B 사건' })]) }));
+    await open('#/history', true);
+    expect(lastQuery()).toEqual({ robot_id: 'r-b' });
+    expect(rows()).toEqual([expect.stringContaining('Go2-B 사건')]);
+    expect($('[aria-label="분류"]')).toBeNull();
+    expect(btn('내보내기')).toBeUndefined();
+    expect($('[data-bell]')).toBeNull();   // 폰 머리줄: 로봇·연결 점·STOP 만(03 §3.2)
+    stopOk();
+  });
+  it('빈 목록·네트워크 실패 문구', async () => {
+    serve(signedIn(PARK));
+    await open('#/history', true);
+    expect(card('기록').textContent).toContain('이 로봇의 기록이 아직 없습니다.');
+    act(() => root?.unmount()); root = null; box.remove();
+    serve(signedIn(PARK, { 'GET /events': () => { throw new TypeError('x'); } }));
+    await open('#/history', true);
+    expect(alertText()).toContain('서버에 연결하지 못했습니다');
+    stopOk();
+  });
+});
+
+describe('서랍 «최근 사건»', () => {
+  it('그 로봇의 최근 5개(robot_id·limit=5)', async () => {
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([ev('2', { message: 'Go2-A 최근 사건' })]) : list([])) }));
+    await open('#/fleet');
+    const call = sent('GET', '/events').find((c) => c.q.get('robot_id') === 'r-a')!;
+    expect(Object.fromEntries(call.q)).toEqual({ robot_id: 'r-a', limit: '5' });
+    expect(card('로봇 상세').textContent).toContain('Go2-A 최근 사건');
+    expect(card('로봇 상세').textContent).not.toContain('최근 사건 자리');
+  });
+  it('없으면·범위 밖(404)이면 칸을 숨김(가짜 없음), 다른 실패는 한 줄', async () => {
+    serve(signedIn(KIM));
+    await open('#/fleet');
+    expect($('[aria-label="최근 사건"]')).toBeNull();
+    expect(card('로봇 상세').textContent).not.toContain('최근 사건');
+    act(() => root?.unmount()); root = null; box.remove();
+    serve(signedIn(KIM, { 'GET /events': err(404, 'NOT_FOUND', '기록을 찾을 수 없습니다.') }));
+    await open('#/fleet');
+    expect(card('로봇 상세').textContent).not.toContain('최근 사건');
+    act(() => root?.unmount()); root = null; box.remove();
+    serve(signedIn(KIM, { 'GET /events': () => { throw new TypeError('x'); } }));
+    await open('#/fleet');
+    expect(card('로봇 상세').textContent).toContain('최근 사건을 받지 못했습니다. 서버에 연결하지 못했습니다');
+    stopOk();
+  });
+  it('운영 관리자가 남의 로봇을 고르면 요청하지 않음(요약만 보는 범위)', async () => {
+    serve(signedIn(PARK));
+    await open('#/fleet');
+    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    expect(sent('GET', '/events').filter((c) => c.q.get('robot_id') === 'r-a')).toEqual([]);
+    expect(sent('GET', '/events').filter((c) => c.q.get('robot_id') === 'r-b')).toHaveLength(1);   // 내 로봇은 요청함
+  });
+});
+
+describe('알림 종', () => {
+  it('안 읽은 수 배지 → 펼쳐 누르면 그 알림 읽음({ids}) + 그 기록으로 이동', async () => {
+    let unread = new Set(['7', '6']);
+    serve(signedIn(KIM, {
+      'GET /notifications': () => ({ status: 200, body: { items: [note('7', { read_at: unread.has('7') ? null : NOW }), note('6', { read_at: unread.has('6') ? null : NOW })], next_cursor: null, unread_count: unread.size } }),
+      'POST /notifications/read': (_q, b) => { for (const id of (b as { ids: string[] }).ids) unread.delete(id); return { status: 204 }; },
+      'GET /events/7': { status: 200, body: ev('7', { message: '알림이 가리킨 사건' }) },
+    }));
+    await open('#/fleet');
+    const bell = $('[data-bell]')!;
+    expect(bell.querySelector('summary')!.getAttribute('aria-label')).toBe('알림 안 읽음 2건');
+    expect(bell.querySelector('.fh-badge')!.textContent).toBe('2');
+    act(() => { (bell as HTMLDetailsElement).open = true; });
+    expect(card('알림 목록').textContent).toContain('알림 7 본문');
+    await click([...card('알림 목록').querySelectorAll('li button')][0]);
+    expect(sent('POST', '/notifications/read').map((c) => c.body)).toEqual([{ ids: ['7'] }]);
+    expect(location.hash).toBe('#/history?event_id=7');
+    expect($('h1')!.textContent).toBe('기록');
+    expect(card('알림에서 연 기록').textContent).toContain('알림이 가리킨 사건');
+    expect(bell.querySelector('.fh-badge')!.textContent).toBe('1');
+    expect((bell as HTMLDetailsElement).open).toBe(false);
+    stopOk();
+  });
+  it('모두 읽음 → {all:true}, 배지 사라짐. 읽은 알림만이면 모두 읽음 비활성', async () => {
+    let unread = 3;
+    serve(signedIn(KIM, {
+      'GET /notifications': () => ({ status: 200, body: { items: [note('1', { read_at: unread ? null : NOW })], next_cursor: null, unread_count: unread } }),
+      'POST /notifications/read': () => { unread = 0; return { status: 204 }; },
+    }));
+    await open('#/fleet');
+    await click(btn('모두 읽음'));
+    expect(sent('POST', '/notifications/read').map((c) => c.body)).toEqual([{ all: true }]);
+    expect($('[data-bell] .fh-badge')).toBeNull();
+    expect($('[data-bell] summary')!.getAttribute('aria-label')).toBe('알림 안 읽음 0건');
+    expect(btn('모두 읽음')!.disabled).toBe(true);
+  });
+  it('읽음 실패(404 섞임·네트워크) → 펼친 칸 안에 한 줄, 배지 그대로', async () => {
+    serve(signedIn(KIM, {
+      'GET /notifications': { status: 200, body: { items: [note('1')], next_cursor: null, unread_count: 1 } },
+      'POST /notifications/read': err(404, 'NOT_FOUND', '알림을 찾을 수 없습니다.'),
+    }));
+    await open('#/fleet');
+    await click(btn('모두 읽음'));
+    expect(card('알림 목록').textContent).toContain('읽음으로 바꾸지 못했습니다. 알림을 찾을 수 없습니다.');
+    expect($('[data-bell] .fh-badge')!.textContent).toBe('1');
+    stopOk();
+  });
+  it('알림을 못 받으면 칸 안에만 이유 — 머리줄·STOP 그대로', async () => {
+    serve(signedIn(KIM, { 'GET /notifications': () => { throw new TypeError('x'); } }));
+    await open('#/fleet');
+    expect($('[data-bell] summary')!.getAttribute('aria-label')).toBe('알림');
+    expect(card('알림 목록').textContent).toContain('알림을 받지 못했습니다. 서버에 연결하지 못했습니다');
+    stopOk();
+  });
+  it('알림이 가리킨 기록이 범위 밖(404) → 볼 수 없다고 씀', async () => {
+    serve(signedIn(LEE, { 'GET /events/5': err(404, 'NOT_FOUND', '기록을 찾을 수 없습니다.') }));
+    await open('#/history?event_id=5');
+    expect(location.hash).toBe('#/history?event_id=5');
+    expect(card('알림에서 연 기록').textContent).toContain('이 기록을 볼 수 없습니다.');
+    await click(btn('닫기', card('알림에서 연 기록')));
+    expect(location.hash).toBe('#/history');
+    expect($('[aria-label="알림에서 연 기록"]')).toBeNull();
+  });
+  it('알림 링크 주소도 기록 탭', () => {
+    expect(tabFromHash('#/history?event_id=12', false)).toBe('history');
+    expect(tabFromHash('#/history?event_id=12', true)).toBe('history');
+  });
+});
