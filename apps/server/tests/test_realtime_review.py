@@ -338,7 +338,7 @@ def test_failed_runtime_refuses_existing_connection_control_but_allows_stop(clie
 def test_replaced_agent_state_handler_has_its_own_identity_gate(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
     async def check():
-        old, current = Peer(Sink()), Peer(Sink())
+        old, current = Peer(Sink(), auth_checked=rt.clock()), Peer(Sink(), auth_checked=rt.clock())
         rt.agents[rid] = current
         rt.arbiter.robot(rid).stop_gen = 1
         assert rt.accept_state(rid, old, C.AgentState.model_validate(state(999))) is False

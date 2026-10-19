@@ -260,3 +260,145 @@ WS 캐시는 감시 주기와 DB 응답 시간만큼 권한 변경 반영이 늦
 | operation denial closes connection | detected |
 | lease audit index omitted | detected |
 | stale cache permits motion | detected |
+
+## Claude r2 재검토 N1~N9 수정
+
+검토 대상 `9c6b893` 이후 같은 `feature/server-realtime`에서 수정했다.
+검토 보고서의 N1~N9를 모두 읽었으며 명세 문서와 `apps/agent/**`는 수정하지 않았다.
+원래 B1~B3·R1~R10·I1/I2/I3/I5 회귀와 50개 변이도 유지한다.
+
+| 지적 | 수정·판단 | 고침을 빼면 실패하는 회귀 시험 |
+|---|---|---|
+| N1 일시 거부가 실제 HTTP 403 | 소유 잠금 없음·failed·최초 인증 DB 일시 오류는 WS accept 후 1013. 실제 인증 불일치는 기존 403/4403 유지 | `test_n1_busy_is_retryable_1013_over_real_uvicorn`(화면/에이전트), `test_true_agent_auth_denial_stays_forbidden`, 별도 도구의 `test_real_pr8_client_keeps_retrying_after_owner_loss_and_reconnects` |
+| N2 낡은 스냅숏에서 FREE 유실 | 송신자가 같은 알림을 보관하고 권한을 다시 읽은 뒤 재검사·전송. 갱신 실패는 재시도하고, 권한 상실은 닫기. 수신/STOP은 이 대기를 공유하지 않음 | `test_n2_stale_free_is_retried_after_snapshot_refresh`: 700 ms DB 지연·낡은 캐시에서 에이전트 끊김 후 FREE 수신 |
+| N3 hello 지연으로 영구 중단 | hello 시한 초과만 1013, 명시적 proto 불일치는 기존 거부 | `test_n3_hello_deadline_is_retryable` |
+| N4 거부 입력 예산 우회 | JSON 해석 후 모델/권한/busy 검사 전에 예산 소비. 잘못된 에이전트 JSON·binary도 소비 | `test_n4_screen_denials_spend_ingress_before_validation` 4종, `test_n4_agent_invalid_frames_are_budgeted` 4종 |
+| N5 포화 시 FREE 뒤 ACCEPTED | effect 목록 적용 중 감사 포화는 표시만 하고 가장 바깥 목록 완료 후 emergency FREE | `test_n5_overflow_free_follows_entire_accepted_effect_batch`: 실제 TAKE 감사 포화에서 양쪽 화면 ACCEPTED < 마지막 FREE |
+| N6 시작 때 standby 영구 대기 | 처음 소유 잠금을 못 얻어도 감시/재선출 실행. README에 두 WS 경로를 실시간 소유자에게 보내는 라우팅 조건 명시 | `test_n6_startup_standby_acquires_after_owner_stops` |
+| N7 DB 오류 한 번에 전체 끊김 | 신선한 권한 캐시는 단발 DB 오류 동안 유지·재시도. 500 ms 낡으면 lease 폐기·새 조종 차단·STOP 유지. 마지막 정상 판정부터 5 s가 지난 오류에서는 1013. 소유 확인 오류는 즉시 FREE지만 연결/STOP 유지·재확인 | `test_n7_single_policy_db_error_retries_without_dropping_lease`, `test_n7_single_agent_auth_db_error_keeps_connection`, `test_n7_unknown_ownership_frees_but_keeps_stop_and_rechecks`, `test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry`, `test_n7_stale_agent_auth_blocks_authority_but_stop_is_still_forwarded`, `test_n7_retry_grace_is_bounded_and_closes_temporarily`, `test_n7_stale_successful_read_is_not_a_permanent_authorization_denial` |
+| N8 RUN 인수 중복 RELEASE | 사용자 없는 RELEASE를 생략하고 RUN_PAUSE_TAKEOVER와 확인 후 TAKE를 유지. 실행 예약 RUN_TAKE와 별개의 의도가 있는 기록만 남김 | `test_n8_run_takeover_has_no_duplicate_release`: RUN_TAKE → RUN_PAUSE_TAKEOVER → TAKE 정확한 3행 |
+| N9 사건 backlog로 재접속 반복 | 유효 사건만 별도 100/s·순간100 예산. 초과는 연결을 유지하며 AGENT_BACKLOG_SAMPLED로 수를 집계하고 버림. 매 사건 후 event loop 양보, state·정지 확인의 예산을 소모하지 않음 | `test_n9_backlog_events_do_not_disconnect_or_starve_state`: 사건 500개 뒤 state 반영·lease/연결 유지·감사 큐 상한·초과 집계 확인 |
+
+### N7 완화의 안전 기준
+
+- DB 단발 오류를 실제 인증 거부와 구별한다. 화면/로봇 권한의 마지막 성공 시각은
+  단조 시계로 검사하며, 새 cmd/unlock/non-null lease·넘김 확인은 500 ms 낡은
+  로봇 인증이나 확인 중인 소유권을 사용할 수 없다. 화면 권한도 같은 상한이다.
+- 낡은 권한을 감시가 발견하면 holder/transfer를 폐기한다. 기존에 인증·허용된 범위의
+  STOP과 lease null은 캐시의 신선도·DB 재시도를 기다리지 않고 계속 중계한다.
+  화면 송신자가 알림 재확인을 기다리는 동안에도 별도 수신 경로로 STOP이 즉시 나감을 시험했다.
+- 소유 잠금 판정이 불명확하면 조직 전체를 즉시 FREE로 두며 새 조종을 막는다.
+  확인된 소유 잠금 소실은 원래처럼 FREE+1013이고, 재획득 뒤 옛 lease는 복원하지 않는다.
+  단순 확인 쿼리 오류에서는 기존 연결을 남겨 STOP을 전달하고 재확인을 시도한다.
+- 마지막 정상 권한 판정부터 5 s 이상 확인되지 않으면 1013으로 닫는다. 소유권 확인은
+  첫 오류부터 5 s를 기준으로 한다. 이 기준은 DB 호출 반환 때 검사하며 각 읽기의
+  statement_timeout 2 s가 별도로 적용된다. 5 s를 정확한 wall-clock 닫기 상한으로 주장하지 않는다.
+  송신 알림 재확인은 자체 5 s timeout도 적용한다. 단발 오류로 전체 현장을 재접속시키는
+  비용을 줄이되, 오래된 권한으로 움직이는 유예를 늘리지 않으려는 선택이다.
+- 실제 토큰 불일치·세션 폐기·권한 상실은 유예 없이 원래의 4401/4403이다.
+  성공했지만 낡은 스냅숏도 POLICY_STALE로 재시도하며 4403으로 잘못 분류하지 않는다.
+
+### 실제 PR #8 Client 맞물림
+
+`apps/server/tools/check_agent_reconnect.py`는 지정 Git commit의 agent package만
+`git archive`로 임시 폴더에 읽는다. 에이전트 소스·worktree에는 쓰지 않는다.
+실제 uvicorn을 127.0.0.1 임시 fd/포트로 시작하고 기존 임시 PostgreSQL fixture를 사용한다.
+시험용 속도 싱크는 모든 출력이 0인지 단언한다.
+
+- 검토 보고서 기준 `4392fc708ad471047bf710dc978c20b903168255`: **1 passed** (6.87 s).
+- 현재 PR #8 `e0cd2741ef9aecfc5cdd4c4962044213640a2428`: **1 passed** (최종 재실행 6.67 s).
+- 임시 DB의 실시간 소유 세션을 종료 → 다른 연결이 잠금을 점유 → Client에서
+  1013 재시도 3회 이상 → 잠금 해제 → 인증된 server ping 복귀를 확인했다.
+  기존 오류를 되살린 변이는 실제 Client의 ReconnectForbidden으로 검출한다.
+- 실제 uvicorn의 별도 시험 3개는 바쁜 화면/에이전트가 각각 HTTP 101 뒤 1013을
+  받는 것과 진짜 잘못된 에이전트 토큰이 HTTP 403인 것을 구분한다.
+
+### 실행 결과·남은 범위
+
+- 전체 pytest: **190 passed**, Starlette 안내 1건 (113.23 s).
+- N2~N9 전용 시험: **21 passed**, 실제 uvicorn 거부 코드 시험: **3 passed**.
+- 변이 도구: **67/67 검출**, 수집 오류 0. 기존 50개와 r2 17개를 포함한다.
+- 원본 수정 없는 기존 `sim/v2_link.py --selftest`: **selftest OK**.
+- Alembic `upgrade head → downgrade base → upgrade head`: **1 passed**, ORM diff 0.
+- `generate.py --check`: 생성물 **61개 일치**; `tsc --strict --noEmit`: 성공.
+- 기존 감사 집계·STOP DB 지연·프로토콜/권한·기존 100개 시험을 포함하며 기대를 낮추지 않았다.
+
+N9는 사건 원본을 모두 저장하는 기능이 아니다. 제한 이내의 사건은 수신 순서로 처리하고
+초과 원본은 버린 개수로 집계한다. 집계 키/전역 한도가 겹치면 AUDIT_DROPPED 요약에 포함된다.
+PR #8의 Session 미송신 사건 큐 상한과 송신 배압은 `apps/agent/**` 소유 범위라 수정하지
+않았으며 조정 세션에 후속 판단 항목으로 전달했다. 에이전트 내부 메모리 상한까지
+해결했다고 주장하지 않는다. 실제 DB 재시작·네트워크 장애·TLS/프록시·실폰·로봇·영상은
+시험하지 않았다. 운영 8453/8792·Gazebo·ROS·실기 접촉 0이며 배포하지 않았다.
+이번 수정에 새 DB migration·메시지 계약 변경은 없다.
+
+### r2 최종 변이 실행 표
+
+| Broken decision | Detection |
+|---|---|
+| request timeout 10 -> 20 | detected |
+| TIMEOUT cooldown omitted | detected |
+| lease heartbeat 15 -> 30 | detected |
+| duplicate seq accepted | detected |
+| command budget removed | detected |
+| unlock CAS removed | detected |
+| stale stop generation accepted | detected |
+| nonzero applied accepted | detected |
+| latch check removed | detected |
+| late transfer ack accepted | detected |
+| lease null replaced by stale lease | detected |
+| connection binding weakened | detected |
+| respond holder check omitted | detected |
+| take allowed during transfer | detected |
+| request during transfer | detected |
+| second pending request allowed | detected |
+| hidden transferee not revoked | detected |
+| unreported earlier STOP ignored | detected |
+| initial take cancel not notified | detected |
+| strict 50 ms gate reintroduced | detected |
+| zero input rate rejected | detected |
+| disconnect leaves request | detected |
+| disconnect leaves transfer | detected |
+| safety enqueue keeps stale cmd | detected |
+| requester gone accepted | detected |
+| failed input gate ignored | detected |
+| audit overflow does not revoke | detected |
+| delivery policy omitted | detected |
+| replaced state handler gate omitted | detected |
+| repeat audit aggregation omitted | detected |
+| audit overload never recovers | detected |
+| STOP waits for DB again | detected |
+| auth close retains lease | detected |
+| emergency FREE not notified | detected |
+| ownership never recovers | detected |
+| RUN identity not bound | detected |
+| RUN takeover audit omitted | detected |
+| invalid agent body disconnects | detected |
+| invalid JSON renews liveness | detected |
+| streams falsely enabled | detected |
+| origin prefix accepted | detected |
+| ingress budget omitted | detected |
+| WebSocket backend pin omitted | detected |
+| transport frame cap undocumented | detected |
+| agent severity normalization omitted | detected |
+| agent future fields forbidden | detected |
+| binary agent frame closes link | detected |
+| operation denial closes connection | detected |
+| lease audit index omitted | detected |
+| stale cache permits motion | detected |
+| N1 transient rejection before accept | detected |
+| N1 real PR8 reconnect forbidden | detected |
+| N2 stale notification discarded | detected |
+| N3 hello timeout fatal | detected |
+| N4 screen denial bypasses ingress | detected |
+| N4 malformed agent bypasses ingress | detected |
+| N5 emergency interleaves accepted batch | detected |
+| N6 startup standby never elects | detected |
+| N7 policy transient disconnects | detected |
+| N7 agent auth transient disconnects | detected |
+| N7 uncertain ownership disconnects | detected |
+| N7 stale policy fails to revoke | detected |
+| N7 retry grace unbounded | detected |
+| N8 duplicate RUN release restored | detected |
+| N9 event backlog disconnects | detected |
+| N9 events exhaust control budget | detected |
+| N7 stale read mislabeled forbidden | detected |

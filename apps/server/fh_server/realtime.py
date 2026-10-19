@@ -17,6 +17,7 @@ from fastapi import Request, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import DBAPIError
 
 from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
@@ -27,6 +28,9 @@ log = logging.getLogger(__name__)
 SCREEN = TypeAdapter(C.ScreenMessage)
 AGENT = TypeAdapter(C.AgentMessage)
 MAX_FRAME = 4096
+DB_RETRY_GRACE = 5.0
+HELLO_TIMEOUT = 3.0
+TRANSIENT_DB = (DBAPIError, OSError, asyncio.TimeoutError)
 
 
 @dataclass
@@ -44,6 +48,10 @@ class Peer:
     budget: float = 100
     budget_at: float = 0
     revoke_on_close: bool = False
+    archive_budget: float = 100
+    archive_budget_at: float = 0
+    auth_checked: float = 0
+    stale_revoked: bool = False
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,10 @@ class Realtime:
         self.audit_overloaded = False
         self.audit_budget = 20.0
         self.audit_budget_at = self.clock()
+        self.effect_depth = 0
+        self.free_pending = False
+        self.owner_uncertain = False
+        self.owner_error_since = None
 
     async def start(self):
         self.starts += 1
@@ -99,7 +111,6 @@ class Realtime:
             # REST replicas may serve authentication/accounts, but cannot open
             # another realtime authority or accept a STOP they cannot deliver.
             self.failed = True
-            return
         self.tasks = [asyncio.create_task(self.ticker()), asyncio.create_task(self.auditor()),
                       asyncio.create_task(self.ownership_watch())]
 
@@ -130,11 +141,26 @@ class Realtime:
                 if conn is not None:
                     self.owner_connection = conn
                     self.failed = False  # recovery never restores any old lease
+                    self.owner_uncertain = False
+                    self.owner_error_since = None
                 continue
             try:
                 alive = await asyncio.to_thread(self.ownership_alive)
+            except TRANSIENT_DB:
+                if not self.owner_uncertain:
+                    self.owner_uncertain = True
+                    self.owner_error_since = self.clock()
+                    self.emergency_free()
+                with suppress(Exception):
+                    await asyncio.to_thread(self.owner_connection.rollback)
+                if self.clock() - self.owner_error_since < DB_RETRY_GRACE:
+                    continue
+                alive = False
             except Exception:
                 alive = False
+            if alive:
+                self.owner_uncertain = False
+                self.owner_error_since = None
             if not alive:
                 self.failed = True
                 self.emergency_free()
@@ -273,14 +299,24 @@ class Realtime:
         self.revoke_actor(peer.actor)
         await peer.socket.close(code=code)
 
-    def ingress_allowed(self, peer):
+    def ingress_allowed(self, peer, *, archive=False):
         at = self.clock()
-        peer.budget = min(100.0, peer.budget + max(0, at - peer.budget_at) * 100)
-        peer.budget_at = at
-        if peer.budget < 1:
-            return False
-        peer.budget -= 1
-        return True
+        budget, stamp = ('archive_budget', 'archive_budget_at') if archive else ('budget', 'budget_at')
+        balance = min(100.0, getattr(peer, budget) + max(0, at - getattr(peer, stamp)) * 100)
+        setattr(peer, stamp, at)
+        setattr(peer, budget, max(0, balance - 1))
+        return balance >= 1
+
+    async def retry_later(self, ws):
+        # A pre-accept ASGI close becomes HTTP 403 in uvicorn. Negotiate first
+        # so transient unavailability stays a retryable 1013 on the wire.
+        await ws.accept()
+        await ws.close(code=1013)
+
+    def finish_effects(self):
+        if self.effect_depth == 0 and self.free_pending:
+            self.free_pending = False
+            self.emergency_free()
 
     def queue_audit(self, effect):
         try:
@@ -290,7 +326,8 @@ class Realtime:
             self.audit_dropped += effect.body.get('_count', 1)
             if not self.audit_overloaded:
                 self.audit_overloaded = True
-                self.emergency_free()
+                self.free_pending = True
+                self.finish_effects()
             return False
 
     def note_audit(self, rid, body):
@@ -361,49 +398,57 @@ class Realtime:
 
     def apply(self, effects):
         """Synchronous effect enqueue. First two revoke effects cannot interleave."""
-        for effect in effects:
-            body, rid = dict(effect.body), effect.robot
-            target = effect.target
-            if target == 'agent':
-                peer = self.agents.get(rid)
-                if peer:
-                    if body['t'] == 'lease' and body['holder_type'] == 'RUN':
-                        body['holder_type'] = 'RUN:' + self.runs[rid]['run_id']
-                    if body['t'] == 'cmd':
-                        body['t_server'] = now().isoformat().replace('+00:00', 'Z')
-                    # Safety transitions discard any unsent movement inputs. They
-                    # keep lease-null/stop order and bypass queued telemetry/ping.
-                    if body['t'] in ('stop', 'lease', 'cmd'):
-                        retained = []
-                        while not peer.queue.empty():
-                            item = peer.queue.get_nowait()
-                            if item.get('t') not in ('cmd', 'ping', 'streams'):
-                                retained.append(item)
-                        for item in retained:
-                            peer.queue.put_nowait(item)
-                    self.put(peer, body)
-            elif target == 'audit':
-                self.note_audit(rid, body)
-            else:
-                body['robot'] = rid
-                if body['t'] == 'lease':
-                    owner = body.pop('connection')
-                    since = body.get('since')
-                    body['since'] = (now() - timedelta(seconds=max(0, self.clock() - since))).isoformat().replace('+00:00', 'Z') if since is not None else None
+        self.effect_depth += 1
+        try:
+            for effect in effects:
+                body, rid = dict(effect.body), effect.robot
+                target = effect.target
+                if target == 'agent':
+                    peer = self.agents.get(rid)
+                    if peer:
+                        if body['t'] == 'lease' and body['holder_type'] == 'RUN':
+                            body['holder_type'] = 'RUN:' + self.runs[rid]['run_id']
+                        if body['t'] in ('cmd', 'unlock') or (body['t'] == 'lease' and body['lease_id'] is not None):
+                            if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
+                                continue
+                        if body['t'] == 'cmd':
+                            body['t_server'] = now().isoformat().replace('+00:00', 'Z')
+                        # Safety transitions discard any unsent movement inputs. They
+                        # keep lease-null/stop order and bypass queued telemetry/ping.
+                        if body['t'] in ('stop', 'lease', 'cmd'):
+                            retained = []
+                            while not peer.queue.empty():
+                                item = peer.queue.get_nowait()
+                                if item.get('t') not in ('cmd', 'ping', 'streams'):
+                                    retained.append(item)
+                            for item in retained:
+                                peer.queue.put_nowait(item)
+                        self.put(peer, body)
+                elif target == 'audit':
+                    self.note_audit(rid, body)
                 else:
-                    owner = None
-                if 'expires_in' in body:
-                    body['expires_at'] = (now() + timedelta(seconds=body.pop('expires_in'))).isoformat().replace('+00:00', 'Z')
-                recipients = list(self.screens.items()) if target == 'screens' else [(target, self.screens.get(target))]
-                for cid, peer in recipients:
-                    if not peer or (target == 'screens' and rid not in peer.subscriptions and cid != owner):
-                        continue
-                    outgoing = dict(body)
-                    if body['t'] == 'lease' and cid != owner:
-                        outgoing.pop('lease_id', None)
-                    # Delivery checks the latest authorization snapshot; no
-                    # per-message SQL can block the safety path.
-                    self.put(peer, {'_delivery': outgoing})
+                    body['robot'] = rid
+                    if body['t'] == 'lease':
+                        owner = body.pop('connection')
+                        since = body.get('since')
+                        body['since'] = (now() - timedelta(seconds=max(0, self.clock() - since))).isoformat().replace('+00:00', 'Z') if since is not None else None
+                    else:
+                        owner = None
+                    if 'expires_in' in body:
+                        body['expires_at'] = (now() + timedelta(seconds=body.pop('expires_in'))).isoformat().replace('+00:00', 'Z')
+                    recipients = list(self.screens.items()) if target == 'screens' else [(target, self.screens.get(target))]
+                    for cid, peer in recipients:
+                        if not peer or (target == 'screens' and rid not in peer.subscriptions and cid != owner):
+                            continue
+                        outgoing = dict(body)
+                        if body['t'] == 'lease' and cid != owner:
+                            outgoing.pop('lease_id', None)
+                        # Delivery checks the latest authorization snapshot; no
+                        # per-message SQL can block the safety path.
+                        self.put(peer, {'_delivery': outgoing})
+        finally:
+            self.effect_depth -= 1
+            self.finish_effects()
 
     def emergency_free(self):
         # Use the same purge and notifications as ordinary revocation, without
@@ -419,9 +464,17 @@ class Realtime:
                 if '_delivery' in body:
                     body = body['_delivery']
                     try:
-                        self.cached_access(peer, [body['robot']], 'ROBOT_READ')
-                    except LeaseError:
-                        continue  # stale cache cannot disclose queued data
+                        async with asyncio.timeout(DB_RETRY_GRACE):
+                            while True:
+                                try:
+                                    self.cached_access(peer, [body['robot']], 'ROBOT_READ')
+                                    break
+                                except LeaseError:
+                                    try:
+                                        await self.refresh_policy(peer)
+                                        await asyncio.sleep(0)
+                                    except TRANSIENT_DB:
+                                        await asyncio.sleep(0.1)
                     except self.api_error as exc:
                         await self.deny_screen(peer, 4401 if exc.status == 401 else 4403)
                         return
@@ -458,7 +511,7 @@ class Realtime:
 
     async def screen_ws(self, ws: WebSocket):
         if self.owner_connection is None or self.failed:
-            await ws.close(code=1013)
+            await self.retry_later(ws)
             return
         cid = str(uuid4())
         try:
@@ -473,11 +526,17 @@ class Realtime:
         except self.api_error as exc:
             await ws.close(code=4401 if exc.status == 401 else 4403)
             return
+        except TRANSIENT_DB:
+            await self.retry_later(ws)
+            return
         peer = Peer(ws, actor=actor, last_rx=self.clock(), budget_at=self.clock())
         try:
             await self.refresh_policy(peer)
         except self.api_error as exc:
             await ws.close(code=4401 if exc.status == 401 else 4403)
+            return
+        except TRANSIENT_DB:
+            await self.retry_later(ws)
             return
         await ws.accept()
         self.screens[cid] = peer
@@ -487,6 +546,18 @@ class Realtime:
             first = True
             while True:
                 raw = await self.receive(ws)
+                if not self.ingress_allowed(peer):
+                    # Even the frame that closes a flooder may deliver a valid,
+                    # previously authorized STOP. No other action is performed.
+                    if raw.get('t') == 'stop':
+                        try:
+                            urgent = SCREEN.validate_python(raw)
+                            self.cached_access(peer, [str(urgent.robot)], 'ROBOT_SUMMARY', safety=True)
+                            self.apply(self.arbiter.stop(str(urgent.robot), actor))
+                        except (ValidationError, self.api_error, LeaseError):
+                            pass
+                    await self.deny_screen(peer, 1013)
+                    return
                 if (first and raw.get('proto') != 'fh-rt/1') or ('proto' in raw and raw['proto'] != 'fh-rt/1'):
                     await self.deny_screen(peer, 4403)
                     return
@@ -498,13 +569,10 @@ class Realtime:
                     policy = 'ROBOT_READ' if msg.t == 'sub' else ('ROBOT_SUMMARY' if msg.t == 'stop' else 'O_OWN' if rid else 'LOGIN')
                     settings = self.cached_access(peer, robots, policy, safety=msg.t == 'stop')
                     self.apply(self.arbiter.tick())  # expiry before new input
-                    if (self.failed or self.audit_overloaded) and msg.t != 'stop':
+                    if (self.failed or self.audit_overloaded or self.owner_uncertain) and msg.t != 'stop':
                         raise LeaseError('SERVER_BUSY', '서버 기록을 확인하고 있습니다.', 503)
                     if msg.t == 'stop':
                         self.apply(self.arbiter.stop(rid, actor))
-                    if not self.ingress_allowed(peer):
-                        await self.deny_screen(peer, 1013)
-                        return
                     if msg.t == 'sub':
                         peer.subscriptions = {r: set(msg.streams) for r in robots}
                         self.streams()
@@ -517,6 +585,8 @@ class Realtime:
                     else:
                         if rid not in self.agents or self.agents[rid].closing:
                             raise LeaseError('ROBOT_OFFLINE', '로봇 연결이 끊겼습니다.', 503)
+                        if self.clock() - self.agents[rid].auth_checked > 0.5:
+                            raise LeaseError('ROBOT_AUTH_PENDING', '로봇 인증 확인을 기다리고 있습니다.', 503)
                         if msg.t == 'lease.take':
                             r = self.arbiter.robot(rid)
                             if r.holder and r.holder.holder_type == 'RUN' and rid in self.runs:
@@ -590,7 +660,24 @@ class Realtime:
                     for rid, r in self.arbiter.robots.items():
                         if (r.holder and r.holder.actor == peer.actor) or (r.transfer and r.transfer.actor == peer.actor):
                             self.cached_access(peer, [rid], 'O_OWN')
-                except (self.api_error, LeaseError) as exc:
+                    peer.stale_revoked = False
+                except TRANSIENT_DB:
+                    age = self.clock() - peer.policy.checked
+                    if age > 0.5 and not peer.stale_revoked:
+                        self.revoke_actor(peer.actor)
+                        peer.stale_revoked = True
+                    if age >= DB_RETRY_GRACE:
+                        await self.deny_screen(peer, 1013)
+                        return
+                    continue
+                except LeaseError:
+                    # A stale snapshot is uncertainty, not an authorization denial.
+                    self.revoke_actor(peer.actor)
+                    if self.clock() - peer.policy.checked >= DB_RETRY_GRACE:
+                        await self.deny_screen(peer, 1013)
+                        return
+                    continue
+                except self.api_error as exc:
                     await self.deny_screen(peer, 4401 if exc.status == 401 else 4403)
                     return
                 for rid, streams in peer.subscriptions.items():
@@ -610,39 +697,62 @@ class Realtime:
                 await self.deny_screen(peer, 1013)
 
     async def agent_watch(self, rid, peer):
-        try:
-            while True:
-                await asyncio.sleep(0.1)
+        while True:
+            await asyncio.sleep(0.1)
+            try:
                 identity = await asyncio.to_thread(self.agent_identity, peer.socket.headers)
                 if self.agents.get(rid) is not peer or peer.closing:
                     return
                 if identity != rid:
                     raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
-        except self.api_error:
-            if self.agents.get(rid) is peer:
-                self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
-                await peer.socket.close(code=4403)
-        except Exception:
-            self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
-            with suppress(Exception):
+                peer.auth_checked = self.clock()
+                peer.stale_revoked = False
+            except TRANSIENT_DB:
+                if self.agents.get(rid) is not peer:
+                    return
+                age = self.clock() - peer.auth_checked
+                if age > 0.5 and not peer.stale_revoked:
+                    self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+                    peer.stale_revoked = True
+                if age < DB_RETRY_GRACE:
+                    continue
                 await peer.socket.close(code=1013)
+                return
+            except self.api_error:
+                if self.agents.get(rid) is peer:
+                    self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+                    await peer.socket.close(code=4403)
+                return
+            except Exception:
+                if self.agents.get(rid) is peer:
+                    self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
+                    with suppress(Exception):
+                        await peer.socket.close(code=1013)
+                return
 
     async def agent_ws(self, ws: WebSocket):
         if self.owner_connection is None or self.failed:
-            await ws.close(code=1013)
+            await self.retry_later(ws)
             return
         try:
             rid = await asyncio.to_thread(self.agent_identity, ws.headers)
         except self.api_error as exc:
             await ws.close(code=4401 if exc.status == 401 else 4403)
             return
+        except TRANSIENT_DB:
+            await self.retry_later(ws)
+            return
         await ws.accept()
-        peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock())
+        peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock(), auth_checked=self.clock(),
+                    budget_at=self.clock(), archive_budget_at=self.clock())
         sender = watcher = None
         try:
-            async with asyncio.timeout(3):
+            async with asyncio.timeout(HELLO_TIMEOUT):
                 while True:
                     raw = await self.receive(ws, agent=True)
+                    if not self.ingress_allowed(peer):
+                        await ws.close(code=1013)
+                        return
                     if isinstance(raw, dict) and raw.get('proto') not in (None, 'fh-agent/1'):
                         await ws.close(code=4403, reason='PROTOCOL_MISMATCH')
                         return
@@ -680,6 +790,11 @@ class Realtime:
                 raw = await self.receive(ws, agent=True)
                 if self.agents.get(rid) is not peer or peer.closing:
                     return
+                archive = isinstance(raw, dict) and raw.get('t') == 'event'
+                admitted = self.ingress_allowed(peer, archive=archive)
+                if not admitted and not archive:
+                    await ws.close(code=1013)
+                    return
                 if not isinstance(raw, dict) or not isinstance(raw.get('t'), str):
                     self.note_audit(rid, {'op': 'AGENT_INVALID_FRAME'})
                     continue
@@ -693,10 +808,14 @@ class Realtime:
                     msg = AGENT.validate_python(raw)
                 except ValidationError:
                     self.note_audit(rid, {'op': 'AGENT_INVALID_FRAME'})
+                    if not admitted:
+                        await ws.close(code=1013)
+                        return
                     continue
-                if not self.ingress_allowed(peer):
-                    await ws.close(code=1013)
-                    return
+                if archive and not admitted:
+                    self.note_audit(rid, {'op': 'AGENT_BACKLOG_SAMPLED'})
+                    await asyncio.sleep(0)
+                    continue
                 if msg.t == 'hello':
                     # Same-socket recovery must get a fresh connection/identity.
                     await ws.close(code=1012, reason='RECONNECT_REQUIRED')
@@ -706,6 +825,7 @@ class Realtime:
                     self.accept_state(rid, peer, msg)
                 elif msg.t == 'event':
                     self.apply([Effect('audit', rid, {'op': 'AGENT_EVENT', **msg.model_dump(mode='json')})])
+                    await asyncio.sleep(0)
                 elif msg.t == 'run.update':
                     # Placeholder: accept matching paused/terminal reports only;
                     # no mission execution or persistence is claimed here.
@@ -717,7 +837,9 @@ class Realtime:
                 # ping, cmd.ack, media are validated no-op extension points.
         except self.api_error:
             await ws.close(code=4403)
-        except (ValidationError, asyncio.TimeoutError):
+        except asyncio.TimeoutError:
+            await ws.close(code=1013, reason='HELLO_TIMEOUT')
+        except ValidationError:
             await ws.close(code=4403, reason='PROTOCOL_MISMATCH_OR_INVALID_FRAME')
         except WebSocketDisconnect:
             pass
@@ -737,6 +859,8 @@ class Realtime:
 
     def accept_state(self, rid, peer, msg):
         if self.agents.get(rid) is not peer or peer.closing:
+            return False
+        if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
             return False
         data = msg.model_dump(mode='json')
         peer.state.update({k: data[k] for k in ('speed', 'latched', 'stop_gen', 'applied')})

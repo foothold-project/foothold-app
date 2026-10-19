@@ -123,20 +123,20 @@ class Arbiter:
             effects += [self.effect(h.actor.connection, robot, **self.announce(robot).body)]
         if tr and tr.request:
             effects += self.result(robot, tr.request, 'CANCELED')
-        if h or tr:
+        if op is not None and (h or tr):
             effects += [self.audit(robot, op, h.actor if h else tr.actor)]
         return effects
 
-    def begin(self, robot, actor, req=None):
+    def begin(self, robot, actor, req=None, op='RELEASE'):
         r = self.robot(robot)
-        effects = self.revoke(robot, actor)
+        effects = self.revoke(robot, actor, op=op)
         r.transfer = Transfer(actor, self.clock() + 2, r.stop_floor - 1, req)
         return effects
 
     def take(self, robot, actor):
         r = self.robot(robot)
         if r.holder and r.holder.holder_type == 'RUN' and not r.transfer:
-            effects = self.begin(robot, actor)
+            effects = self.begin(robot, actor, op=None)
             return effects + [self.audit(robot, 'RUN_PAUSE_TAKEOVER', actor)]
         if r.holder or r.transfer:
             raise LeaseError('LEASE_HELD', '다른 연결이 조종 중입니다.')

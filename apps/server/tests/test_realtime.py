@@ -454,10 +454,10 @@ def test_second_server_authority_for_same_org_cannot_open_ws(client, seeded, rt)
         assert app.state.realtime.failed
         assert app_token(other)  # REST authentication replicas remain supported
         for path in ('/api/v1/ws', '/api/v1/agent/ws'):
-            with pytest.raises(WebSocketDisconnect) as error:
-                with other.websocket_connect('wss://testserver' + path):
-                    pass
-            assert error.value.code == 1013
+            with other.websocket_connect('wss://testserver' + path) as busy:
+                with pytest.raises(WebSocketDisconnect) as error:
+                    receive(busy)
+                assert error.value.code == 1013
         assert other.post(f"/api/v1/robots/{seeded['robots']['mine']}/stop").status_code == 503
 
 
