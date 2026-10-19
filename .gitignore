@@ -24,3 +24,11 @@ mobile/android/app/src/*/res/raw/
 *.p12
 *.jks
 *.keystore
+
+# 로컬 설명 자료와 임시 산출물
+/output/
+/tmp/
+*.ipa
+.env
+.env.*
+!.env.example
