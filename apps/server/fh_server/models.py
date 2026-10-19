@@ -74,7 +74,8 @@ class Robot(Tenant, Base):
     __table_args__ = (
         ForeignKeyConstraint(['org_id'], ['organizations.id']),
         ForeignKeyConstraint(['org_id', 'owner_user_id'], ['users.org_id', 'users.id']),
-        UniqueConstraint('org_id', 'name'),
+        Index('robots_active_org_name', 'org_id', 'name', unique=True,
+              postgresql_where=text('archived_at IS NULL')),
         UniqueConstraint('org_id', 'id'),
         CheckConstraint("last_floor_source IN ('HUMAN','AUTO')", name='floor_source'),
     )

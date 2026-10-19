@@ -19,3 +19,8 @@ export const agentHello: AgentHello = {"t":"hello","proto":"fh-agent/2","agent_v
 // @ts-expect-error The previous agent proto cannot claim the mandatory stop_ref contract.
 const oldAgentProto: AgentHello = {...agentHello, proto:'fh-agent/1'};
 void [agentHello, oldAgentProto];
+
+import type { ScreenServerPing } from '../ts/index';
+export const serverPing: ScreenServerPing = {"t":"ping","t_server":"2026-10-20T00:00:00Z"};
+export const cancelRequest: ScreenMessage = {"t":"lease.cancel","id":"cancel","robot":"00000000-0000-0000-0000-000000000001"};
+void [serverPing, cancelRequest];

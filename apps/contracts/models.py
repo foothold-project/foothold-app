@@ -251,7 +251,7 @@ class ScreenSub(ScreenEnvelope):
 
 
 class ScreenLease(ScreenRobot):
-    t: Literal['lease.take', 'lease.request', 'lease.release', 'hidden', 'stop']
+    t: Literal['lease.take', 'lease.request', 'lease.release', 'lease.cancel', 'hidden', 'stop']
 
 
 class ScreenRespond(ScreenRobot):
@@ -434,6 +434,11 @@ class AgentStreams(Contract):
     depth: bool
     lidar: bool
     map: bool
+
+
+class ScreenServerPing(Contract):
+    t: Literal['ping'] = 'ping'
+    t_server: UTCDateTime
 
 
 class ScreenReply(Contract):

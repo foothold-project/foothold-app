@@ -169,8 +169,18 @@ def test_summary_null_when_disconnected_or_state_is_stale(client, seeded, rt):
         ag.send_json(message)
         deadline = time.monotonic()+2
         while client.get(P+'/robots/'+rid, headers=own).json()['battery'] is None:
-            assert time.monotonic()<deadline
-            time.sleep(.01)
+            peer = rt.agents.get(rid)
+            assert time.monotonic()<deadline, {
+                'agent_present': peer is not None,
+                'auth_age': rt.clock()-peer.auth_checked if peer else None,
+                'owner_uncertain': rt.owner_uncertain,
+                'state': peer.state if peer else None,
+            }
+            # The production Client sends telemetry periodically. A single
+            # sample may be safely refused during an auth freshness gap; this
+            # summary test must supply a live source, not a one-shot frame.
+            ag.send_json(message)
+            time.sleep(.1)
         assert client.get(P+'/robots/'+rid, headers=other).json()['connection'] == 'UNKNOWN'
         def age():
             rt.agents[rid].state_received_at = rt.clock()-4

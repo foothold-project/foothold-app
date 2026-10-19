@@ -101,6 +101,75 @@ def test_decline_cooldown_starts_when_decided(rig):
     a.request('r', other)
 
 
+@pytest.mark.parametrize('accepted', [False, True])
+def test_cancel_counts_as_request_and_cooldown_follows_user(rig, accepted):
+    c, a, owner, other = held(rig)
+    effects = a.request('r', other)
+    if accepted:
+        a.respond('r', owner, a.robot('r').request.id, True)
+    c.step(3)
+    effects += a.cancel('r', other)
+    if accepted:
+        a.take('r', owner)
+        a.state('r', True, [0, 0, 0], 3, stop_ref=a.robot('r').stop_ref)
+    # Reconnects and other devices cannot turn cancel into a dialog flood.
+    for n in range(20):
+        actor = Actor(other.user, f'session-{n}', f'connection-{n}')
+        with pytest.raises(LeaseError) as error:
+            effects += a.request('r', actor)
+        assert (error.value.code, error.value.status) == ('LEASE_REQUEST_COOLDOWN', 429)
+    assert sum(e.body.get('t') == 'lease.requested' for e in effects) == 1
+    c.at = 32.999
+    with pytest.raises(LeaseError, match='30초'):
+        a.request('r', other)
+    c.at = 33
+    a.request('r', other)
+    assert a.robot('r').holder.actor == owner
+
+
+@pytest.mark.parametrize('cancel_first', [False, True])
+def test_cancel_and_expiry_emit_one_terminal_result_per_recipient(rig, cancel_first):
+    c, a, owner, other = held(rig)
+    a.request('r', other)
+    if cancel_first:
+        c.at = 9.999
+        effects = a.cancel('r', other)
+        c.at = 10
+        effects += a.tick()
+    else:
+        c.at = 10
+        effects = a.tick()
+        with pytest.raises(LeaseError) as error:
+            a.cancel('r', other)
+        assert error.value.code == 'LEASE_REQUEST_STALE'
+    expected = 'CANCELED' if cancel_first else 'TIMEOUT'
+    assert sorted((e.target, e.body['result']) for e in effects if e.body.get('t') == 'lease.result') == [
+        (owner.connection, expected), (other.connection, expected)]
+    assert a.robot('r').holder.actor == owner and a.robot('r').request is None
+
+
+@pytest.mark.parametrize('cancel_first', [False, True])
+def test_cancel_and_confirmation_emit_one_terminal_result_per_recipient(rig, cancel_first):
+    _, a, owner, other = held(rig)
+    a.request('r', other)
+    a.respond('r', owner, a.robot('r').request.id, True)
+    ref = a.robot('r').stop_ref
+    if cancel_first:
+        effects = a.cancel('r', other)
+        effects += a.state('r', True, [0, 0, 0], 2, stop_ref=ref)
+        assert a.robot('r').holder is None
+    else:
+        effects = a.state('r', True, [0, 0, 0], 2, stop_ref=ref)
+        with pytest.raises(LeaseError) as error:
+            a.cancel('r', other)
+        assert error.value.code == 'LEASE_REQUEST_STALE'
+        assert a.robot('r').holder.actor == other
+    expected = 'CANCELED' if cancel_first else 'ACCEPTED'
+    assert sorted((e.target, e.body['result']) for e in effects if e.body.get('t') == 'lease.result') == [
+        (owner.connection, expected), (other.connection, expected)]
+    assert a.robot('r').transfer is None
+
+
 def test_heartbeat_expires_at_fifteen_only_valid_cmd_refreshes(rig):
     c, a, owner, other = held(rig)
     lease = a.robot('r').holder.lease_id

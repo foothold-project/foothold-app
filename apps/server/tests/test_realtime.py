@@ -132,7 +132,7 @@ def test_cookie_origin_and_first_protocol(client, seeded, rt):
         with pytest.raises(WebSocketDisconnect) as error:
             with client.websocket_connect('wss://testserver/api/v1/ws', headers=headers):
                 pass
-        assert error.value.code == 4403
+        assert error.value.status_code == 403
     with screen(client, {'origin': 'https://testserver'}):
         pass
     with client.websocket_connect('wss://testserver/api/v1/ws', headers={'origin': 'https://testserver'}) as ws:
@@ -143,7 +143,7 @@ def test_cookie_origin_and_first_protocol(client, seeded, rt):
     with pytest.raises(WebSocketDisconnect) as error:
         with client.websocket_connect('wss://testserver/api/v1/ws', headers={'authorization': 'Bearer bad'}):
             pass
-    assert error.value.code == 4401
+    assert error.value.status_code == 401
 
 
 @pytest.mark.parametrize('robot', ['theirs', 'foreign'])
@@ -153,15 +153,20 @@ def test_out_of_scope_sub_and_cmd_denied(client, seeded, rt, robot):
     for kind in ('sub', 'cmd'):
         with screen(client, headers) as ws:
             if kind == 'sub':
-                send(ws, kind, robots=[str(rid)], streams=['state'])
+                ident = send(ws, kind, robots=[str(rid)], streams=['state'])
             else:
                 ident = send(ws, kind, rid, lease_id=str(uuid4()), seq=0, axes=[1, 0, 0])
                 assert not reply(ws, ident)['ok']
                 assert reply(ws, send(ws, 'ping'))['ok']
                 continue
-            with pytest.raises(WebSocketDisconnect) as error:
-                receive(ws, 'reply')
-            assert error.value.code == 4403
+            if robot == 'foreign':
+                result = reply(ws, ident)
+                assert not result['ok'] and result['error']['code'] == 'NOT_FOUND'
+                assert reply(ws, send(ws, 'ping'))['ok']
+            else:
+                with pytest.raises(WebSocketDisconnect) as error:
+                    receive(ws, 'reply')
+                assert error.value.code == 4403
 
 
 def test_command_relay_sequence_rate_and_unlock_cas(client, seeded, rt):
@@ -322,7 +327,7 @@ def test_token_rotation_hash_only_old_agent_invalid_and_event_no_secret(client, 
         with client.websocket_connect('wss://testserver/api/v1/agent/ws',
             headers={'authorization': 'Bearer fake-test-' + str(rid)}):
             pass
-    assert error.value.code == 4403
+    assert error.value.status_code == 403
     with client.websocket_connect('wss://testserver/api/v1/agent/ws', headers={'authorization': 'Bearer ' + raw}) as ag:
         ag.send_json(hello())
         receive(ag, 'lease')
@@ -429,7 +434,7 @@ def test_agent_protocol_credentials_and_hello_deadline(client, seeded, rt):
     with pytest.raises(WebSocketDisconnect) as error:
         with client.websocket_connect('wss://testserver/api/v1/agent/ws', headers=headers):
             pass
-    assert error.value.code == 4403
+    assert error.value.status_code == 403
     rid = seeded['robots']['mine']
     auth = {'authorization': 'Bearer fake-test-' + str(rid)}
     with client.websocket_connect('wss://testserver/api/v1/agent/ws', headers=auth) as ag:

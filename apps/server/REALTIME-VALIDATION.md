@@ -1,6 +1,6 @@
 # W3-B 실시간 서버 검증 기록
 
-최신 결과와 계약은 문서 끝의 «PR #18 2차 검토 수정» 절을 따른다.
+최신 결과와 계약은 문서 끝의 «S0 서버 후속» 절을 따른다.
 이전 절은 해당 커밋의 실행 이력이다.
 
 
@@ -1093,3 +1093,166 @@ dashboard 범위, 담당 변경 때 총괄 holder 유지다. 모든 정상 기�
 관련 최종 집중 시험은 22 passed/9.53초다. 보강 전 전체 반복은 337 passed/198.78초 뒤
 2 failed·335 passed/197.71초였으며, 실패 이름은 위 preaccept[denied]·홍수[CUSTOM-error]다.
 이 실패 실행을 최종 연속 통과에 포함하지 않는다.
+
+
+## S0 서버 후속
+
+2026-10-20, `feature/server-followup`, 기준 `origin/dev=079fb76`.
+소유 `apps/server/**`·`apps/contracts/**`만 변경한다. 화면·에이전트·docs/spec·안전 Core 수정 0.
+이 절은 S0 후속 동작을 설명하며 이전 절의 전역 STOP 세대 설명을 대체한다.
+
+| 항목 | 반영·회귀 근거 |
+|---|---|
+| 서버→화면 ping | 1 s, UTC t_server, 구독 없이 수신, 권한 갱신 대기 알림 우회. ping으로 lease heartbeat 연장 없음 |
+| 요청 취소 | lease.cancel(robot), 요청자 연결만 취소. 양쪽 CANCELED, 수락 뒤 정지 확인 중 취소·늦은 확인 무효·다른 탭 거부 |
+| 수락 전 거부 | 실제 uvicorn HTTP401/403·Origin403, ASGI 확장 없는 accept→4401/4403, 기존1013·정책 producer 정리 순서 유지 |
+| R4-1 | 사용자/로봇 범위의 commit 이력. 20명 cold STOP 중 다른 사용자 refresh에도 202×20·503×0. 같은 사용자의 폐기/잠금은 기존 회귀 유지 |
+| R4-2 | warm 슬롯 우회는 조회 시작 기준 TTL250ms 안에서만. 정확히250ms 우회·251ms cold503, 미인증 STOP 없음 |
+| 홍수·정책 경계 | 실제 시계·B agent ping/50ms 중립 cmd 유지, A 사건1500개. 정책0/500ms 유지,501ms 회수+lease-null→STOP·추가 STOP 가능 |
+| 첫 unlock | 주기 state 송신을 멈춘 결정적 회귀에서 확인 state(stop_gen17)→새 lease→즉시 unlock 성공. CAS·정지 확인 문턱 유지 |
+| 보관 이름 재사용 | 0007 활성 부분 고유 인덱스. 새 ID로 등록 가능·활성 중복 등록/이름 변경409·옛 사건/보관 상태 유지 |
+| D2 단절 장치 | 총괄/담당 list/detail OFFLINE+devices MISSING, 측정값null·dashboard online0. 저장 OK 보존·재연결 OK 복귀 |
+
+새 회귀는 `test_server_followup.py`와 `test_server_followup_wire.py`에 있다.
+고침을 제거한 실패는 서버 변이 도구의 S0 판정으로 검사한다. 기존 preaccept 시험의
+수락 전 거부 기대값만 WS4401/4403에서 HTTP401/403으로 맞췄으며 수락 후 권한 회수·
+STOP·500ms 신선도·안전 셀프테스트의 기대값을 낮추지 않았다.
+
+STOP 변경 이력은 최대1024개만 보관한다. 오래된 cold 조회가 이력 밖이면 fail-closed이며,
+범위를 판정할 수 없는 매개변수 bulk UPDATE/DELETE도 전체 무효화한다. 정상 사용자·
+세션 ORM 변경과 API의 사용자별 bulk 폐기는 범위를 구분한다. rollback은 무효화하지 않는다.
+다른 프로세스·raw SQL의 변경은 이전과 같이250ms TTL에 의존한다.
+
+처음 unlock 실패의 재현 조건은 이전 state가 stop_gen N인 화면에, take의 STOP 확인이
+N+1로 들어온 직후 새 lease가 먼저 전달되는 경우다. 기존 화면은 state.stop_gen을
+unlock에 쓰므로 다음10Hz state 전까지 STOP_GEN_MISMATCH를 받는다. 서버가 확정 직전
+state를 같은 배송 세대/권한 검사 큐로 먼저 보내도록 고쳤다. state를 받은 뒤 다른 STOP이
+겹치면 CAS 거부가 계속 정상이며, 제품 시뮬/실폰에서의 재확인은 별도다.
+
+실제 시계 홍수 계측(집중 시험):3.602s·중립cmd71회, 정책 나이 최대111.61ms,
+루프 지연 최대3.59ms, POLICY_STALE0·B holder 유지·STOP 성공. 앞선 표본은
+3.606s·cmd72회·정책111.31ms·루프1.48ms였다. 이 값은 해당 호스트의 합성 홍수 표본이며
+최초 PR18 실패 원인의 확정이나 부하 상한 보장이 아니다. heartbeat는3s 유휴 만료만
+배제하며, 정책이500ms를 넘으면 조종권을 잃는 기존 안전 판정은 유지한다.
+
+검증 명령의 python은 Python3.12와 requirements-test.txt 환경이다. DB는 pgserver의
+폐기 가능 PostgreSQL16/private Unix socket, 실제 uvicorn은127.0.0.1의 예약 fd다.
+모든 네트워크 검사는 `FH_TEST_PORT_RANGE=9150:9169`로 제한했다.
+
+초기 전체 반복은359 passed/235.13s 뒤, 두 번째에
+`test_summary_null_when_disconnected_or_state_is_stale`의 최초 battery 대기가2s를 넘어
+358 passed/1 failed(232.65s)였다. 이 실패 실행은 연속 통과에 포함하지 않는다.
+원래 fixture는 state를 한 번만 보낸 뒤 기다렸으므로, 인증 신선도 공백에서 그 표본이
+안전하게 버려지면 뒤의 유효 표본이 없었다. 실제 Client처럼100ms마다 상태를 보내도록
+모의 소스만 고치고2s 시한·stale4s·OFFLINE 측정값null 기대는 유지했다. 원래 실패의
+auth 나이/owner 상태를 기록하지 못했으므로 정확한 원인은 미확정이며 재발 진단을 추가했다.
+변경 뒤 해당 시험은 독립 프로세스10회 연속 통과했다.
+
+그 뒤 전체 반복에서 기존 홍수 시험 NOTE-info의 **홍수 전 take 초기화**가 lease=null로
+1회 실패했다(358 passed/1 failed,233.91s). 초기 실패에도 기존 회수 출처/인증 나이 진단을
+출력하도록 보강했으며, 해당 시험의 독립 프로세스20회는 모두 통과했다. 최초 표본의
+원인은 미확정이며 무시·재시도·null 허용으로 기대값을 바꾸지 않았다.
+
+추가9번 등록201→즉시sub 경합은 `refresh_policy(after=요청시각)`으로 요청 후 시작한
+공유 정책을 확인한다. 읽기를 기다리는 구독 작업은 연결당1개이며 수신 루프를 막지 않아
+같은 연결의 기존 STOP이100ms 안 전달된다. 최신 정책에도 없는 ID/다른 조직은404 reply로
+그 sub만 거절하고 이전 구독을 유지한다. 알려진 로봇의 실제 권한 없음4403과 인증4401은
+유지한다. 등록·담당 부여·삭제 직후 스냅숏을 고정한3종, 대기 상한/STOP 우회, 종료 시 취소
+회귀를 추가했다. 새로고침에서는 다른 lane의 빈 결과가 요청 시각을 밀어 올려 유효한
+reserved 결과를 계속 건너뛰던 경로도 고쳤다. 읽기 시작 기준 신선도를 늘리지 않는다.
+이 수정이 과거 초기 take 실패의 원인이었다고 단정하지 않는다.
+
+추가9번 뒤 전체 실행은362 passed/2 failed(245.48s)였다. 기존
+홍수 LINK_LOSS_TIMEOUT-warn의 holder 유지와
+`test_change_gate_blocks_control_and_deleted_cache_blocks_even_stop`의 초기take가 실패했다.
+진단 객체가 pytest 축약 출력에 잘리지 않도록 JSON 문자열로 남긴다. 매 시험이 만든
+폐기된 앱/SQLAlchemy/task 그래프는 다음 client fixture의 이벤트 루프를 시작하기 전에
+`gc.collect()`로 회수한다. 실행 중 GC를 끄거나 시계를 고정하거나 안전 문턱/기대값을
+늦추지 않는다. 이 실행도 최종 연속 통과에 포함하지 않는다.
+
+### 최종 실행 결과
+
+| 검사 | 실제 결과 |
+|---|---|
+| 서버 전체 pytest1/3 | **364 passed**,321.54s |
+| 서버 전체 pytest2/3 | **364 passed**,316.76s |
+| 서버 전체 pytest3/3 | **364 passed**,304.02s — 같은 코드3회 연속 통과 |
+| Alembic head→base→head·ORM 차이·DB 권한 | 최종 전체3회 모두 통과 |
+| 0007 이름 재사용 상태의 downgrade | 중복이 남으면 원자적 거절·자료/인덱스/판 보존, 명시적 이름 조정 뒤0007→0006→0007 통과 |
+| generate --check | **68개 일치** |
+| contracts npm ci·typecheck | 성공·strict tsc exit0 |
+| 실제 uvicorn + production agent Client/가짜 sink + 가짜 화면 | 별도 **2 passed**,7.89s; UTC ping·POST201 직후sub·양쪽 취소·즉시unlock·20cold STOP 중 다른 사용자refresh:202×20,503×0 |
+| 기존 안전 selftest | **selftest OK**, 원본·기대값 변경0 |
+| 서버 변이 도구 | 정상 기준 **364 passed**,304.93s; **193/193 assertion 검출**,exit0·실행/수집 오류/미검출0 |
+| 최종 동일 코드 홍수 단독 계측 | **1 passed**,5.06s;3.604s/중립cmd71회·정책 나이 최대113.08ms·루프 지연 최대1.81ms·POLICY_STALE0·holder 유지/STOP 성공 |
+
+실행 명령:
+
+```sh
+FH_TEST_PORT_RANGE=9150:9169 python -m pytest apps/server -q -rf --tb=short
+FH_TEST_PORT_RANGE=9150:9169 python apps/server/tools/check_realtime_mutations.py
+FH_TEST_PORT_RANGE=9150:9169 python -m pytest apps/server/tests/test_server_followup_wire.py -q -s
+python apps/contracts/generate.py --check
+npm ci --prefix apps/contracts --ignore-scripts
+npm run --prefix apps/contracts typecheck
+python3 sim/v2_link.py --selftest
+```
+
+변이 도구의 최초 정상 기준은 기존300s 제한이 최종 전체 소요304~322s보다 짧아
+345 passed/271.54s 지점에서 SIGINT로 중단했다(exit2, 변이 검출로 세지 않음).
+중단 과정의 KeyboardInterrupt/unraisable 경고도 성공으로 세지 않았다. 임시 사본은
+정리됐으며 도구 전체 기준의 외부 시한만600s로 늘려 재실행했다. 개별 변이는300s,
+제품의500ms 정책·250ms cache·2s 조회 시한은 그대로다. 도구 결과 판정 단위4개는 통과했다.
+
+최종 전체 각 실행의 Starlette/httpx 사용 중단 경고1개는 기존 경고다.
+3회 이전의 실패 실행은 위에 별도로 보존했으며 최종 연속 통과에 포함하지 않는다.
+
+한계: 화면의 lease.cancel 사용/창 닫힘 UI는 W2 소유이며 이번에는 계약과 가짜 화면으로
+검증한다. 실제 브라우저·실폰·실로봇·ROS·Gazebo·운영/미리보기·배포는 수행하지 않는다.
+정본 차이 목록은 PR 본문에 기록하고 docs/spec는 변경하지 않는다.
+코드는 변경 커밋을 revert한다. 0007 downgrade는 보관 이름 재사용의 중복이 남으면
+거절되므로 백업·이름 조정 등 승인된 이관이 먼저 필요하다. 과거 행을 자동 변경하지 않는다.
+
+
+## PR #21 두 모델 검토 후속 (2026-10-20)
+
+Claude B1: 요청자가 취소한 대기 요청과 STOP 확인 중인 넘김 모두 취소 확정부터
+사용자별 30초 제한에 센다. 고정 시계로 20회 재요청·다른 연결/세션 우회·취소 후
+29.999초 거절/30초 허용을 검증한다. 거절·TIMEOUT의 기존 제한 기준은 그대로다.
+Codex 권고 2건도 영구 회귀로 추가했다. 만료/수락 확정과 취소의 양쪽 순서는 각
+수신자에게 종결 결과가 정확히 1회이고 holder를 잘못 바꾸지 않는다. 이름 재사용 뒤
+0007→0006은 자료·부분 인덱스·Alembic 버전을 보존하며 거절하고, 명시적으로 보관
+이름을 조정하면 0006→head 왕복과 metadata diff 0이 통과한다. 새 migration은 없다.
+
+Claude R1: 화면별 2ms polling 대신 두 공유 lane의 새 결과를 기다린다. 빈 lane은
+자신의 watermark만 전진시키고 다른 lane의 유효 스냅숏을 건너뛰지 않는다. 대기
+작업은 완료/취소/2초 시한 때 회수하며 공유 producer cadence와 500ms 신선도는
+그대로다. R4: 기록 admission이 닫혀도 권한 있는 동일 요청자 연결의 취소는 처리한다.
+대기 취소는 holder를 유지하고, 수락 뒤 취소는 lease-null/STOP을 유지한다. 새 요청의
+503 admission 제한도 시험한다. 기록 큐의 용량·예약 정책은 바꾸지 않는다. 기존처럼
+대기 취소의 별도 감사 op는 없고, 닫힌 admission에서 수락 뒤 취소의 RELEASE는
+note_audit 경로에서 생략될 수 있다. 취소는 새 조종권·이동 권한을 발급하지 않는다.
+
+Claude R3의 실제 시계 홍수 시험은 완화하거나 통과 재시도하지 않았다. 실제
+스케줄러·DB 지연을 포함한 가용성 gate이므로 안전 쪽 POLICY_STALE도 가용성 실패로
+드러내야 PR18 관측 재발을 숨기지 않는다. 바쁜 호스트의 실패가 안전 규칙 위반이라는
+뜻은 아니며, 안전성은 별도의 고정 시계 0/500/501ms 회수·STOP 시험으로 판정한다.
+이 유지 이유는 PR 본문에도 적었다. 화면 sub404 reply 복구는 W2 소유이므로 제외했다.
+
+- 관련 정상 회귀: **54 passed**,23.62s.
+- 서버 전체 정상 기준: **374 passed**,310.83s, 요청된 1회만 실행했다.
+- 관련 변이: **29/29 assertion 검출**, exit 0. 기존 S0 22개와 검토 후속 7개만
+  실행했으며 실행/수집 오류·MISSED는 0이다. 취소 제한 제거·만료/확정 뒤 잘못된
+  취소·downgrade 무검사 통과·혼잡 때 취소 503·정책 polling/잘못된 watermark를 검출한다.
+- 전체에는 Alembic 왕복·이름 재사용 downgrade 거절·실제 uvicorn+가짜 Client 통합과
+  실제 시계 홍수·STOP·기존 권한 회수 시험이 포함된다.
+
+```sh
+FH_TEST_PORT_RANGE=9150:9169 python -m pytest apps/server/tests/test_leases.py apps/server/tests/test_migrations.py apps/server/tests/test_server_followup.py -q -x --tb=short
+FH_TEST_PORT_RANGE=9150:9169 python apps/server/tools/check_realtime_mutations.py --match S0
+```
+
+변이 선택 실행도 정상 서버 전체를 먼저 실행하며, 실행/수집 오류는 검출로 세지 않는다.
+생성물·TypeScript·selftest는 이번에 해당 파일이 바뀌지 않아 반복하지 않았다.
+시험은 127.0.0.1:9150~9169의 일회용 PostgreSQL/uvicorn과 가짜 peers만 사용한다.
+운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기에는 접촉하지 않았다.

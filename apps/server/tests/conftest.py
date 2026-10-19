@@ -1,4 +1,5 @@
 from pathlib import Path
+import gc
 
 from alembic import command
 from alembic.config import Config
@@ -68,6 +69,10 @@ def seeded(migrated):
 
 @pytest.fixture
 def client(seeded):
+    # Each case creates and disposes a complete app/engine/task graph. Reclaim
+    # retired graphs before starting the next live event loop, rather than
+    # letting their cyclic GC pause an unrelated 500ms authorization check.
+    gc.collect()
     app = create_app(Settings(seeded['urls']['app'], seeded['org']))
     with TestClient(app, base_url='https://testserver') as client:
         yield client

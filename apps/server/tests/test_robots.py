@@ -59,7 +59,7 @@ def test_robot_crud_roles_owner_validation_one_time_token_and_audit(client, seed
         with client.websocket_connect('wss://testserver/api/v1/agent/ws',
                 headers={'authorization': 'Bearer ' + raw}):
             pass
-    assert error.value.code == 4403
+    assert error.value.status_code == 403
 
 
 @pytest.mark.parametrize('map_id', [None, str(uuid4())])

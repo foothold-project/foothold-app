@@ -4,6 +4,8 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from apps.server.fh_server.models import Base
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
+import pytest
 
 from .conftest import CONFIG
 from .postgres import temporary_postgres
@@ -49,5 +51,41 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
                 assert not conn.scalar(text("SELECT has_table_privilege('fh_app', 'events', 'UPDATE')"))
                 assert not conn.scalar(text("SELECT has_table_privilege('fh_app', 'events', 'DELETE')"))
             print('alembic upgrade head -> downgrade base -> upgrade head: PASS')
+        finally:
+            engine.dispose()
+
+
+def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
+    with temporary_postgres() as urls:
+        monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', urls['migrate'])
+        config = Config(str(CONFIG))
+        engine = create_engine(urls['migrate'])
+        try:
+            command.upgrade(config, 'head')
+            with engine.begin() as conn:
+                org = conn.scalar(text("INSERT INTO organizations(name) VALUES ('reuse regression') RETURNING id"))
+                conn.execute(text("""INSERT INTO robots(org_id, name, model, agent_token_hash, archived_at)
+                    VALUES (:org, 'reused', 'unitree_go2', decode('00', 'hex'), now()),
+                           (:org, 'reused', 'unitree_go2', decode('01', 'hex'), NULL)"""), {'org': org})
+                before = conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all()
+            with pytest.raises(IntegrityError):
+                command.downgrade(config, '0006')
+            with engine.connect() as conn:
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0007'
+                assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
+                assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
+                assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE robots SET name='reconciled archive' WHERE archived_at IS NOT NULL"))
+            command.downgrade(config, '0006')
+            with engine.connect() as conn:
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0006'
+                assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) is None
+                assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 1
+                assert conn.scalar(text('SELECT count(*) FROM robots')) == 2
+            command.upgrade(config, 'head')
+            with engine.connect() as conn:
+                assert compare_metadata(MigrationContext.configure(conn), Base.metadata) == []
+                assert conn.scalar(text('SELECT count(*) FROM robots')) == 2
         finally:
             engine.dispose()

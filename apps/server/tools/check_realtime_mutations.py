@@ -5,6 +5,7 @@ Each transport mutation names a regression test. No production service is touche
 the tests use the existing disposable PostgreSQL harness and ASGI fake peers.
 """
 from pathlib import Path
+import argparse
 import shutil
 import json
 import os
@@ -153,8 +154,8 @@ MUTATIONS = [
     ('R2 fair robot rotation removed', 'apps/server/fh_server/audit.py', '            self.channels.move_to_end(rid)', '            pass', 'apps/server/tests/test_realtime_storage.py::test_fair_consumer_cannot_drain_one_robot_before_another_ready_robot'),
     ('R2 response reservation FIFO ignored', 'apps/server/fh_server/audit.py', '            while c.staged and c.staged[0][1]:', '            while c.staged:', 'apps/server/tests/test_realtime_storage.py::test_payload_quota_and_response_reservations_are_bounded_and_keep_robot_fifo'),
     ('R2 STOP audit runs before response', 'apps/server/fh_server/realtime.py', '        async def __call__(self, scope, receive, send):\n            try:', '        async def __call__(self, scope, receive, send):\n            if self.reservations is not None:\n                for reservation in self.reservations:\n                    realtime.audit.commit(reservation)\n            try:', 'apps/server/tests/test_realtime_storage.py::test_cancelled_http_response_still_owns_stop_record_and_does_not_block_other_robot'),
-    ('R2 STOP cache invalidation removed', 'apps/server/fh_server/realtime.py', '            self.stop_cache_epoch += 1\n            self.stop_cache.clear()', '            pass', 'apps/server/tests/test_realtime_storage.py::test_cached_http_stop_is_invalidated_immediately_by_account_or_session_change[lock]'),
-    ('R2 STOP cold read ignores revocation', 'apps/server/fh_server/realtime.py', 'if epoch != self.stop_cache_epoch:', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_cold_authorization_crossing_revocation_cannot_publish_a_cached_stop'),
+    ('R2 STOP cache invalidation removed', 'apps/server/fh_server/realtime.py', '            self.stop_cache_epoch += 1', '            return', 'apps/server/tests/test_realtime_storage.py::test_cached_http_stop_is_invalidated_immediately_by_account_or_session_change[lock]'),
+    ('R2 STOP cold read ignores revocation', 'apps/server/fh_server/realtime.py', 'if self.stop_scope_changed(epoch, actor, rid):', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_cold_authorization_crossing_revocation_cannot_publish_a_cached_stop'),
     ('R2 warm STOP waits for DB', 'apps/server/fh_server/realtime.py', 'if cached and started - cached[0] <= self.stop_cache_ttl and cached[2] > now():', 'if False:', 'apps/server/tests/test_realtime_storage.py::test_warm_http_stop_never_waits_for_db_and_saturation_is_explicit'),
     ('R2 cold STOP has only two slots', 'apps/server/fh_server/realtime.py', 'self.stop_slots = asyncio.Semaphore(12)', 'self.stop_slots = asyncio.Semaphore(2)', 'apps/server/tests/test_realtime_r3_followup.py::test_twenty_distinct_logins_all_reach_stop_after_slot_wait[0.45]'),
     ('R2 physical file cap omitted', 'apps/server/fh_server/history.py', "self.spill.execute('PRAGMA max_page_count=2048')", "self.spill.execute('PRAGMA max_page_count=0')", 'apps/server/tests/test_realtime_storage.py::test_spill_file_has_enforced_eight_mib_limit'),
@@ -302,6 +303,109 @@ MUTATIONS = [
      '                await ws.close(code=4401 if exc.status == 401 else 4403)',
      'apps/server/tests/test_robots_review_r2.py::test_preaccept_rejection_is_published_after_policy_cleanup'),
 
+    ('S0 server screen ping omitted', R,
+     "self.put(peer, C.ScreenServerPing(t_server=now()).model_dump(mode='json'))", 'pass',
+     'apps/server/tests/test_server_followup.py::test_screen_server_ping_without_subscription_does_not_extend_lease'),
+    ('S0 server ping blocked by private delivery', R,
+     "if peer.actor and body.get('t') == 'ping':", 'if False:',
+     'apps/server/tests/test_server_followup.py::test_screen_ping_bypasses_private_delivery_waiting_for_policy'),
+    ('S0 requester cancel omitted', R,
+     'self.apply(self.arbiter.cancel(rid, actor))', 'pass',
+     'apps/server/tests/test_server_followup.py::test_requester_cancel_closes_both_dialogs_and_blocks_late_grant[False]'),
+    ('S0 cancellation crosses connections', L,
+     'if r.request and r.request.actor == actor:', 'if r.request:',
+     'apps/server/tests/test_server_followup.py::test_requester_cancel_closes_both_dialogs_and_blocks_late_grant[False]'),
+    ('S0 accepted transfer cannot be canceled', L,
+     'if r.transfer and r.transfer.request and r.transfer.actor == actor:', 'if False:',
+     'apps/server/tests/test_server_followup.py::test_requester_cancel_closes_both_dialogs_and_blocks_late_grant[True]'),
+    ('S0 unrelated refresh invalidates cold STOP', R,
+     "version > epoch and (not (users or robots) or actor.user in users or str(rid) in robots)",
+     'version > epoch',
+     'apps/server/tests/test_server_followup.py::test_twenty_cold_stops_ignore_unrelated_token_refresh'),
+    ('S0 warm STOP TTL widened', R, 'self.stop_cache_ttl = .25', 'self.stop_cache_ttl = 1',
+     'apps/server/tests/test_server_followup.py::test_warm_stop_bypasses_slots_only_inside_250ms[0.251-503]'),
+    ('S0 warm STOP TTL boundary narrowed', R,
+     'started - cached[0] <= self.stop_cache_ttl', 'started - cached[0] < self.stop_cache_ttl',
+     'apps/server/tests/test_server_followup.py::test_warm_stop_bypasses_slots_only_inside_250ms[0.25-202]'),
+    ('S0 journal overflow forgets revocations', R,
+     'if self.stop_changes and epoch < self.stop_changes[0][0] - 1:', 'if False:',
+     'apps/server/tests/test_server_followup.py::test_stop_invalidation_journal_overflow_fails_closed'),
+    ('S0 bulk session revocation globalized', R,
+     "collect(state.session, **{'robots' if table == 'robots' else 'users': ids})",
+     'collect(state.session, global_change=True)',
+     'apps/server/tests/test_server_followup.py::test_bulk_session_revocation_is_scoped_and_rollback_does_not_invalidate'),
+    ('S0 state follows lease grant', R,
+     "if body['t'] == 'lease' and outgoing.get('lease_id'):", 'if False:',
+     'apps/server/tests/test_server_followup.py::test_first_unlock_uses_state_delivered_before_new_lease'),
+    ('S0 policy 501ms incorrectly fresh', R,
+     'if not safety and self.clock() - policy.checked > 0.5:',
+     'if not safety and self.clock() - policy.checked > 0.6:',
+     'apps/server/tests/test_server_followup.py::test_flood_policy_boundary_revokes_at_501ms_but_preserves_stop[0.501-True]'),
+    ('S0 policy exactly 500ms rejected', R,
+     'if not safety and self.clock() - policy.checked > 0.5:',
+     'if not safety and self.clock() - policy.checked >= 0.5:',
+     'apps/server/tests/test_server_followup.py::test_flood_policy_boundary_revokes_at_501ms_but_preserves_stop[0.5-False]'),
+    ('S0 preaccept HTTP status collapsed', R,
+     'status = 401 if code == 4401 else 403', 'status = 403',
+     'apps/server/tests/test_server_followup_wire.py::test_upgrade_denials_have_distinct_http_status_over_uvicorn'),
+    ('S0 fallback auth codes collapsed', R,
+     'await ws.close(code=code)', 'await ws.close(code=4403)',
+     'apps/server/tests/test_server_followup.py::test_rejected_upgrade_fallback_sends_ws_codes_and_policy_cleanup_first'),
+    ('S0 offline devices retain stored OK', 'apps/server/fh_server/robots.py',
+     "        if not online:\n            # Persisted inventory", "        if False:\n            # Persisted inventory",
+     'apps/server/tests/test_server_followup.py::test_disconnected_devices_are_missing_in_list_and_detail_without_rewriting_history'),
+    ('S0 archived name cannot be reused', 'apps/server/migrations/versions/0007_robot_active_name.py',
+     "op.drop_constraint('robots_org_id_name_key', 'robots', type_='unique')", 'pass',
+     'apps/server/tests/test_server_followup.py::test_archived_robot_name_reuse_preserves_ids_history_and_active_uniqueness'),
+
+    ('S0 post-write sub uses old snapshot', R,
+     'await self.refresh_policy(peer, after=after)', 'pass',
+     'apps/server/tests/test_server_followup.py::test_sub_refreshes_snapshot_after_robot_write_and_missing_keeps_connection[register]'),
+    ('S0 missing sub closes whole connection', R,
+     "raise LeaseError('NOT_FOUND', '로봇을 찾을 수 없습니다.', 404)",
+     "raise self.api_error(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')",
+     'apps/server/tests/test_server_followup.py::test_sub_refreshes_snapshot_after_robot_write_and_missing_keeps_connection[delete]'),
+    ('S0 sub refresh blocks STOP receiver', R,
+     'peer.subscription_task = asyncio.create_task(\n                                self.resolve_subscription(peer, msg, self.clock()))',
+     'await self.resolve_subscription(peer, msg, self.clock())',
+     'apps/server/tests/test_server_followup.py::test_unknown_sub_refresh_is_bounded_and_does_not_block_existing_stop'),
+    ('S0 concurrent sub refresh unbounded', R,
+     'if peer.subscription_task and not peer.subscription_task.done():', 'if False:',
+     'apps/server/tests/test_server_followup.py::test_unknown_sub_refresh_is_bounded_and_does_not_block_existing_stop'),
+
+    ('S0 empty lane skips valid policy snapshot', R,
+     "after if after is not None else float('-inf')",
+     'max(q.stamp for q in self.policy_pipelines.values())',
+     'apps/server/tests/test_server_followup.py::test_policy_refresh_waits_for_either_lane_without_crossing_watermarks'),
+
+    ('S0R21 canceled request bypasses cooldown', L,
+     '            r.cooldown[actor.user] = self.clock() + 30\n            return self.cancel_request(robot)',
+     '            return self.cancel_request(robot)',
+     PURE + '::test_cancel_counts_as_request_and_cooldown_follows_user[False]'),
+    ('S0R21 canceled transfer bypasses cooldown', L,
+     '            r.cooldown[actor.user] = self.clock() + 30\n            return self.revoke(robot, actor)',
+     '            return self.revoke(robot, actor)',
+     PURE + '::test_cancel_counts_as_request_and_cooldown_follows_user[True]'),
+    ('S0R21 expiry cancel silently succeeds', L,
+     "        raise LeaseError('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.')",
+     '        return []',
+     PURE + '::test_cancel_and_expiry_emit_one_terminal_result_per_recipient[False]'),
+    ('S0R21 confirmation cancel revokes new holder', L,
+     "        raise LeaseError('LEASE_REQUEST_STALE', '현재 연결의 요청이 끝났습니다.')",
+     '        return self.revoke(robot, actor)',
+     PURE + '::test_cancel_and_confirmation_emit_one_terminal_result_per_recipient[False]'),
+    ('S0R21 reused names silently downgraded', 'apps/server/migrations/versions/0007_robot_active_name.py',
+     "op.create_unique_constraint('robots_org_id_name_key', 'robots', ['org_id', 'name'])", 'pass',
+     'apps/server/tests/test_migrations.py::test_reused_archived_name_rejects_downgrade_atomically'),
+    ('S0R21 cancel blocked by archive admission', R,
+     "rid and msg.t != 'lease.cancel' and isinstance(self.audit, FairAuditQueue)",
+     'rid and isinstance(self.audit, FairAuditQueue)',
+     'apps/server/tests/test_server_followup.py::test_request_cancel_survives_archive_admission_closed'),
+    ('S0R21 policy refresh polls empty lane', R,
+     "                    waits = [asyncio.create_task(p.next(after=max(p.stamp,\n                                 after if after is not None else float('-inf'))))\n                             for p in self.policy_pipelines.values()]",
+     "                    await asyncio.sleep(.002)\n                    continue\n                    waits = []",
+     'apps/server/tests/test_server_followup.py::test_policy_refresh_waits_for_either_lane_without_crossing_watermarks'),
+
 ]
 
 
@@ -315,7 +419,8 @@ def run(tree, tests):
             '--agent-repo', str(ROOT)], cwd=tree, env=env, capture_output=True, text=True, timeout=300)
     else:
         result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider',
-                                 *plugin, *tests], cwd=tree, capture_output=True, text=True, timeout=300)
+                                 *plugin, *tests], cwd=tree, capture_output=True, text=True,
+                                timeout=600 if tests == ['apps/server/tests'] else 300)
     output = result.stdout + result.stderr
     try:
         data = json.loads(report.read_text())
@@ -328,6 +433,14 @@ def run(tree, tests):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--match', action='append', default=[],
+                        help='Run matching mutation names only (repeatable); retain the full server baseline')
+    args = parser.parse_args()
+    mutations = [m for m in MUTATIONS if not args.match or any(
+        needle.casefold() in m[0].casefold() for needle in args.match)]
+    if not mutations:
+        parser.error('No mutation names match')
     # Reject stale probes before spending a full database/integration baseline.
     for name, path, before, _, _ in MUTATIONS:
         if before not in (ROOT / path).read_text():
@@ -346,7 +459,7 @@ def main():
         print('Full server baseline: ' + summary, flush=True)
         print('| Broken decision | Detection |', flush=True)
         print('|---|---|', flush=True)
-        for name, path, before, after, test in MUTATIONS:
+        for name, path, before, after, test in mutations:
             file = tree / path
             original = file.read_text()
             if before not in original:
@@ -363,7 +476,7 @@ def main():
                 print(output, flush=True)
     if failed:
         raise SystemExit('Undetected mutations: ' + ', '.join(failed))
-    print(f'{len(MUTATIONS)}/{len(MUTATIONS)} detected by assertion failures (no execution/collection errors)')
+    print(f'{len(mutations)}/{len(mutations)} detected by assertion failures (no execution/collection errors)')
 
 
 if __name__ == '__main__':

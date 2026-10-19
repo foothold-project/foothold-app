@@ -19,7 +19,7 @@ from uuid import UUID, uuid4
 from types import SimpleNamespace, MappingProxyType
 from functools import lru_cache
 from collections.abc import Mapping
-from collections import OrderedDict
+from collections import OrderedDict, deque
 
 from fastapi import Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
@@ -167,6 +167,7 @@ class Peer:
     state_received_at: float = float('-inf')
     delivery_epochs: dict = field(default_factory=dict)
     revoked_robots: set = field(default_factory=set)
+    subscription_task: object = None
 
 
 @dataclass(frozen=True)
@@ -259,6 +260,7 @@ class Realtime:
         self.stop_cache = OrderedDict()
         self.stop_cache_lock = threading.RLock()
         self.stop_cache_epoch = 0
+        self.stop_changes = deque(maxlen=1024)
         self.stop_cache_ttl = .25
         self.stop_listeners = []
         self.policy_peers = {}
@@ -442,29 +444,64 @@ class Realtime:
         self.audit_engine.dispose()
         self.read_engine.dispose()
 
-    def invalidate_stop_cache(self):
+    def invalidate_stop_cache(self, users=None, robots=None):
+        # None/None is a conservative fallback for an unscoped bulk mutation.
+        users, robots = frozenset(users or ()), frozenset(robots or ())
         with self.stop_cache_lock:
             self.stop_cache_epoch += 1
-            self.stop_cache.clear()
+            self.stop_changes.append((self.stop_cache_epoch, users, robots))
+            for key, cached in list(self.stop_cache.items()):
+                if not (users or robots) or cached[1].user in users or key[2] in robots:
+                    del self.stop_cache[key]
+
+    def stop_scope_changed(self, epoch, actor, rid):
+        # A read older than the bounded journal fails closed rather than losing
+        # a revocation. No database work occurs between this check and STOP.
+        if self.stop_changes and epoch < self.stop_changes[0][0] - 1:
+            return True
+        return any(version > epoch and (not (users or robots) or actor.user in users or str(rid) in robots)
+                   for version, users, robots in self.stop_changes)
 
     def watch_stop_invalidations(self):
         marker = ('fh-stop-dirty', id(self))
         fields = {User: ('locked', 'archived_at', 'role', 'org_id'),
                   Session: ('revoked_at', 'expires_at', 'token_hash', 'csrf_hash', 'client', 'user_id', 'org_id'),
                   Robot: ('archived_at', 'org_id')}
+        def collect(db, users=(), robots=(), global_change=False):
+            change = db.info.setdefault(marker, [set(), set(), False])
+            change[0].update(str(value) for value in users if value is not None)
+            change[1].update(str(value) for value in robots if value is not None)
+            change[2] |= global_change
         def flushed(db, *_):
             for row in db.dirty | db.deleted:
                 if type(row) in fields and (row in db.deleted or any(
                         inspect(row).attrs[field].history.has_changes() for field in fields[type(row)])):
-                    db.info[marker] = True
+                    if isinstance(row, Robot):
+                        collect(db, robots=[row.id])
+                    elif isinstance(row, User):
+                        collect(db, users=[row.id])
+                    else:
+                        # Reassigning a session invalidates both old/new users.
+                        collect(db, users=[row.user_id, *inspect(row).attrs.user_id.history.deleted])
         def executed(state):
             if state.is_update or state.is_delete:
-                table = getattr(getattr(state.statement, 'table', None), 'name', None)
-                if table in ('users', 'sessions', 'robots'):
-                    state.session.info[marker] = True
+                statement = state.statement
+                table = getattr(getattr(statement, 'table', None), 'name', None)
+                column = {'users': User.id, 'sessions': Session.user_id, 'robots': Robot.id}.get(table)
+                if column is not None:
+                    # Parameterized executemany cannot be reliably scoped here.
+                    if state.parameters:
+                        collect(state.session, global_change=True)
+                    else:
+                        query = select(column)
+                        if statement.whereclause is not None:
+                            query = query.where(statement.whereclause)
+                        ids = state.session.scalars(query).all()
+                        collect(state.session, **{'robots' if table == 'robots' else 'users': ids})
         def committed(db):
-            if db.info.pop(marker, False):
-                self.invalidate_stop_cache()
+            change = db.info.pop(marker, None)
+            if change and (change[0] or change[1] or change[2]):
+                self.invalidate_stop_cache(*((None, None) if change[2] else change[:2]))
         def rolled_back(db):
             db.info.pop(marker, None)
         for name, callback in (('before_flush', flushed), ('do_orm_execute', executed),
@@ -529,7 +566,7 @@ class Realtime:
         with self.stop_cache_lock:
             if expires <= now():
                 raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
-            if epoch != self.stop_cache_epoch:
+            if self.stop_scope_changed(epoch, actor, rid):
                 raise self.api_error(503, 'SERVER_BUSY', '권한 변경 후 정지를 다시 요청하세요.')
             if self.clock() - started <= self.stop_cache_ttl:
                 self.stop_cache[key] = (started, actor, expires)
@@ -673,7 +710,7 @@ class Realtime:
                 pending.task.cancel()
             await asyncio.gather(*(pending.close() for pending in pipelines))
 
-    async def refresh_policy(self, peer):
+    async def refresh_policy(self, peer, *, after=None):
         sid = peer.actor.session
         self.policy_peers[sid] = peer
         self.policy_members.setdefault(sid, {})[peer.actor.connection] = peer
@@ -691,14 +728,9 @@ class Realtime:
                     min_interval=.015 if purpose == 'control' else .1)
         pending = self.policy_pipelines[lane]
         self.policy_loads[sid] = pending
-        if lane == 'control' and pending.stamp == float('-inf'):
-            # Keep the already warm observer snapshot while reserved reads fill;
-            # promotion never extends its start-based lifetime.
-            pending = self.policy_pipelines.get('view', pending)
         cached = self.policy_cache.get(sid)
-        if cached is None or self.clock() - cached.checked >= .035:
+        if cached is None or self.clock() - cached.checked >= .035 or (after is not None and cached.checked <= after):
             async with asyncio.timeout(DB_READ_TIMEOUT):
-                after = None
                 while True:
                     available = [p for p in self.policy_pipelines.values()
                                  if isinstance(p.latest, dict) and sid in p.latest
@@ -706,18 +738,22 @@ class Realtime:
                     if available:
                         best = max(available, key=lambda p: p.stamp)
                         batch, started = best.latest, best.stamp
-                    else:
-                        batch, started = await pending.next(after=after)
-                    # Never replace a fresh observer result with an older
-                    # reserved result during promotion (or vice versa).
-                    for candidate in self.policy_pipelines.values():
-                        if (candidate.stamp > started and isinstance(candidate.latest, dict)
-                                and sid in candidate.latest):
-                            batch, started = candidate.latest, candidate.stamp
-                    if sid in batch:
                         cached = batch[sid]
                         break
-                    after = started
+                    # Wait for either shared lane to advance, without polling
+                    # per screen. Empty batches advance only their own lane's
+                    # watermark; they cannot skip the other lane's snapshot.
+                    waits = [asyncio.create_task(p.next(after=max(p.stamp,
+                                 after if after is not None else float('-inf'))))
+                             for p in self.policy_pipelines.values()]
+                    try:
+                        done, _ = await asyncio.wait(waits, return_when=asyncio.FIRST_COMPLETED)
+                        for task in done:
+                            task.result()
+                    finally:
+                        for task in waits:
+                            task.cancel()
+                        await asyncio.gather(*waits, return_exceptions=True)
             if isinstance(cached, self.api_error):
                 raise cached
             cached = replace(cached, checked=min(started, cached.checked))
@@ -725,6 +761,43 @@ class Realtime:
             if not any('O_OWN' in rights for rights in cached.rights.values()):
                 self.policy_controls.discard(sid)
         peer.policy = cached
+
+    def subscribe(self, peer, msg):
+        robots = [str(rid) for rid in msg.robots]
+        self.cached_access(peer, robots, 'ROBOT_READ')
+        if any(rid in self.robot_changes for rid in robots):
+            raise LeaseError('POLICY_STALE', '담당 변경을 확인하고 있습니다.', 503)
+        peer.revoked_robots.difference_update(robots)
+        peer.subscriptions = {rid: set(msg.streams) for rid in robots}
+        self.streams()
+        for rid in robots:
+            self.apply([self.arbiter.announce(rid)])
+
+    async def resolve_subscription(self, peer, msg, after):
+        # Use the existing bounded shared read-ahead producer, but require a
+        # snapshot started after this request. No new per-message DB backlog.
+        # The receiver remains free to process STOP while this task waits.
+        try:
+            await self.refresh_policy(peer, after=after)
+            robots = [str(rid) for rid in msg.robots]
+            self.cached_access(peer, [], 'LOGIN')
+            if any(rid not in peer.policy.rights for rid in robots):
+                raise LeaseError('NOT_FOUND', '로봇을 찾을 수 없습니다.', 404)
+            self.apply(self.arbiter.tick())
+            self.subscribe(peer, msg)
+            self.put(peer, C.ScreenReply(id=msg.id, ok=True).model_dump(mode='json'))
+        except self.api_error as exc:
+            # A known robot without ROBOT_READ is still a permanent denial.
+            await self.deny_screen(peer, 4401 if exc.status == 401 else 4403)
+        except (LeaseError, *TRANSIENT_DB) as exc:
+            self.put(peer, {'t': 'reply', 'id': msg.id, 'ok': False, 'error': {
+                'code': exc.code if isinstance(exc, LeaseError) else 'SERVER_BUSY',
+                'message': exc.message if isinstance(exc, LeaseError) else '권한 확인을 기다리고 있습니다.',
+                'detail': {'status': exc.status if isinstance(exc, LeaseError) else 503}}})
+        except Exception:
+            log.warning('Subscription refresh failed; closing safely')
+            with suppress(Exception):
+                await self.deny_screen(peer, 1013)
 
     def begin_robot_change(self, rid):
         if self.owner_connection is None or self.owner_uncertain or rid in self.robot_changes:
@@ -847,6 +920,19 @@ class Realtime:
         setattr(peer, budget, balance - 1 if balance >= 1 else balance)
         return balance >= 1
 
+    async def reject_upgrade(self, ws, code):
+        # ASGI denial responses preserve HTTP 401 versus 403 before upgrade.
+        # Older ASGI servers without the extension receive explicit WS codes.
+        if 'websocket.http.response' in getattr(ws, 'scope', {}).get('extensions', {}):
+            status = 401 if code == 4401 else 403
+            await ws.send_denial_response(JSONResponse({'error': {
+                'code': 'AUTH_REQUIRED' if status == 401 else 'FORBIDDEN',
+                'message': '로그인이 필요합니다.' if status == 401 else '접속 권한을 확인하세요.',
+                'detail': {}}}, status_code=status, headers={'Cache-Control': 'no-store'}))
+        else:
+            await ws.accept()
+            await ws.close(code=code)
+
     async def retry_later(self, ws):
         # A pre-accept ASGI close becomes HTTP 403 in uvicorn. Negotiate first
         # so transient unavailability stays a retryable 1013 on the wire.
@@ -963,7 +1049,10 @@ class Realtime:
         if '_delivery' in body:
             body = {**body, '_epoch': peer.delivery_epochs.get(str(body['_delivery']['robot']), 0)}
         try:
-            (peer.urgent if body.get('t') == 'reply' else peer.queue).put_nowait(body)
+            if peer.actor and body.get('t') == 'ping':
+                peer.urgent.put_nowait(body)
+            else:
+                (peer.urgent if body.get('t') == 'reply' else peer.queue).put_nowait(body)
         except asyncio.QueueFull:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
@@ -1018,6 +1107,10 @@ class Realtime:
                             outgoing.pop('lease_id', None)
                         # Delivery checks the latest authorization snapshot; no
                         # per-message SQL can block the safety path.
+                        if body['t'] == 'lease' and outgoing.get('lease_id'):
+                            # Publish the confirming STOP generation before the
+                            # owner can enable unlock from its new lease.
+                            self.put(peer, self.screen_state(rid))
                         self.put(peer, {'_delivery': outgoing})
         finally:
             self.effect_depth -= 1
@@ -1131,12 +1224,12 @@ class Realtime:
                 if not origin or origin != expected:
                     raise self.api_error(403, 'FORBIDDEN', '접속 출처를 확인하세요.')
         except self.api_error as exc:
-            await ws.close(code=4401 if exc.status == 401 else 4403)
+            await self.reject_upgrade(ws, 4401 if exc.status == 401 else 4403)
             return
         except TRANSIENT_DB:
             await self.retry_later(ws)
             return
-        peer = Peer(ws, actor=actor, last_rx=self.clock(), budget_at=self.clock())
+        peer = Peer(ws, actor=actor, last_rx=self.clock(), last_ping=self.clock(), budget_at=self.clock())
         accepted = False
         rejection = None
         try:
@@ -1158,7 +1251,7 @@ class Realtime:
                 if rejection == 1013:
                     await self.retry_later(ws)
                 elif rejection is not None:
-                    await ws.close(code=rejection)
+                    await self.reject_upgrade(ws, rejection)
         self.screens[cid] = peer
         sender = asyncio.create_task(self.writer(peer, True))
         urgent_sender = asyncio.create_task(self.replies(peer))
@@ -1188,7 +1281,16 @@ class Realtime:
                     rid = str(msg.robot) if hasattr(msg, 'robot') else None
                     robots = [str(x) for x in msg.robots] if msg.t == 'sub' else ([rid] if rid else [])
                     policy = 'ROBOT_READ' if msg.t == 'sub' else ('ROBOT_SUMMARY' if msg.t == 'stop' else 'O_OWN' if rid else 'LOGIN')
-                    safe = msg.t in ('stop', 'lease.release', 'hidden')
+                    safe = msg.t in ('stop', 'lease.release', 'hidden', 'lease.cancel')
+                    if msg.t == 'sub':
+                        if peer.subscription_task and not peer.subscription_task.done():
+                            raise LeaseError('SERVER_BUSY', '앞선 구독 확인을 기다리고 있습니다.', 503)
+                        if any('ROBOT_READ' not in peer.policy.rights.get(robot, ())
+                               or robot in peer.revoked_robots or robot in self.deleted_robots
+                               or robot in self.robot_changes for robot in robots):
+                            peer.subscription_task = asyncio.create_task(
+                                self.resolve_subscription(peer, msg, self.clock()))
+                            continue
                     if not safe and rid in self.robot_changes:
                         raise LeaseError('POLICY_STALE', '담당 변경을 확인하고 있습니다.', 503)
                     settings = self.cached_access(peer, robots, policy, safety=safe)
@@ -1196,7 +1298,8 @@ class Realtime:
                         raise LeaseError('SUBSCRIPTION_REQUIRED', '로봇 화면을 다시 열어 주세요.')
                     if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock'):
                         self.policy_controls.add(actor.session)
-                    if rid and isinstance(self.audit, FairAuditQueue) and not self.audit.admission_open(rid):
+                    if (rid and msg.t != 'lease.cancel' and isinstance(self.audit, FairAuditQueue)
+                            and not self.audit.admission_open(rid)):
                         if msg.t == 'stop':
                             self.apply([e for e in self.arbiter.stop(rid, actor) if e.target != 'audit'])
                         raise LeaseError('ROBOT_ARCHIVE_BUSY', '로봇 기록 저장을 확인하세요.', 503)
@@ -1211,17 +1314,15 @@ class Realtime:
                     if msg.t == 'stop':
                         self.apply(self.arbiter.stop(rid, actor))
                     if msg.t == 'sub':
-                        peer.revoked_robots.difference_update(robots)
-                        peer.subscriptions = {r: set(msg.streams) for r in robots}
-                        self.streams()
-                        for robot in robots:
-                            self.apply([self.arbiter.announce(robot)])
+                        self.subscribe(peer, msg)
                     elif msg.t == 'ping':
                         pass  # ping never extends a lease heartbeat
                     elif msg.t == 'stop':
                         pass
                     elif msg.t == 'lease.release':
                         self.apply(self.arbiter.release(rid, actor))
+                    elif msg.t == 'lease.cancel':
+                        self.apply(self.arbiter.cancel(rid, actor))
                     elif msg.t == 'hidden':
                         self.apply(self.arbiter.hidden(rid, actor))
                     else:
@@ -1281,11 +1382,22 @@ class Realtime:
             sender.cancel()
             urgent_sender.cancel()
             watcher.cancel()
+            if peer.subscription_task:
+                peer.subscription_task.cancel()
             with suppress(asyncio.CancelledError):
-                await asyncio.gather(sender, urgent_sender, watcher, return_exceptions=True)
+                await asyncio.gather(sender, urgent_sender, watcher,
+                    *([peer.subscription_task] if peer.subscription_task else []), return_exceptions=True)
             with suppress(asyncio.CancelledError):
                 await self.release_policy(peer)
             self.streams()
+
+    def screen_state(self, rid):
+        online, state = live_state(self, rid)
+        return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
+            status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
+            devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
+            latched=state.get('latched'), stop_gen=state.get('stop_gen'),
+            applied=state.get('applied')).model_dump(mode='json')
 
     async def screen_watch(self, peer):
         try:
@@ -1337,14 +1449,7 @@ class Realtime:
                 peer.state_sent = self.clock()
                 for rid, streams in peer.subscriptions.items():
                     if 'state' in streams:
-                        agent = self.agents.get(rid)
-                        online, state = live_state(self, rid)
-                        self.put(peer, C.ScreenState(robot=rid,
-                            connection='ONLINE' if online else 'OFFLINE',
-                            status=state.get('status'), battery=state.get('battery'),
-                            location=state.get('location'), devices=state.get('devices', []),
-                            speed=state.get('speed'), latency_ms=None, latched=state.get('latched'),
-                            stop_gen=state.get('stop_gen'), applied=state.get('applied')).model_dump(mode='json'))
+                        self.put(peer, self.screen_state(rid))
         except (WebSocketDisconnect, RuntimeError):
             return
         except Exception:
@@ -1454,7 +1559,7 @@ class Realtime:
             auth_started = self.clock()
             rid = await self.read(self.agent_identity, ws.headers)
         except self.api_error as exc:
-            await ws.close(code=4401 if exc.status == 401 else 4403)
+            await self.reject_upgrade(ws, 4401 if exc.status == 401 else 4403)
             return
         except TRANSIENT_DB:
             await self.retry_later(ws)
@@ -1677,6 +1782,10 @@ class Realtime:
                     for screen in self.screens.values():
                         screen.delivery_epochs.pop(rid, None)
                         screen.revoked_robots.discard(rid)
+            for peer in list(self.screens.values()):
+                if at - peer.last_ping >= 1 and not peer.closing:
+                    peer.last_ping = at
+                    self.put(peer, C.ScreenServerPing(t_server=now()).model_dump(mode='json'))
             for rid, peer in list(self.agents.items()):
                 if at - peer.last_rx >= 3 and not peer.closing and not peer.audit_waiting:
                     peer.closing = True
@@ -1840,7 +1949,7 @@ def install(app, settings, factory, authorize, api_error):
             raise api_error(503, 'SERVER_BUSY', '실시간 중재기 연결을 확인하세요.')
         actor, epoch = await realtime.stop_actor(request.headers, request.cookies, robot_id)
         with realtime.stop_cache_lock:
-            if epoch != realtime.stop_cache_epoch:
+            if realtime.stop_scope_changed(epoch, actor, robot_id):
                 raise api_error(503, 'SERVER_BUSY', '권한 변경 후 정지를 다시 요청하세요.')
             effects = realtime.arbiter.stop(str(robot_id), actor)
             safety = [e for e in effects if e.target != 'audit']
