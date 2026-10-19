@@ -119,7 +119,7 @@ erDiagram
 | user_id | uuid FK NULL | |
 | data | jsonb | |
 
-지금은 세션이 게이트 메모리에만 있어 재시작하면 모두 로그아웃된다 → DB 로 옮긴다.
+(구 앱 기준) 구 게이트는 세션을 메모리에만 두어 재시작하면 모두 로그아웃됐다. 새 서버(`apps/server`)는 위 `sessions` 표에 저장한다.
 
 ### 3.2 로봇
 
