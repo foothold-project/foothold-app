@@ -1,0 +1,28 @@
+{
+  "$id": "fh-app/1/OperatorCount",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "robot_count": {
+      "minimum": 0,
+      "title": "Robot Count",
+      "type": "integer"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "display_name",
+    "robot_count"
+  ],
+  "title": "OperatorCount",
+  "type": "object"
+}

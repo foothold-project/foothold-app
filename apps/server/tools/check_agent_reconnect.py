@@ -23,7 +23,7 @@ def main():
     args = parser.parse_args()
     plugin = ['-p', 'fh_realtime_mutation_probe', '--realtime-mutation-report', os.environ['FH_REALTIME_MUTATION_REPORT']] if 'FH_REALTIME_MUTATION_REPORT' in os.environ else []
     if args.agent_ref == 'WORKTREE':
-        env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(ROOT / 'apps/agent'), str(ROOT)]),
+        env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(ROOT / 'apps/agent'), str(ROOT), os.environ.get('PYTHONPATH', '')]),
                'FH_REVIEW_AGENT_COMMIT': 'WORKTREE'}
         return subprocess.run([sys.executable, '-m', 'pytest', '-q', '-s', *plugin,
             'apps/server/tools/agent_reconnect_case.py'], cwd=ROOT, env=env).returncode
@@ -33,7 +33,7 @@ def main():
         with tarfile.open(fileobj=io.BytesIO(archive)) as bundle:
             bundle.extractall(folder, filter='data')
         env = {**os.environ, 'PYTHONPATH': os.pathsep.join([
-            str(Path(folder) / 'apps/agent'), str(ROOT)]), 'FH_REVIEW_AGENT_COMMIT': commit}
+            str(Path(folder) / 'apps/agent'), str(ROOT), os.environ.get('PYTHONPATH', '')]), 'FH_REVIEW_AGENT_COMMIT': commit}
         print('Real PR #8 Client: ' + commit, flush=True)
         result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-s', *plugin,
             'apps/server/tools/agent_reconnect_case.py'], cwd=ROOT, env=env)

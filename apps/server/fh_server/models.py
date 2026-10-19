@@ -158,3 +158,19 @@ class LeaseLog(Tenant, Base):
 
 
 Index('lease_log_org_robot_at', LeaseLog.org_id, LeaseLog.robot_id, LeaseLog.at.desc())
+
+
+class RobotDevice(Tenant, Base):
+    __tablename__ = 'robot_devices'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        CheckConstraint("kind IN ('CAMERA_RGB','CAMERA_DEPTH','LIDAR','BATTERY','OTHER')", name='device_kind'),
+        CheckConstraint("state IN ('OK','MISSING','ERROR')", name='device_state'),
+    )
+    robot_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text)
+    label: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(Text)
+    info: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())

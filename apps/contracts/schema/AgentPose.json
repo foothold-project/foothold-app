@@ -27,6 +27,19 @@
       ],
       "title": "Floor Id"
     },
+    "map_version_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Map Version Id"
+    },
     "x": {
       "anyOf": [
         {
