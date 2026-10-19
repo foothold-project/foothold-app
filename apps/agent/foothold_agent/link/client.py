@@ -5,14 +5,69 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 import json
 import os
+from collections import deque
 from urllib.parse import urlsplit
 
 from .interfaces import Executor, MotionSink
-from .session import Effects, MotionCommand, Session
+from .session import Effects, MotionCommand, Session, SAFETY_EVENTS
 from foothold_agent.safety.core import Z
 
 TICK_S = 0.05
 FATAL_CLOSE_CODES = (4401, 4403)
+PROTOCOL_CLOSE_CODE = 4406
+PROTOCOL_RETRY_S = 30.0
+
+
+class Outbox:
+    """128 discrete frames plus coalesced state/ACK; safety bypasses history."""
+    def __init__(self):
+        self.frames = deque()
+        self.telemetry = {}
+        self.ready = asyncio.Event()
+        self.inflight = None
+
+    def put_nowait(self, message):
+        if message['t'] in ('state', 'cmd.ack'):
+            self.telemetry[message['t']] = message
+        else:
+            if len(self.frames) >= 128:
+                raise asyncio.QueueFull
+            self.frames.append(message)
+        self.ready.set()
+
+    async def put(self, message):
+        while True:
+            try:
+                self.put_nowait(message)
+                return
+            except asyncio.QueueFull:
+                await asyncio.sleep(.005)
+
+    async def get(self):
+        while True:
+            await self.ready.wait()
+            index = next((i for i, m in enumerate(self.frames) if m['t'] == 'hello'), None)
+            if index is not None:
+                message = self.frames[index]
+                del self.frames[index]
+            elif self.telemetry:
+                key = 'state' if 'state' in self.telemetry else 'cmd.ack'
+                message = self.telemetry.pop(key)
+            elif self.frames:
+                index = next((i for i, m in enumerate(self.frames)
+                              if m.get('code') in SAFETY_EVENTS or m['t'] == 'run.update'), 0)
+                message = self.frames[index]
+                del self.frames[index]
+            else:
+                self.ready.clear()
+                continue
+            if not self.frames and not self.telemetry:
+                self.ready.clear()
+            self.inflight = message
+            return message
+
+    def unsent(self):
+        return ([self.inflight] if self.inflight else []) + list(self.frames)
 
 
 @dataclass(frozen=True)
@@ -101,13 +156,14 @@ class Client:
                     pass  # retain the first failure, even if zero also failed
             raise LocalPortError("motion sink failed") from first_error
         if self._outgoing is not None:
-            for message in effects.messages:
+            for index, message in enumerate(effects.messages):
                 try:
                     self._outgoing.put_nowait(message)
                 except asyncio.QueueFull:
                     # A slow connection must not terminate the local watchdog.
                     # Detach before emitting STOP so no safety response re-enters
                     # the saturated queue; the network task closes and reconnects.
+                    self.session.retain(effects.messages[index:])
                     self._outgoing = None
                     if self._overflow is not None:
                         self._overflow.set()
@@ -137,6 +193,21 @@ class Client:
             message = await queue.get()
             # Bounded writes cannot suspend the local watchdog.
             await asyncio.wait_for(websocket.send(json.dumps(message, allow_nan=False)), 0.2)
+            queue.inflight = None
+
+    async def _replay(self, queue, messages):
+        # Connect's snapshot comes after its historical events in Effects;
+        # place it ahead of those events before filling the bounded outbox.
+        messages = sorted(messages, key=lambda m: 0 if m['t'] == 'hello' else
+                          1 if m['t'] in ('state', 'cmd.ack') else
+                          2 if m.get('code') in SAFETY_EVENTS or m['t'] == 'run.update' else 3)
+        index = 0
+        try:
+            for message in messages:
+                await queue.put(message)
+                index += 1
+        finally:
+            self.session.restore(messages[index:])
 
     async def _reader(self, websocket):
         while True:
@@ -159,6 +230,7 @@ class Client:
         while True:
             connected_for = 0.0
             retry_code = None
+            protocol_wait = False
             try:
                 async with connect(
                     self.settings.url,
@@ -168,10 +240,12 @@ class Client:
                     compression=None,
                 ) as websocket:
                     connected_at = self.session.now()
-                    queue = asyncio.Queue(maxsize=128)
+                    queue = Outbox()
                     self._outgoing = queue
                     self._overflow = asyncio.Event()
-                    self._emit(self.session.connect())
+                    effects = self.session.connect()
+                    self._emit(Effects(effects.motion))
+                    replay = asyncio.create_task(self._replay(queue, effects.messages))
                     reader = asyncio.create_task(self._reader(websocket))
                     writer = asyncio.create_task(self._writer(websocket, queue))
                     overflow = asyncio.create_task(self._overflow.wait())
@@ -208,7 +282,9 @@ class Client:
                             reader.cancel()
                             writer.cancel()
                             overflow.cancel()
-                            await asyncio.gather(reader, writer, overflow, return_exceptions=True)
+                            replay.cancel()
+                            await asyncio.gather(reader, writer, overflow, replay, return_exceptions=True)
+                            self.session.restore(queue.unsent())
             except ConnectionClosed as exc:
                 retry_code = exc.rcvd.code if exc.rcvd else 1006
                 if retry_code in FATAL_CLOSE_CODES:
@@ -218,9 +294,11 @@ class Client:
                     declaration = json.loads(reason)
                 except (ValueError, RecursionError):
                     declaration = {"proto": reason} if reason.startswith("fh-agent/") else {}
-                if (isinstance(declaration, dict) and "proto" in declaration
-                        and declaration["proto"] != "fh-agent/1"):
+                if (retry_code == PROTOCOL_CLOSE_CODE or
+                        isinstance(declaration, dict) and "proto" in declaration
+                        and declaration["proto"] != "fh-agent/2"):
                     self._emit(self.session.protocol_mismatch())
+                    protocol_wait = True
             except InvalidStatus as exc:
                 # ASGI authorization rejection before accept is HTTP 401/403,
                 # rather than a negotiated WebSocket close frame.
@@ -232,8 +310,10 @@ class Client:
                 pass  # transport only; never catch a local sink/executor failure
             if connected_for >= 3 or retry_code == 1013:
                 delay = self.settings.retry_initial_s
-            self._emit(self.session.transport_retry(delay, retry_code))
-            await asyncio.sleep(delay)
+            protocol_wait |= self.session.protocol_rejected
+            wait = max(PROTOCOL_RETRY_S, delay) if protocol_wait else delay
+            self._emit(self.session.transport_retry(wait, retry_code))
+            await asyncio.sleep(wait)
             delay = min(delay * 2, self.settings.retry_max_s)
 
     async def run(self):

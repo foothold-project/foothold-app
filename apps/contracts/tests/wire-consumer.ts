@@ -1,5 +1,5 @@
 // Real flat wire objects. These literals are validated by Python and JSON Schema too.
-import type { ScreenCmd, ScreenMessage, ScreenLeaseUpdate, ScreenLeaseResult, ScreenReply, AgentState, AgentStop } from '../ts/index';
+import type { ScreenCmd, ScreenMessage, ScreenLeaseUpdate, ScreenLeaseResult, ScreenReply, AgentState, AgentStop, AgentHello } from '../ts/index';
 export const command: ScreenCmd = {"t":"cmd","id":"cmd","robot":"00000000-0000-0000-0000-000000000001","lease_id":"00000000-0000-0000-0000-000000000002","seq":1,"axes":[0,0,0]};
 export const subsequent: ScreenMessage = {"t":"ping","id":"followup"};
 export const first: ScreenMessage = {"t":"ping","id":"first","proto":"fh-rt/1"};
@@ -14,3 +14,8 @@ void [command, subsequent, first, observer, success, reply, stopped, stop, nullP
 // @ts-expect-error The server always sends the response envelope tag.
 const missingReplyTag: ScreenReply = {id:'tag',ok:true};
 void missingReplyTag;
+
+export const agentHello: AgentHello = {"t":"hello","proto":"fh-agent/2","agent_version":"0.2.0","robot_model":null,"firmware":null,"devices":[],"map_versions":[],"last_floor_id":null,"latched":true,"stop_gen":1,"lease_id":null,"run":null};
+// @ts-expect-error The previous agent proto cannot claim the mandatory stop_ref contract.
+const oldAgentProto: AgentHello = {...agentHello, proto:'fh-agent/1'};
+void [agentHello, oldAgentProto];

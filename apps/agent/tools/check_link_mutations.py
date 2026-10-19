@@ -60,7 +60,7 @@ MUTATIONS = [
     ("close event removed", "link/session.py",
      'self._event("SERVER_CLOSED", close_code=close_code, retry=retry)', 'pass'),
     ("retry event removed", "link/client.py",
-     'self._emit(self.session.transport_retry(delay, retry_code))', 'pass'),
+     'self._emit(self.session.transport_retry(wait, retry_code))', 'pass'),
     ("retry backoff fixed", "link/client.py",
      'delay = min(delay * 2, self.settings.retry_max_s)', 'delay = self.settings.retry_initial_s'),
     ("default retry interval shortened", "link/client.py",
@@ -101,6 +101,13 @@ MUTATIONS = [
     ('unlock generation upper bound removed', 'link/session.py', '0 <= gen <= MAX_SEQ', 'gen >= 0'),
     ('STOP reference zero-output guard removed', 'link/session.py', 'and self.core.latch and self.core.applied() == Z', 'and self.core.latch'),
     ('wire generation exceeds safe integer', 'link/session.py', 'return min(MAX_SEQ, self.core.stop_gen)', 'return self.core.stop_gen'),
+    ('offline buffer unbounded', 'link/session.py', 'if len(self._messages) >= MAX_BUFFER - 1:', 'if False:'),
+    ('backpressure wait reason overwritten', 'link/session.py', 'self._pause("TRANSPORT_BACKPRESSURE", preserve_reason=True)', 'self._pause("TRANSPORT_BACKPRESSURE")'),
+    ('protocol wait reason overwritten', 'link/session.py', 'self._pause("PROTOCOL_MISMATCH", preserve_reason=True)', 'self._pause("PROTOCOL_MISMATCH")'),
+    ('bridge integer guard removed', 'link/session.py', 'if any(type(v) is int and not -sys.float_info.max <= v <= sys.float_info.max', 'if any(False and type(v) is int and not -sys.float_info.max <= v <= sys.float_info.max'),
+    ('state priority removed', 'link/client.py', 'elif self.telemetry:', 'elif self.telemetry and not self.frames:'),
+    ('first replay is synchronous overflow', 'link/client.py', 'replay = asyncio.create_task(self._replay(queue, effects.messages))', 'self._emit(Effects((), effects.messages))\n                    replay = asyncio.create_task(self._replay(queue, ()))'),
+    ('protocol slow wait removed', 'link/client.py', 'PROTOCOL_RETRY_S = 30.0', 'PROTOCOL_RETRY_S = 1.0'),
 ]
 
 
@@ -119,6 +126,13 @@ PROBE_TESTS = {
     "retry backoff fixed": "test_exponential_backoff_against_same_process_rejecting_server",
     "default retry interval shortened": "test_default_close_backoff_matches_api_spec",
     "default retry cap lowered": "test_default_close_backoff_matches_api_spec",
+    'offline buffer unbounded': 'tests/test_link_followup.py::test_offline_buffer_is_bounded_and_loss_is_counted',
+    'backpressure wait reason overwritten': 'tests/test_link_followup.py::test_transport_failures_preserve_existing_wait_reason',
+    'protocol wait reason overwritten': 'tests/test_link_followup.py::test_transport_failures_preserve_existing_wait_reason',
+    'bridge integer guard removed': 'tests/test_link_followup.py::test_bridge_large_integers_never_enter_core_or_refresh_health',
+    'state priority removed': 'tests/test_link_followup.py::test_outbox_coalesces_telemetry_and_prioritizes_state_and_safety',
+    'first replay is synchronous overflow': 'tests/test_link_followup.py::test_full_offline_buffer_recovers_on_first_connection_with_backpressure',
+    'protocol slow wait removed': 'tests/test_link_followup.py::test_protocol_4406_stops_and_waits_at_least_30s_before_retry',
 }
 
 
@@ -143,7 +157,7 @@ def main():
             report = copy / "mutation-result.json"
             try:
                 probe = PROBE_TESTS.get(label)
-                tests = ("tests/test_link_client.py::" + probe if probe else
+                tests = (probe if probe and "::" in probe else "tests/test_link_client.py::" + probe if probe else
                          "tests/test_link_client.py::test_cancel_while_moving_requests_stop_zero_and_latch"
                          if target == "link/client.py" else "tests/test_link_session.py")
                 selected = [tests] if probe or target == "link/client.py" else [tests, "tests/test_stop_reference.py"]

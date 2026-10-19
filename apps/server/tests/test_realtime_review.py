@@ -201,10 +201,15 @@ def test_safety_enqueue_discards_pre_stop_commands(client, seeded, rt):
     run(client, check)
 
 
-def test_r3_auth_close_revokes_before_watch_can_be_cancelled(client, seeded, rt):
+def test_r3_auth_close_revokes_before_watch_can_be_cancelled(client, seeded, rt, monkeypatch):
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
+        async def hold_snapshot(peer):
+            pass
+        # This test deliberately expires the cached snapshot, not the valid DB
+        # session. Hold that fixture so read-ahead cannot restore the DB value.
+        monkeypatch.setattr(rt, 'refresh_policy', hold_snapshot)
         async def expire_cached_session():
             peer = next(p for p in rt.screens.values() if p.actor.user == str(seeded['users']['one']))
             peer.policy = replace(peer.policy, expires_at=now() - timedelta(seconds=1))

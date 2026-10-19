@@ -588,3 +588,76 @@ Codex B1·B2·B3와 정수 범위·상수 비교·RUN 종료 가드는 4552c06�
 | M5 read client deadline removed | detected |
 | M6 default uses obsolete agent | detected |
 | M5 owner cleanup blocks safety loop | detected |
+
+## W4-B 실시간 후속 보완 (2026-10-19, 기준 dev 17b73e7)
+
+이 절이 앞선 검토 후속 목록의 현재 결과다. 변경 소유는 server/contracts 및 agent link·시험·도구·문서이며
+Screen* 계약·apps/web·안전 Core·기존 Core 시험은 바꾸지 않았다. 새 마이그레이션은 없다.
+
+| 항목 | 수정과 회귀 증거 |
+|---|---|
+| 300~450 ms 읽기에서 조종 거부 | 세션별 권한·연결별 agent 인증을 25 ms 간격으로 겹쳐 조회한다. 최대 21개 미완료 작업/흐름과 별도 64 스레드 인증 executor로 제한한다. 읽기 풀은 최대 64연결(16+48), checkout 대기 2초다. `test_slow_reads_keep_20hz_commands_and_take_available`는 함수 앞/연결 checkout 뒤 두 지연 방식에서 take의 신선한 창(10 ms 간격 최대 10회 명시적 시험 요청), 20 Hz 입력 수용(함수 앞 36/40 이상, 연결 점유 30/40 이상), STOP 150 ms 이내를 검사한다. 직렬 조회·기존 10연결 풀 복구 변이는 실패한다. |
+| 500 ms 의미·STOP 유지 | 판정 나이는 **읽기 예약 시작**부터다. 스레드/DB 풀 대기와 읽기 지연도 포함한다. 완료 뒤 500 ms를 새로 주지 않는다. M3의 600 ms 읽기는 계속 POLICY_STALE이고 STOP·반납은 통과한다. 무제한 병렬 읽기나 느린 DB에서 전 입력 성공을 보장하지 않는다. |
+| 사건 400개 뒤 정지 확인 지연 | reader는 1024건 유한 사건 큐에 넣고 state를 계속 읽는다. 별도 작업자가 100개/s 예산으로 감사 큐에 옮긴다. 안전 사건과 STOP 기록은 일반 사건보다 먼저 처리하고, 일반 사건끼리는 FIFO다. 400건 뒤 state로 600 ms 안에 take를 확인하고 원본 사건 400건의 저장·순서를 검사한다. 읽기 직렬화·안전 우선 제거 변이는 실패한다. |
+| 사건 포화 | 사건 큐가 가득 차면 AGENT_BACKLOG_OVERFLOW + FREE + 1013으로 명시한다. 전체 감사 큐(4096) 포화 시 기존 과부하 FREE·배압도 유지한다. 별도 회귀·변이가 감사 포화 중 조종권 폐기를 검사한다. 이미 접수한 사건은 소켓 취소와 분리된 유한 작업자가 비울 때까지 처리하며 런타임 종료 때는 취소된다. 프로세스 종료 내구성·서버 ACK·정확히 한 번 전달은 보장하지 않는다. |
+| proto 판 | hello는 fh-agent/2다. 화면 fh-rt/1 및 Screen* 생성물은 유지한다. 2026-10-19 추가 조정에 따라 옛/다른 agent proto는 **4406 + PROTOCOL_MISMATCH: expected fh-agent/2** 및 AGENT_PROTOCOL_MISMATCH 사건으로 구별한다. 4401/4403은 실제 인증·권한 거부 전용이다. 갱신 Client는 정지·잠금·기존 대기 이유를 유지하며 30초 이상 간격으로 재연결한다. 실제 uvicorn에 fh-agent/1을 선언한 Client 시험도 포함한다(긴 대기는 관측 후 가상화/취소). 서버·Client를 함께 갱신해야 한다. |
+| fleet 전체 재조회 비용 | 최초 토큰 탐색 후에는 서버가 내부적으로 묶은 robot ID 한 행만 조회한다. 조직·보관·토큰 회전 검사를 유지하며 고정 32바이트 compare_digest 1회를 확인한다. HTTP 헤더 값으로 내부 binding을 만들지 않는다. 전체 조회 복구 변이는 실패한다. |
+| uvicorn 포트 | 추적 시험의 bind는 loopback 포트 0, 실행은 사전 bind한 fd다. AST 회귀는 고정 포트·--port 실행을 거부한다. 8453 고정 포트 변이는 **bind 실행 없이 AST 검사만**으로 검출한다. 운영 8453/8792에 bind·접속하지 않았다. |
+| agent 후속 | 오프라인 버퍼·송신 배압·대기 이유·큰 bridge 정수 차단은 `apps/agent/LINK-VALIDATION.md` W4-B 절 참조. |
+
+500 ms는 권한 철회가 DB 커밋과 동시에 전 세계에 반영된다는 뜻이 아니다. 관측하지 못한 철회는
+마지막 조회 시작부터 최대 500 ms까지만 새 조종을 허용하며, 그 뒤에는 신선한 결과 없이는 차단한다.
+STOP은 기존에 검증한 범위로 즉시 처리한다. PostgreSQL/스케줄링 지연이 500 ms를 소진하면
+거부가 남는 것이 의도다. 0.45초 지연 탐침에서는 39/40 수용을 관측했다(이전 검토 0/40).
+0.3초 지연에서는 40/40을 관측했다(이전 검토 14/40). 이는 부하 조건의 측정값이며 실시간 보장이 아니다.
+
+기존 backlog 시험은 reader가 더 이상 수신 생존 시각을 인위적으로 갱신하지 않으므로 정상 Client처럼
+대기 중 state를 계속 보내도록 바꿨다. 지연 알림 시험은 한 SQL만 지연시키는 대신 권한 갱신의 공유
+경계를 지연시켜, 겹친 다른 정상 읽기가 시험 조건을 해제하지 않도록 했다. WS 종료는 취소 중에도
+reader·writer·인증 감시와 내부 작업을 안전하게 정리한다.
+
+실제 uvicorn + 현재 Client는 정상 조건 및 DB 읽기 300 ms + 사건 400건 조건에서
+`take → unlock → 새 중립 → 비영 cmd → 요청/수락 넘김 → STOP`을 통과했다.
+출력과 bridge는 메모리 가짜 구현이고 신선한 로컬 피드백을 넣었다. TLS·브라우저·실폰·실기·
+ROS·Gazebo·물리 정지 거리·운영 배포는 실행하지 않았다. 임시 PostgreSQL은 전용 Unix socket이다.
+
+### W4-B 실행 결과
+
+Python 3.12 전용 venv·임시 PostgreSQL에서 실행했다. Starlette/httpx 안내 1건 외 실행 오류·skip은 없다.
+
+| 명령 (루트 기준, Python은 전용 venv) | 실제 결과 |
+|---|---|
+| `PYTHONPATH=apps/agent python -m pytest apps/server/tests -q` | **245 passed**. 기존 Alembic upgrade→downgrade base→upgrade·메타데이터 차이 0 포함. |
+| `PYTHONPATH=apps/agent python -m pytest apps/agent/tests -q` | **202 passed**, 5.62 s. 기존 Core 시험 포함. |
+| `python apps/contracts/generate.py --check` | **61개 일치** |
+| `npm ci --prefix apps/contracts` + `npm run typecheck --prefix apps/contracts` | **exit 0**, fh-agent/2 hello 및 옛 proto 거부를 포함한 wire literal 소비 |
+| wire literal Python/JSON Schema 대조 단독 재실행 | **1 passed** |
+| 지연 2종 + 실제 uvicorn/Client 정상·지연/backlog 단독 재실행 | **6 passed**, 25.74 s. 최종 25 ms 갱신에서 함수 앞/연결 점유 × 0.3/0.45초 네 조건 모두 **40/40**. 앞선 40 ms 갱신의 연결 점유 0.45초 표본은 부하에 따라 32~40/40이었다. take·넘김·STOP 통과. 앞선 표본의 0.45초 39/40 및 연결 점유 40/40+take 거부 1건도 보존한다. |
+| `python apps/agent/tools/check_link_mutations.py` | **53/53 KILLED**, ERROR·SURVIVED 0 (기존 46 + 새 7) |
+| `git diff --check` | 통과 |
+
+변이 기준 묶음에 지연·실제 연결 시험이 추가되어 서버 도구의 하위 pytest 시한을 90→180초로 늘렸다.
+호환되지 않는 역사 agent를 명시했을 때는 fh-agent/2 계약 assertion으로 설명하도록 재접속 도구를 보완했다.
+시간 초과·실행 오류를 검출로 세지 않는 판정 규칙은 유지했다.
+
+최종 연결 점유 시험은 SQLAlchemy checkout 뒤 before_cursor_execute에서 지연을 넣었다. 정책의 두 SELECT는
+각각 절반, 묶인 agent의 한 SELECT는 전 지연을 주어 동일한 총 읽기 지연을 만든다. 기존 10개 풀로는
+0.45초 조건에서 take가 거부됨을 재현했고, 겹친 조회와 맞춘 유한 64개 풀에서 신선한 창을 다시 얻었다.
+고정 시점 한 번의 take까지 항상 성공한다고 주장하지 않는다. 시험의 take 표본은 새 명시적 요청이며
+애플리케이션에 조종 명령·take 자동 재시도를 추가하지 않았다. 500 ms를 넘긴 요청은 계속 거부한다.
+400개 backlog는 한 async producer에서 넣어 실제 이미 쌓인 이력을 모의하고, 400번의 시험 스레드
+왕복 시간이 정지 확인 시간에 섞이지 않게 했다. 강제로 만료시킨 스냅샷의 종료 회귀는 유효 DB 값의
+새 읽기가 실험 스냅샷을 덮지 않도록 갱신을 고정했다. 실제 인증·만료 기대값은 유지했다.
+
+450 ms 읽기는 권한 상한까지 50 ms만 남기므로 최종 갱신 간격을 25 ms로 두었다. 최대 21개/흐름은
+500 ms 범위를 덮고, 세 인증 흐름의 최대 63개 읽기가 전용 64 스레드 및 64연결 상한 안에 들어간다.
+지연 시험의 가짜 에이전트도 실제 Client처럼 정지 확인 state를 10 Hz로 계속 보고한다. 늦은 권한
+표본 한 건을 거부했을 때 이후 신선한 표본까지 사라지는 단발 ACK 모의와 구분한다. M5 시한 회귀는
+새 제어 읽기를 사용해, 오류 주입 전에 이미 완료된 유효 스냅샷이 시한 시험을 대신하지 않게 했다.
+
+최종 제출 사본에서 서버 pytest는 **245 passed (165.96 s)**, 서버 변이 도구는
+**91/91 assertion 검출, exit 0, 실행/수집 오류·생존 0**이었다(기존 83 + 새 8).
+기존 M5 변이는 새 ReadAhead 시한 경계를 겨냥하도록 옮겼고, 역사 agent를 선택하는 M6는
+지원 계약 assertion으로 실패를 설명하도록 고쳤다. 그 이전의 MISSED/ERROR 실행을 검출로 세지 않고
+전체 91개를 다시 실행했다. agent 변이 53/53도 exit 0이다. 양쪽 검증은 실행한 소스/모의 범위이며
+안전 범위의 Claude·Codex 검토 및 dev 통합은 조정 세션의 후속 관문으로 남는다.

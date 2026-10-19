@@ -31,14 +31,11 @@ def test_n2_stale_free_is_retried_after_snapshot_refresh(client, seeded, rt, mon
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         take(ws, ag, rid)
-        original = rt.load_policy
-        delayed = []
-        def slow(actor):
-            if not delayed:
-                delayed.append(True)
-                time.sleep(.7)
-            return original(actor)
-        monkeypatch.setattr(rt, 'load_policy', slow)
+        original = rt.refresh_policy
+        async def slow(peer):
+            await asyncio.sleep(.7)
+            await original(peer)
+        monkeypatch.setattr(rt, 'refresh_policy', slow)
         async def age():
             peer = next(iter(rt.screens.values()))
             peer.policy = replace(peer.policy, checked=rt.clock() - 1)
@@ -253,6 +250,11 @@ def test_n9_backlog_events_do_not_disconnect_or_starve_state(client, seeded, rt)
             async with asyncio.timeout(7):
                 while rt.arbiter.robot(rid).stop_gen != 4:
                     await asyncio.sleep(.01)
+            join = asyncio.create_task(rt.agents[rid].archive.join())
+            while not join.done():
+                await asyncio.sleep(.2)
+                await ag._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps(state(4))})
+            await asyncio.wait_for(join, 7)
             await asyncio.wait_for(rt.audit.join(), 3)
             assert rt.audit.qsize() <= rt.audit.maxsize
         run(client, burst)
@@ -321,6 +323,7 @@ def test_n7_retry_grace_is_bounded_and_closes_temporarily(client, seeded, rt, mo
             raise temporary_db_error()
         monkeypatch.setattr(rt, 'agent_identity', unavailable)
         async def expired():
+            await asyncio.sleep(.15)
             rt.agents[rid].auth_checked = rt.clock() - 6
         run(client, expired)
         with pytest.raises(WebSocketDisconnect) as error:

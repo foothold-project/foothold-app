@@ -336,3 +336,43 @@ Gazebo·실기 접촉0, 배포 없음이다.
 | unlock generation upper bound removed | KILLED | test_unlock_safe_integer_upper_bound |
 | STOP reference zero-output guard removed | KILLED | test_unapplied_stop_never_echoes_new_reference[nonzero] |
 | wire generation exceeds safe integer | KILLED | test_core_generation_exhaustion_is_bounded_and_never_confirms[connect], test_core_generation_exhaustion_is_bounded_and_never_confirms[stop] |
+
+## W4-B 후속 보완 (2026-10-19, 기준 dev 17b73e7)
+
+안전 Core와 `test_original_core.py`·`test_core_boundaries.py`는 변경 0이다. 링크와 시험·도구·문서만
+고쳤으며 화면 계약 fh-rt/1은 그대로다. 서버 쪽 결과는 REALTIME-VALIDATION의 W4-B 절을 본다.
+
+| 항목 | 동작·회귀 |
+|---|---|
+| 오프라인 Session 버퍼 | 사건·run.update 최대 255건 + 누락 요약 1건. 일반 사건을 먼저 버리고 안전 사건만 남으면 가장 오래된 것을 버린다. `test_offline_buffer_is_bounded_and_loss_is_counted`는 1000건에서 상한·안전 사건·누락 합계를 검사한다. 버퍼 상한 제거 변이가 실패한다. |
+| 송신 큐·첫 재연결 | 128건 개별 메시지 + state/ACK 최신 각 1건. hello, state, 안전 사건을 앞서 전송한다. 초기 이력은 비동기 배압으로 전달해 writer가 시작하기 전에 큐가 포화되는 것을 막는다. 255건 이력을 첫 연결 한 번으로 보내고 순서를 검사한다. 동기 주입·state 우선 제거 변이가 실패한다. |
+| 느린 송신/실패 | 쓰기는 200 ms 상한이며 로컬 20 Hz 감시는 계속된다. 포화는 즉시 0·잠금·입력 폐기 및 해당 연결 재접속이다. 미송신 사건과 실패 중인 마지막 쓰기는 상한 안에서 재보관하며 이전 state/ACK는 재전송하지 않는다. 서버 ACK가 없어 마지막 쓰기는 중복 가능하다. 실패 쓰기의 이력 순서와 옛 telemetry 폐기를 검사한다. |
+| P1 대기 이유 | transport_overflow·protocol_mismatch도 기존 PAUSED 이유를 보존한다. LINK_LOSS_TIMEOUT을 주입한 매개 시험과 두 변이가 이를 검사한다. 새 STOP/OPERATOR 원인은 계속 새 이유다. |
+| P2 retry 요약 위치 | 첫 재시도 위치 1건이 attempts·first_at_s~last_at_s 범위를 요약한다. 뒤 사건보다 last_at_s가 늦을 수 있고, 안전 우선 송신도 전체 사건의 시각순 정렬을 뜻하지 않는다. README에 명시했다. |
+| proto | fh-agent/2로 올렸다. 추가 조정 결정: 4406 + PROTOCOL_MISMATCH이면 즉시 0·잠금·조종권 확인 폐기 후 최소 30초 재연결 대기다. 4401/4403 영구 중단 및 1013 고정 1초는 유지한다. 긴 프로토콜 대기는 시험에서 요청 간격을 관측한 뒤 가상화/취소했다. 실제 uvicorn에 fh-agent/1을 선언하는 Client로도 확인했다. 미갱신 옛 바이너리의 재시도 간격을 서버만으로 바꿀 수는 없으므로 동시 갱신을 문서화했다. |
+| bridge 큰 정수 | float 범위 밖 정수를 Core 호출 전 거부하고 BRIDGE_STATE_INVALID를 남긴다. 표시 x/sim_t, cmd_applied, episode의 양/음 10**400은 예외 없이 0·잠금 유지, Core state_seq·생존 시각 미갱신이다. 범위 검사 제거 변이는 명시적 시험 실패로 검출한다. |
+
+각 큐는 메모리 유한 버퍼다. 포화 때 누락을 요약하지만 디스크 내구성·수신 ACK·정확히 한 번 전달·
+프로세스 재시작 뒤 복구를 구현한 것은 아니다. 사건 종류에 따라 우선순위가 달라지므로 일반 사건끼리의
+FIFO와 안전 사건 우선 보장을 구분한다. 실제 sink의 독립 watchdog·물리적 정지는 여전히 후속 범위다.
+
+실제 uvicorn + 현재 Client의 정상/300 ms DB 지연 + 400 사건 backlog 조건에서
+`take → unlock → 새 중립 → 비영 명령 → 요청/수락 넘김 → STOP`을 통과했다.
+모든 네트워크 시험은 loopback 임시 fd/포트 0 및 가짜 bridge/sink였다. ROS·Gazebo·실기·운영 포트·배포 접촉 0이다.
+
+### W4-B 실행 결과
+
+| 명령 (Python은 전용 venv) | 실제 결과 |
+|---|---|
+| `PYTHONPATH=apps/agent python -m pytest apps/agent/tests -q` | **202 passed**, 5.62 s, skip 0 |
+| `python apps/agent/tools/check_link_mutations.py` | **53/53 KILLED**, ERROR·SURVIVED 0. 기존 46 + 버퍼 상한·두 대기 이유·큰 정수·state 우선·첫 replay 배압·30초 protocol 대기 7개. |
+| `PYTHONPATH=apps/agent python -m pytest apps/server/tests -q` | **245 passed**, 실제 서버/Client 정상·DB 지연/backlog·옛 proto 경로 포함 |
+| 생성물·wire 소비 tsc·Python/JSON Schema wire 대조 | **61개 일치 / exit 0 / 1 passed** |
+| 실제 지연·Client 통합 단독 재실행 | **6 passed**, 최종 25 ms 갱신에서 함수 앞/연결 점유 × 0.3/0.45초 모두 40/40, take→넘김→STOP (이전 부하 표본 32~40/40도 서버 표에 보존) |
+
+별도 실패 쓰기 시험은 FIRST→SECOND→연결 종료 사건의 미송신 복구 순서를 확인하고 옛 state/ACK를 폐기한다.
+변이의 수집·실행 오류는 KILLED에 포함하지 않는다. 프로토콜 불일치 30초는 실제 시간 30초를 기다렸다는
+뜻이 아니라 Client가 선택한 대기 간격과 그동안의 안전 상태를 관측한 결과다.
+
+최종 제출 사본의 서버 변이도 **91/91 assertion 검출**, exit 0, 실행/수집 오류·생존 0이다.
+서버 전체 최종 실행은 **245 passed (165.96 s)**였다. agent Core 및 기존 Core 시험 변경은 0이다.

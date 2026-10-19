@@ -99,8 +99,8 @@ MUTATIONS = [
     ('N7 stale policy fails to revoke', R, '                    if age > 0.5 and not peer.stale_revoked:\n                        self.revoke_actor(peer.actor)', '                    if False:\n                        self.revoke_actor(peer.actor)', R2 + '::test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry'),
     ('N7 retry grace unbounded', R, 'DB_RETRY_GRACE = 5.0', 'DB_RETRY_GRACE = 50.0', R2 + '::test_n7_retry_grace_is_bounded_and_closes_temporarily'),
     ('N8 duplicate RUN release restored', 'apps/server/fh_server/leases.py', 'effects = self.begin(robot, actor, op=None)', 'effects = self.begin(robot, actor)', R2 + '::test_n8_run_takeover_has_no_duplicate_release'),
-    ('M4 event backlog discarded', R, '                if archive and not admitted:\n                    while', '                if archive and not admitted:\n                    continue\n                    while', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
-    ('M4 events bypass bounded audit queue', R, '                        await self.audit.put(effect)', '                        pass', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
+    ('M4 event backlog discarded', R, '                        peer.archive.put_nowait(effect)', '                        pass', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
+    ('M4 events bypass bounded audit queue', R, '            await self.audit.put(effect)', '            pass', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
 
     ('N7 stale read mislabeled forbidden', R, "                except LeaseError:\n                    # A stale snapshot is uncertainty, not an authorization denial.", "                except LeaseError:\n                    await self.deny_screen(peer, 4403)\n                    return\n                    # A stale snapshot is uncertainty, not an authorization denial.", R2 + '::test_n7_stale_successful_read_is_not_a_permanent_authorization_denial'),
 
@@ -115,11 +115,19 @@ MUTATIONS = [
     ('C3 terminal run revokes human lease', 'apps/server/fh_server/realtime.py', "if (msg.status != 'PAUSED' and holder and holder.holder_type == 'RUN'\n                                and run.get('lease_id') == holder.lease_id):", "if msg.status != 'PAUSED':", 'apps/server/tests/test_realtime_r3.py::test_c3_late_run_terminal_does_not_revoke_human'),
     ('M1 STOP reply waits behind stale notification', 'apps/server/fh_server/realtime.py', "(peer.urgent if body.get('t') == 'reply' else peer.queue).put_nowait(body)", 'peer.queue.put_nowait(body)', 'apps/server/tests/test_realtime_r3.py::test_m1_stop_reply_bypasses_notification_waiting_for_policy'),
     ('M2 release blocked by stale robot authorization', 'apps/server/fh_server/realtime.py', "elif msg.t == 'lease.release':\n                        self.apply", "elif msg.t == 'lease.release':\n                        if self.clock() - self.agents[rid].auth_checked > 0.5:\n                            raise LeaseError('ROBOT_AUTH_PENDING', 'fake pending', 503)\n                        self.apply", 'apps/server/tests/test_realtime_r3.py::test_m2_release_not_blocked_by_stale_robot_auth'),
-    ('M3 policy timestamp taken after read', 'apps/server/fh_server/realtime.py', 'return replace(policy, checked=min(started, policy.checked))', 'return replace(policy, checked=self.clock())', 'apps/server/tests/test_realtime_r3.py::test_m3_policy_and_robot_auth_age_start_before_db_read'),
+    ('M3 policy timestamp taken after read', 'apps/server/fh_server/realtime.py', 'cached = replace(cached, checked=min(started, cached.checked))', 'cached = replace(cached, checked=self.clock())', 'apps/server/tests/test_realtime_r3.py::test_m3_policy_and_robot_auth_age_start_before_db_read'),
     ('M3 robot authorization timestamp taken after read', 'apps/server/fh_server/realtime.py', '                peer.auth_checked = started', '                peer.auth_checked = self.clock()', 'apps/server/tests/test_realtime_r3.py::test_m3_policy_and_robot_auth_age_start_before_db_read'),
-    ('M5 read client deadline removed', 'apps/server/fh_server/realtime.py', 'async with asyncio.timeout(DB_READ_TIMEOUT):\n            return await asyncio.shield(task)', 'async with asyncio.timeout(50):\n            return await asyncio.shield(task)', 'apps/server/tests/test_realtime_r3.py::test_m5_stalled_db_has_client_deadline_and_stop_stays_live'),
+    ('M5 read client deadline removed', 'apps/server/fh_server/realtime.py', 'async with asyncio.timeout(DB_READ_TIMEOUT):\n            await self.changed.wait()', 'async with asyncio.timeout(50):\n            await self.changed.wait()', 'apps/server/tests/test_realtime_r3.py::test_m5_stalled_db_has_client_deadline_and_stop_stays_live'),
     ('M6 default uses obsolete agent', 'apps/server/tools/check_agent_reconnect.py', "default='WORKTREE'", "default='e0cd2741ef9aecfc5cdd4c4962044213640a2428'", '@agent-reconnect'),
     ('M5 owner cleanup blocks safety loop', R, 'await self.read(conn.close)', 'conn.close()', R3 + '::test_m5_failed_owner_read_cleanup_never_blocks_stop'),
+    ('W4 bounded read overlap removed', 'apps/server/fh_server/realtime.py', 'len(self.pending) < 21', 'len(self.pending) < 1', 'apps/server/tests/test_realtime_followup.py::test_slow_reads_keep_20hz_commands_and_take_available'),
+    ('W4 archival reader blocks state', 'apps/server/fh_server/realtime.py', '                        peer.archive.put_nowait(effect)', '                        await self.audit.put(effect)\n                        await asyncio.sleep(.01)', 'apps/server/tests/test_realtime_followup.py::test_400_event_backlog_does_not_delay_take_confirmation_or_safety'),
+    ('W4 safety event priority removed', 'apps/server/fh_server/realtime.py', 'if self.urgent(effect):', 'if False:', 'apps/server/tests/test_realtime_followup.py::test_400_event_backlog_does_not_delay_take_confirmation_or_safety'),
+    ('W4 robot recheck scans fleet', 'apps/server/fh_server/realtime.py', 'if bound is not None:', 'if False:', 'apps/server/tests/test_realtime_followup.py::test_bound_agent_recheck_reads_one_robot_and_compares_digest'),
+    ('W4 protocol rejection mislabeled auth', 'apps/server/fh_server/realtime.py', "code=4406, reason='PROTOCOL_MISMATCH: expected fh-agent/2'", "code=4403, reason='PROTOCOL_MISMATCH: expected fh-agent/2'", 'apps/server/tests/test_realtime_followup.py::test_old_agent_proto_is_explicit_protocol_close_with_reason_audit'),
+    ('W4 uvicorn fixed production port', 'apps/server/tests/ws_process.py', "sock.bind(('127.0.0.1', 0))", "sock.bind(('127.0.0.1', 8453))", 'apps/server/tests/test_realtime_followup.py::test_tracked_uvicorn_launches_use_only_os_assigned_loopback_fds'),
+    ('W4 full audit fails open', R, '            if self.audit.full():\n                self.audit_overloaded = True\n                self.emergency_free()', '            if False:\n                self.audit_overloaded = True\n                self.emergency_free()', 'apps/server/tests/test_realtime_followup.py::test_archival_worker_keeps_global_audit_full_fail_safe'),
+    ('W4 pool serializes read-ahead', R, 'pool_size=16, max_overflow=48, pool_timeout=2', 'pool_size=5, max_overflow=5, pool_timeout=2', 'apps/server/tests/test_realtime_followup.py::test_slow_reads_keep_20hz_commands_and_take_available[connection-0.45]'),
 ]
 
 
@@ -130,10 +138,10 @@ def run(tree, tests):
     if tests == ['@agent-reconnect']:
         env = {**os.environ, 'FH_REALTIME_MUTATION_REPORT': str(report)}
         result = subprocess.run([sys.executable, 'apps/server/tools/check_agent_reconnect.py',
-            '--agent-repo', str(ROOT)], cwd=tree, env=env, capture_output=True, text=True, timeout=90)
+            '--agent-repo', str(ROOT)], cwd=tree, env=env, capture_output=True, text=True, timeout=180)
     else:
         result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider',
-                                 *plugin, *tests], cwd=tree, capture_output=True, text=True, timeout=90)
+                                 *plugin, *tests], cwd=tree, capture_output=True, text=True, timeout=180)
     output = result.stdout + result.stderr
     try:
         data = json.loads(report.read_text())
@@ -152,7 +160,7 @@ def main():
         shutil.copytree(ROOT / 'apps', tree / 'apps', ignore=shutil.ignore_patterns(
             '.venv', 'node_modules', '__pycache__', '.pytest_cache'))
         shutil.copyfile(ROOT / 'apps/server/tools/mutation_reporter.py', tree / 'fh_realtime_mutation_probe.py')
-        baseline, output = run(tree, [PURE, WIRE, REVIEW, R2, R3, 'apps/server/tests/test_ws_deployment.py', 'apps/server/tests/test_ws_recovery.py'])
+        baseline, output = run(tree, [PURE, WIRE, REVIEW, R2, R3, 'apps/server/tests/test_realtime_followup.py', 'apps/server/tests/test_ws_deployment.py', 'apps/server/tests/test_ws_recovery.py'])
         if baseline:
             print(output)
             raise SystemExit('Baseline did not pass')

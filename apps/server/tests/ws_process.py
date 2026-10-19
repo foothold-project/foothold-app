@@ -16,7 +16,7 @@ from apps.server.fh_server.security import digest
 
 
 @contextmanager
-def server_process(seeded, tmp_path, *, hold_owner=False):
+def server_process(seeded, tmp_path, *, hold_owner=False, app_target='apps.server.fh_server.main:app'):
     engine = create_engine(seeded['urls']['migrate'])
     admin = create_engine(seeded['urls']['admin'])
     raw = 'fake-recovery-agent-token'
@@ -31,7 +31,7 @@ def server_process(seeded, tmp_path, *, hold_owner=False):
     with socket.socket() as sock, (tmp_path / 'uvicorn-recovery.log').open('w+') as log:
         sock.bind(('127.0.0.1', 0))
         env = {**os.environ, 'FH_DATABASE_URL': seeded['urls']['app'], 'FH_ORG_ID': str(seeded['org'])}
-        process = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.server.fh_server.main:app',
+        process = subprocess.Popen([sys.executable, '-m', 'uvicorn', app_target,
             '--fd', str(sock.fileno()), '--ws-max-size', '4096', '--no-proxy-headers'],
             env=env, stdout=log, stderr=log, pass_fds=(sock.fileno(),))
         try:

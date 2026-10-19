@@ -284,14 +284,20 @@ def test_m5_stalled_db_has_client_deadline_and_stop_stays_live(client, seeded, r
             peer = next(iter(rt.screens.values()))
             peer.policy = replace(peer.policy, checked=rt.clock() - 1)
             rt.policy_cache[peer.actor.session] = peer.policy
+            # Use a new controlled read to test the deadline. A previously
+            # completed, valid read-ahead snapshot may otherwise win this fixture.
+            pending = module.ReadAhead(lambda: gate.wait(2), rt.clock, rt.auth_executor)
             started = rt.clock()
             timed_out = False
             try:
-                await rt.refresh_policy(peer)
-            except asyncio.TimeoutError:
-                timed_out = True
-            assert timed_out, 'A stalled read must reach its client deadline'
-            assert rt.clock() - started < .2
+                try:
+                    await pending.next()
+                except asyncio.TimeoutError:
+                    timed_out = True
+                assert timed_out, 'A stalled read must reach its client deadline'
+                assert rt.clock() - started < .2
+            finally:
+                await pending.close()
         try:
             run(client, expire)
             begin = time.monotonic()
@@ -302,7 +308,8 @@ def test_m5_stalled_db_has_client_deadline_and_stop_stays_live(client, seeded, r
             gate.set()
 
 
-def test_real_uvicorn_current_agent_causal_take_transfer_stop(seeded, tmp_path):
+@pytest.mark.parametrize('delayed_backlog', [False, True])
+def test_real_uvicorn_current_agent_causal_take_transfer_stop(seeded, tmp_path, delayed_backlog):
     import httpx
     from websockets.asyncio.client import connect
     from foothold_agent.link.client import Client, Settings
@@ -351,6 +358,11 @@ def test_real_uvicorn_current_agent_causal_take_transfer_stop(seeded, tmp_path):
         rid = str(seeded['robots']['mine'])
         try:
             await until(lambda: session.connected and session.stop_ref > 0)
+            if delayed_backlog:
+                await asyncio.sleep(.7)  # warm read-ahead while actual DB reads take 300ms
+                history = [{'t': 'event', 'code': 'FAKE_HISTORY', 'severity': 'WARN',
+                            'robot_at': None, 'data': {'number': n}} for n in range(400)]
+                await client._replay(client._outgoing, history)
             async with httpx.AsyncClient() as http:
                 response = await http.post(server['base'].replace('ws://', 'http://') + '/api/v1/auth/login',
                     json={'username': 'admin', 'password': 'fake-test-password', 'client': 'app'})
@@ -391,7 +403,8 @@ def test_real_uvicorn_current_agent_causal_take_transfer_stop(seeded, tmp_path):
             sensor.cancel()
             running.cancel()
             await asyncio.gather(sensor, running, return_exceptions=True)
-    with server_process(seeded, tmp_path) as server:
+    target = 'apps.server.tests.delayed_app:app' if delayed_backlog else 'apps.server.fh_server.main:app'
+    with server_process(seeded, tmp_path, app_target=target) as server:
         asyncio.run(check(server))
 
 

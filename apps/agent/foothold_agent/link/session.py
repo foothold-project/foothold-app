@@ -10,12 +10,16 @@ from dataclasses import dataclass
 import json
 import time
 from typing import Callable
+import sys
 
 from foothold_agent.safety.core import Core, DEAD, Z, valid_axes
 
 LINK_TIMEOUT = 3.0
 REPORT_INTERVAL = 0.1
 MAX_SEQ = 2**53 - 1
+MAX_BUFFER = 256
+SAFETY_EVENTS = {"SERVER_LINK_LOST", "LINK_LOSS_TIMEOUT", "EXECUTOR_STALLED",
+                 "PROTOCOL_MISMATCH", "TRANSPORT_BACKPRESSURE", "STOP_GEN_EXHAUSTED"}
 TERMINAL = {"COMPLETED", "ABORTED", "FAILED"}
 
 
@@ -78,6 +82,7 @@ class Session:
         self._generation_exhausted = False
         self.connected = False
         self.reconnect_required = False
+        self.protocol_rejected = False
         self.last_server = None
         self.link_lost = False
         self.run = None
@@ -87,19 +92,45 @@ class Session:
         self.ack_pending = False
         self._messages = []
         self._retry_event = None
+        self._buffer_dropped = 0
+
+    def retain(self, messages):
+        """Bound offline memory. Report loss explicitly; never retain ACK/state.
+
+        Prefer recent safety events over ordinary history. This is in-memory
+        best effort, not an acknowledged or durable event transport.
+        """
+        for message in messages:
+            if message.get("t") not in ("event", "run.update"):
+                continue
+            if len(self._messages) >= MAX_BUFFER - 1:
+                index = next((i for i, m in enumerate(self._messages)
+                              if m.get("code") not in SAFETY_EVENTS), 0)
+                removed = self._messages.pop(index)
+                if removed is self._retry_event:
+                    self._retry_event = None
+                self._buffer_dropped += (removed.get("data", {}).get("count", 1)
+                                         if removed.get("code") == "LINK_BUFFER_DROPPED" else 1)
+            self._messages.append(deepcopy(message))
 
     def _event(self, code, **data):
-        self._messages.append({"t": "event", "code": code, "severity": "warn",
-                               "robot_at": None, "data": {"monotonic_s": self.now(), **data}})
+        self.retain([{"t": "event", "code": code, "severity": "warn",
+                      "robot_at": None, "data": {"monotonic_s": self.now(), **data}}])
+
+    def restore(self, messages):
+        """Unsent older history precedes events generated during disconnect."""
+        current, self._messages = self._messages, []
+        self._retry_event = None
+        self.retain([*messages, *current])
 
     def _run_status(self, status, reason=None):
         if self.run is None or self.run["status"] in TERMINAL:
             return
         self.run.update(status=status, wait_reason=reason)
-        self._messages.append({"t": "run.update", "run_id": self.run["run_id"],
+        self.retain([{"t": "run.update", "run_id": self.run["run_id"],
                                "status": status, "step": self.run["step"],
                                "progress": None,
-                               **({"fail_code": reason} if status == "FAILED" else {})})
+                               **({"fail_code": reason} if status == "FAILED" else {})}])
 
     def _pause(self, reason, *, preserve_reason=False):
         self.core._void()
@@ -158,6 +189,10 @@ class Session:
         if self.connected:
             messages, self._messages = self._messages, []
             self._retry_event = None
+            if self._buffer_dropped:
+                messages.append({"t": "event", "code": "LINK_BUFFER_DROPPED", "severity": "warn",
+                                 "robot_at": None, "data": {"count": self._buffer_dropped}})
+                self._buffer_dropped = 0
             if state or self.now() - self.last_report >= REPORT_INTERVAL:
                 messages.append(self._state())
                 if self.ack_pending:
@@ -181,17 +216,19 @@ class Session:
         self.connected = True
         self.stop_ref = 0  # a new transport cannot acknowledge an earlier server epoch
         self.reconnect_required = False
+        self.protocol_rejected = False
         self.last_server = self.now()
         self.link_lost = False
-        hello = {**deepcopy(self.identity), "t": "hello", "proto": "fh-agent/1", "latched": self.core.latch,
+        hello = {**deepcopy(self.identity), "t": "hello", "proto": "fh-agent/2", "latched": self.core.latch,
                  "stop_gen": self._generation(), "lease_id": self.lease_id,
                  "run": deepcopy(self.run)}
         effects = self._finish((MotionCommand("stop"),), state=True)
         return Effects(effects.motion, (hello,) + effects.messages)
 
     def protocol_mismatch(self):
+        self.protocol_rejected = True
         self.core.stop("protocol mismatch")
-        self._pause("PROTOCOL_MISMATCH")
+        self._pause("PROTOCOL_MISMATCH", preserve_reason=True)
         self.lease_confirmed = False
         self.reconnect_required = True
         self._event("PROTOCOL_MISMATCH")
@@ -201,7 +238,7 @@ class Session:
         """Drop this transport, retain a stopped snapshot for the next hello."""
         self.connected = False
         self.core.stop("outgoing queue full")
-        self._pause("TRANSPORT_BACKPRESSURE")
+        self._pause("TRANSPORT_BACKPRESSURE", preserve_reason=True)
         self.lease_confirmed = False
         self.reconnect_required = True
         self._event("TRANSPORT_BACKPRESSURE")
@@ -247,6 +284,16 @@ class Session:
 
     def on_robot_state(self, raw):
         self._advance()
+        # Core's math.isfinite/float conversion cannot accept arbitrary Python
+        # integers. Reject such feedback before Core; do not refresh state age.
+        if isinstance(raw, dict):
+            values = list(raw.values())
+            if isinstance(raw.get("cmd_applied"), list):
+                values += raw["cmd_applied"]
+            if any(type(v) is int and not -sys.float_info.max <= v <= sys.float_info.max
+                   for v in values):
+                self._event("BRIDGE_STATE_INVALID", reason="NUMBER_RANGE")
+                return self._finish()
         self.core.on_state(raw)
         return self._finish()
 
@@ -300,7 +347,7 @@ class Session:
                 frame = json.loads(frame)
             except (ValueError, UnicodeError, RecursionError):
                 return self._finish()
-        if isinstance(frame, dict) and "proto" in frame and frame["proto"] != "fh-agent/1":
+        if isinstance(frame, dict) and "proto" in frame and frame["proto"] != "fh-agent/2":
             return self.protocol_mismatch()
         if (not isinstance(frame, dict) or not isinstance(frame.get("t"), str)
                 or not frame["t"]):
