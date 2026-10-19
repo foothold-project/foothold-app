@@ -152,6 +152,13 @@ async def _execute(args, config, policy):
             if not manual and executor.binding is None and session.run and session.run['status'] in ('RUNNING', 'PAUSED'):
                 owner._apply(session.executor_command(run_id, Z))
             owner.tick()
+            # Preflight/RESUME also produce sink/session evidence. Submit each
+            # tick, before yielding to the writer, rather than bursting the
+            # entire startup backlog into its bounded queue at the first goal.
+            # Keep overflow/disk errors fatal; clear only after all submissions.
+            for event in owner.journal:
+                emit(event)
+            owner.journal.clear()
 
         deadline = time.monotonic()+10
         # Actual STOP/zero, time, lifecycle and GT preflight; never unlock here.
@@ -307,9 +314,6 @@ async def _execute(args, config, policy):
                 owner.receive({'t': 'cmd', 'lease_id': session.lease_id, 'seq': seq,
                                'axes': [1, 0, 0] if allowed is True else [0, 0, 0]})
             idle_tick()
-            for event in owner.journal:
-                emit(event)
-            owner.journal.clear()
             for event in trial.records:
                 emit(event)
             trial.records.clear()
