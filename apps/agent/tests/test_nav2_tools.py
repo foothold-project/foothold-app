@@ -33,8 +33,8 @@ def at(o, t, **changes):
     return replace(o, wall=t, sim=t, received=t, **changes)
 
 
-def trial():
-    t = Trial(C, GOAL, 1)
+def trial(kind='goal'):
+    t = Trial(C, GOAL, 1, kind=kind)
     o = observation()
     assert t.start(o) == 'RUNNING'
     return t, o
@@ -61,7 +61,7 @@ def test_wrong_frame_unpaired_or_wall_clock_never_becomes_odom(change):
     sample.update(clock=1.1, scan_stamp=1.1, stamp=1.1, x=.06)
     sample.update(change)
     assert s.update(**sample) is None
-    assert s.reason == 'FRAME_OR_CLOCK_MISMATCH'
+    assert s.reason == ('SCAN_PAIR_NOT_READY' if 'scan_stamp' in change else 'FRAME_OR_CLOCK_MISMATCH')
 
 
 def test_odom_duplicate_gap_rewind_and_episode_are_fail_closed():
@@ -153,29 +153,35 @@ def test_motion_burst_budget_is_preregistered_one_second():
 
 
 def test_goal_wall_and_sim_limits_are_independent():
-    for change in [dict(wall=30, sim=.1, received=30), dict(wall=.1, sim=20, received=.1)]:
-        t, o = trial()
+    config = {**C, 'goal_wall_s': .15, 'goal_sim_s': .15}
+    for change in [dict(wall=.15, sim=.1, received=.15), dict(wall=.1, sim=.15, received=.1)]:
+        t, o = Trial(config, GOAL, 1), observation()
+        t.start(o)
         assert t.update(replace(o, **change)) == 'FAILED'
         assert t.reason == 'GOAL_TIMEOUT_OR_UNSUPPORTED_COMMAND'
 
 
 def test_silence_needs_measured_ros_zero_within_half_second():
-    t, o = trial()
+    t, o = trial('safety')
     t.trigger_stop(o, last_intent_receive=0)
+    for i in range(1, 6):
+        t.update(at(o, i/10, body_still=False))
     assert t.update(at(o, .500001)) == 'FAILED'
     assert t.reason == 'SILENCE_ZERO_LATE_OR_UNMEASURED'
-    t, o = trial()
+    t, o = trial('safety')
     t.trigger_stop(o, last_intent_receive=0)
+    for i in range(1, 6):
+        t.update(at(o, i/10, body_still=False))
     t.ros_zero(.51)
     assert t.update(at(o, .52)) == 'FAILED'
 
 
 def test_stop_displacement_and_body_timeout_are_holds():
-    t, o = trial()
+    t, o = trial('safety')
     t.trigger_stop(o)
     assert t.update(at(o, .1, x=o.x+.50001)) == 'FAILED'
     assert t.reason == 'STOP_DISPLACEMENT'
-    t, o = trial()
+    t, o = trial('safety')
     t.trigger_stop(o)
     for i in range(1, 51):
         t.update(at(o, i/10, vx=.06))
@@ -183,7 +189,7 @@ def test_stop_displacement_and_body_timeout_are_holds():
 
 
 def test_safety_success_needs_actual_ros_receive_and_native_body_still():
-    t, o = trial()
+    t, o = trial('safety')
     t.trigger_stop(o, last_intent_receive=0)
     t.ros_zero(.4)
     for i in range(1, 22):
@@ -192,20 +198,11 @@ def test_safety_success_needs_actual_ros_receive_and_native_body_still():
     assert t.reason == 'SAFETY_CONTROL_STOPPED'
 
 
-def test_preregistered_order_new_isolated_starts_and_cleanup_are_required():
+def test_selected_report_list_cannot_bypass_the_attempt_ledger():
     rows = [dict(trial=name, status='SUCCEEDED', isolated_start_id=str(i), cleanup_verified=True)
             for i, name in enumerate(C['trials'])]
-    assert aggregate(C, rows)['r0_complete']
-    assert not aggregate(C, rows[:-1])['r0_complete']
-    rows[1]['isolated_start_id'] = '0'
-    assert not aggregate(C, rows)['r0_complete']
-    rows[1]['isolated_start_id'] = '1'
-    rows[4]['status'] = 'BLOCKED_NOT_STARTED'
-    assert not aggregate(C, rows)['r0_complete']
-    assert aggregate(C, rows)['blocked_not_started'] == 1
-    rows[4]['status'] = 'SUCCEEDED'
-    rows[4]['cleanup_verified'] = False
-    assert not aggregate(C, rows)['r0_complete']
+    with pytest.raises(ValueError, match='complete registered attempt ledger'):
+        aggregate(C, rows)
 
 
 def test_action_queue_single_goal_and_cancel_before_acceptance():
@@ -339,7 +336,7 @@ def test_replay_accepts_recorded_jsonl_events_and_ignores_claimed_verdict(tmp_pa
 
 
 def test_safety_zero_without_native_body_still_fails_within_five_wall_seconds():
-    t, o = trial()
+    t, o = trial('safety')
     t.trigger_stop(o)
     t.ros_zero(.1)
     for i in range(1, 51):

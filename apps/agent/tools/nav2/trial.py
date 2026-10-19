@@ -89,6 +89,9 @@ class Trial:
         return self.status
 
     def trigger_stop(self, o, *, last_intent_receive=None):
+        if self.kind != 'safety':
+            self.finish('FAILED', 'GOAL_SAFETY_INTERVENTION')
+            return
         self.stop_at, self.stop_pose, self.last_intent = o.wall, (o.x, o.y), last_intent_receive
         self.hold_since = None
         self.record('stop_trigger', monotonic_s=o.wall, sim_t=o.sim, episode=o.episode,
@@ -96,6 +99,8 @@ class Trial:
 
     def ros_zero(self, wall):
         # A ROS receive observation, never inferred from sink apply/ACK.
+        if self.stop_at is None or not number(wall) or wall < self.stop_at:
+            return  # a prior zero is not evidence for this stop
         if self.ros_zero_at is None:
             self.ros_zero_at = wall
         self.record('ros_zero_receive', monotonic_s=wall)
@@ -123,6 +128,11 @@ class Trial:
         if o.wall-self.progress_wall > self.c['fresh_state_s']:
             return self.finish('FAILED', 'CLOCK_STALLED')
         dt = o.wall-self.previous.wall
+        if (dt > self.c['fresh_state_s']
+                or o.received < self.previous.received
+                or o.received-self.previous.received > self.c['fresh_state_s']
+                or o.sim-self.previous.sim > self.c['observation_sim_gap_s']):
+            return self.finish('FAILED', 'OBSERVATION_GAP')
         # Charge the entire preceding interval if either endpoint is nonzero.
         if any(self.previous.cmd) or any(o.cmd):
             self.nonzero_total += dt
@@ -137,6 +147,8 @@ class Trial:
         if o.wall-self.start_wall >= self.c['trial_wall_s']:
             return self.finish('FAILED', 'TRIAL_TIMEOUT')
         if self.stop_at is not None:
+            if o.wall-self.stop_at > self.c['stop_wall_s']:
+                return self.finish('FAILED', 'STOP_BODY_TIMEOUT')
             if math.hypot(o.x-self.stop_pose[0], o.y-self.stop_pose[1]) > self.c['stop_displacement_m']:
                 return self.finish('FAILED', 'STOP_DISPLACEMENT')
             if self.last_intent is not None:
@@ -158,6 +170,8 @@ class Trial:
             if o.wall-self.stop_at >= self.c['stop_wall_s']:
                 return self.finish('FAILED', 'STOP_BODY_TIMEOUT')
             return self.status
+        if self.kind == 'safety':
+            return self.status  # safety can succeed ONLY after its stop trigger
         if nav_result in ('ABORTED', 'CANCELED', 'REJECTED', 'TIMEOUT'):
             return self.finish('FAILED', 'NAV2_'+nav_result)
         if (o.wall-self.start_wall >= self.c['goal_wall_s']
@@ -178,12 +192,8 @@ class Trial:
         return self.status
 
 
-def aggregate(config, reports):
-    # Exactly the preregistered sample, in order, each new isolated episode/run.
-    complete = (len(reports) == len(config['trials'])
-                and [r['trial'] for r in reports] == config['trials']
-                and len({r['isolated_start_id'] for r in reports}) == len(reports)
-                and all(r['status'] == 'SUCCEEDED' and r.get('cleanup_verified') is True for r in reports))
-    return {'r0_complete': complete, 'next_start': 'GO_REQUIRES_SEPARATE_APPROVAL' if complete else 'HOLD',
-            'success_count': sum(r['status'] == 'SUCCEEDED' for r in reports),
-            'blocked_not_started': sum(r['status'] == 'BLOCKED_NOT_STARTED' for r in reports)}
+def aggregate(config, experiment):
+    from ledger import Ledger
+    if not isinstance(experiment, Ledger):
+        raise ValueError('aggregate requires the complete registered attempt ledger')
+    return experiment.summary(config)

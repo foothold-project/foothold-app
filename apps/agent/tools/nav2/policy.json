@@ -54,5 +54,12 @@
   "state_age_s": 0.2,
   "odom_max_dt_s": 0.25,
   "stamp_tolerance_s": 0.02,
-  "map_status_age_s": 1.5
+  "map_status_age_s": 1.5,
+  "scan_stamp_tolerance_s": 0.15,
+  "alignment_samples": 10,
+  "graph_interval_s": 0.2,
+  "snapshot_interval_s": 0.05,
+  "tf_state_xy_tolerance_m": 0.05,
+  "tf_state_yaw_tolerance_rad": 0.05,
+  "path_deviation_m": 0.05
 }

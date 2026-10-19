@@ -12,12 +12,17 @@ class Owner:
         self.session, self.sink, self.executor = session, sink, executor
         self.now, self.state_age_s = now, state_age_s
         self.guard = guard
+        self._stopping = False
         self._stamp = None
         self._progress = self._receipt = float('-inf')
         self.state = None
         self.journal = []  # drained by runner each tick, no media payloads
 
     def _apply(self, effects):
+        # Every output path (including bridge feedback) obeys the ONE original
+        # receive deadline. Session/Core poll-time clocks cannot extend it.
+        if not self._stopping and self.executor.source_expired():
+            return self.stop('INTENT_SOURCE_EXPIRED')
         try:
             for command in effects.motion:
                 self.sink.apply(command)
@@ -92,6 +97,9 @@ class Owner:
             self.journal.append({'event': 'executor_intent', 'monotonic_s': self.now(),
                                  'received_monotonic_s': self.executor._last_receipt,
                                  'input_si': self.executor.last_velocity, 'axes': axes, 'reason': self.executor.reason})
+        if self.executor.rejected:
+            self.stop('UNSUPPORTED_COMMAND')
+            return
         if axes is not None and self.session.run is not None:
             if self.guard is not None:
                 allowed, reason = self.guard()
@@ -104,13 +112,18 @@ class Owner:
 
     def stop(self, reason='STOP'):
         self.journal.append({'event': 'stop_trigger', 'reason': reason, 'monotonic_s': self.now()})
-        effects = (self.session.receive({'t': 'stop'}) if self.session.connected
-                   and not self.session.reconnect_required else self.session.shutdown())
-        self._apply(effects)
-        # Even an offline Session must stop its physical sink before cancellation.
-        self.sink.apply(MotionCommand('stop'))
-        self.sink.apply(MotionCommand(velocity=Z))
-        self.executor.revoke(reason)
+        self._stopping = True
+        try:
+            # Public local shutdown is a fail-closed local stop. It changes no
+            # server liveness and deliberately requires a new explicit session
+            # handshake; a future reusable local-stop API belongs to link/**.
+            effects = self._apply(self.session.shutdown())
+            self.sink.apply(MotionCommand('stop'))
+            self.sink.apply(MotionCommand(velocity=Z))
+            self.executor.revoke(reason)
+            return effects
+        finally:
+            self._stopping = False
 
     def close(self):
         try:

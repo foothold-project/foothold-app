@@ -8,8 +8,9 @@ def angle(v):
 
 
 class SimOdom:
-    def __init__(self, max_dt_s, stamp_tolerance_s):
+    def __init__(self, max_dt_s, stamp_tolerance_s, scan_tolerance_s=.15):
         self.max_dt, self.tolerance = max_dt_s, stamp_tolerance_s
+        self.scan_tolerance = scan_tolerance_s
         self.previous = None
         self.episode = None
         self.quarantined = False
@@ -20,9 +21,12 @@ class SimOdom:
         values = (clock, scan_stamp, stamp, x, y, yaw)
         if (type(episode) is not int or episode < 0 or not all(number(v) for v in values)
                 or parent != 'odom' or child != 'base_footprint' or not map_identity
-                or abs(clock-stamp) > self.tolerance or abs(scan_stamp-stamp) > self.tolerance):
+                or abs(clock-stamp) > self.tolerance):
             self.reason, self.previous = 'FRAME_OR_CLOCK_MISMATCH', None
             return None
+        if abs(scan_stamp-stamp) > self.scan_tolerance:
+            self.reason = 'SCAN_PAIR_NOT_READY'
+            return None  # do NOT erase the last verified TF derivative pair
         if self.episode is not None and episode != self.episode:
             self.quarantined = True  # new explicit adapter required after RESET
         self.episode = episode

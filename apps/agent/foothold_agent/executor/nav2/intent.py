@@ -70,24 +70,39 @@ class NavExecutor:
         self._consumed = 0
         self._last_receipt = float('-inf')
         self._revoked = False
+        self._source_at = None
+        self.rejected = False
 
     def begin(self, binding, point):
         if self.binding is not None:
             raise ValueError('cancel previous goal before begin')
         with self._lock:
             self.binding = binding
+            self._source_at = self.now()  # bounded first-command wait
             self._latest = None
             self._revoked = False
             self.result = None
+            self.rejected = False
         self.actions.submit(binding, point)
 
     def intent(self, binding, velocity):
+        received_at = self.now()
         with self._lock:
             if binding != self.binding or self._revoked:
                 return False
+            self._source_at = received_at
             self._sequence += 1
-            self._latest = (self._sequence, self.now(), tuple(velocity) if isinstance(velocity, (list, tuple)) else velocity)
+            self._latest = (self._sequence, received_at, tuple(velocity) if isinstance(velocity, (list, tuple)) else velocity)
             return True
+
+    def source_received(self):
+        with self._lock:
+            return self._source_at
+
+    def source_expired(self):
+        with self._lock:
+            return (self.binding is not None and self._source_at is not None
+                    and not 0 <= self.now()-self._source_at <= self.dead_s)
 
     def feedback(self, binding, result):
         with self._lock:
@@ -123,6 +138,11 @@ class NavExecutor:
         self.last_velocity = velocity
         axes, self.reason = self.adapter.adapt(velocity)
         self.counts[self.reason] = self.counts.get(self.reason, 0)+1
+        if self.reason not in ('TESTED', 'ZERO'):
+            self.rejected = True
+        if self.rejected:
+            self.reason = 'COMMAND_REJECTION_LATCHED'
+            return Z  # no unverified .6<->0 flicker after a rejected sample
         if run.get('status') != 'RUNNING':
             return Z
         return axes

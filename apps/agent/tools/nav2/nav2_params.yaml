@@ -34,8 +34,8 @@ controller_server:
       allow_reversing: false
       use_collision_detection: true
       max_allowed_time_to_collision_up_to_carrot: 2.0
-      use_regulated_linear_velocity_scaling: true
-      use_cost_regulated_linear_velocity_scaling: true
+      use_regulated_linear_velocity_scaling: false
+      use_cost_regulated_linear_velocity_scaling: false
       min_approach_linear_velocity: 0.05 # lower requests are REJECTED, never boosted
       approach_velocity_scaling_dist: 0.3
 planner_server:

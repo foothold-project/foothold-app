@@ -46,6 +46,9 @@ def copy_map(source, output):
     output.mkdir(parents=True, exist_ok=False)
     for name in MAP_HASHES:
         shutil.copyfile(source/name, output/name)
+    copied = map_manifest(output)
+    if copied != manifest:
+        raise ValueError('copied map differs from verified source')
     (output/'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n')
     return manifest
 
@@ -64,26 +67,116 @@ def proof_function():
         sys.path.remove(str(folder))
 
 
-def swept(world, points, *, spacing=.05):
-    if hashlib.sha256(world.read_bytes()).hexdigest() != WORLD_SHA:
-        raise ValueError('world source SHA differs from preregistration')
-    if not points or not 0 < spacing <= .05:
-        raise ValueError('nonempty path and <= map-cell spacing required')
-    prove = proof_function()
-    samples = [points[0]]
-    for start, end in zip(points, points[1:]):
-        dx, dy = end['x']-start['x'], end['y']-start['y']
+class GTWorld:
+    """Read/hash/parse world and meshes ONCE, then perform only geometry math.
+
+    Reuse the reviewed parser's structure validation, rotations and support union.
+    No global monkeypatch or source write. Pose/path workers share immutable bounds.
+    """
+    def __init__(self, world):
+        data = world.read_bytes()
+        if hashlib.sha256(data).hexdigest() != WORLD_SHA:
+            raise ValueError('world source SHA differs from preregistration')
+        source = proof_function().__globals__
+        terrain = source['terrain_model'](source['ET'].fromstring(data))
+        self.covered, self.floors, self.obstacles = source['covered'], [], []
+        self.hashes = {str(world): WORLD_SHA}
+        for link in terrain.findall('link'):
+            if set(link.attrib)-{'name'} or any(c.tag not in {'collision', 'visual'} for c in link):
+                raise ValueError('unverified link transform')
+            for collision in link.findall('collision'):
+                pose_el = collision.find('pose')
+                if pose_el is not None and pose_el.attrib:
+                    raise ValueError('relative collision pose unsupported')
+                pose = list(map(float, collision.findtext('pose', '0 0 0 0 0 0').split()))
+                geom = collision.find('geometry')
+                if len(pose) != 6 or not all(math.isfinite(v) for v in pose) or geom is None or len(geom) != 1:
+                    raise ValueError('unverified geometry')
+                box = geom.findtext('box/size')
+                if box:
+                    sizes = list(map(float, box.split()))
+                    if len(sizes) != 3 or not all(math.isfinite(v) and v > 0 for v in sizes):
+                        raise ValueError('invalid box dimensions')
+                    points = list(source['itertools'].product(*[(-v/2, v/2) for v in sizes]))
+                elif geom.find('mesh') is not None:
+                    mesh = geom.find('mesh')
+                    if {e.tag for e in mesh} != {'uri'}:
+                        raise ValueError('mesh scale or transform unsupported')
+                    uri = source['urlparse'](mesh.findtext('uri'))
+                    if uri.scheme != 'file' or uri.netloc:
+                        raise ValueError('mesh must be a readable local OBJ')
+                    path = Path(source['unquote'](uri.path))
+                    if path.suffix != '.obj':
+                        raise ValueError('unverified mesh format')
+                    raw = path.read_bytes()
+                    self.hashes[str(path)] = hashlib.sha256(raw).hexdigest()
+                    points = [list(map(float, line.split()[1:4])) for line in raw.decode().splitlines() if line.startswith('v ')]
+                else:
+                    raise ValueError('unknown collision shape')
+                if not points or any(len(v) != 3 or not all(math.isfinite(n) for n in v) for v in points):
+                    raise ValueError('empty collision')
+                rot = source['rotation'](pose)
+                vertices = [[pose[i]+sum(rot[i][j]*v[j] for j in range(3)) for i in range(3)] for v in points]
+                bounds = [(min(v[i] for v in vertices), max(v[i] for v in vertices)) for i in range(3)]
+                if box and max(abs(a) for a in pose[3:]) < 1e-6 and abs(bounds[2][1]) < .001:
+                    self.floors.append((*bounds[0], *bounds[1]))
+                elif bounds[2][1] > .02:
+                    self.obstacles.append((collision.attrib.get('name'), bounds))
+
+    def pose(self, state, margin=0):
+        x, y, z, yaw = (state[k] for k in ('x', 'y', 'z', 'yaw'))
+        if not all(type(v) in (int, float) and math.isfinite(v) for v in (x,y,z,yaw)) or not .20 <= z <= .75:
+            raise ValueError('invalid actual GT pose')
+        cs, sn = math.cos(yaw), math.sin(yaw)
+        corners = [(x+f*cs-l*sn, y+f*sn+l*cs) for f in (-.5-margin, 3.5+margin) for l in (-.6-margin, .6+margin)]
+        rect = (min(v[0] for v in corners), max(v[0] for v in corners), min(v[1] for v in corners), max(v[1] for v in corners))
+        return self.rectangle(rect)
+
+    def rectangle(self, rect):
+        hits = [name for name, b in self.obstacles if not
+                (b[0][1] < rect[0] or b[0][0] > rect[1] or b[1][1] < rect[2] or b[1][0] > rect[3])]
+        support = self.covered(rect, self.floors)
+        return {'pass': not hits and support, 'flat_support_complete': support,
+                'obstacle_intersections': hits, 'conservative_world_rectangle': rect}
+
+    def path(self, actual, goal, trace, *, spacing=.05, deviation=.05, heading_tolerance=math.pi/12):
+        # A cell-scale NavFn wobble is NOT interpreted as a commanded curve.
+        # Prove the actual->goal straight sweep with an additional deviation
+        # envelope, then require every trace vertex inside that envelope.
+        dx, dy = goal['x']-actual['x'], goal['y']-actual['y']
+        distance = math.hypot(dx, dy)
+        if not trace or not 0 < spacing <= .05 or not 0 <= deviation <= .05 or not 0 < distance <= 3:
+            return {'pass': False, 'reason': 'INVALID_OR_TOO_LONG_TRACE'}
         heading = math.atan2(dy, dx)
-        if (abs(math.atan2(math.sin(end['yaw']-start['yaw']), math.cos(end['yaw']-start['yaw']))) > 1e-6
-                or abs(math.atan2(math.sin(heading-start['yaw']), math.cos(heading-start['yaw']))) > 1e-6):
+        delta = abs(math.atan2(math.sin(heading-actual['yaw']), math.cos(heading-actual['yaw'])))
+        if delta > heading_tolerance:
             return {'pass': False, 'reason': 'CURVE_OR_REVERSE_SWEEP_UNVERIFIED'}
-        count = max(1, math.ceil(math.hypot(dx, dy)/spacing))
-        samples.extend({**start, 'x': start['x']+dx*i/count, 'y': start['y']+dy*i/count}
-                       for i in range(1, count+1))
-    proofs = [prove(world, point) for point in samples]
-    return {'pass': all(p['pass'] for p in proofs), 'samples': len(proofs),
-            'spacing_m': spacing, 'proofs': proofs, 'world_sha': WORLD_SHA,
-            'method': 'straight swept path, .05m sampling; each sample encloses 3m ahead + .5m front/back and .6m sides'}
+        maximum = 0
+        for point in trace:
+            px, py = point['x']-actual['x'], point['y']-actual['y']
+            along, cross = (px*dx+py*dy)/distance, abs(px*dy-py*dx)/distance
+            if not all(math.isfinite(v) for v in (along, cross)) or cross > deviation or not -deviation <= along <= distance+deviation:
+                return {'pass': False, 'reason': 'TRACE_OUTSIDE_STRAIGHT_ENVELOPE'}
+            maximum = max(maximum, cross)
+        count = max(1, math.ceil(distance/spacing))
+        first = self.pose(actual, margin=deviation)['conservative_world_rectangle']
+        last = self.pose({**actual, 'x': goal['x'], 'y': goal['y']}, margin=deviation)['conservative_world_rectangle']
+        # One bounding rectangle encloses EVERY intermediate footprint. Unlike
+        # sampled rectangles, this also proves the diagonal strips between them.
+        continuous = (min(first[0],last[0]),max(first[1],last[1]),min(first[2],last[2]),max(first[3],last[3]))
+        proof = self.rectangle(continuous)
+        return {**proof, 'endpoint_envelopes': 2, 'map_cell_intervals': count,
+                'spacing_m': spacing, 'trace_max_deviation_m': maximum, 'margin_m': deviation,
+                'world_sha': WORLD_SHA, 'source_sha256': self.hashes,
+                'method': 'continuous straight swept bounding rectangle plus bounded trace-deviation envelope'}
+
+
+
+def swept(world, points, *, spacing=.05):
+    geometry = GTWorld(world)
+    if not points:
+        raise ValueError('nonempty path required')
+    return geometry.path(points[0], points[-1], points, spacing=spacing)
 
 
 def main():

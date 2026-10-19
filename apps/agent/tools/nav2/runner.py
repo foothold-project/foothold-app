@@ -19,11 +19,12 @@ from uuid import uuid4
 from foothold_agent.executor.nav2 import Binding, NavExecutor, Owner, PolicyAdapter
 from foothold_agent.link.session import Session
 from foothold_agent.safety.core import Z
-from prepare import map_manifest, proof_function, swept
+from prepare import map_manifest, GTWorld
 from resources import ResourceGate, scope_limits, snapshot
 from ros_adapter import ActionMailbox, RosAdapter
 from trial import Observation, Trial
 from journal import Journal
+from ledger import Ledger
 
 HERE = Path(__file__).resolve().parent
 
@@ -45,8 +46,11 @@ def experiment_lease(owner, run_id, manual=False):
         owner.receive({'t': 'run.start', 'run_id': run_id, 'plan': {'segments': []}, 'missions': {}})
 
 
-def explicit_unlock(owner):
+def explicit_unlock(owner, confirmation, emit):
     # Called once AFTER operator opt-in, actual STOP feedback, and preflight.
+    if not confirmation:
+        raise ValueError('fresh per-trial operator confirmation required')
+    emit({'event': 'operator_confirmed_unlock', 'confirmation': confirmation})
     return owner.receive({'t': 'unlock', 'lease_id': owner.session.lease_id,
                           'stop_gen': owner.session.core.stop_gen})
 
@@ -87,14 +91,8 @@ async def _execute(args, config, policy):
     validate_isolation()
     scope = scope_limits(config)
     manifest = map_manifest(args.map_source)
-    history = json.loads(args.history.read_text()) if args.history else []
+    geometry = GTWorld(args.world)
     name = config['trials'][args.trial-1]
-    if (len(history) != args.trial-1
-            or [r['trial'] for r in history] != config['trials'][:args.trial-1]
-            or not all(r['status'] == 'SUCCEEDED' and r.get('cleanup_verified') is True for r in history)):
-        raise ValueError('safety four and preceding goal trials require successful clean evidence; no retry')
-    if any(r['isolated_start_id'] == args.isolated_start_id for r in history):
-        raise ValueError('each trial requires a new isolated start')
     gate = ResourceGate(config)
     initial_resources = snapshot()
     if not gate.update(initial_resources, starting=True):
@@ -108,8 +106,10 @@ async def _execute(args, config, policy):
     owner = None
     bridge = RosNode(SimpleNamespace(robot_id=run_id), extension_factory=lambda node:
         RosAdapter(node, executor, policy, config, actions, map_manifest=manifest))
-    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='nav-gt-proof')
-    proof_pending = resource_pending = None
+    pose_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='nav-pose-proof')
+    path_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='nav-path-proof')
+    resource_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix='nav-resources')
+    pose_pending = path_pending = resource_pending = None
     trial = None
     proof_at = float('-inf')
     proof_ok = path_ok = False
@@ -158,8 +158,9 @@ async def _execute(args, config, policy):
                     and view.get('map_ready') and view.get('lifecycle_ready')
                     and time.monotonic()-receipt <= config['fresh_state_s']):
                 actual = {k: raw[k] for k in ('x', 'y', 'z', 'yaw')}
-                proof = await asyncio.get_running_loop().run_in_executor(pool,
-                    lambda: swept(args.world, [actual, {**point, 'z': actual['z']}]))
+                proof = await asyncio.get_running_loop().run_in_executor(path_pool,
+                    lambda: geometry.path(actual, point, [actual, point],
+                        deviation=policy['path_deviation_m'], heading_tolerance=config['start_yaw_rad']))
                 emit({'event': 'prestart_gt_swept', 'proof': proof})
                 if not proof['pass']:
                     raise ValueError('BLOCKED_NOT_STARTED: actual GT corridor refused')
@@ -170,7 +171,7 @@ async def _execute(args, config, policy):
             raise ValueError('BLOCKED_NOT_STARTED: STOP/frame/map/lifecycle timeout')
         # Core public handshake: actual STOP state was delivered by bridge, one
         # explicit unlock, fresh RESUME feedback, then a NEW neutral input.
-        explicit_unlock(owner)
+        explicit_unlock(owner, args.operator_confirmation, emit)
         deadline = time.monotonic()+3
         while session.core.latch and time.monotonic() < deadline:
             idle_tick()
@@ -185,7 +186,6 @@ async def _execute(args, config, policy):
         binding = Binding(run_id, str(uuid4()), raw['episode'], session.core.stop_gen,
                           config['world'], config['floor'], config['map_sha'])
         trial = Trial(config, point, binding.episode, kind='safety' if args.trial <= 4 else 'goal')
-        prove = proof_function()
         start_at = time.monotonic()
         first_nonzero = None
         path_digest = None
@@ -211,9 +211,10 @@ async def _execute(args, config, policy):
                 last_sync = raw.get('sim_t')
                 emit({'event': 'input_sync', 'monotonic_s': now, 'state_received': receipt,
                       'clock': view.get('clock'), 'scan': view.get('scan'), 'odom': view.get('odom'),
-                      'frames_ready': view.get('frames_ready'), 'map_ready': view.get('map_ready')})
+                      'frames_ready': view.get('frames_ready'), 'map_ready': view.get('map_ready'),
+                      'alignment': view.get('alignment'), 'pose_agrees': view.get('pose_agrees')})
             if resource_pending is None and now-last_resource_at >= 1:
-                resource_pending = pool.submit(snapshot, last_resources, rtf=raw.get('rtf', 0))
+                resource_pending = resource_pool.submit(snapshot, last_resources, rtf=raw.get('rtf', 0))
                 last_resource_at = now
             if resource_pending is not None and resource_pending.done():
                 last_resources = resource_pending.result()
@@ -221,28 +222,32 @@ async def _execute(args, config, policy):
                 emit({'event': 'resources', **last_resources})
                 resource_pending = None
             path = view.get('path')
-            if proof_pending is not None and proof_pending.done():
-                kind, proof, proof_receipt = proof_pending.result()
-                proof_pending = None
-                if kind == 'path':
-                    path_ok = proof['pass']
-                    if not path_ok:
-                        owner.stop('PATH_GT_REFUSED')
-                        trial.finish('FAILED', 'PATH_GT_REFUSED')
-                else:
-                    proof_ok, proof_at = proof['pass'], proof_receipt
-                    if not proof_ok:
-                        owner.stop('ACTUAL_GT_REFUSED')
-                        trial.finish('FAILED', 'ACTUAL_GT_REFUSED')
-                emit({'event': 'gt_proof', 'kind': kind, 'pass': proof['pass'], 'receipt': proof_receipt})
-            if proof_pending is None and raw:
-                if path and path != path_digest and not manual:
-                    path_ok = False
+            if pose_pending is not None and pose_pending.done():
+                proof, proof_at = pose_pending.result()
+                proof_ok = proof['pass']
+                pose_pending = None
+                emit({'event': 'gt_proof', 'kind': 'pose', 'pass': proof_ok, 'receipt': proof_at})
+                if not proof_ok:
+                    owner.stop('ACTUAL_GT_REFUSED')
+                    trial.finish('FAILED', 'ACTUAL_GT_REFUSED')
+            if path_pending is not None and path_pending.done():
+                proof = path_pending.result()
+                path_pending = None
+                path_ok = proof['pass']
+                emit({'event': 'gt_proof', 'kind': 'path', 'proof': proof})
+                if not path_ok:
+                    owner.stop('PATH_GT_REFUSED')
+                    trial.finish('FAILED', 'PATH_GT_REFUSED')
+            if raw and pose_pending is None:
+                pose = {k: raw[k] for k in ('x', 'y', 'z', 'yaw')}
+                pose_pending = pose_pool.submit(lambda p=pose, t=receipt: (geometry.pose(p), t))
+            if path is not path_digest and not manual:
+                path_ok = False
+                if path_pending is None and path and raw:
                     path_digest = path
-                    proof_pending = pool.submit(lambda p=path, t=receipt: ('path', swept(args.world, p), t))
-                else:
-                    pose = {k: raw[k] for k in ('x', 'y', 'z', 'yaw')}
-                    proof_pending = pool.submit(lambda p=pose, t=receipt: ('pose', prove(args.world, p), t))
+                    actual = {k: raw[k] for k in ('x', 'y', 'z', 'yaw')}
+                    path_pending = path_pool.submit(geometry.path, actual, point, path,
+                        deviation=policy['path_deviation_m'], heading_tolerance=config['start_yaw_rad'])
             if manual:
                 path_ok = True
             obs = Observation(wall=now, sim=raw.get('sim_t', -1), received=receipt,
@@ -256,6 +261,8 @@ async def _execute(args, config, policy):
                 frames_ready=bool(view.get('frames_ready')), single_writer=bridge.error is None,
                 resources_ok=resources_ok, lifecycle_ready=bool(view.get('lifecycle_ready')),
                 body_still=raw.get('body_still'))
+            if executor.rejected:
+                trial.finish('FAILED', 'UNSUPPORTED_COMMAND')
             if trial.status == 'NOT_STARTED':
                 if not obs.gt_clear:
                     idle_tick()
@@ -316,7 +323,8 @@ async def _execute(args, config, policy):
             finally:
                 bridge.close()
         finally:
-            pool.shutdown(wait=False, cancel_futures=True)
+            for pool in (pose_pool, path_pool, resource_pool):
+                pool.shutdown(wait=False, cancel_futures=True)
             if trial is not None:
                 for event in trial.records:
                     emit(event)
@@ -330,23 +338,36 @@ async def _execute(args, config, policy):
 
 
 async def execute(args, config, policy):
-    if os.environ.get('FH_NAV2_EXECUTE') != '1':
-        raise ValueError('separate execution approval plus FH_NAV2_EXECUTE=1 required')
+    # A fixed registered experiment is the authority for ALL attempts. --history
+    # is deliberately not consumed. Reserve+fsync before opt-in/preflight/ROS.
     root = HERE.parents[3]/'runs'
-    if not args.output.resolve().is_relative_to(root.resolve()):
-        raise ValueError('output must be a NEW directory under this worktree runs/')
-    args.output.mkdir(parents=True, exist_ok=False)
+    if not args.experiment.resolve().is_relative_to(root.resolve()):
+        raise ValueError('experiment ledger must be registered under this worktree runs/')
+    ledger = Ledger(args.experiment, config)
+    attempt = ledger.reserve(args.trial, args.isolated_start_id, args.operator_confirmation)
     args.started = False
+    result = None
+    output_created = False
     try:
-        return await _execute(args, config, policy)
+        if os.environ.get('FH_NAV2_EXECUTE') != '1':
+            raise ValueError('separate execution approval plus FH_NAV2_EXECUTE=1 required')
+        if not args.output.resolve().is_relative_to(root.resolve()):
+            raise ValueError('output must be a NEW directory under this worktree runs/')
+        args.output.mkdir(parents=True, exist_ok=False)
+        output_created = True
+        await _execute(args, config, policy)
+        result = json.loads((args.output/'result.json').read_text())
+        return result
     except BaseException as exc:
-        result = args.output/'result.json'
-        if not result.exists():
-            result.write_text(json.dumps({'trial': config['trials'][args.trial-1],
-                'status': 'FAILED' if args.started else 'BLOCKED_NOT_STARTED', 'reason': str(exc),
-                'isolated_start_id': args.isolated_start_id, 'cleanup_verified': False,
-                'r0_complete': False}, indent=2)+'\n')
+        result = {'trial': config['trials'][args.trial-1],
+            'status': 'FAILED' if args.started else 'BLOCKED_NOT_STARTED', 'reason': str(exc),
+            'isolated_start_id': args.isolated_start_id, 'cleanup_verified': False, 'r0_complete': False}
+        if output_created:
+            (args.output/'result.json').write_text(json.dumps(result, indent=2)+'\n')
         raise
+    finally:
+        if result is not None:
+            ledger.finish(attempt, result)
 
 
 def main():
@@ -358,7 +379,8 @@ def main():
     p.add_argument('--map-source', type=Path)
     p.add_argument('--world', type=Path)
     p.add_argument('--output', type=Path)
-    p.add_argument('--history', type=Path)
+    p.add_argument('--experiment', type=Path)
+    p.add_argument('--operator-confirmation')
     p.add_argument('--isolated-start-id')
     p.add_argument('--seed', default='native seed not configurable/unverified')
     args = p.parse_args()
@@ -367,8 +389,8 @@ def main():
     if config != load('preregistration.json'):
         p.error('point list differs from frozen R0 preregistration')
     if args.execute:
-        if not all((args.map_source, args.world, args.output, args.isolated_start_id)):
-            p.error('execute requires map-source/world/output/isolated-start-id')
+        if not all((args.map_source, args.world, args.output, args.isolated_start_id, args.experiment, args.operator_confirmation)):
+            p.error('execute requires map-source/world/output/isolated-start-id/registered experiment/operator-confirmation')
         asyncio.run(execute(args, config, load('policy.json')))
     elif args.replay:
         print(json.dumps(replay(config, select_point(config, 'G1'), args.replay), indent=2))
