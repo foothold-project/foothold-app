@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/RefreshRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "refresh_token": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Refresh Token",
+      "type": "string"
+    }
+  },
+  "required": [
+    "refresh_token"
+  ],
+  "title": "RefreshRequest",
+  "type": "object"
+}

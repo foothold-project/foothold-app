@@ -1,0 +1,44 @@
+{
+  "$id": "fh-app/1/OrgSettings",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "battery_low_pct": {
+      "default": 20,
+      "maximum": 50,
+      "minimum": 5,
+      "title": "Battery Low Pct",
+      "type": "integer"
+    },
+    "deviation_m": {
+      "default": 1.5,
+      "maximum": 5,
+      "minimum": 0.5,
+      "title": "Deviation M",
+      "type": "number"
+    },
+    "lease_request_timeout_s": {
+      "default": 10,
+      "maximum": 30,
+      "minimum": 5,
+      "title": "Lease Request Timeout S",
+      "type": "integer"
+    },
+    "link_loss_wait_s": {
+      "default": 30,
+      "maximum": 30,
+      "minimum": 0,
+      "title": "Link Loss Wait S",
+      "type": "integer"
+    },
+    "run_min_battery_pct": {
+      "default": 30,
+      "maximum": 90,
+      "minimum": 10,
+      "title": "Run Min Battery Pct",
+      "type": "integer"
+    }
+  },
+  "title": "OrgSettings",
+  "type": "object"
+}

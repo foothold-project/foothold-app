@@ -1,0 +1,21 @@
+{
+  "$id": "fh-app/1/TokenResponse",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "access_token": {
+      "title": "Access Token",
+      "type": "string"
+    },
+    "refresh_token": {
+      "title": "Refresh Token",
+      "type": "string"
+    }
+  },
+  "required": [
+    "access_token",
+    "refresh_token"
+  ],
+  "title": "TokenResponse",
+  "type": "object"
+}

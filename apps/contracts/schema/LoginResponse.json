@@ -1,0 +1,92 @@
+{
+  "$id": "fh-app/1/LoginResponse",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "access_token": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Access Token"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "csrf_token": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Csrf Token"
+    },
+    "display_name": {
+      "title": "Display Name",
+      "type": "string"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "locked": {
+      "title": "Locked",
+      "type": "boolean"
+    },
+    "refresh_token": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Refresh Token"
+    },
+    "robot_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Robot Ids",
+      "type": "array"
+    },
+    "role": {
+      "enum": [
+        "ORG_ADMIN",
+        "OPERATOR"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "username": {
+      "title": "Username",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "username",
+    "display_name",
+    "role",
+    "locked",
+    "robot_ids",
+    "created_at"
+  ],
+  "title": "LoginResponse",
+  "type": "object"
+}

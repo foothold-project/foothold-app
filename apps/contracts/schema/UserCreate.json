@@ -1,0 +1,41 @@
+{
+  "$id": "fh-app/1/UserCreate",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "role": {
+      "enum": [
+        "ORG_ADMIN",
+        "OPERATOR"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "temp_password": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "title": "Temp Password",
+      "type": "string"
+    },
+    "username": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Username",
+      "type": "string"
+    }
+  },
+  "required": [
+    "username",
+    "display_name",
+    "role",
+    "temp_password"
+  ],
+  "title": "UserCreate",
+  "type": "object"
+}

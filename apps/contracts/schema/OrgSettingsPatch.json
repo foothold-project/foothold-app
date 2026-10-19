@@ -1,0 +1,79 @@
+{
+  "$id": "fh-app/1/OrgSettingsPatch",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "battery_low_pct": {
+      "anyOf": [
+        {
+          "maximum": 50,
+          "minimum": 5,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Battery Low Pct"
+    },
+    "deviation_m": {
+      "anyOf": [
+        {
+          "maximum": 5,
+          "minimum": 0.5,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Deviation M"
+    },
+    "lease_request_timeout_s": {
+      "anyOf": [
+        {
+          "maximum": 30,
+          "minimum": 5,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lease Request Timeout S"
+    },
+    "link_loss_wait_s": {
+      "anyOf": [
+        {
+          "maximum": 30,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Link Loss Wait S"
+    },
+    "run_min_battery_pct": {
+      "anyOf": [
+        {
+          "maximum": 90,
+          "minimum": 10,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Run Min Battery Pct"
+    }
+  },
+  "title": "OrgSettingsPatch",
+  "type": "object"
+}

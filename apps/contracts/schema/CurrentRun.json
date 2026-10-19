@@ -1,0 +1,66 @@
+{
+  "$defs": {
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/CurrentRun",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "progress": {
+      "$ref": "#/$defs/Progress"
+    },
+    "scenario_name": {
+      "title": "Scenario Name",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "QUEUED",
+        "PREPARING",
+        "MOVING",
+        "AT_WAYPOINT",
+        "PERFORMING",
+        "PAUSED",
+        "WAIT_CONFIRM",
+        "COMPLETED",
+        "FAILED",
+        "ABORTED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "status",
+    "scenario_name",
+    "progress"
+  ],
+  "title": "CurrentRun",
+  "type": "object"
+}

@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "Person": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "display_name"
+      ],
+      "title": "Person",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/Lease",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "holder_type": {
+      "enum": [
+        "USER",
+        "RUN"
+      ],
+      "title": "Holder Type",
+      "type": "string"
+    },
+    "since": {
+      "format": "date-time",
+      "title": "Since",
+      "type": "string"
+    },
+    "user": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Person"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "holder_type",
+    "user",
+    "since"
+  ],
+  "title": "Lease",
+  "type": "object"
+}
