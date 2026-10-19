@@ -275,14 +275,20 @@ ScreenMessage = Annotated[ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | 
                           Field(discriminator='t')]
 
 
-class RunCopy(Contract):
+class AgentInput(Contract):
+    model_config = ConfigDict(extra='ignore', allow_inf_nan=False,
+                              json_schema_serialization_defaults_required=True)
+
+
+
+class RunCopy(AgentInput):
     run_id: UUID
     status: str = Field(max_length=64)
     step: Sequence
     wait_reason: str | None = None
 
 
-class AgentHello(Contract):
+class AgentHello(AgentInput):
     t: Literal['hello']
     proto: Literal['fh-agent/1']
     agent_version: str = Field(max_length=128)
@@ -297,7 +303,7 @@ class AgentHello(Contract):
     run: RunCopy | None
 
 
-class AgentPose(Contract):
+class AgentPose(AgentInput):
     floor_id: UUID | None
     x: float | None
     y: float | None
@@ -305,12 +311,12 @@ class AgentPose(Contract):
     confidence: Annotated[float, Field(ge=0, le=1)] | None
 
 
-class AgentBattery(Contract):
+class AgentBattery(AgentInput):
     soc: Annotated[float, Field(ge=0, le=100)] | None
     voltage: float | None = None
 
 
-class AgentState(Contract):
+class AgentState(AgentInput):
     t: Literal['state']
     pose: AgentPose
     speed: float | None
@@ -322,11 +328,11 @@ class AgentState(Contract):
     devices_changed: list[Device] | None = None
 
 
-class AgentPing(Contract):
+class AgentPing(AgentInput):
     t: Literal['ping']
 
 
-class AgentEvent(Contract):
+class AgentEvent(AgentInput):
     t: Literal['event']
     code: str = Field(min_length=1, max_length=128)
     severity: Literal['INFO', 'WARN', 'ERROR', 'info', 'warn', 'error']
@@ -334,7 +340,7 @@ class AgentEvent(Contract):
     data: dict[str, Any]
 
 
-class AgentRunUpdate(Contract):
+class AgentRunUpdate(AgentInput):
     t: Literal['run.update']
     run_id: UUID
     status: str = Field(max_length=64)
@@ -344,14 +350,14 @@ class AgentRunUpdate(Contract):
     fail_code: str | None = None
 
 
-class AgentCmdAck(Contract):
+class AgentCmdAck(AgentInput):
     t: Literal['cmd.ack']
     seq: int = Field(ge=-1, strict=True)
     applied: Vector3
     reason: str | None = None
 
 
-class AgentMedia(Contract):
+class AgentMedia(AgentInput):
     t: Literal['media']
     kind: Literal['photo']
     run_id: UUID | None = None
@@ -366,7 +372,7 @@ AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | Agen
 class AgentLease(Contract):
     t: Literal['lease'] = 'lease'
     lease_id: UUID | None
-    holder_type: Literal['USER', 'RUN'] | None
+    holder_type: Literal['USER'] | Annotated[str, Field(pattern=r'^RUN:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')] | None
 
 
 class AgentCommand(Contract):

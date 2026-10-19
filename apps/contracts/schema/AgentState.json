@@ -1,7 +1,6 @@
 {
   "$defs": {
     "AgentBattery": {
-      "additionalProperties": false,
       "properties": {
         "soc": {
           "anyOf": [
@@ -36,7 +35,6 @@
       "type": "object"
     },
     "AgentPose": {
-      "additionalProperties": false,
       "properties": {
         "confidence": {
           "anyOf": [
@@ -151,7 +149,6 @@
   },
   "$id": "fh-app/1/AgentState",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "applied": {
       "items": {

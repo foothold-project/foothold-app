@@ -1,7 +1,6 @@
 {
   "$id": "fh-app/1/AgentBattery",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "soc": {
       "anyOf": [

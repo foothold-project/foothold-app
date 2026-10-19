@@ -32,6 +32,7 @@ class Holder:
     holder_type: str = 'USER'
     seq: int = -1
     last_cmd: float = float('-inf')
+    tokens: float = 3.0
 
 
 @dataclass
@@ -64,6 +65,7 @@ class RobotLease:
     transfer: Transfer | None = None
     cooldown: dict[str, float] = field(default_factory=dict)
     stop_gen: int = 0
+    stop_floor: int = 0  # includes STOPs sent whose state has not arrived yet
     latched: bool = True
 
 
@@ -112,6 +114,7 @@ class Arbiter:
         r = self.robot(robot)
         h, tr = r.holder, r.transfer
         r.holder = r.transfer = None
+        r.stop_floor = max(r.stop_floor, r.stop_gen) + 1
         # Safety ordering is contractual: lease null reaches the agent before stop.
         effects = [self.effect('agent', robot, t='lease', lease_id=None, holder_type=None),
                    self.effect('agent', robot, t='stop', by_user_id=actor.user if actor else None),
@@ -127,13 +130,14 @@ class Arbiter:
     def begin(self, robot, actor, req=None):
         r = self.robot(robot)
         effects = self.revoke(robot, actor)
-        r.transfer = Transfer(actor, self.clock() + 2, r.stop_gen, req)
+        r.transfer = Transfer(actor, self.clock() + 2, r.stop_floor - 1, req)
         return effects
 
     def take(self, robot, actor):
         r = self.robot(robot)
         if r.holder and r.holder.holder_type == 'RUN' and not r.transfer:
-            return self.begin(robot, actor)
+            effects = self.begin(robot, actor)
+            return effects + [self.audit(robot, 'RUN_PAUSE_TAKEOVER', actor)]
         if r.holder or r.transfer:
             raise LeaseError('LEASE_HELD', '다른 연결이 조종 중입니다.')
         return self.begin(robot, actor)
@@ -142,7 +146,9 @@ class Arbiter:
         r = self.robot(robot)
         if self.clock() < r.cooldown.get(actor.user, float('-inf')):
             raise LeaseError('LEASE_REQUEST_COOLDOWN', '30초 뒤 다시 요청하세요.', 429)
-        if not r.holder or not r.holder.actor or r.transfer:
+        if r.transfer:
+            raise LeaseError('LEASE_FREE', '조종권을 넘기고 있습니다.')
+        if not r.holder or not r.holder.actor:
             raise LeaseError('LEASE_FREE', '조종권 상태가 바뀌었습니다.')
         if r.holder.actor == actor or r.holder.actor.user == actor.user or r.request:
             raise LeaseError('LEASE_REQUEST_PENDING', '이미 조종 중이거나 요청이 있습니다.')
@@ -174,17 +180,22 @@ class Arbiter:
             return self.revoke(robot, actor)
         return self.release(robot, actor)
 
-    def heartbeat(self, robot, actor, lease_id, seq):
+    def heartbeat(self, robot, actor, lease_id, seq, neutral=False):
         h = self.owned(self.robot(robot), actor, lease_id)
         if seq <= h.seq:
             raise LeaseError('CMD_SEQ', '명령 순서가 올바르지 않습니다.', 400)
         at = self.clock()
-        if at - h.last_cmd < 0.05 - 1e-9:
-            raise LeaseError('CMD_RATE_LIMIT', '명령 간격은 50밀리초입니다.', 429)
+        # 20 Hz intent tolerates scheduler jitter and a burst of three. A zero
+        # input is always safe to forward, even when the movement budget is gone.
+        h.tokens = min(3.0, h.tokens + max(0, at - h.last_cmd) * 25)
+        h.last_cmd = at
+        if h.tokens < 1 and not neutral:
+            raise LeaseError('CMD_RATE_LIMIT', '조종 입력이 너무 빠릅니다.', 429)
+        h.tokens = max(0, h.tokens - 1)
         h.seq, h.last_cmd, h.heartbeat = seq, at, at
 
     def cmd(self, robot, actor, lease_id, seq, axes):
-        self.heartbeat(robot, actor, lease_id, seq)
+        self.heartbeat(robot, actor, lease_id, seq, axes == [0, 0, 0])
         return [self.effect('agent', robot, t='cmd', lease_id=lease_id, seq=seq, axes=axes)]
 
     def unlock(self, robot, actor, lease_id, stop_gen):
@@ -198,14 +209,18 @@ class Arbiter:
         # Cancel an in-flight handoff so an old stop acknowledgement cannot grant it.
         r = self.robot(robot)
         tr, r.transfer = r.transfer, None
+        r.stop_floor = max(r.stop_floor, r.stop_gen) + 1
         effects = [self.effect('agent', robot, t='stop', by_user_id=actor.user)]
         if tr and tr.request:
             effects += self.result(robot, tr.request, 'CANCELED')
+        elif tr and tr.actor:
+            effects += [self.effect(tr.actor.connection, robot, t='lease.result', request_id=None, result='CANCELED')]
         return effects + [self.audit(robot, 'STOP', actor)]
 
     def state(self, robot, latched, applied, stop_gen):
         r = self.robot(robot)
         r.stop_gen, r.latched = max(r.stop_gen, stop_gen), latched
+        r.stop_floor = max(r.stop_floor, stop_gen)
         tr = r.transfer
         if not tr or self.clock() >= tr.deadline or not latched or applied != [0, 0, 0] or stop_gen <= tr.stop_gen:
             return []

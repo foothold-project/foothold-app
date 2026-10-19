@@ -6,10 +6,11 @@
     "holder_type": {
       "anyOf": [
         {
-          "enum": [
-            "USER",
-            "RUN"
-          ],
+          "const": "USER",
+          "type": "string"
+        },
+        {
+          "pattern": "^RUN:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
           "type": "string"
         },
         {

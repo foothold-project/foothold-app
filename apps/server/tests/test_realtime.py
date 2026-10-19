@@ -122,7 +122,7 @@ def test_cookie_origin_and_first_protocol(client, seeded, rt):
     with client.websocket_connect('wss://testserver/api/v1/ws', headers={'origin': 'https://testserver'}) as ws:
         send(ws, 'ping', proto='wrong/1')
         with pytest.raises(WebSocketDisconnect) as error:
-            receive(ws)
+            receive(ws, 'reply')
         assert error.value.code == 4403
     with pytest.raises(WebSocketDisconnect) as error:
         with client.websocket_connect('wss://testserver/api/v1/ws', headers={'authorization': 'Bearer bad'}):
@@ -139,9 +139,12 @@ def test_out_of_scope_sub_and_cmd_denied(client, seeded, rt, robot):
             if kind == 'sub':
                 send(ws, kind, robots=[str(rid)], streams=['state'])
             else:
-                send(ws, kind, rid, lease_id=str(uuid4()), seq=0, axes=[1, 0, 0])
+                ident = send(ws, kind, rid, lease_id=str(uuid4()), seq=0, axes=[1, 0, 0])
+                assert not reply(ws, ident)['ok']
+                assert reply(ws, send(ws, 'ping'))['ok']
+                continue
             with pytest.raises(WebSocketDisconnect) as error:
-                receive(ws)
+                receive(ws, 'reply')
             assert error.value.code == 4403
 
 
@@ -162,9 +165,10 @@ def test_command_relay_sequence_rate_and_unlock_cas(client, seeded, rt):
         ident = send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[1, 0, 0])
         assert reply(ws, ident)['error']['code'] == 'CMD_SEQ'
         ident = send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[1, 0, 0])
-        assert reply(ws, ident)['error']['code'] == 'CMD_RATE_LIMIT'
+        assert reply(ws, ident)['ok']
+        receive(ag, 'cmd')
         clock.step(.05)
-        ident = send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[1, 0, 0])
+        ident = send(ws, 'cmd', rid, lease_id=lease, seq=2, axes=[1, 0, 0])
         assert reply(ws, ident)['ok']
         assert receive(ag, 'cmd')['axes'] == [1, 0, 0]
         ident = send(ws, 'unlock', rid, lease_id=lease, stop_gen=2)
@@ -236,7 +240,7 @@ def test_sub_state_ten_hz_streams_and_lease_id_private(client, seeded, rt):
     with agent(client, seeded) as ag, screen(client, owner) as ws, screen(client, admin) as watch:
         ident = send(watch, 'sub', robots=[str(rid)], streams=['state', 'rgb'])
         assert reply(watch, ident)['ok']
-        assert receive(ag, 'streams', predicate=lambda x: x['rgb'])['rgb']
+        assert not receive(ag, 'streams')['rgb']
         lease = take(ws, ag, rid)
         other = receive(watch, 'lease', predicate=lambda x: x['holder'] is not None)
         assert 'lease_id' not in other
@@ -269,7 +273,7 @@ def test_agent_three_second_timeout_ping_and_reconnect_paused(client, seeded, rt
         assert receive(ag, 'run.control')['op'] == 'pause'
         ag.send_json(state(2))
         grant = receive(ag, 'lease')
-        assert grant['holder_type'] == 'RUN'
+        assert grant['holder_type'] == 'RUN:' + run_id
         assert rt.arbiter.robot(str(seeded['robots']['mine'])).holder.holder_type == 'RUN'
 
 
@@ -317,7 +321,7 @@ def test_logout_closes_socket_4401_and_revokes_lease(client, seeded, rt):
         take(ws, ag, rid)
         assert client.post('/api/v1/auth/logout', headers=headers).status_code == 204
         with pytest.raises(WebSocketDisconnect) as error:
-            receive(ws)
+            receive(ws, 'reply')
         assert error.value.code == 4401
         assert receive(ag, 'lease')['lease_id'] is None
         receive(ag, 'stop')
@@ -333,7 +337,7 @@ def test_screen_frame_limits(client, seeded, rt, payload, code):
         else:
             ws.send_json(payload)
         with pytest.raises(WebSocketDisconnect) as error:
-            receive(ws)
+            receive(ws, 'reply')
         assert error.value.code == code
 
 
@@ -389,7 +393,7 @@ def test_permission_reassignment_and_token_rotation_revoke_live_connections(clie
             db.get(Robot, rid).owner_user_id = seeded['users']['two']
             db.commit()
         with pytest.raises(WebSocketDisconnect) as error:
-            receive(ws)
+            receive(ws, 'reply')
         assert error.value.code == 4403
         assert receive(ag, 'lease')['lease_id'] is None
         receive(ag, 'stop')
@@ -466,8 +470,9 @@ def test_authority_lock_loss_fails_free(client, seeded, rt):
             rt.owner_connection.execute(text('SELECT pg_advisory_unlock_all()'))
             rt.owner_connection.commit()
         client.portal.call(lose_lock)
+        assert receive(ws, 'lease', predicate=lambda x: x['holder'] is None)['holder'] is None
         with pytest.raises(WebSocketDisconnect) as error:
-            receive(ws)
+            receive(ws, 'reply')
         assert error.value.code == 1013
         assert rt.failed
         assert rt.arbiter.robot(str(rid)).holder is None
@@ -499,6 +504,6 @@ def test_replaced_agent_late_state_cannot_confirm_new_connection_stop(client, se
                 assert rt.arbiter.robot(rid).holder is None
                 assert rt.arbiter.robot(rid).stop_gen == 1
                 new.send_json(state(2))
-                assert receive(new, 'lease')['holder_type'] == 'RUN'
+                assert receive(new, 'lease')['holder_type'].startswith('RUN:')
         finally:
             release.set()

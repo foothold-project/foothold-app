@@ -42,7 +42,6 @@
       "type": "object"
     },
     "RunCopy": {
-      "additionalProperties": false,
       "properties": {
         "run_id": {
           "format": "uuid",
@@ -83,7 +82,6 @@
   },
   "$id": "fh-app/1/AgentHello",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "agent_version": {
       "maxLength": 128,

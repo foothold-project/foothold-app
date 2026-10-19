@@ -46,10 +46,13 @@ export interface AgentHello {
   run: RunCopy | null;
 }
 
+export interface AgentInput {
+}
+
 export interface AgentLease {
   t: "lease";
   lease_id: string | null;
-  holder_type: "USER" | "RUN" | null;
+  holder_type: "USER" | string | null;
 }
 
 export interface AgentMedia {

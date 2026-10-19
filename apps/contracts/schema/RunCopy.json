@@ -1,7 +1,6 @@
 {
   "$id": "fh-app/1/RunCopy",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "run_id": {
       "format": "uuid",

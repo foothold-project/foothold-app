@@ -133,3 +133,130 @@ DB 장애 중 큐 포화·강제 종료 감사 내구성·실제 W3-A 상호운�
 배포·서버 재시작·운영 설정·main 변경을 수행하지 않았다.
 코드는 PR 변경 커밋을 revert한다. 자료가 있는 DB의 0004 downgrade는 lease_log 삭제를 동반하므로
 감사 기록 백업과 승인된 별도 이관 계획 없이 실행하지 않는다.
+
+## PR #10 Claude 검토 수정 (2026-10-19)
+
+아래가 현재 구현·검증의 기준이다. 위의 133개/60개/12개 결과와 맞물림 차이는 최초 제출
+`717c664`의 기록이며, 아래 수정에서 달라진 동작은 이 절과 README를 따른다.
+소유 경로는 계속 `apps/server/**`, `apps/contracts/**`이고 `apps/agent`·정본 명세·기존 안전 Core는 수정하지 않았다.
+
+| 지적 | 수정 | 고침을 빼면 실패하는 회귀 시험 |
+|---|---|---|
+| B1 감사 폭주·영구 failed | 반복 거부·STOP·에이전트 사건은 첫 건+1 s 집계, 전역 첫 사건 20/s·256 키 한도; 연결 수신 100/s·순간 100개. 큐 포화는 FREE 통지·조종 차단만 하고 STOP/접속은 유지하며 큐 1/4 미만에서 자동 복귀·누락 수 요약 | `test_b1_repeated_denied_stop_agent_events_bounded_and_new_take_survives`, `test_b1_full_queue_revokes_notifies_keeps_stop_and_recovers`, `test_b1_real_ws_cmd_and_stop_floods_allow_fresh_take`, `test_b1_connection_ingress_bound_closes_flooder_only` |
+| B2 cmd 뒤 DB 읽기에 STOP 대기 | WS 수신·송신에 DB 대기 없음. 연결 시 인증과 100 ms 감시가 갱신한 권한 스냅숏을 사용; STOP/lease는 대기 cmd 폐기, cmd도 최신 하나만 남김. 500 ms 낡은 캐시는 새 조종 금지·기존 STOP 범위 유지 | `test_b2_stop_bypasses_slow_db_and_twenty_queued_commands`, `test_safety_enqueue_discards_pre_stop_commands`, `test_stale_authorization_blocks_motion_but_cached_stop_remains_immediate` |
+| B3 WS 라이브러리 누락 | requirements에 `websockets==15.0.1`, 실제 uvicorn의 화면/에이전트 101 업그레이드와 STOP 중계 시험 | `test_readme_uvicorn_really_upgrades_screen_and_agent`, `test_deployment_pins_websocket_backend_and_wire_size` |
+| R1 처리 지터로 정상 명령 거부 | 25/s·순간 3개 토큰 버킷, 증가하는 seq의 0 입력은 예산 초과에도 전달 | `test_twenty_hz_with_processing_jitter_has_no_false_rejections`, `test_cmd_lease_sequence_and_fifty_ms_boundaries` |
+| R2 앞선 미보고 STOP 세대 | 아직 state로 확인하지 못한 STOP도 세대 하한에 누적하고 넘김의 추가 STOP까지 확인 | `test_pending_stop_generation_cannot_confirm_later_transfer` |
+| R3 인증 거부 시 즉시 lease 폐기 | 4401/4403을 보내기 전에 actor의 holder·transfer·request 정리, finally에서도 방어 | `test_r3_deny_screen_revokes_before_socket_close_io`, `test_r3_auth_close_revokes_before_watch_can_be_cancelled` |
+| R4 FREE 통지·소유 잠금 회복 | 공통 revoke를 통해 화면에 FREE 통지. 소유 잠금 소실 후 500 ms 주기 재획득, 성공 후에도 옛 lease는 복원하지 않음 | `test_r4_emergency_notifies_and_authority_recovers` |
+| R5 최초 take 취소 결과 | 요청 ID 없는 take도 STOP 취소 시 `lease.result(CANCELED, request_id=null)` | `test_stop_cancels_initial_take_with_result` |
+| R6 자율 실행 인수 감사 | `RUN_PAUSE_TAKEOVER` lease_log/events 기록 | `test_r6_run_takeover_and_i1_bound_run_lease` |
+| R7 전송·로봇별 DB 읽기 증폭 | 세션별 갱신 공유, 스냅숏 SELECT 2회(로봇 수 무관). 수신/송신은 최신 캐시만 검사 | `test_r7_delivery_checks_cached_policy_without_db`, `test_r7_policy_load_batches_robot_checks_into_two_reads` |
+| R8 WS 수신 메모리 상한 | README uvicorn 실행에 `--ws-max-size 4096` | `test_deployment_pins_websocket_backend_and_wire_size` |
+| R9 조작 거부로 전체 연결 닫힘 | sub·인증 거부만 닫고, 권한 없는 hidden/cmd 등은 reply.error 후 연결 유지 | `test_r9_invalid_hidden_replies_without_closing`, 기존 조직/담당 경계 시험 |
+| R10 조종권 감사 색인 | 새 0005에 `(org_id, robot_id, at DESC)` 색인, 기존 감사 자료 변경 없음 | `test_r10_lease_history_index_exists`, Alembic 왕복/ORM 비교 |
+| I1 실행 지정 없음 | 에이전트 wire lease는 `RUN:<run_id>`, AgentLease 계약은 USER 또는 RUN:UUID만 허용 | `test_r6_run_takeover_and_i1_bound_run_lease` |
+| I2 에이전트 형식 오류 재접속 루프 | 추가 필드는 무시, 잘못된 본문/JSON은 사건으로 묶고 버림. 문자열 t 봉투만 수신 생존 갱신; 잘못된 본문은 lease·세대를 바꾸지 않음. 최초 hello 제한 3 s·명시적 proto 불일치 거부는 유지 | `test_i2_invalid_agent_body_unknown_fields_and_binary_do_not_close`, `test_i2_liveness_only_parseable_envelopes` |
+| I3 영상 미구현과 구독 충돌 | 모든 streams false, 이진 프레임은 버리기만 함 | `test_i3_streams_remain_disabled`, I2 형식 시험 |
+| I5 severity 대소문자 | 에이전트 소문자/대문자 입력 수용·저장은 대문자 | I2 형식 시험에서 warn → WARN 사건 저장 |
+
+### 추가 변이 11개 누락 보완
+
+| 기존 누락 판정 | 새 시험 |
+|---|---|
+| respond 조종권자 확인 | `test_only_current_holder_may_respond` |
+| 넘김 중 take 차단 | `test_take_cannot_steal_transfer` |
+| 넘김 중 request 차단 | `test_request_blocked_during_transfer_even_with_stale_holder_copy` |
+| 대기 요청 2건 차단 | `test_only_one_pending_request` |
+| transferee hidden 정리 | `test_transferee_hidden_cancels_unfinished_transfer` |
+| disconnect의 transfer 정리 | `test_disconnect_pending_transfer_is_revoked` |
+| disconnect의 request 정리 | `test_disconnect_pending_request_is_canceled` |
+| STOP/lease의 cmd 폐기 | `test_safety_enqueue_discards_pre_stop_commands` |
+| 요청자 연결 소실 시 수락 차단 | `test_disconnected_requester_cannot_be_granted_even_before_cleanup` |
+| failed 상태 조작 차단 | `test_failed_runtime_refuses_existing_connection_control_but_allows_stop` |
+| 감사 큐 포화 시 FREE | `test_b1_full_queue_revokes_notifies_keeps_stop_and_recovers` |
+
+추가로 전달 단계 권한 검사와 교체된 에이전트 state 처리 함수를 각각 단독 시험했다.
+전송·캐시·수신·큐·복구·계약/의존성까지 변이 도구가 바꾸며, 수집 오류는 검출로 세지 않는다.
+중복 방어가 있던 인증 닫기 경로의 최초 변이는 finally 정리 때문에 통과했다. 닫기 I/O 전에
+폐기돼야 한다는 독립 시험을 추가해 즉시 폐기와 finally 방어를 따로 검증했다.
+
+### 수정 후 실행 결과
+
+- `apps/server/.venv/bin/python -m pytest apps/server -q`: **166 passed**, 안내 1건.
+- `apps/server/.venv/bin/python apps/server/tools/check_realtime_mutations.py`: **50/50 검출**, 수집 오류 0.
+  최초 12개 중재기 변이에서 50개로 확장했으며 `realtime.py`·계약·의존성·마이그레이션도 포함한다.
+- `test_realtime_review.py`: 23 passed; 이전 133개 기대 중 R1/R9/I1/I3의 의도 변경만 맞췄다.
+  기존 인증·동시성·안전 Core 시험의 기대값은 낮추지 않았다.
+- DB 갱신에 100 ms 지연을 주입하고 같은 연결에 cmd 20개 뒤 STOP을 넣은 시험에서
+  에이전트 도착 100 ms 상한을 통과했다. 대기 cmd 폐기는 별도 송신 큐 시험으로 확인했다.
+- 감사 입력 60,000건(거부·STOP·에이전트 각 20,000건)은 쓰기 작업자를 멈춘 상태에서
+  큐 3건 이하로 남았다. 실제 WS의 cmd/STOP 폭주는 해당 연결만 제한한 뒤 새 연결 take까지 확인했다.
+- 실제 PostgreSQL Alembic `upgrade head → downgrade base → upgrade head`: 1 passed, ORM 차이 0.
+- 생성물 61개 일치, `tsc --strict --noEmit`: 성공.
+- 기존 `python3 sim/v2_link.py --selftest`: 원본 수정 없이 selftest OK.
+- 깨끗한 임시 venv에 `requirements-test.txt`만 설치한 뒤 `test_ws_deployment.py`: 2 passed.
+  실제 uvicorn을 사전 bind한 127.0.0.1 임시 fd/포트로 시작해 두 WS의 101, lease와 STOP 전달을 확인했다.
+  시험 뒤 uvicorn·임시 PostgreSQL·venv를 종료/제거했다. 운영 포트·ROS·Gazebo·실기 접촉 0.
+
+HTTP STOP의 최초 인증·CSRF 확인은 DB 조회를 유지한다. B2의 수신 순서·100 ms 상한 검증은
+이미 인증된 WS 연결을 대상으로 하며, 무인증 HTTP 요청에 정지를 먼저 허용하지 않는다.
+WS 캐시는 감시 주기와 DB 응답 시간만큼 권한 변경 반영이 늦을 수 있다. 500 ms가 지나면
+조종 입력은 멈추고, 이미 검증한 세션/로봇의 STOP은 느린 갱신에 묶지 않는다.
+감사 큐와 집계 창은 메모리이며 프로세스 종료 내구성을 새로 보장하지 않는다.
+추가 필드 수용·영상 비활성화·RUN ID 표기는 서버에서만 수정했고 실제 W3-A 재통합은 별도 관문이다.
+
+### 수정 후 변이 실행 표
+
+| Broken decision | Detection |
+|---|---|
+| request timeout 10 -> 20 | detected |
+| TIMEOUT cooldown omitted | detected |
+| lease heartbeat 15 -> 30 | detected |
+| duplicate seq accepted | detected |
+| command budget removed | detected |
+| unlock CAS removed | detected |
+| stale stop generation accepted | detected |
+| nonzero applied accepted | detected |
+| latch check removed | detected |
+| late transfer ack accepted | detected |
+| lease null replaced by stale lease | detected |
+| connection binding weakened | detected |
+| respond holder check omitted | detected |
+| take allowed during transfer | detected |
+| request during transfer | detected |
+| second pending request allowed | detected |
+| hidden transferee not revoked | detected |
+| unreported earlier STOP ignored | detected |
+| initial take cancel not notified | detected |
+| strict 50 ms gate reintroduced | detected |
+| zero input rate rejected | detected |
+| disconnect leaves request | detected |
+| disconnect leaves transfer | detected |
+| safety enqueue keeps stale cmd | detected |
+| requester gone accepted | detected |
+| failed input gate ignored | detected |
+| audit overflow does not revoke | detected |
+| delivery policy omitted | detected |
+| replaced state handler gate omitted | detected |
+| repeat audit aggregation omitted | detected |
+| audit overload never recovers | detected |
+| STOP waits for DB again | detected |
+| auth close retains lease | detected |
+| emergency FREE not notified | detected |
+| ownership never recovers | detected |
+| RUN identity not bound | detected |
+| RUN takeover audit omitted | detected |
+| invalid agent body disconnects | detected |
+| invalid JSON renews liveness | detected |
+| streams falsely enabled | detected |
+| origin prefix accepted | detected |
+| ingress budget omitted | detected |
+| WebSocket backend pin omitted | detected |
+| transport frame cap undocumented | detected |
+| agent severity normalization omitted | detected |
+| agent future fields forbidden | detected |
+| binary agent frame closes link | detected |
+| operation denial closes connection | detected |
+| lease audit index omitted | detected |
+| stale cache permits motion | detected |

@@ -20,7 +20,7 @@ pip install -r apps/server/requirements-test.txt
 python -m apps.server.fh_server.bootstrap roles
 alembic -c apps/server/alembic.ini upgrade head
 python -m apps.server.fh_server.bootstrap organization
-uvicorn apps.server.fh_server.main:app --host 127.0.0.1 --port 8810
+uvicorn apps.server.fh_server.main:app --host 127.0.0.1 --port 8810 --ws-max-size 4096 --workers 1
 ```
 
 웹 쿠키는 항상 Secure다. 브라우저 사용에는 HTTPS 역방향 프록시가 필요하다.
@@ -154,7 +154,8 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
 하나의 조직은 서버 프로세스 **1개**로 실행한다(`uvicorn --workers 1`).
 시작 때 전용 PostgreSQL 세션 advisory lock을 얻은 프로세스만 실시간 중재기를 연다.
 다른 프로세스는 REST 조회·인증을 제공할 수 있지만 WS는 1013, HTTP STOP은 503으로 거부한다.
-이 잠금은 STOP·cmd 경로와 분리돼 있다. 소유 잠금이 사라지면 lease를 비우고 연결을 닫는다.
+이 잠금은 STOP·cmd 경로와 분리돼 있다. 소유 잠금이 사라지면 FREE를 알리고 연결을 닫으며,
+기존 중재기는 500 ms 주기로 재획득을 시도한다. 성공해도 옛 lease를 복원하지 않는다.
 서버를 새로 시작하면 사람 조종권·요청·재요청 제한은 모두 메모리에서 새로 시작한다.
 
 - 화면: `/api/v1/ws`. 웹은 `fh_s` 쿠키와 정확한 Origin 일치, 앱은 Bearer.
@@ -166,28 +167,45 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
 - `sub`는 상세 권한(`ROBOT_READ`)을 확인한다. 운영자는 담당 로봇만 실시간 상세를 받는다.
   STOP은 요약 보기(`ROBOT_SUMMARY`) 권한이므로 조직 안 다른 담당자의 로봇도 가능하다.
   조종은 기존 `authorize(..., 'O_OWN', robot)` 한 함수로 판정한다.
-  메시지 처리·상태/사건 전송·권한 변경 감시 때 DB의 현재 세션·역할·담당을 읽는다.
+  연결 때와 100 ms 주기 감시에서 현재 세션·역할·담당을 읽어 캐시한다. 같은 세션의
+  연결은 갱신을 합치며 로봇 수에 관계없이 스냅숏은 SELECT 2회다. 수신·송신은 캐시만
+  검사한다. 500 ms보다 오래된 판정으로 새 조종 입력을 보내지 않으며, 이전에 허용된
+  STOP 범위는 느린 갱신 중에도 쓸 수 있다. 세션 만료·폐기는 입력 폐기와 lease 반납으로 처리한다.
 - 조종권은 사용자·세션·연결에 묶인다. 유효 cmd(0 포함)만 heartbeat를 갱신한다.
-  50 ms보다 빠른 명령, 중복/역순 seq, 다른 lease_id는 거부한다. `ping`은 heartbeat가 아니다.
+  화면의 50 ms 입력 주기를 수용하되 서버는 25개/s·순간 3개 토큰 버킷으로 지터를 허용한다.
+  중복/역순 seq·다른 lease_id는 거부하고, 새 seq의 0 입력은 명령 예산이 없어도 보낸다.
+  에이전트 송신 큐에는 최신 cmd 하나만 남긴다. `ping`은 heartbeat가 아니다.
   `lease.request`는 조직 설정의 기본 10 s, 거절·TIMEOUT 확정부터 30 s 재요청 제한이다.
 - 최초 take와 넘김 모두 `lease=null → stop → latched/applied=0/새 stop_gen`을 확인하고
-  새 lease를 발급한다. 2 s 확인 실패는 FREE다. unlock은 최신 stop_gen CAS를 검사하며,
+  새 lease를 발급한다. 아직 보고되지 않은 앞선 STOP 수까지 세대 하한에 포함한다.
+  2 s 확인 실패는 FREE다. unlock은 최신 stop_gen CAS를 검사하며,
   에이전트의 로컬 STOP·중립 관문을 대신하지 않는다.
 - 서버는 에이전트에 1 s마다 ping을 보낸다. 마지막 수신부터 3 s면 연결을 닫고 사람 lease를 정리한다.
   hello의 사람 lease 사본은 복원하지 않는다. 진행 중 run 사본은 메모리에서 PAUSED로 맞추고,
-  정지 확인 뒤 RUN lease로 예약한다. 실행·지도·업로드 처리는 후속 확장 지점이다.
+  정지 확인 뒤 `RUN:<run_id>`로 실행을 지정해 lease를 예약한다. 실행·지도·업로드 처리는 후속 확장 지점이다.
 - STOP과 cmd 인증은 읽기 전용 풀을 쓰며 REST identity의 조직 잠금·last_seen_at 쓰기를 하지 않는다.
-  STOP은 에이전트 송신 큐에 먼저 넣고 사건은 별도 풀/큐에서 기록한다. 감사 DB 잠금은
-  1 s 제한으로 재시도한다. 큐가 가득 차면 새 조종을 막고 조종권을 비운다.
+  WS STOP/cmd는 수신 즉시 캐시로 판정한다. STOP·lease 변경은 대기 cmd를 버린 뒤
+  송신 큐에 넣는다. HTTP 대체 경로의 최초 인증은 기존 DB 조회를 쓴다. 사건은 별도
+  풀/큐에서 기록하고 감사 DB 잠금은 1 s 제한으로 재시도한다. 반복 거부·STOP·에이전트
+  사건은 로봇/사용자/코드별 첫 건과 1 s 집계로 묶으며, 첫 사건 전역 20개/s·최대 256개
+  집계 키로 제한한다. 큐 포화 시 FREE 알림을 보내고 새 조종만 막으며 STOP과 접속은
+  계속 허용한다. 큐가 1/4 미만으로 줄면 자동 회복하고 누락 수를 요약한다. 화면 연결은
+  전체 입력 100개/s·순간 100개를 넘으면 닫되 그 프레임이 STOP이면 먼저 전달한다.
   감사 큐는 메모리이므로 프로세스 종료 전 미기록 건의 내구성은 보장하지 않는다.
 - `POST /api/v1/robots/{id}/stop`은 HTTP 대체 경로(쿠키에는 CSRF 헤더 필요)다.
   응답 202는 요청 접수이며 실제 정지·몸의 속도 0 확인을 뜻하지 않는다.
 - `POST /api/v1/robots/{id}/agent-token`은 총괄만 호출하는 재발급 API다.
   응답의 `agent_token`을 한 번만 보여 주며 `Cache-Control: no-store`다.
   기존 `robots.agent_token_hash` 열에는 SHA-256만 저장하고 원문은 사건에 넣지 않는다.
-  기존 연결도 다음 수신 메시지의 인증 검사에서 예전 토큰을 거부한다.
+  기존 에이전트 연결은 독립적인 100 ms 주기 인증 감시에서 예전 토큰을 거부한다.
+  데이터 수신은 인증 DB 왕복을 기다리지 않는다. 잘못된 에이전트 본문은 집계 사건으로
+  남기고 버리며, 추가 필드는 무시한다. 해석 가능한 문자열 t 봉투만 생존을 갱신한다.
+  영상 중계 전까지 모든 streams는 false이며 이진 프레임은 버린다.
 
 `0004_lease_log`는 조종권 감사 표와 INSERT/SELECT 전용 권한을 추가한다.
 기존 0001의 agent_token_hash를 재사용하며 중복 열을 추가하지 않는다.
 0004 downgrade는 조종권 감사 기록을 삭제하므로 자료가 있는 DB에서 되돌림은 별도 보존 계획이 필요하다.
 시험·변이 검출·문서 차이와 미검증 범위는 [REALTIME-VALIDATION.md](REALTIME-VALIDATION.md)를 본다.
+
+`0005_lease_log_index`는 `(org_id, robot_id, at DESC)` 감사 조회 색인만 추가한다.
+0005 downgrade는 그 색인만 제거한다.

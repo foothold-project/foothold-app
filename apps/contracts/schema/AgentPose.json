@@ -1,7 +1,6 @@
 {
   "$id": "fh-app/1/AgentPose",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "additionalProperties": false,
   "properties": {
     "confidence": {
       "anyOf": [

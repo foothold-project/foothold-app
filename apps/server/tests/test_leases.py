@@ -150,12 +150,13 @@ def test_cmd_lease_sequence_and_fifty_ms_boundaries(rig):
         a.cmd('r', owner, lease, 0, [1, 0, 0])
     assert error.value.code == 'CMD_SEQ'
     a.cmd('r', owner, lease, 1, [1, 0, 0])
-    c.step(.049999)
+    # Jitter and a burst of three are valid. Sustained same-time motion is not.
+    a.cmd('r', owner, lease, 2, [1, 0, 0])
+    a.cmd('r', owner, lease, 3, [1, 0, 0])
     with pytest.raises(LeaseError) as error:
-        a.cmd('r', owner, lease, 2, [0, 0, 0])
+        a.cmd('r', owner, lease, 4, [1, 0, 0])
     assert error.value.code == 'CMD_RATE_LIMIT'
-    c.step(.000001)
-    a.cmd('r', owner, lease, 2, [0, 0, 0])
+    a.cmd('r', owner, lease, 4, [0, 0, 0])  # releasing input is never rate-limited
 
 
 def test_unlock_cas_and_stop_invalidates_pending_transfer(rig):
@@ -181,3 +182,78 @@ def test_restart_has_no_lease_or_cooldown(rig):
     assert restarted.robot('r').holder is None
     assert restarted.robot('r').cooldown == {}
     restarted.take('r', other)
+
+
+def test_only_current_holder_may_respond(rig):
+    c, a, owner, requester = held(rig)
+    a.request('r', requester)
+    with pytest.raises(LeaseError):
+        a.respond('r', requester, a.robot('r').request.id, True)
+    assert a.robot('r').holder.actor == owner
+
+
+def test_take_cannot_steal_transfer(rig):
+    c, a, owner, requester = held(rig)
+    a.request('r', requester)
+    a.respond('r', owner, a.robot('r').request.id, True)
+    with pytest.raises(LeaseError):
+        a.take('r', owner)
+    assert a.robot('r').transfer.actor == requester
+
+
+def test_request_blocked_during_transfer_even_with_stale_holder_copy(rig):
+    c, a, owner, requester = held(rig)
+    old_holder = a.robot('r').holder
+    a.release('r', owner)
+    a.take('r', requester)
+    # Defensive gate: a stale holder copy must not override transfer exclusion.
+    a.robot('r').holder = old_holder
+    with pytest.raises(LeaseError):
+        a.request('r', requester)
+    assert a.robot('r').request is None
+
+
+def test_only_one_pending_request(rig):
+    c, a, owner, requester = held(rig)
+    a.request('r', requester)
+    first = a.robot('r').request
+    with pytest.raises(LeaseError):
+        a.request('r', Actor('third', 'third-session', 'third-connection'))
+    assert a.robot('r').request is first
+
+
+def test_transferee_hidden_cancels_unfinished_transfer(rig):
+    c, a, owner, requester = held(rig)
+    a.request('r', requester)
+    a.respond('r', owner, a.robot('r').request.id, True)
+    effects = a.hidden('r', requester)
+    assert effects[0].body['lease_id'] is None
+    assert a.robot('r').transfer is None
+    assert a.state('r', True, [0, 0, 0], 99) == []
+
+
+def test_pending_stop_generation_cannot_confirm_later_transfer(rig):
+    c, a, owner, requester = held(rig)
+    a.stop('r', owner)  # generation 2, not yet reported by agent
+    a.request('r', requester)
+    a.respond('r', owner, a.robot('r').request.id, True)  # must see generation 3
+    assert a.state('r', True, [0, 0, 0], 2) == []
+    assert a.robot('r').holder is None
+    a.state('r', True, [0, 0, 0], 3)
+    assert a.robot('r').holder.actor == requester
+
+
+def test_stop_cancels_initial_take_with_result(rig):
+    c, a, owner, _ = rig
+    a.take('r', owner)
+    effects = a.stop('r', owner)
+    assert any(e.target == owner.connection and e.body.get('result') == 'CANCELED' for e in effects)
+    assert a.robot('r').transfer is None
+
+
+def test_twenty_hz_with_processing_jitter_has_no_false_rejections(rig):
+    c, a, owner, _ = held(rig)
+    lease = a.robot('r').holder.lease_id
+    for seq in range(100):
+        c.at = seq * .05 + (0.018 if seq % 2 == 0 else 0)
+        assert a.cmd('r', owner, lease, seq, [1, 0, 0])

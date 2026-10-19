@@ -1,7 +1,6 @@
 {
   "$defs": {
     "AgentBattery": {
-      "additionalProperties": false,
       "properties": {
         "soc": {
           "anyOf": [
@@ -37,7 +36,6 @@
       "type": "object"
     },
     "AgentCmdAck": {
-      "additionalProperties": false,
       "properties": {
         "applied": {
           "items": {
@@ -81,7 +79,6 @@
       "type": "object"
     },
     "AgentEvent": {
-      "additionalProperties": false,
       "properties": {
         "code": {
           "maxLength": 128,
@@ -135,7 +132,6 @@
       "type": "object"
     },
     "AgentHello": {
-      "additionalProperties": false,
       "properties": {
         "agent_version": {
           "maxLength": 128,
@@ -250,7 +246,6 @@
       "type": "object"
     },
     "AgentMedia": {
-      "additionalProperties": false,
       "properties": {
         "kind": {
           "const": "photo",
@@ -305,7 +300,6 @@
       "type": "object"
     },
     "AgentPing": {
-      "additionalProperties": false,
       "properties": {
         "t": {
           "const": "ping",
@@ -320,7 +314,6 @@
       "type": "object"
     },
     "AgentPose": {
-      "additionalProperties": false,
       "properties": {
         "confidence": {
           "anyOf": [
@@ -392,7 +385,6 @@
       "type": "object"
     },
     "AgentRunUpdate": {
-      "additionalProperties": false,
       "properties": {
         "fail_code": {
           "anyOf": [
@@ -462,7 +454,6 @@
       "type": "object"
     },
     "AgentState": {
-      "additionalProperties": false,
       "properties": {
         "applied": {
           "items": {
@@ -602,7 +593,6 @@
       "type": "object"
     },
     "RunCopy": {
-      "additionalProperties": false,
       "properties": {
         "run_id": {
           "format": "uuid",

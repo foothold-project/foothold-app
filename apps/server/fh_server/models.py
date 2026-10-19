@@ -155,3 +155,6 @@ class LeaseLog(Tenant, Base):
     other_user_id: Mapped[UUID | None] = mapped_column(PGUUID)
     session_id: Mapped[UUID | None] = mapped_column(PGUUID)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+Index('lease_log_org_robot_at', LeaseLog.org_id, LeaseLog.robot_id, LeaseLog.at.desc())
