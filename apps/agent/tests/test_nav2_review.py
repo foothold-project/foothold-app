@@ -232,7 +232,7 @@ def test_scan_tf_phase_offset_preserves_derivative_but_out_of_window_blocks():
 
 def test_first_unsupported_command_latches_zero_instead_of_flickering():
     h=Harness()
-    h.intent((.6,0,.00001))
+    h.intent((.6,0,.05))
     assert h.output()==Z and h.e.rejected and h.e.binding is None
     h.intent((.6,0,0))
     assert h.output()==Z
@@ -438,7 +438,7 @@ def test_offline_supported_ratio_reports_first_latched_rejection_without_feasibi
     from assess_commands import assess
     policy=json.loads((NAV/'policy.json').read_text())
     result=assess([{'input_si':v} for v in ((.6,0,0),(.6,0,.0001),(0,0,0),(.1,0,0))],policy)
-    assert result['tested_ratio']==.25 and result['first_latched_rejection_index']==1
+    assert result['tested_ratio']==.5 and result['first_latched_rejection_index']==3
     assert result['actual_nav2_feasibility_proven'] is False
 
 
@@ -467,3 +467,164 @@ def test_registration_cannot_fork_the_same_experiment_or_reuse_approval(tmp_path
         Ledger.register(tmp_path/'other-parent/experiment',C,approval)
     with pytest.raises(ValueError,match='already consumed'):
         Ledger.register(EXPERIMENTS_ROOT/'fork',C,{**approval,'experiment_id':'fork'})
+
+
+@pytest.mark.parametrize('owner_first', [False, True])
+@pytest.mark.parametrize('at_deadline', [.3, .300001])
+def test_deadline_boundary_cannot_be_revived_in_either_callback_order(owner_first, at_deadline):
+    h=Harness()
+    h.t=at_deadline
+    h.events.clear()
+    if owner_first:
+        h.state()
+    accepted=h.e.intent(h.b,(.6,0,0))
+    assert accepted == (at_deadline == .3)
+    if at_deadline > .3 and not owner_first:
+        assert h.e.source_received() == 0  # late callback did not replace receipt
+        # Even a later clock correction cannot un-latch an observed expiration.
+        h.t=.299
+        assert not h.e.intent(h.b,(.6,0,0))
+        assert h.e.source_expired()
+        h.t=at_deadline
+    h.state();h.o.tick()
+    if at_deadline == .3:
+        assert h.output()==(.6,0,0) and h.e.binding==h.b
+    else:
+        assert h.output()==Z and h.e.binding is None and h.s.run['status']!='RUNNING'
+        cancel=next(i for i,(k,v) in enumerate(h.events) if k=='cancel')
+        assert any(k=='apply' and v==Z for k,v in h.events[:cancel])
+        assert any(k=='stop' for k,v in h.events[:cancel])
+        assert not any(k=='apply' and v!=Z for k,v in h.events)
+
+
+def test_delayed_consumption_then_callback_before_owner_cannot_reset_deadline():
+    h=Harness()
+    for step in range(1,5):
+        h.t=step*.05;h.state();h.intent((.6,0,0))
+    h.t=.21
+    assert h.e.intent(h.b,(.6,0,0))
+    h.t=.49;h.state();h.o.tick()
+    assert h.output()==(.6,0,0)
+    h.t=.52
+    h.events.clear()
+    assert not h.e.intent(h.b,(.6,0,0))  # callback BEFORE any Owner operation
+    assert h.e.source_received()==.21
+    assert not h.e.intent(h.b,(.6,0,0))
+    h.state();h.o.tick()
+    assert h.output()==Z and h.e.binding is None and h.s.run['status']!='RUNNING'
+    cancel=next(i for i,(k,v) in enumerate(h.events) if k=='cancel')
+    assert any(k=='apply' and v==Z for k,v in h.events[:cancel])
+    assert any(k=='stop' for k,v in h.events[:cancel])
+    assert all(v==Z for k,v in h.events if k=='apply')
+
+
+@pytest.mark.parametrize('arrival,accepted', [(.3,True),(.300001,False)])
+def test_first_intent_retains_original_point_three_second_deadline(arrival,accepted):
+    h=Harness()
+    h.e.revoke('NEW_EXPLICIT_GOAL')
+    h.e.begin(h.b,GOAL)
+    h.t=arrival
+    assert h.e.intent(h.b,(.6,0,0)) is accepted
+
+
+@pytest.mark.parametrize('yaw', [-.040001,-.04,-.00001,0,.00001,.04,.040001])
+def test_d22_tiny_yaw_reduces_only_with_configured_boundary(yaw):
+    from foothold_agent.executor.nav2 import PolicyAdapter
+    policy=json.loads((NAV/'policy.json').read_text())
+    a=PolicyAdapter(policy)
+    axes,reason=a.adapt((.6,0,yaw))
+    supported=abs(yaw)<=policy['yaw_zero_threshold_rps']
+    assert axes==((1,0,0) if supported else Z)
+    assert reason==('TESTED_YAW_REDUCED' if supported and yaw else 'TESTED' if supported else 'UNSUPPORTED_VELOCITY')
+    for bad in ((.599,0,yaw),(-.6,0,yaw),(.6,.001,yaw)):
+        assert a.adapt(bad)[0]==Z
+    narrow=PolicyAdapter({**policy,'yaw_zero_threshold_rps':.000001})
+    assert narrow.adapt((.6,0,.00001))==(Z,'UNSUPPORTED_VELOCITY')
+
+
+def test_runner_rejection_failure_cannot_become_successful_safety_stop():
+    from runner import classify_rejection
+    failed,o=trial('safety')
+    control,_=trial('safety')
+    for t in (failed,control):
+        t.update(at(o,.05,cmd=(.6,0,0),body_still=False))
+        t.trigger_stop(at(o,.1))
+        t.ros_zero(.11)
+    classify_rejection(failed,N(rejected=True))
+    # Same valid physical stop WOULD succeed absent the runner classification.
+    for step in range(1,24):
+        sample=at(o,.1+step/10)
+        failed.update(sample);control.update(sample)
+    assert control.status=='SUCCEEDED'
+    assert failed.status=='FAILED' and failed.reason=='UNSUPPORTED_COMMAND'
+
+
+@pytest.mark.parametrize('mode', ['chain','payload'])
+def test_well_formed_ledger_tampering_is_detected_before_reservation(tmp_path,mode):
+    ledger=register(tmp_path)
+    succeed(ledger,1)
+    path=ledger.folder/'attempts.jsonl'
+    rows=[json.loads(line) for line in path.read_text().splitlines()]
+    if mode=='chain':
+        rows[0]['previous_sha256']='0'*64
+        rows[0]['sha256']=digest({k:v for k,v in rows[0].items() if k!='sha256'})
+    else:
+        rows[-1]['wall']+=1  # syntactically valid but no longer matches its hash
+    path.write_text(''.join(json.dumps(row)+'\n' for row in rows))
+    with pytest.raises(ValueError,match='chain mismatch'):
+        Ledger(ledger.folder,C).reserve(2,'new-isolation','new-confirmation')
+
+
+def test_confirmation_reuse_alone_prevents_next_sequential_attempt(tmp_path):
+    ledger=register(tmp_path)
+    succeed(ledger,1)
+    with pytest.raises(ValueError,match='HOLD'):
+        ledger.reserve(2,'fresh-isolation','operator-1')
+    assert ledger.summary(C)['denied_invocations']==1
+
+
+def test_denied_attempt_alone_holds_subsequent_otherwise_valid_first_trial(tmp_path):
+    ledger=register(tmp_path)
+    with pytest.raises(ValueError,match='HOLD'):
+        ledger.reserve(2,'wrong-order-isolation','op-wrong')
+    assert ledger.summary(C)['attempts']==[]
+    with pytest.raises(ValueError,match='HOLD'):
+        ledger.reserve(1,'fresh-isolation','fresh-confirmation')
+    assert ledger.summary(C)['denied_invocations']==2
+
+
+def test_frames_need_graph_even_when_all_pose_and_alignment_inputs_are_fresh(monkeypatch):
+    clock=[.1];node,g,h,twist=ros_stub(monkeypatch,clock)
+    g.data['state']=({'episode':1,'sim_t':.1,'x':-12,'y':-9,'yaw':0},.1)
+    g.data['odom']={'stamp':.1,'x':-12,'y':-9,'yaw':0}
+    g.odom_at=.1;g.aligned_samples=20;g.map_identity=True
+    node.infos=[]
+    g.spin()
+    assert g.snapshot()['pose_agrees'] and not g.graph_ok
+    assert not g.snapshot()['frames_ready']
+
+
+def test_gt_margin_catches_obstacle_outside_unexpanded_straight_envelope(tmp_path,monkeypatch):
+    g=geometry(tmp_path,monkeypatch)
+    start={'x':-12.,'y':-9.,'z':.4,'yaw':0}
+    goal={'x':-10.8,'y':-9.,'yaw':0}
+    # y offset .63 lies outside .60 body envelope, inside the .65 swept margin.
+    g.obstacles.append(('near-margin', [(-11.,-10.9),(-8.37,-8.36),(.1,1.)]))
+    assert g.pose(start)['pass']
+    assert not g.path(start,goal,[start,goal])['pass']
+
+
+def test_synthetic_path_replay_exposes_command_rejections_and_independent_motion_budget():
+    from replay_paths import parameters,replay_paths
+    policy=json.loads((NAV/'policy.json').read_text())
+    text=(NAV/'nav2_params.yaml').read_text()
+    params=parameters(text)
+    assert params['speed']==.6 and params['tolerance']==C['goal_xy_m']
+    with pytest.raises(ValueError,match='approach scaling'):
+        parameters(text.replace('approach_velocity_scaling_dist: 0.0','approach_velocity_scaling_dist: 0.3'))
+    data=replay_paths(C,policy,params)
+    assert data['cases']==32 and data['actual_nav2_feasibility_proven'] is False
+    assert any(r['offset_m']==.001 and r['terminal_command_status']=='TESTED' for r in data['trials'])
+    assert any(r['offset_m']==.05 and r['terminal_command_status']=='REJECTED' for r in data['trials'])
+    assert all(not r['motion_budget_fits'] for r in data['trials'] if r['trial']=='G2' and r['terminal_command_status']=='TESTED')
+    assert 0<data['tested_and_budget_ratio']<data['tested_ratio']<1

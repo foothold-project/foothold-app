@@ -17,10 +17,10 @@ def assess(rows, policy):
     for i,row in enumerate(rows):
         _, reason=adapter.adapt(row['input_si'])
         counts[reason]=counts.get(reason,0)+1
-        if reason not in ('TESTED','ZERO') and first_rejection is None:
+        if reason not in ('TESTED','TESTED_YAW_REDUCED','ZERO') and first_rejection is None:
             first_rejection=i
     total=sum(counts.values())
-    return {'samples':total, 'counts':counts, 'tested_ratio':counts.get('TESTED',0)/total if total else None,
+    return {'samples':total, 'counts':counts, 'tested_ratio':(counts.get('TESTED',0)+counts.get('TESTED_YAW_REDUCED',0))/total if total else None,
             'first_latched_rejection_index':first_rejection, 'actual_nav2_feasibility_proven':False}
 
 

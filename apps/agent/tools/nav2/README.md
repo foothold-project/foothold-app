@@ -10,7 +10,9 @@ Nav2 controller Twist → /fh_nav/intent → NavExecutor → Owner
 
 원수신 monotonic을 콜백 진입 시 한 번 포착한다. poll 때 새 수신 시각을 만들지 않는다.
 Owner의 **모든 출력 입구**가 원수신 `>0.3wall초`를 검사하므로 Session/Core가 poll 시각에
-자체 시계를 갱신해도 원수신 마감이 연장되지 않는다. 만료·STOP·정책/GT/자원 실패에는
+자체 시계를 갱신해도 원수신 마감이 연장되지 않는다. 수신 lock 안에서도 이전 마감을 먼저
+검사하고 만료를 래치하므로 Owner보다 먼저 도착한 새 콜백도 이를 지울 수 없다.
+정확히 .3초는 허용하며 초과는 만료다. 첫 명령 대기도 .3초다. 만료·STOP·정책/GT/자원 실패에는
 0/STOP을 적용한 뒤 비동기 목표 취소를 접수한다. 실제 OS/통신 마감 보장과는 별개다.
 Session/Core의 기존 .3초 규칙·잠금·조종권·neutral·stop_gen·sink 독립 watchdog은 그대로다.
 로컬 STOP은 공개 `Session.shutdown()`을 사용한다. 가짜 서버 STOP 프레임으로 last_server를
@@ -18,12 +20,23 @@ Session/Core의 기존 .3초 규칙·잠금·조종권·neutral·stop_gen·sink 
 연결을 유지하는 로컬 STOP API가 필요하면 소유 밖 link/** 별도 작업으로 추가해야 한다.
 
 `policy.json`의 명령은 Core의 0, .6m/s 직진, .6/±.5rad/s 곡선과 교차 검사한다.
-곡선은 기본 비활성이며 **미세 omega도 증폭·직진 변환하지 않고 거부**한다. 저속·후진·횡·
+D22에 따라 곡선은 기본 비활성이고 `yaw_zero_threshold_rps=.04` 이하의 작은 omega만
+**0으로 줄인다**. .6m/s·1.2m lookahead·지도 1cell(.05m)의 RPP 곡률
+`2*v*y/L²=.04167rad/s`보다 작게 설정한 문턱이다. 가까운 carrot에서는 더 작은 횡편차만
+허용된다. 이 계산은 추종 정확도 증명이 아니며 GT sweep 검사는 별도다. 속도는 키우지 않는다. 저속·후진·횡·
 제자리 회전·비유한/비평면 입력도 거부한다. 첫 미지원 명령은 실행 거부를 래치해 이후 .6↔0
 반복을 금지하고 회차를 실패시킨다. RPP 속도/cost 조절은 끄되 collision 검사는 유지한다.
-접근 감속·경로 곡률 때문에 여전히 미지원 값이 나올 수 있으며 조용히 .6으로 올리지 않는다.
+접근 감속 거리도 0으로 꺼서 목표 위치/방향 허용오차로 정지한다. 설치된 Jazzy RPP
+`regulation_functions.hpp`의 `remaining_distance < approach_velocity_scaling_dist` 조건에서
+거리 0은 감속을 적용하지 않는다. collision 검사는 유지한다. 문턱 밖 곡률이나 다른 감속의
+미지원 값은 계속 거부하며 .6으로 올리지 않는다.
 `assess_commands.py`는 JSONL `input_si` 표본을 오프라인 재생해 TESTED 비율과 첫 래치 거부를
-계산한다. 합성 입력 비율을 실제 Nav2 가능성으로 보고하지 않으며 실제 지원율은 미측정이다.
+계산한다. 작은 회전 축소는 `TESTED_YAW_REDUCED`로 구분하여 원입력과 함께 기록한다.
+`replay_paths.py`는 실제 params와 사전등록 지점을 읽고 0/1mm/2cm/5cm carrot 횡편차의
+가짜 직선 경로를 재생한다. 8개 자율 회차×4 profile의 균등 합성 지원 비율이며 통계적
+성공률이 아니다. TESTED 명령 종료와 별개로 연속/총 이동 예산도 표시한다.
+`PYTHONPATH=apps/agent python3 apps/agent/tools/nav2/replay_paths.py`로 재생할 수 있다.
+실제 추종·Nav2 결과·정지/도달 성공·마감 준수는 미측정이다.
 
 프레임은 실제 `map→odom→base_footprint→base→lidar_link`를 사용한다. 없는 base_link나
 두 번째 map→odom을 만들지 않고 GT live_map의 정적 항등을 검증한다. AMCL/SLAM/map_server는

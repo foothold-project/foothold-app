@@ -61,5 +61,6 @@
   "snapshot_interval_s": 0.05,
   "tf_state_xy_tolerance_m": 0.05,
   "tf_state_yaw_tolerance_rad": 0.05,
-  "path_deviation_m": 0.05
+  "path_deviation_m": 0.05,
+  "yaw_zero_threshold_rps": 0.04
 }

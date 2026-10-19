@@ -82,6 +82,13 @@ def replay(config, point, path):
     return {'status': trial.status, 'reason': trial.reason, 'records': trial.records}
 
 
+def classify_rejection(trial, executor):
+    # A rejected command is a failed experiment even if the resulting STOP
+    # subsequently satisfies the safety trial's physical stopping criteria.
+    if executor.rejected:
+        trial.finish('FAILED', 'UNSUPPORTED_COMMAND')
+
+
 async def _execute(args, config, policy):
     # This function was NOT executed in A3a-1. Node construction occurs only here.
     from foothold_agent.ros_bridge.config import validate_isolation
@@ -261,8 +268,7 @@ async def _execute(args, config, policy):
                 frames_ready=bool(view.get('frames_ready')), single_writer=bridge.error is None,
                 resources_ok=resources_ok, lifecycle_ready=bool(view.get('lifecycle_ready')),
                 body_still=raw.get('body_still'))
-            if executor.rejected:
-                trial.finish('FAILED', 'UNSUPPORTED_COMMAND')
+            classify_rejection(trial, executor)
             if trial.status == 'NOT_STARTED':
                 if not obs.gt_clear:
                     idle_tick()

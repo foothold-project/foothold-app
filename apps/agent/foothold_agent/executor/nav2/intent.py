@@ -23,7 +23,7 @@ class Binding:
 
 
 class PolicyAdapter:
-    """Never amplify: only exact tested SI commands map to normalized axes.
+    """Never amplify: tested SI commands, with downward-only tiny-yaw projection.
 
     Values come from the reviewed config. Cross-check against the unchanged
     Core quantizer prevents a config change silently creating a different speed.
@@ -32,6 +32,11 @@ class PolicyAdapter:
     def __init__(self, config):
         self.commands = config['commands']
         self.allow_curves = config['allow_curves']
+        # D22 downward projection: .04 rad/s is below 2*.6*.05/1.2**2
+        # (one 5 cm map cell at 1.2 m lookahead); full GT sweep still required.
+        self.yaw_zero_threshold = config['yaw_zero_threshold_rps']
+        if not number(self.yaw_zero_threshold) or self.yaw_zero_threshold < 0:
+            raise ValueError('invalid downward yaw threshold')
         for item in self.commands:
             si, axes = item['si'], item['axes']
             if (len(si) != 3 or len(axes) != 3 or not all(number(x) for x in si + axes)
@@ -42,11 +47,15 @@ class PolicyAdapter:
         if (not isinstance(velocity, (tuple, list)) or len(velocity) != 3
                 or not all(number(x) for x in velocity)):
             return Z, 'INVALID_VELOCITY'
+        reduced = 0 < abs(velocity[2]) <= self.yaw_zero_threshold
+        if reduced:
+            velocity = (velocity[0], velocity[1], 0)  # reduce only; never round up vx or wz
         for item in self.commands:
             if tuple(velocity) == tuple(item['si']):
                 if velocity[2] and not self.allow_curves:
                     return Z, 'CURVE_UNVERIFIED'
-                return tuple(item['axes']), 'TESTED' if any(velocity) else 'ZERO'
+                reason = 'TESTED_YAW_REDUCED' if reduced and any(velocity) else 'TESTED'
+                return tuple(item['axes']), reason if any(velocity) else 'ZERO'
         return Z, 'UNSUPPORTED_VELOCITY'
 
 
@@ -71,6 +80,7 @@ class NavExecutor:
         self._last_receipt = float('-inf')
         self._revoked = False
         self._source_at = None
+        self._deadline_expired = False
         self.rejected = False
 
     def begin(self, binding, point):
@@ -79,6 +89,7 @@ class NavExecutor:
         with self._lock:
             self.binding = binding
             self._source_at = self.now()  # bounded first-command wait
+            self._deadline_expired = False
             self._latest = None
             self._revoked = False
             self.result = None
@@ -90,6 +101,10 @@ class NavExecutor:
         with self._lock:
             if binding != self.binding or self._revoked:
                 return False
+            # Check the PREVIOUS receipt under this same lock before replacing it.
+            # Only a new explicit goal can clear expiration; callbacks never can.
+            if self._expire_locked():
+                return False
             self._source_at = received_at
             self._sequence += 1
             self._latest = (self._sequence, received_at, tuple(velocity) if isinstance(velocity, (list, tuple)) else velocity)
@@ -99,10 +114,15 @@ class NavExecutor:
         with self._lock:
             return self._source_at
 
+    def _expire_locked(self):
+        if (self.binding is not None and self._source_at is not None
+                and not 0 <= self.now()-self._source_at <= self.dead_s):
+            self._deadline_expired = True
+        return self._deadline_expired
+
     def source_expired(self):
         with self._lock:
-            return (self.binding is not None and self._source_at is not None
-                    and not 0 <= self.now()-self._source_at <= self.dead_s)
+            return self.binding is not None and self._expire_locked()
 
     def feedback(self, binding, result):
         with self._lock:
@@ -138,7 +158,7 @@ class NavExecutor:
         self.last_velocity = velocity
         axes, self.reason = self.adapter.adapt(velocity)
         self.counts[self.reason] = self.counts.get(self.reason, 0)+1
-        if self.reason not in ('TESTED', 'ZERO'):
+        if self.reason not in ('TESTED', 'TESTED_YAW_REDUCED', 'ZERO'):
             self.rejected = True
         if self.rejected:
             self.reason = 'COMMAND_REJECTION_LATCHED'
