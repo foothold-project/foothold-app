@@ -58,7 +58,7 @@ B 를 버린 이유: 안전 Core 와 수백 개 시험, 디자인 토큰은 **�
 | 화면 CSS·칩 | `ui/src/live.css`, `app/chip.tsx` | 새 웹 앱 (칩은 상태 표시 하나로 정리) |
 | 안전 Core (deadman 0.3 s = 0 명령 + 입력 폐기·새 중립 필요, STOP 잠금·stop_gen CAS·중립 확인, 명령 단계화, 입력 검사) | `sim/v2_link.py` Core(약 84~265행) + 셀프테스트 | 로봇 에이전트 |
 | Go2 어댑터 규칙 | 기존 control-app 의 Go2 어댑터 | 로봇 에이전트 (실기 R4) |
-| 인증 방식 (scrypt, 쿠키 속성, WS 1회용 티켓, 속도 제한, 메시지마다 권한 재확인) | `sim/v2_gate.py`, `sim/app_auth.py`, 게이트 인증 모듈(이 저장소 밖 원본 — R0 전에 확보) | 관제 서버 |
+| 인증 방식 (scrypt, 쿠키 속성, WS 1회용 티켓, 속도 제한, 메시지마다 권한 재확인). WS 1회용 티켓은 후속 결정([04](04-ARCHITECTURE.md) §2.1·§7, [05 §1.2](05-API-SPEC.md#12-인증))으로 대체 — 쓰지 않는다 | `sim/v2_gate.py`, `sim/app_auth.py`, 게이트 인증 모듈(이 저장소 밖 원본 — R0 전에 확보) | 관제 서버 |
 | 계약 생성 방식 (Pydantic → JSON Schema → TS) | `contracts/v1`, `tools/generate_contracts.py` | 관제 서버 (모델은 새로) |
 | 화면 순수 로직 | `data/geom.ts`, `maps.ts`, `plan2d`, `persistDraft.ts` | 새 웹 앱 (필요한 것만) |
 | 판 충돌 규칙·부분 고유 색인 | `server/store.py`, `server/runcas.py` | PostgreSQL 설계([06](06-DB-DESIGN.md)) |
@@ -98,3 +98,4 @@ B 를 버린 이유: 안전 Core 와 수백 개 시험, 디자인 토큰은 **�
 |---|---|---|
 | 0.1 | 2026-10-19 | 최초 작성, 같은 날 채택 |
 | 0.2 | 2026-10-19 | PR #3 검토 반영 (작업 사본·외부 원본 출처 구분, deadman 현재 동작, 확인 요청 → 확정/남은 것) |
+| 0.3 | 2026-10-19 | 3.1 인증 방식의 WS 1회용 티켓 항목에 후속 결정(04·05, 티켓 쓰지 않음)으로 대체됐다는 주석 |
