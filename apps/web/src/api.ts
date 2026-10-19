@@ -38,8 +38,7 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
     try {
       res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', signal: stop.signal, body: body === undefined ? undefined : JSON.stringify(body) });
     } catch { throw cancel?.aborted ? new ApiFail(0, 'CANCELED', NETWORK) : stop.signal.aborted ? new ApiFail(0, 'TIMEOUT', SLOW) : new ApiFail(0, 'NETWORK', NETWORK); }
-    if (res.status === 204) return undefined as T;
-    data = await res.json().catch(() => null);
+    if (res.status !== 204) data = await res.json().catch(() => null);   // 204 도 아래 취소 검사를 거친다(늦게 끝난 쓰기)
   } finally { clearTimeout(timer); cancel?.removeEventListener('abort', off); }
   if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);   // 거둔 뒤 온 답(앞 세션의 401 등)은 반영하지 않는다
   if (res.ok) return data as T;
@@ -70,19 +69,20 @@ export const api = {
   me: (cancel?: AbortSignal) => call<User>('GET', '/me', undefined, { cancel }),
   /** 화면은 scope=all(02 §1.1) */
   robots: (scope: 'mine' | 'all', cancel?: AbortSignal) => pages<RobotSummary>(`/robots?scope=${scope}`, cancel),
+  // 설정 탭 요청은 cancel(로그인 세션의 취소 신호)을 받는다 — 세션이 끝난 뒤 온 답은 CANCELED 로 버려 다음 세션의 인증을 건드리지 않음
   /** 내 이름(05 §2 PATCH /me) */
-  saveMe: (p: MePatch) => call<User>('PATCH', '/me', p),
+  saveMe: (p: MePatch, cancel?: AbortSignal) => call<User>('PATCH', '/me', p, { cancel }),
   /** 성공(204)하면 서버가 이 사용자의 모든 세션(지금 기기 포함)을 끝낸다 — 부른 쪽이 로그인 화면으로 */
-  password: (p: PasswordChange) => call<void>('POST', '/me/password', p),
+  password: (p: PasswordChange, cancel?: AbortSignal) => call<void>('POST', '/me/password', p, { cancel }),
   // 계정 관리(총괄, 05 §2)
-  users: () => pages<User>('/users'),
-  createUser: (p: UserCreate) => call<User>('POST', '/users', p),
-  saveUser: (id: string, p: UserPatch) => call<User>('PATCH', `/users/${encodeURIComponent(id)}`, p),
-  deleteUser: (id: string) => call<void>('DELETE', `/users/${encodeURIComponent(id)}`),
-  sessions: (id: string) => pages<Session>(`/users/${encodeURIComponent(id)}/sessions`),
-  endSession: (id: string, sid: string) => call<void>('DELETE', `/users/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sid)}`),
-  settings: () => call<OrgSettings>('GET', '/org/settings'),
-  saveSettings: (p: OrgSettingsPatch) => call<OrgSettings>('PATCH', '/org/settings', p),
+  users: (cancel?: AbortSignal) => pages<User>('/users', cancel),
+  createUser: (p: UserCreate, cancel?: AbortSignal) => call<User>('POST', '/users', p, { cancel }),
+  saveUser: (id: string, p: UserPatch, cancel?: AbortSignal) => call<User>('PATCH', `/users/${encodeURIComponent(id)}`, p, { cancel }),
+  deleteUser: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/users/${encodeURIComponent(id)}`, undefined, { cancel }),
+  sessions: (id: string, cancel?: AbortSignal) => pages<Session>(`/users/${encodeURIComponent(id)}/sessions`, cancel),
+  endSession: (id: string, sid: string, cancel?: AbortSignal) => call<void>('DELETE', `/users/${encodeURIComponent(id)}/sessions/${encodeURIComponent(sid)}`, undefined, { cancel }),
+  settings: (cancel?: AbortSignal) => call<OrgSettings>('GET', '/org/settings', undefined, { cancel }),
+  saveSettings: (p: OrgSettingsPatch, cancel?: AbortSignal) => call<OrgSettings>('PATCH', '/org/settings', p, { cancel }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
 };

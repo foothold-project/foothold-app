@@ -19,14 +19,14 @@ const err = (status: number, code: string, message: string) => ({ status, body: 
 
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; headers: Record<string, string>; body?: unknown };
-let calls: Call[] = [], routes: Record<string, Reply | (() => Reply)> = {};
-/** 가짜 서버: '<METHOD> <경로(쿼리 제외)>' → 응답. 함수가 throw 하면 네트워크 실패 */
+let calls: Call[] = [], routes: Record<string, Reply | (() => Reply | Promise<Reply>)> = {};
+/** 가짜 서버: '<METHOD> <경로(쿼리 제외)>' → 응답. 함수가 throw 하면 네트워크 실패, Promise 면 그때까지 답을 쥠(취소 신호는 무시 — 늦은 답 재현) */
 function serve(r: typeof routes) {
   routes = r; calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '');
     calls.push({ method, path, headers: { ...(init.headers as Record<string, string>) }, body: init.body ? JSON.parse(String(init.body)) : undefined });
-    const hit = routes[`${method} ${path.split('?')[0]}`], rep = typeof hit === 'function' ? hit() : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
+    const hit = routes[`${method} ${path.split('?')[0]}`], rep = typeof hit === 'function' ? await hit() : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -68,7 +68,7 @@ describe('총괄 — 계정 관리', () => {
     serve(signedIn(KIM));
     await open();
     const rows = [...card('계정').querySelectorAll('li')].map((li) => li.textContent);
-    expect(rows).toEqual(['김총괄kim총괄 · 나로봇 0대', '이운영lee운영 관리자로봇 0대', '박운영park운영 관리자로봇 2대', '최운영choi운영 관리자■잠김로봇 0대']);
+    expect(rows).toEqual(['김총괄 kim총괄 · 나로봇 0대', '이운영 lee운영 관리자로봇 0대', '박운영 park운영 관리자로봇 2대', '최운영 choi운영 관리자■잠김로봇 0대']);
     expect($('h2', card('계정'))!.textContent).toBe('계정 (4)');
   });
 
@@ -120,7 +120,7 @@ describe('총괄 — 계정 관리', () => {
     setVal($('select[name="role"]', d)!, 'ORG_ADMIN');
     await submit($('form', d)!);
     expect(sent('PATCH', '/users/o1').map((c) => c.body)).toEqual([{ display_name: '이총괄', role: 'ORG_ADMIN' }]);
-    expect(card('계정').textContent).toContain('이총괄lee총괄');
+    expect(card('계정').textContent).toContain('이총괄 lee총괄');
     expect(d.textContent).toContain('저장했습니다.');
   });
 
@@ -138,7 +138,7 @@ describe('총괄 — 계정 관리', () => {
     await click(btn('잠그기', card('확인')));
     expect(sent('PATCH', '/users/o1').map((c) => c.body)).toEqual([{ locked: true }]);
     expect(card('계정 상세').textContent).toContain('잠갔습니다.');
-    expect(card('계정').textContent).toContain('이운영lee운영 관리자■잠김');
+    expect(card('계정').textContent).toContain('이운영 lee운영 관리자■잠김');
     expect(card('로그인 기기').textContent).toContain('로그인한 기기가 없습니다.');
     await click(btn('잠금 풀기'));
     expect(sent('PATCH', '/users/o1').map((c) => c.body)).toEqual([{ locked: true }, { locked: false }]);
@@ -190,23 +190,34 @@ describe('총괄 — 계정 관리', () => {
     expect(btn('잠그기')!.disabled).toBe(false);
   });
 
-  it('내 계정: 잠그기·지우기·역할 바꾸기 막힘 + 이유', async () => {
+  it('내 계정: 잠그기·지우기 막힘 + 이유(두 단추 모두 why-self), 이름·역할 편집기 없음', async () => {
     serve(signedIn(KIM, { 'GET /users/a1/sessions': { status: 200, body: { items: [], next_cursor: null } } }));
     await open();
     await pick('김총괄');
     const d = card('계정 상세');
-    expect([btn('잠그기', d)!.disabled, btn('지우기', d)!.disabled, $<HTMLSelectElement>('select[name="role"]', d)!.disabled]).toEqual([true, true, true]);
+    expect([btn('잠그기', d)!.disabled, btn('지우기', d)!.disabled]).toEqual([true, true]);
+    expect([$('form', d), $('select', d)]).toEqual([null, null]);
+    expect(d.textContent).toContain('내 이름은 위 «내 정보»에서 바꿉니다.');
     expect($('#why-self')!.textContent).toContain('내 계정은 잠그거나 지우거나 역할을 바꿀 수 없습니다');
-    expect(btn('잠그기', d)!.getAttribute('aria-describedby')).toBe('why-self');
+    expect([btn('잠그기', d)!.getAttribute('aria-describedby'), btn('지우기', d)!.getAttribute('aria-describedby')]).toEqual(['why-self', 'why-self']);
+    expect($('#why-del')).toBeNull();
   });
 
-  it('내 계정 이름을 목록에서 바꾸면 머리줄도 바뀜', async () => {
-    serve(signedIn(KIM, { 'GET /users/a1/sessions': { status: 200, body: { items: [], next_cursor: null } }, 'PATCH /users/a1': { status: 200, body: { ...KIM, display_name: '김대표' } } }));
+  it('B2 내 이름은 «내 정보» 한 곳에서: 바꾸고 되돌리기 왕복 — PATCH /me 만, 바뀐 칸만, 목록·상세·머리줄 같은 값', async () => {
+    serve(signedIn(KIM, { 'GET /users/a1/sessions': { status: 200, body: { items: [], next_cursor: null } },
+      'PATCH /me': () => ({ status: 200, body: { ...KIM, ...(calls[calls.length - 1].body as object) } }) }));
     await open();
     await pick('김총괄');
-    setVal($('input[name="display_name"]', card('계정 상세'))!, '김대표');
-    await submit($('form', card('계정 상세'))!);
-    expect($('.fh-me')!.textContent).toBe('김대표(총괄)');
+    const f = $('form', card('내 정보'))!, name = () => $<HTMLInputElement>('input[name="display_name"]', f)!;
+    for (const v of ['김대표', '김총괄']) {
+      setVal(name(), v);
+      await submit(f);
+      expect([$('.fh-me')!.textContent, $('h2', card('계정 상세'))!.textContent, name().value]).toEqual([`${v}(총괄)`, v, v]);
+      expect(card('계정').querySelector('li b')!.textContent).toBe(v);
+    }
+    await submit(f);   // 그대로면 안 보냄
+    expect(sent('PATCH', '/me').map((c) => c.body)).toEqual([{ display_name: '김대표' }, { display_name: '김총괄' }]);
+    expect(calls.filter((c) => c.method === 'PATCH' && c.path.startsWith('/users'))).toEqual([]);
   });
 
   it('기기 목록: 지금 쓰는 기기만, 로그아웃시키기 → DELETE 후 다시 받음', async () => {
@@ -245,7 +256,7 @@ describe('총괄 — 계정 관리', () => {
     setVal($('input[name="display_name"]', card('계정 상세'))!, '이둘');
     await submit($('form', card('계정 상세'))!);
     expect($('[role="alert"]', card('계정 상세'))!.textContent).toContain('서버에 연결하지 못했습니다');
-    expect(card('계정').textContent).toContain('이운영lee');
+    expect(card('계정').textContent).toContain('이운영 lee');
   });
 });
 
@@ -297,6 +308,12 @@ describe('내 정보(모두)', () => {
     expect($('[aria-label="로그인"]')).toBeNull();
   });
 
+  it('비밀번호 칸 근처에 띄어쓰기 안내(띄어쓰기=STOP — 전역 키는 그대로)', async () => {
+    serve(signedIn(LEE));
+    await open();
+    expect(card('비밀번호 바꾸기').textContent).toContain('띄어쓰기는 입력되지 않습니다(띄어쓰기=STOP).');
+  });
+
   it('비밀번호 바꾸기 성공(204) → 서버가 모든 세션을 끝냄 — 바로 로그인 화면 + 안내', async () => {
     serve(signedIn(LEE, { 'POST /me/password': { status: 204 } }));
     await open();
@@ -311,6 +328,47 @@ describe('내 정보(모두)', () => {
     await pw('old', 'new-pass');
     expect($('[role="alert"]', card('내 정보'))!.textContent).toContain('서버에 연결하지 못했습니다');
     expect($('[aria-label="로그인"]')).toBeNull();
+  });
+});
+
+describe('B1 앞 세션 요청의 늦은 답 — 로그아웃 → 다른 계정 로그인 뒤에 와도 버림', () => {
+  const pwForm = async () => {
+    const f = card('비밀번호 바꾸기');
+    for (const [n, v] of [['current', 'old'], ['next', 'new-pass'], ['again', 'new-pass']]) setVal($(`input[name="${n}"]`, f)!, v);
+    await submit(f);
+  };
+  it.each([
+    ['계정 목록 401', 'GET /users', err(401, 'AUTH_REQUIRED', '로그인이 필요합니다.'), async () => {}],
+    ['로그인 기기 401', 'GET /users/o1/sessions', err(401, 'AUTH_REQUIRED', '로그인이 필요합니다.'), () => pick('이운영')],
+    ['비밀번호 바꾸기(쓰기) 늦은 204', 'POST /me/password', { status: 204 }, pwForm],
+  ] as [string, string, Reply, () => Promise<void>][])('%s', async (_, route, late, start) => {
+    let me = KIM, give!: (r: Reply) => void;
+    const held = new Promise<Reply>((r) => { give = r; });
+    serve(signedIn(KIM, {
+      'GET /me': () => ({ status: 200, body: me }),
+      'GET /users/o1/sessions': { status: 200, body: { items: [], next_cursor: null } },
+      [route]: () => held,
+      'POST /auth/logout': { status: 204 },
+      'POST /auth/login': () => { me = LEE; return { status: 200, body: { ...LEE, csrf_token: 'csrf-2', access_token: null, refresh_token: null } }; },
+      'PATCH /me': { status: 200, body: { ...LEE, display_name: '이반장' } },
+    }));
+    await open();
+    await start();
+    expect(calls.some((c) => `${c.method} ${c.path.split('?')[0]}` === route)).toBe(true);   // 앞 세션에서 보낸 채 답을 기다림
+    await click(btn('로그아웃'));
+    setVal($('input[name="username"]')!, 'lee'); setVal($('input[name="password"]')!, 'pw');
+    await submit($('main[aria-label="로그인"] form')!);
+    expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
+
+    await act(async () => give(late));
+    await flush();
+    expect($('.fh-me')!.textContent).toBe('이운영(운영 관리자)');
+    expect(box.textContent).not.toMatch(/로그인이 끝났습니다|비밀번호를 바꿨습니다/);
+    const f = $('form', card('내 정보'))!;
+    setVal($('input[name="display_name"]', f)!, '이반장');
+    await submit(f);
+    expect(sent('PATCH', '/me').map((c) => c.headers['X-FH-CSRF'])).toEqual(['csrf-2']);
+    expect($('.fh-me')!.textContent).toBe('이반장(운영 관리자)');
   });
 });
 
