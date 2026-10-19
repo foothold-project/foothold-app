@@ -54,6 +54,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, logout, note, de
   // PC 조종 탭은 #/drive/<로봇 id> 이면 그 로봇 화면(F-TO-01). 폰은 머리줄에서 고른 로봇
   const open = !phone && tab === 'drive' && pool.some((r) => r.id === sub), path = open ? `#/drive/${sub}` : `#/${tab}`;
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
+  useEffect(() => { if (robot) setRid(robot.id); }, [robot?.id]);
   const [stopped, setStopped] = useState<Robot | null>(null), [light, setLight] = useState(false);   // stopped = 마지막으로 STOP 한 로봇
   // STOP 대상(F-COM-01) = 지금 화면이 가리키는 로봇: 폰은 머리줄에서 고른 로봇, PC 는 관제에서 고른 로봇·조종 화면의 로봇.
   // 그 밖(조종 목록·임무·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지

@@ -57,7 +57,7 @@ export const api = {
   /** 새로고침·새 탭: 쿠키로 CSRF 다시 받기. 401 = 로그인 안 됨 */
   async session() { const r = await call<SessionInfo>('GET', '/auth/session'); csrf = r.csrf_token; return r; },
   async logout() { await call<void>('POST', '/auth/logout'); csrf = null; },
-  me: () => call<User>('GET', '/me'),
+  me: (cancel?: AbortSignal) => call<User>('GET', '/me', undefined, { cancel }),
   /** 쪽 넘김(§1.5)을 끝까지. 화면은 scope=all(02 §1.1) */
   async robots(scope: 'mine' | 'all', cancel?: AbortSignal) {
     const all: RobotSummary[] = [];

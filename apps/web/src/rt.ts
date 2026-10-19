@@ -130,7 +130,7 @@ function deny(status: 401 | 403) {
  *  그 밖(REST 정상·안 닿음)은 원인을 단정하지 않고 늘려 가며 계속 다시 연결한다(10-19 조정 결정) */
 function probe() {
   const s = era.signal;
-  api.me().catch((e: ApiFail) => { if (!s.aborted && want && (e.status === 401 || e.status === 403)) deny(e.status); });
+  api.me(s).catch((e: ApiFail) => { if (!s.aborted && want && (e.status === 401 || e.status === 403)) deny(e.status); });
 }
 
 /** 연결이 끝남(upMs = 열려 있던 시간, -1 = 수락 전): 조종권·요청은 연결에 묶여 있어 모두 비운다(서버도 이 연결의 lease 를 쓰지 못하게 한다) */
@@ -320,7 +320,7 @@ export const rt = {
     const http = () => {
       via = 'http'; clearTimeout(late);
       api.stop(id, { ms: STOP_HTTP_MS, cancel: s }).then(() => { if (!acked) mark({ phase: 'fallback' }); }, (e: ApiFail) => {
-        if (!acked && e.code !== 'CANCELED') mark({ phase: viaWs || e.code === 'TIMEOUT' ? 'unsure' : 'failed', why: e.message });
+        if (!acked && e.code !== 'CANCELED') mark({ phase: viaWs || e.status === 0 ? 'unsure' : 'failed', why: e.message });   // status 0 = 응답을 못 받음(처리됐을 수 있음)
       });
     };
     const late = setTimeout(() => { if (via === 'ws') http(); }, STOP_WS_MS);

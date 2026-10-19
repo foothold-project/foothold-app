@@ -450,16 +450,25 @@ describe('실시간 연결(05 §9)', () => {
   describe('STOP 은 끊김 중에도 거짓 성공을 보이지 않는다', () => {
     const down = () => { mount(false, 'u-park', '#/drive/r7'); serve(PARK, 'r7'); act(() => w.drop(1006)); };
     const settle = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
-    it('대체 경로(HTTP)도 실패 → «보내지 못했습니다·현장에서 직접»', async () => {
+    it('[F1] 대체 경로(HTTP)의 응답을 못 받음(처리 뒤 연결만 끊겼을 수 있음) → «접수 확인 못함·현장에서 직접», 보내지 못했다고 단정 안 함', async () => {
       down();
       vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline'); }));
       click($('[data-stop]'));
       expect(band()).toContain('Go2-7 정지 요청을 보내는 중입니다.');
       await settle();
-      expect(band()).toContain('Go2-7 정지 요청을 보내지 못했습니다.');
+      expect(band()).toContain('Go2-7 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다.');
       expect(band()).toContain('현장에서 로봇을 직접 멈추세요');
+      expect(band()).not.toContain('보내지 못했습니다');
       expect(band()).not.toMatch(/정지 요청됨|정지 잠금/);
       expect(w.of('stop')).toHaveLength(0);
+    });
+    it('[F1] 서버가 대체 경로 STOP 을 명시적으로 거절(4xx) → «보내지 못했습니다»와 서버 문구', async () => {
+      down();
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: { code: 'FORBIDDEN', message: '이 로봇의 권한이 없습니다.', detail: {} } }), { status: 403 })));
+      click($('[data-stop]'));
+      await settle();
+      expect(band()).toContain('Go2-7 정지 요청을 보내지 못했습니다. 이 로봇의 권한이 없습니다.');
+      expect(band()).toContain('현장에서 로봇을 직접 멈추세요');
     });
     it('대체 경로 접수(202) → «정지 요청됨(대체 경로)·확인은 보이지 않음», 정지 잠금이라 하지 않음', async () => {
       down();
@@ -728,6 +737,34 @@ describe('PR #12 검토 1차', () => {
     expect(text()).not.toContain('조종하는 사람 없음');
   });
 
+  it('[F2] 폰: 조종 중에 목록 앞쪽에 새 담당 로봇이 들어와도 고른 로봇·조종권 유지', () => {
+    mount(true, 'u-park', '#/drive');
+    serve(PARK, 'r7');
+    ready();
+    expect($<HTMLSelectElement>('select[aria-label="로봇 고르기"]').value).toBe('r7');
+    act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[{ ...ROBOTS[2], owner: 'u-park' }, ...ROBOTS.slice(0, 2)]} />));
+    expect($<HTMLSelectElement>('select[aria-label="로봇 고르기"]').value).toBe('r7');
+    expect(w.of('hidden')).toHaveLength(0);
+    expect(text()).toContain('움직일 수 있음');
+    act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-park')} robots={[{ ...ROBOTS[2], owner: 'u-park' }, ROBOTS[0]]} />));   // r7 이 범위에서 빠질 때만 다른 로봇
+    expect($<HTMLSelectElement>('select[aria-label="로봇 고르기"]').value).toBe('r1');
+  });
+  it('[F3] 앞 세션의 수락 전 확인(/me)이 늦게 401 이어도 다음 사용자의 로그인을 끝내지 않음', async () => {
+    const lost = vi.fn(), answers: ((r: Response) => void)[] = [];
+    vi.stubGlobal('fetch', vi.fn((u: string) => u.endsWith('/me') ? new Promise<Response>((r) => answers.push(r)) : Promise.resolve(new Response(JSON.stringify({ csrf_token: 'B-csrf' }), { status: 200 }))));
+    rt.connect(['r7']);
+    act(() => FakeWS.last.drop(1006)); await settle();
+    expect(answers).toHaveLength(1);
+    rt.disconnect();
+    await api.login('next', 'pw');
+    setAuthLost(lost);
+    rt.connect(['r1']); act(() => FakeWS.last.open());
+    answers[0](new Response(JSON.stringify({ error: { code: 'AUTH_REQUIRED', message: '', detail: {} } }), { status: 401 }));
+    await settle();
+    expect(lost).not.toHaveBeenCalled();
+    expect(rt.link().at).not.toBe('denied');
+    rt.disconnect(); setAuthLost(() => {});
+  });
   it('[N5] 담당 로봇이 바뀌면(목록 갱신) 같은 소켓으로 sub 를 다시 보내고, 빠진 로봇은 조종권을 돌려줌', () => {
     const mine = [ROBOTS[0], { ...ROBOTS[1], owner: 'u-lee' }, ROBOTS[2]];   // r7 이 이운영 담당이 됨
     mount(false, 'u-lee', '#/drive/r7');
