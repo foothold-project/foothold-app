@@ -20,7 +20,7 @@ def ros(monkeypatch):
     for key in DDS_OVERRIDES:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.delenv("RMW_IMPLEMENTATION", raising=False)
-    trace = SimpleNamespace(events=[], subscriptions={}, qos=[], fail=threading.Event(), init=None)
+    trace = SimpleNamespace(events=[], subscriptions={}, qos=[], writers=1, fail=threading.Event(), init=None)
 
     class Context:
         alive = True
@@ -36,12 +36,17 @@ def ros(monkeypatch):
             self.angular = SimpleNamespace(x=0, y=0, z=0)
 
     class Node:
+        def count_publishers(self, topic):
+            return trace.writers
         def create_publisher(self, typ, topic, qos):
             trace.qos.append(qos)
             def publish(m):
                 value = (m.linear.x, m.linear.y, m.angular.z) if typ is Twist else None
                 trace.events.append((topic, threading.current_thread().name, value))
-            return SimpleNamespace(publish=publish)
+            def ack(duration):
+                trace.events.append(("acked", threading.current_thread().name, topic))
+                return True
+            return SimpleNamespace(publish=publish, wait_for_all_acked=ack)
         def create_subscription(self, typ, topic, callback, qos):
             trace.subscriptions[topic] = callback
             trace.qos.append(qos)
@@ -69,6 +74,7 @@ def ros(monkeypatch):
     modules = {
         "rclpy": SimpleNamespace(init=init, create_node=create_node),
         "rclpy.context": SimpleNamespace(Context=Context),
+        "rclpy.duration": SimpleNamespace(Duration=lambda **kw: kw),
         "rclpy.executors": SimpleNamespace(SingleThreadedExecutor=Executor),
         "rclpy.qos": SimpleNamespace(QoSProfile=lambda **kw: kw, HistoryPolicy=policy,
                                      ReliabilityPolicy=policy, DurabilityPolicy=policy),
@@ -96,7 +102,7 @@ def test_node_thread_qos_startup_stop_and_shutdown(ros):
         assert all(q == {"depth": 1, "history": "KEEP_LAST", "reliability": "RELIABLE",
                          "durability": "VOLATILE"} for q in ros.qos)
         assert [e[0] for e in ros.events[:2]] == ["/v2_live/cmd_vel", "/v2_live/stop"]
-        assert all(e[1] == "agent-rclpy" for e in ros.events)
+        assert all(e[1] in {"agent-rclpy", "ros-output-watchdog"} for e in ros.events)
         assert not any(e[0] == "/v2_live/resume" for e in ros.events)
         node.close()
         assert not node._thread.is_alive() and not sink._watchdog.is_alive()
@@ -104,6 +110,8 @@ def test_node_thread_qos_startup_stop_and_shutdown(ros):
         last_zero = max(i for i, e in enumerate(ros.events) if e[0] == "/v2_live/cmd_vel")
         destroy = next(i for i, e in enumerate(ros.events) if e[0] == "destroy_node")
         assert last_zero < destroy
+        acks = [i for i, e in enumerate(ros.events) if e[0] == "acked"]
+        assert len(acks) == 2 and all(last_zero < i < destroy for i in acks)
     asyncio.run(run())
 
 
@@ -143,4 +151,17 @@ def test_missing_ros_fails_start_without_network(ros, monkeypatch):
         with pytest.raises(RuntimeError):
             node.close()
         assert ros.init is None
+    asyncio.run(run())
+
+
+def test_startup_writer_conflict_prevents_ready(ros):
+    ros.writers = 2
+    async def run():
+        node = RosNode(config())
+        with pytest.raises(RuntimeError, match="writer conflict"):
+            await node.start(lambda raw: None)
+        with pytest.raises(RuntimeError):
+            node.close()
+        assert not any(e[0] == "/v2_live/resume" for e in ros.events)
+        assert any(e[0] == "/v2_live/stop" for e in ros.events)
     asyncio.run(run())

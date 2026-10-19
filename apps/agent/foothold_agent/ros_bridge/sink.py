@@ -38,6 +38,8 @@ class RosSink:
         self._resume_pending = False
         self._urgent = True
         self._last_apply = now()
+        self._stop_first = True
+        self._stop_confirmed = False
         self._last_stop = float("-inf")
         self._last_flush = now()
         self._expired = False
@@ -67,7 +69,9 @@ class RosSink:
             elif command.kind == "stop":
                 self._hold_locked(held=False)
             elif command.kind == "unlock":
-                if not self._held and self._stopped:
+                if not self._held:
+                    self._pending = Z
+                    self._stopped = True
                     self._resume_pending = True
                     self._urgent = True
             else:
@@ -75,6 +79,8 @@ class RosSink:
                 raise ValueError("unsupported motion action")
 
     def _hold_locked(self, *, held=True):
+        self._stop_first |= not self._stopped or self._resume_pending or self._stop_confirmed
+        self._stop_confirmed = False
         self._pending = Z
         self._resume_pending = False
         self._stopped = True
@@ -87,10 +93,18 @@ class RosSink:
         with self._lock:
             self._hold_locked()
 
-    def observe_stop(self):
+    def feedback_generation(self):
+        with self._lock:
+            return self._generation
+
+    def observe_stop(self, generation=None):
         """Only fresh, validated stop_requested=true feedback may release a feedback hold."""
         with self._lock:
-            self._held = False  # _stopped stays true; this never emits RESUME.
+            if generation is not None and generation != self._generation:
+                return False
+            self._held = False  # local dispatch state is not physical feedback
+            self._stop_confirmed = True
+            return True
 
     def check_health(self):
         if self.error is not None:
@@ -110,6 +124,7 @@ class RosSink:
                             self.error = exc
             with self._lock:
                 self._last_stop = self.now()
+                self._stop_first = False
 
     def check_watchdog(self):
         trip = False
@@ -158,13 +173,16 @@ class RosSink:
                         with self._lock:
                             if generation == self._generation:
                                 self._stopped = False
+                                self._stop_confirmed = False
                 with self._lock:
                     velocity = Z if self._stopped or self._held or self._closed.is_set() else self._pending
                 self._velocity(velocity)
                 with self._lock:
                     superseded = generation != self._generation
-                    stop_due = self._stopped and self.now() - self._last_stop >= 0.5
+                    stop_due = self._stopped and (self._stop_first or (
+                        not self._stop_confirmed and self.now() - self._last_stop >= 0.5))
                     if stop_due:
+                        self._stop_first = False
                         self._last_stop = self.now()
                 if superseded:
                     self._emergency()

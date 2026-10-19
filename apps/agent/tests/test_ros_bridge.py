@@ -164,7 +164,10 @@ def test_watchdog_runs_when_asyncio_loop_is_blocked():
         try:
             activate(sink, outputs)
             sink.apply(MotionCommand(velocity=(0.6, 0, 0)))
-            sink.flush()  # real clock: flush at next 20 Hz tick not required for deadline
+            time.sleep(.06)
+            sink.flush()
+            assert ("velocity", (.6, 0, 0)) in outputs
+            sink.apply(MotionCommand(velocity=(.6, 0, 0)))
             outputs.clear()
             time.sleep(0.37)  # deliberately block the owning asyncio loop
             assert ("velocity", Z) in outputs and ("stop",) in outputs
@@ -365,7 +368,7 @@ def test_measured_telemetry_no_fabricated_values_odom_never_map():
     assert telemetry.snapshot() == {"speed": None, "speed_source": None,
         "battery": {"soc": None}, "location": None, "observation": None}
     telemetry.update_state(state(), 0)
-    telemetry.update_odom({"frame_id": "odom", "child_frame_id": "base", "sim_t": 1,
+    telemetry.update_odom({"frame_id": "odom", "child_frame_id": "base", "clock": "simulation", "sim_t": 1,
         "received_monotonic_s": 0, "x": 50, "y": 60, "vx": 10, "vy": 10, "wz": 1})
     telemetry.update_map(status(), 0)  # no explicitly verified binding
     snap = telemetry.snapshot()
@@ -417,7 +420,7 @@ def test_map_and_odom_source_time_rewind_quarantines_display():
     assert telemetry.snapshot()["location"] is None
     telemetry.update_map(status(), 0)
     assert telemetry.snapshot()["location"] is None
-    odom = {"frame_id": "odom", "child_frame_id": "base", "sim_t": 1,
+    odom = {"frame_id": "odom", "child_frame_id": "base", "clock": "simulation", "sim_t": 1,
         "received_monotonic_s": 0, "x": 5, "y": 6, "vx": 1, "vy": 1, "wz": 0}
     telemetry.update_odom(odom)
     assert telemetry.odom is not None

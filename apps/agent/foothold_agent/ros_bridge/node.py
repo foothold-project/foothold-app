@@ -84,10 +84,12 @@ class Inputs:
                 return
         accepted = self.gate.accept(raw, received_at, self.now())
         if accepted is None:
+            if self.gate.reason == "duplicate_stamp":
+                return  # no refresh, no hold; receipt/state stale clocks still expire
             self.reject(self.gate.reason)
             return
         self.last_state = received_at
-        self.mailbox.put(state=(accepted, received_at))
+        self.mailbox.put(state=(accepted, received_at, self.sink.feedback_generation()))
 
     def stale(self):
         if self.last_state is not None and self.now() - self.last_state > STATE_STALE:
@@ -100,7 +102,7 @@ class Inputs:
                 self.telemetry.invalidate(bundle["invalid"])
             item = bundle.get("state")
             if item is not None:
-                raw, receipt = item
+                raw, receipt, generation = item
                 if not 0 <= self.now() - receipt <= STATE_STALE:
                     self.sink.hold()
                     self.telemetry.invalidate("mailbox_stale")
@@ -108,7 +110,7 @@ class Inputs:
                 if raw["reset_in_progress"]:
                     self.sink.hold()
                 elif raw["stop_requested"]:
-                    self.sink.observe_stop()
+                    self.sink.observe_stop(generation)
                 self.telemetry.update_state(raw, receipt)
                 self.on_state(raw)  # existing public Client entrypoint, owning asyncio loop
             if "odom" in bundle:
@@ -122,6 +124,24 @@ class Inputs:
                 self.on_error(exc)
             else:
                 raise
+
+
+COMMAND_TOPICS = ("/v2_live/cmd_vel", "/v2_live/stop", "/v2_live/resume")
+
+
+def require_single_writer(node):
+    counts = {topic: node.count_publishers(topic) for topic in COMMAND_TOPICS}
+    if any(count != 1 for count in counts.values()):
+        raise RuntimeError(f"command writer conflict: {counts}")
+
+
+def wait_for_stop_acks(publishers, duration, *, now=time.monotonic):
+    """One shared second for reliable ZERO/STOP acknowledgements, before destroy."""
+    deadline = now() + 1.0
+    for publisher in publishers:
+        remaining = max(0.0, deadline - now())
+        if not publisher.wait_for_all_acked(duration(seconds=remaining)):
+            raise RuntimeError("shutdown ZERO/STOP acknowledgement timed out")
 
 
 class RosNode:
@@ -160,10 +180,13 @@ class RosNode:
 
     def _run(self, on_state):
         context = node = executor = None
+        stop_publishers = ()
+        Duration = None
         try:
             validate_isolation()
             import rclpy
             from rclpy.context import Context
+            from rclpy.duration import Duration
             from rclpy.executors import SingleThreadedExecutor
             from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy, HistoryPolicy
             from geometry_msgs.msg import Twist
@@ -180,6 +203,7 @@ class RosNode:
             velocity = node.create_publisher(Twist, "/v2_live/cmd_vel", qos)
             stop = node.create_publisher(Empty, "/v2_live/stop", qos)
             resume = node.create_publisher(Empty, "/v2_live/resume", qos)
+            stop_publishers = (velocity, stop)
             self.sink = RosSink(lambda v: velocity.publish(twist_message(v, Twist)),
                                 lambda: stop.publish(Empty()), lambda: resume.publish(Empty()), now=self.now)
             self.inputs = Inputs(self._loop, self.sink, on_state, now=self.now, on_error=self._notify_failure)
@@ -187,7 +211,8 @@ class RosNode:
 
             def odom(m):
                 self.inputs.mailbox.put(odom={
-                    "sim_t": m.header.stamp.sec + m.header.stamp.nanosec * 1e-9,
+                    "header_stamp": m.header.stamp.sec + m.header.stamp.nanosec * 1e-9,
+                    "clock": "unverified",
                     "received_monotonic_s": self.now(), "frame_id": m.header.frame_id,
                     "child_frame_id": m.child_frame_id, "x": m.pose.pose.position.x,
                     "y": m.pose.pose.position.y, "vx": m.twist.twist.linear.x,
@@ -205,9 +230,17 @@ class RosNode:
             executor = SingleThreadedExecutor(context=context)
             executor.add_node(node)
             self.sink.flush()  # startup ZERO/STOP before network connection/hello
+            # Discovery settles before ready/network; later conflicts are terminal too.
+            startup_until = time.monotonic() + 0.5
+            while time.monotonic() < startup_until and not self._closing.is_set():
+                executor.spin_once(timeout_sec=0.01)
+                require_single_writer(node)
+                self.sink.flush()
+            require_single_writer(node)
             self._loop.call_soon_threadsafe(self._set_ready)
             while not self._closing.is_set():
                 executor.spin_once(timeout_sec=0.01)
+                require_single_writer(node)
                 self.inputs.stale()
                 self.sink.flush()
         except BaseException as exc:
@@ -221,6 +254,12 @@ class RosNode:
             # Publishers/context stay alive until the emergency watchdog has stopped.
             if self.sink is not None:
                 self.sink.close()
+            try:
+                if stop_publishers:
+                    wait_for_stop_acks(stop_publishers, Duration)
+            except BaseException as exc:
+                self.error = self.error or exc
+                self._loop.call_soon_threadsafe(self._set_failed, exc)
             try:
                 if executor is not None:
                     executor.shutdown(timeout_sec=0.2)
@@ -249,7 +288,7 @@ class RosNode:
         if self.sink is not None:
             self.sink.close()
         if self._thread is not None:
-            self._thread.join(timeout=0.5)
+            self._thread.join(timeout=1.5)
             if self._thread.is_alive():
                 raise RuntimeError("ROS executor did not stop; emergency output attempted")
         if self.sink is not None:

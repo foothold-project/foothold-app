@@ -23,7 +23,7 @@ def number(value):
 class StateGate:
     """ROS-thread validator. A rewind quarantines an episode until a newer episode.
 
-    Even equal simulation stamps are rejected: a replay/paused simulator must
+    Equal stamps are ignored by Inputs without a hold or clock refresh: a replay/paused simulator must
     not keep a moving Core alive merely by refreshing the receipt timestamp.
     """
 
@@ -98,6 +98,7 @@ class Telemetry:
         self.binding = binding
         self.state = None
         self.location = None
+        self.odom_reason = "unseen"
         self.odom = None  # base-origin observation, NEVER a substitute for map pose or COM speed
         self.events = deque(maxlen=30)
         self._reason = None
@@ -135,6 +136,11 @@ class Telemetry:
         # No episode field exists on ROS Odometry. Associate only with current
         # accepted state, a coherent sim stamp, and the same receipt freshness.
         s = self.state
+        if sample.get("clock") != "simulation":
+            self.odom = None
+            self.odom_reason = "clock_unverified"
+            return
+        self.odom_reason = "invalid_or_stale"
         if (s is None or sample.get("frame_id") != "odom" or sample.get("child_frame_id") != "base"
                 or not self._coherent(sample.get("sim_t"), sample.get("received_monotonic_s"))
                 or not all(number(sample.get(k)) for k in ("x", "y", "vx", "vy", "wz"))):
@@ -147,6 +153,7 @@ class Telemetry:
             self.odom = None
             return
         self._odom_stamp = stamp
+        self.odom_reason = None
         self.odom = {**deepcopy(sample), "episode": s["episode"], "source": "odom_base"}
 
     def _coherent(self, stamp, receipt):

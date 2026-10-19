@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 import os
+from pathlib import Path
 from uuid import UUID
 
 from foothold_agent.link.client import Settings
@@ -15,7 +16,7 @@ REQUIRED_ENV = {
 DDS_OVERRIDES = (
     "ROS_STATIC_PEERS", "ROS_DISCOVERY_SERVER", "CYCLONEDDS_URI",
     "FASTRTPS_DEFAULT_PROFILES_FILE", "FASTDDS_DEFAULT_PROFILES_FILE",
-    "RMW_FASTRTPS_USE_QOS_FROM_XML",
+    "RMW_FASTRTPS_USE_QOS_FROM_XML", "FASTDDS_ENVIRONMENT_FILE",
 )
 
 
@@ -26,6 +27,8 @@ def validate_isolation(env=None):
             raise ValueError(f"simulation requires {name}={value}")
     if any(env.get(name) for name in DDS_OVERRIDES):
         raise ValueError("custom DDS discovery/profile overrides are forbidden")
+    if any(Path(name).exists() for name in ("DEFAULT_FASTDDS_PROFILES.xml", "DEFAULT_FASTRTPS_PROFILES.xml")):
+        raise ValueError("automatic DDS profiles in the working directory are forbidden")
     if env.get("RMW_IMPLEMENTATION", "rmw_fastrtps_cpp") not in {
         "rmw_fastrtps_cpp", "rmw_cyclonedds_cpp",
     }:

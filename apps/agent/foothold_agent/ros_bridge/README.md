@@ -19,7 +19,8 @@ Gazebo·정책·RESET·Nav2·실기 SDK를 실행하거나 연결하는 코드�
 | `FOOTHOLD_AGENT_WS_URL` | 기존 Settings 검증을 통과하는 서버 URL |
 | `FOOTHOLD_AGENT_TOKEN` | 기존 Settings 검증을 통과하는 Bearer 토큰 |
 
-DDS discovery server·static peers·외부 Cyclone/FastDDS 프로필 덮어쓰기는 거부한다.
+DDS discovery server·static peers·외부 Cyclone/FastDDS 프로필 및 FASTDDS_ENVIRONMENT_FILE을
+거부한다. CWD의 DEFAULT_FASTDDS_PROFILES.xml/DEFAULT_FASTRTPS_PROFILES.xml도 거부한다.
 지원 RMW는 FastDDS와 CycloneDDS뿐이다. ROS 인자/전역 remap은 사용하지 않으며
 별도 Context를 `domain_id=93`으로 초기화하기 직전에도 격리를 다시 검사한다.
 WSS 연결은 서버 통신이며 ROS 발견 범위와 별개다. 토큰이 어느 로봇에 속하는지의
@@ -48,20 +49,23 @@ PYTHONPATH=apps/agent python3 -m foothold_agent.ros_bridge
 - `apply()`는 짧은 메모리 잠금만 사용한다. ROS 발행 잠금이나 ROS 호출을 기다리지
   않는다. 정상 출력은 ROS 스레드가 20 Hz로 발행한다. STOP/unlock은 다음 spin에서
   처리한다(목표 10 ms 이내, 실시간 마감 보장 아님).
-- STOP은 대기 비영·RESUME을 버리고 0/STOP을 요청한다. 반복 STOP 발행은 최대 2 Hz다.
+- STOP은 대기 비영·RESUME을 버리고 0/STOP을 요청한다. 새 정지 전환의 첫 STOP은 직전 발행 시각과 무관하게 즉시 내고, 같은 미확인 STOP의
+  재전송만 최대 2 Hz로 제한한다. 신선한 STOP 확인 뒤 재전송은 멈춘다.
   이미 발행에 진입한 명령과 STOP이 경합하면 같은 flush가 끝나기 전에 0/STOP을
   다시 시도한다. 전송 중인 명령을 취소할 수 있다고 주장하지 않는다.
 - Core가 승인하여 포트에 넘긴 unlock만 RESUME을 한 번 발행한다. 실패한 RESUME도
-  재시도하지 않는다. 이후 실제 시뮬 확인·새 중립은 Core가 계속 판단한다.
+  재시도하지 않는다. 시뮬 자체 STOP 뒤에도 Core의 새 승인을 로컬 정지 플래그 때문에
+  버리지 않는다. unlock 수신 시 이전 속도는 폐기한다. 이후 시뮬 확인·새 중립은 Core가 판단한다.
 - 독립 watchdog은 별도 Python 스레드에서 5 ms 간격으로 확인한다. 마지막 **apply**
   뒤 `>=0.3 s`면 대기 명령 폐기·0/STOP이다. stop/unlock은 이 시계를 늘리지 않는다.
   ROS flush가 0.3 s 진행하지 않으면 fresh apply가 있어도 출력 오류로 종료한다.
   executor/콜백 오류와 shutdown도 0/STOP을 각각 시도하고 오류를 숨기지 않는다.
-- 나쁜/오래된 수신은 즉시 출력 hold를 건다. 신선한 실제 STOP 확인 뒤 새 승인
+- 나쁜/오래된 수신은 즉시 출력 hold를 건다. 수신 때의 출력 세대와 일치하는 신선한 실제 STOP 확인 뒤 새 승인
   unlock이 있어야 비영 경로가 열린다. 다리가 Core의 latch/controller/세대를 쓰지 않는다.
 - `rclpy` 생성·spin·일반 발행·destroy는 전용 스레드에서 한다. 독립 watchdog과
   shutdown의 비상 0/STOP만 thread-safe publisher를 사용할 수 있다.
-  이벤트 루프나 executor spin 정지는 감시하지만, 프로세스 전체 정지·GIL 독점·OS
+  종료 비상 0/STOP 뒤 reliable ACK를 전체 최대 1초 기다린 후 node를 파괴한다.
+  ACK 시간 초과는 오류로 남긴다. 이벤트 루프나 executor spin 정지는 감시하지만, 프로세스 전체 정지·GIL 독점·OS
   스케줄링 지연·영구히 멎은 publisher API는 같은 프로세스 스레드로 보장할 수 없다.
   하위 ingress TTL은 별도 방어이며 이 감시 시험을 대신하지 않는다.
 
@@ -70,19 +74,27 @@ PYTHONPATH=apps/agent python3 -m foothold_agent.ros_bridge
 QoS는 reliable/volatile/KEEP_LAST depth 1이다. 기존 depth 10 계약과 통신 가능한
 reliability/durability를 유지하면서 오래된 출력·수신 큐를 제한한다.
 
+기동 후 0.5초 동안, 그리고 실행 중 매 spin마다 세 명령 토픽의 publisher 수가
+정확히 1인지 확인한다. 충돌/확인 불가는 ready/서버 연결 전에 실패하거나 실행 중
+terminal 0/STOP으로 종료한다. ROS graph 관측이며 전역 배타 예약을 증명하지 않는다.
+
 ROS 콜백은 Core를 호출하지 않는다. state/odom/map 최신 캐시를 크기 1 bundle로
 합치고, 예약 callback도 한 개만 두어 `loop.call_soon_threadsafe()`로 전달한다.
 거부 사유는 drain까지 보존하므로 뒤의 정상 표본이 무효화를 지우지 못한다.
 소유 루프에서 실제 수신 나이를 다시 검사한 뒤 기존 `Client.on_robot_state()`로
 넣는다. schema·관문 타입·유한 숫자·episode 순서·sim 시각·수신 나이를 검사하고
-Core의 `clean_state`는 그대로 재사용한다. 동일 sim stamp 재생도 거부하며,
+Core의 `clean_state`는 그대로 재사용한다. 동일 sim stamp는 hold/STOP 없이 버리고 수신·Core stale 시계를 갱신하지 않는다.
+반복되어 1초를 넘으면 기존 stale 관문으로 정지한다. 한 번의 중복은 잠금을 만들지 않으며,
 같은 episode의 시각 역행은 더 큰 episode가 올 때까지 격리한다.
 
 ## 원격측정과 B 단계 필요 변경
 
 `Telemetry.snapshot()`은 **로컬 정제 캐시**이며 새 WS 메시지가 아니다.
 속력은 state의 body COM `hypot(vx,vy)`(m/s)로 정의한다. odom은 base 원점
-측정임을 별도로 보관하며 COM 속도나 map 위치로 바꾸지 않는다.
+측정임을 구분하며 COM 속도나 map 위치로 바꾸지 않는다. 실제 원천의 header는
+wall clock일 수 있어 node는 header_stamp/clock=unverified로 전달하고, 정제 캐시는
+odom=null·odom_reason=clock_unverified를 유지한다. sim 시계로 이름을 바꾸거나
+추측 변환하지 않는다. 명시적으로 검증한 simulation clock 표본만 캐시에 허용한다.
 원천 sim 시각·수신 monotonic·episode·source를 함께 보관한다.
 시각 역행·RESET·stale에는 null로 비운다. odom/map 시각 역행도 해당 episode에서
 격리한다. confidence·battery는 null이며 미측정 속도를 0으로 만들지 않는다.
@@ -110,6 +122,9 @@ PR #13 반영 뒤 별도 B 단계에서 필요한 변경:
 
 - 현재 기준 link의 4406 처리와 최신 05 §10.3 요구 사이 차이는 PR #13 소유다.
   이 작업에서 link를 수정하지 않았다.
+- 시뮬 재기동으로 episode가 초기화되면 다리도 명시적으로 재기동해야 한다.
+  오래된 episode 거부를 자동 해제하면 늦은 이전 실행 표본을 새 상태로 오인할 수 있어
+  자동 복원은 추가하지 않았다. 새 다리는 다시 잠금·STOP부터 시작한다.
 - Odometry에는 episode가 없다. 현재 state와 stamp가 맞는 로컬 관측으로만 보관하고
   안전 관문·map 위치로 사용하지 않는다. 리셋 전후 동일 stamp의 완전한 식별은
   원천의 episode 추가 등 별도 계약 없이는 할 수 없다.
@@ -121,7 +136,7 @@ PR #13 반영 뒤 별도 B 단계에서 필요한 변경:
 - STOP 송신·Core stop_ref·0 출력은 몸의 정지 확인이 아니다. 실제 정지 거리·낙상·
   보행·다중 시뮬 동시 실행은 미검증이다.
 
-## 실행한 검증 (2026-10-19)
+## 실행한 검증 (2026-10-19–20)
 
 기존 WS 선택 의존성을 설치한 임시 Python 3.12 가상환경을 사용했다.
 기본 시험은 ROS 없이 실행하며 합성 시험만 명시 opt-in이다.
@@ -132,8 +147,8 @@ python apps/agent/tools/check_link_mutations.py
 PYTHONPATH=apps/agent python -m foothold_agent.ros_bridge.check_mutations
 ```
 
-최종 결과: 전체 **255 passed, 1 skipped**(합성 ROS는 기본 opt-in 제외),
-기존 link 돌연변이 **46/46 KILLED**, 새 ROS 다리 돌연변이 **18/18 KILLED**.
+최종 결과: 전체 **269 passed, 1 skipped**(합성 ROS는 기본 opt-in 제외),
+기존 link 돌연변이 **46/46 KILLED**, 새 ROS 다리 돌연변이 **27/27 KILLED**.
 기존 Core 셀프테스트와 WS 실제 loopback 시험을 모두 포함한다.
 
 합성 명령(동일 가상환경의 python):
@@ -148,8 +163,13 @@ ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_LOCALHOST_ONLY=1 \
 실행 전 시험 자체가 `/proc/*/environ`과 `ss -H -lun`을 다시 읽어 domain 93
 프로세스 0, DDS 후보 UDP 30650–30899 바인딩 0을 확인했다. 읽기 제한/경합 프로세스는
 별도로 보고했으며 배타 예약이나 다른 호스트 부재의 증명으로 쓰지 않는다.
-합성 peer와 다리만 만들었고, 명령 매핑·STOP·RESUME 1회·루프 차단 중 watchdog을
-확인했다. **1 passed**. Jazzy는 LOCALHOST_ONLY deprecated 경고를 출력했으며
+합성 ingress peer와 실제 Session/Client/Core를 연결해 STOP 확인→승인 RESUME 1회→
+false 피드백→새 중립→SI 비영 발행을 확인했다. 실제 비영 수신을 전제로 소유 루프를
+차단하고 독립 peer가 마지막 apply 뒤 0.28~0.38초 내 0/STOP을 수신하는지 측정한다.
+이 단계에서만 ROS flush의 보조 watchdog 검사를 시험 fixture가 제외하므로, 독립
+감시 스레드를 60초 지연한 사본은 같은 합성 시험에서 assertion으로 실패한다.
+실측은 Twist 0=0.3032초, STOP=0.3034초였다.
+합성 중 두 번째 cmd writer 생성도 terminal 거부됨을 확인한다. **1 passed**. Jazzy는 LOCALHOST_ONLY deprecated 경고를 출력했으며
 설정을 적용한다고 명시했다. Gazebo·정책·RESET·운영 서버·domain 61 참가·실기 접촉 0.
 
 돌연변이는 임시 사본만 바꾼다. 구조화된 pytest 관측에서 assertion 실패가 있고
@@ -169,6 +189,14 @@ ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_LOCALHOST_ONLY=1 \
 | ROS executor 정지 무시 | KILLED |
 | shutdown 비상 출력 삭제 | KILLED |
 | thread 오류 비상 출력 삭제 | KILLED |
+| B1 새 STOP을 이전 재전송 제한에 묶음 | KILLED |
+| B2 외부 STOP 뒤 승인 unlock 소실 | KILLED |
+| R-1 동일 stamp를 hold/STOP으로 처리 | KILLED |
+| R-3 명령 writer 충돌 허용 | KILLED |
+| R-5 이전 STOP 확인으로 새 hold 해제 | KILLED |
+| R-7 미확인 odom clock 사유 소실 | KILLED |
+| R-8 ACK timeout 무시 / node ACK 대기 삭제 (각 1개) | KILLED |
+| R-9 CWD DDS 프로필 자동 읽기 허용 | KILLED |
 | 이전 episode 수락 | KILLED |
 | NaN 수락 | KILLED |
 | sim 시각 역행 수락 | KILLED |
@@ -178,3 +206,18 @@ ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_LOCALHOST_ONLY=1 \
 
 이 PR은 안전 범위다. `dev` 반영 전 Claude·Codex 두 모델 검토와 조정 세션의
 수용 기준 재실행이 필요하다. 초안 PR 제출은 merge나 배포를 뜻하지 않는다.
+
+PR15 두 모델 검토 수정은 위 27개 stub 변이와 별도 **R-4 합성 변이 1/1 KILLED**로
+검증했다. 합성 변이 관측 부모는 domain93 참가자가 아니므로 부모의 ROS_DOMAIN_ID를
+설정하지 않고, 도구가 자식에게만 93/LOCALHOST/opt-in을 주입한다:
+
+```sh
+source /opt/ros/jazzy/setup.bash
+# 부모 프로세스는 ROS_DOMAIN_ID 등 3개 격리 변수와 FOOTHOLD_ROS_SYNTHETIC 미설정
+PYTHONPATH="apps/agent:${PYTHONPATH:-}" PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+  python -m foothold_agent.ros_bridge.check_mutations --synthetic
+```
+
+검토 권고 처리: R-5 세대 검사, R-7/Codex R2 clock 미확인 null, R-8 ACK 대기,
+R-9 자동 프로필 거부는 구현했다. R-6은 위 재기동 절차를 명시하고 자동 episode
+초기화는 안전상 도입하지 않았다. B 단계 서버 원격측정/지도 계약 범위는 그대로다.
