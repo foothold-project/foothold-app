@@ -2,11 +2,31 @@
 from contextlib import contextmanager
 from pathlib import Path
 import socket
+import os
 import tempfile
 
 from pgserver import initdb, pg_ctl
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL
+
+
+# Optional constrained loopback range for supervised workers. Existing callers
+# still request an OS-selected loopback socket; only their allocation is scoped.
+if os.environ.get('FH_TEST_PORT_RANGE'):
+    _first, _last = map(int, os.environ['FH_TEST_PORT_RANGE'].split(':'))
+    if not 1024 <= _first <= _last <= 65535:
+        raise ValueError('invalid FH_TEST_PORT_RANGE')
+    _bind = socket.socket.bind
+    def _test_bind(sock, address):
+        if address == ('127.0.0.1', 0):
+            for candidate in range(_first, _last + 1):
+                try:
+                    return _bind(sock, ('127.0.0.1', candidate))
+                except OSError:
+                    continue
+            raise OSError('FH_TEST_PORT_RANGE exhausted')
+        return _bind(sock, address)
+    socket.socket.bind = _test_bind
 
 
 @contextmanager

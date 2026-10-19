@@ -1,4 +1,4 @@
-# 관제 서버 — 골격과 실시간 (W2-A · W3-B)
+# 관제 서버 — 계정·로봇·실시간
 
 정본: `docs/spec/04-ARCHITECTURE.md`, `05-API-SPEC.md`, `06-DB-DESIGN.md`.
 저장소 루트에서 실행한다. Python 3.12, PostgreSQL 16을 사용한다.
@@ -98,10 +98,14 @@ SELECT/INSERT 및 시퀀스 사용 권한만 부여한다. `fh_app`은 도메인
   ApiError 형식으로 돌려주며 SQL·입력 원문·예외 상세를 응답하지 않는다.
 
 조정 세션이 확인한 명세 해석: `scope=all`과 `/robots/{id}`는 조직 안 다른 담당자의
-로봇도 **관제 요약 객체만** 허용한다. 다른 조직·없는 ID는 404다. 이번 골격에서는 모든
-로봇 응답이 동일한 요약 필드만 제공한다. 상세·기록 기능을 추가할 때 담당 밖의
-원격측정·실행·사건·사진 ID는 404로 숨겨야 한다. 현재 수신 상태가 없으므로
-`connection=OFFLINE`, 그 밖의 미수신 값은 null, 장치·주의 목록은 빈 목록이다.
+로봇도 **관제 요약 객체만** 허용한다. 다른 조직·없는 ID는 404다. 담당 밖의 운영자에게는 식별 정보·담당자만 제공하고 실시간 요약값은 숨긴다
+(`connection=OFFLINE`, 상태·배터리·위치·조종권·실행은 null, 장치·주의는 빈 목록).
+담당자·총괄의 목록과 상세에는 현재 에이전트 연결, 마지막 유효 state의 상태·배터리·pose,
+중재기의 현재 lease를 반영한다. 연결이 끊기면 OFFLINE으로 바뀌고 마지막 state의 측정값은
+그 갱신 시각과 함께 메모리에 남는다(프로세스 재시작 뒤에는 미수신 null).
+pose의 각 null은 그대로 보존하며 `map_version_id`가 없으면 null이다. 서버가 지도 판을 추측하지 않는다.
+실행 기능이 없어 `current_run=null`이다. `robot_devices`는 hello 및 `devices_changed`로 저장하고,
+목록에서 빠진 기존 장치는 MISSING으로 보관한다.
 
 티켓·지도·임무·결재·기록 조회·CSV·원격측정 REST API는 구현하지 않았다.
 WS·에이전트 연결·조종권·STOP의 구현 범위는 아래 실시간 절을 따른다.
@@ -122,7 +126,9 @@ npm run --prefix apps/contracts typecheck
 
 pytest는 venv의 `pgserver` wheel에 들어 있는 PostgreSQL 16 바이너리를 사용한다
 ([원본 프로젝트](https://github.com/orm011/pgserver)). sudo·Docker·시스템 PostgreSQL은 필요 없다.
-매 실행 임시 데이터 폴더·임시 포트 번호·전용 Unix socket을 만들고 TCP에는 listen하지 않는다.
+매 실행 임시 데이터 폴더·임시 포트 번호·전용 Unix socket을 만들고 DB는 TCP에는 listen하지 않는다.
+`FH_TEST_PORT_RANGE=9040:9059`를 지정하면 DB 번호와 실제 uvicorn 시험의 loopback 포트 할당을
+그 범위로 제한한다. 지정하지 않으면 OS가 빈 포트를 고른다.
 관리자와 별개인 `fh_migrate`로 마이그레이션하고, HTTP 시험은 실제 `fh_app`으로 접속한다.
 `finally`에서 PostgreSQL 종료를 기다린 뒤 임시 폴더를 제거한다. SQLite 대체는 없다.
 
@@ -150,6 +156,28 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
 
 
 ## 실시간 연결 (W3-B)
+
+로봇 등록은 총괄만 `POST /robots {name, owner_user_id?}`로 한다. 응답은 201
+`{robot, agent_token}`과 `Cache-Control: no-store`이며 원문 토큰은 이때 한 번만 반환한다.
+DB와 사건에는 sha256만 저장하며 조회·수정 응답에는 토큰이 없다. 기본 model은
+`unitree_go2`, hello가 실제 model을 보내면 갱신한다. 담당자는 같은 조직의 잠기지 않은
+운영 관리자 한 명 또는 null이다. 총괄의 `PATCH /robots/{id}`로 이름·담당을 바꾼다.
+`DELETE /robots/{id}`는 보관 처리로 기록을 유지하며 조종권·넘김·진행 중 실행이 있으면
+409 VERSION_CONFLICT다. 삭제 시 토큰을 무효화하고 열린 에이전트 연결을 4403으로 닫는다.
+수정·삭제는 실시간 소유 프로세스로 보내야 한다(소유 중재기 없음·변경 중이면 503 SERVER_BUSY).
+
+담당 변경·해제는 기존 `lease=null → stop`을 먼저 enqueue하여 옛 조종권과 대기 요청을
+폐기한다. 그 뒤 `{t:"subscription.revoked",robot,reason:"ACCESS_REVOKED"|"ROBOT_DELETED"}`를
+보내고 해당 로봇만 구독에서 뺀다. 같은 화면의 다른 로봇 구독과 연결은 유지한다.
+화면 proto는 fh-rt/1 그대로이며 기존 웹은 모르는 t를 무시한다(알림 표시는 후속 W2).
+세션 폐기는 기존 4401, 명시적인 범위 밖 `sub` 재시도 거부는 기존 4403이다.
+새 담당자가 조종권을 자동으로 받거나 총괄이 강제로 인수하는 기능은 추가하지 않았다.
+
+`GET /dashboard`는 총괄에게 조직 전체, 운영자에게 담당 로봇의 total·online·attention을
+반환한다. attention은 OFFLINE·배터리 기준 미만·ERROR·STOP_LATCHED·장치 ERROR 중
+하나라도 있는 로봇 수다(중복 합산 없음). `robots_running=0`, `approvals_pending=0`은
+실행·결재 구현 전의 값이다. `operators`는 총괄에게 운영자별 담당 로봇 수를, 운영자에게
+빈 배열을 반환한다. 장치 저장은 migration 0006으로 추가한다.
 
 하나의 조직은 서버 프로세스 **1개**로 실행한다(`uvicorn --workers 1`).
 시작 때 전용 PostgreSQL 세션 advisory lock을 얻은 프로세스만 실시간 중재기를 연다.

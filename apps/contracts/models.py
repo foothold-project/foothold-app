@@ -132,12 +132,12 @@ class Battery(Contract):
 
 
 class Location(Contract):
-    floor_id: UUID
-    map_version_id: UUID
-    x: float
-    y: float
-    yaw: float
-    confidence: float = Field(ge=0, le=1)
+    floor_id: UUID | None
+    map_version_id: UUID | None
+    x: float | None
+    y: float | None
+    yaw: float | None
+    confidence: Annotated[float, Field(ge=0, le=1)] | None
     updated_at: UTCDateTime
 
 
@@ -301,6 +301,13 @@ class AgentHello(AgentInput):
     robot_model: str | None
     firmware: str | None
     devices: list[Device]
+
+    @model_validator(mode="after")
+    def unique_devices(self):
+        if len({d.key for d in self.devices}) != len(self.devices):
+            raise ValueError("duplicate device key")
+        return self
+
     map_versions: list[str]
     last_floor_id: UUID | None
     latched: bool = Field(strict=True)
@@ -310,6 +317,7 @@ class AgentHello(AgentInput):
 
 
 class AgentPose(AgentInput):
+    map_version_id: UUID | None = None
     floor_id: UUID | None
     x: float | None
     y: float | None
@@ -474,6 +482,42 @@ class ScreenState(Contract):
     applied: Vector3 | None
 
 
+class RobotCreate(Contract):
+    name: str = Field(min_length=1, max_length=128)
+    owner_user_id: UUID | None = None
+
+
+class RobotPatch(Contract):
+    name: str = omitted(min_length=1, max_length=128)
+    owner_user_id: UUID | None = omitted()
+
+
+class RobotCreated(Contract):
+    robot: RobotSummary
+    agent_token: str
+
+
+class OperatorCount(Contract):
+    user_id: UUID
+    display_name: str
+    robot_count: int = Field(ge=0)
+
+
+class Dashboard(Contract):
+    robots_total: int = Field(ge=0)
+    robots_online: int = Field(ge=0)
+    robots_attention: int = Field(ge=0)
+    robots_running: int = Field(ge=0)
+    approvals_pending: int = Field(ge=0)
+    operators: list[OperatorCount]
+
+
+class ScreenSubscriptionRevoked(Contract):
+    t: Literal['subscription.revoked'] = 'subscription.revoked'
+    robot: UUID
+    reason: Literal['ACCESS_REVOKED', 'ROBOT_DELETED']
+
+
 class AgentTokenResponse(Contract):
     agent_token: str
 
@@ -482,7 +526,7 @@ TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
 REQUEST_MODELS = {LoginRequest, RefreshRequest, MePatch, PasswordChange,
-                  UserCreate, UserPatch, OrgSettingsPatch}
+                  UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch}
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,

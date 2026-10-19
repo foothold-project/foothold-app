@@ -285,7 +285,7 @@ def test_r7_delivery_checks_cached_policy_without_db(client, seeded, rt, monkeyp
         sink = Sink()
         actor = Actor(str(seeded['users']['one']), str(uuid4()), 'delivery-test')
         policy = Policy({rid: frozenset({'ROBOT_READ'})}, C.OrgSettings(), now() + timedelta(hours=1), rt.clock())
-        peer = Peer(sink, actor=actor, policy=policy)
+        peer = Peer(sink, actor=actor, policy=policy, subscriptions={rid: {'state'}, 'other': {'state'}})
         def no_db(*args):
             raise AssertionError('Delivery must not perform SQL')
         monkeypatch.setattr(rt, 'access', no_db)
@@ -296,8 +296,10 @@ def test_r7_delivery_checks_cached_policy_without_db(client, seeded, rt, monkeyp
         peer.policy = replace(policy, rights={})
         peer.queue.put_nowait({'_delivery': {'t': 'event', 'robot': rid}})
         await asyncio.sleep(.01)
-        assert len(sink.messages) == 1
-        assert sink.closed == [4403]
+        assert len(sink.messages) == 2
+        assert sink.messages[-1] == {'t': 'subscription.revoked', 'robot': rid, 'reason': 'ACCESS_REVOKED'}
+        assert sink.closed == []
+        assert peer.subscriptions == {'other': {'state'}}
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)
     run(client, check)

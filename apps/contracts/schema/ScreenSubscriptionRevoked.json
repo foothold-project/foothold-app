@@ -1,0 +1,33 @@
+{
+  "$id": "fh-app/1/ScreenSubscriptionRevoked",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "reason": {
+      "enum": [
+        "ACCESS_REVOKED",
+        "ROBOT_DELETED"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "t": {
+      "const": "subscription.revoked",
+      "default": "subscription.revoked",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "robot",
+    "reason"
+  ],
+  "title": "ScreenSubscriptionRevoked",
+  "type": "object"
+}

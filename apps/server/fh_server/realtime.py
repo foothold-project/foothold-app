@@ -30,6 +30,7 @@ from sqlalchemy.exc import DBAPIError, DataError, IntegrityError, StatementError
 
 from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
+from .robots import save_inventory
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
 from .security import digest
 from .history import History, HistoryPending
@@ -215,6 +216,10 @@ class Realtime:
         self.arbiter = Arbiter(clock)
         self.screens: dict[str, Peer] = {}
         self.agents: dict[str, Peer] = {}
+        self.robot_changes = set()
+        self.robot_changed_at = {}
+        self.deleted_robots = set()
+        self.last_states = {}
         self.runs: dict[str, dict] = {}  # executor persistence is a later task
         self.audit = FairAuditQueue(self)
         self.audit_engine = create_engine(settings.database_url, pool_size=1, max_overflow=0,
@@ -710,6 +715,46 @@ class Realtime:
                 self.policy_controls.discard(sid)
         peer.policy = cached
 
+    def begin_robot_change(self, rid):
+        if self.owner_connection is None or self.owner_uncertain or rid in self.robot_changes:
+            raise self.api_error(503, 'SERVER_BUSY', '실시간 중재기를 확인하세요.')
+        self.robot_changes.add(rid)
+
+    def end_robot_change(self, rid):
+        self.robot_changes.discard(rid)
+
+    def revoke_robot_peer(self, peer, rid, reason='ACCESS_REVOKED'):
+        r = self.arbiter.robots.get(rid)
+        if r:
+            if ((r.holder and r.holder.actor == peer.actor)
+                    or (r.transfer and r.transfer.actor == peer.actor)):
+                self.apply(self.arbiter.revoke(rid, peer.actor))
+            elif r.request and r.request.actor == peer.actor:
+                self.apply(self.arbiter.cancel_request(rid))
+        # Enqueue the notification only after the safe agent outputs. A queued
+        # private delivery is independently rechecked by writer before send.
+        if rid in peer.subscriptions:
+            self.put(peer, C.ScreenSubscriptionRevoked(robot=rid, reason=reason).model_dump(mode='json'))
+            peer.subscriptions.pop(rid, None)
+            self.streams()
+
+    def robot_changed(self, rid, old_owner=None, deleted=False):
+        if old_owner is not None:
+            self.robot_changed_at[(rid, old_owner)] = self.clock()
+        if deleted:
+            self.deleted_robots.add(rid)
+        # Ordinary socket loss retains a holder for 15 s. Reassignment must
+        # revoke that actor too, even though it no longer has a screen peer.
+        r = self.arbiter.robots.get(rid)
+        actor = r.holder.actor if r and r.holder else r.transfer.actor if r and r.transfer else None
+        if actor and (deleted or actor.user == old_owner):
+            self.apply(self.arbiter.revoke(rid, actor))
+        elif r and r.request and (deleted or r.request.actor.user == old_owner):
+            self.apply(self.arbiter.cancel_request(rid))
+        for peer in list(self.screens.values()):
+            if deleted or (old_owner is not None and peer.actor.user == old_owner):
+                self.revoke_robot_peer(peer, rid, 'ROBOT_DELETED' if deleted else 'ACCESS_REVOKED')
+
     def cached_access(self, peer, robots, permission, *, safety=False):
         policy = peer.policy
         if policy is None or policy.expires_at <= now() or peer.closing:
@@ -719,6 +764,10 @@ class Realtime:
         if not safety and self.clock() - policy.checked > 0.5:
             raise LeaseError('POLICY_STALE', '권한 확인을 기다리고 있습니다.', 503)
         for rid in robots:
+            if rid in self.deleted_robots:
+                raise self.api_error(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+            if not safety and policy.checked < self.robot_changed_at.get((rid, peer.actor.user), float('-inf')):
+                raise LeaseError('POLICY_STALE', '담당 변경을 확인하고 있습니다.', 503)
             if permission not in policy.rights.get(rid, ()):
                 raise self.api_error(404 if permission != 'O_OWN' else 403,
                                      'NOT_FOUND' if permission != 'O_OWN' else 'NOT_ROBOT_OWNER',
@@ -974,8 +1023,12 @@ class Realtime:
                                     except TRANSIENT_DB:
                                         await asyncio.sleep(0.1)
                     except self.api_error as exc:
-                        await self.deny_screen(peer, 4401 if exc.status == 401 else 4403)
-                        return
+                        if exc.status == 401:
+                            await self.deny_screen(peer, 4401)
+                            return
+                        self.revoke_robot_peer(peer, body['robot'],
+                            'ROBOT_DELETED' if body['robot'] in self.deleted_robots else 'ACCESS_REVOKED')
+                        continue
                 await self.send_body(peer, body)
         except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
             peer.closing = True
@@ -1076,6 +1129,8 @@ class Realtime:
                     robots = [str(x) for x in msg.robots] if msg.t == 'sub' else ([rid] if rid else [])
                     policy = 'ROBOT_READ' if msg.t == 'sub' else ('ROBOT_SUMMARY' if msg.t == 'stop' else 'O_OWN' if rid else 'LOGIN')
                     safe = msg.t in ('stop', 'lease.release', 'hidden')
+                    if not safe and rid in self.robot_changes:
+                        raise LeaseError('POLICY_STALE', '담당 변경을 확인하고 있습니다.', 503)
                     settings = self.cached_access(peer, robots, policy, safety=safe)
                     if msg.t in ('lease.take', 'lease.request', 'cmd', 'unlock'):
                         self.policy_controls.add(actor.session)
@@ -1175,10 +1230,25 @@ class Realtime:
                 await asyncio.sleep(0.01)
                 try:
                     await self.refresh_policy(peer)
-                    self.cached_access(peer, list(peer.subscriptions), 'ROBOT_READ')
-                    for rid, r in self.arbiter.robots.items():
-                        if (r.holder and r.holder.actor == peer.actor) or (r.transfer and r.transfer.actor == peer.actor):
-                            self.cached_access(peer, [rid], 'O_OWN')
+                    self.cached_access(peer, [], 'LOGIN')
+                    for rid in list(peer.subscriptions):
+                        try:
+                            self.cached_access(peer, [rid], 'ROBOT_READ')
+                        except self.api_error as exc:
+                            if exc.status == 401:
+                                raise
+                            self.revoke_robot_peer(peer, rid,
+                                'ROBOT_DELETED' if rid in self.deleted_robots else 'ACCESS_REVOKED')
+                    for rid, r in list(self.arbiter.robots.items()):
+                        if ((r.holder and r.holder.actor == peer.actor)
+                                or (r.transfer and r.transfer.actor == peer.actor)
+                                or (r.request and r.request.actor == peer.actor)):
+                            try:
+                                self.cached_access(peer, [rid], 'O_OWN')
+                            except self.api_error as exc:
+                                if exc.status == 401:
+                                    raise
+                                self.revoke_robot_peer(peer, rid)
                     peer.stale_revoked = False
                 except TRANSIENT_DB:
                     age = self.clock() - peer.policy.checked
@@ -1351,6 +1421,19 @@ class Realtime:
                         break
                     except ValidationError:
                         self.note_audit(rid, {'op': 'AGENT_INVALID_FRAME'})
+            await asyncio.to_thread(save_inventory, self.audit_factory, self.settings.org_id, rid,
+                [d.model_dump(mode='json') for d in hello.devices], hello.robot_model)
+            # Metadata writes can wait behind a row/audit lock. Revalidate the
+            # token before publishing a connected peer or granting authority.
+            auth_started = self.clock()
+            await self.read(self.agent_identity, ws.headers)
+            peer.auth_checked = auth_started
+            if rid in self.deleted_robots:
+                await ws.close(code=4403)
+                return
+            if rid in self.robot_changes:
+                await ws.close(code=1013, reason='ROBOT_CHANGE_PENDING')
+                return
             old = self.agents.get(rid)
             if old:
                 old.closing = True
@@ -1419,7 +1502,10 @@ class Realtime:
                     return
                 self.apply(self.arbiter.tick())
                 if msg.t == 'state':
-                    self.accept_state(rid, peer, msg)
+                    accepted = self.accept_state(rid, peer, msg)
+                    if accepted and msg.devices_changed is not None:
+                        await asyncio.to_thread(save_inventory, self.audit_factory, self.settings.org_id, rid,
+                            [d.model_dump(mode='json') for d in msg.devices_changed])
                 elif msg.t == 'event':
                     effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'op': 'AGENT_EVENT', 'at': now()})
                     # Parsing never waits behind archival pacing. Exhaustion is
@@ -1481,13 +1567,12 @@ class Realtime:
         data = msg.model_dump(mode='json')
         peer.state.update({k: data[k] for k in ('speed', 'latched', 'stop_gen', 'applied')})
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
-        # §10 pose does not carry a map_version_id; never invent the
-        # map revision that §3 Location requires.
-        peer.state['location'] = None
+        peer.state['location'] = C.Location(**data['pose'], updated_at=now()).model_dump(mode='json')
         run = self.runs.get(rid)
         peer.state['status'] = 'STOP_LATCHED' if msg.latched else 'PAUSED' if run and run['status'] == 'PAUSED' else 'RUNNING' if msg.mode == 'RUN' else 'TELEOP' if msg.mode == 'USER' else 'IDLE'
         if msg.devices_changed is not None:
             peer.state['devices'] = data['devices_changed']
+        self.last_states[rid] = dict(peer.state)
         pending = self.arbiter.robot(rid).transfer
         if pending and pending.actor:
             try:

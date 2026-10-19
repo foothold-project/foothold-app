@@ -1,4 +1,5 @@
 """REST scope only: authentication, accounts, robot summaries, organization settings."""
+import asyncio
 import base64
 from contextlib import asynccontextmanager
 import json
@@ -19,6 +20,7 @@ from starlette.exceptions import HTTPException
 from apps.contracts import models as C
 from .models import Event, Organization, Robot, Session, User, now
 from .security import digest, hash_password, token, verify_password, web_csrf
+from .robots import robot_object
 from .rate_limits import close_rate_windows, record_rate_limit
 
 
@@ -78,13 +80,6 @@ def user_object(db, user):
     return C.User(id=user.id, username=user.username, display_name=user.display_name,
                   role=user.role, locked=user.locked, robot_ids=robots, created_at=user.created_at)
 
-
-def robot_object(db, robot):
-    owner = db.get(User, robot.owner_user_id) if robot.owner_user_id else None
-    return C.RobotSummary(id=robot.id, name=robot.name, model=robot.model,
-        owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
-        connection='OFFLINE', status=None, battery=None, location=None, lease=None,
-        current_run=None, devices=[], attention=[])
 
 
 def cursor_value(cursor):
@@ -460,7 +455,7 @@ def create_app(settings: Settings | None = None):
         query = select(Robot).where(Robot.org_id == user.org_id, Robot.archived_at.is_(None))
         if scope == 'mine':
             query = query.where(Robot.owner_user_id == user.id)
-        return page(db, query, Robot, limit, cursor, robot_object)
+        return page(db, query, Robot, limit, cursor, lambda db, row: robot_object(db, row, user, app.state.realtime))
 
     @app.get(prefix + '/robots/{robot_id}', response_model=C.RobotSummary)
     def robot(robot_id: UUID, auth: Identity, db: DB):
@@ -470,8 +465,114 @@ def create_app(settings: Settings | None = None):
         if not row:
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
         authorize(user, 'ROBOT_SUMMARY', row)
-        # This skeleton only exposes summary fields, including for non-owners.
-        return robot_object(db, row)
+        # Private live fields are masked for non-owners by the serializer.
+        return robot_object(db, row, user, app.state.realtime)
+
+    def find_robot(db, user, rid):
+        row = db.scalar(select(Robot).where(Robot.id == rid, Robot.org_id == user.org_id,
+            Robot.archived_at.is_(None)).with_for_update())
+        if row is None:
+            fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+        return row
+
+    def check_owner(db, user, owner_id):
+        if owner_id is not None and db.scalar(select(User.id).where(User.id == owner_id,
+                User.org_id == user.org_id, User.role == 'OPERATOR',
+                User.locked.is_(False), User.archived_at.is_(None))) is None:
+            fail(400, 'VALIDATION', '담당 운영 관리자를 확인하세요.')
+
+    def robot_event(db, user, row, code, message, data):
+        db.add(Event(org_id=user.org_id, robot_id=row.id, user_id=user.id,
+            category='ACCOUNT', severity='INFO', code=code, message=message, data=data))
+
+    @app.post(prefix + '/robots', response_model=C.RobotCreated, status_code=201)
+    def create_robot(body: C.RobotCreate, auth: Identity, db: DB, response: Response):
+        user = auth[0]
+        authorize(user, 'A')
+        check_owner(db, user, body.owner_user_id)
+        raw = token()
+        row = Robot(org_id=user.org_id, name=body.name, model='unitree_go2',
+            owner_user_id=body.owner_user_id, agent_token_hash=digest(raw))
+        db.add(row)
+        db.flush()
+        robot_event(db, user, row, 'ROBOT_CREATED', '로봇을 등록했습니다.',
+            {'name': row.name, 'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
+        response.headers['Cache-Control'] = 'no-store'
+        return C.RobotCreated(robot=robot_object(db, row, user, app.state.realtime), agent_token=raw)
+
+    @app.patch(prefix + '/robots/{robot_id}', response_model=C.RobotSummary)
+    async def patch_robot(robot_id: UUID, body: C.RobotPatch, auth: Identity, db: DB):
+        user = auth[0]
+        authorize(user, 'A')
+        rt, rid = app.state.realtime, str(robot_id)
+        rt.begin_robot_change(rid)
+        try:
+            def write():
+                row = find_robot(db, user, robot_id)
+                values = body.model_dump(exclude_unset=True)
+                if 'name' in values and values['name'] is None:
+                    fail(400, 'VALIDATION', '이름을 입력하세요.')
+                if 'owner_user_id' in values:
+                    check_owner(db, user, values['owner_user_id'])
+                old_owner = row.owner_user_id
+                for key, value in values.items():
+                    setattr(row, key, value)
+                robot_event(db, user, row, 'ROBOT_UPDATED', '로봇 이름·담당을 변경했습니다.',
+                    {'name': row.name, 'old_owner_user_id': str(old_owner) if old_owner else None,
+                     'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
+                db.commit()
+                return row, old_owner
+            row, old_owner = await asyncio.to_thread(write)
+            if old_owner != row.owner_user_id:
+                rt.robot_changed(rid, old_owner=str(old_owner) if old_owner else None)
+            return await asyncio.to_thread(robot_object, db, row, user, rt)
+        finally:
+            rt.end_robot_change(rid)
+
+    @app.delete(prefix + '/robots/{robot_id}', status_code=204)
+    async def delete_robot(robot_id: UUID, auth: Identity, db: DB):
+        user = auth[0]
+        authorize(user, 'A')
+        rt, rid = app.state.realtime, str(robot_id)
+        rt.begin_robot_change(rid)
+        try:
+            row = await asyncio.to_thread(find_robot, db, user, robot_id)
+            record = rt.arbiter.robots.get(rid)
+            run = rt.runs.get(rid)
+            active_run = run and run.get('status') not in ('COMPLETED', 'FAILED', 'ABORTED')
+            if (record and (record.holder or record.transfer)) or active_run:
+                fail(409, 'VERSION_CONFLICT', '실행·조종을 끝낸 뒤 해제하세요.')
+            def write():
+                row.archived_at = now()
+                row.agent_token_hash = digest(token())
+                robot_event(db, user, row, 'ROBOT_ARCHIVED', '로봇을 해제했습니다.', {})
+                db.commit()
+            await asyncio.to_thread(write)
+            rt.robot_changed(rid, deleted=True)
+            agent = rt.agents.get(rid)
+            if agent:
+                agent.closing = True
+                await agent.socket.close(code=4403)
+        finally:
+            rt.end_robot_change(rid)
+
+    @app.get(prefix + '/dashboard', response_model=C.Dashboard)
+    def dashboard(auth: Identity, db: DB):
+        user = auth[0]
+        query = select(Robot).where(Robot.org_id == user.org_id, Robot.archived_at.is_(None))
+        if user.role != 'ORG_ADMIN':
+            query = query.where(Robot.owner_user_id == user.id)
+        rows = list(db.scalars(query))
+        summaries = [robot_object(db, row, user, app.state.realtime) for row in rows]
+        operators = []
+        if user.role == 'ORG_ADMIN':
+            for operator in db.scalars(select(User).where(User.org_id == user.org_id,
+                    User.role == 'OPERATOR', User.archived_at.is_(None)).order_by(User.created_at, User.id)):
+                operators.append(C.OperatorCount(user_id=operator.id, display_name=operator.display_name,
+                    robot_count=sum(row.owner_user_id == operator.id for row in rows)))
+        return C.Dashboard(robots_total=len(rows), robots_online=sum(r.connection == 'ONLINE' for r in summaries),
+            robots_attention=sum(bool(r.attention) for r in summaries), robots_running=0,
+            approvals_pending=0, operators=operators)
 
     @app.get(prefix + '/org/settings', response_model=C.OrgSettings)
     def get_settings(auth: Identity, db: DB):

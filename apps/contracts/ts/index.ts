@@ -68,6 +68,7 @@ export interface AgentPing {
 }
 
 export interface AgentPose {
+  map_version_id?: string | null;
   floor_id: string | null;
   x: number | null;
   y: number | null;
@@ -143,6 +144,15 @@ export interface CurrentRun {
   progress: Progress;
 }
 
+export interface Dashboard {
+  robots_total: number;
+  robots_online: number;
+  robots_attention: number;
+  robots_running: number;
+  approvals_pending: number;
+  operators: OperatorCount[];
+}
+
 export interface Device {
   key: string;
   kind: "CAMERA_RGB" | "CAMERA_DEPTH" | "LIDAR" | "BATTERY" | "OTHER";
@@ -179,12 +189,12 @@ export interface Lease {
 }
 
 export interface Location {
-  floor_id: string;
-  map_version_id: string;
-  x: number;
-  y: number;
-  yaw: number;
-  confidence: number;
+  floor_id: string | null;
+  map_version_id: string | null;
+  x: number | null;
+  y: number | null;
+  yaw: number | null;
+  confidence: number | null;
   updated_at: string;
 }
 
@@ -211,6 +221,12 @@ export interface LoginResponse {
 export interface MePatch {
   display_name?: string;
   notify_prefs?: Record<string, boolean>;
+}
+
+export interface OperatorCount {
+  user_id: string;
+  display_name: string;
+  robot_count: number;
 }
 
 export interface OrgSettings {
@@ -248,9 +264,24 @@ export interface RefreshRequest {
   refresh_token: string;
 }
 
+export interface RobotCreate {
+  name: string;
+  owner_user_id?: string | null;
+}
+
+export interface RobotCreated {
+  robot: RobotSummary;
+  agent_token: string;
+}
+
 export interface RobotList {
   items: RobotSummary[];
   next_cursor: string | null;
+}
+
+export interface RobotPatch {
+  name?: string;
+  owner_user_id?: string | null;
 }
 
 export interface RobotSummary {
@@ -377,6 +408,12 @@ export interface ScreenSub {
   t: "sub";
   robots: string[];
   streams: ("state" | "rgb" | "depth" | "lidar" | "map")[];
+}
+
+export interface ScreenSubscriptionRevoked {
+  t: "subscription.revoked";
+  robot: string;
+  reason: "ACCESS_REVOKED" | "ROBOT_DELETED";
 }
 
 export interface ScreenUnlock {

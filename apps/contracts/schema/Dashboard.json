@@ -1,0 +1,77 @@
+{
+  "$defs": {
+    "OperatorCount": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "robot_count": {
+          "minimum": 0,
+          "title": "Robot Count",
+          "type": "integer"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "display_name",
+        "robot_count"
+      ],
+      "title": "OperatorCount",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/Dashboard",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "approvals_pending": {
+      "minimum": 0,
+      "title": "Approvals Pending",
+      "type": "integer"
+    },
+    "operators": {
+      "items": {
+        "$ref": "#/$defs/OperatorCount"
+      },
+      "title": "Operators",
+      "type": "array"
+    },
+    "robots_attention": {
+      "minimum": 0,
+      "title": "Robots Attention",
+      "type": "integer"
+    },
+    "robots_online": {
+      "minimum": 0,
+      "title": "Robots Online",
+      "type": "integer"
+    },
+    "robots_running": {
+      "minimum": 0,
+      "title": "Robots Running",
+      "type": "integer"
+    },
+    "robots_total": {
+      "minimum": 0,
+      "title": "Robots Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "robots_total",
+    "robots_online",
+    "robots_attention",
+    "robots_running",
+    "approvals_pending",
+    "operators"
+  ],
+  "title": "Dashboard",
+  "type": "object"
+}

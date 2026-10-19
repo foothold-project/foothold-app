@@ -143,20 +143,41 @@
       "additionalProperties": false,
       "properties": {
         "confidence": {
-          "maximum": 1,
-          "minimum": 0,
-          "title": "Confidence",
-          "type": "number"
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
         },
         "floor_id": {
-          "format": "uuid",
-          "title": "Floor Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Floor Id"
         },
         "map_version_id": {
-          "format": "uuid",
-          "title": "Map Version Id",
-          "type": "string"
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version Id"
         },
         "updated_at": {
           "format": "date-time",
@@ -164,16 +185,37 @@
           "type": "string"
         },
         "x": {
-          "title": "X",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
         },
         "y": {
-          "title": "Y",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
         },
         "yaw": {
-          "title": "Yaw",
-          "type": "number"
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Yaw"
         }
       },
       "required": [

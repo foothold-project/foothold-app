@@ -403,13 +403,14 @@ def test_permission_reassignment_and_token_rotation_revoke_live_connections(clie
     rid = seeded['robots']['mine']
     engine = create_engine(seeded['urls']['migrate'])
     with agent(client, seeded) as ag, screen(client, headers) as ws:
+        assert reply(ws, send(ws, 'sub', robots=[str(rid)], streams=['state']))['ok']
         take(ws, ag, rid)
         with DBSession(engine) as db:
             db.get(Robot, rid).owner_user_id = seeded['users']['two']
             db.commit()
-        with pytest.raises(WebSocketDisconnect) as error:
-            receive(ws, 'reply')
-        assert error.value.code == 4403
+        assert receive(ws, 'subscription.revoked')['robot'] == str(rid)
+        # Ownership loss revokes only this robot; the session stays usable.
+        assert reply(ws, send(ws, 'ping'))['ok']
         assert receive(ag, 'lease')['lease_id'] is None
         receive(ag, 'stop')
         with DBSession(engine) as db:
@@ -417,7 +418,7 @@ def test_permission_reassignment_and_token_rotation_revoke_live_connections(clie
             db.commit()
         ag.send_json(state(4))
         with pytest.raises(WebSocketDisconnect) as error:
-            receive(ag)
+            receive(ag, 'must-close-after-token-rotation')
         assert error.value.code == 4403
     engine.dispose()
 
