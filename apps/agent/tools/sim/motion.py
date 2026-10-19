@@ -3,20 +3,22 @@ import json
 import math
 import os
 from pathlib import Path
+import sys
 import time
 
 from clearance import prove
 from isolation import stamp, write
+from constants import MAP_DIRECTORY, WORLD_ID, FLOOR_ID, WORLD_KEY
 
 
 def exercise(folder, base, access, robot, sim):
     if os.environ.get('FH_SIM_D1_MOTION') != '1':
         return 'skipped: explicit FH_SIM_D1_MOTION=1 not set'
     world = Path(os.environ['SIM_WORLD_SDF']).resolve()
-    map_root = sim.source.parent.parent.parent / 'map-20261014'
+    map_root = sim.source.parent.parent.parent / MAP_DIRECTORY
     catalog = json.loads((map_root / 'worlds.json').read_text())
-    configured = catalog['worlds']['v5_single/f1']
-    if (configured['world_id'] != 'v5_single' or configured['floor_id'] != 'f1'
+    configured = catalog['worlds'][WORLD_KEY]
+    if (configured['world_id'] != WORLD_ID or configured['floor_id'] != FLOOR_ID
             or (map_root / configured['world']).resolve() != world):
         raise RuntimeError('GT world must match the isolated runtime catalog before motion')
     from websockets.sync.client import connect
@@ -40,7 +42,7 @@ def exercise(folder, base, access, robot, sim):
     lease = None
     seq = 0
     request_id = 0
-    with connect(base.replace('http:', 'ws:')+'/api/v1/ws', additional_headers={
+    with connect(base.replace('http:', 'ws:')+'/api/v1/ws', proxy=None, additional_headers={
             'authorization': 'Bearer '+access}) as ws:
         def send(kind, **fields):
             nonlocal request_id
@@ -85,6 +87,28 @@ def exercise(folder, base, access, robot, sim):
             seq += 1
             return send('cmd', lease_id=lease, seq=seq, axes=axes)
 
+        stop_cleanup = {'sent': False, 'confirmed': False, 'error_type': None}
+
+        def finalize_stop():
+            _, requested = send('stop')
+            stop_cleanup.update(sent=True, requested=requested)
+            deadline = time.monotonic()+2
+            while time.monotonic() < deadline:
+                try:
+                    frame = json.loads(ws.recv(timeout=.02))
+                except TimeoutError:
+                    continue
+                # Even during a fall/policy failure, observe STOP without calling
+                # the health guard that caused the original abort.
+                row = json.loads((folder / 'state.json').read_text())
+                if (frame.get('t') == 'state' and frame.get('connection') == 'ONLINE'
+                        and frame.get('latched') is True and frame.get('applied') == [0, 0, 0]
+                        and time.monotonic()-row['mono'] <= 1 and row['mono'] >= requested['mono']
+                        and row['data'].get('stop_requested') is True and row['data'].get('cmd_applied') == [0, 0, 0]):
+                    stop_cleanup.update(confirmed=True, observed=stamp())
+                    return
+            raise RuntimeError('final STOP confirmation timeout')
+
         try:
             send('sub', robots=[robot], streams=['state'])
             until(lambda r, f: screen_state.get('latched') is True and screen_state.get('connection') == 'ONLINE')
@@ -111,10 +135,12 @@ def exercise(folder, base, access, robot, sim):
                     pump()
                     time.sleep(.03)
                 first_command = last_command = None
-                # 0.55s input burst + 0.3s deadman is below the 1s ceiling.
+                # Reserve margin for deadman .30 + tick .05 + output .05 +
+                # policy/state observation .10; .30 burst totals ~.80s before
+                # transport/scheduling jitter. This is not an OS deadline guarantee.
                 burst_start = time.monotonic()
                 next_command = burst_start
-                while time.monotonic()-burst_start < .55:
+                while time.monotonic()-burst_start < .30:
                     if time.monotonic() >= next_command:
                         _, last_command = cmd([1, 0, 0])
                         first_command = first_command or last_command
@@ -144,9 +170,17 @@ def exercise(folder, base, access, robot, sim):
                 outcomes.append(record)
                 write(folder / 'motion-results.json', outcomes)
         finally:
+            original_error = sys.exc_info()[1]
             try:
-                send('stop')
+                finalize_stop()
+            except BaseException as exc:
+                stop_cleanup['error_type'] = type(exc).__name__
+                if original_error is None:
+                    raise RuntimeError('final STOP unconfirmed; inspect motion-stop-cleanup.json') from None
+                if hasattr(original_error, 'add_note'):
+                    original_error.add_note('final STOP unconfirmed; inspect motion-stop-cleanup.json')
             finally:
+                write(folder / 'motion-stop-cleanup.json', stop_cleanup)
                 write(folder / 'motion-actions.json', actions)
                 write(folder / 'motion-states.json', samples)
     return 'completed: STOP button and input-gap trials; measured timing in report, no strict 0.300s deadline assertion'

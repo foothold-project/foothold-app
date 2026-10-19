@@ -25,6 +25,7 @@ source "${SIM_ROS_SETUP:?set the existing Jazzy setup path}"
 python3 -m venv --system-site-packages .venv-sim-d1
 .venv-sim-d1/bin/pip install -r apps/server/requirements-test.txt
 .venv-sim-d1/bin/python -m pytest apps/agent/tools/sim -q
+.venv-sim-d1/bin/python apps/agent/tools/sim/check_mutations.py --report runs/sim-d1/mutations.json
 # SIM_SOURCE / SIM_RUN_DIR도 위 표에 따라 먼저 설정한다.
 FH_SIM_D1_RUN=1 .venv-sim-d1/bin/python apps/agent/tools/sim/d1.py
 .venv-sim-d1/bin/python apps/agent/tools/sim/analyze.py "$SIM_RUN_DIR"
@@ -33,6 +34,8 @@ FH_SIM_D1_RUN=1 .venv-sim-d1/bin/python apps/agent/tools/sim/d1.py
 실행 셸에 domain 61 환경을 가져오지 않는다. 부모는 ROS 참가자가 아니며,
 자식에만 93·LOCALHOST·LOCALHOST_ONLY=1을 준다. DDS 프로필·외부 발견 설정은
 조용히 지우지 않고 거부한다. 추가 `ros2` CLI나 관찰 노드를 띄우지 않는다.
+unit은 호출 셸과 다른 user manager 환경을 받을 수 있어, unit 안에서도 ROS setup을
+source한 **뒤** 같은 `validate_isolation()`을 실행하고 충돌 DDS 설정을 ROS 초기화 전에 거부한다.
 
 ## 관문과 정리
 
@@ -68,6 +71,8 @@ FH_SIM_D1_RUN=1 .venv-sim-d1/bin/python apps/agent/tools/sim/d1.py
 `RuntimeMaxSec` 만료 5초 전 감시기가 SIGINT한다. 영구적으로 반환하지 않는
 publisher나 OS 전체 정지는 이 Python 감시기로 보장하지 않는다. SIGINT 뒤 정리
 실패 시 자동 KILL하지 않고 실패로 기록하므로 담당자에게 에스컬레이션해야 한다.
+MemoryMax·CPUQuota는 시뮬 unit에 적용된다. 개발 서버·PostgreSQL·다리·관찰기는
+그 cgroup 제한 밖이며 전역 메모리/swap 감시와 자신의 자식 정상 종료로 관리한다.
 
 ## 별도 승인된 제한 조종
 
@@ -75,19 +80,30 @@ publisher나 OS 전체 정지는 이 Python 감시기로 보장하지 않는다.
 회전 box/OBJ 경계로 보수적으로 감싸 장애를 검사하고, 평평한 바닥 box의 정확한
 직사각형 합집합으로 지지면 연속성을 검사한다. 실제 GT pose/heading에서 전방
 3 m에 몸체 전방 0.5 m·좌우 각각 0.6 m 여유를 더한다. 모르는 형상·변환은 거부한다.
+world include는 이름 `go2_v2`·URI `model://go2_v2_map`·검증한 pose 문법을 가진
+자기 로봇 하나만 제외한다. 다른 include·중첩 model/include/frame·미지원 world 구조나
+plugin은 거부한다. static 지형과 floor z=0을 전제로 몸 z도 0.20–0.75 m인지 검사한다.
 각 회 직전에 다시 검사하며, 종료 manifest의 world SHA와 GT 증거를 대조한다.
 
 실제 조종권·unlock·RESUME 피드백·새 중립 이후 전진 `[0.6,0,0]`만 최대 2회다.
-입력 burst는 약 0.55초이며, 첫 회는 화면 WS STOP 버튼 메시지로 끝낸다.
+현재 도구의 입력 burst는 0.30초이며, 첫 회는 화면 WS STOP 버튼 메시지로 끝낸다.
 둘째는 입력만 끊어 Core의 0.3초 만료에 따른 실제 ROS 0을 관찰한 뒤 STOP한다.
+0.30초 burst에 만료 0.30·tick 0.05·출력 0.05·policy 표본 0.10초를 더한 약
+0.80초로 1초 상한 여유를 확보한다. 전달·OS 지연의 실시간 상한 보장은 아니며,
+실제 적용 1초 초과 검사도 유지한다. 아래 D1 수치는 변경 전 0.55초 burst 기록이다.
 각 회 실제 policy 비영/0과 body_still을 확인하고, 몸 정지 확인 전 다음 회를
 시작하지 않는다. 낙상·오래된 상태·정책/LOCKSTEP 이상은 즉시 STOP 후 종료한다.
 회전·횡이동·RESET·임의 속도 옵션은 없다. 0.6은 승인된 시뮬 시험값이다.
+마지막 STOP도 최대 2초 동안 신선한 ROS STOP/0·화면 WS latched/0을 확인한다.
+실패는 `motion-stop-cleanup.json`에 따로 남기고 이미 발생한 오류나 Ctrl-C를 가리지 않는다.
+HTTP/WS 시험 클라이언트는 환경 프록시를 사용하지 않는다.
 
 입력 만료, ROS 발행, policy 적용, 몸 정지는 다른 관측이다. `analyze.py`는
 observer/driver의 같은 호스트 monotonic 시각으로 각각 계산한다. policy/body 상태는
 10 Hz라 표본 해상도가 있으며, 몸 정지는 native body_still 임계값 표식이다.
-0.300초보다 늦은 실측은 엄밀한 0.300초 마감 통과로 표시하지 않는다.
+deadman의 기준은 **에이전트의 마지막 서버 cmd 수신**이다([04 §3.2](../../../../docs/spec/04-ARCHITECTURE.md#32-연결-끊김-처리),
+[05 §10.3 규칙2](../../../../docs/spec/05-API-SPEC.md#103-에이전트-쪽-필수-규칙-서버가-무엇을-보내든)).
+화면 send 직전부터 ROS 발행까지의 측정만으로 에이전트 수신 기준 만료를 판정하지 않는다.
 
 ## D1 실측 (2026-10-20)
 
@@ -95,6 +111,10 @@ observer/driver의 같은 호스트 monotonic 시각으로 각각 계산한다. 
 보수적으로 정리했다. 실행 중 `/proc` 관문과 종료 manifest 대조를 승인받아 한 번
 재시도했고, 단계0–4·제한 조종 2회·정리를 수행했다. 두 실행 모두 보호 대상 불변과
 잔여 0을 확인했다. 실행 전 도구 파서 오류로 끝난 시도에는 시뮬을 기동하지 않았다.
+실행한 판은 커밋 전 작업 사본(0.55초 burst, 실행판 해시 미보관)이다.
+`d1c027a`는 그 뒤 run-dir·GT catalog 사전 거부를 추가한 판이므로 커밋 전체의 기동 검증은
+아니다. 이후 검토 수정의 GT 구조 거부·0.30초 burst·unit DDS 검사·최종 STOP 확인도
+ROS 없는 도구/변이 시험으로 확인했으며 시뮬은 재기동하지 않았다.
 
 | 시험 | ROS 0 | ROS STOP | policy 0 | body_still | 트리거 이후 XY 변위 |
 |---|---:|---:|---:|---:|---:|
@@ -102,12 +122,18 @@ observer/driver의 같은 호스트 monotonic 시각으로 각각 계산한다. 
 | 마지막 입력부터 | 0.3534 s | 0.4831 s | 0.4490 s | 2.1489 s | 0.2490 m |
 
 둘째 ROS STOP은 입력 만료 자체가 아니라 policy 0 확인 뒤 시험기가 누른 STOP이다.
-입력 끊김에서 실제 0은 **0.3534초**였으므로 엄밀한 **0.300초 이내는 미달**이다.
+입력 끊김의 시작점은 마지막 화면 `ws.send` 직전이며, 에이전트 cmd 수신 시각은
+측정하지 않았다. 마지막 비영 ROS 발행은 +0.3018초, 첫 0은 +0.3534초로 그 사이 약
+52 ms다. Client의 50 ms tick이 Core의 `>0.3` 만료를 확인하고 일반 ROS 출력도
+50 ms 주기를 쓰므로, 명목상 0.30–0.35초에 출력 0–0.05초와 전달 지연이 더해진다.
+Claude 검토는 이 **0.3534초가 약 0.40초+전달 지연의 설계 범위에 맞고 05 위반의
+증거가 아니다**고 판단했다. 앞선 «엄밀한 0.300초 마감 미달» 표기는 이와 같이 정정한다.
 두 입력 burst는 0.5114/0.5146초, 두 회의 전체 XY 변위는 0.3005/0.3876 m였다.
 STOP true 표본 중 비영 policy 적용 0, 낙상 0이었다. 재시도 unit 메모리 최고
 684.4 MiB·MemAvailable 최저 3044.1 MiB·load1 최고 2.575·swap-in 최고 52.0 KiB/s였다.
 이는 이 호스트의 짧은 실행 관측이며 두 시뮬 동시 실시간성·실기 안전 보장이 아니다.
 
-남은 문제는 REST 요약 OFFLINE/null, 미연결 speed/pose/battery 측정값,
-입력 만료의 엄밀한 0.300초 마감 검토다. Core/link/서버 동작을 이 도구에서 고치지 않았다.
+남은 문제는 REST 요약 OFFLINE/null과 미연결 speed/pose/battery 측정값이다.
+끝-끝 출력 상한을 새로 정하거나 만료 0을 urgent 출력으로 바꿀지는 별도 스펙/Core
+결정이다. Core/link/서버 동작을 이 도구에서 고치지 않았다.
 로컬 증거·원본 manifest·계정·지도·원시 센서 자료는 커밋하지 않는다.

@@ -19,6 +19,20 @@ from isolation import stamp, write
 ROOT = Path(__file__).resolve().parents[4]
 
 
+def bind_server_socket():
+    """Reserve one permitted loopback socket; never try a production port."""
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    for port in range(9020, 9040):
+        try:
+            sock.bind(('127.0.0.1', port))
+            return sock
+        except OSError:
+            continue
+    sock.close()
+    raise RuntimeError('no available authorized development port')
+
+
 def probe(folder, ros_environment, simulation):
     from alembic import command
     from alembic.config import Config
@@ -37,17 +51,7 @@ def probe(folder, ros_environment, simulation):
             child.wait(timeout=15)
 
     # Bind before spawn; only the authorized loopback range, no probing production.
-    sock = socket.socket()
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    for port in range(9020, 9040):
-        try:
-            sock.bind(('127.0.0.1', port))
-            break
-        except OSError:
-            continue
-    else:
-        sock.close()
-        raise RuntimeError('no available authorized development port')
+    sock = bind_server_socket()
     port = sock.getsockname()[1]
     base = f'http://127.0.0.1:{port}'
     server = bridge = None
@@ -73,7 +77,7 @@ def probe(folder, ros_environment, simulation):
                 server = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.server.fh_server.main:app',
                     '--fd', str(sock.fileno()), '--workers', '1', '--ws-max-size', '4096', '--no-proxy-headers'],
                     cwd=ROOT, env=env, stdout=server_log, stderr=server_log, pass_fds=(sock.fileno(),))
-                with httpx.Client(base_url=base, timeout=3) as http:
+                with httpx.Client(base_url=base, timeout=3, trust_env=False) as http:
                     deadline = time.monotonic() + 12
                     while time.monotonic() < deadline:
                         try:
@@ -118,7 +122,7 @@ def probe(folder, ros_environment, simulation):
                     bridge = subprocess.Popen([sys.executable, '-m', 'foothold_agent.ros_bridge'], cwd=ROOT,
                         env=bridge_env, stdout=bridge_log, stderr=bridge_log)
                     samples = []
-                    with connect(base.replace('http:', 'ws:') + '/api/v1/ws', additional_headers={
+                    with connect(base.replace('http:', 'ws:') + '/api/v1/ws', proxy=None, additional_headers={
                             'authorization': 'Bearer ' + operator}) as screen:
                         screen.send(json.dumps({'t': 'sub', 'id': 'd1-observe', 'proto': 'fh-rt/1',
                             'robots': [robot_id], 'streams': ['state']}))

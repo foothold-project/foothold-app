@@ -35,7 +35,13 @@ def analyze(folder):
                'distance_note': 'XY displacement from last state <= trigger to first body_still; state sampled at 10Hz',
                'body_still_note': 'native threshold marker, not mathematically exact zero speed'}
         if trial['mode'] == 'input_gap':
-            row['within_0_300s_observed'] = zero is not None and zero['mono']-t <= .300
+            positives = [o for o in after if o['kind'] == 'cmd' and any(o['data'])]
+            last_positive = positives[-1] if positives else None
+            row['last_nonzero_ros_delay_s'] = last_positive['mono']-t if last_positive else None
+            row['last_nonzero_to_zero_ros_s'] = zero['mono']-last_positive['mono'] if zero and last_positive else None
+            row['measurement_origin'] = 'screen ws.send before last input; agent receipt time was not measured'
+            row['agent_last_cmd_received_mono'] = None
+            row['spec_note'] = '0.300s is agent-receipt expiry; this end-to-end observation is not a spec deadline test'
             row['stop_note'] = 'explicit STOP sent after zero feedback; input expiry itself need not latch STOP'
         result['trials'].append(row)
     peaks = [int(r['unit']['MemoryPeak']) for r in resources if r['unit'].get('MemoryPeak', '').isdigit()]
@@ -48,7 +54,8 @@ def analyze(folder):
     result['max_camera_frames_observed'] = max(s['data'].get('camera_frames', 0) for s in states)
     result['fallen_samples'] = sum(s['data'].get('fallen') is True for s in states)
     result['timing_note'] = ('Host monotonic timestamps from the observer and driver; policy/body snapshots at 10Hz. '
-                             'Measurements are observations, not real-time deadline guarantees; input-gap zero >0.300s is not a strict deadline pass.')
+                             'Input-gap origin is screen send, not agent receipt. Agent expiry is sampled on a 50ms tick '
+                             'and ordinary ROS output on a 50ms cycle; delivery is also included, so this is not a 0.300s end-to-end deadline test.')
     return result
 
 

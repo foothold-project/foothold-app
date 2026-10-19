@@ -10,6 +10,8 @@ import threading
 import time
 import uuid
 
+from constants import SPEC_DIRECTORY, MAP_DIRECTORY, WORLD_ID, FLOOR_ID, GT_VERSION
+
 
 def stamp():
     return {'utc': datetime.now(timezone.utc).isoformat(), 'mono': time.monotonic()}
@@ -105,10 +107,12 @@ def abort_reason(now, last, high_since, deadline):
 
 class Simulation:
     def __init__(self, folder, source, setup, seconds=240):
+        if source.is_symlink() or source.absolute() != source.resolve():
+            raise ValueError('SIM_SOURCE must be a real path without symlinks')
         self.folder, self.source, self.setup = folder, source.resolve(), setup.resolve()
-        if not self.source.is_dir() or self.source.is_symlink() or not (self.source / 'live_map.py').is_file():
+        if not self.source.is_dir() or not (self.source / 'live_map.py').is_file():
             raise ValueError('SIM_SOURCE must be the existing sensor runtime source directory')
-        if self.source.parent.name != 'stage' or self.source.parent.parent.name != 'sensor-spec-20261016':
+        if self.source.parent.name != 'stage' or self.source.parent.parent.name != SPEC_DIRECTORY:
             raise ValueError('unexpected sensor runtime layout')
         if not 30 <= seconds <= 240:
             raise ValueError('runtime must be 30..240 seconds')
@@ -191,16 +195,19 @@ class Simulation:
         self.hashes = source_hashes(self.source)
         write(self.folder / 'source-before.json', self.hashes)
         # No credentials are passed to this shell, its argv or journal.
-        script = ('source "$1"; export ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST '
+        script = ('set -e; source "$1"; export ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST '
                   'ROS_LOCALHOST_ONLY=1 GZ_IP=127.0.0.1 PYTHONDONTWRITEBYTECODE=1 ROS_LOG_DIR="$4"; '
+                  'export PYTHONPATH="$5:${PYTHONPATH:-}"; '
+                  '/usr/bin/python3 -c "from foothold_agent.ros_bridge.config import validate_isolation; validate_isolation()"; '
                   'exec /usr/bin/python3 "$2/live_map.py" --isolated-verify --sensor-profile l1-d435i-c2-min '
-                  '--purpose session --world-id v5_single --floor-id f1 --map-mode static --map-version gt-20261012 --out "$3"')
+                  f'--purpose session --world-id {WORLD_ID} --floor-id {FLOOR_ID} --map-mode static --map-version {GT_VERSION} --out "$3"')
         args = ['systemd-run', '--user', '--unit=' + self.unit, '--collect', '--property=MemoryMax=1500M',
                 '--property=MemorySwapMax=0', '--property=CPUQuota=200%', '--property=TasksMax=256',
                 '--property=KillSignal=SIGINT', '--property=KillMode=process', '--property=SendSIGKILL=no',
                 '--property=TimeoutStopSec=45', '--property=RuntimeMaxSec=' + str(self.seconds),
-                '--working-directory=' + str(self.source.parent.parent.parent / 'map-20261014'),
-                '/bin/bash', '-c', script, 'rb-sim', str(self.setup), str(self.source), str(self.out), str(self.folder / 'ros')]
+                '--working-directory=' + str(self.source.parent.parent.parent / MAP_DIRECTORY),
+                '/bin/bash', '-c', script, 'rb-sim', str(self.setup), str(self.source), str(self.out), str(self.folder / 'ros'),
+                str(Path(__file__).resolve().parents[2])]
         write(self.folder / 'launch.json', {**stamp(), 'argv': args, 'out': str(self.out), 'unit': self.unit})
         command(*args)
         self.started = True
@@ -245,7 +252,8 @@ class Simulation:
                                 and manifest.get('kids_stop', [{}])[-1].get('complete') is True)
         ledgers_same = (manifest.get('isolation', {}).get('ledger_sha_before') == manifest.get('isolation', {}).get('ledger_sha_after'))
         world_matches = (not hasattr(self, 'gt_world_sha') or manifest.get('live_sha256', {}).get('world_src') == self.gt_world_sha)
-        result = {**stamp(), 'unit': info, 'domain61_unchanged': after61 == self.before['domain61'],
+        identities = lambda rows: sorted((r['pid'], r['start_ticks']) for r in rows)
+        result = {**stamp(), 'unit': info, 'domain61_unchanged': identities(after61) == identities(self.before['domain61']),
                   'domain61_after': after61, 'source_unchanged': hashes_same, 'leftovers': leftovers,
                   'dds_ports': ports, 'proc_permission_denied': denied, 'manifest': str(self.out / 'manifest.json'),
                   'native_manifest_matches_live': manifest_match, 'native_cleanup_complete': cleanup_complete,
