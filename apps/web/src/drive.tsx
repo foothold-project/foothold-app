@@ -7,11 +7,11 @@ import { Chip, DriveButton, type Ctx } from './screens';
 import './drive.css';
 
 const useDrive = (id: string) => useSyncExternalStore((f) => drive.subscribe(f), () => drive.get(id));
-/** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림 */
+/** 남은 시간을 그리려고 on 인 동안 0.2 s 마다 다시 그림. 시각은 중재기 판정 시계(단조) */
 function useNow(on: boolean) {
   const [, tick] = useState(0);
   useEffect(() => { if (!on) return; const i = setInterval(() => tick((n) => n + 1), 200); return () => clearInterval(i); }, [on]);
-  return Date.now();
+  return drive.now();
 }
 const secs = (until: number, now: number) => Math.max(0, Math.ceil((until - now) / 1000));
 const pct = (b: number | null) => (b == null ? '' : `${b}%`);
@@ -60,7 +60,7 @@ function Screen(c: Ctx) {
   const [back, setBack] = useState(false);
   const input = useRef({ keys: new Set<string>(), pad: [0, 0] as Axes, stick: [0, 0] as Axes });
   const cool = s.holder && s.holder !== me ? s.cooldown[me] ?? 0 : 0;
-  const now = useNow(!!s.request || cool > Date.now());
+  const now = useNow(!!s.request || cool > drive.now());
   const axes = (): Axes => {
     const { keys: k, pad, stick } = input.current;
     return [Math.max(0, clamp(+k.has('f') + pad[0] + stick[0])), clamp(+k.has('l') - +k.has('r') + pad[1] + stick[1])];   // 후진은 막음(PRD Q1)

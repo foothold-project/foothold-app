@@ -15,7 +15,8 @@ function mount(phone: boolean, user: string, hash: string) {
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App initialUser={user} />); });
 }
-beforeEach(() => { vi.useFakeTimers(); resetDrive(); });
+// 판정은 단조 시계(performance.now): advanceTimersByTime 은 그것도 움직이고, setSystemTime(벽시계)은 움직이지 않는다
+beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); resetDrive(); });
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.useRealTimers(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s)!;
@@ -27,6 +28,10 @@ const key = (type: 'keydown' | 'keyup', code: string, at: EventTarget = window) 
 /** detail 0 = 키보드로 생긴 click, 1 = 마우스·터치 */
 const clickWith = (el: Element, detail: number) => act(() => { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail })); });
 const r7 = () => drive.get('r7');
+/** 손으로 돌리는 판정 시계: «시간은 지났는데 타이머 콜백은 아직 안 돎»(늦은 콜백·절전 복귀)을 만든다 */
+let t = 0;
+const clock = () => t;
+beforeEach(() => { t = 100000; });
 
 describe('가짜 중재기 — 조종 시작~끝 (F-TO-03)', () => {
   it('받기 → 잠금 상태로 시작 → 잠금 해제 → 중립 확인 → 움직임 → 끝내기(0 + 잠금 + 반납)', () => {
@@ -286,9 +291,10 @@ describe('조종 화면', () => {
 describe('PR #7 검토 재현', () => {
   beforeEach(() => { vi.setSystemTime(100000); });
   afterEach(() => { delete (document as { visibilityState?: string }).visibilityState; });
+  // 재검토 R2-B1 뒤 판정 시계가 단조 시계라, 검토자의 setSystemTime(111000) 대신 판정 시계를 11 s 진행(타이머는 안 돎 — 같은 조건)
   it('[B1] 타이머 콜백이 늦어도 10 s 지난 요청은 넘기지 않는다', () => {
-    const d = createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
-    d.request('r7', 'u-kim'); vi.setSystemTime(111000); d.respond('r7', 'u-park', true);
+    const d = createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true } }, undefined, clock);
+    d.request('r7', 'u-kim'); t = 111000; d.respond('r7', 'u-park', true);
     expect(d.get('r7').holder).toBe('u-park');
   });
   it('[B2] 정지 확인 전에 옛 조종권·입력이 먼저 비워진다', () => {
@@ -335,29 +341,29 @@ describe('PR #7 검토 재현', () => {
 describe('시간 기준·넘김 순서 (R2)', () => {
   beforeEach(() => { vi.setSystemTime(100000); });
   afterEach(() => { delete (document as { visibilityState?: string }).visibilityState; });
-  const held = (confirm?: (r: string) => boolean) => createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true } }, confirm);
+  const held = (confirm?: (r: string) => boolean) => createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true } }, confirm, clock);
   it('지연 콜백: 타이머 없이 마감이 지나면 다음 처리에서 자동 거절 확정, 재요청 제한은 마감 시각부터', () => {
     const d = held();
     d.request('r7', 'u-kim');
-    vi.setSystemTime(100000 + REQUEST_S * 1000 + 5000);   // 타이머는 아직 안 돎
+    t = 100000 + REQUEST_S * 1000 + 5000;   // 타이머는 아직 안 돎
     expect(d.request('r7', 'u-kim')).toBe('COOLDOWN');
     expect([d.get('r7').request, d.get('r7').notice['u-kim']]).toEqual([null, '응답이 없어 요청이 끝났습니다.']);
     expect(d.get('r7').cooldown['u-kim']).toBe(100000 + (REQUEST_S + COOLDOWN_S) * 1000);
-    vi.setSystemTime(100000 + (REQUEST_S + COOLDOWN_S) * 1000);
+    t = 100000 + (REQUEST_S + COOLDOWN_S) * 1000;
     expect(d.request('r7', 'u-kim')).toBe('SENT');
   });
   it(`지연 콜백: ${HEARTBEAT_S} s 마감이 지난 뒤 늦게 온 입력은 조종권을 늘리지 않는다`, () => {
-    const d = createFakeDrive();
+    const d = createFakeDrive({}, undefined, clock);
     d.take('r7', 'u-park'); d.unlock('r7', 'u-park'); d.cmd('r7', 'u-park', [0, 0]);
-    vi.setSystemTime(100000 + HEARTBEAT_S * 1000);
+    t = 100000 + HEARTBEAT_S * 1000;
     d.cmd('r7', 'u-park', [1, 0]);
     expect([d.get('r7').holder, d.get('r7').axes]).toEqual([null, [0, 0]]);
   });
-  it('시각 변경(절전 뒤 시계가 20 s 앞으로): 요청 창의 넘기기·조종 입력 모두 만료로 처리', () => {
-    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
+  it('절전 복귀(20 s 지났고 타이머는 아직): 타이머보다 먼저 넘기기를 눌러도 마감 지난 요청은 넘기지 않는다', () => {
+    resetDrive({ r7: { holder: 'u-park', latched: false, neutral: true } }, undefined, clock);
     mount(false, 'u-park', '#/drive/r7');
     act(() => { drive.request('r7', 'u-kim'); });
-    act(() => { vi.setSystemTime(Date.now() + 20000); });
+    t += 20000;
     clickWith($('[data-ask="give"]'), 1);
     expect(r7().holder).not.toBe('u-kim');
     expect(r7().request).toBeNull();
@@ -413,5 +419,37 @@ describe('시간 기준·넘김 순서 (R2)', () => {
     expect(btn('정지').disabled).toBe(true);
     key('keydown', 'Space');
     expect([drive.get('r3').latched, r7().latched]).toEqual([false, false]);
+  });
+});
+
+// ── 재검토 R2-B1: 만료 판정은 단조 시계 — 벽시계를 바꿔도 15 s 조종권 만료·10 s 요청 마감이 그대로
+describe('단조 시계 (R2-B1)', () => {
+  beforeEach(() => { vi.setSystemTime(100000); });
+  it('시계를 뒤로 돌린 뒤 입력이 오래 없으면 15 s 에 조종권이 빈다(타이머가 사라지지 않음)', () => {
+    const d = createFakeDrive();
+    d.take('r7', 'u-park'); d.unlock('r7', 'u-park'); d.cmd('r7', 'u-park', [0, 0]); d.cmd('r7', 'u-park', [1, 0]);
+    vi.setSystemTime(40000);   // 벽시계 60 s 역보정
+    vi.advanceTimersByTime(HEARTBEAT_S * 1000);
+    expect([d.get('r7').holder, d.get('r7').axes]).toEqual([null, [0, 0]]);
+    vi.advanceTimersByTime(120000);   // 장시간 무입력 뒤에도 비어 있음
+    expect(d.get('r7').holder).toBeNull();
+  });
+  it('시계를 앞으로 돌려도 10 s 요청은 경과 시간으로 판정 — 벽시계 점프로 일찍 끝나지 않는다', () => {
+    const d = createFakeDrive({ r7: { holder: 'u-park', latched: false, neutral: true } });
+    d.request('r7', 'u-kim');
+    vi.setSystemTime(100000 + 60000);
+    expect(d.request('r7', 'u-lee')).not.toBe('SENT');
+    expect(d.get('r7').request?.from).toBe('u-kim');
+    vi.advanceTimersByTime(REQUEST_S * 1000);
+    expect(d.get('r7').request).toBeNull();
+  });
+  it('타이머가 판정 시계보다 이르게 깨면 남은 시간으로 다시 걸어, 마감에 정확히 비운다', () => {
+    const d = createFakeDrive({}, undefined, clock);
+    d.take('r7', 'u-park');
+    vi.advanceTimersByTime(HEARTBEAT_S * 1000);   // 타이머는 돌았지만 판정 시계는 그대로(이른 깸)
+    expect(d.get('r7').holder).toBe('u-park');
+    t += HEARTBEAT_S * 1000;
+    vi.advanceTimersByTime(HEARTBEAT_S * 1000);
+    expect(d.get('r7').holder).toBeNull();
   });
 });

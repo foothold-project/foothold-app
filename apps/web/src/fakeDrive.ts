@@ -12,8 +12,8 @@ export type DriveState = {
   latched: boolean;                            // 정지 잠금
   neutral: boolean;                            // 잠금 해제 뒤 중립 입력을 받았나 — 받아야 움직인다(F-COM-01)
   axes: Axes;                                  // 로봇에 실제로 나가는 값
-  request: { id: string; from: string; expiresAt: number } | null;   // 대기 요청은 로봇당 1건(규칙 5)
-  cooldown: Record<string, number>;            // 사용자별 재요청 가능 시각(ms)
+  request: { id: string; from: string; expiresAt: number } | null;   // 대기 요청은 로봇당 1건(규칙 5). 시각은 모두 now() 기준 ms
+  cooldown: Record<string, number>;            // 사용자별 재요청 가능 시각
   notice: Record<string, string | undefined>;  // 사용자별 알림 한 줄
   run: Run | null;
   /** 넘김 2단계 정지 확인: 요청됨 → (확인되면 null + 잠금) | 실패. 실패는 «정지 잠금»이 아니다(확정 안 됨) */
@@ -23,6 +23,8 @@ export type TakeResult = 'TAKEN' | 'HELD' | 'RUN_ACTIVE' | 'FORBIDDEN';
 export type RequestResult = 'SENT' | 'COOLDOWN' | 'BUSY' | 'FORBIDDEN';
 
 export interface DriveApi {
+  /** 판정 시계(단조, ms). 남은 초 표시도 이것으로 — 벽시계(Date.now)는 시각 표시용만 */
+  now(): number;
   get(robot: string): DriveState;
   subscribe(f: () => void): () => void;
   /** 비어 있으면 받음(잠금 상태로 시작). 시나리오 실행 중이면 pauseRun 이 있어야 일시정지하고 받음(SF-10) */
@@ -45,8 +47,10 @@ export interface DriveApi {
 export const FAIL_TEXT = '로봇 정지 확인 실패. 조종권은 비어 있고 로봇은 정지 요청 상태입니다. 현장을 확인한 뒤 다시 조종 시작하세요.';
 export const FREE_TEXT = '조종권이 비었습니다. [조종 시작]으로 받을 수 있습니다.';
 
-/** confirmStop: 넘김 2단계에서 로봇이 0 명령·잠금을 확인했나(가짜: 연결된 로봇이면 확인됨) */
-export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, confirmStop = (robot: string) => !!ROBOTS.find((r) => r.id === robot)?.online): DriveApi {
+/** confirmStop: 넘김 2단계에서 로봇이 0 명령·잠금을 확인했나(가짜: 연결된 로봇이면 확인됨).
+ *  now: 10 s 요청·30 s 재요청·15 s 조종권 판정 시계 — 단조 시계라 벽시계를 앞뒤로 바꿔도 흔들리지 않는다(재검토 R2-B1) */
+export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, confirmStop = (robot: string) => !!ROBOTS.find((r) => r.id === robot)?.online,
+  now = () => performance.now()): DriveApi {
   const st: Record<string, DriveState> = {}, subs = new Set<() => void>(), timers = new Map<string, ReturnType<typeof setTimeout>>();
   let seq = 0;
   for (const r of ROBOTS) {
@@ -55,26 +59,32 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
       run: m ? { name: m[1], step: +m[2], total: +m[3], paused: r.status === 'PAUSED' } : null, stopCheck: null, ...seed[r.id] };
   }
   const set = (robot: string, p: Partial<DriveState>) => { st[robot] = { ...st[robot], ...p }; subs.forEach((f) => f()); };
-  const later = (key: string, s: number, f: () => void) => { clearTimeout(timers.get(key)); timers.set(key, setTimeout(f, s * 1000)); };
+  const later = (key: string, ms: number, f: () => void) => { clearTimeout(timers.get(key)); timers.set(key, setTimeout(f, ms)); };
   const allowed = (robot: string, user: string) => !driveBlock(USERS.find((u) => u.id === user)!, ROBOTS.find((r) => r.id === robot)!);
   const halt = { axes: [0, 0] as Axes, latched: true, neutral: false, stopCheck: null };   // 0 명령 + 잠금(확인됨)
   // 규칙 6: 마지막 입력 + 15 s 가 마감. 잠금은 아님(PRD Q7)
   const until: Record<string, number> = {};
-  const beat = (robot: string) => { until[robot] = Date.now() + HEARTBEAT_S * 1000; later(`hb:${robot}`, HEARTBEAT_S, () => expire(robot)); };
+  const beat = (robot: string) => { until[robot] = now() + HEARTBEAT_S * 1000; arm(robot); };
 
-  /** 시간 기준(B1): 만료는 타이머가 돈 때가 아니라 마감 시각으로 판정 — 모든 처리 앞에서 먼저 확정한다.
-   *  ponytail: 벽시계(Date.now) 기준 — 시계를 뒤로 돌리면 마감이 늘어난다. 서버는 단조 시계로 */
+  /** 시간 기준(B1): 만료는 타이머가 돈 때가 아니라 마감 시각으로 판정 — 모든 처리 앞에서 먼저 확정한다 */
   function expire(robot: string) {
-    const now = Date.now(), q = st[robot].request;
-    if (q && q.expiresAt <= now) close(robot, q.id, true);
-    if (st[robot].holder && until[robot] <= now) vacate(robot, { axes: [0, 0], neutral: false });
+    const t = now(), q = st[robot].request;
+    if (q && q.expiresAt <= t) close(robot, q.id, true);
+    if (st[robot].holder && until[robot] <= t) vacate(robot, { axes: [0, 0], neutral: false });
+    arm(robot);
+  }
+  /** 남은 마감마다 타이머를 건다 — 타이머가 이르게 깨도 expire 가 남은 시간으로 다시 건다 */
+  function arm(robot: string) {
+    const t = now(), s = st[robot];
+    if (s.request) later(`rq:${robot}`, s.request.expiresAt - t, () => expire(robot));
+    if (s.holder && until[robot] != null) later(`hb:${robot}`, until[robot] - t, () => expire(robot));
   }
 
   /** 조종권 비움 — 대기 요청은 끝내고, 기다리던 사람(대기 요청자·재요청 제한 중인 사람)에게 «비었습니다» */
   function vacate(robot: string, p: Partial<DriveState>, notice: Record<string, string | undefined> = {}) {
-    const s = st[robot], now = Date.now();
+    const s = st[robot], t = now();
     clearTimeout(timers.get(`hb:${robot}`)); clearTimeout(timers.get(`rq:${robot}`)); delete until[robot];
-    const waiting = [...(s.request ? [s.request.from] : []), ...Object.keys(s.cooldown).filter((u) => s.cooldown[u] > now)];
+    const waiting = [...(s.request ? [s.request.from] : []), ...Object.keys(s.cooldown).filter((u) => s.cooldown[u] > t)];
     set(robot, { ...p, holder: null, request: null, notice: { ...s.notice, ...Object.fromEntries(waiting.map((u) => [u, FREE_TEXT])), ...notice } });
   }
   /** 거절·자동 거절: 기존 조종 유지, 요청자는 30 s 재요청 제한(기준 = 확정된 때 — 자동 거절은 마감 시각) */
@@ -83,12 +93,13 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
     if (s.request?.id !== id) return;
     clearTimeout(timers.get(`rq:${robot}`));
     const { from, expiresAt } = s.request;
-    set(robot, { request: null, cooldown: { ...s.cooldown, [from]: (timeout ? expiresAt : Date.now()) + COOLDOWN_S * 1000 },
+    set(robot, { request: null, cooldown: { ...s.cooldown, [from]: (timeout ? expiresAt : now()) + COOLDOWN_S * 1000 },
       notice: { ...s.notice, [from]: timeout ? '응답이 없어 요청이 끝났습니다.' : `${userName(s.holder!)}님이 거절했습니다.` } });
   }
   const quiet = (s: DriveState, user: string) => ({ ...s.notice, [user]: undefined });
 
   const api: DriveApi = {
+    now,
     get: (robot) => st[robot],
     subscribe: (f) => { subs.add(f); return () => { subs.delete(f); }; },
     take(robot, user, pauseRun = false) {
@@ -104,13 +115,13 @@ export function createFakeDrive(seed: Record<string, Partial<DriveState>> = {}, 
     },
     request(robot, user) {
       expire(robot);
-      const s = st[robot], now = Date.now();
+      const s = st[robot], t = now();
       if (!allowed(robot, user)) return 'FORBIDDEN';
-      if ((s.cooldown[user] ?? 0) > now) return 'COOLDOWN';
+      if ((s.cooldown[user] ?? 0) > t) return 'COOLDOWN';
       if (s.request || !s.holder || s.holder === user) return 'BUSY';
       const id = `q${++seq}`;
-      set(robot, { request: { id, from: user, expiresAt: now + REQUEST_S * 1000 }, notice: quiet(s, user) });
-      later(`rq:${robot}`, REQUEST_S, () => close(robot, id, true));
+      set(robot, { request: { id, from: user, expiresAt: t + REQUEST_S * 1000 }, notice: quiet(s, user) });
+      arm(robot);
       return 'SENT';
     },
     respond(robot, user, accept) {
