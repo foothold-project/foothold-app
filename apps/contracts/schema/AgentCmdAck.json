@@ -24,6 +24,7 @@
       "title": "Reason"
     },
     "seq": {
+      "maximum": 9007199254740991,
       "minimum": -1,
       "title": "Seq",
       "type": "integer"

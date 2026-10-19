@@ -48,11 +48,12 @@ def test_real_pr8_client_keeps_retrying_after_owner_loss_and_reconnects(seeded, 
             async with asyncio.timeout(timeout):
                 while not predicate():
                     if task.done():
-                        task.result()  # expose ReconnectForbidden instead of a timeout
-                        raise AssertionError('Real Client stopped')
+                        error = task.exception()
+                        raise AssertionError('Real Client stopped: ' + type(error).__name__)
                     await asyncio.sleep(.01)
         try:
             await until(lambda: session.pings >= 1)
+            assert getattr(session, 'stop_ref', 0) > 0  # current integrated wire contract
             initial_pings = session.pings
             # Only this temporary PostgreSQL is touched. Terminate the owner
             # session and occupy its advisory lock before the next election.

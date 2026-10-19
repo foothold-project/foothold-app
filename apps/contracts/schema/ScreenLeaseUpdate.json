@@ -56,7 +56,6 @@
     "t",
     "robot",
     "holder",
-    "lease_id",
     "since"
   ],
   "title": "ScreenLeaseUpdate",

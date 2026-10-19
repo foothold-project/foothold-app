@@ -31,7 +31,10 @@ class Sink:
 
 
 def run(client, callback):
-    return client.portal.call(callback)
+    try:
+        return client.portal.call(callback)
+    except TimeoutError:
+        pytest.fail('Expected realtime state transition within its explicit deadline')
 
 
 def test_b1_repeated_denied_stop_agent_events_bounded_and_new_take_survives(client, seeded, rt):
@@ -222,7 +225,11 @@ def test_r4_emergency_notifies_and_authority_recovers(client, seeded, rt):
             rt.owner_connection.execute(text('SELECT pg_advisory_unlock_all()'))
             rt.owner_connection.commit()
         run(client, lose)
-        assert receive(ws, 'lease', predicate=lambda x: x['holder'] is None)['holder'] is None
+        try:
+            free = receive(ws, 'lease', predicate=lambda x: x['holder'] is None)
+        except WebSocketDisconnect as error:
+            pytest.fail(f'Expected FREE notification before close {error.code}')
+        assert free['holder'] is None
         with pytest.raises(WebSocketDisconnect):
             receive(ws, 'reply')
     async def recovered():
@@ -239,7 +246,7 @@ def test_r6_run_takeover_and_i1_bound_run_lease(client, seeded, rt):
     rid, run_id = str(seeded['robots']['mine']), str(uuid4())
     with agent(client, seeded, run={'run_id': run_id, 'status': 'PAUSED', 'step': 0}) as ag, screen(client, app_token(client)) as ws:
         receive(ag, 'run.control')
-        ag.send_json(state(2))
+        ag.send_json(state(2, stop_ref=ag.stop_ref))
         frame = receive(ag, 'lease')
         assert frame['holder_type'] == 'RUN:' + run_id
         assert C.AgentLease.model_validate(frame).holder_type == 'RUN:' + run_id
@@ -282,13 +289,15 @@ def test_i2_invalid_agent_body_unknown_fields_and_binary_do_not_close(client, se
         ag.send_bytes(b'unimplemented video')
         ag.send_json({**state(4), 'future_field': {'ignored': True}})
         assert reply(ws, send(ws, 'ping'))['ok']
+        assert rt.arbiter.robot(rid).holder is not None
         assert rt.arbiter.robot(rid).holder.lease_id == lease
         assert rt.arbiter.robot(rid).stop_gen == 4  # invalid 500 cannot change safety state
         ag.send_json({'t': 'event', 'code': 'FAKE_WARN', 'severity': 'warn', 'robot_at': None, 'data': {}})
     drain_audit(client, rt)
     with DBSession(client.app.state.engine) as db:
         assert db.scalar(select(Event).where(Event.code == 'AGENT_INVALID_FRAME'))
-        assert db.scalar(select(Event).where(Event.code == 'FAKE_WARN')).severity == 'WARN'
+        event = db.scalar(select(Event).where(Event.code == 'FAKE_WARN'))
+        assert event is not None and event.severity == 'WARN'
 
 
 def test_i2_liveness_only_parseable_envelopes(client, seeded, rt):
@@ -328,6 +337,7 @@ def test_failed_runtime_refuses_existing_connection_control_but_allows_stop(clie
         run(client, fail)
         try:
             result = reply(ws, send(ws, 'lease.take', rid))
+            assert not result['ok']
             assert result['error']['code'] == 'SERVER_BUSY'
             assert reply(ws, send(ws, 'stop', rid))['ok']
             receive(ag, 'stop')
@@ -373,6 +383,7 @@ def test_r10_lease_history_index_exists(seeded):
     engine = create_engine(seeded['urls']['app'])
     try:
         indexes = {i['name']: i for i in inspect(engine).get_indexes('lease_log')}
+        assert 'lease_log_org_robot_at' in indexes
         index = indexes['lease_log_org_robot_at']
         assert index['column_names'] == ['org_id', 'robot_id', 'at']
         assert index['column_sorting']['at'] == ('desc',)
@@ -396,6 +407,7 @@ def test_stale_authorization_blocks_motion_but_cached_stop_remains_immediate(cli
             peer.policy = replace(peer.policy, checked=rt.clock() - 1)
         run(client, age_snapshot)
         result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[1, 0, 0]))
+        assert not result['ok']
         assert result['error']['code'] == 'POLICY_STALE'
         assert reply(ws, send(ws, 'stop', rid))['ok']
         receive(ag, 'stop', timeout=.1)
@@ -405,7 +417,7 @@ def test_b1_real_ws_cmd_and_stop_floods_allow_fresh_take(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
     headers = app_token(client)
     with agent(client, seeded) as ag:
-        ag.send_json(state(2))
+        ag.send_json(state(2, stop_ref=ag.stop_ref))
         for kind in ('cmd', 'stop'):
             with screen(client, headers) as ws:
                 async def flood():
@@ -431,7 +443,7 @@ def test_b1_real_ws_cmd_and_stop_floods_allow_fresh_take(client, seeded, rt):
                     assert frame['lease_id'] is None
                     break
             receive(ag, 'stop')
-            ag.send_json(state(gen + 1))
+            ag.send_json(state(gen + 1, stop_ref=ag.stop_ref))
             assert receive(ag, 'lease')['lease_id'] is not None
 
 
@@ -440,7 +452,7 @@ def test_r3_deny_screen_revokes_before_socket_close_io(client, seeded, rt):
     actor = Actor(str(seeded['users']['one']), str(uuid4()), 'auth-close-test')
     async def check():
         rt.arbiter.take(rid, actor)
-        rt.arbiter.state(rid, True, [0, 0, 0], 1)
+        rt.arbiter.state(rid, True, [0, 0, 0], 1, stop_ref=1)
         class CheckingSink(Sink):
             async def close(self, code=1000):
                 assert rt.arbiter.robot(rid).holder is None

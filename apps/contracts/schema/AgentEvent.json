@@ -1,4 +1,7 @@
 {
+  "$defs": {
+    "JsonValue": {}
+  },
   "$id": "fh-app/1/AgentEvent",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
@@ -9,7 +12,9 @@
       "type": "string"
     },
     "data": {
-      "additionalProperties": true,
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
       "title": "Data",
       "type": "object"
     },

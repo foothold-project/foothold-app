@@ -26,17 +26,10 @@
           "type": "string"
         },
         "proto": {
-          "anyOf": [
-            {
-              "const": "fh-rt/1",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Proto"
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
         },
         "robot": {
           "format": "uuid",
@@ -44,6 +37,7 @@
           "type": "string"
         },
         "seq": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Seq",
           "type": "integer"
@@ -56,7 +50,6 @@
       },
       "required": [
         "id",
-        "proto",
         "robot",
         "t",
         "lease_id",
@@ -76,17 +69,10 @@
           "type": "string"
         },
         "proto": {
-          "anyOf": [
-            {
-              "const": "fh-rt/1",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Proto"
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
         },
         "robot": {
           "format": "uuid",
@@ -107,7 +93,6 @@
       },
       "required": [
         "id",
-        "proto",
         "robot",
         "t"
       ],
@@ -124,17 +109,10 @@
           "type": "string"
         },
         "proto": {
-          "anyOf": [
-            {
-              "const": "fh-rt/1",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Proto"
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
         },
         "t": {
           "const": "ping",
@@ -144,7 +122,6 @@
       },
       "required": [
         "id",
-        "proto",
         "t"
       ],
       "title": "ScreenPing",
@@ -164,17 +141,10 @@
           "type": "string"
         },
         "proto": {
-          "anyOf": [
-            {
-              "const": "fh-rt/1",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Proto"
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
         },
         "request_id": {
           "format": "uuid",
@@ -194,7 +164,6 @@
       },
       "required": [
         "id",
-        "proto",
         "robot",
         "t",
         "request_id",
@@ -213,17 +182,10 @@
           "type": "string"
         },
         "proto": {
-          "anyOf": [
-            {
-              "const": "fh-rt/1",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Proto"
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
         },
         "robots": {
           "items": {
@@ -256,7 +218,6 @@
       },
       "required": [
         "id",
-        "proto",
         "t",
         "robots",
         "streams"
@@ -279,17 +240,10 @@
           "type": "string"
         },
         "proto": {
-          "anyOf": [
-            {
-              "const": "fh-rt/1",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Proto"
+          "const": "fh-rt/1",
+          "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+          "title": "Proto",
+          "type": "string"
         },
         "robot": {
           "format": "uuid",
@@ -297,6 +251,7 @@
           "type": "string"
         },
         "stop_gen": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Stop Gen",
           "type": "integer"
@@ -309,7 +264,6 @@
       },
       "required": [
         "id",
-        "proto",
         "robot",
         "t",
         "lease_id",

@@ -1,5 +1,9 @@
 # W3-B 실시간 서버 검증 기록
 
+최신 결과와 계약은 문서 끝의 «Codex 독립 검토 + Claude r3 수정» 절을 따른다.
+이전 절은 해당 커밋의 실행 이력이다.
+
+
 2026-10-19, `feature/server-realtime`, 기준 `origin/dev` = `6b024c98c2f78c0f7506fefaa92814dd8ba00339`.
 소유 경로 `apps/server/**`, `apps/contracts/**`만 변경했다. 기존 안전 Core·셀프테스트·명세 파일 변경 0.
 이 기록은 기능 브랜치의 모의·DB 검증이며 통합 dev 후보나 배포 검증이 아니다.
@@ -402,3 +406,185 @@ PR #8의 Session 미송신 사건 큐 상한과 송신 배압은 `apps/agent/**`
 | N9 event backlog disconnects | detected |
 | N9 events exhaust control budget | detected |
 | N7 stale read mislabeled forbidden | detected |
+
+## Codex 독립 검토 + Claude r3 수정 (기준 4552c06)
+
+`origin/dev` 1b399dd(PR #8 e0cd274 포함)를 같은 브랜치에 일반 merge한 뒤 수정했다
+(merge 47f1aac). 합쳐진 웹 변경은 dev의 원본이며 직접 편집하지 않았다.
+이번 조정에서만 허용한 `apps/agent/foothold_agent/link/**`, 새 agent 시험·변이 도구와
+LINK-VALIDATION도 함께 고쳤다. 원본 safety/core.py·기존 Core 시험 2개·명세 파일은 변경 0이다.
+
+### 지적별 수정·회귀
+
+| 지적 | 수정 또는 이미 해소된 근거 | 고침 제거 시 실패하는 시험 |
+|---|---|---|
+| Codex B1 이전 반납 state가 새 take 확인 | 세대 하한 추정을 제거. 서버 STOP에 로봇별 1~2**53-1 증가 stop_ref, 에이전트가 그 STOP을 적용해 latched/applied=0인 state에 마지막 적용 ref를 회신. take/넘김은 이번 ref와 정확 일치·latched·applied=0·2 s를 모두 확인. 새 연결의 에이전트 ref는 0으로 초기화, 이미 교체된 연결의 state는 기존 identity guard로 폐기. 소진 때 STOP은 유지하되 새 grant 금지 | `test_b1_real_session_old_release_cannot_confirm_new_stop` 3종(반납·취소/재take·로컬 STOP), `test_b1_reference_exhaustion_never_reuses_for_a_grant`, 기존 latch/0/마감/교체 연결 시험, agent `test_stop_reference.py` |
+| Codex B2 독성 감사 1건이 전체 정지 | data 키·값을 JsonValue와 재귀 UTF8/NUL/유한 JSON/깊이64로 검증. 잘못된 본문은 기존 AGENT_INVALID_FRAME 집계로 폐기. 감사 작업자는 Unicode·DataError/IntegrityError·SQLSTATE22/23 등 영구 데이터 오류를 격리, 안전한 AUDIT_QUARANTINED 요약을 기록하고 다음 건 처리. 일시 DB 장애는 같은 건 재시도 | `test_b2_nested_data_must_be_postgresql_json` 5종, `test_b2_wire_poison_dropped_then_stop_audit_drains`(STOP 감사·drain·새 take), `test_b2_actual_unstorable_database_item_is_quarantined`(실제 PostgreSQL), `test_b2_auditor_quarantines_permanent_but_retries_transient` 4종 |
+| Codex B3 생성 계약과 wire 차이 | 입력 union/중첩 모델도 validation 모드. 같은 이름의 다른 $defs는 덮지 않고 생성 실패. 최초 proto 필수·후속 생략 허용·명시 null 거부를 서버/모델/TS에 일치시킴. observer lease_id·성공 결과 error 생략만 선택 필드로 표시하고 응답 t는 계속 필수. 하나의 추적 wire literal을 Pydantic·JSON Schema·생성 TS 소비로 검증 | `test_b3_wire_fixture_python_and_schema_match`, `test_b3_generator_rejects_conflicting_nested_definitions`, `test_b3_transport_proto_first_and_null_rules` 3종, `apps/contracts/tests/wire-consumer.ts` + npm typecheck |
+| Codex 권고1 정수 상한 | 계약의 seq/stop_gen/stop_ref/step·ack seq, 순수 Arbiter cmd/unlock, 링크 cmd/unlock/STOP ref 모두 2**53-1 상한. bool·음수·초과 입력은 권한·heartbeat를 바꾸기 전에 거부. stop_ref는 양수, state의 0은 적용한 서버 STOP 없음 | `test_c1_sequence_bounds_are_enforced_before_heartbeat`, B1 소진 시험, agent 기존 seq 경계와 새 ref/unlock 경계 시험 |
+| Codex 권고2 상수 시간 비교 | 조직 안 보관되지 않은 로봇의 고정32byte digest 전부 compare_digest로 대조. token hash SQL equality 제거. 새 연결의 구 토큰 거부·기존 연결의 주기 감시 차이를 유지 | `test_c2_token_verification_uses_constant_time_comparison`, 기존 토큰 회전/진짜 인증 거부 시험 |
+| Codex 권고3 지연 RUN 종료가 사람 lease 폐기 | 실행 ID가 현재 run 사본과 맞고, 현재 holder가 RUN이며 그 run에 결합한 lease_id까지 맞을 때만 종료 반납. 사람 holder·진행 중 인수는 폐기하지 않음 | `test_c3_late_run_terminal_does_not_revoke_human` 3종, `test_c3_matching_current_run_terminal_releases_only_its_lease` 3종 |
+| Codex 권고4 변이 수치 경계 | 서버도 pytest hook의 구조화 예외 유형 사용. AssertionError/pytest.fail만 검출, 실행/수집/teardown/혼합 오류·보고서 누락은 ERROR. 선정 변이만의 결과이며 아래 경계 설명 참고 | `test_mutation_tool_only_counts_assertions` 4종, server/agent 변이 실행 표 |
+| Claude M1 STOP 응답이 보류 알림 뒤 대기 | reply 별도 유한 큐·송신 작업자, 실제 socket send만 Lock으로 직렬화. 알림의 DB 권한 대기 동안 reply/STOP 접수 결과는 즉시 송신 | `test_m1_stop_reply_bypasses_notification_waiting_for_policy`(800 ms 읽기 지연, reply100 ms 상한), 기존 STOP 수신 지연 회귀 |
+| Claude M2 느린 인증에 반납도 거부 | release/hidden은 기존에 검증한 사용자 범위와 Arbiter의 연결별 소유 판정으로 즉시 반납. 로봇 인증 age·busy·offline 검사를 기다리지 않음. 실제 세션 만료/권한 상실은 계속 거부 | `test_m2_release_not_blocked_by_stale_robot_auth` 2종. 500 ms를 넘은 DB 판정으로 새 cmd를 허용하지 않는 중단은 의도하며 오류 코드를 반환 |
+| Claude M3 판정 완료 시각으로 age 갱신 | policy와 agent 인증 모두 읽기 시작 시각 저장. 600 ms 지연에서 완료 직후에도 stale이며 새 take/cmd 불가. 오래 걸린 읽기가 판정을 새것으로 만들지 않음 | `test_m3_policy_and_robot_auth_age_start_before_db_read`, 기존 stale 권한·로봇 인증·STOP 회귀 |
+| Claude M4 backlog 원본 영구 폐기 | 유효 사건은 별도100/s 예산으로 수신을 늦추고 audit4096 큐에 원본 FIFO로 넣음. 큐가 차면 await로 배압, STOP 송신/인증 감시 분리 유지. 의도적 읽기 대기는 무수신 판정에 포함하지 않음 | `test_n9_backlog_events_do_not_disconnect_or_starve_state`: 500개 모든 원본·순서·state/lease 확인. 기존 표본 제외 정책을 이 수정으로 대체 |
+| Claude M5 반환 안 하는 DB 읽기 | 감시의 pending read에 asyncio2 s 시한, shield로 같은 읽기 공유·중복 시작 억제. 초기 인증 읽기도2 s. PostgreSQL connect2 s·statement2 s·TCP keepalive/user timeout 설정. DB 확인/정리의 blocking 호출은 event loop 밖으로 이동 | `test_m5_stalled_db_has_client_deadline_and_stop_stays_live`: 반환 안 하는 read에 클라이언트 시한·STOP/reply100 ms 상한. `test_m5_failed_owner_read_cleanup_never_blocks_stop`(실패한 owner 정리400 ms 중 STOP/reply100 ms), 기존 bounded grace 시험 |
+| Claude M6 도구가 옛 agent 기본값 | 기본 WORKTREE로 현재 합쳐진 링크를 읽고 ref 응답도 검사. --agent-ref는 명시적 역사 진단에만 사용. 새 stop_ref 없는 구버전은 이번 통합 시험을 통과하지 못함 | 별도 `check_agent_reconnect.py` 실제 Client 회귀, 기본값을 옛 e0cd274로 되돌린 변이 |
+| Claude M7 추적 uvicorn 포트 | 4552c06의 ws_process와 배포 시험 모두 이미 socket.bind(('127.0.0.1', 0)) 후 fd를 전달. 이번 실제 Client 통합도 같은 하네스 사용. 고정 운영 포트로 바꾸거나 접속한 적 없음 | 실제 uvicorn 배포/1013/Client 시험. 운영 포트를 사용하는 변이는 만들지 않음 |
+
+Codex가 별도로 지적한 수락 전403과 단발 DB 오류의 영구 재접속 중단 계열은 4552c06에서
+이미 N1/N3/N7로 해소됐으며 실제 uvicorn+현재 Client의 1013 재시도·잠금 회복 회귀를 유지했다.
+Codex B1·B2·B3와 정수 범위·상수 비교·RUN 종료 가드는 4552c06에도 남아 있어 이번에 고쳤다.
+새 schema/TS는 서버·agent 계약 변경이므로 두 쪽을 함께 갱신해야 하며 배포하지 않았다.
+
+### 검증 경계와 후속 항목
+
+- Core 세대가 2**53-1을 소진하면 링크는 조종권 확인을 무효화하고 ref0·포화 wire 세대로
+  보고하므로 새 grant를 확인하지 못한다. 내부 Core 정수/정책은 바꾸거나 wrap하지 않는다.
+- stop_ref는 네트워크 메시지의 인과 확인이다. 로컬 sink가 STOP/apply를 적용한 뒤 state를
+  보내는 Client 순서는 유지하지만 몸의 실제 속도0·정지 거리의 측정 확인은 아니다.
+  stop_gen은 Core 원본의 CAS 규칙 그대로이며 +1/+2 추정으로 넘김을 확인하지 않는다.
+- 서버가 받은 유효 사건은 원본을 버리지 않고 FIFO로 기록한다. 과도한 backlog는 뒤의
+  state를 늦춰 넘김2 s가 FREE로 끝날 수 있으나 송신 STOP·로컬 deadman·인증 감시는 계속된다.
+  전송 중 단절의 ACK/중복 제거·디스크 내구성은 아직 없다. PR #8 Session의 오프라인 큐와
+  Client outgoing128 포화 정책은 B1만 허용된 agent 확장 범위 밖이라 그대로 두었으며,
+  수신 전 사건 유실/메모리 상한의 후속 판단을 조정 세션에 별도로 알렸다.
+- 500 ms는 읽기 시작부터 판정의 나이다. 읽기가 그보다 오래 걸리면 새 조종을 허용할
+  만큼 신선한 증거가 없으므로 중단한다. 임의로 상한을 늘려 정상 입력처럼 통과시키지 않는다.
+  5 s 유예는 각 클라이언트 시한/반환 시 검사하므로 정확한5 s 닫기 상한은 아니다.
+  asyncio 시한은 Python 스레드를 강제 종료하지 않으며, libpq connect/keepalive 설정을
+  함께 사용한다. 실제 원격 DB 네트워크 분단을 재현한 검증은 아니다.
+- 이전 67개 기록은 당시의 pytest 실패 기준이다. 이번에는 알려진 메시지/상태/유효 호출
+  실패를 명시적 assertion으로 보강하고, 내부 TypeError/RuntimeError·혼합 teardown 오류는
+  검출로 세지 않는다. 중복 방어인 Unicode encode 한 줄만 제거한 변이는 실제로 살아남았다.
+  이를 숨기지 않고 유효한 다른 필드는 유지한 채 사건 data 검증 전체를 우회하는 변이로
+  정책 경계를 시험한다. 실제 Session 지연 state·실제 PostgreSQL 독성 건·wire TS 소비가
+  기존 가짜 에이전트의 단순 세대 증가 모델이 놓친 경계를 보완한다.
+- 선정 변이는 동작 판정뿐 아니라 의존성 pin·README 프레임 상한·생성 스키마·도구 기본값도
+  포함한다. 수치는 이 선정 집합의 assertion 결과이며 전체 결함 검출률이나 물리 안전성의 지표가 아니다.
+- 명세 파일은 고치지 않았다. stop_ref·입력 proto/선택 필드·backlog 배압/내구성·실행 영속화·
+  pose map_version_id·토큰 회전의 감시 지연은 정본의 후속 반영/통합 판단 대상이다.
+- 운영8453/8792·ROS·Gazebo·실기 접촉0. uvicorn은 loopback 포트0의 OS 배정 fd만 사용하고
+  임시 PostgreSQL은 기존 Unix socket 전용 fixture이며 모두 종료한다. 실제 TLS·브라우저·
+  설치 앱·실폰·로봇·현장 부하·DB 재시작·배포는 미검증이다.
+
+### 이번 실행 결과
+
+- 최종 합동 `PYTHONPATH=apps/agent python -m pytest apps/server apps/agent/tests -q`:
+  **419 passed**, Starlette 안내1건, skip0 (106.24 s). 서버232·에이전트187이다.
+- 마지막 정리 경로 추가 전 서버 단독: **231 passed** (102.07 s); 에이전트 단독: **187 passed** (4.56 s).
+- 실제 PostgreSQL Alembic `head → base → head`: **1 passed** (1.77 s), ORM diff0.
+- `generate.py --check`: **61개 일치**. `npm run --prefix apps/contracts typecheck`는
+  생성 선언과 추적 wire 소비 literal·null/필수t의 기대 거부까지 포함해 성공했다.
+- 실제 uvicorn+현재 Client의 인과 take→unlock→중립→비영cmd→요청/수락→STOP이 합동
+  시험에 포함된다. 별도 `check_agent_reconnect.py`도 기본WORKTREE로 **1 passed** (7.43 s):
+  소유 잠금 소실→점유 중1013재시도3회 이상→해제 후 인증된ping복귀를 확인했다.
+- 에이전트 선정 변이 **46/46 KILLED**, ERROR0·SURVIVED0. 기존 Core 정책은 원본 그대로며
+  도구가 Core 일부를 바꾸는 기존 변이3개는 임시 사본에서만 실행한다.
+
+- 원본 수정 없는 `python3 sim/v2_link.py --selftest`: **selftest OK**.
+
+- 서버 선정 변이 최종 **83/83 assertion 검출**, 실행/수집/혼합 오류0. 엄격 기준으로
+  바꾼 첫 완주82개 실행은10건을 ERROR로 보고했고 검출로 세지 않았다. 알려진 유효
+  호출·필수 메시지·wire 검증 실패를 단언하도록 시험을 보강한 뒤82/82, 소유 연결 정리
+  시험/변이를 추가한 최종83/83을 확인했다. 임의 예외를 일괄 assertion으로 바꾸지 않는다.
+
+| 선정 변이 대상 | 개수 |
+|---|---:|
+| 순수 lease 중재기 | 24 |
+| realtime 연결·인증·큐·기록·복구 | 50 |
+| 입력/출력 계약 모델 | 4 |
+| 생성기 충돌 방지 | 1 |
+| 감사 조회 migration 색인 | 1 |
+| WebSocket 의존성 pin·README 프레임 상한 | 2 |
+| 실제 Client 도구의 기본 대상 버전 | 1 |
+| 합계 | 83 |
+
+### 이번 서버 최종 변이 표
+
+| Broken decision | Detection |
+|---|---|
+| request timeout 10 -> 20 | detected |
+| TIMEOUT cooldown omitted | detected |
+| lease heartbeat 15 -> 30 | detected |
+| duplicate seq accepted | detected |
+| command budget removed | detected |
+| unlock CAS removed | detected |
+| causal STOP reference ignored | detected |
+| nonzero applied accepted | detected |
+| latch check removed | detected |
+| late transfer ack accepted | detected |
+| lease null replaced by stale lease | detected |
+| connection binding weakened | detected |
+| respond holder check omitted | detected |
+| take allowed during transfer | detected |
+| request during transfer | detected |
+| second pending request allowed | detected |
+| hidden transferee not revoked | detected |
+| new STOP reuses earlier reference | detected |
+| initial take cancel not notified | detected |
+| strict 50 ms gate reintroduced | detected |
+| zero input rate rejected | detected |
+| disconnect leaves request | detected |
+| disconnect leaves transfer | detected |
+| safety enqueue keeps stale cmd | detected |
+| requester gone accepted | detected |
+| failed input gate ignored | detected |
+| audit overflow does not revoke | detected |
+| delivery policy omitted | detected |
+| replaced state handler gate omitted | detected |
+| repeat audit aggregation omitted | detected |
+| audit overload never recovers | detected |
+| STOP waits for DB again | detected |
+| auth close retains lease | detected |
+| emergency FREE not notified | detected |
+| ownership never recovers | detected |
+| RUN identity not bound | detected |
+| RUN takeover audit omitted | detected |
+| invalid agent body disconnects | detected |
+| invalid JSON renews liveness | detected |
+| streams falsely enabled | detected |
+| origin prefix accepted | detected |
+| ingress budget omitted | detected |
+| WebSocket backend pin omitted | detected |
+| transport frame cap undocumented | detected |
+| agent severity normalization omitted | detected |
+| agent future fields forbidden | detected |
+| binary agent frame closes link | detected |
+| operation denial closes connection | detected |
+| lease audit index omitted | detected |
+| stale cache permits motion | detected |
+| N1 transient rejection before accept | detected |
+| N1 real PR8 reconnect forbidden | detected |
+| N2 stale notification discarded | detected |
+| N3 hello timeout fatal | detected |
+| N4 screen denial bypasses ingress | detected |
+| N4 malformed agent bypasses ingress | detected |
+| N5 emergency interleaves accepted batch | detected |
+| N6 startup standby never elects | detected |
+| N7 policy transient disconnects | detected |
+| N7 agent auth transient disconnects | detected |
+| N7 uncertain ownership disconnects | detected |
+| N7 stale policy fails to revoke | detected |
+| N7 retry grace unbounded | detected |
+| N8 duplicate RUN release restored | detected |
+| M4 event backlog discarded | detected |
+| M4 events bypass bounded audit queue | detected |
+| N7 stale read mislabeled forbidden | detected |
+| B1 causal reference counter exhausted | detected |
+| B2 recursive event validation bypassed | detected |
+| B2 permanent audit retried forever | detected |
+| B3 conflicting schema silently overwritten | detected |
+| B3 followup proto made required | detected |
+| B3 optional observer lease serialized required | detected |
+| C1 server sequence upper bound omitted | detected |
+| C2 constant time token compare omitted | detected |
+| C3 terminal run revokes human lease | detected |
+| M1 STOP reply waits behind stale notification | detected |
+| M2 release blocked by stale robot authorization | detected |
+| M3 policy timestamp taken after read | detected |
+| M3 robot authorization timestamp taken after read | detected |
+| M5 read client deadline removed | detected |
+| M6 default uses obsolete agent | detected |
+| M5 owner cleanup blocks safety loop | detected |

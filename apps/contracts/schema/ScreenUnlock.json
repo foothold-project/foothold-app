@@ -15,17 +15,10 @@
       "type": "string"
     },
     "proto": {
-      "anyOf": [
-        {
-          "const": "fh-rt/1",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Proto"
+      "const": "fh-rt/1",
+      "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+      "title": "Proto",
+      "type": "string"
     },
     "robot": {
       "format": "uuid",
@@ -33,6 +26,7 @@
       "type": "string"
     },
     "stop_gen": {
+      "maximum": 9007199254740991,
       "minimum": 0,
       "title": "Stop Gen",
       "type": "integer"

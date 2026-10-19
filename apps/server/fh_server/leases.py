@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from typing import Callable
 from uuid import uuid4
 
+MAX_SAFE_INTEGER = 2**53 - 1
+
 
 class LeaseError(Exception):
     def __init__(self, code, message, status=409):
@@ -47,7 +49,7 @@ class Request:
 class Transfer:
     actor: Actor | None
     deadline: float
-    stop_gen: int
+    stop_ref: int
     request: Request | None = None
 
 
@@ -65,7 +67,7 @@ class RobotLease:
     transfer: Transfer | None = None
     cooldown: dict[str, float] = field(default_factory=dict)
     stop_gen: int = 0
-    stop_floor: int = 0  # includes STOPs sent whose state has not arrived yet
+    stop_ref: int = 0  # causal server STOP reference; never wrap or reuse for grants
     latched: bool = True
 
 
@@ -114,10 +116,10 @@ class Arbiter:
         r = self.robot(robot)
         h, tr = r.holder, r.transfer
         r.holder = r.transfer = None
-        r.stop_floor = max(r.stop_floor, r.stop_gen) + 1
+        r.stop_ref = min(MAX_SAFE_INTEGER, r.stop_ref + 1)
         # Safety ordering is contractual: lease null reaches the agent before stop.
         effects = [self.effect('agent', robot, t='lease', lease_id=None, holder_type=None),
-                   self.effect('agent', robot, t='stop', by_user_id=actor.user if actor else None),
+                   self.effect('agent', robot, t='stop', by_user_id=actor.user if actor else None, stop_ref=r.stop_ref),
                    self.announce(robot), *self.cancel_request(robot)]
         if h and h.actor:
             effects += [self.effect(h.actor.connection, robot, **self.announce(robot).body)]
@@ -129,8 +131,18 @@ class Arbiter:
 
     def begin(self, robot, actor, req=None, op='RELEASE'):
         r = self.robot(robot)
+        exhausted = r.stop_ref >= MAX_SAFE_INTEGER
         effects = self.revoke(robot, actor, op=op)
-        r.transfer = Transfer(actor, self.clock() + 2, r.stop_floor - 1, req)
+        if exhausted:
+            # Safety STOP still goes out, but an exhausted reference may never
+            # confirm another grant. Restart/reconciliation requires a new link.
+            if req:
+                effects += self.result(robot, req, 'CANCELED', 'STOP_REF_EXHAUSTED')
+            elif actor:
+                effects += [self.effect(actor.connection, robot, t='lease.result', request_id=None,
+                                        result='CANCELED', error='STOP_REF_EXHAUSTED')]
+            return effects
+        r.transfer = Transfer(actor, self.clock() + 2, r.stop_ref, req)
         return effects
 
     def take(self, robot, actor):
@@ -182,7 +194,7 @@ class Arbiter:
 
     def heartbeat(self, robot, actor, lease_id, seq, neutral=False):
         h = self.owned(self.robot(robot), actor, lease_id)
-        if seq <= h.seq:
+        if type(seq) is not int or not 0 <= seq <= MAX_SAFE_INTEGER or seq <= h.seq:
             raise LeaseError('CMD_SEQ', '명령 순서가 올바르지 않습니다.', 400)
         at = self.clock()
         # 20 Hz intent tolerates scheduler jitter and a burst of three. A zero
@@ -201,7 +213,7 @@ class Arbiter:
     def unlock(self, robot, actor, lease_id, stop_gen):
         r = self.robot(robot)
         self.owned(r, actor, lease_id)
-        if stop_gen != r.stop_gen:
+        if type(stop_gen) is not int or not 0 <= stop_gen <= MAX_SAFE_INTEGER or stop_gen != r.stop_gen:
             raise LeaseError('STOP_GEN_MISMATCH', '정지 상태가 바뀌었습니다.')
         return [self.effect('agent', robot, t='unlock', lease_id=lease_id, stop_gen=stop_gen)]
 
@@ -209,20 +221,22 @@ class Arbiter:
         # Cancel an in-flight handoff so an old stop acknowledgement cannot grant it.
         r = self.robot(robot)
         tr, r.transfer = r.transfer, None
-        r.stop_floor = max(r.stop_floor, r.stop_gen) + 1
-        effects = [self.effect('agent', robot, t='stop', by_user_id=actor.user)]
+        r.stop_ref = min(MAX_SAFE_INTEGER, r.stop_ref + 1)
+        effects = [self.effect('agent', robot, t='stop', by_user_id=actor.user, stop_ref=r.stop_ref)]
         if tr and tr.request:
             effects += self.result(robot, tr.request, 'CANCELED')
         elif tr and tr.actor:
             effects += [self.effect(tr.actor.connection, robot, t='lease.result', request_id=None, result='CANCELED')]
         return effects + [self.audit(robot, 'STOP', actor)]
 
-    def state(self, robot, latched, applied, stop_gen):
+    def state(self, robot, latched, applied, stop_gen, stop_ref=0):
         r = self.robot(robot)
+        if (type(stop_gen) is not int or not 0 <= stop_gen <= MAX_SAFE_INTEGER
+                or type(stop_ref) is not int or not 0 <= stop_ref <= MAX_SAFE_INTEGER):
+            return []
         r.stop_gen, r.latched = max(r.stop_gen, stop_gen), latched
-        r.stop_floor = max(r.stop_floor, stop_gen)
         tr = r.transfer
-        if not tr or self.clock() >= tr.deadline or not latched or applied != [0, 0, 0] or stop_gen <= tr.stop_gen:
+        if not tr or self.clock() >= tr.deadline or not latched or applied != [0, 0, 0] or stop_ref != tr.stop_ref:
             return []
         at = self.clock()
         r.transfer = None

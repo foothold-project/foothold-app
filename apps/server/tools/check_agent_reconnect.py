@@ -19,8 +19,14 @@ ROOT = Path(__file__).resolve().parents[3]
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--agent-repo', default=str(ROOT))
-    parser.add_argument('--agent-ref', default='4392fc708ad471047bf710dc978c20b903168255')
+    parser.add_argument('--agent-ref', default='WORKTREE')
     args = parser.parse_args()
+    plugin = ['-p', 'fh_realtime_mutation_probe', '--realtime-mutation-report', os.environ['FH_REALTIME_MUTATION_REPORT']] if 'FH_REALTIME_MUTATION_REPORT' in os.environ else []
+    if args.agent_ref == 'WORKTREE':
+        env = {**os.environ, 'PYTHONPATH': os.pathsep.join([str(ROOT / 'apps/agent'), str(ROOT)]),
+               'FH_REVIEW_AGENT_COMMIT': 'WORKTREE'}
+        return subprocess.run([sys.executable, '-m', 'pytest', '-q', '-s', *plugin,
+            'apps/server/tools/agent_reconnect_case.py'], cwd=ROOT, env=env).returncode
     commit = subprocess.check_output(['git', '-C', args.agent_repo, 'rev-parse', args.agent_ref], text=True).strip()
     archive = subprocess.check_output(['git', '-C', args.agent_repo, 'archive', commit, 'apps/agent/foothold_agent'])
     with tempfile.TemporaryDirectory(prefix='fh-real-agent-') as folder:
@@ -29,7 +35,7 @@ def main():
         env = {**os.environ, 'PYTHONPATH': os.pathsep.join([
             str(Path(folder) / 'apps/agent'), str(ROOT)]), 'FH_REVIEW_AGENT_COMMIT': commit}
         print('Real PR #8 Client: ' + commit, flush=True)
-        result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-s',
+        result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-s', *plugin,
             'apps/server/tools/agent_reconnect_case.py'], cwd=ROOT, env=env)
         return result.returncode
 

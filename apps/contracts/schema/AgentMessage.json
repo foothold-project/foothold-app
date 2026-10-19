@@ -29,8 +29,7 @@
         }
       },
       "required": [
-        "soc",
-        "voltage"
+        "soc"
       ],
       "title": "AgentBattery",
       "type": "object"
@@ -59,6 +58,7 @@
           "title": "Reason"
         },
         "seq": {
+          "maximum": 9007199254740991,
           "minimum": -1,
           "title": "Seq",
           "type": "integer"
@@ -72,8 +72,7 @@
       "required": [
         "t",
         "seq",
-        "applied",
-        "reason"
+        "applied"
       ],
       "title": "AgentCmdAck",
       "type": "object"
@@ -87,7 +86,9 @@
           "type": "string"
         },
         "data": {
-          "additionalProperties": true,
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
           "title": "Data",
           "type": "object"
         },
@@ -218,6 +219,7 @@
           ]
         },
         "stop_gen": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Stop Gen",
           "type": "integer"
@@ -268,6 +270,7 @@
         "step": {
           "anyOf": [
             {
+              "maximum": 9007199254740991,
               "minimum": 0,
               "type": "integer"
             },
@@ -292,8 +295,6 @@
       "required": [
         "t",
         "kind",
-        "run_id",
-        "step",
         "upload_id"
       ],
       "title": "AgentMedia",
@@ -431,6 +432,7 @@
           "type": "string"
         },
         "step": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Step",
           "type": "integer"
@@ -446,9 +448,7 @@
         "run_id",
         "status",
         "step",
-        "progress",
-        "path_deviation_m",
-        "fail_code"
+        "progress"
       ],
       "title": "AgentRunUpdate",
       "type": "object"
@@ -506,8 +506,15 @@
           "title": "Speed"
         },
         "stop_gen": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Stop Gen",
+          "type": "integer"
+        },
+        "stop_ref": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Ref",
           "type": "integer"
         },
         "t": {
@@ -523,9 +530,9 @@
         "battery",
         "latched",
         "stop_gen",
+        "stop_ref",
         "applied",
-        "mode",
-        "devices_changed"
+        "mode"
       ],
       "title": "AgentState",
       "type": "object"
@@ -571,6 +578,7 @@
       "title": "Device",
       "type": "object"
     },
+    "JsonValue": {},
     "Progress": {
       "additionalProperties": false,
       "properties": {
@@ -605,6 +613,7 @@
           "type": "string"
         },
         "step": {
+          "maximum": 9007199254740991,
           "minimum": 0,
           "title": "Step",
           "type": "integer"
@@ -625,8 +634,7 @@
       "required": [
         "run_id",
         "status",
-        "step",
-        "wait_reason"
+        "step"
       ],
       "title": "RunCopy",
       "type": "object"

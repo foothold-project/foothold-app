@@ -3,7 +3,7 @@ from datetime import timezone
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -23,16 +23,20 @@ class Contract(BaseModel):
     @model_validator(mode='before')
     @classmethod
     def reject_nul(cls, value):
-        def visit(item):
-            if isinstance(item, str) and '\x00' in item:
-                raise ValueError('NUL is not allowed')
+        def visit(item, depth=0):
+            if depth > 64:
+                raise ValueError('JSON nesting exceeds 64')
+            if isinstance(item, str):
+                item.encode('utf-8')  # PostgreSQL UTF8 cannot store lone surrogates.
+                if '\x00' in item:
+                    raise ValueError('NUL is not allowed')
             if isinstance(item, dict):
                 for key, child in item.items():
-                    visit(key)
-                    visit(child)
+                    visit(key, depth + 1)
+                    visit(child, depth + 1)
             elif isinstance(item, (list, tuple)):
                 for child in item:
-                    visit(child)
+                    visit(child, depth + 1)
         visit(value)
         return value
 
@@ -226,12 +230,14 @@ class SessionList(Contract):
 Axis = Annotated[float, Field(ge=-1, le=1, strict=True)]
 Axes = Annotated[list[Axis], Field(min_length=3, max_length=3)]
 Vector3 = Annotated[list[float], Field(min_length=3, max_length=3)]
-Sequence = Annotated[int, Field(ge=0, strict=True)]
+MAX_SAFE_INTEGER = 2**53 - 1
+Sequence = Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER, strict=True)]
+StopReference = Annotated[int, Field(gt=0, le=MAX_SAFE_INTEGER, strict=True)]
 
 
 class ScreenEnvelope(Contract):
     id: str = Field(min_length=1, max_length=128)
-    proto: Literal['fh-rt/1'] | None = None
+    proto: Literal['fh-rt/1'] = omitted(description='첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.')
 
 
 class ScreenRobot(ScreenEnvelope):
@@ -323,6 +329,7 @@ class AgentState(AgentInput):
     battery: AgentBattery
     latched: bool = Field(strict=True)
     stop_gen: Sequence
+    stop_ref: Sequence
     applied: Vector3
     mode: str = Field(max_length=64)
     devices_changed: list[Device] | None = None
@@ -337,7 +344,14 @@ class AgentEvent(AgentInput):
     code: str = Field(min_length=1, max_length=128)
     severity: Literal['INFO', 'WARN', 'ERROR', 'info', 'warn', 'error']
     robot_at: UTCDateTime | None
-    data: dict[str, Any]
+    data: dict[str, JsonValue]
+
+    @model_validator(mode='after')
+    def storable_json(self):
+        import json
+        # Also checks finite numbers in recursive JsonValue leaves.
+        json.dumps(self.data, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        return self
 
 
 class AgentRunUpdate(AgentInput):
@@ -352,7 +366,7 @@ class AgentRunUpdate(AgentInput):
 
 class AgentCmdAck(AgentInput):
     t: Literal['cmd.ack']
-    seq: int = Field(ge=-1, strict=True)
+    seq: int = Field(ge=-1, le=MAX_SAFE_INTEGER, strict=True)
     applied: Vector3
     reason: str | None = None
 
@@ -386,6 +400,7 @@ class AgentCommand(Contract):
 class AgentStop(Contract):
     t: Literal['stop'] = 'stop'
     by_user_id: UUID | None
+    stop_ref: StopReference
 
 
 class AgentUnlock(Contract):
@@ -408,6 +423,8 @@ class AgentStreams(Contract):
 
 
 class ScreenReply(Contract):
+    model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
+        required=[key for key in schema.get('required', []) if key != 'error']))
     t: Literal['reply'] = 'reply'
     id: str
     ok: bool
@@ -415,6 +432,8 @@ class ScreenReply(Contract):
 
 
 class ScreenLeaseUpdate(Contract):
+    model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
+        required=[key for key in schema.get('required', []) if key != 'lease_id']))
     t: Literal['lease'] = 'lease'
     robot: UUID
     holder: dict[str, Any] | None
@@ -431,6 +450,8 @@ class ScreenLeaseRequested(Contract):
 
 
 class ScreenLeaseResult(Contract):
+    model_config = ConfigDict(json_schema_extra=lambda schema: schema.update(
+        required=[key for key in schema.get('required', []) if key != 'error']))
     t: Literal['lease.result'] = 'lease.result'
     robot: UUID
     request_id: UUID | None
@@ -465,4 +486,7 @@ REQUEST_MODELS = {LoginRequest, RefreshRequest, MePatch, PasswordChange,
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,
-                       AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia})
+                       AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia, ScreenMessage, AgentMessage})
+# Nested input models must have the same mode as their enclosing input union.
+REQUEST_MODELS.update(T for T in TOP.values() if isinstance(T, type)
+                      and issubclass(T, (AgentInput, ScreenEnvelope)))

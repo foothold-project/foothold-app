@@ -6,6 +6,8 @@ the tests use the existing disposable PostgreSQL harness and ASGI fake peers.
 """
 from pathlib import Path
 import shutil
+import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -16,15 +18,16 @@ R = 'apps/server/fh_server/realtime.py'
 PURE = 'apps/server/tests/test_leases.py'
 REVIEW = 'apps/server/tests/test_realtime_review.py'
 R2 = 'apps/server/tests/test_realtime_r2.py'
+R3 = 'apps/server/tests/test_realtime_r3.py'
 WIRE = 'apps/server/tests/test_realtime.py'
 MUTATIONS = [
     ('request timeout 10 -> 20', L, 'timeout=10', 'timeout=20', PURE),
     ('TIMEOUT cooldown omitted', L, 'r.cooldown[req.actor.user] = at + 30', 'r.cooldown[req.actor.user] = at', PURE),
     ('lease heartbeat 15 -> 30', L, 'at - r.holder.heartbeat >= 15', 'at - r.holder.heartbeat >= 30', PURE),
-    ('duplicate seq accepted', L, 'if seq <= h.seq:', 'if seq < h.seq:', PURE),
+    ('duplicate seq accepted', L, 'or seq <= h.seq:', 'or seq < h.seq:', PURE),
     ('command budget removed', L, 'if h.tokens < 1 and not neutral:', 'if False:', PURE),
-    ('unlock CAS removed', L, 'if stop_gen != r.stop_gen:', 'if False:', PURE),
-    ('stale stop generation accepted', L, 'or stop_gen <= tr.stop_gen:', ':', PURE),
+    ('unlock CAS removed', L, 'or stop_gen != r.stop_gen:', 'or False:', PURE),
+    ('causal STOP reference ignored', L, 'or stop_ref != tr.stop_ref:', ':', R3 + '::test_b1_real_session_old_release_cannot_confirm_new_stop'),
     ('nonzero applied accepted', L, 'or applied != [0, 0, 0]', '', PURE),
     ('latch check removed', L, 'or not latched', '', PURE),
     ('late transfer ack accepted', L, 'or self.clock() >= tr.deadline', '', PURE),
@@ -37,11 +40,11 @@ MUTATIONS = [
     ('request during transfer', L, '        if r.transfer:\n', '        if False:\n', PURE),
     ('second pending request allowed', L, 'or r.holder.actor.user == actor.user or r.request:', 'or r.holder.actor.user == actor.user:', PURE),
     ('hidden transferee not revoked', L, 'if r.transfer and r.transfer.actor == actor:', 'if False:', PURE),
-    ('unreported earlier STOP ignored', L, 'r.stop_floor - 1, req)', 'r.stop_gen, req)', PURE),
+    ('new STOP reuses earlier reference', L, 'r.stop_ref = min(MAX_SAFE_INTEGER, r.stop_ref + 1)', 'r.stop_ref = max(1, r.stop_ref)', R3 + '::test_b1_real_session_old_release_cannot_confirm_new_stop'),
     ('initial take cancel not notified', L, 'elif tr and tr.actor:', 'elif False:', PURE),
     ('strict 50 ms gate reintroduced', L, '        at = self.clock()\n        # 20 Hz',
-     "        at = self.clock()\n        if at - h.last_cmd < .05:\n            raise LeaseError('CMD_RATE_LIMIT', 'too fast', 429)\n        # 20 Hz", PURE),
-    ('zero input rate rejected', L, 'if h.tokens < 1 and not neutral:', 'if h.tokens < 1:', PURE),
+     "        at = self.clock()\n        if at - h.last_cmd < .05:\n            raise LeaseError('CMD_RATE_LIMIT', 'too fast', 429)\n        # 20 Hz", PURE + '::test_twenty_hz_with_processing_jitter_has_no_false_rejections'),
+    ('zero input rate rejected', L, 'if h.tokens < 1 and not neutral:', 'if h.tokens < 1:', PURE + '::test_zero_command_remains_valid_after_motion_budget_is_spent'),
     ('disconnect leaves request', R,
      '            if r.request and r.request.actor == actor:\n                self.apply(self.arbiter.cancel_request(rid))',
      '            if False:\n                pass', REVIEW + '::test_disconnect_pending_request_is_canceled'),
@@ -50,7 +53,7 @@ MUTATIONS = [
      '            if False:\n                pass', REVIEW + '::test_disconnect_pending_transfer_is_revoked'),
     ('safety enqueue keeps stale cmd', R, "if body['t'] in ('stop', 'lease', 'cmd'):", "if body['t'] == 'cmd':", REVIEW + '::test_safety_enqueue_discards_pre_stop_commands'),
     ('requester gone accepted', R, 'if pending.actor.connection not in self.screens:', 'if False:', REVIEW + '::test_disconnected_requester_cannot_be_granted_even_before_cleanup'),
-    ('failed input gate ignored', R, "if (self.failed or self.audit_overloaded or self.owner_uncertain) and msg.t != 'stop':", 'if False:', REVIEW + '::test_failed_runtime_refuses_existing_connection_control_but_allows_stop'),
+    ('failed input gate ignored', R, "if (self.failed or self.audit_overloaded or self.owner_uncertain) and not safe:", 'if False:', REVIEW + '::test_failed_runtime_refuses_existing_connection_control_but_allows_stop'),
     ('audit overflow does not revoke', R, '                self.audit_overloaded = True\n                self.free_pending = True\n                self.finish_effects()', '                self.audit_overloaded = True', REVIEW + '::test_b1_full_queue_revokes_notifies_keeps_stop_and_recovers'),
     ('delivery policy omitted', R, "self.cached_access(peer, [body['robot']], 'ROBOT_READ')", 'pass', REVIEW + '::test_r7_delivery_checks_cached_policy_without_db'),
     ('replaced state handler gate omitted', R,
@@ -96,22 +99,50 @@ MUTATIONS = [
     ('N7 stale policy fails to revoke', R, '                    if age > 0.5 and not peer.stale_revoked:\n                        self.revoke_actor(peer.actor)', '                    if False:\n                        self.revoke_actor(peer.actor)', R2 + '::test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry'),
     ('N7 retry grace unbounded', R, 'DB_RETRY_GRACE = 5.0', 'DB_RETRY_GRACE = 50.0', R2 + '::test_n7_retry_grace_is_bounded_and_closes_temporarily'),
     ('N8 duplicate RUN release restored', 'apps/server/fh_server/leases.py', 'effects = self.begin(robot, actor, op=None)', 'effects = self.begin(robot, actor)', R2 + '::test_n8_run_takeover_has_no_duplicate_release'),
-    ('N9 event backlog disconnects', R, 'if not admitted and not archive:', 'if not admitted:', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
-    ('N9 events exhaust control budget', R, 'admitted = self.ingress_allowed(peer, archive=archive)', 'admitted = self.ingress_allowed(peer)', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
+    ('M4 event backlog discarded', R, '                if archive and not admitted:\n                    while', '                if archive and not admitted:\n                    continue\n                    while', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
+    ('M4 events bypass bounded audit queue', R, '                        await self.audit.put(effect)', '                        pass', R2 + '::test_n9_backlog_events_do_not_disconnect_or_starve_state'),
 
     ('N7 stale read mislabeled forbidden', R, "                except LeaseError:\n                    # A stale snapshot is uncertainty, not an authorization denial.", "                except LeaseError:\n                    await self.deny_screen(peer, 4403)\n                    return\n                    # A stale snapshot is uncertainty, not an authorization denial.", R2 + '::test_n7_stale_successful_read_is_not_a_permanent_authorization_denial'),
 
+    ('B1 causal reference counter exhausted', 'apps/server/fh_server/leases.py', '        if exhausted:', '        if False:', 'apps/server/tests/test_realtime_r3.py::test_b1_reference_exhaustion_never_reuses_for_a_grant'),
+    ('B2 recursive event validation bypassed', 'apps/contracts/models.py', '\n\nclass AgentRunUpdate(AgentInput):', "\n\n    @model_validator(mode='wrap')\n    @classmethod\n    def bypass_nested_validation(cls, value, handler):\n        return cls.model_construct(**value)\n\n\nclass AgentRunUpdate(AgentInput):", 'apps/server/tests/test_realtime_r3.py::test_b2_nested_data_must_be_postgresql_json'),
+    ('B2 permanent audit retried forever', 'apps/server/fh_server/realtime.py', 'if self.permanent_audit_error(exc):', 'if False:', 'apps/server/tests/test_realtime_r3.py::test_b2_auditor_quarantines_permanent_but_retries_transient'),
+    ('B3 conflicting schema silently overwritten', 'apps/contracts/generate.py', 'if name in defs and defs[name] != body:', 'if False:', 'apps/server/tests/test_realtime_r3.py::test_b3_generator_rejects_conflicting_nested_definitions'),
+    ('B3 followup proto made required', 'apps/contracts/models.py', "proto: Literal['fh-rt/1'] = omitted(description='첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.')", "proto: Literal['fh-rt/1']", 'apps/server/tests/test_realtime_r3.py::test_b3_wire_fixture_python_and_schema_match'),
+    ('B3 optional observer lease serialized required', 'apps/contracts/models.py', "if key != 'lease_id'", "if True", 'apps/server/tests/test_realtime_r3.py::test_b3_wire_fixture_python_and_schema_match'),
+    ('C1 server sequence upper bound omitted', 'apps/server/fh_server/leases.py', 'not 0 <= seq <= MAX_SAFE_INTEGER', 'not 0 <= seq', 'apps/server/tests/test_realtime_r3.py::test_c1_sequence_bounds_are_enforced_before_heartbeat'),
+    ('C2 constant time token compare omitted', 'apps/server/fh_server/realtime.py', "hmac.compare_digest(robot.agent_token_hash or b'\\x00' * 32, candidate)", '(robot.agent_token_hash == candidate)', 'apps/server/tests/test_realtime_r3.py::test_c2_token_verification_uses_constant_time_comparison'),
+    ('C3 terminal run revokes human lease', 'apps/server/fh_server/realtime.py', "if (msg.status != 'PAUSED' and holder and holder.holder_type == 'RUN'\n                                and run.get('lease_id') == holder.lease_id):", "if msg.status != 'PAUSED':", 'apps/server/tests/test_realtime_r3.py::test_c3_late_run_terminal_does_not_revoke_human'),
+    ('M1 STOP reply waits behind stale notification', 'apps/server/fh_server/realtime.py', "(peer.urgent if body.get('t') == 'reply' else peer.queue).put_nowait(body)", 'peer.queue.put_nowait(body)', 'apps/server/tests/test_realtime_r3.py::test_m1_stop_reply_bypasses_notification_waiting_for_policy'),
+    ('M2 release blocked by stale robot authorization', 'apps/server/fh_server/realtime.py', "elif msg.t == 'lease.release':\n                        self.apply", "elif msg.t == 'lease.release':\n                        if self.clock() - self.agents[rid].auth_checked > 0.5:\n                            raise LeaseError('ROBOT_AUTH_PENDING', 'fake pending', 503)\n                        self.apply", 'apps/server/tests/test_realtime_r3.py::test_m2_release_not_blocked_by_stale_robot_auth'),
+    ('M3 policy timestamp taken after read', 'apps/server/fh_server/realtime.py', 'return replace(policy, checked=min(started, policy.checked))', 'return replace(policy, checked=self.clock())', 'apps/server/tests/test_realtime_r3.py::test_m3_policy_and_robot_auth_age_start_before_db_read'),
+    ('M3 robot authorization timestamp taken after read', 'apps/server/fh_server/realtime.py', '                peer.auth_checked = started', '                peer.auth_checked = self.clock()', 'apps/server/tests/test_realtime_r3.py::test_m3_policy_and_robot_auth_age_start_before_db_read'),
+    ('M5 read client deadline removed', 'apps/server/fh_server/realtime.py', 'async with asyncio.timeout(DB_READ_TIMEOUT):\n            return await asyncio.shield(task)', 'async with asyncio.timeout(50):\n            return await asyncio.shield(task)', 'apps/server/tests/test_realtime_r3.py::test_m5_stalled_db_has_client_deadline_and_stop_stays_live'),
+    ('M6 default uses obsolete agent', 'apps/server/tools/check_agent_reconnect.py', "default='WORKTREE'", "default='e0cd2741ef9aecfc5cdd4c4962044213640a2428'", '@agent-reconnect'),
+    ('M5 owner cleanup blocks safety loop', R, 'await self.read(conn.close)', 'conn.close()', R3 + '::test_m5_failed_owner_read_cleanup_never_blocks_stop'),
 ]
 
 
 def run(tree, tests):
+    report = tree / 'mutation-result.json'
+    report.unlink(missing_ok=True)
+    plugin = ['-p', 'fh_realtime_mutation_probe', '--realtime-mutation-report', str(report)]
     if tests == ['@agent-reconnect']:
+        env = {**os.environ, 'FH_REALTIME_MUTATION_REPORT': str(report)}
         result = subprocess.run([sys.executable, 'apps/server/tools/check_agent_reconnect.py',
-            '--agent-repo', str(ROOT)], cwd=tree, capture_output=True, text=True, timeout=90)
-        return result.returncode, result.stdout + result.stderr
-    result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider', *tests],
-                            cwd=tree, capture_output=True, text=True, timeout=90)
-    return result.returncode, result.stdout + result.stderr
+            '--agent-repo', str(ROOT)], cwd=tree, env=env, capture_output=True, text=True, timeout=90)
+    else:
+        result = subprocess.run([sys.executable, '-m', 'pytest', '-q', '-x', '-p', 'no:cacheprovider',
+                                 *plugin, *tests], cwd=tree, capture_output=True, text=True, timeout=90)
+    output = result.stdout + result.stderr
+    try:
+        data = json.loads(report.read_text())
+        valid = (data['collected'] > 0 and data['exitstatus'] == result.returncode
+                 and not data['errors'])
+        code = result.returncode if valid and (result.returncode == 0 or data['assertions']) else 2
+    except (OSError, ValueError, KeyError, TypeError):
+        code = 2
+    return code, output
 
 
 def main():
@@ -120,7 +151,8 @@ def main():
         tree = Path(folder)
         shutil.copytree(ROOT / 'apps', tree / 'apps', ignore=shutil.ignore_patterns(
             '.venv', 'node_modules', '__pycache__', '.pytest_cache'))
-        baseline, output = run(tree, [PURE, WIRE, REVIEW, R2, 'apps/server/tests/test_ws_deployment.py', 'apps/server/tests/test_ws_recovery.py'])
+        shutil.copyfile(ROOT / 'apps/server/tools/mutation_reporter.py', tree / 'fh_realtime_mutation_probe.py')
+        baseline, output = run(tree, [PURE, WIRE, REVIEW, R2, R3, 'apps/server/tests/test_ws_deployment.py', 'apps/server/tests/test_ws_recovery.py'])
         if baseline:
             print(output)
             raise SystemExit('Baseline did not pass')
@@ -137,13 +169,13 @@ def main():
             finally:
                 file.write_text(original)
             detected = code == 1 and ' failed' in output and 'ERROR collecting' not in output
-            print(f'| {name} | {"detected" if detected else "MISSED"} |', flush=True)
+            print(f'| {name} | {"detected" if detected else "ERROR" if code != 0 else "MISSED"} |', flush=True)
             if not detected:
                 failed.append(name)
                 print(output, flush=True)
     if failed:
         raise SystemExit('Undetected mutations: ' + ', '.join(failed))
-    print(f'{len(MUTATIONS)}/{len(MUTATIONS)} detected by pytest failures (no collection errors)')
+    print(f'{len(MUTATIONS)}/{len(MUTATIONS)} detected by assertion failures (no execution/collection errors)')
 
 
 if __name__ == '__main__':

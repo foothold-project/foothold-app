@@ -201,8 +201,15 @@
       "title": "Speed"
     },
     "stop_gen": {
+      "maximum": 9007199254740991,
       "minimum": 0,
       "title": "Stop Gen",
+      "type": "integer"
+    },
+    "stop_ref": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Stop Ref",
       "type": "integer"
     },
     "t": {
@@ -218,6 +225,7 @@
     "battery",
     "latched",
     "stop_gen",
+    "stop_ref",
     "applied",
     "mode"
   ],

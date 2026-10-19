@@ -59,8 +59,7 @@
   "required": [
     "t",
     "id",
-    "ok",
-    "error"
+    "ok"
   ],
   "title": "ScreenReply",
   "type": "object"

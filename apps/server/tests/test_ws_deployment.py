@@ -74,8 +74,8 @@ def test_readme_uvicorn_really_upgrades_screen_and_agent(seeded, tmp_path):
                 assert read(screen, 'reply')['ok']
                 screen.send(json.dumps({'t': 'lease.take', 'id': 'take', 'robot': str(rid)}))
                 assert read(screen, 'reply')['ok']
-                read(ag, 'lease'); read(ag, 'stop')
-                ag.send(json.dumps(state(3)))
+                read(ag, 'lease'); stop = read(ag, 'stop')
+                ag.send(json.dumps(state(3, stop_ref=stop['stop_ref'])))
                 assert read(ag, 'lease')['lease_id']
                 screen.send(json.dumps({'t': 'stop', 'id': 'stop', 'robot': str(rid)}))
                 assert read(ag, 'stop')['by_user_id'] == str(seeded['users']['one'])

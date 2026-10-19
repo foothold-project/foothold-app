@@ -29,7 +29,7 @@ def rig():
 def held(rig):
     c, a, owner, other = rig
     a.take('r', owner)
-    a.state('r', True, [0, 0, 0], 1)
+    a.state('r', True, [0, 0, 0], 1, stop_ref=1)
     assert a.robot('r').holder.actor == owner
     return rig
 
@@ -41,12 +41,12 @@ def test_take_and_transfer_require_fresh_stop_ack_order(rig):
     effects = a.respond('r', owner, req.id, True)
     agent = [e.body for e in effects if e.target == 'agent']
     assert agent == [{'t': 'lease', 'lease_id': None, 'holder_type': None},
-                     {'t': 'stop', 'by_user_id': other.user}]
+                     {'t': 'stop', 'by_user_id': other.user, 'stop_ref': 2}]
     assert a.robot('r').holder is None
     for state in [(False, [0, 0, 0], 2), (True, [0.1, 0, 0], 2), (True, [0, 0, 0], 1)]:
-        assert a.state('r', *state) == []
+        assert a.state('r', *state, stop_ref=state[-1]) == []
         assert a.robot('r').holder is None
-    effects = a.state('r', True, [0, 0, 0], 2)
+    effects = a.state('r', True, [0, 0, 0], 2, stop_ref=2)
     assert a.robot('r').holder.actor == other
     assert any(e.body.get('result') == 'ACCEPTED' for e in effects)
     assert any(e.target == 'agent' and e.body.get('lease_id') is not None for e in effects)
@@ -59,12 +59,12 @@ def test_transfer_timeout_free_and_late_ack_cannot_grant(rig, late):
     a.respond('r', owner, a.robot('r').request.id, True)
     c.step(2)
     if late:
-        assert a.state('r', True, [0, 0, 0], 2) == []
+        assert a.state('r', True, [0, 0, 0], 2, stop_ref=2) == []
     effects = a.tick()
     assert a.robot('r').holder is None
     assert a.robot('r').transfer is None
     assert any(e.body.get('error') == 'STOP_CONFIRM_FAILED' for e in effects)
-    assert a.state('r', True, [0, 0, 0], 3) == []
+    assert a.state('r', True, [0, 0, 0], 3, stop_ref=3) == []
 
 
 def test_timeout_at_ten_seconds_and_thirty_second_cooldown(rig):
@@ -170,7 +170,7 @@ def test_unlock_cas_and_stop_invalidates_pending_transfer(rig):
     a.respond('r', owner, a.robot('r').request.id, True)
     effects = a.stop('r', owner)
     assert effects[0].body['t'] == 'stop'
-    assert a.state('r', True, [0, 0, 0], 2) == []
+    assert a.state('r', True, [0, 0, 0], 2, stop_ref=2) == []
     assert a.robot('r').holder is None
 
 
@@ -226,10 +226,13 @@ def test_transferee_hidden_cancels_unfinished_transfer(rig):
     c, a, owner, requester = held(rig)
     a.request('r', requester)
     a.respond('r', owner, a.robot('r').request.id, True)
-    effects = a.hidden('r', requester)
+    try:
+        effects = a.hidden('r', requester)
+    except LeaseError as error:
+        pytest.fail(f'Pending transferee hidden must succeed: {error.code}')
     assert effects[0].body['lease_id'] is None
     assert a.robot('r').transfer is None
-    assert a.state('r', True, [0, 0, 0], 99) == []
+    assert a.state('r', True, [0, 0, 0], 99, stop_ref=99) == []
 
 
 def test_pending_stop_generation_cannot_confirm_later_transfer(rig):
@@ -237,9 +240,9 @@ def test_pending_stop_generation_cannot_confirm_later_transfer(rig):
     a.stop('r', owner)  # generation 2, not yet reported by agent
     a.request('r', requester)
     a.respond('r', owner, a.robot('r').request.id, True)  # must see generation 3
-    assert a.state('r', True, [0, 0, 0], 2) == []
+    assert a.state('r', True, [0, 0, 0], 2, stop_ref=2) == []
     assert a.robot('r').holder is None
-    a.state('r', True, [0, 0, 0], 3)
+    a.state('r', True, [0, 0, 0], 3, stop_ref=3)
     assert a.robot('r').holder.actor == requester
 
 
@@ -256,4 +259,19 @@ def test_twenty_hz_with_processing_jitter_has_no_false_rejections(rig):
     lease = a.robot('r').holder.lease_id
     for seq in range(100):
         c.at = seq * .05 + (0.018 if seq % 2 == 0 else 0)
-        assert a.cmd('r', owner, lease, seq, [1, 0, 0])
+        try:
+            assert a.cmd('r', owner, lease, seq, [1, 0, 0])
+        except LeaseError as error:
+            pytest.fail(f'20 Hz input rejected at seq {seq}: {error.code}')
+
+
+def test_zero_command_remains_valid_after_motion_budget_is_spent(rig):
+    _, arbiter, owner, _ = held(rig)
+    lease = arbiter.robot('r').holder.lease_id
+    for seq in range(3):
+        arbiter.cmd('r', owner, lease, seq, [1, 0, 0])
+    try:
+        effects = arbiter.cmd('r', owner, lease, 3, [0, 0, 0])
+    except LeaseError as error:
+        pytest.fail(f'Neutral input must remain valid: {error.code}')
+    assert effects[0].body['axes'] == [0, 0, 0]

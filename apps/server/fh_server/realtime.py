@@ -6,9 +6,10 @@ own connection pool/worker; a blocked insert cannot delay STOP or lease null.
 """
 import asyncio
 from contextlib import suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 import json
+import hmac
 import logging
 import time
 from uuid import UUID, uuid4
@@ -17,7 +18,7 @@ from fastapi import Request, WebSocket, WebSocketDisconnect
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, DataError, IntegrityError, StatementError
 
 from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
@@ -30,6 +31,7 @@ AGENT = TypeAdapter(C.AgentMessage)
 MAX_FRAME = 4096
 DB_RETRY_GRACE = 5.0
 HELLO_TIMEOUT = 3.0
+DB_READ_TIMEOUT = 2.0
 TRANSIENT_DB = (DBAPIError, OSError, asyncio.TimeoutError)
 
 
@@ -52,6 +54,10 @@ class Peer:
     archive_budget_at: float = 0
     auth_checked: float = 0
     stale_revoked: bool = False
+    auth_task: object = None
+    audit_waiting: bool = False
+    urgent: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(128))
+    send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
 
 @dataclass(frozen=True)
@@ -67,7 +73,9 @@ class Realtime:
     def __init__(self, settings, factory, authorize, api_error, clock=time.monotonic):
         self.settings = settings
         self.read_engine = create_engine(settings.database_url, pool_size=5, max_overflow=5,
-            connect_args={'options': '-c default_transaction_read_only=on -c statement_timeout=2000'})
+            connect_args={'options': '-c default_transaction_read_only=on -c statement_timeout=2000',
+                          'connect_timeout': 2, 'keepalives': 1, 'keepalives_idle': 2,
+                          'keepalives_interval': 1, 'keepalives_count': 2, 'tcp_user_timeout': 5000})
         self.factory = sessionmaker(self.read_engine, expire_on_commit=False)
         self.authorize, self.api_error, self.clock = authorize, api_error, clock
         self.arbiter = Arbiter(clock)
@@ -93,6 +101,32 @@ class Realtime:
         self.free_pending = False
         self.owner_uncertain = False
         self.owner_error_since = None
+        self.owner_task = None
+        self.owner_cleanup = set()
+
+    def dispose_owner(self, pending, connection):
+        async def finish():
+            result = None
+            with suppress(BaseException):
+                result = await asyncio.shield(pending)
+            connections = [connection] if connection is not None else []
+            if hasattr(result, 'close') and result not in connections:
+                connections.append(result)
+            for conn in connections:
+                with suppress(Exception):
+                    await self.read(conn.close)
+        task = asyncio.create_task(finish())
+        self.owner_cleanup.add(task)
+        task.add_done_callback(self.owner_cleanup.discard)
+        return task
+
+    async def read(self, function, *args):
+        async with asyncio.timeout(DB_READ_TIMEOUT):
+            return await asyncio.to_thread(function, *args)
+
+    async def pending_read(self, task):
+        async with asyncio.timeout(DB_READ_TIMEOUT):
+            return await asyncio.shield(task)
 
     async def start(self):
         self.starts += 1
@@ -135,7 +169,13 @@ class Realtime:
             await asyncio.sleep(0.5)
             if self.failed:
                 try:
-                    conn = await asyncio.to_thread(self.acquire_owner)
+                    if self.owner_task is None:
+                        self.owner_task = asyncio.create_task(asyncio.to_thread(self.acquire_owner))
+                    try:
+                        conn = await self.pending_read(self.owner_task)
+                    finally:
+                        if self.owner_task.done():
+                            self.owner_task = None
                 except Exception:
                     continue
                 if conn is not None:
@@ -145,14 +185,20 @@ class Realtime:
                     self.owner_error_since = None
                 continue
             try:
-                alive = await asyncio.to_thread(self.ownership_alive)
+                if self.owner_task is None:
+                    self.owner_task = asyncio.create_task(asyncio.to_thread(self.ownership_alive))
+                try:
+                    alive = await self.pending_read(self.owner_task)
+                finally:
+                    if self.owner_task.done():
+                        self.owner_task = None
             except TRANSIENT_DB:
                 if not self.owner_uncertain:
                     self.owner_uncertain = True
                     self.owner_error_since = self.clock()
                     self.emergency_free()
                 with suppress(Exception):
-                    await asyncio.to_thread(self.owner_connection.rollback)
+                    await self.read(self.owner_connection.rollback) if self.owner_task is None else None
                 if self.clock() - self.owner_error_since < DB_RETRY_GRACE:
                     continue
                 alive = False
@@ -166,9 +212,13 @@ class Realtime:
                 self.emergency_free()
                 for peer in [*self.agents.values(), *self.screens.values()]:
                     asyncio.create_task(peer.socket.close(code=1013))
-                with suppress(Exception):
-                    self.owner_connection.close()
-                self.owner_connection = None
+                connection, self.owner_connection = self.owner_connection, None
+                if self.owner_task is not None:
+                    task, self.owner_task = self.owner_task, None
+                    self.dispose_owner(task, connection)
+                else:
+                    with suppress(Exception):
+                        await self.read(connection.close)
 
     async def close(self):
         if self.starts <= 0:
@@ -179,12 +229,19 @@ class Realtime:
         for task in self.tasks:
             task.cancel()
         await asyncio.gather(*self.tasks, return_exceptions=True)
-        if self.owner_connection is not None:
+        connection, self.owner_connection = self.owner_connection, None
+        if self.owner_task is not None:
+            pending, self.owner_task = self.owner_task, None
+            self.dispose_owner(pending, connection)
+        elif connection is not None:
+            def release():
+                try:
+                    connection.execute(text('SELECT pg_advisory_unlock(hashtextextended(:key, 0))'),
+                        {'key': 'fh-realtime:' + str(self.settings.org_id)})
+                finally:
+                    connection.close()
             with suppress(Exception):
-                self.owner_connection.execute(text('SELECT pg_advisory_unlock(hashtextextended(:key, 0))'),
-                    {'key': 'fh-realtime:' + str(self.settings.org_id)})
-            self.owner_connection.close()
-            self.owner_connection = None
+                await self.read(release)
         self.audit_engine.dispose()
         self.read_engine.dispose()
 
@@ -224,6 +281,7 @@ class Realtime:
             return C.OrgSettings.model_validate(db.get(Organization, user.org_id).settings) if with_settings else None
 
     def load_policy(self, actor):
+        checked = self.clock()
         # Two SELECTs, independent of the number of subscribed robots. No writes.
         with self.factory() as db:
             row = db.execute(select(User, Session, Organization).join(Session,
@@ -247,7 +305,7 @@ class Realtime:
                     except self.api_error:
                         pass
                 rights[str(robot.id)] = frozenset(allowed)
-            return Policy(rights, C.OrgSettings.model_validate(org.settings), session.expires_at, self.clock())
+            return Policy(rights, C.OrgSettings.model_validate(org.settings), session.expires_at, checked)
 
     async def refresh_policy(self, peer):
         sid = peer.actor.session
@@ -255,10 +313,14 @@ class Realtime:
         if cached is None or self.clock() - cached.checked >= 0.1:
             pending = self.policy_loads.get(sid)
             if pending is None:
-                pending = asyncio.create_task(asyncio.to_thread(self.load_policy, peer.actor))
+                async def load():
+                    started = self.clock()
+                    policy = await asyncio.to_thread(self.load_policy, peer.actor)
+                    return replace(policy, checked=min(started, policy.checked))
+                pending = asyncio.create_task(load())
                 self.policy_loads[sid] = pending
             try:
-                cached = await asyncio.shield(pending)
+                cached = await self.pending_read(pending)
                 self.policy_cache[sid] = cached
             finally:
                 if pending.done():
@@ -304,7 +366,7 @@ class Realtime:
         budget, stamp = ('archive_budget', 'archive_budget_at') if archive else ('budget', 'budget_at')
         balance = min(100.0, getattr(peer, budget) + max(0, at - getattr(peer, stamp)) * 100)
         setattr(peer, stamp, at)
-        setattr(peer, budget, max(0, balance - 1))
+        setattr(peer, budget, balance - 1 if balance >= 1 else balance)
         return balance >= 1
 
     async def retry_later(self, ws):
@@ -381,17 +443,20 @@ class Realtime:
         if not raw.startswith('Bearer ') or not raw[7:]:
             raise self.api_error(401, 'AUTH_REQUIRED', '에이전트 인증이 필요합니다.')
         with self.factory() as db:
-            rows = db.scalars(select(Robot).where(Robot.org_id == self.settings.org_id,
-                Robot.agent_token_hash == digest(raw[7:]), Robot.archived_at.is_(None))).all()
-            if len(rows) != 1:
+            candidate = digest(raw[7:])
+            robots = db.scalars(select(Robot).where(Robot.org_id == self.settings.org_id,
+                                                    Robot.archived_at.is_(None))).all()
+            matches = [robot for robot in robots
+                       if hmac.compare_digest(robot.agent_token_hash or b'\x00' * 32, candidate)]
+            if len(matches) != 1:
                 raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
-            return str(rows[0].id)
+            return str(matches[0].id)
 
     def put(self, peer, body):
         if peer.closing:
             return
         try:
-            peer.queue.put_nowait(body)
+            (peer.urgent if body.get('t') == 'reply' else peer.queue).put_nowait(body)
         except asyncio.QueueFull:
             peer.closing = True
             asyncio.create_task(peer.socket.close(code=1013))
@@ -407,6 +472,7 @@ class Realtime:
                     peer = self.agents.get(rid)
                     if peer:
                         if body['t'] == 'lease' and body['holder_type'] == 'RUN':
+                            self.runs[rid]['lease_id'] = body['lease_id']
                             body['holder_type'] = 'RUN:' + self.runs[rid]['run_id']
                         if body['t'] in ('cmd', 'unlock') or (body['t'] == 'lease' and body['lease_id'] is not None):
                             if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
@@ -457,6 +523,19 @@ class Realtime:
             effects = self.arbiter.revoke(rid)
             self.apply([effect for effect in effects if effect.target != 'audit'])
 
+    async def send_body(self, peer, body):
+        async with peer.send_lock:
+            await asyncio.wait_for(peer.socket.send_json(body), timeout=0.25)
+
+    async def replies(self, peer):
+        try:
+            while True:
+                await self.send_body(peer, await peer.urgent.get())
+        except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+            peer.closing = True
+            with suppress(Exception):
+                await peer.socket.close(code=1013)
+
     async def writer(self, peer, screen=False):
         try:
             while True:
@@ -478,7 +557,7 @@ class Realtime:
                     except self.api_error as exc:
                         await self.deny_screen(peer, 4401 if exc.status == 401 else 4403)
                         return
-                await asyncio.wait_for(peer.socket.send_json(body), timeout=0.25)
+                await self.send_body(peer, body)
         except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
             peer.closing = True
             with suppress(Exception):
@@ -515,7 +594,7 @@ class Realtime:
             return
         cid = str(uuid4())
         try:
-            actor = await asyncio.to_thread(self.identity, ws.headers, ws.cookies, cid)
+            actor = await self.read(self.identity, ws.headers, ws.cookies, cid)
             if not ws.headers.get('authorization'):
                 # Compare the full configured origin; never trust a forwarded
                 # Origin or allow wildcards. Same-origin is the default.
@@ -541,6 +620,7 @@ class Realtime:
         await ws.accept()
         self.screens[cid] = peer
         sender = asyncio.create_task(self.writer(peer, True))
+        urgent_sender = asyncio.create_task(self.replies(peer))
         watcher = asyncio.create_task(self.screen_watch(peer))
         try:
             first = True
@@ -567,9 +647,10 @@ class Realtime:
                     rid = str(msg.robot) if hasattr(msg, 'robot') else None
                     robots = [str(x) for x in msg.robots] if msg.t == 'sub' else ([rid] if rid else [])
                     policy = 'ROBOT_READ' if msg.t == 'sub' else ('ROBOT_SUMMARY' if msg.t == 'stop' else 'O_OWN' if rid else 'LOGIN')
-                    settings = self.cached_access(peer, robots, policy, safety=msg.t == 'stop')
+                    safe = msg.t in ('stop', 'lease.release', 'hidden')
+                    settings = self.cached_access(peer, robots, policy, safety=safe)
                     self.apply(self.arbiter.tick())  # expiry before new input
-                    if (self.failed or self.audit_overloaded or self.owner_uncertain) and msg.t != 'stop':
+                    if (self.failed or self.audit_overloaded or self.owner_uncertain) and not safe:
                         raise LeaseError('SERVER_BUSY', '서버 기록을 확인하고 있습니다.', 503)
                     if msg.t == 'stop':
                         self.apply(self.arbiter.stop(rid, actor))
@@ -582,6 +663,10 @@ class Realtime:
                         pass  # ping never extends a lease heartbeat
                     elif msg.t == 'stop':
                         pass
+                    elif msg.t == 'lease.release':
+                        self.apply(self.arbiter.release(rid, actor))
+                    elif msg.t == 'hidden':
+                        self.apply(self.arbiter.hidden(rid, actor))
                     else:
                         if rid not in self.agents or self.agents[rid].closing:
                             raise LeaseError('ROBOT_OFFLINE', '로봇 연결이 끊겼습니다.', 503)
@@ -607,10 +692,6 @@ class Realtime:
                                     raise LeaseError('LEASE_REQUEST_STALE', '요청자의 조종 권한이 바뀌었습니다.')
                                 self.apply(self.arbiter.tick())
                             self.apply(self.arbiter.respond(rid, actor, str(msg.request_id), msg.accept))
-                        elif msg.t == 'lease.release':
-                            self.apply(self.arbiter.release(rid, actor))
-                        elif msg.t == 'hidden':
-                            self.apply(self.arbiter.hidden(rid, actor))
                         elif msg.t == 'cmd':
                             self.apply(self.arbiter.cmd(rid, actor, str(msg.lease_id), msg.seq, msg.axes))
                         elif msg.t == 'unlock':
@@ -646,8 +727,9 @@ class Realtime:
                 if task:
                     task.cancel()
             sender.cancel()
+            urgent_sender.cancel()
             watcher.cancel()
-            await asyncio.gather(sender, watcher, return_exceptions=True)
+            await asyncio.gather(sender, urgent_sender, watcher, return_exceptions=True)
             self.streams()
 
     async def screen_watch(self, peer):
@@ -700,12 +782,19 @@ class Realtime:
         while True:
             await asyncio.sleep(0.1)
             try:
-                identity = await asyncio.to_thread(self.agent_identity, peer.socket.headers)
+                if peer.auth_task is None:
+                    started = self.clock()
+                    peer.auth_task = asyncio.create_task(asyncio.to_thread(self.agent_identity, peer.socket.headers))
+                try:
+                    identity = await self.pending_read(peer.auth_task)
+                finally:
+                    if peer.auth_task.done():
+                        peer.auth_task = None
                 if self.agents.get(rid) is not peer or peer.closing:
                     return
                 if identity != rid:
                     raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
-                peer.auth_checked = self.clock()
+                peer.auth_checked = started
                 peer.stale_revoked = False
             except TRANSIENT_DB:
                 if self.agents.get(rid) is not peer:
@@ -735,7 +824,8 @@ class Realtime:
             await self.retry_later(ws)
             return
         try:
-            rid = await asyncio.to_thread(self.agent_identity, ws.headers)
+            auth_started = self.clock()
+            rid = await self.read(self.agent_identity, ws.headers)
         except self.api_error as exc:
             await ws.close(code=4401 if exc.status == 401 else 4403)
             return
@@ -743,7 +833,7 @@ class Realtime:
             await self.retry_later(ws)
             return
         await ws.accept()
-        peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock(), auth_checked=self.clock(),
+        peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock(), auth_checked=auth_started,
                     budget_at=self.clock(), archive_budget_at=self.clock())
         sender = watcher = None
         try:
@@ -767,7 +857,8 @@ class Realtime:
                 await old.socket.close(code=1012)
             self.agents[rid] = peer
             r = self.arbiter.robot(rid)
-            r.stop_gen = r.stop_floor = hello.stop_gen
+            fresh_reference = r.stop_ref < C.MAX_SAFE_INTEGER
+            r.stop_gen = hello.stop_gen
             r.latched = hello.latched
             self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
             peer.state = {'devices': [d.model_dump(mode='json') for d in hello.devices],
@@ -779,7 +870,8 @@ class Realtime:
                 self.runs[rid] = run
                 self.put(peer, {'t': 'run.control', 'run_id': run['run_id'], 'op': 'pause'})
                 # RUN remains reserved after the same stop verification barrier.
-                r.transfer = Transfer(None, self.clock() + 2, r.stop_floor - 1)
+                if fresh_reference:
+                    r.transfer = Transfer(None, self.clock() + 2, r.stop_ref)
             else:
                 self.runs.pop(rid, None)
             self.apply([Effect('audit', rid, {'op': 'AGENT_CONNECTED'})])
@@ -813,9 +905,9 @@ class Realtime:
                         return
                     continue
                 if archive and not admitted:
-                    self.note_audit(rid, {'op': 'AGENT_BACKLOG_SAMPLED'})
-                    await asyncio.sleep(0)
-                    continue
+                    while not self.ingress_allowed(peer, archive=True):
+                        await asyncio.sleep(0.01)
+                        peer.last_rx = self.clock()  # reader intentionally paced by server
                 if msg.t == 'hello':
                     # Same-socket recovery must get a fresh connection/identity.
                     await ws.close(code=1012, reason='RECONNECT_REQUIRED')
@@ -824,7 +916,16 @@ class Realtime:
                 if msg.t == 'state':
                     self.accept_state(rid, peer, msg)
                 elif msg.t == 'event':
-                    self.apply([Effect('audit', rid, {'op': 'AGENT_EVENT', **msg.model_dump(mode='json')})])
+                    effect = Effect('audit', rid, {'op': 'AGENT_EVENT', 'at': now(), **msg.model_dump(mode='json')})
+                    peer.audit_waiting = True
+                    try:
+                        if self.audit.full():
+                            self.audit_overloaded = True
+                            self.emergency_free()
+                        await self.audit.put(effect)
+                    finally:
+                        peer.audit_waiting = False
+                        peer.last_rx = self.clock()
                     await asyncio.sleep(0)
                 elif msg.t == 'run.update':
                     # Placeholder: accept matching paused/terminal reports only;
@@ -832,7 +933,9 @@ class Realtime:
                     run = self.runs.get(rid)
                     if run and run['run_id'] == str(msg.run_id) and msg.status in ('PAUSED', 'COMPLETED', 'FAILED', 'ABORTED'):
                         run.update(status=msg.status, step=msg.step)
-                        if msg.status != 'PAUSED':
+                        holder = self.arbiter.robot(rid).holder
+                        if (msg.status != 'PAUSED' and holder and holder.holder_type == 'RUN'
+                                and run.get('lease_id') == holder.lease_id):
                             self.apply(self.arbiter.revoke(rid))
                 # ping, cmd.ack, media are validated no-op extension points.
         except self.api_error:
@@ -881,7 +984,7 @@ class Realtime:
                 self.cached_access(target, [rid], 'O_OWN')
             except (self.api_error, LeaseError):
                 self.apply(self.arbiter.revoke(rid, pending.actor))
-        self.apply(self.arbiter.state(rid, msg.latched, msg.applied, msg.stop_gen))
+        self.apply(self.arbiter.state(rid, msg.latched, msg.applied, msg.stop_gen, msg.stop_ref))
         return True
 
     async def ticker(self):
@@ -891,7 +994,7 @@ class Realtime:
             self.flush_audits()
             at = self.clock()
             for rid, peer in list(self.agents.items()):
-                if at - peer.last_rx >= 3 and not peer.closing:
+                if at - peer.last_rx >= 3 and not peer.closing and not peer.audit_waiting:
                     peer.closing = True
                     self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
                     asyncio.create_task(peer.socket.close(code=1013))
@@ -933,6 +1036,17 @@ class Realtime:
                 severity=ev.severity, message=ev.message, robot_id=rid, user_id=user,
                 run_id=None, data=ev.data).model_dump(mode='json')
 
+    @staticmethod
+    def permanent_audit_error(exc):
+        sqlstate = getattr(getattr(exc, 'orig', None), 'sqlstate', '') or ''
+        if sqlstate[:2] in ('22', '23'):  # data exception / integrity constraint
+            return True
+        if isinstance(exc, (DataError, IntegrityError, UnicodeError, ValueError, TypeError)):
+            return True
+        if isinstance(exc, StatementError) and isinstance(exc.orig, (UnicodeError, ValueError, TypeError)):
+            return True
+        return not isinstance(exc, TRANSIENT_DB)
+
     async def auditor(self):
         while True:
             effect = await self.audit.get()
@@ -941,9 +1055,15 @@ class Realtime:
                     ev = await asyncio.to_thread(self.record, effect)
                     self.apply([Effect('screens', effect.robot, {'t': 'event', **ev})])
                     break
-                except Exception:
-                    # Retain the same item, retry with bounded DB lock timeout;
-                    # backpressure eventually fails leases closed, never STOP.
+                except Exception as exc:
+                    if self.permanent_audit_error(exc):
+                        log.warning('Realtime audit item quarantined (%s)', type(exc).__name__)
+                        if effect.body.get('op') == 'AUDIT_QUARANTINED':
+                            self.audit_dropped += 1
+                            break
+                        effect = Effect('audit', effect.robot, {'op': 'AUDIT_QUARANTINED',
+                            'at': now(), 'data': {'count': 1, 'error_type': type(exc).__name__}})
+                        continue
                     log.warning('Realtime audit unavailable; retrying')
                     await asyncio.sleep(0.5)
             self.audit.task_done()

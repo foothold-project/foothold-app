@@ -179,29 +179,42 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
   검사한다. 500 ms보다 오래된 판정으로 새 조종 입력을 보내지 않으며, 이전에 허용된
   STOP 범위는 느린 갱신 중에도 쓸 수 있다. 세션 만료·폐기는 입력 폐기와 lease 반납으로 처리한다.
   화면 알림이 낡은 권한 캐시를 만나면 같은 알림을 보관하고 갱신 후 다시 검사해 보낸다.
+  reply는 별도 유한 큐에서 송신하므로 보류된 알림 때문에 STOP 응답이 밀리지 않는다.
+  lease.release/hidden은 검증된 기존 권한과 연결별 소유 관계로 처리하며, 낡은 로봇 인증이나
+  busy 판정이 반납을 막지 않는다. 세션 자체 만료·실제 권한 거부는 그대로 적용한다.
   권한을 실제 잃으면 알림을 보내지 않고 연결을 닫는다. DB 일시 오류 한 번으로 전체를
   끊지 않는다. 화면 권한·에이전트 토큰의 마지막 성공 판정이 500 ms를 넘으면 lease를
   폐기하고 새 조종을 막으며, 이미 검증한 STOP은 계속 전달한다. 100 ms 감시에서 재시도하고
-  마지막 성공부터 5 s 이상 지나도 확인되지 않으면 1013으로 닫는다. 각 읽기는 DB의
-  statement_timeout 2 s도 적용되므로 5 s는 다음 DB 응답 때 판정하는 기준이다.
+  마지막 성공부터 5 s 이상 지나도 확인되지 않으면 1013으로 닫는다. 권한 나이는 DB 읽기
+  시작 시각부터 재므로 느린 읽기의 완료 시각이 판정을 새것으로 만들지 않는다.
+  각 감시 읽기는 asyncio의 2 s 시한, DB statement_timeout 2 s·connect_timeout 2 s와
+  TCP keepalive/user timeout을 사용한다. shield한 읽기 하나를 공유해 대기 시한마다
+  같은 읽기를 중복 시작하지 않는다. 5 s는 다음 반환/클라이언트 시한 때 판정한다.
+  읽기가 500 ms를 넘으면 새 조종을 허용할 만큼 신선한 판정을 만들 수 없으므로
+  POLICY_STALE/ROBOT_AUTH_PENDING으로 설명하며 STOP·반납 경로는 계속 사용할 수 있다.
   실제 세션 폐기·토큰 불일치에는 유예 없이 4401/4403을 적용한다.
 - 조종권은 사용자·세션·연결에 묶인다. 유효 cmd(0 포함)만 heartbeat를 갱신한다.
   화면의 50 ms 입력 주기를 수용하되 서버는 25개/s·순간 3개 토큰 버킷으로 지터를 허용한다.
   중복/역순 seq·다른 lease_id는 거부하고, 새 seq의 0 입력은 명령 예산이 없어도 보낸다.
   에이전트 송신 큐에는 최신 cmd 하나만 남긴다. `ping`은 heartbeat가 아니다.
   `lease.request`는 조직 설정의 기본 10 s, 거절·TIMEOUT 확정부터 30 s 재요청 제한이다.
-- 최초 take와 넘김 모두 `lease=null → stop → latched/applied=0/새 stop_gen`을 확인하고
-  새 lease를 발급한다. 아직 보고되지 않은 앞선 STOP 수까지 세대 하한에 포함한다.
+- 최초 take와 넘김 모두 `lease=null → stop(stop_ref) → 같은 stop_ref/latched/applied=0`을
+  확인하고 새 lease를 발급한다. stop_ref는 로봇별 서버 증가 정수(1~2**53-1)이며,
+  이전 반납·취소·로컬 STOP의 늦은 state는 이번 확인을 대신할 수 없다.
+  stop_gen은 unlock CAS에만 쓰고 정지 인과 관계를 추정하는 데 쓰지 않는다.
+  stop_ref를 소진하면 STOP은 계속 보내지만 새 take/넘김은 FREE로 끝내며 값을 재사용하지 않는다.
   2 s 확인 실패는 FREE다. RUN 인수 감사는 `RUN_PAUSE_TAKEOVER`와 확인 후 `TAKE`로
   기록하며 같은 전환에 `RELEASE(user=null)`를 중복 기록하지 않는다. unlock은 최신 stop_gen CAS를 검사하며,
   에이전트의 로컬 STOP·중립 관문을 대신하지 않는다.
 - 서버는 에이전트에 1 s마다 ping을 보낸다. 마지막 수신부터 3 s면 연결을 닫고 사람 lease를 정리한다.
   hello의 사람 lease 사본은 복원하지 않는다. 진행 중 run 사본은 메모리에서 PAUSED로 맞추고,
-  정지 확인 뒤 `RUN:<run_id>`로 실행을 지정해 lease를 예약한다. 실행·지도·업로드 처리는 후속 확장 지점이다.
+  정지 확인 뒤 `RUN:<run_id>`로 실행을 지정해 lease를 예약한다. 지연된 RUN 종료 보고는
+  같은 실행의 현재 RUN lease에만 적용하고 사람 lease나 넘김을 폐기하지 않는다.
+  실행·지도·업로드 처리는 후속 확장 지점이다.
 - STOP과 cmd 인증은 읽기 전용 풀을 쓰며 REST identity의 조직 잠금·last_seen_at 쓰기를 하지 않는다.
   WS STOP/cmd는 수신 즉시 캐시로 판정한다. STOP·lease 변경은 대기 cmd를 버린 뒤
   송신 큐에 넣는다. HTTP 대체 경로의 최초 인증은 기존 DB 조회를 쓴다. 사건은 별도
-  풀/큐에서 기록하고 감사 DB 잠금은 1 s 제한으로 재시도한다. 반복 거부·STOP·에이전트
+  풀/큐에서 기록하고 감사 DB 잠금은 1 s 제한으로 재시도한다. 반복 거부·STOP·형식 오류
   사건은 로봇/사용자/코드별 첫 건과 1 s 집계로 묶으며, 첫 사건 전역 20개/s·최대 256개
   집계 키로 제한한다. 큐 포화에 따른 FREE는 현재 effect 목록을 다 보낸 뒤 알리므로
   FREE 뒤에 같은 전환의 ACCEPTED 결과가 오지 않는다. 새 조종만 막으며 STOP과 접속은
@@ -209,9 +222,15 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
   전체 입력 100개/s·순간 100개를 넘으면 닫되 그 프레임이 STOP이면 먼저 전달한다.
   예산은 모델 검증·권한·busy 검사 전에 쓰므로 거부 입력도 제한한다. 에이전트의 형식 오류와
   이진 프레임도 예산을 쓴다. 유효한 사건은 별도 100개/s·순간 100개 예산으로 처리하며,
-  재접속 사건 묶음이 이를 넘으면 연결을 끊는 대신 초과 건을 표본 제외하고
-  `AGENT_BACKLOG_SAMPLED` 개수로 집계한다. state·정지 확인 예산과 분리해 복구를 막지 않는다.
-  모든 원본 사건의 보존을 보장하지 않으며 에이전트 자체의 미송신 큐 상한은 별도 소유 범위다.
+  초과하면 다음 슬롯까지 수신을 늦춘다. 사건은 원본을 순서대로 유한 감사 큐(4096)에
+  넣고, 큐가 차면 기다려 배압을 건다. 수신자가 의도적으로 기다리는 동안 3 s 무수신
+  판정은 중단하되 독립 인증 감시·송신 STOP은 유지한다. 뒤의 state/정지 확인도 소켓
+  순서대로 기다릴 수 있으므로 넘김이 2 s 안에 끝나지 않으면 FREE다.
+  저장 불가 Unicode·NUL·비JSON·비유한 숫자·과도한 중첩 data는 수신에서 버리고 사건으로 묶는다.
+  감사 작업자는 영구 데이터 오류(Unicode·SQLSTATE22/23 등)를 격리하고 안전한
+  AUDIT_QUARANTINED 사건을 기록한 뒤 다음 건을 처리한다. 원본 data·SQL·토큰은 격리 사건에 넣지 않는다.
+  일시 DB 오류는 같은 건을 재시도한다. 전송 중 단절의 ACK/재전송·디스크 내구성·
+  에이전트 자체 미송신/송신 큐의 사건 보존은 별도 범위다.
   감사 큐는 메모리이므로 프로세스 종료 전 미기록 건의 내구성은 보장하지 않는다.
 - `POST /api/v1/robots/{id}/stop`은 HTTP 대체 경로(쿠키에는 CSRF 헤더 필요)다.
   응답 202는 요청 접수이며 실제 정지·몸의 속도 0 확인을 뜻하지 않는다.
@@ -219,6 +238,7 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
   응답의 `agent_token`을 한 번만 보여 주며 `Cache-Control: no-store`다.
   기존 `robots.agent_token_hash` 열에는 SHA-256만 저장하고 원문은 사건에 넣지 않는다.
   기존 에이전트 연결은 독립적인 100 ms 주기 인증 감시에서 예전 토큰을 거부한다.
+  토큰은 조직 내 로봇의 고정 길이 해시를 모두 compare_digest로 비교하며 토큰값 SQL equality를 쓰지 않는다.
   데이터 수신은 인증 DB 왕복을 기다리지 않는다. 잘못된 에이전트 본문은 집계 사건으로
   남기고 버리며, 추가 필드는 무시한다. 해석 가능한 문자열 t 봉투만 생존을 갱신한다.
   영상 중계 전까지 모든 streams는 false이며 이진 프레임은 버린다.
@@ -231,16 +251,19 @@ python -m pytest apps/server/tests/test_migrations.py -q -s
 `0005_lease_log_index`는 `(org_id, robot_id, at DESC)` 감사 조회 색인만 추가한다.
 0005 downgrade는 그 색인만 제거한다.
 
-실제 uvicorn과 PR #8 Client의 재접속 맞물림은 아래 별도 도구로 검사한다. 지정 Git 객체가
-로컬 저장소에 있어야 한다. 도구는 `git archive`로 임시 폴더에 읽기만 하고 에이전트
-소스·worktree를 수정하지 않는다. 임시 PostgreSQL의 소유 세션을 종료하고 잠금을 점유해
+실제 uvicorn과 현재 통합된 agent Client의 재접속 맞물림은 아래 별도 도구로 검사한다.
+기본값은 같은 작업 트리의 agent이며 새 stop_ref 계약을 함께 검사한다. 역사 버전을 지정할 때만
+`git archive`로 임시 폴더에 읽으며 에이전트 소스·worktree를 수정하지 않는다. 임시 PostgreSQL의 소유 세션을 종료하고 잠금을 점유해
 1013 재시도 3회 이상과 잠금 해제 후 인증된 ping 복귀를 확인한다. uvicorn은 loopback의
 사전 bind한 임시 fd/포트만 쓴다. 실제 DB 재시작·현장 네트워크 장애 시험은 아니다.
 
 ```sh
-python apps/server/tools/check_agent_reconnect.py --agent-ref 4392fc708ad471047bf710dc978c20b903168255
+python apps/server/tools/check_agent_reconnect.py
 python apps/server/tools/check_realtime_mutations.py
 ```
 
 다른 저장소에서 agent 객체를 읽으려면 `--agent-repo /absolute/path`를 지정한다.
-변이 도구도 이 실제 Client 회귀 시험을 포함하므로 같은 Git 객체가 필요하다.
+특정 역사 버전을 진단하려면 `--agent-ref <commit>`도 지정한다. 새 stop_ref 계약이 없는
+구버전은 이번 통합 시험을 통과하지 못한다. 서버·에이전트는 계약을 함께 갱신해야 한다.
+변이 도구도 실제 Client 회귀와 구조화한 예외 유형 판정을 포함한다. 타입 소비 시험은
+`apps/contracts/tests/wire-consumer.ts`이며 `npm run --prefix apps/contracts typecheck`에 포함된다.

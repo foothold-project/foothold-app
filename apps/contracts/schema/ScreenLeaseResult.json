@@ -53,8 +53,7 @@
     "t",
     "robot",
     "request_id",
-    "result",
-    "error"
+    "result"
   ],
   "title": "ScreenLeaseResult",
   "type": "object"

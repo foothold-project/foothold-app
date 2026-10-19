@@ -94,6 +94,13 @@ MUTATIONS = [
      "if self.need_neutral and c != Z:", "if False:"),
     ("server axes exceed speed cap", "safety/core.py",
      "return (0.6, 0.0, wz), ''", "return (1.2, 0.0, wz), ''"),
+    ('STOP reference echo removed', 'link/session.py', '                self.stop_ref = ref', '                pass'),
+    ('STOP reference upper bound removed', 'link/session.py', '0 < ref <= MAX_SEQ', 'ref > 0'),
+    ('STOP reference latch guard removed', 'link/session.py', 'and self.core.latch and self.core.applied() == Z', 'and self.core.applied() == Z'),
+    ('reconnect retains old STOP reference', 'link/session.py', '        self.stop_ref = 0  # a new transport', '        self.stop_ref = self.stop_ref  # a new transport'),
+    ('unlock generation upper bound removed', 'link/session.py', '0 <= gen <= MAX_SEQ', 'gen >= 0'),
+    ('STOP reference zero-output guard removed', 'link/session.py', 'and self.core.latch and self.core.applied() == Z', 'and self.core.latch'),
+    ('wire generation exceeds safe integer', 'link/session.py', 'return min(MAX_SEQ, self.core.stop_gen)', 'return self.core.stop_gen'),
 ]
 
 
@@ -139,8 +146,9 @@ def main():
                 tests = ("tests/test_link_client.py::" + probe if probe else
                          "tests/test_link_client.py::test_cancel_while_moving_requests_stop_zero_and_latch"
                          if target == "link/client.py" else "tests/test_link_session.py")
+                selected = [tests] if probe or target == "link/client.py" else [tests, "tests/test_stop_reference.py"]
                 result = subprocess.run(
-                    [sys.executable, "-m", "pytest", tests,
+                    [sys.executable, "-m", "pytest", *selected,
                      "-q", "--tb=no", "-p", "foothold_link_mutation_probe",
                      "--link-mutation-report", str(report)],
                     cwd=copy, text=True, capture_output=True, timeout=30,

@@ -25,9 +25,21 @@ def receive(ws, kind=None, *, predicate=lambda x: True, timeout=2):
                 packet = await ws._send_rx.receive()
                 ws._raise_on_close(packet)
                 body = json.loads(packet['text'])
+                if body.get('t') == 'stop':
+                    ws.stop_ref = body['stop_ref']
                 if (kind is None or body.get('t') == kind) and predicate(body):
                     return body
-    return ws.portal.call(wait)
+    try:
+        return ws.portal.call(wait)
+    except TimeoutError:
+        pytest.fail(f'Expected {kind or "WS frame"} within {timeout}s')
+
+
+def receive_open(ws, kind, **kwargs):
+    try:
+        return receive(ws, kind, **kwargs)
+    except WebSocketDisconnect as error:
+        pytest.fail(f'Expected {kind} on a live connection, received close {error.code}')
 
 
 def send(ws, kind, robot=None, **fields):
@@ -37,7 +49,10 @@ def send(ws, kind, robot=None, **fields):
 
 
 def reply(ws, ident):
-    return receive(ws, 'reply', predicate=lambda x: x['id'] == ident)
+    try:
+        return receive(ws, 'reply', predicate=lambda x: x['id'] == ident)
+    except WebSocketDisconnect as error:
+        pytest.fail(f'Expected reply {ident}, received close {error.code}')
 
 
 def app_token(client, username='one'):
@@ -54,7 +69,7 @@ def hello(**kw):
 
 def state(gen=2, **kw):
     return dict(t='state', pose={'floor_id': None, 'x': None, 'y': None, 'yaw': None, 'confidence': None},
-                speed=None, battery={'soc': None}, latched=True, stop_gen=gen,
+                speed=None, battery={'soc': None}, latched=True, stop_gen=gen, stop_ref=kw.pop('stop_ref', gen - 1),
                 applied=[0, 0, 0], mode='FREE', **kw)
 
 
@@ -95,8 +110,8 @@ def take(ws, ag, rid, gen=3):
     ident = send(ws, 'lease.take', rid)
     assert reply(ws, ident)['ok']
     assert receive(ag, 'lease')['lease_id'] is None
-    receive(ag, 'stop')
-    ag.send_json(state(gen))
+    stop = receive(ag, 'stop')
+    ag.send_json(state(gen, stop_ref=stop['stop_ref']))
     lease = receive(ag, 'lease')['lease_id']
     assert lease is not None
     assert receive(ws, 'lease', predicate=lambda x: x.get('lease_id') == lease)['lease_id'] == lease
@@ -271,7 +286,7 @@ def test_agent_three_second_timeout_ping_and_reconnect_paused(client, seeded, rt
     with agent(client, seeded, lease_id=str(uuid4()), run={'run_id': run_id, 'status': 'MOVING', 'step': 1}) as ag:
         assert rt.runs[str(seeded['robots']['mine'])]['status'] == 'PAUSED'
         assert receive(ag, 'run.control')['op'] == 'pause'
-        ag.send_json(state(2))
+        ag.send_json(state(2, stop_ref=ag.stop_ref))
         grant = receive(ag, 'lease')
         assert grant['holder_type'] == 'RUN:' + run_id
         assert rt.arbiter.robot(str(seeded['robots']['mine'])).holder.holder_type == 'RUN'
@@ -371,9 +386,9 @@ def test_request_timeout_cooldown_and_transfer_verified_on_wire(client, seeded, 
         assert reply(ws, ident)['ok']
         assert receive(ag, 'lease')['lease_id'] is None
         receive(ag, 'stop')
-        ag.send_json(state(3))  # old stop generation cannot complete a transfer
+        ag.send_json(state(3, stop_ref=ag.stop_ref - 1))  # earlier STOP cannot confirm this transfer
         assert rt.arbiter.robot(str(rid)).holder is None
-        ag.send_json(state(4))
+        ag.send_json(state(4, stop_ref=ag.stop_ref))
         new = receive(ag, 'lease')['lease_id']
         assert new != lease
         assert receive(requester, 'lease.result', predicate=lambda x: x['request_id'] == req['request_id'])['result'] == 'ACCEPTED'
@@ -503,7 +518,7 @@ def test_replaced_agent_late_state_cannot_confirm_new_connection_stop(client, se
                 client.portal.call(flush_old)
                 assert rt.arbiter.robot(rid).holder is None
                 assert rt.arbiter.robot(rid).stop_gen == 1
-                new.send_json(state(2))
+                new.send_json(state(2, stop_ref=new.stop_ref))
                 assert receive(new, 'lease')['holder_type'].startswith('RUN:')
         finally:
             release.set()

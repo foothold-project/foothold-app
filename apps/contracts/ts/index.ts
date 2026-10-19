@@ -5,14 +5,14 @@ export const CONTRACT_VERSION = "fh-api/1";
 
 export interface AgentBattery {
   soc: number | null;
-  voltage: number | null;
+  voltage?: number | null;
 }
 
 export interface AgentCmdAck {
   t: "cmd.ack";
   seq: number;
   applied: number[];
-  reason: string | null;
+  reason?: string | null;
 }
 
 export interface AgentCommand {
@@ -28,7 +28,7 @@ export interface AgentEvent {
   code: string;
   severity: "INFO" | "WARN" | "ERROR" | "info" | "warn" | "error";
   robot_at: string | null;
-  data: Record<string, unknown>;
+  data: Record<string, JsonValue>;
 }
 
 export interface AgentHello {
@@ -58,8 +58,8 @@ export interface AgentLease {
 export interface AgentMedia {
   t: "media";
   kind: "photo";
-  run_id: string | null;
-  step: number | null;
+  run_id?: string | null;
+  step?: number | null;
   upload_id: string;
 }
 
@@ -81,8 +81,8 @@ export interface AgentRunUpdate {
   status: string;
   step: number;
   progress: Progress | null;
-  path_deviation_m: number | null;
-  fail_code: string | null;
+  path_deviation_m?: number | null;
+  fail_code?: string | null;
 }
 
 export interface AgentServerPing {
@@ -97,14 +97,16 @@ export interface AgentState {
   battery: AgentBattery;
   latched: boolean;
   stop_gen: number;
+  stop_ref: number;
   applied: number[];
   mode: string;
-  devices_changed: Device[] | null;
+  devices_changed?: Device[] | null;
 }
 
 export interface AgentStop {
   t: "stop";
   by_user_id: string | null;
+  stop_ref: number;
 }
 
 export interface AgentStreams {
@@ -167,6 +169,8 @@ export interface Event {
   run_id: string | null;
   data: Record<string, unknown>;
 }
+
+export type JsonValue = unknown;
 
 export interface Lease {
   holder_type: "USER" | "RUN";
@@ -268,12 +272,13 @@ export interface RunCopy {
   run_id: string;
   status: string;
   step: number;
-  wait_reason: string | null;
+  wait_reason?: string | null;
 }
 
 export interface ScreenCmd {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
   robot: string;
   t: "cmd";
   lease_id: string;
@@ -283,12 +288,14 @@ export interface ScreenCmd {
 
 export interface ScreenEnvelope {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
 }
 
 export interface ScreenLease {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
   robot: string;
   t: "lease.take" | "lease.request" | "lease.release" | "hidden" | "stop";
 }
@@ -306,20 +313,21 @@ export interface ScreenLeaseResult {
   robot: string;
   request_id: string | null;
   result: "ACCEPTED" | "DECLINED" | "TIMEOUT" | "CANCELED";
-  error: string | null;
+  error?: string | null;
 }
 
 export interface ScreenLeaseUpdate {
   t: "lease";
   robot: string;
   holder: Record<string, unknown> | null;
-  lease_id: string | null;
+  lease_id?: string | null;
   since: string | null;
 }
 
 export interface ScreenPing {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
   t: "ping";
 }
 
@@ -327,12 +335,13 @@ export interface ScreenReply {
   t: "reply";
   id: string;
   ok: boolean;
-  error: ErrorBody | null;
+  error?: ErrorBody | null;
 }
 
 export interface ScreenRespond {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
   robot: string;
   t: "lease.respond";
   request_id: string;
@@ -341,7 +350,8 @@ export interface ScreenRespond {
 
 export interface ScreenRobot {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
   robot: string;
 }
 
@@ -362,7 +372,8 @@ export interface ScreenState {
 
 export interface ScreenSub {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
   t: "sub";
   robots: string[];
   streams: ("state" | "rgb" | "depth" | "lidar" | "map")[];
@@ -370,7 +381,8 @@ export interface ScreenSub {
 
 export interface ScreenUnlock {
   id: string;
-  proto: "fh-rt/1" | null;
+  /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
+  proto?: "fh-rt/1";
   robot: string;
   t: "unlock";
   lease_id: string;

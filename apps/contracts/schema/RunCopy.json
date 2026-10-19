@@ -13,6 +13,7 @@
       "type": "string"
     },
     "step": {
+      "maximum": 9007199254740991,
       "minimum": 0,
       "title": "Step",
       "type": "integer"
@@ -33,8 +34,7 @@
   "required": [
     "run_id",
     "status",
-    "step",
-    "wait_reason"
+    "step"
   ],
   "title": "RunCopy",
   "type": "object"

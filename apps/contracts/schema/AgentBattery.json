@@ -29,8 +29,7 @@
     }
   },
   "required": [
-    "soc",
-    "voltage"
+    "soc"
   ],
   "title": "AgentBattery",
   "type": "object"

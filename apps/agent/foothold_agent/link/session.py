@@ -74,6 +74,8 @@ class Session:
         self._run_server_cmd_reported = False
         self.lease_confirmed = False
         self.last_seq = -1
+        self.stop_ref = 0
+        self._generation_exhausted = False
         self.connected = False
         self.reconnect_required = False
         self.last_server = None
@@ -132,16 +134,26 @@ class Session:
             self.core._void()
         self.core.out = self.core.applied()
 
+    def _generation(self):
+        return min(MAX_SEQ, self.core.stop_gen)
+
     def _state(self):
         # Unavailable telemetry stays unknown; it is never reported as measured 0.
         return {"t": "state", "pose": {"floor_id": self.identity["last_floor_id"],
                 "x": None, "y": None, "yaw": None, "confidence": None},
                 "speed": None, "battery": {"soc": None},
-                "latched": self.core.latch, "stop_gen": self.core.stop_gen,
-                "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
+                "latched": self.core.latch, "stop_gen": self._generation(),
+                "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
 
     def _finish(self, actions=(), *, state=False):
         self._advance()
+        if self.core.stop_gen > MAX_SEQ:
+            if not self._generation_exhausted:
+                self.core.stop("wire generation exhausted")
+                self._event("STOP_GEN_EXHAUSTED")
+                self._generation_exhausted = True
+            self.lease_confirmed = False
+            self.stop_ref = 0  # never confirm a new grant with an exhausted CAS domain
         messages = []
         if self.connected:
             messages, self._messages = self._messages, []
@@ -167,11 +179,12 @@ class Session:
             self._pause("RECONNECTED", preserve_reason=True)
         self.lease_confirmed = False  # hello carries a copy, never authority
         self.connected = True
+        self.stop_ref = 0  # a new transport cannot acknowledge an earlier server epoch
         self.reconnect_required = False
         self.last_server = self.now()
         self.link_lost = False
         hello = {**deepcopy(self.identity), "t": "hello", "proto": "fh-agent/1", "latched": self.core.latch,
-                 "stop_gen": self.core.stop_gen, "lease_id": self.lease_id,
+                 "stop_gen": self._generation(), "lease_id": self.lease_id,
                  "run": deepcopy(self.run)}
         effects = self._finish((MotionCommand("stop"),), state=True)
         return Effects(effects.motion, (hello,) + effects.messages)
@@ -306,11 +319,16 @@ class Session:
         elif kind == "stop":
             self.core.stop("server STOP")  # no lease or user check on STOP
             self._pause("STOP")
+            ref = frame.get("stop_ref")
+            if (type(ref) is int and 0 < ref <= MAX_SEQ
+                    and self.core.latch and self.core.applied() == Z
+                    and self.core.stop_gen <= MAX_SEQ):
+                self.stop_ref = ref
             actions = (MotionCommand("stop"),)
         elif kind == "unlock":
             gen = frame.get("stop_gen")
             if (self.lease_confirmed and frame.get("lease_id") == self.lease_id
-                    and type(gen) is int and gen >= 0
+                    and type(gen) is int and 0 <= gen <= MAX_SEQ
                     and self.core.resume(self.lease_id, gen)):
                 actions = (MotionCommand("unlock"),)
         elif kind == "cmd":

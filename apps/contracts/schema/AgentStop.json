@@ -15,6 +15,12 @@
       ],
       "title": "By User Id"
     },
+    "stop_ref": {
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "title": "Stop Ref",
+      "type": "integer"
+    },
     "t": {
       "const": "stop",
       "default": "stop",
@@ -24,7 +30,8 @@
   },
   "required": [
     "t",
-    "by_user_id"
+    "by_user_id",
+    "stop_ref"
   ],
   "title": "AgentStop",
   "type": "object"
