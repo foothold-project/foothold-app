@@ -12,9 +12,9 @@ const FALLBACK: Record<number, string> = {
 const NETWORK = '서버에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요.';
 const SLOW = '서버가 제시간에 답하지 않았습니다.';
 
-/** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못함 */
+/** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못함, said = 서버가 계약 오류 본문(error.code)으로 답함 */
 export class ApiFail extends Error {
-  constructor(readonly status: number, readonly code: string, message: string) { super(message); }
+  constructor(readonly status: number, readonly code: string, message: string, readonly said = false) { super(message); }
 }
 
 let csrf: string | null = null;
@@ -45,7 +45,7 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
   if (res.ok) return data as T;
   const e = (data as Partial<ApiError> | null)?.error;
   if (res.status === 401 && path !== '/auth/login' && path !== '/auth/session') expireAuth();
-  throw new ApiFail(res.status, e?.code ?? 'INTERNAL_ERROR', e?.message || (FALLBACK[res.status] ?? '요청을 처리하지 못했습니다. 잠시 뒤 다시 시도하세요.'));
+  throw new ApiFail(res.status, e?.code ?? 'INTERNAL_ERROR', e?.message || (FALLBACK[res.status] ?? '요청을 처리하지 못했습니다. 잠시 뒤 다시 시도하세요.'), typeof e?.code === 'string');
 }
 
 export const api = {

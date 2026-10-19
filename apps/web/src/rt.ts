@@ -320,7 +320,7 @@ export const rt = {
     const http = () => {
       via = 'http'; clearTimeout(late);
       api.stop(id, { ms: STOP_HTTP_MS, cancel: s }).then(() => { if (!acked) mark({ phase: 'fallback' }); }, (e: ApiFail) => {
-        if (!acked && e.code !== 'CANCELED') mark({ phase: viaWs || e.status === 0 ? 'unsure' : 'failed', why: e.message });   // status 0 = 응답을 못 받음(처리됐을 수 있음)
+        if (!acked && e.code !== 'CANCELED') mark({ phase: !viaWs && e.said && e.status >= 400 && e.status < 500 ? 'failed' : 'unsure', why: e.message });   // 서버의 명시적 거절(4xx + 오류 본문)만 실패 — 응답 못 받음·5xx·프록시 오류는 처리됐을 수 있음
       });
     };
     const late = setTimeout(() => { if (via === 'ws') http(); }, STOP_WS_MS);

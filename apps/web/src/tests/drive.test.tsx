@@ -470,6 +470,20 @@ describe('실시간 연결(05 §9)', () => {
       expect(band()).toContain('Go2-7 정지 요청을 보내지 못했습니다. 이 로봇의 권한이 없습니다.');
       expect(band()).toContain('현장에서 로봇을 직접 멈추세요');
     });
+    const notOurs: [string, number, string | null][] = [
+      ['프록시 502(HTML)', 502, '<html>Bad Gateway</html>'], ['게이트웨이 504(본문 없음)', 504, null], ['503(본문 없음)', 503, null],
+      ['500(서버 오류 본문이어도 처리 여부 모름)', 500, JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: '서버 오류', detail: {} } })],
+      ['400 본문 없음', 400, null], ['409 형식 다른 본문', 409, JSON.stringify({ detail: 'conflict' })],
+    ];
+    for (const [name, status, body] of notOurs) it(`[G1] 대체 경로 ${name} → 명시적 거절 아님 «접수 확인 못함·현장에서 직접»`, async () => {
+      down();
+      vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status })));
+      click($('[data-stop]'));
+      await settle();
+      expect(band()).toContain('Go2-7 정지 요청을 보냈지만 서버 접수를 확인하지 못했습니다.');
+      expect(band()).toContain('현장에서 로봇을 직접 멈추세요');
+      expect(band()).not.toContain('보내지 못했습니다');
+    });
     it('대체 경로 접수(202) → «정지 요청됨(대체 경로)·확인은 보이지 않음», 정지 잠금이라 하지 않음', async () => {
       down();
       const f = vi.fn(async () => new Response(null, { status: 202 }));
@@ -764,6 +778,29 @@ describe('PR #12 검토 1차', () => {
     expect(lost).not.toHaveBeenCalled();
     expect(rt.link().at).not.toBe('denied');
     rt.disconnect(); setAuthLost(() => {});
+  });
+  it('[G2] 남이 조종 중인 걸 보다가 4403 으로 관측이 끊기면 조종권자 «확인 안 됨»(없음이라 하지 않음)', () => {
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    recv(lease('r7', { id: 'u-kim', name: '김OO' }));
+    expect(text()).toContain('김OO님 조종 중');
+    act(() => FakeWS.last.drop(4403));
+    expect(text()).toContain('조종권자 확인 안 됨');
+    expect(text()).not.toContain('조종하는 사람 없음');
+  });
+  it('[G2] 1006 재시도 중·다시 연결 뒤 첫 값 전에도 «확인 안 됨», 서버가 알린 조종권자는 보이고 빈 조종권을 알리면 그때 «없음»', () => {
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    recv(lease('r7', { id: 'u-kim', name: '김OO' }));
+    act(() => FakeWS.last.drop(1006));
+    expect(text()).toContain('조종권자 확인 안 됨');
+    tick(1000);
+    act(() => FakeWS.last.open());
+    expect(text()).toContain('조종권자 확인 안 됨');
+    act(() => FakeWS.last.recv(lease('r7', { id: 'u-kim', name: '김OO' })));   // 첫 state 전이라도 서버가 알린 조종권자는 보인다
+    expect(text()).toContain('김OO님 조종 중');
+    act(() => { FakeWS.last.recv(state('r7')); FakeWS.last.recv(lease('r7', null)); });
+    expect(text()).toContain('조종하는 사람 없음');
   });
   it('[N5] 담당 로봇이 바뀌면(목록 갱신) 같은 소켓으로 sub 를 다시 보내고, 빠진 로봇은 조종권을 돌려줌', () => {
     const mine = [ROBOTS[0], { ...ROBOTS[1], owner: 'u-lee' }, ROBOTS[2]];   // r7 이 이운영 담당이 됨

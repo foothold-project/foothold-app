@@ -29,6 +29,7 @@ function holderText(l: Live, me: string, r: Robot) {
   if (r.unknown === 'summary') return r.holder ? `${who(r.holder, me)}(목록 ${r.listedAt})` : '조종권자 확인 안 됨';
   if (l.lease) return '조종 중(나)';
   if (l.busy) return '조종권 넘기는 중';
+  if (r.unknown && !l.holder) return '조종권자 확인 안 됨';   // 연결 끊김(4403 포함)·첫 state 전: 비어 있는지 모름
   return who(l.holder, me);
 }
 function lockChip(l: Live, r: Robot): { tone: Tone; text: string } {
