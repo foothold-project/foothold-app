@@ -649,3 +649,51 @@ def test_executor_requires_exact_owner_for_commands_and_health(monkeypatch, boun
     monkeypatch.setattr(h.s.core, "cmd", lambda *args: calls.append(args))
     h.s.executor_command("run-a", N)
     assert not calls and h.s.executor_t == before
+
+
+def test_offline_retry_summary_is_bounded_and_retains_count_and_time_range():
+    clock = [0.0]
+    s = Session(lambda: clock[0])
+    s.connect()
+    s.disconnect()
+    clock[0] = 3
+    s.tick()
+    for i in range(200):
+        clock[0] = 10 + i
+        s.transport_retry(10)
+    effects = s.connect()
+    retries = [m for m in effects.messages if m.get("code") == "SERVER_RETRY"]
+    assert len(effects.messages) < 128 and len(retries) == 1
+    assert retries[0]["data"]["attempts"] == 200
+    assert retries[0]["data"]["first_at_s"] == 10
+    assert retries[0]["data"]["last_at_s"] == 209
+    assert retries[0]["data"]["delay_s"] == 10
+    assert [m["code"] for m in effects.messages if m["t"] == "event"] == [
+        "SERVER_LINK_LOST", "SERVER_RETRY"]
+    # A subsequent outage starts a new summary; delivered snapshots stay immutable.
+    s.disconnect()
+    clock[0] = 210
+    s.transport_retry(1)
+    again = s.connect()
+    retry = next(m for m in again.messages if m.get("code") == "SERVER_RETRY")
+    assert retry["data"]["attempts"] == 1 and retry["data"]["first_at_s"] == 210
+    assert retries[0]["data"]["attempts"] == 200
+
+
+def test_reconnect_and_shutdown_preserve_existing_pause_reason():
+    h = Harness("RUN")
+    h.s.receive({"t": "run.control", "run_id": "run-a", "op": "pause"})
+    assert h.s.run["wait_reason"] == "OPERATOR"
+    hello = h.s.connect().messages[0]
+    assert hello["run"]["wait_reason"] == "OPERATOR"
+    h.s.shutdown()
+    assert h.s.run["wait_reason"] == "OPERATOR"
+
+
+def test_paused_old_executor_is_not_failed_after_owner_changes_to_another_run():
+    h = Harness("RUN")
+    h.lease("lease-b", "RUN:run-b")
+    assert h.s.run["status"] == "PAUSED" and h.s.run["wait_reason"] == "LEASE_CHANGED"
+    h.t = 0.31
+    assert zero(h.state())
+    assert h.s.run["status"] == "PAUSED" and h.s.run["wait_reason"] == "LEASE_CHANGED"

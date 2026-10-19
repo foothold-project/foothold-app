@@ -84,6 +84,7 @@ class Session:
         self.last_report = float("-inf")
         self.ack_pending = False
         self._messages = []
+        self._retry_event = None
 
     def _event(self, code, **data):
         self._messages.append({"t": "event", "code": code, "severity": "warn",
@@ -98,8 +99,11 @@ class Session:
                                "progress": None,
                                **({"fail_code": reason} if status == "FAILED" else {})})
 
-    def _pause(self, reason):
+    def _pause(self, reason, *, preserve_reason=False):
         self.core._void()
+        if (preserve_reason and self.run is not None and self.run["status"] == "PAUSED"
+                and self.run.get("wait_reason")):
+            return
         self._run_status("PAUSED", reason)
 
     def _advance(self):
@@ -116,6 +120,8 @@ class Session:
                 self._pause("LINK_LOSS_TIMEOUT")
                 self._event("LINK_LOSS_TIMEOUT")
         if (self.holder_type == "RUN" and self.run is not None
+                # Old PAUSED snapshots can remain after RUN:a -> RUN:b; they
+                # must not fail because the *new* owner cannot feed their health.
                 and self.holder_run_id == self.run["run_id"]
                 and self.run["status"] not in TERMINAL and self.executor_t is not None
                 and self.now() - self.executor_t > DEAD):
@@ -139,6 +145,7 @@ class Session:
         messages = []
         if self.connected:
             messages, self._messages = self._messages, []
+            self._retry_event = None
             if state or self.now() - self.last_report >= REPORT_INTERVAL:
                 messages.append(self._state())
                 if self.ack_pending:
@@ -157,7 +164,7 @@ class Session:
         self._advance()
         self.core.stop("connection/reconnection")
         if self.run is not None and self.run["status"] not in TERMINAL:
-            self._pause("RECONNECTED")
+            self._pause("RECONNECTED", preserve_reason=True)
         self.lease_confirmed = False  # hello carries a copy, never authority
         self.connected = True
         self.reconnect_required = False
@@ -203,7 +210,17 @@ class Session:
         return self._finish((MotionCommand("stop"),) if not retry else ())
 
     def transport_retry(self, delay_s, close_code=None):
-        self._event("SERVER_RETRY", delay_s=delay_s, close_code=close_code)
+        now = self.now()
+        if self._retry_event is None:
+            self._event("SERVER_RETRY", delay_s=delay_s, close_code=close_code,
+                        attempts=1, first_at_s=now, last_at_s=now)
+            # Retain the first occurrence's queue position, so independent safety
+            # events keep their FIFO order while retries consume one entry.
+            self._retry_event = self._messages[-1]
+        else:
+            data = self._retry_event["data"]
+            data["attempts"] += 1
+            data.update(last_at_s=now, delay_s=delay_s, close_code=close_code)
         return self._finish()
 
     def tick(self):
@@ -212,7 +229,7 @@ class Session:
     def shutdown(self):
         self.connected = False
         self.core.stop("client shutdown")
-        self._pause("CLIENT_SHUTDOWN")
+        self._pause("CLIENT_SHUTDOWN", preserve_reason=True)
         return self._finish((MotionCommand("stop"),))
 
     def on_robot_state(self, raw):

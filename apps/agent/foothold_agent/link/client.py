@@ -230,7 +230,7 @@ class Client:
                     raise ReconnectForbidden(code) from exc
             except (OSError, InvalidHandshake, asyncio.TimeoutError):
                 pass  # transport only; never catch a local sink/executor failure
-            if connected_for >= 3:
+            if connected_for >= 3 or retry_code == 1013:
                 delay = self.settings.retry_initial_s
             self._emit(self.session.transport_retry(delay, retry_code))
             await asyncio.sleep(delay)

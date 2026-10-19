@@ -19,8 +19,8 @@ Python 3.12.3 / pytest 9.1.1 / websockets 15.0.1, 별도 임시 가상환경에�
 
 | 명령·검사 | 결과 |
 |---|---|
-| `python -m pytest apps/agent -q` | 최초 79 → Claude 수정 116 → Codex 수정 148 → 최종 맞물림 수정 168 passed, 기존 32 포함, skip 0 |
-| `python apps/agent/tools/check_link_mutations.py` | 최초 10/10 → 검토 17/17 → 최종 32/32 assertion 검출, ERROR 0 |
+| `python -m pytest apps/agent -q` | 최초 79 → Claude 수정 116 → Codex 수정 148 → 맞물림 168 → r3 수정 174 passed, 기존 32 포함, skip 0 |
+| `python apps/agent/tools/check_link_mutations.py` | 최초 10/10 → 검토 17/17 → 맞물림 32/32 → r3 39/39 assertion 검출, ERROR 0 |
 | `git diff --check` | 통과 |
 | Core·기존 시험의 기준 대비 diff | 0 |
 
@@ -206,3 +206,36 @@ RUN:<id>로 갱신했다. 실제 PR #10 서버 통합은 조정 세션 범위이
 finite()/float 변환에서 OverflowError가 날 수 있다. Core와 on_robot_state 경로는 이번에
 고치지 않았다. bridge 통합 때 범위 검사 또는 잘못된 상태 무시 방식을 별도 결정해야 한다.
 ROS·Gazebo·운영 서버·실기 접촉은 이번에도 0이며 실제 sink 감시/물리 정지는 미검증이다.
+
+
+## Claude r3 수정 (기준 head 4392fc7)
+
+수정 전 연결부 시험에서 **6 failed, 126 passed**로 재시도 사건 누적, PAUSED 이유
+덮어쓰기, 1013 간격 차이를 확인했다. 반복 재시도는 큐를 늘리는 대신 첫 발생 위치의
+SERVER_RETRY 하나로 합쳐 attempts/first_at_s/last_at_s와 마지막 delay_s/close_code를
+보존한다. 연결에서 사건을 넘기면 집계 참조를 비워 다음 단절은 새 집계로 시작한다.
+독립 사건/실행 변경의 FIFO 위치는 바꾸지 않는다.
+
+| 항목 | 수정·검증 |
+|---|---|
+| T1 | 가짜 시계의 단절 200회 재시도(약 2,000 s) 뒤 기본 송신 큐 128에서 첫 소켓 1회로 복구, TRANSPORT_BACKPRESSURE 없음; SERVER_LINK_LOST → PAUSED run.update → LINK_LOSS_TIMEOUT → 재시도 집계 → state 순서 보존 |
+| T1 집계 | Session 단위에서도 사건 수 <128·재시도 1건·attempts=200·처음/마지막 시각 검증, 다음 단절은 새 attempts=1, 이미 반환한 사본 불변 |
+| R1 | 1013은 명세대로 항상 기본 1 s 간격(가속 모의 프로필에서는 지정 초기 간격); HTTP 503 등 그 밖 오류는 기존 지수 백오프·최대 10 s 유지 |
+| R2 | shutdown은 이미 PAUSED이고 이유가 있으면 보존; Client가 4401/4403 뒤 끝나도 SERVER_AUTH_REJECTED 유지 |
+| R3(a) | 실제 가짜 WS Client에서 SERVER_CLOSED.retry=false와 인증 거부 대기 이유를 함께 확인, retry=True 변이 검출 |
+| R3(b) | RUN:a→RUN:b 뒤 이전 실행 a가 PAUSED인 채 0.31 s 경과해도 FAILED로 바뀌지 않는 도달 가능한 전환 시험; 실행기 감시 소유자 조건 제거 변이 검출 |
+| R4 | connect도 기존 PAUSED 이유를 보존; OPERATOR·LINK_LOSS_TIMEOUT을 hello/종료 후 유지, 움직이던 실행만 새 RECONNECTED 대기 이유 생성 |
+
+R3(b)는 검토에서 등가로 분류됐으나, 감시가 PAUSED 실행도 포함하므로 소유자가 바뀐
+이전 실행 스냅샷에는 차이가 있다. 이 경로를 정상 lease 전환과 시간 경과만으로 검증했고,
+해당 guard는 유지하며 이유를 코드 주석에 적었다. 인위적으로 RUNNING 상태를 만들지 않았다.
+R1은 이전 기록의 «1013 반복도 지수 증가» 선택을 폐기하고 05 §9.4의 고정 1 s로 맞춘다.
+정본 파일은 바꾸지 않았다.
+
+최종 `python -m pytest apps/agent -q`: **174 passed, skip 0**, 기존 32 포함.
+`python apps/agent/tools/check_link_mutations.py`: **39/39 KILLED, ERROR 0, SURVIVED 0**.
+추가 7개는 재시도 집계 제거·집계 카운터 동결·종료/재연결 이유 덮기·인증 닫기 사건을
+재시도 가능으로 표시·이전 PAUSED 실행의 소유자 guard 제거·1013 지수 백오프 복귀다.
+기존 지수 백오프 변이는 1013 고정 시험 대신 실제 모의 HTTP 503 반복 시험으로 검증한다.
+Core·기존 두 시험 파일 diff 0, apps/agent/** 밖 변경 0, 실서버·ROS·Gazebo·실기 접촉 0이다.
+이 집계는 메모리 범위이며 전송 중 단절의 ACK/중복 제거·디스크 내구성을 추가한 것은 아니다.

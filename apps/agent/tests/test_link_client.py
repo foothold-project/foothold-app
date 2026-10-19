@@ -834,7 +834,7 @@ def test_handshake_authorization_rejection_does_not_retry(status, close_code):
     asyncio.run(scenario())
 
 
-def test_repeated_1013_close_backs_off_and_records_each_attempt():
+def test_repeated_1013_close_uses_fixed_interval_and_records_each_attempt():
     async def scenario():
         session = Session()
         sink = FakeMotionSink()
@@ -875,7 +875,110 @@ def test_repeated_1013_close_backs_off_and_records_each_attempt():
                 await cancel(task)
         retries = [data["delay_s"] for code, data in observed if code == "SERVER_RETRY"]
         closed = [data for code, data in observed if code == "SERVER_CLOSED"]
-        assert retries == [0.01, 0.02, 0.04]
+        assert retries == [0.01, 0.01, 0.01]
         assert len(closed) == 3 and all(d == {"close_code": 1013, "retry": True} for d in closed)
         assert attempts == 4 and sink.commands[-1][1].velocity == Z
+    asyncio.run(scenario())
+
+
+def test_long_outage_recovers_on_first_socket_with_original_safety_events_in_order():
+    async def scenario():
+        # Reuse the clock/bridge fixture; all 200 retry intervals are simulated,
+        # while real networking is only one same-process loopback connection.
+        from test_link_session import Harness
+
+        h = Harness("RUN", wait=0)
+        h.s.disconnect()
+        h.advance_run(3)
+        assert h.s.run["wait_reason"] == "LINK_LOSS_TIMEOUT"
+        for _ in range(200):
+            # Advance the offline clock in samples below the 0.3 s deadline;
+            # no wall-clock waiting or robot output is involved in preparation.
+            for _ in range(40):
+                h.t += 0.25
+                h.state()
+                h.s.executor_command("run-a", [0, 0, 0])
+            h.s.transport_retry(10)
+        session = h.s
+        sink = FakeMotionSink()
+        attempts = 0
+        completed = asyncio.get_running_loop().create_future()
+
+        async def server(ws):
+            nonlocal attempts
+            try:
+                attempts += 1
+                hello = await until_message(ws, "hello")
+                assert hello["latched"] and hello["run"]["wait_reason"] == "LINK_LOSS_TIMEOUT"
+                received = []
+                while True:
+                    msg = json.loads(await ws.recv())
+                    received.append(msg)
+                    if msg["t"] == "state":
+                        break
+                order = [(m["t"], m.get("code"), m.get("status")) for m in received]
+                assert order[:4] == [
+                    ("event", "SERVER_LINK_LOST", None),
+                    ("run.update", None, "PAUSED"),
+                    ("event", "LINK_LOSS_TIMEOUT", None),
+                    ("event", "SERVER_RETRY", None),
+                ]
+                retry = next(m for m in received if m.get("code") == "SERVER_RETRY")
+                assert retry["data"]["attempts"] == 200
+                assert not any(m.get("code") == "TRANSPORT_BACKPRESSURE" for m in received)
+                assert attempts == 1 and not task.done()
+                completed.set_result(True)
+                await ws.wait_closed()
+            except Exception as exc:
+                if not completed.done():
+                    completed.set_exception(exc)
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            task = asyncio.create_task(Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token", 0.01, 0.04),
+                FakeExecutor()).run())
+            try:
+                await asyncio.wait_for(completed, 2)
+            except asyncio.TimeoutError:
+                pytest.fail("200 offline retries must fit the first recovery socket")
+            finally:
+                await cancel(task)
+        assert attempts == 1 and sink.commands[-1][1].velocity == Z
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("close_code", [4401, 4403])
+def test_client_auth_close_preserves_paused_reason_and_nonretry_event(close_code):
+    async def scenario():
+        session = Session()
+        sink = FakeMotionSink()
+        observed = []
+        original = session._event
+
+        def event(code, **data):
+            observed.append((code, data))
+            original(code, **data)
+
+        session._event = event
+
+        async def server(ws):
+            await until_message(ws, "hello")
+            await ws.send(json.dumps({"t": "lease", "lease_id": "r", "holder_type": "RUN:run-a"}))
+            await ws.send(json.dumps({"t": "run.start", "run_id": "run-a",
+                                      "plan": {"segments": []}, "missions": {}}))
+            await until_message(ws, "run.update")
+            await ws.close(close_code, "authorization rejected")
+
+        async with serve(server, "127.0.0.1", 0) as srv:
+            port = srv.sockets[0].getsockname()[1]
+            client = Client(session, sink, Settings(
+                f"ws://127.0.0.1:{port}/api/v1/agent/ws", "fake-test-token", 0.01, 0.04), FakeExecutor())
+            with pytest.raises(RuntimeError) as caught:
+                await asyncio.wait_for(client.run(), 1)
+            assert getattr(caught.value, "close_code", None) == close_code
+        assert ("SERVER_CLOSED", {"close_code": close_code, "retry": False}) in observed
+        assert session.run["status"] == "PAUSED"
+        assert session.run["wait_reason"] == "SERVER_AUTH_REJECTED"
+        assert session.core.latch and sink.commands[-1][1].velocity == Z
     asyncio.run(scenario())
