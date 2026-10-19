@@ -328,7 +328,7 @@ export interface ScreenLease {
   /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
   proto?: "fh-rt/1";
   robot: string;
-  t: "lease.take" | "lease.request" | "lease.release" | "hidden" | "stop";
+  t: "lease.take" | "lease.request" | "lease.release" | "lease.cancel" | "hidden" | "stop";
 }
 
 export interface ScreenLeaseRequested {
@@ -384,6 +384,11 @@ export interface ScreenRobot {
   /** 첫 메시지는 필수, 후속은 생략 가능; null은 거부한다. */
   proto?: "fh-rt/1";
   robot: string;
+}
+
+export interface ScreenServerPing {
+  t: "ping";
+  t_server: string;
 }
 
 export interface ScreenState {

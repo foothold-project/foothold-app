@@ -99,7 +99,10 @@ def test_one_robot_event_flood_cannot_revoke_or_starve_another(client, seeded, r
     monkeypatch.setattr(rt, 'apply', trace)
     other = {**seeded, 'robots': {**seeded['robots'], 'mine': seeded['robots']['theirs']}}
     with agent(client, seeded) as ag_a, agent(client, other) as ag_b, screen(client, app_token(client, 'two')) as ws:
-        lease = take(ws, ag_b, b)
+        try:
+            lease = take(ws, ag_b, b)
+        except AssertionError as error:
+            raise AssertionError('before flood: ' + json.dumps(list(transitions), default=list)) from error
         # Send a burst on the owning event loop so processing cannot be paced by
         # hundreds of TestClient thread round trips (the prior reproduction race).
         async def flood():
@@ -129,8 +132,8 @@ def test_one_robot_event_flood_cannot_revoke_or_starve_another(client, seeded, r
                 await asyncio.gather(active, return_exceptions=True)
         run(client, flood)
         assert not rt.audit_overloaded and not rt.audit_storage_failed
-        assert rt.arbiter.robot(b).holder is not None, list(transitions)
-        assert rt.arbiter.robot(b).holder.lease_id == lease
+        assert rt.arbiter.robot(b).holder is not None, json.dumps(list(transitions), default=list)
+        assert rt.arbiter.robot(b).holder.lease_id == lease, json.dumps(list(transitions), default=list)
         assert reply(ws, send(ws, 'cmd', b, lease_id=lease, seq=1, axes=[0, 0, 0]))['ok']
         assert reply(ws, send(ws, 'stop', b))['ok']
         receive(ag_b, 'stop')

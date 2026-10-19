@@ -90,6 +90,11 @@ def robot_objects(db, robots, user, realtime):
             reported = {d['key']: C.Device(**d) for d in live_devices}
             inventory = {key: value.model_copy(update={'state': 'MISSING'})
                          for key, value in inventory.items() if key not in reported} | reported
+        if not online:
+            # Persisted inventory is history, not evidence that a disconnected
+            # device is currently available. Keep rows unchanged for reconnect.
+            inventory = {key: value.model_copy(update={'state': 'MISSING'})
+                         for key, value in inventory.items()}
         lease = None
         record = realtime.arbiter.robots.get(str(robot.id)) if full else None
         holder = record.holder if record else None

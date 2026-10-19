@@ -25,6 +25,7 @@
         "lease.take",
         "lease.request",
         "lease.release",
+        "lease.cancel",
         "hidden",
         "stop"
       ],

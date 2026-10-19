@@ -84,6 +84,7 @@
             "lease.take",
             "lease.request",
             "lease.release",
+            "lease.cancel",
             "hidden",
             "stop"
           ],
@@ -279,6 +280,7 @@
     "mapping": {
       "cmd": "#/$defs/ScreenCmd",
       "hidden": "#/$defs/ScreenLease",
+      "lease.cancel": "#/$defs/ScreenLease",
       "lease.release": "#/$defs/ScreenLease",
       "lease.request": "#/$defs/ScreenLease",
       "lease.respond": "#/$defs/ScreenRespond",
