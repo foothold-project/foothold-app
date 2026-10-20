@@ -1,10 +1,11 @@
-// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx), 그 밖은 가짜. 빈 칸(.fh-slot)은 다음 작업 자리.
+// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx), 그 밖은 가짜. 빈 칸(.fh-slot)은 다음 작업 자리.
 import { useEffect, useState, type ReactNode } from 'react';
-import { APPROVALS, FLOORS, ROBOTS, SCENARIOS, driveBlock, eventsFor, ownerName, robotStatus, toRobot, userName, type Robot, type Tone, type User } from './fake';
+import { APPROVALS, FLOORS, ROBOTS, SCENARIOS, driveBlock, ownerName, robotStatus, toRobot, userName, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
 import { rt, useRt, withLive } from './rt';
+import { History, RecentEvents } from './screens/history';
 import { Settings } from './screens/settings';
 import type { TabId } from './menu';
 
@@ -15,7 +16,9 @@ export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string
   /** 로봇 목록을 서버에서 다시 받음(등록·바꿈·지움·구독 회수 뒤) */
   refresh: () => void;
   /** 이 로그인 세션의 취소 신호 — 서버 요청에 넘겨 세션이 끝난 뒤의 답을 버린다(시험 렌더에는 없음) */
-  cancel?: AbortSignal };
+  cancel?: AbortSignal;
+  /** 기록 탭에서 바로 보일 사건 id(알림 링크 #/history?event_id=…) */
+  focus?: string };
 
 const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
 /** 상태 표시 하나: 모양 + 짧은 글(색만으로 구분 0). 원본 ui/src/app/chip.tsx 의 Chip 모양 */
@@ -107,10 +110,10 @@ const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_D
 const DEVICE: Record<Device['state'], { tone: Tone; text: string }> = { OK: { tone: 'ok', text: '정상' }, MISSING: { tone: 'warn', text: '연결 끊겨 확인 안 됨' }, ERROR: { tone: 'bad', text: '오류' } };
 const m = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} m`);
 const hms = (at: string) => new Date(at).toTimeString().slice(0, 8);
-const Line = ({ k, children }: { k: string; children: ReactNode }) => <div className="fh-row"><span className="lbl" style={{ minWidth: 48 }}>{k}</span>{children}</div>;
+export const Line = ({ k, children }: { k: string; children: ReactNode }) => <div className="fh-row"><span className="lbl" style={{ minWidth: 48 }}>{k}</span>{children}</div>;
 
 /** 상세 서랍(02 F-FL-04) — 고를 때 GET /robots/{id}. 구독 로봇의 상태·위치·장치는 실시간 state 가 덮는다.
- *  남의 로봇(운영 관리자)은 서버가 값을 감춰 «확인 안 됨», 값이 없으면 없다고 쓴다(지어내지 않음). 층·그래프·사건은 아직 서버에 없다 */
+ *  남의 로봇(운영 관리자)은 서버가 값을 감춰 «확인 안 됨», 값이 없으면 없다고 쓴다(지어내지 않음). 최근 사건은 /events(남의 로봇이면 요청 안 함). 층·그래프는 아직 서버에 없다 */
 function Detail(c: Ctx) {
   useRt();
   const [got, setGot] = useState<RobotSummary | null>(null), [err, setErr] = useState('');
@@ -135,8 +138,9 @@ function Detail(c: Ctx) {
     <Line k="장치">{hidden ? <span>확인 안 됨</span> : !devices.length ? <span>장치 정보 없음</span>
       : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
           <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} /></li>)}</ul>}</Line>
+    {(c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />}
     {err && <p className="fh-msg" role="alert">{err}</p>}
-    <Slot text="지도·그래프·최근 사건 자리" />
+    <Slot text="지도·그래프 자리" />
   </section>;
 }
 
@@ -167,16 +171,6 @@ function Approval(c: Ctx) {
         : <><button type="button" className="btn" {...soon}>요청 취소</button><button type="button" className="btn" {...soon}>고쳐서 다시 요청</button></>}</div>
     </section>
   </>;
-}
-
-const KINDS = ['전체', '임무', '이탈', '연결', '조종권', '결재', '안전', '계정'];
-function History(c: Ctx) {
-  const ev = eventsFor(c.user).filter((e) => !c.phone || e.robot === c.robot.id);   // 폰은 고른 내 로봇만
-  return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="기록">
-    {!c.phone && <div className="fh-row">{KINDS.map((k, i) => <button key={k} type="button" className="btn" aria-pressed={i === 0} {...soon}>{k}</button>)}</div>}
-    <ul className="fh-list">{ev.map((e) => <li key={e.id} className="fh-row"><span className="mono">{e.at}</span><Chip tone={e.tone} text={ROBOTS.find((r) => r.id === e.robot)!.name} /><span>{e.text}</span></li>)}</ul>
-    {!ev.length && <p className="lv-note">이 로봇의 기록이 아직 없습니다.</p>}
-  </section>;
 }
 
 function MapTab() {

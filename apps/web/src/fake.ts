@@ -1,5 +1,5 @@
 // 화면 자료 모양 + 아직 가짜인 묶음. USERS·ROBOTS 는 처음 비어 있고 로그인하면 서버 값(/me·/robots)으로 채운다(setServerData).
-// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 층(지도 탭)·결재·시나리오·사건은 아직 가짜.
+// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 층(지도 탭)·결재·시나리오는 아직 가짜(사건은 서버 /events — screens/history.tsx).
 import type { Device, Location, RobotSummary } from '../../contracts/ts';
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };
@@ -15,8 +15,6 @@ export type Robot = { id: string; name: string; owner: string; ownerName?: strin
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[] };
 export type Approval = { id: string; kind: string; target: string; by: string; at: string };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
-/** actor = 행동한 사람(없으면 로봇·시스템 사건) */
-export type Event = { id: string; at: string; tone: Tone; robot: string; actor?: string; text: string };
 
 export const ROLE_NAME: Record<Role, string> = { ORG_ADMIN: '총괄', OPERATOR: '운영 관리자' };
 export const STATUS_NAME: Record<Status, string> = { STOP_LATCHED: '정지 잠금', ERROR: '오류', TELEOP: '사람 조종', PAUSED: '일시정지', RUNNING: '임무 중', IDLE: '대기' };
@@ -49,15 +47,6 @@ export const lostText = (r: Robot) => `${r.name} 연결이 끊겼습니다. 마�
 /** 띠에 올릴 끊김: 한 번이라도 상태를 받은 로봇만(받은 적 없으면 «연결 전» — 끊김 경보가 아님) */
 export const lost = (r: Robot) => !r.online && !r.unknown && r.status != null;
 
-export const EVENTS: Event[] = [
-  { id: 'e5', at: '14:02', tone: 'warn', robot: 'r3', text: 'Go2-3이 계획 경로에서 1.8 m 벗어났습니다.' },
-  { id: 'e4', at: '13:58', tone: 'bad', robot: 'r3', actor: 'u-park', text: '박OO님이 Go2-3 STOP 을 눌렀습니다.' },
-  { id: 'e3', at: '13:55', tone: 'ok', robot: 'r3', actor: 'u-lee', text: '이OO님이 Go2-3 조종을 끝냈습니다.' },
-  // 02 F-LG-02 LINK_LOST 문장 틀
-  { id: 'e2', at: '13:40', tone: 'bad', robot: 'r1', text: 'Go2-1과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.' },
-  { id: 'e1', at: '13:20', tone: 'warn', robot: 'r7', text: 'Go2-7 배터리가 15%로 낮습니다.' },
-];
-
 /** 상태 표시 하나(03 UX §4): 회색 = 꺼짐, 주황 = 나빠짐, 빨강 = 잠금·끊김 */
 export function robotStatus(r: Robot): { tone: Tone; text: string } {
   if (r.unknown === 'summary') return { tone: 'off', text: '확인 안 됨' };
@@ -84,12 +73,6 @@ export function driveBlock(u: User, r: Robot): string | null {
 export const robotsFor = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : [...myRobots(u, list), ...list.filter((r) => r.owner !== u.id)]);
 /** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체 */
 export const myRobots = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : list.filter((r) => r.owner === u.id));
-/** 기록 범위(02 기능 §10): 총괄 전체, 운영자는 내 로봇 사건 + 내 행동 */
-export function eventsFor(u: User) {
-  const known = EVENTS.filter((e) => ROBOTS.some((r) => r.id === e.robot));   // 서버 로봇으로 바뀌면 가짜 사건은 0건
-  return u.role === 'ORG_ADMIN' ? known : known.filter((e) => e.actor === u.id || myRobots(u).some((r) => r.id === e.robot));
-}
-
 const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
 /** 서버 로봇 요약(05 §3) → 화면 값. 층은 이름을 줄 서버 자료가 아직 없어 쓰지 않는다 */
 export const toRobot = (r: RobotSummary): Robot => ({

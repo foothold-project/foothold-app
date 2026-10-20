@@ -187,34 +187,9 @@ describe('B2 연결 끊김 문구', () => {
     expect(text).toContain('지금 상태는 알 수 없습니다');
     expect(text).not.toContain('로봇은 정지·잠금 상태입니다');
   });
-  it('기록의 끊김 사건도 마지막 확인 + 미확인(02 F-LG-02)', () => {
-    mount(false, 'u-kim', '#/history');
-    expect($('main').textContent).toContain('마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.');
-  });
 });
 
-describe('B3 기록 범위', () => {
-  const hist = (u: string) => { mount(false, u, '#/history'); return $('main').textContent!; };
-  it('[재현] 박OO의 PC 기록에는 이OO 로봇의 사건이 없다', () => {
-    expect(hist('u-park')).not.toContain('Go2-3이 계획 경로에서');
-  });
-  it('운영자: 내 로봇 사건 + 남의 로봇에서 한 내 행동만', () => {
-    const park = hist('u-park');
-    expect(park).toContain('Go2-7 배터리');
-    expect(park).toContain('박OO님이 Go2-3 STOP');   // 내 행동
-    expect(park).not.toContain('이OO님이 Go2-3 조종을 끝냈습니다');
-    expect(park).not.toContain('Go2-1과 연결이 끊겼습니다');
-    act(() => root?.unmount()); box.remove();
-    const lee = hist('u-lee');
-    expect(lee).toContain('Go2-3이 계획 경로에서');
-    expect(lee).toContain('Go2-1과 연결이 끊겼습니다');
-    expect(lee).not.toContain('Go2-7 배터리');
-  });
-  it('총괄은 전체', () => {
-    const kim = hist('u-kim');
-    for (const t of ['Go2-3이 계획 경로에서', 'Go2-7 배터리', 'Go2-1과 연결이 끊겼습니다']) expect(kim).toContain(t);
-  });
-});
+// 기록 범위·문장(B3·F-LG-02)은 이제 서버가 정한다 — events.test.tsx 가 가짜 서버로 본다(화면은 받은 것만 그린다)
 
 // 서버는 전체(scope=all)를 주고, 폰은 내 로봇만(02 §1.2)
 describe('B4 폰 로봇 범위', () => {
@@ -249,7 +224,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', drive: '조종할 로봇', mission: '새 시나리오', approval: '결재함', history: '계획 경로에서', map: '편집', settings: '화면 밝기' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', drive: '조종할 로봇', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '편집', settings: '화면 밝기' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       click($(`nav a[href="#/${id}"]`));
