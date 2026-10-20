@@ -1,0 +1,88 @@
+{
+  "$defs": {
+    "MapFloor": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Approved Version Id"
+        },
+        "building_id": {
+          "format": "uuid",
+          "title": "Building Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "level": {
+          "title": "Level",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "pending_count": {
+          "default": 0,
+          "title": "Pending Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "building_id",
+        "name",
+        "level",
+        "approved_version_id",
+        "pending_count"
+      ],
+      "title": "MapFloor",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MapBuilding",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "floors": {
+      "items": {
+        "$ref": "#/$defs/MapFloor"
+      },
+      "title": "Floors",
+      "type": "array"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "site_id": {
+      "format": "uuid",
+      "title": "Site Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "site_id",
+    "name",
+    "floors"
+  ],
+  "title": "MapBuilding",
+  "type": "object"
+}

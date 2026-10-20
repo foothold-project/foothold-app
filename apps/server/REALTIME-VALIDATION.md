@@ -1472,3 +1472,170 @@ npm run --prefix apps/contracts typecheck
 변이 도구는 먼저 전체 서버 pytest를 실행하고 각 고장 판정은 순차 실행했다.
 이번에 기존 나머지200개 변이는 재실행하지 않았다. 임시 DB·변이 사본·node_modules를
 정리했다. R6·R9·R10과 파티션/FK, 조직별 시간대·D3 후속 결정은 그대로 남는다.
+
+## S3a 장소·층·불변 지도 판 (2026-10-20)
+
+기준은 `origin/dev`의 `b23caa8`이며 소유 범위 `apps/server`, `apps/contracts`만 변경했다.
+장소·건물·층 CRUD/조직 나무, 원시 이미지+YAML 업로드, 총괄의 지도 판 승인,
+지도 요소 검사·현재 연결점 투영·PNG 다운로드·사건 기록과 계약을 추가했다.
+S0·S2·STOP·조종권의 기존 제품 판정과 시험 기대값을 바꾸지 않았다.
+
+추가 의존성은 없다. 조정 답에 따라 multipart 대신 이미지 원시 업로드 후
+`POST /uploads?image=<이미지 ID>`로 YAML을 올려 새 묶음 ID를 받는다.
+이미지 8 MiB·YAML 16 KiB·가로/세로 4096 픽셀 상한이며 헤더/스트리밍 양쪽에서 검사한다.
+엄격한 줄 단위 ROS YAML 파서와 PNG 구조/CRC/zlib·PGM P2/P5 검사를 사용한다.
+PGM은 표준 zlib로 PNG를 만들며 원본 업로드 해시와 내려받는 PNG 해시를 구분한다.
+시험 지도는 함수 안에서 생성한 합성 바이트뿐이고 실제 지도 파일을 포함하지 않는다.
+
+| 검사 | 실제 결과 |
+|---|---|
+| Alembic 왕복·metadata 대조 | 2 passed / 3.84s, 전체 정상 기준에서도 통과 |
+| 지도 API 첫 집중 실행 | 42 passed / 23.66s |
+| 실제 uvicorn 별도 실행 | 1 passed / 3.03s; 장소→건물→층→PGM→YAML→승인→나무 포인터→PNG/sha256 |
+| 서버 pytest 전체 정상 기준 | **492 passed / 465.97s**, 실패0 |
+| S3a 선택 변이 | **13/13 assertion 검출**, exit0; 실행·수집 오류·미검출0 |
+| 계약 생성 --check | **90개 일치** |
+| npm ci·strict tsc | exit0 |
+
+```sh
+FH_TEST_PORT_RANGE=9290:9309 python -m pytest -q apps/server/tests/test_migrations.py -x
+FH_TEST_PORT_RANGE=9290:9309 python -m pytest -q apps/server/tests/test_maps.py -x
+FH_TEST_PORT_RANGE=9290:9309 python -m pytest -q apps/server/tests/test_maps_wire.py -s
+FH_TEST_PORT_RANGE=9290:9309 python apps/server/tools/check_realtime_mutations.py --match S3a
+python -m apps.contracts.generate --check
+npm ci --prefix apps/contracts
+npm run --prefix apps/contracts typecheck
+```
+
+변이 도구가 임시 사본에서 서버 pytest 전체를 먼저 실행하고 아래 판정을 하나씩
+깨뜨렸다. 기존 나머지 249개 실시간/S0/S2 변이는 다시 실행하지 않았다.
+
+- 조직 범위 조건 제거, 운영자 저장 허용, 기준 판 충돌 허용, 승인 포인터 갱신 생략.
+- 사용 중 삭제 허용, 다각형 교차 허용, 다른 건물/없는 연결 층 허용.
+- PNG CRC 무시, Content-Length 크기 제한 제거, 스트리밍 크기 제한 제거, 모르는 YAML 키 허용.
+- map_versions DB UPDATE 권한 부여, 짝 없는 연결점 활성화.
+
+판 PATCH/PUT/DELETE는 405이며 fh_app의 실제 UPDATE/DELETE/TRUNCATE도 거절했다.
+총괄 승인·이전 판의 DB 행 불변·현재 포인터·경쟁 저장 201/409·조직 밖/없는 ID 동일404,
+운영자403 APPROVAL_REQUIRED·사용 중 삭제409·잘못된 요소422와 위치·PNG 응답을 검사한다.
+알림은 바로 승인한 총괄의 저장에 결재 요청/결과가 없으므로 추가하지 않았다.
+장소·건물·층은 ACCOUNT, 판 승인은 APPROVAL 사건으로 같은 트랜잭션에 저장한다.
+
+전체/변이 실행 사본을 만든 뒤 지도에만 마지막 보완을 했다: PGM의 긴 여분 토큰 거절,
+YAML negate 정수 보존, 큰 Content-Length 숫자 거절, 연결점 ID 안정화,
+공백 이름 거절 및 오류 위치에서 알 수 없는 입력 키를 숨김. 이 보완 뒤의 집중 결과는
+아래 최종 검사에 별도로 기록한다. 전체 기준 492개와 최종 집중 범위를 혼동하지 않는다.
+
+후속 범위는 /diff·/rollback, 운영자 PENDING/결재·결재 알림(S4), 시나리오 삭제 참조(S5),
+SLAM 및 로봇 pose의 map_version_id(D5)다. 미사용 업로드의 24시간 정리 작업과
+프로세스 종료 뒤 고아 파일 정리는 구현하지 않았다. 두 단계 업로드의 공유 파일 경로와
+최종 묶음/판 참조를 함께 확인하는 운영 정리가 필요하다.
+
+0009 downgrade는 지도·업로드 DB 행을 삭제하고 파일은 남긴다. 운영 적용/되돌림은
+서버·참조 소비자를 멈추고 DB+파일을 보존한 별도 이관 절차가 필요하다.
+실제 지도·브라우저·실폰·실로봇·ROS·Gazebo·운영 배포는 검증하지 않았다.
+모든 시험은 loopback 9290~9309(내장 PG 포함), 임시 DB/파일, 가짜 에이전트만 사용했다.
+전체 pytest와 변이 도구는 동시에 실행하지 않았다.
+
+
+최종 지도 보완 집중 검사는 **67 passed / 27.12s**, 실패0이다.
+`test_maps.py`, `test_map_files.py`, `test_maps_wire.py`를 한 번에 실행했고,
+실제 uvicorn 흐름도 최종 코드에서 다시 통과했다. 판 승인 사건의 APPROVAL 분류,
+모르는 입력 키 비노출, 빈 이름, 긴 PGM 여분 토큰, YAML negate 정수 보존,
+연결점 ID 안정화까지 포함한다. 계약 생성 90개 일치와 strict tsc도 최종 생성물에서 통과했다.
+시험의 Starlette TestClient/httpx 전환 안내 경고 1개는 기존 실행 환경 경고다.
+
+
+## PR #26 Claude 검토 수정 (2026-10-20)
+
+B1은 업로드 읽기 인증의 짧은 세션, 30초 전체 수신 기한, 트랜잭션 밖 스레드 작업,
+마지막 INSERT 직전의 잠금/새 세션 재확인으로 고쳤다. B2는 예상 해제 32 MiB,
+64 KiB 조각 해제 및 프로세스당 실제 작업 슬롯 1개로 고쳤다. 요청 취소로 작업 슬롯을
+일찍 돌려주지 않는다. PGM은 픽셀을 순회해 큰 정수 목록 없이 변환한다.
+
+R1 전체 꼭짓점 4096개 상한, R2 동기 작업의 스레드 분리, R3 디스크 여유 256 MiB,
+R4 해제 max_length/남는 P5 바이트의 회귀, R5 층 FOR UPDATE, R6 지도 이름 Cc/Cf 거절,
+R7 사건 ID 라벨, R8 uploads 시작 권한 검사와 R9 중복 청크 검사/PGM 목록을 보완했다.
+STOP·조종권·기존 인증/권한·S0·S2 동작 및 기존 안전 시험의 기대값은 바꾸지 않았다.
+
+집중 검사는 처음 **43 passed / 23.05s**, 기존 지도 회귀를 합친 최종 실행은
+**91 passed / 41.76s**다. 실제 uvicorn에서 PNG 첫 8바이트만 보낸 채 멈춘 업로드 중
+다른 총괄 POST /sites가 201이며, 본문 EOF/다음 청크 없이 기한에 408 응답함을 확인했다.
+이 wire 시험만 테스트 전용 앱에서 기한을 2초로 줄였고 제품 기본은 30초다.
+스레드 ID 관측으로 이미지·해시·파일 쓰기·uploads SQL이 이벤트 루프 밖임을 검사하고,
+변환 중 세션 폐기→401·새 파일/행 없음, 두 동시 변환의 활성 작업 1개 및 취소 뒤 슬롯 보유를 확인했다.
+
+PNG 4096² RGBA16 래스터는 시험 안에서 64 KiB씩 압축해 약 130 KiB 합성 본문으로 만든다.
+해제 객체를 만들기 전 422 거절과 max_length 있는 조각 호출을 각각 검사한다.
+P5 8/16비트의 남는 바이트, 꼭짓점 상한, 디스크 부족 때 파일/행 미생성,
+조직 잠금을 시험에서 제거한 두 세션 경쟁의 201/STALE409, Cc/Cf 이름, 사건 라벨,
+uploads UPDATE/DELETE/TRUNCATE 권한 시작 거절도 독립 회귀다.
+
+계약 생성 **90개 일치**, npm ci 및 strict tsc exit0이다. W4a 요청/응답 필드와 TS 생성물은
+바뀌지 않았으며 이름/요소 총량/해제 크기의 입력 거절만 강화했다.
+실행은 loopback 9290~9309·임시 DB/파일·합성 지도이고 pytest/변이는 순차 실행했다.
+실제 지도·브라우저·실폰·실로봇·ROS·Gazebo·STOP 지연/RSS 계측은 하지 않았다.
+정리 작업의 행 보존/별도 DELETE 계정 선택은 PR 결정 필요로 남긴다.
+
+### 검토 수정 최종 실행과 STOP 후속
+
+| 실행 | 실제 결과 |
+|---|---|
+| 전체 pytest (표준 변이 도구 baseline) 1회 | **497 passed / 1 failed / 428.32s**, 실패 후 중단 |
+| 중단된 시험+뒤의 미실행24개 분리 실행 | **25 passed / 37.51s** |
+| 지도 정상 집중 | **91 passed / 41.76s** |
+| 지도 선택 변이 최종 판정 | **30개 assertion 검출**(기존13+검토17), 아래 초기 결과/재실행을 구분 |
+| 시험/표적 보완 후 두 정상 시험 | **2 passed / 1.99s** |
+| 보완한 두 변이 재실행 | **2/2 assertion 검출**, 실행·수집 오류0 |
+| generate --check / npm ci / strict tsc | 90개 일치 / exit0 / exit0 |
+
+전체 실패는 기존 `test_warm_stop_bypasses_slots_only_inside_250ms[0.25-202]`의 첫
+cold STOP 요청이다. 시험이 설정한 DB_READ_TIMEOUT=20ms 안에 인증을 마치지 못해
+503이 반환됐고 250ms 캐시 경계 검사 전 실패했다. STOP 코드와 시험 기대값은 그대로다.
+조정 지시로 전체를 다시 실행하지 않았다. 497+25를 단일 전체 성공으로 표시하지 않는다.
+
+별도 프로세스 단독3회는 **실패(2.18s)→통과(2.77s)→통과(1.72s)**다.
+단독 실패 프로세스 종료 직후 2026-10-20 **10:44:07 KST**, load1 **4.89**,
+MemAvailable **2,818,828 kB**를 수집했다(시작10:44:02: 4.62 / 3,348,940kB).
+이는 실패 프로세스 종료 후 표본이며 pytest 실패 순간의 계측으로 주장하지 않는다.
+최초 전체 실패 로그 종료는 **10:42:24 KST**이며 그 순간 load1/MemAvailable은
+미수집이다. 해당 STOP 시험은 조정이 별도 후속으로 관리한다.
+
+표준 변이 도구는 전체 baseline 실패 때문에 변이에 진입하지 않았다. 이미 동일 코드의
+지도 정상91개가 전체 중단 전에 통과한 상태에서, 같은 도구의 run 및 assertion-only 판정기를
+별도 임시 사본에 호출해 지도30개만 순차 실행했다. 초기30개는28개 assertion 검출,
+재인증 SQL 필터만 제거한 변이1개 미검출, 층 잠금 제거1개 실행 오류였다.
+전자는 중복된 refresh 검사도 유효해 실제 재인증을 생략하는 표적으로 고쳤고,
+후자는 의도된 경합의 FileExistsError를 새 회귀 시험이 명확한 API 결과 assertion 실패로
+보고하도록 고쳤다. 두 정상 시험2개와 두 변이2개를 재실행해 모두 통과/검출했다.
+제품 코드는 이 보완에서 바뀌지 않았다. 기존 나머지249개 변이는 재실행하지 않았다.
+
+개별 변이용 임시 실행기는 저장소의 check_realtime_mutations.run을 사용하며,
+재현 가능한 표적/시험은 그 도구의 S3aR 목록17개에 들어 있다. 기본 CLI
+`check_realtime_mutations.py --match S3a`는 계속 전체 정상 기준을 먼저 요구한다.
+임시 DB와 변이 사본은 각 실행 수명에 맞게 정리했고 운영 자원에는 접촉하지 않았다.
+
+## PR #26 r2의 작은 보완 (2026-10-20)
+
+변환 슬롯이 차 있으면 본문을 쥔 채 기다리지 않고 `503 SERVER_BUSY`로 거절한다.
+SERVER_BUSY는 05 §1.4에 이미 있는 코드다. 같은 이벤트 루프에서 차 있음 검사와
+즉시 acquire 사이에 중단점이 없고, 취소 뒤에도 실제 작업 종료 전에는 칸을 돌려주지 않는다.
+칸이 비면 새 요청은 정상 처리되며 동시에 실제 변환을 두 개 시작하지 않는다.
+
+판 저장의 파일 stat/공간 검사/읽기/쓰기를 한 예외 정리 범위에 두었다.
+업로드 파일이 stat 전 또는 stat 후 읽기 직전에 사라져도 `503 FILE_STORAGE_ERROR`이고
+판 행·승인 포인터·새 지도 파일을 남기지 않는다. 디스크 부족의 FILE_STORAGE_FULL은 유지한다.
+
+지도 집중은 **93 passed / 42.52s**다. busy 요청이 첫 작업 종료 전에 503으로 끝나며
+변환 호출/작업 수를 늘리지 않고 이후 새 요청이 성공함을 확인했다. 파일 유실은
+stat/read 두 위치의 회귀다. 변경 제거 변이는 **2/2 assertion 검출**, 실행·수집 오류0이다.
+기존 mutation run/assertion 판정기로 임시 사본의 두 표적만 순차 실행했다.
+계약 필드·TS 생성물 변경은 없고 generate --check는90개 일치다. tsc는 계약 변경이 없어
+재실행하지 않았다. STOP·조종권·권한·S0·S2 제품/기대값 변경은 없다.
+전체 pytest는 아래 최종 결과로 별도 기록하며 한 번만 실행한다.
+
+r2 최종 전체 pytest는 **524 passed / 544.19s**, 실패0이다. 한 번만 실행했으며
+기존 cold STOP 시험·Alembic 왕복·계약/권한·실제 uvicorn까지 모두 포함해 통과했다.
+수동 부하 표본용 외부 pytest hook은 실패가 없어 표본을 만들지 않았다.
+Starlette TestClient/httpx 전환 안내 경고1개는 기존 환경 경고다. r1의 STOP 실패/단독3회는
+역사 기록으로 보존하며 이번 전체 성공이 그 후속을 해결했다는 의미로 쓰지 않는다.

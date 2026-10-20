@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKeyConstraint, Index, LargeBinary, Text, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, Boolean, Float, Integer, CheckConstraint, DateTime, ForeignKeyConstraint, Index, LargeBinary, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -77,6 +77,7 @@ class Robot(Tenant, Base):
         Index('robots_active_org_name', 'org_id', 'name', unique=True,
               postgresql_where=text('archived_at IS NULL')),
         UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'last_floor_id'], ['floors.org_id', 'floors.id'], name='robots_last_floor_fk'),
         CheckConstraint("last_floor_source IN ('HUMAN','AUTO')", name='floor_source'),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
@@ -84,7 +85,7 @@ class Robot(Tenant, Base):
     model: Mapped[str] = mapped_column(Text)
     owner_user_id: Mapped[UUID | None] = mapped_column(PGUUID)
     agent_token_hash: Mapped[bytes] = mapped_column(LargeBinary)
-    # Floor/run/approval FKs follow when their owned tables are implemented.
+    # Floor FK is added in 0009; run/approval FKs follow their owned tables.
     last_floor_id: Mapped[UUID | None] = mapped_column(PGUUID)
     last_floor_source: Mapped[str | None] = mapped_column(Text)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -199,3 +200,107 @@ class RobotDevice(Tenant, Base):
     state: Mapped[str] = mapped_column(Text)
     info: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class Site(Tenant, Base):
+    __tablename__ = 'sites'
+    __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']), UniqueConstraint('org_id', 'id'))
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text)
+
+
+class Building(Tenant, Base):
+    __tablename__ = 'buildings'
+    __table_args__ = (ForeignKeyConstraint(['org_id', 'site_id'], ['sites.org_id', 'sites.id']), UniqueConstraint('org_id', 'id'))
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    site_id: Mapped[UUID] = mapped_column(PGUUID)
+    name: Mapped[str] = mapped_column(Text)
+
+
+class Floor(Tenant, Base):
+    __tablename__ = 'floors'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'building_id'], ['buildings.org_id', 'buildings.id']),
+        UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'id', 'approved_version_id'],
+            ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id'],
+            name='floors_approved_version_fk', use_alter=True),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    building_id: Mapped[UUID] = mapped_column(PGUUID)
+    name: Mapped[str] = mapped_column(Text)
+    level: Mapped[int] = mapped_column(Integer)
+    approved_version_id: Mapped[UUID | None] = mapped_column(PGUUID)
+
+
+class Upload(Tenant, Base):
+    __tablename__ = 'uploads'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'id'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    image_path: Mapped[str] = mapped_column(Text)
+    image_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    png_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    metadata_json: Mapped[dict] = mapped_column(JSONB)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class MapVersion(Tenant, Base):
+    __tablename__ = 'map_versions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id']),
+        ForeignKeyConstraint(['org_id', 'floor_id', 'base_version_id'], ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'upload_id'], ['uploads.org_id', 'uploads.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'floor_id', 'id'), UniqueConstraint('org_id', 'id'),
+        UniqueConstraint('floor_id', 'number'),
+        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','SUPERSEDED')", name='map_version_status'),
+        CheckConstraint("source IN ('SLAM','EDIT','ROLLBACK','IMPORT')", name='map_version_source'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    floor_id: Mapped[UUID] = mapped_column(PGUUID)
+    number: Mapped[int] = mapped_column(Integer)
+    base_version_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    copied_from_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    upload_id: Mapped[UUID] = mapped_column(PGUUID)
+    status: Mapped[str] = mapped_column(Text)
+    image_path: Mapped[str] = mapped_column(Text)
+    image_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    resolution: Mapped[float] = mapped_column(Float)
+    origin_x: Mapped[float] = mapped_column(Float)
+    origin_y: Mapped[float] = mapped_column(Float)
+    origin_yaw: Mapped[float] = mapped_column(Float)
+    features: Mapped[dict] = mapped_column(JSONB)
+    reason: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class FloorConnector(Tenant, Base):
+    __tablename__ = 'floor_connectors'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'building_id'], ['buildings.org_id', 'buildings.id']),
+        ForeignKeyConstraint(['org_id', 'floor_a_id', 'map_version_a_id'], ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'floor_b_id'], ['floors.org_id', 'floors.id']),
+        ForeignKeyConstraint(['org_id', 'floor_b_id', 'map_version_b_id'], ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id']),
+        CheckConstraint("kind IN ('STAIRS','ELEVATOR')", name='connector_kind'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    building_id: Mapped[UUID] = mapped_column(PGUUID)
+    kind: Mapped[str] = mapped_column(Text)
+    floor_a_id: Mapped[UUID] = mapped_column(PGUUID)
+    floor_b_id: Mapped[UUID] = mapped_column(PGUUID)
+    a_pose: Mapped[dict] = mapped_column(JSONB)
+    b_pose: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    map_version_a_id: Mapped[UUID] = mapped_column(PGUUID)
+    map_version_b_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    active: Mapped[bool] = mapped_column(Boolean)

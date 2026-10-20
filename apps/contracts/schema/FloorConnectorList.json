@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "FloorConnector": {
+      "additionalProperties": false,
+      "properties": {
+        "a_pose": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "A Pose",
+          "type": "object"
+        },
+        "active": {
+          "title": "Active",
+          "type": "boolean"
+        },
+        "b_pose": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "B Pose"
+        },
+        "building_id": {
+          "format": "uuid",
+          "title": "Building Id",
+          "type": "string"
+        },
+        "floor_a_id": {
+          "format": "uuid",
+          "title": "Floor A Id",
+          "type": "string"
+        },
+        "floor_b_id": {
+          "format": "uuid",
+          "title": "Floor B Id",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "STAIRS",
+            "ELEVATOR"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "map_version_a_id": {
+          "format": "uuid",
+          "title": "Map Version A Id",
+          "type": "string"
+        },
+        "map_version_b_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version B Id"
+        }
+      },
+      "required": [
+        "id",
+        "building_id",
+        "kind",
+        "floor_a_id",
+        "floor_b_id",
+        "a_pose",
+        "b_pose",
+        "map_version_a_id",
+        "map_version_b_id",
+        "active"
+      ],
+      "title": "FloorConnector",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/FloorConnectorList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/FloorConnector"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "default": null,
+      "title": "Next Cursor",
+      "type": "null"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "title": "FloorConnectorList",
+  "type": "object"
+}

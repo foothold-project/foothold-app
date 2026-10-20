@@ -1,7 +1,7 @@
 # API v1 계약
 
 `models.py`의 Pydantic v2 모델이 정본이다. 범위는 API 명세 §1.4 오류,
-§2 인증·계정, §3 로봇 요약, §8 사건·조직 설정이다. 기존 `contracts/v1`은 수정하지 않는다.
+§2 인증·계정, §3 로봇 요약, §5 지도, §8 사건·조직 설정이다. 기존 `contracts/v1`은 수정하지 않는다.
 
 저장소 루트에서 서버 venv를 사용한다.
 
@@ -43,3 +43,13 @@ AGENT_PROTOCOL_MISMATCH 사건을 남긴다. Client는 0·잠금 및 기존 대�
 그 로봇 연결만 닫는다. 이미 접수한 안전 사건은 버리지 않는다. Client는 이 이유를 받으면
 즉시 로컬 STOP·0·잠금과 lease 폐기를 적용하며 재연결이 자동 주행 재개를 뜻하지 않는다.
 상세 접수/복구·HTTP STOP 최초 인증 예외는 서버 README를 따른다.
+
+
+## 지도 (S3a)
+
+`SiteTree`, `MapVersionCreate`/`MapVersion`/`MapVersionList`, `MapFeatures`,
+`MapUpload`, `FloorConnectorList`를 제공한다. 좌표 쌍과 origin은 TS 튜플이다.
+지도 요소 오류는 422이며 detail의 element/elements는 문제 필드 경로다.
+원시 이미지 업로드 뒤 YAML을 연결해 새 upload_id를 받는 두 단계 형식과
+용량 제한은 [서버 README](../server/README.md#원시-업로드-두-단계)를 따른다.
+지도 판의 SUPERSEDED는 층의 approved_version_id로 계산하며 DB 행은 불변이다.

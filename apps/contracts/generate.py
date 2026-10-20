@@ -29,6 +29,8 @@ def ts(s):
             return ' | '.join(dict.fromkeys(ts(x) for x in s[k]))
     t = s.get('type')
     if t == 'array':
+        if 'prefixItems' in s:
+            return '[' + ', '.join(ts(item) for item in s['prefixItems']) + ']'
         inner = ts(s['items'])
         return f'({inner})[]' if '|' in inner else f'{inner}[]'
     if t == 'object' and 'properties' not in s:

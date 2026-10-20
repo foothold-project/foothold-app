@@ -16,6 +16,16 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'SITE_CREATED': '{person}님이 장소 {place}을(를) 만들었습니다.',
+    'SITE_UPDATED': '{person}님이 장소 {place}을(를) 변경했습니다.',
+    'SITE_DELETED': '{person}님이 장소 {place}을(를) 지웠습니다.',
+    'BUILDING_CREATED': '{person}님이 건물 {place}을(를) 만들었습니다.',
+    'BUILDING_UPDATED': '{person}님이 건물 {place}을(를) 변경했습니다.',
+    'BUILDING_DELETED': '{person}님이 건물 {place}을(를) 지웠습니다.',
+    'FLOOR_CREATED': '{person}님이 층 {place}을(를) 만들었습니다.',
+    'FLOOR_UPDATED': '{person}님이 층 {place}을(를) 변경했습니다.',
+    'FLOOR_DELETED': '{person}님이 층 {place}을(를) 지웠습니다.',
+    'MAP_VERSION_APPROVED': '{person}님이 지도 {number}판을 승인했습니다.',
     'LOGIN': '{person}님이 로그인했습니다.',
     'LOGIN_FAILED': '로그인에 실패했습니다.',
     'LOGOUT': '{person}님이 로그아웃했습니다.',
@@ -159,7 +169,7 @@ def render(db, ev, *, agent=False, other_user_id=None):
     robot = name(Robot, ev.robot_id, '로봇', Robot.name)
     person = name(User, ev.user_id, '운영자', User.display_name)
     other = name(User, other_user_id, '운영자', User.display_name)
-    values = dict(robot=robot, person=person, other=other, code=text_value(ev.code),
+    values = dict(place=text_value(data.get('name')), number=number_value(data.get('number')), robot=robot, person=person, other=other, code=text_value(ev.code),
         subject=particle(robot, '이', '가'), with_particle=particle(robot, '과', '와'),
         object_particle=particle(robot, '을', '를'),
         count=number_value(data.get('count', 1)), status=text_value(data.get('last_status')),
