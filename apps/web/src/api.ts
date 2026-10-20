@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { AgentTokenResponse, ApiError, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapFloor, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { AgentTokenResponse, ApiError, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -133,6 +133,10 @@ export const api = {
   upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type, ms: MAP_WRITE_MS }),
   /** 총괄 = 바로 승인 판. base_version_id 가 지금 승인 판과 다르면 409 STALE, 운영 관리자는 403 APPROVAL_REQUIRED(S4 전) */
   saveVersion: (floor: string, p: MapVersionCreate, cancel?: AbortSignal) => call<MapVersion>('POST', `/floors/${encodeURIComponent(floor)}/map-versions`, p, { cancel, ms: MAP_WRITE_MS }),
+  /** 두 판 차이(S3b). against 없으면 그 판의 기준 판(첫 판이면 빈 지도)과. 방향은 against → id. 그림 비교는 화면이 두 /image 를 겹쳐 그린다 */
+  diff: (id: string, against: string | null, cancel?: AbortSignal) => call<MapDiff>('GET', `/map-versions/${encodeURIComponent(id)}/diff${against ? `?against=${encodeURIComponent(against)}` : ''}`, undefined, { cancel, ms: MAP_READ_MS }),
+  /** 한때 승인된 판(SUPERSEDED)을 새 승인 판으로 복사(총괄만, S3b). base_version_id 가 지금 승인 판과 다르면 409 STALE */
+  rollback: (id: string, p: MapRollback, cancel?: AbortSignal) => call<MapVersion>('POST', `/map-versions/${encodeURIComponent(id)}/rollback`, p, { cancel, ms: MAP_WRITE_MS }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
 };

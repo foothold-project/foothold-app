@@ -1,11 +1,11 @@
 // 지도 편집(01 MP-03·05·06, 02 F-MP-03, 03 §5.6, 05 §5 — S3a features). 총괄만, 편집 시작 때 승인 판 위에서 고쳐 새 판으로 저장한다.
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
-// 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기·결재 요청은 다음 작업(S3b·S4).
+// 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx, 결재 요청은 S4.
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, isVersion, shape, toPixel, type Msg, type Place } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, isVersion, reasonBad, shape, toPixel, type Msg, type Place } from './maps';
 
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
@@ -249,7 +249,8 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     if (!dirty) return setMsg({ text: '바꾼 것이 없습니다. 도구로 지도를 고친 뒤 저장하세요.' });
     const b = check(f, v, others.map((x) => x.id));
     if (b) { setBad(b); setSel(keyOf(b.path)); setMsg(null); return; }
-    if (!reason.trim()) return setMsg({ text: '바꾼 이유를 입력하세요.' });
+    const why = reasonBad(reason, '바꾼 이유');
+    if (why) return setMsg({ text: why });
     setBusy(true); setMsg(null); setBad(null); setStale(false);
     const j: Job = { floor: p.floor.id, base: v.id, wait: Promise.resolve() };
     j.wait = api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: f, reason: reason.trim() }, cancel).then(shape(isVersion))   // 빈·어긋난 201 = 저장 불확실(status 0)
