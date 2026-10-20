@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { AgentTokenResponse, ApiError, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { AgentTokenResponse, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -16,6 +16,8 @@ const BROKEN = '서버 응답을 끝까지 읽지 못했습니다. 처리됐을 
 export const NOTE_MS = 10_000;
 /** 지도 읽기 / 지도 파일 보내기·판 저장 제한시간. 쓰기는 서버 수신 마감(30 s, 넘으면 408)과 변환 시간보다 길게 — 서버 답이 먼저 오게 */
 export const MAP_READ_MS = 20_000, MAP_WRITE_MS = 60_000;
+/** 결재 목록 한 쪽 — 항목마다 상세(층·판 번호)를 따로 받으므로 작게 */
+export const APPROVAL_PAGE = 20;
 
 /** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못했거나 성공 답을 끝까지 못 읽음(처리됐을 수 있음), said = 서버가 계약 오류 본문(error.code)으로 답함.
  *  detail = 서버 오류 본문의 detail(지도 요소 오류의 element·elements 등) */
@@ -131,12 +133,23 @@ export const api = {
   imageUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/image`,
   /** 원시 본문 올리기 두 단계: 그림(type = image/png·image/x-portable-graymap) → 그 ID 로 yaml(text/yaml). 둘째 응답 ID 가 판 저장의 image */
   upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type, ms: MAP_WRITE_MS }),
-  /** 총괄 = 바로 승인 판. base_version_id 가 지금 승인 판과 다르면 409 STALE, 운영 관리자는 403 APPROVAL_REQUIRED(S4 전) */
+  /** 총괄 = 바로 승인 판, 운영 관리자 = PENDING 판 + 지도 수정 결재(S4a — 승인 판은 그대로). base_version_id 가 지금 승인 판과 다르면 409 STALE */
   saveVersion: (floor: string, p: MapVersionCreate, cancel?: AbortSignal) => call<MapVersion>('POST', `/floors/${encodeURIComponent(floor)}/map-versions`, p, { cancel, ms: MAP_WRITE_MS }),
   /** 두 판 차이(S3b). against 없으면 그 판의 기준 판(첫 판이면 빈 지도)과. 방향은 against → id. 그림 비교는 화면이 두 /image 를 겹쳐 그린다 */
   diff: (id: string, against: string | null, cancel?: AbortSignal) => call<MapDiff>('GET', `/map-versions/${encodeURIComponent(id)}/diff${against ? `?against=${encodeURIComponent(against)}` : ''}`, undefined, { cancel, ms: MAP_READ_MS }),
-  /** 한때 승인된 판(SUPERSEDED)을 새 승인 판으로 복사(총괄만, S3b). base_version_id 가 지금 승인 판과 다르면 409 STALE */
+  /** 한때 승인된 판(SUPERSEDED)을 복사한 새 판. 총괄 = 바로 승인 판, 운영 관리자 = PENDING 판 + 지도 되돌리기 결재(S4a). base_version_id 가 지금 승인 판과 다르면 409 STALE */
   rollback: (id: string, p: MapRollback, cancel?: AbortSignal) => call<MapVersion>('POST', `/map-versions/${encodeURIComponent(id)}/rollback`, p, { cancel, ms: MAP_WRITE_MS }),
+  // 결재(05 §7, S4a). 범위는 서버가 정한다: 총괄 = 조직 전체, 운영 관리자 = 내 요청만(범위 밖·없음 = 404). 오래된 것 먼저
+  /** status 없음 = 모든 상태. cursor = 앞 쪽의 next_cursor */
+  approvals: (status: Approval['status'] | null, cursor: string | null, cancel?: AbortSignal) =>
+    call<ApprovalList>('GET', `/approvals?limit=${APPROVAL_PAGE}${status ? `&status=${status}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, { cancel }),
+  /** 상세 + preview(층 이름·대상/기준 판 번호) */
+  approval: (id: string, cancel?: AbortSignal) => call<ApprovalDetail>('GET', `/approvals/${encodeURIComponent(id)}`, undefined, { cancel }),
+  /** 총괄만, 자기 요청은 403. 기준 판이 지금 승인 판과 다르면 서버가 STALE 로 끝내고(커밋) 409 APPROVAL_STALE, 끝난 요청은 409 ALREADY_DECIDED */
+  approve: (id: string, comment: string | null, cancel?: AbortSignal) => call<Approval>('POST', `/approvals/${encodeURIComponent(id)}/approve`, comment ? { comment } : {}, { cancel }),
+  reject: (id: string, reason: string, cancel?: AbortSignal) => call<Approval>('POST', `/approvals/${encodeURIComponent(id)}/reject`, { reason }, { cancel }),
+  /** 요청자만(본문 없음) */
+  cancelApproval: (id: string, cancel?: AbortSignal) => call<Approval>('POST', `/approvals/${encodeURIComponent(id)}/cancel`, undefined, { cancel }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
 };

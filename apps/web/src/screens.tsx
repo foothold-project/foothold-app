@@ -1,10 +1,11 @@
-// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx), 그 밖은 가짜. 빈 칸(.fh-slot)은 다음 작업 자리.
-import { useEffect, useState, type ReactNode } from 'react';
-import { APPROVALS, ROBOTS, SCENARIOS, driveBlock, ownerName, robotStatus, toRobot, userName, type Robot, type Tone, type User } from './fake';
+// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx), 그 밖은 가짜. 빈 칸(.fh-slot)은 다음 작업 자리.
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ROBOTS, SCENARIOS, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
 import { rt, useRt, withLive } from './rt';
+import { Approvals } from './screens/approvals';
 import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
 import { Guard } from './App';
@@ -19,8 +20,10 @@ export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string
   refresh: () => void;
   /** 이 로그인 세션의 취소 신호 — 서버 요청에 넘겨 세션이 끝난 뒤의 답을 버린다(시험 렌더에는 없음) */
   cancel?: AbortSignal;
-  /** 기록 탭에서 바로 보일 사건 id(알림 링크 #/history?event_id=…) */
-  focus?: string };
+  /** 기록 탭에서 바로 보일 사건 id(알림 링크 #/history?event_id=…), 결재 탭에서 바로 열 결재 id(#/approvals?approval_id=…) */
+  focus?: string;
+  /** 관제 요약(App 이 한 곳에서 받음 — 결재 탭 배지도 이 값) */
+  dash: Dash };
 
 const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
 /** 상태 표시 하나: 모양 + 짧은 글(색만으로 구분 0). 원본 ui/src/app/chip.tsx 의 Chip 모양 */
@@ -45,22 +48,24 @@ type Count = Exclude<keyof Dashboard, 'operators'>;
 const COUNTS: Count[] = ['robots_total', 'robots_online', 'robots_running', 'robots_attention', 'approvals_pending'];
 const isDash = (x: Dashboard | null) => !!x && Array.isArray(x.operators) && COUNTS.every((k) => Number.isInteger(x[k]) && x[k] >= 0);
 
+/** 관제 요약. again = 지금 한 번 더 받기(결재 처리·요청 뒤 배지) */
+export type Dash = { d: Dashboard | null; err: string; again: () => void };
 /** 관제 요약(GET /dashboard, DASH_MS 마다) — 로봇 0대여도 보인다. 수치는 서버 값 그대로(운영 관리자는 서버가 담당 범위로 셈).
- *  못 받으면 «—» + 이유, 받은 뒤 실패하면 이전 값 그대로 */
-function useDash(cancel?: AbortSignal) {
-  const [d, setD] = useState<Dashboard | null>(null), [err, setErr] = useState('');
+ *  못 받으면 «—» + 이유, 받은 뒤 실패하면 이전 값 그대로. App 이 한 번만 부른다(관제 칸·결재 탭 배지가 같은 값) */
+export function useDash(cancel?: AbortSignal): Dash {
+  const [d, setD] = useState<Dashboard | null>(null), [err, setErr] = useState(''), get = useRef(() => {}), gen = useRef(0);
   useEffect(() => {
-    const get = () => api.dashboard(cancel).then((x) => { if (!isDash(x)) return setErr('요약 형식이 맞지 않습니다.'); setD(x); setErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(e.message); });
-    get();
-    const i = setInterval(get, DASH_MS);
+    // 주기 조회와 처리 뒤 조회가 겹치면 마지막에 보낸 것만 쓴다 — 늦게 온 옛 요약이 새 배지를 덮지 않게
+    get.current = () => { const g = ++gen.current; api.dashboard(cancel).then((x) => { if (g !== gen.current) return; if (!isDash(x)) return setErr('요약 형식이 맞지 않습니다.'); setD(x); setErr(''); }, (e: ApiFail) => { if (g === gen.current && e.code !== 'CANCELED') setErr(e.message); }); };
+    get.current();
+    const i = setInterval(get.current, DASH_MS);
     return () => clearInterval(i);
   }, []);
-  return [d, err] as const;
+  return { d, err, again: () => get.current() };
 }
 
 /** 로봇 0대의 관제: 요약·운영 관리자 표 + 빈 목록 안내(children) */
-export function EmptyFleet({ user, cancel, children }: { user: User; cancel?: AbortSignal; children: ReactNode }) {
-  const [d, err] = useDash(cancel);
+export function EmptyFleet({ user, cancel, dash: { d, err }, children }: { user: User; cancel?: AbortSignal; dash: Dash; children: ReactNode }) {
   return <><Kpi user={user} d={d} err={err} />{children}<MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
 
@@ -68,7 +73,7 @@ export function EmptyFleet({ user, cancel, children }: { user: User; cancel?: Ab
 const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
 
 function Fleet(c: Ctx) {
-  const admin = c.user.role === 'ORG_ADMIN', r = c.robot, [d, err] = useDash(c.cancel);
+  const admin = c.user.role === 'ORG_ADMIN', r = c.robot, { d, err } = c.dash;
   return <>
     <Kpi user={c.user} d={d} err={err} />
     <section className="lv-card" aria-label="로봇 목록">
@@ -160,21 +165,6 @@ function Mission() {
   </>;
 }
 
-function Approval(c: Ctx) {
-  const admin = c.user.role === 'ORG_ADMIN', list = admin ? APPROVALS : APPROVALS.filter((a) => a.by === c.user.id);
-  return <>
-    <section className="lv-card" aria-label={admin ? '결재함' : '내 요청'}>
-      <h2>{admin ? '결재함' : '내 요청'} ({list.length})</h2>
-      <ul className="fh-list">{list.map((a) => <li key={a.id}><button type="button" {...soon}><b>{a.kind}</b><span className="fh-grow">{a.target}</span><span className="lbl">{userName(a.by)} {a.at}</span></button></li>)}</ul>
-    </section>
-    <section className="lv-card" aria-label="내용">
-      <Slot text="바뀐 곳 비교 자리" h={240} />
-      <div className="fh-row">{admin ? <><button type="button" className="btn" {...soon}>반려</button><button type="button" className="btn pri" {...soon}>승인</button></>
-        : <><button type="button" className="btn" {...soon}>요청 취소</button><button type="button" className="btn" {...soon}>고쳐서 다시 요청</button></>}</div>
-    </section>
-  </>;
-}
-
 function Scenario(c: Ctx) {
   return <>{SCENARIOS.filter((s) => s.robot === c.robot.id).map((s) => <section key={s.id} className="lv-card">
     <div className="fh-row"><h2 className="fh-grow">{s.name}</h2><button type="button" className="btn pri" aria-label={`${s.name} 실행`} {...soon}>▶</button></div>
@@ -183,4 +173,4 @@ function Scenario(c: Ctx) {
   {!SCENARIOS.some((s) => s.robot === c.robot.id) && <p className="lv-note">이 로봇에 배정된 시나리오가 없습니다.</p>}</>;
 }
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approval, history: History, map: Maps, settings: Settings, scenario: Scenario };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approvals, history: History, map: Maps, settings: Settings, scenario: Scenario };

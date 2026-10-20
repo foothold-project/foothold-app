@@ -53,6 +53,7 @@ const signedIn = (me: User, more: Record<string, Route> = {}) => ({
   'GET /dashboard': { status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } },
   'GET /notifications': { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } },
   'GET /events': { status: 200, body: { items: [], next_cursor: null } },
+  'GET /approvals': { status: 200, body: { items: [], next_cursor: null } },   // 운영 관리자 결재 요청 전 내 대기 요청
   'GET /users': { status: 200, body: { items: [KIM, LEE], next_cursor: null } },
   'GET /sites': { status: 200, body: TREE },
   'GET /map-versions/v2': { status: 200, body: V2 }, 'GET /map-versions/v1': { status: 200, body: V1 },
@@ -361,7 +362,7 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
   });
   it('앞 단계가 실패하면 다음 단계를 보내지 않음 — 그림 422·yaml 413·저장 422 INVALID_FEATURES·403, 쉬운 문구', async () => {
     const step1: Reply[] = [err(422, 'INVALID_UPLOAD', 'PNG CRC가 올바르지 않습니다.')], step2: Reply[] = [err(413, 'UPLOAD_TOO_LARGE', '올릴 수 있는 파일 크기를 넘었습니다.')];
-    const saves: Reply[] = [err(422, 'INVALID_FEATURES', '지도 범위 안의 좌표를 입력하세요.'), err(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.')];
+    const saves: Reply[] = [err(422, 'INVALID_FEATURES', '지도 범위 안의 좌표를 입력하세요.'), err(403, 'FORBIDDEN', '권한이 없습니다.')];
     serve(ok({ 'POST /uploads': (q) => (q.get('image') ? step2.shift() : step1.shift()) ?? { status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: '' } },
       'POST /floors/f1/map-versions': () => saves.shift()! }));
     await open('#/map');
@@ -376,7 +377,7 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await click(btn('올리기'));
     expect(alertText()).toContain('새 지도 범위 밖에 있는 것이 있습니다.');
     await click(btn('올리기'));
-    expect(alertText()).toContain('운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.');
+    expect(alertText()).toContain('권한이 없습니다.');
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(2);
     expect(btn('올리기')!.disabled).toBe(false);
     await stopSends();
@@ -673,12 +674,32 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     await click(btn('보기', card('보기·편집')));
     expect(canvas()).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeTruthy();
   });
-  it('운영 관리자: 편집 단추·자리 표시 없음(S4 결재 전) / 총괄도 승인 판 없는 층은 토글 없음', async () => {
-    serve(editSrv({}, LEE));
-    await open('#/map');
-    expect(card('지도 보기').querySelector('svg')).toBeTruthy();
-    expect(btn('편집')).toBeUndefined(); expect($('[aria-label="보기·편집"]')).toBeNull();
+  it('운영 관리자: 저장 = «결재 요청» → 201 PENDING 이면 안내 + «내 요청 보기», 승인 판을 그대로 보임·배지 다시 받기 / 총괄도 승인 판 없는 층은 토글 없음', async () => {
+    const P3 = ver('v3', 3, { base_version_id: 'v2', source: 'EDIT', status: 'PENDING', created_by: LEE.id });
+    let asked = false;
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => { asked = true; return { status: 201, body: P3 }; },
+      'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: asked ? [P3, UP, V1] : [UP, V1], next_cursor: null } }) }, LEE));
+    await startEdit();
     expect(card('지도 보기').querySelector('[aria-describedby="fh-soon"]')).toBeNull();
+    expect($('[aria-label="새 지도 올리기"]')).toBeNull(); expect(btn('새 판으로 저장')).toBeUndefined();   // 올리기는 총괄만
+    await tool('지점'); await tap(1, 1);
+    const dash = sent('GET', '/dashboard').length;
+    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
+    expect(writes()).toEqual(['POST /floors/f1/map-versions']); expect(body().base_version_id).toBe('v2');
+    const note = [...box.querySelectorAll('[role="status"]')].find((x) => x.textContent!.includes('결재를 요청했습니다'))!;
+    expect(note.textContent).toContain('결재를 요청했습니다(판 3). 승인되기 전에는 지금 승인 판을 그대로 씁니다.');
+    expect(canvas()).toBeNull();
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
+    const sel = $<HTMLSelectElement>('select[aria-label="판"]')!;
+    expect(sel.value).toBe('v2'); expect([...sel.options].map((o) => o.textContent)).toEqual(['판 3 · 결재 대기', '판 2 · 승인', '판 1']);
+    expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect(sent('GET', '/dashboard').length).toBe(dash + 1);
+    await setVal(sel, 'v3');
+    expect(card('지도 보기').textContent).toContain('결재 대기 중인 판을 보는 중입니다. 승인되기 전에는 이 판을 쓰지 않습니다.');
+    await stopSends();
+    await setVal(sel, 'v2');
+    await click(btn('내 요청 보기')); await hashed(); await flush();
+    expect(location.hash).toBe('#/approval'); expect($('h1')!.textContent).toBe('내 요청');
     act(() => root?.unmount()); box.remove();
     serve(editSrv());
     await open('#/map');
@@ -876,14 +897,14 @@ describe('지도 편집 — 저장', () => {
   it('저장 중 끊김 → 저장 불확실 재조회, 편집 유지', () => uncertainEdit(() => { throw new TypeError('Failed to fetch'); }));
   it('201 본문 끊김 → 저장 불확실 재조회, 편집 유지', () => uncertainEdit(() => new Response(new ReadableStream({ start(c) { c.error(new TypeError('stream interrupted')); } }), { status: 201 })));
   it('503 SERVER_BUSY·403 은 쉬운 문구/서버 문구', async () => {
-    const replies = [err(503, 'SERVER_BUSY', '지도 파일 처리 중입니다.'), err(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.')];
+    const replies = [err(503, 'SERVER_BUSY', '지도 파일 처리 중입니다.'), err(403, 'FORBIDDEN', '권한이 없습니다.')];
     serve(editSrv({ 'POST /floors/f1/map-versions': () => replies.shift()! }));
     await startEdit();
     await tool('지점'); await tap(1, 1);
     await save();
     expect(alertText()).toContain('서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.');
     await save();
-    expect(alertText()).toContain('운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.');
+    expect(alertText()).toContain('권한이 없습니다.');
   });
 });
 
@@ -1306,15 +1327,162 @@ describe('판 비교·되돌리기(W4c)', () => {
     await stopSends();
   });
 
-  it('운영 관리자: 비교는 볼 수 있고 되돌리기 단추·자리 표시 없음', async () => {
-    serve(rollSrv({ status: 201, body: V3 }, {}, LEE));
+  it('운영 관리자: 비교 + 되돌리기 = «결재 요청» → 201 PENDING 이면 안내, 승인 판(판 2) 그대로', async () => {
+    const P3 = { ...V3, status: 'PENDING' as const, created_by: LEE.id };
+    serve(rollSrv({ status: 201, body: P3 }, {}, LEE));
     await open('#/map');
     await setVal(verSel(), 'v1');
-    expect(btns(card('판 관리')).map((b) => b.textContent)).toEqual(['비교']);
-    expect(card('지도 보기').textContent).not.toContain('되돌리');
     await compare();
     expect(sent('GET', '/map-versions/v1/diff')).toHaveLength(1);
-    expect(writes()).toEqual([]);
+    expect(btns(card('판 관리')).map((b) => b.textContent)).toEqual(['비교', '이 판으로 되돌리기']);
+    await click(undoBtn());
+    expect(card('이 판으로 되돌리기').textContent).toContain('결재를 요청합니다. 승인되기 전에는 지금 승인 판(판 2)을 그대로 씁니다.');
+    await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('결재 요청', card('이 판으로 되돌리기')));
+    expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
+    expect(sent('POST', '/map-versions/v1/rollback')[0].body).toEqual({ base_version_id: 'v2', reason: '잘못 편집함' });
+    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
+    expect($('[aria-label="이 판으로 되돌리기"]')).toBeNull();
+    expect(verSel().value).toBe('v2'); expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
+  });
+
+  // PR #36 검토 3: 운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않는다 — 답이 끊기면 이번 요청을 확정하기 전에는 다시 보내지 않음.
+  // 보내기 전에 내 대기 요청 ID 를 받아 두고, 그 뒤 생긴 요청 중 종류·기준 판·이유·내용이 모두 맞는 것이 정확히 하나일 때만 성공
+  const P3r = { ...V3, status: 'PENDING' as const, created_by: LEE.id };
+  const myAsk = (id: string, target: string, p: Partial<{ kind: string; base: string; reason: string }> = {}) => ({ id, kind: p.kind ?? 'MAP_ROLLBACK', status: 'PENDING', requester: { id: LEE.id, display_name: LEE.display_name }, decider: null,
+    reason: p.reason ?? '잘못 편집함', decision_comment: null, target: { type: 'map_version', id: target }, base_ref: { type: 'map_version', id: p.base ?? 'v2' }, emergency: false, created_at: '2026-10-20T05:00:00Z', decided_at: null });
+  const page = (items: unknown[] = [], next: string | null = null): Reply => ({ status: 200, body: { items, next_cursor: next } });
+  const queue = (...r: Route[]): Route => (q, body) => { const x = r.shift() ?? page(); return typeof x === 'function' ? x(q, body) : x; };
+  // 미끼 판: v8 = 예전에 똑같이 보낸 되돌리기(보내기 전부터 대기), v7 = 같은 종류·기준·이유지만 다른 판에서 되돌린 것, v9 = 조건 하나가 다른 요청
+  const V8 = { ...P3r, id: 'v8', number: 8 }, V7 = { ...P3r, id: 'v7', number: 7, copied_from_id: 'v0' }, V9 = { ...P3r, id: 'v9', number: 9 };
+  const dropRoll = (asks: Route) => {
+    let n = 0;
+    serve(rollSrv(() => { n++; throw new TypeError('Failed to fetch'); }, { 'GET /approvals': asks, 'GET /map-versions/v3': { status: 200, body: P3r },
+      'GET /map-versions/v7': { status: 200, body: V7 }, 'GET /map-versions/v8': { status: 200, body: V8 }, 'GET /map-versions/v9': { status: 200, body: V9 } }, LEE));
+    return () => n;
+  };
+  const askRoll = async () => {
+    await open('#/map');
+    await setVal(verSel(), 'v1');
+    await click(undoBtn());
+    await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('결재 요청', card('이 판으로 되돌리기')));
+  };
+  const at = (method: string, path: string) => calls.findIndex((c) => c.method === method && c.path === path);
+  it('검토 3: 보내기 전에 내 대기 요청을 받아 둠 → 답이 끊기면 그 뒤 생긴 같은 요청(종류·기준 판·이유·원본 판)이 하나일 때만 그 판으로 끝', async () => {
+    let hold = (_: Reply) => {};
+    dropRoll(queue(page([myAsk('ap0', 'v8')]), () => new Promise<Reply>((r) => { hold = r; })));
+    await askRoll();
+    expect(at('GET', '/approvals')).toBeLessThan(at('POST', '/map-versions/v1/rollback'));   // 보내기 전 받아 둠
+    expect(sent('GET', '/approvals')[0].q.get('status')).toBe('PENDING');
+    const form = card('이 판으로 되돌리기');
+    expect(btn('결재 요청', form)!.disabled).toBe(true); expect(btn('취소', form)!.disabled).toBe(true);
+    expect(box.textContent).toContain('결재 요청이 만들어졌는지 확인하는 중…');
+    act(() => (form as HTMLFormElement).requestSubmit()); await flush();       // 단추를 우회해도
+    expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
+    await stopSends();
+    hold(page([myAsk('ap0', 'v8'), myAsk('ap7', 'v7'), myAsk('ap9a', 'v9', { reason: '다른 이유' }), myAsk('ap9b', 'v9', { base: 'v1' }), myAsk('ap9c', 'v9', { kind: 'MAP_REVISION' }), myAsk('ap3', 'v3')])); await flush();
+    expect(sent('GET', '/map-versions/v9')).toHaveLength(0);                   // 종류·기준·이유가 다른 것은 판도 안 받음
+    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
+    expect($('[aria-label="이 판으로 되돌리기"]')).toBeNull();
+    expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
+  });
+  it('검토 3: 보내기 전 확인 실패 → 보내지 않음(POST 0), 다시 누를 수 있음', async () => {
+    const posts = dropRoll(queue(err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.')));
+    await askRoll();
+    expect(posts()).toBe(0);
+    expect(alertText()).toContain('요청 전에 내 대기 요청을 확인하지 못해 보내지 않았습니다.');
+    expect(btn('결재 요청', card('이 판으로 되돌리기'))!.disabled).toBe(false); expect(btn('상태 확인')).toBeUndefined();
+  });
+  it('검토 3: 확인 실패(503)·빈 조회 → 확정하지 않음(«아직 확인되지 않았습니다»·«상태 확인» 유지·다시 보내기 막힘) → 늦게 생긴 요청을 찾으면 그 판, POST 1번', async () => {
+    const posts = dropRoll(queue(page(), err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), page([myAsk('ap9', 'v9', { reason: '다른 이유' })], '1'), page(), page([myAsk('ap3', 'v3')])));
+    await askRoll();
+    const form = card('이 판으로 되돌리기');
+    expect(alertText()).toContain('결재 요청이 만들어졌는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.');
+    expect(btn('결재 요청', form)!.disabled).toBe(true);
+    act(() => (form as HTMLFormElement).requestSubmit()); await flush();
+    expect(posts()).toBe(1);
+    await click(btn('상태 확인', form));
+    expect(sent('GET', '/approvals').map((c) => c.q.get('cursor'))).toEqual([null, null, null, '1']);   // 다음 쪽까지
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    expect(btn('상태 확인', form)).toBeDefined(); expect(btn('결재 요청', form)!.disabled).toBe(true);
+    act(() => (form as HTMLFormElement).requestSubmit()); await flush();
+    expect(posts()).toBe(1);
+    await click(btn('다시 요청', form));
+    expect(card('다시 요청 확인').textContent).toContain('이미 요청됐을 수 있습니다. 같은 요청이 두 번 갈 수 있어요 — 내 요청에서 먼저 확인하세요.');
+    await click(btn('닫기', card('다시 요청 확인')));
+    expect(posts()).toBe(1);
+    await stopSends();
+    await click(btn('상태 확인', form));                                      // 첫 요청이 늦게 들어감
+    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
+    expect(posts()).toBe(1);
+  });
+  it('검토 3: 다시 요청은 확인창 «그래도 다시 요청»에서만 — 그때도 먼저 내 대기 요청을 받아 둠', async () => {
+    const posts = dropRoll(queue(page(), page(), page([myAsk('ap0', 'v8')])));
+    await askRoll();
+    const form = card('이 판으로 되돌리기');
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    await click(btn('다시 요청', form)); await click(btn('그래도 다시 요청', card('다시 요청 확인')));
+    expect(posts()).toBe(2);
+    expect(calls.filter((c) => c.path === '/approvals' || c.path === '/map-versions/v1/rollback').map((c) => c.method)).toEqual(['GET', 'POST', 'GET', 'GET', 'POST', 'GET']);
+    expect(btn('상태 확인', form)).toBeDefined();                              // 또 끊김 → 다시 확인 전
+  });
+  it('검토 3: 편집 결재 요청 답이 끊김 → 같은 종류·기준·이유라도 내용이 다른 판(v9)은 이번 요청 아님(초안 그대로) / 확인 전 캔버스 누름·끌기·도구 잠금 → 같은 내용 판을 찾으면 그 판', async () => {
+    let n = 0, posted: { features?: unknown } = {};
+    const V3e = () => ({ ...P3r, source: 'EDIT', copied_from_id: null, upload_id: UP.upload_id, features: posted.features });
+    const asks = queue(page(), err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), page([myAsk('ap9', 'v9', { kind: 'MAP_REVISION', reason: '지점 추가' })]),
+      page([myAsk('ap9', 'v9', { kind: 'MAP_REVISION', reason: '지점 추가' }), myAsk('ap3', 'v3', { kind: 'MAP_REVISION', reason: '지점 추가' })]));
+    serve(editSrv({ 'POST /floors/f1/map-versions': (_, b) => { n++; posted = b as typeof posted; throw new TypeError('Failed to fetch'); }, 'GET /approvals': asks,
+      'GET /map-versions/v9': () => ({ status: 200, body: { ...V3e(), id: 'v9', number: 9, features: UP.features } }), 'GET /map-versions/v3': () => ({ status: 200, body: V3e() }) }, LEE));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
+    expect(at('GET', '/approvals')).toBeLessThan(at('POST', '/floors/f1/map-versions'));
+    expect(alertText()).toContain('결재 요청이 만들어졌는지 확인하지 못했습니다.');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 초안 그대로
+    expect(btn('결재 요청', card('결재 요청'))!.matches(':disabled')).toBe(true); expect(btn('지점', card('편집 도구'))!.matches(':disabled')).toBe(true);   // 편집 칸 fieldset 잠금
+    await tap(2, 1);                                                             // fieldset 이 막지 못하는 캔버스 누름도
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    act(() => (card('결재 요청') as HTMLFormElement).requestSubmit()); await flush();
+    expect(n).toBe(1);
+    await click(btn('상태 확인'));
+    expect(sent('GET', '/map-versions/v9')).toHaveLength(1);
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 다른 내용 판을 성공으로 보지 않음 — 초안 유지
+    await stopSends();
+    await click(btn('상태 확인'));
+    expect(canvas()).toBeNull();
+    expect(box.textContent).toContain('결재를 요청했습니다(판 3).');
+    expect(n).toBe(1);
+  });
+  it('검토 3: 확인 전에는 진행 중이던 끌기도 끊음 — 저장 중 놓지 않은 끌기가 확인 전 옮기지 않음', async () => {
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => { throw new TypeError('Failed to fetch'); }, 'GET /approvals': queue(page(), page()) }, LEE));
+    await startEdit();
+    await tool('지점'); await tap(1, 1); await tool('고르기');
+    const w = () => canvas().querySelectorAll('[data-waypoint]')[1] as SVGElement, was = w().outerHTML;
+    await ptr('pointerdown', 1, 1, w());
+    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    await ptr('pointermove', 3, 0, w());
+    expect(w().outerHTML).toBe(was);
+  });
+  it('검토 3: 총괄의 답 끊김은 그대로(목록 다시 받기 — 다시 보내면 승인 판이 바뀌어 서버가 STALE)', async () => {
+    serve(rollSrv(() => { throw new TypeError('Failed to fetch'); }));
+    await open('#/map');
+    await setVal(verSel(), 'v1');
+    await click(undoBtn());
+    await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('되돌리기', card('이 판으로 되돌리기')));
+    expect(alertText()).toContain('되돌리기 응답을 받지 못했습니다.');
+    expect(sent('GET', '/approvals')).toHaveLength(0); expect(btn('상태 확인')).toBeUndefined();
+  });
+
+  it('판 이름: 결재 대기·적용 불가(기준 판 뒤 승인 판이 바뀜)·반려됨·취소됨 + 층 «결재 대기 N»', async () => {
+    const list = [ver('v6', 6, { status: 'CANCELED' }), ver('v5', 5, { status: 'REJECTED' }), ver('v4', 4, { status: 'PENDING', base_version_id: 'v1' }), ver('v3', 3, { status: 'PENDING', base_version_id: 'v2' }), V2, V1];
+    const T = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [{ ...floor('f1', '1층', 1, 'v2'), pending_count: 2 }, floor('f2', '2층', 2, null)] }] }] };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: T }, 'GET /floors/f1/map-versions': { status: 200, body: { items: list, next_cursor: null } } }));
+    await open('#/map');
+    expect([...verSel().options].map((o) => o.textContent)).toEqual(['판 6 · 취소됨', '판 5 · 반려됨', '판 4 · 적용 불가(지도가 바뀜)', '판 3 · 결재 대기', '판 2 · 승인', '판 1']);
+    expect(card('지도 보기').textContent).toContain('결재 대기 2');
+    await setVal(verSel(), 'v4');
+    expect(card('지도 보기').textContent).toContain('적용 불가(지도가 바뀜)');
   });
 
   it('되돌리기 단추는 한때 승인된 판(SUPERSEDED)에만 — 지금 승인 판·대기·반려 판에는 없음', async () => {
@@ -1355,7 +1523,7 @@ describe('판 비교·되돌리기(W4c)', () => {
   it('되돌리기 실패: 409 STALE·ALREADY_APPROVED 는 새로 불러오기, 422 지운 층 연결점·403·503 은 쉬운 말/서버 문구, 칸과 이유는 그대로', async () => {
     const replies: Reply[] = [{ status: 409, body: { error: { code: 'STALE', message: '승인된 지도 판이 바뀌었습니다.', detail: { approved_version_id: 'v9' } } } },
       { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '연결점이 가리키는 같은 건물의 다른 층을 찾을 수 없습니다.', detail: { element: 'features.connectors.0.pair_floor_id' } } } },
-      err(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.'), err(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.'),
+      err(403, 'FORBIDDEN', '권한이 없습니다.'), err(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.'),
       err(409, 'ALREADY_APPROVED', '이미 승인된 지도 판입니다.')];
     serve(rollSrv(() => replies.shift()!));
     await open('#/map');
@@ -1368,7 +1536,7 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(alertText()).toContain('이 판에는 지금 없는 층과의 연결점이 있어 되돌릴 수 없습니다.');
     expect(btn('새로 불러오기', card('이 판으로 되돌리기'))).toBeUndefined();
     await click(btn('되돌리기', card('이 판으로 되돌리기')));
-    expect(alertText()).toContain('운영 관리자 지도 되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.');
+    expect(alertText()).toContain('되돌리지 못했습니다. 권한이 없습니다.');
     await click(btn('되돌리기', card('이 판으로 되돌리기')));
     expect(alertText()).toContain('지도 파일을 확인할 수 없습니다.');
     await click(btn('되돌리기', card('이 판으로 되돌리기')));
