@@ -1170,13 +1170,15 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(stroke(g('removed').querySelector('circle')!)).toBe('var(--bad)');
     const ch = g('changed').querySelectorAll('circle');                  // 바뀜 = 전(점선) + 후
     expect([...ch].map((c) => [stroke(c), (c as SVGElement).style.strokeDasharray])).toEqual([['var(--warn)', '6 4'], ['var(--warn)', '']]);
-    expect(g('moved').querySelectorAll('polyline')).toHaveLength(1);    // 순서만 바뀐 선은 한 번
+    expect(g('moved').querySelectorAll('polyline[data-width]')).toHaveLength(1);   // 순서만 바뀐 선은 한 번
     expect(diffSvg().querySelector('[data-hi]')).toBeNull();
     await click(btns(card('차이 목록'))[1]);
     expect(btns(card('차이 목록'))[1].getAttribute('aria-pressed')).toBe('true');
-    expect(diffSvg().querySelector('[data-hi]')!.getAttribute('data-change')).toBe('removed');
-    expect(stroke(g('removed').querySelector('circle')!)).toBe('var(--accent)');
-    expect(g('added').getAttribute('opacity')).toBe('0.35');            // 나머지는 흐리게
+    const on = diffSvg().querySelector('[data-hi]')!;                    // 강조 = 위에 한 벌 더(테두리는 따로 — 차이 색은 그대로)
+    expect(on.getAttribute('data-change')).toBe('removed');
+    expect(stroke(on.querySelector('[data-ring] circle')!)).toBe('var(--accent)');
+    expect(stroke(on.querySelector(':scope > circle')!)).toBe('var(--bad)');
+    expect(g('added').parentElement!.getAttribute('opacity')).toBe('0.35');   // 나머지는 묶음째 흐리게
     await click(btns(card('차이 목록'))[1]);
     expect(diffSvg().querySelector('[data-hi]')).toBeNull();
   });
@@ -1223,6 +1225,30 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(diffSvg().getAttribute('viewBox')).toBe('-40 0 140 80');     // 앞 판이 왼쪽으로 2 m 더 나감
   });
 
+  it('같은 그림이라도 원점·해상도가 바뀌면(image_changed false) 두 판 좌표로 겹치고, 앞 판 범위의 삭제 요소도 비교 그림 안에 든다', async () => {
+    const A = ver('v1', 1, { status: 'SUPERSEDED', origin: [-10, -2, 0] }), gone = { id: 'w9', name: '옛 끝', x: -9.5, y: 0, yaw: 0 };
+    serve(signedIn(KIM, { 'GET /map-versions/v2/diff': { status: 200, body: { ...DIFF, against: A, image_changed: false, changes: [chg('waypoints', 'removed', gone, null)] } } }));
+    await open('#/map');
+    await compare();
+    expect(card('지도 그림').textContent).toContain('같은 지도 그림인데 좌표 설정(원점·해상도)이 바뀌었습니다.');
+    expect(diffSvg().querySelector('image[data-image="before"]')!.getAttribute('transform')).toBe('matrix(1 0 0 1 -180 0)');
+    const [x0, , w] = diffSvg().getAttribute('viewBox')!.split(' ').map(Number), cx = Number(diffSvg().querySelector('g[data-change="removed"] circle')!.getAttribute('cx'));
+    expect([x0, w]).toEqual([-180, 280]);
+    expect(cx).toBe(-170); expect(cx).toBeGreaterThanOrEqual(x0);
+  });
+
+  it('지점 방향·편집선 너비만 바뀌어도 전후가 그림(방향 선·실제 너비)과 목록(°·m)에 보인다', async () => {
+    const W = { id: 'w1', name: '계기판 A', x: 1.5, y: 0, yaw: Math.PI }, E = { op: 'WALL' as const, polyline: [[0, 0], [1, 0]] as [number, number][], width: 2 };
+    serve(signedIn(KIM, { 'GET /map-versions/v2/diff': { status: 200, body: { ...DIFF, changes: [chg('waypoints', 'changed', W, { ...W, yaw: 0 }), chg('edits', 'changed', E, { ...E, width: 0.1 }, 0, 0)] } } }));
+    await open('#/map');
+    await compare();
+    expect(rows()).toEqual(['바뀜 · 지점 «계기판 A» · 방향 180° → 0°', '바뀜 · 벽 선 · 너비 2 m → 0.1 m']);
+    const [wp, ed] = diffSvg().querySelectorAll('g[data-change="changed"]');
+    const heads = [...wp.querySelectorAll('line')].map((l) => Number(l.getAttribute('x2')) - Number(l.getAttribute('x1')));
+    expect(heads[0]).toBeLessThan(0); expect(heads[1]).toBeGreaterThan(0);   // 앞 = 왼쪽(π), 뒤 = 오른쪽(0)
+    expect([...ed.querySelectorAll('polyline[data-width]')].map((l) => (l as SVGElement).style.strokeWidth)).toEqual(['40', '2']);   // 2 m·0.1 m ÷ 0.05 m/칸
+  });
+
   it('큰 차이: 목록은 200줄씩(더 보기), 지도 위 표시는 모두', async () => {
     const many = Array.from({ length: 1000 }, (_, i) => chg('waypoints', 'added', null, { id: `w${i}`, name: `지점 ${i}`, x: 0, y: 0, yaw: 0 }));
     serve(signedIn(KIM, { 'GET /map-versions/v2/diff': { status: 200, body: { ...DIFF, changes: many } } }));
@@ -1230,7 +1256,12 @@ describe('판 비교·되돌리기(W4c)', () => {
     await compare();
     expect(rows()).toHaveLength(200);
     expect(diffSvg().querySelectorAll('g[data-change="added"]')).toHaveLength(1000);
+    const seen: MutationRecord[] = [], mo = new MutationObserver((l) => seen.push(...l));
+    mo.observe(diffSvg(), { subtree: true, childList: true, attributes: true });
+    await click(btns(card('차이 목록'))[7]);                            // 강조해도 나머지 1000개는 건드리지 않음(묶음 흐림 1 + 위에 한 벌)
     await click(btn('더 보기 (남은 800개)'));
+    seen.push(...mo.takeRecords()); mo.disconnect();
+    expect(seen.length).toBeLessThan(5);
     expect(rows()).toHaveLength(400);
     expect(btn('더 보기 (남은 600개)')).toBeTruthy();
   });
@@ -1293,8 +1324,12 @@ describe('판 비교·되돌리기(W4c)', () => {
     await setVal(verSel(), 'v1');
     await click(undoBtn());
     expect(card('이 판으로 되돌리기').textContent).toContain('지금 승인 판(판 2)은 지난 판으로 남고');
-    await back('   ');
-    expect(alertText()).toContain('되돌리는 이유를 입력하세요.');
+    for (const r of ['   ', '\u200b', '\u0001']) {                       // 공백·Cf·Cc 만 = 이유 없음
+      await back(r);
+      expect(alertText()).toContain('되돌리는 이유를 입력하세요.');
+    }
+    await back('잘못\u0001편집');
+    expect(alertText()).toContain('이유에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.');
     expect(writes()).toEqual([]);
     await back(' 잘못 편집함 ');
     expect(sent('POST', '/map-versions/v1/rollback').map((c) => c.body)).toEqual([{ base_version_id: 'v2', reason: '잘못 편집함' }]);

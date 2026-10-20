@@ -1,10 +1,10 @@
 // 판 비교·되돌리기(01 AP-08·MP-04, 02 F-MP-04, 03 §5.6·U10, 05 §5 — S3b /map-versions/{id}/diff·/rollback).
 // 서버는 비교 그림을 만들지 않는다 — 두 판 그림(<image>, 쿠키로 따로 받음)을 같은 지도 좌표로 겹치고, 요소 차이를 추가·삭제·바뀜 색으로 얹는다.
 // 되돌리기는 총괄만(운영 관리자는 결재 S4 전이라 단추 없음). 이 칸은 창 전체 키·포인터를 잡지 않는다 — STOP 단추·Space = STOP 은 App 그대로.
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { MapConnector, MapDiff, MapEdit, MapFeatureChange, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { EDIT, KIND, Note, Shapes, ZONE, isVersion, shape, toPixel, type Msg } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, aim, isVersion, shape, toPixel, type Msg } from './maps';
 import { toMap } from './mapedit';
 
 type P = [number, number];
@@ -32,18 +32,39 @@ export function says(c: Change) {
   const at = c.before_index != null && c.after_index != null && c.before_index !== c.after_index ? ` (${c.before_index + 1}번째 → ${c.after_index + 1}번째)` : '';
   if (moved(c)) return `순서 바뀜 · ${nameOf(c.kind, x)}${at}`;
   const was = nameOf(c.kind, c.before!), now = nameOf(c.kind, x);
-  return `바뀜 · ${was === now ? now : `${was} → ${now}`}${at && ` · 순서도 바뀜${at}`}`;
+  return `바뀜 · ${was === now ? now : `${was} → ${now}`}${vals(c.before!, x)}${at && ` · 순서도 바뀜${at}`}`;
+}
+const deg = (r: number) => `${Math.round((r * 180) / Math.PI)}°`, m = (w: number) => `${+w.toFixed(2)} m`;
+/** 그림만으로 놓치기 쉬운 값(방향·선 너비)은 전후를 글로도 */
+const vals = (b: Item, a: Item) => [
+  'yaw' in b && 'yaw' in a && b.yaw !== a.yaw && `방향 ${deg(b.yaw)} → ${deg(a.yaw)}`,
+  'width' in b && 'width' in a && b.width !== a.width && `너비 ${m(b.width)} → ${m(a.width)}`].map((t) => (t ? ` · ${t}` : '')).join('');
+
+/** 요소 하나를 한 색으로(비교 그림). 기하는 보기·편집(Shapes)과 같다 — 편집선은 실제 너비(지도 m) 띠, 지점·연결점은 방향 선.
+ *  테두리·가운데 선은 화면 픽셀 고정(작게 줄인 큰 지도에서도 보이게). ring = 강조 테두리만(차이 색 아래에 따로 깐다) */
+function Mark({ g, k, x, color, dash, ring }: { g: Geo; k: Change['kind']; x: Item; color: string; dash?: boolean; ring?: boolean }) {
+  const p = ([a, b]: number[]) => toPixel(g, a, b).join(','), r = Math.max(g.width, g.height) / 100;
+  const st = ring ? { stroke: 'var(--accent)', strokeWidth: 9, fill: 'none' } : { stroke: color, strokeWidth: 3, strokeDasharray: dash ? '6 4' : undefined };
+  const fill = (o: number) => (ring ? {} : { fill: color, fillOpacity: dash ? o / 3 : o });
+  if ('polygon' in x) return <polygon points={x.polygon.map(p).join(' ')} style={{ ...fill(0.3), ...st }} vectorEffect="non-scaling-stroke" />;
+  if ('polyline' in x) {
+    const pts = x.polyline.map(p).join(' '), line = { fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round' } as const;
+    return <>{!ring && <polyline data-width={x.width} points={pts} style={{ ...line, stroke: color, strokeOpacity: dash ? 0.15 : 0.4, strokeWidth: x.width / g.resolution }} />}
+      <polyline points={pts} style={{ ...line, ...st }} vectorEffect="non-scaling-stroke" /></>;
+  }
+  const [cx, cy] = toPixel(g, x.x, x.y), [hx, hy] = aim(g, x, r);
+  return <><line data-yaw={x.yaw} x1={cx} y1={cy} x2={hx} y2={hy} style={st} vectorEffect="non-scaling-stroke" />
+    {k === 'connectors' ? <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} style={{ ...fill(0.8), ...st }} vectorEffect="non-scaling-stroke" />
+      : <circle cx={cx} cy={cy} r={r} style={{ ...fill(0.8), ...st }} vectorEffect="non-scaling-stroke" />}</>;
 }
 
-/** 요소 하나를 한 색으로(비교 그림). 선 굵기는 화면 픽셀 고정 — 작게 줄인 큰 지도에서도 보이게 */
-function Mark({ g, k, x, color, dash, hi }: { g: Geo; k: Change['kind']; x: Item; color: string; dash?: boolean; hi?: boolean }) {
-  const p = ([a, b]: number[]) => toPixel(g, a, b).join(','), r = Math.max(g.width, g.height) / 100;
-  const st = { stroke: hi ? 'var(--accent)' : color, strokeWidth: hi ? 5 : 3, strokeDasharray: dash ? '6 4' : undefined };
-  if ('polygon' in x) return <polygon points={x.polygon.map(p).join(' ')} style={{ fill: color, fillOpacity: dash ? 0.1 : 0.3, ...st }} vectorEffect="non-scaling-stroke" />;
-  if ('polyline' in x) return <polyline points={x.polyline.map(p).join(' ')} style={{ fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', ...st }} vectorEffect="non-scaling-stroke" />;
-  const [cx, cy] = toPixel(g, x.x, x.y);
-  return k === 'connectors' ? <rect x={cx - r} y={cy - r} width={r * 2} height={r * 2} style={{ fill: color, fillOpacity: dash ? 0.2 : 0.8, ...st }} vectorEffect="non-scaling-stroke" />
-    : <circle cx={cx} cy={cy} r={r} style={{ fill: color, fillOpacity: dash ? 0.2 : 0.8, ...st }} vectorEffect="non-scaling-stroke" />;
+/** 차이 하나: 삭제 = 전, 추가·순서 바뀜 = 후, 바뀜 = 전(점선) + 후. hi = 강조(테두리를 색 표시 아래 따로) */
+function One({ g, c, hi }: { g: Geo; c: Change; hi?: boolean }) {
+  const col = CH[c.change].color, xs: [Item, boolean][] = c.change === 'removed' ? [[c.before!, false]] : c.change === 'added' || moved(c) ? [[c.after!, false]] : [[c.before!, true], [c.after!, false]];
+  return <g data-change={moved(c) ? 'moved' : c.change} data-hi={hi || undefined}>
+    {hi && <g data-ring>{xs.map(([x], j) => <Mark key={j} g={g} k={c.kind} x={x} color="" ring />)}</g>}
+    {xs.map(([x, dash], j) => <Mark key={j} g={g} k={c.kind} x={x} color={col} dash={dash} />)}
+  </g>;
 }
 
 /** 앞 판 그림 픽셀 → 뒤 판 그림 픽셀(지도 m 를 거침, 둘 다 1차 변환이라 세 점으로 SVG matrix) */
@@ -78,18 +99,22 @@ export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: MapVer
   useEffect(() => {
     let live = true;   // 비교 대상을 바꾸면 지난 요청의 늦은 답은 버린다
     setD(null); setErr(''); setHi(-1); setShow(PAGE); setImg('both'); setBad(false);
-    api.diff(v.id, against || null, cancel).then(shape(isDiff)).then((x) => { if (live) setD(x); }, (e: ApiFail) => {
+    api.diff(v.id, against || null, cancel).then(shape(isDiff)).then((x) => { if (live) startTransition(() => setD(x)); }, (e: ApiFail) => {   // 큰 차이를 그리는 동안에도 STOP 누름이 끼어들게
       if (!live || e.code === 'CANCELED') return;
       if (e.status === 404) gone(); else setErr(diffFail(e));
     });
     return () => { live = false; };
   }, [against, n]);
   const base = list.find((x) => x.id === v.base_version_id);
-  const a = d?.against ?? null, b = d?.version, two = !!a && !!d?.image_changed;
+  const a = d?.against ?? null, b = d?.version;
+  // image_changed 는 그림 파일만 본다 — 같은 그림이라도 원점·해상도가 바뀌면 요소 자리가 달라지니 두 판 좌표로 겹친다
+  const shift = !!a && !!b && (a.resolution !== b.resolution || a.origin.some((o, i) => o !== b.origin[i])), two = !!a && (!!d?.image_changed || shift);
   const count = (f: (c: Change) => boolean) => d?.changes.filter(f).length ?? 0;
   const tally = [['추가', count((c) => c.change === 'added'), CH.added.color], ['삭제', count((c) => c.change === 'removed'), CH.removed.color],
     ['바뀜', count((c) => c.change === 'changed' && !moved(c)), CH.changed.color], ['순서 바뀜', count(moved), CH.changed.color]] as const;
   const onErr = () => setBad(true);
+  // 차이 표시는 응답이 올 때 한 번만 만든다 — 강조·더 보기·그림 전환 때 수천 개를 다시 맞추지 않게(강조는 위에 한 벌 더, 나머지는 묶음째 흐리게)
+  const layer = useMemo(() => d && d.changes.map((c, i) => <One key={i} g={d.version} c={c} />), [d]);
   return <div className="fh-form" aria-label="판 비교">
     <label className="fh-row"><span className="lbl">비교할 판</span><select className="fh-user" aria-label="비교할 판" value={against} onChange={(e) => setAgainst(e.target.value)}>
       <option value="">{v.base_version_id ? `판 ${base?.number ?? ''} (기준 판)` : '빈 지도 (첫 판)'}</option>
@@ -97,20 +122,16 @@ export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: MapVer
     {d && b && <>
       <b>{a ? `판 ${a.number} → 판 ${b.number}` : `빈 지도 → 판 ${b.number}`}</b>
       {!a ? <p className="lv-note">첫 판이라 빈 지도와 비교합니다. 모든 요소가 추가로 보입니다.</p>
-        : two ? <div className="fh-row" role="group" aria-label="지도 그림"><span className="fh-grow">지도 그림이 바뀌었습니다.</span>
+        : two ? <div className="fh-row" role="group" aria-label="지도 그림"><span className="fh-grow">{!d.image_changed ? '같은 지도 그림인데 좌표 설정(원점·해상도)이 바뀌었습니다.' : shift ? '지도 그림과 좌표 설정(원점·해상도)이 바뀌었습니다.' : '지도 그림이 바뀌었습니다.'}</span>
           {([['both', '겹쳐 보기'], ['before', `판 ${a.number}`], ['after', `판 ${b.number}`]] as [Img, string][]).map(([m, t]) =>
             <button key={m} type="button" className="btn" aria-pressed={img === m} onClick={() => setImg(m)}>{t}</button>)}</div>
         : <p className="lv-note">지도 그림은 같습니다.</p>}
-      <svg viewBox={frame(b, two ? a : null)} role="img" aria-label={`${a ? `판 ${a.number}` : '빈 지도'}와 판 ${b.number} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8 }}>
+      <svg viewBox={frame(b, a)} role="img" aria-label={`${a ? `판 ${a.number}` : '빈 지도'}와 판 ${b.number} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8 }}>
         {two && img !== 'after' && <image key={`a${k}`} data-image="before" href={api.imageUrl(a!.id)} width={a!.width} height={a!.height} transform={onto(a!, b)} style={{ imageRendering: 'pixelated' }} onError={onErr} />}
         {(!two || img !== 'before') && <image key={`b${k}`} data-image="after" href={api.imageUrl(b.id)} width={b.width} height={b.height} style={{ imageRendering: 'pixelated', opacity: two && img === 'both' ? 0.5 : 1 }} onError={onErr} />}
         <g opacity={0.3} aria-hidden="true"><Shapes v={b} f={b.features} /></g>
-        {d.changes.map((c, i) => { const col = CH[c.change].color, mark = { g: b, k: c.kind, hi: hi === i };
-          return <g key={i} data-change={moved(c) ? 'moved' : c.change} data-hi={hi === i || undefined} opacity={hi >= 0 && hi !== i ? 0.35 : 1}>
-            {c.change === 'removed' && <Mark {...mark} x={c.before!} color={col} />}
-            {c.change === 'changed' && !moved(c) && <Mark {...mark} hi={false} x={c.before!} color={col} dash />}
-            {c.after && <Mark {...mark} x={c.after} color={col} />}
-          </g>; })}
+        <g opacity={hi >= 0 ? 0.35 : 1}>{layer}</g>
+        {d.changes[hi] && <One g={b} c={d.changes[hi]} hi />}
       </svg>
       {bad && <div className="fh-row"><p className="fh-msg" role="alert">지도 그림을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 불러오세요.</p>
         <button type="button" className="btn" onClick={() => { setBad(false); setK(k + 1); }}>다시 불러오기</button></div>}
@@ -146,7 +167,8 @@ export function Rollback({ v, now, cancel, done, reload, close }: { v: MapVersio
   const go = async (e: FormEvent) => {
     e.preventDefault();
     if (sending.current) return;   // 두 번 누름 — 화면이 잠기기 전 두 번째 누름도
-    if (!reason.trim()) return setMsg({ text: '되돌리는 이유를 입력하세요.' });
+    if (!reason.replace(/[\p{Cc}\p{Cf}\s]/gu, '')) return setMsg({ text: '되돌리는 이유를 입력하세요.' });   // 공백·U+200B 같은 보이지 않는 글자만이면 이유가 아니다
+    if (/[\p{Cc}\p{Cf}]/u.test(reason)) return setMsg({ text: '이유에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.' });
     sending.current = true; setBusy(true); setMsg(null); setAgain(false);
     try {
       done(await api.rollback(v.id, { base_version_id: base.id, reason: reason.trim() }, cancel).then(shape(isVersion)));   // 빈·어긋난 201 = 불확실(status 0)
