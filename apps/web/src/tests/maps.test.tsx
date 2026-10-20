@@ -4,9 +4,11 @@
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
+import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { toPixel } from '../screens/maps';
+import { kept } from '../screens/mapedit';
+import raw from './mapcases.json?raw';
 import { FakeWS } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -62,15 +64,20 @@ const sent = (method: string, path: string) => calls.filter((c) => c.method === 
 const writes = () => calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}${c.q.toString() ? `?${c.q}` : ''}`);
 
 let root: ReactRoot | null = null, box: HTMLDivElement;
+/** 화면 틀: frame(true) = 폰 폭으로 줄어듦(matchMedia change) */
+const wide = { phone: false, fs: new Set<() => void>() };
+const frame = async (phone: boolean) => { wide.phone = phone; act(() => wide.fs.forEach((f) => f())); await flush(); };
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
 async function open(hash: string) {
-  window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+  wide.phone = false; wide.fs.clear();
+  window.matchMedia = ((q: string) => ({ get matches() { return wide.phone && q.includes('767'); }, media: q,
+    addEventListener: (_: string, f: () => void) => wide.fs.add(f), removeEventListener: (_: string, f: () => void) => wide.fs.delete(f) })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); });   // 내려가며 남긴 편집은 시험마다 버림
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btns = (from: ParentNode = box) => [...from.querySelectorAll('button')];
@@ -925,5 +932,132 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     expect(box.textContent).toContain('새 판으로 저장하는 중…');
     expect(btn('새 판으로 저장')!.disabled).toBe(true);
     await stopSends();
+  });
+});
+
+describe('지도 편집 — PR #30 검토(B1~B4)', () => {
+  const unload = () => { const e = new Event('beforeunload', { cancelable: true }); dispatchEvent(e); return e.defaultPrevented; };
+  const dots = () => canvas().querySelectorAll('[data-drawing] circle').length;
+  const pressed = (t: string) => btn(t, card('편집 도구'))!.getAttribute('aria-pressed');
+  it('B1 저장 중: 고른 요소·이유·굵기·도구 입력이 모두 막혀 바꿔도 그대로, STOP 은 실제로 정지 요청, 201 뒤 새 판', async () => {
+    let done!: (r: Reply) => void;
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => new Promise<Reply>((r) => { done = r; }) }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save('지점 추가');
+    expect(box.textContent).toContain('새 판으로 저장하는 중…');
+    const name = field('이름', card('고른 요소')), why = field('바꾼 이유', card('새 판으로 저장'));
+    for (const el of [name, why, ...btns(card('편집 도구')), btn('이 요소 지우기')!]) expect(el.matches(':disabled')).toBe(true);
+    await setVal(name, '바뀐이름'); await setVal(why, '바뀐이유');
+    expect(name.value).toBe('지점 2'); expect(why.value).toBe('지점 추가');
+    await tap(2, 1);
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    await stopSends();
+    act(() => done(saved201['POST /floors/f1/map-versions'])); await flush();
+    expect(body().features.waypoints.map((w) => w.name)).toEqual(['계기판 A', '지점 2']);
+    expect(box.textContent).toContain('새 판을 저장했습니다(판 3)');
+  });
+  it('B2 편집 중 «+ 층»: 만든 뒤 지금 층·편집 그대로(새 층은 목록에), 나가기 확인도 그대로', async () => {
+    let made = false;
+    const T3: SiteTree = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [...TREE.items[0].buildings[0].floors, floor('f3', '3층', 3, null)] }] }] };
+    serve(editSrv({ 'POST /buildings/b1/floors': () => { made = true; return { status: 201, body: floor('f3', '3층', 3, null) }; },
+      'GET /sites': () => ({ status: 200, body: made ? T3 : TREE }), 'GET /floors/f3/map-versions': { status: 200, body: { items: [], next_cursor: null } } }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await click(btn('고치기')); await click(btn('+ 층'));
+    const f = card('본관 본동 에 새 층');
+    await setVal(field('이름', f), '3층'); await setVal(field('층 번호', f), '3');
+    await click(btn('저장', f));
+    expect(writes()).toEqual(['POST /buildings/b1/floors']);
+    expect(floorBtn('3층')).toBeTruthy();
+    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    await click(floorBtn('3층'));
+    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
+  });
+  it('B3 폰 틀로 바뀌어 지도 탭이 내려가도 층·기준 판·요소·그리던 점·도구·이유를 남겨 PC 로 돌아오면 이어 씀, 그동안 새로고침은 묻는다', async () => {
+    serve(editSrv());
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await setVal(field('바꾼 이유', card('새 판으로 저장')), '지점 추가');
+    await tool('벽'); await tap(0, 0);
+    await frame(true); await hashed();
+    expect($('svg[data-edit]')).toBeNull(); expect($('[data-layout="phone"]')).toBeTruthy();
+    expect(unload()).toBe(true);
+    await frame(false); await hashed();
+    expect($('main')!.getAttribute('aria-label')).toBe('지도');
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 판 2 편집 중');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    expect(dots()).toBe(1); expect(pressed('벽')).toBe('true');
+    expect(field('바꾼 이유', card('새 판으로 저장')).value).toBe('지점 추가');
+    expect(alertText()).not.toContain('다른 사람이 먼저');
+    await click($('nav a[href="#/fleet"]')); await hashed();
+    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
+    await click(btn('나가기', card('확인'))); await hashed();
+    expect($('main')!.getAttribute('aria-label')).toBe('관제');
+    expect(unload()).toBe(false);                                        // 나가기로 버린 편집은 남기지 않음
+  });
+  it('B3 남긴 편집은 로그아웃하면 버림(다음 사람에게 넘기지 않음)', async () => {
+    serve(editSrv({ 'POST /auth/logout': { status: 204 } }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await frame(true); await hashed();
+    expect(unload()).toBe(true);
+    act(() => { location.hash = '#/history'; }); await hashed();        // 폰 로그아웃은 기록 탭 «더 보기»
+    await click(btn('로그아웃'));
+    expect(kept.d).toBeNull(); expect(unload()).toBe(false);
+  });
+  it('B3 돌아왔는데 그 사이 승인 판이 바뀜 → STALE 과 같은 안내, 편집은 그대로', async () => {
+    let ap = 'v2';
+    const V3 = ver('v3', 3, { base_version_id: 'v2', source: 'EDIT' });
+    const tree = (): SiteTree => ({ ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [floor('f1', '1층', 1, ap), floor('f2', '2층', 2, null)] }] }] });
+    serve(editSrv({ 'GET /sites': () => ({ status: 200, body: tree() }), 'GET /map-versions/v3': { status: 200, body: V3 },
+      'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: ap === 'v3' ? [V3, UP, V1] : [UP, V1], next_cursor: null } }) }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await frame(true); await hashed();
+    ap = 'v3';
+    await frame(false); await hashed();
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 판 2 편집 중');
+    expect(alertText()).toContain('다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다.');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    expect(btn('새로 불러오기')).toBeTruthy();
+  });
+  it('B4 도구: 같은 도구 다시 = 그대로, 구역↔구역·선↔선은 점 이어 씀, 다른 갈래는 확인 뒤에만 지우고 나가기 확인은 남음', async () => {
+    serve(editSrv());
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await tool('진입 금지'); await tap(1, 1); await tap(2, 1);
+    await tool('진입 금지'); expect(dots()).toBe(2);
+    await tool('감속'); expect(dots()).toBe(2); expect(pressed('감속')).toBe('true');
+    await tool('벽');
+    expect(card('확인').textContent).toContain('그리던 점 2개를 지우고 도구를 바꿀까요?');
+    await click(btn('계속 편집', card('확인')));
+    expect(dots()).toBe(2); expect(pressed('감속')).toBe('true');
+    await tool('지우개'); await click(btn('바꾸기', card('확인')));
+    expect($('[data-drawing]')).toBeNull(); expect(pressed('지우개')).toBe('true');
+    await tap(0, 0); await tap(1, 0);
+    await tool('벽'); expect(dots()).toBe(2); expect(pressed('벽')).toBe('true');
+    await click(btn('끝내기'));
+    expect(canvas().querySelectorAll('[data-edit]')).toHaveLength(2);                 // 지금 판 벽 1 + 그린 벽 1
+    await click($('nav a[href="#/fleet"]')); await hashed();
+    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');   // 도구 바꾸기 확인이 나가기 확인을 지우지 않음
+  });
+});
+
+describe('지도 편집 — 서버와 같은 경계 사례 표(mapcases.json — 서버 쪽은 계약 MapFeatures + validate_features 로 같은 표 확인)', () => {
+  type Case = { name: string; ok: boolean; client?: boolean; f?: Partial<MapFeatures>; gen?: { circle?: number; zones?: number; edits?: [number, number]; waypoints?: number } };
+  const T = JSON.parse(raw) as { map: { width: number; height: number; resolution: number; origin: [number, number, number]; pairs: string[] }; cases: Case[] };
+  /** 파이썬 쪽 gen 과 같은 모양 */
+  const gen = (g: NonNullable<Case['gen']>): Partial<MapFeatures> => ({
+    zones: [...(g.circle ? [{ id: 'z', type: 'NO_GO' as const, name: '원', polygon: Array.from({ length: g.circle }, (_, k) => [1.5 + 1.5 * Math.cos((2 * Math.PI * k) / g.circle!), 1.5 * Math.sin((2 * Math.PI * k) / g.circle!)] as [number, number]) }] : []),
+      ...Array.from({ length: g.zones ?? 0 }, (_, i) => ({ id: `z${i}`, type: 'SLOW' as const, name: '세모', polygon: [[0, 0], [1, 0], [0, 1]] as [number, number][] }))],
+    edits: g.edits ? Array.from({ length: g.edits[0] }, (_, i) => ({ op: 'WALL' as const, polyline: Array.from({ length: g.edits![1] }, (_, k) => [k * 0.01, i * 0.1 - 1.9] as [number, number]), width: 0.1 })) : [],
+    waypoints: Array.from({ length: g.waypoints ?? 0 }, (_, i) => ({ id: `w${i}`, name: '지점', x: 0, y: 0, yaw: 0 })),
+  });
+  it.each(T.cases.map((c) => [c.name, c] as const))('%s', async (_, c) => {
+    const { check } = await import('../screens/mapedit');
+    const f: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [], ...(c.gen ? gen(c.gen) : c.f) };
+    expect(check(f, T.map, T.map.pairs) === null).toBe(c.client ?? c.ok);
   });
 });

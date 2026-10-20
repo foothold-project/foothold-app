@@ -7,7 +7,7 @@ import { ApiFail, api } from '../api';
 import type { User } from '../fake';
 import { leaving } from '../menu';
 import { Chip, Line, type Ctx } from '../screens';
-import { Editor } from './mapedit';
+import { Editor, kept } from './mapedit';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
 const floorsOf = (t: SiteTree | null): Place[] => (t ? t.items.flatMap((site) => site.buildings.flatMap((building) => building.floors.map((floor) => ({ site, building, floor })))) : []);
@@ -103,7 +103,7 @@ export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' 
 /** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 총괄만 장소 고치기·지도 올리기 단추(운영 관리자는 단추 없음) */
 export function Maps(c: Pick<Ctx, 'user' | 'cancel'>) {
   const admin = c.user.role === 'ORG_ADMIN', t = useTree(c.cancel), places = floorsOf(t.tree);
-  const [pick, setPick] = useState(''), cur = places.find((p) => p.floor.id === pick) ?? places[0];
+  const [pick, setPick] = useState(() => kept.d?.floor ?? ''), cur = places.find((p) => p.floor.id === pick) ?? places[0];
   const [fix, setFix] = useState(false), [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
   const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
   const names = useNames(c.user, admin, c.cancel), nums = useNumbers(places, c.cancel);
@@ -125,7 +125,8 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'>) {
       if (form.id) return api.savePlace(k, form.id, p, c.cancel);
       if (k === 'sites') return api.createSite(name, c.cancel);
       if (k === 'buildings') return api.createBuilding(form.parent!, name, c.cancel);
-      setPick((await api.createFloor(form.parent!, { name, level }, c.cancel)).id);
+      const id = (await api.createFloor(form.parent!, { name, level }, c.cancel)).id;
+      if (!leaving.ask) setPick(id);   // 저장 안 한 편집 중이면 지금 층에 머문다(새 층은 목록에 보임)
     }, form.id ? '이름을 바꿨습니다.' : `${OBJ[k]} 만들었습니다.`);
   };
   const open = (f: Omit<Form, 'name' | 'level'> & { name?: string; level?: number }) => { setForm({ ...f, name: f.name ?? '', level: String(f.level ?? 1) }); setAsk(null); setMsg(null); };
@@ -191,7 +192,8 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 function FloorView({ p, admin, names, cancel, again }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
-  const [editing, setEditing] = useState<MapVersion | null>(null), [done, setDone] = useState<Msg>(null);   // editing = 편집 시작 때 승인 판(저장 기준)
+  const [back] = useState(() => (kept.d?.floor === p.floor.id ? kept.d.base : null));   // 폰 틀에서 돌아와 이어 쓰는 편집의 기준 판
+  const [editing, setEditing] = useState<MapVersion | null>(back), [done, setDone] = useState<Msg>(null);   // editing = 편집 시작 때 승인 판(저장 기준)
   // 목록은 받을 때의 기준(몇 번째 받기 + 승인 판 id)과 묶어 둔다 — 기준이 바뀌면 새 목록이 올 때까지 없음으로(늦게 온 옛 목록이 덮지 않게)
   const key = `${n}:${approved}`;
   useEffect(() => {
@@ -216,7 +218,7 @@ function FloorView({ p, admin, names, cancel, again }: { p: Place; admin: boolea
       {!editing && !!list?.length && <label className="fh-row"><span className="lbl">판</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => setSel(e.target.value)}>
         {!v && <option value="">판 고르기</option>}{list.map((x) => <option key={x.id} value={x.id}>{verName(x, approved)}</option>)}</select></label>}
     </div>
-    {editing ? <Editor v={editing} p={p} cancel={cancel} quit={() => setEditing(null)} recheck={reload}
+    {editing ? <Editor v={editing} p={p} cancel={cancel} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
         saved={(x) => { setEditing(null); setSel(x.id); setDone({ text: `새 판을 저장했습니다(판 ${x.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); reload(); }} />
     : v ? <>
       <Note m={done} />
