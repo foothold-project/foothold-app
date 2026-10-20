@@ -20,7 +20,7 @@ const floor = (id: string, name: string, level: number, approved: string | null,
 const TREE: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2'), floor('f2', '2층', 2, null)] }] }], next_cursor: null };
 const EMPTY = { zones: [], waypoints: [], connectors: [], edits: [] };
 /** 100×80 칸, 0.05 m/칸, origin (-1, -2, 0) — 지도 범위 x -1~4 m, y -2~2 m */
-const ver = (id: string, number: number, p: Partial<MapVersion> = {}): MapVersion => ({ id, floor_id: 'f1', number, base_version_id: null, status: 'APPROVED', image_sha256: 'ab'.repeat(32),
+const ver = (id: string, number: number, p: Partial<MapVersion> = {}): MapVersion => ({ upload_id: `up-${id}`, id, floor_id: 'f1', number, base_version_id: null, copied_from_id: null, status: 'APPROVED', image_sha256: 'ab'.repeat(32),
   width: 100, height: 80, resolution: 0.05, origin: [-1, -2, 0], features: EMPTY, reason: `판 ${number} 이유`, source: 'IMPORT', created_by: KIM.id, created_at: '2026-10-20T05:00:00Z', ...p });
 const FEAT = { zones: [{ id: 'z1', type: 'NO_GO' as const, name: '공사', polygon: [[-1, -2], [0, -2], [0, -1]] as [number, number][] }],
   waypoints: [{ id: 'w1', name: '계기판 A', x: 1.5, y: 0, yaw: 0 }], connectors: [{ id: 'c1', kind: 'STAIRS' as const, pair_floor_id: 'f2', x: 0, y: 0, yaw: 0 }],
@@ -633,6 +633,9 @@ describe('지도 편집 — 좌표·미리 검사(서버 validate_features 와 �
     expect(check(line([[0, 0], [0, 0]]), g)?.text).toContain('2개 이상');
     expect(check(line([[0, 0], [1, 0]], 0), g)?.path).toBe('features.edits.0.width');
     expect(check(line([[0, 0], [1, 0]], 101), g)?.path).toBe('features.edits.0.width');
+    const two = (a?: string, b?: string) => ({ ...E, edits: [{ id: a, op: 'WALL' as const, polyline: [[0, 0], [1, 0]] as [number, number][], width: 0.1 }, { id: b, op: 'ERASE' as const, polyline: [[0, 1], [1, 1]] as [number, number][], width: 0.1 }] });
+    expect(check(two('e1', 'e1'), g)?.path).toBe('features.edits.1.id');   // S3b: 선 id 도 무리 안에서 하나
+    expect(check(two(), g)).toBeNull();   // id 없는 옛 선끼리는 중복 아님
     const c = { ...E, connectors: [{ id: 'c', kind: 'STAIRS' as const, pair_floor_id: 'f9', x: 0, y: 0, yaw: 0 }] };
     expect(check(c, g, ['f2'])?.path).toBe('features.connectors.0.pair_floor_id');
     expect(check(c, g, ['f9'])).toBeNull();
@@ -667,8 +670,8 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     await click(floorBtn('2층'));
     expect($('[aria-label="보기·편집"]')).toBeNull();
   });
-  it('판 응답에 upload_id 가 없으면(S3b 전) 저장 막고 쉬운 문구 — 다시 올리기 우회 없음', async () => {
-    serve(editSrv({}, KIM, V2));
+  it('판 응답에 upload_id 가 없으면(S3b 전 서버) 저장 막고 쉬운 문구 — 다시 올리기 우회 없음', async () => {
+    serve(editSrv({}, KIM, { ...V2, upload_id: undefined as unknown as string }));   // 계약상 필수지만 S3b 전 서버·어긋난 응답 대비 막음은 남김
     await startEdit();
     expect(alertText()).toContain('이 판은 아직 편집 저장을 지원하지 않습니다.');
     expect(btn('새 판으로 저장')!.disabled).toBe(true);
@@ -735,6 +738,8 @@ describe('지도 편집 — 도구', () => {
     expect({ ...b.features.waypoints[1], id: '', x: 0, y: 0 }).toEqual({ id: '', name: '충전소', x: 0, y: 0, yaw: Math.PI / 2 });
     expect(near([[b.features.waypoints[1].x, b.features.waypoints[1].y]])).toEqual([[1, 1]]);
     expect(b.features.edits.slice(1).map((e) => [e.op, e.width, near(e.polyline)])).toEqual([['WALL', 0.2, [[0, 1], [0, 1], [1.5, 1]]], ['ERASE', 0.2, [[-0.5, -1], [0.5, -1]]]]);   // 굵기는 도구 사이에 그대로
+    const es = b.features.edits as { id?: string | null }[]; expect(es[0].id).toBeUndefined();   // 원래 있던 id 없는 선은 그대로(비교 열쇠 유지)
+    const ids = es.slice(1).map((e) => e.id); expect(ids.every((x) => typeof x === 'string' && x.length > 0) && new Set(ids).size === 2).toBe(true);   // 새 선은 id 를 붙여 S3b 비교가 같은 선으로 따라감
   });
   it('연결점: 같은 건물 다른 층만 짝 층, 짝 층 승인 판의 «이 층 짝» 연결점을 고르면 같은 id·종류', async () => {
     const tree: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [

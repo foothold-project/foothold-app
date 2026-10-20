@@ -7,7 +7,7 @@ import { ApiFail, api } from '../api';
 import type { User } from '../fake';
 import { leaving } from '../menu';
 import { Chip, Line, type Ctx } from '../screens';
-import { Editor, type EditBase } from './mapedit';
+import { Editor } from './mapedit';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
 const floorsOf = (t: SiteTree | null): Place[] => (t ? t.items.flatMap((site) => site.buildings.flatMap((building) => building.floors.map((floor) => ({ site, building, floor })))) : []);
@@ -191,7 +191,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 function FloorView({ p, admin, names, cancel, again }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
-  const [editing, setEditing] = useState<EditBase | null>(null), [done, setDone] = useState<Msg>(null);   // editing = 편집 시작 때 승인 판(저장 기준)
+  const [editing, setEditing] = useState<MapVersion | null>(null), [done, setDone] = useState<Msg>(null);   // editing = 편집 시작 때 승인 판(저장 기준)
   // 목록은 받을 때의 기준(몇 번째 받기 + 승인 판 id)과 묶어 둔다 — 기준이 바뀌면 새 목록이 올 때까지 없음으로(늦게 온 옛 목록이 덮지 않게)
   const key = `${n}:${approved}`;
   useEffect(() => {

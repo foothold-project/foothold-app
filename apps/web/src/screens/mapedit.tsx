@@ -10,7 +10,6 @@ import { EDIT, KIND, Note, Shapes, ZONE, isVersion, shape, toPixel, type Msg, ty
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
 /** 판 + 그 판의 업로드 ID(판 저장의 image). S3b 가 판 응답에 읽기 전용으로 더한다 — 지금 dev 계약에는 없어 선택 필드로 읽는다 */
-export type EditBase = MapVersion & { upload_id?: string };
 
 /** 그림 픽셀 → 지도 좌표(m). maps.toPixel 의 역(y 뒤집힘·origin 방향 포함) */
 export function toMap(v: Geo, px: number, py: number): P {
@@ -48,7 +47,7 @@ export function check(f: MapFeatures, v: Geo, pairs?: string[]): Bad | null {
   if (n > VERTEX_MAX) return { path: 'features', text: `구역·선의 점과 지점·연결점이 모두 ${n}개입니다. ${VERTEX_MAX}개 이하로 줄이세요.` };
   for (const g of Object.keys(CAP) as Group[]) if (f[g].length > CAP[g]) return { path: `features.${g}`, text: `${WHAT[g]}은 ${CAP[g]}개까지 둘 수 있습니다. 몇 개를 지우세요.` };
   const out = (pts: P[], at: string): Bad | null => { const k = pts.findIndex(([x, y]) => !inside(v, x, y)); return k < 0 ? null : { path: `${at}.${k}`, text: OUT }; };
-  const dup = (g: 'zones' | 'waypoints' | 'connectors') => { const k = f[g].findIndex((x, i) => f[g].findIndex((y) => y.id === x.id) !== i); return k < 0 ? null : { path: `features.${g}.${k}.id`, text: DUP }; };
+  const dup = (g: Group) => { const k = f[g].findIndex((x, i) => x.id != null && f[g].findIndex((y) => y.id === x.id) !== i); return k < 0 ? null : { path: `features.${g}.${k}.id`, text: DUP }; };   // 지우개·벽은 id 없는 옛 선이 있을 수 있음
   for (const [i, z] of f.zones.entries()) {
     const at = `features.zones.${i}`, pg = z.polygon as P[], nb = nameBad(z.name);
     if (nb) return { path: `${at}.name`, text: nb };
@@ -81,7 +80,7 @@ export function check(f: MapFeatures, v: Geo, pairs?: string[]): Bad | null {
     if (distinct(pl) < 2) return { path: `${at}.polyline`, text: '서로 다른 점이 2개 이상 있어야 선이 됩니다.' };
     const o = out(pl, `${at}.polyline`); if (o) return o;
   }
-  return dup('zones') ?? dup('waypoints') ?? dup('connectors');
+  return dup('zones') ?? dup('waypoints') ?? dup('connectors') ?? dup('edits');
 }
 
 /** path → 고를 요소 키(«무리.번호»), 없으면 '' */
@@ -121,7 +120,7 @@ const pointsOf = (x: Item): P[] => ('polygon' in x ? x.polygon : 'polyline' in x
 const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다. «새로 불러오기»를 누르면 지금 편집 내용을 잃습니다.';
 
 /** 편집(총괄). v = 편집 시작 때 승인 판(저장 기준·그림), p = 그 층. saved = 새 판, quit = 보기로, recheck = 판 목록·나무 다시 받기 */
-export function Editor({ v, p, cancel, saved, quit, recheck }: { v: EditBase; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void }) {
+export function Editor({ v, p, cancel, saved, quit, recheck }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void }) {
   const [f, setF] = useState<MapFeatures>(() => JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
   const [dirty, setDirty] = useState(false), [tool, setTool] = useState<Tool>('pick'), [pts, setPts] = useState<P[]>([]), [sel, setSel] = useState(''), [width, setWidth] = useState(0.1);
   const [reason, setReason] = useState(''), [busy, setBusy] = useState(false), [msg, setMsg] = useState<Msg>(null), [bad, setBad] = useState<Bad | null>(null), [stale, setStale] = useState(false);
@@ -198,7 +197,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck }: { v: EditBase; p:
       if (b) return setMsg({ text: b.text });
       add('zones', z);
     } else if (line) {
-      const x: MapEdit = { op: tool as MapEdit['op'], polyline: pts, width };
+      const x: MapEdit = { id: newId(), op: tool as MapEdit['op'], polyline: pts, width };
       const b = check({ ...empty, edits: [x] }, v);
       if (b) return setMsg({ text: b.text });
       add('edits', x);
