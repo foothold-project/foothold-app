@@ -585,6 +585,28 @@ MUTATIONS.extend([
 ])
 
 
+S3AR = 'apps/server/tests/test_maps_review.py'
+MUTATIONS.extend([
+    ('S3aR B1 body holds organization lock', MAPS, 'auth: UploadIdentity, image: UUID | None = None', 'auth: Identity, db: DB, image: UUID | None = None', 'apps/server/tests/test_maps_wire.py::test_slow_upload_does_not_block_writes_and_has_total_deadline'),
+    ('S3aR B1 receive deadline removed', MAPS, 'asyncio.timeout(UPLOAD_BODY_SECONDS)', 'asyncio.timeout(3600)', 'apps/server/tests/test_maps_wire.py::test_slow_upload_does_not_block_writes_and_has_total_deadline'),
+    ('S3aR B1 postconversion authentication omitted', 'apps/server/fh_server/api.py', 'user, session = authenticate(request, db)', 'user = db.get(User, expected[0])\n            session = db.get(Session, expected[1])\n            lock_organization(db, settings.org_id)', S3AR + '::test_upload_rechecks_revoked_session_after_conversion'),
+    ('S3aR R2 upload work runs on loop', MAPS, 'return await upload_work(conversion_slot, process)', 'return process()', S3AR + '::test_all_upload_sync_work_runs_off_event_loop'),
+    ('S3aR B2 concurrent conversions widened', MAPS, 'conversion_slot = asyncio.Semaphore(1)', 'conversion_slot = asyncio.Semaphore(2)', S3AR + '::test_upload_conversions_have_one_actual_worker'),
+    ('S3aR B2 cancellation frees live worker', MAPS, 'return await asyncio.shield(task)', 'return await task', S3AR + '::test_conversion_slot_survives_caller_cancellation'),
+    ('S3aR B2 decoded byte cap removed', FILES, 'if expected > MAX_DECODED:', 'if False:', 'apps/server/tests/test_map_files.py::test_png_expected_over_cap_rejected_before_decode'),
+    ('S3aR R4 decompression max_length removed', FILES, 'decoder.decompress(pending, DECODE_CHUNK)', 'decoder.decompress(pending)', 'apps/server/tests/test_map_files.py::test_png_decompression_always_uses_bounded_pieces'),
+    ('S3aR R4 trailing P5 raster accepted', FILES, 'len(raster) != count *', 'len(raster) < count *', 'apps/server/tests/test_map_files.py::test_p5_extra_raster_bytes_rejected'),
+    ('S3aR R1 total vertices unbounded', MAPS, 'if vertices > MAX_FEATURE_VERTICES:', 'if False:', S3AR + '::test_features_total_vertices_rejected_before_geometry'),
+    ('S3aR R3 free disk reserve omitted', MAPS, 'if shutil.disk_usage(existing).free < MIN_FREE_SPACE + required:', 'if False:', S3AR + '::test_low_disk_rejected_before_new_files_or_rows'),
+    ('S3aR R5 floor lock omitted', MAPS, 'floor = own(db, Floor, floor_id, user, lock=True)', 'floor = own(db, Floor, floor_id, user, lock=False)', S3AR + '::test_floor_lock_preserves_stale_without_organization_lock'),
+    ('S3aR R6 control format names accepted', 'apps/contracts/models.py', "if any(unicodedata.category(c) in ('Cc', 'Cf') for c in value):", 'if False:', S3AR + '::test_map_names_reject_control_and_format_characters'),
+    ('S3aR R7 site mislabeled floor', MAPS, "scope = {'site_id': str(row.id)}", "scope = {'floor_id': str(row.id)}", S3AR + '::test_event_scope_labels_match_resource'),
+    ('S3aR R8 upload UPDATE role allowed', 'apps/server/fh_server/api.py', "OR has_table_privilege(current_user, 'uploads', 'UPDATE')", '', S3AR + '::test_startup_rejects_mutable_upload_role[UPDATE]'),
+    ('S3aR R8 upload DELETE role allowed', 'apps/server/fh_server/api.py', "OR has_table_privilege(current_user, 'uploads', 'DELETE')", '', S3AR + '::test_startup_rejects_mutable_upload_role[DELETE]'),
+    ('S3aR R8 upload TRUNCATE role allowed', 'apps/server/fh_server/api.py', "OR has_table_privilege(current_user, 'uploads', 'TRUNCATE')", '', S3AR + '::test_startup_rejects_mutable_upload_role[TRUNCATE]'),
+])
+
+
 
 def run(tree, tests):
     report = tree / 'mutation-result.json'

@@ -1,5 +1,7 @@
 """S3a tenant-scoped place tree, immutable map snapshots, bounded file uploads."""
+import asyncio
 from pathlib import Path
+import shutil
 from typing import Annotated
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 import math
@@ -7,11 +9,36 @@ import math
 from fastapi import Query, Request
 from fastapi.responses import FileResponse
 from sqlalchemy import delete, func, select
-from starlette.concurrency import run_in_threadpool
 
 from apps.contracts import models as C
 from .map_files import MAX_IMAGE, MAX_YAML, image_bytes, map_yaml, sha256, yaml_bytes
 from .models import Building, Floor, FloorConnector, MapVersion, Robot, Site, Upload
+
+
+UPLOAD_BODY_SECONDS = 30
+MIN_FREE_SPACE = 256 * 1024 * 1024
+MAX_FEATURE_VERTICES = 4096
+
+
+def ensure_space(root, required, fail):
+    existing = root
+    while not existing.exists():
+        existing = existing.parent
+    if shutil.disk_usage(existing).free < MIN_FREE_SPACE + required:
+        fail(503, 'FILE_STORAGE_FULL', '파일 저장 공간이 부족합니다.')
+
+
+async def upload_work(slot, work):
+    # The task owns the permit until its thread actually ends, including after
+    # client cancellation. Disconnecting cannot admit a second live conversion.
+    await slot.acquire()
+    task = asyncio.create_task(asyncio.to_thread(work))
+    def finished(task):
+        slot.release()
+        if not task.cancelled():
+            task.exception()
+    task.add_done_callback(finished)
+    return await asyncio.shield(task)
 
 
 def orientation(a, b, c):
@@ -26,6 +53,9 @@ def intersects(a, b, c, d):
 
 
 def validate_features(db, floor, upload, features, fail):
+    vertices = sum(len(z.polygon) for z in features.zones) + sum(len(e.polyline) for e in features.edits) + len(features.waypoints) + len(features.connectors)
+    if vertices > MAX_FEATURE_VERTICES:
+        fail(422, 'INVALID_FEATURES', '지도 요소의 전체 꼭짓점은 4096개 이하여야 합니다.', {'element': 'features'})
     meta = upload.metadata_json
     ox, oy, yaw = meta['origin']
     cosine, sine = math.cos(yaw), math.sin(yaw)
@@ -106,18 +136,30 @@ def version_object(row, floor):
         source=row.source, created_by=row.created_by, created_at=row.created_at)
 
 
-def install(app, DB, Identity, fail, authorize, event, settings):
+def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write):
     root = Path(settings.files_root).resolve()
+    conversion_slot = asyncio.Semaphore(1)
 
-    def own(db, model, identifier, user):
-        row = db.scalar(select(model).where(model.id == identifier, model.org_id == user.org_id))
+    def own(db, model, identifier, user, *, lock=False):
+        query = select(model).where(model.id == identifier, model.org_id == user.org_id)
+        if lock:
+            query = query.with_for_update()
+        row = db.scalar(query)
         if row is None:
             fail(404, 'NOT_FOUND', '장소·지도 자료를 찾을 수 없습니다.')
         return row
 
     def record(db, user, code, row):
+        if isinstance(row, Site):
+            scope = {'site_id': str(row.id)}
+        elif isinstance(row, Building):
+            scope = {'site_id': str(row.site_id), 'building_id': str(row.id)}
+        elif isinstance(row, Floor):
+            scope = {'building_id': str(row.building_id), 'floor_id': str(row.id)}
+        else:
+            scope = {'floor_id': str(row.floor_id), 'map_version_id': str(row.id)}
         event(db, user.org_id, code, user.id, {'id': str(row.id), 'name': getattr(row, 'name', ''),
-            'number': getattr(row, 'number', None), 'floor_id': str(getattr(row, 'floor_id', row.id))},
+            'number': getattr(row, 'number', None), **scope},
             category='APPROVAL' if code == 'MAP_VERSION_APPROVED' else 'ACCOUNT')
 
     def floor_object(row):
@@ -203,8 +245,7 @@ def install(app, DB, Identity, fail, authorize, event, settings):
     mutable_routes(Floor, '/api/v1/floors/{identifier}', C.FloorPatch, C.MapFloor, floor_object, 'FLOOR')
 
     @app.post('/api/v1/uploads', response_model=C.MapUpload, status_code=201)
-    async def upload(request: Request, auth: Identity, db: DB, image: UUID | None = None):
-        user = auth[0]
+    async def upload(request: Request, auth: UploadIdentity, image: UUID | None = None):
         content_type = request.headers.get('content-type', '').split(';')[0].strip().lower()
         is_yaml = content_type in ('text/yaml', 'application/x-yaml')
         if content_type not in ('image/png', 'image/x-portable-graymap', 'text/yaml', 'application/x-yaml'):
@@ -217,51 +258,64 @@ def install(app, DB, Identity, fail, authorize, event, settings):
             if int(length) > limit:
                 fail(413, 'UPLOAD_TOO_LARGE', '올릴 수 있는 파일 크기를 넘었습니다.')
         data = bytearray()
-        async for part in request.stream():
-            if len(data) + len(part) > limit:
-                fail(413, 'UPLOAD_TOO_LARGE', '올릴 수 있는 파일 크기를 넘었습니다.')
-            data.extend(part)
+        try:
+            async with asyncio.timeout(UPLOAD_BODY_SECONDS):
+                async for part in request.stream():
+                    if len(data) + len(part) > limit:
+                        fail(413, 'UPLOAD_TOO_LARGE', '올릴 수 있는 파일 크기를 넘었습니다.')
+                    data.extend(part)
+        except TimeoutError:
+            fail(408, 'UPLOAD_TIMEOUT', '파일 수신 시간이 초과되었습니다.')
         if length is not None and int(length) != len(data):
             fail(422, 'INVALID_UPLOAD', '파일 길이가 본문과 다릅니다.')
-        try:
-            if is_yaml:
-                if image is None:
-                    fail(422, 'INVALID_UPLOAD', 'YAML과 연결할 이미지 업로드 ID가 필요합니다.')
-                original = own(db, Upload, image, user)
-                metadata = map_yaml(bytes(data))
-                row = Upload(org_id=user.org_id, image_path=original.image_path,
-                    image_sha256=original.image_sha256, png_sha256=original.png_sha256, size_bytes=original.size_bytes,
-                    width=original.width, height=original.height, metadata_json=metadata, created_by=user.id)
-                db.add(row)
-                db.flush()
-                return C.MapUpload(upload_id=row.id, sha256=row.image_sha256.hex())
-            if image is not None:
-                fail(422, 'INVALID_UPLOAD', '이미지 본문에는 image 쿼리를 쓰지 않습니다.')
-            png, width, height = await run_in_threadpool(image_bytes, bytes(data), content_type)
-        except ValueError as exc:
-            fail(422, 'INVALID_UPLOAD', str(exc))
-        identifier = uuid4()
-        relative = Path('uploads/tmp') / str(identifier) / 'image.png'
-        destination = root / relative
-        destination.parent.mkdir(parents=True, exist_ok=False)
-        try:
-            destination.write_bytes(png)
-            row = Upload(id=identifier, org_id=user.org_id, image_path=str(relative), image_sha256=sha256(data),
-                png_sha256=sha256(png), size_bytes=len(data), width=width, height=height, metadata_json={}, created_by=user.id)
-            db.add(row)
-            db.flush()
-            result = C.MapUpload(upload_id=row.id, sha256=row.image_sha256.hex())
-            db.commit()
-            return result
-        except BaseException:
-            destination.unlink(missing_ok=True)
-            destination.parent.rmdir()
-            raise
+
+        def process():
+            # Conversion, digests, disk checks and writes run outside a database
+            # transaction and off the event loop, with one admitted worker.
+            try:
+                if is_yaml:
+                    if image is None:
+                        fail(422, 'INVALID_UPLOAD', 'YAML과 연결할 이미지 업로드 ID가 필요합니다.')
+                    metadata = map_yaml(bytes(data))
+                    def insert_yaml(db, user):
+                        original = own(db, Upload, image, user)
+                        row = Upload(org_id=user.org_id, image_path=original.image_path,
+                            image_sha256=original.image_sha256, png_sha256=original.png_sha256, size_bytes=original.size_bytes,
+                            width=original.width, height=original.height, metadata_json=metadata, created_by=user.id)
+                        db.add(row)
+                        db.flush()
+                        return C.MapUpload(upload_id=row.id, sha256=row.image_sha256.hex())
+                    return upload_write(request, auth, insert_yaml)
+                if image is not None:
+                    fail(422, 'INVALID_UPLOAD', '이미지 본문에는 image 쿼리를 쓰지 않습니다.')
+                png, width, height = image_bytes(bytes(data), content_type)
+            except ValueError as exc:
+                fail(422, 'INVALID_UPLOAD', str(exc))
+            image_hash, png_hash = sha256(data), sha256(png)
+            identifier = uuid4()
+            relative = Path('uploads/tmp') / str(identifier) / 'image.png'
+            destination = root / relative
+            ensure_space(root, len(png), fail)
+            destination.parent.mkdir(parents=True, exist_ok=False)
+            try:
+                destination.write_bytes(png)
+                def insert_image(db, user):
+                    row = Upload(id=identifier, org_id=user.org_id, image_path=str(relative), image_sha256=image_hash,
+                        png_sha256=png_hash, size_bytes=len(data), width=width, height=height, metadata_json={}, created_by=user.id)
+                    db.add(row)
+                    db.flush()
+                    return C.MapUpload(upload_id=row.id, sha256=row.image_sha256.hex())
+                return upload_write(request, auth, insert_image)
+            except BaseException:
+                destination.unlink(missing_ok=True)
+                destination.parent.rmdir()
+                raise
+        return await upload_work(conversion_slot, process)
 
     @app.post('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersion, status_code=201)
     def save(floor_id: UUID, body: C.MapVersionCreate, auth: Identity, db: DB):
         user = auth[0]
-        floor = own(db, Floor, floor_id, user)
+        floor = own(db, Floor, floor_id, user, lock=True)
         if user.role != 'ORG_ADMIN':
             fail(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.')
         if body.base_version_id != floor.approved_version_id:
@@ -273,6 +327,7 @@ def install(app, DB, Identity, fail, authorize, event, settings):
         number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
         relative = Path('maps') / str(floor.id) / f'{number}-{upload.png_sha256.hex()[:12]}.png'
         destination = root / relative
+        ensure_space(root, (root / upload.image_path).stat().st_size + MAX_YAML, fail)
         destination.parent.mkdir(parents=True, exist_ok=True)
         metadata = upload.metadata_json
         origin = metadata['origin']

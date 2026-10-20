@@ -8,6 +8,8 @@ import zlib
 MAX_IMAGE = 8 * 1024 * 1024
 MAX_YAML = 16 * 1024
 MAX_DIMENSION = 4096
+MAX_DECODED = 32 * 1024 * 1024
+DECODE_CHUNK = 64 * 1024
 PNG_MAGIC = b'\x89PNG\r\n\x1a\n'
 
 
@@ -63,15 +65,18 @@ def pgm_png(data):
         raster = data[position:]
         if len(raster) != count * (2 if maximum > 255 else 1):
             raise ValueError('PGM 픽셀 수가 치수와 다릅니다.')
-        values = struct.unpack(f'!{count}H', raster) if maximum > 255 else raster
+        values = (item[0] for item in struct.iter_unpack('!H', raster)) if maximum > 255 else iter(raster)
     else:
-        values = [int(token()) for _ in range(count)]
+        values = (int(token()) for _ in range(count))
+    pixels = bytearray()
+    for value in values:
+        if not 0 <= value <= maximum:
+            raise ValueError('PGM 픽셀 값이 범위를 벗어났습니다.')
+        pixels.append(round(value * 255 / maximum))
+    if magic == b'P2':
         remaining = re.sub(rb'#[^\r\n]*', b'', data[position:])
         if remaining.strip():
             raise ValueError('PGM 픽셀이 너무 많습니다.')
-    if any(v > maximum or v < 0 for v in values):
-        raise ValueError('PGM 픽셀 값이 범위를 벗어났습니다.')
-    pixels = bytes(round(v * 255 / maximum) for v in values)
     return gray_png(width, height, pixels), width, height
 
 
@@ -87,7 +92,7 @@ def png_image(data):
         length = struct.unpack('!I', data[offset:offset + 4])[0]
         kind = data[offset + 4:offset + 8]
         end = offset + length + 12
-        if end > len(data) or length > MAX_IMAGE:
+        if end > len(data):
             raise ValueError('PNG 청크 길이가 올바르지 않습니다.')
         value = data[offset + 8:end - 4]
         if zlib.crc32(kind + value) != struct.unpack('!I', data[end - 4:end])[0]:
@@ -137,16 +142,39 @@ def png_image(data):
         row_size = (w * channels * depth + 7) // 8
         rows.append((row_size, h))
         expected += (row_size + 1) * h
+    if expected > MAX_DECODED:
+        raise ValueError('PNG 해제 데이터는 32 MiB 이하여야 합니다.')
     decoder = zlib.decompressobj()
-    raw = decoder.decompress(compressed, expected + 1)
-    if len(raw) != expected or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
-        raise ValueError('PNG 픽셀 데이터 길이가 올바르지 않습니다.')
-    position = 0
-    for size, count in rows:
-        for _ in range(count):
-            if raw[position] > 4:
+    pending = bytes(compressed)
+    total, pass_index, rows_left, row_size, row_offset = 0, 0, rows[0][1], rows[0][0], 0
+    while True:
+        raw = decoder.decompress(pending, DECODE_CHUNK)
+        if len(raw) > DECODE_CHUNK:
+            raise ValueError('PNG 해제 조각이 상한을 넘었습니다.')
+        total += len(raw)
+        if total > expected:
+            raise ValueError('PNG 픽셀 데이터가 치수를 넘었습니다.')
+        position = 0
+        while position < len(raw):
+            if row_offset == 0 and raw[position] > 4:
                 raise ValueError('PNG 필터가 올바르지 않습니다.')
-            position += size + 1
+            count = min(len(raw) - position, row_size + 1 - row_offset)
+            row_offset += count
+            position += count
+            if row_offset == row_size + 1:
+                row_offset = 0
+                rows_left -= 1
+                if rows_left == 0:
+                    pass_index += 1
+                    if pass_index < len(rows):
+                        row_size, rows_left = rows[pass_index]
+        pending = decoder.unconsumed_tail
+        if decoder.eof:
+            break
+        if not pending and not raw:
+            break
+    if total != expected or not decoder.eof or decoder.unused_data or decoder.unconsumed_tail:
+        raise ValueError('PNG 픽셀 데이터 길이가 올바르지 않습니다.')
     return data, width, height
 
 

@@ -56,3 +56,52 @@ def test_yaml_negate_stays_integer_in_stored_ros_yaml():
     assert b'negate: 0\n' in yaml_bytes(metadata, 'map.png')
     with pytest.raises(ValueError):
         map_yaml(YAML.replace(b'negate: 0', b'negate: 0.0'))
+
+
+def oversized_png():
+    # Valid 4096² RGBA16 raster; compress in pieces so the test never builds a
+    # 134 MB input. Its declared expected size exceeds the map decoder's cap.
+    compressor = zlib.compressobj()
+    remaining = (4096 * 8 + 1) * 4096
+    chunks = []
+    while remaining:
+        size = min(65536, remaining)
+        chunks.append(compressor.compress(b'\0' * size))
+        remaining -= size
+    chunks.append(compressor.flush())
+    return PNG_MAGIC + chunk(b'IHDR', struct.pack('!IIBBBBB', 4096, 4096, 16, 6, 0, 0, 0)) + chunk(b'IDAT', b''.join(chunks)) + chunk(b'IEND', b'')
+
+
+def test_png_expected_over_cap_rejected_before_decode(monkeypatch):
+    from apps.server.fh_server import map_files as F
+    data = oversized_png()
+    def forbidden():
+        pytest.fail('over-cap IHDR reached decompression')
+    monkeypatch.setattr(F.zlib, 'decompressobj', forbidden)
+    with pytest.raises(ValueError):
+        image_bytes(data, 'image/png')
+
+
+def test_png_decompression_always_uses_bounded_pieces(monkeypatch):
+    from apps.server.fh_server import map_files as F
+    original = F.zlib.decompressobj
+    calls = []
+    class Decoder:
+        def __init__(self):
+            self.inner = original()
+        def __getattr__(self, name):
+            return getattr(self.inner, name)
+        def decompress(self, data, max_length=0):
+            assert 0 < max_length <= F.DECODE_CHUNK
+            calls.append(max_length)
+            return self.inner.decompress(data, max_length)
+    data = png(1024, 1024, (b'\0' * 1025) * 1024)
+    monkeypatch.setattr(F.zlib, 'decompressobj', Decoder)
+    assert image_bytes(data, 'image/png') == (data, 1024, 1024)
+    assert len(calls) > 1
+
+
+@pytest.mark.parametrize('maximum,raster', [(255, b'\0\xff!'), (65535, b'\0\0\xff\xff!')])
+def test_p5_extra_raster_bytes_rejected(maximum, raster):
+    with pytest.raises(ValueError):
+        image_bytes(f'P5\n2 1\n{maximum}\n'.encode() + raster, 'image/x-portable-graymap')
