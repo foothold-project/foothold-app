@@ -34,6 +34,21 @@ const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientation: land
 const watchPhone = (f: () => void) => { const m = matchMedia(PHONE_Q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
 export const usePhone = () => useSyncExternalStore(watchPhone, () => matchMedia(PHONE_Q).matches);
 
+// 글 입력칸 = 띄어쓰기를 받는 곳(10-20 사용자 결정). readonly·disabled 는 글을 넣지 못하니 아님
+const TYPED = new Set(['text', 'search', 'password', 'email', 'url', 'tel', 'number']);
+function typing(t: EventTarget | null) {
+  if (t instanceof HTMLTextAreaElement) return !t.readOnly && !t.disabled;
+  if (t instanceof HTMLInputElement) return TYPED.has(t.type) && !t.readOnly && !t.disabled;   // type 없음 = 'text'
+  // contenteditable 은 브라우저 규칙대로(jsdom 은 isContentEditable 없음): 대소문자 무시, true·빈 값·plaintext-only = 편집,
+  // false = 편집 아님, 잘못된 값·없음 = 상위를 따름
+  for (let e = t instanceof Element ? t : null; e; e = e.parentElement) {
+    const v = e.getAttribute('contenteditable')?.toLowerCase();
+    if (v === '' || v === 'true' || v === 'plaintext-only') return true;
+    if (v === 'false') return false;
+  }
+  return false;
+}
+
 /** STOP — 모든 탭·두 틀에 늘 보임. 폰 64px, PC 44px 이상(U7). 누르면 서버에 정지 요청(로봇이 0 + 잠금) */
 export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
   return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} onClick={onStop}>
@@ -111,11 +126,12 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   useEffect(() => { if (!phone && kept.d) go('map'); }, [phone]);   // 폰 틀에서 PC 로 돌아오면 남겨 둔 지도 편집으로
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
   const stop = () => { const r = target ?? pool.find((x) => x.id === choose); if (r) halt(r); else setChoose(pool.find((x) => rt.get(x.id).lease)?.id ?? ''); };
-  // Space = STOP, 모든 화면(F-COM-01). 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
+  // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
+  // 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
   const stopKey = useRef(stop); stopKey.current = stop;
   useEffect(() => {
-    const down = (e: KeyboardEvent) => { if (e.code !== 'Space') return; e.preventDefault(); if (!e.repeat) stopKey.current(); };
-    const up = (e: KeyboardEvent) => { if (e.code === 'Space') e.preventDefault(); };
+    const down = (e: KeyboardEvent) => { if (e.code !== 'Space' || typing(e.target)) return; e.preventDefault(); if (!e.repeat) stopKey.current(); };
+    const up = (e: KeyboardEvent) => { if (e.code === 'Space' && !typing(e.target)) e.preventDefault(); };
     addEventListener('keydown', down, true); addEventListener('keyup', up, true);
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); };
   }, []);
