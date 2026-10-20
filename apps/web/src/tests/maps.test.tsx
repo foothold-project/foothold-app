@@ -449,8 +449,9 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await act(async () => late({ status: 200, body: { items: [ver('v3', 3), V2, V1], next_cursor: null } })); await flush();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
   });
-  it('저장 응답이 끊기면 다시 올리라 하지 않고 판 목록·나무를 다시 받음, 408 은 쉬운 문구, 503 은 서버 원인 문구 그대로', async () => {
-    const ups: Reply[] = [err(408, 'UPLOAD_TIMEOUT', 'request body timeout'), err(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.')];
+  it('저장 응답이 끊기면 다시 올리라 하지 않고 판 목록·나무를 다시 받음, 408 은 쉬운 문구, 503 은 SERVER_BUSY 만 바쁨 문구', async () => {
+    const ups: Reply[] = [err(408, 'UPLOAD_TIMEOUT', 'request body timeout'), err(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.'),
+      err(503, 'SERVER_BUSY', 'map conversion slots full')];
     serve(ok({ 'POST /uploads': (q) => ups.shift() ?? { status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: '' } },
       'POST /floors/f1/map-versions': () => { throw new TypeError('Failed to fetch'); } }));
     await open('#/map');
@@ -460,6 +461,9 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await click(btn('올리기'));
     expect(alertText()).toContain('올리지 못했습니다. 지도 파일을 확인할 수 없습니다.');      // 검토 r2 권고: 모든 503 을 «바쁨»으로 덮지 않음
     expect(alertText()).not.toMatch(/timeout|다른 지도를 처리/);
+    await click(btn('올리기'));
+    expect(alertText()).toContain('올리지 못했습니다. 서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 올리세요.');
+    expect(alertText()).not.toContain('map conversion');
     const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
     await click(btn('올리기'));
     expect(alertText()).toContain('저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다.');
