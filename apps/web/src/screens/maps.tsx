@@ -2,7 +2,7 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구·비교·되돌리기·결재 대기 수는 다음 작업(W4b·S3b·S4), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
 import { useEffect, useState, type FormEvent } from 'react';
-import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapVersion, SiteTree } from '../../../contracts/ts';
+import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { User } from '../fake';
 import { Chip, Line, soon, type Ctx } from '../screens';
@@ -19,6 +19,7 @@ export const isVersion = (v: MapVersion) => !!v && str(v.id) && Number.isInteger
   && num(v.resolution) && v.resolution > 0 && arr(v.origin) && v.origin.length === 3 && v.origin.every(num) && !!v.features
   && arr(v.features.zones) && v.features.zones.every((z) => !!z && arr(z.polygon) && z.polygon.every((p) => arr(p) && num(p[0]) && num(p[1])))
   && arr(v.features.waypoints) && v.features.waypoints.every(isPoint) && arr(v.features.connectors) && v.features.connectors.every(isPoint);
+const isUpload = (u: MapUpload) => !!u && str(u.upload_id);
 const shape = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 지도 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 
 /** 지도 좌표(m) → 그림 픽셀. ROS 지도는 origin 이 그림 왼쪽 아래 칸의 위치·방향이고 그림 행은 위에서 아래라 y 를 뒤집는다.
@@ -222,8 +223,7 @@ function upFail(e: ApiFail, step: number) {
     : step === 1 ? '지도 설정 파일을 읽을 수 없습니다. 그림과 함께 저장된 yaml 파일인지 확인하세요.' : '올린 파일을 지도로 쓸 수 없습니다. 두 파일을 다시 골라 올리세요.';
   if (e.status === 404) return '이 층을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
   if (e.status === 408 || e.code === 'TIMEOUT') return '파일을 보내는 데 시간이 너무 오래 걸렸습니다. 네트워크를 확인한 뒤 다시 올리세요.';
-  if (e.status === 503) return '서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 올리세요.';
-  return e.message;
+  return e.message;   // 503 FILE_STORAGE_FULL·FILE_STORAGE_ERROR 등은 서버의 원인 문구 그대로(변환 작업은 서버가 줄 세워 기다림 — 바쁨 거절 코드 없음)
 }
 
 /** 새 지도 올리기(총괄, MP-02 의 파일 올리기): 그림 → 그 ID 로 yaml → 판 저장. 앞 단계가 실패하면 다음 단계를 보내지 않는다.
@@ -245,18 +245,18 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
     let at = 0;
     try {
       setStep('지도 그림을 올리는 중…');
-      const a = await api.upload(img, type, undefined, cancel);
+      const a = await api.upload(img, type, undefined, cancel).then(shape(isUpload));
       at = 1; setStep('지도 설정을 올리는 중…');
-      const b = await api.upload(yml, 'text/yaml', a.upload_id, cancel);
+      const b = await api.upload(yml, 'text/yaml', a.upload_id, cancel).then(shape(isUpload));
       at = 2; setStep('새 판으로 저장하는 중…');
       const features: MapFeatures = hold && keep ? { zones: keep.zones, waypoints: keep.waypoints, connectors: keep.connectors, edits: [] } : { zones: [], waypoints: [], connectors: [], edits: [] };
-      const v = await api.saveVersion(floor, { base_version_id: base, image: b.upload_id, features, reason: reason.trim() }, cancel);
+      const v = await api.saveVersion(floor, { base_version_id: base, image: b.upload_id, features, reason: reason.trim() }, cancel).then(shape(isVersion));   // 빈·어긋난 201 = 저장 불확실(status 0)
       setMsg({ text: `새 판을 저장했습니다(판 ${v.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); setImg(null); setYml(null); setReason(''); setFresh(fresh + 1);
       saved(v);
     } catch (x) {
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
-      // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 목록을 다시 받아 보여 주고 같은 파일을 두 번 올리지 않게 알린다
+      // 저장 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 저장됐을 수도 있다 — 목록을 다시 받아 보여 주고 같은 파일을 두 번 올리지 않게 알린다
       if (at === 2 && f.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 올리지 마세요.' }); again(); return; }
       setMsg({ text: `올리지 못했습니다. ${upFail(f, at)}` }); setStale(f.code === 'STALE' || f.status === 404);
     } finally { setStep(''); }

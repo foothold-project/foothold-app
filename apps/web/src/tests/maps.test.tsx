@@ -449,8 +449,8 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await act(async () => late({ status: 200, body: { items: [ver('v3', 3), V2, V1], next_cursor: null } })); await flush();
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
   });
-  it('저장 응답이 끊기면 다시 올리라 하지 않고 판 목록·나무를 다시 받음, 408·503 은 쉬운 문구', async () => {
-    const ups: Reply[] = [err(408, 'REQUEST_TIMEOUT', 'request body timeout'), err(503, 'BUSY', 'converter slots exhausted')];
+  it('저장 응답이 끊기면 다시 올리라 하지 않고 판 목록·나무를 다시 받음, 408 은 쉬운 문구, 503 은 서버 원인 문구 그대로', async () => {
+    const ups: Reply[] = [err(408, 'UPLOAD_TIMEOUT', 'request body timeout'), err(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.')];
     serve(ok({ 'POST /uploads': (q) => ups.shift() ?? { status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: '' } },
       'POST /floors/f1/map-versions': () => { throw new TypeError('Failed to fetch'); } }));
     await open('#/map');
@@ -458,8 +458,8 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await click(btn('올리기'));
     expect(alertText()).toContain('파일을 보내는 데 시간이 너무 오래 걸렸습니다.');
     await click(btn('올리기'));
-    expect(alertText()).toContain('서버가 지금 다른 지도를 처리하고 있습니다.');
-    expect(alertText()).not.toMatch(/timeout|slots/);
+    expect(alertText()).toContain('올리지 못했습니다. 지도 파일을 확인할 수 없습니다.');      // 검토 r2 권고: 모든 503 을 «바쁨»으로 덮지 않음
+    expect(alertText()).not.toMatch(/timeout|다른 지도를 처리/);
     const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
     await click(btn('올리기'));
     expect(alertText()).toContain('저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다.');
@@ -467,6 +467,47 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     expect(sent('GET', '/sites').length).toBe(trees + 1);
     expect(btn('새로 불러오기')).toBeUndefined();
     await stopSends();
+  });
+});
+
+describe('검토 B3 — 저장 201 헤더 뒤 본문이 끊기거나 깨지면 저장 불확실로 재조회', () => {
+  const saveOk = () => signedIn(KIM, { 'POST /uploads': (q) => ({ status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: '' } }),
+    'POST /floors/f1/map-versions': { status: 201, body: ver('v3', 3) } });
+  /** 판 저장 요청만 바꿔 치기 — 나머지는 가짜 서버 그대로 */
+  const onSave = (make: (signal: AbortSignal) => Response) => {
+    const fetcher = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
+      const r = await fetcher(url, init);
+      return init.method === 'POST' && url.endsWith('/floors/f1/map-versions') ? make(init.signal!) : r;
+    });
+  };
+  const uncertain = async (make: (signal: AbortSignal) => Response) => {
+    serve(saveOk()); onSave(make);
+    await open('#/map');
+    await fillUpload();
+    const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
+    await click(btn('올리기'));
+    expect(alertText()).toContain('저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다.');
+    expect(alertText()).not.toMatch(/Cannot read|null/);
+    expect(sent('GET', '/floors/f1/map-versions').length).toBe(lists + 1);
+    expect(sent('GET', '/sites').length).toBe(trees + 1);
+    await stopSends();
+  };
+  it('201 헤더 뒤 본문 단절(스트림 오류)', () => uncertain(() => new Response(new ReadableStream({ start(c) { c.error(new TypeError('stream interrupted')); } }), { status: 201 })));
+  it('201 인데 본문이 깨진 JSON', () => uncertain(() => new Response('{"id": "v3", "numb', { status: 201 })));
+  it('201 인데 본문이 비었음(판 모양 아님)', () => uncertain(() => new Response(null, { status: 201 })));
+  it('api: 헤더 뒤 본문을 받는 중 60 s 마감이면 TIMEOUT(성공 null 아님), 빈 성공 본문은 그대로 null', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', async (_u: string, init: RequestInit) => new Response(new ReadableStream({
+        start(c) { c.enqueue(new TextEncoder().encode('{"id":')); init.signal!.addEventListener('abort', () => c.error(new DOMException('aborted', 'AbortError'))); } }), { status: 201 }));
+      const { api } = await import('../api');
+      const save = api.saveVersion('f1', { base_version_id: null, image: 'u', features: EMPTY, reason: 'r' }).then(() => 'ok', (e) => [e.status, e.code]);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(await save).toEqual([0, 'TIMEOUT']);
+      vi.stubGlobal('fetch', async () => new Response('', { status: 202 }));
+      expect(await api.stop('r-a')).toBeNull();
+    } finally { vi.useRealTimers(); }
   });
 });
 

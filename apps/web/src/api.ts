@@ -11,12 +11,13 @@ const FALLBACK: Record<number, string> = {
 };
 const NETWORK = '서버에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요.';
 const SLOW = '서버가 제시간에 답하지 않았습니다.';
+const BROKEN = '서버 응답을 끝까지 읽지 못했습니다. 처리됐을 수 있으니 목록을 다시 확인하세요.';
 /** 알림 한 번 받기 제한시간 — 다음 폴링은 이 요청이 끝난 뒤(screens/history.tsx Bell) */
 export const NOTE_MS = 10_000;
 /** 지도 읽기 / 지도 파일 보내기·판 저장 제한시간. 쓰기는 서버 수신 마감(30 s, 넘으면 408)과 변환 시간보다 길게 — 서버 답이 먼저 오게 */
 export const MAP_READ_MS = 20_000, MAP_WRITE_MS = 60_000;
 
-/** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못함, said = 서버가 계약 오류 본문(error.code)으로 답함 */
+/** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못했거나 성공 답을 끝까지 못 읽음(처리됐을 수 있음), said = 서버가 계약 오류 본문(error.code)으로 답함 */
 export class ApiFail extends Error {
   constructor(readonly status: number, readonly code: string, message: string, readonly said = false) { super(message); }
 }
@@ -44,9 +45,13 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
     try {
       res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', signal: stop.signal, body: body === undefined ? undefined : raw ? body as Blob : JSON.stringify(body) });
     } catch { throw lost(); }
-    // 파일 본문을 받다 끊기면 실패(빈 성공으로 넘기지 않음). 204 도 아래 취소 검사를 거친다(늦게 끝난 쓰기)
+    // 성공 본문을 받다 끊기거나(헤더 뒤 단절·받는 중 마감) 깨졌으면 실패(null 성공으로 넘기지 않음 — 쓰기면 처리됐을 수 있다).
+    // 빈 성공 본문은 null 그대로, 실패 응답의 본문은 못 읽어도 상태 코드로. 204 도 아래 취소 검사를 거친다(늦게 끝난 쓰기)
     if (file && res.ok) data = await res.blob().catch(() => { throw lost(); });
-    else if (res.status !== 204) data = await res.json().catch(() => null);
+    else if (res.status !== 204) {
+      const text = await res.text().catch(() => { if (res.ok) throw lost(); return ''; });
+      try { data = text ? JSON.parse(text) : null; } catch { if (res.ok) throw new ApiFail(0, 'BAD_BODY', BROKEN); data = null; }
+    }
   } finally { clearTimeout(timer); cancel?.removeEventListener('abort', off); }
   if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);   // 거둔 뒤 온 답(앞 세션의 401 등)은 반영하지 않는다
   if (res.ok) return data as T;
