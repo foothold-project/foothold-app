@@ -244,7 +244,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
 
   const save = (e: FormEvent) => {
     e.preventDefault();
-    if (busy || kept.job || !v.upload_id) return;
+    if (busy || mine(kept.job) || !v.upload_id) return;   // 다른 층·기준 판의 옛 요청은 막지 않음(새 요청이 그 자리를 차지)
     if (pts.length) return setMsg({ text: '그리던 구역·선을 먼저 닫거나 지우세요.' });
     if (!dirty) return setMsg({ text: '바꾼 것이 없습니다. 도구로 지도를 고친 뒤 저장하세요.' });
     const b = check(f, v, others.map((x) => x.id));

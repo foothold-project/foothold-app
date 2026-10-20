@@ -27,7 +27,7 @@ export function Root() {
   const toLogin = (note?: string) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); };
   // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇을 비운다. 실시간 연결·조종권은 App 이 내려가며 돌려주고 닫는다.
   // 조직 기준값은 설정 화면 상태라 App 이 내려가며 같이 사라진다
-  useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; } }, [st.at]);   // 남겨 둔 지도 편집도
+  useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; } }, [st.at]);   // 남겨 둔 지도 편집·저장 요청도
   const enter = async () => {
     const me = toUser(await api.me());
     const fresh = now(), robots = (await api.robots('all')).map(toRobot);

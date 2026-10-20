@@ -1057,6 +1057,27 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     expect(btn('새 판으로 저장')!.disabled).toBe(false);
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
   });
+  it.each([['다른 층', 'f2', 'v9'], ['같은 층 다른 기준 판', 'f1', 'v1']])('B5 %s의 옛 저장 요청이 남아 있어도 지금 편집은 저장된다(POST 1번)', async (_, floorId, base) => {
+    kept.job = { floor: floorId, base, wait: new Promise<void>(() => {}) };
+    serve(editSrv(saved201));
+    await startEdit();
+    expect(btn('새 판으로 저장')!.disabled).toBe(false);
+    await tool('지점'); await tap(1, 1);
+    await save('지점 추가');
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+    expect(box.textContent).toContain('새 판을 저장했습니다(판 3)');
+  });
+  it('B5 저장 대기 중 폰 틀에서 로그아웃하면 저장 요청도 버림(job === null)', async () => {
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => new Promise<Reply>(() => {}), 'POST /auth/logout': { status: 204 } }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save('지점 추가');
+    await frame(true); await hashed();
+    expect(kept.job).not.toBeNull();
+    act(() => { location.hash = '#/history'; }); await hashed();
+    await click(btn('로그아웃'));
+    expect(kept.job).toBeNull(); expect(kept.d).toBeNull();
+  });
   it('B4 도구: 같은 도구 다시 = 그대로, 구역↔구역·선↔선은 점 이어 씀, 다른 갈래는 확인 뒤에만 지우고 나가기 확인은 남음', async () => {
     serve(editSrv());
     await startEdit();
