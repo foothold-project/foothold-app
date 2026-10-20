@@ -212,13 +212,17 @@ describe('상세·전후 비교', () => {
     expect(btn('다시 시도', card('내용'))).toBeTruthy();
   });
   it('모르는 종류 = «지원 전 종류», 처리 단추·비교 없음', async () => {
-    serve(KIM, [ap('x1', 3, { kind: 'SCENARIO_ASSIGNMENT' as ApprovalDetail['kind'], preview: undefined as unknown as ApprovalDetail['preview'] })]);
+    serve(KIM, [ap('x1', 3, { kind: 'SCENARIO_ASSIGNMENT', target: { type: 'assignment', id: 'assignment-1' }, base_ref: null,
+      preview: { scenario_id: 'scenario-1', scenario_name: '순찰', scenario_version: 3, robot_id: 'r-a', robot_name: 'Go2-A' } })]);
     await open('#/approval');
     expect(rows()[0].textContent).toContain('지원 전 종류');
     await pick('x1');
     expect(detail().textContent).toContain('이 화면에서 아직 처리할 수 없는 종류의 결재입니다.');
     expect(btn('승인', detail())).toBeUndefined(); expect(btn('반려', detail())).toBeUndefined();
     expect(sent('GET', '/map-versions/t3')).toHaveLength(0);
+    expect(sent('GET', '/map-versions/assignment-1')).toHaveLength(0);
+    expect(rows()[0].textContent).not.toContain('undefined');
+    expect(writes()).toEqual([]);
   });
 });
 

@@ -3,7 +3,7 @@
 // 전후 비교는 지도 탭의 판 비교(screens/mapdiff.tsx Compare)를 그대로 — 대상 판을 기준 판과. 시나리오 배정·긴급 실행 사후 확인은 아직(모르는 종류 = «지원 전 종류», 처리 단추 없음).
 // 이 칸은 창 전체 키를 잡지 않는다 — STOP 단추·Space = STOP 은 App 머리줄 그대로(확인·처리 중에도).
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { Approval, ApprovalDetail, ApprovalList, MapVersion } from '../../../contracts/ts';
+import type { Approval, ApprovalDetail, ApprovalList, ApprovalMapPreview, MapVersion } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Tone } from '../fake';
 import { Chip, Line, type Ctx } from '../screens';
@@ -23,10 +23,11 @@ const str = (v: unknown) => typeof v === 'string';
 const isApproval = (a: Approval) => !!a && str(a.id) && str(a.kind) && str(a.status) && !!a.requester && str(a.requester.id) && str(a.requester.display_name)
   && str(a.reason) && str(a.created_at) && !!a.target && str(a.target.id);
 const isList = (l: ApprovalList) => !!l && Array.isArray(l.items) && l.items.every(isApproval) && (l.next_cursor === null || str(l.next_cursor));
-const isDetail = (d: ApprovalDetail) => isApproval(d) && (!known(d.kind) || (!!d.preview && str(d.preview.floor_name) && Number.isInteger(d.preview.target_version_number)));
+const isMapPreview = (p: ApprovalDetail['preview']): p is ApprovalMapPreview => !!p && typeof p === 'object' && 'floor_name' in p;
+const isDetail = (d: ApprovalDetail) => isApproval(d) && (!known(d.kind) || (isMapPreview(d.preview) && str(d.preview.floor_name) && Number.isInteger(d.preview.target_version_number)));
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 /** 층 · 기준 판 → 대상 판 */
-const what = (p: ApprovalDetail['preview']) => `${p.floor_name} · ${p.base_version_number != null ? `판 ${p.base_version_number}` : '빈 지도'} → 판 ${p.target_version_number}`;
+const what = (p: ApprovalMapPreview) => `${p.floor_name} · ${p.base_version_number != null ? `판 ${p.base_version_number}` : '빈 지도'} → 판 ${p.target_version_number}`;
 
 type View = 'PENDING' | 'ALL';
 /** 목록(오래된 것 먼저) + cursor 로 더 받기. 보기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다. again = 처음 쪽 다시(처리 뒤) */
@@ -89,7 +90,7 @@ export function Approvals(c: Pick<Ctx, 'user' | 'cancel' | 'focus' | 'dash'>) {
           <button key={v} type="button" className="btn" aria-pressed={l.view === v} onClick={() => l.show(v)}>{t}</button>)}</span></div>
       <ul className="fh-list" aria-label="결재 목록">{l.items.map((a) => { const p = pre[a.id]?.preview; return <li key={a.id}>
         <button type="button" aria-pressed={a.id === sel} onClick={() => { setSel(a.id); setMsg(null); }} data-approval={a.id}>
-          <Chip {...status(a.status)} /><b>{KIND[a.kind] ?? '지원 전 종류'}</b><span className="fh-grow">{p ? what(p) : ''}</span>
+          <Chip {...status(a.status)} /><b>{KIND[a.kind] ?? '지원 전 종류'}</b><span className="fh-grow">{p && isMapPreview(p) ? what(p) : ''}</span>
           <span className="lbl">{admin ? `${a.requester.display_name} · ` : ''}{when(a.created_at)}</span></button></li>; })}</ul>
       {!l.busy && !l.err && !l.items.length && <p className="lv-note">{l.view === 'PENDING' ? (admin ? '대기 중인 결재가 없습니다.' : '대기 중인 내 요청이 없습니다.')
         : admin ? '결재 요청이 없습니다.' : '아직 결재를 요청한 적이 없습니다. 지도 탭에서 편집을 저장하거나 옛 판으로 되돌리면 결재 요청이 됩니다.'}</p>}
@@ -143,7 +144,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
   if (!d) return err ? <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>
     : <p className="lv-note" role="status">결재 내용을 불러오는 중…</p>;
 
-  const mine = d.requester.id === me, open = d.status === 'PENDING', p = known(d.kind) ? d.preview : null, lock = busy || loading || !!err;
+  const mine = d.requester.id === me, open = d.status === 'PENDING', p = known(d.kind) && isMapPreview(d.preview) ? d.preview : null, lock = busy || loading || !!err;
   const again = () => { setLoading(true); setN(n + 1); recheck(); };
   const run = async (a: Act) => {
     if (sending.current || loading || err) return;   // 두 번 누름(화면이 잠기기 전 두 번째 누름도)·상태 확인 전

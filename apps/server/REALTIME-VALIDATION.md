@@ -2009,7 +2009,7 @@ TMPDIR는 현재 작업 트리 안의 전용 임시 폴더이며 PG/uvicorn 포�
 ## S5b — 시나리오 배정·결재·멱등 키 (2026-10-20)
 
 기준 `origin/dev` 4c0638c(S5a #35)에서 `feature/server-assignments`로 작업했다.
-소유 apps/server·apps/contracts만 변경했고 웹·에이전트·정본 docs는 수정하지 않았다.
+초기 소유 apps/server·apps/contracts를 구현했고, 조정의 소유 확장 승인으로 웹 결재 화면과 그 시험의 최소 타입 호환 수정만 추가했다. 에이전트·정본 docs는 수정하지 않았다.
 
 | 검사 | 실제 결과 |
 |---|---|
@@ -2020,8 +2020,8 @@ TMPDIR는 현재 작업 트리 안의 전용 임시 폴더이며 PG/uvicorn 포�
 | 실제 uvicorn HTTP | 시나리오→운영 관리자 PENDING 배정→총괄 승인→ACTIVE→해제 REMOVED; 같은 키 지도 결재 요청 두 번→한 건 |
 | 초점 회귀 | 기존 지도/결재/임무/이관 52 passed; S5b·멱등·wire·이관 27 passed, 추가 중복 경쟁·이력 보호·반려/취소 4 passed (일부 중복 실행) |
 
-최종 제품 코드·시험을 확정한 뒤 위 전체 기준과 선정 변이를 실행했고 이후에는
-문서만 갱신했다. 처음 기준 실행은 시험의 실패 시 잠금 정리 경로를 보완하려고
+서버·계약 제품 코드와 시험을 확정한 뒤 위 전체 기준과 선정 변이를 실행했다.
+그 뒤 서버·계약 소스는 유지했고 아래의 웹 최소 타입 호환 수정과 문서만 추가했다. 처음 기준 실행은 시험의 실패 시 잠금 정리 경로를 보완하려고
 299 passed / 178.11 s 시점에 직접 중단했다. 이 중단 실행을 전체 통과로 세지 않았다.
 잠금 제거 시 시험 자체가 대기하지 않도록 finally에서 차단 트랜잭션을 풀고,
 재잠금에 가려지지 않게 배정 잠금이 로봇 검사보다 먼저 오는지도 검사한다.
@@ -2060,8 +2060,18 @@ Python3.12.3, PostgreSQL16(pgserver), 고정 requirements와 일치하는 의존
 Web Push·실폰·실로봇·운영 배포는 수행하지 않았다. 키의 물리 보존 정리 작업,
 STALE 배정 REJECTED 정책 및 05·06 반영은 PR «정본과 다른 점·결정 필요»에 적었다.
 
-검증 도중 dev는 e72495d(PR #36, 웹만 변경)로 전진했다. 서버·계약 소스가 겹치지는
-않지만 이 검증은4c0638c 기준이며 새 웹과의 통합 검증은 아니다. 현재 dev의
-apps/web/src/screens/approvals.tsx:26·29·146·154·180은 지도 preview 필드에 바로
-접근하므로 새 지도/배정 preview union의 타입 좁힘이 필요하다(정적 검토, 웹 전체
-tsc 미실행). 웹 소유자에게 status로 보고했고 Draft PR «남은 것»에 통합 전 관문으로 적었다.
+웹 통합 관문 후속: dev e72495d(PR #36)를 merge commit 7e79d91로 받아 추가 계약과
+새 웹을 함께 검사했다. 조정이 허용한 apps/web/src/screens/approvals.tsx와 그 시험
+파일만 수정했다. isMapPreview로 지도 필드 접근을 좁히고 what은 ApprovalMapPreview를
+받는다. SCENARIO_ASSIGNMENT는 여전히 «지원 전 종류»이고 승인·반려 단추와 지도
+조회가 없다. 기존 미지원 종류 시험에 실제 배정 preview를 넣어 이 동작을 확인했다.
+
+- 웹 `tsc --noEmit`: exit0.
+- 웹 vitest 전체1회: **8 files / 417 passed / 27.70 s** (Vitest2.1.4).
+- 기존 Vite 설정을 불러오는 임시 래퍼로 cacheDir만 작업 트리 내부에 지정하고,
+  cache=false·minWorkers=1·maxWorkers=1로 실행했다. 빌린 node_modules는 읽기만 했고
+  실행 위치는 이 작업 트리의 apps/web이었다. 시험 뒤 node_modules 심볼릭 링크와
+  로컬 캐시를 지정한 literal 경로에서 제거했다.
+- dev merge로 서버·계약 소스/시험은 바뀌지 않았으므로 서버 전체/변이를 반복하지
+  않았다. 위638/100 결과와 최종 웹 타입/전체 vitest 결과를 구분해 보고한다.
+- 배정 결재 화면은 W6b 후속이며 이번 웹 수정은 기능 확장이 아니다.

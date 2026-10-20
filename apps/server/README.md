@@ -933,3 +933,10 @@ cd apps/contracts && npm run typecheck
 
 변이 도구는 먼저 서버 전체 pytest를 한 번 실행하고 선정 변이를 하나씩 실행한다.
 실행 결과와 미검증 범위는 REALTIME-VALIDATION.md의 S5b 기록을 따른다.
+
+
+S5b 통합 시 dev의 W5 결재 화면이 새 preview union을 받을 수 있도록, 조정 승인 범위인
+apps/web/src/screens/approvals.tsx와 그 시험에만 지도 preview 타입 좁힘을 더했다.
+지도 결재의 기존 동작은 유지하며 SCENARIO_ASSIGNMENT는 «지원 전 종류»로 보여
+승인·반려 단추가 없다. 배정 결재 화면은 W6b 후속이다. 이 최소 호환 수정은
+웹 tsc --noEmit와 vitest 전체417개로 검증했다.
