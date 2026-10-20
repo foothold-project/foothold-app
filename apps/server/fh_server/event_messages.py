@@ -16,6 +16,12 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'MISSION_CREATED': '{person}님이 임무 {place} {number}판을 만들었습니다.',
+    'MISSION_VERSION_CREATED': '{person}님이 임무 {place} {number}판을 저장했습니다.',
+    'MISSION_ARCHIVED': '{person}님이 임무 {place}을(를) 보관했습니다.',
+    'SCENARIO_CREATED': '{person}님이 시나리오 {place} {number}판을 만들었습니다.',
+    'SCENARIO_VERSION_CREATED': '{person}님이 시나리오 {place} {number}판을 저장했습니다.',
+    'SCENARIO_ARCHIVED': '{person}님이 시나리오 {place}을(를) 보관했습니다.',
     'APPROVAL_REQUESTED': '{person}님이 {kind} {number}판 결재를 요청했습니다. 이유: {reason}.',
     'APPROVAL_CANCELED': '{person}님이 {kind} {number}판 요청을 취소했습니다.',
     'APPROVAL_STALE': '{other}님의 {kind} {number}판 요청 이후 지도가 바뀌어 승인을 막았습니다. 새 승인 판에서 다시 요청하세요.',

@@ -1,4 +1,4 @@
-"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 7, 8."""
+"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 6, 7, 8."""
 from datetime import timezone
 import unicodedata
 from typing import Annotated, Any, Literal
@@ -795,11 +795,158 @@ class ApprovalReject(Contract):
     reason: ApprovalText = Field(min_length=1, max_length=2000, pattern=r'\S')
 
 
+class PhotoParams(Contract):
+    camera: Literal['rgb', 'depth'] = 'rgb'
+
+
+class WaitParams(Contract):
+    seconds: int = Field(default=30, strict=True, ge=1, le=3600)
+
+
+class ConfirmParams(Contract):
+    prompt: MapNameText = Field(default='계기판 이상 없음?', min_length=1, max_length=500, pattern=r'\S')
+
+
+class SensorLogParams(Contract):
+    device: Literal['rgb', 'depth', 'lidar', 'battery'] = 'lidar'
+    seconds: int = Field(default=10, strict=True, ge=1, le=3600)
+
+
+ACTION_PARAMS = {'PHOTO': PhotoParams, 'WAIT': WaitParams,
+                 'OPERATOR_CONFIRM': ConfirmParams, 'SENSOR_LOG': SensorLogParams}
+ActionKey = Literal['PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']
+
+
+class MissionStep(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    action: ActionKey
+    params: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @model_validator(mode='after')
+    def parameters(self):
+        self.params = ACTION_PARAMS[self.action].model_validate(self.params).model_dump()
+        return self
+
+
+class Action(Contract):
+    key: ActionKey
+    label: str
+    params: dict[str, JsonValue]
+    requires: list[str]
+    available: bool
+    why_unavailable: str | None
+
+
+class MissionWrite(MapName):
+    steps: list[MissionStep] = Field(min_length=1, max_length=100)
+
+
+class Mission(MissionWrite):
+    id: UUID
+    number: int
+    latest_version: int
+    version: int
+    required_devices: list[str]
+    created_by: UUID
+    created_at: UTCDateTime
+    version_created_by: UUID
+    version_created_at: UTCDateTime
+    archived_at: UTCDateTime | None
+
+
+class MissionList(Contract):
+    items: list[Mission]
+    next_cursor: str | None
+
+
+class ScenarioPoint(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    floor_id: UUID
+    map_version_id: UUID
+    x: float = Field(strict=True)
+    y: float = Field(strict=True)
+    yaw: float = Field(default=0, strict=True)
+    waypoint_ref: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class ScenarioWaypoint(ScenarioPoint):
+    mission_id: UUID
+    mission_version: int = Field(strict=True, ge=1, le=2**31 - 1)
+
+
+class ScenarioFinish(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    mode: Literal['STAY', 'RETURN_TO_START', 'GO_TO'] = 'STAY'
+    target: ScenarioPoint | None = None
+
+    @model_validator(mode='after')
+    def target_for_mode(self):
+        if (self.mode == 'GO_TO') != (self.target is not None):
+            raise ValueError('GO_TO requires target; other modes cannot have target')
+        return self
+
+
+class ScenarioWrite(MapName):
+    waypoints: list[ScenarioWaypoint] = Field(min_length=1, max_length=200)
+    finish: ScenarioFinish = Field(default_factory=ScenarioFinish)
+    notes: str = Field(default='', max_length=4000)
+
+
+class Scenario(ScenarioWrite):
+    id: UUID
+    number: int
+    latest_version: int
+    version: int
+    floor_ids: list[UUID]
+    map_version_ids: list[UUID]
+    required_devices: list[str]
+    est_distance_m: float
+    created_by: UUID
+    created_at: UTCDateTime
+    version_created_by: UUID
+    version_created_at: UTCDateTime
+    archived_at: UTCDateTime | None
+
+
+class ScenarioList(Contract):
+    items: list[Scenario]
+    next_cursor: str | None
+
+
+class PreviewPoint(Contract):
+    element: str
+    reachable: bool
+    reasons: list[str]
+
+
+class PreviewSegment(Contract):
+    start: str
+    end: str
+    reachable: bool
+    reason: str | None
+    connector_id: UUID | None
+    distance_m: float | None
+    via: list[ScenarioPoint]
+
+
+class ScenarioPreview(Contract):
+    reachable: bool
+    points: list[PreviewPoint]
+    segments: list[PreviewSegment]
+    floor_ids: list[UUID]
+    map_version_ids: list[UUID]
+    required_devices: list[str]
+    est_distance_m: float
+    distance_note: str = '직선과 직접 연결점 경유 거리이며 Nav2 경로가 아닙니다.'
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
 REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
+REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
+                       MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,

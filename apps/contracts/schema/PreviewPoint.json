@@ -1,0 +1,29 @@
+{
+  "$id": "fh-app/1/PreviewPoint",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "element": {
+      "title": "Element",
+      "type": "string"
+    },
+    "reachable": {
+      "title": "Reachable",
+      "type": "boolean"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    }
+  },
+  "required": [
+    "element",
+    "reachable",
+    "reasons"
+  ],
+  "title": "PreviewPoint",
+  "type": "object"
+}

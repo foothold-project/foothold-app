@@ -1,0 +1,217 @@
+{
+  "$defs": {
+    "PreviewPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "element": {
+          "title": "Element",
+          "type": "string"
+        },
+        "reachable": {
+          "title": "Reachable",
+          "type": "boolean"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "element",
+        "reachable",
+        "reasons"
+      ],
+      "title": "PreviewPoint",
+      "type": "object"
+    },
+    "PreviewSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "connector_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Connector Id"
+        },
+        "distance_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Distance M"
+        },
+        "end": {
+          "title": "End",
+          "type": "string"
+        },
+        "reachable": {
+          "title": "Reachable",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "start": {
+          "title": "Start",
+          "type": "string"
+        },
+        "via": {
+          "items": {
+            "$ref": "#/$defs/ScenarioPoint"
+          },
+          "title": "Via",
+          "type": "array"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "reachable",
+        "reason",
+        "connector_id",
+        "distance_m",
+        "via"
+      ],
+      "title": "PreviewSegment",
+      "type": "object"
+    },
+    "ScenarioPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "waypoint_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waypoint Ref"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "default": 0,
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y"
+      ],
+      "title": "ScenarioPoint",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ScenarioPreview",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "distance_note": {
+      "default": "직선과 직접 연결점 경유 거리이며 Nav2 경로가 아닙니다.",
+      "title": "Distance Note",
+      "type": "string"
+    },
+    "est_distance_m": {
+      "title": "Est Distance M",
+      "type": "number"
+    },
+    "floor_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Floor Ids",
+      "type": "array"
+    },
+    "map_version_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Map Version Ids",
+      "type": "array"
+    },
+    "points": {
+      "items": {
+        "$ref": "#/$defs/PreviewPoint"
+      },
+      "title": "Points",
+      "type": "array"
+    },
+    "reachable": {
+      "title": "Reachable",
+      "type": "boolean"
+    },
+    "required_devices": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Devices",
+      "type": "array"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/PreviewSegment"
+      },
+      "title": "Segments",
+      "type": "array"
+    }
+  },
+  "required": [
+    "reachable",
+    "points",
+    "segments",
+    "floor_ids",
+    "map_version_ids",
+    "required_devices",
+    "est_distance_m",
+    "distance_note"
+  ],
+  "title": "ScenarioPreview",
+  "type": "object"
+}

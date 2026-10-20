@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from sqlalchemy import BigInteger, Boolean, Float, Integer, CheckConstraint, DateTime, ForeignKeyConstraint, Index, LargeBinary, Text, UniqueConstraint, func, text
-from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -339,3 +339,71 @@ class Approval(Tenant, Base):
     emergency: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VersionedResource(Tenant):
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
+    name: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    latest_version: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Mission(VersionedResource, Base):
+    __tablename__ = 'missions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'id'),
+        CheckConstraint('latest_version > 0 AND version > 0', name='mission_versions_positive'),
+        Index('missions_org_created', 'org_id', 'created_at', 'id'),
+    )
+
+
+class Scenario(VersionedResource, Base):
+    __tablename__ = 'scenarios'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'id'),
+        CheckConstraint('latest_version > 0 AND version > 0', name='scenario_versions_positive'),
+        Index('scenarios_org_created', 'org_id', 'created_at', 'id'),
+    )
+
+
+class ResourceSnapshot(Tenant):
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
+    name: Mapped[str] = mapped_column(Text)
+    number: Mapped[int] = mapped_column(Integer)
+    required_devices: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class MissionVersion(ResourceSnapshot, Base):
+    __tablename__ = 'mission_versions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'mission_id'], ['missions.org_id', 'missions.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('mission_id', 'number'),
+        CheckConstraint('number > 0', name='mission_number_positive'),
+    )
+    mission_id: Mapped[UUID] = mapped_column(PGUUID)
+    steps: Mapped[list] = mapped_column(JSONB)
+
+
+class ScenarioVersion(ResourceSnapshot, Base):
+    __tablename__ = 'scenario_versions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'scenario_id'], ['scenarios.org_id', 'scenarios.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('scenario_id', 'number'),
+        CheckConstraint('number > 0', name='scenario_number_positive'),
+    )
+    scenario_id: Mapped[UUID] = mapped_column(PGUUID)
+    waypoints: Mapped[list] = mapped_column(JSONB)
+    finish: Mapped[dict] = mapped_column(JSONB)
+    notes: Mapped[str] = mapped_column(Text)
+    floor_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID))
+    map_version_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID))
+    est_distance_m: Mapped[float] = mapped_column(Float)

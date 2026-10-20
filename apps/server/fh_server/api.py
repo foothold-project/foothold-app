@@ -169,6 +169,16 @@ def create_app(settings: Settings | None = None):
                 OR has_table_privilege(current_user, 'uploads', 'UPDATE')
                 OR has_table_privilege(current_user, 'uploads', 'DELETE')
                 OR has_table_privilege(current_user, 'uploads', 'TRUNCATE')
+                OR EXISTS (SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_name IN ('mission_versions', 'scenario_versions', 'missions', 'scenarios')
+                    AND (has_table_privilege(current_user, table_name, 'DELETE')
+                        OR has_table_privilege(current_user, table_name, 'TRUNCATE')
+                        OR has_table_privilege(current_user, table_name, 'UPDATE')))
+                OR EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name IN ('mission_versions', 'scenario_versions', 'missions', 'scenarios')
+                    AND (table_name IN ('mission_versions', 'scenario_versions')
+                        OR column_name NOT IN ('name', 'latest_version', 'version', 'archived_at'))
+                    AND has_column_privilege(current_user, table_name, column_name, 'UPDATE'))
                 OR has_schema_privilege(current_user, 'public', 'CREATE')
                 FROM pg_roles WHERE rolname = current_user"""))
             if unsafe:
@@ -192,6 +202,15 @@ def create_app(settings: Settings | None = None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
+        if request.url.path.startswith(('/api/v1/missions', '/api/v1/scenarios')):
+            fields = {'name', 'steps', 'action', 'params', 'camera', 'seconds', 'device', 'prompt',
+                      'waypoints', 'floor_id', 'map_version_id', 'x', 'y', 'yaw', 'waypoint_ref',
+                      'mission_id', 'mission_version', 'finish', 'mode', 'target', 'notes'}
+            paths = ['.'.join(str(v) if isinstance(v, int) else v if v in fields else '?'
+                             for v in e['loc'][1:]) for e in exc.errors()]
+            return JSONResponse(status_code=422, content={'error': {
+                'code': 'PRECHECK_FAILED', 'message': '임무·시나리오 입력을 확인하세요.',
+                'detail': {'elements': paths}}})
         # Feature validation identifies a field without echoing input or database IDs.
         if request.url.path.endswith('/map-versions') and any('features' in e['loc'] for e in exc.errors()):
             fields = {'features', 'zones', 'waypoints', 'connectors', 'edits', 'id', 'type', 'name',
@@ -663,7 +682,8 @@ def create_app(settings: Settings | None = None):
         response.headers['Cache-Control'] = 'no-store'
         return C.AgentTokenResponse(agent_token=raw)
 
-    from . import events_api, notifications, maps
+    from . import events_api, notifications, maps, missions
+    missions.install(app, DB, Identity, fail, authorize, event, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)
     notifications.install(app, DB, Identity, fail)

@@ -3,6 +3,15 @@
 
 export const CONTRACT_VERSION = "fh-api/1";
 
+export interface Action {
+  key: "PHOTO" | "WAIT" | "OPERATOR_CONFIRM" | "SENSOR_LOG";
+  label: string;
+  params: Record<string, JsonValue>;
+  requires: string[];
+  available: boolean;
+  why_unavailable: string | null;
+}
+
 export interface AgentBattery {
   soc: number | null;
   voltage?: number | null;
@@ -191,6 +200,10 @@ export interface ApprovalReject {
 export interface Battery {
   soc: number;
   updated_at: string;
+}
+
+export interface ConfirmParams {
+  prompt?: string;
 }
 
 export interface CurrentRun {
@@ -435,6 +448,36 @@ export interface MePatch {
   notify_prefs?: Record<string, boolean>;
 }
 
+export interface Mission {
+  name: string;
+  steps: MissionStep[];
+  id: string;
+  number: number;
+  latest_version: number;
+  version: number;
+  required_devices: string[];
+  created_by: string;
+  created_at: string;
+  version_created_by: string;
+  version_created_at: string;
+  archived_at: string | null;
+}
+
+export interface MissionList {
+  items: Mission[];
+  next_cursor: string | null;
+}
+
+export interface MissionStep {
+  action: "PHOTO" | "WAIT" | "OPERATOR_CONFIRM" | "SENSOR_LOG";
+  params?: Record<string, JsonValue>;
+}
+
+export interface MissionWrite {
+  name: string;
+  steps: MissionStep[];
+}
+
 export interface Notification {
   id: string;
   event_id: string | null;
@@ -489,6 +532,26 @@ export interface Person {
   display_name: string;
 }
 
+export interface PhotoParams {
+  camera?: "rgb" | "depth";
+}
+
+export interface PreviewPoint {
+  element: string;
+  reachable: boolean;
+  reasons: string[];
+}
+
+export interface PreviewSegment {
+  start: string;
+  end: string;
+  reachable: boolean;
+  reason: string | null;
+  connector_id: string | null;
+  distance_m: number | null;
+  via: ScenarioPoint[];
+}
+
 export interface Progress {
   done: number;
   total: number;
@@ -538,6 +601,74 @@ export interface RunCopy {
   status: string;
   step: number;
   wait_reason?: string | null;
+}
+
+export interface Scenario {
+  name: string;
+  waypoints: ScenarioWaypoint[];
+  finish: ScenarioFinish;
+  notes: string;
+  id: string;
+  number: number;
+  latest_version: number;
+  version: number;
+  floor_ids: string[];
+  map_version_ids: string[];
+  required_devices: string[];
+  est_distance_m: number;
+  created_by: string;
+  created_at: string;
+  version_created_by: string;
+  version_created_at: string;
+  archived_at: string | null;
+}
+
+export interface ScenarioFinish {
+  mode?: "STAY" | "RETURN_TO_START" | "GO_TO";
+  target?: ScenarioPoint | null;
+}
+
+export interface ScenarioList {
+  items: Scenario[];
+  next_cursor: string | null;
+}
+
+export interface ScenarioPoint {
+  floor_id: string;
+  map_version_id: string;
+  x: number;
+  y: number;
+  yaw?: number;
+  waypoint_ref?: string | null;
+}
+
+export interface ScenarioPreview {
+  reachable: boolean;
+  points: PreviewPoint[];
+  segments: PreviewSegment[];
+  floor_ids: string[];
+  map_version_ids: string[];
+  required_devices: string[];
+  est_distance_m: number;
+  distance_note: string;
+}
+
+export interface ScenarioWaypoint {
+  floor_id: string;
+  map_version_id: string;
+  x: number;
+  y: number;
+  yaw?: number;
+  waypoint_ref?: string | null;
+  mission_id: string;
+  mission_version: number;
+}
+
+export interface ScenarioWrite {
+  name: string;
+  waypoints: ScenarioWaypoint[];
+  finish?: ScenarioFinish;
+  notes?: string;
 }
 
 export interface ScreenCmd {
@@ -665,6 +796,11 @@ export interface ScreenUnlock {
   stop_gen: number;
 }
 
+export interface SensorLogParams {
+  device?: "rgb" | "depth" | "lidar" | "battery";
+  seconds?: number;
+}
+
 export interface Session {
   id: string;
   client: "web" | "app";
@@ -721,6 +857,10 @@ export interface UserPatch {
   display_name?: string;
   role?: "ORG_ADMIN" | "OPERATOR";
   locked?: boolean;
+}
+
+export interface WaitParams {
+  seconds?: number;
 }
 
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;

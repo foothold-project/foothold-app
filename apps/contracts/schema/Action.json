@@ -1,0 +1,63 @@
+{
+  "$defs": {
+    "JsonValue": {}
+  },
+  "$id": "fh-app/1/Action",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "key": {
+      "enum": [
+        "PHOTO",
+        "WAIT",
+        "OPERATOR_CONFIRM",
+        "SENSOR_LOG"
+      ],
+      "title": "Key",
+      "type": "string"
+    },
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "params": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Params",
+      "type": "object"
+    },
+    "requires": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requires",
+      "type": "array"
+    },
+    "why_unavailable": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Why Unavailable"
+    }
+  },
+  "required": [
+    "key",
+    "label",
+    "params",
+    "requires",
+    "available",
+    "why_unavailable"
+  ],
+  "title": "Action",
+  "type": "object"
+}

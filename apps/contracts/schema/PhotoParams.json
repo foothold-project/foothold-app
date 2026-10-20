@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/PhotoParams",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "camera": {
+      "default": "rgb",
+      "enum": [
+        "rgb",
+        "depth"
+      ],
+      "title": "Camera",
+      "type": "string"
+    }
+  },
+  "title": "PhotoParams",
+  "type": "object"
+}

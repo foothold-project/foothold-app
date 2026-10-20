@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "ScenarioPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "waypoint_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waypoint Ref"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "default": 0,
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y"
+      ],
+      "title": "ScenarioPoint",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/PreviewSegment",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "connector_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Connector Id"
+    },
+    "distance_m": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Distance M"
+    },
+    "end": {
+      "title": "End",
+      "type": "string"
+    },
+    "reachable": {
+      "title": "Reachable",
+      "type": "boolean"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "start": {
+      "title": "Start",
+      "type": "string"
+    },
+    "via": {
+      "items": {
+        "$ref": "#/$defs/ScenarioPoint"
+      },
+      "title": "Via",
+      "type": "array"
+    }
+  },
+  "required": [
+    "start",
+    "end",
+    "reachable",
+    "reason",
+    "connector_id",
+    "distance_m",
+    "via"
+  ],
+  "title": "PreviewSegment",
+  "type": "object"
+}
