@@ -1,0 +1,17 @@
+{
+  "$id": "fh-app/1/ConfirmParams",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "prompt": {
+      "default": "계기판 이상 없음?",
+      "maxLength": 500,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Prompt",
+      "type": "string"
+    }
+  },
+  "title": "ConfirmParams",
+  "type": "object"
+}

@@ -1,0 +1,65 @@
+{
+  "$id": "fh-app/1/ScenarioWaypoint",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "mission_id": {
+      "format": "uuid",
+      "title": "Mission Id",
+      "type": "string"
+    },
+    "mission_version": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Mission Version",
+      "type": "integer"
+    },
+    "waypoint_ref": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Waypoint Ref"
+    },
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "default": 0,
+      "title": "Yaw",
+      "type": "number"
+    }
+  },
+  "required": [
+    "floor_id",
+    "map_version_id",
+    "x",
+    "y",
+    "mission_id",
+    "mission_version"
+  ],
+  "title": "ScenarioWaypoint",
+  "type": "object"
+}

@@ -1,0 +1,301 @@
+{
+  "$defs": {
+    "Scenario": {
+      "additionalProperties": false,
+      "properties": {
+        "archived_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Archived At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "title": "Created By",
+          "type": "string"
+        },
+        "est_distance_m": {
+          "title": "Est Distance M",
+          "type": "number"
+        },
+        "finish": {
+          "$ref": "#/$defs/ScenarioFinish"
+        },
+        "floor_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Floor Ids",
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "latest_version": {
+          "title": "Latest Version",
+          "type": "integer"
+        },
+        "map_version_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Map Version Ids",
+          "type": "array"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Notes",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "required_devices": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Devices",
+          "type": "array"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "version_created_at": {
+          "format": "date-time",
+          "title": "Version Created At",
+          "type": "string"
+        },
+        "version_created_by": {
+          "format": "uuid",
+          "title": "Version Created By",
+          "type": "string"
+        },
+        "waypoints": {
+          "items": {
+            "$ref": "#/$defs/ScenarioWaypoint"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Waypoints",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "waypoints",
+        "finish",
+        "notes",
+        "id",
+        "number",
+        "latest_version",
+        "version",
+        "floor_ids",
+        "map_version_ids",
+        "required_devices",
+        "est_distance_m",
+        "created_by",
+        "created_at",
+        "version_created_by",
+        "version_created_at",
+        "archived_at"
+      ],
+      "title": "Scenario",
+      "type": "object"
+    },
+    "ScenarioFinish": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "default": "STAY",
+          "enum": [
+            "STAY",
+            "RETURN_TO_START",
+            "GO_TO"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScenarioPoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ScenarioFinish",
+      "type": "object"
+    },
+    "ScenarioPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "waypoint_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waypoint Ref"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "default": 0,
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y"
+      ],
+      "title": "ScenarioPoint",
+      "type": "object"
+    },
+    "ScenarioWaypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "mission_id": {
+          "format": "uuid",
+          "title": "Mission Id",
+          "type": "string"
+        },
+        "mission_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Mission Version",
+          "type": "integer"
+        },
+        "waypoint_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waypoint Ref"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "default": 0,
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y",
+        "mission_id",
+        "mission_version"
+      ],
+      "title": "ScenarioWaypoint",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ScenarioList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/Scenario"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "title": "ScenarioList",
+  "type": "object"
+}
