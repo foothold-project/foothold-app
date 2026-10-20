@@ -32,7 +32,7 @@ from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
 from .inventory import InventoryWriter
 from .robots import live_state
-from .event_messages import render, CATEGORIES
+from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
 from .security import digest
@@ -1815,10 +1815,14 @@ class Realtime:
             if isinstance(ev.robot_at, str):
                 from datetime import datetime
                 ev.robot_at = datetime.fromisoformat(ev.robot_at)
-            ev.category = CATEGORIES.get(ev.code, ev.category)
+            if op == 'AGENT_EVENT':
+                ev.category = CATEGORIES.get(ev.code, 'LINK') if ev.code in AGENT_CODES else 'LINK'
+            else:
+                ev.category = CATEGORIES.get(ev.code, ev.category)
             render(db, ev, agent=op == 'AGENT_EVENT', other_user_id=body.get('other_user_id'))
             db.add(ev)
-            append_for_event(db, ev, other_user_id=body.get('other_user_id'))
+            if op != 'AGENT_EVENT' or ev.code in AGENT_CODES:
+                append_for_event(db, ev, other_user_id=body.get('other_user_id'))
             db.flush()
             return C.Event(
                 id=str(ev.id), at=ev.at, robot_at=ev.robot_at, category=ev.category, code=ev.code,

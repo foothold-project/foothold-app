@@ -1357,3 +1357,58 @@ FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.p
 각 fixture의 finally에서 종료·삭제되며 실제 운영 DB나 프로세스는 건드리지 않았다.
 코드는 변경 커밋을 revert하고, 0008 downgrade가 알림을 지우므로 자료 보존·승인된
 이관 절차를 먼저 따른다. D3·CSV 상한·수신자 규칙과 정본의 미정/확장 사항은 PR에 적는다.
+
+## PR #24 Claude 검토 수정 (2026-10-20)
+
+막는 것 2건과 지시된 권고 R1~R5·R7·R8을 반영한다. R6(알림과 사건 저장의 결합·비용),
+R9(끊김 알림 중복), R10(사람 필터의 존재 판정 정책)은 바꾸지 않으며 PR의 남은 것에 적는다.
+앞선 S2 문장의 UTC HH:MM 설명은 이 절의 Asia/Seoul 기본 시각으로 대체한다. 응답의
+at/robot_at 등 기계 판독 시각은 계속 UTC Z이고, 이미 저장된 사건 문장은 수정하지 않는다.
+
+- 문장은 ZoneInfo('Asia/Seoul')로 저장하며 05:02Z가 14:02인 회귀를 고정한다.
+  robot_at이 있으면 끊김 중 실제 사건 시각을 먼저 쓰고 없으면 서버 at을 쓴다.
+  조직별 시간대 설정은 후속 결정이다.
+- CSV는 프로세스 공용 동시1 슬롯, 초과429 RATE_LIMITED. 상한+1개의 ID만 먼저 읽어
+  초과400을 판정하고 ORM 본문은 읽지 않는다. 선택 ID를 고정한 뒤 yield_per=100으로
+  읽어 임시 파일에 쓰며 65,536자 청크로 전송한다. 응답 완료·단절·조회/쓰기 오류에
+  슬롯/파일을 회수한다. ID 목록 외에 전체 ORM/문자열 사본을 만들지 않는다.
+- 같은 조직의 남의 사건만 있는 로봇 필터가 목록·CSV 모두 없는 ID와 같은404임을
+  직접 시험한다. 권한 없는 사건으로 존재를 판정하는 검토자의 변이를 등록했다.
+- 에이전트 전용 허용 목록을 두어 사람 행동·계정·결재 등 서버 코드 위조를 일반
+  AGENT_EVENT 문장·LINK 분류로 낮춘다. 원래 code/data는 보존하고 알림은 만들지 않는다.
+- 문장 값은 제어문자 제거·128자 제한, 숫자 자리는 bool/문자열/객체/비유한 값을
+  확인되지 않음으로 쓴다. 목적격 조사는 을/를을 로봇 이름 받침에 맞춘다.
+- notifications UPDATE는 read_at 열만 허용한다. 제목·본문·수신자·연결 등 나머지 열의
+  실제 DML 거절과 읽음 성공을 시험한다. 0008은 서버를 멈춘 상태에서 적용하도록 적었다.
+- CSV 수식 방어는 유니코드 공백 전체를 lstrip()으로 건너뛴다.
+
+집중 시험(test_events·test_events_review·test_events_wire·test_migrations)은
+**48 passed/21.13s**다. Alembic 왕복·실제 uvicorn도 포함한다. 새 검사는 동시 내보내기
+둘째429·상한 초과 전 ORM 적재0·배치 ORM 수·전송 오류 시 슬롯/파일 회수·위조 코드·
+시간대/robot_at·문장 정리·권한 열 제한·유니코드 공백을 실제 DB/응답에서 확인한다.
+새 고장 판정16개와 기존 S2 25개를 선택 실행하고 전체 서버 정상 기준을 먼저 실행한다.
+정상/변이 시험은 FH_TEST_PORT_RANGE=9240:9259, 한 번에 하나씩만 실행한다.
+운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기 접촉은 없고 STOP·조종권·권한/S0의
+안전 문턱·기대값은 바꾸지 않았다. 실 uvicorn에서의 CSV 부하 계측은 별도로 하지 않았다.
+
+| 검토 수정 최종 검사 | 결과 |
+|---|---|
+| 서버 전체 정상 기준 | **420 passed**,364.31s |
+| S2 선택 변이 | **41/41 assertion 검출**,exit0·실행/수집 오류·미검출0 |
+| 검토 후속 판정 | 위41개 중16개, 각 수정 제거/약화가 실패함 |
+| generate --check | **72개 일치** |
+| npm ci·strict tsc | exit0 |
+| Alembic 왕복·metadata·권한·실제 uvicorn | 집중/전체 정상 기준에 포함하여 통과 |
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py apps/server/tests/test_events_review.py apps/server/tests/test_events_wire.py apps/server/tests/test_migrations.py -q -x --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py --match S2
+python apps/contracts/generate.py --check
+npm ci --prefix apps/contracts --ignore-scripts
+npm run --prefix apps/contracts typecheck
+```
+
+선택 변이 도구가 변이 적용 전에 서버 pytest 전체를 실행했으며, 이번에 바뀐 제품·시험
+트리의 정상 결과는420개다. 나머지 기존200개 변이는 다시 실행하지 않았다. 임시 사본이
+종료 뒤 제거된 것을 확인했다. 이번 권한 변경은 미병합0008의 생성 권한 정의에만
+반영했고 이미 적용된 운영/시험 DB를 직접 수정하지 않았다.

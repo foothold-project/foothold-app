@@ -239,7 +239,7 @@ def test_template_rendering_particles_all_templates_and_old_rows_unchanged(clien
             event = Event(org_id=seeded['org'], robot_id=seeded['robots']['mine'], user_id=seeded['users']['one'],
                           code=code, at=records['stamp'], data={'distance_m': 1.8})
             messages.render(db, event, other_user_id=seeded['users']['two'])
-            assert event.message.startswith('05:02 ') and '{' not in event.message
+            assert event.message.startswith('14:02 ') and '{' not in event.message
         for name, subject, with_particle in [('로봇', '이', '과'), ('나비', '가', '와'),
                                              ('Go2-3', '이', '과'), ('Go2-2', '가', '와')]:
             db.get(Robot, seeded['robots']['mine']).name = name
@@ -359,7 +359,7 @@ def test_notification_tenant_fk_and_restricted_roles(seeded):
                 event_id=None, kind='TEST', title='시험', body='시험', link='#/history'))
             db.commit()
         db.rollback()
-    for privilege, expected in [('SELECT', True), ('INSERT', True), ('UPDATE', True), ('DELETE', False), ('TRUNCATE', False)]:
+    for privilege, expected in [('SELECT', True), ('INSERT', True), ('UPDATE', False), ('DELETE', False), ('TRUNCATE', False)]:
         with engine.connect() as conn:
             assert conn.scalar(text("SELECT has_table_privilege('fh_app', 'notifications', :privilege)"), {'privilege': privilege}) is expected
     engine.dispose()

@@ -28,7 +28,8 @@ def upgrade():
         sa.UniqueConstraint('user_id', 'event_id', 'kind'))
     op.create_index('notifications_user_created_id', 'notifications', ['user_id', sa.text('created_at DESC'), sa.text('id DESC')])
     op.create_index('notifications_user_unread', 'notifications', ['user_id'], postgresql_where=sa.text('read_at IS NULL'))
-    op.execute('GRANT SELECT, INSERT, UPDATE ON notifications TO fh_app')
+    op.execute('GRANT SELECT, INSERT ON notifications TO fh_app')
+    op.execute('GRANT UPDATE (read_at) ON notifications TO fh_app')
     op.execute('GRANT USAGE, SELECT ON SEQUENCE notifications_id_seq TO fh_app')
     op.execute('GRANT SELECT ON notifications TO fh_readonly')
 

@@ -2,17 +2,49 @@
 import base64
 import csv
 from datetime import datetime, timezone
-import io
 import json
+import tempfile
+import threading
 from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import Depends, Query, Response
+from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select, tuple_
 from apps.contracts import models as C
 from .models import Event, Robot, User
 
 EXPORT_LIMIT = 10_000
+EXPORT_BATCH = 100
+EXPORT_SLOT = threading.Lock()
+
+
+class CSVDownload(StreamingResponse):
+    """Own the file and process slot through completion, errors and disconnects."""
+    def __init__(self, output):
+        self.output = output
+        super().__init__(iter(lambda: output.read(64 * 1024), ''),
+            media_type='text/csv; charset=utf-8',
+            headers={'Content-Disposition': 'attachment; filename="events.csv"', 'Cache-Control': 'no-store'})
+
+    async def __call__(self, scope, receive, send):
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            self.output.close()
+            EXPORT_SLOT.release()
+
+
+def write_csv(db, query, output):
+    output.write('\ufeff')
+    writer = csv.writer(output)
+    columns = list(C.Event.model_fields)
+    writer.writerow(columns)
+    for row in db.scalars(query.execution_options(yield_per=EXPORT_BATCH)):
+        value = event_object(row).model_dump(mode='json')
+        value['data'] = json.dumps(value['data'], ensure_ascii=False)
+        writer.writerow([csv_cell(value[column]) for column in columns])
+    output.seek(0)
 
 
 def cursor_decode(value, fail):
@@ -53,7 +85,7 @@ def visible_events(user):
 def csv_cell(value):
     value = str(value) if value is not None else ''
     # Spreadsheet importers may strip whitespace before interpreting formulas.
-    if value.lstrip(' \t\r\n').startswith(('=', '+', '-', '@')) or value.startswith(('\t', '\r', '\n')):
+    if value.lstrip().startswith(('=', '+', '-', '@')) or value.startswith(('\t', '\r', '\n')):
         value = "'" + value
     return value
 
@@ -112,19 +144,24 @@ def install(app, DB, Identity, fail):
 
     @app.get('/api/v1/events/export.csv')
     def export(auth: Identity, db: DB, values: Annotated[dict, Depends(filters)]):
-        rows = list(db.scalars(filtered(db, auth[0], values).limit(EXPORT_LIMIT + 1)))
-        if len(rows) > EXPORT_LIMIT:
-            fail(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.')
-        output = io.StringIO(newline='')
-        writer = csv.writer(output)
-        columns = list(C.Event.model_fields)
-        writer.writerow(columns)
-        for row in rows:
-            value = event_object(row).model_dump(mode='json')
-            value['data'] = json.dumps(value['data'], ensure_ascii=False)
-            writer.writerow([csv_cell(value[column]) for column in columns])
-        return Response('\ufeff' + output.getvalue(), media_type='text/csv; charset=utf-8',
-            headers={'Content-Disposition': 'attachment; filename="events.csv"', 'Cache-Control': 'no-store'})
+        if not EXPORT_SLOT.acquire(blocking=False):
+            fail(429, 'RATE_LIMITED', '다른 기록을 내보내는 중입니다. 잠시 뒤 다시 시도하세요.')
+        output = None
+        try:
+            query = filtered(db, auth[0], values)
+            identifiers = list(db.scalars(query.with_only_columns(Event.id).limit(EXPORT_LIMIT + 1)))
+            if len(identifiers) > EXPORT_LIMIT:
+                fail(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.')
+            # Freeze the selected IDs: concurrent INSERTs cannot exceed the checked cap.
+            output = tempfile.TemporaryFile(mode='w+', encoding='utf-8', newline='')
+            write_csv(db, query.where(Event.id.in_(identifiers)), output)
+            db.commit()  # Fail before transferring file/slot ownership to the response.
+            return CSVDownload(output)
+        except BaseException:
+            if output is not None:
+                output.close()
+            EXPORT_SLOT.release()
+            raise
 
     @app.get('/api/v1/events/{event_id}', response_model=C.Event)
     def detail(event_id: str, auth: Identity, db: DB, response: Response):

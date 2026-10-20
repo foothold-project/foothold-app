@@ -5,8 +5,14 @@ wire extension; unknown ones use the explicit AGENT_EVENT template and retain
 the original code/data. Reading never regenerates historical messages.
 """
 from sqlalchemy import select
-from datetime import timezone
+import math
+import unicodedata
+from zoneinfo import ZoneInfo
 from .models import Robot, User, now
+
+MESSAGE_TIMEZONE = ZoneInfo('Asia/Seoul')
+MAX_VALUE_LENGTH = 128
+UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
     'LOGIN': '{person}님이 로그인했습니다.',
@@ -22,9 +28,9 @@ TEMPLATES = {
     'USER_UPDATED': '{person}님이 계정 권한·정보를 변경했습니다.',
     'USER_ARCHIVED': '{person}님이 계정을 보관했습니다.',
     'ORG_SETTINGS_UPDATED': '{person}님이 조직 기준값을 변경했습니다.',
-    'ROBOT_CREATED': '{person}님이 {robot}을 등록했습니다.',
+    'ROBOT_CREATED': '{person}님이 {robot}{object_particle} 등록했습니다.',
     'ROBOT_UPDATED': '{person}님이 {robot} 이름·담당을 변경했습니다.',
-    'ROBOT_ARCHIVED': '{person}님이 {robot}을 해제했습니다.',
+    'ROBOT_ARCHIVED': '{person}님이 {robot}{object_particle} 해제했습니다.',
     'AGENT_TOKEN_ROTATED': '{person}님이 로봇 인증 토큰을 재발급했습니다.',
     'TAKE': '{person}님이 {robot} 조종권을 받았습니다.',
     'RELEASE': '{person}님이 {robot} 조종을 끝냈습니다.',
@@ -50,17 +56,17 @@ TEMPLATES = {
     'AGENT_EVENT': '{robot}에서 사건 {code}이(가) 기록되었습니다.',
     'LEASE_MISMATCH': '{robot} 조종권이 일치하지 않아 요청을 거절했습니다.',
     'LEASE_REQUEST_STALE': '{robot} 조종권 요청이 끝나 요청을 거절했습니다.',
-    'LEASE_HELD': '{robot}을 다른 사람이 조종 중입니다.',
+    'LEASE_HELD': '{robot}{object_particle} 다른 사람이 조종 중입니다.',
     'LEASE_REQUEST_COOLDOWN': '{robot} 조종권 요청을 잠시 뒤 다시 해 주세요.',
-    'LEASE_FREE': '{robot}을 조종 중인 사람이 없습니다.',
+    'LEASE_FREE': '{robot}{object_particle} 조종 중인 사람이 없습니다.',
     'LEASE_REQUEST_PENDING': '{robot} 조종권 요청이 이미 대기 중입니다.',
-    'NOT_FOUND': '{robot}을 찾을 수 없어 요청을 거절했습니다.',
+    'NOT_FOUND': '{robot}{object_particle} 찾을 수 없어 요청을 거절했습니다.',
     'POLICY_STALE': '{robot} 조종 권한을 확인할 수 없어 요청을 거절했습니다.',
     'ROBOT_ARCHIVE_BUSY': '{robot} 사건 저장이 지연되어 요청을 거절했습니다.',
     'ROBOT_AUTH_PENDING': '{robot} 연결 권한을 확인 중입니다.',
     'ROBOT_OFFLINE': '{robot} 연결이 끊겨 요청을 거절했습니다.',
     'SERVER_BUSY': '{robot} 요청을 처리할 수 없습니다. 잠시 뒤 다시 시도하세요.',
-    'SUBSCRIPTION_REQUIRED': '{robot}을 다시 선택한 뒤 조종해 주세요.',
+    'SUBSCRIPTION_REQUIRED': '{robot}{object_particle} 다시 선택한 뒤 조종해 주세요.',
     'CMD_SEQ': '{robot} 조종 입력 순서가 올바르지 않아 거절했습니다.',
     'CMD_RATE_LIMIT': '{robot} 조종 입력이 너무 많아 거절했습니다.',
     'STOP_GEN_MISMATCH': '{robot} 정지 상태가 바뀌어 잠금 해제를 거절했습니다.',
@@ -98,6 +104,31 @@ CATEGORIES = {
                     'HISTORY_STORAGE_BLOCKED'), 'SAFETY'),
 }
 
+# Robot diagnostics and run observations only; human/account/approval actions
+# cannot be asserted by an agent even when their code exists in TEMPLATES.
+AGENT_CODES = frozenset({
+    'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT', 'EXECUTOR_STALLED', 'PROTOCOL_MISMATCH',
+    'TRANSPORT_BACKPRESSURE', 'STOP_GEN_EXHAUSTED', 'LEASE_INVALID', 'BRIDGE_STATE_INVALID',
+    'HISTORY_STORAGE_BLOCKED', 'LINK_BUFFER_DROPPED', 'SERVER_CLOSED', 'SERVER_RETRY',
+    'RUN_SERVER_CMD_IGNORED', 'RUN_COMPLETED', 'RUN_FAILED', 'ROUTE_DEVIATION', 'LINK_LOST', 'BATTERY_LOW',
+})
+
+
+def text_value(value, default=UNKNOWN):
+    if not isinstance(value, str):
+        return default
+    value = ''.join(c for c in value if unicodedata.category(c) not in ('Cc', 'Cf', 'Cs'))
+    return value.strip()[:MAX_VALUE_LENGTH] or default
+
+
+def number_value(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return UNKNOWN
+    if isinstance(value, float) and not math.isfinite(value):
+        return UNKNOWN
+    rendered = str(value)
+    return rendered if len(rendered) <= MAX_VALUE_LENGTH else UNKNOWN
+
 
 def particle(word, consonant, vowel):
     last = word[-1:] or ' '
@@ -107,7 +138,10 @@ def particle(word, consonant, vowel):
 
 
 def render(db, ev, *, agent=False, other_user_id=None):
-    template = TEMPLATES.get(ev.code) if agent else TEMPLATES[ev.code]
+    if agent:
+        template = TEMPLATES.get(ev.code) if ev.code in AGENT_CODES else TEMPLATES['AGENT_EVENT']
+    else:
+        template = TEMPLATES[ev.code]
     if template is None:
         template = TEMPLATES['AGENT_EVENT']
     data = ev.data or {}
@@ -115,18 +149,20 @@ def render(db, ev, *, agent=False, other_user_id=None):
     def name(model, identifier, default, column):
         if identifier is None:
             return default
-        return db.scalar(select(column).where(model.org_id == ev.org_id, model.id == identifier)) or default
+        return text_value(db.scalar(select(column).where(model.org_id == ev.org_id, model.id == identifier)), default)
     robot = name(Robot, ev.robot_id, '로봇', Robot.name)
     person = name(User, ev.user_id, '운영자', User.display_name)
     other = name(User, other_user_id, '운영자', User.display_name)
-    values = dict(robot=robot, person=person, other=other, code=ev.code,
+    values = dict(robot=robot, person=person, other=other, code=text_value(ev.code),
         subject=particle(robot, '이', '가'), with_particle=particle(robot, '과', '와'),
-        count=data.get('count', 1), status=data.get('last_status', '확인되지 않음'),
-        scenario=data.get('scenario_name', '시나리오'), points=data.get('points', '확인되지 않음'),
-        minutes=data.get('minutes', '확인되지 않음'), step=data.get('step', '확인되지 않음'),
-        reason=data.get('reason', '확인되지 않음'), distance=data.get('distance_m', '확인되지 않음'),
-        battery=data.get('soc', '확인되지 않음'), kind=data.get('kind', '결재'),
+        object_particle=particle(robot, '을', '를'),
+        count=number_value(data.get('count', 1)), status=text_value(data.get('last_status')),
+        scenario=text_value(data.get('scenario_name'), '시나리오'), points=number_value(data.get('points')),
+        minutes=number_value(data.get('minutes')), step=number_value(data.get('step')),
+        reason=text_value(data.get('reason')), distance=number_value(data.get('distance_m')),
+        battery=number_value(data.get('soc')), kind=text_value(data.get('kind'), '결재'),
         decision='승인' if data.get('approved') is True else '반려' if data.get('approved') is False else '처리')
     ev.at = ev.at or now()
-    ev.message = ev.at.astimezone(timezone.utc).strftime('%H:%M') + ' ' + template.format(**values)
+    stamp = ev.robot_at or ev.at
+    ev.message = stamp.astimezone(MESSAGE_TIMEZONE).strftime('%H:%M') + ' ' + template.format(**values)
     return ev
