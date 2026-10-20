@@ -614,6 +614,55 @@ MUTATIONS.extend([
 
 
 
+# S3b: keep every new authorization, comparison and snapshot decision falsifiable.
+S3B = 'apps/server/tests/test_maps_diff.py'
+MUTATIONS.extend([
+    ('S3b tenant boundary removed', MAPS, 'model.id == identifier, model.org_id == user.org_id', 'model.id == identifier', S3B + '::test_diff_rollback_other_floor_foreign_absent_same_404'),
+    ('S3b cross-floor diff accepted', MAPS, 'if baseline is not None and baseline.floor_id != row.floor_id:', 'if False:', S3B + '::test_diff_rollback_other_floor_foreign_absent_same_404'),
+    ('S3b diff base ignored', MAPS, 'else row.base_version_id', 'else None', S3B + '::test_diff_all_feature_kinds_image_and_default_base'),
+    ('S3b changed elements omitted', MAPS, 'if old != new or moved:', 'if old is None or new is None:', S3B + '::test_diff_all_feature_kinds_image_and_default_base'),
+    ('S3b added elements omitted', MAPS, 'if old != new or moved:', 'if old is not None and old != new:', S3B + '::test_diff_all_feature_kinds_image_and_default_base'),
+    ('S3b removed elements omitted', MAPS, 'if old != new or moved:', 'if new is not None and old != new:', S3B + '::test_diff_all_feature_kinds_image_and_default_base'),
+    ('S3b image hash ignored', MAPS, 'row.image_sha256 != baseline.image_sha256', 'False', S3B + '::test_diff_all_feature_kinds_image_and_default_base'),
+    ('S3b response byte cap omitted', MAPS, 'if len(result.model_dump_json().encode()) > MAX_DIFF_BYTES:', 'if False:', S3B + '::test_diff_vertex_and_response_budgets'),
+    ('S3b vertex budget omitted', MAPS, "    if MAX_FEATURE_VERTICES < vertices:\n        fail(422, 'INVALID_FEATURES'", "    if False:\n        fail(422, 'INVALID_FEATURES'", S3B + '::test_diff_vertex_and_response_budgets'),
+    ('S3b legacy edit duplicates collapsed', MAPS, "key = f'sha256:{digest}:{occurrence}'", "key = f'sha256:{digest}'", S3B + '::test_legacy_edits_keys_stable_under_reorder_and_duplicates'),
+    ('S3b rollback operator permitted', MAPS, "original.floor_id, user, lock=True)\n        if user.role != 'ORG_ADMIN':", "original.floor_id, user, lock=True)\n        if False:", S3B + '::test_rollback_new_immutable_snapshot_stale_current_role_reason_event'),
+    ('S3b rollback stale base permitted', MAPS, "되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.')\n        if body.base_version_id != floor.approved_version_id:", "되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.')\n        if False:", S3B + '::test_rollback_new_immutable_snapshot_stale_current_role_reason_event'),
+    ('S3b current approved rollback permitted', MAPS, 'if original.id == floor.approved_version_id:', 'if False:', S3B + '::test_rollback_new_immutable_snapshot_stale_current_role_reason_event'),
+    ('S3b rollback provenance omitted', MAPS, 'copied_from_id=original.id, status=', 'copied_from_id=None, status=', S3B + '::test_rollback_new_immutable_snapshot_stale_current_role_reason_event'),
+    ('S3b rollback features dropped', MAPS, 'features=copy.deepcopy(original.features)', "features={'zones': [], 'waypoints': [], 'connectors': [], 'edits': []}", S3B + '::test_rollback_new_immutable_snapshot_stale_current_role_reason_event'),
+    ('S3b rollback floor lock omitted', MAPS, 'original.floor_id, user, lock=True', 'original.floor_id, user, lock=False', S3B + '::test_rollback_floor_lock_without_organization_lock'),
+    ('S3b rollback event omitted', MAPS, "record(db, user, 'MAP_VERSION_ROLLED_BACK', row,", "dict(db=db, user=user, code='MAP_VERSION_ROLLED_BACK', row=row,", S3B + '::test_rollback_new_immutable_snapshot_stale_current_role_reason_event'),
+    ('S3b rollback snapshot hash ignored', MAPS, "if sha256((root / original.image_path).read_bytes()) != original.image_sha256:", 'if False:', S3B + '::test_rollback_missing_snapshot_and_event_failure_are_atomic'),
+    ('S3b upload id response incorrect', MAPS, 'upload_id=row.upload_id, id=row.id', 'upload_id=row.id, id=row.id', S3B + '::test_version_upload_id_reuse_preserves_image_and_yaml_settings'),
+])
+
+
+# PR29 recommendations: each fix must fail its regression when removed.
+MUTATIONS.extend([
+    ('S3b R29 deleted connector pair unchecked', MAPS,
+     '        validate_rollback_connectors(db, floor, features, fail)', '',
+     S3B + '::test_rollback_deleted_connector_pair_rejected_with_element'),
+    ('S3b R29 edit paint order ignored', MAPS,
+     'if old != new or moved:', 'if old != new:',
+     S3B + '::test_diff_edit_paint_order_changes_have_positions'),
+    ('S3b R29 valid snapshot diff cap too small', MAPS,
+     'MAX_DIFF_BYTES = 32 * 1024 * 1024', 'MAX_DIFF_BYTES = 2 * 1024 * 1024',
+     S3B + '::test_diff_accepts_two_maximum_stored_feature_snapshots'),
+    ('S3b R29 unapproved rollback allowed', MAPS,
+     "if original.status != 'APPROVED':", 'if False:',
+     S3B + '::test_rollback_requires_previously_approved_snapshot'),
+    ('S3b R29 changed before after reversed', MAPS,
+     'before=old, after=new,',
+     'before=new if old is not None and new is not None else old, after=old if old is not None and new is not None else new,',
+     S3B + '::test_diff_all_feature_kinds_image_and_default_base'),
+    ('S3b R29 rollback source number omitted', 'apps/server/fh_server/event_messages.py',
+     '{copied_from_number}판을 복사한 {number}판으로', '이전 지도를 복사한 {number}판으로',
+     S3B + '::test_rollback_new_immutable_snapshot_stale_current_role_reason_event'),
+])
+
+
 def run(tree, tests):
     report = tree / 'mutation-result.json'
     report.unlink(missing_ok=True)

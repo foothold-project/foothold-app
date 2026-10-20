@@ -50,6 +50,21 @@
     "MapEdit": {
       "additionalProperties": false,
       "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
         "op": {
           "enum": [
             "ERASE",
@@ -248,6 +263,19 @@
       ],
       "title": "Base Version Id"
     },
+    "copied_from_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Copied From Id"
+    },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
@@ -328,16 +356,23 @@
       "title": "Status",
       "type": "string"
     },
+    "upload_id": {
+      "format": "uuid",
+      "title": "Upload Id",
+      "type": "string"
+    },
     "width": {
       "title": "Width",
       "type": "integer"
     }
   },
   "required": [
+    "upload_id",
     "id",
     "floor_id",
     "number",
     "base_version_id",
+    "copied_from_id",
     "status",
     "image_sha256",
     "width",

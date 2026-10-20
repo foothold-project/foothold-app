@@ -650,6 +650,7 @@ class MapConnector(Contract):
 
 
 class MapEdit(Contract):
+    id: str | None = Field(default=None, min_length=1, max_length=128, pattern=r'\S', exclude_if=lambda value: value is None)
     op: Literal['ERASE', 'WALL']
     polyline: list[tuple[MapCoordinate, MapCoordinate]] = Field(min_length=2, max_length=256)
     width: MapCoordinate = Field(gt=0, le=100)
@@ -670,10 +671,12 @@ class MapVersionCreate(Contract):
 
 
 class MapVersion(Contract):
+    upload_id: UUID
     id: UUID
     floor_id: UUID
     number: int
     base_version_id: UUID | None
+    copied_from_id: UUID | None = None
     status: Literal['APPROVED', 'SUPERSEDED', 'PENDING', 'REJECTED']
     image_sha256: str
     width: int
@@ -685,6 +688,28 @@ class MapVersion(Contract):
     source: Literal['IMPORT', 'EDIT', 'ROLLBACK', 'SLAM']
     created_by: UUID
     created_at: UTCDateTime
+
+
+class MapRollback(Contract):
+    base_version_id: UUID
+    reason: str = Field(min_length=1, max_length=2000, pattern=r'\S')
+
+
+class MapFeatureChange(Contract):
+    kind: Literal['zones', 'waypoints', 'connectors', 'edits']
+    key: str
+    change: Literal['added', 'removed', 'changed']
+    before: MapZone | MapWaypoint | MapConnector | MapEdit | None
+    after: MapZone | MapWaypoint | MapConnector | MapEdit | None
+    before_index: int | None = Field(default=None, ge=0, le=255)
+    after_index: int | None = Field(default=None, ge=0, le=255)
+
+
+class MapDiff(Contract):
+    version: MapVersion
+    against: MapVersion | None
+    image_changed: bool
+    changes: list[MapFeatureChange]
 
 
 class MapVersionList(Contract):
@@ -717,7 +742,7 @@ class FloorConnectorList(Contract):
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
-REQUEST_MODELS = {MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
+REQUEST_MODELS = {MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)

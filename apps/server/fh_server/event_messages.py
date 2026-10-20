@@ -25,6 +25,7 @@ TEMPLATES = {
     'FLOOR_CREATED': '{person}님이 층 {place}을(를) 만들었습니다.',
     'FLOOR_UPDATED': '{person}님이 층 {place}을(를) 변경했습니다.',
     'FLOOR_DELETED': '{person}님이 층 {place}을(를) 지웠습니다.',
+    'MAP_VERSION_ROLLED_BACK': '{person}님이 {copied_from_number}판을 복사한 {number}판으로 되돌렸습니다. 이유: {reason}.',
     'MAP_VERSION_APPROVED': '{person}님이 지도 {number}판을 승인했습니다.',
     'LOGIN': '{person}님이 로그인했습니다.',
     'LOGIN_FAILED': '로그인에 실패했습니다.',
@@ -169,7 +170,7 @@ def render(db, ev, *, agent=False, other_user_id=None):
     robot = name(Robot, ev.robot_id, '로봇', Robot.name)
     person = name(User, ev.user_id, '운영자', User.display_name)
     other = name(User, other_user_id, '운영자', User.display_name)
-    values = dict(place=text_value(data.get('name')), number=number_value(data.get('number')), robot=robot, person=person, other=other, code=text_value(ev.code),
+    values = dict(copied_from_number=number_value(data.get('copied_from_number')), place=text_value(data.get('name')), number=number_value(data.get('number')), robot=robot, person=person, other=other, code=text_value(ev.code),
         subject=particle(robot, '이', '가'), with_particle=particle(robot, '과', '와'),
         object_particle=particle(robot, '을', '를'),
         count=number_value(data.get('count', 1)), status=text_value(data.get('last_status')),

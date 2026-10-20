@@ -267,10 +267,28 @@ export interface MapConnector {
   yaw: number;
 }
 
+export interface MapDiff {
+  version: MapVersion;
+  against: MapVersion | null;
+  image_changed: boolean;
+  changes: MapFeatureChange[];
+}
+
 export interface MapEdit {
+  id?: string | null;
   op: "ERASE" | "WALL";
   polyline: [number, number][];
   width: number;
+}
+
+export interface MapFeatureChange {
+  kind: "zones" | "waypoints" | "connectors" | "edits";
+  key: string;
+  change: "added" | "removed" | "changed";
+  before: MapZone | MapWaypoint | MapConnector | MapEdit | null;
+  after: MapZone | MapWaypoint | MapConnector | MapEdit | null;
+  before_index: number | null;
+  after_index: number | null;
 }
 
 export interface MapFeatures {
@@ -293,6 +311,11 @@ export interface MapName {
   name: string;
 }
 
+export interface MapRollback {
+  base_version_id: string;
+  reason: string;
+}
+
 export interface MapSite {
   id: string;
   name: string;
@@ -305,10 +328,12 @@ export interface MapUpload {
 }
 
 export interface MapVersion {
+  upload_id: string;
   id: string;
   floor_id: string;
   number: number;
   base_version_id: string | null;
+  copied_from_id: string | null;
   status: "APPROVED" | "SUPERSEDED" | "PENDING" | "REJECTED";
   image_sha256: string;
   width: number;
