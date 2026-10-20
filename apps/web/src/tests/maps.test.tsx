@@ -77,7 +77,7 @@ async function open(hash: string) {
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); });   // 내려가며 남긴 편집은 시험마다 버림
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); kept.d = null; kept.job = null; vi.unstubAllGlobals(); vi.restoreAllMocks(); });   // 내려가며 남긴 편집은 시험마다 버림
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btns = (from: ParentNode = box) => [...from.querySelectorAll('button')];
@@ -1022,6 +1022,40 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     expect(alertText()).toContain('다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다.');
     expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
     expect(btn('새로 불러오기')).toBeTruthy();
+  });
+  it('B5 저장 응답 대기 중 폰→PC 왕복: 돌아온 편집도 잠김(disabled === true)·다시 보내지 않음, STOP 은 정지 요청, 201 결과를 돌아온 화면이 알림', async () => {
+    let done!: (r: Reply) => void;
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => new Promise<Reply>((r) => { done = r; }) }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save('지점 추가');
+    await frame(true); await hashed();
+    expect(unload()).toBe(true);
+    await frame(false); await hashed();
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 판 2 편집 중');
+    expect(btn('새 판으로 저장')!.disabled === true).toBe(true);
+    expect(field('바꾼 이유', card('새 판으로 저장')).matches(':disabled')).toBe(true);
+    expect(box.textContent).toContain('새 판으로 저장하는 중…');
+    act(() => { (card('새 판으로 저장') as HTMLFormElement).requestSubmit(); }); await flush();
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+    await stopSends();
+    act(() => done(saved201['POST /floors/f1/map-versions'])); await flush();
+    expect(box.textContent).toContain('새 판을 저장했습니다(판 3)');
+    expect($('svg[data-edit]')).toBeNull(); expect(unload()).toBe(false);
+  });
+  it('B5 폰 틀에 있는 사이 저장이 409 STALE 로 끝남 → PC 로 돌아오면 그 결과를 알리고 편집 유지·잠금 풀림', async () => {
+    let done!: (r: Reply) => void;
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => new Promise<Reply>((r) => { done = r; }) }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save('지점 추가');
+    await frame(true); await hashed();
+    act(() => done(err(409, 'STALE', '기준 판이 바뀌었습니다.'))); await flush();
+    await frame(false); await hashed();
+    expect(alertText()).toContain('다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다.');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    expect(btn('새 판으로 저장')!.disabled).toBe(false);
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
   });
   it('B4 도구: 같은 도구 다시 = 그대로, 구역↔구역·선↔선은 점 이어 씀, 다른 갈래는 확인 뒤에만 지우고 나가기 확인은 남음', async () => {
     serve(editSrv());

@@ -119,7 +119,9 @@ const deg = (r: number) => Math.round((r * 180) / Math.PI), rad = (d: number) =>
 const pointsOf = (x: Item): P[] => ('polygon' in x ? x.polygon : 'polyline' in x ? x.polyline : [[x.x, x.y]]) as P[];
 /** 저장하지 않은 편집 — 폰 틀로 바뀌어 지도 탭이 내려가도 남겨 PC 로 돌아오면 이어 쓴다(B3). 나가기 확인·저장·로그아웃 때 비운다 */
 type Draft = { floor: string; base: MapVersion; f: MapFeatures; dirty: boolean; pts: P[]; tool: Tool; width: number; reason: string };
-export const kept: { d: Draft | null } = { d: null };
+/** 보낸 저장 요청(B5) — 기다리는 사이 폰 틀로 내려갔다 돌아와도 같은 층·같은 기준 판 편집이 잠금·결과를 이어받는다 */
+type Job = { floor: string; base: string; wait: Promise<void>; done?: { ok: MapVersion } | { fail: ApiFail } };
+export const kept: { d: Draft | null; job: Job | null } = { d: null, job: null };
 addEventListener('beforeunload', (e) => { if (kept.d) { e.preventDefault(); e.returnValue = ''; } });
 const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다. «새로 불러오기»를 누르면 지금 편집 내용을 잃습니다.';
 
@@ -129,7 +131,8 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
   const [k] = useState(() => (kept.d?.floor === p.floor.id && kept.d.base.id === v.id ? kept.d : null));
   const [f, setF] = useState<MapFeatures>(() => k?.f ?? JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
   const [dirty, setDirty] = useState(k?.dirty ?? false), [tool, setTool] = useState<Tool>(k?.tool ?? 'pick'), [pts, setPts] = useState<P[]>(k?.pts ?? []), [sel, setSel] = useState(''), [width, setWidth] = useState(k?.width ?? 0.1);
-  const [reason, setReason] = useState(k?.reason ?? ''), [busy, setBusy] = useState(false), [msg, setMsg] = useState<Msg>(null), [bad, setBad] = useState<Bad | null>(null), [stale, setStale] = useState(false);
+  const mine = (j: Job | null): j is Job => !!j && j.floor === p.floor.id && j.base === v.id;
+  const [reason, setReason] = useState(k?.reason ?? ''), [busy, setBusy] = useState(() => mine(kept.job)), [msg, setMsg] = useState<Msg>(null), [bad, setBad] = useState<Bad | null>(null), [stale, setStale] = useState(false);
   const [ask, setAsk] = useState<{ text: string; yes: string; go: () => void } | null>(null);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
   const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
@@ -140,7 +143,25 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
   const snap = useRef<Draft | null>(null), left = useRef(false);
   snap.current = unsaved ? { floor: p.floor.id, base: v, f, dirty, pts, tool, width, reason } : null;
   useEffect(() => { kept.d = null; return () => { kept.d = left.current ? null : snap.current; }; }, []);
-  useEffect(() => { if (moved) { setStale(true); setMsg({ text: STALE }); } }, [moved]);
+  useEffect(() => { if (moved && !busy) { setStale(true); setMsg({ text: STALE }); } }, [moved]);   // 저장을 기다리는 중이면 그 결과가 알린다
+
+  // 저장 결과는 지금 올라와 있는 편집이 받는다(내려가 있던 사이 끝났으면 돌아올 때) — 결과를 받은 뒤에야 보관처를 비운다
+  const settle = useRef((_: Job) => {}), alive = useRef(false);
+  const follow = (j: Job) => j.wait.then(() => { if (alive.current) settle.current(j); });
+  useEffect(() => { alive.current = true; if (mine(kept.job)) follow(kept.job); return () => { alive.current = false; if (left.current) kept.job = null; }; }, []);
+  settle.current = (j) => {
+    if (kept.job === j) kept.job = null;
+    setBusy(false);
+    const d = j.done!;
+    if ('ok' in d) { leaving.ask = null; left.current = true; saved(d.ok); return; }
+    const x = d.fail;
+    if (x.code === 'CANCELED') return;
+    // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 목록을 다시 받아 보이고, 편집 내용은 그대로 둔다(다시 저장하면 기준이 바뀌어 STALE 로 막힘)
+    if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
+    if (x.code === 'STALE') { setStale(true); setMsg({ text: STALE }); return; }
+    if (x.code === 'INVALID_FEATURES') { const b = serverBad(x); setBad(b); setSel(keyOf(b.path)); return; }
+    setMsg({ text: `저장하지 못했습니다. ${saveFail(x)}` });
+  };
   useEffect(() => {
     if (!unsaved) return;
     leaving.ask = (go) => setAsk({ text: '저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.', yes: '나가기', go: () => { leaving.ask = null; left.current = true; go(); } });
@@ -221,28 +242,20 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     setPts([]);
   };
 
-  const save = async (e: FormEvent) => {
+  const save = (e: FormEvent) => {
     e.preventDefault();
-    if (busy || !v.upload_id) return;
+    if (busy || kept.job || !v.upload_id) return;
     if (pts.length) return setMsg({ text: '그리던 구역·선을 먼저 닫거나 지우세요.' });
     if (!dirty) return setMsg({ text: '바꾼 것이 없습니다. 도구로 지도를 고친 뒤 저장하세요.' });
     const b = check(f, v, others.map((x) => x.id));
     if (b) { setBad(b); setSel(keyOf(b.path)); setMsg(null); return; }
     if (!reason.trim()) return setMsg({ text: '바꾼 이유를 입력하세요.' });
     setBusy(true); setMsg(null); setBad(null); setStale(false);
-    try {
-      const x = await api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: f, reason: reason.trim() }, cancel).then(shape(isVersion));   // 빈·어긋난 201 = 저장 불확실(status 0)
-      leaving.ask = null; left.current = true;
-      saved(x);
-    } catch (y) {
-      const x = y as ApiFail;
-      if (x.code === 'CANCELED') return;
-      // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 목록을 다시 받아 보이고, 편집 내용은 그대로 둔다(다시 저장하면 기준이 바뀌어 STALE 로 막힘)
-      if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
-      if (x.code === 'STALE') { setStale(true); setMsg({ text: STALE }); return; }
-      if (x.code === 'INVALID_FEATURES') { const b = serverBad(x); setBad(b); setSel(keyOf(b.path)); return; }
-      setMsg({ text: `저장하지 못했습니다. ${saveFail(x)}` });
-    } finally { setBusy(false); }
+    const j: Job = { floor: p.floor.id, base: v.id, wait: Promise.resolve() };
+    j.wait = api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: f, reason: reason.trim() }, cancel).then(shape(isVersion))   // 빈·어긋난 201 = 저장 불확실(status 0)
+      .then((x) => { j.done = { ok: x }; }, (y) => { j.done = { fail: y as ApiFail }; });
+    kept.job = j;
+    follow(j);
   };
 
   const hint = zone ? `점 ${pts.length}개 — 지도를 눌러 구역 둘레를 차례로 찍고, 3개 이상이면 «닫기»를 누르세요.`
