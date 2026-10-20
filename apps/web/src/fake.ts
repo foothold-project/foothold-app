@@ -1,5 +1,5 @@
 // 화면 자료 모양 + 아직 가짜인 묶음. USERS·ROBOTS 는 처음 비어 있고 로그인하면 서버 값(/me·/robots)으로 채운다(setServerData).
-// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 시나리오는 아직 가짜(사건은 서버 /events — screens/history.tsx, 장소·지도는 /sites — screens/maps.tsx, 결재는 /approvals — screens/approvals.tsx).
+// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 폰 시나리오 카드는 아직 가짜(임무 탭 목록·편집은 /missions·/scenarios — screens/missions.tsx, 사건은 서버 /events — screens/history.tsx, 장소·지도는 /sites — screens/maps.tsx, 결재는 /approvals — screens/approvals.tsx).
 import type { Device, Location, RobotSummary } from '../../contracts/ts';
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };

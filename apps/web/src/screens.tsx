@@ -1,6 +1,6 @@
-// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx), 그 밖은 가짜. 빈 칸(.fh-slot)은 다음 작업 자리.
+// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 그 밖은 가짜(폰 시나리오 카드). 빈 칸(.fh-slot)은 다음 작업 자리.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { ROBOTS, SCENARIOS, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
+import { SCENARIOS, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
@@ -10,6 +10,7 @@ import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
+import { Missions } from './screens/missions';
 import type { TabId } from './menu';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
@@ -113,7 +114,7 @@ function Operators({ user, d }: { user: User; d: Dashboard | null }) {
   </section>;
 }
 
-const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_DEPTH: '뎁스 카메라', LIDAR: '라이다', BATTERY: '배터리', OTHER: '기타' };
+export const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_DEPTH: '뎁스 카메라', LIDAR: '라이다', BATTERY: '배터리', OTHER: '기타' };
 const DEVICE: Record<Device['state'], { tone: Tone; text: string }> = { OK: { tone: 'ok', text: '정상' }, MISSING: { tone: 'warn', text: '연결 끊겨 확인 안 됨' }, ERROR: { tone: 'bad', text: '오류' } };
 const m = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} m`);
 const hms = (at: string) => new Date(at).toTimeString().slice(0, 8);
@@ -151,20 +152,6 @@ function Detail(c: Ctx) {
   </section>;
 }
 
-function Mission() {
-  return <>
-    <section className="lv-card" aria-label="목록">
-      <div className="fh-row"><button type="button" className="btn" aria-pressed="true" {...soon}>시나리오</button><button type="button" className="btn" {...soon}>임무</button><span className="fh-grow" /><button type="button" className="btn pri" {...soon}>새 시나리오</button></div>
-      <ul className="fh-list">{SCENARIOS.map((s) => <li key={s.id}><button type="button" {...soon}><b>{s.name}</b><span>{ROBOTS.find((r) => r.id === s.robot)?.name}</span><span className="lbl">{s.last}</span></button></li>)}</ul>
-    </section>
-    <section className="lv-card" aria-label="편집">
-      <h2>① 지도</h2><Slot text="층 고르기 자리" h={60} />
-      <h2>② 지점</h2><Slot text="지도 눌러 지점 추가 자리" />
-      <h2>③ 확인</h2><Slot text="거리·필요 장치 자리" h={60} />
-    </section>
-  </>;
-}
-
 function Scenario(c: Ctx) {
   return <>{SCENARIOS.filter((s) => s.robot === c.robot.id).map((s) => <section key={s.id} className="lv-card">
     <div className="fh-row"><h2 className="fh-grow">{s.name}</h2><button type="button" className="btn pri" aria-label={`${s.name} 실행`} {...soon}>▶</button></div>
@@ -173,4 +160,4 @@ function Scenario(c: Ctx) {
   {!SCENARIOS.some((s) => s.robot === c.robot.id) && <p className="lv-note">이 로봇에 배정된 시나리오가 없습니다.</p>}</>;
 }
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approvals, history: History, map: Maps, settings: Settings, scenario: Scenario };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Missions, approval: Approvals, history: History, map: Maps, settings: Settings, scenario: Scenario };
