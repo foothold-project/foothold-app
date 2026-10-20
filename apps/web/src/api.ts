@@ -13,6 +13,8 @@ const NETWORK = '서버에 연결하지 못했습니다. 네트워크를 확인�
 const SLOW = '서버가 제시간에 답하지 않았습니다.';
 /** 알림 한 번 받기 제한시간 — 다음 폴링은 이 요청이 끝난 뒤(screens/history.tsx Bell) */
 export const NOTE_MS = 10_000;
+/** 지도 읽기 / 지도 파일 보내기·판 저장 제한시간. 쓰기는 서버 수신 마감(30 s, 넘으면 408)과 변환 시간보다 길게 — 서버 답이 먼저 오게 */
+export const MAP_READ_MS = 20_000, MAP_WRITE_MS = 60_000;
 
 /** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못함, said = 서버가 계약 오류 본문(error.code)으로 답함 */
 export class ApiFail extends Error {
@@ -54,10 +56,10 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
 }
 
 /** 목록 쪽 넘김(§1.5)을 끝까지 */
-async function pages<T>(path: string, cancel?: AbortSignal) {
+async function pages<T>(path: string, cancel?: AbortSignal, ms?: number) {
   const all: T[] = [];
   for (let cursor: string | null = ''; cursor != null;) {
-    const r: { items: T[]; next_cursor: string | null } = await call('GET', `${path}${path.includes('?') ? '&' : '?'}limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, { cancel });
+    const r: { items: T[]; next_cursor: string | null } = await call('GET', `${path}${path.includes('?') ? '&' : '?'}limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, { cancel, ms });
     all.push(...r.items); cursor = r.next_cursor;
   }
   return all;
@@ -109,7 +111,7 @@ export const api = {
   /** {ids} 또는 {all:true} — 204. 남의·없는 id 가 섞이면 404(하나도 읽음 처리 안 됨) */
   readNotifications: (p: NotificationsRead, cancel?: AbortSignal) => call<void>('POST', '/notifications/read', p, { cancel }),
   // 장소·층·지도 판(05 §5, S3a). 만들기·이름 바꾸기·지우기는 총괄만(운영 관리자는 서버가 403). kind = 경로 앞부분
-  sites: (cancel?: AbortSignal) => call<SiteTree>('GET', '/sites', undefined, { cancel }),
+  sites: (cancel?: AbortSignal) => call<SiteTree>('GET', '/sites', undefined, { cancel, ms: MAP_READ_MS }),
   createSite: (name: string, cancel?: AbortSignal) => call<MapSite>('POST', '/sites', { name }, { cancel }),
   createBuilding: (site: string, name: string, cancel?: AbortSignal) => call<MapBuilding>('POST', `/sites/${encodeURIComponent(site)}/buildings`, { name }, { cancel }),
   createFloor: (building: string, p: FloorCreate, cancel?: AbortSignal) => call<MapFloor>('POST', `/buildings/${encodeURIComponent(building)}/floors`, p, { cancel }),
@@ -117,14 +119,14 @@ export const api = {
   /** 안에 건물·층·지도 판이 있거나 로봇·연결점이 쓰는 층이면 409 RESOURCE_IN_USE */
   deletePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, cancel?: AbortSignal) => call<void>('DELETE', `/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
   /** 층의 판 목록(최신 번호 먼저, 지도 요소 포함) */
-  versions: (floor: string, cancel?: AbortSignal) => pages<MapVersion>(`/floors/${encodeURIComponent(floor)}/map-versions`, cancel),
-  version: (id: string, cancel?: AbortSignal) => call<MapVersion>('GET', `/map-versions/${encodeURIComponent(id)}`, undefined, { cancel }),
+  versions: (floor: string, cancel?: AbortSignal) => pages<MapVersion>(`/floors/${encodeURIComponent(floor)}/map-versions`, cancel, MAP_READ_MS),
+  version: (id: string, cancel?: AbortSignal) => call<MapVersion>('GET', `/map-versions/${encodeURIComponent(id)}`, undefined, { cancel, ms: MAP_READ_MS }),
   /** 판 그림(png) 주소 — <image> 가 쿠키로 바로 받는다(큰 그림을 JS 메모리로 옮기지 않음) */
   imageUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/image`,
   /** 원시 본문 올리기 두 단계: 그림(type = image/png·image/x-portable-graymap) → 그 ID 로 yaml(text/yaml). 둘째 응답 ID 가 판 저장의 image */
-  upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type }),
+  upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type, ms: MAP_WRITE_MS }),
   /** 총괄 = 바로 승인 판. base_version_id 가 지금 승인 판과 다르면 409 STALE, 운영 관리자는 403 APPROVAL_REQUIRED(S4 전) */
-  saveVersion: (floor: string, p: MapVersionCreate, cancel?: AbortSignal) => call<MapVersion>('POST', `/floors/${encodeURIComponent(floor)}/map-versions`, p, { cancel }),
+  saveVersion: (floor: string, p: MapVersionCreate, cancel?: AbortSignal) => call<MapVersion>('POST', `/floors/${encodeURIComponent(floor)}/map-versions`, p, { cancel, ms: MAP_WRITE_MS }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
 };

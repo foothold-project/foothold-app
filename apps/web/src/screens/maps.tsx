@@ -54,7 +54,9 @@ export function MapView({ v }: { v: MapVersion }) {
 function useTree(cancel?: AbortSignal) {
   const [tree, setTree] = useState<SiteTree | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
   useEffect(() => {
-    api.sites(cancel).then(shape(isTree)).then((t) => { setTree(t); setErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(e.message); });
+    let live = true;   // 다시 받기가 겹치면 지난 요청의 늦은 답은 버린다
+    api.sites(cancel).then(shape(isTree)).then((t) => { if (live) { setTree(t); setErr(''); } }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
+    return () => { live = false; };
   }, [n]);
   return { tree, err, again: () => setN((x) => x + 1) };
 }
@@ -96,6 +98,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'>) {
     if (!form) return;
     const name = form.name.trim(), level = Number(form.level), k = form.kind;
     if (!name) return setMsg({ text: '이름을 입력하세요.' });
+    if (/[\p{Cc}\p{Cf}]/u.test(form.name)) return setMsg({ text: '이름에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.' });   // 서버도 422
     if (k === 'floors' && !(/^\s*-?\d+\s*$/.test(form.level) && Math.abs(level) <= 1000)) return setMsg({ text: '층 번호는 -1000~1000 사이 정수로 입력하세요(지하 1층 = -1).' });
     const p = k === 'floors' ? { name, level } : { name };
     run(k, async () => {
@@ -167,14 +170,20 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림·정보, 총괄은 새 지도 올리기 */
 function FloorView({ p, admin, names, cancel, again }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void }) {
   const approved = p.floor.approved_version_id;
-  const [list, setList] = useState<MapVersion[] | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
+  const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
+  // 목록은 받을 때의 기준(몇 번째 받기 + 승인 판 id)과 묶어 둔다 — 기준이 바뀌면 새 목록이 올 때까지 없음으로(늦게 온 옛 목록이 덮지 않게)
+  const key = `${n}:${approved}`;
   useEffect(() => {
-    api.versions(p.floor.id, cancel).then(shape((l: MapVersion[]) => l.every(isVersion))).then((l) => { setList(l); setErr(''); }, (e: ApiFail) => {
-      if (e.code === 'CANCELED') return;
+    let live = true;
+    setErr('');
+    api.versions(p.floor.id, cancel).then(shape((l: MapVersion[]) => l.every(isVersion))).then((l) => { if (live) setGot({ key, list: l }); }, (e: ApiFail) => {
+      if (!live || e.code === 'CANCELED') return;
       setErr(e.status === 404 ? '이 층을 찾을 수 없습니다. 지워졌을 수 있어 장소 목록을 다시 받습니다.' : `판 목록을 받지 못했습니다. ${e.message}`);
       if (e.status === 404) again();
     });
-  }, [n, approved]);
+    return () => { live = false; };
+  }, [key]);
+  const list = got?.key === key ? got.list : null;
   const now = list?.find((v) => v.id === approved) ?? null, v = list?.find((x) => x.id === sel) ?? now, who = v && names(v.created_by);
   const title = `${p.site.name} ${p.building.name} ${p.floor.name}`;
   return <section className="lv-card" aria-label="지도 보기">
@@ -194,7 +203,8 @@ function FloorView({ p, admin, names, cancel, again }: { p: Place; admin: boolea
     </> : list && <p className="lv-note">아직 지도가 없습니다.{admin ? ' 아래에서 지도 파일을 올리세요.' : ''}</p>}
     {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
     {!list && !err && <p className="lv-note" role="status">판 목록을 불러오는 중…</p>}
-    {admin && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list || !!err} cancel={cancel}
+    {/* 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다) */}
+    {admin && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list && (!approved || !!now)} cancel={cancel}
       saved={(x) => { setSel(x.id); setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
   </section>;
 }
@@ -208,9 +218,11 @@ function upFail(e: ApiFail, step: number) {
   if (e.code === 'UPLOAD_TOO_LARGE') return TOO_BIG;
   if (e.code === 'STALE') return STALE;
   if (e.code === 'INVALID_FEATURES') return '지금 판의 구역·지점·연결점 중 새 지도 범위 밖에 있는 것이 있습니다. «지금 판의 구역·지점·연결점 그대로 두기»를 끄고 다시 올리세요.';
-  if (e.code === 'INVALID_UPLOAD') return step === 0 ? '지도 그림 파일을 읽을 수 없습니다. 지도를 만들 때 저장한 pgm·png 파일인지 확인하세요.'
+  if (e.code === 'INVALID_UPLOAD') return step === 0 ? '지도 그림 파일을 읽을 수 없습니다. 지도를 만들 때 저장한 pgm·png 파일인지, 가로·세로 4096 픽셀 이하인지 확인하세요.'
     : step === 1 ? '지도 설정 파일을 읽을 수 없습니다. 그림과 함께 저장된 yaml 파일인지 확인하세요.' : '올린 파일을 지도로 쓸 수 없습니다. 두 파일을 다시 골라 올리세요.';
   if (e.status === 404) return '이 층을 찾을 수 없습니다. 지워졌을 수 있어 새로 불러오세요.';
+  if (e.status === 408 || e.code === 'TIMEOUT') return '파일을 보내는 데 시간이 너무 오래 걸렸습니다. 네트워크를 확인한 뒤 다시 올리세요.';
+  if (e.status === 503) return '서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 올리세요.';
   return e.message;
 }
 
@@ -221,7 +233,7 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
   const [step, setStep] = useState(''), [msg, setMsg] = useState<Msg>(null), [stale, setStale] = useState(false), [fresh, setFresh] = useState(0);   // fresh = 저장 뒤 파일 칸 비우기
   const go = async (e: FormEvent) => {
     e.preventDefault();
-    if (step) return;
+    if (step || !ready) return;
     setStale(false);
     const type = img && imageType(img);
     if (!img || !yml) return setMsg({ text: '지도 그림(pgm·png)과 지도 설정(yaml) 파일을 모두 고르세요.' });
@@ -244,6 +256,8 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
     } catch (x) {
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
+      // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 목록을 다시 받아 보여 주고 같은 파일을 두 번 올리지 않게 알린다
+      if (at === 2 && f.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 올리지 마세요.' }); again(); return; }
       setMsg({ text: `올리지 못했습니다. ${upFail(f, at)}` }); setStale(f.code === 'STALE' || f.status === 404);
     } finally { setStep(''); }
   };
@@ -253,6 +267,8 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
     <label className="fh-field"><span>지도 설정(yaml)</span><input type="file" className="inp" accept=".yaml,.yml" onChange={(e) => setYml(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     {keep && <label className="fh-row"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /><span>지금 판의 구역·지점·연결점 그대로 두기</span></label>}
+    {keep && !hold && <p className="fh-msg" role="alert">끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 판이 됩니다.</p>}
+    {!ready && !step && <p className="lv-note" role="status">지금 승인 판의 구역·지점·연결점을 받은 뒤에 올릴 수 있습니다.</p>}
     <div className="fh-row"><button type="submit" className="btn pri" disabled={!!step || !ready}>올리기</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(null); again(); }}>새로 불러오기</button>}</div>
     {step && <p className="lv-note" role="status">{step}</p>}
     <Note m={msg} />
@@ -277,7 +293,11 @@ export function FloorMap({ cancel }: { cancel?: AbortSignal }) {
 
 function Approved({ id, cancel }: { id: string; cancel?: AbortSignal }) {
   const [v, setV] = useState<MapVersion | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
-  useEffect(() => { api.version(id, cancel).then(shape(isVersion)).then((x) => { setV(x); setErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(e.message); }); }, [n]);
+  useEffect(() => {
+    let live = true;
+    api.version(id, cancel).then(shape(isVersion)).then((x) => { if (live) { setV(x); setErr(''); } }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
+    return () => { live = false; };
+  }, [n]);
   if (v) return <MapView v={v} />;
   return err ? <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>
     : <p className="lv-note" role="status">지도를 불러오는 중…</p>;

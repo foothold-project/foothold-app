@@ -145,6 +145,10 @@ describe('지도 탭 — 장소 나무', () => {
     expect(btn('이름 바꾸기')).toBeUndefined();
     await click(btn('고치기'));
     await click(btn('+ 장소'));
+    await setVal(field('이름', card('새 장소')), '별관​');                          // 보이지 않는 글자(서버 422) — 보내지 않음
+    await click(btn('저장', card('새 장소')));
+    expect(alertText()).toContain('보이지 않는 글자는 쓸 수 없습니다.');
+    expect(writes()).toEqual([]);
     await setVal(field('이름', card('새 장소')), '  별관 ');
     await click(btn('저장', card('새 장소')));
     await click(btn('+ 건물'));
@@ -381,6 +385,107 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     expect(sent('POST', '/floors/f1/map-versions').map((c) => (c.body as { base_version_id: string }).base_version_id)).toEqual(['v2', 'v3']);
     expect(card('지도 보기').textContent).toContain('새 판을 저장했습니다(판 4).');
   });
+  it('검토 B1: 승인 판이 있는데 판 목록이 503·네트워크 실패면 올리기 막힘(빈 요소로 새 승인 판 금지) → 받은 뒤에는 그 판 요소를 그대로 보냄', async () => {
+    const lists: Route[] = [err(503, 'SERVICE_UNAVAILABLE', '잠시 뒤 다시 시도하세요.'), () => { throw new TypeError('Failed to fetch'); }];
+    serve(ok({ 'GET /floors/f1/map-versions': (q) => { const r = lists.shift(); return !r ? { status: 200, body: { items: [V2, V1], next_cursor: null } } : typeof r === 'function' ? r(q) : r; } }));
+    await open('#/map');
+    expect(alertText()).toContain('판 목록을 받지 못했습니다.');
+    await fillUpload();
+    expect(btn('올리기')!.disabled).toBe(true);
+    expect(card('새 지도 올리기').querySelector('input[type=checkbox]')).toBeNull();
+    expect(card('새 지도 올리기').textContent).toContain('지금 승인 판의 구역·지점·연결점을 받은 뒤에 올릴 수 있습니다.');
+    act(() => (card('새 지도 올리기') as HTMLFormElement).requestSubmit()); await flush();   // 단추를 우회해 보내도
+    await click(btn('다시 시도', card('지도 보기')));
+    expect(btn('올리기')!.disabled).toBe(true);                                               // 네트워크 실패도 같음
+    expect(writes()).toEqual([]);
+    await click(btn('다시 시도', card('지도 보기')));
+    await fillUpload();
+    await click(btn('올리기'));
+    expect(sent('POST', '/floors/f1/map-versions')[0].body).toMatchObject({ base_version_id: 'v2', features: { zones: FEAT.zones, waypoints: FEAT.waypoints, connectors: FEAT.connectors, edits: [] } });
+  });
+  it('검토 B1: 빈 요소로 바꾸기는 «그대로 두기»를 끄는 명시적 선택 + 경고', async () => {
+    serve(ok());
+    await open('#/map');
+    expect(alertText()).not.toContain('모두 빠진 새 판');
+    act(() => (card('새 지도 올리기').querySelector('input[type=checkbox]') as HTMLInputElement).click()); await flush();
+    expect(alertText()).toContain('끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 판이 됩니다.');
+  });
+  it('검토 B2: STALE 새로 불러오기에서 옛 기준 판 목록이 늦게 와도 최신 목록(판 3)을 덮지 않음, 새 판 자료 전엔 올리기 막힘', async () => {
+    let tree = TREE, n = 0, late: (r: Reply) => void = () => {};
+    const moved: SiteTree = { items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [floor('f1', '1층', 1, 'v3'), floor('f2', '2층', 2, null)] }] }], next_cursor: null };
+    const V3 = ver('v3', 3, { features: { ...FEAT, zones: [{ ...FEAT.zones[0], id: 'z3' }] } });
+    serve(ok({ 'GET /sites': () => ({ status: 200, body: tree }), 'GET /map-versions/v3': { status: 200, body: V3 },
+      'GET /floors/f1/map-versions': () => (++n === 2 ? new Promise<Reply>((r) => { late = r; }) : { status: 200, body: { items: n === 1 ? [V2, V1] : [V3, V2, V1], next_cursor: null } }),
+      'POST /floors/f1/map-versions': (_q, b) => ((b as { base_version_id: string }).base_version_id === 'v3' ? { status: 201, body: ver('v4', 4) }
+        : { status: 409, body: { error: { code: 'STALE', message: '승인된 지도 판이 바뀌었습니다.', detail: { approved_version_id: 'v3' } } } }) }));
+    await open('#/map');
+    await fillUpload();
+    tree = moved;
+    await click(btn('올리기'));
+    await click(btn('새로 불러오기'));                       // 목록 A(옛 기준 v2)는 매달림, 나무가 v3 로 바뀌며 목록 B 는 바로 옴
+    expect(n).toBe(3);
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 3');
+    await act(async () => late({ status: 200, body: { items: [V2, V1], next_cursor: null } })); await flush();   // A 가 늦게 끝남
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 3');
+    expect(card('지도 보기').textContent).not.toContain('아직 지도가 없습니다');
+    await click(btn('올리기'));
+    expect(sent('POST', '/floors/f1/map-versions')[1].body).toMatchObject({ base_version_id: 'v3', features: { zones: V3.features.zones } });
+  });
+  it('검토 B2: 기준 판이 바뀐 뒤 새 목록이 오기 전에는 올리기 막힘', async () => {
+    let tree = TREE, n = 0, late: (r: Reply) => void = () => {};
+    const moved: SiteTree = { items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [floor('f1', '1층', 1, 'v3'), floor('f2', '2층', 2, null)] }] }], next_cursor: null };
+    serve(ok({ 'GET /sites': () => ({ status: 200, body: tree }),
+      'GET /floors/f1/map-versions': () => (++n === 1 ? { status: 200, body: { items: [V2, V1], next_cursor: null } } : new Promise<Reply>((r) => { late = r; })),
+      'POST /floors/f1/map-versions': err(409, 'STALE', '승인된 지도 판이 바뀌었습니다.') }));
+    await open('#/map');
+    await fillUpload();
+    tree = moved;
+    await click(btn('올리기'));
+    await click(btn('새로 불러오기'));
+    expect(btn('올리기')!.disabled).toBe(true);
+    expect(card('지도 보기').textContent).not.toContain('승인 판 2');                     // 옛 판을 지금 판처럼 보이지 않음
+    expect(card('지도 보기').textContent).toContain('판 목록을 불러오는 중…');            // 옛 기준 목록으로 «지도 없음»이라 하지 않음
+    expect(card('지도 보기').textContent).not.toContain('아직 지도가 없습니다');
+    await act(async () => late({ status: 200, body: { items: [ver('v3', 3), V2, V1], next_cursor: null } })); await flush();
+    expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(1);
+  });
+  it('저장 응답이 끊기면 다시 올리라 하지 않고 판 목록·나무를 다시 받음, 408·503 은 쉬운 문구', async () => {
+    const ups: Reply[] = [err(408, 'REQUEST_TIMEOUT', 'request body timeout'), err(503, 'BUSY', 'converter slots exhausted')];
+    serve(ok({ 'POST /uploads': (q) => ups.shift() ?? { status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: '' } },
+      'POST /floors/f1/map-versions': () => { throw new TypeError('Failed to fetch'); } }));
+    await open('#/map');
+    await fillUpload();
+    await click(btn('올리기'));
+    expect(alertText()).toContain('파일을 보내는 데 시간이 너무 오래 걸렸습니다.');
+    await click(btn('올리기'));
+    expect(alertText()).toContain('서버가 지금 다른 지도를 처리하고 있습니다.');
+    expect(alertText()).not.toMatch(/timeout|slots/);
+    const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
+    await click(btn('올리기'));
+    expect(alertText()).toContain('저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다.');
+    expect(sent('GET', '/floors/f1/map-versions').length).toBe(lists + 1);
+    expect(sent('GET', '/sites').length).toBe(trees + 1);
+    expect(btn('새로 불러오기')).toBeUndefined();
+    await stopSends();
+  });
+});
+
+describe('지도 요청 제한시간', () => {
+  afterEach(() => { vi.useRealTimers(); });
+  it('올리기·판 저장은 60 s, 지도 읽기는 20 s 넘게 답이 없으면 끊고 TIMEOUT', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', (_u: string, init: RequestInit) => new Promise((_ok, no) => init.signal!.addEventListener('abort', () => no(new DOMException('aborted', 'AbortError')))));
+    const { api } = await import('../api');
+    const up = api.upload(new Blob(['x']), 'image/png').catch((e) => e), save = api.saveVersion('f1', { base_version_id: null, image: 'u', features: EMPTY, reason: 'r' }).catch((e) => e);
+    const list = api.versions('f1').catch((e) => e), done: unknown[] = [];
+    up.then((e) => done.push(['up', e.code])); list.then((e) => done.push(['list', e.code])); save.then((e) => done.push(['save', e.code]));
+    await vi.advanceTimersByTimeAsync(19_999);
+    expect(done).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(done).toEqual([['list', 'TIMEOUT']]);
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(done).toEqual([['list', 'TIMEOUT'], ['up', 'TIMEOUT'], ['save', 'TIMEOUT']]);
+  });
 });
 
 describe('관제 지도 칸 — 층 고르기(FL-03)', () => {
@@ -407,6 +512,13 @@ describe('관제 지도 칸 — 층 고르기(FL-03)', () => {
     expect(card('지도').textContent).toContain('지도를 받지 못했습니다. 서버에 연결하지 못했습니다');
     expect(card('로봇 목록').textContent).toContain('Go2-A');
     await stopSends();
+  });
+  it('로봇 0대 관제에도 층·지도 칸(검토 권고)', async () => {
+    serve(signedIn(KIM, { 'GET /robots': { status: 200, body: { items: [], next_cursor: null } } }));
+    await open('#/fleet');
+    expect([...card('지도').querySelectorAll('[aria-label="층"] button')].map((b) => b.textContent)).toEqual(['1층', '2층']);
+    expect(card('지도').querySelector('svg image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect($('[data-stop]')).toBeTruthy();
   });
   it('층이 없으면 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));

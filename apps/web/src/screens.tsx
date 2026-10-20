@@ -61,8 +61,11 @@ function useDash(cancel?: AbortSignal) {
 /** 로봇 0대의 관제: 요약·운영 관리자 표 + 빈 목록 안내(children) */
 export function EmptyFleet({ user, cancel, children }: { user: User; cancel?: AbortSignal; children: ReactNode }) {
   const [d, err] = useDash(cancel);
-  return <><Kpi user={user} d={d} err={err} />{children}<Operators user={user} d={d} /></>;
+  return <><Kpi user={user} d={d} err={err} />{children}<MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
+
+/** 관제 지도 칸 — 로봇 수와 상관없이. 칸 안 렌더 예외는 Guard 가 가둔다(STOP 은 머리줄) */
+const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
 
 function Fleet(c: Ctx) {
   const admin = c.user.role === 'ORG_ADMIN', r = c.robot, [d, err] = useDash(c.cancel);
@@ -76,10 +79,7 @@ function Fleet(c: Ctx) {
           <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보기 전용' : ''}</span>
         </button></li>; })}</ul>
     </section>
-    <section className="lv-card" aria-label="지도">
-      <h2>지도</h2>
-      <Guard><FloorMap cancel={c.cancel} /></Guard>
-    </section>
+    <MapCard cancel={c.cancel} />
     {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
     <Detail key={`${r.id}-${r.owner}`} {...c} />
     <Operators user={c.user} d={d} />
