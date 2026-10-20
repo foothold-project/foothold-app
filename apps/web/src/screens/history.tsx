@@ -12,7 +12,7 @@ const KINDS: [Ev['category'] | '', string][] = [['', '전체'], ['RUN', '임무'
 const KIND_NAME = Object.fromEntries(KINDS) as Record<string, string>;
 const TONE: Record<string, Tone> = { INFO: 'ok', WARN: 'warn', ERROR: 'bad' };
 /** 현지 날짜·시각 10/20 14:02(브라우저 시간대) */
-function when(at: string) {
+export function when(at: string) {
   const d = new Date(at);
   return `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`;
 }

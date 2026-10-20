@@ -1,5 +1,5 @@
 // 화면 자료 모양 + 아직 가짜인 묶음. USERS·ROBOTS 는 처음 비어 있고 로그인하면 서버 값(/me·/robots)으로 채운다(setServerData).
-// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 결재·시나리오는 아직 가짜(사건은 서버 /events — screens/history.tsx, 장소·지도는 /sites — screens/maps.tsx).
+// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 시나리오는 아직 가짜(사건은 서버 /events — screens/history.tsx, 장소·지도는 /sites — screens/maps.tsx, 결재는 /approvals — screens/approvals.tsx).
 import type { Device, Location, RobotSummary } from '../../contracts/ts';
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };
@@ -12,7 +12,6 @@ export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' 
 export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
 export type Robot = { id: string; name: string; owner: string; ownerName?: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[] };
-export type Approval = { id: string; kind: string; target: string; by: string; at: string };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
 
 export const ROLE_NAME: Record<Role, string> = { ORG_ADMIN: '총괄', OPERATOR: '운영 관리자' };
@@ -21,11 +20,6 @@ export const STATUS_NAME: Record<Status, string> = { STOP_LATCHED: '정지 잠�
 export const USERS: User[] = [];
 
 export const ROBOTS: Robot[] = [];
-
-export const APPROVALS: Approval[] = [
-  { id: 'a1', kind: '지도 수정', target: '본관 2층', by: 'u-park', at: '10:42' },
-  { id: 'a2', kind: '배정', target: '2층 순찰 → Go2-3', by: 'u-lee', at: '11:05' },
-];
 
 export const SCENARIOS = [
   { id: 's1', name: '2층 순찰', floor: 'f2', points: 5, meters: 84, robot: 'r3', last: '어제 완료' },

@@ -634,7 +634,7 @@ describe('PR #12 검토 1차', () => {
     act(() => root?.unmount()); root = null;                // 로그아웃 = App 이 내려가며 rt.disconnect
     await api.login('next', 'pw');
     tick(STOP_WS_MS * 5); await settle();
-    expect(calls.map(([u]) => u).filter((u) => !u.includes('/notifications'))).toEqual(['/api/v1/auth/login']);   // 알림 종의 목록 요청 말고
+    expect(calls.map(([u]) => u).filter((u) => !u.includes('/notifications') && !u.includes('/dashboard'))).toEqual(['/api/v1/auth/login']);   // 알림 종·결재 배지(GET, 띄울 때 한 번)의 요청 말고
   });
   it('[N3] 이미 나간 대체 경로 HTTP 도 로그아웃 때 끊고, 그 결과(401 포함)는 다음 세션에 반영하지 않음', async () => {
     const lost = vi.fn(); setAuthLost(lost);
