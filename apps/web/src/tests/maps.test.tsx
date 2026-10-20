@@ -886,10 +886,10 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     expect($('main')!.getAttribute('aria-label')).toBe('기록');
     expect(unload()).toBe(false);
   });
-  it('층 바꾸기 확인에서 나가기 → 그 층으로', async () => {
+  it('그리던 점만 있어도 묻는다, 층 바꾸기 확인에서 나가기 → 그 층으로', async () => {
     serve(editSrv());
     await startEdit();
-    await tool('지점'); await tap(1, 1);
+    await tool('진입 금지'); await tap(1, 1);
     await click(floorBtn('2층'));
     await click(btn('나가기', card('확인')));
     expect(floorBtn('2층').getAttribute('aria-pressed')).toBe('true');
@@ -898,8 +898,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
   it('STOP: 편집 중·확인창이 떠 있을 때 늘 보이고 실제로 정지 요청', async () => {
     serve(editSrv());
     await startEdit();
-    await tool('진입 금지'); await tap(1, 1);
-    await click($('nav a[href="#/fleet"]')); await hashed();         // 바꾼 것 없으면(그리던 점만) 바로 떠남 — 다시 들어옴
+    await click($('nav a[href="#/fleet"]')); await hashed();         // 바꾼 것 없으면 바로 떠남 — 다시 들어옴
     expect($('main')!.getAttribute('aria-label')).toBe('관제');
     await click($('nav a[href="#/map"]')); await hashed();
     await click(btn('편집', card('보기·편집')));

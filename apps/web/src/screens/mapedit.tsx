@@ -129,14 +129,15 @@ export function Editor({ v, p, cancel, saved, quit, recheck }: { v: EditBase; p:
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
   const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
 
-  // 저장하지 않은 편집: 탭 이동·층 바꾸기·보기 전환은 이 칸의 확인으로, 새로고침·창 닫기는 브라우저 확인으로
+  // 저장하지 않은 편집(그리던 점 포함): 탭 이동·층 바꾸기·보기 전환은 이 칸의 확인으로, 새로고침·창 닫기는 브라우저 확인으로
+  const unsaved = dirty || pts.length > 0;
   useEffect(() => {
-    if (!dirty) return;
+    if (!unsaved) return;
     leaving.ask = (go) => setAsk({ text: '저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.', yes: '나가기', go });
     const h = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
     addEventListener('beforeunload', h);
     return () => { leaving.ask = null; removeEventListener('beforeunload', h); };
-  }, [dirty]);
+  }, [unsaved]);
 
   // 연결점 짝: 짝 층 승인 판의 연결점 중 이 층을 짝으로 둔 것 — 같은 id·종류를 쓰면 서버가 두 층을 잇는다
   const [pairs, setPairs] = useState<Record<string, MapConnector[]>>({});
