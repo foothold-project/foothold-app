@@ -1,5 +1,5 @@
 // 지도 탭(01 MP-01·02·04·06, 02 F-MP-01·02·04, 03 §5.6, 05 §5 — S3a /sites·/map-versions·/uploads)과 관제 지도 칸의 층 고르기(FL-03).
-// 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 비교·되돌리기·결재 대기 수는 다음 작업(S3b·S4), 로봇 점은 위치-판 묶기(D5) 뒤.
+// 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 결재 대기 수는 S4, 로봇 점은 위치-판 묶기(D5) 뒤.
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
 import { useEffect, useState, type FormEvent } from 'react';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
@@ -7,6 +7,7 @@ import { ApiFail, api } from '../api';
 import type { User } from '../fake';
 import { leaving } from '../menu';
 import { Chip, Line, type Ctx } from '../screens';
+import { Compare, Rollback } from './mapdiff';
 import { Editor, kept } from './mapedit';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
@@ -187,13 +188,15 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
   return (id: string) => all[id] ?? (id === me.id ? me.name : undefined);
 }
 
-/** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림·정보, 총괄은 보기/편집 토글(승인 판이 있을 때)·새 지도 올리기.
- *  운영 관리자는 편집 단추 없음(결재 S4 전) */
+/** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림·정보·비교, 총괄은 보기/편집 토글(승인 판이 있을 때)·한때 승인된 판 되돌리기·새 지도 올리기.
+ *  운영 관리자는 편집·되돌리기 단추 없음(결재 S4 전), 비교는 볼 수 있음 */
 function FloorView({ p, admin, names, cancel, again }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
   const [back] = useState(() => (kept.d?.floor === p.floor.id ? kept.d.base : null));   // 폰 틀에서 돌아와 이어 쓰는 편집의 기준 판
   const [editing, setEditing] = useState<MapVersion | null>(back), [done, setDone] = useState<Msg>(null);   // editing = 편집 시작 때 승인 판(저장 기준)
+  // 비교 보기, 되돌리기 칸(연 때의 옛 판·승인 판 — 답이 끊겨 목록을 다시 받는 동안에도 칸과 안내가 남게 목록 밖에 둔다)
+  const [cmp, setCmp] = useState(false), [undo, setUndo] = useState<{ v: MapVersion; now: MapVersion } | null>(null);
   // 목록은 받을 때의 기준(몇 번째 받기 + 승인 판 id)과 묶어 둔다 — 기준이 바뀌면 새 목록이 올 때까지 없음으로(늦게 온 옛 목록이 덮지 않게)
   const key = `${n}:${approved}`;
   useEffect(() => {
@@ -213,17 +216,24 @@ function FloorView({ p, admin, names, cancel, again }: { p: Place; admin: boolea
   return <section className="lv-card" aria-label="지도 보기">
     <div className="fh-row">{admin && now && <span className="fh-row" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
-        <button type="button" className="btn" aria-pressed={!!editing} onClick={() => { if (!editing) { setEditing(now); setSel(''); setDone(null); } }}>편집</button></span>}
+        <button type="button" className="btn" aria-pressed={!!editing} onClick={() => { if (!editing) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); } }}>편집</button></span>}
       <h2 className="fh-grow">{title}{editing ? ` · 판 ${editing.number} 편집 중` : now ? ` · 승인 판 ${now.number}` : ''}</h2>
-      {!editing && !!list?.length && <label className="fh-row"><span className="lbl">판</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => setSel(e.target.value)}>
+      {!editing && !!list?.length && <label className="fh-row"><span className="lbl">판</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => { setSel(e.target.value); setUndo(null); }}>
         {!v && <option value="">판 고르기</option>}{list.map((x) => <option key={x.id} value={x.id}>{verName(x, approved)}</option>)}</select></label>}
     </div>
+    {undo && !editing && <Rollback key={undo.v.id} v={undo.v} now={undo.now} cancel={cancel} close={() => setUndo(null)} reload={reload}
+      done={(x) => { setUndo(null); setCmp(false); setSel(x.id); setDone({ text: `판 ${undo.v.number}의 지도로 새 승인 판(판 ${x.number})을 만들었습니다. 다음 실행부터 이 판을 씁니다.`, ok: true }); reload(); }} />}
     {editing ? <Editor v={editing} p={p} cancel={cancel} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
         saved={(x) => { setEditing(null); setSel(x.id); setDone({ text: `새 판을 저장했습니다(판 ${x.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); reload(); }} />
     : v ? <>
       <Note m={done} />
       {v.id !== approved && <p className="lv-note" role="status">지난 판을 보는 중입니다.{now ? ` 지금 승인 판은 판 ${now.number}입니다.` : ''}</p>}
-      <MapView key={v.id} v={v} />
+      <div className="fh-row" role="group" aria-label="판 관리">
+        <button type="button" className="btn" aria-pressed={cmp} onClick={() => setCmp(!cmp)}>비교</button>
+        {/* 한때 승인된 판(SUPERSEDED)만. 저장하지 않은 편집이 남아 있으면 그 확인부터 */}
+        {admin && now && v.status === 'SUPERSEDED' && <button type="button" className="btn" aria-pressed={!!undo} onClick={() => { const go = () => { setUndo({ v, now }); setDone(null); }; if (leaving.ask) leaving.ask(go); else go(); }}>이 판으로 되돌리기</button>}
+      </div>
+      {cmp ? <Compare key={v.id} v={v} list={list!} cancel={cancel} gone={() => { setCmp(false); setDone({ text: '비교할 판을 찾을 수 없습니다. 지워졌을 수 있어 판 목록을 다시 받았습니다.' }); reload(); }} /> : <MapView key={v.id} v={v} />}
       <Line k="판"><span>판 {v.number}</span><Chip tone={v.id === approved ? 'ok' : 'off'} text={v.id === approved ? '승인' : '지난 판'} /></Line>
       <Line k="이유"><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{v.reason}</span></Line>
       {who && <Line k="만든 사람"><span>{who}</span></Line>}

@@ -1,6 +1,6 @@
 // 지도 편집(01 MP-03·05·06, 02 F-MP-03, 03 §5.6, 05 §5 — S3a features). 총괄만, 편집 시작 때 승인 판 위에서 고쳐 새 판으로 저장한다.
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
-// 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기·결재 요청은 다음 작업(S3b·S4).
+// 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx, 결재 요청은 S4.
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
