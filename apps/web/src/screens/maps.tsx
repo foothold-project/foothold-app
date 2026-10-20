@@ -121,38 +121,67 @@ export const Note = ({ m }: { m: Msg }) => {
   return m.mine ? <div className="fh-row">{p}<button type="button" className="btn" onClick={() => { location.hash = '#/approval'; }}>내 요청 보기</button></div> : p;
 };
 
-/** 결재 요청(운영 관리자)의 답이 끊긴 뒤 — 내 대기 요청(서버가 본인 것만) 중 같은 종류·기준 판·이유가 있으면 그 판, 없으면 null(만들어지지 않음), 확인 못 하면 throw.
- *  운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않고 대기 판·결재가 하나 더 생긴다. ponytail: 대기 요청 200건까지 — 넘으면 확인 못 함 */
-async function findAsked(kind: Approval['kind'], base: string, reason: string, cancel?: AbortSignal): Promise<MapVersion | null> {
+/** 내 대기 결재(운영 관리자는 서버가 본인 것만). ponytail: 200건까지 — 넘으면 확인 못 함 */
+async function myPending(cancel?: AbortSignal): Promise<Approval[]> {
+  const all: Approval[] = [];
   let cursor: string | null = null;
   for (let i = 0; i < 10; i++) {
     const r = await api.approvals('PENDING', cursor, cancel);
-    if (!r || !Array.isArray(r.items) || !(r.next_cursor === null || typeof r.next_cursor === 'string')) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다.');
-    const a = r.items.find((x) => x?.kind === kind && x.base_ref?.id === base && x.reason === reason && typeof x.target?.id === 'string');
-    if (a) return api.version(a.target.id, cancel).then(shape(isVersion));
-    if (!(cursor = r.next_cursor)) return null;
+    if (!r || !Array.isArray(r.items) || !r.items.every((x) => typeof x?.id === 'string') || !(r.next_cursor === null || typeof r.next_cursor === 'string')) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다.');
+    all.push(...r.items);
+    if (!(cursor = r.next_cursor)) return all;
   }
   throw new ApiFail(0, 'TOO_MANY', '대기 중인 요청이 너무 많습니다.');
 }
-/** 결재 요청 답이 끊김(unsure) — 다시 보내기 전에 findAsked 로 확인한다. 찾으면 found(그 판), 없으면 다시 요청 가능, 확인 못 하면 «상태 확인»만(다시 보내기 막음).
- *  first = 이 칸을 다시 열 때 이어받은 불확실 상태(편집 초안) */
-export function useUnsure(kind: Approval['kind'], base: string, reason: string, found: (v: MapVersion) => void, say: (m: Msg) => void, cancel?: AbortSignal, first = false) {
-  const [unsure, setUnsure] = useState(first), [checking, setChecking] = useState(false), live = useRef(true);
-  const check = () => {
-    setUnsure(true); setChecking(true);
-    findAsked(kind, base, reason, cancel).then((v) => {
+/** 결재 요청 전에 지금 내 대기 요청 ID — 답이 끊기면 이 뒤에 생긴 것만 이번 요청 후보로 본다 */
+export const pendingIds = (cancel?: AbortSignal) => myPending(cancel).then((x) => x.map((a) => a.id));
+/** 내용 비교용: null 칸을 빼고 열쇠 순서를 맞춘 JSON(서버는 None 칸을 저장하지 않는다) */
+export const canon = (x: unknown) => JSON.stringify(x, (_, v) => (v && typeof v === 'object' && !Array.isArray(v)
+  ? Object.fromEntries(Object.entries(v).filter(([, y]) => y != null).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
+/** 보낸 결재 요청: 종류·기준 판·이유 + 만들어진 판이 보낸 내용과 같은가(편집 = 그림·요소, 되돌리기 = 원본 판) */
+export type Sent = { kind: Approval['kind']; base: string; reason: string; same: (v: MapVersion) => boolean };
+/** 보내기 전에 없던(known 밖) 내 대기 요청 중 보낸 것과 모두 같은 판들 */
+async function findAsked(s: Sent, known: string[], cancel?: AbortSignal): Promise<MapVersion[]> {
+  const fresh = (await myPending(cancel)).filter((a) => !known.includes(a.id) && a.kind === s.kind && a.base_ref?.id === s.base && a.reason === s.reason && typeof a.target?.id === 'string');
+  return (await Promise.all(fresh.map((a) => api.version(a.target.id, cancel).then(shape(isVersion))))).filter(s.same);
+}
+const NOT_YET = '결재 요청이 아직 확인되지 않았습니다. 서버가 처리하는 중일 수 있습니다. 잠시 뒤 «상태 확인»을 다시 누르거나 내 요청에서 확인하세요.';
+const MANY = '같은 내용의 새 결재 요청이 여러 건 보여 이번 요청을 정할 수 없습니다. 내 요청에서 확인하세요.';
+/** 결재 요청 답이 끊김 — 운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않고 대기 판·결재가 하나 더 생긴다(서버 멱등 키는 후속).
+ *  known = 보내기 전 내 대기 요청 ID(null = 확실함). 그 뒤 생긴 요청 중 보낸 것과 정확히 하나가 맞을 때만 found(그 판). 못 찾거나 여럿·확인 실패면 확정하지 않는다 —
+ *  «상태 확인»을 남기고, 다시 보내기는 확인창에서 고를 때만(UnsureBar). first = 이 칸을 다시 열 때 이어받은 known(편집 초안) */
+export function useUnsure(s: Sent, found: (v: MapVersion) => void, say: (m: Msg) => void, cancel?: AbortSignal, first: string[] | null = null) {
+  const [known, setKnown] = useState(first), [checking, setChecking] = useState(false), [again, setAgain] = useState(false), live = useRef(true);
+  const check = (ids = known) => {
+    if (!ids) return;
+    setKnown(ids); setChecking(true); setAgain(false);
+    findAsked(s, ids, cancel).then((hits) => {
       if (!live.current) return;
-      setChecking(false); setUnsure(false);
-      if (v) found(v); else say({ text: '결재 요청이 만들어지지 않았습니다. 다시 요청할 수 있습니다.' });
+      setChecking(false);
+      if (hits.length === 1) { setKnown(null); found(hits[0]); } else say({ text: hits.length ? MANY : NOT_YET });
     }, (e: ApiFail) => {
       if (!live.current || e.code === 'CANCELED') return;
       setChecking(false);
-      say({ text: `결재 요청이 만들어졌는지 확인하지 못했습니다. ${e.message} «상태 확인»을 눌러 다시 확인하세요. 확인하기 전에는 다시 요청할 수 없습니다.` });
+      say({ text: `결재 요청이 만들어졌는지 확인하지 못했습니다. ${e.message} «상태 확인»을 눌러 다시 확인하세요.` });
     });
   };
-  useEffect(() => { live.current = true; if (first) check(); return () => { live.current = false; }; }, []);
-  return { unsure, checking, check };
+  useEffect(() => { live.current = true; if (first) check(first); return () => { live.current = false; }; }, []);
+  return { unsure: !!known, known, checking, check, again, setAgain, clear: () => { setKnown(null); setAgain(false); } };
 }
+/** 확인 전 단추: «상태 확인» + «다시 요청»(같은 요청이 두 번 갈 수 있다는 확인창을 거쳐서만) */
+export function UnsureBar({ u, resend }: { u: ReturnType<typeof useUnsure>; resend: () => void }) {
+  if (!u.unsure) return null;
+  return <>
+    <div className="fh-row"><button type="button" className="btn" disabled={u.checking} onClick={() => u.check()}>상태 확인</button>
+      <button type="button" className="btn" disabled={u.checking || u.again} onClick={() => u.setAgain(true)}>다시 요청</button>
+      {u.checking && <span className="lv-note" role="status">결재 요청이 만들어졌는지 확인하는 중…</span>}</div>
+    {u.again && <div className="fh-row" role="group" aria-label="다시 요청 확인"><span>이미 요청됐을 수 있습니다. 같은 요청이 두 번 갈 수 있어요 — 내 요청에서 먼저 확인하세요.</span>
+      <button type="button" className="btn pri" onClick={() => { u.clear(); resend(); }}>그래도 다시 요청</button>
+      <button type="button" className="btn" onClick={() => u.setAgain(false)}>닫기</button></div>}
+  </>;
+}
+/** 결재 요청 전 확인(pendingIds) 실패 — 보내지 않았다 */
+export const preFail = (e: ApiFail): Msg => ({ text: `결재를 요청하지 못했습니다. 요청 전에 내 대기 요청을 확인하지 못해 보내지 않았습니다. ${e.message} 다시 누르세요.` });
 
 /** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 총괄만 장소 고치기·지도 올리기 단추. dash = 결재 요청 뒤 배지 다시 받기 */
 export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {

@@ -445,6 +445,19 @@ describe('PR #36 검토 — 다시 받는 동안 잠금·늦은 응답·목록 �
     expect(sent('GET', '/approvals/a1')).toHaveLength(1); expect(sent('GET', '/approvals/a2')).toHaveLength(1);
     expect(row('a1').textContent).toContain('1층 · 판 2 → 판 3');
   });
+  it('권고: 미리 받는 중인 줄을 고르면 그 요청을 같이 기다림(같은 ID GET 한 번)', async () => {
+    let held = (_: Reply) => {};
+    const db = [ap('a1', 3), ap('a2', 4)];
+    serve(KIM, db, { over: { 'GET /approvals/a2': [() => new Promise<Reply>((r) => { held = r; })] } });
+    await open('#/approval');
+    expect(sent('GET', '/approvals/a2')).toHaveLength(1);
+    await pick('a2');
+    expect(sent('GET', '/approvals/a2')).toHaveLength(1);
+    held({ status: 200, body: db[1] }); await flush();
+    expect(sent('GET', '/approvals/a2')).toHaveLength(1);
+    expect(btn('승인', detail())!.disabled).toBe(false);
+    expect(row('a2').textContent).toContain('1층 · 판 2 → 판 4');
+  });
   it('권고: 의견·반려 이유 2000자 경계 — 칸이 2000자까지, 2000자는 그대로 보냄', async () => {
     serve(KIM, [ap('a1', 3), ap('a2', 4)]);
     await open('#/approval');

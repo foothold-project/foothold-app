@@ -4,7 +4,7 @@
 import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { MapConnector, MapDiff, MapEdit, MapFeatureChange, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { EDIT, KIND, Note, Shapes, ZONE, aim, isVersion, reasonBad, shape, toPixel, useUnsure, type Msg } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, aim, isVersion, reasonBad, shape, toPixel, UnsureBar, pendingIds, preFail, useUnsure, type Msg } from './maps';
 import { toMap } from './mapedit';
 
 type P = [number, number];
@@ -161,24 +161,31 @@ const AGAIN = ['STALE', 'ALREADY_APPROVED', 'ROLLBACK_NOT_APPROVED'];
 
 /** 이 판으로 되돌리기(U10 확인 = 이유 칸). v = 한때 승인된 옛 판, now = 지금 승인 판. request = 운영 관리자(결재 요청 — 승인돼야 바뀐다).
  *  now 는 칸을 연 때의 승인 판(부른 쪽이 고정) — 총괄은 답이 끊겨 목록을 다시 받은 뒤 또 눌러도 승인 판이 바뀌어 서버가 STALE 로 막는다.
- *  운영 관리자는 요청해도 승인 판이 그대로라 막히지 않는다 — 답이 끊기면 내 대기 요청과 대조하기 전까지 다시 보내지 않는다(useUnsure).
+ *  운영 관리자는 요청해도 승인 판이 그대로라 막히지 않는다 — 답이 끊기면 이번 요청을 확정하기 전에는 다시 보내지 않는다(useUnsure, 다시 보내기는 확인창으로만).
  *  done = 새 승인 판, reload = 판 목록·나무 다시 받기, close = 닫기 */
 export function Rollback({ v, now, cancel, done, reload, close, request }: { v: MapVersion; now: MapVersion; cancel?: AbortSignal; done: (x: MapVersion) => void; reload: () => void; close: () => void; request?: boolean }) {
   const base = now, [reason, setReason] = useState(''), [busy, setBusy] = useState(false), [msg, setMsg] = useState<Msg>(null), [again, setAgain] = useState(false), sending = useRef(false);
-  const u = useUnsure('MAP_ROLLBACK', base.id, reason.trim(), done, setMsg, cancel);
-  const go = async (e: FormEvent) => {
+  const u = useUnsure({ kind: 'MAP_ROLLBACK', base: base.id, reason: reason.trim(), same: (x) => x.copied_from_id === v.id }, done, setMsg, cancel);
+  const go = (e: FormEvent) => {
     e.preventDefault();
     if (sending.current || u.unsure) return;   // 두 번 누름(화면이 잠기기 전 두 번째 누름도)·결재 요청 확인 전
     const why = reasonBad(reason, '되돌리는 이유');
     if (why) return setMsg({ text: why });
+    send();
+  };
+  const send = async () => {
+    if (sending.current) return;
     sending.current = true; setBusy(true); setMsg(null); setAgain(false);
+    let known: string[] | null = null;
     try {
+      if (request) known = await pendingIds(cancel).catch((x: ApiFail) => { if (x.code !== 'CANCELED') setMsg(preFail(x)); return null; });
+      if (request && !known) return;
       done(await api.rollback(v.id, { base_version_id: base.id, reason: reason.trim() }, cancel).then(shape(isVersion)));   // 빈·어긋난 201 = 불확실(status 0)
     } catch (x) {
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
       // 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 되돌려졌을 수도 있다 — 목록을 다시 받아 보여 준다
-      if (f.status === 0 && request) { setMsg({ text: '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 내 대기 요청을 확인합니다.' }); reload(); u.check(); return; }
+      if (f.status === 0 && known) { setMsg({ text: '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 내 대기 요청을 확인합니다.' }); reload(); u.check(known); return; }
       if (f.status === 0) { setMsg({ text: '되돌리기 응답을 받지 못했습니다. 되돌려졌을 수 있어 판 목록을 다시 받습니다. 새 승인 판이 보이면 다시 되돌리지 마세요.' }); reload(); return; }
       setMsg({ text: `${request ? '결재를 요청하지 못했습니다.' : '되돌리지 못했습니다.'} ${backFail(f)}` }); setAgain(AGAIN.includes(f.code) || f.status === 404);
     } finally { sending.current = false; setBusy(false); }
@@ -188,11 +195,10 @@ export function Rollback({ v, now, cancel, done, reload, close, request }: { v: 
     <p className="lv-note">{request ? `판 ${v.number}의 지도 그림과 구역·지점·연결점으로 새 판을 만들어 결재를 요청합니다. 승인되기 전에는 지금 승인 판(판 ${base.number})을 그대로 씁니다.`
       : `판 ${v.number}의 지도 그림과 구역·지점·연결점으로 새 승인 판을 만듭니다. 지금 승인 판(판 ${base.number})은 지난 판으로 남고, 다음 실행부터 새 판을 씁니다.`}</p>
     <label className="fh-field"><span>되돌리는 이유</span><input className="inp" maxLength={2000} value={reason} autoFocus onChange={(e) => busy || u.unsure || setReason(e.target.value)} /></label>
-    <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || u.unsure}>{request ? '결재 요청' : '되돌리기'}</button>
-      {u.unsure && <button type="button" className="btn" disabled={u.checking} onClick={u.check}>상태 확인</button>}<button type="button" className="btn" disabled={busy || u.unsure} onClick={close}>취소</button>
+    <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || u.unsure}>{request ? '결재 요청' : '되돌리기'}</button><button type="button" className="btn" disabled={busy || u.unsure} onClick={close}>취소</button>
       {again && <button type="button" className="btn" onClick={() => { close(); reload(); }}>새로 불러오기</button>}</div>
     {busy && <p className="lv-note" role="status">{request ? '결재를 요청하는 중…' : '되돌리는 중…'}</p>}
-    {u.checking && <p className="lv-note" role="status">결재 요청이 만들어졌는지 확인하는 중…</p>}
+    <UnsureBar u={u} resend={send} />
     <Note m={msg} />
   </form>;
 }

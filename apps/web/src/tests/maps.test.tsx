@@ -53,6 +53,7 @@ const signedIn = (me: User, more: Record<string, Route> = {}) => ({
   'GET /dashboard': { status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } },
   'GET /notifications': { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } },
   'GET /events': { status: 200, body: { items: [], next_cursor: null } },
+  'GET /approvals': { status: 200, body: { items: [], next_cursor: null } },   // 운영 관리자 결재 요청 전 내 대기 요청
   'GET /users': { status: 200, body: { items: [KIM, LEE], next_cursor: null } },
   'GET /sites': { status: 200, body: TREE },
   'GET /map-versions/v2': { status: 200, body: V2 }, 'GET /map-versions/v1': { status: 200, body: V1 },
@@ -1344,14 +1345,19 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(verSel().value).toBe('v2'); expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
   });
 
-  // PR #36 검토 3: 운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않는다 — 답이 끊기면 내 대기 요청과 대조하기 전에는 다시 보내지 않음
+  // PR #36 검토 3: 운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않는다 — 답이 끊기면 이번 요청을 확정하기 전에는 다시 보내지 않음.
+  // 보내기 전에 내 대기 요청 ID 를 받아 두고, 그 뒤 생긴 요청 중 종류·기준 판·이유·내용이 모두 맞는 것이 정확히 하나일 때만 성공
   const P3r = { ...V3, status: 'PENDING' as const, created_by: LEE.id };
-  // 미끼(조건 하나가 다른 요청)는 다른 판(v9) — 잘못 고르면 그 판 GET 이 404
-  const myAsk = (p: Partial<{ kind: string; base: string; reason: string }> = {}) => ({ id: 'ap3', kind: p.kind ?? 'MAP_ROLLBACK', status: 'PENDING', requester: { id: LEE.id, display_name: LEE.display_name }, decider: null,
-    reason: p.reason ?? '잘못 편집함', decision_comment: null, target: { type: 'map_version', id: Object.keys(p).length ? 'v9' : 'v3' }, base_ref: { type: 'map_version', id: p.base ?? 'v2' }, emergency: false, created_at: '2026-10-20T05:00:00Z', decided_at: null });
+  const myAsk = (id: string, target: string, p: Partial<{ kind: string; base: string; reason: string }> = {}) => ({ id, kind: p.kind ?? 'MAP_ROLLBACK', status: 'PENDING', requester: { id: LEE.id, display_name: LEE.display_name }, decider: null,
+    reason: p.reason ?? '잘못 편집함', decision_comment: null, target: { type: 'map_version', id: target }, base_ref: { type: 'map_version', id: p.base ?? 'v2' }, emergency: false, created_at: '2026-10-20T05:00:00Z', decided_at: null });
+  const page = (items: unknown[] = [], next: string | null = null): Reply => ({ status: 200, body: { items, next_cursor: next } });
+  const queue = (...r: Route[]): Route => (q, body) => { const x = r.shift() ?? page(); return typeof x === 'function' ? x(q, body) : x; };
+  // 미끼 판: v8 = 예전에 똑같이 보낸 되돌리기(보내기 전부터 대기), v7 = 같은 종류·기준·이유지만 다른 판에서 되돌린 것, v9 = 조건 하나가 다른 요청
+  const V8 = { ...P3r, id: 'v8', number: 8 }, V7 = { ...P3r, id: 'v7', number: 7, copied_from_id: 'v0' }, V9 = { ...P3r, id: 'v9', number: 9 };
   const dropRoll = (asks: Route) => {
     let n = 0;
-    serve(rollSrv(() => { n++; throw new TypeError('Failed to fetch'); }, { 'GET /approvals': asks, 'GET /map-versions/v3': { status: 200, body: P3r } }, LEE));
+    serve(rollSrv(() => { n++; throw new TypeError('Failed to fetch'); }, { 'GET /approvals': asks, 'GET /map-versions/v3': { status: 200, body: P3r },
+      'GET /map-versions/v7': { status: 200, body: V7 }, 'GET /map-versions/v8': { status: 200, body: V8 }, 'GET /map-versions/v9': { status: 200, body: V9 } }, LEE));
     return () => n;
   };
   const askRoll = async () => {
@@ -1360,10 +1366,12 @@ describe('판 비교·되돌리기(W4c)', () => {
     await click(undoBtn());
     await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('결재 요청', card('이 판으로 되돌리기')));
   };
-  it('검토 3: 되돌리기 결재 요청 답이 끊김 → 내 대기 요청에 같은 것(종류·기준 판·이유)이 있으면 그 판으로 끝, 다시 보내지 않음', async () => {
+  const at = (method: string, path: string) => calls.findIndex((c) => c.method === method && c.path === path);
+  it('검토 3: 보내기 전에 내 대기 요청을 받아 둠 → 답이 끊기면 그 뒤 생긴 같은 요청(종류·기준 판·이유·원본 판)이 하나일 때만 그 판으로 끝', async () => {
     let hold = (_: Reply) => {};
-    dropRoll(() => new Promise<Reply>((r) => { hold = r; }));
+    dropRoll(queue(page([myAsk('ap0', 'v8')]), () => new Promise<Reply>((r) => { hold = r; })));
     await askRoll();
+    expect(at('GET', '/approvals')).toBeLessThan(at('POST', '/map-versions/v1/rollback'));   // 보내기 전 받아 둠
     expect(sent('GET', '/approvals')[0].q.get('status')).toBe('PENDING');
     const form = card('이 판으로 되돌리기');
     expect(btn('결재 요청', form)!.disabled).toBe(true); expect(btn('취소', form)!.disabled).toBe(true);
@@ -1371,15 +1379,21 @@ describe('판 비교·되돌리기(W4c)', () => {
     act(() => (form as HTMLFormElement).requestSubmit()); await flush();       // 단추를 우회해도
     expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
     await stopSends();
-    hold({ status: 200, body: { items: [myAsk({ reason: '다른 이유' }), myAsk({ base: 'v1' }), myAsk({ kind: 'MAP_REVISION' }), myAsk()], next_cursor: null } }); await flush();
-    expect(sent('GET', '/map-versions/v3')).toHaveLength(1);
+    hold(page([myAsk('ap0', 'v8'), myAsk('ap7', 'v7'), myAsk('ap9a', 'v9', { reason: '다른 이유' }), myAsk('ap9b', 'v9', { base: 'v1' }), myAsk('ap9c', 'v9', { kind: 'MAP_REVISION' }), myAsk('ap3', 'v3')])); await flush();
+    expect(sent('GET', '/map-versions/v9')).toHaveLength(0);                   // 종류·기준·이유가 다른 것은 판도 안 받음
     expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
     expect($('[aria-label="이 판으로 되돌리기"]')).toBeNull();
     expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
   });
-  it('검토 3: 확인 실패(503) → «상태 확인»만, 다시 보내기 막힘 / 확인해서 없으면 다시 요청할 수 있음', async () => {
-    const asks: Reply[] = [err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), { status: 200, body: { items: [myAsk({ reason: '다른 이유' })], next_cursor: '1' } }, { status: 200, body: { items: [], next_cursor: null } }];
-    const posts = dropRoll(() => asks.shift()!);
+  it('검토 3: 보내기 전 확인 실패 → 보내지 않음(POST 0), 다시 누를 수 있음', async () => {
+    const posts = dropRoll(queue(err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.')));
+    await askRoll();
+    expect(posts()).toBe(0);
+    expect(alertText()).toContain('요청 전에 내 대기 요청을 확인하지 못해 보내지 않았습니다.');
+    expect(btn('결재 요청', card('이 판으로 되돌리기'))!.disabled).toBe(false); expect(btn('상태 확인')).toBeUndefined();
+  });
+  it('검토 3: 확인 실패(503)·빈 조회 → 확정하지 않음(«아직 확인되지 않았습니다»·«상태 확인» 유지·다시 보내기 막힘) → 늦게 생긴 요청을 찾으면 그 판, POST 1번', async () => {
+    const posts = dropRoll(queue(page(), err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), page([myAsk('ap9', 'v9', { reason: '다른 이유' })], '1'), page(), page([myAsk('ap3', 'v3')])));
     await askRoll();
     const form = card('이 판으로 되돌리기');
     expect(alertText()).toContain('결재 요청이 만들어졌는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.');
@@ -1387,29 +1401,68 @@ describe('판 비교·되돌리기(W4c)', () => {
     act(() => (form as HTMLFormElement).requestSubmit()); await flush();
     expect(posts()).toBe(1);
     await click(btn('상태 확인', form));
-    expect(sent('GET', '/approvals').map((c) => c.q.get('cursor'))).toEqual([null, null, '1']);   // 다음 쪽까지
-    expect(alertText()).toContain('결재 요청이 만들어지지 않았습니다. 다시 요청할 수 있습니다.');
-    expect(btn('상태 확인', form)).toBeUndefined();
-    await click(btn('결재 요청', form));
-    expect(posts()).toBe(2);
+    expect(sent('GET', '/approvals').map((c) => c.q.get('cursor'))).toEqual([null, null, null, '1']);   // 다음 쪽까지
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    expect(btn('상태 확인', form)).toBeDefined(); expect(btn('결재 요청', form)!.disabled).toBe(true);
+    act(() => (form as HTMLFormElement).requestSubmit()); await flush();
+    expect(posts()).toBe(1);
+    await click(btn('다시 요청', form));
+    expect(card('다시 요청 확인').textContent).toContain('이미 요청됐을 수 있습니다. 같은 요청이 두 번 갈 수 있어요 — 내 요청에서 먼저 확인하세요.');
+    await click(btn('닫기', card('다시 요청 확인')));
+    expect(posts()).toBe(1);
+    await stopSends();
+    await click(btn('상태 확인', form));                                      // 첫 요청이 늦게 들어감
+    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
+    expect(posts()).toBe(1);
   });
-  it('검토 3: 편집 결재 요청 답이 끊김 → 확인 전 편집·요청 잠금(초안 그대로), 확인 실패 → «상태 확인» → 찾으면 그 판', async () => {
-    const asks: Reply[] = [err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), { status: 200, body: { items: [{ ...myAsk({ kind: 'MAP_REVISION', reason: '지점 추가' }), target: { type: 'map_version', id: 'v3' } }], next_cursor: null } }];
-    let n = 0;
-    serve(editSrv({ 'POST /floors/f1/map-versions': () => { n++; throw new TypeError('Failed to fetch'); }, 'GET /approvals': () => asks.shift()!, 'GET /map-versions/v3': { status: 200, body: { ...P3r, source: 'EDIT' } } }, LEE));
+  it('검토 3: 다시 요청은 확인창 «그래도 다시 요청»에서만 — 그때도 먼저 내 대기 요청을 받아 둠', async () => {
+    const posts = dropRoll(queue(page(), page(), page([myAsk('ap0', 'v8')])));
+    await askRoll();
+    const form = card('이 판으로 되돌리기');
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    await click(btn('다시 요청', form)); await click(btn('그래도 다시 요청', card('다시 요청 확인')));
+    expect(posts()).toBe(2);
+    expect(calls.filter((c) => c.path === '/approvals' || c.path === '/map-versions/v1/rollback').map((c) => c.method)).toEqual(['GET', 'POST', 'GET', 'GET', 'POST', 'GET']);
+    expect(btn('상태 확인', form)).toBeDefined();                              // 또 끊김 → 다시 확인 전
+  });
+  it('검토 3: 편집 결재 요청 답이 끊김 → 같은 종류·기준·이유라도 내용이 다른 판(v9)은 이번 요청 아님(초안 그대로) / 확인 전 캔버스 누름·끌기·도구 잠금 → 같은 내용 판을 찾으면 그 판', async () => {
+    let n = 0, posted: { features?: unknown } = {};
+    const V3e = () => ({ ...P3r, source: 'EDIT', copied_from_id: null, upload_id: UP.upload_id, features: posted.features });
+    const asks = queue(page(), err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), page([myAsk('ap9', 'v9', { kind: 'MAP_REVISION', reason: '지점 추가' })]),
+      page([myAsk('ap9', 'v9', { kind: 'MAP_REVISION', reason: '지점 추가' }), myAsk('ap3', 'v3', { kind: 'MAP_REVISION', reason: '지점 추가' })]));
+    serve(editSrv({ 'POST /floors/f1/map-versions': (_, b) => { n++; posted = b as typeof posted; throw new TypeError('Failed to fetch'); }, 'GET /approvals': asks,
+      'GET /map-versions/v9': () => ({ status: 200, body: { ...V3e(), id: 'v9', number: 9, features: UP.features } }), 'GET /map-versions/v3': () => ({ status: 200, body: V3e() }) }, LEE));
     await startEdit();
     await tool('지점'); await tap(1, 1);
     await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
+    expect(at('GET', '/approvals')).toBeLessThan(at('POST', '/floors/f1/map-versions'));
     expect(alertText()).toContain('결재 요청이 만들어졌는지 확인하지 못했습니다.');
     expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 초안 그대로
     expect(btn('결재 요청', card('결재 요청'))!.matches(':disabled')).toBe(true); expect(btn('지점', card('편집 도구'))!.matches(':disabled')).toBe(true);   // 편집 칸 fieldset 잠금
+    await tap(2, 1);                                                             // fieldset 이 막지 못하는 캔버스 누름도
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
     act(() => (card('결재 요청') as HTMLFormElement).requestSubmit()); await flush();
     expect(n).toBe(1);
+    await click(btn('상태 확인'));
+    expect(sent('GET', '/map-versions/v9')).toHaveLength(1);
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 다른 내용 판을 성공으로 보지 않음 — 초안 유지
     await stopSends();
     await click(btn('상태 확인'));
     expect(canvas()).toBeNull();
     expect(box.textContent).toContain('결재를 요청했습니다(판 3).');
     expect(n).toBe(1);
+  });
+  it('검토 3: 확인 전에는 진행 중이던 끌기도 끊음 — 저장 중 놓지 않은 끌기가 확인 전 옮기지 않음', async () => {
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => { throw new TypeError('Failed to fetch'); }, 'GET /approvals': queue(page(), page()) }, LEE));
+    await startEdit();
+    await tool('지점'); await tap(1, 1); await tool('고르기');
+    const w = () => canvas().querySelectorAll('[data-waypoint]')[1] as SVGElement, was = w().outerHTML;
+    await ptr('pointerdown', 1, 1, w());
+    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
+    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
+    await ptr('pointermove', 3, 0, w());
+    expect(w().outerHTML).toBe(was);
   });
   it('검토 3: 총괄의 답 끊김은 그대로(목록 다시 받기 — 다시 보내면 승인 판이 바뀌어 서버가 STALE)', async () => {
     serve(rollSrv(() => { throw new TypeError('Failed to fetch'); }));

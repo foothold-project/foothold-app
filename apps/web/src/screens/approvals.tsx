@@ -50,9 +50,9 @@ export function Approvals(c: Pick<Ctx, 'user' | 'cancel' | 'focus' | 'dash'>) {
   const admin = c.user.role === 'ORG_ADMIN', l = useList(admin ? 'PENDING' : 'ALL', c.cancel);
   const [sel, setSel] = useState(c.focus ?? ''), [k, setK] = useState(0), [msg, setMsg] = useState<Msg>(null);
   useEffect(() => { if (c.focus) { setSel(c.focus); setMsg(null); } }, [c.focus]);
-  // 목록 항목의 층·판 번호는 상세에만 있다 — 항목마다 한 번, 동시에 PRE 개까지 받는다(바뀌지 않는 값). 고른 항목은 상세 칸이 받은 것을 쓴다(seen).
+  // 목록 항목의 층·판 번호는 상세에만 있다 — 항목마다 한 번, 동시에 PRE 개까지 받는다(바뀌지 않는 값). 고른 항목은 상세 칸이 받은 것을 쓴다(seen) — 받는 중인 줄을 고르면 그 요청을 같이 기다린다(flight).
   // 실패한 항목은 그 줄의 층·판만 비우고 목록을 다시 받을 때 또 시도한다. ponytail: 항목 수만큼 요청, 서버 목록에 preview 가 오면 뺀다
-  const [pre, setPre] = useState<Record<string, ApprovalDetail>>({}), asked = useRef(new Set<string>()), failed = useRef(new Set<string>()), flying = useRef(0), [tick, setTick] = useState(0);
+  const [pre, setPre] = useState<Record<string, ApprovalDetail>>({}), asked = useRef(new Set<string>()), failed = useRef(new Set<string>()), flying = useRef(0), flight = useRef(new Map<string, Promise<ApprovalDetail>>()), [tick, setTick] = useState(0);
   const seen = (d: ApprovalDetail) => { asked.current.add(d.id); setPre((o) => ({ ...o, [d.id]: d })); };
   useEffect(() => { failed.current.clear(); }, [l.items]);
   useEffect(() => {
@@ -60,8 +60,10 @@ export function Approvals(c: Pick<Ctx, 'user' | 'cancel' | 'focus' | 'dash'>) {
       if (flying.current >= PRE) break;
       if (!known(a.kind) || a.id === sel || asked.current.has(a.id) || failed.current.has(a.id)) continue;
       asked.current.add(a.id); flying.current++;
-      api.approval(a.id, c.cancel).then(fit(isDetail)).then((d) => setPre((o) => ({ ...o, [a.id]: d })), () => { asked.current.delete(a.id); failed.current.add(a.id); })
-        .finally(() => { flying.current--; setTick((t) => t + 1); });
+      const q = api.approval(a.id, c.cancel).then(fit(isDetail));
+      flight.current.set(a.id, q);
+      q.then((d) => setPre((o) => ({ ...o, [a.id]: d })), () => { asked.current.delete(a.id); failed.current.add(a.id); })
+        .finally(() => { flight.current.delete(a.id); flying.current--; setTick((t) => t + 1); });
     }
   }, [l.items, tick]);
   // 처리 응답은 늦게 올 수 있다 — 그 사이 다른 항목을 골랐으면 고른 것·입력은 그대로 두고 목록·배지만 새로
@@ -97,7 +99,7 @@ export function Approvals(c: Pick<Ctx, 'user' | 'cancel' | 'focus' | 'dash'>) {
     </section>
     <section className="lv-card" aria-label="내용">
       <Note m={msg} />
-      {sel ? <Detail key={`${sel}-${k}`} id={sel} me={c.user.id} admin={admin} cancel={c.cancel} done={done} recheck={recheck} seen={seen} />
+      {sel ? <Detail key={`${sel}-${k}`} id={sel} me={c.user.id} admin={admin} cancel={c.cancel} done={done} recheck={recheck} seen={seen} first={flight.current.get(sel)} />
         : <p className="lv-note">목록에서 항목을 고르면 바뀐 곳 비교와 이유가 보입니다.</p>}
     </section>
   </>;
@@ -108,9 +110,9 @@ const DONE = { approve: '승인했습니다.', reject: '반려했습니다. 요�
 type Act = keyof typeof DONE;
 
 /** 결재 하나: 내용·전후 비교·이유 + 처리 단추. 총괄(남의 요청) = 승인(의견 선택, 확인 없음)·반려(이유 필수 + 확인, U10), 요청자 = 취소만(서버도 자기 요청 승인·반려는 403).
- *  done = 처리 성공(부른 쪽이 목록·배지를 새로 받고 다음 항목으로), recheck = 결과가 불확실·이미 끝남 — 목록·배지만 새로(이 칸은 스스로 다시 받음), seen = 받은 내용(목록 줄의 층·판)
+ *  done = 처리 성공(부른 쪽이 목록·배지를 새로 받고 다음 항목으로), recheck = 결과가 불확실·이미 끝남 — 목록·배지만 새로(이 칸은 스스로 다시 받음), seen = 받은 내용(목록 줄의 층·판), first = 목록이 받는 중인 이 상세(처음 한 번은 그것을 기다림)
  *  다시 받는 동안과 다시 받기에 실패한 동안은 처리 단추를 잠근다 — 지금 상태를 확인한 뒤에만 처리(STOP 은 머리줄 그대로) */
-function Detail({ id, me, admin, cancel, done, recheck, seen }: { id: string; me: string; admin: boolean; cancel?: AbortSignal; done: (id: string, m: Msg) => void; recheck: () => void; seen: (d: ApprovalDetail) => void }) {
+function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: string; me: string; admin: boolean; cancel?: AbortSignal; done: (id: string, m: Msg) => void; recheck: () => void; seen: (d: ApprovalDetail) => void; first?: Promise<ApprovalDetail> }) {
   const [d, setD] = useState<ApprovalDetail | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [loading, setLoading] = useState(true), then = useRef('');
   const [v, setV] = useState<MapVersion | null>(null), [vErr, setVErr] = useState(''), [vn, setVn] = useState(0);
   const [comment, setComment] = useState(''), [reason, setReason] = useState(''), [rejecting, setRejecting] = useState(false), [ask, setAsk] = useState(false);
@@ -118,7 +120,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen }: { id: string; me
   useEffect(() => {
     let live = true;   // 다시 받기가 겹치면 지난 요청의 늦은 답은 버린다
     setLoading(true);
-    api.approval(id, cancel).then(fit(isDetail)).then((x) => {
+    (n === 0 && first ? first : api.approval(id, cancel).then(fit(isDetail))).then((x) => {
       if (!live) return;
       setD(x); setErr(''); setLoading(false); seen(x);
       if (then.current) { setMsg({ text: then.current }); then.current = ''; }   // «다시 불러왔습니다»는 받은 뒤에야

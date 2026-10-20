@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, isVersion, reasonBad, shape, toPixel, useUnsure, type Msg, type Place } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, isVersion, reasonBad, shape, toPixel, UnsureBar, canon, pendingIds, preFail, useUnsure, type Msg, type Place } from './maps';
 
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
@@ -118,9 +118,9 @@ const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).sli
 const deg = (r: number) => Math.round((r * 180) / Math.PI), rad = (d: number) => (d * Math.PI) / 180;
 const pointsOf = (x: Item): P[] => ('polygon' in x ? x.polygon : 'polyline' in x ? x.polyline : [[x.x, x.y]]) as P[];
 /** 저장하지 않은 편집 — 폰 틀로 바뀌어 지도 탭이 내려가도 남겨 PC 로 돌아오면 이어 쓴다(B3). 나가기 확인·저장·로그아웃 때 비운다 */
-type Draft = { floor: string; base: MapVersion; f: MapFeatures; dirty: boolean; pts: P[]; tool: Tool; width: number; reason: string; unsure: boolean };   // unsure = 결재 요청 답이 끊겨 확인 전
+type Draft = { floor: string; base: MapVersion; f: MapFeatures; dirty: boolean; pts: P[]; tool: Tool; width: number; reason: string; unsure: string[] | null };   // unsure = 결재 요청 답이 끊겨 확인 전(보내기 전 내 대기 요청 ID)
 /** 보낸 저장 요청(B5) — 기다리는 사이 폰 틀로 내려갔다 돌아와도 같은 층·같은 기준 판 편집이 잠금·결과를 이어받는다 */
-type Job = { floor: string; base: string; wait: Promise<void>; done?: { ok: MapVersion } | { fail: ApiFail } };
+type Job = { floor: string; base: string; wait: Promise<void>; known?: string[]; done?: { ok: MapVersion } | { fail: ApiFail } };   // known = 결재 요청 전 내 대기 요청 ID(받은 뒤에야 보냄)
 export const kept: { d: Draft | null; job: Job | null } = { d: null, job: null };
 addEventListener('beforeunload', (e) => { if (kept.d) { e.preventDefault(); e.returnValue = ''; } });
 const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다. «새로 불러오기»를 누르면 지금 편집 내용을 잃습니다.';
@@ -135,7 +135,11 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
   const [reason, setReason] = useState(k?.reason ?? ''), [busy, setBusy] = useState(() => mine(kept.job)), [msg, setMsg] = useState<Msg>(null), [bad, setBad] = useState<Bad | null>(null), [stale, setStale] = useState(false);
   const [ask, setAsk] = useState<{ text: string; yes: string; go: () => void } | null>(null);
   // 결재 요청 답이 끊김 — 내 대기 요청과 대조하기 전에는 다시 보내지 않고 편집도 잠근다(초안은 그대로). 찾으면 그 판으로 저장된 것처럼 끝낸다
-  const u = useUnsure('MAP_REVISION', v.id, reason.trim(), (x) => { leaving.ask = null; left.current = true; saved(x); }, setMsg, cancel, !!k?.unsure);
+  const u = useUnsure({ kind: 'MAP_REVISION', base: v.id, reason: reason.trim(), same: (x) => x.upload_id === v.upload_id && canon(x.features) === canon(f) },
+    (x) => { leaving.ask = null; left.current = true; saved(x); }, setMsg, cancel, k?.unsure ?? null);
+  // 저장 중·결재 요청 확인 전에는 편집을 모두 막는다 — 캔버스 누름·끌기·그리기와 모든 고치기(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로
+  const lock = busy || u.unsure;
+  useEffect(() => { if (lock) drag.current = null; }, [lock]);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
   const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
 
@@ -143,7 +147,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
   const unsaved = dirty || pts.length > 0;
   // 내려갈 때 남긴다 — 나가기 확인·저장·새로 불러오기로 내려가면(left) 비운다
   const snap = useRef<Draft | null>(null), left = useRef(false);
-  snap.current = unsaved ? { floor: p.floor.id, base: v, f, dirty, pts, tool, width, reason, unsure: u.unsure } : null;
+  snap.current = unsaved ? { floor: p.floor.id, base: v, f, dirty, pts, tool, width, reason, unsure: u.known } : null;
   useEffect(() => { kept.d = null; return () => { kept.d = left.current ? null : snap.current; }; }, []);
   useEffect(() => { if (moved && !busy) { setStale(true); setMsg({ text: STALE }); } }, [moved]);   // 저장을 기다리는 중이면 그 결과가 알린다
 
@@ -159,8 +163,9 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     const x = d.fail;
     if (x.code === 'CANCELED') return;
     // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 편집 내용은 그대로 둔다. 총괄은 목록을 다시 받아 보인다(다시 저장하면 승인 판이 바뀌어 STALE 로 막힘).
-    // 운영 관리자는 승인 판이 그대로라 막히지 않는다 — 내 대기 요청과 대조한다(useUnsure)
-    if (x.status === 0 && request) { setMsg({ text: '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 내 대기 요청을 확인합니다.' }); recheck(); u.check(); return; }
+    // 운영 관리자는 승인 판이 그대로라 막히지 않는다 — 이번 요청을 확정하기 전에는 다시 보내지 않는다(useUnsure)
+    if (request && !j.known) { setMsg(preFail(x)); return; }   // 요청 전 확인 실패 — 보내지 않음
+    if (x.status === 0 && request) { setMsg({ text: '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 내 대기 요청을 확인합니다.' }); recheck(); u.check(j.known); return; }
     if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
     if (x.code === 'STALE') { setStale(true); setMsg({ text: STALE }); return; }
     if (x.code === 'INVALID_FEATURES') { const b = serverBad(x); setBad(b); setSel(keyOf(b.path)); return; }
@@ -184,13 +189,13 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     api.version(fl.approved_version_id, cancel).then(shape(isVersion)).then((x) => setPairs((o) => ({ ...o, [fl.id]: x.features.connectors.filter((k) => k.pair_floor_id === p.floor.id) })), () => {});
   }, [pairFloor]);
 
-  const put = (n: MapFeatures) => { if (busy) return; setF(n); setDirty(true); setBad(null); setMsg(null); setStale(false); };
+  const put = (n: MapFeatures) => { if (lock) return; setF(n); setDirty(true); setBad(null); setMsg(null); setStale(false); };
   const swap = (g: Group, i: number, x: Item) => put({ ...f, [g]: (f[g] as Item[]).map((o, k) => (k === i ? x : o)) });
   const add = (g: Group, x: Item) => { put({ ...f, [g]: [...f[g], x] }); setSel(`${g}.${f[g].length}`); };
   const drop = (k: string) => { const [g, i] = split(k); put({ ...f, [g]: (f[g] as Item[]).filter((_, j) => j !== i) }); setSel(''); };
   // 같은 도구는 그대로, 같은 갈래(구역↔구역·선↔선)는 그리던 점을 이어 쓰고, 그 밖은 점을 지울지 묻는다
   const pick = (t: Tool) => {
-    if (busy) return;
+    if (lock) return;
     const same = (zone && (t === 'NO_GO' || t === 'SLOW')) || (line && (t === 'ERASE' || t === 'WALL')), go = () => { setTool(t); if (!same) setPts([]); setMsg(null); };
     if (pts.length && !same) setAsk({ text: `그리던 점 ${pts.length}개를 지우고 도구를 바꿀까요?`, yes: '바꾸기', go }); else go();
   };
@@ -201,7 +206,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     return toMap(v, (e.clientX - b.left - (b.width - v.width * k) / 2) / k, (e.clientY - b.top - (b.height - v.height * k) / 2) / k);
   };
   const down = (e: PointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0 || busy) return;
+    if (e.button !== 0 || lock) return;
     const q = at(e);
     if (tool === 'pick') {
       const k = (e.target as Element).closest('[data-key]')?.getAttribute('data-key') ?? '';
@@ -219,7 +224,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
   };
   const move = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
-    if (!d) return;
+    if (!d || lock) return;
     const q = at(e), dx = q[0] - d.from[0], dy = q[1] - d.from[1], [g, i] = split(d.key), x = d.orig[g][i] as Item, sh = ([a, b]: P): P => [a + dx, b + dy];
     if (!dx && !dy) return;
     const n: Item = 'polygon' in x ? { ...x, polygon: (x.polygon as P[]).map(sh) } : 'polyline' in x ? { ...x, polyline: (x.polyline as P[]).map(sh) } : { ...x, x: x.x + dx, y: x.y + dy };
@@ -230,6 +235,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
 
   /** 그리던 구역·선 마치기 — 그 하나를 바로 검사해 걸리면 점을 그대로 두고 알린다 */
   const finish = () => {
+    if (lock) return;
     const empty: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
     if (zone) {
       if (pts.length < 3) return setMsg({ text: '점을 3개 이상 찍어야 구역을 닫을 수 있습니다.' });
@@ -248,16 +254,21 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
 
   const save = (e: FormEvent) => {
     e.preventDefault();
-    if (busy || u.unsure || mine(kept.job) || !v.upload_id) return;   // 다른 층·기준 판의 옛 요청은 막지 않음(새 요청이 그 자리를 차지)
+    if (lock || mine(kept.job) || !v.upload_id) return;   // 다른 층·기준 판의 옛 요청은 막지 않음(새 요청이 그 자리를 차지)
     if (pts.length) return setMsg({ text: '그리던 구역·선을 먼저 닫거나 지우세요.' });
     if (!dirty) return setMsg({ text: '바꾼 것이 없습니다. 도구로 지도를 고친 뒤 저장하세요.' });
     const b = check(f, v, others.map((x) => x.id));
     if (b) { setBad(b); setSel(keyOf(b.path)); setMsg(null); return; }
     const why = reasonBad(reason, '바꾼 이유');
     if (why) return setMsg({ text: why });
+    send();
+  };
+  /** 보내기(저장·결재 요청). 다시 요청(UnsureBar 확인창)도 여기로 — 확인 전엔 편집이 잠겨 있어 보낸 내용 그대로 */
+  const send = () => {
     setBusy(true); setMsg(null); setBad(null); setStale(false);
     const j: Job = { floor: p.floor.id, base: v.id, wait: Promise.resolve() };
-    j.wait = api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: f, reason: reason.trim() }, cancel).then(shape(isVersion))   // 빈·어긋난 201 = 저장 불확실(status 0)
+    j.wait = (request ? pendingIds(cancel).then((k) => { j.known = k; }) : Promise.resolve())
+      .then(() => api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: f, reason: reason.trim() }, cancel)).then(shape(isVersion))   // 빈·어긋난 201 = 저장 불확실(status 0)
       .then((x) => { j.done = { ok: x }; }, (y) => { j.done = { fail: y as ApiFail }; });
     kept.job = j;
     follow(j);
@@ -277,10 +288,10 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
       <button type="button" className="btn" onClick={() => setAsk(null)}>계속 편집</button></div>}
     {!v.upload_id && <p className="fh-msg" role="alert">이 판은 아직 편집 저장을 지원하지 않습니다. 도구는 써 볼 수 있지만 새 판으로 저장할 수는 없습니다.</p>}
     {/* 저장 중엔 편집 입력을 모두 막는다(요청 뒤 바꾼 것이 201 뒤 사라지지 않게) — STOP 은 App 머리줄이라 그대로 */}
-    <fieldset disabled={busy || u.unsure} style={{ display: 'contents' }}>
+    <fieldset disabled={lock} style={{ display: 'contents' }}>
     <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
       <div role="toolbar" aria-label="편집 도구" aria-orientation="vertical" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {TOOLS.map(([t, text]) => <button key={t} type="button" className="btn" aria-pressed={tool === t} disabled={busy} onClick={() => pick(t)}>{text}</button>)}
+        {TOOLS.map(([t, text]) => <button key={t} type="button" className="btn" aria-pressed={tool === t} disabled={lock} onClick={() => pick(t)}>{text}</button>)}
       </div>
       <svg ref={svg} viewBox={`0 0 ${v.width} ${v.height}`} role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
         style={{ display: 'block', flex: 1, minWidth: 0, maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8, touchAction: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
@@ -294,10 +305,10 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     </div>
     <p className="lv-note" role="status">{hint}</p>
     {(zone || line) && <div className="fh-row" role="group" aria-label="그리기">
-      <button type="button" className="btn" disabled={busy || !pts.length} onClick={finish}>{zone ? '닫기' : '끝내기'}</button>
-      <button type="button" className="btn" disabled={busy || !pts.length} onClick={() => setPts(pts.slice(0, -1))}>되돌리기</button>
-      <button type="button" className="btn" disabled={busy || !pts.length} onClick={() => setPts([])}>지우기</button>
-      {line && <label className="fh-row"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} style={{ width: 96 }} value={Number.isFinite(width) ? width : ''} onChange={(e) => busy || setWidth(num(e.target.value))} /></label>}
+      <button type="button" className="btn" disabled={lock || !pts.length} onClick={finish}>{zone ? '닫기' : '끝내기'}</button>
+      <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts(pts.slice(0, -1))}>되돌리기</button>
+      <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts([])}>지우기</button>
+      {line && <label className="fh-row"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} style={{ width: 96 }} value={Number.isFinite(width) ? width : ''} onChange={(e) => lock || setWidth(num(e.target.value))} /></label>}
     </div>}
     {cur && <div className="fh-form" role="group" aria-label="고른 요소">
       <b>{label(f, sel).replace(/: $/, '')}</b>
@@ -324,18 +335,17 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
         </>; })()}
       {sg === 'edits' && <label className="fh-field"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} value={Number.isFinite((cur as MapEdit).width) ? (cur as MapEdit).width : ''}
         onChange={(e) => swap('edits', si, { ...(cur as MapEdit), width: num(e.target.value) })} /></label>}
-      <div className="fh-row"><button type="button" className="btn" disabled={busy} onClick={() => drop(sel)}>이 요소 지우기</button></div>
+      <div className="fh-row"><button type="button" className="btn" disabled={lock} onClick={() => drop(sel)}>이 요소 지우기</button></div>
     </div>}
     {bad && <p className="fh-msg" role="alert" data-bad>{label(f, keyOf(bad.path))}{bad.text}</p>}
     <form className="fh-form" onSubmit={save} noValidate aria-label={request ? '결재 요청' : '새 판으로 저장'}>
-      <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => busy || setReason(e.target.value)} /></label>
-      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || !v.upload_id}>{request ? '결재 요청' : '새 판으로 저장'}</button>
+      <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => lock || setReason(e.target.value)} /></label>
+      <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || !v.upload_id}>{request ? '결재 요청' : '새 판으로 저장'}</button>
         {stale && <button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button>}</div>
       {busy && <p className="lv-note" role="status">{request ? '결재를 요청하는 중…' : '새 판으로 저장하는 중…'}</p>}
       <Note m={msg} />
     </form>
     </fieldset>
-    {u.unsure && <div className="fh-row"><button type="button" className="btn" disabled={u.checking} onClick={u.check}>상태 확인</button>
-      {u.checking && <span className="lv-note" role="status">결재 요청이 만들어졌는지 확인하는 중…</span>}</div>}
+    <UnsureBar u={u} resend={send} />
   </div>;
 }
