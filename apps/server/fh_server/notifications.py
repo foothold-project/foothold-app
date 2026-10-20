@@ -10,9 +10,9 @@ from .models import Notification, Robot, User, now
 # F-COM-03; emergency execution is connected by its S7 owner.
 KINDS = {
     'APPROVAL_REQUESTED': ('APPROVAL_REQUESTED', '결재 요청'),
-    'APPROVAL_DECIDED': ('APPROVAL_RESULT', '결재 결과'),
-    'APPROVAL_CANCELED': ('APPROVAL_RESULT', '결재 취소'),
-    'APPROVAL_STALE': ('APPROVAL_RESULT', '지도 변경으로 승인 불가'),
+    'APPROVAL_DECIDED': ('APPROVAL_DECIDED', '결재 결과'),
+    'APPROVAL_CANCELED': ('APPROVAL_DECIDED', '결재 취소'),
+    'APPROVAL_STALE': ('APPROVAL_DECIDED', '지도 변경으로 승인 불가'),
     'REQUEST': ('LEASE_REQUESTED', '조종권 요청'),
     'AGENT_DISCONNECTED': ('LINK_LOST', '연결 끊김'),
     'LINK_LOST': ('LINK_LOST', '연결 끊김'),
@@ -31,8 +31,8 @@ def append_for_event(db, event, *, other_user_id=None):
     kind, title = definition
     if event.code == 'APPROVAL_REQUESTED':
         recipients = select(User).where(User.role == 'ORG_ADMIN')
-    elif kind == 'APPROVAL_RESULT':
-        recipients = select(User).where(User.id == UUID(event.data['requester_id']))
+    elif kind == 'APPROVAL_DECIDED':
+        recipients = select(User).where(User.id == UUID(event.data['requester_id']), User.id != event.user_id)
     elif kind == 'LEASE_REQUESTED':
         recipients = select(User).where(User.id == UUID(str(other_user_id))) if other_user_id else select(User).where(False)
     else:

@@ -51,7 +51,9 @@ def test_operator_request_approve_pointer_counts_preview_events_notifications(ma
     assert row['target'] == {'type': 'map_version', 'id': version['id']}
     assert row['base_ref'] == {'type': 'map_version', 'id': first['id']}
     assert row['emergency'] is False and row['created_at'].endswith('Z')
-    assert http.get(P + f'/approvals/{row["id"]}', headers=admin).json() == row
+    assert http.get(P + f'/approvals/{row["id"]}', headers=admin).json() == {**row, 'preview': {
+        'floor_id': floor, 'floor_name': '1층', 'target_version_number': version['number'],
+        'base_version_number': first['number']}}
     assert http.get(P + f'/map-versions/{version["id"]}/diff', headers=admin).status_code == 200
     assert current(http, admin)['approved_version_id'] == first['id']
     assert current(http, operator)['pending_count'] == 1
@@ -70,7 +72,7 @@ def test_operator_request_approve_pointer_counts_preview_events_notifications(ma
     assert http.get(P + '/dashboard', headers=admin).json()['approvals_pending'] == 0
     assert http.get(P + f'/map-versions/{version["id"]}', headers=admin).json()['status'] == 'APPROVED'
     notice = http.get(P + '/notifications', headers=operator).json()['items']
-    assert len(notice) == 1 and notice[0]['kind'] == 'APPROVAL_RESULT' and row['id'] in notice[0]['link']
+    assert len(notice) == 1 and notice[0]['kind'] == 'APPROVAL_DECIDED' and row['id'] in notice[0]['link']
     assert 'admin' in notice[0]['body'] and 'one' in notice[0]['body'] and '승인' in notice[0]['body']
     engine = create_engine(seeded['urls']['app'])
     try:
@@ -128,7 +130,10 @@ def test_reject_reason_cancel_requester_only_and_terminal_409(maps, decision):
     if decision == 'reject':
         assert http.get(path, headers=operator).json()['decision_comment'] == body['reason']
     notices = http.get(P + '/notifications', headers=operator).json()['items']
-    assert len(notices) == 1 and row['id'] in notices[0]['link']
+    if decision == 'cancel':
+        assert notices == []  # acting requester does not receive their own result
+    else:
+        assert len(notices) == 1 and row['id'] in notices[0]['link']
     assert http.get(P + '/notifications', headers=admin).json()['unread_count'] == 1
     events = http.get(P + '/events?category=APPROVAL', headers=admin).json()['items']
     assert len(events) == 2 and events[0]['code'] == ('APPROVAL_CANCELED' if decision == 'cancel' else 'APPROVAL_DECIDED')

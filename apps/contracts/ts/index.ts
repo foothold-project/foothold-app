@@ -151,9 +151,32 @@ export interface ApprovalApprove {
   comment?: string | null;
 }
 
+export interface ApprovalDetail {
+  id: string;
+  kind: "MAP_REVISION" | "MAP_ROLLBACK";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELED" | "STALE";
+  requester: Person;
+  decider: Person | null;
+  reason: string;
+  decision_comment: string | null;
+  target: ApprovalRef;
+  base_ref: ApprovalRef | null;
+  emergency: boolean;
+  created_at: string;
+  decided_at: string | null;
+  preview: ApprovalMapPreview;
+}
+
 export interface ApprovalList {
   items: Approval[];
   next_cursor: string | null;
+}
+
+export interface ApprovalMapPreview {
+  floor_id: string;
+  floor_name: string;
+  target_version_number: number;
+  base_version_number: number | null;
 }
 
 export interface ApprovalRef {

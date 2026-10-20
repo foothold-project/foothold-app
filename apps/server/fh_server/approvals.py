@@ -49,21 +49,39 @@ def request_map(db, user, version):
     return row
 
 
-def approval_object(db, row):
-    def person(identifier):
-        user = db.scalar(select(User).where(User.org_id == row.org_id, User.id == identifier))
-        return C.Person(id=user.id, display_name=user.display_name) if user else None
-    return C.Approval(id=row.id, kind=row.kind, status=row.status, requester=person(row.requester_id),
-        decider=person(row.decider_id) if row.decider_id else None, reason=row.reason,
+def approval_objects(db, rows):
+    if not rows:
+        return []
+    identifiers = {identifier for row in rows for identifier in (row.requester_id, row.decider_id) if identifier}
+    users = {user.id: C.Person(id=user.id, display_name=user.display_name) for user in db.execute(
+        select(User.id, User.display_name).where(User.org_id == rows[0].org_id, User.id.in_(identifiers)))}
+    return [C.Approval(id=row.id, kind=row.kind, status=row.status, requester=users[row.requester_id],
+        decider=users[row.decider_id] if row.decider_id else None, reason=row.reason,
         decision_comment=row.decision_comment, target=C.ApprovalRef(id=row.target_id),
         base_ref=C.ApprovalRef(id=row.base_ref_id) if row.base_ref_id else None,
-        emergency=row.emergency, created_at=row.created_at, decided_at=row.decided_at)
+        emergency=row.emergency, created_at=row.created_at, decided_at=row.decided_at) for row in rows]
+
+
+def approval_object(db, row):
+    return approval_objects(db, [row])[0]
+
+
+def approval_detail(db, row):
+    target = db.execute(select(MapVersion.floor_id, MapVersion.number).where(
+        MapVersion.org_id == row.org_id, MapVersion.id == row.target_id)).one()
+    floor = db.scalar(select(Floor).where(Floor.org_id == row.org_id, Floor.id == target.floor_id))
+    base_number = db.scalar(select(MapVersion.number).where(MapVersion.org_id == row.org_id,
+        MapVersion.id == row.base_ref_id)) if row.base_ref_id else None
+    return C.ApprovalDetail(**approval_object(db, row).model_dump(), preview=C.ApprovalMapPreview(
+        floor_id=floor.id, floor_name=floor.name, target_version_number=target.number, base_version_number=base_number))
 
 
 def transition(db, row, user, status, comment, fail):
     # Caller holds the approval row. All terminal transitions pass this guard.
     if row.status != 'PENDING':
         fail(409, 'ALREADY_DECIDED', '이미 끝난 요청입니다. 결재 목록을 새로 확인하세요.')
+    if status != 'CANCELED' and row.requester_id == user.id:
+        fail(403, 'FORBIDDEN', '본인이 요청한 결재는 취소만 할 수 있습니다. 다른 총괄에게 처리를 요청하세요.')
     from .maps import refresh_connectors, bounded_features, validate_rollback_connectors
     version = db.scalar(select(MapVersion).where(MapVersion.org_id == user.org_id, MapVersion.id == row.target_id))
     floor = db.scalar(select(Floor).where(Floor.org_id == user.org_id, Floor.id == version.floor_id).with_for_update())
@@ -108,11 +126,11 @@ def install(app, DB, Identity, fail, authorize, page):
         if status is not None:
             query = query.where(Approval.status == status)
         # Oldest first, matching F-AP-02; the shared opaque UUID cursor is stable.
-        return C.ApprovalList(**page(db, query, Approval, limit, cursor, lambda db, row: approval_object(db, row)))
+        return C.ApprovalList(**page(db, query, Approval, limit, cursor, None, serialize_many=approval_objects))
 
-    @app.get('/api/v1/approvals/{approval_id}', response_model=C.Approval)
+    @app.get('/api/v1/approvals/{approval_id}', response_model=C.ApprovalDetail)
     def detail(approval_id: UUID, auth: Identity, db: DB):
-        return approval_object(db, own(db, auth[0], approval_id))
+        return approval_detail(db, own(db, auth[0], approval_id))
 
     @app.post('/api/v1/approvals/{approval_id}/approve', response_model=C.Approval)
     def approve(approval_id: UUID, auth: Identity, db: DB, body: C.ApprovalApprove = C.ApprovalApprove()):

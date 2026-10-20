@@ -705,10 +705,14 @@ npm run --prefix apps/contracts typecheck
   운영자에게 본인 요청만 오래된 순서로 보낸다. status 생략은 모든 상태다.
   `GET /approvals/{id}`도 같은 범위다. 없는 ID·범위 밖 ID는 같은 404다.
   객체는 05 §7의 requester/decider, target/base_ref, reason/decision_comment,
-  created_at/decided_at, emergency를 사용한다. 지도 미리보기는 target/base_ref의
+  created_at/decided_at, emergency를 사용한다. 목록의 요청자·결정자는 페이지마다 한 번의
+  사용자 IN 조회로 묶는다. 상세는 `ApprovalDetail`이며 `preview`에 floor_id/floor_name,
+  target_version_number/base_version_number를 포함한다. 전후 비교는 target/base_ref의
   판 ID를 기존 `/map-versions/{id}/diff?against={id}`에 전달한다.
 - 총괄의 `POST /approvals/{id}/approve {comment?}`·`/reject {reason}`는 200 결재 객체다.
   approve 본문은 생략할 수 있다. 반려 이유는 공백을 제외한 문자가 있어야 하고 1~2000자다.
+  요청자는 총괄로 승격돼도 자기 요청을 승인·반려할 수 없다(403). 본인 요청은 취소만
+  가능하다. 사유·의견·지도 저장/되돌리기 reason은 Cc/Cf 제어·서식 문자를 거부한다.
   요청자만 `POST /approvals/{id}/cancel`할 수 있다(본문 없음). 총괄이 남의 요청을
   취소하면 403, 다른 운영자의 요청이면 조회 범위 밖이므로 404다.
 - 상태 전이는 한 함수에 모았고 `PENDING → APPROVED/REJECTED/CANCELED/STALE`만 처리한다.
@@ -727,12 +731,19 @@ npm run --prefix apps/contracts typecheck
   APPROVAL 분류로 남긴다. 결재 FK와 data의 approval_id·지도/층/기준 판·요청자·결정 값을
   같은 트랜잭션에 저장한다. 서버 문장 틀이 빠지면 요청과 모든 부수 효과가 실패한다.
   요청 알림(`APPROVAL_REQUESTED`)은 잠기지 않은 현 조직의 총괄들에게,
-  결정·취소·STALE 알림(`APPROVAL_RESULT`)은 요청자에게만 보낸다.
+  결정·취소·STALE 알림(`APPROVAL_DECIDED`)은 요청자에게 보내되 행위자 본인은 제외한다.
+  따라서 자기 취소 알림은 만들지 않으며 취소 사건은 계속 남긴다.
   기존 notify_prefs를 따르며 `#/approvals?approval_id=…`로 이동한다.
   REST 알림함만 연결했고 WS notify 배송·Web Push는 추가하지 않았다.
 
 0010은 approvals·색인·events 복합 FK를 만들고 map_versions에 **status 열만** UPDATE를
-허용한다. events의 INSERT/SELECT 권한과 업로드 내용 불변성은 유지한다.
+허용한다. 0011은 approvals UPDATE를 status/decider_id/decided_at/decision_comment
+네 열로 제한하고 요청 본문·기준·대상·요청자를 변경하지 못하게 한다. 서버 기동 때
+approvals DELETE/TRUNCATE·표 전체 또는 결정 외 열 UPDATE 권한을 거절한다.
+0010까지 사용한 APPROVAL_RESULT 알림 종류와 notify_prefs 키도 0011에서
+APPROVAL_DECIDED로 옮긴다(두 설정 키가 있으면 명시된 새 키 우선).
+0011 downgrade는 이 명칭과 권한을 0010 방식으로 되돌린다.
+events의 INSERT/SELECT 권한과 업로드 내용 불변성은 유지한다.
 CANCELED 판이 있는 DB를 0009로 내리면 옛 상태 제약 때문에 트랜잭션 전체가 실패한다.
 자료가 있는 운영 DB에서 결재 이력을 지우는 downgrade를 수행하지 않는다. 적용 전
 DB·파일 백업과 별도 복구 계획을 준비하고, 코드 복구는 검토된 revert/후속 수정으로 한다.

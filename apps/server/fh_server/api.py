@@ -153,6 +153,13 @@ def create_app(settings: Settings | None = None):
                 OR has_table_privilege(current_user, 'events', 'UPDATE')
                 OR has_table_privilege(current_user, 'events', 'DELETE')
                 OR has_table_privilege(current_user, 'events', 'TRUNCATE')
+                OR has_table_privilege(current_user, 'approvals', 'DELETE')
+                OR has_table_privilege(current_user, 'approvals', 'TRUNCATE')
+                OR has_table_privilege(current_user, 'approvals', 'UPDATE')
+                OR EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'approvals'
+                    AND column_name NOT IN ('status', 'decider_id', 'decided_at', 'decision_comment')
+                    AND has_column_privilege(current_user, 'approvals', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'UPDATE')
                 OR EXISTS (SELECT 1 FROM information_schema.columns
                     WHERE table_schema = 'public' AND table_name = 'map_versions' AND column_name <> 'status'
