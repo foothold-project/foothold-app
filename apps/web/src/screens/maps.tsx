@@ -34,7 +34,7 @@ export function toPixel(v: Pick<MapVersion, 'origin' | 'resolution' | 'height'>,
 
 export const ZONE = { NO_GO: { text: '진입 금지', color: 'var(--bad)' }, SLOW: { text: '감속', color: 'var(--warn)' } } as const;
 export const KIND = { STAIRS: '계단', ELEVATOR: '엘리베이터' } as const;
-export const EDIT = { ERASE: { text: '지우개', color: 'var(--muted)' }, WALL: { text: '벽', color: 'var(--text)' } } as const;
+export const EDIT = { ERASE: { text: '지우개', color: 'var(--muted)' }, WALL: { text: '벽', color: 'var(--ink-3)' } } as const;   // 지도 그림은 테마와 상관없이 흰 바탕이라 두 테마 모두 중간 회색인 토큰
 const SEL = { stroke: 'var(--accent)', strokeWidth: 4 }, BAD = { stroke: 'var(--bad)', strokeWidth: 4, strokeDasharray: '6 4' };
 
 /** 요소 그리기(보기·편집 같이). 선 굵기는 지도 m 그대로(그림 픽셀), 지점은 방향 선 하나.
@@ -50,7 +50,7 @@ export function Shapes({ v, f, sel, bad }: { v: Pick<MapVersion, 'origin' | 'res
     {f.waypoints.map((w, i) => { const [x, y] = p(w.x, w.y), [hx, hy] = p(w.x + Math.cos(w.yaw) * r * 2.2 * v.resolution, w.y + Math.sin(w.yaw) * r * 2.2 * v.resolution);
       return <g key={`w${i}`} data-key={`waypoints.${i}`} data-waypoint={w.name}>
         <line x1={x} y1={y} x2={hx} y2={hy} style={{ stroke: 'var(--accent)', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
-        <circle cx={x} cy={y} r={r} style={{ fill: 'var(--accent)', ...mark(`waypoints.${i}`) }} vectorEffect="non-scaling-stroke" /><text x={x} y={y - r * 1.6} fontSize={r * 2.4} textAnchor="middle" style={{ fill: 'var(--text)' }}>{w.name}</text></g>; })}
+        <circle cx={x} cy={y} r={r} style={{ fill: 'var(--accent)', ...mark(`waypoints.${i}`) }} vectorEffect="non-scaling-stroke" /><text x={x} y={y - r * 1.6} fontSize={r * 2.4} textAnchor="middle" style={{ fill: 'var(--text)', stroke: 'var(--bg)', strokeWidth: r * 0.6, paintOrder: 'stroke' }}>{w.name}</text></g>; })}
     {f.connectors.map((k, i) => { const [x, y] = p(k.x, k.y); return <rect key={`c${i}`} data-key={`connectors.${i}`} data-connector={k.kind} x={x - r} y={y - r} width={r * 2} height={r * 2}
       style={{ fill: 'var(--warn)', ...mark(`connectors.${i}`) }} vectorEffect="non-scaling-stroke"><title>{`${KIND[k.kind] ?? ''} 연결점`}</title></rect>; })}
   </>;

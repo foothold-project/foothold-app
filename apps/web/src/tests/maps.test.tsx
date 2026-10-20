@@ -828,14 +828,17 @@ describe('지도 편집 — 저장', () => {
     expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
     expect(field('바꾼 이유', card('새 판으로 저장')).value).toBe('구역 추가');
     const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
+    const seen = vi.fn(); Element.prototype.scrollIntoView = seen;   // jsdom 에는 없음
     await click(btn('새로 불러오기'));
     expect(card('확인').textContent).toContain('새로 불러오면 지금 편집 내용을 잃습니다.');
+    expect(seen.mock.contexts).toContain(card('확인'));   // 확인 줄은 편집 칸 위쪽 — 아래 단추로 띄워도 화면에 들어오게
     await click(btn('계속 편집', card('확인')));
     expect(canvas()).toBeTruthy(); expect(sent('GET', '/sites').length).toBe(trees);
     await click(btn('새로 불러오기'));
     await click(btn('새로 불러오기', card('확인')));
     expect(canvas()).toBeNull();
     expect(sent('GET', '/floors/f1/map-versions').length).toBe(lists + 1); expect(sent('GET', '/sites').length).toBe(trees + 1);
+    delete (Element.prototype as Partial<Element>).scrollIntoView;
     await stopSends();
   });
   const uncertainEdit = async (make: () => Response | Promise<Response>) => {

@@ -238,7 +238,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck }: { v: MapVersion; 
   const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
 
   return <div className="fh-form" aria-label="지도 편집">
-    {ask && <div className="fh-row" role="group" aria-label="확인"><span>{ask.text}</span>
+    {ask && <div className="fh-row" role="group" aria-label="확인" ref={(e) => e?.scrollIntoView?.({ block: 'nearest' })}><span>{ask.text}</span>
       <button type="button" className="btn pri" onClick={() => { const a = ask; setAsk(null); leaving.ask = null; a.go(); }}>{ask.yes}</button>
       <button type="button" className="btn" onClick={() => setAsk(null)}>계속 편집</button></div>}
     {!v.upload_id && <p className="fh-msg" role="alert">이 판은 아직 편집 저장을 지원하지 않습니다. 도구는 써 볼 수 있지만 새 판으로 저장할 수는 없습니다.</p>}
