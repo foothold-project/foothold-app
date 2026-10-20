@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { AgentTokenResponse, ApiError, Dashboard, Event, EventList, LoginResponse, MePatch, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { AgentTokenResponse, ApiError, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapFloor, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -27,11 +27,11 @@ export const onAuthLost = (f: (why?: string) => void) => { authLost = f; };
 export const expireAuth = (why?: string) => { csrf = null; authLost(why); };
 
 /** ms = 답을 기다리는 한도(넘으면 끊고 TIMEOUT), cancel = 부른 쪽이 거둠(세션이 끝남 등 — CANCELED, 401 이어도 로그인 정리 안 함).
- *  file = 성공 본문을 JSON 대신 Blob 으로(CSV 내려받기 — 실패 본문은 그대로 오류 JSON) */
-type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean };
-async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file }: Opt = {}): Promise<T> {
+ *  file = 성공 본문을 JSON 대신 Blob 으로(CSV 내려받기 — 실패 본문은 그대로 오류 JSON). raw = 본문을 JSON 대신 이 Content-Type 의 원시 바이트로(지도 올리기) */
+type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean; raw?: string };
+async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file, raw }: Opt = {}): Promise<T> {
   const headers: Record<string, string> = {};
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  if (body !== undefined) headers['Content-Type'] = raw ?? 'application/json';
   if (method !== 'GET' && csrf) headers['X-FH-CSRF'] = csrf;
   if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);
   const stop = new AbortController(), timer = ms ? setTimeout(() => stop.abort(), ms) : undefined, off = () => stop.abort();
@@ -40,7 +40,7 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
   try {
     const lost = () => (cancel?.aborted ? new ApiFail(0, 'CANCELED', NETWORK) : stop.signal.aborted ? new ApiFail(0, 'TIMEOUT', SLOW) : new ApiFail(0, 'NETWORK', NETWORK));
     try {
-      res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', signal: stop.signal, body: body === undefined ? undefined : JSON.stringify(body) });
+      res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', signal: stop.signal, body: body === undefined ? undefined : raw ? body as Blob : JSON.stringify(body) });
     } catch { throw lost(); }
     // 파일 본문을 받다 끊기면 실패(빈 성공으로 넘기지 않음). 204 도 아래 취소 검사를 거친다(늦게 끝난 쓰기)
     if (file && res.ok) data = await res.blob().catch(() => { throw lost(); });
@@ -108,6 +108,23 @@ export const api = {
   notifications: (cancel?: AbortSignal) => call<NotificationList>('GET', '/notifications?limit=20', undefined, { cancel, ms: NOTE_MS }),
   /** {ids} 또는 {all:true} — 204. 남의·없는 id 가 섞이면 404(하나도 읽음 처리 안 됨) */
   readNotifications: (p: NotificationsRead, cancel?: AbortSignal) => call<void>('POST', '/notifications/read', p, { cancel }),
+  // 장소·층·지도 판(05 §5, S3a). 만들기·이름 바꾸기·지우기는 총괄만(운영 관리자는 서버가 403). kind = 경로 앞부분
+  sites: (cancel?: AbortSignal) => call<SiteTree>('GET', '/sites', undefined, { cancel }),
+  createSite: (name: string, cancel?: AbortSignal) => call<MapSite>('POST', '/sites', { name }, { cancel }),
+  createBuilding: (site: string, name: string, cancel?: AbortSignal) => call<MapBuilding>('POST', `/sites/${encodeURIComponent(site)}/buildings`, { name }, { cancel }),
+  createFloor: (building: string, p: FloorCreate, cancel?: AbortSignal) => call<MapFloor>('POST', `/buildings/${encodeURIComponent(building)}/floors`, p, { cancel }),
+  savePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, p: FloorPatch, cancel?: AbortSignal) => call<unknown>('PATCH', `/${kind}/${encodeURIComponent(id)}`, p, { cancel }),
+  /** 안에 건물·층·지도 판이 있거나 로봇·연결점이 쓰는 층이면 409 RESOURCE_IN_USE */
+  deletePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, cancel?: AbortSignal) => call<void>('DELETE', `/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
+  /** 층의 판 목록(최신 번호 먼저, 지도 요소 포함) */
+  versions: (floor: string, cancel?: AbortSignal) => pages<MapVersion>(`/floors/${encodeURIComponent(floor)}/map-versions`, cancel),
+  version: (id: string, cancel?: AbortSignal) => call<MapVersion>('GET', `/map-versions/${encodeURIComponent(id)}`, undefined, { cancel }),
+  /** 판 그림(png) 주소 — <image> 가 쿠키로 바로 받는다(큰 그림을 JS 메모리로 옮기지 않음) */
+  imageUrl: (id: string) => `${BASE}/map-versions/${encodeURIComponent(id)}/image`,
+  /** 원시 본문 올리기 두 단계: 그림(type = image/png·image/x-portable-graymap) → 그 ID 로 yaml(text/yaml). 둘째 응답 ID 가 판 저장의 image */
+  upload: (body: Blob, type: string, image?: string, cancel?: AbortSignal) => call<MapUpload>('POST', `/uploads${image ? `?image=${encodeURIComponent(image)}` : ''}`, body, { cancel, raw: type }),
+  /** 총괄 = 바로 승인 판. base_version_id 가 지금 승인 판과 다르면 409 STALE, 운영 관리자는 403 APPROVAL_REQUIRED(S4 전) */
+  saveVersion: (floor: string, p: MapVersionCreate, cancel?: AbortSignal) => call<MapVersion>('POST', `/floors/${encodeURIComponent(floor)}/map-versions`, p, { cancel }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
 };

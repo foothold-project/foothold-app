@@ -1,6 +1,6 @@
 // 화면 틀(03 UX §3): PC = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문, 폰(768px 미만) = 머리줄 + 본문 + 하단 탭 3개.
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서),
-// 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 알림 종은 GET /notifications(screens/history.tsx), 나머지는 가짜.
+// 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 알림 종은 GET /notifications(screens/history.tsx), 지도는 /sites·/map-versions(screens/maps.tsx), 나머지는 가짜.
 import { Component, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
@@ -9,6 +9,7 @@ import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, type Ctx } from './screens';
 import { Bell, History } from './screens/history';
+import { Maps } from './screens/maps';
 import { Settings } from './screens/settings';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
@@ -41,7 +42,7 @@ export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) 
 }
 
 /** 화면 일부의 렌더 예외가 머리줄·STOP 까지 내리지 않게 가둔다(SF-01). STOP 은 늘 이 경계 밖. quiet = 아무것도 그리지 않음(머리줄 알림 종) */
-class Guard extends Component<{ children: ReactNode; quiet?: boolean }, { broken: boolean }> {
+export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, { broken: boolean }> {
   state = { broken: false };
   static getDerivedStateFromError() { return { broken: true }; }
   render() {
@@ -160,9 +161,10 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
       <main className="fh-main" aria-label={labelOf(cur, user.role)}><Guard key={tab}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
-        : ctx ? <Body key={`${tab}-${ctx.robot.id}-${user.id}`} {...ctx} />
+        : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도는 로봇을 골라도 다시 그리지 않음(층·지도 그림 유지 — 상세 서랍은 자기 key)
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={pool} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
+        : tab === 'map' ? <Maps key={`map-${user.id}`} user={user} cancel={cancel} />   // 로봇 0대여도 장소·지도
         : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>

@@ -1,9 +1,8 @@
 // 화면 자료 모양 + 아직 가짜인 묶음. USERS·ROBOTS 는 처음 비어 있고 로그인하면 서버 값(/me·/robots)으로 채운다(setServerData).
-// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 층(지도 탭)·결재·시나리오는 아직 가짜(사건은 서버 /events — screens/history.tsx).
+// 로봇 상태·조종권은 실시간 연결(rt.ts)이 얹는다. 결재·시나리오는 아직 가짜(사건은 서버 /events — screens/history.tsx, 장소·지도는 /sites — screens/maps.tsx).
 import type { Device, Location, RobotSummary } from '../../contracts/ts';
 export type Role = 'ORG_ADMIN' | 'OPERATOR';
 export type User = { id: string; name: string; role: Role };
-export type Floor = { id: string; site: string; name: string };
 /** 로봇 요약 상태(02 §4 «로봇 요약 상태와 실행 상태»). 끊긴 로봇이면 마지막 확인 값 */
 export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' | 'IDLE';
 /** online = connection ONLINE. status null = 아직 상태를 받은 적 없음(연결 전). seenAt = 마지막 확인 시각. mission = current_run(끝나지 않은 실행) 이름.
@@ -20,11 +19,6 @@ export const ROLE_NAME: Record<Role, string> = { ORG_ADMIN: '총괄', OPERATOR: 
 export const STATUS_NAME: Record<Status, string> = { STOP_LATCHED: '정지 잠금', ERROR: '오류', TELEOP: '사람 조종', PAUSED: '일시정지', RUNNING: '임무 중', IDLE: '대기' };
 
 export const USERS: User[] = [];
-
-export const FLOORS: Floor[] = [
-  { id: 'f1', site: '본관', name: '1층' },
-  { id: 'f2', site: '본관', name: '2층' },
-];
 
 export const ROBOTS: Robot[] = [];
 

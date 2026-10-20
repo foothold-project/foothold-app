@@ -63,7 +63,8 @@ def server(folder: Path, port: int):
         (folder / 'stack.json').write_text(json.dumps(stack, ensure_ascii=False, indent=1))
         (folder / 'stack.json').chmod(0o600)
 
-        env = {**os.environ, 'FH_DATABASE_URL': url('fh_app'), 'FH_ORG_ID': stack['org']}
+        # 지도 파일 저장소(S3a)도 폴더 안 — 기본값 /var/lib/foothold/files 를 쓰지 않는다
+        env = {**os.environ, 'FH_DATABASE_URL': url('fh_app'), 'FH_ORG_ID': stack['org'], 'FH_FILES_ROOT': str((folder / 'files').resolve())}
         uv = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'apps.server.fh_server.main:app', '--host', '127.0.0.1', '--port', str(port),
                                '--ws-max-size', '4096', '--workers', '1', '--no-proxy-headers'], cwd=ROOT, env=env)
         print(f'서버 {stack["base"]} — 계정·토큰은 {folder / "stack.json"}', flush=True)
