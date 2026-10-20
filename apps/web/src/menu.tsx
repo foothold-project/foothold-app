@@ -39,7 +39,7 @@ export const labelOf = (t: Tab, role: Role) => (typeof t.label === 'string' ? t.
 /** 주소(#/<id>[/<로봇 id>][?…])에서 탭 고르기 — 이 틀에 없는 탭이면 첫 탭 */
 export function tabFromHash(hash: string, phone: boolean): TabId {
   const id = hash.replace(/^#\/?/, '').split(/[/?]/)[0], all = tabsFor(phone);   // #/drive/<로봇 id> 도 조종 탭, #/history?event_id=… 도 기록 탭
-  return (all.find((t) => t.id === id) ?? all[0]).id;
+  return (all.find((t) => t.id === (id === 'approvals' ? 'approval' : id)) ?? all[0]).id;   // 서버 알림 링크는 #/approvals?approval_id=…
 }
 
 /** 떠나기 전에 물어볼 화면(저장하지 않은 지도 편집). ask(go) = 그 화면이 확인을 띄우고, 나가기를 고르면 go().

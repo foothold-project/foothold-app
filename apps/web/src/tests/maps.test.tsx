@@ -361,7 +361,7 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
   });
   it('앞 단계가 실패하면 다음 단계를 보내지 않음 — 그림 422·yaml 413·저장 422 INVALID_FEATURES·403, 쉬운 문구', async () => {
     const step1: Reply[] = [err(422, 'INVALID_UPLOAD', 'PNG CRC가 올바르지 않습니다.')], step2: Reply[] = [err(413, 'UPLOAD_TOO_LARGE', '올릴 수 있는 파일 크기를 넘었습니다.')];
-    const saves: Reply[] = [err(422, 'INVALID_FEATURES', '지도 범위 안의 좌표를 입력하세요.'), err(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.')];
+    const saves: Reply[] = [err(422, 'INVALID_FEATURES', '지도 범위 안의 좌표를 입력하세요.'), err(403, 'FORBIDDEN', '권한이 없습니다.')];
     serve(ok({ 'POST /uploads': (q) => (q.get('image') ? step2.shift() : step1.shift()) ?? { status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: '' } },
       'POST /floors/f1/map-versions': () => saves.shift()! }));
     await open('#/map');
@@ -376,7 +376,7 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await click(btn('올리기'));
     expect(alertText()).toContain('새 지도 범위 밖에 있는 것이 있습니다.');
     await click(btn('올리기'));
-    expect(alertText()).toContain('운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.');
+    expect(alertText()).toContain('권한이 없습니다.');
     expect(sent('POST', '/floors/f1/map-versions')).toHaveLength(2);
     expect(btn('올리기')!.disabled).toBe(false);
     await stopSends();
@@ -673,12 +673,32 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     await click(btn('보기', card('보기·편집')));
     expect(canvas()).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeTruthy();
   });
-  it('운영 관리자: 편집 단추·자리 표시 없음(S4 결재 전) / 총괄도 승인 판 없는 층은 토글 없음', async () => {
-    serve(editSrv({}, LEE));
-    await open('#/map');
-    expect(card('지도 보기').querySelector('svg')).toBeTruthy();
-    expect(btn('편집')).toBeUndefined(); expect($('[aria-label="보기·편집"]')).toBeNull();
+  it('운영 관리자: 저장 = «결재 요청» → 201 PENDING 이면 안내 + «내 요청 보기», 승인 판을 그대로 보임·배지 다시 받기 / 총괄도 승인 판 없는 층은 토글 없음', async () => {
+    const P3 = ver('v3', 3, { base_version_id: 'v2', source: 'EDIT', status: 'PENDING', created_by: LEE.id });
+    let asked = false;
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => { asked = true; return { status: 201, body: P3 }; },
+      'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: asked ? [P3, UP, V1] : [UP, V1], next_cursor: null } }) }, LEE));
+    await startEdit();
     expect(card('지도 보기').querySelector('[aria-describedby="fh-soon"]')).toBeNull();
+    expect($('[aria-label="새 지도 올리기"]')).toBeNull(); expect(btn('새 판으로 저장')).toBeUndefined();   // 올리기는 총괄만
+    await tool('지점'); await tap(1, 1);
+    const dash = sent('GET', '/dashboard').length;
+    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
+    expect(writes()).toEqual(['POST /floors/f1/map-versions']); expect(body().base_version_id).toBe('v2');
+    const note = [...box.querySelectorAll('[role="status"]')].find((x) => x.textContent!.includes('결재를 요청했습니다'))!;
+    expect(note.textContent).toContain('결재를 요청했습니다(판 3). 승인되기 전에는 지금 승인 판을 그대로 씁니다.');
+    expect(canvas()).toBeNull();
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
+    const sel = $<HTMLSelectElement>('select[aria-label="판"]')!;
+    expect(sel.value).toBe('v2'); expect([...sel.options].map((o) => o.textContent)).toEqual(['판 3 · 결재 대기', '판 2 · 승인', '판 1']);
+    expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect(sent('GET', '/dashboard').length).toBe(dash + 1);
+    await setVal(sel, 'v3');
+    expect(card('지도 보기').textContent).toContain('결재 대기 중인 판을 보는 중입니다. 승인되기 전에는 이 판을 쓰지 않습니다.');
+    await stopSends();
+    await setVal(sel, 'v2');
+    await click(btn('내 요청 보기')); await hashed(); await flush();
+    expect(location.hash).toBe('#/approval'); expect($('h1')!.textContent).toBe('내 요청');
     act(() => root?.unmount()); box.remove();
     serve(editSrv());
     await open('#/map');
@@ -876,14 +896,14 @@ describe('지도 편집 — 저장', () => {
   it('저장 중 끊김 → 저장 불확실 재조회, 편집 유지', () => uncertainEdit(() => { throw new TypeError('Failed to fetch'); }));
   it('201 본문 끊김 → 저장 불확실 재조회, 편집 유지', () => uncertainEdit(() => new Response(new ReadableStream({ start(c) { c.error(new TypeError('stream interrupted')); } }), { status: 201 })));
   it('503 SERVER_BUSY·403 은 쉬운 문구/서버 문구', async () => {
-    const replies = [err(503, 'SERVER_BUSY', '지도 파일 처리 중입니다.'), err(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.')];
+    const replies = [err(503, 'SERVER_BUSY', '지도 파일 처리 중입니다.'), err(403, 'FORBIDDEN', '권한이 없습니다.')];
     serve(editSrv({ 'POST /floors/f1/map-versions': () => replies.shift()! }));
     await startEdit();
     await tool('지점'); await tap(1, 1);
     await save();
     expect(alertText()).toContain('서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.');
     await save();
-    expect(alertText()).toContain('운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.');
+    expect(alertText()).toContain('권한이 없습니다.');
   });
 });
 
@@ -1306,15 +1326,33 @@ describe('판 비교·되돌리기(W4c)', () => {
     await stopSends();
   });
 
-  it('운영 관리자: 비교는 볼 수 있고 되돌리기 단추·자리 표시 없음', async () => {
-    serve(rollSrv({ status: 201, body: V3 }, {}, LEE));
+  it('운영 관리자: 비교 + 되돌리기 = «결재 요청» → 201 PENDING 이면 안내, 승인 판(판 2) 그대로', async () => {
+    const P3 = { ...V3, status: 'PENDING' as const, created_by: LEE.id };
+    serve(rollSrv({ status: 201, body: P3 }, {}, LEE));
     await open('#/map');
     await setVal(verSel(), 'v1');
-    expect(btns(card('판 관리')).map((b) => b.textContent)).toEqual(['비교']);
-    expect(card('지도 보기').textContent).not.toContain('되돌리');
     await compare();
     expect(sent('GET', '/map-versions/v1/diff')).toHaveLength(1);
-    expect(writes()).toEqual([]);
+    expect(btns(card('판 관리')).map((b) => b.textContent)).toEqual(['비교', '이 판으로 되돌리기']);
+    await click(undoBtn());
+    expect(card('이 판으로 되돌리기').textContent).toContain('결재를 요청합니다. 승인되기 전에는 지금 승인 판(판 2)을 그대로 씁니다.');
+    await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('결재 요청', card('이 판으로 되돌리기')));
+    expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
+    expect(sent('POST', '/map-versions/v1/rollback')[0].body).toEqual({ base_version_id: 'v2', reason: '잘못 편집함' });
+    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
+    expect($('[aria-label="이 판으로 되돌리기"]')).toBeNull();
+    expect(verSel().value).toBe('v2'); expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
+  });
+
+  it('판 이름: 결재 대기·적용 불가(기준 판 뒤 승인 판이 바뀜)·반려됨·취소됨 + 층 «결재 대기 N»', async () => {
+    const list = [ver('v6', 6, { status: 'CANCELED' }), ver('v5', 5, { status: 'REJECTED' }), ver('v4', 4, { status: 'PENDING', base_version_id: 'v1' }), ver('v3', 3, { status: 'PENDING', base_version_id: 'v2' }), V2, V1];
+    const T = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [{ ...floor('f1', '1층', 1, 'v2'), pending_count: 2 }, floor('f2', '2층', 2, null)] }] }] };
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: T }, 'GET /floors/f1/map-versions': { status: 200, body: { items: list, next_cursor: null } } }));
+    await open('#/map');
+    expect([...verSel().options].map((o) => o.textContent)).toEqual(['판 6 · 취소됨', '판 5 · 반려됨', '판 4 · 적용 불가(지도가 바뀜)', '판 3 · 결재 대기', '판 2 · 승인', '판 1']);
+    expect(card('지도 보기').textContent).toContain('결재 대기 2');
+    await setVal(verSel(), 'v4');
+    expect(card('지도 보기').textContent).toContain('적용 불가(지도가 바뀜)');
   });
 
   it('되돌리기 단추는 한때 승인된 판(SUPERSEDED)에만 — 지금 승인 판·대기·반려 판에는 없음', async () => {
@@ -1355,7 +1393,7 @@ describe('판 비교·되돌리기(W4c)', () => {
   it('되돌리기 실패: 409 STALE·ALREADY_APPROVED 는 새로 불러오기, 422 지운 층 연결점·403·503 은 쉬운 말/서버 문구, 칸과 이유는 그대로', async () => {
     const replies: Reply[] = [{ status: 409, body: { error: { code: 'STALE', message: '승인된 지도 판이 바뀌었습니다.', detail: { approved_version_id: 'v9' } } } },
       { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '연결점이 가리키는 같은 건물의 다른 층을 찾을 수 없습니다.', detail: { element: 'features.connectors.0.pair_floor_id' } } } },
-      err(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.'), err(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.'),
+      err(403, 'FORBIDDEN', '권한이 없습니다.'), err(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.'),
       err(409, 'ALREADY_APPROVED', '이미 승인된 지도 판입니다.')];
     serve(rollSrv(() => replies.shift()!));
     await open('#/map');
@@ -1368,7 +1406,7 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(alertText()).toContain('이 판에는 지금 없는 층과의 연결점이 있어 되돌릴 수 없습니다.');
     expect(btn('새로 불러오기', card('이 판으로 되돌리기'))).toBeUndefined();
     await click(btn('되돌리기', card('이 판으로 되돌리기')));
-    expect(alertText()).toContain('운영 관리자 지도 되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.');
+    expect(alertText()).toContain('되돌리지 못했습니다. 권한이 없습니다.');
     await click(btn('되돌리기', card('이 판으로 되돌리기')));
     expect(alertText()).toContain('지도 파일을 확인할 수 없습니다.');
     await click(btn('되돌리기', card('이 판으로 되돌리기')));

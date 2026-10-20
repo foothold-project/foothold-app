@@ -1,6 +1,6 @@
-// 지도 편집(01 MP-03·05·06, 02 F-MP-03, 03 §5.6, 05 §5 — S3a features). 총괄만, 편집 시작 때 승인 판 위에서 고쳐 새 판으로 저장한다.
+// 지도 편집(01 MP-03·05·06·AP-01, 02 F-MP-03, 03 §5.6, 05 §5 — S3a features·S4a). 편집 시작 때 승인 판 위에서 고쳐 새 판으로 저장한다 — 총괄은 바로 승인 판, 운영 관리자는 결재 요청(PENDING 판).
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
-// 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx, 결재 요청은 S4.
+// 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx, 결재 처리는 screens/approvals.tsx.
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
@@ -125,9 +125,9 @@ export const kept: { d: Draft | null; job: Job | null } = { d: null, job: null }
 addEventListener('beforeunload', (e) => { if (kept.d) { e.preventDefault(); e.returnValue = ''; } });
 const STALE = '다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다. «새로 불러오기»를 누르면 지금 편집 내용을 잃습니다.';
 
-/** 편집(총괄). v = 편집 시작 때 승인 판(저장 기준·그림), p = 그 층. saved = 새 판, quit = 보기로, recheck = 판 목록·나무 다시 받기
- *  moved = 남겨 둔 편집을 이어 쓰는데 그 사이 승인 판이 바뀜 → STALE 과 같은 안내 */
-export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean }) {
+/** 편집. v = 편집 시작 때 승인 판(저장 기준·그림), p = 그 층. saved = 새 판(운영 관리자면 PENDING), quit = 보기로, recheck = 판 목록·나무 다시 받기
+ *  moved = 남겨 둔 편집을 이어 쓰는데 그 사이 승인 판이 바뀜 → STALE 과 같은 안내. request = 운영 관리자(저장 = 결재 요청 — 문구만 다르고 같은 요청) */
+export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: { v: MapVersion; p: Place; cancel?: AbortSignal; saved: (v: MapVersion) => void; quit: () => void; recheck: () => void; moved?: boolean; request?: boolean }) {
   const [k] = useState(() => (kept.d?.floor === p.floor.id && kept.d.base.id === v.id ? kept.d : null));
   const [f, setF] = useState<MapFeatures>(() => k?.f ?? JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
   const [dirty, setDirty] = useState(k?.dirty ?? false), [tool, setTool] = useState<Tool>(k?.tool ?? 'pick'), [pts, setPts] = useState<P[]>(k?.pts ?? []), [sel, setSel] = useState(''), [width, setWidth] = useState(k?.width ?? 0.1);
@@ -157,10 +157,11 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     const x = d.fail;
     if (x.code === 'CANCELED') return;
     // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 목록을 다시 받아 보이고, 편집 내용은 그대로 둔다(다시 저장하면 기준이 바뀌어 STALE 로 막힘)
-    if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
+    if (x.status === 0) { setMsg({ text: request ? '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 판 목록을 다시 받습니다. «결재 대기» 판이 보이면 다시 요청하지 마세요.'
+      : '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
     if (x.code === 'STALE') { setStale(true); setMsg({ text: STALE }); return; }
     if (x.code === 'INVALID_FEATURES') { const b = serverBad(x); setBad(b); setSel(keyOf(b.path)); return; }
-    setMsg({ text: `저장하지 못했습니다. ${saveFail(x)}` });
+    setMsg({ text: `${request ? '결재를 요청하지 못했습니다.' : '저장하지 못했습니다.'} ${saveFail(x)}` });
   };
   useEffect(() => {
     if (!unsaved) return;
@@ -323,11 +324,11 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
       <div className="fh-row"><button type="button" className="btn" disabled={busy} onClick={() => drop(sel)}>이 요소 지우기</button></div>
     </div>}
     {bad && <p className="fh-msg" role="alert" data-bad>{label(f, keyOf(bad.path))}{bad.text}</p>}
-    <form className="fh-form" onSubmit={save} noValidate aria-label="새 판으로 저장">
+    <form className="fh-form" onSubmit={save} noValidate aria-label={request ? '결재 요청' : '새 판으로 저장'}>
       <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => busy || setReason(e.target.value)} /></label>
-      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || !v.upload_id}>새 판으로 저장</button>
+      <div className="fh-row"><button type="submit" className="btn pri" disabled={busy || !v.upload_id}>{request ? '결재 요청' : '새 판으로 저장'}</button>
         {stale && <button type="button" className="btn" onClick={() => setAsk({ text: '새로 불러오면 지금 편집 내용을 잃습니다. 새로 불러올까요?', yes: '새로 불러오기', go: () => { leaving.ask = null; left.current = true; quit(); recheck(); } })}>새로 불러오기</button>}</div>
-      {busy && <p className="lv-note" role="status">새 판으로 저장하는 중…</p>}
+      {busy && <p className="lv-note" role="status">{request ? '결재를 요청하는 중…' : '새 판으로 저장하는 중…'}</p>}
       <Note m={msg} />
     </form>
     </fieldset>

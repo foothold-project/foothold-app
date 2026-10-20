@@ -100,11 +100,10 @@ describe('역할 전환', () => {
     expect(start.disabled).toBe(true);
     expect($('[aria-label="조종"] [data-why]').textContent).toContain('내 로봇만 조종할 수 있습니다');
   });
-  it('운영자 «내 요청»에는 내가 낸 요청만', () => {
+  it('운영자 결재 탭 = «내 요청»(목록은 서버가 본인 것만 — tests/approvals.test.tsx)', () => {
     mount(false, 'u-lee', '#/approval');
     expect($('h1').textContent).toBe('내 요청');
-    expect($('main').textContent).toContain('2층 순찰 → Go2-3');
-    expect($('main').textContent).not.toContain('본관 2층');
+    expect($('main section[aria-label="내 요청"]')).not.toBeNull();
   });
 });
 
@@ -234,8 +233,8 @@ describe('R2·R3 보강', () => {
     }
   });
   it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {
-    mount(false, 'u-kim', '#/approval');
-    const b = $$('main button').find((x) => x.textContent === '승인') as HTMLButtonElement;
+    mount(false, 'u-kim', '#/mission');
+    const b = $$('main button').find((x) => x.textContent === '새 시나리오') as HTMLButtonElement;
     expect(b.disabled).toBe(true);
     expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toContain('준비 중');
   });

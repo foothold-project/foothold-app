@@ -1,6 +1,6 @@
 // 판 비교·되돌리기(01 AP-08·MP-04, 02 F-MP-04, 03 §5.6·U10, 05 §5 — S3b /map-versions/{id}/diff·/rollback).
 // 서버는 비교 그림을 만들지 않는다 — 두 판 그림(<image>, 쿠키로 따로 받음)을 같은 지도 좌표로 겹치고, 요소 차이를 추가·삭제·바뀜 색으로 얹는다.
-// 되돌리기는 총괄만(운영 관리자는 결재 S4 전이라 단추 없음). 이 칸은 창 전체 키·포인터를 잡지 않는다 — STOP 단추·Space = STOP 은 App 그대로.
+// 되돌리기: 총괄은 바로 새 승인 판, 운영 관리자는 결재 요청(S4a — 결재 탭 screens/approvals.tsx 가 같은 Compare 로 전후를 보인다). 이 칸은 창 전체 키·포인터를 잡지 않는다 — STOP 단추·Space = STOP 은 App 그대로.
 import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { MapConnector, MapDiff, MapEdit, MapFeatureChange, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
@@ -91,9 +91,9 @@ function diffFail(e: ApiFail) {
 const PAGE = 200;   // 차이 목록은 이만큼씩 그린다(큰 차이에서 화면이 멈추지 않게) — 지도 위 표시는 모두
 type Img = 'both' | 'before' | 'after';
 
-/** 두 판 비교(모두 볼 수 있음). v = 고른 판(뒤), list = 같은 층 판 목록. 기본 비교 대상 = v 의 기준 판(첫 판이면 빈 지도).
+/** 두 판 비교(모두 볼 수 있음). v = 고른 판(뒤), list = 같은 층 판 목록(번호만 쓴다 — 결재 칸은 기준 판 하나만 넘긴다). 기본 비교 대상 = v 의 기준 판(첫 판이면 빈 지도).
  *  gone = 판·층을 찾을 수 없음(부른 쪽이 비교를 닫고 알린 뒤 목록·나무 다시 받기 — 다시 받는 동안 이 칸은 내려간다) */
-export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: MapVersion[]; cancel?: AbortSignal; gone: () => void }) {
+export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: Pick<MapVersion, 'id' | 'number'>[]; cancel?: AbortSignal; gone: () => void }) {
   const [against, setAgainst] = useState(''), [n, setN] = useState(0), [d, setD] = useState<MapDiff | null>(null), [err, setErr] = useState('');
   const [hi, setHi] = useState(-1), [show, setShow] = useState(PAGE), [img, setImg] = useState<Img>('both'), [bad, setBad] = useState(false), [k, setK] = useState(0);
   useEffect(() => {
@@ -159,10 +159,10 @@ function backFail(e: ApiFail) {
 }
 const AGAIN = ['STALE', 'ALREADY_APPROVED', 'ROLLBACK_NOT_APPROVED'];
 
-/** 이 판으로 되돌리기(총괄, U10 확인 = 이유 칸). v = 한때 승인된 옛 판, now = 지금 승인 판.
+/** 이 판으로 되돌리기(U10 확인 = 이유 칸). v = 한때 승인된 옛 판, now = 지금 승인 판. request = 운영 관리자(결재 요청 — 승인돼야 바뀐다).
  *  now 는 칸을 연 때의 승인 판(부른 쪽이 고정) — 답이 끊겨 목록을 다시 받은 뒤 또 눌러도 새 기준으로 한 번 더 복사되지 않고 서버가 STALE 로 막는다.
  *  done = 새 승인 판, reload = 판 목록·나무 다시 받기, close = 닫기 */
-export function Rollback({ v, now, cancel, done, reload, close }: { v: MapVersion; now: MapVersion; cancel?: AbortSignal; done: (x: MapVersion) => void; reload: () => void; close: () => void }) {
+export function Rollback({ v, now, cancel, done, reload, close, request }: { v: MapVersion; now: MapVersion; cancel?: AbortSignal; done: (x: MapVersion) => void; reload: () => void; close: () => void; request?: boolean }) {
   const base = now, [reason, setReason] = useState(''), [busy, setBusy] = useState(false), [msg, setMsg] = useState<Msg>(null), [again, setAgain] = useState(false), sending = useRef(false);
   const go = async (e: FormEvent) => {
     e.preventDefault();
@@ -176,17 +176,19 @@ export function Rollback({ v, now, cancel, done, reload, close }: { v: MapVersio
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
       // 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 되돌려졌을 수도 있다 — 목록을 다시 받아 보여 준다
-      if (f.status === 0) { setMsg({ text: '되돌리기 응답을 받지 못했습니다. 되돌려졌을 수 있어 판 목록을 다시 받습니다. 새 승인 판이 보이면 다시 되돌리지 마세요.' }); reload(); return; }
-      setMsg({ text: `되돌리지 못했습니다. ${backFail(f)}` }); setAgain(AGAIN.includes(f.code) || f.status === 404);
+      if (f.status === 0) { setMsg({ text: request ? '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 판 목록을 다시 받습니다. «결재 대기» 판이 보이면 다시 요청하지 마세요.'
+        : '되돌리기 응답을 받지 못했습니다. 되돌려졌을 수 있어 판 목록을 다시 받습니다. 새 승인 판이 보이면 다시 되돌리지 마세요.' }); reload(); return; }
+      setMsg({ text: `${request ? '결재를 요청하지 못했습니다.' : '되돌리지 못했습니다.'} ${backFail(f)}` }); setAgain(AGAIN.includes(f.code) || f.status === 404);
     } finally { sending.current = false; setBusy(false); }
   };
   return <form className="fh-form" onSubmit={go} noValidate aria-label="이 판으로 되돌리기">
     <b>판 {v.number}의 지도로 되돌리기</b>
-    <p className="lv-note">판 {v.number}의 지도 그림과 구역·지점·연결점으로 새 승인 판을 만듭니다. 지금 승인 판(판 {base.number})은 지난 판으로 남고, 다음 실행부터 새 판을 씁니다.</p>
+    <p className="lv-note">{request ? `판 ${v.number}의 지도 그림과 구역·지점·연결점으로 새 판을 만들어 결재를 요청합니다. 승인되기 전에는 지금 승인 판(판 ${base.number})을 그대로 씁니다.`
+      : `판 ${v.number}의 지도 그림과 구역·지점·연결점으로 새 승인 판을 만듭니다. 지금 승인 판(판 ${base.number})은 지난 판으로 남고, 다음 실행부터 새 판을 씁니다.`}</p>
     <label className="fh-field"><span>되돌리는 이유</span><input className="inp" maxLength={2000} value={reason} autoFocus onChange={(e) => busy || setReason(e.target.value)} /></label>
-    <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>되돌리기</button><button type="button" className="btn" disabled={busy} onClick={close}>취소</button>
+    <div className="fh-row"><button type="submit" className="btn pri" disabled={busy}>{request ? '결재 요청' : '되돌리기'}</button><button type="button" className="btn" disabled={busy} onClick={close}>취소</button>
       {again && <button type="button" className="btn" onClick={() => { close(); reload(); }}>새로 불러오기</button>}</div>
-    {busy && <p className="lv-note" role="status">되돌리는 중…</p>}
+    {busy && <p className="lv-note" role="status">{request ? '결재를 요청하는 중…' : '되돌리는 중…'}</p>}
     <Note m={msg} />
   </form>;
 }
