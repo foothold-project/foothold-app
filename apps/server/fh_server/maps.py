@@ -1,5 +1,7 @@
-"""S3a tenant-scoped place tree, immutable map snapshots, bounded file uploads."""
+"""Tenant-scoped immutable map snapshots, bounded files, diff and rollback."""
 import asyncio
+import copy
+import json
 from pathlib import Path
 import shutil
 from typing import Annotated
@@ -18,6 +20,7 @@ from .models import Building, Floor, FloorConnector, MapVersion, Robot, Site, Up
 UPLOAD_BODY_SECONDS = 30
 MIN_FREE_SPACE = 256 * 1024 * 1024
 MAX_FEATURE_VERTICES = 4096
+MAX_DIFF_BYTES = 2 * 1024 * 1024
 
 
 def ensure_space(root, required, fail):
@@ -103,6 +106,9 @@ def validate_features(db, floor, upload, features, fail):
                     if pair is None:
                         # No identifiers/names of foreign or absent floors are disclosed.
                         bad(path + '.pair_floor_id', '같은 건물의 다른 층을 선택하세요.')
+    edit_ids = [e.id for e in features.edits if e.id is not None]
+    if len(edit_ids) != len(set(edit_ids)):
+        bad('features.edits.id', '같은 종류의 지도 요소 ID가 중복됩니다.')
     for index, edit in enumerate(features.edits):
         for n, (x, y) in enumerate(edit.polyline):
             point(x, y, f'features.edits.{index}.polyline.{n}')
@@ -133,11 +139,37 @@ def refresh_connectors(db, floor):
 
 
 def version_object(row, floor):
-    return C.MapVersion(id=row.id, floor_id=row.floor_id, number=row.number, base_version_id=row.base_version_id,
+    return C.MapVersion(upload_id=row.upload_id, id=row.id, floor_id=row.floor_id, number=row.number, base_version_id=row.base_version_id,
+        copied_from_id=row.copied_from_id,
         status='SUPERSEDED' if row.status == 'APPROVED' and floor.approved_version_id != row.id else row.status,
         image_sha256=row.image_sha256.hex(), width=row.width, height=row.height, resolution=row.resolution,
         origin=(row.origin_x, row.origin_y, row.origin_yaw), features=row.features, reason=row.reason,
         source=row.source, created_by=row.created_by, created_at=row.created_at)
+
+
+def bounded_features(row, fail):
+    # Stored snapshots also pass the same vertex budget before any comparison.
+    features = row.features
+    vertices = sum(len(z['polygon']) for z in features['zones']) + sum(len(e['polyline']) for e in features['edits']) + len(features['waypoints']) + len(features['connectors'])
+    if MAX_FEATURE_VERTICES < vertices:
+        fail(422, 'INVALID_FEATURES', '지도 요소의 전체 꼭짓점은 4096개 이하여야 합니다.', {'element': 'features'})
+    return features
+
+
+def feature_index(items, kind):
+    result, duplicates = {}, {}
+    for item in items:
+        if kind != 'edits' or item.get('id') is not None:
+            key = 'id:' + item['id']
+        else:
+            # Legacy edits have no identity. Equal content keeps its key across
+            # reordering; changed legacy content is a removal plus an addition.
+            digest = sha256(json.dumps(item, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()).hex()
+            occurrence = duplicates.get(digest, 0)
+            duplicates[digest] = occurrence + 1
+            key = f'sha256:{digest}:{occurrence}'
+        result[key] = item
+    return result
 
 
 def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write):
@@ -153,7 +185,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             fail(404, 'NOT_FOUND', '장소·지도 자료를 찾을 수 없습니다.')
         return row
 
-    def record(db, user, code, row):
+    def record(db, user, code, row, **data):
         if isinstance(row, Site):
             scope = {'site_id': str(row.id)}
         elif isinstance(row, Building):
@@ -163,8 +195,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         else:
             scope = {'floor_id': str(row.floor_id), 'map_version_id': str(row.id)}
         event(db, user.org_id, code, user.id, {'id': str(row.id), 'name': getattr(row, 'name', ''),
-            'number': getattr(row, 'number', None), **scope},
-            category='APPROVAL' if code == 'MAP_VERSION_APPROVED' else 'ACCOUNT')
+            'number': getattr(row, 'number', None), **scope, **data},
+            category='APPROVAL' if code in ('MAP_VERSION_APPROVED', 'MAP_VERSION_ROLLED_BACK') else 'ACCOUNT')
 
     def floor_object(row):
         return C.MapFloor(**{key: getattr(row, key) for key in C.MapFloor.model_fields if key != 'pending_count'})
@@ -336,7 +368,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
             status='APPROVED', upload_id=upload.id, image_path=str(relative), image_sha256=upload.png_sha256,
             width=upload.width, height=upload.height, resolution=metadata['resolution'], origin_x=origin[0],
-            origin_y=origin[1], origin_yaw=origin[2], features=body.features.model_dump(mode='json'), reason=body.reason,
+            origin_y=origin[1], origin_yaw=origin[2], features=body.features.model_dump(mode='json', exclude_none=True), reason=body.reason,
             source='IMPORT' if body.base_version_id is None else 'EDIT', created_by=user.id)
         created = []
         try:
@@ -365,6 +397,65 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             if isinstance(exc, OSError):
                 fail(503, 'FILE_STORAGE_ERROR', '지도 파일을 읽거나 저장할 수 없습니다.')
             raise
+
+    @app.get('/api/v1/map-versions/{version_id}/diff', response_model=C.MapDiff)
+    def diff(version_id: UUID, auth: Identity, db: DB, against: UUID | None = None):
+        user = auth[0]
+        row = own(db, MapVersion, version_id, user)
+        floor = own(db, Floor, row.floor_id, user)
+        baseline_id = against if against is not None else row.base_version_id
+        baseline = own(db, MapVersion, baseline_id, user) if baseline_id else None
+        if baseline is not None and baseline.floor_id != row.floor_id:
+            fail(404, 'NOT_FOUND', '장소·지도 자료를 찾을 수 없습니다.')
+        current = bounded_features(row, fail)
+        previous = bounded_features(baseline, fail) if baseline else dict.fromkeys(current, [])
+        changes = []
+        for kind in ('zones', 'waypoints', 'connectors', 'edits'):
+            before, after = feature_index(previous[kind], kind), feature_index(current[kind], kind)
+            for key in sorted(before.keys() | after.keys()):
+                old, new = before.get(key), after.get(key)
+                if old != new:
+                    changes.append(C.MapFeatureChange(kind=kind, key=key,
+                        change='added' if old is None else 'removed' if new is None else 'changed', before=old, after=new))
+        result = C.MapDiff(version=version_object(row, floor), against=version_object(baseline, floor) if baseline else None,
+            image_changed=baseline is None or row.image_sha256 != baseline.image_sha256, changes=changes)
+        if len(result.model_dump_json().encode()) > MAX_DIFF_BYTES:
+            fail(422, 'DIFF_TOO_LARGE', '비교 결과의 크기 상한을 넘었습니다.')
+        return result
+
+    @app.post('/api/v1/map-versions/{version_id}/rollback', response_model=C.MapVersion, status_code=201)
+    def rollback(version_id: UUID, body: C.MapRollback, auth: Identity, db: DB):
+        user = auth[0]
+        original = own(db, MapVersion, version_id, user)
+        floor = own(db, Floor, original.floor_id, user, lock=True)
+        if user.role != 'ORG_ADMIN':
+            fail(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.')
+        if body.base_version_id != floor.approved_version_id:
+            fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
+        if original.id == floor.approved_version_id:
+            fail(409, 'ALREADY_APPROVED', '이미 승인된 지도 판입니다.')
+        bounded_features(original, fail)
+        number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
+        row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
+            copied_from_id=original.id, status='APPROVED', upload_id=original.upload_id,
+            image_path=original.image_path, image_sha256=original.image_sha256, width=original.width, height=original.height,
+            resolution=original.resolution, origin_x=original.origin_x, origin_y=original.origin_y, origin_yaw=original.origin_yaw,
+            features=copy.deepcopy(original.features), reason=body.reason, source='ROLLBACK', created_by=user.id)
+        # Immutable content-addressed snapshot file may be shared; never use a
+        # possibly expired temporary upload or mutate the old snapshot/file.
+        try:
+            if sha256((root / original.image_path).read_bytes()) != original.image_sha256:
+                fail(503, 'FILE_STORAGE_ERROR', '지도 파일을 확인할 수 없습니다.')
+        except OSError:
+            fail(503, 'FILE_STORAGE_ERROR', '지도 파일을 읽거나 저장할 수 없습니다.')
+        db.add(row)
+        db.flush()
+        floor.approved_version_id = row.id
+        db.flush()
+        refresh_connectors(db, floor)
+        record(db, user, 'MAP_VERSION_ROLLED_BACK', row, copied_from_id=str(original.id),
+            base_version_id=str(body.base_version_id), reason=body.reason)
+        return version_object(row, floor)
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)
     def versions(floor_id: UUID, auth: Identity, db: DB, limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):

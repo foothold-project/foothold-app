@@ -25,6 +25,7 @@ TEMPLATES = {
     'FLOOR_CREATED': '{person}님이 층 {place}을(를) 만들었습니다.',
     'FLOOR_UPDATED': '{person}님이 층 {place}을(를) 변경했습니다.',
     'FLOOR_DELETED': '{person}님이 층 {place}을(를) 지웠습니다.',
+    'MAP_VERSION_ROLLED_BACK': '{person}님이 이전 지도를 복사한 {number}판으로 되돌렸습니다. 이유: {reason}.',
     'MAP_VERSION_APPROVED': '{person}님이 지도 {number}판을 승인했습니다.',
     'LOGIN': '{person}님이 로그인했습니다.',
     'LOGIN_FAILED': '로그인에 실패했습니다.',

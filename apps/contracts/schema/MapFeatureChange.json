@@ -1,0 +1,282 @@
+{
+  "$defs": {
+    "MapConnector": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "STAIRS",
+            "ELEVATOR"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "pair_floor_id": {
+          "format": "uuid",
+          "title": "Pair Floor Id",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "pair_floor_id",
+        "x",
+        "y",
+        "yaw"
+      ],
+      "title": "MapConnector",
+      "type": "object"
+    },
+    "MapEdit": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "op": {
+          "enum": [
+            "ERASE",
+            "WALL"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "polyline": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "maxItems": 256,
+          "minItems": 2,
+          "title": "Polyline",
+          "type": "array"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 100,
+          "title": "Width",
+          "type": "number"
+        }
+      },
+      "required": [
+        "op",
+        "polyline",
+        "width"
+      ],
+      "title": "MapEdit",
+      "type": "object"
+    },
+    "MapWaypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "x",
+        "y",
+        "yaw"
+      ],
+      "title": "MapWaypoint",
+      "type": "object"
+    },
+    "MapZone": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        },
+        "polygon": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "type": "array"
+          },
+          "maxItems": 256,
+          "minItems": 3,
+          "title": "Polygon",
+          "type": "array"
+        },
+        "type": {
+          "enum": [
+            "NO_GO",
+            "SLOW"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "name",
+        "polygon"
+      ],
+      "title": "MapZone",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MapFeatureChange",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "after": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MapZone"
+        },
+        {
+          "$ref": "#/$defs/MapWaypoint"
+        },
+        {
+          "$ref": "#/$defs/MapConnector"
+        },
+        {
+          "$ref": "#/$defs/MapEdit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "After"
+    },
+    "before": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MapZone"
+        },
+        {
+          "$ref": "#/$defs/MapWaypoint"
+        },
+        {
+          "$ref": "#/$defs/MapConnector"
+        },
+        {
+          "$ref": "#/$defs/MapEdit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Before"
+    },
+    "change": {
+      "enum": [
+        "added",
+        "removed",
+        "changed"
+      ],
+      "title": "Change",
+      "type": "string"
+    },
+    "key": {
+      "title": "Key",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "zones",
+        "waypoints",
+        "connectors",
+        "edits"
+      ],
+      "title": "Kind",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "key",
+    "change",
+    "before",
+    "after"
+  ],
+  "title": "MapFeatureChange",
+  "type": "object"
+}

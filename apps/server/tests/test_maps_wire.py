@@ -33,6 +33,22 @@ def test_maps_create_upload_approve_tree_image_over_uvicorn(seeded, tmp_path, mo
             response = http.get(f'/map-versions/{version["id"]}/image')
             assert response.status_code == 200 and response.headers['content-type'] == 'image/png'
             assert hashlib.sha256(response.content).hexdigest() == version['image_sha256']
+            second = http.post(f'/floors/{floor}/map-versions', json={'base_version_id': version['id'],
+                'image': version['upload_id'], 'features': {**FEATURES, 'waypoints': [
+                    {'id': 'wire-point', 'name': '합성 지점', 'x': 1, 'y': 1, 'yaw': 0}]}, 'reason': '두 번째 판'})
+            assert second.status_code == 201, second.text
+            diff = http.get(f'/map-versions/{second.json()["id"]}/diff')
+            assert diff.status_code == 200 and diff.json()['image_changed'] is False
+            assert diff.json()['changes'][0]['change'] == 'added'
+            restored = http.post(f'/map-versions/{version["id"]}/rollback', json={
+                'base_version_id': second.json()['id'], 'reason': '실서버 복원 시험'})
+            assert restored.status_code == 201, restored.text
+            new = restored.json()
+            assert new['id'] not in (version['id'], second.json()['id']) and new['number'] == 3
+            assert new['features'] == FEATURES and new['copied_from_id'] == version['id']
+            tree = http.get('/sites').json()['items']
+            assert tree[0]['buildings'][0]['floors'][0]['approved_version_id'] == new['id']
+            print('S3b uvicorn: two versions -> diff -> rollback version 1 to new version 3 -> tree pointer: PASS')
             print('S3a uvicorn: site -> building -> floor -> raw PGM -> raw YAML -> approved version -> tree pointer -> PNG: PASS')
 
 
