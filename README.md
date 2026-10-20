@@ -6,12 +6,11 @@
 
 새 리허설 작업은 PC 전체 관제 `#/Fleet`, 지도 편집 `#/MapEditor`, 휴대폰 현장 `#/Field`를 추가한다. 빈 주소의 첫 입구만 PC/휴대폰에 맞추며 기존 `#/Main`·`#/MDrive` 등 명시한 화면과 제어 경로를 유지한다. 편집·저장·2D 기하 검토·세계/지도 묶음 생성은 로봇 명령이나 Gazebo 기동을 하지 않는다.
 
-- [새 화면과 자료 보관·기능 범위](docs/REHEARSAL.md)
-- [리허설 API·JSON·상한 계약](docs/CONTRACT-rehearsal.md)
+- 새 화면과 자료 보관·기능 범위, 리허설 API·JSON·상한 계약(옛 `docs/REHEARSAL.md`·`docs/CONTRACT-rehearsal.md`): 삭제됨(이력: git log)
 
 소스 변경, 운영 웹 반영, APK 빌드는 각각 별도로 검증한다. APK에 서버 코드가 들어가는 것은 아니며, 실제 휴대폰/WebView와 물리 실행의 미확인 사항을 구조 검사 결과로 대신하지 않는다.
 
-> **통합 브랜치 현재(2026-10-19)** — 최종 웹 `98242c7`(`8315433` 후속: 공통 STOP 고정과 상태 정리 · 임무 즉시 추가 · 기본 이름과 종료 방식 · 삭제 되돌리기 · 초안 보관과 선택 기억 · 지도 목록 정리 · 계획 출발점 좌표 S, 서버 쪽은 계획 출발점 계약 — `contracts/v1`·`server/runcas.py`·`sim/v2_link.py` 와 그 시험) + `mobile/` `a8c3da7`(versionCode 15 · `1.0.14-dev`, 직전 `59cf3b2` 대비 버전 두 줄만). APK15(`foothold-android-dev-20261019-ux-startpoint.apk`, versionCode 15 · `1.0.14-dev`, 7592582 bytes, sha256 `f09b0e8009aad2160ac0985cd3db2e0c7ffb377d1510fd46b05a8636e224c4a3`)는 통합 `aeec753` 을 입력으로 10-19 로컬 빌드 1회·APK 구조 대조 28항목 통과까지다(실행·실폰·WebView·실 로그인 미측정, 구조 대조 ≠ 실행 통과 — 함께 낸 BUILD-INFO·SHA256SUMS sha 는 출처 문서). GitHub push·tag·release 0. 직전 APK14(`foothold-android-dev-20261019-mission-create.apk`, sha256 `edf3c5524827211…`)·APK13(`dbece68e6f4d8204…`)은 위키 직접 다운로드로 공개됐고(GitHub release 없음) 그 원물은 그대로 보존한다. 새 임무 진행은 수동 기록이고 자동 이동·자동 촬영·자동 복귀·도착 판정은 미구현이다. 실 Go2 연결은 미구현이고 기존 단일 시뮬 제어 경로를 유지한다. 출처·검사: [통합 출처](docs/PROVENANCE-app-platform-integration.md)
+> **통합 브랜치 현재(2026-10-19)** — 최종 웹 `98242c7`(`8315433` 후속: 공통 STOP 고정과 상태 정리 · 임무 즉시 추가 · 기본 이름과 종료 방식 · 삭제 되돌리기 · 초안 보관과 선택 기억 · 지도 목록 정리 · 계획 출발점 좌표 S, 서버 쪽은 계획 출발점 계약 — `contracts/v1`·`server/runcas.py`·`sim/v2_link.py` 와 그 시험) + `mobile/` `a8c3da7`(versionCode 15 · `1.0.14-dev`, 직전 `59cf3b2` 대비 버전 두 줄만). APK15(`foothold-android-dev-20261019-ux-startpoint.apk`, versionCode 15 · `1.0.14-dev`, 7592582 bytes, sha256 `f09b0e8009aad2160ac0985cd3db2e0c7ffb377d1510fd46b05a8636e224c4a3`)는 통합 `aeec753` 을 입력으로 10-19 로컬 빌드 1회·APK 구조 대조 28항목 통과까지다(실행·실폰·WebView·실 로그인 미측정, 구조 대조 ≠ 실행 통과 — 함께 낸 BUILD-INFO·SHA256SUMS sha 는 출처 문서). GitHub push·tag·release 0. 직전 APK14(`foothold-android-dev-20261019-mission-create.apk`, sha256 `edf3c5524827211…`)·APK13(`dbece68e6f4d8204…`)은 위키 직접 다운로드로 공개됐고(GitHub release 없음) 그 원물은 그대로 보존한다. 새 임무 진행은 수동 기록이고 자동 이동·자동 촬영·자동 복귀·도착 판정은 미구현이다. 실 Go2 연결은 미구현이고 기존 단일 시뮬 제어 경로를 유지한다. 출처·검사: 통합 출처 문서 삭제됨(이력: git log)
 
 ## 이전 통합 개발판 기록(2026-10-17 · APK10)
 
@@ -30,7 +29,7 @@
 > - Android 에뮬레이터(앞 판 APK `dev-20261015-mapview` 4cfb6abf — 이 판 APK 실행은 아직 안 함, 실측 센서 기록 재생, 화면 클릭은 DOM 처리 — 실손가락 아님): 3회차 rc 2 = FAIL 0 · 설치·화면 판·로그인·데이터 출처·건물별 지도 목록·건물 전체 3D·큰 칸+작은 화면 배치·작은 화면 카메라·외부 3인칭·점군 표시 통과, 현재층·3D 실시간 결속·저장은 재생이라 미확인. 1회차(디스크 부족, 판정 0)·2회차(시험 도구 입력 결함 FAIL)는 원물로 보존. 에뮬레이터는 정리 때 INT 뒤 종료코드 -6 으로 끝났고 남은 프로세스는 0(정상 종료와 구분)
 > - 확인 안 함: 이 판 APK 실행(에뮬 포함 — 디스크 여유 부족으로 이번 판 에뮬 실행 0) · 이 판 UI 의 실제 지도 시작(서버 수락·Gazebo/SLAM 기동)·실제 Gazebo 조종·실 로그인 · 큰 칸(PIP)·전체화면 누름 · 실 사용자 계정 로그인 · 실폰·Android WebView·실손가락 터치 · 라이다 1 scan 화면(실주행 화면은 누적 모드) · 리셋·층 전환 때 실제 생산자 3인칭 실행 키 결속 · 실제 층 전환 재주행·장시간 주행·실제 SLAM 확장 중 지도 연속 표시 · 현재층·실시간 결속·저장(APK) · iOS(IPA 없음) · Go2Direct 실제 연결(없음) · 실로봇 · 계단 내려가기·반복 · STOP 뒤 물리 정지(실주행 1회에서 정지 뒤 이동 관찰, 원인 미확인). 시뮬·합성·기록 재생 결과는 실기·실폰 근거가 아니고, STOP 송신은 물리 정지 보장이 아니다
 > - 실제로 돌리려면 이 저장소 밖의 것이 따로 필요하다: 외부 control-app 의 ROS·시뮬·SLAM 엔진(이 저장소에 없음 — 10-15 16:21 적용 판 `live_map.py` sha256 `d7171ae6…`·`points_view.py` `66b3431e…`·`connected.py` `645cc079…`, 앞 판 live_map `4f2acab2…`), 운영 관문 CA·계정(저장소에 없음). 개발 관문 웹 화면 교체는 저장소와 별도(10-15 UI `53aba2f` 기록 — 이후 판은 이 문서가 주장하지 않음)
-> - 문서: [GitHub 작업 방식](docs/GITHUB-WORKFLOW.md) · [통합 출처](docs/PROVENANCE-app-platform-integration.md) · [Android 설치](mobile/docs/INSTALL-DEV.md)(절차는 같고 문서 속 APK 이름은 앞 판) · [구현 상태](docs/IMPLEMENTATION-STATUS.md)(10-14 00:51 실측 기준)
+> - 문서: [GitHub 작업 방식](docs/GITHUB-WORKFLOW.md) · [Android 설치](mobile/docs/INSTALL-DEV.md)(절차는 같고 문서 속 APK 이름은 앞 판) · 구현 상태 문서 삭제됨(이력: git log)
 >
 > 아래 «기존 웹 구현 기록»은 옛 HTML/JS 화면 시안(`web/`)의 설명이다. 지도·시뮬 끄기·React 등 현재 통합판 기능과 다르다.
 
@@ -143,7 +142,7 @@ python3 sim/v2_gate.py --bind 0.0.0.0 --port 8453
 | 후진·제자리 회전·옆걸음·저속·자세 | 시뮬 검증 안 됨 — 서버가 0으로 막음 |
 | 실기 Go2 | 연결 안 함(시뮬 전용) |
 | 8790 주소로 다른 기기 접속 | 로그인 없는 127.0.0.1 전용 — 다른 기기는 관문(8453)으로 |
-| 앱 설치 파일(APK·IPA) | 개발용 debug APK 만 있음(최종 배포판 아님, 실폰 미검증) · IPA 없음(Mac 없음) — 판별 상태는 `docs/IMPLEMENTATION-STATUS.md` |
+| 앱 설치 파일(APK·IPA) | 개발용 debug APK 만 있음(최종 배포판 아님, 실폰 미검증) · IPA 없음(Mac 없음) |
 | 시뮬 끄기·연장 | 30분 뒤 RL 쪽이 정상 종료 · 연장 없음 |
 | 임무 실행·Nav2 연결 | 지도/위치추정·TF·장애물 관측→costmap·Nav2→cmd_vel 연결 미구현 |
 
@@ -151,7 +150,7 @@ python3 sim/v2_gate.py --bind 0.0.0.0 --port 8453
 
 | 경로 | 내용 |
 |---|---|
-| `web/*.dc.html` | 디자인 시안 원본 마크업을 그대로 둔 화면입니다(19개). 원본과 다른 곳은 실행기 교체(스크립트 줄), 승인된 STOP 배치·예시 문구, 화면 사이 링크 연결입니다. 하나하나는 `docs/PROGRESS-ui-reference.md`에 있습니다. |
+| `web/*.dc.html` | 디자인 시안 원본 마크업을 그대로 둔 화면입니다(19개). 원본과 다른 곳은 실행기 교체(스크립트 줄), 승인된 STOP 배치·예시 문구, 화면 사이 링크 연결입니다. 하나하나를 적은 `docs/PROGRESS-ui-reference.md`는 삭제됨(이력: git log). |
 | `web/live.js` | `?live=v2` 일 때만 화면을 v2 시뮬·서버 공유 문서에 잇는 화면 층입니다. 원본 마크업을 그 자리에서 채웁니다. 없으면 아무것도 하지 않습니다. |
 | `sim/v2_link.py` | v2 시뮬 연결 서버(ROS 2 ↔ WebSocket, 127.0.0.1:8790). 조종권·STOP·명령 제한을 판단하고, 공유 문서(`/api/docs`: 구역·임무 양식·계획·수동 진행·사진 분류)를 판 번호로 저장합니다. |
 | `tools/fake_v2_live.py` | 시험 전용 가짜 v2 발행기(domain 61 거부). |

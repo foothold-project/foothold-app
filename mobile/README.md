@@ -190,5 +190,5 @@ node scripts/gate-profile.mjs --clean       # 끝나면 생성물 삭제
 
 ## 기록 손실 (새 시험 결과와 구분)
 
-- `runs/backend-review-20261013/`(백엔드 검수 때의 `pytest-full.txt`·`pytest-followup.txt`)는 10-13 세션 이동 중 이전 worktree 폴더가 삭제되면서 **사라졌다.** 복구하지 않았고 다시 만든 것도 없다. 그 결과를 인용할 때는 `docs/PROGRESS-contract-storage.md` 에 적힌 숫자가 유일한 기록이다.
+- `runs/backend-review-20261013/`(백엔드 검수 때의 `pytest-full.txt`·`pytest-followup.txt`)는 10-13 세션 이동 중 이전 worktree 폴더가 삭제되면서 **사라졌다.** 복구하지 않았고 다시 만든 것도 없다. 그 결과를 인용할 때는 `docs/PROGRESS-contract-storage.md` 에 적힌 숫자가 유일한 기록이다(삭제됨(이력: git log)).
 - 지금 `runs/` 에 있는 `mobile-shell-20261013/`·`mobile-icon-appid-20261013/` 는 폴더를 다시 만든 뒤 새로 만든 결과다.

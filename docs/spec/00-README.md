@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 번호 | FH-SPEC-00 |
-| 판 | 0.2 (초안, 검토 대기) |
+| 판 | 0.3 (초안, 검토 대기) |
 | 작성일 | 2026-10-19 |
 | 위치 | `foothold-app/docs/spec/` |
 
@@ -71,7 +71,7 @@
 |---|---|---|
 | 저장소 밖 개인 작업 폴더 | 이전 PRD·제품 계획·임무 계약·로드맵·신뢰 경계·Go2 어댑터 설계, 앱 검토(REVIEW)·계획(PLAN)·인계(HANDOFF)·조사 보고 | 보관 폴더로 이동. 이 저장소에서 가리키지 않는다 |
 | `docs/UI-SIMPLIFY-TASK.md` (미추적) | 화면 단순화 작업 지시 | 보관 (규칙은 03 에 흡수) |
-| 이 저장소 `docs/` 의 이전 기획 문서 | PLAN-architecture-evolution, PLAN-all-screens-20261013, PLAN-parallel-platform-20261013, DESIGN-FLEET-20261018, REHEARSAL, CONTRACT-rehearsal, CONTRACT-maps-sim-stop, CONTRACT-ui-improve-20261014, REVIEW-unitree-rea, IMPLEMENTATION-STATUS | 기준에서 제외. 삭제는 `dev` 로의 별도 PR 로 (이력에는 남음) |
+| 이 저장소 `docs/` 의 이전 기획 문서 | PLAN-architecture-evolution, PLAN-all-screens-20261013, PLAN-parallel-platform-20261013, DESIGN-FLEET-20261018, REHEARSAL, CONTRACT-rehearsal, CONTRACT-maps-sim-stop, CONTRACT-ui-improve-20261014, REVIEW-unitree-rea, IMPLEMENTATION-STATUS, 옛 브랜치·세션 기록 CHECKPOINT-session-move-20261013, PROGRESS-contract-storage, PROGRESS-ui-reference, PROVENANCE-app-platform-integration | 삭제(10-20, PR #N) — 이력은 git log |
 | `contracts/v1/CONTRACT.md`, `mobile/docs/*` | 지금 구현의 계약 | 지금 앱이 운영되는 동안은 구현 문서로 유지, 새 앱으로 바꾼 뒤 정리 |
 | 작업 기록 폴더(`runs/`)의 기획 성격 문서 | 설계·계약·결정 초안 | 기준에서 제외 (기록이라 이동하지 않음) |
 | 팀 저장소 제출 사본 | 이전 앱 PRD | 팀 PR 절차로 교체 |
@@ -95,3 +95,4 @@
 |---|---|---|
 | 0.1 | 2026-10-19 | 최초 작성 (팀 소개 PDF 는 저장소 밖에서 따로 배포) |
 | 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
+| 0.3 | 2026-10-20 | §4.1 이 저장소 `docs/` 옛 기획 문서 10개와 옛 브랜치·세션 기록 4개 삭제 (PR #N), 남은 문서의 링크 정리 |
