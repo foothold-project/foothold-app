@@ -1,0 +1,25 @@
+{
+  "$id": "fh-app/1/MapRollback",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_version_id": {
+      "format": "uuid",
+      "title": "Base Version Id",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 2000,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "base_version_id",
+    "reason"
+  ],
+  "title": "MapRollback",
+  "type": "object"
+}

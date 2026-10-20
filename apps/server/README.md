@@ -585,7 +585,7 @@ YAML은 `resolution`, `origin: [x,y,yaw]`, `negate`, `occupied_thresh`, `free_th
 미사용 업로드는 정본의 24시간 규칙을 따르는 정리 작업이 필요하지만 이번에는 스케줄러를
 구현하지 않는다. 두 단계 업로드가 같은 PNG 경로를 공유하므로 정리 시 최종 묶음과
 판 참조를 함께 확인해야 하며 UUID만 보고 원본 이미지를 지우면 안 된다.
-/diff·/rollback, 운영자 PENDING/결재, SLAM, 로봇 위치의 지도 판 결합은 후속 범위다.
+운영자 PENDING/결재, SLAM, 로봇 위치의 지도 판 결합은 후속 범위다. /diff·/rollback은 아래 S3b 절을 본다.
 
 ```sh
 FH_TEST_PORT_RANGE=9290:9309 python -m pytest -q apps/server/tests/test_maps.py apps/server/tests/test_map_files.py apps/server/tests/test_maps_wire.py
@@ -633,3 +633,50 @@ PGM P2/P5도 같은 슬롯을 사용하며 픽셀을 순회해 변환하므로 �
 
 - 남은 것(N2): 8 MiB를 30초 안에 받으려면 약 2.2 Mbps 이상이 필요하므로 느린 현장 회선의 기한/화면 안내 정책은 후속으로 정한다(기한 코드 변경 없음).
 - 남은 것(해제 한도): 32 MiB 상한에서 4096² PNG는 gray8 이하/팔레트만 가능하며 gray16/RGB8/RGBA8은 거절된다(한도 코드 변경 없음).
+
+## 지도 판 비교·되돌리기 (S3b)
+
+- `GET /map-versions/{id}/diff?against=<판 UUID>`: `version`, `against`,
+  `image_changed`, `changes`를 반환한다. against 생략 시 대상의 `base_version_id`를
+  사용하며 첫 판은 `against=null`인 빈 지도와 비교한다. 같은 층만 허용하고 다른 층·
+  다른 조직·없는 UUID는 같은 `404 NOT_FOUND`다. 방향은 against → version이다.
+- changes는 `{kind, key, change, before, after}`다. kind는 zones/waypoints/connectors/edits,
+  change는 added/removed/changed이며 없는 쪽은 null이다. 요소 ID는 `id:<id>` 키를 쓴다.
+  편집선은 선택 `id`를 지원하고 같은 판의 중복 ID는 422다. 새 편집선에는 ID를 유지해
+  수정하도록 한다. ID 없는 기존 선은 정렬된 JSON의 sha256과 같은 내용의 중복 순번으로
+  `sha256:<digest>:<occurrence>` 키를 만든다. 순서 이동은 차이가 없고 내용 수정은
+  삭제+추가다. 배열 순서는 요소의 의미에 포함하며 꼭짓점 순서는 정규화하지 않는다.
+- 두 판의 저장된 PNG sha256을 비교하며 서버가 픽셀 비교 그림을 만들지는 않는다.
+  화면이 인증된 두 `/image`를 겹쳐 그린다. 각 판의 전체 꼭짓점 4096개 제한을 재확인하고
+  초과하면 `422 INVALID_FEATURES`다. 해시·색인은 꼭짓점 수에 선형, 키 정렬은 요소 수의
+  O(n log n)으로 제한된다. 직렬화 결과가 UTF-8 **2 MiB**를 넘으면 `422 DIFF_TOO_LARGE`다.
+  이미지 디코딩이나 모든 요소 쌍의 비교는 하지 않는다.
+- `POST /map-versions/{id}/rollback {base_version_id, reason}`은 총괄만 사용할 수 있다.
+  reason은 공백만으로 채울 수 없고 1~2000자다. 층 행을 잠근 뒤 현재 승인 판과 base를
+  비교하여 다르면 S3a와 같은 `409 STALE`·`detail.approved_version_id`를 반환한다.
+  대상이 이미 현재 승인 판이면 `409 ALREADY_APPROVED`, 운영자는 `403 APPROVAL_REQUIRED`다.
+- 옛 판을 변경하지 않고 내용·지도 설정·업로드 참조를 복사한 **새 APPROVED 판**을 만든다.
+  `source=ROLLBACK`, `copied_from_id=옛 판`, `base_version_id=직전 승인 판`이다.
+  보존된 불변 PNG 경로를 공유하며 sha256을 재확인한다. 임시 업로드가 없어도 되돌릴 수 있다.
+  보존 PNG가 없거나 손상됐으면 `503 FILE_STORAGE_ERROR`이며 새 판을 만들지 않는다.
+  새 판·층 포인터·연결점 투영·`MAP_VERSION_ROLLED_BACK` APPROVAL 사건은 같은 트랜잭션이다.
+  사건에 floor_id/map_version_id/copied_from_id/base_version_id/reason을 저장한다.
+  총괄의 직접 되돌리기는 결재 요청/결과가 없으므로 알림 대상이 없다. O 결재·알림은 S4다.
+- 판 목록·단건(저장/되돌리기 응답 포함)에 읽기 전용 `upload_id`, `copied_from_id`를 보낸다.
+  W4b는 `upload_id`를 다음 판의 `image`로 재사용할 수 있다. 업로드는 소모하지 않으며
+  resolution/origin/negate/임계값을 그대로 사용한다. negate·임계값은 응답에 추가하지 않는다.
+  이 재저장 경로는 S3a처럼 임시 업로드 PNG가 없으면 503이다. 정리 정책은 계속 결정 대기다.
+
+05 정본의 `?base=`, 층을 포함한 rollback 경로 및 비교 이미지 요구와 이번 지시가 다르다.
+이번 계약은 `?against=`, `/map-versions/{id}/rollback`, 요소 차이+이미지 변경 여부를 사용한다.
+정본 수정과 비교 이미지 정책 확정은 조정 세션에서 결정한다. DB 변경은 없어 새 이관은 없다.
+
+```sh
+FH_TEST_PORT_RANGE=9340:9359 python -m pytest -q apps/server/tests/test_maps_diff.py apps/server/tests/test_maps_wire.py
+FH_TEST_PORT_RANGE=9340:9359 python apps/server/tools/check_realtime_mutations.py --match S3b
+python -m apps.contracts.generate --check
+npm run --prefix apps/contracts typecheck
+```
+
+변이 명령은 서버 전체 pytest를 먼저 **한 번**, S3b 변이 19개를 하나씩 실행한다.
+기존 S3a 변이 및 STOP 경로 변이 전체를 다시 실행했다는 뜻은 아니다.
