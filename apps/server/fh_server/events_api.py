@@ -8,7 +8,7 @@ import threading
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import Depends, Query, Response
+from fastapi import Depends, Query, Request, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import or_, select, tuple_
 from apps.contracts import models as C
@@ -17,13 +17,67 @@ from .models import Event, Robot, User
 EXPORT_LIMIT = 10_000
 EXPORT_BATCH = 100
 EXPORT_SLOT = threading.Lock()
+DOWNLOAD_LOCK = threading.Lock()
+DOWNLOADS = {}
+DOWNLOAD_SCOPE_KEY = 'fh.csv_download'
+
+
+class CSVResource:
+    """One file per authenticated org/user, independently of generation capacity."""
+    def __init__(self, key):
+        self.key, self.output, self.closed = key, None, False
+        self.lock = threading.Lock()
+
+    def reserve(self, fail):
+        with self.lock, DOWNLOAD_LOCK:
+            if self.closed:
+                raise RuntimeError('CSV request already ended')
+            if self.key in DOWNLOADS:
+                fail(429, 'RATE_LIMITED', '이미 기록을 내려받는 중입니다. 완료 뒤 다시 시도하세요.')
+            DOWNLOADS[self.key] = self
+
+    def attach(self, output):
+        with self.lock:
+            if self.closed:
+                output.close()
+                raise RuntimeError('CSV request already ended')
+            self.output = output
+
+    def close(self):
+        with self.lock:
+            if self.closed:
+                return
+            self.closed = True
+            try:
+                if self.output is not None:
+                    self.output.close()
+            finally:
+                with DOWNLOAD_LOCK:
+                    if DOWNLOADS.get(self.key) is self:
+                        del DOWNLOADS[self.key]
+
+
+class CSVResourcesMiddleware:
+    """Also reclaim resources if a response fails before its __call__ begins."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope['type'] != 'http':
+            return await self.app(scope, receive, send)
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            resource = scope.pop(DOWNLOAD_SCOPE_KEY, None)
+            if resource is not None:
+                resource.close()
 
 
 class CSVDownload(StreamingResponse):
-    """Own the file and process slot through completion, errors and disconnects."""
-    def __init__(self, output):
-        self.output = output
-        super().__init__(iter(lambda: output.read(64 * 1024), ''),
+    """Transfer only a per-user file lease; the generation slot is already free."""
+    def __init__(self, resource):
+        self.resource = resource
+        super().__init__(iter(lambda: resource.output.read(64 * 1024), ''),
             media_type='text/csv; charset=utf-8',
             headers={'Content-Disposition': 'attachment; filename="events.csv"', 'Cache-Control': 'no-store'})
 
@@ -31,8 +85,7 @@ class CSVDownload(StreamingResponse):
         try:
             await super().__call__(scope, receive, send)
         finally:
-            self.output.close()
-            EXPORT_SLOT.release()
+            self.resource.close()
 
 
 def write_csv(db, query, output):
@@ -91,6 +144,7 @@ def csv_cell(value):
 
 
 def install(app, DB, Identity, fail):
+    app.add_middleware(CSVResourcesMiddleware)
     def filters(category: C.Category | None = None, severity: Literal['INFO', 'WARN', 'ERROR'] | None = None,
                 robot_id: UUID | None = None, user_id: UUID | None = None, run_id: UUID | None = None,
                 start: Annotated[C.UTCDateTime | None, Query(alias='from')] = None,
@@ -143,24 +197,29 @@ def install(app, DB, Identity, fail):
             next_cursor=cursor_encode(rows[-1].at, rows[-1].id) if more else None)
 
     @app.get('/api/v1/events/export.csv')
-    def export(auth: Identity, db: DB, values: Annotated[dict, Depends(filters)]):
-        if not EXPORT_SLOT.acquire(blocking=False):
-            fail(429, 'RATE_LIMITED', '다른 기록을 내보내는 중입니다. 잠시 뒤 다시 시도하세요.')
-        output = None
+    def export(request: Request, auth: Identity, db: DB, values: Annotated[dict, Depends(filters)]):
+        resource = CSVResource((auth[0].org_id, auth[0].id))
+        # Register ownership before reservation/file creation, even on cancellation.
+        request.scope[DOWNLOAD_SCOPE_KEY] = resource
         try:
-            query = filtered(db, auth[0], values)
-            identifiers = list(db.scalars(query.with_only_columns(Event.id).limit(EXPORT_LIMIT + 1)))
-            if len(identifiers) > EXPORT_LIMIT:
-                fail(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.')
-            # Freeze the selected IDs: concurrent INSERTs cannot exceed the checked cap.
-            output = tempfile.TemporaryFile(mode='w+', encoding='utf-8', newline='')
-            write_csv(db, query.where(Event.id.in_(identifiers)), output)
-            db.commit()  # Fail before transferring file/slot ownership to the response.
-            return CSVDownload(output)
+            resource.reserve(fail)
+            if not EXPORT_SLOT.acquire(blocking=False):
+                fail(429, 'RATE_LIMITED', '다른 기록을 내보내는 중입니다. 잠시 뒤 다시 시도하세요.')
+            try:
+                query = filtered(db, auth[0], values)
+                identifiers = list(db.scalars(query.with_only_columns(Event.id).limit(EXPORT_LIMIT + 1)))
+                if len(identifiers) > EXPORT_LIMIT:
+                    fail(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.')
+                # Freeze selected IDs: INSERTs cannot exceed the checked cap.
+                output = tempfile.TemporaryFile(mode='w+', encoding='utf-8', newline='')
+                resource.attach(output)
+                write_csv(db, query.where(Event.id.in_(identifiers)), output)
+                db.commit()
+            finally:
+                EXPORT_SLOT.release()
+            return CSVDownload(resource)
         except BaseException:
-            if output is not None:
-                output.close()
-            EXPORT_SLOT.release()
+            resource.close()
             raise
 
     @app.get('/api/v1/events/{event_id}', response_model=C.Event)

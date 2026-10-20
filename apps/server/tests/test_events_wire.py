@@ -50,3 +50,69 @@ def test_events_filter_csv_and_notification_read_over_uvicorn(seeded, tmp_path):
                 print('S2 uvicorn: fake agent event -> filtered persisted sentence -> same CSV -> own inbox/read: PASS')
     with server_process(seeded, tmp_path) as server:
         asyncio.run(check(server))
+
+
+def test_stalled_csv_body_only_blocks_same_user_over_real_uvicorn(seeded, tmp_path):
+    import os
+    import socket
+    import struct
+    import time
+    from urllib.parse import urlparse
+    from sqlalchemy import create_engine, insert
+    from apps.server.fh_server.models import Event
+
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with engine.begin() as connection:
+            # >28 MB: exceeds the kernel send buffer without reading the CSV body.
+            for offset in range(0, 9000, 500):
+                connection.execute(insert(Event), [dict(org_id=seeded['org'],
+                    robot_id=seeded['robots']['mine'], user_id=seeded['users']['one'],
+                    code='LOGIN', category='ACCOUNT', severity='INFO', message='가짜 대용량 기록',
+                    data={'padding': 'x' * 3072, 'row': row}) for row in range(offset, offset + 500)])
+    finally:
+        engine.dispose()
+    with server_process(seeded, tmp_path) as server:
+        parsed = urlparse(server['base'])
+        if os.environ.get('FH_TEST_PORT_RANGE'):
+            first_port, last_port = map(int, os.environ['FH_TEST_PORT_RANGE'].split(':'))
+            assert first_port <= parsed.port <= last_port
+        base = server['base'].replace('ws://', 'http://') + '/api/v1'
+        one = {'authorization': 'Bearer ' + server['access']}
+        with httpx.Client(base_url=base, timeout=12) as http:
+            response = http.post('/auth/login', json={'username': 'admin',
+                'password': 'fake-test-password', 'client': 'app'})
+            assert response.status_code == 200
+            admin = {'authorization': 'Bearer ' + response.json()['access_token']}
+            with socket.socket() as stalled:
+                stalled.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1024)
+                stalled.settimeout(12)
+                stalled.connect(('127.0.0.1', parsed.port))
+                stalled.sendall((f'GET /api/v1/events/export.csv HTTP/1.1\r\nHost: 127.0.0.1:{parsed.port}\r\n'
+                    f'Authorization: Bearer {server["access"]}\r\nConnection: close\r\n\r\n').encode())
+                headers = b''
+                while not headers.endswith(b'\r\n\r\n'):
+                    chunk = stalled.recv(1)
+                    assert chunk, 'server closed before CSV headers'
+                    headers += chunk
+                    assert len(headers) < 8192
+                assert headers.startswith(b'HTTP/1.1 200 ')
+                # Read headers only, keeping the first body entirely unread.
+                duplicate = http.get('/events/export.csv', headers=one)
+                assert duplicate.status_code == 429 and duplicate.json()['error']['code'] == 'RATE_LIMITED'
+                with http.stream('GET', '/events/export.csv', headers=admin) as other:
+                    assert other.status_code == 200
+                    count = sum(len(chunk) for chunk in other.iter_bytes())
+                assert count > 28_000_000
+                assert http.get('/events/export.csv', headers=one).status_code == 429
+                # Reset the stalled connection and verify its per-user file is reclaimed.
+                stalled.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+            deadline = time.monotonic() + 5
+            while True:
+                resumed = http.get('/events/export.csv?category=RUN', headers=one)
+                if resumed.status_code == 200:
+                    break
+                assert resumed.status_code == 429
+                assert time.monotonic() < deadline, 'download file lease was not reclaimed after RST'
+                time.sleep(.01)
+            print(f'S2 real uvicorn:{parsed.port}: 9000 rows, unread first body -> same user429, other user200/{count} bytes, RST -> same user200: PASS')

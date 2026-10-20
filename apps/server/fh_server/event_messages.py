@@ -7,6 +7,7 @@ the original code/data. Reading never regenerates historical messages.
 from sqlalchemy import select
 import math
 import unicodedata
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 from .models import Robot, User, now
 
@@ -45,7 +46,8 @@ TEMPLATES = {
     'STOP_CONFIRM_FAILED': '{robot} 정지 확인에 실패했습니다.',
     'AUDIT_DROPPED': '{robot} 감사 기록 {count}개를 묶거나 생략했습니다.',
     'AUDIT_QUARANTINED': '{robot} 저장할 수 없는 사건을 격리했습니다.',
-    'HISTORY_STORAGE_BLOCKED': '{robot} 사건 저장이 막혔습니다.',
+    'HISTORY_STORAGE_BLOCKED': '서버에서 {robot} 사건 저장이 막혔습니다.',
+    'AGENT_HISTORY_STORAGE_BLOCKED': '{robot} 자체 사건 저장에 실패했습니다.',
     'AGENT_INVENTORY_FAILED': '{robot} 장치 정보를 저장하지 못했습니다.',
     'AGENT_INVALID_HELLO': '{robot} 장치 목록·초기 연결 정보가 올바르지 않습니다.',
     'AGENT_CONNECTED': '{robot}{subject} 연결되었습니다.',
@@ -106,6 +108,8 @@ CATEGORIES = {
 
 # Robot diagnostics and run observations only; human/account/approval actions
 # cannot be asserted by an agent even when their code exists in TEMPLATES.
+# HISTORY_STORAGE_BLOCKED is also emitted by agent Session.storage_blocked:
+# its local archival fault uses an explicitly different sentence from the server.
 AGENT_CODES = frozenset({
     'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT', 'EXECUTOR_STALLED', 'PROTOCOL_MISMATCH',
     'TRANSPORT_BACKPRESSURE', 'STOP_GEN_EXHAUSTED', 'LEASE_INVALID', 'BRIDGE_STATE_INVALID',
@@ -144,6 +148,8 @@ def render(db, ev, *, agent=False, other_user_id=None):
         template = TEMPLATES[ev.code]
     if template is None:
         template = TEMPLATES['AGENT_EVENT']
+    if agent and ev.code in AGENT_CODES and ev.code == 'HISTORY_STORAGE_BLOCKED':
+        template = TEMPLATES['AGENT_HISTORY_STORAGE_BLOCKED']
     data = ev.data or {}
     # Lookup is tenant-bound; names are frozen into the message at INSERT time.
     def name(model, identifier, default, column):
@@ -163,6 +169,8 @@ def render(db, ev, *, agent=False, other_user_id=None):
         battery=number_value(data.get('soc')), kind=text_value(data.get('kind'), '결재'),
         decision='승인' if data.get('approved') is True else '반려' if data.get('approved') is False else '처리')
     ev.at = ev.at or now()
-    stamp = ev.robot_at or ev.at
+    stamp = ev.at
+    if ev.robot_at is not None and timedelta(0) <= ev.at - ev.robot_at <= timedelta(hours=24):
+        stamp = ev.robot_at
     ev.message = stamp.astimezone(MESSAGE_TIMEZONE).strftime('%H:%M') + ' ' + template.format(**values)
     return ev

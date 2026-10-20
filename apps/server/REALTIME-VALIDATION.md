@@ -1412,3 +1412,63 @@ npm run --prefix apps/contracts typecheck
 트리의 정상 결과는420개다. 나머지 기존200개 변이는 다시 실행하지 않았다. 임시 사본이
 종료 뒤 제거된 것을 확인했다. 이번 권한 변경은 미병합0008의 생성 권한 정의에만
 반영했고 이미 적용된 운영/시험 DB를 직접 수정하지 않았다.
+
+
+## PR #24 재검토 R2: 느린 CSV 전송 격리 (2026-10-20)
+
+앞 절의 전송 종료까지 공용 슬롯을 유지한다는 동작은 아래로 대체한다.
+
+- 공용 CSV 생성 슬롯은 조회·상한 검사·파일 작성·commit까지만 점유하고 응답 반환 전에
+  놓는다. 다운로드는 조직·사용자별 임시 파일 1개만 소유하며 같은 사용자 추가 요청은
+  429 RATE_LIMITED다. 다른 사용자는 첫 응답 본문을 읽지 않아도 새 CSV를 받을 수 있다.
+- 요청 scope에 자원 소유자를 먼저 등록한다. 응답 생성/호출 전 오류·전송 오류·단절 때
+  바깥 ASGI 정리와 응답 정리가 파일을 닫는다. 중복 정리는 안전하며 이전 소유자의 늦은
+  정리가 같은 키의 새 소유권을 지우지 않는다. 취소 뒤 늦게 연결된 파일도 즉시 닫는다.
+- 문장 시각은 robot_at이 서버 at보다 미래가 아니고 24시간 이내일 때만 사용한다.
+  미래 1µs·1분, 과거 24시간+1µs는 서버 at으로 대체하며 원래 robot_at은 보존한다.
+  정확히 24시간·23시간59분·1시간 전인 경계/유효 입력도 시험한다.
+- 권고(a)는 조건부다. 실제 에이전트 Session.storage_blocked가 자체 사건 기록 저장 실패를
+  HISTORY_STORAGE_BLOCKED로 내보내므로 허용 목록에 유지한다. 생산 코드의 pop_history로
+  발생을 확인하고 «자체 사건 저장» 문장으로 서버의 «서버에서 … 저장»과 구별한다.
+  에이전트 파일은 읽기만 했고 수정하지 않았다.
+
+집중 시험은 **57 passed / 26.26s**다. 초기 실행은 새 로컬 저장 실패 시험이 Session의
+즉시 Effects.messages에 기록이 있을 것으로 잘못 기대해 **54 passed / 1 failed / 19.70s**였다.
+실제 retained history인 pop_history를 검사하도록 시험만 고쳤으며 초기 실패를 통과로 세지 않는다.
+
+실제 uvicorn **127.0.0.1:9241**, 사건9,000행/data 약3KiB로 재현했다. 작은 수신 버퍼의
+첫 TCP 요청은 헤더만 읽고 본문은 읽지 않았다. 같은 사용자 추가 요청은429, 다른 사용자는
+**200 / 29,356,134 bytes**를 받았다. 첫 본문을 여전히 읽지 않은 상태에서 같은 사용자는
+계속429였고 첫 연결 RST 뒤에는200이었다. 두 번째 응답은 청크 단위로 읽어 전체 사본을
+만들지 않았다. 정상 기준과 변이는 같은 시험을 사용한다.
+
+계약 생성 **72개 일치**, npm ci와 strict tsc는 exit0이다. STOP·조종권·권한/S0 제품 코드와
+시험 문턱은 수정하지 않았다. 모든 실행은 FH_TEST_PORT_RANGE=9240:9259이며 전체 pytest와
+변이는 한 번에 하나만 실행한다. 운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기 접촉은 없다.
+실제 uvicorn의 루프 지연 계측·실브라우저·실폰·실로봇 검증은 하지 않았다.
+
+변이 도구가 먼저 실행한 서버 전체 정상 기준은 **431 passed / 346.93s**다.
+지적된 test_warm_stop_bypasses_slots_only_inside_250ms[0.25-202]를 포함해 실패0이며,
+이 시험이나 STOP 제품 코드를 수정하지 않았다. Alembic 왕복·metadata/권한 검사는
+전체 정상 기준에 포함되어 통과했다.
+
+| 재검토 R2 최종 검사 | 결과 |
+|---|---|
+| 서버 pytest 전체 정상 기준 | **431 passed / 346.93s**, 실패0 |
+| S2 변이(기존41+새8) | **49/49 assertion 검출**, exit0·실행/수집 오류·미검출0 |
+| 사건·R2·실제 uvicorn 집중 | **57 passed / 26.26s** |
+| Alembic 왕복·metadata·실제 DB 권한 | 전체 정상 기준 포함, 통과 |
+| generate --check | **72개 일치** |
+| npm ci·strict tsc | exit0 |
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py apps/server/tests/test_events_review.py apps/server/tests/test_events_downloads.py apps/server/tests/test_events_wire.py -q -x -s --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py --match S2
+python apps/contracts/generate.py --check
+npm ci --prefix apps/contracts --ignore-scripts
+npm run --prefix apps/contracts typecheck
+```
+
+변이 도구는 먼저 전체 서버 pytest를 실행하고 각 고장 판정은 순차 실행했다.
+이번에 기존 나머지200개 변이는 재실행하지 않았다. 임시 DB·변이 사본·node_modules를
+정리했다. R6·R9·R10과 파티션/FK, 조직별 시간대·D3 후속 결정은 그대로 남는다.

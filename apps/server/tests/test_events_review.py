@@ -184,16 +184,19 @@ def test_csv_writer_batches_orm_rows(seeded, monkeypatch):
 
 
 def test_csv_response_releases_slot_file_on_transport_failure():
-    assert exports.EXPORT_SLOT.acquire(blocking=False)
+    resource = exports.CSVResource(('fake-org', 'fake-user'))
+    resource.reserve(lambda *args: pytest.fail('unexpected capacity limit'))
     output = io.StringIO('CSV')
-    response = exports.CSVDownload(output)
+    resource.attach(output)
+    response = exports.CSVDownload(resource)
     async def send(message):
         raise RuntimeError('fake disconnected transport')
     async def receive():
         return {'type': 'http.disconnect'}
     with pytest.raises(RuntimeError):
         asyncio.run(response({'type': 'http', 'asgi': {'spec_version': '2.4'}}, receive, send))
-    assert output.closed and not exports.EXPORT_SLOT.locked()
+    assert output.closed and resource.key not in exports.DOWNLOADS
+    assert not exports.EXPORT_SLOT.locked()
 
 
 def test_notification_db_can_update_only_read_at(seeded):
