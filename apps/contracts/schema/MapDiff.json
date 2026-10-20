@@ -130,6 +130,20 @@
           ],
           "title": "After"
         },
+        "after_index": {
+          "anyOf": [
+            {
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After Index"
+        },
         "before": {
           "anyOf": [
             {
@@ -149,6 +163,20 @@
             }
           ],
           "title": "Before"
+        },
+        "before_index": {
+          "anyOf": [
+            {
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before Index"
         },
         "change": {
           "enum": [
@@ -179,7 +207,9 @@
         "key",
         "change",
         "before",
-        "after"
+        "after",
+        "before_index",
+        "after_index"
       ],
       "title": "MapFeatureChange",
       "type": "object"

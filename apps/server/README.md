@@ -640,32 +640,46 @@ PGM P2/P5도 같은 슬롯을 사용하며 픽셀을 순회해 변환하므로 �
   `image_changed`, `changes`를 반환한다. against 생략 시 대상의 `base_version_id`를
   사용하며 첫 판은 `against=null`인 빈 지도와 비교한다. 같은 층만 허용하고 다른 층·
   다른 조직·없는 UUID는 같은 `404 NOT_FOUND`다. 방향은 against → version이다.
-- changes는 `{kind, key, change, before, after}`다. kind는 zones/waypoints/connectors/edits,
+- changes는 `{kind, key, change, before, after, before_index, after_index}`다. kind는 zones/waypoints/connectors/edits,
   change는 added/removed/changed이며 없는 쪽은 null이다. 요소 ID는 `id:<id>` 키를 쓴다.
   편집선은 선택 `id`를 지원하고 같은 판의 중복 ID는 422다. 새 편집선에는 ID를 유지해
   수정하도록 한다. ID 없는 기존 선은 정렬된 JSON의 sha256과 같은 내용의 중복 순번으로
-  `sha256:<digest>:<occurrence>` 키를 만든다. 순서 이동은 차이가 없고 내용 수정은
-  삭제+추가다. 배열 순서는 요소의 의미에 포함하며 꼭짓점 순서는 정규화하지 않는다.
+  `sha256:<digest>:<occurrence>` 키를 만든다. 키는 순서 이동에도 유지되고 기존 선 내용
+  수정은 삭제+추가다. 편집선은 배열 순서대로 칠하므로 위치만 달라도 changed다.
+  편집선 change의 before_index/after_index는 0부터 시작하는 이전/이후 위치이며 없는
+  쪽과 다른 종류 요소는 null이다. before는 against, after는 version의 값이다.
+  꼭짓점 순서는 정규화하지 않는다.
 - 두 판의 저장된 PNG sha256을 비교하며 서버가 픽셀 비교 그림을 만들지는 않는다.
   화면이 인증된 두 `/image`를 겹쳐 그린다. 각 판의 전체 꼭짓점 4096개 제한을 재확인하고
   초과하면 `422 INVALID_FEATURES`다. 해시·색인은 꼭짓점 수에 선형, 키 정렬은 요소 수의
-  O(n log n)으로 제한된다. 직렬화 결과가 UTF-8 **2 MiB**를 넘으면 `422 DIFF_TOO_LARGE`다.
+  O(n log n)으로 제한된다. 직렬화 결과가 UTF-8 **32 MiB**를 넘으면 `422 DIFF_TOO_LARGE`다.
+  저장 가능한 최대 두 판도 비교할 수 있게 상한을 잡았다. 계약상 요소 최대1768개,
+  요소당 128자 문자열 최대2개(이스케이프 후 문자당6바이트), 꼭짓점4096개(좌표3개·
+  숫자당32바이트), 요소당 문법/키 여유1536바이트, 메타데이터128KiB로 잡아도
+  판 두 개와 before/after의 최대4벌은23,429,120바이트로32MiB보다 작다.
+  요소 수·문자열·꼭짓점 상한을 바꾸면 이 계산과 경계 시험도 함께 고쳐야 한다.
   이미지 디코딩이나 모든 요소 쌍의 비교는 하지 않는다.
 - `POST /map-versions/{id}/rollback {base_version_id, reason}`은 총괄만 사용할 수 있다.
   reason은 공백만으로 채울 수 없고 1~2000자다. 층 행을 잠근 뒤 현재 승인 판과 base를
   비교하여 다르면 S3a와 같은 `409 STALE`·`detail.approved_version_id`를 반환한다.
   대상이 이미 현재 승인 판이면 `409 ALREADY_APPROVED`, 운영자는 `403 APPROVAL_REQUIRED`다.
+  저장된 status가 APPROVED인 한때 승인된 판만 복사하며, 그 밖은
+  `409 ROLLBACK_NOT_APPROVED`다(옛 승인 판의 응답상 SUPERSEDED는 계속 허용).
+  옛 판의 연결점 대상 층이 삭제됐거나 같은 건물/조직의 다른 층이 아니면
+  `422 INVALID_FEATURES`, `detail.element=features.connectors.N.pair_floor_id`로 거절한다.
 - 옛 판을 변경하지 않고 내용·지도 설정·업로드 참조를 복사한 **새 APPROVED 판**을 만든다.
   `source=ROLLBACK`, `copied_from_id=옛 판`, `base_version_id=직전 승인 판`이다.
   보존된 불변 PNG 경로를 공유하며 sha256을 재확인한다. 임시 업로드가 없어도 되돌릴 수 있다.
   보존 PNG가 없거나 손상됐으면 `503 FILE_STORAGE_ERROR`이며 새 판을 만들지 않는다.
   새 판·층 포인터·연결점 투영·`MAP_VERSION_ROLLED_BACK` APPROVAL 사건은 같은 트랜잭션이다.
-  사건에 floor_id/map_version_id/copied_from_id/base_version_id/reason을 저장한다.
+  사건에 floor_id/map_version_id/copied_from_id/copied_from_number/base_version_id/reason을 저장하고
+  «N판을 복사한 M판»과 이유를 문장으로 남긴다.
   총괄의 직접 되돌리기는 결재 요청/결과가 없으므로 알림 대상이 없다. O 결재·알림은 S4다.
 - 판 목록·단건(저장/되돌리기 응답 포함)에 읽기 전용 `upload_id`, `copied_from_id`를 보낸다.
   W4b는 `upload_id`를 다음 판의 `image`로 재사용할 수 있다. 업로드는 소모하지 않으며
   resolution/origin/negate/임계값을 그대로 사용한다. negate·임계값은 응답에 추가하지 않는다.
   이 재저장 경로는 S3a처럼 임시 업로드 PNG가 없으면 503이다. 정리 정책은 계속 결정 대기다.
+  **업로드 정리 정책은 map_versions가 참조하는 업로드를 지우면 안 된다.**
 
 05 정본의 `?base=`, 층을 포함한 rollback 경로 및 비교 이미지 요구와 이번 지시가 다르다.
 이번 계약은 `?against=`, `/map-versions/{id}/rollback`, 요소 차이+이미지 변경 여부를 사용한다.
@@ -678,5 +692,5 @@ python -m apps.contracts.generate --check
 npm run --prefix apps/contracts typecheck
 ```
 
-변이 명령은 서버 전체 pytest를 먼저 **한 번**, S3b 변이 19개를 하나씩 실행한다.
+변이 명령은 서버 전체 pytest를 먼저 **한 번**, S3b 변이 25개를 하나씩 실행한다.
 기존 S3a 변이 및 STOP 경로 변이 전체를 다시 실행했다는 뜻은 아니다.
