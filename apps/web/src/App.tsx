@@ -5,10 +5,11 @@ import { Component, useEffect, useRef, useState, useSyncExternalStore, type Reac
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
-import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
+import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, leaving, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, type Ctx } from './screens';
 import { Bell, History } from './screens/history';
+import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
 import { Settings } from './screens/settings';
 
@@ -96,9 +97,18 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     if (!ms.again) refresh();
   }, [ms?.n]);
 
-  useEffect(() => { const f = () => setWant(location.hash); addEventListener('hashchange', f); return () => removeEventListener('hashchange', f); }, []);
+  // 지도 편집을 저장하지 않았으면 다른 탭으로 가는 주소 바꿈(메뉴·뒤로 가기)을 되돌리고 그 화면에 묻는다
+  useEffect(() => {
+    const f = () => {
+      const h = location.hash, ask = leaving.ask;
+      if (ask && tabFromHash(h, false) !== 'map') { history.replaceState(null, '', '#/map'); ask(() => { location.hash = h; }); return; }
+      setWant(h);
+    };
+    addEventListener('hashchange', f); return () => removeEventListener('hashchange', f);
+  }, []);
   useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
   const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; setWant(h); location.hash = h; };
+  useEffect(() => { if (!phone && kept.d) go('map'); }, [phone]);   // 폰 틀에서 PC 로 돌아오면 남겨 둔 지도 편집으로
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
   const stop = () => { const r = target ?? pool.find((x) => x.id === choose); if (r) halt(r); else setChoose(pool.find((x) => rt.get(x.id).lease)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01). 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
@@ -119,7 +129,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const link = (t: Tab, cls: string) => {
     const badge = t.id === 'approval' && user.role === 'ORG_ADMIN' ? APPROVALS.length : 0;   // ponytail: 운영자 배지(결과 나온 안 본 요청)는 요청 상태가 생기면
     return <a key={t.id} className={`${cls}${t.id === tab ? ' cur' : ''}`} href={`#/${t.id}`} aria-current={t.id === tab ? 'page' : undefined}
-      aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => setWant(`#/${t.id}`)}>
+      aria-label={badge ? `${labelOf(t, user.role)} ${badge}건` : undefined} onClick={() => { if (!leaving.ask) setWant(`#/${t.id}`); }}>
       {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };
 

@@ -7,6 +7,7 @@ import { BrandLogo } from './BrandLogo';
 import { api, onAuthLost, type ApiFail } from './api';
 import { clearServerData, setServerData, toRobot, type Robot, type User } from './fake';
 import { now } from './rt';
+import { kept } from './screens/mapedit';
 
 /** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 영상·지도·임무가 서버에서 오면 지운다 */
 export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·로봇 등록·조직 기준값·기록·알림과 로봇 연결·상태·배터리·장치·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·층·임무·결재는 아직 가짜입니다.';
@@ -26,7 +27,7 @@ export function Root() {
   const toLogin = (note?: string) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); };
   // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇을 비운다. 실시간 연결·조종권은 App 이 내려가며 돌려주고 닫는다.
   // 조직 기준값은 설정 화면 상태라 App 이 내려가며 같이 사라진다
-  useEffect(() => { if (st.at === 'login') clearServerData(); }, [st.at]);
+  useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; } }, [st.at]);   // 남겨 둔 지도 편집·저장 요청도
   const enter = async () => {
     const me = toUser(await api.me());
     const fresh = now(), robots = (await api.robots('all')).map(toRobot);

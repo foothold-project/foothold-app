@@ -224,7 +224,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', drive: '조종할 로봇', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '편집', settings: '화면 밝기' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', drive: '조종할 로봇', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '장소 목록', settings: '화면 밝기' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       click($(`nav a[href="#/${id}"]`));

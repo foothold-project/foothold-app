@@ -17,9 +17,10 @@ export const NOTE_MS = 10_000;
 /** 지도 읽기 / 지도 파일 보내기·판 저장 제한시간. 쓰기는 서버 수신 마감(30 s, 넘으면 408)과 변환 시간보다 길게 — 서버 답이 먼저 오게 */
 export const MAP_READ_MS = 20_000, MAP_WRITE_MS = 60_000;
 
-/** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못했거나 성공 답을 끝까지 못 읽음(처리됐을 수 있음), said = 서버가 계약 오류 본문(error.code)으로 답함 */
+/** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못했거나 성공 답을 끝까지 못 읽음(처리됐을 수 있음), said = 서버가 계약 오류 본문(error.code)으로 답함.
+ *  detail = 서버 오류 본문의 detail(지도 요소 오류의 element·elements 등) */
 export class ApiFail extends Error {
-  constructor(readonly status: number, readonly code: string, message: string, readonly said = false) { super(message); }
+  constructor(readonly status: number, readonly code: string, message: string, readonly said = false, readonly detail?: Record<string, unknown>) { super(message); }
 }
 
 let csrf: string | null = null;
@@ -57,7 +58,7 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
   if (res.ok) return data as T;
   const e = (data as Partial<ApiError> | null)?.error;
   if (res.status === 401 && path !== '/auth/login' && path !== '/auth/session') expireAuth();
-  throw new ApiFail(res.status, e?.code ?? 'INTERNAL_ERROR', e?.message || (FALLBACK[res.status] ?? '요청을 처리하지 못했습니다. 잠시 뒤 다시 시도하세요.'), typeof e?.code === 'string');
+  throw new ApiFail(res.status, e?.code ?? 'INTERNAL_ERROR', e?.message || (FALLBACK[res.status] ?? '요청을 처리하지 못했습니다. 잠시 뒤 다시 시도하세요.'), typeof e?.code === 'string', e?.detail ?? undefined);
 }
 
 /** 목록 쪽 넘김(§1.5)을 끝까지 */
