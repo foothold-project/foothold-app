@@ -20,7 +20,12 @@ from .models import Building, Floor, FloorConnector, MapVersion, Robot, Site, Up
 UPLOAD_BODY_SECONDS = 30
 MIN_FREE_SPACE = 256 * 1024 * 1024
 MAX_FEATURE_VERTICES = 4096
-MAX_DIFF_BYTES = 2 * 1024 * 1024
+# Four copies at most (two snapshots plus before/after), bounded by contract:
+# 1768 elements, <=2 strings of 128 characters (6 bytes escaped), 4096 vertices
+# of <=3 float coordinates (32 bytes), and generous syntax/key/metadata budgets.
+# 4 * (1768 * (2 * 128 * 6 + 1536) + 4096 * 3 * 32) + 128 KiB
+# = 23,429,120 bytes < 32 MiB, including edit indices and escaped change keys.
+MAX_DIFF_BYTES = 32 * 1024 * 1024
 
 
 def ensure_space(root, required, fail):
@@ -156,6 +161,15 @@ def bounded_features(row, fail):
     return features
 
 
+def validate_rollback_connectors(db, floor, features, fail):
+    for index, connector in enumerate(features['connectors']):
+        pair = db.scalar(select(Floor.id).where(Floor.id == UUID(connector['pair_floor_id']),
+            Floor.org_id == floor.org_id, Floor.building_id == floor.building_id, Floor.id != floor.id))
+        if pair is None:
+            fail(422, 'INVALID_FEATURES', '연결점이 가리키는 같은 건물의 다른 층을 찾을 수 없습니다.',
+                {'element': f'features.connectors.{index}.pair_floor_id'})
+
+
 def feature_index(items, kind):
     result, duplicates = {}, {}
     for item in items:
@@ -163,7 +177,8 @@ def feature_index(items, kind):
             key = 'id:' + item['id']
         else:
             # Legacy edits have no identity. Equal content keeps its key across
-            # reordering; changed legacy content is a removal plus an addition.
+            # reordering; the diff reports changed positions separately. Changed
+            # legacy content is a removal plus an addition.
             digest = sha256(json.dumps(item, sort_keys=True, separators=(',', ':'), ensure_ascii=True).encode()).hex()
             occurrence = duplicates.get(digest, 0)
             duplicates[digest] = occurrence + 1
@@ -412,11 +427,16 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         changes = []
         for kind in ('zones', 'waypoints', 'connectors', 'edits'):
             before, after = feature_index(previous[kind], kind), feature_index(current[kind], kind)
+            before_positions = {key: i for i, key in enumerate(before)} if kind == 'edits' else {}
+            after_positions = {key: i for i, key in enumerate(after)} if kind == 'edits' else {}
             for key in sorted(before.keys() | after.keys()):
                 old, new = before.get(key), after.get(key)
-                if old != new:
+                old_index, new_index = before_positions.get(key), after_positions.get(key)
+                moved = old is not None and new is not None and old_index != new_index
+                if old != new or moved:
                     changes.append(C.MapFeatureChange(kind=kind, key=key,
-                        change='added' if old is None else 'removed' if new is None else 'changed', before=old, after=new))
+                        change='added' if old is None else 'removed' if new is None else 'changed', before=old, after=new,
+                        before_index=old_index, after_index=new_index))
         result = C.MapDiff(version=version_object(row, floor), against=version_object(baseline, floor) if baseline else None,
             image_changed=baseline is None or row.image_sha256 != baseline.image_sha256, changes=changes)
         if len(result.model_dump_json().encode()) > MAX_DIFF_BYTES:
@@ -434,7 +454,10 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
         if original.id == floor.approved_version_id:
             fail(409, 'ALREADY_APPROVED', '이미 승인된 지도 판입니다.')
-        bounded_features(original, fail)
+        if original.status != 'APPROVED':
+            fail(409, 'ROLLBACK_NOT_APPROVED', '이전에 승인된 지도 판만 되돌릴 수 있습니다.')
+        features = bounded_features(original, fail)
+        validate_rollback_connectors(db, floor, features, fail)
         number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
         row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
             copied_from_id=original.id, status='APPROVED', upload_id=original.upload_id,
@@ -454,7 +477,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         db.flush()
         refresh_connectors(db, floor)
         record(db, user, 'MAP_VERSION_ROLLED_BACK', row, copied_from_id=str(original.id),
-            base_version_id=str(body.base_version_id), reason=body.reason)
+            base_version_id=str(body.base_version_id), copied_from_number=original.number, reason=body.reason)
         return version_object(row, floor)
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)

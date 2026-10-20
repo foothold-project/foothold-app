@@ -287,6 +287,8 @@ export interface MapFeatureChange {
   change: "added" | "removed" | "changed";
   before: MapZone | MapWaypoint | MapConnector | MapEdit | null;
   after: MapZone | MapWaypoint | MapConnector | MapEdit | null;
+  before_index: number | null;
+  after_index: number | null;
 }
 
 export interface MapFeatures {

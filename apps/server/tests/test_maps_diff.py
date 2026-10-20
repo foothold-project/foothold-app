@@ -60,6 +60,8 @@ def test_diff_all_feature_kinds_image_and_default_base(maps):
         changes = {c.key: c for c in diff.changes if c.kind == kind}
         assert set(changes) == {'id:keep', 'id:removed', 'id:added'}
         assert changes['id:keep'].change == 'changed'
+        assert changes['id:keep'].before.model_dump(mode='json', exclude_none=True) == before[kind][0]
+        assert changes['id:keep'].after.model_dump(mode='json', exclude_none=True) == after[kind][0]
         assert changes['id:removed'].change == 'removed' and changes['id:removed'].after is None
         assert changes['id:added'].change == 'added' and changes['id:added'].before is None
     explicit = http.get(P + f'/map-versions/{second["id"]}/diff?against={first["id"]}', headers=headers)
@@ -80,7 +82,11 @@ def test_legacy_edits_keys_stable_under_reorder_and_duplicates(maps):
     first = save(http, headers, floor, image, features={**FEATURES, 'edits': [a, a, b]}).json()
     second = save(http, headers, floor, image, base=first['id'], features={**FEATURES, 'edits': [b, a, a]}).json()
     result = http.get(P + f'/map-versions/{second["id"]}/diff', headers=headers).json()
-    assert result['changes'] == [] and result['image_changed'] is False
+    assert result['image_changed'] is False
+    changes = result['changes']
+    assert len(changes) == 3 and all(c['change'] == 'changed' for c in changes)
+    assert {(c['before_index'], c['after_index']) for c in changes} == {(0, 1), (1, 2), (2, 0)}
+    assert all(c['before'] == c['after'] for c in changes)
     initial = http.get(P + f'/map-versions/{first["id"]}/diff', headers=headers).json()['changes']
     assert len(initial) == len({c['key'] for c in initial}) == 3
     assert all(c['key'].startswith('sha256:') for c in initial)
@@ -168,7 +174,8 @@ def test_rollback_new_immutable_snapshot_stale_current_role_reason_event(maps, s
             category, data, message = events[0]
             assert category == 'APPROVAL' and data['floor_id'] == floor and data['map_version_id'] == new['id']
             assert data['copied_from_id'] == first['id'] and data['base_version_id'] == second['id']
-            assert data['reason'] == '옛 판으로 복사 시험' and '3판' in message and data['reason'] in message
+            assert data['copied_from_number'] == 1
+            assert data['reason'] == '옛 판으로 복사 시험' and '1판을 복사한 3판' in message and data['reason'] in message
     finally:
         engine.dispose()
 
@@ -270,3 +277,114 @@ def test_rollback_missing_snapshot_and_event_failure_are_atomic(maps, seeded, mo
             assert str(conn.scalar(text('SELECT approved_version_id FROM floors WHERE id=:id'), {'id': floor})) == second['id']
     finally:
         engine.dispose()
+
+
+@pytest.mark.parametrize('with_id', [False, True])
+def test_diff_edit_paint_order_changes_have_positions(maps, with_id):
+    http, headers, _ = maps
+    _, _, floor = tree(http, headers)
+    image = upload(http, headers)
+    wall = {'op': 'WALL', 'polyline': [[0, 0], [1, 1]], 'width': .1}
+    erase = {**wall, 'op': 'ERASE'}
+    if with_id:
+        wall['id'], erase['id'] = 'wall', 'erase'
+    first = save(http, headers, floor, image, features={**FEATURES, 'edits': [wall, erase]}).json()
+    second = save(http, headers, floor, image, base=first['id'], features={**FEATURES, 'edits': [erase, wall]}).json()
+    response = http.get(P + f'/map-versions/{second["id"]}/diff', headers=headers)
+    assert response.status_code == 200
+    result = response.json()
+    assert result['image_changed'] is False
+    changes = result['changes']
+    assert len(changes) == 2 and all(c['kind'] == 'edits' and c['change'] == 'changed' for c in changes)
+    moved = {c['before']['op']: c for c in changes}
+    assert (moved['WALL']['before_index'], moved['WALL']['after_index']) == (0, 1)
+    assert (moved['ERASE']['before_index'], moved['ERASE']['after_index']) == (1, 0)
+    assert all(c['before'] == c['after'] for c in changes)
+
+
+def test_rollback_deleted_connector_pair_rejected_with_element(maps, seeded):
+    http, headers, _ = maps
+    _, building, floor = tree(http, headers)
+    pair_floor = http.post(P + f'/buildings/{building}/floors', headers=headers,
+        json={'name': '임시 2층', 'level': 2}).json()['id']
+    image = upload(http, headers)
+    first = save(http, headers, floor, image, features={**FEATURES, 'connectors': [
+        {'id': 'stairs', 'kind': 'STAIRS', 'pair_floor_id': pair_floor, 'x': 1, 'y': 1, 'yaw': 0}]}).json()
+    second = save(http, headers, floor, image, base=first['id']).json()
+    assert http.delete(P + f'/floors/{pair_floor}', headers=headers).status_code == 204
+    response = rollback(http, headers, first['id'], second['id'])
+    assert response.status_code == 422
+    assert response.json()['error']['code'] == 'INVALID_FEATURES'
+    assert response.json()['error']['detail']['element'] == 'features.connectors.0.pair_floor_id'
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with engine.connect() as conn:
+            assert conn.scalar(text('SELECT count(*) FROM map_versions')) == 2
+            assert str(conn.scalar(text('SELECT approved_version_id FROM floors WHERE id=:id'), {'id': floor})) == second['id']
+            assert conn.scalar(text("SELECT count(*) FROM events WHERE code='MAP_VERSION_ROLLED_BACK'")) == 0
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize('status', ['PENDING', 'REJECTED', 'SUPERSEDED'])
+def test_rollback_requires_previously_approved_snapshot(maps, seeded, status):
+    http, headers, _ = maps
+    floor, first, second = pair(maps)
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        # Only the migration account can synthesize a future S4 non-approved row.
+        with engine.begin() as conn:
+            conn.execute(text('UPDATE map_versions SET status=:status WHERE id=:id'), {'id': first['id'], 'status': status})
+        response = rollback(http, headers, first['id'], second['id'])
+        assert response.status_code == 409 and response.json()['error']['code'] == 'ROLLBACK_NOT_APPROVED'
+        with engine.connect() as conn:
+            assert conn.scalar(text('SELECT count(*) FROM map_versions')) == 2
+            assert str(conn.scalar(text('SELECT approved_version_id FROM floors WHERE id=:id'), {'id': floor})) == second['id']
+            assert conn.scalar(text("SELECT count(*) FROM events WHERE code='MAP_VERSION_ROLLED_BACK'")) == 0
+    finally:
+        engine.dispose()
+
+
+def test_diff_accepts_two_maximum_stored_feature_snapshots(maps):
+    http, headers, _ = maps
+    _, building, floor = tree(http, headers)
+    pair_floor = http.post(P + f'/buildings/{building}/floors', headers=headers,
+        json={'name': '상한 시험 층', 'level': 2}).json()['id']
+    identifier = lambda kind, n: f'{kind}{n:04d}'.ljust(128, '\x01')
+    name = '\x01' * 127 + '가'
+    features = {
+        'zones': [{'id': identifier('z', n), 'name': name, 'type': 'NO_GO',
+                   'polygon': [[0, 0], [1, 0], [1, 1]]} for n in range(256)],
+        'waypoints': [{'id': identifier('w', n), 'name': name, 'x': 1, 'y': 1, 'yaw': 0} for n in range(1000)],
+        'connectors': [{'id': identifier('c', n), 'kind': 'STAIRS', 'pair_floor_id': pair_floor,
+                        'x': 1, 'y': 1, 'yaw': 0} for n in range(256)],
+        'edits': [{'id': identifier('e', n), 'op': 'WALL', 'polyline': [[0, 0], [1, 1]], 'width': .1} for n in range(256)],
+    }
+    for edit in features['edits'][:6]:
+        edit['polyline'] = [[0, 0], [1, 1]] * 128
+    features['edits'][6]['polyline'] = [[0, 0], [1, 1]] * 19
+    vertices = sum(len(z['polygon']) for z in features['zones']) + sum(len(e['polyline']) for e in features['edits']) + len(features['waypoints']) + len(features['connectors'])
+    assert vertices == 4096
+    image = upload(http, headers)
+    response = save(http, headers, floor, image, features=features)
+    assert response.status_code == 201, response.text[:200]
+    first = response.json()
+    changed = copy.deepcopy(features)
+    for group in ('zones', 'waypoints'):
+        for item in changed[group]:
+            item['name'] = '\x01' * 127 + '나'
+    for item in changed['connectors']:
+        item['yaw'] = 1
+    for item in changed['edits']:
+        item['width'] = .2
+    response = save(http, headers, floor, image, base=first['id'], features=changed)
+    assert response.status_code == 201, response.text[:200]
+    second = response.json()
+    response = http.get(P + f'/map-versions/{second["id"]}/diff', headers=headers)
+    assert response.status_code == 200, response.text[:200]
+    result = response.json()
+    assert len(result['changes']) == 1768 and all(c['change'] == 'changed' for c in result['changes'])
+    assert 2 * 1024 * 1024 < len(response.content) < M.MAX_DIFF_BYTES
+    # Conservative bound includes four payload copies, escaped keys and indices.
+    worst_case_bound = 4 * (1768 * (2 * 128 * 6 + 1536) + 4096 * 3 * 32) + 128 * 1024
+    assert M.MAX_DIFF_BYTES > worst_case_bound

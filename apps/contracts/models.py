@@ -701,6 +701,8 @@ class MapFeatureChange(Contract):
     change: Literal['added', 'removed', 'changed']
     before: MapZone | MapWaypoint | MapConnector | MapEdit | None
     after: MapZone | MapWaypoint | MapConnector | MapEdit | None
+    before_index: int | None = Field(default=None, ge=0, le=255)
+    after_index: int | None = Field(default=None, ge=0, le=255)
 
 
 class MapDiff(Contract):
