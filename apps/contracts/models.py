@@ -1,5 +1,6 @@
 """Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 8."""
 from datetime import timezone
+import unicodedata
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -572,8 +573,17 @@ class AgentTokenResponse(Contract):
 
 
 
+def map_name(value):
+    if any(unicodedata.category(c) in ('Cc', 'Cf') for c in value):
+        raise ValueError('지도 이름에는 제어·서식 문자를 쓸 수 없습니다.')
+    return value
+
+
+MapNameText = Annotated[str, AfterValidator(map_name)]
+
+
 class MapName(Contract):
-    name: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    name: MapNameText = Field(min_length=1, max_length=128, pattern=r'\S')
 
 
 class FloorCreate(MapName):
@@ -581,7 +591,7 @@ class FloorCreate(MapName):
 
 
 class FloorPatch(Contract):
-    name: str = omitted(min_length=1, max_length=128, pattern=r'\S')
+    name: MapNameText = omitted(min_length=1, max_length=128, pattern=r'\S')
     level: int = omitted(strict=True, ge=-1000, le=1000)
 
 
