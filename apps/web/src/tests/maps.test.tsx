@@ -577,3 +577,346 @@ describe('관제 지도 칸 — 층 고르기(FL-03)', () => {
     expect([...card('층').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['본동 1층', '본동 2층', '신동 1층']);
   });
 });
+
+// ── W4b 지도 편집(01 MP-03·05·06, 02 F-MP-03, 03 §5.6, 05 §5 features) ──
+// 화면 100×80 칸을 400×320 으로(4배) 그린다고 치고 지도 좌표(m)로 누른다. origin (-1, -2) → 화면 x = (x + 1)·80, y = (2 - y)·80
+const UP = { ...V2, upload_id: 'up-2' };
+const editSrv = (more: Record<string, Route> = {}, me = KIM, base: MapVersion = UP) => signedIn(me, { 'GET /floors/f1/map-versions': { status: 200, body: { items: [base, V1], next_cursor: null } }, ...more });
+const canvas = () => $<SVGSVGElement>('svg[data-edit]')!;
+const startEdit = async () => {
+  await open('#/map');
+  await click(btn('편집', card('보기·편집')));
+  canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect;
+};
+const ptr = async (type: string, x: number, y: number, on: Element = canvas()) => {
+  act(() => { on.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: (x + 1) * 80, clientY: (2 - y) * 80, button: 0 })); });
+  await flush();
+};
+const tap = async (x: number, y: number, on?: Element) => { await ptr('pointerdown', x, y, on); await ptr('pointerup', x, y, on); };
+const tool = (t: string) => click(btn(t, card('편집 도구')));
+/** jsdom 은 주소 바꿈(hashchange)을 몇 틱 뒤에 알린다 */
+const hashed = () => act(() => new Promise((r) => setTimeout(r, 30)));
+const choose = (label: string, from: ParentNode = box) => [...from.querySelectorAll('label')].find((l) => l.textContent!.startsWith(label))!.querySelector('select') as HTMLSelectElement;
+const save = async (reason = '구역 추가') => { await setVal(field('바꾼 이유', card('새 판으로 저장')), reason); await click(btn('새 판으로 저장')); };
+const body = () => sent('POST', '/floors/f1/map-versions').slice(-1)[0].body as { base_version_id: string; image: string; features: typeof FEAT; reason: string };
+const near = (pts: number[][]) => pts.map((p) => p.map((v) => Math.round(v * 1000) / 1000));
+const saved201 = { 'POST /floors/f1/map-versions': { status: 201, body: ver('v3', 3, { base_version_id: 'v2', source: 'EDIT' as const }) } };
+
+describe('지도 편집 — 좌표·미리 검사(서버 validate_features 와 같은 규칙)', () => {
+  const g = { origin: [-1, -2, 0] as [number, number, number], resolution: 0.05, width: 100, height: 80 };
+  it('toMap 은 toPixel 의 역(y 뒤집힘·origin 방향 포함), 범위는 그림 안·경계 포함', async () => {
+    const { toMap, inside } = await import('../screens/mapedit');
+    for (const o of [g, { ...g, origin: [0.5, -1, 0.7] as [number, number, number] }]) for (const [x, y] of [[0, 0], [1.2, -0.3], [-0.5, 1.5]]) {
+      const [px, py] = toPixel(o, x, y), [mx, my] = toMap(o, px, py);
+      expect(mx).toBeCloseTo(x); expect(my).toBeCloseTo(y);
+    }
+    expect(toMap(g, 0, 80)).toEqual([-1, -2]);                    // 그림 왼쪽 아래 = origin
+    expect(inside(g, -1, -2)).toBe(true); expect(inside(g, 4, 2)).toBe(true);
+    expect(inside(g, 4.01, 0)).toBe(false); expect(inside(g, 0, -2.01)).toBe(false); expect(inside(g, NaN, 0)).toBe(false);
+  });
+  it('구역 3점 이상·중복 점·넓이 0·변 교차·범위 밖, 이름 빈칸·Cc/Cf, 선 굵기·서로 다른 2점, 연결점 짝 층, 꼭짓점 4096', async () => {
+    const { check } = await import('../screens/mapedit');
+    const E = { zones: [], waypoints: [], connectors: [], edits: [] };
+    const z = (polygon: number[][], name = '공사') => ({ ...E, zones: [{ id: 'z', type: 'NO_GO' as const, name, polygon: polygon as [number, number][] }] });
+    expect(check(z([[0, 0], [1, 0], [1, 1]]), g)).toBeNull();
+    expect(check(z([[0, 0], [1, 0]]), g)?.text).toContain('3개 이상');
+    expect(check(z([[0, 0], [1, 0], [0, 0]]), g)?.text).toContain('두 번 찍혔습니다');
+    expect(check(z([[0, 0], [1, 0], [2, 0]]), g)?.text).toContain('넓이가 0');
+    expect(check(z([[0, 0], [2, 2], [2, 0], [0, 1]]), g)).toEqual({ path: 'features.zones.0.polygon', text: expect.stringContaining('엇갈립니다') });
+    expect(check(z([[0, 0], [9, 0], [0, 1]]), g)).toEqual({ path: 'features.zones.0.polygon.1', text: expect.stringContaining('범위 밖') });
+    expect(check(z([[0, 0], [1, 0], [1, 1]], ' '), g)?.text).toBe('이름을 입력하세요.');
+    expect(check(z([[0, 0], [1, 0], [1, 1]], '공사​'), g)?.text).toContain('보이지 않는 글자');
+    expect(check({ ...E, waypoints: [{ id: 'w', name: '줄\n바꿈', x: 0, y: 0, yaw: 0 }] }, g)?.path).toBe('features.waypoints.0.name');
+    expect(check({ ...E, waypoints: [{ id: 'w', name: 'A', x: 0, y: 0, yaw: NaN }] }, g)?.path).toBe('features.waypoints.0.yaw');
+    const line = (polyline: number[][], width = 0.1) => ({ ...E, edits: [{ op: 'WALL' as const, polyline: polyline as [number, number][], width }] });
+    expect(check(line([[0, 0], [1, 0]]), g)).toBeNull();
+    expect(check(line([[0, 0], [0, 0]]), g)?.text).toContain('2개 이상');
+    expect(check(line([[0, 0], [1, 0]], 0), g)?.path).toBe('features.edits.0.width');
+    expect(check(line([[0, 0], [1, 0]], 101), g)?.path).toBe('features.edits.0.width');
+    const c = { ...E, connectors: [{ id: 'c', kind: 'STAIRS' as const, pair_floor_id: 'f9', x: 0, y: 0, yaw: 0 }] };
+    expect(check(c, g, ['f2'])?.path).toBe('features.connectors.0.pair_floor_id');
+    expect(check(c, g, ['f9'])).toBeNull();
+    expect(check({ ...E, waypoints: [{ id: 'w', name: 'A', x: 0, y: 0, yaw: 0 }, { id: 'w', name: 'B', x: 1, y: 0, yaw: 0 }] }, g)?.path).toBe('features.waypoints.1.id');
+    const many = { ...E, waypoints: Array.from({ length: 1000 }, (_, i) => ({ id: `w${i}`, name: 'A', x: 0, y: 0, yaw: 0 })),
+      edits: Array.from({ length: 13 }, () => ({ op: 'ERASE' as const, polyline: Array.from({ length: 256 }, (_, k) => [k / 100, 0]) as [number, number][], width: 0.1 })) };
+    expect(check(many, g)).toEqual({ path: 'features', text: expect.stringContaining('4096') });   // 1000 + 13·256 = 4328
+  });
+});
+
+describe('지도 편집 — 보기/편집 토글·권한', () => {
+  it('총괄 + 승인 판 = 보기/편집 토글. 편집 중엔 판 고르기·올리기 숨김, 보기로 돌아가면(바꾼 것 없음) 바로', async () => {
+    serve(editSrv());
+    await startEdit();
+    expect(btn('편집', card('보기·편집'))!.getAttribute('aria-pressed')).toBe('true');
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 판 2 편집 중');
+    expect($('[aria-label="판"]')).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeNull();
+    expect([...card('편집 도구').querySelectorAll('button')].map((b) => b.textContent)).toEqual(['고르기', '진입 금지', '감속', '지점', '연결점', '지우개', '벽']);
+    expect(canvas().querySelectorAll('[data-zone], [data-waypoint], [data-connector], [data-edit]')).toHaveLength(4);   // 지금 판 요소 그대로(벽 선 포함)
+    await click(btn('보기', card('보기·편집')));
+    expect(canvas()).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeTruthy();
+  });
+  it('운영 관리자: 편집 단추·자리 표시 없음(S4 결재 전) / 총괄도 승인 판 없는 층은 토글 없음', async () => {
+    serve(editSrv({}, LEE));
+    await open('#/map');
+    expect(card('지도 보기').querySelector('svg')).toBeTruthy();
+    expect(btn('편집')).toBeUndefined(); expect($('[aria-label="보기·편집"]')).toBeNull();
+    expect(card('지도 보기').querySelector('[aria-describedby="fh-soon"]')).toBeNull();
+    act(() => root?.unmount()); box.remove();
+    serve(editSrv());
+    await open('#/map');
+    await click(floorBtn('2층'));
+    expect($('[aria-label="보기·편집"]')).toBeNull();
+  });
+  it('판 응답에 upload_id 가 없으면(S3b 전) 저장 막고 쉬운 문구 — 다시 올리기 우회 없음', async () => {
+    serve(editSrv({}, KIM, V2));
+    await startEdit();
+    expect(alertText()).toContain('이 판은 아직 편집 저장을 지원하지 않습니다.');
+    expect(btn('새 판으로 저장')!.disabled).toBe(true);
+    await tool('지점'); await tap(1, 1);
+    act(() => { (card('새 판으로 저장') as HTMLFormElement).requestSubmit(); }); await flush();
+    expect(writes()).toEqual([]);
+  });
+});
+
+describe('지도 편집 — 도구', () => {
+  it('진입 금지 구역: 점 찍기·되돌리기·지우기·범위 밖 막음·교차 막음 → 닫기 → 저장 요청 모양(base·image=upload_id·reason)', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    await tool('진입 금지');
+    await tap(1, 1); await tap(2, 1);
+    await tap(5, 0);                                                  // 지도 범위 밖(x 는 4 m 까지)
+    expect(alertText()).toContain('지도 범위 밖은 찍을 수 없습니다.');
+    expect($('[data-drawing]')!.querySelectorAll('circle')).toHaveLength(2);
+    await tap(2, 0); await tap(3, 1.5);
+    await click(btn('되돌리기', card('그리기')));
+    expect($('[data-drawing]')!.querySelectorAll('circle')).toHaveLength(3);
+    await click(btn('닫기', card('그리기')));
+    expect($('[data-drawing]')).toBeNull();
+    expect(canvas().querySelectorAll('[data-zone="NO_GO"]')).toHaveLength(2);
+    expect(field('이름', card('고른 요소')).value).toBe('진입 금지 2');          // 새 구역이 골라짐
+    await tool('감속');                                                 // 엇갈린 사각형은 닫지 않음(점 그대로)
+    await tap(0, 0); await tap(2, 2); await tap(2, 0); await tap(0, 1);
+    await click(btn('닫기', card('그리기')));
+    expect(alertText()).toContain('구역의 변이 서로 엇갈립니다.');
+    expect($('[data-drawing]')!.querySelectorAll('circle')).toHaveLength(4);
+    await click(btn('지우기', card('그리기')));
+    expect($('[data-drawing]')).toBeNull();
+    await save('공사 구역 추가');
+    expect(writes()).toEqual(['POST /floors/f1/map-versions']);
+    const b = body();
+    expect([b.base_version_id, b.image, b.reason]).toEqual(['v2', 'up-2', '공사 구역 추가']);
+    expect(b.features.zones).toHaveLength(2);
+    expect(b.features.zones[0]).toEqual(FEAT.zones[0]);
+    expect({ ...b.features.zones[1], id: '' }).toEqual({ id: '', type: 'NO_GO', name: '진입 금지 2', polygon: expect.anything() });
+    expect(near(b.features.zones[1].polygon)).toEqual([[1, 1], [2, 1], [2, 0]]);
+    expect(b.features.waypoints).toEqual(FEAT.waypoints); expect(b.features.connectors).toEqual(FEAT.connectors); expect(b.features.edits).toEqual(FEAT.edits);
+    expect(canvas()).toBeNull();                                        // 저장되면 보기로
+    expect(card('지도 보기').textContent).toContain('새 판을 저장했습니다(판 3). 다음 실행부터 이 판을 씁니다.');
+  });
+  it('지점: 놓고 이름·방향(도 → 라디안) / 지우개·벽: 굵기, 서로 다른 2점 이상', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await setVal(field('이름', card('고른 요소')), '충전소');
+    await setVal(field('방향', card('고른 요소')), '90');
+    await tool('벽');
+    await setVal(field('굵기', card('그리기')), '0.2');
+    await tap(0, 1); await tap(0, 1);
+    await click(btn('끝내기', card('그리기')));
+    expect(alertText()).toContain('서로 다른 점이 2개 이상');
+    await tap(1.5, 1);
+    await click(btn('끝내기', card('그리기')));
+    await tool('지우개'); await tap(-0.5, -1); await tap(0.5, -1);
+    await click(btn('끝내기', card('그리기')));
+    expect(canvas().querySelectorAll('[data-edit]')).toHaveLength(3);
+    await save();
+    const b = body();
+    expect(b.features.waypoints).toHaveLength(2);
+    expect({ ...b.features.waypoints[1], id: '', x: 0, y: 0 }).toEqual({ id: '', name: '충전소', x: 0, y: 0, yaw: Math.PI / 2 });
+    expect(near([[b.features.waypoints[1].x, b.features.waypoints[1].y]])).toEqual([[1, 1]]);
+    expect(b.features.edits.slice(1).map((e) => [e.op, e.width, near(e.polyline)])).toEqual([['WALL', 0.2, [[0, 1], [0, 1], [1.5, 1]]], ['ERASE', 0.2, [[-0.5, -1], [0.5, -1]]]]);   // 굵기는 도구 사이에 그대로
+  });
+  it('연결점: 같은 건물 다른 층만 짝 층, 짝 층 승인 판의 «이 층 짝» 연결점을 고르면 같은 id·종류', async () => {
+    const tree: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [
+      { id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2'), floor('f2', '2층', 2, 'v9'), floor('f3', '3층', 3, null)] },
+      { id: 'b2', site_id: 's1', name: '별동', floors: [floor('f8', '별동 1층', 1, null, 'b2')] }] }], next_cursor: null };
+    const V9 = ver('v9', 1, { floor_id: 'f2', features: { ...EMPTY, connectors: [{ id: 'c-up', kind: 'ELEVATOR', pair_floor_id: 'f1', x: 1, y: 1, yaw: 0 }, { id: 'c-x', kind: 'STAIRS', pair_floor_id: 'f3', x: 0, y: 0, yaw: 0 }] } });
+    serve(editSrv({ 'GET /sites': { status: 200, body: tree }, 'GET /map-versions/v9': { status: 200, body: V9 }, ...saved201 }));
+    await startEdit();
+    await tool('연결점'); await tap(2, 1);
+    expect([...choose('짝 층', card('고른 요소')).options].map((o) => o.textContent)).toEqual(['2층', '3층']);   // 다른 건물·이 층 없음
+    const pair = choose('짝 연결점', card('고른 요소'));
+    expect([...pair.options].map((o) => o.textContent)).toEqual(['새 연결점(짝 층에도 같은 짝을 놓아야 이어짐)', '짝 층의 엘리베이터 연결점 (1.0, 1.0)']);
+    await setVal(pair, 'c-up');
+    await save();
+    const c = body().features.connectors[1];
+    expect([c.id, c.kind, c.pair_floor_id]).toEqual(['c-up', 'ELEVATOR', 'f2']);
+  });
+  it('연결점: 같은 건물에 다른 층이 없으면 놓지 않고 이유', async () => {
+    const tree: SiteTree = { items: [{ id: 's1', name: '본관', buildings: [{ id: 'b1', site_id: 's1', name: '본동', floors: [floor('f1', '1층', 1, 'v2')] }] }], next_cursor: null };
+    serve(editSrv({ 'GET /sites': { status: 200, body: tree } }));
+    await startEdit();
+    await tool('연결점'); await tap(2, 1);
+    expect(box.textContent).toContain('같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다.');
+    expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(1);
+  });
+  it('고르기: 요소를 눌러 고르고 끌어 옮김(범위 밖으로는 안 감), 고른 요소 지우기', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    const wp = () => canvas().querySelector('[data-waypoint] circle')!;
+    await ptr('pointerdown', 1.5, 0, wp());
+    expect(field('이름', card('고른 요소')).value).toBe('계기판 A');
+    await ptr('pointermove', 2, 0.5); await ptr('pointermove', 9, 0.5);     // 두 번째는 지도 밖 — 마지막 자리에 둠
+    await ptr('pointerup', 9, 0.5);
+    await ptr('pointerdown', 0, 0, canvas().querySelector('[data-connector]')!);
+    await click(btn('이 요소 지우기', card('고른 요소')));
+    expect(canvas().querySelectorAll('[data-connector]')).toHaveLength(0);
+    await ptr('pointerdown', -0.8, -1.9, canvas().querySelector('[data-zone]')!);   // 구역 통째로 옮김
+    await ptr('pointermove', -0.3, -1.4); await ptr('pointerup', -0.3, -1.4);
+    await save();
+    const b = body();
+    expect(near([[b.features.waypoints[0].x, b.features.waypoints[0].y]])).toEqual([[2, 0.5]]);
+    expect(b.features.connectors).toEqual([]);
+    expect(near(b.features.zones[0].polygon)).toEqual([[-0.5, -1.5], [0.5, -1.5], [0.5, -0.5]]);
+  });
+});
+
+describe('지도 편집 — 저장', () => {
+  it('미리 검사에 걸리면 보내지 않고 그 요소를 표시, 바꾼 것 없음·이유 빈칸도 막음', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    await save();
+    expect(alertText()).toContain('바꾼 것이 없습니다.');
+    await ptr('pointerdown', -0.8, -1.9, canvas().querySelector('[data-zone]')!);
+    await setVal(field('이름', card('고른 요소')), '공사\u0007');
+    await save();
+    expect($('[data-bad]')!.textContent).toBe('진입 금지 구역 «공사\u0007»: 이름에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.');
+    expect((canvas().querySelector('[data-zone]') as SVGElement).style.strokeDasharray).toBe('6 4');
+    await setVal(field('이름', card('고른 요소')), '공사 구역');
+    await save('  ');
+    expect(alertText()).toContain('바꾼 이유를 입력하세요.');
+    expect(writes()).toEqual([]);
+  });
+  it('서버 422 INVALID_FEATURES — detail.element 요소를 고르고 쉬운 말, pydantic 모양(elements)도', async () => {
+    const replies = [
+      { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '다각형 변이 서로 교차합니다.', detail: { element: 'features.zones.0.polygon' } } } },
+      { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '지도 요소 형식을 확인하세요.', detail: { elements: ['features.waypoints.1.name'] } } } },
+      { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '같은 건물의 다른 층을 선택하세요.', detail: { element: 'features.connectors.0.pair_floor_id' } } } }];
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => replies.shift()! }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save();
+    expect($('[data-bad]')!.textContent).toBe('진입 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
+    expect(field('이름', card('고른 요소')).value).toBe('공사');
+    await save();
+    expect($('[data-bad]')!.textContent).toBe('지점 «지점 2»: 저장할 수 있는 모양이 아닙니다. 이름·점 개수·굵기를 확인하세요.');
+    await save();
+    expect($('[data-bad]')!.textContent).toBe('계단 연결점: 짝 층을 같은 건물의 다른 층으로 다시 고르세요.');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 편집 내용 그대로
+  });
+  it('409 STALE: 편집 내용 유지 + «다른 사람이 먼저 바꿨습니다», 새로 불러오기는 잃는다는 확인 뒤에만', async () => {
+    serve(editSrv({ 'POST /floors/f1/map-versions': { status: 409, body: { error: { code: 'STALE', message: '승인된 지도 판이 바뀌었습니다.', detail: { approved_version_id: 'v5' } } } } }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save();
+    expect(alertText()).toContain('다른 사람이 먼저 이 층의 지도를 바꿨습니다. 편집 내용은 그대로 있습니다.');
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    expect(field('바꾼 이유', card('새 판으로 저장')).value).toBe('구역 추가');
+    const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
+    await click(btn('새로 불러오기'));
+    expect(card('확인').textContent).toContain('새로 불러오면 지금 편집 내용을 잃습니다.');
+    await click(btn('계속 편집', card('확인')));
+    expect(canvas()).toBeTruthy(); expect(sent('GET', '/sites').length).toBe(trees);
+    await click(btn('새로 불러오기'));
+    await click(btn('새로 불러오기', card('확인')));
+    expect(canvas()).toBeNull();
+    expect(sent('GET', '/floors/f1/map-versions').length).toBe(lists + 1); expect(sent('GET', '/sites').length).toBe(trees + 1);
+    await stopSends();
+  });
+  const uncertainEdit = async (make: () => Response | Promise<Response>) => {
+    serve(editSrv());
+    const fetcher = globalThis.fetch;
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => (init.method === 'POST' && url.endsWith('/floors/f1/map-versions') ? (await fetcher(url, init), make()) : fetcher(url, init)));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    const lists = sent('GET', '/floors/f1/map-versions').length, trees = sent('GET', '/sites').length;
+    await save();
+    expect(alertText()).toContain('저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.');
+    expect(sent('GET', '/floors/f1/map-versions').length).toBe(lists + 1); expect(sent('GET', '/sites').length).toBe(trees + 1);
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 편집 내용은 그대로
+    await stopSends();
+  };
+  it('저장 중 끊김 → 저장 불확실 재조회, 편집 유지', () => uncertainEdit(() => { throw new TypeError('Failed to fetch'); }));
+  it('201 본문 끊김 → 저장 불확실 재조회, 편집 유지', () => uncertainEdit(() => new Response(new ReadableStream({ start(c) { c.error(new TypeError('stream interrupted')); } }), { status: 201 })));
+  it('503 SERVER_BUSY·403 은 쉬운 문구/서버 문구', async () => {
+    const replies = [err(503, 'SERVER_BUSY', '지도 파일 처리 중입니다.'), err(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.')];
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => replies.shift()! }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save();
+    expect(alertText()).toContain('서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.');
+    await save();
+    expect(alertText()).toContain('운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.');
+  });
+});
+
+describe('지도 편집 — 나가기 확인·STOP', () => {
+  it('저장 안 한 편집: 다른 탭·층 바꾸기·보기 전환은 칸 안 확인, 새로고침은 브라우저 확인', async () => {
+    serve(editSrv());
+    await startEdit();
+    const unload = () => { const e = new Event('beforeunload', { cancelable: true }); dispatchEvent(e); return e.defaultPrevented; };
+    expect(unload()).toBe(false);                                       // 바꾼 것 없으면 묻지 않음
+    await tool('지점'); await tap(1, 1);
+    expect(unload()).toBe(true);
+    await click($('nav a[href="#/fleet"]'));
+    await hashed();
+    expect(location.hash).toBe('#/map');
+    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.');
+    await click(btn('계속 편집', card('확인')));
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
+    await click(floorBtn('2층'));
+    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    await click(btn('계속 편집', card('확인')));
+    await click(btn('보기', card('보기·편집')));
+    expect(card('확인')).toBeTruthy();
+    await click(btn('계속 편집', card('확인')));
+    act(() => { location.hash = '#/history'; }); await hashed();      // 주소 바꿈(뒤로 가기 등)도
+    expect(location.hash).toBe('#/map'); expect($('main')!.getAttribute('aria-label')).toBe('지도');
+    await click(btn('나가기', card('확인'))); await hashed();
+    expect($('main')!.getAttribute('aria-label')).toBe('기록');
+    expect(unload()).toBe(false);
+  });
+  it('층 바꾸기 확인에서 나가기 → 그 층으로', async () => {
+    serve(editSrv());
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await click(floorBtn('2층'));
+    await click(btn('나가기', card('확인')));
+    expect(floorBtn('2층').getAttribute('aria-pressed')).toBe('true');
+    expect(canvas()).toBeNull();
+  });
+  it('STOP: 편집 중·확인창이 떠 있을 때 늘 보이고 실제로 정지 요청', async () => {
+    serve(editSrv());
+    await startEdit();
+    await tool('진입 금지'); await tap(1, 1);
+    await click($('nav a[href="#/fleet"]')); await hashed();         // 바꾼 것 없으면(그리던 점만) 바로 떠남 — 다시 들어옴
+    expect($('main')!.getAttribute('aria-label')).toBe('관제');
+    await click($('nav a[href="#/map"]')); await hashed();
+    await click(btn('편집', card('보기·편집')));
+    canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect;
+    await tool('지점'); await tap(1, 1);
+    await click(floorBtn('2층'));
+    expect(card('확인')).toBeTruthy();
+    await stopSends();
+    expect(canvas()).toBeTruthy();                                     // STOP 이 편집을 건드리지 않음
+  });
+  it('STOP: 저장 중(답 대기)에도 보이고 실제로 정지 요청', async () => {
+    serve(editSrv({ 'POST /floors/f1/map-versions': () => new Promise<Reply>(() => {}) }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await save();
+    expect(box.textContent).toContain('새 판으로 저장하는 중…');
+    expect(btn('새 판으로 저장')!.disabled).toBe(true);
+    await stopSends();
+  });
+});

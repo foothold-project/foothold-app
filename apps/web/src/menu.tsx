@@ -41,3 +41,7 @@ export function tabFromHash(hash: string, phone: boolean): TabId {
   const id = hash.replace(/^#\/?/, '').split(/[/?]/)[0], all = tabsFor(phone);   // #/drive/<로봇 id> 도 조종 탭, #/history?event_id=… 도 기록 탭
   return (all.find((t) => t.id === id) ?? all[0]).id;
 }
+
+/** 떠나기 전에 물어볼 화면(저장하지 않은 지도 편집). ask(go) = 그 화면이 확인을 띄우고, 나가기를 고르면 go().
+ *  App 은 탭 이동(메뉴·주소 바꿈)을 이것으로 막고, 지도 탭은 층 바꾸기·보기 전환에 쓴다 */
+export const leaving: { ask: ((go: () => void) => void) | null } = { ask: null };
