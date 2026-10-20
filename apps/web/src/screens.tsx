@@ -1,11 +1,13 @@
-// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx), 그 밖은 가짜. 빈 칸(.fh-slot)은 다음 작업 자리.
+// 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx), 그 밖은 가짜. 빈 칸(.fh-slot)은 다음 작업 자리.
 import { useEffect, useState, type ReactNode } from 'react';
-import { APPROVALS, FLOORS, ROBOTS, SCENARIOS, driveBlock, ownerName, robotStatus, toRobot, userName, type Robot, type Tone, type User } from './fake';
+import { APPROVALS, ROBOTS, SCENARIOS, driveBlock, ownerName, robotStatus, toRobot, userName, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
 import { rt, useRt, withLive } from './rt';
 import { History, RecentEvents } from './screens/history';
+import { FloorMap, Maps } from './screens/maps';
+import { Guard } from './App';
 import { Settings } from './screens/settings';
 import type { TabId } from './menu';
 
@@ -59,8 +61,11 @@ function useDash(cancel?: AbortSignal) {
 /** 로봇 0대의 관제: 요약·운영 관리자 표 + 빈 목록 안내(children) */
 export function EmptyFleet({ user, cancel, children }: { user: User; cancel?: AbortSignal; children: ReactNode }) {
   const [d, err] = useDash(cancel);
-  return <><Kpi user={user} d={d} err={err} />{children}<Operators user={user} d={d} /></>;
+  return <><Kpi user={user} d={d} err={err} />{children}<MapCard cancel={cancel} /><Operators user={user} d={d} /></>;
 }
+
+/** 관제 지도 칸 — 로봇 수와 상관없이. 칸 안 렌더 예외는 Guard 가 가둔다(STOP 은 머리줄) */
+const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
 
 function Fleet(c: Ctx) {
   const admin = c.user.role === 'ORG_ADMIN', r = c.robot, [d, err] = useDash(c.cancel);
@@ -74,10 +79,7 @@ function Fleet(c: Ctx) {
           <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보기 전용' : ''}</span>
         </button></li>; })}</ul>
     </section>
-    <section className="lv-card" aria-label="지도">
-      <h2>지도</h2>
-      <Slot text="지도 자리" h={240} />
-    </section>
+    <MapCard cancel={c.cancel} />
     {/* 담당이 바뀌면 상세를 새로 받는다 — 옛 요청의 늦은 답은 내린 화면에 떨어져 버려진다 */}
     <Detail key={`${r.id}-${r.owner}`} {...c} />
     <Operators user={c.user} d={d} />
@@ -173,19 +175,6 @@ function Approval(c: Ctx) {
   </>;
 }
 
-function MapTab() {
-  return <>
-    <section className="lv-card" style={{ flex: '0 1 220px' }} aria-label="장소">
-      <h2>본관</h2>
-      <ul className="fh-list">{FLOORS.map((f) => <li key={f.id}><button type="button" {...soon}>{f.name}</button></li>)}</ul>
-    </section>
-    <section className="lv-card" aria-label="지도 보기">
-      <div className="fh-row"><button type="button" className="btn" aria-pressed="true" {...soon}>보기</button><button type="button" className="btn" {...soon}>편집</button></div>
-      <Slot text="지도 자리" h={360} />
-    </section>
-  </>;
-}
-
 function Scenario(c: Ctx) {
   return <>{SCENARIOS.filter((s) => s.robot === c.robot.id).map((s) => <section key={s.id} className="lv-card">
     <div className="fh-row"><h2 className="fh-grow">{s.name}</h2><button type="button" className="btn pri" aria-label={`${s.name} 실행`} {...soon}>▶</button></div>
@@ -194,4 +183,4 @@ function Scenario(c: Ctx) {
   {!SCENARIOS.some((s) => s.robot === c.robot.id) && <p className="lv-note">이 로봇에 배정된 시나리오가 없습니다.</p>}</>;
 }
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approval, history: History, map: MapTab, settings: Settings, scenario: Scenario };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approval, history: History, map: Maps, settings: Settings, scenario: Scenario };

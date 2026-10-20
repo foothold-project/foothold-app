@@ -687,7 +687,7 @@ describe('PR #12 검토 1차', () => {
     const f = me(200); vi.stubGlobal('fetch', f);
     mount(false, 'u-kim', '#/fleet');
     tick(60_000);
-    expect((f.mock.calls as unknown as [string][]).filter(([u]) => !/\/(dashboard|robots\/|notifications|events)/.test(String(u)))).toEqual([]);   // 관제 요약·상세·알림·최근 사건 말고 인증 확인(REST)은 0
+    expect((f.mock.calls as unknown as [string][]).filter(([u]) => !/\/(dashboard|robots\/|notifications|events|sites)/.test(String(u)))).toEqual([]);   // 관제 요약·상세·알림·최근 사건·지도 칸 층 목록 말고 인증 확인(REST)은 0
     expect($('header [data-link]').textContent).toContain('연결 끊김');
     expect(FakeWS.all.length).toBeGreaterThan(3);
   });
