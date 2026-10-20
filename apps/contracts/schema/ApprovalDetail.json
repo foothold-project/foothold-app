@@ -1,0 +1,195 @@
+{
+  "$defs": {
+    "ApprovalMapPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "base_version_number": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Base Version Number"
+        },
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "floor_name": {
+          "title": "Floor Name",
+          "type": "string"
+        },
+        "target_version_number": {
+          "title": "Target Version Number",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "floor_id",
+        "floor_name",
+        "target_version_number",
+        "base_version_number"
+      ],
+      "title": "ApprovalMapPreview",
+      "type": "object"
+    },
+    "ApprovalRef": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "map_version",
+          "default": "map_version",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "id"
+      ],
+      "title": "ApprovalRef",
+      "type": "object"
+    },
+    "Person": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "display_name"
+      ],
+      "title": "Person",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ApprovalDetail",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_ref": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ApprovalRef"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "decided_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Decided At"
+    },
+    "decider": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Person"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "decision_comment": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Decision Comment"
+    },
+    "emergency": {
+      "default": false,
+      "title": "Emergency",
+      "type": "boolean"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "MAP_REVISION",
+        "MAP_ROLLBACK"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "preview": {
+      "$ref": "#/$defs/ApprovalMapPreview"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "requester": {
+      "$ref": "#/$defs/Person"
+    },
+    "status": {
+      "enum": [
+        "PENDING",
+        "APPROVED",
+        "REJECTED",
+        "CANCELED",
+        "STALE"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target": {
+      "$ref": "#/$defs/ApprovalRef"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "status",
+    "requester",
+    "decider",
+    "reason",
+    "decision_comment",
+    "target",
+    "base_ref",
+    "emergency",
+    "created_at",
+    "decided_at",
+    "preview"
+  ],
+  "title": "ApprovalDetail",
+  "type": "object"
+}

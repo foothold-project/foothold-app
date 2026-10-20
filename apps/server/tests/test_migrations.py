@@ -39,7 +39,7 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
             with engine.connect() as conn:
                 assert conn.scalar(text('SELECT count(*) FROM sessions')) == 1
             command.upgrade(config, 'head')
-            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'alembic_version'}
+            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'alembic_version'}
             assert set(inspect(engine).get_table_names()) == expected
             command.downgrade(config, 'base')
             assert set(inspect(engine).get_table_names()) == {'alembic_version'}
@@ -71,7 +71,7 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with pytest.raises(IntegrityError):
                 command.downgrade(config, '0006')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0009'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0011'
                 assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
                 assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
                 assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0
@@ -87,5 +87,49 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with engine.connect() as conn:
                 assert compare_metadata(MigrationContext.configure(conn), Base.metadata) == []
                 assert conn.scalar(text('SELECT count(*) FROM robots')) == 2
+        finally:
+            engine.dispose()
+
+
+def test_approval_grants_and_notification_kind_migrate_round_trip(monkeypatch):
+    import json
+    with temporary_postgres() as urls:
+        monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', urls['migrate'])
+        config = Config(str(CONFIG))
+        engine = create_engine(urls['migrate'])
+        try:
+            command.upgrade(config, '0010')
+            with engine.begin() as conn:
+                org = conn.scalar(text("INSERT INTO organizations(name) VALUES ('approval migration') RETURNING id"))
+                for name, prefs in [('old', {'APPROVAL_RESULT': False, 'LINK_LOST': True}),
+                                    ('both', {'APPROVAL_RESULT': False, 'APPROVAL_DECIDED': True})]:
+                    user = conn.scalar(text("""INSERT INTO users(org_id,username,display_name,role,password_hash,notify_prefs)
+                        VALUES (:org,:name,:name,'OPERATOR','synthetic',CAST(:prefs AS jsonb)) RETURNING id"""),
+                        {'org': org, 'name': name, 'prefs': json.dumps(prefs)})
+                    conn.execute(text("""INSERT INTO notifications(org_id,user_id,kind,title,body,link)
+                        VALUES (:org,:user,'APPROVAL_RESULT','synthetic','synthetic','#/approvals')"""),
+                        {'org': org, 'user': user})
+            command.upgrade(config, 'head')
+            with engine.connect() as conn:
+                assert not conn.scalar(text("SELECT has_table_privilege('fh_app','approvals','UPDATE')"))
+                for column in ('status', 'decider_id', 'decided_at', 'decision_comment'):
+                    assert conn.scalar(text("SELECT has_column_privilege('fh_app','approvals',:column,'UPDATE')"), {'column': column})
+                for column in ('org_id', 'kind', 'target_id', 'base_ref_id', 'requester_id', 'reason', 'created_at'):
+                    assert not conn.scalar(text("SELECT has_column_privilege('fh_app','approvals',:column,'UPDATE')"), {'column': column})
+                assert set(conn.scalars(text('SELECT kind FROM notifications'))) == {'APPROVAL_DECIDED'}
+                prefs = dict(conn.execute(text('SELECT username,notify_prefs FROM users')).all())
+                assert prefs['old'] == {'APPROVAL_DECIDED': False, 'LINK_LOST': True}
+                assert prefs['both'] == {'APPROVAL_DECIDED': True}
+            command.downgrade(config, '0010')
+            with engine.connect() as conn:
+                assert conn.scalar(text("SELECT has_table_privilege('fh_app','approvals','UPDATE')"))
+                assert set(conn.scalars(text('SELECT kind FROM notifications'))) == {'APPROVAL_RESULT'}
+                prefs = dict(conn.execute(text('SELECT username,notify_prefs FROM users')).all())
+                assert prefs['old'] == {'APPROVAL_RESULT': False, 'LINK_LOST': True}
+                assert prefs['both'] == {'APPROVAL_RESULT': True}
+            command.upgrade(config, 'head')
+            with engine.connect() as conn:
+                assert not conn.scalar(text("SELECT has_table_privilege('fh_app','approvals','UPDATE')"))
+                assert set(conn.scalars(text('SELECT kind FROM notifications'))) == {'APPROVAL_DECIDED'}
         finally:
             engine.dispose()

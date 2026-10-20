@@ -132,6 +132,62 @@ export interface ApiError {
   error: ErrorBody;
 }
 
+export interface Approval {
+  id: string;
+  kind: "MAP_REVISION" | "MAP_ROLLBACK";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELED" | "STALE";
+  requester: Person;
+  decider: Person | null;
+  reason: string;
+  decision_comment: string | null;
+  target: ApprovalRef;
+  base_ref: ApprovalRef | null;
+  emergency: boolean;
+  created_at: string;
+  decided_at: string | null;
+}
+
+export interface ApprovalApprove {
+  comment?: string | null;
+}
+
+export interface ApprovalDetail {
+  id: string;
+  kind: "MAP_REVISION" | "MAP_ROLLBACK";
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELED" | "STALE";
+  requester: Person;
+  decider: Person | null;
+  reason: string;
+  decision_comment: string | null;
+  target: ApprovalRef;
+  base_ref: ApprovalRef | null;
+  emergency: boolean;
+  created_at: string;
+  decided_at: string | null;
+  preview: ApprovalMapPreview;
+}
+
+export interface ApprovalList {
+  items: Approval[];
+  next_cursor: string | null;
+}
+
+export interface ApprovalMapPreview {
+  floor_id: string;
+  floor_name: string;
+  target_version_number: number;
+  base_version_number: number | null;
+}
+
+export interface ApprovalRef {
+  type: "map_version";
+  id: string;
+}
+
+export interface ApprovalReject {
+  reason: string;
+}
+
 export interface Battery {
   soc: number;
   updated_at: string;
@@ -334,7 +390,7 @@ export interface MapVersion {
   number: number;
   base_version_id: string | null;
   copied_from_id: string | null;
-  status: "APPROVED" | "SUPERSEDED" | "PENDING" | "REJECTED";
+  status: "APPROVED" | "SUPERSEDED" | "PENDING" | "REJECTED" | "CANCELED";
   image_sha256: string;
   width: number;
   height: number;

@@ -147,8 +147,6 @@ def test_rollback_new_immutable_snapshot_stale_current_role_reason_event(maps, s
         with Session(engine) as db:
             before = {str(r.id): {c.name: copy.deepcopy(getattr(r, c.name)) for c in MapVersion.__table__.columns}
                       for r in db.scalars(select(MapVersion))}
-        operator = rollback(http, auth(http, 'one'), first['id'], second['id'])
-        assert operator.status_code == 403 and operator.json()['error']['code'] == 'APPROVAL_REQUIRED'
         stale = rollback(http, headers, first['id'], first['id'])
         assert stale.status_code == 409 and stale.json()['error']['code'] == 'STALE'
         assert stale.json()['error']['detail']['approved_version_id'] == second['id']

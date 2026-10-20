@@ -1,4 +1,4 @@
-"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 8."""
+"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 7, 8."""
 from datetime import timezone
 import unicodedata
 from typing import Annotated, Any, Literal
@@ -663,11 +663,20 @@ class MapFeatures(Contract):
     edits: list[MapEdit] = Field(max_length=256)
 
 
+def approval_text(value):
+    if any(unicodedata.category(c) in ('Cc', 'Cf') for c in value):
+        raise ValueError('사유와 의견에는 제어·서식 문자를 쓸 수 없습니다.')
+    return value
+
+
+ApprovalText = Annotated[str, AfterValidator(approval_text)]
+
+
 class MapVersionCreate(Contract):
     base_version_id: UUID | None
     image: UUID
     features: MapFeatures
-    reason: str = Field(min_length=1, max_length=2000, pattern=r'\S')
+    reason: ApprovalText = Field(min_length=1, max_length=2000, pattern=r'\S')
 
 
 class MapVersion(Contract):
@@ -677,7 +686,7 @@ class MapVersion(Contract):
     number: int
     base_version_id: UUID | None
     copied_from_id: UUID | None = None
-    status: Literal['APPROVED', 'SUPERSEDED', 'PENDING', 'REJECTED']
+    status: Literal['APPROVED', 'SUPERSEDED', 'PENDING', 'REJECTED', 'CANCELED']
     image_sha256: str
     width: int
     height: int
@@ -692,7 +701,7 @@ class MapVersion(Contract):
 
 class MapRollback(Contract):
     base_version_id: UUID
-    reason: str = Field(min_length=1, max_length=2000, pattern=r'\S')
+    reason: ApprovalText = Field(min_length=1, max_length=2000, pattern=r'\S')
 
 
 class MapFeatureChange(Contract):
@@ -739,10 +748,57 @@ class FloorConnectorList(Contract):
     items: list[FloorConnector]
     next_cursor: None = None
 
+ApprovalStatus = Literal['PENDING', 'APPROVED', 'REJECTED', 'CANCELED', 'STALE']
+
+
+class ApprovalRef(Contract):
+    type: Literal['map_version'] = 'map_version'
+    id: UUID
+
+
+class Approval(Contract):
+    id: UUID
+    kind: Literal['MAP_REVISION', 'MAP_ROLLBACK']
+    status: ApprovalStatus
+    requester: Person
+    decider: Person | None
+    reason: str
+    decision_comment: str | None
+    target: ApprovalRef
+    base_ref: ApprovalRef | None
+    emergency: bool = False
+    created_at: UTCDateTime
+    decided_at: UTCDateTime | None
+
+
+class ApprovalMapPreview(Contract):
+    floor_id: UUID
+    floor_name: str
+    target_version_number: int
+    base_version_number: int | None
+
+
+class ApprovalDetail(Approval):
+    preview: ApprovalMapPreview
+
+
+class ApprovalList(Contract):
+    items: list[Approval]
+    next_cursor: str | None
+
+
+class ApprovalApprove(Contract):
+    comment: ApprovalText | None = Field(default=None, max_length=2000)
+
+
+class ApprovalReject(Contract):
+    reason: ApprovalText = Field(min_length=1, max_length=2000, pattern=r'\S')
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
-REQUEST_MODELS = {MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
+REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)

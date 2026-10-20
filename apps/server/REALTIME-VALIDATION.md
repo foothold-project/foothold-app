@@ -1,6 +1,6 @@
 # W3-B 실시간 서버 검증 기록
 
-최신 S2 결과는 문서 끝의 «S2 사건 기록·CSV·알림함» 절을 따른다.
+최신 지도 결재 결과는 문서 끝의 «S4a 지도 결재» 절을 따른다. S2 기록·알림과 S3 지도 검증 이력도 보존한다.
 기존 실시간 계약은 «S0 서버 후속»과 그 후속 검토 절을 따른다.
 이전 절은 해당 커밋의 실행 이력이다.
 
@@ -1754,3 +1754,138 @@ S3b 변이는 기존19개+이번 R1/R2/R3/R4/R5/R7 제거6개 합 **25/25 assert
 run/assertion-only 판정기로 임시 사본을 하나씩 실행해 baseline을 중복 실행하지 않았다.
 R6은 문서 조건만 추가했으며 코드 변경은 없다. 임시 PostgreSQL·변이 사본은 각
 실행 수명 종료 시 정리했다. 운영 포트·실제 지도·ROS·Gazebo·실기에는 접촉하지 않았다.
+
+
+## S4a 지도 결재 (2026-10-20)
+
+`feature/server-approvals`, 기준 `origin/dev=7af0e22`에서 MAP_REVISION/MAP_ROLLBACK만
+구현했다. 소유 apps/server/**·apps/contracts/**만 수정했고 새 의존성은 없다.
+총괄의 직접 지도 저장/되돌리기, STOP·조종권·명령·기존 안전 시험 기대값은 바꾸지 않았다.
+
+### 검증한 경계
+
+- 운영자 저장: 새 판 PENDING·승인 포인터 불변·결재 생성·target/base_ref 미리보기 ID.
+  총괄 승인: 새 판 APPROVED·포인터 갱신·다른 요청은 PENDING 유지.
+- 최초 지도(null 기준) 경쟁과 기존 승인 판 변경 뒤 승인: 409 APPROVAL_STALE,
+  결재 STALE·사건·알림 영속화, 판은 PENDING 유지, 대기 수에서 제외.
+- 서로 다른 세션을 쓰고 조직 잠금을 제거한 동시 승인: 다른 결재 두 개는
+  200/409 APPROVAL_STALE, 같은 결재 두 번은 200/409 ALREADY_DECIDED.
+  별도 DB 트랜잭션이 층/결재 행을 잠근 동안 두 요청이 해당 FOR UPDATE에 도달하도록
+  동기화해 필요한 행 잠금 자체를 검증했다.
+- 반려 이유 누락/null/빈 문자열/공백 거절, 요청자만 취소, PENDING만 전이,
+  APPROVED/REJECTED/CANCELED/STALE 재처리 409. 총괄만 결정하며 운영자는 내 요청만,
+  다른 조직/다른 운영자/없는 ID는 같은 404. 목록 상태·페이지 경계 포함.
+- 운영자 rollback은 새 PENDING 복사 판+MAP_ROLLBACK 결재, 승인 시 포인터 갱신.
+  DB APPROVED/응답 SUPERSEDED인 옛 판의 총괄 직접 rollback 유지,
+  PENDING/REJECTED/CANCELED 대상은 A/O 모두 거절.
+- 대기 수: dashboard 총괄 조직 전체/운영자 내 요청, sites는 공용 지도 층별 전체.
+  사건 요청·결정·취소·STALE, 총괄들에게 요청/요청자에게 결과 알림·이동 경로.
+  각 사건 문장 틀이 빠지면 결재/판/포인터/사건/알림/새 파일이 모두 롤백되는 회귀 포함.
+- DB: map_versions의 status만 UPDATE 허용, 내용 UPDATE·삭제 거절, 결재 반려 이유 CHECK·
+  대상 FK·events 결재 FK, 내용 열 UPDATE 권한을 넓힌 서버 계정의 시작 거절.
+
+### 실행 결과
+
+기존 설치 환경을 읽기 전용으로 사용했다. TMPDIR는 이 작업 트리의 임시 폴더로
+지정했고 내장 PostgreSQL·실제 uvicorn을 포함해 FH_TEST_PORT_RANGE=9370:9389만 사용했다.
+pytest 전체와 변이는 하나씩 순차 실행했다.
+
+| 실행 | 결과 |
+|---|---|
+| 결재·실제 uvicorn·S3 지도/검토·Alembic 영향 묶음 | **103 passed**, 74.25 s |
+| 서버 전체 pytest — 변이 도구의 기준 실행 1회 | **557 passed**, 550.75 s, 기존 Starlette/httpx 경고 1개 |
+| Alembic head → base → head 및 중간 왕복 | 영향/전체 시험에 포함해 통과, ORM 메타데이터 차이 0 |
+| 실제 uvicorn | O 저장 → A 목록 → 승인 → 나무 새 승인 판 / O 저장 → A 반려 → O 알림 통과 |
+| `python -m apps.contracts.generate --check` | **98개 일치** |
+| contracts strict `tsc --noEmit --target ES2020` (생성 TS·wire-consumer) | **exit 0** |
+| S4a·영향 S3a/S3b 변이 | **80/80 assertion 검출** (기존 지도57 + 새 결재23), 아래 재검증 이력 포함 |
+| 최종 결재/실제 uvicorn 정상 재검증 | **18 passed**, 19.71 s |
+
+지정된 부하 실시간 시험3개는 전체 실행에서 통과해 단독 재실행하지 않았다.
+전체 실행 전 공유 호스트 관측은 load1=7.57·MemAvailable=1,347,752 kB,
+후반 관측은 load1=2.21·MemAvailable=2,056,456 kB였다. 부하를 고쳤다는 의미가 아니다.
+
+초기 새 시험에서는 Event의 기존 계약에 없는 최상위 approval_id를 읽은 시험1개가
+실패했다(10 passed/1 failed). 기존 Event 계약을 유지하고 data.approval_id로 대조하도록
+수정한 후 위 영향103/전체557에서 통과했다. 실행하지 않은 결과를 통과로 바꾸지 않았다.
+
+### 남은 범위·정본 차이
+
+통합 dev 후보·웹 화면·실폰·실로봇·ROS/Gazebo·운영 배포는 검증하지 않았다.
+웹 `src/tests/maps.test.tsx:356,867`의 이전 운영자 403 가짜 응답,
+`src/api.ts:134`의 S4 이전 설명 및 `src/fake.ts:15,25`의 가짜 결재는 화면 소유 후속이다.
+새 필수 MapVersion 필드는 없고 CANCELED 상태만 확장했다.
+
+CANCELED 지도 상태는 이번 작업 지시에 따른 추가이며 06에는 아직 없다.
+이전 판의 DB APPROVED/응답 SUPERSEDED, S3의 rollback 경로·?against=·이미지 변경 여부
+계약은 유지했다. SCENARIO_ASSIGNMENT·POST_REVIEW/acknowledge·AP-06·WS notify 배송·
+Web Push는 후속 범위다. 업로드 정리 정책은 미결이며 참조된 업로드를 지우면 안 된다.
+자료가 있는 DB의 무조건 downgrade는 결재 이력을 없애므로 수행하지 않는다.
+CANCELED 판이 있으면 0009 상태 제약 복원은 원자적으로 실패한다.
+
+
+선정 변이의 첫 실행은 **79개 assertion 검출/1개 실행 오류**였다.
+`S4a request not created`는 결재 생성을 제거했을 때 시험 helper의 next()가
+StopIteration으로 실패해 assertion-only 도구가 ERROR로 판정했다. 제품 코드는
+바꾸지 않고 «PENDING 저장에는 결재가 반드시 존재» assertion을 추가했다.
+최종 결재/실제 uvicorn18개를 정상 사본에서 통과시킨 뒤 해당 변이1개만 기존
+변이 도구의 run/구조화 AssertionError 판정기로 재실행해 검출했다(1.89 s).
+따라서 선정80개의 최종 결과가 모두 assertion 검출이며 최초 오류도 숨기지 않았다.
+전체557은 이 assertion-only 시험 보강 전의 제품 코드와 동일한 정상 사본 결과다.
+전체 pytest·나머지79변이는 중복 실행하지 않았다.
+
+임시 PostgreSQL·변이 사본·합성 파일은 각 실행 종료와 최종 정리로 제거했다.
+운영 포트·다른 작업자 서버·실제 지도·ROS·Gazebo·실기에 접촉하지 않았다.
+
+
+## PR32 R1~R7 검토 반영 (2026-10-20)
+
+Claude 검토의 권고7건을 조정 결정에 따라 모두 반영했다. 기준은 5d093ea이며
+소유 apps/server/**·apps/contracts/**만 수정했다. 기존 안전 동작·시험 기대값,
+명세 docs/spec 및 웹/에이전트 파일은 수정하지 않았다.
+
+| 권고 | 반영과 회귀 근거 |
+|---|---|
+| R1 | O가 짝 층 연결점을 포함한 판 요청 → 짝 층 삭제 → A 승인 시 422 INVALID_FEATURES·결재/판 PENDING·포인터/사건/알림 불변. 승인 재검증 제거 변이가 assertion으로 검출됨. |
+| R2 | 요청자는 ORG_ADMIN으로 승격된 뒤에도 자기 결재 승인/반려 403, 취소만 허용. 상태 전이 함수에서 검사하며 종료 결재의 기존 409 규칙은 유지. |
+| R3 | 결정·취소·STALE 알림에서 event.user_id(행위자) 제외. 본인 취소는 사건만 남고 자기 알림 없음. |
+| R4 | 공통 ApprovalText로 새 지도 저장/rollback reason·반려 reason·승인 comment의 Unicode Cc/Cf 거부. BEL·개행·bidi·zero-width 네 입력을 각 경로에서 검사. |
+| R5 | 알림 종류·notify_prefs를 06의 APPROVAL_DECIDED로 통일. 0011이 기존 APPROVAL_RESULT 데이터/설정 키를 이관하며 두 키가 있으면 새 키 우선. 왕복 및 설정 false/true 검증. |
+| R6 | 페이지 요청자·결정자를 한 번의 IN 조회로 로드(인증 사용자 조회 포함 users SELECT 합2개). MAP_REVISION/MAP_ROLLBACK 상세 ApprovalDetail.preview에 층 ID/이름·대상/기준 판 번호 추가. 큰 features 본문은 미리보기 조회 때 로드하지 않음. |
+| R7 | 0011에서 approvals UPDATE를 status/decider_id/decided_at/decision_comment로 제한. 기동 때 DELETE/TRUNCATE·표 전체 UPDATE·다른 열 UPDATE를 거부. 기존 자료의 이관·권한 왕복 검증. |
+
+### 검증
+
+모든 무거운 실행 시작 전에 MemAvailable ≥ 2,621,440 kB(2.5 GiB)를 확인했다.
+변이별 시작 시에도 이 조건을 재확인했다. 실행 포트 FH_TEST_PORT_RANGE=9370:9389,
+내장 PG/합성 파일/TMPDIR는 현재 작업 트리의 임시 폴더만 사용했고 시험은 직렬 실행했다.
+
+- 영향 묶음: **138 passed / 112.84 s**, 기존 Starlette/httpx 경고1개.
+  결재/실제 uvicorn·S3 지도/검토·S2 events/notifications·Alembic 왕복 포함.
+- 최종 사용자 조회/미리보기 정리 뒤 검토 정상 시험: **12 passed / 10.46 s**.
+- 바뀐 판정 변이만 **13/13 assertion 검출**, 실행/수집 오류0.
+  기존 도구의 run()·구조화 AssertionError 판정기를 써서 전체 baseline 반복을 피했다.
+  변이별 시작 MemAvailable은 5,630,752~6,173,684 kB였다.
+  기존 전체 지도80/STOP/실시간 변이를 다시 실행한 결과는 아니다.
+- 계약 생성물 **100개 일치**, 생성TS/wire-consumer strict tsc exit0.
+- 마지막 전체 서버 pytest **1회: 570 passed / 529.44 s**, 기존 Starlette/httpx 경고1개.
+  시작 MemAvailable=6,062,144 kB. 지정 부하 실시간 시험3개도 통과해 단독 재실행 없음.
+  새 서버 코드/계약/시험이 확정된 뒤 실행했으며 이후 문서만 갱신했다.
+
+13개 변이는 R1 연결점 재검증, R2 본인 결정 금지, R3 본인 알림 제외,
+R4 Cc/Cf 검사, R5 종류명·기존 데이터 이관, R6 사용자 일괄 조회·대상/기준 판 번호,
+R7 DELETE/TRUNCATE/내용 UPDATE 기동 검사·요청 필드 UPDATE 제한이다.
+기존 «총괄 권한 검사만 제거» 변이는 본인 결정 금지 검사와 겹쳐 효과가 없어져
+새 본인 결정 경계를 직접 검증하는 변이로 교체했다.
+
+### 계약·남은 범위
+
+GET /approvals/{id}는 ApprovalDetail이며 preview 필드가 추가됐다. 목록 및
+approve/reject/cancel 응답은 Approval 그대로다. UI 연결은 화면 담당 후속이고
+새 필수 지도 판 필드는 없다. SCENARIO_ASSIGNMENT·POST_REVIEW/acknowledge·AP-06·
+WS notify 배송·Web Push·업로드 정리 결정은 계속 범위 밖이다.
+요청자 본인 승인/반려 금지·행위자 자기 알림 제외·입력 문자 강화는 이번 조정 결정이다.
+0011 downgrade는 알림 명칭/설정 키와 approvals 권한을 0010 방식으로 되돌린다.
+기존 0010→0009의 CANCELED 판 제약과 결재 이력 보존 조건은 그대로다.
+
+PR32 반영 검증의 임시 PostgreSQL·변이 사본·합성 파일도 종료 후 정리했다.
