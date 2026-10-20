@@ -99,6 +99,7 @@ class Event(Tenant, Base):
         ForeignKeyConstraint(['org_id'], ['organizations.id']),
         ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
         ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'approval_id'], ['approvals.org_id', 'approvals.id'], name='events_approval_fk'),
         CheckConstraint("category IN ('RUN','ROUTE','LINK','LEASE','APPROVAL','SAFETY','ACCOUNT')", name='event_category'),
         CheckConstraint("severity IN ('INFO','WARN','ERROR')", name='event_severity'),
         UniqueConstraint('org_id', 'id'),
@@ -260,7 +261,7 @@ class MapVersion(Tenant, Base):
         ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
         UniqueConstraint('org_id', 'floor_id', 'id'), UniqueConstraint('org_id', 'id'),
         UniqueConstraint('floor_id', 'number'),
-        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','SUPERSEDED')", name='map_version_status'),
+        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','CANCELED','SUPERSEDED')", name='map_version_status'),
         CheckConstraint("source IN ('SLAM','EDIT','ROLLBACK','IMPORT')", name='map_version_source'),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
@@ -304,3 +305,37 @@ class FloorConnector(Tenant, Base):
     map_version_a_id: Mapped[UUID] = mapped_column(PGUUID)
     map_version_b_id: Mapped[UUID | None] = mapped_column(PGUUID)
     active: Mapped[bool] = mapped_column(Boolean)
+
+
+class Approval(Tenant, Base):
+    __tablename__ = 'approvals'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'requester_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'decider_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'target_id'], ['map_versions.org_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'base_ref_id'], ['map_versions.org_id', 'map_versions.id']),
+        UniqueConstraint('org_id', 'id'),
+        CheckConstraint("kind IN ('MAP_REVISION','MAP_ROLLBACK')", name='approval_kind'),
+        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','CANCELED','STALE')", name='approval_status'),
+        CheckConstraint("target_type = 'map_version'", name='approval_target_type'),
+        CheckConstraint("(base_ref_id IS NULL AND base_ref_type IS NULL) OR (base_ref_id IS NOT NULL AND base_ref_type IS NOT NULL AND base_ref_type = 'map_version')", name='approval_base_ref'),
+        CheckConstraint("status != 'REJECTED' OR (decision_comment IS NOT NULL AND decision_comment ~ '[^[:space:]]')", name='approval_reject_reason'),
+        CheckConstraint("(status = 'PENDING' AND decided_at IS NULL AND decider_id IS NULL) OR (status != 'PENDING' AND decided_at IS NOT NULL AND decider_id IS NOT NULL)", name='approval_decision'),
+        Index('approvals_org_status_created', 'org_id', 'status', 'created_at'),
+        Index('approvals_requester_status', 'requester_id', 'status'),
+        Index('approvals_pending_target', 'target_type', 'target_id', unique=True, postgresql_where=text("status = 'PENDING'")),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    kind: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    target_type: Mapped[str] = mapped_column(Text, default='map_version')
+    target_id: Mapped[UUID] = mapped_column(PGUUID)
+    base_ref_type: Mapped[str | None] = mapped_column(Text)
+    base_ref_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    requester_id: Mapped[UUID] = mapped_column(PGUUID)
+    reason: Mapped[str] = mapped_column(Text)
+    decider_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    decision_comment: Mapped[str | None] = mapped_column(Text)
+    emergency: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

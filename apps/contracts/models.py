@@ -1,4 +1,4 @@
-"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 8."""
+"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 7, 8."""
 from datetime import timezone
 import unicodedata
 from typing import Annotated, Any, Literal
@@ -677,7 +677,7 @@ class MapVersion(Contract):
     number: int
     base_version_id: UUID | None
     copied_from_id: UUID | None = None
-    status: Literal['APPROVED', 'SUPERSEDED', 'PENDING', 'REJECTED']
+    status: Literal['APPROVED', 'SUPERSEDED', 'PENDING', 'REJECTED', 'CANCELED']
     image_sha256: str
     width: int
     height: int
@@ -739,10 +739,46 @@ class FloorConnectorList(Contract):
     items: list[FloorConnector]
     next_cursor: None = None
 
+ApprovalStatus = Literal['PENDING', 'APPROVED', 'REJECTED', 'CANCELED', 'STALE']
+
+
+class ApprovalRef(Contract):
+    type: Literal['map_version'] = 'map_version'
+    id: UUID
+
+
+class Approval(Contract):
+    id: UUID
+    kind: Literal['MAP_REVISION', 'MAP_ROLLBACK']
+    status: ApprovalStatus
+    requester: Person
+    decider: Person | None
+    reason: str
+    decision_comment: str | None
+    target: ApprovalRef
+    base_ref: ApprovalRef | None
+    emergency: bool = False
+    created_at: UTCDateTime
+    decided_at: UTCDateTime | None
+
+
+class ApprovalList(Contract):
+    items: list[Approval]
+    next_cursor: str | None
+
+
+class ApprovalApprove(Contract):
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+class ApprovalReject(Contract):
+    reason: str = Field(min_length=1, max_length=2000, pattern=r'\S')
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
-REQUEST_MODELS = {MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
+REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)

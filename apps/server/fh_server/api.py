@@ -23,6 +23,7 @@ from .security import digest, hash_password, token, verify_password, web_csrf
 from .robots import attention, device_error, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 from .event_messages import render
+from . import approvals
 
 
 @dataclass(frozen=True)
@@ -153,6 +154,9 @@ def create_app(settings: Settings | None = None):
                 OR has_table_privilege(current_user, 'events', 'DELETE')
                 OR has_table_privilege(current_user, 'events', 'TRUNCATE')
                 OR has_table_privilege(current_user, 'map_versions', 'UPDATE')
+                OR EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name = 'map_versions' AND column_name <> 'status'
+                    AND has_column_privilege(current_user, 'map_versions', column_name, 'UPDATE'))
                 OR has_table_privilege(current_user, 'map_versions', 'DELETE')
                 OR has_table_privilege(current_user, 'map_versions', 'TRUNCATE')
                 OR has_table_privilege(current_user, 'uploads', 'UPDATE')
@@ -619,7 +623,7 @@ def create_app(settings: Settings | None = None):
             robots_attention=sum(bool(attention(online, state,
                 device_error(app.state.realtime, str(row.id), row.id in error_ids), policy))
                 for row, online, state in snapshots), robots_running=0,
-            approvals_pending=0, operators=operators)
+            approvals_pending=approvals.pending_count(db, user), operators=operators)
 
     @app.get(prefix + '/org/settings', response_model=C.OrgSettings)
     def get_settings(auth: Identity, db: DB):
@@ -653,6 +657,7 @@ def create_app(settings: Settings | None = None):
         return C.AgentTokenResponse(agent_token=raw)
 
     from . import events_api, notifications, maps
+    approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)
     notifications.install(app, DB, Identity, fail)
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)

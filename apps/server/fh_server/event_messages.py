@@ -16,6 +16,9 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'APPROVAL_REQUESTED': '{person}님이 {kind} {number}판 결재를 요청했습니다. 이유: {reason}.',
+    'APPROVAL_CANCELED': '{person}님이 {kind} {number}판 요청을 취소했습니다.',
+    'APPROVAL_STALE': '{other}님의 {kind} {number}판 요청 이후 지도가 바뀌어 승인을 막았습니다. 새 승인 판에서 다시 요청하세요.',
     'SITE_CREATED': '{person}님이 장소 {place}을(를) 만들었습니다.',
     'SITE_UPDATED': '{person}님이 장소 {place}을(를) 변경했습니다.',
     'SITE_DELETED': '{person}님이 장소 {place}을(를) 지웠습니다.',

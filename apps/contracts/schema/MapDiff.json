@@ -362,7 +362,8 @@
             "APPROVED",
             "SUPERSEDED",
             "PENDING",
-            "REJECTED"
+            "REJECTED",
+            "CANCELED"
           ],
           "title": "Status",
           "type": "string"
