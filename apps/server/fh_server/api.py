@@ -22,6 +22,7 @@ from .models import Event, Organization, Robot, RobotDevice, Session, User, now
 from .security import digest, hash_password, token, verify_password, web_csrf
 from .robots import attention, device_error, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
+from .event_messages import render
 
 
 @dataclass(frozen=True)
@@ -69,9 +70,9 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         fail(403, 'FORBIDDEN', '권한이 없습니다.')
 
 
-def event(db, org_id, code, message, user_id=None, data=None, severity='INFO'):
-    db.add(Event(org_id=org_id, category='ACCOUNT', code=code, message=message,
-                 user_id=user_id, data=data or {}, severity=severity))
+def event(db, org_id, code, user_id=None, data=None, severity='INFO'):
+    db.add(render(db, Event(org_id=org_id, category='ACCOUNT', code=code,
+                 user_id=user_id, data=data or {}, severity=severity)))
 
 
 def user_object(db, user):
@@ -259,8 +260,7 @@ def create_app(settings: Settings | None = None):
             func.lower(User.username) == username, User.archived_at.is_(None)))
         correct = verify_password(body.password, user.password_hash if user else dummy_hash)
         if not user or not correct or user.locked:
-            event(db, settings.org_id, 'LOGIN_FAILED', '로그인에 실패했습니다.',
-                  user.id if user else None, {'ip': ip, 'account_key': account_key}, 'WARN')
+            event(db, settings.org_id, 'LOGIN_FAILED', user.id if user else None, {'ip': ip, 'account_key': account_key}, 'WARN')
             db.commit()  # Authentication failure must survive the error response.
             fail(401, 'AUTH_REQUIRED', '계정 또는 비밀번호를 확인하세요.')
         access, refresh = token(), token()
@@ -272,7 +272,7 @@ def create_app(settings: Settings | None = None):
             refresh_hash=digest(refresh) if body.client == 'app' else None,
             refresh_expires_at=now() + timedelta(days=30) if body.client == 'app' else None)
         db.add(session)
-        event(db, user.org_id, 'LOGIN', f'{user.display_name}님이 로그인했습니다.', user.id)
+        event(db, user.org_id, 'LOGIN', user.id)
         result = C.LoginResponse(**user_object(db, user).model_dump())
         response.headers['Cache-Control'] = 'no-store'
         if body.client == 'web':
@@ -295,15 +295,14 @@ def create_app(settings: Settings | None = None):
             fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
         if session.refresh_hash != refresh_hash:
             session.revoked_at = now()
-            event(db, user.org_id, 'SESSION_REVOKED', '갱신 토큰 재사용으로 기기 로그인을 종료했습니다.',
-                  user.id, {'session_id': str(session.id), 'reason': 'REFRESH_REUSED'}, 'WARN')
+            event(db, user.org_id, 'SESSION_REVOKED', user.id, {'session_id': str(session.id), 'reason': 'REFRESH_REUSED'}, 'WARN')
             db.commit()
             fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
         access, refresh = token(), token()
         session.retired_refresh_hashes = [*session.retired_refresh_hashes, refresh_hash.hex()]
         session.token_hash, session.refresh_hash = digest(access), digest(refresh)
         session.expires_at, session.last_seen_at = now() + timedelta(minutes=15), now()
-        event(db, user.org_id, 'TOKEN_REFRESHED', '앱 로그인 토큰을 갱신했습니다.', user.id,
+        event(db, user.org_id, 'TOKEN_REFRESHED', user.id,
               {'session_id': str(session.id)})
         return C.TokenResponse(access_token=access, refresh_token=refresh)
 
@@ -321,7 +320,7 @@ def create_app(settings: Settings | None = None):
     def logout(response: Response, auth: Identity, db: DB):
         user, session = auth
         session.revoked_at = now()
-        event(db, user.org_id, 'LOGOUT', f'{user.display_name}님이 로그아웃했습니다.', user.id)
+        event(db, user.org_id, 'LOGOUT', user.id)
         response.delete_cookie('fh_s', path='/api/v1', httponly=True, secure=True, samesite='strict')
 
     @app.get(prefix + '/me', response_model=C.User)
@@ -336,7 +335,7 @@ def create_app(settings: Settings | None = None):
             fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
         for key, value in values.items():
             setattr(user, key, value)
-        event(db, user.org_id, 'USER_UPDATED', '내 정보를 변경했습니다.', user.id, values)
+        event(db, user.org_id, 'USER_UPDATED', user.id, values)
         return user_object(db, user)
 
     @app.post(prefix + '/me/password', status_code=204)
@@ -361,13 +360,12 @@ def create_app(settings: Settings | None = None):
             db.commit()
             fail(429, 'RATE_LIMITED', '비밀번호 확인 시도가 많습니다. 잠시 뒤 다시 시도하세요.')
         if not verify_password(body.current_password, user.password_hash):
-            event(db, user.org_id, 'PASSWORD_CHANGE_FAILED', '현재 비밀번호 확인에 실패했습니다.',
-                  user.id, severity='WARN')
+            event(db, user.org_id, 'PASSWORD_CHANGE_FAILED', user.id, severity='WARN')
             db.commit()
             fail(403, 'FORBIDDEN', '현재 비밀번호를 확인하세요.')
         user.password_hash = hash_password(body.new_password)
         revoke_user_sessions(db, user)
-        event(db, user.org_id, 'PASSWORD_CHANGED', '비밀번호를 변경했습니다.', user.id)
+        event(db, user.org_id, 'PASSWORD_CHANGED', user.id)
 
     @app.get(prefix + '/users', response_model=C.UserList)
     def users(auth: Identity, db: DB, limit: Limit = 50, cursor: str | None = None):
@@ -384,7 +382,7 @@ def create_app(settings: Settings | None = None):
                     role=body.role, password_hash=hash_password(body.temp_password))
         db.add(user)
         db.flush()
-        event(db, actor.org_id, 'USER_CREATED', '계정을 만들었습니다.', actor.id, {'user_id': str(user.id), 'role': user.role})
+        event(db, actor.org_id, 'USER_CREATED', actor.id, {'user_id': str(user.id), 'role': user.role})
         return user_object(db, user)
 
     def find_user(db, actor, user_id, *, admin_change=False):
@@ -412,7 +410,7 @@ def create_app(settings: Settings | None = None):
             setattr(user, key, value)
         if values.get('locked'):
             revoke_user_sessions(db, user)
-        event(db, actor.org_id, 'USER_UPDATED', '계정 권한·정보를 변경했습니다.', actor.id,
+        event(db, actor.org_id, 'USER_UPDATED', actor.id,
               {'user_id': str(user.id), **values})
         return user_object(db, user)
 
@@ -426,7 +424,7 @@ def create_app(settings: Settings | None = None):
             fail(409, 'VERSION_CONFLICT', '담당 로봇을 먼저 변경하세요.')
         user.archived_at = now()
         revoke_user_sessions(db, user)
-        event(db, actor.org_id, 'USER_ARCHIVED', '계정을 보관했습니다.', actor.id, {'user_id': str(user.id)})
+        event(db, actor.org_id, 'USER_ARCHIVED', actor.id, {'user_id': str(user.id)})
 
     @app.get(prefix + '/users/{user_id}/sessions', response_model=C.SessionList)
     def sessions(user_id: UUID, auth: Identity, db: DB, limit: Limit = 50, cursor: str | None = None):
@@ -444,7 +442,7 @@ def create_app(settings: Settings | None = None):
             fail(404, 'NOT_FOUND', '기기를 찾을 수 없습니다.')
         if session.revoked_at is None:
             session.revoked_at = now()
-            event(db, actor.org_id, 'SESSION_REVOKED', '기기 로그인을 종료했습니다.', actor.id,
+            event(db, actor.org_id, 'SESSION_REVOKED', actor.id,
                   {'session_id': str(session_id)})
 
     @app.get(prefix + '/robots', response_model=C.RobotList)
@@ -482,9 +480,9 @@ def create_app(settings: Settings | None = None):
                 User.locked.is_(False), User.archived_at.is_(None))) is None:
             fail(400, 'VALIDATION', '담당 운영 관리자를 확인하세요.')
 
-    def robot_event(db, user, row, code, message, data):
-        db.add(Event(org_id=user.org_id, robot_id=row.id, user_id=user.id,
-            category='ACCOUNT', severity='INFO', code=code, message=message, data=data))
+    def robot_event(db, user, row, code, data):
+        db.add(render(db, Event(org_id=user.org_id, robot_id=row.id, user_id=user.id,
+            category='ACCOUNT', severity='INFO', code=code, data=data)))
 
     @app.post(prefix + '/robots', response_model=C.RobotCreated, status_code=201)
     def create_robot(body: C.RobotCreate, auth: Identity, db: DB, response: Response):
@@ -496,8 +494,7 @@ def create_app(settings: Settings | None = None):
             owner_user_id=body.owner_user_id, agent_token_hash=digest(raw))
         db.add(row)
         db.flush()
-        robot_event(db, user, row, 'ROBOT_CREATED', '로봇을 등록했습니다.',
-            {'name': row.name, 'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
+        robot_event(db, user, row, 'ROBOT_CREATED', {'name': row.name, 'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
         response.headers['Cache-Control'] = 'no-store'
         return C.RobotCreated(robot=robot_object(db, row, user, app.state.realtime), agent_token=raw)
 
@@ -521,8 +518,7 @@ def create_app(settings: Settings | None = None):
                 old_owner = row.owner_user_id
                 for key, value in values.items():
                     setattr(row, key, value)
-                robot_event(db, user, row, 'ROBOT_UPDATED', '로봇 이름·담당을 변경했습니다.',
-                    {'name': row.name, 'old_owner_user_id': str(old_owner) if old_owner else None,
+                robot_event(db, user, row, 'ROBOT_UPDATED', {'name': row.name, 'old_owner_user_id': str(old_owner) if old_owner else None,
                      'owner_user_id': str(row.owner_user_id) if row.owner_user_id else None})
                 db.commit()
                 return row, old_owner
@@ -550,7 +546,7 @@ def create_app(settings: Settings | None = None):
             def write():
                 row.archived_at = now()
                 row.agent_token_hash = digest(token())
-                robot_event(db, user, row, 'ROBOT_ARCHIVED', '로봇을 해제했습니다.', {})
+                robot_event(db, user, row, 'ROBOT_ARCHIVED', {})
                 db.commit()
             await asyncio.to_thread(write)
             rt.robot_changed(rid, deleted=True)
@@ -598,7 +594,7 @@ def create_app(settings: Settings | None = None):
         org = lock_organization(db, user.org_id)
         result = C.OrgSettings.model_validate({**org.settings, **values})
         org.settings = result.model_dump()
-        event(db, user.org_id, 'ORG_SETTINGS_UPDATED', '조직 기준값을 변경했습니다.', user.id, values)
+        event(db, user.org_id, 'ORG_SETTINGS_UPDATED', user.id, values)
         return result
 
     @app.post(prefix + '/robots/{robot_id}/agent-token', response_model=C.AgentTokenResponse)
@@ -611,11 +607,13 @@ def create_app(settings: Settings | None = None):
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
         raw = token()
         row.agent_token_hash = digest(raw)
-        event(db, user.org_id, 'AGENT_TOKEN_ROTATED', '로봇 인증 토큰을 재발급했습니다.',
-              user.id, {'robot_id': str(robot_id)})
+        event(db, user.org_id, 'AGENT_TOKEN_ROTATED', user.id, {'robot_id': str(robot_id)})
         response.headers['Cache-Control'] = 'no-store'
         return C.AgentTokenResponse(agent_token=raw)
 
+    from . import events_api, notifications
+    events_api.install(app, DB, Identity, fail)
+    notifications.install(app, DB, Identity, fail)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
     return app

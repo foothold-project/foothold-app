@@ -195,6 +195,44 @@ class Event(Contract):
     data: dict[str, Any]
 
 
+class EventList(Contract):
+    items: list[Event]
+    next_cursor: str | None
+
+
+DecimalID = Annotated[str, Field(pattern=r'^[1-9][0-9]{0,18}$')]
+
+
+class Notification(Contract):
+    id: DecimalID
+    event_id: DecimalID | None
+    kind: str
+    title: str
+    body: str
+    link: str
+    read_at: UTCDateTime | None
+    created_at: UTCDateTime
+
+
+class NotificationList(Contract):
+    items: list[Notification]
+    next_cursor: str | None
+    unread_count: int = Field(ge=0)
+
+
+class NotificationsRead(Contract):
+    ids: list[DecimalID] = omitted(min_length=1, max_length=100)
+    all: Literal[True] = omitted()
+
+    @model_validator(mode='after')
+    def one_selection(self):
+        if self.model_fields_set not in ({'ids'}, {'all'}):
+            raise ValueError('Supply ids or all:true')
+        if self.ids is not None and any(int(value) > 2**63 - 1 for value in self.ids):
+            raise ValueError('ID exceeds bigint')
+        return self
+
+
 class OrgSettings(Contract):
     battery_low_pct: int = Field(default=20, ge=5, le=50, strict=True)
     run_min_battery_pct: int = Field(default=30, ge=10, le=90, strict=True)
@@ -537,7 +575,7 @@ TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
 REQUEST_MODELS = {LoginRequest, RefreshRequest, MePatch, PasswordChange,
-                  UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch}
+                  UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,

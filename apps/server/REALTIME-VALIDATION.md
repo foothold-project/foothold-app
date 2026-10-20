@@ -1,6 +1,7 @@
 # W3-B 실시간 서버 검증 기록
 
-최신 결과와 계약은 문서 끝의 «S0 서버 후속» 절을 따른다.
+최신 S2 결과는 문서 끝의 «S2 사건 기록·CSV·알림함» 절을 따른다.
+기존 실시간 계약은 «S0 서버 후속»과 그 후속 검토 절을 따른다.
 이전 절은 해당 커밋의 실행 이력이다.
 
 
@@ -1256,3 +1257,218 @@ FH_TEST_PORT_RANGE=9150:9169 python apps/server/tools/check_realtime_mutations.p
 생성물·TypeScript·selftest는 이번에 해당 파일이 바뀌지 않아 반복하지 않았다.
 시험은 127.0.0.1:9150~9169의 일회용 PostgreSQL/uvicorn과 가짜 peers만 사용한다.
 운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기에는 접촉하지 않았다.
+
+## S2 사건 기록·CSV·알림함 (2026-10-20)
+
+`feature/server-events`, 기준 `origin/dev=69a08b5`. 수동 변경 소유는
+`apps/server/**`, `apps/contracts/**`이며 웹·에이전트·docs/spec·안전 Core 변경은 없다.
+기능 브랜치의 폐기 가능 PostgreSQL/가짜 peers 검증이고 dev 통합·배포 결과가 아니다.
+
+- `events_api.py`: 조직 범위 안에서 총괄 전체, 운영자 현재 담당 활성 로봇 **또는**
+  본인 행동. 담당 변경은 다음 요청에서 판정한다. 목록/상세/CSV가 같은 정책을 쓰며
+  범위 밖·다른 조직·없는 ID는 같은 404다. D3의 다른 로봇에 한 본인 행동은 임시 허용한다.
+- 7종 분류·심각도·로봇·사람·기간(양 끝 포함)·run_id, 최신 `(at,id)` 역순 cursor.
+  run 표 구현 전에는 이미 보이는 사건으로 run_id 범위를 판정한다. 같은 시각 여러 행을
+  작은 페이지로 읽어도 빠짐/중복이 없고 UTC/시간대 입력을 검사한다.
+- CSV는 같은 필터·범위·저장 문장·data를 내보낸다. 수식 시작 문자와 선행 공백/탭/개행,
+  쉼표·따옴표·줄바꿈을 검사한다. 10,000행 상한 초과는 400이며 부분 성공으로 숨기지 않는다.
+- `event_messages.py`: 모든 서버 사건 코드의 단일 틀, 저장 시각·이름·값·한글/숫자 조사.
+  소스에서 쓰는 코드와 틀을 대조하며 미등록 서버 코드는 실패한다. 에이전트의 열린
+  코드 확장은 명시적인 AGENT_EVENT 틀로 코드·data·robot_at을 보존한다. 옛 행은 고치지 않는다.
+- 사건 UPDATE/DELETE API가 없고 실제 fh_app UPDATE/DELETE/TRUNCATE 거절을 검사한다.
+  0008은 사건 FK용 조직 복합 고유 제약과 목록 색인만 더하고 기존 사건 권한은 유지한다.
+- 0008 `notifications`: 사건과 같은 트랜잭션에서 생성하고 조직/수신자 FK를 강제한다.
+  현재 연결한 알림은 조종권 요청(현재 holder), 연결 끊김·실패/완료·배터리 부족·이탈
+  (총괄과 현재 담당)이다. 알림 설정 false·잠금/보관 계정 제외, 무관한 STOP 등은 알리지 않는다.
+- 알림함은 본인 것만 최신순·cursor·전체 안 읽음 수를 반환한다. 읽음은 ids 또는 all:true,
+  CSRF 유지, 최초 read_at 보존. 다른/없는 ID가 섞이면 같은 404로 전체 거절한다.
+  Web Push·WS notify 배송·화면 배지·결재 연결(S4)은 별도 범위다.
+- 실제 uvicorn은 가짜 에이전트의 ROUTE_DEVIATION 수신 → 필터된 문장/robot_at 확인 →
+  같은 CSV → 본인 알림 조회/읽음/안 읽음 0까지 HTTP와 WS의 실제 TCP로 검사한다.
+
+### 실행 이력
+
+Python 3.12.3/기존 requirements-test 환경, pgserver PostgreSQL16/private Unix socket을 썼다.
+시험과 변이는 한 번에 한 프로세스씩 실행했으며 모든 DB 번호·uvicorn 포트는
+`FH_TEST_PORT_RANGE=9240:9259`로 제한했다. 운영·미리보기·다른 작업자 포트·ROS·Gazebo·
+실기 접촉과 배포는 없다. 기존 selftest도 외부 연결 없는 selftest 모드로만 실행했다.
+
+초기 집중은 **76 passed/32.80s**(Alembic 왕복·실제 uvicorn 포함)였다. 초기 전체는
+**394 passed/2 failed/345.10s**이며 성공으로 세지 않는다. 실패는
+`test_b2_auditor_quarantines_permanent_but_retries_transient[transient]`가 복구 표본으로
+미등록 FAKE_RECOVERED 코드를 실제 저장기에 보내 새 단일 틀 검사에서 격리된 것과,
+`test_b3_wire_fixture_python_and_schema_match`가 새 TS 예제의 따옴표 없는 키를 JSON으로
+읽으려 한 것이다. 복구 표본을 등록된 AGENT_CONNECTED로, TS 예제를 실제 JSON 리터럴로
+고쳤다. 기존 격리/재시도 횟수·STOP 기대값·안전 시간 문턱은 바꾸지 않았다.
+
+수정 뒤 S2+해당 기존 R3 회귀는 **60 passed/29.25s**, 최종 기간/DB 권한 경계 보강은
+별도로 **2 passed/1.96s**다. 초기 문장 틀 소스 대조 시험은 누락된 서버 오류 틀을 찾아
+**15 passed/1 failed/5.11s**였고 해당 틀을 추가한 뒤 위 집중 실행이 통과했다.
+기존 Starlette/httpx 사용 중단 경고 1개는 그대로이며 성공/실패 판정에 섞지 않는다.
+
+### 최종 정상 기준
+
+| 검사 | 실제 결과 |
+|---|---|
+| 변이 도구의 최종 서버 전체 정상 기준 | **397 passed**,335.13s |
+| Alembic head(0008)→base→head·metadata diff 0·DB 권한 | 최종 전체 정상 기준에 포함하여 통과 |
+| 0007 이름 재사용 downgrade 원자적 거절·다시 upgrade | 최종 전체 정상 기준에 포함하여 통과 |
+| 실제 uvicorn 사건→필터→CSV→본인 알림 읽음 | 초기 집중·수정 후 집중·최종 전체 정상 기준에서 통과 |
+| 계약 generate --check | **72개 일치** |
+| contracts npm ci·strict tsc | 성공·exit0; 새 알림 bigint 문자열의 TS 소비 예제 포함 |
+| 기존 안전 selftest | **selftest OK**, 원본·기대값 변경0 |
+
+최종 전체 정상 기준은 변이 도구가 임시 사본에서 **변이 적용 전** 실행한 서버 pytest
+전체다(`python -m pytest -q -x -p no:cacheprovider ... apps/server/tests`).
+명령의 python은 위 Python3.12/requirements-test 환경을 뜻한다.
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py apps/server/tests/test_events_wire.py apps/server/tests/test_realtime_r3.py -q -x --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py::test_filters_inclusive_utc_seven_categories_and_cursor_ties apps/server/tests/test_events.py::test_event_database_append_only_without_app_start -q --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py
+python apps/contracts/generate.py --check
+npm ci --prefix apps/contracts --ignore-scripts
+npm run --prefix apps/contracts typecheck
+python3 sim/v2_link.py --selftest
+```
+
+전체 변이 225개 실행은 **223개 assertion 검출**, **2개 실행 오류**로 exit1이었다.
+오류는 CSV 보호 제거 때 보호된 행을 찾는 `next()`가 StopIteration을 낸 것과,
+읽음 저장 제거 때 None에 `.endswith()`를 호출한 AttributeError다. 도구가 두 오류를
+검출 성공으로 세지 않는 것을 유지했다. 제품 코드는 바꾸지 않고 보호된 CSV 행의 수와
+read_at 문자열 존재를 먼저 단언하여 고장 자체가 명시적인 assertion 실패가 되도록 했다.
+그 뒤 해당 두 변이만 `--match`로 다시 검사하며, 이 실행도 서버 전체 정상 기준을 먼저
+실행한다. 나머지 223개에 쓰인 제품 소스와 기존 기대값은 바뀌지 않았다.
+
+
+보강 후 선택 실행의 최종 정상 기준은 **397 passed/330.98s**, 해당 변이는
+**2/2 assertion 검출, exit0, 실행/수집 오류·미검출0**이다. 앞선 정상 기준의
+397 passed/335.13s와 같은 제품 코드에서 시험의 명시적 단언만 보강했다.
+따라서 전체 225개 고장 판정은 **223개 전체 실행 + 보강된 2개 재실행**으로 모두
+assertion 검출을 확인했다(단일 전체 실행 225/225 통과로 표현하지 않는다).
+새 S2 판정은 이 중25개이며, CSV 범위/수식/상한·누락 틀·사건 수정 API/DB 권한·
+알림 범위/읽음/필터/대상/설정/연결 누락까지 포함한다.
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py --match 'S2 CSV formula guard removed' --match 'S2 notification read not persisted'
+```
+
+두 변이 실행의 임시 사본이 종료 후 제거된 것을 확인했다. 시험용 PostgreSQL은
+각 fixture의 finally에서 종료·삭제되며 실제 운영 DB나 프로세스는 건드리지 않았다.
+코드는 변경 커밋을 revert하고, 0008 downgrade가 알림을 지우므로 자료 보존·승인된
+이관 절차를 먼저 따른다. D3·CSV 상한·수신자 규칙과 정본의 미정/확장 사항은 PR에 적는다.
+
+## PR #24 Claude 검토 수정 (2026-10-20)
+
+막는 것 2건과 지시된 권고 R1~R5·R7·R8을 반영한다. R6(알림과 사건 저장의 결합·비용),
+R9(끊김 알림 중복), R10(사람 필터의 존재 판정 정책)은 바꾸지 않으며 PR의 남은 것에 적는다.
+앞선 S2 문장의 UTC HH:MM 설명은 이 절의 Asia/Seoul 기본 시각으로 대체한다. 응답의
+at/robot_at 등 기계 판독 시각은 계속 UTC Z이고, 이미 저장된 사건 문장은 수정하지 않는다.
+
+- 문장은 ZoneInfo('Asia/Seoul')로 저장하며 05:02Z가 14:02인 회귀를 고정한다.
+  robot_at이 있으면 끊김 중 실제 사건 시각을 먼저 쓰고 없으면 서버 at을 쓴다.
+  조직별 시간대 설정은 후속 결정이다.
+- CSV는 프로세스 공용 동시1 슬롯, 초과429 RATE_LIMITED. 상한+1개의 ID만 먼저 읽어
+  초과400을 판정하고 ORM 본문은 읽지 않는다. 선택 ID를 고정한 뒤 yield_per=100으로
+  읽어 임시 파일에 쓰며 65,536자 청크로 전송한다. 응답 완료·단절·조회/쓰기 오류에
+  슬롯/파일을 회수한다. ID 목록 외에 전체 ORM/문자열 사본을 만들지 않는다.
+- 같은 조직의 남의 사건만 있는 로봇 필터가 목록·CSV 모두 없는 ID와 같은404임을
+  직접 시험한다. 권한 없는 사건으로 존재를 판정하는 검토자의 변이를 등록했다.
+- 에이전트 전용 허용 목록을 두어 사람 행동·계정·결재 등 서버 코드 위조를 일반
+  AGENT_EVENT 문장·LINK 분류로 낮춘다. 원래 code/data는 보존하고 알림은 만들지 않는다.
+- 문장 값은 제어문자 제거·128자 제한, 숫자 자리는 bool/문자열/객체/비유한 값을
+  확인되지 않음으로 쓴다. 목적격 조사는 을/를을 로봇 이름 받침에 맞춘다.
+- notifications UPDATE는 read_at 열만 허용한다. 제목·본문·수신자·연결 등 나머지 열의
+  실제 DML 거절과 읽음 성공을 시험한다. 0008은 서버를 멈춘 상태에서 적용하도록 적었다.
+- CSV 수식 방어는 유니코드 공백 전체를 lstrip()으로 건너뛴다.
+
+집중 시험(test_events·test_events_review·test_events_wire·test_migrations)은
+**48 passed/21.13s**다. Alembic 왕복·실제 uvicorn도 포함한다. 새 검사는 동시 내보내기
+둘째429·상한 초과 전 ORM 적재0·배치 ORM 수·전송 오류 시 슬롯/파일 회수·위조 코드·
+시간대/robot_at·문장 정리·권한 열 제한·유니코드 공백을 실제 DB/응답에서 확인한다.
+새 고장 판정16개와 기존 S2 25개를 선택 실행하고 전체 서버 정상 기준을 먼저 실행한다.
+정상/변이 시험은 FH_TEST_PORT_RANGE=9240:9259, 한 번에 하나씩만 실행한다.
+운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기 접촉은 없고 STOP·조종권·권한/S0의
+안전 문턱·기대값은 바꾸지 않았다. 실 uvicorn에서의 CSV 부하 계측은 별도로 하지 않았다.
+
+| 검토 수정 최종 검사 | 결과 |
+|---|---|
+| 서버 전체 정상 기준 | **420 passed**,364.31s |
+| S2 선택 변이 | **41/41 assertion 검출**,exit0·실행/수집 오류·미검출0 |
+| 검토 후속 판정 | 위41개 중16개, 각 수정 제거/약화가 실패함 |
+| generate --check | **72개 일치** |
+| npm ci·strict tsc | exit0 |
+| Alembic 왕복·metadata·권한·실제 uvicorn | 집중/전체 정상 기준에 포함하여 통과 |
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py apps/server/tests/test_events_review.py apps/server/tests/test_events_wire.py apps/server/tests/test_migrations.py -q -x --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py --match S2
+python apps/contracts/generate.py --check
+npm ci --prefix apps/contracts --ignore-scripts
+npm run --prefix apps/contracts typecheck
+```
+
+선택 변이 도구가 변이 적용 전에 서버 pytest 전체를 실행했으며, 이번에 바뀐 제품·시험
+트리의 정상 결과는420개다. 나머지 기존200개 변이는 다시 실행하지 않았다. 임시 사본이
+종료 뒤 제거된 것을 확인했다. 이번 권한 변경은 미병합0008의 생성 권한 정의에만
+반영했고 이미 적용된 운영/시험 DB를 직접 수정하지 않았다.
+
+
+## PR #24 재검토 R2: 느린 CSV 전송 격리 (2026-10-20)
+
+앞 절의 전송 종료까지 공용 슬롯을 유지한다는 동작은 아래로 대체한다.
+
+- 공용 CSV 생성 슬롯은 조회·상한 검사·파일 작성·commit까지만 점유하고 응답 반환 전에
+  놓는다. 다운로드는 조직·사용자별 임시 파일 1개만 소유하며 같은 사용자 추가 요청은
+  429 RATE_LIMITED다. 다른 사용자는 첫 응답 본문을 읽지 않아도 새 CSV를 받을 수 있다.
+- 요청 scope에 자원 소유자를 먼저 등록한다. 응답 생성/호출 전 오류·전송 오류·단절 때
+  바깥 ASGI 정리와 응답 정리가 파일을 닫는다. 중복 정리는 안전하며 이전 소유자의 늦은
+  정리가 같은 키의 새 소유권을 지우지 않는다. 취소 뒤 늦게 연결된 파일도 즉시 닫는다.
+- 문장 시각은 robot_at이 서버 at보다 미래가 아니고 24시간 이내일 때만 사용한다.
+  미래 1µs·1분, 과거 24시간+1µs는 서버 at으로 대체하며 원래 robot_at은 보존한다.
+  정확히 24시간·23시간59분·1시간 전인 경계/유효 입력도 시험한다.
+- 권고(a)는 조건부다. 실제 에이전트 Session.storage_blocked가 자체 사건 기록 저장 실패를
+  HISTORY_STORAGE_BLOCKED로 내보내므로 허용 목록에 유지한다. 생산 코드의 pop_history로
+  발생을 확인하고 «자체 사건 저장» 문장으로 서버의 «서버에서 … 저장»과 구별한다.
+  에이전트 파일은 읽기만 했고 수정하지 않았다.
+
+집중 시험은 **57 passed / 26.26s**다. 초기 실행은 새 로컬 저장 실패 시험이 Session의
+즉시 Effects.messages에 기록이 있을 것으로 잘못 기대해 **54 passed / 1 failed / 19.70s**였다.
+실제 retained history인 pop_history를 검사하도록 시험만 고쳤으며 초기 실패를 통과로 세지 않는다.
+
+실제 uvicorn **127.0.0.1:9241**, 사건9,000행/data 약3KiB로 재현했다. 작은 수신 버퍼의
+첫 TCP 요청은 헤더만 읽고 본문은 읽지 않았다. 같은 사용자 추가 요청은429, 다른 사용자는
+**200 / 29,356,134 bytes**를 받았다. 첫 본문을 여전히 읽지 않은 상태에서 같은 사용자는
+계속429였고 첫 연결 RST 뒤에는200이었다. 두 번째 응답은 청크 단위로 읽어 전체 사본을
+만들지 않았다. 정상 기준과 변이는 같은 시험을 사용한다.
+
+계약 생성 **72개 일치**, npm ci와 strict tsc는 exit0이다. STOP·조종권·권한/S0 제품 코드와
+시험 문턱은 수정하지 않았다. 모든 실행은 FH_TEST_PORT_RANGE=9240:9259이며 전체 pytest와
+변이는 한 번에 하나만 실행한다. 운영·미리보기·다른 작업자 포트·ROS·Gazebo·실기 접촉은 없다.
+실제 uvicorn의 루프 지연 계측·실브라우저·실폰·실로봇 검증은 하지 않았다.
+
+변이 도구가 먼저 실행한 서버 전체 정상 기준은 **431 passed / 346.93s**다.
+지적된 test_warm_stop_bypasses_slots_only_inside_250ms[0.25-202]를 포함해 실패0이며,
+이 시험이나 STOP 제품 코드를 수정하지 않았다. Alembic 왕복·metadata/권한 검사는
+전체 정상 기준에 포함되어 통과했다.
+
+| 재검토 R2 최종 검사 | 결과 |
+|---|---|
+| 서버 pytest 전체 정상 기준 | **431 passed / 346.93s**, 실패0 |
+| S2 변이(기존41+새8) | **49/49 assertion 검출**, exit0·실행/수집 오류·미검출0 |
+| 사건·R2·실제 uvicorn 집중 | **57 passed / 26.26s** |
+| Alembic 왕복·metadata·실제 DB 권한 | 전체 정상 기준 포함, 통과 |
+| generate --check | **72개 일치** |
+| npm ci·strict tsc | exit0 |
+
+```sh
+FH_TEST_PORT_RANGE=9240:9259 python -m pytest apps/server/tests/test_events.py apps/server/tests/test_events_review.py apps/server/tests/test_events_downloads.py apps/server/tests/test_events_wire.py -q -x -s --tb=short
+FH_TEST_PORT_RANGE=9240:9259 python apps/server/tools/check_realtime_mutations.py --match S2
+python apps/contracts/generate.py --check
+npm ci --prefix apps/contracts --ignore-scripts
+npm run --prefix apps/contracts typecheck
+```
+
+변이 도구는 먼저 전체 서버 pytest를 실행하고 각 고장 판정은 순차 실행했다.
+이번에 기존 나머지200개 변이는 재실행하지 않았다. 임시 DB·변이 사본·node_modules를
+정리했다. R6·R9·R10과 파티션/FK, 조직별 시간대·D3 후속 결정은 그대로 남는다.

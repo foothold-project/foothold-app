@@ -180,6 +180,11 @@ export interface Event {
   data: Record<string, unknown>;
 }
 
+export interface EventList {
+  items: Event[];
+  next_cursor: string | null;
+}
+
 export type JsonValue = unknown;
 
 export interface Lease {
@@ -221,6 +226,28 @@ export interface LoginResponse {
 export interface MePatch {
   display_name?: string;
   notify_prefs?: Record<string, boolean>;
+}
+
+export interface Notification {
+  id: string;
+  event_id: string | null;
+  kind: string;
+  title: string;
+  body: string;
+  link: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationList {
+  items: Notification[];
+  next_cursor: string | null;
+  unread_count: number;
+}
+
+export interface NotificationsRead {
+  ids?: string[];
+  all?: true;
 }
 
 export interface OperatorCount {
