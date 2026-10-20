@@ -36,6 +36,11 @@ export function toPixel(v: Pick<MapVersion, 'origin' | 'resolution' | 'height'>,
 export const ZONE = { NO_GO: { text: '진입 금지', color: 'var(--bad)' }, SLOW: { text: '감속', color: 'var(--warn)' } } as const;
 export const KIND = { STAIRS: '계단', ELEVATOR: '엘리베이터' } as const;
 export const EDIT = { ERASE: { text: '지우개', color: 'var(--muted)' }, WALL: { text: '벽', color: 'var(--ink-3)' } } as const;   // 지도 그림은 테마와 상관없이 흰 바탕이라 두 테마 모두 중간 회색인 토큰
+/** 바꾼·되돌리는 이유 검사 — 서버(MapVersionCreate·MapRollback reason)와 같게: 보이는 글자 하나 이상, 제어·서식 문자(Cc·Cf: 탭·폭 없는 공백·이모지 잇개 등) 없음.
+ *  what = «바꾼 이유» 처럼 칸 이름. 통과면 null */
+export const reasonBad = (s: string, what: string) => (!s.replace(/[\p{Cc}\p{Cf}\s]/gu, '') ? `${what}를 입력하세요.`
+  : /[\p{Cc}\p{Cf}]/u.test(s) ? `${what}에 탭 같은 보이지 않는 글자는 쓸 수 없습니다(이모지 일부도 이런 글자를 품습니다). 지우고 다시 입력하세요.` : null);
+
 /** 방향 선 끝(그림 픽셀) — 점 크기 r 의 2.2배 길이로 yaw 쪽 */
 export const aim = (v: Pick<MapVersion, 'origin' | 'resolution' | 'height'>, w: { x: number; y: number; yaw: number }, r: number) =>
   toPixel(v, w.x + Math.cos(w.yaw) * r * 2.2 * v.resolution, w.y + Math.sin(w.yaw) * r * 2.2 * v.resolution);
@@ -283,7 +288,8 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
     if (!type) return setMsg({ text: '지도 그림은 pgm 또는 png 파일이어야 합니다.' });
     if (!/\.ya?ml$/i.test(yml.name)) return setMsg({ text: '지도 설정은 yaml 파일이어야 합니다.' });
     if (img.size > IMAGE_MAX || yml.size > YAML_MAX) return setMsg({ text: TOO_BIG });
-    if (!reason.trim()) return setMsg({ text: '바꾼 이유를 입력하세요.' });
+    const why = reasonBad(reason, '바꾼 이유');
+    if (why) return setMsg({ text: why });
     setMsg(null);
     let at = 0;
     try {

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, isVersion, shape, toPixel, type Msg, type Place } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, isVersion, reasonBad, shape, toPixel, type Msg, type Place } from './maps';
 
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
@@ -249,7 +249,8 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
     if (!dirty) return setMsg({ text: '바꾼 것이 없습니다. 도구로 지도를 고친 뒤 저장하세요.' });
     const b = check(f, v, others.map((x) => x.id));
     if (b) { setBad(b); setSel(keyOf(b.path)); setMsg(null); return; }
-    if (!reason.trim()) return setMsg({ text: '바꾼 이유를 입력하세요.' });
+    const why = reasonBad(reason, '바꾼 이유');
+    if (why) return setMsg({ text: why });
     setBusy(true); setMsg(null); setBad(null); setStale(false);
     const j: Job = { floor: p.floor.id, base: v.id, wait: Promise.resolve() };
     j.wait = api.saveVersion(p.floor.id, { base_version_id: v.id, image: v.upload_id, features: f, reason: reason.trim() }, cancel).then(shape(isVersion))   // 빈·어긋난 201 = 저장 불확실(status 0)

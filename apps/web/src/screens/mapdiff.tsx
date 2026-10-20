@@ -4,7 +4,7 @@
 import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { MapConnector, MapDiff, MapEdit, MapFeatureChange, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { EDIT, KIND, Note, Shapes, ZONE, aim, isVersion, shape, toPixel, type Msg } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, aim, isVersion, reasonBad, shape, toPixel, type Msg } from './maps';
 import { toMap } from './mapedit';
 
 type P = [number, number];
@@ -167,8 +167,8 @@ export function Rollback({ v, now, cancel, done, reload, close }: { v: MapVersio
   const go = async (e: FormEvent) => {
     e.preventDefault();
     if (sending.current) return;   // 두 번 누름 — 화면이 잠기기 전 두 번째 누름도
-    if (!reason.replace(/[\p{Cc}\p{Cf}\s]/gu, '')) return setMsg({ text: '되돌리는 이유를 입력하세요.' });   // 공백·U+200B 같은 보이지 않는 글자만이면 이유가 아니다
-    if (/[\p{Cc}\p{Cf}]/u.test(reason)) return setMsg({ text: '이유에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.' });
+    const why = reasonBad(reason, '되돌리는 이유');
+    if (why) return setMsg({ text: why });
     sending.current = true; setBusy(true); setMsg(null); setAgain(false);
     try {
       done(await api.rollback(v.id, { base_version_id: base.id, reason: reason.trim() }, cancel).then(shape(isVersion)));   // 빈·어긋난 201 = 불확실(status 0)

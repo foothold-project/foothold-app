@@ -349,6 +349,14 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     await pickFile('지도 그림', PGM());
     await click(btn('올리기'));
     expect(alertText()).toContain('바꾼 이유를 입력하세요.');
+    for (const r of [' \u200b ', '\u0001']) {                          // 공백·Cf·Cc 만 = 이유 없음
+      await setVal(field('바꾼 이유', card('새 지도 올리기')), r); await click(btn('올리기'));
+      expect(alertText()).toContain('바꾼 이유를 입력하세요.');
+    }
+    for (const r of ['새\t스캔', '스캔 👨\u200d👩\u200d👧']) {           // 섞여도 서버가 400 — 미리 막음(탭·이모지 잇개)
+      await setVal(field('바꾼 이유', card('새 지도 올리기')), r); await click(btn('올리기'));
+      expect(alertText()).toContain('바꾼 이유에 탭 같은 보이지 않는 글자는 쓸 수 없습니다');
+    }
     expect(writes()).toEqual([]);
   });
   it('앞 단계가 실패하면 다음 단계를 보내지 않음 — 그림 422·yaml 413·저장 422 INVALID_FEATURES·403, 쉬운 문구', async () => {
@@ -807,6 +815,10 @@ describe('지도 편집 — 저장', () => {
     await setVal(field('이름', card('고른 요소')), '공사 구역');
     await save('  ');
     expect(alertText()).toContain('바꾼 이유를 입력하세요.');
+    await save('\u200b');
+    expect(alertText()).toContain('바꾼 이유를 입력하세요.');
+    await save('구역\u0001추가');
+    expect(alertText()).toContain('바꾼 이유에 탭 같은 보이지 않는 글자는 쓸 수 없습니다');
     expect(writes()).toEqual([]);
   });
   it('서버 422 INVALID_FEATURES — detail.element 요소를 고르고 쉬운 말, pydantic 모양(elements)도', async () => {
@@ -1328,8 +1340,8 @@ describe('판 비교·되돌리기(W4c)', () => {
       await back(r);
       expect(alertText()).toContain('되돌리는 이유를 입력하세요.');
     }
-    await back('잘못\u0001편집');
-    expect(alertText()).toContain('이유에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.');
+    await back('잘못\u200b편집');
+    expect(alertText()).toContain('되돌리는 이유에 탭 같은 보이지 않는 글자는 쓸 수 없습니다');
     expect(writes()).toEqual([]);
     await back(' 잘못 편집함 ');
     expect(sent('POST', '/map-versions/v1/rollback').map((c) => c.body)).toEqual([{ base_version_id: 'v2', reason: '잘못 편집함' }]);
