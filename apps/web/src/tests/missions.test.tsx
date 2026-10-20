@@ -1,6 +1,6 @@
 // W6a 임무 탭(01 MS-01·02·03·09, 02 F-MS-01~04·§10, 03 §5.3·U10, 05 §6 — S5a /actions·/missions·/scenarios·/scenarios/preview).
 // fetch 는 상태를 가진 가짜 서버(판·If-Match·보관·권한·미리보기 흉내), WebSocket 은 FakeWS. 목록·보관 보기·더 보기, 임무 작업·인자 범위·회색 선택지·판 1→2·428·409·422,
-// 옛 판 읽기 전용, 보관(확인 없음), 시나리오 지점 찍기·끌기·순서·지도 지점·임무 고르기·갈 수 없음·연결점 없음·저장 막힘·409 STALE·422, 저장 불확실 대조,
+// 옛 판 읽기 전용(옛 판 지도), 보관(확인창), 카탈로그 로봇 묶기, 시나리오 지점 찍기·끌기·순서·지도 지점·임무 고르기·갈 수 없음·연결점 없음·저장 막힘·409 STALE·422, 저장 불확실 대조,
 // 운영 관리자 보는 중, 편집·미리보기·확인 중에도 STOP 이 보이고 실제로 정지 요청이 나가는지 본다.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -366,12 +366,19 @@ describe('임무 편집', () => {
     await setVal($<HTMLSelectElement>('select[aria-label="판"]')!, '2');
     expect(name().value).toBe('사진 순찰 v2'); expect(btn('새 판으로 저장')).toBeTruthy();
   });
-  it('보관 = 확인창 없이 DELETE, 목록에서 빠지고 «보관된 것도 보기»에서 읽기 전용', async () => {
+  it('보관 = 화면 안 확인창(되돌릴 수 없음)을 거쳐 DELETE — 취소면 안 보냄, 목록에서 빠지고 «보관된 것도 보기»에서 읽기 전용', async () => {
     seed(); serve(KIM);
     const confirm = vi.spyOn(window, 'confirm');
     await open(); await kind('임무');
     await click(row('m1'));
     await click(btn('보관'));
+    expect(writes()).toEqual([]);
+    expect(card('보관 확인').textContent).toContain('보관하면 되돌릴 수 없습니다');
+    await click(btn('취소'));
+    expect(writes()).toEqual([]); expect($('[aria-label="보관 확인"]')).toBeNull();
+    await click(btn('보관'));
+    await stopSends();                                               // 확인창이 떠 있어도 STOP
+    await click(btn('보관하기'));
     expect(confirm).not.toHaveBeenCalled();
     expect(writes()).toEqual(['DELETE /missions/m1']);
     expect(text()).toContain('보관했습니다.');
@@ -527,6 +534,8 @@ describe('시나리오 편집(03 §5.3)', () => {
     await click(saveBtn());
     expect(point(1).hasAttribute('data-bad')).toBe(true); expect(point(0).hasAttribute('data-bad')).toBe(false);
     expect(point(1).textContent).toContain('이 지점을 확인하세요.');
+    expect(saveBtn().disabled).toBe(true);                             // 앞 미리보기는 버리고 다시 확인할 때까지 저장 막힘(B4)
+    expect($('[data-block]')!.textContent).toBe('경로를 확인하는 중입니다.');
   });
   it('지도 지점에 붙은 지점을 0.05 m 넘게 끌면 참조를 뗀다', async () => {
     seed(); serve(KIM);
@@ -607,6 +616,123 @@ describe('저장 응답 끊김(불확실)', () => {
     await click(saveBtn());
     expect(text()).toContain('저장이 아직 확인되지 않았습니다.');
     expect(name().value).toBe('내 판 다시');
+  });
+});
+
+describe('검토 반영(PR #38 B1~B6)', () => {
+  it('B1 저장 응답을 기다리는 중 탭을 오가도 다시 열면 잠김 — 결과 대조·명시 재전송 전에는 다시 보내지 않는다', async () => {
+    seed();
+    let release = () => {};
+    serve(KIM, { over: { 'POST /missions': [(real) => new Promise<Reply>((r) => { release = () => r(real()); })] } });
+    await open(); await kind('임무');
+    await click(btn('새 임무'));
+    await setVal(name(), '느린 새 임무'); await click(btn('＋ 대기'));
+    await click(saveBtn());
+    expect(writes()).toEqual(['POST /missions']);
+    await click($('nav a[href="#/map"]'));
+    await click($('nav a[href="#/mission"]'));
+    expect(name().value).toBe('느린 새 임무');
+    expect(saveBtn().disabled).toBe(true); expect(name().closest('fieldset')!.disabled).toBe(true);
+    await click(saveBtn());
+    expect(writes()).toEqual(['POST /missions']);
+    expect(text()).toContain('저장이 아직 확인되지 않았습니다.');
+    await act(async () => { release(); }); await flush();
+    await click(btn('저장 확인'));
+    expect(text()).toContain('저장된 것을 확인했습니다(판 1).');
+    expect(writes()).toEqual(['POST /missions']);
+    expect(db.missions.filter((r) => r.head.name === '느린 새 임무')).toHaveLength(1);
+  });
+  it('B2 409 뒤 «최신 판 받기»가 실패해도 «다시 받기»는 기준 판만 갱신 — 내 입력을 덮지 않는다', async () => {
+    seed();
+    const over: Record<string, Reply[]> = { 'GET /missions/m1': [] };
+    serve(KIM, { over });
+    await open(); await kind('임무');
+    await click(row('m1'));
+    await setVal(name(), '내 입력');
+    bump('missions', 'm1', { ...M1, name: '남이 고친 이름' }, PARK);
+    await click(saveBtn());
+    expect(text()).toContain('다른 사람이 먼저 새 판을 저장했습니다.');
+    over['GET /missions/m1'].push(err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.'));
+    await click(btn('최신 판 받기'));
+    expect(alertText()).toContain('임무를 받지 못했습니다.');
+    expect(name().value).toBe('내 입력');
+    await click(btn('다시 받기'));
+    expect(name().value).toBe('내 입력');
+    expect(text()).toContain('최신 판(판 2)을 받았습니다.');
+    await click(saveBtn());
+    expect(last(sent('PUT', '/missions/m1'))!.match).toBe('"2"');
+    expect(rec('missions', 'm1')!.head.name).toBe('내 입력');
+  });
+  it('B3 로봇을 바꾼 뒤 카탈로그를 못 받거나 기다리는 동안 추가·선택지 잠금 — 앞 카탈로그로 못 하는 작업을 고르지 않음', async () => {
+    seed();
+    let release = () => {};
+    serve(KIM, { over: { 'GET /actions': [(real) => real(), err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.'), (real) => new Promise<Reply>((r) => { release = () => r(real()); })] } });
+    await open(); await kind('임무');
+    await click(btn('새 임무'));
+    await click(btn('＋ 사진 찍기'));                                  // 로봇을 고르지 않은 카탈로그
+    await setVal(field('장치 확인할 로봇'), 'r-a');
+    expect(alertText()).toContain('작업 목록을 받지 못했습니다.');
+    expect(btn('＋ 사진 찍기')).toBeUndefined(); expect(btn('＋ 대기')).toBeUndefined();
+    expect((field('카메라', step(0)) as unknown as HTMLSelectElement).disabled).toBe(true);
+    await click(btn('다시 받기'));                                       // 이번 답은 늦게 온다
+    expect(btn('＋ 사진 찍기')).toBeUndefined(); expect(text()).toContain('작업 목록을 불러오는 중…');
+    expect((field('카메라', step(0)) as unknown as HTMLSelectElement).disabled).toBe(true);
+    await act(async () => { release(); }); await flush();
+    expect(last(sent('GET', '/actions'))!.q.get('robot_id')).toBe('r-a');
+    expect(btn('＋ 사진 찍기')!.disabled).toBe(true);
+    expect(step(0).textContent).toContain('고른 카메라는 이 로봇으로 할 수 없습니다.');
+  });
+  it('계약에 없는 작업 key 는 추가 단추 없이 «지원 전 작업» 안내', async () => {
+    seed();
+    const dance = { key: 'DANCE', label: '춤추기', params: {}, requires: [], available: true, why_unavailable: null, options: [] } as unknown as Action;
+    serve(KIM, { over: { 'GET /actions': [(real) => { const r = real(); return { ...r, body: [...(r.body as Action[]), dance] }; }] } });
+    await open(); await kind('임무');
+    await click(btn('새 임무'));
+    expect(btn('＋ 춤추기')).toBeUndefined();
+    expect(card('작업 추가').textContent).toContain('춤추기: 지원 전 작업입니다.');
+    expect(btn('＋ 대기')).toBeTruthy();
+  });
+  it('B4 저장 422 에 실린 서버 미리보기(갈 수 없음)가 앞의 «모두 갈 수 있음»을 대신 — 저장 막힘', async () => {
+    seed();
+    const no = { reachable: false, points: [{ element: 'waypoints.0', reachable: true, reasons: [] }, { element: 'waypoints.1', reachable: false, reasons: ['층 연결점이 꺼졌습니다.'] }],
+      segments: [], floor_ids: ['f1'], map_version_ids: ['v1'], required_devices: [], est_distance_m: 5, distance_note: '' };
+    serve(KIM, { over: { 'PUT /scenarios/s1': [err(422, 'PRECHECK_FAILED', '갈 수 없는 지점이 있습니다.', { elements: ['waypoints.1'], preview: no })] } });
+    await open();
+    await click(row('s1'));
+    await setVal(name(), '고침');
+    await settle();
+    expect(card('경로 확인').textContent).toContain('모든 지점에 갈 수 있습니다.');
+    await click(saveBtn());
+    expect(card('경로 확인').textContent).not.toContain('모든 지점에 갈 수 있습니다.');
+    expect(card('경로 확인').textContent).toContain('갈 수 없는 지점이 있습니다.');
+    expect(point(1).textContent).toContain('갈 수 없음: 층 연결점이 꺼졌습니다.');
+    expect(saveBtn().disabled).toBe(true);
+    await settle();
+    expect(saveBtn().disabled).toBe(true); expect(sent('PUT', '/scenarios/s1')).toHaveLength(1);
+  });
+  it('B5 옛 판은 그 판 지점이 가리키는 지도 판으로 그린다 — 지금 승인 지도 위에 그리지 않음', async () => {
+    seed(); approved.f1 = 'v3';
+    bump('scenarios', 's1', { name: '1층 순찰', waypoints: [wp('f1', 1, 1)], finish: { mode: 'STAY', target: null }, notes: '' }, KIM);   // 판 2 = v3 위
+    serve(KIM);
+    await open();
+    await click(row('s1'));
+    expect(map().querySelector('image')!.getAttribute('href')).toContain('/map-versions/v3/image');
+    await setVal($<HTMLSelectElement>('select[aria-label="판"]')!, '1');
+    expect($('[data-old]')).toBeTruthy();
+    expect(sent('GET', '/map-versions/v1')).toHaveLength(1);
+    expect(map().querySelector('image')!.getAttribute('href')).toContain('/map-versions/v1/image');
+    expect(point(1).textContent).toContain('«입구»');
+  });
+  it('B6 지도를 못 받았을 때 «다시 받기»는 실제로 다시 요청한다', async () => {
+    seed(); serve(KIM, { over: { 'GET /map-versions/v1': [err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.')] } });
+    await open();
+    await click(btn('새 시나리오'));
+    expect(alertText()).toContain('지도를 받지 못했습니다.');
+    expect($('svg[data-scenario-map]')).toBeNull();
+    await click(btn('다시 받기'));
+    expect(sent('GET', '/map-versions/v1')).toHaveLength(2);
+    expect(map()).toBeTruthy(); expect(alertText()).not.toContain('지도를 받지 못했습니다.');
+    await stopSends();
   });
 });
 

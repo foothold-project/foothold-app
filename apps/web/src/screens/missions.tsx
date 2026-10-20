@@ -47,6 +47,7 @@ const elementsOf = (e: ApiFail) => (arr(e.detail?.elements) ? (e.detail!.element
 type Unsure = { body: AnyWrite; id: string; known: string[] | null; next: number | null; match?: number };
 /** 저장하지 않은 편집 — 다른 탭·다른 항목·폰 틀로 가도 남겨 다시 열면 이어 쓴다(지도 편집 kept 와 같은 생각, 확인창 없이). base = 편집을 시작한 판(If-Match 기준) */
 type Draft = { body: AnyWrite; base: AnyPlan | null; unsure: Unsure | null };
+type Adopt = 'all' | 'base' | 'none';
 export const keptPlan: { kind: Plan; sel: string | null; drafts: Record<string, Draft>; now: boolean } = { kind: 'scenarios', sel: null, drafts: {}, now: false };
 /** 로그아웃 때 비운다(session.tsx) */
 export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; };
@@ -119,29 +120,36 @@ const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'm
 function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kind: Plan; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void }) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null), admin = user.role === 'ORG_ADMIN';
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
-  const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState(''), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
+  const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
   const [bad, setBad] = useState<Bad[]>([]), [block, setBlock] = useState<string | null>(null), [recheck, setRecheck] = useState(0), [conflict, setConflict] = useState(false);
   const [busy, setBusy] = useState(false), [unsure, setUnsure] = useState<Unsure | null>(kd?.unsure ?? null), [checking, setChecking] = useState(false), [again, setAgain] = useState(false), live = useRef(true);
+  const [srv, setSrv] = useState<{ key: string; r: ScenarioPreview } | null>(null), [ask, setAsk] = useState(false);
+  /** 보낸(서버로 나간) 저장 — 응답 전에 칸이 내려가면 초안에 남겨 다시 열 때 확인부터 한다(두 번 저장 방지) */
+  const sending = useRef<Unsure | null>(null);
   const what = WHAT[kind];
 
-  /** 최신 판 받기. adopt = 받은 판으로 본문까지(처음 열 때), base = 기준 판만(입력 보존 — 409 뒤) */
-  const load = (adopt: 'all' | 'base' | 'none') => api.plan(kind, id, null, cancel).then(fit(isPlan)).then((x) => {
+  /** 최신 판 받기. adopt = 받은 판으로 본문까지(처음 열 때), base = 기준 판만(입력 보존 — 409 뒤), none = 이어 쓰는 초안. 실패해도 그 목적 그대로 다시 받는다(입력을 덮지 않게) */
+  const load = (adopt: Adopt) => api.plan(kind, id, null, cancel).then(fit(isPlan)).then((x) => {
     if (!live.current) return;
-    setLatest(x); setErr('');
+    setLatest(x); setErr(null);
     if (adopt === 'all') { setBase(x); setBody(bodyOf(x)); }
     if (adopt === 'base') { setBase(x); setConflict(false); setMsg({ text: `최신 판(판 ${x.number})을 받았습니다. 입력은 그대로입니다 — 저장하면 다음 판(판 ${x.number + 1})이 됩니다. 최신 판 내용은 «판»에서 고르면 볼 수 있습니다.`, ok: true }); }
     if (adopt === 'none' && kd?.base && kd.base.version !== x.version) { setConflict(true); setMsg({ text: CONFLICT }); }
-  }, (e: ApiFail) => { if (live.current && e.code !== 'CANCELED') setErr(e.status === 404 ? `이 ${what}를 찾을 수 없습니다. 목록을 다시 받으세요.` : `${what}를 받지 못했습니다. ${e.message}`); });
+  }, (e: ApiFail) => { if (live.current && e.code !== 'CANCELED') setErr({ text: e.status === 404 ? `이 ${what}를 찾을 수 없습니다. 목록을 다시 받으세요.` : `${what}를 받지 못했습니다. ${e.message}`, adopt }); });
   useEffect(() => { live.current = true; if (id) load(kd ? 'none' : 'all'); if (kd?.unsure) check(kd.unsure); return () => { live.current = false; }; }, []);
 
   const mine = !id || (latest ? admin || latest.created_by === user.id : false), archived = !!latest?.archived_at;
   const editable = mine && !archived && (!id || !!latest), lock = busy || !!unsure;
   const dirty = !!body && (base ? !same(base, body) : canon(body) !== canon(empty(kind)));
-  // 내려갈 때 남긴다(저장 안 한 편집·확인 전 저장) — 저장되면 비운다
-  const snap = useRef<Draft | null>(null);
-  snap.current = body && editable && (dirty || unsure) ? { body, base, unsure } : null;
-  keptPlan.now = !!snap.current;
-  useEffect(() => () => { keptPlan.now = false; if (snap.current) keptPlan.drafts[key] = snap.current; else delete keptPlan.drafts[key]; }, []);
+  // 내려갈 때 남긴다(저장 안 한 편집·확인 전 저장·응답 기다리는 저장) — 저장되면 비운다
+  const snap = useRef<Draft | null>(null), keep = useRef(false);
+  snap.current = body && editable ? { body, base, unsure } : null; keep.current = dirty || !!unsure || busy;
+  keptPlan.now = !!snap.current && keep.current;
+  useEffect(() => () => {
+    keptPlan.now = false;
+    const d = snap.current, u = d && (d.unsure ?? sending.current);
+    if (d && (u || keep.current)) keptPlan.drafts[key] = { ...d, unsure: u }; else delete keptPlan.drafts[key];
+  }, []);
 
   const saved = (x: AnyPlan, text: string) => { snap.current = null; delete keptPlan.drafts[key];   // 새 항목은 곧 다른 key 로 다시 열려 이 칸이 다시 그려지지 않고 내려간다
     setUnsure(null); setLatest(x); setBase(x); setBody(bodyOf(x)); setBad([]); setConflict(false); setMsg({ text, ok: true }); done(x, id ? null : { text, ok: true }); };
@@ -162,11 +170,13 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
     }).catch((e: ApiFail) => { if (!live.current || e.code === 'CANCELED') return; setChecking(false); setMsg({ text: `저장됐는지 확인하지 못했습니다. ${e.message} «저장 확인»을 다시 누르세요.` }); });
   };
   /** 저장 실패(응답을 받음) = 무엇이 + 어떻게 */
-  const failed = (e: ApiFail) => {
+  const failed = (e: ApiFail, b: AnyWrite) => {
     if (e.code === 'VERSION_CONFLICT' || e.status === 428) { setConflict(true); setMsg({ text: CONFLICT }); return; }
     if (e.code === 'STALE') { setBad(elementsOf(e).map((at) => ({ at, text: '이 지점의 지도가 바뀌었습니다.' }))); setRecheck((x) => x + 1); setMsg({ text: STALE }); return; }
     if (e.status === 422) {
-      const at = elementsOf(e);
+      const at = elementsOf(e), p = e.detail?.preview as ScenarioPreview | undefined;
+      // 시나리오: 저장 때 서버가 다시 잰 결과가 앞 미리보기를 대신한다(없으면 앞 결과를 버리고 다시 확인 — 그동안 저장 막힘)
+      if (kind === 'scenarios') { if (p && isPreview(p)) setSrv({ key: canon(b), r: p }); else setRecheck((x) => x + 1); }
       setBad(at.length ? at.map((a) => ({ at: a, text: a === 'name' ? '이름을 확인하세요(1~128자, 보이지 않는 글자 없이).' : kind === 'missions' ? '이 작업의 값을 확인하세요.' : '이 지점을 확인하세요.' })) : []);
       setMsg({ text: `${e.message} 표시한 곳을 고친 뒤 다시 저장하세요.` }); return;
     }
@@ -178,15 +188,22 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
     setBusy(true); setMsg(null); setBad([]);
     const u: Unsure = { body: b, id, known: null, next: base ? base.latest_version + 1 : null, match: base?.version };
     (base ? Promise.resolve() : api.allPlans(kind, cancel).then((l) => { u.known = l.map((x) => x.id); }))
-      .then(() => (base ? api.savePlan(kind, base.id, base.version, b, cancel) : api.createPlan(kind, b, cancel))).then(fit(isPlan))   // 빈·어긋난 성공 = 불확실(status 0)
-      .then((x) => { if (!live.current) { delete keptPlan.drafts[key]; return; } setBusy(false); saved(x, `저장했습니다(판 ${x.number}).`); },
+      .then(() => {
+        if (!live.current) throw new ApiFail(0, 'CANCELED', '');   // 목록을 받는 동안 내려감 — 보내지 않는다
+        sending.current = u;
+        return base ? api.savePlan(kind, base.id, base.version, b, cancel) : api.createPlan(kind, b, cancel);
+      }).then(fit(isPlan))   // 빈·어긋난 성공 = 불확실(status 0)
+      .then((x) => { sending.current = null; if (!live.current) { delete keptPlan.drafts[key]; return; } setBusy(false); saved(x, `저장했습니다(판 ${x.number}).`); },
         (e: ApiFail) => {
-          if (!live.current) { const d = keptPlan.drafts[key]; if (d && e.status === 0 && (base || u.known)) d.unsure = u; return; }   // 내려간 뒤 끝남 — 다시 열면 확인부터
+          const was = sending.current === u;
+          if (was) sending.current = null;
+          // 내려간 뒤 끝남: 끊김이면 초안의 확인 전 저장을 그대로(다시 열면 확인부터), 서버가 거절했으면 생긴 것이 없으니 푼다
+          if (!live.current) { const d = keptPlan.drafts[key]; if (d && was && e.status !== 0) d.unsure = null; return; }
           setBusy(false);
           if (e.code === 'CANCELED') return;
-          if (!base && !u.known) return setMsg({ text: `저장하지 못했습니다. 저장 전에 목록을 확인하지 못해 보내지 않았습니다. ${e.message} 다시 누르세요.` });
+          if (!was) return setMsg({ text: `저장하지 못했습니다. 저장 전에 목록을 확인하지 못해 보내지 않았습니다. ${e.message} 다시 누르세요.` });
           if (e.status === 0) { setUnsure(u); setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 확인합니다. 입력은 그대로 있습니다.' }); check(u); return; }
-          failed(e);
+          failed(e, b);
         });
   };
   const save = (e: FormEvent) => {
@@ -197,7 +214,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
     if (block) return setMsg({ text: block });
     send(body);
   };
-  // 보관 — 되돌리는 API 는 없지만 옛 판은 계속 읽히고 배정·기록은 그대로라 확인창을 두지 않는다(U10 확인창 목록 밖)
+  // 보관 — 되돌리는(보관 해제) API 가 없어 확인창을 거친다(U10, 조정 결정). 옛 판은 계속 읽힌다
   const archive = () => {
     setBusy(true); setMsg(null);
     api.archivePlan(kind, id, cancel).then(() => load('all').then(() => { if (!live.current) return; setBusy(false); snap.current = null; delete keptPlan.drafts[key]; done(null, { text: `보관했습니다. «보관된 것도 보기»에서 옛 판을 계속 볼 수 있습니다.`, ok: true }); }),
@@ -208,12 +225,13 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
     api.plan(kind, id, n, cancel).then(fit(isPlan)).then((x) => live.current && setView(x), (e: ApiFail) => { if (live.current && e.code !== 'CANCELED') setMsg({ text: `판 ${n} 내용을 받지 못했습니다. ${e.message}` }); });
   };
 
-  if (err) return <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => { setErr(''); load('all'); }}>다시 받기</button></div>;
-  if (!body) return <p className="lv-note" role="status">불러오는 중…</p>;
+  const retry = err && <div className="fh-row"><p className="fh-msg" role="alert">{err.text}</p><button type="button" className="btn" onClick={() => { setErr(null); load(err.adopt); }}>다시 받기</button></div>;
+  if (!body) return retry || <p className="lv-note" role="status">불러오는 중…</p>;
   const shown = view ? bodyOf(view) : body, ro = !!view || !editable;
   const put = (b: AnyWrite) => { if (lock || ro) return; setBody(b); setBad([]); setMsg(null); };
   const nameBadNow = bad.find((b) => b.at === 'name');
   return <div className="fh-form" aria-label={`${what} 편집 칸`}>
+    {retry}
     <div className="fh-row"><h2 className="fh-grow">{id ? shown.name || what : `새 ${what}`}</h2>
       {latest && <label className="fh-row"><span>판</span><select className="inp" aria-label="판" value={view?.number ?? latest.latest_version} onChange={(e) => pickVersion(Number(e.target.value))}>
         {Array.from({ length: latest.latest_version }, (_, i) => latest.latest_version - i).map((n) => <option key={n} value={n}>{`판 ${n}${n === latest.latest_version ? ' (최신)' : ''}`}</option>)}</select></label>}</div>
@@ -226,12 +244,15 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
       {kind === 'missions'
         ? <MissionForm value={shown as MissionWrite} set={ro ? undefined : (b) => put(b)} bad={view ? [] : bad} robots={robots} user={user} cancel={cancel} />
         : <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
-            cancel={cancel} setBlock={setBlock} recheck={recheck} saved={(view ?? (id ? latest : null)) as Scenario | null} />}
+            cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} />}
     </fieldset>
     {!ro && <form className="fh-form" onSubmit={save} noValidate aria-label="저장">
       <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || (kind === 'scenarios' && !!block)} aria-describedby={kind === 'scenarios' && block ? 'plan-block' : undefined}>{id ? '새 판으로 저장' : '저장'}</button>
         {conflict && <button type="button" className="btn" disabled={lock} onClick={() => load('base')}>최신 판 받기</button>}
-        {id && <button type="button" className="btn" disabled={lock} onClick={archive}>보관</button>}</div>
+        {id && <button type="button" className="btn" disabled={lock || ask} onClick={() => setAsk(true)}>보관</button>}</div>
+      {ask && <div className="fh-row" role="group" aria-label="보관 확인"><span>이 {what}를 보관할까요? 보관하면 되돌릴 수 없습니다 — 목록에서 빠지고 더는 고칠 수 없습니다. 옛 판은 «보관된 것도 보기»에서 볼 수 있습니다.</span>
+        <button type="button" className="btn pri" disabled={lock} onClick={() => { setAsk(false); archive(); }}>보관하기</button>
+        <button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>}
       {kind === 'scenarios' && block && !lock && <span id="plan-block" className="fh-why" data-block>{block}</span>}
       {busy && <p className="lv-note" role="status">저장하는 중…</p>}
     </form>}
@@ -270,14 +291,16 @@ const stepText = (s: MissionStep) => { const p = s.params ?? {};
 
 /** 작업 단계(01 MS-01·09): 카탈로그(GET /actions)에서 고르고 인자를 넣는다. 로봇을 고르면 그 로봇 장치로 할 수 없는 작업·선택지는 회색 + 이유(고를 수 없음) */
 function MissionForm({ value, set, bad, robots, user, cancel }: { value: MissionWrite; set?: (v: MissionWrite) => void; bad: Bad[]; robots: Robot[]; user: User; cancel?: AbortSignal }) {
-  const [robot, setRobot] = useState(''), [acts, setActs] = useState<Action[] | null>(null), [err, setErr] = useState('');
+  // 카탈로그는 받은 로봇에 묶는다 — 로봇을 바꾼 뒤 새 답이 오기 전·못 받았을 때는 추가·선택지를 잠근다(앞 로봇 카탈로그로 못 하는 작업을 고르지 않게)
+  const [robot, setRobot] = useState(''), [cat, setCat] = useState<{ robot: string; l: Action[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
   const mineRobots = robots.filter((r) => user.role === 'ORG_ADMIN' || r.owner === user.id);   // 담당 밖 로봇은 서버가 404
   useEffect(() => {
     let live = true;
     setErr('');
-    api.actions(robot || null, cancel).then(fit(isActs)).then((a) => { if (live) setActs(a); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
+    api.actions(robot || null, cancel).then(fit(isActs)).then((l) => { if (live) setCat({ robot, l }); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
     return () => { live = false; };
-  }, [robot]);
+  }, [robot, n]);
+  const acts = cat?.robot === robot && !err ? cat.l : null;
   const steps = value.steps, put = (s: MissionStep[]) => set?.({ ...value, steps: s }), actOf = (k: string) => acts?.find((a) => a.key === k);
   const swap = (i: number, s: MissionStep) => put(steps.map((o, k) => (k === i ? s : o)));
   const move = (i: number, d: number) => { const s = [...steps], [x] = s.splice(i, 1); s.splice(i + d, 0, x); put(s); };
@@ -292,7 +315,7 @@ function MissionForm({ value, set, bad, robots, user, cancel }: { value: Mission
     <h3>작업 단계</h3>
     {set && <label className="fh-field"><span>장치 확인할 로봇(고르면 그 로봇이 못 하는 작업은 회색)</span>
       <select className="inp" value={robot} onChange={(e) => setRobot(e.target.value)}><option value="">고르지 않음</option>{mineRobots.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>}
-    {err && <p className="fh-msg" role="alert">작업 목록을 받지 못했습니다. {err}</p>}
+    {err && <div className="fh-row"><p className="fh-msg" role="alert">작업 목록을 받지 못했습니다. {err} 받기 전에는 작업을 추가하거나 장치를 고를 수 없습니다.</p><button type="button" className="btn" onClick={() => setN((x) => x + 1)}>다시 받기</button></div>}
     <ol className="fh-form" style={LIST} aria-label="작업 단계">{steps.map((s, i) => {
       const a = actOf(s.action), p = s.params ?? {}, opt = a?.options.find((o) => o.value === p[o.param]), sb = bad.filter((b) => b.at === `steps.${i}`);
       return <li key={i} data-step={i} data-bad={sb.length ? '' : undefined} style={sb.length ? { outline: '2px solid var(--bad)', borderRadius: 8 } : undefined}>
@@ -303,7 +326,7 @@ function MissionForm({ value, set, bad, robots, user, cancel }: { value: Mission
         {set && <div className="fh-row" style={{ flexWrap: 'wrap' }}>
           {(s.action === 'PHOTO' || s.action === 'SENSOR_LOG') && (() => { const param = s.action === 'PHOTO' ? 'camera' : 'device', opts = a?.options.filter((o) => o.param === param);
             return <label className="fh-field"><span>{s.action === 'PHOTO' ? '카메라' : '장치'}</span>
-              <select className="inp" value={String(p[param] ?? '')} onChange={(e) => swap(i, { ...s, params: { ...p, [param]: e.target.value } })}>
+              <select className="inp" value={String(p[param] ?? '')} disabled={!acts} onChange={(e) => swap(i, { ...s, params: { ...p, [param]: e.target.value } })}>
                 {(opts ?? (s.action === 'PHOTO' ? ['rgb', 'depth'] : ['rgb', 'depth', 'lidar', 'battery']).map((value) => ({ value, available: true }))).map((o) =>
                   <option key={o.value} value={o.value} disabled={!o.available}>{VALUE[o.value]}{o.available ? '' : ' — 할 수 없음'}</option>)}</select></label>; })()}
           {'seconds' in p && <label className="fh-field"><span>{s.action === 'WAIT' ? '기다릴 시간(초, 1~3600)' : '기록 시간(초, 1~3600)'}</span>
@@ -318,8 +341,9 @@ function MissionForm({ value, set, bad, robots, user, cancel }: { value: Mission
     {!steps.length && <p className="lv-note">아래에서 작업을 골라 추가하세요.</p>}
     {listBad && <p className="fh-msg" role="alert">{listBad.text}</p>}
     {set && acts && <div className="fh-form" role="group" aria-label="작업 추가">{acts.map((a) => <div key={a.key} className="fh-row">
-      <button type="button" className="btn" disabled={!a.available || steps.length >= 100} aria-describedby={a.available ? undefined : `act-${a.key}`} onClick={() => add(a)}>＋ {a.label}</button>
-      {!a.available && <span id={`act-${a.key}`} className="fh-why" data-why>{plain(a.why_unavailable)}</span>}</div>)}</div>}
+      {!(a.key in ACT) ? <span className="fh-why" data-why>{a.label}: 지원 전 작업입니다. 이 화면에서는 아직 넣을 수 없습니다.</span> : <>   {/* 계약 밖 작업은 편집·전송하지 않는다 */}
+        <button type="button" className="btn" disabled={!a.available || steps.length >= 100} aria-describedby={a.available ? undefined : `act-${a.key}`} onClick={() => add(a)}>＋ {a.label}</button>
+        {!a.available && <span id={`act-${a.key}`} className="fh-why" data-why>{plain(a.why_unavailable)}</span>}</>}</div>)}</div>}
     {set && !acts && !err && <p className="lv-note" role="status">작업 목록을 불러오는 중…</p>}
   </>;
 }
@@ -336,19 +360,22 @@ const MISSING = (v: ScenarioWrite) => (!v.waypoints.length ? '지도를 눌러 �
 const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoints\.(\d+)/.test(e) ? `${Number(/^waypoints\.(\d+)/.exec(e)![1]) + 1}번 지점` : e);
 
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·순서·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
- *  set 없음 = 읽기 전용(남의 것·옛 판·보관) — 미리보기 대신 저장된 거리·장치. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전), recheck = 저장이 STALE 로 막혀 다시 미리보기 */
-function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, saved }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
-  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; saved: Scenario | null }) {
+ *  set 없음 = 읽기 전용(남의 것·옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
+ *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과) */
+function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
+  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null }) {
   const pts = value.waypoints, finish = value.finish ?? { mode: 'STAY', target: null }, target = finish.target ?? null;
   const [cur, setCur] = useState(() => pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? '');
   useEffect(() => { if (!cur) setCur(pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? ''); }, [places.length]);
-  const place = places.find((p) => p.floor.id === cur), vid = place?.floor.approved_version_id ?? null;
-  const [maps, setMaps] = useState<Record<string, MapVersion>>({}), [mapErr, setMapErr] = useState('');
+  // 편집 = 지금 승인 판(STALE 은 미리보기·저장이 알린다), 읽기 전용(옛 판·남의 것·보관) = 이 층 지점이 가리키는 판 — 과거 좌표를 다른 지도 위에 그리지 않는다
+  const own = set ? undefined : [...pts, ...(target ? [target] : [])].find((p) => p.floor_id === cur)?.map_version_id;
+  const place = places.find((p) => p.floor.id === cur), vid = own ?? place?.floor.approved_version_id ?? null;
+  const [maps, setMaps] = useState<Record<string, MapVersion>>({}), [mapErr, setMapErr] = useState(''), [mapN, setMapN] = useState(0);
   useEffect(() => {
     if (!vid || maps[vid]) return;
     setMapErr('');
     api.version(vid, cancel).then(shape(isVersion)).then((x) => setMaps((m) => ({ ...m, [vid]: x })), (e: ApiFail) => { if (e.code !== 'CANCELED') setMapErr(e.message); });
-  }, [vid]);
+  }, [vid, mapN]);
   const v = vid ? maps[vid] : undefined;
   // 임무 고르기: 보관 안 된 임무의 최신 판. 이미 고른 옛 판·보관된 임무는 그 지점에만 그대로 보인다
   const [missions, setMissions] = useState<Mission[] | null>(null), [mErr, setMErr] = useState(''), [mN, setMN] = useState(0);
@@ -358,7 +385,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const svg = useRef<SVGSVGElement>(null), drag = useRef<{ i: number | 'T'; from: P; orig: ScenarioPoint } | null>(null);
   useEffect(() => { if (lock) drag.current = null; }, [lock]);
   const floorName = (id: string) => { const p = places.find((x) => x.floor.id === id); return p ? `${p.building.name} ${p.floor.name}` : '모르는 층'; };
-  const refName = (p: ScenarioPoint) => { const a = places.find((x) => x.floor.id === p.floor_id)?.floor.approved_version_id; return (a && maps[a]?.features.waypoints.find((w) => w.id === p.waypoint_ref)?.name) || '지도 지점'; };
+  const refName = (p: ScenarioPoint) => { const a = places.find((x) => x.floor.id === p.floor_id)?.floor.approved_version_id;
+    return (maps[p.map_version_id] ?? (a ? maps[a] : undefined))?.features.waypoints.find((w) => w.id === p.waypoint_ref)?.name || '지도 지점'; };
 
   // ③ 미리보기: 본문이 바뀌면 잠깐 뒤 다시(마지막 요청만 반영). 결과는 그 본문(key)에만 맞다
   const k = canon(value), missing = MISSING(value), [pre, setPre] = useState<{ key: string; r?: ScenarioPreview; e?: ApiFail } | null>(null), [checking, setChecking] = useState(false), [n, setN] = useState(0), seq = useRef(0);
@@ -370,6 +398,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       (e: ApiFail) => { if (g === seq.current && e.code !== 'CANCELED') { setPre({ key: k, e }); setChecking(false); } }), 400);
     return () => clearTimeout(t);
   }, [k, recheck, n, !set]);
+  useEffect(() => { if (srv) { seq.current++; setPre(srv); setChecking(false); } }, [srv]);
   const now = pre?.key === k && !checking ? pre : null, r = now?.r, pe = now?.e;
   const block = !set ? null : missing ?? (!now ? '경로를 확인하는 중입니다.' : pe ? (pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무 판을 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`)
     : !r!.reachable ? '갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.' : null);
@@ -433,15 +462,15 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const on = pts.map((p, i) => [p, i] as const).filter(([p]) => p.floor_id === cur);
   return <>
     <h3>① 지도</h3>
-    {!approved.length ? <p className="lv-note">승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.</p>
+    {!approved.length && (set || !pts.length) ? <p className="lv-note">승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.</p>
       : <div className="fh-row" role="group" aria-label="층" style={{ flexWrap: 'wrap' }}>{places.map((p) => { const c = pts.filter((w) => w.floor_id === p.floor.id).length;
-          return <button key={p.floor.id} type="button" className="btn" aria-pressed={p.floor.id === cur} disabled={!p.floor.approved_version_id} onClick={() => setCur(p.floor.id)}>
+          return <button key={p.floor.id} type="button" className="btn" aria-pressed={p.floor.id === cur} disabled={!p.floor.approved_version_id && (!!set || !c)} onClick={() => setCur(p.floor.id)}>
             {p.site.name} · {p.building.name} · {p.floor.name}{c ? ` (지점 ${c})` : ''}{p.floor.approved_version_id ? '' : ' — 승인된 지도 없음'}</button>; })}</div>}
     <h3>② 지점</h3>
-    {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMaps((m) => ({ ...m })); setCur(cur); }}>다시 받기</button></div>}
+    {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
     {v && <svg ref={svg} viewBox={`0 0 ${v.width} ${v.height}`} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
       style={{ display: 'block', width: '100%', maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8, touchAction: set ? 'none' : undefined, cursor: set ? 'crosshair' : 'default' }}>
-      <image href={api.imageUrl(v.id)} width={v.width} height={v.height} style={{ imageRendering: 'pixelated' }} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
+      <image key={mapN} href={api.imageUrl(v.id)} width={v.width} height={v.height} style={{ imageRendering: 'pixelated' }} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
       <Shapes v={v} f={v.features} />
       {on.length > 1 && <polyline points={on.map(([p]) => toPixel(v, p.x, p.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
       {on.map(([p, i]) => { const [x, y] = toPixel(v, p.x, p.y), b = marks.has(`waypoints.${i}`);
