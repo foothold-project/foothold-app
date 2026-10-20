@@ -2,8 +2,8 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 운영 관리자의 편집 저장·되돌리기 = 결재 요청(S4a, 201 PENDING 판) — 승인될 때까지 승인 판을 그대로 보이고, 처리는 결재 탭(screens/approvals.tsx).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
-import { useEffect, useState, type FormEvent } from 'react';
-import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import type { Approval, MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Tone, User } from '../fake';
 import { leaving } from '../menu';
@@ -120,6 +120,39 @@ export const Note = ({ m }: { m: Msg }) => {
   const p = <p className={`fh-msg${m.ok ? ' ok' : ''}`} role={m.ok ? 'status' : 'alert'}>{m.text}</p>;
   return m.mine ? <div className="fh-row">{p}<button type="button" className="btn" onClick={() => { location.hash = '#/approval'; }}>내 요청 보기</button></div> : p;
 };
+
+/** 결재 요청(운영 관리자)의 답이 끊긴 뒤 — 내 대기 요청(서버가 본인 것만) 중 같은 종류·기준 판·이유가 있으면 그 판, 없으면 null(만들어지지 않음), 확인 못 하면 throw.
+ *  운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않고 대기 판·결재가 하나 더 생긴다. ponytail: 대기 요청 200건까지 — 넘으면 확인 못 함 */
+async function findAsked(kind: Approval['kind'], base: string, reason: string, cancel?: AbortSignal): Promise<MapVersion | null> {
+  let cursor: string | null = null;
+  for (let i = 0; i < 10; i++) {
+    const r = await api.approvals('PENDING', cursor, cancel);
+    if (!r || !Array.isArray(r.items) || !(r.next_cursor === null || typeof r.next_cursor === 'string')) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다.');
+    const a = r.items.find((x) => x?.kind === kind && x.base_ref?.id === base && x.reason === reason && typeof x.target?.id === 'string');
+    if (a) return api.version(a.target.id, cancel).then(shape(isVersion));
+    if (!(cursor = r.next_cursor)) return null;
+  }
+  throw new ApiFail(0, 'TOO_MANY', '대기 중인 요청이 너무 많습니다.');
+}
+/** 결재 요청 답이 끊김(unsure) — 다시 보내기 전에 findAsked 로 확인한다. 찾으면 found(그 판), 없으면 다시 요청 가능, 확인 못 하면 «상태 확인»만(다시 보내기 막음).
+ *  first = 이 칸을 다시 열 때 이어받은 불확실 상태(편집 초안) */
+export function useUnsure(kind: Approval['kind'], base: string, reason: string, found: (v: MapVersion) => void, say: (m: Msg) => void, cancel?: AbortSignal, first = false) {
+  const [unsure, setUnsure] = useState(first), [checking, setChecking] = useState(false), live = useRef(true);
+  const check = () => {
+    setUnsure(true); setChecking(true);
+    findAsked(kind, base, reason, cancel).then((v) => {
+      if (!live.current) return;
+      setChecking(false); setUnsure(false);
+      if (v) found(v); else say({ text: '결재 요청이 만들어지지 않았습니다. 다시 요청할 수 있습니다.' });
+    }, (e: ApiFail) => {
+      if (!live.current || e.code === 'CANCELED') return;
+      setChecking(false);
+      say({ text: `결재 요청이 만들어졌는지 확인하지 못했습니다. ${e.message} «상태 확인»을 눌러 다시 확인하세요. 확인하기 전에는 다시 요청할 수 없습니다.` });
+    });
+  };
+  useEffect(() => { live.current = true; if (first) check(); return () => { live.current = false; }; }, []);
+  return { unsure, checking, check };
+}
 
 /** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 총괄만 장소 고치기·지도 올리기 단추. dash = 결재 요청 뒤 배지 다시 받기 */
 export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {

@@ -53,9 +53,10 @@ export type Dash = { d: Dashboard | null; err: string; again: () => void };
 /** 관제 요약(GET /dashboard, DASH_MS 마다) — 로봇 0대여도 보인다. 수치는 서버 값 그대로(운영 관리자는 서버가 담당 범위로 셈).
  *  못 받으면 «—» + 이유, 받은 뒤 실패하면 이전 값 그대로. App 이 한 번만 부른다(관제 칸·결재 탭 배지가 같은 값) */
 export function useDash(cancel?: AbortSignal): Dash {
-  const [d, setD] = useState<Dashboard | null>(null), [err, setErr] = useState(''), get = useRef(() => {});
+  const [d, setD] = useState<Dashboard | null>(null), [err, setErr] = useState(''), get = useRef(() => {}), gen = useRef(0);
   useEffect(() => {
-    get.current = () => { api.dashboard(cancel).then((x) => { if (!isDash(x)) return setErr('요약 형식이 맞지 않습니다.'); setD(x); setErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(e.message); }); };
+    // 주기 조회와 처리 뒤 조회가 겹치면 마지막에 보낸 것만 쓴다 — 늦게 온 옛 요약이 새 배지를 덮지 않게
+    get.current = () => { const g = ++gen.current; api.dashboard(cancel).then((x) => { if (g !== gen.current) return; if (!isDash(x)) return setErr('요약 형식이 맞지 않습니다.'); setD(x); setErr(''); }, (e: ApiFail) => { if (g === gen.current && e.code !== 'CANCELED') setErr(e.message); }); };
     get.current();
     const i = setInterval(get.current, DASH_MS);
     return () => clearInterval(i);

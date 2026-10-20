@@ -361,3 +361,128 @@ describe('처리', () => {
     expect(statusText()).toContain('승인했습니다.');
   });
 });
+
+describe('PR #36 검토 — 다시 받는 동안 잠금·늦은 응답·목록 미리 받기', () => {
+  type Over = Record<string, (Reply | (() => Reply | Promise<Reply>))[]>;
+  it('검토 1: 승인 답이 끊겨 다시 받는 동안 승인·반려 잠김(누름도 안 보냄), 받은 뒤 대기면 다시 열림 — STOP 은 그대로', async () => {
+    const db = [ap('a1', 3)], o = { over: {} as Over };
+    serve(KIM, db, o);
+    await open('#/approval');
+    await pick('a1');
+    let hold = (_: Reply) => {};
+    o.over['POST /approvals/a1/approve'] = [() => { throw new TypeError('Failed to fetch'); }];
+    o.over['GET /approvals/a1'] = [() => new Promise<Reply>((r) => { hold = r; })];
+    await click(btn('승인', detail()));
+    expect(btn('승인', detail())!.disabled).toBe(true); expect(btn('반려', detail())!.disabled).toBe(true);
+    expect(field('의견(선택)', detail()).disabled).toBe(true);
+    expect(statusText()).toContain('지금 상태를 다시 불러오는 중…');
+    act(() => btn('승인', detail())!.click()); await flush();
+    expect(sent('POST', '/approvals/a1/approve')).toHaveLength(1);
+    await stopSends();
+    hold({ status: 200, body: db[0] }); await flush();
+    expect(btn('승인', detail())!.disabled).toBe(false);
+    expect(statusText()).not.toContain('지금 상태를 다시 불러오는 중…');
+  });
+  it('검토 1: ALREADY_DECIDED → «다시 불러왔습니다»는 받은 뒤에만, 다시 받기 404 면 기존 상세 위에 오류 + 다시 시도·처리 잠김', async () => {
+    const db = [ap('a1', 3)], o = { over: {} as Over };
+    serve(KIM, db, o);
+    await open('#/approval');
+    await pick('a1');
+    let hold = (_: Reply) => {};
+    o.over['POST /approvals/a1/approve'] = [err(409, 'ALREADY_DECIDED', '이미 끝난 요청입니다. 결재 목록을 새로 확인하세요.')];
+    o.over['GET /approvals/a1'] = [() => new Promise<Reply>((r) => { hold = r; })];
+    await click(btn('승인', detail()));
+    expect(alertText()).toContain('이미 끝난 요청입니다. 결재 목록을 새로 확인하세요. 지금 상태를 다시 불러오는 중입니다.');
+    expect(alertText()).not.toContain('다시 불러왔습니다');
+    hold(err(404, 'NOT_FOUND', '결재 요청을 찾을 수 없습니다.')); await flush();
+    expect(alertText()).toContain('이 결재 요청을 볼 수 없습니다.'); expect(alertText()).toContain('상태를 확인하기 전에는 처리할 수 없습니다.');
+    expect(alertText()).not.toContain('다시 불러왔습니다');
+    expect(btn('승인', detail())!.disabled).toBe(true); expect(btn('반려', detail())!.disabled).toBe(true);
+    Object.assign(db[0], { status: 'APPROVED', decider: { id: 'a2', display_name: '박총괄' } });
+    await click(btn('다시 시도', detail()));
+    expect(detail().querySelector('.lv-chip')!.textContent).toBe('●승인');
+    expect(alertText()).not.toContain('상태를 확인하기 전에는');
+  });
+  for (const view of ['대기', '전체']) it(`검토 2: 앞 항목의 늦은 승인 성공이 그 사이 고른 항목·입력을 지우지 않음(${view} 보기) — 목록·배지만 새로`, async () => {
+    const db = [ap('a1', 3), ap('a2', 4), ap('a3', 5)];
+    let answer = (_: Reply) => {};
+    serve(KIM, db, { over: { 'POST /approvals/a1/approve': [() => new Promise<Reply>((r) => { answer = r; })] } });
+    await open('#/approval');
+    if (view === '전체') await click(btn('전체', card('보기')));
+    await pick('a1');
+    await click(btn('승인', detail()));
+    await pick('a3');
+    await setVal(field('의견(선택)', detail()), '나중 의견');
+    const lists = sent('GET', '/approvals').length, dash = sent('GET', '/dashboard').length, got = sent('GET', '/approvals/a3').length;
+    Object.assign(db[0], { status: 'APPROVED', decider: who(KIM) });
+    answer({ status: 200, body: { ...db[0], preview: undefined } }); await flush();
+    expect(row('a3').getAttribute('aria-pressed')).toBe('true');
+    expect(field('의견(선택)', detail()).value).toBe('나중 의견');
+    expect(sent('GET', '/approvals/a3').length).toBe(got);                     // 상세를 새로 만들지 않음
+    expect(sent('GET', '/approvals').length).toBe(lists + 1); expect(sent('GET', '/dashboard').length).toBe(dash + 1);
+    expect(statusText()).not.toContain('승인했습니다');
+  });
+  it('권고: 목록 줄의 상세 미리 받기는 동시에 4개까지, 모두 한 번씩 / 고른 항목은 상세 칸이 받은 것을 씀(중복 GET 없음)', async () => {
+    const db = Array.from({ length: 9 }, (_, i) => ap(`a${i + 1}`, i + 1)), held: (() => void)[] = [];
+    const over: Over = {};
+    for (const a of db) over[`GET /approvals/${a.id}`] = [() => new Promise<Reply>((r) => held.push(() => r({ status: 200, body: a })))];
+    serve(KIM, db, { over });
+    await open('#/approval');
+    const details = () => calls.filter((c) => c.method === 'GET' && /^\/approvals\/a\d$/.test(c.path)).length;
+    expect(details()).toBe(4);
+    held.shift()!(); await flush();
+    expect(details()).toBe(5);
+    while (held.length) { held.shift()!(); await flush(); }
+    expect(details()).toBe(9);
+    expect(rows()[8].textContent).toContain('1층 · 판 2 → 판 9');
+    act(() => root?.unmount()); box.remove();
+    let mine = (_: Reply) => {};
+    const two = [ap('a1', 3), ap('a2', 4)];
+    serve(KIM, two, { over: { 'GET /approvals/a1': [() => new Promise<Reply>((r) => { mine = r; })] } });   // 상세 칸 답이 목록보다 늦어도
+    await open('#/approvals?approval_id=a1');
+    expect(sent('GET', '/approvals/a1')).toHaveLength(1);
+    mine({ status: 200, body: two[0] }); await flush();
+    expect(sent('GET', '/approvals/a1')).toHaveLength(1); expect(sent('GET', '/approvals/a2')).toHaveLength(1);
+    expect(row('a1').textContent).toContain('1층 · 판 2 → 판 3');
+  });
+  it('권고: 의견·반려 이유 2000자 경계 — 칸이 2000자까지, 2000자는 그대로 보냄', async () => {
+    serve(KIM, [ap('a1', 3), ap('a2', 4)]);
+    await open('#/approval');
+    await pick('a1');
+    const long = '가'.repeat(2000);
+    expect(field('의견(선택)', detail()).maxLength).toBe(2000);
+    await setVal(field('의견(선택)', detail()), long);
+    await click(btn('승인', detail()));
+    expect((sent('POST', '/approvals/a1/approve')[0].body as { comment: string }).comment).toHaveLength(2000);
+    await click(btn('반려', detail()));
+    expect(field('반려 이유', card('반려')).maxLength).toBe(2000);
+    await setVal(field('반려 이유', card('반려')), long); await click(btn('반려하기', card('반려')));
+    await click(btn('반려', card('확인')));
+    expect((sent('POST', '/approvals/a2/reject')[0].body as { reason: string }).reason).toHaveLength(2000);
+  });
+  it('권고: «더 보기» 답을 기다리는 사이 보기를 바꾸면 늦게 온 앞 보기 답은 버림', async () => {
+    const o = { page: 1, over: {} as Over };
+    serve(KIM, [ap('a1', 3), ap('a2', 4), ap('a3', 5, { status: 'APPROVED' })], o);
+    await open('#/approval');
+    let late = (_: Reply) => {};
+    o.over['GET /approvals'] = [() => new Promise<Reply>((r) => { late = r; })];
+    await click(btn('더 보기'));
+    await click(btn('전체', card('보기')));
+    expect(rows().map((b) => b.dataset.approval)).toEqual(['a1']);
+    late({ status: 200, body: { items: [{ ...ap('a2', 4), preview: undefined }], next_cursor: null } }); await flush();
+    expect(rows().map((b) => b.dataset.approval)).toEqual(['a1']);
+    expect(btn('더 보기')).toBeTruthy();                                        // 전체 보기의 cursor 그대로
+    await click(btn('더 보기'));
+    expect(sent('GET', '/approvals').slice(-1)[0].q.has('status')).toBe(false);
+  });
+  it('권고: 배지 — 늦게 온 옛 /dashboard 답이 처리 뒤 새 값을 덮지 않음', async () => {
+    let late = (_: Reply) => {};
+    serve(KIM, [ap('a1', 3)], { over: { 'GET /dashboard': [() => new Promise<Reply>((r) => { late = r; })] } });
+    await open('#/approval');
+    await pick('a1');
+    await click(btn('승인', detail()));
+    expect($('nav a[href="#/approval"] .fh-badge')).toBeNull();               // 처리 뒤 답: 대기 0
+    late({ status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 5, operators: [] } }); await flush();
+    expect($('nav a[href="#/approval"] .fh-badge')).toBeNull();
+  });
+});
