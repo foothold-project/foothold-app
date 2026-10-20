@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Event as Ev, Notification, RobotSummary, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { tabFromHash } from '../menu';
+import { NOTE_MS } from '../api';
+import { BELL_MS } from '../screens/history';
+import { FakeWS } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -26,15 +29,18 @@ const err = (status: number, code: string, message: string) => ({ status, body: 
 
 type Reply = { status: number; body?: unknown };
 type Route = Reply | ((q: URLSearchParams, body?: unknown) => Reply | Promise<Reply>);
-type Call = { method: string; path: string; q: URLSearchParams; body?: unknown };
+type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; signal?: AbortSignal };
 let calls: Call[] = [], routes: Record<string, Route> = {};
 function serve(r: typeof routes) {
   routes = r; calls = [];
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', [path, qs = ''] = url.replace(/^\/api\/v1/, '').split('?'), q = new URLSearchParams(qs);
     const body = init.body ? JSON.parse(String(init.body)) : undefined;
-    calls.push({ method, path, q, body });
-    const hit = routes[`${method} ${path}`], rep = typeof hit === 'function' ? await hit(q, body) : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
+    calls.push({ method, path, q, body, signal: init.signal ?? undefined });
+    const hit = routes[`${method} ${path}`];
+    // 진짜 fetch 처럼 거두면(abort) 기다리던 요청도 실패한다
+    const rep = typeof hit === 'function' ? await Promise.race([hit(q, body), new Promise<never>((_, no) => init.signal?.addEventListener('abort', () => no(new DOMException('aborted', 'AbortError'))))])
+      : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     return new Response(rep.status === 204 ? null : typeof rep.body === 'string' ? rep.body : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -83,6 +89,17 @@ const stopOk = () => {
   expect(s!.disabled).toBe(false);
   expect($('header')!.lastElementChild).toBe(s);
 };
+/** STOP 을 실제로 눌러 정지 요청이 실시간 연결로 나가는지까지(R2). PC 기록 탭처럼 대상이 없으면 «정지할 로봇 고르기»에서 로봇을 골라 정지 */
+const stopSends = async () => {
+  stopOk();
+  act(() => FakeWS.last.open());
+  await click($('[data-stop]'));
+  const pick = $<HTMLSelectElement>('[aria-label="정지할 로봇"]');
+  if (pick) { await setVal(pick, pick.options[pick.options.length - 1].value); await click(btn('정지', $('[aria-label="정지할 로봇 고르기"]')!)); }
+  expect(FakeWS.last.of('stop')).toHaveLength(1);
+};
+/** 지금까지 예약된 setTimeout 중 ms 인 것의 콜백(마지막 것) */
+const timerOf = (spy: { mock: { calls: unknown[][] } }, ms: number) => { const c = spy.mock.calls.filter((a) => a[1] === ms); return c.length ? (c[c.length - 1][0] as () => void) : undefined; };
 
 describe('기록 탭 — 서버 목록 그대로', () => {
   it('최신순 목록·서버 문장 그대로·분류 이름과 심각도 모양, 처음 요청은 필터 없이 limit=50', async () => {
@@ -186,7 +203,7 @@ describe('기록 탭 — 오류', () => {
     serve(signedIn(LEE, { 'GET /events': err(403, 'FORBIDDEN', '권한이 없습니다.') }));
     await open('#/history');
     expect(alertText()).toContain('기록을 받지 못했습니다. 권한이 없습니다.');
-    stopOk();
+    await stopSends();
   });
   it('404(범위 밖) → 무엇이 + 어떻게', async () => {
     serve(signedIn(LEE, { 'GET /events': (q) => (q.get('robot_id') ? err(404, 'NOT_FOUND', '기록을 찾을 수 없습니다.') : list([ev('1')])) }));
@@ -225,7 +242,7 @@ describe('기록 탭 — 오류', () => {
       serve(signedIn(KIM, { 'GET /events': { status: 200, body }, 'GET /notifications': { status: 200, body: { items: 'x' } } }));
       await open('#/history');
       expect(alertText()).toContain('받은 기록 형식이 맞지 않습니다');
-      stopOk();
+      await stopSends();
       act(() => root?.unmount()); root = null; box.remove();
     }
   });
@@ -233,6 +250,70 @@ describe('기록 탭 — 오류', () => {
     serve(signedIn(KIM, { 'GET /events': () => new Promise<Reply>(() => {}), 'GET /notifications': () => new Promise<Reply>(() => {}) }));
     await open('#/history');
     expect(card('기록').textContent).toContain('기록을 불러오는 중');
+    await stopSends();
+  });
+});
+
+describe('화면 일부가 깨져도 STOP 은 남음(검토 P1)', () => {
+  it('날짜 칸이 받는 다섯 자리 연도 → 요청하지 않고 칸 안 안내, STOP 실제로 눌러 정지 요청', async () => {
+    serve(signedIn(KIM));
+    await open('#/history');
+    const before = sent('GET', '/events').length;
+    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '10000-01-01');
+    expect(alertText()).toContain('기간 날짜를 읽을 수 없습니다. 연도 네 자리 날짜(예: 2026-10-20)로 다시 고르세요.');
+    expect(sent('GET', '/events')).toHaveLength(before);   // 서버가 못 읽는 값은 보내지 않음
+    expect(btn('다시 시도')).toBeUndefined();               // 같은 값으로 다시 시도해도 소용없음
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('내보내지 못했습니다. 기간 날짜를 읽을 수 없습니다');
+    expect(sent('GET', '/events/export.csv')).toEqual([]);
+    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026-10-01');   // 고치면 다시 받음
+    expect(lastQuery()).toEqual({ from: new Date('2026-10-01T00:00:00').toISOString() });
+    expect(alertText()).not.toContain('기간 날짜');
+    await setVal($<HTMLInputElement>('[aria-label="기간 끝"]')!, '10000-12-31');
+    expect(alertText()).toContain('기간 날짜를 읽을 수 없습니다');
+    await stopSends();
+  });
+  it('본문 렌더 예외는 본문 칸 안에서 멈춤 — 머리줄·STOP 그대로, 다른 탭으로 가면 다시 그림', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('1')]) }));
+    await open('#/fleet');
+    const boom = vi.spyOn(Date.prototype, 'toTimeString').mockImplementation(() => { throw new RangeError('Invalid time value'); });   // 사건 행 시각에서 터짐
+    vi.spyOn(console, 'error').mockImplementation(() => {});   // React 가 잡은 예외를 찍는 줄
+    await click($('nav a[href="#/history"]'));
+    expect(card('화면 오류').textContent).toContain('이 화면을 그리지 못했습니다');
+    expect($('h1')!.textContent).toBe('기록');
+    await stopSends();
+    boom.mockRestore();
+    await click($('nav a[href="#/fleet"]'));
+    expect($('[aria-label="화면 오류"]')).toBeNull();
+    expect(card('로봇 상세')).toBeTruthy();
+  });
+});
+
+describe('로봇 0대 — 기록은 열림(검토 P2)', () => {
+  const none = { 'GET /robots': { status: 200, body: { items: [], next_cursor: null } } };
+  it('PC: 계정 사건 목록과 알림에서 연 기록', async () => {
+    serve(signedIn(KIM, { ...none,
+      'GET /events': list([ev('1', { category: 'ACCOUNT', robot_id: null, message: '김총괄님이 로그인했습니다.' })]),
+      'GET /events/1': { status: 200, body: ev('1', { category: 'ACCOUNT', robot_id: null, message: '알림이 가리킨 계정 사건' }) },
+    }));
+    await open('#/history?event_id=1');
+    expect(Object.fromEntries(sent('GET', '/events')[0].q)).toEqual({ limit: '50' });
+    expect(rows()).toEqual([expect.stringContaining('김총괄님이 로그인했습니다.')]);
+    expect(card('알림에서 연 기록').textContent).toContain('알림이 가리킨 계정 사건');
+    expect([...$('[aria-label="기록"] select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual(['전체']);
+    expect($('[aria-label="로봇 없음"]')).toBeNull();
+    stopOk();
+  });
+  it('폰: 담당 로봇 0대면 로봇 필터 없이 서버가 주는 내 기록, 알림 링크도', async () => {
+    serve(signedIn(PARK, { ...none,
+      'GET /events': list([]),
+      'GET /events/3': { status: 200, body: ev('3', { category: 'ACCOUNT', robot_id: null, message: '박운영님이 비밀번호를 바꿨습니다.' }) },
+    }));
+    await open('#/history?event_id=3', true);
+    expect(lastQuery()).toEqual({});
+    expect(card('기록').textContent).toContain('아직 기록이 없습니다.');
+    expect(card('기록').textContent).not.toContain('이 로봇의');
+    expect(card('알림에서 연 기록').textContent).toContain('박운영님이 비밀번호를 바꿨습니다.');
     stopOk();
   });
 });
@@ -255,6 +336,46 @@ describe('CSV 내보내기', () => {
     expect(saved).toEqual([{ href: 'blob:csv', download: expect.stringMatching(/^기록-\d{4}-\d\d-\d\d\.csv$/) }]);
     expect(await ((URL.createObjectURL as ReturnType<typeof vi.fn>).mock.calls[0][0] as Blob).text()).toContain('id,at\n2,x');   // 서버 본문 그대로
     expect(card('기록').textContent).toContain('CSV 파일로 내려받았습니다');
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv');   // 만든 URL 정리(R1)
+  });
+  it('429 RATE_LIMITED(다른 내보내기 진행 중) → 기다렸다 다시 하라는 안내, 파일 없음, 단추 되살림', async () => {
+    serve(signedIn(KIM, { 'GET /events/export.csv': err(429, 'RATE_LIMITED', '다른 기록을 내보내는 중입니다. 잠시 뒤 다시 시도하세요.') }));
+    await open('#/history');
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('다른 기록 내보내기가 아직 끝나지 않았습니다. 잠시 뒤 다시 내보내세요.');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(saved).toEqual([]);
+    expect(btn('내보내기')!.disabled).toBe(false);
+  });
+  it('본문 받다 끊김(200 뒤 blob 실패) → 실패 안내, 파일 없음, 다시 누를 수 있음(검토 P2)', async () => {
+    serve(signedIn(KIM, { 'GET /events/export.csv': { status: 200, body: 'id,at\n' } }));
+    const real = globalThis.fetch;
+    vi.stubGlobal('fetch', async (u: string, i?: RequestInit) => {
+      const r = await real(u, i);
+      if (u.includes('export.csv')) r.blob = async () => { throw new TypeError('body stream interrupted'); };
+      return r;
+    });
+    await open('#/history');
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('내보내지 못했습니다. 서버에 연결하지 못했습니다');
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(btn('내보내기')!.disabled).toBe(false);
+    stopOk();
+  });
+  it('파일 만들기 실패(createObjectURL 예외) → 안내 + 단추 되살림, 만든 URL 은 정리', async () => {
+    serve(signedIn(KIM, { 'GET /events/export.csv': { status: 200, body: 'id,at\n' } }));
+    await open('#/history');
+    URL.createObjectURL = vi.fn(() => { throw new TypeError('no blob'); });
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('내보내지 못했습니다. 파일을 만들지 못했습니다. 다시 시도하세요.');
+    expect(btn('내보내기')!.disabled).toBe(false);
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled();   // 만든 것이 없으면 정리할 것도 없음
+    URL.createObjectURL = vi.fn(() => 'blob:csv2');
+    vi.mocked(HTMLAnchorElement.prototype.click).mockImplementationOnce(() => { throw new Error('download blocked'); });
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('파일을 만들지 못했습니다');
+    expect(btn('내보내기')!.disabled).toBe(false);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv2');
   });
   it('400 EXPORT_LIMIT → 기간을 줄이라는 쉬운 안내, 파일 없음', async () => {
     serve(signedIn(KIM, { 'GET /events/export.csv': err(400, 'EXPORT_LIMIT', '기록이 10,000개를 넘습니다. 기간이나 필터를 좁혀 주세요.') }));
@@ -406,6 +527,47 @@ describe('알림 종', () => {
     await click(btn('닫기', card('알림에서 연 기록')));
     expect(location.hash).toBe('#/history');
     expect($('[aria-label="알림에서 연 기록"]')).toBeNull();
+  });
+  it('폴링은 한 번에 하나 — 앞 요청이 끝나기 전엔 다음을 예약하지 않고, 15초 넘게 걸린 답도 반영(검토 P2)', async () => {
+    const timers = vi.spyOn(globalThis, 'setTimeout'), waits: ((r: Reply) => void)[] = [];
+    serve(signedIn(KIM, { 'GET /notifications': () => new Promise<Reply>((r) => waits.push(r)) }));
+    await open('#/history');
+    expect(sent('GET', '/notifications')).toHaveLength(1);
+    expect(timerOf(timers, BELL_MS)).toBeUndefined();   // 진행 중엔 다음 폴링 없음
+    waits[0]({ status: 200, body: { items: [note('7')], next_cursor: null, unread_count: 1 } }); await flush();
+    expect($('[data-bell] summary')!.getAttribute('aria-label')).toBe('알림 안 읽음 1건');
+    act(() => timerOf(timers, BELL_MS)!()); await flush();   // 끝난 뒤에야 15초 뒤 다음
+    expect(sent('GET', '/notifications')).toHaveLength(2);
+    await stopSends();
+  });
+  it('제한시간(NOTE_MS)이 지나면 그 요청을 거두고 칸 안 안내, 그 뒤 다음 폴링 예약', async () => {
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    serve(signedIn(KIM, { 'GET /notifications': () => new Promise<Reply>(() => {}) }));
+    await open('#/history');
+    act(() => timerOf(timers, NOTE_MS)!()); await flush();
+    expect(sent('GET', '/notifications')[0].signal!.aborted).toBe(true);
+    expect(card('알림 목록').textContent).toContain('알림을 받지 못했습니다. 서버가 제시간에 답하지 않았습니다.');
+    expect(timerOf(timers, BELL_MS)).toBeDefined();
+    stopOk();
+  });
+  it('읽음이 진행 중 폴링과 겹치면 그 요청이 끝난 뒤 한 번 더 받음, 화면을 떠나면 진행 중 요청을 거둠', async () => {
+    const waits: ((r: Reply) => void)[] = [];
+    let unread = 1;
+    serve(signedIn(KIM, {
+      'GET /notifications': () => (waits.length ? new Promise<Reply>((r) => waits.push(r)) : (waits.push(() => {}), { status: 200, body: { items: [note('1', { read_at: unread ? null : NOW })], next_cursor: null, unread_count: unread } })),
+      'POST /notifications/read': () => { unread = 0; return { status: 204 }; },
+    }));
+    await open('#/fleet');
+    expect($('[data-bell] .fh-badge')!.textContent).toBe('1');
+    await click(btn('모두 읽음'));
+    expect(sent('GET', '/notifications')).toHaveLength(2);       // 읽음 뒤 받기 시작
+    await click(btn('모두 읽음'));                                 // 진행 중에 또 읽음 → 지금 요청 뒤 한 번 더
+    expect(sent('GET', '/notifications')).toHaveLength(2);       // 겹쳐 보내지 않음
+    waits[1]({ status: 200, body: { items: [note('1', { read_at: NOW })], next_cursor: null, unread_count: 0 } }); await flush();
+    expect(sent('GET', '/notifications')).toHaveLength(3);
+    const pending = sent('GET', '/notifications')[2].signal!;
+    act(() => root?.unmount()); root = null;
+    expect(pending.aborted).toBe(true);
   });
   it('알림 링크 주소도 기록 탭', () => {
     expect(tabFromHash('#/history?event_id=12', false)).toBe('history');

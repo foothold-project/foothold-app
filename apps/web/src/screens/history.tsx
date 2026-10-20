@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Event as Ev, EventList, NotificationList, Notification, NotificationsRead } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { myRobots, type Tone } from '../fake';
+import { myRobots, type Robot, type Tone } from '../fake';
 import { Chip, Line, type Ctx } from '../screens';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
@@ -26,14 +26,23 @@ const Row = ({ e }: { e: Ev }) => <li className="fh-row"><span className="mono">
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd — 그날 0시부터 끝까지, 브라우저 시간대) */
 type Filter = { category: string; robot: string; from: string; to: string };
 const NONE: Filter = { category: '', robot: '', from: '', to: '' };
+/** 날짜 칸 값 + 시각 → ISO. 서버가 못 읽는 날짜(날짜 칸이 받는 다섯 자리 연도 등)는 null — toISOString 의 RangeError 를 렌더까지 올리지 않는다 */
+function iso(day: string, time: string) {
+  const d = /^\d{4}-\d\d-\d\d$/.test(day) ? new Date(`${day}T${time}`) : null;
+  const s = d && !isNaN(d.getTime()) ? d.toISOString() : '';
+  return /^\d{4}-/.test(s) ? s : null;   // UTC 로 옮기며 연도가 네 자리를 벗어나는 경계(0000·9999년 끝)도 거른다
+}
+/** 필터 → 요청 매개변수. 기간 날짜를 읽을 수 없으면 null(요청하지 않고 칸 안에 안내) */
 function params(f: Filter) {
-  const q = new URLSearchParams();
+  const q = new URLSearchParams(), from = f.from && iso(f.from, '00:00:00'), to = f.to && iso(f.to, '23:59:59.999');
+  if (from === null || to === null) return null;
   if (f.category) q.set('category', f.category);
   if (f.robot) q.set('robot_id', f.robot);
-  if (f.from) q.set('from', new Date(`${f.from}T00:00:00`).toISOString());
-  if (f.to) q.set('to', new Date(`${f.to}T23:59:59.999`).toISOString());
+  if (from) q.set('from', from);
+  if (to) q.set('to', to);
   return q;
 }
+const BAD_DAY = new ApiFail(0, 'BAD_DATE', '기간 날짜를 읽을 수 없습니다. 연도 네 자리 날짜(예: 2026-10-20)로 다시 고르세요.');
 // 받은 값 모양 검사 — 어긋난 응답이 화면(머리줄·STOP 포함)을 깨뜨리지 않게, 오류 한 줄로만 남긴다
 const str = (v: unknown) => typeof v === 'string';
 const isEvent = (e: Ev) => !!e && str(e.id) && str(e.at) && str(e.message);
@@ -47,13 +56,14 @@ const why = (e: ApiFail) => (e.status === 404 ? `${e.message} 로봇 담당이 �
 /** 서버 목록(최신순) + cursor 로 더 받기. 필터가 바뀌면 처음부터 — 앞 요청의 늦은 답은 버린다 */
 function useEvents(f: Filter, cancel: AbortSignal | undefined, limit: number) {
   const [items, setItems] = useState<Ev[]>([]), [next, setNext] = useState<string | null>(null), [busy, setBusy] = useState(true), [err, setErr] = useState<ApiFail | null>(null);
-  const seq = useRef(0), key = params(f).toString();
+  const seq = useRef(0), key = params(f)?.toString() ?? 'bad';
   const load = (cursor?: string) => {
     const n = ++seq.current, q = params(f);
+    if (!cursor) { setItems([]); setNext(null); }   // 다른 필터의 목록을 이 필터 결과처럼 보이지 않게
+    if (!q) { setErr(BAD_DAY); setBusy(false); return; }
     q.set('limit', String(limit));
     if (cursor) q.set('cursor', cursor);
     setBusy(true); setErr(null);
-    if (!cursor) { setItems([]); setNext(null); }   // 다른 필터의 목록을 이 필터 결과처럼 보이지 않게
     api.events(q, cancel).then(shape(isEvents)).then((r) => {
       if (n !== seq.current) return;
       setItems((old) => (cursor ? [...old, ...r.items] : r.items)); setNext(r.next_cursor); setBusy(false);
@@ -63,26 +73,36 @@ function useEvents(f: Filter, cancel: AbortSignal | undefined, limit: number) {
   return { items, next, busy, err, more: () => load(next ?? undefined) };
 }
 
-/** 기록 탭(03 §5.5). PC = 분류·로봇·기간 + 내보내기, 폰 = 머리줄에서 고른 로봇의 기록만 */
-export function History(c: Ctx) {
-  const [f, setF] = useState(NONE), filter = c.phone ? { ...NONE, robot: c.robot.id } : f;
-  const ev = useEvents(filter, c.cancel, 50), set = (p: Partial<Filter>) => setF((o) => ({ ...o, ...p }));
+/** 기록 탭에 필요한 것만 — 로봇이 0대여도 계정·내 행동 기록과 알림 링크는 연다(LG-01·05) */
+type HistoryCtx = Pick<Ctx, 'user' | 'robots' | 'go' | 'phone' | 'cancel' | 'focus'> & { robot?: Robot };
+/** 기록 탭(03 §5.5). PC = 분류·로봇·기간 + 내보내기, 폰 = 머리줄에서 고른 로봇의 기록만(담당 로봇 0대면 서버가 주는 내 기록) */
+export function History(c: HistoryCtx) {
+  const [f, setF] = useState(NONE), filter = c.phone ? { ...NONE, robot: c.robot?.id ?? '' } : f;
+  const ev = useEvents(filter, c.cancel, 50), set = (p: Partial<Filter>) => { setF((o) => ({ ...o, ...p })); setOut(null); };   // 내보내기 안내는 그때 필터의 것
   const [out, setOut] = useState<{ text: string; ok?: boolean } | null>(null), [saving, setSaving] = useState(false);
-  // 지금 필터 그대로 CSV(F-LG-05). 10,000행 넘으면 서버가 거절(400 EXPORT_LIMIT) — 잘린 파일을 받지 않는다
-  const save = () => {
+  // 지금 필터 그대로 CSV(F-LG-05). 10,000행 넘으면 서버가 거절(400 EXPORT_LIMIT) — 잘린 파일을 받지 않는다. 동시 내보내기는 429 RATE_LIMITED.
+  // 받기·파일 만들기 어디서 실패해도 안내를 쓰고 단추를 되살리며 만든 URL 은 정리한다
+  const save = async () => {
+    const q = params(f);
+    if (!q) { setOut({ text: `내보내지 못했습니다. ${BAD_DAY.message}` }); return; }
     setSaving(true); setOut(null);
-    api.exportEvents(params(f), c.cancel).then((b) => {
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(b); a.download = `기록-${new Date().toLocaleDateString('sv')}.csv`; a.click();   // 현지 날짜 yyyy-mm-dd
-      setTimeout(() => URL.revokeObjectURL(a.href), 0);
-      setOut({ text: '지금 필터의 기록을 CSV 파일로 내려받았습니다.', ok: true }); setSaving(false);
-    }, (e: ApiFail) => {
-      if (e.code === 'CANCELED') return;
-      setOut({ text: e.code === 'EXPORT_LIMIT' ? '내보낼 기록이 너무 많습니다(10,000개 넘음). 기간을 줄이거나 분류·로봇을 골라 다시 내보내세요.' : `내보내지 못했습니다. ${e.message}` });
+    let url = '';
+    try {
+      const b = await api.exportEvents(q, c.cancel), a = document.createElement('a');
+      url = URL.createObjectURL(b);
+      a.href = url; a.download = `기록-${new Date().toLocaleDateString('sv')}.csv`; a.click();   // 현지 날짜 yyyy-mm-dd
+      setOut({ text: '지금 필터의 기록을 CSV 파일로 내려받았습니다.', ok: true });
+    } catch (e) {
+      const x = e instanceof ApiFail ? e : null;
+      if (x?.code !== 'CANCELED') setOut({ text: x?.code === 'EXPORT_LIMIT' ? '내보낼 기록이 너무 많습니다(10,000개 넘음). 기간을 줄이거나 분류·로봇을 골라 다시 내보내세요.'
+        : x?.code === 'RATE_LIMITED' ? '다른 기록 내보내기가 아직 끝나지 않았습니다. 잠시 뒤 다시 내보내세요.'
+        : `내보내지 못했습니다. ${x?.message ?? '파일을 만들지 못했습니다. 다시 시도하세요.'}` });
+    } finally {
       setSaving(false);
-    });
+      if (url) setTimeout(() => URL.revokeObjectURL(url), 0);   // 내려받기가 시작된 뒤 정리
+    }
   };
-  const filtered = !c.phone && params(f).toString() !== '';
+  const filtered = !c.phone && params(f)?.toString() !== '';
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="기록">
     {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} close={() => c.go('history')} />}
     {!c.phone && <>
@@ -101,8 +121,8 @@ export function History(c: Ctx) {
     <ul className="fh-list" aria-label="사건">{ev.items.map((e) => <Row key={e.id} e={e} />)}</ul>
     {ev.err && <p className="fh-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
     {ev.busy && <p className="lv-note" role="status">기록을 불러오는 중…</p>}
-    {!ev.busy && !ev.err && !ev.items.length && <p className="lv-note">{c.phone ? '이 로봇의 기록이 아직 없습니다.' : filtered ? '조건에 맞는 기록이 없습니다.' : '아직 기록이 없습니다.'}</p>}
-    {!ev.busy && (ev.next || ev.err) && <div className="fh-row"><button type="button" className="btn" onClick={ev.more}>{ev.err ? '다시 시도' : '더 보기'}</button></div>}
+    {!ev.busy && !ev.err && !ev.items.length && <p className="lv-note">{c.phone && c.robot ? '이 로봇의 기록이 아직 없습니다.' : filtered ? '조건에 맞는 기록이 없습니다.' : '아직 기록이 없습니다.'}</p>}
+    {!ev.busy && (ev.next || (ev.err && ev.err !== BAD_DAY)) && <div className="fh-row"><button type="button" className="btn" onClick={ev.more}>{ev.err ? '다시 시도' : '더 보기'}</button></div>}
   </section>;
 }
 
@@ -135,14 +155,30 @@ export const BELL_MS = 15_000;
  *  못 받으면 이전 값 그대로 — 실패 글은 펼친 칸 안에만 */
 export function Bell({ cancel }: { cancel?: AbortSignal }) {
   const [list, setList] = useState<NotificationList | null>(null), [err, setErr] = useState('');
-  const seq = useRef(0), box = useRef<HTMLDetailsElement>(null);
-  const get = () => {
-    const n = ++seq.current;
-    api.notifications(cancel).then(shape(isNotes)).then((x) => { if (n === seq.current) { setList(x); setErr(''); } },
-      (e: ApiFail) => { if (n === seq.current && e.code !== 'CANCELED') setErr(`알림을 받지 못했습니다. ${e.message}`); });
-  };
-  useEffect(() => { get(); const i = setInterval(get, BELL_MS); return () => clearInterval(i); }, []);
-  const read = (p: NotificationsRead) => api.readNotifications(p, cancel).then(get, (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(`읽음으로 바꾸지 못했습니다. ${e.message}`); });
+  const box = useRef<HTMLDetailsElement>(null), get = useRef(() => {});
+  // 한 번에 한 요청: 앞 요청이 끝나야(제한시간은 api) 다음을 BELL_MS 뒤에 예약 — 느린 정상 답도 버리지 않고, 요청이 쌓여 STOP 과 연결을 다투지 않게.
+  // 진행 중에 읽음이 끝나면 그 요청 뒤 한 번 더 받는다. 화면을 떠나거나 로그인 세션이 끝나면 진행 중 요청을 거둔다
+  useEffect(() => {
+    const stop = new AbortController(), off = () => stop.abort();
+    let timer: ReturnType<typeof setTimeout> | undefined, busy = false, again = false;
+    get.current = () => {
+      clearTimeout(timer);
+      if (busy) { again = true; return; }
+      busy = true;
+      api.notifications(stop.signal).then(shape(isNotes)).then((x) => { setList(x); setErr(''); },
+        (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(`알림을 받지 못했습니다. ${e.message}`); })
+        .finally(() => {
+          busy = false;
+          if (stop.signal.aborted) return;
+          if (again) { again = false; get.current(); } else timer = setTimeout(get.current, BELL_MS);
+        });
+    };
+    cancel?.addEventListener('abort', off);
+    if (cancel?.aborted) stop.abort();
+    get.current();
+    return () => { stop.abort(); clearTimeout(timer); cancel?.removeEventListener('abort', off); };
+  }, []);
+  const read = (p: NotificationsRead) => api.readNotifications(p, cancel).then(() => get.current(), (e: ApiFail) => { if (e.code !== 'CANCELED') setErr(`읽음으로 바꾸지 못했습니다. ${e.message}`); });
   const open = (x: Notification) => {
     if (!x.read_at) read({ ids: [x.id] });
     if (box.current) box.current.open = false;

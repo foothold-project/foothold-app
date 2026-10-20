@@ -1,14 +1,14 @@
 // 화면 틀(03 UX §3): PC = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문, 폰(768px 미만) = 머리줄 + 본문 + 하단 탭 3개.
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서),
 // 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 알림 종은 GET /notifications(screens/history.tsx), 나머지는 가짜.
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { Component, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
 import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, type Ctx } from './screens';
-import { Bell } from './screens/history';
+import { Bell, History } from './screens/history';
 import { Settings } from './screens/settings';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
@@ -38,6 +38,17 @@ export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) 
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
     <span className="fh-stop-t"><span>STOP</span>{!phone && <small>정지 요청</small>}</span>
   </button>;
+}
+
+/** 화면 일부의 렌더 예외가 머리줄·STOP 까지 내리지 않게 가둔다(SF-01). STOP 은 늘 이 경계 밖. quiet = 아무것도 그리지 않음(머리줄 알림 종) */
+class Guard extends Component<{ children: ReactNode; quiet?: boolean }, { broken: boolean }> {
+  state = { broken: false };
+  static getDerivedStateFromError() { return { broken: true }; }
+  render() {
+    if (!this.state.broken) return this.props.children;
+    return this.props.quiet ? null : <section className="lv-card" role="alert" aria-label="화면 오류"><h2>이 화면을 그리지 못했습니다</h2>
+      <p className="lv-note">다른 탭으로 옮겼다가 돌아오거나 새로고침하세요. STOP 은 그대로 쓸 수 있습니다.</p></section>;
+  }
 }
 
 /** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
@@ -121,7 +132,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {net.at === 'open' ? <span className="fh-dot ok"><i aria-hidden="true">●</i>연결</span>
         : net.at === 'connecting' || net.at === 'idle' ? <span className="fh-dot"><i aria-hidden="true">○</i>연결 중</span>
         : <span className="fh-dot bad" data-link={net.at}><i aria-hidden="true">■</i>{net.at === 'denied' ? '연결 거부' : '연결 끊김'}</span>}
-      {!phone && <Bell cancel={cancel} />}
+      {!phone && <Guard quiet><Bell cancel={cancel} /></Guard>}
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
       {phone && tab === 'history' && logout && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
@@ -148,10 +159,11 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     ].filter(Boolean)}</div>
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={labelOf(cur, user.role)}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
+      <main className="fh-main" aria-label={labelOf(cur, user.role)}><Guard key={tab}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : ctx ? <Body key={`${tab}-${ctx.robot.id}-${user.id}`} {...ctx} />
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
-        : none}
+        : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={pool} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
+        : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>
     {phone && <nav className="fh-tabs" aria-label="주 메뉴">{PHONE_TABS.map((t) => link(t, 'tabb'))}</nav>}

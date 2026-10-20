@@ -11,6 +11,8 @@ const FALLBACK: Record<number, string> = {
 };
 const NETWORK = '서버에 연결하지 못했습니다. 네트워크를 확인한 뒤 다시 시도하세요.';
 const SLOW = '서버가 제시간에 답하지 않았습니다.';
+/** 알림 한 번 받기 제한시간 — 다음 폴링은 이 요청이 끝난 뒤(screens/history.tsx Bell) */
+export const NOTE_MS = 10_000;
 
 /** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못함, said = 서버가 계약 오류 본문(error.code)으로 답함 */
 export class ApiFail extends Error {
@@ -36,10 +38,13 @@ async function call<T>(method: string, path: string, body?: unknown, { ms, cance
   cancel?.addEventListener('abort', off);
   let res: Response, data: unknown;
   try {
+    const lost = () => (cancel?.aborted ? new ApiFail(0, 'CANCELED', NETWORK) : stop.signal.aborted ? new ApiFail(0, 'TIMEOUT', SLOW) : new ApiFail(0, 'NETWORK', NETWORK));
     try {
       res = await fetch(BASE + path, { method, headers, credentials: 'same-origin', cache: 'no-store', signal: stop.signal, body: body === undefined ? undefined : JSON.stringify(body) });
-    } catch { throw cancel?.aborted ? new ApiFail(0, 'CANCELED', NETWORK) : stop.signal.aborted ? new ApiFail(0, 'TIMEOUT', SLOW) : new ApiFail(0, 'NETWORK', NETWORK); }
-    if (res.status !== 204) data = await (file && res.ok ? res.blob() : res.json()).catch(() => null);   // 204 도 아래 취소 검사를 거친다(늦게 끝난 쓰기)
+    } catch { throw lost(); }
+    // 파일 본문을 받다 끊기면 실패(빈 성공으로 넘기지 않음). 204 도 아래 취소 검사를 거친다(늦게 끝난 쓰기)
+    if (file && res.ok) data = await res.blob().catch(() => { throw lost(); });
+    else if (res.status !== 204) data = await res.json().catch(() => null);
   } finally { clearTimeout(timer); cancel?.removeEventListener('abort', off); }
   if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);   // 거둔 뒤 온 답(앞 세션의 401 등)은 반영하지 않는다
   if (res.ok) return data as T;
@@ -100,7 +105,7 @@ export const api = {
   /** 같은 필터 그대로 CSV(10,000행 넘으면 400 EXPORT_LIMIT — 잘린 파일은 오지 않는다) */
   exportEvents: (q: URLSearchParams, cancel?: AbortSignal) => call<Blob>('GET', `/events/export.csv?${q}`, undefined, { cancel, file: true }),
   /** 내 알림 최신 20개 + 안 읽은 수(페이지와 무관한 전체 수) */
-  notifications: (cancel?: AbortSignal) => call<NotificationList>('GET', '/notifications?limit=20', undefined, { cancel }),
+  notifications: (cancel?: AbortSignal) => call<NotificationList>('GET', '/notifications?limit=20', undefined, { cancel, ms: NOTE_MS }),
   /** {ids} 또는 {all:true} — 204. 남의·없는 id 가 섞이면 404(하나도 읽음 처리 안 됨) */
   readNotifications: (p: NotificationsRead, cancel?: AbortSignal) => call<void>('POST', '/notifications/read', p, { cancel }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
