@@ -1046,3 +1046,101 @@ describe('S0 서버 후속(apps/server README «S0»)', () => {
     stopOn();
   });
 });
+
+// 10-20 사용자 결정: 글 입력칸에 초점이 있을 때만 Space 를 STOP 으로 쓰지 않음(띄어쓰기). 화면 STOP 단추는 늘 그대로
+describe('Space 와 글 입력칸', () => {
+  /** box 안에 html 을 넣고 그 요소에서 Space 를 누름 → [보낸 stop 수, keydown·keyup 기본 동작 막힘] */
+  const space = (html: string) => {
+    const host = document.createElement('div'); host.innerHTML = html; box.append(host);
+    const el = host.firstElementChild as HTMLElement; el.focus();
+    const n = w.of('stop').length;
+    const d = new KeyboardEvent('keydown', { code: 'Space', key: ' ', bubbles: true, cancelable: true });
+    const u = new KeyboardEvent('keyup', { code: 'Space', key: ' ', bubbles: true, cancelable: true });
+    act(() => { el.dispatchEvent(d); el.dispatchEvent(u); });
+    host.remove();
+    return [w.of('stop').length - n, d.defaultPrevented, u.defaultPrevented];
+  };
+  const fleet = () => { mount(false, 'u-kim', '#/fleet'); serve(KIM, 'r3', 'r7', 'r1'); };
+
+  it.each(['<input>', '<input type="text">', '<input type="search">', '<input type="password">', '<input type="email">',
+    '<input type="url">', '<input type="tel">', '<input type="number">', '<textarea></textarea>',
+    '<div contenteditable="true" tabindex="0"></div>', '<div contenteditable="" tabindex="0"></div>', '<p contenteditable="plaintext-only"></p>',
+    '<div contenteditable="TRUE" tabindex="0"></div>', '<div contenteditable="PlainText-Only" tabindex="0"></div>'])(
+    '글 입력칸 %s: STOP 안 보내고 띄어쓰기를 막지 않음', (h) => {
+      fleet();
+      expect(space(h)).toEqual([0, false, false]);
+    });
+
+  it.each(['<input readonly>', '<input disabled>', '<textarea readonly></textarea>', '<textarea disabled></textarea>',
+    '<input type="checkbox">', '<input type="radio">', '<input type="range">', '<input type="button" value="b">',
+    '<button type="button">b</button>', '<select><option>a</option></select>', '<div contenteditable="false" tabindex="0"></div>',
+    '<div contenteditable="FALSE" tabindex="0"></div>', '<div contenteditable="invalid" tabindex="0"></div>',
+    '<div tabindex="0"></div>'])(
+    '글 입력칸 아님 %s: Space = STOP, 기본 동작 막음', (h) => {
+      fleet();
+      expect(space(h)).toEqual([1, true, true]);
+    });
+
+  it('빈 곳(body)·키 반복: Space = STOP 한 번, 반복은 막기만', () => {
+    fleet();
+    (document.activeElement as HTMLElement | null)?.blur();
+    key('keydown', 'Space', document.body);
+    const r = new KeyboardEvent('keydown', { code: 'Space', repeat: true, bubbles: true, cancelable: true });
+    act(() => { document.body.dispatchEvent(r); });
+    expect([w.of('stop').length, r.defaultPrevented]).toEqual([1, true]);
+  });
+
+  // 중첩: 잘못된 값·속성 없음은 상위를 따르고, false(대소문자 무시)는 끊는다 → [보낸 stop 수]
+  it.each([
+    ['<div contenteditable="true"><b contenteditable="false">x</b></div>', 1],
+    ['<div contenteditable="true"><b contenteditable="False">x</b></div>', 1],
+    ['<div contenteditable="true"><b contenteditable="invalid">x</b></div>', 0],
+    ['<div contenteditable="false"><b contenteditable="invalid">x</b></div>', 1],
+    ['<div contenteditable="FALSE"><i contenteditable="true"><b>x</b></i></div>', 0],
+    ['<div contenteditable=""><i><b>x</b></i></div>', 0],
+  ])('중첩 contenteditable %s 안의 조각: stop %i', (h, n) => {
+    fleet();
+    const host = document.createElement('div'); host.innerHTML = h; box.append(host);
+    act(() => { host.querySelector('b')!.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true })); });
+    expect(w.of('stop')).toHaveLength(n);
+  });
+
+  it('입력칸에 초점이 있어도 화면 STOP 단추는 보이고 누르면 바로 STOP', () => {
+    fleet();
+    const host = document.createElement('div'); host.innerHTML = '<input>'; box.append(host);
+    host.querySelector('input')!.focus();
+    const s = $<HTMLButtonElement>('[data-stop]');
+    expect(s.disabled).toBe(false);
+    click(s);
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r3']);
+  });
+
+  it('조종권 요청 창·확인창·로봇 고르기 창의 단추 초점에서도 Space = STOP', () => {
+    mount(false, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    recv(ask());
+    const give = $('[data-ask="give"]'); give.focus();
+    key('keydown', 'Space', give);
+    expect(w.of('stop')).toHaveLength(1);
+    act(() => root?.unmount()); box.remove();
+
+    mount(false, 'u-lee', '#/drive/r3');
+    serve(LEE, 'r3', 'r1');
+    recv(lease('r3', { id: null, name: '', type: 'RUN' }));
+    click(btn('조종 시작'));
+    const go = btn('일시정지하고 조종'); go.focus();
+    key('keydown', 'Space', go);
+    expect([w.of('stop').length, w.of('lease.take').length]).toEqual([1, 0]);   // 확인창 단추는 눌리지 않음
+    act(() => root?.unmount()); box.remove();
+
+    mount(false, 'u-kim', '#/drive');
+    serve(KIM, 'r3', 'r7', 'r1');
+    click($('[data-stop]'));
+    const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    act(() => { pick.value = 'r7'; pick.dispatchEvent(new Event('change', { bubbles: true })); });
+    pick.focus();
+    key('keydown', 'Space', pick);
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
+  });
+});
