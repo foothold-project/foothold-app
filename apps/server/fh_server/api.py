@@ -31,11 +31,13 @@ class Settings:
     org_id: UUID
     web_session_seconds: int = 86400
     ws_origin: str | None = None
+    files_root: str = '/var/lib/foothold/files'
 
     @classmethod
     def from_env(cls):
         return cls(os.environ['FH_DATABASE_URL'], UUID(os.environ['FH_ORG_ID']),
-                   ws_origin=os.environ.get('FH_WS_ORIGIN'))
+                   ws_origin=os.environ.get('FH_WS_ORIGIN'),
+                   files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'))
 
 
 class APIError(Exception):
@@ -44,8 +46,8 @@ class APIError(Exception):
         self.detail = detail or {}
 
 
-def fail(status, code, message):
-    raise APIError(status, code, message)
+def fail(status, code, message, detail=None):
+    raise APIError(status, code, message, detail)
 
 
 def authorize(user: User, permission: str, robot: Robot | None = None):
@@ -70,8 +72,8 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         fail(403, 'FORBIDDEN', '권한이 없습니다.')
 
 
-def event(db, org_id, code, user_id=None, data=None, severity='INFO'):
-    db.add(render(db, Event(org_id=org_id, category='ACCOUNT', code=code,
+def event(db, org_id, code, user_id=None, data=None, severity='INFO', category='ACCOUNT'):
+    db.add(render(db, Event(org_id=org_id, category=category, code=code,
                  user_id=user_id, data=data or {}, severity=severity)))
 
 
@@ -150,6 +152,9 @@ def create_app(settings: Settings | None = None):
                 OR has_table_privilege(current_user, 'events', 'UPDATE')
                 OR has_table_privilege(current_user, 'events', 'DELETE')
                 OR has_table_privilege(current_user, 'events', 'TRUNCATE')
+                OR has_table_privilege(current_user, 'map_versions', 'UPDATE')
+                OR has_table_privilege(current_user, 'map_versions', 'DELETE')
+                OR has_table_privilege(current_user, 'map_versions', 'TRUNCATE')
                 OR has_schema_privilege(current_user, 'public', 'CREATE')
                 FROM pg_roles WHERE rolname = current_user"""))
             if unsafe:
@@ -173,6 +178,15 @@ def create_app(settings: Settings | None = None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
+        # Feature validation identifies a field without echoing input or database IDs.
+        if request.url.path.endswith('/map-versions') and any('features' in e['loc'] for e in exc.errors()):
+            fields = {'features', 'zones', 'waypoints', 'connectors', 'edits', 'id', 'type', 'name',
+                      'polygon', 'x', 'y', 'yaw', 'kind', 'pair_floor_id', 'op', 'polyline', 'width'}
+            paths = ['.'.join(str(v) if isinstance(v, int) else v if v in fields else '?'
+                              for v in e['loc'][1:]) for e in exc.errors()]
+            return JSONResponse(status_code=422, content={'error': {
+                'code': 'INVALID_FEATURES', 'message': '지도 요소 형식을 확인하세요.',
+                'detail': {'elements': paths}}})
         # Never echo request input, passwords or tokens from Pydantic errors.
         return JSONResponse(status_code=400, content={'error': {
             'code': 'VALIDATION', 'message': '입력 형식을 확인하세요.', 'detail': {}}})
@@ -611,9 +625,10 @@ def create_app(settings: Settings | None = None):
         response.headers['Cache-Control'] = 'no-store'
         return C.AgentTokenResponse(agent_token=raw)
 
-    from . import events_api, notifications
+    from . import events_api, notifications, maps
     events_api.install(app, DB, Identity, fail)
     notifications.install(app, DB, Identity, fail)
+    maps.install(app, DB, Identity, fail, authorize, event, settings)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
     return app

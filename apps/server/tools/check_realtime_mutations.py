@@ -564,6 +564,27 @@ MUTATIONS = [
      'apps/server/tests/test_events_downloads.py::test_robot_storage_fault_has_a_local_meaning_distinct_from_server'),
 ]
 
+# S3a decisions use the same assertion-only runner and private PostgreSQL harness.
+MAPS = 'apps/server/fh_server/maps.py'
+FILES = 'apps/server/fh_server/map_files.py'
+S3A = 'apps/server/tests/test_maps.py'
+MUTATIONS.extend([
+    ('S3a tenant boundary removed', MAPS, 'model.id == identifier, model.org_id == user.org_id', 'model.id == identifier', S3A + '::test_foreign_and_absent_ids_same_404'),
+    ('S3a operator approval gate removed', MAPS, "if user.role != 'ORG_ADMIN':", 'if False:', S3A + '::test_operator_upload_read_allowed_save_and_crud_denied'),
+    ('S3a stale base accepted', MAPS, 'if body.base_version_id != floor.approved_version_id:', 'if False:', S3A + '::test_admin_approval_stale_immutable_png_and_delete_guards'),
+    ('S3a approved floor pointer omitted', MAPS, 'floor.approved_version_id = row.id', 'floor.approved_version_id = None', S3A + '::test_admin_approval_stale_immutable_png_and_delete_guards'),
+    ('S3a in-use delete guard omitted', MAPS, '            if used:', '            if False:', S3A + '::test_admin_approval_stale_immutable_png_and_delete_guards'),
+    ('S3a polygon crossing accepted', MAPS, 'if intersects(polygon[a], polygon[(a + 1) % len(polygon)], polygon[b], polygon[(b + 1) % len(polygon)]):', 'if False:', S3A + '::test_invalid_feature_reports_element_422'),
+    ('S3a invalid connector building accepted', MAPS, '                    if pair is None:', '                    if False:', S3A + '::test_invalid_feature_reports_element_422'),
+    ('S3a PNG CRC ignored', FILES, "if zlib.crc32(kind + value) != struct.unpack('!I', data[end - 4:end])[0]:", 'if False:', S3A + '::test_incomplete_upload_and_png_corruption_rejected'),
+    ('S3a declared upload limit ignored', MAPS, 'if int(length) > limit:', 'if False:', S3A + '::test_upload_content_length_and_chunked_limits'),
+    ('S3a streamed upload limit ignored', MAPS, 'if len(data) + len(part) > limit:', 'if False:', S3A + '::test_upload_content_length_and_chunked_limits'),
+    ('S3a unknown YAML key accepted', FILES, "match[1] not in allowed or ", '', S3A + '::test_strict_yaml_rejects_unsupported_or_invalid_forms'),
+    ('S3a immutable DB UPDATE widened', 'apps/server/migrations/versions/0009_maps.py', 'GRANT SELECT, INSERT ON uploads, map_versions TO fh_app', 'GRANT SELECT, INSERT, UPDATE ON uploads, map_versions TO fh_app', S3A + '::test_map_db_immutable_grants'),
+    ('S3a connector removal projection omitted', MAPS, 'active=matching is not None', 'active=True', S3A + '::test_features_rotated_bounds_and_connector_projection'),
+])
+
+
 
 def run(tree, tests):
     report = tree / 'mutation-result.json'

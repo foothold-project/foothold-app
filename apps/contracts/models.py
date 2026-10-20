@@ -1,4 +1,4 @@
-"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 8."""
+"""Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 8."""
 from datetime import timezone
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -571,10 +571,143 @@ class AgentTokenResponse(Contract):
     agent_token: str
 
 
+
+class MapName(Contract):
+    name: str = Field(min_length=1, max_length=128, pattern=r'\S')
+
+
+class FloorCreate(MapName):
+    level: int = Field(strict=True, ge=-1000, le=1000)
+
+
+class FloorPatch(Contract):
+    name: str = omitted(min_length=1, max_length=128, pattern=r'\S')
+    level: int = omitted(strict=True, ge=-1000, le=1000)
+
+
+class MapFloor(Contract):
+    id: UUID
+    building_id: UUID
+    name: str
+    level: int
+    approved_version_id: UUID | None
+    pending_count: int = 0
+
+
+class MapBuilding(Contract):
+    id: UUID
+    site_id: UUID
+    name: str
+    floors: list[MapFloor] = Field(default_factory=list)
+
+
+class MapSite(Contract):
+    id: UUID
+    name: str
+    buildings: list[MapBuilding] = Field(default_factory=list)
+
+
+class SiteTree(Contract):
+    items: list[MapSite]
+    next_cursor: None = None
+
+
+MapCoordinate = Annotated[float, Field(strict=True)]
+
+
+class MapZone(Contract):
+    id: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    type: Literal['NO_GO', 'SLOW']
+    name: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    polygon: list[tuple[MapCoordinate, MapCoordinate]] = Field(min_length=3, max_length=256)
+
+
+class MapWaypoint(Contract):
+    id: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    name: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    x: MapCoordinate
+    y: MapCoordinate
+    yaw: MapCoordinate
+
+
+class MapConnector(Contract):
+    id: str = Field(min_length=1, max_length=128, pattern=r'\S')
+    kind: Literal['STAIRS', 'ELEVATOR']
+    pair_floor_id: UUID
+    x: MapCoordinate
+    y: MapCoordinate
+    yaw: MapCoordinate
+
+
+class MapEdit(Contract):
+    op: Literal['ERASE', 'WALL']
+    polyline: list[tuple[MapCoordinate, MapCoordinate]] = Field(min_length=2, max_length=256)
+    width: MapCoordinate = Field(gt=0, le=100)
+
+
+class MapFeatures(Contract):
+    zones: list[MapZone] = Field(max_length=256)
+    waypoints: list[MapWaypoint] = Field(max_length=1000)
+    connectors: list[MapConnector] = Field(max_length=256)
+    edits: list[MapEdit] = Field(max_length=256)
+
+
+class MapVersionCreate(Contract):
+    base_version_id: UUID | None
+    image: UUID
+    features: MapFeatures
+    reason: str = Field(min_length=1, max_length=2000, pattern=r'\S')
+
+
+class MapVersion(Contract):
+    id: UUID
+    floor_id: UUID
+    number: int
+    base_version_id: UUID | None
+    status: Literal['APPROVED', 'SUPERSEDED', 'PENDING', 'REJECTED']
+    image_sha256: str
+    width: int
+    height: int
+    resolution: float
+    origin: tuple[float, float, float]
+    features: MapFeatures
+    reason: str
+    source: Literal['IMPORT', 'EDIT', 'ROLLBACK', 'SLAM']
+    created_by: UUID
+    created_at: UTCDateTime
+
+
+class MapVersionList(Contract):
+    items: list[MapVersion]
+    next_cursor: str | None
+
+
+class MapUpload(Contract):
+    upload_id: UUID
+    sha256: str
+
+
+class FloorConnector(Contract):
+    id: UUID
+    building_id: UUID
+    kind: Literal['STAIRS', 'ELEVATOR']
+    floor_a_id: UUID
+    floor_b_id: UUID
+    a_pose: dict[str, float]
+    b_pose: dict[str, float] | None
+    map_version_a_id: UUID
+    map_version_b_id: UUID | None
+    active: bool
+
+
+class FloorConnectorList(Contract):
+    items: list[FloorConnector]
+    next_cursor: None = None
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
-REQUEST_MODELS = {LoginRequest, RefreshRequest, MePatch, PasswordChange,
+REQUEST_MODELS = {MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
 
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)

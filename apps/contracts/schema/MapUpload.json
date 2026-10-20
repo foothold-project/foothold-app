@@ -1,0 +1,22 @@
+{
+  "$id": "fh-app/1/MapUpload",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "sha256": {
+      "title": "Sha256",
+      "type": "string"
+    },
+    "upload_id": {
+      "format": "uuid",
+      "title": "Upload Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "upload_id",
+    "sha256"
+  ],
+  "title": "MapUpload",
+  "type": "object"
+}

@@ -185,6 +185,34 @@ export interface EventList {
   next_cursor: string | null;
 }
 
+export interface FloorConnector {
+  id: string;
+  building_id: string;
+  kind: "STAIRS" | "ELEVATOR";
+  floor_a_id: string;
+  floor_b_id: string;
+  a_pose: Record<string, number>;
+  b_pose: Record<string, number> | null;
+  map_version_a_id: string;
+  map_version_b_id: string | null;
+  active: boolean;
+}
+
+export interface FloorConnectorList {
+  items: FloorConnector[];
+  next_cursor: null;
+}
+
+export interface FloorCreate {
+  name: string;
+  level: number;
+}
+
+export interface FloorPatch {
+  name?: string;
+  level?: number;
+}
+
 export type JsonValue = unknown;
 
 export interface Lease {
@@ -221,6 +249,104 @@ export interface LoginResponse {
   csrf_token: string | null;
   access_token: string | null;
   refresh_token: string | null;
+}
+
+export interface MapBuilding {
+  id: string;
+  site_id: string;
+  name: string;
+  floors: MapFloor[];
+}
+
+export interface MapConnector {
+  id: string;
+  kind: "STAIRS" | "ELEVATOR";
+  pair_floor_id: string;
+  x: number;
+  y: number;
+  yaw: number;
+}
+
+export interface MapEdit {
+  op: "ERASE" | "WALL";
+  polyline: [number, number][];
+  width: number;
+}
+
+export interface MapFeatures {
+  zones: MapZone[];
+  waypoints: MapWaypoint[];
+  connectors: MapConnector[];
+  edits: MapEdit[];
+}
+
+export interface MapFloor {
+  id: string;
+  building_id: string;
+  name: string;
+  level: number;
+  approved_version_id: string | null;
+  pending_count: number;
+}
+
+export interface MapName {
+  name: string;
+}
+
+export interface MapSite {
+  id: string;
+  name: string;
+  buildings: MapBuilding[];
+}
+
+export interface MapUpload {
+  upload_id: string;
+  sha256: string;
+}
+
+export interface MapVersion {
+  id: string;
+  floor_id: string;
+  number: number;
+  base_version_id: string | null;
+  status: "APPROVED" | "SUPERSEDED" | "PENDING" | "REJECTED";
+  image_sha256: string;
+  width: number;
+  height: number;
+  resolution: number;
+  origin: [number, number, number];
+  features: MapFeatures;
+  reason: string;
+  source: "IMPORT" | "EDIT" | "ROLLBACK" | "SLAM";
+  created_by: string;
+  created_at: string;
+}
+
+export interface MapVersionCreate {
+  base_version_id: string | null;
+  image: string;
+  features: MapFeatures;
+  reason: string;
+}
+
+export interface MapVersionList {
+  items: MapVersion[];
+  next_cursor: string | null;
+}
+
+export interface MapWaypoint {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  yaw: number;
+}
+
+export interface MapZone {
+  id: string;
+  type: "NO_GO" | "SLOW";
+  name: string;
+  polygon: [number, number][];
 }
 
 export interface MePatch {
@@ -476,6 +602,11 @@ export interface SessionInfo {
 export interface SessionList {
   items: Session[];
   next_cursor: string | null;
+}
+
+export interface SiteTree {
+  items: MapSite[];
+  next_cursor: null;
 }
 
 export interface TokenResponse {

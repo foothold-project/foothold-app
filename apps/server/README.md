@@ -510,3 +510,90 @@ notifications의 앱 권한은 SELECT/INSERT와 `UPDATE(read_at)`뿐이다. 초�
 자료가 있는 DB는 백업 후 승인된 이관 절차로 0008을 적용한다. 0008 downgrade는
 알림함만 삭제하며 사건 행은 고치지 않는다. 알림 보존이 필요하면 먼저 내보내야 한다.
 코드는 변경 커밋을 revert한다. 실제 브라우저·실폰·실로봇 확인은 별도다.
+
+## 장소·층·지도 판 (S3a)
+
+`FH_FILES_ROOT`(기본 `/var/lib/foothold/files`) 한 곳에 지도 파일을 저장한다.
+서버 실행 계정이 읽고 쓸 수 있는 전용 디렉터리를 준비하고 DB와 함께 백업한다.
+시험은 `tmp_path` 아래 합성 이미지만 사용하며 실제 지도 원본은 Git에 넣지 않는다.
+
+- `GET /sites`: 조직의 `items` 나무(장소 → 건물 → 층), 층의
+  `approved_version_id`와 `pending_count=0`. 나무는 한 번에 반환하며 `next_cursor=null`이다.
+- 총괄만 장소·건물·층을 만들고 이름/층 높이를 고치거나 지운다. 하위 자료,
+  지도 판, 로봇의 마지막 층, 연결점 참조가 있으면 `409 RESOURCE_IN_USE`다.
+  시나리오 참조 검사는 S5가 추가해야 한다. 조직 밖·없는 UUID는 같은 404다.
+- 지도 저장은 총괄만 `POST /floors/{id}/map-versions`로 한다.
+  `{base_version_id, image, features, reason}`에서 첫 판의 기준은 `null`이다.
+  지금 승인 판과 다르면 `409 STALE` 및 `detail.approved_version_id`를 반환한다.
+  판 INSERT, 층 승인 포인터, 연결점 투영, 승인 사건을 같은 DB 트랜잭션에 저장한다.
+  운영자는 `403 APPROVAL_REQUIRED`이며 S4의 PENDING·결재 연결 전에는 저장할 수 없다.
+- 판 목록은 `items`, `next_cursor`이며 `limit=1..100`이다. 상세에는 지도 요소,
+  해상도·원점·치수·PNG sha256·만든 사람이 들어간다. `/image`는 인증 후 PNG를 반환한다.
+  과거 판의 `SUPERSEDED`는 현재 층 포인터로 계산하며 저장된 판 행은 고치지 않는다.
+  판 PATCH/PUT/DELETE API가 없고 `fh_app`은 `map_versions` INSERT/SELECT만 가능하다.
+  서버 시작 때 UPDATE/DELETE/TRUNCATE 권한을 가진 DB 계정을 거절한다.
+
+### 원시 업로드 두 단계
+
+추가 Python 의존성 없이 `POST /uploads`의 원시 본문을 사용한다.
+웹은 기존 CSRF 헤더, 설치형 앱은 bearer 인증을 그대로 쓴다.
+
+1. `Content-Type: image/png` 또는 `image/x-portable-graymap`으로 이미지 바이트를 올린다.
+   응답 `201 {upload_id, sha256}`의 sha256은 **올린 이미지 원본** 기준이다.
+2. `POST /uploads?image=<1단계 upload_id>`에 `Content-Type: text/yaml`
+   또는 `application/x-yaml`로 ROS map YAML을 올린다. 응답의 **새 upload_id**가
+   이미지+메타데이터 묶음이며 판 저장의 `image` 필드에 넣는다.
+   sha256은 연결한 원본 이미지 기준이다. YAML 없는 이미지 ID로 판을 저장하면 422다.
+
+이미지는 **8 MiB 이하**, YAML은 **16 KiB 이하**, 가로·세로는 각각 **4096 픽셀 이하**다.
+Content-Length가 상한을 넘거나 스트리밍 수신 중 상한을 넘으면 `413 UPLOAD_TOO_LARGE`다.
+PNG는 매직·청크·CRC·zlib 데이터 길이·필터·치수를 검사하며 Adam7와 색/비트 형식을 지원한다.
+PGM P2/P5(8/16비트)는 픽셀 수·범위를 검사하고 표준 zlib로 8비트 회색 PNG로 변환한다.
+YAML은 `resolution`, `origin: [x,y,yaw]`, `negate`, `occupied_thresh`, `free_thresh`가 필수이고,
+`image`(경로 없는 PNG/PGM 파일 이름), `mode`(trinary/scale/raw)만 선택으로 받는다.
+알 수 없는/중복 키, 중첩·앵커·별칭·태그·여러 문서, 비유한 숫자·잘못된 임계값을 422로 거절한다.
+
+서버가 파일 이름을 정하며 업로드의 이름/경로를 쓰지 않는다. 임시 PNG는
+`uploads/tmp/<uuid>/image.png`, 승인 판은 `maps/<floor_id>/<number>-<PNG sha256 앞12>.png`
+및 같은 이름의 `.yaml`로 저장한다. YAML의 image는 변환한 PNG를 가리킨다.
+판의 `image_sha256`은 내려받는 **PNG 바이트** 기준이므로 PGM 원본 해시와 다를 수 있다.
+파일 독점 생성으로 덮어쓰기를 막고 요청 중 DB/파일 실패 때 새 파일을 지운다.
+프로세스 종료·디스크 장애의 원자성은 보장하지 않으며 고아 파일 정리는 후속 운영 작업이다.
+
+지도 요소 검사 오류는 `422 INVALID_FEATURES`와 `detail.element` 또는 `detail.elements`의
+필드 경로로 알린다. 구역·선의 점은 회전 원점을 반영한 이미지 범위 안이어야 한다.
+다각형은 3~256개의 서로 다른 점, 넓이>0, 인접하지 않은 변의 교차 없음이 필요하다.
+지점은 이름·유한한 x/y/yaw, 연결점은 같은 건물의 다른 층·좌표,
+편집은 ERASE/WALL·서로 다른 점 2개 이상·양의 width를 검사한다.
+구역 256개·지점 1000개·연결점 256개·편집선 256개, 선당 점 256개가 상한이다.
+
+`GET /floor-connectors?building_id=`는 현재 승인 판들의 연결점을 반환한다.
+서로 다른 두 층의 features.connectors에 **같은 id·kind와 서로의 pair_floor_id**가 있으면
+양쪽 pose/판을 묶어 `active=true`다. 한쪽만 있으면 `b_pose`, `map_version_b_id`는 null이고
+`active=false`다. 새 판 승인 때 현재 투영을 다시 만들며 과거 판 features는 보존한다.
+장소·건물·층 CRUD는 ACCOUNT 사건, 판 승인은 APPROVAL 사건으로 저장한다.
+총괄의 바로 저장에는 별도 결재 요청/결과가 없으므로 알림을 만들지 않는다(S4 소유).
+
+### 이관·검증·후속
+
+0009는 기존 서버를 멈춘 승인된 이관 절차로 적용한다. 새 지도 표 및
+`robots.last_floor_id`의 조직 포함 FK를 추가하므로 기존의 잘못된 층 ID를 먼저 정리해야 한다.
+운영 DB나 운영 파일은 이 작업에서 변경하지 않는다. downgrade는 지도/업로드 **DB 행을 삭제**하며
+파일은 삭제하지 않는다. 사용 중에는 먼저 DB+파일을 백업하고 참조 소비자를 멈춰야 한다.
+코드 되돌림은 해당 커밋 revert이며 파일/DB 복구와 서비스 교체는 별도 절차다.
+
+미사용 업로드는 정본의 24시간 규칙을 따르는 정리 작업이 필요하지만 이번에는 스케줄러를
+구현하지 않는다. 두 단계 업로드가 같은 PNG 경로를 공유하므로 정리 시 최종 묶음과
+판 참조를 함께 확인해야 하며 UUID만 보고 원본 이미지를 지우면 안 된다.
+/diff·/rollback, 운영자 PENDING/결재, SLAM, 로봇 위치의 지도 판 결합은 후속 범위다.
+
+```sh
+FH_TEST_PORT_RANGE=9290:9309 python -m pytest -q apps/server/tests/test_maps.py apps/server/tests/test_map_files.py apps/server/tests/test_maps_wire.py
+FH_TEST_PORT_RANGE=9290:9309 python apps/server/tools/check_realtime_mutations.py --match S3a
+python -m apps.contracts.generate --check
+npm run --prefix apps/contracts typecheck
+```
+
+변이 도구는 선택 실행에서도 먼저 서버 pytest 전체를 한 번 수행하고 변이는 하나씩 실행한다.
+실제 uvicorn 시험도 합성 PGM/YAML·임시 파일·임시 PostgreSQL·loopback 포트만 사용한다.
+실제 지도·화면·실폰·실로봇·ROS·Gazebo 검증을 뜻하지 않는다.
