@@ -16,12 +16,21 @@ function when(at: string) {
   const d = new Date(at);
   return `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`;
 }
-/** 서버 문장 맨 앞 «HH:MM » 시각 접두만 뗀다 — 시각은 at 의 현지 날짜·시각으로 따로 보인다(서버 접두는 시간대·날짜가 화면과 다를 수 있음, 10-20 조정 결정 B).
+/** ISO 시각 → 마이크로초(서버는 µs 까지 보냄 — 24시간 경계를 서버와 같은 정밀도로 비교) */
+const micros = (iso: string) => Date.parse(iso) * 1000 + Number((/\.(\d+)/.exec(iso)?.[1] ?? '').padEnd(6, '0').slice(3, 6));
+/** 표시 시각 = 서버 문장 접두와 같은 규칙(event_messages.py): robot_at 이 있고 0 ≤ at − robot_at ≤ 24시간(양 끝 포함)이면 로봇 발생 시각, 아니면 서버가 받은 at.
+ *  끊긴 동안 쌓였다가 늦게 온 사건도 CSV 문장과 같은 시각으로 보인다(10-20 조정 결정 A) */
+export function stamp(e: Pick<Ev, 'at' | 'robot_at'>) {
+  if (!e.robot_at) return e.at;
+  const d = micros(e.at) - micros(e.robot_at);
+  return d >= 0 && d <= 86_400_000_000 ? e.robot_at : e.at;
+}
+/** 서버 문장 맨 앞 «HH:MM » 시각 접두만 뗀다 — 시각은 stamp 의 현지 날짜·시각으로 따로 보인다(서버 접두는 시간대·날짜가 화면과 다를 수 있음, 10-20 조정 결정 B).
  *  접두가 없으면 그대로, 나머지 문장은 한 글자도 바꾸지 않는다. CSV 는 서버 문장 그대로 */
 export const sentence = (m: string) => m.replace(/^\d\d:\d\d /, '');
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
 /** 한 줄 = 한 사건: 시각 · 분류(심각도 색) · 서버가 저장한 문장 */
-const Row = ({ e }: { e: Ev }) => <li className="fh-row"><span className="mono">{when(e.at)}</span><Chip tone={TONE[e.severity] ?? 'off'} text={KIND_NAME[e.category] ?? '기타'} /><span className="fh-grow" style={WRAP}>{sentence(e.message)}</span></li>;
+const Row = ({ e }: { e: Ev }) => <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Chip tone={TONE[e.severity] ?? 'off'} text={KIND_NAME[e.category] ?? '기타'} /><span className="fh-grow" style={WRAP}>{sentence(e.message)}</span></li>;
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd — 그날 0시부터 끝까지, 브라우저 시간대) */
 type Filter = { category: string; robot: string; from: string; to: string };

@@ -8,7 +8,7 @@ import type { Event as Ev, Notification, RobotSummary, User } from '../../../con
 import { Root } from '../session';
 import { tabFromHash } from '../menu';
 import { NOTE_MS } from '../api';
-import { BELL_MS } from '../screens/history';
+import { BELL_MS, stamp } from '../screens/history';
 import { FakeWS } from './fakeWs';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -177,6 +177,29 @@ describe('시각 접두', () => {
     const sentences = [...card('사건').querySelectorAll('li')].map((l) => l.lastElementChild!.textContent);
     expect(sentences).toEqual(['김총괄님이 로그인했습니다.', '박운영님이 로그인했습니다.', 'Go2-7이 12:30 에 연결되었습니다.']);
     for (const li of card('사건').querySelectorAll('li')) expect(li.firstElementChild!.textContent).toBe(local);
+  });
+  // 10-20 조정 결정 A: 표시 시각은 서버 접두와 같은 규칙(event_messages.py — timedelta(0) <= at - robot_at <= 24h 이면 robot_at, 아니면 at)
+  it('표시 시각 규칙 — robot_at 없음·범위 안·미래·24시간 넘음, 경계(같은 시각·정확히 24시간·1µs 넘김)', () => {
+    const at = '2026-10-20T00:00:00.000500Z';
+    expect(stamp({ at, robot_at: null })).toBe(at);                                              // 없음 → at
+    expect(stamp({ at, robot_at: '2026-10-19T23:00:00Z' })).toBe('2026-10-19T23:00:00Z');        // 1시간 전 → 로봇 시각
+    expect(stamp({ at, robot_at: '2026-10-20T00:01:00Z' })).toBe(at);                            // 미래 → at
+    expect(stamp({ at, robot_at: '2026-10-18T23:59:59Z' })).toBe(at);                            // 24시간 넘음 → at
+    expect(stamp({ at, robot_at: '2026-10-20T09:00:00.000500+09:00' })).toBe('2026-10-20T09:00:00.000500+09:00');   // 같은 순간(0, 표기만 다름) → robot_at
+    expect(stamp({ at, robot_at: '2026-10-20T00:00:00.000501Z' })).toBe(at);                     // 1µs 미래 → at
+    expect(stamp({ at, robot_at: '2026-10-19T00:00:00.000500Z' })).toBe('2026-10-19T00:00:00.000500Z');   // 정확히 24시간 → robot_at(양 끝 포함)
+    expect(stamp({ at, robot_at: '2026-10-19T00:00:00.000499Z' })).toBe(at);                     // 24시간 + 1µs → at
+    expect(stamp({ at: '2026-10-20T09:00:00+09:00', robot_at: '2026-10-19T23:30:00Z' })).toBe('2026-10-19T23:30:00Z');   // 시간대 표기 달라도
+  });
+  it('목록·알림에서 연 기록의 시각 = 그 규칙(늦게 온 로봇 사건은 로봇 발생 시각)', async () => {
+    const show = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`; };
+    const late = ev('2', { at: '2026-10-20T05:00:00Z', robot_at: '2026-10-20T01:15:00Z', message: '10:15 Go2-7이 경로를 벗어났습니다.' });
+    const skewed = ev('1', { at: '2026-10-20T05:00:00Z', robot_at: '2026-10-21T05:00:00Z', message: '14:00 Go2-7 시계가 앞선 사건' });
+    serve(signedIn(KIM, { 'GET /events': list([late, skewed]), 'GET /events/2': { status: 200, body: late } }));
+    await open('#/history?event_id=2');
+    const times = [...card('사건').querySelectorAll('li')].map((l) => l.firstElementChild!.textContent);
+    expect(times).toEqual([show('2026-10-20T01:15:00Z'), show('2026-10-20T05:00:00Z')]);
+    expect(card('알림에서 연 기록').querySelector('li')!.firstElementChild!.textContent).toBe(show('2026-10-20T01:15:00Z'));
   });
   it('알림 본문도 같은 규칙, 서랍 «최근 사건»도', async () => {
     serve(signedIn(KIM, {
