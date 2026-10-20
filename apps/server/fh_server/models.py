@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, Boolean, Float, Integer, CheckConstraint, DateTime, ForeignKeyConstraint, Index, LargeBinary, Text, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, Boolean, Computed, Float, Integer, CheckConstraint, DateTime, ForeignKeyConstraint, Index, LargeBinary, Text, UniqueConstraint, func, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -312,12 +312,13 @@ class Approval(Tenant, Base):
     __table_args__ = (
         ForeignKeyConstraint(['org_id', 'requester_id'], ['users.org_id', 'users.id']),
         ForeignKeyConstraint(['org_id', 'decider_id'], ['users.org_id', 'users.id']),
-        ForeignKeyConstraint(['org_id', 'target_id'], ['map_versions.org_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'map_target_id'], ['map_versions.org_id', 'map_versions.id'], name='approval_map_target_fk'),
+        ForeignKeyConstraint(['org_id', 'assignment_target_id'], ['assignments.org_id', 'assignments.id'], name='approval_assignment_target_fk', use_alter=True),
         ForeignKeyConstraint(['org_id', 'base_ref_id'], ['map_versions.org_id', 'map_versions.id']),
         UniqueConstraint('org_id', 'id'),
-        CheckConstraint("kind IN ('MAP_REVISION','MAP_ROLLBACK')", name='approval_kind'),
+        CheckConstraint("kind IN ('MAP_REVISION','MAP_ROLLBACK','SCENARIO_ASSIGNMENT')", name='approval_kind'),
         CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','CANCELED','STALE')", name='approval_status'),
-        CheckConstraint("target_type = 'map_version'", name='approval_target_type'),
+        CheckConstraint("(kind IN ('MAP_REVISION','MAP_ROLLBACK') AND target_type = 'map_version') OR (kind = 'SCENARIO_ASSIGNMENT' AND target_type = 'assignment' AND base_ref_id IS NULL)", name='approval_target_type'),
         CheckConstraint("(base_ref_id IS NULL AND base_ref_type IS NULL) OR (base_ref_id IS NOT NULL AND base_ref_type IS NOT NULL AND base_ref_type = 'map_version')", name='approval_base_ref'),
         CheckConstraint("status != 'REJECTED' OR (decision_comment IS NOT NULL AND decision_comment ~ '[^[:space:]]')", name='approval_reject_reason'),
         CheckConstraint("(status = 'PENDING' AND decided_at IS NULL AND decider_id IS NULL) OR (status != 'PENDING' AND decided_at IS NOT NULL AND decider_id IS NOT NULL)", name='approval_decision'),
@@ -329,6 +330,8 @@ class Approval(Tenant, Base):
     kind: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text)
     target_type: Mapped[str] = mapped_column(Text, default='map_version')
+    map_target_id: Mapped[UUID | None] = mapped_column(PGUUID, Computed("CASE WHEN target_type = 'map_version' THEN target_id END", persisted=True))
+    assignment_target_id: Mapped[UUID | None] = mapped_column(PGUUID, Computed("CASE WHEN target_type = 'assignment' THEN target_id END", persisted=True))
     target_id: Mapped[UUID] = mapped_column(PGUUID)
     base_ref_type: Mapped[str | None] = mapped_column(Text)
     base_ref_id: Mapped[UUID | None] = mapped_column(PGUUID)
@@ -398,6 +401,7 @@ class ScenarioVersion(ResourceSnapshot, Base):
         ForeignKeyConstraint(['org_id', 'scenario_id'], ['scenarios.org_id', 'scenarios.id']),
         ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
         UniqueConstraint('scenario_id', 'number'),
+        UniqueConstraint('org_id', 'id'),
         CheckConstraint('number > 0', name='scenario_number_positive'),
     )
     scenario_id: Mapped[UUID] = mapped_column(PGUUID)
@@ -407,3 +411,42 @@ class ScenarioVersion(ResourceSnapshot, Base):
     floor_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID))
     map_version_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID))
     est_distance_m: Mapped[float] = mapped_column(Float)
+
+
+class Assignment(Tenant, Base):
+    __tablename__ = 'assignments'
+    __table_args__ = (
+        UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'scenario_version_id'], ['scenario_versions.org_id', 'scenario_versions.id']),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'approval_id'], ['approvals.org_id', 'approvals.id']),
+        CheckConstraint("status IN ('PENDING','ACTIVE','REJECTED','REMOVED')", name='assignment_status'),
+        CheckConstraint("(status = 'REMOVED') = (removed_at IS NOT NULL)", name='assignment_removed'),
+        Index('assignments_live_pair', 'robot_id', 'scenario_version_id', unique=True,
+              postgresql_where=text("status IN ('ACTIVE','PENDING')")),
+        Index('assignments_org_created', 'org_id', 'created_at', 'id'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
+    scenario_version_id: Mapped[UUID] = mapped_column(PGUUID)
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    status: Mapped[str] = mapped_column(Text)
+    approval_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    memo: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class IdempotencyReceipt(Tenant, Base):
+    __tablename__ = 'idempotency_receipts'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        CheckConstraint("key ~ '^[A-Za-z0-9._:-]{1,128}$'", name='receipt_key'),
+    )
+    user_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    request_hash: Mapped[str] = mapped_column(Text)
+    response: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    status_code: Mapped[int | None] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

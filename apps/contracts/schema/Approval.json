@@ -9,8 +9,11 @@
           "type": "string"
         },
         "type": {
-          "const": "map_version",
           "default": "map_version",
+          "enum": [
+            "map_version",
+            "assignment"
+          ],
           "title": "Type",
           "type": "string"
         }
@@ -108,7 +111,8 @@
     "kind": {
       "enum": [
         "MAP_REVISION",
-        "MAP_ROLLBACK"
+        "MAP_ROLLBACK",
+        "SCENARIO_ASSIGNMENT"
       ],
       "title": "Kind",
       "type": "string"

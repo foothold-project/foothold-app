@@ -16,6 +16,8 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'ASSIGNMENT_CREATED': '{person}님이 {robot}에 시나리오 {scenario} {number}판을 배정했습니다.',
+    'ASSIGNMENT_REMOVED': '{person}님이 {robot}의 시나리오 {scenario} {number}판 배정을 해제했습니다.',
     'MISSION_CREATED': '{person}님이 임무 {place} {number}판을 만들었습니다.',
     'MISSION_VERSION_CREATED': '{person}님이 임무 {place} {number}판을 저장했습니다.',
     'MISSION_ARCHIVED': '{person}님이 임무 {place}을(를) 보관했습니다.',
@@ -166,6 +168,8 @@ def render(db, ev, *, agent=False, other_user_id=None):
         template = TEMPLATES.get(ev.code) if ev.code in AGENT_CODES else TEMPLATES['AGENT_EVENT']
     else:
         template = TEMPLATES[ev.code]
+    if ev.code == 'APPROVAL_STALE' and ev.data.get('approval_kind') == 'SCENARIO_ASSIGNMENT':
+        template = '{other}님의 시나리오 배정 {number}판 요청 이후 대상이 바뀌어 승인을 막았습니다. 배정을 다시 요청하세요.'
     if template is None:
         template = TEMPLATES['AGENT_EVENT']
     if agent and ev.code in AGENT_CODES and ev.code == 'HISTORY_STORAGE_BLOCKED':

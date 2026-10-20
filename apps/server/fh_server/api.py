@@ -23,7 +23,7 @@ from .security import digest, hash_password, token, verify_password, web_csrf
 from .robots import attention, device_error, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 from .event_messages import render
-from . import approvals
+from . import approvals, assignments
 
 
 @dataclass(frozen=True)
@@ -179,6 +179,14 @@ def create_app(settings: Settings | None = None):
                     AND (table_name IN ('mission_versions', 'scenario_versions')
                         OR column_name NOT IN ('name', 'latest_version', 'version', 'archived_at'))
                     AND has_column_privilege(current_user, table_name, column_name, 'UPDATE'))
+                OR EXISTS (SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public' AND table_name IN ('assignments', 'idempotency_receipts')
+                    AND (has_table_privilege(current_user, table_name, 'DELETE')
+                        OR has_table_privilege(current_user, table_name, 'TRUNCATE')
+                        OR has_table_privilege(current_user, table_name, 'UPDATE')
+                        OR (has_column_privilege(current_user, table_name, column_name, 'UPDATE')
+                            AND NOT ((table_name = 'assignments' AND column_name IN ('status','approval_id','removed_at'))
+                                OR (table_name = 'idempotency_receipts' AND column_name IN ('request_hash','response','status_code','expires_at'))))))
                 OR has_schema_privilege(current_user, 'public', 'CREATE')
                 FROM pg_roles WHERE rolname = current_user"""))
             if unsafe:
@@ -202,11 +210,13 @@ def create_app(settings: Settings | None = None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
-        if (request.url.path.startswith(('/api/v1/missions', '/api/v1/scenarios'))
+        if any(e['loc'][0] == 'header' and str(e['loc'][1]).lower() == 'idempotency-key' for e in exc.errors()):
+            return JSONResponse(status_code=422, content={'error': {'code': 'VALIDATION', 'message': '멱등 키 형식을 확인하세요.', 'detail': {}}})
+        if (request.url.path.startswith(('/api/v1/missions', '/api/v1/scenarios', '/api/v1/assignments'))
                 and all(e['loc'][0] == 'body' for e in exc.errors())):
             fields = {'name', 'steps', 'action', 'params', 'camera', 'seconds', 'device', 'prompt',
                       'waypoints', 'floor_id', 'map_version_id', 'x', 'y', 'yaw', 'waypoint_ref',
-                      'mission_id', 'mission_version', 'finish', 'mode', 'target', 'notes'}
+                      'memo', 'scenario_id', 'scenario_version', 'robot_id', 'mission_id', 'mission_version', 'finish', 'mode', 'target', 'notes'}
             paths = ['.'.join(str(v) if isinstance(v, int) else v if v in fields else '?'
                              for v in e['loc'][1:]) for e in exc.errors()]
             return JSONResponse(status_code=422, content={'error': {
@@ -685,6 +695,7 @@ def create_app(settings: Settings | None = None):
 
     from . import events_api, notifications, maps, missions
     missions.install(app, DB, Identity, fail, authorize, event, page)
+    assignments.install(app, DB, Identity, fail, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)
     notifications.install(app, DB, Identity, fail)

@@ -865,3 +865,71 @@ screens.tsx:153,179,183의 가짜 소비자는 W6 후속이며 변경하지 않�
 docs/spec는 수정하지 않았고 조정 검토·결정 범위로 남긴다. 0012 downgrade는 임무·시나리오와
 모든 판을 삭제한다. 자료가 있는 환경은 DB 백업·보존 계획 없이 downgrade하지 말고
 검토한 코드 revert/후속 수정으로 복구한다. Git push는 운영 배포가 아니다.
+
+## S5b 시나리오 배정·배정 결재·선택 멱등 키
+
+`GET /assignments`는 로그인한 조직의 배정을 읽는다(A/O 모두 조직 안 읽기).
+`robot_id`, `status`, 공통 `limit`/`cursor`를 지원한다. 응답은 고정 시나리오 판 번호와
+당시 시나리오 이름, 로봇 이름, `approval_id`, 메모, 작성자·시각·해제 시각을 포함한다.
+`POST /assignments {scenario_id, scenario_version, robot_id, memo?}`는 총괄이면 ACTIVE,
+운영 관리자이면 자기 담당 로봇에 PENDING과 SCENARIO_ASSIGNMENT 결재를 같은
+트랜잭션으로 만든다. 다른 담당 로봇은 403, 조직 밖/없는 대상·판은 404,
+보관 시나리오는 422다. 메모는 2000자 이하이며 Cc/Cf를 거부한다.
+같은 로봇·같은 시나리오 판의 ACTIVE/PENDING은 부분 UNIQUE로 중복을 막아 409다.
+한 로봇에 다른 시나리오 또는 다른 판은 배정할 수 있다.
+
+`DELETE /assignments/{id}`는 총괄 또는 현재 담당 운영 관리자가 해제한다.
+REMOVED와 removed_at을 기록하고 반복 해제는 204다. PENDING이면 연결 결재도
+동시에 CANCELED로 끝낸다. 승인하면 ACTIVE, 반려하면 REJECTED,
+요청 취소는 REMOVED다. 결재 상세 preview는 scenario_id/name/version과
+robot_id/name을 제공한다. 시나리오 전체 미리보기·실시간 로봇 상태는 기존 조회 계약을 쓴다.
+
+모든 결재 종료는 기존 `approvals.transition` 한 곳을 지난다. 잠금 순서는 결재 →
+배정 → 시나리오/로봇/정렬한 층이며 승인과 해제가 같은 앞 두 잠금을 사용한다.
+승인 때 시나리오 보관, 이미 해제된 대상, 바뀐 담당자, 현재 층 승인 판과 다른
+map_version_ids(또는 보관된 로봇)를 확인한다. STALE이면 사건·알림과 결재 STALE을
+커밋한 뒤 409 APPROVAL_STALE을 보낸다. 배정에는 STALE 상태가 없어 PENDING은
+REJECTED로 끝내고 이미 REMOVED이면 유지한다. 정상 DELETE는 먼저 결재를 취소하므로
+뒤늦은 승인은 409 ALREADY_DECIDED다. 승인 후 따로 해제한 경우 최종 REMOVED이며
+해제된 대상을 다시 ACTIVE로 되살리지 않는다.
+
+결재 요청은 활동 중인 같은 조직 총괄들에게, 결정은 요청자에게 기존 문장 틀·인앱
+알림으로 간다(자기 취소 결과는 자기 알림 제외). dashboard의 approvals_pending에도
+배정 결재가 포함된다. 직접 배정과 해제는 ACCOUNT 사건을 남기며 직접 배정 알림은 없다.
+
+다음 세 POST는 선택 `Idempotency-Key` 헤더를 받는다.
+
+- `/floors/{id}/map-versions`
+- `/map-versions/{id}/rollback`
+- `/assignments`
+
+키는 ASCII `[A-Za-z0-9._:-]` 1..128자다. 사용자별 같은 키는 24시간 동안 최초 성공의
+상태 코드(201)·본문을 그대로 재생한다. 대상 상태가 나중에 바뀌어도 당시 응답을 보낸다.
+정규화한 본문 또는 요청 경로가 다르면 422 IDEMPOTENCY_MISMATCH다. 실패는 키를
+예약하지 않는다. UNIQUE(user_id, key)와 행 잠금으로 조직 직렬화 잠금을 제거해도
+동시 같은 키가 한 대상·한 결재만 만든다. 헤더가 없으면 종전 동작을 유지한다.
+24시간 만료 후 같은 키는 새 요청으로 재사용할 수 있다. ponytail 주석대로 물리적인
+만료 행 삭제는 후속 보존 작업이며 앱 DB 계정에는 DELETE를 주지 않는다.
+
+0013은 assignments·idempotency_receipts와 scenario_versions UNIQUE(org_id,id)를 더한다.
+결재 target_id의 두 종류는 discriminator 생성 열과 조직 복합 FK로 각각 검증한다.
+fh_app은 assignments SELECT/INSERT와 UPDATE(status,approval_id,removed_at)만,
+영수증은 SELECT/INSERT와 UPDATE(request_hash,response,status_code,expires_at)만 허용된다.
+시작 시 더 넓은 권한이면 거절한다. DELETE·판 내용 변경은 허용되지 않는다.
+0013 downgrade는 배정 결재 이력이 있으면 이력 손실을 막기 위해 원자적으로 거절하므로
+데이터 백업과 별도 복원 계획이 필요하다. 앱 코드 되돌림은 0013을 유지한 상태에서
+이 PR의 코드 커밋을 revert하는 방식을 기본으로 한다.
+
+PR #35 후속으로 모든 카탈로그 선택지가 불가일 때 why_unavailable에 필요한 장치의
+합집합을 표시한다. 배정 화면·웹 헤더 연동, 실행/점검/긴급 실행, 층 경로, Web Push는
+이번 범위 밖이다. 05·06 정본 문서는 이 작업에서 수정하지 않았다.
+
+```sh
+FH_TEST_PORT_RANGE=9410:9429 python -m pytest -q apps/server/tests/test_assignments.py apps/server/tests/test_idempotency.py apps/server/tests/test_assignments_wire.py apps/server/tests/test_migrations.py
+FH_TEST_PORT_RANGE=9410:9429 python apps/server/tools/check_realtime_mutations.py --match S5b --match S4a --match S5a
+python apps/contracts/generate.py --check
+cd apps/contracts && npm run typecheck
+```
+
+변이 도구는 먼저 서버 전체 pytest를 한 번 실행하고 선정 변이를 하나씩 실행한다.
+실행 결과와 미검증 범위는 REALTIME-VALIDATION.md의 S5b 기록을 따른다.
