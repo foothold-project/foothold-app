@@ -65,22 +65,29 @@ def intersects(a, b, c, d):
     return (o1 * o2 < 0 and o3 * o4 < 0) or on(a, b, c) or on(a, b, d) or on(c, d, a) or on(c, d, b)
 
 
+def within_map(x, y, origin, width, height):
+    """World coordinate bounds shared by map features and scenario points."""
+    ox, oy, yaw = origin
+    dx, dy = x - ox, y - oy
+    cosine, sine = math.cos(yaw), math.sin(yaw)
+    px, py = cosine * dx + sine * dy, -sine * dx + cosine * dy
+    return (math.isfinite(px) and math.isfinite(py)
+        and -1e-9 <= px <= width + 1e-9 and -1e-9 <= py <= height + 1e-9)
+
+
 def validate_features(db, floor, upload, features, fail):
     vertices = sum(len(z.polygon) for z in features.zones) + sum(len(e.polyline) for e in features.edits) + len(features.waypoints) + len(features.connectors)
     if vertices > MAX_FEATURE_VERTICES:
         fail(422, 'INVALID_FEATURES', '지도 요소의 전체 꼭짓점은 4096개 이하여야 합니다.', {'element': 'features'})
     meta = upload.metadata_json
     ox, oy, yaw = meta['origin']
-    cosine, sine = math.cos(yaw), math.sin(yaw)
     width, height = upload.width * meta['resolution'], upload.height * meta['resolution']
     if not all(math.isfinite(v) for v in (width, height, ox, oy)):
         fail(422, 'INVALID_FEATURES', '지도 좌표 범위를 확인하세요.', {'element': 'image'})
     def bad(path, message):
         fail(422, 'INVALID_FEATURES', message, {'element': path})
     def point(x, y, path):
-        dx, dy = x - ox, y - oy
-        px, py = cosine * dx + sine * dy, -sine * dx + cosine * dy
-        if not math.isfinite(px) or not math.isfinite(py) or not -1e-9 <= px <= width + 1e-9 or not -1e-9 <= py <= height + 1e-9:
+        if not within_map(x, y, (ox, oy, yaw), width, height):
             bad(path, '지도 범위 안의 좌표를 입력하세요.')
     for group in ('zones', 'waypoints', 'connectors'):
         identifiers = set()
@@ -286,7 +293,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                 used = db.scalar(select(MapVersion.id).where(MapVersion.floor_id == row.id).limit(1))
                 used = used or db.scalar(select(Robot.id).where(Robot.last_floor_id == row.id).limit(1))
                 used = used or db.scalar(select(FloorConnector.id).where(FloorConnector.floor_b_id == row.id).limit(1))
-                # S5 must extend this guard with scenario references before enabling scenarios.
+                # Scenario points require an approved MapVersion. Keeping every
+                # map snapshot already prevents deleting a referenced floor.
             if used:
                 fail(409, 'RESOURCE_IN_USE', '하위 자료나 사용 중인 지도가 있어 지울 수 없습니다.')
             record(db, user, prefix + '_DELETED', row)

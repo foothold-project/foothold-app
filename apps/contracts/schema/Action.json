@@ -1,5 +1,59 @@
 {
   "$defs": {
+    "ActionOption": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "param": {
+          "enum": [
+            "camera",
+            "device"
+          ],
+          "title": "Param",
+          "type": "string"
+        },
+        "requires": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requires",
+          "type": "array"
+        },
+        "value": {
+          "enum": [
+            "rgb",
+            "depth",
+            "lidar",
+            "battery"
+          ],
+          "title": "Value",
+          "type": "string"
+        },
+        "why_unavailable": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Why Unavailable"
+        }
+      },
+      "required": [
+        "param",
+        "value",
+        "requires",
+        "available",
+        "why_unavailable"
+      ],
+      "title": "ActionOption",
+      "type": "object"
+    },
     "JsonValue": {}
   },
   "$id": "fh-app/1/Action",
@@ -23,6 +77,13 @@
     "label": {
       "title": "Label",
       "type": "string"
+    },
+    "options": {
+      "items": {
+        "$ref": "#/$defs/ActionOption"
+      },
+      "title": "Options",
+      "type": "array"
     },
     "params": {
       "additionalProperties": {
@@ -56,7 +117,8 @@
     "params",
     "requires",
     "available",
-    "why_unavailable"
+    "why_unavailable",
+    "options"
   ],
   "title": "Action",
   "type": "object"

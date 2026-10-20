@@ -769,12 +769,19 @@ REALTIME-VALIDATION.md의 S4a 절을 따른다.
 ## S5a 작업 카탈로그·임무·시나리오
 
 `GET /actions`는 PHOTO·WAIT·OPERATOR_CONFIRM·SENSOR_LOG의 key/label/params 기본값/
-requires/available/why_unavailable을 반환한다. robot_id가 없으면 일반 카탈로그이며,
+requires/available/why_unavailable/options를 반환한다. robot_id가 없으면 일반 카탈로그이며,
 있으면 총괄 또는 해당 로봇 담당자만 조회한다(범위 밖·없는 로봇 동일 404).
 연결된 hello 장치 목록을 우선하고 끊긴 로봇은 robot_devices를 사용한다.
 아직 장치를 받지 않았으면 모든 항목을 비활성으로 하며 이유는
 «장치 정보를 아직 받지 못했습니다»다. 정상(OK) 장치 종류만 지원 판정에 쓴다.
 실제 실행 가능 여부·로봇 온라인 상태 점검은 후속 실행 단계의 일이다.
+
+PHOTO의 camera, SENSOR_LOG의 device는 options에 선택지마다 param/value/requires/
+available/why_unavailable을 포함한다. 작업 전체는 선택지 하나라도 가능하면 available이며,
+작업 requires는 모든 선택지에 공통인 필수 장치만 담는다(두 작업은 빈 목록).
+params는 고정 기본값이다. 클라이언트는 이 기본값을 로봇이 지원한다고 가정하지 않고
+해당 options의 가능 여부를 확인해 고른다. 예를 들어 depth만 정상인 로봇도 PHOTO를
+고를 수 있으나 rgb 선택지는 비활성이다. WAIT/OPERATOR_CONFIRM의 options는 빈 목록이다.
 
 인자 정책은 이번 고정 카탈로그에서 정한다. 알 수 없는 인자는 거절한다.
 
@@ -793,12 +800,13 @@ requires/available/why_unavailable을 반환한다. robot_id가 없으면 일반
 
 - POST는 판 1을 만들고 PUT은 새 판을 덧붙인다. 이름은 1..128자·공백뿐인 값과
   Cc/Cf를 거부하며 임무 작업은 1..100개, 시나리오 지점은 1..200개다.
-- POST/GET/PUT 응답 ETag는 본체의 현재 version이다. PUT에는 정확히 따옴표를 포함한
+- POST/PUT 및 최신 GET의 ETag는 본체의 현재 version이다. PUT에는 정확히 따옴표를 포함한
   `If-Match: "1"`이 필요하다. 없으면 428 PRECONDITION_REQUIRED, 다르면
   409 VERSION_CONFLICT와 detail.version을 반환한다. 행 잠금 후 비교하므로 동시 PUT은
   하나만 성공한다. 보관은 archived_at과 본체 version만 바꾸며 같은 요청 반복은 204다.
 - `?version=n`은 당시 판의 이름·작업·지점·종료 방식·메모를 반환한다. number는 선택한
-  판, latest_version/version/ETag/archived_at은 본체의 현재 값이다. 보관된 항목도
+  판, latest_version/version/archived_at은 본체의 현재 값이다. 명시적인 ?version=n
+  조회에는 ETag를 붙이지 않는다. 보관된 항목도
   옛 판을 읽으며 보관 후 PUT은 409다. 작성자와 판 작성자를 별도로 제공한다.
 - steps의 action/params를 검사하고 required_devices는 서버가 계산한다. SENSOR_LOG는
   위 표의 고정 장치 별칭을 사용한다. 임의 장치 key 선택은 이번에 지원하지 않는다.
@@ -806,20 +814,25 @@ requires/available/why_unavailable을 반환한다. robot_id가 없으면 일반
 시나리오 저장은 조직 안의 층을 먼저 잠그고 지점·GO_TO target의 map_version_id가
 저장 순간 그 층의 현재 승인 판인지 비교한다. 다르면 409 STALE·«지도가 바뀌었습니다»와
 지점 경로·현재 승인 판 ID를 반환한다. 지도 원점·회전을 적용한 범위 검사, 유한한 좌표,
-NO_GO 다각형 내부와 경계 거부, waypoint_ref의 해당 판 지점 이름/ID 일치를 검사한다.
+NO_GO 다각형 내부와 경계 거부를 검사한다. 지도 요소와 시나리오 좌표는 같은 함수의
+±1e-9 m 경계 허용오차를 쓴다. waypoint_ref는 해당 판 waypoint ID만 받으며 이름은
+거절한다. x/y가 그 지점에서 0.05 m 넘게 떨어지면 거절하고 문제 지점 경로를 보낸다.
 임무는 동일 조직의 존재하는 특정 판이고 보관되지 않아야 한다. 참조 임무를 공유 잠가
 보관과 새 시나리오 저장의 경합을 막는다. 기존 시나리오 판은 임무 보관 후에도 유지한다.
 finish는 STAY/RETURN_TO_START/GO_TO이며 GO_TO만 target을 반드시 받는다.
 
 `POST /scenarios/preview`는 같은 본문을 받고 저장 없이 points(지점 경로·reachable·reasons),
 segments(시작/끝·reachable·이유·connector_id·via·distance_m), 계산 열을 반환한다.
-형식/임무 오류는 422, 지도 충돌은 409, 지도 범위·NO_GO·잘못된 waypoint_ref·층 연결점
+본문 형식/임무 오류는 422, query/path 형식 오류는 공통 400 VALIDATION이다.
+지도 충돌은 409, 지도 범위·NO_GO·잘못된 waypoint_ref·층 연결점
 부재는 preview의 지점별 실패 이유다. 저장은 reachable=false면 422 PRECHECK_FAILED와
-같은 상세를 반환한다. preview는 로그인한 사람이면 사용할 수 있다.
+같은 상세를 반환한다. PRECHECK_FAILED의 detail은 항상 elements 배열이며,
+경로 미리보기 자료는 detail.preview 하위에 담는다. preview는 로그인한 사람이면 사용할 수 있다.
 
 직접 연결점 짝은 두 승인 판을 가리키는 active floor_connectors만 쓴다. 필요한 경우
 출발→연결점, 반대편 연결점→도착 직선 합이 가장 짧은 직접 짝을 고른다. 종료 이동도
-같은 방식으로 검사한다. floor_ids/map_version_ids는 종료 target까지 포함한 중복 없는
+같은 방식으로 검사한다. 연결점 끝의 NO_GO 검사는 구간 수와 관계없이 짝마다 한 번만 한다.
+floor_ids/map_version_ids는 종료 target까지 포함한 중복 없는
 정렬 목록, required_devices는 참조 임무 판의 합집합, est_distance_m는 같은 층 직선과
 연결점 접근·이탈 직선 합이다. 층 사이 자체 이동 거리는 아직 0으로 추정한다.
 코드 ponytail 주석과 응답 distance_note처럼 **Nav2 경로가 아니며 여러 층 경유 탐색은
@@ -833,7 +846,7 @@ UPDATE(name, latest_version, version, archived_at)만 가능하다. 서버 시�
 같은 트랜잭션에 저장하며 ACCOUNT 분류이고 알림은 만들지 않는다.
 
 ```sh
-FH_TEST_PORT_RANGE=9410:9429 python -m pytest -q apps/server/tests/test_missions.py apps/server/tests/test_missions_wire.py apps/server/tests/test_migrations.py
+FH_TEST_PORT_RANGE=9410:9429 python -m pytest -q apps/server/tests/test_missions.py apps/server/tests/test_missions_review.py apps/server/tests/test_missions_wire.py apps/server/tests/test_migrations.py
 FH_TEST_PORT_RANGE=9410:9429 python apps/server/tools/check_realtime_mutations.py --match S5a
 python -m apps.contracts.generate --check
 npm run --prefix apps/contracts typecheck
@@ -847,7 +860,8 @@ screens.tsx:153,179,183의 가짜 소비자는 W6 후속이며 변경하지 않�
 
 정본 추가 정의는 인자 범위·개수 상한, preview/응답 상세, 428 코드, 보관 시 version 증가,
 옛 이름/notes 판 저장, 고정 SENSOR_LOG 별칭과 거리의 층 이동 미산입이다.
-새 임무·시나리오 입력 형식 오류는 작업 지시의 422 요구를 따라 05 §1.4의 공통 400과 다르다.
+새 임무·시나리오 본문 오류는 작업 지시의 422 요구를 따라 05 §1.4의 공통 400과 다르다.
+사건 ACCOUNT 분류와 이 본문 422의 정본 반영 여부는 계속 결정 필요다.
 docs/spec는 수정하지 않았고 조정 검토·결정 범위로 남긴다. 0012 downgrade는 임무·시나리오와
 모든 판을 삭제한다. 자료가 있는 환경은 DB 백업·보존 계획 없이 downgrade하지 말고
 검토한 코드 revert/후속 수정으로 복구한다. Git push는 운영 배포가 아니다.

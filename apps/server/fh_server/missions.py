@@ -1,13 +1,13 @@
 """S5a reusable immutable missions and direct-pair scenario previews."""
 import math
-from typing import Annotated
+from typing import Annotated, get_args
 from uuid import UUID
 
 from fastapi import Header, Query, Response
 from sqlalchemy import any_, select, tuple_
 
 from apps.contracts import models as C
-from .maps import bounded_features, orientation
+from .maps import bounded_features, orientation, within_map
 from .models import Floor, FloorConnector, MapVersion, Mission, MissionVersion, Robot, RobotDevice, Scenario, ScenarioVersion, now
 from .robots import reported_devices
 
@@ -46,7 +46,7 @@ def preview(db, user, body, fail):
         fail(404, 'NOT_FOUND', '층을 찾을 수 없습니다.')
     for element, point in points:
         if floors[point.floor_id].approved_version_id != point.map_version_id:
-            fail(409, 'STALE', '지도가 바뀌었습니다. 지금 승인 판에서 다시 저장하세요.', {'element': element,
+            fail(409, 'STALE', '지도가 바뀌었습니다. 지금 승인 판에서 다시 저장하세요.', {'elements': [element],
                 'approved_version_id': str(floors[point.floor_id].approved_version_id) if floors[point.floor_id].approved_version_id else None})
     versions = {row.id: row for row in db.scalars(select(MapVersion).where(MapVersion.org_id == user.org_id,
         MapVersion.id.in_({p.map_version_id for _, p in points})))}
@@ -63,27 +63,46 @@ def preview(db, user, body, fail):
         mission = missions.get(point.mission_id)
         version = mission_versions.get((point.mission_id, point.mission_version))
         if mission is None or mission.archived_at is not None or version is None:
-            fail(422, 'PRECHECK_FAILED', '사용할 수 있는 임무 판을 선택하세요.', {'element': f'waypoints.{i}.mission_version'})
+            fail(422, 'PRECHECK_FAILED', '사용할 수 있는 임무 판을 선택하세요.', {'elements': [f'waypoints.{i}.mission_version']})
         required.update(version.required_devices)
     results = []
     for element, point in points:
         version = versions[point.map_version_id]
-        cosine, sine = math.cos(version.origin_yaw), math.sin(version.origin_yaw)
-        dx, dy = point.x - version.origin_x, point.y - version.origin_y
-        px, py = cosine * dx + sine * dy, -sine * dx + cosine * dy
         reasons = []
-        if not math.isfinite(px) or not math.isfinite(py) or not 0 <= px <= version.width * version.resolution or not 0 <= py <= version.height * version.resolution:
+        if not within_map(point.x, point.y, (version.origin_x, version.origin_y, version.origin_yaw),
+                          version.width * version.resolution, version.height * version.resolution):
             reasons.append('지도 범위 밖입니다.')
         if any(zone['type'] == 'NO_GO' and inside_polygon(point.x, point.y, zone['polygon']) for zone in features[version.id]['zones']):
             reasons.append('진입 금지 구역 안입니다.')
-        if point.waypoint_ref is not None and not any(point.waypoint_ref in (w['id'], w['name']) for w in features[version.id]['waypoints']):
-            reasons.append('지도 판의 지점 이름 또는 ID와 일치하지 않습니다.')
+        if point.waypoint_ref is not None:
+            waypoint = next((w for w in features[version.id]['waypoints'] if w['id'] == point.waypoint_ref), None)
+            if waypoint is None:
+                reasons.append('지도 판의 지점 ID와 일치하지 않습니다.')
+            elif math.hypot(point.x - waypoint['x'], point.y - waypoint['y']) > 0.05 + 1e-12:
+                reasons.append('참조 지점 좌표에서 0.05 m 넘게 벗어났습니다.')
         results.append(C.PreviewPoint(element=element, reachable=not reasons, reasons=reasons))
     routes = list(zip(points, points[1:]))
     if body.finish.mode == 'RETURN_TO_START':
         routes.append((points[-1], points[0]))
     connectors = list(db.scalars(select(FloorConnector).where(FloorConnector.org_id == user.org_id,
         FloorConnector.active.is_(True), FloorConnector.floor_a_id.in_(floors), FloorConnector.floor_b_id.in_(floors))))
+    # Each endpoint's geometry is checked once, regardless of repeated routes.
+    connections = {}
+    for connector in connectors:
+        if (connector.map_version_a_id != floors[connector.floor_a_id].approved_version_id
+                or connector.map_version_b_id != floors[connector.floor_b_id].approved_version_id):
+            continue
+        pair = [C.ScenarioPoint(floor_id=floor_id, map_version_id=version_id, **pose)
+            for floor_id, version_id, pose in (
+                (connector.floor_a_id, connector.map_version_a_id, connector.a_pose),
+                (connector.floor_b_id, connector.map_version_b_id, connector.b_pose))]
+        if any(any(z['type'] == 'NO_GO' and inside_polygon(p.x, p.y, z['polygon'])
+                   for z in features[p.map_version_id]['zones']) for p in pair):
+            continue
+        for endpoints in (pair, pair[::-1]):
+            a, b = endpoints
+            key = (a.floor_id, b.floor_id, a.map_version_id, b.map_version_id)
+            connections.setdefault(key, []).append((connector.id, endpoints))
     segments, distance = [], 0.0
     result_by_element = {r.element: r for r in results}
     def straight(a, b):
@@ -96,18 +115,8 @@ def preview(db, user, body, fail):
             length = straight(a, b)
         else:
             candidates = []
-            for connector in connectors:
-                if (connector.floor_a_id, connector.floor_b_id, connector.map_version_a_id, connector.map_version_b_id) == (a.floor_id, b.floor_id, a.map_version_id, b.map_version_id):
-                    poses = (connector.a_pose, connector.b_pose)
-                elif (connector.floor_b_id, connector.floor_a_id, connector.map_version_b_id, connector.map_version_a_id) == (a.floor_id, b.floor_id, a.map_version_id, b.map_version_id):
-                    poses = (connector.b_pose, connector.a_pose)
-                else:
-                    continue
-                pair = [C.ScenarioPoint(floor_id=p.floor_id, map_version_id=p.map_version_id, **pose) for p, pose in zip((a, b), poses)]
-                # An endpoint inside NO_GO is not usable even if paired.
-                if any(any(z['type'] == 'NO_GO' and inside_polygon(p.x, p.y, z['polygon']) for z in features[p.map_version_id]['zones']) for p in pair):
-                    continue
-                candidates.append((straight(a, pair[0]) + straight(pair[1], b), str(connector.id), connector.id, pair))
+            for identifier, pair in connections.get((a.floor_id, b.floor_id, a.map_version_id, b.map_version_id), []):
+                candidates.append((straight(a, pair[0]) + straight(pair[1], b), str(identifier), identifier, pair))
             if candidates:
                 length, _, connector_id, via = min(candidates)
             else:
@@ -186,7 +195,9 @@ def install(app, DB, Identity, fail, authorize, event, page):
         else:
             checked = preview(db, user, body, fail)
             if not checked.reachable:
-                fail(422, 'PRECHECK_FAILED', '갈 수 없는 지점이 있습니다.', checked.model_dump(mode='json'))
+                fail(422, 'PRECHECK_FAILED', '갈 수 없는 지점이 있습니다.', {
+                    'elements': [p.element for p in checked.points if not p.reachable],
+                    'preview': checked.model_dump(mode='json')})
             values = dict(waypoints=[p.model_dump(mode='json') for p in body.waypoints], finish=body.finish.model_dump(mode='json'),
                 notes=body.notes, floor_ids=checked.floor_ids, map_version_ids=checked.map_version_ids,
                 required_devices=checked.required_devices, est_distance_m=checked.est_distance_m)
@@ -233,17 +244,33 @@ def install(app, DB, Identity, fail, authorize, event, page):
                     RobotDevice.org_id == auth[0].org_id, RobotDevice.robot_id == robot.id))]
                 if not devices and robot.last_seen_at is None:
                     devices = None
-        items = []
-        for key, label in LABELS.items():
-            step = C.MissionStep(action=key)
-            required = requirements(step)
+        def unavailable(required):
             reason = None
             if robot_id is not None:
                 if devices is None:
                     reason = '장치 정보를 아직 받지 못했습니다'
                 elif any(not any(d['kind'] == kind and d['state'] == 'OK' for d in devices) for kind in required):
                     reason = '필요한 장치가 없거나 정상 상태가 아닙니다: ' + ', '.join(required)
-            items.append(C.Action(key=key, label=label, params=step.params, requires=required, available=reason is None, why_unavailable=reason))
+            return reason
+        items = []
+        for key, label in LABELS.items():
+            step = C.MissionStep(action=key)
+            options = []
+            parameter = {'PHOTO': 'camera', 'SENSOR_LOG': 'device'}.get(key)
+            if parameter is not None:
+                for value in get_args(C.ACTION_PARAMS[key].model_fields[parameter].annotation):
+                    required = requirements(C.MissionStep(action=key, params={parameter: value}))
+                    reason = unavailable(required)
+                    options.append(C.ActionOption(param=parameter, value=value, requires=required,
+                        available=reason is None, why_unavailable=reason))
+                # Only unconditional requirements belong on the action itself.
+                required = sorted(set.intersection(*(set(o.requires) for o in options)))
+                reason = None if any(o.available for o in options) else options[0].why_unavailable
+            else:
+                required = requirements(step)
+                reason = unavailable(required)
+            items.append(C.Action(key=key, label=label, params=step.params, requires=required,
+                available=reason is None, why_unavailable=reason, options=options))
         return items
 
     @app.get('/api/v1/missions', response_model=C.MissionList)
@@ -261,7 +288,8 @@ def install(app, DB, Identity, fail, authorize, event, page):
 
     @app.get('/api/v1/missions/{identifier}', response_model=C.Mission)
     def mission(identifier: UUID, auth: Identity, db: DB, response: Response, version: Annotated[int | None, Query(ge=1)] = None):
-        return tagged(response, result(db, own(db, auth[0], Mission, identifier), version))
+        value = result(db, own(db, auth[0], Mission, identifier), version)
+        return tagged(response, value) if version is None else value
 
     @app.put('/api/v1/missions/{identifier}', response_model=C.Mission)
     def update_mission(identifier: UUID, body: C.MissionWrite, auth: Identity, db: DB, response: Response,
@@ -300,7 +328,8 @@ def install(app, DB, Identity, fail, authorize, event, page):
 
     @app.get('/api/v1/scenarios/{identifier}', response_model=C.Scenario)
     def scenario(identifier: UUID, auth: Identity, db: DB, response: Response, version: Annotated[int | None, Query(ge=1)] = None):
-        return tagged(response, result(db, own(db, auth[0], Scenario, identifier), version))
+        value = result(db, own(db, auth[0], Scenario, identifier), version)
+        return tagged(response, value) if version is None else value
 
     @app.put('/api/v1/scenarios/{identifier}', response_model=C.Scenario)
     def update_scenario(identifier: UUID, body: C.ScenarioWrite, auth: Identity, db: DB, response: Response,

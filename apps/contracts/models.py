@@ -828,6 +828,14 @@ class MissionStep(Contract):
         return self
 
 
+class ActionOption(Contract):
+    param: Literal['camera', 'device']
+    value: Literal['rgb', 'depth', 'lidar', 'battery']
+    requires: list[str]
+    available: bool
+    why_unavailable: str | None
+
+
 class Action(Contract):
     key: ActionKey
     label: str
@@ -835,6 +843,7 @@ class Action(Contract):
     requires: list[str]
     available: bool
     why_unavailable: str | None
+    options: list[ActionOption]
 
 
 class MissionWrite(MapName):

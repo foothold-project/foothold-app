@@ -71,7 +71,7 @@ PR32 검토 반영: 사유/의견·지도 저장/되돌리기 reason은 Cc/Cf �
 
 ## 작업·임무·시나리오 (S5a)
 
-`Action`, `MissionWrite`/`Mission`/`MissionList`,
+`Action`/`ActionOption`, `MissionWrite`/`Mission`/`MissionList`,
 `ScenarioWrite`/`Scenario`/`ScenarioList`, `ScenarioPreview`를 추가했다.
 배정·실행 계약은 후속이다. `PhotoParams`/`WaitParams`/`ConfirmParams`/
 `SensorLogParams`가 인자 범위의 정본이며 MissionStep의 action에 따라 서버가 검사하고
@@ -82,5 +82,11 @@ PR32 검토 반영: 사유/의견·지도 저장/되돌리기 reason은 Cc/Cf �
 ScenarioFinish는 입력의 기본값 생략을 표현하도록 스키마에서 해당 필드가 선택이다.
 실제 응답은 params/yaw/waypoint_ref/target 기본값도 포함한다.
 시나리오 판의 number는 선택한 판이며 version/latest_version/archived_at은 본체의
-현재 값이다. ETag/If-Match는 현재 version을 사용한다. 범위·인자 상한·preview의
+현재 값이다. 최신 조회의 ETag/If-Match는 현재 version을 사용하고 ?version=n 응답은
+ETag를 생략한다. Action.options는 camera/device 선택지별 장치 요구·가능 여부·이유이며,
+작업 available은 하나라도 가능한 선택지가 있는지를 뜻한다. 작업 requires는 선택지의
+공통 필수 장치만 담으며 params 기본값 자체의 지원 여부는 options로 확인한다.
+waypoint_ref는 지점 ID이고 좌표 차이 상한은 0.05 m다. 본문 검사422의 detail.elements는
+문제 경로 배열이고 preview 자료는 detail.preview다. query/path 오류는 공통400이다.
+범위·인자 상한·preview의
 직선/직접 연결점 거리 한계·428/409/422는 서버 README S5a 절을 따른다.

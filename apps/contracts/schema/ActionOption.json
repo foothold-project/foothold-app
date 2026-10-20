@@ -1,0 +1,56 @@
+{
+  "$id": "fh-app/1/ActionOption",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "param": {
+      "enum": [
+        "camera",
+        "device"
+      ],
+      "title": "Param",
+      "type": "string"
+    },
+    "requires": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requires",
+      "type": "array"
+    },
+    "value": {
+      "enum": [
+        "rgb",
+        "depth",
+        "lidar",
+        "battery"
+      ],
+      "title": "Value",
+      "type": "string"
+    },
+    "why_unavailable": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Why Unavailable"
+    }
+  },
+  "required": [
+    "param",
+    "value",
+    "requires",
+    "available",
+    "why_unavailable"
+  ],
+  "title": "ActionOption",
+  "type": "object"
+}

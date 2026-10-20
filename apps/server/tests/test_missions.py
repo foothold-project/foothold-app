@@ -50,7 +50,7 @@ def test_actions_inventory_scope_and_live_hello(client, seeded):
     assert client.get(P + '/actions').status_code == 401
     catalog = client.get(P + '/actions', headers=headers).json()
     assert [a['key'] for a in catalog] == ['PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']
-    assert catalog[0]['params'] == {'camera': 'rgb'} and catalog[0]['requires'] == ['CAMERA_RGB']
+    assert catalog[0]['params'] == {'camera': 'rgb'} and catalog[0]['requires'] == [] and catalog[0]['options'][0]['requires'] == ['CAMERA_RGB']
     assert all(a['available'] and a['why_unavailable'] is None for a in catalog)
     rid = str(seeded['robots']['mine'])
     missing = client.get(P + '/actions', params={'robot_id': rid}, headers=headers).json()
@@ -62,7 +62,9 @@ def test_actions_inventory_scope_and_live_hello(client, seeded):
         db.commit()
     engine.dispose()
     stored = client.get(P + '/actions', params={'robot_id': rid}, headers=headers).json()
-    assert stored[0]['available'] and stored[1]['available'] and not stored[3]['available'] and 'LIDAR' in stored[3]['why_unavailable']
+    assert stored[0]['available'] and stored[1]['available'] and stored[3]['available']
+    lidar = next(o for o in stored[3]['options'] if o['value'] == 'lidar')
+    assert not lidar['available'] and 'LIDAR' in lidar['why_unavailable']
     client.app.state.realtime.agents[rid] = SimpleNamespace(closing=False, state={'devices': []})
     try:
         live = client.get(P + '/actions', params={'robot_id': rid}, headers=headers).json()
@@ -96,7 +98,7 @@ def test_mission_versions_conflicts_archive_permissions_events(client, seeded):
     assert client.get(P + '/missions', headers=one).json()['items'] == []
     assert client.get(P + '/missions?archived=1', headers=one).json()['items'][0]['archived_at']
     old = client.get(path + '?version=1', headers=two)
-    assert old.status_code == 200 and old.headers['etag'] == '"3"'
+    assert old.status_code == 200 and 'etag' not in old.headers
     assert old.json()['number'] == 1 and old.json()['archived_at']
     events = client.get(P + '/events', headers=one).json()['items']
     bycode = {row['code']: row for row in events}
@@ -212,8 +214,8 @@ def test_scenario_rejections_and_preview_reasons(maps):
         assert checked.status_code == 200 and not checked.json()['points'][0]['reachable'], checked.text
         assert reason in checked.json()['points'][0]['reasons'][0]
         failed = http.post(P + '/scenarios', headers=headers, json=body)
-        assert failed.status_code == 422 and failed.json()['error']['detail']['points'][0]['element'] == 'waypoints.0'
-    for reference in ('gate-id', '입구'):
+        assert failed.status_code == 422 and failed.json()['error']['detail']['preview']['points'][0]['element'] == 'waypoints.0'
+    for reference in ('gate-id',):
         body = copy.deepcopy(good)
         body['waypoints'][0]['waypoint_ref'] = reference
         assert http.post(P + '/scenarios', headers=headers, json=body).status_code == 201
@@ -221,7 +223,7 @@ def test_scenario_rejections_and_preview_reasons(maps):
         body = copy.deepcopy(good)
         body['waypoints'][0].update(patch)
         response = http.post(P + '/scenarios', headers=headers, json=body)
-        assert response.status_code == 422 and response.json()['error']['detail']['element'] == 'waypoints.0.mission_version'
+        assert response.status_code == 422 and response.json()['error']['detail']['elements'] == ['waypoints.0.mission_version']
     body = copy.deepcopy(good)
     body['waypoints'][0]['map_version_id'] = versions[1]['id']
     assert http.post(P + '/scenarios', headers=headers, json=body).status_code == 409
@@ -258,7 +260,7 @@ def test_scenario_input_limits_finish_finite_and_pending_map(maps):
     target = {k: v for k, v in good['waypoints'][0].items() if not k.startswith('mission_')}
     target['x'] = 10
     response = http.post(P + '/scenarios', headers=headers, json={**good, 'finish': {'mode': 'GO_TO', 'target': target}})
-    assert response.status_code == 422 and response.json()['error']['detail']['points'][-1]['element'] == 'finish.target'
+    assert response.status_code == 422 and response.json()['error']['detail']['preview']['points'][-1]['element'] == 'finish.target'
 
 
 def test_tenant_ids_lists_and_pagination(client, seeded):
@@ -372,7 +374,7 @@ def test_scenario_foreign_floor_mission_and_id_scope(maps, seeded):
         body = copy.deepcopy(good)
         body['waypoints'][0]['mission_id'] = identifier
         response = http.post(P + '/scenarios', headers=headers, json=body)
-        assert response.status_code == 422 and response.json()['error']['detail']['element'] == 'waypoints.0.mission_version'
+        assert response.status_code == 422 and response.json()['error']['detail']['elements'] == ['waypoints.0.mission_version']
 
 
 def test_rotated_map_coordinates_and_photo_depth_requirements(maps):

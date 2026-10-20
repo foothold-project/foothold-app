@@ -10,6 +10,15 @@ export interface Action {
   requires: string[];
   available: boolean;
   why_unavailable: string | null;
+  options: ActionOption[];
+}
+
+export interface ActionOption {
+  param: "camera" | "device";
+  value: "rgb" | "depth" | "lidar" | "battery";
+  requires: string[];
+  available: boolean;
+  why_unavailable: string | null;
 }
 
 export interface AgentBattery {

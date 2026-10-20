@@ -202,7 +202,8 @@ def create_app(settings: Settings | None = None):
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request, exc):
-        if request.url.path.startswith(('/api/v1/missions', '/api/v1/scenarios')):
+        if (request.url.path.startswith(('/api/v1/missions', '/api/v1/scenarios'))
+                and all(e['loc'][0] == 'body' for e in exc.errors())):
             fields = {'name', 'steps', 'action', 'params', 'camera', 'seconds', 'device', 'prompt',
                       'waypoints', 'floor_id', 'map_version_id', 'x', 'y', 'yaw', 'waypoint_ref',
                       'mission_id', 'mission_version', 'finish', 'mode', 'target', 'notes'}

@@ -780,7 +780,7 @@ MUTATIONS.extend([
     ('S5a current approved map check omitted', MISSIONS, 'if floors[point.floor_id].approved_version_id != point.map_version_id:', 'if False:', S5A + '::test_scenario_input_limits_finish_finite_and_pending_map'),
     ('S5a point bounds check omitted', MISSIONS, 'reasons.append(\'지도 범위 밖입니다.\')', 'pass', S5A + '::test_scenario_rejections_and_preview_reasons'),
     ('S5a NO_GO point allowed', MISSIONS, "zone['type'] == 'NO_GO' and inside_polygon(point.x, point.y, zone['polygon'])", 'False', S5A + '::test_scenario_rejections_and_preview_reasons'),
-    ('S5a waypoint reference check omitted', MISSIONS, "reasons.append('지도 판의 지점 이름 또는 ID와 일치하지 않습니다.')", 'pass', S5A + '::test_scenario_rejections_and_preview_reasons'),
+    ('S5a waypoint reference check omitted', MISSIONS, "reasons.append('지도 판의 지점 ID와 일치하지 않습니다.')", 'pass', S5A + '::test_scenario_rejections_and_preview_reasons'),
     ('S5a archived mission allowed', MISSIONS, 'mission is None or mission.archived_at is not None or version is None', 'mission is None or version is None', S5A + '::test_scenario_rejections_and_preview_reasons'),
     ('S5a resource tenant check omitted', MISSIONS, 'model.org_id == user.org_id, model.id == identifier', 'model.id == identifier', S5A + '::test_tenant_ids_lists_and_pagination'),
     ('S5a referenced floor tenant check omitted', MISSIONS, 'Floor.org_id == user.org_id,', 'True,', S5A + '::test_scenario_foreign_floor_mission_and_id_scope'),
@@ -793,6 +793,60 @@ MUTATIONS.extend([
     ('S5a mission event omitted', MISSIONS, "        event(db, user.org_id, code, user.id, {'id': str(row.id), 'name': body.name, 'number': row.latest_version})", '        pass', S5A + '::test_mission_versions_conflicts_archive_permissions_events'),
     ('S5a scenario version conflict ignored', MISSIONS, '        check_match(row, if_match)\n        return tagged(response, save(db, auth[0], body, Scenario, row))', '        return tagged(response, save(db, auth[0], body, Scenario, row))', 'apps/server/tests/test_missions_wire.py::test_uvicorn_two_floor_scenario_new_version_archive'),
 ])
+
+
+MUTATIONS.extend([('S5aR floor shared lock omitted',
+  'apps/server/fh_server/missions.py',
+  'Floor.id.in_({p.floor_id for _, p in points})).order_by(Floor.id).with_for_update(read=True)',
+  'Floor.id.in_({p.floor_id for _, p in points})).order_by(Floor.id)',
+  'apps/server/tests/test_missions_review.py::test_floor_share_lock_blocks_stale_save'),
+ ('S5aR mission shared lock omitted',
+  'apps/server/fh_server/missions.py',
+  'Mission.id.in_({p.mission_id for p in body.waypoints})).order_by(Mission.id).with_for_update(read=True)',
+  'Mission.id.in_({p.mission_id for p in body.waypoints})).order_by(Mission.id)',
+  'apps/server/tests/test_missions_review.py::test_mission_share_lock_blocks_concurrent_archive_reference'),
+ ('S5aR parent update lock omitted during archive and PUT',
+  'apps/server/fh_server/missions.py',
+  'query.with_for_update() if lock else query',
+  'query',
+  'apps/server/tests/test_missions_review.py::test_parent_update_lock_serializes_archive_and_put'),
+ ('S5aR waypoint coordinate match omitted',
+  'apps/server/fh_server/missions.py',
+  "elif math.hypot(point.x - waypoint['x'], point.y - waypoint['y']) > 0.05 + 1e-12:",
+  'elif False:',
+  'apps/server/tests/test_missions_review.py::test_waypoint_id_coordinates_details_and_historical_etag'),
+ ('S5aR rotated boundary tolerance omitted',
+  'apps/server/fh_server/maps.py',
+  '-1e-9 <= px <= width + 1e-9 and -1e-9 <= py <= height + 1e-9',
+  '0 <= px <= width and 0 <= py <= height',
+  'apps/server/tests/test_missions_review.py::test_rotated_boundary_uses_same_tolerance_as_map_features'),
+ ('S5aR query errors classified as precheck',
+  'apps/server/fh_server/api.py',
+  "and all(e['loc'][0] == 'body' for e in exc.errors())",
+  'and True',
+  'apps/server/tests/test_missions_review.py::test_query_and_path_validation_remain_common_400'),
+ ('S5aR action availability uses default option only',
+  'apps/server/fh_server/missions.py',
+  'None if any(o.available for o in options) else options[0].why_unavailable',
+  'options[0].why_unavailable',
+  'apps/server/tests/test_missions_review.py::test_catalog_options_and_any_supported_choice'),
+ ('S5aR connector geometry repeated for every segment',
+  'apps/server/fh_server/missions.py',
+  '                candidates.append((straight(a, pair[0]) + straight(pair[1], b), str(identifier), identifier, '
+  'pair))',
+  "                if any(any(z['type'] == 'NO_GO' and inside_polygon(p.x, p.y, z['polygon']) for z in "
+  "features[p.map_version_id]['zones']) for p in pair):\n"
+  '                    continue\n'
+  '                candidates.append((straight(a, pair[0]) + straight(pair[1], b), str(identifier), identifier, '
+  'pair))',
+  'apps/server/tests/test_missions_review.py::test_connector_geometry_checked_once_per_pair'),
+ ('S5aR historical scenario advertises current ETag',
+  'apps/server/fh_server/missions.py',
+  '        return tagged(response, value) if version is None else value\n'
+  '\n'
+  "    @app.put('/api/v1/scenarios/{identifier}'",
+  "        return tagged(response, value)\n\n    @app.put('/api/v1/scenarios/{identifier}'",
+  'apps/server/tests/test_missions_review.py::test_waypoint_id_coordinates_details_and_historical_etag')])
 
 
 def run(tree, tests):
