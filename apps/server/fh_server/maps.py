@@ -28,9 +28,13 @@ def ensure_space(root, required, fail):
         fail(503, 'FILE_STORAGE_FULL', '파일 저장 공간이 부족합니다.')
 
 
-async def upload_work(slot, work):
+async def upload_work(slot, work, fail):
     # The task owns the permit until its thread actually ends, including after
     # client cancellation. Disconnecting cannot admit a second live conversion.
+    # Check and acquire have no suspension between them on this event loop.
+    # Refuse received bodies instead of retaining them in a waiting queue.
+    if slot.locked():
+        fail(503, 'SERVER_BUSY', '지도 파일 처리 중입니다. 잠시 후 다시 시도하세요.')
     await slot.acquire()
     task = asyncio.create_task(asyncio.to_thread(work))
     def finished(task):
@@ -310,7 +314,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                 destination.unlink(missing_ok=True)
                 destination.parent.rmdir()
                 raise
-        return await upload_work(conversion_slot, process)
+        return await upload_work(conversion_slot, process, fail)
 
     @app.post('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersion, status_code=201)
     def save(floor_id: UUID, body: C.MapVersionCreate, auth: Identity, db: DB):
@@ -327,8 +331,6 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
         relative = Path('maps') / str(floor.id) / f'{number}-{upload.png_sha256.hex()[:12]}.png'
         destination = root / relative
-        ensure_space(root, (root / upload.image_path).stat().st_size + MAX_YAML, fail)
-        destination.parent.mkdir(parents=True, exist_ok=True)
         metadata = upload.metadata_json
         origin = metadata['origin']
         row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
@@ -338,6 +340,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             source='IMPORT' if body.base_version_id is None else 'EDIT', created_by=user.id)
         created = []
         try:
+            ensure_space(root, (root / upload.image_path).stat().st_size + MAX_YAML, fail)
+            destination.parent.mkdir(parents=True, exist_ok=True)
             # Exclusive creation also prevents accidental overwrites after orphan files/crashes.
             png = (root / upload.image_path).read_bytes()
             if sha256(png) != upload.png_sha256:
@@ -355,9 +359,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             result = version_object(row, floor)
             db.commit()
             return result
-        except BaseException:
+        except BaseException as exc:
             for path in created:
                 path.unlink(missing_ok=True)
+            if isinstance(exc, OSError):
+                fail(503, 'FILE_STORAGE_ERROR', '지도 파일을 읽거나 저장할 수 없습니다.')
             raise
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)

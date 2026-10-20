@@ -85,24 +85,29 @@ def test_conversion_slot_survives_caller_cancellation():
         def first():
             entered.set()
             assert release.wait(3)
-        task = asyncio.create_task(M.upload_work(slot, first))
+        task = asyncio.create_task(M.upload_work(slot, first, api.fail))
         while not entered.is_set():
             await asyncio.sleep(.001)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        second = asyncio.create_task(M.upload_work(slot, second_started.set))
         try:
-            await asyncio.sleep(.03)
+            with pytest.raises(api.APIError) as rejected:
+                await M.upload_work(slot, second_started.set, api.fail)
+            assert rejected.value.status == 503 and rejected.value.code == 'SERVER_BUSY'
             assert not second_started.is_set()
         finally:
             release.set()
-        await asyncio.wait_for(second, 3)
+        async def released():
+            while slot.locked():
+                await asyncio.sleep(.001)
+        await asyncio.wait_for(released(), 3)
+        await M.upload_work(slot, second_started.set, api.fail)
         assert second_started.is_set()
     asyncio.run(run())
 
 
-def test_upload_conversions_have_one_actual_worker(maps, monkeypatch):
+def test_busy_upload_returns_server_busy_without_waiting(maps, monkeypatch):
     http, headers, _ = maps
     entered, release = Event(), Event()
     guard = Lock()
@@ -131,11 +136,16 @@ def test_upload_conversions_have_one_actual_worker(maps, monkeypatch):
         assert entered.wait(3)
         second = pool.submit(request)
         try:
-            time.sleep(.05)
+            try:
+                rejected = second.result(timeout=1)
+            except TimeoutError:
+                pytest.fail('busy upload retained a received body waiting for conversion')
+            assert rejected.status_code == 503 and rejected.json()['error']['code'] == 'SERVER_BUSY'
             assert calls == 1
         finally:
             release.set()
-        assert first.result(timeout=4).status_code == second.result(timeout=4).status_code == 201
+        assert first.result(timeout=4).status_code == 201
+    assert request().status_code == 201  # permit is reusable after the first worker exits
     assert maximum == 1 and calls == 2
 
 
@@ -268,3 +278,32 @@ def test_upload_cookie_csrf_and_fresh_session_are_preserved(maps):
     assert missing.status_code == 403
     accepted = http.post(P + '/uploads', headers={'content-type': 'image/x-portable-graymap', 'x-fh-csrf': csrf}, content=PGM)
     assert accepted.status_code == 201
+
+
+@pytest.mark.parametrize('missing_at', ['stat', 'read'])
+def test_missing_upload_file_returns_storage_503(maps, seeded, monkeypatch, missing_at):
+    http, headers, root = maps
+    _, _, floor = tree(http, headers)
+    image = upload(http, headers)
+    source = next(root.glob('uploads/tmp/*/image.png'))
+    if missing_at == 'stat':
+        source.unlink()
+    else:
+        original = M.ensure_space
+        def remove_after_stat(*args):
+            original(*args)
+            source.unlink()
+        monkeypatch.setattr(M, 'ensure_space', remove_after_stat)
+    try:
+        response = save(http, headers, floor, image)
+    except OSError as exc:
+        pytest.fail(f'missing upload escaped as {type(exc).__name__} instead of FILE_STORAGE_ERROR')
+    assert response.status_code == 503 and response.json()['error']['code'] == 'FILE_STORAGE_ERROR'
+    assert not list(root.glob('maps/*/*.png'))
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with engine.connect() as conn:
+            assert conn.scalar(text('SELECT count(*) FROM map_versions')) == 0
+            assert conn.scalar(text('SELECT approved_version_id FROM floors WHERE id=:id'), {'id': floor}) is None
+    finally:
+        engine.dispose()

@@ -590,8 +590,8 @@ MUTATIONS.extend([
     ('S3aR B1 body holds organization lock', MAPS, 'auth: UploadIdentity, image: UUID | None = None', 'auth: Identity, db: DB, image: UUID | None = None', 'apps/server/tests/test_maps_wire.py::test_slow_upload_does_not_block_writes_and_has_total_deadline'),
     ('S3aR B1 receive deadline removed', MAPS, 'asyncio.timeout(UPLOAD_BODY_SECONDS)', 'asyncio.timeout(3600)', 'apps/server/tests/test_maps_wire.py::test_slow_upload_does_not_block_writes_and_has_total_deadline'),
     ('S3aR B1 postconversion authentication omitted', 'apps/server/fh_server/api.py', 'user, session = authenticate(request, db)', 'user = db.get(User, expected[0])\n            session = db.get(Session, expected[1])\n            lock_organization(db, settings.org_id)', S3AR + '::test_upload_rechecks_revoked_session_after_conversion'),
-    ('S3aR R2 upload work runs on loop', MAPS, 'return await upload_work(conversion_slot, process)', 'return process()', S3AR + '::test_all_upload_sync_work_runs_off_event_loop'),
-    ('S3aR B2 concurrent conversions widened', MAPS, 'conversion_slot = asyncio.Semaphore(1)', 'conversion_slot = asyncio.Semaphore(2)', S3AR + '::test_upload_conversions_have_one_actual_worker'),
+    ('S3aR R2 upload work runs on loop', MAPS, 'return await upload_work(conversion_slot, process, fail)', 'return process()', S3AR + '::test_all_upload_sync_work_runs_off_event_loop'),
+    ('S3aR B2 concurrent conversions widened', MAPS, 'conversion_slot = asyncio.Semaphore(1)', 'conversion_slot = asyncio.Semaphore(2)', S3AR + '::test_busy_upload_returns_server_busy_without_waiting'),
     ('S3aR B2 cancellation frees live worker', MAPS, 'return await asyncio.shield(task)', 'return await task', S3AR + '::test_conversion_slot_survives_caller_cancellation'),
     ('S3aR B2 decoded byte cap removed', FILES, 'if expected > MAX_DECODED:', 'if False:', 'apps/server/tests/test_map_files.py::test_png_expected_over_cap_rejected_before_decode'),
     ('S3aR R4 decompression max_length removed', FILES, 'decoder.decompress(pending, DECODE_CHUNK)', 'decoder.decompress(pending)', 'apps/server/tests/test_map_files.py::test_png_decompression_always_uses_bounded_pieces'),
@@ -604,6 +604,12 @@ MUTATIONS.extend([
     ('S3aR R8 upload UPDATE role allowed', 'apps/server/fh_server/api.py', "OR has_table_privilege(current_user, 'uploads', 'UPDATE')", '', S3AR + '::test_startup_rejects_mutable_upload_role[UPDATE]'),
     ('S3aR R8 upload DELETE role allowed', 'apps/server/fh_server/api.py', "OR has_table_privilege(current_user, 'uploads', 'DELETE')", '', S3AR + '::test_startup_rejects_mutable_upload_role[DELETE]'),
     ('S3aR R8 upload TRUNCATE role allowed', 'apps/server/fh_server/api.py', "OR has_table_privilege(current_user, 'uploads', 'TRUNCATE')", '', S3AR + '::test_startup_rejects_mutable_upload_role[TRUNCATE]'),
+])
+
+
+MUTATIONS.extend([
+    ('S3ar2 N1 busy uploads queue indefinitely', MAPS, 'if slot.locked():', 'if False:', S3AR + '::test_busy_upload_returns_server_busy_without_waiting'),
+    ('S3ar2 missing map upload yields 500', MAPS, 'if isinstance(exc, OSError):', 'if False:', S3AR + '::test_missing_upload_file_returns_storage_503'),
 ])
 
 
