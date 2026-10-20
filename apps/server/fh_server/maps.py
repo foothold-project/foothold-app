@@ -14,7 +14,8 @@ from sqlalchemy import delete, func, select
 
 from apps.contracts import models as C
 from .map_files import MAX_IMAGE, MAX_YAML, image_bytes, map_yaml, sha256, yaml_bytes
-from .models import Building, Floor, FloorConnector, MapVersion, Robot, Site, Upload
+from .approvals import request_map
+from .models import Approval, Building, Floor, FloorConnector, MapVersion, Robot, Site, Upload
 
 
 UPLOAD_BODY_SECONDS = 30
@@ -213,8 +214,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             'number': getattr(row, 'number', None), **scope, **data},
             category='APPROVAL' if code in ('MAP_VERSION_APPROVED', 'MAP_VERSION_ROLLED_BACK') else 'ACCOUNT')
 
-    def floor_object(row):
-        return C.MapFloor(**{key: getattr(row, key) for key in C.MapFloor.model_fields if key != 'pending_count'})
+    def floor_object(row, pending_count=0):
+        return C.MapFloor(pending_count=pending_count, **{key: getattr(row, key) for key in C.MapFloor.model_fields if key != 'pending_count'})
 
     @app.get('/api/v1/sites', response_model=C.SiteTree)
     def sites(auth: Identity, db: DB):
@@ -222,8 +223,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         floors = list(db.scalars(select(Floor).where(Floor.org_id == user.org_id).order_by(Floor.level, Floor.id)))
         buildings = list(db.scalars(select(Building).where(Building.org_id == user.org_id).order_by(Building.name, Building.id)))
         sites = list(db.scalars(select(Site).where(Site.org_id == user.org_id).order_by(Site.name, Site.id)))
+        counts = dict(db.execute(select(MapVersion.floor_id, func.count()).join(Approval,
+            (Approval.org_id == MapVersion.org_id) & (Approval.target_id == MapVersion.id)).where(
+            Approval.org_id == user.org_id, Approval.status == 'PENDING').group_by(MapVersion.floor_id)).all())
         return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, buildings=[C.MapBuilding(id=b.id,
-            site_id=b.site_id, name=b.name, floors=[floor_object(f) for f in floors if f.building_id == b.id])
+            site_id=b.site_id, name=b.name, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
             for b in buildings if b.site_id == s.id]) for s in sites])
 
     @app.post('/api/v1/sites', response_model=C.MapSite, status_code=201)
@@ -367,8 +371,6 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     def save(floor_id: UUID, body: C.MapVersionCreate, auth: Identity, db: DB):
         user = auth[0]
         floor = own(db, Floor, floor_id, user, lock=True)
-        if user.role != 'ORG_ADMIN':
-            fail(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 저장은 결재 기능이 열린 뒤 사용할 수 있습니다.')
         if body.base_version_id != floor.approved_version_id:
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
         upload = own(db, Upload, body.image, user)
@@ -381,7 +383,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         metadata = upload.metadata_json
         origin = metadata['origin']
         row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
-            status='APPROVED', upload_id=upload.id, image_path=str(relative), image_sha256=upload.png_sha256,
+            status='APPROVED' if user.role == 'ORG_ADMIN' else 'PENDING', upload_id=upload.id, image_path=str(relative), image_sha256=upload.png_sha256,
             width=upload.width, height=upload.height, resolution=metadata['resolution'], origin_x=origin[0],
             origin_y=origin[1], origin_yaw=origin[2], features=body.features.model_dump(mode='json', exclude_none=True), reason=body.reason,
             source='IMPORT' if body.base_version_id is None else 'EDIT', created_by=user.id)
@@ -399,10 +401,13 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                     output.write(content)
             db.add(row)
             db.flush()
-            floor.approved_version_id = row.id
-            db.flush()
-            refresh_connectors(db, floor)
-            record(db, user, 'MAP_VERSION_APPROVED', row)
+            if user.role == 'ORG_ADMIN':
+                floor.approved_version_id = row.id
+                db.flush()
+                refresh_connectors(db, floor)
+                record(db, user, 'MAP_VERSION_APPROVED', row)
+            else:
+                request_map(db, user, row)
             result = version_object(row, floor)
             db.commit()
             return result
@@ -448,8 +453,6 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         user = auth[0]
         original = own(db, MapVersion, version_id, user)
         floor = own(db, Floor, original.floor_id, user, lock=True)
-        if user.role != 'ORG_ADMIN':
-            fail(403, 'APPROVAL_REQUIRED', '운영 관리자 지도 되돌리기는 결재 기능이 열린 뒤 사용할 수 있습니다.')
         if body.base_version_id != floor.approved_version_id:
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
         if original.id == floor.approved_version_id:
@@ -460,7 +463,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         validate_rollback_connectors(db, floor, features, fail)
         number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
         row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
-            copied_from_id=original.id, status='APPROVED', upload_id=original.upload_id,
+            copied_from_id=original.id, status='APPROVED' if user.role == 'ORG_ADMIN' else 'PENDING', upload_id=original.upload_id,
             image_path=original.image_path, image_sha256=original.image_sha256, width=original.width, height=original.height,
             resolution=original.resolution, origin_x=original.origin_x, origin_y=original.origin_y, origin_yaw=original.origin_yaw,
             features=copy.deepcopy(original.features), reason=body.reason, source='ROLLBACK', created_by=user.id)
@@ -473,11 +476,14 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             fail(503, 'FILE_STORAGE_ERROR', '지도 파일을 읽거나 저장할 수 없습니다.')
         db.add(row)
         db.flush()
-        floor.approved_version_id = row.id
-        db.flush()
-        refresh_connectors(db, floor)
-        record(db, user, 'MAP_VERSION_ROLLED_BACK', row, copied_from_id=str(original.id),
-            base_version_id=str(body.base_version_id), copied_from_number=original.number, reason=body.reason)
+        if user.role == 'ORG_ADMIN':
+            floor.approved_version_id = row.id
+            db.flush()
+            refresh_connectors(db, floor)
+            record(db, user, 'MAP_VERSION_ROLLED_BACK', row, copied_from_id=str(original.id),
+                base_version_id=str(body.base_version_id), copied_from_number=original.number, reason=body.reason)
+        else:
+            request_map(db, user, row)
         return version_object(row, floor)
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)

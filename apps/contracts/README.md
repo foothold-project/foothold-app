@@ -1,7 +1,7 @@
 # API v1 계약
 
 `models.py`의 Pydantic v2 모델이 정본이다. 범위는 API 명세 §1.4 오류,
-§2 인증·계정, §3 로봇 요약, §5 지도, §8 사건·조직 설정이다. 기존 `contracts/v1`은 수정하지 않는다.
+§2 인증·계정, §3 로봇 요약, §5 지도, §7 지도 결재, §8 사건·조직 설정이다. 기존 `contracts/v1`은 수정하지 않는다.
 
 저장소 루트에서 서버 venv를 사용한다.
 
@@ -53,3 +53,18 @@ AGENT_PROTOCOL_MISMATCH 사건을 남긴다. Client는 0·잠금 및 기존 대�
 원시 이미지 업로드 뒤 YAML을 연결해 새 upload_id를 받는 두 단계 형식과
 용량 제한은 [서버 README](../server/README.md#원시-업로드-두-단계)를 따른다.
 지도 판의 SUPERSEDED는 층의 approved_version_id로 계산하며 DB 행은 불변이다.
+
+
+S4a 지도 결재 목록/처리 응답은 `Approval`/`ApprovalList`, 상세는 `ApprovalDetail`,
+입력은 `ApprovalApprove`/`ApprovalReject`다. `ApprovalDetail.preview`는 층 ID/이름과
+대상·기준 판 번호를 담고 목록은 미리보기 자료를 싣지 않는다.
+이번 지원 종류는 MAP_REVISION/MAP_ROLLBACK이며 status는 PENDING/APPROVED/REJECTED/
+CANCELED/STALE이다. target/base_ref의 판 ID로 기존 MapDiff API를 조회한다.
+MapVersion.status에 CANCELED를 추가했다. 기존 생성물 필수 필드의 추가는 없어
+기존 웹 지도 fixture의 필드 보충은 필요하지 않다. 웹의 결재 화면·이동·실제
+요청/결과 알림 연결 및 기존 운영자 저장/되돌리기 403 가짜 응답 갱신은 화면 소유 작업이다.
+
+PR32 검토 반영: 사유/의견·지도 저장/되돌리기 reason은 Cc/Cf 문자를 서버에서 거부한다.
+알림 종류·notify_prefs 키는 06의 APPROVAL_DECIDED이며 0011이 이전 APPROVAL_RESULT를
+이관한다. 요청자는 승격 뒤에도 자기 결재의 승인/반려를 할 수 없고 취소만 가능하다.
+행위자 본인은 결정 알림 수신자에서 제외한다.

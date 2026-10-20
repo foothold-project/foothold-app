@@ -108,13 +108,13 @@ def test_admin_approval_stale_immutable_png_and_delete_guards(maps, seeded):
     assert len(list(root.glob('maps/*/*.png'))) == len(list(root.glob('maps/*/*.yaml'))) == 2
 
 
-def test_operator_upload_read_allowed_save_and_crud_denied(maps):
+def test_operator_upload_pending_save_and_crud_denied(maps):
     http, admin, _ = maps
     _, building, floor = tree(http, admin)
     operator = auth(http, 'one')
     image = upload(http, operator)
     result = save(http, operator, floor, image)
-    assert result.status_code == 403 and result.json()['error']['code'] == 'APPROVAL_REQUIRED'
+    assert result.status_code == 201 and result.json()['status'] == 'PENDING'
     for path, payload in [('/sites', {'name': '금지'}), (f'/buildings/{building}/floors', {'name': '층', 'level': 2})]:
         assert http.post(P + path, headers=operator, json=payload).status_code == 403
     assert http.patch(P + f'/floors/{floor}', headers=operator, json={'name': '금지'}).status_code == 403

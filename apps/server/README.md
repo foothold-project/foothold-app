@@ -107,12 +107,11 @@ x·y·yaw가 모두 null이면 location도 null이며, 나머지 pose의 null은
 실행 기능이 없어 `current_run=null`이다. `robot_devices`는 hello 및 `devices_changed`로 저장하고,
 목록에서 빠진 기존 장치는 MISSING으로 보관한다.
 
-티켓·지도·임무·결재·원격측정 REST API는 구현하지 않았다.
+티켓·임무·원격측정 REST API는 구현하지 않았다. 지도·결재는 아래 S3·S4a 절을 따른다.
 WS·에이전트 연결·조종권·STOP의 구현 범위는 아래 실시간 절을 따른다.
 이들을 위한 가짜 응답 경로나 빈 서비스는 만들지 않았다. 계약의 로봇 요약 필드는
 미수신 값은 null이며 실행·지도 지원을 뜻하지 않는다.
-층·실행·결재 표가 아직 없어 `last_floor_id`, 사건의 `run_id`/`approval_id`는 UUID 열만 두고
-해당 FK는 후속 소유 작업에서 추가해야 한다. 조직 내부 사용자의 로봇 담당 FK는 DB에서도 강제한다.
+층(0009)·결재(0010)는 조직 복합 FK를 연결했다. 사건의 `run_id` FK는 실행 표를 만드는 후속 작업에서 추가해야 한다. 조직 내부 사용자의 로봇 담당 FK는 DB에서도 강제한다.
 
 ## 시험
 
@@ -177,8 +176,7 @@ DB와 사건에는 sha256만 저장하며 조회·수정 응답에는 토큰이 
 
 `GET /dashboard`는 총괄에게 조직 전체, 운영자에게 담당 로봇의 total·online·attention을
 반환한다. attention은 OFFLINE·배터리 기준 미만·ERROR·STOP_LATCHED·장치 ERROR 중
-하나라도 있는 로봇 수다(중복 합산 없음). `robots_running=0`, `approvals_pending=0`은
-실행·결재 구현 전의 값이다. `operators`는 총괄에게 운영자별 담당 로봇 수를, 운영자에게
+하나라도 있는 로봇 수다(중복 합산 없음). `robots_running=0`은 실행 구현 전의 값이다. `approvals_pending`은 S4a부터 총괄은 조직 전체, 운영자는 내 PENDING 결재를 센다. `operators`는 총괄에게 운영자별 담당 로봇 수를, 운영자에게
 빈 배열을 반환한다. 장치 저장은 migration 0006으로 추가한다.
 장치 오류는 목록·상세·dashboard 모두 연결된 에이전트의 최신 장치 목록을 기준으로 한다.
 DB의 옛 ERROR가 현재 목록에서 빠졌으면 MISSING이며 주의로 세지 않는다.
@@ -501,7 +499,7 @@ Asia/Seoul로 그린다. 원래 `robot_at`은 보존한다. 문장 값은 제어
   앱은 bearer를 쓴다. ids는 1~100개이고 둘 중 하나만 지정한다. 남의/없는 ID가 섞이면
   같은 404이며 내 알림도 부분 처리하지 않는다. 다시 읽어도 최초 `read_at`은 유지한다.
 - 알림의 `link`는 `#/history?event_id=<십진 ID>`다. 화면 배지·이동 처리는 W3/W5 소유다.
-  Web Push·WS notify 배송·결재 알림(S4)은 이번 구현 범위 밖이다.
+  결재 요청/결과는 아래 S4a의 받는 사람과 이동 경로를 사용한다. Web Push·WS notify 배송은 범위 밖이다.
 
 0008은 서버를 멈춘 상태에서 적용한다(events 제약/색인 생성 중 INSERT가 막힐 수 있음).
 notifications의 앱 권한은 SELECT/INSERT와 `UPDATE(read_at)`뿐이다. 초안의 예전 0008을
@@ -522,16 +520,16 @@ notifications의 앱 권한은 SELECT/INSERT와 `UPDATE(read_at)`뿐이다. 초�
 - 총괄만 장소·건물·층을 만들고 이름/층 높이를 고치거나 지운다. 하위 자료,
   지도 판, 로봇의 마지막 층, 연결점 참조가 있으면 `409 RESOURCE_IN_USE`다.
   시나리오 참조 검사는 S5가 추가해야 한다. 조직 밖·없는 UUID는 같은 404다.
-- 지도 저장은 총괄만 `POST /floors/{id}/map-versions`로 한다.
+- 지도 저장은 `POST /floors/{id}/map-versions`로 한다. 총괄은 바로 승인, 운영자는 아래 S4a의 결재를 요청한다.
   `{base_version_id, image, features, reason}`에서 첫 판의 기준은 `null`이다.
   지금 승인 판과 다르면 `409 STALE` 및 `detail.approved_version_id`를 반환한다.
   판 INSERT, 층 승인 포인터, 연결점 투영, 승인 사건을 같은 DB 트랜잭션에 저장한다.
-  운영자는 `403 APPROVAL_REQUIRED`이며 S4의 PENDING·결재 연결 전에는 저장할 수 없다.
+  운영자는 S4a부터 새 PENDING 판과 결재를 같은 트랜잭션으로 저장하며 승인 포인터는 유지한다.
 - 판 목록은 `items`, `next_cursor`이며 `limit=1..100`이다. 상세에는 지도 요소,
   해상도·원점·치수·PNG sha256·만든 사람이 들어간다. `/image`는 인증 후 PNG를 반환한다.
-  과거 판의 `SUPERSEDED`는 현재 층 포인터로 계산하며 저장된 판 행은 고치지 않는다.
-  판 PATCH/PUT/DELETE API가 없고 `fh_app`은 `map_versions` INSERT/SELECT만 가능하다.
-  서버 시작 때 UPDATE/DELETE/TRUNCATE 권한을 가진 DB 계정을 거절한다.
+  과거 판의 `SUPERSEDED`는 현재 층 포인터로 계산한다. 내용은 고치지 않고 S4a 결재의 상태 전이만 허용한다.
+  판 PATCH/PUT/DELETE API는 없다. `fh_app`은 INSERT/SELECT 및 `UPDATE(status)`만 가능하다.
+  서버 시작 때 내용 열 UPDATE·표 전체 UPDATE·DELETE·TRUNCATE 권한을 가진 DB 계정을 거절한다.
 
 ### 원시 업로드 두 단계
 
@@ -572,7 +570,7 @@ YAML은 `resolution`, `origin: [x,y,yaw]`, `negate`, `occupied_thresh`, `free_th
 양쪽 pose/판을 묶어 `active=true`다. 한쪽만 있으면 `b_pose`, `map_version_b_id`는 null이고
 `active=false`다. 새 판 승인 때 현재 투영을 다시 만들며 과거 판 features는 보존한다.
 장소·건물·층 CRUD는 ACCOUNT 사건, 판 승인은 APPROVAL 사건으로 저장한다.
-총괄의 바로 저장에는 별도 결재 요청/결과가 없으므로 알림을 만들지 않는다(S4 소유).
+총괄의 바로 저장에는 별도 결재 요청/결과가 없으므로 알림을 만들지 않는다. 운영자 결재 알림은 아래 S4a를 따른다.
 
 ### 이관·검증·후속
 
@@ -659,10 +657,10 @@ PGM P2/P5도 같은 슬롯을 사용하며 픽셀을 순회해 변환하므로 �
   판 두 개와 before/after의 최대4벌은23,429,120바이트로32MiB보다 작다.
   요소 수·문자열·꼭짓점 상한을 바꾸면 이 계산과 경계 시험도 함께 고쳐야 한다.
   이미지 디코딩이나 모든 요소 쌍의 비교는 하지 않는다.
-- `POST /map-versions/{id}/rollback {base_version_id, reason}`은 총괄만 사용할 수 있다.
+- `POST /map-versions/{id}/rollback {base_version_id, reason}`은 총괄은 바로 승인, 운영자는 아래 S4a 결재를 사용한다.
   reason은 공백만으로 채울 수 없고 1~2000자다. 층 행을 잠근 뒤 현재 승인 판과 base를
   비교하여 다르면 S3a와 같은 `409 STALE`·`detail.approved_version_id`를 반환한다.
-  대상이 이미 현재 승인 판이면 `409 ALREADY_APPROVED`, 운영자는 `403 APPROVAL_REQUIRED`다.
+  대상이 이미 현재 승인 판이면 `409 ALREADY_APPROVED`다.
   저장된 status가 APPROVED인 한때 승인된 판만 복사하며, 그 밖은
   `409 ROLLBACK_NOT_APPROVED`다(옛 승인 판의 응답상 SUPERSEDED는 계속 허용).
   옛 판의 연결점 대상 층이 삭제됐거나 같은 건물/조직의 다른 층이 아니면
@@ -674,7 +672,7 @@ PGM P2/P5도 같은 슬롯을 사용하며 픽셀을 순회해 변환하므로 �
   새 판·층 포인터·연결점 투영·`MAP_VERSION_ROLLED_BACK` APPROVAL 사건은 같은 트랜잭션이다.
   사건에 floor_id/map_version_id/copied_from_id/copied_from_number/base_version_id/reason을 저장하고
   «N판을 복사한 M판»과 이유를 문장으로 남긴다.
-  총괄의 직접 되돌리기는 결재 요청/결과가 없으므로 알림 대상이 없다. O 결재·알림은 S4다.
+  총괄의 직접 되돌리기는 결재 요청/결과가 없으므로 알림 대상이 없다. 운영자 결재·알림은 아래 S4a를 따른다.
 - 판 목록·단건(저장/되돌리기 응답 포함)에 읽기 전용 `upload_id`, `copied_from_id`를 보낸다.
   W4b는 `upload_id`를 다음 판의 `image`로 재사용할 수 있다. 업로드는 소모하지 않으며
   resolution/origin/negate/임계값을 그대로 사용한다. negate·임계값은 응답에 추가하지 않는다.
@@ -694,3 +692,76 @@ npm run --prefix apps/contracts typecheck
 
 변이 명령은 서버 전체 pytest를 먼저 **한 번**, S3b 변이 25개를 하나씩 실행한다.
 기존 S3a 변이 및 STOP 경로 변이 전체를 다시 실행했다는 뜻은 아니다.
+
+
+## S4a 지도 수정·되돌리기 결재
+
+- 조직 공용 지도이므로 같은 조직의 모든 운영자가 저장·되돌리기를 요청할 수 있다
+  (02 기능 명세 §10). `201 MapVersion`의 `status=PENDING`이며 새 판에
+  `MAP_REVISION` 또는 `MAP_ROLLBACK` 결재를 만든다. 승인 판·연결점 투영은 유지한다.
+  반환된 판 ID를 `/approvals`의 `target.id`와 연결한다. 저장 시 기준 판 충돌은 기존
+  `409 STALE`이며, 결재 승인 시의 `APPROVAL_STALE`과 구분한다.
+- `GET /approvals?status=PENDING&limit=50&cursor=…`는 총괄에게 조직 전체,
+  운영자에게 본인 요청만 오래된 순서로 보낸다. status 생략은 모든 상태다.
+  `GET /approvals/{id}`도 같은 범위다. 없는 ID·범위 밖 ID는 같은 404다.
+  객체는 05 §7의 requester/decider, target/base_ref, reason/decision_comment,
+  created_at/decided_at, emergency를 사용한다. 목록의 요청자·결정자는 페이지마다 한 번의
+  사용자 IN 조회로 묶는다. 상세는 `ApprovalDetail`이며 `preview`에 floor_id/floor_name,
+  target_version_number/base_version_number를 포함한다. 전후 비교는 target/base_ref의
+  판 ID를 기존 `/map-versions/{id}/diff?against={id}`에 전달한다.
+- 총괄의 `POST /approvals/{id}/approve {comment?}`·`/reject {reason}`는 200 결재 객체다.
+  approve 본문은 생략할 수 있다. 반려 이유는 공백을 제외한 문자가 있어야 하고 1~2000자다.
+  요청자는 총괄로 승격돼도 자기 요청을 승인·반려할 수 없다(403). 본인 요청은 취소만
+  가능하다. 사유·의견·지도 저장/되돌리기 reason은 Cc/Cf 제어·서식 문자를 거부한다.
+  요청자만 `POST /approvals/{id}/cancel`할 수 있다(본문 없음). 총괄이 남의 요청을
+  취소하면 403, 다른 운영자의 요청이면 조회 범위 밖이므로 404다.
+- 상태 전이는 한 함수에 모았고 `PENDING → APPROVED/REJECTED/CANCELED/STALE`만 처리한다.
+  끝난 결재 재처리는 `409 ALREADY_DECIDED`다. 결재 행 → 층 행 순서로 잠그고
+  기준 판과 현재 승인 포인터를 비교한다. 같으면 판 상태와 승인 포인터·연결점 투영을
+  갱신한다. 다르면 결재 STALE·사건·알림을 **커밋한 뒤** `409 APPROVAL_STALE`을 보낸다.
+  다른 대기 결재는 그대로 두며 이후 승인 시에 개별 STALE로 끝난다.
+  STALE 대상 판은 06의 규칙대로 PENDING을 유지하지만 대기 수에는 세지 않는다.
+- 반려/취소 판은 각각 REJECTED/CANCELED다. 내용·파일은 바꾸지 않는다.
+  기존 승인 판은 DB의 APPROVED를 유지하며 응답에서만 SUPERSEDED로 보인다.
+  따라서 한때 승인된 옛 판은 계속 되돌릴 수 있고 PENDING/REJECTED/CANCELED 판은
+  `409 ROLLBACK_NOT_APPROVED`다. 총괄의 직접 저장·되돌리기는 기존처럼 바로 승인된다.
+- `/dashboard.approvals_pending`은 총괄에게 조직 전체, 운영자에게 본인 대기 요청 수다.
+  `/sites`의 층별 `pending_count`는 조직 공용 지도에 대한 모든 PENDING 결재 수다.
+- `APPROVAL_REQUESTED`, `APPROVAL_DECIDED`, `APPROVAL_CANCELED`, `APPROVAL_STALE` 사건을
+  APPROVAL 분류로 남긴다. 결재 FK와 data의 approval_id·지도/층/기준 판·요청자·결정 값을
+  같은 트랜잭션에 저장한다. 서버 문장 틀이 빠지면 요청과 모든 부수 효과가 실패한다.
+  요청 알림(`APPROVAL_REQUESTED`)은 잠기지 않은 현 조직의 총괄들에게,
+  결정·취소·STALE 알림(`APPROVAL_DECIDED`)은 요청자에게 보내되 행위자 본인은 제외한다.
+  따라서 자기 취소 알림은 만들지 않으며 취소 사건은 계속 남긴다.
+  기존 notify_prefs를 따르며 `#/approvals?approval_id=…`로 이동한다.
+  REST 알림함만 연결했고 WS notify 배송·Web Push는 추가하지 않았다.
+
+0010은 approvals·색인·events 복합 FK를 만들고 map_versions에 **status 열만** UPDATE를
+허용한다. 0011은 approvals UPDATE를 status/decider_id/decided_at/decision_comment
+네 열로 제한하고 요청 본문·기준·대상·요청자를 변경하지 못하게 한다. 서버 기동 때
+approvals DELETE/TRUNCATE·표 전체 또는 결정 외 열 UPDATE 권한을 거절한다.
+0010까지 사용한 APPROVAL_RESULT 알림 종류와 notify_prefs 키도 0011에서
+APPROVAL_DECIDED로 옮긴다(두 설정 키가 있으면 명시된 새 키 우선).
+0011 downgrade는 이 명칭과 권한을 0010 방식으로 되돌린다.
+events의 INSERT/SELECT 권한과 업로드 내용 불변성은 유지한다.
+CANCELED 판이 있는 DB를 0009로 내리면 옛 상태 제약 때문에 트랜잭션 전체가 실패한다.
+자료가 있는 운영 DB에서 결재 이력을 지우는 downgrade를 수행하지 않는다. 적용 전
+DB·파일 백업과 별도 복구 계획을 준비하고, 코드 복구는 검토된 revert/후속 수정으로 한다.
+
+이번 계약은 지도 결재 두 종류와 다섯 경로만 지원한다. SCENARIO_ASSIGNMENT·POST_REVIEW·
+acknowledge·AP-06 안전 추가 변경 즉시 반영은 후속 범위다. CANCELED 지도 상태는 이번
+작업 지시를 따라 추가했으며 06 상태 표에는 아직 없다. 승인 판의 저장상 SUPERSEDED 및
+05의 층 포함 rollback 경로·`?base=`·비교 이미지는 기존 S3의 정본 차이를 유지한다.
+업로드 정리 정책은 결정 대기이며 map_versions가 참조하는 업로드를 지우면 안 된다.
+
+```sh
+FH_TEST_PORT_RANGE=9370:9389 python -m pytest -q apps/server/tests/test_approvals.py apps/server/tests/test_approvals_wire.py apps/server/tests/test_migrations.py
+FH_TEST_PORT_RANGE=9370:9389 python apps/server/tools/check_realtime_mutations.py --match S4a --match S3a --match S3b
+python -m apps.contracts.generate --check
+npm run --prefix apps/contracts typecheck
+```
+
+시험은 TMPDIR를 이 작업 트리 안의 임시 폴더로 지정하여 실행했다. 변이 도구 명령은
+전체 서버 기준 시험을 한 번 실행한 뒤 S4a·영향 S3a/S3b의 선정 변이를 하나씩 실행한다.
+전체 STOP/실시간 변이를 모두 재실행한 결과로 해석하지 않는다. 결과는
+REALTIME-VALIDATION.md의 S4a 절을 따른다.
