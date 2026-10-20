@@ -1064,7 +1064,8 @@ describe('Space 와 글 입력칸', () => {
 
   it.each(['<input>', '<input type="text">', '<input type="search">', '<input type="password">', '<input type="email">',
     '<input type="url">', '<input type="tel">', '<input type="number">', '<textarea></textarea>',
-    '<div contenteditable="true" tabindex="0"></div>', '<div contenteditable="" tabindex="0"></div>', '<p contenteditable="plaintext-only"></p>'])(
+    '<div contenteditable="true" tabindex="0"></div>', '<div contenteditable="" tabindex="0"></div>', '<p contenteditable="plaintext-only"></p>',
+    '<div contenteditable="TRUE" tabindex="0"></div>', '<div contenteditable="PlainText-Only" tabindex="0"></div>'])(
     '글 입력칸 %s: STOP 안 보내고 띄어쓰기를 막지 않음', (h) => {
       fleet();
       expect(space(h)).toEqual([0, false, false]);
@@ -1073,6 +1074,7 @@ describe('Space 와 글 입력칸', () => {
   it.each(['<input readonly>', '<input disabled>', '<textarea readonly></textarea>', '<textarea disabled></textarea>',
     '<input type="checkbox">', '<input type="radio">', '<input type="range">', '<input type="button" value="b">',
     '<button type="button">b</button>', '<select><option>a</option></select>', '<div contenteditable="false" tabindex="0"></div>',
+    '<div contenteditable="FALSE" tabindex="0"></div>', '<div contenteditable="invalid" tabindex="0"></div>',
     '<div tabindex="0"></div>'])(
     '글 입력칸 아님 %s: Space = STOP, 기본 동작 막음', (h) => {
       fleet();
@@ -1088,11 +1090,19 @@ describe('Space 와 글 입력칸', () => {
     expect([w.of('stop').length, r.defaultPrevented]).toEqual([1, true]);
   });
 
-  it('입력칸 안의 contenteditable="false" 조각은 글 입력칸 아님', () => {
+  // 중첩: 잘못된 값·속성 없음은 상위를 따르고, false(대소문자 무시)는 끊는다 → [보낸 stop 수]
+  it.each([
+    ['<div contenteditable="true"><b contenteditable="false">x</b></div>', 1],
+    ['<div contenteditable="true"><b contenteditable="False">x</b></div>', 1],
+    ['<div contenteditable="true"><b contenteditable="invalid">x</b></div>', 0],
+    ['<div contenteditable="false"><b contenteditable="invalid">x</b></div>', 1],
+    ['<div contenteditable="FALSE"><i contenteditable="true"><b>x</b></i></div>', 0],
+    ['<div contenteditable=""><i><b>x</b></i></div>', 0],
+  ])('중첩 contenteditable %s 안의 조각: stop %i', (h, n) => {
     fleet();
-    const host = document.createElement('div'); host.innerHTML = '<div contenteditable="true"><b contenteditable="false">x</b></div>'; box.append(host);
+    const host = document.createElement('div'); host.innerHTML = h; box.append(host);
     act(() => { host.querySelector('b')!.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true, cancelable: true })); });
-    expect(w.of('stop')).toHaveLength(1);
+    expect(w.of('stop')).toHaveLength(n);
   });
 
   it('입력칸에 초점이 있어도 화면 STOP 단추는 보이고 누르면 바로 STOP', () => {

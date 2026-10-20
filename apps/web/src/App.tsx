@@ -39,8 +39,14 @@ const TYPED = new Set(['text', 'search', 'password', 'email', 'url', 'tel', 'num
 function typing(t: EventTarget | null) {
   if (t instanceof HTMLTextAreaElement) return !t.readOnly && !t.disabled;
   if (t instanceof HTMLInputElement) return TYPED.has(t.type) && !t.readOnly && !t.disabled;   // type 없음 = 'text'
-  const ce = t instanceof Element ? t.closest('[contenteditable]') : null;   // 가까운 contenteditable 이 정함(jsdom 은 isContentEditable 없음)
-  return !!ce && ce.getAttribute('contenteditable') !== 'false';
+  // contenteditable 은 브라우저 규칙대로(jsdom 은 isContentEditable 없음): 대소문자 무시, true·빈 값·plaintext-only = 편집,
+  // false = 편집 아님, 잘못된 값·없음 = 상위를 따름
+  for (let e = t instanceof Element ? t : null; e; e = e.parentElement) {
+    const v = e.getAttribute('contenteditable')?.toLowerCase();
+    if (v === '' || v === 'true' || v === 'plaintext-only') return true;
+    if (v === 'false') return false;
+  }
+  return false;
 }
 
 /** STOP — 모든 탭·두 틀에 늘 보임. 폰 64px, PC 44px 이상(U7). 누르면 서버에 정지 요청(로봇이 0 + 잠금) */
