@@ -1,13 +1,14 @@
 // 화면 틀(03 UX §3): PC = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문, 폰(768px 미만) = 머리줄 + 본문 + 하단 탭 3개.
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 탭에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서),
-// 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 나머지는 가짜.
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+// 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 알림 종은 GET /notifications(screens/history.tsx), 나머지는 가짜.
+import { Component, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
-import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotStatus, robotsFor, type Robot, type User } from './fake';
+import { APPROVALS, ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, PHONE_TABS, labelOf, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, type Ctx } from './screens';
+import { Bell, History } from './screens/history';
 import { Settings } from './screens/settings';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
@@ -39,6 +40,17 @@ export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) 
   </button>;
 }
 
+/** 화면 일부의 렌더 예외가 머리줄·STOP 까지 내리지 않게 가둔다(SF-01). STOP 은 늘 이 경계 밖. quiet = 아무것도 그리지 않음(머리줄 알림 종) */
+class Guard extends Component<{ children: ReactNode; quiet?: boolean }, { broken: boolean }> {
+  state = { broken: false };
+  static getDerivedStateFromError() { return { broken: true }; }
+  render() {
+    if (!this.state.broken) return this.props.children;
+    return this.props.quiet ? null : <section className="lv-card" role="alert" aria-label="화면 오류"><h2>이 화면을 그리지 못했습니다</h2>
+      <p className="lv-note">다른 탭으로 옮겼다가 돌아오거나 새로고침하세요. STOP 은 그대로 쓸 수 있습니다.</p></section>;
+  }
+}
+
 /** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
  *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
  *  note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
@@ -52,10 +64,12 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   useEffect(() => rt.follow(mine ? mine.split(',') : [], fresh), [mine, fresh]);   // 목록 갱신으로 담당이 바뀌면 구독도(소켓은 그대로)
   // 원하는 탭(주소)과 보이는 탭을 나눈다: 보이는 탭은 렌더마다 지금 틀(PC/폰)에서 도출 — 폭이 바뀌어 틀에 없는 탭이면 첫 탭(B1)
   const [want, setWant] = useState(() => location.hash), tab = tabFromHash(want, phone), sub = want.split('/')[2];
+  // 알림 링크 #/history?event_id=<id> — 기록 탭이면 그 사건을 위에 보인다(주소에도 남김)
+  const focus = tab === 'history' ? new URLSearchParams(want.split('?')[1] ?? '').get('event_id') ?? undefined : undefined;
   // 고를 수 있는 로봇: PC 는 전체(관제 보기, 내 로봇 먼저), 폰은 내 로봇만(B4). 고른 값이 범위 밖이면 첫 로봇
   const pool = phone ? myRobots(user, robots) : robotsFor(user, robots);
   // PC 조종 탭은 #/drive/<로봇 id> 이면 그 로봇 화면(F-TO-01). 폰은 머리줄에서 고른 로봇
-  const open = !phone && tab === 'drive' && pool.some((r) => r.id === sub), path = open ? `#/drive/${sub}` : `#/${tab}`;
+  const open = !phone && tab === 'drive' && pool.some((r) => r.id === sub), path = open ? `#/drive/${sub}` : `#/${tab}${focus ? `?event_id=${encodeURIComponent(focus)}` : ''}`;
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
   useEffect(() => { if (robot) setRid(robot.id); }, [robot?.id]);
   const [stopped, setStopped] = useState<Robot | null>(null), [light, setLight] = useState(false);   // stopped = 마지막으로 STOP 한 로봇
@@ -97,8 +111,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
 
   const cur = tabsFor(phone).find((t) => t.id === tab)!;
   const problems = pool.filter(lost);
-  const attention = pool.filter((r) => robotStatus(r).tone === 'warn' || robotStatus(r).tone === 'bad').length;
-  const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight, setMe, refresh, cancel } : null;
+  const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight, setMe, refresh, cancel, focus } : null;
   const Body = BODY[tab];
   const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p></section>;
 
@@ -119,7 +132,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {net.at === 'open' ? <span className="fh-dot ok"><i aria-hidden="true">●</i>연결</span>
         : net.at === 'connecting' || net.at === 'idle' ? <span className="fh-dot"><i aria-hidden="true">○</i>연결 중</span>
         : <span className="fh-dot bad" data-link={net.at}><i aria-hidden="true">■</i>{net.at === 'denied' ? '연결 거부' : '연결 끊김'}</span>}
-      {!phone && <span className="fh-dot" aria-label={`알림 ${attention}건`}><i aria-hidden="true">🔔</i>{attention}</span>}
+      {!phone && <Guard quiet><Bell cancel={cancel} /></Guard>}
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
       {phone && tab === 'history' && logout && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
@@ -146,10 +159,11 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     ].filter(Boolean)}</div>
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={labelOf(cur, user.role)}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
+      <main className="fh-main" aria-label={labelOf(cur, user.role)}><Guard key={tab}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : ctx ? <Body key={`${tab}-${ctx.robot.id}-${user.id}`} {...ctx} />
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
-        : none}
+        : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={pool} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
+        : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>
     {phone && <nav className="fh-tabs" aria-label="주 메뉴">{PHONE_TABS.map((t) => link(t, 'tabb'))}</nav>}

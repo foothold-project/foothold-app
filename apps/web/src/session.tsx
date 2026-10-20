@@ -9,7 +9,7 @@ import { clearServerData, setServerData, toRobot, type Robot, type User } from '
 import { now } from './rt';
 
 /** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 영상·지도·임무가 서버에서 오면 지운다 */
-export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·로봇 등록·조직 기준값과 로봇 연결·상태·배터리·장치·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·층·임무·결재·기록은 아직 가짜입니다.';
+export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·로봇 등록·조직 기준값·기록·알림과 로봇 연결·상태·배터리·장치·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·층·임무·결재는 아직 가짜입니다.';
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자가 구독하지 못하는 남의 로봇 요약(조종권자 등)을 다시 받는 간격 */
 export const LIST_MS = 10_000;
