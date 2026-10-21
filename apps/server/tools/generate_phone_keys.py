@@ -16,7 +16,7 @@ def generate(robot, kid, server_path, agent_path):
     root = Path(__file__).resolve().parents[3]
     paths = [Path(p).expanduser().absolute() for p in (server_path, agent_path)]
     resolved = [p.resolve() for p in paths]
-    if resolved[0] == resolved[1] or any(p.is_relative_to(root) for p in resolved):
+    if resolved[0] == resolved[1] or any(p.is_relative_to(root) for p in [*paths, *resolved]):
         raise ValueError('distinct output files outside the repository required')
     secret = base64.urlsafe_b64encode(os.urandom(32)).rstrip(b'=').decode()
     bodies = [{robot: {'active': kid, 'keys': {kid: secret}}}, {kid: secret}]

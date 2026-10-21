@@ -13,7 +13,7 @@ MUTATIONS=[
      'test_one_phone_one_robot_requires_explicit_switch_and_every_ack'),
     ('issuance rate limit removed', 'if len(recent) >= 10:', 'if False:',
      'test_issuer_limits_persist_across_sessions_and_device_slots'),
-    ('switch allowed without ack', 'PhoneRevocation.acked_at.is_not(None)', 'PhoneRevocation.acked_at.is_(None)',
+    ('switch allowed without ack', 'PhoneRevocation.acked_at.is_not(None)', 'True',
      'test_one_phone_one_robot_requires_explicit_switch_and_every_ack'),
 ]
 
