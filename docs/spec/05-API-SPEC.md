@@ -451,3 +451,158 @@
 | 0.1 | 2026-10-19 | 최초 작성 |
 | 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
 | 0.3 | 2026-10-19 | dev 구현(PR #8·#10)과 조정 결정 반영: WS 경로 `/api/v1/ws`·`/api/v1/agent/ws`, proto 필드(협상 헤더 없음), 화면 WS 쿠키+Origin·앱 Bearer(티켓 없음), 에이전트 토큰 재발급, 닫기 코드 1012·1013·수락 전 HTTP 거부, `stop_ref` 정지 확인(§10.5), 형식 오류 메시지·lease holder 형식·정수 상한, `scope=all` 범위, 로그인 응답·`/auth/session`·`LAST_ORG_ADMIN`, 비밀번호 정책 미정. proto 불일치는 조정 결정(별도 닫기 4406·30 s 이상 느린 재연결)을 정본으로 적고 dev 구현은 W4-B 에서 맞춤. PR #11 검토 반영: 형식 오류 규칙의 안전 예외, 생존 봉투 조건, 정수 칸별 하한, `stop_ref` 수명(중재기 메모리), 방향별 필수 칸, 남의 로봇 내 행동 사건 결정 필요 |
+| 0.4 | 2026-10-21 | P1-A: ADR-002 0.3의 폰 직결 `fh-phone/1` 봉투·600초 출입증·단일 조종권·단조 감시·상태·오류 계약 추가(§13) |
+
+## 13. 폰 ↔ 에이전트 (`fh-phone/1`)
+
+ADR-002 0.3 §5~7이 정본이다. 이 절은 P1-A 직결 조종 계약이며, §9의 화면 중계
+조종과 §10의 서버 `lease`·`cmd`·`unlock`을 폰 서버 사용 시 대체한다. 서버 연결은
+상태·사건 전송용이고, 재접속으로 조종권을 바꾸지 않는다. 옛 서버 `stop`은 방어적으로
+정지 쪽으로만 받는다. **RUN·카메라·시뮬 관리자·서버 출입증 발급 구현은 포함하지 않는다.**
+
+### 13.1 연결·봉투
+- 로봇당 현장 리스너 하나, 경로 `/phone/ws`(쿼리 없음). 포트·바인딩 주소·키·조직·정책은
+  실행 환경에서 정한다. `Sec-WebSocket-Protocol` 협상은 없고 첫 `hello.proto`가 필수다.
+  시뮬·현장 시험만 `ws://`를 쓰며 실기용 WSS/앱 방식은 ADR-002 §10 후속 관문이다.
+- 폰 → 에이전트: 평평한 `{t,id,robot,proto?,...}` JSON. `id`는 1~128자, `robot`은
+  해당 로봇의 표준 소문자 UUID. 후속 proto는 생략 가능하나 있으면 `fh-phone/1`만 허용한다.
+  `null`·여분 필드·중복 키·NUL·유한수가 아닌 수·틀린 형식은 거부한다. 한 프레임 4 KiB,
+  이진 불가. 정수 `seq`·`stop_gen`·밀리초는 §9·§10과 같은 0~2^53-1, bool은 정수가 아니다.
+- 연결마다 3 s 안에 hello, 이후 앱 `ping` 1 s마다. WS 제어 ping/pong과 cmd는 이
+  연결 확인을 대신하지 않는다. 최대 연결 16개(hello 대기 포함), 수신 큐 4개,
+  연결별 알림 큐 32개, 송신 대기 0.2 s. 로컬 안전 감시는 송신과 별도 20 Hz다.
+- 로봇당 판정기·Session·실제 MotionSink는 하나다. 폰별 Session을 만들지 않는다.
+  서버용 Observer는 Core/Session/로봇 출력이 없는 전송 파사드다.
+
+### 13.2 출입증 (발급자는 관제 서버, 검증자는 에이전트)
+표준 compact JWS(`base64url(header).base64url(payload).base64url(signature)`, padding 없음)를
+쓴다. header는 정확히 `{alg:"HS256",typ:"JWT",kid:"키 식별자"}`이며 다른 알고리즘·누락·
+중복 키를 거부한다. 서명은 ASCII `header.payload`의 **HMAC-SHA-256**, `hmac.compare_digest`
+비교다. Python 표준 라이브러리만 쓴다. 토큰은 최대 2048자이고 URL/쿠키/로그에 싣지 않는다.
+
+| payload 칸 | 뜻 |
+|---|---|
+| `iss`, `aud` | 고정 `fh-control`, `fh-phone/1` |
+| `org`, `robot` | 조직 UUID·대상 로봇 UUID 하나. 로봇의 로컬 설정과 모두 대조 |
+| `sub`, `device` | 사용자 UUID·앱 설치 단위 기기 UUID. hello.device와도 대조 |
+| `purpose` | `control`(조종 요청·보기·STOP) 또는 `view`(보기·STOP만) |
+| `iat`, `exp` | UTC Unix 초 정수. `iat <= 현재 UTC < exp`, **0 < exp-iat <= 600 s** |
+| `jti` | 발급마다 새 UUID. 연결·갱신·재접속마다 새 출입증 필요 |
+
+- 수명 상한은 ADR 제안과 같은 **600초(10분)**로 확정한다. 관제 서버가 끊겨 새 출입증을
+  못 받으면 남은 수명만큼(최대 10분)만 조종할 수 있고, 그 뒤 정지·잠금·조종권 비움이다. 받을 때 UTC로 남은 수명을
+  구하고 `monotonic 수신 시각 + 남은 수명`을 고정한다. 열린 연결은 이 단조 마감으로
+  만료하며 시뮬 정지·시계 조정·재접속으로 연장하지 않는다. 갱신은 같은 WS의 두 번째
+  hello가 아니라 새 출입증/새 연결/새 lease/명시 unlock/새 중립이다.
+- 키는 **로봇마다 별도 256 bit 이상 난수**다. 발급 서버와 그 로봇에만 별도 보안 절차로
+  배포하며 Git·웹 번들·폰에는 넣지 않는다. 에이전트 키 파일은 `{kid:base64url_secret}`
+  JSON, 최대 16키. 키 회전은 새 kid를 양쪽에 배포하고 옛 출입증 600초가 지난 뒤 옛 키를
+  제거한다. 현재 키 파일은 시작 때 읽으므로 재시작은 빈 조종권·잠금으로 시작한다.
+  HS256은 대칭키라 **로봇 키가 유출되면 그 로봇 출입증을 위조할 수 있다**. 로봇별 키와
+  조직·로봇 대조로 피해를 제한하며, 비대칭키 검증 라이브러리 도입은 후속 보안 결정이다.
+- 사용한 jti는 로컬 SQLite 저널에 **hello 승인 전에 FULL commit**한다. 같은 jti의
+  두 번째 연결은 종료 후·프로세스 재시작 후에도 거부한다. 만료 ID만 삭제하며 최대
+  4096건/DB 1 MiB, 저장 실패·잠금·용량 초과는 새 연결 거부다. DB를 삭제/분실하면
+  재사용 방지 이력이 사라지므로 키를 바꾼 뒤 복구한다. 활성 연결/조종권은 복구하지 않는다.
+  admission의 작은 동기 저널 쓰기도 OS I/O 지연이 있을 수 있어 sink의 독립 watchdog이 필수다.
+- 시작 시 운영자가 시계 동기화 상태를 확인하고 `FOOTHOLD_PHONE_CLOCK_TRUSTED=1`을
+  명시해야 한다(자동 NTP 신뢰 판정 구현은 아님). 신뢰 철회 입력(`Verifier.trusted=False`),
+  UTC 역행(저널의 마지막 승인 UTC 포함), 단조 경과와 UTC 경과의 5 s 초과 차이는
+  신뢰 상실이다. 열린 연결을 정지·잠금 후 비우고 모두 닫는다. 자동으로 신뢰를 복구하지 않는다.
+  운영 감독자는 동기화 상실 시 이 입력 또는 프로세스 정지로 전달해야 한다.
+- 계정 잠금·담당 해제 등 서버 권한 회수는 오프라인에서 즉시 알 수 없다. 최대 600초
+  남을 수 있다. 인증된 회수 목록 수신·캐시와 발급 엔드포인트는 P1-C/D 후속 자리이며
+  이번 서버 연결은 회수/발급 프레임을 새로 받지 않는다. 토큰 재사용 방지는 권한 회수와 다르다.
+- **1폰 1대 발급자 의무:** 같은 기기의 서로 다른 로봇 `control` 출입증 유효 구간을
+  겹치게 발급하지 않는다. 로봇을 바꿀 때 앱은 앞 로봇의 정지·잠금·반납 reply를 확인하며,
+  발급자는 앞 로봇에 발급한 모든 출입증의 마지막 만료까지(최대 10분) 새 대상 발급을
+  기다린다. 같은 대상 갱신/재접속은 새 jti로 허용한다. 에이전트는 다른 오프라인 로봇의
+  조종권을 조회·강제 회수할 수 없으므로 이 전역 제한은 P1-C/D 발급·앱에서 구현해야 한다.
+  기기 UUID는 설치 단위로 고정하고 탭별로 만들지 않는다. 같은 로봇에서 동일 기기의
+  두 번째 활성 WS는 보기 연결까지 `DEVICE_CONNECTED`로 거부하며 탭끼리 조종을 공유하지 않는다.
+
+### 13.3 폰 → 에이전트
+아래 본문에도 13.1의 `t,id,robot`이 필수다. hello 이외에는 먼저 출입증 검증이 끝나야 한다.
+
+| t | 본문 | 의미 |
+|---|---|---|
+| `hello` | `{proto:"fh-phone/1",device,ticket}` | 인증·보기 시작. 자동 조종권 취득/해제 없음 |
+| `lease.take` | `{}` | 비어 있으면 취득, 다른 조종자가 있으면 `LEASE_HELD` |
+| `lease.request` | `{}` | 비어 있으면 취득, 조종 중이면 넘김 요청. 강제 취득 아님 |
+| `lease.respond` | `{request_id,accept:bool}` | 현재 조종자만 넘기기/계속 조종 |
+| `lease.cancel` | `{}` | 자기 대기 요청 취소 |
+| `lease.release`, `view` | `{}` | 자기 조종권을 0+잠금 후 즉시 반납, 보기 유지 |
+| `cmd` | `{lease_id,seq,vx,vy,wz}` | SI 단위 m/s·m/s·rad/s, 50 ms마다 중립 포함 송신 |
+| `stop` | `{}` | 보기만 출입증도 가능. 즉시 0+잠금, lease·세대 확인 없이 안전 쪽 |
+| `unlock` | `{lease_id,stop_gen}` | 현재 조종자의 명시적 CAS 해제 요청, 성공 자체가 해제 확인은 아님 |
+| `ping` | `{client_time_ms}` | 1 s마다. state.echo로 짝을 맞춰 폰이 RTT 계산 |
+
+조종권은 사용자+기기+이 WS 연결에 묶인 새 UUID다. 다른 연결이 lease 값을 알아도
+cmd/unlock은 `NOT_CONTROLLER`로 버리며 deadman·seq를 갱신하지 않는다. 조종자의
+seq는 lease 안에서 엄격히 증가한다. 중복·역행·상한 밖 seq는 형식 오류로 안전 정지한다.
+
+허용 범위표는 앞 `0..0.6`, 옆 `0`, 회전 `-0.5..0.5`이지만 그 사이 모든 속도를
+지원한다는 뜻은 아니다. `commands`의 현재 Core 명령은 `[0,0,0]`, `[0.6,0,0]`,
+`[0.6,0,-0.5]`, `[0.6,0,0.5]`뿐이다. SI 입력은 성분 크기를 늘리지 않는 방향으로
+이 집합에 내린다: vx<0.6이면 0, 회전 절댓값<0.5이면 0, 전진 없는 회전은 0, 옆은 0.
+초과 입력은 최대값으로 자르고 `cmd.ack.clipped=true`로 알린다. 실제 최종 판정은
+기존 Session/Core다. 잘려서 0이 된 **비중립 입력은 새 중립을 대신하지 않는다**.
+
+### 13.4 취득·넘김·끊김
+- 취득·넘김·반납·끊김은 한 이벤트 루프에서 직렬 처리한다. 먼저 옛 입력을 차단하고
+  Session에 lease=null → stop을 적용한 뒤 같은 `stop_ref`·`latched=true`·`applied=[0,0,0]`을
+  확인하고 새 lease를 준다. 이 로컬 호출은 동기라 네트워크 왕복을 기다리지 않는다.
+  확인 실패는 즉시 `STOP_CONFIRM_FAILED`로 실패(§10.5의 2 s 상한 안), 비움·잠금 유지.
+  sink 오류는 STOP과 0을 각각 시도하고 서비스를 종료한다. 몸이 멈췄다는 확인은 아니다.
+- 새 조종자는 잠금 상태다. 신선한 로컬 STOP 피드백 → 현재 stop_gen으로 명시 unlock →
+  그 뒤 새 해제 피드백 → 새 중립 → 새 비영 입력 순서다. STOP·넘김·재접속 후 자동 재개 없음.
+- 먼저 잡은 사람이 우선이다. 대기 요청은 로봇당 1건, 응답 10 s 뒤 `TIMEOUT` 자동 거절,
+  기존 조종 유지. 거절/자동 거절 뒤 같은 사용자+기기는 30 s간
+  `LEASE_REQUEST_COOLDOWN`(detail의 HTTP 상태 의미는 429). 취소·반납·요청자 끊김은 `CANCELED`.
+  요청·승낙·거절·자동 거절·취득·해제를 식별자와 함께 사건으로 남긴다.
+- cmd가 **엄격히 >0.3 s** 없으면 기존 Core가 0+입력 폐기·새 중립을 요구한다. deadman에
+  잠금을 추가하지 않는다. 앱 ping 3 s 무수신에는 즉시 STOP·잠금·옛 lease 무효화,
+  마지막 ping으로부터 15 s까지 사용자+기기 예약만 남긴다. 확인된 소켓 종료는 즉시 같은
+  정지를 적용한다. 예약 중 다른 사람의 취득은 거부한다. **같은 사용자+기기**는 새 연결과
+  새 출입증으로 재취득할 수 있지만 새 lease/잠금/명시 해제/중립 절차를 다시 지난다.
+  15 s 또는 출입증 단조 마감 중 먼저 온 때 예약을 비운다. 정상 반납·출입증 만료는 즉시 비움.
+- 형식 오류·두 번째 hello는 STOP+잠금 후 그 연결을 닫고 그 연결이 가진 조종권을 비운다. 보기 폰의
+  틀린 프레임도 정지 쪽으로 처리한다. 재시작은 빈 조종권·잠금이다. 모든 마감은 단조 벽시계다.
+- RUN은 이번 경로로 켜지지 않는다. 후속 RUN도 조종자 폰 감시 **3 s 이하 연결 확인**을
+  쓰고, 끊김 시 목표 취소·일시정지·잠금 및 사람의 명시 재개를 요구한다(ADR §7 승인 관문).
+
+### 13.5 에이전트 → 폰
+
+| t | 본문·빈도 |
+|---|---|
+| `hello` | `{id,robot,proto,limits:{vx_min,vx_max,vy_min,vy_max,wz_min,wz_max,commands},policy:{name,version},simulation,ping_interval_ms:1000,link_timeout_ms:3000,lease_timeout_ms:15000}`. 1회. 정책 식별자는 배포 설정이며 에이전트가 실제 정책을 추측하지 않음 |
+| `reply` | `{id,ok,error:null|{code,message,detail},lease_id:null|UUID,request_id:null|UUID}`. 요청마다. 새 lease는 해당 연결에만 반환 |
+| `cmd.ack` | `{id,seq,applied:[vx,vy,wz],clipped,reason:null|string}`. 명령마다, Core 판정 뒤. applied는 측정 속도가 아니라 실제로 내보낸 요청 값 |
+| `lease.requested` | `{robot,request_id,requester:{user_id,device_id},expires_at}`. 현재 조종자에게. expires_at은 표시용 UTC, 실제 만료는 단조 10 s |
+| `lease.result` | `{robot,request_id,result:"ACCEPTED"|"DECLINED"|"TIMEOUT"|"CANCELED",error:null|string}`. 요청자·전 조종자에게. 새 조종자의 lease는 다음 자기 state에만 표시 |
+| `state` | 아래 전체 스냅샷, 10 Hz. 첫 hello 인증 전에는 보내지 않음 |
+
+state는 §10과 같은 이름·뜻의 `battery:{soc,voltage?}`, `pose:{floor_id,x,y,yaw,confidence}`,
+`speed`, `latched`, `stop_gen`, `stop_ref`, `applied`, `mode:"USER"|"FREE"`, `devices_changed`에
+다음 칸을 더한다. 없는 측정은 null이며 만들어서 0/정상으로 보내지 않는다.
+
+| 칸 | 뜻 |
+|---|---|
+| `robot`, `controller`, `controller_device` | 로봇·현재 조종자 사용자·기기 UUID. 예약 중에도 사용자/기기를 보이며 없으면 null |
+| `controller_connected`, `lease_id` | 살아 있는 조종자 연결 여부. lease_id는 그 연결에만 보이고 나머지는 null. 예약은 연결/lease가 아님 |
+| `stop_requested`, `posture:{z,tilt_deg,fallen,body_still}`, `velocity:[vx,vy,wz]` | 신선한 로컬 bridge 피드백. 오래되면 각 값 null |
+| `echo:{id,client_time_ms,agent_time_ms}|null` | 마지막 앱 ping의 ID·폰 시각·에이전트 수신 UTC ms. 폰이 수신 시 RTT를 계산하며 서로 다른 시계의 단방향 지연으로 추정하지 않음 |
+| `simulation`, `wall_time_ms`, `sim_time_s`, `sim_wall_delta_s` | 시뮬 표시, UTC ms, 측정 시뮬 초, 같은 episode의 첫 관측부터 `(시뮬 경과)-(단조 벽시계 경과)` 초. 멈춤·느려짐은 음수, 신선한 근거가 없으면 null. 실기는 시뮬 두 칸 null |
+
+### 13.6 오류·닫기·후속 경계
+- 요청 실패는 `reply.ok=false`와 §1.4 형태의 error다. `LEASE_HELD`, `NOT_CONTROLLER`,
+  `FORBIDDEN`, `UNLOCK_REJECTED`, `LEASE_REQUEST_PENDING`, `LEASE_REQUEST_EXPIRED`,
+  `LEASE_REQUEST_COOLDOWN`, `STOP_CONFIRM_FAILED`를 쓴다. 이전 lease/세대로 자동 재시도하지 않는다.
+- 닫기: `4401` 만료·hello 없음·시계 불신, `4403` 출입증/조직/로봇/기기/용도 불일치·재사용,
+  `4406` proto 불일치, `1012` 두 번째 hello, `1013` 3 s 끊김·수용 한도,
+  `1003` 이진, `1007` 형식/seq 오류, `1009` 4 KiB 초과. 이유에는 코드만 싣고 출입증은 싣지 않는다.
+  4401/4403은 새 인증/시계 복구 전 자동 재연결하지 않는다. 4406은 30 s 이상 간격,
+  1013은 1 s 이상 뒤 새 출입증으로 재접속하되 조종권 복원을 뜻하지 않는다.
+- 카메라·streams·slam(start/save/cancel)·floor.set·정책 전환·시나리오/목표는 후속 계약이다.
+  제어 동작은 조종자만이며 서버의 옛 slam/floor.set/run.*는 현재 직결 모드에서 실행하지 않는다.
+  이번 모델에는 실행 가능한 빈 명령을 추가하지 않는다.

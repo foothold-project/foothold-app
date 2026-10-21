@@ -1,0 +1,69 @@
+{
+  "$id": "fh-app/1/PhoneCommand",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-phone/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "cmd",
+      "title": "T",
+      "type": "string"
+    },
+    "vx": {
+      "exclusiveMaximum": 1e+100,
+      "exclusiveMinimum": -1e+100,
+      "title": "Vx",
+      "type": "number"
+    },
+    "vy": {
+      "exclusiveMaximum": 1e+100,
+      "exclusiveMinimum": -1e+100,
+      "title": "Vy",
+      "type": "number"
+    },
+    "wz": {
+      "exclusiveMaximum": 1e+100,
+      "exclusiveMinimum": -1e+100,
+      "title": "Wz",
+      "type": "number"
+    }
+  },
+  "required": [
+    "id",
+    "robot",
+    "t",
+    "lease_id",
+    "seq",
+    "vx",
+    "vy",
+    "wz"
+  ],
+  "title": "PhoneCommand",
+  "type": "object"
+}

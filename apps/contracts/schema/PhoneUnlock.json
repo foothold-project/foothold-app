@@ -1,0 +1,48 @@
+{
+  "$id": "fh-app/1/PhoneUnlock",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-phone/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "stop_gen": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Stop Gen",
+      "type": "integer"
+    },
+    "t": {
+      "const": "unlock",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "robot",
+    "t",
+    "lease_id",
+    "stop_gen"
+  ],
+  "title": "PhoneUnlock",
+  "type": "object"
+}

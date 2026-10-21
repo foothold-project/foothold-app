@@ -1,0 +1,76 @@
+{
+  "$id": "fh-app/1/PhoneTicketClaims",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "aud": {
+      "const": "fh-phone/1",
+      "title": "Aud",
+      "type": "string"
+    },
+    "device": {
+      "format": "uuid",
+      "title": "Device",
+      "type": "string"
+    },
+    "exp": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Exp",
+      "type": "integer"
+    },
+    "iat": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Iat",
+      "type": "integer"
+    },
+    "iss": {
+      "const": "fh-control",
+      "title": "Iss",
+      "type": "string"
+    },
+    "jti": {
+      "format": "uuid",
+      "title": "Jti",
+      "type": "string"
+    },
+    "org": {
+      "format": "uuid",
+      "title": "Org",
+      "type": "string"
+    },
+    "purpose": {
+      "enum": [
+        "control",
+        "view"
+      ],
+      "title": "Purpose",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "sub": {
+      "format": "uuid",
+      "title": "Sub",
+      "type": "string"
+    }
+  },
+  "required": [
+    "iss",
+    "aud",
+    "org",
+    "robot",
+    "sub",
+    "device",
+    "purpose",
+    "iat",
+    "exp",
+    "jti"
+  ],
+  "title": "PhoneTicketClaims",
+  "type": "object"
+}

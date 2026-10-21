@@ -150,3 +150,48 @@ Core 안전 피드백인 `on_robot_state`와 별도이며 매 송신마다 원�
 로컬 bridge의 float 표현 범위를 넘는 큰 정수 피드백은 링크가 Core 호출 전에 거부하고
 `BRIDGE_STATE_INVALID`를 기록한다. 거부한 입력은 Core 상태·생존 시각을 갱신하지 않는다.
 Core 및 기존 Core 시험은 수정하지 않았다.
+
+## 폰 연결 서버 (P1-A, ROS 없는 모의 검증)
+
+계약 정본은 [05 §13](../../docs/spec/05-API-SPEC.md#13-폰--에이전트-fh-phone1)이다.
+`foothold_agent.phone`은 stdlib + `websockets==15.0.1`만 사용한다. 가짜 폰/sink 시험:
+
+```sh
+python3 -m pytest apps/agent -q
+python3 apps/agent/tools/check_phone_mutations.py
+python3 apps/contracts/generate.py --check
+npm --prefix apps/contracts run typecheck
+```
+
+기존 `python3 -m foothold_agent.ros_bridge` 진입점은 다음 환경 변수가 **전부** 있을 때만
+`/phone/ws`를 연다. 값은 배포 환경에서 제공하고 Git에 넣지 않는다. 이번 작업에서는
+이 진입점을 실행하지 않았고 ROS/시뮬을 기동하지 않았다.
+
+| 변수 | 뜻 |
+|---|---|
+| `FOOTHOLD_PHONE_HOST`, `FOOTHOLD_PHONE_PORT` | 명시적 바인딩 인터페이스·포트. 기본 리스너 없음 |
+| `FOOTHOLD_PHONE_KEY_PATH` | 로봇 전용 `{kid:base64url_secret}` 파일(키 32바이트 이상) |
+| `FOOTHOLD_PHONE_ORG_ID` | 이 로봇의 조직 UUID. 기존 `FOOTHOLD_ROBOT_ID`와 함께 대조 |
+| `FOOTHOLD_PHONE_REPLAY_DB` | 영속적인 로컬 spent-jti SQLite 파일. 보호된 쓰기 가능한 디렉터리 |
+| `FOOTHOLD_PHONE_POLICY_NAME`, `FOOTHOLD_PHONE_POLICY_VERSION` | 실제 배포 정책 식별자, hello에 그대로 표시 |
+| `FOOTHOLD_PHONE_CLOCK_TRUSTED` | 운영 감독자가 동기화를 확인한 뒤 `1`. 없거나 다른 값은 시작 거부 |
+
+설정·키·재사용 저널은 ROS 시작 전에 확인한다. 출입증은 관제 서버가 발급하지만 그
+엔드포인트는 후속이다. 시험에서는 실행할 때 만든 난수 키로 직접 서명한다. HS256은
+로봇별 대칭키이며 키 배포·회전·유출 한계·저널 복구·시계 신뢰는 05 §13.2를 따른다.
+시계 동기화 상실은 감독자가 `Verifier.trusted=False` 또는 프로세스 정지로 전달해야
+한다(자동 OS NTP 상태 연동은 후속). 시계 역행/5초 초과 오차는 자체 검출한다.
+출입증 상한은 600초다. 인터넷이 끊겨 새 출입증을 못 받으면 **남은 수명(최대10분)
+뒤 정지·잠금 후 조종권을 비우며**, 연결이 살아 있어도 연장하지 않는다.
+
+폰 모드에서 Hub의 Session/Core 하나가 실제 sink를 소유한다. 기존 Client는 Session이나
+Core를 따로 만들지 않는 Observer 파사드·DiscardSink로 상태·기록만 전송한다. 서버의
+lease/cmd/unlock/run/slam/floor.set은 버리고 옛 stop만 Hub.stop에 넣는다. 클라우드의
+일반 단절·재접속은 폰 lease를 바꾸지 않는다. 출입증/조종권은 프로세스 재시작 시 복원하지
+않으며 spent-jti 저널만 유지한다. 수신·넘김·출력은 같은 이벤트 루프에서 직렬 처리한다.
+20Hz 감시 외에 실제 sink의 독립 0.3초 watchdog도 여전히 필수다.
+
+폰 ping은 1초마다, 3초 무수신에 정지·잠금·옛 lease 폐기, 마지막 ping으로부터 15초까지
+기존 사용자+기기 예약이다. 같은 사용자+기기는 새 출입증/연결로 새 lease를 취득할 수 있다.
+RUN·카메라·발급 서버·회수 목록·실폰·실로봇·TLS 배포는 후속이다. 새 폰 네트워크 시험은
+loopback 9450~9469만 사용한다. 기존 회귀 시험 helper의 9060~9079는 조정 승인으로 유지한다.

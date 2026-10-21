@@ -1,0 +1,29 @@
+{
+  "$id": "fh-app/1/PhoneEnvelope",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-phone/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "robot"
+  ],
+  "title": "PhoneEnvelope",
+  "type": "object"
+}

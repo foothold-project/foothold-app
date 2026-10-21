@@ -1,0 +1,56 @@
+{
+  "$id": "fh-app/1/PhoneCmdAck",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "applied": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Applied",
+      "type": "array"
+    },
+    "clipped": {
+      "title": "Clipped",
+      "type": "boolean"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "cmd.ack",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "id",
+    "seq",
+    "applied",
+    "clipped",
+    "reason"
+  ],
+  "title": "PhoneCmdAck",
+  "type": "object"
+}

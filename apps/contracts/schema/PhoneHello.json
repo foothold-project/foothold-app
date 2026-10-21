@@ -1,0 +1,49 @@
+{
+  "$id": "fh-app/1/PhoneHello",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "format": "uuid",
+      "title": "Device",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-phone/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "t": {
+      "const": "hello",
+      "title": "T",
+      "type": "string"
+    },
+    "ticket": {
+      "maxLength": 2048,
+      "minLength": 1,
+      "title": "Ticket",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "robot",
+    "proto",
+    "t",
+    "ticket",
+    "device"
+  ],
+  "title": "PhoneHello",
+  "type": "object"
+}
