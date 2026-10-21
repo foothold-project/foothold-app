@@ -16,6 +16,11 @@
 - 관리자는 **ROS_*·RMW/DDS 환경이 있으면 빈 값도 시작 거부**한다. domain은
   `FH_SIM_DOMAIN=93` 설정이며 부모의 ROS_DOMAIN_ID가 아니다. 서버도 ROS 없는 셸을 쓴다.
   기존 preflight/cleanup은 다른93 프로세스·DDS 포트를 그대로 거부한다. 부모 PID를 예외 처리하지 않는다.
+  관리자 서비스 startup에서도 fake/native 모두 같은 preflight와 남은 fh-rb-sim/fh-simmgr-agent
+  user unit 부재를 확인한 뒤만 API를 준비한다. 다른 프로세스/unit을 끄거나 정리하지 않는다.
+  user bus 조회 오류는 시작 거부다. 빈 stdout의 unit show는 «이미 없음»이 아니라 bus/상태
+  조회 불능이며, 정상 `LoadState=not-found`와 구분한다. 사용자 로그인 bus·XDG_RUNTIME_DIR·
+  DBUS_SESSION_BUS_ADDRESS를 확인하고, 관문을 우회하지 않는다.
 - simulator와 agent의 환경은 허용 목록으로 만든다. systemd-run 호출도 그 목록만 받고,
   unit payload는 `/usr/bin/env -i ... /bin/bash ...`라 user manager 환경을 다시 제거한다.
   agent만 ROS setup을 source한다. bootstrap은 PYTHONPATH를 비운 venv Python에서 시작한 뒤
@@ -115,8 +120,9 @@ runtime 만료5초 전 자신의 새unit MainPID만 identity 확인 후SIGINT한
 | 입력 끊김 |50ms 간격 송신을 멈춘 마지막 driver send→첫 agent ROS0≤0.4s,20회·최대값 판정. 마지막 agent 수신부터0도 함께 기록. ROS0/정책0/몸 정지 각각 구분, 시뮬이 느려져도 단조 마감 유지 |
 | STOP/재개 |control/view STOP 각각0·잠금·목표취소 확인. 이전cmd·재접속·서버 재연결·영상 재연결로 비영 재개0건. 명시unlock+신선한중립 뒤만 재개 |
 | 출입증·조종자 |PR43 실제 발급/회수/ack·전환·만료·중복·다른robot/org·단절·동시취득. 제거 때 살아 있는 출입증 회수, 실패 감사, 슬롯 재사용과 이전 출입증 회수 전달 확인. 부모 종료/만료/회수 때 영상도 닫힘 |
-| 영상 격리 |≤5fps 상한(실측fps 보고)·JPEG≤64KiB·실제424×240·NO_VIDEO. 읽지 않는 영상 소켓/원천 폭주 중 위200표본 지연/20회 입력 끊김을 반복. 이미지는 저장0, 시각/seq/크기 통계만 |
+| 영상 격리 |0.2초 sampler가 보장하는≤5fps 상한(실측fps 보고, 원천 격자만으로 보장하지 않음)·JPEG≤64KiB·실제424×240·NO_VIDEO. 읽지 않는 영상 소켓/원천 폭주 중 위200표본 지연/20회 입력 끊김을 반복. 이미지는 저장0, 시각/seq/크기 통계만 |
 | TCP 부가 진단 |운영 websockets serve()는 원래 TCP_NODELAY를 켠다.41ms는 proto0인 미리 bind한 시험 소켓 구성에서만 재현됐다. 별도 **20ms 간격 STOP 왕복60회** p95 보고. TCP_NODELAY 실제1 확인. 이 왕복은 위50ms 단방향 명령 지연 판정과 섞지 않음 |
+| 관리자 비정상 종료 |승인된 자기 manager PID만 kill한 뒤 agent unit이 **kill 시각부터240s 안 종료**하는지 단조 시계로 기록. RuntimeMaxSec=240 뒤 정지 grace15초는 별도이므로 실제 종료가240s를 넘으면 실패로 기록하고 통과로 간주하지 않음. agent MemoryPeak·task 최대 관측값·kill 당시 unit 나이와 잔여 cgroup 함께 수집 |
 | 초기/격리/정리 |STOP true·cmd_applied0·episode≥1·LOCKSTEP·카메라/시뮬시각 증가. 자기unit/cgroup/domain93/partition·native 종료manifest·원본SHA·61 PID/start_ticks·원장불변·잔여DDS/포트0. RUNNING listener만으로 통과 아님 |
 
 driver와 계측 observer도 같은 PC이며 observer만domain93에 참가한다.
@@ -150,7 +156,30 @@ systemctl --user status fh-simmgr-agent-approved-stage1-001.service --no-pager
 # 남은 자기 agent unit만 정리(강제 종료는 STOP/zero 통과가 아님):
 systemctl --user stop fh-simmgr-agent-approved-stage1-001.service
 systemctl --user show fh-simmgr-agent-approved-stage1-001.service --property=ActiveState,MainPID,ControlGroup
+# 상태/최대 메모리·task 증거 수거·자기 cgroup 부재 확인 뒤 남은 failed 메타데이터만:
+systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
 ```
 
 마지막 MainPID=0·자기 cgroup 잔여0과 unit 종료를 확인한다. unit 이름이 이미 있으면 시작을 거부한다. 정상 종료 후 unit이 회수되어도 기존 실행
 폴더의 재사용을 거부하므로 새 실행에는 새 episode 이름/승인 폴더를 쓴다.
+
+## 관리자 비정상 종료 뒤 슬롯 복구
+
+1. driver STOP·observer 정상 종료·93 DDS 해제를 먼저 확인한다. 남은 자기 agent unit은 위
+   literal 명령으로 확인/정리하고, world는 기존 D1의 자기 identity/정리 증거로 별도 확인한다.
+   다른 unit이나 domain61/다른93을 종료하지 않는다. 남은 unit/프로세스가 있으면 startup은
+   거부되어야 하며 빈 manager를 먼저 띄워 «없음»을 만들지 않는다.
+2. 새 episode/증거 폴더로 manager를 재시작한다. **기존 isolation preflight와 sim/agent user
+   unit 부재 검사 통과**가 전제다. 이후 빈 관리자 DELETE는 세대에 상관없이200이다.
+3. 기존 담당자(또는 기존 제거 권한을 가진 총괄)가 같은 PC driver로 서버
+   `DELETE /api/v1/simulation/robots/{slotUUID}`를 보낸다. STARTING·STOPPING 모두 허용한다.
+   현재 관리자 로봇이 다른 세대라면409 유지·실패 보고이며 강제로 DB를 고치지 않는다.
+4.204 뒤 DB의 IDLE/owner 해제·출입증 회수·hash 교체·REMOVED 감사1건을 확인한 다음
+   올바른 world로 POST한다. 새 취득의 세대는 증가하고201이어야 한다. 이전 담당자는
+   IDLE 뒤 owner가 아니므로 반복 DELETE는 기존 권한 판정상403일 수 있다. 첫204 응답이
+   유실돼도 목록의 현재 로봇 부재와 재취득201을 함께 확인한다. 빈 목록만으로 DB IDLE을
+   단정하지 않으며403 시 슬롯·owner·hash·감사를 바꾸지 않는다.
+5. 확실한 시작 전4xx 목록은 [05 §13.9](../../docs/spec/05-API-SPEC.md#139-시뮬-관리자-중계-p1-c-준비)만
+   자동 IDLE·START_REJECTED다. timeout/5xx/유실/신원 불일치는 STARTING 유지 후 위 DELETE로
+   복구한다. REMOVE_FAILED는 관리자/relay 거부, REMOVE_STALE은 성공 응답 뒤 서버 세대/상태가
+   이미 바뀐 경우이며 뒤의 경우 현재 슬롯을 바꾸지 않는다. 둘 다 실패 원인을 확인한다.

@@ -78,7 +78,7 @@ MUTATIONS += [
 
 MUTATIONS += [
     ('manager generation guard removed', 'apps/simmgr/service.py',
-     'if generation != self.generations.get(robot_id, 0):', 'if False:',
+     'if generation != row.generation:', 'if False:',
      'apps/simmgr/tests/test_manager.py::test_manager_rejects_stale_generation_before_stop'),
     ('server final generation guard removed', 'apps/server/fh_server/simulation.py',
      "if row.sim_generation != generation or row.sim_state != 'STOPPING':", 'if False:',
@@ -98,6 +98,41 @@ MUTATIONS += [
     ('camera application input accepted', 'apps/agent/foothold_agent/camera/transport.py',
      "await ws.close(4403, 'CAMERA_RECEIVE_ONLY')", 'await asyncio.Future()',
      CAM+'test_expiry_and_receive_only_are_assertion_boundaries[False]'),
+]
+
+RECOVERY = 'apps/server/tests/test_sim_recovery.py::'
+UNIT = 'apps/simmgr/tests/test_recovery_boundaries.py::'
+MUTATIONS += [
+    ('absent robot still requires manager generation', 'apps/simmgr/service.py',
+     'return  # server DB owns generations; absent robots are already removed',
+     "raise SimError('SIM_GENERATION_MISMATCH')", UNIT+'test_absent_robot_delete_api_accepts_any_generation'),
+    ('definite start rejection retains reservation', 'apps/server/fh_server/simulation.py',
+     "if row.sim_generation == generation and row.sim_state == 'STARTING':", 'if False:',
+     RECOVERY+'test_missing_world_rejected_without_consuming_slot'),
+    ('STARTING deletion prohibited', 'apps/server/fh_server/simulation.py',
+     "        row.sim_state = 'STOPPING'", "        if row.sim_state == 'STARTING':\n            fail(409, 'SIM_SLOT_BUSY', 'synthetic mutant')\n        row.sim_state = 'STOPPING'",
+     RECOVERY+'test_uncertain_start_can_delete_and_reacquire[before]'),
+    ('same generation duplicate DELETE final guard removed', 'apps/server/fh_server/simulation.py',
+     "if row.sim_generation != generation or row.sim_state != 'STOPPING':", 'if row.sim_generation != generation:',
+     RECOVERY+'test_duplicate_delete_same_generation_releases_only_once'),
+    ('manager startup proof skipped', 'apps/simmgr/api.py',
+     'app.state.preflight = await asyncio.to_thread(startup_preflight)', 'app.state.preflight = None',
+     UNIT+'test_service_startup_requires_absence_proof_even_in_fake'),
+    ('agent expiry uses wrong signal', 'apps/simmgr/agent_unit.py',
+     "'--property=KillSignal=SIGINT',", "'--property=KillSignal=SIGTERM',",
+     ENV+'test_agent_unit_is_bounded_and_environment_is_private'),
+    ('agent unit name reuse allowed', 'apps/simmgr/agent_unit.py',
+     "if state.get('LoadState') != 'not-found':", 'if False:',
+     UNIT+'test_agent_unit_reuse_and_missing_bus_are_distinct[state0]'),
+    ('agent private environment file retained', 'apps/simmgr/agent_entry.py',
+     'private.unlink()  # no durable credential copy after exec', 'pass',
+     UNIT+'test_agent_entry_unlinks_private_file_before_exec'),
+]
+
+MUTATIONS += [
+    ('definite rejection skips in-flight pass revocation', 'apps/server/fh_server/simulation.py',
+     'phone_pass.revoke(db, user.org_id, robot_id=row.id, clock=issuer.clock)', 'pass',
+     RECOVERY+'test_definite_rejection_revokes_pass_issued_while_starting'),
 ]
 
 

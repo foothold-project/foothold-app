@@ -44,7 +44,10 @@ class AgentUnit:
         result = subprocess.run(['systemctl', '--user', 'show', self.unit,
             '--property=LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus'],
             text=True, capture_output=True, timeout=5, check=False)
-        return dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+        state = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
+        if 'LoadState' not in state:
+            raise RuntimeError('agent user bus unavailable: no unit status')
+        return state
 
     def poll(self):
         state = self.show()

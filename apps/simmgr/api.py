@@ -9,6 +9,7 @@ from fastapi.exceptions import RequestValidationError
 
 from apps.contracts import models as C
 from .service import Manager, SimError
+from .preflight import startup_preflight
 
 
 def create_app(settings, launcher=None):
@@ -16,15 +17,21 @@ def create_app(settings, launcher=None):
 
     @asynccontextmanager
     async def lifespan(app):
+        app.state.preflight = await asyncio.to_thread(startup_preflight)
+        app.state.ready = True
         try:
             yield
         finally:
+            app.state.ready = False
             await manager.close()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.manager = manager
+    app.state.ready = False
 
     def authenticate(request: Request):
+        if not app.state.ready:
+            raise SimError('SIM_UNAVAILABLE', 503)
         supplied = request.headers.get('authorization', '')
         if not hmac.compare_digest(supplied, 'Bearer ' + settings.secret):
             raise SimError('SIM_AUTH_REQUIRED', 401)
@@ -79,8 +86,8 @@ def create_app(settings, launcher=None):
         return {'ok': True}
 
     @app.get('/v1/robots', dependencies=[Depends(authenticate)], response_model=C.SimRobotList)
-    def robots(org_id: str):
-        return {'items': manager.listing(org_id)}
+    async def robots(org_id: str):
+        return {'items': await manager.listing(org_id)}
 
     @app.post('/v1/robots', dependencies=[Depends(authenticate)], response_model=C.SimRobot)
     async def add(body: C.SimProvision):

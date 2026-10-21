@@ -8,3 +8,10 @@ def clean_ros_environment(monkeypatch):
     for name in tuple(os.environ):
         if name.startswith(('ROS_', 'RMW_', 'CYCLONEDDS_', 'FASTRTPS_', 'FASTDDS_')):
             monkeypatch.delenv(name)
+
+
+@pytest.fixture(autouse=True)
+def isolated_manager_startup(monkeypatch):
+    # Runtime startup proof is exercised with dedicated doubles; never inspect
+    # or touch the host's real ROS participants/user units during API tests.
+    monkeypatch.setattr('apps.simmgr.api.startup_preflight',lambda: {'synthetic':True})

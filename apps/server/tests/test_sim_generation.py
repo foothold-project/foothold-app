@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from apps.server.tests.test_simulation import simulation_context, start_slot, clean_ros_environment
+from apps.server.tests.test_simulation import simulation_context, start_slot, clean_ros_environment, isolated_manager_startup
 from apps.server.fh_server.models import Robot, PhonePass, PhoneRevocation, Event
 
 

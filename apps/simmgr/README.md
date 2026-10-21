@@ -1,7 +1,8 @@
 # 시뮬 관리자 — P1-C 준비
 
 폰 → 기존 관제 서버 → loopback 관리자 → 로봇별 에이전트 수명만 관리한다.
-조종·STOP·영상은 폰 ↔ 에이전트다. 기본 launcher는 가짜이며 프로세스를 생성하지 않는다.
+조종·STOP·영상은 폰 ↔ 에이전트다. 기본 launcher는 가짜이며 시뮬·에이전트 프로세스를 생성하지 않는다.
+서비스 startup은 읽기 전용 OS 도구로 부재를 확인한다.
 실제 기동은 **미실행**, [FIRST-LAUNCH](FIRST-LAUNCH.md)의 제품 책임자 승인 뒤 별도 작업이다.
 
 - 설정/격리: `config.py`에서 기존 `validate_isolation` 재사용. domain93·LOCALHOST만 허용,
@@ -9,9 +10,12 @@
 - 수명: `service.py`의 잠금 하나로 직렬화. 월드1개, 1인1대, 기본2대 상한(1..2 설정).
   STOP→0→에이전트 정상 종료 확인→로봇 제거→월드 종료. 정지 실패는ERROR·슬롯 보존·
   새 시작 차단이며 world 자동KILL/재기동 없다. agent timeout은 자기 수명 제한 user unit만 TERM/KILL로 수거하되 world 보존. 종료 중에도 다른 로봇의 정리는 시도한다.
-- 슬롯 취득마다 세대를 올린다. manager STOP/제거와 서버 완료 처리가 같은 세대일 때만
-  적용되어 이전 DELETE가 재취득한 담당자·키·출입증을 지우지 않는다. STOPPING 재취득은 거부한다.
-- `FakeLauncher`: 실제 프로세스/소켓/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
+- 세대의 정본은 서버 DB 하나이며 슬롯 취득마다 세대를 올린다. manager STOP/제거와 서버 완료 처리가 같은 세대일 때만
+  적용되어 이전 DELETE가 재취득한 담당자·키·출입증을 지우지 않는다. STARTING/STOPPING
+  재POST는 거부하되 DELETE로 복구한다. 빈 관리자는 세대와 무관하게 제거 성공이다.
+  서비스 startup에서 fake/native 모두 기존 isolation preflight와 남은 sim/agent user unit
+  부재를 읽기만 확인하며 user bus 오류도 거부한다. 관리자 tombstone은 두지 않는다.
+- `FakeLauncher`: 시뮬·에이전트 프로세스/리스너/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
 - `NativeLauncher`: 명시 `FH_SIM_RUN=1` 때만 기존 D1 `Simulation` supervisor를 불러 쓴다.
   자원/전용 user unit/identity/source hash/정리 검사를 재사용. 원본은 고정Go2+고정토픽이라
@@ -43,3 +47,6 @@
 
 오프라인 검증 절차·결과는 [VALIDATION](VALIDATION.md). 공개 원본 지도/월드/영상·주소·키를
 추가하지 않는다. 원본 및 다른 worktree는 읽기만 했으며 설치/수정/ROS/Gazebo 기동0이다.
+
+장애 후 복구·확실한 시작 전 거부 목록·감사 코드 차이는 [API §13.9](../../docs/spec/05-API-SPEC.md#139-시뮬-관리자-중계-p1-c-준비),
+실제 고아 정리와 startup 부재 증명 순서는 [FIRST-LAUNCH](FIRST-LAUNCH.md)를 따른다.

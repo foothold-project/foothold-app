@@ -31,11 +31,10 @@ class Manager:
         self.lock = asyncio.Lock()
         self.world = None
         self.robots = {}
-        self.generations = {}  # retain tombstones after removal
         self.closing = self.failed = False
 
-    def healthy(self):
-        if self.launcher.real and getattr(self.launcher, 'failure', False):
+    async def healthy(self):
+        if self.launcher.real and await self.launcher.check_health():
             self.failed = True
         if self.closing or self.failed:
             raise SimError('SIM_UNAVAILABLE', 503)
@@ -57,7 +56,7 @@ class Manager:
             return await self._world(world_id)
 
     async def _world(self, world_id):
-        self.healthy()
+        await self.healthy()
         if world_id not in self.settings.worlds:
             raise SimError('SIM_WORLD_NOT_FOUND', 404)
         if self.world is not None:
@@ -76,7 +75,7 @@ class Manager:
 
     async def add(self, world_id, robot_id, owner_id, org_id, agent_token, generation):
         async with self.lock:
-            self.healthy()
+            await self.healthy()
             for value in (robot_id, owner_id, org_id):
                 if str(UUID(value)) != value:
                     raise SimError('SIM_IDENTITY_INVALID', 400)
@@ -88,8 +87,6 @@ class Manager:
                 if existing.generation == generation and existing.owner == owner_id and existing.world == world_id and existing.state not in ('ERROR', 'STOPPING'):
                     return self.describe(existing)
                 raise SimError('SIM_SLOT_BUSY')
-            if generation <= self.generations.get(robot_id, 0):
-                raise SimError('SIM_GENERATION_MISMATCH')
             if any(r.owner == owner_id for r in self.robots.values()):
                 raise SimError('SIM_OWNER_LIMIT')
             if self.launcher.real and self.robots:
@@ -100,7 +97,6 @@ class Manager:
                 raise SimError('SIM_CREDENTIAL_INVALID', 400)
             await self._world(world_id)
             row = Robot(slot, owner_id, world_id, 'STARTING', generation)
-            self.generations[robot_id] = generation
             self.robots[robot_id] = row
             try:
                 await self.launcher.add(slot, {'agent_token': agent_token})
@@ -115,10 +111,10 @@ class Manager:
     async def remove(self, robot_id, generation):
         async with self.lock:
             row = self.robots.get(robot_id)
-            if generation != self.generations.get(robot_id, 0):
-                raise SimError('SIM_GENERATION_MISMATCH')
             if row is None:
-                return
+                return  # server DB owns generations; absent robots are already removed
+            if generation != row.generation:
+                raise SimError('SIM_GENERATION_MISMATCH')
             row.state = 'STOPPING'
             try:
                 await self.launcher.stop_agent(row.slot)
@@ -145,5 +141,7 @@ class Manager:
             await self.launcher.close_world()
             self.world = None
 
-    def listing(self, org_id):
+    async def listing(self, org_id):
+        if self.launcher.real:
+            await self.launcher.check_health()
         return [self.describe(row) for row in self.robots.values() if row.slot.org_id == org_id]

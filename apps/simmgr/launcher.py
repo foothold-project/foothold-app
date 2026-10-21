@@ -19,6 +19,9 @@ class FakeLauncher:
     def __init__(self):
         self.events = []
 
+    async def check_health(self):
+        return False
+
     async def start_world(self, world):
         self.events.append(('world', world.id))
 
@@ -54,7 +57,40 @@ class NativeLauncher:
 
     @property
     def failure(self):
-        return self.failed or (self.sim is not None and bool(self.sim.reason)) or (self.child is not None and self.child.poll() is not None)
+        # Pure cached state: synchronous systemctl never runs on the event loop.
+        return self.failed or (self.sim is not None and bool(self.sim.reason))
+
+    async def check_health(self):
+        try:
+            if self.child is not None and await self._poll() is not None:
+                self.failed = True
+        except RuntimeError:
+            self.failed = True
+        return self.failure
+
+    async def _poll(self):
+        try:
+            return await asyncio.to_thread(self.child.poll)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            self.failed = True
+            raise RuntimeError('agent unit status unavailable') from None
+
+    async def _signal(self, sig):
+        try:
+            await asyncio.to_thread(self.child.send_signal, sig)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            self.failed = True
+            raise RuntimeError('agent unit signal failed') from None
+
+    async def _wait(self, timeout):
+        try:
+            return await asyncio.to_thread(self.child.wait, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.failed = True
+            raise
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            self.failed = True
+            raise RuntimeError('agent unit cleanup failed') from None
 
     async def start_world(self, world):
         validate_control_environment()
@@ -120,10 +156,14 @@ class NativeLauncher:
         validate_isolation(env)
         # Native stage1 topics/frames stay fixed; no fictitious namespace isolation.
         env['FOOTHOLD_CAMERA_ENABLED'] = '1'
-        self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
+        try:
+            self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            self.failed = True
+            raise RuntimeError('agent unit startup failed') from None
         deadline = asyncio.get_running_loop().time() + 30
         while asyncio.get_running_loop().time() < deadline:
-            if self.child.poll() is not None or self.sim.reason:
+            if await self._poll() is not None or self.sim.reason:
                 self.failed = True
                 raise RuntimeError('agent/simulation startup failed')
             try:
@@ -140,22 +180,22 @@ class NativeLauncher:
         child = self.child
         if child is None:
             return
-        if child.poll() is None:
-            child.send_signal(signal.SIGINT)
+        if await self._poll() is None:
+            await self._signal(signal.SIGINT)
         # Existing runner closes Hub first, bridge outputs ZERO/STOP, waits for ACK,
         # then tears down its node. Nonzero exit/timeout retains world and blocks reuse.
         try:
-            code = await asyncio.to_thread(child.wait, timeout=15)
+            code = await self._wait(15)
         except subprocess.TimeoutExpired:
             self.failed = True
             # Own transient unit only. A forced exit never confirms STOP/zero;
             # retain world/slot and require operator review before any retry.
             for sig in (signal.SIGTERM, signal.SIGKILL):
-                if child.poll() is not None:
+                if await self._poll() is not None:
                     break
-                child.send_signal(sig)
+                await self._signal(sig)
                 try:
-                    await asyncio.to_thread(child.wait, timeout=5)
+                    await self._wait(5)
                 except subprocess.TimeoutExpired:
                     continue
                 break

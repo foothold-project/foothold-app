@@ -939,7 +939,8 @@ B-tree/색인·metadata·같은 DB의 used-jti4096행 몫을 포함할 여유로
 
 JPEG 원본은 최대65,536 B(64 KiB), width≤640·height≤360이다. base64는 최대87,384자이므로
 영상 **수신** 프레임 한도를96 KiB 이상으로 둔다. 제어 **송신**의4 KiB 한도는 그대로다.
-≤5fps 상한(단조 벽시계0.2초 샘플)이며 실측fps를 보고한다. 원천 submit은0.2초
+≤5fps 송신 상한은 `run()`의 단조 벽시계0.2초 sampler가 보장하며 실측fps를 보고한다.
+원천 격자만으로 송신 최소 간격/창 상한을 주장하지 않는다. 원천 submit은0.2초
 격자(next += 0.2, 긴 공백 뒤 재설정)로 제한한다. 미소 흔들림으로 격자가 누적 지연되지
 않으며 유효하지 않은 프레임은 자리를 쓰지 않는다. 아직 샘플하지 않은1장은 덮어쓰지 않는다.
 ROS 입력 최신1장·폰별 대기 최신1장만 둔다.
@@ -980,9 +981,11 @@ namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,laun
 에이전트 welcome/state.simulation은 참고용이며 출처 판정에 쓰지 않는다. 시뮬 행의 일반
 `/robots/{id}/agent-token` 회전은409 SIM_TOKEN_MANAGED, 일반 DELETE와 담당자 PATCH는
 409 SIM_ROBOT_MANAGED로 거부한다. 이름 수정은 기존 권한으로 허용한다.
-SIM_ROBOT_REQUESTED/REGISTERED/REMOVED와 REMOVE_FAILED 감사는 id·world·launcher·실패코드만 담고 주소·토큰·키는
+SIM_ROBOT_REQUESTED/REGISTERED/REMOVED·REMOVE_FAILED·REMOVE_STALE·START_REJECTED 감사는
+id·world·generation·launcher·실패코드만 담고 주소·토큰·키는
 담지 않는다. 에이전트 시작 전 id·토큰 hash와 REQUESTED를 먼저 commit하므로 시작 응답이
-유실되면 STARTING을 유지해 자동 재취득하지 않고 같은 slot 목록과 실행 증거로 확인한다. 제거 전 살아 있는 출입증을 기존 회수 outbox로
+유실·timeout·5xx·신원/응답 검증 실패는 STARTING을 유지하고 자동 재취득하지 않는다.
+STARTING에서도 같은 권한의 DELETE로 같은 세대의 관리자 로봇을 정리한 뒤 IDLE로 복구한다. 제거 전 살아 있는 출입증을 기존 회수 outbox로
 commit하고, 정리 중 새로 발급된 것도 완료 직전 조직 잠금 아래 다시 회수한다. 제거 성공 뒤 owner를 비워 다른 사람이 슬롯을 쓸 수 있게 한다. 실패면
 owner를 유지하고 실패 감사를 별도 commit한다. 로봇·출입증 이력은 삭제하지 않는다.
 
@@ -1000,19 +1003,49 @@ override를 거부한다. 제어 평면은 ROS_*·RMW/DDS 환경을 거부하고
 FH_SIM_DOMAIN=93 설정에서만 자식 허용 목록 환경을 만든다(자식에 DB/서버키/관리자키/실행flag 미전달).
 중계 쓰기 timeout은180초로 native110+30초보다 길고, GET은5초다.
 모든 관리자 호출은 조직 쓰기 잠금을 푼 뒤 수행한다. 에이전트 WS 경로는 `/api/v1/agent/ws`만 허용한다.
-첫 기동은 같은 PC·127.0.0.1만이며 LAN 폰 측정은 P1-D다. 기본은fake, 실제 프로세스 생성은 명시 `FH_SIM_RUN=1`일 때만이다.
+첫 기동은 같은 PC·127.0.0.1만이며 LAN 폰 측정은 P1-D다. 기본은fake, 시뮬·에이전트 프로세스 생성은 명시 `FH_SIM_RUN=1`일 때만이다.
+서비스 startup의 읽기 전용 OS 도구 조회는 fake에서도 수행한다.
 
 기본 상한2·1인1대·월드1개를 가짜 launcher로 검증한다. 원본 native runtime은 고정된
 Go2 한 대·절대 토픽/TF라 실제 경로는 **1대만 허용**하고 namespace/tf_prefix가 빈 값이다.
 두 번째 실제 로봇은409 SIM_NATIVE_SINGLE_ONLY로 거부하며, 다중 로봇 격리 통과를 주장하지
 않는다(4단계). 첫 기동은 [기동 계획](../../apps/simmgr/FIRST-LAUNCH.md)의 별도 승인 대상이다.
 
-슬롯 취득은0014의 `sim_generation`(0부터 단조 증가)을 조직 잠금 안에서 올리고
-`sim_state=STARTING→ACTIVE→STOPPING→IDLE`로 관리한다. STOPPING/STARTING은 같은 담당자도
-다시 취득할 수 없다. 관리자 DELETE 본문은 `SimRemove {generation}`이며, 관리자는 자기
-잠금 안에서 세대가 일치할 때만 STOP·제거한다. 제거 tombstone의 세대도 보존한다.
-서버도 원격 호출 뒤 조직 잠금 아래 세대와 STOPPING 상태를 다시 확인한 뒤만 재회수·
-담당자 해제·hash 교체·REMOVED 감사를 수행한다. 다른 세대면409 SIM_GENERATION_MISMATCH와
-REMOVE_STALE 감사1줄만 남긴다(관리자에서 먼저 거부하면 REMOVE_FAILED 감사1줄).
-같은 담당자의 재취득도 다른 세대다. 오래된 DELETE는 새 세대의 로봇·출입증·담당자·키를
-변경하지 않는다. 원격 호출 동안 조직 쓰기 잠금을 유지하지 않는다.
+슬롯 세대의 정본은 서버 DB 하나다. 취득은0014의 `sim_generation`(0부터 단조 증가)을
+조직 잠금 안에서 올리고 `sim_state=STARTING→ACTIVE→STOPPING→IDLE`로 관리한다.
+STARTING/STOPPING 재POST는 같은 담당자도 거부한다. **DELETE는 STARTING·STOPPING에서도**
+기존 `O_OWN` 권한으로 허용한다. IDLE 해제 뒤 owner가 없는 슬롯에 대한 이전 담당자의
+반복 DELETE는 기존 권한 판정 그대로이며, 새 POST 취득은 기존 `O`를 사용한다.
+첫204 응답이 유실되면 재시도는403일 수 있다. 목록의 현재 로봇 부재와 재취득201을
+함께 확인하며, 빈 목록만으로 DB IDLE이라고 단정하지 않는다.
+
+관리자는 받은 세대를 로봇과 함께 보관할 뿐 tombstone/별도 영속 세대는 두지 않는다.
+관리자 DELETE 본문은 `SimRemove {generation}`이며 자기 잠금 안에서 다음처럼 처리한다.
+
+- 로봇이 있으면 같은 세대일 때만 STOP·정리하고, 다른 세대면409 SIM_GENERATION_MISMATCH다.
+- 로봇이 없으면 기대 세대와 무관하게200(이미 없음)이다. **서비스 시작 전** fake/native
+  모두 기존 isolation preflight(다른93/DDS·자원·61 baseline)와 남은
+  `fh-rb-sim-*.service`/`fh-simmgr-agent-*.service` user unit 부재 검사를 통과해야 한다.
+  user bus 조회 실패도 시작 거부다. 검사는 읽기만 하고 프로세스/unit을 정리하지 않는다.
+  이 관문이 있어야 재시작한 빈 관리자의 «없음»을 실제 runtime 부재로 신뢰할 수 있다.
+
+서버는 원격 DELETE 뒤 조직 잠금 아래 **세대와 STOPPING을 모두** 다시 확인한 뒤만
+재회수·담당자 해제·hash 교체·REMOVED 감사를 수행한다. 같은 세대의 이중 DELETE도
+완료된 IDLE을 다시 바꾸지 않는다. 다른 세대면 아무것도 변경하지 않고409를 보낸다.
+같은 담당자의 재취득도 다른 세대이며 이전 DELETE가 새 로봇·출입증·owner·키를 바꾸지 않는다.
+원격 호출 동안 조직 쓰기 잠금은 유지하지 않는다.
+
+시작 전 확실한 거부는 다음 **(HTTP status, code) 고정 목록만** 인정한다. 같은 요청의
+완료 처리에서 세대와 STARTING을 다시 확인하고, 중간 발급 출입증 회수·hash 교체·owner
+해제·IDLE·START_REJECTED를 commit한다. 목록 밖 코드·status 조합·본문 파싱 실패는 불확실로
+남겨 STARTING DELETE로 복구한다. 기존 로봇이 있을 수 있는 SIM_SLOT_BUSY는 목록에 없다.
+
+| HTTP | 시작 전 거부 코드 |
+|---|---|
+|400|SIM_VALIDATION, SIM_IDENTITY_INVALID, SIM_CREDENTIAL_INVALID|
+|404|SIM_WORLD_NOT_FOUND, SIM_SLOT_NOT_FOUND|
+|409|SIM_WORLD_BUSY, SIM_OWNER_LIMIT, SIM_NATIVE_SINGLE_ONLY, SIM_ROBOT_LIMIT|
+
+- `SIM_ROBOT_START_REJECTED`: 위 목록의 확실한 시작 전 거부로 같은 세대 예약을 즉시 해제했다.
+- `SIM_ROBOT_REMOVE_FAILED`: 관리자/relay가 정리 요청을 실패/거부했다(관리자가 먼저 세대 불일치를 거부한 경우 포함). owner/예약을 보존한다.
+- `SIM_ROBOT_REMOVE_STALE`: 관리자는 성공했지만 서버 완료 검사에서 세대 또는 STOPPING이 바뀌었다. 현재 로봇/예약/hash/출입증은 바꾸지 않는다.

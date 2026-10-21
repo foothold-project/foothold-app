@@ -16,6 +16,15 @@ from . import phone_pass
 from .security import digest, token
 
 
+# Exact pre-creation rejections only. Unknown codes/statuses remain uncertain.
+START_REJECTIONS = frozenset({
+    (400, 'SIM_VALIDATION'), (400, 'SIM_IDENTITY_INVALID'), (400, 'SIM_CREDENTIAL_INVALID'),
+    (404, 'SIM_WORLD_NOT_FOUND'), (404, 'SIM_SLOT_NOT_FOUND'),
+    (409, 'SIM_WORLD_BUSY'), (409, 'SIM_OWNER_LIMIT'),
+    (409, 'SIM_NATIVE_SINGLE_ONLY'), (409, 'SIM_ROBOT_LIMIT'),
+})
+
+
 class RelayError(Exception):
     def __init__(self, code='SIM_UNAVAILABLE', status=503):
         self.code, self.status = code, status
@@ -70,7 +79,7 @@ class Relay:
 def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization):
     app.state.simmgr = Relay(settings.simmgr_url, settings.simmgr_auth_file) if settings.simmgr_url else None
 
-    def call(method, path, body=None, on_error=None):
+    def call(method, path, body=None, on_error=None, on_rejection=None):
         relay = app.state.simmgr
         if relay is None:
             if on_error is not None:
@@ -79,6 +88,8 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         try:
             return relay.request(method, path, body)
         except RelayError as error:
+            if on_rejection is not None:
+                on_rejection(error)
             if on_error is not None:
                 on_error(error.code)
             fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.')
@@ -147,8 +158,26 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         event(db, user.org_id, 'SIM_ROBOT_REQUESTED', user.id, {'robot_id': rid,
               'world_id': body.world_id, 'generation': generation, 'simulation': True}, category='LINK')
         db.commit()
-        result = C.SimRobot.model_validate(call('POST', '/v1/robots', dict(world_id=body.world_id,
-            robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation)))
+        def start_rejected(error):
+            if (error.status, error.code) not in START_REJECTIONS:
+                return
+            lock_organization(db, user.org_id)
+            db.refresh(row)
+            if row.sim_generation == generation and row.sim_state == 'STARTING':
+                phone_pass.revoke(db, user.org_id, robot_id=row.id, clock=issuer.clock)
+                row.sim_state = 'IDLE'
+                row.owner_user_id = None
+                row.agent_token_hash = digest(token())
+                event(db, user.org_id, 'SIM_ROBOT_START_REJECTED', user.id,
+                      {'robot_id': rid, 'generation': generation, 'reason': error.code}, category='LINK')
+                db.commit()
+        result = call('POST', '/v1/robots', dict(world_id=body.world_id,
+            robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation),
+            on_rejection=start_rejected)
+        try:
+            result = C.SimRobot.model_validate(result)
+        except (ValueError, TypeError):
+            fail(503, 'SIM_IDENTITY_MISMATCH', '시뮬 연결 정보를 확인하지 못했습니다.')
         lock_organization(db, user.org_id)
         db.refresh(row)
         if row.sim_generation != generation or row.sim_state != 'STARTING':
@@ -172,8 +201,6 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         generation = row.sim_generation
         if row.sim_state == 'IDLE':
             return Response(status_code=204)
-        if row.sim_state == 'STARTING':
-            fail(409, 'SIM_SLOT_BUSY', '시뮬 슬롯을 시작 중입니다.')
         row.sim_state = 'STOPPING'
         phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)
         db.commit()  # revocations survive a failed/uncertain manager response
