@@ -518,15 +518,15 @@ def test_global_pending_cap_and_hello_verification_protection(h, monkeypatch):
                 self.remote_address = (host, 1)
             async def close(self, *args):
                 pass
-        peers = [server._admit(Socket(str(i))) for i in range(4)]
+        peers = [server._admit(Socket(str(i))) for i in range(16)]
         replacement = server._admit(Socket('new'))
-        assert len(h.hub.peers) == 4 and peers[0] not in h.hub.peers
+        assert len(h.hub.peers) == 16 and peers[0] not in h.hub.peers
         assert replacement in h.hub.peers
-        # Protect all four validating hellos, even against a fifth source.
+        # Protect all sixteen validating hellos against another source.
         server.hello_started.update(h.hub.peers)
         with pytest.raises(PhoneError):
             server._admit(Socket('fifth'))
-        assert len(h.hub.peers) == 4
+        assert len(h.hub.peers) == 16
         await asyncio.gather(*server.close_tasks)
     asyncio.run(run())
 
@@ -611,9 +611,13 @@ def test_other_source_churn_allows_same_device_reconnect_ten_of_ten(h):
     asyncio.run(run())
 
 
-@pytest.mark.parametrize('cause', ['release', 'disconnect', 'stop-confirmation'])
+@pytest.mark.parametrize('cause', ['release', 'disconnect', 'expiry', 'stop-confirmation'])
 def test_nonself_cancellation_does_not_penalize_requester(h, monkeypatch, cause):
-    owner, _ = h.moving()
+    if cause == 'expiry':
+        owner, _, _ = h.connect(exp=int(h.clock.wall())+1)
+        h.take(owner); h.unlock(owner); h.cmd(owner, 0); h.cmd(owner)
+    else:
+        owner, _ = h.moving()
     requester, _, _ = h.connect()
     identity = (h.hub.peers[requester].user, h.hub.peers[requester].device)
     request = h.send(requester, 'lease.request')['request_id']
@@ -621,6 +625,9 @@ def test_nonself_cancellation_does_not_penalize_requester(h, monkeypatch, cause)
         h.send(owner, 'lease.release')
     elif cause == 'disconnect':
         h.hub.disconnect(owner, reserve=False)
+    elif cause == 'expiry':
+        h.clock.t = 1
+        h.hub.tick()
     else:
         with monkeypatch.context() as patch:
             original = h.hub.session._state
@@ -723,3 +730,183 @@ def test_self_cancel_cooldown_lasts_thirty_seconds(h):
     assert not response['ok'] and response['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
     h.advance(30)
     assert h.send(requester, 'lease.request')['ok'] and h.hub.owner is owner
+
+
+@pytest.mark.parametrize('kind', ['lease.cancel', 'lease.release', 'view', 'disconnect', 'ping-timeout'])
+def test_requester_withdrawal_all_aliases_keep_identity_cooldown(h, kind):
+    owner, _ = h.moving()
+    requester, claims, _ = h.connect()
+    assert h.send(requester, 'lease.request')['ok']
+    if kind == 'disconnect':
+        h.hub.disconnect(requester)
+    elif kind == 'ping-timeout':
+        h.clock.t = 3
+        # Keep the holder alive before expiring the requester's missing ping.
+        h.hub.peers[owner].last_ping = 3
+        h.hub.tick()
+    else:
+        assert h.send(requester, kind)['ok']
+    withdrawn_at = h.clock.t
+    if kind in ('disconnect', 'ping-timeout'):
+        requester, _, _ = h.connect(user=claims['sub'], device=claims['device'])
+    reply = h.send(requester, 'lease.request')
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    h.advance(withdrawn_at + 29.99)
+    reply = h.send(requester, 'lease.request')
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    h.advance(withdrawn_at + 30)
+    assert h.send(requester, 'lease.request')['ok'] and h.hub.owner is owner
+
+
+@pytest.mark.parametrize('kind', ['lease.cancel', 'lease.release', 'view'])
+@pytest.mark.parametrize('pairs_per_second', [4, 8])
+def test_requester_withdrawal_probe9_bounds_five_second_audit(h, kind, pairs_per_second):
+    owner, _ = h.moving()
+    requester, _, _ = h.connect()
+    accepted = 0
+    for second in range(5):
+        if requester not in h.hub.peers:
+            break
+        h.clock.t = second
+        for peer in (owner, requester):
+            h.send(peer, 'ping', client_time_ms=second*1000)
+        # Four pairs stay within the window; probe9's eight pairs close only this peer.
+        for _ in range(pairs_per_second):
+            try:
+                response = h.send(requester, 'lease.request')
+                accepted += response['ok']
+                if not response['ok']:
+                    assert response['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+                assert h.send(requester, kind)['ok']
+            except PhoneError as error:
+                assert error.code == 'REQUEST_FLOOD'
+                break
+    events = [e for e in h.events if e.get('code') in ('PHONE_LEASE_REQUESTED', 'PHONE_LEASE_CANCELED')]
+    assert accepted == 1 and len(events) == 2
+    assert (requester in h.hub.peers) == (pairs_per_second == 4)
+    assert h.hub.owner is owner and not h.hub.session.core.latch
+
+
+@pytest.mark.parametrize('kind', ['lease.release', 'view'])
+def test_release_and_view_count_toward_request_rate_window(h, kind):
+    owner, _ = h.moving()
+    requester, _, _ = h.connect()
+    for _ in range(8):
+        assert h.send(requester, kind)['ok']
+    with pytest.raises(PhoneError) as error:
+        h.send(requester, kind)
+    assert error.value.code == 'REQUEST_FLOOD'
+    assert requester not in h.hub.peers and h.hub.owner is owner and not h.hub.session.core.latch
+
+
+@pytest.mark.parametrize('cleanup', ['expiry', 'validation', 'server-disconnect'])
+def test_server_requester_cleanup_does_not_create_withdrawal_penalty(h, cleanup):
+    owner, _ = h.moving()
+    requester, _, _ = h.connect(exp=int(h.clock.wall())+1)
+    identity = (h.hub.peers[requester].user, h.hub.peers[requester].device)
+    h.send(requester, 'lease.request')
+    if cleanup == 'expiry':
+        h.clock.t = 1
+        h.hub.tick()
+    elif cleanup == 'validation':
+        with pytest.raises(PhoneError):
+            h.hub.fail(requester)
+    else:
+        h.hub.disconnect(requester, requester_withdrawal=False)
+    assert identity not in h.hub.cooldowns and h.hub.pending is None
+
+
+def test_global_pending_replacement_uses_busiest_source_then_oldest(h):
+    async def run():
+        server = Server(h.hub, Settings('127.0.0.1', 9450, 'unused', 'test', '1', h.org,
+                                       'unused', True, True))
+        class Socket:
+            def __init__(self, address):
+                self.remote_address = (address, 1)
+            async def close(self, *args):
+                pass
+        oldest_single = server._admit(Socket('single'))
+        first_busy = server._admit(Socket('busy'))
+        second_busy = server._admit(Socket('busy'))
+        other_busy = server._admit(Socket('other'))
+        server._admit(Socket('other'))
+        for i in range(11):
+            server._admit(Socket(str(i)))
+        server._admit(Socket('returning'))
+        assert oldest_single in h.hub.peers and first_busy not in h.hub.peers
+        assert second_busy in h.hub.peers and other_busy in h.hub.peers
+        assert len(h.hub.peers) == 16
+        await asyncio.gather(*server.close_tasks)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('sources,per_source', [(2, 8), (4, 4), (8, 4)])
+def test_real_multisource_churn_controller_reconnects_ten_of_ten(h, sources, per_source):
+    from websockets.asyncio.client import connect
+    owner, claims = h.moving()
+    h.hub.disconnect(owner)
+    async def run():
+        async with running(h) as (server, uri, task):
+            stop = asyncio.Event()
+            connections = 0
+            errors = []
+            async def attacker(address):
+                nonlocal connections
+                while not stop.is_set():
+                    try:
+                        async with connect(uri, proxy=None, open_timeout=2, local_addr=(address, 0)) as ws:
+                            connections += 1
+                            await closed_code(ws)
+                    except Exception:
+                        await asyncio.sleep(0)
+            attackers = [asyncio.create_task(attacker(f'127.0.0.{2 + i % sources}'))
+                         for i in range(sources * per_source)]
+            try:
+                for _ in range(200):
+                    if connections >= sources * per_source:
+                        break
+                    await asyncio.sleep(.005)
+                assert connections >= sources * per_source
+                successes = 0
+                for _ in range(10):
+                    try:
+                        async with connect(uri, proxy=None, open_timeout=2, local_addr=('127.0.0.1', 0)) as ws:
+                            await hello(h, ws, user=claims['sub'], device=claims['device'])
+                            result = await rpc(h, ws, 'lease.take')
+                            successes += bool(result['ok'])
+                            await rpc(h, ws, 'lease.release')
+                    except Exception as error:
+                        errors.append(type(error).__name__)
+                    for _ in range(100):
+                        if not any(p.device == claims['device'] for p in h.hub.peers.values()):
+                            break
+                        await asyncio.sleep(.002)
+                assert successes == 10, errors
+                assert not task.done() and server.failure is None
+            finally:
+                stop.set()
+                for attacker_task in attackers:
+                    attacker_task.cancel()
+                await asyncio.gather(*attackers, return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_requester_socket_disconnect_reconnect_cannot_reset_cooldown(h):
+    from websockets.asyncio.client import connect
+    owner, _ = h.moving()
+    async def run():
+        async with running(h) as (server, uri, task):
+            async with connect(uri, proxy=None) as ws:
+                claims = await hello(h, ws)
+                assert (await rpc(h, ws, 'lease.request'))['ok']
+            for _ in range(100):
+                if not server.connections:
+                    break
+                await asyncio.sleep(.005)
+            assert not server.connections and h.hub.pending is None
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws, user=claims['sub'], device=claims['device'])
+                response = await rpc(h, ws, 'lease.request')
+                assert not response['ok'] and response['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+            assert h.hub.owner is owner and not h.hub.session.core.latch and not task.done()
+    asyncio.run(run())

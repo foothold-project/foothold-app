@@ -1,6 +1,7 @@
 """Bounded WS transport; local safety tick never waits for a phone write."""
 
 import asyncio
+from collections import Counter
 from dataclasses import dataclass
 import json
 import os
@@ -129,13 +130,15 @@ class Server:
         address = self._address(ws)
         same = [p for p in pending if self.addresses[p] == address]
         # Apply the source limit FIRST. A noisy host only rotates its own slots.
-        candidates = same if len(same) >= 2 else pending if len(pending) >= 4 else []
+        candidates = same if len(same) >= 2 else pending if len(pending) >= 16 else []
         if candidates:
             replaceable = [p for p in candidates if p not in self.hello_started]
             if not replaceable:
                 raise PhoneError('HELLO_CAPACITY', 1013)
-            oldest = replaceable[0]
-            self.hub.disconnect(oldest, reserve=False)
+            counts = Counter(self.addresses[p] for p in pending)
+            # min is stable: equal source loads use the oldest pending socket.
+            oldest = min(replaceable, key=lambda p: -counts[self.addresses[p]])
+            self.hub.disconnect(oldest, reserve=False, requester_withdrawal=False)
             error = PhoneError('HELLO_CAPACITY', 1013)
             self.hub.closing[oldest] = error
             self._close_later(self.connections[oldest], oldest, error)
@@ -185,7 +188,8 @@ class Server:
                 self._failed(exc)
         finally:
             try:
-                self.hub.disconnect(peer)  # STOP before any asynchronous cleanup
+                self.hub.disconnect(peer, requester_withdrawal=primary is None and not self.stopping.is_set())
+                # STOP above precedes any asynchronous cleanup.
             except BaseException as error:
                 if primary is None:
                     primary = error

@@ -65,7 +65,7 @@ MUTATIONS += [
     review('unapproved socket can STOP', 'hub.py',
            'if safety and peer in self.peers and self.peers[peer].user is not None:', 'if safety:',
            'test_unapproved_socket_cannot_stop_authenticated_owner'),
-    review('global pending hello capacity removed', 'server.py', 'else pending if len(pending) >= 4 else []', 'else []',
+    review('global pending hello capacity removed', 'server.py', 'else pending if len(pending) >= 16 else []', 'else []',
            'test_global_pending_cap_and_hello_verification_protection'),
     review('hello deadline removed', 'hub.py', 'if self.now() - p.last_ping >= 3:', 'if False:',
            'test_pending_hello_deadline_has_no_robot_effect'),
@@ -141,6 +141,33 @@ for code in (1002, 1003, 1007):
     codes = tuple(c for c in (1002, 1003, 1007, 1009) if c != code)
     MUTATIONS.append(review(f'transport {code} STOP removed', 'server.py', '(1002, 1003, 1007, 1009)',
                             repr(codes), 'test_transport_validation_close_codes_stop_authenticated_viewer'))
+
+
+MUTATIONS += [
+    review('requester release withdrawal unpenalized', 'hub.py',
+           "if self.pending is not None and self.pending['peer'] == peer:\n            self._request_result('CANCELED', self_cancel=True)",
+           "if self.pending is not None and self.pending['peer'] == peer:\n            self._request_result('CANCELED')",
+           'test_requester_withdrawal_all_aliases_keep_identity_cooldown'),
+    review('requester disconnect withdrawal unpenalized', 'hub.py',
+           "self._request_result('CANCELED', self_cancel=requester_withdrawal)",
+           "self._request_result('CANCELED')",
+           'test_requester_withdrawal_all_aliases_keep_identity_cooldown'),
+    review('release and view bypass request rate window', 'hub.py',
+           "if kind in ('lease.request', 'lease.cancel', 'lease.release', 'view'):",
+           "if kind in ('lease.request', 'lease.cancel'):",
+           'test_release_and_view_count_toward_request_rate_window'),
+    review('global replacement ignores source load', 'server.py',
+           'oldest = min(replaceable, key=lambda p: -counts[self.addresses[p]])',
+           'oldest = replaceable[0]',
+           'test_global_pending_replacement_uses_busiest_source_then_oldest'),
+    review('global pending capacity regresses to four', 'server.py',
+           'else pending if len(pending) >= 16 else []', 'else pending if len(pending) >= 4 else []',
+           'test_global_pending_cap_and_hello_verification_protection'),
+    review('server cleanup counts as requester withdrawal', 'hub.py',
+           'self.disconnect(peer, reserve=reserve, requester_withdrawal=False)',
+           'self.disconnect(peer, reserve=reserve)',
+           'test_server_requester_cleanup_does_not_create_withdrawal_penalty'),
+]
 
 
 def main():

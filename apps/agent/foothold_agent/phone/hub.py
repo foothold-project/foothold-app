@@ -132,20 +132,20 @@ class Hub:
     def release(self, peer):
         self._drop(peer)
         if self.pending is not None and self.pending['peer'] == peer:
-            self._request_result('CANCELED')
+            self._request_result('CANCELED', self_cancel=True)
 
-    def disconnect(self, peer, *, reserve=True):
+    def disconnect(self, peer, *, reserve=True, requester_withdrawal=True):
         try:
             self._drop(peer, reserve=reserve, reason='DISCONNECTED')
             if self.pending is not None and self.pending['peer'] == peer:
-                self._request_result('CANCELED')
+                self._request_result('CANCELED', self_cancel=requester_withdrawal)
         finally:
             self.peers.pop(peer, None)
 
     def fail(self, peer, code='VALIDATION', close_code=1007, *, reserve=False, safety=True):
         if safety and peer in self.peers and self.peers[peer].user is not None:
             self.stop()  # only hello-approved phones may affect robot safety
-        self.disconnect(peer, reserve=reserve)
+        self.disconnect(peer, reserve=reserve, requester_withdrawal=False)
         error = PhoneError(code, close_code)
         self.closing[peer] = error
         raise error
@@ -155,7 +155,7 @@ class Hub:
         if p.user is not None and self.now() >= p.deadline:
             if self.owner == peer:
                 self.fail(peer, 'TICKET_EXPIRED', 4401)
-            self.disconnect(peer, reserve=False)
+            self.disconnect(peer, reserve=False, requester_withdrawal=False)
             self.closing[peer] = PhoneError('TICKET_EXPIRED', 4401)
             raise self.closing[peer]
         if self.now() - p.last_ping >= 3:
@@ -220,7 +220,7 @@ class Hub:
         if peer in self.closing:
             raise self.closing[peer]
         if peer not in self.peers:
-            if sum(p.user is None for p in self.peers.values()) >= 4:
+            if sum(p.user is None for p in self.peers.values()) >= 16:
                 raise PhoneError('SERVER_BUSY', 1013)
             self.peers[peer] = Peer(last_ping=self.now())
         try:
@@ -255,7 +255,7 @@ class Hub:
                     'ping_interval_ms': 1000, 'link_timeout_ms': 3000, 'lease_timeout_ms': 15000}
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
-        if kind in ('lease.request', 'lease.cancel'):
+        if kind in ('lease.request', 'lease.cancel', 'lease.release', 'view'):
             if self.now() - p.request_window >= 1:
                 p.request_window, p.request_count = self.now(), 0
             p.request_count += 1
