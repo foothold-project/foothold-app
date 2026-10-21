@@ -229,7 +229,7 @@ def test_request_cancel_flood_closes_only_requester_and_bounds_events(h):
                 assert result['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
                 for index in range(40):
                     try:
-                        await ws.send(json.dumps({'t': 'lease.request', 'id': str(index), 'robot': h.robot}))
+                        await ws.send(json.dumps({'t': 'lease.cancel', 'id': str(index), 'robot': h.robot}))
                     except Exception:
                         break
                 assert await closed_code(ws) == 1013
@@ -590,6 +590,7 @@ def test_other_source_churn_allows_same_device_reconnect_ten_of_ten(h):
                 assert sum(server.addresses[p] == 'flood' for p in h.hub.peers if h.hub.peers[p].user is None) <= 2
                 successes = 0
                 for _ in range(10):
+                    h.clock.t += .2  # D12: pace valid reconnects within the identity budget.
                     async with connect(uri, proxy=None, additional_headers={'X-Test-Address': 'controller'}) as ws:
                         await hello(h, ws, user=claims['sub'], device=claims['device'])
                         assert (await rpc(h, ws, 'lease.take'))['ok']
@@ -776,14 +777,14 @@ def test_requester_withdrawal_probe9_bounds_five_second_audit(h, kind, pairs_per
                 response = h.send(requester, 'lease.request')
                 accepted += response['ok']
                 if not response['ok']:
-                    assert response['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+                    assert response['error']['code'] in ('LEASE_REQUEST_COOLDOWN', 'LEASE_ACQUIRE_LIMIT')
                 assert h.send(requester, kind)['ok']
             except PhoneError as error:
                 assert error.code == 'REQUEST_FLOOD'
                 break
     events = [e for e in h.events if e.get('code') in ('PHONE_LEASE_REQUESTED', 'PHONE_LEASE_CANCELED')]
     assert accepted == 1 and len(events) == 2
-    assert (requester in h.hub.peers) == (pairs_per_second == 4 or kind != 'lease.cancel')
+    assert requester in h.hub.peers
     assert h.hub.owner is owner and not h.hub.session.core.latch
 
 
@@ -881,6 +882,7 @@ def test_real_multisource_churn_controller_reconnects_ten_of_ten(h, sources, per
                 assert connections >= sources * per_source
                 successes = 0
                 for _ in range(10):
+                    h.clock.t += .2  # D12: address admission and identity budgets are independent.
                     try:
                         async with connect(uri, proxy=None, open_timeout=2, local_addr=('127.0.0.1', 0)) as ws:
                             await hello(h, ws, user=claims['sub'], device=claims['device'])
@@ -950,13 +952,17 @@ def test_requester_ws_fault_reconnect_cannot_repeat_accepted_requests(h, fault):
                 async with connect(uri, proxy=None) as ws:
                     fields = {} if claims is None else {'user': claims['sub'], 'device': claims['device']}
                     claims = await hello(h, ws, **fields)
+                    if fault == 'flood':
+                        # Fill cancel capacity BEFORE a pending request exists. The flood
+                        # must itself cause withdrawal, not an earlier successful cancel.
+                        for _ in range(8):
+                            assert (await rpc(h, ws, 'lease.cancel'))['ok']
                     reply = await rpc(h, ws, 'lease.request')
                     accepted += bool(reply['ok'])
                     if not reply['ok']:
                         assert reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
                     if fault == 'flood':
-                        for index in range(8):
-                            await ws.send(json.dumps({'t': 'lease.request', 'id': f'f{index}', 'robot': h.robot}))
+                        await ws.send(json.dumps({'t': 'lease.cancel', 'id': 'flood', 'robot': h.robot}))
                     else:
                         await ws.send('{' if fault == 'malformed' else 'x'*4097)
                     assert await closed_code(ws) == {'flood': 1013, 'malformed': 1007, 'oversize': 1009}[fault]
@@ -1107,6 +1113,7 @@ def test_owner_repeated_take_release_is_never_rate_limited(h, kind):
     peer, _, _ = h.connect()
     p = h.hub.peers[peer]
     for _ in range(12):
+        h.advance(h.clock.t+1)
         assert h.take(peer)['ok']
         h.unlock(peer); h.cmd(peer, 0); h.cmd(peer)
         assert h.send(peer, kind)['ok']
@@ -1178,9 +1185,9 @@ def test_requester_short_ticket_expiry_cannot_repeat_request_with_new_tickets(h)
     advance(30.99)
     requester, _, _ = h.connect(user=claims['sub'], device=claims['device'])
     reply = h.send(requester, 'lease.request')
-    assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_ACQUIRE_LIMIT'
     advance(31)
-    assert h.send(requester, 'lease.request')['ok']
+    assert h.send(requester, 'lease.request')['error']['code'] == 'LEASE_ACQUIRE_LIMIT'
 
 
 @pytest.mark.parametrize('kind', ['lease.release', 'view'])
@@ -1193,3 +1200,179 @@ def test_owner_release_is_safe_even_if_window_is_already_exhausted(h, kind):
     assert reply['ok'] and h.hub.owner is None and h.hub.session.core.latch
     assert h.hub.session.lease_id is None and h.hub.session.core.out == Z
     assert h.outputs[-1].velocity == Z and p.release_count == 8
+
+
+@pytest.mark.parametrize('acquire', ['lease.take', 'lease.request'])
+@pytest.mark.parametrize('release', ['lease.release', 'view'])
+def test_acquisition_cycles_obey_independent_identity_budget(h, acquire, release):
+    peer, _, _ = h.connect()
+    accepted = 0
+    for _ in range(100):
+        reply = h.send(peer, acquire)
+        if reply['ok']:
+            accepted += 1
+            assert h.send(peer, release)['ok']
+            assert h.hub.owner is None and h.hub.session.core.latch and h.hub.session.core.out == Z
+        else:
+            assert reply['error']['code'] == 'LEASE_ACQUIRE_LIMIT'
+    assert accepted == 8
+    h.clock.t = 1
+    h.hub.tick()  # flush one aggregate, not92 individual denial events
+    assert sum(e.get('code') == 'PHONE_LEASE_TAKEN' for e in h.events) == 8
+    assert sum(e.get('code') == 'PHONE_LEASE_RELEASED' for e in h.events) == 8
+    denied = [e for e in h.events if e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT']
+    assert len(denied) == 1 and denied[0]['data']['rejected'] == 92
+    assert h.send(peer, 'stop')['ok']
+
+
+@pytest.mark.parametrize('acquire', ['lease.take', 'lease.request'])
+def test_ws_three_hundred_acquisitions_bound_safety_history_without_spill(h, acquire):
+    from websockets.asyncio.client import connect
+    observer = Observer(h.hub)
+    h.hub.record = observer.retain
+    async def run():
+        async with running(h) as (server, uri, task):
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws)
+                accepted = 0
+                for _ in range(300):
+                    reply = await rpc(h, ws, acquire)
+                    if reply['ok']:
+                        accepted += 1
+                        assert (await rpc(h, ws, 'lease.release'))['ok']
+                    else:
+                        assert reply['error']['code'] == 'LEASE_ACQUIRE_LIMIT'
+                h.clock.t = 1
+                h.hub.tick()
+                retained = list(observer._messages)
+                assert accepted == 8
+                assert sum(e.get('code') == 'PHONE_LEASE_TAKEN' for e in retained) == 8
+                assert sum(e.get('code') == 'PHONE_LEASE_RELEASED' for e in retained) == 8
+                assert len(retained) <= 17 and observer._messages.disk_count == 0
+                assert (await rpc(h, ws, 'stop'))['ok']
+                assert server.failure is None and not task.done() and h.hub.session.core.latch
+    try:
+        asyncio.run(run())
+    finally:
+        h.hub.record = h.events.extend
+        observer._messages.close()
+
+
+def test_acquisition_budget_survives_new_ticket_and_socket(h):
+    from websockets.asyncio.client import connect
+    async def run():
+        async with running(h) as (server, uri, task):
+            async with connect(uri, proxy=None) as ws:
+                claims = await hello(h, ws)
+                for _ in range(8):
+                    assert (await rpc(h, ws, 'lease.take'))['ok']
+                    assert (await rpc(h, ws, 'lease.release'))['ok']
+            for _ in range(100):
+                if not server.connections:
+                    break
+                await asyncio.sleep(.005)
+            assert not server.connections
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws, user=claims['sub'], device=claims['device'])
+                reply = await rpc(h, ws, 'lease.take')
+                assert not reply['ok'] and reply['error']['code'] == 'LEASE_ACQUIRE_LIMIT'
+                assert (await rpc(h, ws, 'stop'))['ok'] and not task.done()
+    asyncio.run(run())
+
+
+def test_acquisition_rolling_second_and_minute_boundaries(h):
+    peer, _, _ = h.connect(exp=int(h.clock.wall())+120)
+    def cycles(n):
+        accepted = 0
+        for _ in range(n):
+            reply = h.take(peer)
+            accepted += bool(reply['ok'])
+            if reply['ok']:
+                assert h.send(peer, 'lease.release')['ok']
+            else:
+                assert reply['error']['code'] == 'LEASE_ACQUIRE_LIMIT'
+        return accepted
+    assert cycles(9) == 8
+    h.advance(.999)
+    assert cycles(1) == 0
+    h.advance(1)
+    assert cycles(8) == 8
+    h.advance(2)
+    assert cycles(8) == 8
+    h.advance(3)
+    assert cycles(8) == 6
+    h.advance(59.999)
+    assert cycles(1) == 0
+    h.advance(60)
+    assert cycles(8) == 8
+
+
+@pytest.mark.parametrize('change', ['user', 'device'])
+def test_acquisition_budget_uses_exact_identity_pair(h, change):
+    peer, claims, _ = h.connect()
+    for _ in range(8):
+        assert h.take(peer)['ok']
+        h.send(peer, 'lease.release')
+    h.hub.disconnect(peer)
+    fields = {'user': claims['sub']} if change == 'device' else {'device': claims['device']}
+    other, _, _ = h.connect(**fields)
+    assert h.take(other)['ok']
+    h.send(other, 'lease.release'); h.hub.disconnect(other)
+    peer, _, _ = h.connect(user=claims['sub'], device=claims['device'])
+    reply = h.take(peer)
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_ACQUIRE_LIMIT'
+
+
+def test_acquisition_denial_audit_is_globally_batched_per_second(h):
+    peers = [h.connect()[0] for _ in range(2)]
+    for peer in peers:
+        for _ in range(8):
+            h.take(peer); h.send(peer, 'lease.release')
+    for _ in range(100):
+        for peer in peers:
+            assert not h.take(peer)['ok']
+    assert not any(e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT' for e in h.events)
+    h.advance(1)
+    records = [e for e in h.events if e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT']
+    assert len(records) == 1 and records[0]['data']['rejected'] == 200
+    for _ in range(40):
+        h.send(peers[0], 'stop')
+    assert len([e for e in h.events if e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT']) == 1
+
+
+def test_viewer_twenty_stop_taps_never_count_or_close(h):
+    from websockets.asyncio.client import connect
+    from websockets.exceptions import ConnectionClosed
+    owner, _ = h.moving()
+    async def run():
+        async with running(h) as (server, uri, task):
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws, purpose='view')
+                generation = h.hub.session.core.stop_gen
+                for _ in range(20):
+                    try:
+                        reply = await rpc(h, ws, 'stop')
+                    except ConnectionClosed:
+                        reply = None
+                    assert reply is not None and reply['ok']
+                    generation += 1
+                    assert h.hub.session.core.stop_gen == generation
+                    assert h.hub.session.core.latch and h.hub.session.core.out == Z
+                    assert h.outputs[-1].velocity == Z and h.hub.owner is owner
+                assert (await rpc(h, ws, 'ping', client_time_ms=1))['ok']
+                assert server.failure is None and not task.done()
+    asyncio.run(run())
+
+
+def test_requester_expiry_cooldown_boundary_below_acquisition_budget(h):
+    owner, _ = h.moving()
+    requester, claims, _ = h.connect(exp=int(h.clock.wall())+1)
+    h.send(requester, 'lease.request')
+    h.clock.t = 1
+    h.send(owner, 'ping', client_time_ms=1000)
+    h.advance(30.99)
+    requester, _, _ = h.connect(user=claims['sub'], device=claims['device'])
+    reply = h.send(requester, 'lease.request')
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    h.advance(31)
+    assert h.send(requester, 'lease.request')['ok']

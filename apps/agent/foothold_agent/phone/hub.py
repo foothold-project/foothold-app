@@ -46,6 +46,9 @@ class Hub:
         self.closing = {}
         self.owner = self.reservation = self.pending = None
         self.cooldowns = {}
+        self.acquisitions = {}  # identity -> at most30 admitted attempts in rolling60s
+        self.acquisition_denials = 0
+        self.acquisition_report_at = self.now()
         self.stop_ref = 0
         self.clock_origin = None
         self._emit(self.session.connect())
@@ -101,6 +104,22 @@ class Hub:
         result = list(queue)
         queue.clear()
         return result
+
+    def _flush_acquisition_denials(self):
+        if self.acquisition_denials and self.now() - self.acquisition_report_at >= 1:
+            count, self.acquisition_denials = self.acquisition_denials, 0
+            self.acquisition_report_at = self.now()
+            self._audit('PHONE_LEASE_ACQUIRE_LIMIT', rejected=count)
+
+    def _acquisition_allowed(self, peer):
+        identity = (peer.user, peer.device)
+        history = self.acquisitions.setdefault(identity, deque())
+        if len(history) >= 30 or sum(at > self.now()-1 for at in history) >= 8:
+            self.acquisition_denials += 1
+            self._flush_acquisition_denials()
+            return False
+        history.append(self.now())
+        return True
 
     def _request_result(self, result, error=None, *, self_cancel=False):
         request, self.pending = self.pending, None
@@ -191,6 +210,12 @@ class Hub:
         if self.pending is not None and self.now() >= self.pending['until']:
             self._request_result('TIMEOUT')
         self.cooldowns = {key: until for key, until in self.cooldowns.items() if self.now() < until}
+        for identity, history in list(self.acquisitions.items()):
+            while history and history[0] <= self.now()-60:
+                history.popleft()
+            if not history:
+                del self.acquisitions[identity]
+        self._flush_acquisition_denials()
         return list(self.closing.items())
 
     def tick(self):
@@ -200,7 +225,7 @@ class Hub:
 
     @staticmethod
     def error(code):
-        status = (429 if code in ('LEASE_REQUEST_COOLDOWN', 'REQUEST_FLOOD') else 503 if code == 'STOP_CONFIRM_FAILED'
+        status = (429 if code in ('LEASE_REQUEST_COOLDOWN', 'REQUEST_FLOOD', 'LEASE_ACQUIRE_LIMIT') else 503 if code == 'STOP_CONFIRM_FAILED'
                   else 403 if code in ('FORBIDDEN', 'NOT_CONTROLLER') else 409)
         return {'code': code, 'message': code, 'detail': {'status': status}}
 
@@ -216,6 +241,7 @@ class Hub:
             return False
         self.owner, self.reservation = peer, None
         p = self.peers[peer]
+        # Connection UI/cancel windows reset; identity acquisition budgets stay intact.
         p.request_window = p.release_window = float('-inf')
         p.request_count = p.release_count = 0
         self._audit('PHONE_LEASE_TAKEN', user_id=p.user, device_id=p.device, lease_id=lease)
@@ -263,7 +289,10 @@ class Hub:
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
         reply = {'t': 'reply', 'id': f['id'], 'ok': True, 'error': None, 'lease_id': None, 'request_id': None}
-        if kind in ('lease.request', 'lease.cancel'):
+        if kind in ('lease.take', 'lease.request') and not self._acquisition_allowed(p):
+            reply.update(ok=False, error=self.error('LEASE_ACQUIRE_LIMIT'))
+            return reply  # Identity budget persists across grant, disconnect and hello.
+        if kind == 'lease.cancel':
             if self.now() - p.request_window >= 1:
                 p.request_window, p.request_count = self.now(), 0
             p.request_count += 1

@@ -217,6 +217,37 @@ MUTATIONS += [
 ]
 
 
+MUTATIONS += [
+    review('grant clears acquisition budget', 'hub.py',
+           'p.request_count = p.release_count = 0',
+           'p.request_count = p.release_count = 0\n        self.acquisitions.pop((p.user, p.device), None)',
+           'test_acquisition_cycles_obey_independent_identity_budget'),
+    review('take bypasses acquisition budget', 'hub.py',
+           "if kind in ('lease.take', 'lease.request') and not self._acquisition_allowed(p):",
+           "if kind == 'lease.request' and not self._acquisition_allowed(p):",
+           'test_acquisition_cycles_obey_independent_identity_budget'),
+    review('reconnect clears acquisition budget', 'hub.py',
+           "p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']",
+           "p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']\n            self.acquisitions.pop((p.user, p.device), None)",
+           'test_acquisition_budget_survives_new_ticket_and_socket'),
+    review('minute acquisition budget removed', 'hub.py', 'len(history) >= 30', 'False',
+           'test_acquisition_rolling_second_and_minute_boundaries'),
+    review('second acquisition budget removed', 'hub.py',
+           'sum(at > self.now()-1 for at in history) >= 8', 'False',
+           'test_acquisition_cycles_obey_independent_identity_budget'),
+    review('denial audit batching removed', 'hub.py',
+           'self.acquisition_denials and self.now() - self.acquisition_report_at >= 1',
+           'self.acquisition_denials', 'test_acquisition_denial_audit_is_globally_batched_per_second'),
+    review('STOP counts toward a rate window', 'hub.py',
+           "if kind == 'lease.cancel':\n            if self.now() - p.request_window >= 1:",
+           "if kind in ('lease.cancel', 'stop'):\n            if self.now() - p.request_window >= 1:",
+           'test_viewer_twenty_stop_taps_never_count_or_close'),
+    review('acquisition budget spills across devices', 'hub.py',
+           'identity = (peer.user, peer.device)', 'identity = (peer.user, None)',
+           'test_acquisition_budget_uses_exact_identity_pair'),
+]
+
+
 def main():
     if sys.platform == 'linux':
         available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
