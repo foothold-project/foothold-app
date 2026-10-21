@@ -80,6 +80,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "camera_token": {
+      "anyOf": [
+        {
+          "maxLength": 43,
+          "minLength": 43,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "10초·1회용 영상 연결 토큰; 부모 연결에 종속",
+      "title": "Camera Token"
+    },
     "id": {
       "title": "Id",
       "type": "string"
@@ -128,6 +143,7 @@
     }
   },
   "required": [
+    "camera_token",
     "t",
     "id",
     "robot",

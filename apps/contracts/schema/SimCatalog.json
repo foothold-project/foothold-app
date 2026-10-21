@@ -1,0 +1,62 @@
+{
+  "$defs": {
+    "SimWorld": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "SimWorld",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/SimCatalog",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "launcher": {
+      "enum": [
+        "fake",
+        "native-single"
+      ],
+      "title": "Launcher",
+      "type": "string"
+    },
+    "max_robots": {
+      "maximum": 2,
+      "minimum": 1,
+      "title": "Max Robots",
+      "type": "integer"
+    },
+    "slots": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Slots",
+      "type": "array"
+    },
+    "worlds": {
+      "items": {
+        "$ref": "#/$defs/SimWorld"
+      },
+      "title": "Worlds",
+      "type": "array"
+    }
+  },
+  "required": [
+    "worlds",
+    "slots",
+    "max_robots",
+    "launcher"
+  ],
+  "title": "SimCatalog",
+  "type": "object"
+}

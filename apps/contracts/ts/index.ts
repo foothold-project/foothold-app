@@ -222,6 +222,31 @@ export interface Battery {
   updated_at: string;
 }
 
+export interface CameraFrame {
+  t: "camera.frame";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  seq: number;
+  mime: "image/jpeg";
+  width: number;
+  height: number;
+  jpeg: string;
+}
+
+export interface CameraHello {
+  t: "camera.hello";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  token: string;
+}
+
+export interface CameraStatus {
+  t: "camera.status";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  state: "NO_VIDEO";
+}
+
 export interface ConfirmParams {
   prompt?: string;
 }
@@ -750,6 +775,8 @@ export interface PhoneUnlock {
 }
 
 export interface PhoneWelcome {
+  /** 10초·1회용 영상 연결 토큰; 부모 연결에 종속 */
+  camera_token: string | null;
   t: "hello";
   id: string;
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
@@ -813,6 +840,7 @@ export interface RobotPatch {
 }
 
 export interface RobotSummary {
+  simulation: boolean;
   id: string;
   name: string;
   model: string;
@@ -1050,6 +1078,51 @@ export interface SessionInfo {
 export interface SessionList {
   items: Session[];
   next_cursor: string | null;
+}
+
+export interface SimCatalog {
+  worlds: SimWorld[];
+  slots: string[];
+  max_robots: number;
+  launcher: "fake" | "native-single";
+}
+
+export interface SimProvision {
+  world_id: string;
+  robot_id: string;
+  owner_id: string;
+  org_id: string;
+  agent_token: string;
+}
+
+export interface SimRobot {
+  robot_id: string;
+  owner_id: string;
+  world_id: string;
+  simulation: true;
+  state: "STARTING" | "PREPARED" | "RUNNING" | "STOPPING" | "ERROR";
+  agent_address: string;
+  namespace: string;
+  tf_prefix: string;
+  command_topic: string;
+  launcher: "fake" | "native-single";
+}
+
+export interface SimRobotList {
+  items: SimRobot[];
+}
+
+export interface SimStartRequest {
+  world_id: string;
+  robot_id: string;
+}
+
+export interface SimWorld {
+  id: string;
+}
+
+export interface SimWorldStart {
+  world_id: string;
 }
 
 export interface SiteTree {

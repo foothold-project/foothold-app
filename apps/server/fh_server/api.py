@@ -34,13 +34,16 @@ class Settings:
     ws_origin: str | None = None
     files_root: str = '/var/lib/foothold/files'
     phone_pass_keys: str | None = None
+    simmgr_url: str | None = None
+    simmgr_auth_file: str | None = None
 
     @classmethod
     def from_env(cls):
         return cls(os.environ['FH_DATABASE_URL'], UUID(os.environ['FH_ORG_ID']),
                    ws_origin=os.environ.get('FH_WS_ORIGIN'),
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
-                   phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'))
+                   phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
+                   simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'))
 
 
 class APIError(Exception):
@@ -719,7 +722,8 @@ def create_app(settings: Settings | None = None):
         response.headers['Cache-Control'] = 'no-store'
         return C.AgentTokenResponse(agent_token=raw)
 
-    from . import events_api, notifications, maps, missions
+    from . import events_api, notifications, maps, missions, simulation
+    simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings)
     missions.install(app, DB, Identity, fail, authorize, event, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)

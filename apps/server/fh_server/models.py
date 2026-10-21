@@ -70,6 +70,7 @@ class Session(Tenant, Base):
 
 
 class Robot(Tenant, Base):
+    simulation: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     __tablename__ = 'robots'
     __table_args__ = (
         ForeignKeyConstraint(['org_id'], ['organizations.id']),

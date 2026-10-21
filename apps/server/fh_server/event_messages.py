@@ -16,6 +16,9 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'SIM_ROBOT_REQUESTED': '{person}님이 시뮬 로봇 시작을 요청했습니다.',
+    'SIM_ROBOT_REGISTERED': '{person}님이 시뮬 로봇을 등록했습니다.',
+    'SIM_ROBOT_REMOVED': '{person}님이 시뮬 로봇을 종료했습니다.',
     'PHONE_PASS_ISSUED': '{person}님의 폰 출입증을 발급했습니다.',
     'PHONE_PASS_DENIED': '폰 출입증 발급을 거절했습니다.',
     'MISSION_CREATED': '{person}님이 임무 {place} {number}판을 만들었습니다.',

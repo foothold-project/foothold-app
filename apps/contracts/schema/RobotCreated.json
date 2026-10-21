@@ -360,6 +360,11 @@
             }
           ]
         },
+        "simulation": {
+          "default": false,
+          "title": "Simulation",
+          "type": "boolean"
+        },
         "status": {
           "anyOf": [
             {
@@ -381,6 +386,7 @@
         }
       },
       "required": [
+        "simulation",
         "id",
         "name",
         "model",
