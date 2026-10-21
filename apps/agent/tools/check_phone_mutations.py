@@ -107,7 +107,7 @@ MUTATIONS += [
            'test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it'),
     ('simulation flag hardcoded', '../ros_bridge/__main__.py', 'simulation=config.phone.simulation',
      'simulation=True', 'test_phone_ros_entrypoint_uses_one_session_and_one_sink_without_starting_ros'),
-    ('jti commit deferred past approval', 'tickets.py', 'with self.db:', 'if True:',
+    ('jti commit deferred past approval', 'tickets.py', "with self.db:\n                self.db.execute('DELETE FROM used", "if True:\n                self.db.execute('DELETE FROM used",
      'test_phone_replay_journal_survives_restart_and_fails_closed'),
 ]
 
@@ -263,6 +263,18 @@ MUTATIONS += [
     review('close omits final denial flush', 'hub.py',
            'self._flush_acquisition_denials(final=True)', 'pass',
            'test_denial_batch_stays_quiet_after_flush_and_flushes_once_on_close'),
+]
+
+
+MUTATIONS += [
+    ('revocation ignores open connections', 'hub.py',
+     'if primary is not None or (p.user is not None and self.verifier.matches(',
+     'if primary is not None or (False and self.verifier.matches(',
+     'tests/test_phone_pass.py::test_cloud_revocation_stops_owner_closes_4403_and_rejects_new_hello'),
+    ('revocation forgotten after restart', 'tickets.py',
+     "self.db.execute('CREATE TABLE IF NOT EXISTS revoked (seq INTEGER PRIMARY KEY, body TEXT NOT NULL, until INTEGER NOT NULL)')",
+     "self.db.execute('CREATE TABLE IF NOT EXISTS revoked (seq INTEGER PRIMARY KEY, body TEXT NOT NULL, until INTEGER NOT NULL)'); self.db.execute('DELETE FROM revoked')",
+     'tests/test_phone_pass.py::test_revocation_persists_restart_and_ack_is_idempotent'),
 ]
 
 

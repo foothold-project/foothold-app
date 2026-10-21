@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "PhoneRevocationItem": {
+      "additionalProperties": false,
+      "properties": {
+        "device": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device"
+        },
+        "jtis": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Jtis"
+        },
+        "sub": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sub"
+        },
+        "until": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Until",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "jtis",
+        "sub",
+        "device",
+        "until"
+      ],
+      "title": "PhoneRevocationItem",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/AgentPhoneRevoke",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PhoneRevocationItem"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "title": "Items",
+      "type": "array"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "phone.revoke",
+      "default": "phone.revoke",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "seq",
+    "items"
+  ],
+  "title": "AgentPhoneRevoke",
+  "type": "object"
+}

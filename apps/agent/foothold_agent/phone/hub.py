@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import time
 from uuid import uuid4
 
-from foothold_agent.link.session import Session, MotionCommand
+from foothold_agent.link.session import Session, MotionCommand, Effects, MAX_BUFFER
 from foothold_agent.safety.core import Z, STATE_STALE
 from .protocol import PROTO, LIMITS, MAX_SEQ, frame, project_velocity
 from .tickets import TicketError
@@ -23,6 +23,7 @@ class Peer:
     user: str | None = None
     device: str | None = None
     purpose: str | None = None
+    jti: str | None = None
     deadline: float = 0
     last_ping: float = 0
     echo: dict | None = None
@@ -80,7 +81,9 @@ class Hub:
     def _audit(self, code, **data):
         self.session.retain([{'t': 'event', 'code': code, 'severity': 'info', 'robot_at': None,
                               'data': data}])
-        self._emit(self.session.tick())
+        effects = (self.session.tick() if self.session.connected else
+                   Effects((), tuple(self.session.pop_history(MAX_BUFFER - 1))))
+        self._emit(effects)
 
     def stop(self):
         if self.stop_ref >= MAX_SEQ:
@@ -283,6 +286,7 @@ class Hub:
             if sum(other.user is not None for other in self.peers.values()) >= 16:
                 self.fail(peer, 'SERVER_BUSY', 1013)
             p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']
+            p.jti = ticket['jti']
             return {'t': 'hello', 'id': f['id'], 'robot': self.robot, 'proto': PROTO,
                     'limits': deepcopy(LIMITS), 'policy': dict(self.policy), 'simulation': self.simulation,
                     'ping_interval_ms': 1000, 'link_timeout_ms': 3000, 'lease_timeout_ms': 15000}
@@ -409,22 +413,50 @@ class Hub:
                 'wall_time_ms': int(self.wall()*1000), 'sim_time_s': sim_t if self.simulation else None,
                 'sim_wall_delta_s': delta, 'simulation': self.simulation}
 
+    def revoke(self, frame):
+        primary = None
+        try:
+            self.verifier.revoke(frame)
+        except TicketError as error:
+            primary = error
+            # A failed local persistence operation cannot leave motion running.
+            try:
+                self.stop()
+            except BaseException as extra:
+                if hasattr(primary, 'add_note'):
+                    primary.add_note('revocation STOP error: ' + type(extra).__name__)
+        for peer, p in list(self.peers.items()):
+            if primary is not None or (p.user is not None and self.verifier.matches(
+                    {'user': p.user, 'device': p.device, 'jti': p.jti}, frame['items'], self.wall())):
+                try:
+                    self.disconnect(peer, reserve=False, requester_withdrawal=False)
+                except BaseException as error:
+                    if primary is None:
+                        primary = error
+                    elif hasattr(primary, 'add_note'):
+                        primary.add_note('revocation disconnect error: ' + type(error).__name__)
+                finally:
+                    self.closing[peer] = PhoneError('TICKET_REVOKED', 4403)
+        if primary is not None:
+            raise primary
+
     def close(self):
         primary = None
         try:
-            self._flush_acquisition_denials(final=True)
-        except BaseException as error:
-            primary = error
-        try:
             self._emit(self.session.shutdown())
         except BaseException as error:
-            if primary is None:
-                primary = error
-            elif hasattr(primary, 'add_note'):
-                primary.add_note('shutdown output error: ' + type(error).__name__)
+            primary = error
         finally:
             self.owner = self.reservation = self.pending = None
             self.peers.clear()
             self.closing.clear()
+        try:
+            # The final synchronous audit must never precede STOP/zero.
+            self._flush_acquisition_denials(final=True)
+        except BaseException as error:
+            if primary is None:
+                primary = error
+            elif hasattr(primary, 'add_note'):
+                primary.add_note('final phone audit error: ' + type(error).__name__)
         if primary is not None:
             raise primary

@@ -1427,3 +1427,17 @@ def test_denials_spread_within_one_second_produce_at_most_one_event(h):
     h.hub.tick()
     records = [e for e in h.events if e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT']
     assert len(records) == 1 and records[0]['data']['rejected'] == 99
+
+
+def test_final_denial_audit_follows_shutdown_zero_even_if_audit_fails(h):
+    peer, _ = h.moving()
+    h.hub.acquisition_denials = 3
+    def record(messages):
+        if any(e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT' for e in messages):
+            assert h.outputs[-1].velocity == Z
+            assert h.hub.session.core.latch and h.hub.owner is None
+            raise OSError('fake final audit failure')
+    h.hub.record = record
+    with pytest.raises(OSError, match='fake final audit failure'):
+        h.hub.close()
+    assert not h.hub.peers and h.hub.session.core.out == Z

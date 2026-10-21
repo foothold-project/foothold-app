@@ -865,3 +865,16 @@ screens.tsx:153,179,183의 가짜 소비자는 W6 후속이며 변경하지 않�
 docs/spec는 수정하지 않았고 조정 검토·결정 범위로 남긴다. 0012 downgrade는 임무·시나리오와
 모든 판을 삭제한다. 자료가 있는 환경은 DB 백업·보존 계획 없이 downgrade하지 말고
 검토한 코드 revert/후속 수정으로 복구한다. Git push는 운영 배포가 아니다.
+
+## 폰 출입증 (P1-B)
+
+로그인/CSRF `POST /api/v1/robots/{id}/phone-pass`와 인증된 에이전트 링크의
+`phone.revoke`/`phone.revoke.ack`를 제공한다. 권한·D13 발급 한도·명시 로봇 전환과
+키 회전 절차는 [API §13.7](../../docs/spec/05-API-SPEC.md#137-출입증-발급회수-fh-control)이 정본이다.
+`FH_PHONE_PASS_KEYS`로 실행 사용자 소유0600 실파일의 로봇별 active/keys 묶음을 지정한다.
+없으면 서버의 기존 기능은 유지하되 해당 로봇 발급은503이다. 키/출입증은 로그·DB에 저장하지 않는다.
+스키마 변경은 `0013_phone_pass` 마이그레이션으로 기존 방식대로 적용한다.
+
+키 생성 도구 `tools/generate_phone_keys.py --robot UUID --kid ID --server-output PATH --agent-output PATH`는
+저장소 밖의 새 두 파일만 만들며 키를 출력하지 않는다. 생성/배포는 운영 작업이며 시험/PR이 대신하지 않는다.
+실기 전 관문은 [API §13.6](../../docs/spec/05-API-SPEC.md#136-오류닫기후속-경계)에 모아 둔다.

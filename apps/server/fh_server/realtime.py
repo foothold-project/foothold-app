@@ -213,6 +213,7 @@ class PolicyBatch(dict):
 class Realtime:
     def __init__(self, settings, factory, authorize, api_error, clock=time.monotonic):
         self.settings = settings
+        self.phone_pass_factory = factory
         # Admission/HTTP reads cannot occupy any control or agent-auth slot.
         self.read_engine = create_engine(settings.database_url, pool_size=4, max_overflow=0, pool_timeout=2,
             connect_args={'options': '-c default_transaction_read_only=on -c statement_timeout=2000',
@@ -1553,6 +1554,26 @@ class Realtime:
                         await peer.socket.close(code=1013)
                 return
 
+    async def phone_revocations(self, rid, peer):
+        from .phone_pass import pending
+        peer.phone_revoke_sent = 0
+        try:
+            while self.agents.get(rid) is peer and not peer.closing:
+                frames = await self.read(pending, self.factory, self.settings.org_id, rid, peer.phone_revoke_sent)
+                for frame in frames:
+                    if self.agents.get(rid) is not peer or peer.closing:
+                        return
+                    self.put(peer, frame)
+                    peer.phone_revoke_sent = frame['seq']
+                await asyncio.sleep(.1)
+        except Exception:
+            # Durable rows remain pending for reconnect. Never ACK locally.
+            log.warning('Phone revocation delivery unavailable; reconnecting agent')
+            if self.agents.get(rid) is peer:
+                self.retire_agent(rid, peer)
+                with suppress(Exception):
+                    await peer.socket.close(code=1013)
+
     async def agent_ws(self, ws: WebSocket):
         if self.owner_connection is None or self.failed:
             await self.retry_later(ws)
@@ -1572,7 +1593,7 @@ class Realtime:
         await ws.accept()
         peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock(), auth_checked=auth_started,
                     budget_at=self.clock(), archive_budget_at=self.clock())
-        sender = watcher = None
+        sender = watcher = revoker = None
         try:
             async with asyncio.timeout(HELLO_TIMEOUT):
                 while True:
@@ -1634,6 +1655,7 @@ class Realtime:
             self.apply([Effect('audit', rid, {'op': 'AGENT_CONNECTED'})])
             sender = asyncio.create_task(self.writer(peer))
             watcher = asyncio.create_task(self.agent_watch(rid, peer))
+            revoker = asyncio.create_task(self.phone_revocations(rid, peer))
             # Compatibility alias for join/diagnostics, never a peer-owned queue.
             peer.archive = self.audit
             self.streams()
@@ -1680,6 +1702,10 @@ class Realtime:
                     if accepted and msg.devices_changed is not None:
                         self.inventory.submit(rid, [d.model_dump(mode='json') for d in msg.devices_changed],
                             None, digest(ws.headers.get('authorization', '')[7:]))
+                elif msg.t == 'phone.revoke.ack':
+                    from .phone_pass import acknowledge
+                    if msg.seq <= getattr(peer, 'phone_revoke_sent', 0):
+                        await self.read(acknowledge, self.phone_pass_factory, self.settings.org_id, rid, msg.seq)
                 elif msg.t == 'event':
                     effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'op': 'AGENT_EVENT', 'at': now()})
                     # Parsing never waits behind archival pacing. Exhaustion is
@@ -1728,11 +1754,11 @@ class Realtime:
                 self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
                 self.apply([Effect('audit', rid, {'op': 'AGENT_DISCONNECTED'})])
             peer.closing = True
-            for task in (sender, watcher):
+            for task in (sender, watcher, revoker):
                 if task:
                     task.cancel()
             with suppress(asyncio.CancelledError):
-                await asyncio.gather(*(t for t in (sender, watcher) if t), return_exceptions=True)
+                await asyncio.gather(*(t for t in (sender, watcher, revoker) if t), return_exceptions=True)
 
     def accept_state(self, rid, peer, msg):
         if self.agents.get(rid) is not peer or peer.closing:

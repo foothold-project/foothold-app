@@ -39,7 +39,7 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
             with engine.connect() as conn:
                 assert conn.scalar(text('SELECT count(*) FROM sessions')) == 1
             command.upgrade(config, 'head')
-            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'alembic_version'}
+            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'phone_passes', 'phone_revocations', 'alembic_version'}
             assert set(inspect(engine).get_table_names()) == expected
             command.downgrade(config, 'base')
             assert set(inspect(engine).get_table_names()) == {'alembic_version'}
@@ -71,7 +71,7 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with pytest.raises(IntegrityError):
                 command.downgrade(config, '0006')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0012'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0013'
                 assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
                 assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
                 assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0

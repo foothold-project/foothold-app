@@ -23,7 +23,7 @@ from .security import digest, hash_password, token, verify_password, web_csrf
 from .robots import attention, device_error, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 from .event_messages import render
-from . import approvals
+from . import approvals, phone_pass
 
 
 @dataclass(frozen=True)
@@ -33,12 +33,14 @@ class Settings:
     web_session_seconds: int = 86400
     ws_origin: str | None = None
     files_root: str = '/var/lib/foothold/files'
+    phone_pass_keys: str | None = None
 
     @classmethod
     def from_env(cls):
         return cls(os.environ['FH_DATABASE_URL'], UUID(os.environ['FH_ORG_ID']),
                    ws_origin=os.environ.get('FH_WS_ORIGIN'),
-                   files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'))
+                   files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
+                   phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'))
 
 
 class APIError(Exception):
@@ -117,6 +119,7 @@ def page(db, query, model, limit, cursor, serialize, serialize_many=None):
 
 
 def revoke_user_sessions(db, user):
+    phone_pass.revoke(db, user.org_id, user_id=user.id)
     db.execute(update(Session).where(Session.org_id == user.org_id, Session.user_id == user.id,
                                     Session.revoked_at.is_(None)).values(revoked_at=now()))
 
@@ -142,6 +145,7 @@ def protect_last_admin(db, user, values=None, *, archive=False):
 
 def create_app(settings: Settings | None = None):
     settings = settings or Settings.from_env()
+    issuer = phone_pass.Issuer(phone_pass.load_keys(settings.phone_pass_keys), fail)
     engine = create_engine(settings.database_url, pool_pre_ping=True)
     if engine.dialect.name != 'postgresql':
         raise ValueError('PostgreSQL is required')
@@ -392,6 +396,7 @@ def create_app(settings: Settings | None = None):
     def logout(response: Response, auth: Identity, db: DB):
         user, session = auth
         session.revoked_at = now()
+        phone_pass.revoke(db, user.org_id, user_id=user.id)
         event(db, user.org_id, 'LOGOUT', user.id)
         response.delete_cookie('fh_s', path='/api/v1', httponly=True, secure=True, samesite='strict')
 
@@ -482,6 +487,8 @@ def create_app(settings: Settings | None = None):
             setattr(user, key, value)
         if values.get('locked'):
             revoke_user_sessions(db, user)
+        elif 'role' in values:
+            phone_pass.revoke(db, user.org_id, user_id=user.id)
         event(db, actor.org_id, 'USER_UPDATED', actor.id,
               {'user_id': str(user.id), **values})
         return user_object(db, user)
@@ -513,6 +520,7 @@ def create_app(settings: Settings | None = None):
         if not session:
             fail(404, 'NOT_FOUND', '기기를 찾을 수 없습니다.')
         if session.revoked_at is None:
+            phone_pass.revoke(db, actor.org_id, user_id=user_id)
             session.revoked_at = now()
             event(db, actor.org_id, 'SESSION_REVOKED', actor.id,
                   {'session_id': str(session_id)})
@@ -545,6 +553,20 @@ def create_app(settings: Settings | None = None):
         if row is None:
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
         return row
+
+    @app.post(prefix + '/robots/{robot_id}/phone-pass', response_model=C.PhonePassResponse)
+    def issue_phone_pass(robot_id: UUID, body: C.PhonePassRequest, response: Response, auth: Identity, db: DB):
+        user = auth[0]
+        try:
+            row = find_robot(db, user, robot_id)
+            # Full live viewing has the same scope as existing ROBOT_READ.
+            # Check it first so inaccessible robot existence stays hidden.
+            authorize(user, 'ROBOT_READ', row)
+            authorize(user, 'O_OWN' if body.purpose == 'control' else 'ROBOT_READ', row)
+        except APIError:
+            issuer.deny(db, user, 404, 'NOT_FOUND')
+        response.headers['Cache-Control'] = 'no-store'
+        return issuer.issue(db, user, row, body)
 
     def check_owner(db, user, owner_id):
         if owner_id is not None and db.scalar(select(User.id).where(User.id == owner_id,
@@ -588,6 +610,8 @@ def create_app(settings: Settings | None = None):
                 if 'owner_user_id' in values:
                     check_owner(db, user, values['owner_user_id'])
                 old_owner = row.owner_user_id
+                if changing_owner and old_owner is not None:
+                    phone_pass.revoke(db, user.org_id, user_id=old_owner, robot_id=row.id)
                 for key, value in values.items():
                     setattr(row, key, value)
                 robot_event(db, user, row, 'ROBOT_UPDATED', {'name': row.name, 'old_owner_user_id': str(old_owner) if old_owner else None,
@@ -610,6 +634,7 @@ def create_app(settings: Settings | None = None):
         rt.begin_robot_change(rid)
         try:
             row = await asyncio.to_thread(find_robot, db, user, robot_id)
+            await asyncio.to_thread(phone_pass.revoke, db, user.org_id, robot_id=row.id)
             record = rt.arbiter.robots.get(rid)
             run = rt.runs.get(rid)
             active_run = run and run.get('status') not in ('COMPLETED', 'FAILED', 'ABORTED')
