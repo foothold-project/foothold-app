@@ -67,6 +67,9 @@ def audit(db, user, code, **data):
 
 
 MAX_REVOCATIONS = 4096
+MAX_REVOCATION_BYTES = 1024 * 1024
+MAX_REVOCATION_FRAME = 4096
+ROBOT_CLOCK_GRACE = 60
 
 
 def pack(rows):
@@ -90,7 +93,7 @@ def pack(rows):
 
 def revoke(db, org_id, *, user_id=None, robot_id=None, device=None, purpose=None, clock=time.time):
     """Same organization-locked transaction as policy; never cap a safety reduction."""
-    query = select(PhonePass).where(PhonePass.org_id == org_id, PhonePass.exp > int(clock()))
+    query = select(PhonePass).where(PhonePass.org_id == org_id, PhonePass.exp > int(clock()) - ROBOT_CLOCK_GRACE)
     for field, value in (('user_id', user_id), ('robot_id', robot_id), ('device', device), ('purpose', purpose)):
         if value is not None:
             query = query.where(getattr(PhonePass, field) == value)
@@ -107,14 +110,23 @@ def revoke(db, org_id, *, user_id=None, robot_id=None, device=None, purpose=None
     db.flush()
 
 
+def reserved_usage(db, org_id, robot_id, current):
+    """Reserve retained agent rows, including ACKed batches, plus future worst cases."""
+    cutoff = current - ROBOT_CLOCK_GRACE
+    batches = list(db.scalars(select(PhoneRevocationBatch).where(
+        PhoneRevocationBatch.org_id == org_id, PhoneRevocationBatch.robot_id == robot_id,
+        PhoneRevocationBatch.until > cutoff)))
+    revoked = select(PhoneRevocation.jti).where(PhoneRevocation.org_id == org_id)
+    active = db.scalar(select(func.count()).select_from(PhonePass).where(
+        PhonePass.org_id == org_id, PhonePass.robot_id == robot_id,
+        PhonePass.exp > cutoff, PhonePass.jti.not_in(revoked)))
+    batch_bytes = sum(len(json.dumps(dict(t='phone.revoke',seq=b.id,items=b.items),
+        sort_keys=True,separators=(',',':')).encode()) for b in batches)
+    return len(batches) + active, batch_bytes + active * MAX_REVOCATION_FRAME
+
+
 def reserved_count(db, org_id, robot_id, current):
-    confirmed = select(PhoneRevocation.jti).where(PhoneRevocation.org_id == org_id,
-                                                 PhoneRevocation.acked_at.is_not(None))
-    active = select(PhonePass.jti).where(PhonePass.org_id == org_id,PhonePass.robot_id == robot_id,
-                                        PhonePass.exp > current,PhonePass.jti.not_in(confirmed))
-    outstanding = select(PhoneRevocation.jti).where(PhoneRevocation.org_id == org_id,
-        PhoneRevocation.robot_id == robot_id,PhoneRevocation.until > current,PhoneRevocation.acked_at.is_(None))
-    return db.scalar(select(func.count()).select_from(active.union(outstanding).subquery()))
+    return reserved_usage(db,org_id,robot_id,current)[0]
 
 
 class Issuer:
@@ -125,10 +137,12 @@ class Issuer:
         current = self.clock()
         row = db.scalar(select(PhonePassDenials).where(PhonePassDenials.org_id == user.org_id).with_for_update())
         if row is None:
-            row = PhonePassDenials(org_id=user.org_id,count=0,reported_at=current,reasons={})
+            row = PhonePassDenials(org_id=user.org_id,count=0,reported_at=current,reasons={},users={})
             db.add(row)
         row.count += 1
         row.reasons = {**row.reasons,code:row.reasons.get(code,0)+1}
+        identity = str(user.id)
+        row.users = {**row.users,identity:row.users.get(identity,0)+1}
         self._flush_denials(db,row,current)
         db.commit()  # denial must survive the HTTP error rollback
         self.fail(status, code, '폰 출입증을 발급하지 못했습니다.',
@@ -137,9 +151,12 @@ class Issuer:
     @staticmethod
     def _flush_denials(db, row, current):
         if row.count and current - row.reported_at >= 1:
+            top = sorted(row.users.items(),key=lambda item:(-item[1],item[0]))[:8]
             db.add(render(db, Event(org_id=row.org_id,category='ACCOUNT',code='PHONE_PASS_DENIED',
-                severity='INFO',data={'count':row.count,'reasons':row.reasons})))
-            row.count, row.reasons, row.reported_at = 0, {}, current
+                severity='INFO',data={'count':row.count,'reasons':row.reasons,
+                    'users':[{'user_id':user,'count':count} for user,count in top],
+                    'other_count':row.count-sum(count for _,count in top)})))
+            row.count, row.reasons, row.users, row.reported_at = 0, {}, {}, current
 
     def flush_denials(self, factory, org_id):
         with factory.begin() as db:
@@ -150,10 +167,11 @@ class Issuer:
 
     def issue(self, db, user, robot, body):
         current = int(self.clock())
-        db.execute(delete(PhonePass).where(PhonePass.org_id == user.org_id, PhonePass.exp <= current))
-        db.execute(delete(PhoneRevocation).where(PhoneRevocation.org_id == user.org_id, PhoneRevocation.until <= current))
-        db.execute(delete(PhoneRevocationBatch).where(PhoneRevocationBatch.org_id == user.org_id, PhoneRevocationBatch.until <= current))
-        if reserved_count(db,user.org_id,robot.id,current) >= MAX_REVOCATIONS:
+        db.execute(delete(PhonePass).where(PhonePass.org_id == user.org_id, PhonePass.exp <= current - ROBOT_CLOCK_GRACE))
+        db.execute(delete(PhoneRevocation).where(PhoneRevocation.org_id == user.org_id, PhoneRevocation.until <= current - ROBOT_CLOCK_GRACE))
+        db.execute(delete(PhoneRevocationBatch).where(PhoneRevocationBatch.org_id == user.org_id, PhoneRevocationBatch.until <= current - ROBOT_CLOCK_GRACE))
+        reserved_rows, reserved_bytes = reserved_usage(db,user.org_id,robot.id,current)
+        if reserved_rows + 1 > MAX_REVOCATIONS or reserved_bytes + MAX_REVOCATION_FRAME > MAX_REVOCATION_BYTES:
             self.deny(db,user,503,'PASS_REVOCATION_CAPACITY',600)
         entry = self.keys.get(str(robot.id))
         if entry is None:
@@ -199,7 +217,7 @@ class Issuer:
 def pending(factory, org_id, robot_id, after, clock=time.time):
     with factory() as db:
         rows = db.scalars(select(PhoneRevocationBatch).where(PhoneRevocationBatch.org_id == org_id,
-            PhoneRevocationBatch.robot_id == UUID(robot_id), PhoneRevocationBatch.until > int(clock()),
+            PhoneRevocationBatch.robot_id == UUID(robot_id), PhoneRevocationBatch.until > int(clock()) - ROBOT_CLOCK_GRACE,
             PhoneRevocationBatch.id > after).order_by(PhoneRevocationBatch.id).limit(4))
         return [dict(t='phone.revoke',seq=r.id,items=r.items) for r in rows]
 

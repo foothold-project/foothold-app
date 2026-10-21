@@ -45,6 +45,7 @@ MAX_FRAME = 4096
 DB_RETRY_GRACE = 5.0
 HELLO_TIMEOUT = 3.0
 DB_READ_TIMEOUT = 2.0
+PHONE_ACK_STORAGE_TIMEOUT = 5.0
 TRANSIENT_DB = (DBAPIError, OSError, asyncio.TimeoutError, PoolTimeout)
 SAFETY_CODES = {'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT', 'EXECUTOR_STALLED',
                 'PROTOCOL_MISMATCH', 'TRANSPORT_BACKPRESSURE', 'STOP_GEN_EXHAUSTED',
@@ -172,6 +173,7 @@ class Peer:
     subscription_task: object = None
     phone_ack_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(128))
     phone_ack_pending: set = field(default_factory=set)
+    phone_revoke_retry: int | None = None
 
 
 @dataclass(frozen=True)
@@ -217,6 +219,7 @@ class Realtime:
         self.settings = settings
         self.phone_pass_factory = factory
         self.phone_pass_clock = time.time
+        self.phone_ack_stores = {}
         # Admission/HTTP reads cannot occupy any control or agent-auth slot.
         self.read_engine = create_engine(settings.database_url, pool_size=4, max_overflow=0, pool_timeout=2,
             connect_args={'options': '-c default_transaction_read_only=on -c statement_timeout=2000',
@@ -1562,6 +1565,10 @@ class Realtime:
         peer.phone_revoke_sent = 0
         try:
             while self.agents.get(rid) is peer and not peer.closing:
+                retry = getattr(peer,'phone_revoke_retry',None)
+                if retry is not None:
+                    peer.phone_revoke_sent = min(peer.phone_revoke_sent,retry)
+                    peer.phone_revoke_retry = None
                 frames = await self.read(pending, self.factory, self.settings.org_id, rid, peer.phone_revoke_sent, self.phone_pass_clock)
                 for frame in frames:
                     if self.agents.get(rid) is not peer or peer.closing:
@@ -1578,26 +1585,52 @@ class Realtime:
                     await peer.socket.close(code=1013,reason='REVOCATION_DELIVERY_UNAVAILABLE')
 
     def queue_phone_ack(self, rid, peer, seq):
+        if self.agents.get(rid) is not peer or peer.closing:
+            return
         if seq <= getattr(peer, 'phone_revoke_sent', 0):
             if seq not in peer.phone_ack_pending:
                 try:
                     peer.phone_ack_queue.put_nowait(seq)
                     peer.phone_ack_pending.add(seq)
                 except asyncio.QueueFull:
-                    pass  # no false ACK; reconnect replays still-unconfirmed rows
+                    retry = seq - 1
+                    previous = getattr(peer,'phone_revoke_retry',None)
+                    peer.phone_revoke_retry = retry if previous is None else min(previous,retry)
+                    peer.phone_revoke_sent = min(peer.phone_revoke_sent,retry)
+
+    async def store_phone_ack(self, rid, seq):
+        from .phone_pass import acknowledge
+        # A timed-out to_thread can still commit. Keep its robot slot occupied
+        # across reconnects; neither completion nor callbacks touch peer state.
+        stores = self.__dict__.setdefault('phone_ack_stores', {})
+        while (prior := stores.get(rid)) is not None:
+            await asyncio.shield(prior)
+            if stores.get(rid) is prior:
+                del stores[rid]
+        task = asyncio.create_task(asyncio.to_thread(
+            acknowledge,self.phone_pass_factory,self.settings.org_id,rid,seq))
+        stores[rid] = task
+        def finished(done):
+            if stores.get(rid) is done:
+                del stores[rid]
+            if not done.cancelled():
+                done.exception()  # observe failure even after the writer left
+        task.add_done_callback(finished)
+        await asyncio.shield(task)
 
     async def phone_ack_writer(self, rid, peer):
-        from .phone_pass import acknowledge
         while True:
             seq = await peer.phone_ack_queue.get()
             try:
-                await asyncio.to_thread(acknowledge,self.phone_pass_factory,self.settings.org_id,rid,seq)
-            except Exception:
+                await asyncio.wait_for(self.store_phone_ack(rid,seq),PHONE_ACK_STORAGE_TIMEOUT)
+            except Exception as exc:
                 log.warning('Phone revocation ACK storage unavailable; reconnecting agent')
                 if self.agents.get(rid) is peer:
                     self.retire_agent(rid,peer)
                     with suppress(Exception):
-                        await peer.socket.close(code=1013,reason='REVOCATION_ACK_STORAGE_UNAVAILABLE')
+                        reason = ('REVOCATION_ACK_STORAGE_TIMEOUT' if isinstance(
+                            exc,asyncio.TimeoutError) else 'REVOCATION_ACK_STORAGE_UNAVAILABLE')
+                        await peer.socket.close(code=1013,reason=reason)
                 return
             finally:
                 peer.phone_ack_pending.discard(seq)

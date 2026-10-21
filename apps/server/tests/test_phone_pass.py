@@ -334,7 +334,7 @@ def test_issue_budgets_expire_and_expired_metadata_is_cleaned(pc,seeded,monkeypa
         assert mint()
         current[0]+=600
         assert mint()
-        assert len(rows(seeded,PhonePass))==1
+        assert len(rows(seeded,PhonePass))==2  # expiry+60s retention; authority already expired
     finally: engine.dispose()
 
 
@@ -363,11 +363,11 @@ def test_delete_and_logout_revoke_all_issued_metadata(pc,seeded,action):
     finally: engine.dispose()
 
 
-def issue_metadata(db,seeded,*,robot='mine',count=1,device=None,start=None):
+def issue_metadata(db,seeded,*,robot='mine',count=1,device=None,start=None,user='admin'):
     current=int(time.time()) if start is None else start
     created=[]
     for index in range(count):
-        row=PhonePass(org_id=seeded['org'],user_id=seeded['users']['admin'],device=device or uuid4(),
+        row=PhonePass(org_id=seeded['org'],user_id=seeded['users'][user],device=device or uuid4(),
                       robot_id=seeded['robots'][robot],purpose='control',jti=uuid4(),iat=current,exp=current+600)
         db.add(row);created.append(row)
     db.flush()
@@ -517,6 +517,8 @@ def test_revocation_and_pending_use_injected_issuer_utc(pc,seeded):
     rid=str(seeded['robots']['mine'])
     assert pending(factory,seeded['org'],rid,0,lambda:current[0])
     current[0]+=600
+    assert pending(factory,seeded['org'],rid,0,lambda:current[0])
+    current[0]+=60
     assert not pending(factory,seeded['org'],rid,0,lambda:current[0])
     engine.dispose()
 
@@ -528,3 +530,355 @@ def test_batch_packing_limits_distinct_expiry_items():
     batches=list(pack(records))
     assert len(batches)==3 and sum(len(members) for _,members in batches)==33
     assert all(1<=len(items)<=16 for items,_ in batches)
+
+
+def ack_harness():
+    """Real ACK queue/writer with a socket recording transport decisions."""
+    from types import SimpleNamespace
+    from apps.server.fh_server.realtime import Realtime
+    class Socket:
+        def __init__(self): self.closed=[]
+        async def close(self,code,reason=''): self.closed.append((code,reason))
+    def peer():
+        return SimpleNamespace(phone_revoke_sent=1000,phone_revoke_retry=None,
+            phone_ack_queue=asyncio.Queue(128),phone_ack_pending=set(),closing=False,socket=Socket())
+    rt=Realtime.__new__(Realtime)
+    rt.settings=SimpleNamespace(org_id='test');rt.phone_pass_factory=None;rt.phone_ack_stores={}
+    rt.agents={'r':peer()}
+    rt.retire_agent=lambda rid,p:setattr(p,'closing',True)
+    return rt,peer
+
+
+def test_full_ack_queue_retries_lowest_unconfirmed_and_deduplicates(monkeypatch):
+    from apps.server.fh_server import phone_pass
+    saved=[]
+    monkeypatch.setattr(phone_pass,'acknowledge',lambda *args:saved.append(args[-1]))
+    async def run():
+        rt,_=ack_harness();peer=rt.agents['r']
+        peer.phone_revoke_sent=130
+        for seq in range(1,131):rt.queue_phone_ack('r',peer,seq)
+        assert peer.phone_ack_queue.qsize()==128
+        assert peer.phone_revoke_sent==128 and peer.phone_revoke_retry==128
+        for _ in range(20):rt.queue_phone_ack('r',peer,1)
+        assert peer.phone_ack_queue.qsize()==128
+        writer=asyncio.create_task(rt.phone_ack_writer('r',peer))
+        try:
+            await asyncio.wait_for(peer.phone_ack_queue.join(),2)
+            # Next pending read starts before the lowest unconfirmed seq.
+            peer.phone_revoke_sent=130
+            for seq in (129,130):rt.queue_phone_ack('r',peer,seq)
+            await asyncio.wait_for(peer.phone_ack_queue.join(),2)
+            assert saved==list(range(1,131)) and not peer.closing
+        finally:writer.cancel();await asyncio.gather(writer,return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_ack_deduplicates_while_saving_and_ignores_old_peer(monkeypatch):
+    import threading
+    from apps.server.fh_server import phone_pass
+    entered,release=threading.Event(),threading.Event();saved=[]
+    def save(*args):
+        saved.append(args[-1]);entered.set();release.wait(3)
+    monkeypatch.setattr(phone_pass,'acknowledge',save)
+    async def run():
+        rt,new_peer=ack_harness();peer=rt.agents['r']
+        rt.queue_phone_ack('r',peer,1)
+        writer=asyncio.create_task(rt.phone_ack_writer('r',peer))
+        try:
+            assert await asyncio.to_thread(entered.wait,1)
+            for _ in range(20):rt.queue_phone_ack('r',peer,1)
+            assert peer.phone_ack_queue.empty() and peer.phone_ack_pending=={1}
+            rt.agents['r']=new_peer()
+            rt.queue_phone_ack('r',peer,2)
+            assert peer.phone_ack_queue.empty()
+            release.set();await asyncio.wait_for(peer.phone_ack_queue.join(),2)
+            assert saved==[1]
+        finally:release.set();writer.cancel();await asyncio.gather(writer,return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_ack_storage_error_closes_1013_without_confirmation(monkeypatch):
+    from apps.server.fh_server import phone_pass
+    def broken(*args):raise OSError('synthetic storage failure')
+    monkeypatch.setattr(phone_pass,'acknowledge',broken)
+    async def run():
+        rt,_=ack_harness();peer=rt.agents['r'];rt.queue_phone_ack('r',peer,1)
+        await asyncio.wait_for(rt.phone_ack_writer('r',peer),1)
+        assert peer.closing and peer.socket.closed==[(1013,'REVOCATION_ACK_STORAGE_UNAVAILABLE')]
+    asyncio.run(run())
+
+
+def test_ack_timeout_late_commit_and_reconnect_are_bounded_and_idempotent(pc,seeded,monkeypatch):
+    import threading
+    from apps.server.fh_server import phone_pass,realtime
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    device=uuid4()
+    assert issue(pc,seeded,device=device).status_code==200
+    assert issue(pc,seeded,device=device).status_code==200
+    assert issue(pc,seeded,robot='theirs',device=device,switch=True).status_code==409
+    batch=rows(seeded,PhoneRevocationBatch)[0].id
+    entered,release=threading.Event(),threading.Event();calls=[]
+    original=phone_pass.acknowledge
+    def blocked(*args):
+        calls.append(args[-1]);entered.set();assert release.wait(4);original(*args)
+    monkeypatch.setattr(phone_pass,'acknowledge',blocked)
+    monkeypatch.setattr(realtime,'PHONE_ACK_STORAGE_TIMEOUT',.15)
+    async def run():
+        rt,new_peer=ack_harness();old=rt.agents['r']
+        rt.settings.org_id=seeded['org'];rt.phone_pass_factory=factory
+        rid=str(seeded['robots']['mine']);rt.agents={rid:old}
+        rt.queue_phone_ack(rid,old,batch)
+        first=asyncio.create_task(rt.phone_ack_writer(rid,old))
+        await asyncio.wait_for(first,1)
+        assert old.socket.closed==[(1013,'REVOCATION_ACK_STORAGE_TIMEOUT')]
+        assert entered.is_set() and len(calls)==1 and len(rt.phone_ack_stores)==1
+        assert all(r.acked_at is None for r in rows(seeded,PhoneRevocation))
+        assert issue(pc,seeded,robot='theirs',device=device).status_code==409
+        snapshot=(old.phone_revoke_sent,set(old.phone_ack_pending),old.phone_ack_queue.qsize(),list(old.socket.closed))
+        new=new_peer();rt.agents[rid]=new
+        rt.queue_phone_ack(rid,new,batch)
+        second=asyncio.create_task(rt.phone_ack_writer(rid,new))
+        await asyncio.sleep(.04)
+        assert len(calls)==1  # no second thread while the old robot slot is occupied
+        release.set();await asyncio.wait_for(new.phone_ack_queue.join(),2)
+        second.cancel();await asyncio.gather(second,return_exceptions=True)
+        stamps={r.acked_at for r in rows(seeded,PhoneRevocation)}
+        assert len(stamps)==1 and None not in stamps and len(calls)==2
+        assert snapshot==(old.phone_revoke_sent,set(old.phone_ack_pending),old.phone_ack_queue.qsize(),list(old.socket.closed))
+        # Both the new connection and a late duplicate preserve the first commit.
+        original(factory,seeded['org'],rid,batch)
+        assert {r.acked_at for r in rows(seeded,PhoneRevocation)}==stamps
+        assert issue(pc,seeded,robot='theirs',device=device).status_code==200
+    try:asyncio.run(run())
+    finally:release.set();engine.dispose()
+
+
+def retained_batches(db,seeded,count,*,until=None):
+    """Legacy one-JTI ACKed history, still occupying the agent's journal."""
+    from apps.server.fh_server.models import now
+    expiry=int(time.time())+600 if until is None else until
+    for _ in range(count):
+        jti=uuid4()
+        batch=PhoneRevocationBatch(org_id=seeded['org'],robot_id=seeded['robots']['mine'],
+            items=[dict(jtis=[str(jti)],until=expiry)],until=expiry)
+        db.add(batch);db.flush()
+        db.add(PhoneRevocation(org_id=seeded['org'],robot_id=seeded['robots']['mine'],
+            jti=jti,until=expiry,batch_id=batch.id,acked_at=now()))
+    db.flush()
+
+
+def test_acked_batches_still_reserve_agent_rows(pc,seeded):
+    from apps.server.fh_server.phone_pass import reserved_usage
+    engine=create_engine(seeded['urls']['app'])
+    try:
+        with DBSession(engine) as db:
+            retained_batches(db,seeded,4097);db.commit()
+            count,size=reserved_usage(db,seeded['org'],seeded['robots']['mine'],int(time.time()))
+            assert count==4097 and 0<size<1024*1024
+        result=issue(pc,seeded)
+        assert result.status_code==503 and result.json()['error']['code']=='PASS_REVOCATION_CAPACITY'
+        assert pc.post('/api/v1/auth/logout',headers=pc.pass_headers).status_code==204
+    finally:engine.dispose()
+
+
+def test_revocation_byte_reservation_is_independent_of_rows(pc,seeded):
+    from apps.server.fh_server.phone_pass import reserved_usage
+    engine=create_engine(seeded['urls']['app'])
+    try:
+        with DBSession(engine) as db:
+            issue_metadata(db,seeded,count=255,user='one');db.commit()
+            assert reserved_usage(db,seeded['org'],seeded['robots']['mine'],int(time.time()))==(255,255*4096)
+        assert issue(pc,seeded,purpose='view').status_code==200
+        result=issue(pc,seeded,purpose='view')
+        assert result.status_code==503 and result.json()['error']['code']=='PASS_REVOCATION_CAPACITY'
+        assert pc.post('/api/v1/auth/logout',headers=pc.pass_headers).status_code==204
+    finally:engine.dispose()
+
+
+@pytest.mark.parametrize('delta,kept',[(0,True),(59,True),(60,False),(61,False)])
+def test_reservation_expiry_includes_robot_clock_grace(pc,seeded,delta,kept):
+    from apps.server.fh_server.phone_pass import reserved_usage
+    expiry=1800000000
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    try:
+        with factory.begin() as db:
+            retained_batches(db,seeded,1,until=expiry)
+            issue_metadata(db,seeded,start=expiry-600)
+        current=expiry+delta
+        with DBSession(engine) as db:
+            count,size=reserved_usage(db,seeded['org'],seeded['robots']['mine'],current)
+            batch=db.scalar(select(PhoneRevocationBatch))
+            exact=len(json.dumps(dict(t='phone.revoke',seq=batch.id,items=batch.items),sort_keys=True,separators=(',',':')).encode())
+            assert (count,size)==((2,4096+exact) if kept else (0,0))
+        assert bool(pending(factory,seeded['org'],str(seeded['robots']['mine']),0,lambda:current))==kept
+        with factory.begin() as db:
+            revoke(db,seeded['org'],robot_id=seeded['robots']['mine'],clock=lambda:current)
+        assert len(rows(seeded,PhoneRevocation))==(2 if kept else 1)
+    finally:engine.dispose()
+
+
+def test_last_retained_row_slot_is_serialized(pc,seeded):
+    import threading
+    from apps.server.fh_server.api import fail,lock_organization,APIError
+    from apps.server.fh_server.phone_pass import Issuer
+    from apps.contracts.models import PhonePassRequest
+    engine=create_engine(seeded['urls']['app']);barrier=threading.Barrier(2);results=[]
+    try:
+        with DBSession(engine) as db:retained_batches(db,seeded,4095);db.commit()
+        def mint():
+            with DBSession(engine) as db:
+                barrier.wait()
+                lock_organization(db,seeded['org'])
+                try:
+                    Issuer(pc.keys,fail).issue(db,db.get(User,seeded['users']['admin']),db.get(Robot,seeded['robots']['mine']),
+                        PhonePassRequest(device=uuid4(),purpose='control'))
+                    db.commit();results.append(200)
+                except APIError as error:results.append(error.status)
+        threads=[threading.Thread(target=mint) for _ in range(2)]
+        for thread in threads:thread.start()
+        for thread in threads:thread.join(10)
+        assert all(not t.is_alive() for t in threads) and sorted(results)==[200,503]
+    finally:engine.dispose()
+
+
+def test_pending_does_not_repeat_sent_sequence_and_switch_preserves_view(pc,seeded):
+    device=uuid4()
+    assert issue(pc,seeded,device=device,purpose='control').status_code==200
+    assert issue(pc,seeded,device=device,purpose='view').status_code==200
+    assert issue(pc,seeded,robot='theirs',device=device,switch=True).status_code==409
+    records=rows(seeded,PhonePass)
+    view=next(p for p in records if p.purpose=='view')
+    assert view.jti not in {r.jti for r in rows(seeded,PhoneRevocation)}
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    try:
+        rid=str(seeded['robots']['mine']);frames=pending(factory,seeded['org'],rid,0)
+        assert len(frames)==1
+        assert not pending(factory,seeded['org'],rid,frames[-1]['seq'])
+    finally:engine.dispose()
+
+
+def test_denial_audit_keeps_top_eight_users_and_quiet_background_flush(pc,seeded):
+    from apps.server.fh_server.api import APIError
+    issuer=pc.app.state.phone_pass_issuer
+    clock=[time.time()];issuer.clock=lambda:clock[0]
+    engine=create_engine(seeded['urls']['app'])
+    try:
+        with DBSession(engine) as db:
+            identities=[]
+            for n in range(10):
+                user=User(org_id=seeded['org'],username='synthetic-denial-'+str(n),display_name='synthetic',
+                    password_hash='unused',role='OPERATOR')
+                db.add(user);db.flush();identities.append(user.id)
+            db.commit()
+            for count,identity in enumerate(identities,1):
+                for _ in range(count):
+                    with pytest.raises(APIError):issuer.deny(db,db.get(User,identity),429,'PASS_RATE_LIMIT')
+        assert not [e for e in rows(seeded,Event) if e.code=='PHONE_PASS_DENIED']
+        clock[0]+=1.01
+        deadline=time.monotonic()+2.5
+        events=[]
+        while time.monotonic()<deadline:
+            events=[e for e in rows(seeded,Event) if e.code=='PHONE_PASS_DENIED']
+            if events:break
+            time.sleep(.02)
+        assert len(events)==1 and events[0].data['count']==55
+        assert events[0].data['users']==[{'user_id':str(identities[i]),'count':i+1} for i in range(9,1,-1)]
+        assert events[0].data['other_count']==3
+        time.sleep(1.05)
+        assert len([e for e in rows(seeded,Event) if e.code=='PHONE_PASS_DENIED'])==1
+    finally:engine.dispose()
+
+
+def test_real_ws_full_ack_queue_replays_and_switch_opens_only_after_atomic_commit(pc,seeded,monkeypatch):
+    import threading
+    from apps.server.fh_server import phone_pass,realtime
+    from apps.server.fh_server.security import digest
+    from .test_realtime import state
+    device=uuid4()
+    assert issue(pc,seeded,device=device).status_code==200
+    assert issue(pc,seeded,device=device).status_code==200
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    with factory.begin() as db:
+        db.get(Robot,seeded['robots']['mine']).agent_token_hash=digest('synthetic-overflow-agent')
+        for _ in range(129):
+            issue_metadata(db,seeded,user='one')
+            revoke(db,seeded['org'],user_id=seeded['users']['one'])
+    assert issue(pc,seeded,robot='theirs',device=device,switch=True).status_code==409
+    frames=rows(seeded,PhoneRevocationBatch);last=max(b.id for b in frames)
+    assert len(frames)==130
+    entered,release=threading.Event(),threading.Event()
+    original=phone_pass.acknowledge
+    def blocked(*args):
+        entered.set();assert release.wait(12);original(*args)
+    monkeypatch.setattr(phone_pass,'acknowledge',blocked)
+    monkeypatch.setattr(realtime,'PHONE_ACK_STORAGE_TIMEOUT',15)
+    rid=str(seeded['robots']['mine'])
+    try:
+        with pc.websocket_connect('/api/v1/agent/ws',headers={'authorization':'Bearer synthetic-overflow-agent'}) as ws:
+            ws.send_json(agent_hello())
+            seen=[]
+            for _ in range(130):
+                frame=receive(ws,'phone.revoke');seen.append(frame['seq'])
+                ws.send_json({'t':'phone.revoke.ack','seq':frame['seq']});ws.send_json(state())
+            assert entered.is_set() and len(set(seen))==130
+            # A full ACK queue must recover on this same connection, without a new hello.
+            repeated=receive(ws,'phone.revoke',timeout=2)
+            assert repeated['seq']==last
+            ws.send_json({'t':'phone.revoke.ack','seq':last});ws.send_json(state())
+            assert issue(pc,seeded,robot='theirs',device=device).status_code==409
+            assert all(r.acked_at is None for r in rows(seeded,PhoneRevocation))
+            release.set()
+            peer=pc.app.state.realtime.agents[rid]
+            pc.portal.call(asyncio.wait_for,peer.phone_ack_queue.join(),2)
+            # The agent ACKs every replay; the ACK sent while full also needed replay.
+            replay=receive(ws,'phone.revoke',timeout=2)
+            assert replay['seq']==last
+            ws.send_json({'t':'phone.revoke.ack','seq':last});ws.send_json(state())
+            deadline=time.monotonic()+3
+            confirmed=[]
+            while time.monotonic()<deadline:
+                confirmed=[r for r in rows(seeded,PhoneRevocation) if r.batch_id==last]
+                assert len({r.acked_at is None for r in confirmed})==1
+                if confirmed and confirmed[0].acked_at is not None:break
+                ws.send_json(state());time.sleep(.02)
+            assert len(confirmed)==2 and len({r.acked_at for r in confirmed})==1 and confirmed[0].acked_at is not None
+            assert issue(pc,seeded,robot='theirs',device=device).status_code==200
+            peer=pc.app.state.realtime.agents[rid]
+            assert not peer.closing
+            ws.send_json({'t':'phone.revoke.ack','seq':last});ws.send_json(state())
+            pc.portal.call(asyncio.sleep,.05)
+            pc.portal.call(asyncio.wait_for,peer.phone_ack_queue.join(),2)
+            assert {r.acked_at for r in rows(seeded,PhoneRevocation) if r.batch_id==last}=={confirmed[0].acked_at}
+    finally:release.set();engine.dispose()
+
+
+def test_real_ws_ack_storage_failure_closes_with_exact_reason_and_replays(pc,seeded,monkeypatch):
+    from starlette.websockets import WebSocketDisconnect
+    from apps.server.fh_server import phone_pass
+    from apps.server.fh_server.security import digest
+    from .test_realtime import state
+    assert issue(pc,seeded).status_code==200
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    with factory.begin() as db:
+        revoke(db,seeded['org'],user_id=seeded['users']['admin'])
+        db.get(Robot,seeded['robots']['mine']).agent_token_hash=digest('synthetic-failure-agent')
+    original=phone_pass.acknowledge
+    def broken(*args):raise OSError('synthetic storage failure')
+    monkeypatch.setattr(phone_pass,'acknowledge',broken)
+    connect=lambda:pc.websocket_connect('/api/v1/agent/ws',headers={'authorization':'Bearer synthetic-failure-agent'})
+    try:
+        with connect() as ws:
+            ws.send_json(agent_hello());packet=receive(ws,'phone.revoke')
+            ws.send_json({'t':'phone.revoke.ack','seq':packet['seq']})
+            with pytest.raises(WebSocketDisconnect) as closed:receive(ws,'never',timeout=2)
+            assert (closed.value.code,closed.value.reason)==(1013,'REVOCATION_ACK_STORAGE_UNAVAILABLE')
+        assert all(r.acked_at is None for r in rows(seeded,PhoneRevocation))
+        monkeypatch.setattr(phone_pass,'acknowledge',original)
+        with connect() as ws:
+            ws.send_json(agent_hello());again=receive(ws,'phone.revoke')
+            assert again==packet
+            ws.send_json({'t':'phone.revoke.ack','seq':again['seq']});ws.send_json(state())
+            deadline=time.monotonic()+1
+            while time.monotonic()<deadline and any(r.acked_at is None for r in rows(seeded,PhoneRevocation)):time.sleep(.01)
+            assert all(r.acked_at is not None for r in rows(seeded,PhoneRevocation))
+    finally:engine.dispose()

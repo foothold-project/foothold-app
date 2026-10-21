@@ -448,6 +448,7 @@ class PhonePassDenials(Tenant, Base):
     count: Mapped[int] = mapped_column(BigInteger)
     reported_at: Mapped[float] = mapped_column(Float)
     reasons: Mapped[dict] = mapped_column(JSONB)
+    users: Mapped[dict] = mapped_column(JSONB)
 
 
 class PhoneRevocation(Tenant, Base):

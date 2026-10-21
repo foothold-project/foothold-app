@@ -38,6 +38,7 @@ def upgrade():
         sa.Column('count', sa.BigInteger(), nullable=False),
         sa.Column('reported_at', sa.Float(), nullable=False),
         sa.Column('reasons', JSONB(), nullable=False),
+        sa.Column('users', JSONB(), nullable=False),
         sa.ForeignKeyConstraint(['org_id'], ['organizations.id']))
     op.create_table('phone_revocations',
         sa.Column('org_id', UUID(), nullable=False),
