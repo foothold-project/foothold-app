@@ -106,6 +106,17 @@ MUTATIONS = [(label,'phone_pass.py',before,after,test) for label,before,after,te
      ",'tcp_user_timeout':2000",'',
      'test_ack_pool_wait_and_driver_tcp_bounds'),
 
+    ('retained thirty-two limit removed','phone_pass.py',
+     'if len(retained_robot) >= 32:','if False:',
+     'test_retained_pass_limit_includes_revocations_and_clock_grace'),
+    ('retained limit excludes revoked passes','phone_pass.py',
+     'PhonePass.exp > current - ROBOT_CLOCK_GRACE)))',
+     'PhonePass.exp > current - ROBOT_CLOCK_GRACE, PhonePass.jti.not_in(select(PhoneRevocation.jti).where(PhoneRevocation.org_id == user.org_id)))))',
+     'test_retained_pass_limit_includes_revocations_and_clock_grace'),
+    ('ACK pool warning omitted','realtime.py',
+     "if at-state['warning_at'] >= 30:",'if False:',
+     'test_ack_pool_warning_counts_throttles_and_resets_without_secrets'),
+
 ]
 
 

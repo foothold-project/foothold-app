@@ -226,6 +226,7 @@ class Realtime:
         self.phone_pass_factory = sessionmaker(self.phone_ack_engine,expire_on_commit=False)
         self.phone_pass_clock = time.time
         self.phone_ack_stores = {}
+        self.phone_ack_contention = {}
         # Admission/HTTP reads cannot occupy any control or agent-auth slot.
         self.read_engine = create_engine(settings.database_url, pool_size=4, max_overflow=0, pool_timeout=2,
             connect_args={'options': '-c default_transaction_read_only=on -c statement_timeout=2000',
@@ -1624,9 +1625,24 @@ class Realtime:
             if stores.get(rid) is done:
                 del stores[rid]
             if not done.cancelled():
-                done.exception()  # observe failure even after the writer left
+                error = done.exception()  # observe failure even after the writer left
+                if error is None:
+                    state = self.__dict__.get('phone_ack_contention',{}).get(rid)
+                    if state is not None:
+                        state['failures'] = 0  # preserve warning time across recovery
         task.add_done_callback(finished)
         await asyncio.shield(task)
+
+    def note_phone_ack_contention(self, rid, peer, seq):
+        states = self.__dict__.setdefault('phone_ack_contention',{})
+        state = states.setdefault(rid,{'failures':0,'warning_at':float('-inf')})
+        state['failures'] += 1
+        at = self.clock()
+        if at-state['warning_at'] >= 30:
+            pending = peer.phone_ack_pending | {seq}
+            log.warning('Phone revocation ACK pool contention robot=%s cause=POOL_TIMEOUT consecutive=%d pending_seq=%d..%d',
+                rid,state['failures'],min(pending),max(pending))
+            state['warning_at'] = at
 
     async def phone_ack_writer(self, rid, peer):
         while True:
@@ -1637,6 +1653,7 @@ class Realtime:
                 # Pool contention is not a DB failure. Keep this ACK unconfirmed
                 # and replay its immutable frame on the next pending cycle.
                 if self.agents.get(rid) is peer and not peer.closing:
+                    self.note_phone_ack_contention(rid,peer,seq)
                     self.retry_phone_revocation(peer,seq)
             except Exception as exc:
                 log.warning('Phone revocation ACK storage unavailable; reconnecting agent')

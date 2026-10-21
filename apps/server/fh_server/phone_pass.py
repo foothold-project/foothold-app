@@ -170,6 +170,11 @@ class Issuer:
         db.execute(delete(PhonePass).where(PhonePass.org_id == user.org_id, PhonePass.exp <= current - ROBOT_CLOCK_GRACE))
         db.execute(delete(PhoneRevocation).where(PhoneRevocation.org_id == user.org_id, PhoneRevocation.until <= current - ROBOT_CLOCK_GRACE))
         db.execute(delete(PhoneRevocationBatch).where(PhoneRevocationBatch.org_id == user.org_id, PhoneRevocationBatch.until <= current - ROBOT_CLOCK_GRACE))
+        retained_robot = list(db.scalars(select(PhonePass).where(PhonePass.org_id == user.org_id,
+            PhonePass.user_id == user.id, PhonePass.robot_id == robot.id,
+            PhonePass.exp > current - ROBOT_CLOCK_GRACE)))
+        if len(retained_robot) >= 32:
+            self.deny(db,user,429,'PASS_ACTIVE_LIMIT',min(p.exp for p in retained_robot)+ROBOT_CLOCK_GRACE-current)
         reserved_rows, reserved_bytes = reserved_usage(db,user.org_id,robot.id,current)
         if reserved_rows + 1 > MAX_REVOCATIONS or reserved_bytes + MAX_REVOCATION_FRAME > MAX_REVOCATION_BYTES:
             self.deny(db,user,503,'PASS_REVOCATION_CAPACITY',600)
