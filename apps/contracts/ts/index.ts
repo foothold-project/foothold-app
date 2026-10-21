@@ -1090,12 +1090,18 @@ export interface SimCatalog {
 export interface SimProvision {
   world_id: string;
   robot_id: string;
+  generation: number;
   owner_id: string;
   org_id: string;
   agent_token: string;
 }
 
+export interface SimRemove {
+  generation: number;
+}
+
 export interface SimRobot {
+  generation: number;
   robot_id: string;
   owner_id: string;
   world_id: string;

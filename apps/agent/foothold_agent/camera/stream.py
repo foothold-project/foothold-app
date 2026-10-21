@@ -56,9 +56,7 @@ class Camera:
         # Called in the ROS thread. One bounded copy, no safety/session access.
         received = self.now()
         with self.lock:
-            throttled = received < self.next_submit
-            if not throttled:
-                self.next_submit = received + .2
+            throttled = received < self.next_submit or self.pending is not None
         if throttled:
             # An overspeed producer must release the GIL, rather than spin on
             # rejected frames and starve the independent control/watchdog loop.
@@ -73,6 +71,12 @@ class Camera:
         except ValueError:
             return False
         with self.lock:
+            # Keep the 5 Hz grid across source jitter. Long outages start a new
+            # grid; rejected/invalid frames never consume a valid frame's slot.
+            if received < self.next_submit:
+                return False
+            self.next_submit = (received + .2 if received - self.next_submit >= .2
+                                else self.next_submit + .2)
             self.pending = (data, width, height, received)
         return True
 

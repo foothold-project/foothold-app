@@ -25,7 +25,7 @@ import isolation
 def own_environment(monkeypatch):
     rows,_=isolation.processes()
     own=next(row for row in rows if row['pid']==os.getpid())
-    assert own['domain']=='', 'run this control-plane test with ROS environment absent'
+    assert own['domain'] != '93', 'the test runner must not itself be a domain 93 participant'
     monkeypatch.setattr(isolation,'processes',lambda:([own],0))
     monkeypatch.setattr(isolation,'dds_ports',lambda:([],''))
     monkeypatch.setattr(isolation,'command',lambda *args:'')
@@ -100,8 +100,6 @@ def test_agent_timeout_escalates_owned_group_and_preserves_world(monkeypatch):
             if next(waits):raise subprocess.TimeoutExpired('synthetic',timeout)
             self.code=-9;return self.code
     launch.child=Child();launch.sim=SimpleNamespace(close=lambda:pytest.fail('world must remain'))
-    monkeypatch.setattr(os,'getpgid',lambda pid:pid)
-    monkeypatch.setattr(os,'killpg',lambda pid,sig:calls.append(sig))
     async def run():
         with pytest.raises(RuntimeError,match='timeout'):
             await launch.stop_agent(None)
@@ -131,21 +129,18 @@ def test_agent_gets_only_allowlisted_env_and_own_process_group(tmp_path,monkeypa
     launcher.folder=tmp_path;launcher.child=None;launcher.failed=False;launcher.sim=SimpleNamespace(reason=None)
     monkeypatch.setattr(module,'load_keys',lambda _: {})
     calls=[]
-    def popen(argv,**kwargs):
-        calls.append((argv,kwargs));return SimpleNamespace(poll=lambda:None)
-    monkeypatch.setattr(module.subprocess,'Popen',popen)
+    def unit(folder,settings,env,root):
+        calls.append(env);return SimpleNamespace(poll=lambda:None)
+    monkeypatch.setattr(module,'AgentUnit',unit)
     class Writer:
         def close(self):pass
         async def wait_closed(self):pass
     async def connection(*args):return None,Writer()
     monkeypatch.setattr(asyncio,'open_connection',connection)
     asyncio.run(launcher.add(next(iter(launcher.settings.slots.values())),{'agent_token':'synthetic-agent-token'}))
-    argv,options=calls[0]
-    assert options['start_new_session'] is True
-    assert not {'FH_DATABASE_URL','FH_PHONE_PASS_KEYS','FH_SIM_AUTH_FILE','FH_SIM_RUN'} & options['env'].keys()
-    assert options['env']['ROS_DOMAIN_ID']=='93'
-    assert argv[:2]==['/bin/bash','-c'] and 'source "$1"' in argv[2]
-    assert '/usr/lib/python3/dist-packages' in argv[2]
+    env=calls[0]
+    assert not {'FH_DATABASE_URL','FH_PHONE_PASS_KEYS','FH_SIM_AUTH_FILE','FH_SIM_RUN'} & env.keys()
+    assert env['ROS_DOMAIN_ID']=='93'
 
 
 def test_programmatic_manager_also_rejects_ros_parent(monkeypatch):
@@ -153,3 +148,58 @@ def test_programmatic_manager_also_rejects_ros_parent(monkeypatch):
     monkeypatch.setenv('ROS_DOMAIN_ID','93')
     with pytest.raises(ValueError,match='control plane'):
         Manager(settings())
+
+
+def test_agent_unit_is_bounded_and_environment_is_private(tmp_path,monkeypatch):
+    import json
+    from apps.simmgr.agent_unit import AgentUnit
+    from apps.simmgr import agent_unit
+    cfg=replace(settings(),run_dir=str(tmp_path/'approved-stage1-001/native'),ros_setup='unused')
+    commands=[]
+    def run(args,**kwargs):
+        commands.append((args,kwargs))
+        if args[0]=='systemctl':return SimpleNamespace(stdout='LoadState=not-found\n')
+        return SimpleNamespace(stdout='')
+    monkeypatch.setattr(agent_unit.subprocess,'run',run)
+    child=AgentUnit(tmp_path,cfg,{'FOOTHOLD_AGENT_TOKEN':'private-credential','ROS_DOMAIN_ID':'93'},Path('/synthetic'))
+    argv,options=commands[-1]
+    assert '--property=RuntimeMaxSec=240' in argv
+    assert '--property=MemoryMax=512M' in argv
+    assert '--property=MemorySwapMax=0' in argv
+    assert '--property=TasksMax=128' in argv
+    assert '--property=RemainAfterExit=yes' in argv
+    assert '--property=WorkingDirectory=/synthetic' in argv
+    assert '--property=KillMode=control-group' in argv
+    assert '--property=SendSIGKILL=yes' in argv and '--property=TimeoutStopSec=15' in argv
+    assert child.unit=='fh-simmgr-agent-approved-stage1-001.service'
+    assert 'private-credential' not in str(argv)+str(options)
+    assert argv[argv.index('/usr/bin/env')+1]=='-i'
+    assert child.private.stat().st_mode & 0o777==0o600
+    assert json.loads(child.private.read_text())['env']['ROS_DOMAIN_ID']=='93'
+
+
+def test_bootstrap_venv_packages_precede_ros_dist_packages(tmp_path):
+    from apps.simmgr.agent_entry import BOOTSTRAP
+    # Execute only sys.path setup; the ROS application entry is deliberately omitted.
+    script=BOOTSTRAP.split("runpy.run_module")[0]+"import typing_extensions; print(typing_extensions.__file__)"
+    env={k:v for k,v in os.environ.items() if not k.startswith(('ROS_','RMW_','CYCLONEDDS_','FASTRTPS_'))}
+    env.pop('PYTHONPATH',None)
+    env['FH_AGENT_ROS_PATH']='/usr/lib/python3/dist-packages'
+    output=subprocess.check_output([sys.executable,'-c',script,str(tmp_path)],env=env,text=True)
+    import typing_extensions
+    assert Path(output.strip()).resolve()==Path(typing_extensions.__file__).resolve()
+    assert '/usr/lib/python3/dist-packages/' not in output
+
+
+def test_agent_unit_keeps_normal_exit_evidence_until_reaped(tmp_path,monkeypatch):
+    from apps.simmgr.agent_unit import AgentUnit
+    from apps.simmgr import agent_unit
+    child=AgentUnit.__new__(AgentUnit);child.unit='fh-simmgr-agent-synthetic.service'
+    child.private=tmp_path/'already-unlinked'
+    child.show=lambda:dict(ActiveState='active',Result='success',ExecMainCode='1',ExecMainStatus='0')
+    calls=[]
+    monkeypatch.setattr(agent_unit.subprocess,'run',lambda args,**kwargs:calls.append(args))
+    assert child.poll()==0 and child.wait(.1)==0
+    assert calls==[['systemctl','--user','stop',child.unit]]
+    child.show=lambda:dict(ActiveState='failed',Result='timeout',ExecMainCode='2',ExecMainStatus='9')
+    assert child.poll()!=0

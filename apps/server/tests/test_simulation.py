@@ -158,9 +158,15 @@ def test_existing_real_robot_cannot_be_adopted(simulation_context,seeded):
 def test_admin_cannot_steal_owned_slot_even_when_manager_is_empty(simulation_context,seeded):
     client,sim,cfg,rid,launcher=simulation_context
     result,_=start_slot(simulation_context);assert result.status_code==201
-    sim.portal.call(sim.app.state.manager.remove,rid)
+    sim.portal.call(sim.app.state.manager.remove,rid,1)
+    original=client.app.state.simmgr.request; calls=[]
+    def recorded(method,path,body=None):
+        calls.append((method,path))
+        return original(method,path,body)
+    client.app.state.simmgr.request=recorded
     result,_=start_slot(simulation_context,'admin')
     assert result.status_code==409 and not sim.app.state.manager.robots
+    assert not any(path.startswith('/v1/robots') for method,path in calls)
 
 
 def test_simulation_agent_token_rotation_is_blocked(simulation_context):
@@ -204,3 +210,13 @@ def test_pass_issued_during_removal_is_revoked_before_release(simulation_context
         revoked={r.jti for r in db.scalars(select(PhoneRevocation).where(PhoneRevocation.robot_id==rid))}
         assert passes and {p.jti for p in passes}<=revoked
         assert db.get(Robot,rid).owner_user_id is None
+
+import os
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def clean_ros_environment(monkeypatch):
+    for name in tuple(os.environ):
+        if name.startswith(('ROS_', 'RMW_', 'CYCLONEDDS_', 'FASTRTPS_', 'FASTDDS_')):
+            monkeypatch.delenv(name)

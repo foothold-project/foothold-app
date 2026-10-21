@@ -71,6 +71,8 @@ class Session(Tenant, Base):
 
 class Robot(Tenant, Base):
     simulation: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    sim_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text('0'))
+    sim_state: Mapped[str] = mapped_column(Text, default='IDLE', server_default=text("'IDLE'"))
     __tablename__ = 'robots'
     __table_args__ = (
         ForeignKeyConstraint(['org_id'], ['organizations.id']),

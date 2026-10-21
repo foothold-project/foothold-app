@@ -49,7 +49,7 @@ class Relay:
             data=json.dumps(body).encode() if body is not None else None,
             headers={'Authorization': 'Bearer ' + self.secret, 'Content-Type': 'application/json'})
         try:
-            with self.opener.open(request, timeout=180) as response:
+            with self.opener.open(request, timeout=5 if method == 'GET' else 180) as response:
                 raw = response.read(65537)
             if len(raw) > 65536:
                 raise RelayError()
@@ -107,45 +107,58 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         # Keys are provisioned by the existing PR43 key path; never issue a new scheme.
         if rid not in issuer.keys:
             fail(503, 'PASS_KEY_MISSING', '시뮬 로봇 출입증 키가 없습니다.')
+        # Identity takes the organization write lock. Release it before any relay IO.
+        db.commit()
         catalogue = C.SimCatalog.model_validate(call('GET', '/v1/worlds?' + urlencode({'org_id': str(user.org_id)})))
         if body.robot_id not in catalogue.slots:
             fail(404, 'NOT_FOUND', '시뮬 로봇을 찾을 수 없습니다.')
+        lock_organization(db, user.org_id)
         row = db.get(Robot, body.robot_id)
         if row is not None and (row.org_id != user.org_id or not row.simulation or row.archived_at):
             fail(404, 'NOT_FOUND', '시뮬 로봇을 찾을 수 없습니다.')
+        if row is not None and row.owner_user_id is not None:
+            authorize(user, 'O_OWN', row)
+            if row.owner_user_id != user.id:
+                fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 다른 사람이 사용 중입니다.')
+            if row.sim_state != 'ACTIVE':
+                fail(409, 'SIM_SLOT_BUSY', '시뮬 슬롯의 전환이 끝나지 않았습니다.')
+            generation = row.sim_generation
+            db.commit()
+            current = C.SimRobotList.model_validate(call('GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
+            found = next((r for r in current.items if r.robot_id == body.robot_id), None)
+            lock_organization(db, user.org_id)
+            db.refresh(row)
+            if (row.sim_generation != generation or row.sim_state != 'ACTIVE' or found is None
+                    or found.generation != generation or found.world_id != body.world_id or found.owner_id != user.id):
+                fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 사용 중입니다.')
+            return found
         raw = token()
         if row is None:
             row = Robot(id=body.robot_id, org_id=user.org_id, name='시뮬 ' + rid[:8], model='unitree_go2',
-                simulation=True, owner_user_id=user.id, agent_token_hash=digest(raw))
+                simulation=True, sim_generation=0, agent_token_hash=digest(raw))
             db.add(row)
-        else:
-            if row.owner_user_id is None:
-                row.owner_user_id = user.id
-            else:
-                authorize(user, 'O_OWN', row)
-                if row.owner_user_id != user.id:
-                    fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 다른 사람이 사용 중입니다.')
-            # Running retries must not rotate the token under an existing agent.
-            current = C.SimRobotList.model_validate(call('GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
-            found = next((r for r in current.items if r.robot_id == body.robot_id), None)
-            if found is not None:
-                if found.world_id != body.world_id or found.owner_id != user.id:
-                    fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 사용 중입니다.')
-                return found
-            row.agent_token_hash = digest(raw)
+        row.owner_user_id = user.id
+        row.sim_generation += 1
+        row.sim_state = 'STARTING'
+        row.agent_token_hash = digest(raw)
+        generation = row.sim_generation
         authorize(user, 'O_OWN', row)
         db.flush()
-        # Commit identity/token before agent startup; a lost manager response can be
-        # reconciled by listing the same provisioned slot on the next request.
         event(db, user.org_id, 'SIM_ROBOT_REQUESTED', user.id, {'robot_id': rid,
-              'world_id': body.world_id, 'simulation': True}, category='LINK')
+              'world_id': body.world_id, 'generation': generation, 'simulation': True}, category='LINK')
         db.commit()
         result = C.SimRobot.model_validate(call('POST', '/v1/robots', dict(world_id=body.world_id,
-            robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw)))
-        if result.robot_id != row.id or result.owner_id != user.id or result.world_id != body.world_id:
+            robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation)))
+        lock_organization(db, user.org_id)
+        db.refresh(row)
+        if row.sim_generation != generation or row.sim_state != 'STARTING':
+            fail(409, 'SIM_GENERATION_MISMATCH', '시뮬 슬롯의 세대가 바뀌었습니다.')
+        if (result.robot_id != row.id or result.owner_id != user.id or result.world_id != body.world_id
+                or result.generation != generation):
             fail(503, 'SIM_IDENTITY_MISMATCH', '시뮬 연결 정보를 확인하지 못했습니다.')
+        row.sim_state = 'ACTIVE'
         event(db, user.org_id, 'SIM_ROBOT_REGISTERED', user.id, {'robot_id': rid, 'world_id': body.world_id,
-              'launcher': result.launcher, 'simulation': True}, category='LINK')
+              'generation': generation, 'launcher': result.launcher, 'simulation': True}, category='LINK')
         response.headers['Cache-Control'] = 'no-store'
         return result
 
@@ -156,18 +169,30 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         if row is None or row.org_id != user.org_id or not row.simulation or row.archived_at:
             fail(404, 'NOT_FOUND', '시뮬 로봇을 찾을 수 없습니다.')
         authorize(user, 'O_OWN', row)
+        generation = row.sim_generation
+        if row.sim_state == 'IDLE':
+            return Response(status_code=204)
+        if row.sim_state == 'STARTING':
+            fail(409, 'SIM_SLOT_BUSY', '시뮬 슬롯을 시작 중입니다.')
+        row.sim_state = 'STOPPING'
         phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)
         db.commit()  # revocations survive a failed/uncertain manager response
         def removal_failed(code):
             event(db, user.org_id, 'SIM_ROBOT_REMOVE_FAILED', user.id,
                   {'robot_id': str(robot_id), 'reason': code}, category='LINK')
             db.commit()
-        call('DELETE', '/v1/robots/' + str(robot_id), on_error=removal_failed)
+        call('DELETE', '/v1/robots/' + str(robot_id), {'generation': generation}, on_error=removal_failed)
         # A pass could be issued while the manager was stopping. Serialize the
         # final sweep and slot release with the existing organization write lock.
         lock_organization(db, user.org_id)
         db.refresh(row)
+        if row.sim_generation != generation or row.sim_state != 'STOPPING':
+            event(db, user.org_id, 'SIM_ROBOT_REMOVE_STALE', user.id,
+                  {'robot_id': str(robot_id), 'generation': generation}, category='LINK')
+            db.commit()
+            fail(409, 'SIM_GENERATION_MISMATCH', '시뮬 슬롯의 세대가 바뀌었습니다.')
         phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)
+        row.sim_state = 'IDLE'
         row.owner_user_id = None
         row.agent_token_hash = digest(token())
         # Keep identity, provenance and pass/revocation history; no archive/reuse shortcut.

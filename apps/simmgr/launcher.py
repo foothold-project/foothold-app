@@ -9,6 +9,7 @@ import sys
 from foothold_agent.ros_bridge.config import validate_isolation
 from foothold_agent.phone.tickets import load_keys
 from .environment import validate_control_environment, child_environment
+from .agent_unit import AgentUnit
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -115,18 +116,11 @@ class NativeLauncher:
                'FOOTHOLD_PHONE_POLICY_NAME': 'go2-simulation', 'FOOTHOLD_PHONE_POLICY_VERSION': 'stage1',
                'FOOTHOLD_PHONE_SIMULATION': '1',
                'FOOTHOLD_PHONE_ORIGINS': __import__('json').dumps(self.settings.origins),
-               'PYTHONDONTWRITEBYTECODE': '1', 'ROS_LOG_DIR': str(self.folder / 'agent-ros'),
-               'PYTHONPATH': os.pathsep.join([str(ROOT / 'apps/agent'), str(ROOT)])}
+               'PYTHONDONTWRITEBYTECODE': '1', 'ROS_LOG_DIR': str(self.folder / 'agent-ros')}
         validate_isolation(env)
         # Native stage1 topics/frames stay fixed; no fictitious namespace isolation.
         env['FOOTHOLD_CAMERA_ENABLED'] = '1'
-        with (self.folder / 'agent.log').open('x') as log:
-            script = ('set -e; source "$1"; '
-                      'export PYTHONPATH="$2:/usr/lib/python3/dist-packages:${PYTHONPATH:-}"; '
-                      'exec "$3" -m foothold_agent.ros_bridge')
-            self.child = subprocess.Popen(['/bin/bash', '-c', script, 'simmgr-agent',
-                self.settings.ros_setup, env['PYTHONPATH'], self.settings.agent_python],
-                env=env, cwd=ROOT, stdout=log, stderr=log, start_new_session=True)
+        self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
         deadline = asyncio.get_running_loop().time() + 30
         while asyncio.get_running_loop().time() < deadline:
             if self.child.poll() is not None or self.sim.reason:
@@ -154,20 +148,18 @@ class NativeLauncher:
             code = await asyncio.to_thread(child.wait, timeout=15)
         except subprocess.TimeoutExpired:
             self.failed = True
-            # Own process group only. A forced exit never confirms STOP/zero;
+            # Own transient unit only. A forced exit never confirms STOP/zero;
             # retain world/slot and require operator review before any retry.
             for sig in (signal.SIGTERM, signal.SIGKILL):
                 if child.poll() is not None:
                     break
-                if os.getpgid(child.pid) != child.pid:
-                    raise RuntimeError('agent process group ownership changed') from None
-                os.killpg(child.pid, sig)
+                child.send_signal(sig)
                 try:
                     await asyncio.to_thread(child.wait, timeout=5)
                 except subprocess.TimeoutExpired:
                     continue
                 break
-            raise RuntimeError('agent STOP/zero timeout; owned group cleanup attempted') from None
+            raise RuntimeError('agent STOP/zero timeout; owned unit cleanup attempted') from None
         if code != 0:
             self.failed = True
             raise RuntimeError('agent STOP/zero cleanup unconfirmed')

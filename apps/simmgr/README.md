@@ -8,14 +8,16 @@
   DDS override·61 거부. 같은 PC loopback manager9430, 서버9431, agent9433/9434(시험9430~9449).
 - 수명: `service.py`의 잠금 하나로 직렬화. 월드1개, 1인1대, 기본2대 상한(1..2 설정).
   STOP→0→에이전트 정상 종료 확인→로봇 제거→월드 종료. 정지 실패는ERROR·슬롯 보존·
-  새 시작 차단이며 world 자동KILL/재기동 없다. agent timeout은 자기 새 process group만 TERM/KILL로 수거하되 world 보존. 종료 중에도 다른 로봇의 정리는 시도한다.
+  새 시작 차단이며 world 자동KILL/재기동 없다. agent timeout은 자기 수명 제한 user unit만 TERM/KILL로 수거하되 world 보존. 종료 중에도 다른 로봇의 정리는 시도한다.
+- 슬롯 취득마다 세대를 올린다. manager STOP/제거와 서버 완료 처리가 같은 세대일 때만
+  적용되어 이전 DELETE가 재취득한 담당자·키·출입증을 지우지 않는다. STOPPING 재취득은 거부한다.
 - `FakeLauncher`: 실제 프로세스/소켓/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
 - `NativeLauncher`: 명시 `FH_SIM_RUN=1` 때만 기존 D1 `Simulation` supervisor를 불러 쓴다.
   자원/전용 user unit/identity/source hash/정리 검사를 재사용. 원본은 고정Go2+고정토픽이라
   실제1대만·v5_single/f1만 허용한다. native world 시작은 이미 로봇1대를 포함한다.
   로봇 제거는 그 월드 정리까지 포함하고 새 episode는 관리자 재시작/새 증거 폴더가 필요하다.
-- 서버의0014는 durable `simulation` 출처만 추가한다. 기존0013 발급·회수/키 경로 그대로.
+- 서버의0014는 durable `simulation` 출처·슬롯 세대·전환 상태를 추가한다. 기존0013 발급·회수/키 경로 그대로.
   두 파일에 같은 슬롯 키를 사전 배포하고 서버를 기동한다. 동적 키 생성/파일 갱신 없다.
 
 저장소 밖 private JSON 카탈로그의 모양(실제 UUID/경로/키를 이 파일에 넣지 않는다):

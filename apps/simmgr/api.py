@@ -84,11 +84,11 @@ def create_app(settings, launcher=None):
 
     @app.post('/v1/robots', dependencies=[Depends(authenticate)], response_model=C.SimRobot)
     async def add(body: C.SimProvision):
-        return await manager.add(body.world_id, str(body.robot_id), str(body.owner_id), str(body.org_id), body.agent_token)
+        return await manager.add(body.world_id, str(body.robot_id), str(body.owner_id), str(body.org_id), body.agent_token, body.generation)
 
     @app.delete('/v1/robots/{robot_id}', dependencies=[Depends(authenticate)])
-    async def remove(robot_id: str):
-        await manager.remove(robot_id)
+    async def remove(robot_id: str, body: C.SimRemove):
+        await manager.remove(robot_id, body.generation)
         return {'ok': True}
 
     return app

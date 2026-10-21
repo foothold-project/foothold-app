@@ -25,7 +25,7 @@ def test_manager_limits_isolation_and_stop_order():
     async def run():
         cfg = settings(); launch = FakeLauncher(); manager = Manager(cfg, launch)
         slots = list(cfg.slots.values()); owners = [str(uuid4()), str(uuid4())]
-        one, two = await asyncio.gather(*[manager.add('a', s.robot_id, owners[i], s.org_id, 'x' * 32)
+        one, two = await asyncio.gather(*[manager.add('a', s.robot_id, owners[i], s.org_id, 'x' * 32, 1)
                                           for i, s in enumerate(slots)])
         assert one['namespace'] != two['namespace'] and one['tf_prefix'] != two['tf_prefix']
         assert one['command_topic'] != two['command_topic'] and one['agent_address'] != two['agent_address']
@@ -46,12 +46,12 @@ def test_cap_and_one_person_one_robot():
     async def run():
         cfg = replace(settings(), max_robots=1); manager = Manager(cfg); a, b = cfg.slots.values()
         owner = str(uuid4())
-        await manager.add('a', a.robot_id, owner, a.org_id, 'x' * 32)
+        await manager.add('a', a.robot_id, owner, a.org_id, 'x' * 32, 1)
         with pytest.raises(SimError) as error:
-            await manager.add('a', b.robot_id, str(uuid4()), b.org_id, 'x' * 32)
+            await manager.add('a', b.robot_id, str(uuid4()), b.org_id, 'x' * 32, 1)
         assert error.value.code == 'SIM_ROBOT_LIMIT'
         with pytest.raises(SimError) as error:
-            await manager.add('a', b.robot_id, owner, b.org_id, 'x' * 32)
+            await manager.add('a', b.robot_id, owner, b.org_id, 'x' * 32, 1)
         assert error.value.code == 'SIM_OWNER_LIMIT'
     asyncio.run(run())
 
@@ -62,7 +62,7 @@ def test_stop_failure_retains_robot_and_world():
             raise RuntimeError('unconfirmed')
     async def run():
         cfg = settings(); launch = Broken(); manager = Manager(cfg, launch); slot = next(iter(cfg.slots.values()))
-        await manager.add('a', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32)
+        await manager.add('a', slot.robot_id, str(uuid4()), slot.org_id, 'x' * 32, 1)
         with pytest.raises(RuntimeError):
             await manager.close()
         assert slot.robot_id in manager.robots and manager.robots[slot.robot_id].state == 'ERROR'
@@ -89,9 +89,9 @@ def test_real_optin_and_single_robot(monkeypatch):
         # Assets must exist for native-mode validation; no native process is used.
         cfg = replace(cfg, worlds={'a': World('a', Path(__file__), Path(__file__))})
         mgr = Manager(cfg, NativeFake()); a,b = cfg.slots.values()
-        await mgr.add('a', a.robot_id, str(uuid4()), a.org_id, 'x'*32)
+        await mgr.add('a', a.robot_id, str(uuid4()), a.org_id, 'x'*32,1)
         with pytest.raises(SimError) as error:
-            await mgr.add('a', b.robot_id, str(uuid4()), b.org_id, 'x'*32)
+            await mgr.add('a', b.robot_id, str(uuid4()), b.org_id, 'x'*32,1)
         assert error.value.code == 'SIM_NATIVE_SINGLE_ONLY'
     asyncio.run(run())
 
@@ -104,7 +104,7 @@ def test_loopback_auth_api_and_shutdown():
         headers = {'Authorization':'Bearer '+cfg.secret}
         catalog = client.get('/v1/worlds', params={'org_id':slot.org_id}, headers=headers).json()
         assert catalog['launcher'] == 'fake' and catalog['max_robots'] == 2
-        body = dict(world_id='a', robot_id=slot.robot_id, org_id=slot.org_id, owner_id=str(uuid4()), agent_token='x'*32)
+        body = dict(world_id='a', robot_id=slot.robot_id, org_id=slot.org_id, owner_id=str(uuid4()), agent_token='x'*32,generation=1)
         result = client.post('/v1/robots', json=body, headers=headers)
         assert result.status_code == 200 and result.json()['state'] == 'PREPARED'
         assert 'agent_token' not in result.text
@@ -130,7 +130,7 @@ def test_default_fake_never_creates_process(monkeypatch):
     monkeypatch.setattr(subprocess,'Popen',forbidden)
     async def run():
         cfg=settings(); manager=Manager(cfg); slot=next(iter(cfg.slots.values()))
-        await manager.add('a',slot.robot_id,str(uuid4()),slot.org_id,'x'*32)
+        await manager.add('a',slot.robot_id,str(uuid4()),slot.org_id,'x'*32,1)
         await manager.close()
     asyncio.run(run())
 
@@ -222,3 +222,18 @@ def test_manager_rejects_external_peer_even_with_correct_secret():
         response=client.get('/v1/worlds',params={'org_id':next(iter(cfg.slots.values())).org_id},
                             headers={'Authorization':'Bearer '+cfg.secret})
         assert response.status_code==403 and response.json()['error']['code']=='SIM_LOOPBACK_ONLY'
+
+
+def test_manager_rejects_stale_generation_before_stop():
+    async def run():
+        cfg=settings(); manager=Manager(cfg); slot=next(iter(cfg.slots.values())); owner=str(uuid4())
+        await manager.add('a',slot.robot_id,owner,slot.org_id,'x'*32,1)
+        await manager.remove(slot.robot_id,1)
+        await manager.add('a',slot.robot_id,owner,slot.org_id,'y'*32,2)
+        before=list(manager.launcher.events)
+        with pytest.raises(SimError) as error:
+            await manager.remove(slot.robot_id,1)
+        assert error.value.code=='SIM_GENERATION_MISMATCH'
+        assert manager.robots[slot.robot_id].generation==2 and manager.launcher.events==before
+        await manager.close()
+    asyncio.run(run())

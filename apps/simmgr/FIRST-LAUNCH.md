@@ -18,8 +18,10 @@
   기존 preflight/cleanup은 다른93 프로세스·DDS 포트를 그대로 거부한다. 부모 PID를 예외 처리하지 않는다.
 - simulator와 agent의 환경은 허용 목록으로 만든다. systemd-run 호출도 그 목록만 받고,
   unit payload는 `/usr/bin/env -i ... /bin/bash ...`라 user manager 환경을 다시 제거한다.
-  agent만 ROS setup을 source하며 dist-packages도 **agent 셸에서만** 붙인다. 서버/관리자의
-  venv pydantic·typing_extensions를 시스템 패키지가 가리지 않게 한다.
+  agent만 ROS setup을 source한다. bootstrap은 PYTHONPATH를 비운 venv Python에서 시작한 뒤
+  ROS binding·dist-packages를 sys.path 끝에 붙여 venv pydantic·typing_extensions가 먼저 온다.
+  읽기 전용 경로 검사에서 기존 dist-packages 선행은 시스템 typing_extensions를 선택했고,
+  새 bootstrap은 venv typing_extensions를 선택했다(ROS 앱 실행 없이 검증).
 
 ## 승인 전 준비와 중단 조건
 
@@ -58,6 +60,7 @@ done
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONPATH="$PWD:$PWD/apps/agent"
 export TMPDIR="$PWD/tmp/p1c"
+mkdir -p "$TMPDIR"
 export FH_FILES_ROOT="$PWD/runs/simmgr/approved-stage1-001/server-files"
 export SIM_RUN_DIR="$PWD/runs/simmgr/approved-stage1-001/native"
 export FH_SIM_DOMAIN=93 FH_SIM_PORT=9430 FH_SIM_MAX_ROBOTS=1
@@ -85,9 +88,18 @@ unit payload는 허용 목록의 환경과93을 `/usr/bin/env -i` 뒤 지정하�
 첫 기동 승인 범위에 반드시 포함한다.** 원본 파일 수정은 없다. 관리자 증거/ROS 로그와
 시험 서버 파일은 위 현재 worktree의 새 실행 폴더다.
 
-agent는 허용 목록+그 로봇 설정만 받아 새 process group(session)에서 실행한다. 자식 셸이
-`source "$SIM_ROS_SETUP"`, agent용 ROS binding/dist-packages 연결 뒤 승인된 Python으로
-`-m foothold_agent.ros_bridge`를 exec한다. `FOOTHOLD_PHONE_SIMULATION=1,FOOTHOLD_CAMERA_ENABLED=1`,
+agent는 허용 목록+그 로봇 설정만 받아 별도 사용자 unit
+`fh-simmgr-agent-approved-stage1-001.service`에서 실행한다. RuntimeMaxSec=240,
+MemoryMax=512M·MemorySwapMax=0·TasksMax=128, KillSignal=SIGINT·TimeoutStopSec=15·
+KillMode=control-group·SendSIGKILL=yes, RemainAfterExit=yes다. 종료 근거를 읽은 뒤
+관리자가 자기 exited unit을 stop해 남은 자식을 수거한다. 관리자 SIGKILL/OOM/SIGHUP에도 unit의 수명 제한이 남는다.
+상한을 넘으면 에이전트만 종료 → 링크 끊김 → 정지 쪽으로 실패하며 world는 따로 정리한다.
+강제 종료는 STOP0 ACK 확인이 아니므로 world 보존/실패 보고 규칙을 유지한다.
+첫 기동 때 agent 최대 메모리·task 수를 기록해 다음 실행의 상한을 다시 정한다.
+자식 환경은0700 실행 폴더의0600 임시 JSON으로 전달하고 bootstrap이 읽은 즉시 지운다.
+토큰은 unit argv/상속 환경에 넣지 않는다. 자식 셸이 ROS setup을 source한 뒤 venv 우선
+경로로 `foothold_agent.ros_bridge`를 실행한다. unit 이름은 실행 폴더의 episode 이름으로
+고정되며 기존 unit 이름 재사용은 거부한다. `FOOTHOLD_PHONE_SIMULATION=1,FOOTHOLD_CAMERA_ENABLED=1`,
 슬롯9433이다. DB URL·서버 출입증 key map·manager secret 경로·FH_SIM_RUN은 전달하지 않는다.
 
 메모리 예상은 기존 D1 unit 최고684.4MiB 관측을 참고한 값이며 이 commit 실측이 아니다.
@@ -103,24 +115,42 @@ runtime 만료5초 전 자신의 새unit MainPID만 identity 확인 후SIGINT한
 | 입력 끊김 |50ms 간격 송신을 멈춘 마지막 driver send→첫 agent ROS0≤0.4s,20회·최대값 판정. 마지막 agent 수신부터0도 함께 기록. ROS0/정책0/몸 정지 각각 구분, 시뮬이 느려져도 단조 마감 유지 |
 | STOP/재개 |control/view STOP 각각0·잠금·목표취소 확인. 이전cmd·재접속·서버 재연결·영상 재연결로 비영 재개0건. 명시unlock+신선한중립 뒤만 재개 |
 | 출입증·조종자 |PR43 실제 발급/회수/ack·전환·만료·중복·다른robot/org·단절·동시취득. 제거 때 살아 있는 출입증 회수, 실패 감사, 슬롯 재사용과 이전 출입증 회수 전달 확인. 부모 종료/만료/회수 때 영상도 닫힘 |
-| 영상 격리 |5fps·JPEG≤64KiB·실제424×240·NO_VIDEO. 읽지 않는 영상 소켓/원천 폭주 중 위200표본 지연/20회 입력 끊김을 반복. 이미지는 저장0, 시각/seq/크기 통계만 |
-| TCP 부가 진단 |별도 **20ms 간격 STOP 왕복60회** p95 보고. TCP_NODELAY 실제1 확인. 이 왕복은 위50ms 단방향 명령 지연 판정과 섞지 않음 |
+| 영상 격리 |≤5fps 상한(실측fps 보고)·JPEG≤64KiB·실제424×240·NO_VIDEO. 읽지 않는 영상 소켓/원천 폭주 중 위200표본 지연/20회 입력 끊김을 반복. 이미지는 저장0, 시각/seq/크기 통계만 |
+| TCP 부가 진단 |운영 websockets serve()는 원래 TCP_NODELAY를 켠다.41ms는 proto0인 미리 bind한 시험 소켓 구성에서만 재현됐다. 별도 **20ms 간격 STOP 왕복60회** p95 보고. TCP_NODELAY 실제1 확인. 이 왕복은 위50ms 단방향 명령 지연 판정과 섞지 않음 |
 | 초기/격리/정리 |STOP true·cmd_applied0·episode≥1·LOCKSTEP·카메라/시뮬시각 증가. 자기unit/cgroup/domain93/partition·native 종료manifest·원본SHA·61 PID/start_ticks·원장불변·잔여DDS/포트0. RUNNING listener만으로 통과 아님 |
 
-driver와 계측 observer도 같은 PC이며 observer만domain93에 참가한다. 제어 평면 부모는
+driver와 계측 observer도 같은 PC이며 observer만domain93에 참가한다.
+**순서 고정:** preflight와 world/agent 기동 완료 → observer 참가 → 계측·STOP0 확인 →
+계측 수거 → observer 정상 종료 → observer PID와93 DDS 해제 확인 → 서버 DELETE.
+preflight/DELETE cleanup 중 observer가 남아 있으면 실패이며93 검사를 예외 처리하지 않는다. 제어 평면 부모는
 ROS 환경이 없다. 측정 hook/driver 실제 연결은 아직 미검증이다. 실폰/LAN 끝-끝 지연은
 P1-D 별도 표로 측정하며 이 단계의 같은 PC 수치를 실폰 결과로 표시하지 않는다.
 
 ## 멈추기와 실패
 
-1. driver STOP→0·잠금 확인 뒤 서버 DELETE로 제거. 서버는 살아 있는 출입증을 기존 회수
+1. driver STOP→0·잠금 확인·계측 수거 뒤 observer를 정상 종료하고93 DDS 해제를 확인한 뒤 서버 DELETE로 제거. 서버는 살아 있는 출입증을 기존 회수
    outbox로 먼저 commit하고, 정리 중 발급분도 완료 직전 조직 잠금 아래 회수한다. ACK·offline600초 한계는05 §13.7 그대로이며 회수 전달을 따로 확인한다.
 2. manager는 agent SIGINT→기존 Hub.close·bridge ZERO/STOP·ACK·exit0을 기다린 뒤만 world 정리.
-   **Ctrl-C는 한 번만**. 자식 새 process group은 터미널 Ctrl-C를 직접 받지 않는다.
-3. agent 정지15초 timeout은 failed로 고정하고 자기 process group만 SIGTERM→5초→SIGKILL→5초
+   **Ctrl-C는 한 번만**. 별도 사용자 unit은 터미널 Ctrl-C를 직접 받지 않는다.
+3. agent 정지15초 timeout은 failed로 고정하고 자기 unit만 SIGTERM→5초→SIGKILL→5초
    수거한다. 강제 종료는 STOP/zero 확인이 아니므로 **world/슬롯 보존·재기동 차단**이다.
-   그룹 소유가 바뀌면 신호를 거부한다. simulator의 기존 no-KILL 정책/identity 검사는 유지한다.
+   새 episode 전용 unit만 지정한다. simulator의 기존 no-KILL 정책/identity 검사는 유지한다.
 4. 정리 실패 시 manager uvicorn은 오류로 종료될 수 있으며 남은 world는 보존된다(원래 unit의
    240초 제한은 별개). 재시도하지 말고 담당자에게 올린다. 운영/domain61/다른 프로세스는 종료하지 않는다.
 5. Git revert와0014/0013 이력 보존이 우선. simulation 출처를 잃는0014 downgrade는 활성0·
    기록보존·별도승인 뒤만. 이번 작업에는 운영 DB migration·배포·기동0이다.
+
+관리자가 비정상 종료했다면 **이 실행의 agent unit만** 아래 literal 이름으로 확인한다.
+이 명령 역시 이번 작업에서는 실행하지 않았다. 정상 STOP/zero 확인이 없으면 world는
+보존하고 실패를 보고한다. world 또는 다른 unit을 패턴으로 일괄 종료하지 않는다.
+
+```sh
+systemctl --user show fh-simmgr-agent-approved-stage1-001.service --property=ActiveState,Result,MainPID,ControlGroup
+systemctl --user status fh-simmgr-agent-approved-stage1-001.service --no-pager
+# 남은 자기 agent unit만 정리(강제 종료는 STOP/zero 통과가 아님):
+systemctl --user stop fh-simmgr-agent-approved-stage1-001.service
+systemctl --user show fh-simmgr-agent-approved-stage1-001.service --property=ActiveState,MainPID,ControlGroup
+```
+
+마지막 MainPID=0·자기 cgroup 잔여0과 unit 종료를 확인한다. unit 이름이 이미 있으면 시작을 거부한다. 정상 종료 후 unit이 회수되어도 기존 실행
+폴더의 재사용을 거부하므로 새 실행에는 새 episode 이름/승인 폴더를 쓴다.

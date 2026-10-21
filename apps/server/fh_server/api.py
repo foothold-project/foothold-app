@@ -612,6 +612,8 @@ def create_app(settings: Settings | None = None):
         authorize(user, 'A')
         rt, rid = app.state.realtime, str(robot_id)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        if row.simulation and 'owner_user_id' in body.model_fields_set:
+            fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set
                           and body.owner_user_id != row.owner_user_id)
         if changing_owner:
@@ -648,6 +650,8 @@ def create_app(settings: Settings | None = None):
         rt.begin_robot_change(rid)
         try:
             row = await asyncio.to_thread(find_robot, db, user, robot_id)
+            if row.simulation:
+                fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 제거합니다.')
             await asyncio.to_thread(phone_pass.revoke, db, user.org_id, robot_id=row.id,clock=issuer.clock)
             record = rt.arbiter.robots.get(rid)
             run = rt.runs.get(rid)

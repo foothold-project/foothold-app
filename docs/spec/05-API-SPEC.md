@@ -906,7 +906,9 @@ B-tree/색인·metadata·같은 DB의 used-jti4096행 몫을 포함할 여유로
 
 JPEG 원본은 최대65,536 B(64 KiB), width≤640·height≤360이다. base64는 최대87,384자이므로
 영상 **수신** 프레임 한도를96 KiB 이상으로 둔다. 제어 **송신**의4 KiB 한도는 그대로다.
-최대5fps(단조 벽시계0.2초 샘플), 원천 submit도 파싱 전에0.2초 간격으로 제한한다.
+≤5fps 상한(단조 벽시계0.2초 샘플)이며 실측fps를 보고한다. 원천 submit은0.2초
+격자(next += 0.2, 긴 공백 뒤 재설정)로 제한한다. 미소 흔들림으로 격자가 누적 지연되지
+않으며 유효하지 않은 프레임은 자리를 쓰지 않는다. 아직 샘플하지 않은1장은 덮어쓰지 않는다.
 ROS 입력 최신1장·폰별 대기 최신1장만 둔다.
 현재 원본의424×240 JPEG를 재인코딩·확대하지 않는다. 640×360은 상한이며 기본 출력
 크기640×360 대신 원본 크기를 쓰는 조정 결정이다. 손상된 외피·크기 불명·상한 초과
@@ -934,7 +936,7 @@ hello/새 출입증으로 새 토큰을 받는 흐름이며, 조종권 자동 �
 | `POST /api/v1/simulation/robots` | `SimStartRequest {world_id,robot_id}` →201 `SimRobot` |
 | `DELETE /api/v1/simulation/robots/{robot_id}` | 담당 권한 확인·STOP/0·정리 확인 뒤204 |
 
-`SimRobot`은 robot_id, owner_id, world_id, `simulation:true`, state, agent_address,
+`SimRobot`은 generation, robot_id, owner_id, world_id, `simulation:true`, state, agent_address,
 namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,launcher=fake`는
 가짜 launcher의 계약 시험 결과이고 접속 가능한 로봇이 아니다. `RUNNING,native-single`은
 네이티브 에이전트 listener가 열린 결과이며 §13.6·ADR-002 §8 성능 통과를 뜻하지 않는다.
@@ -943,10 +945,11 @@ namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,laun
 등록/수정 입력은 이 필드를 받지 않는다. offline·메타데이터 갱신·제거 뒤에도 로봇 요약에
 `simulation:true`가 남는다. 화면의 «시뮬» 표시는 **DB RobotSummary.simulation만** 사용한다(화면 구현 별도).
 에이전트 welcome/state.simulation은 참고용이며 출처 판정에 쓰지 않는다. 시뮬 행의 일반
-`/robots/{id}/agent-token` 회전은409 SIM_TOKEN_MANAGED로 거부한다.
+`/robots/{id}/agent-token` 회전은409 SIM_TOKEN_MANAGED, 일반 DELETE와 담당자 PATCH는
+409 SIM_ROBOT_MANAGED로 거부한다. 이름 수정은 기존 권한으로 허용한다.
 SIM_ROBOT_REQUESTED/REGISTERED/REMOVED와 REMOVE_FAILED 감사는 id·world·launcher·실패코드만 담고 주소·토큰·키는
 담지 않는다. 에이전트 시작 전 id·토큰 hash와 REQUESTED를 먼저 commit하므로 시작 응답이
-유실되어도 같은 slot 목록으로 재조정한다. 제거 전 살아 있는 출입증을 기존 회수 outbox로
+유실되면 STARTING을 유지해 자동 재취득하지 않고 같은 slot 목록과 실행 증거로 확인한다. 제거 전 살아 있는 출입증을 기존 회수 outbox로
 commit하고, 정리 중 새로 발급된 것도 완료 직전 조직 잠금 아래 다시 회수한다. 제거 성공 뒤 owner를 비워 다른 사람이 슬롯을 쓸 수 있게 한다. 실패면
 owner를 유지하고 실패 감사를 별도 commit한다. 로봇·출입증 이력은 삭제하지 않는다.
 
@@ -957,15 +960,26 @@ owner를 유지하고 실패 감사를 별도 commit한다. 로봇·출입증 �
 관리자도127.0.0.1에만 bind하며 포트를 공유하지 않는다.
 
 관리자 내부 API는 `/v1/worlds` GET/POST, `/v1/robots` GET/POST/DELETE다. 서버만 POST에
-`SimProvision {world_id,robot_id,owner_id,org_id,agent_token}`을 보낸다. 비밀은 본문/자식
+`SimProvision {world_id,robot_id,owner_id,org_id,agent_token,generation}`을 보낸다. 비밀은 본문/자식
 환경에만 있고 응답·URL·감사·공개 카탈로그에 없다. 월드 파일+지도 파일은 저장소 밖
 설정의 짝이며 원본 자산을 복사하지 않는다. ROS 도메인93·LOCALHOST만 허용하고61·DDS
 override를 거부한다. 제어 평면은 ROS_*·RMW/DDS 환경을 거부하고
 FH_SIM_DOMAIN=93 설정에서만 자식 허용 목록 환경을 만든다(자식에 DB/서버키/관리자키/실행flag 미전달).
-중계 timeout은180초로 native110+30초보다 길다. 에이전트 WS 경로는 `/api/v1/agent/ws`만 허용한다.
+중계 쓰기 timeout은180초로 native110+30초보다 길고, GET은5초다.
+모든 관리자 호출은 조직 쓰기 잠금을 푼 뒤 수행한다. 에이전트 WS 경로는 `/api/v1/agent/ws`만 허용한다.
 첫 기동은 같은 PC·127.0.0.1만이며 LAN 폰 측정은 P1-D다. 기본은fake, 실제 프로세스 생성은 명시 `FH_SIM_RUN=1`일 때만이다.
 
 기본 상한2·1인1대·월드1개를 가짜 launcher로 검증한다. 원본 native runtime은 고정된
 Go2 한 대·절대 토픽/TF라 실제 경로는 **1대만 허용**하고 namespace/tf_prefix가 빈 값이다.
 두 번째 실제 로봇은409 SIM_NATIVE_SINGLE_ONLY로 거부하며, 다중 로봇 격리 통과를 주장하지
 않는다(4단계). 첫 기동은 [기동 계획](../../apps/simmgr/FIRST-LAUNCH.md)의 별도 승인 대상이다.
+
+슬롯 취득은0014의 `sim_generation`(0부터 단조 증가)을 조직 잠금 안에서 올리고
+`sim_state=STARTING→ACTIVE→STOPPING→IDLE`로 관리한다. STOPPING/STARTING은 같은 담당자도
+다시 취득할 수 없다. 관리자 DELETE 본문은 `SimRemove {generation}`이며, 관리자는 자기
+잠금 안에서 세대가 일치할 때만 STOP·제거한다. 제거 tombstone의 세대도 보존한다.
+서버도 원격 호출 뒤 조직 잠금 아래 세대와 STOPPING 상태를 다시 확인한 뒤만 재회수·
+담당자 해제·hash 교체·REMOVED 감사를 수행한다. 다른 세대면409 SIM_GENERATION_MISMATCH와
+REMOVE_STALE 감사1줄만 남긴다(관리자에서 먼저 거부하면 REMOVE_FAILED 감사1줄).
+같은 담당자의 재취득도 다른 세대다. 오래된 DELETE는 새 세대의 로봇·출입증·담당자·키를
+변경하지 않는다. 원격 호출 동안 조직 쓰기 잠금을 유지하지 않는다.

@@ -1190,7 +1190,12 @@ class SimStartRequest(SimWorldStart):
     robot_id: UUID
 
 
+class SimRemove(Contract):
+    generation: int = Field(ge=1, le=9223372036854775807)
+
+
 class SimProvision(SimStartRequest):
+    generation: int = Field(ge=1, le=9223372036854775807)
     owner_id: UUID
     org_id: UUID
     agent_token: str = Field(min_length=32, max_length=256, repr=False)
@@ -1204,6 +1209,7 @@ class SimCatalog(Contract):
 
 
 class SimRobot(Contract):
+    generation: int = Field(ge=1, le=9223372036854775807)
     robot_id: UUID
     owner_id: UUID
     world_id: str
@@ -1225,7 +1231,7 @@ TOP = {name: value for name, value in list(globals().items())
 
 REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
-REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartRequest, SimProvision})
+REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartRequest, SimProvision, SimRemove})
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 

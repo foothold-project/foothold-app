@@ -11,6 +11,12 @@
       "title": "Command Topic",
       "type": "string"
     },
+    "generation": {
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "title": "Generation",
+      "type": "integer"
+    },
     "launcher": {
       "enum": [
         "fake",
@@ -59,6 +65,7 @@
     }
   },
   "required": [
+    "generation",
     "robot_id",
     "owner_id",
     "world_id",

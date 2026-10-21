@@ -155,3 +155,55 @@ def test_20ms_rtt_and_nagle_diagnosis():
         print(f'20ms STOP p95 NODELAY=0 {off*1000:.3f}ms NODELAY=1 {on*1000:.3f}ms')
         assert on<.020
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('hz',[10,15,30])
+def test_jittered_source_keeps_grid_rate(hz):
+    import random
+    random.seed(3);clock=[0.0];camera=Camera('synthetic',now=lambda:clock[0])
+    events=sorted([(k/hz+random.gauss(0,.004),'s') for k in range(60*hz)]+
+                  [(k*.2005,'p') for k in range(int(60/.2005))])
+    for stamp,kind in events:
+        clock[0]=max(clock[0],stamp)
+        camera.submit(jpeg()) if kind=='s' else camera.sample()
+    fps=camera.seq/60
+    print(f'{hz}Hz jittered source: {fps:.3f} fps')
+    assert 4.5<=fps<=5
+
+
+def test_invalid_frame_does_not_consume_grid_slot():
+    camera=Camera('synthetic',now=lambda:0)
+    assert not camera.submit(b'invalid')
+    assert camera.submit(jpeg())
+
+
+def test_oversize_source_rejected_before_parser(monkeypatch):
+    import foothold_agent.camera.stream as module
+    parsed=[]
+    monkeypatch.setattr(module,'jpeg_size',lambda data:(parsed.append(data) or (424,240)))
+    camera=Camera('synthetic',now=lambda:0)
+    assert not camera.submit(b'\xff\xd8'+b'x'*65533+b'\xff\xd9')
+    assert not parsed and camera.pending is None
+
+
+@pytest.mark.parametrize('expired',[True,False])
+def test_expiry_and_receive_only_are_assertion_boundaries(expired):
+    async def run():
+        h=Harness();clock=[0.0];peer,_,_=h.connect()
+        transport=CameraTransport(Camera(h.robot),h.hub,now=lambda:clock[0])
+        token=transport.issue(peer)
+        if expired:clock[0]=11
+        ws=WS(dict(t='camera.hello',robot=h.robot,token=token))
+        task=asyncio.create_task(transport.handler(ws))
+        try:
+            if not expired:
+                await asyncio.sleep(.02)
+                ws.input.put_nowait(json.dumps({'t':'cmd','v':1}))
+            await asyncio.sleep(.08)
+            assert task.done() and ws.code==4403
+            if expired:assert not ws.frames
+            assert peer in h.hub.peers
+        finally:
+            task.cancel();await asyncio.gather(task,return_exceptions=True)
+            h.hub.close();h.verifier.close()
+    asyncio.run(run())
