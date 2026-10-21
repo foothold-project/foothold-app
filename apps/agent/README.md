@@ -163,7 +163,7 @@ python3 apps/contracts/generate.py --check
 npm --prefix apps/contracts run typecheck
 ```
 
-기존 `python3 -m foothold_agent.ros_bridge` 진입점은 다음 환경 변수가 **전부** 있을 때만
+기존 `python3 -m foothold_agent.ros_bridge` 진입점은 다음 표의 **필수 환경 변수가 모두** 있을 때만
 `/phone/ws`를 연다. 값은 배포 환경에서 제공하고 Git에 넣지 않는다. 이번 작업에서는
 이 진입점을 실행하지 않았고 ROS/시뮬을 기동하지 않았다.
 
@@ -175,12 +175,18 @@ npm --prefix apps/contracts run typecheck
 | `FOOTHOLD_PHONE_REPLAY_DB` | 영속적인 로컬 spent-jti SQLite 파일. 보호된 쓰기 가능한 디렉터리 |
 | `FOOTHOLD_PHONE_POLICY_NAME`, `FOOTHOLD_PHONE_POLICY_VERSION` | 실제 배포 정책 식별자, hello에 그대로 표시 |
 | `FOOTHOLD_PHONE_CLOCK_TRUSTED` | 운영 감독자가 동기화를 확인한 뒤 `1`. 없거나 다른 값은 시작 거부 |
+| `FOOTHOLD_PHONE_SIMULATION` | 시뮬 `1`/실기 `0` 명시. 없거나 다른 값이면 시작 거부 |
+| `FOOTHOLD_PHONE_ORIGINS` | 선택 JSON 배열의 정확한 HTTP(S) Origin 허용 목록. 기본 빈 목록은 Origin 있는 연결 모두 거부; 헤더 없는 앱은 허용 |
 
 설정·키·재사용 저널은 ROS 시작 전에 확인한다. 출입증은 관제 서버가 발급하지만 그
 엔드포인트는 후속이다. 시험에서는 실행할 때 만든 난수 키로 직접 서명한다. HS256은
 로봇별 대칭키이며 키 배포·회전·유출 한계·저널 복구·시계 신뢰는 05 §13.2를 따른다.
-시계 동기화 상실은 감독자가 `Verifier.trusted=False` 또는 프로세스 정지로 전달해야
-한다(자동 OS NTP 상태 연동은 후속). 시계 역행/5초 초과 오차는 자체 검출한다.
+시계 동기화 상실 때 현재 감독자의 전달 수단은 **프로세스 정지뿐**이다. 외부에서
+`Verifier.trusted`를 바꾸는 IPC는 없으며 자동 OS NTP 상태 연동은 실기 전 관문이다.
+시계 역행/5초 초과 오차는 자체 검출한다. 키/저널은 실행 사용자 소유의 일반 파일·
+group/other 권한0(권장0600)만 허용하며 링크/FIFO/넓은 권한은 거부한다. 운영 설정의
+메모리 저널은 거부하고 상위 디렉터리도 보호해야 한다. FULL commit의 루프 차단 시간은
+1단계 시뮬 관문에서 fsync 지연으로 측정한다.
 출입증 상한은 600초다. 인터넷이 끊겨 새 출입증을 못 받으면 **남은 수명(최대10분)
 뒤 정지·잠금 후 조종권을 비우며**, 연결이 살아 있어도 연장하지 않는다.
 
@@ -190,6 +196,10 @@ lease/cmd/unlock/run/slam/floor.set은 버리고 옛 stop만 Hub.stop에 넣는�
 일반 단절·재접속은 폰 lease를 바꾸지 않는다. 출입증/조종권은 프로세스 재시작 시 복원하지
 않으며 spent-jti 저널만 유지한다. 수신·넘김·출력은 같은 이벤트 루프에서 직렬 처리한다.
 20Hz 감시 외에 실제 sink의 독립 0.3초 watchdog도 여전히 필수다.
+폰 Session의 서버 링크 타이머는 끄고 Hub만 연결을 감시한다. hello 승인 전 오류·STOP은
+그 소켓만 닫는다. hello 대기는3초/최대4개(가장 오래된 대기만 교체), 인증된 연결은 별도16개다.
+승인된 보기 폰의 수신 계층 형식 오류도 STOP·잠금을 적용한다. 요청 알림은 종류별 최신1개,
+자기 취소 뒤30초 제한·요청/취소8개/초 초과 연결만 닫기로 서비스 전체 폭주를 막는다.
 
 폰 ping은 1초마다, 3초 무수신에 정지·잠금·옛 lease 폐기, 마지막 ping으로부터 15초까지
 기존 사용자+기기 예약이다. 같은 사용자+기기는 새 출입증/연결로 새 lease를 취득할 수 있다.

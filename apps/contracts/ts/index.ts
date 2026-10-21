@@ -552,6 +552,7 @@ export interface PhoneCmdAck {
 
 export interface PhoneCommand {
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto?: "fh-phone/1";
   t: "cmd";
@@ -570,12 +571,14 @@ export interface PhoneEcho {
 
 export interface PhoneEnvelope {
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto?: "fh-phone/1";
 }
 
 export interface PhoneHello {
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto: "fh-phone/1";
   t: "hello";
@@ -585,6 +588,7 @@ export interface PhoneHello {
 
 export interface PhoneLease {
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto?: "fh-phone/1";
   t: "lease.take" | "lease.request" | "lease.release" | "lease.cancel" | "view" | "stop";
@@ -592,6 +596,7 @@ export interface PhoneLease {
 
 export interface PhoneLeaseRequested {
   t: "lease.requested";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   request_id: string;
   requester: PhoneRequester;
@@ -600,6 +605,7 @@ export interface PhoneLeaseRequested {
 
 export interface PhoneLeaseResult {
   t: "lease.result";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   request_id: string;
   result: "ACCEPTED" | "DECLINED" | "TIMEOUT" | "CANCELED";
@@ -618,6 +624,7 @@ export interface PhoneLimits {
 
 export interface PhonePing {
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto?: "fh-phone/1";
   t: "ping";
@@ -652,6 +659,7 @@ export interface PhoneRequester {
 
 export interface PhoneRespond {
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto?: "fh-phone/1";
   t: "lease.respond";
@@ -670,6 +678,7 @@ export interface PhoneState {
   applied: number[];
   mode: string;
   devices_changed?: Device[] | null;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   controller: string | null;
   controller_device: string | null;
@@ -689,6 +698,7 @@ export interface PhoneTicketClaims {
   iss: "fh-control";
   aud: "fh-phone/1";
   org: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   sub: string;
   device: string;
@@ -700,6 +710,7 @@ export interface PhoneTicketClaims {
 
 export interface PhoneUnlock {
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto?: "fh-phone/1";
   t: "unlock";
@@ -710,6 +721,7 @@ export interface PhoneUnlock {
 export interface PhoneWelcome {
   t: "hello";
   id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto: "fh-phone/1";
   limits: PhoneLimits;

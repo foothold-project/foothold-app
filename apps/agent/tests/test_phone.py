@@ -497,7 +497,7 @@ def test_phone_ws_two_clients_disconnect_and_state_stream(h):
     async def run():
         with phone_socket() as sock:
             port = sock.getsockname()[1]
-            server = Server(h.hub, Settings('127.0.0.1', port, 'unused', 'test', '1', h.org, ':memory:', True), sock=sock)
+            server = Server(h.hub, Settings('127.0.0.1', port, 'unused', 'test', '1', h.org, 'unused-replay.sqlite', True, True), sock=sock)
             task = asyncio.create_task(server.run())
             await asyncio.wait_for(server.ready.wait(), 2)
             uri = f'ws://127.0.0.1:{port}/phone/ws'
@@ -584,6 +584,7 @@ def test_phone_configuration_is_opt_in_and_secrets_are_external(h, tmp_path):
         Settings.from_env({'FOOTHOLD_PHONE_PORT': '9450'})
     secret_path = tmp_path/'keys.json'
     secret_path.write_text(json.dumps({'test': encode(h.key)}))
+    secret_path.chmod(0o600)
     assert load_keys(secret_path) == {'test': h.key}
     secret_path.write_text(json.dumps({'test': encode(os.urandom(8))}))
     with pytest.raises(ValueError):
@@ -596,7 +597,8 @@ def test_phone_configuration_is_opt_in_and_secrets_are_external(h, tmp_path):
         verifier.close()
 
 
-def test_phone_ros_entrypoint_uses_one_session_and_one_sink_without_starting_ros(h, monkeypatch):
+@pytest.mark.parametrize('simulation', [False, True])
+def test_phone_ros_entrypoint_uses_one_session_and_one_sink_without_starting_ros(h, monkeypatch, simulation):
     from types import SimpleNamespace
     from foothold_agent.ros_bridge import __main__ as runner
     from foothold_agent.link.client import Client as ActualClient
@@ -620,6 +622,7 @@ def test_phone_ros_entrypoint_uses_one_session_and_one_sink_without_starting_ros
             assert isinstance(self.session, Observer) and isinstance(self.sink, DiscardSink)
             phone = self.session.phone
             assert observed['phone'] is phone
+            assert phone.simulation is simulation
             observed['telemetry'](None)
             observed['devices']([])
             observed['state']({'schema': SCHEMA, 'episode': 0, 'stop_requested': True,
@@ -632,7 +635,7 @@ def test_phone_ros_entrypoint_uses_one_session_and_one_sink_without_starting_ros
     monkeypatch.setattr(runner, 'RosNode', Bridge)
     monkeypatch.setattr(runner, 'Server', NoListener)
     monkeypatch.setattr(runner, 'Client', Client)
-    config = SimpleNamespace(phone=Settings('127.0.0.1', 9450, 'unused', 'test', '1', h.org, ':memory:', True),
+    config = SimpleNamespace(phone=Settings('127.0.0.1', 9450, 'unused', 'test', '1', h.org, 'unused-replay.sqlite', True, simulation),
                              phone_verifier=h.verifier, settings=None)
     # Schedule the phone task first inside the injected Client to observe it.
     original = Client.run
@@ -651,13 +654,14 @@ def test_phone_config_validates_keys_and_journal_before_ros(h, tmp_path):
     from foothold_agent.ros_bridge.config import Config
     key_path = tmp_path/'keys.json'
     key_path.write_text(json.dumps({'test': encode(h.key)}))
+    key_path.chmod(0o600)
     env = {'ROS_DOMAIN_ID': '93', 'ROS_AUTOMATIC_DISCOVERY_RANGE': 'LOCALHOST', 'ROS_LOCALHOST_ONLY': '1',
            'FOOTHOLD_ROBOT_ID': h.robot, 'FOOTHOLD_AGENT_WS_URL': 'ws://127.0.0.1/unused',
            'FOOTHOLD_AGENT_TOKEN': encode(os.urandom(32)), 'FOOTHOLD_PHONE_HOST': '127.0.0.1',
            'FOOTHOLD_PHONE_PORT': '9450', 'FOOTHOLD_PHONE_KEY_PATH': str(key_path),
            'FOOTHOLD_PHONE_POLICY_NAME': 'test', 'FOOTHOLD_PHONE_POLICY_VERSION': '1',
            'FOOTHOLD_PHONE_ORG_ID': h.org, 'FOOTHOLD_PHONE_REPLAY_DB': str(tmp_path/'replay.sqlite'),
-           'FOOTHOLD_PHONE_CLOCK_TRUSTED': '1'}
+           'FOOTHOLD_PHONE_CLOCK_TRUSTED': '1', 'FOOTHOLD_PHONE_SIMULATION': '1'}
     config = Config.from_env(env)
     assert config.phone_verifier.robot == h.robot
     assert config.phone.port == 9450
@@ -743,7 +747,7 @@ def test_phone_expiry_from_bridge_callback_keeps_4401_on_socket(h):
     async def run():
         with phone_socket() as sock:
             server = Server(h.hub, Settings('127.0.0.1', sock.getsockname()[1], 'unused', 'test', '1',
-                                           h.org, ':memory:', True), sock=sock)
+                                           h.org, 'unused-replay.sqlite', True, True), sock=sock)
             task = asyncio.create_task(server.run())
             await asyncio.wait_for(server.ready.wait(), 2)
             try:
@@ -755,9 +759,11 @@ def test_phone_expiry_from_bridge_callback_keeps_4401_on_socket(h):
                     h.clock.t = 1
                     h.state(False)  # expiration can be detected outside the WS watchdog
                     closed = None
-                    try:
+                    async def read_until_closed():
                         while True:
-                            await asyncio.wait_for(ws.recv(), 2)
+                            await ws.recv()
+                    try:
+                        await asyncio.wait_for(read_until_closed(), 2)
                     except ConnectionClosed as exc:
                         closed = exc.rcvd.code
                     assert closed == 4401

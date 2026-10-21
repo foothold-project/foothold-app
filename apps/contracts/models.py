@@ -950,9 +950,14 @@ class ScenarioPreview(Contract):
 
 
 # FH-SPEC-05 §13: phone -> robot, never routed through the control server.
+PhoneRobotID = Annotated[str, Field(pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                                    description='소문자 하이픈 UUID 표준형만 허용한다.',
+                                    json_schema_extra={'format': 'uuid'})]
+
+
 class PhoneEnvelope(Contract):
     id: str = Field(min_length=1, max_length=128)
-    robot: UUID
+    robot: PhoneRobotID
     proto: Literal['fh-phone/1'] = omitted()
 
 
@@ -1015,7 +1020,7 @@ class PhonePolicy(Contract):
 class PhoneWelcome(Contract):
     t: Literal['hello']
     id: str
-    robot: UUID
+    robot: PhoneRobotID
     proto: Literal['fh-phone/1']
     limits: PhoneLimits
     policy: PhonePolicy
@@ -1041,7 +1046,7 @@ class PhoneRequester(Contract):
 
 class PhoneLeaseRequested(Contract):
     t: Literal['lease.requested']
-    robot: UUID
+    robot: PhoneRobotID
     request_id: UUID
     requester: PhoneRequester
     expires_at: UTCDateTime
@@ -1049,7 +1054,7 @@ class PhoneLeaseRequested(Contract):
 
 class PhoneLeaseResult(Contract):
     t: Literal['lease.result']
-    robot: UUID
+    robot: PhoneRobotID
     request_id: UUID
     result: Literal['ACCEPTED', 'DECLINED', 'TIMEOUT', 'CANCELED']
     error: str | None
@@ -1078,7 +1083,7 @@ class PhoneEcho(Contract):
 
 
 class PhoneState(AgentState):
-    robot: UUID
+    robot: PhoneRobotID
     controller: UUID | None
     controller_device: UUID | None
     controller_connected: bool
@@ -1097,7 +1102,7 @@ class PhoneTicketClaims(Contract):
     iss: Literal['fh-control']
     aud: Literal['fh-phone/1']
     org: UUID
-    robot: UUID
+    robot: PhoneRobotID
     sub: UUID
     device: UUID
     purpose: Literal['control', 'view']

@@ -12,6 +12,7 @@ import math
 import os
 import re
 import sqlite3
+import stat
 import time
 from uuid import UUID
 
@@ -53,9 +54,24 @@ def json_object(raw):
     return value
 
 
+def private_file(path, *, create=False):
+    """Open nonblocking/no-follow, then validate the actual descriptor, not a stat race."""
+    flags = os.O_RDWR | os.O_CREAT if create else os.O_RDONLY
+    flags |= os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077 or info.st_uid != os.geteuid():
+            raise ValueError('phone credential files must be private regular files owned by the process user')
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def load_keys(path):
     """Provisioned out of band, outside Git: {kid: unpadded_base64url_secret}."""
-    with open(path, 'rb') as source:
+    with os.fdopen(private_file(path), 'rb') as source:
         raw = source.read(65537)
     if len(raw) > 65536:
         raise ValueError("phone key file too large")
@@ -80,9 +96,17 @@ class Verifier:
         self.anchor_wall, self.anchor_mono = wall(), now()
         self.last_wall = self.anchor_wall
         if replay_path != ':memory:':
-            descriptor = os.open(replay_path, os.O_CREAT | os.O_RDWR, 0o600)
-            os.close(descriptor)
-        self.db = sqlite3.connect(replay_path, timeout=.05)
+            descriptor = private_file(replay_path, create=True)
+            try:
+                self.db = sqlite3.connect(replay_path, timeout=.05)
+                before, after = os.fstat(descriptor), os.stat(replay_path, follow_symlinks=False)
+                if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):
+                    self.db.close()
+                    raise ValueError('replay journal path changed')
+            finally:
+                os.close(descriptor)
+        else:
+            self.db = sqlite3.connect(replay_path, timeout=.05)  # direct test construction only
         self.db.execute('PRAGMA page_size=4096')
         self.db.execute('PRAGMA max_page_count=256')
         if (self.db.execute('PRAGMA page_size').fetchone()[0] != 4096
@@ -126,7 +150,7 @@ class Verifier:
                 raise ValueError("claims")
             if claims['iss'] != 'fh-control' or claims['aud'] != 'fh-phone/1':
                 raise ValueError("scope")
-            if uuid(claims['robot']) != self.robot:
+            if claims['robot'] != self.robot:
                 raise ValueError("robot")
             if uuid(claims['org']) != self.org or claims['purpose'] not in ('control', 'view'):
                 raise ValueError('scope')

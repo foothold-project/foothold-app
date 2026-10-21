@@ -64,7 +64,14 @@ def project_velocity(vx, vy, wz):
     x = .6 if vx >= .6 else 0.0
     turn = (.5 if wz >= .5 else -.5 if wz <= -.5 else 0.0) if x else 0.0
     limited = (x, 0.0, turn)
-    return ((1.0 if x else 0.0, 0.0, turn / .5), limited != (vx, vy, wz))
+    axes = (1.0 if x else 0.0, 0.0, turn / .5)
+    if not any(limited) and any((vx, vy, wz)):
+        # Valid, nonneutral Core inputs that quantize to ZERO with a reason.
+        # They neither create a neutral nor erase a previously confirmed one.
+        axes = ((-1.0, 0.0, 0.0) if vx < 0 else
+                (0.0, 1.0 if vy > 0 else -1.0, 0.0) if vy else
+                (.3, 0.0, 0.0) if vx else (0.0, 0.0, 1.0 if wz > 0 else -1.0))
+    return axes, limited != (vx, vy, wz)
 
 
 LIMITS = {'vx_min': 0.0, 'vx_max': .6, 'vy_min': 0.0, 'vy_max': 0.0,

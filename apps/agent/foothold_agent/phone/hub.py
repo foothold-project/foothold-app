@@ -27,6 +27,8 @@ class Peer:
     last_ping: float = 0
     echo: dict | None = None
     notifications: deque = field(default_factory=deque)
+    request_window: float = float('-inf')
+    request_count: int = 0
 
 
 class Hub:
@@ -37,7 +39,7 @@ class Hub:
         self.robot = verifier.robot
         self.policy = {'name': policy_name, 'version': policy_version}
         self.simulation = simulation
-        self.session = Session(now=now)
+        self.session = Session(now=now, server_link=False)
         self.peers = {}
         self.closing = {}
         self.owner = self.reservation = self.pending = None
@@ -50,19 +52,24 @@ class Hub:
         try:
             for command in effects.motion:
                 self.sink.apply(command)
-        except BaseException:
+        except BaseException as error:
             for command in (MotionCommand('stop'), MotionCommand(velocity=Z)):
                 try:
                     self.sink.apply(command)
-                except BaseException:
-                    pass
+                except BaseException as extra:
+                    error.output_errors = [*getattr(error, 'output_errors', []), extra]
+                    if hasattr(error, 'add_note'):
+                        error.add_note('additional fallback output error: ' + type(extra).__name__)
             raise
         if self.record is not None:
             try:
                 self.record([m for m in effects.messages if m['t'] in ('event', 'run.update')])
-            except BaseException:
+            except BaseException as error:
                 self.record = None  # output a STOP without recursing into failed storage
-                self.stop()
+                try:
+                    self.stop()
+                except BaseException as extra:
+                    error.output_errors = [*getattr(error, 'output_errors', []), extra]
                 raise
 
     def _audit(self, code, **data):
@@ -80,9 +87,11 @@ class Hub:
     def _notify(self, peer, message):
         if peer in self.peers:
             queue = self.peers[peer].notifications
-            if len(queue) >= 32:
-                self.stop()
-                raise RuntimeError('phone notification capacity exhausted')
+            # These are replaceable UI snapshots. Audit events remain FIFO in
+            # the separate journal; a slow viewer cannot kill the robot service.
+            for old in list(queue):
+                if old['t'] == message['t']:
+                    queue.remove(old)
             queue.append(deepcopy(message))
 
     def drain(self, peer):
@@ -99,7 +108,7 @@ class Hub:
                    'result': result, 'error': error}
         for peer in (request['holder'], request['peer']):
             self._notify(peer, message)
-        if result in ('DECLINED', 'TIMEOUT'):
+        if result in ('DECLINED', 'TIMEOUT', 'CANCELED'):
             self.cooldowns[request['identity']] = self.now() + 30
         self._audit('PHONE_LEASE_' + result, request_id=request['id'],
                     user_id=request['identity'][0], device_id=request['identity'][1])
@@ -108,9 +117,12 @@ class Hub:
         if self.owner != peer:
             return
         p = self.peers[peer]
-        self._emit(self.session.receive({'t': 'lease', 'lease_id': None, 'holder_type': None}))
-        self.stop()  # STOP/zero/latch before authority is cleared or handed over
-        self.owner = None
+        try:
+            self._emit(self.session.receive({'t': 'lease', 'lease_id': None, 'holder_type': None}))
+            self.stop()  # STOP/zero/latch before authority is cleared or handed over
+        finally:
+            self.owner = None
+            self.reservation = None
         self.reservation = ({'identity': (p.user, p.device), 'until': min(p.last_ping + 15, p.deadline)}
                             if reserve else None)
         if cancel_request:
@@ -123,13 +135,16 @@ class Hub:
             self._request_result('CANCELED')
 
     def disconnect(self, peer, *, reserve=True):
-        self._drop(peer, reserve=reserve, reason='DISCONNECTED')
-        if self.pending is not None and self.pending['peer'] == peer:
-            self._request_result('CANCELED')
-        self.peers.pop(peer, None)
+        try:
+            self._drop(peer, reserve=reserve, reason='DISCONNECTED')
+            if self.pending is not None and self.pending['peer'] == peer:
+                self._request_result('CANCELED')
+        finally:
+            self.peers.pop(peer, None)
 
-    def fail(self, peer, code='VALIDATION', close_code=1007, *, reserve=False):
-        self.stop()  # malformed frames, including viewers, fail toward STOP
+    def fail(self, peer, code='VALIDATION', close_code=1007, *, reserve=False, safety=True):
+        if safety and peer in self.peers and self.peers[peer].user is not None:
+            self.stop()  # only hello-approved phones may affect robot safety
         self.disconnect(peer, reserve=reserve)
         error = PhoneError(code, close_code)
         self.closing[peer] = error
@@ -176,8 +191,7 @@ class Hub:
 
     def tick(self):
         expired = self._expire()  # expiry precedes any output from a cached input
-        # Internal adapter liveness doesn't refresh cmd/deadman or phone ping.
-        self._emit(self.session.receive({'t': 'ping'}))
+        self._emit(self.session.tick())  # Hub is the ONLY phone link timer
         return expired
 
     @staticmethod
@@ -202,8 +216,11 @@ class Hub:
         return True
 
     def receive(self, peer, raw):
+        self._expire()  # expire ALL authority before any frame can emit motion
+        if peer in self.closing:
+            raise self.closing[peer]
         if peer not in self.peers:
-            if len(self.peers) >= 16:
+            if sum(p.user is None for p in self.peers.values()) >= 4:
                 raise PhoneError('SERVER_BUSY', 1013)
             self.peers[peer] = Peer(last_ping=self.now())
         try:
@@ -230,12 +247,20 @@ class Hub:
                 self.fail(peer, 'DEVICE_MISMATCH', 4403)
             if any(other.user is not None and other.device == ticket['device'] for other in self.peers.values()):
                 self.fail(peer, 'DEVICE_CONNECTED', 4403)
+            if sum(other.user is not None for other in self.peers.values()) >= 16:
+                self.fail(peer, 'SERVER_BUSY', 1013)
             p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']
             return {'t': 'hello', 'id': f['id'], 'robot': self.robot, 'proto': PROTO,
                     'limits': deepcopy(LIMITS), 'policy': dict(self.policy), 'simulation': self.simulation,
                     'ping_interval_ms': 1000, 'link_timeout_ms': 3000, 'lease_timeout_ms': 15000}
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
+        if kind in ('lease.request', 'lease.cancel'):
+            if self.now() - p.request_window >= 1:
+                p.request_window, p.request_count = self.now(), 0
+            p.request_count += 1
+            if p.request_count > 8:
+                self.fail(peer, 'REQUEST_FLOOD', 1013, safety=False)
         reply = {'t': 'reply', 'id': f['id'], 'ok': True, 'error': None, 'lease_id': None, 'request_id': None}
         if kind in ('lease.take', 'lease.request'):
             identity = (p.user, p.device)
@@ -306,9 +331,7 @@ class Hub:
             if f['seq'] <= self.session.last_seq:
                 self.fail(peer, 'SEQUENCE_INVALID')
             axes, clipped = project_velocity(f['vx'], f['vy'], f['wz'])
-            # A rejected nonneutral input must NEVER stand in for the explicit
-            # fresh neutral required after STOP, transfer or deadman.
-            core_axes = (list(axes) if any(axes) or not any(f[k] for k in ('vx', 'vy', 'wz')) else None)
+            core_axes = list(axes)
             self._emit(self.session.receive({'t': 'cmd', 'lease_id': f['lease_id'], 'seq': f['seq'], 'axes': core_axes}))
             return {'t': 'cmd.ack', 'id': f['id'], 'seq': f['seq'], 'applied': list(self.session.core.out),
                     'clipped': clipped, 'reason': self.session.core.reason or None}
@@ -344,7 +367,9 @@ class Hub:
                 'sim_wall_delta_s': delta, 'simulation': self.simulation}
 
     def close(self):
-        self._emit(self.session.shutdown())
-        self.owner = self.reservation = self.pending = None
-        self.peers.clear()
-        self.closing.clear()
+        try:
+            self._emit(self.session.shutdown())
+        finally:
+            self.owner = self.reservation = self.pending = None
+            self.peers.clear()
+            self.closing.clear()

@@ -8,6 +8,7 @@ from copy import deepcopy
 from foothold_agent.link.session import Session, Effects, MAX_BUFFER, SAFETY_EVENTS
 from foothold_agent.link.history import History
 from .tickets import json_object
+from .protocol import sequence
 
 
 class DiscardSink:
@@ -36,13 +37,14 @@ class Observer:
         self.last_report = float('-inf')
         self.last_ping = self.now()
         self.run = None  # P1-A never enables RUN
+        self.server_stop_ref = 0
 
     @property
     def core(self):
         return self.phone.session.core  # read by Client's before-history guard
 
     def _state(self):
-        return self.phone.session._state()
+        return {**self.phone.session._state(), 'stop_ref': self.server_stop_ref}
 
     def _finish(self):
         messages = ()
@@ -58,6 +60,7 @@ class Observer:
         self.connected = True
         self.protocol_rejected = self.reconnect_required = self.link_lost = False
         self.last_ping = self.now()
+        self.server_stop_ref = 0
         hello = {**deepcopy(self.phone.session.identity), 't': 'hello', 'proto': 'fh-agent/2',
                  'latched': self.core.latch, 'stop_gen': self.phone.session._generation(),
                  'lease_id': None, 'run': None}
@@ -103,6 +106,9 @@ class Observer:
         if isinstance(f, dict):
             if f.get('t') == 'stop':
                 self.phone.stop()  # malformed STOP also only moves toward safety
+                ref = f.get('stop_ref')
+                if sequence(ref) and ref > 0 and self.core.latch and not any(self.core.out):
+                    self.server_stop_ref = ref
             elif f.get('t') == 'ping':
                 self.last_ping = self.now()
         return self.tick()  # lease/cmd/unlock/run.* never reach the real Session

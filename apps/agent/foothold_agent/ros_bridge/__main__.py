@@ -46,7 +46,7 @@ async def run(config):
         if getattr(config, 'phone', None) is not None:
             hub = Hub(config.phone_verifier, sink,
                       policy_name=config.phone.policy_name, policy_version=config.phone.policy_version,
-                      simulation=True)
+                      simulation=config.phone.simulation)
             phone = Server(hub, config.phone)
             session = Observer(hub)
             client = Client(session, DiscardSink(), config.settings)
