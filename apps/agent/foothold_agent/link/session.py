@@ -66,8 +66,10 @@ class Session:
     The executor and bridge feed their observations through the local methods.
     """
 
-    def __init__(self, now: Callable[[], float] = time.monotonic, *, identity: dict | None = None):
+    def __init__(self, now: Callable[[], float] = time.monotonic, *, identity: dict | None = None,
+                 server_link: bool = True):
         self.now = now
+        self.server_link = server_link
         self.core = _MemoryCore(now=now)
         self.core.stop("startup")
         self.identity = {
@@ -170,7 +172,7 @@ class Session:
     def _advance(self):
         # Evaluate before handling a new frame: fresh input cannot resurrect an
         # expired intent or cancel an elapsed grace deadline.
-        if self.last_server is not None and self.now() - self.last_server >= LINK_TIMEOUT:
+        if self.server_link and self.last_server is not None and self.now() - self.last_server >= LINK_TIMEOUT:
             if not self.link_lost:
                 self.link_lost = True
                 self._event("SERVER_LINK_LOST")

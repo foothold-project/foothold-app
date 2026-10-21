@@ -1,0 +1,114 @@
+"""Cloud facade with NO second Session, Core or robot output port.
+
+Reuse bounded history and Client transport; only server STOP reaches the Hub.
+"""
+import asyncio
+from copy import deepcopy
+
+from foothold_agent.link.session import Session, Effects, MAX_BUFFER, SAFETY_EVENTS
+from foothold_agent.link.history import History
+from .tickets import json_object
+from .protocol import sequence
+
+
+class DiscardSink:
+    def apply(self, command):
+        pass  # facade emits no motion, including on cloud reconnect
+
+
+class Observer:
+    retain = Session.retain
+    pop_history = Session.pop_history
+    restore = Session.restore
+    _event = Session._event
+    transport_retry = Session.transport_retry
+
+    def __init__(self, phone):
+        self.phone, self.now = phone, phone.now
+        self._messages = History(MAX_BUFFER - 1, lambda m: m.get('code') in SAFETY_EVENTS
+                                 or m.get('code', '').startswith('PHONE_LEASE_')
+                                 or m.get('t') == 'run.update')
+        self.history_ready = asyncio.Event()
+        self.before_history = None
+        self.emit_history = False
+        self._retry_event = None
+        self._buffer_dropped = 0
+        self.connected = self.protocol_rejected = self.reconnect_required = self.link_lost = False
+        self.last_report = float('-inf')
+        self.last_ping = self.now()
+        self.run = None  # P1-A never enables RUN
+        self.server_stop_ref = 0
+
+    @property
+    def core(self):
+        return self.phone.session.core  # read by Client's before-history guard
+
+    def _state(self):
+        return {**self.phone.session._state(), 'stop_ref': self.server_stop_ref}
+
+    def _finish(self):
+        messages = ()
+        if self.connected and self.now() - self.last_report >= .1:
+            messages = (self._state(),)
+            self.last_report = self.now()
+        self.link_lost = self.connected and self.now() - self.last_ping >= 3
+        return Effects((), messages)
+
+    tick = _finish
+
+    def connect(self):
+        self.connected = True
+        self.protocol_rejected = self.reconnect_required = self.link_lost = False
+        self.last_ping = self.now()
+        self.server_stop_ref = 0
+        hello = {**deepcopy(self.phone.session.identity), 't': 'hello', 'proto': 'fh-agent/2',
+                 'latched': self.core.latch, 'stop_gen': self.phone.session._generation(),
+                 'lease_id': None, 'run': None}
+        return Effects((), (hello, self._state()))
+
+    def disconnect(self):
+        self.connected = False
+        return Effects(())
+
+    shutdown = disconnect
+
+    def transport_closed(self, close_code, *, retry):
+        self._event('SERVER_CLOSED', close_code=close_code, retry=retry)
+        return self.disconnect()
+
+    def protocol_mismatch(self):
+        self.protocol_rejected = True
+        self._event('PROTOCOL_MISMATCH')
+        return Effects(())
+
+    def storage_blocked(self, reason):
+        self.connected = False
+        return Effects(())
+
+    def transport_overflow(self):
+        self.reconnect_required = True
+        return Effects(())
+
+    def on_robot_state(self, raw, *, record_errors=True):
+        return self.tick()  # bridge already updated the ONE phone Session
+
+    def update_telemetry(self, snapshot):
+        self.phone.session.update_telemetry(snapshot)
+
+    def update_devices(self, devices):
+        self.phone.session.update_devices(devices)
+
+    def receive(self, raw):
+        try:
+            f = json_object(raw) if isinstance(raw, (str, bytes)) else raw
+        except (ValueError, TypeError, UnicodeError, RecursionError):
+            return self.tick()
+        if isinstance(f, dict):
+            if f.get('t') == 'stop':
+                self.phone.stop()  # malformed STOP also only moves toward safety
+                ref = f.get('stop_ref')
+                if sequence(ref) and ref > 0 and self.core.latch and not any(self.core.out):
+                    self.server_stop_ref = ref
+            elif f.get('t') == 'ping':
+                self.last_ping = self.now()
+        return self.tick()  # lease/cmd/unlock/run.* never reach the real Session
