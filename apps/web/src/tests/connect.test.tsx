@@ -184,25 +184,21 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
     expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '내 로봇')!.querySelector('b')!.textContent).toBe('1');   // 요약은 서버가 담당 범위로 센 값(목록은 전체)
 
     click(row('Go2-B'));
-    const go = $<HTMLButtonElement>('[aria-label="로봇 상세"] .btn.pri')!;
-    expect(go.disabled).toBe(true);
-    expect(document.getElementById(go.getAttribute('aria-describedby')!)!.textContent).toContain('박운영님의 로봇입니다');
+    expect($('[aria-label="로봇 상세"] .btn.pri')).toBeNull();   // 총괄 웹에는 조종 단추가 없다(ADR-002 §4 — 조종은 폰)
     act(() => FakeWS.last.open());
     expect(FakeWS.last.of('sub')).toMatchObject([{ robots: ['r-a'] }]);   // 남의 로봇은 구독하지 않음(서버가 4403 으로 닫는다)
     click($('[data-stop]')!);
     expect(FakeWS.last.of('stop')).toMatchObject([{ robot: 'r-b' }]);
     expect($('[data-band]')!.textContent).toContain('Go2-B 정지 요청됨');
-
-    click($('nav a[href="#/drive"]')!);   // 조종 고르기도 전체, 남의 로봇은 조종 비활성 + 이유(F-COM-04)
-    const card = [...box.querySelectorAll('.dv-card')].find((li) => li.textContent!.includes('Go2-B'))!;
-    expect(card.querySelector('[data-why]')!.textContent).toContain('내 로봇만 조종할 수 있습니다');
+    expect($('a[href="#/drive"]')).toBeNull();
   });
-  it('폰: 내 로봇만, 기록 탭 머리줄 ⋯ 에 로그아웃 하나', async () => {
+  it('폰: 로봇 연결은 내 로봇만, 머리줄 ⋯ 에 기록·로그아웃, 기록 화면 ⋯ 에는 로그아웃 하나', async () => {
     serve(signedIn(LEE, ROBOTS, { 'POST /auth/logout': { status: 204 } }));
     await open('#/fleet', true);
-    expect([...box.querySelectorAll('select[aria-label="로봇 고르기"] option')].map((o) => o.textContent)).toEqual(['Go2-A']);
-    expect($('summary[aria-label="더 보기"]')).toBeNull();   // 기록 탭에만
-    click($('nav a[href="#/history"]')!);
+    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['Go2-A']);
+    expect([...$('header details')!.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['기록', '로그아웃']);
+    click(btn('기록')!);
+    expect(location.hash).toBe('#/history');
     expect($('header')!.lastElementChild).toBe($('[data-stop]'));   // STOP 은 여전히 맨 오른쪽
     const more = $('header details')!;
     expect([...more.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['로그아웃']);
@@ -215,17 +211,26 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
       const other = robot('r-b', 'Go2-B', 'o2', '박운영');
-      serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영'), { ...other, lease: { holder_type: 'USER', user: { id: 'o2', display_name: '박운영' }, since: '2026-10-19T00:00:00Z' } }]));
-      await open('#/drive/r-b');
-      expect($('[aria-label="조종"]')!.textContent).toContain('박운영님 조종 중(목록');
-      expect($('[aria-label="조종"]')!.textContent).toContain('확인 안 됨');
-      const n = calls.filter((c) => c.path.startsWith('/robots')).length;
+      serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영'), { ...other, lease: { holder_type: 'USER', user: { id: 'o2', display_name: '박운영' }, since: '2026-10-19T00:00:00Z' } }], {
+        // 상세는 지금 목록에 있는 값 그대로(조종 화면이 총괄 웹에서 빠져 조종권자는 로봇 상세에서 본다)
+        'GET /robots/r-b': () => ({ status: 200, body: (routes['GET /robots'] as { body: { items: RobotSummary[] } }).body.items.find((x) => x.id === 'r-b') }),
+      }));
+      await open('#/fleet');
+      const detail = () => $('[aria-label="로봇 상세"]')!.textContent;
+      const lists = () => calls.filter((c) => c.path.split('?')[0] === '/robots').length;
+      act(() => (row('Go2-B') as HTMLElement).click());
+      await flush();
+      expect(detail()).toContain('박운영님 조종 중(목록');
+      const n = lists();
       routes['GET /robots'] = { status: 200, body: { items: [robot('r-a', 'Go2-A', 'o1', '이운영'), other], next_cursor: null } };
       act(() => { vi.advanceTimersByTime(LIST_MS); });
       await flush();
-      expect(calls.filter((c) => c.path.startsWith('/robots')).length).toBe(n + 1);
-      expect($('[aria-label="조종"]')!.textContent).toContain('조종권자 확인 안 됨');   // 목록의 null 을 «없음»으로 단정하지 않음
-      expect($('[aria-label="조종"]')!.textContent).not.toContain('조종하는 사람 없음');
+      expect(lists()).toBe(n + 1);
+      act(() => (row('Go2-A') as HTMLElement).click());
+      act(() => (row('Go2-B') as HTMLElement).click());
+      await flush();
+      expect(detail()).toContain('조종권자 확인 안 됨');   // 목록의 null 을 «없음»으로 단정하지 않음
+      expect(detail()).not.toContain('조종하는 사람 없음');
     } finally { vi.useRealTimers(); }
   });
   it('[B6] 총괄은 모두 실시간 구독이라 목록을 다시 받지 않음', async () => {
@@ -275,7 +280,7 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     try {
       serve(signedIn(LEE, [robot('r-c', 'Go2-C', 'o2', '박운영')]));
-      await open('#/drive/r-c');
+      await open('#/drive', true);
       const w = FakeWS.last;
       act(() => w.open());
       expect(w.of('sub')).toMatchObject([{ robots: [] }]);
@@ -285,6 +290,8 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
       expect(w.of('sub')).toMatchObject([{ robots: [] }, { robots: ['r-c'] }]);
       expect(FakeWS.all).toHaveLength(1);
       act(() => w.recv(state('r-c')));
+      act(() => btn('연결')!.click());
+      expect(location.hash).toBe('#/drive/r-c');
       expect(btn('조종 시작')!.disabled).toBe(false);
     } finally { vi.useRealTimers(); }
   });
@@ -296,8 +303,16 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
     act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
     expect($('[aria-label="로봇 목록"]')!.textContent).toContain('연결 전');
     expect($('[data-band]')!.textContent).toBe('');
-    expect($('[aria-label="로봇 상세"] [data-why]')!.textContent).toContain('아직 연결되지 않아');
+    expect($('[aria-label="로봇 상세"] [data-why]')).toBeNull();   // 조종 단추·이유는 폰 로봇 연결 화면에(아래 시험)
     expect($('[data-dev]')!.textContent).toContain('가짜');
+  });
+  it('폰 로봇 연결: 상태를 받은 적 없는 로봇은 «보기만» + 조종 불가 이유', async () => {
+    serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')]));
+    await open('#/drive', true);
+    act(() => { FakeWS.last.open(); FakeWS.last.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null })); });
+    const card = $('.dv-card')!;
+    expect(card.querySelector('button')!.textContent).toBe('보기만');
+    expect(card.querySelector('[data-why]')!.textContent).toContain('아직 연결되지 않아');
   });
   it('담당 로봇 0대: 본문은 안내, 설정 탭은 열림', async () => {
     serve(signedIn(LEE, []));
@@ -325,13 +340,13 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
     expect(box.textContent).toContain('조종 중(나)');
     return w;
   }
-  const cases: [string, boolean, 'logout' | '401' | '4401'][] = [['PC 조종 화면 · 로그아웃', false, 'logout'], ['PC 조종 화면 · 401', false, '401'],
-    ['폰 조종 탭 · 401', true, '401'], ['PC 조종 화면 · 실시간 4401', false, '4401'], ['폰 조종 탭 · 실시간 4401', true, '4401']];
-  for (const [name, phone, how] of cases) it(name, async () => {
+  // 조종 화면은 폰에만 있다(ADR-002 §3) — 로그아웃은 머리줄 ⋯ 안
+  const cases: [string, 'logout' | '401' | '4401'][] = [['폰 조종 화면 · ⋯ 로그아웃', 'logout'], ['폰 조종 화면 · 401', '401'], ['폰 조종 화면 · 실시간 4401', '4401']];
+  for (const [name, how] of cases) it(name, async () => {
     serve(signedIn(KIM, [live], { 'POST /auth/logout': { status: 204 } }));
     const errors: unknown[] = [], onErr = (e: ErrorEvent) => errors.push(e.error);
     addEventListener('error', onErr);
-    await open(phone ? '#/drive' : '#/drive/r-k', phone);
+    await open('#/drive/r-k', true);
     const w = hold();
     if (how === 'logout') act(() => btn('로그아웃')!.click());
     else if (how === '4401') act(() => w.drop(4401));
@@ -347,13 +362,13 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
     expect(FakeWS.all).toHaveLength(1);                     // 로그인 화면에서는 다시 연결하지 않음
     expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);
   });
-  it('폰 조종 탭에서 조종하다 기록 탭 ⋯ 로그아웃', async () => {
+  it('폰 조종 화면에서 조종하다 ⋯ 기록 → ⋯ 로그아웃', async () => {
     serve(signedIn(KIM, [live], { 'POST /auth/logout': { status: 204 } }));
-    await open('#/drive', true);
+    await open('#/drive/r-k', true);
     const w = hold();
-    act(() => ($('nav a[href="#/history"]') as HTMLElement).click());
-    expect(w.of('hidden')).toHaveLength(1);                 // 조종 탭을 떠나며 반납
-    act(() => ($('header details button') as HTMLElement).click());
+    act(() => btn('기록')!.click());
+    expect(w.of('hidden')).toHaveLength(1);                 // 조종 화면을 떠나며 반납
+    act(() => btn('로그아웃')!.click());
     await flush();
     expect($('main[aria-label="로그인"]')).not.toBeNull();
     expect([MEM_USERS.length, MEM_ROBOTS.length, rt.get('r-k').lease]).toEqual([0, 0, null]);

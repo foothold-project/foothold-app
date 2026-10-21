@@ -80,8 +80,9 @@ function Fleet(c: Ctx) {
       <h2>로봇</h2>
       <ul className="fh-list">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
         <button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
-          <Chip {...t} /><b>{x.name}</b><span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
+          <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
           <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보기 전용' : ''}</span>
+          <span className="lbl mono" data-seen>마지막 수신 {x.seenAt || x.listedAt || '—'}</span>
         </button></li>; })}</ul>
     </section>
     <MapCard cancel={c.cancel} />
@@ -136,7 +137,6 @@ function Detail(c: Ctx) {
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
   return <section className="lv-card" aria-label="로봇 상세">
     <div className="fh-row"><h2>{r.name}</h2><Chip {...robotStatus(r)} /></div>
-    <DriveButton c={c} r={r} label="조종하기" onClick={() => c.go('drive', r.id)} />
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     <Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>
     {r.mission && <Line k="임무"><span>{r.mission}</span></Line>}
@@ -165,7 +165,8 @@ function Mission() {
   </>;
 }
 
-function Scenario(c: Ctx) {
+/** 이 로봇에 배정된 시나리오(가짜) — 폰 조종 화면의 시나리오 시트 */
+export function Scenario(c: Ctx) {
   return <>{SCENARIOS.filter((s) => s.robot === c.robot.id).map((s) => <section key={s.id} className="lv-card">
     <div className="fh-row"><h2 className="fh-grow">{s.name}</h2><button type="button" className="btn pri" aria-label={`${s.name} 실행`} {...soon}>▶</button></div>
     <p className="lv-note">지점 {s.points} · {s.meters} m{s.last ? ` · ${s.last}` : ''}</p>
@@ -173,4 +174,4 @@ function Scenario(c: Ctx) {
   {!SCENARIOS.some((s) => s.robot === c.robot.id) && <p className="lv-note">이 로봇에 배정된 시나리오가 없습니다.</p>}</>;
 }
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approvals, history: History, map: Maps, settings: Settings, scenario: Scenario };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approvals, history: History, map: Maps, settings: Settings };

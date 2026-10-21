@@ -1,9 +1,11 @@
-// 조종 탭(02 기능 F-TO-01~05, 03 UX §5.2·§5.7). 조종권·잠금·STOP 은 실시간 연결(rt.ts)만 부른다 — 판정은 서버 중재기.
+// 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
+// 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 폰 ↔ 에이전트 직결은 다음 작업.
 // 영상·지도·시나리오 제어는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
-import { useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
-import { Chip, DriveButton, soon, type Ctx } from './screens';
+import { PHONE_SHEETS, type SheetId } from './menu';
+import { Chip, DriveButton, Scenario, soon, type Ctx } from './screens';
 import './drive.css';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
@@ -44,26 +46,54 @@ function lockChip(l: Live, r: Robot): { tone: Tone; text: string } {
 const BUSY_TEXT = { take: '로봇 정지를 확인한 뒤 조종권을 받습니다.', give: '조종권을 넘기는 중입니다. 로봇 정지를 확인하고 있습니다.' };
 
 export function Drive(c: Ctx) {
-  return c.phone || c.open ? <Screen {...c} /> : <Picker {...c} />;
+  return c.open ? <Screen {...c} /> : <Connect {...c} />;
 }
 
-/** F-TO-01: 탭에 그냥 들어오면 로봇 카드 목록 */
-function Picker(c: Ctx) {
+/** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기 —
+ *  기동 기능이 아직 서버에 없어 고르는 칸·단추는 준비 중(누를 수 없음) */
+export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
   useRt();
-  return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="로봇 고르기">
-    <h2>조종할 로봇</h2>
-    <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
-  </section>;
+  return <>
+    <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="내 로봇">
+      <h2>내 로봇</h2>
+      {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
+        : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p>}
+    </section>
+    <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="시뮬 로봇 띄우기">
+      <h2>시뮬 로봇 띄우기</h2>
+      <label className="fh-field">지도<select className="fh-user" {...soon}><option>빈 공간에서 지도 만들기</option></select></label>
+      <div className="fh-row" role="group" aria-label="시뮬러">{['기본 시뮬', '교차 확인 시뮬'].map((t, i) => <button key={t} type="button" className="btn" aria-pressed={i === 0} {...soon}>{t}</button>)}</div>
+      <button type="button" className="btn pri" {...soon}>띄우기</button>
+      <p className="lv-note">준비 중입니다. 시뮬 로봇은 다음 단계에서 띄울 수 있습니다.</p>
+    </section>
+  </>;
 }
-function Card({ c, r }: { c: Ctx; r: Robot }) {
+function Card({ c, r }: { c: Pick<Ctx, 'user' | 'go'>; r: Robot }) {
   const why = driveBlock(c.user, r), id = `why-${r.id}`;
   return <li className="card dv-card">
-    <div className="fh-row"><b>{r.name}</b><Chip {...robotStatus(r)} /><span className="mono">{pct(r.battery)}</span></div>
+    <div className="fh-row"><b>{r.name}</b>{r.sim && <Chip tone="off" text="시뮬" />}<Chip {...robotStatus(r)} /><span className="mono">{pct(r.battery)}</span></div>
     <span className="lbl">{holderText(rt.get(r.id), c.user.id, r)}</span>
-    <button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기' : '직접 조종'}</button>
+    <button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기만' : '연결'}</button>
     {why && <span id={id} className="fh-why" data-why>{why}</span>}
   </li>;
 }
+
+/** 아래 줄 시트(조종 화면 위에 열림 — 화면은 그대로, STOP 이 있는 머리줄은 덮지 않음) */
+export function Sheet({ title, close, children }: { title: string; close: () => void; children: ReactNode }) {
+  return <section className="fh-sheet" role="dialog" aria-label={title} data-sheet>
+    <div className="fh-row"><h2 className="fh-grow">{title}</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
+    {children}
+  </section>;
+}
+const Later = ({ text, buttons = [] }: { text: string; buttons?: string[] }) => <>
+  {!!buttons.length && <div className="fh-row">{buttons.map((b) => <button key={b} type="button" className="btn" {...soon}>{b}</button>)}</div>}
+  <p className="lv-note">준비 중입니다. {text}</p></>;
+const SHEET: Record<SheetId, (c: Ctx) => JSX.Element> = {
+  pose: () => <Later text="서기·앉기·넘어진 뒤 일으키기는 다음 단계에서 열립니다." buttons={['서기', '앉기', '일으키기']} />,
+  scenario: (c) => <Scenario {...c} />,
+  goal: () => <Later text="지도 위에 목표를 찍어 보내는 기능은 다음 단계에서 열립니다." />,
+  policy: () => <Later text="지금 보행 정책 표시와 바꾸기는 다음 단계에서 열립니다." />,
+};
 
 /** F-TO-02~05: 조종 화면 */
 function Screen(c: Ctx) {
@@ -71,11 +101,12 @@ function Screen(c: Ctx) {
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false);
-  const input = useRef({ keys: new Set<string>(), pad: [0, 0] as Axes, stick: [0, 0] as Axes });
+  const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권·입력은 그대로)
+  const input = useRef({ keys: new Set<string>(), stick: [0, 0] as Axes });
   const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
   const axes = (): Axes => {
-    const { keys: k, pad, stick } = input.current;
-    return [Math.max(0, clamp(+k.has('f') + pad[0] + stick[0])), clamp(+k.has('l') - +k.has('r') + pad[1] + stick[1])];   // 후진은 막음(PRD Q1)
+    const { keys: k, stick } = input.current;
+    return [Math.max(0, clamp(+k.has('f') + stick[0])), clamp(+k.has('l') - +k.has('r') + stick[1])];   // 후진은 막음(PRD Q1)
   };
 
   // 키보드(F-TO-05). 요청 창이 떠 있어도 방향키는 조종
@@ -123,10 +154,11 @@ function Screen(c: Ctx) {
     : <><DriveButton c={c} r={r} label="조종 시작" onClick={() => start()} wait={wait} />
         {l.outgoing && <button type="button" className="btn" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</>;
   const line = <div className="fh-row dv-line" aria-label="상태">
-    {!c.phone && <h2>{r.name}</h2>}
+    <h2>{r.name}</h2>
+    {r.sim && <Chip tone="off" text="시뮬" />}
     <span>{holderText(l, me, r)}</span>
     {r.online && speed != null && <span className="mono">{speed.toFixed(1)} m/s</span>}
-    {r.online && !c.phone && l.state?.latency_ms != null && <span className="mono">지연 {l.state.latency_ms} ms</span>}
+    {r.online && l.state?.latency_ms != null && <span className="mono">지연 {l.state.latency_ms} ms</span>}
     <span className="mono">{pct(r.battery)}</span>
     <Chip {...lock} />
     <span className="fh-grow" />
@@ -134,18 +166,17 @@ function Screen(c: Ctx) {
   </div>;
   const note = l.notice && <p className="dv-note" role="status">{l.notice}</p>;
   const views = <div className="dv-views" aria-label="보기">
-    {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', c.phone ? '지도' : '지도 크게']] as const).map(([v, t]) =>
+    {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도']] as const).map(([v, t]) =>
       <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
   </div>;
 
-  return <section className={`dv${c.phone ? ' ph' : ''}`} style={{ flexBasis: '100%' }} aria-label="조종">
-    {!c.phone && <>{line}{note}</>}
+  return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종">
     <div className="dv-body">
       <div className={`dv-stage ${view}`}>
         {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}
         <button type="button" className="dv-mini" aria-label={view === 'map' ? '영상 크게' : '지도 크게'} onClick={() => setView(view === 'map' ? 'rgb' : 'map')}>
           {view === 'map' ? <Video small /> : <MapView />}</button>
-        {c.phone && <div className="dv-hud">{line}{views}{note}</div>}
+        <div className="dv-hud">{line}{views}{note}</div>
         {q && <div className="dv-ask" role="dialog" aria-labelledby="dv-ask-t" aria-live="assertive">
           <b id="dv-ask-t">조종권 요청</b>
           <p>{ROLE_NAME[q.role as Role] ?? ''} {q.name}님이 {r.name} 조종권을 요청했습니다. 넘겨주시겠습니까?</p>
@@ -161,13 +192,13 @@ function Screen(c: Ctx) {
           <p>{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</p>
           <div className="fh-row"><button type="button" className="btn pri" onClick={() => start(true)}>일시정지하고 조종</button><button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>
         </div>}
-        {mine && (c.phone
-          ? <><Stick label="전후" vertical on={ready} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} />
-              <Stick label="회전" on={ready} set={(v) => { input.current.stick[1] = v; }} /></>
-          : <MouseBar on={ready} set={(a) => { input.current.pad = a; }} />)}
+        {mine && <><Stick label="전후" vertical on={ready} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} />
+          <Stick label="회전" on={ready} set={(v) => { input.current.stick[1] = v; }} /></>}
         {back && mine && <span className="dv-back" role="status">후진은 아직 지원하지 않습니다</span>}
+        <div className="dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
+          <button key={x.id} type="button" className="btn" aria-expanded={sheet === x.id} onClick={() => setSheet(sheet === x.id ? null : x.id)}>{x.label}</button>)}</div>
+        {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => setSheet(null)}>{SHEET[sheet](c)}</Sheet>}
       </div>
-      {!c.phone && views}
     </div>
     {r.mission && <div className="fh-row dv-run">
       <span>시나리오: {r.mission}</span>
@@ -191,20 +222,6 @@ function MapView({ big }: { big?: boolean }) {
     {dots.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="1.6" fill="var(--warn)" />)}
     <path d="M100 62l7 14h-14z" fill="var(--accent)" />
   </svg>;
-}
-
-/** PC 마우스 막대(F-TO-05): 누르고 있는 동안만 움직임, 놓으면 0 */
-function MouseBar({ on, set }: { on: boolean; set: (a: Axes) => void }) {
-  const hold = (a: Axes) => ({
-    onPointerDown: (e: PointerEvent<HTMLButtonElement>) => { e.currentTarget.setPointerCapture?.(e.pointerId); set(a); },
-    onPointerUp: () => set([0, 0]), onPointerCancel: () => set([0, 0]), onLostPointerCapture: () => set([0, 0]),
-  });
-  return <div className="dv-pad" aria-label="화면 조종 막대">
-    <button type="button" className="btn" disabled={!on} aria-label="왼쪽 회전" {...hold([0, 1])}>◀</button>
-    <button type="button" className="btn" disabled={!on} aria-label="전진" {...hold([1, 0])}>▲</button>
-    <button type="button" className="btn" disabled aria-label="후진 미지원">▼</button>
-    <button type="button" className="btn" disabled={!on} aria-label="오른쪽 회전" {...hold([0, -1])}>▶</button>
-  </div>;
 }
 
 /** 폰 엄지 조이스틱(03 §5.7): 왼쪽 전후(세로), 오른쪽 회전(가로). 손을 떼면 0 */

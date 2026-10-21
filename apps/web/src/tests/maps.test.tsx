@@ -947,7 +947,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
     serve(editSrv());
     await startEdit();
     await click($('nav a[href="#/fleet"]')); await hashed();         // 바꾼 것 없으면 바로 떠남 — 다시 들어옴
-    expect($('main')!.getAttribute('aria-label')).toBe('관제');
+    expect($('main')!.getAttribute('aria-label')).toBe('로봇');
     await click($('nav a[href="#/map"]')); await hashed();
     await click(btn('편집', card('보기·편집')));
     canvas().getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 320, right: 400, bottom: 320, x: 0, y: 0, toJSON() {} }) as DOMRect;
@@ -1027,7 +1027,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     await click($('nav a[href="#/fleet"]')); await hashed();
     expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
     await click(btn('나가기', card('확인'))); await hashed();
-    expect($('main')!.getAttribute('aria-label')).toBe('관제');
+    expect($('main')!.getAttribute('aria-label')).toBe('로봇');
     expect(unload()).toBe(false);                                        // 나가기로 버린 편집은 남기지 않음
   });
   it('B3 남긴 편집은 로그아웃하면 버림(다음 사람에게 넘기지 않음)', async () => {
@@ -1036,7 +1036,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     await tool('지점'); await tap(1, 1);
     await frame(true); await hashed();
     expect(unload()).toBe(true);
-    act(() => { location.hash = '#/history'; }); await hashed();        // 폰 로그아웃은 기록 탭 «더 보기»
+    act(() => { location.hash = '#/history'; }); await hashed();        // 폰 로그아웃은 머리줄 ⋯
     await click(btn('로그아웃'));
     expect(kept.d).toBeNull(); expect(unload()).toBe(false);
   });
