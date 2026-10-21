@@ -24,6 +24,7 @@ class Peer:
     device: str | None = None
     purpose: str | None = None
     jti: str | None = None
+    issued: int = 0
     deadline: float = 0
     last_ping: float = 0
     echo: dict | None = None
@@ -286,7 +287,7 @@ class Hub:
             if sum(other.user is not None for other in self.peers.values()) >= 16:
                 self.fail(peer, 'SERVER_BUSY', 1013)
             p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']
-            p.jti = ticket['jti']
+            p.jti, p.issued = ticket['jti'], ticket['issued']
             return {'t': 'hello', 'id': f['id'], 'robot': self.robot, 'proto': PROTO,
                     'limits': deepcopy(LIMITS), 'policy': dict(self.policy), 'simulation': self.simulation,
                     'ping_interval_ms': 1000, 'link_timeout_ms': 3000, 'lease_timeout_ms': 15000}
@@ -414,6 +415,7 @@ class Hub:
                 'sim_wall_delta_s': delta, 'simulation': self.simulation}
 
     def revoke(self, frame):
+        self._expire()  # open authority follows its fixed monotonic deadline
         primary = None
         try:
             self.verifier.revoke(frame)
@@ -427,7 +429,7 @@ class Hub:
                     primary.add_note('revocation STOP error: ' + type(extra).__name__)
         for peer, p in list(self.peers.items()):
             if primary is not None or (p.user is not None and self.verifier.matches(
-                    {'user': p.user, 'device': p.device, 'jti': p.jti}, frame['items'], self.wall())):
+                    {'user': p.user, 'device': p.device, 'jti': p.jti, 'issued': p.issued}, frame['items'], None)):
                 try:
                     self.disconnect(peer, reserve=False, requester_withdrawal=False)
                 except BaseException as error:

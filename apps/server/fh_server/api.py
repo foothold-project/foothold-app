@@ -118,8 +118,8 @@ def page(db, query, model, limit, cursor, serialize, serialize_many=None):
     return {'items': serialize_many(db, rows) if serialize_many else [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
 
 
-def revoke_user_sessions(db, user):
-    phone_pass.revoke(db, user.org_id, user_id=user.id)
+def revoke_user_sessions(db, user, *, clock=phone_pass.time.time):
+    phone_pass.revoke(db, user.org_id, user_id=user.id,clock=clock)
     db.execute(update(Session).where(Session.org_id == user.org_id, Session.user_id == user.id,
                                     Session.revoked_at.is_(None)).values(revoked_at=now()))
 
@@ -188,9 +188,20 @@ def create_app(settings: Settings | None = None):
             if unsafe:
                 raise RuntimeError('Server must use a restricted fh_app database role')
         await app.state.realtime.start()
+        async def denial_auditor():
+            while True:
+                await asyncio.sleep(1)
+                try:
+                    await asyncio.to_thread(issuer.flush_denials,factory,settings.org_id)
+                except Exception:
+                    # Counters stay durable and retry; never drop a denial silently.
+                    continue
+        denial_task = asyncio.create_task(denial_auditor())
         try:
             yield
         finally:
+            denial_task.cancel()
+            await asyncio.gather(denial_task,return_exceptions=True)
             await app.state.realtime.close()
             engine.dispose()
 
@@ -396,7 +407,7 @@ def create_app(settings: Settings | None = None):
     def logout(response: Response, auth: Identity, db: DB):
         user, session = auth
         session.revoked_at = now()
-        phone_pass.revoke(db, user.org_id, user_id=user.id)
+        phone_pass.revoke(db, user.org_id, user_id=user.id,clock=issuer.clock)
         event(db, user.org_id, 'LOGOUT', user.id)
         response.delete_cookie('fh_s', path='/api/v1', httponly=True, secure=True, samesite='strict')
 
@@ -441,7 +452,7 @@ def create_app(settings: Settings | None = None):
             db.commit()
             fail(403, 'FORBIDDEN', '현재 비밀번호를 확인하세요.')
         user.password_hash = hash_password(body.new_password)
-        revoke_user_sessions(db, user)
+        revoke_user_sessions(db, user,clock=issuer.clock)
         event(db, user.org_id, 'PASSWORD_CHANGED', user.id)
 
     @app.get(prefix + '/users', response_model=C.UserList)
@@ -486,9 +497,9 @@ def create_app(settings: Settings | None = None):
         for key, value in values.items():
             setattr(user, key, value)
         if values.get('locked'):
-            revoke_user_sessions(db, user)
+            revoke_user_sessions(db, user,clock=issuer.clock)
         elif 'role' in values:
-            phone_pass.revoke(db, user.org_id, user_id=user.id)
+            phone_pass.revoke(db, user.org_id, user_id=user.id,clock=issuer.clock)
         event(db, actor.org_id, 'USER_UPDATED', actor.id,
               {'user_id': str(user.id), **values})
         return user_object(db, user)
@@ -502,7 +513,7 @@ def create_app(settings: Settings | None = None):
                                            Robot.archived_at.is_(None)).limit(1)):
             fail(409, 'VERSION_CONFLICT', '담당 로봇을 먼저 변경하세요.')
         user.archived_at = now()
-        revoke_user_sessions(db, user)
+        revoke_user_sessions(db, user,clock=issuer.clock)
         event(db, actor.org_id, 'USER_ARCHIVED', actor.id, {'user_id': str(user.id)})
 
     @app.get(prefix + '/users/{user_id}/sessions', response_model=C.SessionList)
@@ -520,7 +531,7 @@ def create_app(settings: Settings | None = None):
         if not session:
             fail(404, 'NOT_FOUND', '기기를 찾을 수 없습니다.')
         if session.revoked_at is None:
-            phone_pass.revoke(db, actor.org_id, user_id=user_id)
+            phone_pass.revoke(db, actor.org_id, user_id=user_id,clock=issuer.clock)
             session.revoked_at = now()
             event(db, actor.org_id, 'SESSION_REVOKED', actor.id,
                   {'session_id': str(session_id)})
@@ -611,7 +622,7 @@ def create_app(settings: Settings | None = None):
                     check_owner(db, user, values['owner_user_id'])
                 old_owner = row.owner_user_id
                 if changing_owner and old_owner is not None:
-                    phone_pass.revoke(db, user.org_id, user_id=old_owner, robot_id=row.id)
+                    phone_pass.revoke(db, user.org_id, user_id=old_owner, robot_id=row.id,clock=issuer.clock)
                 for key, value in values.items():
                     setattr(row, key, value)
                 robot_event(db, user, row, 'ROBOT_UPDATED', {'name': row.name, 'old_owner_user_id': str(old_owner) if old_owner else None,
@@ -634,7 +645,7 @@ def create_app(settings: Settings | None = None):
         rt.begin_robot_change(rid)
         try:
             row = await asyncio.to_thread(find_robot, db, user, robot_id)
-            await asyncio.to_thread(phone_pass.revoke, db, user.org_id, robot_id=row.id)
+            await asyncio.to_thread(phone_pass.revoke, db, user.org_id, robot_id=row.id,clock=issuer.clock)
             record = rt.arbiter.robots.get(rid)
             run = rt.runs.get(rid)
             active_run = run and run.get('status') not in ('COMPLETED', 'FAILED', 'ABORTED')
@@ -716,4 +727,6 @@ def create_app(settings: Settings | None = None):
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
+    app.state.phone_pass_issuer = issuer
+    app.state.realtime.phone_pass_clock = lambda: issuer.clock()
     return app

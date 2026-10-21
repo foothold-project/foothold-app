@@ -39,7 +39,7 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
             with engine.connect() as conn:
                 assert conn.scalar(text('SELECT count(*) FROM sessions')) == 1
             command.upgrade(config, 'head')
-            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'phone_passes', 'phone_revocations', 'alembic_version'}
+            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'phone_passes', 'phone_revocations', 'phone_revocation_batches', 'phone_pass_denials', 'alembic_version'}
             assert set(inspect(engine).get_table_names()) == expected
             command.downgrade(config, 'base')
             assert set(inspect(engine).get_table_names()) == {'alembic_version'}

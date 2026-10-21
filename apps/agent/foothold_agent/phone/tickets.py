@@ -162,9 +162,10 @@ class Verifier:
 
     @staticmethod
     def matches(ticket, items, current):
-        return any(item['until'] > current and (
+        return any((current is None or item['until'] > current) and (
             ticket['jti'] in item['jtis'] if item.get('jtis') is not None else
-            ticket['user'] == item['sub'] and (item.get('device') is None or ticket['device'] == item['device']))
+            ticket['user'] == item['sub'] and (item.get('device') is None or ticket['device'] == item['device'])
+            and (current is not None or ticket['issued'] < item['until']))
             for item in items)
 
     def revoked(self, ticket):
@@ -244,7 +245,7 @@ class Verifier:
             deadline = checked_at + min(expires - current, MAX_LIFETIME)
             if self.now() >= deadline:
                 raise ValueError('ticket expired during admission')
-            return {'user': user, 'device': device, 'purpose': claims['purpose'], 'jti': nonce, 'expires': expires,
+            return {'user': user, 'device': device, 'purpose': claims['purpose'], 'jti': nonce, 'issued': issued, 'expires': expires,
                     'deadline': deadline}
         except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError, sqlite3.Error):
             raise TicketError("TICKET_INVALID") from None

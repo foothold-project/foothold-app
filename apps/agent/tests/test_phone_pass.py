@@ -135,3 +135,45 @@ def test_disconnected_cloud_facade_cannot_apply_revocation(h):
         assert h.verifier.db.execute('SELECT count(*) FROM revoked').fetchone()[0]==0
     finally:
         observer._messages.close()
+
+
+@pytest.mark.parametrize('selector',['jti','user','device'])
+@pytest.mark.parametrize('mono,offset',[(599,2),(599,1),(599.999,2),(600,2),(600.001,2)])
+def test_open_revocation_uses_monotonic_authority_after_trusted_utc_forward(h,selector,mono,offset):
+    owner,claims,_=h.connect(exp=int(h.clock.wall())+600)
+    assert h.take(owner)['ok'];h.unlock(owner);h.cmd(owner,0);h.cmd(owner)
+    observer=Observer(h.hub);observer.connect()
+    try:
+        # Preserve fresh ping/state and the original admission deadline.
+        h.advance(min(mono,599.9))
+        h.clock.t=mono;h.clock.offset=offset
+        if mono<600:
+            h.state(False);h.cmd(owner,0);h.cmd(owner)
+            assert h.hub.session.core.out==(.6,0,0)
+            assert h.hub.peers[owner].deadline==600
+        fields=({'jtis':[claims['jti']]} if selector=='jti' else
+                {'sub':claims['sub'],**({'device':claims['device']} if selector=='device' else {})})
+        effects=observer.receive(revocation(h,until=claims['exp'],**fields))
+        assert h.hub.owner is None and h.hub.session.core.latch and h.hub.session.core.out==Z
+        assert owner not in h.hub.peers and h.hub.closing[owner].close_code==(4403 if mono<600 else 4401)
+        assert {'t':'phone.revoke.ack','seq':1} in effects.messages
+        # UTC expiry may omit cache storage; it must never omit open revocation.
+        assert h.verifier.db.execute('SELECT count(*) FROM revoked').fetchone()[0]==0
+        with pytest.raises(PhoneError):h.cmd(owner)
+    finally:observer._messages.close()
+
+
+@pytest.mark.parametrize('selector',['jti','user','device'])
+def test_expired_revocation_does_not_close_normal_new_pass(h,selector):
+    user,device=str(uuid4()),str(uuid4())
+    until=int(h.clock.wall())
+    peer,claims,_=h.connect(user=user,device=device)
+    assert h.take(peer)['ok'];h.unlock(peer);h.cmd(peer,0);h.cmd(peer)
+    fields=({'jtis':[str(uuid4())]} if selector=='jti' else
+            {'sub':user,**({'device':device} if selector=='device' else {})})
+    observer=Observer(h.hub);observer.connect()
+    try:
+        effects=observer.receive(revocation(h,until=until,**fields))
+        assert h.hub.owner is peer and not h.hub.session.core.latch and h.hub.session.core.out==(.6,0,0)
+        assert {'t':'phone.revoke.ack','seq':1} in effects.messages
+    finally:observer._messages.close()

@@ -170,6 +170,8 @@ class Peer:
     delivery_epochs: dict = field(default_factory=dict)
     revoked_robots: set = field(default_factory=set)
     subscription_task: object = None
+    phone_ack_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(128))
+    phone_ack_pending: set = field(default_factory=set)
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,7 @@ class Realtime:
     def __init__(self, settings, factory, authorize, api_error, clock=time.monotonic):
         self.settings = settings
         self.phone_pass_factory = factory
+        self.phone_pass_clock = time.time
         # Admission/HTTP reads cannot occupy any control or agent-auth slot.
         self.read_engine = create_engine(settings.database_url, pool_size=4, max_overflow=0, pool_timeout=2,
             connect_args={'options': '-c default_transaction_read_only=on -c statement_timeout=2000',
@@ -1559,7 +1562,7 @@ class Realtime:
         peer.phone_revoke_sent = 0
         try:
             while self.agents.get(rid) is peer and not peer.closing:
-                frames = await self.read(pending, self.factory, self.settings.org_id, rid, peer.phone_revoke_sent)
+                frames = await self.read(pending, self.factory, self.settings.org_id, rid, peer.phone_revoke_sent, self.phone_pass_clock)
                 for frame in frames:
                     if self.agents.get(rid) is not peer or peer.closing:
                         return
@@ -1572,7 +1575,33 @@ class Realtime:
             if self.agents.get(rid) is peer:
                 self.retire_agent(rid, peer)
                 with suppress(Exception):
-                    await peer.socket.close(code=1013)
+                    await peer.socket.close(code=1013,reason='REVOCATION_DELIVERY_UNAVAILABLE')
+
+    def queue_phone_ack(self, rid, peer, seq):
+        if seq <= getattr(peer, 'phone_revoke_sent', 0):
+            if seq not in peer.phone_ack_pending:
+                try:
+                    peer.phone_ack_queue.put_nowait(seq)
+                    peer.phone_ack_pending.add(seq)
+                except asyncio.QueueFull:
+                    pass  # no false ACK; reconnect replays still-unconfirmed rows
+
+    async def phone_ack_writer(self, rid, peer):
+        from .phone_pass import acknowledge
+        while True:
+            seq = await peer.phone_ack_queue.get()
+            try:
+                await asyncio.to_thread(acknowledge,self.phone_pass_factory,self.settings.org_id,rid,seq)
+            except Exception:
+                log.warning('Phone revocation ACK storage unavailable; reconnecting agent')
+                if self.agents.get(rid) is peer:
+                    self.retire_agent(rid,peer)
+                    with suppress(Exception):
+                        await peer.socket.close(code=1013,reason='REVOCATION_ACK_STORAGE_UNAVAILABLE')
+                return
+            finally:
+                peer.phone_ack_pending.discard(seq)
+                peer.phone_ack_queue.task_done()
 
     async def agent_ws(self, ws: WebSocket):
         if self.owner_connection is None or self.failed:
@@ -1593,7 +1622,8 @@ class Realtime:
         await ws.accept()
         peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock(), auth_checked=auth_started,
                     budget_at=self.clock(), archive_budget_at=self.clock())
-        sender = watcher = revoker = None
+        sender = watcher = revoker = ack_writer = None
+        hello_done = False
         try:
             async with asyncio.timeout(HELLO_TIMEOUT):
                 while True:
@@ -1613,6 +1643,7 @@ class Realtime:
                     except ValidationError:
                         self.note_audit(rid, {'op': 'AGENT_INVALID_HELLO', 'severity': 'WARN',
                             'data': {'reason': 'INVALID_DEVICE_INVENTORY_OR_HELLO'}})
+            hello_done = True
             # Metadata writes can wait behind a row/audit lock. Revalidate the
             # token before publishing a connected peer or granting authority.
             auth_started = self.clock()
@@ -1656,6 +1687,7 @@ class Realtime:
             sender = asyncio.create_task(self.writer(peer))
             watcher = asyncio.create_task(self.agent_watch(rid, peer))
             revoker = asyncio.create_task(self.phone_revocations(rid, peer))
+            ack_writer = asyncio.create_task(self.phone_ack_writer(rid,peer))
             # Compatibility alias for join/diagnostics, never a peer-owned queue.
             peer.archive = self.audit
             self.streams()
@@ -1703,9 +1735,7 @@ class Realtime:
                         self.inventory.submit(rid, [d.model_dump(mode='json') for d in msg.devices_changed],
                             None, digest(ws.headers.get('authorization', '')[7:]))
                 elif msg.t == 'phone.revoke.ack':
-                    from .phone_pass import acknowledge
-                    if msg.seq <= getattr(peer, 'phone_revoke_sent', 0):
-                        await self.read(acknowledge, self.phone_pass_factory, self.settings.org_id, rid, msg.seq)
+                    self.queue_phone_ack(rid,peer,msg.seq)
                 elif msg.t == 'event':
                     effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'op': 'AGENT_EVENT', 'at': now()})
                     # Parsing never waits behind archival pacing. Exhaustion is
@@ -1736,7 +1766,7 @@ class Realtime:
             await ws.close(code=4403)
         except asyncio.TimeoutError:
             self.retire_agent(rid, peer)
-            await ws.close(code=1013, reason='HELLO_TIMEOUT')
+            await ws.close(code=1013, reason='AGENT_OPERATION_TIMEOUT' if hello_done else 'HELLO_TIMEOUT')
         except ValidationError:
             self.retire_agent(rid, peer)
             await ws.close(code=1011, reason='INTERNAL_VALIDATION')
@@ -1754,11 +1784,11 @@ class Realtime:
                 self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
                 self.apply([Effect('audit', rid, {'op': 'AGENT_DISCONNECTED'})])
             peer.closing = True
-            for task in (sender, watcher, revoker):
+            for task in (sender, watcher, revoker, ack_writer):
                 if task:
                     task.cancel()
             with suppress(asyncio.CancelledError):
-                await asyncio.gather(*(t for t in (sender, watcher, revoker) if t), return_exceptions=True)
+                await asyncio.gather(*(t for t in (sender, watcher, revoker, ack_writer) if t), return_exceptions=True)
 
     def accept_state(self, rid, peer, msg):
         if self.agents.get(rid) is not peer or peer.closing:

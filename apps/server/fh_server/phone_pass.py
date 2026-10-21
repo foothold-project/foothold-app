@@ -8,8 +8,8 @@ import stat
 import time
 from uuid import UUID, uuid4
 
-from sqlalchemy import delete, select
-from .models import Event, PhonePass, PhoneRevocation, now
+from sqlalchemy import delete, select, func, update
+from .models import Event, PhonePass, PhoneRevocation, PhoneRevocationBatch, PhonePassDenials, now
 from .event_messages import render
 
 
@@ -66,18 +66,55 @@ def audit(db, user, code, **data):
                           code=code, severity='INFO', data=data)))
 
 
-def revoke(db, org_id, *, user_id=None, robot_id=None, device=None, purpose=None):
-    """Call inside the same organization-locked transaction as the policy write."""
-    query = select(PhonePass).where(PhonePass.org_id == org_id, PhonePass.exp > int(time.time()))
+MAX_REVOCATIONS = 4096
+
+
+def pack(rows):
+    """Immutable wire-sized groups; reserve the largest valid sequence width."""
+    items, members = [], []
+    for row in rows:
+        candidate = json.loads(json.dumps(items))
+        if candidate and candidate[-1]['until'] == row.exp and len(candidate[-1]['jtis']) < 64:
+            candidate[-1]['jtis'].append(str(row.jti))
+        else:
+            candidate.append(dict(jtis=[str(row.jti)], until=row.exp))
+        size = len(json.dumps(dict(t='phone.revoke',seq=2**53-1,items=candidate),separators=(',',':')).encode())
+        if len(candidate) > 16 or size > 4096:
+            yield items, members
+            candidate, members = [dict(jtis=[str(row.jti)],until=row.exp)], []
+        items = candidate
+        members.append(row)
+    if items:
+        yield items, members
+
+
+def revoke(db, org_id, *, user_id=None, robot_id=None, device=None, purpose=None, clock=time.time):
+    """Same organization-locked transaction as policy; never cap a safety reduction."""
+    query = select(PhonePass).where(PhonePass.org_id == org_id, PhonePass.exp > int(clock()))
     for field, value in (('user_id', user_id), ('robot_id', robot_id), ('device', device), ('purpose', purpose)):
         if value is not None:
             query = query.where(getattr(PhonePass, field) == value)
-    rows = list(db.scalars(query))
-    existing = set(db.scalars(select(PhoneRevocation.jti).where(PhoneRevocation.org_id == org_id)))
-    for row in rows:
-        if row.jti not in existing:
-            db.add(PhoneRevocation(org_id=org_id, robot_id=row.robot_id, jti=row.jti, until=row.exp))
+    existing = select(PhoneRevocation.jti).where(PhoneRevocation.org_id == org_id)
+    rows = list(db.scalars(query.where(PhonePass.jti.not_in(existing)).order_by(PhonePass.robot_id,PhonePass.exp,PhonePass.jti)))
+    robots = {row.robot_id for row in rows}
+    for rid in robots:
+        for items, members in pack([row for row in rows if row.robot_id == rid]):
+            batch = PhoneRevocationBatch(org_id=org_id,robot_id=rid,items=items,
+                                         until=max(i['until'] for i in items))
+            db.add(batch); db.flush()
+            db.add_all([PhoneRevocation(org_id=org_id,robot_id=rid,jti=row.jti,until=row.exp,batch_id=batch.id)
+                        for row in members])
     db.flush()
+
+
+def reserved_count(db, org_id, robot_id, current):
+    confirmed = select(PhoneRevocation.jti).where(PhoneRevocation.org_id == org_id,
+                                                 PhoneRevocation.acked_at.is_not(None))
+    active = select(PhonePass.jti).where(PhonePass.org_id == org_id,PhonePass.robot_id == robot_id,
+                                        PhonePass.exp > current,PhonePass.jti.not_in(confirmed))
+    outstanding = select(PhoneRevocation.jti).where(PhoneRevocation.org_id == org_id,
+        PhoneRevocation.robot_id == robot_id,PhoneRevocation.until > current,PhoneRevocation.acked_at.is_(None))
+    return db.scalar(select(func.count()).select_from(active.union(outstanding).subquery()))
 
 
 class Issuer:
@@ -85,15 +122,39 @@ class Issuer:
         self.keys, self.fail, self.clock = keys, fail, clock
 
     def deny(self, db, user, status, code, retry_after=None):
-        audit(db, user, 'PHONE_PASS_DENIED', reason=code)
+        current = self.clock()
+        row = db.scalar(select(PhonePassDenials).where(PhonePassDenials.org_id == user.org_id).with_for_update())
+        if row is None:
+            row = PhonePassDenials(org_id=user.org_id,count=0,reported_at=current,reasons={})
+            db.add(row)
+        row.count += 1
+        row.reasons = {**row.reasons,code:row.reasons.get(code,0)+1}
+        self._flush_denials(db,row,current)
         db.commit()  # denial must survive the HTTP error rollback
         self.fail(status, code, '폰 출입증을 발급하지 못했습니다.',
                   {'retry_after': retry_after} if retry_after is not None else {})
+
+    @staticmethod
+    def _flush_denials(db, row, current):
+        if row.count and current - row.reported_at >= 1:
+            db.add(render(db, Event(org_id=row.org_id,category='ACCOUNT',code='PHONE_PASS_DENIED',
+                severity='INFO',data={'count':row.count,'reasons':row.reasons})))
+            row.count, row.reasons, row.reported_at = 0, {}, current
+
+    def flush_denials(self, factory, org_id):
+        with factory.begin() as db:
+            row = db.scalar(select(PhonePassDenials).where(PhonePassDenials.org_id == org_id,
+                PhonePassDenials.count > 0,PhonePassDenials.reported_at <= self.clock()-1).with_for_update())
+            if row is not None:
+                self._flush_denials(db,row,self.clock())
 
     def issue(self, db, user, robot, body):
         current = int(self.clock())
         db.execute(delete(PhonePass).where(PhonePass.org_id == user.org_id, PhonePass.exp <= current))
         db.execute(delete(PhoneRevocation).where(PhoneRevocation.org_id == user.org_id, PhoneRevocation.until <= current))
+        db.execute(delete(PhoneRevocationBatch).where(PhoneRevocationBatch.org_id == user.org_id, PhoneRevocationBatch.until <= current))
+        if reserved_count(db,user.org_id,robot.id,current) >= MAX_REVOCATIONS:
+            self.deny(db,user,503,'PASS_REVOCATION_CAPACITY',600)
         entry = self.keys.get(str(robot.id))
         if entry is None:
             self.deny(db, user, 503, 'PASS_KEY_MISSING')
@@ -117,7 +178,7 @@ class Issuer:
             if body.switch:
                 # Explicit consent only; a mistaken issue request must not stop the old robot.
                 for rid in {p.robot_id for p in blocked}:
-                    revoke(db, user.org_id, user_id=user.id, robot_id=rid, device=device, purpose='control')
+                    revoke(db, user.org_id, user_id=user.id, robot_id=rid, device=device, purpose='control',clock=self.clock)
             self.deny(db, user, 409, 'PASS_SWITCH_PENDING' if body.switch else 'PASS_OTHER_ROBOT',
                       max(p.exp for p in blocked) - current)
         kid, keys = entry
@@ -135,17 +196,17 @@ class Issuer:
         return dict(token=compact, exp=current+600, kid=kid)
 
 
-def pending(factory, org_id, robot_id, after):
+def pending(factory, org_id, robot_id, after, clock=time.time):
     with factory() as db:
-        rows = db.scalars(select(PhoneRevocation).where(PhoneRevocation.org_id == org_id,
-            PhoneRevocation.robot_id == UUID(robot_id), PhoneRevocation.until > int(time.time()),
-            PhoneRevocation.seq > after).order_by(PhoneRevocation.seq).limit(4))
-        return [dict(t='phone.revoke', seq=r.seq, items=[dict(jtis=[str(r.jti)], until=r.until)]) for r in rows]
+        rows = db.scalars(select(PhoneRevocationBatch).where(PhoneRevocationBatch.org_id == org_id,
+            PhoneRevocationBatch.robot_id == UUID(robot_id), PhoneRevocationBatch.until > int(clock()),
+            PhoneRevocationBatch.id > after).order_by(PhoneRevocationBatch.id).limit(4))
+        return [dict(t='phone.revoke',seq=r.id,items=r.items) for r in rows]
 
 
 def acknowledge(factory, org_id, robot_id, seq):
     with factory.begin() as db:
-        row = db.scalar(select(PhoneRevocation).where(PhoneRevocation.org_id == org_id,
-            PhoneRevocation.robot_id == UUID(robot_id), PhoneRevocation.seq == seq))
-        if row is not None and row.acked_at is None:
-            row.acked_at = now()
+        # A batch ACK confirms every contained JTI atomically, only for this robot.
+        db.execute(update(PhoneRevocation).where(PhoneRevocation.org_id == org_id,
+            PhoneRevocation.robot_id == UUID(robot_id), PhoneRevocation.batch_id == seq,
+            PhoneRevocation.acked_at.is_(None)).values(acked_at=now()))

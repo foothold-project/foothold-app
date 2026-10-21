@@ -428,15 +428,40 @@ class PhonePass(Tenant, Base):
     exp: Mapped[int] = mapped_column(BigInteger)
 
 
+class PhoneRevocationBatch(Tenant, Base):
+    __tablename__ = 'phone_revocation_batches'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        UniqueConstraint('org_id', 'robot_id', 'id'),
+        Index('phone_revocation_batches_robot_until', 'org_id', 'robot_id', 'until'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    items: Mapped[list] = mapped_column(JSONB)
+    until: Mapped[int] = mapped_column(BigInteger)
+
+
+class PhonePassDenials(Tenant, Base):
+    __tablename__ = 'phone_pass_denials'
+    __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']),)
+    org_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    count: Mapped[int] = mapped_column(BigInteger)
+    reported_at: Mapped[float] = mapped_column(Float)
+    reasons: Mapped[dict] = mapped_column(JSONB)
+
+
 class PhoneRevocation(Tenant, Base):
     __tablename__ = 'phone_revocations'
     __table_args__ = (
         ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
         UniqueConstraint('jti'),
+        ForeignKeyConstraint(['org_id', 'robot_id', 'batch_id'],
+            ['phone_revocation_batches.org_id', 'phone_revocation_batches.robot_id', 'phone_revocation_batches.id']),
         Index('phone_revocations_robot_until', 'org_id', 'robot_id', 'until'),
     )
     seq: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     robot_id: Mapped[UUID] = mapped_column(PGUUID)
     jti: Mapped[UUID] = mapped_column(PGUUID)
     until: Mapped[int] = mapped_column(BigInteger)
+    batch_id: Mapped[int] = mapped_column(BigInteger)
     acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

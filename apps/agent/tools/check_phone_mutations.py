@@ -277,6 +277,12 @@ MUTATIONS += [
      'tests/test_phone_pass.py::test_revocation_persists_restart_and_ack_is_idempotent'),
 ]
 
+MUTATIONS += [
+    ('open revocation wrongly uses UTC expiry', 'hub.py',
+     "frame['items'], None", "frame['items'], self.wall()",
+     'tests/test_phone_pass.py::test_open_revocation_uses_monotonic_authority_after_trusted_utc_forward'),
+]
+
 
 def main():
     if sys.platform == 'linux':
