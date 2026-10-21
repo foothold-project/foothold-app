@@ -36,6 +36,7 @@ function stopText(r: Robot, l: Live) {
 // 마우스 쓰는 낮은 PC 창(1440×400 등)은 PC 틀 유지(10-19 조정 결정 R1)
 /** 알림 링크가 여는 항목(주소 매개변수 이름) */
 const FOCUS: Partial<Record<TabId, string>> = { history: 'event_id', approval: 'approval_id' };
+const RELEASE_MS = 3000;   // 끝내기: 이 안에 반납 답이 없으면 «확인 못함»(늦게 온 성공은 그래도 받는다)
 
 export const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientation: landscape) and (max-height: 480px)';
 const watchPhone = (f: () => void) => { const m = matchMedia(PHONE_Q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
@@ -132,7 +133,29 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
   const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; setWant(h); location.hash = h; };
   useEffect(() => { if (!phone && kept.d) go('map'); }, [phone]);   // 폰 틀에서 PC 로 돌아오면 남겨 둔 지도 편집으로
-  const end = () => { if (robot) rt.release(robot.id); go('drive'); };   // 끝내기 = 조종권 반납 → 로봇 연결
+  // 끝내기 = 입력 0 → 조종권 반납 → 서버가 반납을 확인하면 로봇 연결로. 거절·무응답이면 이 화면에 머물러 [다시 시도]·[연결 화면]을 고른다.
+  // ending: {} = 반납 확인 기다리는 중(끝내기 막힘), {why} = 확인 못함. endTry 가 바뀌면 앞 시도의 답은 버린다(늦은 성공은 아직 고르지 않았을 때만 이동)
+  // endNow = 다시 그리기 전에도 보는 같은 값(두 번 빨리 누르면 둘째가 «조종권 없음 → 바로 이동»으로 빠지지 않게)
+  const [ending, setEndingState] = useState<{ why?: string } | null>(null), endTry = useRef(0), endNow = useRef(ending);
+  const setEnding = (e: typeof ending) => { endNow.current = e; setEndingState(e); };
+  const giveBack = (id: string) => {
+    const n = ++endTry.current;
+    setEnding({});
+    const t = setTimeout(() => { if (endTry.current === n) setEnding({ why: '서버가 답하지 않습니다.' }); }, RELEASE_MS);
+    rt.release(id, (why) => {
+      clearTimeout(t);
+      if (endTry.current !== n) return;
+      if (why) return setEnding({ why });
+      endTry.current++; setEnding(null); go('drive');
+    });
+  };
+  const end = () => {
+    if (!robot || endNow.current) return;
+    rt.cmd(robot.id, [0, 0]);
+    if (rt.get(robot.id).lease) giveBack(robot.id); else go('drive');
+  };
+  const endAnyway = () => { endTry.current++; setEnding(null); go('drive'); };
+  useEffect(() => { if (!open) { endTry.current++; setEnding(null); } }, [open, robot?.id]);
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
   const stop = () => { const r = target ?? pool.find((x) => x.id === choose); if (r) halt(r); else setChoose(pool.find((x) => rt.get(x.id).lease)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
@@ -162,12 +185,13 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'}>
     <header className="fh-head">
       {phone
-        ? <>{open ? <button type="button" className="btn" onClick={end}>끝내기</button> : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
+        ? <>{open ? <button type="button" className="btn" disabled={!!ending} onClick={end}>끝내기</button> : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
         : <><BrandLogo h={24} /><div className="fh-sep" /><h1>{title}</h1></>}
       <span className="fh-grow" />
-      {net.at === 'open' ? <span className="fh-dot ok"><i aria-hidden="true">●</i>연결</span>
-        : net.at === 'connecting' || net.at === 'idle' ? <span className="fh-dot"><i aria-hidden="true">○</i>연결 중</span>
-        : <span className="fh-dot bad" data-link={net.at}><i aria-hidden="true">■</i>{net.at === 'denied' ? '연결 거부' : '연결 끊김'}</span>}
+      {(() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
+        const [cls, dot, t] = net.at === 'open' ? ['ok', '●', '연결'] : net.at === 'connecting' || net.at === 'idle' ? ['', '○', '연결 중'] : ['bad', '■', net.at === 'denied' ? '연결 거부' : '연결 끊김'];
+        return <span className={`fh-dot${cls ? ` ${cls}` : ''}`} data-link={cls === 'bad' ? net.at : undefined} title={t}><i aria-hidden="true">{dot}</i><span className="fh-dot-t">{t}</span></span>;
+      })()}
       {!phone && <Guard quiet><Bell cancel={cancel} /></Guard>}
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
@@ -176,6 +200,12 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
       <Stop phone={phone} onStop={stop} />
     </header>
+    {open && ending && (ending.why
+      ? <div className="fh-pick" role="alertdialog" aria-label="조종권 반납 확인 못함" data-end-fail>
+          <span>조종권 반납을 확인하지 못했습니다. {ending.why} 조종권이 아직 나에게 남아 있을 수 있습니다.</span>
+          <button type="button" className="btn pri" onClick={() => robot && giveBack(robot.id)}>다시 시도</button>
+          <button type="button" className="btn" onClick={endAnyway}>연결 화면</button></div>
+      : <div className="fh-pick" role="status" data-ending>조종권을 반납하는 중입니다…</div>)}
     {choose != null && !target && <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
       <span>어느 로봇을 정지할까요?</span>
       <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>

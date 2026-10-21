@@ -372,11 +372,13 @@ export const rt = {
     set(id, { incoming: null, busy: accept ? 'give' : null });
     send({ t: 'lease.respond', robot: id, request_id: q.id, accept }, (r) => { if (!r.ok) set(id, { busy: null, notice: say(r.error) }); });
   },
-  release(id: string) {
-    if (!get(id).lease) return;
-    send({ t: 'lease.release', robot: id });
-    gone.add(get(id).lease!);
-    set(id, { lease: null, neutral: false, incoming: null });
+  /** 조종권 반납. 입력은 바로 멈추고(내 lease 를 지움) done 에 서버 판정(null = 반납됨, 글 = 못 함).
+   *  done 을 주면 내 lease 가 이미 없어도 보낸다(반납을 확인 못 했을 때 다시 시도) */
+  release(id: string, done?: (why: string | null) => void) {
+    const lease = get(id).lease;
+    if (!lease && !done) return;
+    send({ t: 'lease.release', robot: id }, done && ((r) => done(r.ok ? null : say(r.error))));
+    if (lease) { gone.add(lease); set(id, { lease: null, neutral: false, incoming: null }); }
   },
   unlock(id: string) {
     const l = get(id), gen = l.state?.stop_gen;

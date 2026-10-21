@@ -52,5 +52,7 @@
 @media (orientation:portrait){.dv-sheets{left:8px;right:8px;bottom:144px;transform:none;flex-wrap:wrap;justify-content:center}.dv-sheets .btn{padding:0 8px}.dv.ph .dv-mini{bottom:200px}}
 /* 낮은 세로 폰(320×568 등): 조이스틱을 줄이고 단추 줄을 내려 위 상태 판과 겹치지 않게 */
 @media (orientation:portrait) and (max-height:700px){.dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}.dv-sheets{bottom:104px}.dv.ph .dv-mini{bottom:156px}}
+/* 가로 폰(낮은 높이): 영상 칸을 넓히려고 조종 화면의 개발용 표시는 숨기고(영상·지도 칸에 «자리» 표시가 남음) 띠 여백을 줄임 */
+@media (max-height:480px){.fh:has(.dv.ph) .fh-dev{display:none}.fh:has(.dv.ph) .fh-band{padding:4px 8px;gap:2px}}
 @media (max-height:480px){.dv-hud{flex-direction:row;flex-wrap:wrap;align-items:center}.dv-hud .dv-line{flex:1}.dv-hud .dv-views{align-self:center}.dv-hud .dv-note{flex-basis:100%}
   .dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}.dv.ph .dv-mini{bottom:108px}}

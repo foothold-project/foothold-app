@@ -72,17 +72,31 @@ export function EmptyFleet({ user, cancel, dash: { d, err }, children }: { user:
 /** 관제 지도 칸 — 로봇 수와 상관없이. 칸 안 렌더 예외는 Guard 가 가둔다(STOP 은 머리줄) */
 const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
 
+/** 마지막 수신 = 그 로봇의 ONLINE 상태를 받은 시각(다시 그린 시각이 아님). OFFLINE 이면 마지막 ONLINE 을 받은 시각(seenAt),
+ *  받은 상태가 없으면 목록을 받은 시각. rt 는 받은 시각을 단조 시계로 두므로 벽시계로 한 번 바꿔 받은 시각마다 기억한다(다시 그려도 초가 흔들리지 않게) */
+const heard = new Map<string, [number, string]>();
+function received(x: Robot) {
+  const l = rt.get(x.id), at = l.stateAt;
+  if (x.unknown === 'summary' || x.unknown === 'wait' || !l.state) return x.listedAt || x.seenAt || '—';
+  if (l.state.connection !== 'ONLINE') return x.seenAt || x.listedAt || '—';
+  const m = heard.get(x.id);
+  if (m?.[0] === at) return m[1];
+  const t = new Date(Date.now() - (rt.now() - at)).toTimeString().slice(0, 8);
+  heard.set(x.id, [at, t]);
+  return t;
+}
+
 function Fleet(c: Ctx) {
   const admin = c.user.role === 'ORG_ADMIN', r = c.robot, { d, err } = c.dash;
   return <>
     <Kpi user={c.user} d={d} err={err} />
     <section className="lv-card" aria-label="로봇 목록">
       <h2>로봇</h2>
-      <ul className="fh-list">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
+      <ul className="fh-list robots">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
         <button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
           <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
           <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보기 전용' : ''}</span>
-          <span className="lbl mono" data-seen>마지막 수신 {x.seenAt || x.listedAt || '—'}</span>
+          <span className="lbl mono" data-seen>마지막 수신 {received(x)}</span>
         </button></li>; })}</ul>
     </section>
     <MapCard cancel={c.cancel} />

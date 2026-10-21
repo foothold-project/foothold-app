@@ -101,8 +101,17 @@ function Screen(c: Ctx) {
   const [view, setView] = useState<'rgb' | 'depth' | 'map'>('rgb');
   const [ask, setAsk] = useState(false);   // 시나리오 일시정지 확인창(F-TO-03, 03 §2 U10)
   const [back, setBack] = useState(false);
-  const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권·입력은 그대로)
+  const [sheet, setSheet] = useState<SheetId | null>(null);   // 아래 줄 시트(조종권은 그대로, 입력은 0으로)
+  const [epoch, setEpoch] = useState(0);   // 바뀌면 조이스틱이 쥔 포인터를 놓는다(gen 은 그리기 전에도 바로 보는 같은 수)
+  const gen = useRef(0);
   const input = useRef({ keys: new Set<string>(), stick: [0, 0] as Axes });
+  /** 시트·⋯ 가 조이스틱을 가리면 입력을 0으로: 바로 0을 보내고, 누르던 포인터·키는 새로 누를 때까지 되살리지 않는다 */
+  const neutral = () => {
+    const i = input.current;
+    i.keys.clear(); i.stick = [0, 0]; setBack(false); setEpoch(++gen.current);
+    rt.cmd(r.id, [0, 0]);
+  };
+  const pick = (s: SheetId | null) => { neutral(); setSheet(s); };
   const now = useNow(!!l.incoming || !!l.outgoing || l.cooldown > rt.now());
   const axes = (): Axes => {
     const { keys: k, stick } = input.current;
@@ -116,7 +125,9 @@ function Screen(c: Ctx) {
     const down = (e: KeyboardEvent) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const k = KEY[e.code]; if (!k) return;
-      e.preventDefault(); keys.add(k); if (k === 'b') setBack(true);
+      e.preventDefault();
+      if (e.repeat && !keys.has(k)) return;   // 시트를 열며 비운 키는 다시 눌러야 한다
+      keys.add(k); if (k === 'b') setBack(true);
     };
     const up = (e: KeyboardEvent) => {
       const k = KEY[e.code]; if (k) { keys.delete(k); if (k === 'b') setBack(false); }
@@ -127,6 +138,12 @@ function Screen(c: Ctx) {
   }, []);
   // 이 화면이 이 로봇을 연 동안만 조종권을 쥔다: 떠나면 반납, 숨기면 정지·잠금·반납(F-TO-03) — rt 가 처리
   useEffect(() => rt.watch(r.id), [r.id]);
+  // 머리줄 ⋯ 메뉴(App 의 details)가 열려도 입력 0 — toggle 은 거품이 없어 잡기 단계로 받는다
+  const neutralRef = useRef(neutral); neutralRef.current = neutral;
+  useEffect(() => {
+    const f = (e: Event) => { if ((e.target as HTMLDetailsElement).open) neutralRef.current(); };
+    document.addEventListener('toggle', f, true); return () => document.removeEventListener('toggle', f, true);
+  }, []);
   // 입력은 50 ms 마다(0 포함) — 조종권 심장 박동 겸. 손을 떼면 0(입력이 끊기면 로봇도 0.3 s 뒤 멈춘다)
   useEffect(() => {
     if (!mine) return;
@@ -192,12 +209,12 @@ function Screen(c: Ctx) {
           <p>{r.name}이 시나리오를 실행 중입니다. 조종을 시작하면 시나리오가 일시정지됩니다.</p>
           <div className="fh-row"><button type="button" className="btn pri" onClick={() => start(true)}>일시정지하고 조종</button><button type="button" className="btn" onClick={() => setAsk(false)}>취소</button></div>
         </div>}
-        {mine && <><Stick label="전후" vertical on={ready} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} />
-          <Stick label="회전" on={ready} set={(v) => { input.current.stick[1] = v; }} /></>}
+        {mine && <><Stick label="전후" vertical on={ready} epoch={epoch} gen={gen} set={(v) => { input.current.stick[0] = v; setBack(v < -0.3); }} />
+          <Stick label="회전" on={ready} epoch={epoch} gen={gen} set={(v) => { input.current.stick[1] = v; }} /></>}
         {back && mine && <span className="dv-back" role="status">후진은 아직 지원하지 않습니다</span>}
         <div className="dv-sheets" aria-label="조종 메뉴">{PHONE_SHEETS.map((x) =>
-          <button key={x.id} type="button" className="btn" aria-expanded={sheet === x.id} onClick={() => setSheet(sheet === x.id ? null : x.id)}>{x.label}</button>)}</div>
-        {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => setSheet(null)}>{SHEET[sheet](c)}</Sheet>}
+          <button key={x.id} type="button" className="btn" aria-expanded={sheet === x.id} onClick={() => pick(sheet === x.id ? null : x.id)}>{x.label}</button>)}</div>
+        {sheet && <Sheet title={PHONE_SHEETS.find((x) => x.id === sheet)!.label} close={() => pick(null)}>{SHEET[sheet](c)}</Sheet>}
       </div>
     </div>
     {r.mission && <div className="fh-row dv-run">
@@ -224,18 +241,23 @@ function MapView({ big }: { big?: boolean }) {
   </svg>;
 }
 
-/** 폰 엄지 조이스틱(03 §5.7): 왼쪽 전후(세로), 오른쪽 회전(가로). 손을 떼면 0 */
-function Stick({ label, vertical, on, set }: { label: string; vertical?: boolean; on: boolean; set: (v: number) => void }) {
+/** 폰 엄지 조이스틱(03 §5.7): 왼쪽 전후(세로), 오른쪽 회전(가로). 손을 떼면 0. epoch 가 바뀌면 쥔 포인터를 놓고 새 누름까지 무시 */
+function Stick({ label, vertical, on, epoch, gen, set }: { label: string; vertical?: boolean; on: boolean; epoch: number; gen: { current: number }; set: (v: number) => void }) {
   const [k, setK] = useState(0);
+  const held = useRef<{ el: HTMLDivElement; id: number; g: number } | null>(null);
+  useEffect(() => {
+    const h = held.current; held.current = null; setK(0);
+    if (h?.el.hasPointerCapture?.(h.id)) h.el.releasePointerCapture(h.id);
+  }, [epoch]);
   const move = (e: PointerEvent<HTMLDivElement>) => {
     const b = e.currentTarget.getBoundingClientRect();
     const v = clamp(vertical ? (b.top + b.height / 2 - e.clientY) / (b.height / 2) : (b.left + b.width / 2 - e.clientX) / (b.width / 2));
     setK(v); set(v);
   };
-  const end = () => { setK(0); set(0); };
+  const end = () => { held.current = null; setK(0); set(0); };
   return <div className={`dv-stick ${vertical ? 'v' : 'h'}`} aria-label={`${label} 조이스틱`} aria-disabled={!on}
-    onPointerDown={(e) => { if (!on) return; e.currentTarget.setPointerCapture?.(e.pointerId); move(e); }}
-    onPointerMove={(e) => { if (e.currentTarget.hasPointerCapture?.(e.pointerId)) move(e); }}
+    onPointerDown={(e) => { if (!on) return; held.current = { el: e.currentTarget, id: e.pointerId, g: gen.current }; e.currentTarget.setPointerCapture?.(e.pointerId); move(e); }}
+    onPointerMove={(e) => { const h = held.current; if (h?.id === e.pointerId && h.g === gen.current) move(e); }}
     onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}>
     <i style={{ transform: vertical ? `translateY(${-k * 36}px)` : `translateX(${-k * 36}px)` }} />
     <span>{label}</span>

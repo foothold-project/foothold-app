@@ -397,6 +397,27 @@ describe('조종 화면', () => {
   });
 });
 
+// [B3] PC 로봇 목록 «마지막 수신» = 상태를 받은 시각(다시 그린 시각 아님)
+describe('마지막 수신 시각', () => {
+  const seen = (name: string) => row(name).querySelector('[data-seen]')!.textContent;
+  it('누르기·시간 흐름만으로는 안 바뀌고 새 상태가 와야 바뀜, 상태 없는 로봇은 목록 받은 시각', () => {
+    vi.setSystemTime(new Date(2026, 9, 21, 13, 40, 5));
+    mount(false, 'u-kim', '#/fleet', ROBOTS.map((r) => ({ ...r, listedAt: '13:40:05' })));   // 서버 목록을 받은 시각(toRobot 이 붙임)
+    tick(2000);                                            // 2 s 뒤 연결
+    serve(KIM, 'r7');
+    expect(seen('Go2-7')).toBe('마지막 수신 13:40:07');
+    expect(seen('Go2-3')).toBe('마지막 수신 13:40:05');      // 실시간 상태를 아직 못 받음 → 목록 받은 시각
+    tick(5000);
+    click(row('Go2-3'));                                   // 다시 그리기만
+    expect(seen('Go2-7')).toBe('마지막 수신 13:40:07');
+    act(() => push('r7', { speed: 0.3 }));
+    expect(seen('Go2-7')).toBe('마지막 수신 13:40:12');
+    tick(3000);
+    click(row('Go2-7'));
+    expect(seen('Go2-7')).toBe('마지막 수신 13:40:12');
+  });
+});
+
 describe('실시간 연결(05 §9)', () => {
   it('3 s 동안 아무것도 못 받으면 «연결 끊김» + 로봇 상태 모름 + 조종 불가, 1 s 마다 ping', () => {
     mount(true, 'u-kim', '#/drive');
@@ -1193,6 +1214,150 @@ describe('폰 조종 앱 틀', () => {
     expect(cmds()).toHaveLength(n);
   });
 
+  /** 진짜 PointerEvent 대신 pointerId 를 단 MouseEvent(jsdom) */
+  const pe = (type: string, el: Element, x: number, y: number, id = 1) => act(() => {
+    const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+    Object.defineProperty(e, 'pointerId', { value: id });
+    el.dispatchEvent(e);
+  });
+  /** 전후 조이스틱(120 px 상자): 위 6.6 px = 전진 0.89. 포인터 잡기·놓기를 기록한다 */
+  const grip = () => {
+    const el = $('[aria-label="전후 조이스틱"]'), held = new Set<number>();
+    el.getBoundingClientRect = () => ({ top: 0, left: 0, width: 120, height: 120 }) as DOMRect;
+    Object.assign(el, { setPointerCapture: (i: number) => held.add(i), hasPointerCapture: (i: number) => held.has(i), releasePointerCapture: (i: number) => held.delete(i) });
+    return { el, held };
+  };
+  const FWD = 0.89;
+  // [B1] 시트·⋯ 가 조이스틱을 가리는 네 경우: 열기·전환·닫기·⋯ 열기
+  for (const [name, before, act_] of [
+    ['시트 열기', () => {}, () => click(btn('자세'))],
+    ['시트 전환', () => click(btn('자세')), () => click(btn('시나리오'))],
+    ['시트 닫기', () => click(btn('자세')), () => click(btn('닫기'))],
+    ['⋯ 열기', () => {}, () => { click($('summary[aria-label="더 보기"]')); tick(0); }],
+  ] as const) it(`조이스틱·키를 누른 채 ${name} → 바로 입력 0 보냄 + 포인터 놓음, 새로 누르기 전까지 옛 포인터·키는 되살지 않음`, () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    ready();
+    before();
+    const { el, held } = grip();
+    pe('pointerdown', el, 60, 6.6);
+    key('keydown', 'KeyA');
+    tick(100);
+    expect((lastAxes() as number[])[0]).toBeCloseTo(FWD, 2);
+    expect((lastAxes() as number[])[2]).toBe(1);
+    expect(held.has(1)).toBe(true);
+    const n = cmds().length;
+    act_();
+    expect(cmds().length).toBe(n + 1);                     // 50 ms 를 기다리지 않고 바로
+    expect(lastAxes()).toEqual([0, 0, 0]);
+    expect(held.has(1)).toBe(false);
+    pe('pointermove', el, 60, 0);                           // 옛 포인터가 계속 움직여도
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyA', repeat: true, bubbles: true, cancelable: true })); });   // 누른 키의 자동 반복도
+    tick(200);
+    expect(cmds().slice(n).every((m) => (m.axes as number[]).every((v) => v === 0))).toBe(true);
+    expect(rt.get('r7').lease).not.toBeNull();             // 조종권은 그대로
+    pe('pointerdown', el, 60, 6.6, 2);                      // 새로 누르면 다시 조종
+    tick(100);
+    expect((lastAxes() as number[])[0]).toBeCloseTo(FWD, 2);
+    pe('pointerup', el, 60, 6.6, 2);
+    key('keyup', 'KeyA'); key('keydown', 'KeyA');           // 키도 새로 누르면
+    tick(100);
+    expect(lastAxes()).toEqual([0, 0, 1]);
+  });
+
+  // [B2] 끝내기 = 입력 0 → 반납 중 → 서버가 반납을 확인해야 로봇 연결로
+  /** lease.release 에 대한 서버 답을 바꿈: reject = 거절, none = 답 없음(뒤에 answer() 로 늦게 성공) */
+  function releaseReply(mode: 'reject' | 'none') {
+    const base = w.auto!, pending: string[] = [];
+    w.auto = (m) => {
+      if (m.t !== 'lease.release') return base(m);
+      if (mode === 'reject') w.recv({ t: 'reply', id: m.id, ...fail('NOT_HOLDER', '조종권을 가진 사람이 아닙니다.') });
+      else pending.push(m.id);
+    };
+    return { answer: () => act(() => { for (const id of pending.splice(0)) { w.recv({ t: 'reply', id, ok: true }); w.recv(lease('r7', null)); } }) };
+  }
+  const endBtn = () => $<HTMLButtonElement>('header .btn');
+  function holding() {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r7');
+    ready();
+    key('keydown', 'KeyW'); tick(100);
+    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(endBtn().textContent).toBe('끝내기');
+  }
+  const zeroThenRelease = () => {
+    const i = w.sent.findIndex((m) => m.t === 'lease.release');
+    expect(w.sent.slice(0, i).filter((m) => m.t === 'cmd').pop()!.axes).toEqual([0, 0, 0]);
+  };
+  const stays = () => { expect(location.hash).toBe('#/drive/r7'); expect($('main').getAttribute('aria-label')).toBe('조종'); stopReachable(); };
+
+  it('끝내기 — 서버가 거절: 이 화면에 머물러 «확인 못함» + [다시 시도]·[연결 화면], 다시 시도가 성공하면 로봇 연결', () => {
+    holding();
+    releaseReply('reject');
+    click(endBtn());
+    zeroThenRelease();
+    stays();
+    const failBox = $('[data-end-fail]');
+    expect(failBox.textContent).toContain('조종권 반납을 확인하지 못했습니다.');
+    expect(failBox.textContent).toContain('조종권을 가진 사람이 아닙니다.');
+    expect(endBtn().disabled).toBe(true);
+    click(endBtn());                                        // 막힌 끝내기는 또 보내지 않음
+    expect(w.of('lease.release')).toHaveLength(1);
+    w.auto = (m) => { w.recv({ t: 'reply', id: m.id, ok: true }); };
+    click(btn('다시 시도'));
+    expect(w.of('lease.release')).toHaveLength(2);
+    expect(location.hash).toBe('#/drive');
+    expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
+    expect(box.querySelector('[data-end-fail]')).toBeNull();
+  });
+
+  it('끝내기 — 답 없음: «반납 중»(끝내기 막힘, 두 번 눌러도 한 번) → 3 s 뒤 «서버가 답하지 않습니다», [연결 화면]은 사람이 고를 때만', () => {
+    holding();
+    releaseReply('none');
+    click(endBtn());
+    zeroThenRelease();
+    stays();
+    expect($('[data-ending]').textContent).toContain('조종권을 반납하는 중입니다');
+    expect(endBtn().disabled).toBe(true);
+    click(endBtn());
+    expect(w.of('lease.release')).toHaveLength(1);
+    stays();
+    const n = cmds().length;
+    tick(2999);
+    expect(cmds()).toHaveLength(n);                          // 반납을 보낸 뒤 입력은 더 안 나감
+    expect(box.querySelector('[data-end-fail]')).toBeNull();
+    tick(1);
+    expect($('[data-end-fail]').textContent).toContain('서버가 답하지 않습니다.');
+    stays();
+    tick(10_000);
+    stays();
+    click(btn('연결 화면'));
+    expect(location.hash).toBe('#/drive');
+    expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
+  });
+
+  it('끝내기 — 다시 그리기 전에 두 번 눌러도(같은 틀) 반납 한 번, 확인 전에는 이동하지 않음', () => {
+    holding();
+    releaseReply('none');
+    act(() => { endBtn().click(); endBtn().click(); });
+    expect(w.of('lease.release')).toHaveLength(1);
+    stays();
+    expect($('[data-ending]')).not.toBeNull();
+  });
+
+  it('끝내기 — 늦은 성공: «확인 못함» 뒤에 서버 확인이 오면 로봇 연결로', () => {
+    holding();
+    const srv = releaseReply('none');
+    click(endBtn());
+    tick(3000);
+    expect($('[data-end-fail]')).not.toBeNull();
+    stays();
+    srv.answer();
+    expect(location.hash).toBe('#/drive');
+    expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
+    expect(rt.get('r7').lease).toBeNull();
+  });
+
   it('시트가 열려 있어도 STOP 은 보이고 눌리며, Space 도 STOP. 시트는 영상 칸 안, 열고 닫아도 조종권 그대로', () => {
     mount(true, 'u-kim', '#/drive/r7');
     serve(KIM, 'r7');
@@ -1237,7 +1402,7 @@ describe('폰 조종 앱 틀', () => {
     const head = rule(frameCss, '.fh-head');
     expect(head).toMatch(/position:sticky;top:0;z-index:10/);
     expect(Number(rule(driveCss, '.fh-sheet').match(/z-index:(\d+)/)![1])).toBeLessThan(10);
-    expect(frameCss).toMatch(/\.fh\.phone \.fh-head>\.btn\{flex:none;white-space:nowrap/);   // 320 폭: «끝내기»가 세로로 꺾이지 않음(실제 폭은 Chrome 으로 확인)
+    expect(frameCss).toMatch(/\.fh\.phone \.fh-head>\.btn\{flex:0 1 auto;min-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap/);   // 320 폭: 왼쪽 단추는 줄되 꺾이지 않음(실제 폭은 Chrome 으로 확인)
   });
 
   // 폰 판별 식(PHONE_Q)을 화면 크기로 계산하는 matchMedia — 320·390 세로, 844×390 가로, PC 1280
@@ -1265,6 +1430,26 @@ describe('폰 조종 앱 틀', () => {
     stopReachable();
     for (const s of SHEETS) { click(btn(s)); stopReachable(); }
   });
+  // [B4] 320 폭에서 연결 글(연결 중·끊김·거부)이 STOP 을 밀어내지 않게: 좁은 폰은 점만(글은 화면 읽기용), 왼쪽 단추·제목은 줄고 STOP 은 안 줄어듦.
+  // jsdom 은 배치를 계산하지 않아 규칙·구조를 보고, 실제 상자(STOP 오른쪽 끝 ≤ 320)는 Chrome 실측(PR 본문)
+  for (const hash of ['#/drive/r7', '#/history']) for (const link of ['연결 중', '연결 끊김', '연결 거부'] as const) it(`320×568 ${hash} «${link}»: 연결은 점만, STOP 은 머리줄 끝·안 줄어듦`, () => {
+    mountAt(320, 568, true, hash);
+    if (link !== '연결 중') {
+      serve(KIM, 'r3', 'r7', 'r1');
+      if (link === '연결 끊김') { w.auto = null; tick(3000); } else act(() => w.drop(4403));
+    }
+    const dot = $('header .fh-dot');
+    expect(dot.querySelector('i')!.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.querySelector('.fh-dot-t')!.textContent).toBe(link);   // 화면 읽기는 그대로 «연결 끊김»
+    expect(dot.title).toBe(link);
+    stopReachable();
+    const media = frameCss.match(/@media \(max-width:400px\)\{([^}]*)\{([^}]*)\}\}/)!;
+    expect(media[1]).toBe('.fh.phone .fh-dot-t');
+    expect(media[2]).toMatch(/position:absolute;width:1px;height:1px;overflow:hidden/);
+    expect(frameCss).toMatch(/(^|\n)\.fh-stop\{flex:none;/);
+    expect(frameCss).toMatch(/@media \(max-width:360px\)\{\.fh\.phone \.fh-head:has\(>\.btn\) h1\{position:absolute/);
+  });
+
   it('1280×800 PC: 폰 틀 아님, 조종 화면 대신 로봇 탭', () => {
     mountAt(1280, 800, false, '#/drive/r7');
     expect(matchMedia(PHONE_Q).matches).toBe(false);
