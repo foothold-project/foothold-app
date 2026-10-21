@@ -29,6 +29,8 @@ class Peer:
     notifications: deque = field(default_factory=deque)
     request_window: float = float('-inf')
     request_count: int = 0
+    release_window: float = float('-inf')
+    release_count: int = 0
 
 
 class Hub:
@@ -145,7 +147,9 @@ class Hub:
     def fail(self, peer, code='VALIDATION', close_code=1007, *, reserve=False, safety=True):
         if safety and peer in self.peers and self.peers[peer].user is not None:
             self.stop()  # only hello-approved phones may affect robot safety
-        self.disconnect(peer, reserve=reserve, requester_withdrawal=False)
+        # Rejecting a peer's own input is withdrawal, not unrelated server cleanup.
+        requester_withdrawal = code not in ('TICKET_EXPIRED', 'CLOCK_UNTRUSTED')
+        self.disconnect(peer, reserve=reserve, requester_withdrawal=requester_withdrawal)
         error = PhoneError(code, close_code)
         self.closing[peer] = error
         raise error
@@ -196,7 +200,7 @@ class Hub:
 
     @staticmethod
     def error(code):
-        status = (429 if code == 'LEASE_REQUEST_COOLDOWN' else 503 if code == 'STOP_CONFIRM_FAILED'
+        status = (429 if code in ('LEASE_REQUEST_COOLDOWN', 'REQUEST_FLOOD') else 503 if code == 'STOP_CONFIRM_FAILED'
                   else 403 if code in ('FORBIDDEN', 'NOT_CONTROLLER') else 409)
         return {'code': code, 'message': code, 'detail': {'status': status}}
 
@@ -220,6 +224,7 @@ class Hub:
         if peer in self.closing:
             raise self.closing[peer]
         if peer not in self.peers:
+            # Direct Hub users only: Server._admit has already registered its peers.
             if sum(p.user is None for p in self.peers.values()) >= 16:
                 raise PhoneError('SERVER_BUSY', 1013)
             self.peers[peer] = Peer(last_ping=self.now())
@@ -255,13 +260,20 @@ class Hub:
                     'ping_interval_ms': 1000, 'link_timeout_ms': 3000, 'lease_timeout_ms': 15000}
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
-        if kind in ('lease.request', 'lease.cancel', 'lease.release', 'view'):
+        reply = {'t': 'reply', 'id': f['id'], 'ok': True, 'error': None, 'lease_id': None, 'request_id': None}
+        if kind in ('lease.request', 'lease.cancel'):
             if self.now() - p.request_window >= 1:
                 p.request_window, p.request_count = self.now(), 0
             p.request_count += 1
             if p.request_count > 8:
                 self.fail(peer, 'REQUEST_FLOOD', 1013, safety=False)
-        reply = {'t': 'reply', 'id': f['id'], 'ok': True, 'error': None, 'lease_id': None, 'request_id': None}
+        elif kind in ('lease.release', 'view'):
+            if self.now() - p.release_window >= 1:
+                p.release_window, p.release_count = self.now(), 0
+            p.release_count += 1
+            if p.release_count > 8:
+                reply.update(ok=False, error=self.error('REQUEST_FLOOD'))
+                return reply  # Keep this phone connected and able to STOP.
         if kind in ('lease.take', 'lease.request'):
             identity = (p.user, p.device)
             if p.purpose != 'control':

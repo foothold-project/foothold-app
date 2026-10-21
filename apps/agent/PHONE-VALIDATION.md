@@ -1,8 +1,8 @@
-# P1-A 폰 직결 검증 기록 — PR #41 r3
+# P1-A 폰 직결 검증 기록 — PR #41 r4
 
 2026-10-21. `feature/agent-phone-link`, `dev` 대상 Draft PR. 정본은 ADR-002 0.3
 (`origin/dev`의 `828f572`) 및 [05 §13](../../docs/spec/05-API-SPEC.md#13-폰--에이전트-fh-phone1).
-PR #41의 코드 커밋은 PR 본문/완료 보고의 정확한 head를 따른다. 아래 수치는 r3 최종 검증이다. r1/r2 절은 당시의 이력이며 최신 결정은 D8/D9다.
+PR #41의 코드 커밋은 PR 본문/완료 보고의 정확한 head를 따른다. 아래 수치는 r4 최종 검증이다. r1~r3 절은 당시 이력이며 최신 결정은 D8 보충·D9·D10이다.
 
 ## 변경
 
@@ -19,17 +19,17 @@ PR #41의 코드 커밋은 PR 본문/완료 보고의 정확한 head를 따른�
 
 Python 3.12.3, 작업 폴더의 `.venv`(pytest 9.1.1, websockets 15.0.1, Pydantic 2.14.1).
 임시 파일은 `TMPDIR="$PWD/tmp/phone"`로 작업 폴더 안에 두었다. 무거운 실행 직전
-MemAvailable은 2.5 GB 이상(r3 실행 직전 관측 4.7~4.9 GB)이었다. 새 폰 시험은 loopback 9450~9469만
+MemAvailable은 2.5 GB 이상(r4 실행 직전 관측 5.2~5.7 GB)이었다. 새 폰 시험은 loopback 9450~9469만
 사용했다. 기존 helper 9060~9079는 조정 세션의 명시적 승인으로 유지했다.
 
 | 실제 명령 (`TMPDIR` 설정 후) | 결과 |
 |---|---|
-| `.venv/bin/python -m pytest apps/agent -q` | **739 passed, 1 skipped**. 기존582개 + 폰157개(이전135개 포함). 전체1회, 기존 경고2개 |
-| `.venv/bin/python -m pytest apps/agent/tests/test_phone.py apps/agent/tests/test_phone_review.py -q` (r3 부분 확인) | **157 passed**, 위 전체 실행에도 포함 |
-| `.venv/bin/python apps/agent/tools/check_phone_mutations.py` | **53/53 KILLED**, assertion 실패로만 판정 |
+| `.venv/bin/python -m pytest apps/agent -q` | **756 passed, 1 skipped**. 기존582개 + 폰174개(이전157개 포함). 전체1회, 기존 경고2개 |
+| `.venv/bin/python -m pytest apps/agent/tests/test_phone.py apps/agent/tests/test_phone_review.py -q` (r4 부분 확인) | **174 passed**, 위 전체 실행에도 포함 |
+| `.venv/bin/python apps/agent/tools/check_phone_mutations.py` | **60/60 KILLED**, assertion 실패로만 판정 |
 | `.venv/bin/python apps/agent/tools/check_link_mutations.py` | **80/80 KILLED** |
 | `.venv/bin/python apps/agent/foothold_agent/ros_bridge/check_mutations.py` | **49/49 KILLED**, synthetic 옵션 없음 |
-| `.venv/bin/python apps/agent/tools/nav2/check_mutations.py --report tmp/phone/r3-nav2-mutations.json` | **64/65 KILLED, 종료1**. 아래 기존 분류 한계 동일 |
+| `.venv/bin/python apps/agent/tools/nav2/check_mutations.py --report tmp/phone/r4-nav2-mutations.json` | **64/65 KILLED, 종료1**. 아래 기존 분류 한계 동일 |
 | `.venv/bin/python apps/contracts/generate.py --check` | 생성물 **139개 일치** |
 | `npm --prefix apps/contracts run typecheck` | 통과 |
 | `git diff --check` | 통과 |
@@ -153,7 +153,7 @@ r2 최종 폰 변이 **47/47**은 모두 assertion 실패로만 검출했다. �
 **hello 대기 흐름 중 조종20Hz 흔들림**을 함께 측정한다. 이번에는 ROS/시뮬 기동0이다.
 
 
-## PR #41 재확인 r3 — 최신 결정 D8/D9
+## PR #41 재확인 r3 — 당시 결정 D8/D9 (D8은 r4에서 보충)
 
 Codex r3 보고서와 자기 취소 재현, Claude r3 보고서(-2~-4 포함)와 probe9/10을 읽고
 저장소 시험으로 옮겼다. 원본 검토 worktree는 읽기만 했다. 폰 시험22개와 변이6개 추가다.
@@ -161,7 +161,7 @@ Codex r3 보고서와 자기 취소 재현, Claude r3 보고서(-2~-4 포함)와
 | 지적/결정 | 수정·회귀·변이 |
 |---|---|
 | V1/D8 | 자기 철회는 cancel·release·view·요청자 끊김(ping 무수신 포함) 모두. identity(user+device) 기준30초 제한을 남겨 새 출입증 재접속도 차단. 29.99초 거부/30초 허용5분기, 실제WS 요청자 종료·재접속, probe9 5초 동안8프레임/초·16프레임/초 두 경우 ×3별칭 회귀. 요청 수락1·사건2, 초과는 해당 연결만 닫음 |
-| D8 예외 | 조종자 반납·끊김/만료·STOP_CONFIRM_FAILED, 서버 정리에는 새 제한0. requester_withdrawal 원인을 명시하고 요청자 출입증 만료/형식 오류/서버 종료를 분리. 기존 비어 있는 조종권 즉시 취득은 유지 |
+| D8 예외 (당시) | 형식 오류를 비귀책으로 분류한 부분은 r4에서 수정. 조종자 원인·출입증 만료/시계 불신·서비스 종료/내부 오류만 제한0. 아래 최신 D8 보충 참조 |
 | D8 속도 창/변이 | request·cancel·release·view 합계8개/초. release/view 반복 음성 시험. 요청자 release 무벌·요청자 끊김 무벌·release/view 속도 창 제외·서버 정리 오분류 변이4개 검출 |
 | V2/D9 | hello 대기 전체16개/주소당2개, 주소 상한 먼저. 전체 교체는 교체 가능한 소켓 중 대기가 가장 많은 주소부터, 동률은 가장 오래된 것. 최대치16·모든 검증 중 보호·주소 부하/동률 회귀, 부하 무시·전체4개 회귀 변이2개 검출 |
 | D9 실제WS | 헤더 주소 주입 없이 Linux loopback connect(local_addr=...)로 서로 다른 출발 주소. 공격2×8·4×4·8×4 흐름 중 다른 주소의 동일 사용자+기기 새 출입증 재취득 **각10/10**, 서비스 생존. 정상 연결은127.0.0.1·공격은별도loopback host |
@@ -189,3 +189,42 @@ r3 최종 실행은 전체 pytest739 passed/1 skipped, phone53/53·link80/80·RO
 cancel_goal_removed의 assertion11개와 StopIteration3개가 이전과 같음을 JSON으로 확인했다.
 새 코드/시험의 오류를 통과로 바꾸지 않았으며 기존 Nav2 분류 개선은 앞서 승인된 후속이다.
 명령/로그는 작업 폴더 안 `tmp/phone/r3-*.log`·`r3-nav2-mutations.json`에 남겼다.
+
+
+## PR #41 재확인 r4 — D8 보충·D10
+
+Codex r4 보고서/실제WS 재현, Claude r4 보고서(-2/-3 포함)와 test_r4_probe·probe11·
+probe12를 읽어 저장소 회귀로 옮겼다. 원본 검토 worktree는 읽기만 했다.
+폰 시험17개·변이7개 추가, 기존 시험/변이는 새 D8/D10 의미로 교정했다.
+
+| 지적 | 현재 수정·회귀·변이 |
+|---|---|
+| T1/D8 보충 | Hub.fail은 요청자 귀책 거부를 철회로 분류. REQUEST_FLOOD·형식·크기·수신 계층 오류 등에 같은 identity30초 유지. 비귀책 출입증 만료/시계 불신은 예외. 실제WS 세 원인×새 출입증 재접속3회→수락1·요청/취소 사건2,29.99초 거부/30초 허용. 분류 단위 시험5개(알림 넘침 코드 포함) |
+| 내부 오류/종료 | handler의 primary/stopping 판정을 유지. 내부 오류·서비스 종료는 제한0, send timeout·정상 폰 종료는 제한30초. 정리 후 pending·connections·workers 회수. 내부 오류 벌점 변이 검출 |
+| T2/D10 | request/cancel 합계8개/1초 초과는 해당 연결 종료. view/release는 독립된1초 창에 합계8개, 초과는 오류 응답(REQUEST_FLOOD/status429)만 하고 무시·연결 유지. 실제WS 보기 폰20연타 뒤STOP 성공, 초과 release가 pending을 취소하지 않음, 요청/release 반복은 여전히 수락1·사건2 |
+| T3 | 정확히(user,device)만 제한. 같은 사용자의 다른 기기·다른 사용자의 같은 device 값은 요청 즉시 성공. 원래 identity는 계속 제한. 같은 사용자 다른 기기까지 제한하는 변이 검출 |
+| T4 | Hub의 pending16 상한은 직접 사용 전용이라는 주석, 직접16개/17번째 SERVER_BUSY 단위 시험·변이. Server는 _admit에서 먼저 등록하므로 이 경계를 쓰지 않음 |
+
+신규7개 변이는 REQUEST_FLOOD 무벌·형식 오류 무벌·내부 오류 벌·사용자 전체로 제한 확장·
+view/release 초과 연결 종료·초과분이 실제 취소를 적용·직접Hub 상한 제거다. 기존
+release/view 속도 변이는 soft limit 제거로, 서버 정리 벌점 변이는 비귀책 시계 정리로 바꿨다.
+최종 **60/60**은 실제 assertion 실패·비-assertion 오류0이다.
+
+두 검토자의 원본 r4 재현 파일을 작업 폴더 안으로 옮긴 실행은 **5 passed**다.
+probe12의 실제5초 루프는 flood1365회·정상 종료1166회·형식 오류2370회 새 연결 모두
+**요청 수락1·lease 관련 사건3(초기 조종 취득1+요청/취소2)**이었다. 원래 조종자·서비스는
+유지됐고 형식 오류는 기존대로 STOP/잠금, flood/정상 종료는 추가 잠금0이다.
+별도 저장소 WS 회귀가 크기 초과1009와29.99/30초 경계도 확인한다.
+
+probe11 재실행: 대기peak16, handler 소켓peak은8×4→32·16×4→64·64×2→128,
+관측 maxrss51~57MB였다. 신규 보기 폰STOP은 흐름 없음10/10,8×4 다른 주소10/10,
+NAT 공유8/10,16×4 다른 주소7/10으로 접속 한계가 남았다. 보장값이나 해결로 세지 않는다.
+05 §13 한계에7/10·8/10 수치를 적었다. 실기 전 망 분리·접속 속도 제한에 **주소별 동시
+TCP 수·ulimit**을 추가했다. 승인된 폰의 STOP과 신규 폰의 hello 접속을 구분한다.
+ROS/시뮬/운영 포트 접촉0·safety 및 원본 셀프테스트 변경0을 유지했다.
+
+
+r4 최종 실행: 전체756 passed/1 skipped, phone60/60·link80/80·ROS49/49 변이 종료0,
+contracts139개 일치·typecheck 종료0이다. Nav2는64/65·종료1이며 기존과 동일한
+cancel_goal_removed assertion11개·StopIteration3개를 r4 JSON으로 확인했다. 이 기존 분류
+한계를 통과로 세지 않는다. 로그/재현 복사본은 작업 폴더 안 `tmp/phone/r4-*`에 남겼다.

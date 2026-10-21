@@ -770,7 +770,7 @@ def test_requester_withdrawal_probe9_bounds_five_second_audit(h, kind, pairs_per
         h.clock.t = second
         for peer in (owner, requester):
             h.send(peer, 'ping', client_time_ms=second*1000)
-        # Four pairs stay within the window; probe9's eight pairs close only this peer.
+        # Request/cancel share one window; release/view use a separate soft window.
         for _ in range(pairs_per_second):
             try:
                 response = h.send(requester, 'lease.request')
@@ -783,23 +783,34 @@ def test_requester_withdrawal_probe9_bounds_five_second_audit(h, kind, pairs_per
                 break
     events = [e for e in h.events if e.get('code') in ('PHONE_LEASE_REQUESTED', 'PHONE_LEASE_CANCELED')]
     assert accepted == 1 and len(events) == 2
-    assert (requester in h.hub.peers) == (pairs_per_second == 4)
+    assert (requester in h.hub.peers) == (pairs_per_second == 4 or kind != 'lease.cancel')
     assert h.hub.owner is owner and not h.hub.session.core.latch
 
 
 @pytest.mark.parametrize('kind', ['lease.release', 'view'])
-def test_release_and_view_count_toward_request_rate_window(h, kind):
+def test_release_and_view_excess_is_replied_ignored_without_disconnect(h, kind):
     owner, _ = h.moving()
     requester, _, _ = h.connect()
     for _ in range(8):
         assert h.send(requester, kind)['ok']
-    with pytest.raises(PhoneError) as error:
-        h.send(requester, kind)
-    assert error.value.code == 'REQUEST_FLOOD'
-    assert requester not in h.hub.peers and h.hub.owner is owner and not h.hub.session.core.latch
+    # Fill the independent request window once; excess release/view must not cancel it.
+    assert h.send(requester, 'lease.request')['ok']
+    for _ in range(12):
+        try:
+            reply = h.send(requester, kind)
+        except PhoneError:
+            reply = None
+        assert reply is not None
+        assert h.hub.pending is not None and h.hub.pending['peer'] is requester
+        assert not reply['ok'] and reply['error']['code'] == 'REQUEST_FLOOD'
+        assert reply['error']['detail']['status'] == 429
+    assert requester in h.hub.peers and h.hub.owner is owner and not h.hub.session.core.latch
+    assert h.send(requester, 'stop')['ok'] and h.hub.session.core.latch
+    h.clock.t = 1
+    assert h.send(requester, kind)['ok']
 
 
-@pytest.mark.parametrize('cleanup', ['expiry', 'validation', 'server-disconnect'])
+@pytest.mark.parametrize('cleanup', ['expiry', 'clock', 'server-disconnect'])
 def test_server_requester_cleanup_does_not_create_withdrawal_penalty(h, cleanup):
     owner, _ = h.moving()
     requester, _, _ = h.connect(exp=int(h.clock.wall())+1)
@@ -808,9 +819,9 @@ def test_server_requester_cleanup_does_not_create_withdrawal_penalty(h, cleanup)
     if cleanup == 'expiry':
         h.clock.t = 1
         h.hub.tick()
-    elif cleanup == 'validation':
+    elif cleanup == 'clock':
         with pytest.raises(PhoneError):
-            h.hub.fail(requester)
+            h.hub.fail(requester, 'CLOCK_UNTRUSTED', 4401)
     else:
         h.hub.disconnect(requester, requester_withdrawal=False)
     assert identity not in h.hub.cooldowns and h.hub.pending is None
@@ -910,3 +921,143 @@ def test_requester_socket_disconnect_reconnect_cannot_reset_cooldown(h):
                 assert not response['ok'] and response['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
             assert h.hub.owner is owner and not h.hub.session.core.latch and not task.done()
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('fault', ['REQUEST_FLOOD', 'VALIDATION', 'FRAME_TOO_LARGE',
+                                   'TRANSPORT_INVALID', 'NOTIFICATION_OVERFLOW'])
+def test_requester_fault_cleanup_keeps_identity_cooldown(h, fault):
+    owner, _ = h.moving()
+    requester, claims, _ = h.connect()
+    h.send(requester, 'lease.request')
+    with pytest.raises(PhoneError):
+        h.hub.fail(requester, fault, safety=fault != 'REQUEST_FLOOD')
+    requester, _, _ = h.connect(user=claims['sub'], device=claims['device'])
+    reply = h.send(requester, 'lease.request')
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    assert h.hub.owner is owner
+
+
+@pytest.mark.parametrize('fault', ['flood', 'malformed', 'oversize'])
+def test_requester_ws_fault_reconnect_cannot_repeat_accepted_requests(h, fault):
+    from websockets.asyncio.client import connect
+    owner, _ = h.moving()
+    async def run():
+        async with running(h) as (server, uri, task):
+            claims = None
+            accepted = 0
+            for _ in range(3):
+                async with connect(uri, proxy=None) as ws:
+                    fields = {} if claims is None else {'user': claims['sub'], 'device': claims['device']}
+                    claims = await hello(h, ws, **fields)
+                    reply = await rpc(h, ws, 'lease.request')
+                    accepted += bool(reply['ok'])
+                    if not reply['ok']:
+                        assert reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+                    if fault == 'flood':
+                        for index in range(8):
+                            await ws.send(json.dumps({'t': 'lease.request', 'id': f'f{index}', 'robot': h.robot}))
+                    else:
+                        await ws.send('{' if fault == 'malformed' else 'x'*4097)
+                    assert await closed_code(ws) == {'flood': 1013, 'malformed': 1007, 'oversize': 1009}[fault]
+                for _ in range(100):
+                    if not server.connections:
+                        break
+                    await asyncio.sleep(.005)
+                assert not server.connections
+            events = [e for e in h.events if e.get('code') in ('PHONE_LEASE_REQUESTED', 'PHONE_LEASE_CANCELED')]
+            assert accepted == 1 and len(events) == 2
+            assert h.hub.owner is owner and server.failure is None and not task.done()
+            assert h.hub.session.core.latch is (fault != 'flood')
+            h.advance(29.99)
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws, user=claims['sub'], device=claims['device'])
+                reply = await rpc(h, ws, 'lease.request')
+                assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+            h.advance(30)
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws, user=claims['sub'], device=claims['device'])
+                assert (await rpc(h, ws, 'lease.request'))['ok']
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('cause', ['internal', 'stopping', 'send-timeout', 'normal-close'])
+def test_handler_cleanup_only_peer_causes_withdrawal_penalty(h, cause, monkeypatch):
+    h.moving()
+    requester, _, _ = h.connect()
+    identity = (h.hub.peers[requester].user, h.hub.peers[requester].device)
+    h.send(requester, 'lease.request')
+    server = Server(h.hub, Settings('127.0.0.1', 9450, 'unused', 'test', '1', h.org,
+                                    'unused', True, True))
+    class Socket:
+        request = SimpleNamespace(path='/phone/ws')
+        async def close(self, *args):
+            pass
+    ws = Socket()
+    server.connections[requester] = ws
+    monkeypatch.setattr(server, '_admit', lambda ws: requester)
+    failure = RuntimeError('injected internal reader failure')
+    async def reader(ws, peer):
+        if cause == 'internal':
+            raise failure
+        if cause == 'stopping':
+            server.stopping.set()
+        elif cause == 'send-timeout':
+            raise asyncio.TimeoutError
+    async def states(ws, peer):
+        await asyncio.Event().wait()
+    monkeypatch.setattr(server, '_read', reader)
+    monkeypatch.setattr(server, '_states', states)
+    async def run():
+        if cause == 'internal':
+            with pytest.raises(RuntimeError) as error:
+                await server._handler(ws)
+            assert error.value is failure and server.failure is failure
+        else:
+            await server._handler(ws)
+        assert (identity in h.hub.cooldowns) == (cause in ('send-timeout', 'normal-close'))
+        assert not server.connections and not server.workers and h.hub.pending is None
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('kind', ['view', 'lease.release'])
+def test_viewer_many_release_taps_keeps_socket_and_stop_available(h, kind):
+    from websockets.asyncio.client import connect
+    owner, _ = h.moving()
+    async def run():
+        async with running(h) as (server, uri, task):
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws, purpose='view')
+                for index in range(20):
+                    reply = await rpc(h, ws, kind)
+                    assert reply['ok'] is (index < 8)
+                    if index >= 8:
+                        assert reply['error']['code'] == 'REQUEST_FLOOD'
+                assert h.hub.owner is owner and not h.hub.session.core.latch
+                assert (await rpc(h, ws, 'stop'))['ok']
+                assert h.hub.session.core.latch and server.failure is None and not task.done()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('change', ['device', 'user'])
+def test_request_cooldown_is_scoped_to_exact_user_device_pair(h, change):
+    owner, _ = h.moving()
+    requester, claims, _ = h.connect()
+    assert h.send(requester, 'lease.request')['ok']
+    h.hub.disconnect(requester)
+    fields = {'user': claims['sub']} if change == 'device' else {'device': claims['device']}
+    other, _, _ = h.connect(**fields)
+    assert h.send(other, 'lease.request')['ok'] and h.hub.owner is owner
+    h.send(other, 'lease.cancel')
+    h.hub.disconnect(other)
+    requester, _, _ = h.connect(user=claims['sub'], device=claims['device'])
+    reply = h.send(requester, 'lease.request')
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+
+
+def test_direct_hub_unapproved_capacity_sixteen(h):
+    for _ in range(16):
+        h.hub.peers[object()] = Peer(last_ping=h.clock())
+    with pytest.raises(PhoneError) as error:
+        h.send(object(), 'hello', proto='fh-phone/1', device=str(uuid4()), ticket='unused')
+    assert error.value.code == 'SERVER_BUSY' and error.value.close_code == 1013
+    assert len(h.hub.peers) == 16
