@@ -1,0 +1,34 @@
+/* ── 브랜드 다리 ─────────────────────────────────────────────
+   공식 토큰(public/brand/tokens/foothold.tokens.css, 값 수정 없음 — HTML <link> 로 불러옴)을
+   원본 화면 틀의 변수 이름(--bg·--panel·…)에 잇는다. 배치·크기·조작은 건드리지 않는다.
+   - 토큰의 밝음/어두움은 <html data-theme> 로 고른다(app/theme.ts 가 .fh/.fh.light 를 옮김).
+   - 화면 틀의 .fh(0,1,0)·.fh.light(0,2,0) 보다 이겨야 해서 html 을 앞에 붙인다.
+   - --nav(268)·--measure(720) 는 문서 사이트용이라 쓰지 않는다. */
+@import 'pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css';   /* 로컬 번들(OFL), 외부 CDN 없음 */
+
+/* .fh 가 --stop 을 STOP 버튼 채움으로 덮기 전에, :root 의 공식 stop(글자·테두리용)을 따로 잡아 둔다 */
+:root { --b-stop: var(--stop); }
+
+html .fh, html .fh.light {
+  --bg: var(--paper); --panel: var(--card); --panel2: var(--paper-2);
+  --line: var(--rule); --line2: color-mix(in srgb, var(--rule), var(--ink) 16%);
+  --text: var(--ink); --muted: var(--ink-2);
+  --accent: var(--brand); --on-accent: var(--paper);               /* 어두움: 8.66:1 */
+  --ok: var(--dim-ink); --warn: var(--note-ink); --bad: var(--b-stop);
+  --acc-bg: var(--dim-soft); --ok-bg: var(--dim-soft); --warn-bg: var(--note-soft); --bad-bg: var(--stop-soft);
+  /* STOP 채움: 공식 밝음 stop #a3342a 를 두 테마 모두 사용(흰 글자 6.81:1). 어두움 공식 #e56d5e 는 흰 글자 3.14:1 이라 채움에 안 씀 */
+  --stop: #a3342a; --bad-strong: #a3342a;
+  /* --map·--wall·--gridc 는 지도 그림 색이라 그대로 둔다 */
+}
+html .fh.light { --on-accent: var(--card); }                       /* 밝음: 5.21:1 */
+
+html body, html .fh, html .fh.light {
+  font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', 'Segoe UI', system-ui, sans-serif;
+}
+html .mono { font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', 'Segoe UI', system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+
+/* 로고: 어두운 바탕용/밝은 바탕용 SVG 두 장 중 하나만 보인다(재색칠 없이 원본 파일 교체) */
+[data-brand-box] { display: inline-flex; align-items: center; flex: none; line-height: 0; }
+[data-brand-box] img { display: block; width: auto; }
+:root[data-theme="light"] [data-brand-box]:not([data-tone]) .fh-logo-d,
+:root:not([data-theme="light"]) [data-brand-box]:not([data-tone]) .fh-logo-l { display: none; }

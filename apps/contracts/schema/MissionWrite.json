@@ -1,0 +1,59 @@
+{
+  "$defs": {
+    "JsonValue": {},
+    "MissionStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PHOTO",
+            "WAIT",
+            "OPERATOR_CONFIRM",
+            "SENSOR_LOG"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "MissionStep",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MissionWrite",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Name",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/MissionStep"
+      },
+      "maxItems": 100,
+      "minItems": 1,
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "steps"
+  ],
+  "title": "MissionWrite",
+  "type": "object"
+}

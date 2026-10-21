@@ -1,0 +1,16 @@
+{
+  "$id": "fh-app/1/WaitParams",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "seconds": {
+      "default": 30,
+      "maximum": 3600,
+      "minimum": 1,
+      "title": "Seconds",
+      "type": "integer"
+    }
+  },
+  "title": "WaitParams",
+  "type": "object"
+}

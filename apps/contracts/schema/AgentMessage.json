@@ -1,0 +1,693 @@
+{
+  "$defs": {
+    "AgentBattery": {
+      "properties": {
+        "soc": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Soc"
+        },
+        "voltage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Voltage"
+        }
+      },
+      "required": [
+        "soc"
+      ],
+      "title": "AgentBattery",
+      "type": "object"
+    },
+    "AgentCmdAck": {
+      "properties": {
+        "applied": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Applied",
+          "type": "array"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": -1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "t": {
+          "const": "cmd.ack",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "seq",
+        "applied"
+      ],
+      "title": "AgentCmdAck",
+      "type": "object"
+    },
+    "AgentEvent": {
+      "properties": {
+        "code": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "data": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Data",
+          "type": "object"
+        },
+        "robot_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Robot At"
+        },
+        "severity": {
+          "enum": [
+            "INFO",
+            "WARN",
+            "ERROR",
+            "info",
+            "warn",
+            "error"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "t": {
+          "const": "event",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "code",
+        "severity",
+        "robot_at",
+        "data"
+      ],
+      "title": "AgentEvent",
+      "type": "object"
+    },
+    "AgentHello": {
+      "properties": {
+        "agent_version": {
+          "maxLength": 128,
+          "title": "Agent Version",
+          "type": "string"
+        },
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/Device"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "firmware": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Firmware"
+        },
+        "last_floor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Last Floor Id"
+        },
+        "latched": {
+          "title": "Latched",
+          "type": "boolean"
+        },
+        "lease_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Id"
+        },
+        "map_versions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Map Versions",
+          "type": "array"
+        },
+        "proto": {
+          "const": "fh-agent/2",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Robot Model"
+        },
+        "run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunCopy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "stop_gen": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        },
+        "t": {
+          "const": "hello",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "proto",
+        "agent_version",
+        "robot_model",
+        "firmware",
+        "devices",
+        "map_versions",
+        "last_floor_id",
+        "latched",
+        "stop_gen",
+        "lease_id",
+        "run"
+      ],
+      "title": "AgentHello",
+      "type": "object"
+    },
+    "AgentMedia": {
+      "properties": {
+        "kind": {
+          "const": "photo",
+          "title": "Kind",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "step": {
+          "anyOf": [
+            {
+              "maximum": 9007199254740991,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Step"
+        },
+        "t": {
+          "const": "media",
+          "title": "T",
+          "type": "string"
+        },
+        "upload_id": {
+          "format": "uuid",
+          "title": "Upload Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "kind",
+        "upload_id"
+      ],
+      "title": "AgentMedia",
+      "type": "object"
+    },
+    "AgentPing": {
+      "properties": {
+        "t": {
+          "const": "ping",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t"
+      ],
+      "title": "AgentPing",
+      "type": "object"
+    },
+    "AgentPose": {
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "floor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Floor Id"
+        },
+        "map_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Version Id"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Yaw"
+        }
+      },
+      "required": [
+        "floor_id",
+        "x",
+        "y",
+        "yaw",
+        "confidence"
+      ],
+      "title": "AgentPose",
+      "type": "object"
+    },
+    "AgentRunUpdate": {
+      "properties": {
+        "fail_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fail Code"
+        },
+        "path_deviation_m": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path Deviation M"
+        },
+        "progress": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Progress"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "step": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "t": {
+          "const": "run.update",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "run_id",
+        "status",
+        "step",
+        "progress"
+      ],
+      "title": "AgentRunUpdate",
+      "type": "object"
+    },
+    "AgentState": {
+      "properties": {
+        "applied": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Applied",
+          "type": "array"
+        },
+        "battery": {
+          "$ref": "#/$defs/AgentBattery"
+        },
+        "devices_changed": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Device"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Devices Changed"
+        },
+        "latched": {
+          "title": "Latched",
+          "type": "boolean"
+        },
+        "mode": {
+          "maxLength": 64,
+          "title": "Mode",
+          "type": "string"
+        },
+        "pose": {
+          "$ref": "#/$defs/AgentPose"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Speed"
+        },
+        "stop_gen": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        },
+        "stop_ref": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Ref",
+          "type": "integer"
+        },
+        "t": {
+          "const": "state",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "pose",
+        "speed",
+        "battery",
+        "latched",
+        "stop_gen",
+        "stop_ref",
+        "applied",
+        "mode"
+      ],
+      "title": "AgentState",
+      "type": "object"
+    },
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "CAMERA_RGB",
+            "CAMERA_DEPTH",
+            "LIDAR",
+            "BATTERY",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "OK",
+            "MISSING",
+            "ERROR"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "label",
+        "state"
+      ],
+      "title": "Device",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
+    "RunCopy": {
+      "properties": {
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "maxLength": 64,
+          "title": "Status",
+          "type": "string"
+        },
+        "step": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "wait_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wait Reason"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "step"
+      ],
+      "title": "RunCopy",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/AgentMessage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "cmd.ack": "#/$defs/AgentCmdAck",
+      "event": "#/$defs/AgentEvent",
+      "hello": "#/$defs/AgentHello",
+      "media": "#/$defs/AgentMedia",
+      "ping": "#/$defs/AgentPing",
+      "run.update": "#/$defs/AgentRunUpdate",
+      "state": "#/$defs/AgentState"
+    },
+    "propertyName": "t"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AgentHello"
+    },
+    {
+      "$ref": "#/$defs/AgentState"
+    },
+    {
+      "$ref": "#/$defs/AgentPing"
+    },
+    {
+      "$ref": "#/$defs/AgentEvent"
+    },
+    {
+      "$ref": "#/$defs/AgentRunUpdate"
+    },
+    {
+      "$ref": "#/$defs/AgentCmdAck"
+    },
+    {
+      "$ref": "#/$defs/AgentMedia"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "$id": "fh-app/1/ApprovalApprove",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "comment": {
+      "anyOf": [
+        {
+          "maxLength": 2000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Comment"
+    }
+  },
+  "title": "ApprovalApprove",
+  "type": "object"
+}

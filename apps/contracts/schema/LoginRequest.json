@@ -1,0 +1,40 @@
+{
+  "$id": "fh-app/1/LoginRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "client": {
+      "default": "web",
+      "enum": [
+        "web",
+        "app"
+      ],
+      "title": "Client",
+      "type": "string"
+    },
+    "device_label": {
+      "default": "",
+      "maxLength": 128,
+      "title": "Device Label",
+      "type": "string"
+    },
+    "password": {
+      "maxLength": 1024,
+      "minLength": 1,
+      "title": "Password",
+      "type": "string"
+    },
+    "username": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Username",
+      "type": "string"
+    }
+  },
+  "required": [
+    "username",
+    "password"
+  ],
+  "title": "LoginRequest",
+  "type": "object"
+}

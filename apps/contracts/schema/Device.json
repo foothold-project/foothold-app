@@ -1,0 +1,43 @@
+{
+  "$id": "fh-app/1/Device",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "title": "Key",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "CAMERA_RGB",
+        "CAMERA_DEPTH",
+        "LIDAR",
+        "BATTERY",
+        "OTHER"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "OK",
+        "MISSING",
+        "ERROR"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "kind",
+    "label",
+    "state"
+  ],
+  "title": "Device",
+  "type": "object"
+}

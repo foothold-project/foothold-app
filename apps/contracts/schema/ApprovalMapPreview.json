@@ -1,0 +1,39 @@
+{
+  "$id": "fh-app/1/ApprovalMapPreview",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "base_version_number": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Base Version Number"
+    },
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "floor_name": {
+      "title": "Floor Name",
+      "type": "string"
+    },
+    "target_version_number": {
+      "title": "Target Version Number",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "floor_id",
+    "floor_name",
+    "target_version_number",
+    "base_version_number"
+  ],
+  "title": "ApprovalMapPreview",
+  "type": "object"
+}

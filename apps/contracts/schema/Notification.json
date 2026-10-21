@@ -1,0 +1,69 @@
+{
+  "$id": "fh-app/1/Notification",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body": {
+      "title": "Body",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "event_id": {
+      "anyOf": [
+        {
+          "pattern": "^[1-9][0-9]{0,18}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Event Id"
+    },
+    "id": {
+      "pattern": "^[1-9][0-9]{0,18}$",
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "title": "Kind",
+      "type": "string"
+    },
+    "link": {
+      "title": "Link",
+      "type": "string"
+    },
+    "read_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Read At"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "event_id",
+    "kind",
+    "title",
+    "body",
+    "link",
+    "read_at",
+    "created_at"
+  ],
+  "title": "Notification",
+  "type": "object"
+}

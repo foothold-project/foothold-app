@@ -1,0 +1,32 @@
+{
+  "$id": "fh-app/1/SessionInfo",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "client": {
+      "enum": [
+        "web",
+        "app"
+      ],
+      "title": "Client",
+      "type": "string"
+    },
+    "csrf_token": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Csrf Token"
+    }
+  },
+  "required": [
+    "client",
+    "csrf_token"
+  ],
+  "title": "SessionInfo",
+  "type": "object"
+}

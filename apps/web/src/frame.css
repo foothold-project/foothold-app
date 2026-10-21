@@ -1,0 +1,95 @@
+/* ── 화면 틀 ─────────────────────────────────────────────────
+   1부: 원본 화면 CSS 를 값 그대로 옮김(ui/src/screens/PcPlan.view.tsx·MHome.view.tsx 의 CSS, ui/src/live.css 21–24·200–202행).
+        색 변수는 brand.css 가 공식 토큰으로 덮는다.
+   2부: 새 틀 배치(03 UX §3) — 누름 44px·글자 14px(U7), 폰 STOP 64px. */
+
+/* 1부 — 원본 그대로 */
+body{margin:0}
+.fh{--bg:#0B0E11;--panel:#12171C;--panel2:#182028;--line:#26313A;--line2:#34424D;--text:#E6EBEF;--muted:#9AA7B3;--accent:#38C6D9;--on-accent:#061014;--ok:#5AA9FF;--warn:#FFB547;--bad:#FF5A52;--bad-strong:#B3261E;--stop:#D7261E;--map:#0E1317;--wall:#4C5A66;--gridc:rgba(154,167,179,.07);--bad-bg:rgba(255,90,82,.13);--warn-bg:rgba(255,181,71,.12);--ok-bg:rgba(90,169,255,.10);--acc-bg:rgba(56,198,217,.12);font-family:'IBM Plex Sans KR',system-ui,sans-serif;color:var(--text);background:var(--bg);-webkit-font-smoothing:antialiased}
+.fh.light{--bg:#EDEFEA;--panel:#FFFFFF;--panel2:#F5F6F2;--line:#D7DBD3;--line2:#C2C8BF;--text:#12171C;--muted:#4F5A64;--accent:#006D7A;--on-accent:#FFFFFF;--ok:#1F5FBF;--warn:#9A5800;--bad:#B3261E;--bad-strong:#B3261E;--stop:#C8201A;--map:#F8F9F5;--wall:#7C8790;--gridc:rgba(18,23,28,.06);--bad-bg:rgba(179,38,30,.08);--warn-bg:rgba(154,88,0,.09);--ok-bg:rgba(31,95,191,.08);--acc-bg:rgba(0,109,122,.08)}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+.btn{height:44px;padding:0 16px;border:1px solid var(--line2);background:var(--panel2);border-radius:8px;display:flex;align-items:center;justify-content:center;gap:8px;font-weight:600;font-size:14px}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.pri[disabled]{background:var(--line);border-color:var(--line);color:var(--muted);cursor:not-allowed}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.lbl{font-size:12px;color:var(--muted)}
+.nav{display:flex;flex-direction:column;align-items:center;gap:4px;width:64px;padding:10px 0;border-radius:8px;font-size:11px;color:var(--muted);text-decoration:none}
+.nav:hover{color:var(--text);background:var(--panel2)}
+.nav.cur{color:var(--text);background:var(--acc-bg)}
+.nav.cur svg{color:var(--accent)}
+.tabb{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:52px;font-size:11px;color:var(--muted);text-decoration:none}
+.tabb.cur{color:var(--accent);font-weight:600}
+.lv-card{display:flex;flex-direction:column;gap:8px;min-width:0;padding:14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--text)}
+.lv-card h2{margin:0;font-size:15px}
+.lv-note{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
+.lv-chip{display:inline-flex;align-items:center;gap:4px;min-height:22px;padding:0 8px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);font-size:12px;font-weight:600;white-space:nowrap}
+.lv-chip.off{color:var(--muted)}.lv-chip.ok{color:var(--ok);border-color:var(--ok)}.lv-chip.warn{color:var(--warn);border-color:var(--warn)}.lv-chip.bad{color:var(--bad);border-color:var(--bad)}
+
+/* 2부 — 새 틀 */
+.fh{min-height:100vh;display:flex;flex-direction:column}
+.fh-head{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:12px;min-height:56px;padding:6px 16px;box-sizing:border-box;border-bottom:1px solid var(--line);background:var(--panel)}
+.fh-head h1{margin:0;font-size:17px;font-weight:600;white-space:nowrap}
+.fh-sep{width:1px;height:32px;background:var(--line)}
+.fh-grow{flex:1;min-width:0}
+.fh-dot{display:inline-flex;align-items:center;gap:6px;font-size:14px;white-space:nowrap}
+.fh-dot.ok>i{color:var(--ok)}.fh-dot.bad>i{color:var(--bad)}
+.fh-dot>i{font-style:normal}
+.fh-user{min-height:44px;padding:0 10px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:14px}
+/* STOP 모양: ui/src/live.css .fh-stop 그대로(채움 #a3342a 고정 — 두 테마 흰 글자 6.81:1). 자리는 고정 대신 머리줄 오른쪽 끝 */
+.fh-stop{flex:none;min-width:120px;box-sizing:border-box;margin:0;padding:0 12px;border:0;border-radius:10px;background:#a3342a;color:#FFFFFF;display:flex;align-items:center;justify-content:center;gap:8px;font-family:inherit;cursor:pointer;touch-action:manipulation;box-shadow:0 0 0 3px rgba(215,38,30,.22);white-space:nowrap}
+.fh-stop-t{display:flex;flex-direction:column;align-items:flex-start;line-height:1.1}.fh-stop-t>span{font-weight:700;font-size:19px;letter-spacing:.08em}.fh-stop-t>small{font-size:11px;font-weight:500;white-space:nowrap}
+.fh-stop:focus-visible{outline:3px solid #8CC8FF;outline-offset:2px}
+/* 대상 없는 화면의 STOP → 정지할 로봇 고르기(F-COM-01) */
+.fh-pick{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 16px;border-bottom:1px solid var(--line2);background:var(--panel);font-size:14px}
+.fh-pick .fh-stop{min-height:44px}.fh-pick .fh-stop:disabled{opacity:.45;cursor:not-allowed}
+.fh-band{display:flex;flex-direction:column;gap:4px;padding:10px 16px;border-bottom:1px solid var(--bad);background:var(--bad-bg);font-size:14px}
+.fh-band:empty{display:none}
+.fh-body{flex:1;display:flex;min-height:0}
+.fh-nav{flex:0 0 76px;display:flex;flex-direction:column;align-items:center;gap:4px;padding:12px 6px;box-sizing:border-box;border-right:1px solid var(--line);background:var(--panel)}
+.fh .nav{min-height:44px;font-size:14px;position:relative}
+.fh-badge{position:absolute;top:4px;right:6px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:700;line-height:18px;text-align:center}
+.fh-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-content:flex-start;box-sizing:border-box}
+.fh-main>section{flex:1 1 280px}
+.fh .btn{min-height:44px;height:auto}
+.fh-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.fh-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.fh-list button{width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);text-align:left;font-size:14px}
+.fh-list.robots button{flex-wrap:wrap;row-gap:4px}.fh-list.robots button>*{white-space:nowrap}   /* 좁으면 낱말을 꺾지 않고 뒤 칸(담당·마지막 수신)을 둘째 줄로 */
+.fh-list button[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
+.fh-main>.fh-kpi{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:24px;padding:14px 16px}
+.fh-kpi div{display:flex;align-items:baseline;gap:8px;font-size:14px}
+.fh-kpi b{font-size:24px;font-variant-numeric:tabular-nums}
+.fh-kpi .bad b{color:var(--bad)}
+.fh-why{font-size:14px;color:var(--muted)}
+.fh-slot{min-height:160px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:8px;color:var(--muted);font-size:14px}
+.fh.phone .fh-head{padding:6px 8px;gap:8px}
+.fh.phone .fh-head h1{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.fh.phone .fh-head>.btn{flex:0 1 auto;min-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}   /* 좁은 폰: 제목·왼쪽 단추가 줄고 STOP(flex:none)은 그대로 */
+/* 400 px 이하 폰: 연결 상태는 점만(글은 화면 읽기용) — 연결 끊김·거부 글이 STOP 을 밀어내지 않게. 360 px 이하는 왼쪽 단추가 있으면 제목도 숨김(한 글자만 남지 않게) */
+@media (max-width:400px){.fh.phone .fh-dot-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
+@media (max-width:360px){.fh.phone .fh-head:has(>.btn) h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
+.fh.phone .fh-main{padding:8px;gap:8px}
+.fh button[disabled]{cursor:not-allowed}
+.fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}
+.fh-main:not(:has([aria-describedby="fh-soon"])) #fh-soon{display:none}   /* 준비 중 단추가 없는 탭에서는 숨김 */
+
+/* 3부 — 서버 연결(로그인·조직 기준값). .inp 는 원본 로그인 화면(ui/src/screens/PcLogin.view.tsx CSS) 값 그대로 */
+.inp{height:48px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:15px;box-sizing:border-box;width:100%}
+.inp:focus{outline:2px solid var(--accent);outline-offset:1px}
+.inp[readonly]{color:var(--muted)}
+.fh-me{font-size:14px;white-space:nowrap}
+.fh-dev{margin:0;padding:6px 16px;border-bottom:1px dashed var(--line2);background:var(--panel2);color:var(--muted);font-size:12px;line-height:1.45}
+.fh-form{display:flex;flex-direction:column;gap:12px}
+.fh-field{display:flex;flex-direction:column;gap:6px;font-size:14px}
+.fh-msg{margin:0;font-size:14px;line-height:1.5;color:var(--bad)}
+.fh-msg.ok{color:var(--muted)}
+.fh-login{flex:1;display:flex;align-items:center;justify-content:center;padding:48px 16px;box-sizing:border-box}
+.fh-login form{width:100%;max-width:400px;display:flex;flex-direction:column;gap:18px}
+.fh-login h2{margin:0;font-size:26px;font-weight:700}
+.fh-login .btn.pri{height:52px;font-size:16px}
+.fh-more{position:relative}
+.fh-more>summary{list-style:none;display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:20px;cursor:pointer}
+.fh-more>summary::-webkit-details-marker{display:none}
+.fh-more>.card{position:absolute;right:0;top:calc(100% + 6px);z-index:20;padding:8px;white-space:nowrap}

@@ -22,7 +22,7 @@
 - APK15는 이 통합판과 같은 `ui/`·`mobile/` 소스로 빌드됐으며 APK 구조 대조 28항목 통과가 기록되어 있다. APK 바이트 SHA-256은 `f09b0e8009aad2160ac0985cd3db2e0c7ffb377d1510fd46b05a8636e224c4a3`이다.
 - 이번 작업에서는 과거 앱 검증을 재실행하지 않는다. 코드 트리 동일성, 브랜치 관계, 문서·변경 경로, 공개 대상과 Git 반영 상태를 확인한다.
 
-출처: [기존 통합 출처와 검증 한계](PROVENANCE-app-platform-integration.md). 로컬 원시 운영 기록은 공개 Git에 추가하지 않는다.
+출처: 기존 통합 출처와 검증 한계 문서(`docs/PROVENANCE-app-platform-integration.md`)는 삭제됨(이력: git log). 로컬 원시 운영 기록은 공개 Git에 추가하지 않는다.
 
 ## 보장하지 않는 범위
 

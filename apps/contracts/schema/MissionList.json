@@ -1,0 +1,154 @@
+{
+  "$defs": {
+    "JsonValue": {},
+    "Mission": {
+      "additionalProperties": false,
+      "properties": {
+        "archived_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Archived At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "title": "Created By",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "latest_version": {
+          "title": "Latest Version",
+          "type": "integer"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "title": "Name",
+          "type": "string"
+        },
+        "number": {
+          "title": "Number",
+          "type": "integer"
+        },
+        "required_devices": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Devices",
+          "type": "array"
+        },
+        "steps": {
+          "items": {
+            "$ref": "#/$defs/MissionStep"
+          },
+          "maxItems": 100,
+          "minItems": 1,
+          "title": "Steps",
+          "type": "array"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "version_created_at": {
+          "format": "date-time",
+          "title": "Version Created At",
+          "type": "string"
+        },
+        "version_created_by": {
+          "format": "uuid",
+          "title": "Version Created By",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "steps",
+        "id",
+        "number",
+        "latest_version",
+        "version",
+        "required_devices",
+        "created_by",
+        "created_at",
+        "version_created_by",
+        "version_created_at",
+        "archived_at"
+      ],
+      "title": "Mission",
+      "type": "object"
+    },
+    "MissionStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PHOTO",
+            "WAIT",
+            "OPERATOR_CONFIRM",
+            "SENSOR_LOG"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "MissionStep",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MissionList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/Mission"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "title": "MissionList",
+  "type": "object"
+}

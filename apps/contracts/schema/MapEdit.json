@@ -1,0 +1,62 @@
+{
+  "$id": "fh-app/1/MapEdit",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "\\S",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Id"
+    },
+    "op": {
+      "enum": [
+        "ERASE",
+        "WALL"
+      ],
+      "title": "Op",
+      "type": "string"
+    },
+    "polyline": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "maxItems": 256,
+      "minItems": 2,
+      "title": "Polyline",
+      "type": "array"
+    },
+    "width": {
+      "exclusiveMinimum": 0,
+      "maximum": 100,
+      "title": "Width",
+      "type": "number"
+    }
+  },
+  "required": [
+    "op",
+    "polyline",
+    "width"
+  ],
+  "title": "MapEdit",
+  "type": "object"
+}

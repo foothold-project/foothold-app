@@ -1,0 +1,27 @@
+{
+  "$id": "fh-app/1/SensorLogParams",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "default": "lidar",
+      "enum": [
+        "rgb",
+        "depth",
+        "lidar",
+        "battery"
+      ],
+      "title": "Device",
+      "type": "string"
+    },
+    "seconds": {
+      "default": 10,
+      "maximum": 3600,
+      "minimum": 1,
+      "title": "Seconds",
+      "type": "integer"
+    }
+  },
+  "title": "SensorLogParams",
+  "type": "object"
+}

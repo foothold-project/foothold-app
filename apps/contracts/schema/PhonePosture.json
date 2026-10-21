@@ -1,0 +1,59 @@
+{
+  "$id": "fh-app/1/PhonePosture",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "body_still": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Body Still"
+    },
+    "fallen": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Fallen"
+    },
+    "tilt_deg": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Tilt Deg"
+    },
+    "z": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Z"
+    }
+  },
+  "required": [
+    "z",
+    "tilt_deg",
+    "fallen",
+    "body_still"
+  ],
+  "title": "PhonePosture",
+  "type": "object"
+}

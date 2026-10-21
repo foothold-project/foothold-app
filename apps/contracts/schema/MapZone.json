@@ -1,0 +1,56 @@
+{
+  "$id": "fh-app/1/MapZone",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "\\S",
+      "title": "Name",
+      "type": "string"
+    },
+    "polygon": {
+      "items": {
+        "maxItems": 2,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "number"
+          }
+        ],
+        "type": "array"
+      },
+      "maxItems": 256,
+      "minItems": 3,
+      "title": "Polygon",
+      "type": "array"
+    },
+    "type": {
+      "enum": [
+        "NO_GO",
+        "SLOW"
+      ],
+      "title": "Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "type",
+    "name",
+    "polygon"
+  ],
+  "title": "MapZone",
+  "type": "object"
+}

@@ -1,0 +1,27 @@
+{
+  "$id": "fh-app/1/UserPatch",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "display_name": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "locked": {
+      "title": "Locked",
+      "type": "boolean"
+    },
+    "role": {
+      "enum": [
+        "ORG_ADMIN",
+        "OPERATOR"
+      ],
+      "title": "Role",
+      "type": "string"
+    }
+  },
+  "title": "UserPatch",
+  "type": "object"
+}

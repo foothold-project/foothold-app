@@ -1,0 +1,382 @@
+"""Second review: retryable wire errors and bounded, lossless safety notifications."""
+import asyncio
+from dataclasses import replace
+from datetime import timedelta
+import json
+import time
+from uuid import uuid4
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import Session as DBSession
+from starlette.websockets import WebSocketDisconnect
+
+from apps.contracts import models as C
+from apps.server.fh_server.api import Settings, create_app
+from apps.server.fh_server.leases import Actor, Effect
+from apps.server.fh_server.models import Event, LeaseLog, now
+from apps.server.fh_server import realtime as module
+from apps.server.fh_server.realtime import AuditQueue, Peer, Policy
+from .test_realtime import agent, app_token, receive, receive_open, reply, rt, screen, send, state, take, drain_audit
+from .test_realtime_review import Sink, run
+
+
+def temporary_db_error():
+    return OperationalError('SELECT fake-test', {}, Exception('fake temporary DB failure'))
+
+
+def test_n2_stale_free_is_retried_after_snapshot_refresh(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        take(ws, ag, rid)
+        original = rt.refresh_policy
+        async def slow(peer):
+            await asyncio.sleep(.7)
+            await original(peer)
+        monkeypatch.setattr(rt, 'refresh_policy', slow)
+        async def age():
+            peer = next(iter(rt.screens.values()))
+            peer.policy = replace(peer.policy, checked=rt.clock() - 1)
+            rt.policy_cache[peer.actor.session] = peer.policy
+        run(client, age)
+        begin = time.monotonic()
+        ag.close()
+        result = receive_open(ws, 'lease', predicate=lambda x: x['holder'] is None, timeout=2)
+        assert result['holder'] is None
+        assert .5 < time.monotonic() - begin < 2
+        assert reply(ws, send(ws, 'ping'))['ok']
+
+
+def test_n3_hello_deadline_is_retryable(client, seeded, rt, monkeypatch):
+    monkeypatch.setattr(module, 'HELLO_TIMEOUT', .05)
+    rid = str(seeded['robots']['mine'])
+    with client.websocket_connect('wss://testserver/api/v1/agent/ws', headers={
+            'authorization': 'Bearer fake-test-' + rid}) as ag:
+        with pytest.raises(WebSocketDisconnect) as error:
+            receive(ag, 'never')
+        assert error.value.code == 1013
+
+
+@pytest.mark.parametrize('kind', ['validation', 'permission', 'stale', 'busy'])
+def test_n4_screen_denials_spend_ingress_before_validation(client, seeded, rt, kind):
+    with screen(client, app_token(client)) as ws:
+        async def empty_budget():
+            peer = next(iter(rt.screens.values()))
+            peer.budget = 0
+            peer.budget_at = rt.clock() + 1
+            if kind == 'stale':
+                peer.policy = replace(peer.policy, checked=rt.clock() - 1)
+            if kind == 'busy':
+                rt.audit_overloaded = True
+        run(client, empty_budget)
+        if kind == 'validation':
+            ws.send_json({'t': 'cmd', 'id': 'malformed'})
+        elif kind == 'permission':
+            send(ws, 'hidden', seeded['robots']['theirs'])
+        else:
+            send(ws, 'ping')
+        with pytest.raises(WebSocketDisconnect) as error:
+            receive(ws, 'never')
+        assert error.value.code == 1013
+
+
+@pytest.mark.parametrize('frame', ['bad-json', 'binary', 'bad-state', 'bad-event'])
+def test_n4_agent_invalid_frames_are_budgeted(client, seeded, rt, frame):
+    with agent(client, seeded) as ag:
+        async def empty_budget():
+            peer = rt.agents[str(seeded['robots']['mine'])]
+            peer.budget = peer.archive_budget = 0
+            peer.budget_at = peer.archive_budget_at = rt.clock() + 1
+        run(client, empty_budget)
+        if frame == 'bad-json':
+            ag.send_text('not-json')
+        elif frame == 'binary':
+            ag.send_bytes(b'unsupported video')
+        else:
+            ag.send_json({'t': 'state' if frame == 'bad-state' else 'event', 'bad': True})
+        with pytest.raises(WebSocketDisconnect) as error:
+            receive(ag, 'never')
+        assert error.value.code == 1013
+
+
+def test_n5_overflow_free_follows_entire_accepted_effect_batch(client, seeded, rt):
+    rid = str(seeded['robots']['mine'])
+    one = Actor(str(seeded['users']['one']), str(uuid4()), 'batch-owner')
+    two = Actor(str(seeded['users']['admin']), str(uuid4()), 'batch-requester')
+    async def check():
+        original_queue = rt.audit
+        original_screens, original_agents = rt.screens, rt.agents
+        policy = Policy({rid: frozenset({'ROBOT_READ', 'O_OWN'})}, C.OrgSettings(), now() + timedelta(hours=1), rt.clock())
+        a, b = Peer(Sink(), actor=one, policy=policy, subscriptions={rid: set()}), Peer(Sink(), actor=two, policy=policy, subscriptions={rid: set()})
+        rt.screens = {one.connection: a, two.connection: b}
+        rt.agents = {rid: Peer(Sink(), auth_checked=rt.clock())}
+        rt.audit = AuditQueue(1)
+        rt.audit.put_nowait(Effect('audit', rid, {'op': 'TAKE'}))
+        try:
+            arb = rt.arbiter
+            arb.take(rid, one)
+            arb.state(rid, True, [0, 0, 0], 1, stop_ref=1)
+            arb.request(rid, two)
+            arb.respond(rid, one, arb.robot(rid).request.id, True)
+            rt.apply(arb.state(rid, True, [0, 0, 0], 2, stop_ref=2))
+            for peer in (a, b):
+                frames = [peer.queue.get_nowait()['_delivery'] for _ in range(peer.queue.qsize())]
+                accepted = next(i for i, frame in enumerate(frames) if frame.get('result') == 'ACCEPTED')
+                free = max(i for i, frame in enumerate(frames) if frame['t'] == 'lease' and frame['holder'] is None)
+                assert accepted < free
+            assert arb.robot(rid).holder is None
+        finally:
+            rt.screens, rt.agents = original_screens, original_agents
+            rt.audit = original_queue
+            rt.audit_overloaded = False
+    run(client, check)
+
+
+def test_n6_startup_standby_acquires_after_owner_stops(client, seeded, rt):
+    standby_app = create_app(Settings(seeded['urls']['app'], seeded['org']))
+    with TestClient(standby_app, base_url='https://testserver') as standby:
+        assert standby_app.state.realtime.failed
+        drain_audit(client, rt)
+        run(client, rt.close)
+        async def wait():
+            async with asyncio.timeout(2):
+                while standby_app.state.realtime.failed:
+                    await asyncio.sleep(.01)
+        run(standby, wait)
+        with agent(standby, seeded) as ag, screen(standby, app_token(standby)) as ws:
+            assert take(ws, ag, seeded['robots']['mine'])
+
+
+def test_n7_single_policy_db_error_retries_without_dropping_lease(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        lease = take(ws, ag, rid)
+        original, errors = rt.refresh_policy, []
+        async def once(peer):
+            if not errors:
+                errors.append('failed')
+                raise temporary_db_error()
+            result = await original(peer)
+            errors.append('recovered')
+            return result
+        # A second healthy grouped lane may mask a single SQL failure. Inject
+        # at the actual watcher boundary to prove its transient-error policy.
+        monkeypatch.setattr(rt, 'refresh_policy', once)
+        async def recover():
+            for _ in range(150):
+                if 'recovered' in errors:
+                    break
+                await asyncio.sleep(.01)
+            assert 'recovered' in errors, 'The watcher disconnected instead of retrying'
+            assert all(not peer.closing for peer in rt.screens.values())
+            assert rt.arbiter.robot(rid).holder is not None
+            assert rt.arbiter.robot(rid).holder.lease_id == lease
+        run(client, recover)
+        assert reply(ws, send(ws, 'stop', rid))['ok']
+        receive_open(ag, 'stop', timeout=.1)
+
+
+def test_n7_single_agent_auth_db_error_keeps_connection(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        lease = take(ws, ag, rid)
+        original, errors = rt.load_agent_batch, []
+        def once():
+            if not errors:
+                errors.append(True)
+                raise temporary_db_error()
+            return original()
+        monkeypatch.setattr(rt, 'load_agent_batch', once)
+        async def wait():
+            await asyncio.sleep(.3)
+            assert errors
+            assert rid in rt.agents
+            assert not rt.agents[rid].closing
+            assert rt.arbiter.robot(rid).holder is not None
+            assert rt.arbiter.robot(rid).holder.lease_id == lease
+        run(client, wait)
+        assert reply(ws, send(ws, 'stop', rid))['ok']
+        receive_open(ag, 'stop', timeout=.1)
+
+
+def test_n7_unknown_ownership_frees_but_keeps_stop_and_rechecks(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        take(ws, ag, rid)
+        original, errors = rt.ownership_alive, []
+        def once():
+            if not errors:
+                errors.append(True)
+                raise temporary_db_error()
+            return original()
+        monkeypatch.setattr(rt, 'ownership_alive', once)
+        async def uncertain():
+            async with asyncio.timeout(1.5):
+                while not rt.owner_uncertain:
+                    await asyncio.sleep(.01)
+            assert rt.arbiter.robot(rid).holder is None
+            assert not rt.failed
+        run(client, uncertain)
+        assert receive_open(ws, 'lease', predicate=lambda x: x['holder'] is None)['holder'] is None
+        receive_open(ag, 'lease'); receive_open(ag, 'stop')
+        assert reply(ws, send(ws, 'stop', rid))['ok']
+        receive_open(ag, 'stop', timeout=.1)
+        async def recovered():
+            async with asyncio.timeout(1.5):
+                while rt.owner_uncertain:
+                    await asyncio.sleep(.01)
+        run(client, recovered)
+
+
+def test_n8_run_takeover_has_no_duplicate_release(client, seeded, rt):
+    run_id, rid = str(uuid4()), str(seeded['robots']['mine'])
+    with agent(client, seeded, run={'run_id': run_id, 'status': 'PAUSED', 'step': 0}) as ag, screen(client, app_token(client)) as ws:
+        receive(ag, 'run.control')
+        ag.send_json(state(2, stop_ref=ag.stop_ref))
+        receive_open(ag, 'lease')
+        take(ws, ag, rid, gen=3)
+        drain_audit(client, rt)
+        with DBSession(client.app.state.engine) as db:
+            ops = list(db.scalars(select(LeaseLog.op).order_by(LeaseLog.id)))
+            assert ops == ['RUN_TAKE', 'RUN_PAUSE_TAKEOVER', 'TAKE']
+
+
+def test_n9_backlog_events_do_not_disconnect_or_starve_state(client, seeded, rt):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        take(ws, ag, rid)
+        async def burst():
+            for number in range(500):
+                frame = {'t': 'event', 'code': 'FAKE_BACKLOG', 'severity': 'WARN',
+                         'robot_at': None, 'data': {'number': number}}
+                await ag._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps(frame)})
+            await ag._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps(state(4))})
+            async with asyncio.timeout(7):
+                while rt.arbiter.robot(rid).stop_gen != 4:
+                    await asyncio.sleep(.01)
+            join = asyncio.create_task(rt.agents[rid].archive.join())
+            while not join.done():
+                await asyncio.sleep(.2)
+                await ag._receive_tx.send({'type': 'websocket.receive', 'text': json.dumps(state(4))})
+            await asyncio.wait_for(join, 7)
+            await asyncio.wait_for(rt.audit.join(), 3)
+            assert rt.audit.qsize() <= rt.audit.maxsize
+        run(client, burst)
+        assert rid in rt.agents and rt.arbiter.robot(rid).holder
+        assert reply(ws, send(ws, 'ping'))['ok']
+    with DBSession(client.app.state.engine) as db:
+        rows = list(db.scalars(select(Event).where(Event.code == 'FAKE_BACKLOG').order_by(Event.id)))
+        summaries = list(db.scalars(select(Event).where(Event.robot_id == seeded['robots']['mine'],
+            Event.code == 'AUDIT_DROPPED')))
+    numbers = [row.data['number'] for row in rows]
+    assert numbers == sorted(set(numbers)) and all(0 <= n < 500 for n in numbers)
+    omitted = sum(row.data['count'] for row in summaries if row.data.get('source') == 'ROBOT_HISTORY')
+    assert len(numbers) + omitted == 500
+    assert numbers  # controlled latest-61 bound is tested separately from safety transitions
+
+
+def test_n7_stale_policy_revokes_motion_but_preserves_stop_during_retry(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        take(ws, ag, rid)
+        original = rt.load_policy_batch
+        failures = []
+        def unavailable(actor):
+            failures.append(True)
+            raise temporary_db_error()
+        monkeypatch.setattr(rt, 'load_policy_batch', unavailable)
+        async def age():
+            peer = next(iter(rt.screens.values()))
+            peer.policy = replace(peer.policy, checked=rt.clock() - .7)
+            rt.policy_cache[peer.actor.session] = peer.policy
+            async with asyncio.timeout(1):
+                while not failures or rt.arbiter.robot(rid).holder is not None:
+                    await asyncio.sleep(.01)
+            assert not peer.closing
+        run(client, age)
+        receive_open(ag, 'lease'); receive_open(ag, 'stop')
+        ident = send(ws, 'stop', rid)
+        receive_open(ag, 'stop', timeout=.1)  # writer may wait for DB; STOP never does
+        assert reply(ws, ident)['ok']  # priority reply must precede deferred FREE
+        monkeypatch.setattr(rt, 'load_policy_batch', original)
+        assert receive_open(ws, 'lease', predicate=lambda x: x['holder'] is None)['holder'] is None
+
+
+def test_n7_stale_agent_auth_blocks_authority_but_stop_is_still_forwarded(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        take(ws, ag, rid)
+        original = rt.load_agent_batch
+        def unavailable():
+            raise temporary_db_error()
+        original_policy = rt.load_policy_batch
+        def acl_only(lane):
+            batch = original_policy(lane)
+            # Isolate loss of every token-verification source while real ACL
+            # SQL and read-ahead keep running. No stale permission is invented.
+            batch.agents = None
+            return batch
+        monkeypatch.setattr(rt, 'load_policy_batch', acl_only)
+        monkeypatch.setattr(rt, 'load_agent_batch', unavailable)
+        async def age():
+            peer = rt.agents[rid]
+            peer.auth_checked = rt.clock() - .7
+            async with asyncio.timeout(1):
+                while rt.arbiter.robot(rid).holder is not None:
+                    await asyncio.sleep(.01)
+            assert not peer.closing
+        run(client, age)
+        receive_open(ag, 'lease'); receive_open(ag, 'stop')
+        result = reply(ws, send(ws, 'lease.take', rid))
+        assert not result['ok'], result
+        assert result['error']['code'] == 'ROBOT_AUTH_PENDING'
+        assert reply(ws, send(ws, 'stop', rid))['ok']
+        receive_open(ag, 'stop', timeout=.1)
+        monkeypatch.setattr(rt, 'load_agent_batch', original)
+
+
+def test_n7_retry_grace_is_bounded_and_closes_temporarily(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag:
+        def unavailable():
+            raise temporary_db_error()
+        original_policy = rt.load_policy_batch
+        def acl_only(lane):
+            batch = original_policy(lane)
+            # Isolate loss of every token-verification source while real ACL
+            # SQL and read-ahead keep running. No stale permission is invented.
+            batch.agents = None
+            return batch
+        monkeypatch.setattr(rt, 'load_policy_batch', acl_only)
+        monkeypatch.setattr(rt, 'load_agent_batch', unavailable)
+        async def expired():
+            await asyncio.sleep(.15)
+            rt.agents[rid].auth_checked = rt.clock() - 6
+        run(client, expired)
+        with pytest.raises(WebSocketDisconnect) as error:
+            receive(ag, 'never', timeout=1)
+        assert error.value.code == 1013
+
+
+def test_n7_stale_successful_read_is_not_a_permanent_authorization_denial(client, seeded, rt, monkeypatch):
+    rid = str(seeded['robots']['mine'])
+    with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
+        take(ws, ag, rid)
+        original = rt.refresh_policy
+        async def old_snapshot(peer):
+            await asyncio.sleep(.01)
+            peer.policy = replace(peer.policy, checked=rt.clock() - 1)
+        monkeypatch.setattr(rt, 'refresh_policy', old_snapshot)
+        async def wait():
+            async with asyncio.timeout(1):
+                while rt.arbiter.robot(rid).holder is not None:
+                    await asyncio.sleep(.01)
+        run(client, wait)
+        receive_open(ag, 'lease'); receive_open(ag, 'stop')
+        ident = send(ws, 'stop', rid)
+        receive_open(ag, 'stop', timeout=.1)
+        assert reply(ws, ident)['ok']  # priority reply does not await policy
+        monkeypatch.setattr(rt, 'refresh_policy', original)
+        assert receive_open(ws, 'lease', predicate=lambda x: x['holder'] is None)['holder'] is None

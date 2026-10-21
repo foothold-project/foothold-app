@@ -1,0 +1,30 @@
+{
+  "$id": "fh-app/1/ScreenPing",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-rt/1",
+      "description": "첫 메시지는 필수, 후속은 생략 가능; null은 거부한다.",
+      "title": "Proto",
+      "type": "string"
+    },
+    "t": {
+      "const": "ping",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "t"
+  ],
+  "title": "ScreenPing",
+  "type": "object"
+}

@@ -1,0 +1,44 @@
+{
+  "$id": "fh-app/1/PhoneLease",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-phone/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Robot",
+      "type": "string"
+    },
+    "t": {
+      "enum": [
+        "lease.take",
+        "lease.request",
+        "lease.release",
+        "lease.cancel",
+        "view",
+        "stop"
+      ],
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "robot",
+    "t"
+  ],
+  "title": "PhoneLease",
+  "type": "object"
+}

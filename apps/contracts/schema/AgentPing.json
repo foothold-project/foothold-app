@@ -1,0 +1,16 @@
+{
+  "$id": "fh-app/1/AgentPing",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "t": {
+      "const": "ping",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t"
+  ],
+  "title": "AgentPing",
+  "type": "object"
+}

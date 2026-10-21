@@ -1,0 +1,45 @@
+{
+  "$id": "fh-app/1/AgentCmdAck",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "applied": {
+      "items": {
+        "type": "number"
+      },
+      "maxItems": 3,
+      "minItems": 3,
+      "title": "Applied",
+      "type": "array"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": -1,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "cmd.ack",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "seq",
+    "applied"
+  ],
+  "title": "AgentCmdAck",
+  "type": "object"
+}

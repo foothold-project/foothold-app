@@ -1,0 +1,401 @@
+{
+  "$defs": {
+    "Battery": {
+      "additionalProperties": false,
+      "properties": {
+        "soc": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Soc",
+          "type": "number"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "soc",
+        "updated_at"
+      ],
+      "title": "Battery",
+      "type": "object"
+    },
+    "CurrentRun": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "scenario_name": {
+          "title": "Scenario Name",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "QUEUED",
+            "PREPARING",
+            "MOVING",
+            "AT_WAYPOINT",
+            "PERFORMING",
+            "PAUSED",
+            "WAIT_CONFIRM",
+            "COMPLETED",
+            "FAILED",
+            "ABORTED"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "status",
+        "scenario_name",
+        "progress"
+      ],
+      "title": "CurrentRun",
+      "type": "object"
+    },
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "CAMERA_RGB",
+            "CAMERA_DEPTH",
+            "LIDAR",
+            "BATTERY",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "OK",
+            "MISSING",
+            "ERROR"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "label",
+        "state"
+      ],
+      "title": "Device",
+      "type": "object"
+    },
+    "Lease": {
+      "additionalProperties": false,
+      "properties": {
+        "holder_type": {
+          "enum": [
+            "USER",
+            "RUN"
+          ],
+          "title": "Holder Type",
+          "type": "string"
+        },
+        "since": {
+          "format": "date-time",
+          "title": "Since",
+          "type": "string"
+        },
+        "user": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Person"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "holder_type",
+        "user",
+        "since"
+      ],
+      "title": "Lease",
+      "type": "object"
+    },
+    "Location": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "floor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Floor Id"
+        },
+        "map_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version Id"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Yaw"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y",
+        "yaw",
+        "confidence",
+        "updated_at"
+      ],
+      "title": "Location",
+      "type": "object"
+    },
+    "Person": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "display_name"
+      ],
+      "title": "Person",
+      "type": "object"
+    },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/RobotSummary",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "attention": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Attention",
+      "type": "array"
+    },
+    "battery": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Battery"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "connection": {
+      "enum": [
+        "ONLINE",
+        "OFFLINE",
+        "UNKNOWN"
+      ],
+      "title": "Connection",
+      "type": "string"
+    },
+    "current_run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CurrentRun"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "devices": {
+      "items": {
+        "$ref": "#/$defs/Device"
+      },
+      "title": "Devices",
+      "type": "array"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "lease": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Lease"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "location": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Location"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "model": {
+      "title": "Model",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "owner": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Person"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "status": {
+      "anyOf": [
+        {
+          "enum": [
+            "IDLE",
+            "TELEOP",
+            "RUNNING",
+            "PAUSED",
+            "STOP_LATCHED",
+            "ERROR"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Status"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "model",
+    "owner",
+    "connection",
+    "status",
+    "battery",
+    "location",
+    "lease",
+    "current_run",
+    "devices",
+    "attention"
+  ],
+  "title": "RobotSummary",
+  "type": "object"
+}

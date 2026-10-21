@@ -1,0 +1,409 @@
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
+
+from sqlalchemy import BigInteger, Boolean, Float, Integer, CheckConstraint, DateTime, ForeignKeyConstraint, Index, LargeBinary, Text, UniqueConstraint, func, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID as PGUUID
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def now():
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+class Organization(Base):
+    __tablename__ = 'organizations'
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text)
+    settings: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class Tenant:
+    org_id: Mapped[UUID] = mapped_column(PGUUID, nullable=False)
+
+
+class User(Tenant, Base):
+    __tablename__ = 'users'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        UniqueConstraint('org_id', 'id'),
+        CheckConstraint("role IN ('ORG_ADMIN','OPERATOR')", name='user_role'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    username: Mapped[str] = mapped_column(Text)
+    display_name: Mapped[str] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(Text)
+    password_hash: Mapped[str] = mapped_column(Text)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    notify_prefs: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+Index('users_org_username', User.org_id, func.lower(User.username), unique=True)
+
+
+class Session(Tenant, Base):
+    __tablename__ = 'sessions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        CheckConstraint("client IN ('web','app')", name='session_client'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    user_id: Mapped[UUID] = mapped_column(PGUUID)
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
+    client: Mapped[str] = mapped_column(Text)
+    device_label: Mapped[str] = mapped_column(Text, default='')
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Extensions needed for rotating app credentials and session-bound CSRF.
+    refresh_hash: Mapped[bytes | None] = mapped_column(LargeBinary, unique=True)
+    refresh_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    retired_refresh_hashes: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    csrf_hash: Mapped[bytes | None] = mapped_column(LargeBinary)
+
+
+class Robot(Tenant, Base):
+    __tablename__ = 'robots'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'owner_user_id'], ['users.org_id', 'users.id']),
+        Index('robots_active_org_name', 'org_id', 'name', unique=True,
+              postgresql_where=text('archived_at IS NULL')),
+        UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'last_floor_id'], ['floors.org_id', 'floors.id'], name='robots_last_floor_fk'),
+        CheckConstraint("last_floor_source IN ('HUMAN','AUTO')", name='floor_source'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text)
+    model: Mapped[str] = mapped_column(Text)
+    owner_user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    agent_token_hash: Mapped[bytes] = mapped_column(LargeBinary)
+    # Floor FK is added in 0009; run/approval FKs follow their owned tables.
+    last_floor_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    last_floor_source: Mapped[str | None] = mapped_column(Text)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Event(Tenant, Base):
+    __tablename__ = 'events'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'approval_id'], ['approvals.org_id', 'approvals.id'], name='events_approval_fk'),
+        CheckConstraint("category IN ('RUN','ROUTE','LINK','LEASE','APPROVAL','SAFETY','ACCOUNT')", name='event_category'),
+        CheckConstraint("severity IN ('INFO','WARN','ERROR')", name='event_severity'),
+        UniqueConstraint('org_id', 'id'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    robot_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    category: Mapped[str] = mapped_column(Text)
+    code: Mapped[str] = mapped_column(Text)
+    severity: Mapped[str] = mapped_column(Text, default='INFO')
+    message: Mapped[str] = mapped_column(Text)
+    robot_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    run_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    approval_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+
+class AuthRateWindow(Tenant, Base):
+    """Mutable denial counters; each closed key/window produces one audit row."""
+    __tablename__ = 'auth_rate_windows'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        CheckConstraint("key_type IN ('LOGIN_IP','LOGIN_ACCOUNT','PASSWORD_ACCOUNT')", name='rate_window_key_type'),
+        CheckConstraint('denied_count > 0', name='rate_window_positive_count'),
+    )
+    org_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    key_type: Mapped[str] = mapped_column(Text, primary_key=True)
+    key_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    denied_count: Mapped[int] = mapped_column(BigInteger, default=1, server_default=text('1'))
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+
+Index('events_org_at', Event.org_id, Event.at.desc())
+Index('events_robot_at', Event.robot_id, Event.at.desc())
+Index('events_run_at', Event.run_id, Event.at)
+Index('events_category_at', Event.category, Event.at.desc())
+Index('events_org_at_id', Event.org_id, Event.at.desc(), Event.id.desc())
+Index('auth_rate_windows_org_start', AuthRateWindow.org_id, AuthRateWindow.window_start)
+
+
+class Notification(Tenant, Base):
+    __tablename__ = 'notifications'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'event_id'], ['events.org_id', 'events.id']),
+        UniqueConstraint('user_id', 'event_id', 'kind'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[UUID] = mapped_column(PGUUID)
+    event_id: Mapped[int | None] = mapped_column(BigInteger)
+    kind: Mapped[str] = mapped_column(Text)
+    title: Mapped[str] = mapped_column(Text)
+    body: Mapped[str] = mapped_column(Text)
+    link: Mapped[str] = mapped_column(Text)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+Index('notifications_user_created_id', Notification.user_id, Notification.created_at.desc(), Notification.id.desc())
+Index('notifications_user_unread', Notification.user_id, postgresql_where=text('read_at IS NULL'))
+
+
+class LeaseLog(Tenant, Base):
+    __tablename__ = 'lease_log'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id'], ['organizations.id']),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'other_user_id'], ['users.org_id', 'users.id']),
+        CheckConstraint("op IN ('TAKE','RELEASE','REQUEST','ACCEPT','DECLINE','TIMEOUT','EXPIRE','RUN_TAKE','RUN_PAUSE_TAKEOVER')", name='lease_log_op'),
+    )
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    op: Mapped[str] = mapped_column(Text)
+    user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    other_user_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    session_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+Index('lease_log_org_robot_at', LeaseLog.org_id, LeaseLog.robot_id, LeaseLog.at.desc())
+
+
+class RobotDevice(Tenant, Base):
+    __tablename__ = 'robot_devices'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        CheckConstraint("kind IN ('CAMERA_RGB','CAMERA_DEPTH','LIDAR','BATTERY','OTHER')", name='device_kind'),
+        CheckConstraint("state IN ('OK','MISSING','ERROR')", name='device_state'),
+    )
+    robot_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    kind: Mapped[str] = mapped_column(Text)
+    label: Mapped[str] = mapped_column(Text)
+    state: Mapped[str] = mapped_column(Text)
+    info: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class Site(Tenant, Base):
+    __tablename__ = 'sites'
+    __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']), UniqueConstraint('org_id', 'id'))
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    name: Mapped[str] = mapped_column(Text)
+
+
+class Building(Tenant, Base):
+    __tablename__ = 'buildings'
+    __table_args__ = (ForeignKeyConstraint(['org_id', 'site_id'], ['sites.org_id', 'sites.id']), UniqueConstraint('org_id', 'id'))
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    site_id: Mapped[UUID] = mapped_column(PGUUID)
+    name: Mapped[str] = mapped_column(Text)
+
+
+class Floor(Tenant, Base):
+    __tablename__ = 'floors'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'building_id'], ['buildings.org_id', 'buildings.id']),
+        UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'id', 'approved_version_id'],
+            ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id'],
+            name='floors_approved_version_fk', use_alter=True),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    building_id: Mapped[UUID] = mapped_column(PGUUID)
+    name: Mapped[str] = mapped_column(Text)
+    level: Mapped[int] = mapped_column(Integer)
+    approved_version_id: Mapped[UUID | None] = mapped_column(PGUUID)
+
+
+class Upload(Tenant, Base):
+    __tablename__ = 'uploads'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'id'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    image_path: Mapped[str] = mapped_column(Text)
+    image_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    png_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    metadata_json: Mapped[dict] = mapped_column(JSONB)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class MapVersion(Tenant, Base):
+    __tablename__ = 'map_versions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id']),
+        ForeignKeyConstraint(['org_id', 'floor_id', 'base_version_id'], ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'upload_id'], ['uploads.org_id', 'uploads.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'floor_id', 'id'), UniqueConstraint('org_id', 'id'),
+        UniqueConstraint('floor_id', 'number'),
+        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','CANCELED','SUPERSEDED')", name='map_version_status'),
+        CheckConstraint("source IN ('SLAM','EDIT','ROLLBACK','IMPORT')", name='map_version_source'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    floor_id: Mapped[UUID] = mapped_column(PGUUID)
+    number: Mapped[int] = mapped_column(Integer)
+    base_version_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    copied_from_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    upload_id: Mapped[UUID] = mapped_column(PGUUID)
+    status: Mapped[str] = mapped_column(Text)
+    image_path: Mapped[str] = mapped_column(Text)
+    image_sha256: Mapped[bytes] = mapped_column(LargeBinary)
+    width: Mapped[int] = mapped_column(Integer)
+    height: Mapped[int] = mapped_column(Integer)
+    resolution: Mapped[float] = mapped_column(Float)
+    origin_x: Mapped[float] = mapped_column(Float)
+    origin_y: Mapped[float] = mapped_column(Float)
+    origin_yaw: Mapped[float] = mapped_column(Float)
+    features: Mapped[dict] = mapped_column(JSONB)
+    reason: Mapped[str] = mapped_column(Text)
+    source: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class FloorConnector(Tenant, Base):
+    __tablename__ = 'floor_connectors'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'building_id'], ['buildings.org_id', 'buildings.id']),
+        ForeignKeyConstraint(['org_id', 'floor_a_id', 'map_version_a_id'], ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'floor_b_id'], ['floors.org_id', 'floors.id']),
+        ForeignKeyConstraint(['org_id', 'floor_b_id', 'map_version_b_id'], ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id']),
+        CheckConstraint("kind IN ('STAIRS','ELEVATOR')", name='connector_kind'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    building_id: Mapped[UUID] = mapped_column(PGUUID)
+    kind: Mapped[str] = mapped_column(Text)
+    floor_a_id: Mapped[UUID] = mapped_column(PGUUID)
+    floor_b_id: Mapped[UUID] = mapped_column(PGUUID)
+    a_pose: Mapped[dict] = mapped_column(JSONB)
+    b_pose: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    map_version_a_id: Mapped[UUID] = mapped_column(PGUUID)
+    map_version_b_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    active: Mapped[bool] = mapped_column(Boolean)
+
+
+class Approval(Tenant, Base):
+    __tablename__ = 'approvals'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'requester_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'decider_id'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'target_id'], ['map_versions.org_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'base_ref_id'], ['map_versions.org_id', 'map_versions.id']),
+        UniqueConstraint('org_id', 'id'),
+        CheckConstraint("kind IN ('MAP_REVISION','MAP_ROLLBACK')", name='approval_kind'),
+        CheckConstraint("status IN ('PENDING','APPROVED','REJECTED','CANCELED','STALE')", name='approval_status'),
+        CheckConstraint("target_type = 'map_version'", name='approval_target_type'),
+        CheckConstraint("(base_ref_id IS NULL AND base_ref_type IS NULL) OR (base_ref_id IS NOT NULL AND base_ref_type IS NOT NULL AND base_ref_type = 'map_version')", name='approval_base_ref'),
+        CheckConstraint("status != 'REJECTED' OR (decision_comment IS NOT NULL AND decision_comment ~ '[^[:space:]]')", name='approval_reject_reason'),
+        CheckConstraint("(status = 'PENDING' AND decided_at IS NULL AND decider_id IS NULL) OR (status != 'PENDING' AND decided_at IS NOT NULL AND decider_id IS NOT NULL)", name='approval_decision'),
+        Index('approvals_org_status_created', 'org_id', 'status', 'created_at'),
+        Index('approvals_requester_status', 'requester_id', 'status'),
+        Index('approvals_pending_target', 'target_type', 'target_id', unique=True, postgresql_where=text("status = 'PENDING'")),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    kind: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    target_type: Mapped[str] = mapped_column(Text, default='map_version')
+    target_id: Mapped[UUID] = mapped_column(PGUUID)
+    base_ref_type: Mapped[str | None] = mapped_column(Text)
+    base_ref_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    requester_id: Mapped[UUID] = mapped_column(PGUUID)
+    reason: Mapped[str] = mapped_column(Text)
+    decider_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    decision_comment: Mapped[str | None] = mapped_column(Text)
+    emergency: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class VersionedResource(Tenant):
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
+    name: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    latest_version: Mapped[int] = mapped_column(Integer)
+    version: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Mission(VersionedResource, Base):
+    __tablename__ = 'missions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'id'),
+        CheckConstraint('latest_version > 0 AND version > 0', name='mission_versions_positive'),
+        Index('missions_org_created', 'org_id', 'created_at', 'id'),
+    )
+
+
+class Scenario(VersionedResource, Base):
+    __tablename__ = 'scenarios'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('org_id', 'id'),
+        CheckConstraint('latest_version > 0 AND version > 0', name='scenario_versions_positive'),
+        Index('scenarios_org_created', 'org_id', 'created_at', 'id'),
+    )
+
+
+class ResourceSnapshot(Tenant):
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text('gen_random_uuid()'))
+    name: Mapped[str] = mapped_column(Text)
+    number: Mapped[int] = mapped_column(Integer)
+    required_devices: Mapped[list[str]] = mapped_column(ARRAY(Text))
+    created_by: Mapped[UUID] = mapped_column(PGUUID)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class MissionVersion(ResourceSnapshot, Base):
+    __tablename__ = 'mission_versions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'mission_id'], ['missions.org_id', 'missions.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('mission_id', 'number'),
+        CheckConstraint('number > 0', name='mission_number_positive'),
+    )
+    mission_id: Mapped[UUID] = mapped_column(PGUUID)
+    steps: Mapped[list] = mapped_column(JSONB)
+
+
+class ScenarioVersion(ResourceSnapshot, Base):
+    __tablename__ = 'scenario_versions'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'scenario_id'], ['scenarios.org_id', 'scenarios.id']),
+        ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
+        UniqueConstraint('scenario_id', 'number'),
+        CheckConstraint('number > 0', name='scenario_number_positive'),
+    )
+    scenario_id: Mapped[UUID] = mapped_column(PGUUID)
+    waypoints: Mapped[list] = mapped_column(JSONB)
+    finish: Mapped[dict] = mapped_column(JSONB)
+    notes: Mapped[str] = mapped_column(Text)
+    floor_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID))
+    map_version_ids: Mapped[list[UUID]] = mapped_column(ARRAY(PGUUID))
+    est_distance_m: Mapped[float] = mapped_column(Float)

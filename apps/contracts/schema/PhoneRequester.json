@@ -1,0 +1,23 @@
+{
+  "$id": "fh-app/1/PhoneRequester",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "user_id",
+    "device_id"
+  ],
+  "title": "PhoneRequester",
+  "type": "object"
+}

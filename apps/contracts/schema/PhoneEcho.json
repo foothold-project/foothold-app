@@ -1,0 +1,30 @@
+{
+  "$id": "fh-app/1/PhoneEcho",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "agent_time_ms": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Agent Time Ms",
+      "type": "integer"
+    },
+    "client_time_ms": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Client Time Ms",
+      "type": "integer"
+    },
+    "id": {
+      "title": "Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "client_time_ms",
+    "agent_time_ms"
+  ],
+  "title": "PhoneEcho",
+  "type": "object"
+}
