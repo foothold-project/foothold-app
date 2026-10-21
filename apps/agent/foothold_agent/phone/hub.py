@@ -100,7 +100,7 @@ class Hub:
         queue.clear()
         return result
 
-    def _request_result(self, result, error=None):
+    def _request_result(self, result, error=None, *, self_cancel=False):
         request, self.pending = self.pending, None
         if request is None:
             return
@@ -108,7 +108,7 @@ class Hub:
                    'result': result, 'error': error}
         for peer in (request['holder'], request['peer']):
             self._notify(peer, message)
-        if result in ('DECLINED', 'TIMEOUT', 'CANCELED'):
+        if result in ('DECLINED', 'TIMEOUT') or self_cancel:
             self.cooldowns[request['identity']] = self.now() + 30
         self._audit('PHONE_LEASE_' + result, request_id=request['id'],
                     user_id=request['identity'][0], device_id=request['identity'][1])
@@ -315,7 +315,7 @@ class Hub:
             self.release(peer)
         elif kind == 'lease.cancel':
             if self.pending is not None and self.pending['peer'] == peer:
-                self._request_result('CANCELED')
+                self._request_result('CANCELED', self_cancel=True)
         elif kind == 'stop':
             self.stop()  # authenticated view-only phones may STOP
         elif kind == 'ping':

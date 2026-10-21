@@ -56,8 +56,8 @@ MUTATIONS += [
            'test_production_settings_reject_memory_and_require_explicit_simulation'),
     review('private file permissions ignored', 'tickets.py', 'info.st_mode & 0o077', 'False',
            'test_private_files_reject_unsafe_modes_or_nonregular_files'),
-    review('self cancellation cooldown removed', 'hub.py', "('DECLINED', 'TIMEOUT', 'CANCELED')",
-           "('DECLINED', 'TIMEOUT')", 'test_request_cancel_flood_closes_only_requester_and_bounds_events'),
+    review('self cancellation cooldown removed', 'hub.py', "or self_cancel:",
+           "or False:", 'test_request_cancel_flood_closes_only_requester_and_bounds_events'),
     review('request flood gate removed', 'hub.py', 'if p.request_count > 8:', 'if False:',
            'test_request_flood_rate_gate_closes_only_the_flooder'),
     review('notification replacement removed', 'hub.py', "if old['t'] == message['t']:", 'if False:',
@@ -65,8 +65,8 @@ MUTATIONS += [
     review('unapproved socket can STOP', 'hub.py',
            'if safety and peer in self.peers and self.peers[peer].user is not None:', 'if safety:',
            'test_unapproved_socket_cannot_stop_authenticated_owner'),
-    review('pending hello capacity removed', 'server.py', 'if len(pending) >= 4:', 'if False:',
-           'test_pending_hello_capacity_rotates_to_allow_controller_reconnect'),
+    review('global pending hello capacity removed', 'server.py', 'else pending if len(pending) >= 4 else []', 'else []',
+           'test_global_pending_cap_and_hello_verification_protection'),
     review('hello deadline removed', 'hub.py', 'if self.now() - p.last_ping >= 3:', 'if False:',
            'test_pending_hello_deadline_has_no_robot_effect'),
     review('view ticket can acquire authority', 'hub.py', "if p.purpose != 'control':", 'if False:',
@@ -110,6 +110,37 @@ MUTATIONS += [
     ('jti commit deferred past approval', 'tickets.py', 'with self.db:', 'if True:',
      'test_phone_replay_journal_survives_restart_and_fails_closed'),
 ]
+
+
+MUTATIONS += [
+    ('lateral input fakes neutral', 'protocol.py',
+     '(0.0, 1.0 if vy > 0 else -1.0, 0.0) if vy else', '(0.0, 0.0, 0.0) if vy else',
+     'test_phone_clipped_zero_cannot_replace_explicit_neutral'),
+    ('rotation input fakes neutral', 'protocol.py',
+     '(0.0, 0.0, 1.0 if wz > 0 else -1.0)', '(0.0, 0.0, 0.0)',
+     'test_phone_clipped_zero_cannot_replace_explicit_neutral'),
+    review('per source hello limit removed', 'server.py', 'len(same) >= 2', 'False',
+           'test_other_source_churn_allows_same_device_reconnect_ten_of_ten'),
+    review('validating hellos may be evicted', 'server.py', 'if p not in self.hello_started', 'if True',
+           'test_same_source_pending_cap_cannot_evict_validating_hellos'),
+    review('all cancellation causes penalize requester', 'hub.py', 'or self_cancel:', "or result == 'CANCELED':",
+           'test_nonself_cancellation_does_not_penalize_requester'),
+    review('authenticated capacity removed', 'hub.py',
+           'if sum(other.user is not None for other in self.peers.values()) >= 16:', 'if False:',
+           'test_authenticated_capacity_sixteen_denies_seventeenth_without_stop'),
+    review('runtime file owner ignored', 'tickets.py', 'or info.st_uid != os.geteuid()', '',
+           'test_private_files_require_runtime_uid'),
+    review('journal inode swap accepted', 'tickets.py',
+           'if (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino):', 'if False:',
+           'test_replay_journal_inode_swap_is_refused'),
+    review('request rate window never resets', 'hub.py', 'if self.now() - p.request_window >= 1:',
+           "if p.request_window == float('-inf'):",
+           'test_request_window_reset_keeps_normal_phone_alive_after_ninth_request'),
+]
+for code in (1002, 1003, 1007):
+    codes = tuple(c for c in (1002, 1003, 1007, 1009) if c != code)
+    MUTATIONS.append(review(f'transport {code} STOP removed', 'server.py', '(1002, 1003, 1007, 1009)',
+                            repr(codes), 'test_transport_validation_close_codes_stop_authenticated_viewer'))
 
 
 def main():

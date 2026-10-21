@@ -65,6 +65,8 @@ class Server:
     def __init__(self, hub, settings, *, sock=None):
         self.hub, self.settings, self.sock = hub, settings, sock
         self.connections = {}
+        self.addresses = {}
+        self.hello_started = set()
         self.close_tasks = set()
         self.closing = set()
         self.ready = asyncio.Event()
@@ -109,26 +111,50 @@ class Server:
         async for raw in ws:
             if peer not in self.hub.peers:
                 raise self.hub.closing.get(peer, PhoneError('CONNECTION_EXPIRED', 4401))
+            try:
+                if json.loads(raw).get('t') == 'hello':
+                    self.hello_started.add(peer)
+            except (ValueError, TypeError, AttributeError, RecursionError):
+                pass  # Hub owns frame validation and authenticated STOP policy.
             result = self.hub.receive(peer, raw)
             await self._send(ws, result)
 
-    async def _handler(self, ws):
-        from websockets.exceptions import ConnectionClosed
-        if ws.request.path != '/phone/ws':
-            await ws.close(4403, 'PATH_INVALID')
-            return
+    def _address(self, ws):
+        # Source host only: ephemeral ports must not bypass the per-address cap.
+        remote = getattr(ws, 'remote_address', None)
+        return remote[0] if remote else None
+
+    def _admit(self, ws):
         pending = [p for p in self.connections if p in self.hub.peers and self.hub.peers[p].user is None]
-        if len(pending) >= 4:
-            # Rotate the oldest unapproved socket; it cannot reserve capacity
-            # against a returning controller. Authenticated connections stay put.
-            oldest = pending[0]
+        address = self._address(ws)
+        same = [p for p in pending if self.addresses[p] == address]
+        # Apply the source limit FIRST. A noisy host only rotates its own slots.
+        candidates = same if len(same) >= 2 else pending if len(pending) >= 4 else []
+        if candidates:
+            replaceable = [p for p in candidates if p not in self.hello_started]
+            if not replaceable:
+                raise PhoneError('HELLO_CAPACITY', 1013)
+            oldest = replaceable[0]
             self.hub.disconnect(oldest, reserve=False)
             error = PhoneError('HELLO_CAPACITY', 1013)
             self.hub.closing[oldest] = error
             self._close_later(self.connections[oldest], oldest, error)
         peer = object()
         self.connections[peer] = ws
+        self.addresses[peer] = address
         self.hub.peers[peer] = Peer(last_ping=self.hub.now())
+        return peer
+
+    async def _handler(self, ws):
+        from websockets.exceptions import ConnectionClosed
+        if ws.request.path != '/phone/ws':
+            await ws.close(4403, 'PATH_INVALID')
+            return
+        try:
+            peer = self._admit(ws)
+        except PhoneError as error:
+            await ws.close(error.close_code, error.code)
+            return
         reader = asyncio.create_task(self._read(ws, peer))
         states = asyncio.create_task(self._states(ws, peer))
         self.workers[peer] = (reader, states)
@@ -168,6 +194,8 @@ class Server:
                 self._failed(primary if not isinstance(primary, asyncio.CancelledError) else error)
             finally:
                 self.connections.pop(peer, None)
+                self.addresses.pop(peer, None)
+                self.hello_started.discard(peer)
                 self.closing.discard(peer)
                 self.workers.pop(peer, None)
                 reader.cancel()

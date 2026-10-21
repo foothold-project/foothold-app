@@ -554,11 +554,12 @@ def test_phone_contract_models_match_runtime_frames(h):
     PhoneLeaseResult.model_validate(h.hub.drain(b)[0])
 
 
-def test_phone_clipped_zero_cannot_replace_explicit_neutral(h):
+@pytest.mark.parametrize('velocity', [(-.6, 0, 0), (.2, 0, 0), (0, .2, 0), (0, 0, .3)])
+def test_phone_clipped_zero_cannot_replace_explicit_neutral(h, velocity):
     a, _, _ = h.connect()
     h.take(a)
     h.unlock(a)
-    assert h.cmd(a, -.6)['applied'] == list(Z)
+    assert h.cmd(a, velocity[0], vy=velocity[1], wz=velocity[2])['applied'] == list(Z)
     assert h.cmd(a)['applied'] == list(Z)
     h.cmd(a, 0)
     assert h.cmd(a)['applied'] == [.6, 0, 0]

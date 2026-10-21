@@ -1,4 +1,4 @@
-"""PR41 r1: regressions translated from both reviewers' ROS-free reproductions."""
+"""PR41 r1/r2: regressions translated from both reviewers' ROS-free reproductions."""
 import asyncio
 from contextlib import asynccontextmanager, AsyncExitStack
 import json
@@ -46,10 +46,10 @@ async def closed_code(ws):
 
 
 @asynccontextmanager
-async def running(h, *, origins=(), watchdog=True):
+async def running(h, *, origins=(), watchdog=True, server_type=Server):
     with phone_socket() as sock:
         port = sock.getsockname()[1]
-        server = Server(h.hub, Settings('127.0.0.1', port, 'unused', 'test', '1', h.org,
+        server = server_type(h.hub, Settings('127.0.0.1', port, 'unused', 'test', '1', h.org,
                                         'unused-replay.sqlite', True, True, origins), sock=sock)
         if not watchdog:
             async def idle():
@@ -131,8 +131,8 @@ def test_pending_hello_capacity_rotates_to_allow_controller_reconnect(h):
     async def run():
         async with running(h) as (server, uri, task):
             async with AsyncExitStack() as stack:
-                waiting = [await stack.enter_async_context(connect(uri, proxy=None)) for _ in range(4)]
-                assert sum(p.user is None for p in h.hub.peers.values()) == 4
+                waiting = [await stack.enter_async_context(connect(uri, proxy=None)) for _ in range(2)]
+                assert sum(p.user is None for p in h.hub.peers.values()) == 2
                 ws = await stack.enter_async_context(connect(uri, proxy=None))
                 assert sum(p.user is None for p in h.hub.peers.values()) <= 4
                 await hello(h, ws, user=claims['sub'], device=claims['device'])
@@ -375,9 +375,10 @@ def test_hub_is_only_link_timer_and_owner_matches_session_lease(h):
     assert h.hub.session.lease_id is None
 
 
-def test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it(h):
+@pytest.mark.parametrize('velocity', [(-.6, 0, 0), (.2, 0, 0), (0, .2, 0), (0, 0, .3)])
+def test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it(h, velocity):
     owner, _, _ = h.connect(); h.take(owner); h.unlock(owner)
-    assert h.cmd(owner, .2)['applied'] == list(Z)
+    assert h.cmd(owner, velocity[0], vy=velocity[1], wz=velocity[2])['applied'] == list(Z)
     assert h.cmd(owner)['applied'] == list(Z)
     h.cmd(owner, 0)
     for vx in (.2, .4):
@@ -500,3 +501,225 @@ def test_sink_fallback_errors_preserve_original_exception(h):
         assert attempts[1].kind == 'stop' and attempts[2].velocity == Z
     finally:
         h.hub.sink = h.sink
+
+
+class AddressServer(Server):
+    # Inject logical source hosts for loopback-only tests. Production never trusts headers.
+    def _address(self, ws):
+        return ws.request.headers.get('X-Test-Address', 'controller')
+
+
+def test_global_pending_cap_and_hello_verification_protection(h, monkeypatch):
+    async def run():
+        settings = Settings('127.0.0.1', 9450, 'unused', 'test', '1', h.org, 'unused', True, True)
+        server = Server(h.hub, settings)
+        class Socket:
+            def __init__(self, host):
+                self.remote_address = (host, 1)
+            async def close(self, *args):
+                pass
+        peers = [server._admit(Socket(str(i))) for i in range(4)]
+        replacement = server._admit(Socket('new'))
+        assert len(h.hub.peers) == 4 and peers[0] not in h.hub.peers
+        assert replacement in h.hub.peers
+        # Protect all four validating hellos, even against a fifth source.
+        server.hello_started.update(h.hub.peers)
+        with pytest.raises(PhoneError):
+            server._admit(Socket('fifth'))
+        assert len(h.hub.peers) == 4
+        await asyncio.gather(*server.close_tasks)
+    asyncio.run(run())
+
+
+def test_same_source_pending_cap_cannot_evict_validating_hellos(h):
+    async def run():
+        server = Server(h.hub, Settings('127.0.0.1', 9450, 'unused', 'test', '1', h.org,
+                                       'unused', True, True))
+        class Socket:
+            remote_address = ('test-host', 1)
+            async def close(self, *args):
+                pass
+        first, second = server._admit(Socket()), server._admit(Socket())
+        server.hello_started.update((first, second))
+        with pytest.raises(PhoneError):
+            server._admit(Socket())
+        assert set(h.hub.peers) == {first, second}
+    asyncio.run(run())
+
+
+def test_hello_is_protected_before_ticket_verification(h, monkeypatch):
+    from websockets.asyncio.client import connect
+    async def run():
+        async with running(h) as (server, uri, task):
+            original = h.verifier.verify
+            def verify(ticket):
+                pending = [p for p in h.hub.peers if h.hub.peers[p].user is None]
+                assert pending and all(p in server.hello_started for p in pending)
+                return original(ticket)
+            monkeypatch.setattr(h.verifier, 'verify', verify)
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws)
+            assert server.failure is None
+    asyncio.run(run())
+
+
+def test_other_source_churn_allows_same_device_reconnect_ten_of_ten(h):
+    from websockets.asyncio.client import connect
+    owner, claims = h.moving()
+    h.hub.disconnect(owner)
+    async def run():
+        async with running(h, server_type=AddressServer) as (server, uri, task):
+            stop = asyncio.Event()
+            connections = 0
+            async def attacker():
+                nonlocal connections
+                while not stop.is_set():
+                    try:
+                        async with connect(uri, proxy=None, additional_headers={'X-Test-Address': 'flood'}) as ws:
+                            connections += 1
+                            await closed_code(ws)
+                    except Exception:
+                        await asyncio.sleep(0)
+            attackers = [asyncio.create_task(attacker()) for _ in range(16)]
+            try:
+                for _ in range(100):
+                    if connections >= 16:
+                        break
+                    await asyncio.sleep(.005)
+                assert connections >= 16
+                assert sum(server.addresses[p] == 'flood' for p in h.hub.peers if h.hub.peers[p].user is None) <= 2
+                successes = 0
+                for _ in range(10):
+                    async with connect(uri, proxy=None, additional_headers={'X-Test-Address': 'controller'}) as ws:
+                        await hello(h, ws, user=claims['sub'], device=claims['device'])
+                        assert (await rpc(h, ws, 'lease.take'))['ok']
+                        successes += 1
+                        assert (await rpc(h, ws, 'lease.release'))['ok']
+                    for _ in range(100):
+                        if not any(p.device == claims['device'] for p in h.hub.peers.values()):
+                            break
+                        await asyncio.sleep(.002)
+                    pending = [p for p in h.hub.peers if h.hub.peers[p].user is None]
+                    assert sum(server.addresses[p] == 'flood' for p in pending) <= 2
+                assert successes == 10 and connections > 16
+                assert not task.done() and server.failure is None
+            finally:
+                stop.set()
+                for attacker_task in attackers:
+                    attacker_task.cancel()
+                await asyncio.gather(*attackers, return_exceptions=True)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('cause', ['release', 'disconnect', 'stop-confirmation'])
+def test_nonself_cancellation_does_not_penalize_requester(h, monkeypatch, cause):
+    owner, _ = h.moving()
+    requester, _, _ = h.connect()
+    identity = (h.hub.peers[requester].user, h.hub.peers[requester].device)
+    request = h.send(requester, 'lease.request')['request_id']
+    if cause == 'release':
+        h.send(owner, 'lease.release')
+    elif cause == 'disconnect':
+        h.hub.disconnect(owner, reserve=False)
+    else:
+        with monkeypatch.context() as patch:
+            original = h.hub.session._state
+            patch.setattr(h.hub.session, '_state', lambda: {**original(), 'stop_ref': -1})
+            response = h.send(owner, 'lease.respond', request_id=request, accept=True)
+            assert not response['ok'] and response['error']['code'] == 'STOP_CONFIRM_FAILED'
+    assert h.hub.pending is None and identity not in h.hub.cooldowns
+    # Another holder makes the cooldown check observable, rather than free take's bypass.
+    other, _, _ = h.connect(); assert h.take(other)['ok']
+    assert h.send(requester, 'lease.request')['ok']
+
+
+def test_authenticated_capacity_sixteen_denies_seventeenth_without_stop(h):
+    owner, _ = h.moving()
+    for _ in range(15):
+        h.connect(purpose='view')
+    with pytest.raises(PhoneError) as error:
+        h.connect(purpose='view')
+    assert error.value.code == 'SERVER_BUSY' and error.value.close_code == 1013
+    assert sum(p.user is not None for p in h.hub.peers.values()) == 16
+    assert h.hub.owner is owner and not h.hub.session.core.latch
+
+
+@pytest.mark.parametrize('code', [1002, 1003, 1007])
+def test_transport_validation_close_codes_stop_authenticated_viewer(h, code):
+    from websockets.asyncio.client import connect
+    from websockets.frames import Frame, OP_CONT, OP_TEXT
+    owner, _ = h.moving()
+    async def run():
+        async with running(h) as (server, uri, task):
+            async with connect(uri, proxy=None) as ws:
+                await hello(h, ws, purpose='view')
+                if code == 1003:
+                    await ws.close(code=1003, reason='unsupported received data')
+                else:
+                    ws.protocol.send_frame(Frame(OP_CONT, b'x') if code == 1002 else Frame(OP_TEXT, b'\xff'))
+                    ws.send_data()
+                assert await closed_code(ws) == code
+                for _ in range(100):
+                    if not server.connections:
+                        break
+                    await asyncio.sleep(.005)
+                assert h.hub.session.core.latch and h.hub.session.core.out == Z
+                assert h.hub.owner is owner and server.failure is None and not task.done()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('target', ['key', 'journal'])
+def test_private_files_require_runtime_uid(h, tmp_path, monkeypatch, target):
+    path = tmp_path/'private'
+    path.write_text(json.dumps({'test': encode(h.key)}) if target == 'key' else '')
+    path.chmod(0o600)
+    other_uid = os.geteuid() + 1
+    monkeypatch.setattr(os, 'geteuid', lambda: other_uid)
+    with pytest.raises(ValueError):
+        if target == 'key':
+            load_keys(path)
+        else:
+            verifier = Verifier(h.robot, {'test': h.key}, org=h.org, replay_path=str(path), clock_trusted=True)
+            verifier.close()
+
+
+def test_replay_journal_inode_swap_is_refused(h, tmp_path, monkeypatch):
+    from foothold_agent.phone import tickets
+    path, replacement = tmp_path/'journal.sqlite', tmp_path/'replacement.sqlite'
+    path.touch(mode=0o600); replacement.touch(mode=0o600)
+    original = tickets.sqlite3.connect
+    def connect(*args, **kwargs):
+        os.replace(replacement, path)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(tickets.sqlite3, 'connect', connect)
+    with pytest.raises(ValueError, match='path changed'):
+        verifier = Verifier(h.robot, {'test': h.key}, org=h.org, replay_path=str(path), clock_trusted=True)
+        verifier.close()
+
+
+def test_request_window_reset_keeps_normal_phone_alive_after_ninth_request(h):
+    owner, _ = h.moving()
+    other, _, _ = h.connect()
+    for window in range(3):
+        h.clock.t = window
+        h.send(owner, 'ping', client_time_ms=window)
+        for _ in range(8):
+            try:
+                response = h.send(other, 'lease.cancel')
+            except PhoneError:
+                response = None
+            assert response is not None and response['ok']
+        assert other in h.hub.peers and h.hub.owner is owner
+    assert not h.hub.session.core.latch
+
+
+def test_self_cancel_cooldown_lasts_thirty_seconds(h):
+    owner, _ = h.moving()
+    requester, _, _ = h.connect()
+    assert h.send(requester, 'lease.request')['ok']
+    assert h.send(requester, 'lease.cancel')['ok']
+    h.advance(29.99)
+    response = h.send(requester, 'lease.request')
+    assert not response['ok'] and response['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    h.advance(30)
+    assert h.send(requester, 'lease.request')['ok'] and h.hub.owner is owner
