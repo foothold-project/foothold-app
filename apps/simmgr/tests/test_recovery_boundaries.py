@@ -22,7 +22,7 @@ from test_manager import settings
 def test_absent_robot_delete_ignores_generation_and_restart():
     async def run():
         cfg=settings();mgr=Manager(cfg);slot=next(iter(cfg.slots.values()));owner=str(uuid4())
-        await mgr.remove(slot.robot_id,99)
+        await mgr.remove(slot.robot_id,6)
         await mgr.add('a',slot.robot_id,owner,slot.org_id,'x'*32,7)
         with pytest.raises(SimError):await mgr.remove(slot.robot_id,1)
         await mgr.remove(slot.robot_id,7)
@@ -35,7 +35,7 @@ def test_absent_robot_delete_ignores_generation_and_restart():
 
 def test_service_startup_requires_absence_proof_even_in_fake(monkeypatch):
     called=[]
-    def blocked():
+    def blocked(*args):
         called.append(threading.get_ident())
         raise RuntimeError('synthetic remaining runtime')
     monkeypatch.setattr(api,'startup_preflight',blocked)

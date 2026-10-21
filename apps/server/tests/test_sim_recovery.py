@@ -38,13 +38,15 @@ def assert_recovery(context,headers,generation):
     assert result.json()['generation']==generation+1
 
 
-@pytest.mark.parametrize('failure',['before','lost','identity','invalid_body','unknown_4xx','wrong_status','5xx'])
+@pytest.mark.parametrize('failure',['before','lost','identity','invalid_body','unknown_4xx','stale','wrong_status','5xx'])
 def test_uncertain_start_can_delete_and_reacquire(simulation_context,failure):
     client,sim,cfg,rid,launcher=simulation_context
-    relay=client.app.state.simmgr;original=relay.request
+    relay=client.app.state.simmgr;original=relay.request;post_attempts=[]
     def faulty(method,path,body=None):
         if method=='POST':
+            post_attempts.append(body['generation'])
             if failure=='unknown_4xx':raise RelayError('SIM_SLOT_BUSY',409)
+            if failure=='stale':raise RelayError('SIM_GENERATION_STALE',409)
             if failure=='wrong_status':raise RelayError('SIM_WORLD_NOT_FOUND',503)
             if failure in ('before','5xx'):raise RelayError()
             result=original(method,path,body)
@@ -55,6 +57,7 @@ def test_uncertain_start_can_delete_and_reacquire(simulation_context,failure):
     relay.request=faulty
     result,headers=start_slot(simulation_context)
     assert result.status_code in (409,503)
+    assert post_attempts==[1], 'uncertain starts must never be automatically retransmitted'
     assert snapshot(client,rid)[0]=='STARTING'
     assert snapshot(client,rid)[1] is not None
     assert client.post('/api/v1/simulation/robots',headers=headers,json={'robot_id':rid,'world_id':'test'}).status_code==409
@@ -67,12 +70,16 @@ def test_definite_start_rejection_releases_immediately(simulation_context,status
     client,sim,cfg,rid,launcher=simulation_context
     relay=client.app.state.simmgr;original=relay.request
     def reject(method,path,body=None):
-        if method=='POST':raise RelayError(code,status)
+        if method=='POST':
+            before.append(snapshot(client,rid)[3])
+            raise RelayError(code,status)
         return original(method,path,body)
+    before=[]
     relay.request=reject
     result,headers=start_slot(simulation_context)
     assert result.status_code==status
     assert snapshot(client,rid)[:3]==('IDLE',None,1)
+    assert before and snapshot(client,rid)[3]!=before[0]
     with Session(client.app.state.engine) as db:
         assert len(list(db.scalars(select(Event).where(Event.code=='SIM_ROBOT_START_REJECTED'))))==1
     relay.request=original

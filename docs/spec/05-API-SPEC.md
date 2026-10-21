@@ -981,7 +981,7 @@ namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,laun
 에이전트 welcome/state.simulation은 참고용이며 출처 판정에 쓰지 않는다. 시뮬 행의 일반
 `/robots/{id}/agent-token` 회전은409 SIM_TOKEN_MANAGED, 일반 DELETE와 담당자 PATCH는
 409 SIM_ROBOT_MANAGED로 거부한다. 이름 수정은 기존 권한으로 허용한다.
-SIM_ROBOT_REQUESTED/REGISTERED/REMOVED·REMOVE_FAILED·REMOVE_STALE·START_REJECTED 감사는
+SIM_ROBOT_REQUESTED/REGISTERED/REMOVED·REMOVE_FAILED·REMOVE_STALE·START_REJECTED·START_STALE 감사는
 id·world·generation·launcher·실패코드만 담고 주소·토큰·키는
 담지 않는다. 에이전트 시작 전 id·토큰 hash와 REQUESTED를 먼저 commit하므로 시작 응답이
 유실·timeout·5xx·신원/응답 검증 실패는 STARTING을 유지하고 자동 재취득하지 않는다.
@@ -1019,12 +1019,16 @@ STARTING/STOPPING 재POST는 같은 담당자도 거부한다. **DELETE는 START
 첫204 응답이 유실되면 재시도는403일 수 있다. 목록의 현재 로봇 부재와 재취득201을
 함께 확인하며, 빈 목록만으로 DB IDLE이라고 단정하지 않는다.
 
-관리자는 받은 세대를 로봇과 함께 보관할 뿐 tombstone/별도 영속 세대는 두지 않는다.
+관리자는 받은 세대를 로봇과 함께 보관한다. 슬롯별 DELETE 최대 세대는 제거 확인 세대로
+메모리에만 보관하며(로봇이 없어도 기록), 그 이하 POST는 잠금 안에서 생성 전에409
+SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 목록에 넣지 않는다.
+별도 영속 세대는 없으며 재시작하면 제거 확인 세대도 비워진다. 관리자 POST는 자동 재전송하지
+않는다. 옛 연결은 관리자 종료와 함께 끊기고 새 관리자는 아래 부재 관문을 통과해야 한다.
 관리자 DELETE 본문은 `SimRemove {generation}`이며 자기 잠금 안에서 다음처럼 처리한다.
 
 - 로봇이 있으면 같은 세대일 때만 STOP·정리하고, 다른 세대면409 SIM_GENERATION_MISMATCH다.
 - 로봇이 없으면 기대 세대와 무관하게200(이미 없음)이다. **서비스 시작 전** fake/native
-  모두 기존 isolation preflight(다른93/DDS·자원·61 baseline)와 남은
+  모두 기존 isolation preflight(다른93/DDS·61 baseline, 자원 기준은 fake만 경고)와 남은
   `fh-rb-sim-*.service`/`fh-simmgr-agent-*.service` user unit 부재 검사를 통과해야 한다.
   user bus 조회 실패도 시작 거부다. 검사는 읽기만 하고 프로세스/unit을 정리하지 않는다.
   이 관문이 있어야 재시작한 빈 관리자의 «없음»을 실제 runtime 부재로 신뢰할 수 있다.
@@ -1049,3 +1053,8 @@ STARTING/STOPPING 재POST는 같은 담당자도 거부한다. **DELETE는 START
 - `SIM_ROBOT_START_REJECTED`: 위 목록의 확실한 시작 전 거부로 같은 세대 예약을 즉시 해제했다.
 - `SIM_ROBOT_REMOVE_FAILED`: 관리자/relay가 정리 요청을 실패/거부했다(관리자가 먼저 세대 불일치를 거부한 경우 포함). owner/예약을 보존한다.
 - `SIM_ROBOT_REMOVE_STALE`: 관리자는 성공했지만 서버 완료 검사에서 세대 또는 STOPPING이 바뀌었다. 현재 로봇/예약/hash/출입증은 바꾸지 않는다.
+
+관리자 POST 성공 응답 뒤 서버 최종 검사에서 DB 세대 또는 STARTING이 맞지 않으면, 조직
+잠금을 푼 뒤 같은 세대의 관리자 DELETE를 **1회** 보상 시도한다. 현재 DB 슬롯/출입증/owner/
+hash는 바꾸지 않고409를 보낸다. `SIM_ROBOT_START_STALE` 감사1건에 세대와 보상 결과
+(제거/이미 없음 또는 실패코드)을 기록하며, 보상 실패로 자동 재전송/재취득하지 않는다.

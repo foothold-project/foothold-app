@@ -14,7 +14,10 @@
   적용되어 이전 DELETE가 재취득한 담당자·키·출입증을 지우지 않는다. STARTING/STOPPING
   재POST는 거부하되 DELETE로 복구한다. 빈 관리자는 세대와 무관하게 제거 성공이다.
   서비스 startup에서 fake/native 모두 기존 isolation preflight와 남은 sim/agent user unit
-  부재를 읽기만 확인하며 user bus 오류도 거부한다. 관리자 tombstone은 두지 않는다.
+  부재를 읽기만 확인하며 user bus 오류도 거부한다. 자원 기준만 fake에서는 경고이며 native는 거부한다.
+  DELETE 최대 세대는 제거 확인 세대로 메모리에만 기록하고 그 이하의 늦은 POST를 생성 전에
+  거부한다. 재시작 때 비워지며 영속 tombstone은 없다. 서버 POST 자동 재전송은 없고, 늦은
+  성공 응답은 잠금 밖 같은 세대 DELETE1회 보상과 START_STALE 감사로 처리한다.
 - `FakeLauncher`: 시뮬·에이전트 프로세스/리스너/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
 - `NativeLauncher`: 명시 `FH_SIM_RUN=1` 때만 기존 D1 `Simulation` supervisor를 불러 쓴다.

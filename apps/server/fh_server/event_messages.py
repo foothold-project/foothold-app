@@ -16,6 +16,7 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'SIM_ROBOT_START_STALE': '{person}님의 이전 시뮬 시작 응답을 거부하고 정리를 시도했습니다.',
     'SIM_ROBOT_START_REJECTED': '{person}님의 시뮬 시작 요청이 생성 전에 거부되어 슬롯을 해제했습니다.',
     'SIM_ROBOT_REMOVE_STALE': '{person}님의 이전 시뮬 종료 요청을 현재 세대에서 거부했습니다.',
     'SIM_ROBOT_REMOVE_FAILED': '{person}님의 시뮬 로봇 종료 요청을 처리하지 못했습니다.',

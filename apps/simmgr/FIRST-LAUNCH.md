@@ -16,8 +16,9 @@
 - 관리자는 **ROS_*·RMW/DDS 환경이 있으면 빈 값도 시작 거부**한다. domain은
   `FH_SIM_DOMAIN=93` 설정이며 부모의 ROS_DOMAIN_ID가 아니다. 서버도 ROS 없는 셸을 쓴다.
   기존 preflight/cleanup은 다른93 프로세스·DDS 포트를 그대로 거부한다. 부모 PID를 예외 처리하지 않는다.
-  관리자 서비스 startup에서도 fake/native 모두 같은 preflight와 남은 fh-rb-sim/fh-simmgr-agent
-  user unit 부재를 확인한 뒤만 API를 준비한다. 다른 프로세스/unit을 끄거나 정리하지 않는다.
+  관리자 서비스 startup에서도 fake/native 모두 같은 격리 preflight와 남은 fh-rb-sim/fh-simmgr-agent
+  user unit 부재를 확인한 뒤만 API를 준비한다. 자원(MemAvailable/load) 기준만 fake에서는
+  경고이며 실제 launcher는 그대로 거부한다. startup 요약은 시각·sim/agent unit 0개·93 프로세스 0·MemAvailable·load를 한 줄로 기록한다. 다른 프로세스/unit을 끄거나 정리하지 않는다.
   user bus 조회 오류는 시작 거부다. 빈 stdout의 unit show는 «이미 없음»이 아니라 bus/상태
   조회 불능이며, 정상 `LoadState=not-found`와 구분한다. 사용자 로그인 bus·XDG_RUNTIME_DIR·
   DBUS_SESSION_BUS_ADDRESS를 확인하고, 관문을 우회하지 않는다.
@@ -160,7 +161,7 @@ systemctl --user show fh-simmgr-agent-approved-stage1-001.service --property=Act
 systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
 ```
 
-마지막 MainPID=0·자기 cgroup 잔여0과 unit 종료를 확인한다. unit 이름이 이미 있으면 시작을 거부한다. 정상 종료 후 unit이 회수되어도 기존 실행
+마지막 MainPID=0·자기 cgroup 잔여 0과 unit 종료를 확인한다. unit 이름이 이미 있으면 시작을 거부한다. 정상 종료 후 unit이 회수되어도 기존 실행
 폴더의 재사용을 거부하므로 새 실행에는 새 episode 이름/승인 폴더를 쓴다.
 
 ## 관리자 비정상 종료 뒤 슬롯 복구
@@ -173,8 +174,9 @@ systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
    unit 부재 검사 통과**가 전제다. 이후 빈 관리자 DELETE는 세대에 상관없이200이다.
 3. 기존 담당자(또는 기존 제거 권한을 가진 총괄)가 같은 PC driver로 서버
    `DELETE /api/v1/simulation/robots/{slotUUID}`를 보낸다. STARTING·STOPPING 모두 허용한다.
-   현재 관리자 로봇이 다른 세대라면409 유지·실패 보고이며 강제로 DB를 고치지 않는다.
-4.204 뒤 DB의 IDLE/owner 해제·출입증 회수·hash 교체·REMOVED 감사1건을 확인한 다음
+   현재 관리자 로봇이 다른 세대라면 409 유지·실패 보고이며 강제로 DB를 고치지 않는다.
+   관리자에 로봇이 남아 있으면 1·2단계로 되돌아가 자기 runtime 정리와 부재 관문부터 확인한다.
+4. 204 뒤 DB의 IDLE/owner 해제·출입증 회수·hash 교체·REMOVED 감사1건을 확인한 다음
    올바른 world로 POST한다. 새 취득의 세대는 증가하고201이어야 한다. 이전 담당자는
    IDLE 뒤 owner가 아니므로 반복 DELETE는 기존 권한 판정상403일 수 있다. 첫204 응답이
    유실돼도 목록의 현재 로봇 부재와 재취득201을 함께 확인한다. 빈 목록만으로 DB IDLE을
@@ -183,3 +185,9 @@ systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
    자동 IDLE·START_REJECTED다. timeout/5xx/유실/신원 불일치는 STARTING 유지 후 위 DELETE로
    복구한다. REMOVE_FAILED는 관리자/relay 거부, REMOVE_STALE은 성공 응답 뒤 서버 세대/상태가
    이미 바뀐 경우이며 뒤의 경우 현재 슬롯을 바꾸지 않는다. 둘 다 실패 원인을 확인한다.
+
+관리자는 DELETE의 최대 세대를 슬롯별 제거 확인 세대로 메모리에만 기록하며, 그 이하 POST는
+생성 전에409 SIM_GENERATION_STALE로 거부한다. 재시작 시 기록은 비워진다. 서버의 관리자 POST는
+자동 재전송하지 않고, 새 관리자는 위 startup 부재 관문을 통과해야 한다. 늦은 성공 응답이
+DB의 세대/STARTING과 맞지 않으면 서버는 잠금 밖에서 같은 세대 DELETE를1회 보상 시도하고
+START_STALE에 결과를 남긴다. 보상 실패가 현재 슬롯의 출입증/owner/hash를 바꾸지 않는다.

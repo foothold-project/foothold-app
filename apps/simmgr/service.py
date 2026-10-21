@@ -31,6 +31,8 @@ class Manager:
         self.lock = asyncio.Lock()
         self.world = None
         self.robots = {}
+        # Process-local cancellation receipts; the server DB owns lifetime generations.
+        self.removed_generation = {}
         self.closing = self.failed = False
 
     async def healthy(self):
@@ -82,6 +84,8 @@ class Manager:
             slot = self.settings.slots.get(robot_id)
             if slot is None or slot.org_id != org_id:
                 raise SimError('SIM_SLOT_NOT_FOUND', 404)
+            if generation <= self.removed_generation.get(robot_id, 0):
+                raise SimError('SIM_GENERATION_STALE')
             existing = self.robots.get(robot_id)
             if existing is not None:
                 if existing.generation == generation and existing.owner == owner_id and existing.world == world_id and existing.state not in ('ERROR', 'STOPPING'):
@@ -110,6 +114,7 @@ class Manager:
 
     async def remove(self, robot_id, generation):
         async with self.lock:
+            self.removed_generation[robot_id] = max(generation, self.removed_generation.get(robot_id, 0))
             row = self.robots.get(robot_id)
             if row is None:
                 return  # server DB owns generations; absent robots are already removed

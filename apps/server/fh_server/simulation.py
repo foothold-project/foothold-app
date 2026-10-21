@@ -174,14 +174,25 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         result = call('POST', '/v1/robots', dict(world_id=body.world_id,
             robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation),
             on_rejection=start_rejected)
+        lock_organization(db, user.org_id)
+        db.refresh(row)
+        if row.sim_generation != generation or row.sim_state != 'STARTING':
+            # Release the organization write lock before the single best-effort
+            # compensating RPC. Never mutate a successor's credentials/ownership.
+            db.commit()
+            compensation = 'REMOVED_OR_ABSENT'
+            try:
+                app.state.simmgr.request('DELETE', '/v1/robots/' + rid, {'generation': generation})
+            except RelayError as error:
+                compensation = error.code
+            event(db, user.org_id, 'SIM_ROBOT_START_STALE', user.id,
+                  {'robot_id': rid, 'generation': generation, 'compensation': compensation}, category='LINK')
+            db.commit()
+            fail(409, 'SIM_GENERATION_MISMATCH', '시뮬 슬롯의 세대가 바뀌었습니다.')
         try:
             result = C.SimRobot.model_validate(result)
         except (ValueError, TypeError):
             fail(503, 'SIM_IDENTITY_MISMATCH', '시뮬 연결 정보를 확인하지 못했습니다.')
-        lock_organization(db, user.org_id)
-        db.refresh(row)
-        if row.sim_generation != generation or row.sim_state != 'STARTING':
-            fail(409, 'SIM_GENERATION_MISMATCH', '시뮬 슬롯의 세대가 바뀌었습니다.')
         if (result.robot_id != row.id or result.owner_id != user.id or result.world_id != body.world_id
                 or result.generation != generation):
             fail(503, 'SIM_IDENTITY_MISMATCH', '시뮬 연결 정보를 확인하지 못했습니다.')

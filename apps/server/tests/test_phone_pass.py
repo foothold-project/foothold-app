@@ -1064,15 +1064,30 @@ def test_three_robot_ack_pool_contention_keeps_links_and_eventually_confirms(pc,
         revoke(db,seeded['org'],user_id=seeded['users']['admin'])
     rt=pc.app.state.realtime;barrier=threading.Barrier(3)
     attempts={};contended=[];original=phone_pass.acknowledge
+    timeline={str(seeded['robots'][name]):[] for name in ('mine','theirs','third')}
+    diagnostic_lock=threading.Lock()
+    def stamp(rid,stage):
+        with diagnostic_lock:timeline[str(rid)].append((stage,time.monotonic()))
+    def diagnostic():
+        with diagnostic_lock:return repr({rid:list(events) for rid,events in timeline.items()})
+    queue_ack=rt.queue_phone_ack
+    def traced_queue(rid,peer,seq):
+        stamp(rid,'ack_received')
+        return queue_ack(rid,peer,seq)
+    monkeypatch.setattr(rt,'queue_phone_ack',traced_queue)
     def slow(factory,org,rid,seq):
+        stamp(rid,'ack_worker_begin')
         attempts[rid]=attempts.get(rid,0)+1
         if attempts[rid]==1:barrier.wait(2)
         try:
             with factory.begin() as db:db.execute(text('SELECT pg_sleep(0.8)'))
         except PoolTimeout:
+            stamp(rid,'pool_timeout')
             contended.append(rid)
             raise
+        stamp(rid,'store_begin')
         original(factory,org,rid,seq)
+        stamp(rid,'stored')
     monkeypatch.setattr(phone_pass,'acknowledge',slow)
     try:
         with ExitStack() as stack:
@@ -1081,24 +1096,28 @@ def test_three_robot_ack_pool_contention_keeps_links_and_eventually_confirms(pc,
                 ws=stack.enter_context(pc.websocket_connect('/api/v1/agent/ws',headers={
                     'authorization':'Bearer synthetic-pool-'+name}))
                 ws.send_json(agent_hello());packet=receive(ws,'phone.revoke')
-                sockets[str(seeded['robots'][name])]=(ws,packet)
-            for ws,packet in sockets.values():
+                rid=str(seeded['robots'][name]);stamp(rid,'revoke_received')
+                sockets[rid]=(ws,packet)
+            for rid,(ws,packet) in sockets.items():
+                stamp(rid,'ack_sent')
                 ws.send_json(state());ws.send_json({'t':'phone.revoke.ack','seq':packet['seq']})
             deadline=time.monotonic()+1.5
             while not contended and time.monotonic()<deadline:time.sleep(.01)
-            assert contended,'three concurrent 0.8s writes must exercise the 0.5s pool wait'
+            assert contended,'three concurrent 0.8s writes must exercise the 0.5s pool wait: '+diagnostic()
             rid=contended[0];ws,packet=sockets[rid]
             try:replay=receive(ws,'phone.revoke',timeout=1)
-            except WebSocketDisconnect as error:pytest.fail(f'pool wait closed live agent: {error.code}')
-            assert replay==packet
+            except WebSocketDisconnect as error:pytest.fail(f'pool wait closed live agent: {error.code}; '+diagnostic())
+            stamp(rid,'replay_received')
+            assert replay==packet,diagnostic()
+            stamp(rid,'retry_ack_sent')
             ws.send_json({'t':'phone.revoke.ack','seq':replay['seq']})
             deadline=time.monotonic()+2
             while time.monotonic()<deadline and any(r.acked_at is None for r in rows(seeded,PhoneRevocation)):
                 for item,_ in sockets.values():item.send_json(state())
                 time.sleep(.05)
-            assert all(r.acked_at is not None for r in rows(seeded,PhoneRevocation))
-            assert all(not rt.agents[rid].closing for rid in sockets)
-            assert attempts[rid]>=2
+            assert all(r.acked_at is not None for r in rows(seeded,PhoneRevocation)),diagnostic()
+            assert all(not rt.agents[rid].closing for rid in sockets),diagnostic()
+            assert attempts[rid]>=2,diagnostic()
     finally:engine.dispose()
 
 

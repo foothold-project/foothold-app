@@ -17,7 +17,7 @@ def create_app(settings, launcher=None):
 
     @asynccontextmanager
     async def lifespan(app):
-        app.state.preflight = await asyncio.to_thread(startup_preflight)
+        app.state.preflight = await asyncio.to_thread(startup_preflight, settings.real)
         app.state.ready = True
         try:
             yield
