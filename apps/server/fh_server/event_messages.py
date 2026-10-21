@@ -16,6 +16,7 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'SIM_ROBOT_REMOVE_FAILED': '{person}님의 시뮬 로봇 종료 요청을 처리하지 못했습니다.',
     'SIM_ROBOT_REQUESTED': '{person}님이 시뮬 로봇 시작을 요청했습니다.',
     'SIM_ROBOT_REGISTERED': '{person}님이 시뮬 로봇을 등록했습니다.',
     'SIM_ROBOT_REMOVED': '{person}님이 시뮬 로봇을 종료했습니다.',

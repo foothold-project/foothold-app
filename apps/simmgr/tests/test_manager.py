@@ -99,7 +99,7 @@ def test_real_optin_and_single_robot(monkeypatch):
 def test_loopback_auth_api_and_shutdown():
     cfg = settings(); slot = next(iter(cfg.slots.values())); launch = FakeLauncher()
     app = create_app(cfg, launch)
-    with TestClient(app) as client:
+    with TestClient(app, client=('127.0.0.1', 9438)) as client:
         assert client.get('/v1/worlds', params={'org_id':slot.org_id}).status_code == 401
         headers = {'Authorization':'Bearer '+cfg.secret}
         catalog = client.get('/v1/worlds', params={'org_id':slot.org_id}, headers=headers).json()
@@ -137,8 +137,6 @@ def test_default_fake_never_creates_process(monkeypatch):
 
 def test_native_bad_exit_prevents_world_removal(monkeypatch):
     from types import SimpleNamespace
-    for name,value in REQUIRED_ENV.items():
-        monkeypatch.setenv(name,value)
     monkeypatch.setenv('FH_SIM_RUN','1')
     async def run():
         cfg=replace(settings(),real=True,source='unused',ros_setup='unused',run_dir='unused')
@@ -156,7 +154,7 @@ def test_native_bad_exit_prevents_world_removal(monkeypatch):
 
 
 def test_config_from_env_rejects_domain61_before_reading_catalogue():
-    with pytest.raises(ValueError,match='ROS_DOMAIN_ID'):
+    with pytest.raises(ValueError,match='control plane'):
         Settings.from_env({**REQUIRED_ENV,'ROS_DOMAIN_ID':'61'})
 
 
@@ -168,8 +166,8 @@ def test_from_env_uses_private_auth_and_defaults_to_fake(tmp_path):
         'slots':[dict(robot_id=s.robot_id,org_id=s.org_id,key_path=s.key_path,replay_path=s.replay_path,port=s.port)
                  for s in cfg.slots.values()]}))
     secret=tmp_path/'auth';secret.write_text('x'*32);secret.chmod(0o600)
-    env={**REQUIRED_ENV,'FH_SIM_CATALOG':str(catalogue),'FH_SIM_AUTH_FILE':str(secret),
-         'FH_SIM_AGENT_WS_URL':'ws://127.0.0.1:9431/agent/ws'}
+    env={'FH_SIM_CATALOG':str(catalogue),'FH_SIM_AUTH_FILE':str(secret),
+         'FH_SIM_AGENT_WS_URL':'ws://127.0.0.1:9431/api/v1/agent/ws'}
     result=Settings.from_env(env)
     assert not result.real and result.max_robots == 2 and result.secret == 'x'*32
     secret.chmod(0o644)
@@ -182,8 +180,6 @@ def test_native_waits_for_identity_after_unit_birth(tmp_path,monkeypatch):
     import sys
     from types import SimpleNamespace
     from apps.simmgr import launcher as module
-    for key,value in REQUIRED_ENV.items():
-        monkeypatch.setenv(key,value)
     monkeypatch.setenv('FH_SIM_RUN','1')
     source=tmp_path/'experiment/spec/stage/source'
     source.mkdir(parents=True)
@@ -196,7 +192,8 @@ def test_native_waits_for_identity_after_unit_birth(tmp_path,monkeypatch):
         reason=None
         started=False
         calls=0
-        def __init__(self,folder,src,setup):
+        def __init__(self,folder,src,setup,launch_env=None):
+            assert launch_env['ROS_DOMAIN_ID'] == '93'
             self.source=src
         def start(self):
             self.started=True
@@ -217,3 +214,11 @@ def test_native_waits_for_identity_after_unit_birth(tmp_path,monkeypatch):
         assert launch.sim.calls == 2 and launch.sim.started
         await launch.close_world()
     asyncio.run(run())
+
+
+def test_manager_rejects_external_peer_even_with_correct_secret():
+    cfg=settings()
+    with TestClient(create_app(cfg),client=('192.0.2.10',9438)) as client:
+        response=client.get('/v1/worlds',params={'org_id':next(iter(cfg.slots.values())).org_id},
+                            headers={'Authorization':'Bearer '+cfg.secret})
+        assert response.status_code==403 and response.json()['error']['code']=='SIM_LOOPBACK_ONLY'

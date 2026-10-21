@@ -21,13 +21,14 @@ def jpeg(width=424, height=240, payload=b''):
 def test_latest_queue_and_no_video_have_no_control_effect():
     h = Harness()
     try:
-        peer, _ = h.moving()
         camera = Camera(h.robot, now=h.clock)
         queue = camera.subscribe()
         for _ in range(100):
+            h.clock.t += .201
             assert camera.submit(jpeg())
             camera.sample()
         assert queue.qsize() == 1 and queue.get_nowait()['seq'] == 100
+        peer, _ = h.moving()
         assert h.hub.session.core.out[0] == .6
         h.clock.t += 1.1
         camera.sample()

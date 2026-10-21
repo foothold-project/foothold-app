@@ -5,10 +5,10 @@
 실제 기동은 **미실행**, [FIRST-LAUNCH](FIRST-LAUNCH.md)의 제품 책임자 승인 뒤 별도 작업이다.
 
 - 설정/격리: `config.py`에서 기존 `validate_isolation` 재사용. domain93·LOCALHOST만 허용,
-  DDS override·61 거부. localhost manager9430, 서버9431, agent9433/9434(시험9430~9449).
+  DDS override·61 거부. 같은 PC loopback manager9430, 서버9431, agent9433/9434(시험9430~9449).
 - 수명: `service.py`의 잠금 하나로 직렬화. 월드1개, 1인1대, 기본2대 상한(1..2 설정).
   STOP→0→에이전트 정상 종료 확인→로봇 제거→월드 종료. 정지 실패는ERROR·슬롯 보존·
-  새 시작 차단이며 자동KILL/재기동 없다. 종료 중에도 다른 로봇의 정리는 시도한다.
+  새 시작 차단이며 world 자동KILL/재기동 없다. agent timeout은 자기 새 process group만 TERM/KILL로 수거하되 world 보존. 종료 중에도 다른 로봇의 정리는 시도한다.
 - `FakeLauncher`: 실제 프로세스/소켓/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
 - `NativeLauncher`: 명시 `FH_SIM_RUN=1` 때만 기존 D1 `Simulation` supervisor를 불러 쓴다.
@@ -31,7 +31,8 @@
 원본의 generated 센서 자산·provenance도 기존 runtime이 검사한다. 가짜 모드는 경로의 파일을
 열지 않는다. 카탈로그 id/슬롯/포트는 중복을 거부한다. 키 파일은 기존 private-file 검사다.
 운영자 설정 경로는 환경 `FH_SIM_CATALOG`, `FH_SIM_AUTH_FILE`, `FH_SIM_AGENT_WS_URL`로 준다.
-`ROS_DOMAIN_ID=93 ROS_AUTOMATIC_DISCOVERY_RANGE=LOCALHOST ROS_LOCALHOST_ONLY=1`도 필수다.
+`FH_SIM_DOMAIN=93`이 필수이며 관리자 부모의 ROS_*·RMW/DDS 환경은 시작 거부한다.
+자식만 허용 목록에서93·LOCALHOST 환경을 받는다. WS URL은 `/api/v1/agent/ws`만 허용한다.
 `python -m apps.simmgr`는 workers1·access log off·loopback bind다.
 
 카메라는 `FOOTHOLD_CAMERA_ENABLED=1`일 때만 기존 ROS JPEG를 최대5fps·64KiB·640×360

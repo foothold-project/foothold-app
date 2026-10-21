@@ -894,7 +894,8 @@ B-tree/색인·metadata·같은 DB의 used-jti4096행 몫을 포함할 여유로
    토큰은 부모 연결 하나·로봇 하나에 묶이고, **발급 후 10초 미만·1회용**이다.
 2. 폰은 카메라 WS의 첫 텍스트 프레임으로
    `{t:"camera.hello",robot:UUID,token:camera_token}`을 보낸다. URL·저장·로그에 넣지 않는다.
-   hello는 4 KiB·3초 이내, 전체 카메라 접속은 인증 대기를 포함해 최대16개다.
+   hello는 4 KiB·1초 이내, 전체 카메라 접속은 인증 대기를 포함해 최대16개다.
+   인증 대기는 주소별2개이며 초과는1013 CAMERA_ADDRESS_CAPACITY다.
    부모 폰 연결 하나당 카메라 연결은 하나만 허용한다.
 3. 에이전트 → 폰 프레임은 다음 두 가지다. `CameraHello/Frame/Status` 생성 계약이 정본이다.
 
@@ -905,7 +906,8 @@ B-tree/색인·metadata·같은 DB의 used-jti4096행 몫을 포함할 여유로
 
 JPEG 원본은 최대65,536 B(64 KiB), width≤640·height≤360이다. base64는 최대87,384자이므로
 영상 **수신** 프레임 한도를96 KiB 이상으로 둔다. 제어 **송신**의4 KiB 한도는 그대로다.
-최대5fps(단조 벽시계0.2초 샘플), ROS 입력 최신1장·폰별 대기 최신1장만 둔다.
+최대5fps(단조 벽시계0.2초 샘플), 원천 submit도 파싱 전에0.2초 간격으로 제한한다.
+ROS 입력 최신1장·폰별 대기 최신1장만 둔다.
 현재 원본의424×240 JPEG를 재인코딩·확대하지 않는다. 640×360은 상한이며 기본 출력
 크기640×360 대신 원본 크기를 쓰는 조정 결정이다. 손상된 외피·크기 불명·상한 초과
 프레임은 버린다. JPEG 바이트를 저장하거나 안전 판단에 쓰지 않는다.
@@ -914,7 +916,8 @@ JPEG 원본은 최대65,536 B(64 KiB), width≤640·height≤360이다. base64�
 보내면4403 `CAMERA_RECEIVE_ONLY`로 **영상 소켓만** 닫는다. 잘못된·재사용·만료 토큰은
 4403 `CAMERA_UNAUTHORIZED`다. 부모 종료·출입증 만료·회수·전환으로 부모가 없어지면
 최대50 ms 감시 주기 뒤4403 `CAMERA_PARENT_CLOSED`로 닫는다(네트워크 닫힘 완료 지연 별도).
-느린 영상 쓰기는0.2초 제한 뒤 영상 연결만 닫고, 폰 조종 연결은 유지한다. 프레임 유실·
+느린 영상 쓰기는0.2초 제한 뒤1013 CAMERA_SEND_TIMEOUT으로 영상 연결만 닫고,
+hello 대기 만료는1013 CAMERA_HELLO_TIMEOUT이다. 폰 조종 연결은 유지한다. 프레임 유실·
 NO_VIDEO·카메라 소켓 닫힘은 조종권·STOP·입력 만료를 바꾸지 않는다. 재연결은 새 부모
 hello/새 출입증으로 새 토큰을 받는 흐름이며, 조종권 자동 복원은 없다.
 
@@ -938,10 +941,14 @@ namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,laun
 
 서버는0014의 `robots.simulation`(기본false)을 중계 등록에서만true로 저장한다. 일반 로봇
 등록/수정 입력은 이 필드를 받지 않는다. offline·메타데이터 갱신·제거 뒤에도 로봇 요약에
-`simulation:true`가 남는다. 화면은 이 값을 읽어 항상 «시뮬»을 보인다(화면 구현은 별도).
-SIM_ROBOT_REQUESTED/REGISTERED/REMOVED 감사는 id·world·launcher만 담고 주소·토큰·키는
+`simulation:true`가 남는다. 화면의 «시뮬» 표시는 **DB RobotSummary.simulation만** 사용한다(화면 구현 별도).
+에이전트 welcome/state.simulation은 참고용이며 출처 판정에 쓰지 않는다. 시뮬 행의 일반
+`/robots/{id}/agent-token` 회전은409 SIM_TOKEN_MANAGED로 거부한다.
+SIM_ROBOT_REQUESTED/REGISTERED/REMOVED와 REMOVE_FAILED 감사는 id·world·launcher·실패코드만 담고 주소·토큰·키는
 담지 않는다. 에이전트 시작 전 id·토큰 hash와 REQUESTED를 먼저 commit하므로 시작 응답이
-유실되어도 같은 slot 목록으로 재조정한다. 로봇 삭제·출입증 이력 삭제는 하지 않는다.
+유실되어도 같은 slot 목록으로 재조정한다. 제거 전 살아 있는 출입증을 기존 회수 outbox로
+commit하고, 정리 중 새로 발급된 것도 완료 직전 조직 잠금 아래 다시 회수한다. 제거 성공 뒤 owner를 비워 다른 사람이 슬롯을 쓸 수 있게 한다. 실패면
+owner를 유지하고 실패 감사를 별도 commit한다. 로봇·출입증 이력은 삭제하지 않는다.
 
 출입증은 **그대로 §13.7**로 받는다. 슬롯 UUID의 서버/에이전트 키를 미리 배포하며, 키가
 없는 슬롯은503 PASS_KEY_MISSING이다. 일반 로그인 권한을 넘는 키/claim을 생성하지 않는다.
@@ -953,7 +960,10 @@ SIM_ROBOT_REQUESTED/REGISTERED/REMOVED 감사는 id·world·launcher만 담고 �
 `SimProvision {world_id,robot_id,owner_id,org_id,agent_token}`을 보낸다. 비밀은 본문/자식
 환경에만 있고 응답·URL·감사·공개 카탈로그에 없다. 월드 파일+지도 파일은 저장소 밖
 설정의 짝이며 원본 자산을 복사하지 않는다. ROS 도메인93·LOCALHOST만 허용하고61·DDS
-override를 거부한다. 기본은fake, 실제 프로세스 생성은 명시 `FH_SIM_RUN=1`일 때만이다.
+override를 거부한다. 제어 평면은 ROS_*·RMW/DDS 환경을 거부하고
+FH_SIM_DOMAIN=93 설정에서만 자식 허용 목록 환경을 만든다(자식에 DB/서버키/관리자키/실행flag 미전달).
+중계 timeout은180초로 native110+30초보다 길다. 에이전트 WS 경로는 `/api/v1/agent/ws`만 허용한다.
+첫 기동은 같은 PC·127.0.0.1만이며 LAN 폰 측정은 P1-D다. 기본은fake, 실제 프로세스 생성은 명시 `FH_SIM_RUN=1`일 때만이다.
 
 기본 상한2·1인1대·월드1개를 가짜 launcher로 검증한다. 원본 native runtime은 고정된
 Go2 한 대·절대 토픽/TF라 실제 경로는 **1대만 허용**하고 namespace/tf_prefix가 빈 값이다.

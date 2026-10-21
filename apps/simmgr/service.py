@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from uuid import UUID
 
 from .launcher import FakeLauncher, NativeLauncher
+from .environment import validate_control_environment
 
 
 class SimError(Exception):
@@ -21,6 +22,7 @@ class Robot:
 
 class Manager:
     def __init__(self, settings, launcher=None):
+        validate_control_environment()
         self.settings = settings
         self.launcher = launcher if launcher is not None else (NativeLauncher(settings) if settings.real else FakeLauncher())
         if self.launcher.real != settings.real:

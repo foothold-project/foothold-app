@@ -14,6 +14,7 @@ class CameraTransport:
         self.tokens = {}
         self.active = {}
         self.pending = 0
+        self.waiting_addresses = {}
 
     def issue(self, peer):
         token = secrets.token_urlsafe(32)
@@ -30,14 +31,21 @@ class CameraTransport:
 
     async def handler(self, ws):
         from websockets.exceptions import ConnectionClosed
+        address = getattr(ws, 'remote_address', None)
+        address = address[0] if address else 'local-test'
+        if self.waiting_addresses.get(address, 0) >= 2:
+            await ws.close(1013, 'CAMERA_ADDRESS_CAPACITY')
+            return
         if self.pending >= 16:
             await ws.close(1013, 'CAMERA_CAPACITY')
             return
         self.pending += 1
+        self.waiting_addresses[address] = self.waiting_addresses.get(address, 0) + 1
+        waiting = True
         peer = queue = None
         tasks = []
         try:
-            raw = await asyncio.wait_for(ws.recv(), 3)
+            raw = await asyncio.wait_for(ws.recv(), 1)
             if not isinstance(raw, str) or len(raw.encode()) > 4096:
                 raise ValueError('CAMERA_HELLO_INVALID')
             hello = json_object(raw)
@@ -49,6 +57,10 @@ class CameraTransport:
             if peer is None or not self.parent_alive(peer) or peer in self.active:
                 raise ValueError('CAMERA_UNAUTHORIZED')
             self.tokens.pop(peer)
+            self.waiting_addresses[address] -= 1
+            if not self.waiting_addresses[address]:
+                del self.waiting_addresses[address]
+            waiting = False
             self.active[peer] = ws
             queue = self.camera.subscribe()
             tasks = [asyncio.create_task(self._frames(ws, queue)),
@@ -57,12 +69,18 @@ class CameraTransport:
             done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()
-        except (ValueError, asyncio.TimeoutError):
+        except asyncio.TimeoutError:
+            await ws.close(1013, 'CAMERA_SEND_TIMEOUT' if queue is not None else 'CAMERA_HELLO_TIMEOUT')
+        except ValueError:
             await ws.close(4403, 'CAMERA_UNAUTHORIZED')
         except (ConnectionClosed, OSError):
             pass
         finally:
             self.pending -= 1
+            if waiting:
+                self.waiting_addresses[address] -= 1
+                if not self.waiting_addresses[address]:
+                    del self.waiting_addresses[address]
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)

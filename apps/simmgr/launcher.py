@@ -8,6 +8,7 @@ import sys
 
 from foothold_agent.ros_bridge.config import validate_isolation
 from foothold_agent.phone.tickets import load_keys
+from .environment import validate_control_environment, child_environment
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -44,7 +45,7 @@ class NativeLauncher:
     def __init__(self, settings):
         if os.environ.get('FH_SIM_RUN') != '1':
             raise ValueError('FH_SIM_RUN=1 is required')
-        validate_isolation()
+        validate_control_environment()
         self.settings = settings
         self.sim = self.child = None
         self.folder = None
@@ -55,7 +56,7 @@ class NativeLauncher:
         return self.failed or (self.sim is not None and bool(self.sim.reason)) or (self.child is not None and self.child.poll() is not None)
 
     async def start_world(self, world):
-        validate_isolation()
+        validate_control_environment()
         if world.id != 'v5_single/f1':
             raise ValueError('native adapter only supports v5_single/f1')
         # Import the established supervisor without importing ROS or starting nodes.
@@ -68,7 +69,8 @@ class NativeLauncher:
             raise ValueError('evidence must be a new directory under this worktree runs')
         folder.mkdir(parents=True, exist_ok=False, mode=0o700)
         self.folder = folder
-        sim = Simulation(folder, Path(self.settings.source), Path(self.settings.ros_setup))
+        sim = Simulation(folder, Path(self.settings.source), Path(self.settings.ros_setup),
+                         launch_env=child_environment(self.settings.domain))
         # Match the catalogue pair against the exact native catalogue, never ignore it.
         import json
         from constants import MAP_DIRECTORY
@@ -104,7 +106,7 @@ class NativeLauncher:
         if self.child is not None or self.failed or self.sim is None or self.sim.reason:
             raise RuntimeError('native robot unavailable; no automatic restart')
         load_keys(slot.key_path)  # private file validation before process creation
-        env = {**os.environ, 'FOOTHOLD_ROBOT_ID': slot.robot_id,
+        env = {**child_environment(self.settings.domain), 'FOOTHOLD_ROBOT_ID': slot.robot_id,
                'FOOTHOLD_AGENT_WS_URL': self.settings.agent_ws_url,
                'FOOTHOLD_AGENT_TOKEN': credentials['agent_token'],
                'FOOTHOLD_PHONE_HOST': self.settings.agent_host, 'FOOTHOLD_PHONE_PORT': str(slot.port),
@@ -114,14 +116,17 @@ class NativeLauncher:
                'FOOTHOLD_PHONE_SIMULATION': '1',
                'FOOTHOLD_PHONE_ORIGINS': __import__('json').dumps(self.settings.origins),
                'PYTHONDONTWRITEBYTECODE': '1', 'ROS_LOG_DIR': str(self.folder / 'agent-ros'),
-               'PYTHONPATH': os.pathsep.join([str(ROOT / 'apps/agent'), str(ROOT), os.environ.get('PYTHONPATH', '')])}
+               'PYTHONPATH': os.pathsep.join([str(ROOT / 'apps/agent'), str(ROOT)])}
         validate_isolation(env)
         # Native stage1 topics/frames stay fixed; no fictitious namespace isolation.
-        env.pop('FOOTHOLD_ROS_NAMESPACE', None)
         env['FOOTHOLD_CAMERA_ENABLED'] = '1'
         with (self.folder / 'agent.log').open('x') as log:
-            self.child = subprocess.Popen([self.settings.agent_python, '-m', 'foothold_agent.ros_bridge'],
-                env=env, cwd=ROOT, stdout=log, stderr=log)
+            script = ('set -e; source "$1"; '
+                      'export PYTHONPATH="$2:/usr/lib/python3/dist-packages:${PYTHONPATH:-}"; '
+                      'exec "$3" -m foothold_agent.ros_bridge')
+            self.child = subprocess.Popen(['/bin/bash', '-c', script, 'simmgr-agent',
+                self.settings.ros_setup, env['PYTHONPATH'], self.settings.agent_python],
+                env=env, cwd=ROOT, stdout=log, stderr=log, start_new_session=True)
         deadline = asyncio.get_running_loop().time() + 30
         while asyncio.get_running_loop().time() < deadline:
             if self.child.poll() is not None or self.sim.reason:
@@ -145,7 +150,24 @@ class NativeLauncher:
             child.send_signal(signal.SIGINT)
         # Existing runner closes Hub first, bridge outputs ZERO/STOP, waits for ACK,
         # then tears down its node. Nonzero exit/timeout retains world and blocks reuse.
-        code = await asyncio.to_thread(child.wait, timeout=15)
+        try:
+            code = await asyncio.to_thread(child.wait, timeout=15)
+        except subprocess.TimeoutExpired:
+            self.failed = True
+            # Own process group only. A forced exit never confirms STOP/zero;
+            # retain world/slot and require operator review before any retry.
+            for sig in (signal.SIGTERM, signal.SIGKILL):
+                if child.poll() is not None:
+                    break
+                if os.getpgid(child.pid) != child.pid:
+                    raise RuntimeError('agent process group ownership changed') from None
+                os.killpg(child.pid, sig)
+                try:
+                    await asyncio.to_thread(child.wait, timeout=5)
+                except subprocess.TimeoutExpired:
+                    continue
+                break
+            raise RuntimeError('agent STOP/zero timeout; owned group cleanup attempted') from None
         if code != 0:
             self.failed = True
             raise RuntimeError('agent STOP/zero cleanup unconfirmed')

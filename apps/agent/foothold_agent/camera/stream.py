@@ -1,11 +1,13 @@
 """JPEG pass-through: no codec/ROS imports, wall-clock 5 Hz and one pending image."""
 import asyncio
 import base64
+import re
 import threading
 import time
 
 MAX_BYTES = 65536
 MAX_WIDTH, MAX_HEIGHT = 640, 360
+NON_FILL = re.compile(b"[^\xff]")
 
 
 def jpeg_size(data):
@@ -15,10 +17,10 @@ def jpeg_size(data):
     while offset + 4 <= len(data):
         if data[offset] != 255:
             raise ValueError('invalid JPEG marker')
-        while offset < len(data) and data[offset] == 255:
-            offset += 1
-        if offset >= len(data):
+        found = NON_FILL.search(data, offset)
+        if found is None:
             break
+        offset = found.start()
         marker = data[offset]
         offset += 1
         if marker in (0xD8, 0xD9, 0xDA):
@@ -48,9 +50,21 @@ class Camera:
         self.seq = 0
         self.received = None
         self.closed = False
+        self.next_submit = float("-inf")
 
     def submit(self, data, format='jpeg'):
         # Called in the ROS thread. One bounded copy, no safety/session access.
+        received = self.now()
+        with self.lock:
+            throttled = received < self.next_submit
+            if not throttled:
+                self.next_submit = received + .2
+        if throttled:
+            # An overspeed producer must release the GIL, rather than spin on
+            # rejected frames and starve the independent control/watchdog loop.
+            # No lock, consumer, queue or network operation is waited on.
+            time.sleep(0)
+            return False
         if self.closed or format.lower() not in ('jpeg', 'jpg') or len(data) > MAX_BYTES:
             return False
         data = bytes(data)
@@ -59,7 +73,7 @@ class Camera:
         except ValueError:
             return False
         with self.lock:
-            self.pending = (data, width, height, self.now())
+            self.pending = (data, width, height, received)
         return True
 
     def subscribe(self):

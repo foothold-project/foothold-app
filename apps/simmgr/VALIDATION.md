@@ -1,5 +1,8 @@
 # P1-C 오프라인 검증
 
+아래는 최초659f7fa의 검증 기록이다. **현재 PR의1차 검토 수정·최신 검증은
+[REVIEW-R1](REVIEW-R1.md)**을 따른다. 최초 기동 문서도 B1~B3 결정을 반영해 개정했다.
+
 기준은 `origin/dev 8702fef`에서 분기한 `feature/sim-manager`다. ROS/Gazebo/rclpy 노드·실기
 기동0, 설치0, 외부 원본/다른 worktree 수정0이다. 코드 검토·첫 기동 승인은 별도다.
 안전 Core/상수/셀프테스트 및 ADR-002 본문은 변경하지 않았다.

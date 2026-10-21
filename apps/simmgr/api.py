@@ -28,7 +28,7 @@ def create_app(settings, launcher=None):
         supplied = request.headers.get('authorization', '')
         if not hmac.compare_digest(supplied, 'Bearer ' + settings.secret):
             raise SimError('SIM_AUTH_REQUIRED', 401)
-        if request.client and request.client.host not in ('127.0.0.1', 'testclient'):
+        if request.client and request.client.host not in ('127.0.0.1',):
             raise SimError('SIM_LOOPBACK_ONLY', 403)
 
     @app.middleware('http')

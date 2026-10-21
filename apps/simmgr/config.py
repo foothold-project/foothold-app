@@ -7,7 +7,7 @@ from pathlib import Path
 from uuid import UUID
 from urllib.parse import urlsplit
 
-from foothold_agent.ros_bridge.config import validate_isolation
+from .environment import validate_control_environment
 
 
 @dataclass(frozen=True)
@@ -40,14 +40,17 @@ class Settings:
     port: int = 9430
     max_robots: int = 2
     real: bool = False
+    domain: int = 93
     source: str | None = None
     ros_setup: str | None = None
     run_dir: str | None = None
     agent_python: str = '/usr/bin/python3'
-    agent_ws_url: str = field(default='ws://127.0.0.1:9431/agent/ws', repr=False)
+    agent_ws_url: str = field(default='ws://127.0.0.1:9431/api/v1/agent/ws', repr=False)
     origins: tuple[str, ...] = ()
 
     def __post_init__(self):
+        if self.domain != 93:
+            raise ValueError('simulation domain must be 93')
         if self.host != '127.0.0.1' or not 9430 <= self.port <= 9449:
             raise ValueError('manager requires loopback and approved port range')
         if not 32 <= len(self.secret) <= 256 or not self.secret.isascii() or any(ord(c) < 33 for c in self.secret) or not 1 <= self.max_robots <= 2:
@@ -61,12 +64,12 @@ class Settings:
             if str(UUID(rid)) != rid or slot.robot_id != rid or str(UUID(slot.org_id)) != slot.org_id:
                 raise ValueError('canonical slot identity required')
         address = ipaddress.ip_address(self.agent_host)
-        if address.version != 4 or address.is_unspecified or not (address.is_private or address.is_loopback):
+        if str(address) != '127.0.0.1':
             raise ValueError('explicit local IPv4 agent interface required')
         parsed = urlsplit(self.agent_ws_url)
         if (parsed.scheme not in ('ws', 'wss') or parsed.hostname != '127.0.0.1'
                 or parsed.port not in range(9430, 9450) or parsed.username or parsed.password
-                or parsed.query or parsed.fragment):
+                or parsed.path != '/api/v1/agent/ws' or parsed.query or parsed.fragment):
             raise ValueError('agent server requires loopback URL in approved port range')
         if self.real and not all((self.source, self.ros_setup, self.run_dir)):
             raise ValueError('real launcher requires explicit source/setup/evidence paths')
@@ -75,7 +78,7 @@ class Settings:
     def from_env(cls, env=None):
         env = os.environ if env is None else env
         # Conflicts are rejected even in fake mode; no silent replacement of 61.
-        validate_isolation(env)
+        validate_control_environment(env)
         data = json.loads(Path(env['FH_SIM_CATALOG']).read_text())
         worlds = {w['id']: World(w['id'], Path(w['world_file']), Path(w['map_file'])) for w in data['worlds']}
         slots = {s['robot_id']: Slot(**s) for s in data['slots']}
@@ -88,7 +91,7 @@ class Settings:
             credential = stream.read(257).decode().strip()
         return cls(worlds, slots, credential, agent_host=env.get('FH_SIM_AGENT_HOST', '127.0.0.1'),
                    port=int(env.get('FH_SIM_PORT', '9430')), max_robots=int(env.get('FH_SIM_MAX_ROBOTS', '2')),
-                   real=env.get('FH_SIM_RUN') == '1', source=env.get('SIM_SOURCE'),
+                   real=env.get('FH_SIM_RUN') == '1', domain=int(env.get('FH_SIM_DOMAIN', '93')), source=env.get('SIM_SOURCE'),
                    ros_setup=env.get('SIM_ROS_SETUP'), run_dir=env.get('SIM_RUN_DIR'),
                    agent_python=env.get('FH_SIM_AGENT_PYTHON', '/usr/bin/python3'),
                    agent_ws_url=env['FH_SIM_AGENT_WS_URL'], origins=tuple(json.loads(env.get('FOOTHOLD_PHONE_ORIGINS', '[]'))))

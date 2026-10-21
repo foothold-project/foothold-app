@@ -716,6 +716,8 @@ def create_app(settings: Settings | None = None):
                                            Robot.archived_at.is_(None)).with_for_update())
         if not row:
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+        if row.simulation:
+            fail(409, 'SIM_TOKEN_MANAGED', '시뮬 관리자에서만 연결 키를 관리합니다.')
         raw = token()
         row.agent_token_hash = digest(raw)
         event(db, user.org_id, 'AGENT_TOKEN_ROTATED', user.id, {'robot_id': str(robot_id)})
@@ -723,7 +725,7 @@ def create_app(settings: Settings | None = None):
         return C.AgentTokenResponse(agent_token=raw)
 
     from . import events_api, notifications, maps, missions, simulation
-    simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings)
+    simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization)
     missions.install(app, DB, Identity, fail, authorize, event, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)

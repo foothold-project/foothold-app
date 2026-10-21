@@ -12,6 +12,7 @@ from sqlalchemy import select
 
 from apps.contracts import models as C
 from .models import Robot
+from . import phone_pass
 from .security import digest, token
 
 
@@ -48,7 +49,7 @@ class Relay:
             data=json.dumps(body).encode() if body is not None else None,
             headers={'Authorization': 'Bearer ' + self.secret, 'Content-Type': 'application/json'})
         try:
-            with self.opener.open(request, timeout=120) as response:
+            with self.opener.open(request, timeout=180) as response:
                 raw = response.read(65537)
             if len(raw) > 65536:
                 raise RelayError()
@@ -66,16 +67,20 @@ class Relay:
             raise RelayError() from None
 
 
-def install(app, DB, Identity, fail, authorize, event, issuer, settings):
+def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization):
     app.state.simmgr = Relay(settings.simmgr_url, settings.simmgr_auth_file) if settings.simmgr_url else None
 
-    def call(method, path, body=None):
+    def call(method, path, body=None, on_error=None):
         relay = app.state.simmgr
         if relay is None:
+            if on_error is not None:
+                on_error('SIM_DISABLED')
             fail(503, 'SIM_DISABLED', '시뮬 관리자가 연결되지 않았습니다.')
         try:
             return relay.request(method, path, body)
         except RelayError as error:
+            if on_error is not None:
+                on_error(error.code)
             fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.')
 
     @app.get('/api/v1/simulation/worlds', response_model=C.SimCatalog)
@@ -114,9 +119,12 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings):
                 simulation=True, owner_user_id=user.id, agent_token_hash=digest(raw))
             db.add(row)
         else:
-            authorize(user, 'O_OWN', row)
-            if row.owner_user_id != user.id:
-                fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 다른 사람이 사용 중입니다.')
+            if row.owner_user_id is None:
+                row.owner_user_id = user.id
+            else:
+                authorize(user, 'O_OWN', row)
+                if row.owner_user_id != user.id:
+                    fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 다른 사람이 사용 중입니다.')
             # Running retries must not rotate the token under an existing agent.
             current = C.SimRobotList.model_validate(call('GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
             found = next((r for r in current.items if r.robot_id == body.robot_id), None)
@@ -148,7 +156,20 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings):
         if row is None or row.org_id != user.org_id or not row.simulation or row.archived_at:
             fail(404, 'NOT_FOUND', '시뮬 로봇을 찾을 수 없습니다.')
         authorize(user, 'O_OWN', row)
-        call('DELETE', '/v1/robots/' + str(robot_id))
+        phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)
+        db.commit()  # revocations survive a failed/uncertain manager response
+        def removal_failed(code):
+            event(db, user.org_id, 'SIM_ROBOT_REMOVE_FAILED', user.id,
+                  {'robot_id': str(robot_id), 'reason': code}, category='LINK')
+            db.commit()
+        call('DELETE', '/v1/robots/' + str(robot_id), on_error=removal_failed)
+        # A pass could be issued while the manager was stopping. Serialize the
+        # final sweep and slot release with the existing organization write lock.
+        lock_organization(db, user.org_id)
+        db.refresh(row)
+        phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)
+        row.owner_user_id = None
+        row.agent_token_hash = digest(token())
         # Keep identity, provenance and pass/revocation history; no archive/reuse shortcut.
         event(db, user.org_id, 'SIM_ROBOT_REMOVED', user.id, {'robot_id': str(robot_id)}, category='LINK')
         return Response(status_code=204)

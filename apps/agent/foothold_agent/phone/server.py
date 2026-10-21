@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 import json
 import os
+import socket
 from urllib.parse import urlsplit
 
 from .hub import PhoneError, Peer
@@ -153,6 +154,10 @@ class Server:
 
     async def _handler(self, ws):
         from websockets.exceptions import ConnectionClosed
+        native_socket = getattr(ws, 'transport', None)
+        native_socket = native_socket.get_extra_info('socket') if native_socket is not None else None
+        if native_socket is not None:
+            native_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         if ws.request.path == '/phone/camera/ws' and self.camera is not None:
             await self.camera.handler(ws)
             return
