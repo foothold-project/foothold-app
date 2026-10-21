@@ -105,8 +105,8 @@ class Hub:
         queue.clear()
         return result
 
-    def _flush_acquisition_denials(self):
-        if self.acquisition_denials and self.now() - self.acquisition_report_at >= 1:
+    def _flush_acquisition_denials(self, *, final=False):
+        if self.acquisition_denials and (final or self.now() - self.acquisition_report_at >= 1):
             count, self.acquisition_denials = self.acquisition_denials, 0
             self.acquisition_report_at = self.now()
             self._audit('PHONE_LEASE_ACQUIRE_LIMIT', rejected=count)
@@ -410,9 +410,21 @@ class Hub:
                 'sim_wall_delta_s': delta, 'simulation': self.simulation}
 
     def close(self):
+        primary = None
+        try:
+            self._flush_acquisition_denials(final=True)
+        except BaseException as error:
+            primary = error
         try:
             self._emit(self.session.shutdown())
+        except BaseException as error:
+            if primary is None:
+                primary = error
+            elif hasattr(primary, 'add_note'):
+                primary.add_note('shutdown output error: ' + type(error).__name__)
         finally:
             self.owner = self.reservation = self.pending = None
             self.peers.clear()
             self.closing.clear()
+        if primary is not None:
+            raise primary

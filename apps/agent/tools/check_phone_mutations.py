@@ -236,7 +236,7 @@ MUTATIONS += [
            'sum(at > self.now()-1 for at in history) >= 8', 'False',
            'test_acquisition_cycles_obey_independent_identity_budget'),
     review('denial audit batching removed', 'hub.py',
-           'self.acquisition_denials and self.now() - self.acquisition_report_at >= 1',
+           'self.acquisition_denials and (final or self.now() - self.acquisition_report_at >= 1)',
            'self.acquisition_denials', 'test_acquisition_denial_audit_is_globally_batched_per_second'),
     review('STOP counts toward a rate window', 'hub.py',
            "if kind == 'lease.cancel':\n            if self.now() - p.request_window >= 1:",
@@ -245,6 +245,24 @@ MUTATIONS += [
     review('acquisition budget spills across devices', 'hub.py',
            'identity = (peer.user, peer.device)', 'identity = (peer.user, None)',
            'test_acquisition_budget_uses_exact_identity_pair'),
+]
+
+
+MUTATIONS += [
+    review('denial count is never reset', 'hub.py',
+           'count, self.acquisition_denials = self.acquisition_denials, 0',
+           'count = self.acquisition_denials',
+           'test_denial_batch_stays_quiet_after_flush_and_flushes_once_on_close'),
+    review('empty acquisition identity is never pruned', 'hub.py',
+           'del self.acquisitions[identity]', 'pass',
+           'test_thousand_disconnected_acquisition_identities_are_pruned'),
+    review('denial batch interval is half a second', 'hub.py',
+           'self.now() - self.acquisition_report_at >= 1',
+           'self.now() - self.acquisition_report_at >= .5',
+           'test_denials_spread_within_one_second_produce_at_most_one_event'),
+    review('close omits final denial flush', 'hub.py',
+           'self._flush_acquisition_denials(final=True)', 'pass',
+           'test_denial_batch_stays_quiet_after_flush_and_flushes_once_on_close'),
 ]
 
 
