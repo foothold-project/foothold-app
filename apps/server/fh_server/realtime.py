@@ -217,7 +217,13 @@ class PolicyBatch(dict):
 class Realtime:
     def __init__(self, settings, factory, authorize, api_error, clock=time.monotonic):
         self.settings = settings
-        self.phone_pass_factory = factory
+        # ACK commits have their own bounded write pool. A dead DB must not
+        # retain a robot's single in-flight slot indefinitely after WS timeout.
+        self.phone_ack_engine = create_engine(settings.database_url,pool_size=2,max_overflow=0,pool_timeout=.5,
+            connect_args={'options':'-c statement_timeout=2000 -c lock_timeout=1000',
+                          'connect_timeout':1,'keepalives':1,'keepalives_idle':1,
+                          'keepalives_interval':1,'keepalives_count':2,'tcp_user_timeout':2000})
+        self.phone_pass_factory = sessionmaker(self.phone_ack_engine,expire_on_commit=False)
         self.phone_pass_clock = time.time
         self.phone_ack_stores = {}
         # Admission/HTTP reads cannot occupy any control or agent-auth slot.
@@ -451,6 +457,7 @@ class Realtime:
             event.remove(ORMSession, name, callback)
         self.stop_listeners.clear()
         self.audit_engine.dispose()
+        self.phone_ack_engine.dispose()
         self.read_engine.dispose()
 
     def invalidate_stop_cache(self, users=None, robots=None):

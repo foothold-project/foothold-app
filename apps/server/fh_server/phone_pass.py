@@ -187,6 +187,9 @@ class Issuer:
             # Earliest time at which a complete device slot becomes free.
             retry = min(max(p.exp for p in live if p.device == d) for d in devices) - current
             self.deny(db, user, 429, 'PASS_DEVICE_LIMIT', retry)
+        active_robot = [p for p in live if p.robot_id == robot.id]
+        if len(active_robot) >= 8:
+            self.deny(db, user, 429, 'PASS_ACTIVE_LIMIT', min(p.exp for p in active_robot) - current)
         others = [p for p in live if p.device == device and p.purpose == 'control'
                   and p.robot_id != robot.id] if body.purpose == 'control' else []
         acked = set(db.scalars(select(PhoneRevocation.jti).where(PhoneRevocation.org_id == user.org_id,

@@ -130,8 +130,8 @@ def test_one_phone_one_robot_requires_explicit_switch_and_every_ack(pc, seeded):
 
 def test_issuer_limits_persist_across_sessions_and_device_slots(pc, seeded):
     device = uuid4()
-    for _ in range(10):
-        assert issue(pc, seeded, device=device).status_code == 200
+    for i in range(10):
+        assert issue(pc, seeded, robot=('mine','theirs')[i%2], device=device, purpose='view').status_code == 200
     pc.pass_headers = csrf(pc)
     result = issue(pc, seeded, device=device)
     assert result.status_code == 429 and result.json()['error']['code'] == 'PASS_RATE_LIMIT'
@@ -318,15 +318,15 @@ def test_issue_budgets_expire_and_expired_metadata_is_cleaned(pc,seeded,monkeypa
     pc.app.state.phone_pass_issuer.clock=lambda:current[0]
     engine=create_engine(seeded['urls']['app'])
     device=uuid4()
-    def mint():
+    def mint(robot='mine'):
         with DBSession(engine) as db:
             lock_organization(db,seeded['org'])
-            result=issuer.issue(db,db.get(User,seeded['users']['admin']),db.get(Robot,seeded['robots']['mine']),
-                                PhonePassRequest(device=device,purpose='control'))
+            result=issuer.issue(db,db.get(User,seeded['users']['admin']),db.get(Robot,seeded['robots'][robot]),
+                                PhonePassRequest(device=device,purpose='view'))
             db.commit()
             return result
     try:
-        for _ in range(10): mint()
+        for i in range(10): mint(('mine','theirs')[i%2])
         current[0]+=59
         with pytest.raises(APIError) as error: mint()
         assert error.value.status==429 and error.value.detail['retry_after']==1
@@ -882,3 +882,121 @@ def test_real_ws_ack_storage_failure_closes_with_exact_reason_and_replays(pc,see
             while time.monotonic()<deadline and any(r.acked_at is None for r in rows(seeded,PhoneRevocation)):time.sleep(.01)
             assert all(r.acked_at is not None for r in rows(seeded,PhoneRevocation))
     finally:engine.dispose()
+
+
+def test_active_pass_limit_is_per_user_robot_across_devices_and_purposes(pc,seeded):
+    current=[int(time.time())];pc.app.state.phone_pass_issuer.clock=lambda:current[0]
+    devices=[uuid4() for _ in range(4)]
+    for i in range(8):
+        assert issue(pc,seeded,device=devices[i%4],purpose=('control','view')[i%2]).status_code==200
+        current[0]+=1
+    # Fresh session and a different declared device cannot reset the robot cap.
+    pc.pass_headers=csrf(pc)
+    limited=issue(pc,seeded,device=devices[1])
+    assert limited.status_code==429 and limited.json()['error']['code']=='PASS_ACTIVE_LIMIT'
+    assert limited.json()['error']['detail']['retry_after']==592
+    assert issue(pc,seeded,robot='theirs',device=devices[0],purpose='view').status_code==200
+    pc.pass_headers=csrf(pc,'one')
+    assert issue(pc,seeded,purpose='view').status_code==200
+    pc.pass_headers=csrf(pc)
+    current[0]+=592
+    assert issue(pc,seeded,device=devices[1]).status_code==200
+    limited=issue(pc,seeded,device=devices[1])
+    assert limited.status_code==429 and limited.json()['error']['detail']['retry_after']==1
+
+
+def test_retry_floor_survives_inflight_pending_overwrite(monkeypatch):
+    async def run():
+        rt,_=ack_harness();peer=rt.agents['r'];rt.factory=None;rt.phone_pass_clock=time.time
+        entered,release=asyncio.Event(),asyncio.Event();afters=[]
+        for seq in range(1,129):
+            peer.phone_ack_queue.put_nowait(seq);peer.phone_ack_pending.add(seq)
+        async def read(fn,factory,org,rid,after,clock):
+            afters.append(after)
+            if len(afters)==1:return [dict(t='phone.revoke',seq=129),dict(t='phone.revoke',seq=130)]
+            if len(afters)==2:
+                entered.set();await release.wait()
+                return [dict(t='phone.revoke',seq=200)]
+            peer.closing=True
+            return []
+        rt.read=read;rt.put=lambda *args:None
+        task=asyncio.create_task(rt.phone_revocations('r',peer))
+        try:
+            await asyncio.wait_for(entered.wait(),1)
+            rt.queue_phone_ack('r',peer,129)
+            assert peer.phone_revoke_sent==128 and peer.phone_revoke_retry==128
+            release.set();await asyncio.wait_for(task,1)
+            assert afters==[0,130,128]  # returned seq200 must not erase the floor
+        finally:release.set();task.cancel();await asyncio.gather(task,return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_denial_users_reset_between_batches(pc,seeded):
+    from apps.server.fh_server.api import APIError
+    clock=[time.time()];issuer=pc.app.state.phone_pass_issuer;issuer.clock=lambda:clock[0]
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    try:
+        for user,count in [('admin',5),('one',1)]:
+            with DBSession(engine) as db:
+                for _ in range(count):
+                    with pytest.raises(APIError):issuer.deny(db,db.get(User,seeded['users'][user]),429,'PASS_RATE_LIMIT')
+            clock[0]+=1.01;issuer.flush_denials(factory,seeded['org'])
+        events=sorted((e for e in rows(seeded,Event) if e.code=='PHONE_PASS_DENIED'),key=lambda e:e.id)
+        assert [e.data['users'] for e in events]==[
+            [{'user_id':str(seeded['users']['admin']),'count':5}],
+            [{'user_id':str(seeded['users']['one']),'count':1}]]
+        assert [e.data['other_count'] for e in events]==[0,0]
+        assert rows(seeded,PhonePassDenials)[0].users=={}
+    finally:engine.dispose()
+
+
+@pytest.mark.parametrize('failure',['statement','lock'])
+def test_ack_database_timeouts_release_robot_slot(pc,seeded,monkeypatch,failure):
+    from sqlalchemy import text
+    from starlette.websockets import WebSocketDisconnect
+    from apps.server.fh_server import phone_pass
+    from apps.server.fh_server.security import digest
+    from .test_realtime import state
+    assert issue(pc,seeded).status_code==200
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    with factory.begin() as db:
+        revoke(db,seeded['org'],user_id=seeded['users']['admin'])
+        db.get(Robot,seeded['robots']['mine']).agent_token_hash=digest('synthetic-db-timeout-agent')
+    rt=pc.app.state.realtime
+    with rt.phone_pass_factory() as db:
+        assert db.scalar(text('SHOW statement_timeout'))=='2s'
+        assert db.scalar(text('SHOW lock_timeout'))=='1s'
+    original=phone_pass.acknowledge;lock=None
+    if failure=='statement':
+        def slow(factory,*args):
+            with factory.begin() as db:db.execute(text('SELECT pg_sleep(4)'))
+            original(factory,*args)
+        monkeypatch.setattr(phone_pass,'acknowledge',slow)
+    else:
+        lock=engine.connect();lock.begin()
+        lock.execute(update(PhoneRevocation).values(acked_at=None))
+    connect=lambda:pc.websocket_connect('/api/v1/agent/ws',headers={'authorization':'Bearer synthetic-db-timeout-agent'})
+    rid=str(seeded['robots']['mine'])
+    try:
+        with connect() as ws:
+            ws.send_json(agent_hello());packet=receive(ws,'phone.revoke')
+            ws.send_json(state());start=time.monotonic()
+            ws.send_json({'t':'phone.revoke.ack','seq':packet['seq']})
+            with pytest.raises(WebSocketDisconnect) as closed:receive(ws,'never',timeout=2.8)
+            assert (closed.value.code,closed.value.reason)==(1013,'REVOCATION_ACK_STORAGE_UNAVAILABLE')
+            assert time.monotonic()-start<2.8
+        deadline=time.monotonic()+1
+        while rid in rt.phone_ack_stores and time.monotonic()<deadline:time.sleep(.01)
+        assert rid not in rt.phone_ack_stores
+        assert all(r.acked_at is None for r in rows(seeded,PhoneRevocation))
+        if lock is not None:lock.rollback();lock.close();lock=None
+        monkeypatch.setattr(phone_pass,'acknowledge',original)
+        with connect() as ws:
+            ws.send_json(agent_hello());assert receive(ws,'phone.revoke')==packet
+            ws.send_json({'t':'phone.revoke.ack','seq':packet['seq']});ws.send_json(state())
+            deadline=time.monotonic()+1
+            while time.monotonic()<deadline and any(r.acked_at is None for r in rows(seeded,PhoneRevocation)):time.sleep(.01)
+            assert all(r.acked_at is not None for r in rows(seeded,PhoneRevocation))
+    finally:
+        if lock is not None:lock.rollback();lock.close()
+        engine.dispose()

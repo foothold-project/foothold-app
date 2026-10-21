@@ -109,9 +109,11 @@ class Verifier:
         else:
             self.db = sqlite3.connect(replay_path, timeout=.05)  # direct test construction only
         self.db.execute('PRAGMA page_size=4096')
-        self.db.execute('PRAGMA max_page_count=256')
+        # Server reserves 1 MiB of wire bodies; SQLite pages, indexes and the
+        # spent-ID journal share this physical 8 MiB allowance.
+        self.db.execute('PRAGMA max_page_count=2048')
         if (self.db.execute('PRAGMA page_size').fetchone()[0] != 4096
-                or self.db.execute('PRAGMA page_count').fetchone()[0] > 256):
+                or self.db.execute('PRAGMA page_count').fetchone()[0] > 2048):
             self.db.close()
             raise ValueError('invalid replay journal size')
         self.db.execute('PRAGMA synchronous=FULL')

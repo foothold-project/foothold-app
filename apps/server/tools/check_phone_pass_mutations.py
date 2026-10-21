@@ -73,6 +73,25 @@ MUTATIONS = [(label,'phone_pass.py',before,after,test) for label,before,after,te
      "'REVOCATION_ACK_STORAGE_TIMEOUT' if isinstance(","'REVOCATION_ACK_STORAGE_UNAVAILABLE' if isinstance(",
      'test_ack_timeout_late_commit_and_reconnect_are_bounded_and_idempotent'),
 
+    ('agent physical journal regresses to 256 pages','agent:phone/tickets.py',
+     'PRAGMA max_page_count=2048','PRAGMA max_page_count=256',
+     'test_phone_pass_capacity.py::test_server_last_admitted_state_fits_real_agent_journal[maximum-102]'),
+    ('per user robot active limit removed','phone_pass.py',
+     'if len(active_robot) >= 8:','if False:',
+     'test_active_pass_limit_is_per_user_robot_across_devices_and_purposes'),
+    ('inflight pending erases retry floor','realtime.py',
+     "if retry is not None:\n                    peer.phone_revoke_sent = min(peer.phone_revoke_sent,retry)\n                    peer.phone_revoke_retry = None",
+     'if retry is not None: pass',
+     'test_retry_floor_survives_inflight_pending_overwrite'),
+    ('denial user counts survive flush','phone_pass.py',
+     'row.count, row.reasons, row.users, row.reported_at = 0, {}, {}, current',
+     'row.count, row.reasons, row.reported_at = 0, {}, current',
+     'test_denial_users_reset_between_batches'),
+    ('ACK statement timeout removed','realtime.py',
+     "'options':'-c statement_timeout=2000 -c lock_timeout=1000'",
+     "'options':'-c statement_timeout=0 -c lock_timeout=1000'",
+     'test_ack_database_timeouts_release_robot_slot'),
+
 ]
 
 
@@ -91,12 +110,14 @@ def main():
             shutil.copytree(ROOT/'apps'/'contracts',dest/'apps'/'contracts',ignore=shutil.ignore_patterns('__pycache__','node_modules'))
             shutil.copytree(ROOT/'apps'/'agent'/'foothold_agent',dest/'apps'/'agent'/'foothold_agent',ignore=shutil.ignore_patterns('__pycache__'))
             shutil.copyfile(ROOT/'apps'/'agent'/'tools'/'mutation_reporter.py',dest/'foothold_link_mutation_probe.py')
-            source=dest/'apps'/'server'/'fh_server'/target
+            source=(dest/'apps'/'agent'/'foothold_agent'/target.removeprefix('agent:')
+                    if target.startswith('agent:') else dest/'apps'/'server'/'fh_server'/target)
             original=source.read_text()
             if original.count(before)!=1: raise RuntimeError('nonunique anchor: '+label)
             source.write_text(original.replace(before,after))
             report=dest/'report.json'
-            result=subprocess.run([sys.executable,'-m','pytest','apps/server/tests/test_phone_pass.py::'+test,
+            selected=('apps/server/tests/'+test if '::' in test else 'apps/server/tests/test_phone_pass.py::'+test)
+            result=subprocess.run([sys.executable,'-m','pytest',selected,
                 '-q','--tb=short','-p','foothold_link_mutation_probe','--link-mutation-report',str(report)],
                 cwd=dest,env={**os.environ,'TMPDIR':str(pgtemp),'FH_TEST_PORT_RANGE':os.environ.get('FH_TEST_PORT_RANGE','9450:9469')},
                 capture_output=True,text=True,timeout=90)
