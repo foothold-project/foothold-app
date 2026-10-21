@@ -1000,3 +1000,123 @@ def test_ack_database_timeouts_release_robot_slot(pc,seeded,monkeypatch,failure)
     finally:
         if lock is not None:lock.rollback();lock.close()
         engine.dispose()
+
+
+def test_revoked_passes_do_not_block_eight_pass_limit_after_logout(pc,seeded):
+    device=uuid4()
+    for _ in range(8):assert issue(pc,seeded,device=device,purpose='view').status_code==200
+    assert issue(pc,seeded,device=device,purpose='view').json()['error']['code']=='PASS_ACTIVE_LIMIT'
+    assert pc.post('/api/v1/auth/logout',headers=pc.pass_headers).status_code==204
+    assert len(rows(seeded,PhoneRevocation))==8
+    pc.pass_headers=csrf(pc)
+    assert issue(pc,seeded,device=device,purpose='view').status_code==200
+    assert all(r.acked_at is None for r in rows(seeded,PhoneRevocation))
+
+
+def test_d13_full_budget_logout_churn_leaves_other_user_capacity(pc,seeded):
+    from apps.server.fh_server.phone_pass import reserved_usage
+    current=[int(time.time())];start=current[0]
+    pc.app.state.phone_pass_issuer.clock=lambda:current[0]
+    devices=[uuid4() for _ in range(4)]
+    for window in range(10):
+        current[0]=start+60*window
+        for _ in range(5):
+            pc.pass_headers=csrf(pc)
+            for i in range(8):
+                result=issue(pc,seeded,device=devices[i%4],purpose='view')
+                assert result.status_code==200,result.text
+            assert pc.post('/api/v1/auth/logout',headers=pc.pass_headers).status_code==204
+        pc.pass_headers=csrf(pc)
+        over=issue(pc,seeded,device=devices[0],purpose='view')
+        assert over.status_code==429 and over.json()['error']['code']=='PASS_RATE_LIMIT'
+        assert over.json()['error']['detail']['retry_after']==60
+    issued=rows(seeded,PhonePass)
+    assert len(issued)==400 and len(rows(seeded,PhoneRevocation))==400
+    engine=create_engine(seeded['urls']['app'])
+    try:
+        with DBSession(engine) as db:
+            count,size=reserved_usage(db,seeded['org'],seeded['robots']['mine'],current[0])
+            assert count==50 and size<32*1024
+            print('D13_LOGOUT_CHURN',len(issued),'passes',count,'rows',size,'wire bytes')
+    finally:engine.dispose()
+    pc.pass_headers=csrf(pc,'one')
+    assert issue(pc,seeded,purpose='view').status_code==200
+
+
+def test_three_robot_ack_pool_contention_keeps_links_and_eventually_confirms(pc,seeded,monkeypatch):
+    import threading
+    from contextlib import ExitStack
+    from sqlalchemy import text
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+    from starlette.websockets import WebSocketDisconnect
+    from apps.server.fh_server import phone_pass
+    from apps.server.fh_server.security import digest
+    from .test_realtime import state
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    with factory.begin() as db:
+        third=Robot(org_id=seeded['org'],name='synthetic-third',model='test',owner_user_id=seeded['users']['one'],
+                    agent_token_hash=digest('synthetic-pool-third'))
+        db.add(third);db.flush();seeded['robots']['third']=third.id
+        for name in ('mine','theirs','third'):
+            db.get(Robot,seeded['robots'][name]).agent_token_hash=digest('synthetic-pool-'+name)
+            issue_metadata(db,seeded,robot=name)
+        revoke(db,seeded['org'],user_id=seeded['users']['admin'])
+    rt=pc.app.state.realtime;barrier=threading.Barrier(3)
+    attempts={};contended=[];original=phone_pass.acknowledge
+    def slow(factory,org,rid,seq):
+        attempts[rid]=attempts.get(rid,0)+1
+        if attempts[rid]==1:barrier.wait(2)
+        try:
+            with factory.begin() as db:db.execute(text('SELECT pg_sleep(0.8)'))
+        except PoolTimeout:
+            contended.append(rid)
+            raise
+        original(factory,org,rid,seq)
+    monkeypatch.setattr(phone_pass,'acknowledge',slow)
+    try:
+        with ExitStack() as stack:
+            sockets={}
+            for name in ('mine','theirs','third'):
+                ws=stack.enter_context(pc.websocket_connect('/api/v1/agent/ws',headers={
+                    'authorization':'Bearer synthetic-pool-'+name}))
+                ws.send_json(agent_hello());packet=receive(ws,'phone.revoke')
+                sockets[str(seeded['robots'][name])]=(ws,packet)
+            for ws,packet in sockets.values():
+                ws.send_json(state());ws.send_json({'t':'phone.revoke.ack','seq':packet['seq']})
+            deadline=time.monotonic()+1.5
+            while not contended and time.monotonic()<deadline:time.sleep(.01)
+            assert contended,'three concurrent 0.8s writes must exercise the 0.5s pool wait'
+            rid=contended[0];ws,packet=sockets[rid]
+            try:replay=receive(ws,'phone.revoke',timeout=1)
+            except WebSocketDisconnect as error:pytest.fail(f'pool wait closed live agent: {error.code}')
+            assert replay==packet
+            ws.send_json({'t':'phone.revoke.ack','seq':replay['seq']})
+            deadline=time.monotonic()+2
+            while time.monotonic()<deadline and any(r.acked_at is None for r in rows(seeded,PhoneRevocation)):
+                for item,_ in sockets.values():item.send_json(state())
+                time.sleep(.05)
+            assert all(r.acked_at is not None for r in rows(seeded,PhoneRevocation))
+            assert all(not rt.agents[rid].closing for rid in sockets)
+            assert attempts[rid]>=2
+    finally:engine.dispose()
+
+
+def test_ack_pool_wait_and_driver_tcp_bounds(pc):
+    from concurrent.futures import ThreadPoolExecutor,wait
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+    engine=pc.app.state.realtime.phone_ack_engine
+    first,second=engine.connect(),engine.connect()
+    def acquire():
+        try:
+            with engine.connect():return 'acquired'
+        except PoolTimeout:return 'pool_timeout'
+    executor=ThreadPoolExecutor(max_workers=1)
+    try:
+        params=first.connection.driver_connection.info.get_parameters()
+        assert params.get('tcp_user_timeout')=='2000'
+        started=time.monotonic();future=executor.submit(acquire)
+        done,_=wait([future],timeout=1.2)
+        assert done and future.result()=='pool_timeout'
+        assert .4<=time.monotonic()-started<1.2
+    finally:
+        first.close();second.close();executor.shutdown(wait=True)

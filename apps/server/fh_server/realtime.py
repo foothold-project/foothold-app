@@ -1600,10 +1600,13 @@ class Realtime:
                     peer.phone_ack_queue.put_nowait(seq)
                     peer.phone_ack_pending.add(seq)
                 except asyncio.QueueFull:
-                    retry = seq - 1
-                    previous = getattr(peer,'phone_revoke_retry',None)
-                    peer.phone_revoke_retry = retry if previous is None else min(previous,retry)
-                    peer.phone_revoke_sent = min(peer.phone_revoke_sent,retry)
+                    self.retry_phone_revocation(peer,seq)
+
+    def retry_phone_revocation(self, peer, seq):
+        retry = seq - 1
+        previous = getattr(peer,'phone_revoke_retry',None)
+        peer.phone_revoke_retry = retry if previous is None else min(previous,retry)
+        peer.phone_revoke_sent = min(peer.phone_revoke_sent,retry)
 
     async def store_phone_ack(self, rid, seq):
         from .phone_pass import acknowledge
@@ -1630,6 +1633,11 @@ class Realtime:
             seq = await peer.phone_ack_queue.get()
             try:
                 await asyncio.wait_for(self.store_phone_ack(rid,seq),PHONE_ACK_STORAGE_TIMEOUT)
+            except PoolTimeout:
+                # Pool contention is not a DB failure. Keep this ACK unconfirmed
+                # and replay its immutable frame on the next pending cycle.
+                if self.agents.get(rid) is peer and not peer.closing:
+                    self.retry_phone_revocation(peer,seq)
             except Exception as exc:
                 log.warning('Phone revocation ACK storage unavailable; reconnecting agent')
                 if self.agents.get(rid) is peer:

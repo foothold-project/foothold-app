@@ -896,8 +896,11 @@ REVOCATION_ACK_STORAGE_UNAVAILABLE). 늦은 commit은 억제하지 않지만 닫
 초과할 새 발급만503 PASS_REVOCATION_CAPACITY이며 잠금·로그아웃·회수·STOP·조종자 반납은 막지 않는다.
 ACK는 별도 풀2개/overflow0/대기0.5초, 연결1초·statement2초·lock1초·TCP 무응답2초
 timeout을 사용한다. DB 오류 뒤 슬롯을 비우고 재접속의 같은 seq로 복구한다.
-사용자·로봇별 미만료 출입증은 control/view·기기 합산8개다. 초과429 PASS_ACTIVE_LIMIT의
-retry_after는 가장 이른 exp까지다(회수/ack도 exp까지 포함). 사용자 한 명의 예약 독점을 막는다.
+사용자·로봇별 회수 안 된 미만료 출입증은 control/view·기기 합산8개다. 초과429 PASS_ACTIVE_LIMIT의
+retry_after는 가장 이른 exp까지다. 회수 jti는 ack와 무관하게8개 상한에서 빼며 D13 발급
+예산/기기 슬롯과 로봇별 회수 예약은 유지한다.600초400발급→8개씩 로그아웃 회귀에서
+예약50묶음/약19KiB·다른 사용자200을 확인했다. 풀 획득 대기 실패는 링크를 닫지 않고
+미확인 seq의 retry floor로 재전송한다. DB 오류/외부5초 timeout의1013은 유지한다.
 발급 거부 감사는 영속 횟수/이유·사용자별 카운터를 초당1건 이하로 묶고 재시작 뒤에도 이어진다. 요약에는 user_id 상위8명과 나머지 합계를 남긴다.
 
 1폰1대는 선언한 기기 UUID 단위다. 물리 폰 증명이 아니므로 UUID를 바꾸면 사용자당4기기까지
