@@ -72,16 +72,38 @@ export function EmptyFleet({ user, cancel, dash: { d, err }, children }: { user:
 /** 관제 지도 칸 — 로봇 수와 상관없이. 칸 안 렌더 예외는 Guard 가 가둔다(STOP 은 머리줄) */
 const MapCard = ({ cancel }: { cancel?: AbortSignal }) => <section className="lv-card" aria-label="지도"><h2>지도</h2><Guard><FloorMap cancel={cancel} /></Guard></section>;
 
+/** 마지막 수신 = 그 로봇의 ONLINE 상태를 받은 시각(다시 그린 시각이 아님). OFFLINE 이면 마지막 ONLINE 을 받은 시각(seenAt),
+ *  받은 상태가 없으면 목록을 받은 시각. rt 는 받은 시각을 단조 시계로 두므로 벽시계로 한 번 바꿔 받은 시각마다 기억한다(다시 그려도 초가 흔들리지 않게) */
+const heard = new Map<string, [number, string]>();
+function received(x: Robot) {
+  const l = rt.get(x.id), at = l.stateAt;
+  if (x.unknown === 'summary' || x.unknown === 'wait' || !l.state) return x.listedAt || x.seenAt || '—';
+  if (l.state.connection !== 'ONLINE') return x.seenAt || x.listedAt || '—';
+  const m = heard.get(x.id);
+  if (m?.[0] === at) return m[1];
+  const t = new Date(Date.now() - (rt.now() - at)).toTimeString().slice(0, 8);
+  heard.set(x.id, [at, t]);
+  return t;
+}
+
+/** 같은 값의 state 는 rt 가 다시 그리지 않으므로(10 Hz) 받은 시각 칸만 1 s 마다 다시 그린다 */
+function Seen({ x }: { x: Robot }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(i); }, []);
+  return <span className="lbl mono" data-seen>마지막 수신 {received(x)}</span>;
+}
+
 function Fleet(c: Ctx) {
   const admin = c.user.role === 'ORG_ADMIN', r = c.robot, { d, err } = c.dash;
   return <>
     <Kpi user={c.user} d={d} err={err} />
     <section className="lv-card" aria-label="로봇 목록">
       <h2>로봇</h2>
-      <ul className="fh-list">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
+      <ul className="fh-list robots">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
         <button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
-          <Chip {...t} /><b>{x.name}</b><span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
+          <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
           <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보기 전용' : ''}</span>
+          <Seen x={x} />
         </button></li>; })}</ul>
     </section>
     <MapCard cancel={c.cancel} />
@@ -136,7 +158,6 @@ function Detail(c: Ctx) {
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
   return <section className="lv-card" aria-label="로봇 상세">
     <div className="fh-row"><h2>{r.name}</h2><Chip {...robotStatus(r)} /></div>
-    <DriveButton c={c} r={r} label="조종하기" onClick={() => c.go('drive', r.id)} />
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     <Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>
     {r.mission && <Line k="임무"><span>{r.mission}</span></Line>}
@@ -165,7 +186,8 @@ function Mission() {
   </>;
 }
 
-function Scenario(c: Ctx) {
+/** 이 로봇에 배정된 시나리오(가짜) — 폰 조종 화면의 시나리오 시트 */
+export function Scenario(c: Ctx) {
   return <>{SCENARIOS.filter((s) => s.robot === c.robot.id).map((s) => <section key={s.id} className="lv-card">
     <div className="fh-row"><h2 className="fh-grow">{s.name}</h2><button type="button" className="btn pri" aria-label={`${s.name} 실행`} {...soon}>▶</button></div>
     <p className="lv-note">지점 {s.points} · {s.meters} m{s.last ? ` · ${s.last}` : ''}</p>
@@ -173,4 +195,4 @@ function Scenario(c: Ctx) {
   {!SCENARIOS.some((s) => s.robot === c.robot.id) && <p className="lv-note">이 로봇에 배정된 시나리오가 없습니다.</p>}</>;
 }
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approvals, history: History, map: Maps, settings: Settings, scenario: Scenario };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Mission, approval: Approvals, history: History, map: Maps, settings: Settings };

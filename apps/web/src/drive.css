@@ -1,4 +1,4 @@
-/* 조종 탭(03 UX §5.2 PC · §5.7 폰). 색은 화면 틀 변수(brand.css 가 공식 토큰으로 덮음)만 쓴다.
+/* 폰 조종 화면(09 ADR-002 §3 — 03 UX §5.7, PC 조종 탭은 없앰). 색은 화면 틀 변수(brand.css 가 공식 토큰으로 덮음)만 쓴다.
    영상 위 반투명 판은 원본 ui/src/screens/MDrive.view.tsx 의 .hud 값(rgba(8,11,14,.66)) 그대로. */
 .dv{display:flex;flex-direction:column;gap:10px;min-width:0;font-size:14px}
 .dv-line{gap:12px}
@@ -14,9 +14,6 @@
 .dv-mini .dv-map,.dv-mini .dv-video{position:absolute;inset:0}
 .dv-views{display:flex;flex-direction:column;gap:8px}
 .dv-views .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
-.dv-pad{position:absolute;left:50%;bottom:16px;transform:translateX(-50%);display:grid;grid-template-columns:repeat(3,56px);grid-template-rows:repeat(2,56px);gap:6px}
-.dv-pad>:nth-child(1){grid-area:2/1}.dv-pad>:nth-child(2){grid-area:1/2}.dv-pad>:nth-child(3){grid-area:2/2}.dv-pad>:nth-child(4){grid-area:2/3}
-.dv-pad .btn{width:56px;height:56px;padding:0;font-size:20px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF;touch-action:none;user-select:none}
 .dv-back{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 14px;border-radius:8px;background:rgba(8,11,14,.8);color:#FFFFFF}
 .dv-ask{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:2;width:min(440px,calc(100% - 24px));box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 6px 24px rgba(0,0,0,.4)}
 .dv-ask p{margin:0}
@@ -27,8 +24,9 @@
 .dv-card{display:flex;flex-direction:column;gap:8px;padding:14px}
 .dv-card .lbl{font-size:14px}
 
-/* 폰: 조종 화면은 화면 높이에 맞춤(띠·진행 막대가 있어도 조이스틱이 잘리지 않게). 영상이 남는 칸을 채우고
-   상태 줄·단추는 영상 위 판에, 두 엄지 조이스틱은 아래 양쪽, 작은 지도는 그 사이 */
+/* 폰: 조종 화면은 화면 높이에 맞춤(띠·진행 막대가 있어도 조이스틱이 잘리지 않게). 영상이 남는 칸을 채우고(시안 A)
+   상태 줄·단추는 영상 위 왼쪽 위 판에, STOP 은 머리줄 오른쪽 끝, 두 엄지 조이스틱은 아래 양쪽, 시트 단추 줄은 그 사이,
+   작은 지도는 오른쪽 조이스틱 위. 시트는 영상 칸(.dv-stage) 안에서만 열려 머리줄(STOP)을 덮지 못한다 */
 .fh:has(.dv.ph){height:100dvh}
 .fh:has(.dv.ph) .fh-main{overflow:hidden}
 .dv.ph{gap:6px;height:100%}
@@ -39,11 +37,22 @@
 .dv-hud .fh-why{color:#E6EBEF}
 .dv-hud .dv-views{flex-direction:row;align-self:flex-end;gap:6px}
 .dv-hud .dv-views .btn{min-width:56px;min-height:44px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
-.dv.ph .dv-mini{width:100px;height:70px;right:auto;left:50%;bottom:12px;transform:translateX(-50%)}
+.dv.ph .dv-mini{width:100px;height:70px;right:12px;bottom:144px}
 .dv-stick{position:absolute;bottom:12px;width:120px;height:120px;border-radius:50%;border:1.5px solid rgba(230,235,239,.45);background:rgba(8,11,14,.5);display:grid;place-items:center;touch-action:none;user-select:none}
 .dv-stick.v{left:12px}.dv-stick.h{right:12px}
 .dv-stick>i{width:52px;height:52px;border-radius:50%;background:rgba(230,235,239,.8)}
 .dv-stick>span{position:absolute;bottom:6px;font-size:14px;color:#E6EBEF}
 .dv-stick[aria-disabled="true"]{opacity:.45}
+/* 아래 줄 단추·시트: 판 색은 .dv-hud 단추·.dv-ask 값 그대로 */
+.dv-sheets{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:1;display:flex;gap:6px}
+.dv-sheets .btn{min-width:56px;min-height:44px;white-space:nowrap;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+.dv-sheets .btn[aria-expanded="true"]{border-color:var(--accent)}
+.fh-sheet{position:absolute;left:8px;right:8px;bottom:8px;z-index:1;max-height:60%;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.fh-sheet h2{margin:0;font-size:15px}
+@media (orientation:portrait){.dv-sheets{left:8px;right:8px;bottom:144px;transform:none;flex-wrap:wrap;justify-content:center}.dv-sheets .btn{padding:0 8px}.dv.ph .dv-mini{bottom:200px}}
+/* 낮은 세로 폰(320×568 등): 조이스틱을 줄이고 단추 줄을 내려 위 상태 판과 겹치지 않게 */
+@media (orientation:portrait) and (max-height:700px){.dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}.dv-sheets{bottom:104px}.dv.ph .dv-mini{bottom:156px}}
+/* 가로 폰(낮은 높이): 영상 칸을 넓히려고 조종 화면의 개발용 표시는 숨기고(영상·지도 칸에 «자리» 표시가 남음) 띠 여백을 줄임 */
+@media (max-height:480px){.fh:has(.dv.ph) .fh-dev{display:none}.fh:has(.dv.ph) .fh-band{padding:4px 8px;gap:2px}}
 @media (max-height:480px){.dv-hud{flex-direction:row;flex-wrap:wrap;align-items:center}.dv-hud .dv-line{flex:1}.dv-hud .dv-views{align-self:center}.dv-hud .dv-note{flex-basis:100%}
-  .dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}}
+  .dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}.dv.ph .dv-mini{bottom:108px}}
