@@ -284,6 +284,26 @@ MUTATIONS += [
 ]
 
 
+MUTATIONS += [
+    ('large replay journal rejected on restart','tickets.py',
+     "self.db.execute('PRAGMA page_count').fetchone()[0] > 2048",
+     "self.db.execute('PRAGMA page_count').fetchone()[0] > 256",
+     'tests/test_phone_pass.py::test_large_journal_restart_preserves_revocations_used_ids_and_admission'),
+]
+
+
+MUTATIONS += [
+    ('large replay journal rejected above 512 pages','tickets.py',
+     "self.db.execute('PRAGMA page_count').fetchone()[0] > 2048",
+     "self.db.execute('PRAGMA page_count').fetchone()[0] > 512",
+     'tests/test_phone_pass.py::test_large_journal_restart_preserves_revocations_used_ids_and_admission'),
+    ('large replay journal rejected above 1024 pages','tickets.py',
+     "self.db.execute('PRAGMA page_count').fetchone()[0] > 2048",
+     "self.db.execute('PRAGMA page_count').fetchone()[0] > 1024",
+     'tests/test_phone_pass.py::test_large_journal_restart_preserves_revocations_used_ids_and_admission'),
+]
+
+
 def main():
     if sys.platform == 'linux':
         available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()

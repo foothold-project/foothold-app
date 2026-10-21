@@ -177,3 +177,36 @@ def test_expired_revocation_does_not_close_normal_new_pass(h,selector):
         assert h.hub.owner is peer and not h.hub.session.core.latch and h.hub.session.core.out==(.6,0,0)
         assert {'t':'phone.revoke.ack','seq':1} in effects.messages
     finally:observer._messages.close()
+
+
+def test_large_journal_restart_preserves_revocations_used_ids_and_admission(tmp_path):
+    h=Harness(replay_path=str(tmp_path/'large.sqlite'))
+    initial=h.claims(exp=int(h.clock.wall())+600)
+    token=signed(h.key,initial)
+    assert h.verifier.verify(token)
+    reopened=None
+    try:
+        for seq in range(1,1201):
+            jtis=[str(uuid4()) for _ in range(51)]
+            if seq==1:jtis[0]=initial['jti']
+            frame=revocation(h,seq=seq,jtis=jtis)
+            h.verifier.revoke(frame)
+        pages=h.verifier.db.execute('PRAGMA page_count').fetchone()[0]
+        assert 1024<pages<=2048
+        h.verifier.close()
+        try:
+            reopened=Verifier(h.robot,{'test':h.key},org=h.org,replay_path=str(tmp_path/'large.sqlite'),
+                clock_trusted=True,wall=h.clock.wall,now=h.clock)
+        except ValueError as error:pytest.fail(f'valid enlarged journal rejected on restart: {error}')
+        assert reopened.db.execute('SELECT count(*) FROM revoked').fetchone()[0]==1200
+        assert reopened.db.execute('SELECT count(*) FROM used').fetchone()[0]==1
+        with pytest.raises(TicketError):reopened.verify(token)
+        reopened.revoke(frame)  # exact sequence/body replay stays idempotent
+        assert reopened.db.execute('SELECT count(*) FROM revoked').fetchone()[0]==1200
+        assert reopened.verify(signed(h.key,h.claims(exp=int(h.clock.wall())+600)))
+        reopened.revoke(revocation(h,seq=1201,jtis=[str(uuid4())]))
+        assert reopened.db.execute('SELECT count(*) FROM used').fetchone()[0]==2
+        assert reopened.db.execute('SELECT count(*) FROM revoked').fetchone()[0]==1201
+    finally:
+        h.hub.close();h.verifier.close()
+        if reopened is not None:reopened.close()
