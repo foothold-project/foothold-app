@@ -42,8 +42,9 @@ MUTATIONS = [(label,'phone_pass.py',before,after,test) for label,before,after,te
      'PhonePass.exp > int(clock())','PhonePass.exp > int(time.time())',
      'test_revocation_and_pending_use_injected_issuer_utc'),
     ('ACK queue overflow retry removed','realtime.py',
-     "retry = seq - 1\n                    previous = getattr(peer,'phone_revoke_retry',None)\n                    peer.phone_revoke_retry = retry if previous is None else min(previous,retry)\n                    peer.phone_revoke_sent = min(peer.phone_revoke_sent,retry)",
-     'pass','test_full_ack_queue_retries_lowest_unconfirmed_and_deduplicates'),
+     "except asyncio.QueueFull:\n                    self.retry_phone_revocation(peer,seq)",
+     "except asyncio.QueueFull:\n                    pass",
+     'test_full_ack_queue_retries_lowest_unconfirmed_and_deduplicates'),
     ('pending repeats sent sequence','phone_pass.py',
      'PhoneRevocationBatch.id > after','PhoneRevocationBatch.id >= after',
      'test_pending_does_not_repeat_sent_sequence_and_switch_preserves_view'),
@@ -91,6 +92,19 @@ MUTATIONS = [(label,'phone_pass.py',before,after,test) for label,before,after,te
      "'options':'-c statement_timeout=2000 -c lock_timeout=1000'",
      "'options':'-c statement_timeout=0 -c lock_timeout=1000'",
      'test_ack_database_timeouts_release_robot_slot'),
+
+    ('revoked passes still count toward active limit','phone_pass.py',
+     ' and p.jti not in revoked','',
+     'test_revoked_passes_do_not_block_eight_pass_limit_after_logout'),
+    ('ACK pool contention closes agent','realtime.py',
+     'except PoolTimeout:','except KeyError:',
+     'test_three_robot_ack_pool_contention_keeps_links_and_eventually_confirms'),
+    ('ACK pool waits thirty seconds','realtime.py',
+     'pool_timeout=.5','pool_timeout=30',
+     'test_ack_pool_wait_and_driver_tcp_bounds'),
+    ('ACK TCP timeout removed','realtime.py',
+     ",'tcp_user_timeout':2000",'',
+     'test_ack_pool_wait_and_driver_tcp_bounds'),
 
 ]
 
