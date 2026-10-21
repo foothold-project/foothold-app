@@ -148,7 +148,7 @@ class Hub:
         if safety and peer in self.peers and self.peers[peer].user is not None:
             self.stop()  # only hello-approved phones may affect robot safety
         # Rejecting a peer's own input is withdrawal, not unrelated server cleanup.
-        requester_withdrawal = code not in ('TICKET_EXPIRED', 'CLOCK_UNTRUSTED')
+        requester_withdrawal = code != 'CLOCK_UNTRUSTED'
         self.disconnect(peer, reserve=reserve, requester_withdrawal=requester_withdrawal)
         error = PhoneError(code, close_code)
         self.closing[peer] = error
@@ -159,7 +159,7 @@ class Hub:
         if p.user is not None and self.now() >= p.deadline:
             if self.owner == peer:
                 self.fail(peer, 'TICKET_EXPIRED', 4401)
-            self.disconnect(peer, reserve=False, requester_withdrawal=False)
+            self.disconnect(peer, reserve=False, requester_withdrawal=True)
             self.closing[peer] = PhoneError('TICKET_EXPIRED', 4401)
             raise self.closing[peer]
         if self.now() - p.last_ping >= 3:
@@ -216,6 +216,8 @@ class Hub:
             return False
         self.owner, self.reservation = peer, None
         p = self.peers[peer]
+        p.request_window = p.release_window = float('-inf')
+        p.request_count = p.release_count = 0
         self._audit('PHONE_LEASE_TAKEN', user_id=p.user, device_id=p.device, lease_id=lease)
         return True
 
@@ -267,7 +269,7 @@ class Hub:
             p.request_count += 1
             if p.request_count > 8:
                 self.fail(peer, 'REQUEST_FLOOD', 1013, safety=False)
-        elif kind in ('lease.release', 'view'):
+        elif kind in ('lease.release', 'view') and self.owner != peer:
             if self.now() - p.release_window >= 1:
                 p.release_window, p.release_count = self.now(), 0
             p.release_count += 1

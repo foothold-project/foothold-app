@@ -1,8 +1,8 @@
-# P1-A 폰 직결 검증 기록 — PR #41 r4
+# P1-A 폰 직결 검증 기록 — PR #41 r5
 
 2026-10-21. `feature/agent-phone-link`, `dev` 대상 Draft PR. 정본은 ADR-002 0.3
 (`origin/dev`의 `828f572`) 및 [05 §13](../../docs/spec/05-API-SPEC.md#13-폰--에이전트-fh-phone1).
-PR #41의 코드 커밋은 PR 본문/완료 보고의 정확한 head를 따른다. 아래 수치는 r4 최종 검증이다. r1~r3 절은 당시 이력이며 최신 결정은 D8 보충·D9·D10이다.
+PR #41의 코드 커밋은 PR 본문/완료 보고의 정확한 head를 따른다. 아래 수치는 r5 최종 검증이다. r1~r4는 당시 이력이며 최신 결정은 D10 정정·D11이다.
 
 ## 변경
 
@@ -19,17 +19,17 @@ PR #41의 코드 커밋은 PR 본문/완료 보고의 정확한 head를 따른�
 
 Python 3.12.3, 작업 폴더의 `.venv`(pytest 9.1.1, websockets 15.0.1, Pydantic 2.14.1).
 임시 파일은 `TMPDIR="$PWD/tmp/phone"`로 작업 폴더 안에 두었다. 무거운 실행 직전
-MemAvailable은 2.5 GB 이상(r4 실행 직전 관측 5.2~5.7 GB)이었다. 새 폰 시험은 loopback 9450~9469만
+MemAvailable은 2.5 GB 이상(r5 실행 직전 관측 5.5~5.7 GB)이었다. 새 폰 시험은 loopback 9450~9469만
 사용했다. 기존 helper 9060~9079는 조정 세션의 명시적 승인으로 유지했다.
 
 | 실제 명령 (`TMPDIR` 설정 후) | 결과 |
 |---|---|
-| `.venv/bin/python -m pytest apps/agent -q` | **756 passed, 1 skipped**. 기존582개 + 폰174개(이전157개 포함). 전체1회, 기존 경고2개 |
-| `.venv/bin/python -m pytest apps/agent/tests/test_phone.py apps/agent/tests/test_phone_review.py -q` (r4 부분 확인) | **174 passed**, 위 전체 실행에도 포함 |
-| `.venv/bin/python apps/agent/tools/check_phone_mutations.py` | **60/60 KILLED**, assertion 실패로만 판정 |
+| `.venv/bin/python -m pytest apps/agent -q` | **769 passed, 1 skipped**. 기존582개 + 폰187개(이전174개 포함). 전체1회, 기존 경고2개 |
+| `.venv/bin/python -m pytest apps/agent/tests/test_phone.py apps/agent/tests/test_phone_review.py -q` (r5 부분 확인) | **187 passed**, 위 전체 실행에도 포함 |
+| `.venv/bin/python apps/agent/tools/check_phone_mutations.py` | **64/64 KILLED**, assertion 실패로만 판정 |
 | `.venv/bin/python apps/agent/tools/check_link_mutations.py` | **80/80 KILLED** |
 | `.venv/bin/python apps/agent/foothold_agent/ros_bridge/check_mutations.py` | **49/49 KILLED**, synthetic 옵션 없음 |
-| `.venv/bin/python apps/agent/tools/nav2/check_mutations.py --report tmp/phone/r4-nav2-mutations.json` | **64/65 KILLED, 종료1**. 아래 기존 분류 한계 동일 |
+| `.venv/bin/python apps/agent/tools/nav2/check_mutations.py --report tmp/phone/r5-nav2-mutations.json` | **64/65 KILLED, 종료1**. 아래 기존 분류 한계 동일 |
 | `.venv/bin/python apps/contracts/generate.py --check` | 생성물 **139개 일치** |
 | `npm --prefix apps/contracts run typecheck` | 통과 |
 | `git diff --check` | 통과 |
@@ -191,7 +191,7 @@ cancel_goal_removed의 assertion11개와 StopIteration3개가 이전과 같음�
 명령/로그는 작업 폴더 안 `tmp/phone/r3-*.log`·`r3-nav2-mutations.json`에 남겼다.
 
 
-## PR #41 재확인 r4 — D8 보충·D10
+## PR #41 재확인 r4 — 당시 결정 D8 보충·D10 (r5 정정 전)
 
 Codex r4 보고서/실제WS 재현, Claude r4 보고서(-2/-3 포함)와 test_r4_probe·probe11·
 probe12를 읽어 저장소 회귀로 옮겼다. 원본 검토 worktree는 읽기만 했다.
@@ -228,3 +228,36 @@ r4 최종 실행: 전체756 passed/1 skipped, phone60/60·link80/80·ROS49/49 �
 contracts139개 일치·typecheck 종료0이다. Nav2는64/65·종료1이며 기존과 동일한
 cancel_goal_removed assertion11개·StopIteration3개를 r4 JSON으로 확인했다. 이 기존 분류
 한계를 통과로 세지 않는다. 로그/재현 복사본은 작업 폴더 안 `tmp/phone/r4-*`에 남겼다.
+
+
+## PR #41 재확인 r5 — D10 정정·D11
+
+두 검토자의 r5 보고서와 재현을 읽고 저장소 시험으로 옮겼다. 원본 검토 worktree는
+읽기만 했다. 폰 시험13개·변이4개를 추가하고 기존 만료/직접Hub 상한 시험을 보강했다.
+
+| 지적 | 현재 수정·검증 |
+|---|---|
+| S1/D10 정정 | 현재 조종자 release/view는 속도 창 검사·집계 없이 늘 즉시0·잠금·조종권 비움. soft 오류/무시는 비조종자만. take/넘김 수락 성공 때 이전 request/cancel·release/view 창 초기화 |
+| S1 역할 회귀 | 비조종자 view8회→취득 또는 넘김 수락→unlock·새 중립·0.6→release/view4분기, 실제WS도4분기. 모두 즉시owner/lease없음·잠금·Core/sink0·옛lease cmd거부. 취득/반납12회×2분기와 이미 가득 찬 owner 창 주입×2분기도 안전 반납. 조종자 명령은 집계0 |
+| S1 변이 | 조종자 release도 창 적용→안전 반납 assertion으로 검출. 취득 시 역할 창 초기화 제거→4분기 검출 |
+| S2/D11 | 요청자 출입증 만료로 대기 요청이 사라져도 그 만료 시점부터30초 철회 제한. 조종자 출입증 만료는 기존대로STOP·잠금·비움/요청자 제한0. 시계 불신·내부 오류·서비스 종료 예외 유지 |
+| S2 회귀/변이 | 시계 주입으로 잔여수명1초 새 출입증29회 반복→30초 내수락1·요청/취소사건2. t=1만료 뒤t=30.99거부/t=31허용. 요청자 만료 무벌 변이 검출 |
+| S3 | direct Hub에서15개 대기 중16번째hello 성공·16개 대기 중17번째SERVER_BUSY. 상한4회귀·상한제거 두 변이 모두 검출 |
+
+원본 Codex owner-release 단위2개/실제WS1개는 모두 통과했다. Claude 재현5개도 통과했다.
+작업 폴더 안 복사본의 «고쳐지기 전에는 error가 있다»는 출력문 한 곳만 null-safe로
+고쳤으며 기대 assertion은 바꾸지 않았다. 원본 보고서/재현 파일은 보존했다.
+전체8개에서 owner반납 직후out/sink0·잠금·owner비움, take/release9회모두성공,
+30초 짧은출입증 반복수락1을 관측했다. 3000개 원시 입력 재현의 비PhoneError 예외0도
+유지됐으나 완전한 입력 공간 증명으로 세지 않는다.
+
+05 §13과 README에 **정지·조종권을 줄이는 명령(stop·조종자release·view)은 속도 제한으로
+막지 않는다**는 원칙, 비조종자만 soft 창 적용, 역할 전환 초기화, D11 만료 정의를 적었다.
+W3의 handler primary/stopping 중복 검사는 무해한 기존 방어로 기록만 하며 고치지 않았다.
+ROS/시뮬/운영 포트 접촉0, safety·원본 셀프테스트 변경0을 유지했다.
+
+
+r5 최종 실행: 전체769 passed/1 skipped, phone64/64·link80/80·ROS49/49 변이 종료0,
+contracts139개 일치·typecheck 종료0이다. Nav2는64/65·종료1이며 기존과 같은
+cancel_goal_removed의 assertion11개·StopIteration3개를 r5 JSON으로 확인했다. 기존 분류
+한계를 통과로 세지 않는다. 작업 폴더 안 `tmp/phone/r5-*`에 로그/재현 복사본을 남겼다.

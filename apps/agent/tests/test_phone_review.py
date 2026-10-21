@@ -811,7 +811,7 @@ def test_release_and_view_excess_is_replied_ignored_without_disconnect(h, kind):
 
 
 @pytest.mark.parametrize('cleanup', ['expiry', 'clock', 'server-disconnect'])
-def test_server_requester_cleanup_does_not_create_withdrawal_penalty(h, cleanup):
+def test_requester_cleanup_uses_cause_for_withdrawal_penalty(h, cleanup):
     owner, _ = h.moving()
     requester, _, _ = h.connect(exp=int(h.clock.wall())+1)
     identity = (h.hub.peers[requester].user, h.hub.peers[requester].device)
@@ -824,7 +824,8 @@ def test_server_requester_cleanup_does_not_create_withdrawal_penalty(h, cleanup)
             h.hub.fail(requester, 'CLOCK_UNTRUSTED', 4401)
     else:
         h.hub.disconnect(requester, requester_withdrawal=False)
-    assert identity not in h.hub.cooldowns and h.hub.pending is None
+    assert (identity in h.hub.cooldowns) == (cleanup == 'expiry')
+    assert h.hub.pending is None
 
 
 def test_global_pending_replacement_uses_busiest_source_then_oldest(h):
@@ -1055,9 +1056,140 @@ def test_request_cooldown_is_scoped_to_exact_user_device_pair(h, change):
 
 
 def test_direct_hub_unapproved_capacity_sixteen(h):
-    for _ in range(16):
+    for _ in range(15):
         h.hub.peers[object()] = Peer(last_ping=h.clock())
+    # Fifteen pending peers still permit a sixteenth hello; capacity is exactly16.
+    try:
+        admitted = h.connect()
+    except PhoneError:
+        admitted = None
+    assert admitted is not None
+    peer = admitted[0]
+    assert h.hub.peers[peer].user is not None
+    h.hub.peers[peer] = Peer(last_ping=h.clock())
     with pytest.raises(PhoneError) as error:
         h.send(object(), 'hello', proto='fh-phone/1', device=str(uuid4()), ticket='unused')
     assert error.value.code == 'SERVER_BUSY' and error.value.close_code == 1013
     assert len(h.hub.peers) == 16
+
+
+@pytest.mark.parametrize('acquire', ['take', 'transfer'])
+@pytest.mark.parametrize('kind', ['lease.release', 'view'])
+def test_owner_release_ignores_limits_after_role_change_and_does_not_count(h, acquire, kind):
+    old = h.moving()[0] if acquire == 'transfer' else None
+    peer, _, _ = h.connect()
+    for _ in range(4):
+        h.send(peer, 'lease.cancel')
+    for _ in range(8):
+        assert h.send(peer, 'view')['ok']
+    if acquire == 'take':
+        assert h.take(peer)['ok']
+    else:
+        request = h.send(peer, 'lease.request')['request_id']
+        assert h.send(old, 'lease.respond', request_id=request, accept=True)['ok']
+    p = h.hub.peers[peer]
+    assert p.request_count == p.release_count == 0
+    assert p.request_window == p.release_window == float('-inf')
+    lease = h.hub.session.lease_id
+    h.unlock(peer); h.cmd(peer, 0)
+    assert h.cmd(peer)['applied'] == [.6, 0, 0]
+    assert h.send(peer, kind)['ok']
+    assert p.release_count == 0  # Owner's safety release is never counted.
+    assert h.hub.owner is None and h.hub.session.lease_id is None and h.hub.session.core.latch
+    assert h.hub.session.core.out == Z and h.outputs[-1].velocity == Z
+    reply = h.send(peer, 'cmd', lease_id=lease, seq=1000, vx=.6, vy=0, wz=0)
+    assert not reply['ok'] and reply['error']['code'] == 'NOT_CONTROLLER'
+    assert h.hub.session.core.out == Z
+
+
+@pytest.mark.parametrize('kind', ['lease.release', 'view'])
+def test_owner_repeated_take_release_is_never_rate_limited(h, kind):
+    peer, _, _ = h.connect()
+    p = h.hub.peers[peer]
+    for _ in range(12):
+        assert h.take(peer)['ok']
+        h.unlock(peer); h.cmd(peer, 0); h.cmd(peer)
+        assert h.send(peer, kind)['ok']
+        assert h.hub.owner is None and h.hub.session.core.latch and h.hub.session.core.out == Z
+        assert p.release_count == 0
+
+
+@pytest.mark.parametrize('acquire', ['take', 'transfer'])
+@pytest.mark.parametrize('kind', ['lease.release', 'view'])
+def test_ws_owner_release_after_view_taps_stops_locks_and_clears(h, acquire, kind):
+    from websockets.asyncio.client import connect
+    async def run():
+        async with running(h) as (server, uri, task):
+            async with AsyncExitStack() as stack:
+                if acquire == 'transfer':
+                    old = await stack.enter_async_context(connect(uri, proxy=None))
+                    await hello(h, old)
+                    assert (await rpc(h, old, 'lease.take'))['ok']
+                ws = await stack.enter_async_context(connect(uri, proxy=None))
+                await hello(h, ws)
+                for _ in range(8):
+                    assert (await rpc(h, ws, 'view'))['ok']
+                if acquire == 'take':
+                    take = await rpc(h, ws, 'lease.take')
+                    assert take['ok']
+                    lease = take['lease_id']
+                else:
+                    request = await rpc(h, ws, 'lease.request')
+                    assert (await rpc(h, old, 'lease.respond', request_id=request['request_id'], accept=True))['ok']
+                    lease = h.hub.session.lease_id
+                p = h.hub.peers[h.hub.owner]
+                assert p.release_count == 0
+                h.state(True)
+                assert (await rpc(h, ws, 'unlock', lease_id=lease, stop_gen=h.hub.session.core.stop_gen))['ok']
+                h.state(False)
+                for seq, vx in ((0, 0), (1, .6)):
+                    ack = await rpc(h, ws, 'cmd', lease_id=lease, seq=seq, vx=vx, vy=0, wz=0)
+                assert ack['applied'] == [.6, 0, 0]
+                assert (await rpc(h, ws, kind))['ok']
+                assert h.hub.owner is None and h.hub.session.lease_id is None and h.hub.session.core.latch
+                assert h.hub.session.core.out == Z and h.outputs[-1].velocity == Z and p.release_count == 0
+                reply = await rpc(h, ws, 'cmd', lease_id=lease, seq=2, vx=.6, vy=0, wz=0)
+                assert not reply['ok'] and reply['error']['code'] == 'NOT_CONTROLLER'
+                assert server.failure is None and not task.done()
+    asyncio.run(run())
+
+
+def test_requester_short_ticket_expiry_cannot_repeat_request_with_new_tickets(h):
+    owner, _ = h.moving()
+    requester, claims, _ = h.connect(exp=int(h.clock.wall())+1)
+    assert h.send(requester, 'lease.request')['ok']
+    accepted = 1
+    def advance(target):
+        while h.clock.t < target:
+            h.clock.t = min(target, round(h.clock.t+.1, 8))
+            # Only the live holder pings. Expired requesters must not send queued pings.
+            h.send(owner, 'ping', client_time_ms=int(h.clock.t*1000))
+            h.state(False); h.hub.tick()
+    for second in range(1, 30):
+        advance(second)
+        requester, _, _ = h.connect(user=claims['sub'], device=claims['device'], exp=int(h.clock.wall())+1)
+        reply = h.send(requester, 'lease.request')
+        accepted += bool(reply['ok'])
+        assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    events = [e for e in h.events if e.get('code') in ('PHONE_LEASE_REQUESTED', 'PHONE_LEASE_CANCELED')]
+    assert accepted == 1 and len(events) == 2
+    assert h.hub.owner is owner and not h.hub.session.core.latch
+    # Expiry at t=1 starts the30s cooldown, not the original request at t=0.
+    advance(30.99)
+    requester, _, _ = h.connect(user=claims['sub'], device=claims['device'])
+    reply = h.send(requester, 'lease.request')
+    assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
+    advance(31)
+    assert h.send(requester, 'lease.request')['ok']
+
+
+@pytest.mark.parametrize('kind', ['lease.release', 'view'])
+def test_owner_release_is_safe_even_if_window_is_already_exhausted(h, kind):
+    owner, _ = h.moving()
+    p = h.hub.peers[owner]
+    # Safety release must tolerate any counter state, including a stale role window.
+    p.release_window, p.release_count = h.clock(), 8
+    reply = h.send(owner, kind)
+    assert reply['ok'] and h.hub.owner is None and h.hub.session.core.latch
+    assert h.hub.session.lease_id is None and h.hub.session.core.out == Z
+    assert h.outputs[-1].velocity == Z and p.release_count == 8

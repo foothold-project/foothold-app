@@ -163,20 +163,20 @@ MUTATIONS += [
            'else pending if len(pending) >= 16 else []', 'else pending if len(pending) >= 4 else []',
            'test_global_pending_cap_and_hello_verification_protection'),
     review('clock cleanup counts as requester withdrawal', 'hub.py',
-           "requester_withdrawal = code not in ('TICKET_EXPIRED', 'CLOCK_UNTRUSTED')",
+           "requester_withdrawal = code != 'CLOCK_UNTRUSTED'",
            'requester_withdrawal = True',
-           'test_server_requester_cleanup_does_not_create_withdrawal_penalty'),
+           'test_requester_cleanup_uses_cause_for_withdrawal_penalty'),
 ]
 
 
 MUTATIONS += [
     review('REQUEST_FLOOD cleanup unpenalized', 'hub.py',
-           "requester_withdrawal = code not in ('TICKET_EXPIRED', 'CLOCK_UNTRUSTED')",
-           "requester_withdrawal = code not in ('TICKET_EXPIRED', 'CLOCK_UNTRUSTED', 'REQUEST_FLOOD')",
+           "requester_withdrawal = code != 'CLOCK_UNTRUSTED'",
+           "requester_withdrawal = code not in ('CLOCK_UNTRUSTED', 'REQUEST_FLOOD')",
            'test_requester_ws_fault_reconnect_cannot_repeat_accepted_requests'),
     review('malformed frame cleanup unpenalized', 'hub.py',
-           "requester_withdrawal = code not in ('TICKET_EXPIRED', 'CLOCK_UNTRUSTED')",
-           "requester_withdrawal = code not in ('TICKET_EXPIRED', 'CLOCK_UNTRUSTED', 'VALIDATION')",
+           "requester_withdrawal = code != 'CLOCK_UNTRUSTED'",
+           "requester_withdrawal = code not in ('CLOCK_UNTRUSTED', 'VALIDATION')",
            'test_requester_ws_fault_reconnect_cannot_repeat_accepted_requests'),
     review('internal failure penalizes requester', 'server.py',
            'requester_withdrawal=primary is None and not self.stopping.is_set()',
@@ -194,6 +194,25 @@ MUTATIONS += [
            'test_release_and_view_excess_is_replied_ignored_without_disconnect'),
     review('direct Hub pending cap removed', 'hub.py',
            'if sum(p.user is None for p in self.peers.values()) >= 16:', 'if False:',
+           'test_direct_hub_unapproved_capacity_sixteen'),
+]
+
+
+MUTATIONS += [
+    review('owner release is also rate limited', 'hub.py',
+           "elif kind in ('lease.release', 'view') and self.owner != peer:",
+           "elif kind in ('lease.release', 'view'):",
+           'test_owner_release_is_safe_even_if_window_is_already_exhausted'),
+    review('granted owner inherits nonowner windows', 'hub.py',
+           "p.request_window = p.release_window = float('-inf')\n        p.request_count = p.release_count = 0", 'pass',
+           'test_owner_release_ignores_limits_after_role_change_and_does_not_count'),
+    review('requester ticket expiry is unpenalized', 'hub.py',
+           'self.disconnect(peer, reserve=False, requester_withdrawal=True)',
+           'self.disconnect(peer, reserve=False, requester_withdrawal=False)',
+           'test_requester_short_ticket_expiry_cannot_repeat_request_with_new_tickets'),
+    review('direct Hub cap regresses to four', 'hub.py',
+           'if sum(p.user is None for p in self.peers.values()) >= 16:',
+           'if sum(p.user is None for p in self.peers.values()) >= 4:',
            'test_direct_hub_unapproved_capacity_sixteen'),
 ]
 
