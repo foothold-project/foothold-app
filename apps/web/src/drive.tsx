@@ -30,6 +30,7 @@ function who(h: Holder | null, me: string) {
 export function holderText(l: Live, me: string, r: Robot) {
   if (r.unknown === 'summary') return r.holder ? `${who(r.holder, me)}(목록 ${r.listedAt})` : '조종권자 확인 안 됨';
   if (l.lease) return '조종 중(나)';
+  if (l.releasing) return '이 창 — 반납 확인 중';
   if (l.busy) return '조종권 넘기는 중';
   if (r.unknown && !l.holder) return '조종권자 확인 안 됨';   // 연결 끊김(4403 포함)·첫 state 전: 비어 있는지 모름
   return who(l.holder, me);
@@ -44,6 +45,15 @@ function lockChip(l: Live, r: Robot): { tone: Tone; text: string } {
   return l.neutral ? { tone: 'ok', text: '움직일 수 있음' } : { tone: 'warn', text: '중립 확인 중' };
 }
 const BUSY_TEXT = { take: '로봇 정지를 확인한 뒤 조종권을 받습니다.', give: '조종권을 넘기는 중입니다. 로봇 정지를 확인하고 있습니다.' };
+
+/** 끝내기(머리줄·조종 판 같은 길): 입력 0 → 조종권 반납(확인은 rt releasing, 확인되면 App 이 로봇 연결로). 조종권이 없으면 바로 로봇 연결 */
+export function endDrive(id: string, go: Ctx['go']) {
+  const l = rt.get(id);
+  if (l.releasing) return;
+  rt.cmd(id, [0, 0]);
+  if (l.lease) rt.release(id); else go('drive');
+}
+const RELEASING = '조종권 반납을 확인하는 중입니다. 확인되면 다시 누르세요.';
 
 export function Drive(c: Ctx) {
   return c.open ? <Screen {...c} /> : <Connect {...c} />;
@@ -69,10 +79,12 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
   </>;
 }
 function Card({ c, r }: { c: Pick<Ctx, 'user' | 'go'>; r: Robot }) {
-  const why = driveBlock(c.user, r), id = `why-${r.id}`;
+  const why = driveBlock(c.user, r), id = `why-${r.id}`, l = rt.get(r.id), rel = l.releasing;
   return <li className="card dv-card">
     <div className="fh-row"><b>{r.name}</b>{r.sim && <Chip tone="off" text="시뮬" />}<Chip {...robotStatus(r)} /><span className="mono">{pct(r.battery)}</span></div>
-    <span className="lbl">{holderText(rt.get(r.id), c.user.id, r)}</span>
+    <span className="lbl">{holderText(l, c.user.id, r)}</span>
+    {rel && <div className="fh-row" role="status" data-releasing><span className="fh-why">{rel.why ? `조종권 반납을 확인하지 못했습니다. ${rel.why}` : RELEASING}</span>
+      {rel.why && <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button>}</div>}
     <button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기만' : '연결'}</button>
     {why && <span id={id} className="fh-why" data-why>{why}</span>}
   </li>;
@@ -153,11 +165,13 @@ function Screen(c: Ctx) {
 
   const start = (pauseRun = false) => {
     setAsk(false);
+    if (rt.get(r.id).releasing) return;   // 반납 확인 전에는 요청·받기를 보내지 않는다(내게 요청하게 됨)
     if (l.holder?.type === 'RUN' && !pauseRun) return setAsk(true);
     if (l.holder?.type === 'USER') rt.request(r.id);
     else rt.take(r.id);
   };
   const wait = link !== 'open' ? '서버 연결이 끊겨 조종할 수 없습니다. 다시 연결되면 누르세요.'
+    : l.releasing ? RELEASING
     : l.outgoing?.canceling ? '요청을 취소하는 중입니다.'
     : l.busy ? BUSY_TEXT[l.busy]
     : l.outgoing ? `${l.holder?.name || '조종하는 사람'}님에게 요청했습니다. (${secs(l.outgoing.until, now)}초)`
@@ -167,7 +181,7 @@ function Screen(c: Ctx) {
 
   const actions = mine
     ? <div className="fh-row">{l.state?.latched !== false && <button type="button" className="btn pri" onClick={() => rt.unlock(r.id)}>잠금 해제</button>}
-        <button type="button" className="btn" onClick={() => rt.release(r.id)}>조종 끝내기</button></div>
+        <button type="button" className="btn" onClick={() => endDrive(r.id, c.go)}>조종 끝내기</button></div>
     : <><DriveButton c={c} r={r} label="조종 시작" onClick={() => start()} wait={wait} />
         {l.outgoing && <button type="button" className="btn" disabled={l.outgoing.canceling} onClick={() => rt.cancel(r.id)}>요청 취소</button>}</>;
   const line = <div className="fh-row dv-line" aria-label="상태">

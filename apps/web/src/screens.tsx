@@ -86,6 +86,13 @@ function received(x: Robot) {
   return t;
 }
 
+/** 같은 값의 state 는 rt 가 다시 그리지 않으므로(10 Hz) 받은 시각 칸만 1 s 마다 다시 그린다 */
+function Seen({ x }: { x: Robot }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const i = setInterval(() => tick((n) => n + 1), 1000); return () => clearInterval(i); }, []);
+  return <span className="lbl mono" data-seen>마지막 수신 {received(x)}</span>;
+}
+
 function Fleet(c: Ctx) {
   const admin = c.user.role === 'ORG_ADMIN', r = c.robot, { d, err } = c.dash;
   return <>
@@ -96,7 +103,7 @@ function Fleet(c: Ctx) {
         <button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
           <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
           <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보기 전용' : ''}</span>
-          <span className="lbl mono" data-seen>마지막 수신 {received(x)}</span>
+          <Seen x={x} />
         </button></li>; })}</ul>
     </section>
     <MapCard cancel={c.cancel} />
