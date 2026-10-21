@@ -858,6 +858,7 @@ class Realtime:
         if old_owner is not None:
             self.robot_changed_at[(rid, old_owner)] = self.clock()
         if deleted:
+            self.__dict__.get('phone_ack_contention',{}).pop(rid,None)
             self.deleted_robots.add(rid)
             self.deleted_at[rid] = self.clock()
             self.inventory.forget(rid)
@@ -1634,6 +1635,8 @@ class Realtime:
         await asyncio.shield(task)
 
     def note_phone_ack_contention(self, rid, peer, seq):
+        if rid in self.__dict__.get('deleted_robots',set()):
+            return
         states = self.__dict__.setdefault('phone_ack_contention',{})
         state = states.setdefault(rid,{'failures':0,'warning_at':float('-inf')})
         state['failures'] += 1

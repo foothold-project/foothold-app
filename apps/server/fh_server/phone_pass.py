@@ -133,7 +133,7 @@ class Issuer:
     def __init__(self, keys, fail, clock=time.time):
         self.keys, self.fail, self.clock = keys, fail, clock
 
-    def deny(self, db, user, status, code, retry_after=None):
+    def deny(self, db, user, status, code, retry_after=None, *, limit=None):
         current = self.clock()
         row = db.scalar(select(PhonePassDenials).where(PhonePassDenials.org_id == user.org_id).with_for_update())
         if row is None:
@@ -145,8 +145,10 @@ class Issuer:
         row.users = {**row.users,identity:row.users.get(identity,0)+1}
         self._flush_denials(db,row,current)
         db.commit()  # denial must survive the HTTP error rollback
-        self.fail(status, code, '폰 출입증을 발급하지 못했습니다.',
-                  {'retry_after': retry_after} if retry_after is not None else {})
+        detail = {'retry_after': retry_after} if retry_after is not None else {}
+        if limit is not None:
+            detail['limit'] = limit
+        self.fail(status, code, '폰 출입증을 발급하지 못했습니다.', detail)
 
     @staticmethod
     def _flush_denials(db, row, current):
@@ -174,7 +176,7 @@ class Issuer:
             PhonePass.user_id == user.id, PhonePass.robot_id == robot.id,
             PhonePass.exp > current - ROBOT_CLOCK_GRACE)))
         if len(retained_robot) >= 32:
-            self.deny(db,user,429,'PASS_ACTIVE_LIMIT',min(p.exp for p in retained_robot)+ROBOT_CLOCK_GRACE-current)
+            self.deny(db,user,429,'PASS_ACTIVE_LIMIT',min(p.exp for p in retained_robot)+ROBOT_CLOCK_GRACE-current,limit='retained')
         reserved_rows, reserved_bytes = reserved_usage(db,user.org_id,robot.id,current)
         if reserved_rows + 1 > MAX_REVOCATIONS or reserved_bytes + MAX_REVOCATION_FRAME > MAX_REVOCATION_BYTES:
             self.deny(db,user,503,'PASS_REVOCATION_CAPACITY',600)
@@ -193,9 +195,9 @@ class Issuer:
             retry = min(max(p.exp for p in live if p.device == d) for d in devices) - current
             self.deny(db, user, 429, 'PASS_DEVICE_LIMIT', retry)
         revoked = set(db.scalars(select(PhoneRevocation.jti).where(PhoneRevocation.org_id == user.org_id)))
-        active_robot = [p for p in live if p.robot_id == robot.id and p.jti not in revoked]
+        active_robot = [p for p in retained_robot if p.jti not in revoked]
         if len(active_robot) >= 8:
-            self.deny(db, user, 429, 'PASS_ACTIVE_LIMIT', min(p.exp for p in active_robot) - current)
+            self.deny(db, user, 429, 'PASS_ACTIVE_LIMIT', min(p.exp for p in active_robot) + ROBOT_CLOCK_GRACE - current,limit='active')
         others = [p for p in live if p.device == device and p.purpose == 'control'
                   and p.robot_id != robot.id] if body.purpose == 'control' else []
         acked = set(db.scalars(select(PhoneRevocation.jti).where(PhoneRevocation.org_id == user.org_id,

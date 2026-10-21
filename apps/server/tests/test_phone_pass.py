@@ -895,12 +895,12 @@ def test_active_pass_limit_is_per_user_robot_across_devices_and_purposes(pc,seed
     pc.pass_headers=csrf(pc)
     limited=issue(pc,seeded,device=devices[1])
     assert limited.status_code==429 and limited.json()['error']['code']=='PASS_ACTIVE_LIMIT'
-    assert limited.json()['error']['detail']['retry_after']==592
+    assert limited.json()['error']['detail']=={'retry_after':652,'limit':'active'}
     assert issue(pc,seeded,robot='theirs',device=devices[0],purpose='view').status_code==200
     pc.pass_headers=csrf(pc,'one')
     assert issue(pc,seeded,purpose='view').status_code==200
     pc.pass_headers=csrf(pc)
-    current[0]+=592
+    current[0]+=652
     assert issue(pc,seeded,device=devices[1]).status_code==200
     limited=issue(pc,seeded,device=devices[1])
     assert limited.status_code==429 and limited.json()['error']['detail']['retry_after']==1
@@ -1138,7 +1138,7 @@ def test_retained_pass_limit_includes_revocations_and_clock_grace(pc,seeded):
             current[0]=start+elapsed
             denied=issue(pc,seeded,device=devices[0],purpose='view')
             assert denied.status_code==429 and denied.json()['error']['code']=='PASS_ACTIVE_LIMIT'
-            assert denied.json()['error']['detail']['retry_after']==retry
+            assert denied.json()['error']['detail']=={'retry_after':retry,'limit':'retained'}
         # Same user/other robot is a separate budget, even before oldest expiry.
         assert issue(pc,seeded,robot='theirs',device=devices[0],purpose='view').status_code==200
         current[0]=start+660
@@ -1243,3 +1243,96 @@ def test_ack_pool_warning_counts_throttles_and_resets_without_secrets(monkeypatc
             for writer in writers:writer.cancel()
             await asyncio.gather(*writers,return_exceptions=True)
     asyncio.run(run())
+
+
+def test_expired_unrevoked_passes_keep_active_slots_through_robot_grace(pc,seeded):
+    from apps.server.fh_server.api import APIError,lock_organization
+    from apps.server.fh_server.phone_pass import reserved_usage
+    from apps.contracts.models import PhonePassRequest
+    current=[int(time.time())];start=current[0]
+    issuer=pc.app.state.phone_pass_issuer;issuer.clock=lambda:current[0]
+    engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
+    try:
+        with factory.begin() as db:
+            admin=db.get(User,seeded['users']['admin']);identities=[admin.id]
+            for index in range(15):
+                user=User(org_id=seeded['org'],username='grace-budget-'+str(index),display_name='synthetic',
+                    role='ORG_ADMIN',password_hash=admin.password_hash)
+                db.add(user);db.flush();identities.append(user.id)
+        devices={user:[uuid4() for _ in range(4)] for user in identities}
+        def attempt(identity,index):
+            with factory() as db:
+                lock_organization(db,seeded['org'])
+                try:
+                    issuer.issue(db,db.get(User,identity),db.get(Robot,seeded['robots']['mine']),
+                        PhonePassRequest(device=devices[identity][index%4],purpose='view'))
+                    db.commit();return 200,None
+                except APIError as error:
+                    db.rollback();return error.status,(error.code,error.detail)
+        for identity in identities:
+            assert [attempt(identity,i)[0] for i in range(8)]==[200]*8
+        current[0]=start+600
+        for identity in identities:
+            for i in range(8):
+                assert attempt(identity,i)==(429,('PASS_ACTIVE_LIMIT',{'retry_after':60,'limit':'active'}))
+        with factory() as db:
+            assert reserved_usage(db,seeded['org'],seeded['robots']['mine'],current[0])==(128,128*4096)
+        pc.pass_headers=csrf(pc,'one')
+        assert issue(pc,seeded,purpose='view').status_code==200
+        current[0]=start+659
+        assert attempt(identities[0],0)==(429,('PASS_ACTIVE_LIMIT',{'retry_after':1,'limit':'active'}))
+        current[0]=start+660
+        assert attempt(identities[0],0)[0]==200
+    finally:engine.dispose()
+
+
+def test_one_pass_per_device_renewal_at_expiry_stays_available(pc,seeded):
+    current=[int(time.time())];start=current[0]
+    pc.app.state.phone_pass_issuer.clock=lambda:current[0]
+    devices=[uuid4() for _ in range(4)]
+    for elapsed in [0,600,1200]:
+        current[0]=start+elapsed
+        for device in devices:
+            assert issue(pc,seeded,device=device,purpose='view').status_code==200
+
+
+@pytest.mark.parametrize('state',['closing','replaced'])
+def test_ack_pool_failure_from_retired_peer_does_not_warn_or_count(monkeypatch,caplog,state):
+    from apps.server.fh_server import phone_pass
+    from sqlalchemy.exc import TimeoutError as PoolTimeout
+    import threading
+    entered=threading.Event();release=threading.Event()
+    def store(*args):
+        entered.set();assert release.wait(2)
+        raise PoolTimeout('MUST_NOT_LOG_RETIRED_PEER')
+    monkeypatch.setattr(phone_pass,'acknowledge',store)
+    async def run():
+        rt,new_peer=ack_harness();rt.clock=lambda:0.
+        peer=rt.agents['r'];writer=asyncio.create_task(rt.phone_ack_writer('r',peer))
+        try:
+            rt.queue_phone_ack('r',peer,10)
+            assert await asyncio.to_thread(entered.wait,1)
+            if state=='closing':peer.closing=True
+            else:rt.agents['r']=new_peer()
+            release.set();await asyncio.wait_for(peer.phone_ack_queue.join(),1)
+            assert not rt.__dict__.get('phone_ack_contention')
+            assert peer.phone_revoke_retry is None
+            assert 'ACK pool contention' not in caplog.text
+            assert 'MUST_NOT_LOG_RETIRED_PEER' not in caplog.text
+        finally:
+            release.set();writer.cancel();await asyncio.gather(writer,return_exceptions=True)
+    asyncio.run(run())
+
+
+def test_robot_deletion_discards_ack_contention_and_cannot_recreate_it(pc,seeded):
+    from types import SimpleNamespace
+    rt=pc.app.state.realtime;rid=str(seeded['robots']['mine'])
+    def run():
+        peer=SimpleNamespace(phone_ack_pending={1})
+        rt.note_phone_ack_contention(rid,peer,1)
+        assert rid in rt.phone_ack_contention
+        rt.robot_changed(rid,deleted=True)
+        assert rid not in rt.phone_ack_contention
+        rt.note_phone_ack_contention(rid,peer,1)  # late failure must not recreate deleted state
+        assert rid not in rt.phone_ack_contention
+    pc.portal.call(run)
