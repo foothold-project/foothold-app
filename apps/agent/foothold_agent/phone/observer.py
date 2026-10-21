@@ -1,6 +1,6 @@
 """Cloud facade with NO second Session, Core or robot output port.
 
-Reuse bounded history and Client transport; only server STOP reaches the Hub.
+Reuse bounded history and Client transport; only server STOP and pass revocation reach the Hub.
 """
 import asyncio
 from copy import deepcopy
@@ -109,6 +109,10 @@ class Observer:
                 ref = f.get('stop_ref')
                 if sequence(ref) and ref > 0 and self.core.latch and not any(self.core.out):
                     self.server_stop_ref = ref
+            elif f.get('t') == 'phone.revoke' and self.connected:
+                self.phone.revoke(f)
+                effects = self.tick()
+                return Effects((), (*effects.messages, {'t': 'phone.revoke.ack', 'seq': f['seq']}))
             elif f.get('t') == 'ping':
                 self.last_ping = self.now()
         return self.tick()  # lease/cmd/unlock/run.* never reach the real Session

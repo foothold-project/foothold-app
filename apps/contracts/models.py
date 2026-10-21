@@ -432,7 +432,31 @@ class AgentMedia(AgentInput):
     upload_id: UUID
 
 
-AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia,
+class PhoneRevocationItem(Contract):
+    jtis: list[UUID] | None = Field(default=None, min_length=1, max_length=64)
+    sub: UUID | None = None
+    device: UUID | None = None
+    until: Sequence
+
+    @model_validator(mode='after')
+    def selector(self):
+        if (self.jtis is None) == (self.sub is None) or (self.device is not None and self.sub is None):
+            raise ValueError('exactly one revocation selector required')
+        return self
+
+
+class AgentPhoneRevoke(Contract):
+    t: Literal['phone.revoke'] = 'phone.revoke'
+    seq: Annotated[int, Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)]
+    items: list[PhoneRevocationItem] = Field(min_length=1, max_length=16)
+
+
+class AgentPhoneRevokeAck(AgentInput):
+    t: Literal['phone.revoke.ack']
+    seq: Annotated[int, Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)]
+
+
+AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck,
                          Field(discriminator='t')]
 
 
@@ -1117,11 +1141,25 @@ class PhoneTicketClaims(Contract):
         return self
 
 
+
+class PhonePassRequest(Contract):
+    device: UUID
+    purpose: Literal['control', 'view']
+    switch: bool = Field(default=False, strict=True, description='앞 로봇 반납 확인 뒤에만 명시 true')
+
+
+class PhonePassResponse(Contract):
+    token: str
+    exp: Sequence
+    kid: str
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
 REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
+REQUEST_MODELS.add(PhonePassRequest)
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 

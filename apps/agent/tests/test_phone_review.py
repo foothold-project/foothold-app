@@ -1376,3 +1376,68 @@ def test_requester_expiry_cooldown_boundary_below_acquisition_budget(h):
     assert not reply['ok'] and reply['error']['code'] == 'LEASE_REQUEST_COOLDOWN'
     h.advance(31)
     assert h.send(requester, 'lease.request')['ok']
+
+
+def test_denial_batch_stays_quiet_after_flush_and_flushes_once_on_close(h):
+    peer, _, _ = h.connect()
+    for _ in range(8):
+        h.take(peer)
+    for _ in range(3):
+        assert not h.take(peer)['ok']
+    h.advance(1)
+    records = lambda: [e for e in h.events if e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT']
+    assert len(records()) == 1 and records()[0]['data']['rejected'] == 3
+    h.advance(6)
+    assert len(records()) == 1
+    # Still inside the minute budget but fill the independent second budget.
+    for _ in range(8):
+        h.take(peer)
+    for _ in range(2):
+        h.take(peer)
+    before = sum(e['data']['rejected'] for e in records())
+    h.hub.close()
+    assert len(records()) == 3 and sum(e['data']['rejected'] for e in records()) == before + 1
+    h.hub.close()
+    assert len(records()) == 3
+    assert h.hub.owner is None and h.hub.session.core.out == Z
+
+
+def test_thousand_disconnected_acquisition_identities_are_pruned(h):
+    for _ in range(1000):
+        peer, _, _ = h.connect()
+        assert h.take(peer)['ok']
+        h.hub.disconnect(peer, reserve=False)
+    assert len(h.hub.acquisitions) == 1000
+    h.clock.t = 61
+    h.hub.tick()
+    assert not h.hub.acquisitions
+
+
+def test_denials_spread_within_one_second_produce_at_most_one_event(h):
+    peer, _, _ = h.connect()
+    for _ in range(8):
+        h.take(peer)
+    for i in range(1, 100):
+        h.clock.t = i / 100
+        assert not h.take(peer)['ok']
+        h.hub.tick()
+    records = [e for e in h.events if e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT']
+    assert not records
+    h.clock.t = 1
+    h.hub.tick()
+    records = [e for e in h.events if e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT']
+    assert len(records) == 1 and records[0]['data']['rejected'] == 99
+
+
+def test_final_denial_audit_follows_shutdown_zero_even_if_audit_fails(h):
+    peer, _ = h.moving()
+    h.hub.acquisition_denials = 3
+    def record(messages):
+        if any(e.get('code') == 'PHONE_LEASE_ACQUIRE_LIMIT' for e in messages):
+            assert h.outputs[-1].velocity == Z
+            assert h.hub.session.core.latch and h.hub.owner is None
+            raise OSError('fake final audit failure')
+    h.hub.record = record
+    with pytest.raises(OSError, match='fake final audit failure'):
+        h.hub.close()
+    assert not h.hub.peers and h.hub.session.core.out == Z

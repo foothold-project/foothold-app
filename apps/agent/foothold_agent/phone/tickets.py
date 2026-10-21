@@ -1,7 +1,7 @@
 """Strict compact JWS HS256 verification using only the standard library.
 
 One key per robot; agents must never share keys across robots. No token logging.
-The issuer is deliberately absent: tests create their own ephemeral credentials.
+The control server issues credentials; verification never calls that server.
 """
 
 import base64
@@ -95,6 +95,7 @@ class Verifier:
         self.trusted = clock_trusted is True
         self.anchor_wall, self.anchor_mono = wall(), now()
         self.last_wall = self.anchor_wall
+        self.revocation_failed = False
         if replay_path != ':memory:':
             descriptor = private_file(replay_path, create=True)
             try:
@@ -108,13 +109,16 @@ class Verifier:
         else:
             self.db = sqlite3.connect(replay_path, timeout=.05)  # direct test construction only
         self.db.execute('PRAGMA page_size=4096')
-        self.db.execute('PRAGMA max_page_count=256')
+        # Server reserves 1 MiB of wire bodies; SQLite pages, indexes and the
+        # spent-ID journal share this physical 8 MiB allowance.
+        self.db.execute('PRAGMA max_page_count=2048')
         if (self.db.execute('PRAGMA page_size').fetchone()[0] != 4096
-                or self.db.execute('PRAGMA page_count').fetchone()[0] > 256):
+                or self.db.execute('PRAGMA page_count').fetchone()[0] > 2048):
             self.db.close()
             raise ValueError('invalid replay journal size')
         self.db.execute('PRAGMA synchronous=FULL')
         self.db.execute('CREATE TABLE IF NOT EXISTS used (jti TEXT PRIMARY KEY, exp INTEGER NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS revoked (seq INTEGER PRIMARY KEY, body TEXT NOT NULL, until INTEGER NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS metadata (robot TEXT PRIMARY KEY, wall REAL NOT NULL)')
         rows = self.db.execute('SELECT robot, wall FROM metadata').fetchall()
         if rows and (len(rows) != 1 or rows[0][0] != self.robot or self.last_wall < rows[0][1]):
@@ -132,6 +136,73 @@ class Verifier:
 
     def close(self):
         self.db.close()
+
+    @staticmethod
+    def _revocation(frame):
+        if (not isinstance(frame, dict) or set(frame) != {'t', 'seq', 'items'}
+                or frame['t'] != 'phone.revoke' or type(frame['seq']) is not int
+                or not 1 <= frame['seq'] <= 2**53-1
+                or not isinstance(frame['items'], list) or not 1 <= len(frame['items']) <= 16):
+            raise ValueError('invalid revocation frame')
+        for item in frame['items']:
+            if not isinstance(item, dict) or type(item.get('until')) is not int or not 0 <= item['until'] <= 2**53-1:
+                raise ValueError('invalid revocation deadline')
+            if item.get('jtis') is not None:
+                if set(item) - {'jtis', 'until', 'sub', 'device'} or item.get('sub') is not None or item.get('device') is not None:
+                    raise ValueError('ambiguous revocation selector')
+                if not isinstance(item['jtis'], list) or not 1 <= len(item['jtis']) <= 64:
+                    raise ValueError('invalid revoked IDs')
+                for nonce in item['jtis']:
+                    if uuid(nonce) != nonce:
+                        raise ValueError('noncanonical revoked ID')
+            else:
+                if set(item) - {'sub', 'device', 'until', 'jtis'} or uuid(item['sub']) != item['sub']:
+                    raise ValueError('invalid revoked subject')
+                if item.get('device') is not None and uuid(item['device']) != item['device']:
+                    raise ValueError('invalid revoked device')
+        return frame
+
+    @staticmethod
+    def matches(ticket, items, current):
+        return any((current is None or item['until'] > current) and (
+            ticket['jti'] in item['jtis'] if item.get('jtis') is not None else
+            ticket['user'] == item['sub'] and (item.get('device') is None or ticket['device'] == item['device'])
+            and (current is not None or ticket['issued'] < item['until']))
+            for item in items)
+
+    def revoked(self, ticket):
+        if self.revocation_failed:
+            raise TicketError('REVOCATION_STORAGE_FAILED')
+        current = self.check_clock()
+        try:
+            return any(self.matches(ticket, json_object(body)['items'], current)
+                       for body, in self.db.execute('SELECT body FROM revoked WHERE until > ?', (current,)))
+        except (ValueError, sqlite3.Error):
+            self.revocation_failed = True
+            raise TicketError('REVOCATION_STORAGE_FAILED') from None
+
+    def revoke(self, frame):
+        """Authenticated server facade only. FULL commit completes before ACK."""
+        try:
+            current = self.check_clock()
+            self._revocation(frame)
+            body = json.dumps(frame, sort_keys=True, separators=(',', ':'))
+            if len(body.encode()) > 4096:
+                raise ValueError('revocation frame too large')
+            until = max(i['until'] for i in frame['items'])
+            with self.db:
+                self.db.execute('DELETE FROM revoked WHERE until <= ?', (current,))
+                old = self.db.execute('SELECT body FROM revoked WHERE seq = ?', (frame['seq'],)).fetchone()
+                if old is not None and old[0] != body:
+                    raise ValueError('conflicting revocation sequence')
+                if old is None and until > current:
+                    if self.db.execute('SELECT count(*) FROM revoked').fetchone()[0] >= MAX_USED:
+                        raise ValueError('revocation journal full')
+                    self.db.execute('INSERT INTO revoked VALUES (?, ?, ?)', (frame['seq'], body, until))
+                self.db.execute('INSERT OR REPLACE INTO metadata VALUES (?, ?)', (self.robot, current))
+        except (ValueError, TypeError, KeyError, sqlite3.Error, TicketError, OverflowError):
+            self.revocation_failed = True  # fail closed until explicit recovery/restart
+            raise TicketError('REVOCATION_STORAGE_FAILED') from None
 
     def verify(self, token):
         try:
@@ -162,6 +233,8 @@ class Verifier:
                     or not 0 < expires - issued <= MAX_LIFETIME
                     or not issued <= current < expires):
                 raise ValueError("expiry")
+            if self.revoked({'user': user, 'device': device, 'jti': nonce}):
+                raise ValueError('revoked ticket')
             # A bounded, durable spent-ID journal also rejects replay after restart.
             # FULL commit completes BEFORE the hello is accepted. I/O failure
             # denies admission; the sink's independent watchdog remains required.
@@ -174,7 +247,7 @@ class Verifier:
             deadline = checked_at + min(expires - current, MAX_LIFETIME)
             if self.now() >= deadline:
                 raise ValueError('ticket expired during admission')
-            return {'user': user, 'device': device, 'purpose': claims['purpose'], 'jti': nonce, 'expires': expires,
+            return {'user': user, 'device': device, 'purpose': claims['purpose'], 'jti': nonce, 'issued': issued, 'expires': expires,
                     'deadline': deadline}
         except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError, sqlite3.Error):
             raise TicketError("TICKET_INVALID") from None

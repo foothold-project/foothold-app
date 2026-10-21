@@ -107,7 +107,7 @@ MUTATIONS += [
            'test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it'),
     ('simulation flag hardcoded', '../ros_bridge/__main__.py', 'simulation=config.phone.simulation',
      'simulation=True', 'test_phone_ros_entrypoint_uses_one_session_and_one_sink_without_starting_ros'),
-    ('jti commit deferred past approval', 'tickets.py', 'with self.db:', 'if True:',
+    ('jti commit deferred past approval', 'tickets.py', "with self.db:\n                self.db.execute('DELETE FROM used", "if True:\n                self.db.execute('DELETE FROM used",
      'test_phone_replay_journal_survives_restart_and_fails_closed'),
 ]
 
@@ -236,7 +236,7 @@ MUTATIONS += [
            'sum(at > self.now()-1 for at in history) >= 8', 'False',
            'test_acquisition_cycles_obey_independent_identity_budget'),
     review('denial audit batching removed', 'hub.py',
-           'self.acquisition_denials and self.now() - self.acquisition_report_at >= 1',
+           'self.acquisition_denials and (final or self.now() - self.acquisition_report_at >= 1)',
            'self.acquisition_denials', 'test_acquisition_denial_audit_is_globally_batched_per_second'),
     review('STOP counts toward a rate window', 'hub.py',
            "if kind == 'lease.cancel':\n            if self.now() - p.request_window >= 1:",
@@ -245,6 +245,42 @@ MUTATIONS += [
     review('acquisition budget spills across devices', 'hub.py',
            'identity = (peer.user, peer.device)', 'identity = (peer.user, None)',
            'test_acquisition_budget_uses_exact_identity_pair'),
+]
+
+
+MUTATIONS += [
+    review('denial count is never reset', 'hub.py',
+           'count, self.acquisition_denials = self.acquisition_denials, 0',
+           'count = self.acquisition_denials',
+           'test_denial_batch_stays_quiet_after_flush_and_flushes_once_on_close'),
+    review('empty acquisition identity is never pruned', 'hub.py',
+           'del self.acquisitions[identity]', 'pass',
+           'test_thousand_disconnected_acquisition_identities_are_pruned'),
+    review('denial batch interval is half a second', 'hub.py',
+           'self.now() - self.acquisition_report_at >= 1',
+           'self.now() - self.acquisition_report_at >= .5',
+           'test_denials_spread_within_one_second_produce_at_most_one_event'),
+    review('close omits final denial flush', 'hub.py',
+           'self._flush_acquisition_denials(final=True)', 'pass',
+           'test_denial_batch_stays_quiet_after_flush_and_flushes_once_on_close'),
+]
+
+
+MUTATIONS += [
+    ('revocation ignores open connections', 'hub.py',
+     'if primary is not None or (p.user is not None and self.verifier.matches(',
+     'if primary is not None or (False and self.verifier.matches(',
+     'tests/test_phone_pass.py::test_cloud_revocation_stops_owner_closes_4403_and_rejects_new_hello'),
+    ('revocation forgotten after restart', 'tickets.py',
+     "self.db.execute('CREATE TABLE IF NOT EXISTS revoked (seq INTEGER PRIMARY KEY, body TEXT NOT NULL, until INTEGER NOT NULL)')",
+     "self.db.execute('CREATE TABLE IF NOT EXISTS revoked (seq INTEGER PRIMARY KEY, body TEXT NOT NULL, until INTEGER NOT NULL)'); self.db.execute('DELETE FROM revoked')",
+     'tests/test_phone_pass.py::test_revocation_persists_restart_and_ack_is_idempotent'),
+]
+
+MUTATIONS += [
+    ('open revocation wrongly uses UTC expiry', 'hub.py',
+     "frame['items'], None", "frame['items'], self.wall()",
+     'tests/test_phone_pass.py::test_open_revocation_uses_monotonic_authority_after_trusted_utc_forward'),
 ]
 
 

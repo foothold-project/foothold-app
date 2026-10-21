@@ -81,6 +81,17 @@ export interface AgentMedia {
   upload_id: string;
 }
 
+export interface AgentPhoneRevoke {
+  t: "phone.revoke";
+  seq: number;
+  items: PhoneRevocationItem[];
+}
+
+export interface AgentPhoneRevokeAck {
+  t: "phone.revoke.ack";
+  seq: number;
+}
+
 export interface AgentPing {
   t: "ping";
 }
@@ -622,6 +633,19 @@ export interface PhoneLimits {
   commands: number[][];
 }
 
+export interface PhonePassRequest {
+  device: string;
+  purpose: "control" | "view";
+  /** 앞 로봇 반납 확인 뒤에만 명시 true */
+  switch?: boolean;
+}
+
+export interface PhonePassResponse {
+  token: string;
+  exp: number;
+  kid: string;
+}
+
 export interface PhonePing {
   id: string;
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
@@ -665,6 +689,13 @@ export interface PhoneRespond {
   t: "lease.respond";
   request_id: string;
   accept: boolean;
+}
+
+export interface PhoneRevocationItem {
+  jtis: string[] | null;
+  sub: string | null;
+  device: string | null;
+  until: number;
 }
 
 export interface PhoneState {
@@ -1064,5 +1095,5 @@ export interface WaitParams {
 }
 
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
-export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia;
+export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing;

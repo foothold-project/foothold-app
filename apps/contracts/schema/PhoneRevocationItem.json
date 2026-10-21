@@ -1,0 +1,65 @@
+{
+  "$id": "fh-app/1/PhoneRevocationItem",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Device"
+    },
+    "jtis": {
+      "anyOf": [
+        {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Jtis"
+    },
+    "sub": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sub"
+    },
+    "until": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Until",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "jtis",
+    "sub",
+    "device",
+    "until"
+  ],
+  "title": "PhoneRevocationItem",
+  "type": "object"
+}

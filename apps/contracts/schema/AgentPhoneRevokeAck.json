@@ -1,0 +1,23 @@
+{
+  "$id": "fh-app/1/AgentPhoneRevokeAck",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "phone.revoke.ack",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "seq"
+  ],
+  "title": "AgentPhoneRevokeAck",
+  "type": "object"
+}
