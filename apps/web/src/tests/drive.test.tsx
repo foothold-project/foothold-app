@@ -1355,6 +1355,8 @@ describe('폰 조종 앱 틀', () => {
     zeroThenRelease();
     stays();
     expect($('[data-ending]').textContent).toContain('조종권을 반납하는 중입니다');
+    expect(box.querySelector('.dv-mini')).toBeNull();        // [r4 R13] 반납 중 작은 지도 숨김(보기 단추와 겹침)
+    expect(btn('지도')).toBeTruthy();
     expect(endBtn().disabled).toBe(true);
     click(endBtn());
     expect(w.of('lease.release')).toHaveLength(1);
@@ -1542,6 +1544,59 @@ describe('폰 조종 앱 틀', () => {
     expect(rt.get('r7').releasing).toBeNull();
   });
 
+  // [r4 R1] 앞 lease 의 늦은 «내 조종권 아님» 답도 새 lease 의 반납을 확인하지 않는다
+  it('lease A 반납이 만료로 끝난 뒤 lease B 반납 중에 A 의 늦은 «내 조종권 아님» → B 경고·조종 시작 막힘 유지, B 확인 뒤에만 풀림', () => {
+    holding();
+    const base = w.auto!, pending: string[] = [];
+    w.auto = (m) => { if (m.t === 'lease.release') pending.push(m.id); else base(m); };
+    click(endBtn());
+    const a = pending[0];
+    tick(3000);
+    recv(lease('r7', null));                                // A: 서버 만료 → 반납 완료
+    click([...card('Go2-7').querySelectorAll('button')].pop()!);
+    click(btn('조종 시작'));                                  // 새 lease B
+    const b = rt.get('r7').lease!;
+    click(endBtn());
+    const mismatch = { t: 'reply', id: a, ...fail('LEASE_MISMATCH', '현재 연결의 조종권이 아닙니다.') };
+    recv(mismatch);                                         // A 의 늦은 «내 조종권 아님»
+    stays();
+    expect(rt.get('r7').releasing).toMatchObject({ lease: b, why: null });
+    expect($('[data-ending]')).not.toBeNull();
+    tick(3000);
+    recv(mismatch);
+    expect($('[data-end-fail]')).not.toBeNull();
+    expect(btn('조종 시작').disabled).toBe(true);
+    recv({ t: 'reply', id: pending[1], ok: true });         // B 확인
+    expect(location.hash).toBe('#/drive');
+    expect(rt.get('r7').releasing).toBeNull();
+  });
+
+  // [r4 R1] 같은 lease 의 다시 시도: 앞 시도의 늦은 거절은 지금 시도를 실패로 덮지 않고, 앞 시도의 늦은 성공은 반납 확인
+  it('같은 lease 다시 시도 중 앞 시도의 늦은 거절 → 지금 시도는 «반납 중» 그대로, 앞 시도의 늦은 성공 → 반납 완료', () => {
+    holding();
+    const base = w.auto!, pending: string[] = [];
+    w.auto = (m) => { if (m.t === 'lease.release') pending.push(m.id); else base(m); };
+    const mine = rt.get('r7').lease;
+    click(endBtn());
+    tick(3000);
+    click(btn('다시 시도'));                                  // 2번째 시도(같은 lease)
+    expect(pending).toHaveLength(2);
+    expect(rt.get('r7').releasing).toMatchObject({ lease: mine, why: null });
+    recv({ t: 'reply', id: pending[0], ...fail('SERVER_BUSY') });   // 1번째 시도의 늦은 거절
+    stays();
+    expect($('[data-ending]')).not.toBeNull();
+    expect($('[data-end-fail]')).toBeNull();
+    tick(3000);                                             // 2번째 시도도 답 없음
+    click(btn('다시 시도'));                                  // 3번째 시도
+    expect(pending).toHaveLength(3);
+    recv({ t: 'reply', id: pending[1], ok: true });         // 2번째 시도의 늦은 성공 = 같은 반납 확인
+    expect(location.hash).toBe('#/drive');
+    expect(rt.get('r7').releasing).toBeNull();
+    recv({ t: 'reply', id: pending[2], ok: true });         // 3번째 시도의 답은 아무것도 바꾸지 않음
+    expect(location.hash).toBe('#/drive');
+    expect(rt.get('r7').releasing).toBeNull();
+  });
+
   // [r2 Y5] 조종 판의 «조종 끝내기»도 머리줄 [끝내기]와 같은 길
   it('조이스틱을 누른 채 «조종 끝내기» → 입력 0 먼저, 반납 중·확인 못함·[다시 시도] 같은 길', () => {
     mount(true, 'u-kim', '#/drive/r7');
@@ -1603,6 +1658,7 @@ describe('폰 조종 앱 틀', () => {
     expect(rule(driveCss, '.fh-sheet')).toMatch(/^position:absolute;/);
     expect(driveCss).not.toMatch(/position:\s*fixed/);
     expect(rule(driveCss, '.dv-stick.v')).toBe('left:12px');
+    expect(driveCss).toMatch(/@media \(max-height:480px\)\{[^@]*\.dv\.ph \.dv-mini\{display:none\}\}/);   // [r4 R9] 가로 낮은 폰은 작은 지도 없음
     expect(rule(driveCss, '.dv-stick.h')).toBe('right:12px');
     expect(rule(driveCss, '.dv-hud')).toMatch(/^position:absolute;top:8px;left:8px/);
     const head = rule(frameCss, '.fh-head');
