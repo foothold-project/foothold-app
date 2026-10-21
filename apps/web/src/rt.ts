@@ -36,9 +36,10 @@ export type Live = {
   cooldown: number;
   notice?: string;
   stop: Stop | null;
-  /** 반납 확인 기다림(why null) 또는 확인 못함(why). 서버 확인·조종권이 내 것 아님·잠금 보고가 올 때만 지운다 — 화면을 옮겨도 남는다.
-   *  n = 몇 번째 시도(앞 시도의 시간 초과·거절은 버림), free = 반납할 때 잠금이 풀려 있었음, me = 반납한 사람 */
-  releasing: { why: string | null; n: number; free: boolean; me: string | null } | null;
+  /** 반납 확인 기다림(why null) 또는 확인 못함(why). 이 lease 의 반납을 서버가 확인하거나 조종권이 이 lease 가 아니게 됐다는 알림이 올 때만 지운다
+   *  — 화면을 옮겨도 남는다. 잠금 보고는 내가 누른 STOP 과 구별할 수 없어 보지 않는다.
+   *  lease = 반납하는 내 lease_id(같은 반납의 다시 시도는 같은 값 — 앞 반납의 늦은 답이 새 반납을 지우지 않게), n = 몇 번째 시도(앞 시도의 시간 초과·거절은 버림), me = 반납한 사람 */
+  releasing: { lease: string; why: string | null; n: number; me: string | null } | null;
   released: number;                      // 확인된 반납 수(지울 때마다 +1 — 같은 틀에 켜졌다 꺼져도 화면이 안다)
 };
 const EMPTY: Live = { state: null, stateAt: 0, holder: null, lease: null, rev: 0, neutral: false, busy: null, failed: false, incoming: null, outgoing: null, cooldown: 0, stop: null, releasing: null, released: 0 };
@@ -238,8 +239,7 @@ function onState(s: ScreenState) {
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }
-  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral,   // 잠기면 해제 뒤 새 중립부터
-    ...(l.releasing?.free && s.latched === true && { releasing: null, released: l.released + 1 }) });   // 반납 뒤 잠금 보고 = 반납 확인
+  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral });   // 잠기면 해제 뒤 새 중립부터
 }
 
 function onLease(m: ScreenLeaseUpdate) {
@@ -255,9 +255,10 @@ function onLease(m: ScreenLeaseUpdate) {
   // 정지 확인 중(최대 2 s)에도 서버가 취소를 받으므로 요청(outgoing)은 확정(내 lease)·결과까지 남긴다
   if (!holder && l.outgoing && !lease) p.busy = 'take';
   if (holder && !lease && l.busy === 'take') Object.assign(p, { busy: null, outgoing: null });
-  // 반납 확인 중: 조종권자가 내가 아니면(비었음·시나리오·다른 사람, 서버 만료 포함) 반납된 것. 나(이 창 또는 같은 계정의 다른 창)면 아직 모름
+  // 반납 확인 중: 반납 뒤에 받은 알림이 조종권자가 내가 아니라고 하면(비었음·시나리오·다른 사람, 서버 만료 포함) 반납된 것.
+  // 내 lease_id 가 그대로 오거나(모순) 조종권자가 나(이 창 또는 같은 계정의 다른 창)면 아직 모름
   const r = l.releasing;
-  if (r && (!holder || holder.type === 'RUN' || holder.id !== r.me)) Object.assign(p, { releasing: null, released: l.released + 1 });
+  if (r && m.lease_id !== r.lease && (!holder || holder.type === 'RUN' || holder.id !== r.me)) Object.assign(p, { releasing: null, released: l.released + 1 });
   set(m.robot, p);
   if (lease && (!active.has(m.robot) || hiddenPage())) leave(m.robot);   // 떠났거나 숨긴 화면은 조종권을 갖지 않는다
 }
@@ -387,14 +388,14 @@ export const rt = {
   release(id: string) {
     const l = get(id), lease = l.lease, k = ++releases;
     if (!lease && !l.releasing) return;
-    const r = { why: null, n: k, free: l.releasing?.free ?? l.state?.latched === false, me: l.releasing?.me ?? l.holder?.id ?? null };
+    const target = lease ?? l.releasing!.lease, r = { lease: target, why: null, n: k, me: l.releasing?.me ?? l.holder?.id ?? null };
     if (lease) gone.add(lease);
     set(id, { releasing: r, ...(lease ? { lease: null, neutral: false, incoming: null } : {}) });   // 보내기 전에 — 닫힌 소켓은 바로 답한다
     const fail = (why: string) => { if (get(id).releasing?.n === k) set(id, { releasing: { ...r, why } }); };
     const t = setTimeout(() => fail('서버가 답하지 않습니다.'), RELEASE_MS);
     send({ t: 'lease.release', robot: id }, (x) => {
       clearTimeout(t);
-      if (x.ok || x.error?.code === 'LEASE_MISMATCH') { const c = get(id); if (c.releasing) set(id, { releasing: null, released: c.released + 1 }); }   // 앞 시도의 늦은 성공도 반납 확인
+      if (x.ok || x.error?.code === 'LEASE_MISMATCH') { const c = get(id); if (c.releasing?.lease === target) set(id, { releasing: null, released: c.released + 1 }); }   // 같은 반납의 앞 시도 늦은 성공도 확인, 다른 lease 의 반납은 아님
       else fail(say(x.error));
     });
   },

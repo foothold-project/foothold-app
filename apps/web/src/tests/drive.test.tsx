@@ -1413,7 +1413,7 @@ describe('폰 조종 앱 틀', () => {
     expect($('main').getAttribute('aria-label')).toBe('조종');
     expect($('[data-end-fail]')).not.toBeNull();            // 조종 화면에서도 경고가 이어짐
     expect(btn('조종 시작').disabled).toBe(true);
-    expect(text()).toContain('조종권 반납을 확인하는 중입니다');
+    expect($('[data-why]').textContent).toBe('반납 확인 못함 — [다시 시도]');   // [r3 R11] 머리줄과 같은 말, 짧게
     const took = w.of('lease.take').length;
     click(btn('조종 시작'));
     expect(w.of('lease.request')).toHaveLength(0);
@@ -1452,7 +1452,6 @@ describe('폰 조종 앱 틀', () => {
     ['서버 만료(조종권 빔)', () => recv(lease('r7', null))],
     ['다른 사람이 조종권을 받음', () => recv(lease('r7', LEE, null))],
     ['[다시 시도]에 «내 조종권 아님» 답', () => { w.auto = (m) => { if (m.t === 'lease.release') w.recv({ t: 'reply', id: m.id, ...fail('LEASE_MISMATCH', '현재 연결의 조종권이 아닙니다.') }); }; click(btn('다시 시도')); }],
-    ['반납 뒤 잠금 보고', () => recv({ ...st.r7, latched: true })],
   ] as const) it(`반납 확인 못함 중 ${name} → 반납 완료, 로봇 연결로`, () => {
     holding();
     releaseReply('none');
@@ -1466,17 +1465,81 @@ describe('폰 조종 앱 틀', () => {
     expect(rt.get('r7').releasing).toBeNull();
   });
 
-  it('반납 확인 못함 중 내 lease 가 아직 나에게 있다는 알림·같은 사람의 다른 창 조종권자 알림은 반납 완료가 아님', () => {
+  it('반납 확인 못함 중 내 lease 가 아직 나에게 있다는 알림(조종권자 빔이어도)·같은 사람의 다른 창 조종권자·잠금 보고(옛 stop_gen 포함)는 반납 완료가 아님', () => {
     holding();
     const mine = rt.get('r7').lease!;
     releaseReply('none');
     click(endBtn());
     tick(3000);
     recv(lease('r7', KIM, mine));
+    recv(lease('r7', null, mine));                         // 조종권자는 비었다는데 내 lease_id 가 함께 옴 — 모순, 아직 모름
     recv(lease('r7', KIM, null));
+    recv({ ...st.r7, latched: true, stop_gen: st.r7.stop_gen! - 1 });
+    recv({ ...st.r7, latched: true, stop_gen: st.r7.stop_gen! + 1 });
     stays();
     expect($('[data-end-fail]')).not.toBeNull();
     expect(rt.get('r7').lease).toBeNull();
+  });
+
+  // [r3 U2] 반납 확인 못함 중 STOP 의 잠금은 반납 확인이 아니다(내가 누른 STOP 과 반납 잠금을 구별할 수 없음)
+  it('반납 확인 못함 중 STOP·연결 화면 Space → 정지는 보내고 경고·조종 시작 막힘은 그대로, 요청 0', () => {
+    holding();
+    const srv = releaseReply('none');
+    click(endBtn());
+    tick(3000);
+    click(stopBtn());
+    expect(w.of('stop')).toMatchObject([{ robot: 'r7' }]);
+    expect(st.r7.latched).toBe(true);                       // 로봇이 잠금을 보고함
+    stays();
+    expect($('[data-end-fail]')).not.toBeNull();
+    expect(rt.get('r7').releasing).not.toBeNull();
+    click(btn('연결 화면'));
+    expect(location.hash).toBe('#/drive');
+    key('keydown', 'Space'); key('keyup', 'Space');        // 여러 대 → 고르기(반납 중인 로봇이 기본)
+    key('keydown', 'Space'); key('keyup', 'Space');        // 그 로봇 정지
+    expect(w.of('stop')).toHaveLength(2);
+    expect(card('Go2-7').querySelector('[data-releasing]')).not.toBeNull();
+    expect(card('Go2-7').textContent).toContain('이 창 — 반납 확인 중');
+    click([...card('Go2-7').querySelectorAll('button')].pop()!);
+    expect(btn('조종 시작').disabled).toBe(true);
+    const took = w.of('lease.take').length;
+    click(btn('조종 시작'));
+    expect(w.of('lease.request')).toHaveLength(0);
+    expect(w.of('lease.take')).toHaveLength(took);
+    srv.answer();                                           // 서버가 반납을 확인하면 그때 풀림
+    expect(location.hash).toBe('#/drive');
+    expect(rt.get('r7').releasing).toBeNull();
+  });
+
+  // [r3 U1] 앞 lease 반납의 늦은 답은 새 lease 의 반납을 확인하지 않는다
+  it('lease A 반납이 만료로 끝난 뒤 lease B 반납 중에 A 의 늦은 ok → B 경고·조종 시작 막힘 유지, B 확인 뒤에만 풀림', () => {
+    holding();
+    const base = w.auto!, pending: string[] = [];
+    w.auto = (m) => { if (m.t === 'lease.release') pending.push(m.id); else base(m); };
+    const la = rt.get('r7').lease;
+    click(endBtn());
+    const a = pending[0];
+    tick(3000);
+    recv(lease('r7', null));                                // A: 서버 만료 → 반납 완료
+    expect(location.hash).toBe('#/drive');
+    click([...card('Go2-7').querySelectorAll('button')].pop()!);
+    click(btn('조종 시작'));                                  // 같은 로봇의 새 lease B(잠금은 이미 풀려 있음)
+    const b = rt.get('r7').lease!;
+    expect(b).toBeTruthy();
+    expect(b).not.toBe(la);
+    click(endBtn());
+    expect(pending).toHaveLength(2);
+    recv({ t: 'reply', id: a, ok: true });                  // A 의 늦은 성공
+    stays();
+    expect(rt.get('r7').releasing?.lease).toBe(b);
+    expect($('[data-ending]')).not.toBeNull();
+    tick(3000);
+    recv({ t: 'reply', id: a, ok: true });
+    expect($('[data-end-fail]')).not.toBeNull();
+    expect(btn('조종 시작').disabled).toBe(true);
+    recv({ t: 'reply', id: pending[1], ok: true });         // B 확인
+    expect(location.hash).toBe('#/drive');
+    expect(rt.get('r7').releasing).toBeNull();
   });
 
   // [r2 Y5] 조종 판의 «조종 끝내기»도 머리줄 [끝내기]와 같은 길

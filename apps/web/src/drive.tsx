@@ -171,7 +171,7 @@ function Screen(c: Ctx) {
     else rt.take(r.id);
   };
   const wait = link !== 'open' ? '서버 연결이 끊겨 조종할 수 없습니다. 다시 연결되면 누르세요.'
-    : l.releasing ? RELEASING
+    : l.releasing ? (l.releasing.why ? '반납 확인 못함 — [다시 시도]' : '반납 확인 중')   // 자세한 이유는 머리줄 아래 한 곳(320 에서 보기 단추를 밀지 않게 짧게)
     : l.outgoing?.canceling ? '요청을 취소하는 중입니다.'
     : l.busy ? BUSY_TEXT[l.busy]
     : l.outgoing ? `${l.holder?.name || '조종하는 사람'}님에게 요청했습니다. (${secs(l.outgoing.until, now)}초)`
