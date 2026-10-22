@@ -69,7 +69,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
       {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
         : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p>}
     </section>
-    <SimLaunch />
+    <SimLaunch me={c.user.id} />
   </>;
 }
 function Card({ c, r }: { c: Pick<Ctx, 'user' | 'go'>; r: Robot }) {

@@ -33,6 +33,8 @@ let authLost = (_why?: string) => {};
 export const onAuthLost = (f: (why?: string) => void) => { authLost = f; };
 /** 로그인이 끝났다(401·실시간 4401·비밀번호 변경) — CSRF 를 버리고 화면은 로그인으로 */
 export const expireAuth = (why?: string) => { csrf = null; authLost(why); };
+/** 지금 로그인 세션 표식(CSRF 값) — 늦게 온 답이 같은 로그인 세션의 것인지 견줄 때만. 화면·로그에 내지 않는다 */
+export const authMark = () => csrf;
 
 /** ms = 답을 기다리는 한도(넘으면 끊고 TIMEOUT), cancel = 부른 쪽이 거둠(세션이 끝남 등 — CANCELED, 401 이어도 로그인 정리 안 함).
  *  file = 성공 본문을 JSON 대신 Blob 으로(CSV 내려받기 — 실패 본문은 그대로 오류 JSON). raw = 본문을 JSON 대신 이 Content-Type 의 원시 바이트로(지도 올리기) */

@@ -17,10 +17,10 @@ const describe = (c: SimCatalog) => `${c.launcher === 'fake' ? '가짜 기동(�
 const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
 
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
-export function stopText({ stop: p, link: l }: Sim) {
+export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
   if (!p) return '';
-  if (p.failed) return `▲ 정지 요청을 보내지 못했습니다. ${p.failed} 현장에서 로봇을 직접 멈추세요.`;
-  if (p.via === 'server') return '■ 정지 요청을 서버로 보냈습니다(대체 경로) — 로봇 확인은 보이지 않습니다. 현장을 확인하세요.';
+  if (p.via === 'cleanup') return step === 'pick' ? '' : slotBusy ? '■ 로봇에 연결 전 — 명령 없음. 내 시뮬 로봇으로 확인되면 정리합니다.'
+    : step === 'checking' ? '■ 로봇에 연결 전 — 명령 없음. 정리를 확인하지 못했습니다 — 다시 끝내기를 누르세요.' : '■ 로봇에 연결 전 — 명령 없음, 정리 중입니다.';
   const st = l?.st;
   if (!st || l!.stAt <= p.at) return '■ 정지 요청을 로봇에 보냈습니다. 로봇 확인을 기다립니다.';
   if (!st.latched) return '■ 정지 요청을 보냈지만 로봇이 아직 잠금을 알리지 않았습니다.';
@@ -28,7 +28,7 @@ export function stopText({ stop: p, link: l }: Sim) {
 }
 
 /** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중 */
-export function SimLaunch() {
+export function SimLaunch({ me }: { me: string }) {
   const s = useSim(), [pick, setPick] = useState('');
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
@@ -39,8 +39,8 @@ export function SimLaunch() {
   const stop = stopText(s);
   let body;
   if (s.step === 'starting') body = <p className="lv-note" role="status" data-sim="starting">시뮬 로봇을 띄우는 중입니다 — {s.robot?.world_id ?? world} ({Math.floor((performance.now() - s.since) / 1000)}초). 실제 시뮬은 2분 넘게 걸릴 수 있습니다.</p>;
-  else if (s.step === 'unsure') body = <><p className="fh-why" role="status" data-sim="unsure">확인 중 — {s.err} 서버에는 «띄우는 중»으로 남았을 수 있습니다. 목록을 다시 확인하거나 정리하세요.</p>
-    <div className="fh-row"><button type="button" className="btn" onClick={() => sim.load()}>다시 확인</button><button type="button" className="btn" onClick={() => sim.end()}>정리</button></div></>;
+  else if (s.step === 'unsure') body = <><p className="fh-why" role="status" data-sim="unsure">확인 중 — {s.err} {s.slotBusy ? '남의 로봇일 수 있어 내 것으로 확인되기 전에는 정리하지 않습니다.' : '서버에는 «띄우는 중»으로 남았을 수 있습니다. 목록을 다시 확인하거나 정리하세요.'}</p>
+    <div className="fh-row"><button type="button" className="btn" onClick={() => sim.recheck()}>다시 확인</button>{!s.slotBusy && <button type="button" className="btn" onClick={() => sim.end()}>정리</button>}</div></>;
   else if (s.step === 'linking') body = l?.at === 'closed'
     ? <><p className="fh-why" role="status" data-sim="link-fail">{l.why}</p>
         <div className="fh-row"><button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button><button type="button" className="btn" onClick={() => sim.end()}>끝내기</button></div></>
@@ -57,7 +57,7 @@ export function SimLaunch() {
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
         <span><b>{w.id}</b><br /><span className="lbl">{describe(s.catalog!)}</span></span></label></li>)}</ul></fieldset>
       : <p className="lv-note">고를 수 있는 월드가 없습니다.</p>)}
-    <button type="button" className="btn pri" disabled={!world || s.mine.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world)}>띄우기</button>
+    <button type="button" className="btn pri" disabled={!world || s.mine.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me)}>띄우기</button>
     {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>;
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="시뮬 로봇 띄우기">
     <h2>시뮬 로봇 띄우기</h2>

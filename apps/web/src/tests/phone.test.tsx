@@ -25,7 +25,7 @@ const phoneState = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: S1
 
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; body?: unknown };
-let calls: Call[] = [], routes: Record<string, Reply | (() => Reply)> = {}, mine: SimRobot[] = [];
+let calls: Call[] = [], routes: Record<string, Reply | (() => Reply | Promise<Reply>)> = {}, mine: SimRobot[] = [];
 /** 가짜 서버 기본: 월드 1개, 내 시뮬 로봇 = mine, POST 201(→ mine), 출입증, DELETE 204(→ 비움) */
 function serve(more: typeof routes = {}) {
   calls = []; mine = [];
@@ -40,7 +40,7 @@ function serve(more: typeof routes = {}) {
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '');
     calls.push({ method, path, body: init.body ? JSON.parse(String(init.body)) : undefined });
-    const hit = routes[`${method} ${path.split('?')[0]}`], rep = typeof hit === 'function' ? hit() : hit ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
+    const hit = routes[`${method} ${path.split('?')[0]}`], rep = (typeof hit === 'function' ? await hit() : hit) ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -161,14 +161,43 @@ describe('시뮬 로봇 직결 흐름', () => {
     expect(a.sent.length).toBe(sent);   // 닫은 뒤 cmd 0
   });
 
-  it('남이 쓰는 슬롯(SIM_SLOT_BUSY)은 건너뛰고 다음 슬롯으로', async () => {
+  it('SIM_SLOT_BUSY(불확실) → 다음 슬롯 자동 시도 0, 목록으로 확인 → 남의 것이면 «사용 중», 사람이 다시 띄우면 다른 슬롯', async () => {
     let n = 0;
     serve({ 'POST /simulation/robots': () => (n++ === 0 ? err(409, 'SIM_SLOT_BUSY', '사용 중인 슬롯입니다.') : { status: 201, body: simRobot(S2) }),
       [`POST /robots/${S2}/phone-pass`]: { status: 200, body: { token: 't2', exp: Math.floor(Date.now() / 1000) + 600, kid: 'k1' } } });
     await mount();
+    const lists = calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length;
     await click(btn('띄우기'));
-    expect(calls.filter((c) => c.method === 'POST' && c.path === '/simulation/robots').map((c) => (c.body as { robot_id: string }).robot_id)).toEqual([S1, S2]);
+    const posts = () => calls.filter((c) => c.method === 'POST' && c.path === '/simulation/robots').map((c) => (c.body as { robot_id: string }).robot_id);
+    expect(posts()).toEqual([S1]);
+    expect(calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length).toBeGreaterThan(lists);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    expect(agents()).toHaveLength(0);
+    expect($('[data-sim-msg]')!.textContent).toContain('다른 사람이 쓰고 있습니다');
+    await click(btn('띄우기'));
+    expect(posts()).toEqual([S1, S2]);
     expect(agents()[0].url).toBe('ws://127.0.0.1:9482/phone/ws');
+  });
+
+  it('SIM_SLOT_BUSY 인데 목록에 내 로봇 → 고르기에서 연결·끝내기 안내, 정리 자동 0', async () => {
+    serve({ 'POST /simulation/robots': () => { mine = [simRobot()]; return err(409, 'SIM_SLOT_BUSY', '사용 중인 슬롯입니다.'); } });
+    await mount();
+    await click(btn('띄우기'));
+    expect($('[data-sim-msg]')!.textContent).toContain('이미 내 시뮬 로봇입니다');
+    expect(btn('직접 연결')).toBeTruthy();
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('SIM_SLOT_BUSY 인데 목록을 못 받음 → «확인 중» 그대로(정리 단추 없음), 다시 확인', async () => {
+    serve({ 'POST /simulation/robots': err(409, 'SIM_SLOT_BUSY', '사용 중인 슬롯입니다.') });
+    await mount();
+    routes['GET /simulation/robots'] = err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.');
+    await click(btn('띄우기'));
+    expect($('[data-sim="unsure"]')!.textContent).toContain('내 것으로 확인되기 전에는 정리하지 않습니다');
+    expect(btn('정리')).toBeUndefined();
+    routes['GET /simulation/robots'] = () => ({ status: 200, body: { items: [] } });
+    await click(btn('다시 확인'));
+    expect($('[data-sim-msg]')!.textContent).toContain('다른 사람이 쓰고 있습니다');
   });
 
   it('이미 떠 있는 내 시뮬 로봇: 1인 1대라 띄우기 막힘, «직접 연결»로 다시 붙는다', async () => {
@@ -221,9 +250,86 @@ describe('시뮬 직결 실패', () => {
     expect(a.sent.length).toBe(n);
     expect(FakeWS.all.length).toBe(count);
     expect(btn('다시 연결')).toBeTruthy();
-    // 직결이 없을 때 STOP 은 서버 대체 경로
+    // 끊긴 뒤 STOP: 서버 STOP 대체 경로 0 — 로봇에 보낼 길이 없으니 그 슬롯 정리(DELETE 1회)
     await click($('[data-stop]'));
-    expect(calls.some((c) => c.method === 'POST' && c.path === `/robots/${S1}/stop`)).toBe(true);
+    expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false);
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual([`/simulation/robots/${S1}`]);
+  });
+
+  it('띄우는 중 STOP → 서버 stop 0·다른 로봇(rt) stop 0, 문구 «연결 전 — 명령 없음», 201 이 오면 바로 DELETE 1·연결 0', async () => {
+    let answer!: (r: Reply) => void;
+    serve({ 'POST /simulation/robots': () => new Promise<Reply>((f) => { answer = f; }) });
+    await mount();
+    await click(btn('띄우기'));
+    expect($('[data-sim="starting"]')).toBeTruthy();
+    const before = FakeWS.all.map((w) => w.sent.length);
+    await click($('[data-stop]'));
+    expect($('[data-sim-stop]')!.textContent).toContain('로봇에 연결 전 — 명령 없음, 정리 중');
+    expect(FakeWS.all.every((w, i) => w.sent.length === (before[i] ?? 0))).toBe(true);   // rt 등 다른 연결로 stop 0
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);   // 답 전에는 지울 대상이 확정되지 않음
+    mine = [simRobot()];
+    answer({ status: 201, body: mine[0] }); await flush();
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual([`/simulation/robots/${S1}`]);
+    expect(calls.some((c) => c.path.endsWith('/stop') || c.path.endsWith('/phone-pass'))).toBe(false);
+    expect(agents()).toHaveLength(0);
+    expect($('[data-sim-msg]')!.textContent).toBe('시뮬 로봇을 정리했습니다.');
+  });
+
+  it('불확실(503) 확인 중 STOP → DELETE 1, 서버 stop 0', async () => {
+    serve({ 'POST /simulation/robots': err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.') });
+    await mount();
+    await click(btn('띄우기'));
+    expect($('[data-sim="unsure"]')).toBeTruthy();
+    await click($('[data-stop]'));
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual([`/simulation/robots/${S1}`]);
+    expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false);
+  });
+
+  it('세션 종료(화면 내림) 뒤 늦은 201 → 연결 0·출입증 0, 그 로봇만 DELETE 1', async () => {
+    let answer!: (r: Reply) => void;
+    serve({ 'POST /simulation/robots': () => new Promise<Reply>((f) => { answer = f; }) });
+    await mount();
+    await click(btn('띄우기'));
+    act(() => root?.unmount()); root = null;
+    answer({ status: 201, body: simRobot() }); await flush();
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual([`/simulation/robots/${S1}`]);
+    expect(calls.some((c) => c.path.endsWith('/phone-pass'))).toBe(false);
+    expect(agents()).toHaveLength(0);
+    // 다시 그린 화면은 고르기부터(늦은 답이 새 세션 상태를 덮지 않음)
+    await mount();
+    expect(btn('띄우기')).toBeTruthy();
+    expect($('[data-sim-drive]')).toBeNull();
+  });
+
+  it('세션 종료 뒤 늦은 SIM_SLOT_BUSY → 남의 것일 수 있어 DELETE 0', async () => {
+    let answer!: (r: Reply) => void;
+    serve({ 'POST /simulation/robots': () => new Promise<Reply>((f) => { answer = f; }) });
+    await mount();
+    await click(btn('띄우기'));
+    act(() => root?.unmount()); root = null;
+    answer(err(409, 'SIM_SLOT_BUSY', '사용 중인 슬롯입니다.')); await flush();
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it('출입증 429 → retry_after 동안 다시 연결 단추 막힘', async () => {
+    serve({ [`POST /robots/${S1}/phone-pass`]: { status: 429, body: { error: { code: 'PASS_RATE_LIMIT', message: '요청이 많습니다.', detail: { retry_after: 30 } } } } });
+    await mount();
+    await click(btn('띄우기'));
+    const again = [...box.querySelectorAll('button')].find((b) => b.textContent?.startsWith('다시 연결'))!;
+    expect(again.disabled).toBe(true);
+    expect(again.textContent).toMatch(/다시 연결\((29|30)초 뒤\)/);
+  });
+
+  it('#/drive/<시뮬 로봇 id> 직접 주소 → 옛 서버 경유 조종 화면을 열지 않음', async () => {
+    serve();
+    window.matchMedia = ((q: string) => ({ matches: true, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    location.hash = `#/drive/${S1}`;
+    box = document.createElement('div'); document.body.append(box);
+    const robots = [...ROBOTS, { ...ROBOTS[0], id: S1, name: 'sim1', sim: true }];
+    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={robots} />); });
+    await flush();
+    expect($('h1')!.textContent).toBe('로봇 연결');
+    expect($('[data-sim-card]')).toBeTruthy();
   });
 
   it('출입증 거절(409) → 연결하지 않고 이유 표시', async () => {
