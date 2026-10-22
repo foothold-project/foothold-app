@@ -16,7 +16,7 @@ const S1 = '11111111-1111-4111-8111-111111111111', S2 = '22222222-2222-4222-8222
 const AGENT = 'ws://127.0.0.1:9481/phone/ws';
 const CATALOG: SimCatalog = { worlds: [{ id: 'empty', name: '빈 연습장', description: '장애물이 없는 연습 공간' }], slots: [S1, S2], max_robots: 2, launcher: 'native-single', manager_instance_id: null };
 const simRobot = (id = S1): SimRobot => ({ generation: 1, robot_id: id, owner_id: 'u-lee', world_id: 'empty', simulation: true, state: 'RUNNING',
-  agent_address: AGENT.replace('9481', id === S1 ? '9481' : '9482'), namespace: '/sim1', tf_prefix: 'sim1/', command_topic: '/sim1/cmd', launcher: 'native-single', expires_at: null });
+  agent_address: AGENT.replace('9481', id === S1 ? '9481' : '9482'), namespace: '/sim1', tf_prefix: 'sim1/', command_topic: '/sim1/cmd', launcher: 'native-single', expires_at: null, remaining_s: null });
 const err = (status: number, code: string, message: string, detail: Record<string, unknown> = {}) => ({ status, body: { error: { code, message, detail } } });
 const welcome = (robot = S1) => ({ t: 'hello', id: 'p1', robot, proto: 'fh-phone/1', simulation: true, camera_token: 'cam-1',
   limits: { vx_min: 0, vx_max: 0.6, vy_min: 0, vy_max: 0, wz_min: -0.5, wz_max: 0.5, commands: [[0, 0, 0], [0.6, 0, 0], [0.6, 0, -0.5], [0.6, 0, 0.5]] },
@@ -105,19 +105,24 @@ describe('시뮬 로봇 직결 흐름', () => {
     await click(buttons[0]); await click(buttons[2]);
     expect(buttons[1].getAttribute('aria-pressed')).toBe('true');
     const fwd = stick('전후');
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(box.textContent).toContain('명령 범위 조정');
     ptr(fwd, 'pointerdown', 50, 100); await wait(80);
     expect(box.textContent).toContain('후진은 아직 지원하지 않습니다');
+    expect(box.textContent).not.toContain('명령 범위 조정');
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
     ptr(fwd, 'pointerup', 50, 100);
     const turn = stick('회전');
     ptr(turn, 'pointerdown', 100, 50); await wait(80);
     expect(box.textContent).toContain('제자리 회전 — 시뮬에서 아직 확인 안 됨');
+    expect(box.textContent).not.toContain('끝까지 밀어야 움직입니다');
     // Existing wire request remains subject to agent projection; no new allowed command.
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: -0.5 });
     expect($('[data-stop]')).toBeTruthy();
     await click($('[data-stop]'));
     expect(a.of('stop')).toHaveLength(1);
     ptr(turn, 'pointerup', 100, 50);
+    expect(box.textContent).toContain('명령 범위 조정');
   });
 
   it('월드 이름·설명을 표시하고(월드 내부 id 는 숨김, U5) 선택한 id로 띄운다', async () => {
@@ -509,13 +514,23 @@ describe('시뮬 직결 실패', () => {
   });
 });
 
-it('남은 시간은 UTC 기한에서 계산하며 5분·1분 경계를 안내한다', () => {
-  const end = '2026-10-22T09:30:00Z', at = Date.parse(end);
+it.each(['STARTING', 'STOPPING'] as const)('목록의 %s를 전환 안내로 표시하고 STOP·끝내기 유지', async (state) => {
+  await launch();
+  mine = mine.map((r) => ({ ...r, state }));
+  await act(() => sim.load());
+  expect(box.textContent).toContain(state === 'STARTING' ? '시뮬을 띄우는 중…' : '시뮬을 정리하는 중…');
+  expect(box.textContent).not.toContain('관리자에 연결하지 못했습니다');
+  expect($('[data-stop]')).toBeTruthy();
+  expect(btn('끝내기')).toBeTruthy();
+  expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+});
+
+it('남은 시간은 단조 시계 기한에서 계산하며 5분·1분 경계를 안내한다', () => {
+  const end = 2000_000, at = end;
   expect(remainingTime(end, at - 1800_000)).toBe(1800);
   expect(remainingTime(end, at - 1001)).toBe(2);
   expect(remainingTime(end, at + 1)).toBe(0);
   expect(remainingTime(null, at)).toBeNull();
-  expect(remainingTime('invalid', at)).toBeNull();
   expect(timeNotice(301)).toBe('');
   expect(timeNotice(300)).toBe('5분 안에 시뮬을 끝냅니다.');
   expect(timeNotice(61)).toBe('5분 안에 시뮬을 끝냅니다.');
@@ -523,21 +538,27 @@ it('남은 시간은 UTC 기한에서 계산하며 5분·1분 경계를 안내�
   expect(timeNotice(0)).toContain('정리를 확인');
 });
 
-it('폰 상태 줄 남은 시간·안내, 증명된 만료 뒤 다시 띄우기·STOP 상시 표시', async () => {
+it('폰 시계 오차와 무관하게 remaining_s로 세고 증명된 만료 뒤 다시 띄우기·STOP 유지', async () => {
   serve();
   const at = Date.now(), end = new Date(at + 1800_000).toISOString();
-  const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at + 86400_000);
+  const mono = vi.spyOn(performance, 'now').mockReturnValue(1000);
   routes['POST /simulation/robots'] = () => {
-    mine = [{ ...simRobot(), expires_at: end }]; return { status: 201, body: mine[0] };
+    mine = [{ ...simRobot(), expires_at: end, remaining_s: 1800 }]; return { status: 201, body: mine[0] };
   };
   try {
     await mount(); await click(btn('띄우기'));
     const a = agents()[0]; act(() => a.open()); await flush(); await recv(a, welcome());
     expect($('[aria-label="상태"]')!.textContent).toContain('남은 시간 30:00');
-    clock.mockReturnValue(at + 1500_000); await wait(1100);
+    clock.mockReturnValue(at - 86400_000);
+    mono.mockReturnValue(1501_000);
+    mine = mine.map((r) => ({ ...r, remaining_s: 300 }));
+    await act(() => sim.load());
     expect(box.textContent).toContain('남은 시간 05:00');
     expect(box.textContent).toContain('5분 안에 시뮬을 끝냅니다.');
-    clock.mockReturnValue(at + 1740_000); await wait(1100);
+    mono.mockReturnValue(1741_000);
+    mine = mine.map((r) => ({ ...r, remaining_s: 60 }));
+    await act(() => sim.load());
     expect(box.textContent).toContain('남은 시간 01:00');
     expect(box.textContent).toContain('1분 안에 시뮬을 끝냅니다.');
     expect(btn('끝내기')).toBeTruthy();
@@ -549,7 +570,7 @@ it('폰 상태 줄 남은 시간·안내, 증명된 만료 뒤 다시 띄우기�
     await act(() => sim.load()); expect($('[data-sim-drive]')).toBeTruthy();
     // Empty listing alone is also insufficient evidence.
     routes['GET /simulation/robots'] = { status: 200, body: { items: [], expired: [] } };
-    clock.mockReturnValue(at + 1800_000); await act(() => sim.load()); await wait(1100);
+    mono.mockReturnValue(1801_000); await act(() => sim.load()); await wait(1100);
     expect($('[data-sim-drive]')).toBeTruthy();
     expect(box.textContent).toContain('정리를 확인하고 있습니다');
     routes['GET /simulation/robots'] = { status: 200, body: { items: [], expired: [
@@ -561,13 +582,13 @@ it('폰 상태 줄 남은 시간·안내, 증명된 만료 뒤 다시 띄우기�
     expect(box.textContent).toContain('시간이 다 되어 시뮬을 끝냈습니다 — 다시 띄우기');
     expect(btn('띄우기')!.disabled).toBe(false);
     expect($('[data-stop]')).toBeTruthy();
-  } finally { clock.mockRestore(); }
+  } finally { clock.mockRestore(); mono.mockRestore(); }
 });
 
 it('기한 정리 실패 ERROR는 확인 중·STOP·다시 끝내기를 남기며 자동 DELETE 없음', async () => {
   serve();
   routes['POST /simulation/robots'] = () => {
-    mine = [{ ...simRobot(), expires_at: new Date(Date.now() - 1000).toISOString() }];
+    mine = [{ ...simRobot(), expires_at: new Date(Date.now() + 86400_000).toISOString(), remaining_s: 0 }];
     return { status: 201, body: mine[0] };
   };
   await mount(); await click(btn('띄우기'));

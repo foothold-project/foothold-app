@@ -77,8 +77,9 @@
 
 ## 시간 제한
 
-`FH_SIM_RUNTIME_SECONDS`는 기본1800초(30분), 허용5..3600초다. 월드 준비 요청부터 계산한
-UTC `expires_at`를 로봇 응답에 주고 관리자는 단조 시계로 같은 기한을 감시한다. 정상 만료는
+`FH_SIM_RUNTIME_SECONDS`는 기본1800초(30분), native는300..3600초, fake는5..3600초다.
+월드 준비 요청부터 계산한 UTC `expires_at`와 단조 시계 기준 `remaining_s`를 로봇 응답에
+주고 관리자는 단조 시계로 같은 기한을 감시한다. 정상 만료는
 기존 STOP/zero → agent exit0 → native world 정리 증명 경로를 사용한다. agent/native·Gazebo
 unit은 같은 설정+90초(기본1890초) 상한, native watcher는 그5초 전의 마지막 안전망이다.
 기한을 없애거나 실패한 cleanup을 정상으로 바꾸지 않는다. D1 단독 실행의 기본240초는 유지한다.
@@ -88,3 +89,6 @@ robot_id·generation 결속 DELETE 증명과 최종 출입증 회수 뒤 DB IDLE
 세대를 증가시킨다. 실패는 ERROR/STOPPING과 소유를 유지한다. 완료 메모리가 관리자 재시작으로
 사라진 경우 기존 #55 복구를 따른다. 폰은 남은 시간과5분·1분 안내를 표시하고 증명된 완료 뒤
 다시 띄우기를 제공한다. 검증 범위는 [TIMELIMIT](TIMELIMIT.md)을 본다.
+
+기동·정리 중 목록은 잠금을 기다리지 않고 STARTING/STOPPING 스냅샷을 반환한다.
+폰은 remaining_s를 받은 시점부터 단조 시계로 세므로 폰 UTC 시계 오차와 무관하다.

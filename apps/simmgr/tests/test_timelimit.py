@@ -24,9 +24,17 @@ def test_shared_runtime_default_and_maximum():
     assert replace(cfg, runtime_seconds=3600).unit_runtime_seconds == 3690
 
 
-def test_five_second_native_deadline_is_clean_and_reusable(native_episode, monkeypatch):
+@pytest.mark.parametrize('seconds', [5, 299])
+def test_native_runtime_rejects_short_values(native_episode, seconds):
+    cfg, _ = native_episode
+    with pytest.raises(ValueError, match='300..3600'):
+        replace(cfg, runtime_seconds=seconds)
+    assert replace(settings(), runtime_seconds=seconds).runtime_seconds == seconds
+
+
+def test_native_deadline_is_clean_and_reusable(native_episode, monkeypatch):
     cfg, state = native_episode
-    cfg = replace(cfg, runtime_seconds=5)
+    cfg = replace(cfg, runtime_seconds=300)
     from apps.simmgr import agent_unit
     original = agent_unit.subprocess.run
     argv = []
@@ -43,10 +51,13 @@ def test_five_second_native_deadline_is_clean_and_reusable(native_episode, monke
         owner = str(uuid4())
         before = datetime.now(timezone.utc)
         row = await manager.add('v5_single/f1', slot.robot_id, owner, slot.org_id, 'x'*32, 1)
-        assert 4 < (row['expires_at'] - before).total_seconds() <= 5.1
-        assert state.runtime_seconds == 95
-        assert '--property=RuntimeMaxSec=95' in argv[0]
-        await asyncio.wait_for(asyncio.shield(manager.expiry_task), 6)
+        assert 299 < (row['expires_at'] - before).total_seconds() <= 300.1
+        assert 299 <= row['remaining_s'] <= 300
+        assert state.runtime_seconds == 390
+        assert '--property=RuntimeMaxSec=390' in argv[0]
+        manager.expiry_task.cancel()
+        await asyncio.gather(manager.expiry_task, return_exceptions=True)
+        await manager._expire_at(asyncio.get_running_loop().time())
         assert manager.failed is False and launch.failed is False
         assert manager.world is None and not manager.robots and not state.units
         assert state.events.index('agent_sigint') < state.events.index('agent_exit0') < state.events.index('world_close')
@@ -58,6 +69,71 @@ def test_five_second_native_deadline_is_clean_and_reusable(native_episode, monke
         assert manager.completions(slot.org_id) == []
         await manager.close()
         assert not state.units and not manager.failed and not launch.failed
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize('phase', ['start_world', 'add', 'stop_agent', 'remove'])
+def test_listing_returns_immediately_during_native_transitions(native_episode, monkeypatch, phase):
+    cfg, _ = native_episode
+
+    async def exercise():
+        launch = NativeLauncher(cfg)
+        manager = Manager(cfg, launch)
+        slot = next(iter(cfg.slots.values()))
+        owner = str(uuid4())
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = getattr(launch, phase)
+
+        async def paused(*args):
+            entered.set()
+            await release.wait()
+            return await original(*args)
+
+        monkeypatch.setattr(launch, phase, paused)
+        if phase in ('start_world', 'add'):
+            task = asyncio.create_task(manager.add('v5_single/f1', slot.robot_id, owner, slot.org_id, 'x'*32, 1))
+            expected = 'STARTING'
+        else:
+            await manager.add('v5_single/f1', slot.robot_id, owner, slot.org_id, 'x'*32, 1)
+            manager.expiry_task.cancel()
+            await asyncio.gather(manager.expiry_task, return_exceptions=True)
+            task = asyncio.create_task(manager._expire_at(asyncio.get_running_loop().time()))
+            expected = 'STOPPING'
+        await asyncio.wait_for(entered.wait(), 1)
+        assert manager.lock.locked()
+
+        async def forbidden_health():
+            pytest.fail('health must not inspect an intentional lifecycle transition')
+
+        with monkeypatch.context() as patch:
+            patch.setattr(launch, 'check_health', forbidden_health)
+            if phase == 'remove':
+                # The watcher may see the unit exit during normal world close.
+                patch.setattr(launch.sim, 'reason', 'unit_exited')
+            rows = await asyncio.wait_for(manager.listing(slot.org_id), .1)
+            assert len(rows) == 1 and rows[0]['state'] == expected
+            assert rows[0]['owner_id'] == owner and rows[0]['generation'] == 1
+            assert await asyncio.wait_for(manager.listing(str(uuid4())), .1) == []
+        release.set()
+        await task
+        assert not manager.failed and not launch.failed
+        await manager.close()
+    asyncio.run(exercise())
+
+
+def test_remaining_seconds_use_monotonic_deadline_not_utc():
+    async def exercise():
+        cfg = replace(settings(), runtime_seconds=5)
+        manager = Manager(cfg)
+        slot = next(iter(cfg.slots.values()))
+        row = await manager.add('a', slot.robot_id, str(uuid4()), slot.org_id, 'x'*32, 1)
+        assert row['remaining_s'] == 5
+        manager.expires_at = datetime(2000, 1, 1, tzinfo=timezone.utc)
+        manager.deadline = asyncio.get_running_loop().time() + 1.5
+        assert (await manager.listing(slot.org_id))[0]['remaining_s'] == 2
+        manager.deadline = asyncio.get_running_loop().time() - 1
+        assert (await manager.listing(slot.org_id))[0]['remaining_s'] == 0
+        await manager.close()
     asyncio.run(exercise())
 
 
