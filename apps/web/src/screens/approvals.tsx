@@ -1,9 +1,9 @@
 // 결재 탭(01 AP-01~04·AP-08·MP-05, 02 F-AP-02~04, 03 §5.4·U10, 05 §7 — S4a /approvals).
 // 총괄 = «결재함»(조직 전체, 대기 기본 — 끝난 것도 볼 수 있음), 운영 관리자 = «내 요청»(서버가 본인 것만). 같은 틀에 단추만 다르다(U6).
-// 전후 비교는 지도 탭의 판 비교(screens/mapdiff.tsx Compare)를 그대로 — 대상 판을 기준 판과. 시나리오 배정·긴급 실행 사후 확인은 아직(모르는 종류 = «지원 전 종류», 처리 단추 없음).
+// 전후 비교는 지도 탭의 판 비교(screens/mapdiff.tsx Compare)를 그대로 — 대상 판을 기준 판과. 시나리오 배정은 미리보기(시나리오·판·로봇·요청자)로. 긴급 실행 사후 확인은 아직(모르는 종류 = «지원 전 종류», 처리 단추 없음).
 // 이 칸은 창 전체 키를 잡지 않는다 — STOP 단추·Space = STOP 은 App 머리줄 그대로(확인·처리 중에도).
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { Approval, ApprovalDetail, ApprovalList, ApprovalMapPreview, MapVersion } from '../../../contracts/ts';
+import type { Approval, ApprovalAssignmentPreview, ApprovalDetail, ApprovalList, ApprovalMapPreview, MapVersion } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Tone } from '../fake';
 import { Chip, Line, type Ctx } from '../screens';
@@ -11,12 +11,12 @@ import { when } from './history';
 import { Compare } from './mapdiff';
 import { Note, isVersion, reasonBad, shape, type Msg } from './maps';
 
-const KIND: Record<string, string> = { MAP_REVISION: '지도 수정', MAP_ROLLBACK: '지도 되돌리기' };
+const KIND: Record<string, string> = { MAP_REVISION: '지도 수정', MAP_ROLLBACK: '지도 되돌리기', SCENARIO_ASSIGNMENT: '시나리오 배정' };
 const known = (k: string) => k in KIND;
 const STATUS: Record<string, { tone: Tone; text: string }> = {
   PENDING: { tone: 'warn', text: '대기' }, APPROVED: { tone: 'ok', text: '승인' }, REJECTED: { tone: 'bad', text: '반려' },
   CANCELED: { tone: 'off', text: '취소' }, STALE: { tone: 'bad', text: '적용 불가(지도가 바뀜)' } };
-const status = (s: string) => STATUS[s] ?? { tone: 'off' as Tone, text: '알 수 없는 상태' };
+const status = (s: string, kind?: string) => (s === 'STALE' && kind === 'SCENARIO_ASSIGNMENT' ? { tone: 'bad' as Tone, text: '적용 불가(배정 대상이 바뀜)' } : STATUS[s] ?? { tone: 'off' as Tone, text: '알 수 없는 상태' });
 
 // 받은 값 모양 검사 — 어긋난 응답이 화면(머리줄·STOP 포함)을 깨뜨리지 않게 오류 한 줄로만
 const str = (v: unknown) => typeof v === 'string';
@@ -24,10 +24,14 @@ const isApproval = (a: Approval) => !!a && str(a.id) && str(a.kind) && str(a.sta
   && str(a.reason) && str(a.created_at) && !!a.target && str(a.target.id);
 const isList = (l: ApprovalList) => !!l && Array.isArray(l.items) && l.items.every(isApproval) && (l.next_cursor === null || str(l.next_cursor));
 const isMapPreview = (p: ApprovalDetail['preview']): p is ApprovalMapPreview => !!p && typeof p === 'object' && 'floor_name' in p;
-const isDetail = (d: ApprovalDetail) => isApproval(d) && (!known(d.kind) || (isMapPreview(d.preview) && str(d.preview.floor_name) && Number.isInteger(d.preview.target_version_number)));
+const isAssignPreview = (p: ApprovalDetail['preview']): p is ApprovalAssignmentPreview => !!p && typeof p === 'object' && 'scenario_name' in p;
+const isDetail = (d: ApprovalDetail) => isApproval(d) && (!known(d.kind) || (d.kind === 'SCENARIO_ASSIGNMENT'
+  ? isAssignPreview(d.preview) && str(d.preview.scenario_name) && str(d.preview.robot_name) && Number.isInteger(d.preview.scenario_version)
+  : isMapPreview(d.preview) && str(d.preview.floor_name) && Number.isInteger(d.preview.target_version_number)));
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 /** 층 · 기준 판 → 대상 판 */
-const what = (p: ApprovalMapPreview) => `${p.floor_name} · ${p.base_version_number != null ? `판 ${p.base_version_number}` : '빈 지도'} → 판 ${p.target_version_number}`;
+const what = (p: ApprovalDetail['preview']) => (isAssignPreview(p) ? `«${p.scenario_name}» 판 ${p.scenario_version} → ${p.robot_name}`
+  : isMapPreview(p) ? `${p.floor_name} · ${p.base_version_number != null ? `판 ${p.base_version_number}` : '빈 지도'} → 판 ${p.target_version_number}` : '');
 
 type View = 'PENDING' | 'ALL';
 /** 목록(오래된 것 먼저) + cursor 로 더 받기. 보기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다. again = 처음 쪽 다시(처리 뒤) */
@@ -90,10 +94,10 @@ export function Approvals(c: Pick<Ctx, 'user' | 'cancel' | 'focus' | 'dash'>) {
           <button key={v} type="button" className="btn" aria-pressed={l.view === v} onClick={() => l.show(v)}>{t}</button>)}</span></div>
       <ul className="fh-list" aria-label="결재 목록">{l.items.map((a) => { const p = pre[a.id]?.preview; return <li key={a.id}>
         <button type="button" aria-pressed={a.id === sel} onClick={() => { setSel(a.id); setMsg(null); }} data-approval={a.id}>
-          <Chip {...status(a.status)} /><b>{KIND[a.kind] ?? '지원 전 종류'}</b><span className="fh-grow">{p && isMapPreview(p) ? what(p) : ''}</span>
+          <Chip {...status(a.status, a.kind)} /><b>{KIND[a.kind] ?? '지원 전 종류'}</b><span className="fh-grow">{p ? what(p) : ''}</span>
           <span className="lbl">{admin ? `${a.requester.display_name} · ` : ''}{when(a.created_at)}</span></button></li>; })}</ul>
       {!l.busy && !l.err && !l.items.length && <p className="lv-note">{l.view === 'PENDING' ? (admin ? '대기 중인 결재가 없습니다.' : '대기 중인 내 요청이 없습니다.')
-        : admin ? '결재 요청이 없습니다.' : '아직 결재를 요청한 적이 없습니다. 지도 탭에서 편집을 저장하거나 옛 판으로 되돌리면 결재 요청이 됩니다.'}</p>}
+        : admin ? '결재 요청이 없습니다.' : '아직 결재를 요청한 적이 없습니다. 지도 탭에서 편집을 저장하거나 옛 판으로 되돌리거나, 임무 탭에서 시나리오를 로봇에 배정하면 결재 요청이 됩니다.'}</p>}
       {l.err && <p className="fh-msg" role="alert">결재 목록을 받지 못했습니다. {l.err}</p>}
       {l.busy && <p className="lv-note" role="status">결재 목록을 불러오는 중…</p>}
       {!l.busy && (l.next || l.err) && <div className="fh-row"><button type="button" className="btn" onClick={l.err && !l.items.length ? l.again : l.more}>{l.err ? '다시 시도' : '더 보기'}</button></div>}
@@ -107,6 +111,8 @@ export function Approvals(c: Pick<Ctx, 'user' | 'cancel' | 'focus' | 'dash'>) {
 }
 
 const PRE = 4;
+/** 배정 결재 STALE(서버 transition_assignment): 요청 뒤 시나리오 보관·로봇 담당 바뀜·로봇 지움·시나리오 층 지도 바뀜·배정이 이미 끝남 */
+const STALE_ASSIGN = '요청 이후 배정 대상이 바뀌어(시나리오 보관, 로봇 담당 변경·삭제, 시나리오 층의 지도 변경 등) 이 배정 요청은 적용할 수 없습니다. 시나리오 화면에서 다시 배정을 요청하세요.';
 const DONE = { approve: '승인했습니다.', reject: '반려했습니다. 요청자가 반려 이유를 봅니다.', cancel: '요청을 취소했습니다.' };
 type Act = keyof typeof DONE;
 
@@ -133,7 +139,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
     return () => { live = false; };
   }, [n]);
   // 전후 비교 = 지도 탭 비교 그대로: 대상 판(target)을 그 기준 판(base_ref = 대상 판의 기준 판)과
-  const target = d && known(d.kind) ? d.target.id : '';
+  const target = d && known(d.kind) && d.kind !== 'SCENARIO_ASSIGNMENT' ? d.target.id : '';
   useEffect(() => {
     if (!target) return;
     let live = true;
@@ -145,6 +151,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
     : <p className="lv-note" role="status">결재 내용을 불러오는 중…</p>;
 
   const mine = d.requester.id === me, open = d.status === 'PENDING', p = known(d.kind) && isMapPreview(d.preview) ? d.preview : null, lock = busy || loading || !!err;
+  const ap = known(d.kind) && isAssignPreview(d.preview) ? d.preview : null;
   const again = () => { setLoading(true); setN(n + 1); recheck(); };
   const run = async (a: Act) => {
     if (sending.current || loading || err) return;   // 두 번 누름(화면이 잠기기 전 두 번째 누름도)·상태 확인 전
@@ -152,14 +159,15 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
     try {
       const body = comment.trim() || null;
       await (a === 'approve' ? api.approve(d.id, body, cancel) : a === 'reject' ? api.reject(d.id, reason.trim(), cancel) : api.cancelApproval(d.id, cancel)).then(fit(isApproval));   // 빈·어긋난 200 = 불확실(status 0)
-      done(d.id, { text: a === 'approve' && p ? `승인했습니다. 이제 ${p.floor_name}의 승인 판은 판 ${p.target_version_number}입니다. 다음 실행부터 이 판을 씁니다.` : DONE[a], ok: true });
+      done(d.id, { text: a === 'approve' && p ? `승인했습니다. 이제 ${p.floor_name}의 승인 판은 판 ${p.target_version_number}입니다. 다음 실행부터 이 판을 씁니다.`
+        : a === 'approve' && ap ? `승인했습니다. 이제 ${ap.robot_name}에 «${ap.scenario_name}» 판 ${ap.scenario_version}이 배정됐습니다.` : DONE[a], ok: true });
     } catch (x) {
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
       // 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 처리됐을 수도 있다 — 지금 상태를 다시 받아 보여 준다
       if (f.status === 0) setMsg({ text: '처리 응답을 받지 못했습니다. 처리됐을 수 있어 지금 상태를 다시 불러옵니다. 상태를 확인한 뒤 다시 누르세요.' });
       // 서버가 STALE 로 끝내고 알림까지 남긴 뒤 409 — 다시 받으면 «적용 불가»로 보인다
-      else if (f.code === 'APPROVAL_STALE') setMsg({ text: `승인하지 못했습니다. ${f.message}` });
+      else if (f.code === 'APPROVAL_STALE') setMsg({ text: `승인하지 못했습니다. ${ap ? STALE_ASSIGN : f.message}` });
       else if (f.code === 'ALREADY_DECIDED') { setMsg({ text: `${f.message} 지금 상태를 다시 불러오는 중입니다.` }); then.current = `${f.message} 지금 상태를 다시 불러왔습니다.`; }
       else if (f.status === 404) setMsg({ text: '이 결재 요청을 찾을 수 없습니다. 목록을 다시 받습니다.' });
       else { setMsg({ text: `처리하지 못했습니다. ${f.message}` }); return; }
@@ -178,9 +186,12 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
   };
 
   return <div className="fh-form" aria-label="결재 내용">
-    <div className="fh-row"><h2 className="fh-grow">{KIND[d.kind] ?? '지원 전 종류'} · {d.requester.display_name} · {when(d.created_at)}</h2><Chip {...status(d.status)} /></div>
-    {p ? <b>{what(p)}{open ? ' (요청)' : ''}</b> : <p className="lv-note">이 화면에서 아직 처리할 수 없는 종류의 결재입니다.</p>}
-    {d.status === 'STALE' && <p className="fh-msg" role="alert">요청 이후 지도가 바뀌어 이 요청은 더 이상 적용할 수 없습니다. {mine ? '새 승인 판에서 다시 요청하세요.' : '요청자가 새 승인 판에서 다시 요청해야 합니다.'}</p>}
+    <div className="fh-row"><h2 className="fh-grow">{KIND[d.kind] ?? '지원 전 종류'} · {d.requester.display_name} · {when(d.created_at)}</h2><Chip {...status(d.status, d.kind)} /></div>
+    {p || ap ? <b>{what(d.preview)}{open ? ' (요청)' : ''}</b> : <p className="lv-note">이 화면에서 아직 처리할 수 없는 종류의 결재입니다.</p>}
+    {ap && <div className="fh-form" aria-label="배정 미리보기" data-assign-preview>
+      <Line k="시나리오"><span>{ap.scenario_name}</span></Line><Line k="판"><span>판 {ap.scenario_version}</span></Line>
+      <Line k="로봇"><span>{ap.robot_name}</span></Line><Line k="요청자"><span>{d.requester.display_name}</span></Line></div>}
+    {d.status === 'STALE' && <p className="fh-msg" role="alert">{ap ? `${STALE_ASSIGN} ${mine ? '' : '요청자가 다시 요청해야 합니다.'}` : `요청 이후 지도가 바뀌어 이 요청은 더 이상 적용할 수 없습니다. ${mine ? '새 승인 판에서 다시 요청하세요.' : '요청자가 새 승인 판에서 다시 요청해야 합니다.'}`}</p>}
     {p && (v ? <Compare v={v} list={p.base_version_number != null && d.base_ref ? [{ id: d.base_ref.id, number: p.base_version_number }] : []} cancel={cancel}
         gone={() => { setV(null); setVErr('비교할 판을 찾을 수 없습니다.'); }} />
       : vErr ? <div className="fh-row"><p className="fh-msg" role="alert">{vErr}</p><button type="button" className="btn" onClick={() => setVn(vn + 1)}>다시 시도</button></div>
@@ -189,7 +200,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
     {d.decider && <Line k="처리"><span>{d.decider.display_name}{d.decided_at ? ` · ${when(d.decided_at)}` : ''}</span></Line>}
     {d.decision_comment && <Line k={d.status === 'REJECTED' ? '반려 이유' : '의견'}><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{d.decision_comment}</span></Line>}
     {open && mine && <div className="fh-row"><button type="button" className="btn" disabled={lock} onClick={() => run('cancel')}>요청 취소</button></div>}
-    {open && admin && !mine && p && <>
+    {open && admin && !mine && (p || ap) && <>
       <label className="fh-field"><span>의견(선택)</span><input className="inp" maxLength={2000} value={comment} disabled={lock} onChange={(e) => setComment(e.target.value)} /></label>
       <div className="fh-row"><button type="button" className="btn" disabled={lock || ask} aria-pressed={rejecting} onClick={() => { setRejecting(!rejecting); setAsk(false); setMsg(null); }}>반려</button>
         <button type="button" className="btn pri" disabled={lock || ask} onClick={approve}>승인</button></div>

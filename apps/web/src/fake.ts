@@ -22,11 +22,6 @@ export const USERS: User[] = [];
 
 export const ROBOTS: Robot[] = [];
 
-export const SCENARIOS = [
-  { id: 's1', name: '2층 순찰', floor: 'f2', points: 5, meters: 84, robot: 'r3', last: '어제 완료' },
-  { id: 's2', name: '1층 점검', floor: 'f1', points: 3, meters: 40, robot: 'r1', last: '' },
-];
-
 export const userName = (id: string) => USERS.find((u) => u.id === id)?.name ?? ROBOTS.find((r) => r.owner === id)?.ownerName ?? '알 수 없음';
 /** 담당자 이름(담당 없음이면 그렇게) */
 export const ownerName = (r: Robot) => (r.owner ? r.ownerName ?? userName(r.owner) : '담당 없음');

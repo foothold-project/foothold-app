@@ -1,6 +1,6 @@
 // 임무 탭(01 MS-01·02·03·09, 02 F-MS-01~04·§10, 03 §5.3, 05 §6.1~6.3 — S5a /actions·/missions·/scenarios·/scenarios/preview).
 // 목록 [임무 | 시나리오](보관 제외 기본·보관 보기·더 보기) + 편집 칸. 저장할 때마다 새 판(PUT If-Match = 받은 본체 version), 옛 판은 읽기 전용(덮어쓰기 단추 없음).
-// 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정·실행·폰 카드는 S5b·S7 뒤(W6b) — 자리도 두지 않는다.
+// 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정 창·목록은 저장된 시나리오 칸 아래(screens/assign.tsx, S5b), 실행은 S7 뒤.
 // STOP 은 App 머리줄 — 이 화면은 창 키·포인터를 잡지 않는다(지도 svg 포인터만).
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { Action, MapVersion, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
@@ -9,6 +9,7 @@ import type { Robot, User } from '../fake';
 import { KIND as DEVICE, type Ctx } from '../screens';
 import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useTree, type Msg, type Place } from './maps';
 import { fromScreen, inside, nameBad } from './mapedit';
+import { AssignPanel } from './assign';
 
 type P = [number, number];
 type AnyPlan = Mission | Scenario;
@@ -265,6 +266,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
         <button type="button" className="btn pri" onClick={() => { const u = unsure; setUnsure(null); setAgain(false); send(u.body); }}>그래도 다시 저장</button>
         <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
     </>}
+    {kind === 'scenarios' && id && latest && <AssignPanel scenario={id} name={latest.name} version={view?.number ?? latest.latest_version} archived={archived} user={user} robots={robots} cancel={cancel} />}
   </div>;
 }
 
