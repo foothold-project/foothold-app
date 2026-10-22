@@ -16,6 +16,7 @@ const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
 const PARK: User = { ...LEE, id: 'o2', username: 'park', display_name: '박운영', robot_ids: [] };
 const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name },
+  simulation: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
 // 지도 100×80 칸, 0.05 m, origin (-1, -2) → x -1~4 m, y -2~2 m. 1층: 진입 금지 x 3~4, 이름 붙은 지점 «입구»(0, 0), 2층 계단 연결점
 const ver = (id: string, floor_id: string, features: MapVersion['features']): MapVersion => ({ upload_id: `up-${id}`, id, floor_id, number: 1, base_version_id: null, copied_from_id: null, status: 'APPROVED',
