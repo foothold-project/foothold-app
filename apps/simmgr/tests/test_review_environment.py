@@ -161,7 +161,8 @@ def test_agent_unit_is_bounded_and_environment_is_private(tmp_path,monkeypatch):
         if args[0]=='systemctl':return SimpleNamespace(stdout='LoadState=not-found\n')
         return SimpleNamespace(stdout='')
     monkeypatch.setattr(agent_unit.subprocess,'run',run)
-    child=AgentUnit(tmp_path,cfg,{'FOOTHOLD_AGENT_TOKEN':'private-credential','ROS_DOMAIN_ID':'93'},Path('/synthetic'))
+    folder=tmp_path/'approved-stage1-001';folder.mkdir()
+    child=AgentUnit(folder,cfg,{'FOOTHOLD_AGENT_TOKEN':'private-credential','ROS_DOMAIN_ID':'93'},Path('/synthetic'))
     argv,options=commands[-1]
     assert '--property=KillSignal=SIGINT' in argv
     assert '--property=RuntimeMaxSec=240' in argv

@@ -95,8 +95,9 @@ unit payload는 허용 목록의 환경과93을 `/usr/bin/env -i` 뒤 지정하�
 첫 기동 승인 범위에 반드시 포함한다.** 원본 파일 수정은 없다. 관리자 증거/ROS 로그와
 시험 서버 파일은 위 현재 worktree의 새 실행 폴더다.
 
-agent는 허용 목록+그 로봇 설정만 받아 별도 사용자 unit
-`fh-simmgr-agent-approved-stage1-001.service`에서 실행한다. RuntimeMaxSec=240,
+매 기동은 `SIM_RUN_DIR` 아래 UTC 시각+순번의 새0700 episode 폴더를 만든다.
+agent는 허용 목록+그 로봇 설정만 받아 그 폴더 이름의 별도 사용자 unit
+`fh-simmgr-agent-<episode>.service`에서 실행한다. RuntimeMaxSec=240,
 MemoryMax=512M·MemorySwapMax=0·TasksMax=128, KillSignal=SIGINT·TimeoutStopSec=15·
 KillMode=control-group·SendSIGKILL=yes, RemainAfterExit=yes다. 종료 근거를 읽은 뒤
 관리자가 자기 exited unit을 stop해 남은 자식을 수거한다. 관리자 SIGKILL/OOM/SIGHUP에도 unit의 수명 제한이 남는다.
@@ -148,22 +149,28 @@ P1-D 별도 표로 측정하며 이 단계의 같은 PC 수치를 실폰 결과�
 5. Git revert와0014/0013 이력 보존이 우선. simulation 출처를 잃는0014 downgrade는 활성0·
    기록보존·별도승인 뒤만. 이번 작업에는 운영 DB migration·배포·기동0이다.
 
+정상 DELETE는 agent exit0와 world close의 identity/정리 증거를 모두 확인한 뒤
+같은 관리자의 다음 POST를 허용한다. 다음 POST도 자원·93·DDS·sim/agent unit 부재를
+처음부터 검사한다. 실패가 한 번 고정된 관리자는 정리를 다시 시도해도 재사용하지 않는다.
+
 관리자가 비정상 종료했다면 **이 실행의 agent unit만** 아래 literal 이름으로 확인한다.
+아래 이름은 형식 예제다. 해당 실행의 `SIM_RUN_DIR/<episode>`에서 확인한 정확한
+episode 이름으로 바꾸고, 패턴 이름을 stop/kill에 쓰지 않는다.
 이 명령 역시 이번 작업에서는 실행하지 않았다. 정상 STOP/zero 확인이 없으면 world는
 보존하고 실패를 보고한다. world 또는 다른 unit을 패턴으로 일괄 종료하지 않는다.
 
 ```sh
-systemctl --user show fh-simmgr-agent-approved-stage1-001.service --property=ActiveState,Result,MainPID,ControlGroup
-systemctl --user status fh-simmgr-agent-approved-stage1-001.service --no-pager
+systemctl --user show fh-simmgr-agent-20261022T000000000000Z-000001.service --property=ActiveState,Result,MainPID,ControlGroup
+systemctl --user status fh-simmgr-agent-20261022T000000000000Z-000001.service --no-pager
 # 남은 자기 agent unit만 정리(강제 종료는 STOP/zero 통과가 아님):
-systemctl --user stop fh-simmgr-agent-approved-stage1-001.service
-systemctl --user show fh-simmgr-agent-approved-stage1-001.service --property=ActiveState,MainPID,ControlGroup
+systemctl --user stop fh-simmgr-agent-20261022T000000000000Z-000001.service
+systemctl --user show fh-simmgr-agent-20261022T000000000000Z-000001.service --property=ActiveState,MainPID,ControlGroup
 # 상태/최대 메모리·task 증거 수거·자기 cgroup 부재 확인 뒤 남은 failed 메타데이터만:
-systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
+systemctl --user reset-failed fh-simmgr-agent-20261022T000000000000Z-000001.service
 ```
 
 마지막 MainPID=0·자기 cgroup 잔여 0과 unit 종료를 확인한다. unit 이름이 이미 있으면 시작을 거부한다. 정상 종료 후 unit이 회수되어도 기존 실행
-폴더의 재사용을 거부하므로 새 실행에는 새 episode 이름/승인 폴더를 쓴다.
+episode 폴더의 재사용을 거부하므로 새 기동에는 항상 새 episode 이름을 쓴다.
 
 ## 관리자 비정상 종료 뒤 슬롯 복구
 

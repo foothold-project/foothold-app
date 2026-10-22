@@ -10,7 +10,7 @@ import time
 
 class AgentUnit:
     def __init__(self, folder, settings, env, root):
-        episode = Path(settings.run_dir).parent.name
+        episode = Path(folder).name
         if not re.fullmatch(r'[a-zA-Z0-9_-]{1,64}', episode):
             raise ValueError('invalid agent unit episode name')
         self.unit = 'fh-simmgr-agent-' + episode + '.service'
