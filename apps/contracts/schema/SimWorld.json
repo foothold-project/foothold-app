@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/SimWorld",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "title": "SimWorld",
+  "type": "object"
+}

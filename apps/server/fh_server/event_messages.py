@@ -18,6 +18,13 @@ UNKNOWN = '확인되지 않음'
 TEMPLATES = {
     'ASSIGNMENT_CREATED': '{person}님이 {robot}에 시나리오 {scenario} {number}판을 배정했습니다.',
     'ASSIGNMENT_REMOVED': '{person}님이 {robot}의 시나리오 {scenario} {number}판 배정을 해제했습니다.',
+    'SIM_ROBOT_START_STALE': '{person}님의 이전 시뮬 시작 응답을 거부하고 정리를 시도했습니다.',
+    'SIM_ROBOT_START_REJECTED': '{person}님의 시뮬 시작 요청이 생성 전에 거부되어 슬롯을 해제했습니다.',
+    'SIM_ROBOT_REMOVE_STALE': '{person}님의 이전 시뮬 종료 요청을 현재 세대에서 거부했습니다.',
+    'SIM_ROBOT_REMOVE_FAILED': '{person}님의 시뮬 로봇 종료 요청을 처리하지 못했습니다.',
+    'SIM_ROBOT_REQUESTED': '{person}님이 시뮬 로봇 시작을 요청했습니다.',
+    'SIM_ROBOT_REGISTERED': '{person}님이 시뮬 로봇을 등록했습니다.',
+    'SIM_ROBOT_REMOVED': '{person}님이 시뮬 로봇을 종료했습니다.',
     'PHONE_PASS_ISSUED': '{person}님의 폰 출입증을 발급했습니다.',
     'PHONE_PASS_DENIED': '폰 출입증 발급을 거절했습니다.',
     'MISSION_CREATED': '{person}님이 임무 {place} {number}판을 만들었습니다.',

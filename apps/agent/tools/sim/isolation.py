@@ -106,7 +106,7 @@ def abort_reason(now, last, high_since, deadline):
 
 
 class Simulation:
-    def __init__(self, folder, source, setup, seconds=240):
+    def __init__(self, folder, source, setup, seconds=240, launch_env=None):
         if source.is_symlink() or source.absolute() != source.resolve():
             raise ValueError('SIM_SOURCE must be a real path without symlinks')
         self.folder, self.source, self.setup = folder, source.resolve(), setup.resolve()
@@ -116,6 +116,7 @@ class Simulation:
             raise ValueError('unexpected sensor runtime layout')
         if not 30 <= seconds <= 240:
             raise ValueError('runtime must be 30..240 seconds')
+        self.launch_env = launch_env
         self.seconds = seconds
         tag = datetime.now().strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8]
         self.unit = 'fh-rb-sim-' + tag + '.service'
@@ -207,8 +208,15 @@ class Simulation:
                 '--working-directory=' + str(self.source.parent.parent.parent / MAP_DIRECTORY),
                 '/bin/bash', '-c', script, 'rb-sim', str(self.setup), str(self.source), str(self.out), str(self.folder / 'ros'),
                 str(Path(__file__).resolve().parents[2])]
+        if self.launch_env is not None:
+            # Clear user-manager inheritance inside the unit, before ROS setup.
+            index = args.index('/bin/bash')
+            args[index:index] = ['/usr/bin/env', '-i', *[f'{key}={value}' for key, value in sorted(self.launch_env.items())]]
         write(self.folder / 'launch.json', {**stamp(), 'argv': args, 'out': str(self.out), 'unit': self.unit})
-        command(*args)
+        if self.launch_env is None:
+            command(*args)  # preserve the existing D1 caller exactly
+        else:
+            subprocess.check_output(args, env=self.launch_env, text=True, stderr=subprocess.STDOUT)
         self.started = True
         for _ in range(30):
             info = self.show()

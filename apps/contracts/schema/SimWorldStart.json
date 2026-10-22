@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/SimWorldStart",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "world_id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "World Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "world_id"
+  ],
+  "title": "SimWorldStart",
+  "type": "object"
+}

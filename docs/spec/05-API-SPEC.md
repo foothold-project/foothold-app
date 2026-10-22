@@ -915,3 +915,161 @@ B-tree/색인·metadata·같은 DB의 used-jti4096행 몫을 포함할 여유로
 4. 재승격 전 이력·seq·ack를 복구/대조한다. 이력을 복구할 수 없거나 키 신뢰가 깨졌으면
    새 로봇별 키 배포/회전과 잠금·저널·시계 확인을 거쳐 재발급한다. 예전 키로 만료 출입증을
    새로 유효하게 만들지 않는다. 다운그레이드 왕복 단위 시험은 이 운영 승인을 대신하지 않는다.
+
+### 13.8 1단계 카메라 (`fh-phone/1`, P1-C)
+
+이 절은 §13.6의 «카메라 후속» 중 낮은 빈도 JPEG 경로를 구체화한다. 실시간 제어 WS
+`/phone/ws`와 **같은 에이전트 포트의 별도** `/phone/camera/ws`를 사용한다. 영상 전송이
+막혀도 제어의 응답·STOP·deadman 작업을 기다리게 하지 않는다. 서버를 경유하지 않는다.
+
+1. 배포에서 `FOOTHOLD_CAMERA_ENABLED=1`인 경우에만, 기존 출입증 hello 성공 응답의
+   `camera_token`에 43자 난수 토큰을 준다(그 외 null). control/view 모두 같다.
+   토큰은 부모 연결 하나·로봇 하나에 묶이고, **발급 후 10초 미만·1회용**이다.
+2. 폰은 카메라 WS의 첫 텍스트 프레임으로
+   `{t:"camera.hello",robot:UUID,token:camera_token}`을 보낸다. URL·저장·로그에 넣지 않는다.
+   hello는 4 KiB·1초 이내, 전체 카메라 접속은 인증 대기를 포함해 최대16개다.
+   인증 대기는 주소별2개이며 초과는1013 CAMERA_ADDRESS_CAPACITY다.
+   부모 폰 연결 하나당 카메라 연결은 하나만 허용한다.
+3. 에이전트 → 폰 프레임은 다음 두 가지다. `CameraHello/Frame/Status` 생성 계약이 정본이다.
+
+| t | 필드 | 뜻 |
+|---|---|---|
+| `camera.frame` | robot, seq, mime=`image/jpeg`, width, height, jpeg | 실제 크기와 표준 base64 JPEG. seq는 카메라 프로세스 수명 안에서 증가하며 조종 seq와 관계없음 |
+| `camera.status` | robot, state=`NO_VIDEO` | 영상 없음. 연결 직후, 유효 원천 수신 후 단조 벽시계1초 초과, 카메라 미수신 때 |
+
+JPEG 원본은 최대65,536 B(64 KiB), width≤640·height≤360이다. base64는 최대87,384자이므로
+영상 **수신** 프레임 한도를96 KiB 이상으로 둔다. 제어 **송신**의4 KiB 한도는 그대로다.
+≤5fps 송신 상한은 `run()`의 단조 벽시계0.2초 sampler가 보장하며 실측fps를 보고한다.
+원천 격자만으로 송신 최소 간격/창 상한을 주장하지 않는다. 원천 submit은0.2초
+격자(next += 0.2, 긴 공백 뒤 재설정)로 제한한다. 미소 흔들림으로 격자가 누적 지연되지
+않으며 유효하지 않은 프레임은 자리를 쓰지 않는다. 아직 샘플하지 않은1장은 덮어쓰지 않는다.
+ROS 입력 최신1장·폰별 대기 최신1장만 둔다.
+현재 원본의424×240 JPEG를 재인코딩·확대하지 않는다. 640×360은 상한이며 기본 출력
+크기640×360 대신 원본 크기를 쓰는 조정 결정이다. 손상된 외피·크기 불명·상한 초과
+프레임은 버린다. JPEG 바이트를 저장하거나 안전 판단에 쓰지 않는다.
+
+인증 후 카메라 WS는 받기 전용이다. 폰이 추가 application 프레임(조종·STOP 포함)을
+보내면4403 `CAMERA_RECEIVE_ONLY`로 **영상 소켓만** 닫는다. 잘못된·재사용·만료 토큰은
+4403 `CAMERA_UNAUTHORIZED`다. 부모 종료·출입증 만료·회수·전환으로 부모가 없어지면
+최대50 ms 감시 주기 뒤4403 `CAMERA_PARENT_CLOSED`로 닫는다(네트워크 닫힘 완료 지연 별도).
+느린 영상 쓰기는0.2초 제한 뒤1013 CAMERA_SEND_TIMEOUT으로 영상 연결만 닫고,
+hello 대기 만료는1013 CAMERA_HELLO_TIMEOUT이다. 폰 조종 연결은 유지한다. 프레임 유실·
+NO_VIDEO·카메라 소켓 닫힘은 조종권·STOP·입력 만료를 바꾸지 않는다. 재연결은 새 부모
+hello/새 출입증으로 새 토큰을 받는 흐름이며, 조종권 자동 복원은 없다.
+
+### 13.9 시뮬 관리자 중계 (P1-C 준비)
+
+폰은 관제 서버의 다음 API를 호출하고, 서버만 loopback 시뮬 관리자와 서비스 인증으로
+통신한다. 로그인·웹 CSRF는 기존 규칙, 권한은 목록/생성 `authorize(O)`, 기존 로봇
+제거/재요청 `authorize(O_OWN)`다. 새 권한·조종 명령 중계 경로를 만들지 않는다.
+
+| API | 입력 / 응답 |
+|---|---|
+| `GET /api/v1/simulation/worlds` | `SimCatalog`: 공개 world id·사전 배포 slot UUID·상한·launcher. 원본 경로/키 없음 |
+| `GET /api/v1/simulation/robots` | `SimRobotList`, 현재 조직·본인 소유만(총괄은 조직 전체) |
+| `POST /api/v1/simulation/robots` | `SimStartRequest {world_id,robot_id}` →201 `SimRobot` |
+| `DELETE /api/v1/simulation/robots/{robot_id}` | 담당 권한 확인·STOP/0·정리 확인 뒤204 |
+
+`SimRobot`은 generation, robot_id, owner_id, world_id, `simulation:true`, state, agent_address,
+namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,launcher=fake`는
+가짜 launcher의 계약 시험 결과이고 접속 가능한 로봇이 아니다. `RUNNING,native-single`은
+네이티브 에이전트 listener가 열린 결과이며 §13.6·ADR-002 §8 성능 통과를 뜻하지 않는다.
+
+서버는0014의 `robots.simulation`(기본false)을 중계 등록에서만true로 저장한다. 일반 로봇
+등록/수정 입력은 이 필드를 받지 않는다. offline·메타데이터 갱신·제거 뒤에도 로봇 요약에
+`simulation:true`가 남는다. 화면의 «시뮬» 표시는 **DB RobotSummary.simulation만** 사용한다(화면 구현 별도).
+에이전트 welcome/state.simulation은 참고용이며 출처 판정에 쓰지 않는다. 시뮬 행의 일반
+`/robots/{id}/agent-token` 회전은409 SIM_TOKEN_MANAGED, 일반 DELETE와 담당자 PATCH는
+409 SIM_ROBOT_MANAGED로 거부한다. 이름 수정은 기존 권한으로 허용한다.
+SIM_ROBOT_REQUESTED/REGISTERED/REMOVED·REMOVE_FAILED·REMOVE_STALE·START_REJECTED·START_STALE 감사는
+id·world·generation·launcher·실패코드만 담고 주소·토큰·키는
+담지 않는다. 에이전트 시작 전 id·토큰 hash와 REQUESTED를 먼저 commit하므로 시작 응답이
+유실·timeout·5xx·신원/응답 검증 실패는 STARTING을 유지하고 자동 재취득하지 않는다.
+STARTING에서도 같은 권한의 DELETE로 같은 세대의 관리자 로봇을 정리한 뒤 IDLE로 복구한다. 제거 전 살아 있는 출입증을 기존 회수 outbox로
+commit하고, 정리 중 새로 발급된 것도 완료 직전 조직 잠금 아래 다시 회수한다. 제거 성공 뒤 owner를 비워 다른 사람이 슬롯을 쓸 수 있게 한다. 실패면
+owner를 유지하고 실패 감사를 별도 commit한다. 로봇·출입증 이력은 삭제하지 않는다.
+
+출입증은 **그대로 §13.7**로 받는다. 슬롯 UUID의 서버/에이전트 키를 미리 배포하며, 키가
+없는 슬롯은503 PASS_KEY_MISSING이다. 일반 로그인 권한을 넘는 키/claim을 생성하지 않는다.
+관리자 인증은 저장소 밖 실행 사용자 소유0600 파일의 최소32자 서비스 키이며, 서버의
+`FH_SIM_MANAGER_URL`은127.0.0.1·9430~9449만 허용한다. 환경 proxy는 사용하지 않는다.
+관리자도127.0.0.1에만 bind하며 포트를 공유하지 않는다.
+
+관리자 내부 API는 `/v1/worlds` GET/POST, `/v1/robots` GET/POST/DELETE다. 서버만 POST에
+`SimProvision {world_id,robot_id,owner_id,org_id,agent_token,generation}`을 보낸다. 비밀은 본문/자식
+환경에만 있고 응답·URL·감사·공개 카탈로그에 없다. 월드 파일+지도 파일은 저장소 밖
+설정의 짝이며 원본 자산을 복사하지 않는다. ROS 도메인93·LOCALHOST만 허용하고61·DDS
+override를 거부한다. 제어 평면은 ROS_*·RMW/DDS 환경을 거부하고
+FH_SIM_DOMAIN=93 설정에서만 자식 허용 목록 환경을 만든다(자식에 DB/서버키/관리자키/실행flag 미전달).
+중계 쓰기 timeout은180초로 native110+30초보다 길고, GET은5초다.
+모든 관리자 호출은 조직 쓰기 잠금을 푼 뒤 수행한다. 에이전트 WS 경로는 `/api/v1/agent/ws`만 허용한다.
+첫 기동은 같은 PC·127.0.0.1만이며 LAN 폰 측정은 P1-D다. 기본은fake, 시뮬·에이전트 프로세스 생성은 명시 `FH_SIM_RUN=1`일 때만이다.
+서비스 startup의 읽기 전용 OS 도구 조회는 fake에서도 수행한다.
+
+기본 상한2·1인1대·월드1개를 가짜 launcher로 검증한다. 원본 native runtime은 고정된
+Go2 한 대·절대 토픽/TF라 실제 경로는 **1대만 허용**하고 namespace/tf_prefix가 빈 값이다.
+두 번째 실제 로봇은409 SIM_NATIVE_SINGLE_ONLY로 거부하며, 다중 로봇 격리 통과를 주장하지
+않는다(4단계). 첫 기동은 [기동 계획](../../apps/simmgr/FIRST-LAUNCH.md)의 별도 승인 대상이다.
+
+슬롯 세대의 정본은 서버 DB 하나다. 취득은0014의 `sim_generation`(0부터 단조 증가)을
+조직 잠금 안에서 올리고 `sim_state=STARTING→ACTIVE→STOPPING→IDLE`로 관리한다.
+STARTING/STOPPING 재POST는 같은 담당자도 거부한다. **DELETE는 STARTING·STOPPING에서도**
+기존 `O_OWN` 권한으로 허용한다. IDLE 해제 뒤 owner가 없는 슬롯에 대한 이전 담당자의
+반복 DELETE는 기존 권한 판정 그대로이며, 새 POST 취득은 기존 `O`를 사용한다.
+첫204 응답이 유실되면 재시도는403일 수 있다. 목록의 현재 로봇 부재와 재취득201을
+함께 확인하며, 빈 목록만으로 DB IDLE이라고 단정하지 않는다.
+
+관리자는 받은 세대를 로봇과 함께 보관한다. 슬롯별 DELETE 최대 세대는 제거 확인 세대로
+메모리에만 보관하며(로봇이 없어도 기록), 그 이하 POST는 잠금 안에서 생성 전에 409
+SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 목록에 넣지 않는다.
+별도 영속 세대는 없으며 재시작하면 제거 확인 세대도 비워진다. 관리자 POST는 자동 재전송하지
+않는다. 서버 commit 뒤 아직 송신하지 않은 첫 전달은 관리자 재시작을 넘을 수 있으므로,
+성공·불확실 결과 모두 서버 최종 확인과 보상을 거친다. 새 관리자의 부재 관문만으로 이
+첫 전달을 배제하지 않는다.
+관리자 DELETE 본문은 `SimRemove {generation}`이며 자기 잠금 안에서 다음처럼 처리한다.
+
+- 로봇이 있으면 같은 세대일 때만 STOP·정리하고, 다른 세대면409 SIM_GENERATION_MISMATCH다.
+- 로봇이 없으면 기대 세대와 무관하게200(이미 없음)이다. **서비스 시작 전** fake/native
+  모두 기존 isolation preflight(다른 93/DDS 거부, 자원 기준은 fake만 경고)와 남은
+  `fh-rb-sim-*.service`/`fh-simmgr-agent-*.service` user unit 부재 검사를 통과해야 한다.
+  61은 startup에서 기록만 하며 거부 조건이 아니다. world 실행 전후 61 PID/start_ticks
+  불변 비교는 Simulation이 별도로 수행한다. user bus 조회 실패도 시작 거부다. 검사는 읽기만 하고 프로세스/unit을 정리하지 않는다.
+  이 관문이 있어야 재시작한 빈 관리자의 «없음»을 실제 runtime 부재로 신뢰할 수 있다.
+
+서버는 원격 DELETE 뒤 조직 잠금 아래 **세대와 STOPPING을 모두** 다시 확인한 뒤만
+재회수·담당자 해제·hash 교체·REMOVED 감사를 수행한다. 같은 세대의 이중 DELETE도
+완료된 IDLE을 다시 바꾸지 않는다. 다른 세대면 아무것도 변경하지 않고409를 보낸다.
+같은 담당자의 재취득도 다른 세대이며 이전 DELETE가 새 로봇·출입증·owner·키를 바꾸지 않는다.
+원격 호출 동안 조직 쓰기 잠금은 유지하지 않는다.
+
+시작 전 확실한 거부는 다음 **(HTTP status, code) 고정 목록만** 인정한다. 같은 요청의
+완료 처리에서 세대와 STARTING을 다시 확인하고, 중간 발급 출입증 회수·hash 교체·owner
+해제·IDLE·START_REJECTED를 commit한다. 목록 밖 코드·status 조합·본문 파싱 실패는 불확실로
+남겨 STARTING DELETE로 복구한다. 기존 로봇이 있을 수 있는 SIM_SLOT_BUSY는 목록에 없다.
+
+| HTTP | 시작 전 거부 코드 |
+|---|---|
+|400|SIM_VALIDATION, SIM_IDENTITY_INVALID, SIM_CREDENTIAL_INVALID|
+|404|SIM_WORLD_NOT_FOUND, SIM_SLOT_NOT_FOUND|
+|409|SIM_WORLD_BUSY, SIM_OWNER_LIMIT, SIM_NATIVE_SINGLE_ONLY, SIM_ROBOT_LIMIT|
+
+- `SIM_ROBOT_START_REJECTED`: 위 목록의 확실한 시작 전 거부로 같은 세대 예약을 즉시 해제했다.
+- `SIM_ROBOT_REMOVE_FAILED`: 관리자/relay가 정리 요청을 실패/거부했다(관리자가 먼저 세대 불일치를 거부한 경우 포함). owner/예약을 보존한다.
+- `SIM_ROBOT_REMOVE_STALE`: 관리자는 성공했지만 서버 완료 검사에서 세대 또는 STOPPING이 바뀌었다. 현재 로봇/예약/hash/출입증은 바꾸지 않는다.
+
+관리자 POST의 확실한 거부 목록 밖 결과는 **성공·불확실 모두** 조직 잠금 안에서 DB 세대와
+STARTING을 최종 확인한다. 둘이 맞으면 성공은 ACTIVE, 불확실은 STARTING 유지다.
+맞지 않으면 commit으로 잠금을 푼 뒤 원래 세대의 관리자 DELETE를 **1회** 보상 시도한다.
+현재 DB 슬롯/출입증/owner/hash는 바꾸지 않는다. 응답은 원래 불확실 오류(예503), 성공
+응답의 뒤늦은 불일치는409다. `SIM_ROBOT_START_STALE` 감사 1건에 세대와 보상 결과
+(제거/이미 없음 또는 실패코드)를 기록한다. 관리자 STALE409는 생성되지 않았으므로 보상
+DELETE 없이 같은 감사 1건에 `compensation=NOT_CREATED`를 남긴다. HTTP 프로토콜 예외
+(IncompleteRead·BadStatusLine 등)도 RelayError로 감싼 불확실 결과이며 자동 재전송하지 않는다.
+
+첫 전달·응답 유실에 보상 실패까지 겹치면 runtime이 남을 수 있다. 서버 token hash는 이미
+교체되어 옛 에이전트는 서버에 붙지 못하지만, 이 사실을 STOP0 확인이나 폰 출입증의 즉시
+offline 무효화로 보지 않는다(§13.7 한계 유지). world와 agent unit은 각각
+**RuntimeMaxSec=240**의 자동 종료 대상이다(정지 grace는 world45초·agent15초 별도이며 실제
+종료/고아·STOP0는 아직 미검증). 다음 취득이 SIM_SLOT_BUSY(불확실)로 막히면 자동 반복하지
+않고 FIRST-LAUNCH 복구 1·2단계에서 자기 runtime 정리·부재 관문·새 episode를 확인한 뒤
+기존 DELETE 복구를 따른다. 보상 실패로 현재 DB를 덮거나 새 인스턴스 epoch를 도입하지 않는다.

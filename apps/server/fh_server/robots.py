@@ -102,7 +102,7 @@ def robot_objects(db, robots, user, realtime):
             lease = C.Lease(holder_type=holder.holder_type,
                 user=C.Person(id=holder.actor.user, display_name=holder.actor.display_name) if holder.actor else None,
                 since=now() - timedelta(seconds=max(0, realtime.clock() - holder.since)))
-        result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model,
+        result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
             owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
             connection=('ONLINE' if online else 'OFFLINE') if full else 'UNKNOWN', status=state.get('status'),
             battery=state.get('battery'), location=state.get('location'), lease=lease,
