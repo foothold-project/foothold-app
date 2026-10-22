@@ -2,6 +2,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 import hmac
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -18,6 +19,7 @@ def create_app(settings, launcher=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.preflight = await asyncio.to_thread(startup_preflight, settings.real)
+        app.state.instance_id = uuid4()
         app.state.ready = True
         try:
             yield
@@ -68,7 +70,7 @@ def create_app(settings, launcher=None):
     @app.exception_handler(ResourceGateError)
     async def resources_low(request, exc):
         return JSONResponse(status_code=503, content={'error': {'code': 'SIM_UNAVAILABLE',
-            'detail': {'reason': 'resources_low', 'start_not_created': True}}})
+            'detail': {'reason': 'resources_low'}}})
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request, exc):
@@ -83,6 +85,7 @@ def create_app(settings, launcher=None):
         return dict(worlds=[{'id': w.id, 'name': w.name, 'description': w.description} for w in settings.worlds.values()],
                     slots=[rid for rid, slot in settings.slots.items() if slot.org_id == org_id],
                     max_robots=1 if manager.launcher.real else settings.max_robots,
+                    manager_instance_id=app.state.instance_id,
                     launcher='native-single' if manager.launcher.real else 'fake')
 
     @app.post('/v1/worlds', dependencies=[Depends(authenticate)])
@@ -99,8 +102,13 @@ def create_app(settings, launcher=None):
         return await manager.add(body.world_id, str(body.robot_id), str(body.owner_id), str(body.org_id), body.agent_token, body.generation)
 
     @app.delete('/v1/robots/{robot_id}', dependencies=[Depends(authenticate)])
-    async def remove(robot_id: str, body: C.SimRemove):
-        await manager.remove(robot_id, body.generation)
-        return {'ok': True}
+    async def remove(robot_id: UUID, body: C.SimRemove):
+        absent = await manager.remove(str(robot_id), body.generation)
+        return C.SimRemoval(robot_id=robot_id, generation=body.generation,
+                            request_nonce=body.request_nonce,
+                            manager_instance_id=app.state.instance_id, absent=absent,
+                            startup_clean=app.state.preflight.get('resources_ok') is True
+                            and not manager.failed and not manager.closing
+                            and not getattr(manager.launcher, 'failure', False))
 
     return app

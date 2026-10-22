@@ -35,6 +35,7 @@ export function SimLaunch({ me }: { me: string }) {
   useTick(!!wait);
   const msg = s.err && <p className="fh-why" role="status" data-sim-msg>{s.err}</p>;
   const stop = stopText(s);
+  const cleanup = s.cleanup.filter((r) => r.owner_id === me);
   let body;
   if (s.step === 'starting') body = <p className="lv-note" role="status" data-sim="starting">시뮬 로봇을 띄우는 중입니다 — {s.robot?.world_id ?? world} ({Math.floor((performance.now() - s.since) / 1000)}초). 실제 시뮬은 2분 넘게 걸릴 수 있습니다.</p>;
   else if (s.step === 'unsure') body = <><p className="fh-why" role="status" data-sim="unsure">확인 중 — {s.err} {s.slotBusy ? '남의 로봇일 수 있어 내 것으로 확인되기 전에는 정리하지 않습니다.' : '서버에는 «띄우는 중»으로 남았을 수 있습니다. 목록을 다시 확인하거나 정리하세요.'}</p>
@@ -47,6 +48,10 @@ export function SimLaunch({ me }: { me: string }) {
   else if (s.step === 'checking') body = <><p className="fh-why" role="status" data-sim="checking">확인 중 — {s.err} {s.listed && s.robot && (s.mine.some((r) => r.robot_id === s.robot!.robot_id) ? '목록에 아직 있습니다.' : '목록에는 없지만 정리됐다고 단정할 수 없습니다.')}</p>
     <div className="fh-row"><button type="button" className="btn pri" onClick={() => sim.end()}>다시 끝내기</button><button type="button" className="btn" onClick={() => sim.load()}>다시 확인</button><button type="button" className="btn" onClick={() => sim.reset()}>처음으로</button></div></>;
   else body = <>
+    {cleanup.length > 0 && <ul className="dv-cards" aria-label="정리할 내 시뮬 자리">{cleanup.map((r) => <li key={r.robot_id} className="card dv-card">
+      <b>{short(r.robot_id)}</b><p className="fh-why">{s.managerError ? '관리자가 내 시뮬 자리를 확인하지 못했습니다.' : '이전 시뮬이 정리되지 않았습니다.'}</p>
+      {!r.can_recover && <p className="fh-why">이 시뮬 자리는 자동 정리할 수 없습니다 — 관리자에게 문의하세요.</p>}
+      <button type="button" className="btn" onClick={() => sim.cleanupSlot(r)}>정리</button></li>)}</ul>}
     {s.mine.length > 0 && <ul className="dv-cards" aria-label="내 시뮬 로봇">{s.mine.map((r) => <li key={r.robot_id} className="card dv-card">
       <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{r.world_id} · {STATE[r.state]}</span></div>
       <div className="fh-row"><button type="button" className="btn pri" onClick={() => sim.attach(r)}>직접 연결</button><button type="button" className="btn" onClick={() => sim.end(r)}>끝내기</button></div></li>)}</ul>}
@@ -55,7 +60,7 @@ export function SimLaunch({ me }: { me: string }) {
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
         <span><b>{w.name}</b>{w.description && <><br /><small className="lbl">{w.description}</small></>}<br /><small className="lbl">{w.id}</small></span></label></li>)}</ul></fieldset>
       : <p className="lv-note">고를 수 있는 월드가 없습니다.</p>)}
-    <button type="button" className="btn pri" disabled={!world || s.mine.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me)}>띄우기</button>
+    <button type="button" className="btn pri" disabled={!world || s.mine.length > 0 || cleanup.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me)}>띄우기</button>
     {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>;
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="시뮬 로봇 띄우기">
     <h2>시뮬 로봇 띄우기</h2>

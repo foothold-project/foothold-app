@@ -19,7 +19,12 @@ def test_absent_delete_cancels_old_start_but_allows_successor():
     with TestClient(api.create_app(cfg),client=('127.0.0.1',9438)) as client:
         headers={'Authorization':'Bearer '+cfg.secret}
         for generation in (7,3):
-            assert client.request('DELETE','/v1/robots/'+rid,json={'generation':generation},headers=headers).status_code==200
+            nonce = str(uuid4())
+            result = client.request('DELETE','/v1/robots/'+rid,
+                                    json={'generation':generation, 'request_nonce':nonce},headers=headers)
+            assert result.status_code==200
+            assert result.json()['request_nonce']==nonce
+            assert result.json()['robot_id']==rid and result.json()['generation']==generation
         body=dict(world_id='a',robot_id=rid,owner_id=str(uuid4()),org_id=slot.org_id,agent_token='x'*32,generation=7)
         rejected=client.post('/v1/robots',json=body,headers=headers)
         assert rejected.status_code==409 and rejected.json()['error']['code']=='SIM_GENERATION_STALE'
@@ -91,7 +96,7 @@ def test_resources_warn_only_for_fake_but_isolation_still_required(tmp_path,monk
         with pytest.raises(RuntimeError,match='resource gate'):preflight.startup_preflight(real)
         assert 'startup preflight' not in caplog.text
     else:
-        assert preflight.startup_preflight(real)==snapshot
+        assert preflight.startup_preflight(real)=={**snapshot, 'resources_ok':False}
         assert 'resource warning' in caplog.text
         lines=[r.message for r in caplog.records if r.message.startswith('startup preflight')]
         assert len(lines)==1

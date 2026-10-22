@@ -1,0 +1,46 @@
+{
+  "$id": "fh-app/1/SimRemoval",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "absent": {
+      "title": "Absent",
+      "type": "boolean"
+    },
+    "generation": {
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "title": "Generation",
+      "type": "integer"
+    },
+    "manager_instance_id": {
+      "format": "uuid",
+      "title": "Manager Instance Id",
+      "type": "string"
+    },
+    "request_nonce": {
+      "format": "uuid",
+      "title": "Request Nonce",
+      "type": "string"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "startup_clean": {
+      "title": "Startup Clean",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "robot_id",
+    "generation",
+    "request_nonce",
+    "manager_instance_id",
+    "absent",
+    "startup_clean"
+  ],
+  "title": "SimRemoval",
+  "type": "object"
+}

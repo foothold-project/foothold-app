@@ -5,7 +5,7 @@ import stat
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Response
 from sqlalchemy import select
@@ -38,6 +38,12 @@ class RelayError(Exception):
                 self.detail = C.SimFailureDetail.model_validate(safe).model_dump(exclude_none=True)
             except (ValueError, TypeError):
                 self.detail = {'reason': 'unknown'}
+
+
+def start_not_created(error):
+    return ((error.status, error.code) == (503, 'SIM_UNAVAILABLE')
+            and error.detail.get('reason') == 'resources_low'
+            and error.detail.get('start_not_created') is True)
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -123,11 +129,33 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
     def robots(auth: Identity, db: DB):
         user = auth[0]
         authorize(user, 'O')
-        result = C.SimRobotList.model_validate(call('GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
-        allowed = set(db.scalars(select(Robot.id).where(Robot.org_id == user.org_id,
+        db.commit()
+        # A missing/unreachable manager must not hide durable owned slots. This
+        # is only a cleanup target list, never proof that a runtime has stopped.
+        try:
+            if app.state.simmgr is None:
+                raise RelayError('SIM_DISABLED')
+            result = C.SimRobotList.model_validate(app.state.simmgr.request(
+                'GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
+        except RelayError as error:
+            result = C.SimRobotList(items=[], manager_error=(
+                'SIM_DISABLED' if error.code == 'SIM_DISABLED' else 'SIM_UNAVAILABLE'))
+        except (ValueError, TypeError):
+            result = C.SimRobotList(items=[], manager_error='SIM_UNAVAILABLE')
+        rows = list(db.scalars(select(Robot).where(Robot.org_id == user.org_id,
             Robot.simulation.is_(True), Robot.archived_at.is_(None),
             *([] if user.role == 'ORG_ADMIN' else [Robot.owner_user_id == user.id]))))
-        return C.SimRobotList(items=[r for r in result.items if r.robot_id in allowed])
+        allowed = {row.id: row for row in rows}
+        items = [r for r in result.items if r.robot_id in allowed
+                 and allowed[r.robot_id].sim_state != 'IDLE'
+                 and allowed[r.robot_id].sim_generation == r.generation
+                 and allowed[r.robot_id].owner_user_id == r.owner_id]
+        present = {r.robot_id for r in items}
+        return C.SimRobotList(items=items, manager_error=result.manager_error, cleanup=[C.SimCleanupSlot(robot_id=row.id,
+            owner_id=row.owner_user_id, generation=row.sim_generation,
+            can_recover=row.sim_manager_instance_id is not None)
+            for row in rows if row.id not in present and row.sim_state != 'IDLE'
+            and row.owner_user_id is not None])
 
     @app.post('/api/v1/simulation/robots', response_model=C.SimRobot, status_code=201)
     def add(body: C.SimStartRequest, auth: Identity, db: DB, response: Response):
@@ -170,6 +198,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         row.owner_user_id = user.id
         row.sim_generation += 1
         row.sim_state = 'STARTING'
+        row.sim_manager_instance_id = catalogue.manager_instance_id
         row.agent_token_hash = digest(raw)
         generation = row.sim_generation
         authorize(user, 'O_OWN', row)
@@ -178,7 +207,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
               'world_id': body.world_id, 'generation': generation, 'simulation': True}, category='LINK')
         db.commit()
         def start_rejected(error):
-            if (error.status, error.code) not in START_REJECTIONS:
+            if (error.status, error.code) not in START_REJECTIONS and not start_not_created(error):
                 return
             lock_organization(db, user.org_id)
             db.refresh(row)
@@ -195,7 +224,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             result = app.state.simmgr.request('POST', '/v1/robots', dict(world_id=body.world_id,
                 robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation))
         except RelayError as error:
-            if (error.status, error.code) in START_REJECTIONS:
+            if (error.status, error.code) in START_REJECTIONS or start_not_created(error):
                 start_rejected(error)
                 fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.', error.detail)
             start_error = error
@@ -210,7 +239,8 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             compensation = 'NOT_CREATED' if not_created else 'REMOVED_OR_ABSENT'
             if not not_created:
                 try:
-                    app.state.simmgr.request('DELETE', '/v1/robots/' + rid, {'generation': generation})
+                    app.state.simmgr.request('DELETE', '/v1/robots/' + rid,
+                        {'generation': generation, 'request_nonce': str(uuid4())})
                 except RelayError as error:
                     compensation = error.code
             event(db, user.org_id, 'SIM_ROBOT_START_STALE', user.id,
@@ -242,6 +272,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             fail(404, 'NOT_FOUND', '시뮬 로봇을 찾을 수 없습니다.')
         authorize(user, 'O_OWN', row)
         generation = row.sim_generation
+        manager_instance_id = row.sim_manager_instance_id
         if row.sim_state == 'IDLE':
             return Response(status_code=204)
         row.sim_state = 'STOPPING'
@@ -252,12 +283,30 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                   {'robot_id': str(robot_id), 'reason': code}, category='LINK')
             db.commit()
         removal_error = None
+        request_nonce = uuid4()
         try:
             if app.state.simmgr is None:
                 raise RelayError('SIM_DISABLED', detail={'reason': 'manager_unreachable'})
-            app.state.simmgr.request('DELETE', '/v1/robots/' + str(robot_id), {'generation': generation})
+            result = C.SimRemoval.model_validate(app.state.simmgr.request('DELETE', '/v1/robots/' + str(robot_id),
+                {'generation': generation, 'request_nonce': str(request_nonce)}))
+            # Every receipt, including normal cleanup, belongs to this DELETE.
+            if (result.robot_id != robot_id or result.generation != generation
+                    or result.request_nonce != request_nonce):
+                raise RelayError('SIM_RECOVERY_UNPROVEN')
+            # A: recovery after lost memory requires a DIFFERENT manager UUID.
+            # Same-instance absence is only the existing serialized cancellation
+            # receipt: Manager.remove fences late POST before replying (#51).
+            recovered_absent = (result.absent and manager_instance_id is not None
+                                and result.manager_instance_id != manager_instance_id
+                                and result.startup_clean)
+            same_instance_cancel = (result.absent and result.manager_instance_id == manager_instance_id
+                                    and result.startup_clean)
+            if result.absent and not (recovered_absent or same_instance_cancel):
+                raise RelayError('SIM_RECOVERY_UNPROVEN')
         except RelayError as error:
             removal_error = error
+        except (ValueError, TypeError):
+            removal_error = RelayError('SIM_RECOVERY_UNPROVEN')
         # A pass could be issued while the manager was stopping. Serialize the
         # final sweep and slot release with the existing organization write lock.
         lock_organization(db, user.org_id)
@@ -275,5 +324,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         row.owner_user_id = None
         row.agent_token_hash = digest(token())
         # Keep identity, provenance and pass/revocation history; no archive/reuse shortcut.
-        event(db, user.org_id, 'SIM_ROBOT_REMOVED', user.id, {'robot_id': str(robot_id)}, category='LINK')
+        event(db, user.org_id, 'SIM_ROBOT_REMOVED', user.id, {'robot_id': str(robot_id),
+              'generation': generation, 'manager_instance_id': str(result.manager_instance_id),
+              'recovered_absent': recovered_absent}, category='LINK')
         return Response(status_code=204)

@@ -12,7 +12,7 @@ import { FakeWS, type Msg } from './fakeWs';
 
 const S1 = '11111111-1111-4111-8111-111111111111', S2 = '22222222-2222-4222-8222-222222222222', LEASE = '33333333-3333-4333-8333-333333333333';
 const AGENT = 'ws://127.0.0.1:9481/phone/ws';
-const CATALOG: SimCatalog = { worlds: [{ id: 'empty', name: '빈 연습장', description: '장애물이 없는 연습 공간' }], slots: [S1, S2], max_robots: 2, launcher: 'native-single' };
+const CATALOG: SimCatalog = { worlds: [{ id: 'empty', name: '빈 연습장', description: '장애물이 없는 연습 공간' }], slots: [S1, S2], max_robots: 2, launcher: 'native-single', manager_instance_id: null };
 const simRobot = (id = S1): SimRobot => ({ generation: 1, robot_id: id, owner_id: 'u-lee', world_id: 'empty', simulation: true, state: 'RUNNING',
   agent_address: AGENT.replace('9481', id === S1 ? '9481' : '9482'), namespace: '/sim1', tf_prefix: 'sim1/', command_topic: '/sim1/cmd', launcher: 'native-single' });
 const err = (status: number, code: string, message: string, detail: Record<string, unknown> = {}) => ({ status, body: { error: { code, message, detail } } });
@@ -186,7 +186,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     expect(calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length).toBeGreaterThan(lists);
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
     expect(agents()).toHaveLength(0);
-    expect($('[data-sim-msg]')!.textContent).toContain('다른 사람이 쓰고 있습니다');
+    expect($('[data-sim-msg]')!.textContent).toContain('사용 중인 슬롯입니다.');
     await click(btn('띄우기'));
     expect(posts()).toEqual([S1, S2]);
     expect(agents()[0].url).toBe('ws://127.0.0.1:9482/phone/ws');
@@ -210,7 +210,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     expect(btn('정리')).toBeUndefined();
     routes['GET /simulation/robots'] = () => ({ status: 200, body: { items: [] } });
     await click(btn('다시 확인'));
-    expect($('[data-sim-msg]')!.textContent).toContain('다른 사람이 쓰고 있습니다');
+    expect($('[data-sim-msg]')!.textContent).toContain('사용 중인 슬롯입니다.');
   });
 
   it('이미 떠 있는 내 시뮬 로봇: 1인 1대라 띄우기 막힘, «직접 연결»로 다시 붙는다', async () => {
@@ -225,30 +225,84 @@ describe('시뮬 로봇 직결 흐름', () => {
 });
 
 describe('시뮬 직결 실패', () => {
-  it.each([true, false])('자원 부족: 시작 전 증명=%s, 503 확인·정리·STOP 흐름 유지', async (proof) => {
+  it('증명된 시작 전 자원 거부는 고르기로 돌아가 같은 관리자에 다시 띄운다', async () => {
     serve({ 'POST /simulation/robots': err(503, 'SIM_UNAVAILABLE', '시뮬 요청을 처리하지 못했습니다.',
-      { reason: 'resources_low', ...(proof ? { start_not_created: true } : {}) }) });
-    await mount();
-    await click(btn('띄우기'));
-    const text = $('[data-sim="unsure"]')!.textContent!;
-    expect(text).toContain(proof ? 'PC 자원이 부족해 시뮬을 띄우지 않았습니다(메모리·부하). «정리»를 누른 뒤, 시뮬 관리자를 다시 켜야 다시 띄울 수 있습니다.'
-      : 'PC 자원이 부족합니다(메모리·부하). 시뮬이 떴는지 다시 확인하거나 정리하세요.');
-    if (!proof) expect(text).not.toContain('띄우지 않았습니다');
-    expect(text).not.toMatch(/SIM_UNAVAILABLE|resources_low/);
-    expect(btn('정리')!.disabled).toBe(false);
+      { reason: 'resources_low', start_not_created: true }) });
+    await mount(); await click(btn('띄우기'));
+    expect($('[data-sim-msg]')!.textContent).toBe('PC 자원이 부족해 시뮬을 띄우지 않았습니다(메모리·부하). 잠시 뒤 다시 띄우세요.');
+    expect($('[data-sim="unsure"]')).toBeNull();
+    expect(btn('띄우기')!.disabled).toBe(false);
     expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
-    await click(proof ? $('[data-stop]') : btn('정리'));
+    routes['POST /simulation/robots'] = () => ({ status: 201, body: simRobot() });
+    await click(btn('띄우기'));
+    expect(agents()).toHaveLength(1);
+  });
+
+  it('증명 없는 자원 실패는 확인 중·정리·STOP을 유지한다', async () => {
+    serve({ 'POST /simulation/robots': err(503, 'SIM_UNAVAILABLE', '시뮬 요청을 처리하지 못했습니다.', { reason: 'resources_low' }) });
+    await mount(); await click(btn('띄우기'));
+    expect($('[data-sim="unsure"]')!.textContent).toContain('시뮬이 떴는지 다시 확인하거나 정리하세요.');
+    expect(btn('정리')!.disabled).toBe(false);
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+    await click(btn('정리'));
     expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
   });
 
-  it('관리자 꺼짐: 목록 실패에 미리보기 다시 켜기 안내, STOP 유지', async () => {
-    const off = err(503, 'SIM_UNAVAILABLE', '시뮬 요청을 처리하지 못했습니다.', { reason: 'manager_unreachable' });
+  it.each(['SIM_UNAVAILABLE', 'SIM_DISABLED'])('관리자 %s: 꺼짐과 설정 누락을 구별하고 STOP 유지', async (code) => {
+    const off = err(503, code, '시뮬 요청을 처리하지 못했습니다.', { reason: 'manager_unreachable' });
     serve({ 'GET /simulation/worlds': off, 'GET /simulation/robots': off });
     await mount();
-    expect($('[data-sim-msg]')!.textContent).toBe('시뮬 관리자가 꺼져 있습니다. 미리보기를 다시 켜야 합니다.');
+    expect($('[data-sim-msg]')!.textContent).toBe(code === 'SIM_DISABLED'
+      ? '시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.'
+      : '시뮬 관리자가 꺼져 있습니다. 관리자를 다시 켠 뒤 정리하세요.');
     expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
-    expect(box.textContent).not.toMatch(/SIM_UNAVAILABLE|manager_unreachable/);
+  });
+
+  it('시작이 불확실한 관리자 꺼짐에는 다시 켠 뒤 정리를 안내한다', async () => {
+    serve({ 'POST /simulation/robots': err(503, 'SIM_UNAVAILABLE', '실패', { reason: 'manager_unreachable' }) });
+    await mount(); await click(btn('띄우기'));
+    expect($('[data-sim="unsure"]')!.textContent).toContain('관리자를 다시 켠 뒤 정리하세요.');
+    expect(btn('정리')!.disabled).toBe(false);
+  });
+
+  it.each([true, false])('관리자가 모르는 내 슬롯은 정리 대상으로 남고 직접 연결하지 않는다(기록=%s)', async (bound) => {
+    let cleanup = [{ robot_id: S1, owner_id: 'u-lee', generation: 1, can_recover: bound }];
+    serve({ 'GET /simulation/robots': () => ({ status: 200, body: { items: [], cleanup } }),
+      [`DELETE /simulation/robots/${S1}`]: () => { cleanup = []; return { status: 204 }; } });
+    await mount();
+    expect(box.textContent).toContain('이전 시뮬이 정리되지 않았습니다.');
+    expect(box.textContent).not.toContain('— 정리정리');
+    expect(box.textContent!.includes('자동 정리할 수 없습니다')).toBe(!bound);
+    expect(btn('직접 연결')).toBeUndefined();
+    expect(btn('띄우기')!.disabled).toBe(true);
+    expect(btn('정리')!.disabled).toBe(false);
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+    await click(btn('정리'));
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+    expect(btn('띄우기')!.disabled).toBe(false);
+    expect(agents()).toHaveLength(0);
+  });
+
+  it.each(['SIM_DISABLED', 'SIM_UNAVAILABLE'])('목록의 관리자 조회 실패는 잔여로 단정하지 않고 연결 안내를 보인다: %s', async (manager_error) => {
+    serve({ 'GET /simulation/robots': { status: 200, body: { items: [], manager_error,
+      cleanup: [{ robot_id: S1, owner_id: 'u-lee', generation: 1, can_recover: true }] } } });
+    await mount();
+    expect(box.textContent).not.toContain('이전 시뮬이 정리되지 않았습니다');
+    expect(box.textContent).toContain('관리자가 내 시뮬 자리를 확인하지 못했습니다.');
+    expect(box.textContent).toContain(manager_error === 'SIM_DISABLED' ? '연결 설정이 없습니다' : '관리자가 켜져 있는지와 연결을 확인');
+    expect(btn('정리')!.disabled).toBe(false);
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+    expect(calls.some((c) => c.path.endsWith('/phone-pass'))).toBe(false);
+  });
+
+  it.each(['이 시뮬 슬롯은 다른 사람이 사용 중입니다.', '시뮬 슬롯의 전환이 끝나지 않았습니다.'])('슬롯 사용 중은 서버 문구 그대로: %s', async (why) => {
+    serve({ 'POST /simulation/robots': err(409, 'SIM_SLOT_BUSY', why, { reason: 'slot_busy' }) });
+    await mount(); await click(btn('띄우기'));
+    const text = $('[data-sim-msg]')!.textContent!;
+    expect(text).toContain(why);
+    expect(text.split(why)).toHaveLength(2);
+    expect(text).not.toContain('답을 받았습니다(');
   });
 
   it('슬롯 1개 사용 중이면 다른 슬롯 안내 없음, 자동 재시도·정리 0', async () => {

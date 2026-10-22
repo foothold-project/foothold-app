@@ -1,4 +1,4 @@
-"""Optional diagnostics never change lifecycle verdicts or leak remote data."""
+"""Only exact pre-creation resource proof releases; diagnostics never leak remote data."""
 import io
 import json
 from contextlib import contextmanager
@@ -57,7 +57,7 @@ def test_only_refused_connection_reports_manager_off(cause, reason):
     {'reason': 'resources_low', 'start_not_created': True},
     {'reason': 'manager_unreachable'}, {},
 ])
-def test_start_diagnostics_preserve_starting_and_delete_recovery(simulation_context, detail):
+def test_start_diagnostics_release_only_proven_resource_rejection(simulation_context, detail):
     client, manager, cfg, rid, launcher = simulation_context
     original = client.app.state.simmgr.request
     def rejected(method, path, body=None):
@@ -69,6 +69,12 @@ def test_start_diagnostics_preserve_starting_and_delete_recovery(simulation_cont
     assert result.status_code == 503
     assert result.json()['error']['detail'].get('reason') == detail.get('reason')
     state, owner, generation, _ = snapshot(client, rid)
+    if detail.get('start_not_created') is True:
+        assert (state, owner, generation) == ('IDLE', None, 1)
+        client.app.state.simmgr.request = original
+        result, _ = start_slot(simulation_context)
+        assert result.status_code == 201 and result.json()['generation'] == 2
+        return
     assert (state, generation) == ('STARTING', 1) and owner is not None
     assert client.delete('/api/v1/simulation/robots/' + rid, headers=headers).status_code == 204
     assert snapshot(client, rid)[:3] == ('IDLE', None, 1)
@@ -104,6 +110,11 @@ def test_manager_resource_diagnostic_crosses_real_relay_and_server(simulation_co
     result, headers = start_slot(simulation_context)
     assert result.status_code == 503
     assert result.json()['error']['detail'] == {'reason': 'resources_low', 'start_not_created': True}
-    assert snapshot(client, rid)[0] == 'STARTING'
+    assert snapshot(client, rid)[:3] == ('IDLE', None, 1)
     assert not manager.app.state.manager.robots and not launcher.events
+    async def ready(world):
+        return None
+    launcher.start_world = ready
+    result, headers = start_slot(simulation_context)
+    assert result.status_code == 201 and result.json()['generation'] == 2
     assert client.delete('/api/v1/simulation/robots/' + rid, headers=headers).status_code == 204

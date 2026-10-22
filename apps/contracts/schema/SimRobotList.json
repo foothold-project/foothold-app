@@ -1,5 +1,38 @@
 {
   "$defs": {
+    "SimCleanupSlot": {
+      "additionalProperties": false,
+      "properties": {
+        "can_recover": {
+          "title": "Can Recover",
+          "type": "boolean"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "robot_id": {
+          "format": "uuid",
+          "title": "Robot Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "robot_id",
+        "owner_id",
+        "generation",
+        "can_recover"
+      ],
+      "title": "SimCleanupSlot",
+      "type": "object"
+    },
     "SimRobot": {
       "additionalProperties": false,
       "properties": {
@@ -85,16 +118,41 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "cleanup": {
+      "items": {
+        "$ref": "#/$defs/SimCleanupSlot"
+      },
+      "title": "Cleanup",
+      "type": "array"
+    },
     "items": {
       "items": {
         "$ref": "#/$defs/SimRobot"
       },
       "title": "Items",
       "type": "array"
+    },
+    "manager_error": {
+      "anyOf": [
+        {
+          "enum": [
+            "SIM_DISABLED",
+            "SIM_UNAVAILABLE"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manager Error"
     }
   },
   "required": [
-    "items"
+    "items",
+    "cleanup",
+    "manager_error"
   ],
   "title": "SimRobotList",
   "type": "object"

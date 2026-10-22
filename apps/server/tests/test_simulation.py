@@ -19,7 +19,8 @@ class LocalRelay:
     def request(self, method, path, body=None):
         response = self.client.request(method, path, json=body, headers={'Authorization':'Bearer '+self.secret})
         if response.status_code >= 400:
-            raise RelayError(response.json()['error']['code'], response.status_code)
+            error = response.json()['error']
+            raise RelayError(error['code'], response.status_code, error.get('detail'))
         return response.json()
 
 
@@ -252,4 +253,4 @@ def clean_ros_environment(monkeypatch):
 def isolated_manager_startup(monkeypatch):
     # Runtime startup proof is exercised with dedicated doubles; never inspect
     # or touch the host's real ROS participants/user units during API tests.
-    monkeypatch.setattr('apps.simmgr.api.startup_preflight',lambda *args: {'synthetic':True})
+    monkeypatch.setattr('apps.simmgr.api.startup_preflight',lambda *args: {'synthetic':True, 'resources_ok':True})

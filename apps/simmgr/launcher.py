@@ -132,13 +132,17 @@ class NativeLauncher:
                 or (native_root / entry['gt_map']).resolve() != world.map_file.resolve()):
             raise ValueError('configured world/map pair does not match native catalogue')
         self.sim = sim
+        resource_not_created = False
         try:
             try:
                 await asyncio.to_thread(sim.start)
             except RuntimeError as error:
                 # Simulation.start's first operation is its preflight. This
                 # exact rejection precedes source hashing and unit creation.
-                if not sim.started and str(error) == 'preflight resource gate failed; no launch':
+                if (not sim.started and str(error) == 'preflight resource gate failed; no launch'
+                        and not (folder / 'source-before.json').exists()
+                        and not (folder / 'launch.json').exists() and not sim.out.exists()):
+                    resource_not_created = True
                     raise ResourceGateError() from None
                 raise
             # MainPID appears before imports/assets/Gazebo are ready. D1 also
@@ -154,11 +158,18 @@ class NativeLauncher:
                     if asyncio.get_running_loop().time() >= deadline:
                         raise RuntimeError('native identity readiness unconfirmed') from None
                     await asyncio.sleep(.1)
-        except BaseException:
+        except BaseException as error:
+            if isinstance(error, ResourceGateError) and resource_not_created:
+                # The exact first gate plus absence of any launch artifacts is
+                # the sole exception to the native failure latch.
+                self.sim = self.folder = None
+                raise
             self.failed = True
             if sim.started:
                 await asyncio.to_thread(sim.close)
                 self.sim = None
+            if isinstance(error, ResourceGateError):
+                raise RuntimeError('resource failure after possible launch; review required') from None
             raise
 
     async def add(self, slot, credentials):
