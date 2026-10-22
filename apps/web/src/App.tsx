@@ -209,7 +209,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <button type="button" className="fh-stop" disabled={!choose} onClick={stop}>정지</button>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
     </div>}
-    {dev && <p className="fh-dev" data-dev>{dev}</p>}
+    {dev && (open || simOpen   // 폰 조종 화면은 접어 둔다(영상·조이스틱 자리). 내용은 그대로
+      ? <details className="fh-dev" data-dev><summary>개발용 표시</summary>{dev.replace(/^개발용 표시:\s*/, '')}</details>
+      : <p className="fh-dev" data-dev>{dev}</p>)}
     <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
       gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
