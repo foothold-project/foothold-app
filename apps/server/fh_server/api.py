@@ -24,6 +24,7 @@ from .robots import attention, device_error, live_state, robot_object, robot_obj
 from .rate_limits import close_rate_windows, record_rate_limit
 from .event_messages import render
 from . import approvals, assignments, phone_pass
+from .tunnel import tunnel_origin
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,7 @@ class Settings:
     phone_pass_keys: str | None = None
     simmgr_url: str | None = None
     simmgr_auth_file: str | None = None
+    tunnel_origin: str | None = None
 
     @classmethod
     def from_env(cls):
@@ -43,7 +45,8 @@ class Settings:
                    ws_origin=os.environ.get('FH_WS_ORIGIN'),
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
                    phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
-                   simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'))
+                   simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
+                   tunnel_origin=tunnel_origin(os.environ))
 
 
 class APIError(Exception):

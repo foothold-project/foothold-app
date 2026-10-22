@@ -9,6 +9,7 @@ from uuid import UUID
 from urllib.parse import urlsplit
 
 from .environment import validate_control_environment
+from foothold_agent.phone.origins import with_tunnel_origin
 from apps.contracts.models import SimWorld
 from apps.contracts.simulation_ports import allowed_ports, extra_ports_from_env
 
@@ -121,6 +122,7 @@ class Settings:
                    real=env.get('FH_SIM_RUN') == '1', domain=int(env.get('FH_SIM_DOMAIN', '93')), source=env.get('SIM_SOURCE'),
                    ros_setup=env.get('SIM_ROS_SETUP'), run_dir=env.get('SIM_RUN_DIR'),
                    agent_python=env.get('FH_SIM_AGENT_PYTHON', '/usr/bin/python3'),
-                   agent_ws_url=env['FH_SIM_AGENT_WS_URL'], origins=tuple(json.loads(env.get('FOOTHOLD_PHONE_ORIGINS', '[]'))),
+                   agent_ws_url=env['FH_SIM_AGENT_WS_URL'],
+                   origins=with_tunnel_origin(tuple(json.loads(env.get('FOOTHOLD_PHONE_ORIGINS', '[]'))), env),
                    extra_ports=extra_ports_from_env(env),
                    runtime_seconds=int(env.get('FH_SIM_RUNTIME_SECONDS', '1800')))

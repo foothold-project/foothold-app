@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from 'react';
 import type { PhoneState, PhoneWelcome, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot, SimRobotList } from '../../contracts/ts';
 import { ApiFail, api, authMark } from './api';
+import { phoneUrl } from './phoneTransport';
 
 /** pick 고르기 · starting 띄우는 중 · unsure 시작 확인 안 됨(서버 STARTING 일 수 있음) · linking 출입증·연결 · drive 조종 화면 · ending 끝내는 중 · checking 정리 확인 안 됨 */
 export type Step = 'pick' | 'starting' | 'unsure' | 'linking' | 'drive' | 'ending' | 'checking';
@@ -139,7 +140,9 @@ function onMsg(raw: string) {
 /** 영상(§13.8): 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello. 끊겨도 조종·STOP 에는 영향 없음, 다시 열려면 새 연결 */
 function openCamera(token: string | null) {
   if (!token || !S.robot) return setLink({ cam: 'off' });
-  const robot = S.robot.robot_id, c = new WebSocket(S.robot.agent_address.replace(/\/phone\/ws$/, '/phone/camera/ws'));
+  const url = phoneUrl(S.robot.agent_address, location, true);
+  if (!url) return setLink({ cam: 'lost' });
+  const robot = S.robot.robot_id, c = new WebSocket(url);
   cam = c;
   c.onopen = () => c.send(JSON.stringify({ t: 'camera.hello', robot, token }));
   c.onmessage = (e: { data?: string }) => {
@@ -151,10 +154,6 @@ function openCamera(token: string | null) {
     } catch { /* 깨진 프레임은 버린다 */ }
   };
   c.onclose = () => { if (cam === c) { cam = null; setLink({ cam: 'lost' }); } };
-}
-/** 에이전트 주소는 서버가 준 값 — ws(s)://호스트:포트/phone/ws 꼴만 받는다 */
-function agentUrl(a: string) {
-  try { const u = new URL(a); return (u.protocol === 'ws:' || u.protocol === 'wss:') && u.pathname === '/phone/ws' && !u.search ? u.href : null; } catch { return null; }
 }
 const message = (e: unknown) => (e instanceof ApiFail ? e.message : '요청을 처리하지 못했습니다.');
 const notCreated = (e: ApiFail) => e.status === 503 && e.code === 'SIM_UNAVAILABLE'
@@ -260,7 +259,7 @@ export const sim = {
   async connect() {
     const r = S.robot; if (!r || now() < S.retryAt) return;
     sim.close();
-    const g = gen, url = agentUrl(r.agent_address);
+    const g = gen, url = phoneUrl(r.agent_address, location);
     set({ step: S.step === 'drive' ? 'drive' : 'linking', link: { at: 'connecting', welcome: null, st: null, stAt: 0, lease: null, why: '', code: 0, notice: '', busy: '', clipped: false, rtt: null, cam: 'wait', img: '', ask: null, exp: 0 } });
     if (!url) return setLink({ at: 'closed', why: '로봇 연결 주소가 올바르지 않습니다.' });
     let pass;

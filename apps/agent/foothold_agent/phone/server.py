@@ -9,6 +9,7 @@ import socket
 from urllib.parse import urlsplit
 
 from .hub import PhoneError, Peer
+from .origins import with_tunnel_origin
 
 
 @dataclass(frozen=True)
@@ -58,7 +59,8 @@ class Settings:
             if not isinstance(origins, list) or not all(isinstance(v, str) for v in origins):
                 raise ValueError('invalid origins')
             return cls(env[names[0]], int(env[names[1]]), env[names[2]], env[names[3]], env[names[4]],
-                       env[names[5]], env[names[6]], env[names[7]] == '1', simulation == '1', tuple(origins))
+                       env[names[5]], env[names[6]], env[names[7]] == '1', simulation == '1',
+                       with_tunnel_origin(tuple(origins), env) if simulation == '1' else tuple(origins))
         except (KeyError, ValueError, TypeError):
             raise ValueError('set all phone host/port/key/policy environment variables') from None
 
