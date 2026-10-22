@@ -26,7 +26,15 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
                     VALUES (:org, :user, decode('00', 'hex'), 'web', '', now() + interval '1 day')"""),
                     {'org': org, 'user': user})
             command.upgrade(config, 'head')
+            command.downgrade(config, '0014')
+            tables = set(inspect(engine).get_table_names())
+            assert 'assignments' not in tables and 'idempotency_receipts' not in tables
+            assert 'phone_passes' in tables
+            assert {'simulation', 'sim_generation', 'sim_state'} <= {
+                column['name'] for column in inspect(engine).get_columns('robots')}
+            command.upgrade(config, '0015')
             with engine.connect() as conn:
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0015'
                 assert conn.scalar(text('SELECT retired_refresh_hashes FROM sessions')) == []
             command.downgrade(config, '0002')
             assert 'auth_rate_windows' not in inspect(engine).get_table_names()
