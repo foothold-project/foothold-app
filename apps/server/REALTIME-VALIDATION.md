@@ -2075,3 +2075,54 @@ STALE 배정 REJECTED 정책 및 05·06 반영은 PR «정본과 다른 점·결
 - dev merge로 서버·계약 소스/시험은 바뀌지 않았으므로 서버 전체/변이를 반복하지
   않았다. 위638/100 결과와 최종 웹 타입/전체 vitest 결과를 구분해 보고한다.
 - 배정 결재 화면은 W6b 후속이며 이번 웹 수정은 기능 확장이 아니다.
+
+## S5b FAST 후속 — 보관 로봇 해제·downgrade 이력 보호 (2026-10-22)
+
+검증한 서버·계약 코드는 `4c1206e`다. `origin/dev` `8e70207`을 `90dd713`으로,
+조정 지시에 따라 PR #46의 `feature/sim-manager` `6ec2139`를 `4db1bab`으로
+merge했다. **이 PR은 #46 다음에 합친다.** #46이 dev에 합쳐진 뒤 최신 dev를
+다시 merge하고 조정 지시의 시험을 실행해야 한다.
+
+막는 것 A1/B1만 고쳤다. 생성 때만 로봇 보관 여부를 검사하고, 해제는 기존 조직·
+현재 담당자 검사 및 결재→배정→로봇 잠금 순서를 그대로 사용한다. downgrade는
+배정 행 또는 배정 결재 이력이 있으면 트랜잭션 전체를 거절한다. 배정 마이그레이션은
+`0015_assignments`(revision `0015`, down_revision `0014`)로 옮겼다.
+
+| 검사 | 실제 결과 |
+|---|---|
+| 병합 후 배정·멱등·HTTP·마이그레이션 집중 pytest | **34 passed / 68.01 s** |
+| 서버 전체 pytest 1회 | **780 passed / 1207.76 s**; 기존 Starlette/httpx 경고 1개 |
+| Alembic | `0015→0014→0015`, `head→base→head`, 중간 왕복 및 metadata diff 0 통과 |
+| 계약 | generate --check **160개 일치**, strict TypeScript 검사 exit 0 |
+| 결함 되돌림 변이 | **2/2 검출**: A1 기존 보관 검사 복원은 신규 4개 시험 assertion 실패, B1 배정 행 조건 제거는 직접 ACTIVE 시험의 DID NOT RAISE 실패 |
+
+변이는 시뮬 마이그레이션만 임시로 둔 첫 집중시험 상태에서 실행했고 원본을 복원했다.
+그 뒤 실제 #46 브랜치를 병합하고 위 34개 집중시험과 서버 전체 시험을 직렬 실행했다.
+이번 변이 두 개는 기존 STOP·실시간 변이 전체 재실행 결과가 아니다.
+
+A1 회귀는 ACTIVE/PENDING 각각 로봇 보관 후 총괄·현재 담당자의 해제204,
+REMOVED/removed_at, PENDING 결재 CANCELED, 반복 해제204를 검사한다.
+다른 담당자 해제403과 보관 로봇 신규 배정404도 유지한다. B1 회귀는 배정 결재가
+0개인 직접 ACTIVE만 있어도 downgrade가 거절되고 revision·배정·사건이 보존됨을
+확인한다. 마이그레이션 경계 시험은 0014에서 출입증 표·시뮬 로봇 열이 남고
+배정/영수증 표만 없어지는 것도 확인한다.
+
+```sh
+FH_TEST_PORT_RANGE=9410:9429 python -m pytest -q apps/server/tests/test_assignments.py apps/server/tests/test_idempotency.py apps/server/tests/test_assignments_wire.py apps/server/tests/test_migrations.py
+FH_TEST_PORT_RANGE=9410:9429 python -m pytest -q apps/server/tests
+python apps/contracts/generate.py --check
+```
+
+Python 3.12.3 및 고정 requirements와 일치하는 의존성을 읽기 전용으로 사용했다.
+TMPDIR는 작업 트리 내부, PG/uvicorn 포트는9410~9429로 제한하고 시작 전 ss -ltn을
+확인했다. 전체 시작 MemAvailable=4,236,256 kB·load1=9.48이었다.
+지정된 부하 실시간 시험3개도 모두 통과했으며 단독 재실행은 없었다.
+제품 코드·시험을 확정한 뒤 위 전체 시험1회를 완주했고 이후 검증 문서만 수정했다.
+
+시뮬 서버 시험은 FakeLauncher·모의 relay다. 실제 ROS·Gazebo·실기·운영/미리보기
+서버는 실행하거나 접촉하지 않았다. 웹 전체 시험·브라우저 QA·실폰·실로봇·운영 배포는
+이번에 수행하지 않았다. 권고 R1~R7과 멱등 영수증 보존·동일 시나리오 다른 판 정책은
+PR의 «남은 권고»로 이월했다. 데이터가 있는 DB에서는0015 스키마를 유지한 코드
+revert/후속 수정이 기본이며, 임의 downgrade로 배정 이력을 지우지 않는다.
+
+시험용 PG·uvicorn 종료를 확인하고 작업 트리의 전용 임시 파일을 정리했다.
