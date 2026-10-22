@@ -1,7 +1,6 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
-// 월드 계약은 id 뿐이라 이름 = id, 설명 = 카탈로그(launcher·최대 대수)로 만든 한 줄(10-22 조정 결정 — 계약 추가는 첫 기동 작업에서).
 import { useEffect, useRef, useState } from 'react';
-import type { SimCatalog, SimRobot } from '../../contracts/ts';
+import type { SimRobot } from '../../contracts/ts';
 import { sim, useSim, type Sim } from './phone';
 import { Stick } from './drive';
 import { Chip } from './screens';
@@ -13,7 +12,6 @@ function useTick(on: boolean) {
   useEffect(() => { if (!on) return; const i = setInterval(() => t((n) => n + 1), 1000); return () => clearInterval(i); }, [on]);
 }
 const short = (id: string) => `시뮬 ${id.slice(0, 8)}`;
-const describe = (c: SimCatalog) => `${c.launcher === 'fake' ? '가짜 기동(시험용 — 시뮬·에이전트를 띄우지 않음)' : 'Gazebo 시뮬 로봇 1대'} · 최대 ${c.max_robots}대`;
 const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
 
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
@@ -55,7 +53,7 @@ export function SimLaunch({ me }: { me: string }) {
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
-        <span><b>{w.id}</b><br /><span className="lbl">{describe(s.catalog!)}</span></span></label></li>)}</ul></fieldset>
+        <span><b>{w.name}</b>{w.description && <><br /><small className="lbl">{w.description}</small></>}<br /><small className="lbl">{w.id}</small></span></label></li>)}</ul></fieldset>
       : <p className="lv-note">고를 수 있는 월드가 없습니다.</p>)}
     <button type="button" className="btn pri" disabled={!world || s.mine.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me)}>띄우기</button>
     {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>;

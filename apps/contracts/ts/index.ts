@@ -1165,6 +1165,8 @@ export interface SimStartRequest {
 
 export interface SimWorld {
   id: string;
+  name: string;
+  description: string;
 }
 
 export interface SimWorldStart {

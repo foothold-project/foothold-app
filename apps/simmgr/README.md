@@ -41,12 +41,14 @@
 
 ```json
 {
-  "worlds": [{"id": "v5_single/f1", "world_file": "/private/world.sdf", "map_file": "/private/map.pgm"}],
+  "worlds": [{"id": "v5_single/f1", "name": "기본 연습장", "description": "시뮬 조종 연습 공간", "world_file": "/private/world.sdf", "map_file": "/private/map.pgm"}],
   "slots": [{"robot_id": "00000000-0000-4000-8000-000000000001", "org_id": "00000000-0000-4000-8000-000000000002", "key_path": "/private/agent-keys.json", "replay_path": "/private/replay.sqlite", "port": 9433}]
 }
 ```
 
 `world_file/map_file`은 native `worlds.json`의 world/gt_map 실경로와 일치해야 한다.
+카탈로그 `name`은 1~40자, `description`은 선택(기본 빈 문자열)·최대 200자이며, 옛 항목의 이름 생략은 id로 대체하고 경고 1줄을 남긴다.
+`FH_SIM_EXTRA_PORTS="8870"`처럼 관리자·서버에 쉼표로 추가 포트를 명시한다(기본 9430~9449 유지, 8453·8792는 설정해도 거부, loopback·URL 검사는 유지).
 원본의 generated 센서 자산·provenance도 기존 runtime이 검사한다. 가짜 모드는 경로의 파일을
 열지 않는다. 카탈로그 id/슬롯/포트는 중복을 거부한다. 키 파일은 기존 private-file 검사다.
 운영자 설정 경로는 환경 `FH_SIM_CATALOG`, `FH_SIM_AUTH_FILE`, `FH_SIM_AGENT_WS_URL`로 준다.

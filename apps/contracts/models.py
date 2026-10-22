@@ -1219,6 +1219,8 @@ class CameraStatus(Contract):
 
 class SimWorld(Contract):
     id: str = Field(min_length=1, max_length=128)
+    name: str = Field(min_length=1, max_length=40)
+    description: str = Field(default='', max_length=200)
 
 
 class SimWorldStart(Contract):

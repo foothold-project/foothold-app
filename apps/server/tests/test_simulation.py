@@ -26,13 +26,15 @@ class LocalRelay:
 def test_simulation_relay_auth_provenance_pass_and_removal(client,seeded):
     rid = str(uuid4()); org = str(seeded['org'])
     slot = Slot(rid,org,'unused','unused.sqlite',9433)
-    settings = ManagerSettings({'test':World('test',Path('unused.sdf'),Path('unused.yaml'))},{rid:slot},'x'*32)
+    settings = ManagerSettings({'test':World('test',Path('unused.sdf'),Path('unused.yaml'), '연습장', '빈 공간')},{rid:slot},'x'*32)
     with TestClient(manager_app(settings), client=('127.0.0.1', 9438)) as sim:
         client.app.state.simmgr = LocalRelay(sim,settings.secret)
         client.app.state.phone_pass_issuer.keys[rid] = ('test',{'test':b'x'*32})
         assert client.get('/api/v1/simulation/worlds').status_code == 401
         headers = csrf(client,'one')
-        assert client.get('/api/v1/simulation/worlds').json()['slots'] == [rid]
+        catalog = client.get('/api/v1/simulation/worlds').json()
+        assert catalog['slots'] == [rid]
+        assert catalog['worlds'] == [dict(id='test', name='연습장', description='빈 공간')]
         assert client.post('/api/v1/simulation/robots',json=dict(world_id='test',robot_id=rid)).status_code == 403
         start = client.post('/api/v1/simulation/robots',json=dict(world_id='test',robot_id=rid),headers=headers)
         assert start.status_code == 201, start.text
@@ -75,6 +77,30 @@ def test_relay_rejects_external_destination_and_redirects(tmp_path):
         with pytest.raises(ValueError):
             Relay(url,private)
     assert NoRedirect().redirect_request(None,None,302,'',{},'http://example.test') is None
+
+
+def test_relay_extra_ports_preserves_default_and_protected_ports(tmp_path, monkeypatch):
+    from apps.server.fh_server.simulation import Relay
+    private = tmp_path / 'service-secret'
+    private.write_text('x' * 32)
+    private.chmod(0o600)
+    monkeypatch.delenv('FH_SIM_EXTRA_PORTS', raising=False)
+    assert Relay('http://127.0.0.1:9430', private).url.endswith(':9430')
+    assert Relay('http://127.0.0.1:9449', private).url.endswith(':9449')
+    for port in (9429, 9450, 8870):
+        with pytest.raises(ValueError):
+            Relay(f'http://127.0.0.1:{port}', private)
+    monkeypatch.setenv('FH_SIM_EXTRA_PORTS', '8870')
+    assert Relay('http://127.0.0.1:8870', private).url.endswith(':8870')
+    for url in ('http://localhost:8870', 'http://user:secret@127.0.0.1:8870',
+                'http://@127.0.0.1:8870', 'http://127.0.0.1:8870/path',
+                'http://127.0.0.1:8870?query=1', 'http://127.0.0.1:8870#fragment'):
+        with pytest.raises(ValueError):
+            Relay(url, private)
+    for port in (8453, 8792):
+        monkeypatch.setenv('FH_SIM_EXTRA_PORTS', str(port))
+        with pytest.raises(ValueError):
+            Relay(f'http://127.0.0.1:{port}', private)
 
 
 import pytest

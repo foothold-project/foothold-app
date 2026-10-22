@@ -11,6 +11,7 @@ from fastapi import Response
 from sqlalchemy import select
 
 from apps.contracts import models as C
+from apps.contracts.simulation_ports import allowed_ports, extra_ports_from_env
 from .models import Robot
 from . import phone_pass
 from .security import digest, token
@@ -38,9 +39,9 @@ class NoRedirect(HTTPRedirectHandler):
 class Relay:
     def __init__(self, url, key_path):
         parsed = urlsplit(url)
-        if (parsed.scheme != 'http' or parsed.hostname != '127.0.0.1' or parsed.username
-                or parsed.password or parsed.path or parsed.query or parsed.fragment
-                or parsed.port not in range(9430, 9450)):
+        if (parsed.scheme != 'http' or parsed.hostname != '127.0.0.1' or parsed.username is not None
+                or parsed.password is not None or parsed.path or parsed.query or parsed.fragment
+                or parsed.port not in allowed_ports(extra_ports_from_env())):
             raise ValueError('simulation manager requires explicit loopback URL and approved port')
         fd = os.open(key_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         with os.fdopen(fd, 'rb') as source:

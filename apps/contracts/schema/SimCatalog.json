@@ -3,15 +3,29 @@
     "SimWorld": {
       "additionalProperties": false,
       "properties": {
+        "description": {
+          "default": "",
+          "maxLength": 200,
+          "title": "Description",
+          "type": "string"
+        },
         "id": {
           "maxLength": 128,
           "minLength": 1,
           "title": "Id",
           "type": "string"
+        },
+        "name": {
+          "maxLength": 40,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
         }
       },
       "required": [
-        "id"
+        "id",
+        "name",
+        "description"
       ],
       "title": "SimWorld",
       "type": "object"

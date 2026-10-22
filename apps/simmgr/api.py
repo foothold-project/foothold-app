@@ -75,7 +75,7 @@ def create_app(settings, launcher=None):
 
     @app.get('/v1/worlds', dependencies=[Depends(authenticate)], response_model=C.SimCatalog)
     def worlds(org_id: str):
-        return dict(worlds=[{'id': w.id} for w in settings.worlds.values()],
+        return dict(worlds=[{'id': w.id, 'name': w.name, 'description': w.description} for w in settings.worlds.values()],
                     slots=[rid for rid, slot in settings.slots.items() if slot.org_id == org_id],
                     max_robots=1 if manager.launcher.real else settings.max_robots,
                     launcher='native-single' if manager.launcher.real else 'fake')

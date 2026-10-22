@@ -12,7 +12,7 @@ import { FakeWS, type Msg } from './fakeWs';
 
 const S1 = '11111111-1111-4111-8111-111111111111', S2 = '22222222-2222-4222-8222-222222222222', LEASE = '33333333-3333-4333-8333-333333333333';
 const AGENT = 'ws://127.0.0.1:9481/phone/ws';
-const CATALOG: SimCatalog = { worlds: [{ id: 'empty' }], slots: [S1, S2], max_robots: 2, launcher: 'native-single' };
+const CATALOG: SimCatalog = { worlds: [{ id: 'empty', name: '빈 연습장', description: '장애물이 없는 연습 공간' }], slots: [S1, S2], max_robots: 2, launcher: 'native-single' };
 const simRobot = (id = S1): SimRobot => ({ generation: 1, robot_id: id, owner_id: 'u-lee', world_id: 'empty', simulation: true, state: 'RUNNING',
   agent_address: AGENT.replace('9481', id === S1 ? '9481' : '9482'), namespace: '/sim1', tf_prefix: 'sim1/', command_topic: '/sim1/cmd', launcher: 'native-single' });
 const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
@@ -92,12 +92,25 @@ const stick = (label: string) => {
 const ptr = (el: Element, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })); });
 
 describe('시뮬 로봇 직결 흐름', () => {
+  it('월드 이름·설명·보조 id를 표시하고 선택한 id로 띄운다', async () => {
+    serve({ 'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [
+      ...CATALOG.worlds, { id: 'corridor', name: '복도 연습장', description: '' },
+    ] } } });
+    await mount();
+    const list = $('[aria-label="월드 목록"]')!;
+    expect(list.querySelector('b')!.textContent).toBe('빈 연습장');
+    expect([...list.querySelectorAll('small')].map((el) => el.textContent)).toEqual(['장애물이 없는 연습 공간', 'empty', 'corridor']);
+    await click(list.querySelector('input[value="corridor"]'));
+    await click(btn('띄우기'));
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/simulation/robots')!.body).toEqual({ world_id: 'corridor', robot_id: S1 });
+  });
+
   it('띄우기 → 월드 고르기 → 직결 → 조종권·잠금 해제 → 조이스틱 → STOP → 끝내기(반납 → DELETE → 목록)', async () => {
     serve(); await mount();
-    // 월드 목록(이름 = id, 설명 = 화면이 만든 한 줄)
+    // 월드 목록은 계약의 이름·설명과 보조 id
     const list = $('[aria-label="월드 목록"]')!;
     expect(list.textContent).toContain('empty');
-    expect(list.textContent).toContain('Gazebo 시뮬 로봇 1대');
+    expect(list.textContent).toContain('장애물이 없는 연습 공간');
     expect($<HTMLInputElement>('input[name="sim-world"]')!.checked).toBe(true);
     await click(btn('띄우기'));
     expect(calls.find((c) => c.method === 'POST' && c.path === '/simulation/robots')!.body).toEqual({ world_id: 'empty', robot_id: S1 });
