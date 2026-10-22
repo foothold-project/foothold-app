@@ -21,8 +21,8 @@ describe('phone preview transport', () => {
     }
   });
   it('uses an explicitly configured bounded range on external pages', () => {
-    expect(phonePorts('9480:9489')).toHaveLength(10);
-    expect(phoneUrl(agent, page('https://example.trycloudflare.com'), false, phonePorts('9480:9489'))).toBeNull();
-    for (const range of ['0:65535', '9489:9480', '9430', '9430:65536', '1:2']) expect(() => phonePorts(range)).toThrow();
+    expect(phonePorts('9434:9434')).toEqual([9434]);
+    expect(phoneUrl(agent, page('https://example.trycloudflare.com'), false, phonePorts('9434:9434'))).toBeNull();
+    for (const range of ['0:65535', '9489:9480', '9430', '9430:65536', '1:2']) expect(phonePorts(range)).toEqual([]);
   });
 });

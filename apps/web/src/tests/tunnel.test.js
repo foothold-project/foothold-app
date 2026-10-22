@@ -1,11 +1,11 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it } from 'vitest';
 import { createServer as httpServer, request } from 'node:http';
-import { createServer } from 'vite';
+import { preview } from 'vite';
 import { hostAllowed, phoneProxy, tunnelGuard, tunnelOrigin } from '../../tunnel';
 
 const origin = 'https://example.trycloudflare.com';
-const env = { FH_TUNNEL: '1', FH_TUNNEL_ORIGIN: origin, FH_PHONE_PORT_RANGE: '9481:9481' };
+const env = { FH_TUNNEL: '1', FH_TUNNEL_ORIGIN: origin, FH_PHONE_PORT_RANGE: '9433:9433' };
 const cleanup = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()(); });
 const get = (path, headers = {}, upgrade = false) => new Promise((resolve, reject) => {
@@ -29,7 +29,7 @@ describe('preview proxy boundary', () => {
     expect(hostAllowed('evil.invalid', origin)).toBe(false);
     expect(hostAllowed('example.trycloudflare.com', null)).toBe(false);
     expect(hostAllowed('localhost:5190', null)).toBe(true);
-    expect(Object.values(phoneProxy(env)).map((p) => p.target)).toEqual(['http://127.0.0.1:9481']);
+    expect(Object.values(phoneProxy(env)).map((p) => p.target)).toEqual(['http://127.0.0.1:9433']);
   });
   it('forwards only the exact WS routes, preserving Origin, and refuses HTTP and malformed targets', async () => {
     const seen = [];
@@ -40,22 +40,25 @@ describe('preview proxy boundary', () => {
     });
     await new Promise((resolve) => upstream.listen(9481, '127.0.0.1', resolve));
     cleanup.push(() => new Promise((resolve) => upstream.close(resolve)));
-    const vite = await createServer({ configFile: false, root: process.cwd(), cacheDir: '../../tmp/phone-tunnel/vite-proxy-test',
-      logLevel: 'silent', plugins: [tunnelGuard(origin, [9481])],
-      server: { host: '127.0.0.1', port: 9480, strictPort: true, hmr: false, proxy: phoneProxy(env),
-        watch: { ignored: ['**/*'] } } });
-    await vite.listen(); cleanup.push(() => vite.close());
+    // Production targets are asserted above; relocate only the fake upstream
+    // listener for this test to the approved 9480..9489 validation range.
+    const proxy = phoneProxy(env);
+    for (const options of Object.values(proxy)) options.target = 'http://127.0.0.1:9481';
+    const vite = await preview({ configFile: false, root: process.cwd(), logLevel: 'silent',
+      plugins: [tunnelGuard(origin, [9433, 9430, 9431, 8870, 8453, 8792])],
+      preview: { host: '127.0.0.1', port: 9480, strictPort: true, proxy } });
+    cleanup.push(() => new Promise((resolve) => { vite.httpServer.closeAllConnections(); vite.httpServer.close(resolve); }));
     for (const path of ['/phone/ws', '/phone/camera/ws']) {
-      expect(await get(`/__fh_phone/9481${path}`, { origin }, true)).toBe(418);
+      expect(await get(`/__fh_phone/9433${path}`, { origin }, true)).toBe(418);
     }
     expect(seen).toEqual([['/phone/ws', origin], ['/phone/camera/ws', origin]]);
-    for (const path of ['/__fh_phone/8453/phone/ws', '/__fh_phone/127.0.0.1:9481/phone/ws',
-      '/__fh_phone/9481/api/v1/ws', '/__fh_phone/9481/phone/ws?x=1', '/__fh_phone/9481/phone/ws/']) {
+    for (const path of ['/__fh_phone/9430/phone/ws', '/__fh_phone/9431/phone/ws', '/__fh_phone/8870/phone/ws', '/__fh_phone/8792/phone/ws', '/__fh_phone/9440/phone/ws', '/__fh_phone/8453/phone/ws', '/__fh_phone/127.0.0.1:9481/phone/ws',
+      '/__fh_phone/9433/api/v1/ws', '/__fh_phone/9433/phone/ws?x=1', '/__fh_phone/9433/phone/ws/']) {
       expect(await get(path, { origin }, true)).toBe(403);
     }
-    expect(await get('/__fh_phone/9481/phone/ws', { origin: 'https://evil.invalid' }, true)).toBe(403);
-    expect(await get('/__fh_phone/9481/phone/ws', { origin, host: 'evil.invalid' }, true)).toBe(403);
-    expect(await get('/__fh_phone/9481/phone/ws', { origin })).toBe(403);
+    expect(await get('/__fh_phone/9433/phone/ws', { origin: 'https://evil.invalid' }, true)).toBe(403);
+    expect(await get('/__fh_phone/9433/phone/ws', { origin, host: 'evil.invalid' }, true)).toBe(403);
+    expect(await get('/__fh_phone/9433/phone/ws', { origin })).toBe(403);
     expect(await get('/', { host: 'evil.invalid' })).toBe(403);
     expect(seen).toHaveLength(2);
   });

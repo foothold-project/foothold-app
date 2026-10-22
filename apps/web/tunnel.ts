@@ -1,5 +1,5 @@
-import type { Plugin, ProxyOptions } from 'vite';
-import { PHONE_PROXY, phonePorts } from './src/phoneTransport';
+import type { Plugin, ProxyOptions, ViteDevServer, PreviewServer } from 'vite';
+import { PHONE_PROXY, phonePorts, phonePortAllowed } from './src/phoneTransport';
 
 export function tunnelOrigin(env: Record<string, string>): string | null {
   if (env.FH_TUNNEL !== '1') return null;
@@ -30,28 +30,42 @@ export function phoneProxy(env: Record<string, string>): Record<string, ProxyOpt
   ]));
 }
 
-/** Vite 5.4.10 predates allowedHosts. Guard HTTP and upgrades before its proxies. */
+/** Vite 5.4.10 predates allowedHosts. Guard HTTP and upgrades before proxies. */
 export function tunnelGuard(origin: string | null, ports: number[]): Plugin {
   type Request = { url?: string; headers: { host?: string; origin?: string; 'sec-websocket-protocol'?: string } };
-  const paths = new Set(ports.flatMap((port) => [
+  const paths = new Set(ports.filter((port) => phonePortAllowed(port, ports)).flatMap((port) => [
     `${PHONE_PROXY}/${port}/phone/ws`, `${PHONE_PROXY}/${port}/phone/camera/ws`,
   ]));
+  const install = (server: ViteDevServer | PreviewServer, allowedOrigin: string | null) => {
+    const permitted = (req: Request, upgrade: boolean) => {
+      if (!hostAllowed(req.headers.host, allowedOrigin)) return false;
+      // Decode only for the deny check; proxies still require an exact raw route.
+      // Do not expose dev modules or filesystem handlers even on static preview.
+      if (allowedOrigin && req.headers.host === new URL(allowedOrigin).host) {
+        let path: string;
+        try { path = decodeURIComponent((req.url || '').split('?')[0]); } catch { return false; }
+        if (/^\/(?:@fs(?:\/|$)|@id(?:\/|$)|@vite|__vite|node_modules(?:\/|$)|src(?:\/|$))/.test(path)) return false;
+      }
+      return !req.url?.startsWith(PHONE_PROXY) || (upgrade && allowedOrigin !== null
+        && req.headers.origin === allowedOrigin && paths.has(req.url));
+    };
+    server.middlewares.use((req, res, next) => {
+      if (permitted(req as unknown as Request, false)) return next();
+      res.statusCode = 403; res.end();
+    });
+    server.httpServer?.prependListener('upgrade', (req: Request, socket: { end: (value: string) => void }) => {
+      if (permitted(req, true)) return;
+      // Later Vite listeners must not match a proxy or HMR upgrade after denial.
+      req.url = '/__fh_denied'; delete req.headers['sec-websocket-protocol'];
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+    });
+  };
   return {
     name: 'fh-preview-host-and-phone-guard',
     configureServer(server) {
-      const permitted = (req: Request, upgrade: boolean) =>
-        hostAllowed(req.headers.host, origin) && (!req.url?.startsWith(PHONE_PROXY)
-          || (upgrade && origin !== null && req.headers.origin === origin && paths.has(req.url)));
-      server.middlewares.use((req, res, next) => {
-        if (permitted(req as unknown as Request, false)) return next();
-        res.statusCode = 403; res.end('Preview request denied');
-      });
-      server.httpServer?.prependListener('upgrade', (req: Request, socket: { end: (value: string) => void }) => {
-        if (permitted(req, true)) return;
-        // Later Vite listeners must not match a proxy or HMR upgrade after denial.
-        req.url = '/__fh_denied'; delete req.headers['sec-websocket-protocol'];
-        socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-      });
+      if (origin) console.warn('FH_TUNNEL is disabled on the Vite dev server; build and use vite preview instead');
+      install(server, null);
     },
+    configurePreviewServer(server) { install(server, origin); },
   };
 }
