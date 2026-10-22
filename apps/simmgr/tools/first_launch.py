@@ -20,6 +20,7 @@ from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[3]
 sys.path[:0] = [str(ROOT), str(ROOT / 'apps/agent')]
+OBSERVER_SHELL = 'set -euo pipefail; set +u; source "$1"; set -u; exec /usr/bin/python3 "$2" "$3" "${4:-}"'
 
 
 def private(path, value):
@@ -188,19 +189,32 @@ def start(folder):
     assert status == 201 and body['state'] == 'RUNNING', 'launch failed; do not retry, preserve units and ask'
 
 
-def observe_measure(folder):
+def observer_environment(folder):
+    from apps.simmgr.environment import child_environment, BASE_KEYS
+    env = json.loads((folder / 'environment.json').read_text())
+    result = child_environment(93, {key: env[key] for key in BASE_KEYS if key in env})
+    result.update(PYTHONPATH=env['PYTHONPATH'], ROS_LOG_DIR=str(folder / 'observer-ros'))
+    return env, result
+
+
+def observer_dry(folder):
+    """Source ROS and check bindings/isolation without rclpy.init or DDS sockets."""
+    env, observer_env = observer_environment(folder)
+    subprocess.run(['/bin/bash', '-c', OBSERVER_SHELL, 'first-launch-observer',
+        env['SIM_ROS_SETUP'], str(Path(__file__).with_name('first_launch_observer.py')),
+        str(folder), '--dry-run'], env=observer_env, cwd=ROOT, check=True)
+
+
+def observe_measure(folder, remaining=False):
     """One dependency chain: readiness -> measure -> observer exit -> DELETE."""
     import threading
-    from apps.simmgr.environment import child_environment, BASE_KEYS
     from isolation import processes, dds_ports, resources
-    env = json.loads((folder / 'environment.json').read_text())
+    env, observer_env = observer_environment(folder)
     assert json.loads((folder / 'start-result.json').read_text())['state'] == 'RUNNING'
     assert not (folder / 'observer-pid.json').exists(), 'no observer reuse'
-    observer_env = child_environment(93, {key: env[key] for key in BASE_KEYS if key in env})
-    observer_env.update(PYTHONPATH=env['PYTHONPATH'], ROS_LOG_DIR=str(folder / 'observer-ros'))
     with (folder / 'observer.log').open('x') as log:
         observer = subprocess.Popen(['/bin/bash', '-c',
-            'set -euo pipefail; source "$1"; exec /usr/bin/python3 "$2" "$3"',
+            OBSERVER_SHELL,
             'first-launch-observer', env['SIM_ROS_SETUP'],
             str(Path(__file__).with_name('first_launch_observer.py')), str(folder)],
             env=observer_env, cwd=ROOT, stdout=log, stderr=log, start_new_session=True)
@@ -228,8 +242,11 @@ def observe_measure(folder):
     sampler = threading.Thread(target=sample, daemon=True)
     sampler.start()
     with (folder / 'driver.log').open('x') as log:
-        result = subprocess.run([env['FH_SIM_AGENT_PYTHON'], str(Path(__file__).with_name('first_launch_measure.py')),
-            '--episode', str(folder)], env=env, cwd=ROOT, stdout=log, stderr=log)
+        argv = [env['FH_SIM_AGENT_PYTHON'], str(Path(__file__).with_name('first_launch_measure.py')),
+            '--episode', str(folder)]
+        if remaining:
+            argv.append('--remaining')
+        result = subprocess.run(argv, env=env, cwd=ROOT, stdout=log, stderr=log)
     stop.set(); sampler.join(5)
     # Always harvest observer, including a driver exception. A failed measurement
     # is preserved; only the explicitly authorized normal cleanup follows.
@@ -246,9 +263,13 @@ def observe_measure(folder):
     assert status == 204 and result.returncode == 0, 'measurement/cleanup failure; no retry'
 
 
+def observe_remaining(folder):
+    observe_measure(folder, remaining=True)
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('action', choices=['prepare', 'gate', 'start', 'observe_measure'])
+    parser.add_argument('action', choices=['prepare', 'gate', 'start', 'observer_dry', 'observe_measure', 'observe_remaining'])
     parser.add_argument('--episode', required=True, type=Path)
     parser.add_argument('--source', type=Path)
     parser.add_argument('--python', type=Path)

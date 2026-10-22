@@ -25,6 +25,7 @@ def hook():
     output = os.fdopen(fd, 'w', buffering=1)
     pending = queue.Queue(maxsize=8192)
     latest = {'seq': None, 'received': None}
+    current = threading.local()
     lock = threading.Lock()
     def record(value):
         try:
@@ -44,7 +45,18 @@ def hook():
     original_receive, original_init = Hub.receive, RosSink.__init__
     def receive(self, peer, raw):
         arrived = time.monotonic()
-        result = original_receive(self, peer, raw)
+        # A command can publish synchronously inside receive(), before its ACK.
+        # Correlation is provisional until the driver confirms a positive ACK.
+        try:
+            candidate = json.loads(raw)
+            current.sample = ({'seq': candidate['seq'], 'received': arrived}
+                if isinstance(candidate, dict) and candidate.get('t') == 'cmd' else None)
+        except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError):
+            current.sample = None
+        try:
+            result = original_receive(self, peer, raw)
+        finally:
+            current.sample = None
         if result.get('t') == 'cmd.ack':
             with lock:
                 latest.update(seq=result['seq'], received=arrived)
@@ -54,7 +66,7 @@ def hook():
     def initialize(self, velocity, stop, resume, **kwargs):
         def publish(value):
             with lock:
-                sample = dict(latest)
+                sample = dict(getattr(current, 'sample', None) or latest)
             velocity(value)
             record({'kind': 'published', 'mono': time.monotonic(),
                 'velocity': list(value), **sample})
