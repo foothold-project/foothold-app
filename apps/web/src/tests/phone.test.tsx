@@ -92,6 +92,32 @@ const stick = (label: string) => {
 const ptr = (el: Element, type: string, x: number, y: number) => act(() => { el.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0 })); });
 
 describe('시뮬 로봇 직결 흐름', () => {
+  it('검증된 보통만 사용 가능, 후진·제자리 회전은 미확인 안내, STOP 유지', async () => {
+    const a = await launch(); await drive(a);
+    const speeds = $('[aria-label="속도 단계"]')!;
+    const buttons = [...speeds.querySelectorAll('button')];
+    expect(buttons.map((b) => [b.textContent, b.disabled, b.getAttribute('aria-pressed')])).toEqual([
+      ['느림', true, 'false'], ['보통 · 0.6 m/s', false, 'true'], ['빠름', true, 'false'],
+    ]);
+    expect(box.textContent).toContain('느림·빠름·후진·제자리 회전: 시뮬에서 아직 확인 안 됨');
+    await click(buttons[0]); await click(buttons[2]);
+    expect(buttons[1].getAttribute('aria-pressed')).toBe('true');
+    const fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 100); await wait(80);
+    expect(box.textContent).toContain('후진은 아직 지원하지 않습니다');
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
+    ptr(fwd, 'pointerup', 50, 100);
+    const turn = stick('회전');
+    ptr(turn, 'pointerdown', 100, 50); await wait(80);
+    expect(box.textContent).toContain('제자리 회전 — 시뮬에서 아직 확인 안 됨');
+    // Existing wire request remains subject to agent projection; no new allowed command.
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: -0.5 });
+    expect($('[data-stop]')).toBeTruthy();
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    ptr(turn, 'pointerup', 100, 50);
+  });
+
   it('월드 이름·설명을 표시하고(월드 내부 id 는 숨김, U5) 선택한 id로 띄운다', async () => {
     serve({ 'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [
       ...CATALOG.worlds, { id: 'corridor', name: '복도 연습장', description: '' },

@@ -79,10 +79,17 @@ export function SimDrive() {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
   const input = useRef<[number, number]>([0, 0]), gen = useRef(0);
+  const [unsupported, setUnsupported] = useState('');
   useTick(true);
   useEffect(() => () => sim.axes([0, 0]), []);
-  useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [ready]);
-  const put = (i: 0 | 1, v: number) => { input.current[i] = v; sim.axes([input.current[0], input.current[1]]); };
+  useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); setUnsupported(''); }, [ready]);
+  const put = (i: 0 | 1, v: number) => {
+    input.current[i] = v;
+    const [f, t] = input.current;
+    setUnsupported(f < 0 ? '후진은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
+      : f === 0 && t !== 0 ? '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.' : '');
+    sim.axes([f, t]);
+  };
   const left = l.exp ? Math.floor(l.exp - Date.now() / 1000) : Infinity;
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
@@ -91,6 +98,7 @@ export function SimDrive() {
   const notes = [
     l.at === 'closed' && l.why,
     l.notice,
+    unsupported,
     mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. 끝까지 밀어야 움직입니다.`,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
     stop,
@@ -117,6 +125,12 @@ export function SimDrive() {
             {open && left < 60 && <button type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>}
           </div>
         </div>
+        <div className="fh-row" role="group" aria-label="속도 단계" aria-describedby="sim-speed-note">
+          <button type="button" className="btn" disabled aria-pressed={false}>느림</button>
+          <button type="button" className="btn pri" aria-pressed={true}>보통 · 0.6 m/s</button>
+          <button type="button" className="btn" disabled aria-pressed={false}>빠름</button>
+        </div>
+        <p id="sim-speed-note" className="dv-note">느림·빠름·후진·제자리 회전: 시뮬에서 아직 확인 안 됨</p>
         {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
       </div>
       {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
