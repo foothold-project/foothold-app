@@ -12,7 +12,11 @@
   새 시작 차단이며 world 자동KILL/재기동 없다. agent timeout은 자기 수명 제한 user unit만 TERM/KILL로 수거하되 world 보존. 종료 중에도 다른 로봇의 정리는 시도한다.
 - 세대의 정본은 서버 DB 하나이며 슬롯 취득마다 세대를 올린다. manager STOP/제거와 서버 완료 처리가 같은 세대일 때만
   적용되어 이전 DELETE가 재취득한 담당자·키·출입증을 지우지 않는다. STARTING/STOPPING
-  재POST는 거부하되 DELETE로 복구한다. 빈 관리자는 세대와 무관하게 제거 성공이다.
+  재POST는 거부하되 DELETE로 복구한다. 빈 관리자는 세대와 무관하게 취소 영수증을 남긴다.
+  서버는 예약 때 기록한 관리자 UUID와 DELETE의 인스턴스·부재·startup 증명을 대조한다.
+  재시작한 관리자의 부재는 자원·unit·93/DDS 시작 관문 통과 및 이후 실패 없음까지 확인해야
+  슬롯을 해제한다. 증명 없는 응답·기록 없는 레거시 슬롯은 소유와 세대를 보존한다.
+  관리자 목록에 없는 DB 소유 슬롯도 앱 목록의 정리 대상으로 남는다(연결 주소 없음).
   서비스 startup에서 fake/native 모두 기존 isolation preflight와 남은 sim/agent user unit
   부재를 읽기만 확인하며 user bus 오류도 거부한다. 61은 startup 기록만 하며 거부 조건이
   아니고, world 실행 전후 비교는 Simulation이 별도로 한다. 자원 기준만 fake에서는 경고이며 native는 거부한다.
@@ -34,7 +38,11 @@
   episode 폴더와 그 이름의 agent unit을 쓰며 기존 폴더/unit 이름은 재사용하지 않는다.
   다음 기동도 자원·93·DDS·sim/agent unit 부재 관문을 다시 통과한다. 정리 실패·식별 불일치·
   강제 agent 종료·감시 오류는 실패를 고정해 재기동을 차단하며 담당자 확인이 필요하다.
+  예외는 unit·프로세스·native 출력 생성 전 증명된 두 자원 거부뿐이다. 빈 episode 폴더와
+  preflight 증거는 남길 수 있으나 launch/source hash 기록·native 출력이 생겼으면 고정한다.
+  증명된 경우 서버도 같은 STARTING 세대를 IDLE로 돌려 앱에서 잠시 뒤 다시 띄울 수 있다.
 - 서버의0014는 durable `simulation` 출처·슬롯 세대·전환 상태를 추가한다. 기존0013 발급·회수/키 경로 그대로.
+  0016은 예약한 관리자 인스턴스 UUID를 추가하며 기존 행에는 추정 UUID를 채우지 않는다.
   두 파일에 같은 슬롯 키를 사전 배포하고 서버를 기동한다. 동적 키 생성/파일 갱신 없다.
 
 저장소 밖 private JSON 카탈로그의 모양(실제 UUID/경로/키를 이 파일에 넣지 않는다):

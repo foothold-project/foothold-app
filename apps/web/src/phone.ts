@@ -2,7 +2,7 @@
 // 띄우기·정리·출입증은 관제 서버 REST(api.ts), 조종·STOP·영상은 그 로봇 에이전트 폰 포트에 직접 WS — 서버 실시간(rt.ts) 조종 경로를 쓰지 않는다.
 // 조종권·잠금·deadman 판정은 에이전트. 폰은 요청만 보내고 state 로 확인한다: 자동 취득·자동 해제·자동 재연결 없음.
 import { useSyncExternalStore } from 'react';
-import type { PhoneState, PhoneWelcome, SimCatalog, SimFailureDetail, SimRobot } from '../../contracts/ts';
+import type { PhoneState, PhoneWelcome, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot } from '../../contracts/ts';
 import { ApiFail, api, authMark } from './api';
 
 /** pick 고르기 · starting 띄우는 중 · unsure 시작 확인 안 됨(서버 STARTING 일 수 있음) · linking 출입증·연결 · drive 조종 화면 · ending 끝내는 중 · checking 정리 확인 안 됨 */
@@ -28,12 +28,12 @@ export type Sim = {
   /** 이 시각(단조) 전에는 다시 연결하지 않는다(1013 뒤 늘리는 간격·출입증 429 retry_after) */
   retryAt: number;
   /** unsure 가 SIM_SLOT_BUSY 때문(남의 로봇일 수 있어 목록으로 내 것인지 먼저 확인) · 남이 쓰는 것으로 확인한 슬롯 */
-  slotBusy: boolean; taken: string[];
+  slotBusy: boolean; busyWhy: string; taken: string[]; cleanup: SimCleanupSlot[];
 };
 
 export const CMD_MS = 50, PING_MS = 1000;
 const now = () => performance.now();
-const blank = (): Sim => ({ step: 'pick', catalog: null, mine: [], listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, slotBusy: false, taken: [] });
+const blank = (): Sim => ({ step: 'pick', catalog: null, mine: [], cleanup: [], listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, slotBusy: false, busyWhy: '', taken: [] });
 /** 05 §13.9 시작 전 확실한 거부 (status, code) 고정 목록 — 이 밖(SIM_SLOT_BUSY 포함)은 불확실 */
 const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400 SIM_CREDENTIAL_INVALID', '404 SIM_WORLD_NOT_FOUND', '404 SIM_SLOT_NOT_FOUND',
   '409 SIM_WORLD_BUSY', '409 SIM_OWNER_LIMIT', '409 SIM_NATIVE_SINGLE_ONLY', '409 SIM_ROBOT_LIMIT']);
@@ -153,15 +153,19 @@ function agentUrl(a: string) {
   try { const u = new URL(a); return (u.protocol === 'ws:' || u.protocol === 'wss:') && u.pathname === '/phone/ws' && !u.search ? u.href : null; } catch { return null; }
 }
 const message = (e: unknown) => (e instanceof ApiFail ? e.message : '요청을 처리하지 못했습니다.');
-/** 사유는 안내만 바꾼다. 503·슬롯 세대·정리 필요 여부는 기존 판정 그대로다. */
+const notCreated = (e: ApiFail) => e.status === 503 && e.code === 'SIM_UNAVAILABLE'
+  && e.detail?.reason === 'resources_low' && e.detail.start_not_created === true;
+/** 서버가 증명한 시작 전 거부만 다시 띄우기 안내를 준다. */
 function simulationMessage(e: unknown): string | undefined {
   if (!(e instanceof ApiFail)) return;
+  if (e.code === 'SIM_DISABLED') return '시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.';
+  if (e.code === 'SIM_RECOVERY_UNPROVEN') return '남은 시뮬이 없는지 확인하지 못해 자리를 보존했습니다. 관리자를 다시 켠 뒤 정리하세요. 이전 관리자 기록이 없으면 관리자에게 문의하세요.';
   const reason = e.detail?.reason as SimFailureDetail['reason'] | undefined;
-  if (reason === 'resources_low') return e.detail?.start_not_created === true
-    ? 'PC 자원이 부족해 시뮬을 띄우지 않았습니다(메모리·부하). «정리»를 누른 뒤, 시뮬 관리자를 다시 켜야 다시 띄울 수 있습니다.'
+  if (reason === 'resources_low') return notCreated(e)
+    ? 'PC 자원이 부족해 시뮬을 띄우지 않았습니다(메모리·부하). 잠시 뒤 다시 띄우세요.'
     : 'PC 자원이 부족합니다(메모리·부하). 시뮬이 떴는지 다시 확인하거나 정리하세요.';
-  if (reason === 'manager_unreachable') return '시뮬 관리자가 꺼져 있습니다. 미리보기를 다시 켜야 합니다.';
-  if (reason === 'slot_busy') return '이 시뮬 자리는 사용 중입니다.';
+  if (reason === 'manager_unreachable') return '시뮬 관리자가 꺼져 있습니다. 관리자를 다시 켠 뒤 정리하세요.';
+  if (reason === 'slot_busy') return e.message;
 }
 
 export const sim = {
@@ -178,6 +182,7 @@ export const sim = {
       : r.status === 'rejected' ? simulationMessage(r.reason) ?? `내 시뮬 로봇 목록을 받지 못했습니다. ${message(r.reason)}` : '';
     // 목록 오류만 지운다 — 띄우기 거부·정리 확인 실패 문구는 남김
     set({ catalog: c.status === 'fulfilled' ? c.value : S.catalog, mine: r.status === 'fulfilled' ? r.value.items : S.mine, listed: r.status === 'fulfilled' || S.listed,
+      cleanup: r.status === 'fulfilled' ? r.value.cleanup ?? [] : S.cleanup,
       err: e || (S.err === loadErr ? '' : S.err) });
     loadErr = e;
     return r.status === 'fulfilled';
@@ -194,13 +199,13 @@ export const sim = {
     set({ step: 'starting', robot: placeholder, since: now(), err: '', stop: null, slotBusy: false });
     let r: SimRobot | null = null, fail: unknown = null;
     try { r = await api.simStart({ world_id: world, robot_id: slot }); } catch (e) { fail = e; }
-    const f = fail instanceof ApiFail ? fail : null, sure = !!f && REJECTED.has(`${f.status} ${f.code}`), busy = f?.status === 409 && f.code === 'SIM_SLOT_BUSY';
+    const f = fail instanceof ApiFail ? fail : null, sure = !!f && (REJECTED.has(`${f.status} ${f.code}`) || notCreated(f)), busy = f?.status === 409 && f.code === 'SIM_SLOT_BUSY';
     if (e0 !== epoch) {   // 세션이 끝난 뒤 온 답 — 연결하지 않음. 남의 것일 수 있는 SLOT_BUSY·다른 로그인 세션이면 손대지 않음
       if (!sure && !busy && mark === authMark()) api.simEnd(slot).catch(() => {});
       return;
     }
     if (sure) { set({ step: 'pick', robot: null, stop: null, err: simulationMessage(f) ?? `시뮬 로봇을 띄우지 못했습니다. ${f!.message}` }); sim.load(); return; }
-    if (busy) { set({ step: 'unsure', slotBusy: true, err: `이 슬롯이 사용 중이라는 답을 받았습니다(${simulationMessage(f) ?? f!.message}). 내 시뮬 로봇인지 목록으로 확인합니다.` }); return sim.recheck(); }
+    if (busy) { set({ step: 'unsure', slotBusy: true, busyWhy: f!.message, err: `${f!.message} 내 시뮬 로봇인지 목록으로 확인합니다.` }); return sim.recheck(); }
     if (r) set({ robot: r });
     if (cancel) return sim.end();   // 띄우는 중 STOP — 생겼거나 불확실한 그 슬롯을 DELETE 1회
     if (!r) { set({ step: 'unsure', err: simulationMessage(fail) ?? `시뮬 로봇이 떴는지 확인하지 못했습니다. ${message(fail)}` }); sim.load(); return; }
@@ -212,13 +217,18 @@ export const sim = {
     const slot = S.robot?.robot_id, ok = await sim.load();
     if (!ok || S.step !== 'unsure' || !S.slotBusy || S.robot?.robot_id !== slot || !slot) return;
     const it = S.mine.find((x) => x.robot_id === slot && (!me || x.owner_id === me));
+    const cleanup = S.cleanup.find((x) => x.robot_id === slot && (!me || x.owner_id === me));
     if (it && cancel) return sim.end(it);
+    if (cleanup && cancel) return sim.cleanupSlot(cleanup);
+    if (cleanup) { set({ step: 'pick', robot: null, slotBusy: false, stop: null, err: '이전 시뮬이 정리되지 않았습니다 — 아래 정리를 누르세요.' }); return; }
     const taken = [...S.taken, slot], more = S.catalog?.slots.some((x) => !taken.includes(x));
     set(it ? { step: 'pick', robot: null, slotBusy: false, stop: null, err: '이 슬롯은 이미 내 시뮬 로봇입니다. 위 목록에서 직접 연결하거나 끝내세요.' }
-      : { step: 'pick', robot: null, slotBusy: false, stop: null, taken, err: `시뮬 슬롯 ${slot.slice(0, 8)} 은 다른 사람이 쓰고 있습니다. ${more ? '띄우기를 다시 누르면 다른 슬롯을 시도합니다.' : '사용이 끝난 뒤 다시 누르세요.'}` });
+      : { step: 'pick', robot: null, slotBusy: false, stop: null, taken, err: `${S.busyWhy} ${more ? '띄우기를 다시 누르면 다른 슬롯을 시도합니다.' : '사용이 끝난 뒤 다시 누르세요.'}` });
   },
   /** 이미 떠 있는 내 시뮬 로봇에 다시 붙기 */
   attach(r: SimRobot) { set({ robot: r, err: '', stop: null }); return sim.connect(); },
+  /** 관리자가 연결 주소를 확인하지 못한 DB 슬롯에는 DELETE만 제공한다. */
+  cleanupSlot(r: SimCleanupSlot) { return sim.end({ robot_id: r.robot_id } as SimRobot); },
   /** 새 출입증 → 에이전트에 직접 hello. 출입증은 hello 에만 싣고 버린다 */
   async connect() {
     const r = S.robot; if (!r || now() < S.retryAt) return;
@@ -293,7 +303,7 @@ export const sim = {
     }
   },
   /** 처음(고르기)으로 — 연결은 닫는다 */
-  reset() { sim.close(); cancel = false; set({ ...blank(), catalog: S.catalog, mine: S.mine, listed: S.listed, taken: S.taken }); sim.load(); },
+  reset() { sim.close(); cancel = false; set({ ...blank(), catalog: S.catalog, mine: S.mine, cleanup: S.cleanup, listed: S.listed, taken: S.taken }); sim.load(); },
   /** 화면 세션 끝(로그아웃·화면 내림)·시험: 연결을 닫고 비운다. 진행 중인 띄우기·끝내기의 늦은 답은 이 상태를 건드리지 않는다 */
   clear() { epoch++; sim.close(); backoff = 0; cancel = false; S = blank(); emit(); },
 };

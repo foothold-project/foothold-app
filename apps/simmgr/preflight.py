@@ -27,6 +27,7 @@ def isolation_preflight(folder):
 
 
 def startup_preflight(real=False):
+    resources_ok = True
     folder = ROOT / 'tmp/p1c/startup'
     folder.mkdir(parents=True, exist_ok=True, mode=0o700)
     with tempfile.TemporaryDirectory(dir=folder) as evidence:
@@ -43,6 +44,7 @@ def startup_preflight(real=False):
             if snapshot['domain93'] or snapshot['dds_ports']:
                 raise RuntimeError('isolation unavailable; startup refused') from None
             LOGGER.warning('fake launcher resource warning: MemAvailable/load gate exceeded')
+            resources_ok = False
     try:
         result = subprocess.run(['systemctl', '--user', 'list-units', '--all', '--plain',
             '--no-legend', '--no-pager', *UNIT_PATTERNS], text=True, capture_output=True,
@@ -54,4 +56,4 @@ def startup_preflight(real=False):
     LOGGER.info(
         'startup preflight utc=%s sim_units=0 agent_units=0 domain93_processes=0 MemAvailableMiB=%s load1=%s',
         datetime.now(timezone.utc).isoformat(), snapshot.get('mem_available_mib'), snapshot.get('load1'))
-    return snapshot
+    return {**snapshot, 'resources_ok': resources_ok}

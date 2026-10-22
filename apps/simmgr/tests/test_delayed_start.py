@@ -91,7 +91,7 @@ def test_resources_warn_only_for_fake_but_isolation_still_required(tmp_path,monk
         with pytest.raises(RuntimeError,match='resource gate'):preflight.startup_preflight(real)
         assert 'startup preflight' not in caplog.text
     else:
-        assert preflight.startup_preflight(real)==snapshot
+        assert preflight.startup_preflight(real)=={**snapshot, 'resources_ok':False}
         assert 'resource warning' in caplog.text
         lines=[r.message for r in caplog.records if r.message.startswith('startup preflight')]
         assert len(lines)==1

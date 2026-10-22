@@ -1,0 +1,27 @@
+{
+  "$id": "fh-app/1/SimRemoval",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "absent": {
+      "title": "Absent",
+      "type": "boolean"
+    },
+    "manager_instance_id": {
+      "format": "uuid",
+      "title": "Manager Instance Id",
+      "type": "string"
+    },
+    "startup_clean": {
+      "title": "Startup Clean",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "manager_instance_id",
+    "absent",
+    "startup_clean"
+  ],
+  "title": "SimRemoval",
+  "type": "object"
+}

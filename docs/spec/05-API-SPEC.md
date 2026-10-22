@@ -982,14 +982,16 @@ namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,laun
 timeout·본문/프로토콜 오류만으로 «관리자 꺼짐»이라고 단정하지 않는다.
 선택 숫자는 `mem_available_mib`, `load1`, `min_mem_available_mib`, `max_load1`이며
 주소·경로·원격 오류 문장·인증 정보는 중계하지 않는다.
-`start_not_created:true`는 기존 자원 preflight가 unit 생성 전에 거부한 경로에서만
-전달한다(episode 검사 또는 Simulation.start 첫 검사). 증명 없는 자원 오류에는
-«띄우지 않았다»고 표시하지 않는다. 이 진단은 **시작 전 확실한 거부 고정 목록을
-늘리지 않으며**, 503·서버 STARTING 예약·세대·폰 «확인 중/정리»를 그대로 유지한다.
-증명된 자원 거부 안내는 «PC 자원이 부족해 시뮬을 띄우지 않았습니다(메모리·부하).
-«정리»를 누른 뒤, 시뮬 관리자를 다시 켜야 다시 띄울 수 있습니다.»다. 기존 관리자
-failed 고정은 이 진단과 별개로 유지한다. 관리자가 연결을 거절하면
-«시뮬 관리자가 꺼져 있습니다. 미리보기를 다시 켜야 합니다.»를 보인다.
+`start_not_created:true`는 기존 자원 preflight가 unit·프로세스·원본 출력 생성 전에
+거부한 두 경로(episode 검사 또는 Simulation.start 첫 검사)에서만 전달한다.
+정확히 `503 SIM_UNAVAILABLE + reason=resources_low + start_not_created=true`이면
+관리자 failed를 고정하지 않고, 서버는 같은 STARTING 세대만 출입증 회수·hash 교체·owner
+해제와 START_REJECTED 감사 후 IDLE로 돌린다. 앱은 «PC 자원이 부족해 시뮬을 띄우지
+않았습니다(메모리·부하). 잠시 뒤 다시 띄우세요.»를 표시하고 고르기로 돌아간다.
+빈 episode 폴더와 preflight 증거는 남을 수 있다. 다음 시도도 모든 시작 관문을 다시 통과해야 한다.
+증명 없는 자원 오류·생성 뒤 실패·불확실은 failed 고정과 STARTING 예약을 유지한다.
+관리자 연결 거절은 «시뮬 관리자가 꺼져 있습니다. 관리자를 다시 켠 뒤 정리하세요.»,
+`SIM_DISABLED` 설정 누락은 «시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.»로 구별한다.
 슬롯 사용 중 안내는 남은 다른 슬롯이 있을 때만 «다른 슬롯»을 제안하며,
 STOP·기존 정리 동작·불확실한 슬롯의 소유 확인을 유지한다.
 
@@ -1000,7 +1002,7 @@ STOP·기존 정리 동작·불확실한 슬롯의 소유 확인을 유지한다
 `/robots/{id}/agent-token` 회전은409 SIM_TOKEN_MANAGED, 일반 DELETE와 담당자 PATCH는
 409 SIM_ROBOT_MANAGED로 거부한다. 이름 수정은 기존 권한으로 허용한다.
 SIM_ROBOT_REQUESTED/REGISTERED/REMOVED·REMOVE_FAILED·REMOVE_STALE·START_REJECTED·START_STALE 감사는
-id·world·generation·launcher·실패코드만 담고 주소·토큰·키는
+id·world·generation·launcher·실패코드·관리자 인스턴스·부재 복구 여부만 담고 주소·토큰·키는
 담지 않는다. 에이전트 시작 전 id·토큰 hash와 REQUESTED를 먼저 commit하므로 시작 응답이
 유실·timeout·5xx·신원/응답 검증 실패는 STARTING을 유지하고 자동 재취득하지 않는다.
 STARTING에서도 같은 권한의 DELETE로 같은 세대의 관리자 로봇을 정리한 뒤 IDLE로 복구한다. 제거 전 살아 있는 출입증을 기존 회수 outbox로
@@ -1049,12 +1051,28 @@ SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 
 관리자 DELETE 본문은 `SimRemove {generation}`이며 자기 잠금 안에서 다음처럼 처리한다.
 
 - 로봇이 있으면 같은 세대일 때만 STOP·정리하고, 다른 세대면409 SIM_GENERATION_MISMATCH다.
-- 로봇이 없으면 기대 세대와 무관하게200(이미 없음)이다. **서비스 시작 전** fake/native
-  모두 기존 isolation preflight(다른 93/DDS 거부, 자원 기준은 fake만 경고)와 남은
-  `fh-rb-sim-*.service`/`fh-simmgr-agent-*.service` user unit 부재 검사를 통과해야 한다.
-  61은 startup에서 기록만 하며 거부 조건이 아니다. world 실행 전후 61 PID/start_ticks
-  불변 비교는 Simulation이 별도로 수행한다. user bus 조회 실패도 시작 거부다. 검사는 읽기만 하고 프로세스/unit을 정리하지 않는다.
-  이 관문이 있어야 재시작한 빈 관리자의 «없음»을 실제 runtime 부재로 신뢰할 수 있다.
+- 로봇이 없으면 기대 세대와 무관하게200이며, 세대 취소 영수증을 남겨 늦은 POST를 막는다.
+  응답 `SimRemoval`은 `manager_instance_id` UUID·`absent`·`startup_clean`을 싣는다.
+- 서비스 시작 전 fake/native 모두 기존 isolation preflight(93/DDS 부재)와 남은
+  `fh-rb-sim-*.service`/`fh-simmgr-agent-*.service` user unit 부재 검사를 통과한다.
+  fake의 자원 경고는 서비스 시작만 허용하며 `startup_clean=false`로 복구 증명이 되지 않는다.
+  user bus 조회 실패도 시작 거부다. 검사는 읽기만 하고 프로세스/unit을 정리하지 않는다.
+  61은 startup에서 기록만 하며 거부 조건이 아니다. world 전후 61 불변 비교는 기존대로다.
+
+0016의 `robots.sim_manager_instance_id`에 예약 전 카탈로그에서 받은 관리자 UUID를
+저장한다. POST의 첫 전달·재시작·최종 확인·보상·SIM_GENERATION_STALE 규칙은 그대로다.
+같은 관리자의 DELETE 취소 영수증은 기존처럼 늦은 POST를 막는다. 다른 관리자가 모르는
+슬롯은 **기록된 UUID와 다른 새 UUID + 시작 시 unit 0·domain93/DDS 0·자원 통과 +
+해당 슬롯 부재 + 이후 관리자 실패/종료 없음**을 모두 확인해야 IDLE로 해제한다.
+응답 손상·증명 누락·기록 없는 레거시 슬롯은 `503 SIM_RECOVERY_UNPROVEN`으로 보존한다.
+
+목록 `SimRobotList.cleanup`은 DB에는 소유가 있으나 관리자 목록에서 같은 owner·generation을
+확인할 수 없는 슬롯(`robot_id,owner_id,generation,can_recover`)이다. 관리자 꺼짐·응답 오류에도
+현재 권한 범위의 DB 정리 대상을 반환하며 목록 조회 자체는 슬롯을 해제하지 않는다.
+앱은 내 슬롯에 «이전 시뮬이 정리되지 않았습니다 — 정리»와 항상 누를 수 있는 정리 버튼을
+보인다. 연결 주소를 만들거나 출입증을 발급받지 않는다. 기존 관리자 UUID 기록이 없으면
+«이 시뮬 자리는 자동 정리할 수 없습니다 — 관리자에게 문의하세요.»도 표시한다.
+성공한 복구 감사는 기존 SIM_ROBOT_REMOVED 한 건에 세대·새 관리자 UUID·recovered_absent를 담는다.
 
 서버는 원격 DELETE 뒤 조직 잠금 아래 **세대와 STOPPING을 모두** 다시 확인한 뒤만
 재회수·담당자 해제·hash 교체·REMOVED 감사를 수행한다. 같은 세대의 이중 DELETE도

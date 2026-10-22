@@ -2,7 +2,7 @@
   "$id": "fh-app/1/SimFailureDetail",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Optional error.detail for simulation failures; never a lifecycle verdict.",
+  "description": "Allowlisted diagnostics; only exact resource pre-creation proof releases a slot.",
   "properties": {
     "load1": {
       "anyOf": [

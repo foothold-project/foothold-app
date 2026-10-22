@@ -189,4 +189,5 @@ def test_absent_robot_delete_api_accepts_any_generation():
     with TestClient(api.create_app(cfg),client=('127.0.0.1',9438)) as client:
         result=client.request('DELETE','/v1/robots/'+rid,json={'generation':99},
                               headers={'Authorization':'Bearer '+cfg.secret})
-        assert result.status_code==200 and result.json()=={'ok':True}
+        assert result.status_code==200
+        assert result.json()=={'manager_instance_id':str(client.app.state.instance_id), 'absent':True, 'startup_clean':True}

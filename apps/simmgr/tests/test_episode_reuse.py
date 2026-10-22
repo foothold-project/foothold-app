@@ -84,6 +84,7 @@ def native_episode(tmp_path, monkeypatch):
         started = False
         def __init__(self, folder, source, setup, launch_env):
             self.folder, self.source = folder, source
+            self.out = folder / 'synthetic-native-output'
             assert launch_env['ROS_DOMAIN_ID'] == '93'
             state.sims.append(self)
         def start(self):
@@ -159,8 +160,11 @@ def test_second_episode_rechecks_all_preflight_gates(native_episode, blocker):
         if blocker == 'domain93': state.rows = [dict(pid=123, ppid=1, domain='93')]
         if blocker == 'dds': state.ports = [30650]
         if blocker == 'unit': state.remaining = 'fh-simmgr-agent-old.service'
-        with pytest.raises(RuntimeError):
+        with pytest.raises(SimError if blocker == 'memory' else RuntimeError) as error:
             await mgr.add('v5_single/f1', slot.robot_id, owner, slot.org_id, 'x' * 32, 2)
+        if blocker == 'memory':
+            assert error.value.detail == {'reason': 'resources_low', 'start_not_created': True}
+            assert not mgr.failed and not launch.failed
         assert state.events.count('world_start') == 1
         assert state.events.count('preflight') == 3
     asyncio.run(run())

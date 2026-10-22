@@ -1218,7 +1218,7 @@ class CameraStatus(Contract):
 
 
 class SimFailureDetail(Contract):
-    """Optional error.detail for simulation failures; never a lifecycle verdict."""
+    """Allowlisted diagnostics; only exact resource pre-creation proof releases a slot."""
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     reason: Literal['resources_low', 'manager_unreachable', 'slot_busy', 'unknown']
     start_not_created: bool = Field(default=False, strict=True)
@@ -1258,6 +1258,20 @@ class SimCatalog(Contract):
     slots: list[UUID]
     max_robots: int = Field(ge=1, le=2)
     launcher: Literal['fake', 'native-single']
+    manager_instance_id: UUID | None = None
+
+
+class SimRemoval(Contract):
+    manager_instance_id: UUID
+    absent: bool = Field(strict=True)
+    startup_clean: bool = Field(strict=True)
+
+
+class SimCleanupSlot(Contract):
+    robot_id: UUID
+    owner_id: UUID
+    generation: int = Field(ge=1, le=9223372036854775807)
+    can_recover: bool
 
 
 class SimRobot(Contract):
@@ -1276,6 +1290,7 @@ class SimRobot(Contract):
 
 class SimRobotList(Contract):
     items: list[SimRobot]
+    cleanup: list[SimCleanupSlot] = Field(default_factory=list)
 
 
 TOP = {name: value for name, value in list(globals().items())

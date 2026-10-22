@@ -1125,6 +1125,14 @@ export interface SimCatalog {
   slots: string[];
   max_robots: number;
   launcher: "fake" | "native-single";
+  manager_instance_id: string | null;
+}
+
+export interface SimCleanupSlot {
+  robot_id: string;
+  owner_id: string;
+  generation: number;
+  can_recover: boolean;
 }
 
 export interface SimFailureDetail {
@@ -1143,6 +1151,12 @@ export interface SimProvision {
   owner_id: string;
   org_id: string;
   agent_token: string;
+}
+
+export interface SimRemoval {
+  manager_instance_id: string;
+  absent: boolean;
+  startup_clean: boolean;
 }
 
 export interface SimRemove {
@@ -1165,6 +1179,7 @@ export interface SimRobot {
 
 export interface SimRobotList {
   items: SimRobot[];
+  cleanup: SimCleanupSlot[];
 }
 
 export interface SimStartRequest {

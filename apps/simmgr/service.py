@@ -5,6 +5,7 @@ from uuid import UUID
 
 from .launcher import FakeLauncher, NativeLauncher
 from .environment import validate_control_environment
+from .preflight import ResourceGateError
 
 
 class SimError(Exception):
@@ -71,6 +72,11 @@ class Manager:
             raise SimError('SIM_ASSET_MISSING', 503)
         try:
             await self.launcher.start_world(world)
+        except ResourceGateError:
+            # Only the launcher's exact pre-creation resource gates use this
+            # exception. No world/agent exists, so there is nothing to latch.
+            raise SimError('SIM_UNAVAILABLE', 503,
+                           {'reason': 'resources_low', 'start_not_created': True}) from None
         except BaseException:
             self.failed = True
             raise
@@ -118,7 +124,7 @@ class Manager:
             self.removed_generation[robot_id] = max(generation, self.removed_generation.get(robot_id, 0))
             row = self.robots.get(robot_id)
             if row is None:
-                return  # server DB owns generations; absent robots are already removed
+                return True  # cancellation receipt also fences late POST delivery
             if generation != row.generation:
                 raise SimError('SIM_GENERATION_MISMATCH')
             row.state = 'STOPPING'
@@ -132,6 +138,7 @@ class Manager:
             del self.robots[robot_id]
             if self.launcher.real:
                 self.world = None
+            return False
 
     async def close(self):
         self.closing = True

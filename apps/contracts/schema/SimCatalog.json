@@ -43,6 +43,19 @@
       "title": "Launcher",
       "type": "string"
     },
+    "manager_instance_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manager Instance Id"
+    },
     "max_robots": {
       "maximum": 2,
       "minimum": 1,
@@ -69,7 +82,8 @@
     "worlds",
     "slots",
     "max_robots",
-    "launcher"
+    "launcher",
+    "manager_instance_id"
   ],
   "title": "SimCatalog",
   "type": "object"
