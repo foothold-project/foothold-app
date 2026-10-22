@@ -19,7 +19,7 @@ const LIMITS = { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5,
 const AT = '2026-10-20T05:06:07Z';
 const robot = (id: string, name: string, owner: User | null, p: Partial<RobotSummary> = {}): RobotSummary => ({ id, name, model: 'unitree_go2',
   owner: owner && { id: owner.id, display_name: owner.display_name }, connection: 'OFFLINE', status: null, battery: null, location: null, lease: null,
-  current_run: null, devices: [], attention: [], ...p });
+  current_run: null, devices: [], attention: [], simulation: false, ...p });
 const RA = robot('r-a', 'Go2-A', LEE, { connection: 'ONLINE', status: 'IDLE', battery: { soc: 64, updated_at: AT },
   location: { floor_id: null, map_version_id: null, x: 1.25, y: -3, yaw: 0, confidence: null, updated_at: AT },
   devices: [{ key: 'cam', kind: 'CAMERA_RGB', label: '앞 카메라', state: 'OK' }, { key: 'lidar', kind: 'LIDAR', label: '라이다', state: 'MISSING' }] });

@@ -93,16 +93,14 @@ describe('탭 전환', () => {
     expect($$('[aria-label="로봇 목록"] [data-seen]')).toHaveLength(3);
     expect($$('main button').filter((b) => /조종/.test(b.textContent!))).toEqual([]);
   });
-  it('폰: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + 시뮬 로봇 띄우기 준비 중)', () => {
+  it('폰: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + 시뮬 로봇 띄우기)', () => {
     mount(true, 'u-lee');
     expect($('nav')).toBeNull();
     expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);
-    const sim = $('[aria-label="시뮬 로봇 띄우기"]');
-    expect(sim.textContent).toContain('준비 중');
-    const ctl = [...sim.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('button, select')];
-    expect(ctl.length).toBeGreaterThanOrEqual(4);
-    expect(ctl.every((e) => e.disabled)).toBe(true);
+    // 월드 목록을 받기 전에는 띄우기를 못 누름(흐름 전체는 phone.test.tsx)
+    const go = [...$('[aria-label="시뮬 로봇 띄우기"]').querySelectorAll('button')].find((b) => b.textContent === '띄우기')!;
+    expect(go.disabled).toBe(true);
   });
 });
 

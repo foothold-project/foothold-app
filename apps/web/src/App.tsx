@@ -11,6 +11,8 @@ import { PC_BOTTOM, PC_TABS, labelOf, leaving, tabFromHash, tabsFor, type Tab, t
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, useDash, type Ctx } from './screens';
 import { Connect, endDrive } from './drive';
+import { sim, useSim } from './phone';
+import { SimDrive } from './simdrive';
 import { Approvals } from './screens/approvals';
 import { Bell, History } from './screens/history';
 import { kept } from './screens/mapedit';
@@ -94,6 +96,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const pool = phone ? myRobots(user, robots) : robotsFor(user, robots);
   // 폰 #/drive/<로봇 id> = 그 로봇 조종 화면, #/drive = 로봇 연결(ADR-002 §3.1). PC 에는 조종 화면이 없다
   const open = phone && tab === 'drive' && pool.some((r) => r.id === sub), path = open ? `#/drive/${sub}` : `#/${tab}${focus ? `?${fk}=${encodeURIComponent(focus)}` : ''}`;
+  // 시뮬 직결 조종 화면(#/drive 그대로 — 시뮬 로봇은 서버 경유 조종 화면을 쓰지 않는다). 로그아웃·화면 내림이면 직결을 닫고 비운다
+  const sv = useSim(), simOpen = phone && tab === 'drive' && !open && sv.step === 'drive';
+  useEffect(() => () => sim.clear(), []);
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
   useEffect(() => { if (robot) setRid(robot.id); }, [robot?.id]);
   const dash = useDash(cancel);   // 관제 칸과 결재 탭 배지가 같은 값(한 곳에서 받음)
@@ -106,7 +111,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const rv = rt.revoked(), [gone, setGone] = useState('');
   useEffect(() => {
     if (!rv) return;
-    const name = listed.find((r) => r.id === rv.robot)?.name ?? '로봇', closing = open && sub === rv.robot;
+    const hit = listed.find((r) => r.id === rv.robot), name = hit?.name ?? '로봇', closing = open && sub === rv.robot;
+    if (hit?.sim) { refresh(); return; }   // 시뮬 슬롯은 끝내기·다시 띄우기마다 담당이 비었다 채워진다 — 띠 없이 목록만
     if (closing) go('drive');
     setGone(rv.reason === 'ROBOT_DELETED' ? `${name} 로봇이 지워져 목록에서 뺍니다.${closing ? ' 조종 화면을 닫았습니다.' : ''}`
       : `${name} 로봇의 담당이 바뀌어 이제 조종할 수 없습니다.${closing ? ' 조종 화면을 닫았습니다.' : ''} 필요하면 총괄 운영 관리자에게 문의하세요.`);
@@ -140,7 +146,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     seen.current = robot ? [robot.id, done] : null;
   });
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
-  const stop = () => { const r = target ?? pool.find((x) => x.id === choose); if (r) halt(r); else setChoose(pool.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
+  const stop = () => { if (phone && !open && sim.live()) return sim.stop();   // 시뮬 직결 중이면 그 로봇 에이전트에 바로(띄우는 중·연결 중이면 서버 대체 경로)
+    const r = target ?? pool.find((x) => x.id === choose); if (r) halt(r); else setChoose(pool.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
   // 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
   const stopKey = useRef(stop); stopKey.current = stop;
@@ -151,7 +158,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     return () => { removeEventListener('keydown', down, true); removeEventListener('keyup', up, true); };
   }, []);
 
-  const cur = tabsFor(phone).find((t) => t.id === tab)!, title = !phone ? labelOf(cur, user.role) : tab === 'history' ? '기록' : open ? '조종' : '로봇 연결';
+  const cur = tabsFor(phone).find((t) => t.id === tab)!, title = !phone ? labelOf(cur, user.role) : tab === 'history' ? '기록' : open || simOpen ? '조종' : '로봇 연결';
   const shut = (e: { currentTarget: Element }, f: () => void) => { e.currentTarget.closest('details')?.removeAttribute('open'); f(); };
   const problems = pool.filter(lost);
   const ctx: Ctx | null = robot ? { user, robot, robots: pool, pick: setRid, go, open, phone, light, setLight, setMe, refresh, cancel, focus, dash } : null;
@@ -168,7 +175,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'}>
     <header className="fh-head">
       {phone
-        ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button> : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
+        ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button>
+          : simOpen ? <button type="button" className="btn" onClick={() => sim.end()}>끝내기</button> : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
         : <><BrandLogo h={24} /><div className="fh-sep" /><h1>{title}</h1></>}
       <span className="fh-grow" />
       {(() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
@@ -209,7 +217,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     ].filter(Boolean)}</div>
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={title}><Guard key={tab}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
+      <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? <SimDrive />
+        : tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
