@@ -854,7 +854,7 @@ IDEM = 'apps/server/tests/test_idempotency.py'
 ASSIGNMENTS = 'apps/server/fh_server/assignments.py'
 IDEMPOTENCY = 'apps/server/fh_server/idempotency.py'
 MUTATIONS.extend([
-    ('S5b live assignment unique index omitted', 'apps/server/migrations/versions/0013_assignments.py',
+    ('S5b live assignment unique index omitted', 'apps/server/migrations/versions/0015_assignments.py',
      'CREATE UNIQUE INDEX assignments_live_pair', 'CREATE INDEX assignments_live_pair',
      S5B + '::test_concurrent_duplicate_without_key_uses_partial_unique'),
     ('S5b direct assignment stays pending', ASSIGNMENTS,

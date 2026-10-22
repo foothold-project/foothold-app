@@ -351,12 +351,66 @@ def test_populated_assignment_approval_downgrade_refuses_without_losing_history(
     row = assignment(http, auth(http, 'one'), value, seeded['robots']['mine']).json()
     monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', seeded['urls']['migrate'])
     with pytest.raises(DBAPIError, match='assignment approval history requires backup'):
-        command.downgrade(Config(str(CONFIG)), '0012')
+        command.downgrade(Config(str(CONFIG)), '0014')
     engine = create_engine(seeded['urls']['migrate'])
     try:
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0013'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0015'
             assert conn.scalar(text('SELECT status FROM assignments WHERE id=:id'), {'id': row['id']}) == 'PENDING'
             assert conn.scalar(text('SELECT status FROM approvals WHERE id=:id'), {'id': row['approval_id']}) == 'PENDING'
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize('creator', ['admin', 'one'], ids=['ACTIVE', 'PENDING'])
+@pytest.mark.parametrize('remover', ['admin', 'one'], ids=['admin', 'owner'])
+def test_remove_assignment_after_robot_archived(maps, seeded, creator, remover):
+    http, admin, _ = maps
+    one, other = auth(http, 'one'), auth(http, 'two')
+    headers = {'admin': admin, 'one': one}
+    value, _, _, _ = scenario(http, admin)
+    robot = str(seeded['robots']['mine'])
+    created = assignment(http, headers[creator], value, robot)
+    assert created.status_code == 201, created.text
+    row = created.json()
+    assert row['status'] == ('ACTIVE' if creator == 'admin' else 'PENDING')
+    assert http.delete(P + '/robots/' + robot, headers=admin).status_code == 204
+    path = P + '/assignments/' + row['id']
+    assert http.delete(path, headers=other).status_code == 403
+    for _ in range(2):
+        response = http.delete(path, headers=headers[remover])
+        assert response.status_code == 204, response.text
+        removed = listing(http, admin, robot_id=robot)[0]
+        assert removed['status'] == 'REMOVED' and removed['removed_at']
+        if row['approval_id']:
+            approval = http.get(P + '/approvals/' + row['approval_id'], headers=admin).json()
+            assert approval['status'] == 'CANCELED'
+    # The archived robot is still unavailable for new assignments.
+    assert assignment(http, admin, value, robot).status_code == 404
+
+
+def test_direct_active_assignment_downgrade_refuses_without_losing_history(maps, seeded, monkeypatch):
+    from alembic import command
+    from alembic.config import Config
+    from .conftest import CONFIG
+    http, admin, _ = maps
+    value, _, _, _ = scenario(http, admin)
+    response = assignment(http, admin, value, seeded['robots']['mine'])
+    assert response.status_code == 201, response.text
+    row = response.json()
+    assert row['status'] == 'ACTIVE' and row['approval_id'] is None
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        with engine.connect() as conn:
+            assert conn.scalar(text("SELECT count(*) FROM approvals WHERE kind='SCENARIO_ASSIGNMENT'")) == 0
+        monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', seeded['urls']['migrate'])
+        with pytest.raises(DBAPIError, match='assignment approval history requires backup'):
+            command.downgrade(Config(str(CONFIG)), '0014')
+        with engine.connect() as conn:
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0015'
+            assert conn.execute(text('SELECT status, approval_id, removed_at FROM assignments WHERE id=:id'),
+                {'id': row['id']}).one() == ('ACTIVE', None, None)
+            assert conn.scalar(text("SELECT count(*) FROM approvals WHERE kind='SCENARIO_ASSIGNMENT'")) == 0
+            assert conn.scalar(text("SELECT count(*) FROM events WHERE code='ASSIGNMENT_CREATED'")) == 1
     finally:
         engine.dispose()

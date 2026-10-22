@@ -879,7 +879,8 @@ docs/spec는 수정하지 않았고 조정 검토·결정 범위로 남긴다. 0
 한 로봇에 다른 시나리오 또는 다른 판은 배정할 수 있다.
 
 `DELETE /assignments/{id}`는 총괄 또는 현재 담당 운영 관리자가 해제한다.
-REMOVED와 removed_at을 기록하고 반복 해제는 204다. PENDING이면 연결 결재도
+REMOVED와 removed_at을 기록하고 반복 해제는 204다. 로봇을 보관한 뒤에도
+같은 조직·현재 담당자 권한으로 해제할 수 있다. PENDING이면 연결 결재도
 동시에 CANCELED로 끝낸다. 승인하면 ACTIVE, 반려하면 REJECTED,
 요청 취소는 REMOVED다. 결재 상세 preview는 scenario_id/name/version과
 robot_id/name을 제공한다. 시나리오 전체 미리보기·실시간 로봇 상태는 기존 조회 계약을 쓴다.
@@ -911,13 +912,14 @@ REJECTED로 끝내고 이미 REMOVED이면 유지한다. 정상 DELETE는 먼저
 24시간 만료 후 같은 키는 새 요청으로 재사용할 수 있다. ponytail 주석대로 물리적인
 만료 행 삭제는 후속 보존 작업이며 앱 DB 계정에는 DELETE를 주지 않는다.
 
-0013은 assignments·idempotency_receipts와 scenario_versions UNIQUE(org_id,id)를 더한다.
+0015는 0014_simulation(revision 0014) 뒤에 assignments·idempotency_receipts와
+scenario_versions UNIQUE(org_id,id)를 더한다.
 결재 target_id의 두 종류는 discriminator 생성 열과 조직 복합 FK로 각각 검증한다.
 fh_app은 assignments SELECT/INSERT와 UPDATE(status,approval_id,removed_at)만,
 영수증은 SELECT/INSERT와 UPDATE(request_hash,response,status_code,expires_at)만 허용된다.
 시작 시 더 넓은 권한이면 거절한다. DELETE·판 내용 변경은 허용되지 않는다.
-0013 downgrade는 배정 결재 이력이 있으면 이력 손실을 막기 위해 원자적으로 거절하므로
-데이터 백업과 별도 복원 계획이 필요하다. 앱 코드 되돌림은 0013을 유지한 상태에서
+0015 downgrade는 배정 또는 배정 결재 이력이 있으면 이력 손실을 막기 위해 원자적으로 거절하므로
+데이터 백업과 별도 복원 계획이 필요하다. 앱 코드 되돌림은 0015를 유지한 상태에서
 이 PR의 코드 커밋을 revert하는 방식을 기본으로 한다.
 
 PR #35 후속으로 모든 카탈로그 선택지가 불가일 때 why_unavailable에 필요한 장치의

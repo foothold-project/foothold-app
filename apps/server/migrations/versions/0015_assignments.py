@@ -1,8 +1,8 @@
 """S5b assignments and short-lived transactional idempotency receipts."""
 from alembic import op
 
-revision = '0013'
-down_revision = '0012'
+revision = '0015'
+down_revision = '0014'
 branch_labels = None
 depends_on = None
 
@@ -51,8 +51,8 @@ def upgrade():
 
 
 def downgrade():
-    # Refuse lossy downgrade once assignment decisions have entered audit history.
-    op.execute("DO $$ BEGIN IF EXISTS (SELECT 1 FROM approvals WHERE kind='SCENARIO_ASSIGNMENT') THEN RAISE EXCEPTION 'assignment approval history requires backup before downgrade'; END IF; END $$")
+    # Refuse lossy downgrade once any assignment or assignment decision exists in audit history.
+    op.execute("DO $$ BEGIN IF EXISTS (SELECT 1 FROM assignments) OR EXISTS (SELECT 1 FROM approvals WHERE kind='SCENARIO_ASSIGNMENT') THEN RAISE EXCEPTION 'assignment approval history requires backup before downgrade'; END IF; END $$")
     op.drop_table('idempotency_receipts')
     op.drop_constraint('approval_assignment_target_fk', 'approvals', type_='foreignkey')
     op.drop_constraint('approval_map_target_fk', 'approvals', type_='foreignkey')

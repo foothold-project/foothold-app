@@ -32,9 +32,11 @@ def record(db, user, row, code):
             'scenario_name': version.name, 'number': version.number, 'status': row.status})))
 
 
-def robot_for_write(db, user, robot_id, fail):
-    robot = db.scalar(select(Robot).where(Robot.org_id == user.org_id, Robot.id == robot_id,
-        Robot.archived_at.is_(None)).with_for_update(read=True))
+def robot_for_write(db, user, robot_id, fail, *, creating):
+    query = select(Robot).where(Robot.org_id == user.org_id, Robot.id == robot_id)
+    if creating:
+        query = query.where(Robot.archived_at.is_(None))
+    robot = db.scalar(query.with_for_update(read=True))
     if robot is None:
         fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
     if user.role != 'ORG_ADMIN' and robot.owner_user_id != user.id:
@@ -69,7 +71,7 @@ def install(app, DB, Identity, fail, page):
             ScenarioVersion.scenario_id == scenario.id, ScenarioVersion.number == body.scenario_version))
         if version is None:
             fail(404, 'NOT_FOUND', '시나리오 판을 찾을 수 없습니다.')
-        robot_for_write(db, user, body.robot_id, fail)
+        robot_for_write(db, user, body.robot_id, fail, creating=True)
         if db.scalar(select(Assignment.id).where(Assignment.org_id == user.org_id,
                 Assignment.robot_id == body.robot_id, Assignment.scenario_version_id == version.id,
                 Assignment.status.in_(['ACTIVE', 'PENDING']))) is not None:
@@ -98,7 +100,7 @@ def install(app, DB, Identity, fail, page):
             Approval.id == original.approval_id).with_for_update()) if original.approval_id else None
         row = db.scalar(select(Assignment).where(Assignment.org_id == user.org_id,
             Assignment.id == assignment_id).with_for_update().execution_options(populate_existing=True))
-        robot_for_write(db, user, row.robot_id, fail)
+        robot_for_write(db, user, row.robot_id, fail, creating=False)
         if row.status == 'REMOVED':
             return
         if row.status == 'PENDING' and approval is not None and approval.status == 'PENDING':
