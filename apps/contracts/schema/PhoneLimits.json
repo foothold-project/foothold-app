@@ -1,0 +1,54 @@
+{
+  "$id": "fh-app/1/PhoneLimits",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "commands": {
+      "items": {
+        "items": {
+          "type": "number"
+        },
+        "maxItems": 3,
+        "minItems": 3,
+        "type": "array"
+      },
+      "title": "Commands",
+      "type": "array"
+    },
+    "vx_max": {
+      "title": "Vx Max",
+      "type": "number"
+    },
+    "vx_min": {
+      "title": "Vx Min",
+      "type": "number"
+    },
+    "vy_max": {
+      "title": "Vy Max",
+      "type": "number"
+    },
+    "vy_min": {
+      "title": "Vy Min",
+      "type": "number"
+    },
+    "wz_max": {
+      "title": "Wz Max",
+      "type": "number"
+    },
+    "wz_min": {
+      "title": "Wz Min",
+      "type": "number"
+    }
+  },
+  "required": [
+    "vx_min",
+    "vx_max",
+    "vy_min",
+    "vy_max",
+    "wz_min",
+    "wz_max",
+    "commands"
+  ],
+  "title": "PhoneLimits",
+  "type": "object"
+}

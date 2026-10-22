@@ -1,0 +1,32 @@
+{
+  "$id": "fh-app/1/PhonePassRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "format": "uuid",
+      "title": "Device",
+      "type": "string"
+    },
+    "purpose": {
+      "enum": [
+        "control",
+        "view"
+      ],
+      "title": "Purpose",
+      "type": "string"
+    },
+    "switch": {
+      "default": false,
+      "description": "앞 로봇 반납 확인 뒤에만 명시 true",
+      "title": "Switch",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "device",
+    "purpose"
+  ],
+  "title": "PhonePassRequest",
+  "type": "object"
+}

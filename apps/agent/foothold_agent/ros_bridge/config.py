@@ -2,10 +2,13 @@
 
 from dataclasses import dataclass, field
 import os
+import sqlite3
 from pathlib import Path
 from uuid import UUID
 
 from foothold_agent.link.client import Settings
+from foothold_agent.phone.server import Settings as PhoneSettings
+from foothold_agent.phone.tickets import load_keys, Verifier
 
 REQUIRED_ENV = {
     "ROS_DOMAIN_ID": "93",
@@ -39,6 +42,8 @@ def validate_isolation(env=None):
 class Config:
     robot_id: str
     settings: Settings = field(repr=False)
+    phone: PhoneSettings | None = field(default=None, repr=False)
+    phone_verifier: Verifier | None = field(default=None, repr=False)
 
     @classmethod
     def from_env(cls, env=None):
@@ -51,4 +56,12 @@ class Config:
         except (KeyError, ValueError, AttributeError):
             # Never echo a URL/token (even invalid user input) to logs.
             raise ValueError("set a robot UUID and valid agent WS URL/token in the environment") from None
-        return cls(robot_id, settings)
+        phone = PhoneSettings.from_env(env)
+        # Validate the key file before any DDS participant or listener exists.
+        try:
+            keys = load_keys(phone.key_path) if phone is not None else None
+            verifier = (Verifier(robot_id, keys, org=phone.org, replay_path=phone.replay_path,
+                                 clock_trusted=phone.clock_trusted) if phone is not None else None)
+        except (OSError, ValueError, TypeError, sqlite3.Error):
+            raise ValueError('invalid phone key configuration') from None
+        return cls(robot_id, settings, phone, verifier)

@@ -300,6 +300,27 @@
       "title": "AgentMedia",
       "type": "object"
     },
+    "AgentPhoneRevokeAck": {
+      "properties": {
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "t": {
+          "const": "phone.revoke.ack",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "seq"
+      ],
+      "title": "AgentPhoneRevokeAck",
+      "type": "object"
+    },
     "AgentPing": {
       "properties": {
         "t": {
@@ -661,6 +682,7 @@
       "event": "#/$defs/AgentEvent",
       "hello": "#/$defs/AgentHello",
       "media": "#/$defs/AgentMedia",
+      "phone.revoke.ack": "#/$defs/AgentPhoneRevokeAck",
       "ping": "#/$defs/AgentPing",
       "run.update": "#/$defs/AgentRunUpdate",
       "state": "#/$defs/AgentState"
@@ -688,6 +710,9 @@
     },
     {
       "$ref": "#/$defs/AgentMedia"
+    },
+    {
+      "$ref": "#/$defs/AgentPhoneRevokeAck"
     }
   ]
 }

@@ -52,12 +52,11 @@ button{cursor:pointer}
 .fh-badge{position:absolute;top:4px;right:6px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--accent);color:var(--on-accent);font-size:11px;font-weight:700;line-height:18px;text-align:center}
 .fh-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;gap:16px;padding:16px;align-content:flex-start;box-sizing:border-box}
 .fh-main>section{flex:1 1 280px}
-.fh-tabs{position:sticky;bottom:0;display:flex;border-top:1px solid var(--line);background:var(--panel)}
-.fh .tabb{height:56px;font-size:14px}
 .fh .btn{min-height:44px;height:auto}
 .fh-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .fh-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
 .fh-list button{width:100%;min-height:44px;display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel2);text-align:left;font-size:14px}
+.fh-list.robots button{flex-wrap:wrap;row-gap:4px}.fh-list.robots button>*{white-space:nowrap}   /* 좁으면 낱말을 꺾지 않고 뒤 칸(담당·마지막 수신)을 둘째 줄로 */
 .fh-list button[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
 .fh-main>.fh-kpi{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:24px;padding:14px 16px}
 .fh-kpi div{display:flex;align-items:baseline;gap:8px;font-size:14px}
@@ -66,7 +65,11 @@ button{cursor:pointer}
 .fh-why{font-size:14px;color:var(--muted)}
 .fh-slot{min-height:160px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:8px;color:var(--muted);font-size:14px}
 .fh.phone .fh-head{padding:6px 8px;gap:8px}
-.fh.phone .fh-user{min-width:0;text-overflow:ellipsis}   /* 좁은 폰: 로봇 고르기가 줄고 ⋯·STOP 은 그대로(B2) */
+.fh.phone .fh-head h1{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.fh.phone .fh-head>.btn{flex:0 1 auto;min-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}   /* 좁은 폰: 제목·왼쪽 단추가 줄고 STOP(flex:none)은 그대로 */
+/* 400 px 이하 폰: 연결 상태는 점만(글은 화면 읽기용) — 연결 끊김·거부 글이 STOP 을 밀어내지 않게. 360 px 이하는 왼쪽 단추가 있으면 제목도 숨김(한 글자만 남지 않게) */
+@media (max-width:400px){.fh.phone .fh-dot-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
+@media (max-width:360px){.fh.phone .fh-head:has(>.btn) h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
 .fh.phone .fh-main{padding:8px;gap:8px}
 .fh button[disabled]{cursor:not-allowed}
 .fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}

@@ -11,5 +11,6 @@ export default defineConfig(({ mode }) => ({
   server: { host: '127.0.0.1', port: 5180, strictPort: true, proxy: { '/api': { target: loadEnv(mode, '.', 'FH_').FH_API || 'http://127.0.0.1:8810', ws: true } } },
   preview: { host: '127.0.0.1', port: 5183, strictPort: true },
   build: { outDir: 'dist', emptyOutDir: true },
-  test: { environment: 'jsdom', setupFiles: ['src/tests/setup.ts'] },
+  // css?raw 는 원문 그대로(시험이 배치·STOP 규칙과 브랜드 토큰 사본을 글자로 본다). 그냥 import 한 css 는 지금처럼 빈 값
+  test: { environment: 'jsdom', setupFiles: ['src/tests/setup.ts'], css: { include: [/\.css\?raw$/] } },
 }));

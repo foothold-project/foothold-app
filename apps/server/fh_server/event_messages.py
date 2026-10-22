@@ -18,6 +18,10 @@ UNKNOWN = '확인되지 않음'
 TEMPLATES = {
     'ASSIGNMENT_CREATED': '{person}님이 {robot}에 시나리오 {scenario} {number}판을 배정했습니다.',
     'ASSIGNMENT_REMOVED': '{person}님이 {robot}의 시나리오 {scenario} {number}판 배정을 해제했습니다.',
+
+
+    'PHONE_PASS_ISSUED': '{person}님의 폰 출입증을 발급했습니다.',
+    'PHONE_PASS_DENIED': '폰 출입증 발급을 거절했습니다.',
     'MISSION_CREATED': '{person}님이 임무 {place} {number}판을 만들었습니다.',
     'MISSION_VERSION_CREATED': '{person}님이 임무 {place} {number}판을 저장했습니다.',
     'MISSION_ARCHIVED': '{person}님이 임무 {place}을(를) 보관했습니다.',
