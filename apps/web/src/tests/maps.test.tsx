@@ -16,6 +16,7 @@ import { FakeWS } from './fakeWs';
 const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
 const RA: RobotSummary = { id: 'r-a', name: 'Go2-A', model: 'unitree_go2', owner: { id: LEE.id, display_name: LEE.display_name },
+  simulation: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
 const floor = (id: string, name: string, level: number, approved: string | null, building = 'b1') => ({ id, building_id: building, name, level, approved_version_id: approved, pending_count: 0 });
 /** 본관(본동 1층 판 2 승인·2층 지도 없음) */

@@ -15,6 +15,7 @@ import { Approvals } from './screens/approvals';
 import { Bell, History } from './screens/history';
 import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
+import { Missions } from './screens/missions';
 import { Settings } from './screens/settings';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
@@ -210,12 +211,13 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
       <main className="fh-main" aria-label={title}><Guard key={tab}>{tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
-        : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
+        : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' || tab === 'mission' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재·임무는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표
         : tab === 'history' ? <History key={`history-${user.id}`} user={user} robots={pool} go={go} phone={phone} cancel={cancel} focus={focus} />   // 로봇 0대여도 계정·내 행동 기록과 알림 링크
         : tab === 'map' ? <Maps key={`map-${user.id}`} user={user} cancel={cancel} dash={dash} />   // 로봇 0대여도 장소·지도
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
+        : tab === 'mission' ? <Missions key={`mission-${user.id}`} user={user} cancel={cancel} robots={pool} />   // 로봇 0대여도 임무·시나리오
         : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>

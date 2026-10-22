@@ -18,7 +18,7 @@ UNKNOWN = '확인되지 않음'
 TEMPLATES = {
     'ASSIGNMENT_CREATED': '{person}님이 {robot}에 시나리오 {scenario} {number}판을 배정했습니다.',
     'ASSIGNMENT_REMOVED': '{person}님이 {robot}의 시나리오 {scenario} {number}판 배정을 해제했습니다.',
-    'SIM_ROBOT_START_STALE': '{person}님의 이전 시뮬 시작 응답을 거부하고 정리를 시도했습니다.',
+    'SIM_ROBOT_START_STALE': '{person}님의 이전 시뮬 시작 응답을 거부했습니다. {compensation}',
     'SIM_ROBOT_START_REJECTED': '{person}님의 시뮬 시작 요청이 생성 전에 거부되어 슬롯을 해제했습니다.',
     'SIM_ROBOT_REMOVE_STALE': '{person}님의 이전 시뮬 종료 요청을 현재 세대에서 거부했습니다.',
     'SIM_ROBOT_REMOVE_FAILED': '{person}님의 시뮬 로봇 종료 요청을 처리하지 못했습니다.',
@@ -198,6 +198,10 @@ def render(db, ev, *, agent=False, other_user_id=None):
         count=number_value(data.get('count', 1)), status=text_value(data.get('last_status')),
         scenario=text_value(data.get('scenario_name'), '시나리오'), points=number_value(data.get('points')),
         minutes=number_value(data.get('minutes')), step=number_value(data.get('step')),
+        compensation={
+            'NOT_CREATED': '생성되지 않아 정리할 로봇이 없습니다.',
+            'REMOVED_OR_ABSENT': '이전 세대 로봇이 제거되었거나 이미 없습니다.',
+        }.get(text_value(data.get('compensation')), '이전 세대 로봇 정리를 확인하지 못했습니다.'),
         reason=text_value(data.get('reason')), distance=number_value(data.get('distance_m')),
         battery=number_value(data.get('soc')), kind=text_value(data.get('kind'), '결재'),
         decision='승인' if data.get('approved') is True else '반려' if data.get('approved') is False else '처리')

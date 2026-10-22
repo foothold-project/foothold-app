@@ -192,7 +192,7 @@ MUTATIONS += [
      "((lambda *a, **k: None) if not_created else event)(db, user.org_id, 'SIM_ROBOT_START_STALE'",
      DELAYED+'test_delayed_post_cannot_escape_completed_delete[delete_first]'),
     ('HTTP protocol exception not wrapped', 'apps/server/fh_server/simulation.py',
-     'except (URLError, OSError, ValueError, HTTPException):', 'except (URLError, OSError, ValueError):',
+     'except Exception:', 'except (OSError, ValueError):',
      RESTART+'test_http_protocol_exception_is_relay_uncertainty'),
     ('compensation retains organization write lock', 'apps/server/fh_server/simulation.py',
      "            db.commit()\n            compensation =", "            pass\n            compensation =",
@@ -207,11 +207,76 @@ MUTATIONS += [
 ]
 
 
+# R6: run just these with --only for the final focused review.
+RELAY_NORMALIZED = """        try:
+            request = Request(self.url + path, method=method,
+                data=json.dumps(body).encode() if body is not None else None,
+                headers={'Authorization': 'Bearer ' + self.secret, 'Content-Type': 'application/json'})
+            try:
+                with self.opener.open(request, timeout=5 if method == 'GET' else 180) as response:
+                    raw = response.read(65537)
+                if len(raw) > 65536:
+                    raise RelayError()
+                return json.loads(raw)
+            except HTTPError as error:
+                # The outer boundary also covers reading/decoding an error body.
+                # Only code/status crosses it, never remote text/credentials.
+                code = json.loads(error.read(4097))['error']['code']
+                if not isinstance(code, str) or not code.startswith('SIM_') or len(code) > 64:
+                    code = 'SIM_UNAVAILABLE'
+                raise RelayError(code, error.code if error.code in (400, 404, 409, 503) else 503) from None
+        except RelayError as error:
+            raise error from None
+        except Exception:
+            # Transport, status, body and decoder failures are all uncertain.
+            # BaseException (interrupts, cancellation, exit) deliberately escapes.
+            raise RelayError() from None"""
+RELAY_ERROR_BODY_UNWRAPPED = """        try:
+            request = Request(self.url + path, method=method,
+                data=json.dumps(body).encode() if body is not None else None,
+                headers={'Authorization': 'Bearer ' + self.secret, 'Content-Type': 'application/json'})
+            with self.opener.open(request, timeout=5 if method == 'GET' else 180) as response:
+                raw = response.read(65537)
+            if len(raw) > 65536:
+                raise RelayError()
+            return json.loads(raw)
+        except HTTPError as error:
+            # The outer boundary also covers reading/decoding an error body.
+            # Only code/status crosses it, never remote text/credentials.
+            code = json.loads(error.read(4097))['error']['code']
+            if not isinstance(code, str) or not code.startswith('SIM_') or len(code) > 64:
+                code = 'SIM_UNAVAILABLE'
+            raise RelayError(code, error.code if error.code in (400, 404, 409, 503) else 503) from None
+        except RelayError as error:
+            raise error from None
+        except Exception:
+            # Transport, status, body and decoder failures are all uncertain.
+            # BaseException (interrupts, cancellation, exit) deliberately escapes.
+            raise RelayError() from None"""
+MUTATIONS += [
+    ('relay normalization narrowed', 'apps/server/fh_server/simulation.py',
+     'except Exception:', "except (OSError, ValueError, __import__('http.client', fromlist=['HTTPException']).HTTPException):",
+     'apps/server/tests/test_sim_restart_delivery.py::test_http_protocol_exception_is_relay_uncertainty[recursion]'),
+    ('HTTPError body outside normalization', 'apps/server/fh_server/simulation.py',
+     RELAY_NORMALIZED, RELAY_ERROR_BODY_UNWRAPPED,
+     'apps/server/tests/test_sim_restart_delivery.py::test_http_protocol_exception_is_relay_uncertainty[error_reset]'),
+    ('final STARTING organization lock omitted', 'apps/server/fh_server/simulation.py',
+     '        lock_organization(db, user.org_id)\n        db.refresh(row)\n        not_created', '        db.refresh(row)\n        not_created',
+     'apps/server/tests/test_sim_delayed_start.py::test_final_start_check_serializes_delete_after_refresh'),
+]
+
+
 def main():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--only', action='append', choices=[m[0] for m in MUTATIONS])
+    args = parser.parse_args()
     temp = ROOT / 'tmp/p1c/mutations'
     temp.mkdir(parents=True, exist_ok=True)
     results = []
     for name, path, before, after, test in MUTATIONS:
+        if args.only and name not in args.only:
+            continue
         with tempfile.TemporaryDirectory(dir=temp) as folder:
             dest = Path(folder)
             for package in ('agent','contracts','simmgr','server'):

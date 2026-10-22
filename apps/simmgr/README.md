@@ -19,10 +19,10 @@
   DELETE 최대 세대는 제거 확인 세대로 메모리에만 기록하고 그 이하의 늦은 POST를 생성 전에
   거부한다. 재시작 때 비워지며 영속 tombstone은 없다. 서버 POST 자동 재전송은 없고, 늦은
   성공·불확실 응답 모두 DB 세대/STARTING 최종 확인 뒤 불일치면 잠금 밖 같은 세대 DELETE를
-  1회 보상하고 START_STALE 감사 1건을 남긴다. STALE409는 NOT_CREATED 감사만 남긴다.
+  1회 보상하고 START_STALE 감사 1건을 남긴다. STALE 409는 NOT_CREATED 감사만 남긴다.
   송신 전 지연된 첫 전달은 재시작을 넘을 수 있으며 startup 관문만으로 배제하지 않는다.
   응답 유실+보상 실패의 잔여 runtime은 교체된 hash로 서버에 붙지 못하며 world/agent unit
-  각각 RuntimeMaxSec=240의 자동 종료 대상(정지 grace45/15초·실제 종료 미검증)이다. 다음
+  각각 RuntimeMaxSec=240의 자동 종료 대상(정지 grace 45/15초·실제 종료 미검증)이다. 다음
   SIM_SLOT_BUSY는 [FIRST-LAUNCH](FIRST-LAUNCH.md)의 복구 1·2단계로 돌아간다.
 - `FakeLauncher`: 시뮬·에이전트 프로세스/리스너/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
