@@ -10,6 +10,8 @@ import type { Holder, Robot, Status } from './fake';
 export const REQUEST_S = 10, COOLDOWN_S = 30, SILENT_MS = 3000, PING_MS = 1000, CMD_MS = 50;
 /** STOP 응답 시한: WS 답이 이만큼 없으면 HTTP 대체 경로(서버는 받는 즉시 답한다), HTTP 도 이만큼 없으면 접수 확인 못함. 재시도 간격 초기화 = 3 s 유지(§9.4) */
 export const STOP_WS_MS = 2000, STOP_HTTP_MS = 5000, STEADY_MS = 3000;
+/** 반납: 이 안에 서버 답이 없으면 «확인 못함»(늦은 성공은 그래도 받는다) */
+export const RELEASE_MS = 3000;
 export const FAIL_TEXT = '로봇 정지 확인 실패. 조종권은 비어 있고 로봇은 정지 요청 상태입니다. 현장을 확인한 뒤 다시 조종 시작하세요.';
 export const FREE_TEXT = '조종권이 비었습니다. [조종 시작]으로 받을 수 있습니다.';
 const LINK_LOST = '서버 연결이 끊겼습니다.';
@@ -34,8 +36,13 @@ export type Live = {
   cooldown: number;
   notice?: string;
   stop: Stop | null;
+  /** 반납 확인 기다림(why null) 또는 확인 못함(why). 이 lease 의 반납을 서버가 확인하거나 조종권이 이 lease 가 아니게 됐다는 알림이 올 때만 지운다
+   *  — 화면을 옮겨도 남는다. 잠금 보고는 내가 누른 STOP 과 구별할 수 없어 보지 않는다.
+   *  lease = 반납하는 내 lease_id(같은 반납의 다시 시도는 같은 값 — 앞 반납의 늦은 답이 새 반납을 지우지 않게), n = 몇 번째 시도(앞 시도의 시간 초과·거절은 버림), me = 반납한 사람 */
+  releasing: { lease: string; why: string | null; n: number; me: string | null } | null;
+  released: number;                      // 확인된 반납 수(지울 때마다 +1 — 같은 틀에 켜졌다 꺼져도 화면이 안다)
 };
-const EMPTY: Live = { state: null, stateAt: 0, holder: null, lease: null, rev: 0, neutral: false, busy: null, failed: false, incoming: null, outgoing: null, cooldown: 0, stop: null };
+const EMPTY: Live = { state: null, stateAt: 0, holder: null, lease: null, rev: 0, neutral: false, busy: null, failed: false, incoming: null, outgoing: null, cooldown: 0, stop: null, releasing: null, released: 0 };
 
 /** 서버 오류 code → 무엇이 + 어떻게(03 U8). 없으면 서버 message 그대로 */
 const TEXT: Record<string, string> = {
@@ -80,7 +87,7 @@ let held: string[] = [], sending: string[] | null = null, subTries = 0, subRetry
 export type Missed = { n: number; again: boolean };
 let lastMissed: Missed | null = null;
 const subs = new Set<() => void>();
-let ver = 0, n = 0, seq = 0, tries = 0, lastRx = 0, lastPing = 0, want = false;
+let ver = 0, n = 0, seq = 0, releases = 0, tries = 0, lastRx = 0, lastPing = 0, want = false;
 let era = new AbortController();   // 이번 로그인 세션: 끊으면(disconnect) 그 세션이 시작한 STOP 타이머·HTTP 를 모두 거둔다
 let sock: WebSocket | null = null, robots: string[] = [];
 let retry: ReturnType<typeof setTimeout> | undefined, beat: ReturnType<typeof setInterval> | undefined;
@@ -248,6 +255,10 @@ function onLease(m: ScreenLeaseUpdate) {
   // 정지 확인 중(최대 2 s)에도 서버가 취소를 받으므로 요청(outgoing)은 확정(내 lease)·결과까지 남긴다
   if (!holder && l.outgoing && !lease) p.busy = 'take';
   if (holder && !lease && l.busy === 'take') Object.assign(p, { busy: null, outgoing: null });
+  // 반납 확인 중: 반납 뒤에 받은 알림이 조종권자가 내가 아니라고 하면(비었음·시나리오·다른 사람, 서버 만료 포함) 반납된 것.
+  // 내 lease_id 가 그대로 오거나(모순) 조종권자가 나(이 창 또는 같은 계정의 다른 창)면 아직 모름
+  const r = l.releasing;
+  if (r && m.lease_id !== r.lease && (!holder || holder.type === 'RUN' || holder.id !== r.me)) Object.assign(p, { releasing: null, released: l.released + 1 });
   set(m.robot, p);
   if (lease && (!active.has(m.robot) || hiddenPage())) leave(m.robot);   // 떠났거나 숨긴 화면은 조종권을 갖지 않는다
 }
@@ -372,11 +383,21 @@ export const rt = {
     set(id, { incoming: null, busy: accept ? 'give' : null });
     send({ t: 'lease.respond', robot: id, request_id: q.id, accept }, (r) => { if (!r.ok) set(id, { busy: null, notice: say(r.error) }); });
   },
+  /** 조종권 반납. 입력은 바로 멈추고(내 lease 를 지움) 서버 확인까지 releasing 에 남긴다. RELEASE_MS 안에 답이 없거나 거절이면 why.
+   *  반납 확인 중이면 lease 가 이미 없어도 다시 보낸다([다시 시도]). «내 조종권 아님»(LEASE_MISMATCH) 답 = 이미 반납됨 */
   release(id: string) {
-    if (!get(id).lease) return;
-    send({ t: 'lease.release', robot: id });
-    gone.add(get(id).lease!);
-    set(id, { lease: null, neutral: false, incoming: null });
+    const l = get(id), lease = l.lease, k = ++releases;
+    if (!lease && !l.releasing) return;
+    const target = lease ?? l.releasing!.lease, r = { lease: target, why: null, n: k, me: l.releasing?.me ?? l.holder?.id ?? null };
+    if (lease) gone.add(lease);
+    set(id, { releasing: r, ...(lease ? { lease: null, neutral: false, incoming: null } : {}) });   // 보내기 전에 — 닫힌 소켓은 바로 답한다
+    const fail = (why: string) => { if (get(id).releasing?.n === k) set(id, { releasing: { ...r, why } }); };
+    const t = setTimeout(() => fail('서버가 답하지 않습니다.'), RELEASE_MS);
+    send({ t: 'lease.release', robot: id }, (x) => {
+      clearTimeout(t);
+      if (x.ok || x.error?.code === 'LEASE_MISMATCH') { const c = get(id); if (c.releasing?.lease === target) set(id, { releasing: null, released: c.released + 1 }); }   // 같은 반납의 앞 시도 늦은 성공도 확인, 다른 lease 의 반납은 아님
+      else fail(say(x.error));
+    });
   },
   unlock(id: string) {
     const l = get(id), gen = l.state?.stop_gen;

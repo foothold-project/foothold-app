@@ -432,7 +432,31 @@ class AgentMedia(AgentInput):
     upload_id: UUID
 
 
-AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia,
+class PhoneRevocationItem(Contract):
+    jtis: list[UUID] | None = Field(default=None, min_length=1, max_length=64)
+    sub: UUID | None = None
+    device: UUID | None = None
+    until: Sequence
+
+    @model_validator(mode='after')
+    def selector(self):
+        if (self.jtis is None) == (self.sub is None) or (self.device is not None and self.sub is None):
+            raise ValueError('exactly one revocation selector required')
+        return self
+
+
+class AgentPhoneRevoke(Contract):
+    t: Literal['phone.revoke'] = 'phone.revoke'
+    seq: Annotated[int, Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)]
+    items: list[PhoneRevocationItem] = Field(min_length=1, max_length=16)
+
+
+class AgentPhoneRevokeAck(AgentInput):
+    t: Literal['phone.revoke.ack']
+    seq: Annotated[int, Field(ge=1, le=MAX_SAFE_INTEGER, strict=True)]
+
+
+AgentMessage = Annotated[AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck,
                          Field(discriminator='t')]
 
 
@@ -949,15 +973,198 @@ class ScenarioPreview(Contract):
     distance_note: str = '직선과 직접 연결점 경유 거리이며 Nav2 경로가 아닙니다.'
 
 
+# FH-SPEC-05 §13: phone -> robot, never routed through the control server.
+PhoneRobotID = Annotated[str, Field(pattern=r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+                                    description='소문자 하이픈 UUID 표준형만 허용한다.',
+                                    json_schema_extra={'format': 'uuid'})]
+
+
+class PhoneEnvelope(Contract):
+    id: str = Field(min_length=1, max_length=128)
+    robot: PhoneRobotID
+    proto: Literal['fh-phone/1'] = omitted()
+
+
+class PhoneHello(PhoneEnvelope):
+    t: Literal['hello']
+    proto: Literal['fh-phone/1']
+    ticket: str = Field(min_length=1, max_length=2048)
+    device: UUID
+
+
+class PhoneLease(PhoneEnvelope):
+    t: Literal['lease.take', 'lease.request', 'lease.release', 'lease.cancel', 'view', 'stop']
+
+
+class PhoneRespond(PhoneEnvelope):
+    t: Literal['lease.respond']
+    request_id: UUID
+    accept: bool = Field(strict=True)
+
+
+class PhoneCommand(PhoneEnvelope):
+    t: Literal['cmd']
+    lease_id: UUID
+    seq: Sequence
+    vx: float = Field(strict=True, gt=-1e100, lt=1e100)
+    vy: float = Field(strict=True, gt=-1e100, lt=1e100)
+    wz: float = Field(strict=True, gt=-1e100, lt=1e100)
+
+
+class PhoneUnlock(PhoneEnvelope):
+    t: Literal['unlock']
+    lease_id: UUID
+    stop_gen: Sequence
+
+
+class PhonePing(PhoneEnvelope):
+    t: Literal['ping']
+    client_time_ms: Sequence
+
+
+PhoneMessage = Annotated[PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing,
+                         Field(discriminator='t')]
+
+
+class PhoneLimits(Contract):
+    vx_min: float
+    vx_max: float
+    vy_min: float
+    vy_max: float
+    wz_min: float
+    wz_max: float
+    commands: list[Vector3]
+
+
+class PhonePolicy(Contract):
+    name: str = Field(min_length=1, max_length=128)
+    version: str = Field(min_length=1, max_length=128)
+
+
+class PhoneWelcome(Contract):
+    t: Literal['hello']
+    id: str
+    robot: PhoneRobotID
+    proto: Literal['fh-phone/1']
+    limits: PhoneLimits
+    policy: PhonePolicy
+    simulation: bool
+    ping_interval_ms: Literal[1000]
+    link_timeout_ms: Literal[3000]
+    lease_timeout_ms: Literal[15000]
+
+
+class PhoneReply(Contract):
+    t: Literal['reply']
+    id: str
+    ok: bool
+    error: ErrorBody | None
+    lease_id: UUID | None
+    request_id: UUID | None
+
+
+class PhoneRequester(Contract):
+    user_id: UUID
+    device_id: UUID
+
+
+class PhoneLeaseRequested(Contract):
+    t: Literal['lease.requested']
+    robot: PhoneRobotID
+    request_id: UUID
+    requester: PhoneRequester
+    expires_at: UTCDateTime
+
+
+class PhoneLeaseResult(Contract):
+    t: Literal['lease.result']
+    robot: PhoneRobotID
+    request_id: UUID
+    result: Literal['ACCEPTED', 'DECLINED', 'TIMEOUT', 'CANCELED']
+    error: str | None
+
+
+class PhoneCmdAck(Contract):
+    t: Literal['cmd.ack']
+    id: str
+    seq: Sequence
+    applied: Vector3
+    clipped: bool
+    reason: str | None
+
+
+class PhonePosture(Contract):
+    z: float | None
+    tilt_deg: float | None
+    fallen: bool | None
+    body_still: bool | None
+
+
+class PhoneEcho(Contract):
+    id: str
+    client_time_ms: Sequence
+    agent_time_ms: Sequence
+
+
+class PhoneState(AgentState):
+    robot: PhoneRobotID
+    controller: UUID | None
+    controller_device: UUID | None
+    controller_connected: bool
+    lease_id: UUID | None
+    stop_requested: bool | None
+    posture: PhonePosture
+    velocity: tuple[float | None, float | None, float | None]
+    echo: PhoneEcho | None
+    wall_time_ms: Sequence
+    sim_time_s: float | None
+    sim_wall_delta_s: float | None
+    simulation: bool
+
+
+class PhoneTicketClaims(Contract):
+    iss: Literal['fh-control']
+    aud: Literal['fh-phone/1']
+    org: UUID
+    robot: PhoneRobotID
+    sub: UUID
+    device: UUID
+    purpose: Literal['control', 'view']
+    iat: Sequence
+    exp: Sequence
+    jti: UUID
+
+    @model_validator(mode='after')
+    def short_lifetime(self):
+        if not 0 < self.exp - self.iat <= 600:
+            raise ValueError('ticket lifetime must be 1..600 seconds')
+        return self
+
+
+
+class PhonePassRequest(Contract):
+    device: UUID
+    purpose: Literal['control', 'view']
+    switch: bool = Field(default=False, strict=True, description='앞 로봇 반납 확인 뒤에만 명시 true')
+
+
+class PhonePassResponse(Contract):
+    token: str
+    exp: Sequence
+    kid: str
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
 REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
+REQUEST_MODELS.add(PhonePassRequest)
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 
-TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage)
+TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=PhoneMessage)
+REQUEST_MODELS.update({PhoneHello, PhoneLease, PhoneRespond, PhoneCommand, PhoneUnlock, PhonePing, PhoneMessage, PhoneEnvelope})
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,
                        AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia, ScreenMessage, AgentMessage})
 # Nested input models must have the same mode as their enclosing input union.

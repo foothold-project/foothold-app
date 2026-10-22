@@ -166,14 +166,14 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     expect([line('담당'), line('배터리'), line('위치'), line('장치')]).toEqual(['담당 없음', '측정 안 됨', '위치 없음', '장치 정보 없음']);
     expect(row('Go2-N').textContent).toContain('—');   // 목록 배터리도 «—», 0% 아님
   });
-  it('운영 관리자가 남의 로봇(UNKNOWN): 상태·배터리·위치·장치 «확인 안 됨», 조종 비활성 + STOP 은 됨', async () => {
+  it('운영 관리자가 남의 로봇(UNKNOWN): 상태·배터리·위치·장치 «확인 안 됨», 조종 단추 없음 + STOP 은 됨', async () => {
     serve(signedIn(LEE, [RA, RB_HIDDEN]));
     await open('#/fleet');
     await click(row('Go2-B'));
     expect(sent('GET', '/robots/r-b')).toHaveLength(1);
     expect([line('배터리'), line('위치'), line('장치')]).toEqual(['확인 안 됨', '확인 안 됨', '확인 안 됨']);
     expect(card('로봇 상세').querySelector('h2 + *')!.textContent).toBe('○확인 안 됨');
-    expect(btn('조종하기', card('로봇 상세'))!.disabled).toBe(true);
+    expect(btn('조종하기', card('로봇 상세'))).toBeUndefined();   // 총괄 웹에는 조종 단추 없음(ADR-002 §4)
     stopOk();
   });
   it('위치·장치만 바뀐 state 도 상세를 다시 그린다', async () => {
@@ -186,7 +186,7 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     expect(line('위치')).toContain('x 9.0 m');
     expect(line('장치')).toContain('오류');
   });
-  it('열린 상세의 담당이 바뀌면 다시 받아 조종 가능, 옛 요청의 늦은 답은 버린다', async () => {
+  it('열린 상세의 담당이 바뀌면 다시 받아 갱신, 옛 요청의 늦은 답은 버린다', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     serve(signedIn(LEE, [RA, RB_HIDDEN]));
     const served = globalThis.fetch;
@@ -211,7 +211,6 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     await flush();
     expect(sent('GET', '/robots/r-b')).toHaveLength(2);
     expect(line('담당')).toBe('이운영');
-    expect(btn('조종하기', card('로봇 상세'))!.disabled).toBe(false);
   });
   it('상세 404 → «찾을 수 없음» + 목록 다시 받기, 그 밖 실패는 이유', async () => {
     serve(signedIn(KIM, [RA], { 'GET /robots/r-a': err(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.') }));
@@ -378,7 +377,7 @@ describe('설정 › 로봇(총괄, 05 §3)', () => {
 describe('subscription.revoked(05 §9)', () => {
   async function driving() {
     serve(signedIn(LEE, [RA, RB_HIDDEN]));
-    await open('#/drive/r-a');
+    await open('#/drive/r-a', true);   // 조종 화면은 폰에만(ADR-002 §3)
     const w = live(LEE);
     expect(subs(w).pop()).toEqual(['r-a']);
     await click(btn('조종 시작'));

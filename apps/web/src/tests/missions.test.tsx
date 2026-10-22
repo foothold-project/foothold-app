@@ -218,7 +218,7 @@ describe('목록 [임무 | 시나리오]', () => {
   it('시나리오 기본 — 이름·층·판·지점 수(배정 로봇·마지막 실행 칸 없음), 보관 제외 → «보관된 것도 보기», 임무로 바꾸기', async () => {
     seed(); serve(KIM);
     await open();
-    expect($('h1')!.textContent).toBe('임무');
+    expect($('h1')!.textContent).toBe('시나리오');
     const q = sent('GET', '/scenarios');
     expect(q).toHaveLength(1); expect(q[0].q.get('limit')).toBe('50'); expect(q[0].q.get('archived')).toBeNull();
     expect(rows()).toEqual(['s1']);

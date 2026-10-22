@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "PhoneLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "commands": {
+          "items": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "type": "array"
+          },
+          "title": "Commands",
+          "type": "array"
+        },
+        "vx_max": {
+          "title": "Vx Max",
+          "type": "number"
+        },
+        "vx_min": {
+          "title": "Vx Min",
+          "type": "number"
+        },
+        "vy_max": {
+          "title": "Vy Max",
+          "type": "number"
+        },
+        "vy_min": {
+          "title": "Vy Min",
+          "type": "number"
+        },
+        "wz_max": {
+          "title": "Wz Max",
+          "type": "number"
+        },
+        "wz_min": {
+          "title": "Wz Min",
+          "type": "number"
+        }
+      },
+      "required": [
+        "vx_min",
+        "vx_max",
+        "vy_min",
+        "vy_max",
+        "wz_min",
+        "wz_max",
+        "commands"
+      ],
+      "title": "PhoneLimits",
+      "type": "object"
+    },
+    "PhonePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "title": "PhonePolicy",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/PhoneWelcome",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "lease_timeout_ms": {
+      "const": 15000,
+      "title": "Lease Timeout Ms",
+      "type": "integer"
+    },
+    "limits": {
+      "$ref": "#/$defs/PhoneLimits"
+    },
+    "link_timeout_ms": {
+      "const": 3000,
+      "title": "Link Timeout Ms",
+      "type": "integer"
+    },
+    "ping_interval_ms": {
+      "const": 1000,
+      "title": "Ping Interval Ms",
+      "type": "integer"
+    },
+    "policy": {
+      "$ref": "#/$defs/PhonePolicy"
+    },
+    "proto": {
+      "const": "fh-phone/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Robot",
+      "type": "string"
+    },
+    "simulation": {
+      "title": "Simulation",
+      "type": "boolean"
+    },
+    "t": {
+      "const": "hello",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "id",
+    "robot",
+    "proto",
+    "limits",
+    "policy",
+    "simulation",
+    "ping_interval_ms",
+    "link_timeout_ms",
+    "lease_timeout_ms"
+  ],
+  "title": "PhoneWelcome",
+  "type": "object"
+}

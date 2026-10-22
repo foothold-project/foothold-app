@@ -81,6 +81,17 @@ export interface AgentMedia {
   upload_id: string;
 }
 
+export interface AgentPhoneRevoke {
+  t: "phone.revoke";
+  seq: number;
+  items: PhoneRevocationItem[];
+}
+
+export interface AgentPhoneRevokeAck {
+  t: "phone.revoke.ack";
+  seq: number;
+}
+
 export interface AgentPing {
   t: "ping";
 }
@@ -541,6 +552,217 @@ export interface Person {
   display_name: string;
 }
 
+export interface PhoneCmdAck {
+  t: "cmd.ack";
+  id: string;
+  seq: number;
+  applied: number[];
+  clipped: boolean;
+  reason: string | null;
+}
+
+export interface PhoneCommand {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "cmd";
+  lease_id: string;
+  seq: number;
+  vx: number;
+  vy: number;
+  wz: number;
+}
+
+export interface PhoneEcho {
+  id: string;
+  client_time_ms: number;
+  agent_time_ms: number;
+}
+
+export interface PhoneEnvelope {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+}
+
+export interface PhoneHello {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto: "fh-phone/1";
+  t: "hello";
+  ticket: string;
+  device: string;
+}
+
+export interface PhoneLease {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "lease.take" | "lease.request" | "lease.release" | "lease.cancel" | "view" | "stop";
+}
+
+export interface PhoneLeaseRequested {
+  t: "lease.requested";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  request_id: string;
+  requester: PhoneRequester;
+  expires_at: string;
+}
+
+export interface PhoneLeaseResult {
+  t: "lease.result";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  request_id: string;
+  result: "ACCEPTED" | "DECLINED" | "TIMEOUT" | "CANCELED";
+  error: string | null;
+}
+
+export interface PhoneLimits {
+  vx_min: number;
+  vx_max: number;
+  vy_min: number;
+  vy_max: number;
+  wz_min: number;
+  wz_max: number;
+  commands: number[][];
+}
+
+export interface PhonePassRequest {
+  device: string;
+  purpose: "control" | "view";
+  /** 앞 로봇 반납 확인 뒤에만 명시 true */
+  switch?: boolean;
+}
+
+export interface PhonePassResponse {
+  token: string;
+  exp: number;
+  kid: string;
+}
+
+export interface PhonePing {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "ping";
+  client_time_ms: number;
+}
+
+export interface PhonePolicy {
+  name: string;
+  version: string;
+}
+
+export interface PhonePosture {
+  z: number | null;
+  tilt_deg: number | null;
+  fallen: boolean | null;
+  body_still: boolean | null;
+}
+
+export interface PhoneReply {
+  t: "reply";
+  id: string;
+  ok: boolean;
+  error: ErrorBody | null;
+  lease_id: string | null;
+  request_id: string | null;
+}
+
+export interface PhoneRequester {
+  user_id: string;
+  device_id: string;
+}
+
+export interface PhoneRespond {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "lease.respond";
+  request_id: string;
+  accept: boolean;
+}
+
+export interface PhoneRevocationItem {
+  jtis: string[] | null;
+  sub: string | null;
+  device: string | null;
+  until: number;
+}
+
+export interface PhoneState {
+  t: "state";
+  pose: AgentPose;
+  speed: number | null;
+  battery: AgentBattery;
+  latched: boolean;
+  stop_gen: number;
+  stop_ref: number;
+  applied: number[];
+  mode: string;
+  devices_changed?: Device[] | null;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  controller: string | null;
+  controller_device: string | null;
+  controller_connected: boolean;
+  lease_id: string | null;
+  stop_requested: boolean | null;
+  posture: PhonePosture;
+  velocity: [number | null, number | null, number | null];
+  echo: PhoneEcho | null;
+  wall_time_ms: number;
+  sim_time_s: number | null;
+  sim_wall_delta_s: number | null;
+  simulation: boolean;
+}
+
+export interface PhoneTicketClaims {
+  iss: "fh-control";
+  aud: "fh-phone/1";
+  org: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  sub: string;
+  device: string;
+  purpose: "control" | "view";
+  iat: number;
+  exp: number;
+  jti: string;
+}
+
+export interface PhoneUnlock {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "unlock";
+  lease_id: string;
+  stop_gen: number;
+}
+
+export interface PhoneWelcome {
+  t: "hello";
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto: "fh-phone/1";
+  limits: PhoneLimits;
+  policy: PhonePolicy;
+  simulation: boolean;
+  ping_interval_ms: 1000;
+  link_timeout_ms: 3000;
+  lease_timeout_ms: 15000;
+}
+
 export interface PhotoParams {
   camera?: "rgb" | "depth";
 }
@@ -873,4 +1095,5 @@ export interface WaitParams {
 }
 
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
-export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia;
+export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
+export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing;

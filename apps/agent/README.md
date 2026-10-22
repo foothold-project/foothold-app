@@ -150,3 +150,93 @@ Core 안전 피드백인 `on_robot_state`와 별도이며 매 송신마다 원�
 로컬 bridge의 float 표현 범위를 넘는 큰 정수 피드백은 링크가 Core 호출 전에 거부하고
 `BRIDGE_STATE_INVALID`를 기록한다. 거부한 입력은 Core 상태·생존 시각을 갱신하지 않는다.
 Core 및 기존 Core 시험은 수정하지 않았다.
+
+## 폰 연결 서버 (P1-A, ROS 없는 모의 검증)
+
+계약 정본은 [05 §13](../../docs/spec/05-API-SPEC.md#13-폰--에이전트-fh-phone1)이다.
+`foothold_agent.phone`은 stdlib + `websockets==15.0.1`만 사용한다. 가짜 폰/sink 시험:
+
+```sh
+python3 -m pytest apps/agent -q
+python3 apps/agent/tools/check_phone_mutations.py
+python3 apps/contracts/generate.py --check
+npm --prefix apps/contracts run typecheck
+```
+
+기존 `python3 -m foothold_agent.ros_bridge` 진입점은 다음 표의 **필수 환경 변수가 모두** 있을 때만
+`/phone/ws`를 연다. 값은 배포 환경에서 제공하고 Git에 넣지 않는다. 이번 작업에서는
+이 진입점을 실행하지 않았고 ROS/시뮬을 기동하지 않았다.
+
+| 변수 | 뜻 |
+|---|---|
+| `FOOTHOLD_PHONE_HOST`, `FOOTHOLD_PHONE_PORT` | 명시적 바인딩 인터페이스·포트. 기본 리스너 없음 |
+| `FOOTHOLD_PHONE_KEY_PATH` | 로봇 전용 `{kid:base64url_secret}` 파일(키 32바이트 이상) |
+| `FOOTHOLD_PHONE_ORG_ID` | 이 로봇의 조직 UUID. 기존 `FOOTHOLD_ROBOT_ID`와 함께 대조 |
+| `FOOTHOLD_PHONE_REPLAY_DB` | 영속적인 로컬 spent-jti SQLite 파일. 보호된 쓰기 가능한 디렉터리 |
+| `FOOTHOLD_PHONE_POLICY_NAME`, `FOOTHOLD_PHONE_POLICY_VERSION` | 실제 배포 정책 식별자, hello에 그대로 표시 |
+| `FOOTHOLD_PHONE_CLOCK_TRUSTED` | 운영 감독자가 동기화를 확인한 뒤 `1`. 없거나 다른 값은 시작 거부 |
+| `FOOTHOLD_PHONE_SIMULATION` | 시뮬 `1`/실기 `0` 명시. 없거나 다른 값이면 시작 거부 |
+| `FOOTHOLD_PHONE_ORIGINS` | PWA/브라우저 배포에는 필수. JSON 배열의 정확한 HTTP(S) Origin 허용 목록. 기본 빈 목록은 Origin 있는 연결 모두 거부; 헤더 없는 앱은 허용 |
+
+설정·키·재사용 저널은 ROS 시작 전에 확인한다. 출입증은 관제 서버가 발급하지만 그
+엔드포인트는 후속이다. 시험에서는 실행할 때 만든 난수 키로 직접 서명한다. HS256은
+로봇별 대칭키이며 키 배포·회전·유출 한계·저널 복구·시계 신뢰는 05 §13.2를 따른다.
+시계 동기화 상실 때 현재 감독자의 전달 수단은 **프로세스 정지뿐**이다. 외부에서
+`Verifier.trusted`를 바꾸는 IPC는 없으며 자동 OS NTP 상태 연동은 실기 전 관문이다.
+시계 역행/5초 초과 오차는 자체 검출한다. 키/저널은 실행 사용자 소유의 일반 파일·
+group/other 권한0만 허용한다. 배포 시 **실행 사용자 소유·0600·실파일**로 제공하며
+심볼릭 링크/FIFO/그룹 읽기 등 넓은 권한은 시작 거부다. 실제 클라이언트의 Origin과
+secret 파일 제공 방식은 실기 전 배포 시험에서 확인한다. 빈 Origin 목록의
+브라우저/PWA 폰은 HTTP 403이다. 운영 설정의
+메모리 저널은 거부하고 상위 디렉터리도 보호해야 한다. FULL commit의 루프 차단 시간은
+1단계 시뮬 관문에서 fsync 지연으로 측정한다.
+출입증 상한은 600초다. 인터넷이 끊겨 새 출입증을 못 받으면 **남은 수명(최대10분)
+뒤 정지·잠금 후 조종권을 비우며**, 연결이 살아 있어도 연장하지 않는다.
+
+폰 모드에서 Hub의 Session/Core 하나가 실제 sink를 소유한다. 기존 Client는 Session이나
+Core를 따로 만들지 않는 Observer 파사드·DiscardSink로 상태·기록만 전송한다. 서버의
+lease/cmd/unlock/run/slam/floor.set은 버리고 옛 stop만 Hub.stop에 넣는다. 클라우드의
+일반 단절·재접속은 폰 lease를 바꾸지 않는다. 출입증/조종권은 프로세스 재시작 시 복원하지
+않으며 spent-jti 저널만 유지한다. 수신·넘김·출력은 같은 이벤트 루프에서 직렬 처리한다.
+20Hz 감시 외에 실제 sink의 독립 0.3초 watchdog도 여전히 필수다.
+폰 Session의 서버 링크 타이머는 끄고 Hub만 연결을 감시한다. hello 승인 전 오류·STOP은
+그 소켓만 닫는다. hello 대기는3초/최대16개, 원격 host당2개다. 주소 상한을 먼저 적용해
+초과 주소의 가장 오래된 대기만 교체한다. 전체 상한에서는 대기가 가장 많은 주소부터
+교체하며 동률은 가장 오래된 소켓이 먼저다. hello 검증 중인 연결은 교체하지 않는다.
+현재 검증은 동기이며 비동기로 바꾸면 제외 규칙/점유 한도를 다시 검토한다. 같은 주소(NAT 공유 포함)의 비인증 폭주는 그 주소의 재접속을 막을 수
+있다. 공격 주소 수가 전체 상한/2(8개)를 넘는 다중 주소 폭주도 재접속을 막을 수 있으며
+정지·잠금을 유지한다. 실기 전 관문은 **로봇 망 분리·접속 속도 제한(주소별 동시 TCP 수·ulimit 포함)**이다.
+대기16개 상한은 닫는 중인 소켓·TCP handshake 수까지 제한하지 않는다.
+**역방향 프록시 앞단은 금지**한다(모든 폰이 한 주소로 집계됨). 폰 앱의1013 수신 후
+짧은 재시도 동작도 실기 전에 확인한다. 인증된 연결은 별도16개다.
+승인된 보기 폰의 수신 계층 형식 오류도 STOP·잠금을 적용한다. 요청 알림은 종류별 최신1개,
+거절/자동 거절/요청자 자기 철회(cancel·release·view·요청자 끊김) 뒤 사용자+기기 기준
+30초 제한을 남기며 새 출입증 재접속으로 우회할 수 없다. REQUEST_FLOOD·형식/크기 오류·
+수신 계층 오류·보내기 시간 초과등 요청자 귀책 거부도 철회다. 조종자 반납·끊김/만료·
+STOP_CONFIRM_FAILED·요청자와 무관한 시계 불신/서비스 종료/로봇 정리/내부 오류만 예외다.
+요청자 출입증 만료로 대기가 사라져도 그 시점부터30초 제한이다. 짧은 새 출입증 반복으로 우회하지 못한다.
+take·request는 사용자+기기별 독립 이동1초8개/60초30개 예산을 쓰며 grant·재접속으로
+초기화하지 않는다. 초과는 LEASE_ACQUIRE_LIMIT 오류 응답만·연결 유지, 거부 기록은
+Hub 전체에서 초당1건 이하로 집계한다. cancel은 별도1초8개 초과 연결만 닫는다. 비조종자의 view·release만 별도1초 창에 합계8개,
+초과분은 REQUEST_FLOOD(status429) 오류 응답만 하고 무시한다. 연결·ping·STOP은 유지한다.
+현재 조종자의 release·view는 집계·제한 없이 즉시0·잠금·반납한다. 취득·넘김 수락 시
+이전 비조종자 창을 초기화한다. **정지·조종권을 줄이는 명령은 속도 제한으로 막지 않는다.**
+
+폰 ping은 1초마다, 3초 무수신에 정지·잠금·옛 lease 폐기, 마지막 ping으로부터 15초까지
+기존 사용자+기기 예약이다. 같은 사용자+기기는 새 출입증/연결로 새 lease를 취득할 수 있다.
+RUN·카메라·발급 서버·회수 목록·실폰·실로봇·TLS 배포는 후속이다.
+실기 전 관문 정본은 [05 §13.6](../../docs/spec/05-API-SPEC.md#136-오류닫기후속-경계)이다. 새 폰 네트워크 시험은
+loopback 9450~9469만 사용한다. 기존 회귀 시험 helper의 9060~9079는 조정 승인으로 유지한다.
+
+### 관제 서버 출입증 회수
+
+서버는 wire1MiB/4096행을 예약하고 에이전트는 같은 SQLite의 물리8MiB
+(4096 B×2048페이지)를 허용한다. 페이지 낭비·색인·metadata·used-jti4096행의 여유를 포함한다.
+used/회수의 논리4096개 상한·FULL commit·저장 실패 거부는 유지한다.
+이전256페이지 코드로 되돌리면 커진 저널은 시작 거부될 수 있다. 미만료 저널 삭제로
+우회하지 않고 보존한 채 승인된 저널 복구/키 대응 절차를 따른다(운영 되돌림 미검증).
+
+폰 모드의 인증된 서버 Client가 `phone.revoke`를 받으면 같은 SQLite 저널에 FULL commit하고
+열린 조종 연결을0·잠금·비움 및4403 종료한 뒤 ack한다. 새 hello도 거부한다. 재시작 뒤에도
+until까지 유지하며 저장 실패는 정지·새 연결 거부다. 서버 단절 중 새 회수는 최대600초 지연된다.
+발급/회수·회전은 [API §13.7](../../docs/spec/05-API-SPEC.md#137-출입증-발급회수-fh-control)을 따른다.
