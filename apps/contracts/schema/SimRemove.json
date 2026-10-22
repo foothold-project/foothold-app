@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/SimRemove",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "generation": {
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "title": "Generation",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "generation"
+  ],
+  "title": "SimRemove",
+  "type": "object"
+}

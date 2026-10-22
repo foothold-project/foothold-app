@@ -5,6 +5,7 @@ from collections import Counter
 from dataclasses import dataclass
 import json
 import os
+import socket
 from urllib.parse import urlsplit
 
 from .hub import PhoneError, Peer
@@ -63,8 +64,9 @@ class Settings:
 
 
 class Server:
-    def __init__(self, hub, settings, *, sock=None):
+    def __init__(self, hub, settings, *, sock=None, camera=None):
         self.hub, self.settings, self.sock = hub, settings, sock
+        self.camera = camera
         self.connections = {}
         self.addresses = {}
         self.hello_started = set()
@@ -118,6 +120,8 @@ class Server:
             except (ValueError, TypeError, AttributeError, RecursionError):
                 pass  # Hub owns frame validation and authenticated STOP policy.
             result = self.hub.receive(peer, raw)
+            if result.get('t') == 'hello':
+                result['camera_token'] = self.camera.issue(peer) if self.camera is not None else None
             await self._send(ws, result)
 
     def _address(self, ws):
@@ -150,6 +154,13 @@ class Server:
 
     async def _handler(self, ws):
         from websockets.exceptions import ConnectionClosed
+        native_socket = getattr(ws, 'transport', None)
+        native_socket = native_socket.get_extra_info('socket') if native_socket is not None else None
+        if native_socket is not None:
+            native_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        if ws.request.path == '/phone/camera/ws' and self.camera is not None:
+            await self.camera.handler(ws)
+            return
         if ws.request.path != '/phone/ws':
             await ws.close(4403, 'PATH_INVALID')
             return
@@ -197,6 +208,8 @@ class Server:
                     self._note(primary, error)
                 self._failed(primary if not isinstance(primary, asyncio.CancelledError) else error)
             finally:
+                if self.camera is not None:
+                    self.camera.forget(peer)
                 self.connections.pop(peer, None)
                 self.addresses.pop(peer, None)
                 self.hello_started.discard(peer)

@@ -405,7 +405,9 @@ def test_reserved_socket_skips_an_existing_reservation():
     from foothold_agent.link.testing import reserved_socket
     with reserved_socket() as first, reserved_socket() as second:
         assert first.getsockname() != second.getsockname()
-        assert all(s.getsockname()[0] == '127.0.0.1' and 9060 <= s.getsockname()[1] < 9080
+        import os
+        first_port, last_port = map(int, os.environ.get('FH_TEST_PORT_RANGE', '9060:9079').split(':'))
+        assert all(s.getsockname()[0] == '127.0.0.1' and first_port <= s.getsockname()[1] <= last_port
                    for s in (first, second))
 
 

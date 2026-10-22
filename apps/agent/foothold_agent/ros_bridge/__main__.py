@@ -2,6 +2,9 @@
 
 import asyncio
 import signal
+import os
+
+from foothold_agent.camera import Camera, CameraTransport
 
 from foothold_agent.link.client import Client
 from foothold_agent.link.session import Session
@@ -13,7 +16,8 @@ from .node import RosNode
 
 
 async def run(config):
-    bridge = RosNode(config)
+    camera = Camera(config.robot_id) if os.environ.get('FOOTHOLD_CAMERA_ENABLED') == '1' else None
+    bridge = RosNode(config, camera=camera) if camera is not None else RosNode(config)
     client = None
     phone = None
     tasks = []
@@ -47,7 +51,7 @@ async def run(config):
             hub = Hub(config.phone_verifier, sink,
                       policy_name=config.phone.policy_name, policy_version=config.phone.policy_version,
                       simulation=config.phone.simulation)
-            phone = Server(hub, config.phone)
+            phone = Server(hub, config.phone, camera=CameraTransport(camera, hub) if camera else None)
             session = Observer(hub)
             client = Client(session, DiscardSink(), config.settings)
             hub.record = session.retain
@@ -63,6 +67,8 @@ async def run(config):
             phone.hub.session.update_devices(bridge.inputs.device_observations())
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(bridge.wait_failure()),
                  asyncio.create_task(stop.wait())]
+        if camera is not None:
+            tasks.append(asyncio.create_task(camera.run()))
         if phone is not None:
             tasks.append(asyncio.create_task(phone.run()))
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)

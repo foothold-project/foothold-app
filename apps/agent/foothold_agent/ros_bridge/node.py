@@ -205,8 +205,9 @@ class RosNode:
     thread-safe publishers only for emergency ZERO/STOP, including executor stall.
     """
 
-    def __init__(self, config, *, now=time.monotonic, extension_factory=None):
+    def __init__(self, config, *, now=time.monotonic, extension_factory=None, camera=None):
         self.config, self.now = config, now
+        self.camera = camera
         self.extension_factory, self.extension = extension_factory, None
         self.sink = self.inputs = None
         self.error = None
@@ -292,6 +293,9 @@ class RosNode:
             for topic, (typ, _, _) in SENSOR_TOPICS.items():
                 node.create_subscription(getattr(sensor_messages, typ), topic,
                     lambda m, key=topic: self.inputs.sensor(key), sensor_qos)
+            if self.camera is not None:
+                node.create_subscription(sensor_messages.CompressedImage, '/v2_live/camera/compressed',
+                    lambda m: self.camera.submit(m.data, m.format), sensor_qos)
             if self.extension_factory is not None:
                 self.extension = self.extension_factory(node)
             executor = SingleThreadedExecutor(context=context)

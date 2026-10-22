@@ -168,6 +168,7 @@ class Device(Contract):
 
 
 class RobotSummary(Contract):
+    simulation: bool = False
     id: UUID
     name: str
     model: str
@@ -1042,6 +1043,7 @@ class PhonePolicy(Contract):
 
 
 class PhoneWelcome(Contract):
+    camera_token: str | None = Field(default=None, min_length=43, max_length=43, description='10초·1회용 영상 연결 토큰; 부모 연결에 종속')
     t: Literal['hello']
     id: str
     robot: PhoneRobotID
@@ -1154,12 +1156,82 @@ class PhonePassResponse(Contract):
     kid: str
 
 
+class CameraHello(Contract):
+    t: Literal['camera.hello']
+    robot: PhoneRobotID
+    token: str = Field(min_length=43, max_length=43)
+
+
+class CameraFrame(Contract):
+    t: Literal['camera.frame']
+    robot: PhoneRobotID
+    seq: Sequence
+    mime: Literal['image/jpeg']
+    width: int = Field(ge=1, le=640)
+    height: int = Field(ge=1, le=360)
+    jpeg: str = Field(min_length=4, max_length=87384, pattern=r'^[A-Za-z0-9+/]+={0,2}$')
+
+
+class CameraStatus(Contract):
+    t: Literal['camera.status']
+    robot: PhoneRobotID
+    state: Literal['NO_VIDEO']
+
+
+class SimWorld(Contract):
+    id: str = Field(min_length=1, max_length=128)
+
+
+class SimWorldStart(Contract):
+    world_id: str = Field(min_length=1, max_length=128)
+
+
+class SimStartRequest(SimWorldStart):
+    robot_id: UUID
+
+
+class SimRemove(Contract):
+    generation: int = Field(ge=1, le=9223372036854775807)
+
+
+class SimProvision(SimStartRequest):
+    generation: int = Field(ge=1, le=9223372036854775807)
+    owner_id: UUID
+    org_id: UUID
+    agent_token: str = Field(min_length=32, max_length=256, repr=False)
+
+
+class SimCatalog(Contract):
+    worlds: list[SimWorld]
+    slots: list[UUID]
+    max_robots: int = Field(ge=1, le=2)
+    launcher: Literal['fake', 'native-single']
+
+
+class SimRobot(Contract):
+    generation: int = Field(ge=1, le=9223372036854775807)
+    robot_id: UUID
+    owner_id: UUID
+    world_id: str
+    simulation: Literal[True]
+    state: Literal['STARTING', 'PREPARED', 'RUNNING', 'STOPPING', 'ERROR']
+    agent_address: str
+    namespace: str
+    tf_prefix: str
+    command_topic: str
+    launcher: Literal['fake', 'native-single']
+
+
+class SimRobotList(Contract):
+    items: list[SimRobot]
+
+
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
 REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
-REQUEST_MODELS.add(PhonePassRequest)
+REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartRequest, SimProvision, SimRemove})
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 

@@ -34,13 +34,16 @@ class Settings:
     ws_origin: str | None = None
     files_root: str = '/var/lib/foothold/files'
     phone_pass_keys: str | None = None
+    simmgr_url: str | None = None
+    simmgr_auth_file: str | None = None
 
     @classmethod
     def from_env(cls):
         return cls(os.environ['FH_DATABASE_URL'], UUID(os.environ['FH_ORG_ID']),
                    ws_origin=os.environ.get('FH_WS_ORIGIN'),
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
-                   phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'))
+                   phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
+                   simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'))
 
 
 class APIError(Exception):
@@ -609,6 +612,8 @@ def create_app(settings: Settings | None = None):
         authorize(user, 'A')
         rt, rid = app.state.realtime, str(robot_id)
         row = await asyncio.to_thread(find_robot, db, user, robot_id)
+        if row.simulation and 'owner_user_id' in body.model_fields_set:
+            fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 담당자를 관리합니다.')
         changing_owner = ('owner_user_id' in body.model_fields_set
                           and body.owner_user_id != row.owner_user_id)
         if changing_owner:
@@ -645,6 +650,8 @@ def create_app(settings: Settings | None = None):
         rt.begin_robot_change(rid)
         try:
             row = await asyncio.to_thread(find_robot, db, user, robot_id)
+            if row.simulation:
+                fail(409, 'SIM_ROBOT_MANAGED', '시뮬 관리자에서만 제거합니다.')
             await asyncio.to_thread(phone_pass.revoke, db, user.org_id, robot_id=row.id,clock=issuer.clock)
             record = rt.arbiter.robots.get(rid)
             run = rt.runs.get(rid)
@@ -713,13 +720,16 @@ def create_app(settings: Settings | None = None):
                                            Robot.archived_at.is_(None)).with_for_update())
         if not row:
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
+        if row.simulation:
+            fail(409, 'SIM_TOKEN_MANAGED', '시뮬 관리자에서만 연결 키를 관리합니다.')
         raw = token()
         row.agent_token_hash = digest(raw)
         event(db, user.org_id, 'AGENT_TOKEN_ROTATED', user.id, {'robot_id': str(robot_id)})
         response.headers['Cache-Control'] = 'no-store'
         return C.AgentTokenResponse(agent_token=raw)
 
-    from . import events_api, notifications, maps, missions
+    from . import events_api, notifications, maps, missions, simulation
+    simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization)
     missions.install(app, DB, Identity, fail, authorize, event, page)
     approvals.install(app, DB, Identity, fail, authorize, page)
     events_api.install(app, DB, Identity, fail)

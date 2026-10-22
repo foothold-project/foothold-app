@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "SimRobot": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_address": {
+          "title": "Agent Address",
+          "type": "string"
+        },
+        "command_topic": {
+          "title": "Command Topic",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "launcher": {
+          "enum": [
+            "fake",
+            "native-single"
+          ],
+          "title": "Launcher",
+          "type": "string"
+        },
+        "namespace": {
+          "title": "Namespace",
+          "type": "string"
+        },
+        "owner_id": {
+          "format": "uuid",
+          "title": "Owner Id",
+          "type": "string"
+        },
+        "robot_id": {
+          "format": "uuid",
+          "title": "Robot Id",
+          "type": "string"
+        },
+        "simulation": {
+          "const": true,
+          "title": "Simulation",
+          "type": "boolean"
+        },
+        "state": {
+          "enum": [
+            "STARTING",
+            "PREPARED",
+            "RUNNING",
+            "STOPPING",
+            "ERROR"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "tf_prefix": {
+          "title": "Tf Prefix",
+          "type": "string"
+        },
+        "world_id": {
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "generation",
+        "robot_id",
+        "owner_id",
+        "world_id",
+        "simulation",
+        "state",
+        "agent_address",
+        "namespace",
+        "tf_prefix",
+        "command_topic",
+        "launcher"
+      ],
+      "title": "SimRobot",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/SimRobotList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/SimRobot"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "SimRobotList",
+  "type": "object"
+}
