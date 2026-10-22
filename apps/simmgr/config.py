@@ -1,6 +1,7 @@
 """Private deployment catalogue, never bundled worlds, maps or credentials."""
 from dataclasses import dataclass, field
 import json
+import logging
 import ipaddress
 import os
 from pathlib import Path
@@ -8,6 +9,8 @@ from uuid import UUID
 from urllib.parse import urlsplit
 
 from .environment import validate_control_environment
+from apps.contracts.models import SimWorld
+from apps.contracts.simulation_ports import allowed_ports, extra_ports_from_env
 
 
 @dataclass(frozen=True)
@@ -15,6 +18,15 @@ class World:
     id: str
     world_file: Path
     map_file: Path
+    name: str | None = None
+    description: str = ''
+
+    def __post_init__(self):
+        name = self.id if self.name is None else self.name
+        SimWorld(id=self.id, name=name, description=self.description)
+        if self.name is None:
+            logging.getLogger(__name__).warning('Catalogue world %s has no name; using id', self.id)
+            object.__setattr__(self, 'name', name)
 
 
 @dataclass(frozen=True)
@@ -47,18 +59,20 @@ class Settings:
     agent_python: str = '/usr/bin/python3'
     agent_ws_url: str = field(default='ws://127.0.0.1:9431/api/v1/agent/ws', repr=False)
     origins: tuple[str, ...] = ()
+    extra_ports: tuple[int, ...] = ()
 
     def __post_init__(self):
+        ports_allowed = allowed_ports(self.extra_ports)
         if self.domain != 93:
             raise ValueError('simulation domain must be 93')
-        if self.host != '127.0.0.1' or not 9430 <= self.port <= 9449:
+        if self.host != '127.0.0.1' or type(self.port) is not int or self.port not in ports_allowed:
             raise ValueError('manager requires loopback and approved port range')
         if not 32 <= len(self.secret) <= 256 or not self.secret.isascii() or any(ord(c) < 33 for c in self.secret) or not 1 <= self.max_robots <= 2:
             raise ValueError('private service credential and robot cap 1..2 required')
         if not self.worlds or not self.slots or len(self.slots) > 2:
             raise ValueError('catalogue requires worlds and at most two provisioned slots')
         ports = [slot.port for slot in self.slots.values()]
-        if len(set(ports)) != len(ports) or self.port in ports or any(type(p) is not int or not 9430 <= p <= 9449 for p in ports):
+        if len(set(ports)) != len(ports) or self.port in ports or any(type(p) is not int or p not in ports_allowed for p in ports):
             raise ValueError('separate agent ports in approved range required')
         for rid, slot in self.slots.items():
             if str(UUID(rid)) != rid or slot.robot_id != rid or str(UUID(slot.org_id)) != slot.org_id:
@@ -68,7 +82,7 @@ class Settings:
             raise ValueError('explicit local IPv4 agent interface required')
         parsed = urlsplit(self.agent_ws_url)
         if (parsed.scheme not in ('ws', 'wss') or parsed.hostname != '127.0.0.1'
-                or parsed.port not in range(9430, 9450) or parsed.username or parsed.password
+                or parsed.port not in ports_allowed or parsed.username is not None or parsed.password is not None
                 or parsed.path != '/api/v1/agent/ws' or parsed.query or parsed.fragment):
             raise ValueError('agent server requires loopback URL in approved port range')
         if self.real and not all((self.source, self.ros_setup, self.run_dir)):
@@ -80,7 +94,9 @@ class Settings:
         # Conflicts are rejected even in fake mode; no silent replacement of 61.
         validate_control_environment(env)
         data = json.loads(Path(env['FH_SIM_CATALOG']).read_text())
-        worlds = {w['id']: World(w['id'], Path(w['world_file']), Path(w['map_file'])) for w in data['worlds']}
+        worlds = {w['id']: World(w['id'], Path(w['world_file']), Path(w['map_file']),
+                                **{key: w[key] for key in ('name', 'description') if key in w})
+                  for w in data['worlds']}
         slots = {s['robot_id']: Slot(**s) for s in data['slots']}
         if len(worlds) != len(data['worlds']) or len(slots) != len(data['slots']):
             raise ValueError('duplicate catalogue entry')
@@ -94,4 +110,5 @@ class Settings:
                    real=env.get('FH_SIM_RUN') == '1', domain=int(env.get('FH_SIM_DOMAIN', '93')), source=env.get('SIM_SOURCE'),
                    ros_setup=env.get('SIM_ROS_SETUP'), run_dir=env.get('SIM_RUN_DIR'),
                    agent_python=env.get('FH_SIM_AGENT_PYTHON', '/usr/bin/python3'),
-                   agent_ws_url=env['FH_SIM_AGENT_WS_URL'], origins=tuple(json.loads(env.get('FOOTHOLD_PHONE_ORIGINS', '[]'))))
+                   agent_ws_url=env['FH_SIM_AGENT_WS_URL'], origins=tuple(json.loads(env.get('FOOTHOLD_PHONE_ORIGINS', '[]'))),
+                   extra_ports=extra_ports_from_env(env))

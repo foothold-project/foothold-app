@@ -965,7 +965,7 @@ hello/새 출입증으로 새 토큰을 받는 흐름이며, 조종권 자동 �
 
 | API | 입력 / 응답 |
 |---|---|
-| `GET /api/v1/simulation/worlds` | `SimCatalog`: 공개 world id·사전 배포 slot UUID·상한·launcher. 원본 경로/키 없음 |
+| `GET /api/v1/simulation/worlds` | `SimCatalog`: 공개 world id·name·description·사전 배포 slot UUID·상한·launcher. 원본 경로/키 없음 |
 | `GET /api/v1/simulation/robots` | `SimRobotList`, 현재 조직·본인 소유만(총괄은 조직 전체) |
 | `POST /api/v1/simulation/robots` | `SimStartRequest {world_id,robot_id}` →201 `SimRobot` |
 | `DELETE /api/v1/simulation/robots/{robot_id}` | 담당 권한 확인·STOP/0·정리 확인 뒤204 |
@@ -992,8 +992,10 @@ owner를 유지하고 실패 감사를 별도 commit한다. 로봇·출입증 �
 출입증은 **그대로 §13.7**로 받는다. 슬롯 UUID의 서버/에이전트 키를 미리 배포하며, 키가
 없는 슬롯은503 PASS_KEY_MISSING이다. 일반 로그인 권한을 넘는 키/claim을 생성하지 않는다.
 관리자 인증은 저장소 밖 실행 사용자 소유0600 파일의 최소32자 서비스 키이며, 서버의
-`FH_SIM_MANAGER_URL`은127.0.0.1·9430~9449만 허용한다. 환경 proxy는 사용하지 않는다.
+`FH_SIM_MANAGER_URL`은127.0.0.1·기본 9430~9449만 허용한다. 환경 proxy는 사용하지 않는다.
 관리자도127.0.0.1에만 bind하며 포트를 공유하지 않는다.
+카탈로그 `name`은 필수 1~40자, `description`은 선택(기본 빈 문자열)·최대 200자다. 이름 없는 옛 항목은 id로 대체하고 경고 1줄을 남기며 선택·POST는 id를 쓴다.
+`FH_SIM_EXTRA_PORTS="8870"`은 관리자·서버의 추가 허용 포트 목록(쉼표 구분)이며 기본 9430~9449는 유지하고 8453·8792는 설정해도 거부한다. 127.0.0.1·사용자/비밀번호 없는 URL·기존 경로 검사는 그대로다.
 
 관리자 내부 API는 `/v1/worlds` GET/POST, `/v1/robots` GET/POST/DELETE다. 서버만 POST에
 `SimProvision {world_id,robot_id,owner_id,org_id,agent_token,generation}`을 보낸다. 비밀은 본문/자식
