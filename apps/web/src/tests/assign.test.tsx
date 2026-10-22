@@ -23,7 +23,7 @@ const err = (status: number, code: string, message: string) => ({ status, body: 
 
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; key?: string };
-let calls: Call[] = [], asg: Assignment[] = [], scenarios: Scenario[] = [], n = 0;
+let calls: Call[] = [], asg: Assignment[] = [], scenarios: Scenario[] = [], n = 0, aps: Record<string, string> = {};
 const mk = (p: Partial<Assignment> & Pick<Assignment, 'robot_id' | 'status'>): Assignment => ({ id: `as${++n}`, scenario_id: 's1', scenario_version: 1, memo: '', scenario_name: '1층 순찰',
   robot_name: p.robot_id === 'r-a' ? 'Go2-A' : 'Go2-B', approval_id: p.status === 'PENDING' ? `ap${n}` : null, created_by: KIM.id, created_at: '2026-10-20T01:00:00Z', removed_at: null, ...p });
 
@@ -66,10 +66,12 @@ function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Rep
       if (key) receipts.set(key, r);
       return r;
     }
+    if ((m = path.match(/^\/approvals\/([^/]+)$/))) return { status: 200, body: { id: m[1], kind: 'SCENARIO_ASSIGNMENT', status: aps[m[1]] ?? 'PENDING' } };
     if ((m = path.match(/^\/assignments\/([^/]+)$/)) && method === 'DELETE') {
       const a = asg.find((x) => x.id === m![1]);
       if (!a) return err(404, 'NOT_FOUND', '배정을 찾을 수 없습니다.');
       if (!can(a.robot_id)) return err(403, 'FORBIDDEN', '담당 로봇만 배정하거나 해제할 수 있습니다.');
+      if (a.status === 'PENDING' && a.approval_id) aps[a.approval_id] = 'CANCELED';   // 서버: PENDING 해제 = 결재 CANCELED
       Object.assign(a, { status: 'REMOVED', removed_at: '2026-10-20T02:00:00Z' });
       return { status: 204 };
     }
@@ -88,7 +90,7 @@ async function open(hash: string, phone = false) {
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); asg = []; n = 0; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); asg = []; n = 0; aps = {}; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -228,6 +230,55 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     expect(asg).toHaveLength(1);
     expect(text()).toContain('배정했습니다');
   });
+  // PR #50 검토: 멱등 재전송 응답은 «최초» 결과의 재생 — 그새 반려·STALE·해제됐으면 목록의 지금 상태로 안내(PENDING/ACTIVE 단정 0)
+  const lostThenEmpty = (): Parameters<typeof serve>[1] => ({ over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
+    'GET /assignments': [(real) => real(), (real) => real(), { status: 200, body: { items: [], next_cursor: null } }] } });
+  it('처리된 뒤 끊김 → 확인 전 반려(STALE 도 REJECTED) → 같은 키 재전송 = 재생 PENDING 이어도 «반려됨»으로', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    await openAssign(LEE, lostThenEmpty());
+    await pickRobot('r-a');
+    await click(btn('결재 요청', panel()));
+    expect(text()).toContain('배정이 아직 목록에 없습니다.');
+    asg[0].status = 'REJECTED';   // 그새 총괄이 반려(또는 STALE → 서버가 REJECTED 로 정리)
+    await click(btn('같은 요청 다시 보내기', panel()));
+    expect(posts().map((p) => p.key)).toEqual([posts()[0].key, posts()[0].key]);
+    expect(text()).toContain('배정 요청은 처리됐지만 지금은 반려됐습니다');
+    expect(text()).not.toContain('결재 대기 —');
+    expect(rowOf(asg[0].id).textContent).toContain('반려됨');
+  });
+  it('처리된 뒤 끊김 → 확인 전 다른 화면에서 해제 → 재전송 = 재생 ACTIVE 이어도 «해제됨»으로', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    await openAssign(KIM, lostThenEmpty());
+    await pickRobot('r-a');
+    await click(btn('배정', panel()));
+    asg[0].status = 'REMOVED';
+    await click(btn('같은 요청 다시 보내기', panel()));
+    expect(text()).toContain('배정은 처리됐지만 지금은 해제됨 상태입니다');
+    expect(text()).not.toContain('바로 적용됩니다');
+    expect(rowOf(asg[0].id).textContent).toContain('해제됨');
+  });
+  it('«다시 확인»도 REJECTED 줄을 내 시도의 결과로 인정', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    await openAssign(LEE, lostThenEmpty());
+    await pickRobot('r-a');
+    await click(btn('결재 요청', panel()));
+    asg[0].status = 'REJECTED';
+    await click(btn('다시 확인', panel()));
+    expect(text()).toContain('지금은 반려됐습니다');
+    expect(posts()).toHaveLength(1);
+  });
+  it('재전송 응답 뒤 목록 재조회 실패 → 확정 안 함(«확인 중» 유지, PENDING 단정 0)', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    const o = lostThenEmpty()!;
+    o.over!['GET /assignments'].push(lost);
+    await openAssign(LEE, o);
+    await pickRobot('r-a');
+    await click(btn('결재 요청', panel()));
+    await click(btn('같은 요청 다시 보내기', panel()));
+    expect(text()).toContain('배정됐는지 확인하지 못했습니다.');
+    expect(text()).not.toContain('결재 대기 —');
+    expect(btn('다시 확인', panel())).toBeTruthy();
+  });
 });
 
 describe('배정 목록·해제', () => {
@@ -244,6 +295,26 @@ describe('배정 목록·해제', () => {
     expect(rowOf('as1').textContent).toContain('해제됨');
     expect($('[data-canceled]', rowOf('as1'))!.textContent).toBe('결재 취소됨');
     await stopOk();
+  });
+  it('PENDING 으로 보였지만 그새 승인됨 → 해제 뒤 결재 재조회 = APPROVED → «결재 취소됨» 표시 0', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    asg = [mk({ robot_id: 'r-a', status: 'PENDING', created_by: LEE.id })];
+    serve(LEE);
+    await open('#/mission'); await click($('[data-plan="s1"]'));
+    Object.assign(asg[0], { status: 'ACTIVE' }); aps.ap1 = 'APPROVED';
+    await click(btn('해제', rowOf('as1')));
+    expect(calls.some((c) => c.path === '/approvals/ap1')).toBe(true);
+    expect(text()).toContain('결재는 취소되지 않았습니다(그새 승인됨)');
+    expect($('[data-canceled]', panel())).toBeNull();
+  });
+  it('PENDING 해제 뒤 결재 재조회 실패 → «결재 취소됨» 단정 0', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    asg = [mk({ robot_id: 'r-a', status: 'PENDING', created_by: LEE.id })];
+    serve(LEE, { over: { 'GET /approvals/ap1': [lost] } });
+    await open('#/mission'); await click($('[data-plan="s1"]'));
+    await click(btn('해제', rowOf('as1')));
+    expect(text()).toContain('결재 요청이 취소됐는지 확인하지 못했습니다.');
+    expect($('[data-canceled]', panel())).toBeNull();
   });
   it('남의 로봇 배정은 해제 회색 + 같은 이유, REMOVED·REJECTED 는 «해제·반려된 것도 보기»에서만', async () => {
     scenarios = [scen('s1', '1층 순찰')];
@@ -285,6 +356,28 @@ describe('배정 목록·해제', () => {
     expect(calls.filter((c) => c.path === '/assignments').slice(-1)[0].q.get('robot_id')).toBe('r-a');
     expect(text()).toContain('2층 점검 · 판 1');
     expect($('[data-assignment="as3"]')).toBeNull();
+  });
+});
+
+describe('관제 서랍 [배정]', () => {
+  it('로봇 상세 [배정] → 임무 탭 시나리오 고르면 같은 배정 창이 그 로봇을 고른 채 열림, 남의 로봇은 회색 + 이유', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    serve(LEE);
+    await open('#/fleet');
+    await click([...$('[aria-label="로봇 목록"]')!.querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-B')));
+    const other = $<HTMLButtonElement>('[data-assign-robot]')!;
+    expect(other.disabled).toBe(true);
+    expect($(`#${other.getAttribute('aria-describedby')}`)!.textContent).toBe(OUT);
+    await click([...$('[aria-label="로봇 목록"]')!.querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    await click($('[data-assign-robot]'));
+    expect(location.hash).toBe('#/mission');
+    expect(box.textContent).toContain('Go2-A에 배정할 시나리오를 고르세요');
+    await click($('[data-plan="s1"]'));
+    expect($('[aria-label="배정 창"]', panel())).toBeTruthy();
+    expect($('[data-robot="r-a"]', panel())!.getAttribute('aria-pressed')).toBe('true');
+    await click(btn('결재 요청', panel()));
+    expect(posts()[0].body).toMatchObject({ scenario_id: 's1', robot_id: 'r-a' });
+    expect(text()).toContain('결재 대기 — Go2-A');
   });
 });
 

@@ -18,7 +18,9 @@ const ARCHIVED = '보관된 시나리오는 배정할 수 없습니다.';
 const live = (a: Assignment) => a.status === 'ACTIVE' || a.status === 'PENDING';
 /** 서버가 답했는지 모름(끊김·마감·깨진 본문·5xx) — 처리됐을 수 있다 */
 const unsure = (e: ApiFail) => (e.status === 0 && e.code !== 'CANCELED') || e.status >= 500;
-const mineOf = (u: User, r: Robot) => u.role === 'ORG_ADMIN' || r.owner === u.id;
+export const mineOf = (u: User, r: Robot) => u.role === 'ORG_ADMIN' || r.owner === u.id;
+/** 관제 서랍 [배정] → 임무 탭에서 다음에 열 배정 창의 로봇(한 번 쓰고 비움, 로그아웃 때 clearPlans 가 비움) */
+export const assignFor: { robot: string | null } = { robot: null };
 
 const str = (v: unknown) => typeof v === 'string';
 const isAssignment = (a: Assignment) => !!a && str(a.id) && str(a.scenario_id) && Number.isInteger(a.scenario_version) && str(a.robot_id) && str(a.status) && str(a.scenario_name) && str(a.robot_name) && str(a.created_by);
@@ -49,11 +51,11 @@ type Try = { body: AssignmentCreate; key: string; known: string[] };
 /** 배정 창 + 목록(시나리오 편집 칸 아래). version = 지금 보는 판(옛 판을 보면 그 판), archived = 보관된 시나리오 */
 export function AssignPanel({ scenario, name, version, archived, user, robots, cancel }: { scenario: string; name: string; version: number; archived: boolean; user: User; robots: Robot[]; cancel?: AbortSignal }) {
   const [by, setBy] = useState(''), l = useAssignments(by || null, by ? null : scenario, cancel), [all, setAll] = useState(false);
-  const [open, setOpen] = useState(false), [robot, setRobot] = useState(''), [memo, setMemo] = useState(''), [msg, setMsg] = useState<Msg>(null);
+  const [open, setOpen] = useState(!!assignFor.robot && !archived), [robot, setRobot] = useState(archived ? '' : assignFor.robot ?? ''), [memo, setMemo] = useState(''), [msg, setMsg] = useState<Msg>(null);
   const [phase, setPhase] = useState<'idle' | 'sending' | 'checking' | 'unsure'>('idle'), attempt = useRef<Try | null>(null);
   const [removing, setRemoving] = useState<Record<string, 'sending' | 'checking'>>({}), [canceled, setCanceled] = useState<Set<string>>(new Set());
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  useEffect(() => { assignFor.robot = null; return () => { alive.current = false; }; }, []);
   // 이 판이 이미 ACTIVE·PENDING 인 로봇(이 시나리오 목록을 볼 때만 안다 — 로봇별 보기면 서버 409 가 막는다)
   const taken = new Map((by ? [] : l.items ?? []).filter((a) => live(a) && a.scenario_version === version).map((a) => [a.robot_id, a.status]));
   const why = (r: Robot) => (!mineOf(user, r) ? OUT : taken.has(r.id) ? (taken.get(r.id) === 'PENDING' ? '이 판은 이미 결재를 기다리고 있습니다.' : '이 판이 이미 배정되어 있습니다.') : null);
@@ -62,24 +64,30 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
 
   const done = (a: Assignment) => {
     attempt.current = null; setPhase('idle'); setOpen(false); setRobot(''); setMemo('');
-    setMsg(a.status === 'PENDING' ? { text: `결재 대기 — ${a.robot_name}에 «${a.scenario_name}» 판 ${a.scenario_version} 배정을 요청했습니다. 총괄 운영 관리자가 승인하면 적용됩니다.`, ok: true, mine: true }
-      : { text: `${a.robot_name}에 «${a.scenario_name}» 판 ${a.scenario_version}을 배정했습니다. 바로 적용됩니다.`, ok: true });
+    const what = `${a.robot_name}에 «${a.scenario_name}» 판 ${a.scenario_version}`;
+    if (!live(a)) setAll(true);   // 반려·해제된 결과 줄도 목록에 보이게
+    setMsg(a.status === 'PENDING' ? { text: `결재 대기 — ${what} 배정을 요청했습니다. 총괄 운영 관리자가 승인하면 적용됩니다.`, ok: true, mine: true }
+      : a.status === 'ACTIVE' ? { text: `${what}을 배정했습니다. 바로 적용됩니다.`, ok: true }
+      : a.status === 'REJECTED' ? { text: `${what} 배정 요청은 처리됐지만 지금은 반려됐습니다(반려됐거나 요청 뒤 배정 대상이 바뀜). 아래 목록에서 확인하세요.`, mine: true }
+      : { text: `${what} 배정은 처리됐지만 지금은 ${status(a.status).text} 상태입니다. 아래 목록에서 확인하세요.` });
     l.load().catch(() => {});
   };
-  /** 확인 중: 그 로봇 목록을 다시 받아 보내기 전 없던 내 배정(같은 판·ACTIVE·PENDING)이 있으면 그것이 결과. 없거나 못 받으면 확정하지 않는다 */
-  const check = (t: Try) => {
+  /** 확인 중: 그 로봇 목록을 다시 받아 보내기 전 없던 내 배정(같은 판, 상태는 무엇이든 — 그새 반려·해제됐을 수 있다)이 있으면 그 줄의 지금 상태가 결과. 없거나 못 받으면 확정하지 않는다.
+   *  id = 재전송 응답의 배정 ID — 멱등 재생은 «최초» 결과라 지금 상태가 아니므로 목록의 그 줄로 판정한다 */
+  const check = (t: Try, id?: string) => {
     setPhase('checking');
     api.assignments(t.body.robot_id, cancel).then(fit(isList)).then((list) => {
       if (!alive.current) return;
-      const hit = list.find((a) => !t.known.includes(a.id) && a.created_by === user.id && a.scenario_id === t.body.scenario_id && a.scenario_version === t.body.scenario_version && live(a));
+      const hit = list.find((a) => (id ? a.id === id : !t.known.includes(a.id) && a.created_by === user.id && a.scenario_id === t.body.scenario_id && a.scenario_version === t.body.scenario_version));
       if (hit) return done(hit);
       setPhase('unsure');
       setMsg({ text: '배정이 아직 목록에 없습니다. 서버가 처리하는 중일 수 있습니다. «다시 확인»을 누르거나 «같은 요청 다시 보내기»를 누르세요 — 같은 요청 번호로 보내 두 번 배정되지 않습니다.' });
     }, (e: ApiFail) => { if (!alive.current || e.code === 'CANCELED') return; setPhase('unsure'); setMsg({ text: `배정됐는지 확인하지 못했습니다. ${e.message} «다시 확인»을 누르세요.` }); });
   };
-  const send = (t: Try) => {
+  /** again = «같은 요청 다시 보내기»(같은 키) — 답이 와도 첫 결과의 재생일 수 있어 목록으로 확인한다 */
+  const send = (t: Try, again = false) => {
     setPhase('sending'); setMsg(null);
-    api.assign(t.body, t.key, cancel).then(fit(isAssignment)).then((a) => { if (alive.current) done(a); }, (e: ApiFail) => {
+    api.assign(t.body, t.key, cancel).then(fit(isAssignment)).then((a) => { if (alive.current) { if (again) check(t, a.id); else done(a); } }, (e: ApiFail) => {
       if (!alive.current || e.code === 'CANCELED') return;
       if (unsure(e)) { setMsg({ text: '배정 응답을 받지 못했습니다. 처리됐을 수 있어 목록으로 확인하는 중입니다(확인 중).' }); check(t); return; }
       attempt.current = null; setPhase('idle');
@@ -111,9 +119,16 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
   const remove = (a: Assignment) => {
     if (removing[a.id]) return;
     const was = a.status, mark = (s?: 'sending' | 'checking') => setRemoving((o) => { const n = { ...o }; if (s) n[a.id] = s; else delete n[a.id]; return n; });
+    /** 해제 확인 뒤. PENDING 이었으면 «결재 취소됨»은 결재를 다시 받아 CANCELED 일 때만(그새 승인·반려됐을 수 있다) */
     const ok = () => {
-      if (was === 'PENDING') setCanceled((s) => new Set(s).add(a.id));
-      setMsg({ text: was === 'PENDING' ? `${a.robot_name}의 «${a.scenario_name}» 배정 요청을 해제했습니다. 결재 요청도 취소됐습니다.` : `${a.robot_name}에서 «${a.scenario_name}» 판 ${a.scenario_version} 배정을 해제했습니다.`, ok: true });
+      const gone = `${a.robot_name}에서 «${a.scenario_name}» 판 ${a.scenario_version} 배정을 해제했습니다.`;
+      if (was !== 'PENDING' || !a.approval_id) return setMsg({ text: gone, ok: true });
+      setMsg({ text: `${gone} 결재 요청이 취소됐는지 확인하는 중…`, ok: true });
+      api.approval(a.approval_id, cancel).then((p) => {
+        if (!alive.current) return;
+        if (p?.status === 'CANCELED') { setCanceled((s) => new Set(s).add(a.id)); setMsg({ text: `${a.robot_name}의 «${a.scenario_name}» 배정 요청을 해제했습니다. 결재 요청도 취소됐습니다.`, ok: true }); }
+        else setMsg({ text: `${gone} 결재는 취소되지 않았습니다(그새 ${p?.status === 'APPROVED' ? '승인' : p?.status === 'REJECTED' ? '반려' : p?.status === 'STALE' ? '적용 불가 처리' : '다른 상태로 처리'}됨). 결재 탭에서 확인하세요.`, ok: true });
+      }, (e: ApiFail) => { if (alive.current && e.code !== 'CANCELED') setMsg({ text: `${gone} 결재 요청이 취소됐는지 확인하지 못했습니다. ${e.message} 결재 탭에서 확인하세요.` }); });
     };
     mark('sending'); setMsg(null);
     api.unassign(a.id, cancel).then(() => { if (!alive.current) return; mark(); ok(); l.load().catch(() => {}); }, (e: ApiFail) => {
@@ -149,7 +164,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
       </fieldset>
       <div className="fh-row">
         {phase === 'unsure' ? <>
-          <button type="button" className="btn pri" onClick={() => attempt.current && send(attempt.current)}>같은 요청 다시 보내기</button>
+          <button type="button" className="btn pri" onClick={() => attempt.current && send(attempt.current, true)}>같은 요청 다시 보내기</button>
           <button type="button" className="btn" onClick={() => attempt.current && check(attempt.current)}>다시 확인</button>
           <button type="button" className="btn" onClick={() => { attempt.current = null; setPhase('idle'); setOpen(false); setMsg({ text: '배정 결과를 확정하지 못한 채 창을 닫았습니다. 아래 목록에서 배정됐는지 확인하세요.' }); l.load().catch(() => {}); }}>닫기</button>
         </> : <>

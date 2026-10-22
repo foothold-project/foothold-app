@@ -10,8 +10,8 @@ import { History, RecentEvents } from './screens/history';
 import { FloorMap, Maps } from './screens/maps';
 import { Guard } from './App';
 import { Settings } from './screens/settings';
-import { Missions } from './screens/missions';
-import { AssignedCards } from './screens/assign';
+import { Missions, keptPlan } from './screens/missions';
+import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
@@ -169,6 +169,9 @@ function Detail(c: Ctx) {
       : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
           <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} /></li>)}</ul>}</Line>
     {(c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />}
+    <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
+      onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } assignFor.robot = c.robot.id; c.go('mission'); }}>배정</button>
+      {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>
     {err && <p className="fh-msg" role="alert">{err}</p>}
     <Slot text="지도·그래프 자리" />
   </section>;
