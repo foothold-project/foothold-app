@@ -47,6 +47,21 @@
       "title": "Owner Id",
       "type": "string"
     },
+    "remaining_s": {
+      "anyOf": [
+        {
+          "maximum": 3600,
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Manager monotonic runtime remaining at this response, in seconds.",
+      "title": "Remaining S"
+    },
     "robot_id": {
       "format": "uuid",
       "title": "Robot Id",
@@ -89,7 +104,8 @@
     "tf_prefix",
     "command_topic",
     "launcher",
-    "expires_at"
+    "expires_at",
+    "remaining_s"
   ],
   "title": "SimRobot",
   "type": "object"

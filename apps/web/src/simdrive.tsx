@@ -18,9 +18,8 @@ function useDeadline(on: boolean) {
     return () => clearInterval(timer);
   }, [on]);
 }
-export function remainingTime(expiresAt: string | null | undefined, at = Date.now()) {
-  const end = expiresAt ? Date.parse(expiresAt) : NaN;
-  return Number.isFinite(end) ? Math.max(0, Math.ceil((end - at) / 1000)) : null;
+export function remainingTime(until: number | null, at = performance.now()) {
+  return until === null ? null : Math.max(0, Math.ceil((until - at) / 1000));
 }
 const minutes = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 export function timeNotice(left: number | null) {
@@ -109,17 +108,19 @@ export function SimDrive() {
     sim.axes([f, t]);
   };
   const left = l.exp ? Math.floor(l.exp - Date.now() / 1000) : Infinity;
-  const runtimeLeft = remainingTime(r.expires_at);
+  const runtimeLeft = remainingTime(s.runtimeUntil);
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const who = !st || !open ? '' : st.lease_id ? '조종 중(나)' : !st.controller ? '조종하는 사람 없음' : st.controller_connected ? '다른 사람이 조종 중' : '조종자 연결 끊김(자리 예약 중)';
   const soc = st?.battery?.soc, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000)), stop = stopText(s);
   const notes = [
+    r.state === 'STOPPING' && '시뮬을 정리하는 중…',
+    r.state === 'STARTING' && '시뮬을 띄우는 중…',
     timeNotice(runtimeLeft),
     l.at === 'closed' && l.why,
     l.notice,
     unsupported,
-    mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. 끝까지 밀어야 움직입니다.`,
+    !unsupported && mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. 끝까지 밀어야 움직입니다.`,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
     stop,
   ].filter(Boolean) as string[];

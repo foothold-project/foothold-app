@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import logging
+import math
 from uuid import UUID
 
 from .launcher import FakeLauncher, NativeLauncher
@@ -39,6 +40,8 @@ class Manager:
         self.removed_generation = {}
         self.closing = self.failed = False
         self.expires_at = None
+        self.deadline = None
+        self.starting = None  # read-only listing target while world creation awaits
         self.expiry_task = None
         self.expiring = False
         self.expired = {}  # one completed generation per provisioned slot
@@ -52,14 +55,16 @@ class Manager:
     def describe(self, robot):
         slot = robot.slot
         native = self.launcher.real
-        if native and getattr(self.launcher, 'failure', False):
+        if native and robot.state not in ('STARTING', 'STOPPING') and getattr(self.launcher, 'failure', False):
             robot.state = 'ERROR'
         return dict(generation=robot.generation, robot_id=slot.robot_id, owner_id=robot.owner, world_id=robot.world,
             simulation=True, state=robot.state, agent_address=f'ws://{self.settings.agent_host}:{slot.port}/phone/ws',
             namespace='' if native else slot.namespace,
             tf_prefix='' if native else slot.namespace.lstrip('/') + '/',
             command_topic='/v2_live/cmd_vel' if native else slot.namespace + '/v2_live/cmd_vel',
-            launcher='native-single' if native else 'fake', expires_at=self.expires_at)
+            launcher='native-single' if native else 'fake', expires_at=self.expires_at,
+            remaining_s=None if self.deadline is None or self.expires_at is None else
+                max(0, math.ceil(self.deadline - asyncio.get_running_loop().time())))
 
     async def start_world(self, world_id):
         async with self.lock:
@@ -90,6 +95,7 @@ class Manager:
             raise
         self.world = world_id
         self.expires_at = expires_at
+        self.deadline = deadline
         self.expiry_task = asyncio.create_task(self._expire_at(deadline))
 
     async def _expire_at(self, deadline):
@@ -139,8 +145,12 @@ class Manager:
                 raise SimError('SIM_ROBOT_LIMIT')
             if not isinstance(agent_token, str) or not 32 <= len(agent_token) <= 256:
                 raise SimError('SIM_CREDENTIAL_INVALID', 400)
-            await self._world(world_id)
             row = Robot(slot, owner_id, world_id, 'STARTING', generation)
+            self.starting = row
+            try:
+                await self._world(world_id)
+            finally:
+                self.starting = None
             self.expired.pop(robot_id, None)
             self.robots[robot_id] = row
             try:
@@ -198,7 +208,15 @@ class Manager:
             self.world = None
 
     async def listing(self, org_id):
-        async with self.lock:
-            if self.launcher.real:
-                await self.launcher.check_health()
-            return [self.describe(row) for row in self.robots.values() if row.slot.org_id == org_id]
+        # Never wait behind native startup or STOP/zero/world cleanup. The
+        # event-loop snapshot below has no awaits, so transitions cannot split it.
+        # Health polling stays serialized when idle; polling an intentional exit
+        # during cleanup would incorrectly latch a failed episode.
+        if not self.lock.locked():
+            async with self.lock:
+                if self.launcher.real:
+                    await self.launcher.check_health()
+        rows = list(self.robots.values())
+        if self.starting is not None:
+            rows.append(self.starting)
+        return [self.describe(row) for row in rows if row.slot.org_id == org_id]

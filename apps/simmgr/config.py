@@ -71,6 +71,8 @@ class Settings:
     def __post_init__(self):
         if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= 3600:
             raise ValueError('simulation runtime must be 5..3600 seconds')
+        if self.real and self.runtime_seconds < 300:
+            raise ValueError('native simulation runtime must be 300..3600 seconds')
         ports_allowed = allowed_ports(self.extra_ports)
         if self.domain != 93:
             raise ValueError('simulation domain must be 93')

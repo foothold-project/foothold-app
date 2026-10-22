@@ -971,12 +971,13 @@ hello/새 출입증으로 새 토큰을 받는 흐름이며, 조종권 자동 �
 | `DELETE /api/v1/simulation/robots/{robot_id}` | 담당 권한 확인·STOP/0·정리 확인 뒤204 |
 
 `SimRobot`은 generation, robot_id, owner_id, world_id, `simulation:true`, state, agent_address,
-namespace, tf_prefix, command_topic, launcher, `expires_at`(UTC 기한, 옛 관리자면 null)을 싣는다. `state=PREPARED,launcher=fake`는
+namespace, tf_prefix, command_topic, launcher, `expires_at`(UTC 기한, 옛 관리자면 null),
+`remaining_s`(관리자 단조 시계 기준 남은 정수 초, 옛 관리자면 null)을 싣는다. `state=PREPARED,launcher=fake`는
 가짜 launcher의 계약 시험 결과이고 접속 가능한 로봇이 아니다. `RUNNING,native-single`은
 네이티브 에이전트 listener가 열린 결과이며 §13.6·ADR-002 §8 성능 통과를 뜻하지 않는다.
 
-시뮬 수명은 `FH_SIM_RUNTIME_SECONDS` 한 설정으로 기본1800초(30분), 5..3600초까지
-허용한다(5초는 모의 시험용). 월드 준비를 요청한 시점부터 계산하며 준비 시간도 포함한다.
+시뮬 수명은 `FH_SIM_RUNTIME_SECONDS` 한 설정으로 기본1800초(30분), native는300..3600초,
+fake는5..3600초까지 허용한다. 월드 준비를 요청한 시점부터 계산하며 준비 시간도 포함한다.
 관리자는 단조 시계의 기한에 기존 DELETE와 같은 agent STOP/zero·exit0 → world identity/
 정리 확인 경로를 잠금 안에서 실행한다. agent/native·Gazebo user unit에는 같은 설정+90초를
 `RuntimeMaxSec`로 전달한다(기본1890초). native watcher는 이 마지막 상한5초 전에 동작하므로
@@ -993,7 +994,11 @@ hash 교체·owner 해제·IDLE로 마무리한다. 세대는 종료 때 유지�
 정리 실패면 관리자 ERROR/failed·소유를 보존하며, 증명이 손상/유실되면 서버 STOPPING·소유를
 보존한다. 관리자 재시작으로 완료 메모리가 사라지면 기존 #55 복구 단추와 증명 규칙을 따른다.
 
-폰 조종 상태 줄은 기한으로 `남은 시간 mm:ss`를 표시하고 5분·1분 이내에 한 줄로 안내한다.
+기동·정리 잠금이 잡혀 있으면 목록은 건강 검사를 생략하고 STARTING/STOPPING을 즉시
+돌려준다. 폰은 «시뮬을 띄우는 중…»/«시뮬을 정리하는 중…»을 표시한다.
+폰 조종 상태 줄은 응답의 remaining_s와 수신 뒤 단조 시계 경과로 `남은 시간 mm:ss`를
+표시하고 5분·1분 이내에 한 줄로 안내한다. 폰 UTC 시계와 비교하지 않으며 remaining_s가
+없으면 남은 시간 안내를 생략한다.
 0초는 정리 확인 중이며, 빈 목록이나 연결 끊김만으로 정상 종료라고 표시하지 않는다.
 본인 로봇·세대가 맞는 서버 expired를 받은 뒤에만 연결을 닫고
 «시간이 다 되어 시뮬을 끝냈습니다 — 다시 띄우기»를 표시한다. 내 ERROR 카드에도 정리 단추를

@@ -1187,6 +1187,8 @@ export interface SimRobot {
   command_topic: string;
   launcher: "fake" | "native-single";
   expires_at: string | null;
+  /** Manager monotonic runtime remaining at this response, in seconds. */
+  remaining_s: number | null;
 }
 
 export interface SimRobotList {

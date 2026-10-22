@@ -27,13 +27,17 @@ export type Sim = {
   stop: { at: number; via: 'agent' | 'cleanup' } | null;
   /** 이 시각(단조) 전에는 다시 연결하지 않는다(1013 뒤 늘리는 간격·출입증 429 retry_after) */
   retryAt: number;
+  /** 관리자 remaining_s를 받은 뒤의 단조 시계 기한(폰 UTC 시계와 무관). */
+  runtimeUntil: number | null;
   /** unsure 가 SIM_SLOT_BUSY 때문(남의 로봇일 수 있어 목록으로 내 것인지 먼저 확인) · 남이 쓰는 것으로 확인한 슬롯 */
   slotBusy: boolean; busyWhy: string; taken: string[]; cleanup: SimCleanupSlot[]; managerError: SimRobotList['manager_error'];
 };
 
 export const CMD_MS = 50, PING_MS = 1000;
 const now = () => performance.now();
-const blank = (): Sim => ({ step: 'pick', catalog: null, mine: [], cleanup: [], managerError: null, listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, slotBusy: false, busyWhy: '', taken: [] });
+const blank = (): Sim => ({ step: 'pick', catalog: null, mine: [], cleanup: [], managerError: null, listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, runtimeUntil: null, slotBusy: false, busyWhy: '', taken: [] });
+const runtimeUntil = (r: SimRobot) => typeof r.remaining_s === 'number' && Number.isFinite(r.remaining_s) && r.remaining_s >= 0
+  ? now() + r.remaining_s * 1000 : null;
 /** 05 §13.9 시작 전 확실한 거부 (status, code) 고정 목록 — 이 밖(SIM_SLOT_BUSY 포함)은 불확실 */
 const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400 SIM_CREDENTIAL_INVALID', '404 SIM_WORLD_NOT_FOUND', '404 SIM_SLOT_NOT_FOUND',
   '409 SIM_WORLD_BUSY', '409 SIM_OWNER_LIMIT', '409 SIM_NATIVE_SINGLE_ONLY', '409 SIM_ROBOT_LIMIT']);
@@ -197,7 +201,11 @@ export const sim = {
       cleanup: r.status === 'fulfilled' ? r.value.cleanup ?? [] : S.cleanup, managerError,
       err: e || (S.err === loadErr ? '' : S.err) });
     const current = S.robot;
-    if (current?.expires_at && Date.parse(current.expires_at) <= Date.now()
+    const latest = current && S.mine.find((x) => x.robot_id === current.robot_id
+      && x.generation === current.generation && x.owner_id === current.owner_id);
+    if (r.status === 'fulfilled' && latest && current) set({ robot: { ...current, state: latest.state,
+      expires_at: latest.expires_at, remaining_s: latest.remaining_s }, runtimeUntil: runtimeUntil(latest) });
+    if (current && S.runtimeUntil !== null && S.runtimeUntil <= now()
       && (S.step === 'drive' || S.step === 'linking') && S.mine.some((x) => x.robot_id === current.robot_id
         && x.generation === current.generation && x.owner_id === current.owner_id && x.state === 'ERROR')) {
       sim.close();
@@ -225,7 +233,7 @@ export const sim = {
     }
     if (sure) { set({ step: 'pick', robot: null, stop: null, err: simulationMessage(f) ?? `시뮬 로봇을 띄우지 못했습니다. ${f!.message}` }); sim.load(); return; }
     if (busy) { set({ step: 'unsure', slotBusy: true, busyWhy: f!.message, err: `${f!.message} 내 시뮬 로봇인지 목록으로 확인합니다.` }); return sim.recheck(); }
-    if (r) set({ robot: r });
+    if (r) set({ robot: r, runtimeUntil: runtimeUntil(r) });
     if (cancel) return sim.end();   // 띄우는 중 STOP — 생겼거나 불확실한 그 슬롯을 DELETE 1회
     if (!r) { set({ step: 'unsure', err: simulationMessage(fail) ?? `시뮬 로봇이 떴는지 확인하지 못했습니다. ${message(fail)}` }); sim.load(); return; }
     sim.connect(); sim.load();
@@ -245,7 +253,7 @@ export const sim = {
       : { step: 'pick', robot: null, slotBusy: false, stop: null, taken, err: `${S.busyWhy} ${more ? '띄우기를 다시 누르면 다른 슬롯을 시도합니다.' : '사용이 끝난 뒤 다시 누르세요.'}` });
   },
   /** 이미 떠 있는 내 시뮬 로봇에 다시 붙기 */
-  attach(r: SimRobot) { set({ robot: r, err: '', stop: null }); return sim.connect(); },
+  attach(r: SimRobot) { set({ robot: r, runtimeUntil: runtimeUntil(r), err: '', stop: null }); return sim.connect(); },
   /** 관리자가 연결 주소를 확인하지 못한 DB 슬롯에는 DELETE만 제공한다. */
   cleanupSlot(r: SimCleanupSlot) { return sim.end({ robot_id: r.robot_id } as SimRobot); },
   /** 새 출입증 → 에이전트에 직접 hello. 출입증은 hello 에만 싣고 버린다 */

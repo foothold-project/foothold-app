@@ -24,6 +24,8 @@ def test_background_deadline_release_revokes_pass_and_allows_next_generation(sim
     client, sim, cfg, rid, launcher = simulation_context
     result, headers = start_slot(simulation_context)
     assert result.status_code == 201 and result.json()['expires_at']
+    assert 1799 <= result.json()['remaining_s'] <= 1800
+    assert 1799 <= client.get('/api/v1/simulation/robots').json()['items'][0]['remaining_s'] <= 1800
     before = snapshot(client, rid)
     issued = client.post(f'/api/v1/robots/{rid}/phone-pass', headers=headers,
                          json={'device': str(uuid4()), 'purpose': 'view'})
@@ -50,6 +52,45 @@ def test_background_deadline_release_revokes_pass_and_allows_next_generation(sim
                         json={'robot_id': rid, 'world_id': 'test'})
     assert again.status_code == 201 and again.json()['generation'] == 2
     assert client.get('/api/v1/simulation/robots').json()['expired'] == []
+
+
+def test_listing_relays_stopping_without_timeout_or_cleanup_card(simulation_context, monkeypatch):
+    client, sim, cfg, rid, launcher = simulation_context
+    result, _ = start_slot(simulation_context)
+    assert result.status_code == 201
+    manager = sim.app.state.manager
+
+    async def begin():
+        entered, release = asyncio.Event(), asyncio.Event()
+        original = launcher.stop_agent
+
+        async def paused(slot):
+            entered.set()
+            await release.wait()
+            await original(slot)
+
+        monkeypatch.setattr(launcher, 'stop_agent', paused)
+        manager.expiry_task.cancel()
+        await asyncio.gather(manager.expiry_task, return_exceptions=True)
+        task = asyncio.create_task(manager._expire_at(asyncio.get_running_loop().time()))
+        await asyncio.wait_for(entered.wait(), 1)
+        return release, task
+
+    release, task = sim.portal.call(begin)
+    try:
+        started = time.monotonic()
+        listed = client.get('/api/v1/simulation/robots')
+        assert time.monotonic() - started < 2
+        assert listed.status_code == 200
+        body = listed.json()
+        assert body['manager_error'] is None and body['cleanup'] == []
+        assert body['items'][0]['state'] == 'STOPPING'
+        assert body['items'][0]['remaining_s'] is not None
+    finally:
+        async def finish():
+            release.set()
+            await task
+        sim.portal.call(finish)
 
 
 @pytest.mark.parametrize('broken', ['request_nonce', 'robot_id', 'generation', 'startup_clean'])

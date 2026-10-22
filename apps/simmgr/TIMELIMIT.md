@@ -1,19 +1,22 @@
 # 시뮬 시간 제한 변경 검증
 
-기준 `origin/dev 6edfac8`, 브랜치 `feature/sim-timelimit`.
+최초 기준 `origin/dev 6edfac8`, 브랜치 `feature/sim-timelimit`.
+후속 기준 `origin/dev deccb75`, 브랜치 `fix/sim-followup`의 변경·검증은 아래 후속 기록을 따른다.
 기본 사용 기한을240초에서1800초로 바꾸고 관리자에서 먼저 정상 정리한다.
 실제 ROS/Gazebo·실폰·실로봇·운영/미리보기 서비스·배포는 실행하지 않았다.
 
 ## 바뀐 규칙
 
-- `Settings.runtime_seconds` / `FH_SIM_RUNTIME_SECONDS`: 기본1800초, 정수5..3600초.
+- `Settings.runtime_seconds` / `FH_SIM_RUNTIME_SECONDS`: 기본1800초, native 정수300..3600초,
+  fake 정수5..3600초(짧은 값은 모의 시험용).
   월드 준비 요청부터 계산한 UTC `expires_at`를 전달하며 실제 예약은 단조 시계다.
 - agent/native·Gazebo unit은 같은 설정+90초(기본1890초)로 제한한다. native watcher는
   그5초 전이며 정상 정리에85초 여유를 준다. systemd stop grace45/15초는 별도다.
   기존 standalone D1 도구의 기본240초·자원 관문·식별 검사는 유지한다.
 - 기한이면 직렬화 잠금 안에서 기존 STOP/zero·agent exit0 → world close 증명을 거친다.
   성공만 완료 목록에 남기고 실패는 ERROR·failed·소유를 유지한다. 목록의 native 건강
-  검사도 같은 잠금을 써 정상 정리 도중 agent exit를 비정상으로 오판하지 않게 한다.
+  검사는 전환 중 생략하고 STARTING/STOPPING 스냅샷을 즉시 반환한다. 전환 밖 건강 검사는
+  같은 잠금을 써 정상 정리 도중 agent exit를 비정상으로 오판하지 않게 한다.
 - 서버 lifespan 작업은 폰과 무관하게2초마다 ACTIVE 조직의 완료를 확인한다. 현재
   owner·세대를 먼저 대조하고 기존 DELETE와 동일한 nonce·robot_id·generation 결속,
   관리자 UUID·부재 증명을 검사한다. 초기/최종 출입증 회수 후 owner 해제·hash 교체·IDLE,
@@ -85,8 +88,67 @@ helper 추출의 org_id 이름에 맞췄다.
 
 실제 transient unit의 failed0·Gazebo manifest·30분 경과·실폰 배치는 미검증이다.
 완료 목록은 관리자 메모리이므로 정리 직후 서버 확인 전 관리자 재시작이면 #55 수동
-복구가 필요하다. 증명 실패로 STOPPING이 되면 자동 반복하지 않고 기존 정리 단추로
-확인한다. 서버·관리자·웹은 새 계약을 함께 적용해야 하며 옛 서버/관리자는 새 기한 완료
+복구가 필요하다. 서버의 완료 증명 실패로 STOPPING이 되면 서버가 자동 반복하지 않고 기존 정리 단추로
+확인한다. 이와 별개로 **명시 DELETE가 관리자에서 실패하면 기존 expiry 작업은 취소되지
+않는다**. 기한에 잠금 안에서 같은 STOP/zero → agent exit0 → world 정리를 한 번 더 시도한다.
+native launcher의 failed 고정은 유지되므로 재시도가 정리를 일부 진행해도 깨끗한 완료로
+승격되지 않으며 ERROR·소유 보존, 완료 기록 없음이다. expiry 자체가 실패한 뒤의 주기적
+재시도는 없다. 이 후속에서는 재시도 동작·정리 순서를 바꾸지 않았다.
+서버·관리자·웹은 새 계약을 함께 적용해야 하며 옛 서버/관리자는 새 기한 완료
 기능을 제공하지 않는다. 두 모델 검토와 dev 합치기는 조정 세션의 관문이다.
 
 되돌림은 이 기능 커밋의 `git revert`다. Git push/PR은 운영 서비스·DB·APK 배포가 아니다.
+
+
+## 후속 기록 — PR #58·#57 권고
+
+- 전환 중 listing은 잠금을 기다리지 않고 조직별 STARTING/STOPPING 사본을 반환한다.
+  월드 준비 중 아직 robots에 넣지 않은 요청도 읽기용 STARTING으로 표시한다.
+  정상 정리 중 watcher의 unit_exited 관측은 STOPPING을 ERROR로 바꾸지 않는다.
+  전환 담당 코드가 실제 실패를 처리하며 기존 failed 고정과 STOP/zero 순서는 유지한다.
+- remaining_s는 관리자 단조 시계 기한에서 올림한 남은 초다. 서버가 같은 계약으로
+  전달하며 폰은 수신 시점의 performance.now()에 결합해 센다. 같은 로봇·owner·세대의
+  새 응답만 갱신하고, 값이 없는 옛 관리자에서는 UTC 비교 없이 시간 표시를 생략한다.
+- native 설정은300..3600초, fake는5..3600초다. native 대역 시험도300초 설정을 사용하고
+  기한 호출만 앞당겨 검사하며, 실제300초/1800초 경과 시험으로 보고하지 않는다.
+- 미확인 후진·제자리 회전 안내가 있는 동안 clipped의 «끝까지 밀어야 움직입니다» 안내를
+  숨긴다. 명령 값·허용 명령·STOP·정리 단추는 유지한다.
+
+검증은 기존 읽기 전용 venv/웹 의존성, PYTHONDONTWRITEBYTECODE=1, worktree 내부 TMPDIR·
+cacheDir/outDir, runs 안 fence 사본과9480~9489 범위에서 실행했다. 무거운 명령은 각각
+`if MemAvailable >= 2621440 KiB` 관문 뒤에만 실행했다. 임시 웹 의존성 링크와 설정은
+이 worktree의 literal 경로로 제거했다. 새 패키지 설치·ROS/Gazebo·운영/미리보기 접촉0이다.
+
+```sh
+export PYTHONDONTWRITEBYTECODE=1 FH_TEST_PORT_RANGE=9480:9489
+export PYTHONPATH="$PWD/runs/sim-followup/fence:$PWD/apps/agent:$PWD"
+export TMPDIR="$PWD/runs/sim-followup/tmp"
+# PYTHON은 승인된 기존 venv, fence는 sitecustomize.py의 허용 범위만 바꾼 runs 사본.
+"$PYTHON" -m pytest apps/simmgr/tests apps/server/tests/test_sim*.py -q --tb=short
+# 265 passed (117.86s)
+# 정상 정리 중 cached unit_exited 보강 뒤 영향 범위 재검증:
+"$PYTHON" -m pytest apps/simmgr/tests -q --tb=short
+# 128 passed (1.74s), 집중 timelimit 16개 포함
+
+# apps/web에서 기존 Vite 설정에 worktree 내부 cacheDir/outDir만 덧댄 임시 설정:
+npm test -- --config vite.followup.config.mts
+# 11 files / 562 passed (19.84s), phone 39개 포함
+npm run typecheck
+# PASS
+npm exec -- vite build --config vite.followup.config.mts
+# PASS
+"$PYTHON" apps/contracts/generate.py --check
+# 164개 일치
+```
+
+전환4곳(world 시작·agent 시작·STOP/zero 대기·world 정리 대기)에서 목록을100ms 제한으로
+읽고 다른 조직에는 빈 목록을 반환하는지 검사했다. 서버 경유 정리 중 목록은2초 미만,
+manager_error 없음·cleanup 카드 없음·STOPPING·remaining_s 전달을 확인했다. 폰 시계를
+하루 앞/뒤로 틀려도30:00·05:00·01:00과 안내·증명 전후 구분이 유지되며, 미확인 안내
+중 clipped 숨김과 안내 종료 뒤 복원을 검증했다. native5/299초 거부·300초 수용,
+fake 짧은 값 수용도 확인했다.
+
+최초 typecheck는 current의 null 가능성3곳으로 실패했고 명시 guard 뒤 통과했다.
+기존 Starlette/httpx deprecation·브랜드 CSS 빌드 경고는 남는다. 실제 systemd/ROS/Gazebo,
+실폰·가로 화면 배치·실로봇·실제300초/30분 경과·관리자 재시작 재현·배포는 미검증이다.
+STOP/zero·deadman·명령 경로·출입증·세대·#51·#55 증명 결속·기한 정리 순서 변경0이다.
