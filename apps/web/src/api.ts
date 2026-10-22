@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, AgentTokenResponse, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, PhonePassRequest, PhonePassResponse, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { Action, AgentTokenResponse, Assignment, AssignmentCreate, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, PhonePassRequest, PhonePassResponse, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -40,11 +40,12 @@ export const authMark = () => csrf;
 
 /** ms = 답을 기다리는 한도(넘으면 끊고 TIMEOUT), cancel = 부른 쪽이 거둠(세션이 끝남 등 — CANCELED, 401 이어도 로그인 정리 안 함).
  *  file = 성공 본문을 JSON 대신 Blob 으로(CSV 내려받기 — 실패 본문은 그대로 오류 JSON). raw = 본문을 JSON 대신 이 Content-Type 의 원시 바이트로(지도 올리기) */
-type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean; raw?: string; match?: number };   // match = If-Match 판(임무·시나리오 PUT, §1.3)
-async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file, raw, match }: Opt = {}): Promise<T> {
+type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean; raw?: string; match?: number; key?: string };   // match = If-Match 판(임무·시나리오 PUT, §1.3), key = Idempotency-Key(같은 시도 재전송엔 같은 키)
+async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file, raw, match, key }: Opt = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = raw ?? 'application/json';
   if (match !== undefined) headers['If-Match'] = `"${match}"`;
+  if (key) headers['Idempotency-Key'] = key;
   if (method !== 'GET' && csrf) headers['X-FH-CSRF'] = csrf;
   if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);
   const stop = new AbortController(), timer = ms ? setTimeout(() => stop.abort(), ms) : undefined, off = () => stop.abort();
@@ -178,6 +179,13 @@ export const api = {
   archivePlan: (kind: Plan, id: string, cancel?: AbortSignal) => call<void>('DELETE', `/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
   /** 저장 없이 경로 미리보기(지점별 갈 수 있음·이유, 층 연결점, 직선 거리) */
   preview: (p: ScenarioWrite, cancel?: AbortSignal) => call<ScenarioPreview>('POST', '/scenarios/preview', p, { cancel }),
+  // 배정(05 §6.4, S5b). 총괄 = 바로 ACTIVE, 운영 관리자 = PENDING + 시나리오 배정 결재. 남의 로봇 403, 없음 404, 같은 로봇·판이 ACTIVE·PENDING 이면 409 ASSIGNMENT_EXISTS, 보관 시나리오 422
+  /** robot 없음 = 조직 전체(서버에 시나리오 거르기가 없어 부른 쪽이 scenario_id 로 거른다) */
+  assignments: (robot: string | null, cancel?: AbortSignal) => pages<Assignment>(`/assignments${robot ? `?robot_id=${encodeURIComponent(robot)}` : ''}`, cancel),
+  /** key = 이 시도의 Idempotency-Key — 답을 못 받아 다시 보낼 때 같은 키면 서버가 첫 결과를 돌려준다(두 번 배정 안 됨) */
+  assign: (p: AssignmentCreate, key: string, cancel?: AbortSignal) => call<Assignment>('POST', '/assignments', p, { cancel, key }),
+  /** 204(이미 해제여도 204). PENDING 이면 서버가 결재도 취소한다 */
+  unassign: (id: string, cancel?: AbortSignal) => call<void>('DELETE', `/assignments/${encodeURIComponent(id)}`, undefined, { cancel }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
   // 시뮬 로봇(05 §13.9) — 서버가 시뮬 관리자에 중계한다. 조종·STOP·영상은 이 경로가 아니라 폰 ↔ 에이전트 직결(phone.ts)

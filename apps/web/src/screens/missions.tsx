@@ -1,6 +1,6 @@
 // 임무 탭(01 MS-01·02·03·09, 02 F-MS-01~04·§10, 03 §5.3, 05 §6.1~6.3 — S5a /actions·/missions·/scenarios·/scenarios/preview).
 // 목록 [임무 | 시나리오](보관 제외 기본·보관 보기·더 보기) + 편집 칸. 저장할 때마다 새 판(PUT If-Match = 받은 본체 version), 옛 판은 읽기 전용(덮어쓰기 단추 없음).
-// 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정·실행·폰 카드는 S5b·S7 뒤(W6b) — 자리도 두지 않는다.
+// 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정 창·목록은 저장된 시나리오 칸 아래(screens/assign.tsx, S5b), 실행은 S7 뒤.
 // STOP 은 App 머리줄 — 이 화면은 창 키·포인터를 잡지 않는다(지도 svg 포인터만).
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { Action, MapVersion, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
@@ -9,6 +9,7 @@ import type { Robot, User } from '../fake';
 import { KIND as DEVICE, type Ctx } from '../screens';
 import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useTree, type Msg, type Place } from './maps';
 import { fromScreen, inside, nameBad } from './mapedit';
+import { AssignPanel, assignFor } from './assign';
 
 type P = [number, number];
 type AnyPlan = Mission | Scenario;
@@ -50,7 +51,7 @@ type Draft = { body: AnyWrite; base: AnyPlan | null; unsure: Unsure | null };
 type Adopt = 'all' | 'base' | 'none';
 export const keptPlan: { kind: Plan; sel: string | null; drafts: Record<string, Draft>; now: boolean } = { kind: 'scenarios', sel: null, drafts: {}, now: false };
 /** 로그아웃 때 비운다(session.tsx) */
-export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; };
+export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; assignFor.robot = null; };
 addEventListener('beforeunload', (e) => { if (keptPlan.now || Object.keys(keptPlan.drafts).length) { e.preventDefault(); e.returnValue = ''; } });
 
 /** 목록(오래된 것 먼저) + cursor 로 더 받기. 종류·보관 보기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다(결재 탭 useList 와 같다) */
@@ -72,7 +73,7 @@ function useList(kind: Plan, archived: boolean, cancel?: AbortSignal) {
 /** 임무 탭(03 §5.3): 왼쪽 [임무 | 시나리오] 목록, 오른쪽 편집. 총괄은 모두, 운영 관리자는 자기 것만 고치고 남의 것은 보는 중(02 §10) */
 export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
   const [kind, setKind] = useState<Plan>(keptPlan.kind), [archived, setArchived] = useState(false), l = useList(kind, archived, c.cancel);
-  const [sel, setSel] = useState<string | null>(keptPlan.sel), [msg, setMsg] = useState<Msg>(null), [n, setN] = useState(0), tree = useTree(c.cancel);
+  const [sel, setSel] = useState<string | null>(keptPlan.sel), [msg, setMsg] = useState<Msg>(() => (assignFor.robot && !keptPlan.sel ? { text: `${c.robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 고르면 배정 창이 열립니다.`, ok: true } : null)), [n, setN] = useState(0), tree = useTree(c.cancel);
   useEffect(() => { keptPlan.kind = kind; keptPlan.sel = sel; }, [kind, sel]);
   const places = useMemo(() => floorsOf(tree.tree), [tree.tree]), floorText = (ids: string[]) => ids.map((id) => places.find((p) => p.floor.id === id)?.floor.name).filter(Boolean).join(' · ');
   const show = (k: Plan) => { if (k !== kind) { setKind(k); setSel(null); setMsg(null); } };
@@ -265,6 +266,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
         <button type="button" className="btn pri" onClick={() => { const u = unsure; setUnsure(null); setAgain(false); send(u.body); }}>그래도 다시 저장</button>
         <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
     </>}
+    {kind === 'scenarios' && id && latest && <AssignPanel scenario={id} name={latest.name} version={view?.number ?? latest.latest_version} archived={archived} user={user} robots={robots} cancel={cancel} />}
   </div>;
 }
 

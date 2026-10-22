@@ -213,7 +213,7 @@ describe('상세·전후 비교', () => {
     expect(btn('다시 시도', card('내용'))).toBeTruthy();
   });
   it('모르는 종류 = «지원 전 종류», 처리 단추·비교 없음', async () => {
-    serve(KIM, [ap('x1', 3, { kind: 'SCENARIO_ASSIGNMENT', target: { type: 'assignment', id: 'assignment-1' }, base_ref: null,
+    serve(KIM, [ap('x1', 3, { kind: 'EMERGENCY_RUN' as ApprovalDetail['kind'], target: { type: 'assignment', id: 'assignment-1' }, base_ref: null,
       preview: { scenario_id: 'scenario-1', scenario_name: '순찰', scenario_version: 3, robot_id: 'r-a', robot_name: 'Go2-A' } })]);
     await open('#/approval');
     expect(rows()[0].textContent).toContain('지원 전 종류');
@@ -224,6 +224,53 @@ describe('상세·전후 비교', () => {
     expect(sent('GET', '/map-versions/assignment-1')).toHaveLength(0);
     expect(rows()[0].textContent).not.toContain('undefined');
     expect(writes()).toEqual([]);
+  });
+});
+
+describe('시나리오 배정 결재(W6b)', () => {
+  const asg = (id: string, p: Partial<ApprovalDetail> = {}) => ap(id, 3, { kind: 'SCENARIO_ASSIGNMENT', target: { type: 'assignment', id: `as-${id}` }, base_ref: { type: 'map_version', id: 'v2' },
+    preview: { scenario_id: 'sc1', scenario_name: '1층 순찰', scenario_version: 2, robot_id: 'r-a', robot_name: 'Go2-A' }, ...p });
+  it('미리보기 = 시나리오·판·로봇·요청자, 지도 비교 요청 없음 → 승인 = 배정됐다는 안내', async () => {
+    serve(KIM, [asg('g1')]);
+    await open('#/approval');
+    expect(rows()[0].textContent).toContain('시나리오 배정');
+    expect(rows()[0].textContent).toContain('«1층 순찰» 판 2 → Go2-A');
+    await pick('g1');
+    const pv = $('[data-assign-preview]', detail())!;
+    expect(pv.textContent).toContain('시나리오1층 순찰'); expect(pv.textContent).toContain('판판 2');
+    expect(pv.textContent).toContain('로봇Go2-A'); expect(pv.textContent).toContain('요청자이운영');
+    expect(calls.filter((c) => c.path.startsWith('/map-versions'))).toHaveLength(0);
+    await click(btn('승인', detail()));
+    expect(writes()).toEqual(['POST /approvals/g1/approve']);
+    expect(statusText() + alertText() + box.textContent).toContain('승인했습니다. 이제 Go2-A에 «1층 순찰» 판 2이 배정됐습니다.');
+    await stopSends();
+  });
+  it('반려(이유 필수 + 확인)도 같은 틀', async () => {
+    serve(KIM, [asg('g2')]);
+    await open('#/approval');
+    await pick('g2');
+    await click(btn('반려', detail()));
+    await setVal(field('반려 이유', detail()), '시간 겹침');
+    await click(btn('반려하기', detail()));
+    await click(btn('반려', $('[aria-label="확인"]')!));
+    expect(writes()).toEqual(['POST /approvals/g2/reject']);
+  });
+  it('APPROVAL_STALE = 배정 대상이 바뀌었다는 이유 문구 + 다시 받으면 «적용 불가(배정 대상이 바뀜)»', async () => {
+    serve(KIM, [asg('g3', { base_ref: null })]);   // 가짜 서버: 기준이 지금 승인 판과 다르면 STALE
+    await open('#/approval');
+    await pick('g3');
+    await click(btn('승인', detail()));
+    expect(alertText()).toContain('승인하지 못했습니다. 요청 이후 배정 대상이 바뀌어(시나리오 보관, 로봇 담당 변경·삭제, 시나리오 층의 지도 변경 등) 이 배정 요청은 적용할 수 없습니다.');
+    expect(detail().textContent).toContain('적용 불가(배정 대상이 바뀜)');
+    expect(btn('승인', detail())).toBeUndefined();
+  });
+  it('운영 관리자 내 요청: 배정 요청은 «요청 취소»만', async () => {
+    serve(LEE, [asg('g4')]);
+    await open('#/approval');
+    await pick('g4');
+    expect(btn('승인', detail())).toBeUndefined();
+    await click(btn('요청 취소', detail()));
+    expect(writes()).toEqual(['POST /approvals/g4/cancel']);
   });
 });
 
