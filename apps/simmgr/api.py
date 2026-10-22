@@ -9,7 +9,7 @@ from fastapi.exceptions import RequestValidationError
 
 from apps.contracts import models as C
 from .service import Manager, SimError
-from .preflight import startup_preflight
+from .preflight import ResourceGateError, startup_preflight
 
 
 def create_app(settings, launcher=None):
@@ -44,7 +44,7 @@ def create_app(settings, launcher=None):
         try:
             authenticate(request)
         except SimError as error:
-            return JSONResponse(status_code=error.status, content={'error': {'code': error.code}})
+            return JSONResponse(status_code=error.status, content={'error': {'code': error.code, 'detail': error.detail}})
         async def bounded_body():
             total, chunks = 0, []
             async for chunk in request.stream():
@@ -58,12 +58,17 @@ def create_app(settings, launcher=None):
         except asyncio.TimeoutError:
             return JSONResponse(status_code=408, content={'error': {'code': 'SIM_BODY_TIMEOUT'}})
         except SimError as error:
-            return JSONResponse(status_code=error.status, content={'error': {'code': error.code}})
+            return JSONResponse(status_code=error.status, content={'error': {'code': error.code, 'detail': error.detail}})
         return await call_next(request)
 
     @app.exception_handler(SimError)
     async def sim_error(request, exc):
-        return JSONResponse(status_code=exc.status, content={'error': {'code': exc.code}})
+        return JSONResponse(status_code=exc.status, content={'error': {'code': exc.code, 'detail': exc.detail}})
+
+    @app.exception_handler(ResourceGateError)
+    async def resources_low(request, exc):
+        return JSONResponse(status_code=503, content={'error': {'code': 'SIM_UNAVAILABLE',
+            'detail': {'reason': 'resources_low', 'start_not_created': True}}})
 
     @app.exception_handler(RequestValidationError)
     async def invalid(request, exc):
@@ -71,7 +76,7 @@ def create_app(settings, launcher=None):
 
     @app.exception_handler(Exception)
     async def failed(request, exc):
-        return JSONResponse(status_code=503, content={'error': {'code': 'SIM_UNAVAILABLE'}})
+        return JSONResponse(status_code=503, content={'error': {'code': 'SIM_UNAVAILABLE', 'detail': {'reason': 'unknown'}}})
 
     @app.get('/v1/worlds', dependencies=[Depends(authenticate)], response_model=C.SimCatalog)
     def worlds(org_id: str):

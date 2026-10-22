@@ -8,8 +8,9 @@ from .environment import validate_control_environment
 
 
 class SimError(Exception):
-    def __init__(self, code, status=409):
+    def __init__(self, code, status=409, detail=None):
         self.code, self.status = code, status
+        self.detail = detail or {'reason': 'slot_busy' if code == 'SIM_SLOT_BUSY' else 'unknown'}
 
 
 @dataclass

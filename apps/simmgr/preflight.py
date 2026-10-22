@@ -12,6 +12,12 @@ LOGGER = logging.getLogger('uvicorn.error.simmgr')
 UNIT_PATTERNS = ('fh-rb-sim-*.service', 'fh-simmgr-agent-*.service')
 
 
+class ResourceGateError(RuntimeError):
+    """The established resource gate rejected before any launch was attempted."""
+    def __init__(self):
+        super().__init__('preflight resource gate failed; no launch')
+
+
 def isolation_preflight(folder):
     tools = str(ROOT / 'apps/agent/tools/sim')
     if tools not in sys.path:
@@ -29,8 +35,10 @@ def startup_preflight(real=False):
         except RuntimeError as error:
             # The established checker writes its evidence before the resource
             # gate. Only that exact gate may become a warning for a fake runtime.
-            if real or str(error) != 'preflight resource gate failed; no launch':
+            if str(error) != 'preflight resource gate failed; no launch':
                 raise
+            if real:
+                raise ResourceGateError() from None
             snapshot = json.loads((Path(evidence) / 'preflight.json').read_text())
             if snapshot['domain93'] or snapshot['dds_ports']:
                 raise RuntimeError('isolation unavailable; startup refused') from None

@@ -1,0 +1,80 @@
+{
+  "$id": "fh-app/1/SimFailureDetail",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Optional error.detail for simulation failures; never a lifecycle verdict.",
+  "properties": {
+    "load1": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Load1"
+    },
+    "max_load1": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Load1"
+    },
+    "mem_available_mib": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mem Available Mib"
+    },
+    "min_mem_available_mib": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min Mem Available Mib"
+    },
+    "reason": {
+      "enum": [
+        "resources_low",
+        "manager_unreachable",
+        "slot_busy",
+        "unknown"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "start_not_created": {
+      "default": false,
+      "title": "Start Not Created",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "reason"
+  ],
+  "title": "SimFailureDetail",
+  "type": "object"
+}

@@ -1217,6 +1217,17 @@ class CameraStatus(Contract):
     state: Literal['NO_VIDEO']
 
 
+class SimFailureDetail(Contract):
+    """Optional error.detail for simulation failures; never a lifecycle verdict."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    reason: Literal['resources_low', 'manager_unreachable', 'slot_busy', 'unknown']
+    start_not_created: bool = Field(default=False, strict=True)
+    mem_available_mib: float | None = Field(default=None, ge=0, strict=True)
+    load1: float | None = Field(default=None, ge=0, strict=True)
+    min_mem_available_mib: float | None = Field(default=None, ge=0, strict=True)
+    max_load1: float | None = Field(default=None, ge=0, strict=True)
+
+
 class SimWorld(Contract):
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=40)

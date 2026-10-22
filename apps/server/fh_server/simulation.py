@@ -2,7 +2,7 @@
 import json
 import os
 import stat
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 from uuid import UUID
@@ -27,8 +27,17 @@ START_REJECTIONS = frozenset({
 
 
 class RelayError(Exception):
-    def __init__(self, code='SIM_UNAVAILABLE', status=503):
+    def __init__(self, code='SIM_UNAVAILABLE', status=503, detail=None):
         self.code, self.status = code, status
+        # Never relay arbitrary remote text, paths or credentials. Optional
+        # diagnostics cannot change the existing code/status verdict.
+        self.detail = {}
+        if isinstance(detail, dict):
+            try:
+                safe = {k: v for k, v in detail.items() if k in C.SimFailureDetail.model_fields}
+                self.detail = C.SimFailureDetail.model_validate(safe).model_dump(exclude_none=True)
+            except (ValueError, TypeError):
+                self.detail = {'reason': 'unknown'}
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -67,13 +76,19 @@ class Relay:
                 return json.loads(raw)
             except HTTPError as error:
                 # The outer boundary also covers reading/decoding an error body.
-                # Only code/status crosses it, never remote text/credentials.
-                code = json.loads(error.read(4097))['error']['code']
+                # Only code/status and allowlisted diagnostics cross it.
+                body = json.loads(error.read(4097))['error']
+                code = body['code']
                 if not isinstance(code, str) or not code.startswith('SIM_') or len(code) > 64:
                     code = 'SIM_UNAVAILABLE'
-                raise RelayError(code, error.code if error.code in (400, 404, 409, 503) else 503) from None
+                raise RelayError(code, error.code if error.code in (400, 404, 409, 503) else 503,
+                                 body.get('detail')) from None
         except RelayError as error:
             raise error from None
+        except (ConnectionRefusedError, URLError) as error:
+            cause = error.reason if isinstance(error, URLError) else error
+            detail = {'reason': 'manager_unreachable'} if isinstance(cause, ConnectionRefusedError) else None
+            raise RelayError(detail=detail) from None
         except Exception:
             # Transport, status, body and decoder failures are all uncertain.
             # BaseException (interrupts, cancellation, exit) deliberately escapes.
@@ -88,7 +103,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         if relay is None:
             if on_error is not None:
                 on_error('SIM_DISABLED')
-            fail(503, 'SIM_DISABLED', '시뮬 관리자가 연결되지 않았습니다.')
+            fail(503, 'SIM_DISABLED', '시뮬 관리자가 연결되지 않았습니다.', {'reason': 'manager_unreachable'})
         try:
             return relay.request(method, path, body)
         except RelayError as error:
@@ -96,7 +111,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 on_rejection(error)
             if on_error is not None:
                 on_error(error.code)
-            fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.')
+            fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.', error.detail)
 
     @app.get('/api/v1/simulation/worlds', response_model=C.SimCatalog)
     def worlds(auth: Identity):
@@ -134,9 +149,9 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         if row is not None and row.owner_user_id is not None:
             authorize(user, 'O_OWN', row)
             if row.owner_user_id != user.id:
-                fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 다른 사람이 사용 중입니다.')
+                fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 다른 사람이 사용 중입니다.', {'reason': 'slot_busy'})
             if row.sim_state != 'ACTIVE':
-                fail(409, 'SIM_SLOT_BUSY', '시뮬 슬롯의 전환이 끝나지 않았습니다.')
+                fail(409, 'SIM_SLOT_BUSY', '시뮬 슬롯의 전환이 끝나지 않았습니다.', {'reason': 'slot_busy'})
             generation = row.sim_generation
             db.commit()
             current = C.SimRobotList.model_validate(call('GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
@@ -145,7 +160,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             db.refresh(row)
             if (row.sim_generation != generation or row.sim_state != 'ACTIVE' or found is None
                     or found.generation != generation or found.world_id != body.world_id or found.owner_id != user.id):
-                fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 사용 중입니다.')
+                fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 사용 중입니다.', {'reason': 'slot_busy'})
             return found
         raw = token()
         if row is None:
@@ -182,7 +197,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         except RelayError as error:
             if (error.status, error.code) in START_REJECTIONS:
                 start_rejected(error)
-                fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.')
+                fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.', error.detail)
             start_error = error
         # Even an uncertain first delivery can cross a manager restart.
         lock_organization(db, user.org_id)
@@ -202,10 +217,10 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                   {'robot_id': rid, 'generation': generation, 'compensation': compensation}, category='LINK')
             db.commit()
             if start_error is not None:
-                fail(start_error.status, start_error.code, '시뮬 요청을 처리하지 못했습니다.')
+                fail(start_error.status, start_error.code, '시뮬 요청을 처리하지 못했습니다.', start_error.detail)
             fail(409, 'SIM_GENERATION_MISMATCH', '시뮬 슬롯의 세대가 바뀌었습니다.')
         if start_error is not None:
-            fail(start_error.status, start_error.code, '시뮬 요청을 처리하지 못했습니다.')
+            fail(start_error.status, start_error.code, '시뮬 요청을 처리하지 못했습니다.', start_error.detail)
         try:
             result = C.SimRobot.model_validate(result)
         except (ValueError, TypeError):
@@ -239,7 +254,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         removal_error = None
         try:
             if app.state.simmgr is None:
-                raise RelayError('SIM_DISABLED')
+                raise RelayError('SIM_DISABLED', detail={'reason': 'manager_unreachable'})
             app.state.simmgr.request('DELETE', '/v1/robots/' + str(robot_id), {'generation': generation})
         except RelayError as error:
             removal_error = error
@@ -249,7 +264,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         db.refresh(row)
         if removal_error is not None:
             removal_failed(removal_error.code)
-            fail(removal_error.status, removal_error.code, '시뮬 요청을 처리하지 못했습니다.')
+            fail(removal_error.status, removal_error.code, '시뮬 요청을 처리하지 못했습니다.', removal_error.detail)
         if row.sim_generation != generation or row.sim_state != 'STOPPING':
             event(db, user.org_id, 'SIM_ROBOT_REMOVE_STALE', user.id,
                   {'robot_id': str(robot_id), 'generation': generation}, category='LINK')

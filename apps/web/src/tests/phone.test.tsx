@@ -15,7 +15,7 @@ const AGENT = 'ws://127.0.0.1:9481/phone/ws';
 const CATALOG: SimCatalog = { worlds: [{ id: 'empty', name: '빈 연습장', description: '장애물이 없는 연습 공간' }], slots: [S1, S2], max_robots: 2, launcher: 'native-single' };
 const simRobot = (id = S1): SimRobot => ({ generation: 1, robot_id: id, owner_id: 'u-lee', world_id: 'empty', simulation: true, state: 'RUNNING',
   agent_address: AGENT.replace('9481', id === S1 ? '9481' : '9482'), namespace: '/sim1', tf_prefix: 'sim1/', command_topic: '/sim1/cmd', launcher: 'native-single' });
-const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
+const err = (status: number, code: string, message: string, detail: Record<string, unknown> = {}) => ({ status, body: { error: { code, message, detail } } });
 const welcome = (robot = S1) => ({ t: 'hello', id: 'p1', robot, proto: 'fh-phone/1', simulation: true, camera_token: 'cam-1',
   limits: { vx_min: 0, vx_max: 0.6, vy_min: 0, vy_max: 0, wz_min: -0.5, wz_max: 0.5, commands: [[0, 0, 0], [0.6, 0, 0], [0.6, 0, -0.5], [0.6, 0, 0.5]] },
   policy: { name: 'go2-flat', version: 'v1' }, ping_interval_ms: 1000, link_timeout_ms: 3000, lease_timeout_ms: 15000 });
@@ -225,6 +225,51 @@ describe('시뮬 로봇 직결 흐름', () => {
 });
 
 describe('시뮬 직결 실패', () => {
+  it.each([true, false])('자원 부족: 시작 전 증명=%s, 503 확인·정리·STOP 흐름 유지', async (proof) => {
+    serve({ 'POST /simulation/robots': err(503, 'SIM_UNAVAILABLE', '시뮬 요청을 처리하지 못했습니다.',
+      { reason: 'resources_low', ...(proof ? { start_not_created: true } : {}) }) });
+    await mount();
+    await click(btn('띄우기'));
+    const text = $('[data-sim="unsure"]')!.textContent!;
+    expect(text).toContain(proof ? 'PC 자원이 부족해 시뮬을 띄우지 않았습니다(메모리·부하). «정리»를 누른 뒤, 시뮬 관리자를 다시 켜야 다시 띄울 수 있습니다.'
+      : 'PC 자원이 부족합니다(메모리·부하). 시뮬이 떴는지 다시 확인하거나 정리하세요.');
+    if (!proof) expect(text).not.toContain('띄우지 않았습니다');
+    expect(text).not.toMatch(/SIM_UNAVAILABLE|resources_low/);
+    expect(btn('정리')!.disabled).toBe(false);
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    await click(proof ? $('[data-stop]') : btn('정리'));
+    expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
+  });
+
+  it('관리자 꺼짐: 목록 실패에 미리보기 다시 켜기 안내, STOP 유지', async () => {
+    const off = err(503, 'SIM_UNAVAILABLE', '시뮬 요청을 처리하지 못했습니다.', { reason: 'manager_unreachable' });
+    serve({ 'GET /simulation/worlds': off, 'GET /simulation/robots': off });
+    await mount();
+    expect($('[data-sim-msg]')!.textContent).toBe('시뮬 관리자가 꺼져 있습니다. 미리보기를 다시 켜야 합니다.');
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+    expect(box.textContent).not.toMatch(/SIM_UNAVAILABLE|manager_unreachable/);
+  });
+
+  it('슬롯 1개 사용 중이면 다른 슬롯 안내 없음, 자동 재시도·정리 0', async () => {
+    serve({ 'GET /simulation/worlds': { status: 200, body: { ...CATALOG, slots: [S1], max_robots: 1 } },
+      'POST /simulation/robots': err(409, 'SIM_SLOT_BUSY', '시뮬 요청을 처리하지 못했습니다.', { reason: 'slot_busy' }) });
+    await mount();
+    await click(btn('띄우기'));
+    expect($('[data-sim-msg]')!.textContent).toContain('사용이 끝난 뒤 다시 누르세요.');
+    expect($('[data-sim-msg]')!.textContent).not.toContain('다른 슬롯');
+    expect(calls.filter((c) => c.method === 'POST' && c.path === '/simulation/robots')).toHaveLength(1);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  });
+
+  it.each([{}, { reason: 'unknown' }, { reason: 'future' }])('이유 없는 옛 응답·모르는 이유 %j 는 기존 문구', async (detail) => {
+    serve({ 'POST /simulation/robots': err(503, 'SIM_UNAVAILABLE', '시뮬 요청을 처리하지 못했습니다.', detail) });
+    await mount();
+    await click(btn('띄우기'));
+    expect($('[data-sim="unsure"]')!.textContent).toContain('확인 중 — 시뮬 로봇이 떴는지 확인하지 못했습니다. 시뮬 요청을 처리하지 못했습니다.');
+    expect(btn('정리')!.disabled).toBe(false);
+  });
+
   it('START 거부(4xx) → 고르기로 돌아가 이유 표시, 연결 없음', async () => {
     serve({ 'POST /simulation/robots': err(409, 'SIM_ROBOT_LIMIT', '시뮬 로봇 수가 다 찼습니다.') });
     await mount();
