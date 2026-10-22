@@ -105,13 +105,13 @@ describe('탭 전환', () => {
 });
 
 describe('역할 전환', () => {
-  it('운영자로 바꾸면 «내 요청»이 보이고 남의 로봇은 보기 전용, 폰에는 내 로봇만', () => {
+  it('운영자로 바꾸면 «내 요청»이 보이고 남의 로봇은 보는 중, 폰에는 내 로봇만', () => {
     mount(false); feed();
     pickUser('u-lee');
     expect(navLabels()).toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
-    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 내 로봇 먼저, 남의 로봇은 보기 전용
-    expect(robotRow('Go2-7').textContent).toContain('보기 전용');
+    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 내 로봇 먼저, 남의 로봇은 보는 중
+    expect(robotRow('Go2-7').textContent).toContain('보는 중');
     resize(true);
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);
   });

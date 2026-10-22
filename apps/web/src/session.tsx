@@ -5,13 +5,13 @@ import type { User as ApiUser } from '../../contracts/ts';
 import { App } from './App';
 import { BrandLogo } from './BrandLogo';
 import { api, onAuthLost, type ApiFail } from './api';
-import { clearServerData, setServerData, toRobot, type Robot, type User } from './fake';
+import { clearServerData, setServerData, toRobots, type Robot, type User } from './fake';
 import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
 
-/** 무엇이 서버 값이고 무엇이 가짜인지(개발용 표시) — 영상·지도·임무가 서버에서 오면 지운다 */
-export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·로봇 등록·조직 기준값·기록·알림과 로봇 연결·상태·배터리·장치·조종권·잠금·STOP 은 서버 값입니다. 영상·지도·층·임무·결재는 아직 가짜입니다.';
+/** 무엇이 서버 값이고 무엇이 아직 준비 중인지(개발용 표시) — 서버 경유 영상·관제 지도 그림·시나리오 실행이 생기면 지운다 */
+export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·설정·기록·알림·지도·임무·시나리오·배정·결재·시뮬 로봇과 로봇 연결·상태·조종권·잠금·STOP 은 서버 값입니다. 서버 경유 조종 화면의 영상·지도 그림과 시나리오 실행은 아직 준비 중(자리만)입니다.';
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
 /** 운영 관리자가 구독하지 못하는 남의 로봇 요약(조종권자 등)을 다시 받는 간격 */
 export const LIST_MS = 10_000;
@@ -31,7 +31,7 @@ export function Root() {
   useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; clearPlans(); } }, [st.at]);   // 남겨 둔 지도·임무 편집·저장 요청도
   const enter = async () => {
     const me = toUser(await api.me());
-    const fresh = now(), robots = (await api.robots('all')).map(toRobot);
+    const fresh = now(), robots = toRobots(await api.robots('all'));
     setServerData(me, robots);
     live.current?.abort();
     const g = live.current = new AbortController();
@@ -41,7 +41,7 @@ export function Root() {
   const reload = (session: string, cancel: AbortSignal) => {
     const fresh = now();
     return api.robots('all', cancel).then((rs) => {
-      const robots = rs.map(toRobot);
+      const robots = toRobots(rs);
       setSt((s) => {
         if (s.at !== 'app' || `${s.user.id}-${s.n}` !== session || fresh <= s.fresh) return s;
         setServerData(s.user, robots);

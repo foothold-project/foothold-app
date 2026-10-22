@@ -104,7 +104,7 @@ function Fleet(c: Ctx) {
       <ul className="fh-list robots">{c.robots.map((x) => { const t = robotStatus(x), mine = x.owner === c.user.id; return <li key={x.id}>
         <button type="button" aria-pressed={x.id === r.id} onClick={() => c.pick(x.id)}>
           <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
-          <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보기 전용' : ''}</span>
+          <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보는 중' : ''}</span>
           <Seen x={x} />
         </button></li>; })}</ul>
     </section>
@@ -158,7 +158,7 @@ function Detail(c: Ctx) {
   }, []);
   const r = got ? withLive(toRobot(got)) : c.robot, hidden = r.unknown === 'summary';
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
-  return <section className="lv-card" aria-label="로봇 상세">
+  return <section className="lv-card" style={{ flexBasis: 360 }} aria-label="로봇 상세">
     <div className="fh-row"><h2>{r.name}</h2><Chip {...robotStatus(r)} /></div>
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     <Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>

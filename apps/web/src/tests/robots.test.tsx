@@ -108,7 +108,7 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     await open('#/fleet');
     expect(kpi()).toEqual({ '내 로봇': '1', 연결: '1', '임무 중': '0', '주의 필요': '0', '내 요청': '0' });
     expect($('[aria-label="운영 관리자"]')).toBeNull();
-    expect(row('Go2-B').textContent).toContain('박운영 · 보기 전용');
+    expect(row('Go2-B').textContent).toContain('박운영 · 보는 중');
   });
   it('요약 실패(403·500·네트워크·형식 틀림) → 숫자를 지어내지 않고 «—» + 이유', async () => {
     for (const [rep, says] of [[err(403, 'FORBIDDEN', '권한이 없습니다.'), '권한이 없습니다.'], [err(500, 'INTERNAL', '서버 오류'), ''],

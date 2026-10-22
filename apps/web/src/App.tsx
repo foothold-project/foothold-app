@@ -78,7 +78,7 @@ export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, {
   }
 }
 
-/** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보기 전용(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
+/** user·robots = 서버 /me·/robots?scope=all 값(시험은 가짜 자료). 남의 로봇은 보는 중(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
  *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
  *  note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
 export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, logout, setMe = () => {}, cancel, note, dev }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string; dev?: string }) {
@@ -136,6 +136,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     };
     addEventListener('hashchange', f); return () => removeEventListener('hashchange', f);
   }, []);
+  // 폰에서 담당 밖 로봇 주소(#/drive/<남의 로봇 id>)는 로봇 연결로 돌리며 한 줄 알린다 — 말없이 돌아가지 않게
+  const [foreign, setForeign] = useState(false);
+  useEffect(() => { if (phone && tab === 'drive' && sub && !pool.some((r) => r.id === sub)) setForeign(true); }, [want]);
   useEffect(() => { if (want !== path) { history.replaceState(null, '', path); setWant(path); } }, [path, want]);   // 주소·원하는 탭도 보이는 탭으로 맞춤
   const go = (t: TabId, id?: string) => { const h = `#/${t}${id ? `/${id}` : ''}`; setWant(h); location.hash = h; };
   useEffect(() => { if (!phone && kept.d) go('map'); }, [phone]);   // 폰 틀에서 PC 로 돌아오면 남겨 둔 지도 편집으로
@@ -210,6 +213,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
       gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
+      foreign && <span key="foreign" data-foreign>▲ 담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다. <button type="button" className="btn" onClick={() => setForeign(false)}>닫기</button></span>,
       missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
       (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
         {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,

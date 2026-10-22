@@ -1667,6 +1667,14 @@ describe('폰 조종 앱 틀', () => {
     expect(frameCss).toMatch(/\.fh\.phone \.fh-head>\.btn\{flex:0 1 auto;min-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap/);   // 320 폭: 왼쪽 단추는 줄되 꺾이지 않음(실제 폭은 Chrome 으로 확인)
   });
 
+  it('10-22 QA R1·R2·R12: PC 는 창 높이 틀(메뉴·본문 따로 스크롤 — «설정»이 첫 화면 안), 좁은 칸 긴 글은 줄 통째로, 체크 칸 20px', () => {
+    expect(frameCss).toMatch(/(^|\n)\.fh\[data-layout="pc"\]\{height:100vh\}/);
+    expect(frameCss).toMatch(/\.fh\[data-layout="pc"\] \.fh-nav,\.fh\[data-layout="pc"\] \.fh-main\{overflow-y:auto\}/);
+    expect(frameCss).toMatch(/\n\.fh-wide\{flex:1 1 12em;min-width:0;overflow-wrap:anywhere\}/);
+    expect(frameCss).toMatch(/\.fh input\[type="checkbox"\]\{width:20px;height:20px/);
+    expect(frameCss).toMatch(/\n\.fh-head\{position:sticky;top:0;z-index:10/);   // 머리줄(STOP) 규칙은 그대로
+  });
+
   // 폰 판별 식(PHONE_Q)을 화면 크기로 계산하는 matchMedia — 320·390 세로, 844×390 가로, PC 1280
   function mountAt(width: number, height: number, coarse: boolean, hash: string) {
     const feat = (f: string) => {

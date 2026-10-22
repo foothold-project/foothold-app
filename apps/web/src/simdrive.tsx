@@ -4,14 +4,16 @@ import type { SimRobot } from '../../contracts/ts';
 import { sim, useSim, type Sim } from './phone';
 import { Stick } from './drive';
 import { Chip } from './screens';
-import type { Tone } from './fake';
+import { simName, type Tone } from './fake';
 
 /** on 인 동안 1 s 마다 다시 그림(경과·남은 시간) */
 function useTick(on: boolean) {
   const [, t] = useState(0);
   useEffect(() => { if (!on) return; const i = setInterval(() => t((n) => n + 1), 1000); return () => clearInterval(i); }, [on]);
 }
-const short = (id: string) => `시뮬 ${id.slice(0, 8)}`;
+const short = (id: string) => simName(id, [id]);   // 16진 id 는 본문에 쓰지 않는다(U5)
+/** 월드 이름(목록에 없으면 «월드») — 월드 내부 id 는 본문에 쓰지 않는다 */
+const worldName = (s: Sim, id: string) => s.catalog?.worlds.find((w) => w.id === id)?.name ?? '월드';
 const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
 
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
@@ -37,7 +39,7 @@ export function SimLaunch({ me }: { me: string }) {
   const stop = stopText(s);
   const cleanup = s.cleanup.filter((r) => r.owner_id === me);
   let body;
-  if (s.step === 'starting') body = <p className="lv-note" role="status" data-sim="starting">시뮬 로봇을 띄우는 중입니다 — {s.robot?.world_id ?? world} ({Math.floor((performance.now() - s.since) / 1000)}초). 실제 시뮬은 2분 넘게 걸릴 수 있습니다.</p>;
+  if (s.step === 'starting') body = <p className="lv-note" role="status" data-sim="starting">시뮬 로봇을 띄우는 중입니다 — {worldName(s, s.robot?.world_id ?? world)} ({Math.floor((performance.now() - s.since) / 1000)}초). 실제 시뮬은 2분 넘게 걸릴 수 있습니다.</p>;
   else if (s.step === 'unsure') body = <><p className="fh-why" role="status" data-sim="unsure">확인 중 — {s.err} {s.slotBusy ? '남의 로봇일 수 있어 내 것으로 확인되기 전에는 정리하지 않습니다.' : '서버에는 «띄우는 중»으로 남았을 수 있습니다. 목록을 다시 확인하거나 정리하세요.'}</p>
     <div className="fh-row"><button type="button" className="btn" onClick={() => sim.recheck()}>다시 확인</button>{!s.slotBusy && <button type="button" className="btn" onClick={() => sim.end()}>정리</button>}</div></>;
   else if (s.step === 'linking') body = l?.at === 'closed'
@@ -53,12 +55,12 @@ export function SimLaunch({ me }: { me: string }) {
       {!r.can_recover && <p className="fh-why">이 시뮬 자리는 자동 정리할 수 없습니다 — 관리자에게 문의하세요.</p>}
       <button type="button" className="btn" onClick={() => sim.cleanupSlot(r)}>정리</button></li>)}</ul>}
     {s.mine.length > 0 && <ul className="dv-cards" aria-label="내 시뮬 로봇">{s.mine.map((r) => <li key={r.robot_id} className="card dv-card">
-      <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{r.world_id} · {STATE[r.state]}</span></div>
+      <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span></div>
       <div className="fh-row"><button type="button" className="btn pri" onClick={() => sim.attach(r)}>직접 연결</button><button type="button" className="btn" onClick={() => sim.end(r)}>끝내기</button></div></li>)}</ul>}
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
-        <span><b>{w.name}</b>{w.description && <><br /><small className="lbl">{w.description}</small></>}<br /><small className="lbl">{w.id}</small></span></label></li>)}</ul></fieldset>
+        <span><b>{w.name}</b>{w.description && <><br /><small className="lbl">{w.description}</small></>}</span></label></li>)}</ul></fieldset>
       : <p className="lv-note">고를 수 있는 월드가 없습니다.</p>)}
     <button type="button" className="btn pri" disabled={!world || s.mine.length > 0 || cleanup.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me)}>띄우기</button>
     {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>;
@@ -99,7 +101,7 @@ export function SimDrive() {
         : <div className="dv-video" role="img" aria-label="RGB 영상"><span>{CAM[l.cam]}</span></div>}
       <div className="dv-hud">
         <div className="fh-row dv-line" aria-label="상태">
-          <h2>{short(r.robot_id)}</h2><Chip tone="off" text="시뮬" />
+          <h2>{short(r.robot_id)}</h2><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)}</span>
           {who && <span>{who}</span>}
           {soc != null && <span className="mono">{Math.round(soc)}%</span>}
           {l.rtt != null && open && <span className="mono">지연 {l.rtt} ms</span>}

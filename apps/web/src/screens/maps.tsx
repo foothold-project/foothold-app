@@ -183,7 +183,7 @@ export function UnsureBar({ u, resend }: { u: ReturnType<typeof useUnsure>; rese
 /** 결재 요청 전 확인(pendingIds) 실패 — 보내지 않았다 */
 export const preFail = (e: ApiFail): Msg => ({ text: `결재를 요청하지 못했습니다. 요청 전에 내 대기 요청을 확인하지 못해 보내지 않았습니다. ${e.message} 다시 누르세요.` });
 
-/** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 총괄만 장소 고치기·지도 올리기 단추. dash = 결재 요청 뒤 배지 다시 받기 */
+/** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 장소 고치기는 운영 관리자에게 회색+이유(U6), 지도 올리기 단추는 총괄만. dash = 결재 요청 뒤 배지 다시 받기 */
 export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
   const admin = c.user.role === 'ORG_ADMIN', t = useTree(c.cancel), places = floorsOf(t.tree);
   const [pick, setPick] = useState(() => kept.d?.floor ?? ''), cur = places.find((p) => p.floor.id === pick) ?? places[0];
@@ -220,7 +220,9 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
 
   return <>
     <section className="lv-card" style={{ flex: '0 1 260px' }} aria-label="장소">
-      <div className="fh-row"><h2 className="fh-grow">장소</h2>{admin && <button type="button" className="btn" aria-pressed={fix} onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>고치기</button>}</div>
+      <div className="fh-row"><h2 className="fh-grow">장소</h2><button type="button" className="btn" aria-pressed={admin ? fix : undefined} disabled={!admin} aria-describedby={admin ? undefined : 'fix-why'}
+        onClick={() => { setFix(!fix); setForm(null); setAsk(null); setMsg(null); }}>고치기</button></div>
+      {!admin && <span id="fix-why" className="fh-why" data-why>장소 고치기는 총괄만 할 수 있습니다.</span>}
       {t.tree?.items.map((s) => <div key={s.id} aria-label={`장소 ${s.name}`} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         <div className="fh-row"><b className="fh-grow">{s.name}</b>{tools('sites', s)}</div>
         {s.buildings.map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>

@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Event as Ev, EventList, NotificationList, Notification, NotificationsRead } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { myRobots, type Robot, type Tone } from '../fake';
+import { myRobots, simName, type Robot, type Tone } from '../fake';
 import { Chip, Line, type Ctx } from '../screens';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
@@ -25,12 +25,25 @@ export function stamp(e: Pick<Ev, 'at' | 'robot_at'>) {
   const d = micros(e.at) - micros(e.robot_at);
   return d >= 0 && d <= 86_400_000_000 ? e.robot_at : e.at;
 }
-/** 서버 문장 맨 앞 «HH:MM » 시각 접두만 뗀다 — 시각은 stamp 의 현지 날짜·시각으로 따로 보인다(서버 접두는 시간대·날짜가 화면과 다를 수 있음, 10-20 조정 결정 B).
- *  접두가 없으면 그대로, 나머지 문장은 한 글자도 바꾸지 않는다. CSV 는 서버 문장 그대로 */
-export const sentence = (m: string) => m.replace(/^\d\d:\d\d /, '');
+/** 서버 문장 맨 앞 «HH:MM » 시각 접두를 뗀다 — 시각은 stamp 의 현지 날짜·시각으로 따로 보인다(서버 접두는 시간대·날짜가 화면과 다를 수 있음, 10-20 조정 결정 B).
+ *  그 밖에는 화면 말만 바꾼다(U5·U9): 시뮬 로봇 기본 이름의 16진 id → «시뮬 로봇 N», 빈 이유(서버 «확인되지 않음») → «이유 없음». CSV 는 서버 문장 그대로 */
+export const sentence = (m: string) => m.replace(/^\d\d:\d\d /, '').replace(/시뮬 ([0-9a-f]{8})(?![0-9a-f])/g, (_, h: string) => simName(h)).replace(/이유: 확인되지 않음/g, '이유 없음');
+/** 서버가 문장을 모르는 로봇 사건 코드(event_messages.py AGENT_EVENT «{robot}에서 사건 {code}이(가) 기록되었습니다.») → 한국어. 표에 없으면 «기타 사건» */
+const AGENT_EVENT: Record<string, string> = {
+  PHONE_LEASE_TAKEN: '폰에서 조종권을 받았습니다.', PHONE_LEASE_RELEASED: '폰 조종권을 반납했습니다.', PHONE_LEASE_REQUESTED: '폰에서 조종권을 요청했습니다.',
+  PHONE_LEASE_ACCEPTED: '폰 조종권 요청이 받아들여졌습니다.', PHONE_LEASE_DECLINED: '폰 조종권 요청이 거절되었습니다.', PHONE_LEASE_TIMEOUT: '폰 조종권 요청 시간이 지났습니다.',
+  PHONE_LEASE_CANCELED: '폰 조종권 요청이 취소되었습니다.', PHONE_LEASE_ACQUIRE_LIMIT: '폰 조종권 요청이 너무 잦아 거절했습니다.',
+};
+/** 그 문장이면 바꾼 글과 코드, 아니면 null */
+export function told(m: string) {
+  const x = /^(.*)에서 사건 (\S+)이\(가\) 기록되었습니다\.$/.exec(sentence(m));
+  return x ? { text: `${x[1]}: ${AGENT_EVENT[x[2]] ?? '기타 사건'}`, code: x[2] } : null;
+}
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
-/** 한 줄 = 한 사건: 시각 · 분류(심각도 색) · 서버가 저장한 문장 */
-const Row = ({ e }: { e: Ev }) => <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Chip tone={TONE[e.severity] ?? 'off'} text={KIND_NAME[e.category] ?? '기타'} /><span className="fh-grow" style={WRAP}>{sentence(e.message)}</span></li>;
+/** 한 줄 = 한 사건: 시각 · 분류(심각도 색) · 서버가 저장한 문장. 서버가 모르는 로봇 사건이면 코드 원문은 접힌 상세에만 */
+const Row = ({ e }: { e: Ev }) => { const t = told(e.message);
+  return <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Chip tone={TONE[e.severity] ?? 'off'} text={KIND_NAME[e.category] ?? '기타'} /><span className="fh-wide">{t ? t.text : sentence(e.message)}</span>
+    {t && <details className="lbl"><summary>상세</summary><span className="mono">{e.code || t.code}</span></details>}</li>; };
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd — 그날 0시부터 끝까지, 브라우저 시간대) */
 type Filter = { category: string; robot: string; from: string; to: string };

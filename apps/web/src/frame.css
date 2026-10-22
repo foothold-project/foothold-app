@@ -74,6 +74,13 @@ button{cursor:pointer}
 .fh button[disabled]{cursor:not-allowed}
 .fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}
 .fh-main:not(:has([aria-describedby="fh-soon"])) #fh-soon{display:none}   /* 준비 중 단추가 없는 탭에서는 숨김 */
+/* PC 는 창 높이 틀: 머리줄·띠·왼쪽 메뉴는 늘 보이고 본문만 스크롤 — 긴 화면에서도 «설정»이 첫 화면 안에. 낮은 창이면 메뉴도 스크롤 */
+.fh[data-layout="pc"]{height:100vh}
+.fh[data-layout="pc"] .fh-nav,.fh[data-layout="pc"] .fh-main{overflow-y:auto}
+/* 좁은 칸의 긴 글(결재 목록 미리보기·최근 사건 문장): 12em 보다 좁아지면 4~5자씩 꺾지 않고 다음 줄 전체로 */
+.fh-wide{flex:1 1 12em;min-width:0;overflow-wrap:anywhere}
+.fh-list button:has(>.fh-wide){flex-wrap:wrap}
+.fh input[type="checkbox"]{width:20px;height:20px;margin:0}
 
 /* 3부 — 서버 연결(로그인·조직 기준값). .inp 는 원본 로그인 화면(ui/src/screens/PcLogin.view.tsx CSS) 값 그대로 */
 .inp{height:48px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:15px;box-sizing:border-box;width:100%}

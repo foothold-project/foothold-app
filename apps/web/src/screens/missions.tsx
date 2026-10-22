@@ -103,7 +103,7 @@ export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
       <Note m={msg} />
       {sel == null ? <p className="lv-note">목록에서 {WHAT[kind]}를 고르거나 «새 {WHAT[kind]}»를 누르세요.</p>
         : <Edit key={`${kind}-${sel}-${sel ? '' : n}`} kind={kind} id={sel} user={c.user} robots={c.robots} cancel={c.cancel} places={places} treeAgain={tree.again}
-            done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} />}
+            done={(x, m) => { l.again(); setMsg(m); if (x && x.id !== sel) setSel(x.id); }} newMission={() => { setKind('missions'); setSel(''); setMsg(null); setN((x) => x + 1); }} />}
     </section>
   </>;
 }
@@ -118,7 +118,7 @@ const day = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'm
 
 /** 편집 칸 하나. id '' = 새로 만들기. 최신 판을 받아 편집하고, 판 목록에서 옛 판을 고르면 읽기 전용으로 보인다.
  *  done(x, m) = 저장(x)·보관(null) 뒤 목록 다시 받기 + 안내 */
-function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kind: Plan; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void }) {
+function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMission }: { kind: Plan; id: string; user: User; robots: Robot[]; cancel?: AbortSignal; places: Place[]; treeAgain: () => void; done: (x: AnyPlan | null, m: Msg) => void; newMission?: () => void }) {
   const key = `${kind}:${id}`, [kd] = useState(() => keptPlan.drafts[key] ?? null), admin = user.role === 'ORG_ADMIN';
   const [latest, setLatest] = useState<AnyPlan | null>(null), [base, setBase] = useState<AnyPlan | null>(kd?.base ?? null), [body, setBody] = useState<AnyWrite | null>(kd?.body ?? (id ? null : empty(kind)));
   const [view, setView] = useState<AnyPlan | null>(null), [err, setErr] = useState<{ text: string; adopt: Adopt } | null>(null), [msg, setMsg] = useState<Msg>(kd ? { text: '저장하지 않은 편집을 이어서 씁니다.', ok: true } : null);
@@ -245,7 +245,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done }: { kin
       {kind === 'missions'
         ? <MissionForm value={shown as MissionWrite} set={ro ? undefined : (b) => put(b)} bad={view ? [] : bad} robots={robots} user={user} cancel={cancel} />
         : <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
-            cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} />}
+            cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} newMission={newMission} />}
     </fieldset>
     {!ro && <form className="fh-form" onSubmit={save} noValidate aria-label="저장">
       <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || (kind === 'scenarios' && !!block)} aria-describedby={kind === 'scenarios' && block ? 'plan-block' : undefined}>{id ? '새 판으로 저장' : '저장'}</button>
@@ -363,9 +363,9 @@ const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoint
 
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·순서·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
  *  set 없음 = 읽기 전용(남의 것·옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
- *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과) */
-function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
-  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null }) {
+ *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과), newMission = 임무 목록으로 가서 새 임무 열기 */
+function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
+  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; newMission?: () => void }) {
   const pts = value.waypoints, finish = value.finish ?? { mode: 'STAY', target: null }, target = finish.target ?? null;
   const [cur, setCur] = useState(() => pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? '');
   useEffect(() => { if (!cur) setCur(pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? ''); }, [places.length]);
@@ -463,6 +463,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const rr = v ? Math.max(v.width, v.height) / 60 : 1;
   const on = pts.map((p, i) => [p, i] as const).filter(([p]) => p.floor_id === cur);
   return <>
+    {set && missions && !active.length && <div className="fh-row" role="status" data-no-mission><span className="lv-note fh-grow">임무가 아직 없습니다. 지점마다 임무를 골라야 저장할 수 있으니 먼저 임무를 만드세요. 지금 편집은 남겨 둡니다.</span>
+      {newMission && <button type="button" className="btn" onClick={newMission}>새 임무</button>}</div>}
     <h3>① 지도</h3>
     {!approved.length && (set || !pts.length) ? <p className="lv-note">승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.</p>
       : <div className="fh-row" role="group" aria-label="층" style={{ flexWrap: 'wrap' }}>{places.map((p) => { const c = pts.filter((w) => w.floor_id === p.floor.id).length;
@@ -486,7 +488,6 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       : '지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 번호 지점은 끌어서 옮깁니다. 빨간 구역은 진입 금지입니다.'}</p>}
     {msg && <p className="fh-msg" role="alert">{msg}</p>}
     {set && mErr && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {mErr}</p><button type="button" className="btn" onClick={() => setMN((x) => x + 1)}>다시 받기</button></div>}
-    {set && missions && !active.length && <p className="lv-note">고를 임무가 없습니다. «임무»에서 먼저 임무를 만드세요.</p>}
     <ol className="fh-form" style={LIST} aria-label="지점 순서">{pts.map((p, i) => {
       const e = `waypoints.${i}`, pr = res[e], b = marks.has(e), m = missions?.find((x) => x.id === p.mission_id), val = p.mission_id ? `${p.mission_id}:${p.mission_version}` : '';
       const listed = active.some((x) => `${x.id}:${x.latest_version}` === val);
