@@ -11,6 +11,22 @@ function useTick(on: boolean) {
   const [, t] = useState(0);
   useEffect(() => { if (!on) return; const i = setInterval(() => t((n) => n + 1), 1000); return () => clearInterval(i); }, [on]);
 }
+function useDeadline(on: boolean) {
+  useEffect(() => {
+    if (!on) return;
+    const timer = setInterval(() => { void sim.load(); }, 2000);
+    return () => clearInterval(timer);
+  }, [on]);
+}
+export function remainingTime(expiresAt: string | null | undefined, at = Date.now()) {
+  const end = expiresAt ? Date.parse(expiresAt) : NaN;
+  return Number.isFinite(end) ? Math.max(0, Math.ceil((end - at) / 1000)) : null;
+}
+const minutes = (s: number) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
+export function timeNotice(left: number | null) {
+  return left === null || left > 300 ? '' : left === 0 ? '시간이 다 되었습니다 — 정리를 확인하고 있습니다.'
+    : left <= 60 ? '1분 안에 시뮬을 끝냅니다.' : '5분 안에 시뮬을 끝냅니다.';
+}
 const short = (id: string) => simName(id, [id]);   // 16진 id 는 본문에 쓰지 않는다(U5)
 /** 월드 이름(목록에 없으면 «월드») — 월드 내부 id 는 본문에 쓰지 않는다 */
 const worldName = (s: Sim, id: string) => s.catalog?.worlds.find((w) => w.id === id)?.name ?? '월드';
@@ -30,6 +46,7 @@ export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
 /** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중 */
 export function SimLaunch({ me }: { me: string }) {
   const s = useSim(), [pick, setPick] = useState('');
+  useDeadline(!!s.robot?.expires_at);
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
   const worlds = s.catalog?.worlds ?? [], world = worlds.some((w) => w.id === pick) ? pick : worlds[0]?.id ?? '';
@@ -56,7 +73,7 @@ export function SimLaunch({ me }: { me: string }) {
       <button type="button" className="btn" onClick={() => sim.cleanupSlot(r)}>정리</button></li>)}</ul>}
     {s.mine.length > 0 && <ul className="dv-cards" aria-label="내 시뮬 로봇">{s.mine.map((r) => <li key={r.robot_id} className="card dv-card">
       <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span></div>
-      <div className="fh-row"><button type="button" className="btn pri" onClick={() => sim.attach(r)}>직접 연결</button><button type="button" className="btn" onClick={() => sim.end(r)}>끝내기</button></div></li>)}</ul>}
+      <div className="fh-row"><button type="button" className="btn pri" onClick={() => sim.attach(r)}>직접 연결</button><button type="button" className="btn" onClick={() => sim.end(r)}>{r.state === 'ERROR' ? '정리' : '끝내기'}</button></div></li>)}</ul>}
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
@@ -77,6 +94,7 @@ const CAM = { wait: '영상 기다리는 중', none: '영상 없음 — 로봇�
 /** 직결 조종 화면(가로): 카메라 전체, 왼쪽 전후·오른쪽 회전 조이스틱, 위 상태 줄. STOP 은 App 머리줄(늘 보임) */
 export function SimDrive() {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
+  useDeadline(!!r.expires_at);
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
   const input = useRef<[number, number]>([0, 0]), gen = useRef(0);
   useTick(true);
@@ -84,11 +102,13 @@ export function SimDrive() {
   useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); }, [ready]);
   const put = (i: 0 | 1, v: number) => { input.current[i] = v; sim.axes([input.current[0], input.current[1]]); };
   const left = l.exp ? Math.floor(l.exp - Date.now() / 1000) : Infinity;
+  const runtimeLeft = remainingTime(r.expires_at);
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const who = !st || !open ? '' : st.lease_id ? '조종 중(나)' : !st.controller ? '조종하는 사람 없음' : st.controller_connected ? '다른 사람이 조종 중' : '조종자 연결 끊김(자리 예약 중)';
   const soc = st?.battery?.soc, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000)), stop = stopText(s);
   const notes = [
+    timeNotice(runtimeLeft),
     l.at === 'closed' && l.why,
     l.notice,
     mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. 끝까지 밀어야 움직입니다.`,
@@ -102,6 +122,7 @@ export function SimDrive() {
       <div className="dv-hud">
         <div className="fh-row dv-line" aria-label="상태">
           <h2>{short(r.robot_id)}</h2><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)}</span>
+          {runtimeLeft !== null && <span className="mono">남은 시간 {minutes(runtimeLeft)}</span>}
           {who && <span>{who}</span>}
           {soc != null && <span className="mono">{Math.round(soc)}%</span>}
           {l.rtt != null && open && <span className="mono">지연 {l.rtt} ms</span>}

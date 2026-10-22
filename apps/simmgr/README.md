@@ -26,7 +26,7 @@
   1회 보상하고 START_STALE 감사 1건을 남긴다. STALE 409는 NOT_CREATED 감사만 남긴다.
   송신 전 지연된 첫 전달은 재시작을 넘을 수 있으며 startup 관문만으로 배제하지 않는다.
   응답 유실+보상 실패의 잔여 runtime은 교체된 hash로 서버에 붙지 못하며 world/agent unit
-  각각 RuntimeMaxSec=240의 자동 종료 대상(정지 grace 45/15초·실제 종료 미검증)이다. 다음
+  각각 RuntimeMaxSec=FH_SIM_RUNTIME_SECONDS+90(기본1890초)의 자동 종료 대상(정지 grace 45/15초·실제 종료 미검증)이다. 다음
   SIM_SLOT_BUSY는 [FIRST-LAUNCH](FIRST-LAUNCH.md)의 복구 1·2단계로 돌아간다.
 - `FakeLauncher`: 시뮬·에이전트 프로세스/리스너/ROS0. `PREPARED` 응답을 살아 있는 로봇으로 표시하지 않는다.
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
@@ -73,3 +73,18 @@
 
 장애 후 복구·확실한 시작 전 거부 목록·감사 코드 차이는 [API §13.9](../../docs/spec/05-API-SPEC.md#139-시뮬-관리자-중계-p1-c-준비),
 실제 고아 정리와 startup 부재 증명 순서는 [FIRST-LAUNCH](FIRST-LAUNCH.md)를 따른다.
+
+
+## 시간 제한
+
+`FH_SIM_RUNTIME_SECONDS`는 기본1800초(30분), 허용5..3600초다. 월드 준비 요청부터 계산한
+UTC `expires_at`를 로봇 응답에 주고 관리자는 단조 시계로 같은 기한을 감시한다. 정상 만료는
+기존 STOP/zero → agent exit0 → native world 정리 증명 경로를 사용한다. agent/native·Gazebo
+unit은 같은 설정+90초(기본1890초) 상한, native watcher는 그5초 전의 마지막 안전망이다.
+기한을 없애거나 실패한 cleanup을 정상으로 바꾸지 않는다. D1 단독 실행의 기본240초는 유지한다.
+
+깨끗하게 끝난 세대만 `expired`로 제공한다. 서버는 폰 없이도2초마다 확인하고 기존 nonce·
+robot_id·generation 결속 DELETE 증명과 최종 출입증 회수 뒤 DB IDLE로 돌린다. 다음 POST만
+세대를 증가시킨다. 실패는 ERROR/STOPPING과 소유를 유지한다. 완료 메모리가 관리자 재시작으로
+사라진 경우 기존 #55 복구를 따른다. 폰은 남은 시간과5분·1분 안내를 표시하고 증명된 완료 뒤
+다시 띄우기를 제공한다. 검증 범위는 [TIMELIMIT](TIMELIMIT.md)을 본다.

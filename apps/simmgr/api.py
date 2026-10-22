@@ -95,7 +95,7 @@ def create_app(settings, launcher=None):
 
     @app.get('/v1/robots', dependencies=[Depends(authenticate)], response_model=C.SimRobotList)
     async def robots(org_id: str):
-        return {'items': await manager.listing(org_id)}
+        return {'items': await manager.listing(org_id), 'expired': manager.completions(org_id)}
 
     @app.post('/v1/robots', dependencies=[Depends(authenticate)], response_model=C.SimRobot)
     async def add(body: C.SimProvision):

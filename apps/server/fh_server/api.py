@@ -208,11 +208,13 @@ def create_app(settings: Settings | None = None):
                     # Counters stay durable and retry; never drop a denial silently.
                     continue
         denial_task = asyncio.create_task(denial_auditor())
+        simulation_task = asyncio.create_task(simulation.watch(app))
         try:
             yield
         finally:
             denial_task.cancel()
-            await asyncio.gather(denial_task,return_exceptions=True)
+            simulation_task.cancel()
+            await asyncio.gather(denial_task, simulation_task, return_exceptions=True)
             await app.state.realtime.close()
             engine.dispose()
 

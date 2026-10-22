@@ -122,7 +122,8 @@ class NativeLauncher:
         # domain93 and DDS gates immediately before launching its own unit.
         await asyncio.to_thread(startup_preflight, True)
         sim = Simulation(folder, Path(self.settings.source), Path(self.settings.ros_setup),
-                         launch_env=child_environment(self.settings.domain))
+                         launch_env=child_environment(self.settings.domain),
+                         seconds=self.settings.unit_runtime_seconds)
         # Match the catalogue pair against the exact native catalogue, never ignore it.
         import json
         from constants import MAP_DIRECTORY

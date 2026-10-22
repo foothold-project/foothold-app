@@ -1,6 +1,8 @@
 """Serialized lifecycle transitions, one owner/robot and one active world."""
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+import logging
 from uuid import UUID
 
 from .launcher import FakeLauncher, NativeLauncher
@@ -36,6 +38,10 @@ class Manager:
         # Process-local cancellation receipts; the server DB owns lifetime generations.
         self.removed_generation = {}
         self.closing = self.failed = False
+        self.expires_at = None
+        self.expiry_task = None
+        self.expiring = False
+        self.expired = {}  # one completed generation per provisioned slot
 
     async def healthy(self):
         if self.launcher.real and await self.launcher.check_health():
@@ -53,7 +59,7 @@ class Manager:
             namespace='' if native else slot.namespace,
             tf_prefix='' if native else slot.namespace.lstrip('/') + '/',
             command_topic='/v2_live/cmd_vel' if native else slot.namespace + '/v2_live/cmd_vel',
-            launcher='native-single' if native else 'fake')
+            launcher='native-single' if native else 'fake', expires_at=self.expires_at)
 
     async def start_world(self, world_id):
         async with self.lock:
@@ -70,6 +76,8 @@ class Manager:
         world = self.settings.worlds[world_id]
         if self.launcher.real and (not world.world_file.is_file() or not world.map_file.is_file()):
             raise SimError('SIM_ASSET_MISSING', 503)
+        deadline = asyncio.get_running_loop().time() + self.settings.runtime_seconds
+        expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.settings.runtime_seconds)
         try:
             await self.launcher.start_world(world)
         except ResourceGateError:
@@ -81,6 +89,31 @@ class Manager:
             self.failed = True
             raise
         self.world = world_id
+        self.expires_at = expires_at
+        self.expiry_task = asyncio.create_task(self._expire_at(deadline))
+
+    async def _expire_at(self, deadline):
+        await asyncio.sleep(max(0, deadline - asyncio.get_running_loop().time()))
+        async with self.lock:
+            self.expiring = True
+            try:
+                for rid, row in list(self.robots.items()):
+                    await self._remove(rid, row.generation)
+                    self.expired[rid] = dict(robot_id=rid, generation=row.generation,
+                                             owner_id=row.owner, org_id=row.slot.org_id)
+                await self.launcher.close_world()
+                self.world = self.expires_at = None
+            except Exception:
+                # A deadline is not cleanup evidence. Keep ownership and the
+                # failure latch exactly as for a failed explicit DELETE.
+                self.failed = True
+                logging.getLogger(__name__).error('simulation deadline cleanup unconfirmed')
+            finally:
+                self.expiring = False
+
+    def completions(self, org_id):
+        return [{k: v for k, v in row.items() if k != 'org_id'}
+                for row in self.expired.values() if row['org_id'] == org_id]
 
     async def add(self, world_id, robot_id, owner_id, org_id, agent_token, generation):
         async with self.lock:
@@ -108,6 +141,7 @@ class Manager:
                 raise SimError('SIM_CREDENTIAL_INVALID', 400)
             await self._world(world_id)
             row = Robot(slot, owner_id, world_id, 'STARTING', generation)
+            self.expired.pop(robot_id, None)
             self.robots[robot_id] = row
             try:
                 await self.launcher.add(slot, {'agent_token': agent_token})
@@ -121,27 +155,36 @@ class Manager:
 
     async def remove(self, robot_id, generation):
         async with self.lock:
-            self.removed_generation[robot_id] = max(generation, self.removed_generation.get(robot_id, 0))
-            row = self.robots.get(robot_id)
-            if row is None:
-                return True  # cancellation receipt also fences late POST delivery
-            if generation != row.generation:
-                raise SimError('SIM_GENERATION_MISMATCH')
-            row.state = 'STOPPING'
-            try:
-                await self.launcher.stop_agent(row.slot)
-                await self.launcher.remove(row.slot)
-            except BaseException:
-                row.state = 'ERROR'
-                self.failed = True
-                raise
-            del self.robots[robot_id]
-            if self.launcher.real:
-                self.world = None
-            return False
+            return await self._remove(robot_id, generation)
+
+    async def _remove(self, robot_id, generation):
+        self.removed_generation[robot_id] = max(generation, self.removed_generation.get(robot_id, 0))
+        row = self.robots.get(robot_id)
+        if row is None:
+            return True  # cancellation receipt also fences late POST delivery
+        if generation != row.generation:
+            raise SimError('SIM_GENERATION_MISMATCH')
+        row.state = 'STOPPING'
+        try:
+            await self.launcher.stop_agent(row.slot)
+            await self.launcher.remove(row.slot)
+        except BaseException:
+            row.state = 'ERROR'
+            self.failed = True
+            raise
+        del self.robots[robot_id]
+        if self.launcher.real:
+            self.world = self.expires_at = None
+            if self.expiry_task and self.expiry_task is not asyncio.current_task():
+                self.expiry_task.cancel()
+        return False
 
     async def close(self):
         self.closing = True
+        if self.expiry_task:
+            if not self.expiring:
+                self.expiry_task.cancel()
+            await asyncio.gather(self.expiry_task, return_exceptions=True)
         errors = []
         for rid in list(self.robots):
             try:
@@ -155,6 +198,7 @@ class Manager:
             self.world = None
 
     async def listing(self, org_id):
-        if self.launcher.real:
-            await self.launcher.check_health()
-        return [self.describe(row) for row in self.robots.values() if row.slot.org_id == org_id]
+        async with self.lock:
+            if self.launcher.real:
+                await self.launcher.check_health()
+            return [self.describe(row) for row in self.robots.values() if row.slot.org_id == org_id]

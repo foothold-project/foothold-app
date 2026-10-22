@@ -178,6 +178,15 @@ export const sim = {
     const g = gen, e0 = epoch;
     const [c, r] = await Promise.allSettled([api.simWorlds(), api.simRobots()]);
     if (g !== gen || e0 !== epoch) return false;
+    const completed = r.status === 'fulfilled' && S.robot && r.value.expired?.some((x) =>
+      x.robot_id === S.robot!.robot_id && x.generation === S.robot!.generation && x.owner_id === S.robot!.owner_id);
+    if (completed && (S.step === 'drive' || S.step === 'linking' || S.step === 'checking')) {
+      sim.close();
+      set({ ...blank(), catalog: c.status === 'fulfilled' ? c.value : S.catalog,
+        mine: r.status === 'fulfilled' ? r.value.items : [], listed: true,
+        err: '시간이 다 되어 시뮬을 끝냈습니다 — 다시 띄우기' });
+      return true;
+    }
     const managerError = r.status === 'fulfilled' ? r.value.manager_error ?? null : 'SIM_UNAVAILABLE';
     const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? `시뮬 월드 목록을 받지 못했습니다. ${message(c.reason)}`
       : r.status === 'rejected' ? simulationMessage(r.reason) ?? `내 시뮬 로봇 목록을 받지 못했습니다. ${message(r.reason)}`
@@ -187,6 +196,13 @@ export const sim = {
     set({ catalog: c.status === 'fulfilled' ? c.value : S.catalog, mine: r.status === 'fulfilled' ? r.value.items : S.mine, listed: r.status === 'fulfilled' || S.listed,
       cleanup: r.status === 'fulfilled' ? r.value.cleanup ?? [] : S.cleanup, managerError,
       err: e || (S.err === loadErr ? '' : S.err) });
+    const current = S.robot;
+    if (current?.expires_at && Date.parse(current.expires_at) <= Date.now()
+      && (S.step === 'drive' || S.step === 'linking') && S.mine.some((x) => x.robot_id === current.robot_id
+        && x.generation === current.generation && x.owner_id === current.owner_id && x.state === 'ERROR')) {
+      sim.close();
+      set({ step: 'checking', err: '시간이 다 되었지만 정리를 확인하지 못했습니다. 다시 끝내기를 누르세요.' });
+    }
     loadErr = e;
     return r.status === 'fulfilled' && !managerError;
   },

@@ -165,7 +165,7 @@ def test_agent_unit_is_bounded_and_environment_is_private(tmp_path,monkeypatch):
     child=AgentUnit(folder,cfg,{'FOOTHOLD_AGENT_TOKEN':'private-credential','ROS_DOMAIN_ID':'93'},Path('/synthetic'))
     argv,options=commands[-1]
     assert '--property=KillSignal=SIGINT' in argv
-    assert '--property=RuntimeMaxSec=240' in argv
+    assert '--property=RuntimeMaxSec=1890' in argv
     assert '--property=MemoryMax=512M' in argv
     assert '--property=MemorySwapMax=0' in argv
     assert '--property=TasksMax=128' in argv

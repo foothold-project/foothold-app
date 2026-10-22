@@ -971,9 +971,33 @@ hello/새 출입증으로 새 토큰을 받는 흐름이며, 조종권 자동 �
 | `DELETE /api/v1/simulation/robots/{robot_id}` | 담당 권한 확인·STOP/0·정리 확인 뒤204 |
 
 `SimRobot`은 generation, robot_id, owner_id, world_id, `simulation:true`, state, agent_address,
-namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,launcher=fake`는
+namespace, tf_prefix, command_topic, launcher, `expires_at`(UTC 기한, 옛 관리자면 null)을 싣는다. `state=PREPARED,launcher=fake`는
 가짜 launcher의 계약 시험 결과이고 접속 가능한 로봇이 아니다. `RUNNING,native-single`은
 네이티브 에이전트 listener가 열린 결과이며 §13.6·ADR-002 §8 성능 통과를 뜻하지 않는다.
+
+시뮬 수명은 `FH_SIM_RUNTIME_SECONDS` 한 설정으로 기본1800초(30분), 5..3600초까지
+허용한다(5초는 모의 시험용). 월드 준비를 요청한 시점부터 계산하며 준비 시간도 포함한다.
+관리자는 단조 시계의 기한에 기존 DELETE와 같은 agent STOP/zero·exit0 → world identity/
+정리 확인 경로를 잠금 안에서 실행한다. agent/native·Gazebo user unit에는 같은 설정+90초를
+`RuntimeMaxSec`로 전달한다(기본1890초). native watcher는 이 마지막 상한5초 전에 동작하므로
+정상 정리에85초를 먼저 준다. systemd의 world45초·agent15초 stop grace는 별도이며, 관리자
+비정상 종료에도 이 마지막 안전망은 남는다. standalone D1 도구 기본240초는 그대로다.
+
+깨끗한 기한 정리만 `SimRobotList.expired`의 `{robot_id,owner_id,generation,reason:"time_limit"}`에
+남긴다(관리자 메모리, 슬롯당 마지막 한 세대). 서버 lifespan 작업은 폰과 독립적으로2초마다
+ACTIVE 슬롯 조직의 완료를 조회한다. 서버는 현재 owner·세대·ACTIVE 일치 뒤 기존 DELETE를
+새 nonce로 보내고, §13.9의 `SimRemoval` 결속·부재 증명을 그대로 검사한 뒤 출입증 최종 회수·
+hash 교체·owner 해제·IDLE로 마무리한다. 세대는 종료 때 유지하고 다음 POST에서 증가한다.
+`SIM_ROBOT_REMOVED` 감사에는 `reason=time_limit`(명시 제거는 `requested`)을 함께 남긴다.
+목록의 expired는 본인·현재 세대이며 DB IDLE까지 확인된 건만 앱에 전달한다.
+정리 실패면 관리자 ERROR/failed·소유를 보존하며, 증명이 손상/유실되면 서버 STOPPING·소유를
+보존한다. 관리자 재시작으로 완료 메모리가 사라지면 기존 #55 복구 단추와 증명 규칙을 따른다.
+
+폰 조종 상태 줄은 기한으로 `남은 시간 mm:ss`를 표시하고 5분·1분 이내에 한 줄로 안내한다.
+0초는 정리 확인 중이며, 빈 목록이나 연결 끊김만으로 정상 종료라고 표시하지 않는다.
+본인 로봇·세대가 맞는 서버 expired를 받은 뒤에만 연결을 닫고
+«시간이 다 되어 시뮬을 끝냈습니다 — 다시 띄우기»를 표시한다. 내 ERROR 카드에도 정리 단추를
+제공하며 기존 DELETE 증명 조건을 사용한다. STOP·끝내기/정리 단추는 계속 사용할 수 있다.
 
 시뮬 오류는 기존 `error.code`·HTTP 상태를 유지하고 선택 `error.detail`(단수)에
 `SimFailureDetail`을 싣는다. `reason`은 `resources_low`(메모리·부하 관문 거부),
@@ -1117,7 +1141,7 @@ DELETE 없이 같은 감사 1건에 `compensation=NOT_CREATED`를 남긴다. HTT
 첫 전달·응답 유실에 보상 실패까지 겹치면 runtime이 남을 수 있다. 서버 token hash는 이미
 교체되어 옛 에이전트는 서버에 붙지 못하지만, 이 사실을 STOP0 확인이나 폰 출입증의 즉시
 offline 무효화로 보지 않는다(§13.7 한계 유지). world와 agent unit은 각각
-**RuntimeMaxSec=240**의 자동 종료 대상이다(정지 grace는 world 45초·agent 15초 별도이며 실제
+**RuntimeMaxSec=FH_SIM_RUNTIME_SECONDS+90**(기본1890초)의 자동 종료 대상이다(정지 grace는 world 45초·agent 15초 별도이며 실제
 종료/고아·STOP0는 아직 미검증). 다음 취득이 SIM_SLOT_BUSY(불확실)로 막히면 자동 반복하지
 않고 FIRST-LAUNCH 복구 1·2단계에서 자기 runtime 정리·부재 관문·새 episode를 확인한 뒤
 기존 DELETE 복구를 따른다. 보상 실패로 현재 DB를 덮거나 새 인스턴스 epoch를 도입하지 않는다.
