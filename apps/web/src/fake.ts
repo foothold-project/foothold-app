@@ -58,14 +58,23 @@ export const robotsFor = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? l
 /** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체 */
 export const myRobots = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : list.filter((r) => r.owner === u.id));
 const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
-/** 서버 로봇 요약(05 §3) → 화면 값. 층은 이름을 줄 서버 자료가 아직 없어 쓰지 않는다 */
-export const toRobot = (r: RobotSummary): Robot => ({
-  id: r.id, name: r.name, owner: r.owner?.id ?? '', ownerName: r.owner?.display_name,
+/** 시뮬 로봇 화면 이름 «시뮬 로봇 N» — 서버 기본 이름 «시뮬 <id 앞 8자리>»의 16진 id 는 본문에 쓰지 않는다(U5). id = 로봇 id 또는 그 앞 8자리.
+ *  N = 아는 시뮬 로봇(목록 ROBOTS + extra) id 순번. ponytail: 서버 요약에 슬롯 번호·월드가 없어 id 순 — 쓴 적 없는 슬롯이 앞이면 폰·PC 번호가 어긋날 수 있다, 서버가 슬롯 번호를 주면 그 값으로 */
+export function simName(id: string, extra: string[] = []) {
+  const ids = [...new Set([...ROBOTS.filter((r) => r.sim).map((r) => r.id), ...extra])].sort(), i = ids.findIndex((x) => x.startsWith(id.slice(0, 8)));
+  return i < 0 ? '시뮬 로봇' : `시뮬 로봇 ${i + 1}`;
+}
+/** 화면에 쓸 로봇 이름: 기본 이름 그대로인 시뮬 로봇만 simName, 사람이 붙인 이름은 그대로 */
+export const robotName = (r: Pick<RobotSummary, 'id' | 'name' | 'simulation'>, sims: string[] = []) => (r.simulation && r.name === `시뮬 ${r.id.slice(0, 8)}` ? simName(r.id, sims) : r.name);
+/** 서버 로봇 요약(05 §3) → 화면 값. 층은 이름을 줄 서버 자료가 아직 없어 쓰지 않는다. sims = 같은 목록의 시뮬 로봇 id(번호 매김) */
+export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
+  id: r.id, name: robotName(r, sims), owner: r.owner?.id ?? '', ownerName: r.owner?.display_name,
   battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
   mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined,
   holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
 });
+export const toRobots = (l: RobotSummary[]) => { const sims = l.filter((r) => r.simulation).map((r) => r.id); return l.map((r) => toRobot(r, sims)); };
 
 /** 로그인 뒤 서버 값으로 바꿔 끼움 */
 export function setServerData(me: User, robots: Robot[]) {

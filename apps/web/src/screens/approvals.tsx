@@ -94,10 +94,10 @@ export function Approvals(c: Pick<Ctx, 'user' | 'cancel' | 'focus' | 'dash'>) {
           <button key={v} type="button" className="btn" aria-pressed={l.view === v} onClick={() => l.show(v)}>{t}</button>)}</span></div>
       <ul className="fh-list" aria-label="결재 목록">{l.items.map((a) => { const p = pre[a.id]?.preview; return <li key={a.id}>
         <button type="button" aria-pressed={a.id === sel} onClick={() => { setSel(a.id); setMsg(null); }} data-approval={a.id}>
-          <Chip {...status(a.status, a.kind)} /><b>{KIND[a.kind] ?? '지원 전 종류'}</b><span className="fh-grow">{p ? what(p) : ''}</span>
+          <Chip {...status(a.status, a.kind)} /><b>{KIND[a.kind] ?? '지원 전 종류'}</b><span className="fh-wide">{p ? what(p) : ''}</span>
           <span className="lbl">{admin ? `${a.requester.display_name} · ` : ''}{when(a.created_at)}</span></button></li>; })}</ul>
       {!l.busy && !l.err && !l.items.length && <p className="lv-note">{l.view === 'PENDING' ? (admin ? '대기 중인 결재가 없습니다.' : '대기 중인 내 요청이 없습니다.')
-        : admin ? '결재 요청이 없습니다.' : '아직 결재를 요청한 적이 없습니다. 지도 탭에서 편집을 저장하거나 옛 판으로 되돌리거나, 임무 탭에서 시나리오를 로봇에 배정하면 결재 요청이 됩니다.'}</p>}
+        : admin ? '결재 요청이 없습니다.' : '아직 결재를 요청한 적이 없습니다. 지도 탭에서 편집을 저장하거나 옛 판으로 되돌리거나, 시나리오 탭에서 시나리오를 로봇에 배정하면 결재 요청이 됩니다.'}</p>}
       {l.err && <p className="fh-msg" role="alert">결재 목록을 받지 못했습니다. {l.err}</p>}
       {l.busy && <p className="lv-note" role="status">결재 목록을 불러오는 중…</p>}
       {!l.busy && (l.next || l.err) && <div className="fh-row"><button type="button" className="btn" onClick={l.err && !l.items.length ? l.again : l.more}>{l.err ? '다시 시도' : '더 보기'}</button></div>}
@@ -196,7 +196,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
         gone={() => { setV(null); setVErr('비교할 판을 찾을 수 없습니다.'); }} />
       : vErr ? <div className="fh-row"><p className="fh-msg" role="alert">{vErr}</p><button type="button" className="btn" onClick={() => setVn(vn + 1)}>다시 시도</button></div>
       : <p className="lv-note" role="status">요청한 지도 판을 불러오는 중…</p>)}
-    <Line k="요청 이유"><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{d.reason}</span></Line>
+    <Line k="요청 이유"><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{d.reason?.trim() || '이유 없음'}</span></Line>
     {d.decider && <Line k="처리"><span>{d.decider.display_name}{d.decided_at ? ` · ${when(d.decided_at)}` : ''}</span></Line>}
     {d.decision_comment && <Line k={d.status === 'REJECTED' ? '반려 이유' : '의견'}><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{d.decision_comment}</span></Line>}
     {open && mine && <div className="fh-row"><button type="button" className="btn" disabled={lock} onClick={() => run('cancel')}>요청 취소</button></div>}

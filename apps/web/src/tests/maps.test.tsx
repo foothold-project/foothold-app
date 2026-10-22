@@ -208,12 +208,15 @@ describe('지도 탭 — 장소 나무', () => {
     expect(sent('DELETE', '/floors/f1')).toHaveLength(5);
     await stopSends();
   });
-  it('운영 관리자: 보기만 — 고치기·이름 바꾸기·지우기·올리기 단추 없음', async () => {
+  it('운영 관리자: 보기만 — «고치기»는 회색+이유(U6), 이름 바꾸기·지우기·올리기 단추 없음', async () => {
     serve(signedIn(LEE));
     await open('#/map');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     const words = btns().map((b) => b.textContent);
-    for (const w of ['고치기', '이름 바꾸기', '지우기', '+ 장소', '올리기']) expect(words, w).not.toContain(w);
+    for (const w of ['이름 바꾸기', '지우기', '+ 장소', '올리기']) expect(words, w).not.toContain(w);
+    const fix = btn('고치기')!;
+    expect(fix.disabled).toBe(true);
+    expect(document.getElementById(fix.getAttribute('aria-describedby')!)!.textContent).toBe('장소 고치기는 총괄만 할 수 있습니다.');
     expect($('[aria-label="새 지도 올리기"]')).toBeNull();
     expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만
     await stopSends();

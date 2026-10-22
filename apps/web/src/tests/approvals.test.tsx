@@ -192,6 +192,19 @@ describe('상세·전후 비교', () => {
     expect(detail().textContent).toContain('1층 · 판 2 → 판 3 (요청)');
     expect(detail().textContent).toContain('요청 이유a1 요청 이유');
   });
+  it('이유 없이 요청하면 «요청 이유» 줄에 «이유 없음»(10-22 QA R9, U9)', async () => {
+    serve(KIM, [ap('a1', 3, { reason: '' })]);
+    await open('#/approval');
+    await pick('a1');
+    expect(detail().textContent).toContain('요청 이유이유 없음');
+  });
+  it('운영 관리자 빈 «전체» 안내는 메뉴 이름 «시나리오 탭»(10-22 QA R6)', async () => {
+    serve(LEE, []);
+    await open('#/approval');
+    await click(btn('전체', card('보기')));
+    expect(card('내 요청').textContent).toContain('시나리오 탭에서 시나리오를 로봇에 배정하면');
+    expect(card('내 요청').textContent).not.toContain('임무 탭');
+  });
   it('비교 그림을 받는 중에도 STOP 이 보이고 실제로 정지 요청', async () => {
     serve(KIM, [ap('a1', 3)], { over: { 'GET /map-versions/t3/diff': [() => new Promise<Reply>(() => {})] } });
     await open('#/approval');

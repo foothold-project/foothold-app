@@ -433,6 +433,53 @@ describe('운영 관리자 — 서버가 준 것만', () => {
   });
 });
 
+describe('사건 문구 다듬기(10-22 QA R3·R4·R9·R10)', () => {
+  // 시뮬 로봇 두 대(서버 기본 이름 «시뮬 <id 앞 8자리>»)와 사람이 이름 붙인 시뮬 한 대
+  const S1 = { ...robot('628962ca-0000-4000-8000-000000000001', '시뮬 628962ca', LEE), simulation: true };
+  const S2 = { ...robot('1a2b3c4d-0000-4000-8000-000000000002', '시뮬 1a2b3c4d', LEE), simulation: true };
+  const S3 = { ...robot('ffff0000-0000-4000-8000-000000000003', '내 연습 시뮬', LEE), simulation: true };
+  const withSims = (more: Record<string, Route> = {}) => signedIn(KIM, { 'GET /robots': { status: 200, body: { items: [RA, S1, S2, S3], next_cursor: null } }, ...more });
+  it('서버가 모르는 로봇 사건 코드 = 한국어 문구(표 밖은 «기타 사건»), 코드 원문은 접힌 상세에만', async () => {
+    serve(withSims({ 'GET /events': list([
+      ev('2', { category: 'LINK', code: 'PHONE_LEASE_RELEASED', severity: 'INFO', message: '15:03 Go2-A에서 사건 PHONE_LEASE_RELEASED이(가) 기록되었습니다.' }),
+      ev('1', { category: 'LINK', code: 'SOMETHING_NEW', severity: 'INFO', message: 'Go2-A에서 사건 SOMETHING_NEW이(가) 기록되었습니다.' })]) }));
+    await open('#/history');
+    const [a, b] = [...card('사건').querySelectorAll('li')];
+    expect(a.querySelector('.fh-wide')!.textContent).toBe('Go2-A: 폰 조종권을 반납했습니다.');
+    expect(b.querySelector('.fh-wide')!.textContent).toBe('Go2-A: 기타 사건');
+    expect(a.querySelector('details')!.open).toBe(false);
+    expect(a.querySelector('details')!.textContent).toBe('상세PHONE_LEASE_RELEASED');
+    expect(b.querySelector('details')!.textContent).toBe('상세SOMETHING_NEW');
+  });
+  it('시뮬 로봇 16진 id 는 «시뮬 로봇 N»(목록·문장 같은 번호), 사람이 붙인 이름은 그대로, 빈 이유는 «이유 없음»', async () => {
+    serve(withSims({ 'GET /events': list([
+      ev('2', { message: '김총괄님이 시뮬 628962ca에 시나리오 순찰 1판을 배정했습니다. 이유: 확인되지 않음.' }),
+      ev('1', { message: '시뮬 1a2b3c4d 배터리가 부족합니다.' })]) }));
+    await open('#/history');
+    expect(rows()[0]).toContain('김총괄님이 시뮬 로봇 2에 시나리오 순찰 1판을 배정했습니다. 이유 없음.');
+    expect(rows()[1]).toContain('시뮬 로봇 1 배터리가 부족합니다.');
+    expect(card('사건').textContent).not.toMatch(/628962ca|1a2b3c4d/);
+    await click($('a[href="#/fleet"]'));
+    const names = [...card('로봇 목록').querySelectorAll('b')].map((x) => x.textContent);
+    expect(names).toEqual(['Go2-A', '시뮬 로봇 2', '시뮬 로봇 1', '내 연습 시뮬']);
+  });
+  it('폰에서 남의 로봇 주소 = 로봇 연결로 돌아가며 «담당 로봇이 아닙니다» 한 줄(닫기)', async () => {
+    serve(signedIn(LEE));
+    await open('#/drive/r-b', true);
+    expect(location.hash).toBe('#/drive');
+    expect($('[data-foreign]')!.textContent).toContain('담당 로봇이 아닙니다.');
+    await click(btn('닫기', $('[data-foreign]')!));
+    expect($('[data-foreign]')).toBeNull();
+    stopOk();
+  });
+  it('폰에서 내 로봇 주소는 그대로 열리고 알림 없음', async () => {
+    serve(signedIn(LEE));
+    await open('#/drive/r-a', true);
+    expect(location.hash).toBe('#/drive/r-a');
+    expect($('[data-foreign]')).toBeNull();
+  });
+});
+
 describe('폰 기록', () => {
   it('머리줄에서 고른 내 로봇의 서버 기록, 분류·내보내기 없음', async () => {
     serve(signedIn(PARK, { 'GET /events': list([ev('1', { robot_id: 'r-b', message: 'Go2-B 사건' })]) }));

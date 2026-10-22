@@ -2,7 +2,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { OrgSettings, RobotSummary, Session, User as ApiUser } from '../../../contracts/ts';
 import { api, expireAuth, type ApiFail } from '../api';
-import { ROLE_NAME, type Role, type User } from '../fake';
+import { ROLE_NAME, robotName, type Role, type User } from '../fake';
 import { Chip, type Ctx } from '../screens';
 
 type Msg = { text: string; ok?: boolean } | null;
@@ -305,10 +305,10 @@ function Robots({ refresh, cancel }: { refresh: () => void } & Cancel) {
       {list && !list.length && <p className="lv-note">등록된 로봇이 없습니다.</p>}
       {list && !!list.length && <ul className="fh-list">{list.map((r) => <li key={r.id}>
         <button type="button" aria-pressed={r.id === sel} style={{ flexWrap: 'wrap' }} onClick={() => { setSel(r.id); setMsg(null); }}>
-          <b style={WRAP}>{r.name}</b><span className="fh-grow">{r.owner?.display_name ?? '담당 없음'}</span></button></li>)}</ul>}
+          <b style={WRAP}>{robotName(r)}</b><span className="fh-grow">{r.owner?.display_name ?? '담당 없음'}</span></button></li>)}</ul>}
       <Note msg={msg} />
     </section>
-    {cur && <RobotEdit key={cur.id} r={cur} ops={ops} cancel={cancel} changed={changed} showToken={(value) => setToken({ value, text: `${cur.name} 로봇의 새 토큰입니다. 예전 토큰은 더 이상 쓸 수 없습니다. 로봇 에이전트 설정을 이 토큰으로 바꾸세요.` })}
+    {cur && <RobotEdit key={cur.id} r={cur} ops={ops} cancel={cancel} changed={changed} showToken={(value) => setToken({ value, text: `${robotName(cur)} 로봇의 새 토큰입니다. 예전 토큰은 더 이상 쓸 수 없습니다. 로봇 에이전트 설정을 이 토큰으로 바꾸세요.` })}
       gone={(text) => { setSel(''); setToken(null); setMsg({ text, ok: true }); changed(); }} />}
   </>;
 }
@@ -354,9 +354,9 @@ function RobotEdit({ r, ops, changed, gone, showToken, cancel }: { r: RobotSumma
     run(async () => { await api.saveRobot(r.id, patch, cancel); changed(); return '저장했습니다.'; });
   };
   const reissue = () => run(async () => showToken((await api.robotToken(r.id, cancel)).agent_token));
-  const del = () => run(async () => { await api.deleteRobot(r.id, cancel); gone(`${r.name} 로봇을 지웠습니다.`); });
+  const del = () => run(async () => { await api.deleteRobot(r.id, cancel); gone(`${robotName(r)} 로봇을 지웠습니다.`); });
   return <section className="lv-card" aria-label="로봇 설정">
-    <div className="fh-row"><h2 className="fh-grow" style={WRAP}>{r.name}</h2><span className="lbl">{r.model}</span></div>
+    <div className="fh-row"><h2 className="fh-grow" style={WRAP}>{robotName(r)}</h2><span className="lbl">{r.model}</span></div>
     <form className="fh-form" onSubmit={save} noValidate>
       <label className="fh-field"><span>로봇 이름</span><input className="inp" name="name" maxLength={128} value={name} onChange={(e) => setName(e.target.value)} /></label>
       <OwnerSelect ops={ops} value={owner} onChange={setOwner} current={r.owner} />
@@ -368,8 +368,8 @@ function RobotEdit({ r, ops, changed, gone, showToken, cancel }: { r: RobotSumma
       <button type="button" className="btn" disabled={busy} onClick={() => setAsk('delete')}>로봇 지우기</button>
     </div>
     {ask && <div className="fh-row" role="group" aria-label="확인">
-      <span style={WRAP}>{ask === 'token' ? `${r.name} 토큰을 새로 받을까요? 예전 토큰은 바로 못 쓰게 되어 새 토큰을 넣을 때까지 로봇이 연결되지 않습니다.`
-        : `${r.name} 로봇을 지울까요? 로봇이 더 이상 연결되지 않고 되돌릴 수 없습니다. 기록은 남습니다.`}</span>
+      <span style={WRAP}>{ask === 'token' ? `${robotName(r)} 토큰을 새로 받을까요? 예전 토큰은 바로 못 쓰게 되어 새 토큰을 넣을 때까지 로봇이 연결되지 않습니다.`
+        : `${robotName(r)} 로봇을 지울까요? 로봇이 더 이상 연결되지 않고 되돌릴 수 없습니다. 기록은 남습니다.`}</span>
       <button type="button" className="btn pri" onClick={ask === 'token' ? reissue : del}>{ask === 'token' ? '토큰 다시 받기' : '지우기'}</button>
       <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
     </div>}

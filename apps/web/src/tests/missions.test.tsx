@@ -417,6 +417,23 @@ describe('권한(02 §10)', () => {
 
 const floorBtn = (n: string) => btns(card('층')).find((b) => b.textContent!.startsWith(`본관 · 본동 · ${n}`))!;
 describe('시나리오 편집(03 §5.3)', () => {
+  it('임무가 0개면 새 시나리오 시작 때 안내 + «새 임무» 바로가기(10-22 QA R7), 임무가 있으면 안내 없음', async () => {
+    seed(); db.missions = []; serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    const note = $('[data-no-mission]')!;
+    expect(note.textContent).toContain('임무가 아직 없습니다.');
+    expect(note.compareDocumentPosition(map()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // 지도·지점보다 먼저 보인다
+    await click(btn('새 임무', note));
+    expect(btn('임무', card('종류'))!.getAttribute('aria-pressed')).toBe('true');
+    expect(card('임무 편집')).toBeTruthy();
+    expect(name().value).toBe('');
+    act(() => root?.unmount()); root = null; box.remove(); clearPlans();
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    expect($('[data-no-mission]')).toBeNull();
+  });
   it('지도 눌러 추가·지도 지점 고르기(waypoint_ref)·순서·끌어 옮기기·층 바꾸기·임무 고르기 → 미리보기(대략 거리·장치) → POST', async () => {
     seed(); serve(KIM);
     await open();
