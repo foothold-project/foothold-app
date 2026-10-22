@@ -11,7 +11,7 @@ from foothold_agent.ros_bridge.config import validate_isolation
 from foothold_agent.phone.tickets import load_keys
 from .environment import validate_control_environment, child_environment
 from .agent_unit import AgentUnit
-from .preflight import startup_preflight
+from .preflight import ResourceGateError, startup_preflight
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -133,7 +133,14 @@ class NativeLauncher:
             raise ValueError('configured world/map pair does not match native catalogue')
         self.sim = sim
         try:
-            await asyncio.to_thread(sim.start)
+            try:
+                await asyncio.to_thread(sim.start)
+            except RuntimeError as error:
+                # Simulation.start's first operation is its preflight. This
+                # exact rejection precedes source hashing and unit creation.
+                if not sim.started and str(error) == 'preflight resource gate failed; no launch':
+                    raise ResourceGateError() from None
+                raise
             # MainPID appears before imports/assets/Gazebo are ready. D1 also
             # verifies the live partition only after startup, never at unit birth.
             deadline = asyncio.get_running_loop().time() + 110

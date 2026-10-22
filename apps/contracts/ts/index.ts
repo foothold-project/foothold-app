@@ -1127,6 +1127,15 @@ export interface SimCatalog {
   launcher: "fake" | "native-single";
 }
 
+export interface SimFailureDetail {
+  reason: "resources_low" | "manager_unreachable" | "slot_busy" | "unknown";
+  start_not_created?: boolean;
+  mem_available_mib?: number | null;
+  load1?: number | null;
+  min_mem_available_mib?: number | null;
+  max_load1?: number | null;
+}
+
 export interface SimProvision {
   world_id: string;
   robot_id: string;

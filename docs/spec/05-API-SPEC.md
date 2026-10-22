@@ -975,6 +975,24 @@ namespace, tf_prefix, command_topic, launcher를 싣는다. `state=PREPARED,laun
 가짜 launcher의 계약 시험 결과이고 접속 가능한 로봇이 아니다. `RUNNING,native-single`은
 네이티브 에이전트 listener가 열린 결과이며 §13.6·ADR-002 §8 성능 통과를 뜻하지 않는다.
 
+시뮬 오류는 기존 `error.code`·HTTP 상태를 유지하고 선택 `error.detail`(단수)에
+`SimFailureDetail`을 싣는다. `reason`은 `resources_low`(메모리·부하 관문 거부),
+`manager_unreachable`(관리자 미설정 또는 연결 거절), `slot_busy`(슬롯 사용 중),
+`unknown`이다. 이유 없는 옛 응답·알 수 없는 이유는 기존 일반 문구를 쓴다.
+timeout·본문/프로토콜 오류만으로 «관리자 꺼짐»이라고 단정하지 않는다.
+선택 숫자는 `mem_available_mib`, `load1`, `min_mem_available_mib`, `max_load1`이며
+주소·경로·원격 오류 문장·인증 정보는 중계하지 않는다.
+`start_not_created:true`는 기존 자원 preflight가 unit 생성 전에 거부한 경로에서만
+전달한다(episode 검사 또는 Simulation.start 첫 검사). 증명 없는 자원 오류에는
+«띄우지 않았다»고 표시하지 않는다. 이 진단은 **시작 전 확실한 거부 고정 목록을
+늘리지 않으며**, 503·서버 STARTING 예약·세대·폰 «확인 중/정리»를 그대로 유지한다.
+증명된 자원 거부 안내는 «PC 자원이 부족해 시뮬을 띄우지 않았습니다(메모리·부하).
+«정리»를 누른 뒤, 시뮬 관리자를 다시 켜야 다시 띄울 수 있습니다.»다. 기존 관리자
+failed 고정은 이 진단과 별개로 유지한다. 관리자가 연결을 거절하면
+«시뮬 관리자가 꺼져 있습니다. 미리보기를 다시 켜야 합니다.»를 보인다.
+슬롯 사용 중 안내는 남은 다른 슬롯이 있을 때만 «다른 슬롯»을 제안하며,
+STOP·기존 정리 동작·불확실한 슬롯의 소유 확인을 유지한다.
+
 서버는0014의 `robots.simulation`(기본false)을 중계 등록에서만true로 저장한다. 일반 로봇
 등록/수정 입력은 이 필드를 받지 않는다. offline·메타데이터 갱신·제거 뒤에도 로봇 요약에
 `simulation:true`가 남는다. 화면의 «시뮬» 표시는 **DB RobotSummary.simulation만** 사용한다(화면 구현 별도).
