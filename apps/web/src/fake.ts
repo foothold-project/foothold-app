@@ -9,7 +9,7 @@ export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' 
  *  location·devices = 서버 요약값(구독 로봇은 실시간 state 가 덮음). null·빈 목록 = 받은 값 없음 — 화면은 지어내지 않는다.
  *  unknown = 지금 상태를 단정할 수 없음(rt.withLive): link 실시간 끊김, wait 첫 state 전, summary 구독 안 하는 로봇(목록 요약 값뿐).
  *  holder·listedAt = 목록 요약의 조종권자와 그 목록을 받은 시각(구독 안 하는 로봇의 조종권자 표시용).
- *  sim = 시뮬 로봇(서버 로봇 정보에 아직 값이 없어 늘 비어 있음 — 비면 «시뮬» 표시를 숨긴다) */
+ *  sim = 시뮬 로봇(서버 RobotSummary.simulation — «시뮬» 표시는 이 값만 쓴다, 05 §13.9) */
 export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
 export type Robot = { id: string; name: string; owner: string; ownerName?: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[]; sim?: boolean };
@@ -69,7 +69,7 @@ export const toRobot = (r: RobotSummary): Robot => ({
   battery: r.battery?.soc ?? null, online: r.connection === 'ONLINE', seenAt: clock(r.location?.updated_at ?? r.battery?.updated_at), status: r.status,
   mission: r.current_run ? `${r.current_run.scenario_name} ${r.current_run.progress.done}/${r.current_run.progress.total}` : undefined,
   holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
-  listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices,
+  listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
 });
 
 /** 로그인 뒤 서버 값으로 바꿔 끼움 */

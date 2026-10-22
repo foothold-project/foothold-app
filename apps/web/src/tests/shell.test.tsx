@@ -93,16 +93,14 @@ describe('탭 전환', () => {
     expect($$('[aria-label="로봇 목록"] [data-seen]')).toHaveLength(3);
     expect($$('main button').filter((b) => /조종/.test(b.textContent!))).toEqual([]);
   });
-  it('폰: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + 시뮬 로봇 띄우기 준비 중)', () => {
+  it('폰: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + 시뮬 로봇 띄우기)', () => {
     mount(true, 'u-lee');
     expect($('nav')).toBeNull();
     expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);
-    const sim = $('[aria-label="시뮬 로봇 띄우기"]');
-    expect(sim.textContent).toContain('준비 중');
-    const ctl = [...sim.querySelectorAll<HTMLButtonElement | HTMLSelectElement>('button, select')];
-    expect(ctl.length).toBeGreaterThanOrEqual(4);
-    expect(ctl.every((e) => e.disabled)).toBe(true);
+    // 월드 목록을 받기 전에는 띄우기를 못 누름(흐름 전체는 phone.test.tsx)
+    const go = [...$('[aria-label="시뮬 로봇 띄우기"]').querySelectorAll('button')].find((b) => b.textContent === '띄우기')!;
+    expect(go.disabled).toBe(true);
   });
 });
 
@@ -265,8 +263,9 @@ describe('R2·R3 보강', () => {
     }
   });
   it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {
-    mount(true, 'u-kim', '#/drive');   // 폰 «시뮬 로봇 띄우기»는 아직 준비 중 — PC 시나리오 탭은 서버 값
-    const b = $$('main button').find((x) => x.textContent === '띄우기') as HTMLButtonElement;
+    mount(true, 'u-lee', '#/drive/r3');   // 폰 «시뮬 로봇 띄우기»·PC 임무 탭은 이제 서버 값 — 자세 시트 «서기»는 아직 준비 중
+    click($$('main button').find((x) => x.textContent === '자세')!);
+    const b = $$('main button').find((x) => x.textContent === '서기') as HTMLButtonElement;
     expect(b.disabled).toBe(true);
     expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toContain('준비 중');
   });
