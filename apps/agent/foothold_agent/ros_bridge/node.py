@@ -8,6 +8,7 @@ import time
 
 from foothold_agent.safety.core import STATE_STALE
 from .config import validate_isolation
+from .diagnostics import StallDiagnostics
 from .sink import RosSink, twist_message
 from .telemetry import StateGate, Telemetry
 
@@ -207,6 +208,7 @@ class RosNode:
 
     def __init__(self, config, *, now=time.monotonic, extension_factory=None, camera=None):
         self.config, self.now = config, now
+        self.diagnostics = StallDiagnostics(now=now)
         self.camera = camera
         self.extension_factory, self.extension = extension_factory, None
         self.sink = self.inputs = None
@@ -226,6 +228,7 @@ class RosNode:
         self._ready = self._loop.create_future()
         self._failure = self._loop.create_future()
         self._on_telemetry, self._on_devices = on_telemetry, on_devices
+        self.diagnostics.start()
         self._thread = threading.Thread(target=self._run, args=(on_state,), name="agent-rclpy", daemon=True)
         self._thread.start()
         await self._ready
@@ -262,11 +265,15 @@ class RosNode:
             stop = node.create_publisher(Empty, "/v2_live/stop", qos)
             resume = node.create_publisher(Empty, "/v2_live/resume", qos)
             stop_publishers = (velocity, stop)
-            self.sink = RosSink(lambda v: velocity.publish(twist_message(v, Twist)),
-                                lambda: stop.publish(Empty()), lambda: resume.publish(Empty()), now=self.now)
+            self.sink = RosSink(
+                self.diagnostics.wrap("publish_velocity", lambda v: velocity.publish(twist_message(v, Twist))),
+                self.diagnostics.wrap("publish_stop", lambda: stop.publish(Empty())),
+                self.diagnostics.wrap("publish_resume", lambda: resume.publish(Empty())),
+                now=self.now, diagnostics=self.diagnostics)
             self.inputs = Inputs(self._loop, self.sink, on_state, now=self.now, on_error=self._notify_failure,
                                  on_telemetry=self._on_telemetry, on_devices=self._on_devices)
-            node.create_subscription(String, "/v2_live/state", lambda m: self.inputs.state(m.data), qos)
+            node.create_subscription(String, "/v2_live/state",
+                self.diagnostics.wrap("callback_state", lambda m: self.inputs.state(m.data)), qos)
 
             def odom(m):
                 self.inputs.mailbox.put(odom={
@@ -284,18 +291,18 @@ class RosNode:
                     raw = None
                 self.inputs.mailbox.put(map=(raw, self.now()))
 
-            node.create_subscription(Odometry, "/v2_live/odom", odom, qos)
-            node.create_subscription(String, "/v2_map/status", map_status, qos)
+            node.create_subscription(Odometry, "/v2_live/odom", self.diagnostics.wrap("callback_odom", odom), qos)
+            node.create_subscription(String, "/v2_map/status", self.diagnostics.wrap("callback_map", map_status), qos)
             # Metadata only: no images/clouds copied into the owning loop or persisted.
             # Best effort readers also match reliable publishers and depth is one.
             sensor_qos = QoSProfile(depth=1, history=HistoryPolicy.KEEP_LAST,
                                    reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE)
             for topic, (typ, _, _) in SENSOR_TOPICS.items():
                 node.create_subscription(getattr(sensor_messages, typ), topic,
-                    lambda m, key=topic: self.inputs.sensor(key), sensor_qos)
+                    self.diagnostics.wrap("callback_sensor", lambda m, key=topic: self.inputs.sensor(key)), sensor_qos)
             if self.camera is not None:
                 node.create_subscription(sensor_messages.CompressedImage, '/v2_live/camera/compressed',
-                    lambda m: self.camera.submit(m.data, m.format), sensor_qos)
+                    self.diagnostics.wrap("callback_camera", lambda m: self.camera.submit(m.data, m.format)), sensor_qos)
             if self.extension_factory is not None:
                 self.extension = self.extension_factory(node)
             executor = SingleThreadedExecutor(context=context)
@@ -304,19 +311,19 @@ class RosNode:
             # Discovery settles before ready/network; later conflicts are terminal too.
             startup_until = time.monotonic() + 0.5
             while time.monotonic() < startup_until and not self._closing.is_set():
-                executor.spin_once(timeout_sec=0.01)
-                require_single_writer(node)
+                self.diagnostics.call("spin", executor.spin_once, timeout_sec=0.01)
+                self.diagnostics.call("discovery", require_single_writer, node)
                 if self.extension is not None:
-                    self.extension.spin()
+                    self.diagnostics.call("extension", self.extension.spin)
                 self.sink.flush()
             require_single_writer(node)
             self._loop.call_soon_threadsafe(self._set_ready)
             while not self._closing.is_set():
-                executor.spin_once(timeout_sec=0.01)
-                require_single_writer(node)
+                self.diagnostics.call("spin", executor.spin_once, timeout_sec=0.01)
+                self.diagnostics.call("discovery", require_single_writer, node)
                 self.inputs.stale()
                 if self.extension is not None:
-                    self.extension.spin()
+                    self.diagnostics.call("extension", self.extension.spin)
                 self.sink.flush()
         except BaseException as exc:
             self.error = exc
@@ -333,7 +340,9 @@ class RosNode:
                 except BaseException as exc:
                     self.error = self.error or exc
                     self._loop.call_soon_threadsafe(self._set_failed, exc)
+                    self.diagnostics.close()
                     return  # incomplete output: never ACK/destroy live publishers
+            self.diagnostics.close()
             try:
                 if stop_publishers:
                     wait_for_stop_acks(stop_publishers, Duration)
