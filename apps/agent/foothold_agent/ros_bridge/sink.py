@@ -25,9 +25,10 @@ class RosSink:
     """
 
     def __init__(self, publish_velocity, publish_stop, publish_resume, *,
-                 now=time.monotonic, watchdog=True):
+                 now=time.monotonic, watchdog=True, diagnostics=None):
         self._velocity, self._stop, self._resume = publish_velocity, publish_stop, publish_resume
         self.now = now
+        self.diagnostics = diagnostics
         self._lock = threading.RLock()  # memory only; NEVER held across ROS calls
         self._output_lock = threading.RLock()
         self._closed = threading.Event()
@@ -138,12 +139,20 @@ class RosSink:
                 self.error = RuntimeError("ROS publisher loop stalled")
                 self._expired = True
                 trip = True
+                if self.diagnostics is not None:
+                    self.diagnostics.stall(detected_at=self.now(), last_apply=self._last_apply,
+                                           last_flush=self._last_flush)
             if trip:
                 self._hold_locked()
         if trip:
             self._emergency()
 
     def flush(self):
+        if self.diagnostics is None:
+            return self._flush()
+        return self.diagnostics.call("flush", self._flush)
+
+    def _flush(self):
         """20 Hz latest velocity, prompt STOP/unlock; no I/O on apply's state lock.
 
         A command committed to a publisher is in flight, never queued. If STOP
