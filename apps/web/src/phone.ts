@@ -86,10 +86,16 @@ function send(m: Record<string, unknown>, wait?: (ok: boolean) => void) {
   ws.send(JSON.stringify({ t: m.t, id, robot: S.robot.robot_id, ...m }));
   return true;
 }
-/** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이라 0 */
+/** 연속 모드 전후 조이스틱 데드존(입력 비율 — 속도 값이 아님) */
+export const DEAD = 0.1;
+/** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이라 0.
+ *  연속 모드(시뮬 limits.vx_mode)는 데드존 밖 앞 기울기 t 를 vx_min_moving + (vx_max − vx_min_moving)·t 로(02 F-TO-05) */
 export function velocity([f, t]: [number, number], w: PhoneWelcome) {
   const s = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-  return { vx: s(f, w.limits.vx_min, w.limits.vx_max), vy: 0, wz: s(t, w.limits.wz_min, w.limits.wz_max) };
+  const L = w.limits, lo = L.vx_min_moving ?? L.vx_min;
+  const vx = L.vx_mode !== 'continuous' ? s(f, L.vx_min, L.vx_max)
+    : f <= DEAD ? 0 : Math.min(L.vx_max, lo + (L.vx_max - lo) * (f - DEAD) / (1 - DEAD));
+  return { vx, vy: 0, wz: s(t, L.wz_min, L.wz_max) };
 }
 /** 50 ms 박자: 조종권이 있으면 cmd(중립 0 포함), 1 s 마다 ping(§13.1 — cmd 가 ping 을 대신하지 않음) */
 function beat() {
