@@ -2005,3 +2005,124 @@ TMPDIR는 현재 작업 트리 안의 전용 임시 폴더이며 PG/uvicorn 포�
 
 최종 제품 코드/시험 확정 후 전체613과 선정35를 실행했으며 이후 문서만 갱신했다.
 임시 PG·uvicorn 종료와 합성 지도/변이 사본/임시 파일 정리도 확인했다.
+
+## S5b — 시나리오 배정·결재·멱등 키 (2026-10-20)
+
+기준 `origin/dev` 4c0638c(S5a #35)에서 `feature/server-assignments`로 작업했다.
+초기 소유 apps/server·apps/contracts를 구현했고, 조정의 소유 확장 승인으로 웹 결재 화면과 그 시험의 최소 타입 호환 수정만 추가했다. 에이전트·정본 docs는 수정하지 않았다.
+
+| 검사 | 실제 결과 |
+|---|---|
+| 최종 서버 전체 pytest | **638 passed / 570.52 s**; 기존 Starlette/httpx 경고 1개 |
+| 영향 변이 도구 | **100/100 assertion 검출**, 실행·수집 오류 0 (S4a 계열35 + S5a 계열35 + 새 S5b30) |
+| Alembic | head→base→head 및 중간 왕복, metadata diff 0; 배정 결재 이력이 있으면 0013 downgrade 원자 거절 |
+| 계약 | generate --check **124개 일치**, strict tsc exit 0 |
+| 실제 uvicorn HTTP | 시나리오→운영 관리자 PENDING 배정→총괄 승인→ACTIVE→해제 REMOVED; 같은 키 지도 결재 요청 두 번→한 건 |
+| 초점 회귀 | 기존 지도/결재/임무/이관 52 passed; S5b·멱등·wire·이관 27 passed, 추가 중복 경쟁·이력 보호·반려/취소 4 passed (일부 중복 실행) |
+
+서버·계약 제품 코드와 시험을 확정한 뒤 위 전체 기준과 선정 변이를 실행했다.
+그 뒤 서버·계약 소스는 유지했고 아래의 웹 최소 타입 호환 수정과 문서만 추가했다. 처음 기준 실행은 시험의 실패 시 잠금 정리 경로를 보완하려고
+299 passed / 178.11 s 시점에 직접 중단했다. 이 중단 실행을 전체 통과로 세지 않았다.
+잠금 제거 시 시험 자체가 대기하지 않도록 finally에서 차단 트랜잭션을 풀고,
+재잠금에 가려지지 않게 배정 잠금이 로봇 검사보다 먼저 오는지도 검사한다.
+네 경계(부분 UNIQUE, 외부 조직 시나리오, 해제 결재/배정 잠금)의 변이 사전 검사도
+각각 assertion 실패로 검출한 뒤 최종 도구를 완주했다.
+
+S5b 시험의 관측 범위:
+
+- 총괄 ACTIVE / 운영 관리자 자기 로봇 PENDING+결재, 조직 안 읽기·필터·쪽 넘김,
+  남의 로봇403·조직 밖/없는 대상404, 보관 시나리오422, 메모 길이/Cc/Cf.
+- 같은 로봇·같은 판의 ACTIVE/PENDING 중복409. 조직 잠금을 제거하고 두 요청이
+  모두 중복 SELECT를 마친 뒤 INSERT해도 부분 UNIQUE가 한 건만 허용한다.
+  한 로봇의 다른 시나리오 배정은 허용한다.
+- 해제 REMOVED/removed_at 및 PENDING 결재 CANCELED, 승인 ACTIVE·반려 REJECTED·
+  요청 취소 REMOVED, 재요청 가능, 사건 문장·총괄 요청 알림·요청자 결정 알림·dashboard.
+- 시나리오 보관/이미 해제/담당자 변경/승인 지도 변경 네 STALE는 결재·사건·알림을
+  커밋한 뒤409다. 이미 해제된 대상은 유지하고 나머지 PENDING 배정은 REJECTED로 끝낸다.
+- 해제가 먼저 잠근 승인·해제 경쟁은204/409 한 번의 결재 종결이다. 두 앞 잠금 제거
+  변이가 모두 검출된다. 승인 검사 중 배정·시나리오·로봇·층을 각각 막는 시험과
+  해당 잠금 제거 변이로 원본이 잠금을 잡는지도 확인했다.
+- 세 POST 모두 같은 키 재요청·동시 요청은 같은201/본문·한 대상/결재,
+  다른 본문/경로422, 사용자별 키 분리·24시간 만료 후 재사용·실패 시 키 롤백,
+  헤더 없는 기존 동작을 검사했다.
+- 배정 내용 UPDATE와 DELETE는 실제 fh_app SQL에서 거절되고 허용 열3개만 UPDATE다.
+  영수증도 내용 갱신에 필요한 열만 허용하며 과도한 DB 권한은 서버 시작에서 거절한다.
+- PR #35 후속: 카탈로그 선택지가 전부 불가일 때 필요한 장치 합집합을 표시한다.
+
+Python3.12.3, PostgreSQL16(pgserver), 고정 requirements와 일치하는 의존성을 사용했다.
+최종 전체/변이 시작 MemAvailable=6,416,204 kB·load1=1.30이었다.
+전체와 변이는 한 번에 하나씩 실행했고 TMPDIR는 현재 작업 트리 안, PG/uvicorn은
+9410~9429만 사용했다. 지정된 부하 실시간 시험3개도 모두 통과해 단독 재실행은 없었다.
+임시 PG·uvicorn 종료 및 합성 지도·변이 사본·시험 임시 파일 정리를 확인했다.
+
+100개는 이번 영향 범위 선정 변이다. 기존 STOP·실시간 변이 전체 재실행은 아니다.
+배정 화면(W6)·웹 멱등 헤더 연동, 실행·점검·긴급 실행(S7), 위치·층 경로(S9),
+Web Push·실폰·실로봇·운영 배포는 수행하지 않았다. 키의 물리 보존 정리 작업,
+STALE 배정 REJECTED 정책 및 05·06 반영은 PR «정본과 다른 점·결정 필요»에 적었다.
+
+웹 통합 관문 후속: dev e72495d(PR #36)를 merge commit 7e79d91로 받아 추가 계약과
+새 웹을 함께 검사했다. 조정이 허용한 apps/web/src/screens/approvals.tsx와 그 시험
+파일만 수정했다. isMapPreview로 지도 필드 접근을 좁히고 what은 ApprovalMapPreview를
+받는다. SCENARIO_ASSIGNMENT는 여전히 «지원 전 종류»이고 승인·반려 단추와 지도
+조회가 없다. 기존 미지원 종류 시험에 실제 배정 preview를 넣어 이 동작을 확인했다.
+
+- 웹 `tsc --noEmit`: exit0.
+- 웹 vitest 전체1회: **8 files / 417 passed / 27.70 s** (Vitest2.1.4).
+- 기존 Vite 설정을 불러오는 임시 래퍼로 cacheDir만 작업 트리 내부에 지정하고,
+  cache=false·minWorkers=1·maxWorkers=1로 실행했다. 빌린 node_modules는 읽기만 했고
+  실행 위치는 이 작업 트리의 apps/web이었다. 시험 뒤 node_modules 심볼릭 링크와
+  로컬 캐시를 지정한 literal 경로에서 제거했다.
+- dev merge로 서버·계약 소스/시험은 바뀌지 않았으므로 서버 전체/변이를 반복하지
+  않았다. 위638/100 결과와 최종 웹 타입/전체 vitest 결과를 구분해 보고한다.
+- 배정 결재 화면은 W6b 후속이며 이번 웹 수정은 기능 확장이 아니다.
+
+## S5b FAST 후속 — 보관 로봇 해제·downgrade 이력 보호 (2026-10-22)
+
+검증한 서버·계약 코드는 `4c1206e`다. `origin/dev` `8e70207`을 `90dd713`으로,
+조정 지시에 따라 PR #46의 `feature/sim-manager` `6ec2139`를 `4db1bab`으로
+merge했다. **이 PR은 #46 다음에 합친다.** #46이 dev에 합쳐진 뒤 최신 dev를
+다시 merge하고 조정 지시의 시험을 실행해야 한다.
+
+막는 것 A1/B1만 고쳤다. 생성 때만 로봇 보관 여부를 검사하고, 해제는 기존 조직·
+현재 담당자 검사 및 결재→배정→로봇 잠금 순서를 그대로 사용한다. downgrade는
+배정 행 또는 배정 결재 이력이 있으면 트랜잭션 전체를 거절한다. 배정 마이그레이션은
+`0015_assignments`(revision `0015`, down_revision `0014`)로 옮겼다.
+
+| 검사 | 실제 결과 |
+|---|---|
+| 병합 후 배정·멱등·HTTP·마이그레이션 집중 pytest | **34 passed / 68.01 s** |
+| 서버 전체 pytest 1회 | **780 passed / 1207.76 s**; 기존 Starlette/httpx 경고 1개 |
+| Alembic | `0015→0014→0015`, `head→base→head`, 중간 왕복 및 metadata diff 0 통과 |
+| 계약 | generate --check **160개 일치**, strict TypeScript 검사 exit 0 |
+| 결함 되돌림 변이 | **2/2 검출**: A1 기존 보관 검사 복원은 신규 4개 시험 assertion 실패, B1 배정 행 조건 제거는 직접 ACTIVE 시험의 DID NOT RAISE 실패 |
+
+변이는 시뮬 마이그레이션만 임시로 둔 첫 집중시험 상태에서 실행했고 원본을 복원했다.
+그 뒤 실제 #46 브랜치를 병합하고 위 34개 집중시험과 서버 전체 시험을 직렬 실행했다.
+이번 변이 두 개는 기존 STOP·실시간 변이 전체 재실행 결과가 아니다.
+
+A1 회귀는 ACTIVE/PENDING 각각 로봇 보관 후 총괄·현재 담당자의 해제204,
+REMOVED/removed_at, PENDING 결재 CANCELED, 반복 해제204를 검사한다.
+다른 담당자 해제403과 보관 로봇 신규 배정404도 유지한다. B1 회귀는 배정 결재가
+0개인 직접 ACTIVE만 있어도 downgrade가 거절되고 revision·배정·사건이 보존됨을
+확인한다. 마이그레이션 경계 시험은 0014에서 출입증 표·시뮬 로봇 열이 남고
+배정/영수증 표만 없어지는 것도 확인한다.
+
+```sh
+FH_TEST_PORT_RANGE=9410:9429 python -m pytest -q apps/server/tests/test_assignments.py apps/server/tests/test_idempotency.py apps/server/tests/test_assignments_wire.py apps/server/tests/test_migrations.py
+FH_TEST_PORT_RANGE=9410:9429 python -m pytest -q apps/server/tests
+python apps/contracts/generate.py --check
+```
+
+Python 3.12.3 및 고정 requirements와 일치하는 의존성을 읽기 전용으로 사용했다.
+TMPDIR는 작업 트리 내부, PG/uvicorn 포트는9410~9429로 제한하고 시작 전 ss -ltn을
+확인했다. 전체 시작 MemAvailable=4,236,256 kB·load1=9.48이었다.
+지정된 부하 실시간 시험3개도 모두 통과했으며 단독 재실행은 없었다.
+제품 코드·시험을 확정한 뒤 위 전체 시험1회를 완주했고 이후 검증 문서만 수정했다.
+
+시뮬 서버 시험은 FakeLauncher·모의 relay다. 실제 ROS·Gazebo·실기·운영/미리보기
+서버는 실행하거나 접촉하지 않았다. 웹 전체 시험·브라우저 QA·실폰·실로봇·운영 배포는
+이번에 수행하지 않았다. 권고 R1~R7과 멱등 영수증 보존·동일 시나리오 다른 판 정책은
+PR의 «남은 권고»로 이월했다. 데이터가 있는 DB에서는0015 스키마를 유지한 코드
+revert/후속 수정이 기본이며, 임의 downgrade로 배정 이력을 지우지 않는다.
+
+시험용 PG·uvicorn 종료를 확인하고 작업 트리의 전용 임시 파일을 정리했다.

@@ -163,7 +163,7 @@ export interface ApiError {
 
 export interface Approval {
   id: string;
-  kind: "MAP_REVISION" | "MAP_ROLLBACK";
+  kind: "MAP_REVISION" | "MAP_ROLLBACK" | "SCENARIO_ASSIGNMENT";
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELED" | "STALE";
   requester: Person;
   decider: Person | null;
@@ -180,9 +180,17 @@ export interface ApprovalApprove {
   comment?: string | null;
 }
 
+export interface ApprovalAssignmentPreview {
+  scenario_id: string;
+  scenario_name: string;
+  scenario_version: number;
+  robot_id: string;
+  robot_name: string;
+}
+
 export interface ApprovalDetail {
   id: string;
-  kind: "MAP_REVISION" | "MAP_ROLLBACK";
+  kind: "MAP_REVISION" | "MAP_ROLLBACK" | "SCENARIO_ASSIGNMENT";
   status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELED" | "STALE";
   requester: Person;
   decider: Person | null;
@@ -193,7 +201,7 @@ export interface ApprovalDetail {
   emergency: boolean;
   created_at: string;
   decided_at: string | null;
-  preview: ApprovalMapPreview;
+  preview: ApprovalMapPreview | ApprovalAssignmentPreview;
 }
 
 export interface ApprovalList {
@@ -209,12 +217,39 @@ export interface ApprovalMapPreview {
 }
 
 export interface ApprovalRef {
-  type: "map_version";
+  type: "map_version" | "assignment";
   id: string;
 }
 
 export interface ApprovalReject {
   reason: string;
+}
+
+export interface Assignment {
+  scenario_id: string;
+  scenario_version: number;
+  robot_id: string;
+  memo: string;
+  id: string;
+  scenario_name: string;
+  robot_name: string;
+  status: "PENDING" | "ACTIVE" | "REJECTED" | "REMOVED";
+  approval_id: string | null;
+  created_by: string;
+  created_at: string;
+  removed_at: string | null;
+}
+
+export interface AssignmentCreate {
+  scenario_id: string;
+  scenario_version: number;
+  robot_id: string;
+  memo?: string;
+}
+
+export interface AssignmentList {
+  items: Assignment[];
+  next_cursor: string | null;
 }
 
 export interface Battery {
@@ -325,6 +360,11 @@ export interface FloorCreate {
 export interface FloorPatch {
   name?: string;
   level?: number;
+}
+
+export interface IdempotencyHeaders {
+  /** Idempotency-Key header; same user/key replays the first successful response for 24 hours. */
+  idempotency_key?: string | null;
 }
 
 export type JsonValue = unknown;

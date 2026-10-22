@@ -777,13 +777,13 @@ ApprovalStatus = Literal['PENDING', 'APPROVED', 'REJECTED', 'CANCELED', 'STALE']
 
 
 class ApprovalRef(Contract):
-    type: Literal['map_version'] = 'map_version'
+    type: Literal['map_version', 'assignment'] = 'map_version'
     id: UUID
 
 
 class Approval(Contract):
     id: UUID
-    kind: Literal['MAP_REVISION', 'MAP_ROLLBACK']
+    kind: Literal['MAP_REVISION', 'MAP_ROLLBACK', 'SCENARIO_ASSIGNMENT']
     status: ApprovalStatus
     requester: Person
     decider: Person | None
@@ -803,8 +803,16 @@ class ApprovalMapPreview(Contract):
     base_version_number: int | None
 
 
+class ApprovalAssignmentPreview(Contract):
+    scenario_id: UUID
+    scenario_name: str
+    scenario_version: int
+    robot_id: UUID
+    robot_name: str
+
+
 class ApprovalDetail(Approval):
-    preview: ApprovalMapPreview
+    preview: ApprovalMapPreview | ApprovalAssignmentPreview
 
 
 class ApprovalList(Contract):
@@ -972,6 +980,37 @@ class ScenarioPreview(Contract):
     required_devices: list[str]
     est_distance_m: float
     distance_note: str = '직선과 직접 연결점 경유 거리이며 Nav2 경로가 아닙니다.'
+
+
+AssignmentStatus = Literal['PENDING', 'ACTIVE', 'REJECTED', 'REMOVED']
+IdempotencyKey = Annotated[str, Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9._:-]+$')]
+
+
+class IdempotencyHeaders(Contract):
+    idempotency_key: IdempotencyKey | None = Field(default=None, description='Idempotency-Key header; same user/key replays the first successful response for 24 hours.')
+
+
+class AssignmentCreate(Contract):
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, le=2147483647)
+    robot_id: UUID
+    memo: ApprovalText = Field(default='', max_length=2000)
+
+
+class Assignment(AssignmentCreate):
+    id: UUID
+    scenario_name: str
+    robot_name: str
+    status: AssignmentStatus
+    approval_id: UUID | None
+    created_by: UUID
+    created_at: UTCDateTime
+    removed_at: UTCDateTime | None
+
+
+class AssignmentList(Contract):
+    items: list[Assignment]
+    next_cursor: str | None
 
 
 # FH-SPEC-05 §13: phone -> robot, never routed through the control server.
@@ -1229,7 +1268,7 @@ class SimRobotList(Contract):
 TOP = {name: value for name, value in list(globals().items())
        if isinstance(value, type) and issubclass(value, Contract) and value is not Contract}
 
-REQUEST_MODELS = {ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
+REQUEST_MODELS = {AssignmentCreate, IdempotencyHeaders, ApprovalApprove, ApprovalReject, MapRollback, MapName, FloorCreate, FloorPatch, MapZone, MapWaypoint, MapConnector, MapEdit, MapFeatures, MapVersionCreate, LoginRequest, RefreshRequest, MePatch, PasswordChange,
                   UserCreate, UserPatch, OrgSettingsPatch, RobotCreate, RobotPatch, NotificationsRead}
 REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartRequest, SimProvision, SimRemove})
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,

@@ -14,6 +14,7 @@ from sqlalchemy import delete, func, select
 
 from apps.contracts import models as C
 from .map_files import MAX_IMAGE, MAX_YAML, image_bytes, map_yaml, sha256, yaml_bytes
+from . import idempotency
 from .approvals import request_map
 from .models import Approval, Building, Floor, FloorConnector, MapVersion, Robot, Site, Upload
 
@@ -376,8 +377,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         return await upload_work(conversion_slot, process, fail)
 
     @app.post('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersion, status_code=201)
-    def save(floor_id: UUID, body: C.MapVersionCreate, auth: Identity, db: DB):
+    def save(floor_id: UUID, body: C.MapVersionCreate, auth: Identity, db: DB, idempotency_key: idempotency.KeyHeader = None):
         user = auth[0]
+        receipt, replay = idempotency.begin(db, user, idempotency_key, 'POST /floors/' + str(floor_id) + '/map-versions', body, fail)
+        if replay is not None:
+            return replay
         floor = own(db, Floor, floor_id, user, lock=True)
         if body.base_version_id != floor.approved_version_id:
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
@@ -416,7 +420,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                 record(db, user, 'MAP_VERSION_APPROVED', row)
             else:
                 request_map(db, user, row)
-            result = version_object(row, floor)
+            result = idempotency.finish(receipt, version_object(row, floor))
             db.commit()
             return result
         except BaseException as exc:
@@ -457,8 +461,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         return result
 
     @app.post('/api/v1/map-versions/{version_id}/rollback', response_model=C.MapVersion, status_code=201)
-    def rollback(version_id: UUID, body: C.MapRollback, auth: Identity, db: DB):
+    def rollback(version_id: UUID, body: C.MapRollback, auth: Identity, db: DB, idempotency_key: idempotency.KeyHeader = None):
         user = auth[0]
+        receipt, replay = idempotency.begin(db, user, idempotency_key, 'POST /map-versions/' + str(version_id) + '/rollback', body, fail)
+        if replay is not None:
+            return replay
         original = own(db, MapVersion, version_id, user)
         floor = own(db, Floor, original.floor_id, user, lock=True)
         if body.base_version_id != floor.approved_version_id:
@@ -492,7 +499,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                 base_version_id=str(body.base_version_id), copied_from_number=original.number, reason=body.reason)
         else:
             request_map(db, user, row)
-        return version_object(row, floor)
+        return idempotency.finish(receipt, version_object(row, floor))
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)
     def versions(floor_id: UUID, auth: Identity, db: DB, limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):

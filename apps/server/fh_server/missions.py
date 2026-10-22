@@ -265,7 +265,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
                         available=reason is None, why_unavailable=reason))
                 # Only unconditional requirements belong on the action itself.
                 required = sorted(set.intersection(*(set(o.requires) for o in options)))
-                reason = None if any(o.available for o in options) else options[0].why_unavailable
+                reason = None if any(o.available for o in options) else unavailable(sorted({kind for option in options for kind in option.requires}))
             else:
                 required = requirements(step)
                 reason = unavailable(required)

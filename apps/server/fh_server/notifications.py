@@ -29,6 +29,8 @@ def append_for_event(db, event, *, other_user_id=None):
     if definition is None:
         return
     kind, title = definition
+    if event.code == 'APPROVAL_STALE' and event.data.get('approval_kind') == 'SCENARIO_ASSIGNMENT':
+        title = '배정 대상 변경으로 승인 불가'
     if event.code == 'APPROVAL_REQUESTED':
         recipients = select(User).where(User.role == 'ORG_ADMIN')
     elif kind == 'APPROVAL_DECIDED':

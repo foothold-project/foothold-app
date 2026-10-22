@@ -1,0 +1,25 @@
+{
+  "$id": "fh-app/1/IdempotencyHeaders",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "idempotency_key": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9._:-]+$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Idempotency-Key header; same user/key replays the first successful response for 24 hours.",
+      "title": "Idempotency Key"
+    }
+  },
+  "title": "IdempotencyHeaders",
+  "type": "object"
+}

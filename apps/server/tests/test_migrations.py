@@ -26,7 +26,15 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
                     VALUES (:org, :user, decode('00', 'hex'), 'web', '', now() + interval '1 day')"""),
                     {'org': org, 'user': user})
             command.upgrade(config, 'head')
+            command.downgrade(config, '0014')
+            tables = set(inspect(engine).get_table_names())
+            assert 'assignments' not in tables and 'idempotency_receipts' not in tables
+            assert 'phone_passes' in tables
+            assert {'simulation', 'sim_generation', 'sim_state'} <= {
+                column['name'] for column in inspect(engine).get_columns('robots')}
+            command.upgrade(config, '0015')
             with engine.connect() as conn:
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0015'
                 assert conn.scalar(text('SELECT retired_refresh_hashes FROM sessions')) == []
             command.downgrade(config, '0002')
             assert 'auth_rate_windows' not in inspect(engine).get_table_names()
@@ -39,7 +47,7 @@ def test_alembic_upgrade_downgrade_upgrade(monkeypatch):
             with engine.connect() as conn:
                 assert conn.scalar(text('SELECT count(*) FROM sessions')) == 1
             command.upgrade(config, 'head')
-            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'phone_passes', 'phone_revocations', 'phone_revocation_batches', 'phone_pass_denials', 'alembic_version'}
+            expected = {'organizations', 'users', 'sessions', 'robots', 'events', 'auth_rate_windows', 'lease_log', 'robot_devices', 'notifications', 'sites', 'buildings', 'floors', 'uploads', 'map_versions', 'floor_connectors', 'approvals', 'missions', 'mission_versions', 'scenarios', 'scenario_versions', 'assignments', 'idempotency_receipts', 'phone_passes', 'phone_revocations', 'phone_revocation_batches', 'phone_pass_denials', 'alembic_version'}
             assert set(inspect(engine).get_table_names()) == expected
             command.downgrade(config, 'base')
             assert set(inspect(engine).get_table_names()) == {'alembic_version'}
@@ -71,7 +79,7 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with pytest.raises(IntegrityError):
                 command.downgrade(config, '0006')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0014'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0015'
                 assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
                 assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
                 assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0

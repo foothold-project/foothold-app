@@ -1,0 +1,36 @@
+{
+  "$id": "fh-app/1/AssignmentCreate",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "memo": {
+      "default": "",
+      "maxLength": 2000,
+      "title": "Memo",
+      "type": "string"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "format": "uuid",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "scenario_version": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Scenario Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "scenario_version",
+    "robot_id"
+  ],
+  "title": "AssignmentCreate",
+  "type": "object"
+}
