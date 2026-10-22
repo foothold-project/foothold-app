@@ -1,5 +1,6 @@
 """Fake by default. Native single-robot adapter is only constructed after opt-in."""
 import asyncio
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import signal
@@ -10,6 +11,7 @@ from foothold_agent.ros_bridge.config import validate_isolation
 from foothold_agent.phone.tickets import load_keys
 from .environment import validate_control_environment, child_environment
 from .agent_unit import AgentUnit
+from .preflight import startup_preflight
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -54,6 +56,7 @@ class NativeLauncher:
         self.sim = self.child = None
         self.folder = None
         self.failed = False
+        self.episode = 0
 
     @property
     def failure(self):
@@ -61,6 +64,8 @@ class NativeLauncher:
         return self.failed or (self.sim is not None and bool(self.sim.reason))
 
     async def check_health(self):
+        if self.sim is not None and self.sim.reason:
+            self.failed = True
         try:
             if self.child is not None and await self._poll() is not None:
                 self.failed = True
@@ -94,6 +99,8 @@ class NativeLauncher:
 
     async def start_world(self, world):
         validate_control_environment()
+        if self.failure or self.sim is not None or self.child is not None:
+            raise RuntimeError('native episode unavailable; no automatic restart')
         if world.id != 'v5_single/f1':
             raise ValueError('native adapter only supports v5_single/f1')
         # Import the established supervisor without importing ROS or starting nodes.
@@ -101,11 +108,19 @@ class NativeLauncher:
         if sim_tools not in sys.path:
             sys.path.insert(0, sim_tools)
         from isolation import Simulation
-        folder = Path(self.settings.run_dir).resolve()
-        if not folder.is_relative_to(ROOT / 'runs') or folder == ROOT / 'runs':
+        base = Path(self.settings.run_dir).resolve()
+        if not base.is_relative_to(ROOT / 'runs') or base == ROOT / 'runs':
             raise ValueError('evidence must be a new directory under this worktree runs')
-        folder.mkdir(parents=True, exist_ok=False, mode=0o700)
+        base.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.episode += 1
+        name = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ') + f'-{self.episode:06d}'
+        folder = base / name
+        folder.mkdir(exist_ok=False, mode=0o700)
         self.folder = folder
+        # Every new episode must prove absence again, including old sim/agent
+        # units. Simulation.start independently repeats its original resource,
+        # domain93 and DDS gates immediately before launching its own unit.
+        await asyncio.to_thread(startup_preflight, True)
         sim = Simulation(folder, Path(self.settings.source), Path(self.settings.ros_setup),
                          launch_env=child_environment(self.settings.domain))
         # Match the catalogue pair against the exact native catalogue, never ignore it.
@@ -211,9 +226,22 @@ class NativeLauncher:
 
     async def close_world(self):
         if self.child is not None:
+            self.failed = True
             raise RuntimeError('agent must confirm STOP/zero before world cleanup')
         if self.sim is not None:
-            await asyncio.to_thread(self.sim.close)
-            self.sim = None
-        # No restart of this native episode: a new manager/run directory is required.
-        self.failed = True
+            sim = self.sim
+            self.failed = self.failed or bool(sim.reason)
+            try:
+                await asyncio.to_thread(sim.close)
+            except BaseException:
+                self.failed = True
+                raise
+            # The watcher may observe the unit exiting during requested normal
+            # cleanup. Only that observation is covered by close's successful
+            # identity/manifest/cleanup checks; watcher errors still latch.
+            if sim.reason and sim.reason != 'unit_exited':
+                self.failed = True
+        if self.failed:
+            raise RuntimeError('native episode failed; operator review required')
+        self.sim = self.child = self.folder = None
+        self.failed = False

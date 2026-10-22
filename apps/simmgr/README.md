@@ -29,7 +29,11 @@
 - `NativeLauncher`: 명시 `FH_SIM_RUN=1` 때만 기존 D1 `Simulation` supervisor를 불러 쓴다.
   자원/전용 user unit/identity/source hash/정리 검사를 재사용. 원본은 고정Go2+고정토픽이라
   실제1대만·v5_single/f1만 허용한다. native world 시작은 이미 로봇1대를 포함한다.
-  로봇 제거는 그 월드 정리까지 포함하고 새 episode는 관리자 재시작/새 증거 폴더가 필요하다.
+  로봇 제거는 그 월드 정리까지 포함한다. 정상 agent 종료와 world identity/정리 증거 확인 뒤에는
+  같은 관리자에서 다음 POST가 가능하다. 매 기동은 `SIM_RUN_DIR` 아래 시각+순번의 새0700
+  episode 폴더와 그 이름의 agent unit을 쓰며 기존 폴더/unit 이름은 재사용하지 않는다.
+  다음 기동도 자원·93·DDS·sim/agent unit 부재 관문을 다시 통과한다. 정리 실패·식별 불일치·
+  강제 agent 종료·감시 오류는 실패를 고정해 재기동을 차단하며 담당자 확인이 필요하다.
 - 서버의0014는 durable `simulation` 출처·슬롯 세대·전환 상태를 추가한다. 기존0013 발급·회수/키 경로 그대로.
   두 파일에 같은 슬롯 키를 사전 배포하고 서버를 기동한다. 동적 키 생성/파일 갱신 없다.
 

@@ -205,6 +205,7 @@ def test_native_waits_for_identity_after_unit_birth(tmp_path,monkeypatch):
         def close(self):
             self.started=False
     monkeypatch.setattr(module,'ROOT',root)
+    monkeypatch.setattr(module,'startup_preflight',lambda real: {})
     monkeypatch.setitem(sys.modules,'isolation',SimpleNamespace(Simulation=Sim))
     monkeypatch.setitem(sys.modules,'constants',SimpleNamespace(MAP_DIRECTORY='maps'))
     async def run():
