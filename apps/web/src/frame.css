@@ -71,6 +71,12 @@ button{cursor:pointer}
 @media (max-width:400px){.fh.phone .fh-dot-t{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
 @media (max-width:360px){.fh.phone .fh-head:has(>.btn) h1{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}}
 .fh.phone .fh-main{padding:8px;gap:8px}
+/* 아이폰 Safari(10-22 실폰): 가로에서 글자 자동 확대 끔, 두 번 눌러 확대 끔(조이스틱은 touch-action:none 그대로), 틀 밖으로 삐진 것이 페이지 폭을 넓히지 않게 자름.
+   viewport-fit=cover 라 노치·홈 막대 자리(safe-area)만큼 틀 안쪽을 비운다 — STOP·조이스틱이 그 아래로 가지 않게 */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+.fh.phone{box-sizing:border-box;padding:0 env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);overflow-x:clip;touch-action:manipulation}
+.fh-dev>summary{min-height:44px;display:flex;align-items:center;cursor:pointer}
+details.fh-dev{padding-block:0}
 .fh button[disabled]{cursor:not-allowed}
 .fh .btn:not(.pri)[disabled],.fh-list button[disabled]{opacity:.55}
 .fh-main:not(:has([aria-describedby="fh-soon"])) #fh-soon{display:none}   /* 준비 중 단추가 없는 탭에서는 숨김 */

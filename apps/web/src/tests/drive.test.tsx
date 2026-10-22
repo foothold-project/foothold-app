@@ -1675,6 +1675,13 @@ describe('폰 조종 앱 틀', () => {
     expect(frameCss).toMatch(/\n\.fh-head\{position:sticky;top:0;z-index:10/);   // 머리줄(STOP) 규칙은 그대로
   });
 
+  it('10-22 아이폰 Safari: 조종 화면은 보이는 높이(100dvh, .fh 100vh 가 이기지 않음), 폰 틀은 safe-area 만큼 안쪽·가로 넘침 자름, 글자 자동 확대 끔', () => {
+    expect(driveCss).toMatch(/\n\.fh:has\(\.dv\.ph\)\{height:100dvh;min-height:0\}/);
+    expect(frameCss).toMatch(/\n\.fh\.phone\{box-sizing:border-box;padding:0 env\(safe-area-inset-right,0px\) env\(safe-area-inset-bottom,0px\) env\(safe-area-inset-left,0px\);overflow-x:clip;touch-action:manipulation\}/);
+    expect(frameCss).toMatch(/\nhtml\{-webkit-text-size-adjust:100%;text-size-adjust:100%\}/);
+    expect(driveCss).toMatch(/@media \(max-height:480px\)\{\.dv-hud\{[^}]*max-height:calc\(100% - 112px\);overflow-y:auto\}/);   // 가로: 상태 판이 조이스틱을 덮지 않음
+  });
+
   // 폰 판별 식(PHONE_Q)을 화면 크기로 계산하는 matchMedia — 320·390 세로, 844×390 가로, PC 1280
   function mountAt(width: number, height: number, coarse: boolean, hash: string) {
     const feat = (f: string) => {
