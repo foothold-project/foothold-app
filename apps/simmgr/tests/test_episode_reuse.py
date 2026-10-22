@@ -82,7 +82,8 @@ def native_episode(tmp_path, monkeypatch):
     class Sim:
         reason = None
         started = False
-        def __init__(self, folder, source, setup, launch_env):
+        def __init__(self, folder, source, setup, launch_env, seconds):
+            state.runtime_seconds = seconds
             self.folder, self.source = folder, source
             self.out = folder / 'synthetic-native-output'
             assert launch_env['ROS_DOMAIN_ID'] == '93'

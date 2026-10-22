@@ -7,6 +7,8 @@ import type { SimCatalog, SimRobot } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
+import { sim } from '../phone';
+import { remainingTime, timeNotice } from '../simdrive';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -14,7 +16,7 @@ const S1 = '11111111-1111-4111-8111-111111111111', S2 = '22222222-2222-4222-8222
 const AGENT = 'ws://127.0.0.1:9481/phone/ws';
 const CATALOG: SimCatalog = { worlds: [{ id: 'empty', name: '빈 연습장', description: '장애물이 없는 연습 공간' }], slots: [S1, S2], max_robots: 2, launcher: 'native-single', manager_instance_id: null };
 const simRobot = (id = S1): SimRobot => ({ generation: 1, robot_id: id, owner_id: 'u-lee', world_id: 'empty', simulation: true, state: 'RUNNING',
-  agent_address: AGENT.replace('9481', id === S1 ? '9481' : '9482'), namespace: '/sim1', tf_prefix: 'sim1/', command_topic: '/sim1/cmd', launcher: 'native-single' });
+  agent_address: AGENT.replace('9481', id === S1 ? '9481' : '9482'), namespace: '/sim1', tf_prefix: 'sim1/', command_topic: '/sim1/cmd', launcher: 'native-single', expires_at: null });
 const err = (status: number, code: string, message: string, detail: Record<string, unknown> = {}) => ({ status, body: { error: { code, message, detail } } });
 const welcome = (robot = S1) => ({ t: 'hello', id: 'p1', robot, proto: 'fh-phone/1', simulation: true, camera_token: 'cam-1',
   limits: { vx_min: 0, vx_max: 0.6, vy_min: 0, vy_max: 0, wz_min: -0.5, wz_max: 0.5, commands: [[0, 0, 0], [0.6, 0, 0], [0.6, 0, -0.5], [0.6, 0, 0.5]] },
@@ -505,4 +507,76 @@ describe('시뮬 직결 실패', () => {
     await click(btn('다시 끝내기'));
     expect($('[data-sim-msg]')!.textContent).toBe('시뮬 로봇을 정리했습니다.');
   });
+});
+
+it('남은 시간은 UTC 기한에서 계산하며 5분·1분 경계를 안내한다', () => {
+  const end = '2026-10-22T09:30:00Z', at = Date.parse(end);
+  expect(remainingTime(end, at - 1800_000)).toBe(1800);
+  expect(remainingTime(end, at - 1001)).toBe(2);
+  expect(remainingTime(end, at + 1)).toBe(0);
+  expect(remainingTime(null, at)).toBeNull();
+  expect(remainingTime('invalid', at)).toBeNull();
+  expect(timeNotice(301)).toBe('');
+  expect(timeNotice(300)).toBe('5분 안에 시뮬을 끝냅니다.');
+  expect(timeNotice(61)).toBe('5분 안에 시뮬을 끝냅니다.');
+  expect(timeNotice(60)).toBe('1분 안에 시뮬을 끝냅니다.');
+  expect(timeNotice(0)).toContain('정리를 확인');
+});
+
+it('폰 상태 줄 남은 시간·안내, 증명된 만료 뒤 다시 띄우기·STOP 상시 표시', async () => {
+  serve();
+  const at = Date.now(), end = new Date(at + 1800_000).toISOString();
+  const clock = vi.spyOn(Date, 'now').mockReturnValue(at);
+  routes['POST /simulation/robots'] = () => {
+    mine = [{ ...simRobot(), expires_at: end }]; return { status: 201, body: mine[0] };
+  };
+  try {
+    await mount(); await click(btn('띄우기'));
+    const a = agents()[0]; act(() => a.open()); await flush(); await recv(a, welcome());
+    expect($('[aria-label="상태"]')!.textContent).toContain('남은 시간 30:00');
+    clock.mockReturnValue(at + 1500_000); await wait(1100);
+    expect(box.textContent).toContain('남은 시간 05:00');
+    expect(box.textContent).toContain('5분 안에 시뮬을 끝냅니다.');
+    clock.mockReturnValue(at + 1740_000); await wait(1100);
+    expect(box.textContent).toContain('남은 시간 01:00');
+    expect(box.textContent).toContain('1분 안에 시뮬을 끝냅니다.');
+    expect(btn('끝내기')).toBeTruthy();
+    expect($('[data-stop]')).toBeTruthy();
+    // An old generation is never sufficient to close the current connection.
+    routes['GET /simulation/robots'] = { status: 200, body: { items: mine, expired: [
+      { robot_id: S1, owner_id: 'u-lee', generation: 99, reason: 'time_limit' },
+    ] } };
+    await act(() => sim.load()); expect($('[data-sim-drive]')).toBeTruthy();
+    // Empty listing alone is also insufficient evidence.
+    routes['GET /simulation/robots'] = { status: 200, body: { items: [], expired: [] } };
+    clock.mockReturnValue(at + 1800_000); await act(() => sim.load()); await wait(1100);
+    expect($('[data-sim-drive]')).toBeTruthy();
+    expect(box.textContent).toContain('정리를 확인하고 있습니다');
+    routes['GET /simulation/robots'] = { status: 200, body: { items: [], expired: [
+      { robot_id: S1, owner_id: 'u-lee', generation: 1, reason: 'time_limit' },
+    ] } };
+    await act(() => sim.load()); await flush();
+    expect(a.readyState).toBe(3);
+    expect($('[data-sim-drive]')).toBeNull();
+    expect(box.textContent).toContain('시간이 다 되어 시뮬을 끝냈습니다 — 다시 띄우기');
+    expect(btn('띄우기')!.disabled).toBe(false);
+    expect($('[data-stop]')).toBeTruthy();
+  } finally { clock.mockRestore(); }
+});
+
+it('기한 정리 실패 ERROR는 확인 중·STOP·다시 끝내기를 남기며 자동 DELETE 없음', async () => {
+  serve();
+  routes['POST /simulation/robots'] = () => {
+    mine = [{ ...simRobot(), expires_at: new Date(Date.now() - 1000).toISOString() }];
+    return { status: 201, body: mine[0] };
+  };
+  await mount(); await click(btn('띄우기'));
+  const a = agents()[0]; act(() => a.open()); await flush(); await recv(a, welcome());
+  mine = mine.map((r) => ({ ...r, state: 'ERROR' }));
+  await act(() => sim.load()); await flush();
+  expect($('[data-sim="checking"]')!.textContent).toContain('시간이 다 되었지만 정리를 확인하지 못했습니다');
+  expect(btn('다시 끝내기')).toBeTruthy();
+  expect($('[data-stop]')).toBeTruthy();
+  expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  expect(a.readyState).toBe(3);
 });

@@ -24,7 +24,7 @@ class AgentUnit:
             json.dump(dict(env=env, setup=settings.ros_setup, python=settings.agent_python, root=str(root)), output)
         self.private = private
         args = ['systemd-run', '--user', '--quiet', '--unit=' + self.unit,
-                '--property=RuntimeMaxSec=240', '--property=RemainAfterExit=yes',
+                '--property=RuntimeMaxSec=' + str(settings.unit_runtime_seconds), '--property=RemainAfterExit=yes',
                 '--property=WorkingDirectory=' + str(root), '--property=KillMode=control-group',
                 '--property=KillSignal=SIGINT', '--property=SendSIGKILL=yes',
                 '--property=TimeoutStopSec=15', '--property=MemoryMax=512M',

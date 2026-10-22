@@ -1135,6 +1135,13 @@ export interface SimCleanupSlot {
   can_recover: boolean;
 }
 
+export interface SimExpired {
+  robot_id: string;
+  owner_id: string;
+  generation: number;
+  reason: "time_limit";
+}
+
 export interface SimFailureDetail {
   reason: "resources_low" | "manager_unreachable" | "slot_busy" | "unknown";
   start_not_created?: boolean;
@@ -1179,10 +1186,12 @@ export interface SimRobot {
   tf_prefix: string;
   command_topic: string;
   launcher: "fake" | "native-single";
+  expires_at: string | null;
 }
 
 export interface SimRobotList {
   items: SimRobot[];
+  expired: SimExpired[];
   cleanup: SimCleanupSlot[];
   manager_error: "SIM_DISABLED" | "SIM_UNAVAILABLE" | null;
 }

@@ -1,5 +1,7 @@
 """Authenticated lifecycle relay. Phone commands and pass issuance stay independent."""
+import asyncio
 import json
+import logging
 import os
 import stat
 from urllib.error import HTTPError, URLError
@@ -142,19 +144,22 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 'SIM_DISABLED' if error.code == 'SIM_DISABLED' else 'SIM_UNAVAILABLE'))
         except (ValueError, TypeError):
             result = C.SimRobotList(items=[], manager_error='SIM_UNAVAILABLE')
+        reconcile_expired(db, user.org_id, result)
         rows = list(db.scalars(select(Robot).where(Robot.org_id == user.org_id,
-            Robot.simulation.is_(True), Robot.archived_at.is_(None),
-            *([] if user.role == 'ORG_ADMIN' else [Robot.owner_user_id == user.id]))))
-        allowed = {row.id: row for row in rows}
+            Robot.simulation.is_(True), Robot.archived_at.is_(None))))
+        allowed = {row.id: row for row in rows if user.role == 'ORG_ADMIN' or row.owner_user_id == user.id}
         items = [r for r in result.items if r.robot_id in allowed
                  and allowed[r.robot_id].sim_state != 'IDLE'
                  and allowed[r.robot_id].sim_generation == r.generation
                  and allowed[r.robot_id].owner_user_id == r.owner_id]
         present = {r.robot_id for r in items}
-        return C.SimRobotList(items=items, manager_error=result.manager_error, cleanup=[C.SimCleanupSlot(robot_id=row.id,
+        completed = [r for r in result.expired if r.owner_id == user.id
+                     and any(row.id == r.robot_id and row.sim_state == 'IDLE'
+                             and row.sim_generation == r.generation for row in rows)]
+        return C.SimRobotList(items=items, expired=completed, manager_error=result.manager_error, cleanup=[C.SimCleanupSlot(robot_id=row.id,
             owner_id=row.owner_user_id, generation=row.sim_generation,
             can_recover=row.sim_manager_instance_id is not None)
-            for row in rows if row.id not in present and row.sim_state != 'IDLE'
+            for row in allowed.values() if row.id not in present and row.sim_state != 'IDLE'
             and row.owner_user_id is not None])
 
     @app.post('/api/v1/simulation/robots', response_model=C.SimRobot, status_code=201)
@@ -271,15 +276,21 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         if row is None or row.org_id != user.org_id or not row.simulation or row.archived_at:
             fail(404, 'NOT_FOUND', '시뮬 로봇을 찾을 수 없습니다.')
         authorize(user, 'O_OWN', row)
+        return remove_slot(row, user.id, db)
+
+    def remove_slot(row, actor_id, db, *, expired=False):
+        # Shared normal DELETE proof and final organization/generation sweep.
+        # The deadline worker enters only for a matching ACTIVE owner/generation.
+        robot_id, org_id = row.id, row.org_id
         generation = row.sim_generation
         manager_instance_id = row.sim_manager_instance_id
         if row.sim_state == 'IDLE':
             return Response(status_code=204)
         row.sim_state = 'STOPPING'
-        phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)
+        phone_pass.revoke(db, org_id, robot_id=robot_id, clock=issuer.clock)
         db.commit()  # revocations survive a failed/uncertain manager response
         def removal_failed(code):
-            event(db, user.org_id, 'SIM_ROBOT_REMOVE_FAILED', user.id,
+            event(db, org_id, 'SIM_ROBOT_REMOVE_FAILED', actor_id,
                   {'robot_id': str(robot_id), 'reason': code}, category='LINK')
             db.commit()
         removal_error = None
@@ -309,22 +320,77 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             removal_error = RelayError('SIM_RECOVERY_UNPROVEN')
         # A pass could be issued while the manager was stopping. Serialize the
         # final sweep and slot release with the existing organization write lock.
-        lock_organization(db, user.org_id)
+        lock_organization(db, org_id)
         db.refresh(row)
         if removal_error is not None:
             removal_failed(removal_error.code)
             fail(removal_error.status, removal_error.code, '시뮬 요청을 처리하지 못했습니다.', removal_error.detail)
         if row.sim_generation != generation or row.sim_state != 'STOPPING':
-            event(db, user.org_id, 'SIM_ROBOT_REMOVE_STALE', user.id,
+            event(db, org_id, 'SIM_ROBOT_REMOVE_STALE', actor_id,
                   {'robot_id': str(robot_id), 'generation': generation}, category='LINK')
             db.commit()
             fail(409, 'SIM_GENERATION_MISMATCH', '시뮬 슬롯의 세대가 바뀌었습니다.')
-        phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)
+        phone_pass.revoke(db, org_id, robot_id=robot_id, clock=issuer.clock)
         row.sim_state = 'IDLE'
         row.owner_user_id = None
         row.agent_token_hash = digest(token())
         # Keep identity, provenance and pass/revocation history; no archive/reuse shortcut.
-        event(db, user.org_id, 'SIM_ROBOT_REMOVED', user.id, {'robot_id': str(robot_id),
+        event(db, org_id, 'SIM_ROBOT_REMOVED', actor_id, {'robot_id': str(robot_id),
               'generation': generation, 'manager_instance_id': str(result.manager_instance_id),
-              'recovered_absent': recovered_absent}, category='LINK')
+              'recovered_absent': recovered_absent, 'reason': 'time_limit' if expired else 'requested'}, category='LINK')
         return Response(status_code=204)
+
+    def reconcile_expired(db, org_id, result=None):
+        if app.state.simmgr is None:
+            return
+        if result is None:
+            result = C.SimRobotList.model_validate(app.state.simmgr.request(
+                'GET', '/v1/robots?' + urlencode({'org_id': str(org_id)})))
+        for completed in result.expired:
+            lock_organization(db, org_id)
+            row = db.get(Robot, completed.robot_id, populate_existing=True)
+            if (row is None or row.org_id != org_id or not row.simulation or row.archived_at
+                    or row.sim_state != 'ACTIVE' or row.sim_generation != completed.generation
+                    or row.owner_user_id != completed.owner_id):
+                db.commit()
+                continue
+            try:
+                remove_slot(row, completed.owner_id, db, expired=True)
+                db.commit()
+            except Exception:
+                # No receipt/invalid receipt leaves STOPPING/ownership intact.
+                db.rollback()
+                logging.getLogger(__name__).warning('simulation expiration release unconfirmed')
+
+    def reconcile():
+        from sqlalchemy.orm import Session
+        with Session(app.state.engine, expire_on_commit=False) as db:
+            orgs = list(db.scalars(select(Robot.org_id).where(
+                Robot.simulation.is_(True), Robot.sim_state == 'ACTIVE',
+                Robot.archived_at.is_(None)).distinct()))
+            db.commit()  # no DB transaction/organization lock during GET IO
+            for org_id in orgs:
+                try:
+                    reconcile_expired(db, org_id)
+                except Exception:
+                    db.rollback()
+                    logging.getLogger(__name__).warning('simulation expiration check unavailable')
+
+    app.state.simulation_reconcile = reconcile
+
+
+async def watch(app):
+    """Lifespan-owned reconciliation independent of phone/client presence."""
+    while True:
+        await asyncio.sleep(2)
+        if app.state.simmgr is None:
+            continue
+        work = asyncio.create_task(asyncio.to_thread(app.state.simulation_reconcile))
+        try:
+            await asyncio.shield(work)
+        except asyncio.CancelledError:
+            # Do not leave an in-flight DB/DELETE sweep behind at shutdown.
+            await work
+            raise
+        except Exception:
+            logging.getLogger(__name__).warning('simulation expiration check unavailable')

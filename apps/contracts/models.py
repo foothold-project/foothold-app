@@ -1290,10 +1290,19 @@ class SimRobot(Contract):
     tf_prefix: str
     command_topic: str
     launcher: Literal['fake', 'native-single']
+    expires_at: UTCDateTime | None = None
+
+
+class SimExpired(Contract):
+    robot_id: UUID
+    owner_id: UUID
+    generation: int = Field(ge=1, le=9223372036854775807)
+    reason: Literal['time_limit'] = 'time_limit'
 
 
 class SimRobotList(Contract):
     items: list[SimRobot]
+    expired: list[SimExpired] = Field(default_factory=list)
     cleanup: list[SimCleanupSlot] = Field(default_factory=list)
     manager_error: Literal['SIM_DISABLED', 'SIM_UNAVAILABLE'] | None = None
 

@@ -87,7 +87,7 @@ CSRF 세션)으로 `POST /api/v1/simulation/robots {world_id:"v5_single/f1",robo
 보내면 첫 실제 기동이 발생한다. 아직 이 driver/ROS 계측 연결을 실행하지 않았으며 P1-C2
 승인 실행에서 준비·확인한다. LAN 폰으로 이 요청을 보낼 수 있다고 주장하지 않는다.
 
-native unit은 `MemoryMax=1500M,MemorySwapMax=0,CPUQuota=200%,TasksMax=256,RuntimeMaxSec=240,
+native unit은 `MemoryMax=1500M,MemorySwapMax=0,CPUQuota=200%,TasksMax=256,RuntimeMaxSec=FH_SIM_RUNTIME_SECONDS+90(기본1890초),
 KillSignal=SIGINT,KillMode=process,SendSIGKILL=no,TimeoutStopSec=45`다. 정리/격리 검사는 기존 D1 그대로다.
 unit payload는 허용 목록의 환경과93을 `/usr/bin/env -i` 뒤 지정하고 기존 ROS setup을 source한 뒤:
 `/usr/bin/python3 "$SIM_SOURCE/live_map.py" --isolated-verify --sensor-profile l1-d435i-c2-min --purpose session --world-id v5_single --floor-id f1 --map-mode static --map-version gt-20261012 --out <새 rb-app 폴더>`.
@@ -97,7 +97,7 @@ unit payload는 허용 목록의 환경과93을 `/usr/bin/env -i` 뒤 지정하�
 
 매 기동은 `SIM_RUN_DIR` 아래 UTC 시각+순번의 새0700 episode 폴더를 만든다.
 agent는 허용 목록+그 로봇 설정만 받아 그 폴더 이름의 별도 사용자 unit
-`fh-simmgr-agent-<episode>.service`에서 실행한다. RuntimeMaxSec=240,
+`fh-simmgr-agent-<episode>.service`에서 실행한다. RuntimeMaxSec=FH_SIM_RUNTIME_SECONDS+90(기본1890초),
 MemoryMax=512M·MemorySwapMax=0·TasksMax=128, KillSignal=SIGINT·TimeoutStopSec=15·
 KillMode=control-group·SendSIGKILL=yes, RemainAfterExit=yes다. 종료 근거를 읽은 뒤
 관리자가 자기 exited unit을 stop해 남은 자식을 수거한다. 관리자 SIGKILL/OOM/SIGHUP에도 unit의 수명 제한이 남는다.
@@ -125,7 +125,7 @@ runtime 만료5초 전 자신의 새unit MainPID만 identity 확인 후SIGINT한
 | 출입증·조종자 |PR43 실제 발급/회수/ack·전환·만료·중복·다른robot/org·단절·동시취득. 제거 때 살아 있는 출입증 회수, 실패 감사, 슬롯 재사용과 이전 출입증 회수 전달 확인. 부모 종료/만료/회수 때 영상도 닫힘 |
 | 영상 격리 |0.2초 sampler가 보장하는≤5fps 상한(실측fps 보고, 원천 격자만으로 보장하지 않음)·JPEG≤64KiB·실제424×240·NO_VIDEO. 읽지 않는 영상 소켓/원천 폭주 중 위200표본 지연/20회 입력 끊김을 반복. 이미지는 저장0, 시각/seq/크기 통계만 |
 | TCP 부가 진단 |운영 websockets serve()는 원래 TCP_NODELAY를 켠다.41ms는 proto0인 미리 bind한 시험 소켓 구성에서만 재현됐다. 별도 **20ms 간격 STOP 왕복60회** p95 보고. TCP_NODELAY 실제1 확인. 이 왕복은 위50ms 단방향 명령 지연 판정과 섞지 않음 |
-| 관리자 비정상 종료 |승인된 자기 manager PID만 kill한 뒤 agent unit이 **kill 시각부터240s 안 종료**하는지 단조 시계로 기록. RuntimeMaxSec=240 뒤 정지 grace15초는 별도이므로 실제 종료가240s를 넘으면 실패로 기록하고 통과로 간주하지 않음. agent MemoryPeak·task 최대 관측값·kill 당시 unit 나이와 잔여 cgroup 함께 수집 |
+| 관리자 비정상 종료 |승인된 자기 manager PID만 kill한 뒤 agent unit의 생성 시각·설정+90초 상한·잔여 시간을 단조 시계로 기록. 정지 grace15초는 별도이며 실제 종료가 기한+grace를 넘으면 실패로 기록한다. agent MemoryPeak·task 최대 관측값·kill 당시 unit 나이와 잔여 cgroup 함께 수집 |
 | 초기/격리/정리 |STOP true·cmd_applied0·episode≥1·LOCKSTEP·카메라/시뮬시각 증가. 자기unit/cgroup/domain93/partition·native 종료manifest·원본SHA·61 PID/start_ticks·원장불변·잔여DDS/포트0. RUNNING listener만으로 통과 아님 |
 
 driver와 계측 observer도 같은 PC이며 observer만domain93에 참가한다.
@@ -145,7 +145,7 @@ P1-D 별도 표로 측정하며 이 단계의 같은 PC 수치를 실폰 결과�
    수거한다. 강제 종료는 STOP/zero 확인이 아니므로 **world/슬롯 보존·재기동 차단**이다.
    새 episode 전용 unit만 지정한다. simulator의 기존 no-KILL 정책/identity 검사는 유지한다.
 4. 정리 실패 시 manager uvicorn은 오류로 종료될 수 있으며 남은 world는 보존된다(원래 unit의
-   240초 제한은 별개). 재시도하지 말고 담당자에게 올린다. 운영/domain61/다른 프로세스는 종료하지 않는다.
+   설정+90초 제한은 별개). 재시도하지 말고 담당자에게 올린다. 운영/domain61/다른 프로세스는 종료하지 않는다.
 5. Git revert와0014/0013 이력 보존이 우선. simulation 출처를 잃는0014 downgrade는 활성0·
    기록보존·별도승인 뒤만. 이번 작업에는 운영 DB migration·배포·기동0이다.
 
@@ -205,7 +205,8 @@ POST는 자동 재전송하지 않는다. 다만 서버 commit 뒤 송신 전 �
 
 응답 유실과 보상 실패가 겹치면 고아 runtime이 남을 수 있다. 서버 token hash는 이미 바뀌어
 그 에이전트가 서버에 붙지 못한다. 폰 출입증의 offline 600초 한계와 STOP0 확인은 별개다.
-world·agent unit은 각각 RuntimeMaxSec=240으로 자동 종료를 요청한다. world의 정지 grace 45초·
+정상 기한(기본30분)에는 관리자가 기존 STOP/zero·world 정리를 먼저 수행한다.
+관리자 비정상 종료·정리 지연 시 world·agent unit은 각각 RuntimeMaxSec=FH_SIM_RUNTIME_SECONDS+90(기본1890초)으로 자동 종료를 요청한다. world의 정지 grace 45초·
 agent 15초는 별도이고, 실제 종료/고아 정리/STOP0는 이번에 검증하지 않았다. 다음 POST가
 SIM_SLOT_BUSY(불확실)라면 자동 재전송하지 않고 위 복구 1·2단계로 돌아가 자기 runtime과
 unit 정리·부재 관문을 확인한 뒤 새 episode/기존 DELETE 복구를 따른다. 현재 DB를 임의로

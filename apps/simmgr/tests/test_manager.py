@@ -192,7 +192,8 @@ def test_native_waits_for_identity_after_unit_birth(tmp_path,monkeypatch):
         reason=None
         started=False
         calls=0
-        def __init__(self,folder,src,setup,launch_env=None):
+        def __init__(self,folder,src,setup,launch_env=None,seconds=None):
+            assert seconds == 1890
             assert launch_env['ROS_DOMAIN_ID'] == '93'
             self.source=src
         def start(self):

@@ -11,6 +11,19 @@
       "title": "Command Topic",
       "type": "string"
     },
+    "expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires At"
+    },
     "generation": {
       "maximum": 9223372036854775807,
       "minimum": 1,
@@ -75,7 +88,8 @@
     "namespace",
     "tf_prefix",
     "command_topic",
-    "launcher"
+    "launcher",
+    "expires_at"
   ],
   "title": "SimRobot",
   "type": "object"

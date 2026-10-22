@@ -114,8 +114,8 @@ class Simulation:
             raise ValueError('SIM_SOURCE must be the existing sensor runtime source directory')
         if self.source.parent.name != 'stage' or self.source.parent.parent.name != SPEC_DIRECTORY:
             raise ValueError('unexpected sensor runtime layout')
-        if not 30 <= seconds <= 240:
-            raise ValueError('runtime must be 30..240 seconds')
+        if type(seconds) is not int or not 30 <= seconds <= 3690:
+            raise ValueError('runtime must be 30..3690 seconds (including manager cleanup grace)')
         self.launch_env = launch_env
         self.seconds = seconds
         tag = datetime.now().strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8]

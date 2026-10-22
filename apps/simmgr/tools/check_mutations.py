@@ -69,10 +69,10 @@ MUTATIONS += [
      'if row is not None and (row.org_id != user.org_id or not row.simulation or row.archived_at):',
      'if row is not None and (row.org_id != user.org_id or row.archived_at):', SRV+'test_existing_real_robot_cannot_be_adopted'),
     ('late pass sweep omitted at release', 'apps/server/fh_server/simulation.py',
-     "phone_pass.revoke(db, user.org_id, robot_id=robot_id, clock=issuer.clock)\n        row.sim_state = 'IDLE'",
+     "phone_pass.revoke(db, org_id, robot_id=robot_id, clock=issuer.clock)\n        row.sim_state = 'IDLE'",
      "row.sim_state = 'IDLE'", SRV+'test_pass_issued_during_removal_is_revoked_before_release'),
     ('relay removal audit omitted', 'apps/server/fh_server/simulation.py',
-     "event(db, user.org_id, 'SIM_ROBOT_REMOVED'", "(lambda *a, **k: None)(db, user.org_id, 'SIM_ROBOT_REMOVED'",
+     "event(db, org_id, 'SIM_ROBOT_REMOVED'", "(lambda *a, **k: None)(db, org_id, 'SIM_ROBOT_REMOVED'",
      SRV+'test_released_slot_can_change_owner_and_revokes_live_passes'),
 ]
 

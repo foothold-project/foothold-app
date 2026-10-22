@@ -60,8 +60,17 @@ class Settings:
     agent_ws_url: str = field(default='ws://127.0.0.1:9431/api/v1/agent/ws', repr=False)
     origins: tuple[str, ...] = ()
     extra_ports: tuple[int, ...] = ()
+    runtime_seconds: int = 1800
+
+    @property
+    def unit_runtime_seconds(self):
+        # STOP/zero (15s + forced-exit attempts) and native close (55s + join)
+        # must finish before the watchdog's five-second early interrupt.
+        return self.runtime_seconds + 90
 
     def __post_init__(self):
+        if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= 3600:
+            raise ValueError('simulation runtime must be 5..3600 seconds')
         ports_allowed = allowed_ports(self.extra_ports)
         if self.domain != 93:
             raise ValueError('simulation domain must be 93')
@@ -111,4 +120,5 @@ class Settings:
                    ros_setup=env.get('SIM_ROS_SETUP'), run_dir=env.get('SIM_RUN_DIR'),
                    agent_python=env.get('FH_SIM_AGENT_PYTHON', '/usr/bin/python3'),
                    agent_ws_url=env['FH_SIM_AGENT_WS_URL'], origins=tuple(json.loads(env.get('FOOTHOLD_PHONE_ORIGINS', '[]'))),
-                   extra_ports=extra_ports_from_env(env))
+                   extra_ports=extra_ports_from_env(env),
+                   runtime_seconds=int(env.get('FH_SIM_RUNTIME_SECONDS', '1800')))
