@@ -1,7 +1,7 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState } from 'react';
 import type { SimRobot } from '../../contracts/ts';
-import { sim, useSim, type Sim } from './phone';
+import { sim, useSim, velocity, type Sim } from './phone';
 import { Stick } from './drive';
 import { Chip } from './screens';
 import { simName, type Tone } from './fake';
@@ -96,15 +96,17 @@ export function SimDrive() {
   useDeadline(!!r.expires_at);
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
   const input = useRef<[number, number]>([0, 0]), gen = useRef(0);
-  const [unsupported, setUnsupported] = useState('');
+  const [unsupported, setUnsupported] = useState(''), [vx, setVx] = useState(0);
+  const smooth = w?.limits.vx_mode === 'continuous';
   useTick(true);
   useEffect(() => () => sim.axes([0, 0]), []);
-  useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); setUnsupported(''); }, [ready]);
+  useEffect(() => { input.current = [0, 0]; sim.axes([0, 0]); setUnsupported(''); setVx(0); }, [ready]);
   const put = (i: 0 | 1, v: number) => {
     input.current[i] = v;
     const [f, t] = input.current;
     setUnsupported(f < 0 ? '후진은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
       : f === 0 && t !== 0 ? '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.' : '');
+    if (w) setVx(velocity([f, t], w).vx);
     sim.axes([f, t]);
   };
   const left = l.exp ? Math.floor(l.exp - Date.now() / 1000) : Infinity;
@@ -120,7 +122,7 @@ export function SimDrive() {
     l.at === 'closed' && l.why,
     l.notice,
     unsupported,
-    !unsupported && mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. 끝까지 밀어야 움직입니다.`,
+    !unsupported && mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. ${smooth ? '회전은 끝까지 밀어야 돕니다.' : '끝까지 밀어야 움직입니다.'}`,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
     stop,
   ].filter(Boolean) as string[];
@@ -137,6 +139,7 @@ export function SimDrive() {
           {l.rtt != null && open && <span className="mono">지연 {l.rtt} ms</span>}
           {w && <span className="lbl">정책 {w.policy.name} {w.policy.version}</span>}
           {st?.sim_wall_delta_s != null && <span className="lbl" title="참고용">시뮬 시계 차 {st.sim_wall_delta_s.toFixed(1)} s</span>}
+          {smooth && <span className="mono" data-sim-vx>앞 {(ready ? vx : 0).toFixed(2)} m/s</span>}
           <Chip {...lock} />
           <span className="fh-grow" />
           <div className="fh-row">
@@ -147,12 +150,13 @@ export function SimDrive() {
             {open && left < 60 && <button type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>}
           </div>
         </div>
+        {smooth ? <p className="dv-note">시뮬 전용 · 멈출 때 가끔 넘어질 수 있음(측정 34회 중 3회) · 후진·제자리 회전은 아직 지원하지 않습니다</p> : <>
         <div className="fh-row" role="group" aria-label="속도 단계" aria-describedby="sim-speed-note">
           <button type="button" className="btn" disabled aria-pressed={false}>느림</button>
           <button type="button" className="btn pri" aria-pressed={true}>보통 · 0.6 m/s</button>
           <button type="button" className="btn" disabled aria-pressed={false}>빠름</button>
         </div>
-        <p id="sim-speed-note" className="dv-note">느림·빠름·후진·제자리 회전: 시뮬에서 아직 확인 안 됨</p>
+        <p id="sim-speed-note" className="dv-note">느림·빠름·후진·제자리 회전: 시뮬에서 아직 확인 안 됨</p></>}
         {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
       </div>
       {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">

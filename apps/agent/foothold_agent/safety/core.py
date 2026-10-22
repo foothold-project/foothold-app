@@ -1,7 +1,9 @@
-"""Safety Core ported unchanged from sim/v2_link.py; see PORTING.md.
+"""Safety Core ported from sim/v2_link.py; see PORTING.md.
 
 No ROS, web, network, or process integration is imported here.
 The caller must serialize access and publish the result of applied().
+Default quantization and all safety gates retain the original behavior. Only
+the simulation phone Hub explicitly supplies a continuous velocity projection.
 """
 
 import math
@@ -68,8 +70,9 @@ class Core:
     비영 명령 조건: 신선한 형식 맞는 state · policy_running · 리셋 중 아님 · 조종권 · 래치 없음 · 재개/리셋 대기 없음
                     · 마지막 «무효화» 뒤 새 손 뗌(0) · 0.3 s 안의 입력."""
 
-    def __init__(self, now=time.monotonic):
+    def __init__(self, now=time.monotonic, *, velocity_projection=quantize):
         self.now = now
+        self.velocity_projection = velocity_projection
         self.controller = None      # 조종권을 가진 연결 id
         self.latch = False          # 앱 STOP 래치
         self.stop_gen = 0           # 잠금 세대(N1 10-15): 잠그는 모든 일(STOP — 이미 잠겼어도·조종권 해제·리셋·episode 변경·시뮬 STOP·시뮬 바쁨)마다 +1.
@@ -166,7 +169,7 @@ class Core:
         if self.latch or self.reset_pending or self.resume_pending or self.sim_block():
             self._void(); return                 # 잠금·대기·끊김 중 입력은 버린다 — 풀린 뒤 새 손 뗌부터
         self.intent = axes; self.intent_t = self.now()
-        if quantize(*axes) == (Z, ''):
+        if self.velocity_projection(*axes) == (Z, ''):
             self.need_neutral = False
 
     def stop(self, who):
@@ -240,7 +243,7 @@ class Core:
             if self.intent != Z:
                 self.ev('warn', '입력 끊김 0.3 s → 명령 0')
             self._void(); self.reason = ''; return Z
-        c, why = quantize(*self.intent)
+        c, why = self.velocity_projection(*self.intent)
         if self.need_neutral and c != Z:
             self.reason = '손을 한 번 뗀 뒤 다시 누르세요'; return Z
         self.reason = why

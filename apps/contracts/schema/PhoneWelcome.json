@@ -23,6 +23,28 @@
           "title": "Vx Min",
           "type": "number"
         },
+        "vx_min_moving": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vx Min Moving"
+        },
+        "vx_mode": {
+          "default": "discrete",
+          "enum": [
+            "discrete",
+            "continuous"
+          ],
+          "title": "Vx Mode",
+          "type": "string"
+        },
         "vy_max": {
           "title": "Vy Max",
           "type": "number"

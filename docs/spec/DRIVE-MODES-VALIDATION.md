@@ -1,3 +1,109 @@
+# 시뮬 폰 연속 전진 — 2026-10-22 후속 결정
+
+기준 `origin/dev 3086b58`, 작업 `feature/joystick-continuous`.
+현민님 결정으로 **시뮬 폰 명령만** 전진0 또는[0.2, 1.0] m/s 연속을 허용한다.
+0 초과0.2 미만은 이유와 함께0, 1.0 초과는1.0으로 자른다.
+회전은 전진할 때만 입력 문턱±0.5 rad/s에서 고정±0.5이며,
+vy·후진·제자리 회전은 계속0이다. 놓으면 감속 없이 즉시 명령0이다.
+이는 아래 측정의 한계를 알고 내린 제품 결정이며 전 범위 안정성 인증이 아니다.
+
+## Core와 하위 경로 조사
+
+- `safety/core.py:quantize`는 기존 축(-1~1)을 0.6 전진의4개 명령으로 투영한다.
+  따라서 폰 입력만 연속화하면 기존 Core에서 다시0.6이 된다.
+- `Core`의 중립 판정과 최종 출력에 같은 projection을 주입하고,
+  `Hub(simulation=True)`의 단일 `Session`에만 `simulation_velocity`를 선택한다.
+  기본 `Core`·`Session`과 실기 `Hub`는 원래 `quantize`를 사용한다.
+  시뮬의 fx는 SI vx이고 fw는 고정회전을 위한 정규화 축이다.
+  거부한 비중립 입력은 이유를 보존하므로 새 중립을 만들지 않는다.
+- `ros_bridge/sink.py:twist_message`는 SI값을 Twist에 그대로 쓴다.
+  읽기 전용 control-app exp33 `sensor-spec-20261016/stage/sensor-runtime-r1/live_map.py`
+  의 `Ingress.on_cmd/get`(65~97행)은 유한값을 저장·전달한다.
+  `TESTED`(49행)는 `cmd_tested` 표시(904행)에만 쓰이며 명령 필터가 아니다.
+  실제 정책 호출(1606행)은 `cmd_applied`를 `src/v2_obs.py:build_obs`에 넘기고,
+  관측의 velocity_commands(105행)에 세 연속값을 배율 없이 넣는다.
+  외부 control-app·ws_go2gz 원본 변경은 필요하지 않으며 수정0이다.
+- Nav2의 기존 투영·제한은 그대로다. 폰 전용 Hub에서만 새 projection을 고른다.
+
+## 폰 계약
+
+시뮬 `hello.limits`는 아래와 같다. Pydantic 정본과 JSON Schema·TS 생성물에 반영했다.
+
+```json
+{"vx_mode":"continuous","vx_min":0.0,"vx_min_moving":0.2,"vx_max":1.0,
+ "vy_min":0.0,"vy_max":0.0,"wz_min":-0.5,"wz_max":0.5,"commands":[]}
+```
+
+`commands`는 이산 모드에서만 전체 명령을 열거한다. 연속 모드에서는 위 전진 구간과
+별도0, 전진 중 고정회전 규칙을 사용한다. `vx_min=0`은 정지이지 저속 보행 허용이 아니다.
+`vx_mode`·`vx_min_moving`은 구 에이전트와의 호환을 위해 선택 필드다.
+모드 생략은 `discrete`이고 실기 welcome는 **기존 LIMITS 모양 그대로**
+(앞 최대0.6·정지/직진/좌회전/우회전4개 명령)다. 범위 최대만 보고 연속을 추측하지 않는다.
+화면 조이스틱 적용은 후속 Claude 작업이며 에이전트가 최종 판정한다.
+
+## 읽은 측정 결과와 한계
+
+원물은 로컬 `rb-preview-dev2` worktree의 `runs/preview-REPORT.md` 중
+«연속 속도 측정»·«속도 재확인·감속» 절이다. 원물 source HEAD는
+`c8e66753b1a8fcb7bf8e90cad99c8a57af961d6b`이며 아래 SHA256은 이번에 읽은 파일 기준이다.
+원자료를 공개 Git에 복사하지 않았다.
+
+| 원물 경로 (해당 worktree 기준) | SHA256 |
+|---|---|
+| `runs/preview-REPORT.md` | `c697f5e75f87001a9d485f3fb79ca4051842ecb84a2962bc934b91e509ff5d65` |
+| `runs/speed-sweep/summary.json` | `93ed742a0ee8c65beb6ae0e2574d302b56ea35603b43ef45aa560640bc779489` |
+| `runs/speed-sweep/fall-events.json` | `5235f2720a8da72283f5d75d252e0fddb3a11c3abff14bb8c17068a9aa4d0892` |
+| `runs/speed-recheck/summary.json` | `c4934fd0aee5be7d412f23fda3acfea9b04c5fa0945ccd30511873382eae088a` |
+| `runs/speed-recheck/fall-events.json` | `97e1694b2b27fe6e6e3cc19a56de4d19d5d353bf0f4b745bd4e5e09b8f030a11` |
+
+직진0.2~1.0은0.1 간격 표본에서 보행을 확인했고0.1은 거의 제자리였다.
+
+최종24후보와 재확인10회 중 **정지 뒤 낙상 사건3회**가 관측됐다
+(0.6/−0.5, 0.6/+0.2, 0.3/0). 제자리 회전 기대실패2회의 명령중 낙상은 이3회와 별개다.
+약34회 중3회는 시험 표본의 관측 건수이며 확률 추정이나 속도와 무관하다는 인과 증명은 아니다.
+현재 쓰는0.6/−0.5도 포함되므로 저속 변경만의 문제로 보지 않는다.
+0.2 재확인2회는 STOP12초 끝 정지했지만0.3은1/2만 정지했다.
+0.2/+0.5 조합은 옆속도 기준을 초과했다. 연속 전 구간·모든 vx/wz 조합은 측정하지 않았다.
+
+**정지 뒤 가끔 넘어짐 = 시뮬 정책 특성, 앱으로 못 고침, 팀장 공유 거리**다.
+명령0·STOP 적용 뒤에도 몸이 움직이거나 native fallen이 관측됐다.
+정책·물리 원인의 상세 규명은 남아 있으며 앱의 명령0 확인을 물리 정지 보장으로 쓰지 않는다.
+0.5초 감속은 낙상·기울기 개선 효과가 확인되지 않았다. 결정대로 감속을 추가하지 않는다.
+
+## 유지한 경계와 검증
+
+STOP/zero·deadman(DEAD)·잠금·출입증·세대·재연결·watchdog의 동작과
+기존 안전 셀프테스트 기대값을 바꾸지 않았다. 실기 설정 `simulation=0`은 기존4개 명령이다.
+실폰·실기·ROS·Gazebo·미리보기·운영 포트 접촉과 배포는 이번 실행0이다.
+
+재현 환경은 기존 agent-phone venv 읽기 전용, `PYTHONDONTWRITEBYTECODE=1`,
+worktree 내부 `TMPDIR=runs/joystick-continuous/tmp`,
+`PYTHONPATH=runs/joystick-continuous/fence:apps/agent:.`, `FH_TEST_PORT_RANGE=9410:9419`다.
+fence는 `apps/simmgr/tools/sitecustomize.py`를 runs에 복사해 범위만9410~9419로 제한했다.
+각 무거운 실행은 `if MemAvailable >= 2621440 KiB` 안에서만 수행한다.
+`apps/simmgr/VALIDATION.md`의 Python 경로 구성에 로컬 fence를 더한 환경이며 runtime에 넣지 않는다.
+
+| 실제 실행 | 결과 |
+|---|---|
+| 연속 경계·실기 불변·폰 회귀·원본 Core 집중 pytest | 576 passed |
+| `python -m pytest apps/agent -q -p no:cacheprovider` | **1212 passed, 1 skipped**, 42.65초, 기존 경고2개. opt-in 실제 DDS만 제외 |
+| `python apps/contracts/generate.py --check` | **164개 일치** |
+| contracts TS strict typecheck | 통과 |
+| 0.2 문턱·1.0 상한 변이 | **2/2 검출**. 메모리에서 `vx >= .2`→`vx > .2`는 assertion15개, 상한1.0→1.1은 assertion24개 실패. 원본 수정0 |
+
+기존 `test_original_core.py`와 기존 안전 셀프테스트 기대값은 diff0이다.
+이전 폰 이산 투영 기대값은 실기 fixture에서 그대로 검증하고 시뮬 경계는 새 시험으로 검증한다.
+로컬 로그와 메모리 변이 도구는 `runs/joystick-continuous/`에만 보존한다.
+
+이후 dev 합치기는 조정 세션의 Claude·Codex 각1회 안전 검토 관문을 따른다.
+
+---
+
+## 이전 조사 기록 — 후속 결정 이전 이력
+
+아래는 연속 측정과10-22 후속 결정 **이전** 기록이다. 당시 차단·시험 수치를 보존하며
+현재 허용 정책과 새 검증 결과는 위 절을 따른다.
+
 # 조종 단계 조사·검증 — 2026-10-22
 
 기준 `origin/dev 6edfac8`, 작업 `feature/drive-modes`.

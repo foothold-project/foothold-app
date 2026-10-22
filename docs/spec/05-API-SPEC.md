@@ -597,14 +597,15 @@ ADR-002 0.3 §5~7이 정본이다. 이 절은 P1-A 직결 조종 계약이며, �
 cmd/unlock은 `NOT_CONTROLLER`로 버리며 deadman·seq를 갱신하지 않는다. 조종자의
 seq는 lease 안에서 엄격히 증가한다. 중복·역행·상한 밖 seq는 형식 오류로 안전 정지한다.
 
-허용 범위표는 앞 `0..0.6`, 옆 `0`, 회전 `-0.5..0.5`이지만 그 사이 모든 속도를
-지원한다는 뜻은 아니다. `commands`의 현재 Core 명령은 `[0,0,0]`, `[0.6,0,0]`,
+실기와 구 에이전트의 이산 허용 범위표는 앞 `0..0.6`, 옆 `0`, 회전 `-0.5..0.5`이지만
+그 사이 모든 속도를 지원한다는 뜻은 아니다. 이산 `commands`는 `[0,0,0]`, `[0.6,0,0]`,
 `[0.6,0,-0.5]`, `[0.6,0,0.5]`뿐이다. SI 입력은 성분 크기를 늘리지 않는 방향으로
 이 집합에 내린다: vx<0.6이면 0, 회전 절댓값<0.5이면 0, 전진 없는 회전은 0, 옆은 0.
 초과 입력은 최대값으로 자르고 `cmd.ack.clipped=true`로 알린다. 실제 최종 판정은
 기존 Session/Core다. 잘려서 0이 된 **비중립 입력은 새 중립을 대신하지 않으며 이미
 확인한 중립도 지우지 않는다**. 예: 중립 뒤 vx 0.2→0.4는 각각 0과 Core의 미검증 이유를
-응답하고, 이어 0.6에서 전진한다. 중립 없이 같은 입력을 보내면 계속 0이다. 내부 어댑터는
+응답하고, 이어 0.6에서 전진한다. 시뮬 폰의 연속 모드는 §13.5의0.2~1.0 구간을 사용한다.
+중립 없이 비영 입력을 보내면 계속 0이다. 내부 어댑터는
 중간 입력을 Core가 비중립·0으로 판정하는 유효 축으로 넘기며 실제 출력 크기를 키우지 않는다.
 
 ### 13.4 취득·넘김·끊김
@@ -673,12 +674,20 @@ seq는 lease 안에서 엄격히 증가한다. 중복·역행·상한 밖 seq는
 
 | t | 본문·빈도 |
 |---|---|
-| `hello` | `{id,robot,proto,limits:{vx_min,vx_max,vy_min,vy_max,wz_min,wz_max,commands},policy:{name,version},simulation,ping_interval_ms:1000,link_timeout_ms:3000,lease_timeout_ms:15000}`. 1회. 정책 식별자는 배포 설정이며 에이전트가 실제 정책을 추측하지 않음 |
+| `hello` | `{id,robot,proto,limits:{vx_min,vx_max,vy_min,vy_max,wz_min,wz_max,commands,vx_mode?,vx_min_moving?},policy:{name,version},simulation,ping_interval_ms:1000,link_timeout_ms:3000,lease_timeout_ms:15000}`. 1회. 정책 식별자는 배포 설정이며 에이전트가 실제 정책을 추측하지 않음 |
 | `reply` | `{id,ok,error:null|{code,message,detail},lease_id:null|UUID,request_id:null|UUID}`. 요청마다. 새 lease는 해당 연결에만 반환 |
 | `cmd.ack` | `{id,seq,applied:[vx,vy,wz],clipped,reason:null|string}`. 명령마다, Core 판정 뒤. applied는 측정 속도가 아니라 실제로 내보낸 요청 값 |
 | `lease.requested` | `{robot,request_id,requester:{user_id,device_id},expires_at}`. 현재 조종자에게. expires_at은 표시용 UTC, 실제 만료는 단조 10 s |
 | `lease.result` | `{robot,request_id,result:"ACCEPTED"|"DECLINED"|"TIMEOUT"|"CANCELED",error:null|string}`. 요청자·전 조종자에게. 새 조종자의 lease는 다음 자기 state에만 표시 |
 | `state` | 아래 전체 스냅샷, 10 Hz. 첫 hello 인증 전에는 보내지 않음 |
+
+시뮬 폰은 `limits.vx_mode="continuous"`, `vx_min_moving=0.2`, `vx_max=1.0`,
+`commands=[]`로 전진0 또는[0.2,1.0] m/s 구간을 알린다. 0 초과0.2 미만은 이유와 함께0,
+상한 초과는1.0이며 전진 중에만 wz 문턱±0.5에서 고정±0.5 rad/s로 투영한다.
+vy·후진·제자리 회전은0, 놓으면 감속 없이 즉시 명령0이다.
+모드 생략은 `discrete`이며 실기의 기존 LIMITS와4개 명령(정지·전진0.6·전진0.6/회전±0.5)은
+그대로다. `vx_min_moving`은 구 에이전트와 호환하는 선택 필드이며 이산 모드에서는 없을 수 있다.
+에이전트가 최종 판정하며 [측정·정지 한계](DRIVE-MODES-VALIDATION.md)를 따른다.
 
 state는 §10과 같은 이름·뜻의 `battery:{soc,voltage?}`, `pose:{floor_id,x,y,yaw,confidence}`,
 `speed`, `latched`, `stop_gen`, `applied`, `mode:"USER"|"FREE"`, `devices_changed`에
