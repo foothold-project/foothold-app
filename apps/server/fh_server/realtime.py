@@ -1239,7 +1239,7 @@ class Realtime:
                 # Origin or allow wildcards. Same-origin is the default.
                 origin = ws.headers.get('origin')
                 expected = self.settings.ws_origin or str(ws.base_url).rstrip('/').replace('wss:', 'https:').replace('ws:', 'http:')
-                if not origin or origin != expected:
+                if not origin or origin not in (expected, self.settings.tunnel_origin):
                     raise self.api_error(403, 'FORBIDDEN', '접속 출처를 확인하세요.')
         except self.api_error as exc:
             await self.reject_upgrade(ws, 4401 if exc.status == 401 else 4403)

@@ -170,6 +170,13 @@ def test_from_env_uses_private_auth_and_defaults_to_fake(tmp_path):
          'FH_SIM_AGENT_WS_URL':'ws://127.0.0.1:9431/api/v1/agent/ws'}
     result=Settings.from_env(env)
     assert not result.real and result.max_robots == 2 and result.secret == 'x'*32
+    origin = 'https://example.trycloudflare.com'
+    env['FH_TUNNEL_ORIGIN'] = origin
+    assert Settings.from_env(env).origins == result.origins
+    env['FH_TUNNEL'] = '1'
+    assert Settings.from_env(env).origins == (*result.origins, origin)
+    env['FH_TUNNEL_ORIGIN'] = 'https://*.trycloudflare.com'
+    assert Settings.from_env(env).origins == result.origins
     secret.chmod(0o644)
     with pytest.raises(ValueError,match='private'):
         Settings.from_env(env)
