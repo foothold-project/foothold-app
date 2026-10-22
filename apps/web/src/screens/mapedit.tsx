@@ -16,6 +16,11 @@ export function toMap(v: Geo, px: number, py: number): P {
   const [ox, oy, yaw] = v.origin, c = Math.cos(yaw), s = Math.sin(yaw), u = px * v.resolution, w = (v.height - py) * v.resolution;
   return [ox + c * u - s * w, oy + s * u + c * w];
 }
+/** 화면 좌표 → 지도 좌표: svg 는 viewBox 를 가운데 맞춤으로 늘린다(preserveAspectRatio 기본값). 시나리오 지점 찍기(screens/missions.tsx)도 쓴다 */
+export function fromScreen(svg: Element, v: Geo, cx: number, cy: number): P {
+  const b = svg.getBoundingClientRect(), k = Math.min(b.width / v.width, b.height / v.height);
+  return toMap(v, (cx - b.left - (b.width - v.width * k) / 2) / k, (cy - b.top - (b.height - v.height * k) / 2) / k);
+}
 /** 서버와 같은 범위: 회전 원점 기준 그림 안(경계 포함, 같은 허용 오차) */
 export function inside(v: Geo, x: number, y: number) {
   const [px, py] = toPixel(v, x, y), e = 1e-9 / v.resolution;
@@ -36,7 +41,7 @@ function cross(a: P, b: P, c: P, d: P) {   // maps.intersects 그대로
   const o1 = orient(a, b, c), o2 = orient(a, b, d), o3 = orient(c, d, a), o4 = orient(c, d, b);
   return (o1 * o2 < 0 && o3 * o4 < 0) || on(a, b, c) || on(a, b, d) || on(c, d, a) || on(c, d, b);
 }
-const nameBad = (s: string) => (!/\S/.test(s) ? '이름을 입력하세요.' : [...s].length > 128 ? '이름은 128자까지 쓸 수 있습니다.'
+export const nameBad = (s: string) => (!/\S/.test(s) ? '이름을 입력하세요.' : [...s].length > 128 ? '이름은 128자까지 쓸 수 있습니다.'
   : /[\p{Cc}\p{Cf}]/u.test(s) ? '이름에 줄바꿈·탭 같은 보이지 않는 글자는 쓸 수 없습니다.' : null);
 const OUT = '지도 범위 밖에 있습니다. 지도 그림 안으로 옮기세요.', DUP = '같은 요소가 두 번 들어 있습니다. 하나를 지우세요.';
 const distinct = (pts: P[]) => new Set(pts.map((q) => q.join())).size;
@@ -200,11 +205,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     if (pts.length && !same) setAsk({ text: `그리던 점 ${pts.length}개를 지우고 도구를 바꿀까요?`, yes: '바꾸기', go }); else go();
   };
 
-  /** 화면 좌표 → 지도 좌표: svg 는 viewBox 를 가운데 맞춤으로 늘린다(preserveAspectRatio 기본값) */
-  const at = (e: PointerEvent): P => {
-    const b = svg.current!.getBoundingClientRect(), k = Math.min(b.width / v.width, b.height / v.height);
-    return toMap(v, (e.clientX - b.left - (b.width - v.width * k) / 2) / k, (e.clientY - b.top - (b.height - v.height * k) / 2) / k);
-  };
+  const at = (e: PointerEvent): P => fromScreen(svg.current!, v, e.clientX, e.clientY);
   const down = (e: PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0 || lock) return;
     const q = at(e);

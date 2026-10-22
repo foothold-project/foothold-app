@@ -263,8 +263,9 @@ describe('R2·R3 보강', () => {
     }
   });
   it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {
-    mount(false, 'u-kim', '#/mission');
-    const b = $$('main button').find((x) => x.textContent === '새 시나리오') as HTMLButtonElement;
+    mount(true, 'u-lee', '#/drive/r3');   // 폰 «시뮬 로봇 띄우기»·PC 임무 탭은 이제 서버 값 — 자세 시트 «서기»는 아직 준비 중
+    click($$('main button').find((x) => x.textContent === '자세')!);
+    const b = $$('main button').find((x) => x.textContent === '서기') as HTMLButtonElement;
     expect(b.disabled).toBe(true);
     expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toContain('준비 중');
   });

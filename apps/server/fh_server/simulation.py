@@ -1,9 +1,8 @@
 """Authenticated lifecycle relay. Phone commands and pass issuance stay independent."""
 import json
-from http.client import HTTPException
 import os
 import stat
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
 from uuid import UUID
@@ -55,25 +54,28 @@ class Relay:
         self.opener = build_opener(ProxyHandler({}), NoRedirect())
 
     def request(self, method, path, body=None):
-        request = Request(self.url + path, method=method,
-            data=json.dumps(body).encode() if body is not None else None,
-            headers={'Authorization': 'Bearer ' + self.secret, 'Content-Type': 'application/json'})
         try:
-            with self.opener.open(request, timeout=5 if method == 'GET' else 180) as response:
-                raw = response.read(65537)
-            if len(raw) > 65536:
-                raise RelayError()
-            return json.loads(raw)
-        except HTTPError as error:
-            # Only code/status crosses this boundary, never remote text/credentials.
+            request = Request(self.url + path, method=method,
+                data=json.dumps(body).encode() if body is not None else None,
+                headers={'Authorization': 'Bearer ' + self.secret, 'Content-Type': 'application/json'})
             try:
+                with self.opener.open(request, timeout=5 if method == 'GET' else 180) as response:
+                    raw = response.read(65537)
+                if len(raw) > 65536:
+                    raise RelayError()
+                return json.loads(raw)
+            except HTTPError as error:
+                # The outer boundary also covers reading/decoding an error body.
+                # Only code/status crosses it, never remote text/credentials.
                 code = json.loads(error.read(4097))['error']['code']
                 if not isinstance(code, str) or not code.startswith('SIM_') or len(code) > 64:
                     code = 'SIM_UNAVAILABLE'
-            except (ValueError, KeyError, TypeError, HTTPException):
-                code = 'SIM_UNAVAILABLE'
-            raise RelayError(code, error.code if error.code in (400, 404, 409, 503) else 503) from None
-        except (URLError, OSError, ValueError, HTTPException):
+                raise RelayError(code, error.code if error.code in (400, 404, 409, 503) else 503) from None
+        except RelayError as error:
+            raise error from None
+        except Exception:
+            # Transport, status, body and decoder failures are all uncertain.
+            # BaseException (interrupts, cancellation, exit) deliberately escapes.
             raise RelayError() from None
 
 
@@ -233,11 +235,20 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             event(db, user.org_id, 'SIM_ROBOT_REMOVE_FAILED', user.id,
                   {'robot_id': str(robot_id), 'reason': code}, category='LINK')
             db.commit()
-        call('DELETE', '/v1/robots/' + str(robot_id), {'generation': generation}, on_error=removal_failed)
+        removal_error = None
+        try:
+            if app.state.simmgr is None:
+                raise RelayError('SIM_DISABLED')
+            app.state.simmgr.request('DELETE', '/v1/robots/' + str(robot_id), {'generation': generation})
+        except RelayError as error:
+            removal_error = error
         # A pass could be issued while the manager was stopping. Serialize the
         # final sweep and slot release with the existing organization write lock.
         lock_organization(db, user.org_id)
         db.refresh(row)
+        if removal_error is not None:
+            removal_failed(removal_error.code)
+            fail(removal_error.status, removal_error.code, '시뮬 요청을 처리하지 못했습니다.')
         if row.sim_generation != generation or row.sim_state != 'STOPPING':
             event(db, user.org_id, 'SIM_ROBOT_REMOVE_STALE', user.id,
                   {'robot_id': str(robot_id), 'generation': generation}, category='LINK')

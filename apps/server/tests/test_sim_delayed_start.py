@@ -26,11 +26,13 @@ def audits(client,code):
 def test_delayed_post_cannot_escape_completed_delete(simulation_context,arrival):
     client,sim,cfg,rid,launcher=simulation_context;headers=csrf(client,'one')
     original=client.app.state.simmgr.request;held,resume=threading.Event(),threading.Event()
+    deletes=[]
     def delayed(method,path,body=None):
         if method=='POST':
             if arrival=='post_first':result=original(method,path,body)
             held.set();assert resume.wait(10)
             if arrival=='post_first':return result
+        if method=='DELETE':deletes.append(body['generation'])
         return original(method,path,body)
     client.app.state.simmgr.request=delayed
     with ThreadPoolExecutor(max_workers=1) as executor:
@@ -50,6 +52,7 @@ def test_delayed_post_cannot_escape_completed_delete(simulation_context,arrival)
             if arrival=='delete_first':
                 # Unlike the original review probe, do not construct a hypothetical
                 # new agent: the revoked ticket has no newly launched agent to reach.
+                assert deletes==[1]  # User DELETE only; STALE needs no compensation.
                 assert not hasattr(launcher,'token')
                 assert not any(e[0]=='agent' for e in launcher.events)
                 records=audits(client,'SIM_ROBOT_START_STALE')
@@ -171,3 +174,49 @@ def test_transport_posts_are_never_retried(tmp_path,failure):
     with pytest.raises(RelayError):relay.request('POST','/v1/robots',{'generation':1})
     assert calls==['POST']
     assert (409,'SIM_GENERATION_STALE') not in START_REJECTIONS
+
+
+def test_final_start_check_serializes_delete_after_refresh(simulation_context,monkeypatch):
+    from sqlalchemy import text
+    from apps.server.fh_server.models import Robot
+    import time
+    client,sim,cfg,rid,launcher=simulation_context;headers=csrf(client,'one')
+    original=client.app.state.simmgr.request
+    refreshed,resume=threading.Event(),threading.Event()
+    post_thread=[];post_pid=[]
+    refresh=Session.refresh
+    def held_refresh(db,row,*args,**kwargs):
+        result=refresh(db,row,*args,**kwargs)
+        if (isinstance(row,Robot) and post_thread==[threading.get_ident()]
+                and row.sim_state=='STARTING' and not refreshed.is_set()):
+            post_pid.append(db.scalar(text('SELECT pg_backend_pid()')))
+            refreshed.set();assert resume.wait(10)
+        return result
+    def delivered(method,path,body=None):
+        result=original(method,path,body)
+        if method=='POST':post_thread.append(threading.get_ident())
+        return result
+    monkeypatch.setattr(Session,'refresh',held_refresh)
+    client.app.state.simmgr.request=delivered
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        start=executor.submit(client.post,'/api/v1/simulation/robots',headers=headers,
+                              json={'robot_id':rid,'world_id':'test'})
+        try:
+            assert refreshed.wait(5)
+            remove=executor.submit(client.delete,f'/api/v1/simulation/robots/{rid}',headers=headers)
+            # Observe an actual PostgreSQL lock wait, not a scheduling delay.
+            blocked=False;deadline=time.monotonic()+2
+            with Session(client.app.state.engine) as db:
+                while time.monotonic()<deadline and not remove.done():
+                    blocked=db.scalar(text('SELECT EXISTS (SELECT 1 FROM pg_stat_activity '
+                        'WHERE :holder = ANY(pg_blocking_pids(pid)))'),{'holder':post_pid[0]})
+                    if blocked:break
+                    time.sleep(.01)
+            assert blocked,'DELETE did not wait for the final STARTING check organization lock'
+            assert snapshot(client,rid)[0]=='STARTING'
+            resume.set()
+            assert start.result(timeout=5).status_code==201
+            assert remove.result(timeout=5).status_code==204
+            assert snapshot(client,rid)[:3]==('IDLE',None,1)
+            assert not sim.app.state.manager.robots
+        finally:resume.set()

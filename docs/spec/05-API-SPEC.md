@@ -1060,16 +1060,16 @@ SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 
 관리자 POST의 확실한 거부 목록 밖 결과는 **성공·불확실 모두** 조직 잠금 안에서 DB 세대와
 STARTING을 최종 확인한다. 둘이 맞으면 성공은 ACTIVE, 불확실은 STARTING 유지다.
 맞지 않으면 commit으로 잠금을 푼 뒤 원래 세대의 관리자 DELETE를 **1회** 보상 시도한다.
-현재 DB 슬롯/출입증/owner/hash는 바꾸지 않는다. 응답은 원래 불확실 오류(예503), 성공
+현재 DB 슬롯/출입증/owner/hash는 바꾸지 않는다. 응답은 원래 불확실 오류(예 503), 성공
 응답의 뒤늦은 불일치는409다. `SIM_ROBOT_START_STALE` 감사 1건에 세대와 보상 결과
-(제거/이미 없음 또는 실패코드)를 기록한다. 관리자 STALE409는 생성되지 않았으므로 보상
+(제거/이미 없음 또는 실패코드)를 기록한다. 관리자 STALE 409는 생성되지 않았으므로 보상
 DELETE 없이 같은 감사 1건에 `compensation=NOT_CREATED`를 남긴다. HTTP 프로토콜 예외
 (IncompleteRead·BadStatusLine 등)도 RelayError로 감싼 불확실 결과이며 자동 재전송하지 않는다.
 
 첫 전달·응답 유실에 보상 실패까지 겹치면 runtime이 남을 수 있다. 서버 token hash는 이미
 교체되어 옛 에이전트는 서버에 붙지 못하지만, 이 사실을 STOP0 확인이나 폰 출입증의 즉시
 offline 무효화로 보지 않는다(§13.7 한계 유지). world와 agent unit은 각각
-**RuntimeMaxSec=240**의 자동 종료 대상이다(정지 grace는 world45초·agent15초 별도이며 실제
+**RuntimeMaxSec=240**의 자동 종료 대상이다(정지 grace는 world 45초·agent 15초 별도이며 실제
 종료/고아·STOP0는 아직 미검증). 다음 취득이 SIM_SLOT_BUSY(불확실)로 막히면 자동 반복하지
 않고 FIRST-LAUNCH 복구 1·2단계에서 자기 runtime 정리·부재 관문·새 episode를 확인한 뒤
 기존 DELETE 복구를 따른다. 보상 실패로 현재 DB를 덮거나 새 인스턴스 epoch를 도입하지 않는다.
