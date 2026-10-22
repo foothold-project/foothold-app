@@ -1244,6 +1244,7 @@ class SimStartRequest(SimWorldStart):
 
 class SimRemove(Contract):
     generation: int = Field(ge=1, le=9223372036854775807)
+    request_nonce: UUID
 
 
 class SimProvision(SimStartRequest):
@@ -1262,6 +1263,9 @@ class SimCatalog(Contract):
 
 
 class SimRemoval(Contract):
+    robot_id: UUID
+    generation: int = Field(ge=1, le=9223372036854775807)
+    request_nonce: UUID
     manager_instance_id: UUID
     absent: bool = Field(strict=True)
     startup_clean: bool = Field(strict=True)
@@ -1291,6 +1295,7 @@ class SimRobot(Contract):
 class SimRobotList(Contract):
     items: list[SimRobot]
     cleanup: list[SimCleanupSlot] = Field(default_factory=list)
+    manager_error: Literal['SIM_DISABLED', 'SIM_UNAVAILABLE'] | None = None
 
 
 TOP = {name: value for name, value in list(globals().items())

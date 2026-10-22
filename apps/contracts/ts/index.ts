@@ -1154,6 +1154,9 @@ export interface SimProvision {
 }
 
 export interface SimRemoval {
+  robot_id: string;
+  generation: number;
+  request_nonce: string;
   manager_instance_id: string;
   absent: boolean;
   startup_clean: boolean;
@@ -1161,6 +1164,7 @@ export interface SimRemoval {
 
 export interface SimRemove {
   generation: number;
+  request_nonce: string;
 }
 
 export interface SimRobot {
@@ -1180,6 +1184,7 @@ export interface SimRobot {
 export interface SimRobotList {
   items: SimRobot[];
   cleanup: SimCleanupSlot[];
+  manager_error: "SIM_DISABLED" | "SIM_UNAVAILABLE" | null;
 }
 
 export interface SimStartRequest {

@@ -8,10 +8,16 @@
       "minimum": 1,
       "title": "Generation",
       "type": "integer"
+    },
+    "request_nonce": {
+      "format": "uuid",
+      "title": "Request Nonce",
+      "type": "string"
     }
   },
   "required": [
-    "generation"
+    "generation",
+    "request_nonce"
   ],
   "title": "SimRemove",
   "type": "object"

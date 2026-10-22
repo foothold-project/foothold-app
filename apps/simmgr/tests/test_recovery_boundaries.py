@@ -186,8 +186,26 @@ def test_unit_command_error_marks_failed_and_preserves_child(operation):
 
 def test_absent_robot_delete_api_accepts_any_generation():
     cfg=settings();rid=next(iter(cfg.slots))
+    nonce = str(uuid4())
     with TestClient(api.create_app(cfg),client=('127.0.0.1',9438)) as client:
-        result=client.request('DELETE','/v1/robots/'+rid,json={'generation':99},
+        result=client.request('DELETE','/v1/robots/'+rid,json={'generation':99, 'request_nonce':nonce},
                               headers={'Authorization':'Bearer '+cfg.secret})
         assert result.status_code==200
-        assert result.json()=={'manager_instance_id':str(client.app.state.instance_id), 'absent':True, 'startup_clean':True}
+        assert result.json()=={'robot_id':rid, 'generation':99, 'request_nonce':nonce,
+                              'manager_instance_id':str(client.app.state.instance_id), 'absent':True, 'startup_clean':True}
+
+
+def test_live_robot_other_generation_is_never_absent():
+    cfg = settings(); rid = next(iter(cfg.slots)); slot = cfg.slots[rid]
+    with TestClient(api.create_app(cfg), client=('127.0.0.1', 9418)) as client:
+        headers = {'Authorization': 'Bearer ' + cfg.secret}
+        body = dict(world_id='a', robot_id=rid, owner_id=str(uuid4()), org_id=slot.org_id,
+                    agent_token='x' * 32, generation=2)
+        assert client.post('/v1/robots', json=body, headers=headers).status_code == 200
+        before = list(client.app.state.manager.launcher.events)
+        response = client.request('DELETE', '/v1/robots/' + rid,
+                                  json={'generation': 1, 'request_nonce': str(uuid4())}, headers=headers)
+        assert response.status_code == 409
+        assert response.json()['error']['code'] == 'SIM_GENERATION_MISMATCH'
+        assert client.app.state.manager.robots[rid].generation == 2
+        assert client.app.state.manager.launcher.events == before

@@ -5,7 +5,7 @@ import stat
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, ProxyHandler, HTTPRedirectHandler
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import Response
 from sqlalchemy import select
@@ -137,8 +137,11 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 raise RelayError('SIM_DISABLED')
             result = C.SimRobotList.model_validate(app.state.simmgr.request(
                 'GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
-        except (RelayError, ValueError, TypeError):
-            result = C.SimRobotList(items=[])
+        except RelayError as error:
+            result = C.SimRobotList(items=[], manager_error=(
+                'SIM_DISABLED' if error.code == 'SIM_DISABLED' else 'SIM_UNAVAILABLE'))
+        except (ValueError, TypeError):
+            result = C.SimRobotList(items=[], manager_error='SIM_UNAVAILABLE')
         rows = list(db.scalars(select(Robot).where(Robot.org_id == user.org_id,
             Robot.simulation.is_(True), Robot.archived_at.is_(None),
             *([] if user.role == 'ORG_ADMIN' else [Robot.owner_user_id == user.id]))))
@@ -148,7 +151,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                  and allowed[r.robot_id].sim_generation == r.generation
                  and allowed[r.robot_id].owner_user_id == r.owner_id]
         present = {r.robot_id for r in items}
-        return C.SimRobotList(items=items, cleanup=[C.SimCleanupSlot(robot_id=row.id,
+        return C.SimRobotList(items=items, manager_error=result.manager_error, cleanup=[C.SimCleanupSlot(robot_id=row.id,
             owner_id=row.owner_user_id, generation=row.sim_generation,
             can_recover=row.sim_manager_instance_id is not None)
             for row in rows if row.id not in present and row.sim_state != 'IDLE'
@@ -236,7 +239,8 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             compensation = 'NOT_CREATED' if not_created else 'REMOVED_OR_ABSENT'
             if not not_created:
                 try:
-                    app.state.simmgr.request('DELETE', '/v1/robots/' + rid, {'generation': generation})
+                    app.state.simmgr.request('DELETE', '/v1/robots/' + rid,
+                        {'generation': generation, 'request_nonce': str(uuid4())})
                 except RelayError as error:
                     compensation = error.code
             event(db, user.org_id, 'SIM_ROBOT_START_STALE', user.id,
@@ -279,15 +283,25 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                   {'robot_id': str(robot_id), 'reason': code}, category='LINK')
             db.commit()
         removal_error = None
+        request_nonce = uuid4()
         try:
             if app.state.simmgr is None:
                 raise RelayError('SIM_DISABLED', detail={'reason': 'manager_unreachable'})
             result = C.SimRemoval.model_validate(app.state.simmgr.request('DELETE', '/v1/robots/' + str(robot_id),
-                {'generation': generation}))
-            # Same-process cancellation fences delayed delivery as before. Lost
-            # memory across restart needs a different instance AND the complete
-            # startup absence/resource proof; legacy unbound slots stay owned.
-            if result.absent and (manager_instance_id is None or not result.startup_clean):
+                {'generation': generation, 'request_nonce': str(request_nonce)}))
+            # Every receipt, including normal cleanup, belongs to this DELETE.
+            if (result.robot_id != robot_id or result.generation != generation
+                    or result.request_nonce != request_nonce):
+                raise RelayError('SIM_RECOVERY_UNPROVEN')
+            # A: recovery after lost memory requires a DIFFERENT manager UUID.
+            # Same-instance absence is only the existing serialized cancellation
+            # receipt: Manager.remove fences late POST before replying (#51).
+            recovered_absent = (result.absent and manager_instance_id is not None
+                                and result.manager_instance_id != manager_instance_id
+                                and result.startup_clean)
+            same_instance_cancel = (result.absent and result.manager_instance_id == manager_instance_id
+                                    and result.startup_clean)
+            if result.absent and not (recovered_absent or same_instance_cancel):
                 raise RelayError('SIM_RECOVERY_UNPROVEN')
         except RelayError as error:
             removal_error = error
@@ -312,5 +326,5 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         # Keep identity, provenance and pass/revocation history; no archive/reuse shortcut.
         event(db, user.org_id, 'SIM_ROBOT_REMOVED', user.id, {'robot_id': str(robot_id),
               'generation': generation, 'manager_instance_id': str(result.manager_instance_id),
-              'recovered_absent': result.absent and result.manager_instance_id != manager_instance_id}, category='LINK')
+              'recovered_absent': recovered_absent}, category='LINK')
         return Response(status_code=204)

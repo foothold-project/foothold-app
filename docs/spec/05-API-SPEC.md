@@ -1048,11 +1048,14 @@ SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 
 않는다. 서버 commit 뒤 아직 송신하지 않은 첫 전달은 관리자 재시작을 넘을 수 있으므로,
 성공·불확실 결과 모두 서버 최종 확인과 보상을 거친다. 새 관리자의 부재 관문만으로 이
 첫 전달을 배제하지 않는다.
-관리자 DELETE 본문은 `SimRemove {generation}`이며 자기 잠금 안에서 다음처럼 처리한다.
+관리자 DELETE 본문은 `SimRemove {generation,request_nonce}`이며 서버가 매 DELETE마다
+새 UUID nonce를 만든다(늦은 시작의 보상 DELETE도 포함). 자기 잠금 안에서 다음처럼 처리한다.
 
 - 로봇이 있으면 같은 세대일 때만 STOP·정리하고, 다른 세대면409 SIM_GENERATION_MISMATCH다.
 - 로봇이 없으면 기대 세대와 무관하게200이며, 세대 취소 영수증을 남겨 늦은 POST를 막는다.
-  응답 `SimRemoval`은 `manager_instance_id` UUID·`absent`·`startup_clean`을 싣는다.
+  응답 `SimRemoval`은 `robot_id`·`generation`·`request_nonce`·응답한
+  `manager_instance_id` UUID·`absent`·`startup_clean`을 싣는다. 해당 robot_id가
+  관리자에 없을 때만 absent=true이며, 살아 있는 다른 세대는 부재로 답하지 않는다.
 - 서비스 시작 전 fake/native 모두 기존 isolation preflight(93/DDS 부재)와 남은
   `fh-rb-sim-*.service`/`fh-simmgr-agent-*.service` user unit 부재 검사를 통과한다.
   fake의 자원 경고는 서비스 시작만 허용하며 `startup_clean=false`로 복구 증명이 되지 않는다.
@@ -1061,7 +1064,11 @@ SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 
 
 0016의 `robots.sim_manager_instance_id`에 예약 전 카탈로그에서 받은 관리자 UUID를
 저장한다. POST의 첫 전달·재시작·최종 확인·보상·SIM_GENERATION_STALE 규칙은 그대로다.
-같은 관리자의 DELETE 취소 영수증은 기존처럼 늦은 POST를 막는다. 다른 관리자가 모르는
+서버는 정상 제거·부재 응답 모두에서 robot_id·generation·nonce가 현재 슬롯·세대·방금
+보낸 요청과 같아야 인정한다. 하나라도 다르거나 빠지면 SIM_RECOVERY_UNPROVEN으로
+owner·세대·hash를 보존한다. 같은 관리자의 부재는 기존 잠금 안에서 세대 취소 영수증을
+남겨 늦은 POST를 막은 경우이며, 기록 UUID 일치·startup_clean일 때만 해제한다(#51).
+다른 관리자가 모르는
 슬롯은 **기록된 UUID와 다른 새 UUID + 시작 시 unit 0·domain93/DDS 0·자원 통과 +
 해당 슬롯 부재 + 이후 관리자 실패/종료 없음**을 모두 확인해야 IDLE로 해제한다.
 응답 손상·증명 누락·기록 없는 레거시 슬롯은 `503 SIM_RECOVERY_UNPROVEN`으로 보존한다.
@@ -1069,7 +1076,10 @@ SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 
 목록 `SimRobotList.cleanup`은 DB에는 소유가 있으나 관리자 목록에서 같은 owner·generation을
 확인할 수 없는 슬롯(`robot_id,owner_id,generation,can_recover`)이다. 관리자 꺼짐·응답 오류에도
 현재 권한 범위의 DB 정리 대상을 반환하며 목록 조회 자체는 슬롯을 해제하지 않는다.
-앱은 내 슬롯에 «이전 시뮬이 정리되지 않았습니다 — 정리»와 항상 누를 수 있는 정리 버튼을
+`manager_error`는 정상 조회 시 null, 미설정이면 SIM_DISABLED, 연결·응답 오류면
+SIM_UNAVAILABLE이다. 오류 시 앱은 이전 시뮬 잔여로 단정하지 않고 관리자 꺼짐/설정·연결
+확인 안내와 «관리자가 내 시뮬 자리를 확인하지 못했습니다.»를 보이며 정리 버튼을 유지한다.
+정상 조회 시 앱은 내 슬롯에 «이전 시뮬이 정리되지 않았습니다.»와 항상 누를 수 있는 정리 버튼을
 보인다. 연결 주소를 만들거나 출입증을 발급받지 않는다. 기존 관리자 UUID 기록이 없으면
 «이 시뮬 자리는 자동 정리할 수 없습니다 — 관리자에게 문의하세요.»도 표시한다.
 성공한 복구 감사는 기존 SIM_ROBOT_REMOVED 한 건에 세대·새 관리자 UUID·recovered_absent를 담는다.

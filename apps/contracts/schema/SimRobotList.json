@@ -131,11 +131,28 @@
       },
       "title": "Items",
       "type": "array"
+    },
+    "manager_error": {
+      "anyOf": [
+        {
+          "enum": [
+            "SIM_DISABLED",
+            "SIM_UNAVAILABLE"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Manager Error"
     }
   },
   "required": [
     "items",
-    "cleanup"
+    "cleanup",
+    "manager_error"
   ],
   "title": "SimRobotList",
   "type": "object"

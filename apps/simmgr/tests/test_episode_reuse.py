@@ -126,7 +126,7 @@ def test_delete_then_post_same_manager_preserves_generation(native_episode, nati
             assert response.status_code == 200, response.text
             assert response.json()['state'] == ('RUNNING' if native else 'PREPARED')
             assert client.request('DELETE', '/v1/robots/' + slot.robot_id,
-                                  json={'generation': generation}, headers=headers).status_code == 200
+                                  json={'generation': generation, 'request_nonce': str(uuid4())}, headers=headers).status_code == 200
             # Late POSTs still cannot resurrect the just-deleted generation.
             response = client.post('/v1/robots', json=body, headers=headers)
             assert response.status_code == 409

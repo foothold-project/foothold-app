@@ -2,7 +2,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 import hmac
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -102,9 +102,11 @@ def create_app(settings, launcher=None):
         return await manager.add(body.world_id, str(body.robot_id), str(body.owner_id), str(body.org_id), body.agent_token, body.generation)
 
     @app.delete('/v1/robots/{robot_id}', dependencies=[Depends(authenticate)])
-    async def remove(robot_id: str, body: C.SimRemove):
-        absent = await manager.remove(robot_id, body.generation)
-        return C.SimRemoval(manager_instance_id=app.state.instance_id, absent=absent,
+    async def remove(robot_id: UUID, body: C.SimRemove):
+        absent = await manager.remove(str(robot_id), body.generation)
+        return C.SimRemoval(robot_id=robot_id, generation=body.generation,
+                            request_nonce=body.request_nonce,
+                            manager_instance_id=app.state.instance_id, absent=absent,
                             startup_clean=app.state.preflight.get('resources_ok') is True
                             and not manager.failed and not manager.closing
                             and not getattr(manager.launcher, 'failure', False))

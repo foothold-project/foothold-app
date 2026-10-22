@@ -7,9 +7,25 @@
       "title": "Absent",
       "type": "boolean"
     },
+    "generation": {
+      "maximum": 9223372036854775807,
+      "minimum": 1,
+      "title": "Generation",
+      "type": "integer"
+    },
     "manager_instance_id": {
       "format": "uuid",
       "title": "Manager Instance Id",
+      "type": "string"
+    },
+    "request_nonce": {
+      "format": "uuid",
+      "title": "Request Nonce",
+      "type": "string"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
       "type": "string"
     },
     "startup_clean": {
@@ -18,6 +34,9 @@
     }
   },
   "required": [
+    "robot_id",
+    "generation",
+    "request_nonce",
     "manager_instance_id",
     "absent",
     "startup_clean"

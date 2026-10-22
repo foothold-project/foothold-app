@@ -49,7 +49,7 @@ export function SimLaunch({ me }: { me: string }) {
     <div className="fh-row"><button type="button" className="btn pri" onClick={() => sim.end()}>다시 끝내기</button><button type="button" className="btn" onClick={() => sim.load()}>다시 확인</button><button type="button" className="btn" onClick={() => sim.reset()}>처음으로</button></div></>;
   else body = <>
     {cleanup.length > 0 && <ul className="dv-cards" aria-label="정리할 내 시뮬 자리">{cleanup.map((r) => <li key={r.robot_id} className="card dv-card">
-      <b>{short(r.robot_id)}</b><p className="fh-why">이전 시뮬이 정리되지 않았습니다 — 정리</p>
+      <b>{short(r.robot_id)}</b><p className="fh-why">{s.managerError ? '관리자가 내 시뮬 자리를 확인하지 못했습니다.' : '이전 시뮬이 정리되지 않았습니다.'}</p>
       {!r.can_recover && <p className="fh-why">이 시뮬 자리는 자동 정리할 수 없습니다 — 관리자에게 문의하세요.</p>}
       <button type="button" className="btn" onClick={() => sim.cleanupSlot(r)}>정리</button></li>)}</ul>}
     {s.mine.length > 0 && <ul className="dv-cards" aria-label="내 시뮬 로봇">{s.mine.map((r) => <li key={r.robot_id} className="card dv-card">

@@ -2,7 +2,7 @@
 // 띄우기·정리·출입증은 관제 서버 REST(api.ts), 조종·STOP·영상은 그 로봇 에이전트 폰 포트에 직접 WS — 서버 실시간(rt.ts) 조종 경로를 쓰지 않는다.
 // 조종권·잠금·deadman 판정은 에이전트. 폰은 요청만 보내고 state 로 확인한다: 자동 취득·자동 해제·자동 재연결 없음.
 import { useSyncExternalStore } from 'react';
-import type { PhoneState, PhoneWelcome, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot } from '../../contracts/ts';
+import type { PhoneState, PhoneWelcome, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot, SimRobotList } from '../../contracts/ts';
 import { ApiFail, api, authMark } from './api';
 
 /** pick 고르기 · starting 띄우는 중 · unsure 시작 확인 안 됨(서버 STARTING 일 수 있음) · linking 출입증·연결 · drive 조종 화면 · ending 끝내는 중 · checking 정리 확인 안 됨 */
@@ -28,12 +28,12 @@ export type Sim = {
   /** 이 시각(단조) 전에는 다시 연결하지 않는다(1013 뒤 늘리는 간격·출입증 429 retry_after) */
   retryAt: number;
   /** unsure 가 SIM_SLOT_BUSY 때문(남의 로봇일 수 있어 목록으로 내 것인지 먼저 확인) · 남이 쓰는 것으로 확인한 슬롯 */
-  slotBusy: boolean; busyWhy: string; taken: string[]; cleanup: SimCleanupSlot[];
+  slotBusy: boolean; busyWhy: string; taken: string[]; cleanup: SimCleanupSlot[]; managerError: SimRobotList['manager_error'];
 };
 
 export const CMD_MS = 50, PING_MS = 1000;
 const now = () => performance.now();
-const blank = (): Sim => ({ step: 'pick', catalog: null, mine: [], cleanup: [], listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, slotBusy: false, busyWhy: '', taken: [] });
+const blank = (): Sim => ({ step: 'pick', catalog: null, mine: [], cleanup: [], managerError: null, listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, slotBusy: false, busyWhy: '', taken: [] });
 /** 05 §13.9 시작 전 확실한 거부 (status, code) 고정 목록 — 이 밖(SIM_SLOT_BUSY 포함)은 불확실 */
 const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400 SIM_CREDENTIAL_INVALID', '404 SIM_WORLD_NOT_FOUND', '404 SIM_SLOT_NOT_FOUND',
   '409 SIM_WORLD_BUSY', '409 SIM_OWNER_LIMIT', '409 SIM_NATIVE_SINGLE_ONLY', '409 SIM_ROBOT_LIMIT']);
@@ -178,14 +178,17 @@ export const sim = {
     const g = gen, e0 = epoch;
     const [c, r] = await Promise.allSettled([api.simWorlds(), api.simRobots()]);
     if (g !== gen || e0 !== epoch) return false;
+    const managerError = r.status === 'fulfilled' ? r.value.manager_error ?? null : 'SIM_UNAVAILABLE';
     const e = c.status === 'rejected' ? simulationMessage(c.reason) ?? `시뮬 월드 목록을 받지 못했습니다. ${message(c.reason)}`
-      : r.status === 'rejected' ? simulationMessage(r.reason) ?? `내 시뮬 로봇 목록을 받지 못했습니다. ${message(r.reason)}` : '';
+      : r.status === 'rejected' ? simulationMessage(r.reason) ?? `내 시뮬 로봇 목록을 받지 못했습니다. ${message(r.reason)}`
+      : managerError === 'SIM_DISABLED' ? '시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.'
+      : managerError ? '시뮬 관리자에 연결하지 못했습니다. 관리자가 켜져 있는지와 연결을 확인한 뒤 정리하세요.' : '';
     // 목록 오류만 지운다 — 띄우기 거부·정리 확인 실패 문구는 남김
     set({ catalog: c.status === 'fulfilled' ? c.value : S.catalog, mine: r.status === 'fulfilled' ? r.value.items : S.mine, listed: r.status === 'fulfilled' || S.listed,
-      cleanup: r.status === 'fulfilled' ? r.value.cleanup ?? [] : S.cleanup,
+      cleanup: r.status === 'fulfilled' ? r.value.cleanup ?? [] : S.cleanup, managerError,
       err: e || (S.err === loadErr ? '' : S.err) });
     loadErr = e;
-    return r.status === 'fulfilled';
+    return r.status === 'fulfilled' && !managerError;
   },
   /** 띄우기: 남이 쓰는 것으로 확인한 슬롯을 뺀 첫 슬롯 1개만(자동으로 다음 슬롯을 시도하지 않음). 요청 슬롯은 답 전에 robot 에 둔다(STOP·정리 대상).
    *  201 = ACTIVE → 바로 연결. §13.9 확실한 거부 목록 = 고르기로. SIM_SLOT_BUSY = «확인 중» + 목록으로 내 것인지(recheck).

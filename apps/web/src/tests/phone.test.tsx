@@ -271,7 +271,8 @@ describe('시뮬 직결 실패', () => {
     serve({ 'GET /simulation/robots': () => ({ status: 200, body: { items: [], cleanup } }),
       [`DELETE /simulation/robots/${S1}`]: () => { cleanup = []; return { status: 204 }; } });
     await mount();
-    expect(box.textContent).toContain('이전 시뮬이 정리되지 않았습니다 — 정리');
+    expect(box.textContent).toContain('이전 시뮬이 정리되지 않았습니다.');
+    expect(box.textContent).not.toContain('— 정리정리');
     expect(box.textContent!.includes('자동 정리할 수 없습니다')).toBe(!bound);
     expect(btn('직접 연결')).toBeUndefined();
     expect(btn('띄우기')!.disabled).toBe(true);
@@ -281,6 +282,18 @@ describe('시뮬 직결 실패', () => {
     expect(calls.filter((c) => c.method === 'DELETE')).toHaveLength(1);
     expect(btn('띄우기')!.disabled).toBe(false);
     expect(agents()).toHaveLength(0);
+  });
+
+  it.each(['SIM_DISABLED', 'SIM_UNAVAILABLE'])('목록의 관리자 조회 실패는 잔여로 단정하지 않고 연결 안내를 보인다: %s', async (manager_error) => {
+    serve({ 'GET /simulation/robots': { status: 200, body: { items: [], manager_error,
+      cleanup: [{ robot_id: S1, owner_id: 'u-lee', generation: 1, can_recover: true }] } } });
+    await mount();
+    expect(box.textContent).not.toContain('이전 시뮬이 정리되지 않았습니다');
+    expect(box.textContent).toContain('관리자가 내 시뮬 자리를 확인하지 못했습니다.');
+    expect(box.textContent).toContain(manager_error === 'SIM_DISABLED' ? '연결 설정이 없습니다' : '관리자가 켜져 있는지와 연결을 확인');
+    expect(btn('정리')!.disabled).toBe(false);
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+    expect(calls.some((c) => c.path.endsWith('/phone-pass'))).toBe(false);
   });
 
   it.each(['이 시뮬 슬롯은 다른 사람이 사용 중입니다.', '시뮬 슬롯의 전환이 끝나지 않았습니다.'])('슬롯 사용 중은 서버 문구 그대로: %s', async (why) => {
