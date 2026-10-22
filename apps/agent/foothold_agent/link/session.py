@@ -1,7 +1,8 @@
 """Serialized, sans-I/O server session; all deadlines use the injected clock.
 
-Core safety decisions are inherited unchanged. Only its wall-clock/print event
-observer is replaced with an in-memory observer. Local state is never invented:
+Core safety gates are inherited unchanged. Its wall-clock/print event observer
+is replaced with an in-memory observer; velocity projection defaults to the
+original alphabet (simulation phone Hub opts into continuous vx). Local state is never invented:
 on_robot_state() must receive real bridge feedback before Core can allow motion.
 """
 
@@ -14,7 +15,7 @@ import time
 from typing import Callable
 import sys
 
-from foothold_agent.safety.core import Core, DEAD, Z, valid_axes
+from foothold_agent.safety.core import Core, DEAD, Z, valid_axes, quantize
 
 LINK_TIMEOUT = 3.0
 REPORT_INTERVAL = 0.1
@@ -67,10 +68,10 @@ class Session:
     """
 
     def __init__(self, now: Callable[[], float] = time.monotonic, *, identity: dict | None = None,
-                 server_link: bool = True):
+                 server_link: bool = True, velocity_projection=quantize):
         self.now = now
         self.server_link = server_link
-        self.core = _MemoryCore(now=now)
+        self.core = _MemoryCore(now=now, velocity_projection=velocity_projection)
         self.core.stop("startup")
         self.identity = {
             "agent_version": "0.2.0", "robot_model": None, "firmware": None,

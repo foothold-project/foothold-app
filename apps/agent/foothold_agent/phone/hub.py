@@ -7,8 +7,9 @@ import time
 from uuid import uuid4
 
 from foothold_agent.link.session import Session, MotionCommand, Effects, MAX_BUFFER
-from foothold_agent.safety.core import Z, STATE_STALE
-from .protocol import PROTO, LIMITS, MAX_SEQ, frame, project_velocity
+from foothold_agent.safety.core import Z, STATE_STALE, quantize
+from .protocol import (PROTO, LIMITS, SIMULATION_LIMITS, MAX_SEQ, frame,
+                       project_velocity, simulation_velocity)
 from .tickets import TicketError
 
 
@@ -43,7 +44,8 @@ class Hub:
         self.robot = verifier.robot
         self.policy = {'name': policy_name, 'version': policy_version}
         self.simulation = simulation
-        self.session = Session(now=now, server_link=False)
+        self.session = Session(now=now, server_link=False,
+                               velocity_projection=simulation_velocity if simulation is True else quantize)
         self.peers = {}
         self.closing = {}
         self.owner = self.reservation = self.pending = None
@@ -289,7 +291,8 @@ class Hub:
             p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']
             p.jti, p.issued = ticket['jti'], ticket['issued']
             return {'t': 'hello', 'id': f['id'], 'robot': self.robot, 'proto': PROTO,
-                    'limits': deepcopy(LIMITS), 'policy': dict(self.policy), 'simulation': self.simulation,
+                    'limits': deepcopy(SIMULATION_LIMITS if self.simulation is True else LIMITS),
+                    'policy': dict(self.policy), 'simulation': self.simulation,
                     'ping_interval_ms': 1000, 'link_timeout_ms': 3000, 'lease_timeout_ms': 15000}
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
@@ -378,7 +381,7 @@ class Hub:
         elif kind == 'cmd':
             if f['seq'] <= self.session.last_seq:
                 self.fail(peer, 'SEQUENCE_INVALID')
-            axes, clipped = project_velocity(f['vx'], f['vy'], f['wz'])
+            axes, clipped = project_velocity(f['vx'], f['vy'], f['wz'], simulation=self.simulation)
             core_axes = list(axes)
             self._emit(self.session.receive({'t': 'cmd', 'lease_id': f['lease_id'], 'seq': f['seq'], 'axes': core_axes}))
             return {'t': 'cmd.ack', 'id': f['id'], 'seq': f['seq'], 'applied': list(self.session.core.out),

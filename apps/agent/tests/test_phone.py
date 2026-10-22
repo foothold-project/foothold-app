@@ -17,7 +17,7 @@ import pytest
 
 from foothold_agent.phone.hub import Hub, PhoneError
 from foothold_agent.phone.observer import Observer, DiscardSink
-from foothold_agent.phone.protocol import LIMITS, project_velocity
+from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_velocity
 from foothold_agent.phone.server import Server, Settings
 from foothold_agent.phone.tickets import Verifier, TicketError, load_keys
 from foothold_agent.safety.core import SCHEMA, Z
@@ -43,7 +43,7 @@ def signed(key, claims, **header):
 
 
 class Harness:
-    def __init__(self, *, replay_path=':memory:', clock=None):
+    def __init__(self, *, replay_path=':memory:', clock=None, simulation=True):
         self.clock = clock or Clock()
         self.robot, self.org = str(uuid4()), str(uuid4())
         self.key = os.urandom(32)
@@ -52,7 +52,7 @@ class Harness:
                                  clock_trusted=True, now=self.clock, wall=self.clock.wall)
         self.sink = type('Sink', (), {'apply': lambda _, command: self.outputs.append(command)})()
         self.hub = Hub(self.verifier, self.sink, policy_name='test-policy', policy_version='1',
-                       simulation=True, now=self.clock, wall=self.clock.wall, record=self.events.extend)
+                       simulation=simulation, now=self.clock, wall=self.clock.wall, record=self.events.extend)
         self.ids = 0
         self.sequence = 0
 
@@ -120,10 +120,18 @@ def h():
     fixture.verifier.close()
 
 
+@pytest.fixture
+def physical_h():
+    fixture = Harness(simulation=False)
+    yield fixture
+    fixture.hub.close()
+    fixture.verifier.close()
+
+
 def test_phone_single_controller_and_connection_bound_lease(h):
     a, _, welcome = h.connect()
     b, _, _ = h.connect()
-    assert welcome['limits'] == LIMITS and welcome['simulation']
+    assert welcome['limits'] == SIMULATION_LIMITS and welcome['simulation']
     assert h.take(a)['ok']
     lease = h.hub.session.lease_id
     assert not h.take(b)['ok']
@@ -316,7 +324,8 @@ def test_phone_stop_unlock_requires_feedback_and_new_neutral(h):
     ((9, 8, 7), (.6, 0, .5), True), ((-2, 0, 1), Z, True),
     ((.2, 0, .2), Z, True), ((.6, 0, -.5), (.6, 0, -.5), False),
     ((0, 0, 0), Z, False), ((.6, 0, .1), (.6, 0, 0), True)])
-def test_phone_limits_never_expand_core_alphabet(h, velocity, expected, clipped):
+def test_phone_limits_never_expand_core_alphabet(physical_h, velocity, expected, clipped):
+    h = physical_h
     a, _ = h.moving()
     reply = h.cmd(a, *velocity)
     assert reply['applied'] == list(expected) and reply['clipped'] is clipped
@@ -514,7 +523,7 @@ def test_phone_ws_two_clients_disconnect_and_state_stream(h):
                     for ws in (a, b):
                         payload = h.claims()
                         welcome = await response(ws, 'hello', proto='fh-phone/1', device=payload['device'], ticket=signed(h.key, payload))
-                        assert welcome['limits'] == LIMITS
+                        assert welcome['limits'] == SIMULATION_LIMITS
                     replies = await asyncio.gather(response(a, 'lease.take'), response(b, 'lease.take'))
                     assert sum(r['ok'] for r in replies) == 1
                     owner_ws = a if replies[0]['ok'] else b

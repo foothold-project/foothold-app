@@ -1067,6 +1067,11 @@ PhoneMessage = Annotated[PhoneHello | PhoneLease | PhoneRespond | PhoneCommand |
 
 
 class PhoneLimits(Contract):
+    # Additive metadata: old physical agents keep the original six bounds and
+    # commands. Missing vx_mode means discrete; never infer a continuous range.
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    vx_mode: Literal['discrete', 'continuous'] = 'discrete'
+    vx_min_moving: float | None = Field(default=None, ge=0)
     vx_min: float
     vx_max: float
     vy_min: float

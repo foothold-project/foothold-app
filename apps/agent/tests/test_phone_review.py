@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import pytest
 
-from test_phone import h, Harness, Clock, encode, signed, phone_socket
+from test_phone import h, physical_h, Harness, Clock, encode, signed, phone_socket
 from foothold_agent.phone.hub import Peer, PhoneError
 from foothold_agent.phone.server import Server, Settings
 from foothold_agent.phone.tickets import Verifier, TicketError, load_keys
@@ -376,7 +376,8 @@ def test_hub_is_only_link_timer_and_owner_matches_session_lease(h):
 
 
 @pytest.mark.parametrize('velocity', [(-.6, 0, 0), (.2, 0, 0), (0, .2, 0), (0, 0, .3)])
-def test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it(h, velocity):
+def test_intermediate_input_preserves_confirmed_neutral_but_never_creates_it(physical_h, velocity):
+    h = physical_h
     owner, _, _ = h.connect(); h.take(owner); h.unlock(owner)
     assert h.cmd(owner, velocity[0], vy=velocity[1], wz=velocity[2])['applied'] == list(Z)
     assert h.cmd(owner)['applied'] == list(Z)

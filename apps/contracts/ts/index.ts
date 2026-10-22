@@ -689,6 +689,8 @@ export interface PhoneLeaseResult {
 }
 
 export interface PhoneLimits {
+  vx_mode?: "discrete" | "continuous";
+  vx_min_moving?: number | null;
   vx_min: number;
   vx_max: number;
   vy_min: number;

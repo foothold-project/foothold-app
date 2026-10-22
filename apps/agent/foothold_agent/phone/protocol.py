@@ -6,6 +6,7 @@ nonfinite numbers, duplicate JSON keys and noncanonical UUIDs are rejected.
 
 import math
 
+from foothold_agent.safety.core import Z
 from .tickets import json_object, uuid
 
 PROTO = 'fh-phone/1'
@@ -59,8 +60,37 @@ def frame(raw, robot):
     return value
 
 
-def project_velocity(vx, vy, wz):
-    """Downward-only projection onto the unchanged Core's tested SI alphabet."""
+def simulation_velocity(fx, fy, fw):
+    """Simulation phone axes: fx is SI vx, fw is normalized fixed-turn intent.
+
+    Only exact ZERO confirms neutral. Rejected movement retains a reason so it
+    cannot satisfy Core's fresh-neutral gate after STOP/deadman/reconnection.
+    """
+    if (fx, fy, fw) == Z:
+        return Z, ''
+    if fx < 0:
+        return Z, '후진 미검증 — 보내지 않음'
+    if fy:
+        return Z, '옆걸음 미검증 — 보내지 않음'
+    if fx < .2:
+        return Z, ('저속 0.2 m/s 미만 — 보내지 않음' if fx else
+                   '제자리 회전 미검증 — 앞으로 밀면서 돌리세요')
+    return (min(fx, 1.0), 0.0, .5 if fw >= 1 else -.5 if fw <= -1 else 0.0), ''
+
+
+def project_velocity(vx, vy, wz, *, simulation=False):
+    """SI input -> Core axes; physical/default mode keeps the tested alphabet."""
+    if simulation is True:
+        x = min(vx, 1.0) if vx >= .2 else 0.0
+        turn = (.5 if wz >= .5 else -.5 if wz <= -.5 else 0.0) if x else 0.0
+        limited = (x, 0.0, turn)
+        axes = (x, 0.0, turn / .5)
+        if limited == Z and (vx, vy, wz) != Z:
+            axes = ((-1.0, 0.0, 0.0) if vx < 0 else
+                    (vx, 0.0, 0.0) if vx else
+                    (0.0, 1.0 if vy > 0 else -1.0, 0.0) if vy else
+                    (0.0, 0.0, 1.0 if wz > 0 else -1.0))
+        return axes, limited != (vx, vy, wz)
     x = .6 if vx >= .6 else 0.0
     turn = (.5 if wz >= .5 else -.5 if wz <= -.5 else 0.0) if x else 0.0
     limited = (x, 0.0, turn)
@@ -77,3 +107,8 @@ def project_velocity(vx, vy, wz):
 LIMITS = {'vx_min': 0.0, 'vx_max': .6, 'vy_min': 0.0, 'vy_max': 0.0,
           'wz_min': -.5, 'wz_max': .5,
           'commands': [[0.0, 0.0, 0.0], [.6, 0.0, 0.0], [.6, 0.0, -.5], [.6, 0.0, .5]]}
+
+# commands enumerates discrete mode only. Continuous mode uses the interval
+# plus ZERO, with the same fixed +/-0.5 turns while moving forward.
+SIMULATION_LIMITS = {**LIMITS, 'vx_mode': 'continuous', 'vx_min_moving': .2,
+                     'vx_max': 1.0, 'commands': []}
