@@ -137,7 +137,7 @@ P1-D 별도 표로 측정하며 이 단계의 같은 PC 수치를 실폰 결과�
 ## 멈추기와 실패
 
 1. driver STOP→0·잠금 확인·계측 수거 뒤 observer를 정상 종료하고93 DDS 해제를 확인한 뒤 서버 DELETE로 제거. 서버는 살아 있는 출입증을 기존 회수
-   outbox로 먼저 commit하고, 정리 중 발급분도 완료 직전 조직 잠금 아래 회수한다. ACK·offline600초 한계는05 §13.7 그대로이며 회수 전달을 따로 확인한다.
+   outbox로 먼저 commit하고, 정리 중 발급분도 완료 직전 조직 잠금 아래 회수한다. ACK·offline 600초 한계는05 §13.7 그대로이며 회수 전달을 따로 확인한다.
 2. manager는 agent SIGINT→기존 Hub.close·bridge ZERO/STOP·ACK·exit0을 기다린 뒤만 world 정리.
    **Ctrl-C는 한 번만**. 별도 사용자 unit은 터미널 Ctrl-C를 직접 받지 않는다.
 3. agent 정지15초 timeout은 failed로 고정하고 자기 unit만 SIGTERM→5초→SIGKILL→5초
@@ -192,13 +192,14 @@ systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
 POST는 자동 재전송하지 않는다. 다만 서버 commit 뒤 송신 전 지연된 **첫 전달**은 새 관리자에
 도착할 수 있다. 이 경계는 성공·불확실 결과 모두의 DB 세대/STARTING 최종 확인과 보상이
 맡으며 startup 부재 관문만으로 배제하지 않는다. 불일치면 잠금 밖에서 같은 세대로 DELETE를
-1회 보상하고 START_STALE 감사 1건에 결과를 남긴다. STALE409는 생성 없음이므로 DELETE
-없이 NOT_CREATED 감사 1건이다. 불확실 결과라도 DB 세대/STARTING이 그대로면 보상하지 않는다.
+1회 보상하고 START_STALE 감사 1건에 결과를 남긴다. STALE 409는 생성 없음이므로 DELETE
+없이 NOT_CREATED 감사 1건이다.
+503 응답만으로 STARTING 유지인지 보상됐는지 구분할 수 없으므로 목록·감사·재취득을 함께 확인한다. 불확실 결과라도 DB 세대/STARTING이 그대로면 보상하지 않는다.
 
 응답 유실과 보상 실패가 겹치면 고아 runtime이 남을 수 있다. 서버 token hash는 이미 바뀌어
-그 에이전트가 서버에 붙지 못한다. 폰 출입증의 offline600초 한계와 STOP0 확인은 별개다.
-world·agent unit은 각각 RuntimeMaxSec=240으로 자동 종료를 요청한다. world의 정지 grace45초·
-agent15초는 별도이고, 실제 종료/고아 정리/STOP0는 이번에 검증하지 않았다. 다음 POST가
+그 에이전트가 서버에 붙지 못한다. 폰 출입증의 offline 600초 한계와 STOP0 확인은 별개다.
+world·agent unit은 각각 RuntimeMaxSec=240으로 자동 종료를 요청한다. world의 정지 grace 45초·
+agent 15초는 별도이고, 실제 종료/고아 정리/STOP0는 이번에 검증하지 않았다. 다음 POST가
 SIM_SLOT_BUSY(불확실)라면 자동 재전송하지 않고 위 복구 1·2단계로 돌아가 자기 runtime과
 unit 정리·부재 관문을 확인한 뒤 새 episode/기존 DELETE 복구를 따른다. 현재 DB를 임의로
 IDLE로 덮거나 다른 세대 로봇을 지우지 않는다.

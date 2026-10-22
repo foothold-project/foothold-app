@@ -18,6 +18,7 @@ const CHOI: User = { ...KIM, id: 'o3', username: 'choi', display_name: '최운�
 const LIMITS = { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30 };
 const AT = '2026-10-20T05:06:07Z';
 const robot = (id: string, name: string, owner: User | null, p: Partial<RobotSummary> = {}): RobotSummary => ({ id, name, model: 'unitree_go2',
+  simulation: false,
   owner: owner && { id: owner.id, display_name: owner.display_name }, connection: 'OFFLINE', status: null, battery: null, location: null, lease: null,
   current_run: null, devices: [], attention: [], ...p });
 const RA = robot('r-a', 'Go2-A', LEE, { connection: 'ONLINE', status: 'IDLE', battery: { soc: 64, updated_at: AT },
