@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { AgentTokenResponse, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { Action, AgentTokenResponse, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -18,6 +18,8 @@ export const NOTE_MS = 10_000;
 export const MAP_READ_MS = 20_000, MAP_WRITE_MS = 60_000;
 /** 결재 목록 한 쪽 — 항목마다 상세(층·판 번호)를 따로 받으므로 작게 */
 export const APPROVAL_PAGE = 20;
+/** 임무·시나리오 목록 한 쪽 */
+export const PLAN_PAGE = 50;
 
 /** 화면에 그대로 보여도 되는 오류. status 0 = 서버에 닿지 못했거나 성공 답을 끝까지 못 읽음(처리됐을 수 있음), said = 서버가 계약 오류 본문(error.code)으로 답함.
  *  detail = 서버 오류 본문의 detail(지도 요소 오류의 element·elements 등) */
@@ -34,10 +36,11 @@ export const expireAuth = (why?: string) => { csrf = null; authLost(why); };
 
 /** ms = 답을 기다리는 한도(넘으면 끊고 TIMEOUT), cancel = 부른 쪽이 거둠(세션이 끝남 등 — CANCELED, 401 이어도 로그인 정리 안 함).
  *  file = 성공 본문을 JSON 대신 Blob 으로(CSV 내려받기 — 실패 본문은 그대로 오류 JSON). raw = 본문을 JSON 대신 이 Content-Type 의 원시 바이트로(지도 올리기) */
-type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean; raw?: string };
-async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file, raw }: Opt = {}): Promise<T> {
+type Opt = { ms?: number; cancel?: AbortSignal; file?: boolean; raw?: string; match?: number };   // match = If-Match 판(임무·시나리오 PUT, §1.3)
+async function call<T>(method: string, path: string, body?: unknown, { ms, cancel, file, raw, match }: Opt = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['Content-Type'] = raw ?? 'application/json';
+  if (match !== undefined) headers['If-Match'] = `"${match}"`;
   if (method !== 'GET' && csrf) headers['X-FH-CSRF'] = csrf;
   if (cancel?.aborted) throw new ApiFail(0, 'CANCELED', NETWORK);
   const stop = new AbortController(), timer = ms ? setTimeout(() => stop.abort(), ms) : undefined, off = () => stop.abort();
@@ -73,6 +76,9 @@ async function pages<T>(path: string, cancel?: AbortSignal, ms?: number) {
   return all;
 }
 
+export type Plan = 'missions' | 'scenarios';
+type PlanOf = { missions: Mission; scenarios: Scenario };
+type WriteOf = { missions: MissionWrite; scenarios: ScenarioWrite };
 export const api = {
   async login(username: string, password: string) {
     const r = await call<LoginResponse>('POST', '/auth/login', { username, password, client: 'web', device_label: '웹 브라우저' });
@@ -150,6 +156,24 @@ export const api = {
   reject: (id: string, reason: string, cancel?: AbortSignal) => call<Approval>('POST', `/approvals/${encodeURIComponent(id)}/reject`, { reason }, { cancel }),
   /** 요청자만(본문 없음) */
   cancelApproval: (id: string, cancel?: AbortSignal) => call<Approval>('POST', `/approvals/${encodeURIComponent(id)}/cancel`, undefined, { cancel }),
+  // 작업 카탈로그·임무·시나리오(05 §6.1~6.3, S5a). 읽기는 로그인한 누구나, 고치기·보관은 만든 사람과 총괄(남의 것 403). 목록은 오래된 것 먼저
+  /** robot 을 주면 그 로봇 장치로 할 수 있는지(선택지별 available·why_unavailable). 담당 밖 로봇은 404 */
+  actions: (robot: string | null, cancel?: AbortSignal) => call<Action[]>('GET', `/actions${robot ? `?robot_id=${encodeURIComponent(robot)}` : ''}`, undefined, { cancel }),
+  /** archived = 보관된 것도. cursor = 앞 쪽의 next_cursor */
+  plans: <K extends Plan>(kind: K, archived: boolean, cursor: string | null, cancel?: AbortSignal) =>
+    call<{ items: PlanOf[K][]; next_cursor: string | null }>('GET', `/${kind}?limit=${PLAN_PAGE}${archived ? '&archived=true' : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, { cancel }),
+  /** 보관 포함 전부(저장 응답이 끊겼을 때 대조·시나리오의 임무 고르기) */
+  allPlans: <K extends Plan>(kind: K, cancel?: AbortSignal) => pages<PlanOf[K]>(`/${kind}?archived=true`, cancel),
+  /** version 없음 = 최신 판(본체 version 이 If-Match 값), 있음 = 그 판(읽기 전용) */
+  plan: <K extends Plan>(kind: K, id: string, version: number | null, cancel?: AbortSignal) => call<PlanOf[K]>('GET', `/${kind}/${encodeURIComponent(id)}${version ? `?version=${version}` : ''}`, undefined, { cancel }),
+  /** 판 1 */
+  createPlan: <K extends Plan>(kind: K, p: WriteOf[K], cancel?: AbortSignal) => call<PlanOf[K]>('POST', `/${kind}`, p, { cancel }),
+  /** 새 판. match = 받은 본체 version — 없으면 428, 다르면 409 VERSION_CONFLICT. 시나리오는 지도가 바뀌면 409 STALE, 갈 수 없는 지점이면 422 */
+  savePlan: <K extends Plan>(kind: K, id: string, match: number, p: WriteOf[K], cancel?: AbortSignal) => call<PlanOf[K]>('PUT', `/${kind}/${encodeURIComponent(id)}`, p, { cancel, match }),
+  /** 보관(204, 되돌리는 API 없음 — 옛 판은 계속 읽힌다) */
+  archivePlan: (kind: Plan, id: string, cancel?: AbortSignal) => call<void>('DELETE', `/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
+  /** 저장 없이 경로 미리보기(지점별 갈 수 있음·이유, 층 연결점, 직선 거리) */
+  preview: (p: ScenarioWrite, cancel?: AbortSignal) => call<ScenarioPreview>('POST', '/scenarios/preview', p, { cancel }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
 };

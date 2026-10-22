@@ -12,7 +12,7 @@ import { Compare, Rollback } from './mapdiff';
 import { Editor, kept } from './mapedit';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
-const floorsOf = (t: SiteTree | null): Place[] => (t ? t.items.flatMap((site) => site.buildings.flatMap((building) => building.floors.map((floor) => ({ site, building, floor })))) : []);
+export const floorsOf = (t: SiteTree | null): Place[] => (t ? t.items.flatMap((site) => site.buildings.flatMap((building) => building.floors.map((floor) => ({ site, building, floor })))) : []);
 
 // 받은 값 모양 검사 — 어긋난 응답이 화면을 깨뜨리지 않게 오류 한 줄로만(screens/history.tsx 와 같은 방식)
 const str = (v: unknown) => typeof v === 'string', num = (v: unknown) => typeof v === 'number' && Number.isFinite(v), arr = Array.isArray;
@@ -82,7 +82,7 @@ export function MapView({ v }: { v: MapVersion }) {
 }
 
 /** 장소 나무(GET /sites). again = 다시 받기 */
-function useTree(cancel?: AbortSignal) {
+export function useTree(cancel?: AbortSignal) {
   const [tree, setTree] = useState<SiteTree | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
   useEffect(() => {
     let live = true;   // 다시 받기가 겹치면 지난 요청의 늦은 답은 버린다
