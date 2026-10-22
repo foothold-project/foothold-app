@@ -1,11 +1,12 @@
 // 폰 조종(09 ADR-002 §3 — 02 기능 F-TO-01~05, 03 UX §5.7): 로봇 연결 → 조종(가로, 카메라 전체·양쪽 조이스틱·아래 줄 시트).
-// 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 폰 ↔ 에이전트 직결은 다음 작업.
+// 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
 // 영상·지도·시나리오 제어는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { Chip, DriveButton, Scenario, soon, type Ctx } from './screens';
+import { SimLaunch } from './simdrive';
 import './drive.css';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
@@ -59,8 +60,7 @@ export function Drive(c: Ctx) {
   return c.open ? <Screen {...c} /> : <Connect {...c} />;
 }
 
-/** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기 —
- *  기동 기능이 아직 서버에 없어 고르는 칸·단추는 준비 중(누를 수 없음) */
+/** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기(simdrive.tsx — 직결) */
 export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
   useRt();
   return <>
@@ -69,13 +69,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
       {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
         : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p>}
     </section>
-    <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="시뮬 로봇 띄우기">
-      <h2>시뮬 로봇 띄우기</h2>
-      <label className="fh-field">지도<select className="fh-user" {...soon}><option>빈 공간에서 지도 만들기</option></select></label>
-      <div className="fh-row" role="group" aria-label="시뮬러">{['기본 시뮬', '교차 확인 시뮬'].map((t, i) => <button key={t} type="button" className="btn" aria-pressed={i === 0} {...soon}>{t}</button>)}</div>
-      <button type="button" className="btn pri" {...soon}>띄우기</button>
-      <p className="lv-note">준비 중입니다. 시뮬 로봇은 다음 단계에서 띄울 수 있습니다.</p>
-    </section>
+    <SimLaunch me={c.user.id} />
   </>;
 }
 function Card({ c, r }: { c: Pick<Ctx, 'user' | 'go'>; r: Robot }) {
@@ -85,8 +79,9 @@ function Card({ c, r }: { c: Pick<Ctx, 'user' | 'go'>; r: Robot }) {
     <span className="lbl">{holderText(l, c.user.id, r)}</span>
     {rel && <div className="fh-row" role="status" data-releasing><span className="fh-why">{rel.why ? `조종권 반납을 확인하지 못했습니다. ${rel.why}` : RELEASING}</span>
       {rel.why && <button type="button" className="btn" onClick={() => rt.release(r.id)}>다시 시도</button>}</div>}
-    <button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기만' : '연결'}</button>
-    {why && <span id={id} className="fh-why" data-why>{why}</span>}
+    {r.sim ? <span className="lbl" data-sim-card>시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 로봇에 직접 연결합니다.</span>   // 서버 경유 조종 화면으로 보내지 않는다
+      : <><button type="button" className={`btn${why ? '' : ' pri'}`} aria-describedby={why ? id : undefined} onClick={() => c.go('drive', r.id)}>{why ? '보기만' : '연결'}</button>
+        {why && <span id={id} className="fh-why" data-why>{why}</span>}</>}
   </li>;
 }
 
@@ -256,7 +251,7 @@ function MapView({ big }: { big?: boolean }) {
 }
 
 /** 폰 엄지 조이스틱(03 §5.7): 왼쪽 전후(세로), 오른쪽 회전(가로). 손을 떼면 0. epoch 가 바뀌면 쥔 포인터를 놓고 새 누름까지 무시 */
-function Stick({ label, vertical, on, epoch, gen, set }: { label: string; vertical?: boolean; on: boolean; epoch: number; gen: { current: number }; set: (v: number) => void }) {
+export function Stick({ label, vertical, on, epoch, gen, set }: { label: string; vertical?: boolean; on: boolean; epoch: number; gen: { current: number }; set: (v: number) => void }) {
   const [k, setK] = useState(0);
   const held = useRef<{ el: HTMLDivElement; id: number; g: number } | null>(null);
   useEffect(() => {

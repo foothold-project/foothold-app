@@ -1,6 +1,6 @@
 // 서버 REST 클라이언트 하나(05 API §1·§2·§3·§8). 웹은 쿠키 fh_s(HttpOnly) + 변경 요청마다 X-FH-CSRF.
 // CSRF 값은 로그인 응답 또는 새로고침 뒤 GET /auth/session 에서 받는다(apps/server/README). 타입은 계약 생성물만 쓴다.
-import type { Action, AgentTokenResponse, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
+import type { Action, AgentTokenResponse, ApiError, Approval, ApprovalDetail, ApprovalList, Dashboard, Event, EventList, FloorCreate, FloorPatch, LoginResponse, MapBuilding, MapDiff, MapFloor, MapRollback, MapSite, MapUpload, MapVersion, MapVersionCreate, MePatch, Mission, MissionWrite, NotificationList, NotificationsRead, OrgSettings, OrgSettingsPatch, PasswordChange, PhonePassRequest, PhonePassResponse, RobotCreate, RobotCreated, RobotPatch, RobotSummary, Scenario, ScenarioPreview, ScenarioWrite, Session, SessionInfo, SimCatalog, SimRobot, SimRobotList, SimStartRequest, SiteTree, User, UserCreate, UserPatch } from '../../contracts/ts';
 
 const BASE = '/api/v1';
 /** 오류 본문이 없을 때(중간 프록시 오류 등)만 쓰는 문구. 서버 message 가 있으면 그것을 그대로 보인다(§1.4) */
@@ -16,6 +16,8 @@ const BROKEN = '서버 응답을 끝까지 읽지 못했습니다. 처리됐을 
 export const NOTE_MS = 10_000;
 /** 지도 읽기 / 지도 파일 보내기·판 저장 제한시간. 쓰기는 서버 수신 마감(30 s, 넘으면 408)과 변환 시간보다 길게 — 서버 답이 먼저 오게 */
 export const MAP_READ_MS = 20_000, MAP_WRITE_MS = 60_000;
+/** 시뮬 띄우기·정리 제한시간 — 서버의 관리자 중계 쓰기 한도(180 s, 05 §13.9)보다 길게, 서버 답이 먼저 오게 */
+export const SIM_WRITE_MS = 200_000;
 /** 결재 목록 한 쪽 — 항목마다 상세(층·판 번호)를 따로 받으므로 작게 */
 export const APPROVAL_PAGE = 20;
 /** 임무·시나리오 목록 한 쪽 */
@@ -33,6 +35,8 @@ let authLost = (_why?: string) => {};
 export const onAuthLost = (f: (why?: string) => void) => { authLost = f; };
 /** 로그인이 끝났다(401·실시간 4401·비밀번호 변경) — CSRF 를 버리고 화면은 로그인으로 */
 export const expireAuth = (why?: string) => { csrf = null; authLost(why); };
+/** 지금 로그인 세션 표식(CSRF 값) — 늦게 온 답이 같은 로그인 세션의 것인지 견줄 때만. 화면·로그에 내지 않는다 */
+export const authMark = () => csrf;
 
 /** ms = 답을 기다리는 한도(넘으면 끊고 TIMEOUT), cancel = 부른 쪽이 거둠(세션이 끝남 등 — CANCELED, 401 이어도 로그인 정리 안 함).
  *  file = 성공 본문을 JSON 대신 Blob 으로(CSV 내려받기 — 실패 본문은 그대로 오류 JSON). raw = 본문을 JSON 대신 이 Content-Type 의 원시 바이트로(지도 올리기) */
@@ -176,4 +180,14 @@ export const api = {
   preview: (p: ScenarioWrite, cancel?: AbortSignal) => call<ScenarioPreview>('POST', '/scenarios/preview', p, { cancel }),
   /** STOP 대체 경로(§3, 실시간 연결이 끊겼을 때). 202 = 서버 접수일 뿐 로봇 정지 확인이 아니다 */
   stop: (robot: string, opt?: Opt) => call<unknown>('POST', `/robots/${encodeURIComponent(robot)}/stop`, undefined, opt),
+  // 시뮬 로봇(05 §13.9) — 서버가 시뮬 관리자에 중계한다. 조종·STOP·영상은 이 경로가 아니라 폰 ↔ 에이전트 직결(phone.ts)
+  simWorlds: (cancel?: AbortSignal) => call<SimCatalog>('GET', '/simulation/worlds', undefined, { cancel, ms: 10_000 }),
+  /** 내 시뮬 로봇(총괄은 조직 전체). 빈 목록만으로 «정리됨(IDLE)»이라고 단정하지 않는다 */
+  simRobots: (cancel?: AbortSignal) => call<SimRobotList>('GET', '/simulation/robots', undefined, { cancel, ms: 10_000 }),
+  /** 201 = 서버 ACTIVE. 답을 못 받음(status 0)·5xx = 서버에 STARTING 이 남았을 수 있음 — 같은 권한 DELETE 로 정리 */
+  simStart: (p: SimStartRequest, cancel?: AbortSignal) => call<SimRobot>('POST', '/simulation/robots', p, { cancel, ms: SIM_WRITE_MS }),
+  /** 204 = 서버 IDLE(이미 IDLE 이어도 204) */
+  simEnd: (robot: string, cancel?: AbortSignal) => call<void>('DELETE', `/simulation/robots/${encodeURIComponent(robot)}`, undefined, { cancel, ms: SIM_WRITE_MS }),
+  /** 출입증(05 §13.7) — 토큰은 응답 본문에만. 저장·로그 금지(부른 쪽이 hello 에만 싣고 버린다) */
+  phonePass: (robot: string, p: PhonePassRequest, cancel?: AbortSignal) => call<PhonePassResponse>('POST', `/robots/${encodeURIComponent(robot)}/phone-pass`, p, { cancel, ms: 10_000 }),
 };
