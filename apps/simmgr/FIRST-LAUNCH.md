@@ -40,7 +40,8 @@
 4. 기존 승인된 read-only Python을 사용한다. `/usr/bin/python3`에는 websockets가 없으므로
    agent에는 승인된 venv Python을 명시한다. ROS binding은 자식이 기존 Jazzy setup에서 얻는다.
 5. 기존 OS preflight: MemAvailable≥2500MiB·load1≤9·다른domain93 소유0·DDS UDP30650~30899
-   비점유.61은 PID/start_ticks 불변 대조만, ROS 참가/명령0. 다른 프로세스를 종료해 자원을 만들지 않는다.
+   비점유. startup에서 61은 기록만 하며 거부 조건이 아니다. world 실행 전후
+   PID/start_ticks 불변 대조는 Simulation이 별도로 한다. ROS 참가/명령0. 다른 프로세스를 종료해 자원을 만들지 않는다.
 6. 리스너/목적지는 manager9430·격리 시험 서버9431·agent(phone+camera)9433만 사용한다.
    같은 PC UI가 별도 필요하면9440을 별도 승인한다. 운영8453/8792,5190/8870,9450~9479,
    5320~5329는 접촉하지 않는다. 시험 클라이언트 발신 ephemeral만 허용한다.
@@ -176,7 +177,7 @@ systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
    `DELETE /api/v1/simulation/robots/{slotUUID}`를 보낸다. STARTING·STOPPING 모두 허용한다.
    현재 관리자 로봇이 다른 세대라면 409 유지·실패 보고이며 강제로 DB를 고치지 않는다.
    관리자에 로봇이 남아 있으면 1·2단계로 되돌아가 자기 runtime 정리와 부재 관문부터 확인한다.
-4. 204 뒤 DB의 IDLE/owner 해제·출입증 회수·hash 교체·REMOVED 감사1건을 확인한 다음
+4. 204 뒤 DB의 IDLE/owner 해제·출입증 회수·hash 교체·REMOVED 감사 1건을 확인한 다음
    올바른 world로 POST한다. 새 취득의 세대는 증가하고201이어야 한다. 이전 담당자는
    IDLE 뒤 owner가 아니므로 반복 DELETE는 기존 권한 판정상403일 수 있다. 첫204 응답이
    유실돼도 목록의 현재 로봇 부재와 재취득201을 함께 확인한다. 빈 목록만으로 DB IDLE을
@@ -187,7 +188,17 @@ systemctl --user reset-failed fh-simmgr-agent-approved-stage1-001.service
    이미 바뀐 경우이며 뒤의 경우 현재 슬롯을 바꾸지 않는다. 둘 다 실패 원인을 확인한다.
 
 관리자는 DELETE의 최대 세대를 슬롯별 제거 확인 세대로 메모리에만 기록하며, 그 이하 POST는
-생성 전에409 SIM_GENERATION_STALE로 거부한다. 재시작 시 기록은 비워진다. 서버의 관리자 POST는
-자동 재전송하지 않고, 새 관리자는 위 startup 부재 관문을 통과해야 한다. 늦은 성공 응답이
-DB의 세대/STARTING과 맞지 않으면 서버는 잠금 밖에서 같은 세대 DELETE를1회 보상 시도하고
-START_STALE에 결과를 남긴다. 보상 실패가 현재 슬롯의 출입증/owner/hash를 바꾸지 않는다.
+생성 전에 409 SIM_GENERATION_STALE로 거부한다. 재시작 시 기록은 비워진다. 서버의 관리자
+POST는 자동 재전송하지 않는다. 다만 서버 commit 뒤 송신 전 지연된 **첫 전달**은 새 관리자에
+도착할 수 있다. 이 경계는 성공·불확실 결과 모두의 DB 세대/STARTING 최종 확인과 보상이
+맡으며 startup 부재 관문만으로 배제하지 않는다. 불일치면 잠금 밖에서 같은 세대로 DELETE를
+1회 보상하고 START_STALE 감사 1건에 결과를 남긴다. STALE409는 생성 없음이므로 DELETE
+없이 NOT_CREATED 감사 1건이다. 불확실 결과라도 DB 세대/STARTING이 그대로면 보상하지 않는다.
+
+응답 유실과 보상 실패가 겹치면 고아 runtime이 남을 수 있다. 서버 token hash는 이미 바뀌어
+그 에이전트가 서버에 붙지 못한다. 폰 출입증의 offline600초 한계와 STOP0 확인은 별개다.
+world·agent unit은 각각 RuntimeMaxSec=240으로 자동 종료를 요청한다. world의 정지 grace45초·
+agent15초는 별도이고, 실제 종료/고아 정리/STOP0는 이번에 검증하지 않았다. 다음 POST가
+SIM_SLOT_BUSY(불확실)라면 자동 재전송하지 않고 위 복구 1·2단계로 돌아가 자기 runtime과
+unit 정리·부재 관문을 확인한 뒤 새 episode/기존 DELETE 복구를 따른다. 현재 DB를 임의로
+IDLE로 덮거나 다른 세대 로봇을 지우지 않는다.

@@ -52,7 +52,8 @@ def test_delayed_post_cannot_escape_completed_delete(simulation_context,arrival)
                 # new agent: the revoked ticket has no newly launched agent to reach.
                 assert not hasattr(launcher,'token')
                 assert not any(e[0]=='agent' for e in launcher.events)
-                assert not audits(client,'SIM_ROBOT_START_STALE')
+                records=audits(client,'SIM_ROBOT_START_STALE')
+                assert len(records)==1 and records[0]['compensation']=='NOT_CREATED'
             else:
                 assert len(audits(client,'SIM_ROBOT_START_STALE'))==1
             with Session(client.app.state.engine) as db:

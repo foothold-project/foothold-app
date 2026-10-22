@@ -1020,17 +1020,20 @@ STARTING/STOPPING 재POST는 같은 담당자도 거부한다. **DELETE는 START
 함께 확인하며, 빈 목록만으로 DB IDLE이라고 단정하지 않는다.
 
 관리자는 받은 세대를 로봇과 함께 보관한다. 슬롯별 DELETE 최대 세대는 제거 확인 세대로
-메모리에만 보관하며(로봇이 없어도 기록), 그 이하 POST는 잠금 안에서 생성 전에409
+메모리에만 보관하며(로봇이 없어도 기록), 그 이하 POST는 잠금 안에서 생성 전에 409
 SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 목록에 넣지 않는다.
 별도 영속 세대는 없으며 재시작하면 제거 확인 세대도 비워진다. 관리자 POST는 자동 재전송하지
-않는다. 옛 연결은 관리자 종료와 함께 끊기고 새 관리자는 아래 부재 관문을 통과해야 한다.
+않는다. 서버 commit 뒤 아직 송신하지 않은 첫 전달은 관리자 재시작을 넘을 수 있으므로,
+성공·불확실 결과 모두 서버 최종 확인과 보상을 거친다. 새 관리자의 부재 관문만으로 이
+첫 전달을 배제하지 않는다.
 관리자 DELETE 본문은 `SimRemove {generation}`이며 자기 잠금 안에서 다음처럼 처리한다.
 
 - 로봇이 있으면 같은 세대일 때만 STOP·정리하고, 다른 세대면409 SIM_GENERATION_MISMATCH다.
 - 로봇이 없으면 기대 세대와 무관하게200(이미 없음)이다. **서비스 시작 전** fake/native
-  모두 기존 isolation preflight(다른93/DDS·61 baseline, 자원 기준은 fake만 경고)와 남은
+  모두 기존 isolation preflight(다른 93/DDS 거부, 자원 기준은 fake만 경고)와 남은
   `fh-rb-sim-*.service`/`fh-simmgr-agent-*.service` user unit 부재 검사를 통과해야 한다.
-  user bus 조회 실패도 시작 거부다. 검사는 읽기만 하고 프로세스/unit을 정리하지 않는다.
+  61은 startup에서 기록만 하며 거부 조건이 아니다. world 실행 전후 61 PID/start_ticks
+  불변 비교는 Simulation이 별도로 수행한다. user bus 조회 실패도 시작 거부다. 검사는 읽기만 하고 프로세스/unit을 정리하지 않는다.
   이 관문이 있어야 재시작한 빈 관리자의 «없음»을 실제 runtime 부재로 신뢰할 수 있다.
 
 서버는 원격 DELETE 뒤 조직 잠금 아래 **세대와 STOPPING을 모두** 다시 확인한 뒤만
@@ -1054,7 +1057,19 @@ SIM_GENERATION_STALE로 거부한다. 이 코드는 확실한 시작 전 거부 
 - `SIM_ROBOT_REMOVE_FAILED`: 관리자/relay가 정리 요청을 실패/거부했다(관리자가 먼저 세대 불일치를 거부한 경우 포함). owner/예약을 보존한다.
 - `SIM_ROBOT_REMOVE_STALE`: 관리자는 성공했지만 서버 완료 검사에서 세대 또는 STOPPING이 바뀌었다. 현재 로봇/예약/hash/출입증은 바꾸지 않는다.
 
-관리자 POST 성공 응답 뒤 서버 최종 검사에서 DB 세대 또는 STARTING이 맞지 않으면, 조직
-잠금을 푼 뒤 같은 세대의 관리자 DELETE를 **1회** 보상 시도한다. 현재 DB 슬롯/출입증/owner/
-hash는 바꾸지 않고409를 보낸다. `SIM_ROBOT_START_STALE` 감사1건에 세대와 보상 결과
-(제거/이미 없음 또는 실패코드)을 기록하며, 보상 실패로 자동 재전송/재취득하지 않는다.
+관리자 POST의 확실한 거부 목록 밖 결과는 **성공·불확실 모두** 조직 잠금 안에서 DB 세대와
+STARTING을 최종 확인한다. 둘이 맞으면 성공은 ACTIVE, 불확실은 STARTING 유지다.
+맞지 않으면 commit으로 잠금을 푼 뒤 원래 세대의 관리자 DELETE를 **1회** 보상 시도한다.
+현재 DB 슬롯/출입증/owner/hash는 바꾸지 않는다. 응답은 원래 불확실 오류(예503), 성공
+응답의 뒤늦은 불일치는409다. `SIM_ROBOT_START_STALE` 감사 1건에 세대와 보상 결과
+(제거/이미 없음 또는 실패코드)를 기록한다. 관리자 STALE409는 생성되지 않았으므로 보상
+DELETE 없이 같은 감사 1건에 `compensation=NOT_CREATED`를 남긴다. HTTP 프로토콜 예외
+(IncompleteRead·BadStatusLine 등)도 RelayError로 감싼 불확실 결과이며 자동 재전송하지 않는다.
+
+첫 전달·응답 유실에 보상 실패까지 겹치면 runtime이 남을 수 있다. 서버 token hash는 이미
+교체되어 옛 에이전트는 서버에 붙지 못하지만, 이 사실을 STOP0 확인이나 폰 출입증의 즉시
+offline 무효화로 보지 않는다(§13.7 한계 유지). world와 agent unit은 각각
+**RuntimeMaxSec=240**의 자동 종료 대상이다(정지 grace는 world45초·agent15초 별도이며 실제
+종료/고아·STOP0는 아직 미검증). 다음 취득이 SIM_SLOT_BUSY(불확실)로 막히면 자동 반복하지
+않고 FIRST-LAUNCH 복구 1·2단계에서 자기 runtime 정리·부재 관문·새 episode를 확인한 뒤
+기존 DELETE 복구를 따른다. 보상 실패로 현재 DB를 덮거나 새 인스턴스 epoch를 도입하지 않는다.

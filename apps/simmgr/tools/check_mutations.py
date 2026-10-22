@@ -176,8 +176,34 @@ MUTATIONS += [
      "            self.failed = False\n            raise RuntimeError('agent unit startup failed')",
      BOUNDARY+'test_agent_unit_creation_error_latches'),
     ('POST final STARTING guard omitted', 'apps/server/fh_server/simulation.py',
-     "if row.sim_generation != generation or row.sim_state != 'STARTING':", 'if row.sim_generation != generation:',
+     "if row.sim_generation != generation or row.sim_state != 'STARTING' or not_created:", 'if row.sim_generation != generation or not_created:',
      DELAYED+'test_post_success_does_not_overwrite_stopping'),
+]
+
+
+RESTART = 'apps/server/tests/test_sim_restart_delivery.py::'
+MUTATIONS += [
+    ('uncertain POST skips final generation check', 'apps/server/fh_server/simulation.py',
+     '        # Even an uncertain first delivery can cross a manager restart.',
+     "        if start_error is not None: fail(start_error.status, start_error.code, 'synthetic mutant')\n        # Even an uncertain first delivery can cross a manager restart.",
+     RESTART+'test_first_delivery_after_manager_restart_cannot_escape_delete[True]'),
+    ('STALE rejection audit omitted', 'apps/server/fh_server/simulation.py',
+     "event(db, user.org_id, 'SIM_ROBOT_START_STALE'",
+     "((lambda *a, **k: None) if not_created else event)(db, user.org_id, 'SIM_ROBOT_START_STALE'",
+     DELAYED+'test_delayed_post_cannot_escape_completed_delete[delete_first]'),
+    ('HTTP protocol exception not wrapped', 'apps/server/fh_server/simulation.py',
+     'except (URLError, OSError, ValueError, HTTPException):', 'except (URLError, OSError, ValueError):',
+     RESTART+'test_http_protocol_exception_is_relay_uncertainty'),
+    ('compensation retains organization write lock', 'apps/server/fh_server/simulation.py',
+     "            db.commit()\n            compensation =", "            pass\n            compensation =",
+     RESTART+'test_compensation_releases_organization_lock_before_remote_delete'),
+    ('native startup uses fake resource mode', 'apps/simmgr/api.py',
+     'asyncio.to_thread(startup_preflight, settings.real)', 'asyncio.to_thread(startup_preflight, False)',
+     BOUNDARY+'test_api_startup_passes_real_mode_to_preflight'),
+    ('existing robot DELETE cancellation not recorded', 'apps/simmgr/service.py',
+     'self.removed_generation[robot_id] = max(generation, self.removed_generation.get(robot_id, 0))',
+     'if robot_id not in self.robots: self.removed_generation[robot_id] = max(generation, self.removed_generation.get(robot_id, 0))',
+     BOUNDARY+'test_existing_robot_delete_records_cancellation_receipt'),
 ]
 
 

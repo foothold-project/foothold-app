@@ -1,5 +1,6 @@
 """Authenticated lifecycle relay. Phone commands and pass issuance stay independent."""
 import json
+from http.client import HTTPException
 import os
 import stat
 from urllib.error import HTTPError, URLError
@@ -69,10 +70,10 @@ class Relay:
                 code = json.loads(error.read(4097))['error']['code']
                 if not isinstance(code, str) or not code.startswith('SIM_') or len(code) > 64:
                     code = 'SIM_UNAVAILABLE'
-            except (ValueError, KeyError, TypeError):
+            except (ValueError, KeyError, TypeError, HTTPException):
                 code = 'SIM_UNAVAILABLE'
             raise RelayError(code, error.code if error.code in (400, 404, 409, 503) else 503) from None
-        except (URLError, OSError, ValueError):
+        except (URLError, OSError, ValueError, HTTPException):
             raise RelayError() from None
 
 
@@ -171,24 +172,37 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 event(db, user.org_id, 'SIM_ROBOT_START_REJECTED', user.id,
                       {'robot_id': rid, 'generation': generation, 'reason': error.code}, category='LINK')
                 db.commit()
-        result = call('POST', '/v1/robots', dict(world_id=body.world_id,
-            robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation),
-            on_rejection=start_rejected)
+        start_error = None
+        try:
+            result = app.state.simmgr.request('POST', '/v1/robots', dict(world_id=body.world_id,
+                robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation))
+        except RelayError as error:
+            if (error.status, error.code) in START_REJECTIONS:
+                start_rejected(error)
+                fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.')
+            start_error = error
+        # Even an uncertain first delivery can cross a manager restart.
         lock_organization(db, user.org_id)
         db.refresh(row)
-        if row.sim_generation != generation or row.sim_state != 'STARTING':
+        not_created = start_error is not None and (start_error.status, start_error.code) == (409, 'SIM_GENERATION_STALE')
+        if row.sim_generation != generation or row.sim_state != 'STARTING' or not_created:
             # Release the organization write lock before the single best-effort
             # compensating RPC. Never mutate a successor's credentials/ownership.
             db.commit()
-            compensation = 'REMOVED_OR_ABSENT'
-            try:
-                app.state.simmgr.request('DELETE', '/v1/robots/' + rid, {'generation': generation})
-            except RelayError as error:
-                compensation = error.code
+            compensation = 'NOT_CREATED' if not_created else 'REMOVED_OR_ABSENT'
+            if not not_created:
+                try:
+                    app.state.simmgr.request('DELETE', '/v1/robots/' + rid, {'generation': generation})
+                except RelayError as error:
+                    compensation = error.code
             event(db, user.org_id, 'SIM_ROBOT_START_STALE', user.id,
                   {'robot_id': rid, 'generation': generation, 'compensation': compensation}, category='LINK')
             db.commit()
+            if start_error is not None:
+                fail(start_error.status, start_error.code, '시뮬 요청을 처리하지 못했습니다.')
             fail(409, 'SIM_GENERATION_MISMATCH', '시뮬 슬롯의 세대가 바뀌었습니다.')
+        if start_error is not None:
+            fail(start_error.status, start_error.code, '시뮬 요청을 처리하지 못했습니다.')
         try:
             result = C.SimRobot.model_validate(result)
         except (ValueError, TypeError):

@@ -103,3 +103,30 @@ def test_resources_warn_only_for_fake_but_isolation_still_required(tmp_path,monk
     monkeypatch.setattr(preflight,'isolation_preflight',lambda folder:snapshot)
     monkeypatch.setattr(preflight.subprocess,'run',lambda *a,**kw:SimpleNamespace(stdout='fh-simmgr-agent-synthetic.service'))
     with pytest.raises(RuntimeError,match='units remain'):preflight.startup_preflight(real)
+
+
+def test_api_startup_passes_real_mode_to_preflight(monkeypatch):
+    from dataclasses import replace
+    from apps.simmgr.launcher import FakeLauncher
+    class NativeDouble(FakeLauncher):real=True
+    observed=[]
+    monkeypatch.setattr(api,'startup_preflight',lambda real:observed.append(real) or {})
+    cfg=replace(settings(),real=True,source='unused',ros_setup='unused',run_dir='unused')
+    with TestClient(api.create_app(cfg,NativeDouble()),client=('127.0.0.1',9438)) as client:
+        assert client.app.state.ready and observed==[True]
+
+
+def test_existing_robot_delete_records_cancellation_receipt():
+    async def run():
+        cfg=settings();mgr=Manager(cfg);slot=next(iter(cfg.slots.values()));owner=str(uuid4())
+        await mgr.add('a',slot.robot_id,owner,slot.org_id,'x'*32,7)
+        await mgr.remove(slot.robot_id,7)
+        before=list(mgr.launcher.events)
+        error=None
+        try:await mgr.add('a',slot.robot_id,owner,slot.org_id,'x'*32,7)
+        except SimError as caught:error=caught
+        assert error is not None and error.code=='SIM_GENERATION_STALE'
+        assert not mgr.robots and mgr.launcher.events==before
+        await mgr.add('a',slot.robot_id,owner,slot.org_id,'x'*32,8)
+        await mgr.close()
+    asyncio.run(run())
