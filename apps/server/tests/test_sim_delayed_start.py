@@ -208,6 +208,7 @@ def test_final_start_check_serializes_delete_after_refresh(simulation_context,mo
             blocked=False;deadline=time.monotonic()+2
             with Session(client.app.state.engine) as db:
                 while time.monotonic()<deadline and not remove.done():
+                    db.execute(text('SELECT pg_stat_clear_snapshot()'))
                     blocked=db.scalar(text('SELECT EXISTS (SELECT 1 FROM pg_stat_activity '
                         'WHERE :holder = ANY(pg_blocking_pids(pid)))'),{'holder':post_pid[0]})
                     if blocked:break
