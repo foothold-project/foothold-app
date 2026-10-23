@@ -1,18 +1,37 @@
 """Read-only approved connected-building registrations, shared by launch and observation."""
+from functools import lru_cache
+from pathlib import Path
 from sqlalchemy import select
 
 from apps.contracts import models as C
 from .models import Building, Floor, MapVersion, Upload
 
 
-def approved_bindings(db, org_id):
+@lru_cache(maxsize=1)
+def warehouse_registration():
+    # Existing uploads are immutable. Recover only this packaged, byte-verified
+    # warehouse identity for older imports lacking connected_gt; never cache DB approval.
+    from .sim_maps import load_worlds
+    try:
+        rows = load_worlds(Path(__file__).resolve().parents[2] / 'simmgr/worlds')
+        _, meta, _, width, height, _ = next(row for row in rows
+            if (row[0]['world_id'], row[0]['floor_id']) == ('warehouse', 'f1'))
+    except (OSError, ValueError, KeyError, TypeError, StopIteration) as error:
+        raise ValueError('warehouse GT registration is unavailable') from error
+    return meta, width, height
+
+
+def approved_bindings(db, org_id, world_id='v5_building'):
+    if world_id not in ('v5_building', 'warehouse'):
+        raise ValueError('unsupported static world')
+    expected = {'f1'} if world_id == 'warehouse' else {'l1', 'l2'}
     building = db.scalar(select(Building).where(Building.org_id == org_id,
-        Building.sim_world_id == 'v5_building'))
+        Building.sim_world_id == world_id))
     if building is None:
         raise ValueError('connected building is not registered')
     floors = list(db.scalars(select(Floor).where(Floor.org_id == org_id,
         Floor.building_id == building.id)))
-    if len(floors) != 2 or {f.sim_floor_id for f in floors} != {'l1', 'l2'}:
+    if len(floors) != len(expected) or {f.sim_floor_id for f in floors} != expected:
         raise ValueError('both connected floors are required')
     result = []
     for f in sorted(floors, key=lambda f: f.sim_floor_id):
@@ -22,10 +41,18 @@ def approved_bindings(db, org_id):
         upload = db.get(Upload, v.upload_id) if v is not None else None
         meta = upload.metadata_json if upload is not None and upload.org_id == org_id else {}
         source = meta.get('connected_gt', {})
+        if world_id == 'warehouse':
+            canonical, width, height = warehouse_registration()
+            if v is None or (v.width, v.height) != (width, height):
+                raise ValueError('approved warehouse grid registration changed')
+            if (meta.get('resolution') != canonical['resolution'] or meta.get('origin') != canonical['origin']
+                    or (source and source != canonical['connected_gt'])):
+                raise ValueError('approved warehouse grid registration changed')
+            source = canonical['connected_gt']
         if (f.provenance != 'SIMULATION' or v is None or upload is None
                 or upload.provenance != 'SIMULATION' or v.source != 'IMPORT'
-                or source.get('world_id') != 'v5_building' or source.get('ros_floor_id') != f.sim_floor_id
-                or f.floor_z != (0.0 if f.sim_floor_id == 'l1' else 2.4)
+                or source.get('world_id') != world_id or source.get('ros_floor_id') != f.sim_floor_id
+                or f.floor_z != (.034226 if world_id == 'warehouse' else 0.0 if f.sim_floor_id == 'l1' else 2.4)
                 or source.get('sha256') != v.image_sha256.hex()
                 or v.image_sha256 != upload.png_sha256 or (v.width, v.height) != (upload.width, upload.height)
                 or meta.get('resolution') != v.resolution
@@ -39,7 +66,9 @@ def approved_bindings(db, org_id):
 
 def matches_context(context, bindings):
     """Never relabel the previous registered grid as the latest approved grid."""
-    if not bindings or str(bindings[0].building_id) != context['building_id']:
+    bindings = [b for b in bindings if b.world_id == context['world_id']
+                and str(b.building_id) == context['building_id']]
+    if not bindings:
         return False
     if context['map_version_id'] is None:
         return True

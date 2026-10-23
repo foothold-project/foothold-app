@@ -29,7 +29,16 @@ def repo(tmp_path, monkeypatch):
     shutil.copytree(native_catalogue.REPO_WORLDS, root)
     monkeypatch.setattr(native_catalogue, 'REPO_WORLDS', root)
     entry = json.loads((root / 'worlds.json').read_text())['worlds']['warehouse/f1']
-    world = World('warehouse/f1', root / entry['world'], root / entry['gt_map'], name='Warehouse')
+    from apps.server.fh_server.map_files import gray_pixels, sha256
+    png = (root/'warehouse/maps/f1.png').read_bytes()
+    width, height, pixels = gray_pixels(png)
+    binding = dict(world_id='warehouse', ros_building_id='warehouse', ros_floor_id='f1',
+        ros_map_version='gt-20261012', building_id=str(uuid4()), floor_id=str(uuid4()),
+        map_version_id=str(uuid4()), sha256=sha256(png).hex(),
+        source_pgm_sha256=sha256(f'P5\n{width} {height}\n255\n'.encode()+pixels).hex(),
+        width=width, height=height, resolution=.05, origin=[-7.5,-11.,0.], source='SIMULATION')
+    world = World('warehouse/f1', root / entry['world'], root / entry['gt_map'], name='Warehouse',
+                  map_bindings=(binding,))
     return root, entry, world
 
 
@@ -176,7 +185,8 @@ def test_repository_manifest_reverified_before_child_import(repo, catalogue, tmp
     native = resolve_native_world(warehouse, {warehouse.id: warehouse}, control)
     manifest = tmp_path / 'manifest.json'
     manifest.write_text(json.dumps(dict(key=native.key, root=str(native.root), roots=list(map(str, native.roots)),
-        world_file=str(native.world_file), map_file=str(native.map_file), hashes=native.hashes(source))))
+        world_file=str(native.world_file), map_file=str(native.map_file), hashes=native.hashes(source),
+        map_bindings=list(warehouse.map_bindings))))
     helper = verified_helper(source, manifest, ['--world-id', 'warehouse', '--floor-id', 'f1'])
     assert helper.TARGET == dict(world_id='warehouse', floor_id='f1', map_mode='static')
     warehouse.map_file.write_text('changed after clearance')
@@ -265,7 +275,8 @@ def test_repository_entrypoint_installs_assets_and_preserves_ledger_paths(repo, 
     folder = tmp_path / 'episode'; folder.mkdir()
     manifest = folder / 'manifest.json'
     manifest.write_text(json.dumps(dict(key=native.key, root=str(native.root), roots=list(map(str, native.roots)),
-        world_file=str(native.world_file), map_file=str(native.map_file), hashes=native.hashes(source))))
+        world_file=str(native.world_file), map_file=str(native.map_file), hashes=native.hashes(source),
+        map_bindings=list(warehouse.map_bindings))))
     (source / 'live_map.py').write_text(
         'import json\nfrom pathlib import Path\nfrom types import SimpleNamespace\n'
         'import xml.etree.ElementTree as ET\nimport sensor_isolation as iso\n'
@@ -274,12 +285,24 @@ def test_repository_entrypoint_installs_assets_and_preserves_ledger_paths(repo, 
         "def operating_ledgers(): return [HERE + '/runs/map_ledger.jsonl', '/synthetic/ux/ledger']\n"
         'def gt_identity_allowed(d, w, here=HERE): return here\n'
         'def main():\n'
+        '    import uuid\n'
+        f'    a = SimpleNamespace(out={str(folder / "native-out")!r})\n'
+        '    Path(a.out).mkdir()\n'
+        '    RUN_ID = uuid.uuid4().hex\n'
+        '    gate = None\n'
+        '    def static_floor(ep, f, rev): pass\n'
+        '    def floor_tick(sim_t, pos, tilt, fallen): pass\n'
+        '    def publish_status():\n'
+        '        pub_status.publish(st)\n'
         "    w = json.loads((Path(HERE)/'worlds.json').read_text())['worlds']['warehouse/f1']\n"
         "    robot = ET.fromstring(SP.world_text(Path(w['world']).read_text(), False)).find('./world/include')\n"
         "    print(json.dumps(dict(target=iso.TARGET, floor_z=w['floor_z'], pose=robot.findtext('pose'),\n"
         "        ledgers=operating_ledgers(), identity_root=gt_identity_allowed(None,None), root=HERE)))\n"
         '    return 0\n'
         "if __name__ == '__main__': raise AssertionError('must install assets before main')\n")
+    cleared = json.loads(manifest.read_text())
+    cleared['hashes'] = native.hashes(source)
+    manifest.write_text(json.dumps(cleared))
     result = subprocess.run(['/usr/bin/python3', str(Path(launcher.__file__).with_name('native_entrypoint.py')),
                              str(source), str(manifest), '--world-id', 'warehouse', '--floor-id', 'f1'],
                             capture_output=True, text=True, cwd=tmp_path)

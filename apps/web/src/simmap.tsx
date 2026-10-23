@@ -6,7 +6,7 @@ import type { FloorContext, MapVersion, PhoneState, SimRobot, SimWorldFloor } fr
 import { api } from './api';
 import { aim, isVersion, shape, toPixel } from './screens/maps';
 
-const FLOOR = { l1: '1층', l2: '2층' } as const;
+const FLOOR = { l1: '1층', l2: '2층', f1: '1층' } as const;
 type Me = Pick<SimRobot, 'robot_id' | 'generation'>;
 const mine = (x: FloorContext | null, r: Me): x is FloorContext => !!x && x.robot_id === r.robot_id && x.generation === r.generation;
 /** 같은 로봇·세대 안에서 run_id 가 같고 epoch·floor_rev 가 각각 줄지 않는 문맥만(서버 realtime.accept_state·에이전트 telemetry 와 같은 규칙) */

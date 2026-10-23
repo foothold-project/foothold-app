@@ -34,7 +34,7 @@ def decorate_status(status, selection):
     return status
 
 
-def compile_static_runtime(source, filename):
+def compile_static_runtime(source, filename, *, warehouse=False):
     """Fail closed when the source no longer offers the known adapter points."""
     tree = ast.parse(source, filename=filename)
     main = next((n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'main'), None)
@@ -76,7 +76,8 @@ def compile_static_runtime(source, filename):
                     and isinstance(node.value.func.value, ast.Name)
                     and node.value.func.value.id == 'pub_status' and node.value.func.attr == 'publish'):
                 self.count += 1
-                before = ast.parse("st = _fh_floor_status(st, sel) if CONN and a.map_mode == 'static' else st").body[0]
+                before = ast.parse("st = _fh_single_floor_status(st, static_meta)" if warehouse else
+                    "st = _fh_floor_status(st, sel) if CONN and a.map_mode == 'static' else st").body[0]
                 return [ast.copy_location(before, node), node]
             return self.generic_visit(node)
     status = Status()

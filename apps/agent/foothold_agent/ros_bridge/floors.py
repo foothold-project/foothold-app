@@ -17,15 +17,18 @@ class FloorBindings:
     """Immutable launch registrations; no discovery from an odom frame/floor name."""
     def __init__(self, robot_id, generation, run_id, epoch, spawn_floor_id, bindings):
         self.robot_id = str(UUID(robot_id))
+        warehouse = spawn_floor_id == 'f1'
+        world = 'warehouse' if warehouse else 'v5_building'
+        allowed = {'f1'} if warehouse else {'l1', 'l2'}
         if (type(generation) is not int or generation < 1 or type(epoch) is not int or epoch < 0
                 or not isinstance(run_id, str) or not 1 <= len(run_id) <= 128
-                or spawn_floor_id not in ('l1', 'l2')):
+                or spawn_floor_id not in ('l1', 'l2', 'f1')):
             raise ValueError('invalid floor launch identity')
         self.generation, self.run_id, self.epoch, self.spawn = generation, run_id, epoch, spawn_floor_id
         self.bindings = {}
         for b in deepcopy(bindings):
             f = b['ros_floor_id']
-            if (f not in ('l1', 'l2') or f in self.bindings or b['world_id'] != 'v5_building'
+            if (f not in allowed or f in self.bindings or b['world_id'] != world
                     or b['source'] != 'SIMULATION' or not b['ros_building_id'] or not b['ros_map_version']
                     or not digest(b['sha256']) or not digest(b['source_pgm_sha256'])
                     or not finite(b['resolution']) or b['resolution'] <= 0
@@ -35,13 +38,14 @@ class FloorBindings:
             for key in ('floor_id', 'map_version_id', 'building_id'):
                 b[key] = str(UUID(b[key]))
             self.bindings[f] = b
-        if (set(self.bindings) != {'l1', 'l2'}
+        if (set(self.bindings) != allowed
                 or len({b['building_id'] for b in self.bindings.values()}) != 1
                 or len({b['ros_building_id'] for b in self.bindings.values()}) != 1
-                or len({b['floor_id'] for b in self.bindings.values()}) != 2
-                or len({b['map_version_id'] for b in self.bindings.values()}) != 2):
+                or len({b['floor_id'] for b in self.bindings.values()}) != len(allowed)
+                or len({b['map_version_id'] for b in self.bindings.values()}) != len(allowed)):
             raise ValueError('both distinct floors in one building are required')
-        self.building = self.bindings['l1']['building_id']
+        self.building = self.bindings[spawn_floor_id]['building_id']
+        self.world, self.allowed = world, allowed
 
     @classmethod
     def from_env(cls, env):
@@ -58,12 +62,13 @@ class FloorBindings:
         rev = status.get('floor_rev')
         state, cur = status.get('floor_state'), status.get('current_floor')
         stamp, confirmed = status.get('sim_t'), status.get('floor_confirm_sim_t')
-        if (status.get('world_id') != 'v5_building' or status.get('run_id') != self.run_id
+        if (status.get('world_id') != self.world or status.get('run_id') != self.run_id
                 or type(status.get('epoch')) is not int or status['epoch'] < self.epoch
                 or type(rev) is not int or rev < 0 or state not in ('on_floor', 'transit', 'unknown')
                 or status.get('spawn_floor') != self.spawn
-                or (cur is not None and cur not in ('l1', 'l2'))
-                or (state == 'on_floor') != (cur in ('l1', 'l2'))
+                or (cur is not None and cur not in self.allowed)
+                or (state == 'on_floor') != (cur in self.allowed)
+                or (self.world == 'warehouse' and (state != 'on_floor' or cur != 'f1'))
                 or not finite(stamp) or (confirmed is not None and (not finite(confirmed) or confirmed > stamp))):
             return None
         b = self.bindings.get(cur)
@@ -71,7 +76,7 @@ class FloorBindings:
         if not isinstance(reason, str) or not 1 <= len(reason) <= 128:
             return None
         context = dict(robot_id=self.robot_id, generation=self.generation, run_id=self.run_id,
-            epoch=status['epoch'], floor_rev=rev, world_id='v5_building', building_id=self.building,
+            epoch=status['epoch'], floor_rev=rev, world_id=self.world, building_id=self.building,
             spawn_floor_id=self.spawn, current_floor_id=cur, floor_id=None, map_version_id=None,
             sha256=None, source_pgm_sha256=None, source='gt_geometry', floor_state=state,
             reason=reason, confirmed_sim_t=confirmed)

@@ -25,7 +25,8 @@
             {
               "enum": [
                 "l1",
-                "l2"
+                "l2",
+                "f1"
               ],
               "type": "string"
             },
@@ -132,13 +133,17 @@
         "spawn_floor_id": {
           "enum": [
             "l1",
-            "l2"
+            "l2",
+            "f1"
           ],
           "title": "Spawn Floor Id",
           "type": "string"
         },
         "world_id": {
-          "const": "v5_building",
+          "enum": [
+            "v5_building",
+            "warehouse"
+          ],
           "title": "World Id",
           "type": "string"
         }
