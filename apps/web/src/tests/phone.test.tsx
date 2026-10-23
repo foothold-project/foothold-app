@@ -3,12 +3,13 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Scenario, SimCatalog, SimRobot } from '../../../contracts/ts';
+import type { FloorContext, Scenario, SimCatalog, SimRobot } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
 import { DEAD, sim, velocity } from '../phone';
 import { remainingTime, timeNotice } from '../simdrive';
+import { newer } from '../simmap';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -982,6 +983,30 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
     expect(box.querySelector('.dv-stage [data-stop]')).toBeNull();
     await click($('[data-stop]'));
     expect(a.of('stop')).toHaveLength(1);
+  });
+
+  it('1층 판을 그린 뒤 문맥이 null(RESET·만료)이면 마지막 문맥을 현재로 쓰지 않는다 — 확인 중·흐림·점 숨김', async () => {
+    const a = await launch(welcome(), routesV5); await drive(a);
+    await recv(a, at(L1)); await load();
+    expect($('[data-sim-dot]')).toBeTruthy();
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false,
+      pose: { floor_context: null, map_version_id: V1, floor_id: null, confidence: 1, x: 2, y: 1, yaw: 0.5 } }));
+    expect($('[data-sim-floor]')!.textContent).toBe('층을 확인하는 중');
+    expect($('[data-sim-map]')!.hasAttribute('data-dim')).toBe(true);
+    expect($('[data-sim-dot]')).toBeNull();
+    await recv(a, at(L1));   // 문맥이 돌아오면 다시 1층·점
+    expect($('[data-sim-floor]')!.textContent).toBe('1층');
+    expect($('[data-sim-dot]')).toBeTruthy();
+  });
+
+  it('newer: 같은 세대 안에서 run_id 결속, epoch·floor_rev 각각 단조', () => {
+    const r = { robot_id: S1, generation: 1 }, c = (p: Record<string, unknown>) => fc(p) as unknown as FloorContext;
+    const last = c({ run_id: 'run1', epoch: 1, floor_rev: 6 });
+    expect(newer(c({ run_id: 'run1', epoch: 2, floor_rev: 1 }), last, r)).toBe(false);   // epoch 만 늘고 floor_rev 역행
+    expect(newer(c({ run_id: 'other', epoch: 2, floor_rev: 7 }), last, r)).toBe(false);   // 다른 실행
+    expect(newer(c({ run_id: 'run1', epoch: 2, floor_rev: 7 }), last, r)).toBe(true);
+    expect(newer(c({ run_id: 'run1', epoch: 1, floor_rev: 6 }), last, r)).toBe(true);
+    expect(newer(c({ run_id: 'other', generation: 2, floor_rev: 1 }), last, { ...r, generation: 2 })).toBe(true);   // 새 세대는 처음부터
   });
 
   it('판 응답이 오기 전에 문맥이 바뀌면 그 판은 그리지 않는다, 판 SHA 가 다르면 위치 숨김', async () => {

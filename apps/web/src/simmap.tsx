@@ -1,5 +1,5 @@
 // 시뮬 조종 화면 작은 지도(floor-auto 1B — contracts README «연결 건물 정적 지도 관측»): state.pose.floor_context 의 승인 판 + 로봇 위치·방향.
-// 층이 바뀌면(map_version_id·floor_rev) 새 판으로 자동 교체. 옛 epoch/floor_rev·다른 로봇·세대 문맥은 버리고, 판 응답은 받은 때 문맥과 맞을 때만 그린다.
+// 층이 바뀌면(map_version_id·floor_rev) 새 판으로 자동 교체. 옛 epoch/floor_rev·다른 로봇·세대·run_id 문맥은 버리고, 문맥이 null 이면 «층을 확인하는 중», 판 응답은 받은 때 문맥과 맞을 때만 그린다.
 // transit·unknown·판 오류에서는 위치를 숨긴다(확인 안 된 층을 확정처럼 그리지 않음). 지도는 입력·STOP 경로와 무관 — 그림만.
 import { useEffect, useRef, useState } from 'react';
 import type { FloorContext, MapVersion, PhoneState, SimRobot, SimWorldFloor } from '../../contracts/ts';
@@ -7,10 +7,12 @@ import { api } from './api';
 import { aim, isVersion, shape, toPixel } from './screens/maps';
 
 const FLOOR = { l1: '1층', l2: '2층' } as const;
-/** 같은 로봇·세대에서 (epoch, floor_rev) 가 줄지 않는 문맥만. epoch 가 같은데 run_id 가 다르면 버린다 */
-export function newer(c: FloorContext, last: FloorContext | null, r: Pick<SimRobot, 'robot_id' | 'generation'>) {
-  if (c.robot_id !== r.robot_id || c.generation !== r.generation) return false;
-  return !last || c.epoch > last.epoch || (c.epoch === last.epoch && c.run_id === last.run_id && c.floor_rev >= last.floor_rev);
+type Me = Pick<SimRobot, 'robot_id' | 'generation'>;
+const mine = (x: FloorContext | null, r: Me): x is FloorContext => !!x && x.robot_id === r.robot_id && x.generation === r.generation;
+/** 같은 로봇·세대 안에서 run_id 가 같고 epoch·floor_rev 가 각각 줄지 않는 문맥만(서버 realtime.accept_state·에이전트 telemetry 와 같은 규칙) */
+export function newer(c: FloorContext, last: FloorContext | null, r: Me) {
+  if (!mine(c, r)) return false;
+  return !mine(last, r) || (c.run_id === last.run_id && c.epoch >= last.epoch && c.floor_rev >= last.floor_rev);
 }
 type Ver = { id: string; v?: MapVersion; bad?: boolean };
 export type FloorMap = ReturnType<typeof useFloorMap>;
@@ -19,7 +21,8 @@ export function useFloorMap(st: PhoneState | null, r: SimRobot, floors: SimWorld
   const last = useRef<FloorContext | null>(null), cache = useRef(new Map<string, MapVersion>());
   const fc = st?.pose?.floor_context ?? null;
   if (fc && newer(fc, last.current, r)) last.current = fc;
-  const c = last.current, id = c?.floor_state === 'on_floor' ? c.map_version_id : null;
+  // 현재 문맥: 이번 상태에 문맥이 없으면(RESET·만료) 없음. last 는 단조 비교용으로만 남긴다
+  const c = fc && mine(last.current, r) ? last.current : null, id = c?.floor_state === 'on_floor' ? c.map_version_id : null;
   const [ver, setVer] = useState<Ver | null>(null), [img, setImg] = useState(''), [again, setAgain] = useState(0), [notice, setNotice] = useState('');
   useEffect(() => {
     if (!id) return;
