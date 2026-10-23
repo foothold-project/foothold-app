@@ -36,6 +36,7 @@
 .dv-hud{position:absolute;top:8px;left:8px;right:8px;display:flex;flex-direction:column;gap:6px;z-index:1}
 .dv-hud .dv-line{gap:8px;padding:6px 10px;border-radius:8px;background:rgba(8,11,14,.66);color:#E6EBEF}
 .dv-hud .fh-why{color:#E6EBEF}
+.dv-hud .dv-note{background:rgba(8,11,14,.66);color:#E6EBEF}   /* 영상 칸 위 안내 — 판 색은 .dv-line 값 그대로 */
 .dv-hud .dv-views{flex-direction:row;align-self:flex-end;gap:6px}
 .dv-hud .dv-views .btn{min-width:56px;min-height:44px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 .dv.ph .dv-mini{width:100px;height:70px;right:12px;bottom:144px}
