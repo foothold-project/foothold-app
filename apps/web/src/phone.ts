@@ -223,14 +223,14 @@ export const sim = {
    *  201 = ACTIVE → 바로 연결. §13.9 확실한 거부 목록 = 고르기로. SIM_SLOT_BUSY = «확인 중» + 목록으로 내 것인지(recheck).
    *  그 밖(답 없음·5xx·목록 밖 4xx) = 불확실(서버 STARTING 일 수 있음 — «확인 중», 정리는 DELETE).
    *  답 전에 화면 세션이 끝났으면(clear) 연결하지 않고, 같은 로그인 세션이면 생긴(또는 불확실한) 로봇만 DELETE 로 정리한다 */
-  async start(world: string, user = me) {
+  async start(world: string, user = me, spawn_floor_id?: 'l1' | 'l2') {
     const slots = S.catalog?.slots ?? [], slot = slots.find((x) => !S.taken.includes(x)) ?? slots[0];
     if (!slot) return set({ err: '띄울 수 있는 시뮬 슬롯이 없습니다.' });
     me = user; cancel = false;
     const e0 = epoch, mark = authMark(), placeholder = { robot_id: slot, world_id: world } as SimRobot;
     set({ step: 'starting', robot: placeholder, since: now(), err: '', stop: null, slotBusy: false });
     let r: SimRobot | null = null, fail: unknown = null;
-    try { r = await api.simStart({ world_id: world, robot_id: slot }); } catch (e) { fail = e; }
+    try { r = await api.simStart({ world_id: world, robot_id: slot, ...(spawn_floor_id && { spawn_floor_id }) }); } catch (e) { fail = e; }
     const f = fail instanceof ApiFail ? fail : null, sure = !!f && (REJECTED.has(`${f.status} ${f.code}`) || notCreated(f)), busy = f?.status === 409 && f.code === 'SIM_SLOT_BUSY';
     if (e0 !== epoch) {   // 세션이 끝난 뒤 온 답 — 연결하지 않음. 남의 것일 수 있는 SLOT_BUSY·다른 로그인 세션이면 손대지 않음
       if (!sure && !busy && mark === authMark()) api.simEnd(slot).catch(() => {});

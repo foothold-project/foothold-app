@@ -96,3 +96,13 @@
 @media (orientation:portrait){.dv-strip{left:8px;right:8px;bottom:144px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:144px}.dv-stage:has(.dv-strip) .dv-act{bottom:240px}}
 @media (orientation:portrait) and (max-height:700px){.dv-scn-btn{left:108px;bottom:8px}.dv-strip{bottom:104px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:104px}.dv-stage:has(.dv-strip) .dv-act{bottom:200px}}
 @media (max-height:480px){.dv-scn-btn{left:104px;bottom:8px}.dv-strip{left:162px;right:104px;bottom:8px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:68px;max-width:calc(100% - 208px)}.dv-stage:has(.dv-strip) .dv-act{bottom:104px}}
+/* 시뮬 작은 지도(simmap.tsx): 오른쪽 위 설정 단추 아래(시나리오 띠·조이스틱·아래 안내와 떨어짐, 펼친 설정 메뉴가 위에 덮음). 가로 폰에서도 보임.
+   층 이름표·흐림(층 이동 중·확인 중)·다시 불러오기. 판 색은 .dv-hud 단추 값 그대로 */
+[data-sim-drive].dv.ph .dv-mini{display:block;top:60px;bottom:auto;right:8px;width:120px;height:84px;cursor:pointer}
+/* 가로 폰: 머리줄 띠(서버 끊김 등)로 영상 칸이 낮아져도 오른쪽 조이스틱(아래 8 + 88) 위에서 멈추게 높이를 줄인다(최소 44) */
+@media (max-height:480px){[data-sim-drive].dv.ph .dv-mini{height:clamp(44px,calc(100% - 164px),84px)}}
+.dv-map[data-dim]{opacity:.4}
+.dv-floor{position:absolute;left:4px;bottom:4px;padding:2px 6px;border-radius:6px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;white-space:nowrap;pointer-events:none}
+.dv-stage>.dv-floor{left:8px;top:60px;bottom:auto;padding:4px 10px;font-size:13px}
+.dv-map-again{position:absolute;left:8px;top:96px;z-index:1;min-height:44px}
+.dv-spawn{min-height:44px;padding-right:12px}

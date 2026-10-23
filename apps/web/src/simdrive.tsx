@@ -6,6 +6,7 @@ import { sim, useSim, velocity, type Sim } from './phone';
 import { Sheet, Stick } from './drive';
 import { Chip } from './screens';
 import { simName, type Tone } from './fake';
+import { SimMap, useFloorMap } from './simmap';
 
 /** on 인 동안 1 s 마다 다시 그림(경과·남은 시간) */
 function useTick(on: boolean) {
@@ -45,11 +46,14 @@ export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
 
 /** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중 */
 export function SimLaunch({ me }: { me: string }) {
-  const s = useSim(), [pick, setPick] = useState('');
+  const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
   useDeadline(!!s.robot?.expires_at);
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
   const worlds = s.catalog?.worlds ?? [], world = worlds.some((w) => w.id === pick) ? pick : worlds[0]?.id ?? '';
+  // 시작 층: 고른 월드가 두 층 이상에서 띄울 수 있을 때만(하나뿐이면 표시·전송 0)
+  const w0 = worlds.find((w) => w.id === world), spawns = w0?.spawn_floor_ids ?? [], from = spawns.length > 1 ? spawns.includes(spawn) ? spawn : spawns[0] : undefined;
+  const floorName = (f: 'l1' | 'l2') => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : '2층');
   const l = s.link, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
   useTick(!!wait);
   const msg = s.err && <p className="fh-why" role="status" data-sim-msg>{s.err}</p>;
@@ -82,7 +86,10 @@ export function SimLaunch({ me }: { me: string }) {
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
         <span><b>{w.name}</b>{w.description && <><br /><small className="lbl">{w.description}</small></>}</span></label></li>)}</ul></fieldset>
       : <p className="lv-note">고를 수 있는 월드가 없습니다.</p>)}
-    <button type="button" className="btn pri" disabled={!world || s.mine.length > 0 || cleanup.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me)}>띄우기</button>
+    {from && <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }} data-sim-spawn><legend>시작 층</legend>
+      <div className="fh-row">{spawns.map((f) => <label key={f} className="fh-row dv-spawn">
+        <input type="radio" name="sim-spawn" value={f} checked={f === from} onChange={() => setSpawn(f)} /><span>{floorName(f)}</span></label>)}</div></fieldset>}
+    <button type="button" className="btn pri" disabled={!world || s.mine.length > 0 || cleanup.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me, from)}>띄우기</button>
     {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>;
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="시뮬 로봇 띄우기">
     <h2>시뮬 로봇 띄우기</h2>
@@ -130,7 +137,7 @@ function ScenarioBar({ s, r }: { s: Sim; r: SimRobot }) {
 }
 
 /** 직결 조종 화면: 카메라 전체. 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약, 오른쪽 위 설정 메뉴(설정·정보), 아래 두 구석 조이스틱,
- *  왼쪽 조이스틱 옆 시나리오 단추 하나(누르면 가로 띠), 지금 눌러야 할 단추·안내. STOP 은 App 머리줄(영상 칸 밖이라 메뉴·띠·시트가 덮지 못함).
+ *  왼쪽 조이스틱 옆 시나리오 단추 하나(누르면 가로 띠), 설정 아래 작은 지도(누르면 지도 크게 ↔ 영상 크게, simmap.tsx), 지금 눌러야 할 단추·안내. STOP 은 App 머리줄(영상 칸 밖이라 메뉴·띠·시트가 덮지 못함).
  *  메뉴·띠가 열려 있거나 나가는 중이면 입력 0 */
 export function SimDrive() {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
@@ -139,6 +146,9 @@ export function SimDrive() {
   const input = useRef<[number, number]>([0, 0]), gen = useRef(0);
   const [unsupported, setUnsupported] = useState(''), [vx, setVx] = useState(0);
   const [menu, setMenu] = useState<'' | 'menu' | 'set' | 'info'>(''), [bar, setBar] = useState(false), [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
+  // 작은 지도(오른쪽 위 설정 아래): 누르면 지도 크게 ↔ 영상 크게(실기 화면 dv-mini 와 같음 — 입력·조이스틱은 그대로)
+  const floors = s.catalog?.worlds.find((x) => x.id === r.world_id)?.floors ?? [], fm = useFloorMap(st, r, floors);
+  const [big, setBig] = useState(false), hasMap = floors.length > 0 || !!fm.ctx;
   const live = ready && !menu && !bar && !leaving;
   const smooth = w?.limits.vx_mode === 'continuous';
   useTick(true);
@@ -177,6 +187,7 @@ export function SimDrive() {
     leaving === 'wait' && '조종권을 반납하고 나가는 중입니다…',
     leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     unsupported,
+    fm.notice,
     !unsupported && mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. ${smooth ? '회전은 끝까지 밀어야 돕니다.' : '끝까지 밀어야 움직입니다.'}`,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
     stop,
@@ -190,10 +201,12 @@ export function SimDrive() {
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>,
   ].filter(Boolean);
+  const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+    : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && <span>{CAM[l.cam]}</span>}</div>;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive>
     <div className="dv-body"><div className="dv-stage rgb">
-      {l.cam === 'frame' ? <img className="dv-video" src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-        : <div className="dv-video" role="img" aria-label="RGB 영상"><span>{CAM[l.cam]}</span></div>}
+      {big && hasMap ? <SimMap m={fm} big /> : video(false)}
+      {hasMap && <button type="button" className="dv-mini" aria-label={big ? '영상 크게' : '지도 크게'} data-sim-mini onClick={() => setBig(!big)}>{big ? video(true) : <SimMap m={fm} />}</button>}
       <button type="button" className="dv-gear dv-leave" aria-label="나가기" disabled={leaving === 'wait'} data-sim-leave onClick={leave}>{ICON.back}</button>
       <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
         시뮬 · {r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'ok' ? '실행 중' : lock.text} · <span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
