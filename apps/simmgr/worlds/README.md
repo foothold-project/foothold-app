@@ -40,7 +40,6 @@ runtime을 사용하며 control-app 원물은 수정하지 않는다. 실행 호
   없다. Harmonic Physics/UserCommands/SceneBroadcaster/Sensors(ogre2)/Imu 플러그인을 명시한다.
   로봇·센서는 월드에 포함하지 않는다. 텍스처 없이 단색 재질을 사용한다.
 
-
 ### Collision OBJ 법선 호환성
 
 native 창고 첫 기동 로그는 collision OBJ마다 normal count 0으로 DART가 submesh를
@@ -127,7 +126,8 @@ PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/tmp/warehouse" \
   "$FH_PYTHON" -m pytest apps/simmgr/tests -q -p no:cacheprovider
 ```
 
-Gazebo/ROS/미리보기 서버/실제 슬롯 실행은 이 작업에서 0회다. 생성한 미리보기 그림과
+자동 시험은 Gazebo/ROS/미리보기 서버/실제 슬롯을 실행하지 않는다. 별도 승인한
+격리 Gazebo 비교 2회의 범위는 위 법선 호환성 절에 기록했다. 생성한 미리보기 그림과
 시험 기록은 worktree `runs/`에만 남기며 커밋하지 않는다.
 
 ## 지도·시나리오 등록 (ADR-003 ②)

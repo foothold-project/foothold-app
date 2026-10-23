@@ -20,5 +20,6 @@ sources.json records the 38 selected upstream inputs with Git blob SHA-1,
 SHA-256 and byte counts. The derived occupancy map is generated exclusively
 from this adaptation's collision geometry. It is not a real-site map.
 
-This is offline asset preparation. Gazebo compatibility, sensors, Go2 walking
-and navigation have not been executed or certified.
+The static world completed a headless 500-step Gazebo load after adding
+normals; the original without normals reproduced the DART/ODE mesh crash.
+Robot contact, sensors, Go2 walking and navigation remain unverified.
