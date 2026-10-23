@@ -254,7 +254,7 @@ export const sim = {
     if (cleanup && cancel) return sim.cleanupSlot(cleanup);
     if (cleanup) { set({ step: 'pick', robot: null, slotBusy: false, stop: null, err: '이전 시뮬이 정리되지 않았습니다 — 아래 정리를 누르세요.' }); return; }
     const taken = [...S.taken, slot], more = S.catalog?.slots.some((x) => !taken.includes(x));
-    set(it ? { step: 'pick', robot: null, slotBusy: false, stop: null, err: '이 슬롯은 이미 내 시뮬 로봇입니다. 위 목록에서 직접 연결하거나 끝내세요.' }
+    set(it ? { step: 'pick', robot: null, slotBusy: false, stop: null, err: '이 슬롯은 이미 내 시뮬 로봇입니다. 위에서 연결하거나 끝내세요.' }
       : { step: 'pick', robot: null, slotBusy: false, stop: null, taken, err: `${S.busyWhy} ${more ? '띄우기를 다시 누르면 다른 슬롯을 시도합니다.' : '사용이 끝난 뒤 다시 누르세요.'}` });
   },
   /** 이미 떠 있는 내 시뮬 로봇에 다시 붙기 */

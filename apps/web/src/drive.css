@@ -58,3 +58,18 @@
 /* 가로: 상태 판은 조이스틱(88 + 아래 8) 위까지만 — 안내가 많으면 판 안에서 스크롤(상태 줄·단추가 맨 위) */
 @media (max-height:480px){.dv-hud{flex-direction:row;flex-wrap:wrap;align-items:center;max-height:calc(100% - 112px);overflow-y:auto}.dv-hud .dv-line{flex:1;padding:4px 8px}.dv-hud .dv-views{align-self:center}.dv-hud .dv-note{flex-basis:100%;padding:4px 8px}
   .dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}.dv.ph .dv-mini{display:none}}
+/* 시뮬 직결 조종(simdrive.tsx): 영상을 덜 가리게 — 왼쪽 위 작은 «시뮬·속도», 오른쪽 위 설정 단추(펼침 = 설정·정보·나가기),
+   아래 가운데 지금 눌러야 할 단추·안내만. 판 색은 .dv-hud 단추 값 그대로. 메뉴·시트는 영상 칸 안 — 머리줄 STOP 을 덮지 못한다 */
+.dv-top{position:absolute;top:8px;left:8px;z-index:1;display:flex;align-items:center;gap:6px;padding:2px 8px;border-radius:6px;background:rgba(8,11,14,.45);color:#E6EBEF;font-size:13px;opacity:.85;pointer-events:none}
+.dv-gear{position:absolute;top:8px;right:8px;z-index:2;width:44px;height:44px;box-sizing:border-box;display:grid;place-items:center;padding:0;border:1px solid rgba(230,235,239,.45);border-radius:22px;background:rgba(8,11,14,.66);color:#E6EBEF;cursor:pointer}
+.dv-gear[aria-expanded="true"]{border-color:var(--accent)}
+.dv-menu{position:absolute;top:58px;right:8px;z-index:2;display:flex;flex-direction:column;gap:6px}
+.dv-menu .btn{min-height:44px;display:flex;align-items:center;gap:8px;justify-content:flex-start;background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+.dv-act{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:1;width:max-content;max-width:calc(100% - 288px);display:flex;flex-direction:column;align-items:center;gap:6px}
+.dv-act .dv-note{padding:4px 8px;font-size:13px;background:rgba(8,11,14,.66);color:#E6EBEF}
+.dv-act .fh-row{justify-content:center}
+.dv-act .btn{min-height:44px}
+.dv-resume{width:100%;min-height:56px;font-size:17px}
+@media (orientation:portrait){.dv-act{left:8px;right:8px;bottom:144px;transform:none;width:auto;max-width:none}}
+@media (orientation:portrait) and (max-height:700px){.dv-act{bottom:104px}}
+@media (max-height:480px){.dv-act{max-width:calc(100% - 208px)}}
