@@ -18,6 +18,7 @@ SIM_MAP_REQUIRES_SIM_ROBOT = 'SIM_MAP_REQUIRES_SIM_ROBOT'
 
 Role = Literal['ORG_ADMIN', 'OPERATOR']
 Category = Literal['RUN', 'ROUTE', 'LINK', 'LEASE', 'APPROVAL', 'SAFETY', 'ACCOUNT']
+SafetyReason = Literal['OUTPUT_STALLED']
 
 
 class Contract(BaseModel):
@@ -427,7 +428,7 @@ class AgentState(AgentInput):
     speed: float | None
     battery: AgentBattery
     latched: bool = Field(strict=True)
-    safety_reason: Literal['OUTPUT_STALLED'] | None = None
+    safety_reason: SafetyReason | None = None
     stop_gen: Sequence
     stop_ref: Sequence
     applied: Vector3
@@ -595,6 +596,7 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason'))
     t: Literal['state'] = 'state'
     robot: UUID
     connection: Literal['ONLINE', 'OFFLINE']
@@ -605,6 +607,7 @@ class ScreenState(Contract):
     speed: float | None
     latency_ms: float | None
     latched: bool | None
+    safety_reason: SafetyReason | None = None
     stop_gen: Sequence | None
     applied: Vector3 | None
 

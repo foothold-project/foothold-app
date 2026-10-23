@@ -34,6 +34,8 @@ AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 `OUTPUT_STALLED | null`이다. publisher 지연으로 잠긴 동안 `OUTPUT_STALLED`를
 보내며 신선한 STOP 피드백·새 unlock·해제 피드백 뒤 null이 된다.
 물리 정지 확인은 기존 `stop_requested` 피드백이며 이 사유 필드로 대신하지 않는다.
+서버는 검증된 값을 로봇별 `ScreenState.safety_reason`으로 전달한다. 필드를 생략하는
+옛 에이전트, 아직 상태가 없거나 오래된 상태, 오프라인 로봇은 null이다.
 
 사건/event와 run.update는 발생 FIFO를 유지한다. hello·최신 state/ACK는 이력을 앞설 수
 있다. 포화는 일반 사건 우선 생략과 누락 수 사건으로 알리며 안전 사건 초과분은

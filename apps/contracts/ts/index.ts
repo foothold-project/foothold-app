@@ -1096,6 +1096,7 @@ export interface ScreenState {
   speed: number | null;
   latency_ms: number | null;
   latched: boolean | null;
+  safety_reason?: "OUTPUT_STALLED" | null;
   stop_gen: number | null;
   applied: number[] | null;
 }
