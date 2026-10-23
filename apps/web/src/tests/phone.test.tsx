@@ -68,6 +68,8 @@ const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush
 /** 에이전트 흉내: lease.take → lease_id, 그 밖 요청 → ok. hello·cmd·ping·stop 은 답 없음(state 로 확인) */
 const agentAuto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 const last = <T,>(xs: T[]) => xs[xs.length - 1];
+/** 오른쪽 위 설정 메뉴 → «설정»·«정보»·«나가기» */
+const menuItem = async (t: string) => { await click($('[data-sim-menu]')); await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === t)); };
 
 /** 띄우기 → 출입증 → hello → welcome 까지 */
 async function launch(hello = welcome()) {
@@ -119,27 +121,29 @@ describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
   });
   it('연속 모드: 3단 숨김·상태 줄 값·놓으면 즉시 0·STOP 늘 보임', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
+    await menuItem('설정');
     expect($('[aria-label="속도 단계"]')).toBeNull();
     expect(box.textContent).not.toContain('보통 · 0.6 m/s');
     expect(box.textContent).toContain('시뮬 전용 · 멈출 때 가끔 넘어질 수 있음(측정 34회 중 3회)');
     expect(box.textContent).toContain('후진·제자리 회전은 아직 지원하지 않습니다');
-    expect($('[data-sim-vx]')!.textContent).toBe('앞 0.00 m/s');
+    await click(btn('닫기'));
+    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.00m/s');
     expect($('[data-stop]')).toBeTruthy();
     const fwd = stick('전후');
     ptr(fwd, 'pointerdown', 50, 0); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 1, vy: 0, wz: 0 });
-    expect($('[data-sim-vx]')!.textContent).toBe('앞 1.00 m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 1.00m/s');
     ptr(fwd, 'pointermove', 50, 44); await wait(80);
     expect(last(a.of('cmd')).vx).toBeCloseTo(0.2 + 0.8 * 0.02 / 0.9, 9);
     ptr(fwd, 'pointermove', 50, 46); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0 });
     ptr(fwd, 'pointermove', 50, 25); await wait(80);
-    expect($('[data-sim-vx]')!.textContent).toBe('앞 0.56 m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.56m/s');
     ptr(fwd, 'pointerup', 50, 25);
     const n = a.of('cmd').length; await wait(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
     expect(a.of('cmd').length).toBeGreaterThan(n);
-    expect($('[data-sim-vx]')!.textContent).toBe('앞 0.00 m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.00m/s');
     ptr(fwd, 'pointerdown', 50, 100); await wait(80);
     expect(box.textContent).toContain('후진은 아직 지원하지 않습니다');
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
@@ -155,6 +159,7 @@ describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
 describe('시뮬 로봇 직결 흐름', () => {
   it('검증된 보통만 사용 가능, 후진·제자리 회전은 미확인 안내, STOP 유지', async () => {
     const a = await launch(); await drive(a);
+    await menuItem('설정');
     const speeds = $('[aria-label="속도 단계"]')!;
     const buttons = [...speeds.querySelectorAll('button')];
     expect(buttons.map((b) => [b.textContent, b.disabled, b.getAttribute('aria-pressed')])).toEqual([
@@ -163,6 +168,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     expect(box.textContent).toContain('느림·빠름·후진·제자리 회전: 시뮬에서 아직 확인 안 됨');
     await click(buttons[0]); await click(buttons[2]);
     expect(buttons[1].getAttribute('aria-pressed')).toBe('true');
+    await click(btn('닫기'));
     const fwd = stick('전후');
     await recv(a, { t: 'cmd.ack', clipped: true });
     expect(box.textContent).toContain('명령 범위 조정');
@@ -231,7 +237,10 @@ describe('시뮬 로봇 직결 흐름', () => {
     await drive(a);
     expect(a.of('lease.take')).toHaveLength(1);
     expect(a.of('unlock')[0]).toMatchObject({ lease_id: LEASE, stop_gen: 1 });
-    expect($('[data-sim-drive]')!.textContent).toContain('움직일 수 있음');
+    expect($('.dv-top')!.textContent).not.toContain('움직일 수 있음');   // 정상이면 영상 위에 잠금 표시 없음 — 정보에
+    await menuItem('정보');
+    expect($('[data-sim-info]')!.textContent).toContain('움직일 수 있음');
+    await click(btn('닫기'));
     // 조종권을 쥐면 50 ms 마다 cmd(중립 0 포함), seq 는 엄격히 증가
     await wait(160);
     const before = a.of('cmd');
@@ -254,7 +263,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     ptr(fwd, 'pointerup', 50, 0);
 
     // 끝내기: 반납 → 연결 닫기 → DELETE → 목록 다시 → IDLE
-    await click(btn('끝내기'));
+    await click(btn('시뮬 끝내기'));
     expect(a.of('lease.release')).toHaveLength(1);
     expect(a.readyState).toBe(3);
     expect(c.readyState).toBe(3);
@@ -290,7 +299,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     await mount();
     await click(btn('띄우기'));
     expect($('[data-sim-msg]')!.textContent).toContain('이미 내 시뮬 로봇입니다');
-    expect(btn('직접 연결')).toBeTruthy();
+    expect(btn('조종 화면 띄우기')).toBeTruthy();
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
 
@@ -306,12 +315,13 @@ describe('시뮬 로봇 직결 흐름', () => {
     expect($('[data-sim-msg]')!.textContent).toContain('사용 중인 슬롯입니다.');
   });
 
-  it('이미 떠 있는 내 시뮬 로봇: 1인 1대라 띄우기 막힘, «직접 연결»로 다시 붙는다', async () => {
+  it('이미 떠 있는 내 시뮬 로봇: 1인 1대라 띄우기 막힘, «조종 화면 띄우기»로 다시 붙는다', async () => {
     serve(); mine = [simRobot()];
     await mount();
     expect(btn('띄우기')!.disabled).toBe(true);
     expect($('#sim-one')).toBeTruthy();
-    await click(btn('직접 연결'));
+    expect(btn('직접 연결')).toBeUndefined();   // 같은 로봇 단추는 맨 위 한 개
+    await click(btn('조종 화면 띄우기'));
     expect(calls.some((c) => c.path === `/robots/${S1}/phone-pass`)).toBe(true);
     expect(agents()).toHaveLength(1);
   });
@@ -563,7 +573,7 @@ describe('시뮬 직결 실패', () => {
     const a = await launch();
     routes[`DELETE /simulation/robots/${S1}`] = err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.');
     const lists = calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length;
-    await click(btn('끝내기'));
+    await click(btn('시뮬 끝내기'));
     expect(a.readyState).toBe(3);
     expect($('[data-sim="checking"]')!.textContent).toContain('정리를 확인하지 못했습니다');
     expect(calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length).toBeGreaterThan(lists);
@@ -580,7 +590,7 @@ it.each(['STARTING', 'STOPPING'] as const)('목록의 %s를 전환 안내로 표
   expect(box.textContent).toContain(state === 'STARTING' ? '시뮬을 띄우는 중…' : '시뮬을 정리하는 중…');
   expect(box.textContent).not.toContain('관리자에 연결하지 못했습니다');
   expect($('[data-stop]')).toBeTruthy();
-  expect(btn('끝내기')).toBeTruthy();
+  expect(btn('시뮬 끝내기')).toBeTruthy();
   expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
 });
 
@@ -608,7 +618,8 @@ it('폰 시계 오차와 무관하게 remaining_s로 세고 증명된 만료 뒤
   try {
     await mount(); await click(btn('띄우기'));
     const a = agents()[0]; act(() => a.open()); await flush(); await recv(a, welcome());
-    expect($('[aria-label="상태"]')!.textContent).toContain('남은 시간 30:00');
+    await menuItem('정보');
+    expect($('[data-sim-info]')!.textContent).toContain('남은 시간 30:00');
     clock.mockReturnValue(at - 86400_000);
     mono.mockReturnValue(1501_000);
     mine = mine.map((r) => ({ ...r, remaining_s: 300 }));
@@ -620,7 +631,7 @@ it('폰 시계 오차와 무관하게 remaining_s로 세고 증명된 만료 뒤
     await act(() => sim.load());
     expect(box.textContent).toContain('남은 시간 01:00');
     expect(box.textContent).toContain('1분 안에 시뮬을 끝냅니다.');
-    expect(btn('끝내기')).toBeTruthy();
+    expect(btn('시뮬 끝내기')).toBeTruthy();
     expect($('[data-stop]')).toBeTruthy();
     // An old generation is never sufficient to close the current connection.
     routes['GET /simulation/robots'] = { status: 200, body: { items: mine, expired: [
@@ -659,4 +670,144 @@ it('기한 정리 실패 ERROR는 확인 중·STOP·다시 끝내기를 남기�
   expect($('[data-stop]')).toBeTruthy();
   expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   expect(a.readyState).toBe(3);
+});
+
+describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메뉴·속도 표시)', () => {
+  it('새로고침 뒤 내 RUNNING 시뮬 로봇 → 카드 맨 위 «조종 화면 띄우기» 한 개, 자동 연결·자동 조종권 0', async () => {
+    serve(); mine = [simRobot(), { ...simRobot(S2), owner_id: 'u-kim' }];   // 새로고침 = 빈 상태에서 목록만 받음
+    await mount();
+    expect(calls.some((c) => c.method === 'GET' && c.path === '/simulation/robots')).toBe(true);
+    const card = $('[aria-label="시뮬 로봇 띄우기"]')!;
+    expect(card.children[1]).toBe($('[data-sim-resume]'));
+    expect(box.querySelectorAll('[data-sim-resume]')).toHaveLength(1);
+    expect(agents()).toHaveLength(0);
+    expect(calls.some((c) => c.path.endsWith('/phone-pass'))).toBe(false);
+    await click(btn('조종 화면 띄우기'));
+    const [a] = agents(); a.auto = agentAuto;
+    expect(a.url).toBe(AGENT);
+    act(() => a.open()); await flush(); await recv(a, welcome()); await recv(a, phoneState());
+    expect($('[data-sim-drive]')).toBeTruthy();
+    expect(btn('조종 시작')).toBeTruthy();
+    await wait(120);
+    expect(a.of('lease.take')).toHaveLength(0);
+    expect(a.of('unlock')).toHaveLength(0);
+    expect(a.of('cmd')).toHaveLength(0);
+  });
+
+  it('남의 로봇·아직 띄우는 중인 내 로봇에는 «조종 화면 띄우기» 없음', async () => {
+    serve(); mine = [{ ...simRobot(), state: 'STARTING' }, { ...simRobot(S2), owner_id: 'u-kim' }];
+    await mount();
+    expect($('[data-sim-resume]')).toBeNull();
+    expect(btn('직접 연결')).toBeTruthy();
+  });
+
+  it('기본 화면: 상태 줄·정책·지연은 숨기고 왼쪽 위 «시뮬 · 속도 : 0.40m/s»만, 정보 메뉴에서 보임', async () => {
+    const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
+    const top = $('.dv-top')!;
+    expect(top.textContent).toMatch(/^○?시뮬속도 : 0\.00m\/s$/);   // 시뮬 표시 + 속도뿐(정상이면 잠금 표시 없음)
+    expect(box.textContent).not.toContain('정책 go2-flat');
+    expect(box.textContent).not.toContain('시뮬 시계 차');
+    const fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 33.75); await wait(80);
+    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.40m/s');
+    expect($('[data-sim-vx]')!.textContent).toMatch(/^속도 : \d+\.\d{2}m\/s$/);
+    ptr(fwd, 'pointerup', 50, 33.75);
+    await menuItem('정보');
+    const info = $('[data-sim-info]')!.textContent!;
+    expect(info).toContain('정책 go2-flat v1');
+    expect(info).toContain('시뮬 시계 차 0.2 s');
+    expect(info).toContain('조종 중(나)');
+  });
+
+  it('메뉴·설정 시트가 열려 있어도 STOP 은 보이고 눌림(에이전트에 stop 1회)', async () => {
+    const a = await launch(); await drive(a);
+    await click($('[data-sim-menu]'));
+    expect($('[data-sim-menu]')!.getAttribute('aria-expanded')).toBe('true');
+    expect(box.querySelector('.dv-stage [data-stop]')).toBeNull();   // STOP 은 영상 칸(메뉴·시트) 밖 머리줄
+    let s = $<HTMLButtonElement>('[data-stop]')!;
+    expect(s.disabled).toBe(false);
+    await click(s);
+    expect(a.of('stop')).toHaveLength(1);
+    await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === '설정'));
+    expect($('[data-sheet]')).toBeTruthy();
+    s = $<HTMLButtonElement>('[data-stop]')!;
+    expect(s.disabled).toBe(false);
+    await click(s);
+    expect(a.of('stop')).toHaveLength(2);
+    expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false);
+  });
+
+  it('메뉴가 열리면 누르고 있던 입력도 0, 조이스틱 막힘 → 나가기 = 반납 후 카드로(시뮬 그대로, DELETE 0), 다시 들어가도 자동 재개 0', async () => {
+    const a = await launch(); await drive(a);
+    const fwd = stick('전후');
+    ptr(fwd, 'pointerdown', 50, 0); await wait(80);
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0.6 });
+    await click($('[data-sim-menu]'));
+    const n = a.of('cmd').length; await wait(120);
+    expect(a.of('cmd').length).toBeGreaterThan(n);
+    expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
+    expect(stick('전후').getAttribute('aria-disabled')).toBe('true');
+    ptr(stick('전후'), 'pointerdown', 50, 0); ptr(stick('회전'), 'pointerdown', 0, 50); await wait(80);   // 막힌 조이스틱은 새로 눌러도 0
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, wz: 0 });
+    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.00m/s');
+    // 나가기
+    await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === '나가기'));
+    expect(a.of('lease.release')).toHaveLength(1);
+    const cmds = a.of('cmd');
+    expect(cmds.every((m, i) => i < n || (m.vx === 0 && m.wz === 0))).toBe(true);
+    expect(a.readyState).toBe(3);
+    const sent = a.sent.length; await wait(120);
+    expect(a.sent.length).toBe(sent);   // 나간 뒤 명령 0
+    expect($('[data-sim-drive]')).toBeNull();
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    expect(btn('조종 화면 띄우기')).toBeTruthy();
+    expect($('[data-stop]')).toBeTruthy();
+    // 다시 들어가기: 새 연결, 조종권·잠금 해제는 처음부터
+    await click(btn('조종 화면 띄우기'));
+    const b = last(agents()); b.auto = agentAuto;
+    expect(b).not.toBe(a);
+    act(() => b.open()); await flush(); await recv(b, welcome()); await recv(b, phoneState());
+    expect(btn('조종 시작')).toBeTruthy();
+    await wait(120);
+    expect(b.of('lease.take')).toHaveLength(0);
+    expect(b.of('cmd')).toHaveLength(0);
+  });
+
+  it('나가기 반납 거절: 조종 화면에 남아 «확인하지 못했습니다»·다시 반납·STOP, 입력 0 → 다시 반납 확인되면 카드로', async () => {
+    const a = await launch(); await drive(a);
+    a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
+    await menuItem('나가기');
+    expect(a.of('lease.release')).toHaveLength(1);
+    await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: false, lease_id: null, error: { code: 'STOP_CONFIRM_FAILED', message: 'failed' } });   // 실제 WS 처럼 답은 보낸 뒤에
+    expect($('[data-sim-drive]')).toBeTruthy();
+    expect(box.textContent).toContain('조종권 반납을 확인하지 못했습니다');
+    expect(a.readyState).toBe(1);   // 연결·대상 보존
+    await wait(120);
+    expect(a.of('cmd').every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    // 서버가 아직 내 조종권이라고 알림 → 다시 반납이 확인되면 카드로
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
+    a.auto = agentAuto;
+    await click(btn('다시 반납'));
+    expect(a.of('lease.release')).toHaveLength(2);
+    expect($('[data-sim-drive]')).toBeNull();
+    expect(btn('조종 화면 띄우기')).toBeTruthy();
+  });
+
+  it('나가기 반납 무응답 2초: 조종 화면에 남아 실패 표시·STOP 대상 보존, 입력 0', async () => {
+    const a = await launch(); await drive(a);
+    a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
+    await menuItem('나가기');
+    const n = a.of('cmd').length;
+    await wait(2100);
+    expect($('[data-sim-drive]')).toBeTruthy();
+    expect(box.textContent).toContain('조종권 반납을 확인하지 못했습니다');
+    expect(btn('다시 반납')).toBeTruthy();
+    expect(a.readyState).toBe(1);
+    expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  });
 });
