@@ -4,9 +4,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FloorContext, MapVersion, PhoneState, SimRobot, SimWorldFloor } from '../../contracts/ts';
 import { api } from './api';
-import { aim, isVersion, shape, toPixel } from './screens/maps';
+import { aim, floorName, isVersion, shape, toPixel } from './screens/maps';
 
-const FLOOR = { l1: '1층', l2: '2층', f1: '1층' } as const;
 type Me = Pick<SimRobot, 'robot_id' | 'generation'>;
 const mine = (x: FloorContext | null, r: Me): x is FloorContext => !!x && x.robot_id === r.robot_id && x.generation === r.generation;
 /** 같은 로봇·세대 안에서 run_id 가 같고 epoch·floor_rev 가 각각 줄지 않는 문맥만(서버 realtime.accept_state·에이전트 telemetry 와 같은 규칙) */
@@ -36,7 +35,7 @@ export function useFloorMap(st: PhoneState | null, r: SimRobot, floors: SimWorld
     }).catch(() => { if (!stop.signal.aborted && last.current?.map_version_id === id) setVer({ id, bad: true }); });
     return () => stop.abort();
   }, [id, again]);
-  const name = (x: string | null) => floors.find((f) => f.map_version_id === x)?.name ?? (c?.current_floor_id ? FLOOR[c.current_floor_id] : '');
+  const name = (x: string | null) => floorName(floors.find((f) => f.map_version_id === x)?.name ?? c?.current_floor_id ?? '');
   // 그릴 판: 확정 층이면 그 판(받았을 때), 아니면 마지막으로 그린 판을 흐리게(위치 없음)
   const sameSha = !!ver?.v && (!c?.sha256 || ver.v.image_sha256 === c.sha256);
   const live = !!id && ver?.id === id && sameSha;
