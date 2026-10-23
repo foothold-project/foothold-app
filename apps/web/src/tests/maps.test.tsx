@@ -644,6 +644,9 @@ const ptr = async (type: string, x: number, y: number, on: Element = canvas()) =
 };
 const tap = async (x: number, y: number, on?: Element) => { await ptr('pointerdown', x, y, on); await ptr('pointerup', x, y, on); };
 const tool = (t: string) => click(btn(t, card('편집 도구')));
+/** 구역 도구 + «점으로 그리기»(둘레를 찍고 닫기 — 기본은 끌어서 사각형) */
+const dotTool = async (t: string) => { await tool(t); await click(btn('점으로 그리기', card('그리기'))); };
+const drag = async (x0: number, y0: number, x1: number, y1: number) => { await ptr('pointerdown', x0, y0); await ptr('pointermove', x1, y1); await ptr('pointerup', x1, y1); };
 /** jsdom 은 주소 바꿈(hashchange)을 몇 틱 뒤에 알린다 */
 const hashed = () => act(() => new Promise((r) => setTimeout(r, 30)));
 const choose = (label: string, from: ParentNode = box) => [...from.querySelectorAll('label')].find((l) => l.textContent!.startsWith(label))!.querySelector('select') as HTMLSelectElement;
@@ -755,7 +758,7 @@ describe('지도 편집 — 도구', () => {
   it('진입 금지 구역: 점 찍기·되돌리기·지우기·범위 밖 막음·교차 막음 → 닫기 → 저장 요청 모양(base·image=upload_id·reason)', async () => {
     serve(editSrv(saved201));
     await startEdit();
-    await tool('진입 금지');
+    await dotTool('진입 금지');
     await tap(1, 1); await tap(2, 1);
     await tap(5, 0);                                                  // 지도 범위 밖(x 는 4 m 까지)
     expect(alertText()).toContain('지도 범위 밖은 찍을 수 없습니다.');
@@ -785,6 +788,50 @@ describe('지도 편집 — 도구', () => {
     expect(b.features.waypoints).toEqual(FEAT.waypoints); expect(b.features.connectors).toEqual(FEAT.connectors); expect(b.features.edits).toEqual(FEAT.edits);
     expect(canvas()).toBeNull();                                        // 저장되면 보기로
     expect(card('지도 보기').textContent).toContain('새 판을 저장했습니다(판 3). 다음 실행부터 이 판을 씁니다.');
+  });
+  it('구역 끌어 그리기(기본): 놓으면 사각형 1개, 도구 그대로 연달아 3개, 작은 끌기·누름·취소 무시, 범위 밖이면 안 만들고 알림', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    await tool('진입 금지');
+    expect(btn('점으로 그리기', card('그리기'))!.getAttribute('aria-pressed')).toBe('false');
+    expect(btn('닫기')).toBeFalsy();                                      // 끌기 모드엔 닫기·되돌리기 없음
+    await ptr('pointerdown', 1, 1); await ptr('pointermove', 2, 0);
+    expect($('[data-box]')!.getAttribute('points')).toBe('40,20 60,20 60,40 40,40');   // 끄는 동안 사각형 미리보기
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(1);
+    await ptr('pointerup', 2, 0);
+    expect($('[data-box]')).toBeNull();
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(2);
+    expect(field('이름', card('고른 요소')).value).toBe('진입 금지 2');
+    expect(btn('진입 금지', card('편집 도구'))!.getAttribute('aria-pressed')).toBe('true');   // 도구는 그대로
+    await drag(3, 1.5, 2.5, 1);                                           // 거꾸로 끌어도 사각형
+    await tool('감속'); await drag(-0.5, 1.5, 0.5, 0.5);
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(4);
+    await drag(0, 0, 0.05, 0.05);                                         // 화면 4 px — 무시
+    await tap(1.5, -1);                                                   // 그냥 누름 — 무시
+    await ptr('pointerdown', 1, -1); await ptr('pointermove', 2, -1.5); await ptr('pointercancel', 2, -1.5);   // 취소 — 무시
+    expect($('[data-box]')).toBeNull();
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(4);
+    await drag(3, 1, 5, 0);                                               // 지도 밖(x 는 4 m 까지)으로 끌면 만들지 않음
+    expect(alertText()).toContain('사각형이 지도 범위 밖으로 나갔습니다.');
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(4);
+    await save();
+    const z = body().features.zones;
+    expect(z.map((x) => [x.type, x.name])).toEqual([['NO_GO', '공사'], ['NO_GO', '진입 금지 2'], ['NO_GO', '진입 금지 3'], ['SLOW', '감속 1']]);
+    expect(near(z[1].polygon)).toEqual([[1, 1], [2, 1], [2, 0], [1, 0]]);
+    expect(near(z[2].polygon)).toEqual([[3, 1.5], [2.5, 1.5], [2.5, 1], [3, 1]]);
+    expect(z.every((x) => Object.keys(x).sort().join() === 'id,name,polygon,type')).toBe(true);   // 색은 저장하지 않음
+  });
+  it('구역 표시: 구역마다 다른 채우기(토큰 차례), 종류는 테두리(진입 금지 굵은 실선·감속 점선) + 이름표', async () => {
+    serve(editSrv());
+    await startEdit();
+    await tool('감속'); await drag(1, 1, 2, 0); await drag(2.5, 1.5, 3, 1);
+    await tool('진입 금지'); await drag(-0.5, 1.5, 0.5, 0.5);
+    await tool('고르기');                                                 // 빈 곳 누름 → 고른 것 없음(고른 표시가 테두리를 덮지 않게)
+    await ptr('pointerdown', 3.9, -1.9); await ptr('pointerup', 3.9, -1.9);
+    const zs = [...canvas().querySelectorAll<SVGElement>('[data-zone]')];
+    expect(zs.map((x) => x.style.fill)).toEqual(['var(--accent)', 'var(--warn)', 'var(--bad)', 'var(--ink-3)']);
+    expect(zs.map((x) => [x.dataset.zone, x.style.strokeWidth, x.style.strokeDasharray])).toEqual([['NO_GO', '3.5', ''], ['SLOW', '2.5', '1 5'], ['SLOW', '2.5', '1 5'], ['NO_GO', '3.5', '']]);
+    expect([...canvas().querySelectorAll('text')].map((t) => t.textContent)).toEqual(expect.arrayContaining(['공사', '감속 1', '감속 2', '진입 금지 2']));
   });
   it('지점: 놓고 이름·방향(도 → 라디안) / 지우개·벽: 굵기, 서로 다른 2점 이상', async () => {
     serve(editSrv(saved201));
@@ -971,7 +1018,7 @@ describe('지도 편집 — 나가기 확인·STOP', () => {
   it('그리던 점만 있어도 묻는다, 층 바꾸기 확인에서 나가기 → 그 층으로', async () => {
     serve(editSrv());
     await startEdit();
-    await tool('진입 금지'); await tap(1, 1);
+    await dotTool('진입 금지'); await tap(1, 1);
     await click(floorBtn('2층'));
     await click(btn('나가기', card('확인')));
     expect(floorBtn('2층').getAttribute('aria-pressed')).toBe('true');
@@ -1149,7 +1196,7 @@ describe('지도 편집 — PR #30 검토(B1~B4)', () => {
     serve(editSrv());
     await startEdit();
     await tool('지점'); await tap(1, 1);
-    await tool('진입 금지'); await tap(1, 1); await tap(2, 1);
+    await dotTool('진입 금지'); await tap(1, 1); await tap(2, 1);
     await tool('진입 금지'); expect(dots()).toBe(2);
     await tool('감속'); expect(dots()).toBe(2); expect(pressed('감속')).toBe('true');
     await tool('벽');

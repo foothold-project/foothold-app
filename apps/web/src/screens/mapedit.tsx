@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from '
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, isVersion, reasonBad, shape, toPixel, UnsureBar, canon, pendingIds, preFail, useUnsure, type Msg, type Place } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, fillOf, isVersion, reasonBad, shape, toPixel, UnsureBar, canon, pendingIds, preFail, useUnsure, type Msg, type Place } from './maps';
 
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
@@ -119,11 +119,13 @@ function saveFail(e: ApiFail) {
 
 type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'waypoint' | 'connector' | 'ERASE' | 'WALL';
 const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['waypoint', '지점'], ['connector', '연결점'], ['ERASE', '지우개'], ['WALL', '벽']];
+const EMPTY: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
+const MIN_BOX = 8;   // 화면 px — 이보다 작은 끌기(그냥 누름 포함)는 구역을 만들지 않는다
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;   // 같은 무리 안에서만 달라야 함(서버 검사)
 const deg = (r: number) => Math.round((r * 180) / Math.PI), rad = (d: number) => (d * Math.PI) / 180;
 const pointsOf = (x: Item): P[] => ('polygon' in x ? x.polygon : 'polyline' in x ? x.polyline : [[x.x, x.y]]) as P[];
 /** 저장하지 않은 편집 — 폰 틀로 바뀌어 지도 탭이 내려가도 남겨 PC 로 돌아오면 이어 쓴다(B3). 나가기 확인·저장·로그아웃 때 비운다 */
-type Draft = { floor: string; base: MapVersion; f: MapFeatures; dirty: boolean; pts: P[]; tool: Tool; width: number; reason: string; unsure: string[] | null };   // unsure = 결재 요청 답이 끊겨 확인 전(보내기 전 내 대기 요청 ID)
+type Draft = { floor: string; base: MapVersion; f: MapFeatures; dirty: boolean; pts: P[]; tool: Tool; dots: boolean; width: number; reason: string; unsure: string[] | null };   // unsure = 결재 요청 답이 끊겨 확인 전(보내기 전 내 대기 요청 ID)
 /** 보낸 저장 요청(B5) — 기다리는 사이 폰 틀로 내려갔다 돌아와도 같은 층·같은 기준 판 편집이 잠금·결과를 이어받는다 */
 type Job = { floor: string; base: string; wait: Promise<void>; known?: string[]; done?: { ok: MapVersion } | { fail: ApiFail } };   // known = 결재 요청 전 내 대기 요청 ID(받은 뒤에야 보냄)
 export const kept: { d: Draft | null; job: Job | null } = { d: null, job: null };
@@ -136,6 +138,8 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
   const [k] = useState(() => (kept.d?.floor === p.floor.id && kept.d.base.id === v.id ? kept.d : null));
   const [f, setF] = useState<MapFeatures>(() => k?.f ?? JSON.parse(JSON.stringify({ ...v.features, edits: v.features.edits ?? [] })));
   const [dirty, setDirty] = useState(k?.dirty ?? false), [tool, setTool] = useState<Tool>(k?.tool ?? 'pick'), [pts, setPts] = useState<P[]>(k?.pts ?? []), [sel, setSel] = useState(''), [width, setWidth] = useState(k?.width ?? 0.1);
+  // 구역 도구: 기본은 끌어서 사각형(box = 끄는 중인 두 화면 좌표), dots = «점으로 그리기»(둘레를 찍고 «닫기»)
+  const [dots, setDots] = useState(k?.dots ?? false), [box, setBox] = useState<[P, P] | null>(null), rect = useRef<P | null>(null);
   const mine = (j: Job | null): j is Job => !!j && j.floor === p.floor.id && j.base === v.id;
   const [reason, setReason] = useState(k?.reason ?? ''), [busy, setBusy] = useState(() => mine(kept.job)), [msg, setMsg] = useState<Msg>(null), [bad, setBad] = useState<Bad | null>(null), [stale, setStale] = useState(false);
   const [ask, setAsk] = useState<{ text: string; yes: string; go: () => void } | null>(null);
@@ -144,7 +148,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     (x) => { leaving.ask = null; left.current = true; saved(x); }, setMsg, cancel, k?.unsure ?? null);
   // 저장 중·결재 요청 확인 전에는 편집을 모두 막는다 — 캔버스 누름·끌기·그리기와 모든 고치기(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로
   const lock = busy || u.unsure;
-  useEffect(() => { if (lock) drag.current = null; }, [lock]);
+  useEffect(() => { if (lock) { drag.current = null; rect.current = null; setBox(null); } }, [lock]);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
   const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
 
@@ -152,7 +156,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
   const unsaved = dirty || pts.length > 0;
   // 내려갈 때 남긴다 — 나가기 확인·저장·새로 불러오기로 내려가면(left) 비운다
   const snap = useRef<Draft | null>(null), left = useRef(false);
-  snap.current = unsaved ? { floor: p.floor.id, base: v, f, dirty, pts, tool, width, reason, unsure: u.known } : null;
+  snap.current = unsaved ? { floor: p.floor.id, base: v, f, dirty, pts, tool, dots, width, reason, unsure: u.known } : null;
   useEffect(() => { kept.d = null; return () => { kept.d = left.current ? null : snap.current; }; }, []);
   useEffect(() => { if (moved && !busy) { setStale(true); setMsg({ text: STALE }); } }, [moved]);   // 저장을 기다리는 중이면 그 결과가 알린다
 
@@ -201,8 +205,13 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
   // 같은 도구는 그대로, 같은 갈래(구역↔구역·선↔선)는 그리던 점을 이어 쓰고, 그 밖은 점을 지울지 묻는다
   const pick = (t: Tool) => {
     if (lock) return;
-    const same = (zone && (t === 'NO_GO' || t === 'SLOW')) || (line && (t === 'ERASE' || t === 'WALL')), go = () => { setTool(t); if (!same) setPts([]); setMsg(null); };
+    const same = (zone && (t === 'NO_GO' || t === 'SLOW')) || (line && (t === 'ERASE' || t === 'WALL')), go = () => { setTool(t); if (!same) setPts([]); setMsg(null); rect.current = null; setBox(null); };
     if (pts.length && !same) setAsk({ text: `그리던 점 ${pts.length}개를 지우고 도구를 바꿀까요?`, yes: '바꾸기', go }); else go();
+  };
+  const dotMode = (d: boolean) => {
+    if (lock) return;
+    const go = () => { setDots(d); setPts([]); setMsg(null); };
+    if (pts.length && !d) setAsk({ text: `그리던 점 ${pts.length}개를 지우고 끌어서 그리기로 바꿀까요?`, yes: '바꾸기', go }); else go();
   };
 
   const at = (e: PointerEvent): P => fromScreen(svg.current!, v, e.clientX, e.clientY);
@@ -217,6 +226,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     }
     if (!inside(v, q[0], q[1])) return setMsg({ text: '지도 범위 밖은 찍을 수 없습니다. 지도 그림 안을 누르세요.' });
     setMsg(null);
+    if (zone && !dots) { rect.current = [e.clientX, e.clientY]; setBox([rect.current, rect.current]); svg.current!.setPointerCapture?.(e.pointerId); return; }
     if (tool === 'waypoint') add('waypoints', { id: newId(), name: `지점 ${f.waypoints.length + 1}`, x: q[0], y: q[1], yaw: 0 });
     else if (tool === 'connector') {
       if (!others.length) return setMsg({ text: '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. 장소 «고치기»에서 층을 먼저 만드세요.' });
@@ -224,6 +234,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     } else setPts([...pts, q]);
   };
   const move = (e: PointerEvent<SVGSVGElement>) => {
+    if (rect.current) { if (!lock) setBox([rect.current, [e.clientX, e.clientY]]); return; }
     const d = drag.current;
     if (!d || lock) return;
     const q = at(e), dx = q[0] - d.from[0], dy = q[1] - d.from[1], [g, i] = split(d.key), x = d.orig[g][i] as Item, sh = ([a, b]: P): P => [a + dx, b + dy];
@@ -232,21 +243,36 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     if (!pointsOf(n).every(([a, b]) => inside(v, a, b))) return;   // 범위 밖으로는 옮기지 않는다(마지막 자리에 둠)
     put({ ...d.orig, [g]: (d.orig[g] as Item[]).map((o, k) => (k === i ? n : o)) });
   };
-  const end = () => { drag.current = null; };
+  /** 화면 사각형(두 모서리) → 지도 좌표 네 꼭짓점. 화면 축 사각형이라 origin 이 돌아 있어도 보이는 그대로 */
+  const corners = ([a, b]: [P, P]): P[] => ([[a[0], a[1]], [b[0], a[1]], [b[0], b[1]], [a[0], b[1]]] as P[]).map(([x, y]) => fromScreen(svg.current!, v, x, y));
+  const end = (e: PointerEvent<SVGSVGElement>) => {
+    drag.current = null;
+    const a = rect.current;
+    rect.current = null; setBox(null);
+    if (!a || lock || e.type !== 'pointerup' || Math.abs(e.clientX - a[0]) < MIN_BOX || Math.abs(e.clientY - a[1]) < MIN_BOX) return;   // 취소·작은 끌기는 무시
+    const c = corners([a, [e.clientX, e.clientY]]);
+    if (!c.every(([x, y]) => inside(v, x, y))) return setMsg({ text: '사각형이 지도 범위 밖으로 나갔습니다. 지도 그림 안에서 끌어 그리세요.' });
+    addZone(c);
+  };
+
+  /** 구역 하나 더하기 — 그 하나를 바로 검사해 걸리면 더하지 않고 알린다(더하면 true) */
+  const addZone = (polygon: P[]) => {
+    const t = tool as MapZone['type'], z: MapZone = { id: newId(), type: t, name: `${ZONE[t].text} ${f.zones.filter((x) => x.type === t).length + 1}`, polygon };
+    const b = check({ ...EMPTY, zones: [z] }, v);
+    if (b) { setMsg({ text: b.text }); return false; }
+    add('zones', z);
+    return true;
+  };
 
   /** 그리던 구역·선 마치기 — 그 하나를 바로 검사해 걸리면 점을 그대로 두고 알린다 */
   const finish = () => {
     if (lock) return;
-    const empty: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
     if (zone) {
       if (pts.length < 3) return setMsg({ text: '점을 3개 이상 찍어야 구역을 닫을 수 있습니다.' });
-      const t = tool as MapZone['type'], z: MapZone = { id: newId(), type: t, name: `${ZONE[t].text} ${f.zones.filter((x) => x.type === t).length + 1}`, polygon: pts };
-      const b = check({ ...empty, zones: [z] }, v);
-      if (b) return setMsg({ text: b.text });
-      add('zones', z);
+      if (!addZone(pts)) return;
     } else if (line) {
       const x: MapEdit = { id: newId(), op: tool as MapEdit['op'], polyline: pts, width };
-      const b = check({ ...empty, edits: [x] }, v);
+      const b = check({ ...EMPTY, edits: [x] }, v);
       if (b) return setMsg({ text: b.text });
       add('edits', x);
     }
@@ -275,12 +301,13 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
     follow(j);
   };
 
-  const hint = zone ? `점 ${pts.length}개 — 지도를 눌러 구역 둘레를 차례로 찍고, 3개 이상이면 «닫기»를 누르세요.`
+  const hint = zone && !dots ? '지도에서 누른 채 끌면 사각형 구역이 생깁니다. 연달아 여러 개 그릴 수 있고, 다른 모양은 «점으로 그리기»를 누르세요.'
+    : zone ? `점 ${pts.length}개 — 지도를 눌러 구역 둘레를 차례로 찍고, 3개 이상이면 «닫기»를 누르세요.`
     : line ? `점 ${pts.length}개 — 지도를 눌러 선을 찍고, 2개 이상이면 «끝내기»를 누르세요.`
     : tool === 'waypoint' ? '지도를 누르면 지점을 놓습니다. 놓은 뒤 이름과 방향을 고치세요.'
     : tool === 'connector' ? (others.length ? '지도를 누르면 계단·엘리베이터 연결점을 놓습니다. 놓은 뒤 짝 층을 고르세요.' : '같은 건물에 다른 층이 없어 연결점을 놓을 수 없습니다. 장소 «고치기»에서 층을 먼저 만드세요.')
     : '요소를 눌러 고르고, 끌어서 옮기세요.';
-  const color = zone ? ZONE[tool as 'NO_GO'].color : line ? EDIT[tool as 'WALL'].color : 'var(--accent)';
+  const color = zone ? fillOf(f.zones.length) : line ? EDIT[tool as 'WALL'].color : 'var(--accent)';
   const num = (s: string) => (s.trim() === '' ? NaN : Number(s));
 
   return <div className="fh-form" aria-label="지도 편집">
@@ -295,20 +322,24 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
         {TOOLS.map(([t, text]) => <button key={t} type="button" className="btn" aria-pressed={tool === t} disabled={lock} onClick={() => pick(t)}>{text}</button>)}
       </div>
       <svg ref={svg} viewBox={`0 0 ${v.width} ${v.height}`} role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-        style={{ display: 'block', flex: 1, minWidth: 0, maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8, touchAction: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
+        style={{ display: 'block', flex: 1, minWidth: 0, maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
         <image href={api.imageUrl(v.id)} width={v.width} height={v.height} style={{ imageRendering: 'pixelated' }} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
         <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
         {pts.length > 0 && <g data-drawing>
           <polyline points={pts.map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: 'none', stroke: color, strokeWidth: 2, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke" />
           {pts.map(([x, y], k) => { const [a, b] = toPixel(v, x, y); return <circle key={k} cx={a} cy={b} r={r * 0.6} style={{ fill: color }} />; })}
         </g>}
+        {box && <polygon data-box points={corners(box).map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: color, fillOpacity: 0.2, stroke: color, strokeWidth: 2, strokeDasharray: '4 3', pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />}
       </svg>
     </div>
     <p className="lv-note" role="status">{hint}</p>
     {(zone || line) && <div className="fh-row" role="group" aria-label="그리기">
-      <button type="button" className="btn" disabled={lock || !pts.length} onClick={finish}>{zone ? '닫기' : '끝내기'}</button>
-      <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts(pts.slice(0, -1))}>되돌리기</button>
-      <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts([])}>지우기</button>
+      {zone && <button type="button" className="btn" aria-pressed={dots} disabled={lock} onClick={() => dotMode(!dots)}>점으로 그리기</button>}
+      {(line || dots) && <>
+        <button type="button" className="btn" disabled={lock || !pts.length} onClick={finish}>{zone ? '닫기' : '끝내기'}</button>
+        <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts(pts.slice(0, -1))}>되돌리기</button>
+        <button type="button" className="btn" disabled={lock || !pts.length} onClick={() => setPts([])}>지우기</button>
+      </>}
       {line && <label className="fh-row"><span>굵기(m)</span><input className="inp" type="number" min={0.01} max={100} step={0.05} style={{ width: 96 }} value={Number.isFinite(width) ? width : ''} onChange={(e) => lock || setWidth(num(e.target.value))} /></label>}
     </div>}
     {cur && <div className="fh-form" role="group" aria-label="고른 요소">
