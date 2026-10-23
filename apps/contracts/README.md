@@ -90,3 +90,24 @@ waypoint_ref는 지점 ID이고 좌표 차이 상한은 0.05 m다. 본문 검사
 문제 경로 배열이고 preview 자료는 detail.preview다. query/path 오류는 공통400이다.
 범위·인자 상한·preview의
 직선/직접 연결점 거리 한계·428/409/422는 서버 README S5a 절을 따른다.
+
+
+## 시뮬 월드 지도 연결 (ADR-003 ②)
+
+`SimWorld.map_id`는 지도 트리의 건물 ID이며, 선택 필드 `floors`는 등록된 층의
+`floor_id`·`name`·`floor_z`(월드 m)·현재 승인 `map_version_id`를 담는다.
+미등록 월드는 `map_id=null`, `floors=[]`다. 서버가 로그인 조직의 등록 자료를 연결하며
+simmgr는 지도 DB를 소유하지 않는다. 기존 `id`와 월드 실행 가능 여부는 바꾸지 않는다.
+`MapBuilding.sim_world_id`, `MapFloor.provenance`/`floor_z`, `MapVersion.provenance`도
+선택 추가 필드다. 출처는 `HUMAN`/`SIMULATION`이며 기존 `MapVersion.source`의
+IMPORT/EDIT/ROLLBACK/SLAM(만든 방식)과 구분한다. 사람이 시뮬 층을 편집·되돌려도
+SIMULATION 출처를 유지한다. 서버 업로드 ID 재사용·YAML 연결 복사도 지도 판의 출처를 보존한다.
+
+시뮬 지도 판이 하나라도 든 시나리오를 실기 로봇에 배정하면
+`422 SIM_MAP_REQUIRES_SIM_ROBOT` (`ScenarioTargetErrorCode`)이다. 일반 로봇 API로
+simulation 값을 설정할 수 없으며 기존 서버 등록 값으로 판정한다. 결재 승인 때도
+같은 적합성을 다시 확인한다. 후속 실행 시작 API는 공통 `require_target`을 호출해야 한다.
+
+미리 만든 임무 판은 표시·기록용 이름이며 `Mission.steps=[]`로 읽힌다.
+일반 `MissionWrite`는 기존대로 작업 1개 이상을 요구한다. 시뮬 지도 자동 승인은
+지도에만 해당하며 운영자 시나리오 배정의 결재는 기존대로다.

@@ -339,6 +339,15 @@
           "title": "Origin",
           "type": "array"
         },
+        "provenance": {
+          "default": "HUMAN",
+          "enum": [
+            "HUMAN",
+            "SIMULATION"
+          ],
+          "title": "Provenance",
+          "type": "string"
+        },
         "reason": {
           "title": "Reason",
           "type": "string"

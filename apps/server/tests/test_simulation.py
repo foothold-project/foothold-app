@@ -35,7 +35,7 @@ def test_simulation_relay_auth_provenance_pass_and_removal(client,seeded):
         headers = csrf(client,'one')
         catalog = client.get('/api/v1/simulation/worlds').json()
         assert catalog['slots'] == [rid]
-        assert catalog['worlds'] == [dict(id='test', name='연습장', description='빈 공간')]
+        assert catalog['worlds'] == [dict(id='test', name='연습장', description='빈 공간', map_id=None, floors=[])]
         assert client.post('/api/v1/simulation/robots',json=dict(world_id='test',robot_id=rid)).status_code == 403
         start = client.post('/api/v1/simulation/robots',json=dict(world_id='test',robot_id=rid),headers=headers)
         assert start.status_code == 201, start.text

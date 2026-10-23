@@ -87,7 +87,6 @@
         "$ref": "#/$defs/MissionStep"
       },
       "maxItems": 100,
-      "minItems": 1,
       "title": "Steps",
       "type": "array"
     },

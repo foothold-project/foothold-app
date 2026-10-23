@@ -406,6 +406,7 @@ export interface LoginResponse {
 }
 
 export interface MapBuilding {
+  sim_world_id?: string | null;
   id: string;
   site_id: string;
   name: string;
@@ -453,6 +454,8 @@ export interface MapFeatures {
 }
 
 export interface MapFloor {
+  provenance?: "HUMAN" | "SIMULATION";
+  floor_z?: number | null;
   id: string;
   building_id: string;
   name: string;
@@ -482,6 +485,7 @@ export interface MapUpload {
 }
 
 export interface MapVersion {
+  provenance?: "HUMAN" | "SIMULATION";
   upload_id: string;
   id: string;
   floor_id: string;
@@ -1206,9 +1210,18 @@ export interface SimStartRequest {
 }
 
 export interface SimWorld {
+  map_id?: string | null;
+  floors?: SimWorldFloor[];
   id: string;
   name: string;
   description: string;
+}
+
+export interface SimWorldFloor {
+  floor_id: string;
+  name: string;
+  floor_z: number;
+  map_version_id: string;
 }
 
 export interface SimWorldStart {
@@ -1257,6 +1270,7 @@ export interface WaitParams {
   seconds?: number;
 }
 
+export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT";
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing;

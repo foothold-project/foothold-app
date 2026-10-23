@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from apps.contracts import models as C
 from apps.contracts.simulation_ports import allowed_ports, extra_ports_from_env
-from .models import Robot
+from .models import Building, Floor, Robot
 from . import phone_pass
 from .security import digest, token
 
@@ -122,10 +122,21 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             fail(error.status, error.code, '시뮬 요청을 처리하지 못했습니다.', error.detail)
 
     @app.get('/api/v1/simulation/worlds', response_model=C.SimCatalog)
-    def worlds(auth: Identity):
+    def worlds(auth: Identity, db: DB):
         user = auth[0]
         authorize(user, 'O')
-        return call('GET', '/v1/worlds?' + urlencode({'org_id': str(user.org_id)}))
+        catalogue = C.SimCatalog.model_validate(call('GET', '/v1/worlds?' + urlencode({'org_id': str(user.org_id)})))
+        buildings = list(db.scalars(select(Building).where(Building.org_id == user.org_id, Building.sim_world_id.is_not(None))))
+        for world in catalogue.worlds:
+            for building in buildings:
+                floors = list(db.scalars(select(Floor).where(Floor.org_id == user.org_id,
+                    Floor.building_id == building.id, Floor.sim_floor_id.is_not(None)).order_by(Floor.level, Floor.id)))
+                if world.id != building.sim_world_id and world.id not in {building.sim_world_id + '/' + f.sim_floor_id for f in floors}:
+                    continue
+                world.map_id = building.id
+                world.floors = [C.SimWorldFloor(floor_id=f.id, name=f.name, floor_z=f.floor_z,
+                    map_version_id=f.approved_version_id) for f in floors if f.approved_version_id is not None]
+        return catalogue
 
     @app.get('/api/v1/simulation/robots', response_model=C.SimRobotList)
     def robots(auth: Identity, db: DB):
