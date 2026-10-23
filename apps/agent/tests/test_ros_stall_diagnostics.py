@@ -169,3 +169,38 @@ def test_node_records_ros_phases_and_stops_idle_diagnostic_thread(ros):
             node.close()
         assert not node.diagnostics._thread.is_alive()
     asyncio.run(run())
+
+
+def test_history_retains_slow_publish_after_latest_phase_was_overwritten():
+    clock = Clock()
+    diagnostic = StallDiagnostics(now=clock)
+    def slow_publish():
+        clock.t += .328
+    diagnostic.call('publish_velocity', slow_publish)
+    diagnostic.call('publish_velocity', lambda: None)
+    diagnostic.stall(detected_at=clock(), last_apply=clock(), last_flush=0)
+    history = diagnostic._incident['history']
+    assert len(history) == 2
+    assert history[0]['end'] - history[0]['start'] == .328
+    assert history[1]['start'] == history[1]['end'] == .328
+    assert history[0]['cpu_end'] >= history[0]['cpu_start']
+    assert history[0]['thread_id'] == threading.get_native_id()
+    for _ in range(300):
+        diagnostic.call('spin', lambda: None)
+    assert len(diagnostic._history) == 256
+    assert len(diagnostic._incident['history']) == 2
+
+
+def test_history_failure_cannot_suppress_publisher_or_replace_its_exception():
+    class BrokenHistory:
+        def append(self, record):
+            raise RuntimeError('diagnostic failed')
+    diagnostic = StallDiagnostics()
+    diagnostic._history = BrokenHistory()
+    outputs = []
+    diagnostic.call('publish_stop', lambda: outputs.append('STOP'))
+    assert outputs == ['STOP']
+    def failed_publish():
+        raise ValueError('publish failed')
+    with pytest.raises(ValueError, match='publish failed'):
+        diagnostic.call('publish_velocity', failed_publish)

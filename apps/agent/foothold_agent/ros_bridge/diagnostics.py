@@ -1,6 +1,7 @@
 """Bounded in-memory phase stamps; one asynchronous dump on publisher stall."""
 
 import faulthandler
+from collections import deque
 import json
 import os
 import re
@@ -36,6 +37,9 @@ class StallDiagnostics:
         self.dump = dump
         self._lock = threading.Lock()
         self._phases = {}
+        self._history = deque(maxlen=256)
+        self._active = {}
+        self._sequence = 0
         self._incident = None
         self._wake = threading.Event()
         self._thread = None
@@ -56,11 +60,28 @@ class StallDiagnostics:
             pass
 
     def call(self, phase, function, *args, **kwargs):
+        sequence = None
+        try:
+            started, cpu_started = self.now(), time.thread_time()
+            with self._lock:
+                self._sequence += 1
+                sequence = self._sequence
+                self._active[sequence] = dict(phase=phase, thread_id=threading.get_native_id(),
+                                             start=started, cpu_start=cpu_started)
+        except Exception:
+            pass
         self.mark(phase, "start")
         try:
             return function(*args, **kwargs)
         finally:
             self.mark(phase, "end")
+            try:
+                ended, cpu_ended = self.now(), time.thread_time()
+                with self._lock:
+                    record = self._active.pop(sequence)
+                    self._history.append(dict(record, end=ended, cpu_end=cpu_ended))
+            except Exception:
+                pass
 
     def wrap(self, phase, function):
         def measured(*args, **kwargs):
@@ -75,7 +96,8 @@ class StallDiagnostics:
                 self._incident = dict(detected_monotonic_s=detected_at,
                                       last_apply_monotonic_s=last_apply,
                                       last_flush_monotonic_s=last_flush,
-                                      phases=dict(self._phases))
+                                      phases=dict(self._phases), history=list(self._history),
+                                      active=list(self._active.values()))
             self._wake.set()
         except Exception:
             pass  # the watchdog must still issue its original emergency output
