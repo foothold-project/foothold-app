@@ -3,11 +3,12 @@
 `worlds.json`은 저장소에 포함된 공개 정적 자산의 준비용 카탈로그다. 경로는 이
 JSON이 있는 폴더 기준이다. `warehouse/f1`의 SDF·PNG/YAML·층 높이·스폰 좌표를 묶는다.
 기존 private `FH_SIM_CATALOG`와 native source의 `worlds.json`을 수정하거나 자동 병합하지
-않는다. `launcher.py`의 `v5_single/f1` 허용과 world/gt_map 실경로 대조는 그대로다.
+않는다. native 실행에는 private 목록과 native 목록 모두의 등록 및 world/gt_map 실경로
+일치가 필요하다. JSON 자산 목록에만 추가하는 것으로 실행 허용되지 않는다.
 
 후속 통합에서 private catalog 항목을 만들 때 `world` → `world_file`, `gt_map` →
 `map_file`의 실경로와 이름·설명을 사용한다. 지금 fake launcher에 명시 등록할 수 있으나,
-native는 `warehouse/f1`을 계속 거부한다. native 스폰·지도 자동 등록 API·지도 탭 연결은
+native는 두 실행 목록에 없는 `warehouse/f1`을 계속 거부한다. native 스폰·지도 자동 등록 API·지도 탭 연결은
 ADR-003 뒤 별도 작업이며, JSON을 추가한 것만으로 실행 가능 또는 자동 등록됐다고 보지 않는다.
 기존 v5 자산을 이 폴더로 복사하지 않는다.
 

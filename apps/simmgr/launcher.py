@@ -12,6 +12,7 @@ from foothold_agent.phone.tickets import load_keys
 from .environment import validate_control_environment, child_environment
 from .agent_unit import AgentUnit
 from .preflight import ResourceGateError, startup_preflight
+from .native_catalogue import resolve_native_world
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -101,13 +102,14 @@ class NativeLauncher:
         validate_control_environment()
         if self.failure or self.sim is not None or self.child is not None:
             raise RuntimeError('native episode unavailable; no automatic restart')
-        if world.id != 'v5_single/f1':
-            raise ValueError('native adapter only supports v5_single/f1')
         # Import the established supervisor without importing ROS or starting nodes.
         sim_tools = str(ROOT / 'apps/agent/tools/sim')
         if sim_tools not in sys.path:
             sys.path.insert(0, sim_tools)
         from isolation import Simulation
+        from constants import MAP_DIRECTORY
+        native_root = Path(self.settings.source).parent.parent.parent / MAP_DIRECTORY
+        native = resolve_native_world(world, self.settings.worlds, native_root)
         base = Path(self.settings.run_dir).resolve()
         if not base.is_relative_to(ROOT / 'runs') or base == ROOT / 'runs':
             raise ValueError('evidence must be a new directory under this worktree runs')
@@ -121,17 +123,14 @@ class NativeLauncher:
         # units. Simulation.start independently repeats its original resource,
         # domain93 and DDS gates immediately before launching its own unit.
         await asyncio.to_thread(startup_preflight, True)
+        extra = {}
+        if world.id != 'v5_single/f1':
+            from .native_simulation import CataloguedSimulation
+            Simulation = CataloguedSimulation
+            extra = dict(native=native, configured_world=world)
         sim = Simulation(folder, Path(self.settings.source), Path(self.settings.ros_setup),
                          launch_env=child_environment(self.settings.domain),
-                         seconds=self.settings.unit_runtime_seconds)
-        # Match the catalogue pair against the exact native catalogue, never ignore it.
-        import json
-        from constants import MAP_DIRECTORY
-        native_root = sim.source.parent.parent.parent / MAP_DIRECTORY
-        entry = json.loads((native_root / 'worlds.json').read_text())['worlds'][world.id]
-        if ((native_root / entry['world']).resolve() != world.world_file.resolve()
-                or (native_root / entry['gt_map']).resolve() != world.map_file.resolve()):
-            raise ValueError('configured world/map pair does not match native catalogue')
+                         seconds=self.settings.unit_runtime_seconds, **extra)
         self.sim = sim
         resource_not_created = False
         try:
