@@ -2,9 +2,14 @@
 
 import threading
 import time
+from collections import deque
 
 from foothold_agent.link.session import MotionCommand
 from foothold_agent.safety.core import DEAD, Z, finite
+
+# Isolated scheduling delays can recover; three incidents in one minute cannot.
+# Keep the policy together so field diagnostics can inform later tuning.
+STALL_LIMIT = (3, 60.0)  # count, rolling monotonic seconds
 
 
 def twist_message(velocity, factory):
@@ -46,6 +51,9 @@ class RosSink:
         self._last_stop = float("-inf")
         self._last_flush = now()
         self._expired = False
+        self._publisher_expired = False
+        self._stall_sequence = 0
+        self._stalls = deque(maxlen=STALL_LIMIT[0])
         self.error = None
         self._watchdog = None
         if watchdog:
@@ -100,6 +108,11 @@ class RosSink:
         with self._lock:
             return self._generation
 
+    def output_safety(self):
+        """Memory-only signal for the owning Session; never touch Core here."""
+        with self._lock:
+            return self._stall_sequence, self._held
+
     def observe_stop(self, generation=None):
         """Only fresh, validated stop_requested=true feedback may release a feedback hold."""
         with self._lock:
@@ -135,9 +148,14 @@ class RosSink:
             if not self._expired and self.now() - self._last_apply >= DEAD:
                 self._expired = True
                 trip = True
-            elif not self._expired and self.now() - self._last_flush >= DEAD:
-                self.error = RuntimeError("ROS publisher loop stalled")
-                self._expired = True
+            elif not self._expired and not self._publisher_expired and self.now() - self._last_flush >= DEAD:
+                self._publisher_expired = True
+                detected = self.now()
+                self._stall_sequence += 1
+                self._stalls.append(detected)
+                count, window = STALL_LIMIT
+                if len(self._stalls) == count and detected - self._stalls[0] <= window:
+                    self.error = self.error or RuntimeError("ROS publisher loop repeatedly stalled")
                 trip = True
                 if self.diagnostics is not None:
                     self.diagnostics.stall(detected_at=self.now(), last_apply=self._last_apply,
@@ -199,6 +217,11 @@ class RosSink:
                     self._emergency()
                 elif stop_due:
                     self._stop()
+                with self._lock:
+                    # Completion (not apply or flush entry) rearms the publisher
+                    # deadline. Recovery never releases the STOP feedback hold.
+                    self._last_flush = self.now()
+                    self._publisher_expired = False
             except BaseException as exc:
                 self.fail(exc)
                 raise

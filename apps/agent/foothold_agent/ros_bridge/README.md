@@ -82,7 +82,14 @@ D1 당시 REST `/robots` 요약과 측정값은 OFFLINE/null이었다. A1b는 �
   버리지 않는다. unlock 수신 시 이전 속도는 폐기한다. 이후 시뮬 확인·새 중립은 Core가 판단한다.
 - 독립 watchdog은 별도 Python 스레드에서 5 ms 간격으로 확인한다. 마지막 **apply**
   뒤 `>=0.3 s`면 대기 명령 폐기·0/STOP이다. stop/unlock은 이 시계를 늘리지 않는다.
-  ROS flush가 0.3 s 진행하지 않으면 fresh apply가 있어도 출력 오류로 종료한다.
+  ROS flush가 0.3 s 진행하지 않으면 fresh apply가 있어도 즉시 0/STOP·hold를 건다.
+  단발 지연은 agent·폰·카메라를 종료하지 않는다. Session은 기존 Core STOP으로
+  입력·재개 의도를 폐기하고 `state.safety_reason=OUTPUT_STALLED`를 알린다.
+  새 STOP 피드백과 새 조종권 일치 unlock, 해제 피드백, 새 중립 입력 전에는 움직이지 않는다.
+  완료된 flush가 publisher watchdog을 재무장하며 apply만으로 같은 stall을 중복 집계하지 않는다.
+  `sink.STALL_LIMIT=(3, 60.0)`에 따라 60초 안 3회 지연은 치명 오류다.
+  비상 0/STOP 중 하나라도 출력 실패하면 즉시 치명 오류이며 둘 다 시도한다.
+  PR #78 진단은 매 stall의 감지 시각·구간 이력·스택을 별도 스레드에 남긴다.
   executor/콜백 오류와 shutdown도 0/STOP을 각각 시도하고 오류를 숨기지 않는다.
 - 나쁜/오래된 수신은 즉시 출력 hold를 건다. 수신 진입(파싱·검증 전)에 포착한 출력 세대와 일치하는 신선한 실제 STOP 확인 뒤 새 승인
   unlock이 있어야 비영 경로가 열린다. 다리가 Core의 latch/controller/세대를 쓰지 않는다.

@@ -427,6 +427,7 @@ class AgentState(AgentInput):
     speed: float | None
     battery: AgentBattery
     latched: bool = Field(strict=True)
+    safety_reason: Literal['OUTPUT_STALLED'] | None = None
     stop_gen: Sequence
     stop_ref: Sequence
     applied: Vector3

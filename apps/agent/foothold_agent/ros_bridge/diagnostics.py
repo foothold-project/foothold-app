@@ -1,4 +1,4 @@
-"""Bounded in-memory phase stamps; one asynchronous dump on publisher stall."""
+"""Bounded in-memory phase stamps; asynchronous dumps for publisher stalls."""
 
 import faulthandler
 from collections import deque
@@ -27,7 +27,7 @@ class StallDiagnostics:
     """Diagnostic I/O never runs on the publisher, watchdog or owning loop.
 
     Phase names are fixed by the bridge; no message, address, exception text or
-    credential enters the record. Only the first stall requests a dump. Stamps
+    credential enters the record. Each stall requests a dump. Stamps
     describe the detection instant; stacks have their own later capture time.
     """
 
@@ -41,6 +41,8 @@ class StallDiagnostics:
         self._active = {}
         self._sequence = 0
         self._incident = None
+        self._pending = deque(maxlen=8)
+        self._closing = False
         self._wake = threading.Event()
         self._thread = None
 
@@ -91,23 +93,29 @@ class StallDiagnostics:
     def stall(self, *, detected_at, last_apply, last_flush):
         try:
             with self._lock:
-                if self._incident is not None:
-                    return
                 self._incident = dict(detected_monotonic_s=detected_at,
                                       last_apply_monotonic_s=last_apply,
                                       last_flush_monotonic_s=last_flush,
                                       phases=dict(self._phases), history=list(self._history),
                                       active=list(self._active.values()))
+                self._pending.append(self._incident)
             self._wake.set()
         except Exception:
             pass  # the watchdog must still issue its original emergency output
 
     def _run(self):
-        self._wake.wait()
-        with self._lock:
-            incident = self._incident
-        if incident is None:
-            return
+        while True:
+            self._wake.wait()
+            with self._lock:
+                if not self._pending:
+                    if self._closing:
+                        return
+                    self._wake.clear()
+                    continue
+                incident = self._pending.popleft()
+            self._write_incident(incident)
+
+    def _write_incident(self, incident):
         try:
             captured_at = self.now()
             stacks = self.dump()
@@ -121,6 +129,8 @@ class StallDiagnostics:
                 pass
 
     def close(self):
+        with self._lock:
+            self._closing = True
         self._wake.set()
         if self._thread is not None:
             self._thread.join(timeout=0.1)  # a blocked log writer cannot delay ROS teardown

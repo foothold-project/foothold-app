@@ -539,6 +539,19 @@
         "pose": {
           "$ref": "#/$defs/AgentPose"
         },
+        "safety_reason": {
+          "anyOf": [
+            {
+              "const": "OUTPUT_STALLED",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safety Reason"
+        },
         "speed": {
           "anyOf": [
             {

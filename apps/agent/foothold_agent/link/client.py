@@ -126,6 +126,8 @@ class Client:
                  executor: Executor | None = None):
         self.session = session
         self.sink = sink
+        if hasattr(sink, 'output_safety'):
+            self.session.output_safety = sink.output_safety
         self.settings = settings
         self.executor = executor
         self._outgoing = None

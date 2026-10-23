@@ -107,6 +107,10 @@ class Session:
         self.before_history = None
         self._retry_event = None
         self._buffer_dropped = 0
+        self.output_safety = None
+        self._output_stall_seen = 0
+        self._output_stall_locked = False
+        self._output_feedback_held = False
 
     def retain(self, messages):
         """FIFO survivors, ordinary-first eviction, safety-only disk spill."""
@@ -171,6 +175,7 @@ class Session:
         self._run_status("PAUSED", reason)
 
     def _advance(self):
+        self._sync_output_hold()
         # Evaluate before handling a new frame: fresh input cannot resurrect an
         # expired intent or cancel an elapsed grace deadline.
         if self.server_link and self.last_server is not None and self.now() - self.last_server >= LINK_TIMEOUT:
@@ -200,11 +205,27 @@ class Session:
         return min(MAX_SEQ, self.core.stop_gen)
 
     def _state(self):
+        self._sync_output_hold()
         from .telemetry import project
         return {"t": "state", **project(self._telemetry, self.now()),
                 "devices_changed": self._device_snapshot(),
                 "latched": self.core.latch, "stop_gen": self._generation(),
+                "safety_reason": "OUTPUT_STALLED" if self._output_stall_locked and self.core.latch else None,
                 "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
+
+    def _sync_output_hold(self):
+        """Serialize watchdog observations before accepting input or reporting state."""
+        if self.output_safety is None:
+            return
+        sequence, self._output_feedback_held = self.output_safety()
+        if sequence != self._output_stall_seen:
+            self._output_stall_seen = sequence
+            self._output_stall_locked = True
+            self.core.stop("output stalled")
+            self.core.out = Z
+            self._pause("OUTPUT_STALLED", preserve_reason=True)
+        elif not self.core.latch:
+            self._output_stall_locked = False
 
     def update_telemetry(self, snapshot):
         """Owning-loop, already sanitized local measurements, separate from Core.
@@ -459,6 +480,7 @@ class Session:
             gen = frame.get("stop_gen")
             if (self.lease_confirmed and frame.get("lease_id") == self.lease_id
                     and type(gen) is int and 0 <= gen <= MAX_SEQ
+                    and not (self._output_stall_locked and self._output_feedback_held)
                     and self.core.resume(self.lease_id, gen)):
                 actions = (MotionCommand("unlock"),)
         elif kind == "cmd":

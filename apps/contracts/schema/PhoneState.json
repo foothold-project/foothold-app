@@ -523,6 +523,19 @@
       "title": "Robot",
       "type": "string"
     },
+    "safety_reason": {
+      "anyOf": [
+        {
+          "const": "OUTPUT_STALLED",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Safety Reason"
+    },
     "sim_time_s": {
       "anyOf": [
         {

@@ -46,6 +46,7 @@ class Hub:
         self.simulation = simulation
         self.session = Session(now=now, server_link=False,
                                velocity_projection=simulation_velocity if simulation is True else quantize)
+        self.session.output_safety = getattr(sink, 'output_safety', None)
         self.peers = {}
         self.closing = {}
         self.owner = self.reservation = self.pending = None

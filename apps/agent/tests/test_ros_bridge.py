@@ -187,8 +187,8 @@ def test_watchdog_detects_executor_stall_despite_fresh_apply():
     clock.t = 0.301
     sink.check_watchdog()
     assert outputs[-2:] == [("velocity", Z), ("stop",)]
-    with pytest.raises(RuntimeError, match="output failed"):
-        sink.check_health()
+    sink.check_health()  # an isolated stall is a recoverable STOP hold
+    assert sink._held
 
 
 def test_error_and_shutdown_zero_stop_no_resume_or_nonzero_after_error():

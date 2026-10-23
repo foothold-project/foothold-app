@@ -38,7 +38,7 @@ MUTATIONS = [
     ("unlock refreshes watchdog", "sink.py", 'elif command.kind == "unlock":',
      'elif command.kind == "unlock":\n                self._last_apply = self.now()'),
     ("independent watchdog delayed", "sink.py", 'self._closed.wait(0.005)', 'self._closed.wait(1)'),
-    ("executor stall ignored", "sink.py", 'elif not self._expired and self.now() - self._last_flush >= DEAD:',
+    ("executor stall ignored", "sink.py", 'elif not self._expired and not self._publisher_expired and self.now() - self._last_flush >= DEAD:',
      'elif False:'),
     ("shutdown omits emergency output", "sink.py", '            self._emergency()\n            if self._watchdog',
      '            pass\n            if self._watchdog'),
@@ -79,15 +79,31 @@ MUTATIONS = [
 def main():
     root = Path(__file__).resolve().parents[2]
     synthetic = "--synthetic" in sys.argv[1:]
-    mutations = [("R4 independent watchdog absent in DDS/Core integration", "sink.py",
+    recovery = "--stall-recovery" in sys.argv[1:]
+    if recovery and synthetic:
+        raise SystemExit('--stall-recovery cannot be combined with --synthetic')
+    if recovery:
+        available = next(int(line.split()[1]) for line in Path('/proc/meminfo').read_text().splitlines()
+                         if line.startswith('MemAvailable:'))
+        if available < 2500000:
+            raise SystemExit('MemAvailable below 2.5 GB; mutation checks not started')
+    mutations = [
+        ("stall skips fresh STOP feedback gate", "../link/session.py",
+         'and not (self._output_stall_locked and self._output_feedback_held)', 'and True'),
+        ("repeated publisher stall never fatal", "sink.py",
+         'if len(self._stalls) == count and detected - self._stalls[0] <= window:', 'if False:'),
+    ] if recovery else [("R4 independent watchdog absent in DDS/Core integration", "sink.py",
                   'self._closed.wait(0.005)', 'self._closed.wait(60)')] if synthetic else MUTATIONS
-    targets = ["tests/test_ros_bridge_synthetic.py"] if synthetic else [
+    targets = ["tests/test_stall_recovery.py"] if recovery else ["tests/test_ros_bridge_synthetic.py"] if synthetic else [
         "tests/test_ros_bridge.py", "tests/test_ros_bridge_review.py", "tests/test_ros_bridge_node.py",
         "tests/test_agent_telemetry.py"]
     # These two loopback acceptance tests run in the full suite. They cannot
     # distinguish ROS stub mutants and need not allocate ports for every copy.
     selection = [] if synthetic else ["-k", "not client_fake_server and not reserved_socket"]
     child_env = dict(os.environ)
+    if recovery:
+        # The focused tests validate the shared Pydantic wire contract too.
+        child_env['PYTHONPATH'] = str(root.parents[1]) + os.pathsep + child_env.get('PYTHONPATH', '')
     if synthetic:
         # The observer parent is not a DDS participant and must not look like a
         # pre-existing domain93 owner to the child's /proc safety preflight.
