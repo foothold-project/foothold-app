@@ -58,3 +58,11 @@ def test_triangle_winding_and_texture_references_are_preserved():
 def test_unsupported_geometry_is_rejected_without_repair(face):
     with pytest.raises(ValueError):
         add_normals('v 0 0 0\nv 1 0 0\nv 0 1 0\nf '+face+'\n')
+
+
+def test_visual_zero_area_faces_keep_geometry_and_finite_normals():
+    original = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nv 2 0 0\nf 1 2 3\nf 1 2 4\n'
+    result = add_normals(original, allow_degenerate=True)
+    assert 'f 1//1 2//2 3//3\nf 1//1 2//2 4//4\n' in result
+    assert result.count('vn 0 0 1\n') == 4
+    assert add_normals(result, allow_degenerate=True) == result

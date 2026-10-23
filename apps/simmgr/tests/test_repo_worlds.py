@@ -224,12 +224,26 @@ px = np.frombuffer(raw[3],np.uint8).reshape(440,300)
 assert dict(zip(*np.unique(px,return_counts=True))) == {0:22724,205:14400,254:94876}
 z = np.load(w['heights']); hz = z['hz']; assert hz.shape == (440,300)
 assert abs(hz[220,150]-.034226)<.005 and np.isnan(hz[0,0])
-sdf = ET.fromstring(robot_world(world.world_file.read_text(),native))
+sdf = ET.fromstring(robot_world(world.world_file.read_text(),native,prepared))
 robot = sdf.find('./world/include')
 assert robot.findtext('uri') == 'model://go2_v2_map'
 assert list(map(float,robot.findtext('pose').split())) == [0,0,.434226,0,0,0]
 assert sdf.find('world').get('name') == 'fh_v2_live'
-assert all(Path(u.text).is_absolute() and Path(u.text).is_relative_to(root) for u in sdf.findall('.//mesh/uri'))
+assert all(Path(u.text).is_absolute() and Path(u.text).is_relative_to(root) for u in sdf.findall('.//collision/geometry/mesh/uri'))
+for uri in sdf.findall('.//visual/geometry/mesh/uri'):
+    path = Path(uri.text)
+    assert path.is_relative_to(prepared/'visual-meshes') and path.is_file()
+    original = root/path.relative_to(prepared/'visual-meshes')
+    def geometry(text):
+        return [line if line.startswith('v ') else 'f '+' '.join(c.split('/')[0] for c in line.split()[1:])
+                for line in text.splitlines() if line.startswith(('v ', 'f '))]
+    assert geometry(path.read_text()) == geometry(original.read_text())
+    assert not any(line.startswith('vn ') for line in original.read_text().splitlines())
+    lines = path.read_text().splitlines()
+    normals = np.array([list(map(float,line.split()[1:])) for line in lines if line.startswith('vn ')])
+    assert np.isfinite(normals).all() and np.allclose(np.linalg.norm(normals,axis=1),1)
+    assert all(len(c.split('/'))==3 and c.split('/')[0]==c.split('/')[2]
+               for line in lines if line.startswith('f ') for c in line.split()[1:])
 assert not any(p.get('filename')=='gz-sim-imu-system' for p in sdf.findall('./world/plugin'))
 assert not any(m.startswith(('rclpy','gz.')) for m in sys.modules)
 print('repository runtime assets verified offline')
