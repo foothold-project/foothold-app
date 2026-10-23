@@ -37,7 +37,7 @@ def test_measured_projection_is_copied_contract_only_and_never_refreshes_core():
     sample['location']['x'] = 999
     wire = session._state()
     assert wire['speed'] == .5
-    assert wire['pose'] == {'floor_id': FLOOR, 'x': 2., 'y': 3., 'yaw': .25, 'confidence': None}
+    assert wire['pose'] == {'floor_id': FLOOR, 'map_version_id': VERSION, 'x': 2., 'y': 3., 'yaw': .25, 'confidence': None}
     assert wire['battery'] == {'soc': None}
     assert session.core.state_t == core_age and session.core.stop_gen == generation
     wire['pose']['x'] = 999

@@ -35,6 +35,7 @@ from .robots import live_state
 from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
+from .floor_maps import approved_bindings, matches_context
 from .security import digest
 from .history import History, HistoryPending
 
@@ -174,6 +175,7 @@ class Peer:
     phone_ack_queue: asyncio.Queue = field(default_factory=lambda: asyncio.Queue(128))
     phone_ack_pending: set = field(default_factory=set)
     phone_revoke_retry: int | None = None
+    floor_token: tuple | None = None
 
 
 @dataclass(frozen=True)
@@ -207,6 +209,10 @@ def policy_rights(authorize, api_error, user_values, robot_values):
                 pass
         rights[str(robot.id)] = frozenset(allowed)
     return MappingProxyType(rights)
+
+
+class AgentBatch(dict):
+    floor_authority = None
 
 
 class PolicyBatch(dict):
@@ -1489,10 +1495,19 @@ class Realtime:
         peers = list(self.agents.items())
         with self.agent_factory() as db:
             robots = {str(r.id): r for r in db.execute(select(Robot.id, Robot.org_id,
-                Robot.archived_at, Robot.owner_user_id, Robot.agent_token_hash).where(
+                Robot.archived_at, Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation, Robot.sim_generation).where(
                 Robot.id.in_([UUID(rid) for rid, _ in peers]), Robot.org_id == self.settings.org_id,
                 Robot.archived_at.is_(None)))}
-            return self.verify_agents(peers, robots)
+            batch = AgentBatch(self.verify_agents(peers, robots))
+            batch.floor_authority = {}
+            if any(r.simulation for r in robots.values()):
+                try:
+                    bindings = approved_bindings(db, self.settings.org_id)
+                except (ValueError, KeyError, TypeError):
+                    bindings = []
+                batch.floor_authority = {rid: (r.sim_generation, bindings)
+                    for rid, r in robots.items() if r.simulation}
+            return batch
 
     async def agent_watch(self, rid, peer):
         if self.agent_pipeline is None or self.agent_pipeline.task.done():
@@ -1866,8 +1881,33 @@ class Realtime:
         data = msg.model_dump(mode='json')
         peer.state.update({k: data[k] for k in ('speed', 'latched', 'stop_gen', 'applied')})
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
-        peer.state['location'] = (C.Location(**data['pose'], updated_at=now()).model_dump(mode='json')
-            if any(data['pose'][key] is not None for key in ('x', 'y', 'yaw')) else None)
+        pose = data['pose']
+        context = pose.get('floor_context')
+        stale_floor = False
+        if context is not None:
+            token = (context['generation'], context['run_id'], context['epoch'], context['floor_rev'])
+            previous = peer.floor_token
+            stale_floor = (context['robot_id'] != rid or (previous is not None and (
+                token[:2] != previous[:2] or token[2] < previous[2] or token[3] < previous[3])))
+            if not stale_floor:
+                peer.floor_token = token
+                pipeline = self.agent_pipeline
+                authority = (getattr(pipeline.latest, 'floor_authority', None)
+                    if pipeline is not None and self.clock() - pipeline.stamp <= .5 else None)
+                entry = authority.get(rid) if authority else None
+                if (entry is None or entry[0] != context['generation']
+                        or not matches_context(context, entry[1])):
+                    # Preserve the observed error, but never paint a pose on a
+                    # changed/unverified approved version. No command gates change.
+                    context.update(floor_id=None, map_version_id=None, sha256=None,
+                                   source_pgm_sha256=None, reason='approval_unverified')
+                    for key in ('floor_id', 'map_version_id', 'x', 'y', 'yaw', 'confidence'):
+                        pose[key] = None
+                elif (pose['floor_id'], pose['map_version_id']) != (context['floor_id'], context['map_version_id']):
+                    pose.update(floor_id=None, map_version_id=None, x=None, y=None, yaw=None, confidence=None)
+        if not stale_floor:
+            peer.state['location'] = (C.Location(**pose, updated_at=now()).model_dump(mode='json')
+                if context is not None or any(pose[key] is not None for key in ('x', 'y', 'yaw')) else None)
         run = self.runs.get(rid)
         peer.state['status'] = 'STOP_LATCHED' if msg.latched else 'PAUSED' if run and run['status'] == 'PAUSED' else 'RUNNING' if msg.mode == 'RUN' else 'TELEOP' if msg.mode == 'USER' else 'IDLE'
         if msg.devices_changed is not None:

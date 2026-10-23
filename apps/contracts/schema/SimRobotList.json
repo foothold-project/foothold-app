@@ -140,6 +140,22 @@
           "title": "Simulation",
           "type": "boolean"
         },
+        "spawn_floor_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "l1",
+                "l2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spawn Floor Id"
+        },
         "state": {
           "enum": [
             "STARTING",

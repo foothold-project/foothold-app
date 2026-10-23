@@ -6,6 +6,7 @@ import sqlite3
 from pathlib import Path
 from uuid import UUID
 
+from .floors import FloorBindings
 from foothold_agent.link.client import Settings
 from foothold_agent.phone.server import Settings as PhoneSettings
 from foothold_agent.phone.tickets import load_keys, Verifier
@@ -45,6 +46,8 @@ class Config:
     phone: PhoneSettings | None = field(default=None, repr=False)
     phone_verifier: Verifier | None = field(default=None, repr=False)
 
+    floor_bindings: FloorBindings | None = field(default=None, repr=False)
+
     @classmethod
     def from_env(cls, env=None):
         env = os.environ if env is None else env
@@ -64,4 +67,7 @@ class Config:
                                  clock_trusted=phone.clock_trusted) if phone is not None else None)
         except (OSError, ValueError, TypeError, sqlite3.Error):
             raise ValueError('invalid phone key configuration') from None
-        return cls(robot_id, settings, phone, verifier)
+        floors = FloorBindings.from_env(env)
+        if floors is not None and floors.robot_id != robot_id:
+            raise ValueError('floor bindings robot does not match agent')
+        return cls(robot_id, settings, phone, verifier, floors)

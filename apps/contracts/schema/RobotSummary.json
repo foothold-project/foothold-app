@@ -104,6 +104,171 @@
       "title": "Device",
       "type": "object"
     },
+    "FloorContext": {
+      "additionalProperties": false,
+      "description": "Observation identity; compare the entire token before using asynchronous map results.\n\nThis context never grants control or changes STOP/deadman gates. Positions are\nabsent during transit/unknown and when the approved grid binding is invalid.",
+      "properties": {
+        "building_id": {
+          "format": "uuid",
+          "title": "Building Id",
+          "type": "string"
+        },
+        "confirmed_sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confirmed Sim T"
+        },
+        "current_floor_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "l1",
+                "l2"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Floor Id"
+        },
+        "epoch": {
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "floor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Floor Id"
+        },
+        "floor_rev": {
+          "minimum": 0,
+          "title": "Floor Rev",
+          "type": "integer"
+        },
+        "floor_state": {
+          "enum": [
+            "on_floor",
+            "transit",
+            "unknown"
+          ],
+          "title": "Floor State",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "map_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version Id"
+        },
+        "reason": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "robot_id": {
+          "format": "uuid",
+          "title": "Robot Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sha256"
+        },
+        "source": {
+          "const": "gt_geometry",
+          "title": "Source",
+          "type": "string"
+        },
+        "source_pgm_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Pgm Sha256"
+        },
+        "spawn_floor_id": {
+          "enum": [
+            "l1",
+            "l2"
+          ],
+          "title": "Spawn Floor Id",
+          "type": "string"
+        },
+        "world_id": {
+          "const": "v5_building",
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "robot_id",
+        "generation",
+        "run_id",
+        "epoch",
+        "floor_rev",
+        "world_id",
+        "building_id",
+        "spawn_floor_id",
+        "current_floor_id",
+        "floor_id",
+        "map_version_id",
+        "sha256",
+        "source_pgm_sha256",
+        "source",
+        "floor_state",
+        "reason",
+        "confirmed_sim_t"
+      ],
+      "title": "FloorContext",
+      "type": "object"
+    },
     "Lease": {
       "additionalProperties": false,
       "properties": {
@@ -154,6 +319,17 @@
             }
           ],
           "title": "Confidence"
+        },
+        "floor_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloorContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         },
         "floor_id": {
           "anyOf": [

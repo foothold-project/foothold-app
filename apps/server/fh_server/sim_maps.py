@@ -13,7 +13,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from apps.contracts import models as C
-from .map_files import MAX_IMAGE, map_yaml, png_image, sha256, yaml_bytes
+from .map_files import MAX_IMAGE, map_yaml, png_image, pgm_png, sha256, yaml_bytes
 from .maps import refresh_connectors
 from .models import (Building, Event, Floor, MapVersion, Mission, MissionVersion,
                      Organization, Scenario, ScenarioVersion, Site, Upload, User)
@@ -98,6 +98,8 @@ def check_clearance(png, metadata, scenarios, clearance=.5):
 def load_worlds(folder):
     root = Path(folder).resolve(strict=True)
     catalog = json.loads((root / 'worlds.json').read_text())
+    if catalog['schema'] == 'v2_map_worlds/1':
+        return load_connected_worlds(root, catalog)
     if catalog['schema'] != 'simmgr_static_worlds/1':
         raise ValueError('Unsupported static catalogue')
     result, seen = [], set()
@@ -129,6 +131,43 @@ def load_worlds(folder):
             raise ValueError('Duplicate preset scenario')
         check_clearance(png, metadata, scenarios)
         result.append((entry, metadata, png, width, height, scenarios))
+    return result
+
+
+def load_connected_worlds(root, catalog):
+    """Import canonical control-app GT read-only; map bytes remain private.
+
+    The source PGM is hashed separately from the server's PNG conversion. The
+    original metadata/coordinate checks precede any DB write, for both floors.
+    """
+    flags = [v for k, v in catalog.get('check', {}).items() if 'bytes_match' in k]
+    if not flags or any(v is not True for v in flags):
+        raise ValueError('Canonical GT byte checks required')
+    result = []
+    for floor, z in (('l1', 0.0), ('l2', 2.4)):
+        entry = dict(catalog['worlds']['v5_building/' + floor])
+        yaml_path = local_file(root, entry['gt_map'])
+        metadata = map_yaml(yaml_path.read_bytes())
+        pgm_path = local_file(root, str(yaml_path.relative_to(root).parent / metadata['image']))
+        pgm = pgm_path.read_bytes()
+        if len(pgm) > MAX_IMAGE:
+            raise ValueError('Canonical GT too large')
+        png, width, height = pgm_png(pgm)
+        raw = json.loads(yaml_path.with_name('meta.json').read_text())
+        if (entry['world_id'] != 'v5_building' or entry['floor_id'] != floor or entry['floor_z'] != z
+                or raw['world_id'] != entry['world_id'] or raw['floor_id'] != floor
+                or raw['building_id'] != entry['building_id'] or raw['map_source'] != 'gt_raster'
+                or raw['map_frame'] != 'map' or raw['epoch'] is not None
+                or raw['sha256_pgm'] != sha256(pgm).hex() or raw['source_sha256'] != sha256(pgm).hex()
+                or raw['resolution'] != metadata['resolution'] or raw['origin'] != metadata['origin']
+                or (raw['width'], raw['height']) != (width, height)
+                or not re.fullmatch(r'gt-\d{8}', raw['map_version'])):
+            raise ValueError('Canonical GT metadata/PGM identity mismatch')
+        metadata['connected_gt'] = dict(world_id='v5_building', ros_building_id=entry['building_id'],
+            ros_floor_id=floor, ros_map_version=raw['map_version'], source_pgm_sha256=sha256(pgm).hex(),
+            sha256=sha256(png).hex(), source='SIMULATION')
+        entry.update(name='연결 건물', floor_name='1층' if floor == 'l1' else '2층', level=1 if floor == 'l1' else 2)
+        result.append((entry, metadata, png, width, height, []))
     return result
 
 

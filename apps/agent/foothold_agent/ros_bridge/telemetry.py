@@ -115,9 +115,14 @@ class MapBinding:
 class Telemetry:
     """Owning-loop cache; speed is measured body COM horizontal speed in m/s."""
 
-    def __init__(self, *, now=time.monotonic, binding=None):
+    def __init__(self, *, now=time.monotonic, binding=None, floors=None):
         self.now = now
         self.binding = binding
+        self.floors = floors
+        self.floor_context = None
+        self._floor_token = None
+        self._floor_status_stamp = None
+        self._floor_received_at = None
         self.state = None
         self.location = None
         self.odom_reason = "unseen"
@@ -131,6 +136,7 @@ class Telemetry:
 
     def invalidate(self, reason):
         self.state = self.location = self.odom = None
+        self.floor_context = None
         if reason != self._reason:
             self.events.append({"reason": reason, "received_monotonic_s": self.now()})
         self._reason = reason
@@ -191,6 +197,9 @@ class Telemetry:
                 and 0 <= s["sim_t"] - stamp <= STATE_STALE)
 
     def update_map(self, status, received_at):
+        if self.floors is not None:
+            self._update_floor_map(status, received_at)
+            return
         self.location = None
         b, s = self.binding, self.state
         if not isinstance(status, dict) or b is None or s is None:
@@ -220,6 +229,50 @@ class Telemetry:
                          "clock": "simulation", "progress_monotonic_s": s["progress_monotonic_s"],
                          "sim_t": p["stamp_sim"], "received_monotonic_s": received_at}
 
+    def _update_floor_map(self, status, received_at):
+        s = self.state
+        if (not isinstance(status, dict) or s is None
+                or status.get('schema') != 'v2_map_status/1'
+                or status.get('map_frame') != 'map'
+                or status.get('epoch') != s['episode']
+                or not self._coherent(status.get('sim_t'), received_at)):
+            return
+        c = self.floors.context(status)
+        if c is None:
+            return
+        token = (c['epoch'], c['floor_rev'])
+        stamp = status['sim_t']
+        if self._floor_token is not None:
+            if (token[0] < self._floor_token[0] or token[1] < self._floor_token[1]) or (token[0] == self._floor_token[0] and self._floor_status_stamp is not None and stamp < self._floor_status_stamp):
+                return  # late l2 response cannot erase the current l1 context
+            if token == self._floor_token and self.floor_context is not None:
+                old = self.floor_context
+                if ('on_floor' in (c['floor_state'], old['floor_state'])
+                        and any(c[k] != old[k] for k in ('floor_state', 'current_floor_id', 'confirmed_sim_t'))):
+                    return  # a revision cannot describe two different confirmed contexts
+        if token != self._floor_token:
+            self._map_stamp, self._map_rewound = None, False
+        self._floor_token, self._floor_status_stamp = token, stamp
+        self._floor_received_at = received_at
+        self.floor_context, self.location = c, None
+        p = status.get('pose_map')
+        if (c['map_version_id'] is None or not isinstance(p, dict)
+                or status.get('map_accepting') is not True or status.get('pose_map_null_reason')
+                or p.get('source') != 'gt_identity'
+                or not self._coherent(p.get('stamp_sim'), received_at)
+                or p['stamp_sim'] < c['confirmed_sim_t']
+                or not all(number(p.get(k)) for k in ('x', 'y', 'yaw'))):
+            return
+        pose_stamp = p['stamp_sim']
+        if self._map_stamp is not None and pose_stamp < self._map_stamp:
+            return
+        self._map_stamp = pose_stamp
+        self.location = {**{k: c[k] for k in ('floor_id', 'map_version_id', 'sha256')},
+            **{k: p[k] for k in ('x', 'y', 'yaw')}, 'confidence': None,
+            'floor_context': deepcopy(c), 'episode': c['epoch'], 'source': p['source'],
+            'clock': 'simulation', 'sim_t': pose_stamp, 'received_monotonic_s': received_at,
+            'progress_monotonic_s': s['progress_monotonic_s']}
+
     def snapshot(self):
         if self.state and not self._coherent(self.state["sim_t"], self.state["received_monotonic_s"]):
             self.invalidate("stale")
@@ -231,4 +284,7 @@ class Telemetry:
             self.location = None
         return deepcopy({"speed": speed, "speed_source": "state_com" if speed is not None else None,
                          "battery": {"soc": None}, "location": self.location,
+                         **({"floor_context": self.floor_context if self._coherent(
+                             self._floor_status_stamp, self._floor_received_at) else None}
+                            if self.floors is not None else {}),
                          "observation": s})

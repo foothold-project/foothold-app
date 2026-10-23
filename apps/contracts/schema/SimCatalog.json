@@ -40,6 +40,17 @@
           "minLength": 1,
           "title": "Name",
           "type": "string"
+        },
+        "spawn_floor_ids": {
+          "items": {
+            "enum": [
+              "l1",
+              "l2"
+            ],
+            "type": "string"
+          },
+          "title": "Spawn Floor Ids",
+          "type": "array"
         }
       },
       "required": [
@@ -70,6 +81,18 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "ros_floor_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ros Floor Id"
         }
       },
       "required": [

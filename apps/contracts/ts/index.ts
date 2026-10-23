@@ -97,6 +97,7 @@ export interface AgentPing {
 }
 
 export interface AgentPose {
+  floor_context?: FloorContext | null;
   map_version_id?: string | null;
   floor_id: string | null;
   x: number | null;
@@ -352,6 +353,26 @@ export interface FloorConnectorList {
   next_cursor: null;
 }
 
+export interface FloorContext {
+  robot_id: string;
+  generation: number;
+  run_id: string;
+  epoch: number;
+  floor_rev: number;
+  world_id: "v5_building";
+  building_id: string;
+  spawn_floor_id: "l1" | "l2";
+  current_floor_id: "l1" | "l2" | null;
+  floor_id: string | null;
+  map_version_id: string | null;
+  sha256: string | null;
+  source_pgm_sha256: string | null;
+  source: "gt_geometry";
+  floor_state: "on_floor" | "transit" | "unknown";
+  reason: string;
+  confirmed_sim_t: number | null;
+}
+
 export interface FloorCreate {
   name: string;
   level: number;
@@ -376,6 +397,7 @@ export interface Lease {
 }
 
 export interface Location {
+  floor_context?: FloorContext | null;
   floor_id: string | null;
   map_version_id: string | null;
   x: number | null;
@@ -1157,9 +1179,28 @@ export interface SimFailureDetail {
   max_load1?: number | null;
 }
 
+export interface SimMapBinding {
+  world_id: "v5_building";
+  building_id: string;
+  ros_building_id: string;
+  ros_floor_id: "l1" | "l2";
+  ros_map_version: string;
+  floor_id: string;
+  map_version_id: string;
+  sha256: string;
+  source_pgm_sha256: string;
+  resolution: number;
+  origin: [number, number, number];
+  width: number;
+  height: number;
+  source: "SIMULATION";
+}
+
 export interface SimProvision {
   world_id: string;
+  spawn_floor_id?: "l1" | "l2" | null;
   robot_id: string;
+  map_bindings?: SimMapBinding[];
   generation: number;
   owner_id: string;
   org_id: string;
@@ -1181,6 +1222,7 @@ export interface SimRemove {
 }
 
 export interface SimRobot {
+  spawn_floor_id?: "l1" | "l2" | null;
   generation: number;
   robot_id: string;
   owner_id: string;
@@ -1206,12 +1248,14 @@ export interface SimRobotList {
 
 export interface SimStartRequest {
   world_id: string;
+  spawn_floor_id?: "l1" | "l2" | null;
   robot_id: string;
 }
 
 export interface SimWorld {
   map_id?: string | null;
   floors?: SimWorldFloor[];
+  spawn_floor_ids?: ("l1" | "l2")[];
   id: string;
   name: string;
   description: string;
@@ -1222,10 +1266,12 @@ export interface SimWorldFloor {
   name: string;
   floor_z: number;
   map_version_id: string;
+  ros_floor_id?: string | null;
 }
 
 export interface SimWorldStart {
   world_id: string;
+  spawn_floor_id?: "l1" | "l2" | null;
 }
 
 export interface SiteTree {

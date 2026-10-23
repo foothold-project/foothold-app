@@ -12,6 +12,7 @@ from uuid import UUID, uuid4
 from fastapi import Response
 from sqlalchemy import select
 
+from .floor_maps import approved_bindings
 from apps.contracts import models as C
 from apps.contracts.simulation_ports import allowed_ports, extra_ports_from_env
 from .models import Building, Floor, Robot
@@ -136,7 +137,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                     continue
                 world.map_id = building.id
                 world.floors = [C.SimWorldFloor(floor_id=f.id, name=f.name, floor_z=f.floor_z,
-                    map_version_id=f.approved_version_id) for f in floors if f.approved_version_id is not None]
+                    map_version_id=f.approved_version_id, ros_floor_id=f.sim_floor_id) for f in floors if f.approved_version_id is not None]
         return catalogue
 
     @app.get('/api/v1/simulation/robots', response_model=C.SimRobotList)
@@ -204,9 +205,16 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             lock_organization(db, user.org_id)
             db.refresh(row)
             if (row.sim_generation != generation or row.sim_state != 'ACTIVE' or found is None
-                    or found.generation != generation or found.world_id != body.world_id or found.owner_id != user.id):
+                    or found.generation != generation or found.world_id != body.world_id or found.owner_id != user.id
+                    or found.spawn_floor_id != body.spawn_floor_id):
                 fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 사용 중입니다.', {'reason': 'slot_busy'})
             return found
+        bindings = []
+        if body.world_id == 'v5_building':
+            try:
+                bindings = [b.model_dump(mode='json') for b in approved_bindings(db, user.org_id)]
+            except (ValueError, KeyError, TypeError):
+                fail(409, 'SIM_MAP_BINDING_INVALID', '양 층 승인 지도 등록을 확인하세요.')
         raw = token()
         if row is None:
             row = Robot(id=body.robot_id, org_id=user.org_id, name='시뮬 ' + rid[:8], model='unitree_go2',
@@ -239,7 +247,8 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         start_error = None
         try:
             result = app.state.simmgr.request('POST', '/v1/robots', dict(world_id=body.world_id,
-                robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation))
+                robot_id=rid, owner_id=str(user.id), org_id=str(user.org_id), agent_token=raw, generation=generation,
+                spawn_floor_id=body.spawn_floor_id, map_bindings=bindings))
         except RelayError as error:
             if (error.status, error.code) in START_REJECTIONS or start_not_created(error):
                 start_rejected(error)

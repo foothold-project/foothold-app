@@ -20,6 +20,18 @@
     "name": {
       "title": "Name",
       "type": "string"
+    },
+    "ros_floor_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ros Floor Id"
     }
   },
   "required": [

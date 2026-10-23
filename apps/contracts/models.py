@@ -143,7 +143,45 @@ class Battery(Contract):
     updated_at: UTCDateTime
 
 
+class FloorContext(Contract):
+    """Observation identity; compare the entire token before using asynchronous map results.
+
+    This context never grants control or changes STOP/deadman gates. Positions are
+    absent during transit/unknown and when the approved grid binding is invalid.
+    """
+    robot_id: UUID
+    generation: int = Field(ge=1, strict=True)
+    run_id: str = Field(min_length=1, max_length=128)
+    epoch: int = Field(ge=0, strict=True)
+    floor_rev: int = Field(ge=0, strict=True)
+    world_id: Literal['v5_building']
+    building_id: UUID
+    spawn_floor_id: Literal['l1', 'l2']
+    current_floor_id: Literal['l1', 'l2'] | None
+    floor_id: UUID | None
+    map_version_id: UUID | None
+    sha256: str | None = Field(pattern=r'^[0-9a-f]{64}$')
+    source_pgm_sha256: str | None = Field(pattern=r'^[0-9a-f]{64}$')
+    source: Literal['gt_geometry']
+    floor_state: Literal['on_floor', 'transit', 'unknown']
+    reason: str = Field(min_length=1, max_length=128)
+    confirmed_sim_t: float | None
+
+    @model_validator(mode='after')
+    def coherent_floor(self):
+        if (self.floor_state == 'on_floor') != (self.current_floor_id is not None):
+            raise ValueError('current_floor_id is present exactly when on_floor')
+        ready = self.map_version_id is not None
+        if ready != (self.floor_id is not None) or ready != (self.sha256 is not None) or ready != (self.source_pgm_sha256 is not None):
+            raise ValueError('grid identity must be complete or absent')
+        if ready and (self.floor_state != 'on_floor' or self.confirmed_sim_t is None):
+            raise ValueError('grid identity requires a confirmed floor')
+        return self
+
+
 class Location(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('floor_context'))
+    floor_context: FloorContext | None = None
     floor_id: UUID | None
     map_version_id: UUID | None
     x: float | None
@@ -368,6 +406,8 @@ class AgentHello(AgentInput):
 
 
 class AgentPose(AgentInput):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('floor_context'))
+    floor_context: FloorContext | None = None
     map_version_id: UUID | None = None
     floor_id: UUID | None
     x: float | None
@@ -1254,16 +1294,19 @@ class SimFailureDetail(Contract):
 
 
 class SimWorldFloor(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('ros_floor_id'))
     floor_id: UUID
     name: str
     floor_z: float
     map_version_id: UUID
+    ros_floor_id: str | None = None
 
 
 class SimWorld(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('map_id', 'floors'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('map_id', 'floors', 'spawn_floor_ids'))
     map_id: UUID | None = None
     floors: list[SimWorldFloor] = Field(default_factory=list)
+    spawn_floor_ids: list[Literal['l1', 'l2']] = Field(default_factory=list)
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=40)
     description: str = Field(default='', max_length=200)
@@ -1271,6 +1314,21 @@ class SimWorld(Contract):
 
 class SimWorldStart(Contract):
     world_id: str = Field(min_length=1, max_length=128)
+    spawn_floor_id: Literal['l1', 'l2'] | None = None
+
+    @model_validator(mode='after')
+    def normalize_building(self):
+        if self.world_id in ('v5_building/l1', 'v5_building/l2'):
+            floor = self.world_id.rsplit('/', 1)[1]
+            if self.spawn_floor_id is not None and self.spawn_floor_id != floor:
+                raise ValueError('conflicting spawn floor alias')
+            self.world_id, self.spawn_floor_id = 'v5_building', floor
+        if self.world_id == 'v5_building':
+            if self.spawn_floor_id is None:
+                self.spawn_floor_id = 'l1'
+        elif self.spawn_floor_id is not None:
+            raise ValueError('spawn floor selection requires v5_building')
+        return self
 
 
 class SimStartRequest(SimWorldStart):
@@ -1282,7 +1340,26 @@ class SimRemove(Contract):
     request_nonce: UUID
 
 
+class SimMapBinding(Contract):
+    """Server-verified canonical GT registration; PNG and PGM hashes are distinct."""
+    world_id: Literal['v5_building']
+    building_id: UUID
+    ros_building_id: str = Field(min_length=1, max_length=64)
+    ros_floor_id: Literal['l1', 'l2']
+    ros_map_version: str = Field(min_length=1, max_length=64)
+    floor_id: UUID
+    map_version_id: UUID
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_pgm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    resolution: float = Field(gt=0)
+    origin: tuple[float, float, float]
+    width: int = Field(gt=0, le=4096, strict=True)
+    height: int = Field(gt=0, le=4096, strict=True)
+    source: Literal['SIMULATION']
+
+
 class SimProvision(SimStartRequest):
+    map_bindings: list[SimMapBinding] = Field(default_factory=list, max_length=2)
     generation: int = Field(ge=1, le=9223372036854775807)
     owner_id: UUID
     org_id: UUID
@@ -1314,6 +1391,8 @@ class SimCleanupSlot(Contract):
 
 
 class SimRobot(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('spawn_floor_id'))
+    spawn_floor_id: Literal['l1', 'l2'] | None = None
     generation: int = Field(ge=1, le=9223372036854775807)
     robot_id: UUID
     owner_id: UUID
