@@ -257,6 +257,58 @@ class NativeLauncher:
             raise RuntimeError('agent STOP/zero cleanup unconfirmed')
         self.child = None
 
+    def _verify_native_identity(self, sim):
+        if sim is None or not sim.started or sim.identity is None or sim.folder != self.folder:
+            raise RuntimeError('native ownership unavailable')
+        saved = json.loads((self.folder / 'unit.json').read_text())
+        if saved != {'unit': sim.unit, 'pid': sim.pid, 'cgroup': sim.cg}:
+            raise RuntimeError('native unit record mismatch')
+        identity = sim.identity
+        if (identity.get('main_pid') != sim.pid['pid']
+                or identity.get('main_start_ticks') != sim.pid['start_ticks']
+                or identity.get('cgroup') != sim.cg or identity.get('ros_domain') != '93'):
+            raise RuntimeError('native live record mismatch')
+        if sim.reason not in (None, 'unit_exited'):
+            raise RuntimeError('native supervisor failure')
+        if int(sim.show().get('MainPID', 0)):
+            live = sim.live_identity()  # exact PID/start_ticks/cgroup/domain93/partition
+            if any(live.get(key) != identity.get(key) for key in
+                   ('main_pid', 'main_start_ticks', 'cgroup', 'ros_domain', 'partition')):
+                raise RuntimeError('native live identity changed')
+
+    def _verify_native_cleanup(self, sim):
+        result = json.loads((self.folder / 'cleanup.json').read_text())
+        manifest = json.loads((sim.out / 'manifest.json').read_text())
+        ledgers = manifest.get('isolation', {})
+        before = ledgers.get('ledger_sha_before')
+        required = ('native_manifest_matches_live', 'native_cleanup_complete',
+                    'operating_ledgers_unchanged', 'native_world_matches_clearance',
+                    'source_unchanged', 'domain61_unchanged')
+        if (any(result.get(key) is not True for key in required)
+                or result.get('leftovers') != [] or result.get('dds_ports') != []
+                or str(result.get('unit', {}).get('MainPID')) != '0'
+                or not isinstance(before, dict) or not before
+                or before != ledgers.get('ledger_sha_after')
+                or sim.reason not in (None, 'unit_exited')):
+            raise RuntimeError('native cleanup evidence incomplete')
+
+    async def _close_verified_native(self):
+        """Reuse failed-agent proof for a native exit, even after agent exit0."""
+        stage = 'SIM_CLEANUP_IDENTITY_UNPROVEN'
+        try:
+            if self.recovery_blocked:
+                raise CleanupUnconfirmed('SIM_CLEANUP_LATCHED')
+            sim = self.sim
+            await asyncio.to_thread(self._verify_native_identity, sim)
+            stage = 'SIM_CLEANUP_NATIVE_UNPROVEN'
+            await asyncio.to_thread(sim.close)
+            await asyncio.to_thread(self._verify_native_cleanup, sim)
+        except BaseException as error:
+            self.failed = self.recovery_blocked = True
+            if isinstance(error, (KeyboardInterrupt, SystemExit, asyncio.CancelledError, CleanupUnconfirmed)):
+                raise
+            raise CleanupUnconfirmed(stage) from None
+
     async def _recover_failed_agent(self):
         """Destroy the owned simulation; agent exit1 is never a STOP/zero ACK."""
         self.failed = True
@@ -266,44 +318,7 @@ class NativeLauncher:
                 raise CleanupUnconfirmed('SIM_CLEANUP_LATCHED')
             await asyncio.to_thread(self.child.confirm_failed_exit)
             stage = 'SIM_CLEANUP_IDENTITY_UNPROVEN'
-            sim = self.sim
-            if sim is None or not sim.started or sim.identity is None or sim.folder != self.folder:
-                raise RuntimeError('native ownership unavailable')
-            def verify_identity():
-                saved = json.loads((self.folder / 'unit.json').read_text())
-                if saved != {'unit': sim.unit, 'pid': sim.pid, 'cgroup': sim.cg}:
-                    raise RuntimeError('native unit record mismatch')
-                identity = sim.identity
-                if (identity.get('main_pid') != sim.pid['pid']
-                        or identity.get('main_start_ticks') != sim.pid['start_ticks']
-                        or identity.get('cgroup') != sim.cg or identity.get('ros_domain') != '93'):
-                    raise RuntimeError('native live record mismatch')
-                if sim.reason not in (None, 'unit_exited'):
-                    raise RuntimeError('native supervisor failure')
-                if int(sim.show().get('MainPID', 0)):
-                    live = sim.live_identity()  # exact PID/start_ticks/cgroup/domain93/partition
-                    if any(live.get(key) != identity.get(key) for key in
-                           ('main_pid', 'main_start_ticks', 'cgroup', 'ros_domain', 'partition')):
-                        raise RuntimeError('native live identity changed')
-            await asyncio.to_thread(verify_identity)
-            stage = 'SIM_CLEANUP_NATIVE_UNPROVEN'
-            await asyncio.to_thread(sim.close)  # rechecks PID/start_ticks/cgroup before main-only SIGINT
-            def verify_cleanup():
-                result = json.loads((self.folder / 'cleanup.json').read_text())
-                manifest = json.loads((sim.out / 'manifest.json').read_text())
-                ledgers = manifest.get('isolation', {})
-                before = ledgers.get('ledger_sha_before')
-                required = ('native_manifest_matches_live', 'native_cleanup_complete',
-                            'operating_ledgers_unchanged', 'native_world_matches_clearance',
-                            'source_unchanged', 'domain61_unchanged')
-                if (any(result.get(key) is not True for key in required)
-                        or result.get('leftovers') != [] or result.get('dds_ports') != []
-                        or str(result.get('unit', {}).get('MainPID')) != '0'
-                        or not isinstance(before, dict) or not before
-                        or before != ledgers.get('ledger_sha_after')
-                        or sim.reason not in (None, 'unit_exited')):
-                    raise RuntimeError('native cleanup evidence incomplete')
-            await asyncio.to_thread(verify_cleanup)
+            await self._close_verified_native()
             stage = 'SIM_CLEANUP_AGENT_UNPROVEN'
             await asyncio.to_thread(self.child.reap_failed)
         except BaseException as error:
@@ -322,20 +337,22 @@ class NativeLauncher:
         if self.child is not None:
             self.failed = True
             raise RuntimeError('agent must confirm STOP/zero before world cleanup')
-        if self.sim is not None:
+        if self.failed or (self.sim is not None and self.sim.reason):
+            # A native crash is recoverable only with the same ownership,
+            # manifest/ledger and domain93 absence proof as a failed agent.
+            await self._close_verified_native()
+        elif self.sim is not None:
             sim = self.sim
-            self.failed = self.failed or bool(sim.reason)
             try:
                 await asyncio.to_thread(sim.close)
-            except BaseException:
-                self.failed = True
-                raise
-            # The watcher may observe the unit exiting during requested normal
-            # cleanup. Only that observation is covered by close's successful
-            # identity/manifest/cleanup checks; watcher errors still latch.
-            if sim.reason and sim.reason != 'unit_exited':
-                self.failed = True
-        if self.failed:
-            raise RuntimeError('native episode failed; operator review required')
+                # unit_exited may race an intentional close; all other watcher
+                # failures must retain ownership and the cleanup latch.
+                if sim.reason not in (None, 'unit_exited'):
+                    raise RuntimeError('native supervisor failure during cleanup')
+            except BaseException as error:
+                self.failed = self.recovery_blocked = True
+                if isinstance(error, (KeyboardInterrupt, SystemExit, asyncio.CancelledError)):
+                    raise
+                raise CleanupUnconfirmed('SIM_CLEANUP_NATIVE_UNPROVEN') from None
         self.sim = self.child = self.folder = None
         self.failed = False
