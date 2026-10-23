@@ -1671,7 +1671,10 @@ describe('폰 조종 앱 틀', () => {
     expect(frameCss).toMatch(/(^|\n)\.fh\[data-layout="pc"\]\{height:100vh\}/);
     expect(frameCss).toMatch(/\.fh\[data-layout="pc"\] \.fh-nav,\.fh\[data-layout="pc"\] \.fh-main\{overflow-y:auto\}/);
     expect(frameCss).toMatch(/\n\.fh-wide\{flex:1 1 12em;min-width:0;overflow-wrap:anywhere\}/);
-    expect(frameCss).toMatch(/\.fh input\[type="checkbox"\]\{width:20px;height:20px/);
+    expect(frameCss).toMatch(/\.fh input:is\(\[type="checkbox"\],\[type="radio"\]\)\{width:20px;height:20px;margin:0;accent-color:var\(--accent\)\}/);   // 10-23 체크·라디오 = 브랜드 강조색
+    expect(frameCss).toMatch(/\.fh:not\(\.light\) input:is\(\[type="checkbox"\],\[type="radio"\]\)\{color-scheme:dark\}/);   // 어두운 틀의 빈 칸도 어둡게
+    expect(frameCss).toMatch(/\.fh input:is\(\[type="checkbox"\],\[type="radio"\]\):focus-visible\{outline:2px solid var\(--accent\);outline-offset:2px\}/);
+    expect(frameCss).not.toMatch(/(input\[type="(checkbox|radio)"\]|input:is\([^)]*\))[^{]*\{[^}]*outline:(none|0)/);   // 포커스 링을 끄지 않음
     expect(frameCss).toMatch(/\n\.fh-head\{position:sticky;top:0;z-index:10/);   // 머리줄(STOP) 규칙은 그대로
   });
 

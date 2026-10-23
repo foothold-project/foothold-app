@@ -86,7 +86,10 @@ details.fh-dev{padding-block:0}
 /* 좁은 칸의 긴 글(결재 목록 미리보기·최근 사건 문장): 12em 보다 좁아지면 4~5자씩 꺾지 않고 다음 줄 전체로 */
 .fh-wide{flex:1 1 12em;min-width:0;overflow-wrap:anywhere}
 .fh-list button:has(>.fh-wide){flex-wrap:wrap}
-.fh input[type="checkbox"]{width:20px;height:20px;margin:0}
+/* 체크박스·라디오(10-23): 브라우저 기본 파랑 대신 브랜드 강조색. 어두운 틀에서는 빈 칸도 어두운 바탕으로(color-scheme), 포커스 링은 입력칸(.inp)과 같은 강조색 */
+.fh input:is([type="checkbox"],[type="radio"]){width:20px;height:20px;margin:0;accent-color:var(--accent)}
+.fh:not(.light) input:is([type="checkbox"],[type="radio"]){color-scheme:dark}
+.fh input:is([type="checkbox"],[type="radio"]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
 /* 3부 — 서버 연결(로그인·조직 기준값). .inp 는 원본 로그인 화면(ui/src/screens/PcLogin.view.tsx CSS) 값 그대로 */
 .inp{height:48px;padding:0 14px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:15px;box-sizing:border-box;width:100%}
