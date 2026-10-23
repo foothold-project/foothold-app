@@ -92,6 +92,10 @@ def main():
          'and not (self._output_stall_locked and self._output_feedback_held)', 'and True'),
         ("repeated publisher stall never fatal", "sink.py",
          'if len(self._stalls) == count and detected - self._stalls[0] <= window:', 'if False:'),
+        ("unrecovered publisher stall never fatal", "sink.py",
+         'self.error = self.error or RuntimeError("ROS output stall recovery timed out")', 'pass'),
+        ("watchdog failure waits for executor recovery", "sink.py",
+         '                self._report_failure()', '                pass'),
     ] if recovery else [("R4 independent watchdog absent in DDS/Core integration", "sink.py",
                   'self._closed.wait(0.005)', 'self._closed.wait(60)')] if synthetic else MUTATIONS
     targets = ["tests/test_stall_recovery.py"] if recovery else ["tests/test_ros_bridge_synthetic.py"] if synthetic else [

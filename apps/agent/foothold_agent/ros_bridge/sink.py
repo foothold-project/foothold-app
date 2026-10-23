@@ -10,6 +10,8 @@ from foothold_agent.safety.core import DEAD, Z, finite
 # Isolated scheduling delays can recover; three incidents in one minute cannot.
 # Keep the policy together so field diagnostics can inform later tuning.
 STALL_LIMIT = (3, 60.0)  # count, rolling monotonic seconds
+# Allow a brief scheduling interruption, never an indefinitely live failed bridge.
+STALL_RECOVERY_TIMEOUT = 2.0  # seconds since detection / emergency dispatch
 
 
 def twist_message(velocity, factory):
@@ -30,10 +32,12 @@ class RosSink:
     """
 
     def __init__(self, publish_velocity, publish_stop, publish_resume, *,
-                 now=time.monotonic, watchdog=True, diagnostics=None):
+                 now=time.monotonic, watchdog=True, diagnostics=None, on_error=None):
         self._velocity, self._stop, self._resume = publish_velocity, publish_stop, publish_resume
         self.now = now
         self.diagnostics = diagnostics
+        self._on_error = on_error
+        self._failure_reported = False
         self._lock = threading.RLock()  # memory only; NEVER held across ROS calls
         self._output_lock = threading.RLock()
         self._closed = threading.Event()
@@ -52,6 +56,9 @@ class RosSink:
         self._last_flush = now()
         self._expired = False
         self._publisher_expired = False
+        self._stall_started = None
+        self._emergency_started = None
+        self._emergency_thread = None
         self._stall_sequence = 0
         self._stalls = deque(maxlen=STALL_LIMIT[0])
         self.error = None
@@ -142,15 +149,20 @@ class RosSink:
                 self._last_stop = self.now()
                 self._stop_first = False
 
-    def check_watchdog(self):
+    def check_watchdog(self, *, defer_emergency=False):
         trip = False
         with self._lock:
+            now = self.now()
+            if ((self._stall_started is not None and now >= self._stall_started + STALL_RECOVERY_TIMEOUT)
+                    or (self._emergency_started is not None and now >= self._emergency_started + STALL_RECOVERY_TIMEOUT)):
+                self.error = self.error or RuntimeError("ROS output stall recovery timed out")
             if not self._expired and self.now() - self._last_apply >= DEAD:
                 self._expired = True
                 trip = True
             elif not self._expired and not self._publisher_expired and self.now() - self._last_flush >= DEAD:
                 self._publisher_expired = True
                 detected = self.now()
+                self._stall_started = detected
                 self._stall_sequence += 1
                 self._stalls.append(detected)
                 count, window = STALL_LIMIT
@@ -163,7 +175,43 @@ class RosSink:
             if trip:
                 self._hold_locked()
         if trip:
+            if defer_emergency:
+                self._start_emergency()
+            else:
+                self._emergency()
+
+    def _start_emergency(self):
+        """One in-flight attempt; a stuck publisher must not occupy the watchdog."""
+        with self._lock:
+            if self._emergency_started is not None:
+                return
+            self._emergency_started = self.now()
+            self._emergency_thread = threading.Thread(target=self._watch_emergency,
+                                                      name="ros-output-emergency", daemon=True)
+            try:
+                self._emergency_thread.start()
+            except BaseException:
+                self._emergency_started = None
+                self._emergency_thread = None
+                raise
+
+    def _watch_emergency(self):
+        try:
             self._emergency()
+        except BaseException as exc:
+            with self._lock:
+                self.error = self.error or exc
+        finally:
+            with self._lock:
+                self._emergency_started = None
+
+    def _report_failure(self):
+        with self._lock:
+            if self.error is None or self._failure_reported or self._on_error is None:
+                return
+            error = self.error
+            self._failure_reported = True
+        self._on_error(error)
 
     def flush(self):
         if self.diagnostics is None:
@@ -222,6 +270,7 @@ class RosSink:
                     # deadline. Recovery never releases the STOP feedback hold.
                     self._last_flush = self.now()
                     self._publisher_expired = False
+                    self._stall_started = None
             except BaseException as exc:
                 self.fail(exc)
                 raise
@@ -236,9 +285,14 @@ class RosSink:
     def _watch(self):
         try:
             while not self._closed.wait(0.005):
-                self.check_watchdog()
+                self.check_watchdog(defer_emergency=True)
+                self._report_failure()
         except BaseException as exc:
-            self.fail(exc)
+            with self._lock:
+                self.error = self.error or exc
+            # Notify before any emergency attempt, including thread-start failure.
+            self._report_failure()
+            self._start_emergency()
 
     def close(self):
         with self._lock:
@@ -268,6 +322,11 @@ class RosSink:
                 self._watchdog.join(timeout=0.5)
                 if self._watchdog.is_alive():
                     self._close_error = RuntimeError("ROS watchdog did not stop")
+                    self.error = self.error or self._close_error
+            if self._emergency_thread is not None:
+                self._emergency_thread.join(timeout=0.5)
+                if self._emergency_thread.is_alive():
+                    self._close_error = RuntimeError("ROS emergency output did not stop")
                     self.error = self.error or self._close_error
         finally:
             self._close_complete.set()

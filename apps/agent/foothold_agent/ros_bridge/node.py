@@ -269,7 +269,8 @@ class RosNode:
                 self.diagnostics.wrap("publish_velocity", lambda v: velocity.publish(twist_message(v, Twist))),
                 self.diagnostics.wrap("publish_stop", lambda: stop.publish(Empty())),
                 self.diagnostics.wrap("publish_resume", lambda: resume.publish(Empty())),
-                now=self.now, diagnostics=self.diagnostics)
+                now=self.now, diagnostics=self.diagnostics,
+                on_error=lambda exc: self._loop.call_soon_threadsafe(self._set_failed, exc))
             self.inputs = Inputs(self._loop, self.sink, on_state, now=self.now, on_error=self._notify_failure,
                                  telemetry=Telemetry(now=self.now, floors=getattr(self.config, "floor_bindings", None)),
                                  on_telemetry=self._on_telemetry, on_devices=self._on_devices)
