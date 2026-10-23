@@ -72,10 +72,16 @@ def test_warehouse_location_is_accepted_only_for_matching_approval_and_generatio
 
 
 def test_server_relays_one_warehouse_binding_to_manager(maps,seeded,world_folder,monkeypatch):
+    import os
     from apps.simmgr.api import create_app as manager_app
     from apps.simmgr.config import Settings, Slot, World
     from .test_simulation import LocalRelay
     from .test_api import csrf
+    # Server-only pytest does not load simmgr's clean_ros_environment fixture.
+    # Match the existing connected-floor relay test's isolated control plane.
+    for name in tuple(os.environ):
+        if name.startswith(('ROS_', 'RMW_', 'CYCLONEDDS_', 'FASTRTPS_', 'FASTDDS_')):
+            monkeypatch.delenv(name)
     http,_,files = maps
     with Session(http.app.state.engine) as db,db.begin():
         sync_worlds(db,seeded['org'],seeded['users']['admin'],world_folder,files)
