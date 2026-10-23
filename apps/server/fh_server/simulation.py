@@ -282,7 +282,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         except (ValueError, TypeError):
             fail(503, 'SIM_IDENTITY_MISMATCH', '시뮬 연결 정보를 확인하지 못했습니다.')
         if (result.robot_id != row.id or result.owner_id != user.id or result.world_id != body.world_id
-                or result.generation != generation):
+                or result.generation != generation or result.spawn_floor_id != body.spawn_floor_id):
             fail(503, 'SIM_IDENTITY_MISMATCH', '시뮬 연결 정보를 확인하지 못했습니다.')
         row.sim_state = 'ACTIVE'
         event(db, user.org_id, 'SIM_ROBOT_REGISTERED', user.id, {'robot_id': rid, 'world_id': body.world_id,

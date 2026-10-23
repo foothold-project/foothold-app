@@ -29,7 +29,8 @@ class CataloguedSimulation(D1Simulation):
                                'roots': [str(r) for r in self.native.roots],
                                'world_file': str(self.native.world_file), 'map_file': str(self.native.map_file),
                                'helper_source': str(self.source / 'sensor_isolation.py'),
-                               'target': self.native.target, 'hashes': hashes})
+                               'target': self.native.target, 'hashes': hashes,
+                               'map_bindings': list(self.configured_world.map_bindings)})
         self.gt_world_sha = hashes['world']
         self.hashes = source_hashes(self.source)
         write(self.folder / 'source-before.json', self.hashes)

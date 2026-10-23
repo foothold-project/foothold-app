@@ -39,10 +39,15 @@ def project(snapshot, now):
     if isinstance(location, dict) and fresh(location, now):
         try:
             UUID(location.get("floor_id"))
+            UUID(location.get("map_version_id"))
             valid_floor = True
         except (ValueError, TypeError, AttributeError):
             valid_floor = False
-        if valid_floor and all(number(location.get(k)) for k in ("x", "y", "yaw")):
+        same_context = (not isinstance(context, dict) or (
+            location.get('floor_context') == context
+            and location.get('floor_id') == context.get('floor_id')
+            and location.get('map_version_id') == context.get('map_version_id')))
+        if valid_floor and same_context and all(number(location.get(k)) for k in ("x", "y", "yaw")):
             pose.update({k: location[k] for k in ("floor_id", "x", "y", "yaw")})
             try:
                 pose['map_version_id'] = str(UUID(location.get('map_version_id')))

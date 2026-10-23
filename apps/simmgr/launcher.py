@@ -13,7 +13,7 @@ from foothold_agent.phone.tickets import load_keys
 from .environment import validate_control_environment, child_environment
 from .agent_unit import AgentUnit
 from .preflight import ResourceGateError, startup_preflight
-from .native_catalogue import resolve_native_world
+from .native_catalogue import resolve_native_world, WorldValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -124,6 +124,12 @@ class NativeLauncher:
         from constants import MAP_DIRECTORY
         native_root = Path(self.settings.source).parent.parent.parent / MAP_DIRECTORY
         native = resolve_native_world(world, self.settings.worlds, native_root)
+        if world.id.startswith('v5_building/'):
+            from .connected_assets import verify_bindings
+            try:
+                verify_bindings(native.root, world.map_bindings)
+            except (ValueError, KeyError, TypeError, OSError) as error:
+                raise WorldValidationError('connected map bindings do not match cleared assets') from error
         base = Path(self.settings.run_dir).resolve()
         if not base.is_relative_to(ROOT / 'runs') or base == ROOT / 'runs':
             raise ValueError('evidence must be a new directory under this worktree runs')
@@ -203,6 +209,11 @@ class NativeLauncher:
         validate_isolation(env)
         # Native stage1 topics/frames stay fixed; no fictitious namespace isolation.
         env['FOOTHOLD_CAMERA_ENABLED'] = '1'
+        if credentials.get('map_bindings'):
+            manifest = json.loads((self.sim.out / 'manifest.json').read_text())
+            env['FOOTHOLD_FLOOR_BINDINGS'] = json.dumps(dict(robot_id=slot.robot_id,
+                generation=credentials['generation'], run_id=manifest['run_id'], epoch=1,
+                spawn_floor_id=credentials['spawn_floor_id'], bindings=credentials['map_bindings']))
         try:
             self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
         except (OSError, subprocess.SubprocessError, RuntimeError):

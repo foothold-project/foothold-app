@@ -115,3 +115,55 @@ def test_request_aliases_normalize_to_execution_identity():
     for raw in [dict(world_id='v5_building/l1', spawn_floor_id='l2'), dict(world_id='other', spawn_floor_id='l1')]:
         with pytest.raises(ValueError):
             C.SimWorldStart(**raw)
+
+
+def test_server_relay_supplies_both_bindings_and_canonical_start_identity(maps, seeded, connected_folder, monkeypatch):
+    from pathlib import Path
+    from uuid import uuid4
+    from fastapi.testclient import TestClient
+    from apps.simmgr.api import create_app as manager_app
+    from apps.simmgr.config import Settings as ManagerSettings, Slot, World
+    from .test_simulation import LocalRelay
+    from .test_api import csrf
+    http, _, files = maps
+    import os
+    for name in tuple(os.environ):
+        if name.startswith(('ROS_', 'RMW_', 'CYCLONEDDS_', 'FASTRTPS_', 'FASTDDS_')):
+            monkeypatch.delenv(name)
+    with Session(http.app.state.engine) as db, db.begin():
+        sync_worlds(db, seeded['org'], seeded['users']['admin'], connected_folder, files)
+    rid = str(uuid4())
+    slot = Slot(rid, str(seeded['org']), 'unused', 'unused.sqlite', 9433)
+    worlds = {f'v5_building/{f}': World(f'v5_building/{f}', Path('unused'), Path('unused'), '연결 건물')
+              for f in ('l1', 'l2')}
+    config = ManagerSettings(worlds, {rid: slot}, 'x'*32)
+    monkeypatch.setattr('apps.simmgr.api.startup_preflight', lambda *_: {'resources_ok': True})
+    with TestClient(manager_app(config), client=('127.0.0.1', 9651)) as sim:
+        class Relay(LocalRelay):
+            sent = []
+            def request(self, method, path, body=None):
+                if method == 'POST':
+                    self.sent.append(deepcopy(body))
+                return super().request(method, path, body)
+        relay = Relay(sim, config.secret)
+        http.app.state.simmgr = relay
+        http.app.state.phone_pass_issuer.keys[rid] = ('test', {'test': b'x'*32})
+        headers = csrf(http, 'one')
+        catalog = http.get('/api/v1/simulation/worlds').json()['worlds']
+        assert len(catalog) == 1 and catalog[0]['id'] == 'v5_building'
+        assert catalog[0]['spawn_floor_ids'] == ['l1', 'l2']
+        assert {f['ros_floor_id'] for f in catalog[0]['floors']} == {'l1', 'l2'}
+        result = http.post('/api/v1/simulation/robots', headers=headers,
+            json=dict(world_id='v5_building/l2', robot_id=rid))
+        assert result.status_code == 201, result.text
+        assert result.json()['world_id'] == 'v5_building' and result.json()['spawn_floor_id'] == 'l2'
+        assert len(relay.sent[0]['map_bindings']) == 2
+        assert relay.sent[0]['spawn_floor_id'] == 'l2'
+        assert relay.sent[0]['world_id'] == 'v5_building'
+        manager = sim.app.state.manager
+        before = list(manager.launcher.events)
+        conflict = http.post('/api/v1/simulation/robots', headers=headers,
+            json=dict(world_id='v5_building', spawn_floor_id='l1', robot_id=rid))
+        assert conflict.status_code == 409
+        assert manager.launcher.events == before and manager.world == 'v5_building'
+        assert http.delete('/api/v1/simulation/robots/'+rid, headers=headers).status_code == 204

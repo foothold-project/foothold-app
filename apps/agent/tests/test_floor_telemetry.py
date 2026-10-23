@@ -148,3 +148,14 @@ def test_phone_state_context_transit_keeps_manual_motion_and_existing_stop():
         assert h.hub.session.core.out[0] > 0
     h.hub.stop()
     assert h.hub.session.core.out == (0., 0., 0.) and h.hub.session.core.latch
+
+
+@pytest.mark.parametrize('field,value', [('map_version_id', None), ('map_version_id', 'invalid'),
+    ('map_version_id', str(UUID(int=999))), ('floor_id', str(UUID(int=999)))])
+def test_session_never_pairs_pose_with_an_absent_or_different_grid(field, value):
+    clock = Clock(); cache = Telemetry(now=clock, floors=launch()); session = Session(now=clock)
+    update(cache, status(), clock)
+    snap = cache.snapshot(); snap['location'][field] = value
+    session.update_telemetry(snap)
+    assert session._state()['pose']['x'] is None
+    assert session._state()['pose']['map_version_id'] is None

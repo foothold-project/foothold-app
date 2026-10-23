@@ -21,6 +21,7 @@ class World:
     map_file: Path
     name: str | None = None
     description: str = ''
+    map_bindings: tuple[dict, ...] = ()  # runtime-only, populated by the authenticated server
 
     def __post_init__(self):
         name = self.id if self.name is None else self.name

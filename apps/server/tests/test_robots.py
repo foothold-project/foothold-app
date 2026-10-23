@@ -83,7 +83,7 @@ def test_rest_summaries_reflect_state_and_mask_other_owner(client, seeded, rt, m
         assert detail['connection'] == 'ONLINE' and detail['status'] == 'TELEOP'
         assert detail['battery']['soc'] == 12
         assert detail['location'] is not None
-        assert detail['location'] == {**pose, 'map_version_id': map_id,
+        assert detail['location'] == {**pose, 'map_version_id': map_id, 'floor_context': None,
                                       'updated_at': detail['location']['updated_at']}
         assert detail['devices'] == [DEVICE] and detail['current_run'] is None
         assert 'BATTERY_LOW' in detail['attention']
