@@ -208,7 +208,7 @@ describe('지도 탭 — 장소 나무', () => {
     expect(sent('DELETE', '/floors/f1')).toHaveLength(5);
     await stopSends();
   });
-  it('운영 관리자: 보기만 — «고치기»는 회색+이유(U6), 이름 바꾸기·지우기·올리기 단추 없음', async () => {
+  it('운영 관리자: 장소는 보기만 — «고치기»는 회색+이유(U6), 이름 바꾸기·지우기 없음, 올리기는 «결재 요청» 문구로', async () => {
     serve(signedIn(LEE));
     await open('#/map');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
@@ -217,7 +217,8 @@ describe('지도 탭 — 장소 나무', () => {
     const fix = btn('고치기')!;
     expect(fix.disabled).toBe(true);
     expect(document.getElementById(fix.getAttribute('aria-describedby')!)!.textContent).toBe('장소 고치기는 총괄만 할 수 있습니다.');
-    expect($('[aria-label="새 지도 올리기"]')).toBeNull();
+    expect(card('새 지도 올리기').textContent).toContain('올리면 새 판이 결재 요청이 됩니다. 총괄이 승인하기 전에는 지금 승인 판을 그대로 씁니다.');
+    expect(btn('올리고 결재 요청', card('새 지도 올리기'))).toBeTruthy();
     expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만
     await stopSends();
   });
@@ -275,8 +276,7 @@ describe('지도 탭 — 보기', () => {
     serve(signedIn(LEE));
     await open('#/map');
     await click(floorBtn('2층'));
-    expect(card('지도 보기').textContent).toContain('아직 지도가 없습니다.');
-    expect(card('지도 보기').textContent).not.toContain('올리세요');
+    expect(card('지도 보기').textContent).toContain('아직 지도가 없습니다. 아래에서 지도 파일을 올리세요. 올리면 결재 요청이 됩니다.');
     expect(img()).toBeNull();
   });
   it('그림을 못 받으면 칸 안 글 + 다시 불러오기(새 요청), STOP 은 그대로', async () => {
@@ -323,8 +323,38 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     expect([(a.body as File).name, (b.body as File).name]).toEqual(['floor.pgm', 'floor.yaml']);   // 고른 파일 그대로(원시 본문)
     expect(save.body).toEqual({ base_version_id: 'v2', image: 'up-yaml', reason: '새로 스캔', features: { zones: FEAT.zones, waypoints: FEAT.waypoints, connectors: FEAT.connectors, edits: [] } });
     expect(card('지도 보기').textContent).toContain('새 판을 저장했습니다(판 3).');
+    expect(card('새 지도 올리기').textContent).not.toContain('결재');                     // 총괄은 그대로 — 바로 승인 판
     expect(sent('GET', '/floors/f1/map-versions').length).toBeGreaterThan(1);              // 판 목록·나무 다시 받기
     expect(sent('GET', '/sites').length).toBeGreaterThan(1);
+  });
+  it('운영 관리자: 같은 순서로 올리고 201 PENDING → «결재를 요청했습니다» + «내 요청 보기», 승인 판 그대로·배지 다시 받기', async () => {
+    const P3 = ver('v3', 3, { base_version_id: 'v2', status: 'PENDING', created_by: LEE.id });
+    let asked = false;
+    serve(signedIn(LEE, {
+      'POST /uploads': (q) => ({ status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: 'cd'.repeat(32) } }),
+      'POST /floors/f1/map-versions': () => { asked = true; return { status: 201, body: P3 }; },
+      'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: asked ? [P3, V2, V1] : [V2, V1], next_cursor: null } }) }));
+    await open('#/map');
+    await fillUpload('새로 스캔');
+    const dash = sent('GET', '/dashboard').length;
+    await click(btn('올리고 결재 요청'));
+    expect(writes()).toEqual(['POST /uploads', 'POST /uploads?image=up-img', 'POST /floors/f1/map-versions']);
+    expect(calls.filter((c) => c.method === 'POST')[2].body).toMatchObject({ base_version_id: 'v2', image: 'up-yaml', reason: '새로 스캔' });
+    expect(card('새 지도 올리기').textContent).toContain('결재를 요청했습니다(판 3). 승인되기 전에는 지금 승인 판을 그대로 씁니다.');
+    expect(btn('내 요청 보기', card('새 지도 올리기'))).toBeTruthy();
+    expect($<HTMLSelectElement>('select[aria-label="판"]')!.value).toBe('v2');
+    expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+    expect(sent('GET', '/dashboard').length).toBe(dash + 1);
+    await stopSends();
+  });
+  it('운영 관리자: 저장 403(서버 판정) → «결재를 요청하지 못했습니다» + 서버 문구', async () => {
+    serve(signedIn(LEE, {
+      'POST /uploads': (q) => ({ status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: 'cd'.repeat(32) } }),
+      'POST /floors/f1/map-versions': err(403, 'FORBIDDEN', '권한이 없습니다.') }));
+    await open('#/map');
+    await fillUpload();
+    await click(btn('올리고 결재 요청'));
+    expect(card('새 지도 올리기').textContent).toContain('결재를 요청하지 못했습니다. 권한이 없습니다.');
   });
   it('«그대로 두기»를 끄면 빈 요소, 승인 판 없는 층은 base null + 빈 요소', async () => {
     serve(ok());

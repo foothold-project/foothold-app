@@ -185,11 +185,13 @@ describe('배정 창', () => {
 });
 
 describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () => {
+  /** 시나리오 목록의 «배정된 로봇» 열이 먼저 받는 조직 전체 배정 목록(진짜 처리) — 아래 순서는 배정 창 것부터 */
+  const LIST = (real: () => Reply) => real();
   it('처리된 뒤 답이 끊김: «확인 중» → 목록에 새 내 배정 → 성공으로(다시 보내지 않음)', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     let release = () => {};
     const gate = new Promise<void>((r) => { release = r; });
-    await openAssign(KIM, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [{ status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
+    await openAssign(KIM, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }], 'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } },
       async (real) => { await gate; return real(); }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
@@ -221,7 +223,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     scenarios = [scen('s1', '1층 순찰')];
     // 확인 목록 조회가 처리 전 상태를 보여 확정 못 함 → 같은 키 재전송 → 재생
     await openAssign(KIM, { over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
-      'GET /assignments': [{ status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }] } });
+      'GET /assignments': [LIST, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }, { status: 200, body: { items: [], next_cursor: null } }] } });
     await pickRobot('r-a');
     await click(btn('배정', panel()));
     expect(text()).toContain('배정이 아직 목록에 없습니다.');
@@ -232,7 +234,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
   });
   // PR #50 검토: 멱등 재전송 응답은 «최초» 결과의 재생 — 그새 반려·STALE·해제됐으면 목록의 지금 상태로 안내(PENDING/ACTIVE 단정 0)
   const lostThenEmpty = (): Parameters<typeof serve>[1] => ({ over: { 'POST /assignments': [(real) => { real(); throw new TypeError('lost'); }],
-    'GET /assignments': [(real) => real(), (real) => real(), { status: 200, body: { items: [], next_cursor: null } }] } });
+    'GET /assignments': [LIST, (real) => real(), (real) => real(), { status: 200, body: { items: [], next_cursor: null } }] } });
   it('처리된 뒤 끊김 → 확인 전 반려(STALE 도 REJECTED) → 같은 키 재전송 = 재생 PENDING 이어도 «반려됨»으로', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(LEE, lostThenEmpty());

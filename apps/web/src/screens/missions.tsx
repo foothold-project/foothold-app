@@ -3,7 +3,7 @@
 // 시나리오 지도 그리기·좌표 변환은 지도 탭 함수(screens/maps·mapedit) 그대로. 배정 창·목록은 저장된 시나리오 칸 아래(screens/assign.tsx, S5b), 실행은 S7 뒤.
 // STOP 은 App 머리줄 — 이 화면은 창 키·포인터를 잡지 않는다(지도 svg 포인터만).
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from 'react';
-import type { Action, MapVersion, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
+import type { Action, Assignment, MapVersion, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type Plan } from '../api';
 import type { Robot, User } from '../fake';
 import { KIND as DEVICE, type Ctx } from '../screens';
@@ -54,25 +54,46 @@ export const keptPlan: { kind: Plan; sel: string | null; drafts: Record<string, 
 export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; assignFor.robot = null; };
 addEventListener('beforeunload', (e) => { if (keptPlan.now || Object.keys(keptPlan.drafts).length) { e.preventDefault(); e.returnValue = ''; } });
 
-/** 목록(오래된 것 먼저) + cursor 로 더 받기. 종류·보관 보기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다(결재 탭 useList 와 같다) */
-function useList(kind: Plan, archived: boolean, cancel?: AbortSignal) {
+/** 목록(오래된 것 먼저) + cursor 로 더 받기. 종류·보관 보기·거르기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다(결재 탭 useList 와 같다) */
+function useList(kind: Plan, archived: boolean, only: { mine: boolean; floor: string } | undefined, cancel?: AbortSignal) {
   const [items, setItems] = useState<AnyPlan[]>([]), [next, setNext] = useState<string | null>(null), [busy, setBusy] = useState(true), [err, setErr] = useState(''), [n, setN] = useState(0), seq = useRef(0);
   const load = (cursor: string | null) => {
     const k = ++seq.current;
     setBusy(true); setErr('');
     if (!cursor) { setItems([]); setNext(null); }
-    api.plans(kind, archived, cursor, cancel).then(fit((r: { items: AnyPlan[]; next_cursor: string | null }) => !!r && arr(r.items) && r.items.every(isPlan) && (r.next_cursor === null || str(r.next_cursor)))).then((r) => {
+    api.plans(kind, archived, cursor, cancel, only).then(fit((r: { items: AnyPlan[]; next_cursor: string | null }) => !!r && arr(r.items) && r.items.every(isPlan) && (r.next_cursor === null || str(r.next_cursor)))).then((r) => {
       if (k !== seq.current) return;
       setItems((o) => (cursor ? [...o, ...r.items.filter((x) => !o.some((y) => y.id === x.id))] : r.items)); setNext(r.next_cursor); setBusy(false);
     }, (e: ApiFail) => { if (k !== seq.current || e.code === 'CANCELED') return; setErr(e.message); setBusy(false); });
   };
-  useEffect(() => { load(null); }, [kind, archived, n]);
+  useEffect(() => { load(null); }, [kind, archived, only?.mine, only?.floor, n]);
   return { items, next, busy, err, more: () => load(next), again: () => setN((x) => x + 1) };
+}
+
+/** 시나리오별 배정된 로봇 이름(ACTIVE·결재 대기, 조직 전체 배정 목록에서). 목록을 받을 때마다 다시 — 받는 중 undefined, 못 받으면 null */
+function useAssigned(on: boolean, busy: boolean, cancel?: AbortSignal) {
+  const [by, setBy] = useState<Record<string, string[]> | null>();
+  useEffect(() => {
+    if (!on || busy) return;
+    let live = true;
+    api.assignments(null, cancel).then((l: Assignment[]) => {
+      if (!arr(l) || !l.every((a) => !!a && str(a.scenario_id) && str(a.robot_name) && str(a.status))) throw new ApiFail(0, 'BAD_SHAPE', '');
+      const m: Record<string, string[]> = {};
+      for (const a of l) if (a.status === 'ACTIVE' || a.status === 'PENDING') {
+        const name = a.status === 'PENDING' ? `${a.robot_name}(결재 대기)` : a.robot_name;
+        if (!(m[a.scenario_id] ??= []).includes(name)) m[a.scenario_id].push(name);
+      }
+      if (live) setBy(m);
+    }).catch((e: ApiFail) => { if (live && e.code !== 'CANCELED') setBy(null); });
+    return () => { live = false; };
+  }, [on, busy]);
+  return by;
 }
 
 /** 임무 탭(03 §5.3): 왼쪽 [임무 | 시나리오] 목록, 오른쪽 편집. 총괄은 모두, 운영 관리자는 자기 것만 고치고 남의 것은 보는 중(02 §10) */
 export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
-  const [kind, setKind] = useState<Plan>(keptPlan.kind), [archived, setArchived] = useState(false), l = useList(kind, archived, c.cancel);
+  const [kind, setKind] = useState<Plan>(keptPlan.kind), [archived, setArchived] = useState(false), [mine, setMine] = useState(false), [floor, setFloor] = useState('');
+  const scen = kind === 'scenarios', l = useList(kind, archived, scen ? { mine, floor } : undefined, c.cancel), assigned = useAssigned(scen, l.busy, c.cancel);
   const [sel, setSel] = useState<string | null>(keptPlan.sel), [msg, setMsg] = useState<Msg>(() => (assignFor.robot && !keptPlan.sel ? { text: `${c.robots.find((r) => r.id === assignFor.robot)?.name ?? '로봇'}에 배정할 시나리오를 고르세요 — 고르면 배정 창이 열립니다.`, ok: true } : null)), [n, setN] = useState(0), tree = useTree(c.cancel);
   useEffect(() => { keptPlan.kind = kind; keptPlan.sel = sel; }, [kind, sel]);
   const places = useMemo(() => floorsOf(tree.tree), [tree.tree]), floorText = (ids: string[]) => ids.map((id) => places.find((p) => p.floor.id === id)?.floor.name).filter(Boolean).join(' · ');
@@ -85,16 +106,25 @@ export function Missions(c: Pick<Ctx, 'user' | 'cancel' | 'robots'>) {
         <button type="button" className="btn pri" onClick={() => { setSel(''); setMsg(null); setN((x) => x + 1); }}>새 {WHAT[kind]}</button>
       </div>
       <label className="fh-row"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} /><span>보관된 것도 보기</span></label>
+      {/* 시나리오 거르기(F-MS-04) — 서버 mine·floor_id 로 */}
+      {scen && <div className="fh-row" role="group" aria-label="거르기">
+        <label className="fh-row"><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /><span>내 것만</span></label>
+        <label className="fh-row"><span className="lbl">지도</span><select className="fh-user" aria-label="지도별" value={floor} onChange={(e) => setFloor(e.target.value)}>
+          <option value="">전체</option>{places.map((p) => <option key={p.floor.id} value={p.floor.id}>{`${p.site.name} ${p.building.name} ${p.floor.name}`}</option>)}</select></label>
+      </div>}
       <ul className="fh-list" aria-label={`${WHAT[kind]} 목록`}>{l.items.map((x) => <li key={x.id}>
         <button type="button" aria-pressed={x.id === sel} data-plan={x.id} onClick={() => { setSel(x.id); setMsg(null); }}>
           <b>{x.name}</b>
           {'waypoints' in x && <span className="lbl">{floorText(x.floor_ids)}</span>}
           <span className="fh-grow" /><span className="mono">판 {x.latest_version}</span>
           <span className="lbl">{'steps' in x ? `작업 ${x.steps.length}` : `지점 ${x.waypoints.length}`}</span>
+          {/* 마지막 실행은 실행 API(S7) 전이라 서버 값이 없다 — 지어내지 않고 «—». fh-wide = 좁으면 둘째 줄로 */}
+          {'waypoints' in x && <span className="fh-wide fh-row"><span className="lbl" data-col="robots">로봇 {assigned === undefined ? '…' : assigned ? assigned[x.id]?.join(', ') || '없음' : '?'}</span><span className="lbl" data-col="last-run">마지막 실행 —</span></span>}
           {x.archived_at && <span className="lbl">보관됨</span>}
           {keptPlan.drafts[`${kind}:${x.id}`] && <span className="lbl">저장 안 한 편집</span>}
         </button></li>)}</ul>
-      {!l.busy && !l.err && !l.items.length && <p className="lv-note">{kind === 'missions' ? '임무가 없습니다. «새 임무»로 사진·대기 같은 작업을 묶으세요.' : '시나리오가 없습니다. «새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
+      {scen && assigned === null && <p className="lv-note">배정된 로봇을 받지 못했습니다(«?»). 목록을 다시 받으면 다시 시도합니다.</p>}
+      {!l.busy && !l.err && !l.items.length && <p className="lv-note">{scen && (mine || floor) ? '조건에 맞는 시나리오가 없습니다. 거르기를 바꿔 보세요.' : kind === 'missions' ? '임무가 없습니다. «새 임무»로 사진·대기 같은 작업을 묶으세요.' : '시나리오가 없습니다. «새 시나리오»로 지도에 지점을 찍어 만드세요.'}</p>}
       {l.err && <p className="fh-msg" role="alert">{WHAT[kind]} 목록을 받지 못했습니다. {l.err}</p>}
       {l.busy && <p className="lv-note" role="status">목록을 불러오는 중…</p>}
       {!l.busy && (l.next || l.err) && <div className="fh-row"><button type="button" className="btn" onClick={l.err && !l.items.length ? l.again : l.more}>{l.err ? '다시 시도' : '더 보기'}</button></div>}
