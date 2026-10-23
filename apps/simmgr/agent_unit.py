@@ -39,15 +39,48 @@ class AgentUnit:
         except BaseException:
             private.unlink(missing_ok=True)
             raise
+        # A failed unit may outlive its process. Retain this invocation identity
+        # so recovery cannot adopt a replacement bearing the same literal name.
+        self.invocation_id = self.show().get('InvocationID')
 
     def show(self):
         result = subprocess.run(['systemctl', '--user', 'show', self.unit,
-            '--property=LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus'],
+            '--property=LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus,MainPID,ControlGroup,InvocationID'],
             text=True, capture_output=True, timeout=5, check=False)
         state = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
         if 'LoadState' not in state:
             raise RuntimeError('agent user bus unavailable: no unit status')
         return state
+
+    def confirm_failed_exit(self):
+        """Prove this invocation has exited, without signalling any process."""
+        state = self.show()
+        if (not self.invocation_id or state.get('InvocationID') != self.invocation_id
+                or state.get('LoadState') != 'loaded'
+                or state.get('ActiveState') not in ('failed', 'inactive')
+                or state.get('MainPID') != '0'
+                or state.get('ExecMainCode') not in ('1', '2', '3')
+                or state.get('ExecMainStatus') in (None, '', '0')):
+            raise RuntimeError('failed agent invocation exit unconfirmed')
+        group = state.get('ControlGroup')
+        if group:
+            if not group.startswith('/') or '..' in Path(group).parts:
+                raise RuntimeError('invalid agent cgroup')
+            try:
+                events = (Path('/sys/fs/cgroup') / group.lstrip('/') / 'cgroup.events').read_text()
+            except FileNotFoundError:
+                pass  # systemd has already removed the exited cgroup
+            else:
+                if dict(line.split() for line in events.splitlines()).get('populated') != '0':
+                    raise RuntimeError('failed agent cgroup remains populated')
+
+    def reap_failed(self):
+        self.confirm_failed_exit()
+        # reset-failed changes unit bookkeeping only; unlike stop/kill it cannot
+        # signal surviving children. Native cleanup must already prove absence.
+        subprocess.run(['systemctl', '--user', 'reset-failed', self.unit],
+                       check=True, capture_output=True, timeout=5)
+        self.private.unlink(missing_ok=True)
 
     def poll(self):
         state = self.show()

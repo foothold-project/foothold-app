@@ -2,6 +2,7 @@
 import asyncio
 from datetime import datetime, timezone
 import os
+import json
 from pathlib import Path
 import signal
 import subprocess
@@ -15,6 +16,12 @@ from .preflight import ResourceGateError, startup_preflight
 from .native_catalogue import resolve_native_world
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class CleanupUnconfirmed(RuntimeError):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
 
 
 class FakeLauncher:
@@ -47,6 +54,8 @@ class NativeLauncher:
     The upstream adapter has a baked-in robot, fixed frames and command topics.
     The manager therefore rejects a second real robot until a native adapter exists.
     Agent normal exit confirms existing bridge STOP/zero/ack cleanup, before Gazebo.
+    An already-failed agent instead requires verified destruction of its entire
+    owned simulation before the slot or failure latch can be released.
     """
     real = True
     def __init__(self, settings):
@@ -57,6 +66,7 @@ class NativeLauncher:
         self.sim = self.child = None
         self.folder = None
         self.failed = False
+        self.recovery_blocked = False
         self.episode = 0
 
     @property
@@ -79,6 +89,7 @@ class NativeLauncher:
             return await asyncio.to_thread(self.child.poll)
         except (OSError, subprocess.SubprocessError, RuntimeError):
             self.failed = True
+            self.recovery_blocked = True
             raise RuntimeError('agent unit status unavailable') from None
 
     async def _signal(self, sig):
@@ -86,6 +97,7 @@ class NativeLauncher:
             await asyncio.to_thread(self.child.send_signal, sig)
         except (OSError, subprocess.SubprocessError, RuntimeError):
             self.failed = True
+            self.recovery_blocked = True
             raise RuntimeError('agent unit signal failed') from None
 
     async def _wait(self, timeout):
@@ -93,9 +105,11 @@ class NativeLauncher:
             return await asyncio.to_thread(self.child.wait, timeout=timeout)
         except subprocess.TimeoutExpired:
             self.failed = True
+            self.recovery_blocked = True
             raise
         except (OSError, subprocess.SubprocessError, RuntimeError):
             self.failed = True
+            self.recovery_blocked = True
             raise RuntimeError('agent unit cleanup failed') from None
 
     async def start_world(self, world):
@@ -213,7 +227,11 @@ class NativeLauncher:
         child = self.child
         if child is None:
             return
-        if await self._poll() is None:
+        code = await self._poll()
+        if code is not None and code != 0:
+            await self._recover_failed_agent()
+            return
+        if code is None:
             await self._signal(signal.SIGINT)
         # Existing runner closes Hub first, bridge outputs ZERO/STOP, waits for ACK,
         # then tears down its node. Nonzero exit/timeout retains world and blocks reuse.
@@ -235,8 +253,66 @@ class NativeLauncher:
             raise RuntimeError('agent STOP/zero timeout; owned unit cleanup attempted') from None
         if code != 0:
             self.failed = True
+            self.recovery_blocked = True
             raise RuntimeError('agent STOP/zero cleanup unconfirmed')
         self.child = None
+
+    async def _recover_failed_agent(self):
+        """Destroy the owned simulation; agent exit1 is never a STOP/zero ACK."""
+        self.failed = True
+        stage = 'SIM_CLEANUP_AGENT_UNPROVEN'
+        try:
+            if getattr(self, 'recovery_blocked', False):
+                raise CleanupUnconfirmed('SIM_CLEANUP_LATCHED')
+            await asyncio.to_thread(self.child.confirm_failed_exit)
+            stage = 'SIM_CLEANUP_IDENTITY_UNPROVEN'
+            sim = self.sim
+            if sim is None or not sim.started or sim.identity is None or sim.folder != self.folder:
+                raise RuntimeError('native ownership unavailable')
+            def verify_identity():
+                saved = json.loads((self.folder / 'unit.json').read_text())
+                if saved != {'unit': sim.unit, 'pid': sim.pid, 'cgroup': sim.cg}:
+                    raise RuntimeError('native unit record mismatch')
+                identity = sim.identity
+                if (identity.get('main_pid') != sim.pid['pid']
+                        or identity.get('main_start_ticks') != sim.pid['start_ticks']
+                        or identity.get('cgroup') != sim.cg or identity.get('ros_domain') != '93'):
+                    raise RuntimeError('native live record mismatch')
+                if sim.reason not in (None, 'unit_exited'):
+                    raise RuntimeError('native supervisor failure')
+                if int(sim.show().get('MainPID', 0)):
+                    live = sim.live_identity()  # exact PID/start_ticks/cgroup/domain93/partition
+                    if any(live.get(key) != identity.get(key) for key in
+                           ('main_pid', 'main_start_ticks', 'cgroup', 'ros_domain', 'partition')):
+                        raise RuntimeError('native live identity changed')
+            await asyncio.to_thread(verify_identity)
+            stage = 'SIM_CLEANUP_NATIVE_UNPROVEN'
+            await asyncio.to_thread(sim.close)  # rechecks PID/start_ticks/cgroup before main-only SIGINT
+            def verify_cleanup():
+                result = json.loads((self.folder / 'cleanup.json').read_text())
+                manifest = json.loads((sim.out / 'manifest.json').read_text())
+                ledgers = manifest.get('isolation', {})
+                before = ledgers.get('ledger_sha_before')
+                required = ('native_manifest_matches_live', 'native_cleanup_complete',
+                            'operating_ledgers_unchanged', 'native_world_matches_clearance',
+                            'source_unchanged', 'domain61_unchanged')
+                if (any(result.get(key) is not True for key in required)
+                        or result.get('leftovers') != [] or result.get('dds_ports') != []
+                        or str(result.get('unit', {}).get('MainPID')) != '0'
+                        or not isinstance(before, dict) or not before
+                        or before != ledgers.get('ledger_sha_after')
+                        or sim.reason not in (None, 'unit_exited')):
+                    raise RuntimeError('native cleanup evidence incomplete')
+            await asyncio.to_thread(verify_cleanup)
+            stage = 'SIM_CLEANUP_AGENT_UNPROVEN'
+            await asyncio.to_thread(self.child.reap_failed)
+        except BaseException as error:
+            self.recovery_blocked = True
+            if isinstance(error, (KeyboardInterrupt, SystemExit, asyncio.CancelledError, CleanupUnconfirmed)):
+                raise
+            raise CleanupUnconfirmed(stage) from None
+        self.sim = self.child = self.folder = None
+        self.failed = False
 
     async def remove(self, slot):
         # The native robot belongs to the world. Its removal means world cleanup.
