@@ -180,7 +180,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <header className="fh-head">
       {phone
         ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button>
-          : simOpen ? <button type="button" className="btn" onClick={() => sim.end()}>끝내기</button> : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
+          : simOpen ? <button type="button" className="btn" onClick={() => sim.end()}>시뮬 끝내기</button> : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
         : <><BrandLogo h={24} /><div className="fh-sep" /><h1>{title}</h1></>}
       <span className="fh-grow" />
       {(() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)

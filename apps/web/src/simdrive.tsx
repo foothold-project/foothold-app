@@ -95,7 +95,7 @@ const CAM = { wait: '영상 기다리는 중', none: '영상 없음 — 로봇�
 
 const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
 const ICON = {
-  gear: I(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
+  gear: I(<><path strokeLinejoin="round" d="M19.1 9.8L21.9 10.4L21.9 13.6L19.1 14.2L18.5 15.5L20.1 17.9L17.9 20.1L15.5 18.5L14.2 19.1L13.6 21.9L10.4 21.9L9.8 19.1L8.5 18.5L6.1 20.1L3.9 17.9L5.5 15.5L4.9 14.2L2.1 13.6L2.1 10.4L4.9 9.8L5.5 8.5L3.9 6.1L6.1 3.9L8.5 5.5L9.8 4.9L10.4 2.1L13.6 2.1L14.2 4.9L15.5 5.5L17.9 3.9L20.1 6.1L18.5 8.5Z" /><circle cx="12" cy="12" r="3" /></>),
   set: I(<path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4" />),
   info: I(<><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7v1" /></>),
   exit: I(<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10" />),
@@ -109,7 +109,7 @@ export function SimDrive() {
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
   const input = useRef<[number, number]>([0, 0]), gen = useRef(0);
   const [unsupported, setUnsupported] = useState(''), [vx, setVx] = useState(0);
-  const [menu, setMenu] = useState<'' | 'menu' | 'set' | 'info'>(''), [leaving, setLeaving] = useState(false);
+  const [menu, setMenu] = useState<'' | 'menu' | 'set' | 'info'>(''), [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
   const live = ready && !menu && !leaving;
   const smooth = w?.limits.vx_mode === 'continuous';
   useTick(true);
@@ -123,11 +123,15 @@ export function SimDrive() {
     if (w) setVx(velocity([f, t], w).vx);
     sim.axes([f, t]);
   };
-  /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 연결 닫고 띄우기 카드로. 시뮬은 켠 채(«조종 화면 띄우기»로 다시 들어옴) */
+  /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 확인된 반납만 연결 닫고 띄우기 카드로. 시뮬은 켠 채(«조종 화면 띄우기»로 다시 들어옴).
+   *  거절·무응답이면 조종 화면에 남는다(연결·STOP 대상 보존, 입력 0, «다시 반납») */
   const leave = async () => {
-    setMenu(''); setLeaving(true);
-    if (sim.get().link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]);
-    if (sim.get().robot?.robot_id === r.robot_id && sim.get().step === 'drive') sim.reset();
+    setMenu(''); setLeaving('wait');
+    const k = sim.get().link;
+    const ok = k?.lease ? await Promise.race([sim.release(), new Promise<boolean>((f) => setTimeout(() => f(false), 2000))])
+      : !k?.st?.lease_id && k?.busy !== 'release';   // 조종권 없음 = 반납할 것 없음. 서버가 아직 내 것이라 알리거나 반납 답을 기다리는 중이면 확인 못 함
+    if (sim.get().robot?.robot_id !== r.robot_id || sim.get().step !== 'drive') return;
+    if (ok) sim.reset(); else setLeaving('fail');
   };
   const left = l.exp ? Math.floor(l.exp - Date.now() / 1000) : Infinity;
   const runtimeLeft = remainingTime(s.runtimeUntil);
@@ -141,13 +145,17 @@ export function SimDrive() {
     timeNotice(runtimeLeft),
     l.at === 'closed' && l.why,
     l.notice,
-    leaving && '조종권을 반납하고 나가는 중입니다…',
+    leaving === 'wait' && '조종권을 반납하고 나가는 중입니다…',
+    leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     unsupported,
     !unsupported && mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. ${smooth ? '회전은 끝까지 밀어야 돕니다.' : '끝까지 밀어야 움직입니다.'}`,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
     stop,
   ].filter(Boolean) as string[];
-  const acts = !leaving && [
+  const acts = leaving ? leaving === 'fail' && [
+    <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
+    l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
+  ].filter(Boolean) : [
     open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
     open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,

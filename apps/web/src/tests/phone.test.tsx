@@ -263,7 +263,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     ptr(fwd, 'pointerup', 50, 0);
 
     // 끝내기: 반납 → 연결 닫기 → DELETE → 목록 다시 → IDLE
-    await click(btn('끝내기'));
+    await click(btn('시뮬 끝내기'));
     expect(a.of('lease.release')).toHaveLength(1);
     expect(a.readyState).toBe(3);
     expect(c.readyState).toBe(3);
@@ -573,7 +573,7 @@ describe('시뮬 직결 실패', () => {
     const a = await launch();
     routes[`DELETE /simulation/robots/${S1}`] = err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.');
     const lists = calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length;
-    await click(btn('끝내기'));
+    await click(btn('시뮬 끝내기'));
     expect(a.readyState).toBe(3);
     expect($('[data-sim="checking"]')!.textContent).toContain('정리를 확인하지 못했습니다');
     expect(calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length).toBeGreaterThan(lists);
@@ -590,7 +590,7 @@ it.each(['STARTING', 'STOPPING'] as const)('목록의 %s를 전환 안내로 표
   expect(box.textContent).toContain(state === 'STARTING' ? '시뮬을 띄우는 중…' : '시뮬을 정리하는 중…');
   expect(box.textContent).not.toContain('관리자에 연결하지 못했습니다');
   expect($('[data-stop]')).toBeTruthy();
-  expect(btn('끝내기')).toBeTruthy();
+  expect(btn('시뮬 끝내기')).toBeTruthy();
   expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
 });
 
@@ -631,7 +631,7 @@ it('폰 시계 오차와 무관하게 remaining_s로 세고 증명된 만료 뒤
     await act(() => sim.load());
     expect(box.textContent).toContain('남은 시간 01:00');
     expect(box.textContent).toContain('1분 안에 시뮬을 끝냅니다.');
-    expect(btn('끝내기')).toBeTruthy();
+    expect(btn('시뮬 끝내기')).toBeTruthy();
     expect($('[data-stop]')).toBeTruthy();
     // An old generation is never sufficient to close the current connection.
     routes['GET /simulation/robots'] = { status: 200, body: { items: mine, expired: [
@@ -771,5 +771,43 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     await wait(120);
     expect(b.of('lease.take')).toHaveLength(0);
     expect(b.of('cmd')).toHaveLength(0);
+  });
+
+  it('나가기 반납 거절: 조종 화면에 남아 «확인하지 못했습니다»·다시 반납·STOP, 입력 0 → 다시 반납 확인되면 카드로', async () => {
+    const a = await launch(); await drive(a);
+    a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
+    await menuItem('나가기');
+    expect(a.of('lease.release')).toHaveLength(1);
+    await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: false, lease_id: null, error: { code: 'STOP_CONFIRM_FAILED', message: 'failed' } });   // 실제 WS 처럼 답은 보낸 뒤에
+    expect($('[data-sim-drive]')).toBeTruthy();
+    expect(box.textContent).toContain('조종권 반납을 확인하지 못했습니다');
+    expect(a.readyState).toBe(1);   // 연결·대상 보존
+    await wait(120);
+    expect(a.of('cmd').every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    // 서버가 아직 내 조종권이라고 알림 → 다시 반납이 확인되면 카드로
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
+    a.auto = agentAuto;
+    await click(btn('다시 반납'));
+    expect(a.of('lease.release')).toHaveLength(2);
+    expect($('[data-sim-drive]')).toBeNull();
+    expect(btn('조종 화면 띄우기')).toBeTruthy();
+  });
+
+  it('나가기 반납 무응답 2초: 조종 화면에 남아 실패 표시·STOP 대상 보존, 입력 0', async () => {
+    const a = await launch(); await drive(a);
+    a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
+    await menuItem('나가기');
+    const n = a.of('cmd').length;
+    await wait(2100);
+    expect($('[data-sim-drive]')).toBeTruthy();
+    expect(box.textContent).toContain('조종권 반납을 확인하지 못했습니다');
+    expect(btn('다시 반납')).toBeTruthy();
+    expect(a.readyState).toBe(1);
+    expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
 });
