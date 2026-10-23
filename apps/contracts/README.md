@@ -111,3 +111,28 @@ simulation 값을 설정할 수 없으며 기존 서버 등록 값으로 판정�
 미리 만든 임무 판은 표시·기록용 이름이며 `Mission.steps=[]`로 읽힌다.
 일반 `MissionWrite`는 기존대로 작업 1개 이상을 요구한다. 시뮬 지도 자동 승인은
 지도에만 해당하며 운영자 시나리오 배정의 결재는 기존대로다.
+
+## 연결 건물 정적 지도 관측 (floor-auto 1·2단계)
+
+- 실행 `world_id=v5_building`, 시작 선택 `spawn_floor_id=l1|l2`(기본 l1).
+  `v5_building/l1|l2` 요청은 시작 별칭이며 응답 identity는 `v5_building`이다.
+  `SimWorld.spawn_floor_ids`와 `floors[].ros_floor_id`가 선택 키를 제공한다.
+  실행 중 시작층 재선택은 거부하며 층 확정은 슬롯·세대·리스·Gazebo를 바꾸지 않는다.
+- 에이전트/폰 `state.pose.floor_context`, 서버 `state.location.floor_context`가
+  `robot_id, generation, run_id, epoch, floor_rev, world_id, building_id`와
+  `spawn_floor_id, current_floor_id, floor_id, map_version_id, sha256,
+  source_pgm_sha256, source, floor_state, reason, confirmed_sim_t`를 전달한다.
+  `current_floor_id`는 ROS l1/l2 키, `floor_id`·`building_id`·`map_version_id`는 서버 UUID다.
+  `pose.map_version_id`와 `Location.map_version_id`도 같은 승인 판 UUID를 보존한다.
+- `source=gt_geometry`, 원본 정적 PGM은 `source_pgm_sha256`, 서버 이미지 PNG는 `sha256`다.
+  서로 다른 바이트이므로 두 SHA를 같다고 비교하지 않는다. 시작 시 서버가 조직·SIMULATION
+  출처·층 소속·승인 판·원본 PGM→PNG·좌표 정보를 검증한 양 층 `SimMapBinding`을 전달한다.
+  승인 격자와 다르면 위치를 비우고 `binding_mismatch` 또는 `approval_unverified`를 표시한다.
+- `floor_state=on_floor|transit|unknown`; on_floor일 때만 `current_floor_id`가 있다.
+  transit/unknown의 위치·판 필드는 null이다. `reason`은 원본 `confirming`, `connector_*`,
+  `support_off_floor`, `invalid_input`, `support_nan`, `fallen_or_tilt`, `floor_jump_*` 등을 보존한다.
+  상태는 정상 수신을 계속하며 지도 전환 때문에 sim_busy·STOP·입력 0을 만들지 않는다.
+- 화면은 이미지 요청 직전의 전체 문맥과 응답 시 현재 문맥을 비교하고, 일치할 때만 이미지와
+  pose를 함께 표시한다. 이탈·확정·RESET에서 증가하는 `floor_rev`와 epoch를 모두 비교한다.
+  양 층 승인 판은 미리 캐시할 수 있지만 transit/unknown/이미지 오류에서는 위치·목표를 숨긴다.
+  지도 로딩은 수동 명령 전송의 조건이 아니다. SLAM 복원·층간 자율 목표는 이 계약의 지원 범위 밖이다.

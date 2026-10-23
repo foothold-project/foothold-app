@@ -32,6 +32,9 @@ def verified_helper(source, manifest, argv):
                                   roots[1] if len(roots) > 1 else None)
     if native.hashes(source) != data['hashes']:
         raise ValueError('native catalogue/world/map/helper SHA mismatch')
+    if native.key.startswith('v5_building/'):
+        from apps.simmgr.connected_assets import verify_bindings
+        verify_bindings(native.root, data.get('map_bindings', []))
     # Load only the established helper after verification, before TARGET assignment.
     spec = importlib.util.spec_from_file_location('sensor_isolation', source / 'sensor_isolation.py')
     helper = importlib.util.module_from_spec(spec)
@@ -53,6 +56,9 @@ def main(argv=None):
         module = runpy.run_path(str(runtime), run_name='fh_catalogued_runtime')
         install(module['main'].__globals__, helper.FH_NATIVE_WORLD, Path(manifest_arg).parent)
         raise SystemExit(module['main']())
+    if helper.FH_NATIVE_WORLD.key.startswith('v5_building/'):
+        from apps.simmgr.connected_runtime import run_static_runtime
+        return run_static_runtime(runtime, runtime_args)
     runpy.run_path(str(runtime), run_name='__main__')
 
 

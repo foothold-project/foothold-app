@@ -108,3 +108,27 @@ robot_id·generation 결속 DELETE 증명과 최종 출입증 회수 뒤 DB IDLE
 
 기동·정리 중 목록은 잠금을 기다리지 않고 STARTING/STOPPING 스냅샷을 반환한다.
 폰은 remaining_s를 받은 시점부터 단조 시계로 세므로 폰 UTC 시계 오차와 무관하다.
+
+### 연결 건물 시작과 정적 층 전환
+
+비공개 catalogue에는 기존 control-app 자산을 가리키는 `v5_building/l1`,
+`v5_building/l2` 두 항목을 둔다. 각 항목의 `world_file`과 `map_file`은 해당 원본
+`worlds.json`의 SDF·GT YAML 실경로여야 한다. 자산을 저장소로 복사하지 않는다.
+서버의 기존 `sim_maps` import에 같은 비공개 `map-20261014` catalogue 폴더를 넘기면
+양 층 canonical PGM을 PNG로 변환하고 별도 원본 SHA·좌표 정보를 검증·등록한다.
+슬롯·키·서비스 credential은 기존 비공개 설정을 유지한다.
+
+목록에는 `id=v5_building`, `spawn_floor_ids=[l1,l2]`로 묶어 표시한다. 요청은
+`world_id=v5_building, spawn_floor_id=l1|l2`이고 이전 `v5_building/l1|l2` 요청도
+시작 별칭으로 받는다. 실행 중 시작층 변경은 거부한다. 층 확정은 같은 프로세스·슬롯·
+기한·조종권 안에서 정적 지도만 교체하며 추가 STOP·sim_busy·입력 0을 만들지 않는다.
+
+native resolver의 containment·SHA 검증에 양 층 SDF/heights/GT PGM/YAML/meta,
+connected cols·geom·catalogue, sensor runtime과 저장소 소유 adapter SHA를 더한다.
+서버가 검증한 양 층 `SimMapBinding`도 단위 생성 전·자식 helper import 전에 각각 대조한다.
+`connected.py`의 지지면/규칙 B/1초 확정/층 rev와 `connected_static.py`의 지도 선택·tick은
+원본 복사다. `connected_runtime.py`는 해당 함수와 관측 metadata만 얇게 연결한다.
+SLAM FloorWorker·복원은 연결하지 않으며 기존 센서·격리·STOP·TTL·자식 소유 확인은 유지한다.
+
+폰/웹이 쓸 필드·지연 이미지 폐기 규칙은 [계약 README](../contracts/README.md)를 따른다.
+실제 Gazebo·실폰 지도 자동 교체는 별도 배정된 격리 미리보기 시험으로 확인해야 한다.

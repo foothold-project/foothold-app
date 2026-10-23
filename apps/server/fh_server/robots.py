@@ -37,7 +37,15 @@ def live_state(realtime, rid):
     peer = realtime.agents.get(rid)
     online = peer is not None and not peer.closing
     fresh = online and realtime.clock() - peer.state_received_at <= 3
-    return online, dict(peer.state) if fresh else {}
+    state = dict(peer.state) if fresh else {}
+    location = state.get('location')
+    if location and location.get('floor_context'):
+        from datetime import datetime
+        stamp = location['updated_at']
+        stamp = datetime.fromisoformat(stamp.replace('Z', '+00:00')) if isinstance(stamp, str) else stamp
+        if (now() - stamp).total_seconds() > 1:
+            state['location'] = None
+    return online, state
 
 
 def reported_devices(realtime, rid):

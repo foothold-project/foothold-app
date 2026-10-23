@@ -20,6 +20,7 @@ from apps.simmgr.native_catalogue import resolve_native_world, WorldValidationEr
 from apps.simmgr.native_entrypoint import verified_helper
 from test_episode_reuse import native_episode
 from test_native_catalogue import catalogue
+from test_connected_assets import connected_catalogue
 
 
 @pytest.fixture
@@ -230,17 +231,13 @@ print('repository runtime assets verified offline')
 
 
 @pytest.mark.parametrize('floor', ['l1', 'l2'])
-def test_v5_building_levels_keep_catalogue_target(catalogue, floor):
-    root, _, worlds = catalogue
-    old = worlds['building/' + floor]
+def test_v5_building_levels_keep_catalogue_target(connected_catalogue, floor):
+    root, _ = connected_catalogue
     key = 'v5_building/' + floor
-    world = replace(old, id=key, name=key)
-    path = root / 'worlds.json'; data = json.loads(path.read_text())
-    data['worlds'][key] = data['worlds'].pop(old.id)
-    path.write_text(json.dumps(data))
+    world = World(key, root/floor/'world.sdf', root/floor/'map.yaml', key)
     native = resolve_native_world(world, {key: world}, root)
     assert native.target == dict(world_id='v5_building', floor_id=floor, map_mode='static')
-    assert native.world_file == old.world_file and not native.repository
+    assert native.world_file == world.world_file and not native.repository
 
 
 def test_repository_root_symlink_escape_rejected(repo, catalogue, tmp_path, monkeypatch):

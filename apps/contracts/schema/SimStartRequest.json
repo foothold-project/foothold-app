@@ -8,6 +8,22 @@
       "title": "Robot Id",
       "type": "string"
     },
+    "spawn_floor_id": {
+      "anyOf": [
+        {
+          "enum": [
+            "l1",
+            "l2"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Spawn Floor Id"
+    },
     "world_id": {
       "maxLength": 128,
       "minLength": 1,

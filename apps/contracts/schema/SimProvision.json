@@ -1,4 +1,119 @@
 {
+  "$defs": {
+    "SimMapBinding": {
+      "additionalProperties": false,
+      "description": "Server-verified canonical GT registration; PNG and PGM hashes are distinct.",
+      "properties": {
+        "building_id": {
+          "format": "uuid",
+          "title": "Building Id",
+          "type": "string"
+        },
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 4096,
+          "title": "Height",
+          "type": "integer"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "origin": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "resolution": {
+          "exclusiveMinimum": 0,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "ros_building_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Ros Building Id",
+          "type": "string"
+        },
+        "ros_floor_id": {
+          "enum": [
+            "l1",
+            "l2"
+          ],
+          "title": "Ros Floor Id",
+          "type": "string"
+        },
+        "ros_map_version": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Ros Map Version",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source": {
+          "const": "SIMULATION",
+          "title": "Source",
+          "type": "string"
+        },
+        "source_pgm_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Pgm Sha256",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 4096,
+          "title": "Width",
+          "type": "integer"
+        },
+        "world_id": {
+          "const": "v5_building",
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "world_id",
+        "building_id",
+        "ros_building_id",
+        "ros_floor_id",
+        "ros_map_version",
+        "floor_id",
+        "map_version_id",
+        "sha256",
+        "source_pgm_sha256",
+        "resolution",
+        "origin",
+        "width",
+        "height",
+        "source"
+      ],
+      "title": "SimMapBinding",
+      "type": "object"
+    }
+  },
   "$id": "fh-app/1/SimProvision",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
@@ -15,6 +130,14 @@
       "title": "Generation",
       "type": "integer"
     },
+    "map_bindings": {
+      "items": {
+        "$ref": "#/$defs/SimMapBinding"
+      },
+      "maxItems": 2,
+      "title": "Map Bindings",
+      "type": "array"
+    },
     "org_id": {
       "format": "uuid",
       "title": "Org Id",
@@ -29,6 +152,22 @@
       "format": "uuid",
       "title": "Robot Id",
       "type": "string"
+    },
+    "spawn_floor_id": {
+      "anyOf": [
+        {
+          "enum": [
+            "l1",
+            "l2"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Spawn Floor Id"
     },
     "world_id": {
       "maxLength": 128,

@@ -271,6 +271,7 @@ class RosNode:
                 self.diagnostics.wrap("publish_resume", lambda: resume.publish(Empty())),
                 now=self.now, diagnostics=self.diagnostics)
             self.inputs = Inputs(self._loop, self.sink, on_state, now=self.now, on_error=self._notify_failure,
+                                 telemetry=Telemetry(now=self.now, floors=getattr(self.config, "floor_bindings", None)),
                                  on_telemetry=self._on_telemetry, on_devices=self._on_devices)
             node.create_subscription(String, "/v2_live/state",
                 self.diagnostics.wrap("callback_state", lambda m: self.inputs.state(m.data)), qos)

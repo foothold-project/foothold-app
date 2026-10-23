@@ -23,10 +23,15 @@ def fresh(observation, now):
 
 
 def project(snapshot, now):
-    pose = dict.fromkeys(("floor_id", "x", "y", "yaw", "confidence"))
+    pose = dict.fromkeys(("floor_id", "map_version_id", "x", "y", "yaw", "confidence"))
     result = {"speed": None, "pose": pose, "battery": {"soc": None}}
     if not isinstance(snapshot, dict) or not fresh(snapshot.get("observation"), now):
         return result
+    context = snapshot.get('floor_context')
+    if isinstance(context, dict):
+        # Produced by the launch-bound bridge; deepcopy prevents later callbacks
+        # from relabeling an already emitted frame, including transit frames.
+        pose['floor_context'] = deepcopy(context)
     speed = snapshot.get("speed")
     if number(speed) and speed >= 0:
         result["speed"] = speed
@@ -34,11 +39,20 @@ def project(snapshot, now):
     if isinstance(location, dict) and fresh(location, now):
         try:
             UUID(location.get("floor_id"))
+            UUID(location.get("map_version_id"))
             valid_floor = True
         except (ValueError, TypeError, AttributeError):
             valid_floor = False
-        if valid_floor and all(number(location.get(k)) for k in ("x", "y", "yaw")):
+        same_context = (not isinstance(context, dict) or (
+            location.get('floor_context') == context
+            and location.get('floor_id') == context.get('floor_id')
+            and location.get('map_version_id') == context.get('map_version_id')))
+        if valid_floor and same_context and all(number(location.get(k)) for k in ("x", "y", "yaw")):
             pose.update({k: location[k] for k in ("floor_id", "x", "y", "yaw")})
+            try:
+                pose['map_version_id'] = str(UUID(location.get('map_version_id')))
+            except (ValueError, TypeError, AttributeError):
+                pass
             confidence = location.get("confidence")
             if number(confidence) and 0 <= confidence <= 1:
                 pose["confidence"] = confidence

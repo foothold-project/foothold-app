@@ -87,7 +87,16 @@ def create_app(settings, launcher=None):
 
     @app.get('/v1/worlds', dependencies=[Depends(authenticate)], response_model=C.SimCatalog)
     def worlds(org_id: str):
-        return dict(worlds=[{'id': w.id, 'name': w.name, 'description': w.description} for w in settings.worlds.values()],
+        items = []
+        for w in settings.worlds.values():
+            if w.id.startswith('v5_building/'):
+                if any(item['id'] == 'v5_building' for item in items):
+                    continue
+                items.append(dict(id='v5_building', name='연결 건물', description=w.description,
+                    spawn_floor_ids=[f for f in ('l1', 'l2') if 'v5_building/' + f in settings.worlds]))
+            else:
+                items.append(dict(id=w.id, name=w.name, description=w.description))
+        return dict(worlds=items,
                     slots=[rid for rid, slot in settings.slots.items() if slot.org_id == org_id],
                     max_robots=1 if manager.launcher.real else settings.max_robots,
                     manager_instance_id=app.state.instance_id,
@@ -95,7 +104,7 @@ def create_app(settings, launcher=None):
 
     @app.post('/v1/worlds', dependencies=[Depends(authenticate)])
     async def world(body: C.SimWorldStart):
-        await manager.start_world(body.world_id)
+        await manager.start_world(body.world_id, body.spawn_floor_id)
         return {'ok': True}
 
     @app.get('/v1/robots', dependencies=[Depends(authenticate)], response_model=C.SimRobotList)
@@ -104,7 +113,8 @@ def create_app(settings, launcher=None):
 
     @app.post('/v1/robots', dependencies=[Depends(authenticate)], response_model=C.SimRobot)
     async def add(body: C.SimProvision):
-        return await manager.add(body.world_id, str(body.robot_id), str(body.owner_id), str(body.org_id), body.agent_token, body.generation)
+        return await manager.add(body.world_id, str(body.robot_id), str(body.owner_id), str(body.org_id), body.agent_token, body.generation, body.spawn_floor_id,
+                                 [b.model_dump(mode='json') for b in body.map_bindings])
 
     @app.delete('/v1/robots/{robot_id}', dependencies=[Depends(authenticate)])
     async def remove(robot_id: UUID, body: C.SimRemove):

@@ -53,6 +53,12 @@ class NativeWorld:
         files.update({str(p): p for p in self.assets})
         files.update({str(r / 'worlds.json'): r / 'worlds.json'
                       for r in self.roots if (r / 'worlds.json').is_file()})
+        if self.key.startswith('v5_building/'):
+            from .connected_assets import connected_files
+            files.update(connected_files(self.root))
+            files['sensor_runtime'] = source / 'live_map.py'
+            for name in ('connected.py', 'connected_static.py', 'connected_runtime.py', 'connected_assets.py', 'native_entrypoint.py'):
+                files['adapter_' + name] = Path(__file__).with_name(name)
         return {name: sha256(path) for name, path in files.items()}
 
 
@@ -131,5 +137,8 @@ def _resolve(world, provisioned, root, repo_root):
         if any(sha256(path) != digest for path, digest in checks):
             raise WorldValidationError('native catalogue asset SHA mismatch')
         assets = list(dict.fromkeys([metadata, image, *(p for p, _ in dependencies), *(p for p, _ in meshes)]))
+    if world_id == 'v5_building':
+        from .connected_assets import connected_files
+        assets.extend(connected_files(selected).values())
     return NativeWorld(world.id, selected, world_file, map_file, roots, entry,
                        repository, tuple(assets))

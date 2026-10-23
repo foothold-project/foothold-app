@@ -1,10 +1,12 @@
 """Serialized lifecycle transitions, one owner/robot and one active world."""
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import logging
 import math
 from uuid import UUID
+
+from apps.contracts.models import SimWorldStart
 
 from .launcher import FakeLauncher, NativeLauncher
 from .environment import validate_control_environment
@@ -25,6 +27,7 @@ class Robot:
     world: str
     state: str
     generation: int
+    spawn_floor_id: str | None = None
 
 
 class Manager:
@@ -36,6 +39,8 @@ class Manager:
             raise ValueError('launcher mode mismatch')
         self.lock = asyncio.Lock()
         self.world = None
+        self.spawn_floor_id = None
+        self.world_bindings = ()
         self.robots = {}
         # Process-local cancellation receipts; the server DB owns lifetime generations.
         self.removed_generation = {}
@@ -59,7 +64,7 @@ class Manager:
         if native and robot.state not in ('STARTING', 'STOPPING') and getattr(self.launcher, 'failure', False):
             robot.state = 'ERROR'
         return dict(generation=robot.generation, robot_id=slot.robot_id, owner_id=robot.owner, world_id=robot.world,
-            simulation=True, state=robot.state, agent_address=f'ws://{self.settings.agent_host}:{slot.port}/phone/ws',
+            simulation=True, state=robot.state, spawn_floor_id=robot.spawn_floor_id, agent_address=f'ws://{self.settings.agent_host}:{slot.port}/phone/ws',
             namespace='' if native else slot.namespace,
             tf_prefix='' if native else slot.namespace.lstrip('/') + '/',
             command_topic='/v2_live/cmd_vel' if native else slot.namespace + '/v2_live/cmd_vel',
@@ -67,19 +72,35 @@ class Manager:
             remaining_s=None if self.deadline is None or self.expires_at is None else
                 max(0, math.ceil(self.deadline - asyncio.get_running_loop().time())))
 
-    async def start_world(self, world_id):
-        async with self.lock:
-            return await self._world(world_id)
+    @staticmethod
+    def selection(world_id, spawn_floor_id=None):
+        try:
+            request = SimWorldStart(world_id=world_id, spawn_floor_id=spawn_floor_id)
+        except ValueError:
+            raise SimError('SIM_VALIDATION', 400) from None
+        key = (request.world_id + '/' + request.spawn_floor_id
+               if request.world_id == 'v5_building' else request.world_id)
+        return request.world_id, request.spawn_floor_id, key
 
-    async def _world(self, world_id):
+    async def start_world(self, world_id, spawn_floor_id=None):
+        async with self.lock:
+            return await self._world(world_id, spawn_floor_id)
+
+    async def _world(self, world_id, spawn_floor_id=None, map_bindings=()):
         await self.healthy()
-        if world_id not in self.settings.worlds:
+        world_id, spawn_floor_id, key = self.selection(world_id, spawn_floor_id)
+        if key not in self.settings.worlds:
             raise SimError('SIM_WORLD_NOT_FOUND', 404)
         if self.world is not None:
-            if self.world != world_id:
+            if self.world != world_id or self.spawn_floor_id != spawn_floor_id:
                 raise SimError('SIM_WORLD_BUSY')
             return
-        world = self.settings.worlds[world_id]
+        world = self.settings.worlds[key]
+        if world_id == 'v5_building':
+            if self.launcher.real and (len(map_bindings) != 2
+                    or {b['ros_floor_id'] for b in map_bindings} != {'l1', 'l2'}):
+                raise SimError('SIM_VALIDATION', 400)
+            world = replace(world, map_bindings=tuple(map_bindings))
         if self.launcher.real and (not world.world_file.is_file() or not world.map_file.is_file()):
             raise SimError('SIM_ASSET_MISSING', 503)
         deadline = asyncio.get_running_loop().time() + self.settings.runtime_seconds
@@ -102,6 +123,7 @@ class Manager:
             self.failed = True
             raise
         self.world = world_id
+        self.spawn_floor_id, self.world_bindings = spawn_floor_id, world.map_bindings
         self.expires_at = expires_at
         self.deadline = deadline
         self.expiry_task = asyncio.create_task(self._expire_at(deadline))
@@ -129,9 +151,10 @@ class Manager:
         return [{k: v for k, v in row.items() if k != 'org_id'}
                 for row in self.expired.values() if row['org_id'] == org_id]
 
-    async def add(self, world_id, robot_id, owner_id, org_id, agent_token, generation):
+    async def add(self, world_id, robot_id, owner_id, org_id, agent_token, generation, spawn_floor_id=None, map_bindings=()):
         async with self.lock:
             await self.healthy()
+            world_id, spawn_floor_id, _ = self.selection(world_id, spawn_floor_id)
             for value in (robot_id, owner_id, org_id):
                 if str(UUID(value)) != value:
                     raise SimError('SIM_IDENTITY_INVALID', 400)
@@ -142,7 +165,7 @@ class Manager:
                 raise SimError('SIM_GENERATION_STALE')
             existing = self.robots.get(robot_id)
             if existing is not None:
-                if existing.generation == generation and existing.owner == owner_id and existing.world == world_id and existing.state not in ('ERROR', 'STOPPING'):
+                if existing.generation == generation and existing.owner == owner_id and existing.world == world_id and existing.spawn_floor_id == spawn_floor_id and existing.state not in ('ERROR', 'STOPPING'):
                     return self.describe(existing)
                 raise SimError('SIM_SLOT_BUSY')
             if any(r.owner == owner_id for r in self.robots.values()):
@@ -153,16 +176,17 @@ class Manager:
                 raise SimError('SIM_ROBOT_LIMIT')
             if not isinstance(agent_token, str) or not 32 <= len(agent_token) <= 256:
                 raise SimError('SIM_CREDENTIAL_INVALID', 400)
-            row = Robot(slot, owner_id, world_id, 'STARTING', generation)
+            row = Robot(slot, owner_id, world_id, 'STARTING', generation, spawn_floor_id)
             self.starting = row
             try:
-                await self._world(world_id)
+                await self._world(world_id, spawn_floor_id, map_bindings)
             finally:
                 self.starting = None
             self.expired.pop(robot_id, None)
             self.robots[robot_id] = row
             try:
-                await self.launcher.add(slot, {'agent_token': agent_token})
+                await self.launcher.add(slot, {'agent_token': agent_token, 'generation': generation,
+                    'spawn_floor_id': spawn_floor_id, 'map_bindings': self.world_bindings})
             except BaseException:
                 row.state = 'ERROR'
                 # Retain ownership and capacity until confirmed cleanup; never reuse.
