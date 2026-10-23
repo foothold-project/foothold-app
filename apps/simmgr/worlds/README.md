@@ -7,8 +7,8 @@ JSON이 있는 폴더 기준이다. `warehouse/f1`의 SDF·PNG/YAML·층 높이�
 
 후속 통합에서 private catalog 항목을 만들 때 `world` → `world_file`, `gt_map` →
 `map_file`의 실경로와 이름·설명을 사용한다. 지금 fake launcher에 명시 등록할 수 있으나,
-native는 `warehouse/f1`을 계속 거부한다. native 스폰·지도 자동 등록 API·지도 탭 연결은
-ADR-003 뒤 별도 작업이며, JSON을 추가한 것만으로 실행 가능 또는 자동 등록됐다고 보지 않는다.
+native는 `warehouse/f1`을 계속 거부한다. native 스폰·지도 화면 연결은 별도 작업이다. 지도·시나리오는 서버의 명시 관리 명령으로
+등록하며, JSON을 추가한 것만으로 실행 가능 또는 자동 등록됐다고 보지 않는다.
 기존 v5 자산을 이 폴더로 복사하지 않는다.
 
 ## Warehouse
@@ -82,3 +82,19 @@ PYTHONDONTWRITEBYTECODE=1 TMPDIR="$PWD/tmp/warehouse" \
 
 Gazebo/ROS/미리보기 서버/실제 슬롯 실행은 이 작업에서 0회다. 생성한 미리보기 그림과
 시험 기록은 worktree `runs/`에만 남기며 커밋하지 않는다.
+
+## 지도·시나리오 등록 (ADR-003 ②)
+
+서버의 `python -m apps.server.fh_server.sim_maps --worlds-dir apps/simmgr/worlds
+--org-id … --actor-id … --files-root …` 관리 명령을 명시 실행한다(환경 변수
+`FH_DATABASE_URL`, 활성 총괄 사용자 ID 필요). 자세한 명령은 서버 README를 따른다.
+시작 시 자동 실행은 없으며, private manager catalog·launcher 허용 목록은 바꾸지 않는다.
+월드 하나는 지도 트리의 건물 하나, 층은 `floor_id`마다 하나다. PNG/YAML·생성 메타 해시와
+좌표를 검증하고 결재 행 없이 승인 판을 만든다. 이미지 SHA가 같으면 중복을 만들지 않고,
+바뀌면 새 판을 승인한다. 이미 본 옛 이미지를 다시 입력해도 최신 승인을 되돌리지 않는다.
+
+`warehouse/scenarios.json`의 세 시나리오는 world 좌표(m)이며 모두 f1의 현재 승인 판을
+참조한다. 각 지점은 free=254이고 occupied=0/unknown=205 셀의 사각형까지 0.5m 이상
+떨어져 있다(지도 외곽도 검사). 지점 하나를 벽에 옮기는 음성 시험을 서버 시험에 포함한다.
+이는 지점 여유 검사이며 지점 사이 이동·Nav2 경로·실제 Gazebo 주행 검증은 아니다.
+지점 임무는 이름만 있는 표시·기록용 판(`steps=[]`)이다(ADR-003 결정 5).

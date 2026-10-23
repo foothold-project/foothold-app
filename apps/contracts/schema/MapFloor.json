@@ -20,6 +20,18 @@
       "title": "Building Id",
       "type": "string"
     },
+    "floor_z": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Floor Z"
+    },
     "id": {
       "format": "uuid",
       "title": "Id",
@@ -37,6 +49,15 @@
       "default": 0,
       "title": "Pending Count",
       "type": "integer"
+    },
+    "provenance": {
+      "default": "HUMAN",
+      "enum": [
+        "HUMAN",
+        "SIMULATION"
+      ],
+      "title": "Provenance",
+      "type": "string"
     }
   },
   "required": [

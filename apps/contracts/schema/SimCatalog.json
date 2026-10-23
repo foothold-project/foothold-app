@@ -9,11 +9,31 @@
           "title": "Description",
           "type": "string"
         },
+        "floors": {
+          "items": {
+            "$ref": "#/$defs/SimWorldFloor"
+          },
+          "title": "Floors",
+          "type": "array"
+        },
         "id": {
           "maxLength": 128,
           "minLength": 1,
           "title": "Id",
           "type": "string"
+        },
+        "map_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Id"
         },
         "name": {
           "maxLength": 40,
@@ -28,6 +48,37 @@
         "description"
       ],
       "title": "SimWorld",
+      "type": "object"
+    },
+    "SimWorldFloor": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "floor_z": {
+          "title": "Floor Z",
+          "type": "number"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "floor_id",
+        "name",
+        "floor_z",
+        "map_version_id"
+      ],
+      "title": "SimWorldFloor",
       "type": "object"
     }
   },

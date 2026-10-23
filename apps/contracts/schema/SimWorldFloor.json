@@ -1,0 +1,33 @@
+{
+  "$id": "fh-app/1/SimWorldFloor",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "floor_z": {
+      "title": "Floor Z",
+      "type": "number"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "floor_id",
+    "name",
+    "floor_z",
+    "map_version_id"
+  ],
+  "title": "SimWorldFloor",
+  "type": "object"
+}

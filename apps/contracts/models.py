@@ -13,6 +13,9 @@ def omitted(**constraints):
     # Missing PATCH fields are omitted with exclude_unset; supplied null is invalid.
     return Field(default=None, json_schema_extra=lambda schema: schema.pop('default', None), **constraints)
 
+# 422: simulated map snapshots can only target server-provisioned simulation robots.
+SIM_MAP_REQUIRES_SIM_ROBOT = 'SIM_MAP_REQUIRES_SIM_ROBOT'
+
 Role = Literal['ORG_ADMIN', 'OPERATOR']
 Category = Literal['RUN', 'ROUTE', 'LINK', 'LEASE', 'APPROVAL', 'SAFETY', 'ACCOUNT']
 
@@ -40,6 +43,14 @@ class Contract(BaseModel):
                     visit(child, depth + 1)
         visit(value)
         return value
+
+
+def optional_response_fields(*names):
+    # Keep existing response defaults required; only additive fields are optional
+    # so clients compiled against the previous contract remain valid.
+    def adjust(schema):
+        schema['required'] = [key for key in schema.get('required', []) if key not in names]
+    return adjust
 
 
 class ErrorBody(Contract):
@@ -621,6 +632,9 @@ class FloorPatch(Contract):
 
 
 class MapFloor(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'floor_z'))
+    provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
+    floor_z: float | None = None
     id: UUID
     building_id: UUID
     name: str
@@ -630,6 +644,8 @@ class MapFloor(Contract):
 
 
 class MapBuilding(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('sim_world_id'))
+    sim_world_id: str | None = None
     id: UUID
     site_id: UUID
     name: str
@@ -705,6 +721,8 @@ class MapVersionCreate(Contract):
 
 
 class MapVersion(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance'))
+    provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     upload_id: UUID
     id: UUID
     floor_id: UUID
@@ -884,6 +902,8 @@ class MissionWrite(MapName):
 
 
 class Mission(MissionWrite):
+    # Imported display/log labels have no executable steps (ADR-003 decision 5).
+    steps: list[MissionStep] = Field(max_length=100)
     id: UUID
     number: int
     latest_version: int
@@ -1233,7 +1253,17 @@ class SimFailureDetail(Contract):
     max_load1: float | None = Field(default=None, ge=0, strict=True)
 
 
+class SimWorldFloor(Contract):
+    floor_id: UUID
+    name: str
+    floor_z: float
+    map_version_id: UUID
+
+
 class SimWorld(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('map_id', 'floors'))
+    map_id: UUID | None = None
+    floors: list[SimWorldFloor] = Field(default_factory=list)
     id: str = Field(min_length=1, max_length=128)
     name: str = Field(min_length=1, max_length=40)
     description: str = Field(default='', max_length=200)
@@ -1323,6 +1353,7 @@ REQUEST_MODELS.update({PhonePassRequest, CameraHello, SimWorldStart, SimStartReq
 REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, MissionStep,
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 
+TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT']
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=PhoneMessage)
 REQUEST_MODELS.update({PhoneHello, PhoneLease, PhoneRespond, PhoneCommand, PhoneUnlock, PhonePing, PhoneMessage, PhoneEnvelope})
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,

@@ -6,6 +6,7 @@ from fastapi import Query
 from sqlalchemy import func, select
 from apps.contracts import models as C
 from .event_messages import render
+from .scenario_targets import simulation_only
 from .models import Approval, Assignment, Event, Floor, MapVersion, Robot, Scenario, ScenarioVersion, User, now
 from .notifications import append_for_event
 
@@ -158,7 +159,8 @@ def transition_assignment(db, approval, user, status):
     maps_current = {f.approved_version_id for f in floors}
     stale = status == 'APPROVED' and (scenario.archived_at is not None or row.status != 'PENDING'
         or robot.owner_user_id != approval.requester_id or robot.archived_at is not None
-        or len(floors) != len(version.floor_ids) or maps_current != set(version.map_version_ids))
+        or len(floors) != len(version.floor_ids) or maps_current != set(version.map_version_ids)
+        or (not robot.simulation and simulation_only(db, version)))
     if stale:
         # No assignment STALE state in 06: retire an invalid request as REJECTED,
         # preserving REMOVED when an already removed assignment is encountered.
