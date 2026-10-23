@@ -840,9 +840,11 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     const a = await launch();
     await drive(a);
     const notes = () => [...box.querySelectorAll('.dv-act .dv-note')].map((p) => p.textContent);
+    const cam = () => !!box.querySelector('.dv-stage > .dv-video > span');   // 안내가 뜨면 영상 문구는 숨겨 겹치지 않음
     const held = { lease_id: LEASE, controller: 'u-lee', controller_connected: true, stop_gen: 2 };
     await recv(a, phoneState({ ...held, safety_reason: 'OUTPUT_STALLED' }));
     expect(notes()).toContain(STALLED);
+    expect(cam()).toBe(false);
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
     expect(btn('잠금 해제')).toBeTruthy();
     expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('STOP'))).toBe(true);
@@ -851,6 +853,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(btn('잠금 해제')).toBeTruthy();
     await recv(a, phoneState({ ...held, latched: false, safety_reason: 'OUTPUT_STALLED' }));   // 잠금이 풀렸으면 사유가 남아도 안내 0
     expect(notes()).not.toContain(STALLED);
+    expect(cam()).toBe(notes().length === 0);
   });
 
   it('띠가 열리면 누르고 있던 입력도 0·조이스틱 막힘, 메뉴는 닫힘, STOP 은 영상 칸 밖에서 보이고 눌림 → 닫으면 다시 움직임', async () => {

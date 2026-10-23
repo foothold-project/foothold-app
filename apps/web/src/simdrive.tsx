@@ -206,7 +206,7 @@ export function SimDrive() {
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>,
   ].filter(Boolean);
   const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-    : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && <span>{CAM[l.cam]}</span>}</div>;
+    : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && !notes.length && <span>{CAM[l.cam]}</span>}</div>;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive>
     <div className="dv-body"><div className="dv-stage rgb">
       {big && hasMap ? <SimMap m={fm} big /> : video(false)}
