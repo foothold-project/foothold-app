@@ -44,6 +44,9 @@ export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
   return st.applied.every((v) => v === 0) ? '■ 정지 잠금 — 로봇이 잠금과 멈춤 출력을 알렸습니다.' : '▲ 정지 잠금 — 출력이 아직 멈추지 않았습니다. 현장을 확인하세요.';
 }
 
+/** 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) 안내. 해제 판정은 에이전트 몫이라 단추 동작은 그대로 */
+export const STALLED = '출력이 늦어져 로봇을 멈췄습니다 — 다시 잠금 해제하면 이어집니다.';
+
 /** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중 */
 export function SimLaunch({ me }: { me: string }) {
   const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
@@ -190,6 +193,7 @@ export function SimDrive() {
     fm.notice,
     !unsupported && mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. ${smooth ? '회전은 끝까지 밀어야 돕니다.' : '끝까지 밀어야 움직입니다.'}`,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
+    open && st?.latched && st.safety_reason === 'OUTPUT_STALLED' && STALLED,
     stop,
   ].filter(Boolean) as string[];
   const acts = leaving ? leaving === 'fail' && [

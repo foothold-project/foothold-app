@@ -8,7 +8,7 @@ import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
 import { DEAD, sim, velocity } from '../phone';
-import { remainingTime, timeNotice } from '../simdrive';
+import { STALLED, remainingTime, timeNotice } from '../simdrive';
 import { newer } from '../simmap';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -834,6 +834,23 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 실행 중 · 0.00 m/s');
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
+  });
+
+  it('잠금 사유 OUTPUT_STALLED 면 출력 지연 안내, 사유 없음·해제면 기존 그대로(잠금 해제 단추·STOP 그대로)', async () => {
+    const a = await launch();
+    await drive(a);
+    const notes = () => [...box.querySelectorAll('.dv-act .dv-note')].map((p) => p.textContent);
+    const held = { lease_id: LEASE, controller: 'u-lee', controller_connected: true, stop_gen: 2 };
+    await recv(a, phoneState({ ...held, safety_reason: 'OUTPUT_STALLED' }));
+    expect(notes()).toContain(STALLED);
+    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
+    expect(btn('잠금 해제')).toBeTruthy();
+    expect([...document.querySelectorAll('button')].some((b) => b.textContent?.includes('STOP'))).toBe(true);
+    await recv(a, phoneState({ ...held, safety_reason: null }));
+    expect(notes()).not.toContain(STALLED);
+    expect(btn('잠금 해제')).toBeTruthy();
+    await recv(a, phoneState({ ...held, latched: false, safety_reason: 'OUTPUT_STALLED' }));   // 잠금이 풀렸으면 사유가 남아도 안내 0
+    expect(notes()).not.toContain(STALLED);
   });
 
   it('띠가 열리면 누르고 있던 입력도 0·조이스틱 막힘, 메뉴는 닫힘, STOP 은 영상 칸 밖에서 보이고 눌림 → 닫으면 다시 움직임', async () => {
