@@ -22,6 +22,7 @@ from .security import digest, token
 # Exact pre-creation rejections only. Unknown codes/statuses remain uncertain.
 START_REJECTIONS = frozenset({
     (400, 'SIM_VALIDATION'), (400, 'SIM_IDENTITY_INVALID'), (400, 'SIM_CREDENTIAL_INVALID'),
+    (400, 'SIM_WORLD_UNKNOWN'), (400, 'SIM_WORLD_INVALID'),
     (404, 'SIM_WORLD_NOT_FOUND'), (404, 'SIM_SLOT_NOT_FOUND'),
     (409, 'SIM_WORLD_BUSY'), (409, 'SIM_OWNER_LIMIT'),
     (409, 'SIM_NATIVE_SINGLE_ONLY'), (409, 'SIM_ROBOT_LIMIT'),

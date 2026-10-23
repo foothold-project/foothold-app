@@ -11,7 +11,6 @@ import time
 
 from isolation import Simulation as D1Simulation, preflight, source_hashes, write, stamp, command, processes
 from constants import MAP_DIRECTORY
-from .native_catalogue import resolve_native_world
 
 
 class CataloguedSimulation(D1Simulation):
@@ -23,10 +22,11 @@ class CataloguedSimulation(D1Simulation):
     def start(self):
         self.before = preflight(self.folder)
         # Resolve again after the resource gate, before source hashing/unit creation.
-        resolve_native_world(self.configured_world, {self.configured_world.id: self.configured_world}, self.native.root)
+        self.native.resolve_again(self.configured_world)
         target_manifest = self.folder / 'catalogue-target-manifest.json'
         hashes = self.native.hashes(self.source)
         write(target_manifest, {'key': self.native.key, 'root': str(self.native.root),
+                               'roots': [str(r) for r in self.native.roots],
                                'world_file': str(self.native.world_file), 'map_file': str(self.native.map_file),
                                'helper_source': str(self.source / 'sensor_isolation.py'),
                                'target': self.native.target, 'hashes': hashes})
