@@ -1,15 +1,28 @@
 """Thin static-only adapter around the established sensor runtime.
 
-Only two nested map selection functions are transplanted from connected_static.
+Two nested map selection functions are transplanted from connected_static, and
+the existing native run nonce is exported immediately after its creation.
 The existing sensor, isolation, STOP, TTL and process ownership code runs intact.
 No ROS imports or runtime execution occur while building/verifying this adapter.
 """
 import ast
 from copy import deepcopy
+import json
 from pathlib import Path
 import sys
 
 from . import connected
+
+
+def write_run_identity(out, run_id):
+    """Publish the native nonce before Gazebo starts; manifest is exit evidence.
+
+    The runtime creates a fresh output directory before generating RUN_ID. Its
+    supervisor's live identity cannot become ready until after this file closes.
+    Never generate a second nonce or substitute the output directory's name.
+    """
+    with (Path(out) / 'run-identity.json').open('x') as stream:
+        json.dump(dict(run_id=run_id), stream)
 
 
 def decorate_status(status, selection):
@@ -31,14 +44,28 @@ def compile_static_runtime(source, filename):
     replacements = {n.name: n for n in copied.body if isinstance(n, ast.FunctionDef)}
     found = set()
     gate_count = 0
-    for i, node in enumerate(main.body):
+    identity_count = 0
+    body = []
+    for node in main.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'RUN_ID'):
+            if ast.dump(node.value) != ast.dump(ast.parse('uuid.uuid4().hex', mode='eval').body):
+                raise ValueError('connected static runtime run identity hook changed')
+            identity_count += 1
+            body.extend([node, ast.copy_location(
+                ast.parse('_fh_run_identity(a.out, RUN_ID)').body[0], node)])
+            continue
         if (isinstance(node, ast.Assign) and len(node.targets) == 1
                 and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'gate'):
             # Preserve the pure Gate: static boot/reset also call gate.close().
             gate_count += 1
         if isinstance(node, ast.FunctionDef) and node.name in replacements:
-            main.body[i] = deepcopy(replacements[node.name])
+            node = deepcopy(replacements[node.name])
             found.add(node.name)
+        body.append(node)
+    main.body = body
+    if identity_count != 1:
+        raise ValueError('connected static runtime run identity hook changed')
     if found != set(replacements) or gate_count != 1:
         raise ValueError('connected static runtime selection hooks changed')
 
@@ -67,5 +94,6 @@ def run_static_runtime(path, argv):
     code = compile_static_runtime(path.read_text(), str(path))
     sys.modules['connected'] = connected
     sys.argv = [str(path), *argv]
-    scope = dict(__name__='__main__', __file__=str(path), _fh_floor_status=decorate_status)
+    scope = dict(__name__='__main__', __file__=str(path), _fh_floor_status=decorate_status,
+                 _fh_run_identity=write_run_identity)
     exec(code, scope)

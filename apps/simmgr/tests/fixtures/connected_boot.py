@@ -1,7 +1,9 @@
 # Source: control-app/experiments/33-foothold-v2-gazebo-20261012/
 # sensor-spec-20261016/stage/sensor-runtime-r1/live_map.py
 # Original sha256: 588c8a5dd9b7cf9e; boot copied verbatim, dependencies supplied by tests.
+# RUN_ID initialization retained to exercise the adapter's startup identity hook.
 def main():
+    RUN_ID = uuid.uuid4().hex
     gate = CN.Gate(ft) if CONN else None
     def static_floor(ep, f, rev): pass
     def floor_tick(sim_t, pos, tilt, fallen): pass

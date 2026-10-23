@@ -159,6 +159,7 @@ def test_runtime_rejects_missing_adapter_hooks():
     from apps.simmgr.connected_runtime import compile_static_runtime
     source = '''
 def main():
+    RUN_ID = uuid.uuid4().hex
     gate = CN.Gate(ft) if CONN else None
     def static_floor(ep, f, rev): pass
     def floor_tick(sim_t, pos, tilt, fallen): pass
@@ -169,6 +170,9 @@ def main():
 '''
     assert compile_static_runtime(source, 'fake-runtime') is not None
     for broken in [source.replace('def static_floor(', 'def other('),
+                   source.replace('RUN_ID = uuid.uuid4().hex', 'other_id = uuid.uuid4().hex'),
+                   source.replace('RUN_ID = uuid.uuid4().hex', 'RUN_ID = "guessed"'),
+                   source.replace('RUN_ID = uuid.uuid4().hex', 'RUN_ID = uuid.uuid4().hex\n    RUN_ID = uuid.uuid4().hex'),
                    source.replace('pub_status.publish(st)', 'other.publish(st)'),
                    source.replace('gate = CN.Gate(ft) if CONN else None', 'other = None')]:
         with pytest.raises(ValueError, match='hooks changed|hook changed'):
@@ -193,7 +197,8 @@ def test_transformed_static_main_boot_launch_and_reset_close_gate():
     def epoch_target(name):
         return SimpleNamespace(new_epoch=lambda ep: events.append((name, ep)))
 
-    scope = dict(CN=connected, CONN=True, ft=ft, snap=snap,
+    scope = dict(uuid=__import__('uuid'), _fh_run_identity=lambda *_: None,
+        CN=connected, CONN=True, ft=ft, snap=snap,
         snap_lock=threading.Lock(), kids_lock=threading.Lock(),
         sim=SimpleNamespace(start=start),
         ing=SimpleNamespace(on_stop=lambda **kw: events.append(('stop', kw['why']))),
@@ -201,7 +206,7 @@ def test_transformed_static_main_boot_launch_and_reset_close_gate():
         tf_buf=SimpleNamespace(clear=lambda: events.append(('tf.clear',))),
         ms=epoch_target('ms'), pv=epoch_target('pv'), fg=epoch_target('fg'),
         pv_resubscribe=lambda ep: events.append(('pv.subscribe', ep)),
-        cg=None, lidar_view=None, a=SimpleNamespace(map_mode='static'),
+        cg=None, lidar_view=None, a=SimpleNamespace(map_mode='static', out='unused'),
         views_floor=lambda *args: events.append(('views', *args)),
         static_sel=static_sel, slam_ctx=slam_ctx, sp=None,
         kids=SimpleNamespace(start=lambda ep, names: events.append(('kids.start', ep, names))))
