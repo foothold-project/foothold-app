@@ -164,9 +164,9 @@ export const api = {
   // 작업 카탈로그·임무·시나리오(05 §6.1~6.3, S5a). 읽기는 로그인한 누구나, 고치기·보관은 만든 사람과 총괄(남의 것 403). 목록은 오래된 것 먼저
   /** robot 을 주면 그 로봇 장치로 할 수 있는지(선택지별 available·why_unavailable). 담당 밖 로봇은 404 */
   actions: (robot: string | null, cancel?: AbortSignal) => call<Action[]>('GET', `/actions${robot ? `?robot_id=${encodeURIComponent(robot)}` : ''}`, undefined, { cancel }),
-  /** archived = 보관된 것도. cursor = 앞 쪽의 next_cursor */
-  plans: <K extends Plan>(kind: K, archived: boolean, cursor: string | null, cancel?: AbortSignal) =>
-    call<{ items: PlanOf[K][]; next_cursor: string | null }>('GET', `/${kind}?limit=${PLAN_PAGE}${archived ? '&archived=true' : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, { cancel }),
+  /** archived = 보관된 것도. cursor = 앞 쪽의 next_cursor. only = 시나리오 거르기(mine = 내가 만든 것, floor = 최신 판이 그 층을 지남 — 서버 mine·floor_id) */
+  plans: <K extends Plan>(kind: K, archived: boolean, cursor: string | null, cancel?: AbortSignal, only?: { mine: boolean; floor: string }) =>
+    call<{ items: PlanOf[K][]; next_cursor: string | null }>('GET', `/${kind}?limit=${PLAN_PAGE}${archived ? '&archived=true' : ''}${only?.mine ? '&mine=true' : ''}${only?.floor ? `&floor_id=${encodeURIComponent(only.floor)}` : ''}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`, undefined, { cancel }),
   /** 보관 포함 전부(저장 응답이 끊겼을 때 대조·시나리오의 임무 고르기) */
   allPlans: <K extends Plan>(kind: K, cancel?: AbortSignal) => pages<PlanOf[K]>(`/${kind}?archived=true`, cancel),
   /** version 없음 = 최신 판(본체 version 이 If-Match 값), 있음 = 그 판(읽기 전용) */

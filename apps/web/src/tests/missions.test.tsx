@@ -5,7 +5,7 @@
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { Action, MapVersion, Mission, MissionWrite, RobotSummary, Scenario, ScenarioPoint, ScenarioWrite, SiteTree, User } from '../../../contracts/ts';
+import type { Action, Assignment, MapVersion, Mission, MissionWrite, RobotSummary, Scenario, ScenarioPoint, ScenarioWrite, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
 import { FakeWS } from './fakeWs';
@@ -44,7 +44,7 @@ type Kind = 'missions' | 'scenarios';
 type Rec = { head: Mission | Scenario; snaps: (Mission | Scenario)[] };
 type Reply = { status: number; body?: unknown };
 type Call = { method: string; path: string; q: URLSearchParams; body?: unknown; match?: string };
-let calls: Call[] = [], db: Record<Kind, Rec[]>, approved: Record<string, string | null>, link = true, tick = 0;
+let calls: Call[] = [], assigns: Assignment[] = [], db: Record<Kind, Rec[]>, approved: Record<string, string | null>, link = true, tick = 0;
 const stamp = () => new Date(Date.UTC(2026, 9, 20, 1, tick++)).toISOString();
 const reqOf = (steps: MissionWrite['steps']) => [...new Set(steps.flatMap((s) => (s.action === 'PHOTO' ? [DEV[String(s.params?.camera)]] : s.action === 'SENSOR_LOG' ? [DEV[String(s.params?.device)]] : [])))];
 const rec = (k: Kind, id: string) => db[k].find((r) => r.head.id === id);
@@ -122,12 +122,14 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
     let m = path.match(/^\/map-versions\/(v\d)$/);
     if (m) return { status: 200, body: MAPS[m[1]] };
     if (path === '/actions') return { status: 200, body: acts(q.get('robot_id')) };
+    if (path === '/assignments') return { status: 200, body: { items: assigns, next_cursor: null } };
     if (method === 'POST' && path === '/scenarios/preview') return preview(body!);
     m = path.match(/^\/(missions|scenarios)(?:\/([^/]+))?$/);
     if (!m) return err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     const k = m[1] as Kind, id = m[2];
     if (!id && method === 'GET') {
-      const all = db[k].filter((r) => q.get('archived') === 'true' || !r.head.archived_at).map((r) => r.head), from = Number(q.get('cursor') ?? 0), n = o.page ?? Number(q.get('limit'));
+      const all = db[k].filter((r) => (q.get('archived') === 'true' || !r.head.archived_at) && (q.get('mine') !== 'true' || r.head.created_by === me.id)
+        && (!q.get('floor_id') || (r.head as Scenario).floor_ids.includes(q.get('floor_id')!))).map((r) => r.head), from = Number(q.get('cursor') ?? 0), n = o.page ?? Number(q.get('limit'));
       return { status: 200, body: { items: all.slice(from, from + n), next_cursor: from + n < all.length ? String(from + n) : null } };
     }
     if (!id && method === 'POST') {
@@ -153,7 +155,7 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
 }
 /** 기본 자료: 임무 m1(김총괄)·m2(이운영)·m3(보관), 시나리오 s1(김총괄, 1층 지점 2개)·s2(보관) */
 function seed() {
-  db = { missions: [], scenarios: [] }; approved = { f1: 'v1', f2: 'v2' }; link = true; tick = 0;
+  db = { missions: [], scenarios: [] }; approved = { f1: 'v1', f2: 'v2' }; link = true; tick = 0; assigns = [];
   make('missions', M1, KIM); make('missions', M2, LEE); make('missions', { name: '옛 임무', steps: [{ action: 'WAIT', params: { seconds: 1 } }] }, KIM, true);
   make('scenarios', { name: '1층 순찰', waypoints: [wp('f1', 1, 1), wp('f1', 0, 0, 'm1', 1, { yaw: 1.5, waypoint_ref: 'wp1' })], finish: { mode: 'STAY', target: null }, notes: '' }, KIM);
   make('scenarios', { name: '지난 시나리오', waypoints: [wp('f1', 1, 0)] }, KIM, true);
@@ -216,14 +218,14 @@ const stopSends = async () => {
 };
 
 describe('목록 [임무 | 시나리오]', () => {
-  it('시나리오 기본 — 이름·층·판·지점 수(배정 로봇·마지막 실행 칸 없음), 보관 제외 → «보관된 것도 보기», 임무로 바꾸기', async () => {
+  it('시나리오 기본 — 이름·층·판·지점 수·배정된 로봇(없음)·마지막 실행(—), 보관 제외 → «보관된 것도 보기», 임무로 바꾸기', async () => {
     seed(); serve(KIM);
     await open();
     expect($('h1')!.textContent).toBe('시나리오');
     const q = sent('GET', '/scenarios');
     expect(q).toHaveLength(1); expect(q[0].q.get('limit')).toBe('50'); expect(q[0].q.get('archived')).toBeNull();
     expect(rows()).toEqual(['s1']);
-    expect(row('s1').textContent).toBe('1층 순찰1층판 1지점 2');
+    expect(row('s1').textContent).toBe('1층 순찰1층판 1지점 2로봇 없음마지막 실행 —');
     expect(card('임무 목록').textContent).not.toContain('Go2-A');
     await click($('input[type="checkbox"]'));
     expect(last(sent('GET', '/scenarios'))!.q.get('archived')).toBe('true');
@@ -233,6 +235,49 @@ describe('목록 [임무 | 시나리오]', () => {
     expect(rows()).toEqual(['m1', 'm2', 'm3']);
     expect(row('m1').textContent).toBe('사진 순찰판 1작업 2');
     expect(btn('새 임무')).toBeTruthy();
+    await stopSends();
+  });
+  it('배정된 로봇 열: ACTIVE·결재 대기만(해제·반려 빼고, 같은 로봇 한 번), 마지막 실행은 서버 값이 없어 «—» / 배정 목록 실패 → «?» + 안내', async () => {
+    seed();
+    const a = (id: string, robot: string, status: Assignment['status'], scenario_version = 1): Assignment => ({ id, scenario_id: 's1', scenario_version, robot_id: `r-${robot}`, memo: '', scenario_name: '1층 순찰',
+      robot_name: `Go2-${robot}`, status, approval_id: null, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', removed_at: null });
+    assigns = [a('a1', 'A', 'ACTIVE'), a('a2', 'A', 'ACTIVE', 2), a('a3', 'B', 'PENDING'), a('a4', 'C', 'REMOVED'), a('a5', 'D', 'REJECTED')];
+    serve(KIM);
+    await open();
+    expect(row('s1').querySelector('[data-col="robots"]')!.textContent).toBe('로봇 Go2-A, Go2-B(결재 대기)');
+    expect(row('s1').querySelector('[data-col="last-run"]')!.textContent).toBe('마지막 실행 —');
+    expect(sent('GET', '/assignments')[0].q.get('robot_id')).toBeNull();                 // 조직 전체
+    act(() => root?.unmount()); box.remove(); clearPlans();
+    serve(KIM, { over: { 'GET /assignments': [err(500, 'INTERNAL_ERROR', '서버 오류입니다.')] } });
+    await open();
+    expect(row('s1').querySelector('[data-col="robots"]')!.textContent).toBe('로봇 ?');
+    expect(card('임무 목록').textContent).toContain('배정된 로봇을 받지 못했습니다');
+    await kind('임무');
+    expect(row('m1').querySelector('[data-col]')).toBeNull();                            // 임무에는 배정·실행 열 없음
+    await stopSends();
+  });
+  it('거르기 «내 것만»·«지도별» = 서버 mine·floor_id, 맞는 것이 없으면 안내, 임무에는 거르기 없음', async () => {
+    seed();
+    make('scenarios', { name: '2층 점검', waypoints: [wp('f2', 1, 1)] }, LEE);
+    serve(LEE);
+    await open();
+    expect(rows()).toEqual(['s1', 's3']);
+    const group = card('거르기');
+    await click(field('내 것만', group));
+    expect(last(sent('GET', '/scenarios'))!.q.get('mine')).toBe('true');
+    expect(rows()).toEqual(['s3']);
+    const pick = $<HTMLSelectElement>('select[aria-label="지도별"]')!;
+    expect([...pick.options].map((o) => o.textContent)).toEqual(['전체', '본관 본동 1층', '본관 본동 2층', '본관 본동 3층']);
+    await setVal(pick, 'f1');
+    expect(last(sent('GET', '/scenarios'))!.q.get('floor_id')).toBe('f1');
+    expect(rows()).toEqual([]);
+    expect(card('임무 목록').textContent).toContain('조건에 맞는 시나리오가 없습니다.');
+    await click(field('내 것만', group));
+    expect(last(sent('GET', '/scenarios'))!.q.get('mine')).toBeNull();
+    expect(rows()).toEqual(['s1']);
+    await kind('임무');
+    expect($('[aria-label="거르기"]')).toBeNull();
+    expect(last(sent('GET', '/missions'))!.q.get('mine')).toBeNull(); expect(last(sent('GET', '/missions'))!.q.get('floor_id')).toBeNull();
     await stopSends();
   });
   it('«더 보기» = next_cursor 로 이어 받기(앞 것 유지)', async () => {

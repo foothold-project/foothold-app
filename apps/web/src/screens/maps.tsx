@@ -327,12 +327,13 @@ function FloorView({ p, admin, names, cancel, again, asked: told }: { p: Place; 
       {who && <Line k="만든 사람"><span>{who}</span></Line>}
       <Line k="만든 때"><span>{day(v.created_at)}</span></Line>
       <Line k="요소"><span>구역 {v.features.zones.length} · 지점 {v.features.waypoints.length} · 연결점 {v.features.connectors.length}</span></Line>
-    </> : list && <p className="lv-note">아직 지도가 없습니다.{admin ? ' 아래에서 지도 파일을 올리세요.' : ''}</p>}
+    </> : list && <p className="lv-note">아직 지도가 없습니다. 아래에서 지도 파일을 올리세요.{admin ? '' : ' 올리면 결재 요청이 됩니다.'}</p>}
     {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
     {!list && !err && <p className="lv-note" role="status">판 목록을 불러오는 중…</p>}
     {/* 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다) */}
-    {admin && !editing && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list && (!approved || !!now)} cancel={cancel}
-      saved={(x) => { setSel(x.id); setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
+    {/* 운영 관리자도 올린다 — 저장 = 결재 요청(서버가 PENDING 판으로 받음, 판정은 서버). 결과는 고르지 않고 승인 판을 그대로 보인다 */}
+    {!editing && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list && (!approved || !!now)} cancel={cancel} request={!admin}
+      saved={(x) => { if (x.status === 'PENDING') told(); else setSel(x.id); setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
   </section>;
 }
 
@@ -353,9 +354,10 @@ function upFail(e: ApiFail, step: number) {
   return e.message;   // 다른 503(FILE_STORAGE_FULL·FILE_STORAGE_ERROR 등)은 서버의 원인 문구 그대로
 }
 
-/** 새 지도 올리기(총괄, MP-02 의 파일 올리기): 그림 → 그 ID 로 yaml → 판 저장. 앞 단계가 실패하면 다음 단계를 보내지 않는다.
- *  base = 지금 승인 판(다르면 서버가 409 STALE). keep = 지금 판의 구역·지점·연결점(벽 고침 선은 옛 그림 것이라 빼고) */
-function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: string; base: string | null; keep: MapFeatures | null; ready: boolean; cancel?: AbortSignal; saved: (v: MapVersion) => void; again: () => void }) {
+/** 새 지도 올리기(MP-02 의 파일 올리기): 그림 → 그 ID 로 yaml → 판 저장. 앞 단계가 실패하면 다음 단계를 보내지 않는다.
+ *  base = 지금 승인 판(다르면 서버가 409 STALE). keep = 지금 판의 구역·지점·연결점(벽 고침 선은 옛 그림 것이라 빼고)
+ *  request = 운영 관리자(저장 = 결재 요청 — 문구만 다르고 같은 요청, 편집 저장과 같다) */
+function Upload({ floor, base, keep, ready, cancel, saved, again, request }: { floor: string; base: string | null; keep: MapFeatures | null; ready: boolean; cancel?: AbortSignal; saved: (v: MapVersion) => void; again: () => void; request?: boolean }) {
   const [img, setImg] = useState<File | null>(null), [yml, setYml] = useState<File | null>(null), [reason, setReason] = useState(''), [hold, setHold] = useState(true);
   const [step, setStep] = useState(''), [msg, setMsg] = useState<Msg>(null), [stale, setStale] = useState(false), [fresh, setFresh] = useState(0);   // fresh = 저장 뒤 파일 칸 비우기
   const go = async (e: FormEvent) => {
@@ -376,28 +378,29 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
       const a = await api.upload(img, type, undefined, cancel).then(shape(isUpload));
       at = 1; setStep('지도 설정을 올리는 중…');
       const b = await api.upload(yml, 'text/yaml', a.upload_id, cancel).then(shape(isUpload));
-      at = 2; setStep('새 판으로 저장하는 중…');
+      at = 2; setStep(request ? '결재를 요청하는 중…' : '새 판으로 저장하는 중…');
       const features: MapFeatures = hold && keep ? { zones: keep.zones, waypoints: keep.waypoints, connectors: keep.connectors, edits: [] } : { zones: [], waypoints: [], connectors: [], edits: [] };
       const v = await api.saveVersion(floor, { base_version_id: base, image: b.upload_id, features, reason: reason.trim() }, cancel).then(shape(isVersion));   // 빈·어긋난 201 = 저장 불확실(status 0)
-      setMsg({ text: `새 판을 저장했습니다(판 ${v.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); setImg(null); setYml(null); setReason(''); setFresh(fresh + 1);
+      setMsg(v.status === 'PENDING' ? asked(v) : { text: `새 판을 저장했습니다(판 ${v.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); setImg(null); setYml(null); setReason(''); setFresh(fresh + 1);
       saved(v);
     } catch (x) {
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
       // 저장 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 저장됐을 수도 있다 — 목록을 다시 받아 보여 주고 같은 파일을 두 번 올리지 않게 알린다
-      if (at === 2 && f.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 올리지 마세요.' }); again(); return; }
-      setMsg({ text: `올리지 못했습니다. ${upFail(f, at)}` }); setStale(f.code === 'STALE' || f.status === 404);
+      if (at === 2 && f.status === 0) { setMsg({ text: request ? '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 판 목록을 다시 받습니다. «결재 대기» 판이 보이면 다시 올리지 마세요.' : '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 올리지 마세요.' }); again(); return; }
+      setMsg({ text: `${request && at === 2 ? '결재를 요청하지 못했습니다.' : '올리지 못했습니다.'} ${upFail(f, at)}` }); setStale(f.code === 'STALE' || f.status === 404);
     } finally { setStep(''); }
   };
   return <form className="fh-form" onSubmit={go} noValidate aria-label="새 지도 올리기" key={fresh}>
     <h2>새 지도 올리기</h2>
+    {request && <p className="lv-note">올리면 새 판이 결재 요청이 됩니다. 총괄이 승인하기 전에는 지금 승인 판을 그대로 씁니다.</p>}
     <label className="fh-field"><span>지도 그림(pgm·png)</span><input type="file" className="inp" accept=".pgm,.png" onChange={(e) => setImg(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>지도 설정(yaml)</span><input type="file" className="inp" accept=".yaml,.yml" onChange={(e) => setYml(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     {keep && <label className="fh-row"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /><span>지금 판의 구역·지점·연결점 그대로 두기</span></label>}
     {keep && !hold && <p className="fh-msg" role="alert">끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 판이 됩니다.</p>}
     {!ready && !step && <p className="lv-note" role="status">지금 승인 판의 구역·지점·연결점을 받은 뒤에 올릴 수 있습니다.</p>}
-    <div className="fh-row"><button type="submit" className="btn pri" disabled={!!step || !ready}>올리기</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(null); again(); }}>새로 불러오기</button>}</div>
+    <div className="fh-row"><button type="submit" className="btn pri" disabled={!!step || !ready}>{request ? '올리고 결재 요청' : '올리기'}</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(null); again(); }}>새로 불러오기</button>}</div>
     {step && <p className="lv-note" role="status">{step}</p>}
     <Note m={msg} />
   </form>;
