@@ -89,10 +89,14 @@ def test_catalog_reports_manager_unreachable_without_reservation(simulation_cont
     assert response.json()['error']['detail']['reason'] == 'manager_unreachable'
 
 
-def test_manager_resource_diagnostic_crosses_real_relay_and_server(simulation_context):
+@pytest.mark.parametrize('rejection', ['resources', 'SIM_WORLD_UNKNOWN', 'SIM_WORLD_INVALID'])
+def test_manager_resource_diagnostic_crosses_real_relay_and_server(simulation_context, rejection):
     from apps.simmgr.preflight import ResourceGateError
+    from apps.simmgr.native_catalogue import WorldValidationError
     client, manager, cfg, rid, launcher = simulation_context
     async def blocked(world):
+        if rejection != 'resources':
+            raise WorldValidationError('private diagnostic must not cross relay', rejection)
         raise ResourceGateError()
     launcher.start_world = blocked
     relay = Relay.__new__(Relay)
@@ -108,8 +112,12 @@ def test_manager_resource_diagnostic_crosses_real_relay_and_server(simulation_co
     relay.opener = SimpleNamespace(open=opened)
     client.app.state.simmgr = relay
     result, headers = start_slot(simulation_context)
-    assert result.status_code == 503
-    assert result.json()['error']['detail'] == {'reason': 'resources_low', 'start_not_created': True}
+    assert result.status_code == (503 if rejection == 'resources' else 400)
+    if rejection == 'resources':
+        assert result.json()['error']['detail'] == {'reason': 'resources_low', 'start_not_created': True}
+    else:
+        assert result.json()['error']['code'] == rejection
+        assert 'private diagnostic' not in result.text
     assert snapshot(client, rid)[:3] == ('IDLE', None, 1)
     assert not manager.app.state.manager.robots and not launcher.events
     async def ready(world):

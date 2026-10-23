@@ -8,6 +8,7 @@ from uuid import UUID
 
 from .launcher import FakeLauncher, NativeLauncher
 from .environment import validate_control_environment
+from .native_catalogue import WorldValidationError
 from .preflight import ResourceGateError
 
 
@@ -85,6 +86,13 @@ class Manager:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.settings.runtime_seconds)
         try:
             await self.launcher.start_world(world)
+        except WorldValidationError as error:
+            # Only the initial resolver rejection is proven to precede creation.
+            # The same check inside a supervisor/child must retain the latch.
+            if getattr(self.launcher, 'sim', None) is not None or getattr(self.launcher, 'failed', False):
+                self.failed = True
+                raise RuntimeError('world validation failed after possible launch') from error
+            raise SimError(error.code, 400) from None
         except ResourceGateError:
             # Only the launcher's exact pre-creation resource gates use this
             # exception. No world/agent exists, so there is nothing to latch.

@@ -2,16 +2,29 @@
 
 `worlds.json`은 저장소에 포함된 공개 정적 자산의 준비용 카탈로그다. 경로는 이
 JSON이 있는 폴더 기준이다. `warehouse/f1`의 SDF·PNG/YAML·층 높이·스폰 좌표를 묶는다.
-기존 private `FH_SIM_CATALOG`와 native source의 `worlds.json`을 수정하거나 자동 병합하지
-않는다. native 실행에는 private 목록과 native 목록 모두의 등록 및 world/gt_map 실경로
-일치가 필요하다. JSON 자산 목록에만 추가하는 것으로 실행 허용되지 않는다.
+native resolver는 이 목록과 control-app native source의 `worlds.json`을 함께 확인한다.
+같은 key가 두 목록에 있으면 모호한 요청으로 거부한다. 기존 private `FH_SIM_CATALOG`는
+자동 수정하지 않는다. 실행에는 private 목록에 `world` → `world_file`, `gt_map` →
+`map_file`의 같은 실경로를 명시 등록해야 한다. 기존 v5 자산은 이 폴더로 복사하지 않는다.
 
-후속 통합에서 private catalog 항목을 만들 때 `world` → `world_file`, `gt_map` →
-`map_file`의 실경로와 이름·설명을 사용한다. 지금 fake launcher에 명시 등록할 수 있으나,
-native는 두 실행 목록에 없는 `warehouse/f1`을 계속 거부한다. native 스폰·지도 자동 등록 API·지도 탭 연결은
-ADR-003 뒤 별도 작업이다. 지도·시나리오는 서버의 명시 관리 명령으로 등록하며,
-JSON을 추가한 것만으로 실행 가능 또는 자동 등록됐다고 보지 않는다.
-기존 v5 자산을 이 폴더로 복사하지 않는다.
+자산·메타·메쉬의 실경로는 해당 목록 폴더 안에 있어야 한다. 링크·상대 경로 탈출과
+world/map 쌍 불일치는 해시·실행 폴더·unit 생성 전에 거부하며, 저장소 항목은
+`sha256`의 world/YAML/metadata, `mesh_sha256`, 생성 metadata의 collision/PNG SHA를
+기동 전에 대조한다. 목록 밖 요청은 400 `SIM_WORLD_UNKNOWN`, 잘못된 자산은 400
+`SIM_WORLD_INVALID`이며 manager 실패 상태를 고정하지 않는다. 기동을 시도한 뒤의
+실패는 기존 실패 고정을 유지한다.
+
+저장소 native 어댑터는 실행 폴더에만 PGM/meta·기하 높이 NPZ·runtime 목록을 생성한다.
+collision을 다시 래스터화한 바이트가 등록 PNG와 같은지 확인한 뒤 기존 static GT
+runtime에 전달한다. 높이는 해당 층의 실제 collision 상향 면에서 얻고, 지지면 없는
+영역은 NaN으로 유지한다. robot include의 자세는 `spawn_xyyaw`·`spawn_z`, 지도 층
+높이는 `floor_z`를 사용한다. 로봇 모델·센서 프로필·격리·기동 감시·정리는 기존 native
+runtime을 사용하며 control-app 원물은 수정하지 않는다. 실행 호환용 지도 버전 이름은
+기존 격리 runtime의 `gt-20261012`를 유지하고 자산 출처/SHA는 실행 기록에 별도 남긴다.
+
+이는 native 연결의 오프라인 구현·시험 범위다. 실제 창고 스폰·접촉·센서·보행·종료는
+아직 확인하지 않았다. 지도·시나리오는 서버의 명시 관리 명령으로 등록하며 JSON을
+추가한 것만으로 자동 등록하거나 실기동 검증을 마친 것으로 보지 않는다.
 
 ## Warehouse
 

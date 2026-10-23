@@ -27,7 +27,9 @@ def verified_helper(source, manifest, argv):
     if f'{args.world_id}/{args.floor_id}' != data['key']:
         raise ValueError('world/floor does not match cleared target')
     world = SimpleNamespace(id=data['key'], world_file=Path(data['world_file']), map_file=Path(data['map_file']))
-    native = resolve_native_world(world, {world.id: world}, Path(data['root']))
+    roots = [Path(r) for r in data.get('roots', [data['root']])]
+    native = resolve_native_world(world, {world.id: world}, roots[0],
+                                  roots[1] if len(roots) > 1 else None)
     if native.hashes(source) != data['hashes']:
         raise ValueError('native catalogue/world/map/helper SHA mismatch')
     # Load only the established helper after verification, before TARGET assignment.
@@ -35,6 +37,7 @@ def verified_helper(source, manifest, argv):
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     helper.TARGET = native.target
+    helper.FH_NATIVE_WORLD = native
     return helper
 
 
@@ -45,6 +48,11 @@ def main(argv=None):
     sys.modules['sensor_isolation'] = helper
     runtime = source / 'live_map.py'
     sys.argv = [str(runtime), *runtime_args]
+    if helper.FH_NATIVE_WORLD.repository:
+        from apps.simmgr.repo_runtime import install
+        module = runpy.run_path(str(runtime), run_name='fh_catalogued_runtime')
+        install(module['main'].__globals__, helper.FH_NATIVE_WORLD, Path(manifest_arg).parent)
+        raise SystemExit(module['main']())
     runpy.run_path(str(runtime), run_name='__main__')
 
 
