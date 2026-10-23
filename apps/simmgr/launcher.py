@@ -210,9 +210,11 @@ class NativeLauncher:
         # Native stage1 topics/frames stay fixed; no fictitious namespace isolation.
         env['FOOTHOLD_CAMERA_ENABLED'] = '1'
         if credentials.get('map_bindings'):
-            manifest = json.loads((self.sim.out / 'manifest.json').read_text())
+            # The connected runtime exports its actual nonce before Gazebo starts.
+            # manifest.json is written at exit; the output folder is a different ID.
+            identity = json.loads((self.sim.out / 'run-identity.json').read_text())
             env['FOOTHOLD_FLOOR_BINDINGS'] = json.dumps(dict(robot_id=slot.robot_id,
-                generation=credentials['generation'], run_id=manifest['run_id'], epoch=1,
+                generation=credentials['generation'], run_id=identity['run_id'], epoch=1,
                 spawn_floor_id=credentials['spawn_floor_id'], bindings=credentials['map_bindings']))
         try:
             self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
