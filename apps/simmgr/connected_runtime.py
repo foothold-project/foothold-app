@@ -34,9 +34,7 @@ def compile_static_runtime(source, filename):
     for i, node in enumerate(main.body):
         if (isinstance(node, ast.Assign) and len(node.targets) == 1
                 and isinstance(node.targets[0], ast.Name) and node.targets[0].id == 'gate'):
-            # The original creates an unused SLAM Gate even for static mode.
-            # No SLAM implementation is imported by this phase 1/2 adapter.
-            main.body[i] = ast.copy_location(ast.parse('gate = None').body[0], node)
+            # Preserve the pure Gate: static boot/reset also call gate.close().
             gate_count += 1
         if isinstance(node, ast.FunctionDef) and node.name in replacements:
             main.body[i] = deepcopy(replacements[node.name])

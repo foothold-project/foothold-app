@@ -107,6 +107,41 @@ class FloorTracker:
                 "floor_reason": self.reason, "floor_src": "gt_geometry", "floor_confirm_sim_t": self.confirm_t, "connected": True}
 
 
+class Gate:
+    """SLAM 입력 문. 상태는 tracker.lock 하나로 보호(tracker 의 leave·confirm·reset 과 같은 lock).
+    forward(stamp, publish): 검사와 publish 를 그 lock 안에서 한 번에 — 검사 뒤 leave/RESET 이 끼어 옛 scan 이 새 SLAM 으로 가는 창 0.
+    open(epoch, rev, then): worker 가 그 (epoch, rev) 의 새 slam 준비를 끝냈을 때. then() 은 같은 lock 안(ctx ready 표기를 문 열기와 원자로).
+    tracker rev·epoch 가 바뀌면 그 토큰은 자동 무효."""
+    def __init__(self, tracker):
+        self.t, self.ready = tracker, None
+        self.passed = self.dropped = 0
+
+    def open(self, epoch, rev, then=None):
+        with self.t.lock:
+            if (self.t.epoch, self.t.rev) != (epoch, rev) or self.t.state != "on_floor":
+                return False                                  # 늦은 worker 완료 — 이미 다른 rev
+            self.ready = (epoch, rev)
+            if then:
+                then()
+            return True
+
+    def close(self):
+        with self.t.lock:
+            self.ready = None
+
+    def forward(self, stamp, publish):
+        with self.t.lock:
+            s = self.t._snap()
+            ok = (s["floor_state"] == "on_floor" and self.ready == (s["epoch"], s["floor_rev"])
+                  and s["floor_confirm_sim_t"] is not None and isinstance(stamp, float) and math.isfinite(stamp)
+                  and stamp >= s["floor_confirm_sim_t"])
+            if ok:
+                publish(); self.passed += 1                   # ponytail: publish 는 DDS 큐 넣기(비차단)라 lock 안에서 호출
+            else:
+                self.dropped += 1
+            return ok
+
+
 def bind_view(mode, fs, ctx, sel, ms_ctx):
     """status 표시 층 결속. 입력은 모두 같은 lock 스냅샷(ft.lock → ms.lock): fs = tracker _snap()(epoch 포함), ctx = worker ctx,
     sel = static 선택, ms_ctx = (epoch, rev, floor, has_grid). 반환 (bf, why): bf = 지도·위치를 보여도 되는 층(아니면 None), why ∈ MAP_NULL_REASONS|None."""

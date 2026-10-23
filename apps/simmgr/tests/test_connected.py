@@ -2,6 +2,7 @@
 # Original sha256: 645cc0791f196d2f; phase 1/2 tracker selftest assertions unchanged.
 import json
 import math
+from pathlib import Path
 from types import SimpleNamespace
 import threading
 
@@ -154,7 +155,7 @@ def test_static_bind_view_rejects_previous_floor_revision_and_absent_grid():
                      (1, 4, 'l2', True)) == (None, 'floor_transit')
 
 
-def test_runtime_transplants_only_floor_hooks_and_disables_unused_slam_gate():
+def test_runtime_rejects_missing_adapter_hooks():
     from apps.simmgr.connected_runtime import compile_static_runtime
     source = '''
 def main():
@@ -172,3 +173,55 @@ def main():
                    source.replace('gate = CN.Gate(ft) if CONN else None', 'other = None')]:
         with pytest.raises(ValueError, match='hooks changed|hook changed'):
             compile_static_runtime(broken, 'fake-runtime')
+
+
+def test_transformed_static_main_boot_launch_and_reset_close_gate():
+    from apps.simmgr import connected
+    from apps.simmgr.connected_runtime import compile_static_runtime
+
+    # Execute the real sensor runtime boot body with no ROS/Gazebo imports.
+    source = Path(__file__).with_name('fixtures').joinpath('connected_boot.py').read_text()
+    ft = FloorTracker('l1')
+    events = []
+    static_sel, slam_ctx = {}, {}
+    snap = dict(episode=0)
+    first = object()
+    def start():
+        events.append(('sim.start',))
+        return first, None
+
+    def epoch_target(name):
+        return SimpleNamespace(new_epoch=lambda ep: events.append((name, ep)))
+
+    scope = dict(CN=connected, CONN=True, ft=ft, snap=snap,
+        snap_lock=threading.Lock(), kids_lock=threading.Lock(),
+        sim=SimpleNamespace(start=start),
+        ing=SimpleNamespace(on_stop=lambda **kw: events.append(('stop', kw['why']))),
+        log_event=lambda name, **kw: events.append((name, kw)),
+        tf_buf=SimpleNamespace(clear=lambda: events.append(('tf.clear',))),
+        ms=epoch_target('ms'), pv=epoch_target('pv'), fg=epoch_target('fg'),
+        pv_resubscribe=lambda ep: events.append(('pv.subscribe', ep)),
+        cg=None, lidar_view=None, a=SimpleNamespace(map_mode='static'),
+        views_floor=lambda *args: events.append(('views', *args)),
+        static_sel=static_sel, slam_ctx=slam_ctx, sp=None,
+        kids=SimpleNamespace(start=lambda ep, names: events.append(('kids.start', ep, names))))
+    exec(compile_static_runtime(source, 'connected-boot-fixture'), scope)
+    boot, gate = scope['main']()
+    for episode, why in enumerate(('launch', 'reset'), start=1):
+        # RESET starts from an open prior epoch; launch also needs a real Gate.
+        if why == 'reset':
+            ft.update(0., 12., 8., .3, 0., False, 0.)
+            ft.update(1., 12., 8., .3, 0., False, 0.)
+            assert gate.open(ft.epoch, ft.rev)
+        old_rev = ft.rev
+        static_sel.update(ep=ft.epoch, rev=old_rev, floor='l1', g=object(), meta={})
+        assert boot(why) == (first, None)
+        assert isinstance(gate, connected.Gate)
+        assert gate.ready is None
+        assert ft.epoch == episode and ft.rev == old_rev + 1
+        assert ft.snapshot()['floor_state'] == 'unknown'
+        assert static_sel == dict(ep=None, rev=None, floor=None, g=None, meta=None, why='floor_transit')
+        assert slam_ctx == dict(floor=None, epoch=episode, rev=None, state='waiting_floor', why=None)
+        assert ('stop', 'stop_latched_by_' + why) in events
+        assert events[-2:] == [('views', episode, None, None), ('kids.start', episode, None)]
+    assert events.count(('sim.start',)) == 2
