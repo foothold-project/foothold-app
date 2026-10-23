@@ -164,6 +164,16 @@ odom=null·odom_reason=clock_unverified를 유지한다. sim 시계로 이름을
 시각 역행·RESET·stale에는 null로 비운다. odom/map 시각 역행도 해당 episode에서
 격리한다. confidence·battery는 null이며 미측정 속도를 0으로 만들지 않는다.
 
+지도/pose sim 시각이 현재 state보다 앞서면 최신 표본 1건만 보류한다. 이후 유효한
+state에서 원래 지도 수신 시각으로 coherence·등록·revision 검사를 다시 수행한다.
+새 지도는 보류 표본을 대체하며, state 무효화·RESET·episode 변경은 보류를 비운다.
+미래 표본을 즉시 수락하거나 기존 1초 freshness 한도를 늘리지 않는다.
+로컬 `map_received`·`map_retries`와 `map_rejections`(future/stale/mismatch)는
+각 수신·재평가·거부 횟수다. `map_last_rejection`은 마지막 거부 사유를 유지한다.
+거부 사유가 바뀔 때만 고정 사유와 카운터를 로그로 남기며 성공은 이 로그 상태를
+초기화하지 않는다. 지도 원문·좌표·run ID·인증 정보는 로그에 포함하지 않는다.
+이는 로컬 진단이며 WS 계약 필드를 추가하지 않는다.
+
 위치는 검증하여 명시한 `MapBinding`(world, ROS floor/map version, 등록된 floor/map
 UUID, SHA, episode, run)이 `/v2_map/status.pose_map`과 맞고 시각·source가 유효할
 때만 사용한다. odom/world 좌표를 map으로 가장하지 않는다. 진입점은 등록 지도를

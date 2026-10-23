@@ -7,6 +7,7 @@ from collections import deque
 from copy import deepcopy
 from dataclasses import dataclass
 import math
+import logging
 import time
 
 from foothold_agent.safety.core import NUM, STATE_STALE, clean_state, finite
@@ -133,8 +134,14 @@ class Telemetry:
         self._epoch = None
         self._map_stamp = self._odom_stamp = None
         self._map_rewound = self._odom_rewound = False
+        self._pending_map = None
+        # Local diagnostics only; fixed keys, no payloads or launch credentials.
+        self.map_received = self.map_retries = 0
+        self.map_rejections = dict(future=0, stale=0, mismatch=0)
+        self.map_last_rejection = None
 
     def invalidate(self, reason):
+        self._pending_map = None
         self.state = self.location = self.odom = None
         self.floor_context = None
         if reason != self._reason:
@@ -149,6 +156,7 @@ class Telemetry:
             self.invalidate(self._gate.reason)
             return
         if self._epoch != raw["episode"]:
+            self._pending_map = None
             self._epoch = raw["episode"]
             self._map_stamp = self._odom_stamp = None
             self._map_rewound = self._odom_rewound = False
@@ -163,6 +171,11 @@ class Telemetry:
                       "progress_monotonic_s": self._gate.progress_at if progress_at is None else progress_at,
                       "vx": raw.get("vx"),
                       "vy": raw.get("vy"), "source": raw.get("source"), "clock": "simulation"}
+        if self._pending_map is not None:
+            status, receipt = self._pending_map
+            self._pending_map = None
+            self.map_retries += 1
+            self._evaluate_map(status, receipt)
 
     def update_odom(self, sample):
         # No episode field exists on ROS Odometry. Associate only with current
@@ -197,13 +210,47 @@ class Telemetry:
                 and 0 <= s["sim_t"] - stamp <= STATE_STALE)
 
     def update_map(self, status, received_at):
-        if self.floors is not None:
-            self._update_floor_map(status, received_at)
+        self.map_received += 1
+        # A new sample supersedes the single pending sample, even if rejected.
+        self._pending_map = None
+        self._evaluate_map(status, received_at)
+
+    def _evaluate_map(self, status, received_at):
+        reason = self._apply_map(status, received_at)
+        if reason is None:
             return
+        if reason == 'future':
+            self._pending_map = (deepcopy(status), received_at)
+        self.map_rejections[reason] += 1
+        if reason != self.map_last_rejection:
+            # Do not reset on success: regular map-before-state traffic must not
+            # emit a warning every cycle. Counters still count every evaluation.
+            self.map_last_rejection = reason
+            logging.getLogger(__name__).warning(
+                'Map telemetry rejected: reason=%s received=%d retries=%d counts=%s',
+                reason, self.map_received, self.map_retries, self.map_rejections)
+
+    def _map_time_reason(self, stamp, receipt):
+        s = self.state
+        if s is None or not number(stamp) or not number(receipt):
+            return 'mismatch'
+        if (not 0 <= self.now() - receipt <= STATE_STALE
+                or not 0 <= self.now() - s['received_monotonic_s'] <= STATE_STALE
+                or not 0 <= self.now() - s['progress_monotonic_s'] <= STATE_STALE):
+            return 'stale'
+        if stamp > s['sim_t']:
+            return 'future'
+        if s['sim_t'] - stamp > STATE_STALE:
+            return 'stale'
+        return None
+
+    def _apply_map(self, status, received_at):
+        if self.floors is not None:
+            return self._update_floor_map(status, received_at)
         self.location = None
         b, s = self.binding, self.state
         if not isinstance(status, dict) or b is None or s is None:
-            return
+            return 'mismatch'
         p = status.get("pose_map")
         if (status.get("schema") != "v2_map_status/1" or status.get("map_frame") != "map"
                 or type(status.get("epoch")) is not int
@@ -213,15 +260,17 @@ class Telemetry:
                 or status.get("map_accepting") is not True or status.get("map_error")
                 or status.get("pose_map_null_reason") or not isinstance(p, dict)
                 or p.get("source") not in ("slam_tf", "gt_identity")
-                or not self._coherent(status.get("sim_t"), received_at)
-                or not self._coherent(p.get("stamp_sim"), received_at)
                 or not all(number(p.get(k)) for k in ("x", "y", "yaw"))):
-            return
+            return 'mismatch'
+        reason = (self._map_time_reason(status.get('sim_t'), received_at)
+                  or self._map_time_reason(p.get('stamp_sim'), received_at))
+        if reason is not None:
+            return reason
         stamp = (status["sim_t"], p["stamp_sim"])
         if self._map_stamp is not None and any(a < b for a, b in zip(stamp, self._map_stamp)):
             self._map_rewound = True
         if self._map_rewound:
-            return
+            return 'mismatch'
         self._map_stamp = stamp
         self.location = {"floor_id": b.floor_id, "map_version_id": b.map_version_id,
                          "sha256": b.sha256, "x": p["x"], "y": p["y"], "yaw": p["yaw"],
@@ -234,22 +283,24 @@ class Telemetry:
         if (not isinstance(status, dict) or s is None
                 or status.get('schema') != 'v2_map_status/1'
                 or status.get('map_frame') != 'map'
-                or status.get('epoch') != s['episode']
-                or not self._coherent(status.get('sim_t'), received_at)):
-            return
+                or status.get('epoch') != s['episode']):
+            return 'mismatch'
+        reason = self._map_time_reason(status.get('sim_t'), received_at)
+        if reason is not None:
+            return reason
         c = self.floors.context(status)
         if c is None:
-            return
+            return 'mismatch'
         token = (c['epoch'], c['floor_rev'])
         stamp = status['sim_t']
         if self._floor_token is not None:
             if (token[0] < self._floor_token[0] or token[1] < self._floor_token[1]) or (token[0] == self._floor_token[0] and self._floor_status_stamp is not None and stamp < self._floor_status_stamp):
-                return  # late l2 response cannot erase the current l1 context
+                return 'mismatch'  # late l2 response cannot erase the current l1 context
             if token == self._floor_token and self.floor_context is not None:
                 old = self.floor_context
                 if ('on_floor' in (c['floor_state'], old['floor_state'])
                         and any(c[k] != old[k] for k in ('floor_state', 'current_floor_id', 'confirmed_sim_t'))):
-                    return  # a revision cannot describe two different confirmed contexts
+                    return 'mismatch'  # a revision cannot describe two different confirmed contexts
         if token != self._floor_token:
             self._map_stamp, self._map_rewound = None, False
         self._floor_token, self._floor_status_stamp = token, stamp
@@ -259,13 +310,16 @@ class Telemetry:
         if (c['map_version_id'] is None or not isinstance(p, dict)
                 or status.get('map_accepting') is not True or status.get('pose_map_null_reason')
                 or p.get('source') != 'gt_identity'
-                or not self._coherent(p.get('stamp_sim'), received_at)
-                or p['stamp_sim'] < c['confirmed_sim_t']
                 or not all(number(p.get(k)) for k in ('x', 'y', 'yaw'))):
-            return
+            return 'mismatch'
+        reason = self._map_time_reason(p.get('stamp_sim'), received_at)
+        if reason is not None:
+            return reason
+        if p['stamp_sim'] < c['confirmed_sim_t']:
+            return 'mismatch'
         pose_stamp = p['stamp_sim']
         if self._map_stamp is not None and pose_stamp < self._map_stamp:
-            return
+            return 'mismatch'
         self._map_stamp = pose_stamp
         self.location = {**{k: c[k] for k in ('floor_id', 'map_version_id', 'sha256')},
             **{k: p[k] for k in ('x', 'y', 'yaw')}, 'confidence': None,
