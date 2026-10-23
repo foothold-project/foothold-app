@@ -840,7 +840,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     const a = await launch();
     await drive(a);
     const notes = () => [...box.querySelectorAll('.dv-act .dv-note')].map((p) => p.textContent);
-    const cam = () => !!box.querySelector('.dv-stage > .dv-video > span');   // 안내가 뜨면 영상 문구는 숨겨 겹치지 않음
+    const cam = () => !!box.querySelector('.dv-stage > .dv-video > span');   // OUTPUT_STALLED 안내가 뜨면 영상 문구는 숨겨 겹치지 않음
     const held = { lease_id: LEASE, controller: 'u-lee', controller_connected: true, stop_gen: 2 };
     await recv(a, phoneState({ ...held, safety_reason: 'OUTPUT_STALLED' }));
     expect(notes()).toContain(STALLED);
@@ -853,7 +853,28 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(btn('잠금 해제')).toBeTruthy();
     await recv(a, phoneState({ ...held, latched: false, safety_reason: 'OUTPUT_STALLED' }));   // 잠금이 풀렸으면 사유가 남아도 안내 0
     expect(notes()).not.toContain(STALLED);
-    expect(cam()).toBe(notes().length === 0);
+    expect(cam()).toBe(true);
+  });
+
+  it('실제 영상 장애는 다른 안내(명령 범위 조정)가 떠도 그대로, OUTPUT_STALLED 때는 안내 줄 아래로 옮겨 보임', async () => {
+    const a = await launch();
+    await drive(a);
+    const c = cams()[0];
+    act(() => c.open());
+    await recv(c, { t: 'camera.frame', seq: 1, mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
+    act(() => c.drop(1006)); await flush();
+    const lost = '영상 연결이 끊겼습니다. 조종·STOP 에는 영향이 없습니다';
+    const place = () => $('.dv-stage > .dv-video > span')?.textContent;
+    const notes = () => [...box.querySelectorAll('.dv-act .dv-note')].map((p) => p.textContent);
+    expect(place()).toBe(lost);
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(sim.get().link!.cam).toBe('lost');
+    expect(sim.get().link!.st!.latched).toBe(false);
+    expect(notes().some((t) => t?.startsWith('명령 범위 조정'))).toBe(true);
+    expect(place()).toBe(lost);
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, stop_gen: 2, safety_reason: 'OUTPUT_STALLED' }));
+    expect(place()).toBeUndefined();
+    expect(notes()).toEqual(expect.arrayContaining([STALLED, lost]));
   });
 
   it('띠가 열리면 누르고 있던 입력도 0·조이스틱 막힘, 메뉴는 닫힘, STOP 은 영상 칸 밖에서 보이고 눌림 → 닫으면 다시 움직임', async () => {
