@@ -12,6 +12,11 @@ import { Compare, Rollback } from './mapdiff';
 import { Editor, kept } from './mapedit';
 
 export type Place = { site: MapSite; building: MapBuilding; floor: MapFloor };
+/** 시뮬 층 이름이 ROS 층 ID 그대로(서버가 floor_name 없이 넣은 창고 «f1» 등)면 사람이 읽는 이름으로 */
+const FLOOR = new Map([['l1', '1층'], ['l2', '2층'], ['f1', '1층']]);   // Map — «__proto__»·«constructor» 같은 상속 키는 이름 그대로(검토 PR #85 B1)
+export const floorName = (n: string) => FLOOR.get(n) ?? n;
+const named = (t: SiteTree): SiteTree => ({ ...t, items: t.items.map((s) => ({ ...s, buildings: s.buildings.map((b) => ({ ...b,
+  floors: b.floors.map((f) => (f.provenance === 'SIMULATION' ? { ...f, name: floorName(f.name) } : f)) })) })) });
 export const floorsOf = (t: SiteTree | null): Place[] => (t ? t.items.flatMap((site) => site.buildings.flatMap((building) => building.floors.map((floor) => ({ site, building, floor })))) : []);
 
 // 받은 값 모양 검사 — 어긋난 응답이 화면을 깨뜨리지 않게 오류 한 줄로만(screens/history.tsx 와 같은 방식)
@@ -92,7 +97,7 @@ export function useTree(cancel?: AbortSignal) {
   const [tree, setTree] = useState<SiteTree | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
   useEffect(() => {
     let live = true;   // 다시 받기가 겹치면 지난 요청의 늦은 답은 버린다
-    api.sites(cancel).then(shape(isTree)).then((t) => { if (live) { setTree(t); setErr(''); } }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
+    api.sites(cancel).then(shape(isTree)).then((t) => { if (live) { setTree(named(t)); setErr(''); } }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
     return () => { live = false; };
   }, [n]);
   return { tree, err, again: () => setN((x) => x + 1) };

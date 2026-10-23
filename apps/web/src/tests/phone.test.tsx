@@ -967,7 +967,7 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
 
   it('창고 f1 승인 문맥은 확인 중을 벗어나 지도와 위치를 표시하고 만료 때 위치를 숨긴다', async () => {
     const warehouse = { ...V5, id: 'warehouse/f1', name: '작은 창고', spawn_floor_ids: [],
-      floors: [{ ...V5.floors[0], ros_floor_id: 'f1' }] };
+      floors: [{ ...V5.floors[0], name: 'f1', ros_floor_id: 'f1' }] };   // 서버가 floor_name 없이 넣은 창고 층 — 이름이 ID 그대로
     const a = await launch(welcome(), { ...routesV5,
       'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [warehouse] } },
       'POST /simulation/robots': () => { mine = [{ ...simRobot(), world_id: 'warehouse/f1' }]; return { status: 201, body: mine[0] }; },
