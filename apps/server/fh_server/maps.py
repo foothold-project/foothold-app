@@ -158,7 +158,7 @@ def version_object(row, floor):
         status='SUPERSEDED' if row.status == 'APPROVED' and floor.approved_version_id != row.id else row.status,
         image_sha256=row.image_sha256.hex(), width=row.width, height=row.height, resolution=row.resolution,
         origin=(row.origin_x, row.origin_y, row.origin_yaw), features=row.features, reason=row.reason,
-        source=row.source, created_by=row.created_by, created_at=row.created_at)
+        source=row.source, provenance=row.provenance, created_by=row.created_by, created_at=row.created_at)
 
 
 def bounded_features(row, fail):
@@ -235,7 +235,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             (Approval.org_id == MapVersion.org_id) & (Approval.target_id == MapVersion.id)).where(
             Approval.org_id == user.org_id, Approval.status == 'PENDING').group_by(MapVersion.floor_id)).all())
         return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, buildings=[C.MapBuilding(id=b.id,
-            site_id=b.site_id, name=b.name, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
+            site_id=b.site_id, name=b.name, sim_world_id=b.sim_world_id, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
             for b in buildings if b.site_id == s.id]) for s in sites])
 
     @app.post('/api/v1/sites', response_model=C.MapSite, status_code=201)
@@ -262,9 +262,9 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     @app.post('/api/v1/buildings/{building_id}/floors', response_model=C.MapFloor, status_code=201)
     def floor_create(building_id: UUID, body: C.FloorCreate, auth: Identity, db: DB):
         user = auth[0]
-        own(db, Building, building_id, user)
+        building = own(db, Building, building_id, user)
         authorize(user, 'A')
-        row = Floor(org_id=user.org_id, building_id=building_id, name=body.name, level=body.level)
+        row = Floor(provenance='SIMULATION' if building.sim_world_id else 'HUMAN', org_id=user.org_id, building_id=building_id, name=body.name, level=body.level)
         db.add(row)
         db.flush()
         record(db, user, 'FLOOR_CREATED', row)
@@ -343,7 +343,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                     metadata = map_yaml(bytes(data))
                     def insert_yaml(db, user):
                         original = own(db, Upload, image, user)
-                        row = Upload(org_id=user.org_id, image_path=original.image_path,
+                        row = Upload(provenance=original.provenance, org_id=user.org_id, image_path=original.image_path,
                             image_sha256=original.image_sha256, png_sha256=original.png_sha256, size_bytes=original.size_bytes,
                             width=original.width, height=original.height, metadata_json=metadata, created_by=user.id)
                         db.add(row)
@@ -394,7 +394,9 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         destination = root / relative
         metadata = upload.metadata_json
         origin = metadata['origin']
-        row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
+        base_provenance = db.scalar(select(MapVersion.provenance).where(MapVersion.id == body.base_version_id)) if body.base_version_id else None
+        row = MapVersion(provenance='SIMULATION' if 'SIMULATION' in (floor.provenance, upload.provenance, base_provenance) else 'HUMAN',
+            org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
             status='APPROVED' if user.role == 'ORG_ADMIN' else 'PENDING', upload_id=upload.id, image_path=str(relative), image_sha256=upload.png_sha256,
             width=upload.width, height=upload.height, resolution=metadata['resolution'], origin_x=origin[0],
             origin_y=origin[1], origin_yaw=origin[2], features=body.features.model_dump(mode='json', exclude_none=True), reason=body.reason,
@@ -477,7 +479,8 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         features = bounded_features(original, fail)
         validate_rollback_connectors(db, floor, features, fail)
         number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
-        row = MapVersion(org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
+        row = MapVersion(provenance='SIMULATION' if 'SIMULATION' in (floor.provenance, original.provenance) else 'HUMAN',
+            org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
             copied_from_id=original.id, status='APPROVED' if user.role == 'ORG_ADMIN' else 'PENDING', upload_id=original.upload_id,
             image_path=original.image_path, image_sha256=original.image_sha256, width=original.width, height=original.height,
             resolution=original.resolution, origin_x=original.origin_x, origin_y=original.origin_y, origin_yaw=original.origin_yaw,

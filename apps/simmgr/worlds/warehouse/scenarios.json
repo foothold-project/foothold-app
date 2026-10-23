@@ -1,0 +1,83 @@
+[
+  {
+    "id": "entry-roundtrip",
+    "name": "창고 입구에서 안쪽 왕복",
+    "finish": "RETURN_TO_START",
+    "waypoints": [
+      {
+        "x": 0.0,
+        "y": 0.0,
+        "mission_name": "창고 입구에서 안쪽 왕복 · 지점 1"
+      },
+      {
+        "x": 0.0,
+        "y": 2.0,
+        "mission_name": "창고 입구에서 안쪽 왕복 · 지점 2"
+      },
+      {
+        "x": 1.0,
+        "y": 4.0,
+        "mission_name": "창고 입구에서 안쪽 왕복 · 지점 3"
+      },
+      {
+        "x": 1.0,
+        "y": 6.0,
+        "mission_name": "창고 입구에서 안쪽 왕복 · 지점 4"
+      }
+    ]
+  },
+  {
+    "id": "aisle-loop",
+    "name": "창고 중앙 통로 순찰 고리",
+    "finish": "RETURN_TO_START",
+    "waypoints": [
+      {
+        "x": 0.0,
+        "y": 0.0,
+        "mission_name": "창고 중앙 통로 순찰 고리 · 지점 1"
+      },
+      {
+        "x": 2.0,
+        "y": 0.0,
+        "mission_name": "창고 중앙 통로 순찰 고리 · 지점 2"
+      },
+      {
+        "x": 2.0,
+        "y": 2.0,
+        "mission_name": "창고 중앙 통로 순찰 고리 · 지점 3"
+      },
+      {
+        "x": 0.0,
+        "y": 2.0,
+        "mission_name": "창고 중앙 통로 순찰 고리 · 지점 4"
+      }
+    ]
+  },
+  {
+    "id": "four-corners",
+    "name": "창고 중앙 빈 공간 네 모서리",
+    "finish": "RETURN_TO_START",
+    "waypoints": [
+      {
+        "x": -3.0,
+        "y": 0.0,
+        "mission_name": "창고 중앙 빈 공간 네 모서리 · 지점 1"
+      },
+      {
+        "x": -3.0,
+        "y": -4.0,
+        "mission_name": "창고 중앙 빈 공간 네 모서리 · 지점 2"
+      },
+      {
+        "x": 2.0,
+        "y": -4.0,
+        "mission_name": "창고 중앙 빈 공간 네 모서리 · 지점 3"
+      },
+      {
+        "x": 2.0,
+        "y": 0.0,
+        "mission_name": "창고 중앙 빈 공간 네 모서리 · 지점 4"
+      }
+    ]
+  }
+]

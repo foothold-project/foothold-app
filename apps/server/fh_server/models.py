@@ -216,7 +216,9 @@ class Site(Tenant, Base):
 
 class Building(Tenant, Base):
     __tablename__ = 'buildings'
-    __table_args__ = (ForeignKeyConstraint(['org_id', 'site_id'], ['sites.org_id', 'sites.id']), UniqueConstraint('org_id', 'id'))
+    __table_args__ = (ForeignKeyConstraint(['org_id', 'site_id'], ['sites.org_id', 'sites.id']), UniqueConstraint('org_id', 'id'),
+        UniqueConstraint('org_id', 'sim_world_id'))
+    sim_world_id: Mapped[str | None] = mapped_column(Text)
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
     site_id: Mapped[UUID] = mapped_column(PGUUID)
     name: Mapped[str] = mapped_column(Text)
@@ -225,6 +227,8 @@ class Building(Tenant, Base):
 class Floor(Tenant, Base):
     __tablename__ = 'floors'
     __table_args__ = (
+        CheckConstraint("provenance IN ('HUMAN','SIMULATION')", name='floor_provenance'),
+        UniqueConstraint('building_id', 'sim_floor_id'),
         ForeignKeyConstraint(['org_id', 'building_id'], ['buildings.org_id', 'buildings.id']),
         UniqueConstraint('org_id', 'id'),
         ForeignKeyConstraint(['org_id', 'id', 'approved_version_id'],
@@ -232,6 +236,9 @@ class Floor(Tenant, Base):
             name='floors_approved_version_fk', use_alter=True),
     )
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
+    provenance: Mapped[str] = mapped_column(Text, default='HUMAN', server_default=text("'HUMAN'"))
+    sim_floor_id: Mapped[str | None] = mapped_column(Text)
+    floor_z: Mapped[float | None] = mapped_column(Float)
     building_id: Mapped[UUID] = mapped_column(PGUUID)
     name: Mapped[str] = mapped_column(Text)
     level: Mapped[int] = mapped_column(Integer)
@@ -239,8 +246,10 @@ class Floor(Tenant, Base):
 
 
 class Upload(Tenant, Base):
+    provenance: Mapped[str] = mapped_column(Text, default='HUMAN', server_default=text("'HUMAN'"))
     __tablename__ = 'uploads'
     __table_args__ = (
+        CheckConstraint("provenance IN ('HUMAN','SIMULATION')", name='upload_provenance'),
         ForeignKeyConstraint(['org_id', 'created_by'], ['users.org_id', 'users.id']),
         UniqueConstraint('org_id', 'id'),
     )
@@ -257,8 +266,10 @@ class Upload(Tenant, Base):
 
 
 class MapVersion(Tenant, Base):
+    provenance: Mapped[str] = mapped_column(Text, default='HUMAN', server_default=text("'HUMAN'"))
     __tablename__ = 'map_versions'
     __table_args__ = (
+        CheckConstraint("provenance IN ('HUMAN','SIMULATION')", name='map_version_provenance'),
         ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id']),
         ForeignKeyConstraint(['org_id', 'floor_id', 'base_version_id'], ['map_versions.org_id', 'map_versions.floor_id', 'map_versions.id']),
         ForeignKeyConstraint(['org_id', 'upload_id'], ['uploads.org_id', 'uploads.id']),

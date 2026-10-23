@@ -20,6 +20,18 @@
           "title": "Building Id",
           "type": "string"
         },
+        "floor_z": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Floor Z"
+        },
         "id": {
           "format": "uuid",
           "title": "Id",
@@ -37,6 +49,15 @@
           "default": 0,
           "title": "Pending Count",
           "type": "integer"
+        },
+        "provenance": {
+          "default": "HUMAN",
+          "enum": [
+            "HUMAN",
+            "SIMULATION"
+          ],
+          "title": "Provenance",
+          "type": "string"
         }
       },
       "required": [
@@ -70,6 +91,18 @@
     "name": {
       "title": "Name",
       "type": "string"
+    },
+    "sim_world_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sim World Id"
     },
     "site_id": {
       "format": "uuid",
