@@ -251,7 +251,7 @@ def generate(world_file, output, floors, resolution=0.05, bounds=None, body=(0.0
         Image.fromarray(pixels).save(output / f'{name}.png')
         yaml = (f'image: {name}.png\nmode: trinary\nresolution: {resolution}\n'
                 f'origin: [{bounds[0]}, {bounds[1]}, 0.0]\nnegate: 0\n'
-                'occupied_thresh: 0.65\nfree_thresh: 0.25\n')
+                'occupied_thresh: 0.65\nfree_thresh: 0.196\n')
         (output / f'{name}.yaml').write_text(yaml)
         result['floors'][name] = {'floor_z': floor_z, 'image': f'{name}.png', 'yaml': f'{name}.yaml',
                                   'image_sha256': digest(output / f'{name}.png'),

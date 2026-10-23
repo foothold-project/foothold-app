@@ -1,6 +1,6 @@
 {
   "generator_version": "collision-map/1",
-  "generator_sha256": "5c1d80628b2c319757c1a300ca62e657eecd9ef0457a9edefb99e520914ed861",
+  "generator_sha256": "b02389779320b8f9c34f3ae46500d80829d67a55b7b960392f674d5eaef21e01",
   "world_sha256": "57fc86b240a44694801b650a2e47dd7b8dc0966566d060aae699b8e9ca46addb",
   "dependency_sha256": "73f41c20936cc6b43bc3bbd778ca43a104e79c127003e5c2dce50fad3e419016",
   "dependencies": {

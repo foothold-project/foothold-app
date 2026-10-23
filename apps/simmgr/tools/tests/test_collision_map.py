@@ -6,6 +6,7 @@ import numpy as np
 from PIL import Image
 import pytest
 import trimesh
+import yaml
 
 from apps.simmgr.tools.collision_map import generate
 
@@ -45,6 +46,14 @@ def test_two_floors_support_holes_solid_mesh_pose_and_image_coordinates(tmp_path
     assert json.loads((output / 'metadata.json').read_text()) == meta
     assert 'origin: [0, 0, 0.0]' in (output / 'f2.yaml').read_text()
     assert 'occupied_thresh: 0.65' in (output / 'f2.yaml').read_text()
+    for floor in ('f1', 'f2'):
+        config = yaml.safe_load((output / f'{floor}.yaml').read_text())
+        assert config['mode'] == 'trinary' and config['negate'] == 0
+        pixels = np.array(Image.open(output / f'{floor}.png'))
+        unknown_occupancy = (255.0 - pixels[pixels == 205]) / 255.0
+        assert unknown_occupancy.size > 0
+        assert np.all(unknown_occupancy >= config['free_thresh'])
+        assert np.all(unknown_occupancy <= config['occupied_thresh'])
     # Unknown collision types must abort, not silently disappear from a map.
     sdf.write_text(sdf.read_text().replace('<box><size>4 4 0.1</size></box>', '<heightmap/>'))
     with pytest.raises(ValueError, match='unsupported collision geometry'):

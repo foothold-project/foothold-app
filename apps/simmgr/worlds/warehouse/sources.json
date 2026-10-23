@@ -2,6 +2,8 @@
   "repository": "https://github.com/aws-robotics/aws-robomaker-small-warehouse-world",
   "branch": "ros2",
   "revision": "ee0af733315e78432408c3cd98d378ecee5f767c",
+  "revision_type": "commit",
+  "tree": "54aaabdafb46087847e20f4929651948e81e7286",
   "license": "MIT-0",
   "inputs": {
     "LICENSE": {

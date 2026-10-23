@@ -15,7 +15,8 @@ ADR-003 뒤 별도 작업이며, JSON을 추가한 것만으로 실행 가능 �
 
 - 출처·권리·변경 내역: [NOTICE](warehouse/NOTICE), [MIT-0 LICENSE](warehouse/LICENSE),
   원본 입력 해시: [sources.json](warehouse/sources.json).
-- 원본 branch `ros2`, 고정 SHA `ee0af733315e78432408c3cd98d378ecee5f767c`.
+- 원본 branch `ros2`, 고정 commit `ee0af733315e78432408c3cd98d378ecee5f767c`,
+  tree `54aaabdafb46087847e20f4929651948e81e7286`.
 - 실제 바닥 collision 외곽 약 13.98047 × 20.906665m, 윗면 z≈0.034226m.
   원본 좌표를 그대로 쓴다. 지도는 외곽 여유 포함 **15 × 22m**, 300 × 440px, 0.05m/cell.
 - 스폰 `(x,y,yaw)=(0,0,0)`, robot base z=0.434226m. free 셀과 반경 0.4m의 지도 여유를
@@ -57,7 +58,8 @@ world SHA-256, collision 의존 파일 SHA-256과 묶음 해시, upstream SHA, �
 - 열리거나 winding이 일관되지 않은 메쉬는 높이 구간에 걸친 AABB 전체를 장애물로 잡고
   지지면으로 쓰지 않는다. AWS PalletJack collision이 여기에 해당한다.
 - PNG는 월드 +Y를 위로 뒤집어 저장한다. YAML은 trinary, negate=0,
-  occupied_thresh=0.65, free_thresh=0.25다. 셀의 중앙 좌표 변환은 메타에 있다.
+  occupied_thresh=0.65, free_thresh=0.196으로 205를 unknown으로 유지한다.
+  셀의 중앙 좌표 변환은 메타에 있다.
 - 유한 격자와 다섯 지지점 표본이므로 셀보다 작은 구멍이나 임의 복잡한 메쉬의 완전한
   지지면 합집합을 증명하지 않는다. 바닥의 자동 발견·계단/경사 보행 가능성·로봇 footprint
   팽창·안전 정책·층간 이동·실행 시 좌표 정합은 후속 검증 범위다.

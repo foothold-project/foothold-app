@@ -14,6 +14,7 @@ import numpy as np
 
 UPSTREAM = 'https://github.com/aws-robotics/aws-robomaker-small-warehouse-world'
 REVISION = 'ee0af733315e78432408c3cd98d378ecee5f767c'
+TREE = '54aaabdafb46087847e20f4929651948e81e7286'
 NS = {'c': 'http://www.collada.org/2005/11/COLLADASchema'}
 WORLD = 'worlds/no_roof_small_warehouse/no_roof_small_warehouse.world'
 
@@ -154,7 +155,7 @@ def import_world(source, output):
     ET.indent(sdf)
     ET.ElementTree(sdf).write(output / 'warehouse.sdf', encoding='utf-8', xml_declaration=True)
     manifest = {'repository': UPSTREAM, 'branch': 'ros2', 'revision': REVISION,
-                'license': 'MIT-0', 'inputs': {}}
+                'revision_type': 'commit', 'tree': TREE, 'license': 'MIT-0', 'inputs': {}}
     for relative in sorted(used):
         data = (source / relative).read_bytes()
         manifest['inputs'][relative] = {
