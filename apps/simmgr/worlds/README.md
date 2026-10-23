@@ -40,6 +40,35 @@ runtime을 사용하며 control-app 원물은 수정하지 않는다. 실행 호
   없다. Harmonic Physics/UserCommands/SceneBroadcaster/Sensors(ogre2)/Imu 플러그인을 명시한다.
   로봇·센서는 월드에 포함하지 않는다. 텍스처 없이 단색 재질을 사용한다.
 
+
+### Collision OBJ 법선 호환성
+
+native 창고 첫 기동 로그는 collision OBJ마다 normal count 0으로 DART가 submesh를
+버린 뒤 ODE `OdeMesh::fillArrays`에서 SIGSEGV가 발생한 것을 기록했다. 마지막으로
+이름이 나온 PalletJack은 로더 정점 2040개에 법선 0개였다. `collision_normals.py`는
+삼각형의 면적 가중 법선을 정점별로 합산·정규화하고 `vn`과 `f v//vn` 참조만 추가한다.
+상쇄되면 첫 인접 면의 법선을 사용한다. 정점 문자열·면 연결·winding·SDF/physics는
+그대로이며 기하를 복구하거나 박스로 바꾸지 않는다. importer도 같은 변환을 사용한다.
+출처·라이선스와 `sources.json`의 원본 입력 SHA는 유지한다.
+
+12개 OBJ 전체의 원래 정점/면 SHA와 법선 수·참조·단위 길이·재실행 불변성을 시험한다.
+설치된 gz-common5 OBJ loader에서도 모든 submesh의 vertex/normal 수가 일치한다
+(PalletJack 2040/2040). 법선 추가 후 지도를 다시 생성한 PNG/YAML은 기존 바이트와 같다.
+의존 파일 및 metadata SHA만 갱신했다. 좌표·스폰·floor 높이는 바뀌지 않았다.
+
+| 항목 | SHA-256 |
+|---|---|
+| collision/SDF 의존 묶음 | `840196482d2e01a5d819024391c8a8506137f2d784dfbb21d79f204cba87aea5` |
+| metadata.json | `ff362bf2740430607140b11edb5bcfb6230a016bd128a09cc5e592d8b59dc8d6` |
+| f1.png (불변) | `ce79faafe42fbe7c3239699802c6422701e760d98edc96e8b980f7f322c3480b` |
+
+격리 domain94·전용 GZ_PARTITION에서 원본/수정본 창고를 각각 한 번씩
+`gz sim -s -r --iterations 500`로 비교했다. 원본은 같은 `OdeMesh::fillArrays`
+SIGSEGV(rc=-11)를 재현했고 수정본은 normal mismatch 없이 rc=0으로 종료했다.
+두 실행 후 해당 partition 프로세스와 domain94 DDS 포트는 0이었다. `/proc` 권한 거절은
+관측 한계다. 이는 로봇 없는 정적 월드 로드·물리 스텝 확인이며 실제 로봇 스폰·접촉·
+보행·센서·내비게이션 성공을 증명하지 않는다.
+
 ## 재생성 (오프라인)
 
 패키지를 설치하지 않는다. 시스템 Python에 이미 있는 numpy/Pillow/trimesh를 사용한다.
@@ -49,6 +78,9 @@ runtime을 사용하며 control-app 원물은 수정하지 않는다. 실행 호
 ```sh
 PYTHONDONTWRITEBYTECODE=1 python3 apps/simmgr/tools/import_warehouse.py \
   SOURCE apps/simmgr/worlds/warehouse
+# importer가 collision 법선을 함께 생성한다. 기존 OBJ에만 적용할 때:
+PYTHONDONTWRITEBYTECODE=1 python3 apps/simmgr/tools/collision_normals.py \
+  apps/simmgr/worlds/warehouse/meshes
 PYTHONDONTWRITEBYTECODE=1 python3 apps/simmgr/tools/collision_map.py \
   apps/simmgr/worlds/warehouse/warehouse.sdf apps/simmgr/worlds/warehouse/maps \
   --floor f1:0.034226 --resolution 0.05 --bounds -7.5 -11 7.5 11

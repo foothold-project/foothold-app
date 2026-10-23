@@ -51,6 +51,10 @@ def failed_episode(tmp_path, monkeypatch):
         return ''
     monkeypatch.setattr(isolation, 'command', command)
     def run(args, **kwargs):
+        if args == ['systemctl', '--user', 'stop', state.child.unit]:
+            state.events.append('agent_exit0')
+            state.agent = dict(LoadState='not-found')
+            return SimpleNamespace(stdout='')
         assert args == ['systemctl', '--user', 'reset-failed', state.child.unit]
         state.events.append('agent_reaped')
         state.agent = dict(LoadState='not-found')
@@ -96,7 +100,8 @@ def failed_episode(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize('complete', [True, False])
-def test_exit1_owner_app_delete_requires_native_proof(failed_episode, seeded, client, monkeypatch, complete):
+@pytest.mark.parametrize('native_crash', [False, True])
+def test_owner_app_delete_requires_native_proof(failed_episode, seeded, client, monkeypatch, complete, native_crash):
     cfg, state, launch, prepare = failed_episode
     slot = next(iter(cfg.slots.values()))
     slot = replace(slot, org_id=str(seeded['org']))
@@ -107,6 +112,13 @@ def test_exit1_owner_app_delete_requires_native_proof(failed_episode, seeded, cl
     async def start(world):
         state.events.append('startup_preflight')
         prepare()
+        if native_crash:
+            # Gazebo crashes after POST; native supervisor has already exited
+            # and the agent exits normally, as in the warehouse preview logs.
+            state.sim.reason = 'unit_exited'
+            state.native['MainPID'] = '0'
+            state.rows = []
+            state.agent.update(Result='success', ExecMainStatus='0', ActiveState='inactive')
     async def add(slot, credentials):
         pass  # agent has already exited1 by the first health observation
     monkeypatch.setattr(launch, 'start_world', start)
@@ -168,7 +180,8 @@ def test_exit1_owner_app_delete_requires_native_proof(failed_episode, seeded, cl
             assert result['leftovers'] == result['dds_ports'] == []
             assert launch.sim is launch.child is launch.folder is None
             assert not launch.failed and not simapp.state.manager.failed
-        assert state.events == ['startup_preflight', 'native_sigint', 'agent_reaped'] * 2
+        expected = ['startup_preflight', 'agent_exit0'] if native_crash else ['startup_preflight', 'native_sigint', 'agent_reaped']
+        assert state.events == expected * 2
 
 
 @pytest.mark.parametrize('failure,stage,signalled', [
@@ -237,3 +250,35 @@ def test_failed_agent_cgroup_requires_proven_empty(failed_episode, monkeypatch, 
         with pytest.raises(RuntimeError, match='populated'):
             state.child.confirm_failed_exit()
     assert not state.events
+
+
+@pytest.mark.parametrize('missing', ['identity', 'unit_record', 'manifest', 'cleanup', 'kids', 'ledgers', 'dds', 'leftover'])
+def test_native_crash_without_complete_proof_latches(failed_episode, missing):
+    cfg, state, launch, prepare = failed_episode
+    folder = prepare()
+    launch.child = None  # already confirmed normal agent shutdown
+    launch.failed = True
+    state.sim.reason = 'unit_exited'
+    state.native['MainPID'] = '0'
+    state.rows = []
+    if missing == 'identity': state.sim.identity = None
+    if missing == 'unit_record': (folder / 'unit.json').unlink()
+    if missing in ('manifest', 'cleanup', 'kids', 'ledgers'):
+        manifest = json.loads((folder / 'manifest.json').read_text())
+        if missing == 'manifest': manifest['partition'] = 'fh-srv-bbbbbbbbbbbb'
+        if missing == 'cleanup': manifest['cleanup']['complete'] = False
+        if missing == 'kids': manifest['kids_stop'][-1]['complete'] = False
+        if missing == 'ledgers': manifest.pop('isolation')
+        isolation.write(folder / 'manifest.json', manifest)
+    if missing == 'dds': state.ports = [30650]
+    if missing == 'leftover': state.rows = [state.sim.pid.copy()]
+    async def exercise():
+        with pytest.raises(CleanupUnconfirmed) as error:
+            await launch.close_world()
+        assert error.value.code == ('SIM_CLEANUP_IDENTITY_UNPROVEN' if missing in ('identity', 'unit_record')
+                                    else 'SIM_CLEANUP_NATIVE_UNPROVEN')
+        assert launch.failed and launch.recovery_blocked and launch.sim is state.sim
+        with pytest.raises(CleanupUnconfirmed, match='SIM_CLEANUP_LATCHED'):
+            await launch.close_world()
+        assert state.events == []  # no signal to an already exited native unit
+    asyncio.run(exercise())

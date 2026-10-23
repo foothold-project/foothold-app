@@ -37,6 +37,12 @@
   로봇 제거는 그 월드 정리까지 포함한다. 정상 agent 종료와 world identity/정리 증거 확인 뒤에는
   같은 관리자에서 다음 POST가 가능하다. 매 기동은 `SIM_RUN_DIR` 아래 시각+순번의 새0700
   episode 폴더와 그 이름의 agent unit을 쓰며 기존 폴더/unit 이름은 재사용하지 않는다.
+  native가 조기에 스스로 종료된 경우에도 agent 정상 종료 후 PR #69와 같은 증명을
+  모두 확인하면 DELETE를 완료한다: 저장한 unit/PID/start_ticks/cgroup/domain93/partition,
+  native manifest·cleanup.complete·자식 정리·원본/월드/운영 ledger 불변,
+  잔여 프로세스·DDS 포트 0. 실패 고정과 소유는 이 증명 뒤에만 해제한다.
+  하나라도 미증명이면 409 `SIM_CLEANUP_IDENTITY_UNPROVEN` 또는
+  `SIM_CLEANUP_NATIVE_UNPROVEN`으로 실패를 고정하며 재요청은 `SIM_CLEANUP_LATCHED`다.
   다음 기동도 자원·93·DDS·sim/agent unit 부재 관문을 다시 통과한다. 정리 실패·식별 불일치·
   강제 agent 종료·감시 오류는 실패를 고정해 재기동을 차단하며 담당자 확인이 필요하다.
   예외는 unit·프로세스·native 출력 생성 전 증명된 두 자원 거부뿐이다. 빈 episode 폴더와

@@ -137,6 +137,13 @@ def import_world(source, output):
                                 stream.write('v ' + ' '.join(f'{v:.9g}' for v in vertex) + '\n')
                             for face in indices.reshape(-1, 3) + 1:
                                 stream.write('f ' + ' '.join(str(v) for v in face) + '\n')
+                        if kind == 'collision':
+                            if __package__:
+                                from .collision_normals import add_normals
+                            else:
+                                from collision_normals import add_normals
+                            obj = output / 'meshes' / obj_name
+                            obj.write_text(add_normals(obj.read_text()))
                         converted.add(obj_name)
                     target = ET.SubElement(ET.SubElement(part, 'geometry'), 'mesh')
                     ET.SubElement(target, 'uri').text = 'meshes/' + obj_name

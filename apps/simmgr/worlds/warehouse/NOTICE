@@ -12,7 +12,8 @@ Changes: expand includes into static SDF 1.9 models; preserve no-roof model
 placements and collision geometry; bake COLLADA scene matrices and centimetre
 units into metre/Z-up OBJ geometry; remove textures, UVs and Classic-only ODE
 material/friction fields; use flat SDF materials and Harmonic gz-sim system
-plugins. The no-roof source already omits the roof and desks. No external Fuel,
+plugins. Add indexed unit vertex normals for DART mesh compatibility without
+changing vertex coordinates, triangle connectivity or winding. The no-roof source already omits the roof and desks. No external Fuel,
 Isaac, NVIDIA, ROS package, remote mesh URI or texture dependency is included.
 
 sources.json records the 38 selected upstream inputs with Git blob SHA-1,
