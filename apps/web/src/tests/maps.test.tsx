@@ -6,7 +6,7 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { toPixel } from '../screens/maps';
+import { floorName, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
 import raw from './mapcases.json?raw';
 import { FakeWS } from './fakeWs';
@@ -131,6 +131,13 @@ describe('좌표 → 그림 픽셀', () => {
     expect(x).toBeCloseTo(20); expect(y).toBeCloseTo(80);
     const [x2, y2] = toPixel(r, -1, 0);                   // 지도 -x 1 m = 그림 위로 20칸
     expect(x2).toBeCloseTo(0); expect(y2).toBeCloseTo(60);
+  });
+});
+
+describe('시뮬 층 이름(검토 PR #85 B1)', () => {
+  it('등록한 ID 만 바꾸고 상속 키·모르는 이름은 문자열 그대로', () => {
+    expect(['l1', 'l2', 'f1'].map(floorName)).toEqual(['1층', '2층', '1층']);
+    for (const n of ['__proto__', 'constructor', 'toString', 'hasOwnProperty', 'l9', '윗층']) expect(floorName(n)).toBe(n);
   });
 });
 
