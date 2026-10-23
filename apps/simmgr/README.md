@@ -32,7 +32,8 @@
   UUID별 namespace·TF prefix·명령 토픽·에이전트 포트 분리의 **계획/계약**만 시험한다.
 - `NativeLauncher`: 명시 `FH_SIM_RUN=1` 때만 기존 D1 `Simulation` supervisor를 불러 쓴다.
   자원/전용 user unit/identity/source hash/정리 검사를 재사용. 원본은 고정Go2+고정토픽이라
-  실제1대만·v5_single/f1만 허용한다. native world 시작은 이미 로봇1대를 포함한다.
+  실제1대만 허용한다. private 목록과 native `worlds.json` 양쪽에 등록된 월드·층만 열며,
+  world/gt_map 실경로가 일치해야 한다. native world 시작은 이미 로봇1대를 포함한다.
   로봇 제거는 그 월드 정리까지 포함한다. 정상 agent 종료와 world identity/정리 증거 확인 뒤에는
   같은 관리자에서 다음 POST가 가능하다. 매 기동은 `SIM_RUN_DIR` 아래 시각+순번의 새0700
   episode 폴더와 그 이름의 agent unit을 쓰며 기존 폴더/unit 이름은 재사용하지 않는다.
@@ -55,6 +56,15 @@
 ```
 
 `world_file/map_file`은 native `worlds.json`의 world/gt_map 실경로와 일치해야 한다.
+월드·층 선택은 native SDF에 들어 있는 Go2 스폰을 그대로 사용한다. 층간 이동은 지원하지
+않으며 층마다 별도 episode로 연다. 기존 `v5_single/f1`은 원본 D1 진입점을 유지한다.
+다른 등록 항목은 `native_entrypoint.py`에서 원본 격리 helper의 `TARGET` 한 개만 실행 중
+대체한다. 원본 파일은 수정하지 않는다. 이 대체 전에 목록·실경로 및 부모가 기록한
+목록/world/map/helper SHA를 다시 확인한다. 원본 helper의 환경·출력 경로·센서 프로필·
+usage-scope·cgroup 검사와 원장 보호는 그대로다. 원본 helper SHA와 선택 대상은 새 episode의
+`catalogue-target-manifest.json`에 기록하며, 감시·identity·source hash·정리는 D1에서 상속한다.
+목록 밖 월드·층/실경로 불일치와 자원 관문 거부는 해시 및 unit 생성보다 먼저 처리한다.
+비공개 월드·지도 사본은 Git 제외 `runs/`에서 별도로 준비하고 목록을 자동 병합하지 않는다.
 카탈로그 `name`은 1~40자, `description`은 선택(기본 빈 문자열)·최대 200자이며, 옛 항목의 이름 생략은 id로 대체하고 경고 1줄을 남긴다.
 `FH_SIM_EXTRA_PORTS="8870"`처럼 관리자·서버에 쉼표로 추가 포트를 명시한다(기본 9430~9449 유지, 8453·8792는 설정해도 거부, loopback·URL 검사는 유지).
 원본의 generated 센서 자산·provenance도 기존 runtime이 검사한다. 가짜 모드는 경로의 파일을

@@ -217,7 +217,8 @@ def test_native_waits_for_identity_after_unit_birth(tmp_path,monkeypatch):
     monkeypatch.setitem(sys.modules,'isolation',SimpleNamespace(Simulation=Sim))
     monkeypatch.setitem(sys.modules,'constants',SimpleNamespace(MAP_DIRECTORY='maps'))
     async def run():
-        cfg=replace(settings(),real=True,source=str(source),ros_setup='unused',run_dir=str(root/'runs/approved'))
+        cfg=replace(settings(),real=True,source=str(source),ros_setup='unused',run_dir=str(root/'runs/approved'),
+                    worlds={'v5_single/f1': World('v5_single/f1',world,mapfile)})
         launch=NativeLauncher(cfg)
         await launch.start_world(World('v5_single/f1',world,mapfile))
         assert launch.sim.calls == 2 and launch.sim.started
