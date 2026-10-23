@@ -44,8 +44,8 @@ def single_floor_status(status, meta):
     return status
 
 
-def robot_world(text, native):
-    """Preserve warehouse collision geometry; add only the runtime's robot."""
+def robot_world(text, native, assets_root):
+    """Use episode visual normals and the robot; preserve collision geometry."""
     tree = ET.fromstring(text)
     world = tree.find('world')
     if world is None or tree.findall('.//include'):
@@ -53,6 +53,8 @@ def robot_world(text, native):
     world.set('name', 'fh_v2_live')
     for uri in tree.findall('.//uri'):
         uri.text = str(contained(native.root, str(native.world_file.parent.relative_to(native.root) / uri.text)))
+    for uri in tree.findall('.//visual/geometry/mesh/uri'):
+        uri.text = str(assets_root / 'visual-meshes' / Path(uri.text).relative_to(native.root))
     for plugin in list(world.findall('plugin')):
         if plugin.get('filename') == 'gz-sim-imu-system':
             world.remove(plugin)  # Established sensor-profile adapter adds exactly one.
@@ -85,6 +87,16 @@ def prepare(native, base_root, folder):
         raise ValueError('repository collision raster does not match registered map')
     root = folder / 'native-assets'
     root.mkdir(exist_ok=False)
+    # Ogre2 requires finite vertex normals on these texture-free OBJ visuals.
+    # Keep the registered source/collision bytes intact; only the episode copy
+    # gains normals. The source's two zero-area visual faces remain in place.
+    from .tools.collision_normals import add_normals
+    for uri in ET.parse(native.world_file).findall('.//visual/geometry/mesh/uri'):
+        source = contained(native.root, str(native.world_file.parent.relative_to(native.root) / uri.text))
+        target = root / 'visual-meshes' / source.relative_to(native.root)
+        if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(add_normals(source.read_text(), allow_degenerate=True))
     # These resources are read by the upstream runtime. No writable maps/ledgers
     # or connected-world catalogue are linked into the generated asset tree.
     for name in ('gz', 'live_map.py', 'points_view.py', 'slam_params_v2map.yaml'):
@@ -139,4 +151,4 @@ def install(runtime, native, folder):
     runtime['gt_identity_allowed'] = functools.partial(runtime['gt_identity_allowed'], here=str(root))
     profile = runtime['SP']
     original = profile.world_text
-    profile.world_text = lambda text, follow: original(robot_world(text, native), follow)
+    profile.world_text = lambda text, follow: original(robot_world(text, native, root), follow)
