@@ -901,3 +901,100 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(items()).toEqual(['1층 순찰']);
   });
 });
+
+describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
+  const V1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', V2 = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const V5 = { id: 'v5_building', name: '연결 건물', description: '', map_id: 'b-1', spawn_floor_ids: ['l1', 'l2'] as ('l1' | 'l2')[],
+    floors: [{ floor_id: 'f-1', name: '1층', floor_z: 0, map_version_id: V1, ros_floor_id: 'l1' }, { floor_id: 'f-2', name: '2층', floor_z: 3, map_version_id: V2, ros_floor_id: 'l2' }] };
+  const ver = (id: string, sha: string) => ({ status: 200, body: { id, number: 1, floor_id: 'f', status: 'APPROVED', image_sha256: sha, width: 200, height: 100, resolution: 0.05,
+    origin: [0, 0, 0], features: { zones: [], waypoints: [], connectors: [], edits: [] } } });
+  const fc = (p: Record<string, unknown>) => ({ robot_id: S1, generation: 1, run_id: 'run-1', epoch: 1, floor_rev: 1, world_id: 'v5_building', building_id: 'b-1', spawn_floor_id: 'l1',
+    current_floor_id: 'l1', floor_id: 'f-1', map_version_id: V1, sha256: 'a1', source_pgm_sha256: 'p1', source: 'gt_geometry', floor_state: 'on_floor', reason: 'confirmed', confirmed_sim_t: 1, ...p });
+  const L1 = {}, TRANSIT = { floor_rev: 2, current_floor_id: null, floor_id: null, map_version_id: null, sha256: null, floor_state: 'transit', reason: 'connector_ramp' };
+  const L2 = { floor_rev: 3, current_floor_id: 'l2', floor_id: 'f-2', map_version_id: V2, sha256: 'b2' };
+  const at = (c: Record<string, unknown>, xy = { x: 2, y: 1, yaw: 0.5 }) => phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false,
+    pose: { floor_context: fc(c), map_version_id: c.map_version_id === undefined ? V1 : c.map_version_id, floor_id: null, confidence: 1,
+      ...(c.floor_state === 'transit' ? { x: null, y: null, yaw: null } : xy) } });
+  const routesV5 = {
+    'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [V5] } },
+    'POST /simulation/robots': () => { mine = [{ ...simRobot(), world_id: 'v5_building', spawn_floor_id: 'l1' }]; return { status: 201, body: mine[0] }; },
+    [`GET /map-versions/${V1}`]: ver(V1, 'a1'), [`GET /map-versions/${V2}`]: ver(V2, 'b2'),
+  };
+  const shown = () => $('[data-sim-map]')?.getAttribute('data-sim-map');
+  const load = async () => { act(() => { $('[data-sim-map] image')!.dispatchEvent(new Event('load')); }); await flush(); };
+
+  it('두 층 월드는 «시작 층»을 고르고 spawn_floor_id 를 보낸다, 한 층 월드는 표시·전송 0', async () => {
+    serve({ 'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [...CATALOG.worlds, V5] } } });
+    await mount();
+    expect($('[data-sim-spawn]')).toBeNull();   // 기본(빈 연습장) = 시작 층 없음
+    await click($('[aria-label="월드 목록"] input[value="v5_building"]'));
+    const spawn = $('[data-sim-spawn]')!;
+    expect(spawn.textContent).toBe('시작 층1층2층');
+    expect(spawn.querySelector<HTMLInputElement>('input[value="l1"]')!.checked).toBe(true);
+    await click(spawn.querySelector('input[value="l2"]'));
+    await click(btn('띄우기'));
+    expect(calls.find((c) => c.method === 'POST' && c.path === '/simulation/robots')!.body).toEqual({ world_id: 'v5_building', robot_id: S1, spawn_floor_id: 'l2' });
+  });
+
+  it('1층 판 + 위치 → 층 이동 중(점 숨김·흐림) → 2층 판 자동 교체·안내, 옛 rev·다른 세대 무시, 큰 지도에서도 조이스틱·STOP 그대로', async () => {
+    const a = await launch(welcome(), routesV5); await drive(a);
+    expect($('[data-sim-mini]')!.getAttribute('aria-label')).toBe('지도 크게');
+    expect($('[data-sim-floor]')!.textContent).toBe('층을 확인하는 중');   // 문맥 전 — 판·점 없음
+    expect($('[data-sim-map]')).toBeNull();
+    await recv(a, at(L1));
+    expect(shown()).toBe(V1);
+    expect($('[data-sim-dot]')).toBeNull();   // 그림을 받기 전에는 점 없음
+    await load();
+    expect($('[data-sim-dot]')).toBeTruthy();
+    expect($('[data-sim-floor]')!.textContent).toBe('1층');
+    expect(box.textContent).not.toContain('지도로 바꿨습니다');   // 첫 판은 안내 없음
+
+    await recv(a, at(TRANSIT));
+    expect($('[data-sim-dot]')).toBeNull();
+    expect($('[data-sim-map]')!.hasAttribute('data-dim')).toBe(true);
+    expect($('[data-sim-floor]')!.textContent).toBe('층 이동 중');
+
+    await recv(a, at(L2));
+    expect(calls.some((c) => c.path === `/map-versions/${V2}`)).toBe(true);
+    expect(shown()).toBe(V2);
+    await load();
+    expect($('[data-sim-dot]')).toBeTruthy();
+    expect($('[data-sim-floor]')!.textContent).toBe('2층');
+    expect(box.textContent).toContain('2층 지도로 바꿨습니다');
+    await recv(a, at({ ...TRANSIT, floor_rev: 3.5 }));   // 안내 중 다시 이동 — 안내는 남지 않는다
+    expect(box.textContent).not.toContain('지도로 바꿨습니다');
+    await recv(a, at({ ...L2, floor_rev: 3.6 })); await load();
+
+    await recv(a, at(L1));   // 옛 floor_rev(1) — 무시
+    expect(shown()).toBe(V2);
+    expect($('[data-sim-floor]')!.textContent).toBe('2층');
+    await recv(a, at({ ...L1, floor_rev: 9, generation: 2 }));   // 다른 세대 — 무시
+    expect(shown()).toBe(V2);
+    await recv(a, at({ ...L2, floor_rev: 4, floor_state: 'unknown', current_floor_id: null, map_version_id: null }));
+    expect($('[data-sim-dot]')).toBeNull();
+    expect($('[data-sim-floor]')!.textContent).toBe('층을 확인하는 중');
+
+    // 지도 크게: 영상이 작은 칸으로, 조이스틱·STOP 은 그대로
+    await click($('[data-sim-mini]'));
+    expect($('[data-sim-mini]')!.getAttribute('aria-label')).toBe('영상 크게');
+    expect($('.dv-stage > [data-sim-map]')).toBeTruthy();
+    expect(stick('전후').getAttribute('aria-disabled')).toBe('false');
+    expect(box.querySelector('.dv-stage [data-stop]')).toBeNull();
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+  });
+
+  it('판 응답이 오기 전에 문맥이 바뀌면 그 판은 그리지 않는다, 판 SHA 가 다르면 위치 숨김', async () => {
+    let answer: (r: Reply) => void = () => {};
+    const a = await launch(welcome(), { ...routesV5, [`GET /map-versions/${V1}`]: () => new Promise<Reply>((f) => { answer = f; }), [`GET /map-versions/${V2}`]: ver(V2, 'other') });
+    await drive(a);
+    await recv(a, at(L1));
+    await recv(a, at(TRANSIT));
+    answer(ver(V1, 'a1')); await flush();
+    expect($('[data-sim-map]')).toBeNull();
+    expect($('[data-sim-floor]')!.textContent).toBe('층 이동 중');
+    await recv(a, at(L2));
+    expect($('[data-sim-dot]')).toBeNull();
+    expect($('[data-sim-floor]')!.textContent).toBe('지도 판이 맞지 않습니다');
+  });
+});
