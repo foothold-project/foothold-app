@@ -1,0 +1,198 @@
+{
+  "repository": "https://github.com/aws-robotics/aws-robomaker-small-warehouse-world",
+  "branch": "ros2",
+  "revision": "ee0af733315e78432408c3cd98d378ecee5f767c",
+  "license": "MIT-0",
+  "inputs": {
+    "LICENSE": {
+      "bytes": 927,
+      "sha256": "ef47b4ae2a1a8d38ef87b38dc5927967e7b472ffa3f7d125e89dbc8353a1e7af",
+      "git_blob": "1bb4f21e5d8b5b21b6952c0b9bf2e6220d9a56be"
+    },
+    "models/aws_robomaker_warehouse_Bucket_01/meshes/aws_robomaker_warehouse_Bucket_01_collision.DAE": {
+      "bytes": 8723,
+      "sha256": "c619575cdd23ec8f42fb583317f619ff8b74f287dc7a46ebb5b9837e76d3c28b",
+      "git_blob": "c8146dee840b9332cb20b6696d93c38e1e9a5e07"
+    },
+    "models/aws_robomaker_warehouse_Bucket_01/meshes/aws_robomaker_warehouse_Bucket_01_visual.DAE": {
+      "bytes": 27631,
+      "sha256": "00996b7fa7145e1af2bccba9e2f56003227805c1b06e410124237ed410cf0642",
+      "git_blob": "56318921b1084b7e07187e2f4d1f37963f7ffaf8"
+    },
+    "models/aws_robomaker_warehouse_Bucket_01/model.sdf": {
+      "bytes": 1853,
+      "sha256": "cba2afedc8566553a652e571344c91572be8f9eddc8c9621d75ac1cc99c710b7",
+      "git_blob": "1a11c297b71c5ab98fa7f3d783d6c13eac4a0674"
+    },
+    "models/aws_robomaker_warehouse_ClutteringA_01/meshes/aws_robomaker_warehouse_ClutteringA_01_collision.DAE": {
+      "bytes": 11934,
+      "sha256": "f2e592215a2e3fef5161da3e0a53339f83c7ccc059a75bce6dfc52e23eafa024",
+      "git_blob": "553d82bcf40b784e74cd2188393cd17681b29056"
+    },
+    "models/aws_robomaker_warehouse_ClutteringA_01/meshes/aws_robomaker_warehouse_ClutteringA_01_visual.DAE": {
+      "bytes": 63002,
+      "sha256": "ccf14ca50f55bc5db59b94d8947307a1c2729ffc4f2d36a6f26a0dbe1476c1d8",
+      "git_blob": "4a3143c9b209a97c9c91bdbbd7591345f4ad52ac"
+    },
+    "models/aws_robomaker_warehouse_ClutteringA_01/model.sdf": {
+      "bytes": 1591,
+      "sha256": "8a4174e8a9a0fe58c6b67564b2b15d97a629344c379ebae9dc58cfbd08f34538",
+      "git_blob": "e0ab80fb51caa0feb6fc7d7fc5a66b6a885bd56e"
+    },
+    "models/aws_robomaker_warehouse_ClutteringC_01/meshes/aws_robomaker_warehouse_ClutteringC_01_collision.DAE": {
+      "bytes": 5906,
+      "sha256": "17ea0446b4310bc2828ba9abe48a86bed674f410611c389ff60cd7ff199b2440",
+      "git_blob": "4f4fd107d0f1580eb3e24f96c582adecc995d937"
+    },
+    "models/aws_robomaker_warehouse_ClutteringC_01/meshes/aws_robomaker_warehouse_ClutteringC_01_visual.DAE": {
+      "bytes": 66702,
+      "sha256": "0817b2b4b7155ce091bbbba1fe7039434e6698cea23730999571076e21d26154",
+      "git_blob": "0a1e7f52ac3bfc42c79e88cd40a78c9ce9335304"
+    },
+    "models/aws_robomaker_warehouse_ClutteringC_01/model.sdf": {
+      "bytes": 1582,
+      "sha256": "d2c2d44e634228c673f4569af3e16259242cef1c5fde970bc239131d2927c878",
+      "git_blob": "0a1802a0b2b224ccaee66de1fbc4db8877127fe9"
+    },
+    "models/aws_robomaker_warehouse_ClutteringD_01/meshes/aws_robomaker_warehouse_ClutteringD_01_collision.DAE": {
+      "bytes": 5913,
+      "sha256": "602a9683515439e085c8af2f9e2dca905210c7daeff093f1d74a5175d57f6ee0",
+      "git_blob": "08d49558887d56d3e244de1051bd84fd7c808659"
+    },
+    "models/aws_robomaker_warehouse_ClutteringD_01/meshes/aws_robomaker_warehouse_ClutteringD_01_visual.DAE": {
+      "bytes": 47492,
+      "sha256": "6fd0be026df79ceb9125291df7f1f481ed6691d0e49f960c2c22accc55e9baa7",
+      "git_blob": "70f9c7503cf83be85e7007338366beca34a36650"
+    },
+    "models/aws_robomaker_warehouse_ClutteringD_01/model.sdf": {
+      "bytes": 1576,
+      "sha256": "4b6751b65cecf74e3e7166ef61e2ddf227167d8c35b0cef02285a197a805c843",
+      "git_blob": "31da40175ddb549956f825264dc4523698d904e3"
+    },
+    "models/aws_robomaker_warehouse_GroundB_01/meshes/aws_robomaker_warehouse_GroundB_01_collision.DAE": {
+      "bytes": 5847,
+      "sha256": "82482bea3e67f61b43dd385f83e9478142310a88f6c407cec550c523d547891d",
+      "git_blob": "3d2c3d5a3021f4014abe779ee5ae2380ba054c31"
+    },
+    "models/aws_robomaker_warehouse_GroundB_01/meshes/aws_robomaker_warehouse_GroundB_01_visual.DAE": {
+      "bytes": 25430,
+      "sha256": "2549afc839ac9a74554894eff766a7b5265e99fdf6ac398580031a0494293020",
+      "git_blob": "baf18d48e3ae3cf1c99a416d6334be7366aaedb4"
+    },
+    "models/aws_robomaker_warehouse_GroundB_01/model.sdf": {
+      "bytes": 1256,
+      "sha256": "12ef0d4d7ed2bbf18e5ca552c08d1cc1a69b49331f1cf6eaa41f2a0e53fcd0ac",
+      "git_blob": "abab8b43fbbc9342bf67f7599d7e405c5521be08"
+    },
+    "models/aws_robomaker_warehouse_Lamp_01/meshes/aws_robomaker_warehouse_Lamp_01_collision.DAE": {
+      "bytes": 5730,
+      "sha256": "262dccf5d5ff7d1859db119ff438c975bdf14e09fdcb8d36184c8afeca6f7be0",
+      "git_blob": "672719c1dbe480ea9477af7098eb68e5f548aa88"
+    },
+    "models/aws_robomaker_warehouse_Lamp_01/meshes/aws_robomaker_warehouse_Lamp_01_visual.DAE": {
+      "bytes": 38157,
+      "sha256": "5718de01253a33d8ed99695560033e99a282abe93030e8ab41be24e16d6f990d",
+      "git_blob": "edd8e960c43ecfecefb499a1304d71e752dea3d6"
+    },
+    "models/aws_robomaker_warehouse_Lamp_01/model.sdf": {
+      "bytes": 1231,
+      "sha256": "beb3e7865bebb64ecaa966639d28fc56dc3cd12439a9f8d7770966c7aacfb9f5",
+      "git_blob": "8b636c80c9bce413fad2ecd57af573561d34a058"
+    },
+    "models/aws_robomaker_warehouse_PalletJackB_01/meshes/aws_robomaker_warehouse_PalletJackB_01_collision.DAE": {
+      "bytes": 125470,
+      "sha256": "ca7886559e76cad6700c37f726b2285abdaa7364265042a639ebc70c31b9993e",
+      "git_blob": "dc0c1a253aa7cbeb79d4185ac1546d17e83da28a"
+    },
+    "models/aws_robomaker_warehouse_PalletJackB_01/meshes/aws_robomaker_warehouse_PalletJackB_01_visual.DAE": {
+      "bytes": 534001,
+      "sha256": "40822b3463520932bf793d2340ca111ca383757f5cc3799dd0f9edc76936974e",
+      "git_blob": "3c2d0a31e51347f3096644cb4820ea7bfcdaf6b4"
+    },
+    "models/aws_robomaker_warehouse_PalletJackB_01/model.sdf": {
+      "bytes": 1259,
+      "sha256": "f716574a2e2b000fb843d34f3f3c485fe880d10bd2b587c2e2a77fda878b4d7b",
+      "git_blob": "b6568b16dbd7ba5102a6ca5f43c95e06e14a739b"
+    },
+    "models/aws_robomaker_warehouse_ShelfD_01/meshes/aws_robomaker_warehouse_ShelfD_01_collision.DAE": {
+      "bytes": 12011,
+      "sha256": "1ecb3254a361230311251886165dab5150ba006088e5f1ad94284ae5c2fc6364",
+      "git_blob": "0c5642a86c32ae49fde5f027b6baea4f24c15589"
+    },
+    "models/aws_robomaker_warehouse_ShelfD_01/meshes/aws_robomaker_warehouse_ShelfD_01_visual.DAE": {
+      "bytes": 132954,
+      "sha256": "00db7593f7babfbefb05d28715bb82b6f78edacd0eadedfabe95411776b417ca",
+      "git_blob": "0f87b77dc8f41176e223feb816008f742e51f5fe"
+    },
+    "models/aws_robomaker_warehouse_ShelfD_01/model.sdf": {
+      "bytes": 1241,
+      "sha256": "9c93f0cab2a1eac18f01c4042677e78d2321c7c8cde02db6bbb7fdd23da1271e",
+      "git_blob": "3b4f0edcc00ea93fd19e8c39d0e33973d99e3a13"
+    },
+    "models/aws_robomaker_warehouse_ShelfE_01/meshes/aws_robomaker_warehouse_ShelfE_01_collision.DAE": {
+      "bytes": 12011,
+      "sha256": "ae1d25d5770ab46af26d27f60e36a5cab3fd506401a3e07b73b44eb0b4cdf920",
+      "git_blob": "5922d3179eebbc61e87339bc554a5f41451cb09c"
+    },
+    "models/aws_robomaker_warehouse_ShelfE_01/meshes/aws_robomaker_warehouse_ShelfE_01_visual.DAE": {
+      "bytes": 125778,
+      "sha256": "fda6508ff115732a52f12577363cb759f408040aa1ac54a9fc69fe85f7ad451e",
+      "git_blob": "bc2cee10985b38db3af50e77c5acca1c2d83908c"
+    },
+    "models/aws_robomaker_warehouse_ShelfE_01/model.sdf": {
+      "bytes": 1241,
+      "sha256": "94f7e3d97eac34b99ef40e7b56a9140adee7c119bf8e444ef2d5c033aa04d548",
+      "git_blob": "5c043ec205e33915cbfe399568b3550a773263ca"
+    },
+    "models/aws_robomaker_warehouse_ShelfF_01/meshes/aws_robomaker_warehouse_ShelfF_01_collision.DAE": {
+      "bytes": 20869,
+      "sha256": "2a1fb6e3429942f77d959aefdc608a6c0d9655759524e8921f8a4e9671660bb8",
+      "git_blob": "cc88e550940f4bf45c22a2dbe4877f5514bd7219"
+    },
+    "models/aws_robomaker_warehouse_ShelfF_01/meshes/aws_robomaker_warehouse_ShelfF_01_visual.DAE": {
+      "bytes": 532530,
+      "sha256": "17addb9300025be5aee756787979a5199d1be24b731d2bc23b654d4b43649255",
+      "git_blob": "9dfa27657f8a079760a083aaba46e1fac3cf80ce"
+    },
+    "models/aws_robomaker_warehouse_ShelfF_01/model.sdf": {
+      "bytes": 1241,
+      "sha256": "b10f60c2cb88f0aebf87e0bfe18c55d800392c87990fc4cf0d03adbf6e745f94",
+      "git_blob": "c140f01d1f861e74e0a5230c76b888519727108f"
+    },
+    "models/aws_robomaker_warehouse_TrashCanC_01/meshes/aws_robomaker_warehouse_TrashCanC_01_collision.DAE": {
+      "bytes": 25282,
+      "sha256": "83741a96a3181a38c68cedd03a43c723275dfc448bffaaae8af8674d3572540e",
+      "git_blob": "2bce35263f04e85ac1836a084687ae289315ae0b"
+    },
+    "models/aws_robomaker_warehouse_TrashCanC_01/meshes/aws_robomaker_warehouse_TrashCanC_01_visual.DAE": {
+      "bytes": 179157,
+      "sha256": "62e98f8a895e99ad5a199e34e3425d96253fa10284f27dafffdcd6eb5920c394",
+      "git_blob": "c30f0e8f8f73674a0c6b56e55c2a16d87885c612"
+    },
+    "models/aws_robomaker_warehouse_TrashCanC_01/model.sdf": {
+      "bytes": 1249,
+      "sha256": "95334d565445a9bda3d15b5f422e3753713d2676b7400d792060365ca7dc0c69",
+      "git_blob": "c5915e12ec08ee8b71f9ef00b06c643fc943c455"
+    },
+    "models/aws_robomaker_warehouse_WallB_01/meshes/aws_robomaker_warehouse_WallB_01_collision.DAE": {
+      "bytes": 13127,
+      "sha256": "25abc9a936e6c94075847eb15f689dde08c43807fff9f40ec471acfb80021280",
+      "git_blob": "eb18cdd3ed389a3bec430dd1e7369c694c01f17f"
+    },
+    "models/aws_robomaker_warehouse_WallB_01/meshes/aws_robomaker_warehouse_WallB_01_visual.DAE": {
+      "bytes": 12873,
+      "sha256": "0f18a7855f634485bf491abfd335e8f12fb5830545e7827c08e6145db5d1b491",
+      "git_blob": "ab141a60c84bddf29dbf5512a6c432804d86fc45"
+    },
+    "models/aws_robomaker_warehouse_WallB_01/model.sdf": {
+      "bytes": 1244,
+      "sha256": "c921007e19c3c0d162902e063a4e9a49078233c66c8e52bd6d499ec8704b10a4",
+      "git_blob": "e1695f332f91c5872531d9e26a3b2a3b4591f2ad"
+    },
+    "worlds/no_roof_small_warehouse/no_roof_small_warehouse.world": {
+      "bytes": 8002,
+      "sha256": "bd05d247e4715b7810c1f1edd8353a907af5bd8b81391c126dcb73803b7906bf",
+      "git_blob": "91fece4a80f5ee32e2ce81b57fb52468f1b70694"
+    }
+  }
+}
