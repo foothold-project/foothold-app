@@ -15,6 +15,35 @@ from .native_catalogue import contained
 VERSION = 'gt-20261012'  # Existing isolated runtime's static-map version contract.
 
 
+def verify_bindings(native, bindings):
+    """Bind the one approved warehouse PNG to the generated native PGM bytes."""
+    from apps.server.fh_server.map_files import gray_pixels
+    meta = json.loads((native.root / native.entry['map_metadata']).read_text())
+    png = (native.map_file.parent / meta['floors']['f1']['image']).read_bytes()
+    width, height, pixels = gray_pixels(png)
+    pgm = f'P5\n{width} {height}\n255\n'.encode() + pixels
+    expected = dict(world_id='warehouse', ros_building_id=native.entry['building_id'], ros_floor_id='f1',
+        ros_map_version=VERSION, source_pgm_sha256=hashlib.sha256(pgm).hexdigest(),
+        sha256=hashlib.sha256(png).hexdigest(), resolution=meta['resolution'], origin=meta['origin'],
+        width=width, height=height, source='SIMULATION')
+    if (native.key != 'warehouse/f1' or len(bindings) != 1
+            or any(bindings[0].get(k) != v for k, v in expected.items())):
+        raise ValueError('approved warehouse binding differs from native GT')
+    # UUIDs are validated by the authenticated provisioning contract.
+
+
+def single_floor_status(status, meta):
+    """Warehouse is a fixed f1 observation, never a fabricated connected transit."""
+    if status.get('world_id') != 'warehouse' or status.get('floor_id') != 'f1':
+        raise ValueError('warehouse status identity changed')
+    status.update(floor_rev=1, floor_state='on_floor', current_floor='f1', spawn_floor='f1',
+        floor_reason='ok', floor_src='gt_geometry', floor_confirm_sim_t=0.0,
+        source_pgm_sha256=meta['sha256_pgm'], map_origin=meta['origin'])
+    if status.get('map') is not None:
+        status['map'].update(floor_id='f1', floor_rev=1)
+    return status
+
+
 def robot_world(text, native):
     """Preserve warehouse collision geometry; add only the runtime's robot."""
     tree = ET.fromstring(text)

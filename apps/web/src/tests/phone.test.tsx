@@ -965,6 +965,24 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
   const shown = () => $('[data-sim-map]')?.getAttribute('data-sim-map');
   const load = async () => { act(() => { $('[data-sim-map] image')!.dispatchEvent(new Event('load')); }); await flush(); };
 
+  it('창고 f1 승인 문맥은 확인 중을 벗어나 지도와 위치를 표시하고 만료 때 위치를 숨긴다', async () => {
+    const warehouse = { ...V5, id: 'warehouse/f1', name: '작은 창고', spawn_floor_ids: [],
+      floors: [{ ...V5.floors[0], ros_floor_id: 'f1' }] };
+    const a = await launch(welcome(), { ...routesV5,
+      'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [warehouse] } },
+      'POST /simulation/robots': () => { mine = [{ ...simRobot(), world_id: 'warehouse/f1' }]; return { status: 201, body: mine[0] }; },
+    });
+    await drive(a);
+    await recv(a, at({ world_id: 'warehouse', spawn_floor_id: 'f1', current_floor_id: 'f1', floor_state: 'on_floor', confirmed_sim_t: 0 }));
+    expect(shown()).toBe(V1);
+    await load();
+    expect($('[data-sim-floor]')!.textContent).toBe('1층');
+    expect($('[data-sim-dot]')).toBeTruthy();
+    await recv(a, phoneState({ pose: { floor_context: null, map_version_id: null, floor_id: null, confidence: null, x: null, y: null, yaw: null } }));
+    expect($('[data-sim-floor]')!.textContent).toBe('층을 확인하는 중');
+    expect($('[data-sim-dot]')).toBeNull();
+  });
+
   it('두 층 월드는 «시작 층»을 고르고 spawn_floor_id 를 보낸다, 한 층 월드는 표시·전송 0', async () => {
     serve({ 'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [...CATALOG.worlds, V5] } } });
     await mount();

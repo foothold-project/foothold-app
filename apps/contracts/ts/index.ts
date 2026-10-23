@@ -360,10 +360,10 @@ export interface FloorContext {
   run_id: string;
   epoch: number;
   floor_rev: number;
-  world_id: "v5_building";
+  world_id: "v5_building" | "warehouse";
   building_id: string;
-  spawn_floor_id: "l1" | "l2";
-  current_floor_id: "l1" | "l2" | null;
+  spawn_floor_id: "l1" | "l2" | "f1";
+  current_floor_id: "l1" | "l2" | "f1" | null;
   floor_id: string | null;
   map_version_id: string | null;
   sha256: string | null;
@@ -1183,10 +1183,10 @@ export interface SimFailureDetail {
 }
 
 export interface SimMapBinding {
-  world_id: "v5_building";
+  world_id: "v5_building" | "warehouse";
   building_id: string;
   ros_building_id: string;
-  ros_floor_id: "l1" | "l2";
+  ros_floor_id: "l1" | "l2" | "f1";
   ros_map_version: string;
   floor_id: string;
   map_version_id: string;

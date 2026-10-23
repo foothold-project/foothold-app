@@ -35,6 +35,9 @@ def verified_helper(source, manifest, argv):
     if native.key.startswith('v5_building/'):
         from apps.simmgr.connected_assets import verify_bindings
         verify_bindings(native.root, data.get('map_bindings', []))
+    if native.repository:
+        from apps.simmgr.repo_runtime import verify_bindings
+        verify_bindings(native, data.get('map_bindings', []))
     # Load only the established helper after verification, before TARGET assignment.
     spec = importlib.util.spec_from_file_location('sensor_isolation', source / 'sensor_isolation.py')
     helper = importlib.util.module_from_spec(spec)
@@ -52,10 +55,13 @@ def main(argv=None):
     runtime = source / 'live_map.py'
     sys.argv = [str(runtime), *runtime_args]
     if helper.FH_NATIVE_WORLD.repository:
-        from apps.simmgr.repo_runtime import install
-        module = runpy.run_path(str(runtime), run_name='fh_catalogued_runtime')
-        install(module['main'].__globals__, helper.FH_NATIVE_WORLD, Path(manifest_arg).parent)
-        raise SystemExit(module['main']())
+        from apps.simmgr.repo_runtime import install, single_floor_status
+        from apps.simmgr.connected_runtime import compile_static_runtime, write_run_identity
+        scope = dict(__name__='fh_catalogued_runtime', __file__=str(runtime),
+            _fh_single_floor_status=single_floor_status, _fh_run_identity=write_run_identity)
+        exec(compile_static_runtime(runtime.read_text(), str(runtime), warehouse=True), scope)
+        install(scope, helper.FH_NATIVE_WORLD, Path(manifest_arg).parent)
+        raise SystemExit(scope['main']())
     if helper.FH_NATIVE_WORLD.key.startswith('v5_building/'):
         from apps.simmgr.connected_runtime import run_static_runtime
         return run_static_runtime(runtime, runtime_args)

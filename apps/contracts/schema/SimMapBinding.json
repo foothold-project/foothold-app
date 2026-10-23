@@ -56,7 +56,8 @@
     "ros_floor_id": {
       "enum": [
         "l1",
-        "l2"
+        "l2",
+        "f1"
       ],
       "title": "Ros Floor Id",
       "type": "string"
@@ -89,7 +90,10 @@
       "type": "integer"
     },
     "world_id": {
-      "const": "v5_building",
+      "enum": [
+        "v5_building",
+        "warehouse"
+      ],
       "title": "World Id",
       "type": "string"
     }

@@ -5,15 +5,13 @@ import math
 import os
 import re
 from pathlib import Path
-import struct
 from uuid import UUID, uuid5
-import zlib
 
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session
 
 from apps.contracts import models as C
-from .map_files import MAX_IMAGE, map_yaml, png_image, pgm_png, sha256, yaml_bytes
+from .map_files import MAX_IMAGE, gray_pixels, map_yaml, png_image, pgm_png, sha256, yaml_bytes
 from .maps import refresh_connectors
 from .models import (Building, Event, Floor, MapVersion, Mission, MissionVersion,
                      Organization, Scenario, ScenarioVersion, Site, Upload, User)
@@ -30,43 +28,6 @@ def local_file(root, path):
     if not result.is_relative_to(root.resolve()):
         raise ValueError('World asset escapes catalogue directory')
     return result
-
-
-def gray_pixels(data):
-    """Decode only the generator's bounded noninterlaced 8-bit grayscale PNG."""
-    _, width, height = png_image(data)
-    if struct.unpack('!IIBBBBB', data[16:29])[2:] != (8, 0, 0, 0, 0):
-        raise ValueError('Static maps require 8-bit grayscale noninterlaced PNG')
-    offset, compressed = 8, bytearray()
-    while offset < len(data):
-        size = struct.unpack('!I', data[offset:offset + 4])[0]
-        if data[offset + 4:offset + 8] == b'IDAT':
-            compressed.extend(data[offset + 8:offset + 8 + size])
-        offset += size + 12
-    raw = zlib.decompress(compressed)  # png_image already checked decoded size.
-    pixels, prior = bytearray(), bytearray(width)
-    for y in range(height):
-        start = y * (width + 1)
-        filtering, row = raw[start], bytearray(raw[start + 1:start + width + 1])
-        for x in range(width):
-            a, b, c = row[x - 1] if x else 0, prior[x], prior[x - 1] if x else 0
-            if filtering == 0:
-                predictor = 0
-            elif filtering == 1:
-                predictor = a
-            elif filtering == 2:
-                predictor = b
-            elif filtering == 3:
-                predictor = (a + b) // 2
-            elif filtering == 4:
-                p = a + b - c
-                predictor = min(((abs(p - a), 0, a), (abs(p - b), 1, b), (abs(p - c), 2, c)))[2]
-            else:
-                raise ValueError('Invalid PNG filter')
-            row[x] = (row[x] + predictor) % 256
-        pixels.extend(row)
-        prior = row
-    return width, height, pixels
 
 
 def check_clearance(png, metadata, scenarios, clearance=.5):
@@ -126,6 +87,12 @@ def load_worlds(folder):
                 or not math.isfinite(entry['floor_z']) or generated['size_pixels'] != [width, height]
                 or generated['origin'] != metadata['origin'] or generated['resolution'] != metadata['resolution']):
             raise ValueError('Static map metadata does not match image/YAML/floor')
+        if key == ('warehouse', 'f1'):
+            _, _, pixels = gray_pixels(png)
+            pgm = f'P5\n{width} {height}\n255\n'.encode() + pixels
+            metadata['connected_gt'] = dict(world_id='warehouse', ros_building_id=entry['building_id'],
+                ros_floor_id='f1', ros_map_version='gt-20261012', source_pgm_sha256=sha256(pgm).hex(),
+                sha256=sha256(png).hex(), source='SIMULATION')
         scenarios = json.loads(local_file(root, entry['scenarios']).read_text()) if entry.get('scenarios') else []
         if len({s['id'] for s in scenarios}) != len(scenarios):
             raise ValueError('Duplicate preset scenario')

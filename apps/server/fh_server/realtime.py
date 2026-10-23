@@ -1501,10 +1501,12 @@ class Realtime:
             batch = AgentBatch(self.verify_agents(peers, robots))
             batch.floor_authority = {}
             if any(r.simulation for r in robots.values()):
-                try:
-                    bindings = approved_bindings(db, self.settings.org_id)
-                except (ValueError, KeyError, TypeError):
-                    bindings = []
+                bindings = []
+                for world in ('v5_building', 'warehouse'):
+                    try:
+                        bindings.extend(approved_bindings(db, self.settings.org_id, world))
+                    except (ValueError, KeyError, TypeError):
+                        pass
                 batch.floor_authority = {rid: (r.sim_generation, bindings)
                     for rid, r in robots.items() if r.simulation}
             return batch

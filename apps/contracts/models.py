@@ -155,10 +155,10 @@ class FloorContext(Contract):
     run_id: str = Field(min_length=1, max_length=128)
     epoch: int = Field(ge=0, strict=True)
     floor_rev: int = Field(ge=0, strict=True)
-    world_id: Literal['v5_building']
+    world_id: Literal['v5_building', 'warehouse']
     building_id: UUID
-    spawn_floor_id: Literal['l1', 'l2']
-    current_floor_id: Literal['l1', 'l2'] | None
+    spawn_floor_id: Literal['l1', 'l2', 'f1']
+    current_floor_id: Literal['l1', 'l2', 'f1'] | None
     floor_id: UUID | None
     map_version_id: UUID | None
     sha256: str | None = Field(pattern=r'^[0-9a-f]{64}$')
@@ -170,6 +170,12 @@ class FloorContext(Contract):
 
     @model_validator(mode='after')
     def coherent_floor(self):
+        if self.world_id == 'warehouse':
+            if (self.spawn_floor_id != 'f1' or self.current_floor_id != 'f1'
+                    or self.floor_state != 'on_floor'):
+                raise ValueError('warehouse has one fixed floor')
+        elif self.spawn_floor_id == 'f1' or self.current_floor_id == 'f1':
+            raise ValueError('connected building floors are l1/l2')
         if (self.floor_state == 'on_floor') != (self.current_floor_id is not None):
             raise ValueError('current_floor_id is present exactly when on_floor')
         ready = self.map_version_id is not None
@@ -1346,10 +1352,10 @@ class SimRemove(Contract):
 
 class SimMapBinding(Contract):
     """Server-verified canonical GT registration; PNG and PGM hashes are distinct."""
-    world_id: Literal['v5_building']
+    world_id: Literal['v5_building', 'warehouse']
     building_id: UUID
     ros_building_id: str = Field(min_length=1, max_length=64)
-    ros_floor_id: Literal['l1', 'l2']
+    ros_floor_id: Literal['l1', 'l2', 'f1']
     ros_map_version: str = Field(min_length=1, max_length=64)
     floor_id: UUID
     map_version_id: UUID
@@ -1360,6 +1366,12 @@ class SimMapBinding(Contract):
     width: int = Field(gt=0, le=4096, strict=True)
     height: int = Field(gt=0, le=4096, strict=True)
     source: Literal['SIMULATION']
+
+    @model_validator(mode='after')
+    def world_floor(self):
+        if (self.world_id == 'warehouse') != (self.ros_floor_id == 'f1'):
+            raise ValueError('floor does not belong to world')
+        return self
 
 
 class SimProvision(SimStartRequest):
