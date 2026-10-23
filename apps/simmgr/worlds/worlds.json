@@ -1,0 +1,25 @@
+{
+  "schema": "simmgr_static_worlds/1",
+  "path_base": "this_file_directory",
+  "map_frame": "map",
+  "worlds": {
+    "warehouse/f1": {
+      "world_id": "warehouse",
+      "floor_id": "f1",
+      "building_id": "warehouse",
+      "name": "작은 창고",
+      "description": "AWS Small Warehouse, 지붕 없는 단층 정적 월드. 오프라인 준비; native 실행 미지원.",
+      "floor_z": 0.034226,
+      "spawn_xyyaw": [0.0, 0.0, 0.0],
+      "spawn_z": 0.434226,
+      "world": "warehouse/warehouse.sdf",
+      "gt_map": "warehouse/maps/f1.yaml",
+      "map_metadata": "warehouse/maps/metadata.json",
+      "ledger_key": "warehouse/f1",
+      "height_source": "static_sdf_collision",
+      "readiness": "offline_prepared",
+      "native_supported": false,
+      "notes": "지도 자동 등록과 native adapter 연결은 ADR-003 뒤 별도 작업. 실행·보행·센서 미검증."
+    }
+  }
+}

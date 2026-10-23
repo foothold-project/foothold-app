@@ -1,0 +1,6 @@
+# Only these reproducible maps derived from the bundled MIT-0 simulation world.
+!maps/
+maps/*
+!maps/f1.png
+!maps/f1.yaml
+!maps/metadata.json

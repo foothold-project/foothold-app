@@ -1,0 +1,23 @@
+AWS Small Warehouse — no-roof static adaptation
+
+Source: https://github.com/aws-robotics/aws-robomaker-small-warehouse-world
+Branch: ros2
+Pinned commit: ee0af733315e78432408c3cd98d378ecee5f767c
+Commit tree: 54aaabdafb46087847e20f4929651948e81e7286
+Upstream world: worlds/no_roof_small_warehouse/no_roof_small_warehouse.world
+License: MIT-0 (upstream LICENSE included verbatim)
+Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+
+Changes: expand includes into static SDF 1.9 models; preserve no-roof model
+placements and collision geometry; bake COLLADA scene matrices and centimetre
+units into metre/Z-up OBJ geometry; remove textures, UVs and Classic-only ODE
+material/friction fields; use flat SDF materials and Harmonic gz-sim system
+plugins. The no-roof source already omits the roof and desks. No external Fuel,
+Isaac, NVIDIA, ROS package, remote mesh URI or texture dependency is included.
+
+sources.json records the 38 selected upstream inputs with Git blob SHA-1,
+SHA-256 and byte counts. The derived occupancy map is generated exclusively
+from this adaptation's collision geometry. It is not a real-site map.
+
+This is offline asset preparation. Gazebo compatibility, sensors, Go2 walking
+and navigation have not been executed or certified.
