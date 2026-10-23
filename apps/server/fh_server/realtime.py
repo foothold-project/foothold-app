@@ -1420,7 +1420,7 @@ class Realtime:
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
-            latched=state.get('latched'), stop_gen=state.get('stop_gen'),
+            latched=state.get('latched'), safety_reason=state.get('safety_reason'), stop_gen=state.get('stop_gen'),
             applied=state.get('applied')).model_dump(mode='json')
 
     async def screen_watch(self, peer):
@@ -1879,7 +1879,7 @@ class Realtime:
         if self.owner_uncertain or self.clock() - peer.auth_checked > 0.5:
             return False
         data = msg.model_dump(mode='json')
-        peer.state.update({k: data[k] for k in ('speed', 'latched', 'stop_gen', 'applied')})
+        peer.state.update({k: data[k] for k in ('speed', 'latched', 'safety_reason', 'stop_gen', 'applied')})
         peer.state['battery'] = C.Battery(soc=msg.battery.soc, updated_at=now()).model_dump(mode='json') if msg.battery.soc is not None else None
         pose = data['pose']
         context = pose.get('floor_context')
