@@ -60,7 +60,11 @@
   .dv-stick{width:88px;height:88px;bottom:8px}.dv-stick>i{width:40px;height:40px}.dv-stick>span{bottom:2px}.dv.ph .dv-mini{display:none}}
 /* 시뮬 직결 조종(simdrive.tsx): 영상을 덜 가리게 — 왼쪽 위 작은 «시뮬·속도», 오른쪽 위 설정 단추(펼침 = 설정·정보·나가기),
    아래 가운데 지금 눌러야 할 단추·안내만. 판 색은 .dv-hud 단추 값 그대로. 메뉴·시트는 영상 칸 안 — 머리줄 STOP 을 덮지 못한다 */
-.dv-top{position:absolute;top:8px;left:8px;z-index:1;display:flex;align-items:center;gap:6px;padding:2px 8px;border-radius:6px;background:rgba(8,11,14,.45);color:#E6EBEF;font-size:13px;opacity:.85;pointer-events:none}
+/* 10-23 구도: 왼쪽 위 «<», 위 가운데 상태 알약, 오른쪽 위 설정, 아래 두 구석 조이스틱(상하·좌우 화살표), 왼쪽 조이스틱 옆 시나리오 단추 하나 → 가로 띠 */
+.dv-top{position:absolute;top:8px;left:50%;transform:translateX(-50%);z-index:1;box-sizing:border-box;max-width:calc(100% - 120px);min-height:32px;display:flex;align-items:center;gap:4px;padding:4px 14px;border-radius:16px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none}
+.dv-top[data-tone="bad"]{box-shadow:inset 0 0 0 1px var(--bad)}
+.dv-leave{left:8px;right:auto}
+.dv-gear:disabled{opacity:.45;cursor:default}
 .dv-gear{position:absolute;top:8px;right:8px;z-index:2;width:44px;height:44px;box-sizing:border-box;display:grid;place-items:center;padding:0;border:1px solid rgba(230,235,239,.45);border-radius:22px;background:rgba(8,11,14,.66);color:#E6EBEF;cursor:pointer}
 .dv-gear[aria-expanded="true"]{border-color:var(--accent)}
 .dv-menu{position:absolute;top:58px;right:8px;z-index:2;display:flex;flex-direction:column;gap:6px}
@@ -73,3 +77,22 @@
 @media (orientation:portrait){.dv-act{left:8px;right:8px;bottom:144px;transform:none;width:auto;max-width:none}}
 @media (orientation:portrait) and (max-height:700px){.dv-act{bottom:104px}}
 @media (max-height:480px){.dv-act{max-width:calc(100% - 208px)}}
+/* 시나리오 단추·띠: 판 색은 .dv-hud 단추 값 그대로, 단추는 .btn.pri 색. 띠는 단추 오른쪽에서 오른쪽 조이스틱 앞까지 */
+[data-sim-drive] .dv-stick>span{display:none}
+[data-sim-drive] .dv-stick.v{background:rgba(8,11,14,.5) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%23E6EBEF' stroke-opacity='.7' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M43 13l7-6 7 6M43 87l7 6 7-6'/%3E%3C/svg%3E") center/100% no-repeat}
+[data-sim-drive] .dv-stick.h{background:rgba(8,11,14,.5) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100' fill='none' stroke='%23E6EBEF' stroke-opacity='.7' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M13 43l-6 7 6 7M87 43l6 7-6 7'/%3E%3C/svg%3E") center/100% no-repeat}
+.dv-scn-btn{position:absolute;left:140px;bottom:12px;z-index:1;width:52px;height:52px;box-sizing:border-box;display:grid;place-items:center;padding:0;border:1px solid var(--accent);border-radius:26px;background:var(--accent);color:var(--on-accent);cursor:pointer}
+.dv-scn-btn[aria-expanded="true"]{box-shadow:0 0 0 3px rgba(230,235,239,.45)}
+.dv-strip{position:absolute;left:198px;right:140px;bottom:12px;z-index:1;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid rgba(230,235,239,.45);border-radius:26px;background:rgba(8,11,14,.66);color:#E6EBEF}
+.dv-strip .dv-note{padding:2px 8px;font-size:13px;background:none;color:#E6EBEF}
+.dv-strip-row{display:flex;align-items:center;gap:6px;min-width:0}
+.dv-strip ul{list-style:none;margin:0;padding:0;flex:1;min-width:0;display:flex;gap:6px;overflow-x:auto;scrollbar-width:thin}
+.dv-strip .btn{min-height:44px;display:flex;align-items:center;gap:6px;white-space:nowrap;border-radius:22px;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+.dv-strip .btn[aria-pressed="true"]{border-color:var(--accent)}
+.dv-strip .btn b{font-size:12px;color:var(--accent)}
+.dv-strip .btn.pri[disabled]{background:var(--line);border-color:var(--line);color:var(--muted)}
+.dv-stage:has(.dv-scn-btn) .dv-act{bottom:76px}
+.dv-stage:has(.dv-strip) .dv-act{bottom:112px}
+@media (orientation:portrait){.dv-strip{left:8px;right:8px;bottom:144px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:144px}.dv-stage:has(.dv-strip) .dv-act{bottom:240px}}
+@media (orientation:portrait) and (max-height:700px){.dv-scn-btn{left:108px;bottom:8px}.dv-strip{bottom:104px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:104px}.dv-stage:has(.dv-strip) .dv-act{bottom:200px}}
+@media (max-height:480px){.dv-scn-btn{left:104px;bottom:8px}.dv-strip{left:162px;right:104px;bottom:8px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:68px;max-width:calc(100% - 208px)}.dv-stage:has(.dv-strip) .dv-act{bottom:104px}}
