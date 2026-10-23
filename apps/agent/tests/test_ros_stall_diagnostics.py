@@ -36,9 +36,8 @@ def test_stall_stamps_are_detection_snapshot_and_dump_is_once_off_watchdog():
         assert entered.wait(1)
         # Even a blocked diagnostic log cannot delay the original emergency.
         assert outputs[-2:] == [Z, 'STOP']
-        assert str(sink.error) == 'ROS publisher loop stalled'
-        with pytest.raises(RuntimeError, match='ROS output failed'):
-            sink.check_health()
+        assert sink.error is None
+        sink.check_health()
         clock.t = 10
         diagnostic.mark('spin', 'end')
         sink.check_watchdog()
@@ -130,7 +129,8 @@ def test_dump_failure_cannot_change_sink_error_or_emergency():
         sink.apply(MotionCommand(velocity=Z))
         sink.check_watchdog()
         assert outputs[-2:] == [Z, 'STOP']
-        assert str(sink.error) == 'ROS publisher loop stalled'
+        assert sink.error is None
+        sink.check_health()
     finally:
         sink.close()
         diagnostic.close()

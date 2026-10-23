@@ -161,10 +161,10 @@ def test_isolated_domain93_synthetic_ros():
             # Exclude the ROS flush backup check in this phase, so ONLY the
             # independent thread can satisfy the deadline while asyncio stalls.
             original_watchdog = sink.check_watchdog
-            def independent_only():
+            def independent_only(**kwargs):
                 if block.is_set() and threading.current_thread().name == "agent-rclpy":
                     return
-                original_watchdog()
+                original_watchdog(**kwargs)
             sink.check_watchdog = independent_only
             client._emit(session.tick())
             block.set()

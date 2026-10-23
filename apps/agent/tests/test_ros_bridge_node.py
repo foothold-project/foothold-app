@@ -105,7 +105,7 @@ def test_node_thread_qos_startup_stop_and_shutdown(ros):
                          "durability": "VOLATILE"} for q in ros.qos[:6])
         assert all(q["reliability"] == "BEST_EFFORT" and q["depth"] == 1 for q in ros.qos[6:])
         assert [e[0] for e in ros.events[:2]] == ["/v2_live/cmd_vel", "/v2_live/stop"]
-        assert all(e[1] in {"agent-rclpy", "ros-output-watchdog", "ros-sink-close"} for e in ros.events)
+        assert all(e[1] in {"agent-rclpy", "ros-output-watchdog", "ros-output-emergency", "ros-sink-close"} for e in ros.events)
         assert not any(e[0] == "/v2_live/resume" for e in ros.events)
         node.close()
         assert not node._thread.is_alive() and not sink._watchdog.is_alive()

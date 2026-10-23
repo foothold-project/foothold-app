@@ -127,6 +127,7 @@ export interface AgentState {
   speed: number | null;
   battery: AgentBattery;
   latched: boolean;
+  safety_reason?: "OUTPUT_STALLED" | null;
   stop_gen: number;
   stop_ref: number;
   applied: number[];
@@ -797,6 +798,7 @@ export interface PhoneState {
   speed: number | null;
   battery: AgentBattery;
   latched: boolean;
+  safety_reason?: "OUTPUT_STALLED" | null;
   stop_gen: number;
   stop_ref: number;
   applied: number[];

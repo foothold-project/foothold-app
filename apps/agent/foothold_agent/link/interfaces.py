@@ -16,6 +16,11 @@ class MotionSink(Protocol):
         arrives within 0.3 s, including when the owning event loop is blocked.
         `stop` / `unlock` calls must not refresh that independent apply watchdog.
         This is a required hardware-adapter contract, not implemented by Client.
+        Publisher-loop stalls must likewise issue zero / STOP and hold until
+        fresh STOP feedback plus a new authorized unlock. Isolated stalls keep
+        the service alive; failed emergency output or repeated stalls are fatal.
+        An adapter exposing output_safety() returns (stall_sequence, held) as
+        a nonblocking atomic snapshot for Session; it must never mutate Core.
         """
         ...
 

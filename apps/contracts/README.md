@@ -30,6 +30,11 @@ AGENT_PROTOCOL_MISMATCH 사건을 남긴다. Client는 0·잠금 및 기존 대�
 최소 30초 간격으로 재접속 대기한다. 인증·권한 거부 4401/4403은 영구 중단 그대로다.
 이 동작은 이번 Client 갱신이 필요하며, 미갱신 옛 바이너리를 실행할 때 그 백오프를 서버만으로 바꿀 수는 없다.
 
+AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
+`OUTPUT_STALLED | null`이다. publisher 지연으로 잠긴 동안 `OUTPUT_STALLED`를
+보내며 신선한 STOP 피드백·새 unlock·해제 피드백 뒤 null이 된다.
+물리 정지 확인은 기존 `stop_requested` 피드백이며 이 사유 필드로 대신하지 않는다.
+
 사건/event와 run.update는 발생 FIFO를 유지한다. hello·최신 state/ACK는 이력을 앞설 수
 있다. 포화는 일반 사건 우선 생략과 누락 수 사건으로 알리며 안전 사건 초과분은
 프로세스 수명 동안 파일로 보존한다. 4406의 이유 문자열은 정확히 `PROTOCOL_MISMATCH`다.
