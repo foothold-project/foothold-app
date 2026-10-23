@@ -6,7 +6,7 @@ import { ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role,
 import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { Chip, DriveButton, Scenario, soon, type Ctx } from './screens';
-import { SimLaunch } from './simdrive';
+import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
 
 type Axes = [number, number];   // [전후, 회전] 각 -1..1. 회전 + = 왼쪽
@@ -190,7 +190,9 @@ function Screen(c: Ctx) {
     <span className="fh-grow" />
     {actions}
   </div>;
-  const note = l.notice && <p className="dv-note" role="status">{l.notice}</p>;
+  // 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) — 폰 시뮬 조종(simdrive.tsx)과 같은 문구. 잠금 해제·STOP 동작은 그대로
+  const stalled = l.state?.connection === 'ONLINE' && !!l.state.latched && l.state.safety_reason === 'OUTPUT_STALLED';
+  const note = <>{l.notice && <p className="dv-note" role="status">{l.notice}</p>}{stalled && <p className="dv-note" role="status" data-stalled>{STALLED}</p>}</>;
   const views = <div className="dv-views" aria-label="보기">
     {([['rgb', 'RGB'], ['depth', '뎁스'], ['map', '지도']] as const).map(([v, t]) =>
       <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}

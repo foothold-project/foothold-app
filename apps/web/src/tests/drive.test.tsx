@@ -10,6 +10,7 @@ import { tabFromHash } from '../menu';
 import { api, onAuthLost as setAuthLost } from '../api';
 import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, rt } from '../rt';
 import { FakeWS, fail, lease, state } from './fakeWs';
+import { STALLED } from '../simdrive';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
 
@@ -117,6 +118,25 @@ describe('조종 화면', () => {
     click(btn('조종 끝내기'));
     expect(w.of('lease.release')).toHaveLength(1);
     expect(text()).toContain('조종하는 사람 없음');
+  });
+
+  it('잠금 사유 OUTPUT_STALLED 면 출력 지연 안내(사유만 바뀌어도 다시 그림), 사유 없음·해제면 기존 그대로(잠금 해제·STOP 그대로)', () => {
+    mount(true, 'u-kim', '#/drive/r7');
+    serve(KIM, 'r3', 'r7', 'r1');
+    click(btn('조종 시작'));
+    act(() => push('r7', { safety_reason: 'OUTPUT_STALLED' }));   // 잠금(latched)은 그대로, 사유만 옴
+    expect(text()).toContain(STALLED);
+    expect(text()).toContain('조종권을 받았습니다');   // 기존 안내도 그대로
+    expect(btn('잠금 해제')).toBeTruthy();
+    expect($('[data-stop]')).toBeTruthy();
+    act(() => push('r7', { safety_reason: null }));
+    expect(text()).not.toContain(STALLED);
+    act(() => push('r7', { safety_reason: 'OUTPUT_STALLED' }));
+    click(btn('잠금 해제'));
+    expect(w.of('unlock')).toMatchObject([{ robot: 'r7', stop_gen: 1 }]);
+    tick(100);
+    expect(text()).not.toContain(STALLED);   // 풀리면 사유가 남아도 안내 0
+    expect(text()).toContain('움직일 수 있음');
   });
 
   it('폰 #/drive = 로봇 연결: 로봇 카드(상태·배터리·조종권자) → [연결]', () => {

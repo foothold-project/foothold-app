@@ -235,6 +235,7 @@ function onState(s: ScreenState) {
   const p = l.state;
   // 화면에 보이는 값이 바뀔 때만 다시 그림(10 Hz 그대로 그리지 않음)
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
+    && (p.safety_reason ?? null) === (s.safety_reason ?? null)
     && shown(p) === shown(s)
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
