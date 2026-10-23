@@ -1,6 +1,7 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState } from 'react';
-import type { SimRobot } from '../../contracts/ts';
+import type { Scenario, SimRobot } from '../../contracts/ts';
+import { api } from './api';
 import { sim, useSim, velocity, type Sim } from './phone';
 import { Sheet, Stick } from './drive';
 import { Chip } from './screens';
@@ -98,19 +99,47 @@ const ICON = {
   gear: I(<><path strokeLinejoin="round" d="M19.1 9.8L21.9 10.4L21.9 13.6L19.1 14.2L18.5 15.5L20.1 17.9L17.9 20.1L15.5 18.5L14.2 19.1L13.6 21.9L10.4 21.9L9.8 19.1L8.5 18.5L6.1 20.1L3.9 17.9L5.5 15.5L4.9 14.2L2.1 13.6L2.1 10.4L4.9 9.8L5.5 8.5L3.9 6.1L6.1 3.9L8.5 5.5L9.8 4.9L10.4 2.1L13.6 2.1L14.2 4.9L15.5 5.5L17.9 3.9L20.1 6.1L18.5 8.5Z" /><circle cx="12" cy="12" r="3" /></>),
   set: I(<path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4" />),
   info: I(<><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7v1" /></>),
-  exit: I(<path d="M14 4h5v16h-5M10 8l-4 4 4 4M6 12h10" />),
+  back: I(<path strokeLinecap="round" strokeLinejoin="round" d="M15 5l-7 7 7 7" />),
+  route: I(<><circle cx="6" cy="18" r="2" /><circle cx="18" cy="6" r="2" /><path d="M8 18h6a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h6" /></>),
+  flag: I(<path strokeLinejoin="round" d="M6 21V4M6 4h11l-2.5 4 2.5 4H6" />),
 };
 
-/** 직결 조종 화면: 카메라 전체. 영상 위에는 왼쪽 위 «시뮬·속도», 오른쪽 위 설정 메뉴(설정·정보·나가기), 아래 지금 눌러야 할 단추·안내,
- *  두 조이스틱만. STOP 은 App 머리줄(영상 칸 밖이라 메뉴·시트가 덮지 못함). 메뉴가 열려 있거나 나가는 중이면 입력 0 */
+/** 아래 단추 하나 → 가로 띠: 이 시뮬 월드에 묶인 지도(world.map_id 의 층)를 지나는 시나리오. 실행 경로가 서버·에이전트에 아직 없어 «실행»은 막아 둔다 */
+function ScenarioBar({ s, r }: { s: Sim; r: SimRobot }) {
+  const world = s.catalog?.worlds.find((w) => w.id === r.world_id), floors = (world?.floors ?? []).map((f) => f.floor_id).join(' ');
+  const [list, setList] = useState<'wait' | 'fail' | Scenario[]>('wait'), [again, setAgain] = useState(0), [pick, setPick] = useState('');
+  useEffect(() => {
+    if (!world?.map_id) return;
+    const c = new AbortController(), on = new Set(floors.split(' '));
+    setList('wait');
+    api.allPlans('scenarios', c.signal).then((xs) => setList(xs.filter((x) => !x.archived_at && x.floor_ids.some((f) => on.has(f)))), () => { if (!c.signal.aborted) setList('fail'); });
+    return () => c.abort();
+  }, [world?.map_id, floors, again]);
+  const picked = Array.isArray(list) ? list.find((x) => x.id === pick) : undefined;
+  const note = !world?.map_id ? '이 월드에 묶인 지도가 없어 시나리오가 없습니다.' : list === 'wait' ? '시나리오를 불러오는 중…'
+    : list === 'fail' ? '시나리오 목록을 받지 못했습니다.' : !list.length ? '이 지도에 시나리오가 없습니다.' : picked ? '시나리오 실행은 아직 준비 중입니다.' : '실행할 시나리오를 고르세요.';
+  return <div className="dv-strip" role="group" aria-label="시나리오 목록" data-sim-scn>
+    <p className="dv-note" id="sim-scn-note" role="status">{note}</p>
+    {(Array.isArray(list) && list.length > 0 || list === 'fail') && <div className="dv-strip-row">
+      {list === 'fail' ? <button type="button" className="btn" onClick={() => setAgain((n) => n + 1)}>다시</button> : <>
+        <ul>{list.map((x) => <li key={x.id}><button type="button" className="btn" aria-pressed={x.id === pick} onClick={() => setPick(x.id)}>
+          {ICON.flag}<span>{x.name}</span>{x.id === pick && <b>고름</b>}</button></li>)}</ul>
+        {picked && <button type="button" className="btn pri" disabled aria-describedby="sim-scn-note">실행</button>}</>}
+    </div>}
+  </div>;
+}
+
+/** 직결 조종 화면: 카메라 전체. 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약, 오른쪽 위 설정 메뉴(설정·정보), 아래 두 구석 조이스틱,
+ *  왼쪽 조이스틱 옆 시나리오 단추 하나(누르면 가로 띠), 지금 눌러야 할 단추·안내. STOP 은 App 머리줄(영상 칸 밖이라 메뉴·띠·시트가 덮지 못함).
+ *  메뉴·띠가 열려 있거나 나가는 중이면 입력 0 */
 export function SimDrive() {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
   useDeadline(!!r.expires_at);
   const open = l.at === 'open', mine = !!l.lease, ready = open && mine && st?.latched === false;
   const input = useRef<[number, number]>([0, 0]), gen = useRef(0);
   const [unsupported, setUnsupported] = useState(''), [vx, setVx] = useState(0);
-  const [menu, setMenu] = useState<'' | 'menu' | 'set' | 'info'>(''), [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
-  const live = ready && !menu && !leaving;
+  const [menu, setMenu] = useState<'' | 'menu' | 'set' | 'info'>(''), [bar, setBar] = useState(false), [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
+  const live = ready && !menu && !bar && !leaving;
   const smooth = w?.limits.vx_mode === 'continuous';
   useTick(true);
   useEffect(() => () => sim.axes([0, 0]), []);
@@ -126,7 +155,7 @@ export function SimDrive() {
   /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 확인된 반납만 연결 닫고 띄우기 카드로. 시뮬은 켠 채(«조종 화면 띄우기»로 다시 들어옴).
    *  거절·무응답이면 조종 화면에 남는다(연결·STOP 대상 보존, 입력 0, «다시 반납») */
   const leave = async () => {
-    setMenu(''); setLeaving('wait');
+    setMenu(''); setBar(false); setLeaving('wait');
     const k = sim.get().link;
     const ok = k?.lease ? await Promise.race([sim.release(), new Promise<boolean>((f) => setTimeout(() => f(false), 2000))])
       : !k?.st?.lease_id && k?.busy !== 'release';   // 조종권 없음 = 반납할 것 없음. 서버가 아직 내 것이라 알리거나 반납 답을 기다리는 중이면 확인 못 함
@@ -165,17 +194,17 @@ export function SimDrive() {
     <div className="dv-body"><div className="dv-stage rgb">
       {l.cam === 'frame' ? <img className="dv-video" src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
         : <div className="dv-video" role="img" aria-label="RGB 영상"><span>{CAM[l.cam]}</span></div>}
-      <div className="dv-top" aria-label="상태">
-        <Chip tone="off" text="시뮬" />
-        <span className="mono" data-sim-vx>속도 : {(live ? vx : 0).toFixed(2)}m/s</span>
-        {lock.tone !== 'ok' && <Chip {...lock} />}
+      <button type="button" className="dv-gear dv-leave" aria-label="나가기" disabled={leaving === 'wait'} data-sim-leave onClick={leave}>{ICON.back}</button>
+      <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
+        시뮬 · {r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'ok' ? '실행 중' : lock.text} · <span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
       </div>
-      <button type="button" className="dv-gear" aria-label="설정 메뉴" aria-expanded={!!menu} data-sim-menu onClick={() => setMenu(menu ? '' : 'menu')}>{ICON.gear}</button>
+      <button type="button" className="dv-gear" aria-label="설정 메뉴" aria-expanded={!!menu} data-sim-menu onClick={() => { setBar(false); setMenu(menu ? '' : 'menu'); }}>{ICON.gear}</button>
       {menu === 'menu' && <div className="dv-menu" role="group" aria-label="설정 메뉴 항목">
         <button type="button" className="btn" onClick={() => setMenu('set')}>{ICON.set}<span>설정</span></button>
         <button type="button" className="btn" onClick={() => setMenu('info')}>{ICON.info}<span>정보</span></button>
-        <button type="button" className="btn" onClick={leave}>{ICON.exit}<span>나가기</span></button>
       </div>}
+      <button type="button" className="dv-scn-btn" aria-label="시나리오" aria-expanded={bar} data-sim-scn-btn onClick={() => { setMenu(''); setBar(!bar); }}>{ICON.route}</button>
+      {bar && <ScenarioBar s={s} r={r} />}
       {menu === 'set' && <Sheet title="설정" close={() => setMenu('')}>
         {smooth ? <p className="dv-note">시뮬 전용 · 멈출 때 가끔 넘어질 수 있음(측정 34회 중 3회) · 후진·제자리 회전은 아직 지원하지 않습니다</p> : <>
         <div className="fh-row" role="group" aria-label="속도 단계" aria-describedby="sim-speed-note">
