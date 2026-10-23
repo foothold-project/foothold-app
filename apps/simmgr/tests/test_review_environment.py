@@ -163,7 +163,7 @@ def test_agent_unit_is_bounded_and_environment_is_private(tmp_path,monkeypatch):
     monkeypatch.setattr(agent_unit.subprocess,'run',run)
     folder=tmp_path/'approved-stage1-001';folder.mkdir()
     child=AgentUnit(folder,cfg,{'FOOTHOLD_AGENT_TOKEN':'private-credential','ROS_DOMAIN_ID':'93'},Path('/synthetic'))
-    argv,options=commands[-1]
+    argv,options=next((args, options) for args, options in commands if args[0]=='systemd-run')
     assert '--property=KillSignal=SIGINT' in argv
     assert '--property=RuntimeMaxSec=1890' in argv
     assert '--property=MemoryMax=512M' in argv

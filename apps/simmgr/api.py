@@ -11,6 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from apps.contracts import models as C
 from .service import Manager, SimError
 from .preflight import ResourceGateError, startup_preflight
+from .launcher import CleanupUnconfirmed
 
 
 def create_app(settings, launcher=None):
@@ -79,6 +80,10 @@ def create_app(settings, launcher=None):
     @app.exception_handler(Exception)
     async def failed(request, exc):
         return JSONResponse(status_code=503, content={'error': {'code': 'SIM_UNAVAILABLE', 'detail': {'reason': 'unknown'}}})
+
+    @app.exception_handler(CleanupUnconfirmed)
+    async def cleanup_unconfirmed(request, exc):
+        return JSONResponse(status_code=409, content={'error': {'code': exc.code, 'detail': {'reason': 'unknown'}}})
 
     @app.get('/v1/worlds', dependencies=[Depends(authenticate)], response_model=C.SimCatalog)
     def worlds(org_id: str):

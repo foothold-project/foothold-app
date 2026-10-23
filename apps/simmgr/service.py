@@ -184,6 +184,10 @@ class Manager:
             raise
         del self.robots[robot_id]
         if self.launcher.real:
+            # Only a fully verified native cleanup clears the episode failure;
+            # a deadline, failed ACK or absent manager row is not that proof.
+            if not getattr(self.launcher, 'failure', False):
+                self.failed = False
             self.world = self.expires_at = None
             if self.expiry_task and self.expiry_task is not asyncio.current_task():
                 self.expiry_task.cancel()
