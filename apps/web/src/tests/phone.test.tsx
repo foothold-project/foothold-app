@@ -3,7 +3,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { SimCatalog, SimRobot } from '../../../contracts/ts';
+import type { Scenario, SimCatalog, SimRobot } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
@@ -68,12 +68,12 @@ const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush
 /** 에이전트 흉내: lease.take → lease_id, 그 밖 요청 → ok. hello·cmd·ping·stop 은 답 없음(state 로 확인) */
 const agentAuto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 const last = <T,>(xs: T[]) => xs[xs.length - 1];
-/** 오른쪽 위 설정 메뉴 → «설정»·«정보»·«나가기» */
+/** 오른쪽 위 설정 메뉴 → «설정»·«정보»(나가기는 왼쪽 위 «<») */
 const menuItem = async (t: string) => { await click($('[data-sim-menu]')); await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === t)); };
 
 /** 띄우기 → 출입증 → hello → welcome 까지 */
-async function launch(hello = welcome()) {
-  serve(); await mount();
+async function launch(hello = welcome(), more: typeof routes = {}) {
+  serve(more); await mount();
   await click(btn('띄우기'));
   const a = agents()[0]; a.auto = agentAuto;
   act(() => a.open()); await flush();
@@ -127,23 +127,23 @@ describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
     expect(box.textContent).toContain('시뮬 전용 · 멈출 때 가끔 넘어질 수 있음(측정 34회 중 3회)');
     expect(box.textContent).toContain('후진·제자리 회전은 아직 지원하지 않습니다');
     await click(btn('닫기'));
-    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.00m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('0.00 m/s');
     expect($('[data-stop]')).toBeTruthy();
     const fwd = stick('전후');
     ptr(fwd, 'pointerdown', 50, 0); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 1, vy: 0, wz: 0 });
-    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 1.00m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('1.00 m/s');
     ptr(fwd, 'pointermove', 50, 44); await wait(80);
     expect(last(a.of('cmd')).vx).toBeCloseTo(0.2 + 0.8 * 0.02 / 0.9, 9);
     ptr(fwd, 'pointermove', 50, 46); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0 });
     ptr(fwd, 'pointermove', 50, 25); await wait(80);
-    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.56m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('0.56 m/s');
     ptr(fwd, 'pointerup', 50, 25);
     const n = a.of('cmd').length; await wait(60);
     expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
     expect(a.of('cmd').length).toBeGreaterThan(n);
-    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.00m/s');
+    expect($('[data-sim-vx]')!.textContent).toBe('0.00 m/s');
     ptr(fwd, 'pointerdown', 50, 100); await wait(80);
     expect(box.textContent).toContain('후진은 아직 지원하지 않습니다');
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
@@ -701,16 +701,16 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(btn('직접 연결')).toBeTruthy();
   });
 
-  it('기본 화면: 상태 줄·정책·지연은 숨기고 왼쪽 위 «시뮬 · 속도 : 0.40m/s»만, 정보 메뉴에서 보임', async () => {
+  it('기본 화면: 상태 줄·정책·지연은 숨기고 위 가운데 알약 «시뮬 · 실행 중 · 0.40 m/s»만, 정보 메뉴에서 보임', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
     const top = $('.dv-top')!;
-    expect(top.textContent).toMatch(/^○?시뮬속도 : 0\.00m\/s$/);   // 시뮬 표시 + 속도뿐(정상이면 잠금 표시 없음)
+    expect(top.textContent).toBe('시뮬 · 실행 중 · 0.00 m/s');   // 시뮬 표시 + 상태 + 속도뿐(정상이면 잠금 표시 없음)
     expect(box.textContent).not.toContain('정책 go2-flat');
     expect(box.textContent).not.toContain('시뮬 시계 차');
     const fwd = stick('전후');
     ptr(fwd, 'pointerdown', 50, 33.75); await wait(80);
-    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.40m/s');
-    expect($('[data-sim-vx]')!.textContent).toMatch(/^속도 : \d+\.\d{2}m\/s$/);
+    expect($('[data-sim-vx]')!.textContent).toBe('0.40 m/s');
+    expect($('[data-sim-vx]')!.textContent).toMatch(/^\d+\.\d{2} m\/s$/);
     ptr(fwd, 'pointerup', 50, 33.75);
     await menuItem('정보');
     const info = $('[data-sim-info]')!.textContent!;
@@ -749,9 +749,9 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(stick('전후').getAttribute('aria-disabled')).toBe('true');
     ptr(stick('전후'), 'pointerdown', 50, 0); ptr(stick('회전'), 'pointerdown', 0, 50); await wait(80);   // 막힌 조이스틱은 새로 눌러도 0
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, wz: 0 });
-    expect($('[data-sim-vx]')!.textContent).toBe('속도 : 0.00m/s');
-    // 나가기
-    await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === '나가기'));
+    expect($('[data-sim-vx]')!.textContent).toBe('0.00 m/s');
+    // 나가기(왼쪽 위 «<»)
+    await click($('[data-sim-leave]'));
     expect(a.of('lease.release')).toHaveLength(1);
     const cmds = a.of('cmd');
     expect(cmds.every((m, i) => i < n || (m.vx === 0 && m.wz === 0))).toBe(true);
@@ -776,7 +776,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
   it('나가기 반납 거절: 조종 화면에 남아 «확인하지 못했습니다»·다시 반납·STOP, 입력 0 → 다시 반납 확인되면 카드로', async () => {
     const a = await launch(); await drive(a);
     a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
-    await menuItem('나가기');
+    await click($('[data-sim-leave]'));
     expect(a.of('lease.release')).toHaveLength(1);
     await recv(a, { t: 'reply', id: a.of('lease.release')[0].id, ok: false, lease_id: null, error: { code: 'STOP_CONFIRM_FAILED', message: 'failed' } });   // 실제 WS 처럼 답은 보낸 뒤에
     expect($('[data-sim-drive]')).toBeTruthy();
@@ -798,7 +798,7 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
   it('나가기 반납 무응답 2초: 조종 화면에 남아 실패 표시·STOP 대상 보존, 입력 0', async () => {
     const a = await launch(); await drive(a);
     a.auto = ((m: Msg) => m.t === 'lease.release' ? undefined : agentAuto!(m)) as FakeWS['auto'];
-    await menuItem('나가기');
+    await click($('[data-sim-leave]'));
     const n = a.of('cmd').length;
     await wait(2100);
     expect($('[data-sim-drive]')).toBeTruthy();
@@ -809,5 +809,95 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     await click($('[data-stop]'));
     expect(a.of('stop')).toHaveLength(1);
     expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+  });
+});
+
+describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 하나)', () => {
+  const F1 = 'f-1', F2 = 'f-2';
+  const MAPPED: SimCatalog = { ...CATALOG, worlds: [{ ...CATALOG.worlds[0], map_id: 'b-1', floors: [{ floor_id: F1, name: '1층', floor_z: 0, map_version_id: 'v-1' }] }] };
+  const scn = (id: string, name: string, floor: string, archived_at: string | null = null) => ({ id, name, floor_ids: [floor], archived_at }) as unknown as Scenario;
+  const scenarios = (items: Scenario[]) => ({ 'GET /simulation/worlds': { status: 200, body: MAPPED }, 'GET /scenarios': { status: 200, body: { items, next_cursor: null } } });
+  const items = () => [...box.querySelectorAll('[data-sim-scn] li button')].map((b) => b.textContent);
+
+  it('구도: 왼쪽 위 «<»·위 가운데 알약(잠금 반영)·오른쪽 위 설정(설정·정보), 시나리오 단추 하나', async () => {
+    const a = await launch();
+    await recv(a, phoneState());
+    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
+    await recv(a, phoneState({ latched: false, controller: 'u-kim', controller_connected: true }));
+    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 보는 중 · 0.00 m/s');
+    expect($('[data-sim-leave]')!.getAttribute('aria-label')).toBe('나가기');
+    await click($('[data-sim-menu]'));
+    expect([...box.querySelectorAll('.dv-menu button')].map((b) => b.textContent)).toEqual(['설정', '정보']);
+    expect(box.querySelectorAll('[aria-label="시나리오"]')).toHaveLength(1);
+    await drive(a);
+    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 실행 중 · 0.00 m/s');
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
+    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
+  });
+
+  it('띠가 열리면 누르고 있던 입력도 0·조이스틱 막힘, 메뉴는 닫힘, STOP 은 영상 칸 밖에서 보이고 눌림 → 닫으면 다시 움직임', async () => {
+    const a = await launch(welcome(), scenarios([]));
+    await drive(a);
+    await click($('[data-sim-menu]'));
+    await click($('[data-sim-scn-btn]'));
+    expect($('.dv-menu')).toBeNull();   // 둘 중 하나만
+    await click($('[data-sim-scn-btn]'));
+    await click($('[data-sim-scn-btn]'));
+    ptr(stick('전후'), 'pointerdown', 50, 0); await wait(80);
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, wz: 0 });
+    expect(stick('전후').getAttribute('aria-disabled')).toBe('true');
+    expect($('[data-sim-scn-btn]')!.getAttribute('aria-expanded')).toBe('true');
+    expect(box.querySelector('.dv-stage [data-stop]')).toBeNull();
+    const s = $<HTMLButtonElement>('[data-stop]')!;
+    expect(s.disabled).toBe(false);
+    await click(s);
+    expect(a.of('stop')).toHaveLength(1);
+    // 닫으면 입력이 다시 산다(잠금 해제된 상태로 되돌림)
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false, stop_gen: 2 }));
+    await click($('[data-sim-scn-btn]'));
+    expect($('[data-sim-scn]')).toBeNull();
+    ptr(stick('전후'), 'pointerdown', 50, 0); await wait(80);
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0.6 });
+  });
+
+  it('이 월드 지도(층)를 지나는 보관 안 된 시나리오만, 고르면 «고름»·실행 막힘·«준비 중» — 실행 요청 0', async () => {
+    const a = await launch(welcome(), scenarios([scn('s-a', '1층 순찰', F1), scn('s-b', '남의 지도', F2), scn('s-c', '보관됨', F1, '2026-10-01T00:00:00Z')]));
+    await drive(a);
+    await click($('[data-sim-scn-btn]'));
+    expect(calls.some((c) => c.method === 'GET' && c.path.startsWith('/scenarios'))).toBe(true);
+    expect(items()).toEqual(['1층 순찰']);
+    expect(btn('실행')).toBeUndefined();
+    await click([...box.querySelectorAll('[data-sim-scn] li button')][0]);
+    expect(items()).toEqual(['1층 순찰고름']);
+    const run = btn('실행')!;
+    expect(run.disabled).toBe(true);
+    expect($('[data-sim-scn]')!.textContent).toContain('시나리오 실행은 아직 준비 중입니다.');
+    const n = calls.length, sent = a.sent.filter((m) => m.t !== 'cmd' && m.t !== 'ping').length;
+    act(() => run.click()); await flush();
+    expect(calls.length).toBe(n);
+    expect(a.sent.filter((m) => m.t !== 'cmd' && m.t !== 'ping')).toHaveLength(sent);
+  });
+
+  it('시나리오 0개면 «이 지도에 시나리오가 없습니다»', async () => {
+    await launch(welcome(), scenarios([scn('s-b', '남의 지도', F2)]));
+    await click($('[data-sim-scn-btn]'));
+    expect($('[data-sim-scn]')!.textContent).toBe('이 지도에 시나리오가 없습니다.');
+    expect(btn('실행')).toBeUndefined();
+  });
+
+  it('지도에 묶이지 않은 월드는 목록을 부르지 않고 안내만', async () => {
+    await launch();
+    await click($('[data-sim-scn-btn]'));
+    expect($('[data-sim-scn]')!.textContent).toBe('이 월드에 묶인 지도가 없어 시나리오가 없습니다.');
+    expect(calls.some((c) => c.path.startsWith('/scenarios'))).toBe(false);
+  });
+
+  it('목록 실패는 «받지 못했습니다»·다시', async () => {
+    await launch(welcome(), { ...scenarios([]), 'GET /scenarios': err(503, 'INTERNAL_ERROR', 'x') });
+    await click($('[data-sim-scn-btn]'));
+    expect($('[data-sim-scn]')!.textContent).toContain('시나리오 목록을 받지 못했습니다.');
+    routes['GET /scenarios'] = { status: 200, body: { items: [scn('s-a', '1층 순찰', F1)], next_cursor: null } };
+    await click(btn('다시'));
+    expect(items()).toEqual(['1층 순찰']);
   });
 });
