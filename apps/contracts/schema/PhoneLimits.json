@@ -15,6 +15,18 @@
       "title": "Commands",
       "type": "array"
     },
+    "experimental": {
+      "items": {
+        "enum": [
+          "reverse",
+          "lateral",
+          "turn_in_place"
+        ],
+        "type": "string"
+      },
+      "title": "Experimental",
+      "type": "array"
+    },
     "vx_max": {
       "title": "Vx Max",
       "type": "number"
