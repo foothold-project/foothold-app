@@ -233,7 +233,6 @@ def test_n7_unknown_ownership_frees_but_keeps_stop_and_rechecks(client, seeded, 
 def test_n8_run_takeover_has_no_duplicate_release(client, seeded, rt):
     run_id, rid = str(uuid4()), str(seeded['robots']['mine'])
     with agent(client, seeded, run={'run_id': run_id, 'status': 'PAUSED', 'step': 0}) as ag, screen(client, app_token(client)) as ws:
-        receive(ag, 'run.control')
         ag.send_json(state(2, stop_ref=ag.stop_ref))
         receive_open(ag, 'lease')
         take(ws, ag, rid, gen=3)

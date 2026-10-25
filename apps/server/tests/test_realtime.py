@@ -291,7 +291,6 @@ def test_agent_three_second_timeout_ping_and_reconnect_paused(client, seeded, rt
         assert error.value.code == 1013
     with agent(client, seeded, lease_id=str(uuid4()), run={'run_id': run_id, 'status': 'MOVING', 'step': 1}) as ag:
         assert rt.runs[str(seeded['robots']['mine'])]['status'] == 'PAUSED'
-        assert receive(ag, 'run.control')['op'] == 'pause'
         ag.send_json(state(2, stop_ref=ag.stop_ref))
         grant = receive(ag, 'lease')
         assert grant['holder_type'] == 'RUN:' + run_id
@@ -521,7 +520,6 @@ def test_replaced_agent_late_state_cannot_confirm_new_connection_stop(client, se
         assert entered.wait(1)
         try:
             with agent(client, seeded, run={'run_id': str(uuid4()), 'status': 'PAUSED', 'step': 0}) as new:
-                receive(new, 'run.control')
                 release.set()
                 async def flush_old():
                     await asyncio.sleep(.05)

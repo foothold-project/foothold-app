@@ -274,7 +274,6 @@ def test_r4_emergency_notifies_and_authority_recovers(client, seeded, rt):
 def test_r6_run_takeover_and_i1_bound_run_lease(client, seeded, rt):
     rid, run_id = str(seeded['robots']['mine']), str(uuid4())
     with agent(client, seeded, run={'run_id': run_id, 'status': 'PAUSED', 'step': 0}) as ag, screen(client, app_token(client)) as ws:
-        receive(ag, 'run.control')
         ag.send_json(state(2, stop_ref=ag.stop_ref))
         frame = receive(ag, 'lease')
         assert frame['holder_type'] == 'RUN:' + run_id

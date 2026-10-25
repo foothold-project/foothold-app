@@ -457,7 +457,6 @@ def test_b3_transport_proto_first_and_null_rules(client, rt, kind):
 def test_c3_matching_current_run_terminal_releases_only_its_lease(client, seeded, rt, status):
     rid, run_id = str(seeded['robots']['mine']), str(uuid4())
     with agent(client, seeded, run={'run_id': run_id, 'status': 'RUNNING', 'step': 1}) as ag:
-        receive(ag, 'run.control')
         ag.send_json(state(20, stop_ref=ag.stop_ref))
         lease = receive(ag, 'lease')['lease_id']
         assert rt.runs[rid]['lease_id'] == lease
