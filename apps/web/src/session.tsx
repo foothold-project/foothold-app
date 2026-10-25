@@ -1,11 +1,11 @@
 // 로그인·세션(05 API §2). 열 때 GET /auth/session 으로 CSRF 를 다시 받아 세션을 잇고, 401 이면 로그인 화면.
-// 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=all(운영 관리자도 전체 — 남의 로봇은 보기 전용, 02 §1.1) → App.
+// 로그인되면 역할은 /me, 로봇 목록은 /robots?scope=<listScope>(운영 관리자는 내게 배정된 로봇만, 총괄은 전체 — ADR-003 결정 2) → App.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
 import { App } from './App';
 import { BrandLogo } from './BrandLogo';
 import { api, onAuthLost, type ApiFail } from './api';
-import { clearServerData, setServerData, toRobots, type Robot, type User } from './fake';
+import { clearServerData, listScope, setServerData, toRobots, type Robot, type User } from './fake';
 import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
@@ -13,7 +13,7 @@ import { clearPlans } from './screens/missions';
 /** 무엇이 서버 값이고 무엇이 아직 준비 중인지(개발용 표시) — 서버 경유 영상·관제 지도 그림·시나리오 실행이 생기면 지운다 */
 export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·설정·기록·알림·지도·임무·시나리오·배정·결재·시뮬 로봇과 로봇 연결·상태·조종권·잠금·STOP 은 서버 값입니다. 서버 경유 조종 화면의 영상·지도 그림과 시나리오 실행은 아직 준비 중(자리만)입니다.';
 const ENDED = '로그인이 끝났습니다. 다시 로그인하세요.';
-/** 운영 관리자가 구독하지 못하는 남의 로봇 요약(조종권자 등)을 다시 받는 간격 */
+/** 운영 관리자의 로봇 목록(새로 배정된 로봇·목록 요약)을 다시 받는 간격 */
 export const LIST_MS = 10_000;
 
 const toUser = (u: ApiUser): User => ({ id: u.id, name: u.display_name, role: u.role });
@@ -31,16 +31,16 @@ export function Root() {
   useEffect(() => { if (st.at === 'login') { clearServerData(); kept.d = null; kept.job = null; clearPlans(); } }, [st.at]);   // 남겨 둔 지도·임무 편집·저장 요청도
   const enter = async () => {
     const me = toUser(await api.me());
-    const fresh = now(), robots = toRobots(await api.robots('all'));
+    const fresh = now(), robots = toRobots(await api.robots(listScope(me)));
     setServerData(me, robots);
     live.current?.abort();
     const g = live.current = new AbortController();
     setSt((s) => ({ at: 'app', user: me, robots, fresh, n: (s.at === 'app' ? s.n : 0) + 1, cancel: g.signal }));
   };
   /** 목록 다시 받기 — 이 로그인 세션(사용자·n)에 묶는다: 세션이 바뀌었거나 더 늦게 요청한 목록이 이미 왔으면 버린다 */
-  const reload = (session: string, cancel: AbortSignal) => {
+  const reload = (user: User, session: string, cancel: AbortSignal) => {
     const fresh = now();
-    return api.robots('all', cancel).then((rs) => {
+    return api.robots(listScope(user), cancel).then((rs) => {
       const robots = toRobots(rs);
       setSt((s) => {
         if (s.at !== 'app' || `${s.user.id}-${s.n}` !== session || fresh <= s.fresh) return s;
@@ -49,17 +49,18 @@ export function Root() {
       });
     });
   };
-  // 남의 로봇은 실시간 구독이 안 돼(서버가 4403) 목록 요약을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면).
+  // 운영 관리자는 새로 배정된 로봇을 실시간으로 알 수 없어 목록을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면).
   // 갱신은 이 로그인 세션(사용자·n)에 묶는다: 세션이 바뀌면 진행 중인 요청을 거두고 늦은 답은 버린다. 앞 요청이 안 끝났으면 다음은 건너뜀
   const session = st.at === 'app' && st.user.role !== 'ORG_ADMIN' ? `${st.user.id}-${st.n}` : '';
   useEffect(() => {
-    if (!session) return;
+    const user = st.at === 'app' ? st.user : null;
+    if (!session || !user) return;
     const gone = new AbortController();
     let busy = false;
     const i = setInterval(() => {
       if (busy) return;
       busy = true;
-      reload(session, gone.signal).catch(() => {}).finally(() => { busy = false; });
+      reload(user, session, gone.signal).catch(() => {}).finally(() => { busy = false; });
     }, LIST_MS);
     return () => { clearInterval(i); gone.abort(); };
   }, [session]);
@@ -75,7 +76,7 @@ export function Root() {
   // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
   // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
-  const refresh = () => { reload(`${st.user.id}-${st.n}`, st.cancel).catch(() => {}); };
+  const refresh = () => { reload(st.user, `${st.user.id}-${st.n}`, st.cancel).catch(() => {}); };
   return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} dev={DEV_NOTE} />;
 }
 

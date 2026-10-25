@@ -171,27 +171,63 @@ describe('로그인·세션', () => {
   });
 });
 
-describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
+describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 관리자 mine, 총괄 all)', () => {
   const ROBOTS = [robot('r-b', 'Go2-B', 'o2', '박운영'), robot('r-a', 'Go2-A', 'o1', '이운영')];
   const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
   const row = (name: string) => [...box.querySelectorAll('[aria-label="로봇 목록"] button')].find((b) => b.textContent!.includes(name))!;
-  it('운영 관리자도 scope=all: 내 로봇 먼저, 남의 로봇은 보는 중 + 조종 비활성 이유, STOP 은 됨', async () => {
-    serve(signedIn(LEE, ROBOTS, { 'GET /dashboard': { status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } } }));
+  it('운영 관리자는 scope=mine: 내게 배정된 로봇만, 보는 중 없음, STOP 은 됨', async () => {
+    serve(signedIn(LEE, [robot('r-a', 'Go2-A', 'o1', '이운영')], { 'GET /dashboard': { status: 200, body: { robots_total: 1, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } } }));
     await open();
-    expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=all');
-    expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-A', 'Go2-B']);
-    expect(row('Go2-B').textContent).toContain('박운영 · 보는 중');   // 담당자 이름은 서버 owner 값
-    expect(row('Go2-A').textContent).not.toContain('보는 중');
-    expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '내 로봇')!.querySelector('b')!.textContent).toBe('1');   // 요약은 서버가 담당 범위로 센 값(목록은 전체)
+    expect(calls.find((c) => c.path.startsWith('/robots?'))!.path).toBe('/robots?scope=mine&limit=100');
+    expect([...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent)).toEqual(['Go2-A']);
+    expect($('[aria-label="로봇 목록"]')!.textContent).not.toContain('보는 중');
+    expect([...box.querySelectorAll('main div')].find((d) => d.firstElementChild?.textContent === '내 로봇')!.querySelector('b')!.textContent).toBe('1');
 
-    click(row('Go2-B'));
-    expect($('[aria-label="로봇 상세"] .btn.pri')).toBeNull();   // 총괄 웹에는 조종 단추가 없다(ADR-002 §4 — 조종은 폰)
+    click(row('Go2-A'));
+    expect($('[aria-label="로봇 상세"] .btn.pri')).toBeNull();   // PC 에는 조종 단추가 없다(ADR-002 §4 — 조종은 폰)
     act(() => FakeWS.last.open());
-    expect(FakeWS.last.of('sub')).toMatchObject([{ robots: ['r-a'] }]);   // 남의 로봇은 구독하지 않음(서버가 4403 으로 닫는다)
+    expect(FakeWS.last.of('sub')).toMatchObject([{ robots: ['r-a'] }]);
     click($('[data-stop]')!);
-    expect(FakeWS.last.of('stop')).toMatchObject([{ robot: 'r-b' }]);
-    expect($('[data-band]')!.textContent).toContain('Go2-B 정지 요청됨');
+    expect(FakeWS.last.of('stop')).toMatchObject([{ robot: 'r-a' }]);
     expect($('a[href="#/drive"]')).toBeNull();
+  });
+  it('역할 바꿔 다시 로그인: 운영 관리자 mine(주기 갱신·목록 다시 받기도) → 총괄 all → 운영 관리자 mine', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    try {
+      let me = LEE;
+      const all = [robot('r-b', 'Go2-B', 'o2', '박운영'), robot('r-a', 'Go2-A', 'o1', '이운영')];
+      // 가짜 서버도 범위대로: mine = 내가 담당인 로봇만
+      const list = () => { const q = calls[calls.length - 1].path; return { status: 200, body: { items: q.includes('scope=mine') ? all.filter((r) => r.owner!.id === me.id) : all, next_cursor: null } }; };
+      serve(signedIn(LEE, [], {
+        'GET /me': () => ({ status: 200, body: me }), 'GET /robots': list, 'POST /auth/logout': { status: 204 },
+        'POST /auth/login': () => { const next = calls[calls.length - 1].body as { username: string }; me = next.username === 'kim' ? KIM : LEE; return { status: 200, body: { ...me, csrf_token: 'csrf-2', access_token: null, refresh_token: null } }; },
+      }));
+      const scopes = () => calls.filter((c) => c.path.startsWith('/robots?')).map((c) => new URLSearchParams(c.path.split('?')[1]).get('scope'));
+      const names = () => [...box.querySelectorAll('[aria-label="로봇 목록"] b')].map((b) => b.textContent);
+      await open();
+      expect(names()).toEqual(['Go2-A']);
+      act(() => { vi.advanceTimersByTime(LIST_MS); });   // 주기 갱신
+      await flush();
+      act(() => FakeWS.last.open());
+      act(() => FakeWS.last.recv({ t: 'subscription.revoked', robot: 'r-a', reason: 'ACCESS_REVOKED' }));   // 구독 회수 → 목록 다시 받기
+      await flush();
+      const n = scopes().length;
+      expect(n).toBeGreaterThanOrEqual(3);   // 처음·주기 갱신·회수 뒤(그 밖의 다시 받기도 같은 범위)
+      expect(new Set(scopes())).toEqual(new Set(['mine']));
+
+      act(() => btn('로그아웃')!.click()); await flush();
+      await login('kim', 'pw');
+      expect($('.fh-me')!.textContent).toBe('김총괄(총괄)');
+      expect(names()).toEqual(['Go2-B', 'Go2-A']);
+      act(() => { vi.advanceTimersByTime(LIST_MS * 2); }); await flush();   // 총괄은 주기 갱신 없음
+      const m = scopes().length;
+      expect(new Set(scopes().slice(n))).toEqual(new Set(['all']));   // 상세 404 뒤 다시 받기도 같은 범위
+
+      act(() => btn('로그아웃')!.click()); await flush();
+      await login('lee', 'pw');
+      expect(names()).toEqual(['Go2-A']);
+      expect(new Set(scopes().slice(m))).toEqual(new Set(['mine']));
+    } finally { vi.useRealTimers(); }
   });
   it('폰: 로봇 연결은 내 로봇만, 머리줄 ⋯ 에 기록·로그아웃, 기록 화면 ⋯ 에는 로그아웃 하나', async () => {
     serve(signedIn(LEE, ROBOTS, { 'POST /auth/logout': { status: 204 } }));
@@ -316,10 +352,12 @@ describe('로봇 목록 = GET /robots?scope=all(02 §1.1)', () => {
     expect(card.querySelector('button')!.textContent).toBe('보기만');
     expect(card.querySelector('[data-why]')!.textContent).toContain('아직 연결되지 않아');
   });
-  it('담당 로봇 0대: 본문은 안내, 설정 탭은 열림', async () => {
+  it('담당 로봇 0대(scope=mine 빈 목록): 빈 화면이 아니라 배정 요청 안내, 설정 탭은 열림', async () => {
     serve(signedIn(LEE, []));
     await open();
-    expect($('[aria-label="로봇 없음"]')!.textContent).toContain('로봇 배정을 요청하세요');
+    expect(calls.find((c) => c.path.startsWith('/robots'))!.path).toContain('scope=mine');
+    expect($('[aria-label="로봇 없음"]')!.textContent).toBe('로봇이 없습니다담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.');
+    expect($('[aria-label="요약"]')).not.toBeNull();   // 관제 요약은 그대로
     expect($('[data-stop]')).not.toBeNull();
     act(() => { location.hash = '#/settings'; window.dispatchEvent(new HashChangeEvent('hashchange')); });
     await flush();
