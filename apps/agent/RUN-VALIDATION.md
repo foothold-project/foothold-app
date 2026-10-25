@@ -118,3 +118,93 @@ RUN_STARTED에는 assignment_id/계획 스냅샷 전달 필드가 없다. 조정
 
 되돌림은 이 기능 커밋을 git revert한다. Git 되돌림과 실제 에이전트 재시작/배포는 별도 작업이며,
 영속 outbox 파일은 삭제하지 않는다. 안전 변경이므로 Claude·Codex 두 모델 검토 후 조정이 dev에 합친다.
+
+## 2026-10-25 통합 2b (기준 dev 687553d)
+
+이 절은 위 초기 구현의 미구현·권고 목록을 대체한다. 기존 기록의 시험 수는 당시 결과다.
+
+- 실제 조회 경로는 `/api/v1/agent/scenarios/{id}?version=n`이다. origin은 경로 없이 유지한다.
+- 새 실행은 필수 RunMapProof를 엄격히 검사한다. 실제 로컬 PNG/PGM의 SHA·동일 raster,
+  행 반전과 unknown을 포함한 OccupancyGrid·원점·해상도·크기·현재 world/floor/episode와
+  고정 판을 대조한다. 누락/불일치 때 출발하지 않는다. HUMAN 지도는 첫 판 실행 불가다.
+  RUN_STARTED는 이 검증 뒤 동일 map_proof를 담아 영속 저장하며 commit 전 목표를 제출하지 않는다.
+- 기본 ROS 진입점은 명시적인 로컬 지도 자료 구성 시 제품 RunNav/GoalActions를 주입한다.
+  기존 RosNode의 단일 ROS 스레드를 확장하며 로봇 명령 publisher를 추가하지 않는다.
+  Nav2 lifecycle·신선한 TF/clock/scan 및 정책 위치와의 일치를 검사한다.
+- 지점·finish마다 새 목표 UUID를 쓴다. 다음 제출은 이전 목표 terminal result 확인 뒤다.
+  취소 요청의 수락만으로 완료라 하지 않으며, acceptance 전 취소도 늦은 handle에 전달한다.
+  목표별 intent 구독과 action callback은 불변 목표 세대를 캡처하고 옛 성공은 버린다.
+- 도착은 현재 세대 SUCCEEDED + 같은 지도 판의 측정 위치가 0.5 m 이내이고 신선도
+  `FH_RUN_ARRIVAL_POSE_MAX_AGE_S` 이하일 때다(기본 1.0 s, 양의 finite).
+  yaw 오차·몸체 정지 유지는 10-25 결정으로 제외했다. 기존 도착 시험에서 움직이는 몸의
+  거부 기대만 조정 승인으로 제거했으며 stale pose·Core·STOP·deadman 기대는 유지했다.
+- 이동 중 0 cmd는 0을 적용하면서 이후 Nav 입력에 새 중립을 불필요하게 요구하지 않는다(R3).
+  Nav2 성공 뒤에는 별도의 0 전용 대기(기본 3 s)로 측정 위치를 확인한다(R4).
+  Session의 이 제한 상태는 비영 입력을 0으로 강제하며 ROS 원수신 시각을 갱신하지 않는다.
+  이동 중 원수신 0.3 s 만료·잠금·독립 sink watchdog·화면 감시는 유지한다.
+  도착 뒤 취소 대기도 0 전용·3 s 제한이다. PAUSED 사유와 최초 만료 시각은 보존한다(R5).
+- `run.report_rejected`는 실제 outbox 식별자와 대조한다. RETRY는 기존 재연결 backoff 뒤
+  같은 원문을 FIFO replay한다. expected_report_seq가 원문보다 커도 삭제하거나 식별자를
+  고치지 않는다(B4). 보관하지 않은 선두를 요구하면 기록 장애로 정지한다.
+- QUARANTINE은 원문·식별자·거부 이유를 `<outbox>.quarantine`의 별도 0600 SQLite에
+  FULL commit한 뒤 live outbox에서 제거한다. 두 파일 간 장애 시 archive를 먼저 보존하며,
+  재시작에서 중복 이동을 완료한다. archive는 자동 replay/삭제하지 않는다.
+  현재 실행은 즉시 0·취소·잠금·FAILED(RECORDING_REJECTED), 종료 보고는 새 순번이다.
+  격리 저장 실패 때 원문은 live outbox에 남고 기록 장애 차단을 유지한다.
+- 시뮬 로봇은 프로세스 재시작 때만 격리 차단을 해제한다(B2). 격리 파일과 실패 실행은
+  보존하며 새 출입증·새 run_id·STOP 확인·unlock·중립 관문이 계속 필요하다.
+  실기는 재시작해도 격리 차단을 유지한다. 원격 해제 경로는 없다.
+
+추가 구성:
+
+- `FOOTHOLD_RUN_MAP_ASSETS_JSON`: 로컬 배열
+  `[{"map_version_id":"<uuid>","image_path":"/data/maps/map.png","pgm_path":"/data/maps/map.pgm"}]`.
+  신뢰된 launch 등록 `FOOTHOLD_FLOOR_BINDINGS`도 필요하다. PNG는 grayscale8 noninterlaced,
+  PGM은 동일 픽셀의 P5/255(0=occupied,205=unknown,254=free) 사본이다.
+  지도 원본은 Git에 넣지 않는다. 자료가 없으면 실행은 fail-closed다.
+- `FOOTHOLD_RUN_OUTBOX_PATH`와 `.quarantine`은 episode 삭제 디렉터리 밖에 둔다.
+  경로의 소유·보존은 launcher 책임이며 2b는 해당 환경변수를 소비한다.
+- `FOOTHOLD_SCENARIO_DATA_ORIGIN`과 `FOOTHOLD_RUN_PAUSE_TIMEOUT_S`는 위 구성과 같다.
+- 성공 후 측정/취소 대기는 내부 기본 3 s, Nav 이동 제한은 기존 120 s다.
+
+검사 명령(ROS/Gazebo를 기동하지 않는 Python 환경):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 FH_TEST_PORT_RANGE=9590-9599 \
+PYTHONPATH=runs/int-agent-test-fence:apps/agent:apps/agent/tools \
+python -m pytest -q apps/agent/tests/test_run_integration.py \
+  apps/agent/tests/test_scenario_run.py apps/agent/tests/test_executor_nav2.py
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=apps/agent:apps/agent/tools \
+python apps/agent/tools/check_run_mutations.py --r1
+```
+
+로컬 비추적 fence는 원본 사본에 9590~9599만 허용했고, 기존 도우미를 위해 동일 범위의
+환경 표기만 콜론으로 정규화한다. 서버·web·contracts·simmgr 수정은 없다.
+실 Nav2 action/다중 구독 전환·목표 사이 늦은 Twist·lifecycle 지연·물리 이동/정지,
+실서버 API/DB와 왕복 결합, 실제 전원/디스크 고장과 실폰·실기는 미검증이다.
+회전/곡선·임의 저속은 기존 검증 alphabet 밖으로 거부한다. 일반 창고 순찰 완주를 주장하지 않는다.
+별도 2a/launcher 통합과 Claude·Codex 안전 검토는 조정 세션이 진행한다.
+
+2b 실행 결과:
+
+- 최초 집중 3파일: **142 passed**. 최종 집중 4파일(`test_run_integration`,
+  `test_scenario_run`, `test_executor_nav2`, `test_link_session`): **252 passed**, 2.01 s.
+  신규 통합 시험은 최종 54개다.
+- 에이전트 전체는 조건문 안에서 **1회** 실행했다. 직전 MemAvailable **5567216 kB**
+  (기준 2621440 이상), `pytest -q apps/agent -p no:cacheprovider`:
+  **1465 passed, 1 skipped, 2 warnings**, 56.77 s. warning은 기존 nav2_journal 시험의
+  pytest 빈 정규식 경고다. 전체 실행 후 대기 만료/취소 완료의 동시 경계 순서와 RETRY의
+  run_id 대조·시작 전 로컬 상태 경계를 보완했고 위 최종 집중 252개와 안전 변이를 다시 통과했다.
+  전체 시험은 반복하지 않았다.
+- 안전 변이 `check_run_mutations.py --r1`: **1/1 DETECTED**. Nav2 원수신 만료의
+  공통 출력 관문을 제거하면 기존 로봇 피드백 회귀가 assertion으로 실패한다.
+- `git diff --check` 통과. Core 소스·STOP/deadman 시험 기대값 변경 0.
+- 소켓은 비추적 fence로 loopback 9590~9599만 사용했다. ROS·Gazebo·시뮬·실기 기동0,
+  설치0, 서버·web·contracts·simmgr 변경0이다.
+
+시작 전 실패의 첫 판 범위(조정 합의): RUN_STARTED를 아직 append하지 않은 준비 실패·STOP은
+폰의 로컬 FAILED/PAUSED 표시와 0·잠금만 유지하며 서버 outbox에는 넣지 않는다.
+따라서 서버 실행 이력은 생성되지 않는다. RUN_STARTED를 일단 append한 뒤의 원문과 이후
+STOP 보고는 ACK 전 삭제하지 않고 FIFO로 보존·재전송한다. 서버 ACK를 목표 제출 허가로
+사용하지 않으며, 시작 보고가 QUARANTINE되면 이동 중이어도 즉시 0·취소·잠금·FAILED로
+축소한다. 이 두 경계는 신규 통합 시험으로 확인했다.

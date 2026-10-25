@@ -71,6 +71,7 @@ class NavExecutor:
         self.binding = None
         self.reason = 'IDLE'
         self.result = None
+        self.result_at = None
         self.counts = {}
         self.last_velocity = None
         self._lock = threading.Lock()
@@ -93,13 +94,14 @@ class NavExecutor:
             self._latest = None
             self._revoked = False
             self.result = None
+            self.result_at = None
             self.rejected = False
         self.actions.submit(binding, point)
 
     def intent(self, binding, velocity):
         received_at = self.now()
         with self._lock:
-            if binding != self.binding or self._revoked:
+            if binding != self.binding or self._revoked or self.result is not None:
                 return False
             # Check the PREVIOUS receipt under this same lock before replacing it.
             # Only a new explicit goal can clear expiration; callbacks never can.
@@ -126,9 +128,12 @@ class NavExecutor:
 
     def feedback(self, binding, result):
         with self._lock:
-            if binding != self.binding or self._revoked:
+            if binding != self.binding or self._revoked or self.result is not None:
+                return False
+            if result == 'SUCCEEDED' and self._expire_locked():
                 return False
             self.result = result
+            self.result_at = self.now()
             return True
 
     def revoke(self, reason):

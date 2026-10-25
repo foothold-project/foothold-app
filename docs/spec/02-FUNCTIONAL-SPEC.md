@@ -287,7 +287,7 @@
 | `IDLE` | 그 밖 (`QUEUED` 만 있는 경우 포함) |
 - 연결이 끊긴 로봇은 `connection: OFFLINE` 이고 `status` 는 마지막 확인 값이다(화면은 "마지막 확인"으로 표시).
 - 실패·취소 이유 코드(예): `NAV_GOAL_REJECTED`, `NAV_TIMEOUT`, `LOCALIZATION_LOST`, `FLOOR_TRANSITION_FAILED`, `BATTERY_LOW`, `OPERATOR_ABORT`, `DEVICE_MISSING`, `PAUSE_TIMEOUT`. `LINK_LOST`·`STOPPED_BY_USER`·`RECORDING_UNAVAILABLE`는 실패 코드가 아닌 `PAUSED`의 `wait_reason`이다.
-- 지점 도착 판정: 목표 반경 0.5 m 이내 + 정지(제안).
+- 지점 도착 판정(10-25 결정): 현재 목표 세대의 Nav2 SUCCEEDED + 해당 지도 판의 신선한 측정 위치가 목표 반경 0.5 m 이내. 위치 신선도는 `FH_RUN_ARRIVAL_POSE_MAX_AGE_S`(기본 1.0 s) 이하이며, 첫 판은 yaw·정지 유지를 판정하지 않는다. 도착 판정은 몸체 정지 증명이 아니다.
 
 ### F-MS-07 다른 층 시작 (MS-06) — 확정 요구
 - 로봇의 현재 층 ≠ 시나리오 시작 지점 층이면, 서버가 층 연결점 그래프로 경로를 만든다.

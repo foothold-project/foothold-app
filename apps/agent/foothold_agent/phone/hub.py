@@ -64,12 +64,13 @@ class Hub:
         from foothold_agent.executor.scenario_run import ScenarioRun
         self.runs = ScenarioRun(self, nav=nav, source=scenario_source, journal=run_journal,
             context=run_context, arrival=arrival_evidence, run_pause_timeout_s=run_pause_timeout_s)
+        self.session.executor_zero_only = self.runs.zero_only_waiting
         self._emit(self.session.connect())
 
     def _emit(self, effects):
         # Core intent time is the consumption time. Every output, including
         # robot feedback and audit ticks, must obey Nav2's original receipt.
-        if self.runs.binding is not None and self.runs.nav.source_expired():
+        if self.runs.binding is not None and not self.runs.zero_only_waiting() and self.runs.nav.source_expired():
             self.runs._halt('FAILED', 'NAV_TIMEOUT')
             return  # discard effects computed from the expired intent
         try:
@@ -370,7 +371,7 @@ class Hub:
                 reply.update(ok=False, error=self.error('RUN_ACTIVE'))
                 return reply
             # Safety-reducing ZERO is never blocked by RUN ownership.
-            self.session.core._void()
+            self.session.core.cmd(self.session.lease_id, Z)
             self._emit(self.session.tick())
             return {'t': 'cmd.ack', 'id': f['id'], 'seq': f['seq'], 'applied': list(Z), 'clipped': False, 'reason': None}
         if kind in ('lease.take', 'lease.request') and not self._acquisition_allowed(p):

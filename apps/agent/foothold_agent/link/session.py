@@ -96,6 +96,7 @@ class Session:
         self.run = None
         self.link_loss_wait_s = 30.0
         self.executor_t = None
+        self.executor_zero_only = None
         self.last_report = float("-inf")
         self._telemetry = None
         self.ack_pending = False
@@ -176,6 +177,12 @@ class Session:
 
     def _advance(self):
         self._sync_output_hold()
+        if (self.holder_type == 'RUN' and self.run is not None and self.run['status'] == 'RUNNING'
+                and self.executor_zero_only is not None and self.executor_zero_only()):
+            # Locally bounded terminal-action/cancel wait. Health only authorizes
+            # ZERO; it does not refresh a ROS receipt or relax Core safety gates.
+            self.core.cmd(self.lease_id, Z)
+            self.executor_t = self.now()
         # Evaluate before handling a new frame: fresh input cannot resurrect an
         # expired intent or cancel an elapsed grace deadline.
         if self.server_link and self.last_server is not None and self.now() - self.last_server >= LINK_TIMEOUT:
@@ -535,7 +542,7 @@ class Session:
         if (self.run is not None and self.run["run_id"] == run_id
                 and self.holder_run_id == run_id
                 and self.run["status"] not in TERMINAL):
-            valid = _axes(axes, local=True)
+            valid = Z if self.executor_zero_only is not None and self.executor_zero_only() else _axes(axes, local=True)
             if valid is not None:
                 self.executor_t = self.now()
             # Executor health is independent of command authority: while waiting

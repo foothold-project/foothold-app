@@ -27,6 +27,11 @@ def plan_from_data(data, request):
                 raise ValueError('MAP_VERSION_MISMATCH')
             if not all(type(p.get(k, 0. if k == 'yaw' else None)) in (float, int) and math.isfinite(p.get(k, 0. if k == 'yaw' else None)) for k in ('x', 'y', 'yaw')):
                 raise ValueError('PLAN_UNAVAILABLE')
+        proofs = data.get('map_proofs')
+        if not isinstance(proofs, list) or len(proofs) != 1:
+            raise ValueError('MAP_VERSION_MISMATCH')
+        from .map_proof import validate_proof, VerifiedPlan
+        validate_proof(proofs[0], request)
         goals = []
         for idx, p in enumerate(points):
             if uuid(p['mission_id']) != p['mission_id'] or type(p['mission_version']) is not int or p['mission_version'] < 1 or not isinstance(p['mission_name'], str):
@@ -35,7 +40,9 @@ def plan_from_data(data, request):
                           ('waypoint_ref', 'x', 'y', 'yaw', 'mission_id', 'mission_version', 'mission_name')})
             goals[-1]['idx'] = idx
         end = deepcopy(points[0] if mode == 'RETURN_TO_START' else finish.get('target'))
-        return {'segments': [{'floor_id': request['floor_id'], 'map_version_id': request['map_version_id'], 'goals': goals}]}, end
+        plan = VerifiedPlan(segments=[{'floor_id': request['floor_id'], 'map_version_id': request['map_version_id'], 'goals': goals}])
+        plan.map_proof = deepcopy(proofs[0])
+        return plan, end
     except (KeyError, TypeError, OverflowError):
         raise ValueError('PLAN_UNAVAILABLE') from None
 
@@ -56,7 +63,7 @@ class ScenarioSource:
             class NoRedirect(HTTPRedirectHandler):
                 def redirect_request(self, *args, **kwargs):
                     raise ValueError('PLAN_UNAVAILABLE')
-            url = self.origin + '/agent/scenarios/' + uuid(request['scenario_id']) + '?version=' + str(request['scenario_version'])
+            url = self.origin + '/api/v1/agent/scenarios/' + uuid(request['scenario_id']) + '?version=' + str(request['scenario_version'])
             with build_opener(NoRedirect).open(Request(url, headers={'Authorization': 'Bearer ' + self.token}), timeout=3) as reply:
                 raw = reply.read(1048577)
             if len(raw) > 1048576:

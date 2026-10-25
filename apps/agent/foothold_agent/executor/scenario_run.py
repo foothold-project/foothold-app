@@ -8,9 +8,10 @@ import hashlib
 import hmac
 import math
 import secrets
+import os
 from uuid import uuid4
 
-from foothold_agent.safety.core import Z, STATE_STALE
+from foothold_agent.safety.core import Z
 from .nav2 import Binding
 from .scenario import plan_from_data
 
@@ -19,7 +20,8 @@ TERMINAL = {'COMPLETED', 'FAILED', 'CANCELED'}
 
 class ScenarioRun:
     def __init__(self, hub, *, nav=None, source=None, journal=None, context=None,
-                 arrival=None, run_pause_timeout_s=600, nav_timeout_s=120):
+                 arrival=None, run_pause_timeout_s=600, nav_timeout_s=120,
+                 arrival_pose_max_age_s=None, arrival_wait_s=3):
         if (type(run_pause_timeout_s) not in (int, float) or not math.isfinite(run_pause_timeout_s)
                 or run_pause_timeout_s <= 0 or type(nav_timeout_s) not in (int, float)
                 or not math.isfinite(nav_timeout_s) or not 0 < nav_timeout_s <= 600):
@@ -27,6 +29,13 @@ class ScenarioRun:
         self.hub, self.nav, self.source, self.journal = hub, nav, source, journal
         self.context, self.arrival = context, arrival
         self.pause_timeout, self.nav_timeout = run_pause_timeout_s, nav_timeout_s
+        age = float(os.environ.get('FH_RUN_ARRIVAL_POSE_MAX_AGE_S', '1.0')) if arrival_pose_max_age_s is None else arrival_pose_max_age_s
+        if any(type(v) not in (int, float) or not math.isfinite(v) or v <= 0 for v in (age, arrival_wait_s)):
+            raise ValueError('invalid arrival timeout')
+        self.arrival_pose_max_age_s, self.arrival_wait_s = age, arrival_wait_s
+        self.recording_rejected = bool(journal is not None and journal.has_quarantine and hub.simulation is not True)
+        self.success_at = None
+        self.next_goal_pending = False
         self.current = None
         self.starts = {}  # bounded process-lifetime tombstones; no ID reuse
         self.binding = None
@@ -45,6 +54,15 @@ class ScenarioRun:
                 if m['status'] not in TERMINAL:
                     journal.append({**{k: m[k] for k in ('t', 'run_id', 'step', 'progress')},
                                     'status': 'FAILED', 'fail_code': 'AGENT_RESTARTED', 'wait_reason': None}, hub.now())
+
+    def zero_only_waiting(self):
+        if not self.active or self.current['status'] == 'PAUSED':
+            return False
+        if self.next_goal_pending:
+            return 0 <= self.hub.now() - self.cancel_wait_started < self.arrival_wait_s
+        return (self.binding is not None and self.nav.result == 'SUCCEEDED'
+                and self.nav.result_at is not None
+                and 0 <= self.hub.now() - self.nav.result_at < self.arrival_wait_s)
 
     @property
     def active(self):
@@ -78,6 +96,15 @@ class ScenarioRun:
                 and core.intent == Z)
 
     def _publish(self, message):
+        if self.current is not None and 'start_data' in self.current:
+            # Before the proven RUN_STARTED exists, the server has no run.
+            # Preparation failures/STOP are local UI state, not orphan reports.
+            if message['t'] == 'run.update':
+                visible = {'t': 'run.update', **self.snapshot()}
+                for peer, p in self.hub.peers.items():
+                    if p.user is not None:
+                        self.hub._notify(peer, visible)
+            return
         try:
             if self.journal is None:
                 raise RuntimeError('no run journal')
@@ -121,6 +148,8 @@ class ScenarioRun:
         binding, self.binding = self.binding, None
         self.hub.owner = self.hub.reservation = None
         self.preparing = None
+        self.next_goal_pending = False
+        self.success_at = None
         try:
             self.hub._emit(s.receive({'t': 'lease', 'lease_id': None, 'holder_type': None}))
         finally:
@@ -151,7 +180,7 @@ class ScenarioRun:
             self._halt('PAUSED', 'LINK_LOST')
 
     def stopped(self):
-        if self.active:
+        if self.active and self.current['status'] != 'PAUSED':
             self._halt('PAUSED', 'STOPPED_BY_USER')
 
     def _promote(self, peer):
@@ -193,7 +222,7 @@ class ScenarioRun:
                 return 'NAV_UNAVAILABLE', None
             if self.source is None or self.context is None:
                 return 'PLAN_UNAVAILABLE', None
-            if self.journal is None or not self.journal.available or self.storage_failed:
+            if self.journal is None or not self.journal.available or self.storage_failed or self.recording_rejected:
                 return 'RECORDING_UNAVAILABLE', None
             if h.owner is not peer or f['lease_id'] != h.session.lease_id or not self._safe():
                 return 'NOT_CONTROLLER', None
@@ -208,12 +237,8 @@ class ScenarioRun:
             self.starts[f['run_id']] = deepcopy(request)
             self._promote(peer)
             p = h.peers[peer]
-            self._event('RUN_STARTED', {k: f[k] for k in ('run_id', 'scenario_id', 'scenario_version', 'floor_id', 'map_version_id')} |
-                        dict(user_id=p.user, device_id=p.device, surface=p.surface, screen_id=f['screen_id'], simulation=True))
-            self._status('QUEUED')
-            if not self.active or self.storage_failed:
-                return 'RECORDING_UNAVAILABLE', None
-            self._status('PREPARING')
+            c['start_data'] = {k: f[k] for k in ('run_id', 'scenario_id', 'scenario_version', 'floor_id', 'map_version_id')} | dict(user_id=p.user, device_id=p.device, surface=p.surface, screen_id=f['screen_id'], simulation=True)
+            c['status'] = 'PREPARING'
             try:
                 self.preparing = self.source.fetch(deepcopy(request))
             except Exception:
@@ -246,7 +271,7 @@ class ScenarioRun:
         if (not self.cancel_confirmed() or c['plan'] is None or h.owner is not peer
                 or f['lease_id'] != h.session.lease_id or not self._safe()):
             return 'RESUME_REJECTED', None
-        if self.storage_failed or self.journal is None or not self.journal.available:
+        if self.storage_failed or self.recording_rejected or self.journal is None or not self.journal.available:
             return 'RECORDING_UNAVAILABLE', None
         if not self.nav.actions.ready() or not self.context(c['request'], c['plan']):
             return 'RESUME_REJECTED', None
@@ -259,9 +284,16 @@ class ScenarioRun:
 
     def _goal(self):
         c, s = self.current, self.hub.session
+        if not self.cancel_confirmed():
+            self.next_goal_pending = True
+            self.cancel_wait_started = self.hub.now()
+            return
+        self.next_goal_pending = False
+        self.success_at = None
         goal = c['end'] if c['ending'] else c['plan']['segments'][0]['goals'][c['step']]
         self.binding = Binding(c['run_id'], str(uuid4()), s.core.episode, s.core.stop_gen,
-                               '', c['request']['floor_id'], c['request']['map_version_id'])
+                               c['plan'].map_proof['world_id'], c['request']['floor_id'],
+                               c['plan'].map_proof['image_sha256'])
         self.goal_started = self.hub.now()
         try:
             self.nav.begin(self.binding, deepcopy(goal))
@@ -301,7 +333,8 @@ class ScenarioRun:
             h._emit(s.executor_command(c['run_id'], Z))
             if self.preparing is not None and self.preparing.done():
                 try:
-                    c['plan'], c['end'] = plan_from_data(self.preparing.result(), c['request'])
+                    if c['plan'] is None:
+                        c['plan'], c['end'] = plan_from_data(self.preparing.result(), c['request'])
                     if not self.context(c['request'], c['plan']):
                         raise ValueError('MAP_VERSION_MISMATCH')
                     c['progress']['total'] = len(c['plan']['segments'][0]['goals'])
@@ -309,20 +342,46 @@ class ScenarioRun:
                     code = str(exc) if str(exc) in ('FLOOR_TRANSITION_UNSUPPORTED', 'MAP_VERSION_MISMATCH') else 'PLAN_UNAVAILABLE'
                     self._halt('FAILED', code)
                     return
+                if 'start_data' in c:
+                    self._event('RUN_STARTED', {**c.pop('start_data'), 'map_proof': c['plan'].map_proof})
+                    self._status('PREPARING')
                 if self.journal.jobs:
                     return  # initial metadata commits before goal submission
                 self.preparing = None
                 self._goal()
             return
+        if self.next_goal_pending:
+            if h.now() - self.cancel_wait_started >= self.arrival_wait_s:
+                self._halt('FAILED', 'NAV_TIMEOUT')
+                return
+            if not self.context(c['request'], c['plan']):
+                self._halt('FAILED', 'LOCALIZATION_LOST')
+                return
+            h._emit(s.executor_command(c['run_id'], Z))
+            if self.cancel_confirmed():
+                self._goal()
+            return
         if self.binding is None:
             return
-        if s.run is None or s.run['status'] != 'RUNNING' or self.nav.source_expired() or h.now() - self.goal_started >= self.nav_timeout:
+        succeeded = self.nav.result == 'SUCCEEDED'
+        if succeeded and self.success_at is None:
+            self.success_at = self.nav.result_at
+        if (s.run is None or s.run['status'] != 'RUNNING'
+                or (not succeeded and self.nav.source_expired())
+                or (succeeded and h.now() - self.nav.result_at >= self.arrival_wait_s)
+                or h.now() - self.goal_started >= self.nav_timeout):
             self._halt('FAILED', 'NAV_TIMEOUT')
             return
         if not self.context(c['request'], c['plan']):
             self._halt('FAILED', 'LOCALIZATION_LOST')
             return
-        axes = self.nav.poll(deepcopy(s.run))
+        if succeeded:
+            # Local zero-only health state; never renew the Nav2 source receipt.
+            # Set health before Session._advance checks executor stall.
+            s.executor_t = h.now()
+            s.core.cmd(s.lease_id, Z)
+            h._emit(s.executor_command(c['run_id'], Z))
+        axes = None if succeeded else self.nav.poll(deepcopy(s.run))
         if self.nav.rejected:
             self._halt('FAILED', 'NAV_GOAL_REJECTED')
             return
@@ -333,15 +392,13 @@ class ScenarioRun:
             return
         if self.nav.result == 'SUCCEEDED':
             goal = c['end'] if c['ending'] else c['plan']['segments'][0]['goals'][c['step']]
-            # This local port must prove fresh measured map pose AND body still;
-            # action success and output ZERO alone can never produce arrival.
+            # Fresh measured map position is independent of action/output ZERO.
             proof = self.arrival(self.binding, goal) if self.arrival is not None else None
             if proof is None:
                 return
             if (not isinstance(proof, dict) or not isinstance(proof.get('pose'), dict)
-                    or proof.get('body_still') is not True
                     or type(proof.get('received_at')) not in (int, float)
-                    or not 0 <= h.now() - proof['received_at'] <= STATE_STALE
+                    or not 0 <= h.now() - proof['received_at'] <= self.arrival_pose_max_age_s
                     or proof.get('binding') != self.binding):
                 return
             pose = proof['pose']
@@ -352,8 +409,9 @@ class ScenarioRun:
                 return
             s.core._void()
             h._emit(s.tick())
-            self.nav.revoke('ARRIVED')
+            self.cancel_binding = self.binding
             self.binding = None
+            self.nav.revoke('ARRIVED')
             if c['ending']:
                 self._halt('COMPLETED')
                 return

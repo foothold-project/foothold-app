@@ -133,6 +133,51 @@ class Observer:
                 if (journal is not None and set(f) == {'t', 'agent_instance_id', 'report_seq'}
                         and isinstance(f['agent_instance_id'], str) and sequence(f['report_seq'])):
                     journal.ack(f['agent_instance_id'], f['report_seq'])
+            elif f.get('t') == 'run.report_rejected' and self.connected:
+                self._report_rejected(f)
             elif f.get('t') == 'ping':
                 self.last_ping = self.now()
         return self.tick()  # lease/cmd/unlock/run.* never reach the real Session
+
+    def _report_rejected(self, f):
+        journal, runs = self.phone.runs.journal, self.phone.runs
+        required = {'t', 'agent_instance_id', 'report_seq', 'run_id', 'disposition', 'code'}
+        if (journal is None or not required <= set(f) or set(f) - required - {'expected_report_seq'}
+                or not isinstance(f['agent_instance_id'], str) or not sequence(f['report_seq'])):
+            return
+        key = (f['agent_instance_id'], f['report_seq'])
+        if key not in journal.committed:
+            return
+        original = journal.entries[key]
+        run_id = original.get('run_id') if original['t'] == 'run.update' else original.get('data', {}).get('run_id')
+        if f['run_id'] != run_id:
+            return
+        retry = f['code'] in ('RUN_REPORT_SEQUENCE', 'RUN_REPORT_STORAGE')
+        permanent = {'RUN_REPORT_OWNER', 'RUN_REPORT_MAP', 'RUN_REPORT_PLAN', 'RUN_REPORT_STATE',
+                     'RUN_REPORT_STEP', 'RUN_REPORT_PROVENANCE', 'RUN_REPORT_CONFLICT',
+                     'RUN_REPORT_INSTANCE', 'RUN_REPORT_ROBOT', 'RUN_REPORT_NOT_FOUND', 'RUN_REPORT_INVALID'}
+        if retry and f['disposition'] == 'RETRY':
+            if f['code'] == 'RUN_REPORT_SEQUENCE':
+                expected = f.get('expected_report_seq')
+                if not sequence(expected):
+                    return
+                if expected <= f['report_seq'] and (f['agent_instance_id'], expected) not in journal.committed:
+                    runs.storage_failed = True
+                    if runs.active:
+                        runs._halt('PAUSED', 'RECORDING_UNAVAILABLE')
+                    return
+                # Including expected > seq: resend the identical original. Only
+                # run.recorded can acknowledge an already committed report.
+            elif 'expected_report_seq' in f:
+                return
+            self.reconnect_required = True  # Client's existing backoff, no busy replay
+        elif f['code'] in permanent and f['disposition'] == 'QUARANTINE' and 'expected_report_seq' not in f:
+            if journal.reject(f):
+                runs.recording_rejected = True
+                quarantined = key
+                self._replay = [m for m in self._replay if (m.get('agent_instance_id'), m.get('report_seq')) != quarantined]
+                runs.outgoing = [m for m in runs.outgoing if (m.get('agent_instance_id'), m.get('report_seq')) != quarantined]
+                if runs.active:
+                    runs._halt('FAILED', 'RECORDING_REJECTED')
+                else:
+                    self.phone.stop()
