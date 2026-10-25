@@ -16,8 +16,9 @@ from foothold_agent.safety.core import Z, quantize
 def test_simulation_projection_boundaries(vx, vy, wz):
     axes, clipped = project_velocity(vx, vy, wz, simulation=True)
     result, reason = simulation_velocity(*axes)
-    x = min(vx, 1.0) if vx >= .2 else 0.0
-    expected = (x, 0, (.5 if wz >= .5 else -.5 if wz <= -.5 else 0) if x else 0)
+    x = min(vx, 1.0) if vx >= .2 else max(vx, -.3) if vx <= -.05 else 0.0
+    y = max(-.3, min(vy, .3)) if abs(vy) >= .05 else 0
+    expected = (x, y, .5 if wz >= .5 else -.5 if wz <= -.5 else 0)
     assert result == expected
     assert clipped is (expected != (vx, vy, wz))
     assert bool(reason) is (expected == Z and (vx, vy, wz) != Z)
@@ -57,14 +58,18 @@ def test_mode_reaches_actual_session_output(request, fixture, vx, wz):
     harness = request.getfixturevalue(fixture)
     owner, _ = harness.moving()
     ack = harness.cmd(owner, vx, vy=.8, wz=wz)
-    x = (min(vx, 1) if vx >= .2 else 0) if fixture == 'h' else (.6 if vx >= .6 else 0)
-    expected = (x, 0, wz if x else 0)
+    if fixture == 'h':
+        x = min(vx, 1) if vx >= .2 else max(vx, -.3) if vx <= -.05 else 0
+        expected = (x, .3, wz)
+    else:
+        x = .6 if vx >= .6 else 0
+        expected = (x, 0, wz if x else 0)
     assert ack['applied'] == list(expected)
     assert harness.outputs[-1].velocity == expected
     assert ack['clipped'] is (expected != (vx, .8, wz))
 
 
-@pytest.mark.parametrize('velocity', [(.1999, 0, 0), (-.1, 0, 0), (0, .5, 0), (0, 0, .5)])
+@pytest.mark.parametrize('velocity', [(.1999, 0, 0), (-.0499, 0, 0), (0, .0499, 0), (0, 0, .4999)])
 def test_rejected_simulation_input_cannot_create_neutral(h, velocity):
     owner, _, _ = h.connect()
     h.take(owner)
