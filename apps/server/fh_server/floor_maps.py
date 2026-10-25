@@ -7,24 +7,24 @@ from apps.contracts import models as C
 from .models import Building, Floor, MapVersion, Upload
 
 
-@lru_cache(maxsize=1)
-def warehouse_registration():
+@lru_cache(maxsize=2)
+def repository_registration(world_id):
     # Existing uploads are immutable. Recover only this packaged, byte-verified
-    # warehouse identity for older imports lacking connected_gt; never cache DB approval.
+    # repository identity for older imports lacking connected_gt; never cache DB approval.
     from .sim_maps import load_worlds
     try:
         rows = load_worlds(Path(__file__).resolve().parents[2] / 'simmgr/worlds')
         _, meta, _, width, height, _ = next(row for row in rows
-            if (row[0]['world_id'], row[0]['floor_id']) == ('warehouse', 'f1'))
+            if (row[0]['world_id'], row[0]['floor_id']) == (world_id, 'f1'))
     except (OSError, ValueError, KeyError, TypeError, StopIteration) as error:
-        raise ValueError('warehouse GT registration is unavailable') from error
+        raise ValueError('repository GT registration is unavailable') from error
     return meta, width, height
 
 
 def approved_bindings(db, org_id, world_id='v5_building'):
-    if world_id not in ('v5_building', 'warehouse'):
+    if world_id not in ('v5_building', 'warehouse', 'rubble'):
         raise ValueError('unsupported static world')
-    expected = {'f1'} if world_id == 'warehouse' else {'l1', 'l2'}
+    expected = {'f1'} if world_id in ('warehouse', 'rubble') else {'l1', 'l2'}
     building = db.scalar(select(Building).where(Building.org_id == org_id,
         Building.sim_world_id == world_id))
     if building is None:
@@ -41,18 +41,18 @@ def approved_bindings(db, org_id, world_id='v5_building'):
         upload = db.get(Upload, v.upload_id) if v is not None else None
         meta = upload.metadata_json if upload is not None and upload.org_id == org_id else {}
         source = meta.get('connected_gt', {})
-        if world_id == 'warehouse':
-            canonical, width, height = warehouse_registration()
+        if world_id in ('warehouse', 'rubble'):
+            canonical, width, height = repository_registration(world_id)
             if v is None or (v.width, v.height) != (width, height):
-                raise ValueError('approved warehouse grid registration changed')
+                raise ValueError('approved repository grid registration changed')
             if (meta.get('resolution') != canonical['resolution'] or meta.get('origin') != canonical['origin']
                     or (source and source != canonical['connected_gt'])):
-                raise ValueError('approved warehouse grid registration changed')
+                raise ValueError('approved repository grid registration changed')
             source = canonical['connected_gt']
         if (f.provenance != 'SIMULATION' or v is None or upload is None
                 or upload.provenance != 'SIMULATION' or v.source != 'IMPORT'
                 or source.get('world_id') != world_id or source.get('ros_floor_id') != f.sim_floor_id
-                or f.floor_z != (.034226 if world_id == 'warehouse' else 0.0 if f.sim_floor_id == 'l1' else 2.4)
+                or f.floor_z != (.034226 if world_id == 'warehouse' else 0.0 if world_id == 'rubble' or f.sim_floor_id == 'l1' else 2.4)
                 or source.get('sha256') != v.image_sha256.hex()
                 or v.image_sha256 != upload.png_sha256 or (v.width, v.height) != (upload.width, upload.height)
                 or meta.get('resolution') != v.resolution

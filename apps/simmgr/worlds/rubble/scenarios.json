@@ -1,0 +1,24 @@
+[
+  {
+    "id": "easy-patrol",
+    "name": "잔해 쉬움 띠 순찰",
+    "finish": "RETURN_TO_START",
+    "waypoints": [
+      {
+        "x": 0.0,
+        "y": -8.0,
+        "mission_name": "쉬움 띠 · 지점 1"
+      },
+      {
+        "x": 0.0,
+        "y": -6.0,
+        "mission_name": "쉬움 띠 · 지점 2"
+      },
+      {
+        "x": 0.0,
+        "y": -4.0,
+        "mission_name": "쉬움 띠 · 지점 3"
+      }
+    ]
+  }
+]

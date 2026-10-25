@@ -2,6 +2,9 @@
 
 `worlds.json`은 저장소에 포함된 공개 정적 자산의 준비용 카탈로그다. 경로는 이
 JSON이 있는 폴더 기준이다. `warehouse/f1`의 SDF·PNG/YAML·층 높이·스폰 좌표를 묶는다.
+직접 생성한 `rubble/f1` **잔해 험지**도 같은 경로를 쓴다. 생성 규칙·난이도별 높이·
+격리 gz 접촉/카메라 결과·재생성은 [잔해 README](rubble/README.md)를 따른다.
+**v2 보행 정책은 잔해에서 시험한 적이 없어 넘어질 수 있다.**
 native resolver는 이 목록과 control-app native source의 `worlds.json`을 함께 확인한다.
 같은 key가 두 목록에 있으면 모호한 요청으로 거부한다. 기존 private `FH_SIM_CATALOG`는
 자동 수정하지 않는다. 실행에는 private 목록에 `world` → `world_file`, `gt_map` →
