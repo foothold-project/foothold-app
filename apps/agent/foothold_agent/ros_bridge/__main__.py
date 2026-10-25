@@ -20,6 +20,8 @@ async def run(config):
     bridge = RosNode(config, camera=camera) if camera is not None else RosNode(config)
     client = None
     phone = None
+    run_journal = None
+    scenario_source = None
     tasks = []
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -48,9 +50,18 @@ async def run(config):
         sink = await bridge.start(on_state,
             on_telemetry=on_telemetry, on_devices=on_devices)
         if getattr(config, 'phone', None) is not None:
+            from foothold_agent.executor.run_outbox import RunOutbox
+            from foothold_agent.executor.scenario import ScenarioSource
+            if os.environ.get('FOOTHOLD_RUN_OUTBOX_PATH') == ':memory:':
+                raise ValueError('production run journal must be durable')
+            if os.environ.get('FOOTHOLD_RUN_OUTBOX_PATH'):
+                run_journal = RunOutbox(os.environ['FOOTHOLD_RUN_OUTBOX_PATH'])
+            if os.environ.get('FOOTHOLD_SCENARIO_DATA_ORIGIN'):
+                scenario_source = ScenarioSource(os.environ['FOOTHOLD_SCENARIO_DATA_ORIGIN'], config.settings.token)
             hub = Hub(config.phone_verifier, sink,
                       policy_name=config.phone.policy_name, policy_version=config.phone.policy_version,
-                      simulation=config.phone.simulation)
+                      simulation=config.phone.simulation, scenario_source=scenario_source, run_journal=run_journal,
+                      run_pause_timeout_s=float(os.environ.get('FOOTHOLD_RUN_PAUSE_TIMEOUT_S', '600')))
             phone = Server(hub, config.phone, camera=CameraTransport(camera, hub) if camera else None)
             session = Observer(hub)
             client = Client(session, DiscardSink(), config.settings)
@@ -90,6 +101,10 @@ async def run(config):
                 try:
                     bridge.close()
                 finally:
+                    if run_journal is not None:
+                        await asyncio.to_thread(run_journal.close)
+                    if scenario_source is not None:
+                        scenario_source.pool.shutdown(wait=False, cancel_futures=True)
                     for sig in (signal.SIGINT, signal.SIGTERM):
                         loop.remove_signal_handler(sig)
 
