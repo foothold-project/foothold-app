@@ -7,13 +7,12 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import create_engine, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.websockets import WebSocketDisconnect
 
 from apps.contracts import models as C
-from apps.server.fh_server.models import Event, Robot, Run, RunReport, RunStep, User, now
-from apps.server.fh_server.runs import record, ReportRejected, sample_path
+from apps.server.fh_server.models import AgentPlanMap, Building, Event, Floor, MapVersion, Robot, Run, RunReport, RunReportRejection, RunStep, Upload, User, now
+from apps.server.fh_server.runs import record, map_proof, reject, sample_path
 from apps.server.fh_server.security import digest
 from .test_missions import setup_scenario
 from .test_maps import P, auth, maps
@@ -38,9 +37,28 @@ def scenario(maps, seeded):
             if rid == seeded['robots']['mine']:
                 robot.simulation = True
         db.commit()
+    # Synthetic simulation provenance, written with the migration role; no real map assets.
+    engine = create_engine(seeded['urls']['migrate'])
+    with Session(engine) as db:
+        version = db.get(MapVersion, UUID(body['waypoints'][0]['map_version_id']))
+        floor = db.get(Floor, version.floor_id)
+        building = db.get(Building, floor.building_id)
+        upload = db.get(Upload, version.upload_id)
+        floor.provenance, floor.sim_floor_id = 'SIMULATION', 'f1'
+        building.sim_world_id = 'synthetic-world'
+        version.provenance, version.source, version.status = 'SIMULATION', 'IMPORT', 'APPROVED'
+        upload.provenance = 'SIMULATION'
+        upload.metadata_json = {**upload.metadata_json, 'connected_gt': dict(
+            world_id='synthetic-world', ros_floor_id='f1', source='SIMULATION',
+            sha256=version.image_sha256.hex(), source_pgm_sha256='a' * 64)}
+        db.commit()
+    engine.dispose()
     started = dict(run_id=str(uuid4()), scenario_id=result['id'], scenario_version=1,
         floor_id=body['waypoints'][0]['floor_id'], map_version_id=body['waypoints'][0]['map_version_id'],
         user_id=str(seeded['users']['one']), device_id=str(uuid4()), surface='pc', screen_id=str(uuid4()), simulation=True)
+    with Session(client.app.state.engine) as db:
+        started['map_proof'] = map_proof(db, db.get(Robot, seeded['robots']['mine']),
+            UUID(started['floor_id']), UUID(started['map_version_id']), reject).model_dump(mode='json')
     return dict(factory=sessionmaker(client.app.state.engine, expire_on_commit=False),
         client=client, seeded=seeded, started=started, instance=str(uuid4()), body=body)
 
@@ -87,8 +105,7 @@ def test_fixed_version_agent_auth_and_real_fail_closed(scenario):
         db.get(Robot, s['seeded']['robots']['mine']).simulation = False
     denied = client.get(path + '?version=1', headers=headers)
     assert denied.status_code == 422 and denied.json()['error']['code'] == 'PRECHECK_FAILED'
-    with pytest.raises(ReportRejected):
-        save(s, event(s))
+    assert save(s, event(s))['disposition'] == 'QUARANTINE'
     assert not stored(s)
 
 
@@ -107,12 +124,12 @@ def test_started_atomic_steps_receipt_and_dedup(scenario):
 
 def test_sequence_conflicts_and_replay(scenario):
     s = scenario; save(s, event(s))
-    with pytest.raises(ReportRejected, match='SEQUENCE'):
-        save(s, update(s, seq=3))
+    gap = save(s, update(s, seq=3))
+    assert gap['code'] == 'RUN_REPORT_SEQUENCE' and gap['expected_report_seq'] == 2
+    assert gap['disposition'] == 'RETRY'
     assert stored(s)[0].status == 'QUEUED' and len(stored(s, RunReport)) == 1
     save(s, update(s))
-    with pytest.raises(ReportRejected, match='CONFLICT'):
-        save(s, update(s, status='PAUSED'))
+    assert save(s, update(s, status='PAUSED'))['code'] == 'RUN_REPORT_CONFLICT'
     save(s, update(s, seq=3, status='PAUSED', wait_reason='LINK_LOST'))
     assert stored(s)[0].wait_reason == 'LINK_LOST'
     save(s, update(s, seq=4, status='CANCELED', fail_code='PAUSE_TIMEOUT'))
@@ -140,8 +157,12 @@ def test_start_rejects_provenance_scope_and_conflicts(scenario, mutate):
         s['started']['simulation'] = False; s['started']['surface'] = 'phone'
     elif mutate == 'active':
         save(s, event(s)); s['started']['run_id'] = str(uuid4())
-    with pytest.raises((ReportRejected, IntegrityError)):
-        save(s, event(s, seq=2 if mutate == 'active' else 1))
+    seq = 2 if mutate == 'active' else 1
+    raw = dict(t='event', code='RUN_STARTED', severity='INFO', robot_at=None,
+        data=s['started'], agent_instance_id=s['instance'], report_seq=seq, monotonic_s=float(seq))
+    result = save(s, raw)
+    assert result['disposition'] == 'QUARANTINE'
+    assert len(stored(s, RunReportRejection)) == 1
     assert len(stored(s, RunReport)) == (1 if mutate == 'active' else 0)
 
 
@@ -168,7 +189,7 @@ def test_legacy_optional_identity_and_secret_scrubbing(scenario):
     legacy = C.AgentRunUpdate(t='run.update', run_id=s['started']['run_id'], status='PAUSED',
         step=0, progress=None, wait_reason='LINK_LOST')
     assert save(s, legacy) is None
-    assert stored(s)[0].wait_reason == 'LINK_LOST'
+    assert stored(s)[0].wait_reason is None and stored(s)[0].status == 'QUEUED'
     msg = event(s, code='RUN_PAUSED', seq=2, data={'run_id': s['started']['run_id'],
         'nested': [{'resume_token': 'must-never-persist', 'reason': 'LINK_LOST'}]})
     save(s, msg)
@@ -201,9 +222,8 @@ def test_ws_ack_commit_reconnect_and_gap(scenario):
             assert len(stored(s, RunReport)) == 1  # visible on a separate DB connection after ACK
     with agent(s['client'], s['seeded']) as ws:
         ws.send_json(update(s, seq=3).model_dump(mode='json', exclude_unset=True))
-        with pytest.raises(WebSocketDisconnect) as closed:
-            receive(ws, 'run.recorded')
-        assert closed.value.code == 1013
+        rejected = receive(ws, 'run.report_rejected')
+        assert rejected['disposition'] == 'RETRY' and rejected['code'] == 'RUN_REPORT_SEQUENCE'
     with agent(s['client'], s['seeded']) as ws:
         ws.send_json(update(s).model_dump(mode='json', exclude_unset=True))
         assert receive(ws, 'run.recorded')['report_seq'] == 2
@@ -217,9 +237,8 @@ def test_ws_commit_failure_never_acknowledged(scenario, monkeypatch):
     monkeypatch.setattr(runs, 'record', broken)
     with agent(s['client'], s['seeded']) as ws:
         ws.send_json(event(s).model_dump(mode='json', exclude_unset=True))
-        with pytest.raises(WebSocketDisconnect) as closed:
-            receive(ws, 'run.recorded')
-        assert closed.value.code == 1013
+        rejected = receive(ws, 'run.report_rejected')
+        assert rejected['disposition'] == 'RETRY' and rejected['code'] == 'RUN_REPORT_STORAGE'
     assert not stored(s, RunReport)
 
 
@@ -260,9 +279,8 @@ def test_concurrent_duplicate_receipts_and_restart_boundary(scenario):
         receipts = list(pool.map(lambda _: save(s, event(s)), range(2)))
     assert receipts[0] == receipts[1] and len(stored(s, RunReport)) == 1
     s['instance'] = str(uuid4())
-    with pytest.raises(ReportRejected, match='INSTANCE'):
-        save(s, update(s, seq=0))
-    save(s, update(s, seq=0, status='FAILED', fail_code='AGENT_RESTARTED'))
+    assert save(s, update(s, seq=0))['code'] == 'RUN_REPORT_INSTANCE'
+    save(s, update(s, seq=1, status='FAILED', fail_code='AGENT_RESTARTED'))
     assert stored(s)[0].status == 'FAILED'
 
 
@@ -294,7 +312,7 @@ def test_populated_migration_downgrade_refuses_data_loss(scenario, monkeypatch):
     migration_engine = create_engine(s['seeded']['urls']['migrate'])
     try:
         with migration_engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0018'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0019'
     finally:
         migration_engine.dispose()
     assert len(stored(s)) == len(stored(s, RunReport)) == 1
@@ -333,3 +351,197 @@ def test_durable_reconnect_does_not_fabricate_pause_or_server_run_lease(scenario
         assert rt.arbiter.robot(rid).holder is None
         assert rt.arbiter.robot(rid).transfer is None
     assert stored(s)[0].status == 'MOVING'
+
+
+def test_quarantine_is_durable_consumes_sequence_and_keeps_connection(scenario):
+    s = scenario
+    original = event(s, data={**s['started'], 'user_id': str(s['seeded']['users']['two'])})
+    with agent(s['client'], s['seeded']) as ws:
+        ws.send_json(original.model_dump(mode='json', exclude_unset=True))
+        denied = receive(ws, 'run.report_rejected')
+        assert denied['code'] == 'RUN_REPORT_OWNER' and denied['disposition'] == 'QUARANTINE'
+        assert not stored(s) and len(stored(s, RunReportRejection)) == 1
+        ws.send_json(original.model_dump(mode='json', exclude_unset=True))
+        assert receive(ws, 'run.report_rejected') == denied
+        # Next report has an independent disposition; no poisoned 1013 reconnect loop.
+        ws.send_json(event(s, seq=2).model_dump(mode='json', exclude_unset=True))
+        assert receive(ws, 'run.recorded')['report_seq'] == 2
+        assert len(stored(s)) == len(stored(s, RunReport)) == 1
+    with agent(s['client'], s['seeded']) as ws:
+        ws.send_json(original.model_dump(mode='json', exclude_unset=True))
+        assert receive(ws, 'run.report_rejected') == denied
+    assert len(stored(s, RunReportRejection)) == 1
+
+
+def test_conflicting_bodies_never_replace_original_decision(scenario):
+    s = scenario
+    original = event(s)
+    ack = save(s, original)
+    changed = event(s, data={**s['started'], 'device_id': str(uuid4())})
+    denied = save(s, changed)
+    assert denied['disposition'] == 'QUARANTINE' and denied['code'] == 'RUN_REPORT_CONFLICT'
+    assert save(s, changed) == denied and save(s, original) == ack
+    assert len(stored(s, RunReport)) == len(stored(s, RunReportRejection)) == len(stored(s)) == 1
+    # A different body at a quarantined identity gets a separately durable conflict.
+    bad = update(s, seq=2).model_dump(mode='json', exclude_unset=True)
+    bad['step'] = 999
+    first = save(s, bad)
+    assert first['disposition'] == 'QUARANTINE'
+    conflict = save(s, update(s, seq=2))
+    assert conflict['code'] == 'RUN_REPORT_CONFLICT'
+    assert save(s, bad) == first
+    assert save(s, update(s, seq=3))['t'] == 'run.recorded'
+
+
+@pytest.mark.parametrize('mutate', ['missing_proof', 'bad_status', 'bad_run_id', 'bad_severity', 'missing_monotonic', 'bad_monotonic'])
+def test_malformed_identified_report_quarantines_without_retiring(scenario, mutate):
+    s = scenario
+    raw = event(s).model_dump(mode='json', exclude_unset=True)
+    if mutate == 'missing_proof': raw['data'].pop('map_proof')
+    elif mutate == 'bad_status': raw = {**update(s, seq=1).model_dump(mode='json', exclude_unset=True), 'status': 'NOPE'}
+    elif mutate == 'bad_run_id': raw['data']['run_id'] = 'invalid'
+    elif mutate == 'missing_monotonic': raw.pop('monotonic_s')
+    elif mutate == 'bad_monotonic': raw['monotonic_s'] = -1.
+    else: raw['severity'] = 'NOPE'
+    with agent(s['client'], s['seeded']) as ws:
+        ws.send_json(raw)
+        denied = receive(ws, 'run.report_rejected')
+        assert denied['code'] == 'RUN_REPORT_INVALID' and denied['disposition'] == 'QUARANTINE'
+        assert not stored(s) and len(stored(s, RunReportRejection)) == 1
+        ws.send_json(event(s, seq=2).model_dump(mode='json', exclude_unset=True))
+        assert receive(ws, 'run.recorded')['report_seq'] == 2
+
+
+def test_quarantine_commit_failure_returns_storage_retry(scenario):
+    from sqlalchemy import event as sql_event
+    s = scenario
+    bad = event(s, data={**s['started'], 'user_id': str(s['seeded']['users']['two'])})
+    def broken(*args): raise OSError('synthetic quarantine disk failure')
+    sql_event.listen(RunReportRejection, 'before_insert', broken)
+    try:
+        with agent(s['client'], s['seeded']) as ws:
+            ws.send_json(bad.model_dump(mode='json', exclude_unset=True))
+            frame = receive(ws, 'run.report_rejected')
+            assert frame['code'] == 'RUN_REPORT_STORAGE' and frame['disposition'] == 'RETRY'
+    finally:
+        sql_event.remove(RunReportRejection, 'before_insert', broken)
+    assert not stored(s, RunReportRejection) and not stored(s, RunReport) and not stored(s)
+    assert save(s, bad)['code'] == 'RUN_REPORT_OWNER'
+
+
+def test_monotonic_regression_is_permanent_and_cannot_lower_watermark(scenario):
+    s = scenario; save(s, event(s))
+    raw = update(s).model_dump(mode='json', exclude_unset=True)
+    raw['monotonic_s'] = .5
+    assert save(s, raw)['code'] == 'RUN_REPORT_INVALID'
+    assert save(s, update(s, seq=3))['t'] == 'run.recorded'
+    assert stored(s)[0].status == 'MOVING'
+
+
+def test_human_map_and_forged_pgm_proof_fail_closed(scenario):
+    s = scenario
+    forged = {**s['started'], 'map_proof': {**s['started']['map_proof'], 'source_pgm_sha256': 'b' * 64}}
+    assert save(s, event(s, data=forged))['code'] == 'RUN_REPORT_MAP'
+    engine = create_engine(s['seeded']['urls']['migrate'])
+    try:
+        with Session(engine) as db:
+            db.get(MapVersion, UUID(s['started']['map_version_id'])).provenance = 'HUMAN'
+            db.commit()
+    finally:
+        engine.dispose()
+    headers = {'authorization': 'Bearer fake-test-' + str(s['seeded']['robots']['mine'])}
+    response = s['client'].get(P + '/agent/scenarios/' + s['started']['scenario_id'] + '?version=1', headers=headers)
+    assert response.status_code == 422 and response.json()['error']['code'] == 'MAP_PROOF_UNAVAILABLE'
+    assert save(s, event(s, seq=2))['code'] == 'RUN_REPORT_MAP'
+    assert not stored(s) and not stored(s, AgentPlanMap)
+
+
+def test_image_access_requires_agent_org_robot_and_fixed_plan_version(scenario):
+    s = scenario; client = s['client']
+    path = P + '/agent/map-versions/' + s['started']['map_version_id'] + '/image'
+    def token(robot='mine'):
+        return {'authorization': 'Bearer fake-test-' + str(s['seeded']['robots'][robot])}
+    assert client.get(path).status_code == 401
+    assert client.get(path, headers=auth(client)).status_code == 403
+    assert client.get(path, headers={'authorization': 'Bearer wrong'}).status_code == 403
+    assert client.get(path, headers=token()).status_code == 403
+    plan = client.get(P + '/agent/scenarios/' + s['started']['scenario_id'] + '?version=1', headers=token())
+    assert plan.status_code == 200
+    proof = C.ProvenAgentScenario.model_validate(plan.json()).map_proofs[0]
+    assert proof.model_dump(mode='json') == s['started']['map_proof']
+    image = client.get(path, headers=token())
+    assert image.status_code == 200 and image.headers['content-type'] == 'image/png'
+    import hashlib
+    assert hashlib.sha256(image.content).hexdigest() == proof.image_sha256
+    assert proof.image_sha256 != proof.source_pgm_sha256
+    assert image.headers['cache-control'] == 'private, no-store'
+    assert client.get(path, headers=token('theirs')).status_code == 403
+    assert client.get(path, headers=token('foreign')).status_code == 403
+    with s['factory']() as db:
+        other = db.scalar(select(MapVersion.id).where(MapVersion.id != UUID(s['started']['map_version_id'])))
+    assert client.get(P + '/agent/map-versions/' + str(other) + '/image', headers=token()).status_code == 403
+    with s['factory'].begin() as db:
+        db.get(Robot, s['seeded']['robots']['mine']).agent_token_hash = digest('rotated-test-token')
+    assert client.get(path, headers=token()).status_code == 403
+
+
+def test_legacy_start_and_cause_cannot_write_persistent_run(scenario):
+    s = scenario
+    raw = event(s).model_dump(mode='json', exclude_unset=True)
+    for key in ('agent_instance_id', 'report_seq', 'monotonic_s'): raw.pop(key)
+    assert save(s, raw) is None
+    assert not stored(s) and not stored(s, RunReport) and not stored(s, RunStep)
+    save(s, event(s))
+    raw.update(code='RUN_PAUSED', data={'run_id': s['started']['run_id']})
+    before = len(stored(s, Event))
+    assert save(s, raw) is None
+    assert len(stored(s, Event)) == before and stored(s)[0].status == 'QUEUED'
+
+
+def test_current_agent_durable_outbox_commit_ack_replay(scenario, tmp_path, monkeypatch):
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / 'agent'))
+    from foothold_agent.executor.run_outbox import RunOutbox
+    s = scenario
+    outbox = RunOutbox(str(tmp_path / 'agent-journal.sqlite'))
+    try:
+        raw = event(s).model_dump(mode='json', exclude_unset=True)
+        original = outbox.append(raw, 1.)
+        for future, _, _ in outbox.jobs: future.result(timeout=5)
+        outbox.poll()
+        assert outbox.replay() == [original]
+        with agent(s['client'], s['seeded']) as ws:
+            for _ in range(2):
+                ws.send_json(outbox.replay()[0])
+                ack = receive(ws, 'run.recorded')
+                C.RunRecorded.model_validate(ack)
+            assert len(stored(s, RunReport)) == 1
+        assert outbox.ack(ack['agent_instance_id'], ack['report_seq'])
+        for future, _, _ in outbox.jobs: future.result(timeout=5)
+        outbox.poll()
+        assert not outbox.replay()
+        assert len(stored(s)) == len(stored(s, RunReport)) == 1
+    finally:
+        outbox.close()
+
+
+def test_quarantine_only_downgrade_preserves_decisions(scenario, monkeypatch):
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy.exc import DBAPIError
+    from .conftest import CONFIG
+    s = scenario
+    assert save(s, event(s, data={**s['started'], 'user_id': str(s['seeded']['users']['two'])}))['disposition'] == 'QUARANTINE'
+    monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', s['seeded']['urls']['migrate'])
+    with pytest.raises(DBAPIError, match='Retire run rejection'):
+        command.downgrade(Config(str(CONFIG)), '0018')
+    assert len(stored(s, RunReportRejection)) == 1 and not stored(s)
+
+
+def test_durable_hash_includes_scrubbed_secret_fields(scenario):
+    s = scenario; save(s, event(s))
+    raw = event(s, code='RUN_PAUSED', seq=2, data={'run_id': s['started']['run_id'],
+        'token': 'synthetic-sensitive-value-a'}).model_dump(mode='json', exclude_unset=True)
+    assert save(s, raw)['t'] == 'run.recorded'
+    raw['data']['token'] = 'synthetic-sensitive-value-b'
+    assert save(s, raw)['code'] == 'RUN_REPORT_CONFLICT'
+    assert 'synthetic-sensitive-value' not in json.dumps([row.data for row in stored(s, Event)])
