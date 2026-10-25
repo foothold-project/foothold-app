@@ -196,6 +196,6 @@ export const api = {
   simStart: (p: SimStartRequest, cancel?: AbortSignal) => call<SimRobot>('POST', '/simulation/robots', p, { cancel, ms: SIM_WRITE_MS }),
   /** 204 = 서버 IDLE(이미 IDLE 이어도 204) */
   simEnd: (robot: string, cancel?: AbortSignal) => call<void>('DELETE', `/simulation/robots/${encodeURIComponent(robot)}`, undefined, { cancel, ms: SIM_WRITE_MS }),
-  /** 출입증(05 §13.7) — 토큰은 응답 본문에만. 저장·로그 금지(부른 쪽이 hello 에만 싣고 버린다). surface = 'pc'(PC «시뮬» 탭, ADR-003 §6.2 — 계약 판은 feature/web-sim-gate) */
-  phonePass: (robot: string, p: PhonePassRequest & { surface?: 'pc' | 'phone' }, cancel?: AbortSignal) => call<PhonePassResponse>('POST', `/robots/${encodeURIComponent(robot)}/phone-pass`, p, { cancel, ms: 10_000 }),
+  /** 출입증(05 §13.7) — 토큰은 응답 본문에만. 저장·로그 금지(부른 쪽이 hello 에만 싣고 버린다). surface = 'pc'(PC «시뮬» 탭, ADR-003 §6.2) */
+  phonePass: (robot: string, p: PhonePassRequest, cancel?: AbortSignal) => call<PhonePassResponse>('POST', `/robots/${encodeURIComponent(robot)}/phone-pass`, p, { cancel, ms: 10_000 }),
 };
