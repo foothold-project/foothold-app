@@ -66,7 +66,8 @@ def test_issuer_claims_scope_lifetime_csrf_and_no_token_persistence(pc, seeded, 
     assert result.status_code == 200 and result.headers['cache-control'] == 'no-store'
     token = result.json()['token']
     claims = json.loads(base64.urlsafe_b64decode(token.split('.')[1] + '=='))
-    assert set(claims) == {'iss','aud','org','robot','sub','device','purpose','iat','exp','jti'}
+    assert set(claims) == {'iss','aud','org','robot','sub','device','purpose','surface','iat','exp','jti'}
+    assert claims['surface'] == 'phone'
     assert claims['exp'] - claims['iat'] == 600 and abs(claims['iat'] - time.time()) < 3
     assert claims['iss'] == 'fh-control' and claims['aud'] == 'fh-phone/1'
     assert claims['sub'] == str(seeded['users']['one']) and claims['org'] == str(seeded['org'])
@@ -207,8 +208,15 @@ def test_authenticated_agent_receives_revocation_replay_and_ack(pc, seeded):
 
 
 @pytest.mark.parametrize('purpose', ['control', 'view'])
-def test_server_issued_pass_round_trip_actual_agent_websocket(pc, seeded, tmp_path, purpose):
-    issued = issue(pc, seeded, purpose=purpose)
+@pytest.mark.parametrize('surface', ['phone', 'pc'])
+def test_server_issued_pass_round_trip_actual_agent_websocket(pc, seeded, tmp_path, purpose, surface):
+    if surface == 'pc':
+        with DBSession(pc.app.state.engine) as db:
+            db.get(Robot, seeded['robots']['mine']).simulation = True
+            db.commit()
+    issued = pc.post(f"/api/v1/robots/{seeded['robots']['mine']}/phone-pass",
+                     headers=pc.pass_headers,
+                     json=dict(device=str(uuid4()), purpose=purpose, surface=surface))
     assert issued.status_code == 200
     compact = issued.json()['token']
     claims = json.loads(base64.urlsafe_b64decode(compact.split('.')[1]+'=='))

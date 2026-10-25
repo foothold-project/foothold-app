@@ -16,6 +16,15 @@
       "title": "Purpose",
       "type": "string"
     },
+    "surface": {
+      "default": "phone",
+      "enum": [
+        "phone",
+        "pc"
+      ],
+      "title": "Surface",
+      "type": "string"
+    },
     "switch": {
       "default": false,
       "description": "앞 로봇 반납 확인 뒤에만 명시 true",

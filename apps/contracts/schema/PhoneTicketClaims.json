@@ -59,6 +59,15 @@
       "format": "uuid",
       "title": "Sub",
       "type": "string"
+    },
+    "surface": {
+      "default": "phone",
+      "enum": [
+        "phone",
+        "pc"
+      ],
+      "title": "Surface",
+      "type": "string"
     }
   },
   "required": [
@@ -69,6 +78,7 @@
     "sub",
     "device",
     "purpose",
+    "surface",
     "iat",
     "exp",
     "jti"
