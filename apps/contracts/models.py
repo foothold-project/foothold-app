@@ -1247,6 +1247,7 @@ class PhoneTicketClaims(Contract):
     sub: UUID
     device: UUID
     purpose: Literal['control', 'view']
+    surface: Literal['phone', 'pc'] = 'phone'
     iat: Sequence
     exp: Sequence
     jti: UUID
@@ -1262,6 +1263,7 @@ class PhoneTicketClaims(Contract):
 class PhonePassRequest(Contract):
     device: UUID
     purpose: Literal['control', 'view']
+    surface: Literal['phone', 'pc'] = 'phone'
     switch: bool = Field(default=False, strict=True, description='앞 로봇 반납 확인 뒤에만 명시 true')
 
 

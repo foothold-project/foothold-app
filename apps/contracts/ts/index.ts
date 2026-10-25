@@ -731,6 +731,7 @@ export interface PhoneLimits {
 export interface PhonePassRequest {
   device: string;
   purpose: "control" | "view";
+  surface?: "phone" | "pc";
   /** 앞 로봇 반납 확인 뒤에만 명시 true */
   switch?: boolean;
 }
@@ -830,6 +831,7 @@ export interface PhoneTicketClaims {
   sub: string;
   device: string;
   purpose: "control" | "view";
+  surface: "phone" | "pc";
   iat: number;
   exp: number;
   jti: string;

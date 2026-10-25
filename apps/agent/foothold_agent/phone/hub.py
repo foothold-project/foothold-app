@@ -24,6 +24,7 @@ class Peer:
     user: str | None = None
     device: str | None = None
     purpose: str | None = None
+    surface: str = 'phone'
     jti: str | None = None
     issued: int = 0
     deadline: float = 0
@@ -233,7 +234,7 @@ class Hub:
     @staticmethod
     def error(code):
         status = (429 if code in ('LEASE_REQUEST_COOLDOWN', 'REQUEST_FLOOD', 'LEASE_ACQUIRE_LIMIT') else 503 if code == 'STOP_CONFIRM_FAILED'
-                  else 403 if code in ('FORBIDDEN', 'NOT_CONTROLLER') else 409)
+                  else 403 if code in ('FORBIDDEN', 'NOT_CONTROLLER', 'WEB_SIM_ONLY') else 409)
         return {'code': code, 'message': code, 'detail': {'status': status}}
 
     def _grant(self, peer):
@@ -283,6 +284,8 @@ class Hub:
                 ticket = self.verifier.verify(f['ticket'])
             except TicketError:
                 self.fail(peer, 'TICKET_INVALID', 4403)
+            if ticket['surface'] == 'pc' and self.simulation is not True:
+                self.fail(peer, 'WEB_SIM_ONLY', 4403)
             if ticket['device'] != f['device']:
                 self.fail(peer, 'DEVICE_MISMATCH', 4403)
             if any(other.user is not None and other.device == ticket['device'] for other in self.peers.values()):
@@ -291,6 +294,7 @@ class Hub:
                 self.fail(peer, 'SERVER_BUSY', 1013)
             p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']
             p.jti, p.issued = ticket['jti'], ticket['issued']
+            p.surface = ticket['surface']
             return {'t': 'hello', 'id': f['id'], 'robot': self.robot, 'proto': PROTO,
                     'limits': deepcopy(SIMULATION_LIMITS if self.simulation is True else LIMITS),
                     'policy': dict(self.policy), 'simulation': self.simulation,
@@ -298,6 +302,12 @@ class Hub:
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
         reply = {'t': 'reply', 'id': f['id'], 'ok': True, 'error': None, 'lease_id': None, 'request_id': None}
+        # Keep STOP and authority-reducing cleanup open. Every other PC request
+        # (including future run requests) must pass the local startup-mode gate.
+        if (p.surface == 'pc' and self.simulation is not True
+                and kind not in ('stop', 'ping', 'lease.release', 'lease.cancel', 'view')):
+            reply.update(ok=False, error=self.error('WEB_SIM_ONLY'))
+            return reply
         if kind in ('lease.take', 'lease.request') and not self._acquisition_allowed(p):
             reply.update(ok=False, error=self.error('LEASE_ACQUIRE_LIMIT'))
             return reply  # Identity budget persists across grant, disconnect and hello.

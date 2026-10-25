@@ -217,8 +217,12 @@ class Verifier:
             if not hmac.compare_digest(hmac.digest(key, signed, hashlib.sha256), unbase64(signature64)):
                 raise ValueError("signature")
             claims = json_object(unbase64(payload64))
-            if set(claims) != {'iss', 'aud', 'org', 'robot', 'sub', 'device', 'purpose', 'iat', 'exp', 'jti'}:
+            required = {'iss', 'aud', 'org', 'robot', 'sub', 'device', 'purpose', 'iat', 'exp', 'jti'}
+            if set(claims) not in (required, required | {'surface'}):
                 raise ValueError("claims")
+            surface = claims.get('surface', 'phone')
+            if surface not in ('phone', 'pc'):
+                raise ValueError('surface')
             if claims['iss'] != 'fh-control' or claims['aud'] != 'fh-phone/1':
                 raise ValueError("scope")
             if claims['robot'] != self.robot:
@@ -247,7 +251,7 @@ class Verifier:
             deadline = checked_at + min(expires - current, MAX_LIFETIME)
             if self.now() >= deadline:
                 raise ValueError('ticket expired during admission')
-            return {'user': user, 'device': device, 'purpose': claims['purpose'], 'jti': nonce, 'issued': issued, 'expires': expires,
+            return {'user': user, 'device': device, 'purpose': claims['purpose'], 'surface': surface, 'jti': nonce, 'issued': issued, 'expires': expires,
                     'deadline': deadline}
         except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError, sqlite3.Error):
             raise TicketError("TICKET_INVALID") from None
