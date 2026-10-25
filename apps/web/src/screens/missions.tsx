@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { Action, Assignment, MapVersion, Mission, MissionStep, MissionWrite, Scenario, ScenarioPoint, ScenarioPreview, ScenarioWaypoint, ScenarioWrite } from '../../../contracts/ts';
 import { ApiFail, api, type Plan } from '../api';
-import type { Robot, User } from '../fake';
+import { idleSim, type Robot, type User } from '../fake';
 import { KIND as DEVICE, type Ctx } from '../screens';
 import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useTree, type Msg, type Place } from './maps';
 import { fromScreen, inside, nameBad } from './mapedit';
@@ -325,7 +325,7 @@ const stepText = (s: MissionStep) => { const p = s.params ?? {};
 function MissionForm({ value, set, bad, robots, user, cancel }: { value: MissionWrite; set?: (v: MissionWrite) => void; bad: Bad[]; robots: Robot[]; user: User; cancel?: AbortSignal }) {
   // 카탈로그는 받은 로봇에 묶는다 — 로봇을 바꾼 뒤 새 답이 오기 전·못 받았을 때는 추가·선택지를 잠근다(앞 로봇 카탈로그로 못 하는 작업을 고르지 않게)
   const [robot, setRobot] = useState(''), [cat, setCat] = useState<{ robot: string; l: Action[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
-  const mineRobots = robots.filter((r) => user.role === 'ORG_ADMIN' || r.owner === user.id);   // 담당 밖 로봇은 서버가 404
+  const mineRobots = robots.filter((r) => !idleSim(r) && (user.role === 'ORG_ADMIN' || r.owner === user.id));   // 담당 밖 로봇은 서버가 404, 끝낸 시뮬 슬롯은 고르지 않음
   useEffect(() => {
     let live = true;
     setErr('');

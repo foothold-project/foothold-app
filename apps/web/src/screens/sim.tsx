@@ -18,7 +18,7 @@ export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
   useEffect(() => { if (s.listed) refresh(); }, [ids, s.listed]);
   useEffect(() => { sim.pc(true); return () => sim.pc(false); }, []);   // 이 탭에서 받는 출입증은 surface: 'pc'
   // «시뮬 정지»는 띄우는 중·연결 중·끝내는 중·정리 확인 중에도(sim.live()) 늘 하나 — 조종 화면에서는 머리 카드 안, 그 밖에는 진행 칸 위
-  return s.step === 'drive' && s.link && s.robot ? <SimView />
+  return s.step === 'drive' && s.link && s.robot ? <SimView admin={user.role === 'ORG_ADMIN'} />
     : <>{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view /></>;
 }
 
@@ -48,7 +48,7 @@ function canDrive() {
 const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSelectElement;   // 글 입력칸·고르기 칸에 초점이면 조종 키 무시
 
 /** 띄운 시뮬 보기 + 키보드 조종: 조종 시작(조종권) → 잠금 해제 → 키를 누르는 동안만 움직임. 키 뗌·창 초점 잃음·탭 숨김·연결 끊김·시뮬 정지 = 0(다시 누를 때까지 재개 없음) */
-function SimView() {
+function SimView({ admin }: { admin: boolean }) {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome, open = l.at === 'open', mine = !!l.lease;
   const keys = w?.simulation === true, live = canDrive(), can = allowed(w);
   useDeadline(!!r.expires_at);
@@ -84,8 +84,8 @@ function SimView() {
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
-  const run = runView(s);
-  const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s), ...run.notes].filter(Boolean) as string[];
+  const run = runView(s, true), running = runMoving(l.run);
+  const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s)].filter(Boolean) as string[];
   const close = async () => { if (sim.get().link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]); sim.reset(); };
   const key = (k: string, t: string, on = true) => <span className="lbl" data-key-off={on ? undefined : ''} style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}{on ? '' : '(막힘)'}</span>;
   return <>
@@ -94,9 +94,20 @@ function SimView() {
         <h2>{short(r.robot_id)}</h2><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)}</span>
         <span data-sim-state>{STATE[r.state]}</span><Chip {...lock} /><span className="mono" data-sim-pos>{at}</span>
         <span className="fh-grow" style={{ flex: 1 }} />
+        {admin && <span className="lbl" data-sim-stop-same>머리줄 STOP 도 이 시뮬을 멈춥니다</span>}
         <SimStop />
       </div>
       {notes.map((t) => <p key={t} className="fh-why" role="status">{t}</p>)}
+      {/* 실행 칸(03 §5.2): 상태·지점 n/m·진행 막대·[일시정지][취소] 한 줄 → 실행 안내 → 시나리오 고르기·실행 → 개발자 정보. 조종권 단추는 그 아래 */}
+      <div style={{ border: '1px solid var(--line2)', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column', gap: 8 }} aria-label="시나리오" data-run-box>
+        {run.notes.length > 0 && <div className="fh-row" style={{ flexWrap: 'wrap' }}>
+          <b role="status">{run.notes[0]}</b>{run.bar}
+          {run.acts.length > 0 && <span className="fh-row" aria-label="시나리오 실행" data-run-acts>{run.acts}</span>}
+        </div>}
+        {run.notes.slice(1).map((t) => <p key={t} className="fh-why" role="status">{t}</p>)}
+        <ScenarioPick s={s} r={r} />
+        {run.dev}
+      </div>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
         {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>}
         {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>}
@@ -106,14 +117,11 @@ function SimView() {
         <button type="button" className="btn" onClick={close}>보기 닫기</button>
         <span className="lbl">보기 닫기는 조종권을 반납하고 시뮬을 켠 채 둡니다.</span>
       </div>
-      {run.acts.length > 0 && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="시나리오 실행" data-run-acts>{run.acts}</div>}
-      <ScenarioPick s={s} r={r} />
-      {run.dev}
       {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
         <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}
       {keys && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="키보드 조종" data-sim-keys>
-        <span>{live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
-        {key('W/↑', '전진')}{key('S/↓', '후진', can.back)}{key('A/←·D/→', '회전')}{key('Q/E', '옆걸음', can.left || can.right)}{key('Space', '정지')}
+        <span>{running ? '실행 중 — 키 조종 막힘' : live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
+        {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('A/←·D/→', '회전', !running)}{key('Q/E', '옆걸음', (can.left || can.right) && !running)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
       </div>}
@@ -144,6 +152,7 @@ function ScenarioPick({ s, r }: { s: Sim; r: SimRobot }) {
       <option value="">고르기</option>{list.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
     <button type="button" className="btn pri" disabled={!picked || !!block || s.link?.busy === 'run'} aria-describedby="sim-scn-why"
       onClick={() => picked && sim.runStart(picked, startFloor(picked, floors))}>실행</button>
-    <span id="sim-scn-why" className="lbl" role="status">{picked ? block || '«실행»을 누르면 고른 시나리오를 시작합니다.' : '실행할 시나리오를 고르세요.'}</span>
+    {/* Nav2 없음은 위 안내 줄(l.notice)이 이미 말하면 여기서 다시 쓰지 않는다 */}
+    <span id="sim-scn-why" className="lbl" role="status">{s.link?.navOff && s.link.notice ? '' : picked ? block || '«실행»을 누르면 고른 시나리오를 시작합니다.' : '실행할 시나리오를 고르세요.'}</span>
   </div>;
 }

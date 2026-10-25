@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Assignment, AssignmentCreate } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import type { Robot, Tone, User } from '../fake';
+import { idleSim, type Robot, type Tone, type User } from '../fake';
 import { Chip, soon, type Ctx } from '../screens';
 import { Note, type Msg } from './maps';
 
@@ -13,6 +13,8 @@ const STATUS: Record<Assignment['status'], { tone: Tone; text: string }> = {
 const status = (s: string) => STATUS[s as Assignment['status']] ?? { tone: 'off' as Tone, text: '알 수 없는 상태' };
 /** 남의 로봇·범위 밖 — 회색 단추의 이유와 서버 403·404 에 같은 문구 */
 export const OUT = '담당 로봇만 배정하거나 해제할 수 있습니다(남의 로봇이거나 볼 수 있는 범위 밖).';
+/** 끝낸 시뮬 슬롯(담당 비움)에 남은 배정 — 서버는 총괄만 해제를 받는다(운영 관리자는 담당이 아니라 403) */
+export const IDLE_SLOT = '끝낸 시뮬 슬롯에 남은 배정이라 총괄만 해제할 수 있습니다.';
 const EXISTS = '이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다. 아래 목록에서 확인하세요.';
 const ARCHIVED = '보관된 시나리오는 배정할 수 없습니다.';
 const live = (a: Assignment) => a.status === 'ACTIVE' || a.status === 'PENDING';
@@ -156,7 +158,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
     {open && <form className="fh-form" onSubmit={submit} noValidate aria-label="배정 창">
       <p className="lv-note">«{name}» 판 {version}을 배정합니다. {user.role === 'ORG_ADMIN' ? '총괄은 바로 적용됩니다.' : '운영 관리자는 결재 요청이 되고, 총괄이 승인하면 적용됩니다.'}</p>
       <fieldset disabled={lock} style={{ display: 'contents' }}>
-        <div className="fh-form" role="group" aria-label="로봇 고르기">{robots.map((r) => { const w = why(r); return <div key={r.id} className="fh-row">
+        <div className="fh-form" role="group" aria-label="로봇 고르기">{robots.filter((r) => !idleSim(r)).map((r) => { const w = why(r); return <div key={r.id} className="fh-row">
           <button type="button" className="btn" aria-pressed={robot === r.id} disabled={!!w} aria-describedby={w ? `assign-${r.id}` : undefined} data-robot={r.id} onClick={() => setRobot(r.id)}>{r.name}</button>
           {w && <span id={`assign-${r.id}`} className="fh-why" data-why>{w}</span>}</div>; })}
           {!robots.length && <p className="lv-note">고를 수 있는 로봇이 없습니다.</p>}</div>
@@ -179,7 +181,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
       <label className="fh-row"><span>보기</span><select className="inp" aria-label="배정 보기" value={by} onChange={(e) => setBy(e.target.value)}>
         <option value="">이 시나리오</option>{robots.map((r) => <option key={r.id} value={r.id}>{r.name}(로봇별)</option>)}</select></label>
       <label className="fh-row"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} /><span>해제·반려된 것도 보기</span></label></div>
-    <ul className="fh-list" aria-label="배정 목록">{shown.map((a) => { const r = robots.find((x) => x.id === a.robot_id), w = r ? (mineOf(user, r) ? null : OUT) : OUT, busy = removing[a.id];
+    <ul className="fh-list" aria-label="배정 목록">{shown.map((a) => { const r = robots.find((x) => x.id === a.robot_id), w = r ? (mineOf(user, r) ? null : idleSim(r) ? IDLE_SLOT : OUT) : OUT, busy = removing[a.id];
       return <li key={a.id} className="fh-row" data-assignment={a.id}>
         <Chip {...(busy === 'checking' ? { tone: 'warn' as Tone, text: '확인 중' } : status(a.status))} />
         <b>{by ? `${a.scenario_name} · 판 ${a.scenario_version}` : `${a.robot_name} · 판 ${a.scenario_version}`}</b>

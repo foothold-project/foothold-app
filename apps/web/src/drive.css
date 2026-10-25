@@ -80,6 +80,9 @@
 /* 시뮬 시험용 표시(limits.experimental): 상태 알약(아래 끝 40) 아래 작은 한 줄 — 세로 작은 지도(위 60)보다 위. 긴 문장은 설정 시트·aria-label */
 .dv-exp{position:absolute;top:42px;left:50%;transform:translateX(-50%);z-index:1;margin:0;padding:2px 8px;border-radius:8px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--warn);pointer-events:none}
 .dv-act .btn{min-height:44px}
+/* 영상 위 실행 줄의 보통 단추(취소·새 출입증 등): 판 색·테두리는 .dv-menu 단추 값 그대로(어두운 영상 위에서 꺼진 단추처럼 보이지 않게). 주 단추(.pri)는 그대로 */
+.dv-act .btn:not(.pri){background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
+.dv-act .btn:not(.pri):disabled{opacity:.45}
 .dv-resume{width:100%;min-height:56px;font-size:17px}
 @media (orientation:portrait){.dv-act{left:8px;right:8px;bottom:144px;transform:none;width:auto;max-width:none}}
 @media (orientation:portrait) and (max-height:700px){.dv-act{bottom:104px}}
