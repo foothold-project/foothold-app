@@ -832,7 +832,8 @@ class Realtime:
     def end_robot_change(self, rid):
         self.robot_changes.discard(rid)
 
-    def revoke_robot_peer(self, peer, rid, reason='ACCESS_REVOKED', force=False):
+    def revoke_robot_control(self, peer, rid):
+        # Losing motion authority does not imply losing ROBOT_READ.
         r = self.arbiter.robots.get(rid)
         controlled = bool(r and ((r.holder and r.holder.actor == peer.actor)
             or (r.transfer and r.transfer.actor == peer.actor)))
@@ -841,6 +842,10 @@ class Realtime:
                 self.apply(self.arbiter.revoke(rid, peer.actor))
             elif r.request and r.request.actor == peer.actor:
                 self.apply(self.arbiter.cancel_request(rid))
+        return controlled
+
+    def revoke_robot_peer(self, peer, rid, reason='ACCESS_REVOKED', force=False):
+        controlled = self.revoke_robot_control(peer, rid)
         affected = rid in peer.subscriptions or controlled or force
         if not affected or rid in peer.revoked_robots:
             return
@@ -1453,7 +1458,7 @@ class Realtime:
                             except self.api_error as exc:
                                 if exc.status == 401:
                                     raise
-                                self.revoke_robot_peer(peer, rid)
+                                self.revoke_robot_control(peer, rid)
                     peer.stale_revoked = False
                 except TRANSIENT_DB:
                     age = self.clock() - peer.policy.checked

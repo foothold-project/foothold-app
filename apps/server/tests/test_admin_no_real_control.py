@@ -1,4 +1,5 @@
 """Admin management stays global; motion and STOP use trusted DB provenance."""
+import asyncio
 import time
 from types import SimpleNamespace
 from uuid import uuid4
@@ -18,6 +19,7 @@ from .test_phone_pass import pc, issue
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take
 from .test_maps import maps
 from .test_assignments import scenario, assignment
+from .test_realtime_review import run
 
 
 @pytest.mark.parametrize('simulation', [False, True, None, 'true', 1])
@@ -108,6 +110,69 @@ def test_admin_sim_motion_unlock_and_stops_allowed(client, seeded, rt):
         receive(ag, 'stop')
         assert client.post(f'/api/v1/robots/{rid}/stop', headers=headers).status_code == 202
         receive(ag, 'stop')
+
+
+@pytest.mark.parametrize('change', ['simulation', 'promotion', 'read'])
+def test_live_control_revocation_preserves_only_authorized_subscriptions(client, seeded, rt, change):
+    rid = str(seeded['robots']['mine'])
+    if change == 'simulation':
+        with DBSession(client.app.state.engine) as db:
+            db.get(Robot, seeded['robots']['mine']).simulation = True
+            db.commit()
+    headers = app_token(client, 'admin' if change == 'simulation' else 'one')
+    admin_headers = csrf(client, 'admin')
+    with agent(client, seeded) as ag, screen(client, headers) as ws:
+        assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
+        lease = take(ws, ag, rid)
+        before = rt.arbiter.robot(rid).stop_ref
+        if change == 'simulation':
+            with DBSession(client.app.state.engine) as db:
+                db.get(Robot, seeded['robots']['mine']).simulation = False
+                db.commit()
+        elif change == 'promotion':
+            result = client.patch(f"/api/v1/users/{seeded['users']['one']}",
+                headers=admin_headers, json={'role': 'ORG_ADMIN'})
+            assert result.status_code == 200, result.text
+        else:
+            result = client.patch(f'/api/v1/robots/{rid}', headers=admin_headers,
+                json={'owner_user_id': str(seeded['users']['two'])})
+            assert result.status_code == 200, result.text
+
+        assert receive(ag, 'lease', predicate=lambda body: body['lease_id'] is None)
+        stopped = receive(ag, 'stop')
+        assert stopped['stop_ref'] > before
+
+        async def revoked():
+            async with asyncio.timeout(2):
+                while any('O_OWN' in peer.policy.rights.get(rid, ()) for peer in rt.screens.values()):
+                    await asyncio.sleep(.01)
+            robot = rt.arbiter.robot(rid)
+            assert robot.holder is None and robot.request is None and robot.transfer is None
+            return next(iter(rt.screens.values()))
+        peer = run(client, revoked)
+        if change == 'read':
+            assert receive(ws, 'subscription.revoked')['reason'] == 'ACCESS_REVOKED'
+            assert rid not in peer.subscriptions
+            assert rid in peer.revoked_robots
+            assert client.get(f'/api/v1/robots/{rid}', headers=headers).status_code == 200
+        else:
+            assert 'ROBOT_READ' in peer.policy.rights[rid]
+            assert peer.subscriptions == {rid: {'state'}}
+            assert rid not in peer.revoked_robots
+            assert client.get(f'/api/v1/robots/{rid}', headers=headers).status_code == 200
+            ag.send_json({**state(4, stop_ref=stopped['stop_ref']), 'battery': {'soc': 42}})
+            # A new state reaches the original subscription without another sub.
+            deadline = time.monotonic() + 2
+            while True:
+                remaining = deadline - time.monotonic()
+                assert remaining > 0, 'No new state on the retained subscription'
+                body = receive(ws, timeout=remaining)
+                assert body['t'] != 'subscription.revoked'
+                if body['t'] == 'state' and (body.get('battery') or {}).get('soc') == 42:
+                    assert body['latched'] is True
+                    break
+        denied = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[1, 0, 0]))
+        assert not denied['ok']
 
 
 def test_real_admin_assignments_and_robot_settings_unchanged(maps, seeded):
