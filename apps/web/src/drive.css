@@ -30,6 +30,10 @@
 /* min-height:0 — .fh 의 100vh(Safari 막대가 숨었을 때 높이)가 이기면 막대가 보일 때 아래(조이스틱)가 막대 밑으로 내려간다 */
 .fh:has(.dv.ph){height:100dvh;min-height:0}
 .fh:has(.dv.ph) .fh-main{overflow:hidden}
+/* 조종 화면: 조이스틱을 길게 눌러도 글자 선택·돋보기·길게 누르기 메뉴·끌기 그림자가 없게(iOS Safari 는 -webkit- 만 먹음). 입력란만 예외 */
+.fh:has(.dv.ph){-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.fh:has(.dv.ph) :is(input,textarea){-webkit-user-select:text;user-select:text}
+.fh:has(.dv.ph) :is(img,svg){-webkit-user-drag:none}
 .dv.ph{gap:6px;height:100%}
 .dv.ph .dv-body{flex:1}
 .dv.ph .dv-stage{height:auto;min-height:0}
@@ -73,7 +77,8 @@
 .dv-act{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:1;width:max-content;max-width:calc(100% - 288px);display:flex;flex-direction:column;align-items:center;gap:6px}
 .dv-act .dv-note{padding:4px 8px;font-size:13px;background:rgba(8,11,14,.66);color:#E6EBEF}
 .dv-act .fh-row{justify-content:center}
-.dv-act .dv-exp{font-size:12px;box-shadow:inset 0 0 0 1px var(--warn)}   /* 시뮬 시험용 띠(limits.experimental) */
+/* 시뮬 시험용 표시(limits.experimental): 상태 알약(아래 끝 40) 아래 작은 한 줄 — 세로 작은 지도(위 60)보다 위. 긴 문장은 설정 시트·aria-label */
+.dv-exp{position:absolute;top:42px;left:50%;transform:translateX(-50%);z-index:1;margin:0;padding:2px 8px;border-radius:8px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--warn);pointer-events:none}
 .dv-act .btn{min-height:44px}
 .dv-resume{width:100%;min-height:56px;font-size:17px}
 @media (orientation:portrait){.dv-act{left:8px;right:8px;bottom:144px;transform:none;width:auto;max-width:none}}
@@ -102,8 +107,9 @@
 /* 시뮬 작은 지도(simmap.tsx): 오른쪽 위 설정 단추 아래(시나리오 띠·조이스틱·아래 안내와 떨어짐, 펼친 설정 메뉴가 위에 덮음). 가로 폰에서도 보임.
    층 이름표·흐림(층 이동 중·확인 중)·다시 불러오기. 판 색은 .dv-hud 단추 값 그대로 */
 [data-sim-drive].dv.ph .dv-mini{display:block;top:60px;bottom:auto;right:8px;width:120px;height:84px;cursor:pointer}
-/* 가로 폰: 머리줄 띠(서버 끊김 등)로 영상 칸이 낮아져도 오른쪽 조이스틱(아래 8 + 88) 위에서 멈추게 높이를 줄인다(최소 44) */
-@media (max-height:480px){[data-sim-drive].dv.ph .dv-mini{height:clamp(44px,calc(100% - 164px),84px)}}
+/* 가로 폰: 영상 칸이 낮아(Safari 막대·머리줄 띠) 설정 아래로는 오른쪽 조이스틱과 겹친다 → 위 줄 설정 단추 왼쪽, 오른쪽 조이스틱(오른쪽 12 + 90)보다 안쪽.
+   상태 알약은 양쪽 212(작은 지도·나가기) 사이만 쓴다 */
+@media (max-height:480px){[data-sim-drive].dv.ph .dv-mini{top:8px;right:112px;width:100px;height:70px}[data-sim-drive] .dv-top{max-width:calc(100% - 424px)}}
 .dv-map[data-dim]{opacity:.4}
 .dv-floor{position:absolute;left:4px;bottom:4px;padding:2px 6px;border-radius:6px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;white-space:nowrap;pointer-events:none}
 .dv-stage>.dv-floor{left:8px;top:60px;bottom:auto;padding:4px 10px;font-size:13px}

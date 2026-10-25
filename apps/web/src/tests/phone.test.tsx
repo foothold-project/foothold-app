@@ -7,7 +7,7 @@ import type { FloorContext, Scenario, SimCatalog, SimRobot } from '../../../cont
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
-import { DEAD, allowed, sim, velocity } from '../phone';
+import { DEAD, NUDGE, TURN_ON, allowed, sim, velocity, type Axes } from '../phone';
 import { STALLED, remainingTime, timeNotice } from '../simdrive';
 import { newer } from '../simmap';
 
@@ -184,9 +184,54 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     expect(allowed(w)).toMatchObject({ back: true, left: true, right: true, spin: false, experimental: false });
     expect(allowed(hello({ ...OMNI, experimental: ['turn_in_place'] })).spin).toBe(true);
   });
+  it('축 고정·시뮬 회전 ±max: 정상 조작은 에이전트 양자화(|vy|≥0.05·|fw|≥1)에 안 잘림, 실기 식 불변', () => {
+    const w = hello(EXP);
+    // 앞 + 작은 옆 흔들림 → vy 0, 옆 + 작은 앞 흔들림 → vx 0(0.2 로 튀지 않음)
+    for (const y of [-0.25, -0.12, 0.12, 0.25]) expect(velocity([0.6, 0, y], w).vy).toBe(0);
+    expect(velocity([1, 0, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });
+    expect(velocity([0.2, 0, 1], w)).toEqual({ vx: 0, vy: 0.3, wz: 0 });
+    // 대각선(둘 다 큼)은 그대로
+    const d = velocity([0.8, 0, -0.6], w);
+    expect(d.vx).toBeCloseTo(0.2 + 0.8 * 0.7 / 0.9, 9); expect(d.vy).toBeCloseTo(-0.3 * 0.5 / 0.9, 9); expect(Math.abs(d.vy)).toBeGreaterThanOrEqual(0.05);
+    // 회전: 문턱 아래 0, 넘으면 ±wz_max 두 값만(부분 회전 wz 없음)
+    for (const t of [0.1, 0.3, 0.49, -0.49]) expect(velocity([1, t], w).wz).toBe(0);
+    for (const t of [0.5, 0.7, 1]) { expect(velocity([1, t], w).wz).toBe(0.5); expect(velocity([1, -t], w).wz).toBe(-0.5); }
+    expect(velocity([0, 0.8], w).wz).toBe(0.5);   // 제자리 회전 허가(turn_in_place)
+    expect(velocity([0, 0.8], hello(OMNI)).wz).toBe(0);   // 허가 없으면 그대로 0
+    // 실기 limits: 축 고정·회전 문턱 없이 기존 식(옆 범위 0)
+    const r = hello(welcome().limits), old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
+    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1]) for (const y of [-1, -0.1, 0, 0.3, 1]) {
+      const vx = old(f, 0, 0.6);
+      expect(velocity([f, t, y], r)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
+    }
+  });
+  it('시뮬(EXP): 스틱이 눌려 있으면 정확한 0 을 보내지 않음(deadman 뒤 손 뗌 관문 — PR #92 Codex), 손 뗌만 0', () => {
+    for (const L of [EXP, { ...CONT, experimental: ['turn_in_place'] }]) {
+      const w = hello(L);
+      expect(velocity([0, 0, 0], w)).toEqual({ vx: 0, vy: 0, wz: 0 });
+      expect(velocity([0, 0], w)).toEqual({ vx: 0, vy: 0, wz: 0 });
+      for (let f = -20; f <= 20; f++) for (let t = -20; t <= 20; t++) for (let y = -10; y <= 10; y++) {
+        if (!f && !t && !y) continue;
+        const a: Axes = [f / 20, t / 20, y / 10], v = velocity(a, w);
+        if (v.vx === 0 && v.vy === 0 && v.wz === 0) throw new Error(`${a} → 정확한 0`);
+        // 움직이지 않는 표시값 wz 는 에이전트 회전 문턱(wz_max) 아래 — 일부러 돌릴 때(±wz_max)만 문턱
+        if (v.vx === 0 && v.vy === 0) expect(Math.abs(v.wz) === L.wz_max || Math.abs(v.wz) < L.wz_max * TURN_ON).toBe(true);
+      }
+    }
+    // Codex 재현: 단독 회전 t=0.3 은 부모와 같은 작은 wz(에이전트가 잘라 sentinel), 문턱 위는 ±wz_max, 데드존은 NUDGE
+    const w = hello(EXP);
+    expect(velocity([0, 0.3], w)).toEqual({ vx: 0, vy: 0, wz: 0.15 });
+    expect(velocity([0, -0.49], w)).toEqual({ vx: 0, vy: 0, wz: expect.closeTo(-0.245, 9) });
+    expect(velocity([0, 0.6], w)).toEqual({ vx: 0, vy: 0, wz: 0.5 });
+    expect(velocity([DEAD, 0, 0.05], w)).toEqual({ vx: 0, vy: 0, wz: NUDGE });
+    expect(velocity([1, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });   // 움직이는 중 문턱 아래 회전은 그대로 0
+  });
   it('experimental 있음: 시험용 띠, 뒤·옆·제자리 회전 보냄, 화살표 모두 켬, STOP 보임', async () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
-    expect($('[data-sim-exp]')!.textContent).toBe('시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다');
+    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+    expect(exp.textContent).toBe('시험용 · 넘어질 수 있음');   // 10-25: 영상 위 큰 띠 대신 작은 표시, 긴 문장은 aria·설정 시트
+    expect(exp.getAttribute('aria-label')).toBe(full);
+    expect(exp.closest('.dv-act')).toBeNull();
     expect(arrows('전후')).toBe('up+ down+ left+ right+');
     expect(arrows('회전')).toBe('left+ right+');
     const left = stick('전후'), turn = stick('회전');
@@ -220,8 +265,33 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     ptr(left, 'pointerup', 50, 0);
     ptr(turn, 'pointerup', 0, 50);
     await recv(a, { t: 'cmd.ack', clipped: true });
-    expect(box.textContent).toContain('명령 범위 조정 — 로봇 허용 범위(앞 1.00 m/s, 뒤 0.30 m/s, 옆 ±0.3 m/s, 회전 ±0.5 rad/s)로 잘랐습니다. 제자리 회전은 앞으로 밀면서 돌리세요.');
+    expect(box.textContent).toContain('명령 범위 조정 — 허용 범위로 잘랐습니다.');   // 10-25: 영상 위는 짧은 한 줄, 범위 숫자는 설정 시트
     expect(box.textContent).not.toContain('끝까지 밀어야');
+    await menuItem('설정');
+    expect($('[data-sim-range]')!.textContent).toBe('로봇 허용 범위(앞 1.00 m/s, 뒤 0.30 m/s, 옆 ±0.3 m/s, 회전 ±0.5 rad/s) 밖은 잘라 보냅니다. 제자리 회전은 앞으로 밀면서 돌리세요.');
+  });
+  it('명령 범위 조정은 새로 잘릴 때만 잠깐(3 s) — 계속 잘려도 영상 위에 남지 않고, 다시 잘리면 다시 뜸', async () => {
+    const a = await launch({ ...welcome(), limits: OMNI }); await drive(a);
+    const clipNote = () => [...box.querySelectorAll('.dv-act .dv-note')].some((p) => p.textContent?.startsWith('명령 범위 조정'));
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(clipNote()).toBe(true);
+    await wait(4200);
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(clipNote()).toBe(false);
+    await recv(a, { t: 'cmd.ack', clipped: false });
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(clipNote()).toBe(true);
+    expect($('[data-stop]')).toBeTruthy();
+  }, 10000);
+  it('조종 화면: 길게 누르기 메뉴 막음, 영상 그림 끌기 없음', async () => {
+    const a = await launch(); await drive(a);
+    const c = cams()[0];
+    act(() => c.open());
+    await recv(c, { t: 'camera.frame', seq: 1, mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
+    expect($<HTMLImageElement>('img.dv-video')!.draggable).toBe(false);
+    const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    act(() => { stick('전후').dispatchEvent(e); });
+    expect(e.defaultPrevented).toBe(true);
   });
   it('실기 limits 화면: 아래·옆 화살표 흐림, 옆으로 밀면 0 + 이유, 띠 없음', async () => {
     const a = await launch(); await drive(a);

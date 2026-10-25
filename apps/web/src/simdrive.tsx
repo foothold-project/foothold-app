@@ -148,6 +148,7 @@ function ScenarioBar({ s, r }: { s: Sim; r: SimRobot }) {
   </div>;
 }
 
+const EXP = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
 const SPIN = '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.';
 /** 직결 조종 화면: 카메라 전체. 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약, 오른쪽 위 설정 메뉴(설정·정보), 아래 두 구석 조이스틱,
  *  왼쪽 조이스틱 옆 시나리오 단추 하나(누르면 가로 띠), 설정 아래 작은 지도(누르면 지도 크게 ↔ 영상 크게, simmap.tsx), 지금 눌러야 할 단추·안내. STOP 은 App 머리줄(영상 칸 밖이라 메뉴·띠·시트가 덮지 못함).
@@ -165,6 +166,9 @@ export function SimDrive() {
   const live = ready && !menu && !bar && !leaving;
   const smooth = w?.limits.vx_mode === 'continuous', can = allowed(w), blocked = blockedNames(can);
   useTick(true);
+  // 명령 범위 조정: 새로 잘릴 때 3 s 만 한 줄로(계속 잘려도 영상 가운데를 덮어 두지 않음). 범위 숫자는 설정 시트
+  const [clipUntil, setClipUntil] = useState(0), clipNote = l.clipped && performance.now() < clipUntil;
+  useEffect(() => { if (l.clipped) setClipUntil(performance.now() + 3000); }, [l.clipped]);
   useEffect(() => () => sim.axes([0, 0]), []);
   useEffect(() => { input.current = [0, 0, 0]; sim.axes([0, 0]); setUnsupported(''); setVx(0); }, [live]);
   /** 왼쪽 = 전후·옆, 오른쪽 = 회전. 막힌 방향은 limits 가 0 으로 자르고(phone.ts) 여기서는 이유만 안내 */
@@ -205,7 +209,7 @@ export function SimDrive() {
     leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     unsupported,
     fm.notice,
-    !unsupported && mine && l.clipped && w && `명령 범위 조정 — 로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s${can.back ? `, 뒤 ${(-w.limits.vx_min).toFixed(2)} m/s` : ''}${can.left || can.right ? `, 옆 ±${w.limits.vy_max} m/s` : ''}, 회전 ±${w.limits.wz_max} rad/s)로 잘랐습니다. ${!can.spin ? '제자리 회전은 앞으로 밀면서 돌리세요.' : smooth ? '' : '끝까지 밀어야 움직입니다.'}`.trim(),
+    !unsupported && mine && clipNote && `명령 범위 조정 — 허용 범위로 잘랐습니다.${smooth || !can.spin ? '' : ' 끝까지 밀어야 움직입니다.'}`,
     open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
     stalled && STALLED,
     stalled && (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam],
@@ -220,9 +224,10 @@ export function SimDrive() {
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>,
   ].filter(Boolean);
-  const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+  const range = w && `로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s${can.back ? `, 뒤 ${(-w.limits.vx_min).toFixed(2)} m/s` : ''}${can.left || can.right ? `, 옆 ±${w.limits.vy_max} m/s` : ''}, 회전 ±${w.limits.wz_max} rad/s) 밖은 잘라 보냅니다.${!can.spin ? ' 제자리 회전은 앞으로 밀면서 돌리세요.' : ''}`;
+  const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" draggable={false} src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
     : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && !stalled && <span>{CAM[l.cam]}</span>}</div>;
-  return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive>
+  return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
       {big && hasMap ? <SimMap m={fm} big /> : video(false)}
       {hasMap && <button type="button" className="dv-mini" aria-label={big ? '영상 크게' : '지도 크게'} data-sim-mini onClick={() => setBig(!big)}>{big ? video(true) : <SimMap m={fm} />}</button>}
@@ -230,6 +235,7 @@ export function SimDrive() {
       <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
         시뮬 · {r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'ok' ? '실행 중' : lock.text} · <span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
       </div>
+      {can.experimental && <p className="dv-exp" role="note" aria-label={EXP} data-sim-exp>시험용 · 넘어질 수 있음</p>}
       <button type="button" className="dv-gear" aria-label="설정 메뉴" aria-expanded={!!menu} data-sim-menu onClick={() => { setBar(false); setMenu(menu ? '' : 'menu'); }}>{ICON.gear}</button>
       {menu === 'menu' && <div className="dv-menu" role="group" aria-label="설정 메뉴 항목">
         <button type="button" className="btn" onClick={() => setMenu('set')}>{ICON.set}<span>설정</span></button>
@@ -245,6 +251,8 @@ export function SimDrive() {
           <button type="button" className="btn" disabled aria-pressed={false}>빠름</button>
         </div>
         <p id="sim-speed-note" className="dv-note">느림·빠름{blocked && `·${blocked}`}: 시뮬에서 아직 확인 안 됨</p></>}
+        {can.experimental && <p className="dv-note">{EXP}</p>}
+        {range && <p className="dv-note" data-sim-range>{range}</p>}
         {open && mine && <div className="fh-row"><button type="button" className="btn" disabled={l.busy === 'release'} onClick={() => sim.release()}>조종권 반납</button><span className="lbl">보기 연결은 남습니다.</span></div>}
       </Sheet>}
       {menu === 'info' && <Sheet title="정보" close={() => setMenu('')}>
@@ -259,8 +267,7 @@ export function SimDrive() {
           <Chip {...lock} />
         </div>
       </Sheet>}
-      {(can.experimental || notes.length > 0 || !!acts && acts.length > 0) && <div className="dv-act">
-        {can.experimental && <p className="dv-note dv-exp" data-sim-exp>시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다</p>}
+      {(notes.length > 0 || !!acts && acts.length > 0) && <div className="dv-act">
         {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
       </div>}

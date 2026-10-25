@@ -88,21 +88,34 @@ function send(m: Record<string, unknown>, wait?: (ok: boolean) => void) {
 }
 /** 연속 모드 전후·옆 조이스틱 데드존(입력 비율 — 속도 값이 아님) */
 export const DEAD = 0.1;
+/** 왼쪽 조이스틱 축 고정: 작은 축이 큰 축의 이 비율 미만이면 0 — 10-25 실폰 앞 밀기 옆 흔들림 |옆| ≤ 0.25(vy ≤ 0.05)·|전후| ≥ 0.5 */
+export const AXIS_LOCK = 0.5;
+/** 시뮬 회전 문턱: 에이전트가 wz 를 0·±wz_max 로만 받아(simulation_velocity) 이 기울기 넘으면 ±wz_max, 아니면 0 */
+export const TURN_ON = 0.5;
+/** 시뮬 눌린 데드존 wz: 에이전트 회전 문턱(±0.5 rad/s) 훨씬 아래라 돌지 않고, 정확한 0 이 아니라 손 뗌으로 보지 않음 */
+export const NUDGE = 0.001;
 /** [전후, 회전, 옆(왼쪽 +)] -1..1. 옆은 없으면 0 */
 export type Axes = [number, number, number?];
 /** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이면 0(실기).
  *  연속 모드(시뮬 limits.vx_mode)는 데드존 밖 앞 기울기 t 를 vx_min_moving + (vx_max − vx_min_moving)·t 로(02 F-TO-05),
- *  뒤(vx_min < 0 일 때만)도 같은 식으로 vx_min 까지. 옆은 데드존 밖 기울기에 비례해 vy_max·vy_min 까지 */
-export function velocity([f, t, y = 0]: Axes, w: PhoneWelcome) {
+ *  뒤(vx_min < 0 일 때만)도 같은 식으로 vx_min 까지. 옆은 데드존 밖 기울기에 비례해 vy_max·vy_min 까지.
+ *  옆 범위가 있을 때만 축 고정(AXIS_LOCK), 연속 모드 회전은 TURN_ON 넘으면 ±wz_max — 실기 limits 는 식 그대로 */
+export function velocity([f0, t, y0 = 0]: Axes, w: PhoneWelcome) {
   const s = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-  const L = w.limits, lo = L.vx_min_moving ?? L.vx_min;
+  const L = w.limits, lo = L.vx_min_moving ?? L.vx_min, side = L.vy_max > 0 || L.vy_min < 0;
+  const f = side && Math.abs(f0) < AXIS_LOCK * Math.abs(y0) ? 0 : f0, y = side && Math.abs(y0) < AXIS_LOCK * Math.abs(f0) ? 0 : y0;
+  const turn = L.vx_mode !== 'continuous' ? s(t, L.wz_min, L.wz_max) : t >= TURN_ON ? L.wz_max : t <= -TURN_ON ? L.wz_min : 0;
   const past = (v: number) => (Math.abs(v) - DEAD) / (1 - DEAD);   // 데드존 밖 비율(데드존 밖에서만 부름)
   const ramp = (v: number, hi: number) => { const m = Math.min(lo, hi); return m + (hi - m) * past(v); };
   const vx = L.vx_mode !== 'continuous' ? s(f, L.vx_min, L.vx_max)
     : f > DEAD ? ramp(f, L.vx_max) : f < -DEAD && L.vx_min < 0 ? -ramp(f, -L.vx_min) : 0;
   const vy = y > DEAD ? L.vy_max * past(y) : y < -DEAD ? L.vy_min * past(y) : 0;
   // 제자리 회전(전후·옆 0)은 turn_in_place 허가가 있을 때만 — 없으면 wz 0 을 보낸다(안내는 화면)
-  return { vx, vy, wz: vx === 0 && vy === 0 && !allowed(w).spin ? 0 : s(t, L.wz_min, L.wz_max) };
+  const spin = allowed(w).spin, wz = vx === 0 && vy === 0 && !spin ? 0 : turn;
+  // 시뮬(제자리 회전 허가)은 스틱이 눌려 있으면 정확한 0 을 보내지 않는다 — 에이전트는 정확한 0 만 새 중립으로 받아(simulation_velocity) deadman 뒤 손 뗌 관문이 풀린다.
+  // 움직이지 않는 입력은 에이전트가 0 + 이유로 자르는 작은 wz 로: 문턱 아래 단독 회전은 원래 값, 데드존은 NUDGE. 허가 없는 limits 는 wz 를 보내지 않는다(PR #88 B1, 기존대로)
+  if (L.vx_mode === 'continuous' && spin && vx === 0 && vy === 0 && wz === 0 && (f0 || t || y0)) return { vx, vy, wz: s(t, L.wz_min, L.wz_max) || NUDGE };
+  return { vx, vy, wz };
 }
 /** limits 가 허용하는 방향(화면은 이 값만 본다 — 숫자를 박지 않음). 제자리 회전은 시뮬 limits.experimental 에 turn_in_place 가 있을 때만 */
 export function allowed(w: PhoneWelcome | null) {
