@@ -3,12 +3,13 @@
 // 키보드는 이 화면(시뮬 로봇 직결)에만 붙는다 — 실기 로봇 화면에는 없다(ADR-003 §4.2). «시뮬 정지»는 sim.stop()(폰 직결 STOP 과 같은 경로).
 // 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
 import { useEffect, useRef, useState } from 'react';
-import { DEAD, allowed, sim, useSim, velocity } from '../phone';
+import { DEAD, allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
+import { runView, startBlock, startFloor, useScenarios } from '../run';
 import { CAM, EXP, STATE, SimLaunch, blockNote, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap } from '../simmap';
 import { Chip } from '../screens';
 import { typing } from '../App';
-import type { PhoneWelcome } from '../../../contracts/ts';
+import type { PhoneWelcome, SimRobot } from '../../../contracts/ts';
 import type { Tone, User } from '../fake';
 
 export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
@@ -41,7 +42,8 @@ function forward(w: PhoneWelcome) {
  *  시뮬 정지를 보낸 뒤 에이전트가 처리했다고 알리기 전(stop_gen 이 그대로)에는 옛 latched=false 가 남아 있어도 막는다 — 처리 뒤에는 잠금(latched)이 막고, 사람이 잠금 해제해야 다시 */
 function canDrive() {
   const g = sim.get(), l = g.link, p = g.stop, st = l?.st;
-  return !!l && l.welcome?.simulation === true && l.at === 'open' && !!l.lease && st?.latched === false && !(p && !p.latched && st.stop_gen <= (p.g0 ?? Infinity));
+  return !!l && l.welcome?.simulation === true && l.at === 'open' && !!l.lease && st?.latched === false && !(p && !p.latched && st.stop_gen <= (p.g0 ?? Infinity))
+    && !runMoving(l.run);   // 시나리오가 움직이는 중이면 키 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
 }
 const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSelectElement;   // 글 입력칸·고르기 칸에 초점이면 조종 키 무시
 
@@ -82,7 +84,8 @@ function SimView() {
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
-  const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s)].filter(Boolean) as string[];
+  const run = runView(s);
+  const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s), ...run.notes].filter(Boolean) as string[];
   const close = async () => { if (sim.get().link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]); sim.reset(); };
   const key = (k: string, t: string, on = true) => <span className="lbl" data-key-off={on ? undefined : ''} style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}{on ? '' : '(막힘)'}</span>;
   return <>
@@ -103,6 +106,9 @@ function SimView() {
         <button type="button" className="btn" onClick={close}>보기 닫기</button>
         <span className="lbl">보기 닫기는 조종권을 반납하고 시뮬을 켠 채 둡니다.</span>
       </div>
+      {run.acts.length > 0 && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="시나리오 실행" data-run-acts>{run.acts}</div>}
+      <ScenarioPick s={s} r={r} />
+      {run.dev}
       {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
         <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}
       {keys && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="키보드 조종" data-sim-keys>
@@ -122,4 +128,22 @@ function SimView() {
       </div>
     </section>
   </>;
+}
+
+/** 시나리오 고르기 + «실행»(폰 시나리오 띠와 같은 조건 — run.tsx startBlock). 이 월드 지도를 지나는 시나리오만 */
+function ScenarioPick({ s, r }: { s: Sim; r: SimRobot }) {
+  const world = s.catalog?.worlds.find((w) => w.id === r.world_id), floors = world?.floors ?? [];
+  const { list, retry } = useScenarios(floors, !!world?.map_id), [pick, setPick] = useState('');
+  if (!world?.map_id) return <p className="lbl" data-sim-scn>이 월드에 묶인 지도가 없어 시나리오가 없습니다.</p>;
+  if (list === 'wait') return <p className="lbl" data-sim-scn>시나리오를 불러오는 중…</p>;
+  if (list === 'fail') return <div className="fh-row" data-sim-scn><span className="fh-why">시나리오 목록을 받지 못했습니다.</span><button type="button" className="btn" onClick={retry}>다시</button></div>;
+  if (!list.length) return <p className="lbl" data-sim-scn>이 지도에 시나리오가 없습니다.</p>;
+  const picked = list.find((x) => x.id === pick), block = startBlock(s, picked, floors);
+  return <div className="fh-row" style={{ flexWrap: 'wrap' }} data-sim-scn>
+    <label className="fh-row"><span>시나리오</span><select value={pick} onChange={(e) => setPick(e.target.value)}>
+      <option value="">고르기</option>{list.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+    <button type="button" className="btn pri" disabled={!picked || !!block || s.link?.busy === 'run'} aria-describedby="sim-scn-why"
+      onClick={() => picked && sim.runStart(picked, startFloor(picked, floors))}>실행</button>
+    <span id="sim-scn-why" className="lbl" role="status">{picked ? block || '«실행»을 누르면 고른 시나리오를 시작합니다.' : '실행할 시나리오를 고르세요.'}</span>
+  </div>;
 }

@@ -1072,7 +1072,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0.6 });
   });
 
-  it('이 월드 지도(층)를 지나는 보관 안 된 시나리오만, 고르면 «고름»·실행 막힘·«준비 중» — 실행 요청 0', async () => {
+  it('이 월드 지도(층)를 지나는 보관 안 된 시나리오만, 고르면 «고름» — 실행 능력 알림 없는 로봇은 실행 막힘·이유, 실행 요청 0', async () => {
     const a = await launch(welcome(), scenarios([scn('s-a', '1층 순찰', F1), scn('s-b', '남의 지도', F2), scn('s-c', '보관됨', F1, '2026-10-01T00:00:00Z')]));
     await drive(a);
     await click($('[data-sim-scn-btn]'));
@@ -1083,7 +1083,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(items()).toEqual(['1층 순찰고름']);
     const run = btn('실행')!;
     expect(run.disabled).toBe(true);
-    expect($('[data-sim-scn]')!.textContent).toContain('시나리오 실행은 아직 준비 중입니다.');
+    expect($('[data-sim-scn]')!.textContent).toContain('이 로봇은 시나리오 실행을 지원하지 않습니다.');
     const n = calls.length, sent = a.sent.filter((m) => m.t !== 'cmd' && m.t !== 'ping').length;
     act(() => run.click()); await flush();
     expect(calls.length).toBe(n);
