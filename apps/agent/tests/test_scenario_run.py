@@ -54,7 +54,10 @@ def r():
                    scenario_id=uid(), scenario_version=1, floor_id=uid(), map_version_id=uid())
     point = dict(floor_id=h.start['floor_id'], map_version_id=h.start['map_version_id'],
                  x=0., y=0., yaw=0., waypoint_ref='p0', mission_id=uid(), mission_version=1, mission_name='표시 임무')
-    h.data = dict(id=h.start['scenario_id'], number=1, waypoints=[point], finish={'mode': 'STAY'})
+    h.data = dict(id=h.start['scenario_id'], number=1, waypoints=[point], finish={'mode': 'STAY'},
+        map_proofs=[dict(floor_id=h.start['floor_id'], map_version_id=h.start['map_version_id'],
+            image_sha256='a'*64, source_pgm_sha256='b'*64, origin=[0.,0.,0.], resolution=.05,
+            width=2, height=2, source='SIMULATION', world_id='warehouse', ros_floor_id='f1')])
     class Source:
         def fetch(self, request):
             self.request = request
@@ -387,12 +390,11 @@ def test_map_context_invalid_never_submits_goal(r):
     assert not r.actions.goals
 
 
-def test_goal_success_with_stale_pose_or_moving_body_is_not_arrival(r):
+def test_goal_success_with_stale_pose_or_wrong_floor_is_not_arrival(r):
     binding = start(r)
     r.runs.nav.feedback(binding, 'SUCCEEDED')
     pose = dict(floor_id=r.start['floor_id'], map_version_id=r.start['map_version_id'], x=0., y=0., yaw=0., confidence=1.)
     for evidence in (dict(binding=binding, received_at=-2., body_still=True, pose=pose),
-                     dict(binding=binding, received_at=0., body_still=False, pose=pose),
                      dict(binding=binding, received_at=0., body_still=True, pose={**pose, 'floor_id': uid()})):
         r.runs.arrival = lambda b, g: evidence
         r.hub.tick()

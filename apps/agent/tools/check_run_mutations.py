@@ -15,7 +15,7 @@ CASES = [
      "        if status == 'PAUSED' and not was_paused:",
      "        if status == 'PAUSED':", 'test_paused_deadline_cannot_extend_and_offline_timeout'),
     ('original receipt output gate bypass', 'hub',
-     '        if self.runs.binding is not None and self.runs.nav.source_expired():',
+     '        if self.runs.binding is not None and not self.runs.zero_only_waiting() and self.runs.nav.source_expired():',
      '        if False:', 'test_source_deadman_blocks_robot_feedback_before_watchdog'),
 ]
 

@@ -17,7 +17,20 @@ from .node import RosNode
 
 async def run(config):
     camera = Camera(config.robot_id) if os.environ.get('FOOTHOLD_CAMERA_ENABLED') == '1' else None
-    bridge = RosNode(config, camera=camera) if camera is not None else RosNode(config)
+    nav = maps = None
+    bridge_options = {'camera': camera} if camera is not None else {}
+    if os.environ.get('FOOTHOLD_RUN_MAP_ASSETS_JSON'):
+        from foothold_agent.executor.nav2 import NavExecutor, PolicyAdapter
+        from foothold_agent.executor.nav2.actions import GoalActions
+        from .run_maps import RunMaps
+        from .run_nav import RunNav
+        maps = RunMaps.from_env(getattr(config, 'floor_bindings', None), os.environ)
+        # Same tested alphabet as the experimental bridge; curves stay disabled.
+        adapter = PolicyAdapter(dict(allow_curves=False, yaw_zero_threshold_rps=.04,
+            commands=[dict(si=[0,0,0],axes=[0,0,0]),dict(si=[.6,0,0],axes=[1,0,0])]))
+        nav = NavExecutor(adapter, GoalActions())
+        bridge_options['extension_factory'] = lambda node: RunNav(node, nav)
+    bridge = RosNode(config, **bridge_options)
     client = None
     phone = None
     run_journal = None
@@ -58,7 +71,23 @@ async def run(config):
                 run_journal = RunOutbox(os.environ['FOOTHOLD_RUN_OUTBOX_PATH'])
             if os.environ.get('FOOTHOLD_SCENARIO_DATA_ORIGIN'):
                 scenario_source = ScenarioSource(os.environ['FOOTHOLD_SCENARIO_DATA_ORIGIN'], config.settings.token)
-            hub = Hub(config.phone_verifier, sink,
+            def run_context(request, plan):
+                extension = bridge.extension
+                snapshot = bridge.inputs.telemetry.snapshot()
+                return (maps is not None and extension is not None
+                        and nav.actions.ready()
+                        and maps.matches(request, plan, snapshot, extension.grid_snapshot()))
+
+            def arrival(binding, goal):
+                snapshot = bridge.inputs.telemetry.snapshot()
+                location = snapshot.get('location')
+                if not location or location.get('episode') != binding.episode:
+                    return None
+                return dict(binding=binding, received_at=location['received_monotonic_s'],
+                    pose={k: location[k] for k in ('floor_id','map_version_id','x','y','yaw','confidence')})
+
+            hub = Hub(config.phone_verifier, sink, nav=nav, run_context=run_context,
+                      arrival_evidence=arrival,
                       policy_name=config.phone.policy_name, policy_version=config.phone.policy_version,
                       simulation=config.phone.simulation, scenario_source=scenario_source, run_journal=run_journal,
                       run_pause_timeout_s=float(os.environ.get('FOOTHOLD_RUN_PAUSE_TIMEOUT_S', '600')))
