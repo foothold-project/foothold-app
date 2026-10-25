@@ -59,12 +59,20 @@ def fail(status, code, message, detail=None):
     raise APIError(status, code, message, detail)
 
 
+ADMIN_NO_REAL_CONTROL = '총괄 계정은 실기 로봇을 조종하거나 정지할 수 없습니다. 담당 운영자 폰에서 하세요.'
+
+
 def authorize(user: User, permission: str, robot: Robot | None = None):
     """One A/O policy, used on every request (no cached role/ownership claims)."""
     if robot is not None and (robot.org_id != user.org_id or getattr(robot, 'archived_at', None)):
         fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
     valid_role = user.role in ('ORG_ADMIN', 'OPERATOR')
     owns = user.role == 'ORG_ADMIN' or (robot is not None and robot.owner_user_id == user.id)
+    # A/ROBOT_READ manage/view the full fleet. O_OWN is motion authority only;
+    # assignments and robot configuration must not use it as a management gate.
+    if (permission in ('O_OWN', 'ROBOT_STOP') and robot is not None
+            and user.role == 'ORG_ADMIN' and robot.simulation is not True):
+        fail(403, 'ADMIN_NO_REAL_CONTROL', ADMIN_NO_REAL_CONTROL)
     if permission == 'ROBOT_READ' and not owns:
         fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
     if permission == 'O_OWN' and not owns:
@@ -76,6 +84,8 @@ def authorize(user: User, permission: str, robot: Robot | None = None):
         'ROBOT_SUMMARY': valid_role and robot is not None,
         'ROBOT_READ': valid_role and robot is not None and owns,
         'O_OWN': valid_role and robot is not None and owns,
+        # Operators retain STOP on other operators' robots in the organization.
+        'ROBOT_STOP': valid_role and robot is not None,
     }
     if not allowed.get(permission, False):
         fail(403, 'FORBIDDEN', '권한이 없습니다.')
@@ -591,8 +601,13 @@ def create_app(settings: Settings | None = None):
             # Full live viewing has the same scope as existing ROBOT_READ.
             # Check it first so inaccessible robot existence stays hidden.
             authorize(user, 'ROBOT_READ', row)
+            # Even a view phone pass permits local-agent STOP. Admins must
+            # therefore receive neither purpose for a real robot.
+            authorize(user, 'ROBOT_STOP', row)
             authorize(user, 'O_OWN' if body.purpose == 'control' else 'ROBOT_READ', row)
-        except APIError:
+        except APIError as exc:
+            if exc.code == 'ADMIN_NO_REAL_CONTROL':
+                raise
             issuer.deny(db, user, 404, 'NOT_FOUND')
         response.headers['Cache-Control'] = 'no-store'
         return issuer.issue(db, user, row, body)

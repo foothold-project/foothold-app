@@ -414,7 +414,9 @@ def test_live_rows_still_control_memoized_rights_and_session_validity(client, se
     with DBSession(client.app.state.engine) as db:
         db.get(User, seeded['users']['one']).role = 'ORG_ADMIN'
         db.commit()
-    assert 'O_OWN' in run(client, snapshot).rights[rid]
+    promoted = run(client, snapshot).rights[rid]
+    assert 'O_OWN' not in promoted and 'ADMIN_NO_REAL_CONTROL' in promoted
+    assert 'ROBOT_READ' in promoted
     with DBSession(client.app.state.engine) as db:
         db.get(DBUserSession, actor.session).revoked_at = now()
         db.commit()

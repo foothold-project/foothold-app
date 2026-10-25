@@ -35,7 +35,11 @@ def pc(seeded, tmp_path):
     app = create_app(Settings(seeded['urls']['app'], seeded['org'], phone_pass_keys=str(keyfile)))
     with TestClient(app, base_url='https://testserver') as client:
         client.keys = load_keys(keyfile)
-        client.pass_headers = csrf(client)
+        # Real robots stay real; only their assigned operator receives control passes.
+        with DBSession(app.state.engine) as db:
+            db.get(Robot, seeded['robots']['theirs']).owner_user_id = seeded['users']['one']
+            db.commit()
+        client.pass_headers = csrf(client, 'one')
         yield client
     app.state.engine.dispose()
 
@@ -65,7 +69,7 @@ def test_issuer_claims_scope_lifetime_csrf_and_no_token_persistence(pc, seeded, 
     assert set(claims) == {'iss','aud','org','robot','sub','device','purpose','iat','exp','jti'}
     assert claims['exp'] - claims['iat'] == 600 and abs(claims['iat'] - time.time()) < 3
     assert claims['iss'] == 'fh-control' and claims['aud'] == 'fh-phone/1'
-    assert claims['sub'] == str(seeded['users']['admin']) and claims['org'] == str(seeded['org'])
+    assert claims['sub'] == str(seeded['users']['one']) and claims['org'] == str(seeded['org'])
     assert claims['device'] == str(device) and result.json()['exp'] == claims['exp']
     record = rows(seeded, PhonePass)[0]
     assert str(record.jti) == claims['jti'] and record.purpose == 'control'
@@ -77,6 +81,9 @@ def test_issuer_claims_scope_lifetime_csrf_and_no_token_persistence(pc, seeded, 
 
 @pytest.mark.parametrize('purpose', ['control', 'view'])
 def test_issue_permission_hidden_other_org_and_missing_robot(pc, seeded, purpose):
+    with DBSession(pc.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['theirs']).owner_user_id = seeded['users']['two']
+        db.commit()
     pc.pass_headers = csrf(pc, 'one')
     for rid in (seeded['robots']['theirs'], seeded['robots']['foreign'], uuid4()):
         result = issue(pc, seeded, robot=rid, purpose=purpose)
@@ -85,6 +92,7 @@ def test_issue_permission_hidden_other_org_and_missing_robot(pc, seeded, purpose
 
 
 def test_locked_account_and_missing_key(pc, seeded):
+    pc.pass_headers = csrf(pc, 'admin')
     rid = seeded['robots']['mine']
     engine = create_engine(seeded['urls']['migrate'])
     with DBSession(engine) as db:
@@ -132,7 +140,7 @@ def test_issuer_limits_persist_across_sessions_and_device_slots(pc, seeded):
     device = uuid4()
     for i in range(10):
         assert issue(pc, seeded, robot=('mine','theirs')[i%2], device=device, purpose='view').status_code == 200
-    pc.pass_headers = csrf(pc)
+    pc.pass_headers = csrf(pc, 'one')
     result = issue(pc, seeded, device=device)
     assert result.status_code == 429 and result.json()['error']['code'] == 'PASS_RATE_LIMIT'
     assert 0 < result.json()['error']['detail']['retry_after'] <= 60
@@ -148,23 +156,25 @@ def test_account_and_assignment_writes_create_durable_revocations(pc, seeded, ac
     if action == 'logout':
         result = pc.post('/api/v1/auth/logout', headers=pc.pass_headers)
     elif action == 'owner':
+        pc.pass_headers = csrf(pc, 'admin')
+        denied = issue(pc, seeded, purpose='view')
+        assert denied.status_code == 403 and denied.json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
         result = pc.patch('/api/v1/robots/' + str(seeded['robots']['mine']), headers=pc.pass_headers,
                           json={'owner_user_id': str(seeded['users']['two'])})
-        # Admin passes survive removal of an operator's assignment.
-        assert result.status_code == 200 and not rows(seeded, PhoneRevocation)
+        assert result.status_code == 200
+        # The previous operator's control passes are revoked on reassignment.
+        assert rows(seeded, PhoneRevocation)
         pc.pass_headers = csrf(pc, 'two')
         assert issue(pc, seeded).status_code == 200
-        pc.pass_headers = csrf(pc)
+        pc.pass_headers = csrf(pc, 'admin')
         result = pc.patch('/api/v1/robots/' + str(seeded['robots']['mine']), headers=pc.pass_headers,
                           json={'owner_user_id': str(seeded['users']['one'])})
     elif action == 'forced':
-        session = pc.get('/api/v1/users/' + str(seeded['users']['admin']) + '/sessions').json()['items'][0]
-        result = pc.delete('/api/v1/users/' + str(seeded['users']['admin']) + '/sessions/' + session['id'], headers=pc.pass_headers)
+        pc.pass_headers = csrf(pc, 'admin')
+        session = pc.get('/api/v1/users/' + str(seeded['users']['one']) + '/sessions').json()['items'][0]
+        result = pc.delete('/api/v1/users/' + str(seeded['users']['one']) + '/sessions/' + session['id'], headers=pc.pass_headers)
     else:
-        # Avoid last-admin protection while testing revoke on demotion/locking.
-        pc.pass_headers = csrf(pc, 'one')
-        assert issue(pc, seeded).status_code == 200
-        pc.pass_headers = csrf(pc)
+        pc.pass_headers = csrf(pc, 'admin')
         result = pc.patch('/api/v1/users/' + str(seeded['users']['one']), headers=pc.pass_headers,
                           json={'locked': True} if action == 'lock' else {'role': 'ORG_ADMIN'})
     assert result.status_code in (200,204), result.text
@@ -175,7 +185,7 @@ def test_authenticated_agent_receives_revocation_replay_and_ack(pc, seeded):
     assert issue(pc, seeded).status_code == 200
     engine = create_engine(seeded['urls']['app']); factory = sessionmaker(engine)
     with factory.begin() as db:
-        revoke(db, seeded['org'], user_id=seeded['users']['admin'])
+        revoke(db, seeded['org'], user_id=seeded['users']['one'])
     rid = str(seeded['robots']['mine'])
     from apps.server.fh_server.security import digest
     with factory.begin() as db:
@@ -347,12 +357,14 @@ def test_delete_and_logout_revoke_all_issued_metadata(pc,seeded,action):
             assert issue(pc,seeded).status_code==200
             # Isolate the deletion hook from the already-covered assignment hook.
             with DBSession(engine) as db:
-                db.get(Robot,seeded['robots']['mine']).owner_user_id=None
+                for name in ('mine', 'theirs'):
+                    db.get(Robot,seeded['robots'][name]).owner_user_id=None
                 db.commit()
-            pc.pass_headers=csrf(pc)
+            pc.pass_headers=csrf(pc, 'admin')
             response=pc.delete('/api/v1/users/'+str(seeded['users']['one']),headers=pc.pass_headers)
         elif action=='archive-robot':
             assert issue(pc,seeded).status_code==200
+            pc.pass_headers=csrf(pc, 'admin')
             response=pc.delete('/api/v1/robots/'+str(seeded['robots']['mine']),headers=pc.pass_headers)
         else:
             assert issue(pc,seeded).status_code==200
@@ -363,7 +375,7 @@ def test_delete_and_logout_revoke_all_issued_metadata(pc,seeded,action):
     finally: engine.dispose()
 
 
-def issue_metadata(db,seeded,*,robot='mine',count=1,device=None,start=None,user='admin'):
+def issue_metadata(db,seeded,*,robot='mine',count=1,device=None,start=None,user='one'):
     current=int(time.time()) if start is None else start
     created=[]
     for index in range(count):
@@ -472,10 +484,10 @@ def test_batches_are_wire_bounded_stable_and_ack_all_contained_jtis(pc,seeded):
 
 def test_revocation_capacity_reserves_at_issue_but_never_blocks_logout(pc,seeded):
     engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
-    with factory.begin() as db:issue_metadata(db,seeded,count=4096,user='one')
+    with factory.begin() as db:issue_metadata(db,seeded,count=4096,user='two')
     result=issue(pc,seeded)
     assert result.status_code==503 and result.json()['error']['code']=='PASS_REVOCATION_CAPACITY'
-    pc.pass_headers=csrf(pc,'one')  # legacy overfull owner can still revoke everything
+    pc.pass_headers=csrf(pc,'two')  # legacy overfull owner can still revoke everything
     assert pc.post('/api/v1/auth/logout',headers=pc.pass_headers).status_code==204
     assert len(rows(seeded,PhoneRevocation))==4096
     assert len(rows(seeded,PhoneRevocationBatch))<4096
@@ -687,7 +699,7 @@ def test_revocation_byte_reservation_is_independent_of_rows(pc,seeded):
     engine=create_engine(seeded['urls']['app'])
     try:
         with DBSession(engine) as db:
-            issue_metadata(db,seeded,count=255,user='one');db.commit()
+            issue_metadata(db,seeded,count=255,user='two');db.commit()
             assert reserved_usage(db,seeded['org'],seeded['robots']['mine'],int(time.time()))==(255,255*4096)
         assert issue(pc,seeded,purpose='view').status_code==200
         result=issue(pc,seeded,purpose='view')
@@ -802,8 +814,8 @@ def test_real_ws_full_ack_queue_replays_and_switch_opens_only_after_atomic_commi
     with factory.begin() as db:
         db.get(Robot,seeded['robots']['mine']).agent_token_hash=digest('synthetic-overflow-agent')
         for _ in range(129):
-            issue_metadata(db,seeded,user='one')
-            revoke(db,seeded['org'],user_id=seeded['users']['one'])
+            issue_metadata(db,seeded,user='two')
+            revoke(db,seeded['org'],user_id=seeded['users']['two'])
     assert issue(pc,seeded,robot='theirs',device=device,switch=True).status_code==409
     frames=rows(seeded,PhoneRevocationBatch);last=max(b.id for b in frames)
     assert len(frames)==130
@@ -861,7 +873,7 @@ def test_real_ws_ack_storage_failure_closes_with_exact_reason_and_replays(pc,see
     assert issue(pc,seeded).status_code==200
     engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
     with factory.begin() as db:
-        revoke(db,seeded['org'],user_id=seeded['users']['admin'])
+        revoke(db,seeded['org'],user_id=seeded['users']['one'])
         db.get(Robot,seeded['robots']['mine']).agent_token_hash=digest('synthetic-failure-agent')
     original=phone_pass.acknowledge
     def broken(*args):raise OSError('synthetic storage failure')
@@ -892,14 +904,20 @@ def test_active_pass_limit_is_per_user_robot_across_devices_and_purposes(pc,seed
         assert issue(pc,seeded,device=devices[i%4],purpose=('control','view')[i%2]).status_code==200
         current[0]+=1
     # Fresh session and a different declared device cannot reset the robot cap.
-    pc.pass_headers=csrf(pc)
+    pc.pass_headers=csrf(pc, 'one')
     limited=issue(pc,seeded,device=devices[1])
     assert limited.status_code==429 and limited.json()['error']['code']=='PASS_ACTIVE_LIMIT'
     assert limited.json()['error']['detail']=={'retry_after':652,'limit':'active'}
     assert issue(pc,seeded,robot='theirs',device=devices[0],purpose='view').status_code==200
-    pc.pass_headers=csrf(pc,'one')
+    with DBSession(pc.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).owner_user_id = seeded['users']['two']
+        db.commit()
+    pc.pass_headers=csrf(pc,'two')
     assert issue(pc,seeded,purpose='view').status_code==200
-    pc.pass_headers=csrf(pc)
+    with DBSession(pc.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).owner_user_id = seeded['users']['one']
+        db.commit()
+    pc.pass_headers=csrf(pc, 'one')
     current[0]+=652
     assert issue(pc,seeded,device=devices[1]).status_code==200
     limited=issue(pc,seeded,device=devices[1])
@@ -961,7 +979,7 @@ def test_ack_database_timeouts_release_robot_slot(pc,seeded,monkeypatch,failure)
     assert issue(pc,seeded).status_code==200
     engine=create_engine(seeded['urls']['app']);factory=sessionmaker(engine)
     with factory.begin() as db:
-        revoke(db,seeded['org'],user_id=seeded['users']['admin'])
+        revoke(db,seeded['org'],user_id=seeded['users']['one'])
         db.get(Robot,seeded['robots']['mine']).agent_token_hash=digest('synthetic-db-timeout-agent')
     rt=pc.app.state.realtime
     with rt.phone_pass_factory() as db:
@@ -1009,7 +1027,7 @@ def test_revoked_passes_do_not_block_eight_pass_limit_after_logout(pc,seeded):
     assert issue(pc,seeded,device=device,purpose='view').json()['error']['code']=='PASS_ACTIVE_LIMIT'
     assert pc.post('/api/v1/auth/logout',headers=pc.pass_headers).status_code==204
     assert len(rows(seeded,PhoneRevocation))==8
-    pc.pass_headers=csrf(pc)
+    pc.pass_headers=csrf(pc, 'one')
     assert issue(pc,seeded,device=device,purpose='view').status_code==200
     assert all(r.acked_at is None for r in rows(seeded,PhoneRevocation))
 
@@ -1023,7 +1041,7 @@ def test_retained_budget_bounds_logout_churn_and_leaves_other_user_capacity(pc,s
     for window in range(10):
         current[0]=start+60*window
         for _ in range(5):
-            pc.pass_headers=csrf(pc)
+            pc.pass_headers=csrf(pc, 'one')
             for i in range(8):
                 result=issue(pc,seeded,device=devices[i%4],purpose='view')
                 if result.status_code==200:accepted+=1
@@ -1040,7 +1058,10 @@ def test_retained_budget_bounds_logout_churn_and_leaves_other_user_capacity(pc,s
             count,size=reserved_usage(db,seeded['org'],seeded['robots']['mine'],current[0])
             assert count==4 and size<2048
     finally:engine.dispose()
-    pc.pass_headers=csrf(pc,'one')
+    with DBSession(pc.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).owner_user_id = seeded['users']['two']
+        db.commit()
+    pc.pass_headers=csrf(pc,'two')
     assert issue(pc,seeded,purpose='view').status_code==200
 
 
@@ -1061,7 +1082,7 @@ def test_three_robot_ack_pool_contention_keeps_links_and_eventually_confirms(pc,
         for name in ('mine','theirs','third'):
             db.get(Robot,seeded['robots'][name]).agent_token_hash=digest('synthetic-pool-'+name)
             issue_metadata(db,seeded,robot=name)
-        revoke(db,seeded['org'],user_id=seeded['users']['admin'])
+        revoke(db,seeded['org'],user_id=seeded['users']['one'])
     rt=pc.app.state.realtime;barrier=threading.Barrier(3)
     attempts={};contended=[];original=phone_pass.acknowledge
     timeline={str(seeded['robots'][name]):[] for name in ('mine','theirs','third')}
@@ -1151,7 +1172,7 @@ def test_retained_pass_limit_includes_revocations_and_clock_grace(pc,seeded):
         for index in range(32):
             current[0]=start+index
             assert issue(pc,seeded,device=devices[index%4],purpose='view').status_code==200
-            with factory.begin() as db:revoke(db,seeded['org'],user_id=seeded['users']['admin'],clock=issuer.clock)
+            with factory.begin() as db:revoke(db,seeded['org'],user_id=seeded['users']['one'],clock=issuer.clock)
         assert all(r.acked_at is None for r in rows(seeded,PhoneRevocation))
         for elapsed,retry in [(32,628),(600,60),(659,1)]:
             current[0]=start+elapsed
@@ -1175,7 +1196,7 @@ def test_eight_pass_logout_relogin_remains_available_for_three_cycles(pc,seeded)
         for index in range(8):
             assert issue(pc,seeded,device=devices[index%4],purpose='view').status_code==200
         assert pc.post('/api/v1/auth/logout',headers=pc.pass_headers).status_code==204
-        pc.pass_headers=csrf(pc)
+        pc.pass_headers=csrf(pc, 'one')
     assert len(rows(seeded,PhonePass))==24
     assert issue(pc,seeded,device=devices[0],purpose='view').status_code==200
 
