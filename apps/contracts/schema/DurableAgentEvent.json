@@ -1,0 +1,80 @@
+{
+  "$defs": {
+    "JsonValue": {}
+  },
+  "$id": "fh-app/1/DurableAgentEvent",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Required for all events attached to a persistent run, including diagnostics.",
+  "properties": {
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
+    "code": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Code",
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": {
+        "$ref": "#/$defs/JsonValue"
+      },
+      "title": "Data",
+      "type": "object"
+    },
+    "monotonic_s": {
+      "minimum": 0,
+      "title": "Monotonic S",
+      "type": "number"
+    },
+    "report_seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Report Seq",
+      "type": "integer"
+    },
+    "robot_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Robot At"
+    },
+    "severity": {
+      "enum": [
+        "INFO",
+        "WARN",
+        "ERROR",
+        "info",
+        "warn",
+        "error"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "t": {
+      "const": "event",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "code",
+    "severity",
+    "robot_at",
+    "data",
+    "agent_instance_id",
+    "report_seq",
+    "monotonic_s"
+  ],
+  "title": "DurableAgentEvent",
+  "type": "object"
+}

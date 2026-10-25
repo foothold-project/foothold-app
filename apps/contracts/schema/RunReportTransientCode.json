@@ -1,0 +1,9 @@
+{
+  "$id": "fh-app/1/RunReportTransientCode",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "RUN_REPORT_SEQUENCE",
+    "RUN_REPORT_STORAGE"
+  ],
+  "type": "string"
+}

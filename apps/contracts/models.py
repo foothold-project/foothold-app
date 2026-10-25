@@ -27,7 +27,7 @@ RunWaitReason = Literal['LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE']
 RunFailCode = Literal['NAV_GOAL_REJECTED', 'NAV_TIMEOUT', 'LOCALIZATION_LOST',
                       'BATTERY_LOW', 'DEVICE_MISSING', 'OPERATOR_ABORT', 'PAUSE_TIMEOUT',
                       'FLOOR_TRANSITION_FAILED', 'NAV_UNAVAILABLE', 'MAP_VERSION_MISMATCH',
-                      'FLOOR_TRANSITION_UNSUPPORTED', 'PLAN_UNAVAILABLE']
+                      'FLOOR_TRANSITION_UNSUPPORTED', 'PLAN_UNAVAILABLE', 'RECORDING_REJECTED']
 RunRejectCode = Literal['NOT_CONTROLLER', 'FORBIDDEN', 'RUN_ACTIVE', 'RUN_CONFLICT',
                         'RUN_NOT_FOUND', 'RUN_STATE_CONFLICT', 'RUN_OWNER_MISMATCH',
                         'RESUME_REJECTED', 'UNSUPPORTED_OPERATION', 'RECORDING_UNAVAILABLE',
@@ -533,6 +533,57 @@ class RunRecorded(Contract):
     report_seq: Sequence
 
 
+class DurableAgentRunUpdate(AgentRunUpdate):
+    """Required for every new persistent run transition; legacy input is read-only."""
+    status: RunStatus
+    agent_instance_id: UUID
+    report_seq: Sequence
+    monotonic_s: float = Field(ge=0, strict=True)
+
+
+class DurableAgentEvent(AgentEvent):
+    """Required for all events attached to a persistent run, including diagnostics."""
+    agent_instance_id: UUID
+    report_seq: Sequence
+    monotonic_s: float = Field(ge=0, strict=True)
+
+    @model_validator(mode='after')
+    def proven_start(self):
+        UUID(str(self.data.get('run_id')))
+        if self.code == 'RUN_STARTED':
+            ProvenRunStarted.model_validate(self.data)
+        return self
+
+
+RunReportTransientCode = Literal['RUN_REPORT_SEQUENCE', 'RUN_REPORT_STORAGE']
+RunReportPermanentCode = Literal['RUN_REPORT_OWNER', 'RUN_REPORT_MAP', 'RUN_REPORT_PLAN',
+                                  'RUN_REPORT_STATE', 'RUN_REPORT_STEP', 'RUN_REPORT_PROVENANCE',
+                                  'RUN_REPORT_CONFLICT', 'RUN_REPORT_INSTANCE', 'RUN_REPORT_ROBOT',
+                                  'RUN_REPORT_NOT_FOUND', 'RUN_REPORT_INVALID']
+
+
+class RunReportRejected(Contract):
+    """Data rejection, never a commit ACK or an instruction to resume execution."""
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    t: Literal['run.report_rejected'] = 'run.report_rejected'
+    agent_instance_id: UUID
+    report_seq: Sequence
+    run_id: UUID | None
+    disposition: Literal['RETRY', 'QUARANTINE']
+    code: RunReportTransientCode | RunReportPermanentCode
+    expected_report_seq: Sequence = omitted()
+
+    @model_validator(mode='after')
+    def disposition_matches_code(self):
+        retry = self.code in ('RUN_REPORT_SEQUENCE', 'RUN_REPORT_STORAGE')
+        if (self.disposition == 'RETRY') != retry:
+            raise ValueError('transient reports retry; permanent reports quarantine')
+        expected = 'expected_report_seq' in self.model_fields_set
+        if expected != (self.code == 'RUN_REPORT_SEQUENCE'):
+            raise ValueError('only sequence gaps require expected_report_seq')
+        return self
+
+
 class AgentCmdAck(AgentInput):
     t: Literal['cmd.ack']
     seq: int = Field(ge=-1, le=MAX_SAFE_INTEGER, strict=True)
@@ -617,7 +668,7 @@ class AgentStreams(Contract):
 
 ServerAgentMessage = Annotated[
     AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
-    | AgentPhoneRevoke | RunRecorded, Field(discriminator='t')]
+    | AgentPhoneRevoke | RunRecorded | RunReportRejected, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1090,12 +1141,59 @@ class AgentScenarioWaypoint(ScenarioWaypoint):
     mission_name: str
 
 
+class RunMapProof(Contract):
+    """Immutable map bytes/geometry; UUID is an identifier, never a content digest."""
+    floor_id: UUID
+    map_version_id: UUID
+    image_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    source_pgm_sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    origin: tuple[Annotated[float, Field(strict=True)], Annotated[float, Field(strict=True)],
+                  Annotated[float, Field(strict=True)]]
+    resolution: float = Field(gt=0, strict=True)
+    width: int = Field(gt=0, le=4096, strict=True)
+    height: int = Field(gt=0, le=4096, strict=True)
+    source: Literal['HUMAN', 'SIMULATION']
+    # Static world/floor binding. Live episode/epoch must also be checked locally.
+    world_id: str | None = Field(min_length=1, max_length=128)
+    ros_floor_id: str | None = Field(min_length=1, max_length=64)
+
+    @model_validator(mode='after')
+    def simulation_binding(self):
+        if self.source == 'SIMULATION':
+            if not self.world_id or not self.ros_floor_id:
+                raise ValueError('simulation maps require world and floor binding')
+        elif self.world_id is not None or self.ros_floor_id is not None:
+            raise ValueError('human maps cannot claim a simulation world')
+        return self
+
+
 class AgentScenario(Contract):
     """GET /agent/scenarios/{id}?version=n: stored references, before agent validation."""
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('map_proofs'))
     id: UUID
     number: int = Field(ge=1, le=2**31 - 1, strict=True)
     waypoints: list[AgentScenarioWaypoint] = Field(min_length=1, max_length=200)
     finish: ScenarioFinish
+    # Transitional read compatibility only; ProvenAgentScenario is the start gate.
+    map_proofs: list[RunMapProof] | None = None
+
+    @model_validator(mode='after')
+    def complete_map_proofs(self):
+        if self.map_proofs is not None:
+            points = [*self.waypoints]
+            if self.finish.target is not None:
+                points.append(self.finish.target)
+            wanted = {(p.floor_id, p.map_version_id) for p in points}
+            supplied = [(p.floor_id, p.map_version_id) for p in self.map_proofs]
+            if len(set(supplied)) != len(supplied) or set(supplied) != wanted:
+                raise ValueError('map proofs must cover every referenced floor/map exactly once')
+        return self
+
+
+class ProvenAgentScenario(AgentScenario):
+    """New execution input: missing map evidence fails closed before motion."""
+    model_config = ConfigDict(json_schema_extra=optional_response_fields())
+    map_proofs: list[RunMapProof] = Field(min_length=1, max_length=201)
 
 
 class RunStarted(Contract):
@@ -1110,6 +1208,21 @@ class RunStarted(Contract):
     surface: Literal['phone', 'pc']
     screen_id: UUID
     simulation: bool = Field(strict=True)
+    map_proof: RunMapProof = omitted()
+
+    @model_validator(mode='after')
+    def matching_map_proof(self):
+        if self.map_proof is not None:
+            proof = self.map_proof
+            if (proof.floor_id != self.floor_id or proof.map_version_id != self.map_version_id
+                    or (proof.source == 'SIMULATION') != self.simulation):
+                raise ValueError('start proof must match floor/map and simulation provenance')
+        return self
+
+
+class ProvenRunStarted(RunStarted):
+    """New RUN_STARTED payload after the local map validator has succeeded."""
+    map_proof: RunMapProof
 
 
 class RunGoal(Contract):
@@ -1675,12 +1788,13 @@ REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, 
 
 TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT']
 TOP.update(RunStatus=RunStatus, RunRecordStatus=RunRecordStatus, RunWaitReason=RunWaitReason,
-           RunFailCode=RunFailCode, RunRejectCode=RunRejectCode)
+           RunFailCode=RunFailCode, RunRejectCode=RunRejectCode,
+           RunReportTransientCode=RunReportTransientCode, RunReportPermanentCode=RunReportPermanentCode)
 TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=PhoneMessage,
            ServerAgentMessage=ServerAgentMessage)
 REQUEST_MODELS.update({PhoneHello, PhoneLease, PhoneRespond, PhoneCommand, PhoneUnlock, PhonePing, PhoneMessage, PhoneEnvelope})
 REQUEST_MODELS.update({PhoneRunStart, PhoneRunControl, PhoneRunConfirm})
-REQUEST_MODELS.update({RunStarted, RunWaypointArrived, RunWaypointRecorded})
+REQUEST_MODELS.update({RunStarted, ProvenRunStarted, RunWaypointArrived, RunWaypointRecorded})
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,
                        AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia, ScreenMessage, AgentMessage})
 # Nested input models must have the same mode as their enclosing input union.

@@ -128,6 +128,7 @@ export interface AgentScenario {
   number: number;
   waypoints: AgentScenarioWaypoint[];
   finish: ScenarioFinish;
+  map_proofs?: RunMapProof[] | null;
 }
 
 export interface AgentScenarioWaypoint {
@@ -335,6 +336,31 @@ export interface Device {
   kind: "CAMERA_RGB" | "CAMERA_DEPTH" | "LIDAR" | "BATTERY" | "OTHER";
   label: string;
   state: "OK" | "MISSING" | "ERROR";
+}
+
+export interface DurableAgentEvent {
+  t: "event";
+  code: string;
+  severity: "INFO" | "WARN" | "ERROR" | "info" | "warn" | "error";
+  robot_at: string | null;
+  data: Record<string, JsonValue>;
+  agent_instance_id: string;
+  report_seq: number;
+  monotonic_s: number;
+}
+
+export interface DurableAgentRunUpdate {
+  t: "run.update";
+  run_id: string;
+  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
+  step: number;
+  progress: Progress | null;
+  path_deviation_m?: number | null;
+  fail_code?: string | null;
+  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  agent_instance_id: string;
+  report_seq: number;
+  monotonic_s: number;
 }
 
 export interface ErrorBody {
@@ -977,6 +1003,28 @@ export interface Progress {
   total: number;
 }
 
+export interface ProvenAgentScenario {
+  id: string;
+  number: number;
+  waypoints: AgentScenarioWaypoint[];
+  finish: ScenarioFinish;
+  map_proofs: RunMapProof[];
+}
+
+export interface ProvenRunStarted {
+  run_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  user_id: string;
+  device_id: string;
+  surface: "phone" | "pc";
+  screen_id: string;
+  simulation: boolean;
+  map_proof: RunMapProof;
+}
+
 export interface RefreshRequest {
   refresh_token: string;
 }
@@ -1039,6 +1087,20 @@ export interface RunGoal {
   mission_name: string;
 }
 
+export interface RunMapProof {
+  floor_id: string;
+  map_version_id: string;
+  image_sha256: string;
+  source_pgm_sha256: string;
+  origin: [number, number, number];
+  resolution: number;
+  width: number;
+  height: number;
+  source: "HUMAN" | "SIMULATION";
+  world_id: string | null;
+  ros_floor_id: string | null;
+}
+
 export interface RunPlan {
   segments: RunSegment[];
 }
@@ -1047,6 +1109,16 @@ export interface RunRecorded {
   t: "run.recorded";
   agent_instance_id: string;
   report_seq: number;
+}
+
+export interface RunReportRejected {
+  t?: "run.report_rejected";
+  agent_instance_id: string;
+  report_seq: number;
+  run_id: string | null;
+  disposition: "RETRY" | "QUARANTINE";
+  code: "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE" | "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RUN_REPORT_PLAN" | "RUN_REPORT_STATE" | "RUN_REPORT_STEP" | "RUN_REPORT_PROVENANCE" | "RUN_REPORT_CONFLICT" | "RUN_REPORT_INSTANCE" | "RUN_REPORT_ROBOT" | "RUN_REPORT_NOT_FOUND" | "RUN_REPORT_INVALID";
+  expected_report_seq?: number;
 }
 
 export interface RunResumeDetail {
@@ -1082,6 +1154,7 @@ export interface RunStarted {
   surface: "phone" | "pc";
   screen_id: string;
   simulation: boolean;
+  map_proof?: RunMapProof;
 }
 
 export interface RunWaypointArrived {
@@ -1506,9 +1579,11 @@ export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT";
 export type RunStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
 export type RunRecordStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "ABORTED";
 export type RunWaitReason = "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE";
-export type RunFailCode = "NAV_GOAL_REJECTED" | "NAV_TIMEOUT" | "LOCALIZATION_LOST" | "BATTERY_LOW" | "DEVICE_MISSING" | "OPERATOR_ABORT" | "PAUSE_TIMEOUT" | "FLOOR_TRANSITION_FAILED" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
+export type RunFailCode = "NAV_GOAL_REJECTED" | "NAV_TIMEOUT" | "LOCALIZATION_LOST" | "BATTERY_LOW" | "DEVICE_MISSING" | "OPERATOR_ABORT" | "PAUSE_TIMEOUT" | "FLOOR_TRANSITION_FAILED" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE" | "RECORDING_REJECTED";
 export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN_CONFLICT" | "RUN_NOT_FOUND" | "RUN_STATE_CONFLICT" | "RUN_OWNER_MISMATCH" | "RESUME_REJECTED" | "UNSUPPORTED_OPERATION" | "RECORDING_UNAVAILABLE" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
+export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE";
+export type RunReportPermanentCode = "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RUN_REPORT_PLAN" | "RUN_REPORT_STATE" | "RUN_REPORT_STEP" | "RUN_REPORT_PROVENANCE" | "RUN_REPORT_CONFLICT" | "RUN_REPORT_INSTANCE" | "RUN_REPORT_ROBOT" | "RUN_REPORT_NOT_FOUND" | "RUN_REPORT_INVALID";
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunControl | PhoneRunConfirm;
-export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded;
+export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected;

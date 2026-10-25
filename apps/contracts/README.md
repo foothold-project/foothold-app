@@ -150,8 +150,11 @@ start·출입증·조직 설정 계약에 넣지 않는다.
 
 전환 기간 `AgentRunUpdate` 서버 입력은 상세 상태 외에 기존 RUNNING/ABORTED를 읽는다.
 agent_instance_id/report_seq/monotonic_s는 생략 가능하되 제공하면 셋 모두 필요하며 null은
-거부한다. 새 직접 `PhoneRunUpdate`/`RunSnapshot`은 RunStatus만 쓴다. 보고 식별자 필수화와
-기존 생산자의 상세 상태 전환은 2a/2b 후속 작업에서 함께 적용한다.
+거부한다. 새 직접 `PhoneRunUpdate`/`RunSnapshot`은 RunStatus만 쓴다.
+새 영속 전이는 필수 식별자·상세 상태의 `DurableAgentRunUpdate`, 연결된 모든 원인/종료/
+지점 사건은 `DurableAgentEvent`를 사용한다. 무식별 구 보고는 비실행 사건/원격측정·옛
+메모리 Session 표시만 허용하며 새 영속 실행을 생성/변경/종료하거나 ACK할 수 없다.
+읽기 파서와 별도로 DB 경계 강제(2a)·생산자 전환(2b)이 필요하다.
 `AgentEvent`의 일반 사건에는 이 식별자가 선택이며, 세 필드는 함께 있어야 한다.
 RUN_STARTED/RUN_WAYPOINT_ARRIVED/RUN_WAYPOINT_RECORDED에는 식별자가 필수다.
 지점 사건의 data는 RunWaypointArrived/RunWaypointRecorded로 검사하고 봉투 식별자와
@@ -164,16 +167,52 @@ RUN_STARTED/RUN_WAYPOINT_ARRIVED/RUN_WAYPOINT_RECORDED에는 식별자가 필수
 임무 ID·고정 판·표시 이름을 모두 담고 `finish`는 저장된 종료 방식/목표를 담는다.
 응답 자체를 단일 층으로 자르지 않는다. 에이전트가 이 자료의 모든 참조·종료 목표를 대조한
 뒤에만 RunPlan을 만들며 여러 층/지도 판은 출발 전에 거부한다(§13.10.2).
+새 실행 경계는 `ProvenAgentScenario.map_proofs`가 필수다. `RunMapProof`는 floor/map UUID,
+PNG의 image_sha256, 원본 PGM의 source_pgm_sha256(각 실제 바이트 SHA-256), origin(m/rad),
+resolution(m/cell), width/height(픽셀), HUMAN/SIMULATION source와 world_id/ros_floor_id를
+담는다. SIMULATION은 월드/ROS 층 바인딩 필수, HUMAN은 두 값 null이다. 모든 지점/GO_TO
+참조를 중복·누락 없이 덮어야 한다. 서로 다른 PNG/PGM 해시는 별도로 검사하고 raster
+좌표/축/행 방향·unknown도 대조한다. UUID는 해시가 아니다. 신뢰된 현재 월드/episode/epoch·
+층·로컬 실제 바이트/좌표 정보 대조는 에이전트 validator가 수행하며 누락도 fail-closed다.
+기존 AgentScenario의 증명 생략/null 읽기는 실행 허가가 아니다.
 
 `RUN_STARTED.data`는 `RunStarted`로 검사한다. run/scenario 고정 판·층/지도 판·시작 주체
 user_id/device_id/surface/screen_id·simulation을 담으며 resume_token 등 추가 키는 거부한다.
 보고 식별자·단조 시각·robot_at은 event 봉투, robot/org와 수신 시각은 인증 링크/서버에서
 얻는다. simulation과 주체는 서버가 인증 자료로 재검사하며 자기 주장만 신뢰하지 않는다.
-계획 스냅샷 참조의 저장 형식은 문서에 없어 새 필드를 만들지 않았고 2b에서 확정한다.
+새 영속 RUN_STARTED는 `ProvenRunStarted`로 같은 `map_proof`를 필수 보관한다. 봉투는
+`DurableAgentEvent`로 검증하고 서버가 DB 고정 지도 증명과 대조해야 한다. 기존 RunStarted의
+증명 생략은 옛 보고 읽기 전용이며 새 출발 관문에 사용하지 않는다. 계획 스냅샷은 서버가
+고정 시나리오/임무 판으로 재구성한다. 이 계약만으로 validator/DB 강제가 구현되지는 않는다.
 
 `ServerAgentMessage`는 계약에 정의된 서버→에이전트 lease/cmd/stop/unlock/ping/streams와
-phone.revoke, run.recorded를 묶는다. `AgentMessage`는 반대 방향 입력이며 수신 확인을
+phone.revoke, run.recorded, run.report_rejected를 묶는다. `AgentMessage`는 반대 방향 입력이며 수신 확인을
 포함하지 않는다. 옛 서버 run.start/run.control 명령은 이 묶음으로 새로 계약화하지 않는다.
+
+`RunReportRejected`는 instance/seq/run_id(null 가능)에 묶인 거부이며 commit ACK가 아니다.
+SEQUENCE/STORAGE만 RETRY(일시)이고 SEQUENCE만 expected_report_seq가 필요하다. 원문·
+식별자를 그대로 보존해 백오프 후 FIFO replay한다. OWNER/MAP/PLAN/STATE/STEP/PROVENANCE/
+CONFLICT/INSTANCE/ROBOT/NOT_FOUND/INVALID는 QUARANTINE(영구)이다(실제 코드는 RUN_REPORT_
+접두사). 서버는 별도 거부 이력 commit 뒤 영구 처분을 보내고 그 순번을 소비한다. 같은
+원문 replay는 같은 처분, 다른 원문은 CONFLICT이며 실행/지점에 성공 반영하지 않는다.
+격리 이력 commit 실패는 STORAGE/RETRY 또는 ACK 없는 1013이다.
+
+에이전트는 자신의 미확인 보고와 대조한 영구 처분을 원문/이유와 함께 영속 격리하여 replay
+대상에서 제외하고, 0+목표 취소+입력 폐기+잠금+FAILED(RECORDING_REJECTED)로 축소한다.
+격리 저장 실패면 원문 outbox 유지+PAUSED(RECORDING_UNAVAILABLE)다. 이미 종료된 실행은
+다시 열지 않으며 다른 대기 보고는 순서대로 개별 처분을 받아 후속 기록을 막지 않는다.
+새 start/resume는 운영자 대조 전 금지한다. 단순 재접속·삭제·가짜 ACK·수정 replay는 복구가
+아니다. 운영자는 잠금/취소 확인→양쪽 식별자/지문/지도/계획/권한/마지막 기록 대조→원인
+수정→감사 가능한 서버 데이터 종료/정정→격리·FIFO 대조/사람의 차단 해제 순서로 복구한다.
+원문과 처분은 보존하고 실패 run은 resume하지 않는다. 새 출입증·새 run_id·STOP 확인·명시
+unlock·새 중립을 거쳐 새 실행한다. 구체 원칙은 [05 §13.10.5](../../docs/spec/05-API-SPEC.md#13105-에이전트--서버-기록),
+2a/2b에서 구현/검증하며 현 1013 독성 replay가 해결됐다고 주장하지 않는다.
+
+`GET /api/v1/agent/map-versions/{id}/image`는 agent Bearer 토큰·현재 robot/org를 재검사하고
+이 로봇 map.sync 배포 판 또는 인증된 고정 시나리오 조회에서 허용한 정확한 판만 반환한다.
+200=image/png·no-store·증명 PNG SHA 일치, 401=인증 실패, 404=미허용/다른 조직/없는 판,
+422 MAP_VERSION_MISMATCH=보관 이미지와 증명 불일치다. 최신 판/일반 사용자 URL로 우회하지
+않는다. 이미지 API는 2a 미구현이며 검증된 로컬 사본으로 대체해도 증명은 필수다.
 
 계약 집중 시험은 다음과 같다. 기존 안전 셀프테스트의 기대값은 변경하지 않는다.
 

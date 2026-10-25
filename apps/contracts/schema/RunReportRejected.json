@@ -1,0 +1,88 @@
+{
+  "$id": "fh-app/1/RunReportRejected",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Data rejection, never a commit ACK or an instruction to resume execution.",
+  "properties": {
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "RUN_REPORT_SEQUENCE",
+            "RUN_REPORT_STORAGE"
+          ],
+          "type": "string"
+        },
+        {
+          "enum": [
+            "RUN_REPORT_OWNER",
+            "RUN_REPORT_MAP",
+            "RUN_REPORT_PLAN",
+            "RUN_REPORT_STATE",
+            "RUN_REPORT_STEP",
+            "RUN_REPORT_PROVENANCE",
+            "RUN_REPORT_CONFLICT",
+            "RUN_REPORT_INSTANCE",
+            "RUN_REPORT_ROBOT",
+            "RUN_REPORT_NOT_FOUND",
+            "RUN_REPORT_INVALID"
+          ],
+          "type": "string"
+        }
+      ],
+      "title": "Code"
+    },
+    "disposition": {
+      "enum": [
+        "RETRY",
+        "QUARANTINE"
+      ],
+      "title": "Disposition",
+      "type": "string"
+    },
+    "expected_report_seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Expected Report Seq",
+      "type": "integer"
+    },
+    "report_seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Report Seq",
+      "type": "integer"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Run Id"
+    },
+    "t": {
+      "const": "run.report_rejected",
+      "default": "run.report_rejected",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "agent_instance_id",
+    "report_seq",
+    "run_id",
+    "disposition",
+    "code"
+  ],
+  "title": "RunReportRejected",
+  "type": "object"
+}
