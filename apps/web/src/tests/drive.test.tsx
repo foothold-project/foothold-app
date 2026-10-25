@@ -1795,7 +1795,8 @@ describe('폰 조종 앱 틀', () => {
 
 // 10-25 결정: 총괄 = 대시보드·지도·시나리오·시뮬. 실기 로봇은 조종·STOP 하지 않는다(실기 STOP 은 운영 관리자 폰, 서버도 403 ADMIN_NO_REAL_CONTROL). 시뮬 로봇은 총괄도
 describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
-  const SIM: Robot = { id: 's1', name: '시뮬 로봇 1', owner: '', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true };
+  // 떠 있는 시뮬 = 서버가 담당을 띄운 사람(총괄 김OO)으로 둔다. 담당 없는 IDLE 슬롯은 PC STOP 후보가 아니다(simtab.test)
+  const SIM: Robot = { id: 's1', name: '시뮬 로봇 1', owner: 'u-kim', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true };
   const MIX = [ROBOTS[1], SIM];
   const NO = '총괄 계정은 실기 로봇을 조종할 수 없습니다.';   // 서버 문구(화면이 바꾸지 않고 그대로 보임)
   const space = () => { key('keydown', 'Space', document.body); key('keyup', 'Space', document.body); };
@@ -1888,6 +1889,31 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(box.querySelector('[data-stop]')).toBeNull();
     space();
     expect([w.of('stop').length, w.of('lease.take').length]).toEqual([0, 0]);
+  });
+
+  // PR #99: 폰 총괄도 PC 와 같은 판정 — 담당 없는 IDLE 슬롯·남이 띄운 시뮬은 STOP 후보가 아니다(한 대면 대상, 여러 대면 고르기 둘 다). 운영자 STOP 은 늘
+  it('폰 총괄 + IDLE 시뮬 슬롯만 → STOP·Space 없음, 내가 띄운 시뮬이면 STOP, 운영자는 늘 STOP', () => {
+    const IDLE = { ...SIM, owner: '' };
+    mount(true, ADMIN, '#/drive', MIX);
+    for (const robots of [[ROBOTS[1], IDLE], [IDLE, { ...IDLE, id: 's2', name: '시뮬 로봇 2', owner: 'u-lee' }]]) {
+      again(true, '#/drive', robots);
+      expect(box.querySelector('[data-stop]')).toBeNull();
+      space();
+      expect(w.of('stop')).toHaveLength(0);
+    }
+    again(true, '#/drive', MIX);   // SIM 담당 = 나(김OO)
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
+    act(() => root?.unmount()); box.remove();
+    mount(true, 'u-park', '#/drive', [ROBOTS[1], IDLE]); serve(PARK, 'r7');
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
+    space();
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
+  });
+
+  // PR #99: 폰 «내 로봇»도 같은 판정 — 끝낸 시뮬 슬롯(담당 없음)은 빼고 내가 띄운 시뮬은 보인다
+  it('폰 총괄 «내 로봇»: IDLE 시뮬 슬롯은 없음, 내가 띄운 시뮬은 보임', () => {
+    mount(true, ADMIN, '#/drive', [ROBOTS[1], { ...SIM, id: 's2', name: '시뮬 로봇 2', owner: '' }, SIM]);
+    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['시뮬 로봇 1']);
   });
 
   it('서버 403 ADMIN_NO_REAL_CONTROL: STOP(실시간) 은 서버 문구로 «보내지 못함», 대체 경로로 다시 보내지 않음. 조종권도 한 번만', () => {

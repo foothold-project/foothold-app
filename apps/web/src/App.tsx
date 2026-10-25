@@ -6,7 +6,7 @@
 import { Component, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
-import { ADMIN_REAL, ROBOTS, ROLE_NAME, USERS, adminReal, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
+import { ADMIN_REAL, ROBOTS, ROLE_NAME, USERS, adminReal, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, labelOf, leaving, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, useDash, type Ctx } from './screens';
@@ -94,8 +94,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const [want, setWant] = useState(() => location.hash), tab = tabFromHash(want, phone), sub = want.split('/')[2];
   // 알림 링크 #/history?event_id=<id> — 기록 탭이면 그 사건을 위에 보인다, #/approvals?approval_id=<id> — 결재 탭이면 그 결재를 연다(주소에도 남김)
   const fk = FOCUS[tab], focus = fk ? new URLSearchParams(want.split('?')[1] ?? '').get(fk) ?? undefined : undefined;
-  // 고를 수 있는 로봇: PC 는 받은 목록(총괄 전체, 운영 관리자 내 로봇), 폰은 내 로봇만(B4 — 총괄은 시뮬 로봇만). 고른 값이 범위 밖이면 첫 로봇
-  const pool = phone ? myRobots(user, robots).filter((r) => !adminReal(user, r)) : robotsFor(user, robots);
+  // 고를 수 있는 로봇: PC 는 받은 목록(총괄 전체, 운영 관리자 내 로봇), 폰은 내 로봇만(B4 — 총괄은 시뮬 로봇만). 끝낸 시뮬 슬롯(idleSim)은 둘 다 뺀다. 고른 값이 범위 밖이면 첫 로봇
+  const pool = (phone ? myRobots(user, robots).filter((r) => !adminReal(user, r)) : robotsFor(user, robots)).filter((r) => !idleSim(r));
   // 폰 #/drive/<로봇 id> = 그 로봇 조종 화면(시뮬 로봇은 서버 경유 조종 화면을 열지 않음 — 직결만), #/drive = 로봇 연결(ADR-002 §3.1). PC 에는 조종 화면이 없다
   const open = phone && tab === 'drive' && pool.some((r) => r.id === sub && !r.sim), path = open ? `#/drive/${sub}` : `#/${tab}${focus ? `?${fk}=${encodeURIComponent(focus)}` : ''}`;
   // 시뮬 직결 조종 화면(#/drive 그대로 — 시뮬 로봇은 서버 경유 조종 화면을 쓰지 않는다). 로그아웃·화면 내림이면 직결을 닫고 비운다
@@ -108,8 +108,10 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // STOP 대상(F-COM-01) = 지금 화면이 가리키는 로봇: 폰은 조종 화면의 로봇(내 로봇이 한 대뿐이면 어느 화면이든 그 로봇), PC 는 로봇 탭에서 고른 로봇.
   // 그 밖(로봇 연결·시나리오·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지
   const target = open || (!phone && tab === 'fleet') ? robot : phone && pool.length === 1 ? pool[0] : null;
-  // 총괄은 실기 STOP 이 없다(10-25): 고르기 후보는 시뮬 로봇만, 실기를 가리키거나 정지할 시뮬이 없으면 STOP 단추·Space 도 없음. 운영 관리자는 그대로
-  const stops = pool.filter((r) => !adminReal(user, r)), canStop = target ? !adminReal(user, target) : user.role !== 'ORG_ADMIN' || !!stops.length;
+  // 총괄은 실기 STOP 이 없다(10-25): 고르기 후보는 PC·폰 모두 내가 띄운 시뮬만(띄우는 중·떠 있음·끝내는 중은 서버가 담당 = 나, IDLE 슬롯은 담당을 비운 채 목록에 남는다).
+  // 그 밖을 가리키거나 정지할 시뮬이 없으면 STOP 단추·Space 도 없음(목록 갱신 전 띄우는 중은 아래 sim.live()). 운영 관리자는 그대로
+  const mayStop = (r: Robot) => !adminReal(user, r) && !idleSim(r) && (user.role !== 'ORG_ADMIN' || r.owner === user.id);
+  const stops = pool.filter(mayStop), canStop = target ? mayStop(target) : user.role !== 'ORG_ADMIN' || !!stops.length;
   // 떠 있거나 띄우는 중인 내 시뮬(sim.live())이 있으면 STOP·Space 는 그 슬롯으로 — 폰 조종 화면, PC 로봇 탭에서 고른 정지 가능한 로봇은 예외(그 로봇)
   const toSim = !open && !!sim.live() && (phone || !target || !canStop);
   const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
