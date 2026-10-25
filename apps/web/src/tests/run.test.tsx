@@ -218,6 +218,7 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     const a = await launch('phone');
     const { run_id, screen_id } = await startPhone(a) as unknown as { run_id: string; screen_id: string };
     await recv(a, phoneState({ ...held, latched: false, run: runOf(run_id) }));
+    expect(box.querySelector('.dv-video span')).toBeNull();   // 실행 안내가 있으면 영상 자리 글을 숨김(QA R1 — 겹침)
     await click(btn('일시정지'));
     expect(a.of('run.control')[0]).toMatchObject({ run_id, op: 'pause', lease_id: LEASE, screen_id });
     expect(a.of('run.control')[0].resume_token).toBeUndefined();
@@ -226,7 +227,8 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     await recv(a, phoneState({ run: paused }));   // 일시정지 = 0·잠금·조종권 비움(에이전트)
     expect(visible()).toContain('STOP 으로 멈췄습니다');
     expect(visible()).toContain('약 10분 00초 뒤 자동으로 취소됩니다.');
-    expect(visible()).toContain('이어서: «조종 시작»');
+    expect(visible()).toContain('이어가려면 «조종 시작»을 누르세요.');   // 지금 할 한 단계만(QA R2)
+    expect(visible()).not.toContain('«잠금 해제»를 누르세요');
     expect(btn('이어서')).toBeUndefined();
     expect(btn('취소')).toBeTruthy();
     await ready(a, paused);
@@ -258,6 +260,7 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     act(() => { sim.get().link!.exp = Math.floor(Date.now() / 1000) + 30; });
     await recv(a, phoneState({ ...held, latched: false, run: runOf(run_id) }));
     expect(visible()).toMatch(/출입증 \d+초 남음 — 만료되면 실행이 일시정지됩니다\. 다시 연결한 뒤 이 화면에서 «이어서»를 누르세요\./);
+    expect(btn('새 출입증으로 다시 연결(실행 일시정지)')).toBeTruthy();   // 누르면 연결을 닫아 일시정지(QA R7)
   });
 });
 
@@ -317,6 +320,17 @@ describe('시나리오 실행 — PC 총괄 시뮬', () => {
     act(() => { window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW', key: 'w', bubbles: true })); });
     expect(visible()).toContain('시나리오 이동 중 · 지점 1/3');
     expect($('[data-run-acts]')!.textContent).toBe('일시정지취소');
+    // 실행 칸 하나(QA R3): 상태·진행 막대·단추·시나리오 고르기가 같은 칸, 조종권 단추는 칸 밖
+    const runBox = $('[data-run-box]')!;
+    expect(runBox.querySelector('[data-run-bar]')).toBeTruthy();
+    expect(runBox.querySelector('[data-run-acts]')).toBeTruthy();
+    expect(runBox.querySelector('[data-sim-scn]')).toBeTruthy();
+    expect([...runBox.querySelectorAll('button')].map((b) => b.textContent)).not.toContain('조종권 반납');
+    // 실행 중 키 안내(QA R4): 막힘 + 움직이는 키 4개 줄긋기, Space(STOP)는 그대로
+    expect($('[data-sim-keys]')!.textContent).toContain('실행 중 — 키 조종 막힘');
+    expect(box.querySelectorAll('[data-sim-keys] [data-key-off]')).toHaveLength(4);
+    expect($('[data-sim-keys]')!.textContent).toContain('Space 정지');
+    expect($('[data-sim-stop-same]')!.textContent).toBe('머리줄 STOP 도 이 시뮬을 멈춥니다');   // 총괄(QA R5)
     const simStop = $<HTMLButtonElement>('[data-sim-stop-btn]')!;
     expect(simStop.disabled).toBe(false);
     await click(simStop);
@@ -326,6 +340,14 @@ describe('시나리오 실행 — PC 총괄 시뮬', () => {
     const others = FakeWS.all.filter((w) => !agents().includes(w));
     expect(others.flatMap((w) => w.sent).filter((m) => m.t === 'stop')).toEqual([]);   // 서버(실기) STOP 경로 0
     expect(calls.some((c) => c.method === 'POST' && /stop/i.test(c.path))).toBe(false);
+  });
+
+  it('PC: 다른 화면 실행 안내는 «시뮬 정지»로(QA R5), 단추 0', async () => {
+    const a = await launch('pc');
+    await ready(a, runOf(OTHER));
+    expect(visible()).toContain('다른 화면에서 실행 중입니다 — 멈추려면 «시뮬 정지».');
+    expect($('[data-run-acts]')).toBeNull();
+    expect($<HTMLButtonElement>('[data-sim-stop-btn]')!.disabled).toBe(false);
   });
 
   it('총괄: 일시정지된 남의 실행은 취소만(이어서 0), 원문 코드 노출 0', async () => {

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Assignment, AssignmentCreate, RobotSummary, Scenario, User } from '../../../contracts/ts';
 import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
-import { OUT } from '../screens/assign';
+import { IDLE_SLOT, OUT } from '../screens/assign';
 import { FakeWS } from './fakeWs';
 import { adminNoStop } from './adminStop';
 
@@ -18,6 +18,9 @@ const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영'
 const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner.id, display_name: owner.display_name }, simulation: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] });
 const RA = robot('r-a', 'Go2-A', LEE), RB = robot('r-b', 'Go2-B', { ...LEE, id: 'o2', display_name: '박운영' });
+/** 끝낸(IDLE) 시뮬 슬롯 — 서버는 담당을 비운 채 /robots 에 남긴다. extra 에 넣은 시험에서만 목록에 */
+const IDLE: RobotSummary = { ...robot('r-s', '시뮬 슬롯', LEE), simulation: true, owner: null };
+let extra: RobotSummary[] = [];
 const scen = (id: string, name: string, p: Partial<Scenario> = {}): Scenario => ({ id, name, waypoints: [], finish: { mode: 'STAY', target: null }, notes: '', number: 1, latest_version: 1, version: 1,
   floor_ids: [], map_version_ids: [], required_devices: [], est_distance_m: 0, created_by: KIM.id, created_at: '2026-10-20T00:00:00Z', version_created_by: KIM.id, version_created_at: '2026-10-20T00:00:00Z', archived_at: null, ...p });
 const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
@@ -44,7 +47,7 @@ function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Rep
   function route(method: string, path: string, q: URLSearchParams, body?: AssignmentCreate, key?: string): Reply {
     if (path === '/auth/session') return { status: 200, body: { client: 'web', csrf_token: 'csrf-1' } };
     if (path === '/me') return { status: 200, body: me };
-    if (path === '/robots') return { status: 200, body: { items: [RA, RB], next_cursor: null } };
+    if (path === '/robots') return { status: 200, body: { items: [RA, RB, ...extra], next_cursor: null } };
     if (path.startsWith('/robots/')) return { status: 200, body: path.endsWith('r-a') ? RA : RB };
     if (path === '/dashboard') return { status: 200, body: { robots_total: 2, robots_online: 0, robots_attention: 0, robots_running: 0, approvals_pending: 0, operators: [] } };
     if (path === '/notifications') return { status: 200, body: { items: [], next_cursor: null, unread_count: 0 } };
@@ -91,7 +94,7 @@ async function open(hash: string, phone = false) {
   act(() => { root = createRoot(box); root.render(<Root />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); asg = []; n = 0; aps = {}; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); clearPlans(); asg = []; n = 0; aps = {}; extra = []; vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 const $ = <T extends Element = HTMLElement>(s: string, from: ParentNode = box) => from.querySelector<T>(s);
 const btn = (t: string, from: ParentNode = box) => [...from.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -333,6 +336,31 @@ describe('배정 목록·해제', () => {
     await click([...panel().querySelectorAll('input[type="checkbox"]')][0]);
     expect(rowOf('as2').textContent).toContain('해제됨');
     expect(rowOf('as3').textContent).toContain('반려됨');
+  });
+  it('끝낸 시뮬 슬롯에 남은 배정(#99 R1): 총괄은 해제 가능(DELETE), 새 배정 고르기에는 슬롯 없음', async () => {
+    scenarios = [scen('s1', '1층 순찰')]; extra = [IDLE];
+    asg = [mk({ robot_id: 'r-s', status: 'ACTIVE', robot_name: '시뮬 슬롯' })];
+    serve(KIM);
+    await open('#/mission');
+    await click($('[data-plan="s1"]'));
+    const b = btn('해제', rowOf('as1'))!;
+    expect(b.disabled).toBe(false);
+    expect(b.getAttribute('aria-describedby')).toBeNull();
+    await click(btn('로봇에 배정', panel()));
+    expect($('[data-robot="r-s"]', panel())).toBeNull();
+    expect($('[data-robot="r-a"]', panel())).toBeTruthy();
+    await click(btn('해제', rowOf('as1')));
+    expect(calls.filter((c) => c.method === 'DELETE').map((c) => c.path)).toEqual(['/assignments/as1']);
+  });
+  it('끝낸 시뮬 슬롯에 남은 배정: 운영 관리자는 회색 + «총괄만» 이유(남의 로봇 문구 아님)', async () => {
+    scenarios = [scen('s1', '1층 순찰')]; extra = [IDLE];
+    asg = [mk({ robot_id: 'r-s', status: 'ACTIVE', robot_name: '시뮬 슬롯' })];
+    serve(LEE);
+    await open('#/mission');
+    await click($('[data-plan="s1"]'));
+    const b = btn('해제', rowOf('as1'))!;
+    expect(b.disabled).toBe(true);
+    expect($(`#${b.getAttribute('aria-describedby')}`)!.textContent).toBe(IDLE_SLOT);
   });
   it('해제 응답 끊김 → «확인 중» → 목록에서 REMOVED 면 해제로', async () => {
     scenarios = [scen('s1', '1층 순찰')];

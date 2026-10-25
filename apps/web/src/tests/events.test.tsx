@@ -168,6 +168,21 @@ describe('기록 탭 — 서버 목록 그대로', () => {
 });
 
 // 10-20 조정 결정 B: 서버 문장 맨 앞 «HH:MM » 접두만 떼고 at 의 현지 날짜·시각을 따로 보인다. 접두가 없으면 그대로, CSV 는 서버 문장 그대로
+describe('기록 탭 — 끝낸 시뮬 슬롯 거르기(#99 R2)', () => {
+  // 끝낸(IDLE) 슬롯 = 시뮬 + 담당 비움. 관제·조종 목록에서는 빠지지만 지난 시뮬 기록은 로봇별로 거를 수 있어야 한다
+  const IDLE: RobotSummary = { ...robot('r-s', '시뮬 슬롯', KIM), simulation: true, owner: null };
+  const names = () => [...$<HTMLSelectElement>('[aria-label="기록"] select')!.options].map((o) => o.value);
+  for (const [me, want] of [[KIM, ['', 'r-a', 'r-b', 'r-s']], [LEE, ['', 'r-a', 'r-s']]] as const) {
+    it(`${me.display_name}: 로봇 거르기에 끝낸 시뮬 슬롯 포함 → robot_id 요청`, async () => {
+      serve(signedIn(me, { 'GET /robots': { status: 200, body: { items: [RA, RB, IDLE], next_cursor: null } } }));
+      await open('#/history');
+      expect(names()).toEqual(want);
+      await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-s');
+      expect(lastQuery()).toEqual({ robot_id: 'r-s' });
+    });
+  }
+});
+
 describe('시각 접두', () => {
   const AT = '2026-10-19T23:47:00Z', d = new Date(AT), local = `${d.getMonth() + 1}/${d.getDate()} ${d.toTimeString().slice(0, 5)}`;
   it('UTC 접두·KST 접두·접두 없음 — 사건 목록', async () => {

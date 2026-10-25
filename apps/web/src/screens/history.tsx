@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Event as Ev, EventList, NotificationList, Notification, NotificationsRead } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { myRobots, simName, type Robot, type Tone } from '../fake';
+import { idleSim, myRobots, simName, type Robot, type Tone } from '../fake';
 import { Chip, Line, type Ctx } from '../screens';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
@@ -130,8 +130,9 @@ export function History(c: HistoryCtx) {
     {!c.phone && <>
       <div className="fh-row" role="group" aria-label="분류">{KINDS.map(([k, name]) => <button key={name} type="button" className="btn" aria-pressed={f.category === k} onClick={() => set({ category: k })}>{name}</button>)}</div>
       <div className="fh-row">
+        {/* 로봇 거르기: 내 로봇 + 끝낸 시뮬 슬롯(지난 시뮬 기록 — 운영 관리자는 그 슬롯에서 한 내 행동만 서버가 보여 줌) */}
         <label className="fh-row"><span className="lbl">로봇</span><select className="fh-user" value={f.robot} onChange={(e) => set({ robot: e.target.value })}>
-          <option value="">전체</option>{myRobots(c.user, c.robots).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
+          <option value="">전체</option>{[...myRobots(c.user, c.robots), ...(c.user.role === 'ORG_ADMIN' ? [] : c.robots.filter(idleSim))].map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
         <label className="fh-row"><span className="lbl">기간</span><input type="date" className="fh-user" aria-label="기간 시작" value={f.from} max={f.to || undefined} onChange={(e) => set({ from: e.target.value })} /></label>
         <span aria-hidden="true">~</span>
         <input type="date" className="fh-user" aria-label="기간 끝" value={f.to} min={f.from || undefined} onChange={(e) => set({ to: e.target.value })} />

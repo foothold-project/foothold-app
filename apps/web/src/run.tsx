@@ -56,10 +56,10 @@ export function startBlock(s: Sim, sc: Scenario | undefined, floors: SimWorldFlo
 }
 export const startFloor = (sc: Scenario, floors: SimWorldFloor[]) => floors.find((x) => x.floor_id === sc.floor_ids[0])!;
 
-/** 실행 안내 줄·단추·개발자 정보. 화면마다 자기 틀(폰 dv-act·PC 카드)에 넣는다 */
-export function runView(s: Sim): { notes: string[]; acts: JSX.Element[]; dev: JSX.Element | null; label: string } {
+/** 실행 안내 줄·진행 막대·단추·개발자 정보. 화면마다 자기 틀(폰 dv-act·PC 실행 칸)에 넣는다. pc = PC «시뮬» 탭(멈춤 단추 이름이 «시뮬 정지») */
+export function runView(s: Sim, pc = false): { notes: string[]; acts: JSX.Element[]; bar: JSX.Element | null; dev: JSX.Element | null; label: string } {
   const l = s.link, r = l?.run;
-  if (!l || !r || sim.dismissed(r.run_id)) return { notes: [], acts: [], dev: null, label: '' };
+  if (!l || !r || sim.dismissed(r.run_id)) return { notes: [], acts: [], bar: null, dev: null, label: '' };
   const mine = sim.runMine(r), end = RUN_END.includes(r.status), paused = r.status === 'PAUSED', open = l.at === 'open', busy = l.busy === 'run';
   const total = r.progress.total, at = total ? ` · 지점 ${Math.min(r.step + 1, total)}/${total}` : '';
   const label = !open && !end ? '연결 끊김' : RUN_STATUS[r.status] ?? '상태 확인 중';
@@ -72,16 +72,18 @@ export function runView(s: Sim): { notes: string[]; acts: JSX.Element[]; dev: JS
     !open && !end && `화면 연결이 끊겼습니다 — 로봇은 스스로 멈추고 실행은 일시정지됩니다.${mine ? ' 다시 연결한 뒤 이 화면에서 이어갈 수 있습니다.' : ''}`,
     open && paused && RUN_WAIT[r.wait_reason ?? ''],
     open && paused && left !== null && `약 ${mmss(left)} 뒤 자동으로 취소됩니다.`,
-    open && paused && mine && !record && (!l.lease ? '이어서: «조종 시작» → STOP 확인 뒤 «잠금 해제» → 손을 뗀 채 «이어서». 수동으로 움직이려면 «잠금 해제»까지만 하세요(실행은 일시정지로 남음).'
-      : l.st?.latched !== false ? '이어서: «잠금 해제» → 손을 뗀 채 «이어서».' : '손을 뗀 채 «이어서»를 누르면 남은 지점부터 다시 갑니다.'),
+    // 이어가는 단계는 지금 할 하나만(조종 시작 → 잠금 해제 → 이어서 — 다음 단추가 나타나며 안내도 바뀐다)
+    open && paused && mine && !record && (!l.lease ? '이어가려면 «조종 시작»을 누르세요.'
+      : l.st?.latched !== false ? '이어가려면 STOP 을 확인한 뒤 «잠금 해제»를 누르세요.' : '손을 뗀 채 «이어서»를 누르면 남은 지점부터 다시 갑니다.'),
     open && paused && !mine && '다른 화면에서 건 실행입니다 — 이어서는 그 화면에서만 할 수 있습니다. 취소는 로봇 담당자·총괄만 됩니다.',
     open && runMoving(r) && (mine ? '실행 중에는 수동 조종이 막혀 있습니다. 수동으로 바꾸려면 «일시정지» → 로봇이 멈춘 뒤 «조종 시작» → «잠금 해제».'
-      : '다른 화면에서 실행 중입니다 — 멈추려면 STOP.'),
+      : `다른 화면에서 실행 중입니다 — 멈추려면 ${pc ? '«시뮬 정지»' : 'STOP'}.`),
   ].filter(Boolean) as string[];
   const acts = !open ? [] : end ? [b('close', '닫기', () => sim.dismiss(r.run_id), false, false)]
     : paused ? [mine && !record && l.lease && l.st?.latched === false && b('resume', '이어서', () => sim.runControl('resume'), true), b('abort', '취소', () => sim.runControl('abort'))].filter(Boolean) as JSX.Element[]
     : mine ? [b('pause', '일시정지', () => sim.runControl('pause'), true), b('abort', '취소', () => sim.runControl('abort'))] : [];
+  const bar = total && !end ? <progress value={r.progress.done} max={total} aria-label={`진행 ${r.progress.done}/${total}`} data-run-bar style={{ accentColor: 'var(--accent)' }} /> : null;
   const dev = <details className="lbl" data-run-dev><summary>개발자 정보</summary>
     <span className="mono">run {r.run_id} · {r.status} · step {r.step} · {r.progress.done}/{total}{r.wait_reason ? ` · ${r.wait_reason}` : ''}{r.fail_code ? ` · ${r.fail_code}` : ''}</span></details>;
-  return { notes, acts, dev, label };
+  return { notes, acts, bar, dev, label };
 }

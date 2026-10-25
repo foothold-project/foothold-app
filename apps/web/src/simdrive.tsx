@@ -196,8 +196,8 @@ export function SimDrive() {
     : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const who = !st || !open ? '' : st.lease_id ? '조종 중(나)' : !st.controller ? '조종하는 사람 없음' : st.controller_connected ? '다른 사람이 조종 중' : '조종자 연결 끊김(자리 예약 중)';
   const soc = st?.battery?.soc, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000)), stop = stopText(s);
-  // OUTPUT_STALLED 안내가 뜰 때만 영상 자리 문구를 숨긴다(겹침). 실제 영상 장애(lost·none)는 안내 줄 아래로 옮겨 계속 보인다
-  const stalled = open && !!st?.latched && st.safety_reason === 'OUTPUT_STALLED';
+  // OUTPUT_STALLED·시나리오 실행 안내가 뜰 때는 영상 자리 문구를 숨긴다(아래 안내 칸과 겹침). 실제 영상 장애(lost·none)는 안내 줄 아래로 옮겨 계속 보인다
+  const stalled = open && !!st?.latched && st.safety_reason === 'OUTPUT_STALLED', hideCam = stalled || run.notes.length > 0;
   const notes = [
     r.state === 'STOPPING' && '시뮬을 정리하는 중…',
     r.state === 'STARTING' && '시뮬을 띄우는 중…',
@@ -213,7 +213,7 @@ export function SimDrive() {
       : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
     ...run.notes,
     stalled && STALLED,
-    stalled && (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam],
+    hideCam && (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam],
     stop,
   ].filter(Boolean) as string[];
   const acts = leaving ? leaving === 'fail' && [
@@ -223,12 +223,12 @@ export function SimDrive() {
     open && !mine && <button key="take" type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>,
     open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
-    open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>,
+    open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>{moving ? '새 출입증으로 다시 연결(실행 일시정지)' : '새 출입증으로 다시 연결'}</button>,
     ...run.acts,
   ].filter(Boolean);
   const range = w && `로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s${can.back ? `, 뒤 ${(-w.limits.vx_min).toFixed(2)} m/s` : ''}${can.left || can.right ? `, 옆 ±${w.limits.vy_max} m/s` : ''}, 회전 ±${w.limits.wz_max} rad/s) 밖은 잘라 보냅니다.${!can.spin ? ' 제자리 회전은 앞으로 밀면서 돌리세요.' : ''}`;
   const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" draggable={false} src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-    : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && !stalled && <span>{CAM[l.cam]}</span>}</div>;
+    : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && !hideCam && <span>{CAM[l.cam]}</span>}</div>;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
       {big && hasMap ? <SimMap m={fm} big /> : video(false)}
