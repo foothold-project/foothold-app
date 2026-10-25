@@ -302,12 +302,18 @@ class Hub:
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
         reply = {'t': 'reply', 'id': f['id'], 'ok': True, 'error': None, 'lease_id': None, 'request_id': None}
-        # Keep STOP and authority-reducing cleanup open. Every other PC request
-        # (including future run requests) must pass the local startup-mode gate.
-        if (p.surface == 'pc' and self.simulation is not True
-                and kind not in ('stop', 'ping', 'lease.release', 'lease.cancel', 'view')):
-            reply.update(ok=False, error=self.error('WEB_SIM_ONLY'))
-            return reply
+        # A rejected local mode must not leave the previous intent running.
+        # Reuse release's STOP/zero/latch cleanup, even for harmless requests.
+        pc_mode_denied = p.surface == 'pc' and self.simulation is not True
+        zero_cmd = kind == 'cmd' and (f['vx'], f['vy'], f['wz']) == Z
+        if pc_mode_denied:
+            if not zero_cmd:
+                self.release(peer)
+            # A valid neutral command still follows normal lease/sequence checks;
+            # release it immediately after applying zero, before acknowledging.
+            if not zero_cmd and kind not in ('stop', 'ping', 'lease.release', 'lease.cancel', 'view'):
+                reply.update(ok=False, error=self.error('WEB_SIM_ONLY'))
+                return reply
         if kind in ('lease.take', 'lease.request') and not self._acquisition_allowed(p):
             reply.update(ok=False, error=self.error('LEASE_ACQUIRE_LIMIT'))
             return reply  # Identity budget persists across grant, disconnect and hello.
@@ -395,6 +401,8 @@ class Hub:
             axes, clipped = project_velocity(f['vx'], f['vy'], f['wz'], simulation=self.simulation)
             core_axes = list(axes)
             self._emit(self.session.receive({'t': 'cmd', 'lease_id': f['lease_id'], 'seq': f['seq'], 'axes': core_axes}))
+            if pc_mode_denied:
+                self.release(peer)
             return {'t': 'cmd.ack', 'id': f['id'], 'seq': f['seq'], 'applied': list(self.session.core.out),
                     'clipped': clipped, 'reason': self.session.core.reason or None}
         return reply

@@ -6,7 +6,9 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.orm import Session
 
+from apps.server.fh_server.api import ADMIN_NO_REAL_CONTROL
 from apps.server.fh_server.models import PhonePass, Robot
+from .test_api import csrf
 from .test_phone_pass import pc, rows
 
 
@@ -64,3 +66,16 @@ def test_agent_does_not_trust_server_simulation_flag(pc, seeded, tmp_path, purpo
     finally:
         hub.close()
         verifier.close()
+
+
+def test_admin_pc_physical_denial_precedes_surface_gate(pc, seeded):
+    with Session(pc.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = False
+        db.commit()
+    result = pc.post(f"/api/v1/robots/{seeded['robots']['mine']}/phone-pass",
+                     headers=csrf(pc, 'admin'),
+                     json=dict(device=str(uuid4()), purpose='control', surface='pc'))
+    assert result.status_code == 403
+    assert result.json()['error'] == dict(
+        code='ADMIN_NO_REAL_CONTROL', message=ADMIN_NO_REAL_CONTROL, detail={})
+    assert not rows(seeded, PhonePass)
