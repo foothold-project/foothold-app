@@ -1142,6 +1142,7 @@ class PhoneLimits(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     vx_mode: Literal['discrete', 'continuous'] = 'discrete'
     vx_min_moving: float | None = Field(default=None, ge=0)
+    experimental: list[Literal['reverse', 'lateral', 'turn_in_place']] = Field(default_factory=list)
     vx_min: float
     vx_max: float
     vy_min: float

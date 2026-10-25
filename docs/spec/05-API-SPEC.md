@@ -674,17 +674,20 @@ seq는 lease 안에서 엄격히 증가한다. 중복·역행·상한 밖 seq는
 
 | t | 본문·빈도 |
 |---|---|
-| `hello` | `{id,robot,proto,limits:{vx_min,vx_max,vy_min,vy_max,wz_min,wz_max,commands,vx_mode?,vx_min_moving?},policy:{name,version},simulation,ping_interval_ms:1000,link_timeout_ms:3000,lease_timeout_ms:15000}`. 1회. 정책 식별자는 배포 설정이며 에이전트가 실제 정책을 추측하지 않음 |
+| `hello` | `{id,robot,proto,limits:{vx_min,vx_max,vy_min,vy_max,wz_min,wz_max,commands,vx_mode?,vx_min_moving?,experimental?},policy:{name,version},simulation,ping_interval_ms:1000,link_timeout_ms:3000,lease_timeout_ms:15000}`. 1회. 정책 식별자는 배포 설정이며 에이전트가 실제 정책을 추측하지 않음 |
 | `reply` | `{id,ok,error:null|{code,message,detail},lease_id:null|UUID,request_id:null|UUID}`. 요청마다. 새 lease는 해당 연결에만 반환 |
 | `cmd.ack` | `{id,seq,applied:[vx,vy,wz],clipped,reason:null|string}`. 명령마다, Core 판정 뒤. applied는 측정 속도가 아니라 실제로 내보낸 요청 값 |
 | `lease.requested` | `{robot,request_id,requester:{user_id,device_id},expires_at}`. 현재 조종자에게. expires_at은 표시용 UTC, 실제 만료는 단조 10 s |
 | `lease.result` | `{robot,request_id,result:"ACCEPTED"|"DECLINED"|"TIMEOUT"|"CANCELED",error:null|string}`. 요청자·전 조종자에게. 새 조종자의 lease는 다음 자기 state에만 표시 |
 | `state` | 아래 전체 스냅샷, 10 Hz. 첫 hello 인증 전에는 보내지 않음 |
 
-시뮬 폰은 `limits.vx_mode="continuous"`, `vx_min_moving=0.2`, `vx_max=1.0`,
-`commands=[]`로 전진0 또는[0.2,1.0] m/s 구간을 알린다. 0 초과0.2 미만은 이유와 함께0,
-상한 초과는1.0이며 전진 중에만 wz 문턱±0.5에서 고정±0.5 rad/s로 투영한다.
-vy·후진·제자리 회전은0, 놓으면 감속 없이 즉시 명령0이다.
+시뮬 폰은 `limits.vx_mode="continuous"`, `vx_min_moving=0.2`, `vx_min=-0.3`, `vx_max=1.0`,
+`vy_min=-0.3`, `vy_max=0.3`, `commands=[]`를 알린다. 전진[0.2,1.0], 후진[−0.3,−0.05],
+옆걸음[−0.3,−0.05] 또는[0.05,0.3] m/s와 별도0을 허용한다. 축별 데드존은0,
+범위 밖은 끝값으로 자르며 `clipped=true`다. 회전은 제자리도 포함해 |wz|≥0.5에서
+고정±0.5 rad/s, 그 미만0이다. 앞/뒤·옆·회전 조합을 허용하고 놓으면 즉시 명령0이다.
+`experimental=['reverse','lateral','turn_in_place']`는 **시뮬 시험용이며 넘어질 수 있음**을
+알리는 선택 필드다. 생략 시 빈 목록이며 이 이름 외의 값은 계약에서 거부한다.
 모드 생략은 `discrete`이며 실기의 기존 LIMITS와4개 명령(정지·전진0.6·전진0.6/회전±0.5)은
 그대로다. `vx_min_moving`은 구 에이전트와 호환하는 선택 필드이며 이산 모드에서는 없을 수 있다.
 에이전트가 최종 판정하며 [측정·정지 한계](DRIVE-MODES-VALIDATION.md)를 따른다.
