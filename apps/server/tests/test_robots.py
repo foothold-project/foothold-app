@@ -194,16 +194,18 @@ def test_assignment_revokes_disconnected_holder_without_waiting_fifteen_seconds(
         receive(ag, 'stop')
 
 
-def test_assignment_change_preserves_admin_holder_and_subscription(client, seeded, rt):
+def test_assignment_change_preserves_admin_subscription_but_denies_real_control(client, seeded, rt):
     admin = app_token(client, 'admin')
     rid = seeded['robots']['mine']
     with agent(client, seeded) as ag, screen(client, admin) as ws:
         assert reply(ws, send(ws, 'sub', robots=[str(rid)], streams=['state']))['ok']
-        lease = take(ws, ag, rid)
+        denied = reply(ws, send(ws, 'lease.take', rid))
+        assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
         assert client.patch(P + '/robots/' + str(rid), headers=admin,
             json={'owner_user_id': str(seeded['users']['two'])}).status_code == 200
         # Let both policy and delivery watchers pass the changed row boundary.
         assert receive(ws, 'state')['robot'] == str(rid)
-        assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[0, 0, 0]))['ok']
-        assert rt.arbiter.robot(str(rid)).holder.lease_id == lease
+        denied = reply(ws, send(ws, 'cmd', rid, lease_id=str(uuid4()), seq=0, axes=[0, 0, 0]))
+        assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
+        assert rt.arbiter.robot(str(rid)).holder is None
         assert all(str(rid) in peer.subscriptions for peer in rt.screens.values())

@@ -192,21 +192,22 @@ def policy_rights(authorize, api_error, user_values, robot_values):
     """Memoize pure ACL calculation, never DB reads or authorization age.
 
     Every value used by authorize comes from these hashable current SQL rows.
-    Role/owner/archive/token changes select a new key; session validity and LOGIN
+    Role/owner/archive/token/simulation changes select a new key; session validity and LOGIN
     are still checked on every batch. Cached maps cannot be mutated by a peer.
     """
     user = SimpleNamespace(**dict(zip(('id', 'org_id', 'role', 'locked', 'archived_at'), user_values)))
     rights = {}
     for values in robot_values:
         robot = SimpleNamespace(**dict(zip(
-            ('id', 'org_id', 'archived_at', 'owner_user_id', 'agent_token_hash'), values)))
+            ('id', 'org_id', 'archived_at', 'owner_user_id', 'agent_token_hash', 'simulation'), values)))
         allowed = set()
-        for permission in ('ROBOT_SUMMARY', 'ROBOT_READ', 'O_OWN'):
+        for permission in ('ROBOT_SUMMARY', 'ROBOT_READ', 'O_OWN', 'ROBOT_STOP'):
             try:
                 authorize(user, permission, robot)
                 allowed.add(permission)
-            except api_error:
-                pass
+            except api_error as exc:
+                if exc.code == 'ADMIN_NO_REAL_CONTROL':
+                    allowed.add(exc.code)
         rights[str(robot.id)] = frozenset(allowed)
     return MappingProxyType(rights)
 
@@ -489,7 +490,7 @@ class Realtime:
         marker = ('fh-stop-dirty', id(self))
         fields = {User: ('locked', 'archived_at', 'role', 'org_id'),
                   Session: ('revoked_at', 'expires_at', 'token_hash', 'csrf_hash', 'client', 'user_id', 'org_id'),
-                  Robot: ('archived_at', 'org_id')}
+                  Robot: ('archived_at', 'org_id', 'simulation')}
         def collect(db, users=(), robots=(), global_change=False):
             change = db.info.setdefault(marker, [set(), set(), False])
             change[0].update(str(value) for value in users if value is not None)
@@ -557,7 +558,7 @@ class Realtime:
                 raise self.api_error(403, 'FORBIDDEN', '요청 확인 값을 확인하세요.')
             if robot is None:
                 raise self.api_error(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
-            self.authorize(user, 'ROBOT_SUMMARY', robot)
+            self.authorize(user, 'ROBOT_STOP', robot)
             return Actor(str(user.id), str(session.id), str(uuid4()), user.display_name, user.role), session.expires_at
 
     async def stop_actor(self, headers, cookies, rid):
@@ -650,12 +651,13 @@ class Realtime:
             for robot in db.scalars(select(Robot).where(Robot.org_id == self.settings.org_id,
                                                         Robot.archived_at.is_(None))):
                 allowed = set()
-                for permission in ('ROBOT_SUMMARY', 'ROBOT_READ', 'O_OWN'):
+                for permission in ('ROBOT_SUMMARY', 'ROBOT_READ', 'O_OWN', 'ROBOT_STOP'):
                     try:
                         self.authorize(user, permission, robot)
                         allowed.add(permission)
-                    except self.api_error:
-                        pass
+                    except self.api_error as exc:
+                        if exc.code == 'ADMIN_NO_REAL_CONTROL':
+                            allowed.add(exc.code)
                 rights[str(robot.id)] = frozenset(allowed)
             return Policy(rights, C.OrgSettings.model_validate(org.settings), session.expires_at, checked)
 
@@ -684,7 +686,7 @@ class Realtime:
                 Session.id.in_([UUID(a.session) for a in actors]), User.org_id == self.settings.org_id,
                 Session.org_id == self.settings.org_id)).all()
             robots = db.execute(select(Robot.id, Robot.org_id, Robot.archived_at,
-                Robot.owner_user_id, Robot.agent_token_hash).where(Robot.org_id == self.settings.org_id,
+                Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation).where(Robot.org_id == self.settings.org_id,
                                                      Robot.archived_at.is_(None))).all()
             rows = {str(row.session_id): row for row in rows}
             result = PolicyBatch()
@@ -830,7 +832,8 @@ class Realtime:
     def end_robot_change(self, rid):
         self.robot_changes.discard(rid)
 
-    def revoke_robot_peer(self, peer, rid, reason='ACCESS_REVOKED', force=False):
+    def revoke_robot_control(self, peer, rid):
+        # Losing motion authority does not imply losing ROBOT_READ.
         r = self.arbiter.robots.get(rid)
         controlled = bool(r and ((r.holder and r.holder.actor == peer.actor)
             or (r.transfer and r.transfer.actor == peer.actor)))
@@ -839,6 +842,10 @@ class Realtime:
                 self.apply(self.arbiter.revoke(rid, peer.actor))
             elif r.request and r.request.actor == peer.actor:
                 self.apply(self.arbiter.cancel_request(rid))
+        return controlled
+
+    def revoke_robot_peer(self, peer, rid, reason='ACCESS_REVOKED', force=False):
+        controlled = self.revoke_robot_control(peer, rid)
         affected = rid in peer.subscriptions or controlled or force
         if not affected or rid in peer.revoked_robots:
             return
@@ -885,6 +892,10 @@ class Realtime:
         policy = peer.policy
         if policy is None or policy.expires_at <= now() or peer.closing:
             raise self.api_error(401, 'AUTH_REQUIRED', '로그인이 필요합니다.')
+        if permission in ('O_OWN', 'ROBOT_STOP') and any(
+                'ADMIN_NO_REAL_CONTROL' in policy.rights.get(rid, ()) for rid in robots):
+            from .api import ADMIN_NO_REAL_CONTROL
+            raise self.api_error(403, 'ADMIN_NO_REAL_CONTROL', ADMIN_NO_REAL_CONTROL)
         if permission in ('ROBOT_READ', 'O_OWN') and any(
                 rid in peer.revoked_robots and (permission not in policy.rights.get(rid, ())
                     or policy.checked < self.robot_changed_at.get((rid, peer.actor.user), float('-inf')))
@@ -1290,7 +1301,7 @@ class Realtime:
                     if raw.get('t') == 'stop':
                         try:
                             urgent = SCREEN.validate_python(raw)
-                            self.cached_access(peer, [str(urgent.robot)], 'ROBOT_SUMMARY', safety=True)
+                            self.cached_access(peer, [str(urgent.robot)], 'ROBOT_STOP', safety=True)
                             self.apply(self.arbiter.stop(str(urgent.robot), actor))
                         except (ValidationError, self.api_error, LeaseError):
                             pass
@@ -1304,7 +1315,7 @@ class Realtime:
                     msg = SCREEN.validate_python(raw)
                     rid = str(msg.robot) if hasattr(msg, 'robot') else None
                     robots = [str(x) for x in msg.robots] if msg.t == 'sub' else ([rid] if rid else [])
-                    policy = 'ROBOT_READ' if msg.t == 'sub' else ('ROBOT_SUMMARY' if msg.t == 'stop' else 'O_OWN' if rid else 'LOGIN')
+                    policy = 'ROBOT_READ' if msg.t == 'sub' else ('ROBOT_STOP' if msg.t == 'stop' else 'O_OWN' if rid else 'LOGIN')
                     safe = msg.t in ('stop', 'lease.release', 'hidden', 'lease.cancel')
                     if msg.t == 'sub':
                         if peer.subscription_task and not peer.subscription_task.done():
@@ -1447,7 +1458,7 @@ class Realtime:
                             except self.api_error as exc:
                                 if exc.status == 401:
                                     raise
-                                self.revoke_robot_peer(peer, rid)
+                                self.revoke_robot_control(peer, rid)
                     peer.stale_revoked = False
                 except TRANSIENT_DB:
                     age = self.clock() - peer.policy.checked

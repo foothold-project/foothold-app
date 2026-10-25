@@ -201,7 +201,7 @@ def test_robot_file_error_does_not_block_other_robot_storage(client, seeded, rt,
 
 def test_six_cold_http_stops_use_one_read_each_and_all_are_accepted(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
-    headers = [app_token(client, user) for user in ('one', 'two', 'admin') * 2]
+    headers = [app_token(client, user) for user in ('one', 'two') * 3]
     calls, lock = [], threading.Lock()
     def delayed(conn, cursor, sql, parameters, context, many):
         with lock:
@@ -247,7 +247,9 @@ def test_cached_http_stop_is_invalidated_immediately_by_account_or_session_chang
             db.commit()
     assert rt.stop_cache_epoch > epoch and not rt.stop_cache
     response = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
-    assert response.status_code == (202 if change == 'role' else 401)
+    assert response.status_code == (403 if change == 'role' else 401)
+    if change == 'role':
+        assert response.json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
 
 
 def test_warm_http_stop_never_waits_for_db_and_saturation_is_explicit(client, seeded, rt, monkeypatch):

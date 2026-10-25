@@ -2,6 +2,8 @@
 from pathlib import Path
 from uuid import uuid4
 
+import pytest
+
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
@@ -24,7 +26,8 @@ class LocalRelay:
         return response.json()
 
 
-def test_simulation_relay_auth_provenance_pass_and_removal(client,seeded):
+@pytest.mark.parametrize('username', ['one', 'admin'])
+def test_simulation_relay_auth_provenance_pass_and_removal(client,seeded,username):
     rid = str(uuid4()); org = str(seeded['org'])
     slot = Slot(rid,org,'unused','unused.sqlite',9433)
     settings = ManagerSettings({'test':World('test',Path('unused.sdf'),Path('unused.yaml'), '연습장', '빈 공간')},{rid:slot},'x'*32)
@@ -32,7 +35,7 @@ def test_simulation_relay_auth_provenance_pass_and_removal(client,seeded):
         client.app.state.simmgr = LocalRelay(sim,settings.secret)
         client.app.state.phone_pass_issuer.keys[rid] = ('test',{'test':b'x'*32})
         assert client.get('/api/v1/simulation/worlds').status_code == 401
-        headers = csrf(client,'one')
+        headers = csrf(client,username)
         catalog = client.get('/api/v1/simulation/worlds').json()
         assert catalog['slots'] == [rid]
         assert catalog['worlds'] == [dict(id='test', name='연습장', description='빈 공간', map_id=None, floors=[], spawn_floor_ids=[])]
@@ -48,7 +51,7 @@ def test_simulation_relay_auth_provenance_pass_and_removal(client,seeded):
         assert issued.status_code == 200 and len(issued.json()['token']) > 100
         with DBSession(client.app.state.engine) as db:
             row = db.get(Robot,body['robot_id'])
-            assert row.simulation and str(row.owner_user_id) == str(seeded['users']['one'])
+            assert row.simulation and str(row.owner_user_id) == str(seeded['users'][username])
             events = list(db.scalars(select(Event).where(Event.code.like('SIM_%'))))
             assert {e.code for e in events} == {'SIM_ROBOT_REQUESTED','SIM_ROBOT_REGISTERED'}
             assert all('token' not in str(e.data) for e in events)
@@ -56,7 +59,7 @@ def test_simulation_relay_auth_provenance_pass_and_removal(client,seeded):
         other = csrf(client,'two')
         assert client.get('/api/v1/simulation/robots').json()['items'] == []
         assert client.delete('/api/v1/simulation/robots/'+rid,headers=other).status_code == 403
-        headers = csrf(client,'one')
+        headers = csrf(client,username)
         assert client.delete('/api/v1/simulation/robots/'+rid,headers=headers).status_code == 204
         assert client.get('/api/v1/robots/'+rid).json()['simulation'] is True
         assert client.get('/api/v1/simulation/robots').json()['items'] == []
