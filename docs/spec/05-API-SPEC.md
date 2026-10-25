@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 번호 | FH-SPEC-05 |
-| 판 | 0.3 (초안, 검토 대기) |
+| 판 | 0.19 (초안, 검토 대기; ADR-003 ⑤ 계약 추가) |
 | 작성일 | 2026-10-19 |
 | API 판 | `/api/v1` · 실시간 `fh-rt/1`(`/api/v1/ws`) · 에이전트 `fh-agent/1`(`/api/v1/agent/ws`) |
 | 상위 문서 | [04 아키텍처](04-ARCHITECTURE.md) · [02 기능 명세서](02-FUNCTIONAL-SPEC.md) |
@@ -237,6 +237,10 @@
 | DELETE | `/assignments/{id}` | 해제 | A, O(내) |
 
 ### 6.5 실행
+**직결 실행의 정본은 §13.10**이다(ADR-002 §9, ADR-003 §5·§11). 아래 POST 시작·제어는
+옛 서버 중계 설계이며 직결 모드에서 실행 명령 경로로 구현하지 않는다. GET 기록·보고서는
+서버 데이터 경로로 유지한다. 시뮬은 배정·결재·SF-12를 거치지 않고, 실기 조건은 유지한다.
+
 | 메서드 | 경로 | 설명 | 권한 |
 |---|---|---|---|
 | POST | `/runs/precheck` | `{assignment_id}` → 점검 항목별 결과 | A, O(내) |
@@ -382,6 +386,9 @@
 
 ### 10.2 서버 → 에이전트
 
+아래 `run.*` 발신 주인은 ADR-002 §9 및 §13.10에 따라 **화면 → 에이전트**로 대체한다.
+서버가 실행을 시작·재개·확인시키지 않는다. `fh-agent/2`는 실행 보고의 데이터 경로다.
+
 P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agent/2`의 확장이다.
 폰 모드는 기존 lease·cmd·unlock을 무시하며 인증된 회수·STOP만 Hub에 적용한다(§13.7).
 | t | 본문 | 설명 |
@@ -453,6 +460,7 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ## 12. 변경 이력
 | 판 | 날짜 | 내용 |
 |---|---|---|
+| 0.19 | 2026-10-25 | ADR-003 ⑤ 후속 계약(§13.10): 고정 시나리오 자료 참조·직결 run 프레임·단일 층·3초 감시 제안·같은 화면 재개·에이전트 보고/영속 기록·구현 분할. 현재 미구현과 제품 결정을 구분 |
 | 0.1 | 2026-10-19 | 최초 작성 |
 | 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
 | 0.3 | 2026-10-19 | dev 구현(PR #8·#10)과 조정 결정 반영: WS 경로 `/api/v1/ws`·`/api/v1/agent/ws`, proto 필드(협상 헤더 없음), 화면 WS 쿠키+Origin·앱 Bearer(티켓 없음), 에이전트 토큰 재발급, 닫기 코드 1012·1013·수락 전 HTTP 거부, `stop_ref` 정지 확인(§10.5), 형식 오류 메시지·lease holder 형식·정수 상한, `scope=all` 범위, 로그인 응답·`/auth/session`·`LAST_ORG_ADMIN`, 비밀번호 정책 미정. proto 불일치는 조정 결정(별도 닫기 4406·30 s 이상 느린 재연결)을 정본으로 적고 dev 구현은 W4-B 에서 맞춤. PR #11 검토 반영: 형식 오류 규칙의 안전 예외, 생존 봉투 조건, 정수 칸별 하한, `stop_ref` 수명(중재기 메모리), 방향별 필수 칸, 남의 로봇 내 행동 사건 결정 필요 |
@@ -477,7 +485,8 @@ P1-B의 `phone.revoke`/`phone.revoke.ack`는 현재 구현 프로토콜 `fh-agen
 ADR-002 0.3 §5~7이 정본이다. 이 절은 P1-A 직결 조종 계약이며, §9의 화면 중계
 조종과 §10의 서버 `lease`·`cmd`·`unlock`을 폰 서버 사용 시 대체한다. 서버 연결은
 상태·사건 전송용이고, 재접속으로 조종권을 바꾸지 않는다. 옛 서버 `stop`은 방어적으로
-정지 쪽으로만 받는다. **RUN·카메라·시뮬 관리자·서버 출입증 발급 구현은 포함하지 않는다.**
+정지 쪽으로만 받는다. §13.1~13.6은 P1-A 조종 기준이며 카메라·출입증·시뮬은 후속 절,
+**RUN은 §13.10의 후속 계약**이다. 문서 추가가 실행 구현 완료를 뜻하지 않는다.
 
 ### 13.1 연결·봉투
 - 로봇당 현장 리스너 하나, 경로 `/phone/ws`(쿼리 없음). 포트·바인딩 주소·키·조직·정책은
@@ -1172,3 +1181,203 @@ offline 무효화로 보지 않는다(§13.7 한계 유지). world와 agent unit
 종료/고아·STOP0는 아직 미검증). 다음 취득이 SIM_SLOT_BUSY(불확실)로 막히면 자동 반복하지
 않고 FIRST-LAUNCH 복구 1·2단계에서 자기 runtime 정리·부재 관문·새 episode를 확인한 뒤
 기존 DELETE 복구를 따른다. 보상 실패로 현재 DB를 덮거나 새 인스턴스 epoch를 도입하지 않는다.
+
+<a id="scenario-run-contract"></a>
+### 13.10 시나리오 실행 — ADR-003 ⑤ 계약
+
+2026-10-25 문서 계약. 제품 결정은 [ADR-003 §11](10-ADR-003-OPERATOR-APP-TOWER-WEBSIM.md#11-10-25-개정),
+상태·실패 이름은 [02 F-MS-06](02-FUNCTIONAL-SPEC.md#f-ms-06-실행-ms-05-ms-06-ms-07-ms-08)을 따른다.
+**아래 프레임·데이터 API·저장 확장은 후속 구현 대상**이다. 제품 결정 외 필드·수치·저장 방식은
+구현 분할을 위한 제안이며, 실행을 켜기 전에 계약 모델·생성 TS·검증기·양쪽 구현을 함께 맞춘다.
+
+#### 13.10.1 조사 기준과 현재 구현
+
+읽기 전용 조사 기준: `origin/dev` **e74f4f3**. 실행 중인 ROS·Gazebo·운영 서버는 조회·기동하지 않았다.
+
+| 조사한 소스 | 현재 있는 것 | ⑤에 필요한 것 |
+|---|---|---|
+| `apps/agent/foothold_agent/phone/protocol.py` | `FIELDS`는 hello·조종권·cmd·stop·unlock·ping만 허용. 엄격한 여분 필드 거부, 4 KiB 상한. `run.*`는 VALIDATION | 같은 봉투의 run 프레임·검증·능력 알림 추가. 이름만 허용하는 빈 구현 금지 |
+| `phone/hub.py`, `phone/observer.py`, `ros_bridge/__main__.py` (위 에이전트 패키지 안) | Hub의 유일 Session/Core/sink. Observer는 `run=None`, 서버 run 명령을 실제 Session에 전달하지 않음 | Hub에 실행 주체·감시를 결합하고 Observer는 상태·사건 보고만 확장 |
+| `apps/agent/foothold_agent/link/session.py` | 옛 RUN의 run_id 일치 검사·pause/resume/abort, 내부 상태 `RUNNING`. 지점 실행·confirm은 제품 실행기로 연결되지 않음 | 로컬 직결 권한과 실행 ID를 함께 검증. 내부 RUNNING을 F-MS-06의 상세 실행 상태로 무조건 덮어쓰지 않음 |
+| `apps/agent/foothold_agent/executor/nav2`, `apps/agent/tools/nav2` | NavExecutor·Owner 및 별도 승인 실험 runner/ROS 어댑터·기동 도구 존재. 미지원 명령 거부·원수신 시각·목표 취소 경계 있음 | 기본 직결 실행기에 붙이는 작업·실제 Nav2 준비 확인 필요. 기존 실험을 제품 주행 통과로 대체하지 않음 |
+| `apps/simmgr/agent_entry.py`, `apps/agent/foothold_agent/ros_bridge/__main__.py` | 기본 시뮬 agent 진입점은 ROS bridge·폰 Hub·Observer만 구성. Nav2 실행기/노드를 여기서 구성하지 않음 | 기본 시뮬에 Nav2가 있다고 가정하지 말고 없으면 NAV_UNAVAILABLE |
+| `apps/contracts/models.py` | `AgentRunUpdate`, `RunCopy` 존재. 상태 문자열 허용. 현재 AgentRunUpdate에는 wait_reason·보고 식별자가 없음 | 상세 상태·사건·멱등 보고 필드를 모델과 생성 TS에 추가 |
+| `apps/server/fh_server/models.py`, `apps/server/migrations/versions/0001*`~`0017*`, `realtime.py` | assignments·scenario_versions·events·lease_log 있음. **runs/run_steps 실테이블·모델·이관 없음**. realtime.runs는 메모리 placeholder, run.update는 일치하는 PAUSED/종료만 반영하며 영속 저장 안 함 | [06 §3.5](06-DB-DESIGN.md#35-배정실행)의 설계와 구분하여 실행·지점·보고 영속 이관 구현. 현재 Event.run_id는 FK 없는 UUID이고 감사 출력은 run_id=None |
+
+#### 13.10.2 명령·고정 계획·출입증
+
+- **명령:** 화면 → `/phone/ws` → 에이전트 한 판정기. 웹 시뮬과 폰은 같은 `fh-phone/1`
+  봉투·`run.*`·§13.2/13.7 출입증을 쓴다. 서버는 이 명령 경로에서 출입증만 발급한다.
+  시나리오 조회·지도 자료·에이전트 보고는 서버의 데이터 경로이며 실행 중계가 아니다.
+- PR #97의 서명된 `surface:"pc"` 및 **서버 발급 + 에이전트 hello의 simulation 재검사**를
+  재사용한다. 화면의 simulation 주장·DB 표시·로봇 이름은 예외 근거가 아니다. 실기는 폰만.
+- 시뮬은 배정·결재·SF-12 없이 고른 시나리오를 실행한다. 출입증 control·현재 lease·STOP
+  해제·신선한 중립·연결 감시·지도/좌표 일치는 계속 필요하다. 실기는 기존 배정·결재·SF-12를
+  유지하며 이 계약으로 실기 실행을 먼저 켜지 않는다.
+- **지점은 참조로 전달한다.** 화면은 기존 `GET /scenarios/{id}?version=n`의 고정 판을 고르고,
+  start에는 아래 식별자만 보낸다. 에이전트는 새 데이터 전용
+  `GET /agent/scenarios/{scenario_id}?version=n`으로 그 판의 전체 `waypoints`·`finish`와
+  참조 임무의 고정 판/표시 이름을 받는다. `scenario_id`·`scenario_version`(기존 응답의
+  `number`, 1 이상 정수)·지도 판을 모두 대조한다. 서버는 내부 scenario_versions.id로
+  기록을 연결하며, 현재 화면 응답에 없는 판 UUID를 화면이 알고 있다고 가정하지 않는다.
+  화면이 보낸 좌표·임무를 실행 계획으로 믿지 않고 최신 판으로 자동 교체하지 않는다.
+  이 GET은 기존 agent 토큰 인증·조직 경계를 적용하고, 실기용 자료에는 승인 배정 및 SF-12
+  결과의 로봇·시작 사용자·고정 판 대조가 추가로 필요하다. 실패하면 출발하지 않는다.
+- 에이전트가 검증한 계획은 `{segments:[{floor_id,map_version_id,goals:[…]}]}` **1구간**으로
+  고정한다. 지점 수는 기존 ScenarioWrite의 1~200개다. goals는 저장된 지점 순서이며 `idx=0..N-1`, `waypoint_ref|null,x,y,yaw,
+  mission_id,mission_version,mission_name`을 가진다. 지점 0이 시작 지점이다. 모든 지점·현재 층·
+  종료 목표가 같은 floor/map 판이어야 한다. 이동 중 편집은 다음 실행에만 반영한다.
+  좌표는 해당 지도 `map` 프레임의 m/rad, finite 수만 받는다. 시뮬 지도는 실행 중인 월드의
+  바인딩·해시·원점·해상도와도 일치해야 한다. 실기에서는 시뮬 출처 지도를 거부한다.
+- 종료는 저장된 `STAY` 또는 같은 층 `RETURN_TO_START`/`GO_TO`를 따른다. 종료 이동도
+  같은 감시·Nav2 경로를 쓰며 추가 임무 지점 도착으로 세지 않는다. 다른 층·연결점 구간은
+  `FLOOR_TRANSITION_UNSUPPORTED`로 시작 전에 거부한다(F-MS-07 후속).
+- 첫 hello의 제안 선택 필드 `capabilities.run_contract:"scenario/1"`이 있어야 실행 UI를 연다.
+  없는 구 에이전트에는 프레임을 보내지 않는다. 4 KiB 상한은 유지하고 지점 목록을 큰
+  직결 프레임으로 보내거나 임의로 자르지 않는다. 자료 API 미구현/불가도 실행 불가다.
+
+| t | 봉투 외 본문 (후속 계약) | 처리 |
+|---|---|---|
+| `run.start` | `{lease_id,run_id,screen_id,scenario_id,scenario_version,floor_id,map_version_id,assignment_id?}` | run_id·screen_id는 UUID. 현재 조종 연결만 허용, 로봇당 진행 중 실행 하나. 시뮬 assignment_id는 생략, 실기는 필수. 검증 후 QUEUED→PREPARING, 자료·Nav2 준비 전 비영 출력 0 |
+| `run.control` | `{lease_id,run_id,screen_id,op:"pause"\|"resume"\|"abort",resume_token?}` | 현재 실행 주체만. pause=0+목표 취소+PAUSED, abort=0+목표 취소+잠금+ABORTED. resume 조건은 §13.10.4. `return`은 첫 판에서 UNSUPPORTED_OPERATION |
+| `run.confirm` | 예약: `{lease_id,run_id,kind:"FLOOR"\|"OPERATOR",data}` | **첫 판에는 필요 없음·미지원**. 층 전환과 작업 동작/운영자 확인을 하지 않으므로 WAIT_CONFIRM을 만들지 않고 UNSUPPORTED_OPERATION. confirm으로 잠금·재개 우회 불가 |
+
+모든 요청은 §13.1 봉투의 `id,robot`과 인증을 적용한다. 성공/실패는 기존 `reply`로 응답한다.
+start 성공의 제안 `reply.detail`에는 `{run_id,screen_id,resume_token}`을 본 연결에만 반환한다.
+**reply.detail도 현재 모델에는 없는 확장**이다. start는 이동 명령을 곧바로 출력하는 허가가 아니다.
+실행 주체의 사용자·기기·연결 바인딩을 유지한 채 Hub가 로컬 `RUN:<run_id>` 권한으로 전환하고,
+서버 lease는 받지 않는다. RUN 중 비영 cmd는 먼저 실행을 0+목표 취소+PAUSED로 만든 뒤
+명시적인 수동 조종 전환 절차로만 허용한다. 화면은 RUN 중 조이스틱 cmd를 주기 송신하지 않고
+ping을 계속 보내며, 실행기만 해당 run_id의 신선한 명령을 Core에 보낸다.
+동일 run_id·동일 요청의 재전송은 같은 실행/결과를 돌려주고 지점을 처음부터 재실행하지 않는다.
+이 멱등 응답도 원래 인증 주체·화면 바인딩을 대조한다. start의 비밀값은 원래 연결에만
+다시 보낼 수 있고, 새 연결의 start 재전송으로 비밀값을 재발급하거나 바인딩을 바꾸지 않는다.
+같은 ID의 다른 본문은 RUN_CONFLICT, 다른 실행이 진행 중이면 RUN_ACTIVE다. 종료 ID를 재사용하지
+않는다. pause·abort는 중복 수신해도 안전한 결과를 유지한다. 거부·유효하지 않은 프레임은
+감시 시각·중립·권한을 갱신하지 않는다. STOP은 이 계약과 독립적으로 항상 우선한다.
+
+에이전트는 같은 연결에 `run.update`(아래 상세 상태·step·progress·wait_reason)와 지점 event를
+직접 보내고, 인증된 보기 연결에는 비밀값 없는 상태만 보낸다. 재접속 첫 상태에는 현재 실행
+스냅샷을 포함해 UI가 PAUSED를 복원한다. 서버 화면 WS의 기록 반영을 기다려 안전 상태를
+판정하지 않는다. 이 직접 송신·스냅샷도 현재 PhoneState/Server에 추가할 후속 계약이다.
+
+#### 13.10.3 상태·실패·지점 도착
+
+| 상태 | 첫 판 의미 |
+|---|---|
+| QUEUED | 요청 수락, 아직 출발 전 |
+| PREPARING | 고정 자료·지도·Nav2 준비 검증. 0 유지 |
+| MOVING | 현재 지점(또는 종료 목표)으로 이동 |
+| AT_WAYPOINT | 해당 지점 도착 확정·사건 생성 |
+| PERFORMING | 임무 이름 표시·기록만, 실제 PHOTO/WAIT/OPERATOR_CONFIRM/SENSOR_LOG 동작 없음 |
+| PAUSED | 진행 보관·목표 취소·0. 끊김/STOP이면 잠금도 유지 |
+| COMPLETED / FAILED / ABORTED | 종료. 비영 명령·미완료 목표 없음. 자동 재시작 없음 |
+| WAIT_CONFIRM | F-MS-06 이름은 보존하되 첫 판에서는 생성하지 않음 |
+
+전이는 `QUEUED→PREPARING→MOVING→AT_WAYPOINT→PERFORMING→다음 MOVING→COMPLETED`다.
+중간 상태에서 PAUSED/FAILED/ABORTED가 가능하다. resume는 마지막 미완료 지점을 새 목표로
+계획하며, 기록 완료한 지점 임무를 다시 수행하지 않는다. 종료 이동 중 멈추면 그 목표를 재계획한다.
+내부 Session의 RUNNING은 Core 모드이며 외부 상태 MOVING 등과 구분한다. 로봇 요약 상태는
+F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
+
+- 도착은 **현재 run_id·목표 세대에 맞는 Nav2 SUCCEEDED + 해당 판의 신선한 pose/정지 근거**로
+  판정한다. 반경 0.5 m는 F-MS-06의 제안이고, 정지 속도·자세·유지 시간 허용치는 후속 검증에서
+  정하기 전에는 도착 통과를 주장하지 않는다. STOP 명령0만으로 몸체 정지·도착을 만들지 않는다.
+  취소된 옛 목표의 늦은 성공은 버린다. Nav2 성공만으로도 도착을 만들지 않는다.
+- `event.code=RUN_WAYPOINT_ARRIVED`의 data는 `{run_id,idx,waypoint_ref,mission_id,
+  mission_version,mission_name,floor_id,map_version_id,pose,agent_instance_id,report_seq,
+  monotonic_s}`다. robot_at은 신뢰할 수 있는 UTC 또는 null. 화면은 «지점 n 도착 · 임무 이름»을
+  표시한다(idx+1). 이어 `RUN_WAYPOINT_RECORDED`로 표시·기록만 끝났음을 남기고 다음으로 간다.
+  실제 작업 결과를 성공으로 꾸미지 않고 `results.mode="DISPLAY_ONLY"`로 구분한다.
+
+| 코드 | 상태/처리 |
+|---|---|
+| NAV_GOAL_REJECTED, NAV_TIMEOUT, LOCALIZATION_LOST | FAILED, 0+목표 취소+잠금. NAV_TIMEOUT 수치는 Nav2 계약/시험에서 고정, 무한 재시도 금지 |
+| BATTERY_LOW, DEVICE_MISSING | F-MS-06 이름 유지. 실기 점검/실행 중 정책 적용. 시뮬 SF-12를 다시 거는 근거로 사용하지 않음 |
+| LINK_LOST | 실행을 건 연결 끊김: **PAUSED + wait_reason**, FAILED로 자동 변경하지 않음 |
+| STOPPED_BY_USER | STOP: PAUSED + wait_reason, 잠금 유지. 다른 인증된 보기 연결의 STOP도 우선 |
+| OPERATOR_ABORT | 사용자 취소: ABORTED + fail_code |
+| FLOOR_TRANSITION_FAILED | F-MS-07용으로 이름 보존, 첫 판에는 층 이동 없음 |
+| NAV_UNAVAILABLE, MAP_VERSION_MISMATCH, FLOOR_TRANSITION_UNSUPPORTED, PLAN_UNAVAILABLE | 새 제안 코드. 시작 전 거부(reply), 수락 후 준비 실패면 FAILED. 잘못된 지도/자료로 출발하지 않음 |
+| NOT_CONTROLLER, FORBIDDEN, RUN_ACTIVE, RUN_CONFLICT, RUN_NOT_FOUND, RUN_STATE_CONFLICT, RUN_OWNER_MISMATCH, RESUME_REJECTED, UNSUPPORTED_OPERATION | 요청 거부(reply), 기존 실행/안전 상태를 임의로 바꾸지 않음. 거부를 성공으로 표시하지 않음 |
+
+`run.update.fail_code`는 실패·취소 이유, 새 제안 `wait_reason`은 PAUSED 이유다. §10.1의 기존
+필드 이름을 유지하며 진행은 `{done,total}`, step은 현재 지점의 0부터 순번이다. 실패 메시지는
+서버/화면이 코드에서 한국어로 만들며 알 수 없는 코드는 일반 실패로 표시한다.
+
+<a id="run-link-watch"></a>
+#### 13.10.4 감시와 같은 화면 재접속
+
+- 제안 값: 기존 §13.1/13.5와 같은 앱 **ping 1 s / 무수신 3 s**. 실행을 건 인증 연결의
+  마지막 유효 ping **수신 시각**을 에이전트 `time.monotonic()`으로 고정하고 `경과 >=3 s`에
+  끊김으로 판정한다. 이는 ADR-003의 ≤15 s 안이다. 감시는 기존 20 Hz 안전 감시에서 하며
+  시뮬 시간·화면 타이머·서버 ping·다른 연결의 ping·실행기 입력으로 연장하지 않는다.
+  소켓 종료·출입증 만료/회수·권한 상실은 3 s를 기다리지 않고 안전 전이한다.
+- 끊김 때 **0 + 현재/대기 목표 취소 + 입력 폐기 + STOP 잠금 + PAUSED(LINK_LOST)**를
+  하나의 직렬 권한 전이로 적용한다. 먼저 출력을 막고 비동기 목표 취소를 요청하며 취소 응답이
+  늦어도 0을 유지한다. 실행기 원수신 deadman 0.3 s·sink watchdog은 별도로 유지한다.
+  옛 서버 연결 유예 `link_loss_wait_s:30`은 이 감시를 늦추거나 대신할 수 없다.
+- 실행 주체는 에이전트가 출입증에서 검증한 **user+device+surface**, 시작 연결,
+  `screen_id`에 묶는다. screen_id만 자가 주장해서는 재개할 수 없다. start 때 에이전트가
+  발급하는 256 bit 이상 난수 resume_token을 해당 화면 메모리에만 보관하고 에이전트는
+  해시만 보관한다. 토큰은 출입증을 대신하지 않으며 URL·기록·공유 저장소에 넣지 않는다.
+  이 추가 증명은 같은 설치 기기의 다른 탭을 같은 화면으로 잘못 인정하지 않기 위한 제안이다.
+- 새 출입증·새 연결은 자동 재개가 아니다. **같은 user/device/surface/screen_id와 비밀값**을
+  검증한 뒤 새 lease 취득 → 신선한 STOP 피드백 → 현재 stop_gen의 사람 명시 unlock →
+  새 해제 피드백 → 새 중립 → 사람이 `run.control resume` 순서를 요구한다. resume 수락 뒤
+  새 연결로만 감시를 다시 묶고 이전 연결·목표 세대를 폐기한다. 비밀값은 재바인딩 때 회전한다.
+  반복 resume가 목표를 중복 생성하지 않는다. 안전 잠금/피드백/중립 중 하나라도 빠지면
+  RESUME_REJECTED, 다른 화면이면 RUN_OWNER_MISMATCH다. 서버는 대신 재개할 수 없다.
+- 다른 화면으로 넘기는 기능은 없다. 다른 화면의 STOP은 가능하지만 이어서는 불가하다.
+  새로고침/앱 종료로 화면 비밀값을 잃으면 그 실행을 이어갈 수 없다. 원 주체의 인증으로
+  **취소만** 가능한 복구 예외를 둔다: 동일 user/device/surface의 새 control 연결이 새 lease를
+  취득하고 잠금·출력0을 확인한 경우 `run.control abort`만 screen_id/비밀값 없이 허용한다.
+  이 예외는 unlock·resume 권한을 주지 않는다. 취소·잠금 확인 뒤 새 run_id로 다시 시작한다.
+  에이전트 재시작도 잠금으로 시작하며 기존 실행은 복구 기록 대조 후 FAILED로 닫는다.
+  프로세스 재시작을 재개로 취급하지 않는다.
+
+#### 13.10.5 에이전트 → 서버 기록
+
+서버 기록은 `fh-agent/2` 인증 링크의 `run.update`·`event` 보고 경로를 확장한다.
+화면이 사건을 대신 확정하지 않고 서버는 이 보고를 실행 명령으로 되돌려 보내지 않는다.
+
+| 언제 | 에이전트 보고 | 서버 저장 (후속 이관/구현) |
+|---|---|---|
+| start 수락/준비 | RUN_STARTED 사건 + run.update | runs 생성: 로봇·시작 사용자·시뮬 여부·시나리오 고정 판·지도 판·계획 스냅샷 참조·시각·실행 주체 식별자. run_steps는 지점 순서로 PENDING |
+| 상태 변화·pause/resume/STOP/끊김·실패·취소·완료 | run.update + 원인 event | runs.status/step/wait_reason/fail_code/ended_at, events.run_id. pause/resume를 요청 시각과 적용 결과로 구분 |
+| 지점 도착/표시·기록 완료 | RUN_WAYPOINT_ARRIVED / RUN_WAYPOINT_RECORDED | run_steps ARRIVED→DONE, arrived_at/done_at, DISPLAY_ONLY 결과·임무 이름/고정 판, 해당 events |
+| 실행 중 경로 | 신선한 state.pose에서 최대 1 Hz 표본 | runs.path_actual, floor/map 판·측정 시각 포함. 10 Hz 전체 원격측정·사진·영상은 이 기록에 넣지 않음 |
+| 조종권/재접속/거부 | 기존 PHONE_LEASE_* 및 실행 주체/이유 사건 | 기존 lease_log/events 경로 확장, 토큰·서명·resume_token·운영 주소 없음 |
+
+- 서버는 agent 인증으로 정해진 robot/org를 사용하고 보고의 다른 로봇 주장을 믿지 않는다.
+  `agent_instance_id`(기동 UUID) + 단조 증가 `report_seq`를 run.update/event에 추가한다.
+  서버는 `(robot_id,agent_instance_id,report_seq)`로 중복 제거하고 **DB commit 뒤** 새
+  데이터 확인 `run.recorded {agent_instance_id,report_seq}`를 돌려준다. 이는 실행 허가가 아니다.
+  runs/run_steps/events 변경과 확인용 수신 이력을 한 트랜잭션으로 저장한다. 순서가 빠지면
+  뒤 보고로 덮지 않고 재전송을 요구하며, 늦은 MOVING이 종료 상태를 되돌리지 않는다.
+- 에이전트는 서버가 끊겨도 사건·전이를 순서대로 로컬 영속 outbox에 남기고 재접속 때
+  같은 식별자로 재전송한다. 화면 감시 연결이 살아 있으면 서버 단절만으로 자동 재개/대체
+  조종권을 만들지 않는다. 출입증 만료·기존 안전 조건은 그대로 적용한다. 현재 History의
+  임시 spill만으로 프로세스 장애 뒤 보존/DB 수신 확인을 보장한다고 주장하지 않는다.
+  영속 저장 실패·용량 초과는 0+목표 취소+잠금+PAUSED(RECORDING_UNAVAILABLE), 새 start/resume
+  거부로 처리한다. 저장 I/O가 안전 출력 경로를 막지 않게 별도 처리한다.
+- 시각은 서버 수신 `at` UTC, 신뢰 가능한 `robot_at` UTC/null, agent monotonic을 함께 둔다.
+  서로 다른 기동의 monotonic을 직접 비교하지 않는다. ACK 전 보고는 지우지 않는다.
+- DB 설계의 runs.assignment_id는 현재 필수이므로 **시뮬은 null 허용 + simulation 출처 열**을
+  후속 이관에 넣는다. 가짜 배정/자동 승인 행을 만들지 않는다. 실기는 assignment_id 필수
+  및 기존 승인·점검 제약을 유지한다. 실행·지점 테이블과 Event.run_id FK·활성 실행 유일성,
+  보고 멱등 이력을 함께 설계한다. 서버 조회 권한은 조직/로봇/시뮬 소유 범위를 재검사한다.
+
+#### 13.10.6 구현 분할 제안과 관문
+
+| 작업 | 소유 경로 제안 | 완료 증거 |
+|---|---|---|
+| 에이전트 실행기·직결 계약 | apps/agent + apps/contracts (계약 생성 포함) | run 프레임/고정 판·단일 층·도착 사건, 기존 유일 Session/Core/sink, Nav2 없으면 출발0. 모의 시험으로 끊김≥3 s·옛 목표 늦은 성공·다른 탭 재개 거부·명시 해제/중립/사람 resume 누락을 검증. 기존 안전 셀프테스트 기대값 유지 |
+| 서버 자료·기록 | apps/server, 계약 변경은 앞 작업과 경계 합의 | 데이터 전용 고정 판 조회·실기 조건 유지, runs/run_steps·시뮬 null 배정 이관 왕복, 보고 중복/순서/재접속/commit ACK·조직 범위 시험. 서버 run 명령 발신0 |
+| 웹/폰 화면 | apps/web (네이티브 포장 필요 시 별도 소유 배정) | 같은 계약·능력 알림 사용, 진행/지점 표시·실패 문구·일시정지/이어서/취소. 같은 화면 비밀값 보관, 재접속만으로 이동0, 다른 화면 이어서 거부, 상시 시뮬 정지/실기 STOP 유지 |
+
+실행을 켜는 통합은 위 세 작업과 §13.10.4 감시가 갖춰진 뒤다. 각 변경의 집중 시험·해당 앱
+전체 시험 1회와 FAST 규칙의 검토를 거치며, 안전 동작 변경 구현은 Claude·Codex 각 1회 검토다.
+문서 확정·모의 시험·Nav2 빌드·격리 시뮬 주행·실폰·실기는 각각 다른 증거로 보고한다.
+④의 명령 차단 통과와 몸체 물리 정지/도착 허용치 미결은 분리하며, 이 문서 PR은 코드·실행
+검증·시뮬 기동을 포함하지 않는다.
