@@ -1,4 +1,4 @@
-// 화면 틀(03 UX §3, 09 ADR-002 §3·§4): PC(총괄 웹) = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문(조종 탭 없음),
+// 화면 틀(03 UX §3, 09 ADR-002 §3·§4): PC(총괄 웹) = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문(실기 조종 탭 없음 — 시뮬은 «시뮬» 탭),
 // 폰(768px 미만) = 머리줄 + 본문 — 로봇 연결(#/drive) → 조종(#/drive/<로봇 id>) → 끝내기, 기록은 머리줄 ⋯ 에서. 아래 탭 줄은 없다.
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 화면에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서),
 // 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 알림 종은 GET /notifications(screens/history.tsx), 지도는 /sites·/map-versions(screens/maps.tsx),
@@ -19,6 +19,7 @@ import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
 import { Missions } from './screens/missions';
 import { Settings } from './screens/settings';
+import { SimTab } from './screens/sim';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -109,6 +110,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const target = open || (!phone && tab === 'fleet') ? robot : phone && pool.length === 1 ? pool[0] : null;
   // 총괄은 실기 STOP 이 없다(10-25): 고르기 후보는 시뮬 로봇만, 실기를 가리키거나 정지할 시뮬이 없으면 STOP 단추·Space 도 없음. 운영 관리자는 그대로
   const stops = pool.filter((r) => !adminReal(user, r)), canStop = target ? !adminReal(user, target) : user.role !== 'ORG_ADMIN' || !!stops.length;
+  // 떠 있거나 띄우는 중인 내 시뮬(sim.live())이 있으면 STOP·Space 는 그 슬롯으로 — 폰 조종 화면, PC 로봇 탭에서 고른 정지 가능한 로봇은 예외(그 로봇)
+  const toSim = !open && !!sim.live() && (phone || !target || !canStop);
   const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
   // 고른 로봇이 후보에서 빠지면(지움·실기로 바뀜) 고르기 전으로, 총괄에게 정지할 시뮬이 없어지면 고르기를 닫는다(STOP 경로 0). 운영 관리자 STOP 은 그대로
   useEffect(() => { if (choose != null && !canStop) setChoose(null); else if (choose && !stops.some((r) => r.id === choose)) setChoose(''); });
@@ -154,7 +157,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     seen.current = robot ? [robot.id, done] : null;
   });
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
-  const stop = () => { if (phone && !open && sim.live()) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
+  const stop = () => { if (toSim) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
     if (!canStop) return;
     const r = target ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
@@ -198,7 +201,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {phone && (tab !== 'history' || logout) && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
         <div className="card">{tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
-      {(canStop || (phone && sim.live())) && <Stop phone={phone} onStop={stop} />}
+      {(canStop || toSim) && <Stop phone={phone} onStop={stop} />}
     </header>
     {open && robot && rel && (rel.why
       ? <div className="fh-pick" role="alertdialog" aria-label="조종권 반납 확인 못함" data-end-fail>
@@ -238,6 +241,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'map' ? <Maps key={`map-${user.id}`} user={user} cancel={cancel} dash={dash} />   // 로봇 0대여도 장소·지도
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
         : tab === 'mission' ? <Missions key={`mission-${user.id}`} user={user} cancel={cancel} robots={pool} />   // 로봇 0대여도 임무·시나리오
+        : tab === 'sim' ? <SimTab user={user} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
         : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>

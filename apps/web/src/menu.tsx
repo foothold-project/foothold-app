@@ -2,7 +2,7 @@
 // 아이콘 선은 원본 화면(ui/src/screens/PcSettings.view.tsx 주 메뉴)에서 옮겼다. 결재 아이콘만 새로 그림.
 import type { Role } from './fake';
 
-export type TabId = 'fleet' | 'drive' | 'mission' | 'approval' | 'history' | 'map' | 'settings';
+export type TabId = 'fleet' | 'drive' | 'sim' | 'mission' | 'approval' | 'history' | 'map' | 'settings';
 export type Tab = { id: TabId; label: string | Record<Role, string>; icon: JSX.Element };
 
 const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
@@ -13,16 +13,18 @@ const ICON = {
   approval: I(<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 12l3 3 5-6" /></>),
   history: I(<><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M8 8h8M8 12h8M8 16h5" /></>),
   map: I(<><path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" /><path d="M9 4v14M15 6v14" /></>),
+  sim: I(<><rect x="3" y="4" width="18" height="12" rx="2" /><path d="M8 20h8M12 16v4" /></>),
   settings: I(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
 };
 
-/** 총괄 웹(PC) 왼쪽 세로 메뉴. 설정은 PC_BOTTOM 으로 맨 아래 따로 — 로봇 · 결재 · 시나리오 · 지도 · 기록 · 설정.
- *  조종 탭은 없다(실시간 조종은 폰만). 옛 주소 #/drive 는 첫 탭(로봇)으로 */
+/** 총괄 웹(PC) 왼쪽 세로 메뉴. 설정은 PC_BOTTOM 으로 맨 아래 따로 — 로봇 · 결재 · 시나리오 · 지도 · 시뮬 · 기록 · 설정.
+ *  실기 조종은 폰만, 시뮬은 PC «시뮬» 탭(10 ADR-003 §1 결정 3). 옛 주소 #/drive 는 첫 탭(로봇)으로 */
 export const PC_TABS: Tab[] = [
   { id: 'fleet', label: '로봇', icon: ICON.fleet },
   { id: 'approval', label: { ORG_ADMIN: '결재', OPERATOR: '내 요청' }, icon: ICON.approval },
   { id: 'mission', label: '시나리오', icon: ICON.mission },
   { id: 'map', label: '지도', icon: ICON.map },
+  { id: 'sim', label: '시뮬', icon: ICON.sim },
   { id: 'history', label: '기록', icon: ICON.history },
 ];
 export const PC_BOTTOM: Tab = { id: 'settings', label: '설정', icon: ICON.settings };

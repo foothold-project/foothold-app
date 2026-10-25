@@ -51,8 +51,8 @@ function eachPhoneScreen(user: string, f: (where: string) => void) {
 const cardNames = () => $$('.dv-card b').map((b) => b.textContent);
 
 describe('메뉴 정의(한 곳)', () => {
-  it('PC 메뉴 6개(조종 탭 없음), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
-    expect([...PC_TABS, PC_BOTTOM].map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '결재', '시나리오', '지도', '기록', '설정']);
+  it('PC 메뉴 7개(실기 조종 탭 없음, 시뮬 탭), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
+    expect([...PC_TABS, PC_BOTTOM].map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '결재', '시나리오', '지도', '시뮬', '기록', '설정']);
     expect(PHONE_TABS.map((t) => labelOf(t, 'OPERATOR'))).toEqual(['조종', '기록']);
     expect(PHONE_SHEETS.map((t) => t.label)).toEqual(['자세', '시나리오', '지도·목표', '정책']);
   });
@@ -71,7 +71,7 @@ describe('메뉴 정의(한 곳)', () => {
 describe('탭 전환', () => {
   it('PC: 메뉴를 누르면 제목·본문·현재 표시가 그 탭으로', () => {
     mount(false);
-    expect(navLabels()).toEqual(['로봇', '결재', '시나리오', '지도', '기록', '설정']);
+    expect(navLabels()).toEqual(['로봇', '결재', '시나리오', '지도', '시뮬', '기록', '설정']);
     expect($('nav a[href="#/drive"]')).toBeNull();
     for (const t of tabsFor(false)) {
       click($(`nav a[href="#/${t.id}"]`));

@@ -13,6 +13,7 @@ import { Settings } from './screens/settings';
 import { Missions, keptPlan } from './screens/missions';
 import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
+import { SimTab } from './screens/sim';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean; light: boolean; setLight: (v: boolean) => void;
@@ -180,4 +181,4 @@ function Detail(c: Ctx) {
 /** 이 로봇에 배정된 시나리오(GET /assignments?robot_id=) — 폰 조종 화면의 시나리오 시트 */
 export const Scenario = (c: Ctx) => <AssignedCards robot={c.robot} cancel={c.cancel} />;
 
-export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Missions, approval: Approvals, history: History, map: Maps, settings: Settings };
+export const BODY: Record<TabId, (c: Ctx) => JSX.Element> = { fleet: Fleet, drive: Drive, mission: Missions, approval: Approvals, history: History, map: Maps, sim: SimTab, settings: Settings };
