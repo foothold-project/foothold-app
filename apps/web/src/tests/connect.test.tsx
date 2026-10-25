@@ -367,13 +367,14 @@ describe('로봇 목록 = GET /robots?scope=<역할>(ADR-003 결정 2: 운영 �
 
 // R2-B1: 조종 화면이 열린 채 세션이 끝나면(로그아웃·401·실시간 4401) 조종권을 돌려주고 로그인 화면으로 — 흰 화면 아님
 describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => {
-  const live = { ...robot('r-k', 'Go2-K', 'a1', '김총괄'), connection: 'ONLINE' as const, status: 'IDLE' as const };
+  // 실기 조종은 운영 관리자만(10-25 — 총괄은 실기 조종 없음): 자기 로봇을 조종하는 이운영
+  const live = { ...robot('r-k', 'Go2-K', 'o1', '이운영'), connection: 'ONLINE' as const, status: 'IDLE' as const };
   /** 실시간 연결을 열고 r-k 조종권을 받음 */
   function hold() {
     const w = FakeWS.last;
     w.auto = (m) => {
       w.recv({ t: 'reply', id: m.id, ok: true });
-      if (m.t === 'lease.take') w.recv(lease('r-k', { id: 'a1', name: '김총괄' }, 'L1'));
+      if (m.t === 'lease.take') w.recv(lease('r-k', { id: 'o1', name: '이운영' }, 'L1'));
     };
     act(() => { w.open(); w.recv(state('r-k')); });
     act(() => btn('조종 시작')!.click());
@@ -383,7 +384,7 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
   // 조종 화면은 폰에만 있다(ADR-002 §3) — 로그아웃은 머리줄 ⋯ 안
   const cases: [string, 'logout' | '401' | '4401'][] = [['폰 조종 화면 · ⋯ 로그아웃', 'logout'], ['폰 조종 화면 · 401', '401'], ['폰 조종 화면 · 실시간 4401', '4401']];
   for (const [name, how] of cases) it(name, async () => {
-    serve(signedIn(KIM, [live], { 'POST /auth/logout': { status: 204 } }));
+    serve(signedIn(LEE, [live], { 'POST /auth/logout': { status: 204 } }));
     const errors: unknown[] = [], onErr = (e: ErrorEvent) => errors.push(e.error);
     addEventListener('error', onErr);
     await open('#/drive/r-k', true);
@@ -403,7 +404,7 @@ describe('조종 화면에서 세션이 끝남(로그아웃·401·4401)', () => 
     expect([MEM_USERS.length, MEM_ROBOTS.length]).toEqual([0, 0]);
   });
   it('폰 조종 화면에서 조종하다 ⋯ 기록 → ⋯ 로그아웃', async () => {
-    serve(signedIn(KIM, [live], { 'POST /auth/logout': { status: 204 } }));
+    serve(signedIn(LEE, [live], { 'POST /auth/logout': { status: 204 } }));
     await open('#/drive/r-k', true);
     const w = hold();
     act(() => btn('기록')!.click());

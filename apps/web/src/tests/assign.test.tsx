@@ -9,6 +9,7 @@ import { Root } from '../session';
 import { clearPlans } from '../screens/missions';
 import { OUT } from '../screens/assign';
 import { FakeWS } from './fakeWs';
+import { adminNoStop } from './adminStop';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -113,6 +114,7 @@ async function openAssign(me: User, o?: Parameters<typeof serve>[1]) {
 const pickRobot = (id: string) => click($(`[data-robot="${id}"]`, panel()));
 const memo = () => [...panel().querySelectorAll('label')].find((l) => l.textContent!.startsWith('메모'))!.querySelector('input')!;
 const stopOk = async () => {
+  if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
   act(() => FakeWS.last.open());

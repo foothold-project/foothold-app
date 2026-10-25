@@ -6,7 +6,7 @@
 import { Component, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import type { User as ApiUser } from '../../contracts/ts';
 import { BrandLogo } from './BrandLogo';
-import { ROBOTS, ROLE_NAME, USERS, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
+import { ADMIN_REAL, ROBOTS, ROLE_NAME, USERS, adminReal, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, labelOf, leaving, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
 import { BODY, EmptyFleet, useDash, type Ctx } from './screens';
@@ -59,7 +59,7 @@ function typing(t: EventTarget | null) {
   return false;
 }
 
-/** STOP — 모든 탭·두 틀에 늘 보임. 폰 64px, PC 44px 이상(U7). 누르면 서버에 정지 요청(로봇이 0 + 잠금) */
+/** STOP — 모든 탭·두 틀에 늘 보임(총괄은 정지할 시뮬 로봇이 있을 때만 — 실기 STOP 은 운영자 폰). 폰 64px, PC 44px 이상(U7). 누르면 서버에 정지 요청(로봇이 0 + 잠금) */
 export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
   return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} onClick={onStop}>
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
@@ -93,8 +93,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const [want, setWant] = useState(() => location.hash), tab = tabFromHash(want, phone), sub = want.split('/')[2];
   // 알림 링크 #/history?event_id=<id> — 기록 탭이면 그 사건을 위에 보인다, #/approvals?approval_id=<id> — 결재 탭이면 그 결재를 연다(주소에도 남김)
   const fk = FOCUS[tab], focus = fk ? new URLSearchParams(want.split('?')[1] ?? '').get(fk) ?? undefined : undefined;
-  // 고를 수 있는 로봇: PC 는 받은 목록(총괄 전체, 운영 관리자 내 로봇), 폰은 내 로봇만(B4). 고른 값이 범위 밖이면 첫 로봇
-  const pool = phone ? myRobots(user, robots) : robotsFor(user, robots);
+  // 고를 수 있는 로봇: PC 는 받은 목록(총괄 전체, 운영 관리자 내 로봇), 폰은 내 로봇만(B4 — 총괄은 시뮬 로봇만). 고른 값이 범위 밖이면 첫 로봇
+  const pool = phone ? myRobots(user, robots).filter((r) => !adminReal(user, r)) : robotsFor(user, robots);
   // 폰 #/drive/<로봇 id> = 그 로봇 조종 화면(시뮬 로봇은 서버 경유 조종 화면을 열지 않음 — 직결만), #/drive = 로봇 연결(ADR-002 §3.1). PC 에는 조종 화면이 없다
   const open = phone && tab === 'drive' && pool.some((r) => r.id === sub && !r.sim), path = open ? `#/drive/${sub}` : `#/${tab}${focus ? `?${fk}=${encodeURIComponent(focus)}` : ''}`;
   // 시뮬 직결 조종 화면(#/drive 그대로 — 시뮬 로봇은 서버 경유 조종 화면을 쓰지 않는다). 로그아웃·화면 내림이면 직결을 닫고 비운다
@@ -107,6 +107,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // STOP 대상(F-COM-01) = 지금 화면이 가리키는 로봇: 폰은 조종 화면의 로봇(내 로봇이 한 대뿐이면 어느 화면이든 그 로봇), PC 는 로봇 탭에서 고른 로봇.
   // 그 밖(로봇 연결·시나리오·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지
   const target = open || (!phone && tab === 'fleet') ? robot : phone && pool.length === 1 ? pool[0] : null;
+  // 총괄은 실기 STOP 이 없다(10-25): 고르기 후보는 시뮬 로봇만, 실기를 가리키거나 정지할 시뮬이 없으면 STOP 단추·Space 도 없음. 운영 관리자는 그대로
+  const stops = pool.filter((r) => !adminReal(user, r)), canStop = target ? !adminReal(user, target) : user.role !== 'ORG_ADMIN' || !!stops.length;
   const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
   // 서버가 구독을 거둠(담당 바뀜·로봇 지움): 그 로봇 조종 화면을 닫고 이유를 띠에, 목록은 다시 받는다. STOP 은 그대로 둔다
   const rv = rt.revoked(), [gone, setGone] = useState('');
@@ -151,7 +153,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   });
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
   const stop = () => { if (phone && !open && sim.live()) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
-    const r = target ?? pool.find((x) => x.id === choose); if (r) halt(r); else setChoose(pool.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
+    if (!canStop) return;
+    const r = target ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
   // 수정키·다른 키 처리보다 먼저, 초점 있는 단추가 눌리지 않게 막는다
   const stopKey = useRef(stop); stopKey.current = stop;
@@ -193,7 +196,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {phone && (tab !== 'history' || logout) && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
         <div className="card">{tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
-      <Stop phone={phone} onStop={stop} />
+      {(canStop || (phone && sim.live())) && <Stop phone={phone} onStop={stop} />}
     </header>
     {open && robot && rel && (rel.why
       ? <div className="fh-pick" role="alertdialog" aria-label="조종권 반납 확인 못함" data-end-fail>
@@ -205,7 +208,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       <span>어느 로봇을 정지할까요?</span>
       <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
         {!choose && <option value="">로봇 고르기</option>}
-        {pool.map((r) => <option key={r.id} value={r.id}>{r.name}{rt.get(r.id).lease ? ' (내가 조종 중)' : rt.get(r.id).releasing ? ' (반납 확인 중)' : ''}</option>)}</select>
+        {stops.map((r) => <option key={r.id} value={r.id}>{r.name}{rt.get(r.id).lease ? ' (내가 조종 중)' : rt.get(r.id).releasing ? ' (반납 확인 중)' : ''}</option>)}</select>
       <button type="button" className="fh-stop" disabled={!choose} onClick={stop}>정지</button>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
     </div>}
@@ -215,7 +218,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <div className="fh-band" role="status" data-band>{[
       note && <span key="note">▲ {note}</span>,
       gone && <span key="revoked" data-revoked>▲ {gone} <button type="button" className="btn" onClick={() => setGone('')}>닫기</button></span>,
-      foreign && <span key="foreign" data-foreign>▲ 담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다. <button type="button" className="btn" onClick={() => setForeign(false)}>닫기</button></span>,
+      foreign && <span key="foreign" data-foreign>▲ {user.role === 'ORG_ADMIN' ? `${ADMIN_REAL} 실기 조종·정지는 운영 관리자 폰에서 합니다.` : '담당 로봇이 아닙니다. 내 로봇만 열 수 있습니다.'} <button type="button" className="btn" onClick={() => setForeign(false)}>닫기</button></span>,
       missed && <span key="missed" data-missed>▲ {missed} <button type="button" className="btn" onClick={() => setMissed('')}>닫기</button></span>,
       (net.at === 'lost' || net.at === 'denied') && <span key="link" data-link-band>▲ {net.why} 로봇 상태를 알 수 없습니다.{net.at === 'lost' ? ' 연결 재시도 중입니다.' : ''}
         {' '}<button type="button" className="btn" onClick={() => rt.reconnect()}>다시 연결</button></span>,

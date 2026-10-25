@@ -2,7 +2,7 @@
 // 조종권·잠금·STOP 은 실시간 연결(rt.ts → 관제 서버)만 부른다 — 판정은 서버 중재기. 시뮬 로봇은 폰 ↔ 에이전트 직결(phone.ts·simdrive.tsx).
 // 영상·지도·시나리오 제어는 자리만(가짜). 키보드: W·↑ 전진, A·← / D·→ 회전, S·↓ 후진 막음. Space = STOP 은 App 공통 층(모든 화면).
 import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
+import { ADMIN_REAL, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { Chip, DriveButton, Scenario, soon, type Ctx } from './screens';
@@ -67,7 +67,7 @@ export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
     <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="내 로봇">
       <h2>내 로봇</h2>
       {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
-        : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p>}
+        : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? `${ADMIN_REAL} 시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 조종합니다.` : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p>}
     </section>
     <SimLaunch me={c.user.id} />
   </>;
