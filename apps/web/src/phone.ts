@@ -44,7 +44,7 @@ const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400
   '409 SIM_WORLD_BUSY', '409 SIM_OWNER_LIMIT', '409 SIM_NATIVE_SINGLE_ONLY', '409 SIM_ROBOT_LIMIT']);
 // gen = 연결 세대(close 마다), epoch = 화면 세션(clear 마다), cancel = 띄우는 중 STOP(POST 답이 오면 바로 정리), me = 내 사용자 id(총괄 목록은 조직 전체라 owner 로 내 것 판정)
 let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '';
-let axes: [number, number] = [0, 0];   // [전후, 회전] -1..1, 조종 화면이 넣는다
+let axes: Axes = [0, 0];   // [전후, 회전, 옆] -1..1, 조종 화면이 넣는다
 const replies = new Map<string, (ok: boolean) => void>();
 const subs = new Set<() => void>();
 const emit = () => { S = { ...S }; subs.forEach((f) => f()); };
@@ -86,16 +86,28 @@ function send(m: Record<string, unknown>, wait?: (ok: boolean) => void) {
   ws.send(JSON.stringify({ t: m.t, id, robot: S.robot.robot_id, ...m }));
   return true;
 }
-/** 연속 모드 전후 조이스틱 데드존(입력 비율 — 속도 값이 아님) */
+/** 연속 모드 전후·옆 조이스틱 데드존(입력 비율 — 속도 값이 아님) */
 export const DEAD = 0.1;
-/** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이라 0.
- *  연속 모드(시뮬 limits.vx_mode)는 데드존 밖 앞 기울기 t 를 vx_min_moving + (vx_max − vx_min_moving)·t 로(02 F-TO-05) */
-export function velocity([f, t]: [number, number], w: PhoneWelcome) {
+/** [전후, 회전, 옆(왼쪽 +)] -1..1. 옆은 없으면 0 */
+export type Axes = [number, number, number?];
+/** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이면 0(실기).
+ *  연속 모드(시뮬 limits.vx_mode)는 데드존 밖 앞 기울기 t 를 vx_min_moving + (vx_max − vx_min_moving)·t 로(02 F-TO-05),
+ *  뒤(vx_min < 0 일 때만)도 같은 식으로 vx_min 까지. 옆은 데드존 밖 기울기에 비례해 vy_max·vy_min 까지 */
+export function velocity([f, t, y = 0]: Axes, w: PhoneWelcome) {
   const s = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
   const L = w.limits, lo = L.vx_min_moving ?? L.vx_min;
+  const past = (v: number) => (Math.abs(v) - DEAD) / (1 - DEAD);   // 데드존 밖 비율(데드존 밖에서만 부름)
+  const ramp = (v: number, hi: number) => { const m = Math.min(lo, hi); return m + (hi - m) * past(v); };
   const vx = L.vx_mode !== 'continuous' ? s(f, L.vx_min, L.vx_max)
-    : f <= DEAD ? 0 : Math.min(L.vx_max, lo + (L.vx_max - lo) * (f - DEAD) / (1 - DEAD));
-  return { vx, vy: 0, wz: s(t, L.wz_min, L.wz_max) };
+    : f > DEAD ? ramp(f, L.vx_max) : f < -DEAD && L.vx_min < 0 ? -ramp(f, -L.vx_min) : 0;
+  const vy = y > DEAD ? L.vy_max * past(y) : y < -DEAD ? L.vy_min * past(y) : 0;
+  // 제자리 회전(전후·옆 0)은 turn_in_place 허가가 있을 때만 — 없으면 wz 0 을 보낸다(안내는 화면)
+  return { vx, vy, wz: vx === 0 && vy === 0 && !allowed(w).spin ? 0 : s(t, L.wz_min, L.wz_max) };
+}
+/** limits 가 허용하는 방향(화면은 이 값만 본다 — 숫자를 박지 않음). 제자리 회전은 시뮬 limits.experimental 에 turn_in_place 가 있을 때만 */
+export function allowed(w: PhoneWelcome | null) {
+  const L = w?.limits, exp = L?.experimental ?? [];
+  return { back: !!L && L.vx_min < 0, left: !!L && L.vy_max > 0, right: !!L && L.vy_min < 0, spin: exp.includes('turn_in_place'), experimental: exp.length > 0 };
 }
 /** 50 ms 박자: 조종권이 있으면 cmd(중립 0 포함), 1 s 마다 ping(§13.1 — cmd 가 ping 을 대신하지 않음) */
 function beat() {
@@ -181,7 +193,7 @@ export const sim = {
   get: () => S,
   subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },
   /** 조종 화면 조이스틱 값. 손을 떼면 [0,0] */
-  axes(v: [number, number]) { axes = v; },
+  axes(v: Axes) { axes = v; },
   /** 월드·내 시뮬 로봇 목록. 내 로봇 목록을 이번에 받았으면 true */
   async load() {
     const g = gen, e0 = epoch;

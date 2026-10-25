@@ -252,25 +252,27 @@ function MapView({ big }: { big?: boolean }) {
   </svg>;
 }
 
-/** 폰 엄지 조이스틱(03 §5.7): 왼쪽 전후(세로), 오른쪽 회전(가로). 손을 떼면 0. epoch 가 바뀌면 쥔 포인터를 놓고 새 누름까지 무시 */
-export function Stick({ label, vertical, on, epoch, gen, set }: { label: string; vertical?: boolean; on: boolean; epoch: number; gen: { current: number }; set: (v: number) => void }) {
-  const [k, setK] = useState(0);
+/** 폰 엄지 조이스틱(03 §5.7): 왼쪽 전후(세로), 오른쪽 회전(가로). both = 세로·가로 두 축(시뮬 왼쪽 상하좌우, set 둘째 값 = 가로, 왼쪽 +).
+ *  손을 떼면 0. epoch 가 바뀌면 쥔 포인터를 놓고 새 누름까지 무시. children = 판 위 그림(화살표) */
+export function Stick({ label, vertical, both, on, epoch, gen, set, children }: { label: string; vertical?: boolean; both?: boolean; on: boolean; epoch: number; gen: { current: number }; set: (v: number, side: number) => void; children?: ReactNode }) {
+  const [k, setK] = useState<[number, number]>([0, 0]);   // [세로, 가로]
   const held = useRef<{ el: HTMLDivElement; id: number; g: number } | null>(null);
   useEffect(() => {
-    const h = held.current; held.current = null; setK(0);
+    const h = held.current; held.current = null; setK([0, 0]);
     if (h?.el.hasPointerCapture?.(h.id)) h.el.releasePointerCapture(h.id);
   }, [epoch]);
   const move = (e: PointerEvent<HTMLDivElement>) => {
     const b = e.currentTarget.getBoundingClientRect();
-    const v = clamp(vertical ? (b.top + b.height / 2 - e.clientY) / (b.height / 2) : (b.left + b.width / 2 - e.clientX) / (b.width / 2));
-    setK(v); set(v);
+    const y = clamp((b.top + b.height / 2 - e.clientY) / (b.height / 2)), x = clamp((b.left + b.width / 2 - e.clientX) / (b.width / 2));
+    setK(both ? [y, x] : vertical ? [y, 0] : [0, x]); set(both || vertical ? y : x, both ? x : 0);
   };
-  const end = () => { held.current = null; setK(0); set(0); };
-  return <div className={`dv-stick ${vertical ? 'v' : 'h'}`} aria-label={`${label} 조이스틱`} aria-disabled={!on}
+  const end = () => { held.current = null; setK([0, 0]); set(0, 0); };
+  return <div className={`dv-stick ${vertical || both ? 'v' : 'h'}`} aria-label={`${label} 조이스틱`} aria-disabled={!on}
     onPointerDown={(e) => { if (!on) return; held.current = { el: e.currentTarget, id: e.pointerId, g: gen.current }; e.currentTarget.setPointerCapture?.(e.pointerId); move(e); }}
     onPointerMove={(e) => { const h = held.current; if (h?.id === e.pointerId && h.g === gen.current) move(e); }}
     onPointerUp={end} onPointerCancel={end} onLostPointerCapture={end}>
-    <i style={{ transform: vertical ? `translateY(${-k * 36}px)` : `translateX(${-k * 36}px)` }} />
+    {children}
+    <i style={{ transform: `translate(${-k[1] * 36}px, ${-k[0] * 36}px)` }} />
     <span>{label}</span>
   </div>;
 }
