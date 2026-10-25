@@ -25,7 +25,7 @@ export type Link = {
 export type Sim = {
   step: Step; catalog: SimCatalog | null; mine: SimRobot[]; listed: boolean; err: string; robot: SimRobot | null; since: number; link: Link | null;
   /** STOP: agent = 에이전트에 직접 보냄, cleanup = 로봇에 연결 전이라 명령 없이 그 슬롯을 정리(서버 STOP 경로는 쓰지 않음 — ADR-002 §5) */
-  stop: { at: number; via: 'agent' | 'cleanup' } | null;
+  stop: { at: number; via: 'agent' | 'cleanup'; latched?: true } | null;
   /** 이 시각(단조) 전에는 다시 연결하지 않는다(1013 뒤 늘리는 간격·출입증 429 retry_after) */
   retryAt: number;
   /** 관리자 remaining_s를 받은 뒤의 단조 시계 기한(폰 UTC 시계와 무관). */
@@ -149,6 +149,9 @@ function onMsg(raw: string) {
     if (fresh) lastEcho = echo.id;
     // 반납 답 전의 옛 state 로 lease 를 되살리지 않음
     setLink({ st, stAt: now(), lease: l.busy === 'release' ? null : st.lease_id, rtt: fresh ? Date.now() - echo.client_time_ms : l.rtt });
+    // 이 STOP 의 잠금을 로봇이 한 번 알린 뒤 풀리면(해제) STOP 안내를 지운다. 잠금을 아직 못 받았으면 «아직 잠금 안 됨»을 남긴다
+    const p = S.stop;
+    if (p?.via === 'agent') { if (st.latched && !p.latched) set({ stop: { ...p, latched: true } }); else if (!st.latched && p.latched) set({ stop: null }); }
   } else if (m.t === 'lease.requested') {
     setLink({ ask: { id: m.request_id as string, until: now() + 10_000 } });
   } else if (m.t === 'lease.result') {

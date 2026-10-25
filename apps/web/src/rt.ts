@@ -19,7 +19,7 @@ const LINK_LOST = '서버 연결이 끊겼습니다.';
 /** idle = 연결 안 함, connecting = 첫 연결 중, lost = 끊김(다시 연결 중), denied = 서버가 거부(다시 연결 안 함) */
 export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number };
 /** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | unsure(보냈지만 접수 답을 못 받음) | failed(보내지 못함). 로봇이 멈췄는지는 state 로만 본다 */
-export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string };   // at = 이 단계가 된 때
+export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; latched?: true };   // at = 이 단계가 된 때, latched = 이 STOP 뒤 로봇이 잠금을 알림
 /** 서버가 이 화면의 구독을 거둠(담당 바뀜·로봇 지움, apps/server README). n = 몇 번째인지(화면이 한 번씩 처리) */
 export type Revoked = { robot: string; reason: ScreenSubscriptionRevoked['reason']; n: number };
 export type Live = {
@@ -240,7 +240,9 @@ function onState(s: ScreenState) {
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }
-  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral });   // 잠기면 해제 뒤 새 중립부터
+  // 이 STOP 뒤 로봇이 잠금을 한 번 알렸다가 풀리면(해제) STOP 안내를 지운다. 잠금 보고 전의 «아직 잠금 안 됨»은 남긴다
+  const stop = !l.stop ? null : s.latched ? { ...l.stop, latched: true as const } : l.stop.latched ? null : l.stop;
+  set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral, stop });   // 잠기면 해제 뒤 새 중립부터
 }
 
 function onLease(m: ScreenLeaseUpdate) {
