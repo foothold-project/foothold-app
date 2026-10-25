@@ -186,7 +186,10 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
   });
   it('experimental 있음: 시험용 띠, 뒤·옆·제자리 회전 보냄, 화살표 모두 켬, STOP 보임', async () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
-    expect($('[data-sim-exp]')!.textContent).toBe('시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다');
+    const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+    expect(exp.textContent).toBe('시험용 · 넘어질 수 있음');   // 10-25: 영상 위 큰 띠 대신 작은 표시, 긴 문장은 aria·설정 시트
+    expect(exp.getAttribute('aria-label')).toBe(full);
+    expect(exp.closest('.dv-act')).toBeNull();
     expect(arrows('전후')).toBe('up+ down+ left+ right+');
     expect(arrows('회전')).toBe('left+ right+');
     const left = stick('전후'), turn = stick('회전');
@@ -220,8 +223,33 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     ptr(left, 'pointerup', 50, 0);
     ptr(turn, 'pointerup', 0, 50);
     await recv(a, { t: 'cmd.ack', clipped: true });
-    expect(box.textContent).toContain('명령 범위 조정 — 로봇 허용 범위(앞 1.00 m/s, 뒤 0.30 m/s, 옆 ±0.3 m/s, 회전 ±0.5 rad/s)로 잘랐습니다. 제자리 회전은 앞으로 밀면서 돌리세요.');
+    expect(box.textContent).toContain('명령 범위 조정 — 허용 범위로 잘랐습니다.');   // 10-25: 영상 위는 짧은 한 줄, 범위 숫자는 설정 시트
     expect(box.textContent).not.toContain('끝까지 밀어야');
+    await menuItem('설정');
+    expect($('[data-sim-range]')!.textContent).toBe('로봇 허용 범위(앞 1.00 m/s, 뒤 0.30 m/s, 옆 ±0.3 m/s, 회전 ±0.5 rad/s) 밖은 잘라 보냅니다. 제자리 회전은 앞으로 밀면서 돌리세요.');
+  });
+  it('명령 범위 조정은 새로 잘릴 때만 잠깐(3 s) — 계속 잘려도 영상 위에 남지 않고, 다시 잘리면 다시 뜸', async () => {
+    const a = await launch({ ...welcome(), limits: OMNI }); await drive(a);
+    const clipNote = () => [...box.querySelectorAll('.dv-act .dv-note')].some((p) => p.textContent?.startsWith('명령 범위 조정'));
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(clipNote()).toBe(true);
+    await wait(4200);
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(clipNote()).toBe(false);
+    await recv(a, { t: 'cmd.ack', clipped: false });
+    await recv(a, { t: 'cmd.ack', clipped: true });
+    expect(clipNote()).toBe(true);
+    expect($('[data-stop]')).toBeTruthy();
+  }, 10000);
+  it('조종 화면: 길게 누르기 메뉴 막음, 영상 그림 끌기 없음', async () => {
+    const a = await launch(); await drive(a);
+    const c = cams()[0];
+    act(() => c.open());
+    await recv(c, { t: 'camera.frame', seq: 1, mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
+    expect($<HTMLImageElement>('img.dv-video')!.draggable).toBe(false);
+    const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+    act(() => { stick('전후').dispatchEvent(e); });
+    expect(e.defaultPrevented).toBe(true);
   });
   it('실기 limits 화면: 아래·옆 화살표 흐림, 옆으로 밀면 0 + 이유, 띠 없음', async () => {
     const a = await launch(); await drive(a);

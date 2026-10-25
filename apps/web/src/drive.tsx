@@ -198,7 +198,7 @@ function Screen(c: Ctx) {
       <button key={v} type="button" className="btn" aria-pressed={view === v} onClick={() => setView(v)}>{t}</button>)}
   </div>;
 
-  return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종">
+  return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body">
       <div className={`dv-stage ${view}`}>
         {view === 'map' ? <MapView big /> : <Video depth={view === 'depth'} />}

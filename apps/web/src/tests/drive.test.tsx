@@ -1722,6 +1722,15 @@ describe('폰 조종 앱 틀', () => {
     expect(driveCss).toMatch(/@media \(max-height:480px\)\{\.dv-hud\{[^}]*max-height:calc\(100% - 112px\);overflow-y:auto\}/);   // 가로: 상태 판이 조이스틱을 덮지 않음
   });
 
+  it('10-25 아이폰 Safari: 조종 화면 길게 누르기 = 글자 선택·돋보기·메뉴·끌기 없음(입력란만 예외), 가로 시뮬 작은 지도는 오른쪽 조이스틱 안쪽', () => {
+    expect(driveCss).toMatch(/\n\.fh:has\(\.dv\.ph\)\{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none\}/);
+    expect(driveCss).toMatch(/\n\.fh:has\(\.dv\.ph\) :is\(input,textarea\)\{-webkit-user-select:text;user-select:text\}/);
+    expect(driveCss).toMatch(/\n\.fh:has\(\.dv\.ph\) :is\(img,svg\)\{-webkit-user-drag:none\}/);
+    expect(driveCss).toMatch(/\.dv-stick\{[^}]*touch-action:none/);
+    // 오른쪽 조이스틱 12 + 90(테두리 포함) = 102 < 112: 가로로 겹치지 않음(높이와 무관)
+    expect(driveCss).toMatch(/@media \(max-height:480px\)\{\[data-sim-drive\]\.dv\.ph \.dv-mini\{top:8px;right:112px;width:100px;height:70px\}/);
+  });
+
   // 폰 판별 식(PHONE_Q)을 화면 크기로 계산하는 matchMedia — 320·390 세로, 844×390 가로, PC 1280
   function mountAt(width: number, height: number, coarse: boolean, hash: string) {
     const feat = (f: string) => {
