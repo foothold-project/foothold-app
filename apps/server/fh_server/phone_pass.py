@@ -216,6 +216,11 @@ class Issuer:
         claims = dict(iss='fh-control', aud='fh-phone/1', org=str(user.org_id), robot=str(robot.id),
                       sub=str(user.id), device=str(device), purpose=body.purpose, surface=body.surface,
                       iat=current, exp=current+600, jti=str(uuid4()))
+        if robot.simulation is True:
+            claims['run_cancel'] = (robot.org_id == user.org_id and robot.archived_at is None
+                                    and not user.locked and user.archived_at is None
+                                    and (user.role == 'ORG_ADMIN' or
+                                         (user.role == 'OPERATOR' and robot.owner_user_id == user.id)))
         header = b64(json.dumps(dict(alg='HS256', typ='JWT', kid=kid), separators=(',', ':')).encode())
         payload = b64(json.dumps(claims, separators=(',', ':')).encode())
         signed = header + '.' + payload

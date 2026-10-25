@@ -104,6 +104,7 @@ class Event(Tenant, Base):
         ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
         ForeignKeyConstraint(['org_id', 'user_id'], ['users.org_id', 'users.id']),
         ForeignKeyConstraint(['org_id', 'approval_id'], ['approvals.org_id', 'approvals.id'], name='events_approval_fk'),
+        ForeignKeyConstraint(['org_id', 'run_id'], ['runs.org_id', 'runs.id'], name='events_run_fk'),
         CheckConstraint("category IN ('RUN','ROUTE','LINK','LEASE','APPROVAL','SAFETY','ACCOUNT')", name='event_category'),
         CheckConstraint("severity IN ('INFO','WARN','ERROR')", name='event_severity'),
         UniqueConstraint('org_id', 'id'),
@@ -524,3 +525,73 @@ class PhoneRevocation(Tenant, Base):
     until: Mapped[int] = mapped_column(BigInteger)
     batch_id: Mapped[int] = mapped_column(BigInteger)
     acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Run(Tenant, Base):
+    __tablename__ = 'runs'
+    __table_args__ = (
+        UniqueConstraint('org_id', 'id'),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'assignment_id'], ['assignments.org_id', 'assignments.id']),
+        ForeignKeyConstraint(['org_id', 'scenario_version_id'], ['scenario_versions.org_id', 'scenario_versions.id']),
+        ForeignKeyConstraint(['org_id', 'started_by'], ['users.org_id', 'users.id']),
+        ForeignKeyConstraint(['org_id', 'map_version_id'], ['map_versions.org_id', 'map_versions.id']),
+        ForeignKeyConstraint(['org_id', 'floor_id'], ['floors.org_id', 'floors.id']),
+        CheckConstraint('simulation OR assignment_id IS NOT NULL', name='run_real_assignment'),
+        CheckConstraint("status IN ('QUEUED','PREPARING','MOVING','RUNNING','AT_WAYPOINT','PERFORMING','WAIT_CONFIRM','PAUSED','COMPLETED','FAILED','CANCELED','ABORTED')", name='run_status'),
+        Index('one_active_run', 'robot_id', unique=True, postgresql_where=text("status NOT IN ('COMPLETED','FAILED','CANCELED','ABORTED')")),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    assignment_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    simulation: Mapped[bool] = mapped_column(Boolean)
+    scenario_version_id: Mapped[UUID] = mapped_column(PGUUID)
+    floor_id: Mapped[UUID] = mapped_column(PGUUID)
+    map_version_id: Mapped[UUID] = mapped_column(PGUUID)
+    started_by: Mapped[UUID] = mapped_column(PGUUID)
+    device_id: Mapped[UUID] = mapped_column(PGUUID)
+    surface: Mapped[str] = mapped_column(Text)
+    screen_id: Mapped[UUID] = mapped_column(PGUUID)
+    agent_instance_id: Mapped[UUID] = mapped_column(PGUUID)
+    status: Mapped[str] = mapped_column(Text)
+    step: Mapped[int] = mapped_column(Integer, default=0, server_default=text('0'))
+    progress: Mapped[dict | None] = mapped_column(JSONB)
+    wait_reason: Mapped[str | None] = mapped_column(Text)
+    fail_code: Mapped[str | None] = mapped_column(Text)
+    fail_message: Mapped[str | None] = mapped_column(Text)
+    emergency: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
+    emergency_reason: Mapped[str | None] = mapped_column(Text)
+    plan: Mapped[dict] = mapped_column(JSONB)
+    path_actual: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class RunStep(Tenant, Base):
+    __tablename__ = 'run_steps'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'run_id'], ['runs.org_id', 'runs.id']),
+        CheckConstraint('idx >= 0 AND idx < 200', name='run_step_idx'),
+        CheckConstraint("status IN ('PENDING','ARRIVED','DONE','SKIPPED','FAILED')", name='run_step_status'),
+    )
+    run_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    idx: Mapped[int] = mapped_column(Integer, primary_key=True)
+    status: Mapped[str] = mapped_column(Text)
+    arrived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    results: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+
+class RunReport(Tenant, Base):
+    """Immutable receipt in the same transaction as the reported changes."""
+    __tablename__ = 'run_reports'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        CheckConstraint('report_seq >= 0', name='run_report_seq'),
+    )
+    robot_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    agent_instance_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    report_seq: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    request_hash: Mapped[str] = mapped_column(Text)
+    monotonic_s: Mapped[float] = mapped_column(Float)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())

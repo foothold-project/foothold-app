@@ -231,6 +231,9 @@ class Realtime:
                           'connect_timeout':1,'keepalives':1,'keepalives_idle':1,
                           'keepalives_interval':1,'keepalives_count':2,'tcp_user_timeout':2000})
         self.phone_pass_factory = sessionmaker(self.phone_ack_engine,expire_on_commit=False)
+        self.run_engine = create_engine(settings.database_url, pool_size=2, max_overflow=0, pool_timeout=.5,
+            connect_args={'options': '-c statement_timeout=2000 -c lock_timeout=1000', 'connect_timeout': 1})
+        self.run_factory = sessionmaker(self.run_engine, expire_on_commit=False)
         self.phone_pass_clock = time.time
         self.phone_ack_stores = {}
         self.phone_ack_contention = {}
@@ -466,6 +469,7 @@ class Realtime:
         self.stop_listeners.clear()
         self.audit_engine.dispose()
         self.phone_ack_engine.dispose()
+        self.run_engine.dispose()
         self.read_engine.dispose()
 
     def invalidate_stop_cache(self, users=None, robots=None):
@@ -1366,10 +1370,6 @@ class Realtime:
                         if self.clock() - self.agents[rid].auth_checked > 0.5:
                             raise LeaseError('ROBOT_AUTH_PENDING', '로봇 인증 확인을 기다리고 있습니다.', 503)
                         if msg.t == 'lease.take':
-                            r = self.arbiter.robot(rid)
-                            if r.holder and r.holder.holder_type == 'RUN' and rid in self.runs:
-                                self.runs[rid]['status'] = 'PAUSED'
-                                self.put(self.agents[rid], {'t': 'run.control', 'run_id': self.runs[rid]['run_id'], 'op': 'pause'})
                             self.apply(self.arbiter.take(rid, actor))
                         elif msg.t == 'lease.request':
                             self.apply(self.arbiter.request(rid, actor, settings.lease_request_timeout_s))
@@ -1699,6 +1699,44 @@ class Realtime:
                 peer.phone_ack_pending.discard(seq)
                 peer.phone_ack_queue.task_done()
 
+    async def run_report_writer(self, rid, peer):
+        from .runs import record, sample_path, snapshot, ReportRejected
+        while True:
+            kind, payload, at = await peer.run_reports.get()
+            try:
+                if kind == 'pose':
+                    await self.read(sample_path, self.run_factory, self.settings.org_id, rid, payload, at)
+                else:
+                    receipt = await self.read(record, self.run_factory, self.settings.org_id, rid, payload)
+                    identifier = payload.run_id if payload.t == 'run.update' else payload.data.get('run_id')
+                    current = await self.read(snapshot, self.factory, self.settings.org_id, rid, identifier)
+                    if self.agents.get(rid) is peer and not peer.closing:
+                        previous = self.runs.get(rid)
+                        if current is not None:
+                            self.runs[rid] = {**(previous or {}), **current}
+                        elif (payload.t == 'run.update' and previous
+                              and previous['run_id'] == str(payload.run_id)
+                              and previous['status'] not in ('COMPLETED', 'FAILED', 'CANCELED', 'ABORTED')):
+                            previous.update(status=payload.status, step=payload.step,
+                                            wait_reason=payload.wait_reason, fail_code=payload.fail_code)
+                        run = self.runs.get(rid)
+                        holder = self.arbiter.robot(rid).holder
+                        if (run and run['status'] in ('COMPLETED', 'FAILED', 'CANCELED', 'ABORTED')
+                                and holder and holder.holder_type == 'RUN'
+                                and run.get('lease_id') == holder.lease_id):
+                            self.apply(self.arbiter.revoke(rid))
+                        if receipt:
+                            self.put(peer, receipt)  # transaction has committed
+            except Exception as exc:
+                reason = str(exc) if isinstance(exc, ReportRejected) else 'RUN_RECORDING_UNAVAILABLE'
+                if self.agents.get(rid) is peer:
+                    self.retire_agent(rid, peer)
+                    with suppress(Exception):
+                        await peer.socket.close(code=1013, reason=reason)
+                return  # never ACK an uncommitted report
+            finally:
+                peer.run_reports.task_done()
+
     async def agent_ws(self, ws: WebSocket):
         if self.owner_connection is None or self.failed:
             await self.retry_later(ws)
@@ -1718,7 +1756,7 @@ class Realtime:
         await ws.accept()
         peer = Peer(ws, last_rx=self.clock(), last_ping=self.clock(), auth_checked=auth_started,
                     budget_at=self.clock(), archive_budget_at=self.clock())
-        sender = watcher = revoker = ack_writer = None
+        sender = watcher = revoker = ack_writer = run_writer = None
         hello_done = False
         try:
             async with asyncio.timeout(HELLO_TIMEOUT):
@@ -1769,11 +1807,16 @@ class Realtime:
             peer.state = {'devices': [d.model_dump(mode='json') for d in hello.devices],
                           'latched': hello.latched, 'stop_gen': hello.stop_gen}
             run = hello.run.model_dump(mode='json') if hello.run else None
-            if run and run['status'] not in ('COMPLETED', 'FAILED', 'ABORTED'):
+            from .runs import snapshot
+            persisted = await self.read(snapshot, self.factory, self.settings.org_id, rid, run['run_id'] if run else None)
+            if persisted is not None:
+                # Direct-agent runs are observations, never server-owned RUN leases.
+                # Server reconnection alone must not fabricate a PAUSED transition.
+                self.runs[rid] = persisted
+            elif run and run['status'] not in ('COMPLETED', 'FAILED', 'CANCELED', 'ABORTED'):
                 run['status'] = 'PAUSED'
                 run['wait_reason'] = 'RECONNECTED'
                 self.runs[rid] = run
-                self.put(peer, {'t': 'run.control', 'run_id': run['run_id'], 'op': 'pause'})
                 # RUN remains reserved after the same stop verification barrier.
                 if fresh_reference:
                     r.transfer = Transfer(None, self.clock() + 2, r.stop_ref)
@@ -1784,6 +1827,9 @@ class Realtime:
             watcher = asyncio.create_task(self.agent_watch(rid, peer))
             revoker = asyncio.create_task(self.phone_revocations(rid, peer))
             ack_writer = asyncio.create_task(self.phone_ack_writer(rid,peer))
+            peer.run_reports = asyncio.Queue(maxsize=128)
+            peer.path_sample_at = float('-inf')
+            run_writer = asyncio.create_task(self.run_report_writer(rid, peer))
             # Compatibility alias for join/diagnostics, never a peer-owned queue.
             peer.archive = self.audit
             self.streams()
@@ -1827,13 +1873,24 @@ class Realtime:
                 self.apply(self.arbiter.tick())
                 if msg.t == 'state':
                     accepted = self.accept_state(rid, peer, msg)
+                    if accepted and self.clock() - peer.path_sample_at >= 1:
+                        peer.path_sample_at = self.clock()
+                        if peer.record_pose is not None and not peer.run_reports.full():
+                            peer.run_reports.put_nowait(('pose', peer.record_pose, now()))
                     if accepted and msg.devices_changed is not None:
                         self.inventory.submit(rid, [d.model_dump(mode='json') for d in msg.devices_changed],
                             None, digest(ws.headers.get('authorization', '')[7:]))
                 elif msg.t == 'phone.revoke.ack':
                     self.queue_phone_ack(rid,peer,msg.seq)
+                elif msg.t in ('event', 'run.update') and (msg.t == 'run.update' or 'agent_instance_id' in msg.model_fields_set):
+                    if peer.run_reports.full():
+                        self.retire_agent(rid, peer)
+                        await ws.close(code=1013, reason='RUN_RECORDING_UNAVAILABLE')
+                        return
+                    peer.run_reports.put_nowait(('report', msg, None))
                 elif msg.t == 'event':
-                    effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'op': 'AGENT_EVENT', 'at': now()})
+                    from .runs import public_data
+                    effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'data': public_data(msg.data), 'op': 'AGENT_EVENT', 'at': now()})
                     # Parsing never waits behind archival pacing. Exhaustion is
                     # explicit and fail-safe rather than silently losing events.
                     if isinstance(self.audit, FairAuditQueue) and not self.audit.event_allowed(rid):
@@ -1846,16 +1903,6 @@ class Realtime:
                             await asyncio.shield(peer.archive_close)
                         return
                     await asyncio.sleep(0)
-                elif msg.t == 'run.update':
-                    # Placeholder: accept matching paused/terminal reports only;
-                    # no mission execution or persistence is claimed here.
-                    run = self.runs.get(rid)
-                    if run and run['run_id'] == str(msg.run_id) and msg.status in ('PAUSED', 'COMPLETED', 'FAILED', 'ABORTED'):
-                        run.update(status=msg.status, step=msg.step)
-                        holder = self.arbiter.robot(rid).holder
-                        if (msg.status != 'PAUSED' and holder and holder.holder_type == 'RUN'
-                                and run.get('lease_id') == holder.lease_id):
-                            self.apply(self.arbiter.revoke(rid))
                 # ping, cmd.ack, media are validated no-op extension points.
         except self.api_error:
             self.retire_agent(rid, peer)
@@ -1880,11 +1927,11 @@ class Realtime:
                 self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
                 self.apply([Effect('audit', rid, {'op': 'AGENT_DISCONNECTED'})])
             peer.closing = True
-            for task in (sender, watcher, revoker, ack_writer):
+            for task in (sender, watcher, revoker, ack_writer, run_writer):
                 if task:
                     task.cancel()
             with suppress(asyncio.CancelledError):
-                await asyncio.gather(*(t for t in (sender, watcher, revoker, ack_writer) if t), return_exceptions=True)
+                await asyncio.gather(*(t for t in (sender, watcher, revoker, ack_writer, run_writer) if t), return_exceptions=True)
 
     def accept_state(self, rid, peer, msg):
         if self.agents.get(rid) is not peer or peer.closing:
@@ -1918,7 +1965,9 @@ class Realtime:
                         pose[key] = None
                 elif (pose['floor_id'], pose['map_version_id']) != (context['floor_id'], context['map_version_id']):
                     pose.update(floor_id=None, map_version_id=None, x=None, y=None, yaw=None, confidence=None)
+        peer.record_pose = None
         if not stale_floor:
+            peer.record_pose = dict(pose)
             peer.state['location'] = (C.Location(**pose, updated_at=now()).model_dump(mode='json')
                 if context is not None or any(pose[key] is not None for key in ('x', 'y', 'yaw')) else None)
         run = self.runs.get(rid)

@@ -102,10 +102,12 @@ def test_server_location_carries_context_and_rejects_late_revision_without_motio
     assert peer.state['location']['x'] is None and peer.state['location']['floor_context']['floor_state'] == 'transit'
     Realtime.accept_state(realtime, rid, peer, report(c))
     assert peer.state['location']['floor_context']['floor_rev'] == 3
+    assert peer.record_pose is None  # stale revision cannot become a run path sample
     assert peer.state['applied'] == [.6, 0., 0.] and len(effects) == 3
     batch.floor_authority = {rid: (3, [])}  # approval changed or no registered grid
     Realtime.accept_state(realtime, rid, peer, report(context(4)))
     assert peer.state['location']['floor_context']['reason'] == 'approval_unverified'
+    assert peer.record_pose['x'] is None  # archive uses the sanitized pose, too
     assert peer.state['location']['x'] is None
 
 

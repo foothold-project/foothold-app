@@ -601,8 +601,7 @@ def create_app(settings: Settings | None = None):
             # Full live viewing has the same scope as existing ROBOT_READ.
             # Check it first so inaccessible robot existence stays hidden.
             authorize(user, 'ROBOT_READ', row)
-            # Even a view phone pass permits local-agent STOP. Admins must
-            # therefore receive neither purpose for a real robot.
+            # Real admin access stays disabled for the simulation-only first release.
             authorize(user, 'ROBOT_STOP', row)
             authorize(user, 'O_OWN' if body.purpose == 'control' else 'ROBOT_READ', row)
         except APIError as exc:
@@ -758,7 +757,7 @@ def create_app(settings: Settings | None = None):
         response.headers['Cache-Control'] = 'no-store'
         return C.AgentTokenResponse(agent_token=raw)
 
-    from . import events_api, notifications, maps, missions, simulation
+    from . import events_api, notifications, maps, missions, simulation, runs
     simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization)
     missions.install(app, DB, Identity, fail, authorize, event, page)
     assignments.install(app, DB, Identity, fail, page)
@@ -768,6 +767,7 @@ def create_app(settings: Settings | None = None):
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
+    runs.install(app, DB, fail)
     app.state.phone_pass_issuer = issuer
     app.state.realtime.phone_pass_clock = lambda: issuer.clock()
     return app

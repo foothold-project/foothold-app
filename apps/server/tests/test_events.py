@@ -15,7 +15,8 @@ from apps.contracts import models as C
 from apps.server.fh_server import event_messages as messages
 from apps.server.fh_server.events_api import csv_cell
 from apps.server.fh_server.leases import Effect
-from apps.server.fh_server.models import Event, Notification, Robot, User, now
+from apps.server.fh_server.models import (Event, Notification, Robot, User, now,
+    Site, Building, Floor, Upload, MapVersion, Scenario, ScenarioVersion, Run)
 from apps.server.fh_server.notifications import append_for_event
 from .conftest import login
 
@@ -26,6 +27,29 @@ def records(seeded):
     stamp = datetime(2026, 10, 19, 5, 2, tzinfo=timezone.utc)
     run = uuid4()
     with DBSession(engine) as db:
+        # Event.run_id now has a tenant FK; create a real synthetic history row.
+        org, owner = seeded['org'], seeded['users']['one']
+        site = Site(org_id=org, name='synthetic'); db.add(site); db.flush()
+        building = Building(org_id=org, site_id=site.id, name='synthetic'); db.add(building); db.flush()
+        floor = Floor(org_id=org, building_id=building.id, name='synthetic', level=1)
+        image = Upload(org_id=org, image_path='synthetic.png', image_sha256=b'x'*32,
+            png_sha256=b'x'*32, size_bytes=1, width=1, height=1, metadata_json={}, created_by=owner)
+        db.add_all([floor, image]); db.flush()
+        version = MapVersion(org_id=org, floor_id=floor.id, number=1, upload_id=image.id,
+            status='APPROVED', image_path='synthetic.png', image_sha256=b'x'*32, width=1, height=1,
+            resolution=1, origin_x=0, origin_y=0, origin_yaw=0, features={}, reason='synthetic',
+            source='IMPORT', created_by=owner)
+        scenario = Scenario(org_id=org, name='synthetic', latest_version=1, version=1, created_by=owner)
+        db.add_all([version, scenario]); db.flush()
+        fixed = ScenarioVersion(org_id=org, scenario_id=scenario.id, name='synthetic', number=1,
+            required_devices=[], waypoints=[], finish={'mode': 'STAY'}, notes='', floor_ids=[floor.id],
+            map_version_ids=[version.id], est_distance_m=0, created_by=owner)
+        db.add(fixed); db.flush()
+        db.add(Run(id=run, org_id=org, robot_id=seeded['robots']['mine'], simulation=True,
+            scenario_version_id=fixed.id, floor_id=floor.id, map_version_id=version.id,
+            started_by=owner, device_id=uuid4(), surface='phone', screen_id=uuid4(),
+            agent_instance_id=uuid4(), status='COMPLETED', plan={}, started_at=stamp, ended_at=stamp))
+        db.flush()
         def add(key, *, robot=None, actor=None, category='SAFETY', severity='INFO', at=stamp, run_id=None):
             ev = Event(org_id=seeded['org'], at=at, robot_id=seeded['robots'].get(robot),
                 user_id=seeded['users'].get(actor), category=category, severity=severity,
