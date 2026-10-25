@@ -36,8 +36,12 @@ class Observer:
         self.connected = self.protocol_rejected = self.reconnect_required = self.link_lost = False
         self.last_report = float('-inf')
         self.last_ping = self.now()
-        self.run = None  # P1-A never enables RUN
+        self._replay = []
         self.server_stop_ref = 0
+
+    @property
+    def run(self):
+        return self.phone.runs.snapshot()
 
     @property
     def core(self):
@@ -52,6 +56,10 @@ class Observer:
             messages = (self._state(),)
             self.last_report = self.now()
         self.link_lost = self.connected and self.now() - self.last_ping >= 3
+        if self.connected:
+            reports, self.phone.runs.outgoing = self.phone.runs.outgoing, []
+            messages = (*messages, *self._replay, *reports)
+            self._replay = []
         return Effects((), messages)
 
     tick = _finish
@@ -61,9 +69,14 @@ class Observer:
         self.protocol_rejected = self.reconnect_required = self.link_lost = False
         self.last_ping = self.now()
         self.server_stop_ref = 0
+        journal = self.phone.runs.journal
+        if journal is not None:
+            journal.poll()
+            self._replay = journal.replay()
+            self.phone.runs.outgoing.clear()
         hello = {**deepcopy(self.phone.session.identity), 't': 'hello', 'proto': 'fh-agent/2',
                  'latched': self.core.latch, 'stop_gen': self.phone.session._generation(),
-                 'lease_id': None, 'run': None}
+                 'lease_id': None, 'run': self.run}
         return Effects((), (hello, self._state()))
 
     def disconnect(self):
@@ -82,6 +95,8 @@ class Observer:
         return Effects(())
 
     def storage_blocked(self, reason):
+        if self.phone.runs.active:
+            self.phone.runs._halt('PAUSED', 'RECORDING_UNAVAILABLE')
         self.connected = False
         return Effects(())
 
@@ -113,6 +128,11 @@ class Observer:
                 self.phone.revoke(f)
                 effects = self.tick()
                 return Effects((), (*effects.messages, {'t': 'phone.revoke.ack', 'seq': f['seq']}))
+            elif f.get('t') == 'run.recorded' and self.connected:
+                journal = self.phone.runs.journal
+                if (journal is not None and set(f) == {'t', 'agent_instance_id', 'report_seq'}
+                        and isinstance(f['agent_instance_id'], str) and sequence(f['report_seq'])):
+                    journal.ack(f['agent_instance_id'], f['report_seq'])
             elif f.get('t') == 'ping':
                 self.last_ping = self.now()
         return self.tick()  # lease/cmd/unlock/run.* never reach the real Session

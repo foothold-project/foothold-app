@@ -218,8 +218,10 @@ class Verifier:
                 raise ValueError("signature")
             claims = json_object(unbase64(payload64))
             required = {'iss', 'aud', 'org', 'robot', 'sub', 'device', 'purpose', 'iat', 'exp', 'jti'}
-            if set(claims) not in (required, required | {'surface'}):
+            if not required <= claims.keys() or claims.keys() - required - {'surface', 'run_cancel'}:
                 raise ValueError("claims")
+            if type(claims.get('run_cancel', False)) is not bool:
+                raise ValueError('run_cancel')
             surface = claims.get('surface', 'phone')
             if surface not in ('phone', 'pc'):
                 raise ValueError('surface')
@@ -251,7 +253,7 @@ class Verifier:
             deadline = checked_at + min(expires - current, MAX_LIFETIME)
             if self.now() >= deadline:
                 raise ValueError('ticket expired during admission')
-            return {'user': user, 'device': device, 'purpose': claims['purpose'], 'surface': surface, 'jti': nonce, 'issued': issued, 'expires': expires,
+            return {'run_cancel': claims.get('run_cancel', False), 'user': user, 'device': device, 'purpose': claims['purpose'], 'surface': surface, 'jti': nonce, 'issued': issued, 'expires': expires,
                     'deadline': deadline}
         except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OverflowError, sqlite3.Error):
             raise TicketError("TICKET_INVALID") from None

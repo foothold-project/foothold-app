@@ -17,6 +17,9 @@ FIELDS = {
     'stop': set(), 'lease.take': set(), 'lease.request': set(),
     'lease.release': set(), 'lease.cancel': set(), 'view': set(),
     'lease.respond': {'request_id', 'accept'},
+    'run.start': {'lease_id', 'run_id', 'screen_id', 'scenario_id', 'scenario_version', 'floor_id', 'map_version_id'},
+    'run.control': {'run_id', 'op'},
+    'run.confirm': {'lease_id', 'run_id', 'kind', 'data'},
 }
 
 
@@ -34,7 +37,12 @@ def frame(raw, robot):
     if not isinstance(kind, str) or kind not in FIELDS:
         raise ValueError('VALIDATION')
     required = {'t', 'id', 'robot'} | FIELDS[kind]
-    if not required <= value.keys() or value.keys() - required - {'proto'}:
+    optional = {'proto'}
+    if kind == 'run.start':
+        optional.add('assignment_id')
+    if kind == 'run.control':
+        optional |= {'lease_id', 'screen_id', 'resume_token'}
+    if not required <= value.keys() or value.keys() - required - optional:
         raise ValueError('VALIDATION')
     if not isinstance(value['id'], str) or not 1 <= len(value['id']) <= 128 or '\x00' in value['id']:
         raise ValueError('VALIDATION')
@@ -44,12 +52,23 @@ def frame(raw, robot):
         raise ValueError('PROTOCOL_MISMATCH')
     if kind == 'hello' and (not isinstance(value['ticket'], str) or not 1 <= len(value['ticket']) <= 2048):
         raise ValueError('VALIDATION')
-    for key in ('device', 'request_id'):
+    for key in ('device', 'request_id', 'run_id', 'screen_id', 'scenario_id', 'floor_id', 'map_version_id', 'assignment_id', 'lease_id'):
         if key in value and value[key] != uuid(value[key]):
             raise ValueError('VALIDATION')
     if kind == 'lease.respond' and type(value['accept']) is not bool:
         raise ValueError('VALIDATION')
-    if kind in ('cmd', 'unlock') and value['lease_id'] != uuid(value['lease_id']):
+    if kind == 'run.start' and (type(value['scenario_version']) is not int or value['scenario_version'] < 1):
+        raise ValueError('VALIDATION')
+    if kind == 'run.control':
+        if value['op'] not in ('pause', 'resume', 'abort', 'return'):
+            raise ValueError('VALIDATION')
+        if value['op'] in ('pause', 'resume') and not {'lease_id', 'screen_id'} <= value.keys():
+            raise ValueError('VALIDATION')
+        if 'resume_token' in value and (not isinstance(value['resume_token'], str) or not value['resume_token']):
+            raise ValueError('VALIDATION')
+        if value['op'] == 'resume' and 'resume_token' not in value:
+            raise ValueError('VALIDATION')
+    if kind == 'run.confirm' and (value['kind'] not in ('FLOOR', 'OPERATOR') or not isinstance(value['data'], dict)):
         raise ValueError('VALIDATION')
     for key in ('seq', 'stop_gen', 'client_time_ms'):
         if key in value and not sequence(value[key]):

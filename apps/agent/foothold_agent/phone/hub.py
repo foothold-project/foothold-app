@@ -25,6 +25,8 @@ class Peer:
     device: str | None = None
     purpose: str | None = None
     surface: str = 'phone'
+    run_cancel: bool = False
+    run_start_reply: dict | None = field(default=None, repr=False)
     jti: str | None = None
     issued: int = 0
     deadline: float = 0
@@ -39,7 +41,9 @@ class Peer:
 
 class Hub:
     def __init__(self, verifier, sink, *, policy_name, policy_version, simulation,
-                 now=time.monotonic, wall=time.time, record=None):
+                 now=time.monotonic, wall=time.time, record=None,
+                 nav=None, scenario_source=None, run_journal=None, run_context=None,
+                 arrival_evidence=None, run_pause_timeout_s=600):
         self.verifier, self.sink = verifier, sink
         self.now, self.wall, self.record = now, wall, record
         self.robot = verifier.robot
@@ -57,6 +61,9 @@ class Hub:
         self.acquisition_report_at = self.now()
         self.stop_ref = 0
         self.clock_origin = None
+        from foothold_agent.executor.scenario_run import ScenarioRun
+        self.runs = ScenarioRun(self, nav=nav, source=scenario_source, journal=run_journal,
+            context=run_context, arrival=arrival_evidence, run_pause_timeout_s=run_pause_timeout_s)
         self._emit(self.session.connect())
 
     def _emit(self, effects):
@@ -74,7 +81,7 @@ class Hub:
             raise
         if self.record is not None:
             try:
-                self.record([m for m in effects.messages if m['t'] in ('event', 'run.update')])
+                self.record([m for m in effects.messages if m['t'] == 'event' or (m['t'] == 'run.update' and self.runs.current is None)])
             except BaseException as error:
                 self.record = None  # output a STOP without recursing into failed storage
                 try:
@@ -91,6 +98,7 @@ class Hub:
         self._emit(effects)
 
     def stop(self):
+        self.runs.stopped()
         if self.stop_ref >= MAX_SEQ:
             self._emit(self.session.shutdown())
             raise RuntimeError('phone STOP reference exhausted')
@@ -103,8 +111,10 @@ class Hub:
             # These are replaceable UI snapshots. Audit events remain FIFO in
             # the separate journal; a slow viewer cannot kill the robot service.
             for old in list(queue):
-                if old['t'] == message['t']:
+                if old['t'] == message['t'] and message['t'] != 'event':
                     queue.remove(old)
+            if len(queue) >= 256:
+                queue.popleft()  # UI only; durable run journal owns all events
             queue.append(deepcopy(message))
 
     def drain(self, peer):
@@ -159,11 +169,13 @@ class Hub:
         self._audit('PHONE_LEASE_RELEASED', user_id=p.user, device_id=p.device, reason=reason)
 
     def release(self, peer):
+        self.runs.lost(peer)
         self._drop(peer)
         if self.pending is not None and self.pending['peer'] == peer:
             self._request_result('CANCELED', self_cancel=True)
 
     def disconnect(self, peer, *, reserve=True, requester_withdrawal=True):
+        self.runs.lost(peer)
         try:
             self._drop(peer, reserve=reserve, reason='DISCONNECTED')
             if self.pending is not None and self.pending['peer'] == peer:
@@ -184,12 +196,14 @@ class Hub:
     def _check_peer(self, peer):
         p = self.peers[peer]
         if p.user is not None and self.now() >= p.deadline:
+            self.runs.lost(peer)
             if self.owner == peer:
                 self.fail(peer, 'TICKET_EXPIRED', 4401)
             self.disconnect(peer, reserve=False, requester_withdrawal=True)
             self.closing[peer] = PhoneError('TICKET_EXPIRED', 4401)
             raise self.closing[peer]
         if self.now() - p.last_ping >= 3:
+            self.runs.lost(peer)
             if self.owner == peer:
                 self.fail(peer, 'PHONE_LINK_LOST', 1013, reserve=True)
             self.disconnect(peer, reserve=False)
@@ -228,6 +242,7 @@ class Hub:
 
     def tick(self):
         expired = self._expire()  # expiry precedes any output from a cached input
+        self.runs.tick()
         self._emit(self.session.tick())  # Hub is the ONLY phone link timer
         return expired
 
@@ -239,6 +254,8 @@ class Hub:
 
     def _grant(self, peer):
         self.stop()
+        if not self.runs.cancel_confirmed():
+            return False
         state = self.session._state()
         if not (state['latched'] and state['applied'] == list(Z) and state['stop_ref'] == self.stop_ref):
             return False
@@ -295,9 +312,11 @@ class Hub:
             p.user, p.device, p.purpose, p.deadline = ticket['user'], ticket['device'], ticket['purpose'], ticket['deadline']
             p.jti, p.issued = ticket['jti'], ticket['issued']
             p.surface = ticket['surface']
+            p.run_cancel = ticket.get('run_cancel', False)
             return {'t': 'hello', 'id': f['id'], 'robot': self.robot, 'proto': PROTO,
                     'limits': deepcopy(SIMULATION_LIMITS if self.simulation is True else LIMITS),
                     'policy': dict(self.policy), 'simulation': self.simulation,
+                    'capabilities': {'run_contract': 'scenario/1'},
                     'ping_interval_ms': 1000, 'link_timeout_ms': 3000, 'lease_timeout_ms': 15000}
         if p.user is None:
             self.fail(peer, 'HELLO_REQUIRED', 4401)
@@ -314,6 +333,33 @@ class Hub:
             if not zero_cmd and kind not in ('stop', 'ping', 'lease.release', 'lease.cancel', 'view'):
                 reply.update(ok=False, error=self.error('WEB_SIM_ONLY'))
                 return reply
+        self.runs.expire()  # deadlines win; incoming STOP/pause never poll a goal
+        if kind.startswith('run.'):
+            code, detail = self.runs.handle(peer, f)
+            if code is not None:
+                reply.update(ok=False, error=self.error(code))
+            elif detail is not None:
+                reply['detail'] = detail
+            return reply
+        if kind in ('lease.take', 'lease.request') and self.runs.active:
+            c = self.runs.current
+            if c['status'] != 'PAUSED':
+                reply.update(ok=False, error=self.error('RUN_ACTIVE'))
+                return reply
+            if self.runs.identity(p) != c['identity']:
+                reply.update(ok=False, error=self.error('RUN_OWNER_MISMATCH'))
+                return reply
+            if not self.runs.cancel_confirmed():
+                reply.update(ok=False, error=self.error('RESUME_REJECTED'))
+                return reply
+        if kind == 'cmd' and self.runs.active and self.runs.current['status'] != 'PAUSED':
+            if not zero_cmd:
+                reply.update(ok=False, error=self.error('RUN_ACTIVE'))
+                return reply
+            # Safety-reducing ZERO is never blocked by RUN ownership.
+            self.session.core._void()
+            self._emit(self.session.tick())
+            return {'t': 'cmd.ack', 'id': f['id'], 'seq': f['seq'], 'applied': list(Z), 'clipped': False, 'reason': None}
         if kind in ('lease.take', 'lease.request') and not self._acquisition_allowed(p):
             reply.update(ok=False, error=self.error('LEASE_ACQUIRE_LIMIT'))
             return reply  # Identity budget persists across grant, disconnect and hello.
@@ -427,7 +473,7 @@ class Hub:
         p = self.peers[peer]
         identity = ((self.peers[self.owner].user, self.peers[self.owner].device) if self.owner is not None
                     else self.reservation['identity'] if self.reservation is not None else (None, None))
-        return {**s, 'robot': self.robot, 'controller': identity[0], 'controller_device': identity[1],
+        return {**s, 'run': self.runs.snapshot(), 'robot': self.robot, 'controller': identity[0], 'controller_device': identity[1],
                 'controller_connected': self.owner is not None,
                 'lease_id': self.session.lease_id if self.owner == peer else None,
                 'stop_requested': st.get('stop_requested'),
@@ -465,6 +511,7 @@ class Hub:
             raise primary
 
     def close(self):
+        self.runs.stopped()
         primary = None
         try:
             self._emit(self.session.shutdown())
