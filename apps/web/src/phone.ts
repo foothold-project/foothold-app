@@ -45,6 +45,7 @@ const REJECTED = new Set(['400 SIM_VALIDATION', '400 SIM_IDENTITY_INVALID', '400
 // gen = 연결 세대(close 마다), epoch = 화면 세션(clear 마다), cancel = 띄우는 중 STOP(POST 답이 오면 바로 정리), me = 내 사용자 id(총괄 목록은 조직 전체라 owner 로 내 것 판정)
 let S = blank(), lastEcho = '', ws: WebSocket | null = null, cam: WebSocket | null = null, timer = 0, tick = 0, seq = 0, ids = 0, backoff = 0, gen = 0, epoch = 0, cancel = false, me = '';
 let axes: Axes = [0, 0];   // [전후, 회전, 옆] -1..1, 조종 화면이 넣는다
+let surface: 'pc' | undefined;   // PC «시뮬» 탭이 열려 있으면 'pc' — 출입증 요청에 싣는다(ADR-003 §6.2, 폰은 보내지 않음)
 const replies = new Map<string, (ok: boolean) => void>();
 const subs = new Set<() => void>();
 const emit = () => { S = { ...S }; subs.forEach((f) => f()); };
@@ -210,6 +211,8 @@ export const sim = {
   subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },
   /** 조종 화면 조이스틱 값. 손을 떼면 [0,0] */
   axes(v: Axes) { axes = v; },
+  /** PC «시뮬» 탭이 열고 닫을 때 — 다음 출입증 요청부터 surface 를 싣는다 */
+  pc(on: boolean) { surface = on ? 'pc' : undefined; },
   /** 월드·내 시뮬 로봇 목록. 내 로봇 목록을 이번에 받았으면 true */
   async load() {
     const g = gen, e0 = epoch;
@@ -297,10 +300,12 @@ export const sim = {
     set({ step: S.step === 'drive' ? 'drive' : 'linking', link: { at: 'connecting', welcome: null, st: null, stAt: 0, lease: null, why: '', code: 0, notice: '', busy: '', clipped: false, rtt: null, cam: 'wait', img: '', ask: null, exp: 0 } });
     if (!url) return setLink({ at: 'closed', why: '로봇 연결 주소가 올바르지 않습니다.' });
     let pass;
-    try { pass = await api.phonePass(r.robot_id, { device: deviceId(), purpose: 'control' }); } catch (e) {
+    try { pass = await api.phonePass(r.robot_id, { device: deviceId(), purpose: 'control', ...(surface && { surface }) }); } catch (e) {
       if (g !== gen) return;
       const ra = e instanceof ApiFail && e.status === 429 ? Number(e.detail?.retry_after) : 0;   // 429 는 retry_after(초)보다 일찍 다시 받지 않음(§13.7 D13)
       if (ra > 0) S.retryAt = now() + ra * 1000;
+      // 403 WEB_SIM_ONLY = 서버가 이 로봇에 웹 시뮬 출입증을 주지 않음(simulation 꺼짐). 서버 문구 그대로, 화면은 «다시 연결»을 내지 않는다(code 403)
+      if (e instanceof ApiFail && e.status === 403 && e.code === 'WEB_SIM_ONLY') return setLink({ at: 'closed', code: 403, why: e.message });
       setLink({ at: 'closed', why: `출입증을 받지 못했습니다. ${message(e)}` });
       return;
     }
