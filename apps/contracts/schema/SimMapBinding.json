@@ -92,7 +92,8 @@
     "world_id": {
       "enum": [
         "v5_building",
-        "warehouse"
+        "warehouse",
+        "rubble"
       ],
       "title": "World Id",
       "type": "string"

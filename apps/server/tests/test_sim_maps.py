@@ -37,6 +37,9 @@ def world_folder(tmp_path):
     for relative in ('worlds.json', 'warehouse/scenarios.json', 'warehouse/maps/f1.png',
                      'warehouse/maps/f1.yaml', 'warehouse/maps/metadata.json'):
         shutil.copyfile(SOURCE / relative, root / relative)
+    catalog = json.loads((root / 'worlds.json').read_text())
+    catalog['worlds'] = {'warehouse/f1': catalog['worlds']['warehouse/f1']}
+    (root / 'worlds.json').write_text(json.dumps(catalog))
     return root
 
 

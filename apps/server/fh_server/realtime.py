@@ -1502,7 +1502,7 @@ class Realtime:
             batch.floor_authority = {}
             if any(r.simulation for r in robots.values()):
                 bindings = []
-                for world in ('v5_building', 'warehouse'):
+                for world in ('v5_building', 'warehouse', 'rubble'):
                     try:
                         bindings.extend(approved_bindings(db, self.settings.org_id, world))
                     except (ValueError, KeyError, TypeError):

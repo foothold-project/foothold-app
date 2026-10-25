@@ -210,10 +210,10 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 사용 중입니다.', {'reason': 'slot_busy'})
             return found
         bindings = []
-        if body.world_id in ('v5_building', 'warehouse/f1'):
+        if body.world_id in ('v5_building', 'warehouse/f1', 'rubble/f1'):
             try:
                 bindings = [b.model_dump(mode='json') for b in approved_bindings(
-                    db, user.org_id, 'warehouse' if body.world_id == 'warehouse/f1' else 'v5_building')]
+                    db, user.org_id, body.world_id.split('/')[0])]
             except (ValueError, KeyError, TypeError):
                 fail(409, 'SIM_MAP_BINDING_INVALID', '양 층 승인 지도 등록을 확인하세요.')
         raw = token()

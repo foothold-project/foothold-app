@@ -135,7 +135,7 @@ class NativeLauncher:
             try:
                 verify_bindings(native, world.map_bindings)
             except (ValueError, KeyError, TypeError, OSError) as error:
-                raise WorldValidationError('warehouse map bindings do not match cleared assets') from error
+                raise WorldValidationError('repository map bindings do not match cleared assets') from error
         base = Path(self.settings.run_dir).resolve()
         if not base.is_relative_to(ROOT / 'runs') or base == ROOT / 'runs':
             raise ValueError('evidence must be a new directory under this worktree runs')
@@ -221,7 +221,7 @@ class NativeLauncher:
             identity = json.loads((self.sim.out / 'run-identity.json').read_text())
             env['FOOTHOLD_FLOOR_BINDINGS'] = json.dumps(dict(robot_id=slot.robot_id,
                 generation=credentials['generation'], run_id=identity['run_id'], epoch=1,
-                spawn_floor_id=('f1' if credentials['map_bindings'][0]['world_id'] == 'warehouse'
+                spawn_floor_id=('f1' if credentials['map_bindings'][0]['world_id'] in ('warehouse', 'rubble')
                                 else credentials['spawn_floor_id']), bindings=credentials['map_bindings']))
         try:
             self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)

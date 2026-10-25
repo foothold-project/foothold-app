@@ -4,6 +4,7 @@ The upstream helper is unmodified on disk. Only its TARGET is replaced, after
 membership, realpath and SHA checks; all its other gates execute unchanged.
 """
 import argparse
+import functools
 import importlib.util
 import json
 from pathlib import Path
@@ -58,7 +59,7 @@ def main(argv=None):
         from apps.simmgr.repo_runtime import install, single_floor_status
         from apps.simmgr.connected_runtime import compile_static_runtime, write_run_identity
         scope = dict(__name__='fh_catalogued_runtime', __file__=str(runtime),
-            _fh_single_floor_status=single_floor_status, _fh_run_identity=write_run_identity)
+            _fh_single_floor_status=functools.partial(single_floor_status, world_id=helper.FH_NATIVE_WORLD.entry['world_id']), _fh_run_identity=write_run_identity)
         exec(compile_static_runtime(runtime.read_text(), str(runtime), warehouse=True), scope)
         install(scope, helper.FH_NATIVE_WORLD, Path(manifest_arg).parent)
         raise SystemExit(scope['main']())
