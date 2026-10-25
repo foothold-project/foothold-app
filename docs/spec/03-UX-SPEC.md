@@ -8,6 +8,8 @@
 | 상위 문서 | [01 PRD](01-PRD.md) · [02 기능 명세서](02-FUNCTIONAL-SPEC.md) |
 | 근거 | 2026-10-19 화면 점검(PC 15장·폰 12장, 빌드 98242c7), `UI-SIMPLIFY-TASK.md`(10-15) 규칙 |
 
+> 10-19판 — 역할·탭은 [ADR-002](09-ADR-002-PHONE-DIRECT.md)·[ADR-003](10-ADR-003-OPERATOR-APP-TOWER-WEBSIM.md)(10-25 개정)이 우선한다.
+
 ---
 
 ## 1. 디자인 유지 원칙 (확정: 디자인은 유지)
