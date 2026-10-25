@@ -38,9 +38,10 @@ const robotRow = (name: string) => $$('[aria-label="로봇 목록"] button').fin
 const pickUser = (id: string) => act(() => { root!.render(<App user={USERS.find((u) => u.id === id)} robots={ROBOTS} />); });
 const remount = (phone: boolean, user: string, hash: string) => { act(() => root?.unmount()); box.remove(); mount(phone, user, hash); };
 /** 폰 화면 전부: 로봇 연결, 내 첫 로봇 조종 화면, 그 화면의 시트 4개, 기록 */
-const PHONE_FIRST: Record<string, string> = { 'u-kim': 'r3', 'u-lee': 'r3', 'u-park': 'r7' };
+// 총괄(김OO)은 실기 조종 화면이 없다(10-25) — 로봇 연결·기록만
+const PHONE_FIRST: Record<string, string> = { 'u-lee': 'r3', 'u-park': 'r7' };
 function eachPhoneScreen(user: string, f: (where: string) => void) {
-  for (const h of ['#/drive', `#/drive/${PHONE_FIRST[user]}`, '#/history']) {
+  for (const h of ['#/drive', ...(PHONE_FIRST[user] ? [`#/drive/${PHONE_FIRST[user]}`] : []), '#/history']) {
     remount(true, user, h); f(h);
     if (h === '#/drive') continue;
     if (h === '#/history') continue;
@@ -122,9 +123,11 @@ describe('역할 전환', () => {
   });
 });
 
+// 10-25: 총괄은 실기 STOP 이 없다 — 실기만 있는 목록이면 총괄 화면에 STOP 0개(상태 띠는 그대로). 운영 관리자는 그대로 1개
 describe('STOP 상시 표시', () => {
-  const one = (phone: boolean, where: string) => {
+  const one = (phone: boolean, where: string, admin = false) => {
     const s = $$('[aria-label="비상 정지"]');
+    if (admin) { expect(s, where).toHaveLength(0); expect($('[data-band][role="status"]'), where).not.toBeNull(); return; }
     expect(s, where).toHaveLength(1);
     expect(s[0].closest('header'), where).not.toBeNull();
     expect($('header').lastElementChild, where).toBe(s[0]);
@@ -132,16 +135,16 @@ describe('STOP 상시 표시', () => {
     expect(parseInt(s[0].style.minHeight), where).toBeGreaterThanOrEqual(phone ? 64 : 44);
     expect($('[data-band][role="status"]'), where).not.toBeNull();
   };
-  for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP 1개 + 상태 띠 자리`, () => {
+  for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개'} + 상태 띠 자리`, () => {
     mount(false, u.id);
-    for (const t of tabsFor(false)) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id); }
+    for (const t of tabsFor(false)) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id, u.role === 'ORG_ADMIN'); }
   });
-  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP 1개(64px) + 상태 띠 자리`, () => {
+  for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개(64px)'} + 상태 띠 자리`, () => {
     mount(true, u.id);
-    eachPhoneScreen(u.id, (where) => one(true, where));
+    eachPhoneScreen(u.id, (where) => one(true, where, u.role === 'ORG_ADMIN'));
   });
   it('STOP 을 누르면 실시간 연결로 보내고, 서버가 받으면 띠에 «정지 요청됨»', () => {
-    mount(false);
+    mount(false, 'u-lee');
     act(() => FakeWS.last.open());
     click($('[aria-label="비상 정지"]'));
     expect(FakeWS.last.of('stop')).toMatchObject([{ robot: 'r3' }]);

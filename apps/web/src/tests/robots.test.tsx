@@ -101,7 +101,7 @@ describe('관제 요약 = GET /dashboard(05 §4)', () => {
     expect(kpi()).toEqual({ 전체: '2', 연결: '1', '임무 중': '0', '주의 필요': '1', '결재 대기': '0' });
     expect(card('요약').querySelector('.bad')!.textContent).toContain('주의 필요');
     expect(card('운영 관리자').textContent).toBe('운영 관리자 2명이운영로봇 1대박운영로봇 1대');
-    stopOk();
+    expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
   });
   it('운영 관리자: 서버가 센 담당 범위(내 로봇·내 요청), 운영 관리자 표 없음, 목록은 전체', async () => {
     serve(signedIn(LEE, [RA, RB_HIDDEN], { 'GET /dashboard': { status: 200, body: { ...DASH, robots_total: 1, robots_attention: 0, operators: [] } } }));

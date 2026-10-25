@@ -44,8 +44,13 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
   return { tone: r.status === 'IDLE' ? 'off' : 'ok', text: STATUS_NAME[r.status] };
 }
 
-/** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×). 할 수 있으면 null */
+/** 총괄은 실기 로봇을 조종·STOP 하지 않는다(10-25 결정 — 실기는 운영자 폰, 서버도 403 ADMIN_NO_REAL_CONTROL). 시뮬 로봇은 총괄도 */
+export const ADMIN_REAL = '총괄 계정은 실기 로봇을 조종하지 않습니다.';
+export const adminReal = (u: Pick<User, 'role'>, r: Pick<Robot, 'sim'>) => u.role === 'ORG_ADMIN' && !r.sim;
+
+/** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×, 총괄은 실기 ×). 할 수 있으면 null */
 export function driveBlock(u: User, r: Robot): string | null {
+  if (adminReal(u, r)) return ADMIN_REAL;
   if (u.role !== 'ORG_ADMIN' && r.owner !== u.id) return `${r.owner ? `${ownerName(r)}님의 로봇입니다` : '담당자가 없는 로봇입니다'}. 내 로봇만 조종할 수 있습니다.`;
   if (r.unknown === 'link') return '서버 연결이 끊겨 조종할 수 없습니다. 네트워크를 확인하세요.';
   if (r.unknown) return '로봇 상태를 확인하는 중입니다. 잠시 뒤 다시 누르세요.';
@@ -57,7 +62,7 @@ export function driveBlock(u: User, r: Robot): string | null {
 export const listScope = (u: Pick<User, 'role'>): 'mine' | 'all' => (u.role === 'ORG_ADMIN' ? 'all' : 'mine');
 /** PC 관제 고르기(02 기능 §1.1): 받은 목록 그대로. 운영자 목록은 서버가 내 로봇만 주지만, 담당이 바뀌는 사이 남은 남의 로봇은 뒤로(보는 중) */
 export const robotsFor = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : [...myRobots(u, list), ...list.filter((r) => r.owner !== u.id)]);
-/** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체 */
+/** 폰·내 로봇 범위(02 기능 §1.2): 운영자는 담당 로봇만, 총괄은 전체(폰 조종 고르기는 App 이 실기를 뺀다 — adminReal) */
 export const myRobots = (u: User, list = ROBOTS) => (u.role === 'ORG_ADMIN' ? list : list.filter((r) => r.owner === u.id));
 const clock = (at?: string) => (at ? new Date(at).toTimeString().slice(0, 8) : '');   // 13:40:05(브라우저마다 같은 꼴)
 /** 시뮬 로봇 화면 이름 «시뮬 로봇 N» — 서버 기본 이름 «시뮬 <id 앞 8자리>»의 16진 id 는 본문에 쓰지 않는다(U5). id = 로봇 id 또는 그 앞 8자리.

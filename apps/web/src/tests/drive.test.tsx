@@ -11,18 +11,26 @@ import { api, onAuthLost as setAuthLost } from '../api';
 import { COOLDOWN_S, FAIL_TEXT, FREE_TEXT, REQUEST_S, STOP_HTTP_MS, STOP_WS_MS, rt } from '../rt';
 import { FakeWS, fail, lease, state } from './fakeWs';
 import { STALLED } from '../simdrive';
+import { ADMIN_REAL, driveBlock } from '../fake';
 import driveCss from '../drive.css?raw';
 import frameCss from '../frame.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let root: Root | null = null, box: HTMLDivElement;
+/** 10-25: 총괄은 실기 조종·STOP 이 없다. 예전 «총괄 김OO가 아무 로봇이나 조종» 시험은 세 로봇을 모두 맡은 운영 관리자 김OO 로 그대로 본다(이름·id 같음).
+ *  진짜 총괄은 ADMIN */
+const ADMIN = 'admin';
+const as = (user: string, robots: Robot[] = ROBOTS) => {
+  const kim = user === 'u-kim', me = user === ADMIN ? USERS[0] : kim ? { ...USERS[0], role: 'OPERATOR' as const } : USERS.find((u) => u.id === user);
+  return { user: me, robots: kim ? robots.map((r) => ({ ...r, owner: 'u-kim', ownerName: '김OO' })) : robots };
+};
 /** robots = 서버 /robots 응답(기본 = 가짜 3대 전부). 붙이면 rt.connect → 가짜 WebSocket 하나(아직 안 열림) */
 function mount(phone: boolean, user: string, hash: string, robots: Robot[] = ROBOTS) {
   window.matchMedia = ((q: string) => ({ matches: phone, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
   location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
-  act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === user)} robots={robots} />); });
+  act(() => { root = createRoot(box); root.render(<App {...as(user, robots)} />); });
 }
 // 판정은 단조 시계(performance.now): advanceTimersByTime 은 그것도 움직이고, setSystemTime(벽시계)은 움직이지 않는다
 beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date', 'performance'] }); });
@@ -1743,7 +1751,7 @@ describe('폰 조종 앱 틀', () => {
     act(() => root!.unmount()); box.remove();
     window.matchMedia = ((q: string) => ({ matches: matches(q), media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
     box = document.createElement('div'); document.body.append(box);
-    act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-kim')} robots={ROBOTS} />); });
+    act(() => { root = createRoot(box); root.render(<App {...as('u-kim')} />); });
   }
   for (const [wd, ht, coarse] of [[320, 568, true], [390, 844, true], [844, 390, true]] as const) it(`${wd}×${ht}: 폰 틀 — 연결·조종·시트 어디서나 STOP 64 px 머리줄 끝`, () => {
     mountAt(wd, ht, coarse, '#/drive');
@@ -1782,5 +1790,131 @@ describe('폰 조종 앱 틀', () => {
     expect(box.querySelector('.fh.phone')).toBeNull();
     expect($('main').getAttribute('aria-label')).toBe('로봇');
     expect(box.querySelector('.dv-stick')).toBeNull();
+  });
+});
+
+// 10-25 결정: 총괄 = 대시보드·지도·시나리오·시뮬. 실기 로봇은 조종·STOP 하지 않는다(실기 STOP 은 운영 관리자 폰, 서버도 403 ADMIN_NO_REAL_CONTROL). 시뮬 로봇은 총괄도
+describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
+  const SIM: Robot = { id: 's1', name: '시뮬 로봇 1', owner: '', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true };
+  const MIX = [ROBOTS[1], SIM];
+  const NO = '총괄 계정은 실기 로봇을 조종할 수 없습니다.';   // 서버 문구(화면이 바꾸지 않고 그대로 보임)
+  const space = () => { key('keydown', 'Space', document.body); key('keyup', 'Space', document.body); };
+  const again = (phone: boolean, hash: string, robots: Robot[]) => { act(() => root?.unmount()); box.remove(); mount(phone, ADMIN, hash, robots); serve(KIM, ...robots.map((r) => r.id)); };
+
+  it('조종 이유: 총괄 + 실기 = 총괄 문구, 총괄 + 시뮬 = 조종 가능, 운영 관리자는 그대로', () => {
+    expect(driveBlock(USERS[0], ROBOTS[1])).toBe(ADMIN_REAL);
+    expect(driveBlock(USERS[0], SIM)).toBeNull();
+    expect(driveBlock(USERS[2], ROBOTS[1])).toBeNull();   // 박OO 의 Go2-7
+  });
+
+  it('PC 로봇 탭: 실기를 고르면 STOP 단추·Space 없음, 대시보드 값은 그대로. 시뮬을 고르면 STOP = 그 시뮬', () => {
+    mount(false, ADMIN, '#/fleet', MIX);
+    serve(KIM, 'r7', 's1');
+    expect(row('Go2-7').getAttribute('aria-pressed')).toBe('true');
+    expect(row('Go2-7').textContent).toContain('80%');   // 실시간 상태(배터리)는 그대로
+    expect($('[aria-label="로봇 상세"]').textContent).toContain('박OO');
+    expect(box.querySelector('[data-stop]')).toBeNull();
+    expect(btn('조종 시작')).toBeUndefined();
+    space();
+    expect(w.of('stop')).toHaveLength(0);
+    click(row('시뮬 로봇 1'));
+    click($('[data-stop]'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1']);
+    space();
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 's1']);
+    expect(w.of('lease.take')).toHaveLength(0);
+  });
+
+  it('PC 다른 탭: STOP 고르기는 시뮬 로봇만, 시뮬이 없으면 STOP·Space 없음', () => {
+    mount(false, ADMIN, '#/mission', MIX);
+    serve(KIM, 'r7', 's1');
+    click($('[data-stop]'));
+    const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    expect([...pick.options].map((o) => o.value)).toEqual(['', 's1']);
+    again(false, '#/mission', [ROBOTS[0], ROBOTS[1]]);
+    expect(box.querySelector('[data-stop]')).toBeNull();
+    space();
+    expect(w.of('stop')).toHaveLength(0);
+  });
+
+  // PR #94 B1: 고르기를 연 채 유일한 시뮬이 목록에서 빠지거나(지움) 실기로 바뀌면 고르기·«정지» 도 사라진다(STOP 경로 0)
+  for (const [how, after] of [['지움', [ROBOTS[1]]], ['실기로 바뀜', [ROBOTS[1], { ...SIM, sim: false }]]] as const) it(`[PR #94 B1] PC 고르기 연 채 유일한 시뮬이 ${how} → 고르기·정지 단추 없음`, () => {
+    mount(false, ADMIN, '#/mission', MIX);
+    serve(KIM, 'r7', 's1');
+    click($('[data-stop]'));
+    const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    act(() => { pick.value = 's1'; pick.dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => root!.render(<App {...as(ADMIN, [...after])} />));
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    expect(box.querySelector('[data-stop]')).toBeNull();
+    space();
+    expect(w.of('stop')).toHaveLength(0);
+    act(() => root!.render(<App {...as(ADMIN, MIX)} />));   // 시뮬이 돌아와도 닫힌 고르기가 저절로 열리지 않음
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
+  });
+
+  it('[PR #94 B1] 운영 관리자는 같은 상황에서 STOP 그대로: 분류가 바뀌어도 고른 로봇 정지, 고른 로봇이 지워지면 고르기 전으로·다른 로봇 정지', () => {
+    mount(false, 'u-kim', '#/mission', [...ROBOTS, SIM]);
+    serve(KIM, 'r3', 'r7', 'r1', 's1');
+    click($('[data-stop]'));
+    const pick = () => $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    act(() => { pick().value = 's1'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => root!.render(<App {...as('u-kim', [...ROBOTS, { ...SIM, sim: false }])} />));
+    expect(pick().value).toBe('s1');
+    click(btn('정지'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1']);
+    click($('[data-stop]'));
+    act(() => { pick().value = 'r7'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => root!.render(<App {...as('u-kim', [ROBOTS[0], ROBOTS[2]])} />));
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
+    expect([pick().value, ...[...pick().options].map((o) => o.value)]).toEqual(['', '', 'r3', 'r1']);
+    act(() => { pick().value = 'r3'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    click(btn('정지'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 'r3']);
+  });
+
+  it('폰 로봇 연결: 실기 카드 없음(시뮬만), 실기 주소는 열지 않고 이유, 조종권 요청 없음', () => {
+    mount(true, ADMIN, '#/drive', MIX);
+    serve(KIM, 'r7', 's1');
+    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['시뮬 로봇 1']);
+    expect(box.querySelector('[data-stop]')).not.toBeNull();   // 시뮬 한 대 = STOP 대상
+    again(true, '#/drive/r7', MIX);
+    expect(band()).toContain(ADMIN_REAL);
+    expect(location.hash).toBe('#/drive');
+    expect(btn('조종 시작')).toBeUndefined();
+    again(true, '#/drive', [ROBOTS[1]]);
+    expect(text()).toContain(`${ADMIN_REAL} 시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 조종합니다.`);
+    expect(box.querySelector('[data-stop]')).toBeNull();
+    space();
+    expect([w.of('stop').length, w.of('lease.take').length]).toEqual([0, 0]);
+  });
+
+  it('서버 403 ADMIN_NO_REAL_CONTROL: STOP(실시간) 은 서버 문구로 «보내지 못함», 대체 경로로 다시 보내지 않음. 조종권도 한 번만', () => {
+    const f = vi.fn((_u: RequestInfo | URL) => new Promise<Response>(() => {})); vi.stubGlobal('fetch', f);   // 답 없음 — 대체 경로로 STOP 을 보내는지만 셈
+    mount(false, ADMIN, '#/fleet', [SIM]);
+    serve(KIM, 's1');
+    w.auto = (m) => (m.t === 'stop' || m.t === 'lease.take' ? fail('ADMIN_NO_REAL_CONTROL', NO) : { ok: true });
+    click($('[data-stop]'));
+    tick(STOP_WS_MS + STOP_HTTP_MS);
+    expect(band()).toContain(`시뮬 로봇 1 정지 요청을 보내지 못했습니다. ${NO}`);
+    expect([w.of('stop').length, f.mock.calls.filter(([u]) => String(u).includes('/stop')).length]).toEqual([1, 0]);
+    act(() => rt.take('s1'));
+    tick(5000);
+    expect(rt.get('s1').notice).toBe(NO);
+    expect(w.of('lease.take')).toHaveLength(1);
+  });
+
+  it('서버 403 ADMIN_NO_REAL_CONTROL(대체 경로 HTTP): 서버 문구로 «보내지 못함», 다시 보내지 않음', async () => {
+    const f = vi.fn(async (_u: RequestInfo | URL) => new Response(JSON.stringify({ error: { code: 'ADMIN_NO_REAL_CONTROL', message: NO, detail: {} } }), { status: 403 }));
+    vi.stubGlobal('fetch', f);
+    mount(false, ADMIN, '#/fleet', [SIM]);
+    serve(KIM, 's1');
+    act(() => w.drop(1006));
+    click($('[data-stop]'));
+    await act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); });
+    expect(band()).toContain(`시뮬 로봇 1 정지 요청을 보내지 못했습니다. ${NO}`);
+    tick(STOP_WS_MS + STOP_HTTP_MS);
+    expect(f.mock.calls.filter((c) => String(c[0]).includes('/stop'))).toHaveLength(1);
   });
 });

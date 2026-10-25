@@ -10,6 +10,7 @@ import { floorName, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
 import raw from './mapcases.json?raw';
 import { FakeWS } from './fakeWs';
+import { adminNoStop } from './adminStop';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -107,6 +108,7 @@ const floorBtn = (name: string) => btns(card('장소')).find((b) => b.textConten
 
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 + 실제로 눌러 정지 요청이 실시간 연결로 나간다(대상이 없으면 로봇 고르기에서 골라) */
 const stopSends = async () => {
+  if (adminNoStop(box)) return;
   const s = $<HTMLButtonElement>('[data-stop]')!;
   expect(s.disabled).toBe(false);
   expect($('header')!.lastElementChild).toBe(s);
@@ -150,7 +152,7 @@ describe('지도 탭 — 장소 나무', () => {
     expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    expect($('[data-stop]')).toBeTruthy();
+    expect($('[data-stop]')).toBeNull();   // 총괄·실기만 — 실기 STOP 없음(10-25)
   });
   it('총괄: 고치기 — 장소·건물·층 만들기, 이름 바꾸기 요청 모양', async () => {
     serve(signedIn(KIM, { 'POST /sites': { status: 201, body: { id: 's2', name: '별관', buildings: [] } },
@@ -620,7 +622,7 @@ describe('관제 지도 칸 — 층 고르기(FL-03)', () => {
     await open('#/fleet');
     expect([...card('지도').querySelectorAll('[aria-label="층"] button')].map((b) => b.textContent)).toEqual(['1층', '2층']);
     expect(card('지도').querySelector('svg image')!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    expect($('[data-stop]')).toBeTruthy();
+    expect($('[data-stop]')).toBeNull();   // 총괄·로봇 0대 — 정지할 시뮬 없음(10-25)
   });
   it('층이 없으면 안내', async () => {
     serve(signedIn(LEE, { 'GET /sites': { status: 200, body: { items: [], next_cursor: null } } }));
