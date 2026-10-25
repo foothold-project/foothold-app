@@ -158,6 +158,7 @@ class ScenarioRun:
         # Preserve the already verified USER neutral/unlock gates, but discard
         # input. This local transfer creates no new Core or command output path.
         s, c = self.hub.session, self.current
+        self.hub._request_result('CANCELED')  # USER handovers cannot survive RUN entry
         s.core._void()
         s.holder_type, s.holder_run_id = 'RUN', c['run_id']
         s.run = {'run_id': c['run_id'], 'status': 'RUNNING', 'step': c['step']}

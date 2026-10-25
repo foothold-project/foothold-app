@@ -67,6 +67,11 @@ class Hub:
         self._emit(self.session.connect())
 
     def _emit(self, effects):
+        # Core intent time is the consumption time. Every output, including
+        # robot feedback and audit ticks, must obey Nav2's original receipt.
+        if self.runs.binding is not None and self.runs.nav.source_expired():
+            self.runs._halt('FAILED', 'NAV_TIMEOUT')
+            return  # discard effects computed from the expired intent
         try:
             for command in effects.motion:
                 self.sink.apply(command)
@@ -98,12 +103,16 @@ class Hub:
         self._emit(effects)
 
     def stop(self):
-        self.runs.stopped()
-        if self.stop_ref >= MAX_SEQ:
-            self._emit(self.session.shutdown())
-            raise RuntimeError('phone STOP reference exhausted')
-        self.stop_ref += 1
-        self._emit(self.session.receive({'t': 'stop', 'stop_ref': self.stop_ref, 'by_user_id': None}))
+        try:
+            self.runs.stopped()
+        finally:
+            # Action cancellation/storage errors must never suppress Session's
+            # STOP emission. Preserve the failure after the safety output.
+            if self.stop_ref >= MAX_SEQ:
+                self._emit(self.session.shutdown())
+                raise RuntimeError('phone STOP reference exhausted')
+            self.stop_ref += 1
+            self._emit(self.session.receive({'t': 'stop', 'stop_ref': self.stop_ref, 'by_user_id': None}))
 
     def _notify(self, peer, message):
         if peer in self.peers:
@@ -341,12 +350,16 @@ class Hub:
             elif detail is not None:
                 reply['detail'] = detail
             return reply
-        if kind in ('lease.take', 'lease.request') and self.runs.active:
+        if kind in ('lease.take', 'lease.request', 'lease.respond') and self.runs.active:
             c = self.runs.current
             if c['status'] != 'PAUSED':
                 reply.update(ok=False, error=self.error('RUN_ACTIVE'))
                 return reply
             if self.runs.identity(p) != c['identity']:
+                reply.update(ok=False, error=self.error('RUN_OWNER_MISMATCH'))
+                return reply
+            if (kind == 'lease.respond' and f['accept'] and self.pending is not None
+                    and self.runs.identity(self.peers[self.pending['peer']]) != c['identity']):
                 reply.update(ok=False, error=self.error('RUN_OWNER_MISMATCH'))
                 return reply
             if not self.runs.cancel_confirmed():

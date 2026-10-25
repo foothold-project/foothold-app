@@ -49,7 +49,7 @@ Nav2/action readiness/cancel-confirmation, 지도 바인딩 및 측정 도착 �
 명시적 로컬 포트다. 아직 기본 진입점에 구성하지 않는다. 앱/서버/화면 통합과 지도·정지 허용치
 검증 전에 모의 포트를 실제 실행 허가로 대체해서는 안 된다.
 
-## 실제 실행한 검사
+## 초기 구현 검사 (r1 이전)
 
 설치 없이 기존 시험용 Python(웹소켓 15.0.1·pytest·Pydantic)을 읽기 전용으로 사용했다.
 로컬 비추적 socket fence로 수신 포트를 9580~9589에 한정했다. 기존 시험이 고정한 이전
@@ -70,6 +70,40 @@ Nav2/action readiness/cancel-confirmation, 지도 바인딩 및 측정 도착 �
   생성한 실제 모의 데이터로 검증한다. 영속 outbox 재개방·ACK·재시작 기록도 모의 시험이다.
 - 기본 시스템 Python의 초기 직결 시험은 웹소켓 미설치로 3 failed, 89 passed, 1 skipped였다.
   기존 의존성 환경으로 다시 실행한 직결 시험에서는 통과했다. 패키지는 설치하지 않았다.
+
+## r1 검토 수정과 검사
+
+- Codex P1: `Hub._emit`이 모든 출력 전에 Nav2 원수신 마감을 검사한다.
+  만료 시 기존 실행 중단 경로로 0·잠금·목표 취소·FAILED/NAV_TIMEOUT을 적용하고,
+  이미 계산된 옛 effects는 버린다. 소비 시각으로 원수신 마감을 연장하지 않는다.
+- Codex P1 / Claude R2: RUN 진입(start/resume)은 대기 USER 양도를 CANCELED로
+  알리고 취소한다. `lease.respond`에도 RUN_ACTIVE, 실행 주체, 취소 확인 관문을 적용하며,
+  PAUSED에서도 다른 주체로의 수락을 거부한다.
+- Claude R1: `Hub.stop`의 finally에서 Session STOP을 보장한다.
+  Nav2/action 취소가 실패해도 STOP·0을 출력한 뒤 원래 예외를 전달한다.
+- 새 회귀 5건: t=0 수신→t=.25 소비→t=.300001 로봇 피드백만으로 0,
+  대기 양도→RUN→accept 거부와 양쪽 취소 알림, 응답 관문 독립 검사 2건,
+  action 취소 예외에도 Session STOP 출력 1건. 기존 안전 셀프테스트 기대값 변경 0.
+- 집중 1회: `python -m pytest apps/agent/tests/test_scenario_run.py -q -p no:cacheprovider`
+  — **53 passed**.
+- 이번 수정 변이: `PYTHONPATH=apps/agent:apps/agent/tools python apps/agent/tools/check_run_mutations.py --r1`
+  — **1/1 DETECTED**. 공통 출력 관문만 메모리에서 제거하면 위 로봇 피드백 회귀가
+  assertion으로 실패한다. tracked 소스·기대값은 변이 실행 중 수정하지 않는다.
+
+- 에이전트 전체 **1회**: 실제 `if [ "$(awk '/MemAvailable/ {print $2}' /proc/meminfo)" -ge 2621440 ]; then ...; fi`
+  안에서 실행(실행 직전 MemAvailable 6176260 kB).
+  `python -m pytest apps/agent -q -p no:cacheprovider`
+  — **1418 passed, 1 skipped, 2 failed**, 49.27 s.
+  실패 2건은 전달받은 `FH_TEST_PORT_RANGE=9580-9589`를 기존 도우미가 콜론으로
+  해석하면서 발생한 ValueError다. `9580:9589`로 환경만 바로잡은 뒤 해당 telemetry
+  2건을 재검사하여 **2 passed**(0.22 s). 전체 시험은 반복하지 않았다.
+- 설치 없이 기존 pytest/Pydantic/websockets 환경을 읽기 전용으로 사용했다.
+  로컬 비추적 socket fence를 PYTHONPATH 앞에 두어 수신·접속 목적지를 loopback
+  9580~9589에 제한했다. ROS·Gazebo·시뮬·운영 포트·실기 접촉 0이다.
+
+남은 권고(이번 수정에서 제외): Claude R3 RUN 중 0 cmd의 need_neutral 정체,
+R4 SUCCEEDED 후 원수신 deadman과 측정 도착 증명의 순서(실 Nav2 통합에서 확인),
+R5 STOP/release 후 PAUSED wait_reason 덮어쓰기. ROS·시뮬·실기 실행 0이다.
 
 ## 미검증·통합 전 남은 조건
 

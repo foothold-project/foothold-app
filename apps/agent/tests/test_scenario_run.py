@@ -529,3 +529,71 @@ def test_invalid_report_does_not_consume_sequence(r):
     with pytest.raises(ValueError):
         out.append(dict(t='event', data={'invalid': float('nan')}), 0.)
     assert out.seq == 0 and out.entries == {} and out.jobs == []
+
+
+def test_source_deadman_blocks_robot_feedback_before_watchdog(r):
+    binding = start(r)
+    assert r.runs.nav.intent(binding, (.6, 0., 0.))  # original receipt t=0
+    r.clock.t = .25
+    r.state(False)
+    r.hub.tick()  # consume at .25; Core's own deadline would be .55
+    assert r.outputs[-1].velocity == (.6, 0., 0.)
+    assert r.hub.session.core.intent_t == .25
+    r.clock.t = .300001
+    assert r.runs.nav.source_expired()
+    before = len(r.outputs)
+    r.state(False)  # no watchdog tick
+    assert r.outputs[before:] and all(c.velocity == Z for c in r.outputs[before:])
+    assert r.outputs[-1].velocity == Z and r.hub.session.core.latch
+    assert r.runs.snapshot()['fail_code'] == 'NAV_TIMEOUT'
+    assert binding in r.actions.cancels
+
+
+def test_run_entry_cancels_pending_user_handover(r):
+    other, _, _ = r.connect()
+    request = r.send(other, 'lease.request')['request_id']
+    assert request is not None and r.hub.pending is not None
+    start(r)
+    assert r.hub.pending is None
+    for peer in (r.peer, other):
+        assert any(m['t'] == 'lease.result' and m['request_id'] == request
+                   and m['result'] == 'CANCELED' for m in r.hub.drain(peer))
+    reply = r.send(r.peer, 'lease.respond', request_id=request, accept=True)
+    assert not reply['ok'] and reply['error']['code'] == 'RUN_ACTIVE'
+    assert r.hub.owner is r.peer and r.hub.owner is not other
+    assert r.hub.session.holder_type == 'RUN'
+    before = len(r.outputs)
+    assert not r.cmd(other)['ok']
+    assert all(c.velocity == Z for c in r.outputs[before:])
+    assert r.runs.snapshot()['status'] == 'MOVING'
+
+
+@pytest.mark.parametrize('paused', [False, True])
+def test_lease_response_defends_run_owner_even_with_pending_request(r, paused):
+    other, _, _ = r.connect()
+    request = r.send(other, 'lease.request')['request_id']
+    pending = dict(r.hub.pending)
+    start(r)
+    if paused:
+        pause(r)
+        assert r.take(r.peer)['ok']
+    r.hub.pending = pending  # exercise the response gate independently of cancellation
+    reply = r.send(r.peer, 'lease.respond', request_id=request, accept=True)
+    assert not reply['ok']
+    assert reply['error']['code'] == ('RUN_OWNER_MISMATCH' if paused else 'RUN_ACTIVE')
+    assert r.hub.owner is r.peer and r.hub.owner is not other
+
+
+def test_stop_emits_session_stop_when_action_cancel_raises(r, monkeypatch):
+    start(r)
+    def fail_cancel(binding):
+        raise RuntimeError('cancel failed')
+    before, stop_ref = len(r.outputs), r.hub.stop_ref
+    with monkeypatch.context() as patch:
+        patch.setattr(r.actions, 'cancel', fail_cancel)
+        with pytest.raises(RuntimeError, match='cancel failed'):
+            r.hub.stop()
+    emitted = r.outputs[before:]
+    assert any(c.kind == 'stop' for c in emitted)
+    assert emitted[-1].velocity == Z and r.hub.session.core.latch
+    assert r.hub.stop_ref == stop_ref + 1
