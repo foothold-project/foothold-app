@@ -1,0 +1,25 @@
+{
+  "$id": "fh-app/1/RunRecordStatus",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "anyOf": [
+    {
+      "enum": [
+        "QUEUED",
+        "PREPARING",
+        "MOVING",
+        "AT_WAYPOINT",
+        "PERFORMING",
+        "WAIT_CONFIRM",
+        "PAUSED",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED"
+      ],
+      "type": "string"
+    },
+    {
+      "const": "ABORTED",
+      "type": "string"
+    }
+  ]
+}

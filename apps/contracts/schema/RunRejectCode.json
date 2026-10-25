@@ -1,0 +1,21 @@
+{
+  "$id": "fh-app/1/RunRejectCode",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "NOT_CONTROLLER",
+    "FORBIDDEN",
+    "RUN_ACTIVE",
+    "RUN_CONFLICT",
+    "RUN_NOT_FOUND",
+    "RUN_STATE_CONFLICT",
+    "RUN_OWNER_MISMATCH",
+    "RESUME_REJECTED",
+    "UNSUPPORTED_OPERATION",
+    "RECORDING_UNAVAILABLE",
+    "NAV_UNAVAILABLE",
+    "MAP_VERSION_MISMATCH",
+    "FLOOR_TRANSITION_UNSUPPORTED",
+    "PLAN_UNAVAILABLE"
+  ],
+  "type": "string"
+}

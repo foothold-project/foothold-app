@@ -38,20 +38,28 @@
           "type": "string"
         },
         "status": {
-          "enum": [
-            "QUEUED",
-            "PREPARING",
-            "MOVING",
-            "AT_WAYPOINT",
-            "PERFORMING",
-            "PAUSED",
-            "WAIT_CONFIRM",
-            "COMPLETED",
-            "FAILED",
-            "ABORTED"
+          "anyOf": [
+            {
+              "enum": [
+                "QUEUED",
+                "PREPARING",
+                "MOVING",
+                "AT_WAYPOINT",
+                "PERFORMING",
+                "WAIT_CONFIRM",
+                "PAUSED",
+                "COMPLETED",
+                "FAILED",
+                "CANCELED"
+              ],
+              "type": "string"
+            },
+            {
+              "const": "ABORTED",
+              "type": "string"
+            }
           ],
-          "title": "Status",
-          "type": "string"
+          "title": "Status"
         }
       },
       "required": [

@@ -1,0 +1,32 @@
+{
+  "$id": "fh-app/1/RunRecorded",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Data receipt after DB commit; never an execution permission.",
+  "properties": {
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
+    "report_seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Report Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "run.recorded",
+      "default": "run.recorded",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "agent_instance_id",
+    "report_seq"
+  ],
+  "title": "RunRecorded",
+  "type": "object"
+}

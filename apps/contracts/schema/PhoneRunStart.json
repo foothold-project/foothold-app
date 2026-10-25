@@ -1,0 +1,85 @@
+{
+  "$id": "fh-app/1/PhoneRunStart",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assignment_id": {
+      "description": "시뮬은 생략, 실기는 필수. 인증된 simulation으로 실행기가 판정한다.",
+      "format": "uuid",
+      "title": "Assignment Id",
+      "type": "string"
+    },
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "id": {
+      "maxLength": 128,
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "lease_id": {
+      "format": "uuid",
+      "title": "Lease Id",
+      "type": "string"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "proto": {
+      "const": "fh-phone/1",
+      "title": "Proto",
+      "type": "string"
+    },
+    "robot": {
+      "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Robot",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "format": "uuid",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "scenario_version": {
+      "minimum": 1,
+      "title": "Scenario Version",
+      "type": "integer"
+    },
+    "screen_id": {
+      "format": "uuid",
+      "title": "Screen Id",
+      "type": "string"
+    },
+    "t": {
+      "const": "run.start",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "robot",
+    "t",
+    "lease_id",
+    "run_id",
+    "screen_id",
+    "scenario_id",
+    "scenario_version",
+    "floor_id",
+    "map_version_id"
+  ],
+  "title": "PhoneRunStart",
+  "type": "object"
+}

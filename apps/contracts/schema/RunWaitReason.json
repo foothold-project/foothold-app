@@ -1,0 +1,10 @@
+{
+  "$id": "fh-app/1/RunWaitReason",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "LINK_LOST",
+    "STOPPED_BY_USER",
+    "RECORDING_UNAVAILABLE"
+  ],
+  "type": "string"
+}

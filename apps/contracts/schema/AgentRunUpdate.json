@@ -25,6 +25,11 @@
   "$id": "fh-app/1/AgentRunUpdate",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
     "fail_code": {
       "anyOf": [
         {
@@ -36,6 +41,11 @@
       ],
       "default": null,
       "title": "Fail Code"
+    },
+    "monotonic_s": {
+      "minimum": 0,
+      "title": "Monotonic S",
+      "type": "number"
     },
     "path_deviation_m": {
       "anyOf": [
@@ -59,13 +69,30 @@
         }
       ]
     },
+    "report_seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Report Seq",
+      "type": "integer"
+    },
     "run_id": {
       "format": "uuid",
       "title": "Run Id",
       "type": "string"
     },
     "status": {
-      "maxLength": 64,
+      "enum": [
+        "QUEUED",
+        "PREPARING",
+        "MOVING",
+        "AT_WAYPOINT",
+        "PERFORMING",
+        "WAIT_CONFIRM",
+        "PAUSED",
+        "COMPLETED",
+        "FAILED",
+        "CANCELED"
+      ],
       "title": "Status",
       "type": "string"
     },
@@ -79,6 +106,23 @@
       "const": "run.update",
       "title": "T",
       "type": "string"
+    },
+    "wait_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "LINK_LOST",
+            "STOPPED_BY_USER",
+            "RECORDING_UNAVAILABLE"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Wait Reason"
     }
   },
   "required": [
@@ -86,7 +130,10 @@
     "run_id",
     "status",
     "step",
-    "progress"
+    "progress",
+    "agent_instance_id",
+    "report_seq",
+    "monotonic_s"
   ],
   "title": "AgentRunUpdate",
   "type": "object"

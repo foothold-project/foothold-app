@@ -47,6 +47,9 @@ export interface AgentEvent {
   severity: "INFO" | "WARN" | "ERROR" | "info" | "warn" | "error";
   robot_at: string | null;
   data: Record<string, JsonValue>;
+  agent_instance_id?: string;
+  report_seq?: number;
+  monotonic_s?: number;
 }
 
 export interface AgentHello {
@@ -109,11 +112,15 @@ export interface AgentPose {
 export interface AgentRunUpdate {
   t: "run.update";
   run_id: string;
-  status: string;
+  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
   step: number;
   progress: Progress | null;
   path_deviation_m?: number | null;
   fail_code?: string | null;
+  wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  agent_instance_id: string;
+  report_seq: number;
+  monotonic_s: number;
 }
 
 export interface AgentServerPing {
@@ -290,7 +297,7 @@ export interface ConfirmParams {
 
 export interface CurrentRun {
   id: string;
-  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "PAUSED" | "WAIT_CONFIRM" | "COMPLETED" | "FAILED" | "ABORTED";
+  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "ABORTED";
   scenario_name: string;
   progress: Progress;
 }
@@ -644,6 +651,10 @@ export interface Person {
   display_name: string;
 }
 
+export interface PhoneCapabilities {
+  run_contract: "scenario/1";
+}
+
 export interface PhoneCmdAck {
   t: "cmd.ack";
   id: string;
@@ -764,6 +775,7 @@ export interface PhonePosture {
 }
 
 export interface PhoneReply {
+  detail?: RunResumeDetail | null;
   t: "reply";
   id: string;
   ok: boolean;
@@ -794,6 +806,60 @@ export interface PhoneRevocationItem {
   until: number;
 }
 
+export interface PhoneRunConfirm {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "run.confirm";
+  lease_id: string;
+  run_id: string;
+  kind: "FLOOR" | "OPERATOR";
+  data: Record<string, JsonValue>;
+}
+
+export interface PhoneRunControl {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "run.control";
+  run_id: string;
+  /** return은 예약된 요청이며 항상 UNSUPPORTED_OPERATION으로 거부한다. */
+  op: "pause" | "resume" | "abort" | "return";
+  lease_id?: string;
+  screen_id?: string;
+  /** 같은 화면 재개의 비밀 증명. 에이전트는 해시만 보관하고 재바인딩 때 회전한다. */
+  resume_token?: string;
+}
+
+export interface PhoneRunStart {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "run.start";
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  /** 시뮬은 생략, 실기는 필수. 인증된 simulation으로 실행기가 판정한다. */
+  assignment_id?: string;
+}
+
+export interface PhoneRunUpdate {
+  run_id: string;
+  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
+  step: number;
+  progress: Progress;
+  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  fail_code: string | null;
+  t: "run.update";
+}
+
 export interface PhoneState {
   t: "state";
   pose: AgentPose;
@@ -806,6 +872,7 @@ export interface PhoneState {
   applied: number[];
   mode: string;
   devices_changed?: Device[] | null;
+  run?: RunSnapshot | null;
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   controller: string | null;
@@ -832,6 +899,8 @@ export interface PhoneTicketClaims {
   device: string;
   purpose: "control" | "view";
   surface: "phone" | "pc";
+  /** 서버 서명 PAUSED 취소 권한만. 생략=false; 조종·해제·재개 권한을 주지 않는다. */
+  run_cancel?: boolean;
   iat: number;
   exp: number;
   jti: string;
@@ -848,6 +917,7 @@ export interface PhoneUnlock {
 }
 
 export interface PhoneWelcome {
+  capabilities?: PhoneCapabilities | null;
   /** 10초·1회용 영상 연결 토큰; 부모 연결에 종속 */
   camera_token: string | null;
   t: "hello";
@@ -933,6 +1003,84 @@ export interface RunCopy {
   status: string;
   step: number;
   wait_reason?: string | null;
+}
+
+export interface RunDisplayResults {
+  mode?: "DISPLAY_ONLY";
+}
+
+export interface RunGoal {
+  idx: number;
+  waypoint_ref: string | null;
+  x: number;
+  y: number;
+  yaw: number;
+  mission_id: string;
+  mission_version: number;
+  mission_name: string;
+}
+
+export interface RunPlan {
+  segments: RunSegment[];
+}
+
+export interface RunRecorded {
+  t: "run.recorded";
+  agent_instance_id: string;
+  report_seq: number;
+}
+
+export interface RunResumeDetail {
+  run_id: string;
+  screen_id: string;
+  /** 256 bit 이상 난수. 원래/재바인딩된 실행 연결에만 반환하며 기록·보기 연결에는 금지한다. */
+  resume_token: string;
+}
+
+export interface RunSegment {
+  floor_id: string;
+  map_version_id: string;
+  goals: RunGoal[];
+}
+
+export interface RunSnapshot {
+  run_id: string;
+  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
+  step: number;
+  progress: Progress;
+  wait_reason: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
+  fail_code: string | null;
+}
+
+export interface RunWaypointArrived {
+  run_id: string;
+  idx: number;
+  waypoint_ref: string | null;
+  mission_id: string;
+  mission_version: number;
+  mission_name: string;
+  floor_id: string;
+  map_version_id: string;
+  pose: AgentPose;
+  agent_instance_id: string;
+  report_seq: number;
+  monotonic_s: number;
+}
+
+export interface RunWaypointRecorded {
+  run_id: string;
+  idx: number;
+  waypoint_ref: string | null;
+  mission_id: string;
+  mission_version: number;
+  mission_name: string;
+  floor_id: string;
+  map_version_id: string;
+  pose: AgentPose;
+  agent_instance_id: string;
+  report_seq: number;
+  monotonic_s: number;
+  results: RunDisplayResults;
 }
 
 export interface Scenario {
@@ -1323,6 +1471,11 @@ export interface WaitParams {
 }
 
 export type ScenarioTargetErrorCode = "SIM_MAP_REQUIRES_SIM_ROBOT";
+export type RunStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
+export type RunRecordStatus = "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "ABORTED";
+export type RunWaitReason = "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE";
+export type RunFailCode = "NAV_GOAL_REJECTED" | "NAV_TIMEOUT" | "LOCALIZATION_LOST" | "BATTERY_LOW" | "DEVICE_MISSING" | "OPERATOR_ABORT" | "PAUSE_TIMEOUT" | "FLOOR_TRANSITION_FAILED" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
+export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN_CONFLICT" | "RUN_NOT_FOUND" | "RUN_STATE_CONFLICT" | "RUN_OWNER_MISMATCH" | "RESUME_REJECTED" | "UNSUPPORTED_OPERATION" | "RECORDING_UNAVAILABLE" | "NAV_UNAVAILABLE" | "MAP_VERSION_MISMATCH" | "FLOOR_TRANSITION_UNSUPPORTED" | "PLAN_UNAVAILABLE";
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
-export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing;
+export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunControl | PhoneRunConfirm;

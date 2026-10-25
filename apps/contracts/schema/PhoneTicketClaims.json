@@ -55,6 +55,12 @@
       "title": "Robot",
       "type": "string"
     },
+    "run_cancel": {
+      "default": false,
+      "description": "서버 서명 PAUSED 취소 권한만. 생략=false; 조종·해제·재개 권한을 주지 않는다.",
+      "title": "Run Cancel",
+      "type": "boolean"
+    },
     "sub": {
       "format": "uuid",
       "title": "Sub",

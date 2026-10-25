@@ -1,0 +1,17 @@
+{
+  "$id": "fh-app/1/PhoneCapabilities",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "run_contract": {
+      "const": "scenario/1",
+      "title": "Run Contract",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_contract"
+  ],
+  "title": "PhoneCapabilities",
+  "type": "object"
+}

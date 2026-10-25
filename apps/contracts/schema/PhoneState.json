@@ -425,6 +425,99 @@
       ],
       "title": "PhonePosture",
       "type": "object"
+    },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
+    "RunSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "fail_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fail Code"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "QUEUED",
+            "PREPARING",
+            "MOVING",
+            "AT_WAYPOINT",
+            "PERFORMING",
+            "WAIT_CONFIRM",
+            "PAUSED",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "step": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "wait_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "LINK_LOST",
+                "STOPPED_BY_USER",
+                "RECORDING_UNAVAILABLE"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wait Reason"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "step",
+        "progress",
+        "wait_reason",
+        "fail_code"
+      ],
+      "title": "RunSnapshot",
+      "type": "object"
     }
   },
   "$id": "fh-app/1/PhoneState",
@@ -528,6 +621,17 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
       "title": "Robot",
       "type": "string"
+    },
+    "run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunSnapshot"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "safety_reason": {
       "anyOf": [

@@ -80,7 +80,7 @@ PR32 검토 반영: 사유/의견·지도 저장/되돌리기 reason은 Cc/Cf �
 
 `Action`/`ActionOption`, `MissionWrite`/`Mission`/`MissionList`,
 `ScenarioWrite`/`Scenario`/`ScenarioList`, `ScenarioPreview`를 추가했다.
-배정·실행 계약은 후속이다. `PhotoParams`/`WaitParams`/`ConfirmParams`/
+배정과 실행 동작 구현은 후속이다. 직결 실행 계약은 아래 scenario/1 절을 따른다. `PhotoParams`/`WaitParams`/`ConfirmParams`/
 `SensorLogParams`가 인자 범위의 정본이며 MissionStep의 action에 따라 서버가 검사하고
 기본값을 채운다. MissionStep.params의 TS 표현은 JSON 객체이므로 클라이언트의
 타입 검사만으로 잘못된 작업별 인자를 검출하지는 않는다.
@@ -118,6 +118,51 @@ simulation 값을 설정할 수 없으며 기존 서버 등록 값으로 판정�
 미리 만든 임무 판은 표시·기록용 이름이며 `Mission.steps=[]`로 읽힌다.
 일반 `MissionWrite`는 기존대로 작업 1개 이상을 요구한다. 시뮬 지도 자동 승인은
 지도에만 해당하며 운영자 시나리오 배정의 결재는 기존대로다.
+
+## 시나리오 실행 공통 계약 (scenario/1, 05 §13.10)
+
+`PhoneMessage`의 `PhoneRunStart`는 고정 시나리오 판·단일 층/지도 판 참조만 받는다.
+계획·좌표를 start 본문에 싣지 않는다. `RunPlan`은 에이전트가 자료 API에서 검증한
+1구간·1~200개 순서 지점 스냅샷이다. `RunGoal.mission_version`은 고정 임무 판이며
+임무 이름도 함께 보관한다. 종료 방식은 기존 `ScenarioFinish`를 사용한다. 현재 층·종료
+목표·월드 바인딩/해시 대조, 자료 API 인증과 출발 관문은 후속 에이전트/서버 구현 책임이다.
+
+`PhoneRunControl`은 pause/resume의 lease·screen 증명과 resume 비밀값을 검사한다.
+abort에는 이 증명을 강제하지 않는다. 실제 PAUSED·원 주체 또는 서명된 run_cancel 권한은
+에이전트가 검사해야 한다. return과 `PhoneRunConfirm`은 예약 형식을 표현할 뿐 첫 판에서
+항상 UNSUPPORTED_OPERATION으로 응답해야 한다. `PhoneWelcome.capabilities.run_contract`
+선택 확장이 scenario/1일 때만 실행 화면을 연다. 없는 구 에이전트에 실행을 보내지 않는다.
+
+직접 상태는 `PhoneRunUpdate`(t=run.update), 재접속 첫 `PhoneState.run`은 비밀값 없는
+`RunSnapshot`이다. 별도 run.status 프레임은 §13.10에 없으므로 정의하지 않는다.
+`RunStatus`는 새 CANCELED와 예약 WAIT_CONFIRM을 포함한다. `RunRecordStatus`/
+`CurrentRun`만 ABORTED 기록 호환을 제공한다. 기존 `RunCopy.status`는 내부 Session의
+RUNNING을 보존하기 위해 문자열로 유지한다. PAUSED 이유는 RunWaitReason이며 실패 코드로
+쓰지 않는다. 알려진 실패/거부 표는 RunFailCode/RunRejectCode로 내보내되 fail_code 문자열은
+미래의 알 수 없는 실패를 일반 실패로 표시할 수 있도록 유지한다.
+
+`PhoneReply.detail`은 시작/재바인딩 연결에만 돌려줄 `RunResumeDetail`이다. 토큰의 실제
+256 bit 난수 생성·해시 보관·회전·연결 제한과 출력 필터링은 후속 에이전트 책임이다.
+`PhoneTicketClaims.run_cancel`은 엄격한 boolean, 선택 필드이며 생략=false다.
+기존 purpose/surface 의미와 수명 상한을 바꾸지 않으며 PhonePassRequest에 자가 권한
+주장 필드를 추가하지 않는다. `run_pause_timeout_s`(양의 초, 기본 600)는 에이전트 설정이므로
+start·출입증·조직 설정 계약에 넣지 않는다.
+
+새 `AgentRunUpdate`는 상세 상태 및 agent_instance_id/report_seq/monotonic_s를 요구한다.
+`AgentEvent`의 일반 사건에는 이 식별자가 선택이며, 세 필드는 함께 있어야 한다.
+RUN_STARTED/RUN_WAYPOINT_ARRIVED/RUN_WAYPOINT_RECORDED에는 식별자가 필수다.
+지점 사건의 data는 RunWaypointArrived/RunWaypointRecorded로 검사하고 봉투 식별자와
+대조한다. 기록 결과는 DISPLAY_ONLY다. `RunRecorded`는 DB commit 뒤 수신 확인이며
+실행 명령이나 재개 권한이 아니다. 영속 outbox·순서/중복 제거·트랜잭션·ACK 시점은
+후속 에이전트/서버 구현에서 검증한다. 기존 소비자는 이 단계에서 수정하지 않았다.
+
+계약 집중 시험은 다음과 같다. 기존 안전 셀프테스트의 기대값은 변경하지 않는다.
+
+```sh
+apps/server/.venv/bin/python -m pytest -q apps/contracts/tests
+apps/server/.venv/bin/python apps/contracts/generate.py --check
+npm run --prefix apps/contracts typecheck
+```
 
 ## 연결 건물 정적 지도 관측 (floor-auto 1·2단계)
 

@@ -1,5 +1,6 @@
 {
   "$defs": {
+    "JsonValue": {},
     "PhoneCommand": {
       "additionalProperties": false,
       "properties": {
@@ -248,6 +249,223 @@
       "title": "PhoneRespond",
       "type": "object"
     },
+    "PhoneRunConfirm": {
+      "additionalProperties": false,
+      "description": "Reserved shape: first implementation always replies UNSUPPORTED_OPERATION.",
+      "properties": {
+        "data": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Data",
+          "type": "object"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "FLOOR",
+            "OPERATOR"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-phone/1",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "run.confirm",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "lease_id",
+        "run_id",
+        "kind",
+        "data"
+      ],
+      "title": "PhoneRunConfirm",
+      "type": "object"
+    },
+    "PhoneRunControl": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "op": {
+          "description": "return은 예약된 요청이며 항상 UNSUPPORTED_OPERATION으로 거부한다.",
+          "enum": [
+            "pause",
+            "resume",
+            "abort",
+            "return"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-phone/1",
+          "title": "Proto",
+          "type": "string"
+        },
+        "resume_token": {
+          "description": "같은 화면 재개의 비밀 증명. 에이전트는 해시만 보관하고 재바인딩 때 회전한다.",
+          "minLength": 1,
+          "title": "Resume Token",
+          "type": "string"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "screen_id": {
+          "format": "uuid",
+          "title": "Screen Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "run.control",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "run_id",
+        "op"
+      ],
+      "title": "PhoneRunControl",
+      "type": "object"
+    },
+    "PhoneRunStart": {
+      "additionalProperties": false,
+      "properties": {
+        "assignment_id": {
+          "description": "시뮬은 생략, 실기는 필수. 인증된 simulation으로 실행기가 판정한다.",
+          "format": "uuid",
+          "title": "Assignment Id",
+          "type": "string"
+        },
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-phone/1",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "format": "uuid",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "scenario_version": {
+          "minimum": 1,
+          "title": "Scenario Version",
+          "type": "integer"
+        },
+        "screen_id": {
+          "format": "uuid",
+          "title": "Screen Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "run.start",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "lease_id",
+        "run_id",
+        "screen_id",
+        "scenario_id",
+        "scenario_version",
+        "floor_id",
+        "map_version_id"
+      ],
+      "title": "PhoneRunStart",
+      "type": "object"
+    },
     "PhoneUnlock": {
       "additionalProperties": false,
       "properties": {
@@ -309,6 +527,9 @@
       "lease.respond": "#/$defs/PhoneRespond",
       "lease.take": "#/$defs/PhoneLease",
       "ping": "#/$defs/PhonePing",
+      "run.confirm": "#/$defs/PhoneRunConfirm",
+      "run.control": "#/$defs/PhoneRunControl",
+      "run.start": "#/$defs/PhoneRunStart",
       "stop": "#/$defs/PhoneLease",
       "unlock": "#/$defs/PhoneUnlock",
       "view": "#/$defs/PhoneLease"
@@ -333,6 +554,15 @@
     },
     {
       "$ref": "#/$defs/PhonePing"
+    },
+    {
+      "$ref": "#/$defs/PhoneRunStart"
+    },
+    {
+      "$ref": "#/$defs/PhoneRunControl"
+    },
+    {
+      "$ref": "#/$defs/PhoneRunConfirm"
     }
   ]
 }

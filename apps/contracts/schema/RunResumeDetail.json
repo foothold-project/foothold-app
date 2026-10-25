@@ -1,0 +1,30 @@
+{
+  "$id": "fh-app/1/RunResumeDetail",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "resume_token": {
+      "description": "256 bit 이상 난수. 원래/재바인딩된 실행 연결에만 반환하며 기록·보기 연결에는 금지한다.",
+      "minLength": 1,
+      "title": "Resume Token",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "screen_id": {
+      "format": "uuid",
+      "title": "Screen Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "screen_id",
+    "resume_token"
+  ],
+  "title": "RunResumeDetail",
+  "type": "object"
+}
