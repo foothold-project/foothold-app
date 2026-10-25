@@ -94,7 +94,7 @@ export const api = {
   async session() { const r = await call<SessionInfo>('GET', '/auth/session'); csrf = r.csrf_token; return r; },
   async logout() { await call<void>('POST', '/auth/logout'); csrf = null; },
   me: (cancel?: AbortSignal) => call<User>('GET', '/me', undefined, { cancel }),
-  /** 화면은 scope=all(02 §1.1) */
+  /** 화면은 listScope(fake.ts): 운영 관리자 mine, 총괄 all(ADR-003 결정 2) */
   robots: (scope: 'mine' | 'all', cancel?: AbortSignal) => pages<RobotSummary>(`/robots?scope=${scope}`, cancel),
   /** 한 대(05 §3). 담당 밖 운영 관리자에게는 요약만(실시간 값 null·UNKNOWN) */
   robot: (id: string, cancel?: AbortSignal) => call<RobotSummary>('GET', `/robots/${encodeURIComponent(id)}`, undefined, { cancel }),

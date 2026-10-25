@@ -11,7 +11,7 @@ import { FakeWS, state } from './fakeWs';
 let root: Root | null = null, box: HTMLDivElement;
 // matchMedia 모의: 폭 변경 이벤트까지 흉내(resize(true/false) 로 768px 경계를 넘김)
 let isPhone = false, listeners = new Set<() => void>();
-/** robots = 서버 /robots?scope=all 응답(기본 = 가짜 3대 전부) */
+/** robots = 서버 /robots 응답(기본 = 가짜 3대 전부 — 실서버는 운영자에게 scope=mine 으로 내 로봇만, ADR-003 결정 2) */
 function mount(phone: boolean, user = 'u-kim', hash = '', robots: Robot[] = ROBOTS) {
   isPhone = phone; listeners = new Set();
   window.matchMedia = ((q: string) => ({ get matches() { return isPhone; }, media: q,
@@ -110,7 +110,7 @@ describe('역할 전환', () => {
     pickUser('u-lee');
     expect(navLabels()).toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
-    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 내 로봇 먼저, 남의 로봇은 보는 중
+    expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 담당이 바뀌는 사이 목록에 남은 남의 로봇: 내 로봇 뒤 + 보는 중
     expect(robotRow('Go2-7').textContent).toContain('보는 중');
     resize(true);
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);
@@ -217,7 +217,7 @@ describe('B2 연결 끊김 문구', () => {
 
 // 기록 범위·문장(B3·F-LG-02)은 이제 서버가 정한다 — events.test.tsx 가 가짜 서버로 본다(화면은 받은 것만 그린다)
 
-// 서버는 전체(scope=all)를 주고, 폰은 내 로봇만(02 §1.2)
+// 목록에 남의 로봇이 섞여 와도 폰은 내 로봇만(02 §1.2)
 describe('B4 폰 로봇 범위', () => {
   it('[재현] 폰 운영자 로봇 연결에는 담당 로봇만 나온다', () => {
     mount(true, 'u-park', '#/drive');
