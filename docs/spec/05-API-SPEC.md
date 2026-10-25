@@ -1230,6 +1230,28 @@ offline 무효화로 보지 않는다(§13.7 한계 유지). world와 agent unit
   화면이 보낸 좌표·임무를 실행 계획으로 믿지 않고 최신 판으로 자동 교체하지 않는다.
   이 GET은 기존 agent 토큰 인증·조직 경계를 적용하고, 실기용 자료에는 승인 배정 및 SF-12
   결과의 로봇·시작 사용자·고정 판 대조가 추가로 필요하다. 실패하면 출발하지 않는다.
+- **지도 증명:** 새 실행은 `ProvenAgentScenario`의 필수 `map_proofs`를 읽는다. 각
+  `RunMapProof`는 `{floor_id,map_version_id,image_sha256,source_pgm_sha256,origin:[x,y,yaw],
+  resolution,width,height,source,world_id,ros_floor_id}`다. 참조 지점과 GO_TO 목표의 모든
+  floor/map 쌍마다 정확히 한 증명을 준다. SHA는 실제 PNG/PGM 바이트의 소문자 SHA-256이며
+  서로 다른 형식의 두 SHA를 같다고 보거나 지도 UUID를 해시로 쓰지 않는다. origin은 m/rad,
+  resolution은 m/cell, width/height는 픽셀이다. `source=SIMULATION`이면 world_id와
+  ros_floor_id가 필수, HUMAN이면 둘 다 null이다. 에이전트는 신뢰된 로컬 월드/현재 층·
+  실행 episode/epoch, 실제 이미지/PGM 해시·동일 raster(축/행 방향/unknown 포함),
+  원점·해상도·크기를 모두 대조하고, 누락/불일치면 MAP_VERSION_MISMATCH로 출발을 막는다.
+  정적 증명만으로 현재 월드나 도착을 증명하지 않는다. `RUN_STARTED.data`도 검증한 동일
+  `map_proof`를 필수로 담는 `ProvenRunStarted`이며 서버는 고정 DB 판과 다시 대조한다.
+  읽기 호환 `AgentScenario.map_proofs`/`RunStarted.map_proof`는 이행 동안 생략 가능하나
+  이는 새 실행 허가가 아니다. 2a/2b에서 위 필수 모델을 실제 경계에 적용하기 전까지 미구현이다.
+- **지도 이미지 자료:** `GET /api/v1/agent/map-versions/{id}/image`는 기존 agent Bearer
+  토큰으로 인증한다. 허용은 같은 조직·해당 로봇의 map.sync 배포 판 또는 인증된 고정
+  시나리오 조회에서 이 로봇에 허용한 정확한 지도 판뿐이다. 그 조회의 전체 지점/GO_TO
+  참조에서 허용 집합을 만들고 토큰·로봇·조직·고정 판에 묶는다. 임의 지도 UUID·최신 판
+  치환·다른 로봇의 조회 이력은 허용 근거가 아니다. 매 요청 현재 토큰/로봇/조직과 허용을
+  재검사하며 401=토큰 오류, 404=미허용·다른 조직·없는 판(존재 비노출),
+  422 MAP_VERSION_MISMATCH=고정 증명/보관 이미지 불일치다. 200은 image/png + no-store,
+  바이트 SHA는 증명의 image_sha256과 같아야 한다. 실패 때 일반 사용자 이미지 URL로
+  우회하지 않는다. 로컬 검증 사본을 쓸 수 있으나 증명 대조는 생략하지 않는다. API 구현은 2a다.
 - 에이전트가 검증한 계획은 `{segments:[{floor_id,map_version_id,goals:[…]}]}` **1구간**으로
   고정한다. 지점 수는 기존 ScenarioWrite의 1~200개다. goals는 저장된 지점 순서이며 `idx=0..N-1`, `waypoint_ref|null,x,y,yaw,
   mission_id,mission_version,mission_name`을 가진다. 지점 0이 시작 지점이다. 모든 지점·현재 층·
@@ -1292,10 +1314,12 @@ ping을 계속 보내며, 실행기만 해당 run_id의 신선한 명령을 Core
 내부 Session의 RUNNING은 Core 모드이며 외부 상태 MOVING 등과 구분한다. 로봇 요약 상태는
 F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 
-- 도착은 **현재 run_id·목표 세대에 맞는 Nav2 SUCCEEDED + 해당 판의 신선한 pose/정지 근거**로
-  판정한다. 반경 0.5 m는 F-MS-06의 제안이고, 정지 속도·자세·유지 시간 허용치는 후속 검증에서
-  정하기 전에는 도착 통과를 주장하지 않는다. STOP 명령0만으로 몸체 정지·도착을 만들지 않는다.
-  취소된 옛 목표의 늦은 성공은 버린다. Nav2 성공만으로도 도착을 만들지 않는다.
+- **10-25 결정:** 첫 판 도착은 **현재 run_id·목표 세대에 맞는 Nav2 SUCCEEDED + 해당 지도
+  판의 신선한 측정 위치가 지점에서 0.5 m 이내**로 판정한다. 에이전트 설정 이름은
+  `run_arrival_radius_m` 하나, 기본 0.5 m(양의 finite 수)다. 첫 판은 yaw·정지 유지 시간을
+  판정하지 않는다. 몸체 물리 정지 허용치는 별도 후속이며 도착 판정으로 정지를 증명하지
+  않는다. STOP 명령0만으로 도착을 만들지 않으며 취소된 옛 목표의 늦은 성공은 버린다.
+  Nav2 성공만으로도 도착을 만들지 않는다. run.start에 반경 설정을 싣지 않는다.
 - `event.code=RUN_WAYPOINT_ARRIVED`의 data는 `{run_id,idx,waypoint_ref,mission_id,
   mission_version,mission_name,floor_id,map_version_id,pose,agent_instance_id,report_seq,
   monotonic_s}`다. robot_at은 신뢰할 수 있는 UTC 또는 null. 화면은 «지점 n 도착 · 임무 이름»을
@@ -1311,6 +1335,7 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 | OPERATOR_ABORT | 사용자 취소: CANCELED + fail_code. 옛 ABORTED 기록을 소급 변경하지 않음 |
 | PAUSE_TIMEOUT | PAUSED 제한 시간 도달: CANCELED + fail_code, 0·목표 취소·잠금 유지, RUN_ACTIVE 해제 |
 | RECORDING_UNAVAILABLE | 영속 기록 실패·용량 초과: PAUSED + wait_reason, 0+목표 취소+잠금, start/resume 거부 |
+| RECORDING_REJECTED | 영구 보고 거부: FAILED + fail_code, 0+목표 취소+잠금·입력 폐기. 격리와 운영자 대조 완료 전 start/resume 금지. 서버가 내린 실행 명령이 아니라 로컬 기록 안전 정책 |
 | FLOOR_TRANSITION_FAILED | F-MS-07용으로 이름 보존, 첫 판에는 층 이동 없음 |
 | NAV_UNAVAILABLE, MAP_VERSION_MISMATCH, FLOOR_TRANSITION_UNSUPPORTED, PLAN_UNAVAILABLE | 새 제안 코드. 시작 전 거부(reply), 수락 후 준비 실패면 FAILED. 잘못된 지도/자료로 출발하지 않음 |
 | NOT_CONTROLLER, FORBIDDEN, RUN_ACTIVE, RUN_CONFLICT, RUN_NOT_FOUND, RUN_STATE_CONFLICT, RUN_OWNER_MISMATCH, RESUME_REJECTED, UNSUPPORTED_OPERATION | 요청 거부(reply), 기존 실행/안전 상태를 임의로 바꾸지 않음. 거부를 성공으로 표시하지 않음 |
@@ -1393,6 +1418,45 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
   거부로 처리한다. 저장 I/O가 안전 출력 경로를 막지 않게 별도 처리한다.
 - 시각은 서버 수신 `at` UTC, 신뢰 가능한 `robot_at` UTC/null, agent monotonic을 함께 둔다.
   서로 다른 기동의 monotonic을 직접 비교하지 않는다. ACK 전 보고는 지우지 않는다.
+- **식별자 경계:** 새 영속 run의 모든 run.update(시작/진행/일시정지/재개/종료/재시작
+  복구 포함)와 연결된 모든 원인/지점 event는 `agent_instance_id/report_seq/monotonic_s`
+  세 필드 필수(`DurableAgentRunUpdate`/`DurableAgentEvent`). 이 기동의 영속 FIFO 전체에서
+  순번을 단조 증가시키며 재전송 때 식별자·본문·시각을 바꾸지 않는다. 첫 순번 0 또는 1,
+  이후 정확히 +1, monotonic은 같은 기동 안에서 비감소다. 무식별 구 보고는 일반 비실행
+  사건/원격측정 및 옛 메모리 Session 표시 호환에만 허용한다. 새 runs/run_steps/수신 이력
+  생성·변경·종료·재개·ACK에는 사용하지 않는다. 같은 run_id인 옛 run.update도 영속 실행을
+  변경할 수 없다. 기존 AgentMessage 파서는 읽기 호환을 유지하므로 DB 경계 강제는 2a,
+  새 필수 보고 생산은 2b 책임이며 이 계약 PR만으로 해결됐다고 보지 않는다.
+- **거부 프레임:** `run.report_rejected {agent_instance_id,report_seq,run_id|null,
+  disposition,code,expected_report_seq?}`는 같은 인증 링크에서 정확한 보고를 지정하는
+  데이터 응답이며 ACK·실행/재개 권한이 아니다. 순서 틈 `RUN_REPORT_SEQUENCE`와 저장 장애
+  `RUN_REPORT_STORAGE`만 `disposition=RETRY`다. 전자만 expected_report_seq가 필수다.
+  보고를 그대로 보관하고 재접속 후 빠진 선두부터 FIFO replay하며 저장 장애는 기존 재연결
+  백오프를 지킨다. 보관하지 않은 선두가 요구되면 순번을 꾸미지 않고 기록 장애로 멈춘다.
+  owner/map/plan/state/step/provenance 및 conflict/instance/robot/not_found/invalid는
+  각각 `RUN_REPORT_*` 코드 + `disposition=QUARANTINE`인 영구 거부다. 알 수 없는 코드나
+  모순 프레임을 ACK·폐기 허가로 해석하지 않는다.
+- **영구 거부 내구성:** 서버는 거부한 식별자·원문 지문·이유·수신 시각을 별도 거부 이력에
+  commit한 뒤 QUARANTINE을 보낸다(실행/지점 상태를 성공 반영하지 않음). 이 처분은 FIFO의
+  해당 순번을 소비하여 다음 순번을 막지 않으며, 같은 본문 재전송에는 같은 거부를 돌려준다.
+  같은 식별자의 다른 본문은 CONFLICT로 거부하고 기존 처분은 바꾸지 않는다. 거부 이력 저장이
+  실패하면 STORAGE/RETRY 또는 ACK 없는 1013으로 남긴다. run.recorded를 가짜로 보내거나
+  단순 1013 재접속만으로 영구 거부를 해결하지 않는다.
+- 에이전트는 자신의 outbox와 대조한 QUARANTINE을 받으면 원문·식별자·거부 이유를 별도
+  영속 격리에 원자적으로 옮기고 replay 대상에서 제외한다. 저장 실패면 outbox 원문을
+  유지하고 RECORDING_UNAVAILABLE로 정지한다. 현재 실행은 즉시 0+현재/대기 목표 취소+
+  입력 폐기+잠금+FAILED(RECORDING_REJECTED)로 축소하며 종료 보고도 새 식별자로 보관한다.
+  이미 종료된 실행은 다시 열지 않는다. 다른 대기 보고는 FIFO를 유지하고 각각 서버 처분을
+  받아 처리하여 후속 진단/다른 실행의 기록 경로를 열어 둔다. 격리 보고 자동 replay·자동
+  재개·본문 수정 후 같은 식별자 재송신·삭제·가짜 ACK는 금지다. 연결 복구는 격리 해제가 아니다.
+- **운영자 복구:** 권한 있는 운영자가 잠금/목표 취소를 확인하고 robot/instance/seq/run 및
+  양쪽 원문 지문·고정 지도/계획·소유권·마지막 commit/거부 이력을 대조한다. 권한·자료·저장
+  장애 원인을 고친 뒤 서버의 남은 실행 기록을 감사 가능한 데이터 복구로 종료/대조한다
+  (서버 run 명령 발신 없음). 원래 보고와 거부/복구 기록은 보존하며 성공 사건으로 바꾸지
+  않는다. 필요하면 새 식별자의 명시적 정정 기록을 남긴다. 격리/후속 FIFO와 서버 활성
+  실행이 대조된 뒤에만 기록 장애 차단을 사람이 해제한다. 새 출입증·새 run_id·STOP 확인·
+  명시 unlock·새 중립으로 새 실행을 시작하며 실패한 실행을 resume하지 않는다. 자동
+  복구 API/UI는 이 PR에 없고 2a/2b 구현·권한/감사 검증이 필요하다.
 - DB 설계의 runs.assignment_id는 현재 필수이므로 **시뮬은 null 허용 + simulation 출처 열**을
   후속 이관에 넣는다. 가짜 배정/자동 승인 행을 만들지 않는다. 실기는 assignment_id 필수
   및 기존 승인·점검 제약을 유지한다. 실행·지점 테이블과 Event.run_id FK·활성 실행 유일성,

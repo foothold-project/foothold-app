@@ -1,0 +1,18 @@
+{
+  "$id": "fh-app/1/RunReportPermanentCode",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "RUN_REPORT_OWNER",
+    "RUN_REPORT_MAP",
+    "RUN_REPORT_PLAN",
+    "RUN_REPORT_STATE",
+    "RUN_REPORT_STEP",
+    "RUN_REPORT_PROVENANCE",
+    "RUN_REPORT_CONFLICT",
+    "RUN_REPORT_INSTANCE",
+    "RUN_REPORT_ROBOT",
+    "RUN_REPORT_NOT_FOUND",
+    "RUN_REPORT_INVALID"
+  ],
+  "type": "string"
+}
