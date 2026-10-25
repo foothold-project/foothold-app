@@ -115,10 +115,12 @@ describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
     expect(velocity([1, 0], w).vx).toBe(0.8);
     expect(velocity([DEAD + 1e-6, 0], w).vx).toBeCloseTo(0.3, 5);
   });
-  it('이산 모드(vx_mode 없음)는 기존 식 그대로', () => {
+  it('이산 모드(vx_mode 없음)는 기존 식 그대로(제자리 회전만 0)', () => {
     const w = hello(welcome().limits), old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
-    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1])
-      expect(velocity([f, t], w)).toEqual({ vx: old(f, 0, 0.6), vy: 0, wz: old(t, -0.5, 0.5) });
+    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1]) {
+      const vx = old(f, 0, 0.6);
+      expect(velocity([f, t], w)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
+    }
   });
   it('연속 모드: 3단 숨김·상태 줄 값·놓으면 즉시 0·STOP 늘 보임', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
@@ -196,6 +198,8 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     ptr(left, 'pointerup', 0, 50);
     ptr(turn, 'pointerdown', 0, 50); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0.5 });
+    ptr(turn, 'pointermove', 100, 50); await wait(80);
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: -0.5 });
     expect(box.textContent).not.toContain('제자리 회전 — 시뮬에서 아직 확인 안 됨');
     ptr(turn, 'pointerup', 0, 50); await wait(60);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
@@ -207,7 +211,14 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     const turn = stick('회전');
     ptr(turn, 'pointerdown', 100, 50); await wait(80);
     expect(box.textContent).toContain('제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.');
-    ptr(turn, 'pointerup', 100, 50);
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });   // PR #88 B1: 허가 없으면 제자리 wz 를 보내지 않음
+    ptr(turn, 'pointermove', 0, 50); await wait(80);
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });
+    const left = stick('전후');
+    ptr(left, 'pointerdown', 50, 0); await wait(80);
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 1, vy: 0, wz: 0.5 });   // 앞+회전은 그대로
+    ptr(left, 'pointerup', 50, 0);
+    ptr(turn, 'pointerup', 0, 50);
     await recv(a, { t: 'cmd.ack', clipped: true });
     expect(box.textContent).toContain('명령 범위 조정 — 로봇 허용 범위(앞 1.00 m/s, 뒤 0.30 m/s, 옆 ±0.3 m/s, 회전 ±0.5 rad/s)로 잘랐습니다. 제자리 회전은 앞으로 밀면서 돌리세요.');
     expect(box.textContent).not.toContain('끝까지 밀어야');
@@ -252,8 +263,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     ptr(turn, 'pointerdown', 100, 50); await wait(80);
     expect(box.textContent).toContain('제자리 회전 — 시뮬에서 아직 확인 안 됨');
     expect(box.textContent).not.toContain('끝까지 밀어야 움직입니다');
-    // Existing wire request remains subject to agent projection; no new allowed command.
-    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: -0.5 });
+    expect(last(a.of('cmd'))).toMatchObject({ vx: 0, vy: 0, wz: 0 });   // 실기 limits: 제자리 wz 안 보냄(PR #88 B1)
     expect($('[data-stop]')).toBeTruthy();
     await click($('[data-stop]'));
     expect(a.of('stop')).toHaveLength(1);

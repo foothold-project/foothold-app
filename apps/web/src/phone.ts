@@ -101,11 +101,12 @@ export function velocity([f, t, y = 0]: Axes, w: PhoneWelcome) {
   const vx = L.vx_mode !== 'continuous' ? s(f, L.vx_min, L.vx_max)
     : f > DEAD ? ramp(f, L.vx_max) : f < -DEAD && L.vx_min < 0 ? -ramp(f, -L.vx_min) : 0;
   const vy = y > DEAD ? L.vy_max * past(y) : y < -DEAD ? L.vy_min * past(y) : 0;
-  return { vx, vy, wz: s(t, L.wz_min, L.wz_max) };
+  // 제자리 회전(전후·옆 0)은 turn_in_place 허가가 있을 때만 — 없으면 wz 0 을 보낸다(안내는 화면)
+  return { vx, vy, wz: vx === 0 && vy === 0 && !allowed(w).spin ? 0 : s(t, L.wz_min, L.wz_max) };
 }
 /** limits 가 허용하는 방향(화면은 이 값만 본다 — 숫자를 박지 않음). 제자리 회전은 시뮬 limits.experimental 에 turn_in_place 가 있을 때만 */
 export function allowed(w: PhoneWelcome | null) {
-  const L = w?.limits, exp = (L as { experimental?: string[] } | undefined)?.experimental ?? [];   // ponytail: contracts PhoneLimits 에 experimental 이 생기면 캐스트 빼기
+  const L = w?.limits, exp = L?.experimental ?? [];
   return { back: !!L && L.vx_min < 0, left: !!L && L.vy_max > 0, right: !!L && L.vy_min < 0, spin: exp.includes('turn_in_place'), experimental: exp.length > 0 };
 }
 /** 50 ms 박자: 조종권이 있으면 cmd(중립 0 포함), 1 s 마다 ping(§13.1 — cmd 가 ping 을 대신하지 않음) */
