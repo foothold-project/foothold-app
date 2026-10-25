@@ -21,6 +21,8 @@ def scenario_origin(settings):
             or parsed.username is not None or parsed.password is not None
             or parsed.path or parsed.query or parsed.fragment):
         raise ValueError('scenario data requires a path-free HTTP origin')
+    if parsed.scheme == 'http' and parsed.hostname not in ('127.0.0.1', '::1'):
+        raise ValueError('HTTP scenario data requires a loopback origin')
     return value
 
 

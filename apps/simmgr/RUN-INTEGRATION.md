@@ -47,6 +47,8 @@ SHA/800×640 조건을 적용하지 않는다. 기존 서버 bounded map codec�
 
 ## 오프라인 검증
 
+초기 작성본(r1 이전):
+
 - 집중 `test_nav2_lifecycle.py`: **29 passed**. unit 상한·격리·invocation 교체 거부·남은 cgroup
   거부·bootstrap, 60초 관문과 마지막 표본 하락, origin 거부, 환경 전달, SQLite 재시작/삭제 보존,
   창고 raster/좌표/SHA, 세 자식 종료와 기동 실패 정리, 정리 실패 latch를 확인했다.
@@ -57,6 +59,25 @@ SHA/800×640 조건을 적용하지 않는다. 기존 서버 bounded map codec�
 - 초기 전체 수집은 승인된 venv의 numpy 누락으로 중단됐다. 설치 없이 기존 시스템
   dist-packages를 sys.path 끝에 추가한 뒤 전체 시험을 1회 실행했다.
 - 시험 DB의 임시 포트 할당은 `FH_TEST_PORT_RANGE=9600:9609`; 실제 ROS 참가·서비스 unit 생성 0.
+
+PR #108 r1:
+
+- R1: `systemd-run`의 `CalledProcessError`와 `LoadState=not-found`/빈 InvocationID가
+  함께 확인된 경우만 Nav2 미생성으로 처리한다. `_stop_nav2`가 핸들을 비우고 world 정리를
+  진행한다. timeout처럼 생성 여부가 모호하면 정리 거부와 소유·실패 latch를 유지한다.
+- R4: agent/Nav2 readiness 상태 조회의 `RuntimeError`도 `_cleanup_failed_start`를
+  호출한다. 상태 확인 실패의 기존 latch는 해제하지 않는다.
+- R2: HTTP scenario origin은 agent와 동일하게 `127.0.0.1`/`::1`만 허용하며
+  명시 origin과 WS에서 유도한 origin 모두 Settings 검증 시 거부한다. HTTPS는 유지한다.
+- 회귀 11개 추가: 미생성 거부/timeout 2개, agent/Nav2 조회 실패 2개,
+  HTTP host 거부 및 loopback/HTTPS 허용 7개. 집중 **40 passed** (3.53초),
+  simmgr 전체 **294 passed** (19.59초, 전체 1회), 기존 경고 1개.
+- 전체 실행 직전 MemAvailable **5596772 kB**, `if` 관문 ≥2621440 kB 확인.
+  기존 읽기 전용 venv와 시스템 dist-packages를 사용했고 설치·sudo는 하지 않았다.
+  포트는 `FH_TEST_PORT_RANGE=9600:9609`, 실제 ROS/Gazebo/Nav2 기동·ROS 참가 0.
+- 초기 집중 시험에서 새 mock이 preflight의 unit 목록 조회까지 가로채 2개가 실패했다.
+  목록 조회를 기존 mock에 위임하도록 고친 뒤 위 결과를 확인했다. 지도 도구는 변경하지
+  않아 r1에서 재실행하지 않았다.
 
 재현 명령(`FH_PYTHON`은 승인된 기존 read-only venv Python):
 

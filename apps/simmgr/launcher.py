@@ -297,29 +297,25 @@ class NativeLauncher:
             self.nav2 = await asyncio.to_thread(Nav2Unit, self.folder, self.settings, ROOT, self.runtime_identity)
             await asyncio.to_thread(self.nav2.start)
             self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
+            deadline = asyncio.get_running_loop().time() + 30
+            while asyncio.get_running_loop().time() < deadline:
+                if (await self._poll() is not None or self.sim.reason
+                        or await asyncio.to_thread(self.nav2.poll) is not None):
+                    raise RuntimeError('agent/Nav2/simulation startup failed')
+                try:
+                    reader, writer = await asyncio.wait_for(asyncio.open_connection(self.settings.agent_host, slot.port), .2)
+                    writer.close()
+                    await writer.wait_closed()
+                    self._watching = True
+                    self.watch_task = asyncio.create_task(self._watch_children(self.folder))
+                    return
+                except (OSError, asyncio.TimeoutError):
+                    await asyncio.sleep(.1)
+            raise RuntimeError('agent listener readiness unconfirmed')
         except BaseException:
             self.failed = True
             await self._cleanup_failed_start(slot)
             raise
-        deadline = asyncio.get_running_loop().time() + 30
-        while asyncio.get_running_loop().time() < deadline:
-            if (await self._poll() is not None or self.sim.reason
-                    or await asyncio.to_thread(self.nav2.poll) is not None):
-                self.failed = True
-                await self._cleanup_failed_start(slot)
-                raise RuntimeError('agent/Nav2/simulation startup failed')
-            try:
-                reader, writer = await asyncio.wait_for(asyncio.open_connection(self.settings.agent_host, slot.port), .2)
-                writer.close()
-                await writer.wait_closed()
-                self._watching = True
-                self.watch_task = asyncio.create_task(self._watch_children(self.folder))
-                return
-            except (OSError, asyncio.TimeoutError):
-                await asyncio.sleep(.1)
-        self.failed = True
-        await self._cleanup_failed_start(slot)
-        raise RuntimeError('agent listener readiness unconfirmed')
 
     async def stop_agent(self, slot):
         self._watching = False

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
+import subprocess
 from types import SimpleNamespace
 
 import pytest
@@ -71,6 +72,53 @@ def test_nav2_replacement_invocation_never_signalled(owned_nav2):
     with pytest.raises(RuntimeError, match='identity changed'):
         child.stop()
     assert all('stop' not in args for args, _ in state.commands[before:])
+
+
+@pytest.mark.parametrize('failure', ['rejected', 'timeout'])
+def test_nav2_absent_after_failed_creation_only_rejection_allows_world_cleanup(
+        native_episode, monkeypatch, failure):
+    cfg, state = native_episode
+    original_run = nav2_unit.subprocess.run
+    commands = []
+    def run(args, **kwargs):
+        if (args[:3] != ['systemctl', '--user', 'list-units']
+                and any('fh-simmgr-nav2-' in arg for arg in args)):
+            commands.append(args)
+            if args[:3] == ['systemctl', '--user', 'show']:
+                return SimpleNamespace(stdout='LoadState=not-found\nInvocationID=\n')
+            if args[0] == 'systemd-run':
+                if failure == 'rejected':
+                    raise subprocess.CalledProcessError(1, args)
+                raise subprocess.TimeoutExpired(args, 10)
+            pytest.fail('absent or ambiguous unit must not be signalled')
+        return original_run(args, **kwargs)
+    monkeypatch.setattr(nav2_unit.subprocess, 'run', run)
+    monkeypatch.setattr(launcher, 'Nav2Unit', Nav2Unit)
+    async def exercise():
+        launch = NativeLauncher(cfg)
+        await launch.start_world(cfg.worlds['v5_single/f1'])
+        async def verified():
+            assert launch.nav2 is launch.child is None
+            launch.sim.close()
+        monkeypatch.setattr(launch, '_close_verified_native', verified)
+        folder = launch.folder
+        expected = subprocess.CalledProcessError if failure == 'rejected' else CleanupUnconfirmed
+        with pytest.raises(expected):
+            await launch.add(next(iter(cfg.slots.values())), {'agent_token': 'x' * 32})
+        assert launch.failed and launch.child is None
+        if failure == 'rejected':
+            assert launch.nav2 is launch.sim is None
+            assert launch.recovery_complete and not launch.recovery_blocked
+            assert not (folder / 'nav2-env.json').exists()
+            assert state.events[-1] == 'world_close'
+        else:
+            assert launch.nav2 is not None and launch.sim is not None
+            assert launch.recovery_blocked and not launch.recovery_complete
+            with pytest.raises(RuntimeError, match='identity changed'):
+                launch.nav2.stop()
+            assert 'world_close' not in state.events
+        assert sum(args[0] == 'systemd-run' for args in commands) == 1
+    asyncio.run(exercise())
 
 
 def test_nav2_cleanup_requires_empty_original_cgroup(owned_nav2, monkeypatch):
@@ -176,6 +224,20 @@ def test_outbox_refuses_unsafe_path(tmp_path, unsafe):
 def test_origin_rejects_paths_credentials_and_non_http(origin):
     with pytest.raises(ValueError, match='path-free'):
         replace(settings(), scenario_data_origin=origin)
+
+
+@pytest.mark.parametrize('origin,accepted', [
+    ('http://localhost:9431', False), ('http://192.0.2.1:9431', False),
+    ('http://127.0.0.2:9431', False), ('http://[::2]:9431', False),
+    ('http://127.0.0.1:9431', True), ('http://[::1]:9431', True),
+    ('https://example.invalid', True),
+])
+def test_scenario_http_origin_matches_agent_loopback_policy(origin, accepted):
+    if accepted:
+        assert scenario_origin(replace(settings(), scenario_data_origin=origin)) == origin
+    else:
+        with pytest.raises(ValueError, match='loopback'):
+            replace(settings(), scenario_data_origin=origin)
 
 
 def test_warehouse_map_copy_preserves_pixels_origin_and_registered_hashes(repo, catalogue, tmp_path):
@@ -311,3 +373,45 @@ def test_startup_failure_also_cleans_peers(native_episode, monkeypatch, phase):
         assert state.events[-2:] == ['nav2_stop', 'verified_world_close']
         assert launch.failed and launch.recovery_complete and launch.sim is None
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('phase', ['agent', 'nav2'])
+def test_readiness_poll_error_also_requests_cleanup_and_retains_latch(
+        native_episode, monkeypatch, phase):
+    cfg, state = native_episode
+    def unavailable(*args):
+        raise RuntimeError('synthetic user bus unavailable')
+    class Nav2:
+        def __init__(self, *args): pass
+        def start(self): pass
+        def poll(self):
+            if phase == 'nav2': unavailable()
+            return None
+        def stop(self): state.events.append('nav2_stop')
+    monkeypatch.setattr(launcher, 'Nav2Unit', Nav2)
+    if phase == 'agent':
+        monkeypatch.setattr(launcher.AgentUnit, 'poll', unavailable)
+    async def exercise():
+        launch = NativeLauncher(cfg)
+        await launch.start_world(cfg.worlds['v5_single/f1'])
+        original_cleanup = launch._cleanup_failed_start
+        async def cleanup(slot):
+            assert launch.failed
+            state.events.append('startup_cleanup')
+            await original_cleanup(slot)
+        async def verified():
+            assert launch.nav2 is launch.child is None
+            state.events.append('verified_world_close')
+        monkeypatch.setattr(launch, '_cleanup_failed_start', cleanup)
+        monkeypatch.setattr(launch, '_close_verified_native', verified)
+        with pytest.raises(RuntimeError, match='status unavailable|user bus unavailable'):
+            await launch.add(next(iter(cfg.slots.values())), {'agent_token': 'x' * 32})
+        assert state.events.count('startup_cleanup') == 1
+        assert state.events.index('startup_cleanup') < state.events.index('nav2_stop')
+        assert launch.failed and not launch._watching and launch.watch_task is None
+        if phase == 'agent':
+            assert launch.recovery_blocked and launch.child and launch.sim
+        else:
+            assert launch.recovery_complete and launch.sim is None
+            assert state.events[-1] == 'verified_world_close'
+    asyncio.run(exercise())

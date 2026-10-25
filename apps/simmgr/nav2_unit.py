@@ -20,6 +20,7 @@ class Nav2Unit(AgentUnit):
         self.unit = 'fh-simmgr-nav2-' + episode + '.service'
         self.invocation_id = None
         self.attempted = False
+        self.not_created = False
         self.folder, self.settings, self.root = folder, settings, root
         if self.show().get('LoadState') != 'not-found':
             raise RuntimeError('Nav2 unit already exists; use a new episode')
@@ -43,13 +44,21 @@ class Nav2Unit(AgentUnit):
                 '/usr/bin/env', '-i', '/usr/bin/python3',
                 str(self.root / 'apps/simmgr/nav2_entry.py'), str(self.private)]
         self.attempted = True
+        creation_rejected = False
         try:
             subprocess.run(args, env={k: v for k, v in self.env.items() if k in
                 ('PATH', 'HOME', 'XDG_RUNTIME_DIR', 'DBUS_SESSION_BUS_ADDRESS')},
                 check=True, capture_output=True, timeout=10)
+        except subprocess.CalledProcessError:
+            creation_rejected = True
+            raise
         finally:
-            # Keep the handle even on an ambiguous systemd-run failure.
-            self.invocation_id = self.show().get('InvocationID')
+            state = self.show()
+            self.invocation_id = state.get('InvocationID')
+            # Only a definite rejection plus absence proves no unit was created.
+            # Timeout and unavailable status retain the handle for manual recovery.
+            self.not_created = (creation_rejected and state.get('LoadState') == 'not-found'
+                                and not self.invocation_id)
         if not self.invocation_id:
             raise RuntimeError('Nav2 invocation ownership unavailable')
         (self.folder / 'nav2-unit.json').write_text(json.dumps(dict(
@@ -57,7 +66,7 @@ class Nav2Unit(AgentUnit):
             partition=self.env['GZ_PARTITION'], memory_mib=None, cpu_percent=None)))
 
     def stop(self):
-        if not self.attempted:
+        if not self.attempted or self.not_created:
             self.private.unlink(missing_ok=True)
             return
         state = self.show()
