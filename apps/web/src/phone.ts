@@ -88,10 +88,10 @@ const ERR: Record<string, string> = {
   RUN_NOT_FOUND: '이 실행을 찾지 못했습니다. 이미 끝났을 수 있습니다.', RUN_STATE_CONFLICT: '지금 실행 상태에서는 할 수 없습니다.',
   RUN_OWNER_MISMATCH: '다른 화면에서 건 실행입니다. 일시정지·이어서·조종 전환은 그 화면에서만 할 수 있습니다.',
   RESUME_REJECTED: '아직 이어갈 수 없습니다. 로봇의 목표 취소 확인을 기다렸다가 «조종 시작» → «잠금 해제» → 손을 뗀 뒤 다시 누르세요.',
-  UNSUPPORTED_OPERATION: '아직 지원하지 않는 동작입니다.', RECORDING_UNAVAILABLE: '실행 기록을 저장할 수 없어 시작·이어서를 하지 못했습니다.',
+  UNSUPPORTED_OPERATION: '아직 지원하지 않는 동작입니다.', RECORDING_UNAVAILABLE: '실행 기록 장애로 시작·이어서를 막았습니다. 시뮬을 «끝내기» 한 뒤 다시 띄우면(에이전트 재시작) 새로 실행할 수 있습니다.',
   NAV_UNAVAILABLE: '이 로봇에는 자율 이동(내비게이션)이 준비되지 않아 시나리오를 실행할 수 없습니다.',
   MAP_VERSION_MISMATCH: '시나리오의 지도 판이 로봇 지도와 달라 실행하지 않았습니다.', FLOOR_TRANSITION_UNSUPPORTED: '여러 층을 지나는 시나리오는 아직 실행할 수 없습니다.',
-  PLAN_UNAVAILABLE: '시나리오 자료를 받지 못해 실행하지 않았습니다.',
+  PLAN_UNAVAILABLE: '시나리오 자료를 받지 못해 실행하지 않았습니다.', MAP_PROOF_UNAVAILABLE: '이 지도로는 시나리오를 실행할 수 없습니다 — 지도 원본을 증명할 수 없는 판입니다(사람이 고친 판 등).',
 };
 const RESULT: Record<string, string> = { ACCEPTED: '조종권을 넘겼습니다.', DECLINED: '조종권 요청을 거절했습니다.', TIMEOUT: '조종권 요청이 시간이 지나 거절됐습니다.', CANCELED: '조종권 요청이 취소됐습니다.' };
 /** 닫기 코드(§13.6) → 문구. 4401·4403 은 새 출입증 전 자동 재연결하지 않는다 */

@@ -16,12 +16,24 @@ export const RUN_FAIL: Record<string, string> = {
   NAV_UNAVAILABLE: '이 로봇에는 자율 이동(내비게이션)이 준비되지 않았습니다.', MAP_VERSION_MISMATCH: '시나리오 지도 판이 로봇 지도와 다릅니다.',
   FLOOR_TRANSITION_UNSUPPORTED: '여러 층을 지나는 시나리오는 아직 실행할 수 없습니다.', PLAN_UNAVAILABLE: '시나리오 자료를 받지 못했습니다.',
   AGENT_RESTARTED: '로봇 프로그램이 다시 시작되어 실행을 닫았습니다.',
+  RECORDING_REJECTED: '서버가 실행 기록을 거부해 멈췄습니다(로봇 정지·잠금).', MAP_PROOF_UNAVAILABLE: '지도 원본을 증명할 수 없는 지도 판입니다(사람이 고친 판 등).',
 };
-export const failText = (code: string | null) => (code && RUN_FAIL[code]) || '실행을 마치지 못했습니다.';
+/** 모르는 코드는 지어내지 않고 코드 그대로 */
+export const failText = (code: string | null) => (code && RUN_FAIL[code]) || `실행을 마치지 못했습니다${code ? `(알 수 없는 이유 ${code})` : ''}.`;
+const SIM_RESTART = '시뮬을 «끝내기» 한 뒤 다시 띄우면(에이전트 재시작) 새로 실행할 수 있습니다.';
+const NO_MAP = '이 지도로는 이 시나리오를 실행할 수 없습니다. 지도 판과 시나리오를 확인하세요.';
+/** 실패·취소 뒤 다음 행동(fail_code). '' = 안내 없음, 없는 코드 = 일반 안내. 끝난 실행은 «이어서» 없음 — 새 실행만 */
+export const RUN_NEXT: Record<string, string> = {
+  RECORDING_REJECTED: `이 실행은 이어갈 수 없고 새 실행만 할 수 있습니다. ${SIM_RESTART}`,
+  MAP_VERSION_MISMATCH: NO_MAP, MAP_PROOF_UNAVAILABLE: NO_MAP, FLOOR_TRANSITION_UNSUPPORTED: '한 층 시나리오만 실행할 수 있습니다.',
+  PLAN_UNAVAILABLE: `다시 실행해도 같으면 ${NO_MAP}`, NAV_TIMEOUT: '길이 막혔는지 확인한 뒤 새로 실행하세요.',
+  PAUSE_TIMEOUT: '이어갈 수 없습니다 — 다시 하려면 새로 실행하세요.', OPERATOR_ABORT: '',
+};
+const nextText = (code: string | null) => code && code in RUN_NEXT ? RUN_NEXT[code] : '로봇 상태를 확인한 뒤 새로 실행하세요.';
 /** 일시정지 이유(wait_reason) */
 export const RUN_WAIT: Record<string, string> = {
   LINK_LOST: '화면 연결이 끊겨 멈췄습니다(로봇 정지·잠금).', STOPPED_BY_USER: 'STOP 으로 멈췄습니다(잠금 유지).',
-  RECORDING_UNAVAILABLE: '실행 기록을 저장하지 못해 멈췄습니다 — 이어갈 수 없습니다. 취소하세요.', '': '일시정지했습니다(로봇 정지·잠금).',
+  RECORDING_UNAVAILABLE: `실행 기록을 저장하지 못해 멈췄습니다 — 이어갈 수 없습니다. «취소»하세요. ${SIM_RESTART}`, '': '일시정지했습니다(로봇 정지·잠금).',
 };
 const mmss = (s: number) => `${Math.floor(s / 60)}분 ${(s % 60).toString().padStart(2, '0')}초`;
 
@@ -68,6 +80,9 @@ export function runView(s: Sim, pc = false): { notes: string[]; acts: JSX.Elemen
     <button key={key} type="button" className={pri ? 'btn pri' : 'btn'} disabled={off} data-run-act={key} onClick={f}>{text}</button>;
   const notes = [
     end ? (r.status === 'COMPLETED' ? `시나리오를 마쳤습니다 — 지점 ${r.progress.done}/${total}` : `시나리오 ${label} — ${failText(r.fail_code)}`) : `시나리오 ${label}${at}`,
+    end && r.status !== 'COMPLETED' && nextText(r.fail_code),
+    // ponytail: 계획 수락 전(total 0)에 끝나면 에이전트가 RUN_STARTED 를 안 보내 서버에 실행이 없다(scenario_run._publish). 에이전트가 «기록 여부»를 알려 주면 그걸로
+    end && r.status !== 'COMPLETED' && total === 0 && `시작 전 준비 단계에서 끝나 서버 기록에 남지 않았습니다(기록되지 않은 ${r.status === 'FAILED' ? '실패' : '실행'}) — 기록 탭에서 찾을 수 없습니다.`,
     !end && l.arrived,
     !open && !end && `화면 연결이 끊겼습니다 — 로봇은 스스로 멈추고 실행은 일시정지됩니다.${mine ? ' 다시 연결한 뒤 이 화면에서 이어갈 수 있습니다.' : ''}`,
     open && paused && RUN_WAIT[r.wait_reason ?? ''],
