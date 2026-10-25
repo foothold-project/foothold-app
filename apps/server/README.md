@@ -1039,3 +1039,29 @@ python -m apps.server.fh_server.sim_maps \
 참조를 백업·명시적으로 정리한다. 0017 downgrade는 시뮬 층이 남으면 출처 유실을
 막기 위해 거부한다. 정리 후 `alembic downgrade 0016` → 필요시 다시 `upgrade head`다.
 출처 검사 없는 옛 서버로만 되돌리고 시뮬 자료를 그대로 제공해서는 안 된다.
+
+## 영속 run 보고와 지도 증명 (0019)
+
+`0018`의 실행 테이블 뒤에 `0019`를 정식 Alembic 절차로 적용해야 한다.
+서버 시작은 이관을 대신하지 않는다. `run_reports`의 commit 확인과 별도로
+`run_report_rejections`에 원문 SHA-256·기동/순번·실행 ID·이유·수신 시각을 남긴 뒤
+`run.report_rejected`를 보낸다. owner/map/plan/state/형식 등의 영구 거부는
+QUARANTINE으로 해당 FIFO 순번을 소비하고 연결을 유지한다. SEQUENCE와 STORAGE만
+RETRY이며, SEQUENCE 응답에는 필요한 다음 순번을 싣는다. 같은 원문에는 같은 처분,
+같은 식별자의 다른 원문에는 CONFLICT를 돌려주며 기존 처분을 보존한다.
+`run.recorded`는 DB commit 뒤에만 보내고 ACK 유실 재전송에도 다시 보낸다.
+
+새 영속 실행과 관련 사건에는 기동 UUID·순번·단조 시각이 필수다. 무식별 구 보고는
+새 runs/run_steps/수신 이력을 만들거나 바꾸지 않는다. 일반 구 사건과 메모리 표시
+호환은 유지한다. 서버는 실행 명령을 발신하지 않으며 실기 실행은 계속 거부한다.
+
+에이전트 고정 시나리오 조회는 `SIMULATION`의 `connected_gt`에 저장된 원본 PGM SHA와
+PNG SHA·좌표·크기·월드/층을 대조하여 `map_proofs`를 준다. HUMAN 판과 증명 누락/불일치는
+`422 MAP_PROOF_UNAVAILABLE`이며 PNG SHA를 PGM SHA로 대신하지 않는다. 시작 보고의
+증명도 서버 고정 계획과 일치해야 한다. 인증된 고정 계획 조회로 허용된 판은
+`agent_plan_maps`에 로봇/조직/시나리오 판별로 보관하며, 에이전트 토큰으로만
+`/api/v1/agent/map-versions/{id}/image`에서 읽는다. 다른 로봇·조직·미허용 판은 거부한다.
+
+거부/복구 원본은 보존해야 한다. 거부 이력이 남은 `0019` downgrade는 의도적으로
+거부하며, 기존 `0018`도 실행이 남으면 downgrade를 거부한다. 복구는 권한 있는 운영자의
+감사 가능한 자료 대조/정리 후 명시적으로 진행한다. 자동 격리 해제 API/UI는 제공하지 않는다.

@@ -1700,7 +1700,7 @@ class Realtime:
                 peer.phone_ack_queue.task_done()
 
     async def run_report_writer(self, rid, peer):
-        from .runs import record, sample_path, snapshot, ReportRejected
+        from .runs import record, sample_path, snapshot, rejection
         while True:
             kind, payload, at = await peer.run_reports.get()
             try:
@@ -1708,8 +1708,18 @@ class Realtime:
                     await self.read(sample_path, self.run_factory, self.settings.org_id, rid, payload, at)
                 else:
                     receipt = await self.read(record, self.run_factory, self.settings.org_id, rid, payload)
+                    if receipt and self.agents.get(rid) is peer and not peer.closing:
+                        self.put(peer, receipt)  # durable decision committed before any projection
+                    if receipt and receipt['t'] == 'run.report_rejected':
+                        continue
+                    if isinstance(payload, dict):
+                        payload = AGENT.validate_python(payload)
                     identifier = payload.run_id if payload.t == 'run.update' else payload.data.get('run_id')
-                    current = await self.read(snapshot, self.factory, self.settings.org_id, rid, identifier)
+                    try:
+                        current = await self.read(snapshot, self.factory, self.settings.org_id, rid, identifier)
+                    except Exception:
+                        log.warning('Committed run projection unavailable')
+                        continue  # projection failure cannot replace a committed receipt
                     if self.agents.get(rid) is peer and not peer.closing:
                         previous = self.runs.get(rid)
                         if current is not None:
@@ -1725,15 +1735,17 @@ class Realtime:
                                 and holder and holder.holder_type == 'RUN'
                                 and run.get('lease_id') == holder.lease_id):
                             self.apply(self.arbiter.revoke(rid))
-                        if receipt:
-                            self.put(peer, receipt)  # transaction has committed
-            except Exception as exc:
-                reason = str(exc) if isinstance(exc, ReportRejected) else 'RUN_RECORDING_UNAVAILABLE'
+            except Exception:
+                raw = payload if isinstance(payload, dict) else payload.model_dump(mode='json', exclude_unset=True)
+                retry = rejection(raw, 'RUN_REPORT_STORAGE') if kind == 'report' else None
+                if retry is not None and self.agents.get(rid) is peer and not peer.closing:
+                    self.put(peer, retry)  # no ACK and no uncommitted permanent decision
+                    continue
                 if self.agents.get(rid) is peer:
                     self.retire_agent(rid, peer)
                     with suppress(Exception):
-                        await peer.socket.close(code=1013, reason=reason)
-                return  # never ACK an uncommitted report
+                        await peer.socket.close(code=1013, reason='RUN_REPORT_STORAGE')
+                return
             finally:
                 peer.run_reports.task_done()
 
@@ -1857,6 +1869,14 @@ class Realtime:
                 try:
                     msg = AGENT.validate_python(raw)
                 except ValidationError:
+                    from .runs import report_identity
+                    if raw.get('t') in ('event', 'run.update') and report_identity(raw) is not None:
+                        if peer.run_reports.full():
+                            self.retire_agent(rid, peer)
+                            await ws.close(code=1013, reason='RUN_REPORT_STORAGE')
+                            return
+                        peer.run_reports.put_nowait(('report', raw, None))
+                        continue
                     if archive:
                         admitted = self.ingress_allowed(peer)
                     self.note_audit(rid, {'op': 'AGENT_INVALID_FRAME'})
@@ -1882,12 +1902,14 @@ class Realtime:
                             None, digest(ws.headers.get('authorization', '')[7:]))
                 elif msg.t == 'phone.revoke.ack':
                     self.queue_phone_ack(rid,peer,msg.seq)
-                elif msg.t in ('event', 'run.update') and (msg.t == 'run.update' or 'agent_instance_id' in msg.model_fields_set):
+                elif msg.t in ('event', 'run.update') and (msg.t == 'run.update'
+                        or 'agent_instance_id' in msg.model_fields_set or 'run_id' in msg.data
+                        or msg.code.startswith('RUN_')):
                     if peer.run_reports.full():
                         self.retire_agent(rid, peer)
                         await ws.close(code=1013, reason='RUN_RECORDING_UNAVAILABLE')
                         return
-                    peer.run_reports.put_nowait(('report', msg, None))
+                    peer.run_reports.put_nowait(('report', raw, None))
                 elif msg.t == 'event':
                     from .runs import public_data
                     effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'data': public_data(msg.data), 'op': 'AGENT_EVENT', 'at': now()})

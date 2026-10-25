@@ -595,3 +595,33 @@ class RunReport(Tenant, Base):
     request_hash: Mapped[str] = mapped_column(Text)
     monotonic_s: Mapped[float] = mapped_column(Float)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class RunReportRejection(Tenant, Base):
+    """Immutable quarantine decisions; these consume FIFO sequence numbers too."""
+    __tablename__ = 'run_report_rejections'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        CheckConstraint('report_seq >= 0', name='run_rejection_seq'),
+    )
+    robot_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    agent_instance_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    report_seq: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    request_hash: Mapped[str] = mapped_column(Text, primary_key=True)
+    monotonic_s: Mapped[float] = mapped_column(Float)
+    run_id: Mapped[UUID | None] = mapped_column(PGUUID)
+    code: Mapped[str] = mapped_column(Text)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, server_default=func.now())
+
+
+class AgentPlanMap(Tenant, Base):
+    """Map access granted only by an authenticated immutable scenario lookup."""
+    __tablename__ = 'agent_plan_maps'
+    __table_args__ = (
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'scenario_version_id'], ['scenario_versions.org_id', 'scenario_versions.id']),
+        ForeignKeyConstraint(['org_id', 'map_version_id'], ['map_versions.org_id', 'map_versions.id']),
+    )
+    robot_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    scenario_version_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+    map_version_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
