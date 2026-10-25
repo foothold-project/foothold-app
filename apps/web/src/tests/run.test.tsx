@@ -216,7 +216,9 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     // 계획 수락 전(PREPARING, total 0) 실패 = 에이전트가 서버에 시작을 안 알림 → 기록되지 않은 실패
     await upd({ status: 'FAILED', fail_code: 'PLAN_UNAVAILABLE', progress: { done: 0, total: 0 } });
     expect(visible()).toContain('시나리오 자료를 받지 못했습니다.');
-    expect(visible()).toContain('다시 실행해도 같으면 이 지도로는 이 시나리오를 실행할 수 없습니다.');
+    // 자료 GET 실패는 연결·서버·지도 어느 것이든 같은 코드 — 지도 단정 문구 없이 일반 안내(PR #110 r1)
+    expect(visible()).toContain('서버 연결을 확인한 뒤 다시 실행하세요. 반복되면 관리자에게 지도·시나리오 확인을 요청하세요.');
+    expect(visible()).not.toContain('이 지도로는');
     expect(visible()).toContain('서버 기록에 남지 않았습니다(기록되지 않은 실패)');
     const stop = $<HTMLButtonElement>('[data-stop]')!;
     expect(stop.disabled).toBe(false);

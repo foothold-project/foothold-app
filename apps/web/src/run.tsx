@@ -26,7 +26,8 @@ const NO_MAP = '이 지도로는 이 시나리오를 실행할 수 없습니다.
 export const RUN_NEXT: Record<string, string> = {
   RECORDING_REJECTED: `이 실행은 이어갈 수 없고 새 실행만 할 수 있습니다. ${SIM_RESTART}`,
   MAP_VERSION_MISMATCH: NO_MAP, MAP_PROOF_UNAVAILABLE: NO_MAP, FLOOR_TRANSITION_UNSUPPORTED: '한 층 시나리오만 실행할 수 있습니다.',
-  PLAN_UNAVAILABLE: `다시 실행해도 같으면 ${NO_MAP}`, NAV_TIMEOUT: '길이 막혔는지 확인한 뒤 새로 실행하세요.',
+  // 에이전트는 자료 GET 실패(타임아웃·연결·서버 거절 모두)를 이 코드 하나로 보낸다 — 지도 탓으로 단정하지 않는다
+  PLAN_UNAVAILABLE: '서버 연결을 확인한 뒤 다시 실행하세요. 반복되면 관리자에게 지도·시나리오 확인을 요청하세요.', NAV_TIMEOUT: '길이 막혔는지 확인한 뒤 새로 실행하세요.',
   PAUSE_TIMEOUT: '이어갈 수 없습니다 — 다시 하려면 새로 실행하세요.', OPERATOR_ABORT: '',
 };
 const nextText = (code: string | null) => code && code in RUN_NEXT ? RUN_NEXT[code] : '로봇 상태를 확인한 뒤 새로 실행하세요.';
