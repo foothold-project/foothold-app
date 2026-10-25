@@ -1,4 +1,4 @@
-// 화면 틀(03 UX §3, 09 ADR-002 §3·§4): PC(총괄 웹) = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문(조종 탭 없음),
+// 화면 틀(03 UX §3, 09 ADR-002 §3·§4): PC(총괄 웹) = 머리줄 + 상태 띠 + 왼쪽 세로 메뉴 + 본문(실기 조종 탭 없음 — 시뮬은 «시뮬» 탭),
 // 폰(768px 미만) = 머리줄 + 본문 — 로봇 연결(#/drive) → 조종(#/drive/<로봇 id>) → 끝내기, 기록은 머리줄 ⋯ 에서. 아래 탭 줄은 없다.
 // 머리줄 오른쪽 묶음(연결 점 · 알림 · 사용자 · STOP)은 모든 화면에서 같다. 사용자·로봇 목록은 받은 값(session.tsx 가 서버에서),
 // 로봇 연결·상태·조종권·STOP 은 실시간 연결(rt.ts), 알림 종은 GET /notifications(screens/history.tsx), 지도는 /sites·/map-versions(screens/maps.tsx),
@@ -19,6 +19,7 @@ import { kept } from './screens/mapedit';
 import { Maps } from './screens/maps';
 import { Missions } from './screens/missions';
 import { Settings } from './screens/settings';
+import { SimTab } from './screens/sim';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -238,6 +239,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'map' ? <Maps key={`map-${user.id}`} user={user} cancel={cancel} dash={dash} />   // 로봇 0대여도 장소·지도
         : tab === 'approval' ? <Approvals key={`approval-${user.id}`} user={user} cancel={cancel} focus={focus} dash={dash} />   // 로봇 0대여도 결재
         : tab === 'mission' ? <Missions key={`mission-${user.id}`} user={user} cancel={cancel} robots={pool} />   // 로봇 0대여도 임무·시나리오
+        : tab === 'sim' ? <SimTab user={user} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
         : none}</Guard>
         <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
     </div>
