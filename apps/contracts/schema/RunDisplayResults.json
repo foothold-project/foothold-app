@@ -1,0 +1,15 @@
+{
+  "$id": "fh-app/1/RunDisplayResults",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "const": "DISPLAY_ONLY",
+      "default": "DISPLAY_ONLY",
+      "title": "Mode",
+      "type": "string"
+    }
+  },
+  "title": "RunDisplayResults",
+  "type": "object"
+}

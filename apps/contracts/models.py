@@ -19,6 +19,20 @@ SIM_MAP_REQUIRES_SIM_ROBOT = 'SIM_MAP_REQUIRES_SIM_ROBOT'
 Role = Literal['ORG_ADMIN', 'OPERATOR']
 Category = Literal['RUN', 'ROUTE', 'LINK', 'LEASE', 'APPROVAL', 'SAFETY', 'ACCOUNT']
 SafetyReason = Literal['OUTPUT_STALLED']
+RunStatus = Literal['QUEUED', 'PREPARING', 'MOVING', 'AT_WAYPOINT', 'PERFORMING',
+                    'WAIT_CONFIRM', 'PAUSED', 'COMPLETED', 'FAILED', 'CANCELED']
+# Read compatibility only: new direct reports must use RunStatus.
+RunRecordStatus = RunStatus | Literal['ABORTED']
+RunWaitReason = Literal['LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE']
+RunFailCode = Literal['NAV_GOAL_REJECTED', 'NAV_TIMEOUT', 'LOCALIZATION_LOST',
+                      'BATTERY_LOW', 'DEVICE_MISSING', 'OPERATOR_ABORT', 'PAUSE_TIMEOUT',
+                      'FLOOR_TRANSITION_FAILED', 'NAV_UNAVAILABLE', 'MAP_VERSION_MISMATCH',
+                      'FLOOR_TRANSITION_UNSUPPORTED', 'PLAN_UNAVAILABLE']
+RunRejectCode = Literal['NOT_CONTROLLER', 'FORBIDDEN', 'RUN_ACTIVE', 'RUN_CONFLICT',
+                        'RUN_NOT_FOUND', 'RUN_STATE_CONFLICT', 'RUN_OWNER_MISMATCH',
+                        'RESUME_REJECTED', 'UNSUPPORTED_OPERATION', 'RECORDING_UNAVAILABLE',
+                        'NAV_UNAVAILABLE', 'MAP_VERSION_MISMATCH',
+                        'FLOOR_TRANSITION_UNSUPPORTED', 'PLAN_UNAVAILABLE']
 
 
 class Contract(BaseModel):
@@ -211,7 +225,7 @@ class Progress(Contract):
 
 class CurrentRun(Contract):
     id: UUID
-    status: Literal['QUEUED', 'PREPARING', 'MOVING', 'AT_WAYPOINT', 'PERFORMING', 'PAUSED', 'WAIT_CONFIRM', 'COMPLETED', 'FAILED', 'ABORTED']
+    status: RunRecordStatus
     scenario_name: str
     progress: Progress
 
@@ -384,6 +398,7 @@ class AgentInput(Contract):
 
 
 class RunCopy(AgentInput):
+    # Legacy Session/Core hello copy; RUNNING here is not a detailed run status.
     run_id: UUID
     status: str = Field(max_length=64)
     step: Sequence
@@ -458,23 +473,64 @@ class AgentEvent(AgentInput):
     severity: Literal['INFO', 'WARN', 'ERROR', 'info', 'warn', 'error']
     robot_at: UTCDateTime | None
     data: dict[str, JsonValue]
+    agent_instance_id: UUID = omitted()
+    report_seq: Sequence = omitted()
+    monotonic_s: float = omitted(ge=0, strict=True)
 
     @model_validator(mode='after')
     def storable_json(self):
         import json
         # Also checks finite numbers in recursive JsonValue leaves.
         json.dumps(self.data, ensure_ascii=False, allow_nan=False).encode('utf-8')
+        identity = {'agent_instance_id', 'report_seq', 'monotonic_s'} & self.model_fields_set
+        if identity and len(identity) != 3:
+            raise ValueError('report identity and monotonic time must be supplied together')
+        if self.code in ('RUN_STARTED', 'RUN_WAYPOINT_ARRIVED', 'RUN_WAYPOINT_RECORDED'):
+            if len(identity) != 3:
+                raise ValueError('run events require durable report identity')
+        if self.code == 'RUN_STARTED':
+            RunStarted.model_validate(self.data)
+        if self.code in ('RUN_WAYPOINT_ARRIVED', 'RUN_WAYPOINT_RECORDED'):
+            payload = (RunWaypointArrived if self.code == 'RUN_WAYPOINT_ARRIVED'
+                       else RunWaypointRecorded).model_validate(self.data)
+            if (payload.agent_instance_id != self.agent_instance_id
+                    or payload.report_seq != self.report_seq
+                    or payload.monotonic_s != self.monotonic_s):
+                raise ValueError('waypoint event identity must match report envelope')
         return self
 
 
 class AgentRunUpdate(AgentInput):
     t: Literal['run.update']
     run_id: UUID
-    status: str = Field(max_length=64)
+    # Transitional server input: existing Session producers still use these names.
+    status: RunStatus | Literal['RUNNING', 'ABORTED']
     step: Sequence
     progress: Progress | None
     path_deviation_m: float | None = None
     fail_code: str | None = None
+    wait_reason: RunWaitReason | None = None
+    agent_instance_id: UUID = omitted()
+    report_seq: Sequence = omitted()
+    monotonic_s: float = omitted(ge=0, strict=True)
+
+    @model_validator(mode='after')
+    def paused_reason(self):
+        identity = {'agent_instance_id', 'report_seq', 'monotonic_s'} & self.model_fields_set
+        if identity and len(identity) != 3:
+            raise ValueError('report identity and monotonic time must be supplied together')
+        if self.wait_reason is not None and self.status != 'PAUSED':
+            raise ValueError('wait_reason is only valid while PAUSED')
+        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE'):
+            raise ValueError('pause reasons are not failure codes')
+        return self
+
+
+class RunRecorded(Contract):
+    """Data receipt after DB commit; never an execution permission."""
+    t: Literal['run.recorded'] = 'run.recorded'
+    agent_instance_id: UUID
+    report_seq: Sequence
 
 
 class AgentCmdAck(AgentInput):
@@ -557,6 +613,11 @@ class AgentStreams(Contract):
     depth: bool
     lidar: bool
     map: bool
+
+
+ServerAgentMessage = Annotated[
+    AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
+    | AgentPhoneRevoke | RunRecorded, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1025,6 +1086,84 @@ class ScenarioList(Contract):
     next_cursor: str | None
 
 
+class AgentScenarioWaypoint(ScenarioWaypoint):
+    mission_name: str
+
+
+class AgentScenario(Contract):
+    """GET /agent/scenarios/{id}?version=n: stored references, before agent validation."""
+    id: UUID
+    number: int = Field(ge=1, le=2**31 - 1, strict=True)
+    waypoints: list[AgentScenarioWaypoint] = Field(min_length=1, max_length=200)
+    finish: ScenarioFinish
+
+
+class RunStarted(Contract):
+    """RUN_STARTED.data; robot/org and receive time come from the authenticated link."""
+    run_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, le=2**31 - 1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    user_id: UUID
+    device_id: UUID
+    surface: Literal['phone', 'pc']
+    screen_id: UUID
+    simulation: bool = Field(strict=True)
+
+
+class RunGoal(Contract):
+    idx: int = Field(ge=0, le=199, strict=True)
+    waypoint_ref: str | None = Field(min_length=1, max_length=128)
+    x: float = Field(strict=True)
+    y: float = Field(strict=True)
+    yaw: float = Field(strict=True)
+    mission_id: UUID
+    mission_version: int = Field(ge=1, strict=True)
+    mission_name: str
+
+
+class RunSegment(Contract):
+    floor_id: UUID
+    map_version_id: UUID
+    goals: list[RunGoal] = Field(min_length=1, max_length=200)
+
+    @model_validator(mode='after')
+    def ordered_goals(self):
+        if [goal.idx for goal in self.goals] != list(range(len(self.goals))):
+            raise ValueError('goals must be ordered idx=0..N-1')
+        return self
+
+
+class RunPlan(Contract):
+    """Agent-verified snapshot, never accepted as a direct run.start body."""
+    segments: list[RunSegment] = Field(min_length=1, max_length=1)
+
+
+class RunWaypointArrived(Contract):
+    run_id: UUID
+    idx: int = Field(ge=0, le=199, strict=True)
+    waypoint_ref: str | None = Field(min_length=1, max_length=128)
+    mission_id: UUID
+    mission_version: int = Field(ge=1, strict=True)
+    mission_name: str
+    floor_id: UUID
+    map_version_id: UUID
+    pose: AgentPose
+    agent_instance_id: UUID
+    report_seq: Sequence
+    monotonic_s: float = Field(ge=0, strict=True)
+
+
+class RunDisplayResults(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    mode: Literal['DISPLAY_ONLY'] = 'DISPLAY_ONLY'
+
+
+class RunWaypointRecorded(RunWaypointArrived):
+    results: RunDisplayResults
+
+
 class PreviewPoint(Contract):
     element: str
     reachable: bool
@@ -1132,7 +1271,47 @@ class PhonePing(PhoneEnvelope):
     client_time_ms: Sequence
 
 
-PhoneMessage = Annotated[PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing,
+class PhoneRunStart(PhoneEnvelope):
+    t: Literal['run.start']
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID = omitted(description='시뮬은 생략, 실기는 필수. 인증된 simulation으로 실행기가 판정한다.')
+
+
+class PhoneRunControl(PhoneEnvelope):
+    t: Literal['run.control']
+    run_id: UUID
+    op: Literal['pause', 'resume', 'abort', 'return'] = Field(description='return은 예약된 요청이며 항상 UNSUPPORTED_OPERATION으로 거부한다.')
+    lease_id: UUID = omitted()
+    screen_id: UUID = omitted()
+    resume_token: str = omitted(min_length=1, repr=False,
+                                description='같은 화면 재개의 비밀 증명. 에이전트는 해시만 보관하고 재바인딩 때 회전한다.')
+
+    @model_validator(mode='after')
+    def controller_proof(self):
+        if self.op in ('pause', 'resume') and (self.lease_id is None or self.screen_id is None):
+            raise ValueError('pause/resume require lease_id and screen_id')
+        if self.op == 'resume' and self.resume_token is None:
+            raise ValueError('resume requires same-screen proof')
+        return self
+
+
+class PhoneRunConfirm(PhoneEnvelope):
+    """Reserved shape: first implementation always replies UNSUPPORTED_OPERATION."""
+    t: Literal['run.confirm']
+    lease_id: UUID
+    run_id: UUID
+    kind: Literal['FLOOR', 'OPERATOR']
+    data: dict[str, JsonValue]
+
+
+PhoneMessage = Annotated[PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing
+                         | PhoneRunStart | PhoneRunControl | PhoneRunConfirm,
                          Field(discriminator='t')]
 
 
@@ -1157,7 +1336,14 @@ class PhonePolicy(Contract):
     version: str = Field(min_length=1, max_length=128)
 
 
+class PhoneCapabilities(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    run_contract: Literal['scenario/1']
+
+
 class PhoneWelcome(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('capabilities'))
+    capabilities: PhoneCapabilities | None = None
     camera_token: str | None = Field(default=None, min_length=43, max_length=43, description='10초·1회용 영상 연결 토큰; 부모 연결에 종속')
     t: Literal['hello']
     id: str
@@ -1171,7 +1357,16 @@ class PhoneWelcome(Contract):
     lease_timeout_ms: Literal[15000]
 
 
+class RunResumeDetail(Contract):
+    run_id: UUID
+    screen_id: UUID
+    resume_token: str = Field(min_length=1, repr=False,
+                              description='256 bit 이상 난수. 원래/재바인딩된 실행 연결에만 반환하며 기록·보기 연결에는 금지한다.')
+
+
 class PhoneReply(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('detail'))
+    detail: RunResumeDetail | None = None
     t: Literal['reply']
     id: str
     ok: bool
@@ -1223,7 +1418,31 @@ class PhoneEcho(Contract):
     agent_time_ms: Sequence
 
 
+class RunSnapshot(Contract):
+    run_id: UUID
+    status: RunStatus
+    step: Sequence
+    progress: Progress
+    wait_reason: RunWaitReason | None
+    # Unknown future failure codes still reach the generic failure UI.
+    fail_code: str | None
+
+    @model_validator(mode='after')
+    def paused_reason(self):
+        if self.wait_reason is not None and self.status != 'PAUSED':
+            raise ValueError('wait_reason is only valid while PAUSED')
+        if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE'):
+            raise ValueError('pause reasons are not failure codes')
+        return self
+
+
+class PhoneRunUpdate(RunSnapshot):
+    t: Literal['run.update'] = 'run.update'
+
+
 class PhoneState(AgentState):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('run'))
+    run: RunSnapshot | None = None
     robot: PhoneRobotID
     controller: UUID | None
     controller_device: UUID | None
@@ -1240,6 +1459,7 @@ class PhoneState(AgentState):
 
 
 class PhoneTicketClaims(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('run_cancel'))
     iss: Literal['fh-control']
     aud: Literal['fh-phone/1']
     org: UUID
@@ -1248,6 +1468,8 @@ class PhoneTicketClaims(Contract):
     device: UUID
     purpose: Literal['control', 'view']
     surface: Literal['phone', 'pc'] = 'phone'
+    run_cancel: bool = Field(default=False, strict=True,
+                            description='서버 서명 PAUSED 취소 권한만. 생략=false; 조종·해제·재개 권한을 주지 않는다.')
     iat: Sequence
     exp: Sequence
     jti: UUID
@@ -1452,8 +1674,13 @@ REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, 
                        MissionWrite, ScenarioPoint, ScenarioWaypoint, ScenarioFinish, ScenarioWrite})
 
 TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT']
-TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=PhoneMessage)
+TOP.update(RunStatus=RunStatus, RunRecordStatus=RunRecordStatus, RunWaitReason=RunWaitReason,
+           RunFailCode=RunFailCode, RunRejectCode=RunRejectCode)
+TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=PhoneMessage,
+           ServerAgentMessage=ServerAgentMessage)
 REQUEST_MODELS.update({PhoneHello, PhoneLease, PhoneRespond, PhoneCommand, PhoneUnlock, PhonePing, PhoneMessage, PhoneEnvelope})
+REQUEST_MODELS.update({PhoneRunStart, PhoneRunControl, PhoneRunConfirm})
+REQUEST_MODELS.update({RunStarted, RunWaypointArrived, RunWaypointRecorded})
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,
                        AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia, ScreenMessage, AgentMessage})
 # Nested input models must have the same mode as their enclosing input union.

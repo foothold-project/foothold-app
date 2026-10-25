@@ -1,0 +1,387 @@
+{
+  "$defs": {
+    "AgentCommand": {
+      "additionalProperties": false,
+      "properties": {
+        "axes": {
+          "items": {
+            "maximum": 1,
+            "minimum": -1,
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Axes",
+          "type": "array"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "t": {
+          "const": "cmd",
+          "default": "cmd",
+          "title": "T",
+          "type": "string"
+        },
+        "t_server": {
+          "format": "date-time",
+          "title": "T Server",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "lease_id",
+        "seq",
+        "axes",
+        "t_server"
+      ],
+      "title": "AgentCommand",
+      "type": "object"
+    },
+    "AgentLease": {
+      "additionalProperties": false,
+      "properties": {
+        "holder_type": {
+          "anyOf": [
+            {
+              "const": "USER",
+              "type": "string"
+            },
+            {
+              "pattern": "^RUN:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Holder Type"
+        },
+        "lease_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Lease Id"
+        },
+        "t": {
+          "const": "lease",
+          "default": "lease",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "lease_id",
+        "holder_type"
+      ],
+      "title": "AgentLease",
+      "type": "object"
+    },
+    "AgentPhoneRevoke": {
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/PhoneRevocationItem"
+          },
+          "maxItems": 16,
+          "minItems": 1,
+          "title": "Items",
+          "type": "array"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "t": {
+          "const": "phone.revoke",
+          "default": "phone.revoke",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "seq",
+        "items"
+      ],
+      "title": "AgentPhoneRevoke",
+      "type": "object"
+    },
+    "AgentServerPing": {
+      "additionalProperties": false,
+      "properties": {
+        "t": {
+          "const": "ping",
+          "default": "ping",
+          "title": "T",
+          "type": "string"
+        },
+        "t_server": {
+          "format": "date-time",
+          "title": "T Server",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "t_server"
+      ],
+      "title": "AgentServerPing",
+      "type": "object"
+    },
+    "AgentStop": {
+      "additionalProperties": false,
+      "properties": {
+        "by_user_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "By User Id"
+        },
+        "stop_ref": {
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991,
+          "title": "Stop Ref",
+          "type": "integer"
+        },
+        "t": {
+          "const": "stop",
+          "default": "stop",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "by_user_id",
+        "stop_ref"
+      ],
+      "title": "AgentStop",
+      "type": "object"
+    },
+    "AgentStreams": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "title": "Depth",
+          "type": "boolean"
+        },
+        "lidar": {
+          "title": "Lidar",
+          "type": "boolean"
+        },
+        "map": {
+          "title": "Map",
+          "type": "boolean"
+        },
+        "rgb": {
+          "title": "Rgb",
+          "type": "boolean"
+        },
+        "t": {
+          "const": "streams",
+          "default": "streams",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "rgb",
+        "depth",
+        "lidar",
+        "map"
+      ],
+      "title": "AgentStreams",
+      "type": "object"
+    },
+    "AgentUnlock": {
+      "additionalProperties": false,
+      "properties": {
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "stop_gen": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        },
+        "t": {
+          "const": "unlock",
+          "default": "unlock",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "lease_id",
+        "stop_gen"
+      ],
+      "title": "AgentUnlock",
+      "type": "object"
+    },
+    "PhoneRevocationItem": {
+      "additionalProperties": false,
+      "properties": {
+        "device": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Device"
+        },
+        "jtis": {
+          "anyOf": [
+            {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "maxItems": 64,
+              "minItems": 1,
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Jtis"
+        },
+        "sub": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sub"
+        },
+        "until": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Until",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "jtis",
+        "sub",
+        "device",
+        "until"
+      ],
+      "title": "PhoneRevocationItem",
+      "type": "object"
+    },
+    "RunRecorded": {
+      "additionalProperties": false,
+      "description": "Data receipt after DB commit; never an execution permission.",
+      "properties": {
+        "agent_instance_id": {
+          "format": "uuid",
+          "title": "Agent Instance Id",
+          "type": "string"
+        },
+        "report_seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Report Seq",
+          "type": "integer"
+        },
+        "t": {
+          "const": "run.recorded",
+          "default": "run.recorded",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "agent_instance_id",
+        "report_seq"
+      ],
+      "title": "RunRecorded",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ServerAgentMessage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "cmd": "#/$defs/AgentCommand",
+      "lease": "#/$defs/AgentLease",
+      "phone.revoke": "#/$defs/AgentPhoneRevoke",
+      "ping": "#/$defs/AgentServerPing",
+      "run.recorded": "#/$defs/RunRecorded",
+      "stop": "#/$defs/AgentStop",
+      "streams": "#/$defs/AgentStreams",
+      "unlock": "#/$defs/AgentUnlock"
+    },
+    "propertyName": "t"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/AgentLease"
+    },
+    {
+      "$ref": "#/$defs/AgentCommand"
+    },
+    {
+      "$ref": "#/$defs/AgentStop"
+    },
+    {
+      "$ref": "#/$defs/AgentUnlock"
+    },
+    {
+      "$ref": "#/$defs/AgentServerPing"
+    },
+    {
+      "$ref": "#/$defs/AgentStreams"
+    },
+    {
+      "$ref": "#/$defs/AgentPhoneRevoke"
+    },
+    {
+      "$ref": "#/$defs/RunRecorded"
+    }
+  ]
+}

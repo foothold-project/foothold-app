@@ -1,0 +1,19 @@
+{
+  "$id": "fh-app/1/RunFailCode",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "NAV_GOAL_REJECTED",
+    "NAV_TIMEOUT",
+    "LOCALIZATION_LOST",
+    "BATTERY_LOW",
+    "DEVICE_MISSING",
+    "OPERATOR_ABORT",
+    "PAUSE_TIMEOUT",
+    "FLOOR_TRANSITION_FAILED",
+    "NAV_UNAVAILABLE",
+    "MAP_VERSION_MISMATCH",
+    "FLOOR_TRANSITION_UNSUPPORTED",
+    "PLAN_UNAVAILABLE"
+  ],
+  "type": "string"
+}

@@ -1,5 +1,20 @@
 {
   "$defs": {
+    "PhoneCapabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "run_contract": {
+          "const": "scenario/1",
+          "title": "Run Contract",
+          "type": "string"
+        }
+      },
+      "required": [
+        "run_contract"
+      ],
+      "title": "PhoneCapabilities",
+      "type": "object"
+    },
     "PhoneLimits": {
       "additionalProperties": false,
       "properties": {
@@ -128,6 +143,17 @@
       "default": null,
       "description": "10초·1회용 영상 연결 토큰; 부모 연결에 종속",
       "title": "Camera Token"
+    },
+    "capabilities": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PhoneCapabilities"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "id": {
       "title": "Id",

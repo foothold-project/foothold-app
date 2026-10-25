@@ -5,6 +5,11 @@
   "$id": "fh-app/1/AgentEvent",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "agent_instance_id": {
+      "format": "uuid",
+      "title": "Agent Instance Id",
+      "type": "string"
+    },
     "code": {
       "maxLength": 128,
       "minLength": 1,
@@ -17,6 +22,17 @@
       },
       "title": "Data",
       "type": "object"
+    },
+    "monotonic_s": {
+      "minimum": 0,
+      "title": "Monotonic S",
+      "type": "number"
+    },
+    "report_seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Report Seq",
+      "type": "integer"
     },
     "robot_at": {
       "anyOf": [
