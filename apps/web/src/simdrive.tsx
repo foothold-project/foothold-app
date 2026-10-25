@@ -40,6 +40,12 @@ function Arrows({ on }: { on: Partial<Record<keyof typeof ARROW, boolean>> }) {
 }
 /** 막힌 동작 이름(«…은 아직 지원하지 않습니다» 앞) */
 const blockedNames = (a: ReturnType<typeof allowed>) => [!a.back && '후진', !(a.left || a.right) && '옆걸음', !a.spin && '제자리 회전'].filter(Boolean).join('·');
+/** 막힌 방향 입력 안내(limits 가 0 으로 자른 이유 — 자르기는 phone.ts velocity). 폰 조이스틱·PC 키보드가 같이 쓴다 */
+export function blockNote([f, t, y]: [number, number, number], can: ReturnType<typeof allowed>, out: { vx: number; vy: number } | null) {
+  return f < -DEAD && !can.back ? '후진은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
+    : (y > DEAD && !can.left) || (y < -DEAD && !can.right) ? '옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
+    : t !== 0 && !can.spin && (!out || (out.vx === 0 && out.vy === 0)) ? SPIN : '';
+}
 export const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 중', PREPARED: '가짜 기동(연결할 로봇 없음)', RUNNING: '실행 중', STOPPING: '정리 중', ERROR: '오류' };
 
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
@@ -79,7 +85,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
     <div className="fh-row"><button type="button" className="btn" onClick={() => sim.recheck()}>다시 확인</button>{!s.slotBusy && <button type="button" className="btn" onClick={() => sim.end()}>정리</button>}</div></>;
   else if (s.step === 'linking') body = l?.at === 'closed'
     ? <><p className="fh-why" role="status" data-sim="link-fail">{l.why}</p>
-        <div className="fh-row"><button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button><button type="button" className="btn" onClick={() => sim.end()}>끝내기</button></div></>
+        <div className="fh-row">{l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}<button type="button" className="btn" onClick={() => sim.end()}>끝내기</button></div></>
     : <p className="lv-note" role="status" data-sim="linking">출입증을 받아 {s.robot && short(s.robot.robot_id)} 에 직접 연결하는 중입니다…</p>;
   else if (s.step === 'ending') body = <p className="lv-note" role="status" data-sim="ending">조종권을 반납하고 시뮬 로봇을 정리하는 중입니다…</p>;
   else if (s.step === 'checking') body = <><p className="fh-why" role="status" data-sim="checking">확인 중 — {s.err} {s.listed && s.robot && (s.mine.some((r) => r.robot_id === s.robot!.robot_id) ? '목록에 아직 있습니다.' : '목록에는 없지만 정리됐다고 단정할 수 없습니다.')}</p>
@@ -148,7 +154,7 @@ function ScenarioBar({ s, r }: { s: Sim; r: SimRobot }) {
   </div>;
 }
 
-const EXP = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
+export const EXP = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
 const SPIN = '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.';
 /** 직결 조종 화면: 카메라 전체. 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약, 오른쪽 위 설정 메뉴(설정·정보), 아래 두 구석 조이스틱,
  *  왼쪽 조이스틱 옆 시나리오 단추 하나(누르면 가로 띠), 설정 아래 작은 지도(누르면 지도 크게 ↔ 영상 크게, simmap.tsx), 지금 눌러야 할 단추·안내. STOP 은 App 머리줄(영상 칸 밖이라 메뉴·띠·시트가 덮지 못함).
@@ -175,9 +181,7 @@ export function SimDrive() {
   const put = (i: 0 | 1 | 2, v: number) => {
     input.current[i] = v;
     const [f, t, y] = input.current, out = w && velocity([f, t, y], w);
-    setUnsupported(f < -DEAD && !can.back ? '후진은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
-      : (y > DEAD && !can.left) || (y < -DEAD && !can.right) ? '옆걸음은 아직 지원하지 않습니다 — 시뮬에서 아직 확인 안 됨'
-      : t !== 0 && !can.spin && (!out || (out.vx === 0 && out.vy === 0)) ? SPIN : '');
+    setUnsupported(blockNote([f, t, y], can, out));
     if (out) setVx(out.vx);
     sim.axes([f, t, y]);
   };

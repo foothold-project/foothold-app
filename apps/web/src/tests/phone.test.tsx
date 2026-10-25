@@ -366,6 +366,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     expect(calls.find((c) => c.method === 'POST' && c.path === '/simulation/robots')!.body).toEqual({ world_id: 'empty', robot_id: S1 });
     const pass = calls.find((c) => c.path === `/robots/${S1}/phone-pass`)!;
     expect(pass.body).toMatchObject({ purpose: 'control' });
+    expect(pass.body).not.toHaveProperty('surface');   // 폰은 surface 를 보내지 않는다(PC «시뮬» 탭만 'pc', ADR-003 §6.2)
     expect($('[data-sim="linking"]')).toBeTruthy();
     // 서버 중계 없이 에이전트 주소로 직접, 출입증은 URL 에 없고 hello 에만
     const [a] = agents(); a.auto = agentAuto;

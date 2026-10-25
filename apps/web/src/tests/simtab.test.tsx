@@ -1,5 +1,5 @@
 // PC 웹 «시뮬» 탭(10 ADR-003 §7 ③) — fetch = 가짜 서버, WebSocket = 가짜 에이전트(FakeWS). 실제 시뮬 기동 0.
-// 통과 기준: 띄우기 → 위치·카메라·«시뮬» 표시 → 끝내기 → 목록에서 로봇 빠짐. 조종 입력 0, 한 사람 한 대·SIM_SLOT_BUSY 는 폰과 같음, STOP 은 PR #94 규칙 그대로.
+// 통과 기준: 띄우기 → 위치·카메라·«시뮬» 표시 → 끝내기 → 목록에서 로봇 빠짐. 조종권 자동 취득 0(키보드 조종은 simkeys.test), 한 사람 한 대·SIM_SLOT_BUSY 는 폰과 같음, STOP 은 PR #94 규칙 그대로.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -73,7 +73,7 @@ describe('PC «시뮬» 탭', () => {
     }
   });
 
-  it('통과 기준: 시작 층 골라 띄우기 → «시뮬»·상태·좌표·영상 → 끝내기 → 목록에서 빠짐, 조종 입력 0', async () => {
+  it('통과 기준: 시작 층 골라 띄우기 → «시뮬»·상태·좌표·영상 → 끝내기 → 목록에서 빠짐, 조종권 자동 취득 0', async () => {
     serve(); await mount();
     await click([...box.querySelectorAll<HTMLInputElement>('input[name="sim-spawn"]')].find((i) => i.value === 'l2'));
     await click(btn('띄우기'));
@@ -91,9 +91,9 @@ describe('PC «시뮬» 탭', () => {
     expect(cam().sent[0]).toMatchObject({ t: 'camera.hello', robot: S1, token: 'cam-1' });
     await recv(cam(), { t: 'camera.frame', seq: 1, mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
     expect(box.querySelector<HTMLImageElement>('img[alt="RGB 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');
-    // 보기만: 조이스틱·조종 시작·잠금 해제 없음, 에이전트로 조종권·명령을 보내지 않음
+    // 조이스틱 없음(PC 는 키보드 — ④), 조종 시작을 누르기 전에는 에이전트로 조종권·명령을 보내지 않음
     expect(box.querySelector('[aria-label$="조이스틱"]')).toBeNull();
-    expect(btn('조종 시작')).toBeUndefined();
+    expect(btn('조종 시작')).toBeTruthy();
     expect(btn('잠금 해제')).toBeUndefined();
     expect(a.sent.map((m) => m.t).filter((t) => t !== 'hello' && t !== 'ping')).toEqual([]);
     expect($('[data-stop]')).toBeTruthy();   // 운영 관리자 STOP 그대로

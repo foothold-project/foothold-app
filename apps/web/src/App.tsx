@@ -47,7 +47,7 @@ export const usePhone = () => useSyncExternalStore(watchPhone, () => matchMedia(
 
 // 글 입력칸 = 띄어쓰기를 받는 곳(10-20 사용자 결정). readonly·disabled 는 글을 넣지 못하니 아님
 const TYPED = new Set(['text', 'search', 'password', 'email', 'url', 'tel', 'number']);
-function typing(t: EventTarget | null) {
+export function typing(t: EventTarget | null) {
   if (t instanceof HTMLTextAreaElement) return !t.readOnly && !t.disabled;
   if (t instanceof HTMLInputElement) return TYPED.has(t.type) && !t.readOnly && !t.disabled;   // type 없음 = 'text'
   // contenteditable 은 브라우저 규칙대로(jsdom 은 isContentEditable 없음): 대소문자 무시, true·빈 값·plaintext-only = 편집,

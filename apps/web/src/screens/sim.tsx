@@ -1,44 +1,109 @@
-// PC 웹 «시뮬» 탭(10 ADR-003 §1 결정 3·§7 ③): 월드·시작 층 골라 띄우기 → 보기(«시뮬»·상태·위치·영상) → 끝내기.
-// 띄우기·정리·직결·영상은 폰과 같은 phone.ts(sim)·SimLaunch 그대로. 조종 입력은 없다(④ 키보드) — 직결은 보기만, 조종권을 받지 않는다.
-// STOP 은 App 머리줄(PR #94 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
-import { useEffect } from 'react';
-import { sim, useSim } from '../phone';
-import { CAM, STATE, SimLaunch, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
+// PC 웹 «시뮬» 탭(10 ADR-003 §1 결정 3·§7 ③④): 월드·시작 층 골라 띄우기 → 보기(«시뮬»·상태·위치·영상)·키보드 조종 → 끝내기.
+// 띄우기·정리·직결·영상·조종권·잠금 해제·명령은 폰과 같은 phone.ts(sim)·SimLaunch 그대로 — 키보드는 sim.axes 에 넣기만 하고 속도는 phone.ts velocity 가 만든다.
+// 키보드는 이 화면(시뮬 로봇 직결)에만 붙는다 — 실기 로봇 화면에는 없다(ADR-003 §4.2). «시뮬 정지»는 sim.stop()(폰 직결 STOP 과 같은 경로).
+// 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
+import { useEffect, useRef, useState } from 'react';
+import { DEAD, allowed, sim, useSim, velocity } from '../phone';
+import { CAM, EXP, STATE, SimLaunch, blockNote, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap } from '../simmap';
 import { Chip } from '../screens';
+import { typing } from '../App';
+import type { PhoneWelcome } from '../../../contracts/ts';
 import type { Tone, User } from '../fake';
 
 export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
   const s = useSim(), ids = s.mine.map((r) => r.robot_id).join();
   // 띄우기·끝내기로 내 시뮬 목록이 바뀌거나 다시 확정되면(끝내기는 blank() 로 listed=false → load() 로 true) 로봇 목록도 다시 받는다(머리줄 STOP 후보·로봇 탭에 바로 보이게)
   useEffect(() => { if (s.listed) refresh(); }, [ids, s.listed]);
+  useEffect(() => { sim.pc(true); return () => sim.pc(false); }, []);   // 이 탭에서 받는 출입증은 surface: 'pc'
   return s.step === 'drive' && s.link && s.robot ? <SimView /> : <SimLaunch me={user.id} view />;
 }
 
-/** 띄운 시뮬 보기: 이름·«시뮬»·월드·상태·위치(좌표 + 층 지도 점)·영상, 끝내기·보기 닫기(시뮬은 켠 채) */
+/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 02 F-TO-05: W/↑ 전진, S/↓ 후진, A/←·D/→ 회전. 옆걸음(시뮬 시험용)은 Q/E. e.code(자판 자리)라 한글 입력 상태에서도 같다 */
+const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
+  KeyA: [1, 1], ArrowLeft: [1, 1], KeyD: [1, -1], ArrowRight: [1, -1], KeyQ: [2, 1], KeyE: [2, -1] };
+/** F-TO-05 키보드 전진 기본 0.6 m/s: 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 0.6 이면 끝까지(최종 자르기는 velocity·에이전트) */
+export const KEY_VX = 0.6;
+function forward(w: PhoneWelcome) {
+  const L = w.limits, m = Math.min(L.vx_min_moving ?? L.vx_min, L.vx_max);
+  return L.vx_mode !== 'continuous' || L.vx_max <= KEY_VX ? 1 : DEAD + (1 - DEAD) * Math.max(1e-3, (KEY_VX - m) / (L.vx_max - m));
+}
+/** 지금 키 입력을 받을 수 있나 — 에이전트가 simulation 이라 알린 연결 + 조종권 + 잠금 풀림. 키 처리는 렌더 값이 아니라 저장소를 바로 본다.
+ *  시뮬 정지를 보낸 뒤 에이전트가 처리했다고 알리기 전(stop_gen 이 그대로)에는 옛 latched=false 가 남아 있어도 막는다 — 처리 뒤에는 잠금(latched)이 막고, 사람이 잠금 해제해야 다시 */
+function canDrive() {
+  const g = sim.get(), l = g.link, p = g.stop, st = l?.st;
+  return !!l && l.welcome?.simulation === true && l.at === 'open' && !!l.lease && st?.latched === false && !(p && !p.latched && st.stop_gen <= (p.g0 ?? Infinity));
+}
+const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSelectElement;   // 글 입력칸·고르기 칸에 초점이면 조종 키 무시
+
+/** 띄운 시뮬 보기 + 키보드 조종: 조종 시작(조종권) → 잠금 해제 → 키를 누르는 동안만 움직임. 키 뗌·창 초점 잃음·탭 숨김·연결 끊김·시뮬 정지 = 0(다시 누를 때까지 재개 없음) */
 function SimView() {
-  const s = useSim(), l = s.link!, r = s.robot!, st = l.st, open = l.at === 'open';
+  const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome, open = l.at === 'open', mine = !!l.lease;
+  const keys = w?.simulation === true, live = canDrive(), can = allowed(w);
   useDeadline(!!r.expires_at);
   useTick(true);
-  const floors = s.catalog?.worlds.find((w) => w.id === r.world_id)?.floors ?? [], fm = useFloorMap(st, r, floors), hasMap = floors.length > 0 || !!fm.ctx;
+  const held = useRef(new Set<string>()), [out, setOut] = useState({ vx: 0, note: '' });
+  useEffect(() => {
+    const apply = () => {
+      if (!canDrive()) held.current.clear();
+      const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
+      held.current.forEach((c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
+      if (a[0] > 0 && k) a[0] = forward(k);
+      sim.axes(a);
+      const v = k ? velocity(a, k) : null;
+      setOut({ vx: v?.vx ?? 0, note: blockNote(a, allowed(k ?? null), v) });
+    };
+    const down = (e: KeyboardEvent) => {
+      if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !canDrive()) return;
+      e.preventDefault(); held.current.add(e.code); apply();
+    };
+    const up = (e: KeyboardEvent) => { if (held.current.delete(e.code)) apply(); };
+    const zero = () => { held.current.clear(); apply(); };
+    const hide = () => { if (document.visibilityState === 'hidden') zero(); };
+    addEventListener('keydown', down); addEventListener('keyup', up); addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);
+    return () => {
+      removeEventListener('keydown', down); removeEventListener('keyup', up); removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide);
+      held.current.clear(); sim.axes([0, 0]);
+    };
+  }, []);
+  useEffect(() => { held.current.clear(); sim.axes([0, 0]); setOut({ vx: 0, note: '' }); }, [live]);   // 움직일 수 없게 되면(반납·잠금·끊김·정지) 누른 키를 버린다
+  const floors = s.catalog?.worlds.find((x) => x.id === r.world_id)?.floors ?? [], fm = useFloorMap(st, r, floors), hasMap = floors.length > 0 || !!fm.ctx;
   const p = st?.pose, at = p && p.x != null && p.y != null ? `x ${p.x.toFixed(2)} m · y ${p.y.toFixed(2)} m` : '위치 확인 중';
   const lock: { tone: Tone; text: string } = !open ? { tone: 'bad', text: l.at === 'connecting' ? '연결 중' : '연결 끊김' } : !st ? { tone: 'off', text: '상태 확인 중' }
-    : st.latched ? { tone: 'bad', text: '정지 잠금' } : { tone: 'off', text: '보는 중' };
+    : st.latched ? { tone: 'bad', text: '정지 잠금' } : !mine ? { tone: 'off', text: '보는 중' } : { tone: 'ok', text: '움직일 수 있음' };
   const wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000));
-  const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, fm.notice, stopText(s)].filter(Boolean) as string[];
+  const notes = [timeNotice(remainingTime(s.runtimeUntil)), l.at === 'closed' && l.why, l.notice, live && out.note, fm.notice, stopText(s)].filter(Boolean) as string[];
+  const close = async () => { if (sim.get().link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]); sim.reset(); };
+  const key = (k: string, t: string, on = true) => <span className="lbl" data-key-off={on ? undefined : ''} style={on ? undefined : { textDecoration: 'line-through' }}><b className="mono">{k}</b> {t}{on ? '' : '(막힘)'}</span>;
   return <>
-    <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="시뮬 로봇" data-sim-view>
+    <section className="lv-card" style={{ flexBasis: '100%', position: 'sticky', top: 0, zIndex: 1 }} aria-label="시뮬 로봇" data-sim-view>
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>
         <h2>{short(r.robot_id)}</h2><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)}</span>
         <span data-sim-state>{STATE[r.state]}</span><Chip {...lock} /><span className="mono" data-sim-pos>{at}</span>
+        <span className="fh-grow" style={{ flex: 1 }} />
+        {/* «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */}
+        <button type="button" className="btn" data-sim-stop-btn aria-label="시뮬 정지 — 이 시뮬 로봇만 멈춥니다"
+          style={{ minWidth: 120, borderColor: 'var(--warn)', color: 'var(--warn)', background: 'var(--warn-bg)', borderWidth: 2, borderRadius: 4 }} onClick={() => sim.stop()}>
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="6" y="6" width="4" height="4" fill="currentColor" /></svg>시뮬 정지</button>
       </div>
       {notes.map((t) => <p key={t} className="fh-why" role="status">{t}</p>)}
-      <div className="fh-row">
-        {l.at === 'closed' && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}
+      <div className="fh-row" style={{ flexWrap: 'wrap' }}>
+        {open && keys && !mine && <button type="button" className="btn pri" disabled={l.busy === 'take'} onClick={() => sim.take()}>조종 시작</button>}
+        {open && keys && mine && st?.latched !== false && <button type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>}
+        {open && mine && <button type="button" className="btn" disabled={l.busy === 'release'} onClick={() => sim.release()}>조종권 반납</button>}
+        {l.at === 'closed' && l.code !== 403 && <button type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>}
         <button type="button" className="btn" onClick={() => sim.end()}>끝내기</button>
-        <button type="button" className="btn" onClick={() => sim.reset()}>보기 닫기</button>
-        <span className="lbl">조종은 아직 없습니다(키보드 조종 준비 중). 보기 닫기는 시뮬을 켠 채 둡니다.</span>
+        <button type="button" className="btn" onClick={close}>보기 닫기</button>
+        <span className="lbl">보기 닫기는 조종권을 반납하고 시뮬을 켠 채 둡니다.</span>
       </div>
+      {l.ask && mine && <div className="fh-row" role="dialog" aria-label="조종권 요청"><span>다른 사람이 이 시뮬 로봇의 조종권을 요청했습니다.</span>
+        <button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div>}
+      {keys && <div className="fh-row" style={{ flexWrap: 'wrap' }} aria-label="키보드 조종" data-sim-keys>
+        <span>{live ? '키를 누르는 동안만 움직입니다' : '조종 시작 → 잠금 해제 뒤 키보드로 움직입니다'}</span>
+        {key('W/↑', '전진')}{key('S/↓', '후진', can.back)}{key('A/←·D/→', '회전')}{key('Q/E', '옆걸음', can.left || can.right)}{key('Space', '정지')}
+        <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
+        {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
+      </div>}
     </section>
     <section className="dv" style={{ flexBasis: '100%' }} aria-label="보기">
       <div className="dv-body" style={{ flexWrap: 'wrap' }}>
