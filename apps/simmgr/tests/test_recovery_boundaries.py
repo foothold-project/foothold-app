@@ -48,7 +48,8 @@ def test_service_startup_requires_absence_proof_even_in_fake(monkeypatch):
 
 
 @pytest.mark.parametrize('units',['fh-rb-sim-owned.service loaded active running',
-                                'fh-simmgr-agent-owned.service loaded failed failed'])
+                                'fh-simmgr-agent-owned.service loaded failed failed',
+                                'fh-simmgr-nav2-owned.service loaded active running'])
 def test_startup_rejects_remaining_units_without_cleaning(tmp_path,monkeypatch,units):
     monkeypatch.setattr(preflight,'ROOT',tmp_path)
     observed=[]
@@ -59,7 +60,7 @@ def test_startup_rejects_remaining_units_without_cleaning(tmp_path,monkeypatch,u
     monkeypatch.setattr(preflight.subprocess,'run',run)
     with pytest.raises(RuntimeError,match='units remain'):preflight.startup_preflight()
     assert observed==['isolation'] and len(calls)==1
-    assert calls[0][2]=='list-units' and calls[0][-2:]==list(preflight.UNIT_PATTERNS)
+    assert calls[0][2]=='list-units' and calls[0][-3:]==list(preflight.UNIT_PATTERNS)
     assert not any(word in ('stop','kill','reset-failed','systemd-run') for word in calls[0])
 
 
@@ -136,7 +137,7 @@ def test_health_poll_does_not_block_event_loop():
     asyncio.run(run())
 
 
-def test_startup_and_stop_unit_commands_run_off_event_loop(tmp_path,monkeypatch):
+def test_startup_and_stop_unit_commands_run_off_event_loop(tmp_path,monkeypatch,synthetic_nav2):
     from apps.simmgr import launcher as module
     threads=[]
     class Child:
@@ -145,7 +146,8 @@ def test_startup_and_stop_unit_commands_run_off_event_loop(tmp_path,monkeypatch)
         def send_signal(self,sig):threads.append(threading.get_ident());assert sig==signal.SIGINT;self.code=0
         def wait(self,timeout):threads.append(threading.get_ident());return 0
     child=Child();launch=native(None)
-    launch.settings=settings();launch.folder=tmp_path;launch.sim=SimpleNamespace(reason=None)
+    launch.settings=replace(settings(),run_dir=str(tmp_path));launch.folder=tmp_path;launch.sim=SimpleNamespace(reason=None)
+    launch.native_world=None;launch.runtime_identity={'partition':'fh-srv-aaaaaaaaaaaa'}
     monkeypatch.setattr(module,'load_keys',lambda path:{})
     monkeypatch.setattr(module,'AgentUnit',lambda *args:child)
     class Writer:

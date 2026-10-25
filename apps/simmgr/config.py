@@ -63,6 +63,8 @@ class Settings:
     origins: tuple[str, ...] = ()
     extra_ports: tuple[int, ...] = ()
     runtime_seconds: int = 1800
+    scenario_data_origin: str | None = field(default=None, repr=False)
+    arrival_pose_max_age_s: float | None = None
 
     @property
     def unit_runtime_seconds(self):
@@ -71,6 +73,12 @@ class Settings:
         return self.runtime_seconds + 90
 
     def __post_init__(self):
+        from .run_environment import scenario_origin
+        scenario_origin(self)
+        if self.arrival_pose_max_age_s is not None:
+            import math
+            if not math.isfinite(self.arrival_pose_max_age_s) or self.arrival_pose_max_age_s <= 0:
+                raise ValueError('arrival pose maximum age must be positive and finite')
         if type(self.runtime_seconds) is not int or not 5 <= self.runtime_seconds <= 3600:
             raise ValueError('simulation runtime must be 5..3600 seconds')
         if self.real and self.runtime_seconds < 300:
@@ -126,4 +134,7 @@ class Settings:
                    agent_ws_url=env['FH_SIM_AGENT_WS_URL'],
                    origins=with_tunnel_origin(tuple(json.loads(env.get('FOOTHOLD_PHONE_ORIGINS', '[]'))), env),
                    extra_ports=extra_ports_from_env(env),
-                   runtime_seconds=int(env.get('FH_SIM_RUNTIME_SECONDS', '1800')))
+                   runtime_seconds=int(env.get('FH_SIM_RUNTIME_SECONDS', '1800')),
+                   scenario_data_origin=env.get('FOOTHOLD_SCENARIO_DATA_ORIGIN'),
+                   arrival_pose_max_age_s=(float(env['FH_RUN_ARRIVAL_POSE_MAX_AGE_S'])
+                       if 'FH_RUN_ARRIVAL_POSE_MAX_AGE_S' in env else None))

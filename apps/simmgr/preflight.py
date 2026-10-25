@@ -6,10 +6,35 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 LOGGER = logging.getLogger('uvicorn.error.simmgr')
-UNIT_PATTERNS = ('fh-rb-sim-*.service', 'fh-simmgr-agent-*.service')
+UNIT_PATTERNS = ('fh-rb-sim-*.service', 'fh-simmgr-nav2-*.service', 'fh-simmgr-agent-*.service')
+
+
+def wait_resource_gate(folder):
+    """Require the preview's 3000 MiB / load1 <= 7 envelope for 60 seconds.
+
+    Run before the world (and hence before Nav2); D1's immediate preflight stays.
+    A single failing sample refuses this attempt, without automatic retries.
+    """
+    tools = str(ROOT / 'apps/agent/tools/sim')
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from isolation import resources
+    started = time.monotonic()
+    with (folder / 'resource-gate.jsonl').open('x') as output:
+        while True:
+            sample = resources()
+            output.write(json.dumps(sample) + '\n')
+            output.flush()
+            if sample['mem_available_mib'] < 3000 or sample['load1'] > 7:
+                raise ResourceGateError()
+            remaining = 60 - (time.monotonic() - started)
+            if remaining <= 0:
+                return
+            time.sleep(min(1, remaining))
 
 
 class ResourceGateError(RuntimeError):
@@ -54,6 +79,6 @@ def startup_preflight(real=False):
     if result.stdout.strip():
         raise RuntimeError('simulation user units remain; startup refused')
     LOGGER.info(
-        'startup preflight utc=%s sim_units=0 agent_units=0 domain93_processes=0 MemAvailableMiB=%s load1=%s',
+        'startup preflight utc=%s sim_units=0 nav2_units=0 agent_units=0 domain93_processes=0 MemAvailableMiB=%s load1=%s',
         datetime.now(timezone.utc).isoformat(), snapshot.get('mem_available_mib'), snapshot.get('load1'))
     return {**snapshot, 'resources_ok': resources_ok}

@@ -3,6 +3,7 @@ import asyncio
 from datetime import datetime, timezone
 import os
 import json
+import logging
 from pathlib import Path
 import signal
 import subprocess
@@ -12,7 +13,9 @@ from foothold_agent.ros_bridge.config import validate_isolation
 from foothold_agent.phone.tickets import load_keys
 from .environment import validate_control_environment, child_environment
 from .agent_unit import AgentUnit
-from .preflight import ResourceGateError, startup_preflight
+from .nav2_unit import Nav2Unit
+from .run_environment import map_assets, outbox_path, scenario_origin
+from .preflight import ResourceGateError, startup_preflight, wait_resource_gate
 from .native_catalogue import resolve_native_world, WorldValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -64,6 +67,11 @@ class NativeLauncher:
         validate_control_environment()
         self.settings = settings
         self.sim = self.child = None
+        self.nav2 = None
+        self.native_world = self.runtime_identity = None
+        self._watching = False
+        self.watch_task = None
+        self.recovery_complete = False
         self.folder = None
         self.failed = False
         self.recovery_blocked = False
@@ -80,9 +88,58 @@ class NativeLauncher:
         try:
             if self.child is not None and await self._poll() is not None:
                 self.failed = True
-        except RuntimeError:
+            if getattr(self, 'nav2', None) is not None and await asyncio.to_thread(self.nav2.poll) is not None:
+                self.failed = True
+        except (OSError, subprocess.SubprocessError, RuntimeError):
             self.failed = True
         return self.failure
+
+    @property
+    def lifecycle_lock(self):
+        if not hasattr(self, '_lifecycle_lock'):
+            self._lifecycle_lock = asyncio.Lock()
+        return self._lifecycle_lock
+
+    async def _stop_nav2(self):
+        if getattr(self, 'nav2', None) is None:
+            return
+        try:
+            await asyncio.to_thread(self.nav2.stop)
+        except BaseException as error:
+            self.failed = self.recovery_blocked = True
+            if isinstance(error, (KeyboardInterrupt, SystemExit, asyncio.CancelledError)):
+                raise
+            raise CleanupUnconfirmed('SIM_CLEANUP_NAV2_UNPROVEN') from None
+        self.nav2 = None
+
+    async def _watch_children(self, folder):
+        # Independent of HTTP polling. The same lock serializes explicit removal.
+        while self._watching and self.folder == folder:
+            await asyncio.sleep(.5)
+            async with self.lifecycle_lock:
+                if not self._watching or self.folder != folder:
+                    return
+                try:
+                    if not await self.check_health():
+                        continue
+                    self._watching = False
+                    await self._stop_agent(None)
+                    await self._close_world()
+                    self.recovery_complete = True
+                    self.failed = True  # owner must still acknowledge the failed episode
+                except Exception:
+                    self.failed = self.recovery_blocked = True
+                    self._watching = False
+                    logging.getLogger(__name__).exception('episode child cleanup unconfirmed')
+                return
+
+    async def _cleanup_failed_start(self, slot):
+        # Startup has no running watcher yet. Keep the same peer cleanup and
+        # owner acknowledgement as an unexpected exit after listener readiness.
+        await self.stop_agent(slot)
+        await self.close_world()
+        self.recovery_complete = True
+        self.failed = True
 
     async def _poll(self):
         try:
@@ -149,6 +206,12 @@ class NativeLauncher:
         # units. Simulation.start independently repeats its original resource,
         # domain93 and DDS gates immediately before launching its own unit.
         await asyncio.to_thread(startup_preflight, True)
+        try:
+            await asyncio.to_thread(wait_resource_gate, folder)
+        except ResourceGateError:
+            self.folder = None
+            raise
+        self.native_world = native
         extra = {}
         if world.id != 'v5_single/f1':
             from .native_simulation import CataloguedSimulation
@@ -178,7 +241,7 @@ class NativeLauncher:
                 if sim.reason:
                     raise RuntimeError('simulation supervisor stopped during startup')
                 try:
-                    await asyncio.to_thread(sim.live_identity)
+                    self.runtime_identity = await asyncio.to_thread(sim.live_identity)
                     break
                 except RuntimeError:
                     if asyncio.get_running_loop().time() >= deadline:
@@ -215,6 +278,13 @@ class NativeLauncher:
         validate_isolation(env)
         # Native stage1 topics/frames stay fixed; no fictitious namespace isolation.
         env['FOOTHOLD_CAMERA_ENABLED'] = '1'
+        env['FOOTHOLD_RUN_OUTBOX_PATH'] = await asyncio.to_thread(outbox_path, self.settings, slot)
+        env['FOOTHOLD_SCENARIO_DATA_ORIGIN'] = scenario_origin(self.settings)
+        if self.settings.arrival_pose_max_age_s is not None:
+            env['FH_RUN_ARRIVAL_POSE_MAX_AGE_S'] = str(self.settings.arrival_pose_max_age_s)
+        env['FOOTHOLD_RUN_MAP_ASSETS_JSON'] = await asyncio.to_thread(
+            map_assets, self.native_world, credentials.get('map_bindings', ()), self.folder)
+        env['GZ_PARTITION'] = self.runtime_identity['partition']
         if credentials.get('map_bindings'):
             # The connected runtime exports its actual nonce before Gazebo starts.
             # manifest.json is written at exit; the output folder is a different ID.
@@ -224,31 +294,52 @@ class NativeLauncher:
                 spawn_floor_id=('f1' if credentials['map_bindings'][0]['world_id'] in ('warehouse', 'rubble')
                                 else credentials['spawn_floor_id']), bindings=credentials['map_bindings']))
         try:
+            self.nav2 = await asyncio.to_thread(Nav2Unit, self.folder, self.settings, ROOT, self.runtime_identity)
+            await asyncio.to_thread(self.nav2.start)
             self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
-        except (OSError, subprocess.SubprocessError, RuntimeError):
+        except BaseException:
             self.failed = True
-            raise RuntimeError('agent unit startup failed') from None
+            await self._cleanup_failed_start(slot)
+            raise
         deadline = asyncio.get_running_loop().time() + 30
         while asyncio.get_running_loop().time() < deadline:
-            if await self._poll() is not None or self.sim.reason:
+            if (await self._poll() is not None or self.sim.reason
+                    or await asyncio.to_thread(self.nav2.poll) is not None):
                 self.failed = True
-                raise RuntimeError('agent/simulation startup failed')
+                await self._cleanup_failed_start(slot)
+                raise RuntimeError('agent/Nav2/simulation startup failed')
             try:
                 reader, writer = await asyncio.wait_for(asyncio.open_connection(self.settings.agent_host, slot.port), .2)
                 writer.close()
                 await writer.wait_closed()
+                self._watching = True
+                self.watch_task = asyncio.create_task(self._watch_children(self.folder))
                 return
             except (OSError, asyncio.TimeoutError):
                 await asyncio.sleep(.1)
         self.failed = True
+        await self._cleanup_failed_start(slot)
         raise RuntimeError('agent listener readiness unconfirmed')
 
     async def stop_agent(self, slot):
+        self._watching = False
+        async with self.lifecycle_lock:
+            await self._stop_agent(slot)
+
+    async def _stop_agent(self, slot):
+        try:
+            await self._stop_agent_process(slot)
+        finally:
+            # Even failed STOP/zero must not leave a command-producing Nav2 child.
+            await self._stop_nav2()
+
+    async def _stop_agent_process(self, slot):
         child = self.child
         if child is None:
             return
         code = await self._poll()
         if code is not None and code != 0:
+            await self._stop_nav2()
             await self._recover_failed_agent()
             return
         if code is None:
@@ -354,9 +445,19 @@ class NativeLauncher:
         await self.close_world()
 
     async def close_world(self):
+        self._watching = False
+        async with self.lifecycle_lock:
+            await self._close_world()
+
+    async def _close_world(self):
         if self.child is not None:
             self.failed = True
             raise RuntimeError('agent must confirm STOP/zero before world cleanup')
+        await self._stop_nav2()
+        if getattr(self, 'recovery_complete', False):
+            self.recovery_complete = False
+            self.failed = False
+            return
         if self.failed or (self.sim is not None and self.sim.reason):
             # A native crash is recoverable only with the same ownership,
             # manifest/ledger and domain93 absence proof as a failed agent.
