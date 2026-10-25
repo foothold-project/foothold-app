@@ -90,6 +90,9 @@ usage-scope·cgroup 검사와 원장 보호는 그대로다. 원본 helper SHA�
 오프라인 검증 절차·결과는 [VALIDATION](VALIDATION.md). 공개 원본 지도/월드/영상·주소·키를
 추가하지 않는다. 원본 및 다른 worktree는 읽기만 했으며 설치/수정/ROS/Gazebo 기동0이다.
 
+Nav2 자식의 episode 수명·768MiB/150% 상한, 영속 run outbox와 로컬 지도 자료 전달,
+오프라인 검증 및 실기동 미검증 범위는 [RUN-INTEGRATION](RUN-INTEGRATION.md)을 따른다.
+
 장애 후 복구·확실한 시작 전 거부 목록·감사 코드 차이는 [API §13.9](../../docs/spec/05-API-SPEC.md#139-시뮬-관리자-중계-p1-c-준비),
 실제 고아 정리와 startup 부재 증명 순서는 [FIRST-LAUNCH](FIRST-LAUNCH.md)를 따른다.
 

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+from dataclasses import replace
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -67,14 +68,18 @@ def test_health_poll_failure_latches_even_after_poll_recovers():
     asyncio.run(run())
 
 
-def test_agent_unit_creation_error_latches(tmp_path,monkeypatch):
+def test_agent_unit_creation_error_latches(tmp_path,monkeypatch,synthetic_nav2):
     from apps.simmgr import launcher as module
-    launch=native(None);launch.settings=settings();launch.folder=tmp_path;launch.sim=SimpleNamespace(reason=None)
+    launch=native(None);launch.settings=replace(settings(),run_dir=str(tmp_path));launch.folder=tmp_path;launch.sim=SimpleNamespace(reason=None)
+    launch.native_world=None;launch.runtime_identity={'partition':'fh-srv-aaaaaaaaaaaa'}
     monkeypatch.setattr(module,'load_keys',lambda path:{})
     def failed(*args):raise RuntimeError('synthetic unit error')
     monkeypatch.setattr(module,'AgentUnit',failed)
+    async def verified():
+        pass  # synthetic supervisor; ownership proof is tested separately
+    monkeypatch.setattr(launch,'_close_verified_native',verified)
     async def run():
-        with pytest.raises(RuntimeError,match='startup failed'):
+        with pytest.raises(RuntimeError,match='synthetic unit error'):
             await launch.add(next(iter(launch.settings.slots.values())),{'agent_token':'x'*32})
         assert launch.failed and launch.child is None
         with pytest.raises(RuntimeError,match='no automatic restart'):

@@ -24,11 +24,12 @@ from test_review_environment import isolation
 
 
 @pytest.fixture
-def native_episode(tmp_path, monkeypatch):
+def native_episode(tmp_path, monkeypatch, synthetic_nav2):
     monkeypatch.setenv('FH_SIM_RUN', '1')
     monkeypatch.setattr(launcher, 'ROOT', tmp_path)
     monkeypatch.setattr(preflight, 'ROOT', tmp_path)
     monkeypatch.setattr(launcher, 'load_keys', lambda path: {})
+    monkeypatch.setattr(launcher, 'map_assets', lambda *_: '[]')
     monkeypatch.setitem(sys.modules, 'constants', SimpleNamespace(MAP_DIRECTORY='maps'))
     source = tmp_path / 'experiment/spec/stage/source'
     source.mkdir(parents=True)
@@ -93,7 +94,7 @@ def native_episode(tmp_path, monkeypatch):
             self.started = True
             state.events.append('world_start')
         def live_identity(self):
-            return {'partition': 'synthetic'}
+            return {'partition': 'fh-srv-aaaaaaaaaaaa', 'ros_domain': '93'}
         def close(self):
             state.events.append('world_close')
             if state.close_error:

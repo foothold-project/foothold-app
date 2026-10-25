@@ -120,12 +120,13 @@ def test_manager_checks_ros_environment_before_files():
         Settings.from_env({'ROS_DOMAIN_ID':'93'})
 
 
-def test_agent_gets_only_allowlisted_env_and_own_process_group(tmp_path,monkeypatch):
+def test_agent_gets_only_allowlisted_env_and_own_process_group(tmp_path,monkeypatch,synthetic_nav2):
     from apps.simmgr import launcher as module
     for key in ('FH_DATABASE_URL','FH_PHONE_PASS_KEYS','FH_SIM_AUTH_FILE','FH_SIM_RUN'):
         monkeypatch.setenv(key,'private-not-for-child')
     launcher=NativeLauncher.__new__(NativeLauncher)
-    launcher.settings=replace(settings(),ros_setup='existing-setup')
+    launcher.settings=replace(settings(),ros_setup='existing-setup',run_dir=str(tmp_path))
+    launcher.native_world=None;launcher.runtime_identity={'partition':'fh-srv-aaaaaaaaaaaa'}
     launcher.folder=tmp_path;launcher.child=None;launcher.failed=False;launcher.sim=SimpleNamespace(reason=None)
     monkeypatch.setattr(module,'load_keys',lambda _: {})
     calls=[]
