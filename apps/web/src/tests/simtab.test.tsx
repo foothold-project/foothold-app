@@ -144,6 +144,14 @@ describe('PC «시뮬» 탭', () => {
     expect($('[data-stop]')).toBeTruthy();
   });
 
+  // 10-25 f894b77 실관측: 시뮬 슬롯은 고정 로봇 행이라 IDLE(서버가 담당을 비움)이어도 /robots 에 남는다 — 총괄 STOP·Space 는 내가 띄운 시뮬만
+  for (const [how, owner] of [['IDLE 슬롯(담당 없음)', ''], ['남이 띄운 시뮬', 'u-lee']] as const) it(`총괄 + ${how}만 목록 → 머리줄 STOP·Space 없음`, async () => {
+    serve(); await mount('u-kim', [ROBOTS[1], { ...ROBOTS[0], id: S2, name: '시뮬-2', owner, sim: true }]);
+    expect($('[data-stop]')).toBeNull();
+    act(() => { dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); }); await flush();
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+  });
+
   // PR #96 P1: 총괄·시뮬 0대 → 띄우는 중(POST 답 전)에도 그 시뮬이 STOP 대상 — 누름·Space 모두 답이 오면 DELETE 1회, 연결 0
   for (const how of ['누름', 'Space'] as const) it(`총괄 첫 시뮬 띄우는 중 STOP(${how}) → 답 오면 정리`, async () => {
     let answer = () => {};

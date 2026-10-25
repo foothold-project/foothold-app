@@ -1795,7 +1795,8 @@ describe('폰 조종 앱 틀', () => {
 
 // 10-25 결정: 총괄 = 대시보드·지도·시나리오·시뮬. 실기 로봇은 조종·STOP 하지 않는다(실기 STOP 은 운영 관리자 폰, 서버도 403 ADMIN_NO_REAL_CONTROL). 시뮬 로봇은 총괄도
 describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
-  const SIM: Robot = { id: 's1', name: '시뮬 로봇 1', owner: '', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true };
+  // 떠 있는 시뮬 = 서버가 담당을 띄운 사람(총괄 김OO)으로 둔다. 담당 없는 IDLE 슬롯은 PC STOP 후보가 아니다(simtab.test)
+  const SIM: Robot = { id: 's1', name: '시뮬 로봇 1', owner: 'u-kim', battery: 90, online: true, seenAt: '14:05:20', status: 'IDLE', sim: true };
   const MIX = [ROBOTS[1], SIM];
   const NO = '총괄 계정은 실기 로봇을 조종할 수 없습니다.';   // 서버 문구(화면이 바꾸지 않고 그대로 보임)
   const space = () => { key('keydown', 'Space', document.body); key('keyup', 'Space', document.body); };
