@@ -533,6 +533,7 @@ ADR-002 0.3 §5~7이 정본이다. 이 절은 P1-A 직결 조종 계약이며, �
 | `org`, `robot` | 조직 UUID·대상 로봇 UUID 하나. 로봇의 로컬 설정과 모두 대조 |
 | `sub`, `device` | 사용자 UUID·앱 설치 단위 기기 UUID. hello.device와도 대조 |
 | `purpose` | `control`(조종 요청·보기·STOP) 또는 `view`(보기·STOP만) |
+| `surface` | `phone` 또는 `pc`. 발급 때 항상 서명하며 생략된 기존 출입증은 `phone`으로 검증. `pc`는 에이전트 기동 설정 `simulation=True`에서만 hello 허용(아니면 4403 `WEB_SIM_ONLY`) |
 | `iat`, `exp` | UTC Unix 초 정수. `iat <= 현재 UTC < exp`, **0 < exp-iat <= 600 s** |
 | `jti` | 발급마다 새 UUID. 연결·갱신·재접속마다 새 출입증 필요 |
 
@@ -772,16 +773,25 @@ cancel_goal_removed assertion11개+StopIteration3개(64/65)는 별도 검사 도
 
 `POST /api/v1/robots/{robot_id}/phone-pass`는 §2의 현재 로그인 세션을 매번 검사한다.
 웹 세션은 `X-FH-CSRF` 필수, 앱은 기존 Bearer 세션 규칙이다. 요청은
-`{device:UUID,purpose:"control"|"view",switch?:false}`이고 응답은
+`{device:UUID,purpose:"control"|"view",surface?:"phone"|"pc",switch?:false}`이고 응답은
 `{token,exp:UTC초,kid}`다. `Cache-Control: no-store`이며 토큰은 **응답 본문에만** 담는다.
 URL·쿠키·로그·감사 사건·DB에 토큰/서명을 넣지 않는다. 화면/앱은 이 응답을 저장·공유하지 않는다.
+
+- `surface` 기본값은 `phone`이다. PC 시뮬 화면은 반드시 `pc`를 요청한다.
+  `pc`는 로봇의 서버 `simulation` 값이 정확히 `True`가 아니면 control·view 모두
+  403 `WEB_SIM_ONLY`다. PR #95 총괄 실기 출입증 403 `ADMIN_NO_REAL_CONTROL`은
+  기존 권한 검사에서 그대로 유지한다. 서버가 허용해도 에이전트는 서명된 `surface`와
+  **자기 기동 때 명시한 simulation 설정**을 다시 확인한다. PC는 hello·조종권·조종을
+  거부하며 STOP·조종권 반납은 이 관문으로 막지 않는다. 직결 `run.*`는 아직 지원하지
+  않아 실행되지 않는다(ADR-003 ⑤ 후속). PC도 같은 Session·deadman 0.3 s를 쓴다.
+  새 claim을 모르는 구 에이전트는 새 출입증을 거부하므로 에이전트를 먼저 갱신한다.
 
 - control은 기존 `authorize(O_OWN)`, view는 기존 상세 보기 `authorize(ROBOT_READ)`를
   재사용한다. 로봇 요약 목록의 공개 범위와 상세 원격측정 보기 범위를 혼동하지 않는다.
   다른 조직·없는/해제된 로봇·보기/조종 불가는 동일404 `NOT_FOUND`, 잠긴/삭제 계정·폐기
   세션은401이다. 서버의 현재 배정·권한을 읽으며 출입증 요청으로 권한을 늘리지 않는다.
 - §13.2의 모든 claim을 그대로 서명한다. `iss=fh-control`, `aud=fh-phone/1`,
-  `org,robot,sub,device,purpose`, 서버 UTC 정수초 `iat`, `exp=iat+600`, 새 UUID `jti`다.
+  `org,robot,sub,device,purpose,surface`, 서버 UTC 정수초 `iat`, `exp=iat+600`, 새 UUID `jti`다.
   클라이언트가 수명·사용자·조직·로봇 claim을 지정할 수 없다. 발급 기록은
   jti·user·device·robot·purpose·iat·exp만 저장하고 만료된 기록을 다음 발급에서 정리한다.
   발급은 `PHONE_PASS_ISSUED` 감사 사건(토큰 없이)이다. 거부는 조직별 영속 카운터에

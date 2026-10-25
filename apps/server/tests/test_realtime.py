@@ -363,6 +363,9 @@ def test_screen_frame_limits(client, seeded, rt, payload, code):
 
 
 def test_request_timeout_cooldown_and_transfer_verified_on_wire(client, seeded, rt):
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = True
+        db.commit()
     headers, admin = app_token(client), app_token(client, 'admin')
     rid = seeded['robots']['mine']
     clock = Clock()

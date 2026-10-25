@@ -31,6 +31,10 @@ def test_screen_server_ping_without_subscription_does_not_extend_lease(client, s
 
 @pytest.mark.parametrize('accepted', [False, True])
 def test_requester_cancel_closes_both_dialogs_and_blocks_late_grant(client, seeded, rt, accepted):
+    # Distinct-user handoff remains available on simulated robots.
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = True
+        db.commit()
     rid = str(seeded['robots']['mine'])
     own, admin = app_token(client), app_token(client, 'admin')
     with agent(client, seeded) as ag, screen(client, own) as holder, screen(client, admin) as requester, screen(client, admin) as other_tab:
@@ -69,6 +73,10 @@ def test_requester_cancel_closes_both_dialogs_and_blocks_late_grant(client, seed
 
 @pytest.mark.parametrize('accepted', [False, True])
 def test_request_cancel_survives_archive_admission_closed(client, seeded, rt, monkeypatch, accepted):
+    # Distinct-user handoff remains available on simulated robots.
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = True
+        db.commit()
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client, 'one')) as holder, \
             screen(client, app_token(client, 'admin')) as requester:

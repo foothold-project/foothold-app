@@ -168,6 +168,8 @@ class Issuer:
                 self._flush_denials(db,row,self.clock())
 
     def issue(self, db, user, robot, body):
+        if body.surface == 'pc' and robot.simulation is not True:
+            self.deny(db, user, 403, 'WEB_SIM_ONLY')
         current = int(self.clock())
         db.execute(delete(PhonePass).where(PhonePass.org_id == user.org_id, PhonePass.exp <= current - ROBOT_CLOCK_GRACE))
         db.execute(delete(PhoneRevocation).where(PhoneRevocation.org_id == user.org_id, PhoneRevocation.until <= current - ROBOT_CLOCK_GRACE))
@@ -212,7 +214,7 @@ class Issuer:
                       max(p.exp for p in blocked) - current)
         kid, keys = entry
         claims = dict(iss='fh-control', aud='fh-phone/1', org=str(user.org_id), robot=str(robot.id),
-                      sub=str(user.id), device=str(device), purpose=body.purpose,
+                      sub=str(user.id), device=str(device), purpose=body.purpose, surface=body.surface,
                       iat=current, exp=current+600, jti=str(uuid4()))
         header = b64(json.dumps(dict(alg='HS256', typ='JWT', kid=kid), separators=(',', ':')).encode())
         payload = b64(json.dumps(claims, separators=(',', ':')).encode())

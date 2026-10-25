@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session as DBSession
 from websockets.asyncio.client import connect
 from websockets.exceptions import InvalidStatus
 
-from apps.server.fh_server.models import User
+from apps.server.fh_server.models import Robot, User
 from .ws_process import server_process
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'agent'))
@@ -24,6 +24,8 @@ def test_s0_real_client_ping_cancel_first_unlock_and_twenty_cold_stops(seeded, t
     names = ['one', *[f's0-wire-{n}' for n in range(19)]]
     engine = create_engine(seeded['urls']['migrate'])
     with DBSession(engine) as db:
+        # This compound wire flow includes distinct-user control handoff.
+        db.get(Robot, seeded['robots']['mine']).simulation = True
         password = db.get(User, seeded['users']['one']).password_hash
         db.add_all([User(org_id=seeded['org'], username=name, display_name=name,
                         role='OPERATOR', password_hash=password) for name in names[1:]])

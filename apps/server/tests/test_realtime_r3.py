@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session as DBSession
 
 from apps.contracts import generate, models as C
 from apps.server.fh_server.leases import Actor, Arbiter, Effect, MAX_SAFE_INTEGER, LeaseError
-from apps.server.fh_server.models import Event, now
+from apps.server.fh_server.models import Event, Robot, now
 from apps.server.fh_server import realtime as module
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take, drain_audit
 from .test_realtime_review import run
@@ -420,6 +420,10 @@ def test_real_uvicorn_current_agent_causal_take_transfer_stop(seeded, tmp_path, 
             await asyncio.gather(sensor, running, return_exceptions=True)
     target = 'apps.server.tests.delayed_app:app' if delayed_backlog else 'apps.server.fh_server.main:app'
     with server_process(seeded, tmp_path, app_target=target) as server:
+        # Distinct-user handoff is now possible only on simulated robots.
+        with DBSession(server['engine']) as db:
+            db.get(Robot, seeded['robots']['mine']).simulation = True
+            db.commit()
         asyncio.run(check(server))
 
 

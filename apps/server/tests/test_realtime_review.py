@@ -13,7 +13,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from apps.contracts import models as C
 from apps.server.fh_server.leases import Actor, Effect
-from apps.server.fh_server.models import Event, LeaseLog, now
+from apps.server.fh_server.models import Event, LeaseLog, Robot, now
 from apps.server.fh_server.realtime import AuditQueue, Peer, Policy
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take, drain_audit
 
@@ -176,6 +176,9 @@ def test_disconnect_pending_transfer_is_revoked(client, seeded, rt):
 
 
 def test_disconnect_pending_request_is_canceled(client, seeded, rt):
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = True
+        db.commit()
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as owner:
         take(owner, ag, rid)
@@ -187,6 +190,9 @@ def test_disconnect_pending_request_is_canceled(client, seeded, rt):
 
 
 def test_disconnected_requester_cannot_be_granted_even_before_cleanup(client, seeded, rt):
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = True
+        db.commit()
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as owner, screen(client, app_token(client, 'admin')) as requester:
         take(owner, ag, rid)
