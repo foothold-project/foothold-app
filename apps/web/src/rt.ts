@@ -19,7 +19,7 @@ const LINK_LOST = '서버 연결이 끊겼습니다.';
 /** idle = 연결 안 함, connecting = 첫 연결 중, lost = 끊김(다시 연결 중), denied = 서버가 거부(다시 연결 안 함) */
 export type Link = { at: 'idle' | 'connecting' | 'open' | 'lost' | 'denied'; why?: string; retryAt?: number };
 /** sending → sent(서버 접수) | fallback(HTTP 대체 경로 접수) | unsure(보냈지만 접수 답을 못 받음) | failed(보내지 못함). 로봇이 멈췄는지는 state 로만 본다 */
-export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; latched?: true };   // at = 이 단계가 된 때, latched = 이 STOP 뒤 로봇이 잠금을 알림
+export type Stop = { phase: 'sending' | 'sent' | 'fallback' | 'unsure' | 'failed'; at: number; n: number; why?: string; g0: number; conn: number; latched?: true };   // at = 이 단계가 된 때, g0·conn = STOP 때 stop_gen·소켓, latched = 그 뒤 새 세대 잠금을 이 소켓에서 받음
 /** 서버가 이 화면의 구독을 거둠(담당 바뀜·로봇 지움, apps/server README). n = 몇 번째인지(화면이 한 번씩 처리) */
 export type Revoked = { robot: string; reason: ScreenSubscriptionRevoked['reason']; n: number };
 export type Live = {
@@ -89,7 +89,7 @@ let lastMissed: Missed | null = null;
 const subs = new Set<() => void>();
 let ver = 0, n = 0, seq = 0, releases = 0, tries = 0, lastRx = 0, lastPing = 0, want = false;
 let era = new AbortController();   // 이번 로그인 세션: 끊으면(disconnect) 그 세션이 시작한 STOP 타이머·HTTP 를 모두 거둔다
-let sock: WebSocket | null = null, robots: string[] = [];
+let sock: WebSocket | null = null, robots: string[] = [], conn = 0;   // conn = 몇 번째 소켓
 let retry: ReturnType<typeof setTimeout> | undefined, beat: ReturnType<typeof setInterval> | undefined;
 
 const emit = () => { ver++; subs.forEach((f) => f()); };
@@ -145,7 +145,7 @@ function open() {
   if (link.at !== 'lost') setLink({ at: 'connecting' });
   const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/api/v1/ws`);
   let up = -1;   // 열린 시각(-1 = 수락 전)
-  sock = ws; lastRx = now();
+  sock = ws; lastRx = now(); conn++;
   ws.onopen = () => {
     if (ws !== sock) return;
     lastRx = lastPing = up = now();
@@ -240,8 +240,11 @@ function onState(s: ScreenState) {
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }
-  // 이 STOP 뒤 로봇이 잠금을 한 번 알렸다가 풀리면(해제) STOP 안내를 지운다. 잠금 보고 전의 «아직 잠금 안 됨»은 남긴다
-  const stop = !l.stop ? null : s.latched ? { ...l.stop, latched: true as const } : l.stop.latched ? null : l.stop;
+  // 같은 소켓에서 이 STOP 뒤 세대(stop_gen > g0)의 잠금을 받은 뒤 latched=false 가 와야 STOP 안내를 지운다.
+  // 옛 세대·옛 소켓의 보고로는 지우지 않고, OFFLINE(latched=null)은 해제가 아니라 확인 기록만 버린다(«상태 알 수 없음» 안내는 남음)
+  let stop = l.stop;
+  if (stop && s.latched === null) stop = { ...stop, latched: undefined };
+  else if (stop?.conn === conn && (s.stop_gen ?? -1) > stop.g0) stop = s.latched ? { ...stop, latched: true } : stop.latched ? null : stop;
   set(s.robot, { state: s, stateAt: now(), neutral: s.latched === false && l.neutral, stop });   // 잠기면 해제 뒤 새 중립부터
 }
 
@@ -424,8 +427,8 @@ export const rt = {
    *  같은 STOP 의 WS 접수(ok)는 늦게 와도 반영하고 뒤의 HTTP 실패가 덮지 않는다. 대체 경로로 넘어간 뒤의 늦은 WS 거절은 버린다.
    *  타이머·HTTP 는 이 로그인 세션에 묶여 로그아웃·계정 전환 때 거둔다(다음 사람의 CSRF 로 나가지 않게) */
   stop(id: string) {
-    const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'>) => { if (!s.aborted && get(id).stop?.n === k) set(id, { stop: { ...p, at: now(), n: k } }); };
-    set(id, { stop: { phase: 'sending', at: now(), n: k } });
+    const k = ++n, s = era.signal, mark = (p: Pick<Stop, 'phase' | 'why'>) => { const t = get(id).stop; if (!s.aborted && t?.n === k) set(id, { stop: { ...t, phase: p.phase, why: p.why, at: now() } }); };
+    set(id, { stop: { phase: 'sending', at: now(), n: k, g0: get(id).state?.stop_gen ?? -1, conn } });
     let via: 'ws' | 'http' = 'ws', acked = false, viaWs = false;   // viaWs = WS 로 실제로 보냄(닫혀 있으면 send 가 바로 답을 불러 false)
     const http = () => {
       via = 'http'; clearTimeout(late);
