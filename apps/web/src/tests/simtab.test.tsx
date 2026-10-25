@@ -54,7 +54,7 @@ async function mount(uid = 'u-lee', robots = ROBOTS) {
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === uid)} robots={robots} refresh={refresh} />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); refresh.mockClear(); sim.clear(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); refresh.mockReset(); sim.clear(); });
 
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -160,6 +160,32 @@ describe('PC «시뮬» 탭', () => {
     expect(calls.filter((c) => c.method === 'DELETE' && c.path === `/simulation/robots/${S1}`)).toHaveLength(1);
     expect(FakeWS.all.some((w) => w.url.includes(':948'))).toBe(false);
     expect(sim.get().step).not.toBe('drive');
+  });
+
+  // PR #96 P2: 총괄·실기만 → 띄우기 → 보기 → 끝내기. blank()(listed=false) 뒤 load()(listed=true)로 목록이 확정되면 로봇 목록을 다시 받아 STOP 0
+  it('총괄 마지막 시뮬 끝내기 → DELETE 뒤 목록 다시 받기, 머리줄 STOP 0', async () => {
+    serve(); await mount('u-kim');
+    // Root 처럼: refresh = 서버 시뮬 목록을 로봇 목록에 넣어 다시 그림
+    const rerender = () => act(() => root!.render(<App user={USERS.find((u) => u.id === 'u-kim')} robots={[...ROBOTS, ...mine.map((r) => ({ ...ROBOTS[0], id: r.robot_id, name: '시뮬', owner: 'u-kim', sim: true }))]} refresh={refresh} />));
+    refresh.mockImplementation(rerender);
+    await click(btn('띄우기'));
+    act(() => agent().open()); await flush();
+    await recv(agent(), welcome);
+    expect($('[data-sim-view]')).toBeTruthy();
+    expect($('[data-stop]')).toBeTruthy();
+    // 실제 망처럼 DELETE 뒤 GET 목록 답을 늦춰 blank()(listed=false)가 따로 그려지게
+    let list = () => {};
+    routes[`DELETE /simulation/robots/${S1}`] = () => {
+      mine = []; refresh.mockClear();
+      routes['GET /simulation/robots'] = () => new Promise<Reply>((f) => { list = () => f({ status: 200, body: { items: mine } }); });
+      return { status: 204 };
+    };
+    await click(btn('끝내기'));
+    expect(sim.get()).toMatchObject({ mine: [], listed: false });
+    await act(async () => list()); await flush();
+    expect(sim.get()).toMatchObject({ step: 'pick', mine: [], listed: true });
+    expect(refresh).toHaveBeenCalled();
+    expect($('[data-stop]')).toBeNull();
   });
 
   it('운영자 STOP 그대로: 시뮬 없으면 «로봇 고르기», 로봇 탭에서 고른 로봇이 있으면 시뮬이 떠 있어도 그 로봇', async () => {

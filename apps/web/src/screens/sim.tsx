@@ -10,8 +10,8 @@ import type { Tone, User } from '../fake';
 
 export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
   const s = useSim(), ids = s.mine.map((r) => r.robot_id).join();
-  // 띄우기·끝내기로 내 시뮬 목록이 바뀌면 로봇 목록도 다시 받는다(머리줄 STOP 후보·로봇 탭에 바로 보이게)
-  useEffect(() => { if (s.listed) refresh(); }, [ids]);
+  // 띄우기·끝내기로 내 시뮬 목록이 바뀌거나 다시 확정되면(끝내기는 blank() 로 listed=false → load() 로 true) 로봇 목록도 다시 받는다(머리줄 STOP 후보·로봇 탭에 바로 보이게)
+  useEffect(() => { if (s.listed) refresh(); }, [ids, s.listed]);
   return s.step === 'drive' && s.link && s.robot ? <SimView /> : <SimLaunch me={user.id} view />;
 }
 
