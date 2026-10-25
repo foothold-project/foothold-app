@@ -184,6 +184,27 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     expect(allowed(w)).toMatchObject({ back: true, left: true, right: true, spin: false, experimental: false });
     expect(allowed(hello({ ...OMNI, experimental: ['turn_in_place'] })).spin).toBe(true);
   });
+  it('축 고정·시뮬 회전 ±max: 정상 조작은 에이전트 양자화(|vy|≥0.05·|fw|≥1)에 안 잘림, 실기 식 불변', () => {
+    const w = hello(EXP);
+    // 앞 + 작은 옆 흔들림 → vy 0, 옆 + 작은 앞 흔들림 → vx 0(0.2 로 튀지 않음)
+    for (const y of [-0.25, -0.12, 0.12, 0.25]) expect(velocity([0.6, 0, y], w).vy).toBe(0);
+    expect(velocity([1, 0, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });
+    expect(velocity([0.2, 0, 1], w)).toEqual({ vx: 0, vy: 0.3, wz: 0 });
+    // 대각선(둘 다 큼)은 그대로
+    const d = velocity([0.8, 0, -0.6], w);
+    expect(d.vx).toBeCloseTo(0.2 + 0.8 * 0.7 / 0.9, 9); expect(d.vy).toBeCloseTo(-0.3 * 0.5 / 0.9, 9); expect(Math.abs(d.vy)).toBeGreaterThanOrEqual(0.05);
+    // 회전: 문턱 아래 0, 넘으면 ±wz_max 두 값만(부분 회전 wz 없음)
+    for (const t of [0.1, 0.3, 0.49, -0.49]) expect(velocity([1, t], w).wz).toBe(0);
+    for (const t of [0.5, 0.7, 1]) { expect(velocity([1, t], w).wz).toBe(0.5); expect(velocity([1, -t], w).wz).toBe(-0.5); }
+    expect(velocity([0, 0.8], w).wz).toBe(0.5);   // 제자리 회전 허가(turn_in_place)
+    expect(velocity([0, 0.8], hello(OMNI)).wz).toBe(0);   // 허가 없으면 그대로 0
+    // 실기 limits: 축 고정·회전 문턱 없이 기존 식(옆 범위 0)
+    const r = hello(welcome().limits), old = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v >= 0 ? v * hi : -v * lo));
+    for (let f = -1; f <= 1; f += 0.05) for (const t of [-1, -0.3, 0, 0.4, 1]) for (const y of [-1, -0.1, 0, 0.3, 1]) {
+      const vx = old(f, 0, 0.6);
+      expect(velocity([f, t, y], r)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
+    }
+  });
   it('experimental 있음: 시험용 띠, 뒤·옆·제자리 회전 보냄, 화살표 모두 켬, STOP 보임', async () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
     const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
