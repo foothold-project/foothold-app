@@ -3,7 +3,7 @@
 | 항목 | 내용 |
 |---|---|
 | 문서 번호 | FH-SPEC-02 |
-| 판 | 0.3 (초안, 검토 대기) |
+| 판 | 0.4 (초안, 검토 대기) |
 | 작성일 | 2026-10-19 |
 | 상위 문서 | [01 PRD](01-PRD.md) (요구사항 ID 는 PRD 를 따른다) |
 | 관련 문서 | [03 화면·UX](03-UX-SPEC.md) · [04 아키텍처](04-ARCHITECTURE.md) · [05 API](05-API-SPEC.md) · [06 DB](06-DB-DESIGN.md) |
@@ -271,7 +271,10 @@
           │                                          │
           └─ 일시정지 / 중단 / 수동 조종 개입 ────────┘
 ```
-- 상태: `QUEUED → PREPARING → MOVING → AT_WAYPOINT → PERFORMING → … → COMPLETED / FAILED / ABORTED`, 아무 때나 `PAUSED` 가능. 층 전환·`OPERATOR_CONFIRM` 처럼 사람 확인을 기다리는 동안은 `WAIT_CONFIRM`.
+- 상태: `QUEUED → PREPARING → MOVING → AT_WAYPOINT → PERFORMING → … → COMPLETED / FAILED / CANCELED`, 아무 때나 `PAUSED` 가능. 옛 `ABORTED`는 기록 호환 이름이며 새 직결 실행의 취소는 `CANCELED`로 기록한다. 층 전환·`OPERATOR_CONFIRM` 처럼 사람 확인을 기다리는 동안은 `WAIT_CONFIRM`.
+- **10-25 결정:** `PAUSED`가 `run_pause_timeout_s`(에이전트 설정, 기본 600 s/10분)에 도달하면 에이전트가 `CANCELED` + `fail_code=PAUSE_TIMEOUT`으로 닫고 서버가 기록한다. 연결이 끊겨도 에이전트 시계는 계속 가며, 서버에는 재연결 뒤 반영한다. 그 전에도 로봇 담당자·총괄은 다른 화면에서 취소할 수 있다. 취소는 조종권 취득·해제·재개 권한을 주지 않으며 0·목표 취소·잠금을 유지한다. 종료 뒤 `RUN_ACTIVE`를 해제해 새 실행을 허용하되 새 실행의 안전 관문은 그대로 적용한다.
+- **이어서**는 같은 user+device+surface+screen_id+resume_token을 증명하는 화면만 가능하다([05 §13.10.4](05-API-SPEC.md#run-link-watch)). 첫 판은 출입증 600 s 만료 시 `PAUSED`와 같은 화면의 수동 재개를 감수한다. 실행 중 출입증 갱신은 실기 실행 전 별도 작업이다.
+- RUN 중 비영 수동 입력은 `RUN_ACTIVE`로 거부한다. 수동 조종은 명시적 일시정지 → 0·목표 취소 확인 → RUN 권한 해제·새 USER lease → STOP 확인·명시 해제·새 중립 뒤 허용한다([05 §13.10.2](05-API-SPEC.md#13102-명령고정-계획출입증)).
 
 <a id="로봇-요약-상태와-실행-상태"></a>**로봇 요약 상태와 실행 상태** — 요약 `status` 는 로봇 한 대의 주의·안전 표시용이다(위에서부터 먼저 맞는 것). «임무 중» 집계는 이것이 아니라 `current_run` 으로 센다(F-FL-01).
 | 로봇 요약 `status` | 조건 |
@@ -283,7 +286,7 @@
 | `RUNNING` | 진행 중 실행이 `PREPARING`/`MOVING`/`AT_WAYPOINT`/`PERFORMING`/`WAIT_CONFIRM` |
 | `IDLE` | 그 밖 (`QUEUED` 만 있는 경우 포함) |
 - 연결이 끊긴 로봇은 `connection: OFFLINE` 이고 `status` 는 마지막 확인 값이다(화면은 "마지막 확인"으로 표시).
-- 실패 이유 코드(예): `NAV_GOAL_REJECTED`, `NAV_TIMEOUT`, `LOCALIZATION_LOST`, `FLOOR_TRANSITION_FAILED`, `BATTERY_LOW`, `LINK_LOST`, `OPERATOR_ABORT`, `DEVICE_MISSING`, `STOPPED_BY_USER`.
+- 실패·취소 이유 코드(예): `NAV_GOAL_REJECTED`, `NAV_TIMEOUT`, `LOCALIZATION_LOST`, `FLOOR_TRANSITION_FAILED`, `BATTERY_LOW`, `OPERATOR_ABORT`, `DEVICE_MISSING`, `PAUSE_TIMEOUT`. `LINK_LOST`·`STOPPED_BY_USER`·`RECORDING_UNAVAILABLE`는 실패 코드가 아닌 `PAUSED`의 `wait_reason`이다.
 - 지점 도착 판정: 목표 반경 0.5 m 이내 + 정지(제안).
 
 ### F-MS-07 다른 층 시작 (MS-06) — 확정 요구
@@ -447,3 +450,4 @@ POST_REVIEW: OPEN ─▶ ACKNOWLEDGED / FLAGGED
 | 0.1 | 2026-10-19 | 최초 작성 |
 | 0.2 | 2026-10-19 | PR #3 검토 1·2차 반영 (deadman 현재 동작·감시 모드 분리·연결 끊김 기준·기록 범위·에이전트 REST·ID·판 충돌 범위 등) |
 | 0.3 | 2026-10-19 | dev 구현과 조정 결정 반영: 기기 판별 예외(coarse+가로+높이 ≤ 480), 폰은 담당 로봇만, 처음 잡기도 정지 확인, 넘김 정지 확인을 `stop_ref` 대조로(F-TO-04), 실패 알림 `STOP_CONFIRM_FAILED`, 남의 로봇 기록 범위 확정(404) |
+| 0.4 | 2026-10-25 | ⑤ r2: PAUSED 시간 초과·담당자/총괄 취소·CANCELED, 같은 화면 재개·출입증 만료 한계, 수동 전환과 wait_reason 구분 |
