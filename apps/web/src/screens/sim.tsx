@@ -16,7 +16,16 @@ export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
   // 띄우기·끝내기로 내 시뮬 목록이 바뀌거나 다시 확정되면(끝내기는 blank() 로 listed=false → load() 로 true) 로봇 목록도 다시 받는다(머리줄 STOP 후보·로봇 탭에 바로 보이게)
   useEffect(() => { if (s.listed) refresh(); }, [ids, s.listed]);
   useEffect(() => { sim.pc(true); return () => sim.pc(false); }, []);   // 이 탭에서 받는 출입증은 surface: 'pc'
-  return s.step === 'drive' && s.link && s.robot ? <SimView /> : <SimLaunch me={user.id} view />;
+  // «시뮬 정지»는 띄우는 중·연결 중·끝내는 중·정리 확인 중에도(sim.live()) 늘 하나 — 조종 화면에서는 머리 카드 안, 그 밖에는 진행 칸 위
+  return s.step === 'drive' && s.link && s.robot ? <SimView />
+    : <>{sim.live() && <div className="fh-row" style={{ flexBasis: '100%', justifyContent: 'flex-end' }}><SimStop /></div>}<SimLaunch me={user.id} view /></>;
+}
+
+/** «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */
+function SimStop() {
+  return <button type="button" className="btn" data-sim-stop-btn aria-label="시뮬 정지 — 이 시뮬 로봇만 멈춥니다"
+    style={{ minWidth: 120, borderColor: 'var(--warn)', color: 'var(--warn)', background: 'var(--warn-bg)', borderWidth: 2, borderRadius: 4 }} onClick={() => sim.stop()}>
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="6" y="6" width="4" height="4" fill="currentColor" /></svg>시뮬 정지</button>;
 }
 
 /** 키 → [축(0 전후·1 회전·2 옆), 방향]. 02 F-TO-05: W/↑ 전진, S/↓ 후진, A/←·D/→ 회전. 옆걸음(시뮬 시험용)은 Q/E. e.code(자판 자리)라 한글 입력 상태에서도 같다 */
@@ -54,6 +63,7 @@ function SimView() {
       setOut({ vx: v?.vx ?? 0, note: blockNote(a, allowed(k ?? null), v) });
     };
     const down = (e: KeyboardEvent) => {
+      if (held.current.size && (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음
       if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !canDrive()) return;
       e.preventDefault(); held.current.add(e.code); apply();
     };
@@ -81,10 +91,7 @@ function SimView() {
         <h2>{short(r.robot_id)}</h2><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)}</span>
         <span data-sim-state>{STATE[r.state]}</span><Chip {...lock} /><span className="mono" data-sim-pos>{at}</span>
         <span className="fh-grow" style={{ flex: 1 }} />
-        {/* «시뮬 정지»: 실기 STOP(빨간 팔각·채움)과 다른 모양 — 주황 테두리 네모, 늘 보임. 동작은 STOP 과 같음(0 + 목표 취소 + 잠금, 자동 재개 없음 — 판정은 에이전트) */}
-        <button type="button" className="btn" data-sim-stop-btn aria-label="시뮬 정지 — 이 시뮬 로봇만 멈춥니다"
-          style={{ minWidth: 120, borderColor: 'var(--warn)', color: 'var(--warn)', background: 'var(--warn-bg)', borderWidth: 2, borderRadius: 4 }} onClick={() => sim.stop()}>
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="6" y="6" width="4" height="4" fill="currentColor" /></svg>시뮬 정지</button>
+        <SimStop />
       </div>
       {notes.map((t) => <p key={t} className="fh-why" role="status">{t}</p>)}
       <div className="fh-row" style={{ flexWrap: 'wrap' }}>

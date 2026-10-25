@@ -196,6 +196,31 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
   });
 
+  it('«시뮬 정지»는 연결 중에도 하나', async () => {
+    serve(); await mount();
+    await click(btn('띄우기'));
+    expect(sim.get().step).toBe('linking');
+    expect(box.querySelectorAll('[data-sim-stop-btn]')).toHaveLength(1);
+  });
+
+  it('«시뮬 정지»는 끝내기 반납 대기(ending) 중에도 하나 — 누르면 stop 1회', async () => {
+    const a = await ready();
+    a.auto = null;   // 반납 응답 보류
+    await click(btn('끝내기'));
+    expect(sim.get().step).toBe('ending');
+    expect(box.querySelectorAll('[data-sim-stop-btn]')).toHaveLength(1);
+    await click($('[data-sim-stop-btn]'));
+    expect(a.of('stop')).toHaveLength(1);
+  });
+
+  it('키를 누른 채 Cmd/Ctrl/Alt 를 누르면 0(macOS 는 Cmd 뒤 keyup 이 안 올 수 있음)', async () => {
+    await ready();
+    await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.6, 5);
+    await key('keydown', 'MetaLeft', { key: 'Meta', metaKey: true });
+    expect(await lastCmd()).toMatchObject({ vx: 0, wz: 0 });
+  });
+
   it('Space 는 PR #94·#96 그대로 STOP — 시뮬 탭이면 이 시뮬 로봇에 직접 stop', async () => {
     const a = await ready();
     await key('keydown', 'Space');
