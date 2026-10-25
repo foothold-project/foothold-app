@@ -25,7 +25,7 @@ export type Link = {
 export type Sim = {
   step: Step; catalog: SimCatalog | null; mine: SimRobot[]; listed: boolean; err: string; robot: SimRobot | null; since: number; link: Link | null;
   /** STOP: agent = 에이전트에 직접 보냄, cleanup = 로봇에 연결 전이라 명령 없이 그 슬롯을 정리(서버 STOP 경로는 쓰지 않음 — ADR-002 §5) */
-  stop: { at: number; via: 'agent' | 'cleanup' } | null;
+  stop: { at: number; via: 'agent' | 'cleanup'; g0?: number; conn?: number; latched?: true } | null;   // g0·conn = STOP 때 stop_gen·연결(gen), latched = 그 뒤 새 세대 잠금을 이 연결에서 받음
   /** 이 시각(단조) 전에는 다시 연결하지 않는다(1013 뒤 늘리는 간격·출입증 429 retry_after) */
   retryAt: number;
   /** 관리자 remaining_s를 받은 뒤의 단조 시계 기한(폰 UTC 시계와 무관). */
@@ -149,6 +149,9 @@ function onMsg(raw: string) {
     if (fresh) lastEcho = echo.id;
     // 반납 답 전의 옛 state 로 lease 를 되살리지 않음
     setLink({ st, stAt: now(), lease: l.busy === 'release' ? null : st.lease_id, rtt: fresh ? Date.now() - echo.client_time_ms : l.rtt });
+    // 같은 연결에서 이 STOP 뒤 세대(stop_gen > g0)의 잠금을 받은 뒤 latched=false 가 와야 STOP 안내를 지운다. 옛 세대·옛 연결의 보고로는 지우지 않는다
+    const p = S.stop;
+    if (p?.conn === gen && st.stop_gen > p.g0!) { if (st.latched && !p.latched) set({ stop: { ...p, latched: true } }); else if (st.latched === false && p.latched) set({ stop: null }); }
   } else if (m.t === 'lease.requested') {
     setLink({ ask: { id: m.request_id as string, until: now() + 10_000 } });
   } else if (m.t === 'lease.result') {
@@ -319,7 +322,7 @@ export const sim = {
   stop() {
     if (!sim.live()) return;
     axes = [0, 0];
-    if (S.link?.welcome && send({ t: 'stop' })) return set({ stop: { at: now(), via: 'agent' } });
+    if (S.link?.welcome && send({ t: 'stop' })) return set({ stop: { at: now(), via: 'agent', g0: S.link.st?.stop_gen ?? -1, conn: gen } });
     set({ stop: { at: now(), via: 'cleanup' } });
     if (S.step === 'starting') cancel = true;
     else if (S.slotBusy) { cancel = true; sim.recheck(); }   // 남의 로봇일 수 있어 내 것으로 확인된 뒤에만 정리

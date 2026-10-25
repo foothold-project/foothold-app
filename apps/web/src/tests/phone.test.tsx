@@ -936,6 +936,25 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(cam()).toBe(true);
   });
 
+  it('STOP → 잠금 알림 → 해제 → 주행이면 STOP 안내 0, 잠금을 아직 못 받았으면 «아직 잠금 안 됨» 유지', async () => {
+    const a = await launch();
+    await drive(a);
+    const held = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
+    const warn = '로봇이 아직 잠금을 알리지 않았습니다';
+    await click($('[data-stop]'));
+    await recv(a, phoneState({ ...held, latched: false, stop_gen: 1 }));   // STOP 뒤 첫 state 가 아직 안 잠김
+    expect(box.textContent).toContain(warn);
+    await recv(a, phoneState({ ...held, latched: false, stop_gen: 1 }));
+    expect(box.textContent).toContain(warn);                              // 잠금을 못 받았으면 계속 경고
+    await recv(a, phoneState({ ...held, latched: true, stop_gen: 2 }));
+    expect(box.textContent).toContain('정지 잠금 — 로봇이 잠금과 멈춤 출력을 알렸습니다');
+    await click(btn('잠금 해제'));
+    await recv(a, phoneState({ ...held, latched: false, stop_gen: 2, applied: [0.6, 0, 0] }));
+    expect(sim.get().stop).toBeNull();
+    expect(box.textContent).not.toContain(warn);
+    expect(box.textContent).not.toContain('정지 요청');
+  });
+
   it('실제 영상 장애는 다른 안내(명령 범위 조정)가 떠도 그대로, OUTPUT_STALLED 때는 안내 줄 아래로 옮겨 보임', async () => {
     const a = await launch();
     await drive(a);

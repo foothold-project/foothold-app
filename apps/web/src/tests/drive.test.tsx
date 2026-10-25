@@ -203,6 +203,23 @@ describe('조종 화면', () => {
     expect(cmds().slice(n).every((m) => String(m.axes) === '0,0,0')).toBe(true);   // 잠긴 뒤 입력은 0
   });
 
+  it('STOP 뒤 잠금 보고 전에는 «아직 잠금 안 됨» 유지, 잠금 → 해제되면 STOP 띠를 지움', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    w.auto = () => ({ ok: true });
+    click($('[data-stop]'));
+    tick(100);
+    act(() => push('r7', { speed: 0.6 }));   // STOP 뒤 첫 state 가 아직 안 잠김
+    expect(band()).toContain('Go2-7 정지 요청됨 — 로봇이 아직 잠금을 알리지 않았습니다.');
+    act(() => push('r7', { latched: true, stop_gen: 2, applied: [0, 0, 0], speed: 0 }));
+    expect(band()).toContain('Go2-7 정지 잠금 — 로봇이 잠금과 멈춤 출력을 알렸습니다.');
+    click(btn('잠금 해제'));
+    act(() => push('r7', { latched: false, applied: [0.6, 0, 0], speed: 0.6 }));
+    expect(rt.get('r7').stop).toBeNull();
+    expect(band()).not.toContain('정지');
+  });
+
   it('STOP 답이 거부면 «보내지 못함», 성공처럼 보이지 않는다', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
