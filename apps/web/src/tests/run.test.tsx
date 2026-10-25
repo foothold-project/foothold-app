@@ -175,7 +175,7 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     expect(visible()).not.toContain('남의 실행');
     for (const [p, t] of [
       [{ status: 'FAILED', fail_code: 'NAV_TIMEOUT' }, '시나리오 실패 — 정해진 시간 안에 지점에 닿지 못했습니다.'],
-      [{ status: 'FAILED', fail_code: 'SOMETHING_NEW' }, '시나리오 실패 — 실행을 마치지 못했습니다.'],
+      [{ status: 'FAILED', fail_code: 'SOMETHING_NEW' }, '시나리오 실패 — 실행을 마치지 못했습니다(알 수 없는 이유 SOMETHING_NEW).'],   // 모르는 코드는 지어내지 않고 그대로
       [{ status: 'CANCELED', fail_code: 'PAUSE_TIMEOUT' }, '시나리오 취소됨 — 일시정지가 10분을 넘어 자동으로 취소됐습니다.'],
       [{ status: 'CANCELED', fail_code: 'OPERATOR_ABORT' }, '시나리오 취소됨 — 사람이 취소했습니다.'],
       [{ status: 'COMPLETED', progress: { done: 3, total: 3 } }, '시나리오를 마쳤습니다 — 지점 3/3'],
@@ -183,7 +183,7 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
       await upd(p);
       expect(visible()).toContain(t);
     }
-    expect(visible()).not.toMatch(/NAV_TIMEOUT|PAUSE_TIMEOUT|OPERATOR_ABORT|SOMETHING_NEW/);
+    expect(visible()).not.toMatch(/NAV_TIMEOUT|PAUSE_TIMEOUT|OPERATOR_ABORT/);
     expect(visible()).not.toContain(run_id);
     await click($('[data-sim-menu]'));
     await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === '정보'));
@@ -191,6 +191,60 @@ describe('시나리오 실행 — 진행 표시·단추', () => {
     await click(btn('닫기'));   // 정보 시트 닫기
     await click($('[data-run-act="close"]'));
     expect(visible()).not.toContain('시나리오를 마쳤습니다');
+  });
+
+  it('새 실패·대기 사유 → 쉬운 말 + 다음 행동, 끝난 실행은 «이어서» 없음(닫기만), 준비 단계 실패는 «기록되지 않은 실패», STOP 늘 보이고 눌림', async () => {
+    const a = await launch('phone');
+    const { run_id } = await startPhone(a) as unknown as { run_id: string };
+    const upd = (p: Record<string, unknown>) => recv(a, { t: 'run.update', ...runOf(run_id, p) });
+    const acts = () => [...box.querySelectorAll('[data-run-act]')].map((b) => b.textContent);
+    for (const [p, says, next] of [
+      [{ status: 'FAILED', fail_code: 'RECORDING_REJECTED', progress: { done: 1, total: 3 } }, '서버가 실행 기록을 거부해 멈췄습니다', '이 실행은 이어갈 수 없고 새 실행만 할 수 있습니다. 시뮬을 «끝내기» 한 뒤 다시 띄우면(에이전트 재시작)'],
+      [{ status: 'FAILED', fail_code: 'NAV_TIMEOUT' }, '정해진 시간 안에 지점에 닿지 못했습니다.', '길이 막혔는지 확인한 뒤 새로 실행하세요.'],
+      [{ status: 'CANCELED', fail_code: 'PAUSE_TIMEOUT' }, '자동으로 취소됐습니다', '이어갈 수 없습니다 — 다시 하려면 새로 실행하세요.'],
+      [{ status: 'FAILED', fail_code: 'MAP_VERSION_MISMATCH' }, '시나리오 지도 판이 로봇 지도와 다릅니다.', '이 지도로는 이 시나리오를 실행할 수 없습니다.'],
+      [{ status: 'FAILED', fail_code: 'SOMETHING_NEW' }, '알 수 없는 이유 SOMETHING_NEW', '로봇 상태를 확인한 뒤 새로 실행하세요.'],
+    ] as const) {
+      await upd(p);
+      expect(visible()).toContain(says); expect(visible()).toContain(next);
+      expect(acts()).toEqual(['닫기']);   // 끝난 실행: 이어서·일시정지·취소 0
+      expect(visible()).not.toContain('기록되지 않은');   // total>0 = 시작 보고 뒤
+      const stop = $<HTMLButtonElement>('[data-stop]')!;
+      expect(stop.disabled).toBe(false);
+    }
+    expect(visible()).not.toMatch(/RECORDING_REJECTED|NAV_TIMEOUT|MAP_VERSION_MISMATCH/);
+    // 계획 수락 전(PREPARING, total 0) 실패 = 에이전트가 서버에 시작을 안 알림 → 기록되지 않은 실패
+    await upd({ status: 'FAILED', fail_code: 'PLAN_UNAVAILABLE', progress: { done: 0, total: 0 } });
+    expect(visible()).toContain('시나리오 자료를 받지 못했습니다.');
+    // 자료 GET 실패는 연결·서버·지도 어느 것이든 같은 코드 — 지도 단정 문구 없이 일반 안내(PR #110 r1)
+    expect(visible()).toContain('서버 연결을 확인한 뒤 다시 실행하세요. 반복되면 관리자에게 지도·시나리오 확인을 요청하세요.');
+    expect(visible()).not.toContain('이 지도로는');
+    expect(visible()).toContain('서버 기록에 남지 않았습니다(기록되지 않은 실패)');
+    const stop = $<HTMLButtonElement>('[data-stop]')!;
+    expect(stop.disabled).toBe(false);
+    await click(stop);
+    expect(a.of('stop')).toHaveLength(1);
+    expect(a.of('run.control')).toHaveLength(0);
+  });
+
+  it('기록 장애: 일시정지(RECORDING_UNAVAILABLE)는 취소만 + 에이전트 재시작 안내, 새 실행 거절(RECORDING_UNAVAILABLE·MAP_PROOF_UNAVAILABLE)은 쉬운 이유', async () => {
+    const a = await launch('phone');
+    const { run_id } = await startPhone(a) as unknown as { run_id: string };
+    await recv(a, phoneState({ ...held, latched: false, run: runOf(run_id, { status: 'PAUSED', wait_reason: 'RECORDING_UNAVAILABLE' }) }));
+    await recv(a, { t: 'run.update', ...runOf(run_id, { status: 'PAUSED', wait_reason: 'RECORDING_UNAVAILABLE' }) });
+    expect(visible()).toContain('실행 기록을 저장하지 못해 멈췄습니다');
+    expect(visible()).toContain('에이전트 재시작');
+    expect([...box.querySelectorAll('[data-run-act]')].map((b) => b.textContent)).toEqual(['취소']);   // 이어서 0
+    await recv(a, { t: 'run.update', ...runOf(run_id, { status: 'CANCELED', fail_code: 'OPERATOR_ABORT' }) });
+    await click($('[data-run-act="close"]'));
+    for (const [code, says] of [['RECORDING_UNAVAILABLE', '실행 기록 장애로 시작·이어서를 막았습니다. 시뮬을 «끝내기» 한 뒤 다시 띄우면(에이전트 재시작)'],
+      ['MAP_PROOF_UNAVAILABLE', '이 지도로는 시나리오를 실행할 수 없습니다']] as const) {
+      a.auto = ((m: Msg) => (m.t === 'run.start' ? { ok: false, error: { code, message: '', detail: {} } } : auto!(m))) as FakeWS['auto'];
+      await pickPhone();
+      await click(btn('실행'));
+      expect(visible()).toContain(says);
+      expect(visible()).not.toContain(code);
+    }
   });
 
   it('실행 중: 조이스틱 막힘·cmd 송신 0(ping 은 계속)·수동 전환 안내, STOP 은 보이고 눌림 → STOP 이 실행보다 먼저', async () => {
