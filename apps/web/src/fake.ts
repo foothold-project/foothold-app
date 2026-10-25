@@ -47,6 +47,8 @@ export function robotStatus(r: Robot): { tone: Tone; text: string } {
 /** 총괄은 실기 로봇을 조종·STOP 하지 않는다(10-25 결정 — 실기는 운영자 폰, 서버도 403 ADMIN_NO_REAL_CONTROL). 시뮬 로봇은 총괄도 */
 export const ADMIN_REAL = '총괄 계정은 실기 로봇을 조종하지 않습니다.';
 export const adminReal = (u: Pick<User, 'role'>, r: Pick<Robot, 'sim'>) => u.role === 'ORG_ADMIN' && !r.sim;
+/** 쉬는 시뮬 슬롯: 서버는 끝낸(IDLE) 슬롯을 담당을 비운 채 /robots 에 남긴다(설계). 화면의 로봇(PC·폰 목록, 그래서 STOP 후보도)에서 뺀다. 담당 없는 실기는 그대로(총괄이 봐야 함) */
+export const idleSim = (r: Pick<Robot, 'sim' | 'owner'>) => !!r.sim && !r.owner;
 
 /** 조종할 수 없으면 이유(02 기능 §10: 운영자는 남의 로봇 조종 ×, 총괄은 실기 ×). 할 수 있으면 null */
 export function driveBlock(u: User, r: Robot): string | null {

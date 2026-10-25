@@ -47,9 +47,9 @@ function serve(more: typeof routes = {}) {
 let root: Root | null = null, box: HTMLDivElement;
 const flush = () => act(async () => { for (let i = 0; i < 10; i++) await Promise.resolve(); await new Promise((r) => setTimeout(r, 0)); });
 const refresh = vi.fn();
-async function mount(uid = 'u-lee', robots = ROBOTS) {
+async function mount(uid = 'u-lee', robots = ROBOTS, hash = '#/sim') {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;   // PC 틀
-  location.hash = '#/sim';
+  location.hash = hash;
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === uid)} robots={robots} refresh={refresh} />); });
   await flush();
@@ -150,6 +150,14 @@ describe('PC «시뮬» 탭', () => {
     expect($('[data-stop]')).toBeNull();
     act(() => { dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); }); await flush();
     expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+  });
+
+  // PR #99(ADR-003 §7 ③ «끝내기 → 로봇 빠짐»): 끝낸 시뮬 슬롯은 담당을 비운 채 /robots 에 남는다 — 로봇 목록에서 뺀다. 내 시뮬·담당 없는 실기는 그대로
+  it('총괄 로봇 탭: IDLE 시뮬 슬롯(담당 없음)은 목록에 없음, 내 시뮬·담당 없는 실기는 보임', async () => {
+    serve();
+    await mount('u-kim', [ROBOTS[1], { ...ROBOTS[1], id: 'r9', name: 'Go2-9', owner: '', ownerName: undefined },
+      { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: '', sim: true }, { ...ROBOTS[0], id: S1, name: '시뮬-1', owner: 'u-kim', sim: true }], '#/fleet');
+    expect([...box.querySelectorAll('.fh-list.robots b')].map((b) => b.textContent)).toEqual(['Go2-7', 'Go2-9', '시뮬-1']);
   });
 
   // PR #96 P1: 총괄·시뮬 0대 → 띄우는 중(POST 답 전)에도 그 시뮬이 STOP 대상 — 누름·Space 모두 답이 오면 DELETE 1회, 연결 0

@@ -1910,6 +1910,12 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(w.of('stop').map((m) => m.robot)).toEqual(['r7']);
   });
 
+  // PR #99: 폰 «내 로봇»도 같은 판정 — 끝낸 시뮬 슬롯(담당 없음)은 빼고 내가 띄운 시뮬은 보인다
+  it('폰 총괄 «내 로봇»: IDLE 시뮬 슬롯은 없음, 내가 띄운 시뮬은 보임', () => {
+    mount(true, ADMIN, '#/drive', [ROBOTS[1], { ...SIM, id: 's2', name: '시뮬 로봇 2', owner: '' }, SIM]);
+    expect([...box.querySelectorAll('.dv-card b')].map((b) => b.textContent)).toEqual(['시뮬 로봇 1']);
+  });
+
   it('서버 403 ADMIN_NO_REAL_CONTROL: STOP(실시간) 은 서버 문구로 «보내지 못함», 대체 경로로 다시 보내지 않음. 조종권도 한 번만', () => {
     const f = vi.fn((_u: RequestInfo | URL) => new Promise<Response>(() => {})); vi.stubGlobal('fetch', f);   // 답 없음 — 대체 경로로 STOP 을 보내는지만 셈
     mount(false, ADMIN, '#/fleet', [SIM]);
