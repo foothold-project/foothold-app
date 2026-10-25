@@ -7,7 +7,7 @@ import type { FloorContext, Scenario, SimCatalog, SimRobot } from '../../../cont
 import { App } from '../App';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
-import { DEAD, allowed, sim, velocity } from '../phone';
+import { DEAD, NUDGE, TURN_ON, allowed, sim, velocity, type Axes } from '../phone';
 import { STALLED, remainingTime, timeNotice } from '../simdrive';
 import { newer } from '../simmap';
 
@@ -204,6 +204,27 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
       const vx = old(f, 0, 0.6);
       expect(velocity([f, t, y], r)).toEqual({ vx, vy: 0, wz: vx === 0 ? 0 : old(t, -0.5, 0.5) });
     }
+  });
+  it('시뮬(EXP): 스틱이 눌려 있으면 정확한 0 을 보내지 않음(deadman 뒤 손 뗌 관문 — PR #92 Codex), 손 뗌만 0', () => {
+    for (const L of [EXP, { ...CONT, experimental: ['turn_in_place'] }]) {
+      const w = hello(L);
+      expect(velocity([0, 0, 0], w)).toEqual({ vx: 0, vy: 0, wz: 0 });
+      expect(velocity([0, 0], w)).toEqual({ vx: 0, vy: 0, wz: 0 });
+      for (let f = -20; f <= 20; f++) for (let t = -20; t <= 20; t++) for (let y = -10; y <= 10; y++) {
+        if (!f && !t && !y) continue;
+        const a: Axes = [f / 20, t / 20, y / 10], v = velocity(a, w);
+        if (v.vx === 0 && v.vy === 0 && v.wz === 0) throw new Error(`${a} → 정확한 0`);
+        // 움직이지 않는 표시값 wz 는 에이전트 회전 문턱(wz_max) 아래 — 일부러 돌릴 때(±wz_max)만 문턱
+        if (v.vx === 0 && v.vy === 0) expect(Math.abs(v.wz) === L.wz_max || Math.abs(v.wz) < L.wz_max * TURN_ON).toBe(true);
+      }
+    }
+    // Codex 재현: 단독 회전 t=0.3 은 부모와 같은 작은 wz(에이전트가 잘라 sentinel), 문턱 위는 ±wz_max, 데드존은 NUDGE
+    const w = hello(EXP);
+    expect(velocity([0, 0.3], w)).toEqual({ vx: 0, vy: 0, wz: 0.15 });
+    expect(velocity([0, -0.49], w)).toEqual({ vx: 0, vy: 0, wz: expect.closeTo(-0.245, 9) });
+    expect(velocity([0, 0.6], w)).toEqual({ vx: 0, vy: 0, wz: 0.5 });
+    expect(velocity([DEAD, 0, 0.05], w)).toEqual({ vx: 0, vy: 0, wz: NUDGE });
+    expect(velocity([1, 0.3], w)).toEqual({ vx: 1, vy: 0, wz: 0 });   // 움직이는 중 문턱 아래 회전은 그대로 0
   });
   it('experimental 있음: 시험용 띠, 뒤·옆·제자리 회전 보냄, 화살표 모두 켬, STOP 보임', async () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);

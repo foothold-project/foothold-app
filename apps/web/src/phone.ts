@@ -92,6 +92,8 @@ export const DEAD = 0.1;
 export const AXIS_LOCK = 0.5;
 /** 시뮬 회전 문턱: 에이전트가 wz 를 0·±wz_max 로만 받아(simulation_velocity) 이 기울기 넘으면 ±wz_max, 아니면 0 */
 export const TURN_ON = 0.5;
+/** 시뮬 눌린 데드존 wz: 에이전트 회전 문턱(±0.5 rad/s) 훨씬 아래라 돌지 않고, 정확한 0 이 아니라 손 뗌으로 보지 않음 */
+export const NUDGE = 0.001;
 /** [전후, 회전, 옆(왼쪽 +)] -1..1. 옆은 없으면 0 */
 export type Axes = [number, number, number?];
 /** 조이스틱(-1..1)을 로봇이 준 허용 범위로 자른다(ADR §3.3). 후진·옆은 범위가 0 이면 0(실기).
@@ -109,7 +111,11 @@ export function velocity([f0, t, y0 = 0]: Axes, w: PhoneWelcome) {
     : f > DEAD ? ramp(f, L.vx_max) : f < -DEAD && L.vx_min < 0 ? -ramp(f, -L.vx_min) : 0;
   const vy = y > DEAD ? L.vy_max * past(y) : y < -DEAD ? L.vy_min * past(y) : 0;
   // 제자리 회전(전후·옆 0)은 turn_in_place 허가가 있을 때만 — 없으면 wz 0 을 보낸다(안내는 화면)
-  return { vx, vy, wz: vx === 0 && vy === 0 && !allowed(w).spin ? 0 : turn };
+  const spin = allowed(w).spin, wz = vx === 0 && vy === 0 && !spin ? 0 : turn;
+  // 시뮬(제자리 회전 허가)은 스틱이 눌려 있으면 정확한 0 을 보내지 않는다 — 에이전트는 정확한 0 만 새 중립으로 받아(simulation_velocity) deadman 뒤 손 뗌 관문이 풀린다.
+  // 움직이지 않는 입력은 에이전트가 0 + 이유로 자르는 작은 wz 로: 문턱 아래 단독 회전은 원래 값, 데드존은 NUDGE. 허가 없는 limits 는 wz 를 보내지 않는다(PR #88 B1, 기존대로)
+  if (L.vx_mode === 'continuous' && spin && vx === 0 && vy === 0 && wz === 0 && (f0 || t || y0)) return { vx, vy, wz: s(t, L.wz_min, L.wz_max) || NUDGE };
+  return { vx, vy, wz };
 }
 /** limits 가 허용하는 방향(화면은 이 값만 본다 — 숫자를 박지 않음). 제자리 회전은 시뮬 limits.experimental 에 turn_in_place 가 있을 때만 */
 export function allowed(w: PhoneWelcome | null) {
