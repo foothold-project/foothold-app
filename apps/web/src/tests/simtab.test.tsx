@@ -25,7 +25,7 @@ const phoneState = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: S1
   lease_id: null, stop_requested: false, posture: 'STAND', velocity: [0, 0, 0], echo: null, wall_time_ms: Date.now(), sim_time_s: 1, sim_wall_delta_s: 0.2, simulation: true, ...p });
 
 type Reply = { status: number; body?: unknown };
-let calls: { method: string; path: string; body?: unknown }[] = [], routes: Record<string, Reply | (() => Reply)> = {}, mine: SimRobot[] = [];
+let calls: { method: string; path: string; body?: unknown }[] = [], routes: Record<string, Reply | (() => Reply | Promise<Reply>)> = {}, mine: SimRobot[] = [];
 function serve(more: typeof routes = {}) {
   calls = []; mine = [];
   routes = {
@@ -39,7 +39,7 @@ function serve(more: typeof routes = {}) {
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '');
     calls.push({ method, path, body: init.body ? JSON.parse(String(init.body)) : undefined });
-    const hit = routes[`${method} ${path.split('?')[0]}`], rep = (typeof hit === 'function' ? hit() : hit) ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
+    const hit = routes[`${method} ${path.split('?')[0]}`], rep = (typeof hit === 'function' ? await hit() : hit) ?? err(404, 'NOT_FOUND', '찾을 수 없습니다.');
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -142,5 +142,38 @@ describe('PC «시뮬» 탭', () => {
     act(() => root?.unmount()); root = null; box.remove(); sim.clear();
     serve(); await mount('u-kim', [...ROBOTS, { ...ROBOTS[0], id: S2, name: '시뮬-2', owner: 'u-kim', sim: true }]);
     expect($('[data-stop]')).toBeTruthy();
+  });
+
+  // PR #96 P1: 총괄·시뮬 0대 → 띄우는 중(POST 답 전)에도 그 시뮬이 STOP 대상 — 누름·Space 모두 답이 오면 DELETE 1회, 연결 0
+  for (const how of ['누름', 'Space'] as const) it(`총괄 첫 시뮬 띄우는 중 STOP(${how}) → 답 오면 정리`, async () => {
+    let answer = () => {};
+    serve({ 'POST /simulation/robots': () => new Promise<Reply>((f) => { answer = () => { mine = [simRobot(S1, 'u-kim')]; f({ status: 201, body: mine[0] }); }; }) });
+    await mount('u-kim');
+    expect($('[data-stop]')).toBeNull();
+    await click(btn('띄우기'));
+    expect(sim.get().step).toBe('starting');
+    expect($('[data-stop]')).toBeTruthy();
+    if (how === '누름') await click($('[data-stop]'));
+    else { act(() => { dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', bubbles: true })); }); await flush(); }
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    await act(async () => answer()); await flush();
+    expect(calls.filter((c) => c.method === 'DELETE' && c.path === `/simulation/robots/${S1}`)).toHaveLength(1);
+    expect(FakeWS.all.some((w) => w.url.includes(':948'))).toBe(false);
+    expect(sim.get().step).not.toBe('drive');
+  });
+
+  it('운영자 STOP 그대로: 시뮬 없으면 «로봇 고르기», 로봇 탭에서 고른 로봇이 있으면 시뮬이 떠 있어도 그 로봇', async () => {
+    serve(); await mount();
+    await click($('[data-stop]'));
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeTruthy();
+    await click(btn('닫기'));
+    await click(btn('띄우기'));
+    act(() => agent().open()); await flush();
+    await recv(agent(), welcome);
+    act(() => { location.hash = '#/fleet'; }); await flush();
+    await click($('[data-stop]'));
+    expect($('[data-stop-band]')).toBeTruthy();
+    expect(agent().sent.some((m) => m.t === 'stop')).toBe(false);
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
   });
 });

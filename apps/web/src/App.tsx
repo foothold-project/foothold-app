@@ -110,6 +110,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const target = open || (!phone && tab === 'fleet') ? robot : phone && pool.length === 1 ? pool[0] : null;
   // 총괄은 실기 STOP 이 없다(10-25): 고르기 후보는 시뮬 로봇만, 실기를 가리키거나 정지할 시뮬이 없으면 STOP 단추·Space 도 없음. 운영 관리자는 그대로
   const stops = pool.filter((r) => !adminReal(user, r)), canStop = target ? !adminReal(user, target) : user.role !== 'ORG_ADMIN' || !!stops.length;
+  // 떠 있거나 띄우는 중인 내 시뮬(sim.live())이 있으면 STOP·Space 는 그 슬롯으로 — 폰 조종 화면, PC 로봇 탭에서 고른 정지 가능한 로봇은 예외(그 로봇)
+  const toSim = !open && !!sim.live() && (phone || !target || !canStop);
   const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
   // 고른 로봇이 후보에서 빠지면(지움·실기로 바뀜) 고르기 전으로, 총괄에게 정지할 시뮬이 없어지면 고르기를 닫는다(STOP 경로 0). 운영 관리자 STOP 은 그대로
   useEffect(() => { if (choose != null && !canStop) setChoose(null); else if (choose && !stops.some((r) => r.id === choose)) setChoose(''); });
@@ -155,7 +157,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     seen.current = robot ? [robot.id, done] : null;
   });
   const halt = (r: Robot) => { rt.stop(r.id); setStopped(r); setChoose(null); };
-  const stop = () => { if (phone && !open && sim.live()) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
+  const stop = () => { if (toSim) return sim.stop();   // 시뮬이 고르기 밖이면 그 슬롯만(직결이면 에이전트, 연결 전·끊김이면 정리) — 다른 로봇으로 새지 않음
     if (!canStop) return;
     const r = target ?? stops.find((x) => x.id === choose); if (r) halt(r); else setChoose(stops.find((x) => rt.get(x.id).lease || rt.get(x.id).releasing)?.id ?? ''); };
   // Space = STOP, 모든 화면(F-COM-01) — 단, 초점이 글 입력칸이면 띄어쓰기로 둔다(10-20 사용자 결정, 화면 STOP 단추는 그대로).
@@ -199,7 +201,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {phone && (tab !== 'history' || logout) && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
         <div className="card">{tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
-      {(canStop || (phone && sim.live())) && <Stop phone={phone} onStop={stop} />}
+      {(canStop || toSim) && <Stop phone={phone} onStop={stop} />}
     </header>
     {open && robot && rel && (rel.why
       ? <div className="fh-pick" role="alertdialog" aria-label="조종권 반납 확인 못함" data-end-fail>
