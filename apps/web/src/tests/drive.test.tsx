@@ -1828,6 +1828,43 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(w.of('stop')).toHaveLength(0);
   });
 
+  // PR #94 B1: 고르기를 연 채 유일한 시뮬이 목록에서 빠지거나(지움) 실기로 바뀌면 고르기·«정지» 도 사라진다(STOP 경로 0)
+  for (const [how, after] of [['지움', [ROBOTS[1]]], ['실기로 바뀜', [ROBOTS[1], { ...SIM, sim: false }]]] as const) it(`[PR #94 B1] PC 고르기 연 채 유일한 시뮬이 ${how} → 고르기·정지 단추 없음`, () => {
+    mount(false, ADMIN, '#/mission', MIX);
+    serve(KIM, 'r7', 's1');
+    click($('[data-stop]'));
+    const pick = $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    act(() => { pick.value = 's1'; pick.dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => root!.render(<App {...as(ADMIN, [...after])} />));
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    expect(box.querySelector('[data-stop]')).toBeNull();
+    space();
+    expect(w.of('stop')).toHaveLength(0);
+    act(() => root!.render(<App {...as(ADMIN, MIX)} />));   // 시뮬이 돌아와도 닫힌 고르기가 저절로 열리지 않음
+    expect(box.querySelector('[aria-label="정지할 로봇 고르기"]')).toBeNull();
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
+  });
+
+  it('[PR #94 B1] 운영 관리자는 같은 상황에서 STOP 그대로: 분류가 바뀌어도 고른 로봇 정지, 고른 로봇이 지워지면 고르기 전으로·다른 로봇 정지', () => {
+    mount(false, 'u-kim', '#/mission', [...ROBOTS, SIM]);
+    serve(KIM, 'r3', 'r7', 'r1', 's1');
+    click($('[data-stop]'));
+    const pick = () => $<HTMLSelectElement>('select[aria-label="정지할 로봇"]');
+    act(() => { pick().value = 's1'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => root!.render(<App {...as('u-kim', [...ROBOTS, { ...SIM, sim: false }])} />));
+    expect(pick().value).toBe('s1');
+    click(btn('정지'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1']);
+    click($('[data-stop]'));
+    act(() => { pick().value = 'r7'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => root!.render(<App {...as('u-kim', [ROBOTS[0], ROBOTS[2]])} />));
+    expect(box.querySelector('[data-stop]')).not.toBeNull();
+    expect([pick().value, ...[...pick().options].map((o) => o.value)]).toEqual(['', '', 'r3', 'r1']);
+    act(() => { pick().value = 'r3'; pick().dispatchEvent(new Event('change', { bubbles: true })); });
+    click(btn('정지'));
+    expect(w.of('stop').map((m) => m.robot)).toEqual(['s1', 'r3']);
+  });
+
   it('폰 로봇 연결: 실기 카드 없음(시뮬만), 실기 주소는 열지 않고 이유, 조종권 요청 없음', () => {
     mount(true, ADMIN, '#/drive', MIX);
     serve(KIM, 'r7', 's1');

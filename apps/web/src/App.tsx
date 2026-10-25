@@ -110,6 +110,8 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   // 총괄은 실기 STOP 이 없다(10-25): 고르기 후보는 시뮬 로봇만, 실기를 가리키거나 정지할 시뮬이 없으면 STOP 단추·Space 도 없음. 운영 관리자는 그대로
   const stops = pool.filter((r) => !adminReal(user, r)), canStop = target ? !adminReal(user, target) : user.role !== 'ORG_ADMIN' || !!stops.length;
   const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
+  // 고른 로봇이 후보에서 빠지면(지움·실기로 바뀜) 고르기 전으로, 총괄에게 정지할 시뮬이 없어지면 고르기를 닫는다(STOP 경로 0). 운영 관리자 STOP 은 그대로
+  useEffect(() => { if (choose != null && !canStop) setChoose(null); else if (choose && !stops.some((r) => r.id === choose)) setChoose(''); });
   // 서버가 구독을 거둠(담당 바뀜·로봇 지움): 그 로봇 조종 화면을 닫고 이유를 띠에, 목록은 다시 받는다. STOP 은 그대로 둔다
   const rv = rt.revoked(), [gone, setGone] = useState('');
   useEffect(() => {
@@ -204,7 +206,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           <button type="button" className="btn pri" onClick={() => rt.release(robot.id)}>다시 시도</button>
           <button type="button" className="btn" onClick={() => go('drive')}>연결 화면</button></div>
       : <div className="fh-pick" role="status" data-ending>조종권을 반납하는 중입니다…</div>)}
-    {choose != null && !target && <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
+    {choose != null && !target && canStop && <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
       <span>어느 로봇을 정지할까요?</span>
       <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
         {!choose && <option value="">로봇 고르기</option>}
