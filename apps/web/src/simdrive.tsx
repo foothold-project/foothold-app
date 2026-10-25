@@ -1,8 +1,8 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState } from 'react';
-import type { Scenario, SimRobot } from '../../contracts/ts';
-import { api } from './api';
-import { DEAD, allowed, sim, useSim, velocity, type Sim } from './phone';
+import type { SimRobot } from '../../contracts/ts';
+import { DEAD, allowed, runMoving, sim, useSim, velocity, type Sim } from './phone';
+import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { Chip } from './screens';
 import { simName, type Tone } from './fake';
@@ -129,27 +129,21 @@ const ICON = {
   flag: I(<path strokeLinejoin="round" d="M6 21V4M6 4h11l-2.5 4 2.5 4H6" />),
 };
 
-/** 아래 단추 하나 → 가로 띠: 이 시뮬 월드에 묶인 지도(world.map_id 의 층)를 지나는 시나리오. 실행 경로가 서버·에이전트에 아직 없어 «실행»은 막아 둔다 */
-function ScenarioBar({ s, r }: { s: Sim; r: SimRobot }) {
-  const world = s.catalog?.worlds.find((w) => w.id === r.world_id), floors = (world?.floors ?? []).map((f) => f.floor_id).join(' ');
-  const [list, setList] = useState<'wait' | 'fail' | Scenario[]>('wait'), [again, setAgain] = useState(0), [pick, setPick] = useState('');
-  useEffect(() => {
-    if (!world?.map_id) return;
-    const c = new AbortController(), on = new Set(floors.split(' '));
-    setList('wait');
-    api.allPlans('scenarios', c.signal).then((xs) => setList(xs.filter((x) => !x.archived_at && x.floor_ids.some((f) => on.has(f)))), () => { if (!c.signal.aborted) setList('fail'); });
-    return () => c.abort();
-  }, [world?.map_id, floors, again]);
-  const picked = Array.isArray(list) ? list.find((x) => x.id === pick) : undefined;
+/** 아래 단추 하나 → 가로 띠: 이 시뮬 월드에 묶인 지도(world.map_id 의 층)를 지나는 시나리오. «실행»은 에이전트가 실행 능력을 알리고 시작 조건이 맞을 때만(run.tsx startBlock) */
+function ScenarioBar({ s, r, started }: { s: Sim; r: SimRobot; started: () => void }) {
+  const world = s.catalog?.worlds.find((w) => w.id === r.world_id), floors = world?.floors ?? [];
+  const { list, retry } = useScenarios(floors, !!world?.map_id), [pick, setPick] = useState('');
+  const picked = Array.isArray(list) ? list.find((x) => x.id === pick) : undefined, block = startBlock(s, picked, floors);
   const note = !world?.map_id ? '이 월드에 묶인 지도가 없어 시나리오가 없습니다.' : list === 'wait' ? '시나리오를 불러오는 중…'
-    : list === 'fail' ? '시나리오 목록을 받지 못했습니다.' : !list.length ? '이 지도에 시나리오가 없습니다.' : picked ? '시나리오 실행은 아직 준비 중입니다.' : '실행할 시나리오를 고르세요.';
+    : list === 'fail' ? '시나리오 목록을 받지 못했습니다.' : !list.length ? '이 지도에 시나리오가 없습니다.' : picked ? block || '«실행»을 누르면 고른 시나리오를 시작합니다.' : '실행할 시나리오를 고르세요.';
   return <div className="dv-strip" role="group" aria-label="시나리오 목록" data-sim-scn>
     <p className="dv-note" id="sim-scn-note" role="status">{note}</p>
     {(Array.isArray(list) && list.length > 0 || list === 'fail') && <div className="dv-strip-row">
-      {list === 'fail' ? <button type="button" className="btn" onClick={() => setAgain((n) => n + 1)}>다시</button> : <>
+      {list === 'fail' ? <button type="button" className="btn" onClick={retry}>다시</button> : <>
         <ul>{list.map((x) => <li key={x.id}><button type="button" className="btn" aria-pressed={x.id === pick} onClick={() => setPick(x.id)}>
           {ICON.flag}<span>{x.name}</span>{x.id === pick && <b>고름</b>}</button></li>)}</ul>
-        {picked && <button type="button" className="btn pri" disabled aria-describedby="sim-scn-note">실행</button>}</>}
+        {picked && <button type="button" className="btn pri" disabled={!!block || s.link?.busy === 'run'} aria-describedby="sim-scn-note"
+          onClick={() => { sim.runStart(picked, startFloor(picked, floors)); started(); }}>실행</button>}</>}
     </div>}
   </div>;
 }
@@ -169,7 +163,8 @@ export function SimDrive() {
   // 작은 지도(오른쪽 위 설정 아래): 누르면 지도 크게 ↔ 영상 크게(실기 화면 dv-mini 와 같음 — 입력·조이스틱은 그대로)
   const floors = s.catalog?.worlds.find((x) => x.id === r.world_id)?.floors ?? [], fm = useFloorMap(st, r, floors);
   const [big, setBig] = useState(false), hasMap = floors.length > 0 || !!fm.ctx;
-  const live = ready && !menu && !bar && !leaving;
+  const run = runView(s), moving = runMoving(l.run);   // 실행이 움직이는 중이면 조이스틱 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
+  const live = ready && !menu && !bar && !leaving && !moving;
   const smooth = w?.limits.vx_mode === 'continuous', can = allowed(w), blocked = blockedNames(can);
   useTick(true);
   // 명령 범위 조정: 새로 잘릴 때 3 s 만 한 줄로(계속 잘려도 영상 가운데를 덮어 두지 않음). 범위 숫자는 설정 시트
@@ -214,7 +209,9 @@ export function SimDrive() {
     unsupported,
     fm.notice,
     !unsupported && mine && clipNote && `명령 범위 조정 — 허용 범위로 잘랐습니다.${smooth || !can.spin ? '' : ' 끝까지 밀어야 움직입니다.'}`,
-    open && left < 60 && `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`,
+    open && left < 60 && (moving ? `출입증 ${Math.max(0, left)}초 남음 — 만료되면 실행이 일시정지됩니다. 다시 연결한 뒤 이 화면에서 «이어서»를 누르세요.`
+      : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
+    ...run.notes,
     stalled && STALLED,
     stalled && (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam],
     stop,
@@ -227,6 +224,7 @@ export function SimDrive() {
     open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>새 출입증으로 다시 연결</button>,
+    ...run.acts,
   ].filter(Boolean);
   const range = w && `로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s${can.back ? `, 뒤 ${(-w.limits.vx_min).toFixed(2)} m/s` : ''}${can.left || can.right ? `, 옆 ±${w.limits.vy_max} m/s` : ''}, 회전 ±${w.limits.wz_max} rad/s) 밖은 잘라 보냅니다.${!can.spin ? ' 제자리 회전은 앞으로 밀면서 돌리세요.' : ''}`;
   const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" draggable={false} src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
@@ -246,7 +244,7 @@ export function SimDrive() {
         <button type="button" className="btn" onClick={() => setMenu('info')}>{ICON.info}<span>정보</span></button>
       </div>}
       <button type="button" className="dv-scn-btn" aria-label="시나리오" aria-expanded={bar} data-sim-scn-btn onClick={() => { setMenu(''); setBar(!bar); }}>{ICON.route}</button>
-      {bar && <ScenarioBar s={s} r={r} />}
+      {bar && <ScenarioBar s={s} r={r} started={() => setBar(false)} />}
       {menu === 'set' && <Sheet title="설정" close={() => setMenu('')}>
         {smooth ? <p className="dv-note">시뮬 전용 · 멈출 때 가끔 넘어질 수 있음(측정 34회 중 3회){blocked && ` · ${blocked}은 아직 지원하지 않습니다`}</p> : <>
         <div className="fh-row" role="group" aria-label="속도 단계" aria-describedby="sim-speed-note">
@@ -270,6 +268,7 @@ export function SimDrive() {
           {st?.sim_wall_delta_s != null && <span className="lbl" title="참고용">시뮬 시계 차 {st.sim_wall_delta_s.toFixed(1)} s</span>}
           <Chip {...lock} />
         </div>
+        {run.dev}
       </Sheet>}
       {(notes.length > 0 || !!acts && acts.length > 0) && <div className="dv-act">
         {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
