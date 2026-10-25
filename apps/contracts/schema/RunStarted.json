@@ -1,0 +1,75 @@
+{
+  "$id": "fh-app/1/RunStarted",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "RUN_STARTED.data; robot/org and receive time come from the authenticated link.",
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "format": "uuid",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "scenario_version": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Scenario Version",
+      "type": "integer"
+    },
+    "screen_id": {
+      "format": "uuid",
+      "title": "Screen Id",
+      "type": "string"
+    },
+    "simulation": {
+      "title": "Simulation",
+      "type": "boolean"
+    },
+    "surface": {
+      "enum": [
+        "phone",
+        "pc"
+      ],
+      "title": "Surface",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "scenario_id",
+    "scenario_version",
+    "floor_id",
+    "map_version_id",
+    "user_id",
+    "device_id",
+    "surface",
+    "screen_id",
+    "simulation"
+  ],
+  "title": "RunStarted",
+  "type": "object"
+}

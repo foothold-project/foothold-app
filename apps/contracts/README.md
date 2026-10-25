@@ -136,7 +136,7 @@ abort에는 이 증명을 강제하지 않는다. 실제 PAUSED·원 주체 또�
 직접 상태는 `PhoneRunUpdate`(t=run.update), 재접속 첫 `PhoneState.run`은 비밀값 없는
 `RunSnapshot`이다. 별도 run.status 프레임은 §13.10에 없으므로 정의하지 않는다.
 `RunStatus`는 새 CANCELED와 예약 WAIT_CONFIRM을 포함한다. `RunRecordStatus`/
-`CurrentRun`만 ABORTED 기록 호환을 제공한다. 기존 `RunCopy.status`는 내부 Session의
+`CurrentRun`은 ABORTED 기록 호환을 제공한다. 기존 `RunCopy.status`는 내부 Session의
 RUNNING을 보존하기 위해 문자열로 유지한다. PAUSED 이유는 RunWaitReason이며 실패 코드로
 쓰지 않는다. 알려진 실패/거부 표는 RunFailCode/RunRejectCode로 내보내되 fail_code 문자열은
 미래의 알 수 없는 실패를 일반 실패로 표시할 수 있도록 유지한다.
@@ -148,13 +148,32 @@ RUNNING을 보존하기 위해 문자열로 유지한다. PAUSED 이유는 RunWa
 주장 필드를 추가하지 않는다. `run_pause_timeout_s`(양의 초, 기본 600)는 에이전트 설정이므로
 start·출입증·조직 설정 계약에 넣지 않는다.
 
-새 `AgentRunUpdate`는 상세 상태 및 agent_instance_id/report_seq/monotonic_s를 요구한다.
+전환 기간 `AgentRunUpdate` 서버 입력은 상세 상태 외에 기존 RUNNING/ABORTED를 읽는다.
+agent_instance_id/report_seq/monotonic_s는 생략 가능하되 제공하면 셋 모두 필요하며 null은
+거부한다. 새 직접 `PhoneRunUpdate`/`RunSnapshot`은 RunStatus만 쓴다. 보고 식별자 필수화와
+기존 생산자의 상세 상태 전환은 2a/2b 후속 작업에서 함께 적용한다.
 `AgentEvent`의 일반 사건에는 이 식별자가 선택이며, 세 필드는 함께 있어야 한다.
 RUN_STARTED/RUN_WAYPOINT_ARRIVED/RUN_WAYPOINT_RECORDED에는 식별자가 필수다.
 지점 사건의 data는 RunWaypointArrived/RunWaypointRecorded로 검사하고 봉투 식별자와
 대조한다. 기록 결과는 DISPLAY_ONLY다. `RunRecorded`는 DB commit 뒤 수신 확인이며
 실행 명령이나 재개 권한이 아니다. 영속 outbox·순서/중복 제거·트랜잭션·ACK 시점은
 후속 에이전트/서버 구현에서 검증한다. 기존 소비자는 이 단계에서 수정하지 않았다.
+
+`AgentScenario`는 `GET /agent/scenarios/{id}?version=n`의 데이터 응답이다. 기존 시나리오
+응답처럼 `id`/`number`가 고정 시나리오 참조이며, 저장된 순서의 `waypoints`는 층·지도 판과
+임무 ID·고정 판·표시 이름을 모두 담고 `finish`는 저장된 종료 방식/목표를 담는다.
+응답 자체를 단일 층으로 자르지 않는다. 에이전트가 이 자료의 모든 참조·종료 목표를 대조한
+뒤에만 RunPlan을 만들며 여러 층/지도 판은 출발 전에 거부한다(§13.10.2).
+
+`RUN_STARTED.data`는 `RunStarted`로 검사한다. run/scenario 고정 판·층/지도 판·시작 주체
+user_id/device_id/surface/screen_id·simulation을 담으며 resume_token 등 추가 키는 거부한다.
+보고 식별자·단조 시각·robot_at은 event 봉투, robot/org와 수신 시각은 인증 링크/서버에서
+얻는다. simulation과 주체는 서버가 인증 자료로 재검사하며 자기 주장만 신뢰하지 않는다.
+계획 스냅샷 참조의 저장 형식은 문서에 없어 새 필드를 만들지 않았고 2b에서 확정한다.
+
+`ServerAgentMessage`는 계약에 정의된 서버→에이전트 lease/cmd/stop/unlock/ping/streams와
+phone.revoke, run.recorded를 묶는다. `AgentMessage`는 반대 방향 입력이며 수신 확인을
+포함하지 않는다. 옛 서버 run.start/run.control 명령은 이 묶음으로 새로 계약화하지 않는다.
 
 계약 집중 시험은 다음과 같다. 기존 안전 셀프테스트의 기대값은 변경하지 않는다.
 

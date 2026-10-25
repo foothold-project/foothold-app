@@ -488,6 +488,8 @@ class AgentEvent(AgentInput):
         if self.code in ('RUN_STARTED', 'RUN_WAYPOINT_ARRIVED', 'RUN_WAYPOINT_RECORDED'):
             if len(identity) != 3:
                 raise ValueError('run events require durable report identity')
+        if self.code == 'RUN_STARTED':
+            RunStarted.model_validate(self.data)
         if self.code in ('RUN_WAYPOINT_ARRIVED', 'RUN_WAYPOINT_RECORDED'):
             payload = (RunWaypointArrived if self.code == 'RUN_WAYPOINT_ARRIVED'
                        else RunWaypointRecorded).model_validate(self.data)
@@ -501,18 +503,22 @@ class AgentEvent(AgentInput):
 class AgentRunUpdate(AgentInput):
     t: Literal['run.update']
     run_id: UUID
-    status: RunStatus
+    # Transitional server input: existing Session producers still use these names.
+    status: RunStatus | Literal['RUNNING', 'ABORTED']
     step: Sequence
     progress: Progress | None
     path_deviation_m: float | None = None
     fail_code: str | None = None
     wait_reason: RunWaitReason | None = None
-    agent_instance_id: UUID
-    report_seq: Sequence
-    monotonic_s: float = Field(ge=0, strict=True)
+    agent_instance_id: UUID = omitted()
+    report_seq: Sequence = omitted()
+    monotonic_s: float = omitted(ge=0, strict=True)
 
     @model_validator(mode='after')
     def paused_reason(self):
+        identity = {'agent_instance_id', 'report_seq', 'monotonic_s'} & self.model_fields_set
+        if identity and len(identity) != 3:
+            raise ValueError('report identity and monotonic time must be supplied together')
         if self.wait_reason is not None and self.status != 'PAUSED':
             raise ValueError('wait_reason is only valid while PAUSED')
         if self.fail_code in ('LINK_LOST', 'STOPPED_BY_USER', 'RECORDING_UNAVAILABLE'):
@@ -607,6 +613,11 @@ class AgentStreams(Contract):
     depth: bool
     lidar: bool
     map: bool
+
+
+ServerAgentMessage = Annotated[
+    AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams
+    | AgentPhoneRevoke | RunRecorded, Field(discriminator='t')]
 
 
 class ScreenServerPing(Contract):
@@ -1073,6 +1084,32 @@ class Scenario(ScenarioWrite):
 class ScenarioList(Contract):
     items: list[Scenario]
     next_cursor: str | None
+
+
+class AgentScenarioWaypoint(ScenarioWaypoint):
+    mission_name: str
+
+
+class AgentScenario(Contract):
+    """GET /agent/scenarios/{id}?version=n: stored references, before agent validation."""
+    id: UUID
+    number: int = Field(ge=1, le=2**31 - 1, strict=True)
+    waypoints: list[AgentScenarioWaypoint] = Field(min_length=1, max_length=200)
+    finish: ScenarioFinish
+
+
+class RunStarted(Contract):
+    """RUN_STARTED.data; robot/org and receive time come from the authenticated link."""
+    run_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, le=2**31 - 1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    user_id: UUID
+    device_id: UUID
+    surface: Literal['phone', 'pc']
+    screen_id: UUID
+    simulation: bool = Field(strict=True)
 
 
 class RunGoal(Contract):
@@ -1639,10 +1676,11 @@ REQUEST_MODELS.update({PhotoParams, WaitParams, ConfirmParams, SensorLogParams, 
 TOP['ScenarioTargetErrorCode'] = Literal['SIM_MAP_REQUIRES_SIM_ROBOT']
 TOP.update(RunStatus=RunStatus, RunRecordStatus=RunRecordStatus, RunWaitReason=RunWaitReason,
            RunFailCode=RunFailCode, RunRejectCode=RunRejectCode)
-TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=PhoneMessage)
+TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=PhoneMessage,
+           ServerAgentMessage=ServerAgentMessage)
 REQUEST_MODELS.update({PhoneHello, PhoneLease, PhoneRespond, PhoneCommand, PhoneUnlock, PhonePing, PhoneMessage, PhoneEnvelope})
 REQUEST_MODELS.update({PhoneRunStart, PhoneRunControl, PhoneRunConfirm})
-REQUEST_MODELS.update({RunWaypointArrived, RunWaypointRecorded})
+REQUEST_MODELS.update({RunStarted, RunWaypointArrived, RunWaypointRecorded})
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,
                        AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia, ScreenMessage, AgentMessage})
 # Nested input models must have the same mode as their enclosing input union.

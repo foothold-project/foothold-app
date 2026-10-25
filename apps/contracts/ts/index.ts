@@ -112,15 +112,34 @@ export interface AgentPose {
 export interface AgentRunUpdate {
   t: "run.update";
   run_id: string;
-  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
+  status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED" | "RUNNING" | "ABORTED";
   step: number;
   progress: Progress | null;
   path_deviation_m?: number | null;
   fail_code?: string | null;
   wait_reason?: "LINK_LOST" | "STOPPED_BY_USER" | "RECORDING_UNAVAILABLE" | null;
-  agent_instance_id: string;
-  report_seq: number;
-  monotonic_s: number;
+  agent_instance_id?: string;
+  report_seq?: number;
+  monotonic_s?: number;
+}
+
+export interface AgentScenario {
+  id: string;
+  number: number;
+  waypoints: AgentScenarioWaypoint[];
+  finish: ScenarioFinish;
+}
+
+export interface AgentScenarioWaypoint {
+  floor_id: string;
+  map_version_id: string;
+  x: number;
+  y: number;
+  yaw?: number;
+  waypoint_ref?: string | null;
+  mission_id: string;
+  mission_version: number;
+  mission_name: string;
 }
 
 export interface AgentServerPing {
@@ -1052,6 +1071,19 @@ export interface RunSnapshot {
   fail_code: string | null;
 }
 
+export interface RunStarted {
+  run_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  user_id: string;
+  device_id: string;
+  surface: "phone" | "pc";
+  screen_id: string;
+  simulation: boolean;
+}
+
 export interface RunWaypointArrived {
   run_id: string;
   idx: number;
@@ -1479,3 +1511,4 @@ export type RunRejectCode = "NOT_CONTROLLER" | "FORBIDDEN" | "RUN_ACTIVE" | "RUN
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
 export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunControl | PhoneRunConfirm;
+export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded;

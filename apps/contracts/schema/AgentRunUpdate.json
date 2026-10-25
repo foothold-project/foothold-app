@@ -81,20 +81,31 @@
       "type": "string"
     },
     "status": {
-      "enum": [
-        "QUEUED",
-        "PREPARING",
-        "MOVING",
-        "AT_WAYPOINT",
-        "PERFORMING",
-        "WAIT_CONFIRM",
-        "PAUSED",
-        "COMPLETED",
-        "FAILED",
-        "CANCELED"
+      "anyOf": [
+        {
+          "enum": [
+            "QUEUED",
+            "PREPARING",
+            "MOVING",
+            "AT_WAYPOINT",
+            "PERFORMING",
+            "WAIT_CONFIRM",
+            "PAUSED",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED"
+          ],
+          "type": "string"
+        },
+        {
+          "enum": [
+            "RUNNING",
+            "ABORTED"
+          ],
+          "type": "string"
+        }
       ],
-      "title": "Status",
-      "type": "string"
+      "title": "Status"
     },
     "step": {
       "maximum": 9007199254740991,
@@ -130,10 +141,7 @@
     "run_id",
     "status",
     "step",
-    "progress",
-    "agent_instance_id",
-    "report_seq",
-    "monotonic_s"
+    "progress"
   ],
   "title": "AgentRunUpdate",
   "type": "object"

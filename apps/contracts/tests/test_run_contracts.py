@@ -72,8 +72,27 @@ def test_control_proof_and_reserved_operations():
 def test_new_statuses_and_legacy_read_compatibility(status):
     assert C.AgentRunUpdate(**{**REPORT, 'status': status, 'wait_reason': None})
     assert C.CurrentRun(id=U, status='ABORTED', scenario_name='old', progress={'done': 0, 'total': 1})
+
+
+@pytest.mark.parametrize('status', ['RUNNING', 'PAUSED', 'COMPLETED', 'FAILED', 'ABORTED'])
+def test_existing_agent_reports_pass_server_adapter(status):
+    frame = dict(t='run.update', run_id=U, status=status, step=1, progress=None)
+    result = TypeAdapter(C.AgentMessage).validate_python(frame)
+    assert result.status == status
+    assert result.model_dump(mode='json', exclude_unset=True) == frame
+    # Direct phone state still uses only the new detailed statuses.
+    if status in ('RUNNING', 'ABORTED'):
+        with pytest.raises(ValidationError):
+            C.PhoneRunUpdate(**frame)
+
+
+@pytest.mark.parametrize('identity', [dict(agent_instance_id=U), dict(report_seq=1),
+                                    dict(monotonic_s=1.0), dict(agent_instance_id=U, report_seq=1),
+                                    dict(agent_instance_id=None, report_seq=1, monotonic_s=1.0)])
+def test_partial_or_null_report_identity_is_rejected(identity):
+    frame = dict(t='run.update', run_id=U, status='RUNNING', step=0, progress=None)
     with pytest.raises(ValidationError):
-        C.AgentRunUpdate(**{**REPORT, 'status': 'ABORTED', 'wait_reason': None})
+        TypeAdapter(C.AgentMessage).validate_python({**frame, **identity})
 
 
 @pytest.mark.parametrize('reason', get_args(C.RunWaitReason))
@@ -126,8 +145,45 @@ def test_waypoint_events_and_durable_ack():
     with pytest.raises(ValidationError):
         C.RunWaypointRecorded(**{**recorded, 'results': {'mode': 'SUCCESS'}})
     assert C.RunRecorded(agent_instance_id=U, report_seq=2).t == 'run.recorded'
+    receipt = TypeAdapter(C.ServerAgentMessage).validate_python(
+        dict(t='run.recorded', agent_instance_id=U, report_seq=2))
+    assert isinstance(receipt, C.RunRecorded)
+    with pytest.raises(ValidationError):
+        TypeAdapter(C.AgentMessage).validate_python(receipt.model_dump())
     # Non-run event producers can keep their existing shape.
     assert C.AgentEvent(t='event', code='LOGIN', severity='INFO', robot_at=None, data={})
+
+
+def test_fixed_scenario_response_keeps_stored_order_versions_and_finish():
+    waypoint = dict(floor_id=U, map_version_id=U,
+                    **{k: v for k, v in GOAL.items() if k != 'idx'})
+    response = dict(id=U, number=3, waypoints=[waypoint],
+                    finish=dict(mode='GO_TO', target={k: waypoint[k] for k in
+                                ('floor_id', 'map_version_id', 'x', 'y', 'yaw', 'waypoint_ref')}))
+    parsed = C.AgentScenario(**response)
+    assert parsed.number == 3 and parsed.waypoints[0].mission_version == 1
+    assert parsed.waypoints[0].mission_name == '순찰'
+    assert parsed.finish.target.map_version_id == parsed.waypoints[0].map_version_id
+    for change in (dict(number=0), dict(number=True), dict(waypoints=[]),
+                   dict(waypoints=[{k: v for k, v in waypoint.items() if k != 'mission_name'}]),
+                   dict(waypoints=[dict(waypoint, mission_version=0)])):
+        with pytest.raises(ValidationError):
+            C.AgentScenario(**{**response, **change})
+
+
+def test_started_event_requires_fixed_references_actor_and_no_resume_secret():
+    data = dict(run_id=U, scenario_id=U, scenario_version=1, floor_id=U,
+                map_version_id=U, user_id=U, device_id=U, surface='pc', screen_id=U,
+                simulation=True)
+    event = dict(t='event', code='RUN_STARTED', severity='INFO', robot_at=None,
+                 data=data, agent_instance_id=U, report_seq=0, monotonic_s=0.0)
+    assert TypeAdapter(C.AgentMessage).validate_python(event)
+    for field in data:
+        with pytest.raises(ValidationError):
+            C.AgentEvent(**{**event, 'data': {k: v for k, v in data.items() if k != field}})
+    for change in (dict(resume_token='secret'), dict(scenario_version=0), dict(surface='web')):
+        with pytest.raises(ValidationError):
+            C.AgentEvent(**{**event, 'data': {**data, **change}})
 
 
 def test_cancel_claim_defaults_and_surface_do_not_grant_control():
