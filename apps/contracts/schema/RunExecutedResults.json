@@ -1,0 +1,176 @@
+{
+  "$defs": {
+    "RunPhotoReference": {
+      "additionalProperties": false,
+      "description": "Only server-committed JPEG references; never image bytes or arbitrary URLs.",
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "photo_id": {
+          "format": "uuid",
+          "title": "Photo Id",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "source": {
+          "const": "rgb",
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "photo_id",
+        "source",
+        "captured_at",
+        "sha256"
+      ],
+      "title": "RunPhotoReference",
+      "type": "object"
+    },
+    "RunStepResult": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PHOTO",
+            "WAIT",
+            "OPERATOR_CONFIRM",
+            "SENSOR_LOG"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "failure_code": {
+          "anyOf": [
+            {
+              "enum": [
+                "UNSUPPORTED",
+                "CAPABILITY_CHANGED",
+                "DEVICE_UNAVAILABLE",
+                "NO_FRESH_FRAME",
+                "CAPTURE_TIMEOUT",
+                "UPLOAD_FAILED",
+                "STORAGE_UNAVAILABLE",
+                "INTERRUPTED",
+                "ACTION_FAILED"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Code"
+        },
+        "failure_reason": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Failure Reason"
+        },
+        "photo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunPhotoReference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "rgb",
+                "depth",
+                "lidar",
+                "battery"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source"
+        },
+        "status": {
+          "enum": [
+            "SUCCEEDED",
+            "FAILED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "step_idx": {
+          "maximum": 99,
+          "minimum": 0,
+          "title": "Step Idx",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step_idx",
+        "action",
+        "source",
+        "status",
+        "failure_code",
+        "failure_reason",
+        "photo"
+      ],
+      "title": "RunStepResult",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/RunExecutedResults",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "execution_capability_revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Execution Capability Revision",
+      "type": "integer"
+    },
+    "mode": {
+      "const": "EXECUTED",
+      "title": "Mode",
+      "type": "string"
+    },
+    "run_contract": {
+      "const": "scenario/2",
+      "title": "Run Contract",
+      "type": "string"
+    },
+    "steps": {
+      "items": {
+        "$ref": "#/$defs/RunStepResult"
+      },
+      "maxItems": 100,
+      "title": "Steps",
+      "type": "array"
+    }
+  },
+  "required": [
+    "mode",
+    "run_contract",
+    "execution_capability_revision",
+    "steps"
+  ],
+  "title": "RunExecutedResults",
+  "type": "object"
+}

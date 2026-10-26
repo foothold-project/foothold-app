@@ -466,6 +466,101 @@
       "title": "PhoneRunStart",
       "type": "object"
     },
+    "PhoneRunStartV2": {
+      "additionalProperties": false,
+      "properties": {
+        "assignment_id": {
+          "format": "uuid",
+          "title": "Assignment Id",
+          "type": "string"
+        },
+        "execution_capability_revision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "title": "Execution Capability Revision",
+          "type": "integer"
+        },
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "lease_id": {
+          "format": "uuid",
+          "title": "Lease Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-phone/1",
+          "title": "Proto",
+          "type": "string"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "run_contract": {
+          "const": "scenario/2",
+          "title": "Run Contract",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "scenario_id": {
+          "format": "uuid",
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "scenario_version": {
+          "minimum": 1,
+          "title": "Scenario Version",
+          "type": "integer"
+        },
+        "screen_id": {
+          "format": "uuid",
+          "title": "Screen Id",
+          "type": "string"
+        },
+        "t": {
+          "const": "run.start.v2",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t",
+        "run_contract",
+        "execution_capability_revision",
+        "lease_id",
+        "run_id",
+        "screen_id",
+        "scenario_id",
+        "scenario_version",
+        "floor_id",
+        "map_version_id"
+      ],
+      "title": "PhoneRunStartV2",
+      "type": "object"
+    },
     "PhoneUnlock": {
       "additionalProperties": false,
       "properties": {
@@ -530,6 +625,7 @@
       "run.confirm": "#/$defs/PhoneRunConfirm",
       "run.control": "#/$defs/PhoneRunControl",
       "run.start": "#/$defs/PhoneRunStart",
+      "run.start.v2": "#/$defs/PhoneRunStartV2",
       "stop": "#/$defs/PhoneLease",
       "unlock": "#/$defs/PhoneUnlock",
       "view": "#/$defs/PhoneLease"
@@ -557,6 +653,9 @@
     },
     {
       "$ref": "#/$defs/PhoneRunStart"
+    },
+    {
+      "$ref": "#/$defs/PhoneRunStartV2"
     },
     {
       "$ref": "#/$defs/PhoneRunControl"

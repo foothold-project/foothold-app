@@ -1,0 +1,39 @@
+{
+  "$id": "fh-app/1/MediaPose",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "x": {
+      "maximum": 10000,
+      "minimum": -10000,
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "maximum": 10000,
+      "minimum": -10000,
+      "title": "Y",
+      "type": "number"
+    },
+    "yaw": {
+      "maximum": 3.141592653589793,
+      "minimum": -3.141592653589793,
+      "title": "Yaw",
+      "type": "number"
+    },
+    "z": {
+      "maximum": 10000,
+      "minimum": -10000,
+      "title": "Z",
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "z",
+    "yaw"
+  ],
+  "title": "MediaPose",
+  "type": "object"
+}

@@ -5,7 +5,7 @@
   "type": "module",
   "types": "ts/index.ts",
   "scripts": {
-    "typecheck": "tsc --strict --noEmit --target ES2020 ts/index.ts tests/wire-consumer.ts tests/run-consumer.ts"
+    "typecheck": "tsc --strict --noEmit --target ES2020 ts/index.ts tests/wire-consumer.ts tests/run-consumer.ts tests/media-consumer.ts"
   },
   "devDependencies": {
     "typescript": "5.9.3"

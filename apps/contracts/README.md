@@ -246,3 +246,92 @@ npm run --prefix apps/contracts typecheck
   pose를 함께 표시한다. 이탈·확정·RESET에서 증가하는 `floor_rev`와 epoch를 모두 비교한다.
   양 층 승인 판은 미리 캐시할 수 있지만 transit/unknown/이미지 오류에서는 위치·목표를 숨긴다.
   지도 로딩은 수동 명령 전송의 조건이 아니다. SLAM 복원·층간 자율 목표는 이 계약의 지원 범위 밖이다.
+
+## 다중 관측 media/1 · 외부 시점 observer/1 (VQ-A)
+
+기존 `CameraHello`/`CameraFrame`/`CameraStatus`와 phone 카메라 토큰·영상은 그대로다.
+새 `MediaHello`/`MediaMessage`는 **별도 관측 소켓**의 계약이며 안전/조종 WS union에
+추가하지 않는다. 영상과 점군은 채널별 연결로 분리한다. `MediaHello`는
+`robot/epoch/episode_id/channel`과 43자 토큰을 묶는다. 실기 episode_id는 null,
+시뮬은 현재 episode UUID다. B는 인증된 부모 보기 연결에 결속된 10초·1회 토큰을
+발급/소비하고 부모 종료·권한 취소·episode 종료 때 관측 연결을 닫아야 한다.
+기존 camera_token을 media 토큰으로 재해석하거나 임의 다른 채널에 재사용하지 않는다.
+
+- `MediaVideoFrame(t=media.video)`은 channel=`rgb|external`, source는
+  `rgb → d435i_rgb|go2_front`, `external → gazebo_external`이다. 장치 이름을
+  혼용하지 않는다. UTC `captured_at`, robot/epoch/episode/seq/frame을 매 프레임 보낸다.
+  JPEG는 decoded ≤65,536B, ≤640×360, wall-clock ≤5Hz다. 새 모델은 canonical base64와
+  크기·JPEG 양끝 마커를 검사한다. **완전한 JPEG decode/실제 치수 확인은 B/D 책임**이다.
+- `MediaPointCloudHeader(t=media.points)`는 channel=`lidar`, source=`l1`,
+  encoding=`xyz_f32le`다. JSON header 직후 같은 소켓의 **바이너리 메시지 하나**에
+  순서대로 x/y/z LE float32를 보낸다. `byte_length=count*12`, count=0..4,000,
+  ≤48,000B, wall-clock ≤2Hz다. `validate_payload(bytes)`는 정확한 길이와 finite,
+  각 좌표 ±10,000m를 검사한다. header 없이 binary, 중간 header/다른 프레임,
+  길이 불일치·잘못된 순서는 소켓 오류로 거부한다. base64/JSON 점 배열을 쓰지 않는다.
+- `frame=map`은 map_version_id와 변환 시점 로봇 `pose(x/y/z/yaw)` 필수다.
+  raw `lidar_link`는 둘 다 null이다. 유효 TF·현재 승인 지도 판을 확인하지 못하면
+  map 점군을 보내거나 표시하지 않는다. `truncated`는 해당 스캔 절삭 표시이며 누적이 아니다.
+- B/F는 채널별 seq 증가, 현재 robot/epoch/episode 결속, UTC 파싱 후 미래/오래된 시각을
+  검사한다. 수신 시 1초 넘은 자료/미래 1초 초과 자료는 버리며 최신 자료 하나만 보관한다.
+  전환·해지 즉시 pending binary와 이전 자료를 비운다. wall-clock 송신 간격은 영상 200ms,
+  점군 500ms 이상으로 강제한다. 모델 단독 검사는 인증·시각 신선도·속도를 강제하지 않는다.
+  느린 시청자 때문에 control/STOP 큐·lock·DB/journal에 대기하지 않는다.
+- `MediaStatus`는 채널과 결속된 `NO_VIDEO|NO_POINTS|UNAVAILABLE` 및 이유다.
+  화면이 숨거나 타일 비활성이면 구독을 해제한다.
+
+`ExternalCameraViewRequest(t=external.view, version=observer/1)`는 별도 인증 observer
+API의 요청이다. robot/episode/epoch/seq와 yaw ±π rad, pitch ±1.2 rad,
+radius 0.5..10m만 허용한다. C는 현재 보기 권한·바인딩·seq를 검사하고 wall-clock ≤10Hz,
+latest-only·timeout을 강제한다. entity/service/world/로봇 pose 입력은 계약에 없으며
+추가 키는 거부한다. **서비스와 독립 카메라 entity는 C의 신뢰된 서버 설정에서 고정**한다.
+임의 Gazebo service 프록시와 로봇 pose 변경은 금지다. 초기 시점은 로봇당 공유하며
+드래그 해제/연결 종료 시 대기 요청을 버린다. 이 계약 추가는 Gazebo 실행 검증이 아니다.
+
+## 사진·대기 실행 scenario/2 및 사진 REST 메타 (VQ-A)
+
+`scenario/1`의 `run.start`·`DISPLAY_ONLY` 의미를 유지한다. 미지정 새 선택 필드는
+기본 직렬화에서도 생략하며, 구 응답의 명시적 null을 새 실행 허가로 해석하지 않는다.
+새 실행은 `PhoneCapabilities.execution` 및 `AgentHello.execution_capabilities`의
+`ExecutionCapabilities(contract=scenario/2, revision, actions)`가 광고된 뒤에만
+`PhoneRunStartV2(t=run.start.v2)`로 요청한다. 기존 run_contract=scenario/1 표시는 보존한다.
+새 opcode를 지원하지 않는 소비자는 실행을 거부해야 하며 run.start로 자동 재시도하지 않는다.
+
+`ExecutionCapability`는 `SUPPORTED|UNAVAILABLE|UNSUPPORTED`와 이유를 표현한다.
+미광고·미확인·미지원은 실행 가능이 아니다. depth 사진은 `photo.depth/UNSUPPORTED`로
+표현하며 현재 JPEG 업로드/성공 참조는 RGB만 허용한다. executor 지원 ∧ source 장치 정상
+∧ fresh frame ∧ 저장 준비가 모두 충족될 때만 SUPPORTED다. 준비 상태가 바뀌면 revision을
+증가시킨다. D/E는 start/resume/단계 직전에 현재 revision과 필요 capability를 재검사하고
+`ExecutionCapabilities.require(required, revision)`의 실패를 거부로 처리한다.
+
+`AgentScenarioWaypoint`/`RunGoal`의 선택 `mission_steps`+`required_capabilities`는 항상
+함께 있어야 하고 정규화된 고정 단계에서 유도한 capability 집합과 정확히 일치해야 한다.
+선택 필드 존재만으로 실행하지 않는다. `ExecutableAgentScenario`/`ExecutableRunPlan`의
+scenario/2·revision, 필수 고정 단계와 기존 map proof 관문을 모두 사용한다. 빈 단계는
+기존 가져온 표시 이름의 실제 no-op이며 새로운 작업을 추론하지 않는다. `ExecutableRunStarted`
+는 같은 판/revision과 map proof를 RUN_STARTED 기록에 넣는다. D는 최신 임무가 아닌 고정
+mission_id/version에서 단계를 가져오며 E는 이를 검증한 실행 스냅샷에 복사한다.
+
+`RunWaypointRecorded.results`는 기존 DISPLAY_ONLY 또는 `RunExecutedResults(mode=EXECUTED,
+run_contract=scenario/2, execution_capability_revision, steps)`다. `RunStepResult`는
+step_idx/action/source, SUCCEEDED|FAILED, 실패 코드·이유와 선택 photo 참조다.
+성공 PHOTO는 server commit ACK의 photo_id/source/captured_at/sha256이 필수이고 실패는
+성공 참조를 담지 않는다. 실패 이후 다음 단계 결과는 금지다. D/E는
+`results.validate_plan(fixed_goal, revision)`로 단계 수/순서/action/source/판을 대조하고,
+인증된 run/waypoint 소유와 photo_id 소유·SHA를 DB에서 재확인한다. 모델만으로 DB 소유나
+실제 실행을 증명하지 않는다. scenario/1 run에 EXECUTED 결과를 반영하지 않는다.
+
+`PhotoUploadMetadata`는 agent 인증 REST 요청의 메타다. org_id(tenant)/robot_id/run_id/
+waypoint_idx/step_idx, source=rgb, captured_at, MIME=image/jpeg, byte_length≤65,536,
+sha256와 idempotency_key가 필수다. 이미지 바이트는 별도 REST binary body/part로 전송하고
+안전 WS·사건·journal에는 참조만 넣는다. `validate_payload(bytes)`는 크기·마커·SHA를
+검사하며 실제 JPEG decode/치수 검사는 D가 수행한다. D는 org/robot을 인증 링크에서 확인하고
+run의 고정 PHOTO 단계·source·현재 실행 소유를 재검사한다. 키는 인증 org/robot/run/
+waypoint/step 범위로 묶고 동일 키+동일 메타/바이트는 같은 photo_id를 재응답하며 다른 내용은
+충돌로 거부한다. URL·경로·이미지 바이트 추가 필드는 거부한다.
+
+`PhotoUploadReceipt`는 같은 메타+photo_id+stored_at이며 바이트 원자 저장과 DB 메타 commit
+후에만 반환한다. E는 업로드 timeout/디스크 실패/끊김을 성공 처리하지 않고 run/waypoint/step
+및 자기 generation과 일치하는 ACK만 수용한다. WAIT는 기존 WaitParams(1..3600초, 기본30)를
+사용한다. 이동 취소·출력0 후 단조 시간 비차단 대기, pause 잔여시간 보존·명시 resume,
+PHOTO 요청 뒤 새 프레임 및 STOP/cancel/세대 변경 이후 늦은 완료 무시는 E의 구현 책임이다.
+이 계약 PR은 B/C/D/E transport·저장·실행기나 실기 지원을 구현/검증하지 않는다.

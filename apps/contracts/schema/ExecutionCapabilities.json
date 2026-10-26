@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "ExecutionCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "enum": [
+            "wait",
+            "photo.rgb",
+            "photo.depth",
+            "operator_confirm",
+            "sensor_log.rgb",
+            "sensor_log.depth",
+            "sensor_log.lidar",
+            "sensor_log.battery"
+          ],
+          "title": "Key",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "maxLength": 256,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        },
+        "state": {
+          "enum": [
+            "SUPPORTED",
+            "UNAVAILABLE",
+            "UNSUPPORTED"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "state",
+        "reason"
+      ],
+      "title": "ExecutionCapability",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ExecutionCapabilities",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Revision changes on executor/source/freshness/storage readiness changes.",
+  "properties": {
+    "actions": {
+      "items": {
+        "$ref": "#/$defs/ExecutionCapability"
+      },
+      "maxItems": 8,
+      "title": "Actions",
+      "type": "array"
+    },
+    "contract": {
+      "const": "scenario/2",
+      "title": "Contract",
+      "type": "string"
+    },
+    "revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "contract",
+    "revision",
+    "actions"
+  ],
+  "title": "ExecutionCapabilities",
+  "type": "object"
+}

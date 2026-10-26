@@ -1,0 +1,74 @@
+{
+  "$id": "fh-app/1/MediaLimits",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "external_view_max_hz": {
+      "const": 10,
+      "default": 10,
+      "title": "External View Max Hz",
+      "type": "integer"
+    },
+    "jpeg_max_bytes": {
+      "const": 65536,
+      "default": 65536,
+      "title": "Jpeg Max Bytes",
+      "type": "integer"
+    },
+    "jpeg_max_height": {
+      "const": 360,
+      "default": 360,
+      "title": "Jpeg Max Height",
+      "type": "integer"
+    },
+    "jpeg_max_hz": {
+      "const": 5,
+      "default": 5,
+      "title": "Jpeg Max Hz",
+      "type": "integer"
+    },
+    "jpeg_max_width": {
+      "const": 640,
+      "default": 640,
+      "title": "Jpeg Max Width",
+      "type": "integer"
+    },
+    "latest_queue_size": {
+      "const": 1,
+      "default": 1,
+      "title": "Latest Queue Size",
+      "type": "integer"
+    },
+    "point_max_abs_m": {
+      "const": 10000,
+      "default": 10000,
+      "title": "Point Max Abs M",
+      "type": "integer"
+    },
+    "point_max_count": {
+      "const": 4000,
+      "default": 4000,
+      "title": "Point Max Count",
+      "type": "integer"
+    },
+    "point_max_hz": {
+      "const": 2,
+      "default": 2,
+      "title": "Point Max Hz",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "jpeg_max_bytes",
+    "jpeg_max_width",
+    "jpeg_max_height",
+    "jpeg_max_hz",
+    "point_max_count",
+    "point_max_hz",
+    "point_max_abs_m",
+    "external_view_max_hz",
+    "latest_queue_size"
+  ],
+  "title": "MediaLimits",
+  "type": "object"
+}

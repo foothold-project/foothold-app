@@ -120,6 +120,12 @@
       "title": "Device Id",
       "type": "string"
     },
+    "execution_capability_revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Execution Capability Revision",
+      "type": "integer"
+    },
     "floor_id": {
       "format": "uuid",
       "title": "Floor Id",
@@ -131,6 +137,11 @@
     "map_version_id": {
       "format": "uuid",
       "title": "Map Version Id",
+      "type": "string"
+    },
+    "run_contract": {
+      "const": "scenario/2",
+      "title": "Run Contract",
       "type": "string"
     },
     "run_id": {

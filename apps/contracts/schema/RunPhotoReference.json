@@ -1,0 +1,36 @@
+{
+  "$id": "fh-app/1/RunPhotoReference",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Only server-committed JPEG references; never image bytes or arbitrary URLs.",
+  "properties": {
+    "captured_at": {
+      "format": "date-time",
+      "title": "Captured At",
+      "type": "string"
+    },
+    "photo_id": {
+      "format": "uuid",
+      "title": "Photo Id",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "source": {
+      "const": "rgb",
+      "title": "Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "photo_id",
+    "source",
+    "captured_at",
+    "sha256"
+  ],
+  "title": "RunPhotoReference",
+  "type": "object"
+}

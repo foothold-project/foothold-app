@@ -1,0 +1,10 @@
+{
+  "$id": "fh-app/1/MediaChannel",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "rgb",
+    "external",
+    "lidar"
+  ],
+  "type": "string"
+}
