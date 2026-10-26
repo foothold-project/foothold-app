@@ -159,8 +159,8 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     await click(btn('이탈'));
     await setVal($<HTMLSelectElement>('[aria-label="기록"] select')!, 'r-a');
     expect(lastQuery()).toEqual({ category: 'ROUTE', robot_id: 'r-a' });
-    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026-10-01');
-    await setVal($<HTMLInputElement>('[aria-label="기간 끝"]')!, '2026-10-02');
+    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026/10/01');
+    await setVal($<HTMLInputElement>('[aria-label="기간 끝"]')!, '2026/10/02');
     expect(lastQuery()).toEqual({ category: 'ROUTE', robot_id: 'r-a', from: new Date('2026-10-01T00:00:00').toISOString(), to: new Date('2026-10-02T23:59:59.999').toISOString() });
     expect(rows()).toEqual([expect.stringContaining('서버가 준 행')]);
     await click(btn('전체'));
@@ -185,6 +185,75 @@ describe('기록 탭 — 서버 목록 그대로', () => {
 });
 
 // 10-20 조정 결정 B: 서버 문장 맨 앞 «HH:MM » 접두만 떼고 at 의 현지 날짜·시각을 따로 보인다. 접두가 없으면 그대로, CSV 는 서버 문장 그대로
+describe('기록 탭 — 기간 yyyy/mm/dd(VQ-M)', () => {
+  const day = (k: '시작' | '끝') => $<HTMLInputElement>(`[aria-label="기간 ${k}"]`)!;
+  const blur = (el: HTMLElement) => act(() => { el.focus(); el.blur(); });
+  it('글자 칸 yyyy/mm/dd — 숫자만 쳐도 / 가 들어가고, 요청은 그대로 그날 0시~끝(현지) ISO', async () => {
+    serve(signedIn(KIM));
+    await open('#/history');
+    expect(day('시작').type).toBe('text');
+    expect(day('시작').placeholder).toBe('yyyy/mm/dd');
+    for (const [typed, shown] of [['2', '2'], ['2026', '2026'], ['20261', '2026/1'], ['2026/10', '2026/10'], ['2026102', '2026/10/2'], ['202610261234', '2026/10/26']]) {
+      await setVal(day('시작'), typed);
+      expect(day('시작').value).toBe(shown);
+    }
+    expect(lastQuery()).toEqual({ from: new Date('2026-10-26T00:00:00').toISOString() });
+    await setVal(day('끝'), '2026-10-27');   // 다른 구분자로 붙여 넣어도 같은 모양
+    expect(day('끝').value).toBe('2026/10/27');
+    expect(lastQuery()).toEqual({ from: new Date('2026-10-26T00:00:00').toISOString(), to: new Date('2026-10-27T23:59:59.999').toISOString() });
+    // 달력 단추의 고르기 창(숨은 날짜 칸)으로 고른 날도 같은 글자로 들어간다
+    expect(day('끝').parentElement!.querySelector('button')!.getAttribute('aria-label')).toBe('기간 끝 달력');
+    await setVal(day('끝').parentElement!.querySelector<HTMLInputElement>('input[type="date"]')!, '2026-10-29');
+    expect(day('끝').value).toBe('2026/10/29');
+    expect(lastQuery().to).toBe(new Date('2026-10-29T23:59:59.999').toISOString());
+    await setVal(day('시작'), ''); await setVal(day('끝'), '');   // 비우면 기간 조건 해제
+    expect(lastQuery()).toEqual({});
+    await stopSends();
+  });
+  it('없는 날짜·덜 친 값은 필터에 넣지 않고 칸에 오류, 내보내기도 막음', async () => {
+    serve(signedIn(KIM));
+    await open('#/history');
+    await setVal(day('시작'), '2026/10/01');
+    const n = sent('GET', '/events').length, q = lastQuery();
+    await setVal(day('시작'), '2026/02/30');
+    expect(alertText()).toContain('기간 시작: 있는 날짜를 yyyy/mm/dd 로 쓰세요(예: 2026/10/26). 고칠 때까지 기간은 이전 값 그대로입니다.');
+    expect(day('시작').getAttribute('aria-invalid')).toBe('true');
+    expect(day('시작').getAttribute('aria-describedby')).toBe('hs-day-err');
+    await setVal(day('끝'), '2026/1');   // 치는 중에는 오류 없음, 칸을 떠나면 오류
+    expect(alertText()).not.toContain('기간 시작·끝');
+    blur(day('끝')); await flush();
+    expect(alertText()).toContain('기간 시작·끝: 있는 날짜를');
+    for (const bad of ['2026/13/01', '2026/00/10', '2025/02/29']) { await setVal(day('시작'), bad); expect(day('시작').getAttribute('aria-invalid')).toBe('true'); }
+    expect(sent('GET', '/events')).toHaveLength(n);   // 요청 0
+    expect(lastQuery()).toEqual(q);
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('내보내지 못했습니다. 기간 날짜를 먼저 고치세요.');
+    expect(sent('GET', '/events/export.csv')).toEqual([]);
+    await setVal(day('시작'), '2024/02/29'); await setVal(day('끝'), '');   // 고치면 적용
+    expect(alertText()).not.toContain('기간');
+    expect(lastQuery()).toEqual({ from: new Date('2024-02-29T00:00:00').toISOString() });
+    await stopSends();
+  });
+  it('시작 > 끝이면 적용하지 않고 오류, 어느 쪽을 고쳐도 둘 다 적용', async () => {
+    serve(signedIn(KIM));
+    await open('#/history');
+    await setVal(day('시작'), '2026/10/05');
+    await setVal(day('끝'), '2026/10/01');
+    expect(alertText()).toContain('기간 시작이 끝보다 늦습니다. 고칠 때까지 기간은 이전 값 그대로입니다.');
+    expect(day('시작').getAttribute('aria-invalid')).toBe('true');
+    expect(day('끝').getAttribute('aria-invalid')).toBe('true');
+    expect(lastQuery()).toEqual({ from: new Date('2026-10-05T00:00:00').toISOString() });
+    await click(btn('내보내기'));
+    expect(sent('GET', '/events/export.csv')).toEqual([]);
+    await setVal(day('시작'), '2026/09/30');
+    expect(alertText()).not.toContain('늦습니다');
+    expect(lastQuery()).toEqual({ from: new Date('2026-09-30T00:00:00').toISOString(), to: new Date('2026-10-01T23:59:59.999').toISOString() });
+    await setVal(day('끝'), '2026/09/30');   // 같은 날은 됨
+    expect(lastQuery().to).toBe(new Date('2026-09-30T23:59:59.999').toISOString());
+    await stopSends();
+  });
+});
+
 describe('기록 탭 — 끝낸 시뮬 슬롯 거르기(#99 R2)', () => {
   // 끝낸(IDLE) 슬롯 = 시뮬 + 담당 비움. 관제·조종 목록에서는 빠지지만 지난 시뮬 기록은 로봇별로 거를 수 있어야 한다
   const IDLE: RobotSummary = { ...robot('r-s', '시뮬 슬롯', KIM), simulation: true, owner: null };
@@ -313,23 +382,24 @@ describe('기록 탭 — 오류', () => {
 });
 
 describe('화면 일부가 깨져도 STOP 은 남음(검토 P1)', () => {
-  it('날짜 칸이 받는 다섯 자리 연도 → 요청하지 않고 칸 안 안내, STOP 실제로 눌러 정지 요청', async () => {
-    serve(signedIn(KIM));
-    await open('#/history');
-    const before = sent('GET', '/events').length;
-    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '10000-01-01');
-    expect(alertText()).toContain('기간 날짜를 읽을 수 없습니다. 연도 네 자리 날짜(예: 2026-10-20)로 다시 고르세요.');
-    expect(sent('GET', '/events')).toHaveLength(before);   // 서버가 못 읽는 값은 보내지 않음
-    expect(btn('다시 시도')).toBeUndefined();               // 같은 값으로 다시 시도해도 소용없음
-    await click(btn('내보내기'));
-    expect(alertText()).toContain('내보내지 못했습니다. 기간 날짜를 읽을 수 없습니다');
-    expect(sent('GET', '/events/export.csv')).toEqual([]);
-    await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026-10-01');   // 고치면 다시 받음
-    expect(lastQuery()).toEqual({ from: new Date('2026-10-01T00:00:00').toISOString() });
-    expect(alertText()).not.toContain('기간 날짜');
-    await setVal($<HTMLInputElement>('[aria-label="기간 끝"]')!, '10000-12-31');
-    expect(alertText()).toContain('기간 날짜를 읽을 수 없습니다');
-    await stopSends();
+  it('서버가 못 읽는 연도(0000년 → UTC 로 옮기면 음수 연도) → 요청하지 않고 칸 안 안내, STOP 실제로 눌러 정지 요청', async () => {
+    vi.stubEnv('TZ', 'Asia/Seoul');   // 0000/01/01 0시(현지)가 UTC 로 앞 해가 되는 시간대로 고정
+    try {
+      serve(signedIn(KIM));
+      await open('#/history');
+      const before = sent('GET', '/events').length;
+      await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '0000/01/01');
+      expect(alertText()).toContain('기간 날짜를 읽을 수 없습니다. yyyy/mm/dd 날짜(예: 2026/10/20)로 다시 쓰세요.');
+      expect(sent('GET', '/events')).toHaveLength(before);   // 서버가 못 읽는 값은 보내지 않음
+      expect(btn('다시 시도')).toBeUndefined();               // 같은 값으로 다시 시도해도 소용없음
+      await click(btn('내보내기'));
+      expect(alertText()).toContain('내보내지 못했습니다. 기간 날짜를 읽을 수 없습니다');
+      expect(sent('GET', '/events/export.csv')).toEqual([]);
+      await setVal($<HTMLInputElement>('[aria-label="기간 시작"]')!, '2026/10/01');   // 고치면 다시 받음
+      expect(lastQuery()).toEqual({ from: new Date('2026-10-01T00:00:00').toISOString() });
+      expect(alertText()).not.toContain('기간 날짜');
+      await stopSends();
+    } finally { vi.unstubAllEnvs(); }
   });
   it('본문 렌더 예외는 본문 칸 안에서 멈춤 — 머리줄·STOP 그대로, 다른 탭으로 가면 다시 그림', async () => {
     serve(signedIn(KIM, { 'GET /events': list([ev('1')]) }));

@@ -95,7 +95,32 @@ function params(f: Filter) {
   if (to) q.set('to', to);
   return q;
 }
-const BAD_DAY = new ApiFail(0, 'BAD_DATE', '기간 날짜를 읽을 수 없습니다. 연도 네 자리 날짜(예: 2026-10-20)로 다시 고르세요.');
+const BAD_DAY = new ApiFail(0, 'BAD_DATE', '기간 날짜를 읽을 수 없습니다. yyyy/mm/dd 날짜(예: 2026/10/20)로 다시 쓰세요.');
+/** 기간 칸 글자(yyyy/mm/dd) → 필터 값. '' = 조건 없음, yyyy-mm-dd = 있는 날짜, null = 덜 쳤거나 없는 날짜(2026/02/30) */
+export function day(t: string) {
+  if (!t) return '';
+  const v = /^\d{4}\/\d\d\/\d\d$/.test(t) ? t.replace(/\//g, '-') : '', d = new Date(`${v}T00:00:00Z`);
+  return v && !isNaN(d.getTime()) && d.toISOString().startsWith(v) ? v : null;   // 2026-02-30 → 03-02 로 넘어가면 없는 날짜
+}
+/** 친 글자 → yyyy/mm/dd 모양(숫자만 쳐도 / 가 들어감). 가운데를 고칠 때는 숫자·/ 만 남겨 커서가 끝으로 튀지 않게 */
+const slash = (t: string, atEnd: boolean) => {
+  if (!atEnd) return t.replace(/[^\d/]/g, '').slice(0, 10);
+  const n = t.replace(/\D/g, '').slice(0, 8);
+  return [n.slice(0, 4), n.slice(4, 6), n.slice(6)].filter(Boolean).join('/');
+};
+/** 기간 날짜 칸 하나: 브라우저 언어와 상관없이 yyyy/mm/dd 글자 칸 + 달력 단추(숨은 날짜 칸의 고르기 창 — 고른 날도 같은 글자로 들어감) */
+function DayBox({ name, text, bad, min, max, put, leave }: { name: string; text: string; bad: boolean; min?: string; max?: string; put: (t: string, done: boolean) => void; leave: () => void }) {
+  const box = useRef<HTMLInputElement>(null), cal = useRef<HTMLInputElement>(null);
+  const pick = () => { try { cal.current!.showPicker(); } catch { box.current?.focus(); } };   // 고르기 창을 못 열면 글자로 치게
+  return <span style={{ position: 'relative', display: 'inline-flex' }}>
+    <input ref={box} className="fh-user mono" aria-label={name} value={text} placeholder="yyyy/mm/dd" inputMode="numeric" autoComplete="off" maxLength={10}
+      aria-invalid={bad || undefined} aria-describedby={bad ? 'hs-day-err' : undefined} style={{ boxSizing: 'border-box', width: '10.5em', paddingRight: 44 }}
+      onChange={(e) => put(slash(e.target.value, e.target.selectionStart === e.target.value.length), false)} onBlur={leave} />
+    <input ref={cal} type="date" tabIndex={-1} aria-hidden="true" value={day(text) || ''} min={min || undefined} max={max || undefined}
+      onChange={(e) => put(e.target.value.replace(/-/g, '/'), true)} style={{ position: 'absolute', right: 0, bottom: 0, width: 44, height: '100%', opacity: 0, pointerEvents: 'none' }} />
+    <button type="button" aria-label={`${name} 달력`} onClick={pick} style={{ position: 'absolute', right: 0, top: 0, width: 44, height: '100%', border: 0, background: 'none' }}><span aria-hidden="true">📅</span></button>
+  </span>;
+}
 // 받은 값 모양 검사 — 어긋난 응답이 화면(머리줄·STOP 포함)을 깨뜨리지 않게, 오류 한 줄로만 남긴다
 const str = (v: unknown) => typeof v === 'string';
 const isEvent = (e: Ev) => !!e && str(e.id) && str(e.at) && str(e.message);
@@ -133,10 +158,21 @@ export function History(c: HistoryCtx) {
   const [f, setF] = useState(NONE), filter = c.phone ? { ...NONE, robot: c.robot?.id ?? '' } : f;
   const ev = useEvents(filter, c.cancel, 50), set = (p: Partial<Filter>) => { setF((o) => ({ ...o, ...p })); setOut(null); };   // 내보내기 안내는 그때 필터의 것
   const [out, setOut] = useState<{ text: string; ok?: boolean } | null>(null), [saving, setSaving] = useState(false);
+  // 기간 칸 글자. 둘 다 비었거나 있는 날짜이고 시작 ≤ 끝일 때만 필터로 — 아니면 필터는 이전 값 그대로, 칸에 오류(덜 친 값은 다 치거나 칸을 떠나야)
+  const [days, setDays] = useState({ from: '', to: '' }), [left, setLeft] = useState({ from: false, to: false });
+  const put = (k: 'from' | 'to') => (t: string, done: boolean) => {
+    const d = { ...days, [k]: t }, a = day(d.from), b = day(d.to);
+    setDays(d); setLeft((o) => ({ ...o, [k]: done || t.length >= 10 }));
+    if (a !== null && b !== null && !(a && b && a > b)) set({ from: a, to: b });
+  };
+  const odd = (['from', 'to'] as const).filter((k) => day(days[k]) === null), late = !odd.length && !!days.from && !!days.to && day(days.from)! > day(days.to)!;
+  const shown = odd.filter((k) => left[k]), dayErr = shown.length ? `기간 ${shown.map((k) => (k === 'from' ? '시작' : '끝')).join('·')}: 있는 날짜를 yyyy/mm/dd 로 쓰세요(예: 2026/10/26).`
+    : late ? '기간 시작이 끝보다 늦습니다.' : '';
   // 지금 필터 그대로 CSV(F-LG-05). 10,000행 넘으면 서버가 거절(400 EXPORT_LIMIT) — 잘린 파일을 받지 않는다. 동시 내보내기는 429 RATE_LIMITED.
   // 받기·파일 만들기 어디서 실패해도 안내를 쓰고 단추를 되살리며 만든 URL 은 정리한다
   const save = async () => {
     const q = params(f);
+    if (odd.length || late) { setOut({ text: '내보내지 못했습니다. 기간 날짜를 먼저 고치세요.' }); return; }   // 칸에 보이는 기간과 다른 이전 기간으로 내보내지 않게
     if (!q) { setOut({ text: `내보내지 못했습니다. ${BAD_DAY.message}` }); return; }
     if (inApp()) { setOut({ text: '앱에서는 파일을 내려받을 수 없습니다. PC 브라우저에서 내보내세요.' }); return; }   // WebView 는 blob <a download> 를 받지 않는다
     setSaving(true); setOut(null);
@@ -165,12 +201,14 @@ export function History(c: HistoryCtx) {
         {/* 로봇 거르기: 내 로봇 + 끝낸 시뮬 슬롯(지난 시뮬 기록 — 운영 관리자는 그 슬롯에서 한 내 행동만 서버가 보여 줌) */}
         <label className="fh-row"><span className="lbl">로봇</span><select className="fh-user" value={f.robot} onChange={(e) => set({ robot: e.target.value })}>
           <option value="">전체</option>{[...myRobots(c.user, c.robots), ...(c.user.role === 'ORG_ADMIN' ? [] : c.robots.filter(idleSim))].map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>
-        <label className="fh-row"><span className="lbl">기간</span><input type="date" className="fh-user" aria-label="기간 시작" value={f.from} max={f.to || undefined} onChange={(e) => set({ from: e.target.value })} /></label>
-        <span aria-hidden="true">~</span>
-        <input type="date" className="fh-user" aria-label="기간 끝" value={f.to} min={f.from || undefined} onChange={(e) => set({ to: e.target.value })} />
+        <span className="fh-row" role="group" aria-label="기간"><span className="lbl">기간</span>
+          <DayBox name="기간 시작" text={days.from} bad={shown.includes('from') || late} max={f.to} put={put('from')} leave={() => setLeft((o) => ({ ...o, from: true }))} />
+          <span aria-hidden="true">~</span>
+          <DayBox name="기간 끝" text={days.to} bad={shown.includes('to') || late} min={f.from} put={put('to')} leave={() => setLeft((o) => ({ ...o, to: true }))} /></span>
         <span className="fh-grow" />
         <button type="button" className="btn" disabled={saving} onClick={save}>{saving ? '내보내는 중…' : '내보내기'}</button>
       </div>
+      {dayErr && <p id="hs-day-err" className="fh-msg" role="alert">{dayErr} 고칠 때까지 기간은 이전 값 그대로입니다.</p>}
       {out && <p className={`fh-msg${out.ok ? ' ok' : ''}`} role={out.ok ? 'status' : 'alert'}>{out.text}</p>}
     </>}
     <Table items={ev.items} who={who} label="사건" />
