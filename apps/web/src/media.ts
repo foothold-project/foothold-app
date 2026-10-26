@@ -28,8 +28,9 @@ const WHY: Record<string, string> = {
   'Media binding or worker is unavailable': '로봇 영상 처리가 준비되지 않았습니다',
   'No fresh source sample within 1 second': '1초 넘게 새 자료가 없습니다',
 };
-export const reasonText = (r: string) => WHY[r] ?? r;
+export const reasonText = (r: string) => (WHY[r] ? `${WHY[r]} (${r})` : r);
 export const NO_MEDIA = '이 로봇은 관측 영상(media/1)을 알리지 않습니다';
+export const BAD_WELCOME = '로봇이 알린 관측 영상(media/1) 형식이 약속과 달라 받지 않습니다';
 const LOST = '영상 연결이 끊겼습니다. 조종·STOP 에는 영향이 없습니다';
 const EXPIRED = '영상 연결 권한(10초·1회)이 끝났습니다 — «영상 다시 받기»로 다시 연결하세요';
 const BAD = '받은 자료가 media/1 약속과 달라 연결을 닫았습니다';
@@ -40,6 +41,8 @@ let feeds: Record<MediaChannel, Feed> = { rgb: blank(), external: blank(), lidar
 let offer: { w: PhoneMediaWelcome; address: string; at: number; used: Set<MediaChannel> } | null = null;
 const socks = new Map<MediaChannel, WebSocket>(), want = new Map<MediaChannel, number>();
 let pending: MediaPointCloudHeader | null = null, mapVer: string | null = null;
+/** 채널별 지금까지 받은 가장 큰 seq — 화면 비움·구독·결속이 바뀌어도 유지(README «across subscriptions and binding changes»). 부모 연결이 끝날 때(reset)만 지움 */
+let top: Record<MediaChannel, number> = { rgb: -1, external: -1, lidar: -1 };
 const subs = new Set<() => void>();
 const emit = () => subs.forEach((f) => f());
 const put = (ch: MediaChannel, p: Partial<Feed>) => { feeds = { ...feeds, [ch]: { ...feeds[ch], ...p } }; emit(); };
@@ -55,6 +58,15 @@ function shut(ch: MediaChannel, state: FeedState, why = '') {
   const w = socks.get(ch); socks.delete(ch);
   if (w) { w.onclose = null; w.onmessage = null; w.close(1000); }
   clear(ch, state, why);
+}
+
+/** welcome.media 형상 검사(계약 타입은 런타임 검증이 아님). 맞지 않으면 null */
+export function mediaWelcome(v: unknown): PhoneMediaWelcome | null {
+  const w = v as PhoneMediaWelcome | null;
+  const cap = (c: unknown) => { const x = c as { available?: unknown; reason?: unknown; token?: unknown } | null;
+    return !!x && typeof x.available === 'boolean' && typeof x.reason === 'string' && (x.available ? typeof x.token === 'string' && x.token.length === 43 : x.token === null); };
+  return !!w && typeof w === 'object' && w.version === 'media/1' && w.path === '/phone/media/ws' && typeof w.robot === 'string' && Number.isInteger(w.epoch)
+    && (w.episode_id === null || typeof w.episode_id === 'string') && CHANNELS.every((ch) => cap(w[ch])) ? w : null;
 }
 
 /** 점군 머리(JSON) 검사 — 맞으면 그 머리, 아니면 null */
@@ -101,7 +113,8 @@ function onFrame(ch: MediaChannel, data: unknown) {
   // 점군 연결에서 머리 뒤에는 바이너리 한 개만 — 그 사이 다른 글 프레임은 약속 위반(다른 채널 연결은 따로 와서 끼어들 수 있음). 결속(robot·epoch·episode)·채널·판이 hello 와 다르면 버리고 닫는다
   if ((ch === 'lidar' && pending) || m.version !== 'media/1' || m.channel !== ch || !same(m as unknown as Binding, o.w)) return fail();
   if (m.t === 'media.status') return clear(ch, 'none', reasonText(String(m.reason ?? '')));
-  if (typeof m.seq === 'number' && m.seq <= feeds[ch].seq) return fail();   // 채널마다 늘어나는 순번
+  if (!Number.isInteger(m.seq) || (m.seq as number) <= top[ch]) return fail();   // 채널마다 늘어나는 순번
+  top[ch] = m.seq as number;
   if (m.t === 'media.video' && ch !== 'lidar') {
     if (m.mime !== 'image/jpeg' || typeof m.jpeg !== 'string' || !m.jpeg || !Number.isInteger(m.seq)) return fail();
     return put(ch, { state: 'live', why: '', at: now(), seq: m.seq as number, img: `data:image/jpeg;base64,${m.jpeg}` });
@@ -118,9 +131,17 @@ function open(ch: MediaChannel) {
   w.binaryType = 'arraybuffer';
   socks.set(ch, w);
   put(ch, { state: 'wait', why: '' });
-  w.onopen = () => { if (socks.get(ch) === w) w.send(JSON.stringify({ t: 'media.hello', version: 'media/1', ...b, channel: ch, token: cap.token })); };
+  // 10초가 지나도 아직 열리는 중이면 닫는다 — 만료된 토큰으로 hello 를 보내지 않게(열릴 때 한 번 더 본다)
+  const late = () => { if (socks.get(ch) === w) shut(ch, 'expired', EXPIRED); };
+  const t = setTimeout(() => { if (w.readyState === 0) late(); }, Math.max(0, o.at + TOKEN_MS - now()));
+  w.onopen = () => {
+    clearTimeout(t);
+    if (socks.get(ch) !== w) return;
+    if (now() - o.at >= TOKEN_MS) return late();
+    w.send(JSON.stringify({ t: 'media.hello', version: 'media/1', ...b, channel: ch, token: cap.token }));
+  };
   w.onmessage = (e: { data?: unknown }) => { if (socks.get(ch) === w) onFrame(ch, e.data); };
-  w.onclose = () => { if (socks.get(ch) === w) { socks.delete(ch); clear(ch, 'lost', LOST); } };
+  w.onclose = () => { clearTimeout(t); if (socks.get(ch) === w) { socks.delete(ch); clear(ch, 'lost', LOST); } };
 }
 
 /** 보는 칸이 있고 화면이 보이면 열고, 아니면 닫는다 */
@@ -141,17 +162,19 @@ const onVis = () => sync();
 export const media = {
   get: () => feeds,
   subscribe(f: () => void) { subs.add(f); return () => { subs.delete(f); }; },
-  /** 부모 hello 를 받았을 때(phone.ts). w 가 없으면 이 로봇은 media/1 을 알리지 않음 */
-  offer(w: PhoneMediaWelcome | undefined, address: string) {
+  /** 부모 hello 를 받았을 때(phone.ts). 없으면 이 로봇은 media/1 을 알리지 않음, 형상이 틀리면 받지 않음(옛 카메라 경로는 그대로) */
+  offer(raw: unknown, address: string) {
     for (const ch of CHANNELS) shut(ch, 'off');
+    const w = mediaWelcome(raw), none = raw === undefined ? NO_MEDIA : BAD_WELCOME;
     offer = w ? { w, address, at: now(), used: new Set() } : null;
-    for (const ch of CHANNELS) clear(ch, !w ? 'none' : w[ch].available ? 'wait' : 'none', !w ? NO_MEDIA : w[ch].available ? '' : reasonText(w[ch].reason));
+    for (const ch of CHANNELS) clear(ch, !w ? 'none' : w[ch].available ? 'wait' : 'none', !w ? none : w[ch].available ? '' : reasonText(w[ch].reason));
     document.removeEventListener('visibilitychange', onVis); document.addEventListener('visibilitychange', onVis);
     sync();
   },
   /** 부모 연결이 끝남(phone.ts drop) — 모두 닫고 비움 */
   reset() {
     offer = null; document.removeEventListener('visibilitychange', onVis);
+    top = { rgb: -1, external: -1, lidar: -1 };
     for (const ch of CHANNELS) shut(ch, 'off');
   },
   /** 이 채널을 로봇이 media/1 로 보낼 수 있다고 알렸나(RGB 를 옛 카메라 경로로 받을지 정할 때) */

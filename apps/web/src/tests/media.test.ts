@@ -1,7 +1,7 @@
 // 관측 media/1 수신(media.ts) — WebSocket 은 FakeWS(진짜 연결 0). 메시지 검사·points 짝 순서·토큰 일회·해지·capability 불가 이유.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PhoneMediaWelcome } from '../../../contracts/ts';
-import { MAX_POINTS, NO_MEDIA, TOKEN_MS, feedText, media, pointsBody, pointsHeader } from '../media';
+import { BAD_WELCOME, MAX_POINTS, NO_MEDIA, TOKEN_MS, feedText, media, mediaWelcome, pointsBody, pointsHeader } from '../media';
 import { FakeWS } from './fakeWs';
 
 const R = '11111111-1111-4111-8111-111111111111', EP = '33333333-3333-4333-8333-333333333333', ADDR = 'ws://127.0.0.1:9433/phone/ws';
@@ -33,7 +33,7 @@ describe('media/1 수신', () => {
     expect(FakeWS.all[0].sent[0]).toEqual({ t: 'media.hello', version: 'media/1', robot: R, epoch: 4, episode_id: EP, channel: 'rgb', token: tok('r') });
     expect(FakeWS.all[1].sent[0]).toMatchObject({ channel: 'lidar', token: tok('l') });
     expect(F().external.state).toBe('none');
-    expect(feedText(F().external, 'external')).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');
+    expect(feedText(F().external, 'external')).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
     media.offer(undefined, ADDR);
     expect(feedText(F().rgb, 'rgb')).toBe(NO_MEDIA);
   });
@@ -48,9 +48,11 @@ describe('media/1 수신', () => {
     w.recv({ t: 'media.status', ...bind, channel: 'rgb', state: 'NO_VIDEO', reason: 'No fresh source sample within 1 second' });
     expect(F().rgb).toMatchObject({ state: 'none', img: '' });
     w.recv(video(2));
-    for (const bad of [video(1), video(9, { epoch: 5 }), video(9, { robot: '22222222-2222-4222-8222-222222222222' }), video(9, { channel: 'external' }), video(9, { mime: 'image/png' })]) {
+    let q = 10;
+    for (const bad of [(n: number) => video(n - 1), (n: number) => video(n, { epoch: 5 }), (n: number) => video(n, { robot: '22222222-2222-4222-8222-222222222222' }),
+      (n: number) => video(n, { channel: 'external' }), (n: number) => video(n, { mime: 'image/png' })]) {
       media.offer(welcome(), ADDR); openAll();
-      const x = sock('rgb'); x.recv(video(5)); x.recv(bad);
+      const x = sock('rgb'); q += 10; x.recv(video(q)); expect(F().rgb.state).toBe('live'); x.recv(bad(q + 1));
       expect(F().rgb).toMatchObject({ state: 'bad', img: '' });
       expect(x.readyState).toBe(3);
     }
@@ -66,16 +68,18 @@ describe('media/1 수신', () => {
     expect(F().lidar.n).toBe(1);   // 센서 기준은 한 스캔만(누적 아님)
     const cases: ((w: FakeWS) => void)[] = [
       (x) => bin(x, xyz(1, 2, 3)),                                  // 머리 없는 바이너리
-      (x) => { x.recv(head(9, 1)); x.recv(head(10, 1)); },         // 머리 뒤 글 프레임(짝 깨짐)
-      (x) => { x.recv(head(9, 2)); bin(x, xyz(1, 2, 3)); },        // 길이 다름
-      (x) => { x.recv(head(9, 1)); bin(x, xyz(1, NaN, 3)); },      // 유한 아님
-      (x) => { x.recv(head(9, 1)); bin(x, xyz(1, 2, 20000)); },    // 범위 밖
-      (x) => x.recv(head(9, 2, { byte_length: 12 })),               // 머리 길이 불일치
-      (x) => x.recv(head(9, 4001)),                                 // 점 상한 초과
+      (x) => { x.recv(head(q + 1, 1)); x.recv(head(q + 2, 1)); },         // 머리 뒤 글 프레임(짝 깨짐)
+      (x) => { x.recv(head(q + 1, 2)); bin(x, xyz(1, 2, 3)); },        // 길이 다름
+      (x) => { x.recv(head(q + 1, 1)); bin(x, xyz(1, NaN, 3)); },      // 유한 아님
+      (x) => { x.recv(head(q + 1, 1)); bin(x, xyz(1, 2, 20000)); },    // 범위 밖
+      (x) => x.recv(head(q + 1, 2, { byte_length: 12 })),               // 머리 길이 불일치
+      (x) => x.recv(head(q + 1, 4001)),                                 // 점 상한 초과
     ];
+    let q = 100;
     for (const c of cases) {
       media.offer(welcome(), ADDR); openAll(); w = sock('lidar');
-      w.recv(head(1, 1)); bin(w, xyz(1, 1, 1));
+      q += 100; w.recv(head(q, 1)); bin(w, xyz(1, 1, 1));
+      expect(F().lidar.state).toBe('live');
       c(w);
       expect(F().lidar).toMatchObject({ state: 'bad', n: 0 });
       expect(w.readyState).toBe(3);
@@ -133,13 +137,59 @@ describe('media/1 수신', () => {
     document.dispatchEvent(new Event('visibilitychange'));
     expect(FakeWS.all).toHaveLength(1);
     media.offer(welcome({ epoch: 5 }), ADDR); openAll();
-    sock('rgb').recv(video(1, { epoch: 5 }));
+    sock('rgb').recv(video(2, { epoch: 5 }));
     expect(F().rgb.state).toBe('live');
     media.offer(welcome({ epoch: 6 }), ADDR);
     expect(F().rgb.img).toBe('');                       // 새 결속 — 옛 그림 0
     media.reset();
     expect(FakeWS.all.every((w) => w.readyState === 3)).toBe(true);
     expect(F().rgb.state).toBe('off');
+  });
+
+  it('seq 는 상태 알림·다시 구독·새 결속을 지나도 채널별로 늘어야 함(옛 프레임 0) — 부모가 끝나면(reset) 새로', () => {
+    want('rgb'); media.offer(welcome(), ADDR); openAll();
+    let w = sock('rgb');
+    w.recv(video(5));
+    w.recv({ t: 'media.status', ...bind, channel: 'rgb', state: 'NO_VIDEO', reason: 'x' });
+    w.recv(video(1));
+    expect(F().rgb).toMatchObject({ state: 'bad', img: '' });
+    media.offer(welcome({ epoch: 5 }), ADDR); openAll(); w = sock('rgb');
+    w.recv(video(3, { epoch: 5 }));
+    expect(F().rgb.state).toBe('bad');
+    media.reset(); media.offer(welcome(), ADDR); openAll();
+    sock('rgb').recv(video(1));
+    expect(F().rgb.state).toBe('live');
+  });
+
+  it('welcome.media 형상이 틀리면 받지 않음(예외 0) — 이유 표시, has() 거짓이라 옛 카메라 경로로', () => {
+    want('rgb');
+    for (const bad of [{ version: 'media/1', path: '/phone/media/ws' }, { ...welcome(), path: '/phone/x' }, { ...welcome(), rgb: { available: true, reason: 'Ready', token: 'short' } },
+      { ...welcome(), lidar: { available: false, reason: 'x', token: tok('l') } }, { ...welcome(), epoch: '4' }, null, 'media']) {
+      expect(() => media.offer(bad, ADDR)).not.toThrow();
+      expect(media.has('rgb')).toBe(false);
+      expect(feedText(F().rgb, 'rgb')).toBe(BAD_WELCOME);
+    }
+    expect(FakeWS.all).toHaveLength(0);
+    expect(mediaWelcome({ ...welcome(), episode_id: null })).not.toBeNull();   // README 예: 회차 없음 null
+  });
+
+  it('토큰 10초: 열리는 중 10초를 넘기면 hello 없이 닫고 «다시 받기», 열린 때가 10초 뒤여도 보내지 않음', () => {
+    vi.useFakeTimers();
+    let t = 1000; vi.spyOn(performance, 'now').mockImplementation(() => t);
+    want('rgb'); want('lidar'); media.offer(welcome(), ADDR);
+    const [r, l] = FakeWS.all;
+    t += TOKEN_MS; vi.advanceTimersByTime(TOKEN_MS);
+    expect(r.readyState).toBe(3);
+    expect(F().rgb.state).toBe('expired');
+    r.auto = null; r.open();
+    expect(r.sent).toHaveLength(0);
+    // 타이머가 늦게 돌아 아직 열리는 중으로 남은 경우도 열릴 때 나이를 본다
+    media.offer(welcome(), ADDR);
+    const r2 = FakeWS.all[FakeWS.all.length - 2];
+    t += TOKEN_MS; r2.auto = null; r2.open();
+    expect(r2.sent).toHaveLength(0);
+    expect(F().rgb.state).toBe('expired');
+    vi.useRealTimers(); void l;
   });
 
   it('부모 주소가 /phone/ws 가 아니면(임의 경로 중계 0) 열지 않고 끊김 — 원격·포트 거부는 phoneTransport 시험', () => {

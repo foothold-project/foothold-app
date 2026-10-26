@@ -122,7 +122,7 @@ describe('PC «시뮬» 탭', () => {
     expect(socks).toHaveLength(2);
     act(() => socks.forEach((w) => { w.auto = null; w.open(); })); await flush();
     expect(socks.map((w) => w.sent[0].channel)).toEqual(['rgb', 'lidar']);
-    expect($('[aria-label="외부 카메라 영상"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');
+    expect($('[aria-label="외부 카메라 영상"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
     const bind = { version: 'media/1', robot: S1, epoch: 2, episode_id: S2 };
     await recv(socks[0], { t: 'media.video', ...bind, channel: 'rgb', source: 'gazebo_rgb', seq: 1, captured_at: '', frame: 'camera', mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
     expect(box.querySelector<HTMLImageElement>('img[alt="RGB 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');

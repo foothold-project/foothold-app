@@ -306,7 +306,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
       lidar: { available: true, reason: 'Ready', token: tok('l') } } } as ReturnType<typeof welcome>);
     await drive(a);
     expect($('[data-cam-pick="external"]')!.getAttribute('aria-pressed')).toBe('true');
-    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');
+    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
     expect(box.querySelector('.dv-stage img[alt="RGB 영상"]')).toBeNull();
     expect($('[data-orbit-why]')!.textContent).toBe('시점 이동 준비 중 — 서버 시점 중계가 아직 없습니다');
     expect($('.dv-stage [data-orbit]')).toBeNull();   // 중계가 없으면 끌기 처리 자체를 붙이지 않음
