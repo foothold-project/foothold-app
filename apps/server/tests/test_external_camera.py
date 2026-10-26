@@ -1,9 +1,11 @@
 """Temporary PostgreSQL and fake loopback HTTP only; never starts a simulator."""
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 from threading import Thread
 import time
+from types import SimpleNamespace
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -18,6 +20,40 @@ from .conftest import login
 from .test_api import csrf
 
 
+def serialized_manager_slots(seeded, monkeypatch, *, native=True):
+    """Real listing/describe and FastAPI serialization, without a runtime/lifespan."""
+    from apps.simmgr.api import create_app as manager_app
+    from apps.simmgr.config import Slot
+    from apps.simmgr.launcher import FakeLauncher
+    from apps.simmgr.service import Robot as ManagerRobot
+    import os
+
+    for name in tuple(os.environ):
+        if name.startswith(('ROS_', 'RMW_', 'CYCLONEDDS_', 'FASTRTPS_', 'FASTDDS_')):
+            monkeypatch.delenv(name)
+    rid, owner, org = map(str, (seeded['robots']['mine'], seeded['users']['one'], seeded['org']))
+    launcher = FakeLauncher()
+    launcher.real = native  # native response shape, never a NativeLauncher/process
+    app = manager_app(SimpleNamespace(real=native, agent_host='127.0.0.1',
+        secret='fake-test-service-secret-xxxxxxxx'), launcher)
+    app.state.ready = True
+    manager = app.state.manager
+    manager.robots[rid] = ManagerRobot(Slot(rid, org, 'unused', 'unused', 9608),
+        owner, 'warehouse/f1', 'RUNNING', 1)
+    manager.expires_at = datetime.now(timezone.utc) + timedelta(seconds=1800)
+    manager.deadline = time.monotonic() + 1800
+    # No context manager: do not invoke startup_preflight or lifecycle teardown.
+    http = TestClient(app, client=('127.0.0.1', 9609))
+    try:
+        response = http.get('/v1/robots', params={'org_id': org},
+            headers={'Authorization': 'Bearer fake-test-service-secret-xxxxxxxx'})
+        assert response.status_code == 200, response.text
+        assert launcher.events == []
+        return response.json()
+    finally:
+        http.close()
+
+
 @pytest.fixture
 def camera(client, seeded, tmp_path, monkeypatch):
     rid = seeded['robots']['mine']
@@ -25,17 +61,16 @@ def camera(client, seeded, tmp_path, monkeypatch):
         row = db.get(Robot, rid)
         row.simulation, row.sim_state, row.sim_generation = True, 'ACTIVE', 1
         db.commit()
+    slots = serialized_manager_slots(seeded, monkeypatch)
     state = dict(calls=[], headers=[], delay=0, error=None, reply=None, on_get=None,
-        slot=dict(robot_id=str(rid), owner_id=str(seeded['users']['one']), generation=1,
-            world_id='warehouse/f1', simulation=True, state='RUNNING', agent_address='ws://unused',
-            namespace='/unused', tf_prefix='unused', command_topic='/unused', launcher='native-single'))
+        slots=slots, slot=slots['items'][0])
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             state['headers'].append(self.headers.get('Authorization'))
             if state['on_get']:
                 state['on_get']()
-            self.respond(200, dict(items=[state['slot']] if state['slot'] else []))
+            self.respond(200, {**state['slots'], 'items': [state['slot']] if state['slot'] else []})
 
         def do_POST(self):
             state['headers'].append(self.headers.get('Authorization'))
@@ -83,6 +118,65 @@ def camera(client, seeded, tmp_path, monkeypatch):
 
 def post(client, state, headers, operation='view', **change):
     return client.post(state['path'] + operation, json={**state['body'], **change}, headers=headers)
+
+
+@pytest.mark.parametrize('native', [False, True])
+@pytest.mark.parametrize('operation', ['view', 'reset', 'cancel'])
+def test_real_manager_serialization_for_list_and_camera(camera, seeded, monkeypatch, native, operation):
+    client, state = camera
+    state['slots'] = serialized_manager_slots(seeded, monkeypatch, native=native)
+    state['slot'] = state['slots']['items'][0]
+    assert state['slot']['expires_at'].endswith('Z')
+    assert 0 < state['slot']['remaining_s'] <= 1800
+    assert state['slot']['launcher'] == ('native-single' if native else 'fake')
+    headers = csrf(client, 'one')
+    listing = client.get('/api/v1/simulation/robots')
+    assert listing.status_code == 200, listing.text
+    assert listing.json()['manager_error'] is None
+    assert listing.json()['items'] == state['slots']['items']
+    result = post(client, state, headers, operation)
+    assert result.status_code == 200, result.text
+    assert len(state['calls']) == 1
+
+
+@pytest.mark.parametrize('failure,fields', [
+    ('generation', 'items.0.generation:int_parsing'),
+    ('timestamp', 'items.0.expires_at:datetime_from_date_parsing'),
+    ('extra', 'items.0.<extra>:extra_forbidden'),
+    ('root_extra', '<extra>:extra_forbidden'),
+    ('type_error', '$:type_error'),
+])
+def test_slots_validation_diagnostics_without_values(camera, monkeypatch, caplog, failure, fields):
+    from apps.contracts import models as C
+    client, state = camera
+    private = 'private-upstream-value-token'
+    if failure == 'generation':
+        state['slot']['generation'] = private
+    elif failure == 'timestamp':
+        state['slot']['expires_at'] = private
+    elif failure == 'extra':
+        state['slot'][private] = private
+    elif failure == 'root_extra':
+        state['slots'][private] = private
+    else:
+        def invalid(cls, value, **kwargs):
+            raise TypeError(private)
+        monkeypatch.setattr(C.SimRobotList, 'model_validate', classmethod(invalid))
+    headers = csrf(client, 'one')
+    # A 200 list can mask the same invalid manager response as cleanup-only data.
+    listing = client.get('/api/v1/simulation/robots')
+    assert listing.status_code == 200
+    assert listing.json()['manager_error'] == 'SIM_UNAVAILABLE'
+    assert listing.json()['items'] == []
+    result = post(client, state, headers)
+    assert result.status_code == 503 and result.json()['error']['code'] == 'SIM_UNAVAILABLE'
+    records = [r.getMessage() for r in caplog.records if r.name == external_camera.__name__]
+    assert records == ['external camera relay stage=slots_response status=503 '
+        f'code=SIM_UNAVAILABLE fields={fields}']
+    assert not state['calls']
+    assert private not in caplog.text
+    assert 'fake-test-service-secret' not in caplog.text
+    assert str(state['rid']) not in '\n'.join(records)
 
 
 def test_cookie_bearer_shared_sequence_and_all_operations(camera, seeded):
@@ -314,6 +408,7 @@ def test_relay_failure_stage_logged_without_remote_data(camera, monkeypatch, cap
     result = post(client, state, csrf(client, 'one'))
     assert result.status_code == status and result.json()['error']['code'] == code
     records = [r.getMessage() for r in caplog.records if r.name == external_camera.__name__]
-    assert records == [f'external camera relay stage={stage} status={status} code={code}']
+    fields = ' fields=items:missing,<extra>:extra_forbidden' if failure == 'slots_invalid' else ''
+    assert records == [f'external camera relay stage={stage} status={status} code={code}{fields}']
     assert 'private-upstream-value' not in caplog.text
     assert str(state['rid']) not in '\n'.join(records)
