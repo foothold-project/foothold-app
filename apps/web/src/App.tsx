@@ -9,7 +9,7 @@ import { BrandLogo } from './BrandLogo';
 import { ADMIN_REAL, ROBOTS, ROLE_NAME, USERS, adminReal, idleSim, lost, lostText, myRobots, robotsFor, type Robot, type User } from './fake';
 import { PC_BOTTOM, PC_TABS, labelOf, leaving, tabFromHash, tabsFor, type Tab, type TabId } from './menu';
 import { rt, useRt, withLive, type Live } from './rt';
-import { BODY, EmptyFleet, useDash, type Ctx } from './screens';
+import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { Connect, endDrive } from './drive';
 import { sim, useSim } from './phone';
 import { SimDrive } from './simdrive';
@@ -45,6 +45,7 @@ export const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientatio
 const watchPhone = (f: () => void) => { const m = matchMedia(PHONE_Q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
 export const usePhone = () => useSyncExternalStore(watchPhone, () => matchMedia(PHONE_Q).matches);
 // 전체화면(⋯ 메뉴): Fullscreen API 가 되는 브라우저(Android Chrome 등)만 단추. 아이폰은 웹 요소 전체화면을 막아 «홈 화면에 추가» 안내만.
+// Android 앱(inApp)은 껍데기가 늘 전체화면이라 둘 다 없음. 루트 data-drive = 조종 화면(폰 조종·시뮬 조종) — 앱이 읽어 그때만 가로로 고정
 // 화면 전환일 뿐이라 조종권·입력·STOP 경로는 건드리지 않는다
 const watchFull = (f: () => void) => { document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); };
 const useFull = () => useSyncExternalStore(watchFull, () => !!document.fullscreenElement);
@@ -195,7 +196,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {t.icon}{labelOf(t, user.role)}{badge > 0 && <span className="fh-badge" aria-hidden="true">{badge}</span>}</a>;
   };
 
-  return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'}>
+  return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'} data-drive={open || simOpen ? '' : undefined}>
     {/* 시뮬 조종 화면(10-26): 머리줄은 STOP 만 — 영상 위 오른쪽 위에 뜬다(drive.css .fh-head[data-bare]). 시뮬 끝내기·연결 표시는 조종 화면 메뉴·알약으로 */}
     <header className="fh-head" data-bare={simOpen || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} /> : <>
       {phone
@@ -211,7 +212,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
       {phone && (tab !== 'history' || logout) && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
-        <div className="card">{canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
+        <div className="card">{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
           : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
           {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}

@@ -2,7 +2,7 @@
 // 판정(조종권·넘김·정지 확인)은 서버 몫이라, 여기서는 화면이 보내는 것(sent)과 서버 값을 그대로 보이는지를 본다. 시간은 가짜 시계.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { ScreenState } from '../../../contracts/ts';
 import { App, PHONE_Q } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
@@ -1991,6 +1991,21 @@ describe('전체화면(⋯ 메뉴)', () => {
     expect($('header').lastElementChild).toBe($('[data-stop]'));
     click($('[data-stop]'));
     expect(w.of('stop')).toHaveLength(1);
+  });
+
+  it('Android 앱(UA FootholdApp/): 껍데기가 늘 전체화면 — 단추·안내 둘 다 없음, 조종 화면 표시(data-drive)만, STOP 그대로', () => {
+    fsApi();   // 브라우저였다면 단추가 보일 조건
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) Chrome/140 Mobile Safari/537.36 FootholdApp/1.1.0-dev');
+    onTestFinished(() => ua.mockRestore());
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    expect($('[data-full]')).toBeNull();
+    delete (document as unknown as Record<string, unknown>).fullscreenEnabled;   // 브라우저였다면 «홈 화면에 추가» 안내가 보일 조건
+    window.matchMedia = ((q: string) => ({ matches: q === PHONE_Q, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    act(() => push('r7', { speed: 0.1 }));
+    expect($('[data-full-tip]')).toBeNull();
+    expect($('[data-layout]').hasAttribute('data-drive')).toBe(true);
+    expect($('header').lastElementChild).toBe($('[data-stop]'));
   });
 
   it('아이폰(요소 전체화면 없음): 단추 없이 «홈 화면에 추가» 안내, 홈 화면 앱으로 열렸으면 안내도 없음 — STOP 그대로', () => {

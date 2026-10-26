@@ -1,4 +1,26 @@
-# mobile — Android/iOS 외피 (Capacitor 8)
+# mobile — Android 껍데기 (Capacitor 8)
+
+## 1.1.0-dev — 원격 주소 방식 (2026-10-26)
+
+앱 안에는 **서버 주소 입력 한 장**(`start/`)만 들어 있다. 주소(https origin, `start/origin.js` = 옛 `gateOrigin` 규칙)를 넣으면 같은 WebView 가 그 서버의 새 웹 화면(`apps/web`, `#/drive`)을 연다. 화면 출처 = 서버 출처라 쿠키·CSRF·WS Origin 이 브라우저와 같다(서버 변경 0). 서버 주소는 매번 넣는다(최근 주소 5개만 기억, 자동으로 열지 않음).
+
+| 항목 | 내용 |
+|---|---|
+| 앱 id · 버전 | `org.footholdproject.app.dev` · versionCode 16 · `1.1.0-dev`(dev 빌드 타입, Android 디버그 키 — 1.0.14-dev 위에 덮어 설치) |
+| 이동 허용 | 앱 시작 화면 · 시작 화면에서 연 origin · `https://*.trycloudflare.com`. 그 밖은 막음(바깥 앱도 안 띄움). `server.allowNavigation` 은 **쓰지 않는다** — Capacitor 8.5.2 에서 그 항목이 플러그인 브리지 허용 origin·로컬 서버 가로채기 대상이 되기 때문(`RemoteClient.java` 주석) |
+| 네이티브 | 자체 플러그인 등록 0. KEEP_SCREEN_ON · immersive · 뒤로가기 무시 · 조종 화면(웹 루트 `data-drive`)만 가로 고정(네이티브가 `evaluateJavascript` 로 읽기만) · UA 꼬리 `FootholdApp/1.1.0-dev` · 모든 origin 에 붙는 Capacitor JS 인터페이스 2개(쿠키·Http) 제거 |
+| 인증서 오류 | 늘 취소. 서버 화면이 안 열리면(인증서·망) 시작 화면으로 돌아가 이유만 보인다 — 무시 단추 없음. 신뢰는 OS 저장소만(관문 CA 한 장 신뢰·사용자 CA 0) |
+| 뺀 것 | `FhGate*`·`Go2Direct`·`FhNearby`·`FhSave`(옛 관문 `/api/app/*`·1회용 WS 표 계약, 직결 코어 — 새 05 계약과 안 맞고 등록 안 된 코드가 APK 에 남지 않게 삭제, git 기록에 있음) · `gate`·`fixture` 빌드 타입(생성 CA·설정 없이는 빌드 안 됨, 쓰던 관문 경로가 없어짐) · `gate-profile.mjs`·`gate-emulator-e2e.py` · 권한 `ACCESS_NETWORK_STATE`·`CAMERA` |
+
+빌드(Linux, sudo 없이): `android/local.properties` 에 `sdk.dir=<Android SDK>`(git 제외) →
+`export PATH=~/.local/opt/node-v22.23.3-linux-x64/bin:$PATH JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ANDROID_HOME=~/Android/Sdk; npm ci; npm run apk:dev`
+→ `android/app/build/outputs/apk/dev/app-dev.apk`. 시작 화면 주소 검사 자체 시험 `npm run selftest`, 네이티브 단위 시험 `RemoteClientTest`(apk:dev 에 포함).
+
+아래는 1.0.x(옛 관문·번들 방식) 기록이다. `docs/FHGATE-CONTRACT.md`·`GO2DIRECT-CONTRACT.md`·`B-BUNDLED-*.md`·`INSTALL-DEV.md` 도 그 시기 문서.
+
+---
+
+## 1.0.x 기록 — Android/iOS 외피
 
 `ui/dist`(React 번들)를 **그대로** 실어 앱으로 감싼다. 화면을 다시 만들지 않는다. 화면은 UI 담당, 이 폴더는 외피·빌드·연결 설계만 맡는다.
 

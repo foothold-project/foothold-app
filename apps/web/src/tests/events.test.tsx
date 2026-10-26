@@ -379,6 +379,15 @@ describe('CSV 내보내기', () => {
     expect(card('기록').textContent).toContain('CSV 파일로 내려받았습니다');
     expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:csv');   // 만든 URL 정리(R1)
   });
+  it('Android 앱(UA FootholdApp/) → 받지 않고 «앱에선 내려받기 안 됨» 안내, 파일 없음', async () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) Chrome/140 Mobile Safari/537.36 FootholdApp/1.1.0-dev');
+    serve(signedIn(KIM, { 'GET /events/export.csv': { status: 200, body: 'id,at\n' } }));
+    await open('#/history');
+    await click(btn('내보내기'));
+    expect(alertText()).toContain('앱에서는 파일을 내려받을 수 없습니다');
+    expect(sent('GET', '/events/export.csv')).toHaveLength(0);
+    expect(saved).toEqual([]);
+  });
   it('429 RATE_LIMITED(다른 내보내기 진행 중) → 기다렸다 다시 하라는 안내, 파일 없음, 단추 되살림', async () => {
     serve(signedIn(KIM, { 'GET /events/export.csv': err(429, 'RATE_LIMITED', '다른 기록을 내보내는 중입니다. 잠시 뒤 다시 시도하세요.') }));
     await open('#/history');
