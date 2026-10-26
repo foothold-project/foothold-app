@@ -757,7 +757,7 @@ def create_app(settings: Settings | None = None):
         response.headers['Cache-Control'] = 'no-store'
         return C.AgentTokenResponse(agent_token=raw)
 
-    from . import events_api, notifications, maps, missions, simulation, runs, photos
+    from . import events_api, notifications, maps, missions, simulation, runs, photos, external_camera
     simulation.install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization)
     missions.install(app, DB, Identity, fail, authorize, event, page)
     assignments.install(app, DB, Identity, fail, page)
@@ -769,6 +769,7 @@ def create_app(settings: Settings | None = None):
     install(app, settings, factory, authorize, APIError)
     runs.install(app, DB, fail)
     photos.install(app, DB, Identity, fail, authorize)
+    external_camera.install(app, UploadIdentity, upload_write, fail, authorize)
     app.state.phone_pass_issuer = issuer
     app.state.realtime.phone_pass_clock = lambda: issuer.clock()
     return app
