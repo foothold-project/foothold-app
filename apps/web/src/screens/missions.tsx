@@ -7,7 +7,8 @@ import type { Action, Assignment, MapVersion, Mission, MissionStep, MissionWrite
 import { ApiFail, api, type Plan } from '../api';
 import { idleSim, type Robot, type User } from '../fake';
 import { KIND as DEVICE, type Ctx } from '../screens';
-import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useTree, type Msg, type Place } from './maps';
+import { MapFrame, MapImage } from '../mapframe';
+import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place } from './maps';
 import { fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
 
@@ -409,6 +410,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     api.version(vid, cancel).then(shape(isVersion)).then((x) => setMaps((m) => ({ ...m, [vid]: x })), (e: ApiFail) => { if (e.code !== 'CANCELED') setMapErr(e.message); });
   }, [vid, mapN]);
   const v = vid ? maps[vid] : undefined;
+  const look = useFit(v);
   // 임무 고르기: 보관 안 된 임무의 최신 판. 이미 고른 옛 판·보관된 임무는 그 지점에만 그대로 보인다
   const [missions, setMissions] = useState<Mission[] | null>(null), [mErr, setMErr] = useState(''), [mN, setMN] = useState(0);
   useEffect(() => { api.allPlans('missions', cancel).then((l) => { setMissions(l.filter((x) => isPlan(x) && 'steps' in x)); setMErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setMErr(e.message); }); }, [mN]);
@@ -502,9 +504,9 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
             {p.site.name} · {p.building.name} · {p.floor.name}{c ? ` (지점 ${c})` : ''}{p.floor.approved_version_id ? '' : ' — 승인된 지도 없음'}</button>; })}</div>}
     <h3>② 지점</h3>
     {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
-    {v && <svg ref={svg} viewBox={`0 0 ${v.width} ${v.height}`} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-      style={{ display: 'block', width: '100%', maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8, touchAction: set ? 'none' : undefined, cursor: set ? 'crosshair' : 'default' }}>
-      <image key={mapN} href={api.imageUrl(v.id)} width={v.width} height={v.height} style={{ imageRendering: 'pixelated' }} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
+    {v && <><MapFrame ref={svg} {...look} edit={!!set} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+      style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, ...(set && { cursor: 'crosshair' }) }}>
+      <MapImage key={mapN} id={v.id} width={v.width} height={v.height} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
       <Shapes v={v} f={v.features} />
       {on.length > 1 && <polyline points={on.map(([p]) => toPixel(v, p.x, p.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
       {on.map(([p, i]) => { const [x, y] = toPixel(v, p.x, p.y), b = marks.has(`waypoints.${i}`);
@@ -513,7 +515,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
       {target && target.floor_id === cur && (() => { const [x, y] = toPixel(v, target.x, target.y), b = marks.has('finish.target');
         return <g data-pt="T" data-bad={b ? '' : undefined}><rect x={x - rr} y={y - rr} width={rr * 2} height={rr * 2} style={{ fill: b ? 'var(--bad)' : 'var(--ink-3)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
           <text x={x} y={y + rr * 0.45} fontSize={rr * 1.1} textAnchor="middle" style={{ fill: '#FFFFFF', pointerEvents: 'none' }}>끝</text></g>; })()}
-    </svg>}
+    </MapFrame></>}
     {set && v && <p className="lv-note" role="status">{placing === 'target' ? '지도를 누르면 끝나고 갈 지점을 놓습니다(이름 붙은 지도 지점을 누르면 그 지점).'
       : '지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 번호 지점은 끌어서 옮깁니다. 빨간 구역은 진입 금지입니다.'}</p>}
     {msg && <p className="fh-msg" role="alert">{msg}</p>}

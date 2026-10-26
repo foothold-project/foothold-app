@@ -519,6 +519,26 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(text()).toContain('저장했습니다(판 1).');
     expect(rows()).toEqual(['s1', 's3']);
   });
+  it('두 손가락 집기(확대)만 하면 지점이 생기지 않고, 뒤의 한 손가락 누름은 뗄 때 하나(PR #119 r1)', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    sized();
+    const touch = async (type: string, x: number, y: number, id: number) => {
+      act(() => {
+        const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: (x + 1) * 80, clientY: (2 - y) * 80, button: 0 });
+        Object.defineProperties(e, { pointerId: { value: id }, pointerType: { value: 'touch' } }); map().dispatchEvent(e);
+      });
+      await flush();
+    };
+    await touch('pointerdown', 0.25, 0, 1); await touch('pointerdown', 2.75, 0, 2);
+    await touch('pointermove', -1, 0, 1); await touch('pointerup', -1, 0, 1); await touch('pointerup', 2.75, 0, 2);
+    expect($('[data-wp="0"]')).toBeNull();
+    await touch('pointerdown', 1, 1, 3);
+    expect($('[data-wp="0"]')).toBeNull();                              // 누르는 동안은 아직(집기일 수 있다)
+    await touch('pointerup', 1, 1, 3);
+    expect(point(0)).toBeTruthy(); expect($('[data-wp="1"]')).toBeNull();
+  });
   it('진입 금지 구역 안 지점 = 갈 수 없음 + 이유 + 저장 막힘(이유 보임), 지도 밖은 찍지 않음', async () => {
     seed(); serve(KIM);
     await open();

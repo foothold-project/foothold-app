@@ -2,10 +2,11 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 운영 관리자의 편집 저장·되돌리기 = 결재 요청(S4a, 201 PENDING 판) — 승인될 때까지 승인 판을 그대로 보이고, 처리는 결재 탭(screens/approvals.tsx).
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Approval, MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Tone, User } from '../fake';
+import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
 import { leaving } from '../menu';
 import { Chip, Line, type Ctx, type Dash } from '../screens';
 import { Compare, Rollback } from './mapdiff';
@@ -41,11 +42,11 @@ export function toPixel(v: Pick<MapVersion, 'origin' | 'resolution' | 'height'>,
 
 /** 구역 종류는 테두리로(진입 금지 = 굵은 실선, 감속 = 둥근 점선)와 이름표로 가른다 — 색에만 기대지 않게 */
 export const ZONE = { NO_GO: { text: '진입 금지', line: { strokeWidth: 3.5 } }, SLOW: { text: '감속', line: { strokeWidth: 2.5, strokeDasharray: '1 5', strokeLinecap: 'round' } } } as const;
-/** 구역 채우기색 — 기존 토큰을 구역 순서대로 돌려 쓰는 화면 표시값(저장 안 함). 지도 그림은 두 테마 모두 밝은 바탕이라 밝은 바탕에서 보이는 토큰만 */
+/** 구역 채우기색 — 기존 토큰을 구역 순서대로 돌려 쓰는 화면 표시값(저장 안 함). 지도 그림은 테마 색(mapframe MapImage)이라 두 테마 바탕 모두에서 보이는 토큰만 */
 const FILL = ['var(--accent)', 'var(--warn)', 'var(--bad)', 'var(--ink-3)'];
 export const fillOf = (i: number) => FILL[i % FILL.length];
 export const KIND = { STAIRS: '계단', ELEVATOR: '엘리베이터' } as const;
-export const EDIT = { ERASE: { text: '지우개', color: 'var(--muted)' }, WALL: { text: '벽', color: 'var(--ink-3)' } } as const;   // 지도 그림은 테마와 상관없이 흰 바탕이라 두 테마 모두 중간 회색인 토큰
+export const EDIT = { ERASE: { text: '지우개', color: 'var(--muted)' }, WALL: { text: '벽', color: 'var(--ink-3)' } } as const;   // 지도 그림은 테마 색 바탕(빈 곳 --panel·벽 --text)이라 두 테마 모두 중간 회색인 토큰
 /** 바꾼·되돌리는 이유 검사 — 서버(MapVersionCreate·MapRollback reason)와 같게: 보이는 글자 하나 이상, 제어·서식 문자(Cc·Cf: 탭·폭 없는 공백·이모지 잇개 등) 없음.
  *  what = «바꾼 이유» 처럼 칸 이름. 통과면 null */
 export const reasonBad = (s: string, what: string) => (!s.replace(/[\p{Cc}\p{Cf}\s]/gu, '') ? `${what}를 입력하세요.`
@@ -78,14 +79,23 @@ export function Shapes({ v, f, sel, bad }: { v: Pick<MapVersion, 'origin' | 'res
   </>;
 }
 
+/** 요소 자리(그림 픽셀) — 처음 화면(자르기)이 요소를 잘라 내지 않게 */
+export const featPx = (v: Pick<MapVersion, 'origin' | 'resolution' | 'height'>, f: MapFeatures): [number, number][] =>
+  [...f.zones.flatMap((z) => z.polygon), ...f.edits.flatMap((e) => e.polyline), ...[...f.waypoints, ...f.connectors].map((w) => [w.x, w.y])].map(([x, y]) => toPixel(v, x, y));
+/** 판 그림 전체·처음 화면(벽 범위 + 판 요소 + 여백, 못 재면 전체). 판이 아직 없으면(받는 중) 빈 틀 */
+export function useFit(v?: MapVersion) {
+  const walls = useWalls(v?.id), full: Box = v ? [0, 0, v.width, v.height] : [0, 0, 1, 1];
+  return { full, fit: useMemo(() => (v ? around(walls, featPx(v, v.features), full, v.resolution) : full), [walls, v]), res: v?.resolution ?? 1 };
+}
+
 /** 판 그림 + 저장된 요소(구역·지점·연결점·지우개·벽 선). 그림을 못 받으면 칸 안 글 + 다시 불러오기 */
 export function MapView({ v }: { v: MapVersion }) {
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
   return <div>
-    <svg viewBox={`0 0 ${v.width} ${v.height}`} role="img" aria-label={`판 ${v.number} 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8 }}>
-      <image key={n} href={api.imageUrl(v.id)} width={v.width} height={v.height} style={{ imageRendering: 'pixelated' }} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
-      <Shapes v={v} f={v.features} />
-    </svg>
+      <MapFrame {...useFit(v)} role="img" aria-label={`판 ${v.number} 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+        <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
+        <Shapes v={v} f={v.features} />
+      </MapFrame>
     {at === 'wait' && <p className="lv-note" role="status">지도 그림을 불러오는 중…</p>}
     {at === 'bad' && <div className="fh-row"><p className="fh-msg" role="alert">지도 그림을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 불러오세요.</p>
       <button type="button" className="btn" onClick={() => { setAt('wait'); setN(n + 1); }}>다시 불러오기</button></div>}

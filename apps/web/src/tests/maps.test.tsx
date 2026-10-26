@@ -912,6 +912,30 @@ describe('지도 편집 — 도구', () => {
   });
 });
 
+describe('지도 편집 — 확대·이동 뒤 좌표(mapframe)', () => {
+  /** 화면 좌표 그대로 누름(button 1 = 가운데 단추) */
+  const raw = async (type: string, sx: number, sy: number, button = 0) => { act(() => { canvas().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: sx, clientY: sy, button })); }); await flush(); };
+  const vb = () => canvas().getAttribute('viewBox')!.split(' ').map((x) => Math.round(Number(x) * 1000) / 1000);
+  it('확대(가운데 기준 1.5배) → 가운데 단추 끌기 = 이동만(지점 안 생김) → 찍은 지점이 지금 viewBox 기준 지도 좌표 → «맞춤» = 처음 화면', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    expect(vb()).toEqual([0, 0, 100, 80]);   // jsdom 은 그림 화소를 못 읽어 자르기 없음 = 전체 그림(실패 시 전체)
+    await click($('[aria-label="확대"]'));
+    expect(vb()).toEqual([16.667, 13.333, 66.667, 53.333]);   // 400×320 칸에 66.67×53.33 픽셀 = 6배
+    await tool('지점');
+    await raw('pointerdown', 200, 160, 1); await raw('pointermove', 260, 160, 1); await raw('pointerup', 260, 160, 1);   // 60px ÷ 6 = 그림 10픽셀 왼쪽으로
+    expect(vb()).toEqual([6.667, 13.333, 66.667, 53.333]);
+    await raw('pointerdown', 0, 0); await raw('pointerup', 0, 0);   // 화면 왼쪽 위 = 그림 (6.667, 13.333) → 지도 (-1 + 6.667·0.05, -2 + (80 - 13.333)·0.05)
+    await save('확대 지점');
+    const w = body().features.waypoints;
+    expect(w).toHaveLength(2);
+    expect(near([[w[1].x, w[1].y]])).toEqual([[-0.667, 1.333]]);
+    await startEdit();
+    await click($('[aria-label="확대"]')); await click(btn('맞춤'));
+    expect(vb()).toEqual([0, 0, 100, 80]);
+  });
+});
+
 describe('지도 편집 — 저장', () => {
   it('미리 검사에 걸리면 보내지 않고 그 요소를 표시, 바꾼 것 없음·이유 빈칸도 막음', async () => {
     serve(editSrv(saved201));
@@ -995,6 +1019,28 @@ describe('지도 편집 — 저장', () => {
     expect(alertText()).toContain('서버가 지금 다른 지도를 처리하고 있습니다. 잠시 뒤 다시 저장하세요.');
     await save();
     expect(alertText()).toContain('권한이 없습니다.');
+  });
+});
+
+describe('지도 편집 — 두 손가락 집기(PR #119 r1)', () => {
+  /** 손가락(touch) 누름 — 지도 좌표(m) */
+  const touch = async (type: string, x: number, y: number, id: number) => {
+    act(() => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: (x + 1) * 80, clientY: (2 - y) * 80, button: 0 });
+      Object.defineProperties(e, { pointerId: { value: id }, pointerType: { value: 'touch' } }); canvas().dispatchEvent(e);
+    });
+    await flush();
+  };
+  it('지점 도구: 집기(확대)만 하면 지점이 생기지 않고, 뒤의 한 손가락 누름은 뗄 때 그 자리에 하나', async () => {
+    serve(editSrv(saved201));
+    await startEdit(); await tool('지점');
+    const before = canvas().querySelectorAll('[data-key^="waypoints."]').length;
+    await touch('pointerdown', 0.25, 0, 1); await touch('pointerdown', 2.75, 0, 2);
+    await touch('pointermove', -1, 0, 1); await touch('pointerup', -1, 0, 1); await touch('pointerup', 2.75, 0, 2);
+    expect(canvas().querySelectorAll('[data-key^="waypoints."]')).toHaveLength(before);
+    await touch('pointerdown', 1, 1, 3); await touch('pointerup', 1, 1, 3);   // 확대 뒤라 좌표는 따지지 않고 개수만
+    await save('손가락 지점');
+    expect(body().features.waypoints).toHaveLength(before + 1);
   });
 });
 
