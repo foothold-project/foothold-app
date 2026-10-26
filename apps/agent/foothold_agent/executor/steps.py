@@ -5,8 +5,12 @@ from datetime import datetime, timezone
 import hashlib
 from urllib.error import HTTPError, URLError
 
-from foothold_agent.camera.stream import jpeg_size
+from foothold_agent.camera.stream import MAX_BYTES, jpeg_size
 from .photos import validate_receipt
+
+
+class PhotoFrameTooLarge(ValueError):
+    pass
 
 
 class ExecutionSupport:
@@ -42,10 +46,18 @@ class ExecutionSupport:
             raise ValueError('EXECUTION_UNAVAILABLE')
 
     def frame_after(self, requested):
+        oversized = False
         if self.media is not None and self.media.available('rgb'):
             item = self.media.latest.get('rgb')
             if item is not None and requested < item[0] <= self.now() and self.now() - item[0] <= 1:
-                return base64.b64decode(item[1]['jpeg'], validate=True), item[1]['captured_at']
+                encoded = item[1]['jpeg']
+                # Media video may exceed the photo API limit. Bound decoding and
+                # prefer an existing eligible camera frame instead of uploading it.
+                if len(encoded) <= 4 * ((MAX_BYTES + 2) // 3):
+                    payload = base64.b64decode(encoded, validate=True)
+                    if len(payload) <= MAX_BYTES:
+                        return payload, item[1]['captured_at']
+                oversized = True
         camera = self.camera
         if (camera is not None and not camera.closed and camera.latest is not None
                 and camera.received is not None and requested < camera.received <= self.now()
@@ -53,6 +65,8 @@ class ExecutionSupport:
             # Timestamp is the source reception time, never the later upload time.
             captured = datetime.now(timezone.utc).timestamp() - (self.now() - camera.received)
             return base64.b64decode(camera.latest['jpeg'], validate=True), datetime.fromtimestamp(captured, timezone.utc).isoformat()
+        if oversized:
+            raise PhotoFrameTooLarge('RGB media frame exceeds 65536-byte photo limit; fresh camera frame unavailable')
         return None
 
 
@@ -151,6 +165,8 @@ class StepRunner:
                     idempotency_key=f'{self.run}:{self.waypoint}:{len(self.results)}')
                 self.packet = metadata, payload
                 self.state = 'RETRY'
+            except PhotoFrameTooLarge as error:
+                self.fail('NO_FRESH_FRAME', str(error))
             except (ValueError, KeyError, TypeError):
                 self.fail('NO_FRESH_FRAME', 'RGB frame is invalid')
         if self.state == 'RETRY':

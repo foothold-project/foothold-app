@@ -3,7 +3,9 @@
 `Observer` advertises a hello snapshot of `ExecutionCapabilities`. WAIT is supported;
 RGB PHOTO is supported only while an existing camera/media source has a frame received
 within one monotonic second and the photo REST client is configured. Depth is omitted.
-A readiness change requests a reconnect with a new capability revision. The scenario
+Readiness changes request a new hello revision only while no run is active; RGB
+loss must persist for three seconds first. Active runs keep their cloud channel
+and advertised revision, and PHOTO checks RGB locally without affecting WAIT. The scenario
 source negotiates that exact revision; a 422 `EXECUTION_UNAVAILABLE` becomes an event
 with `requested_run_id` and `reason`, without inventing a server run.
 
@@ -21,7 +23,9 @@ before the executor invalidates its step generation; no HTTP worker is joined.
 
 PHOTO uses the existing media latest frame, or the already subscribed camera's
 latest frame. Reception must be strictly after the step's capture request and no
-older than one second. Capture times out after three seconds. It adds no ROS camera
+older than one second. Media frames exceeding the 65,536-byte photo limit fall
+back to an eligible existing camera frame; absent a fallback, the step fails before
+upload. Capture times out after three seconds. It adds no ROS camera
 subscription and does not call a decoder on the Hub loop. JPEG bytes and metadata
 stay in bounded process memory; they never enter the run journal or safety socket.
 

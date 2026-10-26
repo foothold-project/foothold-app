@@ -232,19 +232,61 @@ def test_cloud_disconnect_pauses_executing_steps(r):
     assert r.runs.current['status'] == 'PAUSED'
 
 
-def test_capability_change_requests_new_hello_and_pauses(r):
-    configure(r, [wait(30)])
+@pytest.mark.parametrize('with_photo', [False, True])
+def test_rgb_loss_keeps_wait_and_cloud_revision_stable_until_run_ends(r, with_photo):
+    configure(r, [wait(5)] + ([photo()] if with_photo else []))
     observer = Observer(r.hub)
     hello = observer.connect().messages[0]
     assert hello['execution_capabilities']['actions'][1]['state'] == 'SUPPORTED'
     arrive(r)
     ack(r)
     r.hub.tick()
-    advance(r, 1.1)
-    observer.tick()
-    assert observer.reconnect_required and r.runs.current['status'] == 'PAUSED'
-    new = observer.connect().messages[0]['execution_capabilities']
-    assert new['revision'] == 2 and new['actions'][1]['state'] == 'UNAVAILABLE'
+    for _ in range(11):
+        advance(r, .5)
+        observer.receive(dict(t='ping'))  # cloud stays healthy while RGB expires
+        if r.runs.active:
+            assert not observer.reconnect_required
+        assert r.runs.support.revision == 1
+    results = recorded(r)[0]['data']['results']['steps']
+    assert results[0]['action'] == 'WAIT' and results[0]['status'] == 'SUCCEEDED'
+    if with_photo:
+        assert results[1]['action'] == 'PHOTO' and results[1]['status'] == 'FAILED'
+        assert results[1]['failure_code'] == 'DEVICE_UNAVAILABLE'
+        assert r.runs.current['status'] == 'FAILED' and not r.uploads.calls
+    else:
+        assert len(results) == 1 and r.runs.current['status'] == 'PERFORMING'
+        ack(r)
+        r.hub.tick()
+        assert r.runs.current['status'] == 'COMPLETED'
+    observer.receive(dict(t='ping'))
+    assert observer.reconnect_required  # only after completion/failure
+    assert observer.connect().messages[0]['execution_capabilities']['revision'] == 2
+
+
+def test_idle_rgb_loss_requires_three_continuous_seconds_before_reconnect(r):
+    configure(r, [wait(30)])
+    observer = Observer(r.hub)
+    observer.connect()
+    r.clock.t = 1.1
+    observer.receive(dict(t='ping'))
+    r.clock.t = 2.5
+    observer.receive(dict(t='ping'))
+    assert not observer.reconnect_required
+    r.clock.t = 2.6
+    assert r.camera.submit(jpeg())
+    r.camera.sample()
+    observer.receive(dict(t='ping'))
+    assert observer._rgb_unavailable_since is None
+    r.clock.t = 3.7
+    observer.receive(dict(t='ping'))
+    r.clock.t = 5.7
+    observer.receive(dict(t='ping'))
+    assert not observer.reconnect_required
+    r.clock.t = 6.71
+    observer.receive(dict(t='ping'))
+    assert observer.reconnect_required
+    caps = observer.connect().messages[0]['execution_capabilities']
+    assert caps['revision'] == 2 and caps['actions'][1]['state'] == 'UNAVAILABLE'
 
 
 def test_422_does_not_start_or_move_and_reports_reason(r):

@@ -38,6 +38,7 @@ class Observer:
         self.last_ping = self.now()
         self._replay = []
         self.server_stop_ref = 0
+        self._rgb_unavailable_since = None
 
     @property
     def run(self):
@@ -60,7 +61,17 @@ class Observer:
         if self.connected and support.advertised is not None:
             advertised_rgb = any(a['key'] == 'photo.rgb' and a['state'] == 'SUPPORTED'
                                  for a in support.advertised['actions'])
-            if advertised_rgb != (support.rgb_ready() and support.uploader is not None):
+            ready = support.rgb_ready() and support.uploader is not None
+            if ready:
+                self._rgb_unavailable_since = None
+            elif self._rgb_unavailable_since is None:
+                self._rgb_unavailable_since = self.now()
+            changed = ((ready and not advertised_rgb) or
+                       (not ready and advertised_rgb and
+                        self.now() - self._rgb_unavailable_since >= 3))
+            # Keep the cloud STOP channel and fixed run revision stable. PHOTO
+            # checks its own live frame source; WAIT has no RGB dependency.
+            if changed and not self.phone.runs.active:
                 self.reconnect_required = True
         if self.link_lost or self.reconnect_required:
             self.phone.runs.execution_disconnected()
@@ -77,6 +88,7 @@ class Observer:
         self.protocol_rejected = self.reconnect_required = self.link_lost = False
         self.last_ping = self.now()
         self.server_stop_ref = 0
+        self._rgb_unavailable_since = None
         journal = self.phone.runs.journal
         if journal is not None:
             journal.poll()

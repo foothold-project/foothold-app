@@ -336,3 +336,35 @@ def test_photo_client_has_no_cross_run_upload_backlog(step_env, monkeypatch):
     finally:
         release.set()
         client.close()
+
+
+@pytest.mark.parametrize('camera_fallback', [True, False])
+@pytest.mark.parametrize('byte_length', [65537, 65539])
+def test_oversized_media_uses_bounded_camera_or_fails_before_upload(step_env, camera_fallback, byte_length):
+    import base64
+    clock, camera, uploads, _, _ = step_env
+    class Media:
+        latest = {}
+        def available(self, channel): return channel == 'rgb'
+    media = Media()
+    captured = datetime.now(timezone.utc).isoformat()
+    media.latest['rgb'] = (clock(), dict(jpeg=base64.b64encode(jpeg()).decode(), captured_at=captured), None)
+    support = ExecutionSupport(media=media, camera=camera if camera_fallback else None,
+                               now=clock, uploader=uploads)
+    runner = StepRunner(support, org=str(uuid4()), robot=camera.robot, run=str(uuid4()),
+                        waypoint=0, steps=[dict(action='PHOTO', params=dict(camera='rgb'))], now=clock)
+    runner.tick()
+    clock.t = .2
+    media.latest['rgb'] = (clock(), dict(jpeg=base64.b64encode(b'x' * byte_length).decode(), captured_at=captured), None)
+    if camera_fallback:
+        assert camera.submit(jpeg())
+        camera.sample()
+    runner.tick()
+    if camera_fallback:
+        assert runner.state == 'UPLOADING' and uploads.calls[0][1] == jpeg()
+        assert uploads.calls[0][0]['byte_length'] <= 65536
+    else:
+        assert runner.results[0]['status'] == 'FAILED'
+        assert runner.results[0]['failure_code'] == 'NO_FRESH_FRAME'
+        assert '65536-byte' in runner.results[0]['failure_reason']
+        assert not uploads.calls
