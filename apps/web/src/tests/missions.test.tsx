@@ -462,7 +462,10 @@ describe('권한(02 §10)', () => {
   });
 });
 
-const floorBtn = (n: string) => btns(card('층')).find((b) => b.textContent!.startsWith(`본관 · 본동 · ${n}`))!;
+/** 지도 고르기(장소 › 건물 › 층 드롭다운 하나) */
+const floorSel = () => $<HTMLSelectElement>('select[aria-label="지도"]')!;
+const floorOpt = (n: string) => [...floorSel().options].find((o) => o.textContent!.startsWith(`본관 › 본동 › ${n}`))!;
+const pickFloor = (n: string) => setVal(floorSel(), floorOpt(n).value);
 describe('시나리오 편집(03 §5.3)', () => {
   it('임무가 0개면 새 시나리오 시작 때 안내 + «새 임무» 바로가기(10-22 QA R7), 임무가 있으면 안내 없음', async () => {
     seed(); db.missions = []; serve(KIM);
@@ -485,8 +488,10 @@ describe('시나리오 편집(03 §5.3)', () => {
     seed(); serve(KIM);
     await open();
     await click(btn('새 시나리오'));
-    expect(floorBtn('3층').disabled).toBe(true);                       // 승인 판 없는 층
-    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('true');
+    expect(floorSel().className).toBe('fh-user fh-sel');               // 앱 공용 고르기 모양(PR #114)
+    expect([...floorSel().options].map((o) => o.textContent)).toEqual(['본관 › 본동 › 1층', '본관 › 본동 › 2층', '본관 › 본동 › 3층 — 승인된 지도 없음']);
+    expect(floorOpt('3층').disabled).toBe(true);                       // 승인 판 없는 층
+    expect(floorSel().value).toBe('f1');
     expect(map().querySelector('[data-zone="NO_GO"]')).toBeTruthy();   // 진입 금지 구역 그림
     await setVal(name(), '새 순찰');
     await tap(1, 1);
@@ -497,10 +502,11 @@ describe('시나리오 편집(03 §5.3)', () => {
     expect(point(0).textContent).toContain('«입구»');
     sized(); await ptr('pointerdown', 1, 1, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 1.5, 0.5); await ptr('pointerup', 1.5, 0.5);
     expect(point(1).textContent).toContain('(1.5, 0.5) m');
-    await click(floorBtn('2층'));
+    await pickFloor('2층');
     await tap(2, 0);
     await setVal($<HTMLSelectElement>('select[aria-label="3번 지점 임무"]')!, 'm2:1');
-    expect(btns(card('층')).find((b) => b.textContent!.includes('1층'))!.textContent).toContain('(지점 2)');
+    expect(floorOpt('1층').textContent).toBe('본관 › 본동 › 1층 (지점 2)');
+    expect(point(0).textContent).toContain('본동 1층 · «입구»'); expect(point(2).textContent).not.toContain('본동');   // 층 이름은 지금 보는 지도와 다른 층 지점에만
     await settle();
     const pre = sent('POST', '/scenarios/preview');
     expect(pre.length).toBeGreaterThan(0);
@@ -565,7 +571,7 @@ describe('시나리오 편집(03 §5.3)', () => {
     await click(btn('새 시나리오'));
     await setVal(name(), '두 층');
     await tap(1, 1);
-    await click(floorBtn('2층')); await tap(1, 1);
+    await pickFloor('2층'); await tap(1, 1);
     await settle();
     expect(card('구간').textContent).toContain('1번 지점 → 2번 지점두 층을 직접 잇는 연결점 짝이 없습니다.');
     expect(point(1).textContent).toContain('갈 수 없음: 두 층을 직접 잇는 연결점 짝이 없습니다.');
@@ -626,12 +632,90 @@ describe('시나리오 편집(03 §5.3)', () => {
     seed(); serve(KIM);
     await open();
     await click(row('s1'));
-    sized(); await ptr('pointerdown', 0, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 0.02, 0); await ptr('pointerup', 0.02, 0);
+    // 끌다가 0.05 m 안으로 돌아오면 그대로(누름 판정 8px 을 넘긴 끌기)
+    sized(); await ptr('pointerdown', 0, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 0.5, 0); await ptr('pointermove', 0.02, 0); await ptr('pointerup', 0.02, 0);
     expect(point(1).textContent).toContain('«입구»');
     sized(); await ptr('pointerdown', 0, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 0.5, 0); await ptr('pointerup', 0.5, 0);
     expect(point(1).textContent).toContain('(0.5, 0.0) m');
     await settle();
     expect(last(sent('POST', '/scenarios/preview'))!.body).toMatchObject({ waypoints: [{}, { x: 0.5, y: 0, waypoint_ref: null }] });
+  });
+  it('찍힌 지점을 다시 누르면 지움 + «되돌리기» 한 번(확인창 없음), 8px 안 흔들림도 누름, 끌면 옮김 — 단계 창 «지우기»도 같음', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    await tap(1, 1); await tap(2, 0); await tap(0, 1);
+    expect([0, 1, 2].map((i) => point(i).textContent)).toEqual([expect.stringContaining('(1.0, 1.0) m'), expect.stringContaining('(2.0, 0.0) m'), expect.stringContaining('(0.0, 1.0) m')]);
+    const confirm = vi.spyOn(window, 'confirm');
+    sized(); await ptr('pointerdown', 2, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 2.05, 0); await ptr('pointerup', 2.05, 0);   // 4px 흔들림 = 누름
+    expect(confirm).not.toHaveBeenCalled();
+    expect($('[data-wp="2"]')).toBeNull(); expect(point(1).textContent).toContain('(0.0, 1.0) m');
+    expect($('[data-undo]')!.textContent).toBe('지점 2 지움되돌리기');
+    await click(btn('되돌리기', $('[data-undo]')!));
+    expect(point(1).textContent).toContain('(2.0, 0.0) m'); expect(point(2)).toBeTruthy(); expect($('[data-undo]')).toBeNull();
+    // 끌기는 지우지 않고 옮김
+    sized(); await ptr('pointerdown', 2, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 2.5, 0); await ptr('pointerup', 2.5, 0);
+    expect(point(1).textContent).toContain('(2.5, 0.0) m'); expect($('[data-undo]')).toBeNull();
+    // 단계 창 «지우기»도 되돌리기, 그 뒤 다른 편집을 하면 되돌리기는 사라진다(나중 편집을 덮지 않게)
+    await click(aria('1번 지점 지우기'));
+    expect($('[data-undo]')!.textContent).toContain('지점 1 지움');
+    await tap(-0.5, -1);
+    expect($('[data-undo]')).toBeNull();
+    expect([0, 1, 2].map((i) => point(i).textContent)).toEqual([expect.stringContaining('(2.5, 0.0) m'), expect.stringContaining('(0.0, 1.0) m'), expect.stringContaining('(-0.5, -1.0) m')]);
+  });
+  it('터치: 찍힌 지점 한 손가락 누름 = 지움, 지점 위에서 시작한 두 손가락 집기는 지우지 않음(PR #119 규칙 그대로)', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    await tap(1, 1); await tap(2, 0);
+    sized();
+    const touch = async (type: string, x: number, y: number, id: number, on: Element = map()) => {
+      act(() => {
+        const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: (x + 1) * 80, clientY: (2 - y) * 80, button: 0 });
+        Object.defineProperties(e, { pointerId: { value: id }, pointerType: { value: 'touch' } }); on.dispatchEvent(e);
+      });
+      await flush();
+    };
+    const pt = () => map().querySelector('[data-pt="1"]')!;
+    await touch('pointerdown', 2, 0, 1, pt()); await touch('pointerdown', 3, 0, 2);
+    await touch('pointermove', 1.5, 0, 1); await touch('pointerup', 1.5, 0, 1); await touch('pointerup', 3, 0, 2);
+    expect(point(1).textContent).toContain('(2.0, 0.0) m'); expect($('[data-undo]')).toBeNull();
+    await touch('pointerdown', 2, 0, 3, pt());
+    expect(point(1)).toBeTruthy();                                       // 누르는 동안은 아직
+    await touch('pointerup', 2, 0, 3, pt());
+    expect($('[data-wp="1"]')).toBeNull(); expect($('[data-undo]')!.textContent).toContain('지점 2 지움');
+  });
+  it('끝 지점도 같은 규칙 — 누르면 지움(끝나면 «지정 지점으로 이동»은 그대로, 다시 찍어야 저장) + 되돌리기', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    await tap(1, 1);
+    await setVal(field('끝나면'), 'GO_TO');
+    await tap(-0.5, -1);
+    expect(map().querySelector('[data-pt="T"]')).toBeTruthy();
+    await tap(-0.5, -1, map().querySelector('[data-pt="T"]')!);
+    expect(map().querySelector('[data-pt="T"]')).toBeNull(); expect(point(0)).toBeTruthy();
+    expect(field('끝나면').value).toBe('GO_TO');
+    expect($('[data-block]')!.textContent).toBe('끝나고 갈 지점을 지도에서 찍으세요.');
+    await click(btn('되돌리기', $('[data-undo]')!));
+    expect(map().querySelector('[data-pt="T"]')).toBeTruthy();
+  });
+  it('단계 창: 지도 오른쪽에서 ▸ 로 접고 ◂ 로 펼친다(접으면 단계 목록 숨김), 다른 시나리오를 열어도 고른 그대로', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(row('s1'));
+    const pane = card('단계 창'), fold = () => $<HTMLButtonElement>('.ms-fold')!;
+    expect(pane.tagName).toBe('ASIDE');
+    expect(map().compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(fold().getAttribute('aria-expanded')).toBe('true'); expect(fold().textContent).toBe('단계 2 ▸');
+    expect(point(1)).toBeTruthy();
+    await click(fold());
+    expect(fold().getAttribute('aria-expanded')).toBe('false'); expect(fold().textContent).toBe('◂ 단계 2');
+    expect($('[data-wp="0"]')).toBeNull(); expect($('.ms-edit')!.hasAttribute('data-open')).toBe(false);
+    await click(btn('새 시나리오'));
+    expect(fold().textContent).toBe('◂ 단계 0');
+    await click(fold());
+    expect(fold().getAttribute('aria-expanded')).toBe('true');
   });
 });
 
