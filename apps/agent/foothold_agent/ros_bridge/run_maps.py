@@ -111,3 +111,44 @@ class RunMaps:
                 and (grid['width'],grid['height']) == (p['width'],p['height'])
                 and abs(grid['resolution']-p['resolution']) <= 1e-7
                 and all(abs(a-b) <= 1e-7 for a,b in zip(grid['origin'],p['origin'])))
+
+    def mismatch_diagnostics(self, request, plan, snapshot, grid):
+        """Explain the existing predicate with field names, never field values."""
+        p, c = getattr(plan, 'map_proof', None), snapshot.get('floor_context')
+        failures = []
+        def check(name, ok):
+            if not ok:
+                failures.append(name)
+        check('plan.map_proof.present', bool(p))
+        check('floor_context.present', bool(c))
+        check('floor_bindings.present', bool(self.floors))
+        if not p or not c or not self.floors:
+            return failures
+        b = self.floors.bindings.get(c.get('current_floor_id'))
+        check('floor_context.current_floor.registered', b is not None)
+        if b is None:
+            return failures
+        expected = {k: b[k] for k in ('floor_id','map_version_id','source_pgm_sha256','origin','resolution','width','height','source','world_id','ros_floor_id')}
+        expected['image_sha256'] = b['sha256']
+        for k, v in expected.items():
+            check('plan.' + k, p.get(k) == v)
+        check('plan.proof.keys', p.keys() == expected.keys())
+        asset = self.assets.get(request['map_version_id'])
+        check('asset.present', asset is not None)
+        if asset is not None:
+            for k in ('image_sha256','source_pgm_sha256','width','height'):
+                check('asset.' + k, p.get(k) == asset[k])
+        check('floor_context.run_id', c.get('run_id') == self.floors.run_id)
+        check('floor_context.epoch', c.get('epoch') == (snapshot.get('observation') or {}).get('episode'))
+        check('floor_context.on_floor', c.get('floor_state') == 'on_floor')
+        for k in ('floor_id','map_version_id','source_pgm_sha256','world_id'):
+            check('floor_context.' + k, c.get(k) == p.get(k))
+        check('floor_context.sha256', c.get('sha256') == p.get('image_sha256'))
+        check('grid.present', grid is not None)
+        if grid is not None and asset is not None:
+            check('grid.sha256', grid.get('sha256') == asset['occupancy_sha256'])
+            for k in ('width','height'):
+                check('grid.' + k, grid[k] == p[k])
+            check('grid.resolution', abs(grid['resolution']-p['resolution']) <= 1e-7)
+            check('grid.origin', all(abs(a-b) <= 1e-7 for a,b in zip(grid['origin'],p['origin'])))
+        return failures

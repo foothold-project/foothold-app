@@ -13,6 +13,7 @@ from foothold_agent.phone.server import Server
 from foothold_agent.phone.observer import Observer, DiscardSink
 from .config import Config
 from .node import RosNode
+from .run_context import RunContext
 
 
 async def run(config, *, simulation_binding=None):
@@ -71,12 +72,7 @@ async def run(config, *, simulation_binding=None):
                 run_journal = RunOutbox(os.environ['FOOTHOLD_RUN_OUTBOX_PATH'])
             if os.environ.get('FOOTHOLD_SCENARIO_DATA_ORIGIN'):
                 scenario_source = ScenarioSource(os.environ['FOOTHOLD_SCENARIO_DATA_ORIGIN'], config.settings.token)
-            def run_context(request, plan):
-                extension = bridge.extension
-                snapshot = bridge.inputs.telemetry.snapshot()
-                return (maps is not None and extension is not None
-                        and nav.actions.ready()
-                        and maps.matches(request, plan, snapshot, extension.grid_snapshot()))
+            run_context = RunContext(bridge, maps, nav)
 
             def arrival(binding, goal):
                 snapshot = bridge.inputs.telemetry.snapshot()

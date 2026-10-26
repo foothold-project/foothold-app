@@ -197,10 +197,11 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   };
 
   return <div className={`fh${light ? ' light' : ''}${phone ? ' phone' : ''}`} data-layout={phone ? 'phone' : 'pc'} data-drive={open || simOpen ? '' : undefined}>
-    <header className="fh-head">
+    {/* 시뮬 조종 화면(10-26): 머리줄은 STOP 만 — 영상 위 오른쪽 위에 뜬다(drive.css .fh-head[data-bare]). 시뮬 끝내기·연결 표시는 조종 화면 메뉴·알약으로 */}
+    <header className="fh-head" data-bare={simOpen || undefined}>{simOpen ? (canStop || toSim) && <Stop phone onStop={stop} /> : <>
       {phone
         ? <>{open ? <button type="button" className="btn" disabled={!!rel} onClick={() => robot && endDrive(robot.id, go)}>끝내기</button>
-          : simOpen ? <button type="button" className="btn" onClick={() => sim.end()}>시뮬 끝내기</button> : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
+          : tab === 'history' && <button type="button" className="btn" onClick={() => go('drive')}>로봇 연결</button>}<h1>{title}</h1></>
         : <><BrandLogo h={24} /><div className="fh-sep" /><h1>{title}</h1></>}
       <span className="fh-grow" />
       {(() => {   // 좁은 폰은 점만 보이고 글은 화면 읽기용으로 남는다(frame.css .fh-dot-t)
@@ -216,7 +217,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
       {(canStop || toSim) && <Stop phone={phone} onStop={stop} />}
-    </header>
+    </>}</header>
     {open && robot && rel && (rel.why
       ? <div className="fh-pick" role="alertdialog" aria-label="조종권 반납 확인 못함" data-end-fail>
           <span>조종권 반납을 확인하지 못했습니다. {rel.why} 확인되면 로봇 연결로 넘어갑니다.</span>

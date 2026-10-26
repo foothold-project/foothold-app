@@ -306,8 +306,10 @@ def test_repository_entrypoint_installs_assets_and_preserves_ledger_paths(repo, 
         '    gate = None\n'
         '    def static_floor(ep, f, rev): pass\n'
         '    def floor_tick(sim_t, pos, tilt, fallen): pass\n'
+        "    node = SimpleNamespace(create_timer=lambda *args: None)\n"
         '    def publish_status():\n'
         '        pub_status.publish(st)\n'
+        '    node.create_timer(1.0, publish_status)\n'
         "    w = json.loads((Path(HERE)/'worlds.json').read_text())['worlds']['warehouse/f1']\n"
         "    robot = ET.fromstring(SP.world_text(Path(w['world']).read_text(), False)).find('./world/include')\n"
         "    print(json.dumps(dict(target=iso.TARGET, floor_z=w['floor_z'], pose=robot.findtext('pose'),\n"
