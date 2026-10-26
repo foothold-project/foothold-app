@@ -282,3 +282,126 @@ def test_native_crash_without_complete_proof_latches(failed_episode, missing):
             await launch.close_world()
         assert state.events == []  # no signal to an already exited native unit
     asyncio.run(exercise())
+
+
+@pytest.mark.parametrize('reason', ['low_memory', 'swap_in_10s', 'runtime_limit'])
+@pytest.mark.parametrize('survivor', [False, True])
+def test_resource_exit_deadline_releases_db_only_after_absence(
+        failed_episode, seeded, client, monkeypatch, reason, survivor):
+    """Real API/DB expiration path; only process/unit metadata are synthetic."""
+    cfg, state, launch, prepare = failed_episode
+    slot = replace(next(iter(cfg.slots.values())), org_id=str(seeded['org']))
+    from apps.simmgr.config import World
+    cfg = replace(cfg, slots={slot.robot_id: slot},
+                  worlds={'test': World('test', Path(__file__), Path(__file__))})
+    launch.settings = cfg
+
+    async def start(world):
+        prepare()
+        launch.child = None  # watcher already confirmed agent STOP/zero
+        state.sim.reason = reason
+        if not survivor:
+            state.native.update(MainPID='0', ActiveState='inactive')
+            state.rows = []
+
+    async def add(*args):
+        pass
+
+    monkeypatch.setattr(launch, 'start_world', start)
+    monkeypatch.setattr(launch, 'add', add)
+    simapp = create_app(cfg, launch)
+    with TestClient(simapp, client=('127.0.0.1', 9600)) as sim:
+        client.app.state.simmgr = LocalRelay(sim, cfg.secret)
+        client.app.state.phone_pass_issuer.keys[slot.robot_id] = ('test', {'test': b'x' * 32})
+        headers = csrf(client, 'one')
+        response = client.post('/api/v1/simulation/robots', headers=headers,
+                               json={'world_id': 'test', 'robot_id': slot.robot_id})
+        assert response.status_code == 201, response.text
+        manager = simapp.state.manager
+
+        async def expire():
+            manager.expiry_task.cancel()
+            await asyncio.gather(manager.expiry_task, return_exceptions=True)
+            await manager._expire_at(asyncio.get_running_loop().time())
+
+        sim.portal.call(expire)
+        client.app.state.simulation_reconcile()
+        if survivor:
+            assert manager.failed and launch.recovery_blocked
+            assert manager.robots[slot.robot_id].owner == str(seeded['users']['one'])
+            assert manager.completions(slot.org_id) == []
+            response = client.delete('/api/v1/simulation/robots/' + slot.robot_id, headers=headers)
+            assert response.status_code == 409
+            assert response.json()['error']['code'] == 'SIM_CLEANUP_LATCHED'
+            with Session(client.app.state.engine) as db:
+                row = db.get(Robot, slot.robot_id)
+                assert row.sim_state == 'STOPPING' and row.owner_user_id == seeded['users']['one']
+            assert not state.events  # no signal to a surviving resource-aborted unit
+            # Operator retries the same authorized DELETE after the unit finishes.
+            # No restart, replacement manager UUID, or new generation is needed.
+            state.native.update(MainPID='0', ActiveState='inactive')
+            state.rows = []
+            response = client.delete('/api/v1/simulation/robots/' + slot.robot_id, headers=headers)
+            assert response.status_code == 204, response.text
+        with Session(client.app.state.engine) as db:
+            row = db.get(Robot, slot.robot_id)
+            assert row.sim_state == 'IDLE' and row.owner_user_id is None and row.sim_generation == 1
+        assert not manager.robots and manager.world is None
+        assert not manager.failed and not launch.failed and not launch.recovery_blocked
+        assert launch.sim is launch.child is launch.folder is None
+        assert not state.events
+
+
+@pytest.mark.parametrize('blocker', ['cgroup', 'unknown_cgroup', 'domain', 'partition',
+                                    'descendant', 'dds', 'unit_status', 'unit_reused', 'bus'])
+def test_resource_abort_requires_unit_cgroup_and_runtime_absence(failed_episode, monkeypatch, blocker):
+    cfg, state, launch, prepare = failed_episode
+    prepare()
+    launch.child = None
+    state.sim.reason = 'low_memory'
+    state.native.update(MainPID='0', ActiveState='inactive')
+    state.rows = []
+    if blocker in ('cgroup', 'unknown_cgroup'):
+        original = Path.read_text
+        def read(path, *args, **kwargs):
+            if str(path) == '/sys/fs/cgroup/synthetic/cgroup.events':
+                return 'populated ' + ('1' if blocker == 'cgroup' else 'unknown') + '\n'
+            return original(path, *args, **kwargs)
+        monkeypatch.setattr(Path, 'read_text', read)
+    if blocker in ('domain', 'partition', 'descendant'):
+        row = dict(state.sim.pid, domain='', partition='', cgroup='0::/elsewhere')
+        if blocker == 'domain': row['domain'] = '93'
+        if blocker == 'partition': row['partition'] = state.sim.identity['partition']
+        if blocker == 'descendant': row['cgroup'] = '0::/synthetic/child'
+        state.rows = [row]
+    if blocker == 'dds': state.ports = [30650]
+    if blocker == 'unit_status': state.native.pop('ActiveState')
+    if blocker == 'unit_reused': state.native['MainPID'] = '456'
+    if blocker == 'bus':
+        def unavailable():
+            raise RuntimeError('user bus unavailable')
+        state.sim.show = unavailable
+
+    async def exercise():
+        with pytest.raises(CleanupUnconfirmed, match='SIM_CLEANUP_IDENTITY_UNPROVEN'):
+            await launch.close_world()
+        with pytest.raises(CleanupUnconfirmed, match='SIM_CLEANUP_LATCHED'):
+            await launch.close_world()
+        assert launch.failed and launch.recovery_blocked and launch.sim is state.sim
+        assert not state.events
+    asyncio.run(exercise())
+
+
+def test_native_main_disappears_between_systemctl_and_proc(failed_episode, monkeypatch):
+    _, state, launch, prepare = failed_episode
+    prepare()
+    launch.child = None
+    launch.failed = True
+    def exited():
+        state.native.update(MainPID='0', ActiveState='inactive')
+        state.rows = []
+        raise RuntimeError('live simulation identity not verified')
+    monkeypatch.setattr(state.sim, 'live_identity', exited)
+    asyncio.run(launch.close_world())
+    assert launch.sim is None and not launch.failed and not launch.recovery_blocked
+    assert not state.events
