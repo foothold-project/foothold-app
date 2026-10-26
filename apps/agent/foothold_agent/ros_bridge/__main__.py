@@ -3,6 +3,10 @@
 import asyncio
 import signal
 import os
+from uuid import UUID
+
+from foothold_agent.media import Media, MediaTransport
+from .media import MediaRosSource
 
 from foothold_agent.camera import Camera, CameraTransport
 
@@ -18,6 +22,7 @@ from .run_context import RunContext
 
 async def run(config, *, simulation_binding=None):
     camera = Camera(config.robot_id) if os.environ.get('FOOTHOLD_CAMERA_ENABLED') == '1' else None
+    media = media_source = None
     nav = maps = None
     bridge_options = {'camera': camera} if camera is not None else {}
     if os.environ.get('FOOTHOLD_RUN_MAP_ASSETS_JSON'):
@@ -49,6 +54,12 @@ async def run(config, *, simulation_binding=None):
                 client.on_robot_state(raw)
 
         def on_telemetry(snapshot):
+            if media is not None:
+                observation = snapshot.get('observation')
+                media.bind(media_identity(observation['episode']) if observation is not None else None)
+                if observation is not None:
+                    media_source.update_time(observation['episode'], observation['sim_t'],
+                                             observation['received_monotonic_s'])
             if phone is not None:
                 phone.hub.session.update_telemetry(snapshot)
             if client is not None:
@@ -88,7 +99,26 @@ async def run(config, *, simulation_binding=None):
                       simulation=config.phone.simulation, scenario_source=scenario_source, run_journal=run_journal,
                       simulation_binding=simulation_binding,
                       run_pause_timeout_s=float(os.environ.get('FOOTHOLD_RUN_PAUSE_TIMEOUT_S', '600')))
-            phone = Server(hub, config.phone, camera=CameraTransport(camera, hub) if camera else None)
+            if camera is not None or os.environ.get('FOOTHOLD_MEDIA_ENABLED') == '1':
+                media = Media(config.robot_id, rgb_enabled=camera is not None)
+                media_source = MediaRosSource(media)
+                def media_identity(epoch):
+                    if not config.phone.simulation:
+                        return dict(robot=config.robot_id, epoch=epoch, episode_id=None)
+                    floors = getattr(config, 'floor_bindings', None)
+                    try:
+                        episode = str(UUID(floors.run_id))
+                    except (AttributeError, ValueError, TypeError):
+                        return None
+                    return dict(robot=config.robot_id, epoch=epoch, episode_id=episode)
+                media.start()
+                media_source.start()
+                initial = bridge.inputs.telemetry.snapshot().get('observation')
+                if initial is not None:
+                    media.bind(media_identity(initial['episode']))
+                    media_source.update_time(initial['episode'], initial['sim_t'])
+            phone = Server(hub, config.phone, camera=CameraTransport(camera, hub) if camera else None,
+                           media=MediaTransport(media, hub) if media is not None else None)
             session = Observer(hub)
             client = Client(session, DiscardSink(), config.settings)
             hub.record = session.retain
@@ -106,6 +136,8 @@ async def run(config, *, simulation_binding=None):
                  asyncio.create_task(stop.wait())]
         if camera is not None:
             tasks.append(asyncio.create_task(camera.run()))
+        if media is not None:
+            tasks.append(asyncio.create_task(media.run()))
         if phone is not None:
             tasks.append(asyncio.create_task(phone.run()))
         done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
@@ -127,6 +159,10 @@ async def run(config, *, simulation_binding=None):
                 try:
                     bridge.close()
                 finally:
+                    if media_source is not None:
+                        await asyncio.to_thread(media_source.close)
+                    if media is not None:
+                        await asyncio.to_thread(media.close)
                     if run_journal is not None:
                         await asyncio.to_thread(run_journal.close)
                     if scenario_source is not None:

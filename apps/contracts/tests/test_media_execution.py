@@ -259,3 +259,16 @@ def test_shared_typescript_media_execution_fixtures_validate_in_python_and_schem
         TypeAdapter(C.TOP[name]).validate_python(payload)
         schema = json.loads((generate.OUT / 'schema' / f'{name}.json').read_text())
         Draft202012Validator(schema, format_checker=FormatChecker()).validate(payload)
+
+
+def test_phone_media_welcome_is_optional_and_tokens_match_capabilities():
+    from apps.contracts.models import PhoneMediaChannelCapability, PhoneMediaWelcome
+    from pydantic import ValidationError
+    available = dict(available=True, reason='Ready', token='a'*43)
+    unavailable = dict(available=False, reason='Source absent', token=None)
+    value = dict(version='media/1', path='/phone/media/ws', robot='00000000-0000-0000-0000-000000000001',
+                 epoch=1, episode_id=None, rgb=available, external=unavailable, lidar=available)
+    PhoneMediaWelcome.model_validate(value)
+    for bad in ({**available, 'token': None}, {**unavailable, 'token': 'a'*43}):
+        with pytest.raises(ValidationError):
+            PhoneMediaChannelCapability.model_validate(bad)

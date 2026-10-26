@@ -1662,8 +1662,32 @@ class PhoneCapabilities(Contract):
     execution: ExecutionCapabilities = omitted(exclude_if=lambda value: value is None)
 
 
+class PhoneMediaChannelCapability(Contract):
+    available: bool = Field(strict=True)
+    reason: str = Field(min_length=1, max_length=256)
+    token: str | None = Field(min_length=43, max_length=43, repr=False)
+
+    @model_validator(mode='after')
+    def token_matches_availability(self):
+        if self.available != (self.token is not None):
+            raise ValueError('only available media channels receive a one-use token')
+        return self
+
+
+class PhoneMediaWelcome(Contract):
+    version: Literal['media/1']
+    path: Literal['/phone/media/ws']
+    robot: PhoneRobotID
+    epoch: Sequence
+    episode_id: UUID | None
+    rgb: PhoneMediaChannelCapability
+    external: PhoneMediaChannelCapability
+    lidar: PhoneMediaChannelCapability
+
+
 class PhoneWelcome(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('capabilities'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('capabilities', 'media'))
+    media: PhoneMediaWelcome = omitted(exclude_if=lambda value: value is None)
     capabilities: PhoneCapabilities | None = None
     camera_token: str | None = Field(default=None, min_length=43, max_length=43, description='10초·1회용 영상 연결 토큰; 부모 연결에 종속')
     t: Literal['hello']

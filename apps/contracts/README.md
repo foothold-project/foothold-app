@@ -335,3 +335,20 @@ waypoint/step 범위로 묶고 동일 키+동일 메타/바이트는 같은 phot
 사용한다. 이동 취소·출력0 후 단조 시간 비차단 대기, pause 잔여시간 보존·명시 resume,
 PHOTO 요청 뒤 새 프레임 및 STOP/cancel/세대 변경 이후 늦은 완료 무시는 E의 구현 책임이다.
 이 계약 PR은 B/C/D/E transport·저장·실행기나 실기 지원을 구현/검증하지 않는다.
+
+### B 연결 발급 (agent media 구현)
+
+`PhoneWelcome.media`는 선택 필드다(구 agent는 생략, 기존 `camera_token` 불변).
+존재하면 `version=media/1`, `path=/phone/media/ws`, `robot/epoch/episode_id`와
+`rgb/external/lidar` capability 각각의 `available/reason/token`을 제공한다.
+사용 가능 채널에만 43자·10초·1회 토큰이 있으며, 다른 채널·부모·로봇으로
+재사용할 수 없다. 소비자는 각 채널별 새 WS의 `MediaHello`에 이 바인딩과
+토큰을 그대로 전달하고 부모 보기 연결을 유지한다. 새 agent에 구 소비자가
+연결될 때 optional response 확장을 무시하는 기존 호환 규칙을 따른다.
+
+현 B의 시뮬 `episode_id`는 trusted launch의 native run nonce UUID이고 `epoch`는
+accepted state episode다(서버 sim DB ID와 혼용 금지). launch 바인딩을 확인하지
+못하면 필드를 생략한다. 실기 adapter는 episode null이다. external은 소스가
+없어 unavailable이며, C와 합의한 후속 compressed 토픽은
+`/v2_live/external_cam/compressed`다. 실제 연결·한계는
+[agent media README](../agent/foothold_agent/media/README.md)를 본다.
