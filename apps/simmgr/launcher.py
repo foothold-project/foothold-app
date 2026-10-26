@@ -14,6 +14,7 @@ from foothold_agent.phone.tickets import load_keys
 from .environment import validate_control_environment, child_environment
 from .agent_unit import AgentUnit
 from .nav2_unit import Nav2Unit
+from .observer_unit import ObserverUnit
 from .run_environment import map_assets, outbox_path, scenario_origin
 from .preflight import ResourceGateError, startup_preflight, wait_resource_gate
 from .native_catalogue import resolve_native_world, WorldValidationError
@@ -73,6 +74,8 @@ class NativeLauncher:
         self.settings = settings
         self.sim = self.child = None
         self.nav2 = None
+        self.observer = None
+        self.observer_busy = False
         self.native_world = self.runtime_identity = None
         self._watching = False
         self.watch_task = None
@@ -95,6 +98,8 @@ class NativeLauncher:
                 self.failed = True
             if getattr(self, 'nav2', None) is not None and await asyncio.to_thread(self.nav2.poll) is not None:
                 self.failed = True
+            if getattr(self, 'observer', None) is not None and await asyncio.to_thread(self.observer.poll) is not None:
+                self.failed = True
         except (OSError, subprocess.SubprocessError, RuntimeError):
             self.failed = True
         return self.failure
@@ -116,6 +121,49 @@ class NativeLauncher:
                 raise
             raise CleanupUnconfirmed('SIM_CLEANUP_NAV2_UNPROVEN') from None
         self.nav2 = None
+
+    async def _stop_observer(self):
+        if getattr(self, 'observer', None) is None:
+            return
+        try:
+            await asyncio.to_thread(self.observer.stop)
+        except BaseException as error:
+            self.failed = self.recovery_blocked = True
+            if isinstance(error, (KeyboardInterrupt, SystemExit, asyncio.CancelledError)):
+                raise
+            raise CleanupUnconfirmed('SIM_CLEANUP_OBSERVER_UNPROVEN') from None
+        self.observer = None
+
+    async def external_view(self, request, op):
+        # No manager lifecycle/control lock is acquired for observation work.
+        observer = getattr(self, 'observer', None)
+        if observer is None or self.failure or self.observer_busy or not self._watching:
+            raise ValueError('external camera unavailable or busy')
+        self.observer_busy = True
+        async def relay(operation):
+            reader, writer = await asyncio.open_unix_connection(observer.socket_path, limit=4096)
+            try:
+                writer.write(json.dumps(dict(op=operation, request=request.model_dump(mode='json'))).encode()+b'\n')
+                await writer.drain()
+                result = json.loads(await reader.readline())
+                if result.get('accepted') is not True:
+                    raise ValueError('external camera binding rejected')
+                return result
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        try:
+            return await asyncio.wait_for(relay(op), .4)
+        except BaseException:
+            # Drop an unacknowledged pending request without touching a newer
+            # viewer's sequence. No retry queue and no lifecycle lock.
+            try:
+                await asyncio.wait_for(relay('discard'), .1)
+            except (OSError, ValueError, asyncio.TimeoutError):
+                pass
+            raise
+        finally:
+            self.observer_busy = False
 
     async def _watch_children(self, folder):
         # Independent of HTTP polling. The same lock serializes explicit removal.
@@ -299,13 +347,21 @@ class NativeLauncher:
                 spawn_floor_id=('f1' if credentials['map_bindings'][0]['world_id'] in ('warehouse', 'rubble')
                                 else credentials['spawn_floor_id']), bindings=credentials['map_bindings']))
         try:
+            if getattr(self.native_world, 'repository', False):
+                from uuid import UUID
+                episode = str(UUID(json.loads((self.sim.out/'run-identity.json').read_text())['run_id']))
+                self.observer = await asyncio.to_thread(ObserverUnit, self.folder, self.settings,
+                    ROOT, self.runtime_identity, slot.robot_id, episode)
+                await asyncio.to_thread(self.observer.start)
             self.nav2 = await asyncio.to_thread(Nav2Unit, self.folder, self.settings, ROOT, self.runtime_identity)
             await asyncio.to_thread(self.nav2.start)
             self.child = await asyncio.to_thread(AgentUnit, self.folder, self.settings, env, ROOT)
             deadline = asyncio.get_running_loop().time() + 30
             while asyncio.get_running_loop().time() < deadline:
                 if (await self._poll() is not None or self.sim.reason
-                        or await asyncio.to_thread(self.nav2.poll) is not None):
+                        or await asyncio.to_thread(self.nav2.poll) is not None
+                        or (getattr(self, 'observer', None) is not None
+                            and await asyncio.to_thread(self.observer.poll) is not None)):
                     raise RuntimeError('agent/Nav2/simulation startup failed')
                 try:
                     reader, writer = await asyncio.wait_for(asyncio.open_connection(self.settings.agent_host, slot.port), .2)
@@ -332,7 +388,10 @@ class NativeLauncher:
             await self._stop_agent_process(slot)
         finally:
             # Even failed STOP/zero must not leave a command-producing Nav2 child.
-            await self._stop_nav2()
+            try:
+                await self._stop_nav2()
+            finally:
+                await self._stop_observer()
 
     async def _stop_agent_process(self, slot):
         child = self.child
@@ -341,6 +400,7 @@ class NativeLauncher:
         code = await self._poll()
         if code is not None and code != 0:
             await self._stop_nav2()
+            await self._stop_observer()
             await self._recover_failed_agent()
             return
         if code is None:
@@ -526,7 +586,10 @@ class NativeLauncher:
         if self.child is not None:
             self.failed = True
             raise RuntimeError('agent must confirm STOP/zero before world cleanup')
-        await self._stop_nav2()
+        try:
+            await self._stop_nav2()
+        finally:
+            await self._stop_observer()
         if getattr(self, 'recovery_complete', False):
             self.recovery_complete = False
             self.failed = False

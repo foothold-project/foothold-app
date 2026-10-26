@@ -11,6 +11,7 @@ import time
 ROOT = Path(__file__).resolve().parents[2]
 LOGGER = logging.getLogger('uvicorn.error.simmgr')
 UNIT_PATTERNS = ('fh-rb-sim-*.service', 'fh-simmgr-nav2-*.service', 'fh-simmgr-agent-*.service')
+OBSERVER_UNIT_PATTERN = 'fh-simmgr-observer-*.service'
 
 
 def wait_resource_gate(folder):
@@ -72,13 +73,13 @@ def startup_preflight(real=False):
             resources_ok = False
     try:
         result = subprocess.run(['systemctl', '--user', 'list-units', '--all', '--plain',
-            '--no-legend', '--no-pager', *UNIT_PATTERNS], text=True, capture_output=True,
+            '--no-legend', '--no-pager', OBSERVER_UNIT_PATTERN, *UNIT_PATTERNS], text=True, capture_output=True,
             check=True, timeout=5)
     except (OSError, subprocess.SubprocessError):
         raise RuntimeError('startup user bus unavailable; no runtime absence proof') from None
     if result.stdout.strip():
         raise RuntimeError('simulation user units remain; startup refused')
     LOGGER.info(
-        'startup preflight utc=%s sim_units=0 nav2_units=0 agent_units=0 domain93_processes=0 MemAvailableMiB=%s load1=%s',
+        'startup preflight utc=%s sim_units=0 nav2_units=0 agent_units=0 observer_units=0 domain93_processes=0 MemAvailableMiB=%s load1=%s',
         datetime.now(timezone.utc).isoformat(), snapshot.get('mem_available_mib'), snapshot.get('load1'))
     return {**snapshot, 'resources_ok': resources_ok}
