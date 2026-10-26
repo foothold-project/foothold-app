@@ -16,6 +16,8 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'PHOTO_STORED': '{robot} 사진을 저장했습니다.',
+    'PHOTO_STORE_FAILED': '{robot} 사진 저장에 실패했습니다. 이유: {reason}.',
     'ASSIGNMENT_CREATED': '{person}님이 {robot}에 시나리오 {scenario} {number}판을 배정했습니다.',
     'ASSIGNMENT_REMOVED': '{person}님이 {robot}의 시나리오 {scenario} {number}판 배정을 해제했습니다.',
     'SIM_ROBOT_START_STALE': '{person}님의 이전 시뮬 시작 응답을 거부했습니다. {compensation}',

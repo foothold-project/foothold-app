@@ -10,6 +10,7 @@ from apps.contracts import models as C
 from .maps import bounded_features, orientation, within_map
 from .models import Floor, FloorConnector, MapVersion, Mission, MissionVersion, Robot, RobotDevice, Scenario, ScenarioVersion, now
 from .robots import reported_devices
+from .runs import execution_capabilities
 
 DEVICE_KINDS = {'rgb': 'CAMERA_RGB', 'depth': 'CAMERA_DEPTH', 'lidar': 'LIDAR', 'battery': 'BATTERY'}
 LABELS = {'PHOTO': '사진 찍기', 'WAIT': '대기', 'OPERATOR_CONFIRM': '운영자 확인', 'SENSOR_LOG': '센서 값 기록'}
@@ -244,8 +245,17 @@ def install(app, DB, Identity, fail, authorize, event, page):
                     RobotDevice.org_id == auth[0].org_id, RobotDevice.robot_id == robot.id))]
                 if not devices and robot.last_seen_at is None:
                     devices = None
-        def unavailable(required):
+        caps = execution_capabilities(app.state.realtime, robot_id) if robot_id else None
+        def unavailable(required, capability=None):
             reason = None
+            if capability is not None:
+                if capability == 'photo.depth':
+                    return '깊이 사진 저장은 아직 지원하지 않습니다'
+                if caps is None:
+                    return '실행기가 해당 기능을 아직 광고하지 않았습니다'
+                support = next((a for a in caps.actions if a.key == capability), None)
+                if support is None or support.state != 'SUPPORTED':
+                    return support.reason if support else '실행기가 해당 기능을 아직 광고하지 않았습니다'
             if robot_id is not None:
                 if devices is None:
                     reason = '장치 정보를 아직 받지 못했습니다'
@@ -260,15 +270,16 @@ def install(app, DB, Identity, fail, authorize, event, page):
             if parameter is not None:
                 for value in get_args(C.ACTION_PARAMS[key].model_fields[parameter].annotation):
                     required = requirements(C.MissionStep(action=key, params={parameter: value}))
-                    reason = unavailable(required)
+                    reason = unavailable(required, 'photo.' + value if key == 'PHOTO' else None)
                     options.append(C.ActionOption(param=parameter, value=value, requires=required,
                         available=reason is None, why_unavailable=reason))
                 # Only unconditional requirements belong on the action itself.
                 required = sorted(set.intersection(*(set(o.requires) for o in options)))
-                reason = None if any(o.available for o in options) else unavailable(sorted({kind for option in options for kind in option.requires}))
+                reason = None if any(o.available for o in options) else '; '.join(
+                    f'{option.value}: {option.why_unavailable}' for option in options)
             else:
                 required = requirements(step)
-                reason = unavailable(required)
+                reason = unavailable(required, 'wait' if key == 'WAIT' else None)
             items.append(C.Action(key=key, label=label, params=step.params, requires=required,
                 available=reason is None, why_unavailable=reason, options=options))
         return items

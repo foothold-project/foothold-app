@@ -192,10 +192,14 @@ def test_rotated_boundary_uses_same_tolerance_as_map_features(maps):
 def test_catalog_options_and_any_supported_choice(client, seeded):
     headers, rid = auth(client, 'one'), str(seeded['robots']['mine'])
     from types import SimpleNamespace
-    state = {'devices': []}
+    state = {'devices': [], 'execution_capabilities': {
+        'contract': 'scenario/2', 'revision': 1, 'actions': [
+            {'key': key, 'state': 'SUPPORTED', 'reason': None}
+            for key in ('wait', 'photo.rgb', 'photo.depth')]}}
     client.app.state.realtime.agents[rid] = SimpleNamespace(closing=False, state=state)
     try:
         for devices in ([{'kind': 'CAMERA_DEPTH', 'state': 'OK'}],
+                        [{'kind': 'CAMERA_RGB', 'state': 'OK'}],
                         [{'kind': 'LIDAR', 'state': 'ERROR'}, {'kind': 'BATTERY', 'state': 'OK'}], []):
             state['devices'] = devices
             response = client.get(P + '/actions', params={'robot_id': rid}, headers=headers)
@@ -206,6 +210,8 @@ def test_catalog_options_and_any_supported_choice(client, seeded):
                 assert action['requires'] == [] and [o['value'] for o in action['options']] == values
                 for option in action['options']:
                     expected = any(d['kind'] == missions.DEVICE_KINDS[option['value']] and d['state'] == 'OK' for d in devices)
+                    if key == 'PHOTO' and option['value'] == 'depth':
+                        expected = False  # Device presence cannot enable unsupported depth storage.
                     assert option['param'] == param and option['requires'] == [missions.DEVICE_KINDS[option['value']]]
                     assert option['available'] == expected and (option['why_unavailable'] is None) == expected
                 assert action['available'] == any(o['available'] for o in action['options'])

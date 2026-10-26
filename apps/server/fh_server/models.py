@@ -625,3 +625,35 @@ class AgentPlanMap(Tenant, Base):
     robot_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
     scenario_version_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
     map_version_id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True)
+
+
+class Photo(Tenant, Base):
+    """Immutable upload identity/receipt; failed attempts retain metadata only."""
+    __tablename__ = 'photos'
+    __table_args__ = (
+        UniqueConstraint('org_id', 'id'),
+        UniqueConstraint('org_id', 'robot_id', 'idempotency_key'),
+        UniqueConstraint('org_id', 'run_id', 'waypoint_idx', 'step_idx'),
+        ForeignKeyConstraint(['org_id', 'robot_id'], ['robots.org_id', 'robots.id']),
+        ForeignKeyConstraint(['org_id', 'run_id'], ['runs.org_id', 'runs.id']),
+        ForeignKeyConstraint(['run_id', 'waypoint_idx'], ['run_steps.run_id', 'run_steps.idx']),
+        CheckConstraint("status IN ('STORED','FAILED')", name='photo_status'),
+        CheckConstraint("source = 'rgb'", name='photo_source'),
+        CheckConstraint('byte_length BETWEEN 4 AND 65536', name='photo_size'),
+        CheckConstraint('step_idx BETWEEN 0 AND 99', name='photo_step'),
+        CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name='photo_sha256'),
+        CheckConstraint("(status = 'STORED') = (stored_at IS NOT NULL)", name='photo_receipt'),
+    )
+    id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4)
+    robot_id: Mapped[UUID] = mapped_column(PGUUID)
+    run_id: Mapped[UUID] = mapped_column(PGUUID)
+    waypoint_idx: Mapped[int] = mapped_column(Integer)
+    step_idx: Mapped[int] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(Text)
+    captured_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    sha256: Mapped[str] = mapped_column(Text)
+    byte_length: Mapped[int] = mapped_column(Integer)
+    path: Mapped[str] = mapped_column(Text)
+    idempotency_key: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text)
+    stored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

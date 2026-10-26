@@ -51,10 +51,12 @@ def test_actions_inventory_scope_and_live_hello(client, seeded):
     catalog = client.get(P + '/actions', headers=headers).json()
     assert [a['key'] for a in catalog] == ['PHOTO', 'WAIT', 'OPERATOR_CONFIRM', 'SENSOR_LOG']
     assert catalog[0]['params'] == {'camera': 'rgb'} and catalog[0]['requires'] == [] and catalog[0]['options'][0]['requires'] == ['CAMERA_RGB']
-    assert all(a['available'] and a['why_unavailable'] is None for a in catalog)
+    assert not catalog[0]['available'] and not catalog[1]['available']
+    assert all(a['available'] for a in catalog[2:])
     rid = str(seeded['robots']['mine'])
     missing = client.get(P + '/actions', params={'robot_id': rid}, headers=headers).json()
-    assert all(not a['available'] and a['why_unavailable'] == '장치 정보를 아직 받지 못했습니다' for a in missing)
+    assert all(not a['available'] for a in missing)
+    assert all('아직 광고하지' in a['why_unavailable'] for a in missing[:2])
     engine = create_engine(seeded['urls']['migrate'])
     with Session(engine) as db:
         db.add_all([RobotDevice(org_id=seeded['org'], robot_id=seeded['robots']['mine'], key='rgb', kind='CAMERA_RGB', label='카메라', state='OK'),
@@ -62,13 +64,16 @@ def test_actions_inventory_scope_and_live_hello(client, seeded):
         db.commit()
     engine.dispose()
     stored = client.get(P + '/actions', params={'robot_id': rid}, headers=headers).json()
-    assert stored[0]['available'] and stored[1]['available'] and stored[3]['available']
+    assert not stored[0]['available'] and not stored[1]['available'] and stored[3]['available']
     lidar = next(o for o in stored[3]['options'] if o['value'] == 'lidar')
     assert not lidar['available'] and 'LIDAR' in lidar['why_unavailable']
-    client.app.state.realtime.agents[rid] = SimpleNamespace(closing=False, state={'devices': []})
+    client.app.state.realtime.agents[rid] = SimpleNamespace(closing=False, state={'devices': [],
+        'execution_capabilities': {'contract': 'scenario/2', 'revision': 1, 'actions': [
+            {'key': 'wait', 'state': 'SUPPORTED', 'reason': None},
+            {'key': 'photo.rgb', 'state': 'SUPPORTED', 'reason': None}]}})
     try:
         live = client.get(P + '/actions', params={'robot_id': rid}, headers=headers).json()
-        assert not live[0]['available'] and live[1]['available'] and '장치가 없거나' in live[0]['why_unavailable']
+        assert not live[0]['available'] and live[1]['available'] and '장치' in live[0]['why_unavailable']
     finally:
         client.app.state.realtime.agents.pop(rid)
     for identifier in (seeded['robots']['theirs'], seeded['robots']['foreign'], uuid4()):
