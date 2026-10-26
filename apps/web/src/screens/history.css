@@ -28,3 +28,11 @@
   .hs-table td:nth-child(4),.hs-table td:nth-child(5){flex-basis:100%;white-space:normal}
   .hs-table td[data-none]{display:none}
 }
+
+/* 사진 사건(history.tsx Photo): 썸네일 → 누르면 원본 크기. 표 칸 폭을 넘지 않게 */
+span[data-photo]{display:block;margin-top:4px}
+.hs-photo{display:block;margin-top:6px;padding:0;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);cursor:zoom-in;max-width:100%}
+.hs-photo[data-photo="big"]{cursor:zoom-out}
+.hs-photo img{display:block;max-width:100%;height:auto;border-radius:7px}
+.hs-photo[data-photo="thumb"] img{width:160px}
+.hs-photo[data-photo="big"] img{width:640px}

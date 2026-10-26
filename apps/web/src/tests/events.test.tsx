@@ -695,3 +695,39 @@ describe('알림 종', () => {
     expect(tabFromHash('#/history?event_id=12', true)).toBe('history');
   });
 });
+
+describe('사진 사건(VQ-F1)', () => {
+  const PID = '7f1c2d3e-0000-4000-8000-000000000001';
+  const stored = ev('p1', { category: 'RUN', code: 'PHOTO_STORED', severity: 'INFO', message: 'Go2-A 사진을 저장했습니다.', run_id: 'run-1',
+    data: { photo_id: PID, run_id: 'run-1', waypoint_idx: 0, step_idx: 0, source: 'rgb', url: `/api/v1/photos/${PID}`, thumbnail_url: `/api/v1/photos/${PID}/thumbnail` } });
+  const failed = ev('p2', { category: 'RUN', code: 'PHOTO_STORE_FAILED', severity: 'ERROR', message: 'Go2-A 사진 저장에 실패했습니다. 이유: 저장 공간 부족.', run_id: 'run-1',
+    data: { run_id: 'run-1', waypoint_idx: 1, step_idx: 0, source: 'rgb', reason: '저장 공간 부족' } });
+  it('PHOTO_STORED = 썸네일(사용자 세션 /photos/{id}/thumbnail), 누르면 원본 · 못 받으면 «사진을 불러오지 못함», PHOTO_STORE_FAILED = 실패(사진 없음)', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([stored, failed, ev('3')]) }));
+    await open('#/history');
+    const [a, b, c] = [...card('사건').querySelectorAll('tbody tr')];
+    const img = a.querySelector<HTMLImageElement>('img')!;
+    expect(img.getAttribute('src')).toBe(`/api/v1/photos/${PID}/thumbnail`);   // 같은 출처 쿠키 — 공개 주소·토큰을 주소에 싣지 않음
+    await click(a.querySelector('button[aria-label="사진 원본 보기"]'));
+    expect(a.querySelector('img')!.getAttribute('src')).toBe(`/api/v1/photos/${PID}`);
+    expect(a.querySelector('[data-photo="big"]')).toBeTruthy();
+    act(() => { a.querySelector('img')!.dispatchEvent(new Event('error')); });
+    expect(a.querySelector('img')).toBeNull();
+    expect(a.textContent).toContain('사진을 불러오지 못함');
+    // 실패 행: 사진 없음 + ●오류(성공처럼 보이지 않음)
+    expect(b.querySelector('img')).toBeNull();
+    expect(b.querySelector('[data-photo="failed"]')!.textContent).toBe('사진 저장 실패 — 사진 없음');
+    expect(b.querySelector('[data-tone]')!.getAttribute('data-tone')).toBe('bad');
+    expect(c.querySelector('[data-photo]')).toBeNull();   // 다른 사건엔 사진 칸 없음
+    stopOk();
+  });
+  it('photo_id 가 없는 PHOTO_STORED 는 그림을 요청하지 않고 «사진을 불러오지 못함», 폰 기록 표도 같은 썸네일', async () => {
+    serve(signedIn(PARK, { 'GET /events': list([{ ...stored, robot_id: 'r-b', data: {} }, { ...stored, id: 'p3', robot_id: 'r-b' }]) }));
+    await open('#/history', true);
+    const [a, b] = [...card('사건').querySelectorAll('tbody tr')];
+    expect(a.querySelector('img')).toBeNull();
+    expect(a.textContent).toContain('사진을 불러오지 못함');
+    expect(b.querySelector('img')!.getAttribute('src')).toBe(`/api/v1/photos/${PID}/thumbnail`);
+    stopOk();
+  });
+});
