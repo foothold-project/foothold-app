@@ -1041,4 +1041,26 @@ describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
     expect(sent('POST', '/missions')).toHaveLength(1);
     expect(pick(1).value).toBe('m4:1');
   });
+  it('생성 응답이 끊긴 뒤 목록 확인이 끝나기 전(실패·재시도 중)엔 다시 골라도 만들지 않고, 확인되면 만들어진 임무를 다시 쓴다(PR #128 검토)', async () => {
+    seed();
+    const over: Record<string, ((real: () => Reply) => Reply | Promise<Reply>)[]> = { 'POST /missions': [(real) => { real(); throw new TypeError('끊김'); }], 'GET /missions': [] };
+    serve(KIM, { over });
+    await open(); await click(btn('새 시나리오')); await setVal(name(), '불확실'); await tap(1, 1);
+    let release: (() => void) | null = null;
+    over['GET /missions'].push(() => { throw new TypeError('끊김'); }, (real) => new Promise<Reply>((ok) => { release = () => ok(real()); }));
+    await setVal(pick(1), 'do:PHOTO');                                   // 서버엔 생김 · 응답 끊김 → 다시 받기도 실패
+    expect($('[data-unsure]')!.textContent).toContain('아직 확인하지 못했습니다');
+    await setVal(pick(1), 'do:PHOTO');
+    expect(sent('POST', '/missions')).toHaveLength(1);                   // 실패해도 잠금 유지
+    await click(btn('다시 확인', $('#ms-steps')!));                      // 다시 받는 중(멈춰 둠)
+    expect($('[data-unsure]')!.textContent).toContain('확인하는 중…');
+    await setVal(pick(1), 'do:PHOTO');
+    expect(sent('POST', '/missions')).toHaveLength(1);
+    await act(async () => { release!(); }); await flush();
+    expect($('[data-unsure]')).toBeNull();
+    await setVal(pick(1), 'do:PHOTO');
+    expect(sent('POST', '/missions')).toHaveLength(1);
+    expect(pick(1).value).toBe('m4:1');
+    expect(db.missions.filter((m) => m.head.name === '사진 찍기(RGB)')).toHaveLength(1);
+  });
 });

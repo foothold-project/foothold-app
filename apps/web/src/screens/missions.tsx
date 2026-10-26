@@ -439,8 +439,11 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const v = vid ? maps[vid] : undefined;
   const look = useFit(v);
   // 임무 고르기: 보관 안 된 임무의 최신 판. 이미 고른 옛 판·보관된 임무는 그 지점에만 그대로 보인다
-  const [missions, setMissions] = useState<Mission[] | null>(null), [mErr, setMErr] = useState(''), [mN, setMN] = useState(0);
-  useEffect(() => { api.allPlans('missions', cancel).then((l) => { setMissions(l.filter((x) => isPlan(x) && 'steps' in x)); setMErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setMErr(e.message); }); }, [mN]);
+  // unsure = 바로 고르기 생성 응답이 끊겨 만들어졌는지 모름 — 그 뒤 시작한 목록 받기가 성공할 때까지 새로 만들지 않는다(같은 임무 두 번 방지)
+  const [missions, setMissions] = useState<Mission[] | null>(null), [mErr, setMErr] = useState(''), [mN, setMN] = useState(0), [unsure, setUnsure] = useState<'checking' | 'failed' | null>(null);
+  useEffect(() => { let live = true;   // 앞서 보낸(생성 전) 목록 응답이 늦게 와도 확인으로 치지 않는다
+    api.allPlans('missions', cancel).then((l) => { if (!live) return; setMissions(l.filter((x) => isPlan(x) && 'steps' in x)); setMErr(''); setUnsure(null); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') { setMErr(e.message); setUnsure((u) => u && 'failed'); } });
+    return () => { live = false; }; }, [mN]);
   const active = (missions ?? []).filter((m) => !m.archived_at);
   // 실행 확인(정직 표시): 고른 로봇의 카탈로그 available·why_unavailable 그대로 — 저장은 막지 않는다
   const mineRobots = pickable(robots, user), [robot, setRobot] = useState(() => (mineRobots.some((r) => r.id === pane.robot) ? pane.robot : '')), cat = useActs(robot, cancel, !!set && !!robot);   // 로봇을 안 골랐으면 이유는 «고르지 않음» 하나
@@ -536,13 +539,14 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
    *  만드는 동안 단계 창·지도 편집·저장을 막는다(지점 번호가 바뀌지 않게). 응답이 끊기면 임무 목록을 다시 받는다 — 다시 고르면 만들어진 것을 찾아 쓴다 */
   const quick = (i: number, steps: MissionStep[]) => {
     const link = (m: Mission) => { const { value: b, set: s, lock: l } = cur$.current; if (s && !l) s({ ...b, waypoints: b.waypoints.map((o, j) => (j === i ? { ...o, mission_id: m.id, mission_version: m.latest_version } : o)) }); };
+    if (unsure) return;
     const hit = active.find((m) => canon(m.steps) === canon(steps));
     setQMsg('');
     if (hit) return link(hit);
     setMaking(true);
     api.createPlan('missions', { name: quickName(steps[0]), steps }, cancel).then(fit(isPlan)).then((m) => { setMissions((l) => [...(l ?? []), m as Mission]); setMaking(false); link(m as Mission); },
       (e: ApiFail) => { if (e.code === 'CANCELED') return; setMaking(false);
-        if (e.status === 0) { setMN((x) => x + 1); setQMsg('임무를 만들었는지 확인하지 못했습니다. 임무 목록을 다시 받습니다 — 다시 고르면 같은 내용의 임무가 있으면 그것을 씁니다.'); }
+        if (e.status === 0) { setUnsure('checking'); setMN((x) => x + 1); setQMsg('임무를 만들었는지 확인하지 못했습니다. 임무 목록을 다시 받습니다 — 다시 고르면 같은 내용의 임무가 있으면 그것을 씁니다.'); }
         else setQMsg(`사진·대기 임무를 만들지 못했습니다. ${e.message}`); });
   };
   /** 지금 실행할 수 없는 이유(카탈로그 그대로, 로봇 미선택도 이유). null = 막는 것 없음 또는 확인 중 */
@@ -600,6 +604,8 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
           {set && cat.err && <div className="fh-row"><p className="fh-msg" role="alert">실행할 수 있는지 확인하지 못했습니다. {cat.err}</p><button type="button" className="btn" onClick={cat.again}>다시 받기</button></div>}
           {qMsg && <p className="fh-msg" role="alert">{qMsg}</p>}
           {making && <p className="lv-note" role="status">임무를 만드는 중…</p>}
+          {set && unsure && <div className="fh-row" role="status" data-unsure><span className="lv-note fh-grow">{unsure === 'failed' ? '임무를 만들었는지 아직 확인하지 못했습니다' : '임무를 만들었는지 확인하는 중…'} — 확인될 때까지 사진·대기 임무를 새로 만들지 않습니다.</span>
+            {unsure === 'failed' && <button type="button" className="btn" onClick={() => { setUnsure('checking'); setMN((x) => x + 1); }}>다시 확인</button>}</div>}
           {!pts.length && <p className="lv-note">아직 단계가 없습니다. 지도를 눌러 지점을 찍으세요.</p>}
           <fieldset disabled={making} style={{ display: 'contents' }}>
           <ol className="fh-form" style={LIST} aria-label="지점 순서">{pts.map((p, i) => {
@@ -616,7 +622,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
               {/* 이 지점에서 할 일 = 임무 판. 사진·대기는 여기서 바로 고르면 한 단계 임무를 찾거나 만들어 잇는다(임무 목록을 받기 전에는 못 고름 — 같은 임무를 또 만들지 않게) */}
               {set ? <select className="inp" aria-label={`${i + 1}번 지점 임무`} value={val} onChange={(ev) => choose(i, ev.target.value)}>
                   <option value="">임무 고르기</option>
-                  <optgroup label="바로 고르기"><option value="do:PHOTO" disabled={!missions}>사진 찍기(RGB)</option><option value="do:WAIT" disabled={!missions}>대기 30초 — 초는 고른 뒤 바꿈</option></optgroup>
+                  <optgroup label="바로 고르기"><option value="do:PHOTO" disabled={!missions || !!unsure}>사진 찍기(RGB)</option><option value="do:WAIT" disabled={!missions || !!unsure}>대기 30초 — 초는 고른 뒤 바꿈</option></optgroup>
                   <optgroup label="임무">{val && !listed && <option value={val}>{`${m?.name ?? '알 수 없는 임무'} · 판 ${p.mission_version}${m?.archived_at ? ' (보관됨)' : ' (옛 판)'}`}</option>}
                   {active.map((x) => <option key={x.id} value={`${x.id}:${x.latest_version}`}>{`${x.name} · 판 ${x.latest_version}`}</option>)}</optgroup></select>
                 : <span className="lbl">{m ? `${m.name} · 판 ${p.mission_version}` : `임무 판 ${p.mission_version}`}</span>}
