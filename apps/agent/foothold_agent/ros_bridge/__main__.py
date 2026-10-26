@@ -40,7 +40,7 @@ async def run(config, *, simulation_binding=None):
     client = None
     phone = None
     run_journal = None
-    scenario_source = None
+    scenario_source = photo_client = None
     tasks = []
     stop = asyncio.Event()
     loop = asyncio.get_running_loop()
@@ -119,6 +119,13 @@ async def run(config, *, simulation_binding=None):
                     media_source.update_time(initial['episode'], initial['sim_t'])
             phone = Server(hub, config.phone, camera=CameraTransport(camera, hub) if camera else None,
                            media=MediaTransport(media, hub) if media is not None else None)
+            from foothold_agent.executor.steps import ExecutionSupport
+            if scenario_source is not None:
+                from foothold_agent.executor.photos import PhotoClient
+                photo_client = PhotoClient(scenario_source.origin, config.settings.token)
+            hub.runs.support = ExecutionSupport(camera=camera, media=media, now=hub.now, uploader=photo_client)
+            if scenario_source is not None:
+                scenario_source.support = hub.runs.support
             session = Observer(hub)
             client = Client(session, DiscardSink(), config.settings)
             hub.record = session.retain
@@ -165,6 +172,8 @@ async def run(config, *, simulation_binding=None):
                         await asyncio.to_thread(media.close)
                     if run_journal is not None:
                         await asyncio.to_thread(run_journal.close)
+                    if photo_client is not None:
+                        photo_client.close()
                     if scenario_source is not None:
                         scenario_source.pool.shutdown(wait=False, cancel_futures=True)
                     for sig in (signal.SIGINT, signal.SIGTERM):

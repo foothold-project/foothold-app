@@ -56,6 +56,14 @@ class Observer:
             messages = (self._state(),)
             self.last_report = self.now()
         self.link_lost = self.connected and self.now() - self.last_ping >= 3
+        support = self.phone.runs.support
+        if self.connected and support.advertised is not None:
+            advertised_rgb = any(a['key'] == 'photo.rgb' and a['state'] == 'SUPPORTED'
+                                 for a in support.advertised['actions'])
+            if advertised_rgb != (support.rgb_ready() and support.uploader is not None):
+                self.reconnect_required = True
+        if self.link_lost or self.reconnect_required:
+            self.phone.runs.execution_disconnected()
         if self.connected:
             reports, self.phone.runs.outgoing = self.phone.runs.outgoing, []
             messages = (*messages, *self._replay, *reports)
@@ -76,10 +84,13 @@ class Observer:
             self.phone.runs.outgoing.clear()
         hello = {**deepcopy(self.phone.session.identity), 't': 'hello', 'proto': 'fh-agent/2',
                  'latched': self.core.latch, 'stop_gen': self.phone.session._generation(),
-                 'lease_id': None, 'run': self.run}
+                 'lease_id': None, 'run': self.run,
+                 'devices': self.phone.session._device_snapshot(),
+                 'execution_capabilities': self.phone.runs.support.hello()}
         return Effects((), (hello, self._state()))
 
     def disconnect(self):
+        self.phone.runs.execution_disconnected()
         self.connected = False
         return Effects(())
 
