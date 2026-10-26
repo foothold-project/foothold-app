@@ -47,8 +47,11 @@
   하나라도 미증명이면 409 `SIM_CLEANUP_IDENTITY_UNPROVEN` 또는
   `SIM_CLEANUP_NATIVE_UNPROVEN`으로 실패를 고정한다. `low_memory`·`swap_in_10s`·
   `runtime_limit`은 중단 사유이며 identity 불일치로 취급하지 않는다. 다만 이 경우
+  첫 정리는 추가 신호 없이 단조 시계 기준 최대45초(현재 unit TimeoutStopSec) 동안
+  짧게 조회해 정지 완료를 기다린다. 시간 초과·조회 실패·식별 변경이면 실패를 고정한다.
   unit inactive/failed·MainPID 0, 저장한 cgroup 제거/비움, domain93·동일 partition·
   cgroup 하위 프로세스 및 DDS 포트 0까지 확인한 뒤 위 manifest/ledger 증명을 모두 요구한다.
+  부재 검사에서 /proc 권한 거절이 하나라도 있으면 판정 불가로 처리해 잠금을 유지한다.
   systemctl 조회 뒤 /proc 대조 전에 main이 사라진 경우도 같은 부재 증명을 요구한다.
   잠긴 상태의 담당자 DELETE/마감 정리는 이 증명을 읽기 전용으로 재확인할 수 있다.
   생존 프로세스나 미증명이 남으면 `SIM_CLEANUP_LATCHED`를 유지하며 native unit에 신호를 보내지 않는다.
