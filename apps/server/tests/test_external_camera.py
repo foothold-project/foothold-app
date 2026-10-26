@@ -280,3 +280,40 @@ def test_app_restart_sequence_exceeds_old_view(camera, seeded):
             assert second.json()['seq'] > first.json()['seq']
     finally:
         app.state.engine.dispose()
+
+
+@pytest.mark.parametrize('failure,stage,status,code', [
+    ('disabled', 'manager_disabled', 503, 'SIM_DISABLED'),
+    ('get_transport', 'slots_transport', 503, 'SIM_UNAVAILABLE'),
+    ('slots_invalid', 'slots_response', 503, 'SIM_UNAVAILABLE'),
+    ('post_transport', 'command_transport', 503, 'SIM_UNAVAILABLE'),
+    ('observer_not_ready', 'command_transport', 409, 'SIM_OBSERVER_UNAVAILABLE'),
+    ('acceptance_invalid', 'command_response', 503, 'SIM_UNAVAILABLE'),
+])
+def test_relay_failure_stage_logged_without_remote_data(camera, monkeypatch, caplog,
+                                                       failure, stage, status, code):
+    from apps.server.fh_server.simulation import RelayError
+    client, state = camera
+    relay = client.app.state.simmgr
+    request = relay.request
+    def fail_at_stage(method, path, body=None, **kwargs):
+        if failure == 'get_transport' and method == 'GET':
+            raise RelayError()
+        if failure == 'slots_invalid' and method == 'GET':
+            return {'unexpected': 'private-upstream-value'}
+        if failure == 'post_transport' and method == 'POST':
+            raise RelayError()
+        if failure == 'observer_not_ready' and method == 'POST':
+            raise RelayError('SIM_OBSERVER_UNAVAILABLE', 409)
+        if failure == 'acceptance_invalid' and method == 'POST':
+            return {'accepted': 'private-upstream-value'}
+        return request(method, path, body, **kwargs)
+    monkeypatch.setattr(relay, 'request', fail_at_stage)
+    if failure == 'disabled':
+        client.app.state.simmgr = None
+    result = post(client, state, csrf(client, 'one'))
+    assert result.status_code == status and result.json()['error']['code'] == code
+    records = [r.getMessage() for r in caplog.records if r.name == external_camera.__name__]
+    assert records == [f'external camera relay stage={stage} status={status} code={code}']
+    assert 'private-upstream-value' not in caplog.text
+    assert str(state['rid']) not in '\n'.join(records)

@@ -153,12 +153,13 @@ class NativeLauncher:
                 writer.close()
                 await writer.wait_closed()
         try:
-            return await asyncio.wait_for(relay(op), .4)
+            # Leave HTTP/dispatch headroom below the server's 500ms deadline.
+            return await asyncio.wait_for(relay(op), .3)
         except BaseException:
             # Drop an unacknowledged pending request without touching a newer
             # viewer's sequence. No retry queue and no lifecycle lock.
             try:
-                await asyncio.wait_for(relay('discard'), .1)
+                await asyncio.wait_for(relay('discard'), .05)
             except (OSError, ValueError, asyncio.TimeoutError):
                 pass
             raise

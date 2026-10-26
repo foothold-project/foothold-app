@@ -53,3 +53,28 @@ observer의 대기 작업은 최대 0.3초만 유효하므로 화면 cancel과 �
 증가하므로 DB 마이그레이션이 필요 없다. 실행 중 시계 역행도 흡수하지만 서버 재시작을
 걸친 시스템 시계 역행은 보장하지 않으며 simmgr의 기존 seq 검사가 오래된 요청을 거절한다.
 cancel/reset 및 중계 실패도 순번·속도 한도를 소비한다. STOP·lease·조종권·실행 경로는 쓰지 않는다.
+
+
+## 중계 실패 진단
+
+외부 카메라 오류는 `fh_server.external_camera`의 warning에 고정 stage,
+HTTP status, 프로토콜 code만 기록한다. 계정·로봇 ID, 요청/응답 본문,
+URL·인증값·원문 예외·Pydantic 입력은 기록하지 않는다.
+
+| stage | 의미와 HTTP 본문 |
+| --- | --- |
+| `manager_disabled` | 중계 미설정: 503 `SIM_DISABLED`, 관리자 연결 안내 |
+| `slots_transport` | 실행 슬롯 GET 통신/중계 오류: 받은 SIM code/status, 외부 카메라 처리 실패 안내 |
+| `slots_response` | 실행 슬롯 JSON 계약 불일치: 503 `SIM_UNAVAILABLE`, 연결 정보 확인 실패 안내 |
+| `command_transport` | view/reset/cancel POST 통신 또는 simmgr 거절: 받은 SIM code/status, 외부 카메라 처리 실패 안내 |
+| `command_response` | accepted/shared/seq/operation ACK 불일치: 503 `SIM_UNAVAILABLE`, 접수 응답 확인 실패 안내 |
+
+등록된 RUNNING 슬롯·현재 담당자·세대 불일치와 observer 부재·binding/freshness
+거절은 409 `SIM_OBSERVER_UNAVAILABLE`다. observer ACK 대기와 matching discard는
+합계 최대 350ms로 서버의 500ms timeout보다 먼저 끝나도록 한다. 실제 관리자
+통신 실패는 계속 503이며 자동 재시도는 하지 않는다.
+
+화면은 503/observer 준비 실패를 «지금 시점 요청을 받지 못합니다 — 다시 끌면
+다시 보냅니다»로 안내하고 다음 끌기를 허용한다. 영상은 별도 media 채널의
+1초 신선도 판정으로 NO_VIDEO를 받고, 새로운 유효 프레임이 오면 복구한다.
+REST 오류를 영상 성공으로 표시하거나 마지막 프레임의 시각을 갱신하지 않는다.

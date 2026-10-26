@@ -4,6 +4,7 @@ from dataclasses import replace
 import hashlib
 import json
 import math
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
@@ -347,3 +348,156 @@ def test_relay_is_bounded_and_disconnect_discards_pending(policy, tmp_path):
             await server.wait_closed()
             await asyncio.sleep(0)
     asyncio.run(exercise())
+
+
+def test_image_ahead_of_state_waits_for_source_clock(policy, monkeypatch):
+    """Independent state/image delivery can put a valid render just ahead of state."""
+    from apps.simmgr import observer_entry as entry
+    observer, _, clock = policy
+    monkeypatch.setattr(entry.time, 'monotonic', lambda: clock[0])
+    images = entry.Images()
+    image = SimpleNamespace(width=320, height=240, step=960, pixel_format_type=3,
+        data=b'x'*230400, HasField=lambda _: True,
+        header=SimpleNamespace(HasField=lambda _: True, stamp=SimpleNamespace(sec=20, nsec=20000000)))
+    images.put(image, 3)
+    assert images.take(observer, 20.) is None  # never publish future evidence
+    clock[0] += .05
+    observer.state(dict(episode=1, x=1., y=2., z=.4))
+    assert images.take(observer, 20.04) is image
+
+
+def test_future_image_expires_without_clock_progress(policy, monkeypatch):
+    from apps.simmgr import observer_entry as entry
+    observer, _, clock = policy
+    monkeypatch.setattr(entry.time, 'monotonic', lambda: clock[0])
+    images = entry.Images()
+    image = SimpleNamespace(width=320, height=240, step=960, pixel_format_type=3,
+        data=b'x'*230400, HasField=lambda _: True,
+        header=SimpleNamespace(HasField=lambda _: True, stamp=SimpleNamespace(sec=20, nsec=20000000)))
+    images.put(image, 3)
+    assert images.take(observer, 20.) is None
+    clock[0] += 1.01
+    observer.status(dict(run_id=observer.episode.replace('-', ''), epoch=1))
+    observer.state(dict(episode=1, x=1., y=2., z=.4))
+    assert images.take(observer, 20.04) is None
+    assert images.pending is None
+
+
+def test_native_view_and_cancel_roundtrip_through_observer(policy, tmp_path):
+    from apps.contracts.models import ExternalCameraViewRequest
+    observer, body, _ = policy
+    async def exercise():
+        path = str(tmp_path/'observer')
+        async def serve(reader, writer):
+            try:
+                envelope = json.loads(await reader.readline())
+                result = observer.submit(envelope['request'], envelope['op'])
+                writer.write(json.dumps(result).encode()+b'\n')
+                await writer.drain()
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        server = await asyncio.start_unix_server(serve, path=path)
+        launch = NativeLauncher.__new__(NativeLauncher)
+        launch.sim = None
+        launch.failed = launch.observer_busy = False
+        launch._watching = True
+        launch.observer = SimpleNamespace(socket_path=path)
+        try:
+            for seq, op in enumerate(('view', 'cancel', 'view')):
+                request = ExternalCameraViewRequest.model_validate(dict(body, seq=seq))
+                assert await launch.external_view(request, op) == dict(
+                    accepted=True, shared=True, seq=seq, operation=op)
+            assert observer.pending is not None
+        finally:
+            server.close()
+            await server.wait_closed()
+    asyncio.run(exercise())
+
+
+def test_observer_timeout_leaves_room_for_server_relay(policy, tmp_path):
+    """ACK plus discard must finish before the server's 500ms HTTP timeout."""
+    from apps.contracts.models import ExternalCameraViewRequest
+    _, body, _ = policy
+    async def exercise():
+        path = str(tmp_path/'slow-observer')
+        closing = asyncio.Event()
+        async def serve(reader, writer):
+            try:
+                await reader.readline()
+                await closing.wait()  # both view and best-effort discard stall
+            finally:
+                writer.close()
+                await writer.wait_closed()
+        server = await asyncio.start_unix_server(serve, path=path)
+        launch = NativeLauncher.__new__(NativeLauncher)
+        launch.sim = None
+        launch.failed = launch.observer_busy = False
+        launch._watching = True
+        launch.observer = SimpleNamespace(socket_path=path)
+        try:
+            started = time.monotonic()
+            with pytest.raises(asyncio.TimeoutError):
+                await launch.external_view(ExternalCameraViewRequest.model_validate(body), 'view')
+            assert time.monotonic() - started < .43
+            assert not launch.observer_busy
+        finally:
+            closing.set()
+            server.close()
+            await server.wait_closed()
+            await asyncio.sleep(0)
+    asyncio.run(exercise())
+
+
+def test_repeated_render_state_phase_offset_keeps_fresh_frames(policy, monkeypatch):
+    from apps.simmgr import observer_entry as entry
+    observer, _, clock = policy
+    monkeypatch.setattr(entry.time, 'monotonic', lambda: clock[0])
+    images = entry.Images()
+    emitted = []
+    for index in range(50):
+        clock[0] = 10 + index*.25
+        observer.status(dict(run_id=observer.episode.replace('-', ''), epoch=1))
+        observer.state(dict(episode=1, x=1., y=2., z=.4))
+        sim_t = 20 + index*.2
+        sec = int(sim_t)
+        image = SimpleNamespace(width=320, height=240, step=960, pixel_format_type=3,
+            data=b'x'*230400, HasField=lambda _: True,
+            header=SimpleNamespace(HasField=lambda _: True,
+                stamp=SimpleNamespace(sec=sec, nsec=round((sim_t-sec+.02)*1e9))))
+        images.put(image, 3)
+        assert images.take(observer, sim_t) is None
+        clock[0] += .05
+        observer.state(dict(episode=1, x=1., y=2., z=.4))
+        assert images.take(observer, sim_t+.04) is image
+        emitted.append(clock[0])
+        assert images.pending is None
+    assert max(b-a for a, b in zip(emitted, emitted[1:])) < 1
+
+
+@pytest.mark.parametrize('cause', [ValueError, OSError, asyncio.TimeoutError])
+def test_observer_unavailable_is_409_and_next_drag_can_recover(policy, cause):
+    _, body, _ = policy
+    cfg = settings()
+    slot = next(iter(cfg.slots.values()))
+    body['robot'] = slot.robot_id
+    app = create_app(cfg)
+    manager = app.state.manager
+    unavailable = [True]
+    async def relay(request, operation):
+        if unavailable[0]:
+            raise cause()
+        return dict(accepted=True, shared=True, seq=request.seq, operation=operation)
+    manager.launcher.external_view = relay
+    manager.robots[slot.robot_id] = SimpleNamespace(state='RUNNING', generation=1, slot=slot)
+    headers = {'Authorization': 'Bearer '+cfg.secret}
+    with TestClient(app, client=('127.0.0.1', 9600)) as client:
+        path = '/v1/robots/'+slot.robot_id+'/external-camera/'
+        for op in ('view', 'cancel'):
+            result = client.post(path+op, headers=headers, json=body)
+            assert result.status_code == 409
+            assert result.json()['error']['code'] == 'SIM_OBSERVER_UNAVAILABLE'
+        unavailable[0] = False
+        result = client.post(path+'view', headers=headers, json=dict(body, seq=1))
+        assert result.status_code == 200
+        assert result.json() == dict(accepted=True, shared=True, seq=1, operation='view')
