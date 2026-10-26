@@ -1,5 +1,7 @@
 """Finite policy alphabet and a size-one, receive-once intent mailbox."""
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+import json
+import logging
 import math
 import threading
 import time
@@ -29,6 +31,8 @@ class PolicyAdapter:
     Core quantizer prevents a config change silently creating a different speed.
     Curves remain disabled until swept/STOP experiments authorize them.
     """
+    policy_version = 'nav2-physical-alphabet-yaw04/1'
+
     def __init__(self, config):
         self.commands = config['commands']
         self.allow_curves = config['allow_curves']
@@ -83,6 +87,8 @@ class NavExecutor:
         self._source_at = None
         self._deadline_expired = False
         self.rejected = False
+        self.first_rejection = None
+        self._pending_rejection = None
 
     def begin(self, binding, point):
         if self.binding is not None:
@@ -96,6 +102,8 @@ class NavExecutor:
             self.result = None
             self.result_at = None
             self.rejected = False
+            self.first_rejection = None
+            self._pending_rejection = None
         self.actions.submit(binding, point)
 
     def intent(self, binding, velocity):
@@ -110,7 +118,35 @@ class NavExecutor:
             self._source_at = received_at
             self._sequence += 1
             self._latest = (self._sequence, received_at, tuple(velocity) if isinstance(velocity, (list, tuple)) else velocity)
+            # Latest-one movement remains bounded, but a rejected input must
+            # not disappear when a second callback arrives before the poll.
+            _, reason = self.adapter.adapt(self._latest[2])
+            if reason not in ('TESTED', 'TESTED_YAW_REDUCED', 'ZERO') and self._pending_rejection is None and self.first_rejection is None:
+                self._pending_rejection = (self._latest, reason,
+                    getattr(self.adapter, 'policy_version', type(self.adapter).__name__))
+                self._reject_locked(binding, self._latest, reason, self._pending_rejection[2])
             return True
+
+    def _reject_locked(self, binding, item, reason, policy_version):
+        if self.first_rejection is None:
+            def raw(value):
+                if isinstance(value, (tuple, list)):
+                    return [raw(v) for v in value[:16]]
+                if type(value) in (int, float):
+                    if type(value) is int and value.bit_length() > 4096:
+                        return {'invalid_type': 'int', 'bits': value.bit_length()}
+                    return value if number(value) else str(value)[:128]
+                if value is None or type(value) in (str, bool):
+                    return value[:128] if type(value) is str else value
+                return {'invalid_type': type(value).__name__}
+            # Preserve evidence before latching, including nonfinite/malformed
+            # values. No contract changes or synchronous journal writes.
+            self.first_rejection = dict(kind='COMMAND_REJECTION', binding=asdict(binding),
+                received_at=item[1], input_si=raw(item[2]), reason=reason,
+                policy_version=policy_version, output_axes=list(Z))
+            self.rejected = True
+            logging.getLogger(__name__).warning('NAV_FAILURE %s', json.dumps(self.first_rejection, allow_nan=False, sort_keys=True))
+        self.rejected = True
 
     def source_received(self):
         with self._lock:
@@ -128,7 +164,7 @@ class NavExecutor:
 
     def feedback(self, binding, result):
         with self._lock:
-            if binding != self.binding or self._revoked or self.result is not None:
+            if binding != self.binding or self._revoked or self.result is not None or self.rejected:
                 return False
             if result == 'SUCCEEDED' and self._expire_locked():
                 return False
@@ -152,19 +188,25 @@ class NavExecutor:
             b, item = self.binding, self._latest
             if b is None or run is None or run.get('run_id') != b.run_id:
                 return None
+            pending = self._pending_rejection
+            if pending is not None:
+                item = pending[0]
+                self._pending_rejection = None
             if item is None or item[0] == self._consumed:
                 return None
             seq, receipt, velocity = item
             self._consumed = seq
             self._last_receipt = receipt
-        if not 0 <= self.now() - receipt <= self.dead_s:
+        if pending is None and not 0 <= self.now() - receipt <= self.dead_s:
             self.reason = 'INTENT_STALE'
             return None
         self.last_velocity = velocity
-        axes, self.reason = self.adapter.adapt(velocity)
+        axes, self.reason = (Z, pending[1]) if pending is not None else self.adapter.adapt(velocity)
         self.counts[self.reason] = self.counts.get(self.reason, 0)+1
         if self.reason not in ('TESTED', 'TESTED_YAW_REDUCED', 'ZERO'):
-            self.rejected = True
+            with self._lock:
+                self._reject_locked(b, item, self.reason,
+                    pending[2] if pending is not None else getattr(self.adapter, 'policy_version', type(self.adapter).__name__))
         if self.rejected:
             self.reason = 'COMMAND_REJECTION_LATCHED'
             return Z  # no unverified .6<->0 flicker after a rejected sample

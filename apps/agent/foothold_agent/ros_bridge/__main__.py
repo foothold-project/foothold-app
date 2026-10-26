@@ -15,7 +15,7 @@ from .config import Config
 from .node import RosNode
 
 
-async def run(config):
+async def run(config, *, simulation_binding=None):
     camera = Camera(config.robot_id) if os.environ.get('FOOTHOLD_CAMERA_ENABLED') == '1' else None
     nav = maps = None
     bridge_options = {'camera': camera} if camera is not None else {}
@@ -25,7 +25,7 @@ async def run(config):
         from .run_maps import RunMaps
         from .run_nav import RunNav
         maps = RunMaps.from_env(getattr(config, 'floor_bindings', None), os.environ)
-        # Same tested alphabet as the experimental bridge; curves stay disabled.
+        # Physical fallback. Hub can select SI only with a simmgr launch binding.
         adapter = PolicyAdapter(dict(allow_curves=False, yaw_zero_threshold_rps=.04,
             commands=[dict(si=[0,0,0],axes=[0,0,0]),dict(si=[.6,0,0],axes=[1,0,0])]))
         nav = NavExecutor(adapter, GoalActions())
@@ -90,6 +90,7 @@ async def run(config):
                       arrival_evidence=arrival,
                       policy_name=config.phone.policy_name, policy_version=config.phone.policy_version,
                       simulation=config.phone.simulation, scenario_source=scenario_source, run_journal=run_journal,
+                      simulation_binding=simulation_binding,
                       run_pause_timeout_s=float(os.environ.get('FOOTHOLD_RUN_PAUSE_TIMEOUT_S', '600')))
             phone = Server(hub, config.phone, camera=CameraTransport(camera, hub) if camera else None)
             session = Observer(hub)
@@ -141,7 +142,9 @@ async def run(config):
 def main():
     # Fail isolation/credential validation before importing rclpy or connecting WS.
     config = Config.from_env()
-    asyncio.run(run(config))
+    from foothold_agent.executor.nav2.simulation import SimulationBinding
+    binding = SimulationBinding.from_launch(globals().get('_simmgr_launch_proof'), config, os.environ)
+    asyncio.run(run(config, simulation_binding=binding))
 
 
 if __name__ == "__main__":

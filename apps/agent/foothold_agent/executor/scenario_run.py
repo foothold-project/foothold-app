@@ -7,6 +7,7 @@ from copy import deepcopy
 import hashlib
 import hmac
 import math
+import logging
 import secrets
 import os
 from uuid import uuid4
@@ -142,6 +143,8 @@ class ScenarioRun:
     def _halt(self, status, reason=None, *, report=True):
         # Block output before requesting asynchronous cancel. Invalidate binding
         # before any late action callback can be considered by tick().
+        if reason == 'NAV_GOAL_REJECTED' and self.nav is not None and self.nav.first_rejection is not None:
+            self.current['failure_detail'] = deepcopy(self.nav.first_rejection)
         s = self.hub.session
         s.core.stop(reason or status)
         s.run = None
@@ -301,7 +304,9 @@ class ScenarioRun:
             # a neutral from a Nav2 movement sample.
             s.core.cmd(s.lease_id, Z)
             self._status('MOVING')
-        except Exception:
+        except Exception as exc:
+            c['failure_detail'] = dict(kind='BEGIN_EXCEPTION', exception_type=type(exc).__name__)
+            logging.getLogger(__name__).warning('NAV_FAILURE run_id=%s kind=BEGIN_EXCEPTION exception_type=%s', c['run_id'], type(exc).__name__)
             self._halt('FAILED', 'NAV_GOAL_REJECTED')
 
     def expire(self):
@@ -363,6 +368,13 @@ class ScenarioRun:
             return
         if self.binding is None:
             return
+        if self.nav.rejected:
+            # A callback rejection wins over a later result/timeout, even when
+            # the Hub loop has not yet consumed the size-one mailbox.
+            self.nav.poll(deepcopy(s.run))
+            c['failure_detail'] = deepcopy(self.nav.first_rejection)
+            self._halt('FAILED', 'NAV_GOAL_REJECTED')
+            return
         succeeded = self.nav.result == 'SUCCEEDED'
         if succeeded and self.success_at is None:
             self.success_at = self.nav.result_at
@@ -383,11 +395,14 @@ class ScenarioRun:
             h._emit(s.executor_command(c['run_id'], Z))
         axes = None if succeeded else self.nav.poll(deepcopy(s.run))
         if self.nav.rejected:
+            c['failure_detail'] = deepcopy(self.nav.first_rejection)
             self._halt('FAILED', 'NAV_GOAL_REJECTED')
             return
         if axes is not None:
             h._emit(s.executor_command(c['run_id'], axes))
         if self.nav.result not in (None, 'SUCCEEDED'):
+            c['failure_detail'] = dict(kind='ACTION_RESULT', result=self.nav.result)
+            logging.getLogger(__name__).warning('NAV_FAILURE run_id=%s kind=ACTION_RESULT result=%s', c['run_id'], self.nav.result)
             self._halt('FAILED', 'NAV_GOAL_REJECTED')
             return
         if self.nav.result == 'SUCCEEDED':
