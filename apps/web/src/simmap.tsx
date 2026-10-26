@@ -1,9 +1,10 @@
 // 시뮬 조종 화면 작은 지도(floor-auto 1B — contracts README «연결 건물 정적 지도 관측»): state.pose.floor_context 의 승인 판 + 로봇 위치·방향.
 // 층이 바뀌면(map_version_id·floor_rev) 새 판으로 자동 교체. 옛 epoch/floor_rev·다른 로봇·세대·run_id 문맥은 버리고, 문맥이 null 이면 «층을 확인하는 중», 판 응답은 받은 때 문맥과 맞을 때만 그린다.
 // transit·unknown·판 오류에서는 위치를 숨긴다(확인 안 된 층을 확정처럼 그리지 않음). 지도는 입력·STOP 경로와 무관 — 그림만.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FloorContext, MapVersion, PhoneState, SimRobot, SimWorldFloor } from '../../contracts/ts';
 import { api } from './api';
+import { MapFrame, MapImage, around, useWalls, type Box } from './mapframe';
 import { aim, floorName, isVersion, shape, toPixel } from './screens/maps';
 
 type Me = Pick<SimRobot, 'robot_id' | 'generation'>;
@@ -60,16 +61,17 @@ export function useFloorMap(st: PhoneState | null, r: SimRobot, floors: SimWorld
     load: (x: string) => setImg(x), fail: (x: string) => { if (x === id) { cache.current.delete(x); setVer({ id: x, bad: true }); } }, retry: () => { setImg(''); setAgain((n) => n + 1); } };
 }
 
-/** 지도 그림 + 위치 점·방향 선 + 층·상태 이름표. big = 영상 칸 전체, 아니면 작은 지도 단추 안 */
+/** 지도 그림 + 위치 점·방향 선 + 층·상태 이름표. big = 영상 칸 전체(확대·이동·축척), 아니면 작은 지도 단추 안(그림만) */
 export function SimMap({ m, big }: { m: FloorMap; big?: boolean }) {
   const { v, dot } = m, r = v ? Math.max(v.width, v.height) / (big ? 70 : 28) : 0;
   const at = dot && v ? toPixel(v, dot.x, dot.y) : null, tip = dot && v ? aim(v, dot, r) : null;
+  const walls = useWalls(v?.id), look = useMemo(() => { const full: Box = v ? [0, 0, v.width, v.height] : [0, 0, 1, 1]; return { full, fit: v ? around(walls, [], full, v.resolution) : full, res: v?.resolution ?? 1 }; }, [v, walls]);
   return <>
-    {v ? <svg className="dv-map" viewBox={`0 0 ${v.width} ${v.height}`} role="img" aria-label={m.label || `${m.floor} 지도`} data-sim-map={v.id} data-dim={m.dim || undefined}>
-      <image key={`${v.id}-${m.n}`} href={api.imageUrl(v.id)} width={v.width} height={v.height} style={{ imageRendering: 'pixelated' }} onLoad={() => m.load(v.id)} onError={() => m.fail(v.id)} />
+    {v ? <MapFrame {...look} still={!big} at={{ left: 8, top: 148 }} className="dv-map" role="img" aria-label={m.label || `${m.floor} 지도`} data-sim-map={v.id} data-dim={m.dim || undefined}>
+      <MapImage key={`${v.id}-${m.n}`} id={v.id} width={v.width} height={v.height} onLoad={() => m.load(v.id)} onError={() => m.fail(v.id)} />
       {at && tip && <g data-sim-dot><line x1={at[0]} y1={at[1]} x2={tip[0]} y2={tip[1]} style={{ stroke: 'var(--accent)' }} strokeWidth={r * 0.6} strokeLinecap="round" />
         <circle cx={at[0]} cy={at[1]} r={r} style={{ fill: 'var(--accent)' }} stroke="#FFFFFF" strokeWidth={r * 0.3} /></g>}
-    </svg> : <div className="dv-map" role="img" aria-label={m.label} />}
+    </MapFrame> : <div className="dv-map" role="img" aria-label={m.label} />}
     {(m.label || m.floor) && <span className="dv-floor" data-sim-floor>{m.label || m.floor}</span>}
     {big && m.bad && <button type="button" className="btn dv-map-again" onClick={m.retry}>다시 불러오기</button>}
   </>;

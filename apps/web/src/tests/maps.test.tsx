@@ -912,6 +912,30 @@ describe('지도 편집 — 도구', () => {
   });
 });
 
+describe('지도 편집 — 확대·이동 뒤 좌표(mapframe)', () => {
+  /** 화면 좌표 그대로 누름(button 1 = 가운데 단추) */
+  const raw = async (type: string, sx: number, sy: number, button = 0) => { act(() => { canvas().dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: sx, clientY: sy, button })); }); await flush(); };
+  const vb = () => canvas().getAttribute('viewBox')!.split(' ').map((x) => Math.round(Number(x) * 1000) / 1000);
+  it('확대(가운데 기준 1.5배) → 가운데 단추 끌기 = 이동만(지점 안 생김) → 찍은 지점이 지금 viewBox 기준 지도 좌표 → «맞춤» = 처음 화면', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    expect(vb()).toEqual([0, 0, 100, 80]);   // jsdom 은 그림 화소를 못 읽어 자르기 없음 = 전체 그림(실패 시 전체)
+    await click($('[aria-label="확대"]'));
+    expect(vb()).toEqual([16.667, 13.333, 66.667, 53.333]);   // 400×320 칸에 66.67×53.33 픽셀 = 6배
+    await tool('지점');
+    await raw('pointerdown', 200, 160, 1); await raw('pointermove', 260, 160, 1); await raw('pointerup', 260, 160, 1);   // 60px ÷ 6 = 그림 10픽셀 왼쪽으로
+    expect(vb()).toEqual([6.667, 13.333, 66.667, 53.333]);
+    await raw('pointerdown', 0, 0); await raw('pointerup', 0, 0);   // 화면 왼쪽 위 = 그림 (6.667, 13.333) → 지도 (-1 + 6.667·0.05, -2 + (80 - 13.333)·0.05)
+    await save('확대 지점');
+    const w = body().features.waypoints;
+    expect(w).toHaveLength(2);
+    expect(near([[w[1].x, w[1].y]])).toEqual([[-0.667, 1.333]]);
+    await startEdit();
+    await click($('[aria-label="확대"]')); await click(btn('맞춤'));
+    expect(vb()).toEqual([0, 0, 100, 80]);
+  });
+});
+
 describe('지도 편집 — 저장', () => {
   it('미리 검사에 걸리면 보내지 않고 그 요소를 표시, 바꾼 것 없음·이유 빈칸도 막음', async () => {
     serve(editSrv(saved201));

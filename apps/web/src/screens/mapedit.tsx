@@ -4,8 +4,9 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
+import { MapFrame, MapImage, toView } from '../mapframe';
 import { leaving } from '../menu';
-import { EDIT, KIND, Note, Shapes, ZONE, fillOf, isVersion, reasonBad, shape, toPixel, UnsureBar, canon, pendingIds, preFail, useUnsure, type Msg, type Place } from './maps';
+import { EDIT, KIND, Note, Shapes, ZONE, fillOf, isVersion, reasonBad, shape, toPixel, useFit, UnsureBar, canon, pendingIds, preFail, useUnsure, type Msg, type Place } from './maps';
 
 type P = [number, number];
 type Geo = Pick<MapVersion, 'origin' | 'resolution' | 'width' | 'height'>;
@@ -16,10 +17,10 @@ export function toMap(v: Geo, px: number, py: number): P {
   const [ox, oy, yaw] = v.origin, c = Math.cos(yaw), s = Math.sin(yaw), u = px * v.resolution, w = (v.height - py) * v.resolution;
   return [ox + c * u - s * w, oy + s * u + c * w];
 }
-/** 화면 좌표 → 지도 좌표: svg 는 viewBox 를 가운데 맞춤으로 늘린다(preserveAspectRatio 기본값). 시나리오 지점 찍기(screens/missions.tsx)도 쓴다 */
+/** 화면 좌표 → 지도 좌표: svg 의 지금 viewBox(확대·자르기 포함, mapframe toView)를 거친다. 시나리오 지점 찍기(screens/missions.tsx)도 쓴다 */
 export function fromScreen(svg: Element, v: Geo, cx: number, cy: number): P {
-  const b = svg.getBoundingClientRect(), k = Math.min(b.width / v.width, b.height / v.height);
-  return toMap(v, (cx - b.left - (b.width - v.width * k) / 2) / k, (cy - b.top - (b.height - v.height * k) / 2) / k);
+  const [px, py] = toView(svg, cx, cy);
+  return toMap(v, px, py);
 }
 /** 서버와 같은 범위: 회전 원점 기준 그림 안(경계 포함, 같은 허용 오차) */
 export function inside(v: Geo, x: number, y: number) {
@@ -151,6 +152,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
   useEffect(() => { if (lock) { drag.current = null; rect.current = null; setBox(null); } }, [lock]);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
   const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
+  const fit = useFit(v);   // 처음 화면은 편집 시작 때 판 요소 기준(그리는 동안 다시 맞추지 않음)
 
   // 저장하지 않은 편집(그리던 점 포함): 탭 이동·층 바꾸기·보기 전환은 이 칸의 확인으로, 새로고침·창 닫기는 브라우저 확인으로
   const unsaved = dirty || pts.length > 0;
@@ -321,16 +323,18 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, request }: {
       <div role="toolbar" aria-label="편집 도구" aria-orientation="vertical" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {TOOLS.map(([t, text]) => <button key={t} type="button" className="btn" aria-pressed={tool === t} disabled={lock} onClick={() => pick(t)}>{text}</button>)}
       </div>
-      <svg ref={svg} viewBox={`0 0 ${v.width} ${v.height}`} role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-        style={{ display: 'block', flex: 1, minWidth: 0, maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
-        <image href={api.imageUrl(v.id)} width={v.width} height={v.height} style={{ imageRendering: 'pixelated' }} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+      <MapFrame ref={svg} {...fit} edit role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+        style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
+        <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
         <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
         {pts.length > 0 && <g data-drawing>
           <polyline points={pts.map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: 'none', stroke: color, strokeWidth: 2, strokeDasharray: '4 3' }} vectorEffect="non-scaling-stroke" />
           {pts.map(([x, y], k) => { const [a, b] = toPixel(v, x, y); return <circle key={k} cx={a} cy={b} r={r * 0.6} style={{ fill: color }} />; })}
         </g>}
         {box && <polygon data-box points={corners(box).map(([x, y]) => toPixel(v, x, y).join(',')).join(' ')} style={{ fill: color, fillOpacity: 0.2, stroke: color, strokeWidth: 2, strokeDasharray: '4 3', pointerEvents: 'none' }} vectorEffect="non-scaling-stroke" />}
-      </svg>
+      </MapFrame>
+      </div>
     </div>
     <p className="lv-note" role="status">{hint}</p>
     {(zone || line) && <div className="fh-row" role="group" aria-label="그리기">

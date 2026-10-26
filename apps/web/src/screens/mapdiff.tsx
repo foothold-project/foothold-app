@@ -4,7 +4,8 @@
 import { startTransition, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { MapConnector, MapDiff, MapEdit, MapFeatureChange, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { EDIT, KIND, Note, Shapes, ZONE, aim, isVersion, reasonBad, shape, toPixel, UnsureBar, pendingIds, preFail, useUnsure, type Msg } from './maps';
+import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
+import { EDIT, KIND, Note, Shapes, ZONE, aim, featPx, isVersion, reasonBad, shape, toPixel, UnsureBar, pendingIds, preFail, useUnsure, type Msg } from './maps';
 import { toMap } from './mapedit';
 
 type P = [number, number];
@@ -73,12 +74,13 @@ export function onto(a: Geo, b: Geo) {
   const f = via(a, b), [e, g] = f(0, 0), [p, q] = f(1, 0), [s, t] = f(0, 1), r = (x: number) => Math.round(x * 1e9) / 1e9;
   return `matrix(${[p - e, q - g, s - e, t - g, e, g].map(r).join(' ')})`;
 }
-/** 두 그림을 모두 담는 viewBox(뒤 판 픽셀 기준) */
-function frame(b: Geo, a: Geo | null) {
+const corners = (x: number, y: number, w: number, h: number): P[] => [[x, y], [x + w, y], [x, y + h], [x + w, y + h]];
+/** 두 그림을 모두 담는 범위(뒤 판 픽셀 기준) */
+function frame(b: Geo, a: Geo | null): Box {
   const pts: P[] = [[0, 0], [b.width, b.height]];
-  if (a) { const f = via(a, b); pts.push(f(0, 0), f(a.width, 0), f(0, a.height), f(a.width, a.height)); }
+  if (a) pts.push(...corners(0, 0, a.width, a.height).map(([x, y]) => via(a, b)(x, y)));
   const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]), x0 = Math.min(...xs), y0 = Math.min(...ys);
-  return `${x0} ${y0} ${Math.max(...xs) - x0} ${Math.max(...ys) - y0}`;
+  return [x0, y0, Math.max(...xs) - x0, Math.max(...ys) - y0];
 }
 
 /** 비교 실패 = 무엇이 + 어떻게. 그 밖(네트워크·시간 초과 등)은 원인 문구 + 다시 시도 */
@@ -113,6 +115,13 @@ export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: Pick<M
   const tally = [['추가', count((c) => c.change === 'added'), CH.added.color], ['삭제', count((c) => c.change === 'removed'), CH.removed.color],
     ['바뀜', count((c) => c.change === 'changed' && !moved(c)), CH.changed.color], ['순서 바뀜', count(moved), CH.changed.color]] as const;
   const onErr = () => setBad(true);
+  // 처음 화면: 뒤 판 벽 범위 + 앞 판 벽 범위(뒤 판 픽셀로) + 두 판 요소. 뒤 판 벽을 모르면 전체
+  const wb = useWalls(b?.id), wa = useWalls(two ? a!.id : undefined);
+  const look = useMemo(() => {
+    if (!b) return null;
+    const full = frame(b, a), extra = wa && a ? corners(...wa).map(([x, y]) => via(a, b)(x, y)) : [];
+    return { full, fit: around(wb, [...extra, ...featPx(b, b.features), ...(a ? featPx(b, a.features) : [])], full, b.resolution), res: b.resolution };
+  }, [d, wa, wb]);
   // 차이 표시는 응답이 올 때 한 번만 만든다 — 강조·더 보기·그림 전환 때 수천 개를 다시 맞추지 않게(강조는 위에 한 벌 더, 나머지는 묶음째 흐리게)
   const layer = useMemo(() => d && d.changes.map((c, i) => <One key={i} g={d.version} c={c} />), [d]);
   return <div className="fh-form" aria-label="판 비교">
@@ -126,13 +135,13 @@ export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: Pick<M
           {([['both', '겹쳐 보기'], ['before', `판 ${a.number}`], ['after', `판 ${b.number}`]] as [Img, string][]).map(([m, t]) =>
             <button key={m} type="button" className="btn" aria-pressed={img === m} onClick={() => setImg(m)}>{t}</button>)}</div>
         : <p className="lv-note">지도 그림은 같습니다.</p>}
-      <svg viewBox={frame(b, a)} role="img" aria-label={`${a ? `판 ${a.number}` : '빈 지도'}와 판 ${b.number} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', background: 'var(--panel2)', borderRadius: 8 }}>
-        {two && img !== 'after' && <image key={`a${k}`} data-image="before" href={api.imageUrl(a!.id)} width={a!.width} height={a!.height} transform={onto(a!, b)} style={{ imageRendering: 'pixelated' }} onError={onErr} />}
-        {(!two || img !== 'before') && <image key={`b${k}`} data-image="after" href={api.imageUrl(b.id)} width={b.width} height={b.height} style={{ imageRendering: 'pixelated', opacity: two && img === 'both' ? 0.5 : 1 }} onError={onErr} />}
+      <MapFrame {...look!} role="img" aria-label={`${a ? `판 ${a.number}` : '빈 지도'}와 판 ${b.number} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+        {two && img !== 'after' && <MapImage key={`a${k}`} data-image="before" id={a!.id} width={a!.width} height={a!.height} transform={onto(a!, b)} onError={onErr} />}
+        {(!two || img !== 'before') && <MapImage key={`b${k}`} data-image="after" id={b.id} width={b.width} height={b.height} style={{ opacity: two && img === 'both' ? 0.5 : 1 }} onError={onErr} />}
         <g opacity={0.3} aria-hidden="true"><Shapes v={b} f={b.features} /></g>
         <g opacity={hi >= 0 ? 0.35 : 1}>{layer}</g>
         {d.changes[hi] && <One g={b} c={d.changes[hi]} hi />}
-      </svg>
+      </MapFrame>
       {bad && <div className="fh-row"><p className="fh-msg" role="alert">지도 그림을 불러오지 못했습니다. 네트워크를 확인한 뒤 다시 불러오세요.</p>
         <button type="button" className="btn" onClick={() => { setBad(false); setK(k + 1); }}>다시 불러오기</button></div>}
       <div className="fh-row" aria-label="차이 수">{tally.filter(([, c]) => c).map(([t, c, col]) => <span key={t}><span aria-hidden="true" style={{ color: col }}>■</span> {t} {c}</span>)}</div>
