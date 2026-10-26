@@ -9,10 +9,12 @@ import { phoneProxy, tunnelGuard } from '../../tunnel';
 
 const origin = 'https://example.trycloudflare.com';
 const env = { FH_TUNNEL: '1', FH_TUNNEL_ORIGIN: origin };
+// 듣는 포트는 검증용 9480..9489 안에서 tunnel.test.js(9480)와 따로 — 병렬 작업자가 같은 포트를 잡지 않게
+const LISTEN = 9482;
 const cleanup = [];
 afterEach(async () => { while (cleanup.length) await cleanup.pop()(); vi.unstubAllEnvs(); });
 const get = (path) => new Promise((resolve, reject) => {
-  const req = request({ host: '127.0.0.1', port: 9480, path, headers: { host: new URL(origin).host } }, (res) => {
+  const req = request({ host: '127.0.0.1', port: LISTEN, path, headers: { host: new URL(origin).host } }, (res) => {
     let body = ''; res.on('data', (data) => { body += data; });
     res.on('end', () => resolve({ status: res.statusCode, body }));
   });
@@ -24,11 +26,11 @@ it('always excludes service ports, including widened environment and caller-supp
   for (const port of forbidden) {
     expect(phonePorts()).not.toContain(port);
     expect(phoneProxy({ ...env, FH_PHONE_PORT_RANGE: `${port}:${port}` })).toEqual({});
-    expect(phoneUrl(`ws://127.0.0.1:${port}/phone/ws`, new URL(origin), false, [port])).toBeNull();
+    expect(phoneUrl(`ws://127.0.0.1:${port}/phone/ws`, new URL(origin), 'media', [port])).toBeNull();
   }
   for (const range of ['9430:9449', '8453:9449', '9433:9489', 'bad', '']) {
     expect(phoneProxy({ ...env, FH_PHONE_PORT_RANGE: range })).toEqual({});
-    expect(phoneUrl('ws://127.0.0.1:9433/phone/ws', new URL(origin), false, phonePorts(range))).toBeNull();
+    expect(phoneUrl('ws://127.0.0.1:9433/phone/ws', new URL(origin), 'media', phonePorts(range))).toBeNull();
   }
 });
 
@@ -42,7 +44,7 @@ it('blocks the exact raw-import file attack and development internals on tunnel 
   // Both hooks must enforce the same policy: dev disables tunnel access entirely.
   const dev = await createServer({ configFile: false, root, cacheDir: resolve(folder, 'cache'), logLevel: 'silent',
     plugins: [tunnelGuard(origin, phonePorts())],
-    server: { host: '127.0.0.1', port: 9480, strictPort: true, hmr: false, watch: { ignored: ['**/*'] } } });
+    server: { host: '127.0.0.1', port: LISTEN, strictPort: true, hmr: false, watch: { ignored: ['**/*'] } } });
   await dev.listen();
   try {
     const attack = await get(`/@fs/${secret}?import&raw??`);
@@ -51,7 +53,7 @@ it('blocks the exact raw-import file attack and development internals on tunnel 
   } finally { await dev.close(); }
   const server = await preview({ configFile: false, root, logLevel: 'silent',
     plugins: [tunnelGuard(origin, phonePorts())],
-    preview: { host: '127.0.0.1', port: 9480, strictPort: true } });
+    preview: { host: '127.0.0.1', port: LISTEN, strictPort: true } });
   cleanup.push(() => new Promise((resolve) => { server.httpServer.closeAllConnections(); server.httpServer.close(resolve); }));
   expect(await get('/')).toEqual({ status: 200, body: '<h1>static build</h1>' });
   for (const path of [`/@fs/${secret}?import&raw??`, '/@id/test', '/@vite/client', '/__vite_ping', '/node_modules/test', '/src/test.ts', '/%40fs/private?import&raw??']) {

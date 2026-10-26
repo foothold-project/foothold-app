@@ -1,6 +1,8 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
 import type { SimRobot } from '../../contracts/ts';
+import { feedText, media, needsRelink, useFeed } from './media';
+import { useOrbit, viewBlock } from './extview';
 import { DEAD, RUN_END, allowed, runMoving, sim, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
@@ -118,6 +120,18 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
 }
 
 export const CAM = { wait: '영상 기다리는 중', none: '영상 없음 — 로봇이 영상을 보내지 않습니다', lost: '영상 연결이 끊겼습니다. 조종·STOP 에는 영향이 없습니다', off: '이 로봇은 영상을 보내지 않습니다', frame: '' };
+export type Cam = 'rgb' | 'external';
+const CAM_NAME: Record<Cam, string> = { rgb: 'RGB 영상', external: '외부 카메라 영상' };
+/** 영상 한 칸: RGB 는 로봇이 media/1 로 알리면 그것, 아니면 옛 카메라 경로(§13.8). 외부 카메라는 media/1 만 — 없으면 이유 글(RGB 로 바꿔 끼우지 않음).
+ *  보이는 동안만 그 채널을 받는다. 받는 중·새것이 아니면 그림 대신 이유(지난 그림을 지금 것처럼 두지 않음). quiet = 이유 글 숨김(안내 줄과 겹칠 때·작은 칸) */
+export function Video({ ch, fit = 'contain', quiet, ...rest }: { ch: Cam; fit?: 'contain' | 'cover'; quiet?: boolean } & HTMLAttributes<HTMLElement>) {
+  const l = useSim().link, f = useFeed(ch), old = ch === 'rgb' && !media.has('rgb');
+  const text = old ? CAM[l?.cam ?? 'wait'] : feedText(f, ch), img = old ? (l?.cam === 'frame' ? l.img : '') : text ? '' : f.img;
+  return img ? <img className="dv-video" draggable={false} src={img} alt={CAM_NAME[ch]} style={{ width: '100%', height: '100%', objectFit: fit }} data-cam={ch} {...rest} />
+    : <div className="dv-video" role="img" aria-label={CAM_NAME[ch]} data-cam={ch} {...rest}>{!quiet && <span>{text}</span>}</div>;
+}
+/** 지금 칸이 «영상 다시 받기»(부모 연결 새로)를 필요로 하나 — 옛 카메라 경로 RGB 는 해당 없음 */
+export const relink = (ch: Cam) => (ch === 'rgb' && !media.has('rgb') ? false : needsRelink(media.get()[ch]));
 
 const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
 const ICON = {
@@ -167,6 +181,10 @@ export function SimDrive() {
   // 작은 지도(메뉴에서 켬, 기본 꺼짐 — 오른쪽 위 STOP 아래): 누르면 지도 크게 ↔ 영상 크게(실기 화면 dv-mini 와 같음 — 입력·조이스틱은 그대로)
   const floors = s.catalog?.worlds.find((x) => x.id === r.world_id)?.floors ?? [], fm = useFloorMap(st, r, floors);
   const [big, setBig] = useState(false), [mini, setMini] = useState(false), [shut, setShut] = useState<string[]>([]), hasMap = floors.length > 0 || !!fm.ctx;
+  // 큰 화면 = 외부 카메라(10-26 사용자), 단추로 RGB. 두 채널 모두 이 화면이 떠 있는 동안 받는다(토큰이 10초·1회라 바꿀 때마다 다시 연결하지 않게)
+  const [cam, setCam] = useState<Cam>('external'), ext = useFeed('external');
+  useFeed('rgb');
+  const orbitWhy = viewBlock(ext), drag = useOrbit(r.robot_id, cam !== 'external' || !!orbitWhy || (big && hasMap && mini));
   const run = runView(s), moving = runMoving(l.run);   // 실행이 움직이는 중이면 조이스틱 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
   const live = ready && !menu && !bar && !leaving && !moving;
   const smooth = w?.limits.vx_mode === 'continuous', can = allowed(w), blocked = blockedNames(can);
@@ -218,7 +236,7 @@ export function SimDrive() {
     !unsupported && mine && clipNote && `명령 범위 조정 — 허용 범위로 잘랐습니다.${smooth || !can.spin ? '' : ' 끝까지 밀어야 움직입니다.'}`,
     open && left < 60 && (moving ? `출입증 ${Math.max(0, left)}초 남음 — 만료되면 실행이 일시정지됩니다. 다시 연결한 뒤 이 화면에서 «이어서»를 누르세요.`
       : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
-    hideCam && (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam],
+    hideCam && (cam === 'rgb' && !media.has('rgb') ? (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam] : relink(cam) && feedText(media.get()[cam], cam)),
   ].filter(Boolean) as string[];
   const said = notes.length > 0 && notes.every((t) => shut.includes(t));   // 닫을 때 보이던 안내뿐이면 숨김(새 안내가 하나라도 생기면 다시 보임)
   const acts = leaving ? leaving === 'fail' && [
@@ -229,6 +247,7 @@ export function SimDrive() {
     open && mine && st?.latched !== false && <button key="unlock" type="button" className="btn pri" disabled={l.busy === 'unlock'} onClick={() => sim.unlock()}>잠금 해제</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn pri" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
     open && left < 60 && <button key="pass" type="button" className="btn" onClick={() => sim.connect()}>{moving ? '새 출입증으로 다시 연결(실행 일시정지)' : '새 출입증으로 다시 연결'}</button>,
+    open && !mine && !(left < 60) && relink(cam) && <button key="media" type="button" className="btn" data-media-again onClick={() => sim.connect()}>영상 다시 받기</button>,   // 조종 중이면 다시 연결이 조종을 끊으므로 내지 않음
     ...run.acts,
   ].filter(Boolean);
   const range = w && `로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s${can.back ? `, 뒤 ${(-w.limits.vx_min).toFixed(2)} m/s` : ''}${can.left || can.right ? `, 옆 ±${w.limits.vy_max} m/s` : ''}, 회전 ±${w.limits.wz_max} rad/s) 밖은 잘라 보냅니다.${!can.spin ? ' 제자리 회전은 앞으로 밀면서 돌리세요.' : ''}`;
@@ -237,14 +256,18 @@ export function SimDrive() {
   const state = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone !== 'ok' ? lock.text
     : rr ? rr.status === 'PAUSED' ? '실행 일시정지' : total ? `실행 ${Math.min(rr.step + 1, total)}/${total}` : '실행 준비' : '';
   const toggle = () => { if (menu || bar) { setMenu(''); setBar(false); } else setMenu('menu'); };
-  const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" draggable={false} src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: small ? 'contain' : 'cover' }} />
-    : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && !hideCam && <span>{CAM[l.cam]}</span>}</div>;
+  // 큰 화면 끌기 = 외부 카메라 시점(드래그 yaw·pitch, 핀치 거리) — 조이스틱은 다른 요소라 그 누름은 여기 오지 않고, 이 끌기는 sim.axes 를 부르지 않는다
+  const video = (small: boolean) => small ? <Video ch={cam} quiet /> : <Video ch={cam} fit="cover" quiet={hideCam} {...drag} data-orbit={orbitWhy ? undefined : ''} />;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
       {big && hasMap && mini ? <SimMap m={fm} big /> : video(false)}
       <div className="dv-safe">
       {hasMap && mini && <button type="button" className="dv-mini" aria-label={big ? '영상 크게' : '지도 크게'} data-sim-mini onClick={() => setBig(!big)}>{big ? video(true) : <SimMap m={fm} />}</button>}
       <button type="button" className="dv-gear dv-leave" aria-label="나가기" disabled={leaving === 'wait'} data-sim-leave onClick={leave}>{ICON.back}</button>
+      <div className="dv-cams" role="group" aria-label="영상 고르기">
+        {(['external', 'rgb'] as const).map((c) => <button key={c} type="button" aria-pressed={cam === c} data-cam-pick={c} onClick={() => setCam(c)}>{c === 'external' ? '외부' : 'RGB'}</button>)}
+      </div>
+      {cam === 'external' && orbitWhy && !hideCam && !(big && hasMap && mini) && <p className="dv-orbit-why" data-orbit-why>{orbitWhy}</p>}
       <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
         시뮬 · {state && <>{state} · </>}<span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
       </div>

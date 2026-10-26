@@ -139,3 +139,12 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .fh-head[data-bare] .fh-stop{border-radius:32px}
 /* 세로 폰: 위 줄이 좁아 가운데 알약이 STOP(112 + 8)에 닿는다 → «<»(8 + 44)와 STOP 사이 가운데 */
 @media (orientation:portrait){[data-sim-drive] .dv-top{left:60px;right:128px;width:fit-content;max-width:calc(100% - 188px);margin-inline:auto;transform:none}}
+/* 폰 시뮬 영상 고르기(외부 카메라 기본 · RGB) + 시점 끌기 이유 — 나가기 단추 아래. 끌기가 켜진 영상만 브라우저 스크롤·확대를 막는다 */
+.dv-cams{position:absolute;top:60px;left:8px;z-index:1;display:flex;gap:4px}
+.dv-cams>button{min-width:56px;height:40px;padding:0 12px;border:1px solid rgba(230,235,239,.45);border-radius:20px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:13px;font-weight:600;cursor:pointer}
+.dv-cams>button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent);color:var(--on-accent)}
+.dv-orbit-why{position:absolute;top:108px;left:8px;z-index:1;max-width:min(320px,calc(100% - 120px));margin:0;padding:4px 10px;border-radius:12px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;line-height:1.4;pointer-events:none}
+.dv-video[data-orbit]{touch-action:none;cursor:grab}
+.dv-video>span{padding:0 16px;text-align:center;line-height:1.45}
+.dv-stage:has(.dv-cams)>.dv-floor{top:108px}
+.dv-stage:has(.dv-cams) .dv-map-again{top:144px}

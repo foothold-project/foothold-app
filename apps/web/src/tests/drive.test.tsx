@@ -99,6 +99,9 @@ describe('조종 화면', () => {
     serve(KIM, 'r3', 'r7', 'r1');
     click(card('Go2-7').querySelector('button')!);
     expect(location.hash).toBe('#/drive/r7');
+    // 실기 RGB: 영상 어댑터·media capability 전 — 이유만, 실기 쪽 영상 연결 시도 0
+    expect($('[aria-label="RGB 영상"]').textContent).toBe('실기 영상 준비 중(미연결)');
+    expect(FakeWS.all.some((x) => /\/phone\/(media|camera)\/ws/.test(x.url))).toBe(false);
     click(btn('조종 시작'));
     expect(w.of('lease.take')).toMatchObject([{ robot: 'r7', proto: 'fh-rt/1' }]);
     expect(text()).toContain('조종 중(나)');

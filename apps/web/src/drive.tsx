@@ -237,9 +237,11 @@ function Screen(c: Ctx) {
   </section>;
 }
 
+/** 실기 RGB: 실기 영상 어댑터·media capability 가 아직 없다 — 연결·명령 시도 없이 이유만(가짜 그림 0) */
+export const REAL_RGB = '실기 영상 준비 중(미연결)';
 function Video({ depth, small }: { depth?: boolean; small?: boolean }) {
   return <div className={`dv-video${depth ? ' depth' : ''}`} role="img" aria-label={depth ? '뎁스 영상' : 'RGB 영상'}>
-    {!small && <span>{depth ? '뎁스 영상 자리 · 가까울수록 붉게' : 'RGB 영상 자리'}</span>}</div>;
+    {!small && <span>{depth ? '뎁스 영상 자리 · 가까울수록 붉게' : REAL_RGB}</span>}</div>;
 }
 /** 지도 + 로봇 위치 + 라이다 점(겹쳐 그림) — 가짜 그림 */
 function MapView({ big }: { big?: boolean }) {
