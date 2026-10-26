@@ -73,13 +73,13 @@ class Relay:
         self.url = url
         self.opener = build_opener(ProxyHandler({}), NoRedirect())
 
-    def request(self, method, path, body=None):
+    def request(self, method, path, body=None, *, timeout=None):
         try:
             request = Request(self.url + path, method=method,
                 data=json.dumps(body).encode() if body is not None else None,
                 headers={'Authorization': 'Bearer ' + self.secret, 'Content-Type': 'application/json'})
             try:
-                with self.opener.open(request, timeout=5 if method == 'GET' else 180) as response:
+                with self.opener.open(request, timeout=timeout if timeout is not None else (5 if method == 'GET' else 180)) as response:
                     raw = response.read(65537)
                 if len(raw) > 65536:
                     raise RelayError()
