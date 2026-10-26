@@ -148,7 +148,7 @@ function ScenarioPick({ s, r }: { s: Sim; r: SimRobot }) {
   if (!list.length) return <p className="lbl" data-sim-scn>이 지도에 시나리오가 없습니다.</p>;
   const picked = list.find((x) => x.id === pick), block = startBlock(s, picked, floors);
   return <div className="fh-row" style={{ flexWrap: 'wrap' }} data-sim-scn>
-    <label className="fh-row"><span>시나리오</span><select value={pick} onChange={(e) => setPick(e.target.value)}>
+    <label className="fh-row"><span>시나리오</span><select className="fh-user fh-sel" value={pick} onChange={(e) => setPick(e.target.value)}>
       <option value="">고르기</option>{list.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
     <button type="button" className="btn pri" disabled={!picked || !!block || s.link?.busy === 'run'} aria-describedby="sim-scn-why"
       onClick={() => picked && sim.runStart(picked, startFloor(picked, floors))}>실행</button>

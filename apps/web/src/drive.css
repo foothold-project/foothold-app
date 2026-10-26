@@ -29,7 +29,12 @@
    작은 지도는 오른쪽 조이스틱 위. 시트는 영상 칸(.dv-stage) 안에서만 열려 머리줄(STOP)을 덮지 못한다 */
 /* min-height:0 — .fh 의 100vh(Safari 막대가 숨었을 때 높이)가 이기면 막대가 보일 때 아래(조이스틱)가 막대 밑으로 내려간다 */
 .fh:has(.dv.ph){height:100dvh;min-height:0}
-.fh:has(.dv.ph) .fh-main{overflow:hidden}
+.fh:has(.dv.ph) .fh-main{overflow:hidden;padding:0}
+/* 10-26 실폰: 영상 칸은 본문 끝까지(여백·모서리 없음). 노치·홈 막대 자리(.fh.phone safe-area 여백)와 페이지 바탕은 영상 칸 색으로 이어서
+   화면 전체가 영상 칸처럼 보이게 — 조작부(조이스틱·STOP·단추)는 그대로 safe-area 안쪽 */
+html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
+.dv.ph .dv-stage{border-radius:0}
+.dv.ph>:not(.dv-body){margin:0 8px 8px}
 /* 조종 화면: 조이스틱을 길게 눌러도 글자 선택·돋보기·길게 누르기 메뉴·끌기 그림자가 없게(iOS Safari 는 -webkit- 만 먹음). 입력란만 예외 */
 .fh:has(.dv.ph){-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .fh:has(.dv.ph) :is(input,textarea){-webkit-user-select:text;user-select:text}

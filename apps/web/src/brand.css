@@ -8,6 +8,8 @@
 
 /* .fh 가 --stop 을 STOP 버튼 채움으로 덮기 전에, :root 의 공식 stop(글자·테두리용)을 따로 잡아 둔다 */
 :root { --b-stop: var(--stop); }
+/* 페이지 바탕 = 토큰 paper(10-26 실폰): 아이폰 가로에서 노치 쪽 여백·틀 밖이 브라우저 기본 흰색으로 보이지 않게 */
+html { background: var(--paper); }
 
 html .fh, html .fh.light {
   --bg: var(--paper); --panel: var(--card); --panel2: var(--paper-2);

@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>FOOTHOLD</title>
+<!-- 홈 화면에 추가하면 주소창 없이 열림(아이폰은 웹 요소 전체화면을 막음 → 이 길). 화면 방향은 강제하지 않는다 -->
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="FOOTHOLD">
 <link rel="stylesheet" href="./brand/tokens/foothold.tokens.css">
 <link rel="icon" type="image/svg+xml" href="./brand/assets/logo/v1/foothold-favicon.svg">
 </head>

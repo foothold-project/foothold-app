@@ -109,3 +109,20 @@ details.fh-dev{padding-block:0}
 .fh-more>summary{list-style:none;display:grid;place-items:center;min-width:44px;min-height:44px;border:1px solid var(--line2);border-radius:8px;background:var(--panel2);font-size:20px;cursor:pointer}
 .fh-more>summary::-webkit-details-marker{display:none}
 .fh-more>.card{position:absolute;right:0;top:calc(100% + 6px);z-index:20;padding:8px;white-space:nowrap}
+.fh-more>.card{display:flex;flex-direction:column;gap:6px}
+.fh-more [data-full-tip]{margin:0;max-width:200px;white-space:normal}   /* 아이폰 «홈 화면에 추가» 안내 — 메뉴 폭을 늘리지 않게 꺾음 */
+/* 고르기 목록(.fh-sel, 10-26): 닫힌 칸은 .fh-user 값, 펼친 목록은 패널·선·강조 토큰으로(Chromium 135+ base-select).
+   다른 브라우저는 OS 목록 그대로 — 어두운 틀에서는 어두운 목록(color-scheme). 키보드(↑↓·Enter·Esc)·role(combobox/listbox)은 브라우저 기본 */
+.fh-sel,.fh-sel::picker(select){appearance:base-select}
+.fh:not(.light) .fh-sel{color-scheme:dark}
+.fh-sel{min-width:12em;padding:0 10px;display:flex;align-items:center;gap:8px;cursor:pointer}
+.fh-sel:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.fh-sel:disabled{opacity:.55;cursor:not-allowed}
+.fh-sel::picker-icon{color:var(--muted)}
+.fh-sel::picker(select){margin-top:4px;padding:4px;border:1px solid var(--line2);border-radius:8px;background:var(--panel);color:var(--text);box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.fh-sel option{min-height:44px;padding:0 10px;border-radius:6px;display:flex;align-items:center;gap:8px;font-size:14px}
+.fh-sel option:hover,.fh-sel option:focus{background:var(--line);outline:none}
+.fh-sel option:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.fh-sel option:checked{background:var(--acc-bg);font-weight:600}
+.fh-sel option::checkmark{color:var(--accent)}
+.fh-sel option:disabled{color:var(--muted);cursor:default}

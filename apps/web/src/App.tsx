@@ -44,6 +44,13 @@ const FOCUS: Partial<Record<TabId, string>> = { history: 'event_id', approval: '
 export const PHONE_Q = '(max-width: 767.98px), (pointer: coarse) and (orientation: landscape) and (max-height: 480px)';
 const watchPhone = (f: () => void) => { const m = matchMedia(PHONE_Q); m.addEventListener('change', f); return () => m.removeEventListener('change', f); };
 export const usePhone = () => useSyncExternalStore(watchPhone, () => matchMedia(PHONE_Q).matches);
+// 전체화면(⋯ 메뉴): Fullscreen API 가 되는 브라우저(Android Chrome 등)만 단추. 아이폰은 웹 요소 전체화면을 막아 «홈 화면에 추가» 안내만.
+// 화면 전환일 뿐이라 조종권·입력·STOP 경로는 건드리지 않는다
+const watchFull = (f: () => void) => { document.addEventListener('fullscreenchange', f); return () => document.removeEventListener('fullscreenchange', f); };
+const useFull = () => useSyncExternalStore(watchFull, () => !!document.fullscreenElement);
+const canFull = () => !!document.fullscreenEnabled && typeof document.documentElement.requestFullscreen === 'function';
+const installed = () => matchMedia('(display-mode: standalone), (display-mode: fullscreen)').matches || (navigator as { standalone?: boolean }).standalone === true;
+const toggleFull = () => { (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen()).catch(() => {}); };
 
 // 글 입력칸 = 띄어쓰기를 받는 곳(10-20 사용자 결정). readonly·disabled 는 글을 넣지 못하니 아님
 const TYPED = new Set(['text', 'search', 'password', 'email', 'url', 'tel', 'number']);
@@ -83,7 +90,7 @@ export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, {
  *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
  *  note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
 export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, logout, setMe = () => {}, cancel, note, dev }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string; dev?: string }) {
-  const phone = usePhone();
+  const phone = usePhone(), full = useFull();
   useRt();
   const robots = listed.map(withLive), net = rt.link();
   // 상태 구독은 볼 수 있는 로봇만: 총괄 전체, 운영 관리자는 담당 로봇(남의 로봇은 목록 요약만 — 구독하면 서버가 연결을 닫는다)
@@ -203,7 +210,9 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
       {phone && (tab !== 'history' || logout) && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
-        <div className="card">{tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
+        <div className="card">{canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
+          : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
+          {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
       {(canStop || toSim) && <Stop phone={phone} onStop={stop} />}
     </header>
