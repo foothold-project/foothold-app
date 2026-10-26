@@ -1,5 +1,9 @@
 """Pydantic v2 source for FH-SPEC-05 §§1, 2, 3, 5, 6, 7, 8."""
 from datetime import timezone
+import base64
+import binascii
+import math
+import struct
 import unicodedata
 from typing import Annotated, Any, Literal
 from uuid import UUID
@@ -405,7 +409,49 @@ class RunCopy(AgentInput):
     wait_reason: str | None = None
 
 
+ExecutionCapabilityKey = Literal['wait', 'photo.rgb', 'photo.depth', 'operator_confirm',
+                                 'sensor_log.rgb', 'sensor_log.depth', 'sensor_log.lidar',
+                                 'sensor_log.battery']
+CapabilityRevision = Annotated[int, Field(ge=1, le=2**53 - 1, strict=True)]
+
+
+class ExecutionCapability(Contract):
+    key: ExecutionCapabilityKey
+    state: Literal['SUPPORTED', 'UNAVAILABLE', 'UNSUPPORTED']
+    reason: str | None = Field(max_length=256)
+
+    @model_validator(mode='after')
+    def availability_reason(self):
+        if self.state == 'SUPPORTED':
+            if self.reason is not None:
+                raise ValueError('supported capability has no failure reason')
+        elif not self.reason or not self.reason.strip():
+            raise ValueError('unavailable/unsupported capability requires reason')
+        return self
+
+
+class ExecutionCapabilities(Contract):
+    """Revision changes on executor/source/freshness/storage readiness changes."""
+    contract: Literal['scenario/2']
+    revision: CapabilityRevision
+    actions: list[ExecutionCapability] = Field(max_length=8)
+
+    @model_validator(mode='after')
+    def unique_actions(self):
+        if len({a.key for a in self.actions}) != len(self.actions):
+            raise ValueError('duplicate execution capability')
+        return self
+
+    def require(self, required: list[ExecutionCapabilityKey], revision: int) -> None:
+        if revision != self.revision:
+            raise ValueError('execution capability revision changed')
+        supported = {a.key for a in self.actions if a.state == 'SUPPORTED'}
+        if not set(required) <= supported:
+            raise ValueError('required execution capability is not supported/ready')
+
+
 class AgentHello(AgentInput):
+    execution_capabilities: ExecutionCapabilities = omitted(exclude_if=lambda value: value is None)
     t: Literal['hello']
     proto: Literal['fh-agent/2']
     agent_version: str = Field(max_length=128)
@@ -1137,8 +1183,39 @@ class ScenarioList(Contract):
     next_cursor: str | None
 
 
+def mission_capabilities(steps: list[MissionStep]) -> list[ExecutionCapabilityKey]:
+    keys = set()
+    for step in steps:
+        if step.action == 'WAIT':
+            keys.add('wait')
+        elif step.action == 'PHOTO':
+            keys.add('photo.' + step.params['camera'])
+        elif step.action == 'SENSOR_LOG':
+            keys.add('sensor_log.' + step.params['device'])
+        else:
+            keys.add('operator_confirm')
+    return sorted(keys)
+
+
 class AgentScenarioWaypoint(ScenarioWaypoint):
     mission_name: str
+    # Optional only for scenario/1 read compatibility; presence is not permission.
+    mission_steps: list[MissionStep] = omitted(max_length=100, exclude_if=lambda value: value is None)
+    required_capabilities: list[ExecutionCapabilityKey] = omitted(max_length=8, exclude_if=lambda value: value is None)
+
+    @model_validator(mode='after')
+    def fixed_steps_requirements(self):
+        supplied = {'mission_steps', 'required_capabilities'} & self.model_fields_set
+        if supplied and len(supplied) != 2:
+            raise ValueError('fixed steps and required capabilities must be supplied together')
+        if supplied and sorted(self.required_capabilities) != mission_capabilities(self.mission_steps):
+            raise ValueError('required capabilities must exactly match fixed mission steps')
+        return self
+
+
+class ExecutableAgentScenarioWaypoint(AgentScenarioWaypoint):
+    mission_steps: list[MissionStep] = Field(max_length=100)
+    required_capabilities: list[ExecutionCapabilityKey] = Field(max_length=8)
 
 
 class RunMapProof(Contract):
@@ -1196,8 +1273,17 @@ class ProvenAgentScenario(AgentScenario):
     map_proofs: list[RunMapProof] = Field(min_length=1, max_length=201)
 
 
+class ExecutableAgentScenario(ProvenAgentScenario):
+    """Explicit scenario/2 response; scenario/1 remains DISPLAY_ONLY."""
+    run_contract: Literal['scenario/2']
+    execution_capability_revision: CapabilityRevision
+    waypoints: list[ExecutableAgentScenarioWaypoint] = Field(min_length=1, max_length=200)
+
+
 class RunStarted(Contract):
     """RUN_STARTED.data; robot/org and receive time come from the authenticated link."""
+    run_contract: Literal['scenario/2'] = omitted(exclude_if=lambda value: value is None)
+    execution_capability_revision: CapabilityRevision = omitted(exclude_if=lambda value: value is None)
     run_id: UUID
     scenario_id: UUID
     scenario_version: int = Field(ge=1, le=2**31 - 1, strict=True)
@@ -1212,6 +1298,9 @@ class RunStarted(Contract):
 
     @model_validator(mode='after')
     def matching_map_proof(self):
+        execution = {'run_contract', 'execution_capability_revision'} & self.model_fields_set
+        if execution and len(execution) != 2:
+            raise ValueError('scenario/2 start requires contract and capability revision together')
         if self.map_proof is not None:
             proof = self.map_proof
             if (proof.floor_id != self.floor_id or proof.map_version_id != self.map_version_id
@@ -1225,7 +1314,15 @@ class ProvenRunStarted(RunStarted):
     map_proof: RunMapProof
 
 
+class ExecutableRunStarted(ProvenRunStarted):
+    run_contract: Literal['scenario/2']
+    execution_capability_revision: CapabilityRevision
+
+
 class RunGoal(Contract):
+    model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    mission_steps: list[MissionStep] = omitted(max_length=100, exclude_if=lambda value: value is None)
+    required_capabilities: list[ExecutionCapabilityKey] = omitted(max_length=8, exclude_if=lambda value: value is None)
     idx: int = Field(ge=0, le=199, strict=True)
     waypoint_ref: str | None = Field(min_length=1, max_length=128)
     x: float = Field(strict=True)
@@ -1234,6 +1331,20 @@ class RunGoal(Contract):
     mission_id: UUID
     mission_version: int = Field(ge=1, strict=True)
     mission_name: str
+
+    @model_validator(mode='after')
+    def fixed_steps_requirements(self):
+        supplied = {'mission_steps', 'required_capabilities'} & self.model_fields_set
+        if supplied and len(supplied) != 2:
+            raise ValueError('fixed steps and required capabilities must be supplied together')
+        if supplied and sorted(self.required_capabilities) != mission_capabilities(self.mission_steps):
+            raise ValueError('required capabilities must exactly match fixed mission steps')
+        return self
+
+
+class ExecutableRunGoal(RunGoal):
+    mission_steps: list[MissionStep] = Field(max_length=100)
+    required_capabilities: list[ExecutionCapabilityKey] = Field(max_length=8)
 
 
 class RunSegment(Contract):
@@ -1251,6 +1362,16 @@ class RunSegment(Contract):
 class RunPlan(Contract):
     """Agent-verified snapshot, never accepted as a direct run.start body."""
     segments: list[RunSegment] = Field(min_length=1, max_length=1)
+
+
+class ExecutableRunSegment(RunSegment):
+    goals: list[ExecutableRunGoal] = Field(min_length=1, max_length=200)
+
+
+class ExecutableRunPlan(RunPlan):
+    run_contract: Literal['scenario/2']
+    execution_capability_revision: CapabilityRevision
+    segments: list[ExecutableRunSegment] = Field(min_length=1, max_length=1)
 
 
 class RunWaypointArrived(Contract):
@@ -1273,8 +1394,80 @@ class RunDisplayResults(Contract):
     mode: Literal['DISPLAY_ONLY'] = 'DISPLAY_ONLY'
 
 
+class RunPhotoReference(Contract):
+    """Only server-committed JPEG references; never image bytes or arbitrary URLs."""
+    photo_id: UUID
+    source: Literal['rgb']
+    captured_at: UTCDateTime
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+
+
+class RunStepResult(Contract):
+    step_idx: int = Field(ge=0, le=99, strict=True)
+    action: ActionKey
+    source: Literal['rgb', 'depth', 'lidar', 'battery'] | None
+    status: Literal['SUCCEEDED', 'FAILED']
+    failure_code: Literal['UNSUPPORTED', 'CAPABILITY_CHANGED', 'DEVICE_UNAVAILABLE',
+                          'NO_FRESH_FRAME', 'CAPTURE_TIMEOUT', 'UPLOAD_FAILED',
+                          'STORAGE_UNAVAILABLE', 'INTERRUPTED', 'ACTION_FAILED'] | None
+    failure_reason: str | None = Field(max_length=512)
+    photo: RunPhotoReference | None
+
+    @model_validator(mode='after')
+    def result_consistency(self):
+        if self.status == 'SUCCEEDED':
+            if self.failure_code is not None or self.failure_reason is not None:
+                raise ValueError('success cannot carry failure fields')
+        elif not self.failure_code or not self.failure_reason or not self.failure_reason.strip():
+            raise ValueError('failed step requires code and reason')
+        if self.action == 'PHOTO':
+            if self.source not in ('rgb', 'depth'):
+                raise ValueError('PHOTO requires camera source')
+            if self.status == 'SUCCEEDED':
+                if self.photo is None or self.photo.source != self.source:
+                    raise ValueError('successful PHOTO requires committed matching photo reference')
+            elif self.photo is not None:
+                raise ValueError('failed PHOTO cannot claim committed success')
+        elif self.photo is not None:
+            raise ValueError('only PHOTO can carry a photo reference')
+        if self.action in ('WAIT', 'OPERATOR_CONFIRM') and self.source is not None:
+            raise ValueError('WAIT/OPERATOR_CONFIRM have no media source')
+        if self.action == 'SENSOR_LOG' and self.source is None:
+            raise ValueError('SENSOR_LOG requires device source')
+        return self
+
+
+class RunExecutedResults(Contract):
+    mode: Literal['EXECUTED']
+    run_contract: Literal['scenario/2']
+    execution_capability_revision: CapabilityRevision
+    steps: list[RunStepResult] = Field(max_length=100)
+
+    @model_validator(mode='after')
+    def ordered_results(self):
+        if [s.step_idx for s in self.steps] != list(range(len(self.steps))):
+            raise ValueError('results must be ordered step_idx=0..N-1')
+        failures = [i for i, s in enumerate(self.steps) if s.status == 'FAILED']
+        if failures and failures != [len(self.steps) - 1]:
+            raise ValueError('no step may follow a failed step')
+        return self
+
+    def validate_plan(self, goal: ExecutableRunGoal, revision: int) -> None:
+        """Server/executor must bind results to their authenticated fixed run snapshot."""
+        if self.execution_capability_revision != revision:
+            raise ValueError('result capability revision differs from run snapshot')
+        if len(self.steps) > len(goal.mission_steps):
+            raise ValueError('too many step results')
+        if (not self.steps or self.steps[-1].status == 'SUCCEEDED') and len(self.steps) != len(goal.mission_steps):
+            raise ValueError('successful waypoint requires all fixed steps')
+        for result, step in zip(self.steps, goal.mission_steps):
+            source = step.params.get('camera') if step.action == 'PHOTO' else step.params.get('device')
+            if result.action != step.action or result.source != source:
+                raise ValueError('step result differs from fixed action/source')
+
+
 class RunWaypointRecorded(RunWaypointArrived):
-    results: RunDisplayResults
+    results: Annotated[RunDisplayResults | RunExecutedResults, Field(discriminator='mode')]
 
 
 class PreviewPoint(Contract):
@@ -1396,6 +1589,20 @@ class PhoneRunStart(PhoneEnvelope):
     assignment_id: UUID = omitted(description='시뮬은 생략, 실기는 필수. 인증된 simulation으로 실행기가 판정한다.')
 
 
+class PhoneRunStartV2(PhoneEnvelope):
+    t: Literal['run.start.v2']
+    run_contract: Literal['scenario/2']
+    execution_capability_revision: CapabilityRevision
+    lease_id: UUID
+    run_id: UUID
+    screen_id: UUID
+    scenario_id: UUID
+    scenario_version: int = Field(ge=1, strict=True)
+    floor_id: UUID
+    map_version_id: UUID
+    assignment_id: UUID = omitted()
+
+
 class PhoneRunControl(PhoneEnvelope):
     t: Literal['run.control']
     run_id: UUID
@@ -1424,7 +1631,7 @@ class PhoneRunConfirm(PhoneEnvelope):
 
 
 PhoneMessage = Annotated[PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing
-                         | PhoneRunStart | PhoneRunControl | PhoneRunConfirm,
+                         | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm,
                          Field(discriminator='t')]
 
 
@@ -1452,6 +1659,7 @@ class PhonePolicy(Contract):
 class PhoneCapabilities(Contract):
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
     run_contract: Literal['scenario/1']
+    execution: ExecutionCapabilities = omitted(exclude_if=lambda value: value is None)
 
 
 class PhoneWelcome(Contract):
@@ -1630,6 +1838,179 @@ class CameraStatus(Contract):
     state: Literal['NO_VIDEO']
 
 
+# media/1 is a dedicated observation socket, never AgentMessage/PhoneMessage.
+MEDIA_JPEG_MAX_BYTES = 65_536
+MEDIA_JPEG_MAX_HZ = 5
+MEDIA_POINT_MAX_COUNT = 4_000
+MEDIA_POINT_MAX_HZ = 2
+MEDIA_POINT_MAX_ABS_M = 10_000
+EXTERNAL_VIEW_MAX_HZ = 10
+MediaChannel = Literal['rgb', 'external', 'lidar']
+MediaSource = Literal['d435i_rgb', 'go2_front', 'gazebo_external', 'l1']
+
+
+class MediaLimits(Contract):
+    jpeg_max_bytes: Literal[65536] = 65536
+    jpeg_max_width: Literal[640] = 640
+    jpeg_max_height: Literal[360] = 360
+    jpeg_max_hz: Literal[5] = 5
+    point_max_count: Literal[4000] = 4000
+    point_max_hz: Literal[2] = 2
+    point_max_abs_m: Literal[10000] = 10000
+    external_view_max_hz: Literal[10] = 10
+    latest_queue_size: Literal[1] = 1
+
+
+class MediaBinding(Contract):
+    robot: PhoneRobotID
+    epoch: Sequence
+    # Required null for hardware; simulation uses the current episode UUID.
+    episode_id: UUID | None
+
+
+class MediaHello(MediaBinding):
+    t: Literal['media.hello']
+    version: Literal['media/1']
+    channel: MediaChannel
+    token: str = Field(min_length=43, max_length=43, repr=False)
+
+
+class MediaHeader(MediaBinding):
+    version: Literal['media/1']
+    channel: MediaChannel
+    source: MediaSource
+    seq: Sequence
+    captured_at: UTCDateTime
+    frame: str = Field(min_length=1, max_length=128, pattern=r'^[A-Za-z0-9_/-]+$')
+
+    @model_validator(mode='after')
+    def channel_source(self):
+        allowed = {'rgb': ('d435i_rgb', 'go2_front'),
+                   'external': ('gazebo_external',), 'lidar': ('l1',)}
+        if self.source not in allowed[self.channel]:
+            raise ValueError('source does not belong to channel')
+        if self.channel == 'external' and self.episode_id is None:
+            raise ValueError('external camera requires simulation episode')
+        return self
+
+
+class MediaVideoFrame(MediaHeader):
+    t: Literal['media.video']
+    channel: Literal['rgb', 'external']
+    mime: Literal['image/jpeg']
+    width: int = Field(ge=1, le=640, strict=True)
+    height: int = Field(ge=1, le=360, strict=True)
+    jpeg: str = Field(min_length=4, max_length=87384, pattern=r'^[A-Za-z0-9+/]+={0,2}$')
+
+    @model_validator(mode='after')
+    def bounded_jpeg(self):
+        try:
+            data = base64.b64decode(self.jpeg, validate=True)
+        except (ValueError, binascii.Error) as error:
+            raise ValueError('invalid JPEG base64') from error
+        if len(data) > MEDIA_JPEG_MAX_BYTES or not data.startswith(b'\xff\xd8') or not data.endswith(b'\xff\xd9'):
+            raise ValueError('expected JPEG markers and at most 65536 decoded bytes')
+        if base64.b64encode(data).decode('ascii') != self.jpeg:
+            raise ValueError('JPEG base64 must be canonical')
+        return self
+
+
+class MediaPose(Contract):
+    x: float = Field(ge=-10000, le=10000, strict=True)
+    y: float = Field(ge=-10000, le=10000, strict=True)
+    z: float = Field(ge=-10000, le=10000, strict=True)
+    yaw: float = Field(ge=-math.pi, le=math.pi, strict=True)
+
+
+class MediaPointCloudHeader(MediaHeader):
+    """One JSON header followed immediately by one binary message of count*12 bytes."""
+    t: Literal['media.points']
+    channel: Literal['lidar']
+    source: Literal['l1']
+    frame: Literal['map', 'lidar_link']
+    map_version_id: UUID | None
+    pose: MediaPose | None
+    count: int = Field(ge=0, le=4000, strict=True)
+    truncated: bool = Field(strict=True)
+    encoding: Literal['xyz_f32le']
+    byte_length: int = Field(ge=0, le=48000, strict=True)
+
+    @model_validator(mode='after')
+    def point_layout(self):
+        if self.byte_length != self.count * 12:
+            raise ValueError('XYZ float32 LE requires byte_length = count * 12')
+        if self.frame == 'map' and (self.map_version_id is None or self.pose is None):
+            raise ValueError('map points require a verified map version and pose/TF')
+        if self.frame == 'lidar_link' and (self.map_version_id is not None or self.pose is not None):
+            raise ValueError('raw lidar points must not claim map pose/version')
+        return self
+
+    def validate_payload(self, payload: bytes) -> None:
+        if not isinstance(payload, bytes) or len(payload) != self.byte_length:
+            raise ValueError('point binary length differs from header')
+        for (coordinate,) in struct.iter_unpack('<f', payload):
+            if not math.isfinite(coordinate) or abs(coordinate) > MEDIA_POINT_MAX_ABS_M:
+                raise ValueError('point coordinate must be finite and within 10000 m')
+
+
+class MediaStatus(MediaBinding):
+    t: Literal['media.status']
+    version: Literal['media/1']
+    channel: MediaChannel
+    state: Literal['NO_VIDEO', 'NO_POINTS', 'UNAVAILABLE']
+    reason: str = Field(min_length=1, max_length=256)
+
+
+MediaMessage = Annotated[MediaVideoFrame | MediaPointCloudHeader | MediaStatus, Field(discriminator='t')]
+
+
+class ExternalCameraViewRequest(MediaBinding):
+    """Observer-only request; server fixes camera entity/service, never robot pose."""
+    t: Literal['external.view']
+    version: Literal['observer/1']
+    episode_id: UUID
+    seq: Sequence
+    yaw: float = Field(ge=-math.pi, le=math.pi, strict=True, description='Orbit yaw in radians.')
+    pitch: float = Field(ge=-1.2, le=1.2, strict=True, description='Orbit pitch in radians.')
+    radius: float = Field(ge=0.5, le=10, strict=True, description='Orbit radius in metres.')
+
+
+class PhotoUploadMetadata(Contract):
+    """Agent-authenticated REST metadata; ownership is rechecked against auth/DB."""
+    org_id: UUID
+    robot_id: UUID
+    run_id: UUID
+    waypoint_idx: int = Field(ge=0, le=199, strict=True)
+    step_idx: int = Field(ge=0, le=99, strict=True)
+    source: Literal['rgb']
+    captured_at: UTCDateTime
+    mime: Literal['image/jpeg']
+    byte_length: int = Field(ge=4, le=65536, strict=True)
+    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
+    idempotency_key: IdempotencyKey
+
+    def validate_payload(self, payload: bytes) -> None:
+        import hashlib
+        if not isinstance(payload, bytes) or len(payload) != self.byte_length:
+            raise ValueError('photo binary length differs from metadata')
+        if not payload.startswith(b'\xff\xd8') or not payload.endswith(b'\xff\xd9'):
+            raise ValueError('expected JPEG markers')
+        if hashlib.sha256(payload).hexdigest() != self.sha256:
+            raise ValueError('photo SHA-256 differs from metadata')
+
+
+class PhotoUploadReceipt(PhotoUploadMetadata):
+    """Emitted only after atomic bytes + metadata commit; ACK precedes step success."""
+    photo_id: UUID
+    stored_at: UTCDateTime
+
+    @model_validator(mode='after')
+    def stored_after_capture(self):
+        if self.stored_at < self.captured_at:
+            raise ValueError('storage receipt cannot precede capture')
+        return self
+
+
 class SimFailureDetail(Contract):
     """Allowlisted diagnostics; only exact resource pre-creation proof releases a slot."""
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
@@ -1794,9 +2175,13 @@ TOP.update(ScreenMessage=ScreenMessage, AgentMessage=AgentMessage, PhoneMessage=
            ServerAgentMessage=ServerAgentMessage)
 REQUEST_MODELS.update({PhoneHello, PhoneLease, PhoneRespond, PhoneCommand, PhoneUnlock, PhonePing, PhoneMessage, PhoneEnvelope})
 REQUEST_MODELS.update({PhoneRunStart, PhoneRunControl, PhoneRunConfirm})
-REQUEST_MODELS.update({RunStarted, ProvenRunStarted, RunWaypointArrived, RunWaypointRecorded})
+REQUEST_MODELS.update({RunStarted, ProvenRunStarted, ExecutableRunStarted, RunWaypointArrived, RunWaypointRecorded})
 REQUEST_MODELS.update({ScreenSub, ScreenLease, ScreenRespond, ScreenCmd, ScreenUnlock, ScreenPing,
                        AgentHello, AgentState, AgentPing, AgentEvent, AgentRunUpdate, AgentCmdAck, AgentMedia, ScreenMessage, AgentMessage})
 # Nested input models must have the same mode as their enclosing input union.
 REQUEST_MODELS.update(T for T in TOP.values() if isinstance(T, type)
                       and issubclass(T, (AgentInput, ScreenEnvelope)))
+
+TOP.update(MediaMessage=MediaMessage, MediaChannel=MediaChannel, MediaSource=MediaSource,
+           ExecutionCapabilityKey=ExecutionCapabilityKey)
+REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})

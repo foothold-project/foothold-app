@@ -1,0 +1,202 @@
+{
+  "$defs": {
+    "RunMapProof": {
+      "additionalProperties": false,
+      "description": "Immutable map bytes/geometry; UUID is an identifier, never a content digest.",
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 4096,
+          "title": "Height",
+          "type": "integer"
+        },
+        "image_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Image Sha256",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "origin": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "resolution": {
+          "exclusiveMinimum": 0,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "ros_floor_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ros Floor Id"
+        },
+        "source": {
+          "enum": [
+            "HUMAN",
+            "SIMULATION"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "source_pgm_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Pgm Sha256",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 4096,
+          "title": "Width",
+          "type": "integer"
+        },
+        "world_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "World Id"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "image_sha256",
+        "source_pgm_sha256",
+        "origin",
+        "resolution",
+        "width",
+        "height",
+        "source",
+        "world_id",
+        "ros_floor_id"
+      ],
+      "title": "RunMapProof",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ExecutableRunStarted",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "device_id": {
+      "format": "uuid",
+      "title": "Device Id",
+      "type": "string"
+    },
+    "execution_capability_revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Execution Capability Revision",
+      "type": "integer"
+    },
+    "floor_id": {
+      "format": "uuid",
+      "title": "Floor Id",
+      "type": "string"
+    },
+    "map_proof": {
+      "$ref": "#/$defs/RunMapProof"
+    },
+    "map_version_id": {
+      "format": "uuid",
+      "title": "Map Version Id",
+      "type": "string"
+    },
+    "run_contract": {
+      "const": "scenario/2",
+      "title": "Run Contract",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "scenario_id": {
+      "format": "uuid",
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "scenario_version": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Scenario Version",
+      "type": "integer"
+    },
+    "screen_id": {
+      "format": "uuid",
+      "title": "Screen Id",
+      "type": "string"
+    },
+    "simulation": {
+      "title": "Simulation",
+      "type": "boolean"
+    },
+    "surface": {
+      "enum": [
+        "phone",
+        "pc"
+      ],
+      "title": "Surface",
+      "type": "string"
+    },
+    "user_id": {
+      "format": "uuid",
+      "title": "User Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_contract",
+    "execution_capability_revision",
+    "run_id",
+    "scenario_id",
+    "scenario_version",
+    "floor_id",
+    "map_version_id",
+    "user_id",
+    "device_id",
+    "surface",
+    "screen_id",
+    "simulation",
+    "map_proof"
+  ],
+  "title": "ExecutableRunStarted",
+  "type": "object"
+}

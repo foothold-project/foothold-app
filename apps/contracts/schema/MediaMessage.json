@@ -1,0 +1,389 @@
+{
+  "$defs": {
+    "MediaPointCloudHeader": {
+      "additionalProperties": false,
+      "description": "One JSON header followed immediately by one binary message of count*12 bytes.",
+      "properties": {
+        "byte_length": {
+          "maximum": 48000,
+          "minimum": 0,
+          "title": "Byte Length",
+          "type": "integer"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "channel": {
+          "const": "lidar",
+          "title": "Channel",
+          "type": "string"
+        },
+        "count": {
+          "maximum": 4000,
+          "minimum": 0,
+          "title": "Count",
+          "type": "integer"
+        },
+        "encoding": {
+          "const": "xyz_f32le",
+          "title": "Encoding",
+          "type": "string"
+        },
+        "episode_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Episode Id"
+        },
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "frame": {
+          "enum": [
+            "map",
+            "lidar_link"
+          ],
+          "title": "Frame",
+          "type": "string"
+        },
+        "map_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version Id"
+        },
+        "pose": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaPose"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "source": {
+          "const": "l1",
+          "title": "Source",
+          "type": "string"
+        },
+        "t": {
+          "const": "media.points",
+          "title": "T",
+          "type": "string"
+        },
+        "truncated": {
+          "title": "Truncated",
+          "type": "boolean"
+        },
+        "version": {
+          "const": "media/1",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "robot",
+        "epoch",
+        "episode_id",
+        "version",
+        "channel",
+        "source",
+        "seq",
+        "captured_at",
+        "frame",
+        "t",
+        "map_version_id",
+        "pose",
+        "count",
+        "truncated",
+        "encoding",
+        "byte_length"
+      ],
+      "title": "MediaPointCloudHeader",
+      "type": "object"
+    },
+    "MediaPose": {
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "maximum": 3.141592653589793,
+          "minimum": -3.141592653589793,
+          "title": "Yaw",
+          "type": "number"
+        },
+        "z": {
+          "maximum": 10000,
+          "minimum": -10000,
+          "title": "Z",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "z",
+        "yaw"
+      ],
+      "title": "MediaPose",
+      "type": "object"
+    },
+    "MediaStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "channel": {
+          "enum": [
+            "rgb",
+            "external",
+            "lidar"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "episode_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Episode Id"
+        },
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "reason": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "NO_VIDEO",
+            "NO_POINTS",
+            "UNAVAILABLE"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "t": {
+          "const": "media.status",
+          "title": "T",
+          "type": "string"
+        },
+        "version": {
+          "const": "media/1",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "robot",
+        "epoch",
+        "episode_id",
+        "t",
+        "version",
+        "channel",
+        "state",
+        "reason"
+      ],
+      "title": "MediaStatus",
+      "type": "object"
+    },
+    "MediaVideoFrame": {
+      "additionalProperties": false,
+      "properties": {
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "channel": {
+          "enum": [
+            "rgb",
+            "external"
+          ],
+          "title": "Channel",
+          "type": "string"
+        },
+        "episode_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Episode Id"
+        },
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "frame": {
+          "maxLength": 128,
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_/-]+$",
+          "title": "Frame",
+          "type": "string"
+        },
+        "height": {
+          "maximum": 360,
+          "minimum": 1,
+          "title": "Height",
+          "type": "integer"
+        },
+        "jpeg": {
+          "maxLength": 87384,
+          "minLength": 4,
+          "pattern": "^[A-Za-z0-9+/]+={0,2}$",
+          "title": "Jpeg",
+          "type": "string"
+        },
+        "mime": {
+          "const": "image/jpeg",
+          "title": "Mime",
+          "type": "string"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "seq": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "source": {
+          "enum": [
+            "d435i_rgb",
+            "go2_front",
+            "gazebo_external",
+            "l1"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "t": {
+          "const": "media.video",
+          "title": "T",
+          "type": "string"
+        },
+        "version": {
+          "const": "media/1",
+          "title": "Version",
+          "type": "string"
+        },
+        "width": {
+          "maximum": 640,
+          "minimum": 1,
+          "title": "Width",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "robot",
+        "epoch",
+        "episode_id",
+        "version",
+        "channel",
+        "source",
+        "seq",
+        "captured_at",
+        "frame",
+        "t",
+        "mime",
+        "width",
+        "height",
+        "jpeg"
+      ],
+      "title": "MediaVideoFrame",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/MediaMessage",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "discriminator": {
+    "mapping": {
+      "media.points": "#/$defs/MediaPointCloudHeader",
+      "media.status": "#/$defs/MediaStatus",
+      "media.video": "#/$defs/MediaVideoFrame"
+    },
+    "propertyName": "t"
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/MediaVideoFrame"
+    },
+    {
+      "$ref": "#/$defs/MediaPointCloudHeader"
+    },
+    {
+      "$ref": "#/$defs/MediaStatus"
+    }
+  ]
+}

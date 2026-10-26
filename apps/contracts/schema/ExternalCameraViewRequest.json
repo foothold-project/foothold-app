@@ -1,0 +1,76 @@
+{
+  "$id": "fh-app/1/ExternalCameraViewRequest",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Observer-only request; server fixes camera entity/service, never robot pose.",
+  "properties": {
+    "episode_id": {
+      "format": "uuid",
+      "title": "Episode Id",
+      "type": "string"
+    },
+    "epoch": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Epoch",
+      "type": "integer"
+    },
+    "pitch": {
+      "description": "Orbit pitch in radians.",
+      "maximum": 1.2,
+      "minimum": -1.2,
+      "title": "Pitch",
+      "type": "number"
+    },
+    "radius": {
+      "description": "Orbit radius in metres.",
+      "maximum": 10,
+      "minimum": 0.5,
+      "title": "Radius",
+      "type": "number"
+    },
+    "robot": {
+      "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+      "format": "uuid",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+      "title": "Robot",
+      "type": "string"
+    },
+    "seq": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Seq",
+      "type": "integer"
+    },
+    "t": {
+      "const": "external.view",
+      "title": "T",
+      "type": "string"
+    },
+    "version": {
+      "const": "observer/1",
+      "title": "Version",
+      "type": "string"
+    },
+    "yaw": {
+      "description": "Orbit yaw in radians.",
+      "maximum": 3.141592653589793,
+      "minimum": -3.141592653589793,
+      "title": "Yaw",
+      "type": "number"
+    }
+  },
+  "required": [
+    "robot",
+    "epoch",
+    "episode_id",
+    "t",
+    "version",
+    "seq",
+    "yaw",
+    "pitch",
+    "radius"
+  ],
+  "title": "ExternalCameraViewRequest",
+  "type": "object"
+}

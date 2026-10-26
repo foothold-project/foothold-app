@@ -1,0 +1,375 @@
+{
+  "$defs": {
+    "ExecutableAgentScenarioWaypoint": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "mission_id": {
+          "format": "uuid",
+          "title": "Mission Id",
+          "type": "string"
+        },
+        "mission_name": {
+          "title": "Mission Name",
+          "type": "string"
+        },
+        "mission_steps": {
+          "items": {
+            "$ref": "#/$defs/MissionStep"
+          },
+          "maxItems": 100,
+          "title": "Mission Steps",
+          "type": "array"
+        },
+        "mission_version": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Mission Version",
+          "type": "integer"
+        },
+        "required_capabilities": {
+          "items": {
+            "enum": [
+              "wait",
+              "photo.rgb",
+              "photo.depth",
+              "operator_confirm",
+              "sensor_log.rgb",
+              "sensor_log.depth",
+              "sensor_log.lidar",
+              "sensor_log.battery"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Required Capabilities",
+          "type": "array"
+        },
+        "waypoint_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waypoint Ref"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "default": 0,
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y",
+        "mission_id",
+        "mission_version",
+        "mission_name",
+        "mission_steps",
+        "required_capabilities"
+      ],
+      "title": "ExecutableAgentScenarioWaypoint",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MissionStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PHOTO",
+            "WAIT",
+            "OPERATOR_CONFIRM",
+            "SENSOR_LOG"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "MissionStep",
+      "type": "object"
+    },
+    "RunMapProof": {
+      "additionalProperties": false,
+      "description": "Immutable map bytes/geometry; UUID is an identifier, never a content digest.",
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 4096,
+          "title": "Height",
+          "type": "integer"
+        },
+        "image_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Image Sha256",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "origin": {
+          "maxItems": 3,
+          "minItems": 3,
+          "prefixItems": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Origin",
+          "type": "array"
+        },
+        "resolution": {
+          "exclusiveMinimum": 0,
+          "title": "Resolution",
+          "type": "number"
+        },
+        "ros_floor_id": {
+          "anyOf": [
+            {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Ros Floor Id"
+        },
+        "source": {
+          "enum": [
+            "HUMAN",
+            "SIMULATION"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "source_pgm_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Pgm Sha256",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 4096,
+          "title": "Width",
+          "type": "integer"
+        },
+        "world_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "World Id"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "image_sha256",
+        "source_pgm_sha256",
+        "origin",
+        "resolution",
+        "width",
+        "height",
+        "source",
+        "world_id",
+        "ros_floor_id"
+      ],
+      "title": "RunMapProof",
+      "type": "object"
+    },
+    "ScenarioFinish": {
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "default": "STAY",
+          "enum": [
+            "STAY",
+            "RETURN_TO_START",
+            "GO_TO"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ScenarioPoint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "ScenarioFinish",
+      "type": "object"
+    },
+    "ScenarioPoint": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        },
+        "waypoint_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Waypoint Ref"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "default": 0,
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "x",
+        "y"
+      ],
+      "title": "ScenarioPoint",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ExecutableAgentScenario",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Explicit scenario/2 response; scenario/1 remains DISPLAY_ONLY.",
+  "properties": {
+    "execution_capability_revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Execution Capability Revision",
+      "type": "integer"
+    },
+    "finish": {
+      "$ref": "#/$defs/ScenarioFinish"
+    },
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "map_proofs": {
+      "items": {
+        "$ref": "#/$defs/RunMapProof"
+      },
+      "maxItems": 201,
+      "minItems": 1,
+      "title": "Map Proofs",
+      "type": "array"
+    },
+    "number": {
+      "maximum": 2147483647,
+      "minimum": 1,
+      "title": "Number",
+      "type": "integer"
+    },
+    "run_contract": {
+      "const": "scenario/2",
+      "title": "Run Contract",
+      "type": "string"
+    },
+    "waypoints": {
+      "items": {
+        "$ref": "#/$defs/ExecutableAgentScenarioWaypoint"
+      },
+      "maxItems": 200,
+      "minItems": 1,
+      "title": "Waypoints",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "number",
+    "waypoints",
+    "finish",
+    "map_proofs",
+    "run_contract",
+    "execution_capability_revision"
+  ],
+  "title": "ExecutableAgentScenario",
+  "type": "object"
+}

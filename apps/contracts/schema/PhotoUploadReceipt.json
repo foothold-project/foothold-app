@@ -1,0 +1,95 @@
+{
+  "$id": "fh-app/1/PhotoUploadReceipt",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Emitted only after atomic bytes + metadata commit; ACK precedes step success.",
+  "properties": {
+    "byte_length": {
+      "maximum": 65536,
+      "minimum": 4,
+      "title": "Byte Length",
+      "type": "integer"
+    },
+    "captured_at": {
+      "format": "date-time",
+      "title": "Captured At",
+      "type": "string"
+    },
+    "idempotency_key": {
+      "maxLength": 128,
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9._:-]+$",
+      "title": "Idempotency Key",
+      "type": "string"
+    },
+    "mime": {
+      "const": "image/jpeg",
+      "title": "Mime",
+      "type": "string"
+    },
+    "org_id": {
+      "format": "uuid",
+      "title": "Org Id",
+      "type": "string"
+    },
+    "photo_id": {
+      "format": "uuid",
+      "title": "Photo Id",
+      "type": "string"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+    },
+    "source": {
+      "const": "rgb",
+      "title": "Source",
+      "type": "string"
+    },
+    "step_idx": {
+      "maximum": 99,
+      "minimum": 0,
+      "title": "Step Idx",
+      "type": "integer"
+    },
+    "stored_at": {
+      "format": "date-time",
+      "title": "Stored At",
+      "type": "string"
+    },
+    "waypoint_idx": {
+      "maximum": 199,
+      "minimum": 0,
+      "title": "Waypoint Idx",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "org_id",
+    "robot_id",
+    "run_id",
+    "waypoint_idx",
+    "step_idx",
+    "source",
+    "captured_at",
+    "mime",
+    "byte_length",
+    "sha256",
+    "idempotency_key",
+    "photo_id",
+    "stored_at"
+  ],
+  "title": "PhotoUploadReceipt",
+  "type": "object"
+}

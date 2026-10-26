@@ -1,0 +1,49 @@
+{
+  "$id": "fh-app/1/ExecutionCapability",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "key": {
+      "enum": [
+        "wait",
+        "photo.rgb",
+        "photo.depth",
+        "operator_confirm",
+        "sensor_log.rgb",
+        "sensor_log.depth",
+        "sensor_log.lidar",
+        "sensor_log.battery"
+      ],
+      "title": "Key",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "maxLength": 256,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Reason"
+    },
+    "state": {
+      "enum": [
+        "SUPPORTED",
+        "UNAVAILABLE",
+        "UNSUPPORTED"
+      ],
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "key",
+    "state",
+    "reason"
+  ],
+  "title": "ExecutionCapability",
+  "type": "object"
+}

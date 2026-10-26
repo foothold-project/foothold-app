@@ -1,5 +1,33 @@
 {
   "$defs": {
+    "JsonValue": {},
+    "MissionStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PHOTO",
+            "WAIT",
+            "OPERATOR_CONFIRM",
+            "SENSOR_LOG"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "MissionStep",
+      "type": "object"
+    },
     "RunGoal": {
       "additionalProperties": false,
       "properties": {
@@ -18,10 +46,36 @@
           "title": "Mission Name",
           "type": "string"
         },
+        "mission_steps": {
+          "items": {
+            "$ref": "#/$defs/MissionStep"
+          },
+          "maxItems": 100,
+          "title": "Mission Steps",
+          "type": "array"
+        },
         "mission_version": {
           "minimum": 1,
           "title": "Mission Version",
           "type": "integer"
+        },
+        "required_capabilities": {
+          "items": {
+            "enum": [
+              "wait",
+              "photo.rgb",
+              "photo.depth",
+              "operator_confirm",
+              "sensor_log.rgb",
+              "sensor_log.depth",
+              "sensor_log.lidar",
+              "sensor_log.battery"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Required Capabilities",
+          "type": "array"
         },
         "waypoint_ref": {
           "anyOf": [

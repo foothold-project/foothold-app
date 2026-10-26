@@ -1,0 +1,185 @@
+{
+  "$defs": {
+    "ExecutableRunGoal": {
+      "additionalProperties": false,
+      "properties": {
+        "idx": {
+          "maximum": 199,
+          "minimum": 0,
+          "title": "Idx",
+          "type": "integer"
+        },
+        "mission_id": {
+          "format": "uuid",
+          "title": "Mission Id",
+          "type": "string"
+        },
+        "mission_name": {
+          "title": "Mission Name",
+          "type": "string"
+        },
+        "mission_steps": {
+          "items": {
+            "$ref": "#/$defs/MissionStep"
+          },
+          "maxItems": 100,
+          "title": "Mission Steps",
+          "type": "array"
+        },
+        "mission_version": {
+          "minimum": 1,
+          "title": "Mission Version",
+          "type": "integer"
+        },
+        "required_capabilities": {
+          "items": {
+            "enum": [
+              "wait",
+              "photo.rgb",
+              "photo.depth",
+              "operator_confirm",
+              "sensor_log.rgb",
+              "sensor_log.depth",
+              "sensor_log.lidar",
+              "sensor_log.battery"
+            ],
+            "type": "string"
+          },
+          "maxItems": 8,
+          "title": "Required Capabilities",
+          "type": "array"
+        },
+        "waypoint_ref": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Waypoint Ref"
+        },
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "yaw": {
+          "title": "Yaw",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mission_steps",
+        "required_capabilities",
+        "idx",
+        "waypoint_ref",
+        "x",
+        "y",
+        "yaw",
+        "mission_id",
+        "mission_version",
+        "mission_name"
+      ],
+      "title": "ExecutableRunGoal",
+      "type": "object"
+    },
+    "ExecutableRunSegment": {
+      "additionalProperties": false,
+      "properties": {
+        "floor_id": {
+          "format": "uuid",
+          "title": "Floor Id",
+          "type": "string"
+        },
+        "goals": {
+          "items": {
+            "$ref": "#/$defs/ExecutableRunGoal"
+          },
+          "maxItems": 200,
+          "minItems": 1,
+          "title": "Goals",
+          "type": "array"
+        },
+        "map_version_id": {
+          "format": "uuid",
+          "title": "Map Version Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "floor_id",
+        "map_version_id",
+        "goals"
+      ],
+      "title": "ExecutableRunSegment",
+      "type": "object"
+    },
+    "JsonValue": {},
+    "MissionStep": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "PHOTO",
+            "WAIT",
+            "OPERATOR_CONFIRM",
+            "SENSOR_LOG"
+          ],
+          "title": "Action",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Params",
+          "type": "object"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "title": "MissionStep",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/ExecutableRunPlan",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "execution_capability_revision": {
+      "maximum": 9007199254740991,
+      "minimum": 1,
+      "title": "Execution Capability Revision",
+      "type": "integer"
+    },
+    "run_contract": {
+      "const": "scenario/2",
+      "title": "Run Contract",
+      "type": "string"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/ExecutableRunSegment"
+      },
+      "maxItems": 1,
+      "minItems": 1,
+      "title": "Segments",
+      "type": "array"
+    }
+  },
+  "required": [
+    "segments",
+    "run_contract",
+    "execution_capability_revision"
+  ],
+  "title": "ExecutableRunPlan",
+  "type": "object"
+}

@@ -1,0 +1,15 @@
+{
+  "$id": "fh-app/1/ExecutionCapabilityKey",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "enum": [
+    "wait",
+    "photo.rgb",
+    "photo.depth",
+    "operator_confirm",
+    "sensor_log.rgb",
+    "sensor_log.depth",
+    "sensor_log.lidar",
+    "sensor_log.battery"
+  ],
+  "type": "string"
+}

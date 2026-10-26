@@ -53,6 +53,7 @@ export interface AgentEvent {
 }
 
 export interface AgentHello {
+  execution_capabilities?: ExecutionCapabilities;
   t: "hello";
   proto: "fh-agent/2";
   agent_version: string;
@@ -141,6 +142,8 @@ export interface AgentScenarioWaypoint {
   mission_id: string;
   mission_version: number;
   mission_name: string;
+  mission_steps?: MissionStep[];
+  required_capabilities?: ("wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery")[];
 }
 
 export interface AgentServerPing {
@@ -388,6 +391,99 @@ export interface EventList {
   next_cursor: string | null;
 }
 
+export interface ExecutableAgentScenario {
+  id: string;
+  number: number;
+  waypoints: ExecutableAgentScenarioWaypoint[];
+  finish: ScenarioFinish;
+  map_proofs: RunMapProof[];
+  run_contract: "scenario/2";
+  execution_capability_revision: number;
+}
+
+export interface ExecutableAgentScenarioWaypoint {
+  floor_id: string;
+  map_version_id: string;
+  x: number;
+  y: number;
+  yaw?: number;
+  waypoint_ref?: string | null;
+  mission_id: string;
+  mission_version: number;
+  mission_name: string;
+  mission_steps: MissionStep[];
+  required_capabilities: ("wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery")[];
+}
+
+export interface ExecutableRunGoal {
+  mission_steps: MissionStep[];
+  required_capabilities: ("wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery")[];
+  idx: number;
+  waypoint_ref: string | null;
+  x: number;
+  y: number;
+  yaw: number;
+  mission_id: string;
+  mission_version: number;
+  mission_name: string;
+}
+
+export interface ExecutableRunPlan {
+  segments: ExecutableRunSegment[];
+  run_contract: "scenario/2";
+  execution_capability_revision: number;
+}
+
+export interface ExecutableRunSegment {
+  floor_id: string;
+  map_version_id: string;
+  goals: ExecutableRunGoal[];
+}
+
+export interface ExecutableRunStarted {
+  run_contract: "scenario/2";
+  execution_capability_revision: number;
+  run_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  user_id: string;
+  device_id: string;
+  surface: "phone" | "pc";
+  screen_id: string;
+  simulation: boolean;
+  map_proof: RunMapProof;
+}
+
+export interface ExecutionCapabilities {
+  contract: "scenario/2";
+  revision: number;
+  actions: ExecutionCapability[];
+}
+
+export interface ExecutionCapability {
+  key: "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
+  state: "SUPPORTED" | "UNAVAILABLE" | "UNSUPPORTED";
+  reason: string | null;
+}
+
+export interface ExternalCameraViewRequest {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string;
+  t: "external.view";
+  version: "observer/1";
+  seq: number;
+  /** Orbit yaw in radians. */
+  yaw: number;
+  /** Orbit pitch in radians. */
+  pitch: number;
+  /** Orbit radius in metres. */
+  radius: number;
+}
+
 export interface FloorConnector {
   id: string;
   building_id: string;
@@ -612,6 +708,106 @@ export interface MePatch {
   notify_prefs?: Record<string, boolean>;
 }
 
+export interface MediaBinding {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string | null;
+}
+
+export interface MediaHeader {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string | null;
+  version: "media/1";
+  channel: "rgb" | "external" | "lidar";
+  source: "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
+  seq: number;
+  captured_at: string;
+  frame: string;
+}
+
+export interface MediaHello {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string | null;
+  t: "media.hello";
+  version: "media/1";
+  channel: "rgb" | "external" | "lidar";
+  token: string;
+}
+
+export interface MediaLimits {
+  jpeg_max_bytes: 65536;
+  jpeg_max_width: 640;
+  jpeg_max_height: 360;
+  jpeg_max_hz: 5;
+  point_max_count: 4000;
+  point_max_hz: 2;
+  point_max_abs_m: 10000;
+  external_view_max_hz: 10;
+  latest_queue_size: 1;
+}
+
+export interface MediaPointCloudHeader {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string | null;
+  version: "media/1";
+  channel: "lidar";
+  source: "l1";
+  seq: number;
+  captured_at: string;
+  frame: "map" | "lidar_link";
+  t: "media.points";
+  map_version_id: string | null;
+  pose: MediaPose | null;
+  count: number;
+  truncated: boolean;
+  encoding: "xyz_f32le";
+  byte_length: number;
+}
+
+export interface MediaPose {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
+export interface MediaStatus {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string | null;
+  t: "media.status";
+  version: "media/1";
+  channel: "rgb" | "external" | "lidar";
+  state: "NO_VIDEO" | "NO_POINTS" | "UNAVAILABLE";
+  reason: string;
+}
+
+export interface MediaVideoFrame {
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string | null;
+  version: "media/1";
+  channel: "rgb" | "external";
+  source: "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
+  seq: number;
+  captured_at: string;
+  frame: string;
+  t: "media.video";
+  mime: "image/jpeg";
+  width: number;
+  height: number;
+  jpeg: string;
+}
+
 export interface Mission {
   name: string;
   steps: MissionStep[];
@@ -698,6 +894,7 @@ export interface Person {
 
 export interface PhoneCapabilities {
   run_contract: "scenario/1";
+  execution?: ExecutionCapabilities;
 }
 
 export interface PhoneCmdAck {
@@ -895,6 +1092,24 @@ export interface PhoneRunStart {
   assignment_id?: string;
 }
 
+export interface PhoneRunStartV2 {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "run.start.v2";
+  run_contract: "scenario/2";
+  execution_capability_revision: number;
+  lease_id: string;
+  run_id: string;
+  screen_id: string;
+  scenario_id: string;
+  scenario_version: number;
+  floor_id: string;
+  map_version_id: string;
+  assignment_id?: string;
+}
+
 export interface PhoneRunUpdate {
   run_id: string;
   status: "QUEUED" | "PREPARING" | "MOVING" | "AT_WAYPOINT" | "PERFORMING" | "WAIT_CONFIRM" | "PAUSED" | "COMPLETED" | "FAILED" | "CANCELED";
@@ -982,6 +1197,36 @@ export interface PhotoParams {
   camera?: "rgb" | "depth";
 }
 
+export interface PhotoUploadMetadata {
+  org_id: string;
+  robot_id: string;
+  run_id: string;
+  waypoint_idx: number;
+  step_idx: number;
+  source: "rgb";
+  captured_at: string;
+  mime: "image/jpeg";
+  byte_length: number;
+  sha256: string;
+  idempotency_key: string;
+}
+
+export interface PhotoUploadReceipt {
+  org_id: string;
+  robot_id: string;
+  run_id: string;
+  waypoint_idx: number;
+  step_idx: number;
+  source: "rgb";
+  captured_at: string;
+  mime: "image/jpeg";
+  byte_length: number;
+  sha256: string;
+  idempotency_key: string;
+  photo_id: string;
+  stored_at: string;
+}
+
 export interface PreviewPoint {
   element: string;
   reachable: boolean;
@@ -1012,6 +1257,8 @@ export interface ProvenAgentScenario {
 }
 
 export interface ProvenRunStarted {
+  run_contract?: "scenario/2";
+  execution_capability_revision?: number;
   run_id: string;
   scenario_id: string;
   scenario_version: number;
@@ -1076,7 +1323,16 @@ export interface RunDisplayResults {
   mode?: "DISPLAY_ONLY";
 }
 
+export interface RunExecutedResults {
+  mode: "EXECUTED";
+  run_contract: "scenario/2";
+  execution_capability_revision: number;
+  steps: RunStepResult[];
+}
+
 export interface RunGoal {
+  mission_steps?: MissionStep[];
+  required_capabilities?: ("wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery")[];
   idx: number;
   waypoint_ref: string | null;
   x: number;
@@ -1099,6 +1355,13 @@ export interface RunMapProof {
   source: "HUMAN" | "SIMULATION";
   world_id: string | null;
   ros_floor_id: string | null;
+}
+
+export interface RunPhotoReference {
+  photo_id: string;
+  source: "rgb";
+  captured_at: string;
+  sha256: string;
 }
 
 export interface RunPlan {
@@ -1144,6 +1407,8 @@ export interface RunSnapshot {
 }
 
 export interface RunStarted {
+  run_contract?: "scenario/2";
+  execution_capability_revision?: number;
   run_id: string;
   scenario_id: string;
   scenario_version: number;
@@ -1155,6 +1420,16 @@ export interface RunStarted {
   screen_id: string;
   simulation: boolean;
   map_proof?: RunMapProof;
+}
+
+export interface RunStepResult {
+  step_idx: number;
+  action: "PHOTO" | "WAIT" | "OPERATOR_CONFIRM" | "SENSOR_LOG";
+  source: "rgb" | "depth" | "lidar" | "battery" | null;
+  status: "SUCCEEDED" | "FAILED";
+  failure_code: "UNSUPPORTED" | "CAPABILITY_CHANGED" | "DEVICE_UNAVAILABLE" | "NO_FRESH_FRAME" | "CAPTURE_TIMEOUT" | "UPLOAD_FAILED" | "STORAGE_UNAVAILABLE" | "INTERRUPTED" | "ACTION_FAILED" | null;
+  failure_reason: string | null;
+  photo: RunPhotoReference | null;
 }
 
 export interface RunWaypointArrived {
@@ -1185,7 +1460,7 @@ export interface RunWaypointRecorded {
   agent_instance_id: string;
   report_seq: number;
   monotonic_s: number;
-  results: RunDisplayResults;
+  results: RunDisplayResults | RunExecutedResults;
 }
 
 export interface Scenario {
@@ -1585,5 +1860,9 @@ export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE
 export type RunReportPermanentCode = "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RUN_REPORT_PLAN" | "RUN_REPORT_STATE" | "RUN_REPORT_STEP" | "RUN_REPORT_PROVENANCE" | "RUN_REPORT_CONFLICT" | "RUN_REPORT_INSTANCE" | "RUN_REPORT_ROBOT" | "RUN_REPORT_NOT_FOUND" | "RUN_REPORT_INVALID";
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
-export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunControl | PhoneRunConfirm;
+export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
 export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected;
+export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
+export type MediaChannel = "rgb" | "external" | "lidar";
+export type MediaSource = "d435i_rgb" | "go2_front" | "gazebo_external" | "l1";
+export type ExecutionCapabilityKey = "wait" | "photo.rgb" | "photo.depth" | "operator_confirm" | "sensor_log.rgb" | "sensor_log.depth" | "sensor_log.lidar" | "sensor_log.battery";
