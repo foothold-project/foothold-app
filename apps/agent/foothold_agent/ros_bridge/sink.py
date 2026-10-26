@@ -5,7 +5,7 @@ import time
 from collections import deque
 
 from foothold_agent.link.session import MotionCommand
-from foothold_agent.safety.core import DEAD, Z, finite
+from foothold_agent.safety.core import DEAD, Z, finite, _SafetyLog, _log_source
 
 # Isolated scheduling delays can recover; three incidents in one minute cannot.
 # Keep the policy together so field diagnostics can inform later tuning.
@@ -35,6 +35,7 @@ class RosSink:
                  now=time.monotonic, watchdog=True, diagnostics=None, on_error=None):
         self._velocity, self._stop, self._resume = publish_velocity, publish_stop, publish_resume
         self.now = now
+        self._safety_log = _SafetyLog(now)
         self.diagnostics = diagnostics
         self._on_error = on_error
         self._failure_reported = False
@@ -86,12 +87,15 @@ class RosSink:
                 self._pending = tuple(float(x) for x in v) if not (self._stopped or self._held) else Z
             elif command.kind == "stop":
                 self._hold_locked(held=False)
+                self._safety_log.emit('stop_received', 'motion_stop', _log_source(), sink_generation=self._generation)
             elif command.kind == "unlock":
                 if not self._held:
                     self._pending = Z
                     self._stopped = True
                     self._resume_pending = True
                     self._urgent = True
+                else:
+                    self._safety_log.emit('resume_rejected', 'sink_feedback_held', _log_source(), sink_generation=self._generation)
             else:
                 self._hold_locked()
                 raise ValueError("unsupported motion action")
@@ -110,6 +114,7 @@ class RosSink:
         """Bad/stale feedback: discard motion until genuine STOP feedback + new unlock."""
         with self._lock:
             self._hold_locked()
+            self._safety_log.emit('hold', 'bridge_feedback_hold', _log_source(2), sink_generation=self._generation)
 
     def feedback_generation(self):
         with self._lock:
@@ -137,6 +142,7 @@ class RosSink:
         with self._lock:
             self._hold_locked()
         with self._output_lock:
+            self._safety_log.emit('stop_publish', 'emergency', _log_source(2), sink_generation=self._generation)
             # Attempt both even when one publisher fails. Preserve the first error.
             for output in (lambda: self._velocity(Z), self._stop):
                 try:
@@ -174,6 +180,8 @@ class RosSink:
                                            last_flush=self._last_flush)
             if trip:
                 self._hold_locked()
+                self._safety_log.emit('watchdog', 'apply_deadline' if self._expired else 'publisher_deadline',
+                                      _log_source(), sink_generation=self._generation)
         if trip:
             if defer_emergency:
                 self._start_emergency()
@@ -247,10 +255,13 @@ class RosSink:
                                     and self.now() - self._last_apply < DEAD)
                     if approved:
                         self._resume()
+                        self._safety_log.emit('resume_publish', 'approved', _log_source(), sink_generation=generation)
                         with self._lock:
                             if generation == self._generation:
                                 self._stopped = False
                                 self._stop_confirmed = False
+                    else:
+                        self._safety_log.emit('resume', 'sink_not_approved', _log_source(), sink_generation=generation)
                 with self._lock:
                     velocity = Z if self._stopped or self._held or self._closed.is_set() else self._pending
                 self._velocity(velocity)
@@ -259,12 +270,14 @@ class RosSink:
                     stop_due = self._stopped and (self._stop_first or (
                         not self._stop_confirmed and self.now() - self._last_stop >= 0.5))
                     if stop_due:
+                        diagnostic_stop_reason = 'initial_or_new_stop' if self._stop_first else 'unconfirmed_retry'
                         self._stop_first = False
                         self._last_stop = self.now()
                 if superseded:
                     self._emergency()
                 elif stop_due:
                     self._stop()
+                    self._safety_log.emit('stop_publish', diagnostic_stop_reason, _log_source(), sink_generation=generation)
                 with self._lock:
                     # Completion (not apply or flush entry) rearms the publisher
                     # deadline. Recovery never releases the STOP feedback hold.
