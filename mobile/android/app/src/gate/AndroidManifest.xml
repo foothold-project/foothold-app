@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- A 연결 개발 프로필(gate 빌드 타입)에만 합쳐진다. 기본 debug·release 에는 없다. -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application android:networkSecurityConfig="@xml/fh_gate_network_security" />
-</manifest>

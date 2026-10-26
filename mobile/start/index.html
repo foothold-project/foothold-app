@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'none'">
+<title>FOOTHOLD</title>
+<link rel="stylesheet" href="./brand/tokens/foothold.tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.5 'Malgun Gothic', 'Segoe UI', system-ui, sans-serif; }
+  main { max-width: 480px; margin: 0 auto; padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 14px; }
+  .logo { height: 28px; width: auto; align-self: flex-start; }
+  .logo.d { display: none; }
+  @media (prefers-color-scheme: dark) { .logo.l { display: none; } .logo.d { display: block; } }
+  h1 { font-size: 20px; margin: 8px 0 0; }
+  p { margin: 0; color: var(--ink-2); }
+  input { width: 100%; height: 48px; padding: 0 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--card); color: var(--ink); font: inherit; }
+  input:focus { outline: 2px solid var(--brand); outline-offset: 1px; }
+  .row { display: flex; gap: 8px; }
+  .btn { min-height: 44px; padding: 0 16px; border: 1px solid var(--rule); border-radius: 8px; background: var(--paper-2); color: var(--ink); font: inherit; font-weight: 600; }
+  .btn.pri { flex: 1; background: var(--brand); border-color: var(--brand); color: var(--paper); }
+  .err { color: var(--stop); font-weight: 600; }
+  .note { padding: 10px 12px; border-radius: 8px; background: var(--stop-soft); color: var(--ink); }
+  .err:empty, .note:empty { display: none; }
+  ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+  ul .btn { width: 100%; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; }
+  .lbl { font-size: 13px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+<main>
+  <img class="logo l" src="./brand/assets/logo/v1/foothold-lockup-compact-light.svg" alt="FOOTHOLD">
+  <img class="logo d" src="./brand/assets/logo/v1/foothold-lockup-compact-dark.svg" alt="FOOTHOLD">
+  <h1>서버 주소</h1>
+  <p>PC 에서 받은 서버 주소(https://…)를 넣고 «열기»를 누르세요.</p>
+  <p class="note" role="alert" id="note"></p>
+  <form id="f" novalidate>
+    <input id="addr" type="url" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="https://….trycloudflare.com" aria-label="서버 주소">
+  </form>
+  <p class="err" role="alert" id="err"></p>
+  <div class="row">
+    <button type="button" class="btn" id="paste">붙여넣기</button>
+    <button type="submit" class="btn pri" form="f">열기</button>
+  </div>
+  <section id="recent" hidden>
+    <p class="lbl">최근 주소</p>
+    <ul id="list"></ul>
+    <div class="row" style="margin-top:8px"><button type="button" class="btn" id="clear">최근 주소 지우기</button></div>
+  </section>
+  <p class="lbl" id="ver"></p>
+</main>
+<script type="module" src="./start.js"></script>
+</body>
+</html>

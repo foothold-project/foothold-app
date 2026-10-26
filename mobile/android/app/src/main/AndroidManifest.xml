@@ -38,9 +38,4 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
-    <!-- 주변 관문 검색 전 Wi-Fi·이더넷 망 유무 확인(일반 권한, 창 없음). NSD 자체는 시스템 프로세스가 하므로 멀티캐스트 락 권한은 넣지 않음 -->
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- QR 주소 스캔: 화면(WebView getUserMedia)이 카메라를 쓰면 Capacitor 브리지가 이 권한을 런타임에 묻는다. 거절 = 화면이 붙여넣기로. 카메라 없는 기기도 설치되게 required=false -->
-    <uses-permission android:name="android.permission.CAMERA" />
-    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

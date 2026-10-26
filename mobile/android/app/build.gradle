@@ -7,8 +7,8 @@ android {
         applicationId "org.footholdproject.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 15
-        versionName "1.0.14"
+        versionCode 16
+        versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -21,23 +21,8 @@ android {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
-        // FOOTHOLD: A 연결(관문 주소 로드) 개발 전용 — debug 서명·별도 앱 id. 설정·CA 는 scripts/gate-profile.mjs 가 src/gate 에 생성(git 제외)
-        gate {
-            initWith debug
-            applicationIdSuffix ".gate"
-            versionNameSuffix "-gate"
-            matchingFallbacks = ['debug']
-        }
-        // FOOTHOLD: bundled B 통합 시험 전용 — server.url 없음(main 설정·www 그대로), debug 서명·별도 앱 id.
-        // fixture 관문 CA 한 장만 debug-overrides 로 신뢰(scripts/gate-profile.mjs --fixture 가 src/fixture/res/raw 에 생성, git 제외)
-        fixture {
-            initWith debug
-            applicationIdSuffix ".fixture"
-            versionNameSuffix "-fixture"
-            matchingFallbacks = ['debug']
-        }
-        // FOOTHOLD: 사용자 설치용 개발 빌드(스토어 아님) — server.url 없음(main 설정·www 그대로), debug 서명·별도 앱 id.
-        // 운영 관문의 공개 CA 한 장만 debug-overrides 로 신뢰(scripts/gate-profile.mjs --dev 가 src/dev/res/raw 에 생성, git 제외)
+        // FOOTHOLD: 사용자 설치용 개발 빌드(스토어 아님) — debug 서명·별도 앱 id(.dev). 1.1.0 부터 원격 주소 방식(www = 시작 화면 한 장).
+        // OS 신뢰 저장소만(터널은 공인 인증서) — 옛 gate·fixture 빌드 타입과 관문 CA 한 장 신뢰는 FhGate 와 함께 뺐다
         dev {
             initWith debug
             applicationIdSuffix ".dev"
@@ -60,8 +45,6 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
-    // FhGateCore 시험용 — 앱 실행 때는 Android 내장 org.json 을 쓴다(JVM 단위 시험에는 Android 구현이 없어 필요)
-    testImplementation "org.json:json:20240303"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
