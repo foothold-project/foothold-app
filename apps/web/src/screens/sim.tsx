@@ -5,8 +5,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { DEAD, allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
-import { CAM, EXP, STATE, SimLaunch, blockNote, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
-import { SimMap, useFloorMap } from '../simmap';
+import { EXP, STATE, SimLaunch, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
+import { SimMap, useFloorMap, type FloorMap } from '../simmap';
+import { feedText, needsRelink, useFeed } from '../media';
+import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
 import { Chip } from '../screens';
 import { typing } from '../App';
 import type { PhoneWelcome, SimRobot } from '../../../contracts/ts';
@@ -126,16 +128,25 @@ function SimView({ admin }: { admin: boolean }) {
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
       </div>}
     </section>
-    <section className="dv" style={{ flexBasis: '100%' }} aria-label="보기">
-      <div className="dv-body" style={{ flexWrap: 'wrap' }}>
-        <div className="dv-stage rgb" style={{ flexBasis: 420 }}>
-          {l.cam === 'frame' ? <img className="dv-video" draggable={false} src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
-            : <div className="dv-video" role="img" aria-label="RGB 영상"><span>{CAM[l.cam]}</span></div>}
-        </div>
-        {hasMap && <div className="dv-stage" style={{ flexBasis: 320 }} data-sim-mapbox><SimMap m={fm} big /></div>}
-      </div>
-    </section>
+    <SimQuad fm={fm} hasMap={hasMap} mine={mine} />
   </>;
+}
+
+/** 보기 4칸(10-26 사용자): RGB · 외부 카메라 · 지도(기존 지도 그림) · L1 3D 점군. 칸은 늘 넷 — 못 받는 칸은 이유만(가짜 그림 0).
+ *  전체화면은 머리줄을 가리므로 그 안에 «시뮬 정지»(STOP 과 같은 sim.stop). 3D 끌기·지도 끌기는 그림만 — 키보드 주행(sim.axes)과 무관 */
+function SimQuad({ fm, hasMap, mine }: { fm: FloorMap; hasMap: boolean; mine: boolean }) {
+  const pts = useFeed('lidar'), again = relink('rgb') || relink('external') || needsRelink(pts);
+  const tiles: QTile[] = [
+    { id: 'rgb', label: 'RGB · 시뮬 카메라', body: () => <Video ch="rgb" /> },
+    { id: 'external', label: '외부 카메라', body: () => <Video ch="external" /> },
+    { id: 'map', label: '지도', body: (z) => hasMap ? <div data-sim-mapbox><SimMap m={fm} big={z === 'big'} /></div> : <QEmpty text="이 월드에는 지도가 없습니다" /> },
+    { id: 'lidar', label: '3D 점군 · L1 센서 기준 1스캔', body: (z) => <Cloud3D feed={pts} small={z === 'thumb'} big={z === 'big'} empty={feedText(pts, 'lidar')} /> },
+  ];
+  return <section className="dv" style={{ flexBasis: '100%' }} aria-label="보기">
+    <Quad label="시뮬 보기 4칸" tiles={tiles} fs={<SimStop />}
+      top={again && (mine ? <span className="lbl" data-media-again>영상을 다시 받으려면 조종권을 반납한 뒤 «영상 다시 받기»를 누르세요.</span>
+        : <button type="button" className="btn" data-media-again onClick={() => sim.connect()}>영상 다시 받기(다시 연결)</button>)} />
+  </section>;
 }
 
 /** 시나리오 고르기 + «실행»(폰 시나리오 띠와 같은 조건 — run.tsx startBlock). 이 월드 지도를 지나는 시나리오만 */

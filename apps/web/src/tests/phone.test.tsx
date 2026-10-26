@@ -290,6 +290,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
   }, 10000);
   it('조종 화면: 길게 누르기 메뉴 막음, 영상 그림 끌기 없음', async () => {
     const a = await launch(); await drive(a);
+    await click($('[data-cam-pick="rgb"]'));   // 큰 화면 기본은 외부 카메라 — 옛 카메라 경로 RGB 를 골라 본다
     const c = cams()[0];
     act(() => c.open());
     await recv(c, { t: 'camera.frame', seq: 1, mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
@@ -297,6 +298,32 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
     act(() => { stick('전후').dispatchEvent(e); });
     expect(e.defaultPrevented).toBe(true);
+  });
+  it('큰 화면 기본 = 외부 카메라: 못 받으면 RGB 로 바꿔 끼우지 않고 이유, 시점 끌기는 중계 전이라 막힘 + 이유, 끌어도 주행 0', async () => {
+    const tok = (c: string) => c.repeat(43);
+    const a = await launch({ ...welcome(), media: { version: 'media/1', path: '/phone/media/ws', robot: S1, epoch: 3, episode_id: LEASE,
+      rgb: { available: true, reason: 'Ready', token: tok('r') }, external: { available: false, reason: 'External camera source is not connected', token: null },
+      lidar: { available: true, reason: 'Ready', token: tok('l') } } } as ReturnType<typeof welcome>);
+    await drive(a);
+    expect($('[data-cam-pick="external"]')!.getAttribute('aria-pressed')).toBe('true');
+    expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');
+    expect(box.querySelector('.dv-stage img[alt="RGB 영상"]')).toBeNull();
+    expect($('[data-orbit-why]')!.textContent).toBe('시점 이동 준비 중 — 서버 시점 중계가 아직 없습니다');
+    expect($('.dv-stage [data-orbit]')).toBeNull();   // 중계가 없으면 끌기 처리 자체를 붙이지 않음
+    const axes = vi.spyOn(sim, 'axes'), n = a.of('cmd').length, v = $('.dv-stage [data-cam="external"]')!;
+    ptr(v, 'pointerdown', 50, 50); ptr(v, 'pointermove', 120, 90); await wait(120); ptr(v, 'pointerup', 120, 90);
+    expect(axes).not.toHaveBeenCalled();
+    expect(a.of('cmd').slice(n).every((m) => String([m.vx, m.vy, m.wz]) === '0,0,0')).toBe(true);
+    expect(calls.some((c) => c.path.includes('external-camera'))).toBe(false);
+    // RGB 고르기 → media rgb(옛 카메라 경로는 열지 않음)
+    await click($('[data-cam-pick="rgb"]'));
+    expect(cams()).toHaveLength(0);
+    const rgb = FakeWS.all.find((w) => w.url.endsWith('/phone/media/ws') && w.readyState === 0)!;
+    act(() => { rgb.auto = null; rgb.open(); }); await flush();
+    await recv(rgb, { t: 'media.video', version: 'media/1', robot: S1, epoch: 3, episode_id: LEASE, channel: 'rgb', source: 'gazebo_rgb', seq: 1, captured_at: '', frame: 'camera', mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
+    expect($<HTMLImageElement>('.dv-stage img[alt="RGB 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');
+    expect($('[data-stop]')).toBeTruthy();
+    axes.mockRestore();
   });
   it('실기 limits 화면: 아래·옆 화살표 흐림, 옆으로 밀면 0 + 이유, 띠 없음', async () => {
     const a = await launch(); await drive(a);
@@ -386,6 +413,8 @@ describe('시뮬 로봇 직결 흐름', () => {
     // 영상: 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello
     const [c] = cams();
     expect(c.url).toBe('ws://127.0.0.1:9481/phone/camera/ws');
+    expect($('[data-cam="external"]')!.textContent).toBe('이 로봇은 관측 영상(media/1)을 알리지 않습니다');   // 외부 카메라 없으면 이유(RGB 로 바꿔 끼우지 않음)
+    await click($('[data-cam-pick="rgb"]'));
     act(() => c.open());
     expect(c.sent[0]).toMatchObject({ t: 'camera.hello', robot: S1, token: 'cam-1' });
     await recv(c, { t: 'camera.frame', seq: 1, mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
@@ -1091,6 +1120,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
   it('실제 영상 장애는 다른 안내(명령 범위 조정)가 떠도 그대로, OUTPUT_STALLED 때는 안내 줄 아래로 옮겨 보임', async () => {
     const a = await launch();
     await drive(a);
+    await click($('[data-cam-pick="rgb"]'));
     const c = cams()[0];
     act(() => c.open());
     await recv(c, { t: 'camera.frame', seq: 1, mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });

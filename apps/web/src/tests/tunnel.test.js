@@ -48,18 +48,22 @@ describe('preview proxy boundary', () => {
       plugins: [tunnelGuard(origin, [9433, 9430, 9431, 8870, 8453, 8792])],
       preview: { host: '127.0.0.1', port: 9480, strictPort: true, proxy } });
     cleanup.push(() => new Promise((resolve) => { vite.httpServer.closeAllConnections(); vite.httpServer.close(resolve); }));
-    for (const path of ['/phone/ws', '/phone/camera/ws']) {
+    for (const path of ['/phone/ws', '/phone/camera/ws', '/phone/media/ws']) {
       expect(await get(`/__fh_phone/9433${path}`, { origin }, true)).toBe(418);
     }
-    expect(seen).toEqual([['/phone/ws', origin], ['/phone/camera/ws', origin]]);
+    expect(seen).toEqual([['/phone/ws', origin], ['/phone/camera/ws', origin], ['/phone/media/ws', origin]]);
     for (const path of ['/__fh_phone/9430/phone/ws', '/__fh_phone/9431/phone/ws', '/__fh_phone/8870/phone/ws', '/__fh_phone/8792/phone/ws', '/__fh_phone/9440/phone/ws', '/__fh_phone/8453/phone/ws', '/__fh_phone/127.0.0.1:9481/phone/ws',
-      '/__fh_phone/9433/api/v1/ws', '/__fh_phone/9433/phone/ws?x=1', '/__fh_phone/9433/phone/ws/']) {
+      '/__fh_phone/9433/api/v1/ws', '/__fh_phone/9433/phone/ws?x=1', '/__fh_phone/9433/phone/ws/',
+      '/__fh_phone/9430/phone/media/ws', '/__fh_phone/9481/phone/media/ws', '/__fh_phone/9433/phone/media/ws?x=1', '/__fh_phone/9433/phone/media/ws/',
+      '/__fh_phone/9433/phone/media', '/__fh_phone/9433/phone/media/../ws', '/__fh_phone/9433/phone/media%2Fws', '/__fh_phone/9433/phone/lidar/ws']) {
       expect(await get(path, { origin }, true)).toBe(403);
     }
     expect(await get('/__fh_phone/9433/phone/ws', { origin: 'https://evil.invalid' }, true)).toBe(403);
     expect(await get('/__fh_phone/9433/phone/ws', { origin, host: 'evil.invalid' }, true)).toBe(403);
     expect(await get('/__fh_phone/9433/phone/ws', { origin })).toBe(403);
+    expect(await get('/__fh_phone/9433/phone/media/ws', { origin: 'https://evil.invalid' }, true)).toBe(403);
+    expect(await get('/__fh_phone/9433/phone/media/ws', { origin })).toBe(403);
     expect(await get('/', { host: 'evil.invalid' })).toBe(403);
-    expect(seen).toHaveLength(2);
+    expect(seen).toHaveLength(3);
   });
 });

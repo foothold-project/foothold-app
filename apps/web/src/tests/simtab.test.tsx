@@ -108,6 +108,51 @@ describe('PC «시뮬» 탭', () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it('보기 4칸(10-26): RGB·외부·지도·L1 점군 — media/1 로 받고, 못 받는 칸은 이유만, 전체화면 안에도 «시뮬 정지»', async () => {
+    serve(); await mount();
+    await click(btn('띄우기'));
+    const a = agent(); act(() => a.open()); await flush();
+    const tok = (c: string) => c.repeat(43);
+    await recv(a, { ...welcome, media: { version: 'media/1', path: '/phone/media/ws', robot: S1, epoch: 2, episode_id: S2,
+      rgb: { available: true, reason: 'Ready', token: tok('r') }, external: { available: false, reason: 'External camera source is not connected', token: null },
+      lidar: { available: true, reason: 'Ready', token: tok('l') } } });
+    expect([...box.querySelectorAll('[data-tile]')].map((t) => t.getAttribute('data-tile'))).toEqual(['rgb', 'external', 'map', 'lidar']);
+    expect(FakeWS.all.some((w) => w.url.endsWith('/phone/camera/ws'))).toBe(false);   // media rgb 가 있으면 옛 카메라 경로는 열지 않음(같은 영상 두 번 0)
+    const socks = FakeWS.all.filter((w) => w.url === 'ws://127.0.0.1:9481/phone/media/ws');
+    expect(socks).toHaveLength(2);
+    act(() => socks.forEach((w) => { w.auto = null; w.open(); })); await flush();
+    expect(socks.map((w) => w.sent[0].channel)).toEqual(['rgb', 'lidar']);
+    expect($('[aria-label="외부 카메라 영상"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다');
+    const bind = { version: 'media/1', robot: S1, epoch: 2, episode_id: S2 };
+    await recv(socks[0], { t: 'media.video', ...bind, channel: 'rgb', source: 'gazebo_rgb', seq: 1, captured_at: '', frame: 'camera', mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
+    expect(box.querySelector<HTMLImageElement>('img[alt="RGB 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');
+    await recv(socks[1], { t: 'media.points', ...bind, channel: 'lidar', source: 'l1', seq: 1, captured_at: '', frame: 'lidar_link', map_version_id: null, pose: null, count: 1, truncated: false, encoding: 'xyz_f32le', byte_length: 12 });
+    act(() => (socks[1].onmessage as (e: { data: unknown }) => void)({ data: new Float32Array([1, 2, 0]).buffer })); await flush();
+    expect($('[data-cloud]')!.getAttribute('data-cloud')).toBe('1');
+    expect($('[data-tile="lidar"]')!.textContent).toContain('L1 센서 기준 1스캔');
+    // 크게 → 전체화면: 머리줄은 가려지므로 묶음 안에 «시뮬 정지» — 누르면 sim.stop
+    await click($('[data-tile="lidar"] .qh'));
+    expect($('[data-tile="lidar"]')!.className).toContain('on');
+    expect($('[data-sim-stop-btn]')).toBeTruthy();
+    expect($('[data-qfs-stop]')).toBeNull();
+    const qd = $('.qd')!;
+    qd.requestFullscreen = async () => { Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => qd }); document.dispatchEvent(new Event('fullscreenchange')); };
+    document.exitFullscreen = async () => { Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null }); document.dispatchEvent(new Event('fullscreenchange')); };
+    await click(btn('전체화면'));
+    const inner = $('[data-qfs-stop] [data-sim-stop-btn]');
+    expect(inner && qd.contains(inner)).toBe(true);
+    const stop = vi.spyOn(sim, 'stop').mockImplementation(() => {});
+    await click(inner);
+    expect(stop).toHaveBeenCalledTimes(1);
+    await click(btn('전체화면 끝'));
+    expect($('[data-qfs-stop]')).toBeNull();
+    // 보기 닫기 = 부모 끊김 → 관측 연결도 모두 닫고 그림 비움
+    await click(btn('보기 닫기'));
+    expect(socks.every((w) => w.readyState === 3)).toBe(true);
+    stop.mockRestore();
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => null });
+  });
+
   it('보기 닫기 = 연결만 닫고 시뮬은 켠 채 → «보기 화면 띄우기»로 다시', async () => {
     serve(); await mount();
     await click(btn('띄우기'));

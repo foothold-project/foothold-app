@@ -1,5 +1,5 @@
 import type { Plugin, ProxyOptions, ViteDevServer, PreviewServer } from 'vite';
-import { PHONE_PROXY, phonePorts, phonePortAllowed } from './src/phoneTransport';
+import { PHONE_PROXY, PHONE_ROUTES, phonePorts, phonePortAllowed } from './src/phoneTransport';
 
 export function tunnelOrigin(env: Record<string, string>): string | null {
   if (env.FH_TUNNEL !== '1') return null;
@@ -24,7 +24,7 @@ export function hostAllowed(host: string | undefined, origin: string | null): bo
 export function phoneProxy(env: Record<string, string>): Record<string, ProxyOptions> {
   if (!tunnelOrigin(env)) return {};
   return Object.fromEntries(phonePorts(env.FH_PHONE_PORT_RANGE).map((port) => [
-    `^${PHONE_PROXY}/${port}/phone/(ws|camera/ws)$`,
+    `^${PHONE_PROXY}/${port}/phone/(${PHONE_ROUTES.join('|')})$`,
     { target: `http://127.0.0.1:${port}`, ws: true,
       rewrite: (path: string) => path.slice(`${PHONE_PROXY}/${port}`.length) },
   ]));
@@ -33,9 +33,8 @@ export function phoneProxy(env: Record<string, string>): Record<string, ProxyOpt
 /** Vite 5.4.10 predates allowedHosts. Guard HTTP and upgrades before proxies. */
 export function tunnelGuard(origin: string | null, ports: number[]): Plugin {
   type Request = { url?: string; headers: { host?: string; origin?: string; 'sec-websocket-protocol'?: string } };
-  const paths = new Set(ports.filter((port) => phonePortAllowed(port, ports)).flatMap((port) => [
-    `${PHONE_PROXY}/${port}/phone/ws`, `${PHONE_PROXY}/${port}/phone/camera/ws`,
-  ]));
+  const paths = new Set(ports.filter((port) => phonePortAllowed(port, ports)).flatMap((port) =>
+    PHONE_ROUTES.map((route) => `${PHONE_PROXY}/${port}/phone/${route}`)));
   const install = (server: ViteDevServer | PreviewServer, allowedOrigin: string | null) => {
     const permitted = (req: Request, upgrade: boolean) => {
       if (!hostAllowed(req.headers.host, allowedOrigin)) return false;

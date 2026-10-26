@@ -19,12 +19,14 @@ export function phonePorts(value = PHONE_PORT_RANGE): number[] {
   return Array.from({ length: last - first + 1 }, (_, n) => first + n);
 }
 
+/** 에이전트 폰 포트의 고정 WS 경로 셋 — 조종(/phone/ws)·영상(§13.8)·관측 media/1. 이 밖은 중계하지 않는다 */
+export const PHONE_ROUTES = ['ws', 'camera/ws', 'media/ws'] as const;
 export function phoneUrl(address: string, page: Pick<Location, 'hostname' | 'host' | 'protocol'>,
-  camera = false, ports = phonePorts(import.meta.env.FH_PHONE_PORT_RANGE)): string | null {
+  kind: '' | 'camera' | 'media' = '', ports = phonePorts(import.meta.env.FH_PHONE_PORT_RANGE)): string | null {
   try {
     const u = new URL(address);
     if (!['ws:', 'wss:'].includes(u.protocol) || u.pathname !== '/phone/ws' || u.search || u.hash || u.username || u.password) return null;
-    if (camera) u.pathname = '/phone/camera/ws';
+    if (kind) u.pathname = `/phone/${kind}/ws`;
     if (['localhost', '127.0.0.1', '[::1]'].includes(page.hostname)) return u.href;
     // No remote targets or arbitrary local services through the preview proxy.
     if (!['localhost', '127.0.0.1', '[::1]'].includes(u.hostname) || !phonePortAllowed(Number(u.port), ports)) return null;

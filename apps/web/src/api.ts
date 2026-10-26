@@ -200,4 +200,12 @@ export const api = {
   simEnd: (robot: string, cancel?: AbortSignal) => call<void>('DELETE', `/simulation/robots/${encodeURIComponent(robot)}`, undefined, { cancel, ms: SIM_WRITE_MS }),
   /** 출입증(05 §13.7) — 토큰은 응답 본문에만. 저장·로그 금지(부른 쪽이 hello 에만 싣고 버린다). surface = 'pc'(PC «시뮬» 탭, ADR-003 §6.2) */
   phonePass: (robot: string, p: PhonePassRequest, cancel?: AbortSignal) => call<PhonePassResponse>('POST', `/robots/${encodeURIComponent(robot)}/phone-pass`, p, { cancel, ms: 10_000 }),
+  /** 시뮬 외부 카메라 공유 시점(apps/simmgr/EXTERNAL-CAMERA.md «Server relay API»): 서버가 사용자·보기 권한을 매번 확인하고 seq 를 붙여 simmgr 로 넘긴다 —
+   *  브라우저는 simmgr 를 직접 부르지 않는다. 서버 중계는 아직 없다(EXT_VIEW_RELAY = false) — 생기면 경로·본문은 여기 한 곳만 맞춘다 */
+  externalView: (robot: string, op: 'view' | 'reset' | 'cancel', b: ExternalView) =>
+    call<{ accepted: boolean; shared: boolean; seq: number; operation: string }>('POST', `/robots/${encodeURIComponent(robot)}/external-camera/${op}`, b, { ms: 1000 }),
 };
+/** 서버 외부 카메라 시점 중계가 있나 — 없으면 화면은 시점 끌기를 막고 이유를 보인다 */
+export const EXT_VIEW_RELAY = false;
+/** 시점 요청 본문(서버가 t·version·robot·seq 를 채워 ExternalCameraViewRequest 로) */
+export type ExternalView = { epoch: number; episode_id: string; yaw: number; pitch: number; radius: number };

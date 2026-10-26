@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from 'react';
 import type { PhoneReply, PhoneState, PhoneWelcome, RunSnapshot, Scenario, SimCatalog, SimCleanupSlot, SimFailureDetail, SimRobot, SimRobotList, SimWorldFloor } from '../../contracts/ts';
 import { ApiFail, api, authMark } from './api';
+import { media } from './media';
 import { phoneUrl } from './phoneTransport';
 
 /** pick 고르기 · starting 띄우는 중 · unsure 시작 확인 안 됨(서버 STARTING 일 수 있음) · linking 출입증·연결 · drive 조종 화면 · ending 끝내는 중 · checking 정리 확인 안 됨 */
@@ -162,6 +163,7 @@ function drop(code: number) {
   clearInterval(timer); timer = 0; document.removeEventListener('visibilitychange', onHide);
   replies.forEach((f) => f(false)); replies.clear();
   const c = cam; cam = null; c?.close();
+  media.reset();   // 관측 영상은 부모 연결에 묶임 — 끊기면 닫고 비운다
   const w = ws; ws = null;
   if (w && w.readyState < 2) { w.onclose = null; w.close(1000); }
   axes = [0, 0];
@@ -178,7 +180,9 @@ function onMsg(raw: string) {
     backoff = 0;
     setLink({ at: 'open', welcome: m as unknown as PhoneWelcome });
     set({ step: 'drive' });
-    openCamera(m.camera_token as string | null);
+    const mw = (m as unknown as PhoneWelcome).media;
+    media.offer(mw, S.robot!.agent_address);
+    openCamera(mw?.rgb.available ? null : m.camera_token as string | null);   // RGB 를 media/1 로 받으면 옛 카메라 경로는 열지 않는다(같은 영상 두 번 0)
   } else if (m.t === 'reply') {
     const r = m as unknown as PhoneReply, f = replies.get(r.id);
     replies.delete(r.id);
@@ -211,7 +215,7 @@ function onMsg(raw: string) {
 /** 영상(§13.8): 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello. 끊겨도 조종·STOP 에는 영향 없음, 다시 열려면 새 연결 */
 function openCamera(token: string | null) {
   if (!token || !S.robot) return setLink({ cam: 'off' });
-  const url = phoneUrl(S.robot.agent_address, location, true);
+  const url = phoneUrl(S.robot.agent_address, location, 'camera');
   if (!url) return setLink({ cam: 'lost' });
   const robot = S.robot.robot_id, c = new WebSocket(url);
   cam = c;
