@@ -1,4 +1,4 @@
-"""Direct scenario/1 owner. Uses the Hub's existing Session/Core/sink only.
+"""Direct scenario/1 display and scenario/2 execution owner. Uses the Hub's existing Session/Core/sink only.
 
 Nav2, verified map context and measured arrival evidence are explicit local ports.
 Absent ports never create motion. All methods are serialized on the Hub loop.
@@ -16,6 +16,7 @@ from uuid import uuid4
 from foothold_agent.safety.core import Z
 from .nav2 import Binding
 from .scenario import plan_from_data
+from .steps import ExecutionSupport, StepRunner
 
 TERMINAL = {'COMPLETED', 'FAILED', 'CANCELED'}
 
@@ -36,6 +37,9 @@ class ScenarioRun:
             raise ValueError('invalid arrival timeout')
         self.arrival_pose_max_age_s, self.arrival_wait_s = age, arrival_wait_s
         self.recording_rejected = bool(journal is not None and journal.has_quarantine and hub.simulation is not True)
+        self.support = ExecutionSupport(now=hub.now)
+        self.performer = None
+        self.execution = None
         self.success_at = None
         self.next_goal_pending = False
         self.current = None
@@ -60,6 +64,8 @@ class ScenarioRun:
     def zero_only_waiting(self):
         if not self.active or self.current['status'] == 'PAUSED':
             return False
+        if self.execution is not None:
+            return True  # this executor phase can only feed ZERO
         if self.next_goal_pending:
             return 0 <= self.hub.now() - self.cancel_wait_started < self.arrival_wait_s
         return (self.binding is not None and self.nav.result == 'SUCCEEDED'
@@ -98,7 +104,8 @@ class ScenarioRun:
                 and core.intent == Z)
 
     def _publish(self, message):
-        if self.current is not None and 'start_data' in self.current:
+        if (self.current is not None and 'start_data' in self.current
+                and message.get('code') != 'EXECUTION_UNAVAILABLE'):
             # Before the proven RUN_STARTED exists, the server has no run.
             # Preparation failures/STOP are local UI state, not orphan reports.
             if message['t'] == 'run.update':
@@ -126,9 +133,10 @@ class ScenarioRun:
                 if p.user is not None:
                     # Event queue is FIFO (two waypoint events may share t).
                     self.hub._notify(peer, stamped)
+        return stamped
 
     def _event(self, code, data):
-        self._publish({'t': 'event', 'code': code, 'severity': 'info', 'robot_at': None, 'data': deepcopy(data)})
+        return self._publish({'t': 'event', 'code': code, 'severity': 'info', 'robot_at': None, 'data': deepcopy(data)})
 
     def _status(self, status, *, reason=None):
         c = self.current
@@ -160,6 +168,8 @@ class ScenarioRun:
             if binding is not None:
                 self.cancel_binding = binding
                 self.nav.revoke(reason or status)
+        if self.performer is not None:
+            self.performer.interrupt()
         if report:
             self._status(status, reason=reason)
         else:
@@ -249,6 +259,7 @@ class ScenarioRun:
                 identity=self.identity(h.peers[peer]), peer=peer, screen_id=f['screen_id'],
                 token_hash=hashlib.sha256(token.encode()).digest(),
                 request=request, pause_deadline=None, plan=None, end=None, ending=False)
+            self.performer = self.execution = None
             h.peers[peer].run_start_reply = deepcopy(detail)
             self.starts[f['run_id']] = deepcopy(request)
             self._promote(peer)
@@ -295,7 +306,13 @@ class ScenarioRun:
         c['token_hash'] = hashlib.sha256(token.encode()).digest()
         h.peers[peer].run_start_reply = None  # rotated proof is never exposed by start replay
         self._promote(peer)
-        self._goal()
+        if self.execution is not None:
+            if self.performer is not None:
+                self.performer.resume()
+            self.execution['cancel_started'] = h.now()
+            self._status('PERFORMING')
+        else:
+            self._goal()
         return None, dict(run_id=c['run_id'], screen_id=c['screen_id'], resume_token=token)
 
     def _goal(self):
@@ -352,16 +369,20 @@ class ScenarioRun:
             if self.preparing is not None and self.preparing.done():
                 try:
                     if c['plan'] is None:
-                        c['plan'], c['end'] = plan_from_data(self.preparing.result(), c['request'])
+                        c['plan'], c['end'] = plan_from_data(self.preparing.result(), c['request'], self.support)
                     if not self.context(c['request'], c['plan']):
                         raise ValueError('MAP_VERSION_MISMATCH')
                     c['progress']['total'] = len(c['plan']['segments'][0]['goals'])
                 except Exception as exc:
-                    code = str(exc) if str(exc) in ('FLOOR_TRANSITION_UNSUPPORTED', 'MAP_VERSION_MISMATCH') else 'PLAN_UNAVAILABLE'
+                    code = str(exc) if str(exc) in ('FLOOR_TRANSITION_UNSUPPORTED', 'MAP_VERSION_MISMATCH', 'EXECUTION_UNAVAILABLE') else 'PLAN_UNAVAILABLE'
+                    if code == 'EXECUTION_UNAVAILABLE':
+                        self._event(code, dict(requested_run_id=c['run_id'], reason=getattr(exc, 'reason', code)))
                     self._halt('FAILED', code)
                     return
                 if 'start_data' in c:
-                    self._event('RUN_STARTED', {**c.pop('start_data'), 'map_proof': c['plan'].map_proof})
+                    negotiation = {k: c['plan'][k] for k in ('run_contract', 'execution_capability_revision') if k in c['plan']}
+                    started = self._event('RUN_STARTED', {**c.pop('start_data'), 'map_proof': c['plan'].map_proof, **negotiation})
+                    c['started_record'] = self._record_key(started)
                     self._status('PREPARING')
                 if self.journal.jobs:
                     return  # initial metadata commits before goal submission
@@ -379,6 +400,9 @@ class ScenarioRun:
             h._emit(s.executor_command(c['run_id'], Z))
             if self.cancel_confirmed():
                 self._goal()
+            return
+        if self.execution is not None:
+            self._execution_tick()
             return
         if self.binding is None:
             return
@@ -448,20 +472,95 @@ class ScenarioRun:
             self._status('AT_WAYPOINT')
             data = {k: goal[k] for k in ('idx', 'waypoint_ref', 'mission_id', 'mission_version', 'mission_name')}
             data.update(run_id=c['run_id'], floor_id=c['request']['floor_id'], map_version_id=c['request']['map_version_id'], pose=pose)
-            self._event('RUN_WAYPOINT_ARRIVED', data)
+            arrived = self._event('RUN_WAYPOINT_ARRIVED', data)
             if not self.active or self.storage_failed:
                 return
             self._status('PERFORMING')
-            self._event('RUN_WAYPOINT_RECORDED', {**data, 'results': {'mode': 'DISPLAY_ONLY'}})
-            if not self.active or self.storage_failed:
-                return
-            c['progress']['done'] += 1
-            if c['progress']['done'] < c['progress']['total']:
-                c['step'] += 1
-                s.run['step'] = c['step']
-                self._goal()
-            elif c['end'] is not None:
-                c['ending'] = True
-                self._goal()
+            if c['plan'].get('run_contract') == 'scenario/2':
+                self.performer = StepRunner(self.support, org=h.verifier.org, robot=h.robot,
+                    run=c['run_id'], waypoint=c['step'], steps=goal['mission_steps'], now=h.now)
+                self.execution = dict(data=data, arrived=self._record_key(arrived),
+                                      cancel_started=h.now(), phase='GATING')
+                self._execution_tick()
             else:
-                self._halt('COMPLETED')
+                self._event('RUN_WAYPOINT_RECORDED', {**data, 'results': {'mode': 'DISPLAY_ONLY'}})
+                self._complete_waypoint()
+
+    @staticmethod
+    def _record_key(message):
+        return None if message is None else (message['agent_instance_id'], message['report_seq'])
+
+    def _acknowledged(self, key):
+        # Entries are removed only after run.recorded and durable ACK deletion.
+        return key is not None and key not in self.journal.entries
+
+    def execution_disconnected(self):
+        if self.active and self.execution is not None and self.current['status'] != 'PAUSED':
+            self._halt('PAUSED', 'LINK_LOST')
+
+    def _execution_results(self):
+        return dict(mode='EXECUTED', run_contract='scenario/2',
+            execution_capability_revision=self.current['plan']['execution_capability_revision'],
+            steps=deepcopy(self.performer.results))
+
+    def _record_execution(self):
+        e = self.execution
+        recorded = self._event('RUN_WAYPOINT_RECORDED', {**e['data'], 'results': self._execution_results()})
+        e.update(phase='RECORDED', recorded=self._record_key(recorded))
+
+    def _execution_tick(self):
+        h, c, s, e = self.hub, self.current, self.hub.session, self.execution
+        if not self.context(c['request'], c['plan']):
+            self._halt('FAILED', 'LOCALIZATION_LOST')
+            self._context_failure_diagnostics()
+            return
+        # Only ZERO health: the normal Session/Core/sink gates still decide it.
+        h._emit(s.executor_command(c['run_id'], Z))
+        if s.run is None or s.run['status'] != 'RUNNING' or s.core.latch:
+            self._halt('PAUSED', 'STOPPED_BY_USER')
+            return
+        if e['phase'] == 'GATING':
+            zero = s.core.out == Z and s.core.intent == Z
+            if not self.cancel_confirmed() or not zero:
+                if h.now() - e['cancel_started'] >= self.arrival_wait_s:
+                    self.performer.fail('ACTION_FAILED', 'Movement cancellation or zero output unconfirmed')
+                    self._record_execution()
+                    self._halt('FAILED', 'NAV_TIMEOUT')
+                return
+            if not (self._acknowledged(c['started_record']) and self._acknowledged(e['arrived'])):
+                return
+            e['phase'] = 'STEPS'
+        if e['phase'] == 'STEPS':
+            try:
+                goal = c['plan']['segments'][0]['goals'][c['step']]
+                self.support.require(goal['required_capabilities'], c['plan']['execution_capability_revision'])
+            except ValueError:
+                self.performer.fail('CAPABILITY_CHANGED', 'Execution capability revision or support changed')
+            # A resume never submits a goal or replays completed actions.
+            if not self.cancel_confirmed() or s.core.out != Z or s.core.intent != Z:
+                self.performer.fail('ACTION_FAILED', 'Movement cancellation or zero output unconfirmed')
+            else:
+                self.performer.tick()
+            if self.performer.done:
+                self._record_execution()
+                if self.performer.state == 'FAILED':
+                    self._halt('FAILED', 'ACTION_FAILED')
+                return
+        if e['phase'] == 'RECORDED' and self._acknowledged(e['recorded']):
+            self.execution = self.performer = None
+            self._complete_waypoint()
+
+    def _complete_waypoint(self):
+        c, s = self.current, self.hub.session
+        if not self.active or self.storage_failed:
+            return
+        c['progress']['done'] += 1
+        if c['progress']['done'] < c['progress']['total']:
+            c['step'] += 1
+            s.run['step'] = c['step']
+            self._goal()
+        elif c['end'] is not None:
+            c['ending'] = True
+            self._goal()
+        else:
+            self._halt('COMPLETED')
