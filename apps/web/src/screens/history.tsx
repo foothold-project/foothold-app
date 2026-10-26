@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Event as Ev, EventList, NotificationList, Notification, NotificationsRead } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { idleSim, myRobots, simName, type Robot, type Tone } from '../fake';
-import { Chip, Line, type Ctx } from '../screens';
+import { Chip, Line, inApp, type Ctx } from '../screens';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
 const KINDS: [Ev['category'] | '', string][] = [['', '전체'], ['RUN', '임무'], ['ROUTE', '이탈'], ['LINK', '연결'], ['LEASE', '조종권'], ['APPROVAL', '결재'], ['SAFETY', '안전'], ['ACCOUNT', '계정']];
@@ -107,6 +107,7 @@ export function History(c: HistoryCtx) {
   const save = async () => {
     const q = params(f);
     if (!q) { setOut({ text: `내보내지 못했습니다. ${BAD_DAY.message}` }); return; }
+    if (inApp()) { setOut({ text: '앱에서는 파일을 내려받을 수 없습니다. PC 브라우저에서 내보내세요.' }); return; }   // WebView 는 blob <a download> 를 받지 않는다
     setSaving(true); setOut(null);
     let url = '';
     try {
