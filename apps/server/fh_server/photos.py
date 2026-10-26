@@ -166,10 +166,11 @@ def clean_orphans(db, root, directory, org_id):
 
 def save_photo(factory, settings, rid, meta, payload, token_hash, fail, limits=LIMITS):
     final = temporary = None
-    # Serialization makes quota/idempotency/orphan recovery safe across processes.
+    # NO KEY UPDATE serializes writers while allowing event FK KEY SHARE checks.
+    # A full UPDATE lock here would invert the run-writer robot/event lock order.
     with factory() as db:
         try:
-            db.scalar(select(Organization).where(Organization.id == settings.org_id).with_for_update())
+            db.scalar(select(Organization).where(Organization.id == settings.org_id).with_for_update(key_share=True))
             run = owned(db, settings, rid, meta, token_hash, fail)
             existing = db.scalar(select(Photo).where(Photo.org_id == meta.org_id,
                 Photo.robot_id == rid, Photo.idempotency_key == meta.idempotency_key))
@@ -236,7 +237,7 @@ def save_photo(factory, settings, rid, meta, payload, token_hash, fail, limits=L
             # retry must not commit a file between verification and unlink.
             try:
                 with factory.begin() as audit:
-                    audit.scalar(select(Organization).where(Organization.id == settings.org_id).with_for_update())
+                    audit.scalar(select(Organization).where(Organization.id == settings.org_id).with_for_update(key_share=True))
                     row = audit.scalar(select(Photo).where(Photo.org_id == meta.org_id,
                         Photo.robot_id == rid, Photo.idempotency_key == meta.idempotency_key))
                     # COMMIT may have succeeded even when its response was lost.

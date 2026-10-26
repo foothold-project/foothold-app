@@ -313,3 +313,25 @@ def test_photo_migration_refuses_populated_downgrade(scenario, monkeypatch):
     with pytest.raises(DBAPIError, match='Retire photo records'):
         command.downgrade(Config(str(CONFIG)), '0019')
     assert len(stored(s, Photo)) == 1
+
+
+def test_photo_admission_does_not_block_run_event_fk(scenario, monkeypatch):
+    import threading
+    s = start(scenario); meta = metadata(s)
+    reserved, release = threading.Event(), threading.Event()
+    original = photos.owned
+    def pause_before_robot_lock(*args):
+        reserved.set()
+        assert release.wait(5), 'test release was not signaled'
+        return original(*args)
+    monkeypatch.setattr(photos, 'owned', pause_before_robot_lock)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        picture = pool.submit(upload, s, meta)
+        try:
+            assert reserved.wait(2), 'photo did not acquire admission reservation'
+            report = pool.submit(save, s, event(s, 'RUN_CAPTURE_PENDING', 3,
+                {'run_id': s['started']['run_id']}))
+            assert report.result(timeout=2)['t'] == 'run.recorded'
+        finally:
+            release.set()
+        assert picture.result(timeout=5).status_code == 200
