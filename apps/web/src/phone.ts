@@ -182,6 +182,14 @@ function onMsg(raw: string) {
     set({ step: 'drive' });
     media.offer((m as { media?: unknown }).media, S.robot!.agent_address);   // 형상 검사는 media.ts — 틀리면 받지 않음
     openCamera(media.has('rgb') ? null : m.camera_token as string | null);   // RGB 를 media/1 로 받으면 옛 카메라 경로는 열지 않는다(같은 영상 두 번 0)
+  } else if (m.t === 'media.update' && l.at === 'open' && m.robot === l.welcome?.robot) {
+    const info = m.media as { robot?: unknown } | null;
+    if (info !== null && (!info || info.robot !== m.robot)) return;
+    media.offer(info ?? undefined, S.robot!.agent_address);
+    if (media.has('rgb')) {
+      const c = cam; cam = null; c?.close();
+      setLink({ cam: 'off', img: '' });
+    }
   } else if (m.t === 'reply') {
     const r = m as unknown as PhoneReply, f = replies.get(r.id);
     replies.delete(r.id);

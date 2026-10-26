@@ -70,6 +70,7 @@ class Server:
         self.hub, self.settings, self.sock = hub, settings, sock
         self.camera = camera
         self.media = media
+        self.media_generations = {}
         self.connections = {}
         self.addresses = {}
         self.hello_started = set()
@@ -111,6 +112,12 @@ class Server:
                     await self._send(ws, notification)
                 if peer in self.hub.peers:
                     await self._send(ws, self.hub.state(peer))
+                if (self.media is not None and peer in self.media_generations
+                        and self.media_generations[peer] != self.media.media.generation):
+                    generation = self.media.media.generation
+                    info = self.media.issue(peer)
+                    await self._send(ws, dict(t='media.update', robot=self.hub.robot, media=info))
+                    self.media_generations[peer] = generation
             await asyncio.sleep(.1)
 
     async def _read(self, ws, peer):
@@ -123,13 +130,19 @@ class Server:
             except (ValueError, TypeError, AttributeError, RecursionError):
                 pass  # Hub owns frame validation and authenticated STOP policy.
             result = self.hub.receive(peer, raw)
+            generation = None
             if result.get('t') == 'hello':
                 result['camera_token'] = self.camera.issue(peer) if self.camera is not None else None
                 if self.media is not None:
+                    generation = self.media.media.generation
                     info = self.media.issue(peer)
                     if info is not None:
                         result['media'] = info
             await self._send(ws, result)
+            if generation is not None:
+                # Updates start only after hello. Capture before the send so a
+                # binding change during that await is advertised next tick.
+                self.media_generations[peer] = generation
 
     def _address(self, ws):
         # Source host only: ephemeral ports must not bypass the per-address cap.
@@ -225,6 +238,7 @@ class Server:
                 self.connections.pop(peer, None)
                 self.addresses.pop(peer, None)
                 self.hello_started.discard(peer)
+                self.media_generations.pop(peer, None)
                 self.closing.discard(peer)
                 self.workers.pop(peer, None)
                 reader.cancel()

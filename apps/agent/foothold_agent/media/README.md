@@ -17,12 +17,20 @@ channel and send:
 {"t":"media.hello","version":"media/1","robot":"00000000-0000-0000-0000-000000000001","epoch":1,"episode_id":null,"channel":"lidar","token":"<43-character channel token from phone hello>"}
 ```
 
+Hello never waits for sensor readiness. If the binding changes after hello, the
+authenticated parent receives `{"t":"media.update","robot":"...","media":...}`
+with the same welcome payload and fresh one-use channel tokens. A null `media`
+revokes the offer. Updates occur once per binding generation on the independent
+state writer; they never wait in the command reader or safety tick. Clients may
+replace their media offer on this notification without reconnecting control.
+
 Tokens expire after 10 seconds, are one-use and channel-specific, and inherit the
 verified parent's organization/robot/permission/expiry. They cannot use camera
 credentials. Parent disconnect/revocation, reset, stale state or binding changes
 close the media sockets within the 50ms monitor interval. After hello any
 application input, including binary/observer/drive requests, closes that socket.
-Reconnect the parent for new tokens; there is no reusable token refresh endpoint.
+Binding updates supply new tokens; otherwise reconnect the parent for new tokens.
+There is no reusable token refresh endpoint.
 
 `media.video` is bounded canonical base64 JPEG with actual decoded dimensions,
 UTC capture time and the advertised binding. `media.points` JSON is followed by
