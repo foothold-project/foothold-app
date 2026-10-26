@@ -41,9 +41,11 @@ export function told(m: string) {
   return x ? { text: `${x[1]}: ${AGENT_EVENT[x[2]] ?? '기타 사건'}`, code: x[2] } : null;
 }
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
-/** 심각도 = 모양 + 글(색만으로 구분 0) — 분류 배지와 따로 보인다 */
-const SEV: Record<string, [Tone, string]> = { INFO: ['ok', '정상'], WARN: ['warn', '주의'], ERROR: ['bad', '오류'] };
-const Sev = ({ e }: { e: Ev }) => { const [tone, text] = SEV[e.severity] ?? ['off', '알 수 없음']; return <Chip tone={tone} text={text} />; };
+/** 심각도 = 모양 + 글(색만으로 구분 0) — 분류 배지와 따로 보인다.
+ *  INFO 는 «정상»의 증거가 아니다: 서버는 심각도 없이 온 로봇 audit 을 INFO 로 저장한다(realtime.py — STOP_CONFIRM_FAILED 등). 그래서 INFO 는 중립 «알림», 실패류 코드면 «주의» */
+const SEV: Record<string, [Tone, string]> = { INFO: ['off', '알림'], WARN: ['warn', '주의'], ERROR: ['bad', '오류'] };
+const FAILED = /_(FAILED|REJECTED|DENIED|TIMEOUT)$/;
+const Sev = ({ e }: { e: Ev }) => { const [tone, text] = e.severity === 'INFO' && FAILED.test(e.code ?? '') ? SEV.WARN : SEV[e.severity] ?? ['off', '알 수 없음']; return <Chip tone={tone} text={text} />; };
 /** 분류 배지: 분류마다 다른 토큰 색(history.css)·글자 같이 */
 const Kind = ({ e }: { e: Ev }) => <span className="hs-kind" data-kind={e.category}>{KIND_NAME[e.category] ?? '기타'}</span>;
 /** 서버가 저장한 문장. 서버가 모르는 로봇 사건이면 코드 원문은 접힌 상세에만 */

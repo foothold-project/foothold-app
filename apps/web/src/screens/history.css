@@ -4,8 +4,9 @@
 .hs-table{width:100%;border-collapse:collapse;font-size:14px}
 .hs-table th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
 .hs-table td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
-.hs-table td:nth-child(-n+3),.hs-table td:nth-child(5){white-space:nowrap}
+.hs-table td:nth-child(-n+3){white-space:nowrap}
 .hs-table td:nth-child(4){width:100%;min-width:0;overflow-wrap:anywhere}
+.hs-table td:nth-child(5){max-width:16em;white-space:normal;overflow-wrap:anywhere}
 .hs-table details{margin-top:2px}
 
 /* 분류마다 채움·옅은 바탕·테두리를 섞어 세 색조(청록·호박·빨강)+회색으로 일곱 가지를 가른다. 글자가 늘 같이 있다 */

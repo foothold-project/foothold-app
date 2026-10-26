@@ -124,8 +124,16 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     expect([...card('사건').querySelectorAll('th')].map((t) => t.textContent)).toEqual(['시각', '종류', '상태', '내용', '로봇·사람']);
     const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => [...r.children].map((td) => td.textContent));
     expect(a.slice(1)).toEqual(['안전', '▲주의', '사건 2 문장', 'Go2-A · 김총괄']);
-    expect(b.slice(1)).toEqual(['계정', '●정상', '사건 1 문장', '—']);
+    expect(b.slice(1)).toEqual(['계정', '○알림', '사건 1 문장', '—']);
     expect(card('사건').querySelector('[data-kind="SAFETY"]')!.textContent).toBe('안전');
+  });
+  it('INFO 는 «정상»이라 단정하지 않음 — 서버가 INFO 로 저장한 실패 코드(정지 확인 실패 등)는 ▲주의', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('2', { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인에 실패했습니다.' }),
+      ev('1', { category: 'RUN', code: 'NAV_GOAL_REJECTED', severity: 'INFO' })]) }));
+    await open('#/history');
+    const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => r.children[2].textContent);
+    expect([a, b]).toEqual(['▲주의', '▲주의']);
+    expect(card('사건').textContent).not.toContain('정상');
   });
   it('cursor 로 «더 보기» — 다음 쪽을 이어 붙이고 끝이면 단추가 없어짐', async () => {
     serve(signedIn(KIM, { 'GET /events': (q) => (q.get('cursor') === 'c1' ? list([ev('1')]) : list([ev('3'), ev('2')], 'c1')) }));
@@ -546,6 +554,13 @@ describe('서랍 «최근 사건»', () => {
     expect(Object.fromEntries(call.q)).toEqual({ robot_id: 'r-a', limit: '5' });
     expect(card('로봇 상세').textContent).toContain('Go2-A 최근 사건');
     expect(card('로봇 상세').textContent).not.toContain('최근 사건 자리');
+  });
+  it('정지 확인 실패(서버 INFO)는 서랍에서도 «정상»이 아닌 ▲주의', async () => {
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([ev('2', { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인 실패' })]) : list([])) }));
+    await open('#/fleet');
+    const li = $('[aria-label="최근 사건"] li')!;
+    expect(li.textContent).toContain('▲주의');
+    expect(li.textContent).not.toContain('정상');
   });
   it('없으면·범위 밖(404)이면 칸을 숨김(가짜 없음), 다른 실패는 한 줄', async () => {
     serve(signedIn(KIM));
