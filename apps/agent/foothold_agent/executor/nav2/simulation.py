@@ -81,7 +81,7 @@ class SimulationBinding:
 class SimulationPolicyAdapter:
     @property
     def policy_version(self):
-        return 'nav2-simulation-si/1' if self.enabled() else self.physical.policy_version
+        return 'nav2-simulation-si/2' if self.enabled() else self.physical.policy_version
 
     def __init__(self, physical, enabled):
         self.physical, self.enabled = physical, enabled
@@ -92,8 +92,7 @@ class SimulationPolicyAdapter:
                 or not all(number(x) for x in velocity)):
             return Z, 'INVALID_VELOCITY'
         vx, vy, wz = velocity
-        if not (0 <= vx <= .6 and vy == 0 and -.5 <= wz <= .5
-                and (vx > 0 or wz == 0)):
+        if not (0 <= vx <= .6 and vy == 0 and -.5 <= wz <= .5):
             return Z, 'UNSUPPORTED_VELOCITY'
         return tuple(velocity), 'TESTED' if any(velocity) else 'ZERO'
 

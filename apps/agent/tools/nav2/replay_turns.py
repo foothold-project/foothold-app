@@ -2,6 +2,7 @@
 
 Model: 5 cm straight global plan computed once per goal, nearest-point pruning,
 analytic circle/segment carrot, final segment extension, exact unicycle steps.
+Optional rotation models RPP heading/goal-yaw and SimpleProgressChecker.
 No NavFn, TF, controller timing, dynamics, collision prediction or STOP proof.
 """
 import argparse
@@ -18,6 +19,23 @@ from replay_paths import HERE, simulation_parameters, regulated_command
 
 ANGLES = (0, 30, -30, 60, -60, 90, -90, 135, -135, 180)
 STARTS = ((0., 0.), (-.4, 0.), (0., .2), (0., -.2))
+USER_START = (1.34, -3.)
+USER_GOALS = ((-3., 0.),)
+
+
+def normalize(angle):
+    return math.atan2(math.sin(angle), math.cos(angle))
+
+
+def rotate_command(angle, current_wz, params):
+    """Jazzy rotateToHeading with ideal measured previous-command feedback."""
+    sign = 1. if angle > 0 else -1.
+    delta = params['angular_accel']/params['frequency']
+    wz = max(current_wz-delta, min(sign*params['rotate_speed'], current_wz+delta))
+    stop_speed = math.sqrt(2*params['angular_accel']*abs(angle))
+    if abs(wz) > stop_speed:
+        wz = sign*stop_speed
+    return (0., 0., wz)
 
 
 def carrot(plan, x, y, distance):
@@ -50,37 +68,54 @@ def integrate(x, y, yaw, vx, wz, dt):
             y-vx/wz*(math.cos(yaw+wz*dt)-math.cos(yaw)), yaw+wz*dt)
 
 
-def replay(start, degrees, params, *, clearance=None, timeout=30.):
+def replay(start, degrees, params, *, clearance=None, timeout=30., rotate=False,
+           goals=((.8, 0.), (1.6, 0.)), goal_yaws=None):
+    """rotate=False retains PR #113's forward-only regression fixtures.
+
+    CLI uses rotate=True for the current simulation overlay. Goal yaw defaults
+    to zero explicitly; the original user run's goal orientation is unavailable.
+    """
     policy = json.loads((HERE/'policy.json').read_text())
     adapter = SimulationPolicyAdapter(PolicyAdapter(policy), lambda: True)
     now = [0.]
     executor = NavExecutor(adapter, SimpleNamespace(submit=lambda *a: None, cancel=lambda *a: None), now=lambda: now[0])
     run = dict(run_id='offline', status='RUNNING')
     x, y = start
-    yaw = math.atan2(-y, .8-x)+math.radians(degrees)
+    yaw = math.atan2(goals[0][1]-y, goals[0][0]-x)+math.radians(degrees)
+    goal_yaws = (0.,)*len(goals) if goal_yaws is None else goal_yaws
     rows, poses, radii = [], [(x, y, yaw)], []
     reached, nav_success, latched = 0, 0, False
+    rotations = dict(path=0, goal=0)
+    progress_failed, current_wz = False, 0.
     dt = 1/params['frequency']
     minimum_clearance = clearance(x, y) if clearance else None
     # Wall intersections are reported over the unconstrained trajectory, never
     # interpreted as commands that collision-enabled RPP would actually issue.
-    for goal_index, goal in enumerate(((.8, 0.), (1.6, 0.))):
+    for goal_index, goal in enumerate(goals):
         length = math.hypot(goal[0]-x, goal[1]-y)
         count = max(1, math.ceil(length/.05))
         plan = [(x+(goal[0]-x)*i/count, y+(goal[1]-y)*i/count) for i in range(count+1)]
         nearest = 0
         xy_latched = False
+        rotation_xy_latched = False
+        progress_x, progress_y, progress_t = x, y, now[0]
         binding = Binding('offline', str(goal_index), 1, 0, 'warehouse', 'f1', 'offline')
         executor.begin(binding, goal)
         goal_reached = False
         for _ in range(math.ceil(timeout/dt)):
             distance = math.hypot(goal[0]-x, goal[1]-y)
             xy_latched |= distance <= params['tolerance']
-            if xy_latched and abs(math.atan2(math.sin(yaw), math.cos(yaw))) <= params['yaw_tolerance']:
+            if xy_latched and abs(normalize(goal_yaws[goal_index]-yaw)) <= params['yaw_tolerance']:
                 nav_success += 1
                 goal_reached = distance <= params['tolerance']
                 reached += int(goal_reached)
                 break
+            if rotate:
+                if math.hypot(x-progress_x, y-progress_y) > params['progress_radius']:
+                    progress_x, progress_y, progress_t = x, y, now[0]
+                if now[0]-progress_t > params['progress_timeout']:
+                    progress_failed = True
+                    break
             nearest = min(range(nearest, len(plan)), key=lambda i: math.hypot(plan[i][0]-x, plan[i][1]-y))
             # Retain the last segment for after-goal interpolation.
             remaining = plan[min(nearest, len(plan)-2):]
@@ -90,14 +125,26 @@ def replay(start, degrees, params, *, clearance=None, timeout=30.):
             lateral = -math.sin(yaw)*dx+math.cos(yaw)*dy
             curvature = 2*lateral/d2 if d2 > .001 else 0.
             command = regulated_command(curvature, params)
+            if rotate:
+                # RPP's ordinary carrot is NOT extrapolated past the goal.
+                # Its distance reaches xy tolerance before goal-yaw rotation.
+                rotation_xy_latched |= distance < params['tolerance']
+                heading = normalize(math.atan2(dy, dx)-yaw)
+                if rotation_xy_latched:
+                    command = rotate_command(normalize(goal_yaws[goal_index]-yaw), current_wz, params)
+                    rotations['goal'] += 1
+                elif abs(heading) > params['rotate_min_angle']:
+                    command = rotate_command(heading, current_wz, params)
+                    rotations['path'] += 1
             rows.append({'input_si': command})
             executor.intent(binding, command)
             executor.poll(run)
             latched |= executor.rejected
             if latched:
                 break
-            if abs(command[2]) > 1e-10:
+            if abs(command[2]) > 1e-10 and command[0] > 0:
                 radii.append(abs(command[0]/command[2]))
+            current_wz = command[2]
             x, y, yaw = integrate(x, y, yaw, command[0], command[2], dt)
             poses.append((x, y, yaw))
             if clearance:
@@ -109,19 +156,24 @@ def replay(start, degrees, params, *, clearance=None, timeout=30.):
         executor.poll(run)
         latched |= executor.rejected
         executor.revoke('OFFLINE_GOAL_END')
+        current_wz = 0.
         if not goal_reached or latched:
             break
     assessed = assess(rows, policy, adapter=adapter)
     wall_clear = minimum_clearance is None or minimum_clearance >= 0
     return dict(start=start, heading_error_deg=degrees, latch_count=int(latched),
+                goals=goals, goal_yaws=goal_yaws, rotation_enabled=rotate,
+                rotation_samples=rotations, progress_failed=progress_failed,
+                elapsed_sim_s=now[0],
                 max_abs_wz=max(abs(r['input_si'][2]) for r in rows),
-                min_moving_vx=min(r['input_si'][0] for r in rows if r['input_si'][0]),
+                min_moving_vx=min((r['input_si'][0] for r in rows if r['input_si'][0]), default=None),
                 min_turn_radius_m=min(radii) if radii else None,
                 minimum_raster_body_clearance_m=minimum_clearance,
                 geometric_goals_reached=reached, nav_stateful_successes=nav_success,
-                model_completed=reached == 2, wall_clear_model_completed=reached == 2 and wall_clear,
+                model_completed=reached == len(goals), wall_clear_model_completed=reached == len(goals) and wall_clear,
                 maximum_lateral_excursion_m=max(abs(p[1]) for p in poses),
-                failure_reason=(None if reached == 2 and wall_clear else
+                failure_reason=(None if reached == len(goals) and wall_clear else
+                    'PROGRESS_TIMEOUT' if progress_failed else
                     'RASTER_BODY_INTERSECTION' if not wall_clear else
                     'GOAL_YAW_ALIGNED_OUTSIDE_XY' if nav_success > reached else
                     'FIXTURE_TIMEOUT_HEADING_ALIGNMENT_REQUIRED'),
@@ -161,8 +213,11 @@ def main(argv=None):
     args = parser.parse_args(argv)
     params = simulation_parameters()
     clearance = warehouse_clearance(args.warehouse_map) if args.warehouse_map else None
-    results = [replay(start, angle, params, clearance=clearance) for angle in ANGLES for start in STARTS]
-    report = dict(schema='fh-nav2-heading-fixtures/1', parameters=params, cases=len(results),
+    results = [dict(profile='four_positions', **replay(start, angle, params, clearance=clearance, rotate=True))
+               for angle in ANGLES for start in STARTS]
+    results += [dict(profile='user_route', **replay(USER_START, angle, params, clearance=clearance,
+                                                 rotate=True, goals=USER_GOALS)) for angle in ANGLES]
+    report = dict(schema='fh-nav2-heading-fixtures/2', parameters=params, cases=len(results),
                   actual_nav2_feasibility_proven=False,
                   assumptions=__doc__, trials=results)
     output = json.dumps(report, indent=2, allow_nan=False)+'\n'

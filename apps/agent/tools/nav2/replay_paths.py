@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 ACCEPTED = ('TESTED', 'TESTED_YAW_REDUCED', 'ZERO')
 
 
-def parameters(text):
+def parameters(text, *, rotation=False):
     """Read only unique literal scalars of the checked-in fixture YAML, fail closed.
 
     This is not a YAML loader and does not accept substitutions/overrides. Avoids
@@ -28,9 +28,11 @@ def parameters(text):
             raise ValueError('unique literal parameter required: '+name)
         return values[0].strip()
     for name in ('use_cost_regulated_linear_velocity_scaling',
-                 'use_velocity_scaled_lookahead_dist','use_rotate_to_heading','allow_reversing'):
+                 'use_velocity_scaled_lookahead_dist','allow_reversing'):
         if scalar(name)!='false':
             raise ValueError('synthetic straight replay requires disabled '+name)
+    if scalar('use_rotate_to_heading') != ('true' if rotation else 'false'):
+        raise ValueError('unexpected rotation profile')
     if float(scalar('approach_velocity_scaling_dist'))!=0:
         raise ValueError('D22 requires disabled approach scaling')
     result = {key:float(scalar(name)) for key,name in (
@@ -51,6 +53,15 @@ def parameters(text):
         ('min_radius','regulated_linear_scaling_min_radius'),
         ('min_speed','regulated_linear_scaling_min_speed'),
         ('yaw_tolerance','yaw_goal_tolerance'))})
+    if rotation:
+        result.update({key:float(scalar(name)) for key,name in (
+            ('rotate_min_angle','rotate_to_heading_min_angle'),
+            ('rotate_speed','rotate_to_heading_angular_vel'),
+            ('angular_accel','max_angular_accel'),
+            ('progress_radius','required_movement_radius'),
+            ('progress_timeout','movement_time_allowance'))})
+        if result['rotate_speed'] > .4:
+            raise ValueError('simulation rotation must stay <= .4 rad/s')
     if (not all(math.isfinite(v) and v > 0 for v in result.values())
             or result['min_speed'] > result['speed']):
         raise ValueError('positive finite replay parameters and min_speed <= speed required')
@@ -68,7 +79,9 @@ def simulation_parameters(overlay=None):
     allowed = {'use_fixed_curvature_lookahead', 'curvature_lookahead_dist',
                'interpolate_curvature_after_goal', 'use_regulated_linear_velocity_scaling',
                'regulated_linear_scaling_min_radius', 'regulated_linear_scaling_min_speed',
-               'use_cancel_deceleration'}
+               'use_cancel_deceleration', 'use_rotate_to_heading',
+               'rotate_to_heading_min_angle', 'rotate_to_heading_angular_vel',
+               'max_angular_accel', 'movement_time_allowance'}
     seen = set()
     for name, value in re.findall(r'^[ \t]*(\w+):[ \t]*([^#\n]+)', overlay, re.M):
         value = value.strip()
@@ -82,7 +95,7 @@ def simulation_parameters(overlay=None):
             text += '\n      '+name+': '+value+'\n'
     if seen != allowed:
         raise ValueError('incomplete simulation profile')
-    params = parameters(text)
+    params = parameters(text, rotation=True)
     if 'min_speed' not in params:
         raise ValueError('simulation requires regulated profile')
     return params
