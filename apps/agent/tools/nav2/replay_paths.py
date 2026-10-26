@@ -27,15 +27,76 @@ def parameters(text):
         if len(values)!=1:
             raise ValueError('unique literal parameter required: '+name)
         return values[0].strip()
-    for name in ('use_regulated_linear_velocity_scaling','use_cost_regulated_linear_velocity_scaling',
+    for name in ('use_cost_regulated_linear_velocity_scaling',
                  'use_velocity_scaled_lookahead_dist','use_rotate_to_heading','allow_reversing'):
         if scalar(name)!='false':
             raise ValueError('synthetic straight replay requires disabled '+name)
     if float(scalar('approach_velocity_scaling_dist'))!=0:
         raise ValueError('D22 requires disabled approach scaling')
-    return {key:float(scalar(name)) for key,name in (
+    result = {key:float(scalar(name)) for key,name in (
         ('speed','desired_linear_vel'),('lookahead','lookahead_dist'),
         ('tolerance','xy_goal_tolerance'),('frequency','controller_frequency'))}
+    regulation = scalar('use_regulated_linear_velocity_scaling')
+    if regulation == 'false':
+        return result # unchanged physical straight-fixture profile
+    if regulation != 'true':
+        raise ValueError('literal curvature regulation required')
+    for name in ('use_fixed_curvature_lookahead', 'interpolate_curvature_after_goal'):
+        if scalar(name) != 'true':
+            raise ValueError('bounded curvature requires '+name)
+    if scalar('use_cancel_deceleration') != 'false':
+        raise ValueError('replay requires immediate zero cancellation')
+    result.update({key:float(scalar(name)) for key,name in (
+        ('curvature_lookahead','curvature_lookahead_dist'),
+        ('min_radius','regulated_linear_scaling_min_radius'),
+        ('min_speed','regulated_linear_scaling_min_speed'),
+        ('yaw_tolerance','yaw_goal_tolerance'))})
+    if (not all(math.isfinite(v) and v > 0 for v in result.values())
+            or result['min_speed'] > result['speed']):
+        raise ValueError('positive finite replay parameters and min_speed <= speed required')
+    return result
+
+
+def simulation_parameters(overlay=None):
+    """Read the exact base + sim overlay selected by simmgr, literal scalars only.
+
+    Known keys only: a duplicate, unknown key or nonliteral value is an error,
+    not an ignored override. This helper is never used for launching ROS nodes.
+    """
+    text = (HERE/'nav2_params.yaml').read_text()
+    overlay = (HERE/'nav2_simulation_params.yaml').read_text() if overlay is None else overlay
+    allowed = {'use_fixed_curvature_lookahead', 'curvature_lookahead_dist',
+               'interpolate_curvature_after_goal', 'use_regulated_linear_velocity_scaling',
+               'regulated_linear_scaling_min_radius', 'regulated_linear_scaling_min_speed',
+               'use_cancel_deceleration'}
+    seen = set()
+    for name, value in re.findall(r'^[ \t]*(\w+):[ \t]*([^#\n]+)', overlay, re.M):
+        value = value.strip()
+        if name not in allowed or name in seen:
+            raise ValueError('unknown or duplicate simulation scalar: '+name)
+        seen.add(name)
+        pattern = r'^(\s*)'+name+r':[^\n]*'
+        if re.search(pattern, text, re.M):
+            text = re.sub(pattern, lambda m: m[1]+name+': '+value, text, flags=re.M)
+        else:
+            text += '\n      '+name+': '+value+'\n'
+    if seen != allowed:
+        raise ValueError('incomplete simulation profile')
+    params = parameters(text)
+    if 'min_speed' not in params:
+        raise ValueError('simulation requires regulated profile')
+    return params
+
+
+def regulated_command(curvature, params):
+    """Offline Jazzy 1.3.13 RPP formula; never installed in the command path."""
+    speed = params['speed']
+    if curvature:
+        radius = abs(1/curvature)
+        if radius < params['min_radius']:
+            speed *= 1 - abs(radius-params['min_radius'])/params['min_radius']
+    speed = min(params['speed'], max(speed, params['min_speed']))
+    return (speed, 0., speed*curvature)
 
 
 def replay_paths(config, policy, params, offsets=(0.,.001,.02,.05), *, adapter=None):
@@ -62,9 +123,17 @@ def replay_paths(config, policy, params, offsets=(0.,.001,.02,.05), *, adapter=N
                         or (index>4 and math.hypot(remaining,offset)<=params['tolerance'])):
                     adapter.adapt((0,0,0))
                     break
-                carrot=min(params['lookahead'],remaining)
-                yaw=speed*2*offset/(carrot*carrot+offset*offset) if carrot or offset else 0.
-                _,reason=adapter.adapt((speed,0,yaw))
+                # Fixed-distance curvature carrot extends the straight segment
+                # beyond its goal; the lateral fixture component stays fixed.
+                if 'curvature_lookahead' in params:
+                    carrot=max(params['curvature_lookahead'],offset)
+                    curvature=2*offset/(carrot*carrot) if carrot else 0.
+                    command=regulated_command(curvature,params)
+                else:
+                    carrot=min(params['lookahead'],remaining)
+                    yaw=speed*2*offset/(carrot*carrot+offset*offset) if carrot or offset else 0.
+                    command=(speed,0,yaw)
+                _,reason=adapter.adapt(command)
                 counts[reason]=counts.get(reason,0)+1
                 if reason not in ACCEPTED:
                     break
@@ -87,6 +156,11 @@ def replay_paths(config, policy, params, offsets=(0.,.001,.02,.05), *, adapter=N
 
 
 if __name__=='__main__':
+    import sys
+    if '--heading-sweep' in sys.argv:
+        from replay_turns import main
+        main(sys.argv[1:])
+        raise SystemExit
     config=json.loads((HERE/'preregistration.json').read_text())
     policy=json.loads((HERE/'policy.json').read_text())
     print(json.dumps(replay_paths(config,policy,parameters((HERE/'nav2_params.yaml').read_text())),indent=2))

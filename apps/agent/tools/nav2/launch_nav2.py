@@ -21,14 +21,16 @@ COMMAND_ROLES = {
 }
 
 
-def generate_launch_description():
+def generate_launch_description(*, simulation=False):
     if os.environ.get('FH_NAV2_EXECUTE') != '1':
         raise RuntimeError('A3a-2 approval and FH_NAV2_EXECUTE=1 required')
     from foothold_agent.ros_bridge.config import validate_isolation
     validate_isolation()
     from launch import LaunchDescription
     from launch_ros.actions import Node
-    params = str(Path(__file__).with_name('nav2_params.yaml'))
+    params = [str(Path(__file__).with_name('nav2_params.yaml'))]
+    if simulation:
+        params.append(str(Path(__file__).with_name('nav2_simulation_params.yaml')))
     bt = str(Path(__file__).with_name('straight.xml'))
     nodes = []
     for package, executable in (
@@ -38,7 +40,7 @@ def generate_launch_description():
         if executable == 'bt_navigator':
             overrides['default_nav_to_pose_bt_xml'] = bt
         nodes.append(Node(package=package, executable=executable, name=executable,
-                          parameters=[params, overrides], output='screen',
+                          parameters=[*params, overrides], output='screen',
                           remappings=[('cmd_vel', '/fh_nav/intent'),
                                       ('cmd_vel_nav', '/fh_nav/intent'),
                                       ('cmd_vel_smoothed', '/fh_nav/intent')]))
