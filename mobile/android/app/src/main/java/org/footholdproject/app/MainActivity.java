@@ -13,7 +13,7 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import com.getcapacitor.BridgeActivity;
 
 /**
- * 1.1.0-dev 원격 주소 방식 껍데기: 자체 플러그인 등록 0. 원격 서버 화면에는 네이티브 기능을 열지 않고, 네이티브가 화면을 읽기만 한다.
+ * 1.1.0-dev 원격 주소 방식 껍데기: 자체 플러그인 등록 0, JS 브리지 0(RemoteClient). 어느 화면도 네이티브를 부를 수 없고, 네이티브가 화면을 읽기만 한다.
  *  - 화면 꺼짐 방지(KEEP_SCREEN_ON) · 상태줄·내비 막대 숨김(immersive, 스와이프로 잠깐 표시) — 노치 여백은 Capacitor SystemBars 기본(css) 처리 그대로
  *  - 뒤로가기 무시: 조종 화면(#/drive/<id>)이 WebView 기록 뒤로로 나가지 않게. 끝내기는 화면 단추로
  *  - 조종 화면만 가로 고정: 웹 루트의 data-drive 표시를 evaluateJavascript 로 읽는다(브리지·플러그인 없이 — 원격 화면은 네이티브를 부를 수 없음)
@@ -41,11 +41,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         client = new RemoteClient(bridge);
         bridge.setWebViewClient(client);   // Bridge.setWebViewClient — 8.5.2 공개 API. 나머지 동작은 BridgeWebViewClient 그대로
-        // 모든 origin 에 붙는 addJavascriptInterface 두 개(쿠키 쓰기·Http 설정 읽기)를 뗀다 — 원격 화면이 앱 쿠키 저장소에 쓰지 못하게.
-        // 시작 화면도 두 기능을 쓰지 않는다(config 에서 둘 다 꺼짐). 플러그인 브리지(androidBridge)는 https://localhost 에만 붙는다(RemoteClient 주석)
-        WebView w = bridge.getWebView();
-        w.removeJavascriptInterface("CapacitorCookiesAndroidInterface");
-        w.removeJavascriptInterface("CapacitorHttpAndroidInterface");
+        // JS → 네이티브 통로(androidBridge·Cookies·Http)는 RemoteClient 생성자에서 전부 뗀다 — 시작 화면·원격 화면 모두 플러그인 호출 0
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         // 나중에 더한 콜백이 먼저 불린다 — @capacitor/app 의 뒤로가기(WebView goBack)보다 앞
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {

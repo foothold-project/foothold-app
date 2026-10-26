@@ -6,6 +6,7 @@ const KEY = 'fh.recent', MAX = 5;
 const $ = (id) => document.getElementById(id);
 const NOTE = {
   tls: '서버 인증서를 확인할 수 없어 열지 않았습니다. 주소가 맞는지 확인하세요. 인증서 오류는 무시하고 열 수 없습니다.',
+  out: '입력한 서버 밖 주소로 가려 해서 막았습니다. 이 앱은 넣은 서버 주소만 엽니다.',
   net: '서버에 연결하지 못했습니다. 주소가 바뀌었거나(터널 다시 켬) 서버가 꺼졌을 수 있습니다. 새 주소를 받아 넣으세요.',
 };
 const recent = () => { try { const a = JSON.parse(localStorage.getItem(KEY) || '[]'); return Array.isArray(a) ? a.filter((o) => { try { return gateOrigin(o) === o; } catch { return false; } }) : []; } catch { return []; } };
