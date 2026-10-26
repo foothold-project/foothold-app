@@ -105,6 +105,11 @@ class Relay:
             raise RelayError() from None
 
 
+def parse_robot_list(payload):
+    """Use one contract boundary for lifecycle listings and observer bindings."""
+    return C.SimRobotList.model_validate(payload)
+
+
 def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_organization):
     app.state.simmgr = Relay(settings.simmgr_url, settings.simmgr_auth_file) if settings.simmgr_url else None
 
@@ -150,7 +155,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         try:
             if app.state.simmgr is None:
                 raise RelayError('SIM_DISABLED')
-            result = C.SimRobotList.model_validate(app.state.simmgr.request(
+            result = parse_robot_list(app.state.simmgr.request(
                 'GET', '/v1/robots?' + urlencode({'org_id': str(user.org_id)})))
         except RelayError as error:
             result = C.SimRobotList(items=[], manager_error=(

@@ -58,7 +58,10 @@ cancel/reset 및 중계 실패도 순번·속도 한도를 소비한다. STOP·l
 ## 중계 실패 진단
 
 외부 카메라 오류는 `fh_server.external_camera`의 warning에 고정 stage,
-HTTP status, 프로토콜 code만 기록한다. 계정·로봇 ID, 요청/응답 본문,
+HTTP status, 프로토콜 code를 기록한다. `slots_response`는 검증 실패의
+필드 경로·오류 종류도 최대 16개 기록한다(예: `items.0.generation:int_parsing`).
+스키마에 없는 필드명은 값·토큰을 포함할 수 있어 `<extra>`로 가리고,
+TypeError는 원문 없이 `$:type_error`로 기록한다. 계정·로봇 ID, 요청/응답 본문,
 URL·인증값·원문 예외·Pydantic 입력은 기록하지 않는다.
 
 | stage | 의미와 HTTP 본문 |
@@ -68,6 +71,13 @@ URL·인증값·원문 예외·Pydantic 입력은 기록하지 않는다.
 | `slots_response` | 실행 슬롯 JSON 계약 불일치: 503 `SIM_UNAVAILABLE`, 연결 정보 확인 실패 안내 |
 | `command_transport` | view/reset/cancel POST 통신 또는 simmgr 거절: 받은 SIM code/status, 외부 카메라 처리 실패 안내 |
 | `command_response` | accepted/shared/seq/operation ACK 불일치: 503 `SIM_UNAVAILABLE`, 접수 응답 확인 실패 안내 |
+
+실행 슬롯은 목록 API와 같은 `simulation.parse_robot_list` 계약 해석을 사용한다.
+목록 API는 검증 실패를 `manager_error=SIM_UNAVAILABLE`와 정리 목록으로 바꿔
+HTTP 200을 반환하므로, 200만으로 관리자 슬롯 응답이 유효했다고 판단하지 않는다.
+현재 소스의 simmgr `listing`·`describe`와 API 직렬화를 거친 native/fake 응답은
+view/reset/cancel 시험을 통과했다. 기존 실시뮬의 `slots_response` 503 원인은
+아직 확정하지 못했으며, 다음 실시뮬에서 위 필드 진단으로 확인해야 한다.
 
 등록된 RUNNING 슬롯·현재 담당자·세대 불일치와 observer 부재·binding/freshness
 거절은 409 `SIM_OBSERVER_UNAVAILABLE`다. observer ACK 대기와 matching discard는

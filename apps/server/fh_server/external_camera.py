@@ -14,16 +14,42 @@ from starlette.concurrency import run_in_threadpool
 
 from apps.contracts import models as C
 from .models import Robot
-from .simulation import RelayError
+from .simulation import RelayError, parse_robot_list
 
 
 logger = logging.getLogger(__name__)
 
 
-def relay_failure(stage, status, code):
+def relay_failure(stage, status, code, validation=None):
     # Only fixed stages and protocol outcomes: no identity, body, URL, secret,
     # upstream exception text or validation input enters the server log.
-    logger.warning("external camera relay stage=%s status=%s code=%s", stage, status, code)
+    if validation is None:
+        logger.warning("external camera relay stage=%s status=%s code=%s", stage, status, code)
+    else:
+        logger.warning("external camera relay stage=%s status=%s code=%s fields=%s",
+                       stage, status, code, slot_validation_fields(validation))
+
+
+def slot_validation_fields(error):
+    """Only schema field names/indexes and error kinds; extra keys may be secrets."""
+    if isinstance(error, TypeError):
+        return '$:type_error'
+    models = {'items': C.SimRobot, 'expired': C.SimExpired, 'cleanup': C.SimCleanupSlot}
+    fields = []
+    for issue in error.errors(include_input=False, include_context=False, include_url=False)[:16]:
+        path = []
+        model = C.SimRobotList
+        for part in issue['loc']:
+            if type(part) is int:
+                path.append(str(part))
+            elif isinstance(part, str) and model is not None and part in model.model_fields:
+                path.append(part)
+                model = models.get(part) if model is C.SimRobotList else None
+            else:
+                path.append('<extra>')
+                model = None
+        fields.append(('.'.join(path) or '$') + ':' + issue['type'])
+    return ','.join(fields)
 
 
 class Admission:
@@ -104,9 +130,9 @@ def install(app, UploadIdentity, upload_write, fail, authorize):
             generation, owner, org, seq = upload_write(request, auth, prepare)
             # No organization lock/DB transaction during either bounded RPC.
             try:
-                slots = C.SimRobotList.model_validate(call('/v1/robots?' + urlencode({'org_id': str(org)})))
-            except (ValidationError, TypeError):
-                relay_failure('slots_response', 503, 'SIM_UNAVAILABLE')
+                slots = parse_robot_list(call('/v1/robots?' + urlencode({'org_id': str(org)})))
+            except (ValidationError, TypeError) as error:
+                relay_failure('slots_response', 503, 'SIM_UNAVAILABLE', error)
                 fail(503, 'SIM_UNAVAILABLE', '시뮬 연결 정보를 확인하지 못했습니다.')
             slot = next((r for r in slots.items if r.robot_id == robot_id), None)
             if (slot is None or slot.state != 'RUNNING' or slot.generation != generation
