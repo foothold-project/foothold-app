@@ -19,6 +19,7 @@ from .preflight import ResourceGateError, startup_preflight, wait_resource_gate
 from .native_catalogue import resolve_native_world, WorldValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
+RESOURCE_EXITS = ('low_memory', 'swap_in_10s', 'runtime_limit')
 
 
 class CleanupUnconfirmed(RuntimeError):
@@ -375,13 +376,51 @@ class NativeLauncher:
                 or identity.get('main_start_ticks') != sim.pid['start_ticks']
                 or identity.get('cgroup') != sim.cg or identity.get('ros_domain') != '93'):
             raise RuntimeError('native live record mismatch')
-        if sim.reason not in (None, 'unit_exited'):
+        if sim.reason in RESOURCE_EXITS:
+            # A resource abort explains an exit; it is neither lost ownership
+            # nor proof of cleanup. Never signal a still-live resource abort.
+            self._verify_native_absence(sim)
+        elif sim.reason not in (None, 'unit_exited'):
             raise RuntimeError('native supervisor failure')
         if int(sim.show().get('MainPID', 0)):
-            live = sim.live_identity()  # exact PID/start_ticks/cgroup/domain93/partition
+            try:
+                live = sim.live_identity()  # exact PID/start_ticks/cgroup/domain93/partition
+            except (OSError, RuntimeError):
+                # The main process may exit between systemctl and /proc. An
+                # inactive empty unit is an alternative proof, never a guessed PID.
+                self._verify_native_absence(sim)
+                return
             if any(live.get(key) != identity.get(key) for key in
                    ('main_pid', 'main_start_ticks', 'cgroup', 'ros_domain', 'partition')):
                 raise RuntimeError('native live identity changed')
+
+    def _verify_native_absence(self, sim):
+        """Read-only recheck of the owned unit, cgroup and existing 93/DDS gates."""
+        from isolation import processes, dds_ports
+        info = sim.show()
+        if info.get('MainPID') != '0' or info.get('ActiveState') not in ('inactive', 'failed'):
+            raise RuntimeError('native unit exit unconfirmed')
+        if not sim.cg or not sim.cg.startswith('/') or '..' in Path(sim.cg).parts:
+            raise RuntimeError('invalid native cgroup')
+        group = info.get('ControlGroup')
+        if group not in ('', sim.cg):
+            raise RuntimeError('native cgroup identity changed')
+        try:
+            events = (Path('/sys/fs/cgroup') / sim.cg.lstrip('/') / 'cgroup.events').read_text()
+        except FileNotFoundError:
+            pass  # systemd already removed the exited cgroup
+        else:
+            if dict(line.split() for line in events.splitlines()).get('populated') != '0':
+                raise RuntimeError('native cgroup remains populated')
+        rows, _ = processes()
+        partition = sim.identity['partition']
+        if any(r['domain'] == '93' or r['partition'] == partition
+               or r['cgroup'].split(':', 2)[-1] == sim.cg
+               or r['cgroup'].split(':', 2)[-1].startswith(sim.cg + '/') for r in rows):
+            raise RuntimeError('native processes remain')
+        ports, _ = dds_ports()
+        if ports:
+            raise RuntimeError('native DDS ports remain')
 
     def _verify_native_cleanup(self, sim):
         result = json.loads((self.folder / 'cleanup.json').read_text())
@@ -396,25 +435,37 @@ class NativeLauncher:
                 or str(result.get('unit', {}).get('MainPID')) != '0'
                 or not isinstance(before, dict) or not before
                 or before != ledgers.get('ledger_sha_after')
-                or sim.reason not in (None, 'unit_exited')):
+                or sim.reason not in (None, 'unit_exited', *RESOURCE_EXITS)):
             raise RuntimeError('native cleanup evidence incomplete')
+        if sim.reason in RESOURCE_EXITS:
+            self._verify_native_absence(sim)
 
     async def _close_verified_native(self):
         """Reuse failed-agent proof for a native exit, even after agent exit0."""
         stage = 'SIM_CLEANUP_IDENTITY_UNPROVEN'
+        latched = self.recovery_blocked
         try:
-            if self.recovery_blocked:
-                raise CleanupUnconfirmed('SIM_CLEANUP_LATCHED')
             sim = self.sim
             await asyncio.to_thread(self._verify_native_identity, sim)
+            if latched:
+                # An owner DELETE/deadline can recheck without a manager restart.
+                # A latched retry may observe absence only, never signal survivors.
+                await asyncio.to_thread(self._verify_native_absence, sim)
             stage = 'SIM_CLEANUP_NATIVE_UNPROVEN'
             await asyncio.to_thread(sim.close)
             await asyncio.to_thread(self._verify_native_cleanup, sim)
+            if latched:
+                await asyncio.to_thread(self._verify_native_absence, sim)
         except BaseException as error:
             self.failed = self.recovery_blocked = True
             if isinstance(error, (KeyboardInterrupt, SystemExit, asyncio.CancelledError, CleanupUnconfirmed)):
                 raise
+            logging.getLogger(__name__).warning('native cleanup unconfirmed stage=%s reason=%s error=%s',
+                                               stage, getattr(self.sim, 'reason', None), type(error).__name__)
+            if latched:
+                raise CleanupUnconfirmed('SIM_CLEANUP_LATCHED') from None
             raise CleanupUnconfirmed(stage) from None
+        self.recovery_blocked = False
 
     async def _recover_failed_agent(self):
         """Destroy the owned simulation; agent exit1 is never a STOP/zero ACK."""

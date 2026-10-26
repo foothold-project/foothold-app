@@ -45,7 +45,14 @@
   native manifest·cleanup.complete·자식 정리·원본/월드/운영 ledger 불변,
   잔여 프로세스·DDS 포트 0. 실패 고정과 소유는 이 증명 뒤에만 해제한다.
   하나라도 미증명이면 409 `SIM_CLEANUP_IDENTITY_UNPROVEN` 또는
-  `SIM_CLEANUP_NATIVE_UNPROVEN`으로 실패를 고정하며 재요청은 `SIM_CLEANUP_LATCHED`다.
+  `SIM_CLEANUP_NATIVE_UNPROVEN`으로 실패를 고정한다. `low_memory`·`swap_in_10s`·
+  `runtime_limit`은 중단 사유이며 identity 불일치로 취급하지 않는다. 다만 이 경우
+  unit inactive/failed·MainPID 0, 저장한 cgroup 제거/비움, domain93·동일 partition·
+  cgroup 하위 프로세스 및 DDS 포트 0까지 확인한 뒤 위 manifest/ledger 증명을 모두 요구한다.
+  systemctl 조회 뒤 /proc 대조 전에 main이 사라진 경우도 같은 부재 증명을 요구한다.
+  잠긴 상태의 담당자 DELETE/마감 정리는 이 증명을 읽기 전용으로 재확인할 수 있다.
+  생존 프로세스나 미증명이 남으면 `SIM_CLEANUP_LATCHED`를 유지하며 native unit에 신호를 보내지 않는다.
+  부재와 기존 정리 증거가 모두 확인되면 재기동 없이 정리하고 소유를 해제한다.
   다음 기동도 자원·93·DDS·sim/agent unit 부재 관문을 다시 통과한다. 정리 실패·식별 불일치·
   강제 agent 종료·감시 오류는 실패를 고정해 재기동을 차단하며 담당자 확인이 필요하다.
   예외는 unit·프로세스·native 출력 생성 전 증명된 두 자원 거부뿐이다. 빈 episode 폴더와
