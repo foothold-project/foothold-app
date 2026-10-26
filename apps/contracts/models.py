@@ -1702,6 +1702,19 @@ class PhoneWelcome(Contract):
     lease_timeout_ms: Literal[15000]
 
 
+class PhoneMediaUpdate(Contract):
+    """Authenticated parent notification after media binding changes, including revocation."""
+    t: Literal['media.update']
+    robot: PhoneRobotID
+    media: PhoneMediaWelcome | None
+
+    @model_validator(mode='after')
+    def same_robot(self):
+        if self.media is not None and self.media.robot != self.robot:
+            raise ValueError('media update must belong to its parent robot')
+        return self
+
+
 class RunResumeDetail(Contract):
     run_id: UUID
     screen_id: UUID

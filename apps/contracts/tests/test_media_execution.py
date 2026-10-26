@@ -272,3 +272,19 @@ def test_phone_media_welcome_is_optional_and_tokens_match_capabilities():
     for bad in ({**available, 'token': None}, {**unavailable, 'token': 'a'*43}):
         with pytest.raises(ValidationError):
             PhoneMediaChannelCapability.model_validate(bad)
+
+
+def test_phone_media_update_reuses_welcome_and_is_never_a_control_message():
+    from apps.contracts.models import PhoneMediaUpdate, PhoneMessage
+    from pydantic import TypeAdapter, ValidationError
+    robot = '00000000-0000-0000-0000-000000000001'
+    unavailable = dict(available=False, reason='No source', token=None)
+    media = dict(version='media/1', path='/phone/media/ws', robot=robot, epoch=1,
+                 episode_id=None, rgb=unavailable, external=unavailable, lidar=unavailable)
+    update = dict(t='media.update', robot=robot, media=media)
+    PhoneMediaUpdate.model_validate(update)
+    PhoneMediaUpdate.model_validate({**update, 'media': None})
+    with pytest.raises(ValidationError):
+        PhoneMediaUpdate.model_validate({**update, 'robot': '00000000-0000-0000-0000-000000000002'})
+    with pytest.raises(ValidationError):
+        TypeAdapter(PhoneMessage).validate_python(update)

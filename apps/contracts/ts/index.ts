@@ -987,6 +987,13 @@ export interface PhoneMediaChannelCapability {
   token: string | null;
 }
 
+export interface PhoneMediaUpdate {
+  t: "media.update";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  media: PhoneMediaWelcome | null;
+}
+
 export interface PhoneMediaWelcome {
   version: "media/1";
   path: "/phone/media/ws";
