@@ -1022,6 +1022,28 @@ describe('지도 편집 — 저장', () => {
   });
 });
 
+describe('지도 편집 — 두 손가락 집기(PR #119 r1)', () => {
+  /** 손가락(touch) 누름 — 지도 좌표(m) */
+  const touch = async (type: string, x: number, y: number, id: number) => {
+    act(() => {
+      const e = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: (x + 1) * 80, clientY: (2 - y) * 80, button: 0 });
+      Object.defineProperties(e, { pointerId: { value: id }, pointerType: { value: 'touch' } }); canvas().dispatchEvent(e);
+    });
+    await flush();
+  };
+  it('지점 도구: 집기(확대)만 하면 지점이 생기지 않고, 뒤의 한 손가락 누름은 뗄 때 그 자리에 하나', async () => {
+    serve(editSrv(saved201));
+    await startEdit(); await tool('지점');
+    const before = canvas().querySelectorAll('[data-key^="waypoints."]').length;
+    await touch('pointerdown', 0.25, 0, 1); await touch('pointerdown', 2.75, 0, 2);
+    await touch('pointermove', -1, 0, 1); await touch('pointerup', -1, 0, 1); await touch('pointerup', 2.75, 0, 2);
+    expect(canvas().querySelectorAll('[data-key^="waypoints."]')).toHaveLength(before);
+    await touch('pointerdown', 1, 1, 3); await touch('pointerup', 1, 1, 3);   // 확대 뒤라 좌표는 따지지 않고 개수만
+    await save('손가락 지점');
+    expect(body().features.waypoints).toHaveLength(before + 1);
+  });
+});
+
 describe('지도 편집 — 나가기 확인·STOP', () => {
   it('저장 안 한 편집: 다른 탭·층 바꾸기·보기 전환은 칸 안 확인, 새로고침은 브라우저 확인', async () => {
     serve(editSrv());

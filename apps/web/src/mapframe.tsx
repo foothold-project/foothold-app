@@ -90,6 +90,7 @@ export function scaleBar(res: number, k: number): { m: number; px: number; text:
   return { m, px: (m / res) * k, text: m >= 1 ? `${+m.toPrecision(3)} m` : `${Math.round(m * 100)} cm` };
 }
 
+const SLOP = 8;   // 화면 px — 편집 한 손가락이 이만큼 움직이기 전엔 집기일 수 있어 넘기지 않는다
 type View = { cx: number; cy: number; z: number };   // 가운데(그림 픽셀) + 배율(1 = 맞춤)
 type Props = Omit<SVGProps<SVGSVGElement>, 'viewBox' | 'ref'> & {
   full: Box; fit?: Box; res: number;
@@ -143,16 +144,17 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
   }, [still, fk, uk]);
 
   // 누른 손가락·단추. mode: pan = 끌어 옮김, pinch = 두 손가락, pass = 부른 쪽에 넘김(편집 한 손가락)
-  const pts = useRef(new Map<number, P>()), mode = useRef<'' | 'pan' | 'pinch' | 'pass'>('');
+  // 편집 한 손가락 누름은 바로 넘기지 않고 쥐고 있다(held): 뗄 때나 SLOP 넘게 움직일 때 넘긴다 — 그 전에 둘째 손가락이 오면 집기라 버린다(지점이 남지 않게)
+  const pts = useRef(new Map<number, P>()), mode = useRef<'' | 'pan' | 'pinch' | 'pass'>(''), held = useRef<PointerEvent<SVGSVGElement> | null>(null);
   const grab = (e: PointerEvent<SVGSVGElement>) => { pts.current.set(e.pointerId, [e.clientX, e.clientY]); own.current?.setPointerCapture?.(e.pointerId); };
   const down = (e: PointerEvent<SVGSVGElement>) => {
     if (still) return onPointerDown?.(e);
     if (e.pointerType === 'touch') {
       if (pts.current.size) {   // 두 번째 손가락: 집기. 편집 중 한 손가락 그리기는 취소로 알린다(끌기·사각형이 남지 않게)
-        if (mode.current === 'pass') onPointerCancel?.(e);
-        mode.current = 'pinch'; grab(e); return;
+        if (mode.current === 'pass' && !held.current) onPointerCancel?.(e);
+        held.current = null; mode.current = 'pinch'; grab(e); return;
       }
-      if (edit) { mode.current = 'pass'; pts.current.set(e.pointerId, [e.clientX, e.clientY]); return onPointerDown?.(e); }
+      if (edit) { mode.current = 'pass'; pts.current.set(e.pointerId, [e.clientX, e.clientY]); held.current = e; return; }
       mode.current = 'pan'; grab(e); return;
     }
     if (e.button === 1 || (!edit && e.button === 0)) { e.preventDefault(); mode.current = 'pan'; grab(e); return; }
@@ -171,6 +173,11 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
       if (d0 > 0 && d1 > 0) zoom(d1 / d0, mx, my);
       return;
     }
+    const h = held.current;
+    if (h && h.pointerId === e.pointerId) {
+      if (Math.hypot(e.clientX - h.clientX, e.clientY - h.clientY) < SLOP) return;
+      held.current = null; onPointerDown?.(h);
+    }
     if (m === 'pass' && was) pts.current.set(e.pointerId, [e.clientX, e.clientY]);
     if (m !== 'pinch') onPointerMove?.(e);
   };
@@ -178,6 +185,8 @@ export const MapFrame = forwardRef<SVGSVGElement, Props>(function MapFrame({ ful
     const had = pts.current.delete(e.pointerId), m = mode.current;
     if (!pts.current.size) mode.current = '';
     if ((m === 'pan' || m === 'pinch') && had) return;
+    const h = held.current;
+    if (h && h.pointerId === e.pointerId) { held.current = null; if (e.type !== 'pointerup') return; onPointerDown?.(h); }   // 누름(탭)
     (e.type === 'pointerup' ? onPointerUp : onPointerCancel)?.(e);
   };
 

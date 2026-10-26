@@ -72,18 +72,31 @@ describe('누름 나누기', () => {
     expect(got).toEqual(['pointerdown:1', 'pointermove:1', 'pointerup:1']);
     expect(vb()).toEqual([-10, 0, 100, 80]);   // 40px ÷ 4배
   });
-  it('편집: 두 번째 손가락 = 부른 쪽 그리기 취소 + 집기(확대), 두 손가락 움직임·뗌은 넘기지 않음', () => {
+  it('편집: 두 번째 손가락 = 집기(확대) — 쥐고 있던 첫 손가락 누름은 버림, 두 손가락 움직임·뗌은 넘기지 않음', () => {
     const { svg, got, vb } = mount(true);
     fire(svg, { type: 'pointerdown', x: 100, y: 160, id: 1, touch: true });
     fire(svg, { type: 'pointerdown', x: 300, y: 160, id: 2, touch: true });
     fire(svg, { type: 'pointermove', x: 0, y: 160, id: 1, touch: true });   // 간격 200 → 300 = 1.5배, 가운데 200 → 150
     fire(svg, { type: 'pointerup', x: 0, y: 160, id: 1, touch: true }); fire(svg, { type: 'pointerup', x: 300, y: 160, id: 2, touch: true });
-    expect(got).toEqual(['pointerdown:1', 'pointerdown:2']);   // 두 번째는 취소(onPointerCancel)로 알린다
+    expect(got).toEqual([]);   // 첫 손가락 누름은 아직 넘기지 않았으니 지점 등이 남지 않는다(PR #119 r1)
     const [x, y, w, h] = vb();
     expect([w, h]).toEqual([66.667, 53.333]);
     expect(r3([x + (w * 150) / 400, y + h / 2])).toEqual([50, 40]);   // 처음 손가락 가운데(200px)의 그림 점 50 이 새 가운데(150px) 아래로 따라 옴
     fire(svg, { type: 'pointerdown', x: 10, y: 10, id: 3, touch: true });
-    expect(got[got.length - 1]).toBe('pointerdown:3');   // 다 뗀 뒤 한 손가락은 다시 부른 쪽
+    expect(got).toEqual([]);   // 누르는 동안은 쥐고 있다
+    fire(svg, { type: 'pointerup', x: 10, y: 10, id: 3, touch: true });
+    expect(got).toEqual(['pointerdown:3', 'pointerup:3']);   // 다 뗀 뒤 한 손가락 누름(탭)은 다시 부른 쪽
+  });
+  it('편집: 한 손가락이 SLOP 넘게 움직이면 그때 누름을 넘기고(첫 자리) 이어서 움직임, 그 뒤 둘째 손가락은 취소로 알림', () => {
+    const { svg, got, vb } = mount(true);
+    fire(svg, { type: 'pointerdown', x: 100, y: 100, id: 1, touch: true });
+    fire(svg, { type: 'pointermove', x: 104, y: 100, id: 1, touch: true });
+    expect(got).toEqual([]);
+    fire(svg, { type: 'pointermove', x: 120, y: 100, id: 1, touch: true });
+    expect(got).toEqual(['pointerdown:1', 'pointermove:1']);
+    fire(svg, { type: 'pointerdown', x: 300, y: 100, id: 2, touch: true });
+    expect(got).toEqual(['pointerdown:1', 'pointermove:1', 'pointerdown:2']);   // 끌기·사각형은 부른 쪽이 취소로 지운다
+    expect(vb()).toEqual([0, 0, 100, 80]);
   });
   it('보기: 왼쪽 끌기 = 이동(부른 쪽에 안 넘김), 휠 = 확대', () => {
     const { svg, got, vb } = mount(false);
