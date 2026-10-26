@@ -21,9 +21,14 @@ pending work and images and restores the default on the new epoch.
 
 The image bridge uses the same RGB→BGR→JPEG quality-70 conversion as the native
 RGB bridge, in its own process. It accepts only RGB8 320×240/960-byte stride,
-keeps one image, rejects stale/out-of-order/future sim stamps, caps output at
+keeps one image, rejects stale/out-of-order sim stamps, caps output at
 5 wall-clock Hz / 65,536 JPEG bytes, and publishes **sensor_msgs/CompressedImage**
-on `/v2_live/external_cam/compressed`. It never publishes the older follow JSON.
+on `/v2_live/external_cam/compressed`. State and render delivery are independent:
+an image up to one simulated second ahead waits for state to catch up, using its
+original arrival time and a one-wall-second deadline. It is never published while
+future, replayed or restamped; epoch reset clears the slot. This avoids losing
+every frame when render delivery consistently leads the state callback by a few
+milliseconds. It never publishes the older follow JSON.
 
 ## Server relay API
 
@@ -53,9 +58,10 @@ not proof of a rendered frame or successful Gazebo service execution.
 Unknown fields (entity/service/world/robot pose included), bounds violations or
 invalid IDs produce 400; wrong route binding, unsupported world, missing/failing
 observer, stale identity, repeated sequence or a busy relay produce 409.
-Requests use a private user-runtime Unix socket, one relay at a time, .4 s ACK
+Requests use a private user-runtime Unix socket, one relay at a time, .3 s ACK
 timeout. An unacknowledged relay attempts to discard only its matching pending
-sequence within .1 s. The observer retains one pending view for at most .3 s;
+sequence within .05 s. This leaves scheduling/HTTP headroom below the server's
+.5 s deadline so observer unavailability remains a 409 instead of a relay 503. The observer retains one pending view for at most .3 s;
 service calls are capped at 10 wall-clock Hz with an 80 ms Gazebo timeout.
 
 ## Lifetime and verification limits

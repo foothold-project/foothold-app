@@ -1,6 +1,7 @@
 """User-authorized, bounded observer relay; no motion or lifecycle operations."""
 from collections import OrderedDict
 from threading import Lock
+import logging
 import time
 from typing import Literal
 from urllib.parse import urlencode
@@ -14,6 +15,15 @@ from starlette.concurrency import run_in_threadpool
 from apps.contracts import models as C
 from .models import Robot
 from .simulation import RelayError
+
+
+logger = logging.getLogger(__name__)
+
+
+def relay_failure(stage, status, code):
+    # Only fixed stages and protocol outcomes: no identity, body, URL, secret,
+    # upstream exception text or validation input enters the server log.
+    logger.warning("external camera relay stage=%s status=%s code=%s", stage, status, code)
 
 
 class Admission:
@@ -49,10 +59,12 @@ def install(app, UploadIdentity, upload_write, fail, authorize):
     def call(path, body=None):
         relay = app.state.simmgr
         if relay is None:
+            relay_failure('manager_disabled', 503, 'SIM_DISABLED')
             fail(503, 'SIM_DISABLED', '시뮬 관리자가 연결되지 않았습니다.', {'reason': 'manager_unreachable'})
         try:
             return relay.request('GET' if body is None else 'POST', path, body, timeout=.5)
         except RelayError as error:
+            relay_failure('slots_transport' if body is None else 'command_transport', error.status, error.code)
             fail(error.status, error.code, '외부 카메라 요청을 처리하지 못했습니다.', error.detail)
 
     @app.post('/api/v1/robots/{robot_id}/external-camera/{operation}')
@@ -94,6 +106,7 @@ def install(app, UploadIdentity, upload_write, fail, authorize):
             try:
                 slots = C.SimRobotList.model_validate(call('/v1/robots?' + urlencode({'org_id': str(org)})))
             except (ValidationError, TypeError):
+                relay_failure('slots_response', 503, 'SIM_UNAVAILABLE')
                 fail(503, 'SIM_UNAVAILABLE', '시뮬 연결 정보를 확인하지 못했습니다.')
             slot = next((r for r in slots.items if r.robot_id == robot_id), None)
             if (slot is None or slot.state != 'RUNNING' or slot.generation != generation
@@ -112,6 +125,7 @@ def install(app, UploadIdentity, upload_write, fail, authorize):
             if (not isinstance(result, dict) or result != expected
                     or result.get('accepted') is not True or result.get('shared') is not True
                     or type(result.get('seq')) is not int):
+                relay_failure('command_response', 503, 'SIM_UNAVAILABLE')
                 fail(503, 'SIM_UNAVAILABLE', '외부 카메라 접수 응답을 확인하지 못했습니다.')
             return expected
 

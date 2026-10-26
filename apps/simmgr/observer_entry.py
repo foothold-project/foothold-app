@@ -52,14 +52,28 @@ class Images:
         now = time.monotonic()
         if now-self.last < .2:
             return None
+        # State and Gazebo images arrive independently. Keep one future image
+        # until state catches up, bounded by its original wall arrival time.
+        # Never replay/restamp it, and never overwrite a newer callback here.
         with self.lock:
-            item, self.pending = self.pending, None
-        if item is None or not observer.fresh() or not isinstance(sim_t, (int, float)):
-            return None
-        at, image = item
-        stamp = image.header.stamp.sec + image.header.stamp.nsec*1e-9
-        if not (0 <= now-at <= 1 and self.stamp < stamp and 0 <= sim_t-stamp <= 1):
-            return None
+            item = self.pending
+            if item is None:
+                return None
+            at, image = item
+            stamp = image.header.stamp.sec + image.header.stamp.nsec*1e-9
+            if not (0 <= now-at <= 1 and self.stamp < stamp and math.isfinite(stamp)):
+                self.pending = None
+                return None
+            if (not observer.fresh() or type(sim_t) not in (int, float)
+                    or not math.isfinite(sim_t)):
+                return None
+            if stamp > sim_t:
+                if stamp-sim_t > 1:
+                    self.pending = None
+                return None
+            self.pending = None
+            if sim_t-stamp > 1:
+                return None
         self.last, self.stamp = now, stamp
         return image
 
