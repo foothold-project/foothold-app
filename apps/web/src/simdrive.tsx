@@ -184,7 +184,7 @@ export function SimDrive() {
   // 큰 화면 = 외부 카메라(10-26 사용자), 단추로 RGB. 두 채널 모두 이 화면이 떠 있는 동안 받는다(토큰이 10초·1회라 바꿀 때마다 다시 연결하지 않게)
   const [cam, setCam] = useState<Cam>('external'), ext = useFeed('external');
   useFeed('rgb');
-  const orbitWhy = viewBlock(ext), drag = useOrbit(r.robot_id, cam !== 'external' || !!orbitWhy || (big && hasMap && mini));
+  const orbitWhy = viewBlock(ext), { pad: drag, note: orbitNote } = useOrbit(r.robot_id, cam !== 'external' || !!orbitWhy || (big && hasMap && mini));
   const run = runView(s), moving = runMoving(l.run);   // 실행이 움직이는 중이면 조이스틱 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
   const live = ready && !menu && !bar && !leaving && !moving;
   const smooth = w?.limits.vx_mode === 'continuous', can = allowed(w), blocked = blockedNames(can);
@@ -267,7 +267,7 @@ export function SimDrive() {
       <div className="dv-cams" role="group" aria-label="영상 고르기">
         {(['external', 'rgb'] as const).map((c) => <button key={c} type="button" aria-pressed={cam === c} data-cam-pick={c} onClick={() => setCam(c)}>{c === 'external' ? '외부' : 'RGB'}</button>)}
       </div>
-      {cam === 'external' && orbitWhy && !hideCam && !(big && hasMap && mini) && <p className="dv-orbit-why" data-orbit-why>{orbitWhy}</p>}
+      {cam === 'external' && (orbitWhy || orbitNote) && !hideCam && !(big && hasMap && mini) && <p className="dv-orbit-why" data-orbit-why>{orbitWhy || orbitNote}</p>}
       <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
         시뮬 · {state && <>{state} · </>}<span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
       </div>

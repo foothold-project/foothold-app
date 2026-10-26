@@ -1,8 +1,9 @@
 // 4칸 보기(ui/src/app/Quad.tsx·Cloud3D.tsx 에서 옮김 — 옛 link/dropAll/toast 는 가져오지 않음).
 // f = null 이면 2×2, 아니면 그 칸이 크게 + 나머지 3칸은 오른쪽 세로 작은 칸. 칸 머리 단추로만 바꾼다(그림 위 끌기 — 지도 이동·3D 회전 — 와 겹치지 않게).
+// 작은 칸을 숨기면(›) 그 칸 내용을 내려 media 구독도 놓는다(display:none 만으로는 받기가 계속됨).
 // 큰 칸일 때만 «전체화면»(이 묶음만 Fullscreen API). 전체화면은 머리줄 STOP 을 가리므로 fs(STOP)를 그 안에 늘 둔다.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Feed } from './media';
+import { feedText, useFeed } from './media';
 import './quad.css';
 
 export type QSize = 'grid' | 'big' | 'thumb';
@@ -28,7 +29,7 @@ export function Quad({ tiles, label, fs, top }: { tiles: QTile[]; label: string;
       return <div key={t.id} className={`qt${s === 'big' ? ' on' : ''}${s === 'thumb' ? ` pip p${pi}` : ''}`} data-tile={t.id}>
         <button type="button" className="qh" aria-pressed={s === 'big'} title={s === 'big' ? '4칸으로 돌아가기' : '이 칸 크게 보기'} onClick={() => setF((x) => (x === t.id ? null : t.id))}>
           <span>{t.label}</span><span aria-hidden="true">{s === 'big' ? '⤡' : '⤢'}</span></button>
-        <div className="qb">{t.body(s)}</div>
+        <div className="qb">{s === 'thumb' && !pip ? null : t.body(s)}</div>
       </div>;
     })}
     {f && <button type="button" className="qpip" aria-pressed={pip} aria-label={pip ? '작은 칸 숨기기' : '작은 칸 보이기'} onClick={() => setPip(!pip)}><span aria-hidden="true">{pip ? '›' : '‹'}</span></button>}
@@ -45,8 +46,10 @@ export const QEmpty = ({ text }: { text: string }) => <div className="qd-empty" 
 /** 점 높이 색 범위(센서 기준 z, m) — 범례와 같은 식 */
 const ZL = -1, ZH = 1;
 export const hue = (z: number) => Math.round(200 - Math.max(0, Math.min(1, (z - ZL) / (ZH - ZL))) * 170);
-/** 3D 점군(Canvas2D 정사영 — three 없이). 바뀐 때만 2 Hz 로 다시 그림. 큰 칸만 끌어 돌려 봄(작은 칸은 폰 스크롤 그대로). 그림만 — 명령 0 */
-export function Cloud3D({ feed, small, big, empty }: { feed: Feed; small: boolean; big: boolean; empty: string }) {
+/** 3D 점군(Canvas2D 정사영 — three 없이). 바뀐 때만 2 Hz 로 다시 그림, 끌기는 화면 한 장(requestAnimationFrame)에 한 번만. 큰 칸만 끌어 돌려 봄(작은 칸은 폰 스크롤 그대로). 그림만 — 명령 0.
+ *  lidar 는 이 칸이 떠 있는 동안만 받는다 */
+export function Cloud3D({ small, big }: { small: boolean; big: boolean }) {
+  const feed = useFeed('lidar'), empty = feedText(feed, 'lidar');
   const cv = useRef<HTMLCanvasElement>(null), view = useRef({ a: -0.6, b: 0.9, ver: -1, w: 0, h: 0 }), cur = useRef(feed);
   cur.current = feed;
   useEffect(() => {
@@ -72,16 +75,16 @@ export function Cloud3D({ feed, small, big, empty }: { feed: Feed; small: boolea
       g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(u, w, 4, 0, 7); g.moveTo(u, w); g.lineTo(u2, w2); g.stroke();
     };
     const t = setInterval(() => { if (cur.current.ver !== v.ver || el.clientWidth !== v.w || el.clientHeight !== v.h) draw(); }, 500);   // 갱신 2 Hz
-    let d: null | { id: number; x: number; y: number; a: number; b: number } = null;
+    let d: null | { id: number; x: number; y: number; a: number; b: number } = null, raf = 0;
     const down = (e: PointerEvent) => { if (small || d) return; d = { id: e.pointerId, x: e.clientX, y: e.clientY, a: v.a, b: v.b }; try { el.setPointerCapture(e.pointerId); } catch { /* 없음 */ } };
-    const move = (e: PointerEvent) => { if (!d || e.pointerId !== d.id) return; v.a = d.a + (e.clientX - d.x) * 0.01; v.b = Math.max(0, Math.min(1.5, d.b + (e.clientY - d.y) * 0.01)); draw(); };
+    const move = (e: PointerEvent) => { if (!d || e.pointerId !== d.id) return; v.a = d.a + (e.clientX - d.x) * 0.01; v.b = Math.max(0, Math.min(1.5, d.b + (e.clientY - d.y) * 0.01)); raf ||= requestAnimationFrame(() => { raf = 0; draw(); }); };
     const end = (e?: PointerEvent) => { if (d && (!e || e.pointerId === d.id)) d = null; };
     const vis = () => { if (document.hidden) end(); };
     el.addEventListener('pointerdown', down); el.addEventListener('pointermove', move);
     el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end); el.addEventListener('lostpointercapture', end); document.addEventListener('visibilitychange', vis);
     draw();
     return () => {
-      clearInterval(t); el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move);
+      clearInterval(t); cancelAnimationFrame(raf); el.removeEventListener('pointerdown', down); el.removeEventListener('pointermove', move);
       el.removeEventListener('pointerup', end); el.removeEventListener('pointercancel', end); el.removeEventListener('lostpointercapture', end); document.removeEventListener('visibilitychange', vis);
     };
   }, [small]);

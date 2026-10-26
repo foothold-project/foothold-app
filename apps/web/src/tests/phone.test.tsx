@@ -299,7 +299,7 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     act(() => { stick('전후').dispatchEvent(e); });
     expect(e.defaultPrevented).toBe(true);
   });
-  it('큰 화면 기본 = 외부 카메라: 못 받으면 RGB 로 바꿔 끼우지 않고 이유, 시점 끌기는 중계 전이라 막힘 + 이유, 끌어도 주행 0', async () => {
+  it('큰 화면 기본 = 외부 카메라: 못 받으면 RGB 로 바꿔 끼우지 않고 이유, 외부 카메라를 못 받으면 시점 끌기 막힘 + 이유, 끌어도 주행 0', async () => {
     const tok = (c: string) => c.repeat(43);
     const a = await launch({ ...welcome(), media: { version: 'media/1', path: '/phone/media/ws', robot: S1, epoch: 3, episode_id: LEASE,
       rgb: { available: true, reason: 'Ready', token: tok('r') }, external: { available: false, reason: 'External camera source is not connected', token: null },
@@ -308,8 +308,8 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     expect($('[data-cam-pick="external"]')!.getAttribute('aria-pressed')).toBe('true');
     expect($('.dv-stage [data-cam="external"]')!.textContent).toBe('외부 카메라 연결 전 — 시뮬 외부 카메라 소스가 아직 연결되지 않았습니다 (External camera source is not connected)');
     expect(box.querySelector('.dv-stage img[alt="RGB 영상"]')).toBeNull();
-    expect($('[data-orbit-why]')!.textContent).toBe('시점 이동 준비 중 — 서버 시점 중계가 아직 없습니다');
-    expect($('.dv-stage [data-orbit]')).toBeNull();   // 중계가 없으면 끌기 처리 자체를 붙이지 않음
+    expect($('[data-orbit-why]')!.textContent).toBe('외부 카메라를 받는 중일 때만 시점을 옮길 수 있습니다');
+    expect($('.dv-stage [data-orbit]')).toBeNull();   // 못 옮기면 끌기 처리 자체를 붙이지 않음
     const axes = vi.spyOn(sim, 'axes'), n = a.of('cmd').length, v = $('.dv-stage [data-cam="external"]')!;
     ptr(v, 'pointerdown', 50, 50); ptr(v, 'pointermove', 120, 90); await wait(120); ptr(v, 'pointerup', 120, 90);
     expect(axes).not.toHaveBeenCalled();
@@ -323,6 +323,29 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
     await recv(rgb, { t: 'media.video', version: 'media/1', robot: S1, epoch: 3, episode_id: LEASE, channel: 'rgb', source: 'gazebo_rgb', seq: 1, captured_at: '', frame: 'camera', mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
     expect($<HTMLImageElement>('.dv-stage img[alt="RGB 영상"]')!.src).toBe('data:image/jpeg;base64,AAAA');
     expect($('[data-stop]')).toBeTruthy();
+    axes.mockRestore();
+  });
+  it('외부 카메라를 받는 중이면 끌기 = 서버 중계 view(계약 본문 그대로)·손 떼면 cancel, 주행 0·STOP 상시', async () => {
+    const tok = (c: string) => c.repeat(43), V = `/robots/${S1}/external-camera/view`, C = `/robots/${S1}/external-camera/cancel`;
+    const ok = (operation: string) => ({ status: 200, body: { accepted: true, shared: true, seq: 1, operation } });
+    const a = await launch({ ...welcome(), media: { version: 'media/1', path: '/phone/media/ws', robot: S1, epoch: 3, episode_id: LEASE,
+      rgb: { available: false, reason: 'RGB source is disabled', token: null }, external: { available: true, reason: 'Ready', token: tok('e') },
+      lidar: { available: false, reason: 'x', token: null } } } as ReturnType<typeof welcome>, { [`POST ${V}`]: ok('view'), [`POST ${C}`]: ok('cancel') });
+    await drive(a);
+    const ext = FakeWS.all.find((w) => w.url.endsWith('/phone/media/ws') && w.readyState === 0)!;
+    act(() => { ext.auto = null; ext.open(); }); await flush();
+    await recv(ext, { t: 'media.video', version: 'media/1', robot: S1, epoch: 3, episode_id: LEASE, channel: 'external', source: 'gazebo_external', seq: 1, captured_at: '', frame: 'camera', mime: 'image/jpeg', width: 2, height: 2, jpeg: 'AAAA' });
+    expect($('[data-orbit-why]')).toBeNull();
+    const axes = vi.spyOn(sim, 'axes'), n = a.of('cmd').length, v = $('.dv-stage [data-orbit]')!;
+    ptr(v, 'pointerdown', 50, 50); ptr(v, 'pointermove', 120, 90); await flush();
+    expect(calls.filter((c) => c.path === V).map((c) => ({ ...(c.body as object), yaw: 0, pitch: 0 })))
+      .toEqual([{ t: 'external.view', version: 'observer/1', robot: S1, episode_id: LEASE, epoch: 3, seq: 0, yaw: 0, pitch: 0, radius: 3 }]);
+    expect($('[data-stop]')).toBeTruthy(); expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+    await wait(120); ptr(v, 'pointerup', 120, 90); await flush();
+    expect(calls.filter((c) => c.path === C)).toHaveLength(1);
+    expect(box.textContent).not.toMatch(/시점.*(반영|적용)/);
+    expect(axes).not.toHaveBeenCalled();
+    expect(a.of('cmd').slice(n).every((m) => String([m.vx, m.vy, m.wz]) === '0,0,0')).toBe(true);
     axes.mockRestore();
   });
   it('실기 limits 화면: 아래·옆 화살표 흐림, 옆으로 밀면 0 + 이유, 띠 없음', async () => {
