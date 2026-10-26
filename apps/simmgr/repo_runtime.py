@@ -151,4 +151,7 @@ def install(runtime, native, folder):
     runtime['gt_identity_allowed'] = functools.partial(runtime['gt_identity_allowed'], here=str(root))
     profile = runtime['SP']
     original = profile.world_text
-    profile.world_text = lambda text, follow: original(robot_world(text, native, root), follow)
+    from .external_camera import episode_world
+    # Run the established sensor transform first; never insert follow_cam or
+    # touch the original robot model/profile/isolation validation.
+    profile.world_text = lambda text, follow: episode_world(original(robot_world(text, native, root), follow))
