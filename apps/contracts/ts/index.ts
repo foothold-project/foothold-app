@@ -981,6 +981,24 @@ export interface PhoneLimits {
   commands: number[][];
 }
 
+export interface PhoneMediaChannelCapability {
+  available: boolean;
+  reason: string;
+  token: string | null;
+}
+
+export interface PhoneMediaWelcome {
+  version: "media/1";
+  path: "/phone/media/ws";
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  epoch: number;
+  episode_id: string | null;
+  rgb: PhoneMediaChannelCapability;
+  external: PhoneMediaChannelCapability;
+  lidar: PhoneMediaChannelCapability;
+}
+
 export interface PhonePassRequest {
   device: string;
   purpose: "control" | "view";
@@ -1177,6 +1195,7 @@ export interface PhoneUnlock {
 }
 
 export interface PhoneWelcome {
+  media?: PhoneMediaWelcome;
   capabilities?: PhoneCapabilities | null;
   /** 10초·1회용 영상 연결 토큰; 부모 연결에 종속 */
   camera_token: string | null;

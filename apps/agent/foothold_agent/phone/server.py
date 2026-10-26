@@ -66,9 +66,10 @@ class Settings:
 
 
 class Server:
-    def __init__(self, hub, settings, *, sock=None, camera=None):
+    def __init__(self, hub, settings, *, sock=None, camera=None, media=None):
         self.hub, self.settings, self.sock = hub, settings, sock
         self.camera = camera
+        self.media = media
         self.connections = {}
         self.addresses = {}
         self.hello_started = set()
@@ -124,6 +125,10 @@ class Server:
             result = self.hub.receive(peer, raw)
             if result.get('t') == 'hello':
                 result['camera_token'] = self.camera.issue(peer) if self.camera is not None else None
+                if self.media is not None:
+                    info = self.media.issue(peer)
+                    if info is not None:
+                        result['media'] = info
             await self._send(ws, result)
 
     def _address(self, ws):
@@ -160,6 +165,9 @@ class Server:
         native_socket = native_socket.get_extra_info('socket') if native_socket is not None else None
         if native_socket is not None:
             native_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        if ws.request.path == '/phone/media/ws' and self.media is not None:
+            await self.media.handler(ws)
+            return
         if ws.request.path == '/phone/camera/ws' and self.camera is not None:
             await self.camera.handler(ws)
             return
@@ -212,6 +220,8 @@ class Server:
             finally:
                 if self.camera is not None:
                     self.camera.forget(peer)
+                if self.media is not None:
+                    self.media.forget(peer)
                 self.connections.pop(peer, None)
                 self.addresses.pop(peer, None)
                 self.hello_started.discard(peer)

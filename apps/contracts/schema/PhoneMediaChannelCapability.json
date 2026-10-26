@@ -1,0 +1,37 @@
+{
+  "$id": "fh-app/1/PhoneMediaChannelCapability",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "reason": {
+      "maxLength": 256,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    },
+    "token": {
+      "anyOf": [
+        {
+          "maxLength": 43,
+          "minLength": 43,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Token"
+    }
+  },
+  "required": [
+    "available",
+    "reason",
+    "token"
+  ],
+  "title": "PhoneMediaChannelCapability",
+  "type": "object"
+}

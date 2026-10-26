@@ -20,3 +20,16 @@ const missingSteps: ExecutableRunGoal = {...legacy, idx: 0};
 // @ts-expect-error JPEG photo upload cannot claim depth support.
 const depth: PhotoUploadMetadata = {...upload, source: 'depth'};
 void [media, safety, driving, silentUpgrade, missingSteps, depth];
+
+// Optional welcome expansion leaves legacy phone consumers valid.
+import type { PhoneMediaWelcome, PhoneWelcome } from '../ts/index';
+const mediaWelcome: PhoneMediaWelcome = {
+  version: 'media/1', path: '/phone/media/ws', robot: video.robot,
+  epoch: 1, episode_id: video.episode_id,
+  rgb: {available: true, reason: 'Ready', token: 'a'.repeat(43)},
+  external: {available: false, reason: 'Source not connected', token: null},
+  lidar: {available: true, reason: 'Ready', token: 'b'.repeat(43)},
+};
+declare const phoneWelcome: PhoneWelcome;
+const optionalMedia: PhoneMediaWelcome | undefined = phoneWelcome.media;
+void optionalMedia;

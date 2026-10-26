@@ -183,6 +183,102 @@
       "title": "PhoneLimits",
       "type": "object"
     },
+    "PhoneMediaChannelCapability": {
+      "additionalProperties": false,
+      "properties": {
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "reason": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "maxLength": 43,
+              "minLength": 43,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Token"
+        }
+      },
+      "required": [
+        "available",
+        "reason",
+        "token"
+      ],
+      "title": "PhoneMediaChannelCapability",
+      "type": "object"
+    },
+    "PhoneMediaWelcome": {
+      "additionalProperties": false,
+      "properties": {
+        "episode_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Episode Id"
+        },
+        "epoch": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "external": {
+          "$ref": "#/$defs/PhoneMediaChannelCapability"
+        },
+        "lidar": {
+          "$ref": "#/$defs/PhoneMediaChannelCapability"
+        },
+        "path": {
+          "const": "/phone/media/ws",
+          "title": "Path",
+          "type": "string"
+        },
+        "rgb": {
+          "$ref": "#/$defs/PhoneMediaChannelCapability"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "version": {
+          "const": "media/1",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "path",
+        "robot",
+        "epoch",
+        "episode_id",
+        "rgb",
+        "external",
+        "lidar"
+      ],
+      "title": "PhoneMediaWelcome",
+      "type": "object"
+    },
     "PhonePolicy": {
       "additionalProperties": false,
       "properties": {
@@ -253,6 +349,9 @@
       "const": 3000,
       "title": "Link Timeout Ms",
       "type": "integer"
+    },
+    "media": {
+      "$ref": "#/$defs/PhoneMediaWelcome"
     },
     "ping_interval_ms": {
       "const": 1000,
