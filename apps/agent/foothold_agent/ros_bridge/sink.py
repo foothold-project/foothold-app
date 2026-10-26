@@ -142,7 +142,6 @@ class RosSink:
         with self._lock:
             self._hold_locked()
         with self._output_lock:
-            self._safety_log.emit('stop_publish', 'emergency', _log_source(2), sink_generation=self._generation)
             # Attempt both even when one publisher fails. Preserve the first error.
             for output in (lambda: self._velocity(Z), self._stop):
                 try:
@@ -154,6 +153,7 @@ class RosSink:
             with self._lock:
                 self._last_stop = self.now()
                 self._stop_first = False
+        self._safety_log.emit('stop_publish', 'emergency', _log_source(2), sink_generation=self._generation)
 
     def check_watchdog(self, *, defer_emergency=False):
         trip = False

@@ -7,6 +7,7 @@ Injected incidents demonstrate possible causes, not the cause of a past run.
 import logging
 import subprocess
 import sys
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -349,6 +350,36 @@ def test_diagnostic_output_failure_cannot_prevent_sink_zero_stop_or_resume(monke
     h.unlock()
     h.frame(t='stop')
     assert h.sim.stopped and h.session.core.latch and h.session.core.stop_gen == 7
+
+
+def test_emergency_publishes_and_releases_output_lock_before_blocked_log(monkeypatch):
+    clock = Clock()
+    clock.t = 1.0
+    sim = FakeSim(clock)
+    sink = RosSink(sim.velocity, sim.stop, sim.resume, now=clock, watchdog=False)
+    entered, release = threading.Event(), threading.Event()
+
+    def blocked(*args, **kwargs):
+        entered.set()
+        release.wait()
+
+    monkeypatch.setattr(sink._safety_log, 'emit', blocked)
+    worker = threading.Thread(target=sink._emergency, daemon=True)
+    worker.start()
+    try:
+        assert entered.wait(1)
+        assert sim.outputs == [(clock(), 'zero'), (clock(), 'stop')]
+        assert sink._last_stop == clock() and not sink._stop_first
+        acquired = sink._output_lock.acquire(timeout=1)
+        try:
+            assert acquired
+        finally:
+            if acquired:
+                sink._output_lock.release()
+    finally:
+        release.set()
+        worker.join(1)
+    assert not worker.is_alive()
 
 
 def test_unconfigured_process_writes_memory_core_diagnostics_to_agent_log(tmp_path):
