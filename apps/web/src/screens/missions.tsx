@@ -11,6 +11,7 @@ import { MapFrame, MapImage } from '../mapframe';
 import { Note, Shapes, canon, floorsOf, isVersion, reasonBad, shape, toPixel, useFit, useTree, type Msg, type Place } from './maps';
 import { fromScreen, inside, nameBad } from './mapedit';
 import { AssignPanel, assignFor } from './assign';
+import './missions.css';
 
 type P = [number, number];
 type AnyPlan = Mission | Scenario;
@@ -390,9 +391,12 @@ function scenarioBad(v: ScenarioWrite): Bad[] {
 }
 const MISSING = (v: ScenarioWrite) => (!v.waypoints.length ? '지도를 눌러 지점을 하나 이상 찍으세요.' : v.waypoints.some((w) => !w.mission_id) ? '모든 지점에 임무를 고르세요.'
   : v.finish?.mode === 'GO_TO' && !v.finish.target ? '끝나고 갈 지점을 지도에서 찍으세요.' : null);
+const TAP = 8;   // 화면 px — MapFrame SLOP 과 같다. 찍힌 지점을 누르고 이만큼 움직이기 전에 떼면 누름(지우기), 넘으면 끌어 옮기기
+/** 단계 창 펼침 — 다른 시나리오를 열어도 사람이 고른 그대로 */
+const pane = { open: true };
 const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoints\.(\d+)/.test(e) ? `${Number(/^waypoints\.(\d+)/.exec(e)![1]) + 1}번 지점` : e);
 
-/** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·순서·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
+/** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·다시 누르면 지우기, 오른쪽 단계 창에서 순서·임무·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
  *  set 없음 = 읽기 전용(남의 것·옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
  *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과), newMission = 임무 목록으로 가서 새 임무 열기 */
 function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
@@ -416,7 +420,9 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   useEffect(() => { api.allPlans('missions', cancel).then((l) => { setMissions(l.filter((x) => isPlan(x) && 'steps' in x)); setMErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setMErr(e.message); }); }, [mN]);
   const active = (missions ?? []).filter((m) => !m.archived_at);
   const [sel, setSel] = useState<number | 'T' | null>(null), [placing, setPlacing] = useState<'point' | 'target'>('point'), [msg, setMsg] = useState('');
-  const svg = useRef<SVGSVGElement>(null), drag = useRef<{ i: number | 'T'; from: P; orig: ScenarioPoint } | null>(null);
+  // drag.at·moved = 누른 화면 자리·TAP 넘게 움직였는지(안 움직이고 떼면 누름 = 지우기)
+  const svg = useRef<SVGSVGElement>(null), drag = useRef<{ i: number | 'T'; from: P; orig: ScenarioPoint; at: P; moved: boolean } | null>(null);
+  const [open, setOpen] = useState(pane.open), [undo, setUndo] = useState<{ text: string; w: ScenarioWaypoint[]; f: typeof finish; key: string } | null>(null);
   useEffect(() => { if (lock) drag.current = null; }, [lock]);
   const floorName = (id: string) => { const p = places.find((x) => x.floor.id === id); return p ? `${p.building.name} ${p.floor.name}` : '모르는 층'; };
   const refName = (p: ScenarioPoint) => { const a = places.find((x) => x.floor.id === p.floor_id)?.floor.approved_version_id;
@@ -468,7 +474,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     if (hit != null && placing === 'point') {
       const i = hit === 'T' ? 'T' : Number(hit), o = ptAt(i);
       setSel(i);
-      if (o) { drag.current = { i, from: q, orig: o }; svg.current!.setPointerCapture?.(e.pointerId); }
+      if (o) { drag.current = { i, from: q, orig: o, at: [e.clientX, e.clientY], moved: false }; svg.current!.setPointerCapture?.(e.pointerId); }
       return;
     }
     const wk = t.closest('[data-key^="waypoints."]')?.getAttribute('data-key'), wp = wk ? v.features.waypoints[Number(wk.split('.')[1])] : undefined;
@@ -479,6 +485,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const move = (e: PointerEvent<SVGSVGElement>) => {
     const d = drag.current;
     if (!d || lock || !v) return;
+    if (!d.moved) { if (Math.hypot(e.clientX - d.at[0], e.clientY - d.at[1]) < TAP) return; d.moved = true; }
     const q = fromScreen(svg.current!, v, e.clientX, e.clientY), x = d.orig.x + q[0] - d.from[0], y = d.orig.y + q[1] - d.from[1];
     if (!inside(v, x, y)) return;   // 범위 밖으로는 옮기지 않는다(마지막 자리에 둠)
     // 지도 지점에 붙은 지점은 0.05 m 안 흔들림이면 그대로, 넘으면 참조를 떼고 새 좌표(서버는 0.05 m 넘으면 거절)
@@ -487,6 +494,16 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     if (d.i === 'T') put(pts, { mode: 'GO_TO', target: n }); else put(pts.map((o, j) => (j === d.i ? { ...o, ...n } : o)));
   };
   const end = () => { drag.current = null; };
+  /** 지점(끝 지점 'T' 포함) 지우기 — 확인창 없이 «되돌리기» 한 번. 그 뒤 다른 편집이 생기면 되돌리기는 사라진다(key) */
+  const drop = (i: number | 'T') => {
+    if (lock) return;
+    const w = i === 'T' ? pts : pts.filter((_, j) => j !== i), f = i === 'T' ? { ...finish, target: null } : finish;
+    put(w, f); setSel(null);
+    setUndo({ text: i === 'T' ? '끝 지점 지움' : `지점 ${i + 1} 지움`, w: pts, f: finish, key: canon({ ...value, waypoints: w, finish: f }) });
+  };
+  /** 뗌: 지점을 누르고 안 움직였으면 지우기(끌었으면 옮김으로 끝) */
+  const up = () => { const d = drag.current; drag.current = null; if (d && !d.moved) drop(d.i); };
+  const back = undo && undo.key === k && !!set && !lock ? undo : null;
   const shift = (i: number, dd: number) => { const s = [...pts], [x] = s.splice(i, 1); s.splice(i + dd, 0, x); put(s); setSel(i + dd); };
   const choose = (i: number, val: string) => { const [mission_id, ver] = val.split(':'); put(pts.map((o, j) => (j === i ? { ...o, mission_id: mission_id ?? '', mission_version: Number(ver) || 1 } : o))); };
   const go = (i: number | 'T') => { const p = ptAt(i); setSel(i); if (p) setCur(p.floor_id); };
@@ -498,55 +515,69 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
     {set && missions && !active.length && <div className="fh-row" role="status" data-no-mission><span className="lv-note fh-grow">임무가 아직 없습니다. 지점마다 임무를 골라야 저장할 수 있으니 먼저 임무를 만드세요. 지금 편집은 남겨 둡니다.</span>
       {newMission && <button type="button" className="btn" onClick={newMission}>새 임무</button>}</div>}
     <h3>① 지도</h3>
+    {/* 장소 › 건물 › 층 하나 고르기(앱 공용 .fh-user .fh-sel 모양). 승인 판 없는 층은 편집 때 고를 수 없다 — 읽기 전용은 지점이 있으면 그 판으로 */}
     {!approved.length && (set || !pts.length) ? <p className="lv-note">승인된 지도가 있는 층이 없습니다. 지도 탭에서 지도를 먼저 올리세요.</p>
-      : <div className="fh-row" role="group" aria-label="층" style={{ flexWrap: 'wrap' }}>{places.map((p) => { const c = pts.filter((w) => w.floor_id === p.floor.id).length;
-          return <button key={p.floor.id} type="button" className="btn" aria-pressed={p.floor.id === cur} disabled={!p.floor.approved_version_id && (!!set || !c)} onClick={() => setCur(p.floor.id)}>
-            {p.site.name} · {p.building.name} · {p.floor.name}{c ? ` (지점 ${c})` : ''}{p.floor.approved_version_id ? '' : ' — 승인된 지도 없음'}</button>; })}</div>}
-    <h3>② 지점</h3>
-    {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
-    {v && <><MapFrame ref={svg} {...look} edit={!!set} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
-      style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, ...(set && { cursor: 'crosshair' }) }}>
-      <MapImage key={mapN} id={v.id} width={v.width} height={v.height} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
-      <Shapes v={v} f={v.features} />
-      {on.length > 1 && <polyline points={on.map(([p]) => toPixel(v, p.x, p.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
-      {on.map(([p, i]) => { const [x, y] = toPixel(v, p.x, p.y), b = marks.has(`waypoints.${i}`);
-        return <g key={i} data-pt={i} data-bad={b ? '' : undefined}><circle cx={x} cy={y} r={sel === i ? rr * 1.3 : rr} style={{ fill: b ? 'var(--bad)' : 'var(--accent)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
-          <text x={x} y={y + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: '#FFFFFF', pointerEvents: 'none' }}>{i + 1}</text></g>; })}
-      {target && target.floor_id === cur && (() => { const [x, y] = toPixel(v, target.x, target.y), b = marks.has('finish.target');
-        return <g data-pt="T" data-bad={b ? '' : undefined}><rect x={x - rr} y={y - rr} width={rr * 2} height={rr * 2} style={{ fill: b ? 'var(--bad)' : 'var(--ink-3)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
-          <text x={x} y={y + rr * 0.45} fontSize={rr * 1.1} textAnchor="middle" style={{ fill: '#FFFFFF', pointerEvents: 'none' }}>끝</text></g>; })()}
-    </MapFrame></>}
-    {set && v && <p className="lv-note" role="status">{placing === 'target' ? '지도를 누르면 끝나고 갈 지점을 놓습니다(이름 붙은 지도 지점을 누르면 그 지점).'
-      : '지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 번호 지점은 끌어서 옮깁니다. 빨간 구역은 진입 금지입니다.'}</p>}
-    {msg && <p className="fh-msg" role="alert">{msg}</p>}
-    {set && mErr && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {mErr}</p><button type="button" className="btn" onClick={() => setMN((x) => x + 1)}>다시 받기</button></div>}
-    <ol className="fh-form" style={LIST} aria-label="지점 순서">{pts.map((p, i) => {
-      const e = `waypoints.${i}`, pr = res[e], b = marks.has(e), m = missions?.find((x) => x.id === p.mission_id), val = p.mission_id ? `${p.mission_id}:${p.mission_version}` : '';
-      const listed = active.some((x) => `${x.id}:${x.latest_version}` === val);
-      return <li key={i} data-wp={i} data-bad={b ? '' : undefined} style={b ? { outline: '2px solid var(--bad)', borderRadius: 8 } : undefined}>
-        <div className="fh-row" style={{ flexWrap: 'wrap' }}>
-          <button type="button" className="btn" aria-pressed={sel === i} onClick={() => go(i)}>{i + 1}. {floorName(p.floor_id)} · {p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}</button>
-          {set ? <select className="inp" aria-label={`${i + 1}번 지점 임무`} value={val} onChange={(ev) => choose(i, ev.target.value)}>
-              <option value="">임무 고르기</option>
-              {val && !listed && <option value={val}>{`${m?.name ?? '알 수 없는 임무'} · 판 ${p.mission_version}${m?.archived_at ? ' (보관됨)' : ' (옛 판)'}`}</option>}
-              {active.map((x) => <option key={x.id} value={`${x.id}:${x.latest_version}`}>{`${x.name} · 판 ${x.latest_version}`}</option>)}</select>
-            : <span>{m ? `${m.name} · 판 ${p.mission_version}` : `임무 판 ${p.mission_version}`}</span>}
-          <span className="fh-grow" />
-          {set && <><button type="button" className="btn" aria-label={`${i + 1}번 지점 위로`} disabled={!i} onClick={() => shift(i, -1)}>↑</button>
-            <button type="button" className="btn" aria-label={`${i + 1}번 지점 아래로`} disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>↓</button>
-            <button type="button" className="btn" aria-label={`${i + 1}번 지점 지우기`} onClick={() => { put(pts.filter((_, j) => j !== i)); setSel(null); }}>지우기</button></>}
-        </div>
-        {pr && !pr.reachable && <p className="fh-msg" role="alert">갈 수 없음: {pr.reasons.join(' ')}</p>}
-        {bad.filter((x) => x.at === e).map((x, j) => <p key={j} className="fh-msg" role="alert">{x.text}</p>)}
-      </li>; })}</ol>
-    <label className="fh-field"><span>끝나면</span><select className="inp" value={finish.mode ?? 'STAY'} disabled={!set} onChange={(ev) => { const mode = ev.target.value as keyof typeof FINISH; put(pts, { mode, target: mode === 'GO_TO' ? target : null }); if (mode === 'GO_TO' && !target) setPlacing('target'); else setPlacing('point'); }}>
-      {(Object.keys(FINISH) as (keyof typeof FINISH)[]).map((m) => <option key={m} value={m}>{FINISH[m]}</option>)}</select></label>
-    {finish.mode === 'GO_TO' && <div className="fh-row" data-bad={marks.has('finish.target') ? '' : undefined}>
-      {target ? <button type="button" className="btn" aria-pressed={sel === 'T'} onClick={() => go('T')}>끝 지점: {floorName(target.floor_id)} · {target.waypoint_ref ? `«${refName(target)}»` : `(${target.x.toFixed(1)}, ${target.y.toFixed(1)}) m`}</button>
-        : <span className="lv-note">끝나고 갈 지점을 아직 찍지 않았습니다.</span>}
-      {set && <button type="button" className="btn" aria-pressed={placing === 'target'} onClick={() => setPlacing(placing === 'target' ? 'point' : 'target')}>{placing === 'target' ? '지점 찍기로 돌아가기' : '끝 지점 찍기'}</button>}
-      {res['finish.target'] && !res['finish.target'].reachable && <p className="fh-msg" role="alert">끝 지점에 갈 수 없음: {res['finish.target'].reasons.join(' ')}</p>}
-    </div>}
+      : <label className="fh-row"><span className="lbl">지도</span><select className="fh-user fh-sel" aria-label="지도" value={cur} onChange={(e) => setCur(e.target.value)}>
+          {places.map((p) => { const c = pts.filter((w) => w.floor_id === p.floor.id).length;
+            return <option key={p.floor.id} value={p.floor.id} disabled={!p.floor.approved_version_id && (!!set || !c)}>
+              {`${p.site.name} › ${p.building.name} › ${p.floor.name}${c ? ` (지점 ${c})` : ''}${p.floor.approved_version_id ? '' : ' — 승인된 지도 없음'}`}</option>; })}</select></label>}
+    {/* ② 지도 + 오른쪽 단계 창(파워포인트 애니메이션 창처럼 접고 펼침). 좁은 칸이면 지도 아래 접는 막대 — 지도를 가리지 않는다(missions.css) */}
+    <div className="ms-box"><div className="ms-edit" data-open={open ? '' : undefined}>
+      <div className="ms-map">
+        {mapErr && <div className="fh-row"><p className="fh-msg" role="alert">지도를 받지 못했습니다. {mapErr}</p><button type="button" className="btn" onClick={() => { setMapErr(''); setMapN((x) => x + 1); }}>다시 받기</button></div>}
+        {v && <MapFrame ref={svg} {...look} edit={!!set} role="img" aria-label={`${floorName(cur)} 지도`} data-map data-scenario-map onPointerDown={down} onPointerMove={move} onPointerUp={up} onPointerCancel={end}
+          style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, ...(set && { cursor: 'crosshair' }) }}>
+          <MapImage key={mapN} id={v.id} width={v.width} height={v.height} onError={() => setMapErr('지도 그림을 불러오지 못했습니다.')} />
+          <Shapes v={v} f={v.features} />
+          {on.length > 1 && <polyline points={on.map(([p]) => toPixel(v, p.x, p.y).join(',')).join(' ')} style={{ fill: 'none', stroke: 'var(--accent)', strokeWidth: 2, strokeDasharray: '6 4' }} vectorEffect="non-scaling-stroke" />}
+          {on.map(([p, i]) => { const [x, y] = toPixel(v, p.x, p.y), b = marks.has(`waypoints.${i}`);
+            return <g key={i} data-pt={i} data-bad={b ? '' : undefined}><circle cx={x} cy={y} r={sel === i ? rr * 1.3 : rr} style={{ fill: b ? 'var(--bad)' : 'var(--accent)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
+              <text x={x} y={y + rr * 0.45} fontSize={rr * 1.3} textAnchor="middle" style={{ fill: '#FFFFFF', pointerEvents: 'none' }}>{i + 1}</text></g>; })}
+          {target && target.floor_id === cur && (() => { const [x, y] = toPixel(v, target.x, target.y), b = marks.has('finish.target');
+            return <g data-pt="T" data-bad={b ? '' : undefined}><rect x={x - rr} y={y - rr} width={rr * 2} height={rr * 2} style={{ fill: b ? 'var(--bad)' : 'var(--ink-3)', stroke: '#FFFFFF', strokeWidth: 2 }} vectorEffect="non-scaling-stroke" />
+              <text x={x} y={y + rr * 0.45} fontSize={rr * 1.1} textAnchor="middle" style={{ fill: '#FFFFFF', pointerEvents: 'none' }}>끝</text></g>; })()}
+        </MapFrame>}
+        {set && v && <p className="lv-note" role="status">{placing === 'target' ? '지도를 누르면 끝나고 갈 지점을 놓습니다(이름 붙은 지도 지점을 누르면 그 지점).'
+          : '지도를 누르면 지점을 추가합니다. 이름 붙은 지도 지점을 누르면 그 지점을 씁니다. 찍힌 지점을 다시 누르면 지우고, 끌면 옮깁니다. 빨간 구역은 진입 금지입니다.'}</p>}
+        {back && <div className="fh-row" role="status" data-undo><span>{back.text}</span>
+          <button type="button" className="btn" onClick={() => { put(back.w, back.f); setUndo(null); }}>되돌리기</button></div>}
+        {msg && <p className="fh-msg" role="alert">{msg}</p>}
+      </div>
+      <aside className="ms-steps" aria-label="단계 창">
+        <button type="button" className="btn ms-fold" aria-expanded={open} aria-controls="ms-steps" onClick={() => { pane.open = !open; setOpen(!open); }}>{open ? `단계 ${pts.length} ▸` : `◂ 단계 ${pts.length}`}</button>
+        {open && <div id="ms-steps" className="fh-form">
+          {set && mErr && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {mErr}</p><button type="button" className="btn" onClick={() => setMN((x) => x + 1)}>다시 받기</button></div>}
+          {!pts.length && <p className="lv-note">아직 단계가 없습니다. 지도를 눌러 지점을 찍으세요.</p>}
+          <ol className="fh-form" style={LIST} aria-label="지점 순서">{pts.map((p, i) => {
+            const e = `waypoints.${i}`, pr = res[e], b = marks.has(e), m = missions?.find((x) => x.id === p.mission_id), val = p.mission_id ? `${p.mission_id}:${p.mission_version}` : '';
+            const listed = active.some((x) => `${x.id}:${x.latest_version}` === val);
+            return <li key={i} data-wp={i} data-bad={b ? '' : undefined} className="ms-step" style={b ? { outline: '2px solid var(--bad)' } : undefined}>
+              <div className="fh-row">
+                <button type="button" className="btn fh-grow ms-name" aria-pressed={sel === i} onClick={() => go(i)}>{i + 1}. {p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}{p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}</button>
+                {set && <><button type="button" className="btn" aria-label={`${i + 1}번 지점 위로`} disabled={!i} onClick={() => shift(i, -1)}>↑</button>
+                  <button type="button" className="btn" aria-label={`${i + 1}번 지점 아래로`} disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>↓</button>
+                  <button type="button" className="btn" aria-label={`${i + 1}번 지점 지우기`} onClick={() => drop(i)}>✕</button></>}
+              </div>
+              {/* 이 지점에서 할 일 = 임무. 사진 찍기 같은 동작 종류를 단계에 바로 보이는 것은 서버·에이전트 뒤(다음 단계) */}
+              {set ? <select className="inp" aria-label={`${i + 1}번 지점 임무`} value={val} onChange={(ev) => choose(i, ev.target.value)}>
+                  <option value="">임무 고르기</option>
+                  {val && !listed && <option value={val}>{`${m?.name ?? '알 수 없는 임무'} · 판 ${p.mission_version}${m?.archived_at ? ' (보관됨)' : ' (옛 판)'}`}</option>}
+                  {active.map((x) => <option key={x.id} value={`${x.id}:${x.latest_version}`}>{`${x.name} · 판 ${x.latest_version}`}</option>)}</select>
+                : <span className="lbl">{m ? `${m.name} · 판 ${p.mission_version}` : `임무 판 ${p.mission_version}`}</span>}
+              {pr && !pr.reachable && <p className="fh-msg" role="alert">갈 수 없음: {pr.reasons.join(' ')}</p>}
+              {bad.filter((x) => x.at === e).map((x, j) => <p key={j} className="fh-msg" role="alert">{x.text}</p>)}
+            </li>; })}</ol>
+          <label className="fh-field"><span>끝나면</span><select className="inp" value={finish.mode ?? 'STAY'} disabled={!set} onChange={(ev) => { const mode = ev.target.value as keyof typeof FINISH; put(pts, { mode, target: mode === 'GO_TO' ? target : null }); if (mode === 'GO_TO' && !target) setPlacing('target'); else setPlacing('point'); }}>
+            {(Object.keys(FINISH) as (keyof typeof FINISH)[]).map((m) => <option key={m} value={m}>{FINISH[m]}</option>)}</select></label>
+          {finish.mode === 'GO_TO' && <div className="fh-row" data-bad={marks.has('finish.target') ? '' : undefined}>
+            {target ? <button type="button" className="btn" aria-pressed={sel === 'T'} onClick={() => go('T')}>끝 지점: {floorName(target.floor_id)} · {target.waypoint_ref ? `«${refName(target)}»` : `(${target.x.toFixed(1)}, ${target.y.toFixed(1)}) m`}</button>
+              : <span className="lv-note">끝나고 갈 지점을 아직 찍지 않았습니다.</span>}
+            {set && <button type="button" className="btn" aria-pressed={placing === 'target'} onClick={() => setPlacing(placing === 'target' ? 'point' : 'target')}>{placing === 'target' ? '지점 찍기로 돌아가기' : '끝 지점 찍기'}</button>}
+            {res['finish.target'] && !res['finish.target'].reachable && <p className="fh-msg" role="alert">끝 지점에 갈 수 없음: {res['finish.target'].reasons.join(' ')}</p>}
+          </div>}
+        </div>}
+      </aside>
+    </div></div>
     <h3>③ 확인</h3>
     {!set ? (saved ? <p className="lv-note">예상 거리 약 {Math.round(saved.est_distance_m)} m · 필요 장치: {devices(saved.required_devices)}</p> : null) : <div className="fh-form" aria-label="경로 확인" data-preview>
       {missing && <p className="lv-note">{missing}</p>}
