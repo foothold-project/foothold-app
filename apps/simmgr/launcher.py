@@ -135,33 +135,46 @@ class NativeLauncher:
         self.observer = None
 
     async def external_view(self, request, op):
+        from .external_camera import log_ipc_failure
         # No manager lifecycle/control lock is acquired for observation work.
         observer = getattr(self, 'observer', None)
         if observer is None or self.failure or self.observer_busy or not self._watching:
+            log_ipc_failure('client_unavailable')
             raise ValueError('external camera unavailable or busy')
         self.observer_busy = True
+        stage = 'client_connect'
         async def relay(operation):
+            nonlocal stage
+            stage = 'client_connect'
             reader, writer = await asyncio.open_unix_connection(observer.socket_path, limit=4096)
             try:
+                stage = 'client_write'
                 writer.write(json.dumps(dict(op=operation, request=request.model_dump(mode='json'))).encode()+b'\n')
                 await writer.drain()
+                stage = 'client_ack'
                 result = json.loads(await reader.readline())
+                stage = 'client_validate'
                 if result.get('accepted') is not True:
                     raise ValueError('external camera binding rejected')
                 return result
             finally:
                 writer.close()
-                await writer.wait_closed()
+                try:
+                    await writer.wait_closed()
+                except BaseException as error:
+                    log_ipc_failure('client_close', error)
+                    raise
         try:
             # Leave HTTP/dispatch headroom below the server's 500ms deadline.
             return await asyncio.wait_for(relay(op), .3)
-        except BaseException:
+        except BaseException as error:
+            log_ipc_failure(stage, error)
             # Drop an unacknowledged pending request without touching a newer
             # viewer's sequence. No retry queue and no lifecycle lock.
             try:
                 await asyncio.wait_for(relay('discard'), .05)
-            except (OSError, ValueError, asyncio.TimeoutError):
-                pass
+            except (OSError, ValueError, asyncio.TimeoutError) as discard_error:
+                log_ipc_failure('client_discard', discard_error)
             raise
         finally:
             self.observer_busy = False

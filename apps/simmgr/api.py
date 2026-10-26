@@ -127,17 +127,21 @@ def create_app(settings, launcher=None):
                             and not getattr(manager.launcher, 'failure', False))
 
     async def observer_request(robot_id, body, op):
+        from .external_camera import log_ipc_failure
         # Only the authenticated control server calls this relay. It must check
         # the user's current view grant before each call (and cancel on revoke).
         row = manager.robots.get(str(robot_id))
         if str(body.robot) != str(robot_id):
+            log_ipc_failure('http_binding')
             raise SimError('SIM_OBSERVER_BINDING', 409)
         if (row is None or row.state != 'RUNNING' or manager.closing or manager.failed
                 or not hasattr(manager.launcher, 'external_view')):
+            log_ipc_failure('http_unavailable')
             raise SimError('SIM_OBSERVER_UNAVAILABLE', 409)
         try:
             return await manager.launcher.external_view(body, op)
-        except (ValueError, OSError, asyncio.TimeoutError):
+        except (ValueError, OSError, asyncio.TimeoutError) as error:
+            log_ipc_failure('http_relay', error)
             raise SimError('SIM_OBSERVER_UNAVAILABLE', 409) from None
 
     @app.post('/v1/robots/{robot_id}/external-camera/view', dependencies=[Depends(authenticate)])

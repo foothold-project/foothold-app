@@ -1,5 +1,7 @@
 """Independent episode camera and pure observer policy; no ROS/Gazebo imports."""
 import math
+import asyncio
+import logging
 import time
 import xml.etree.ElementTree as ET
 
@@ -11,6 +13,25 @@ ROS_TOPIC = '/v2_live/external_cam/compressed'
 DEFAULT_VIEW = (math.pi, .45, 3.0)
 PERIOD = .1
 TIMEOUT = .3
+
+
+def log_ipc_failure(stage, error=None):
+    """Fixed diagnostic vocabulary only; never log exception text or inputs."""
+    if stage not in {'http_binding', 'http_unavailable', 'http_relay',
+                     'client_unavailable', 'client_connect', 'client_write',
+                     'client_ack', 'client_validate', 'client_close',
+                     'client_discard', 'observer_read', 'observer_validate',
+                     'observer_write', 'observer_close'}:
+        stage = 'unknown'
+    kind = 'none'
+    if error is not None:
+        kind = 'other'
+        for category in (asyncio.CancelledError, TimeoutError, ConnectionResetError,
+                         BrokenPipeError, OSError, ValueError, TypeError):
+            if isinstance(error, category):
+                kind = category.__name__
+                break
+    logging.getLogger(__name__).warning('observer IPC stage=%s kind=%s', stage, kind)
 
 
 def add_camera(world):
