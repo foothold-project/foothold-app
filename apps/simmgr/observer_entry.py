@@ -83,6 +83,38 @@ class Images:
         self.stamp = float('-inf')
 
 
+async def observer_request(observer, reader, writer):
+    """Private one-line IPC handler, also exercised without ROS/Gazebo."""
+    from .external_camera import log_ipc_failure
+    result = {'accepted': False}
+    stage = 'observer_read'
+    try:
+        raw = await asyncio.wait_for(reader.readline(), .3)
+        stage = 'observer_validate'
+        data = json.loads(raw)
+        if not isinstance(data, dict) or set(data) != {'op', 'request'}:
+            raise ValueError('invalid envelope')
+        result = (observer.discard(data['request']) if data['op'] == 'discard'
+                  else observer.submit(data['request'], data['op']))
+    except (ValueError, TypeError, asyncio.TimeoutError) as error:
+        log_ipc_failure(stage, error)
+        result = {'accepted': False}
+    finally:
+        try:
+            writer.write(json.dumps(result).encode() + b'\n')
+            await asyncio.wait_for(writer.drain(), .1)
+        except BaseException as error:
+            log_ipc_failure('observer_write', error)
+            raise
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except BaseException as error:
+                log_ipc_failure('observer_close', error)
+                raise
+
+
 async def run(robot, episode, socket_path):
     from foothold_agent.ros_bridge.config import validate_isolation
     validate_isolation()
@@ -144,24 +176,7 @@ async def run(robot, episode, socket_path):
         raise RuntimeError('external image subscription failed')
 
     async def request(reader, writer):
-        result = {'accepted': False}
-        try:
-            # Private AF_UNIX IPC, one small command, no arbitrary service proxy.
-            raw = await asyncio.wait_for(reader.readline(), .3)
-            data = json.loads(raw)
-            if not isinstance(data, dict) or set(data) != {'op', 'request'}:
-                raise ValueError('invalid envelope')
-            result = (observer.discard(data['request']) if data['op'] == 'discard'
-                      else observer.submit(data['request'], data['op']))
-        except (ValueError, TypeError, asyncio.TimeoutError):
-            result = {'accepted': False}
-        finally:
-            try:
-                writer.write(json.dumps(result).encode() + b'\n')
-                await asyncio.wait_for(writer.drain(), .1)
-            finally:
-                writer.close()
-                await writer.wait_closed()
+        await observer_request(observer, reader, writer)
 
     # Episode parent is private (0700); the socket is private as well.
     server = await asyncio.start_unix_server(request, path=socket_path, limit=4096, backlog=2)

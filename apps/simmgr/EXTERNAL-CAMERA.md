@@ -64,6 +64,32 @@ sequence within .05 s. This leaves scheduling/HTTP headroom below the server's
 .5 s deadline so observer unavailability remains a 409 instead of a relay 503. The observer retains one pending view for at most .3 s;
 service calls are capped at 10 wall-clock Hz with an 80 ms Gazebo timeout.
 
+### IPC diagnostics and unresolved disconnect
+
+The client connects, writes one newline-terminated JSON envelope, drains, reads
+one newline-terminated ACK, then closes. It does not half-close after writing.
+The observer validates and queues the request before writing its ACK; Gazebo
+pose execution happens separately in the observer loop. A delayed ACK and an
+upstream task cancellation both close the client first and attempt a discard.
+Offline socket tests reproduce both paths with the real client and verify a
+normal view/reset/cancel round trip through the runtime observer handler.
+
+The reported observer `ConnectionResetError` during drain followed by
+`BrokenPipeError` during close establishes a peer disconnect before the reply
+completed. It does not establish which client exit triggered it. The available
+HTTP 409 evidence has no timestamps or exception kind, so it cannot distinguish
+the internal ACK deadline from upstream cancellation or prove loop starvation.
+Timeouts and execution behavior remain unchanged pending an approved runtime
+diagnosis; this change does not claim to fix the reported drag failure.
+
+Warnings use only `observer IPC stage=<fixed stage> kind=<fixed exception kind>`.
+`http_binding` and `http_unavailable` identify precondition branches with kind
+`none`; `http_relay` identifies the exception mapped to 409. Client diagnostics
+distinguish connect/write/ACK/validation/close/discard, including `TimeoutError`
+and `CancelledError`. Observer diagnostics distinguish read/validation/write/
+close. Messages, identities, request values, operations and addresses are never
+included, and arbitrary exception subclasses are mapped to a fixed base kind.
+
 ## Lifetime and verification limits
 
 The observer and encoder share one transient `fh-simmgr-observer-<episode>` unit:
