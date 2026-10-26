@@ -5,6 +5,7 @@ subscriptions and callbacks capture immutable generations; only terminal result
 proves cancellation complete (CancelGoal acceptance alone never does).
 """
 from copy import deepcopy
+from collections import deque
 import hashlib
 import json
 import math
@@ -37,6 +38,9 @@ class RunNav:
         self.clock = self.scan = None
         self.map_identity = False
         self.state = {}
+        self.state_at = float('-inf')
+        self.tf_poses = deque(maxlen=32)
+        self.pose_agreement = None
         self.odom_at = float('-inf')
         self.last_lifecycle = float('-inf')
         self.lifecycle, self.lifecycle_pending = {}, {}
@@ -69,10 +73,46 @@ class RunNav:
         self.scan = (self.stamp(m.header.stamp), self.now()) if m.header.frame_id in ('base_footprint','base','lidar_link') else None
 
     def _state(self, m):
+        previous = self.state
         try:
             self.state = json.loads(m.data) if len(m.data) <= 65536 else {}
         except (ValueError, RecursionError):
             self.state = {}
+        if not isinstance(self.state, dict):
+            self.state = {}
+        old = previous.get('episode'), previous.get('sim_t')
+        new = self.state.get('episode'), self.state.get('sim_t')
+        if old != new:
+            self.state_at = self.now()
+        if old[0] != new[0] or (type(old[1]) in (int, float)
+                and type(new[1]) in (int, float) and new[1] < old[1]):
+            self.tf_poses.clear()
+            self.odom_at = float('-inf')
+        self._match_pose()
+
+    def _match_pose(self):
+        # State publishes at 10 Hz, TF at 50 Hz. Comparing the latest values
+        # compares different positions during motion. Match source stamps;
+        # never extrapolate or replace original receipt times with match time.
+        state = self.state
+        if (type(state.get('episode')) is not int or state['episode'] < 0
+                or not all(type(state.get(k)) in (int, float) and math.isfinite(state[k])
+                           for k in ('x', 'y', 'yaw', 'sim_t'))):
+            self.odom_at = float('-inf')
+            self.pose_agreement = dict(reason='INVALID_STATE')
+            return
+        for sample, received in reversed(self.tf_poses):
+            # One microsecond only absorbs JSON/ROS floating point conversion;
+            # it cannot pair different 20 ms simulation steps.
+            if sample['episode'] != state['episode'] or abs(state['sim_t']-sample['stamp']) > 1e-6:
+                continue
+            position = math.hypot(state['x']-sample['x'], state['y']-sample['y'])
+            yaw = abs(math.atan2(math.sin(state['yaw']-sample['yaw']), math.cos(state['yaw']-sample['yaw'])))
+            self.pose_agreement = dict(reason='OK' if position <= .05 and yaw <= .05 else 'POSE_MISMATCH',
+                                       position_error_m=position, yaw_error_rad=yaw,
+                                       state_tf_sim_delta_s=state['sim_t']-sample['stamp'])
+            self.odom_at = min(received, self.state_at) if position <= .05 and yaw <= .05 else float('-inf')
+            return
 
     def _static(self, m):
         for t in m.transforms:
@@ -103,6 +143,7 @@ class RunNav:
             return now-at if math.isfinite(at) else None
         return dict(last_health=deepcopy(self.health_observation),
             map_identity=self.map_identity, odom_reason=self.odom.reason,
+            pose_agreement=deepcopy(getattr(self, 'pose_agreement', None)),
             odom_receipt_age_s=age(self.odom_at),
             clock_receipt_age_s=age(self.clock[1]) if self.clock else None,
             scan_receipt_age_s=age(self.scan[1]) if self.scan else None,
@@ -123,6 +164,7 @@ class RunNav:
                 stamp=self.stamp(t.header.stamp),x=p.x,y=p.y,yaw=math.atan2(2*q.w*q.z,1-2*q.z*q.z),map_identity=self.map_identity)
             if sample is None:
                 self.odom_at = float('-inf')
+                self.tf_poses.clear()
                 continue
             msg = self.Odometry()
             msg.header.stamp = t.header.stamp
@@ -131,12 +173,8 @@ class RunNav:
             msg.pose.pose.orientation = q
             msg.twist.twist.linear.x,msg.twist.twist.linear.y,msg.twist.twist.angular.z = sample['vx'],sample['vy'],sample['wz']
             self.publisher.publish(msg)
-            state = self.state
-            agrees = (all(type(state.get(k)) in (int,float) and math.isfinite(state[k]) for k in ('x','y','yaw','sim_t'))
-                      and abs(state['sim_t']-sample['stamp']) <= .25
-                      and math.hypot(state['x']-sample['x'],state['y']-sample['y']) <= .05
-                      and abs(math.atan2(math.sin(state['yaw']-sample['yaw']),math.cos(state['yaw']-sample['yaw']))) <= .05)
-            self.odom_at = self.now() if agrees else float('-inf')
+            self.tf_poses.append((sample, self.now()))
+            self._match_pose()
 
     def _intent(self, binding, m):
         if binding != self.active or self.cancel_sent or self.handle is None:
