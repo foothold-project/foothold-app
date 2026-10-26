@@ -1,0 +1,30 @@
+/* 기록 표(history.tsx Table)·분류 배지. 색은 공식 토큰만(값 수정·새 색 없음) — 밝음·어두움 모두 글자 대비 4.5:1 넘음(10-26 계산).
+   --stop 은 .fh 가 STOP 채움으로 덮으므로 글자에는 --b-stop(brand.css) */
+.hs-wrap{container-type:inline-size;min-width:0}
+.hs-table{width:100%;border-collapse:collapse;font-size:14px}
+.hs-table th{text-align:left;font-size:12px;font-weight:600;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line2);white-space:nowrap}
+.hs-table td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+.hs-table td:nth-child(-n+3){white-space:nowrap}
+.hs-table td:nth-child(4){width:100%;min-width:0;overflow-wrap:anywhere}
+.hs-table td:nth-child(5){max-width:16em;white-space:normal;overflow-wrap:anywhere}
+.hs-table details{margin-top:2px}
+
+/* 분류마다 채움·옅은 바탕·테두리를 섞어 세 색조(청록·호박·빨강)+회색으로 일곱 가지를 가른다. 글자가 늘 같이 있다 */
+.hs-kind{display:inline-flex;align-items:center;min-height:22px;padding:0 8px;border-radius:11px;border:1px solid var(--line2);background:var(--panel2);color:var(--muted);font-size:12px;font-weight:700;white-space:nowrap}
+.hs-kind[data-kind="RUN"]{background:var(--dim-ink);border-color:var(--dim-ink);color:var(--paper)}
+.hs-kind[data-kind="LEASE"]{background:var(--dim-soft);border-color:var(--dim-ink);color:var(--dim-ink)}
+.hs-kind[data-kind="APPROVAL"]{background:var(--note-ink);border-color:var(--note-ink);color:var(--paper)}
+.hs-kind[data-kind="ROUTE"]{background:var(--note-soft);border-color:var(--note-ink);color:var(--note-ink)}
+.hs-kind[data-kind="SAFETY"]{background:var(--stop-soft);border-color:var(--b-stop);color:var(--b-stop)}
+.hs-kind[data-kind="LINK"]{background:var(--ink-2);border-color:var(--ink-2);color:var(--paper)}
+.hs-kind[data-kind="ACCOUNT"]{background:var(--card);border-color:var(--ink-2);color:var(--ink)}
+
+/* 좁은 폭(폰·좁은 창): 머리 칸은 화면 읽기용으로만 남기고 줄마다 카드 — 시각·종류·상태 한 줄, 내용, 로봇·사람 */
+@container (max-width:560px){
+  .hs-table thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .hs-table,.hs-table tbody{display:block}
+  .hs-table tr{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;padding:8px 0;border-bottom:1px solid var(--line)}
+  .hs-table td{display:block;padding:0;border:0}
+  .hs-table td:nth-child(4),.hs-table td:nth-child(5){flex-basis:100%;white-space:normal}
+  .hs-table td[data-none]{display:none}
+}

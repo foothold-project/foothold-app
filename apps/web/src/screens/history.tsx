@@ -6,6 +6,7 @@ import type { Event as Ev, EventList, NotificationList, Notification, Notificati
 import { ApiFail, api } from '../api';
 import { idleSim, myRobots, simName, type Robot, type Tone } from '../fake';
 import { Chip, Line, inApp, type Ctx } from '../screens';
+import './history.css';
 
 /** 분류 7종(02 F-LG-01) — '' = 전체 */
 const KINDS: [Ev['category'] | '', string][] = [['', '전체'], ['RUN', '임무'], ['ROUTE', '이탈'], ['LINK', '연결'], ['LEASE', '조종권'], ['APPROVAL', '결재'], ['SAFETY', '안전'], ['ACCOUNT', '계정']];
@@ -40,10 +41,31 @@ export function told(m: string) {
   return x ? { text: `${x[1]}: ${AGENT_EVENT[x[2]] ?? '기타 사건'}`, code: x[2] } : null;
 }
 const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
-/** 한 줄 = 한 사건: 시각 · 분류(심각도 색) · 서버가 저장한 문장. 서버가 모르는 로봇 사건이면 코드 원문은 접힌 상세에만 */
-const Row = ({ e }: { e: Ev }) => { const t = told(e.message);
-  return <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Chip tone={TONE[e.severity] ?? 'off'} text={KIND_NAME[e.category] ?? '기타'} /><span className="fh-wide">{t ? t.text : sentence(e.message)}</span>
-    {t && <details className="lbl"><summary>상세</summary><span className="mono">{e.code || t.code}</span></details>}</li>; };
+/** 심각도 = 모양 + 글(색만으로 구분 0) — 분류 배지와 따로 보인다.
+ *  INFO 는 «정상»의 증거가 아니다: 서버는 심각도 없이 온 로봇 audit 을 INFO 로 저장한다(realtime.py — STOP_CONFIRM_FAILED 등). 그래서 INFO 는 중립 «알림», 실패류 코드면 «주의» */
+const SEV: Record<string, [Tone, string]> = { INFO: ['off', '알림'], WARN: ['warn', '주의'], ERROR: ['bad', '오류'] };
+const FAILED = /_(FAILED|REJECTED|DENIED|TIMEOUT)$/;
+const Sev = ({ e }: { e: Ev }) => { const [tone, text] = e.severity === 'INFO' && FAILED.test(e.code ?? '') ? SEV.WARN : SEV[e.severity] ?? ['off', '알 수 없음']; return <Chip tone={tone} text={text} />; };
+/** 분류 배지: 분류마다 다른 토큰 색(history.css)·글자 같이 */
+const Kind = ({ e }: { e: Ev }) => <span className="hs-kind" data-kind={e.category}>{KIND_NAME[e.category] ?? '기타'}</span>;
+/** 서버가 저장한 문장. 서버가 모르는 로봇 사건이면 코드 원문은 접힌 상세에만 */
+const Said = ({ e }: { e: Ev }) => { const t = told(e.message);
+  return <><span className="fh-wide">{t ? t.text : sentence(e.message)}</span>{t && <details className="lbl"><summary>상세</summary><span className="mono">{e.code || t.code}</span></details>}</>; };
+/** 한 줄 = 한 사건(서랍 «최근 사건»): 시각 · 분류 · 심각도 · 문장 */
+const Row = ({ e }: { e: Ev }) => <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Kind e={e} /><Sev e={e} /><Said e={e} /></li>;
+/** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 — 가로로 넘치지 않게 */
+const Table = ({ items, who, label }: { items: Ev[]; who: (e: Ev) => string; label?: string }) => <div className="hs-wrap">
+  <table className="hs-table" aria-label={label} hidden={!items.length}>
+    <thead><tr><th scope="col">시각</th><th scope="col">종류</th><th scope="col">상태</th><th scope="col">내용</th><th scope="col">로봇·사람</th></tr></thead>
+    <tbody>{items.map((e) => { const w = who(e);
+      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /></td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
+  </table></div>;
+/** 사건의 로봇·사람 이름 — 화면이 아는 것만(로봇 목록·나·담당자). 모르면 빈 글 */
+const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {
+  const r = c.robots.find((x) => x.id === e.robot_id)?.name;
+  const u = !e.user_id ? '' : e.user_id === c.user.id ? c.user.name : c.robots.find((x) => x.owner === e.user_id)?.ownerName;
+  return [r, u].filter(Boolean).join(' · ');
+};
 
 /** 필터(기간은 날짜 칸 값 yyyy-mm-dd — 그날 0시부터 끝까지, 브라우저 시간대) */
 type Filter = { category: string; robot: string; from: string; to: string };
@@ -125,9 +147,9 @@ export function History(c: HistoryCtx) {
       if (url) setTimeout(() => URL.revokeObjectURL(url), 0);   // 내려받기가 시작된 뒤 정리
     }
   };
-  const filtered = !c.phone && params(f)?.toString() !== '';
+  const filtered = !c.phone && params(f)?.toString() !== '', who = whoOf(c);
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="기록">
-    {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} close={() => c.go('history')} />}
+    {c.focus && <Focus key={c.focus} id={c.focus} cancel={c.cancel} who={who} close={() => c.go('history')} />}
     {!c.phone && <>
       <div className="fh-row" role="group" aria-label="분류">{KINDS.map(([k, name]) => <button key={name} type="button" className="btn" aria-pressed={f.category === k} onClick={() => set({ category: k })}>{name}</button>)}</div>
       <div className="fh-row">
@@ -142,7 +164,7 @@ export function History(c: HistoryCtx) {
       </div>
       {out && <p className={`fh-msg${out.ok ? ' ok' : ''}`} role={out.ok ? 'status' : 'alert'}>{out.text}</p>}
     </>}
-    <ul className="fh-list" aria-label="사건">{ev.items.map((e) => <Row key={e.id} e={e} />)}</ul>
+    <Table items={ev.items} who={who} label="사건" />
     {ev.err && <p className="fh-msg" role="alert">기록을 받지 못했습니다. {why(ev.err)}</p>}
     {ev.busy && <p className="lv-note" role="status">기록을 불러오는 중…</p>}
     {!ev.busy && !ev.err && !ev.items.length && <p className="lv-note">{c.phone && c.robot ? '이 로봇의 기록이 아직 없습니다.' : filtered ? '조건에 맞는 기록이 없습니다.' : '아직 기록이 없습니다.'}</p>}
@@ -151,7 +173,7 @@ export function History(c: HistoryCtx) {
 }
 
 /** 알림에서 연 사건 하나(#/history?event_id=…). 범위 밖·없음이면 그렇게 쓴다 */
-function Focus({ id, cancel, close }: { id: string; cancel?: AbortSignal; close: () => void }) {
+function Focus({ id, cancel, who, close }: { id: string; cancel?: AbortSignal; who: (e: Ev) => string; close: () => void }) {
   const [e, setE] = useState<Ev | null>(null), [err, setErr] = useState('');
   useEffect(() => {
     api.event(id, cancel).then(shape(isEvent)).then(setE, (x: ApiFail) => {
@@ -160,7 +182,7 @@ function Focus({ id, cancel, close }: { id: string; cancel?: AbortSignal; close:
   }, []);
   return <div className="card" style={{ padding: 10 }} aria-label="알림에서 연 기록">
     <div className="fh-row"><b className="fh-grow">알림에서 연 기록</b><button type="button" className="btn" onClick={close}>닫기</button></div>
-    {e && <ul className="fh-list"><Row e={e} /></ul>}
+    {e && <Table items={[e]} who={who} />}
     {err && <p className="fh-msg" role="alert">{err}</p>}
   </div>;
 }

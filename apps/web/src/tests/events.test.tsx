@@ -82,7 +82,7 @@ const setVal = async (el: HTMLInputElement | HTMLSelectElement, v: string) => {
   });
   await flush();
 };
-const rows = () => [...card('사건').querySelectorAll('li')].map((l) => l.textContent);
+const rows = () => [...card('사건').querySelectorAll('tbody tr')].map((l) => l.textContent);
 const alertText = () => [...box.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join(' ');
 /** STOP 이 머리줄 맨 끝에 있고 누를 수 있다 */
 const stopOk = () => {
@@ -114,9 +114,26 @@ describe('기록 탭 — 서버 목록 그대로', () => {
     expect(rows()[0]).toContain('Go2-A과 연결이 끊겼습니다. 마지막 확인 상태: 정지 잠금. 이후 상태는 확인되지 않았습니다.');
     expect(rows()[0]).toContain('연결');
     expect(rows()[1]).toContain('계정');
-    expect(card('사건').querySelector('li [data-tone]')!.getAttribute('data-tone')).toBe('bad');
+    expect(card('사건').querySelector('tbody tr [data-tone]')!.getAttribute('data-tone')).toBe('bad');
     expect(rows()[0]).toMatch(/^\d{1,2}\/\d{1,2} \d\d:\d\d/);   // 현지 날짜·시각
     stopOk();
+  });
+  it('표: 시각·종류·상태·내용·로봇·사람 열, 분류 배지와 심각도(모양+글)는 따로', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('2', { category: 'SAFETY', severity: 'WARN', user_id: 'a1' }), ev('1', { category: 'ACCOUNT', severity: 'INFO', robot_id: null })]) }));
+    await open('#/history');
+    expect([...card('사건').querySelectorAll('th')].map((t) => t.textContent)).toEqual(['시각', '종류', '상태', '내용', '로봇·사람']);
+    const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => [...r.children].map((td) => td.textContent));
+    expect(a.slice(1)).toEqual(['안전', '▲주의', '사건 2 문장', 'Go2-A · 김총괄']);
+    expect(b.slice(1)).toEqual(['계정', '○알림', '사건 1 문장', '—']);
+    expect(card('사건').querySelector('[data-kind="SAFETY"]')!.textContent).toBe('안전');
+  });
+  it('INFO 는 «정상»이라 단정하지 않음 — 서버가 INFO 로 저장한 실패 코드(정지 확인 실패 등)는 ▲주의', async () => {
+    serve(signedIn(KIM, { 'GET /events': list([ev('2', { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인에 실패했습니다.' }),
+      ev('1', { category: 'RUN', code: 'NAV_GOAL_REJECTED', severity: 'INFO' })]) }));
+    await open('#/history');
+    const [a, b] = [...card('사건').querySelectorAll('tbody tr')].map((r) => r.children[2].textContent);
+    expect([a, b]).toEqual(['▲주의', '▲주의']);
+    expect(card('사건').textContent).not.toContain('정상');
   });
   it('cursor 로 «더 보기» — 다음 쪽을 이어 붙이고 끝이면 단추가 없어짐', async () => {
     serve(signedIn(KIM, { 'GET /events': (q) => (q.get('cursor') === 'c1' ? list([ev('1')]) : list([ev('3'), ev('2')], 'c1')) }));
@@ -192,9 +209,9 @@ describe('시각 접두', () => {
       ev('1', { at: AT, message: 'Go2-7이 12:30 에 연결되었습니다.' }),          // 접두 없음 — 문장 가운데 시각은 그대로
     ]) }));
     await open('#/history');
-    const sentences = [...card('사건').querySelectorAll('li')].map((l) => l.lastElementChild!.textContent);
+    const sentences = [...card('사건').querySelectorAll('tbody tr')].map((l) => l.querySelector('.fh-wide')!.textContent);
     expect(sentences).toEqual(['김총괄님이 로그인했습니다.', '박운영님이 로그인했습니다.', 'Go2-7이 12:30 에 연결되었습니다.']);
-    for (const li of card('사건').querySelectorAll('li')) expect(li.firstElementChild!.textContent).toBe(local);
+    for (const li of card('사건').querySelectorAll('tbody tr')) expect(li.firstElementChild!.textContent).toBe(local);
   });
   // 10-20 조정 결정 A: 표시 시각은 서버 접두와 같은 규칙(event_messages.py — timedelta(0) <= at - robot_at <= 24h 이면 robot_at, 아니면 at)
   it('표시 시각 규칙 — robot_at 없음·범위 안·미래·24시간 넘음, 경계(같은 시각·정확히 24시간·1µs 넘김)', () => {
@@ -215,9 +232,9 @@ describe('시각 접두', () => {
     const skewed = ev('1', { at: '2026-10-20T05:00:00Z', robot_at: '2026-10-21T05:00:00Z', message: '14:00 Go2-7 시계가 앞선 사건' });
     serve(signedIn(KIM, { 'GET /events': list([late, skewed]), 'GET /events/2': { status: 200, body: late } }));
     await open('#/history?event_id=2');
-    const times = [...card('사건').querySelectorAll('li')].map((l) => l.firstElementChild!.textContent);
+    const times = [...card('사건').querySelectorAll('tbody tr')].map((l) => l.firstElementChild!.textContent);
     expect(times).toEqual([show('2026-10-20T01:15:00Z'), show('2026-10-20T05:00:00Z')]);
-    expect(card('알림에서 연 기록').querySelector('li')!.firstElementChild!.textContent).toBe(show('2026-10-20T01:15:00Z'));
+    expect(card('알림에서 연 기록').querySelector('tbody tr')!.firstElementChild!.textContent).toBe(show('2026-10-20T01:15:00Z'));
   });
   it('알림 본문도 같은 규칙, 서랍 «최근 사건»도', async () => {
     serve(signedIn(KIM, {
@@ -470,7 +487,7 @@ describe('사건 문구 다듬기(10-22 QA R3·R4·R9·R10)', () => {
       ev('2', { category: 'LINK', code: 'PHONE_LEASE_RELEASED', severity: 'INFO', message: '15:03 Go2-A에서 사건 PHONE_LEASE_RELEASED이(가) 기록되었습니다.' }),
       ev('1', { category: 'LINK', code: 'SOMETHING_NEW', severity: 'INFO', message: 'Go2-A에서 사건 SOMETHING_NEW이(가) 기록되었습니다.' })]) }));
     await open('#/history');
-    const [a, b] = [...card('사건').querySelectorAll('li')];
+    const [a, b] = [...card('사건').querySelectorAll('tbody tr')];
     expect(a.querySelector('.fh-wide')!.textContent).toBe('Go2-A: 폰 조종권을 반납했습니다.');
     expect(b.querySelector('.fh-wide')!.textContent).toBe('Go2-A: 기타 사건');
     expect(a.querySelector('details')!.open).toBe(false);
@@ -537,6 +554,13 @@ describe('서랍 «최근 사건»', () => {
     expect(Object.fromEntries(call.q)).toEqual({ robot_id: 'r-a', limit: '5' });
     expect(card('로봇 상세').textContent).toContain('Go2-A 최근 사건');
     expect(card('로봇 상세').textContent).not.toContain('최근 사건 자리');
+  });
+  it('정지 확인 실패(서버 INFO)는 서랍에서도 «정상»이 아닌 ▲주의', async () => {
+    serve(signedIn(KIM, { 'GET /events': (q) => (q.get('robot_id') === 'r-a' ? list([ev('2', { category: 'SAFETY', code: 'STOP_CONFIRM_FAILED', severity: 'INFO', message: 'Go2-A 정지 확인 실패' })]) : list([])) }));
+    await open('#/fleet');
+    const li = $('[aria-label="최근 사건"] li')!;
+    expect(li.textContent).toContain('▲주의');
+    expect(li.textContent).not.toContain('정상');
   });
   it('없으면·범위 밖(404)이면 칸을 숨김(가짜 없음), 다른 실패는 한 줄', async () => {
     serve(signedIn(KIM));
