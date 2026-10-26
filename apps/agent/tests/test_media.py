@@ -14,7 +14,7 @@ from PIL import Image
 from apps.contracts.models import MediaPointCloudHeader, MediaVideoFrame, PhoneMediaWelcome
 from foothold_agent.media import Media, MediaTransport
 from foothold_agent.media.processing import convert, points, video
-from foothold_agent.ros_bridge.media import MediaRosSource
+from foothold_agent.ros_bridge.media import MediaRosSource, external_source
 from test_phone import h, Harness, signed
 
 
@@ -24,6 +24,11 @@ def jpeg(size=(40, 30)):
     return output.getvalue()
 
 
+def compressed(data, stamp=10):
+    return SimpleNamespace(header=SimpleNamespace(stamp=SimpleNamespace(sec=stamp, nanosec=0)),
+                           format='jpeg', data=data)
+
+
 def cloud(xyz=((1., 2., 3.),), *, big=False, pad=0):
     data = b''.join(struct.pack('>fff' if big else '<fff', *p) for p in xyz) + b'\0' * pad
     return (data, len(xyz), 1, 12, len(data), big,
@@ -31,8 +36,8 @@ def cloud(xyz=((1., 2., 3.),), *, big=False, pad=0):
 
 
 @pytest.fixture
-def media(h):
-    stream = Media(h.robot)
+def media(h, request):
+    stream = Media(h.robot, external_source='gazebo_external' if getattr(request, 'param', False) else None)
     stream.bind(dict(robot=h.robot, epoch=1, episode_id=str(uuid4())))
     stream.start()
     yield stream
@@ -68,12 +73,13 @@ def test_reject_bad_cloud_fields_and_length():
             points(bad)
 
 
-def test_capture_time_and_receipt_freshness():
+@pytest.mark.parametrize('channel', ['rgb', 'external'])
+def test_capture_time_and_receipt_freshness(channel):
     binding = dict(robot=str(uuid4()), epoch=1, episode_id=None)
     for age in (1.1, -1.1):
         captured = (datetime.now(timezone.utc)-timedelta(seconds=age)).isoformat()
-        assert convert('rgb', (binding, 1, time.monotonic(), captured, jpeg())) is None
-    assert convert('rgb', (binding, 1, time.monotonic()-1.1, datetime.now(timezone.utc).isoformat(), jpeg())) is None
+        assert convert(channel, (binding, 1, time.monotonic(), captured, jpeg())) is None
+    assert convert(channel, (binding, 1, time.monotonic()-1.1, datetime.now(timezone.utc).isoformat(), jpeg())) is None
 
 
 def test_tokens_channel_parent_tenant_epoch_and_replay(h, media):
@@ -100,11 +106,16 @@ def test_tokens_channel_parent_tenant_epoch_and_replay(h, media):
         transport.authorize({**hello, 'channel': 'lidar', 'token': token})
 
 
-def test_token_expiry_and_binding_switch(h, media):
+@pytest.mark.parametrize('media', [True], indirect=True)
+@pytest.mark.parametrize('channel', ['lidar', 'external'])
+def test_token_expiry_and_binding_switch(h, media, channel):
     peer, _, _ = h.connect()
     transport = MediaTransport(media, h.hub, now=h.clock)
     info = transport.issue(peer)
-    hello = dict(t='media.hello', version='media/1', channel='lidar', token=info['lidar']['token'], **media.binding)
+    hello = dict(t='media.hello', version='media/1', channel=channel, token=info[channel]['token'], **media.binding)
+    if channel == 'external':
+        with pytest.raises(ValueError):
+            transport.authorize({**hello, 'token': info['rgb']['token']})
     h.clock.t = 10
     with pytest.raises(ValueError):
         transport.authorize(hello)
@@ -112,7 +123,7 @@ def test_token_expiry_and_binding_switch(h, media):
     info = transport.issue(peer)
     media.bind({**media.binding, 'epoch': 2})
     with pytest.raises(ValueError):
-        transport.authorize({**hello, 'token': info['lidar']['token']})
+        transport.authorize({**hello, 'token': info[channel]['token']})
 
 
 async def wait_frame(stream, channel):
@@ -168,16 +179,20 @@ class SlowSocket:
         await asyncio.sleep(10)
 
 
+@pytest.mark.parametrize('media', [True], indirect=True)
 def test_slow_viewer_rgb_lidar_stop_deadman_regression(h, media):
     async def run():
         owner, _ = h.moving()
         transport = MediaTransport(media, h.hub)
-        queues = {c: media.subscribe(c) for c in ('rgb', 'lidar')}
+        queues = {c: media.subscribe(c) for c in ('rgb', 'external', 'lidar')}
         tasks = [asyncio.create_task(transport._frames(SlowSocket(), c, q, dict(media.binding)))
                  for c, q in queues.items()]
+        tasks.append(asyncio.create_task(media.run()))
         try:
             assert media.submit('rgb', jpeg()) and media.submit('lidar', cloud(tuple((i*.11, 0., 0.) for i in range(8000))))
-            # Both converters busy, both viewers stalled; safety needs no media operation.
+            assert media.submit('external', jpeg((320, 240)))
+            # Let actual conversion and stalled sends overlap before measuring safety.
+            await asyncio.sleep(.05)
             started = time.monotonic()
             h.send(owner, 'stop')
             assert time.monotonic() - started < .05
@@ -190,7 +205,7 @@ def test_slow_viewer_rgb_lidar_stop_deadman_regression(h, media):
             h.hub.tick()
             assert time.monotonic() - started < .05
             assert h.outputs[-1].velocity == (0., 0., 0.) and h.hub.session.core.need_neutral
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            results = await asyncio.gather(*tasks[:-1], return_exceptions=True)
             assert all(isinstance(result, asyncio.TimeoutError) for result in results)
             assert all(q.qsize() <= 1 for q in queues.values())
         finally:
@@ -202,6 +217,7 @@ def test_slow_viewer_rgb_lidar_stop_deadman_regression(h, media):
     asyncio.run(run())
 
 
+@pytest.mark.parametrize('media', [False, True], indirect=True)
 def test_loopback_media_binary_order_parent_close_and_legacy_camera(h, media):
     from websockets.asyncio.client import connect
     from websockets.exceptions import ConnectionClosed
@@ -237,10 +253,23 @@ def test_loopback_media_binary_order_parent_close_and_legacy_camera(h, media):
                     welcome = await receive_kind(control, 'hello')
                     PhoneWelcome.model_validate(welcome)
                     info = welcome['media']
-                    assert not info['external']['available'] and info['external']['token'] is None
+                    assert info['external']['available'] == media.available('external')
+                    if not media.available('external'):
+                        assert info['external']['token'] is None
                     def hello(channel):
                         return dict(t='media.hello', version='media/1', channel=channel,
                             token=info[channel]['token'], **media.binding)
+                    if media.available('external'):
+                        assert len(info['external']['token']) == 43
+                        async with connect(root+info['path']) as external:
+                            await external.send(json.dumps(hello('external')))
+                            source = MediaRosSource(media)
+                            source.update_time(1, 10)
+                            source.external(compressed(jpeg((320, 240))))
+                            frame = MediaVideoFrame.model_validate(await receive_kind(external, 'media.video'))
+                            assert frame.channel == 'external' and frame.source == 'gazebo_external'
+                            assert (frame.width, frame.height) == (320, 240)
+                            assert str(frame.episode_id) == media.binding['episode_id'] and frame.epoch == 1
                     async with connect(root+info['path']) as lidar:
                         await lidar.send(json.dumps(hello('lidar')))
                         assert media.submit('lidar', cloud())
@@ -286,12 +315,132 @@ def test_shared_mailbox_overwrites_without_a_feeder_backlog():
     assert not slot.put(b'x'*1024)
 
 
-def test_reset_discards_same_epoch_inflight_conversion(h, media):
+@pytest.mark.parametrize('media', [True], indirect=True)
+@pytest.mark.parametrize('channel', ['rgb', 'external'])
+def test_reset_discards_same_epoch_inflight_conversion(h, media, channel):
     binding, generation = dict(media.binding), media.generation
     header = dict(binding, t='media.video')
     media.bind(None)
     media.bind(binding)
-    assert not media.submit('rgb', jpeg(), expected_generation=generation)
-    assert media.processes['rgb'][2].put((generation, time.monotonic(), header, None))
+    assert not media.submit(channel, jpeg(), expected_generation=generation)
+    assert media.processes[channel][2].put((generation, time.monotonic(), header, None))
     media.sample()
-    assert 'rgb' not in media.latest
+    assert channel not in media.latest
+
+
+@pytest.mark.parametrize('world', ['warehouse', 'rubble', 'v5_building'])
+def test_external_adapter_requires_verified_launch_and_supported_world(world, monkeypatch):
+    from dataclasses import replace
+    from foothold_agent.executor.nav2.simulation import SimulationBinding
+    from test_warehouse_floor import launch as warehouse
+    from test_rubble_floor import launch as rubble
+    from test_floor_telemetry import launch as building
+    floors = {'warehouse': warehouse, 'rubble': rubble, 'v5_building': building}[world]()
+    floors.run_id = str(uuid4())
+    config = SimpleNamespace(robot_id=floors.robot_id, phone=SimpleNamespace(simulation=True), floor_bindings=floors)
+    proof = SimulationBinding(config.robot_id, floors.run_id, floors.generation, floors.epoch,
+                              tuple((b['world_id'], b['floor_id'], b['sha256']) for b in floors.bindings.values()))
+    monkeypatch.setenv('FOOTHOLD_EXTERNAL_CAMERA_ENABLED', '1')
+    assert external_source(config, None) is None  # env plus floor bindings alone never suffices
+    assert external_source(config, proof) == (None if world == 'v5_building' else 'gazebo_external')
+    for bad in (replace(proof, run_id=str(uuid4())), replace(proof, robot_id=str(uuid4())),
+                replace(proof, generation=99), replace(proof, epoch=99), replace(proof, maps=())):
+        assert external_source(config, bad) is None
+    config.phone.simulation = False
+    assert external_source(config, proof) is None
+
+
+@pytest.mark.parametrize('media', [True], indirect=True)
+def test_external_bounds_ros_freshness_no_video_and_seq(media):
+    async def run():
+        source = MediaRosSource(media)
+        source.update_time(1, 10)
+        incoming = media.processes['external'][1]
+        for message in (compressed(b'x'*65537), compressed(jpeg(), 8), compressed(jpeg(), 12)):
+            source.external(message)
+            assert incoming.take() is None
+        # Oversize advanced only the ROS stamp. A newer bounded frame can proceed.
+        source.update_time(1, 11)
+        source.external(compressed(jpeg((320, 240)), 11))
+        first = await wait_frame(media, 'external')
+        MediaVideoFrame.model_validate(first[1])
+        assert first[1]['seq'] == 1 and first[1]['source'] == 'gazebo_external'
+        source.external(compressed(jpeg((320, 240)), 11))
+        assert incoming.take() is None  # duplicate
+        queue = media.subscribe('external')
+        await asyncio.sleep(1.1)
+        media.sample()
+        assert queue.qsize() == 1 and queue.get_nowait()[1]['state'] == 'NO_VIDEO'
+        source.external(compressed(jpeg(), 12))
+        assert incoming.take() is None  # accepted state is now stale
+        media.bind({**media.binding, 'epoch': 2})
+        source.external(compressed(jpeg(), 0))
+        assert incoming.take() is None  # epoch clock mismatch
+        source.update_time(2, 0)
+        source.external(compressed(jpeg((320, 240)), 0))
+        second = await wait_frame(media, 'external')
+        assert second[1]['seq'] == 2 and second[1]['epoch'] == 2
+        media.unsubscribe('external', queue)
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('media', [True], indirect=True)
+@pytest.mark.parametrize('blocked,live', [('rgb', 'external'), ('external', 'rgb')])
+def test_video_channels_do_not_share_worker_mailbox_or_admission(media, blocked, live):
+    # Occupy exactly one mailbox, as if that decoder were stalled inside a read.
+    slot = media.processes[blocked][1]
+    assert slot.lock.acquire(False)
+    try:
+        assert not media.submit(blocked, jpeg())
+        assert media.submit(live, jpeg())
+        frame = asyncio.run(wait_frame(media, live))
+        assert frame[1]['channel'] == live and frame[1]['seq'] == 1
+        assert media.processes[blocked][0] != media.processes[live][0]
+    finally:
+        slot.lock.release()
+
+
+@pytest.mark.parametrize('enabled', [False, True])
+def test_external_subscription_reuses_ros_context_executor_and_depth_one(enabled, monkeypatch):
+    import sys
+    from foothold_agent.ros_bridge.media import RGB_TOPIC, POINT_TOPIC, EXTERNAL_TOPIC
+    calls, contexts, executors = [], [], []
+    stream = Media(str(uuid4()), external_source='gazebo_external' if enabled else None)
+    source = MediaRosSource(stream)
+    class Context:
+        def __init__(self):
+            contexts.append(self)
+        def ok(self):
+            return True
+        def shutdown(self):
+            pass
+    class Executor:
+        def __init__(self, **kwargs):
+            executors.append(self)
+        def add_node(self, node):
+            pass
+        def spin_once(self, **kwargs):
+            source.closing.set()
+        def shutdown(self, **kwargs):
+            pass
+    node = SimpleNamespace(create_subscription=lambda typ, topic, callback, qos: calls.append((topic, qos)),
+                           destroy_node=lambda: None)
+    modules = {'rclpy': SimpleNamespace(init=lambda **kwargs: None, create_node=lambda *args, **kwargs: node),
+               'rclpy.context': SimpleNamespace(Context=Context),
+               'rclpy.executors': SimpleNamespace(SingleThreadedExecutor=Executor),
+               'rclpy.qos': SimpleNamespace(qos_profile_sensor_data=SimpleNamespace(depth=5, reliability='BEST_EFFORT')),
+               'sensor_msgs': SimpleNamespace(),
+               'sensor_msgs.msg': SimpleNamespace(CompressedImage=object, PointCloud2=object)}
+    for name, value in modules.items():
+        monkeypatch.setitem(sys.modules, name, value)
+    monkeypatch.setattr('foothold_agent.ros_bridge.media.validate_isolation', lambda: None)
+    source._run()
+    assert source.error is None and len(contexts) == len(executors) == 1
+    assert {topic for topic, _ in calls} == {RGB_TOPIC, POINT_TOPIC} | ({EXTERNAL_TOPIC} if enabled else set())
+    assert all(qos.depth == 1 and qos.reliability == 'BEST_EFFORT' for _, qos in calls)
+
+
+def test_missing_decoder_disables_external_and_rgb(monkeypatch):
+    monkeypatch.setattr('foothold_agent.media.stream.importlib.util.find_spec', lambda name: None)
+    stream = Media(str(uuid4()), external_source='gazebo_external')
+    assert stream.reason('external') == stream.reason('rgb') == 'JPEG decoder (Pillow) is unavailable'

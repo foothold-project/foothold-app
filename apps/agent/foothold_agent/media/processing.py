@@ -75,10 +75,10 @@ def convert(channel, item):
         header, payload = points(raw)
     else:
         header, payload = video(raw), None
-        header['frame'] = 'camera_color_optical_frame'
+        header['frame'] = 'fh_external_camera' if channel == 'external' else 'camera_color_optical_frame'
     header.update(binding, t='media.points' if channel == 'lidar' else 'media.video',
         version='media/1', channel=channel,
-        source='l1' if channel == 'lidar' else 'd435i_rgb', captured_at=captured)
+        source={'lidar': 'l1', 'rgb': 'd435i_rgb', 'external': 'gazebo_external'}[channel], captured_at=captured)
     return generation, received, header, payload
 
 

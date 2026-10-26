@@ -1,13 +1,37 @@
 """Separate DDS reader/executor thread; never a command publisher or safety lock."""
 import threading
 import time
+from uuid import UUID
 
 from .config import validate_isolation
 
 RGB_TOPIC = '/v2_live/camera/compressed'
 POINT_TOPIC = '/v2_map/points'
-# Reserved interface with simmgr C; not subscribed/advertised until a source exists.
 EXTERNAL_TOPIC = '/v2_live/external_cam/compressed'
+
+
+def external_source(config, simulation_binding):
+    """Select the adapter only from the bootstrap's verified simmgr binding.
+
+    Floor/world environment settings alone cannot enable a subscription. The
+    existing launch proof is verified before run() constructs any media worker.
+    """
+    floors = getattr(config, 'floor_bindings', None)
+    if (simulation_binding is None or floors is None or not config.phone.simulation
+            or floors.world not in ('warehouse', 'rubble')):
+        return None
+    if (simulation_binding.robot_id != config.robot_id or floors.robot_id != config.robot_id
+            or simulation_binding.run_id != floors.run_id
+            or simulation_binding.generation != floors.generation
+            or simulation_binding.epoch != floors.epoch
+            or simulation_binding.maps != tuple((b['world_id'], b['floor_id'], b['sha256'])
+                                                for b in floors.bindings.values())):
+        return None
+    try:
+        UUID(floors.run_id)
+    except (ValueError, TypeError, AttributeError):
+        return None
+    return 'gazebo_external'
 
 
 class MediaRosSource:
@@ -39,9 +63,15 @@ class MediaRosSource:
             return False
 
     def rgb(self, message):
-        generation = self.fresh('rgb', message)
+        self._video('rgb', message)
+
+    def external(self, message):
+        self._video('external', message)
+
+    def _video(self, channel, message):
+        generation = self.fresh(channel, message)
         if generation and message.format.lower() in ('jpeg', 'jpg'):
-            self.media.submit('rgb', message.data, expected_generation=generation)
+            self.media.submit(channel, message.data, expected_generation=generation)
 
     def cloud(self, message):
         generation = self.fresh('lidar', message)
@@ -71,6 +101,8 @@ class MediaRosSource:
             qos.depth = 1
             if 'rgb' not in self.media.reasons:
                 node.create_subscription(CompressedImage, RGB_TOPIC, self.rgb, qos)
+            if 'external' not in self.media.reasons:
+                node.create_subscription(CompressedImage, EXTERNAL_TOPIC, self.external, qos)
             node.create_subscription(PointCloud2, POINT_TOPIC, self.cloud, qos)
             executor = SingleThreadedExecutor(context=context)
             executor.add_node(node)
@@ -79,6 +111,7 @@ class MediaRosSource:
         except Exception as error:
             self.error = type(error).__name__  # no credentials/ROS message in diagnostics
             self.media.reasons.update(rgb='Media ROS reader unavailable', lidar='Media ROS reader unavailable')
+            self.media.reasons.setdefault('external', 'Media ROS reader unavailable')
         finally:
             if executor is not None:
                 executor.shutdown(timeout_sec=.2)
