@@ -14,7 +14,7 @@ from launch.actions import EmitEvent, RegisterEventHandler
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
 service = LaunchService()
-description = generate_launch_description()
+description = generate_launch_description(simulation=True)
 description.add_action(RegisterEventHandler(OnProcessExit(on_exit=[
     EmitEvent(event=Shutdown(reason='owned Nav2 process exited'))])))
 service.include_launch_description(description)
