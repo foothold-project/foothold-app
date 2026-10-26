@@ -40,6 +40,7 @@ class RunNav:
         self.odom_at = float('-inf')
         self.last_lifecycle = float('-inf')
         self.lifecycle, self.lifecycle_pending = {}, {}
+        self.health_observation = None
         self.odom = SimOdom(.25, .02, .15)
         self.Twist, self.Odometry = Twist, Odometry
         self.Goal, self.GetState = NavigateToPose.Goal, GetState
@@ -95,6 +96,19 @@ class RunNav:
     def grid_snapshot(self):
         with self.lock:
             return deepcopy(self.grid)
+
+    def diagnostics(self):
+        now = self.now()
+        def age(at):
+            return now-at if math.isfinite(at) else None
+        return dict(last_health=deepcopy(self.health_observation),
+            map_identity=self.map_identity, odom_reason=self.odom.reason,
+            odom_receipt_age_s=age(self.odom_at),
+            clock_receipt_age_s=age(self.clock[1]) if self.clock else None,
+            scan_receipt_age_s=age(self.scan[1]) if self.scan else None,
+            lifecycle={name: dict(active=self.lifecycle[name][0],
+                receipt_age_s=age(self.lifecycle[name][1])) if name in self.lifecycle else None
+                for name in LIFECYCLE_NODES})
 
     def _tf(self, m):
         for t in m.transforms:
@@ -195,7 +209,10 @@ class RunNav:
                     self.lifecycle_pending[name] = None
                 if self.lifecycle_pending.get(name) is None and client.service_is_ready():
                     self.lifecycle_pending[name] = client.call_async(self.GetState.Request())
-        ready = (self.navigator.server_is_ready() and self.map_identity and now-self.odom_at <= .2
+        server_ready = self.navigator.server_is_ready()
+        ready = (server_ready and self.map_identity and now-self.odom_at <= .2
                  and len(self.lifecycle) == len(LIFECYCLE_NODES)
                  and all(ok and now-at <= 1.5 for ok,at in self.lifecycle.values()))
+        self.health_observation = dict(ready=bool(ready), server_ready=bool(server_ready),
+                                       observed_monotonic_s=now)
         self.actions.health(ready)

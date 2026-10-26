@@ -13,6 +13,23 @@ import sys
 
 from . import connected
 
+MAP_STATUS_PERIOD_S = .2
+
+
+def status_timer(tree):
+    """Reschedule the real producer, never replay or restamp cached evidence.
+
+    Only the known dedicated timer is accepted. Any upstream scheduling change
+    requires review rather than silently running at an unknown rate.
+    """
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)
+             and isinstance(n.func, ast.Attribute) and n.func.attr == 'create_timer'
+             and any(isinstance(a, ast.Name) and a.id == 'publish_status' for a in n.args)]
+    if (len(calls) != 1 or ast.dump(calls[0]) != ast.dump(ast.parse(
+            'node.create_timer(1.0, publish_status)', mode='eval').body)):
+        raise ValueError('connected static runtime status timer hook changed')
+    calls[0].args[0] = ast.copy_location(ast.Constant(MAP_STATUS_PERIOD_S), calls[0].args[0])
+
 
 def write_run_identity(out, run_id):
     """Publish the native nonce before Gazebo starts; manifest is exit evidence.
@@ -84,6 +101,7 @@ def compile_static_runtime(source, filename, *, warehouse=False):
     tree = status.visit(tree)
     if status.count != 1:
         raise ValueError('connected static runtime status hook changed')
+    status_timer(tree)
     ast.fix_missing_locations(tree)
     return compile(tree, filename, 'exec')
 

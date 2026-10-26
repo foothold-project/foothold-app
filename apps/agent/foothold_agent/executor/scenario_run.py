@@ -8,6 +8,7 @@ import hashlib
 import hmac
 import math
 import logging
+import json
 import secrets
 import os
 from uuid import uuid4
@@ -166,6 +167,18 @@ class ScenarioRun:
             if c['status'] != 'PAUSED':
                 c['pause_deadline'] = self.hub.now() + self.pause_timeout
             c.update(status=status, wait_reason=reason, fail_code=None)
+
+    def _context_failure_diagnostics(self):
+        # Called only after _halt: a stalled log sink must never delay STOP,
+        # cancellation, locking or the original LOCALIZATION_LOST transition.
+        try:
+            describe = getattr(self.context, 'failure_diagnostics', None)
+            detail = describe() if describe is not None else None
+            self.current['failure_detail'] = dict(kind='RUN_CONTEXT_FALSE', context=detail)
+            logging.getLogger(__name__).warning('LOCALIZATION_LOST context=%s',
+                json.dumps(self.current['failure_detail'], sort_keys=True, allow_nan=False))
+        except Exception:
+            pass
 
     def cancel_confirmed(self):
         if self.cancel_binding is None:
@@ -361,6 +374,7 @@ class ScenarioRun:
                 return
             if not self.context(c['request'], c['plan']):
                 self._halt('FAILED', 'LOCALIZATION_LOST')
+                self._context_failure_diagnostics()
                 return
             h._emit(s.executor_command(c['run_id'], Z))
             if self.cancel_confirmed():
@@ -386,6 +400,7 @@ class ScenarioRun:
             return
         if not self.context(c['request'], c['plan']):
             self._halt('FAILED', 'LOCALIZATION_LOST')
+            self._context_failure_diagnostics()
             return
         if succeeded:
             # Local zero-only health state; never renew the Nav2 source receipt.
