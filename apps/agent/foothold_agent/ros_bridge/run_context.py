@@ -26,7 +26,7 @@ class RunContext:
                 # change valid, refresh evidence or submit/cancel an action.
                 if ready is None and self.nav is not None:
                     ready = self.nav.actions.ready()
-                if self.maps is not None and extension is not None and grid is None:
+                if self.maps is not None and extension is not None and matched is None:
                     grid = extension.grid_snapshot()
                 self.failure = dict(maps_present=self.maps is not None,
                     extension_present=extension is not None, nav_ready=ready,

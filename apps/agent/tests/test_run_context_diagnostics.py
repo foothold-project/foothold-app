@@ -156,6 +156,21 @@ def test_pending_future_diagnostic_keeps_original_receipt_and_sim_difference(tmp
     assert detail['map_last_rejection'] == 'future'
 
 
+def test_missing_grid_diagnostic_uses_the_exact_failed_decision_snapshot(tmp_path):
+    clock = Clock()
+    context, cache, request, plan, status, nav = context_fixture(tmp_path, clock, SimpleNamespace(ready=lambda: True))
+    cache.update_state(state(sim_t=10.), clock())
+    cache.update_map(status(10.), clock())
+    real_grid, reads = nav.grid_snapshot(), []
+    def changing_grid():
+        reads.append(True)
+        return None if len(reads) == 1 else real_grid
+    nav.grid_snapshot = changing_grid
+    assert not context(request, plan)
+    assert 'grid.present' in context.failure_diagnostics()['map_failures']
+    assert len(reads) == 1
+
+
 @pytest.mark.parametrize('pending', [False, True])
 def test_both_failure_paths_log_local_detail_once(r, pending, caplog):
     binding = start(r)
