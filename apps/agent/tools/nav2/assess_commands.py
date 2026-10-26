@@ -10,8 +10,8 @@ from pathlib import Path
 from foothold_agent.executor.nav2 import PolicyAdapter
 
 
-def assess(rows, policy):
-    adapter=PolicyAdapter(policy)
+def assess(rows, policy, *, adapter=None):
+    adapter=PolicyAdapter(policy) if adapter is None else adapter
     counts={}
     first_rejection=None
     for i,row in enumerate(rows):

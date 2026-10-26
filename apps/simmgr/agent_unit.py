@@ -21,7 +21,16 @@ class AgentUnit:
         private = folder / 'agent-env.json'
         fd = os.open(private, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, 'w') as output:
-            json.dump(dict(env=env, setup=settings.ros_setup, python=settings.agent_python, root=str(root)), output)
+            # Only this owned launch file, never an environment toggle, can
+            # supply the Nav2 simulation proof to the private bootstrap.
+            proof = None
+            identity_path = folder / 'live-identity.json'
+            if identity_path.is_file() and env.get('FOOTHOLD_FLOOR_BINDINGS'):
+                floors = json.loads(env['FOOTHOLD_FLOOR_BINDINGS'])
+                proof = dict(identity=json.loads(identity_path.read_text()),
+                             registration={k: floors[k] for k in ('robot_id', 'run_id', 'generation')})
+            json.dump(dict(env=env, setup=settings.ros_setup, python=settings.agent_python,
+                           root=str(root), simulation_binding=proof), output)
         self.private = private
         args = ['systemd-run', '--user', '--quiet', '--unit=' + self.unit,
                 '--property=RuntimeMaxSec=' + str(settings.unit_runtime_seconds), '--property=RemainAfterExit=yes',

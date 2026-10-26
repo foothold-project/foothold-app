@@ -38,9 +38,9 @@ def parameters(text):
         ('tolerance','xy_goal_tolerance'),('frequency','controller_frequency'))}
 
 
-def replay_paths(config, policy, params, offsets=(0.,.001,.02,.05)):
+def replay_paths(config, policy, params, offsets=(0.,.001,.02,.05), *, adapter=None):
     """Uniform 4-profile x 8-autonomous-trial fixtures, not a probability sample."""
-    adapter=PolicyAdapter(policy)
+    adapter=PolicyAdapter(policy) if adapter is None else adapter
     results=[]
     if not all(math.isfinite(v) and v>0 for v in params.values()):
         raise ValueError('positive finite replay parameters required')

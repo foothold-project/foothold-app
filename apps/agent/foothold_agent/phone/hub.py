@@ -43,7 +43,7 @@ class Hub:
     def __init__(self, verifier, sink, *, policy_name, policy_version, simulation,
                  now=time.monotonic, wall=time.time, record=None,
                  nav=None, scenario_source=None, run_journal=None, run_context=None,
-                 arrival_evidence=None, run_pause_timeout_s=600):
+                 arrival_evidence=None, run_pause_timeout_s=600, simulation_binding=None):
         self.verifier, self.sink = verifier, sink
         self.now, self.wall, self.record = now, wall, record
         self.robot = verifier.robot
@@ -65,9 +65,31 @@ class Hub:
         self.runs = ScenarioRun(self, nav=nav, source=scenario_source, journal=run_journal,
             context=run_context, arrival=arrival_evidence, run_pause_timeout_s=run_pause_timeout_s)
         self.session.executor_zero_only = self.runs.zero_only_waiting
+        # Nav2 has its own SI policy. Phone axes keep their existing projection.
+        from foothold_agent.executor.nav2.simulation import SimulationBinding, SimulationPolicyAdapter
+        if (simulation is True and nav is not None
+                and isinstance(simulation_binding, SimulationBinding)
+                and simulation_binding.robot_id == self.robot):
+            enabled = lambda: (self.simulation is True
+                               and simulation_binding.matches(self.runs.binding))
+            nav.adapter = SimulationPolicyAdapter(nav.adapter, enabled)
+        phone_projection = self.session.core.velocity_projection
+        def projection(vx, vy, wz):
+            if self.session.holder_type == 'RUN' and self.runs.nav is not None:
+                adapter = self.runs.nav.adapter
+                if isinstance(adapter, SimulationPolicyAdapter):
+                    return adapter.project(vx, vy, wz)
+                # Legacy Nav2 .6 SI -> axis 1 must stay .6 SI even in a sim Hub.
+                return quantize(vx, vy, wz)
+            return phone_projection(vx, vy, wz)
+        if simulation is True:
+            self.session.core.velocity_projection = projection
         self._emit(self.session.connect())
 
     def _emit(self, effects):
+        if self.runs.binding is not None and self.runs.nav.rejected:
+            self.runs._halt('FAILED', 'NAV_GOAL_REJECTED')
+            return  # discard even effects computed just before the callback
         # Core intent time is the consumption time. Every output, including
         # robot feedback and audit ticks, must obey Nav2's original receipt.
         if self.runs.binding is not None and not self.runs.zero_only_waiting() and self.runs.nav.source_expired():
