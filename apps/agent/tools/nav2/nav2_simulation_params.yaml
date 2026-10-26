@@ -5,7 +5,13 @@
 # This is command compatibility, not proof of tracking, clearance or arrival.
 controller_server:
   ros__parameters:
+    progress:
+      movement_time_allowance: 12.0 # sim only; pi/.4 + acceleration/braking margin
     FollowPath:
+      use_rotate_to_heading: true
+      rotate_to_heading_min_angle: 0.5235987755982988 # pi/6; strict >30 degrees
+      rotate_to_heading_angular_vel: 0.4 # .1 rad/s below the SI policy ceiling
+      max_angular_accel: 0.8 # 20 Hz: .04 rad/s per ideal feedback step
       use_fixed_curvature_lookahead: true
       curvature_lookahead_dist: 1.2
       interpolate_curvature_after_goal: true
