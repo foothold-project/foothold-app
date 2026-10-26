@@ -20,10 +20,18 @@ from .simulation import RelayError, parse_robot_list
 logger = logging.getLogger(__name__)
 
 
-def relay_failure(stage, status, code, validation=None):
+def relay_failure(stage, status, code, validation=None, *, type_site=None):
     # Only fixed stages and protocol outcomes: no identity, body, URL, secret,
     # upstream exception text or validation input enters the server log.
-    if validation is None:
+    if isinstance(validation, TypeError):
+        # Classify one interpreter-generated message without logging any of it.
+        # All other messages (including arbitrary validator text) stay opaque.
+        message = validation.args[0] if validation.args and isinstance(validation.args[0], str) else ''
+        kind = 'unexpected_timeout' if message.endswith("got an unexpected keyword argument 'timeout'") else 'other'
+        site = type_site if type_site in ('request', 'parse') else 'unknown'
+        logger.warning("external camera relay stage=%s status=%s code=%s fields=$:type_error type_site=%s type_kind=%s",
+                       stage, status, code, site, kind)
+    elif validation is None:
         logger.warning("external camera relay stage=%s status=%s code=%s", stage, status, code)
     else:
         logger.warning("external camera relay stage=%s status=%s code=%s fields=%s",
@@ -130,9 +138,14 @@ def install(app, UploadIdentity, upload_write, fail, authorize):
             generation, owner, org, seq = upload_write(request, auth, prepare)
             # No organization lock/DB transaction during either bounded RPC.
             try:
-                slots = parse_robot_list(call('/v1/robots?' + urlencode({'org_id': str(org)})))
+                payload = call('/v1/robots?' + urlencode({'org_id': str(org)}))
+            except TypeError as error:
+                relay_failure('slots_response', 503, 'SIM_UNAVAILABLE', error, type_site='request')
+                fail(503, 'SIM_UNAVAILABLE', '시뮬 연결 정보를 확인하지 못했습니다.')
+            try:
+                slots = parse_robot_list(payload)
             except (ValidationError, TypeError) as error:
-                relay_failure('slots_response', 503, 'SIM_UNAVAILABLE', error)
+                relay_failure('slots_response', 503, 'SIM_UNAVAILABLE', error, type_site='parse')
                 fail(503, 'SIM_UNAVAILABLE', '시뮬 연결 정보를 확인하지 못했습니다.')
             slot = next((r for r in slots.items if r.robot_id == robot_id), None)
             if (slot is None or slot.state != 'RUNNING' or slot.generation != generation

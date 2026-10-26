@@ -257,3 +257,33 @@ def isolated_manager_startup(monkeypatch):
     # Runtime startup proof is exercised with dedicated doubles; never inspect
     # or touch the host's real ROS participants/user units during API tests.
     monkeypatch.setattr('apps.simmgr.api.startup_preflight',lambda *args: {'synthetic':True, 'resources_ok':True})
+
+
+@pytest.mark.parametrize('failure', ['encode', 'open', 'read', 'error_read'])
+@pytest.mark.parametrize('timeout', [None, .5])
+def test_relay_internal_type_errors_already_stay_inside_transport_boundary(failure, timeout):
+    """These sites cannot explain an external-camera slots_response TypeError."""
+    import io
+    from types import SimpleNamespace
+    from urllib.error import HTTPError
+    from apps.server.fh_server.simulation import Relay
+
+    class BrokenReader(io.BytesIO):
+        def read(self, *args):
+            raise TypeError('private-upstream-value-token')
+
+    relay = Relay.__new__(Relay)
+    relay.url, relay.secret = 'http://127.0.0.1:9609', 'x' * 32
+    def opened(request, **kwargs):
+        assert kwargs['timeout'] == (5 if timeout is None else timeout)
+        if failure == 'open':
+            raise TypeError('private-upstream-value-token')
+        if failure == 'error_read':
+            raise HTTPError(request.full_url, 503, 'private', {}, BrokenReader())
+        return BrokenReader()
+    relay.opener = SimpleNamespace(open=opened)
+    with pytest.raises(RelayError) as caught:
+        relay.request('GET', '/v1/robots', object() if failure == 'encode' else None, timeout=timeout)
+    assert (caught.value.status, caught.value.code, caught.value.detail) == (503, 'SIM_UNAVAILABLE', {})
+    assert caught.value.__suppress_context__
+    assert 'private' not in str(caught.value)
