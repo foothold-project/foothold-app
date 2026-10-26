@@ -166,7 +166,7 @@ export function SimDrive() {
   const [menu, setMenu] = useState<'' | 'menu' | 'set' | 'info'>(''), [bar, setBar] = useState(false), [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
   // 작은 지도(메뉴에서 켬, 기본 꺼짐 — 오른쪽 위 STOP 아래): 누르면 지도 크게 ↔ 영상 크게(실기 화면 dv-mini 와 같음 — 입력·조이스틱은 그대로)
   const floors = s.catalog?.worlds.find((x) => x.id === r.world_id)?.floors ?? [], fm = useFloorMap(st, r, floors);
-  const [big, setBig] = useState(false), [mini, setMini] = useState(false), [shut, setShut] = useState(''), hasMap = floors.length > 0 || !!fm.ctx;
+  const [big, setBig] = useState(false), [mini, setMini] = useState(false), [shut, setShut] = useState<string[]>([]), hasMap = floors.length > 0 || !!fm.ctx;
   const run = runView(s), moving = runMoving(l.run);   // 실행이 움직이는 중이면 조이스틱 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
   const live = ready && !menu && !bar && !leaving && !moving;
   const smooth = w?.limits.vx_mode === 'continuous', can = allowed(w), blocked = blockedNames(can);
@@ -220,7 +220,7 @@ export function SimDrive() {
       : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
     hideCam && (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam],
   ].filter(Boolean) as string[];
-  const said = shut !== '' && shut === notes[0];   // 닫은 사유가 그대로면 숨김(새 사유가 앞에 오면 다시 보임)
+  const said = notes.length > 0 && notes.every((t) => shut.includes(t));   // 닫을 때 보이던 안내뿐이면 숨김(새 안내가 하나라도 생기면 다시 보임)
   const acts = leaving ? leaving === 'fail' && [
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
@@ -285,7 +285,7 @@ export function SimDrive() {
       </Sheet>}
       {(notes.length > 0 && !said || !!acts && acts.length > 0) && <div className="dv-act" data-sim-card data-bare={said || notes.length === 0 || undefined}>
         {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t">{notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}</div>
-          <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes[0])}>{ICON.close}</button></div>}
+          <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes)}>{ICON.close}</button></div>}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
       </div>}
       {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">

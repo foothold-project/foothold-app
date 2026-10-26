@@ -1036,6 +1036,19 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false);   // 시뮬 STOP 은 에이전트로만
   });
 
+  it('PR117 r1: STOP 안내를 닫은 뒤 새 위험 안내(LOCALIZATION_LOST)가 오면 카드가 다시 보임', async () => {
+    const a = await launch();
+    await drive(a);
+    await click($('[data-stop]'));
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, stop_gen: 2, applied: [0, 0, 0] }));
+    expect(box.querySelectorAll('.dv-act .dv-note').length).toBeGreaterThan(0);
+    await click($('[data-sim-card-close]'));
+    expect(box.querySelectorAll('.dv-act .dv-note')).toHaveLength(0);
+    await recv(a, { t: 'run.update', run_id: 'r-1', status: 'FAILED', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: 'LOCALIZATION_LOST' });
+    expect($('[data-sim-card]')!.textContent).toContain('로봇이 지도 위 자기 위치를 잃었습니다.');
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
+  });
+
   it('잠금 사유 OUTPUT_STALLED 면 출력 지연 안내, 사유 없음·해제면 기존 그대로(잠금 해제 단추·STOP 그대로)', async () => {
     const a = await launch();
     await drive(a);
