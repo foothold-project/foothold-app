@@ -12,7 +12,9 @@ CHANNELS = ('rgb', 'external', 'lidar')
 
 
 class Media:
-    def __init__(self, robot, *, rgb_enabled=True, now=time.monotonic):
+    def __init__(self, robot, *, rgb_enabled=True, external_source=None, now=time.monotonic):
+        if external_source not in (None, 'gazebo_external'):
+            raise ValueError('unsupported external media source')
         self.robot, self.now = robot, now
         self.binding = None
         self.generation = 0
@@ -23,15 +25,16 @@ class Media:
         self.next_submit = dict.fromkeys(CHANNELS, float('-inf'))
         self.processes = {}
         self.ctx = multiprocessing.get_context('spawn')
-        self.reasons = {'external': 'External camera source is not connected'}
+        self.reasons = {} if external_source else {'external': 'External camera source is not connected'}
         if not rgb_enabled:
             self.reasons['rgb'] = 'RGB source is disabled'
-        elif importlib.util.find_spec('PIL') is None:
-            self.reasons['rgb'] = 'JPEG decoder (Pillow) is unavailable'
+        if importlib.util.find_spec('PIL') is None:
+            for channel in ('rgb', 'external'):
+                self.reasons.setdefault(channel, 'JPEG decoder (Pillow) is unavailable')
         self.closed = False
 
     def start(self):
-        for channel in ('rgb', 'lidar'):
+        for channel in CHANNELS:
             if channel in self.reasons:
                 continue
             incoming, outgoing, closing = LatestSlot(self.ctx, MAX_CLOUD_BYTES + 8192), LatestSlot(self.ctx, 100_000), self.ctx.Event()
@@ -67,7 +70,7 @@ class Media:
         if not self.available(channel) or received < self.next_submit[channel]:
             time.sleep(0)  # overspeed ROS producer must yield the GIL
             return False
-        if channel == 'rgb':
+        if channel in ('rgb', 'external'):
             if len(raw) > 65536:
                 return False
             raw = bytes(raw)

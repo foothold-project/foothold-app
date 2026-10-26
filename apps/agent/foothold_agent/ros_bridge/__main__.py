@@ -6,7 +6,7 @@ import os
 from uuid import UUID
 
 from foothold_agent.media import Media, MediaTransport
-from .media import MediaRosSource
+from .media import MediaRosSource, external_source
 
 from foothold_agent.camera import Camera, CameraTransport
 
@@ -100,7 +100,8 @@ async def run(config, *, simulation_binding=None):
                       simulation_binding=simulation_binding,
                       run_pause_timeout_s=float(os.environ.get('FOOTHOLD_RUN_PAUSE_TIMEOUT_S', '600')))
             if camera is not None or os.environ.get('FOOTHOLD_MEDIA_ENABLED') == '1':
-                media = Media(config.robot_id, rgb_enabled=camera is not None)
+                media = Media(config.robot_id, rgb_enabled=camera is not None,
+                              external_source=external_source(config, simulation_binding))
                 media_source = MediaRosSource(media)
                 def media_identity(epoch):
                     if not config.phone.simulation:

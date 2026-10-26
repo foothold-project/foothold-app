@@ -42,7 +42,8 @@ clients use exactly the binding returned by hello, not an inferred ID. Hardware
 adapters use `episode_id=null`; this simulation runner is not a hardware adapter.
 
 A separate ROS context/executor thread subscribes depth-one best-effort to
-`/v2_live/camera/compressed` and `/v2_map/points`. ROS stamps must advance and be
+`/v2_live/camera/compressed`, `/v2_map/points`, and (when enabled below)
+`/v2_live/external_cam/compressed`. ROS stamps must advance per channel and be
 within one second of fresh accepted simulation state. Capture UTC is the local
 receipt time; it is not a conversion of simulation time. Independent child
 processes fully decode JPEG and convert PointCloud2, respectively. Shared-memory
@@ -57,12 +58,23 @@ and sets `truncated` when further voxels exist. Only `lidar_link` is emitted,
 with `map_version_id=null` and `pose=null`: label it **L1 sensor frame**, not map
 accumulation. No verified TF/map transform is implemented here.
 
-External camera currently reports `available=false`, token null, with the reason
-that its source is not connected. The interface agreed with simmgr C is
-`/v2_live/external_cam/compressed` (`sensor_msgs/CompressedImage`). That topic is
-reserved in `ros_bridge/media.py`; attaching/advertising it requires an explicit
-source adapter with `source=gazebo_external`, the same limits and episode binding.
-No topic is subscribed on the strength of an environment variable alone.
+External camera is enabled only when the existing simmgr bootstrap's verified
+`SimulationBinding` matches the launcher-provided `FloorBindings` (robot, native
+run UUID, generation, epoch and registered maps), and the world is `warehouse`
+or `rubble`. No new environment switch is used; floor bindings or media flags
+alone do not enable the subscription. Building/legacy/unverified launches retain
+`available=false`, token null, and `External camera source is not connected`.
+When its decoder is alive and the media binding is valid, welcome advertises
+`external: {available: true, reason: "Ready", token: "..."}`. The explicit
+`gazebo_external` adapter receives `sensor_msgs/CompressedImage` from
+`/v2_live/external_cam/compressed` and emits `media.video`, `channel=external`,
+`source=gazebo_external`, `frame=fh_external_camera` with the current episode UUID
+and epoch. Simmgr produces 320×240 images; admission enforces the same JPEG
+limits as RGB (65,536 bytes, at most 640×360, 5 wall-clock Hz, one-second
+freshness). External uses its own decode child, overwrite mailbox, sequence and
+viewer queues; it reuses the existing media DDS context/executor thread and
+worker implementation. A stalled RGB decoder/viewer does not block external,
+or conversely. An enabled source with no fresh frame reports `NO_VIDEO`.
 
 Tests use synthetic in-memory rasters/scans, owned conversion children and
 loopback sockets in the assigned test port fence. ROS, Gazebo, hardware, phone,
