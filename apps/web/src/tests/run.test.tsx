@@ -94,9 +94,11 @@ async function ready(a: FakeWS, run: object | null = null) {
   await click(btn('잠금 해제'));
   await recv(a, phoneState({ ...held, latched: false, run }));
 }
+/** 폰: 시나리오 띠(닫혀 있으면 메뉴 → «시나리오», 열려 있으면 메뉴 단추로 닫기) */
+const scnToggle = async () => { if ($('[data-sim-scn]')) return click($('[data-sim-menu]')); if (!$('.dv-menu')) await click($('[data-sim-menu]')); await click($('[data-sim-scn-btn]')); };
 /** 폰: 시나리오 띠 → 고르기 */
 async function pickPhone(name = '1층 순찰') {
-  await click($('[data-sim-scn-btn]'));
+  await scnToggle();
   await click([...box.querySelectorAll('[data-sim-scn] li button')].find((b) => b.textContent?.startsWith(name)));
 }
 async function startPhone(a: FakeWS) {
@@ -113,7 +115,7 @@ describe('시나리오 실행 — 시작(능력 알림·조건)', () => {
     await pickPhone();
     expect(btn('실행')!.disabled).toBe(true);
     expect($('[data-sim-scn]')!.textContent).toContain('먼저 «조종 시작»을 누르세요.');
-    await click($('[data-sim-scn-btn]'));
+    await scnToggle();
     await ready(a);
     await pickPhone('두 층 순찰');
     expect(btn('실행')!.disabled).toBe(true);

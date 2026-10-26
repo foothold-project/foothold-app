@@ -77,13 +77,19 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-gear:disabled{opacity:.45;cursor:default}
 .dv-gear{position:absolute;top:8px;right:8px;z-index:2;width:44px;height:44px;box-sizing:border-box;display:grid;place-items:center;padding:0;border:1px solid rgba(230,235,239,.45);border-radius:22px;background:rgba(8,11,14,.66);color:#E6EBEF;cursor:pointer}
 .dv-gear[aria-expanded="true"]{border-color:var(--accent)}
-.dv-menu{position:absolute;top:58px;right:8px;z-index:2;display:flex;flex-direction:column;gap:6px}
+.dv-menu{position:absolute;left:140px;bottom:72px;z-index:2;max-height:calc(100% - 80px);overflow-y:auto;display:flex;flex-direction:column;align-items:stretch;gap:6px}
 .dv-menu .btn{min-height:44px;display:flex;align-items:center;gap:8px;justify-content:flex-start;background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 .dv-act{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:1;width:max-content;max-width:calc(100% - 288px);display:flex;flex-direction:column;align-items:center;gap:6px}
-.dv-act .dv-note{padding:4px 8px;font-size:13px;background:rgba(8,11,14,.66);color:#E6EBEF}
+.dv-act .dv-note{padding:4px 8px;font-size:13px;background:none;color:#E6EBEF}
+/* 10-26 안내 카드 한 장(줄마다 판이던 것을 판 하나로): 판 색은 .dv-menu 단추 값 그대로. 닫으면(data-bare) 글이 빠지고 단추만 판 없이 남는다 */
+.dv-act:not([data-bare]){box-sizing:border-box;padding:6px 6px 8px 8px;border:1px solid rgba(230,235,239,.45);border-radius:12px;background:rgba(8,11,14,.8)}
+.dv-act-head{display:flex;align-items:flex-start;gap:4px;max-width:100%}
+.dv-act-t{flex:1;min-width:0;max-height:30vh;overflow-y:auto}
+.dv-act-t>.dv-note:first-child{font-weight:600}
+.dv-x{flex:none;width:44px;height:44px;display:grid;place-items:center;padding:0;border:0;background:none;color:#E6EBEF;cursor:pointer}
 .dv-act .fh-row{justify-content:center}
-/* 시뮬 시험용 표시(limits.experimental): 상태 알약(아래 끝 40) 아래 작은 한 줄 — 세로 작은 지도(위 60)보다 위. 긴 문장은 설정 시트·aria-label */
-.dv-exp{position:absolute;top:42px;left:50%;transform:translateX(-50%);z-index:1;margin:0;padding:2px 8px;border-radius:8px;background:rgba(8,11,14,.66);color:#E6EBEF;font-size:12px;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--warn);pointer-events:none}
+/* 시뮬 시험용 표시(limits.experimental): 10-26 영상 위에서 빼고 메뉴 맨 위 한 줄. 긴 문장은 설정 시트·aria-label */
+.dv-exp{margin:0;padding:4px 8px;border-radius:8px;background:rgba(8,11,14,.8);color:#E6EBEF;font-size:12px;white-space:nowrap;box-shadow:inset 0 0 0 1px var(--warn)}
 .dv-act .btn{min-height:44px}
 /* 영상 위 실행 줄의 보통 단추(취소·새 출입증 등): 판 색·테두리는 .dv-menu 단추 값 그대로(어두운 영상 위에서 꺼진 단추처럼 보이지 않게). 주 단추(.pri)는 그대로 */
 .dv-act .btn:not(.pri){background:rgba(8,11,14,.8);border-color:rgba(230,235,239,.45);color:#E6EBEF}
@@ -97,8 +103,8 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 /* 화살표(simdrive Arrows): 선 값은 이전 배경 그림 그대로, 허용 안 된 방향(data-off)만 흐리게 */
 .dv-arrows{position:absolute;inset:0;width:100%;height:100%;fill:none;stroke:#E6EBEF;stroke-opacity:.7;stroke-width:4;stroke-linecap:round;stroke-linejoin:round;pointer-events:none}
 .dv-arrows [data-off]{stroke-opacity:.2}
-.dv-scn-btn{position:absolute;left:140px;bottom:12px;z-index:1;width:52px;height:52px;box-sizing:border-box;display:grid;place-items:center;padding:0;border:1px solid var(--accent);border-radius:26px;background:var(--accent);color:var(--on-accent);cursor:pointer}
-.dv-scn-btn[aria-expanded="true"]{box-shadow:0 0 0 3px rgba(230,235,239,.45)}
+.dv-menu-btn{position:absolute;left:140px;bottom:12px;z-index:1;width:52px;height:52px;box-sizing:border-box;display:grid;place-items:center;padding:0;border:1px solid var(--accent);border-radius:26px;background:var(--accent);color:var(--on-accent);cursor:pointer}
+.dv-menu-btn[aria-expanded="true"]{box-shadow:0 0 0 3px rgba(230,235,239,.45)}
 .dv-strip{position:absolute;left:198px;right:140px;bottom:12px;z-index:1;box-sizing:border-box;display:flex;flex-direction:column;gap:4px;padding:6px 8px;border:1px solid rgba(230,235,239,.45);border-radius:26px;background:rgba(8,11,14,.66);color:#E6EBEF}
 .dv-strip .dv-note{padding:2px 8px;font-size:13px;background:none;color:#E6EBEF}
 .dv-strip-row{display:flex;align-items:center;gap:6px;min-width:0}
@@ -107,14 +113,14 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-strip .btn[aria-pressed="true"]{border-color:var(--accent)}
 .dv-strip .btn b{font-size:12px;color:var(--accent)}
 .dv-strip .btn.pri[disabled]{background:var(--line);border-color:var(--line);color:var(--muted)}
-.dv-stage:has(.dv-scn-btn) .dv-act{bottom:76px}
+.dv-stage:has(.dv-menu-btn) .dv-act{bottom:76px}
 .dv-stage:has(.dv-strip) .dv-act{bottom:112px}
-@media (orientation:portrait){.dv-strip{left:8px;right:8px;bottom:144px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:144px}.dv-stage:has(.dv-strip) .dv-act{bottom:240px}}
-@media (orientation:portrait) and (max-height:700px){.dv-scn-btn{left:108px;bottom:8px}.dv-strip{bottom:104px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:104px}.dv-stage:has(.dv-strip) .dv-act{bottom:200px}}
-@media (max-height:480px){.dv-scn-btn{left:104px;bottom:8px}.dv-strip{left:162px;right:104px;bottom:8px}.dv-stage:has(.dv-scn-btn) .dv-act{bottom:68px;max-width:calc(100% - 208px)}.dv-stage:has(.dv-strip) .dv-act{bottom:104px}}
+@media (orientation:portrait){.dv-strip{left:8px;right:8px;bottom:144px}.dv-stage:has(.dv-menu-btn) .dv-act{bottom:144px}.dv-stage:has(.dv-strip) .dv-act{bottom:240px}}
+@media (orientation:portrait) and (max-height:700px){.dv-menu-btn,.dv-menu{left:108px}.dv-menu-btn{bottom:8px}.dv-menu{bottom:68px}.dv-strip{bottom:104px}.dv-stage:has(.dv-menu-btn) .dv-act{bottom:104px}.dv-stage:has(.dv-strip) .dv-act{bottom:200px}}
+@media (max-height:480px){.dv-menu-btn,.dv-menu{left:104px}.dv-menu-btn{bottom:8px}.dv-menu{bottom:68px;max-height:calc(100% - 76px)}.dv-strip{left:162px;right:104px;bottom:8px}.dv-stage:has(.dv-menu-btn) .dv-act{bottom:68px;max-width:calc(100% - 208px)}.dv-stage:has(.dv-strip) .dv-act{bottom:104px}}
 /* 시뮬 작은 지도(simmap.tsx): 오른쪽 위 설정 단추 아래(시나리오 띠·조이스틱·아래 안내와 떨어짐, 펼친 설정 메뉴가 위에 덮음). 가로 폰에서도 보임.
    층 이름표·흐림(층 이동 중·확인 중)·다시 불러오기. 판 색은 .dv-hud 단추 값 그대로 */
-[data-sim-drive].dv.ph .dv-mini{display:block;top:60px;bottom:auto;right:8px;width:120px;height:84px;cursor:pointer}
+[data-sim-drive].dv.ph .dv-mini{display:block;top:80px;bottom:auto;right:8px;width:120px;height:84px;cursor:pointer}
 /* 가로 폰: 영상 칸이 낮아(Safari 막대·머리줄 띠) 설정 아래로는 오른쪽 조이스틱과 겹친다 → 위 줄 설정 단추 왼쪽, 오른쪽 조이스틱(오른쪽 12 + 90)보다 안쪽.
    상태 알약은 양쪽 212(작은 지도·나가기) 사이만 쓴다 */
 @media (max-height:480px){[data-sim-drive].dv.ph .dv-mini{top:8px;right:112px;width:100px;height:70px}[data-sim-drive] .dv-top{max-width:calc(100% - 424px)}}
@@ -123,3 +129,13 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-stage>.dv-floor{left:8px;top:60px;bottom:auto;padding:4px 10px;font-size:13px}
 .dv-map-again{position:absolute;left:8px;top:96px;z-index:1;min-height:44px}
 .dv-spawn{min-height:44px;padding-right:12px}
+/* 10-26 사용자 «2번째 사진처럼 깔끔하게»(참고 Unitree 앱): 시뮬 조종 화면은 머리줄 없이 영상이 화면 끝까지(노치 자리 포함 — 틀 safe-area 여백 0).
+   조작부는 .dv-safe(safe-area 안쪽) 위에 그대로, STOP 은 머리줄에서 STOP 만 남겨 영상 위 오른쪽 위에 띄운다(fixed — 메뉴·띠·시트가 덮지 못함, 색·크기 그대로) */
+.fh.phone:has([data-sim-drive]){padding:0}
+.fh:has([data-sim-drive]) .fh-dev{display:none}   /* 접힌 개발용 표시도 빼서 영상이 맨 위부터(가로는 위 480px 규칙이 이미 숨김) */
+.dv-safe{position:absolute;inset:env(safe-area-inset-top,0px) env(safe-area-inset-right,0px) env(safe-area-inset-bottom,0px) env(safe-area-inset-left,0px);pointer-events:none}
+:where(.dv-safe)>*{pointer-events:auto}
+.fh.phone .fh-head[data-bare]{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));right:calc(8px + env(safe-area-inset-right,0px));left:auto;min-height:0;padding:0;border:0;background:none}
+.fh-head[data-bare] .fh-stop{border-radius:32px}
+/* 세로 폰: 위 줄이 좁아 가운데 알약이 STOP(112 + 8)에 닿는다 → «<»(8 + 44)와 STOP 사이 가운데 */
+@media (orientation:portrait){[data-sim-drive] .dv-top{left:60px;right:128px;width:fit-content;max-width:calc(100% - 188px);margin-inline:auto;transform:none}}
