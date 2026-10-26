@@ -15,7 +15,7 @@ from apps.server.tests.conftest import postgres, migrated, seeded, client
 from apps.server.tests.test_api import csrf
 from apps.server.tests.test_simulation import LocalRelay
 from apps.server.fh_server.models import Robot
-from apps.simmgr import agent_unit
+from apps.simmgr import agent_unit, launcher
 from apps.simmgr.agent_unit import AgentUnit
 from apps.simmgr.api import create_app
 from apps.simmgr.launcher import CleanupUnconfirmed, NativeLauncher
@@ -27,6 +27,9 @@ from test_review_environment import isolation
 @pytest.fixture
 def failed_episode(tmp_path, monkeypatch):
     monkeypatch.setenv('FH_SIM_RUN', '1')
+    # Exercise the same bounded polling without spending 45s on each survivor.
+    monkeypatch.setattr(launcher, 'RESOURCE_EXIT_WAIT_SECONDS', .05)
+    monkeypatch.setattr(launcher, 'RESOURCE_EXIT_POLL_SECONDS', .001)
     cfg = replace(settings(), real=True, source='synthetic', ros_setup='synthetic',
                   run_dir=str(tmp_path))
     state = SimpleNamespace(events=[], rows=[], ports=[], number=0, leftover=[], denied=0)
@@ -353,7 +356,7 @@ def test_resource_exit_deadline_releases_db_only_after_absence(
 
 
 @pytest.mark.parametrize('blocker', ['cgroup', 'unknown_cgroup', 'domain', 'partition',
-                                    'descendant', 'dds', 'unit_status', 'unit_reused', 'bus'])
+                                    'descendant', 'dds', 'unit_status', 'unit_reused', 'bus', 'denied'])
 def test_resource_abort_requires_unit_cgroup_and_runtime_absence(failed_episode, monkeypatch, blocker):
     cfg, state, launch, prepare = failed_episode
     prepare()
@@ -375,6 +378,7 @@ def test_resource_abort_requires_unit_cgroup_and_runtime_absence(failed_episode,
         if blocker == 'descendant': row['cgroup'] = '0::/synthetic/child'
         state.rows = [row]
     if blocker == 'dds': state.ports = [30650]
+    if blocker == 'denied': state.denied = 1
     if blocker == 'unit_status': state.native.pop('ActiveState')
     if blocker == 'unit_reused': state.native['MainPID'] = '456'
     if blocker == 'bus':
@@ -389,6 +393,125 @@ def test_resource_abort_requires_unit_cgroup_and_runtime_absence(failed_episode,
             await launch.close_world()
         assert launch.failed and launch.recovery_blocked and launch.sim is state.sim
         assert not state.events
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize('recheck', ['before_close', 'after_close'])
+def test_latched_reason_none_rechecks_absence_without_signals(failed_episode, monkeypatch, recheck):
+    """Each latched absence guard must independently prevent release/signalling."""
+    _, state, launch, prepare = failed_episode
+    folder = prepare()
+    launch.child = None
+    launch.failed = launch.recovery_blocked = True
+    assert state.sim.reason is None
+    if recheck == 'after_close':
+        state.native.update(MainPID='0', ActiveState='inactive')
+        state.rows = []
+        close = state.sim.close
+        def revive_after_cleanup():
+            close()
+            state.native.update(MainPID='123', ActiveState='active')
+            state.rows = [state.sim.pid.copy()]
+        monkeypatch.setattr(state.sim, 'close', revive_after_cleanup)
+
+    async def exercise():
+        with pytest.raises(CleanupUnconfirmed, match='SIM_CLEANUP_LATCHED'):
+            await launch.close_world()
+        assert launch.sim is state.sim and launch.folder == folder
+        assert launch.failed and launch.recovery_blocked
+        assert state.events == []
+        assert (folder / 'cleanup.json').exists() == (recheck == 'after_close')
+    asyncio.run(exercise())
+
+
+@pytest.mark.parametrize('reason', ['low_memory', 'swap_in_10s', 'runtime_limit'])
+@pytest.mark.parametrize('timeout', [False, True])
+def test_first_resource_abort_watcher_waits_before_cleanup(
+        failed_episode, seeded, client, monkeypatch, reason, timeout):
+    cfg, state, launch, prepare = failed_episode
+    slot = replace(next(iter(cfg.slots.values())), org_id=str(seeded['org']))
+    from apps.simmgr.config import World
+    cfg = replace(cfg, slots={slot.robot_id: slot},
+                  worlds={'test': World('test', Path(__file__), Path(__file__))})
+    launch.settings = cfg
+
+    async def start(world):
+        prepare()
+        launch.child = None  # agent STOP/zero already confirmed, no extra signal
+
+    async def add(*args):
+        pass
+
+    monkeypatch.setattr(launch, 'start_world', start)
+    monkeypatch.setattr(launch, 'add', add)
+    simapp = create_app(cfg, launch)
+    with TestClient(simapp, client=('127.0.0.1', 9600)) as sim:
+        client.app.state.simmgr = LocalRelay(sim, cfg.secret)
+        client.app.state.phone_pass_issuer.keys[slot.robot_id] = ('test', {'test': b'x' * 32})
+        headers = csrf(client, 'one')
+        response = client.post('/api/v1/simulation/robots', headers=headers,
+                               json={'world_id': 'test', 'robot_id': slot.robot_id})
+        assert response.status_code == 201, response.text
+        state.sim.reason = reason
+        state.native['ActiveState'] = 'deactivating'
+        reads = []
+        def stopping():
+            reads.append(dict(state.native))
+            if not timeout and len(reads) == 2:
+                state.native['MainPID'] = '0'  # still deactivating: not absent yet
+            if not timeout and len(reads) == 3:
+                state.native.update(MainPID='0', ActiveState='inactive')
+                state.rows = []
+            return dict(state.native)
+        state.sim.show = stopping
+        async def watch():
+            launch._watching = True
+            await launch._watch_children(launch.folder)
+        sim.portal.call(watch)
+        assert len(reads) >= 3
+        assert launch.recovery_blocked == timeout
+        assert launch.recovery_complete == (not timeout)
+        assert state.events == []
+        response = client.delete('/api/v1/simulation/robots/' + slot.robot_id, headers=headers)
+        if timeout:
+            assert response.status_code == 409, response.text
+            assert response.json()['error']['code'] == 'SIM_CLEANUP_LATCHED'
+            with Session(client.app.state.engine) as db:
+                row = db.get(Robot, slot.robot_id)
+                assert row.sim_state == 'STOPPING' and row.owner_user_id == seeded['users']['one']
+            assert state.events == []
+            state.native.update(MainPID='0', ActiveState='inactive')
+            state.rows = []
+            response = client.delete('/api/v1/simulation/robots/' + slot.robot_id, headers=headers)
+        assert response.status_code == 204, response.text
+        with Session(client.app.state.engine) as db:
+            row = db.get(Robot, slot.robot_id)
+            assert row.sim_state == 'IDLE' and row.owner_user_id is None
+        assert launch.sim is launch.child is launch.folder is None
+        assert not launch.failed and not launch.recovery_blocked
+        assert state.events == []
+
+
+def test_resource_exit_status_query_cannot_outlive_wait_budget(failed_episode):
+    _, state, launch, prepare = failed_episode
+    prepare()
+    launch.child = None
+    state.sim.reason = 'low_memory'
+    release = threading.Event()
+    def stalled_bus():
+        release.wait(.5)  # bounded even if the deadline guard is accidentally removed
+        return dict(state.native)
+    state.sim.show = stalled_bus
+    async def exercise():
+        start = asyncio.get_running_loop().time()
+        try:
+            with pytest.raises(CleanupUnconfirmed, match='SIM_CLEANUP_IDENTITY_UNPROVEN'):
+                await launch.close_world()
+            assert asyncio.get_running_loop().time() - start < .3
+            assert launch.failed and launch.recovery_blocked and launch.sim is state.sim
+            assert state.events == []
+        finally:
+            release.set()
     asyncio.run(exercise())
 
 

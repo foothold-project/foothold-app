@@ -20,6 +20,10 @@ from .native_catalogue import resolve_native_world, WorldValidationError
 
 ROOT = Path(__file__).resolve().parents[2]
 RESOURCE_EXITS = ('low_memory', 'swap_in_10s', 'runtime_limit')
+# Both native unit launchers use TimeoutStopSec=45. Observe, never extend it
+# with another signal; an unconfirmed exit still retains the cleanup latch.
+RESOURCE_EXIT_WAIT_SECONDS = 45
+RESOURCE_EXIT_POLL_SECONDS = .1
 
 
 class CleanupUnconfirmed(RuntimeError):
@@ -412,7 +416,9 @@ class NativeLauncher:
         else:
             if dict(line.split() for line in events.splitlines()).get('populated') != '0':
                 raise RuntimeError('native cgroup remains populated')
-        rows, _ = processes()
+        rows, denied = processes()
+        if denied:
+            raise RuntimeError('native process absence unconfirmed: permission denied')
         partition = sim.identity['partition']
         if any(r['domain'] == '93' or r['partition'] == partition
                or r['cgroup'].split(':', 2)[-1] == sim.cg
@@ -440,12 +446,32 @@ class NativeLauncher:
         if sim.reason in RESOURCE_EXITS:
             self._verify_native_absence(sim)
 
+    async def _wait_native_resource_exit(self, sim):
+        """Bounded read-only grace for the supervisor's already-issued SIGINT."""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + RESOURCE_EXIT_WAIT_SECONDS
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise RuntimeError('native resource exit timeout')
+            info = await asyncio.wait_for(asyncio.to_thread(sim.show), remaining)
+            if info.get('ControlGroup') not in ('', sim.cg):
+                raise RuntimeError('native cgroup identity changed')
+            if info.get('MainPID') == '0' and info.get('ActiveState') in ('inactive', 'failed'):
+                return  # Full cgroup/process/DDS proof follows; status alone is insufficient.
+            if (info.get('MainPID') not in ('0', str(sim.pid['pid']))
+                    or info.get('ActiveState') not in ('active', 'activating', 'deactivating')):
+                raise RuntimeError('native unit exit unconfirmed')
+            await asyncio.sleep(min(RESOURCE_EXIT_POLL_SECONDS, max(0, deadline - loop.time())))
+
     async def _close_verified_native(self):
         """Reuse failed-agent proof for a native exit, even after agent exit0."""
         stage = 'SIM_CLEANUP_IDENTITY_UNPROVEN'
         latched = self.recovery_blocked
         try:
             sim = self.sim
+            if not latched and sim is not None and sim.reason in RESOURCE_EXITS:
+                await self._wait_native_resource_exit(sim)
             await asyncio.to_thread(self._verify_native_identity, sim)
             if latched:
                 # An owner DELETE/deadline can recheck without a manager restart.
