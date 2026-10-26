@@ -11,9 +11,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from starlette.websockets import WebSocketDisconnect
 
 from apps.contracts import models as C
-from apps.server.fh_server.models import AgentPlanMap, Building, Event, Floor, MapVersion, Robot, Run, RunReport, RunReportRejection, RunStep, Upload, User, now
+from apps.server.fh_server.floor_maps import approved_bindings, repository_registration
+from apps.server.fh_server.models import AgentPlanMap, Building, Event, Floor, MapVersion, Robot, Run, RunReport, RunReportRejection, RunStep, ScenarioVersion, Upload, User, now
 from apps.server.fh_server.runs import record, map_proof, reject, sample_path
 from apps.server.fh_server.security import digest
+from apps.server.fh_server.sim_maps import load_worlds, sync_worlds
 from .test_missions import setup_scenario
 from .test_maps import P, auth, maps
 from .test_realtime import agent, receive
@@ -454,6 +456,90 @@ def test_human_map_and_forged_pgm_proof_fail_closed(scenario):
     assert response.status_code == 422 and response.json()['error']['code'] == 'MAP_PROOF_UNAVAILABLE'
     assert save(s, event(s, seq=2))['code'] == 'RUN_REPORT_MAP'
     assert not stored(s) and not stored(s, AgentPlanMap)
+
+
+@pytest.mark.parametrize('world_id', ['warehouse', 'rubble'])
+@pytest.mark.parametrize('registration', ['missing', 'stored', 'superseded', 'wrong_source',
+    'empty_source', 'origin', 'resolution', 'dimensions', 'human'])
+def test_agent_repository_map_proof_legacy_registration(maps, seeded, monkeypatch, world_id, registration):
+    client, _, files = maps
+    root = Path(__file__).resolve().parents[2] / 'simmgr/worlds'
+    canonical, _, _ = repository_registration(world_id)
+    row = list(next(row for row in load_worlds(root) if row[0]['world_id'] == world_id))
+    meta = row[1]
+    if registration != 'stored':
+        meta.pop('connected_gt')
+    if registration == 'wrong_source':
+        meta['connected_gt'] = {**canonical['connected_gt'], 'source_pgm_sha256': 'f' * 64}
+    elif registration == 'empty_source':
+        meta['connected_gt'] = {}
+    elif registration == 'origin':
+        meta['origin'] = [meta['origin'][0] + 1, *meta['origin'][1:]]
+    elif registration == 'resolution':
+        meta['resolution'] *= 2
+    elif registration == 'dimensions':
+        row[3] += 1
+    # Import only into the fixture's private DB/files; stored metadata stays immutable.
+    with Session(client.app.state.engine) as db, db.begin():
+        with monkeypatch.context() as patch:
+            patch.setattr('apps.server.fh_server.sim_maps.load_worlds', lambda _: [tuple(row)])
+            version_id, = sync_worlds(db, seeded['org'], seeded['users']['admin'], root, files)
+        robot = db.get(Robot, seeded['robots']['mine'])
+        robot.simulation = True
+        robot.agent_token_hash = digest('fake-repository-test-token')
+        scenario = db.scalar(select(ScenarioVersion))
+        scenario_id = scenario.scenario_id
+    if registration in ('superseded', 'human'):
+        engine = create_engine(seeded['urls']['migrate'])
+        try:
+            with Session(engine) as db, db.begin():
+                version = db.get(MapVersion, UUID(version_id))
+                if registration == 'superseded':
+                    version.status = 'SUPERSEDED'
+                else:
+                    version.provenance = 'HUMAN'
+        finally:
+            engine.dispose()
+    response = client.get(P + f'/agent/scenarios/{scenario_id}?version=1',
+        headers={'authorization': 'Bearer fake-repository-test-token'})
+    accepted = registration in ('missing', 'stored', 'superseded')
+    if accepted:
+        assert response.status_code == 200, response.text
+        proof, = C.ProvenAgentScenario.model_validate(response.json()).map_proofs
+        assert proof.source_pgm_sha256 == canonical['connected_gt']['source_pgm_sha256']
+        assert str(proof.map_version_id) == version_id
+    else:
+        assert response.status_code == 422, response.text
+        assert response.json()['error']['code'] == 'MAP_PROOF_UNAVAILABLE'
+    with Session(client.app.state.engine) as db:
+        version = db.get(MapVersion, UUID(version_id))
+        assert db.get(Upload, version.upload_id).metadata_json == meta  # No backfill, even on success.
+        if registration in ('missing', 'stored'):
+            assert approved_bindings(db, seeded['org'], world_id)[0].source_pgm_sha256 == proof.source_pgm_sha256
+        else:
+            with pytest.raises(ValueError):
+                approved_bindings(db, seeded['org'], world_id)
+        if not accepted:
+            assert not list(db.scalars(select(AgentPlanMap)))
+
+
+def test_agent_v5_map_without_connected_gt_stays_unavailable(scenario):
+    s = scenario
+    engine = create_engine(s['seeded']['urls']['migrate'])
+    try:
+        with Session(engine) as db, db.begin():
+            version = db.get(MapVersion, UUID(s['started']['map_version_id']))
+            floor = db.get(Floor, version.floor_id)
+            db.get(Building, floor.building_id).sim_world_id = 'v5_building'
+            floor.sim_floor_id = 'l1'
+            upload = db.get(Upload, version.upload_id)
+            upload.metadata_json = {k: v for k, v in upload.metadata_json.items() if k != 'connected_gt'}
+    finally:
+        engine.dispose()
+    response = s['client'].get(P + '/agent/scenarios/' + s['started']['scenario_id'] + '?version=1',
+        headers={'authorization': 'Bearer fake-test-' + str(s['seeded']['robots']['mine'])})
+    assert response.status_code == 422 and response.json()['error']['code'] == 'MAP_PROOF_UNAVAILABLE'
+    assert not stored(s, AgentPlanMap)
 
 
 def test_image_access_requires_agent_org_robot_and_fixed_plan_version(scenario):

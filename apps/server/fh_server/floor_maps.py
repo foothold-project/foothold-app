@@ -21,6 +21,22 @@ def repository_registration(world_id):
     return meta, width, height
 
 
+def connected_source(meta, version, world_id):
+    """Recover only packaged legacy registrations, without changing the upload."""
+    source = meta.get('connected_gt', {})
+    if world_id in ('warehouse', 'rubble'):
+        canonical, width, height = repository_registration(world_id)
+        if (version is None or (version.width, version.height) != (width, height)
+                or meta.get('resolution') != canonical['resolution']
+                or meta.get('origin') != canonical['origin']
+                or ('connected_gt' in meta and source != canonical['connected_gt'])):
+            raise ValueError('approved repository grid registration changed')
+        source = canonical['connected_gt']
+    if not isinstance(source, dict):
+        raise ValueError('connected grid registration is invalid')
+    return source
+
+
 def approved_bindings(db, org_id, world_id='v5_building'):
     if world_id not in ('v5_building', 'warehouse', 'rubble'):
         raise ValueError('unsupported static world')
@@ -40,15 +56,7 @@ def approved_bindings(db, org_id, world_id='v5_building'):
             MapVersion.status == 'APPROVED', MapVersion.provenance == 'SIMULATION'))
         upload = db.get(Upload, v.upload_id) if v is not None else None
         meta = upload.metadata_json if upload is not None and upload.org_id == org_id else {}
-        source = meta.get('connected_gt', {})
-        if world_id in ('warehouse', 'rubble'):
-            canonical, width, height = repository_registration(world_id)
-            if v is None or (v.width, v.height) != (width, height):
-                raise ValueError('approved repository grid registration changed')
-            if (meta.get('resolution') != canonical['resolution'] or meta.get('origin') != canonical['origin']
-                    or (source and source != canonical['connected_gt'])):
-                raise ValueError('approved repository grid registration changed')
-            source = canonical['connected_gt']
+        source = connected_source(meta, v, world_id)
         if (f.provenance != 'SIMULATION' or v is None or upload is None
                 or upload.provenance != 'SIMULATION' or v.source != 'IMPORT'
                 or source.get('world_id') != world_id or source.get('ros_floor_id') != f.sim_floor_id

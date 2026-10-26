@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from apps.contracts import models as C
 from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
+from .floor_maps import connected_source
 from .models import (AgentPlanMap, Building, Event, Floor, MapVersion, MissionVersion,
                      Robot, Run, RunReport, RunReportRejection, RunStep, ScenarioVersion, Upload, User, now)
 
@@ -45,7 +46,10 @@ def map_proof(db, robot, floor_id, version_id, fail):
     upload = db.scalar(select(Upload).where(Upload.org_id == robot.org_id, Upload.id == version.upload_id))
     building = db.scalar(select(Building).where(Building.org_id == robot.org_id, Building.id == floor.building_id))
     meta = upload.metadata_json if upload is not None else {}
-    source = meta.get('connected_gt', {})
+    try:
+        source = connected_source(meta, version, building.sim_world_id if building is not None else None)
+    except ValueError:
+        fail(422, 'MAP_PROOF_UNAVAILABLE', '시뮬 지도 원본·좌표 증명을 확인할 수 없습니다.')
     if (upload is None or upload.provenance != 'SIMULATION' or building is None
             or version.source != 'IMPORT' or version.status not in ('APPROVED', 'SUPERSEDED')
             or source.get('source') != 'SIMULATION' or not building.sim_world_id
