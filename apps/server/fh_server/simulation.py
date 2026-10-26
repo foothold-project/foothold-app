@@ -193,6 +193,9 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         if row is not None and (row.org_id != user.org_id or not row.simulation or row.archived_at):
             fail(404, 'NOT_FOUND', '시뮬 로봇을 찾을 수 없습니다.')
         if row is not None and row.owner_user_id is not None:
+            if row.sim_state == 'STARTING':
+                fail(409, 'SIM_SLOT_BUSY', '시뮬 슬롯의 시작 상태를 확인·정리 중입니다. 계속되면 관리자 확인이 필요합니다.',
+                     {'reason': 'slot_busy'})
             authorize(user, 'O_OWN', row)
             if row.owner_user_id != user.id:
                 fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 다른 사람이 사용 중입니다.', {'reason': 'slot_busy'})
@@ -362,12 +365,74 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
               'recovered_absent': recovered_absent, 'reason': 'time_limit' if expired else 'requested'}, category='LINK')
         return Response(status_code=204)
 
+    def reconcile_starting(db, org_id, result):
+        # A missing list entry alone is NEVER evidence. In particular, do not
+        # cancel an in-flight start in the same manager. Only a different
+        # manager plus the existing serialized absence/cancellation receipt
+        # can prove that an abandoned generation is safe to release.
+        present = {item.robot_id for item in result.items}
+        candidates = [(row.id, row.owner_user_id, row.sim_generation, row.sim_manager_instance_id)
+            for row in db.scalars(select(Robot).where(Robot.org_id == org_id,
+                Robot.simulation.is_(True), Robot.archived_at.is_(None), Robot.sim_state == 'STARTING'))
+            if row.id not in present and row.owner_user_id is not None and row.sim_manager_instance_id is not None]
+        db.commit()
+        if not candidates or result.manager_error is not None:
+            return
+        relay = app.state.simmgr
+        catalogue = C.SimCatalog.model_validate(relay.request(
+            'GET', '/v1/worlds?' + urlencode({'org_id': str(org_id)})))
+
+        def matches(row, owner_id, generation, manager_id):
+            return (row is not None and row.org_id == org_id and row.simulation and not row.archived_at
+                    and row.sim_state == 'STARTING' and row.owner_user_id == owner_id
+                    and row.sim_generation == generation and row.sim_manager_instance_id == manager_id)
+
+        for robot_id, owner_id, generation, manager_id in candidates:
+            if (catalogue.manager_instance_id is None or catalogue.manager_instance_id == manager_id
+                    or robot_id not in catalogue.slots):
+                continue
+            lock_organization(db, org_id)
+            row = db.get(Robot, robot_id, populate_existing=True)
+            current = matches(row, owner_id, generation, manager_id)
+            db.commit()  # no organization lock or transaction during relay IO
+            if not current:
+                continue
+            nonce = uuid4()
+            try:
+                receipt = C.SimRemoval.model_validate(relay.request('DELETE', '/v1/robots/' + str(robot_id),
+                    {'generation': generation, 'request_nonce': str(nonce)}))
+                if (receipt.robot_id != robot_id or receipt.generation != generation
+                        or receipt.request_nonce != nonce or not receipt.absent or not receipt.startup_clean
+                        or receipt.manager_instance_id != catalogue.manager_instance_id):
+                    raise RelayError('SIM_RECOVERY_UNPROVEN')
+            except (RelayError, ValueError, TypeError):
+                # No state/owner/credential changes on uncertain cleanup. A
+                # later sweep can retry with a fresh nonce, never a fresh POST.
+                logging.getLogger(__name__).warning('simulation startup recovery unconfirmed')
+                continue
+            lock_organization(db, org_id)
+            row = db.get(Robot, robot_id, populate_existing=True)
+            if matches(row, owner_id, generation, manager_id):
+                phone_pass.revoke(db, org_id, robot_id=robot_id, clock=issuer.clock)
+                row.sim_state = 'IDLE'
+                row.owner_user_id = None
+                row.agent_token_hash = digest(token())
+                event(db, org_id, 'SIM_ROBOT_REMOVED', owner_id, {'robot_id': str(robot_id),
+                      'generation': generation, 'manager_instance_id': str(receipt.manager_instance_id),
+                      'recovered_absent': True, 'reason': 'startup_recovery'}, category='LINK')
+            db.commit()
+
     def reconcile_expired(db, org_id, result=None):
         if app.state.simmgr is None:
             return
         if result is None:
             result = C.SimRobotList.model_validate(app.state.simmgr.request(
                 'GET', '/v1/robots?' + urlencode({'org_id': str(org_id)})))
+        try:
+            reconcile_starting(db, org_id, result)
+        except (RelayError, ValueError, TypeError):
+            db.rollback()
+            logging.getLogger(__name__).warning('simulation startup recovery unavailable')
         for completed in result.expired:
             lock_organization(db, org_id)
             row = db.get(Robot, completed.robot_id, populate_existing=True)
@@ -388,7 +453,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         from sqlalchemy.orm import Session
         with Session(app.state.engine, expire_on_commit=False) as db:
             orgs = list(db.scalars(select(Robot.org_id).where(
-                Robot.simulation.is_(True), Robot.sim_state == 'ACTIVE',
+                Robot.simulation.is_(True), Robot.sim_state.in_(('ACTIVE', 'STARTING')),
                 Robot.archived_at.is_(None)).distinct()))
             db.commit()  # no DB transaction/organization lock during GET IO
             for org_id in orgs:
