@@ -1700,14 +1700,15 @@ class Realtime:
                 peer.phone_ack_queue.task_done()
 
     async def run_report_writer(self, rid, peer):
-        from .runs import record, sample_path, snapshot, rejection
+        from .runs import record, sample_path, snapshot, rejection, execution_capabilities
         while True:
             kind, payload, at = await peer.run_reports.get()
             try:
                 if kind == 'pose':
                     await self.read(sample_path, self.run_factory, self.settings.org_id, rid, payload, at)
                 else:
-                    receipt = await self.read(record, self.run_factory, self.settings.org_id, rid, payload)
+                    receipt = await self.read(record, self.run_factory, self.settings.org_id, rid, payload,
+                        execution_capabilities(self, rid, peer=peer))
                     if receipt and self.agents.get(rid) is peer and not peer.closing:
                         self.put(peer, receipt)  # durable decision committed before any projection
                     if receipt and receipt['t'] == 'run.report_rejected':
@@ -1818,6 +1819,8 @@ class Realtime:
             self.apply(self.arbiter.revoke(rid, op='EXPIRE'))
             peer.state = {'devices': [d.model_dump(mode='json') for d in hello.devices],
                           'latched': hello.latched, 'stop_gen': hello.stop_gen}
+            if hello.execution_capabilities is not None:
+                peer.state['execution_capabilities'] = hello.execution_capabilities.model_dump(mode='json')
             run = hello.run.model_dump(mode='json') if hello.run else None
             from .runs import snapshot
             persisted = await self.read(snapshot, self.factory, self.settings.org_id, rid, run['run_id'] if run else None)

@@ -17,7 +17,7 @@ from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
 from .floor_maps import connected_source
 from .models import (AgentPlanMap, Building, Event, Floor, MapVersion, MissionVersion,
-                     Robot, Run, RunReport, RunReportRejection, RunStep, ScenarioVersion, Upload, User, now)
+                     Robot, Run, RunReport, RunReportRejection, RunStep, ScenarioVersion, Upload, User, Photo, now)
 
 TERMINAL = {'COMPLETED', 'FAILED', 'CANCELED', 'ABORTED'}
 SECRET_KEYS = {'resume_token', 'token', 'signature', 'authorization'}
@@ -71,7 +71,37 @@ def map_proof(db, robot, floor_id, version_id, fail):
         fail(422, 'MAP_PROOF_UNAVAILABLE', '시뮬 지도 PGM 증명이 올바르지 않습니다.')
 
 
-def fixed_scenario(db, robot, identifier, version, fail):
+def execution_capabilities(realtime, rid, *, peer=None):
+    current = realtime.agents.get(str(rid))
+    if peer is not None and current is not peer:
+        return None
+    peer = current
+    if peer is None or peer.closing:
+        return None
+    raw = peer.state.get('execution_capabilities')
+    if raw is None:
+        return None
+    caps = C.ExecutionCapabilities.model_validate(raw)
+    devices = peer.state.get('devices', [])
+    if not any(d.get('kind') == 'CAMERA_RGB' and d.get('state') == 'OK' for d in devices):
+        caps = caps.model_copy(update={'actions': [a.model_copy(update={
+            'state': 'UNAVAILABLE', 'reason': 'RGB 카메라 장치가 정상 상태가 아닙니다'})
+            if a.key == 'photo.rgb' and a.state == 'SUPPORTED' else a for a in caps.actions]})
+    return caps
+
+
+def require_execution(capabilities, required, revision, fail):
+    try:
+        if capabilities is None:
+            raise ValueError('실행기가 scenario/2 기능을 아직 광고하지 않았습니다.')
+        capabilities.require(required, revision)
+        if 'photo.depth' in required:
+            raise ValueError('깊이 사진 저장은 아직 지원하지 않습니다.')
+    except ValueError as exc:
+        fail(422, 'EXECUTION_UNAVAILABLE', '아직 실행할 수 없습니다: ' + str(exc))
+
+
+def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, revision=None):
     row = db.scalar(select(ScenarioVersion).where(ScenarioVersion.org_id == robot.org_id,
         ScenarioVersion.scenario_id == identifier, ScenarioVersion.number == version))
     if row is None:
@@ -87,26 +117,43 @@ def fixed_scenario(db, robot, identifier, version, fail):
             MissionVersion.number == waypoint['mission_version']))
         if mission is None:
             fail(422, 'PLAN_UNAVAILABLE', '고정 임무 판을 찾을 수 없습니다.')
-        points.append(C.AgentScenarioWaypoint(**waypoint, mission_name=mission.name))
+        steps = [C.MissionStep.model_validate(step) for step in mission.steps]
+        if revision is None:
+            points.append(C.AgentScenarioWaypoint(**waypoint, mission_name=mission.name))
+        else:
+            required = C.mission_capabilities(steps)
+            require_execution(capabilities, required, revision, fail)
+            points.append(C.ExecutableAgentScenarioWaypoint(**waypoint, mission_name=mission.name,
+                mission_steps=steps, required_capabilities=required))
     finish = C.ScenarioFinish.model_validate(row.finish)
     all_points = [*points, *([finish.target] if finish.target is not None else [])]
     proofs = [map_proof(db, robot, floor, version_id, fail) for floor, version_id in
               dict.fromkeys((p.floor_id, p.map_version_id) for p in all_points)]
+    if revision is not None:
+        require_execution(capabilities, [], revision, fail)
+        return row, C.ExecutableAgentScenario(id=identifier, number=version, waypoints=points,
+            finish=finish, map_proofs=proofs, run_contract='scenario/2', execution_capability_revision=revision)
     return row, C.ProvenAgentScenario(id=identifier, number=version, waypoints=points,
                                       finish=finish, map_proofs=proofs)
 
 
 def install(app, DB, fail):
-    @app.get('/api/v1/agent/scenarios/{identifier}', response_model=C.AgentScenario)
+    @app.get('/api/v1/agent/scenarios/{identifier}', response_model=C.ExecutableAgentScenario | C.AgentScenario, response_model_exclude_unset=True)
     def scenario(identifier: UUID, request: Request, response: Response, db: DB,
-                 version: int = Query(ge=1)):
+                 version: int = Query(ge=1), run_contract: str | None = None,
+                 execution_capability_revision: int | None = Query(default=None, ge=0)):
         rid = app.state.realtime.agent_identity(request.headers)
         robot = db.scalar(select(Robot).where(Robot.org_id == app.state.realtime.settings.org_id,
             Robot.id == UUID(rid), Robot.archived_at.is_(None)))
         if robot is None:
             fail(404, 'NOT_FOUND', '로봇을 찾을 수 없습니다.')
         response.headers['Cache-Control'] = 'no-store'
-        row, plan = fixed_scenario(db, robot, identifier, version, fail)
+        if ((run_contract is None) != (execution_capability_revision is None)
+                or run_contract not in (None, 'scenario/2')):
+            fail(422, 'EXECUTION_UNAVAILABLE', 'scenario/2 규약과 실행 기능 판을 함께 지정하세요.')
+        caps = execution_capabilities(app.state.realtime, robot.id)
+        row, plan = fixed_scenario(db, robot, identifier, version, fail,
+            capabilities=caps, revision=execution_capability_revision)
         for proof in plan.map_proofs:
             db.execute(insert(AgentPlanMap).values(org_id=robot.org_id, robot_id=robot.id,
                 scenario_version_id=row.id, map_version_id=proof.map_version_id).on_conflict_do_nothing())
@@ -135,18 +182,21 @@ def reject(status, code, message):
     raise ReportRejected({'NOT_FOUND': 'RUN_REPORT_NOT_FOUND',
                           'MAP_PROOF_UNAVAILABLE': 'RUN_REPORT_MAP',
                           'PLAN_UNAVAILABLE': 'RUN_REPORT_PLAN',
-                          'PRECHECK_FAILED': 'RUN_REPORT_PROVENANCE'}.get(code, 'RUN_REPORT_INVALID'))
+                          'PRECHECK_FAILED': 'RUN_REPORT_PROVENANCE',
+                          'EXECUTION_UNAVAILABLE': 'RUN_REPORT_PLAN'}.get(code, 'RUN_REPORT_INVALID'))
 
 
-def start_run(db, robot, msg, at):
-    body = C.ProvenRunStarted.model_validate(msg.data)
+def start_run(db, robot, msg, at, capabilities=None):
+    executable = msg.data.get('run_contract') == 'scenario/2'
+    body = (C.ExecutableRunStarted if executable else C.ProvenRunStarted).model_validate(msg.data)
     if body.simulation != robot.simulation or (body.surface == 'pc' and not robot.simulation):
         raise ReportRejected('RUN_REPORT_PROVENANCE')
     user = db.scalar(select(User).where(User.org_id == robot.org_id, User.id == body.user_id,
         User.archived_at.is_(None), User.locked.is_(False)))
     if user is None or not (user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id):
         raise ReportRejected('RUN_REPORT_OWNER')
-    row, scenario = fixed_scenario(db, robot, body.scenario_id, body.scenario_version, reject)
+    row, scenario = fixed_scenario(db, robot, body.scenario_id, body.scenario_version, reject,
+        capabilities=capabilities, revision=body.execution_capability_revision if executable else None)
     all_points = list(scenario.waypoints)
     if scenario.finish.target is not None:
         all_points.append(scenario.finish.target)
@@ -157,10 +207,13 @@ def start_run(db, robot, msg, at):
     if db.get(Run, body.run_id) is not None or db.scalar(select(Run.id).where(
             Run.robot_id == robot.id, Run.status.not_in(TERMINAL))) is not None:
         raise ReportRejected('RUN_REPORT_CONFLICT')
-    goals = [C.RunGoal(idx=i, **p.model_dump(exclude={'floor_id', 'map_version_id'}))
+    goals = [(C.ExecutableRunGoal if executable else C.RunGoal)(idx=i, **p.model_dump(exclude={'floor_id', 'map_version_id'}, exclude_unset=True))
              for i, p in enumerate(scenario.waypoints)]
-    plan = C.RunPlan(segments=[C.RunSegment(floor_id=body.floor_id,
-        map_version_id=body.map_version_id, goals=goals)]).model_dump(mode='json')
+    segment = (C.ExecutableRunSegment if executable else C.RunSegment)(floor_id=body.floor_id,
+        map_version_id=body.map_version_id, goals=goals)
+    plan = (C.ExecutableRunPlan(segments=[segment], run_contract='scenario/2',
+        execution_capability_revision=body.execution_capability_revision) if executable else
+        C.RunPlan(segments=[segment])).model_dump(mode='json', exclude_unset=True)
     # Preserve the fixed finish reference too; it is not another mission step.
     plan['finish'] = scenario.finish.model_dump(mode='json')
     plan['map_proofs'] = [proof.model_dump(mode='json') for proof in scenario.map_proofs]
@@ -206,7 +259,7 @@ def rejection(raw, code, expected=None):
     return C.RunReportRejected(t='run.report_rejected', **fields).model_dump(mode='json', exclude_unset=True)
 
 
-def record(factory, org_id, rid, msg):
+def record(factory, org_id, rid, msg, capabilities=None):
     """ACK/quarantine only after commit; robot lock serializes all replay decisions."""
     raw = msg if isinstance(msg, dict) else msg.model_dump(mode='json', exclude_unset=True)
     identity = report_identity(raw)
@@ -268,7 +321,7 @@ def record(factory, org_id, rid, msg):
                         parsed = C.DurableAgentEvent.model_validate(raw)
                 else:
                     parsed = C.DurableAgentRunUpdate.model_validate(raw)
-                apply_report(db, robot, parsed, received)
+                apply_report(db, robot, parsed, received, capabilities)
                 db.flush()
         except ReportRejected as exc:
             code = str(exc)
@@ -290,12 +343,12 @@ def record(factory, org_id, rid, msg):
     return rejection(raw, code) if code else identity.model_dump(mode='json')
 
 
-def apply_report(db, robot, msg, received):
+def apply_report(db, robot, msg, received, capabilities=None):
     org_id = robot.org_id
     clean = public_data(msg.model_dump(mode='json', exclude_unset=True))
     run = None
     if msg.t == 'event' and msg.code == 'RUN_STARTED':
-        run = start_run(db, robot, msg, received)
+        run = start_run(db, robot, msg, received, capabilities)
     else:
         identifier = str(msg.run_id) if msg.t == 'run.update' else msg.data.get('run_id')
         if identifier is not None:
@@ -314,6 +367,10 @@ def apply_report(db, robot, msg, received):
         total = len(run.plan['segments'][0]['goals'])
         if msg.step > total or (msg.step == total and msg.status not in TERMINAL):
             raise ReportRejected('RUN_REPORT_STEP')
+        if msg.status == 'COMPLETED' and run.plan.get('run_contract') == 'scenario/2':
+            steps = list(db.scalars(select(RunStep).where(RunStep.run_id == run.id)))
+            if len(steps) != total or any(s.status != 'DONE' for s in steps):
+                raise ReportRejected('RUN_REPORT_STATE')
         run.status, run.step = msg.status, msg.step
         run.progress = msg.progress.model_dump() if msg.progress else None
         run.wait_reason, run.fail_code = msg.wait_reason, msg.fail_code
@@ -340,8 +397,33 @@ def apply_report(db, robot, msg, received):
             else:
                 if step.status not in ('ARRIVED', 'DONE'):
                     raise ReportRejected('RUN_REPORT_STATE')
-                step.status, step.done_at = 'DONE', step.done_at or received
-                step.results = {'mode': 'DISPLAY_ONLY', **goal}
+                executable = run.plan.get('run_contract') == 'scenario/2'
+                if executable != isinstance(body.results, C.RunExecutedResults):
+                    raise ReportRejected('RUN_REPORT_PLAN')
+                if executable:
+                    try:
+                        body.results.validate_plan(C.ExecutableRunGoal.model_validate(goal),
+                            run.plan['execution_capability_revision'])
+                    except ValueError:
+                        raise ReportRejected('RUN_REPORT_PLAN') from None
+                    for result in body.results.steps:
+                        if result.photo is None:
+                            continue
+                        photo = db.scalar(select(Photo).where(Photo.org_id == org_id,
+                            Photo.robot_id == robot.id, Photo.run_id == run.id,
+                            Photo.waypoint_idx == body.idx, Photo.step_idx == result.step_idx,
+                            Photo.id == result.photo.photo_id, Photo.status == 'STORED'))
+                        if photo is None or (photo.source, photo.captured_at, photo.sha256) != (
+                                result.photo.source, result.photo.captured_at, result.photo.sha256):
+                            raise ReportRejected('RUN_REPORT_PLAN')
+                    value = body.results.model_dump(mode='json')
+                    failed = any(r.status == 'FAILED' for r in body.results.steps)
+                else:
+                    value, failed = {'mode': 'DISPLAY_ONLY', **goal}, False
+                if step.status == 'DONE' and step.results != value:
+                    raise ReportRejected('RUN_REPORT_CONFLICT')
+                step.status, step.done_at = 'FAILED' if failed else 'DONE', step.done_at or received
+                step.results = value
         ev = render(db, Event(org_id=org_id, robot_id=robot.id,
             run_id=run.id if run else None, at=received, robot_at=msg.robot_at,
             code=msg.code, severity=msg.severity.upper(), category='RUN' if run else CATEGORIES.get(msg.code, 'LINK'),

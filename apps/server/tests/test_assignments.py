@@ -316,7 +316,8 @@ def test_catalog_reports_all_unavailable_choices(client, seeded):
     try:
         photo = next(a for a in client.get(P + '/actions', headers=headers, params={'robot_id': rid}).json() if a['key'] == 'PHOTO')
         assert not photo['available']
-        assert 'CAMERA_RGB' in photo['why_unavailable'] and 'CAMERA_DEPTH' in photo['why_unavailable']
+        assert 'rgb:' in photo['why_unavailable'] and 'depth:' in photo['why_unavailable']
+        assert '아직 광고하지' in photo['why_unavailable'] and '아직 지원하지' in photo['why_unavailable']
     finally:
         client.app.state.realtime.agents.pop(rid)
 
@@ -355,7 +356,7 @@ def test_populated_assignment_approval_downgrade_refuses_without_losing_history(
     engine = create_engine(seeded['urls']['migrate'])
     try:
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0019'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0020'
             assert conn.scalar(text('SELECT status FROM assignments WHERE id=:id'), {'id': row['id']}) == 'PENDING'
             assert conn.scalar(text('SELECT status FROM approvals WHERE id=:id'), {'id': row['approval_id']}) == 'PENDING'
     finally:
@@ -407,7 +408,7 @@ def test_direct_active_assignment_downgrade_refuses_without_losing_history(maps,
         with pytest.raises(DBAPIError, match='assignment approval history requires backup'):
             command.downgrade(Config(str(CONFIG)), '0014')
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0019'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0020'
             assert conn.execute(text('SELECT status, approval_id, removed_at FROM assignments WHERE id=:id'),
                 {'id': row['id']}).one() == ('ACTIVE', None, None)
             assert conn.scalar(text("SELECT count(*) FROM approvals WHERE kind='SCENARIO_ASSIGNMENT'")) == 0

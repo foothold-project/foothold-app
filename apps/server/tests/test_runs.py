@@ -314,7 +314,7 @@ def test_populated_migration_downgrade_refuses_data_loss(scenario, monkeypatch):
     migration_engine = create_engine(s['seeded']['urls']['migrate'])
     try:
         with migration_engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0019'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0020'
     finally:
         migration_engine.dispose()
     assert len(stored(s)) == len(stored(s, RunReport)) == 1
