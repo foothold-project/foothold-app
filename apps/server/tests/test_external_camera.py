@@ -63,13 +63,32 @@ def camera(client, seeded, tmp_path, monkeypatch):
         db.commit()
     slots = serialized_manager_slots(seeded, monkeypatch)
     state = dict(calls=[], headers=[], delay=0, error=None, reply=None, on_get=None,
-        slots=slots, slot=slots['items'][0])
+        slots=slots, slot=slots['items'][0], get_fault=None)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             state['headers'].append(self.headers.get('Authorization'))
             if state['on_get']:
                 state['on_get']()
+            fault = state['get_fault']
+            if fault == 'slow_headers':
+                time.sleep(.65)
+            if fault in ('error_list', 'error_string', 'nested_list', 'nested_string'):
+                body = {'error_list': [], 'error_string': 'private-upstream-value-token',
+                    'nested_list': {'error': []}, 'nested_string': {'error': 'private-upstream-value-token'}}[fault]
+                self.respond(503, body)
+                return
+            if fault in ('invalid_json', 'partial_json', 'slow_body'):
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                if fault == 'slow_body':
+                    time.sleep(.65)
+                try:
+                    self.wfile.write(b'private-upstream-value-token' if fault == 'invalid_json' else b'{"items":[')
+                except BrokenPipeError:
+                    pass
+                return
             self.respond(200, {**state['slots'], 'items': [state['slot']] if state['slot'] else []})
 
         def do_POST(self):
@@ -172,7 +191,8 @@ def test_slots_validation_diagnostics_without_values(camera, monkeypatch, caplog
     assert result.status_code == 503 and result.json()['error']['code'] == 'SIM_UNAVAILABLE'
     records = [r.getMessage() for r in caplog.records if r.name == external_camera.__name__]
     assert records == ['external camera relay stage=slots_response status=503 '
-        f'code=SIM_UNAVAILABLE fields={fields}']
+        f'code=SIM_UNAVAILABLE fields={fields}' +
+        (' type_site=parse type_kind=other' if failure == 'type_error' else '')]
     assert not state['calls']
     assert private not in caplog.text
     assert 'fake-test-service-secret' not in caplog.text
@@ -412,3 +432,69 @@ def test_relay_failure_stage_logged_without_remote_data(camera, monkeypatch, cap
     assert records == [f'external camera relay stage={stage} status={status} code={code}{fields}']
     assert 'private-upstream-value' not in caplog.text
     assert str(state['rid']) not in '\n'.join(records)
+
+
+@pytest.mark.parametrize('fault', ['error_list', 'error_string', 'nested_list', 'nested_string',
+    'invalid_json', 'partial_json', 'slow_headers', 'slow_body'])
+def test_slots_transport_faults_do_not_escape_as_type_error(camera, caplog, fault):
+    client, state = camera
+    headers = csrf(client, 'one')
+    state['get_fault'] = fault
+    result = post(client, state, headers)
+    assert result.status_code == 503 and result.json()['error']['code'] == 'SIM_UNAVAILABLE'
+    messages = [r.getMessage() for r in caplog.records if r.name == external_camera.__name__]
+    assert messages == ['external camera relay stage=slots_transport status=503 code=SIM_UNAVAILABLE']
+    assert not state['calls']
+    assert 'private-upstream-value-token' not in caplog.text
+    # A slow listing fits the default 5s budget; a 200 alone still proves nothing.
+    if fault == 'slow_headers':
+        listing = client.get('/api/v1/simulation/robots')
+        assert listing.status_code == 200 and listing.json()['manager_error'] is None
+        assert listing.json()['items'] == state['slots']['items']
+
+
+def test_concurrent_real_serialized_listings_do_not_raise_type_error(camera):
+    from apps.server.fh_server.simulation import parse_robot_list
+    client, state = camera
+    relay = client.app.state.simmgr
+    def read(_):
+        return parse_robot_list(relay.request('GET', '/v1/robots', timeout=.5)).model_dump(mode='json')
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(read, range(12)))
+    assert all(result == state['slots'] for result in results)
+    assert not state['calls']
+
+
+def test_request_signature_type_error_is_distinguished_from_parser(camera, monkeypatch, caplog):
+    client, state = camera
+    original = Relay.request
+    # The preview observation launcher installs this signature on Relay itself.
+    # Argument binding fails before the real transport's exception boundary.
+    def observed(self, method, path, body=None):
+        return original(self, method, path, body)
+    monkeypatch.setattr(Relay, 'request', observed)
+    headers = csrf(client, 'one')
+    listing = client.get('/api/v1/simulation/robots')
+    assert listing.status_code == 200 and listing.json()['manager_error'] is None
+    assert listing.json()['items'] == state['slots']['items']
+    result = post(client, state, headers)
+    assert result.status_code == 503
+    messages = [r.getMessage() for r in caplog.records if r.name == external_camera.__name__]
+    assert messages == ['external camera relay stage=slots_response status=503 '
+        'code=SIM_UNAVAILABLE fields=$:type_error type_site=request type_kind=unexpected_timeout']
+    assert not state['calls']
+    assert 'observed' not in '\n'.join(messages)
+    assert str(state['rid']) not in '\n'.join(messages)
+
+    # Proposed launcher repair only: preserve kwargs, including the 500ms budget.
+    # The live launcher is never imported, executed, edited or restarted here.
+    forwarded = []
+    def transparent(self, method, path, body=None, **kwargs):
+        forwarded.append(kwargs)
+        return original(self, method, path, body, **kwargs)
+    monkeypatch.setattr(Relay, 'request', transparent)
+    time.sleep(.11)
+    repaired = post(client, state, headers)
+    assert repaired.status_code == 200, repaired.text
+    assert forwarded == [{'timeout': .5}, {'timeout': .5}]
+    assert len(state['calls']) == 1

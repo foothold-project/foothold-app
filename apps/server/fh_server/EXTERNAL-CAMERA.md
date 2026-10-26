@@ -61,14 +61,17 @@ cancel/reset 및 중계 실패도 순번·속도 한도를 소비한다. STOP·l
 HTTP status, 프로토콜 code를 기록한다. `slots_response`는 검증 실패의
 필드 경로·오류 종류도 최대 16개 기록한다(예: `items.0.generation:int_parsing`).
 스키마에 없는 필드명은 값·토큰을 포함할 수 있어 `<extra>`로 가리고,
-TypeError는 원문 없이 `$:type_error`로 기록한다. 계정·로봇 ID, 요청/응답 본문,
+TypeError는 원문 없이 `$:type_error`로 기록하며 `type_site=request|parse`로
+요청 호출(경로 구성 포함)과 계약 해석을 구분한다. `type_kind=unexpected_timeout`은
+`timeout` 키워드 인자를 받지 않는 호출을, `other`는 그 밖의 TypeError를 뜻한다.
+분류는 고정 문자열만 남기며 함수명·예외 원문·값을 기록하지 않는다. 계정·로봇 ID, 요청/응답 본문,
 URL·인증값·원문 예외·Pydantic 입력은 기록하지 않는다.
 
 | stage | 의미와 HTTP 본문 |
 | --- | --- |
 | `manager_disabled` | 중계 미설정: 503 `SIM_DISABLED`, 관리자 연결 안내 |
 | `slots_transport` | 실행 슬롯 GET 통신/중계 오류: 받은 SIM code/status, 외부 카메라 처리 실패 안내 |
-| `slots_response` | 실행 슬롯 JSON 계약 불일치: 503 `SIM_UNAVAILABLE`, 연결 정보 확인 실패 안내 |
+| `slots_response` | 실행 슬롯 JSON 계약 불일치 또는 요청 호출 TypeError: 503 `SIM_UNAVAILABLE`, 연결 정보 확인 실패 안내 |
 | `command_transport` | view/reset/cancel POST 통신 또는 simmgr 거절: 받은 SIM code/status, 외부 카메라 처리 실패 안내 |
 | `command_response` | accepted/shared/seq/operation ACK 불일치: 503 `SIM_UNAVAILABLE`, 접수 응답 확인 실패 안내 |
 
@@ -76,8 +79,26 @@ URL·인증값·원문 예외·Pydantic 입력은 기록하지 않는다.
 목록 API는 검증 실패를 `manager_error=SIM_UNAVAILABLE`와 정리 목록으로 바꿔
 HTTP 200을 반환하므로, 200만으로 관리자 슬롯 응답이 유효했다고 판단하지 않는다.
 현재 소스의 simmgr `listing`·`describe`와 API 직렬화를 거친 native/fake 응답은
-view/reset/cancel 시험을 통과했다. 기존 실시뮬의 `slots_response` 503 원인은
-아직 확정하지 못했으며, 다음 실시뮬에서 위 필드 진단으로 확인해야 한다.
+view/reset/cancel 시험을 통과했다. 실제 직렬화 응답을 이용한 동시 GET도 통과했다.
+HTTP 오류의 list/string 본문·중첩 error list/string, 잘못되거나 끊긴 JSON,
+느린 헤더/본문은 기존 `Relay.request` 경계에서 `RelayError`로 바뀌어
+`slots_transport`가 된다. 내부 직렬화/open/read/오류본문 read의 TypeError도
+이미 같은 경계에 갇히므로 현재 소스에서 `slots_response` TypeError의 원인으로
+확인되지 않았다. 느린 헤더는 기본 5초 목록 GET에 성공해도 0.5초 카메라 GET은
+실패할 수 있지만 이 경우도 `slots_transport`다.
+
+미리보기의 `slots_response` TypeError는 관찰용 launcher가 `Relay.request`를
+`observed(self, method, path, body=None)`로 교체하면서 발생했다. 이 wrapper는
+`timeout`을 받지 않아 외부 카메라의 `timeout=.5` 호출이 원래 Relay 본문 진입 전에
+실패하지만, 기본 인자만 쓰는 목록 GET은 통과한다. 실행 프로세스의 launcher 경로와
+그 wrapper 정의·교체 코드를 읽기 전용으로 대조했으며 같은 signature의 adapter로
+실제 simmgr 직렬화 응답을 사용하는 시험에서 재현했다.
+
+수정 위치는 관찰 launcher다: wrapper가 `**kwargs`를 받고 원래 `Relay.request`에
+그대로 전달해야 한다. 앱의 timeout을 제거하거나 늘려 우회하지 않는다. launcher는
+이 저장소 변경 범위 밖이므로 이 PR은 재현 시험과 위치 진단만 추가하며 launcher
+수정·재시작·실시뮬 끌기 확인은 포함하지 않는다. 새 진단은 이 경우
+`type_site=request type_kind=unexpected_timeout`을 기록한다.
 
 등록된 RUNNING 슬롯·현재 담당자·세대 불일치와 observer 부재·binding/freshness
 거절은 409 `SIM_OBSERVER_UNAVAILABLE`다. observer ACK 대기와 matching discard는
