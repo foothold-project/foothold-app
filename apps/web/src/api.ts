@@ -137,6 +137,8 @@ export const api = {
   savePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, p: FloorPatch, cancel?: AbortSignal) => call<unknown>('PATCH', `/${kind}/${encodeURIComponent(id)}`, p, { cancel }),
   /** 안에 건물·층·지도 판이 있거나 로봇·연결점이 쓰는 층이면 409 RESOURCE_IN_USE */
   deletePlace: (kind: 'sites' | 'buildings' | 'floors', id: string, cancel?: AbortSignal) => call<void>('DELETE', `/${kind}/${encodeURIComponent(id)}`, undefined, { cancel }),
+  /** 찍은 사진 주소(PHOTO_STORED 사건의 photo_id) — <img> 가 사용자 세션 쿠키로 받는다(서버가 매번 로봇 읽기 권한 검사, 공개 주소 없음). thumb = 작은 보기용 */
+  photoUrl: (id: string, thumb = false) => `${BASE}/photos/${encodeURIComponent(id)}${thumb ? '/thumbnail' : ''}`,
   /** 층의 판 목록(최신 번호 먼저, 지도 요소 포함) */
   versions: (floor: string, cancel?: AbortSignal) => pages<MapVersion>(`/floors/${encodeURIComponent(floor)}/map-versions`, cancel, MAP_READ_MS),
   version: (id: string, cancel?: AbortSignal) => call<MapVersion>('GET', `/map-versions/${encodeURIComponent(id)}`, undefined, { cancel, ms: MAP_READ_MS }),

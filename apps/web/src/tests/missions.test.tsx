@@ -947,3 +947,98 @@ describe('저장 안 한 편집', () => {
     expect(text()).toContain('저장하지 않은 편집을 이어서 씁니다.');
   });
 });
+
+describe('지점에서 사진·대기 바로 고르기(VQ-F1)', () => {
+  const pick = (i: number) => $<HTMLSelectElement>(`select[aria-label="${i}번 지점 임무"]`)!;
+  const missionPosts = () => sent('POST', '/missions').map((c) => c.body);
+  it('«사진 찍기(RGB)» = 한 단계 임무를 만들어 잇고, 다른 지점에서 다시 고르면 같은 임무를 다시 쓴다 · 대기 30초 → 초 바꾸기(적용) · 저장 본문', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    await setVal(name(), '사진 순회');
+    await tap(1, 1); await tap(1, 0); await tap(0, 1);
+    expect([...pick(1).options].map((o) => o.value)).not.toContain('do:DEPTH');
+    expect([...pick(1).options].map((o) => o.textContent)).toEqual(expect.arrayContaining(['사진 찍기(RGB)', '대기 30초 — 초는 고른 뒤 바꿈']));
+    expect([...pick(1).options].some((o) => /뎁스|depth/.test(o.textContent!))).toBe(false);   // 깊이 사진은 고를 수 없다
+    await setVal(pick(1), 'do:PHOTO');
+    expect(missionPosts()).toEqual([{ name: '사진 찍기(RGB)', steps: [{ action: 'PHOTO', params: { camera: 'rgb' } }] }]);
+    expect(pick(1).value).toBe('m4:1');
+    expect(point(0).querySelector('[data-do]')!.textContent).toBe('할 일: 사진');
+    await setVal(pick(2), 'do:PHOTO');                                 // 같은 내용 = 다시 쓰기(새로 만들지 않음)
+    expect(missionPosts()).toHaveLength(1);
+    expect(pick(2).value).toBe('m4:1');
+    await setVal(pick(3), 'do:WAIT');
+    expect(last(missionPosts())).toEqual({ name: '대기 30초', steps: [{ action: 'WAIT', params: { seconds: 30 } }] });
+    expect(pick(3).value).toBe('m5:1');
+    expect(point(2).querySelector('[data-do]')!.textContent).toBe('할 일: 대기 30초');
+    const secs = $<HTMLInputElement>('input[aria-label="3번 지점 대기 초"]')!;
+    await setVal(secs, '0');
+    expect(btn('적용', point(2))!.disabled).toBe(true);                // 1~3600 밖은 적용 안 됨
+    await setVal(secs, '60');
+    expect(missionPosts()).toHaveLength(2);                             // 글자마다 만들지 않음
+    await click(btn('적용', point(2)));
+    expect(last(missionPosts())).toEqual({ name: '대기 60초', steps: [{ action: 'WAIT', params: { seconds: 60 } }] });
+    expect(point(2).querySelector('[data-do]')!.textContent).toBe('할 일: 대기 60초');
+    await setVal($<HTMLInputElement>('input[aria-label="3번 지점 대기 초"]')!, '30');
+    await click(btn('적용', point(2)));
+    expect(missionPosts()).toHaveLength(3);                             // 30초는 이미 있음 → 다시 씀
+    expect(pick(3).value).toBe('m5:1');
+    await settle();
+    expect(saveBtn().disabled).toBe(false);
+    await click(saveBtn());
+    expect(last(sent('POST', '/scenarios'))!.body).toMatchObject({ waypoints: [{ mission_id: 'm4', mission_version: 1 }, { mission_id: 'm4', mission_version: 1 }, { mission_id: 'm5', mission_version: 1 }] });
+    expect(text()).toContain('저장했습니다(판 1).');
+    await stopSends();
+  });
+  it('실행 불가 정직 표시: 로봇 미선택·장치 없음(카탈로그 why_unavailable) = «저장은 되지만 지금은 실행 불가 — 이유», 할 수 있는 대기는 문구 없음, 저장은 막지 않음', async () => {
+    seed(); serve(KIM);
+    await open();
+    await click(btn('새 시나리오'));
+    await setVal(name(), '정직');
+    await tap(1, 1); await tap(1, 0);
+    await setVal(pick(1), 'do:PHOTO'); await setVal(pick(2), 'do:WAIT');
+    expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 실행 확인할 로봇을 고르지 않았습니다.');
+    expect(point(1).querySelector('[data-cannot]')).toBeTruthy();       // 로봇을 모르면 대기도 실행 가능이라 하지 않음
+    await setVal(field('실행 확인할 로봇'), 'r-a');                     // r-a = 카메라 없음
+    expect(last(sent('GET', '/actions'))!.q.get('robot_id')).toBe('r-a');
+    expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 필요한 장치가 없거나 정상 상태가 아닙니다: 카메라');
+    expect(point(1).querySelector('[data-cannot]')).toBeNull();
+    await settle();
+    expect(saveBtn().disabled).toBe(false);
+  });
+  it('실행기 미광고(서버 이유)도 그대로, 카탈로그를 못 받으면 «확인하지 못했습니다» + 다시 받기', async () => {
+    seed();
+    serve(KIM, { over: { 'GET /actions': [{ status: 200, body: acts('r-a').map((a) => a.key === 'WAIT' ? { ...a, available: false, why_unavailable: '실행기가 해당 기능을 아직 광고하지 않았습니다' } : a) }, err(503, 'UNAVAILABLE', '잠시 뒤 다시 시도하세요.')] } });
+    await open();
+    await click(btn('새 시나리오'));
+    await tap(1, 1);
+    await setVal(pick(1), 'do:WAIT');
+    await setVal(field('실행 확인할 로봇'), 'r-a');
+    expect(point(0).querySelector('[data-cannot]')!.textContent).toBe('저장은 되지만 지금은 실행 불가 — 실행기가 해당 기능을 아직 광고하지 않았습니다');
+    await setVal(field('실행 확인할 로봇'), '');
+    await setVal(field('실행 확인할 로봇'), 'r-a');
+    expect(alertText()).toContain('실행할 수 있는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.');
+    await click(btn('다시 받기', $('#ms-steps')!));
+    expect(alertText()).not.toContain('실행할 수 있는지 확인하지 못했습니다');
+  });
+  it('임무 만들기 응답이 끊기면 목록을 다시 받고, 다시 고르면 만들어진 같은 임무를 쓴다(두 번 만들지 않음) · 만드는 중엔 저장 막힘', async () => {
+    seed();
+    let hold: (() => void) | null = null;
+    serve(KIM, { over: { 'POST /missions': [(real) => new Promise((ok) => { hold = () => { real(); ok({ status: 0 } as Reply); }; })] } });
+    vi.stubGlobal('fetch', ((f: typeof fetch) => async (u: string, i?: RequestInit) => { const r = await f(u, i); if (r.status === 0) throw new TypeError('끊김'); return r; })(fetch));
+    await open();
+    await click(btn('새 시나리오'));
+    await setVal(name(), '끊김');
+    await tap(1, 1);
+    await setVal(pick(1), 'do:PHOTO');
+    expect(text()).toContain('임무를 만드는 중…');
+    expect(pick(1).matches(':disabled')).toBe(true);                   // 단계 창 전체가 잠김(지점 번호가 바뀌지 않게)
+    expect($('[data-block]')!.textContent).toBe('지점 임무를 만드는 중입니다.');
+    await act(async () => { hold!(); }); await flush();
+    expect(alertText()).toContain('임무를 만들었는지 확인하지 못했습니다.');
+    expect(pick(1).value).toBe('m1:1');                                  // 확정 전엔 잇지 않음
+    await setVal(pick(1), 'do:PHOTO');
+    expect(sent('POST', '/missions')).toHaveLength(1);
+    expect(pick(1).value).toBe('m4:1');
+  });
+});

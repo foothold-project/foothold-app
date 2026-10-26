@@ -51,6 +51,15 @@ const Kind = ({ e }: { e: Ev }) => <span className="hs-kind" data-kind={e.catego
 /** 서버가 저장한 문장. 서버가 모르는 로봇 사건이면 코드 원문은 접힌 상세에만 */
 const Said = ({ e }: { e: Ev }) => { const t = told(e.message);
   return <><span className="fh-wide">{t ? t.text : sentence(e.message)}</span>{t && <details className="lbl"><summary>상세</summary><span className="mono">{e.code || t.code}</span></details>}</>; };
+/** 사진 사건: PHOTO_STORED = 썸네일(누르면 원본 크기), 못 받으면 글로. PHOTO_STORE_FAILED = 사진 없음(성공처럼 보이지 않게). 이미지는 늦게 받아도 표·STOP 을 막지 않는다 */
+function Photo({ e }: { e: Ev }) {
+  const [big, setBig] = useState(false), [bad, setBad] = useState(false), id = e.data?.photo_id;
+  if (e.code === 'PHOTO_STORE_FAILED') return <span className="fh-why" data-photo="failed">사진 저장 실패 — 사진 없음</span>;
+  if (e.code !== 'PHOTO_STORED') return null;
+  if (typeof id !== 'string' || !id || bad) return <span className="fh-why" data-photo="bad">사진을 불러오지 못함</span>;
+  return <button type="button" className="hs-photo" data-photo={big ? 'big' : 'thumb'} aria-label={big ? '사진 작게 보기' : '사진 원본 보기'} aria-expanded={big} onClick={() => setBig(!big)}>
+    <img src={api.photoUrl(id, !big)} alt="찍은 사진" loading="lazy" decoding="async" onError={() => setBad(true)} /></button>;
+}
 /** 한 줄 = 한 사건(서랍 «최근 사건»): 시각 · 분류 · 심각도 · 문장 */
 const Row = ({ e }: { e: Ev }) => <li className="fh-row"><span className="mono">{when(stamp(e))}</span><Kind e={e} /><Sev e={e} /><Said e={e} /></li>;
 /** 기록 표: 시각 · 종류 · 상태 · 내용 · 로봇·사람. 좁으면(history.css 컨테이너 질의) 줄마다 카드로 — 가로로 넘치지 않게 */
@@ -58,7 +67,7 @@ const Table = ({ items, who, label }: { items: Ev[]; who: (e: Ev) => string; lab
   <table className="hs-table" aria-label={label} hidden={!items.length}>
     <thead><tr><th scope="col">시각</th><th scope="col">종류</th><th scope="col">상태</th><th scope="col">내용</th><th scope="col">로봇·사람</th></tr></thead>
     <tbody>{items.map((e) => { const w = who(e);
-      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /></td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
+      return <tr key={e.id}><td className="mono">{when(stamp(e))}</td><td><Kind e={e} /></td><td><Sev e={e} /></td><td><Said e={e} /><Photo e={e} /></td><td className="lbl" data-none={!w || undefined}>{w || '—'}</td></tr>; })}</tbody>
   </table></div>;
 /** 사건의 로봇·사람 이름 — 화면이 아는 것만(로봇 목록·나·담당자). 모르면 빈 글 */
 const whoOf = (c: Pick<Ctx, 'user' | 'robots'>) => (e: Ev) => {

@@ -53,7 +53,7 @@ type Draft = { body: AnyWrite; base: AnyPlan | null; unsure: Unsure | null };
 type Adopt = 'all' | 'base' | 'none';
 export const keptPlan: { kind: Plan; sel: string | null; drafts: Record<string, Draft>; now: boolean } = { kind: 'scenarios', sel: null, drafts: {}, now: false };
 /** 로그아웃 때 비운다(session.tsx) */
-export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; assignFor.robot = null; };
+export const clearPlans = () => { keptPlan.kind = 'scenarios'; keptPlan.sel = null; keptPlan.drafts = {}; keptPlan.now = false; assignFor.robot = null; pane.robot = ''; };
 addEventListener('beforeunload', (e) => { if (keptPlan.now || Object.keys(keptPlan.drafts).length) { e.preventDefault(); e.returnValue = ''; } });
 
 /** 목록(오래된 것 먼저) + cursor 로 더 받기. 종류·보관 보기·거르기를 바꾸면 처음부터 — 앞 요청의 늦은 답은 버린다(결재 탭 useList 와 같다) */
@@ -277,7 +277,7 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
       {kind === 'missions'
         ? <MissionForm value={shown as MissionWrite} set={ro ? undefined : (b) => put(b)} bad={view ? [] : bad} robots={robots} user={user} cancel={cancel} />
         : <ScenarioForm key={view ? `v${view.number}` : 'draft'} value={shown as ScenarioWrite} set={ro ? undefined : (b) => put(b)} lock={lock} bad={view ? [] : bad} places={places} treeAgain={treeAgain}
-            cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} newMission={newMission} />}
+            cancel={cancel} setBlock={setBlock} recheck={recheck} srv={view ? null : srv} saved={(view ?? (id ? latest : null)) as Scenario | null} newMission={newMission} robots={robots} user={user} />}
     </fieldset>
     {!ro && <form className="fh-form" onSubmit={save} noValidate aria-label="저장">
       <div className="fh-row"><button type="submit" className="btn pri" disabled={lock || (kind === 'scenarios' && !!block)} aria-describedby={kind === 'scenarios' && block ? 'plan-block' : undefined}>{id ? '새 판으로 저장' : '저장'}</button>
@@ -323,18 +323,25 @@ function missionBad(v: MissionWrite): Bad[] {
 const stepText = (s: MissionStep) => { const p = s.params ?? {};
   return [p.camera ?? p.device, p.seconds, p.prompt].filter((x) => x != null).map((x) => (typeof x === 'number' ? `${x}초` : VALUE[String(x)] ?? `«${x}»`)).join(' · '); };
 
-/** 작업 단계(01 MS-01·09): 카탈로그(GET /actions)에서 고르고 인자를 넣는다. 로봇을 고르면 그 로봇 장치로 할 수 없는 작업·선택지는 회색 + 이유(고를 수 없음) */
-function MissionForm({ value, set, bad, robots, user, cancel }: { value: MissionWrite; set?: (v: MissionWrite) => void; bad: Bad[]; robots: Robot[]; user: User; cancel?: AbortSignal }) {
-  // 카탈로그는 받은 로봇에 묶는다 — 로봇을 바꾼 뒤 새 답이 오기 전·못 받았을 때는 추가·선택지를 잠근다(앞 로봇 카탈로그로 못 하는 작업을 고르지 않게)
-  const [robot, setRobot] = useState(''), [cat, setCat] = useState<{ robot: string; l: Action[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
-  const mineRobots = robots.filter((r) => !idleSim(r) && (user.role === 'ORG_ADMIN' || r.owner === user.id));   // 담당 밖 로봇은 서버가 404, 끝낸 시뮬 슬롯은 고르지 않음
+/** 장치·실행 확인에 고를 수 있는 로봇 — 담당 밖 로봇은 서버가 404, 끝낸 시뮬 슬롯은 고르지 않음 */
+const pickable = (robots: Robot[], user: User) => robots.filter((r) => !idleSim(r) && (user.role === 'ORG_ADMIN' || r.owner === user.id));
+/** 작업 카탈로그(GET /actions). 받은 로봇에 묶는다 — 로봇을 바꾼 뒤 새 답이 오기 전·못 받았을 때 acts 는 null(앞 로봇 카탈로그로 판단하지 않게). on = false 면 받지 않음 */
+function useActs(robot: string, cancel?: AbortSignal, on = true) {
+  const [cat, setCat] = useState<{ robot: string; l: Action[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0);
   useEffect(() => {
+    if (!on) return;
     let live = true;
-    setErr('');
+    setErr(''); setCat(null);
     api.actions(robot || null, cancel).then(fit(isActs)).then((l) => { if (live) setCat({ robot, l }); }, (e: ApiFail) => { if (live && e.code !== 'CANCELED') setErr(e.message); });
     return () => { live = false; };
-  }, [robot, n]);
-  const acts = cat?.robot === robot && !err ? cat.l : null;
+  }, [robot, n, on]);
+  return { acts: cat?.robot === robot && !err ? cat.l : null, err, again: () => setN((x) => x + 1) };
+}
+
+/** 작업 단계(01 MS-01·09): 카탈로그(GET /actions)에서 고르고 인자를 넣는다. 로봇을 고르면 그 로봇 장치로 할 수 없는 작업·선택지는 회색 + 이유(고를 수 없음) */
+function MissionForm({ value, set, bad, robots, user, cancel }: { value: MissionWrite; set?: (v: MissionWrite) => void; bad: Bad[]; robots: Robot[]; user: User; cancel?: AbortSignal }) {
+  // 카탈로그를 받기 전·못 받았을 때는 추가·선택지를 잠근다
+  const [robot, setRobot] = useState(''), { acts, err, again } = useActs(robot, cancel), mineRobots = pickable(robots, user);
   const steps = value.steps, put = (s: MissionStep[]) => set?.({ ...value, steps: s }), actOf = (k: string) => acts?.find((a) => a.key === k);
   const swap = (i: number, s: MissionStep) => put(steps.map((o, k) => (k === i ? s : o)));
   const move = (i: number, d: number) => { const s = [...steps], [x] = s.splice(i, 1); s.splice(i + d, 0, x); put(s); };
@@ -349,7 +356,7 @@ function MissionForm({ value, set, bad, robots, user, cancel }: { value: Mission
     <h3>작업 단계</h3>
     {set && <label className="fh-field"><span>장치 확인할 로봇(고르면 그 로봇이 못 하는 작업은 회색)</span>
       <select className="inp" value={robot} onChange={(e) => setRobot(e.target.value)}><option value="">고르지 않음</option>{mineRobots.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></label>}
-    {err && <div className="fh-row"><p className="fh-msg" role="alert">작업 목록을 받지 못했습니다. {err} 받기 전에는 작업을 추가하거나 장치를 고를 수 없습니다.</p><button type="button" className="btn" onClick={() => setN((x) => x + 1)}>다시 받기</button></div>}
+    {err && <div className="fh-row"><p className="fh-msg" role="alert">작업 목록을 받지 못했습니다. {err} 받기 전에는 작업을 추가하거나 장치를 고를 수 없습니다.</p><button type="button" className="btn" onClick={again}>다시 받기</button></div>}
     <ol className="fh-form" style={LIST} aria-label="작업 단계">{steps.map((s, i) => {
       const a = actOf(s.action), p = s.params ?? {}, opt = a?.options.find((o) => o.value === p[o.param]), sb = bad.filter((b) => b.at === `steps.${i}`);
       return <li key={i} data-step={i} data-bad={sb.length ? '' : undefined} style={sb.length ? { outline: '2px solid var(--bad)', borderRadius: 8 } : undefined}>
@@ -392,15 +399,31 @@ function scenarioBad(v: ScenarioWrite): Bad[] {
 const MISSING = (v: ScenarioWrite) => (!v.waypoints.length ? '지도를 눌러 지점을 하나 이상 찍으세요.' : v.waypoints.some((w) => !w.mission_id) ? '모든 지점에 임무를 고르세요.'
   : v.finish?.mode === 'GO_TO' && !v.finish.target ? '끝나고 갈 지점을 지도에서 찍으세요.' : null);
 const TAP = 8;   // 화면 px — MapFrame SLOP 과 같다. 찍힌 지점을 누르고 이만큼 움직이기 전에 떼면 누름(지우기), 넘으면 끌어 옮기기
-/** 단계 창 펼침 — 다른 시나리오를 열어도 사람이 고른 그대로 */
-const pane = { open: true };
+/** 단계 창 펼침·실행 확인할 로봇 — 다른 시나리오를 열어도 사람이 고른 그대로(로봇은 로그아웃 때 비움) */
+const pane = { open: true, robot: '' };
+/** 지점에서 바로 고르는 한 단계 임무(10-26). 깊이 사진은 저장 형식이 없어 내지 않는다 */
+const quickSteps = (k: string, seconds = 30): MissionStep[] => (k === 'PHOTO' ? [{ action: 'PHOTO', params: { camera: 'rgb' } }] : [{ action: 'WAIT', params: { seconds } }]);
+const quickName = (s: MissionStep) => (s.action === 'PHOTO' ? '사진 찍기(RGB)' : `대기 ${s.params?.seconds}초`);
+/** 임무가 하는 일 짧게(지점 카드): «사진», «대기 30초» */
+const doText = (m: Mission) => m.steps.map((s) => (s.action === 'PHOTO' ? (s.params?.camera === 'depth' ? '뎁스 사진' : '사진') : s.action === 'WAIT' ? `대기 ${s.params?.seconds}초` : ACT[s.action] ?? s.action)).join(' → ');
+/** 한 단계 대기 임무면 그 초 */
+const waitOf = (m?: Mission) => (m && m.steps.length === 1 && m.steps[0].action === 'WAIT' && int(m.steps[0].params?.seconds) ? m.steps[0].params!.seconds as number : null);
+/** 대기 초 바꾸기 — «적용»을 눌러야 그 초의 임무를 찾거나 만든다(글자마다 임무를 만들지 않게) */
+function WaitSecs({ i, sec, apply }: { i: number; sec: number; apply: (n: number) => void }) {
+  const [v, setV] = useState(String(sec)), n = Number(v), ok = int(n) && n >= 1 && n <= 3600;
+  useEffect(() => setV(String(sec)), [sec]);
+  return <div className="fh-row"><label className="fh-row"><span className="lbl">대기(초, 1~3600)</span>
+    <input className="inp" type="number" min={1} max={3600} step={1} inputMode="numeric" aria-label={`${i + 1}번 지점 대기 초`} style={{ width: '6em' }} value={v} onChange={(e) => setV(e.target.value)} /></label>
+    {n !== sec && <button type="button" className="btn" disabled={!ok} onClick={() => apply(n)}>적용</button>}
+    {!ok && <span className="fh-why">1~3600 사이 정수로 입력하세요.</span>}</div>;
+}
 const elName = (e: string) => (e === 'finish.target' ? '끝 지점' : /^waypoints\.(\d+)/.test(e) ? `${Number(/^waypoints\.(\d+)/.exec(e)![1]) + 1}번 지점` : e);
 
 /** 시나리오 편집(02 F-MS-02·03, 03 §5.3): ① 지도(승인 판이 있는 층) ② 지점(지도 눌러 추가·끌어 옮기기·다시 누르면 지우기, 오른쪽 단계 창에서 순서·임무·지우기, 이름 붙은 지도 지점은 waypoint_ref) ③ 확인(서버 미리보기).
  *  set 없음 = 읽기 전용(남의 것·옛 판·보관) — 미리보기 대신 저장된 거리·장치, 지도는 지점이 가리키는 판. setBlock = 저장을 막는 이유(갈 수 없는 지점·확인 전),
  *  recheck = 저장이 STALE·422 로 막혀 다시 미리보기, srv = 저장 422 에 서버가 실어 보낸 미리보기(그 본문의 결과), newMission = 임무 목록으로 가서 새 임무 열기 */
-function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
-  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; newMission?: () => void }) {
+function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlock, recheck, srv, saved, newMission, robots, user }: { value: ScenarioWrite; set?: (v: ScenarioWrite) => void; lock: boolean; bad: Bad[]; places: Place[]; treeAgain: () => void;
+  cancel?: AbortSignal; setBlock: (s: string | null) => void; recheck: number; srv: { key: string; r: ScenarioPreview } | null; saved: Scenario | null; newMission?: () => void; robots: Robot[]; user: User }) {
   const pts = value.waypoints, finish = value.finish ?? { mode: 'STAY', target: null }, target = finish.target ?? null;
   const [cur, setCur] = useState(() => pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? '');
   useEffect(() => { if (!cur) setCur(pts[0]?.floor_id ?? places.find((p) => p.floor.approved_version_id)?.floor.id ?? ''); }, [places.length]);
@@ -419,6 +442,10 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   const [missions, setMissions] = useState<Mission[] | null>(null), [mErr, setMErr] = useState(''), [mN, setMN] = useState(0);
   useEffect(() => { api.allPlans('missions', cancel).then((l) => { setMissions(l.filter((x) => isPlan(x) && 'steps' in x)); setMErr(''); }, (e: ApiFail) => { if (e.code !== 'CANCELED') setMErr(e.message); }); }, [mN]);
   const active = (missions ?? []).filter((m) => !m.archived_at);
+  // 실행 확인(정직 표시): 고른 로봇의 카탈로그 available·why_unavailable 그대로 — 저장은 막지 않는다
+  const mineRobots = pickable(robots, user), [robot, setRobot] = useState(() => (mineRobots.some((r) => r.id === pane.robot) ? pane.robot : '')), cat = useActs(robot, cancel, !!set && !!robot);   // 로봇을 안 골랐으면 이유는 «고르지 않음» 하나
+  const [making, setMaking] = useState(false), [qMsg, setQMsg] = useState(''), cur$ = useRef({ value, set, lock });
+  cur$.current = { value, set, lock };
   const [sel, setSel] = useState<number | 'T' | null>(null), [placing, setPlacing] = useState<'point' | 'target'>('point'), [msg, setMsg] = useState('');
   // drag.at·moved = 누른 화면 자리·TAP 넘게 움직였는지(안 움직이고 떼면 누름 = 지우기)
   const svg = useRef<SVGSVGElement>(null), drag = useRef<{ i: number | 'T'; from: P; orig: ScenarioPoint; at: P; moved: boolean } | null>(null);
@@ -440,7 +467,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   }, [k, recheck, n, !set]);
   useEffect(() => { if (srv) { seq.current++; setPre(srv); setChecking(false); } }, [srv]);
   const now = pre?.key === k && !checking ? pre : null, r = now?.r, pe = now?.e;
-  const block = !set ? null : missing ?? (!now ? '경로를 확인하는 중입니다.' : pe ? (pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무 판을 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`)
+  const block = !set ? null : making ? '지점 임무를 만드는 중입니다.' : missing ?? (!now ? '경로를 확인하는 중입니다.' : pe ? (pe.code === 'STALE' ? STALE : pe.status === 422 ? '고른 임무 판을 쓸 수 없습니다(보관됐을 수 있음). 표시한 지점의 임무를 다시 고르세요.' : `경로를 확인하지 못했습니다. ${pe.message}`)
     : !r!.reachable ? '갈 수 없는 지점이 있어 저장할 수 없습니다. 빨간 지점을 옮기거나 지우세요.' : null);
   useEffect(() => { setBlock(block); }, [block]);
   const res = Object.fromEntries((r?.points ?? []).map((p) => [p.element, p]));
@@ -467,7 +494,7 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   };
   const ptAt = (i: number | 'T') => (i === 'T' ? target : pts[i]);
   const down = (e: PointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0 || !set || lock || !v) return;
+    if (e.button !== 0 || !set || lock || making || !v) return;
     const q = fromScreen(svg.current!, v, e.clientX, e.clientY), t = e.target as Element;
     const hit = t.closest('[data-pt]')?.getAttribute('data-pt');
     setMsg('');
@@ -503,9 +530,30 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
   };
   /** 뗌: 지점을 누르고 안 움직였으면 지우기(끌었으면 옮김으로 끝) */
   const up = () => { const d = drag.current; drag.current = null; if (d && !d.moved) drop(d.i); };
-  const back = undo && undo.key === k && !!set && !lock ? undo : null;
+  const back = undo && undo.key === k && !!set && !lock && !making ? undo : null;
   const shift = (i: number, dd: number) => { const s = [...pts], [x] = s.splice(i, 1); s.splice(i + dd, 0, x); put(s); setSel(i + dd); };
-  const choose = (i: number, val: string) => { const [mission_id, ver] = val.split(':'); put(pts.map((o, j) => (j === i ? { ...o, mission_id: mission_id ?? '', mission_version: Number(ver) || 1 } : o))); };
+  /** 사진·대기 바로 고르기: 같은 내용의 보관 안 된 임무(최신 판)가 있으면 그것을, 없으면 한 단계 임무를 만들어(POST /missions) 이 지점에 잇는다.
+   *  만드는 동안 단계 창·지도 편집·저장을 막는다(지점 번호가 바뀌지 않게). 응답이 끊기면 임무 목록을 다시 받는다 — 다시 고르면 만들어진 것을 찾아 쓴다 */
+  const quick = (i: number, steps: MissionStep[]) => {
+    const link = (m: Mission) => { const { value: b, set: s, lock: l } = cur$.current; if (s && !l) s({ ...b, waypoints: b.waypoints.map((o, j) => (j === i ? { ...o, mission_id: m.id, mission_version: m.latest_version } : o)) }); };
+    const hit = active.find((m) => canon(m.steps) === canon(steps));
+    setQMsg('');
+    if (hit) return link(hit);
+    setMaking(true);
+    api.createPlan('missions', { name: quickName(steps[0]), steps }, cancel).then(fit(isPlan)).then((m) => { setMissions((l) => [...(l ?? []), m as Mission]); setMaking(false); link(m as Mission); },
+      (e: ApiFail) => { if (e.code === 'CANCELED') return; setMaking(false);
+        if (e.status === 0) { setMN((x) => x + 1); setQMsg('임무를 만들었는지 확인하지 못했습니다. 임무 목록을 다시 받습니다 — 다시 고르면 같은 내용의 임무가 있으면 그것을 씁니다.'); }
+        else setQMsg(`사진·대기 임무를 만들지 못했습니다. ${e.message}`); });
+  };
+  /** 지금 실행할 수 없는 이유(카탈로그 그대로, 로봇 미선택도 이유). null = 막는 것 없음 또는 확인 중 */
+  const cannot = (m: Mission) => {
+    if (!robot) return '실행 확인할 로봇을 고르지 않았습니다.';
+    if (!cat.acts) return null;
+    const l = m.steps.map((s) => { const a = cat.acts!.find((x) => x.key === s.action), o = a?.options.find((x) => x.value === s.params?.[x.param]);
+      return !a ? '지원 전 작업입니다.' : (o ? o.available : a.available) ? null : plain(o ? o.why_unavailable : a.why_unavailable) || '이유를 받지 못했습니다.'; });
+    return [...new Set(l.filter(Boolean))].join(' · ') || null;
+  };
+  const choose = (i: number, val: string) => { if (val.startsWith('do:')) return quick(i, quickSteps(val.slice(3))); const [mission_id, ver] = val.split(':'); put(pts.map((o, j) => (j === i ? { ...o, mission_id: mission_id ?? '', mission_version: Number(ver) || 1 } : o))); };
   const go = (i: number | 'T') => { const p = ptAt(i); setSel(i); if (p) setCur(p.floor_id); };
 
   const approved = places.filter((p) => p.floor.approved_version_id);
@@ -547,10 +595,17 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
         <button type="button" className="btn ms-fold" aria-expanded={open} aria-controls="ms-steps" onClick={() => { pane.open = !open; setOpen(!open); }}>{open ? `단계 ${pts.length} ▸` : `◂ 단계 ${pts.length}`}</button>
         {open && <div id="ms-steps" className="fh-form">
           {set && mErr && <div className="fh-row"><p className="fh-msg" role="alert">임무 목록을 받지 못했습니다. {mErr}</p><button type="button" className="btn" onClick={() => setMN((x) => x + 1)}>다시 받기</button></div>}
+          {set && <label className="fh-field"><span>실행 확인할 로봇</span><select className="inp" value={robot} onChange={(ev) => { pane.robot = ev.target.value; setRobot(ev.target.value); }}>
+            <option value="">고르지 않음</option>{mineRobots.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>}
+          {set && cat.err && <div className="fh-row"><p className="fh-msg" role="alert">실행할 수 있는지 확인하지 못했습니다. {cat.err}</p><button type="button" className="btn" onClick={cat.again}>다시 받기</button></div>}
+          {qMsg && <p className="fh-msg" role="alert">{qMsg}</p>}
+          {making && <p className="lv-note" role="status">임무를 만드는 중…</p>}
           {!pts.length && <p className="lv-note">아직 단계가 없습니다. 지도를 눌러 지점을 찍으세요.</p>}
+          <fieldset disabled={making} style={{ display: 'contents' }}>
           <ol className="fh-form" style={LIST} aria-label="지점 순서">{pts.map((p, i) => {
             const e = `waypoints.${i}`, pr = res[e], b = marks.has(e), m = missions?.find((x) => x.id === p.mission_id), val = p.mission_id ? `${p.mission_id}:${p.mission_version}` : '';
-            const listed = active.some((x) => `${x.id}:${x.latest_version}` === val);
+            const listed = active.some((x) => `${x.id}:${x.latest_version}` === val), fresh = m && m.latest_version === p.mission_version ? m : undefined;   // 고른 판 = 최신 판일 때만 내용을 안다
+            const sec = set ? waitOf(fresh) : null, no = set && fresh ? cannot(fresh) : null;
             return <li key={i} data-wp={i} data-bad={b ? '' : undefined} className="ms-step" style={b ? { outline: '2px solid var(--bad)' } : undefined}>
               <div className="fh-row">
                 <button type="button" className="btn fh-grow ms-name" aria-pressed={sel === i} onClick={() => go(i)}>{i + 1}. {p.floor_id === cur ? '' : `${floorName(p.floor_id)} · `}{p.waypoint_ref ? `«${refName(p)}»` : `(${p.x.toFixed(1)}, ${p.y.toFixed(1)}) m`}</button>
@@ -558,15 +613,20 @@ function ScenarioForm({ value, set, lock, bad, places, treeAgain, cancel, setBlo
                   <button type="button" className="btn" aria-label={`${i + 1}번 지점 아래로`} disabled={i === pts.length - 1} onClick={() => shift(i, 1)}>↓</button>
                   <button type="button" className="btn" aria-label={`${i + 1}번 지점 지우기`} onClick={() => drop(i)}>✕</button></>}
               </div>
-              {/* 이 지점에서 할 일 = 임무. 사진 찍기 같은 동작 종류를 단계에 바로 보이는 것은 서버·에이전트 뒤(다음 단계) */}
+              {/* 이 지점에서 할 일 = 임무 판. 사진·대기는 여기서 바로 고르면 한 단계 임무를 찾거나 만들어 잇는다(임무 목록을 받기 전에는 못 고름 — 같은 임무를 또 만들지 않게) */}
               {set ? <select className="inp" aria-label={`${i + 1}번 지점 임무`} value={val} onChange={(ev) => choose(i, ev.target.value)}>
                   <option value="">임무 고르기</option>
-                  {val && !listed && <option value={val}>{`${m?.name ?? '알 수 없는 임무'} · 판 ${p.mission_version}${m?.archived_at ? ' (보관됨)' : ' (옛 판)'}`}</option>}
-                  {active.map((x) => <option key={x.id} value={`${x.id}:${x.latest_version}`}>{`${x.name} · 판 ${x.latest_version}`}</option>)}</select>
+                  <optgroup label="바로 고르기"><option value="do:PHOTO" disabled={!missions}>사진 찍기(RGB)</option><option value="do:WAIT" disabled={!missions}>대기 30초 — 초는 고른 뒤 바꿈</option></optgroup>
+                  <optgroup label="임무">{val && !listed && <option value={val}>{`${m?.name ?? '알 수 없는 임무'} · 판 ${p.mission_version}${m?.archived_at ? ' (보관됨)' : ' (옛 판)'}`}</option>}
+                  {active.map((x) => <option key={x.id} value={`${x.id}:${x.latest_version}`}>{`${x.name} · 판 ${x.latest_version}`}</option>)}</optgroup></select>
                 : <span className="lbl">{m ? `${m.name} · 판 ${p.mission_version}` : `임무 판 ${p.mission_version}`}</span>}
+              {fresh && <span className="lbl" data-do>할 일: {doText(fresh)}</span>}
+              {sec != null && <WaitSecs i={i} sec={sec} apply={(n) => quick(i, quickSteps('WAIT', n))} />}
+              {no && <p className="fh-why" data-cannot>저장은 되지만 지금은 실행 불가 — {no}</p>}
               {pr && !pr.reachable && <p className="fh-msg" role="alert">갈 수 없음: {pr.reasons.join(' ')}</p>}
               {bad.filter((x) => x.at === e).map((x, j) => <p key={j} className="fh-msg" role="alert">{x.text}</p>)}
             </li>; })}</ol>
+          </fieldset>
           <label className="fh-field"><span>끝나면</span><select className="inp" value={finish.mode ?? 'STAY'} disabled={!set} onChange={(ev) => { const mode = ev.target.value as keyof typeof FINISH; put(pts, { mode, target: mode === 'GO_TO' ? target : null }); if (mode === 'GO_TO' && !target) setPlacing('target'); else setPlacing('point'); }}>
             {(Object.keys(FINISH) as (keyof typeof FINISH)[]).map((m) => <option key={m} value={m}>{FINISH[m]}</option>)}</select></label>
           {finish.mode === 'GO_TO' && <div className="fh-row" data-bad={marks.has('finish.target') ? '' : undefined}>
