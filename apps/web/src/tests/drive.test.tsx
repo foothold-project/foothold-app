@@ -1727,6 +1727,8 @@ describe('폰 조종 앱 틀', () => {
     expect(driveCss).toMatch(/\n\.fh:has\(\.dv\.ph\)\{height:100dvh;min-height:0\}/);
     expect(frameCss).toMatch(/\n\.fh\.phone\{box-sizing:border-box;padding:0 env\(safe-area-inset-right,0px\) env\(safe-area-inset-bottom,0px\) env\(safe-area-inset-left,0px\);overflow-x:clip;touch-action:manipulation\}/);
     expect(frameCss).toMatch(/\nhtml\{-webkit-text-size-adjust:100%;text-size-adjust:100%\}/);
+    // PR #114 r1: 위쪽 safe-area 는 sticky 머리줄 안쪽 여백으로 — 전체화면·홈 화면 앱(노치 59px)에서도 STOP 이 노치 아래(측정은 PR 코멘트)
+    expect(frameCss).toMatch(/\n\.fh\.phone \.fh-head\{padding:calc\(6px \+ env\(safe-area-inset-top,0px\)\) 8px 6px;gap:8px\}/);
     expect(driveCss).toMatch(/@media \(max-height:480px\)\{\.dv-hud\{[^}]*max-height:calc\(100% - 112px\);overflow-y:auto\}/);   // 가로: 상태 판이 조이스틱을 덮지 않음
   });
 

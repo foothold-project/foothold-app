@@ -64,7 +64,9 @@ button{cursor:pointer}
 .fh-kpi .bad b{color:var(--bad)}
 .fh-why{font-size:14px;color:var(--muted)}
 .fh-slot{min-height:160px;display:grid;place-items:center;border:1px dashed var(--line2);border-radius:8px;color:var(--muted);font-size:14px}
-.fh.phone .fh-head{padding:6px 8px;gap:8px}
+/* 위쪽 safe-area(노치·상태 막대 — 전체화면·홈 화면 앱에서 생김, PR #114 r1)는 머리줄이 받는다: 머리줄 바탕은 노치 자리까지, STOP·단추는 그 아래.
+   틀(.fh)이 아니라 sticky 머리줄에 둬야 긴 화면을 내려도 머리줄이 노치 밑으로 들어가지 않는다 */
+.fh.phone .fh-head{padding:calc(6px + env(safe-area-inset-top,0px)) 8px 6px;gap:8px}
 .fh.phone .fh-head h1{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .fh.phone .fh-head>.btn{flex:0 1 auto;min-width:44px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 8px}   /* 좁은 폰: 제목·왼쪽 단추가 줄고 STOP(flex:none)은 그대로 */
 /* 400 px 이하 폰: 연결 상태는 점만(글은 화면 읽기용) — 연결 끊김·거부 글이 STOP 을 밀어내지 않게. 360 px 이하는 왼쪽 단추가 있으면 제목도 숨김(한 글자만 남지 않게) */
