@@ -1,6 +1,8 @@
 """Offline source cadence -> real telemetry, map predicate and run failure."""
 from copy import deepcopy
 import json
+import logging
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -188,6 +190,53 @@ def test_both_failure_paths_log_local_detail_once(r, pending, caplog):
     assert r.runs.snapshot()['fail_code'] == 'LOCALIZATION_LOST'
     assert r.hub.session.core.latch and r.outputs[-1].velocity == Z
     assert binding in r.actions.cancels
+
+
+@pytest.mark.parametrize('pending', [False, True])
+def test_blocked_context_log_cannot_delay_halt(r, pending, monkeypatch):
+    binding = start(r)
+    entered, release, halted = threading.Event(), threading.Event(), threading.Event()
+    errors = []
+    original_halt = r.runs._halt
+
+    def halt(*args, **kwargs):
+        original_halt(*args, **kwargs)
+        halted.set()
+
+    class BlockedHandler(logging.Handler):
+        def emit(self, record):
+            entered.set()
+            release.wait(5.)
+
+    def tick():
+        try:
+            r.hub.tick()
+        except BaseException as exc:
+            errors.append(exc)
+
+    monkeypatch.setattr(r.runs, '_halt', halt)
+    r.runs.context = lambda *args: False
+    r.runs.next_goal_pending = pending
+    r.runs.cancel_wait_started = r.clock()
+    logger = logging.getLogger('foothold_agent.executor.scenario_run')
+    handler = BlockedHandler()
+    logger.addHandler(handler)
+    worker = threading.Thread(target=tick)
+    try:
+        worker.start()
+        assert entered.wait(2.), errors
+        assert worker.is_alive()  # the log write is still blocked
+        assert halted.is_set()
+        assert r.hub.session.core.latch and r.outputs[-1].velocity == Z
+        assert binding in r.actions.cancels and r.hub.session.lease_id is None
+        assert r.runs.snapshot()['status'] == 'FAILED'
+        assert r.runs.snapshot()['fail_code'] == 'LOCALIZATION_LOST'
+    finally:
+        release.set()
+        worker.join(3.)
+        logger.removeHandler(handler)
+        handler.close()
+    assert not worker.is_alive() and not errors
 
 
 @pytest.mark.parametrize('pending', [False, True])

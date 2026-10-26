@@ -169,7 +169,7 @@ class ScenarioRun:
             c.update(status=status, wait_reason=reason, fail_code=None)
 
     def _context_failure_diagnostics(self):
-        # Local evidence only; a broken diagnostic must never suppress STOP,
+        # Called only after _halt: a stalled log sink must never delay STOP,
         # cancellation, locking or the original LOCALIZATION_LOST transition.
         try:
             describe = getattr(self.context, 'failure_diagnostics', None)
@@ -373,8 +373,8 @@ class ScenarioRun:
                 self._halt('FAILED', 'NAV_TIMEOUT')
                 return
             if not self.context(c['request'], c['plan']):
-                self._context_failure_diagnostics()
                 self._halt('FAILED', 'LOCALIZATION_LOST')
+                self._context_failure_diagnostics()
                 return
             h._emit(s.executor_command(c['run_id'], Z))
             if self.cancel_confirmed():
@@ -399,8 +399,8 @@ class ScenarioRun:
             self._halt('FAILED', 'NAV_TIMEOUT')
             return
         if not self.context(c['request'], c['plan']):
-            self._context_failure_diagnostics()
             self._halt('FAILED', 'LOCALIZATION_LOST')
+            self._context_failure_diagnostics()
             return
         if succeeded:
             # Local zero-only health state; never renew the Nav2 source receipt.
