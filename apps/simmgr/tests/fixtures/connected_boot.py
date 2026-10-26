@@ -7,9 +7,12 @@ def main():
     gate = CN.Gate(ft) if CONN else None
     def static_floor(ep, f, rev): pass
     def floor_tick(sim_t, pos, tilt, fallen): pass
+    node = __import__('types').SimpleNamespace(create_timer=lambda *args: None)
     def publish_status():
         st = {}
         pub_status.publish(st)
+
+    node.create_timer(1.0, publish_status)
 
     def boot(why):
         """Gazebo 기동 + 에피소드 상태 초기화(last_action 0·HOLD 0.5 s·STOP 래치 유지)."""

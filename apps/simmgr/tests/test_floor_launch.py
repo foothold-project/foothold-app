@@ -93,10 +93,12 @@ def main():
     gate = None
     def static_floor(ep, f, rev): pass
     def floor_tick(sim_t, pos, tilt, fallen): pass
+    node = __import__('types').SimpleNamespace(create_timer=lambda *args: None)
     def publish_status():
         st = {"run_id": RUN_ID}
         pub_status.publish(st)
         return st
+    node.create_timer(1.0, publish_status)
     return man, publish_status()
 '''
 

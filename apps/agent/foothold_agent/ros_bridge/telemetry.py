@@ -139,6 +139,9 @@ class Telemetry:
         self.map_received = self.map_retries = 0
         self.map_rejections = dict(future=0, stale=0, mismatch=0)
         self.map_last_rejection = None
+        # Last accepted timing evidence survives cache expiry for diagnostics
+        # only. It is never read by snapshot(), coherence or safety decisions.
+        self._diagnostic_state = self._diagnostic_pose = None
 
     def invalidate(self, reason):
         self._pending_map = None
@@ -171,6 +174,7 @@ class Telemetry:
                       "progress_monotonic_s": self._gate.progress_at if progress_at is None else progress_at,
                       "vx": raw.get("vx"),
                       "vy": raw.get("vy"), "source": raw.get("source"), "clock": "simulation"}
+        self._diagnostic_state = dict(self.state)
         if self._pending_map is not None:
             status, receipt = self._pending_map
             self._pending_map = None
@@ -277,6 +281,7 @@ class Telemetry:
                          "confidence": None, "episode": b.episode, "source": p["source"],
                          "clock": "simulation", "progress_monotonic_s": s["progress_monotonic_s"],
                          "sim_t": p["stamp_sim"], "received_monotonic_s": received_at}
+        self._diagnostic_pose = dict(self.location)
 
     def _update_floor_map(self, status, received_at):
         s = self.state
@@ -326,6 +331,32 @@ class Telemetry:
             'floor_context': deepcopy(c), 'episode': c['epoch'], 'source': p['source'],
             'clock': 'simulation', 'sim_t': pose_stamp, 'received_monotonic_s': received_at,
             'progress_monotonic_s': s['progress_monotonic_s']}
+        self._diagnostic_pose = dict(self.location)
+
+    def diagnostics(self):
+        """Numeric ages only; no raw packets, coordinates or credentials."""
+        now, s, p = self.now(), self._diagnostic_state, self._diagnostic_pose
+        pending, pending_at = self._pending_map or ({}, None)
+        def age(value):
+            return now - value if number(value) else None
+        def delta(stamp):
+            return s['sim_t'] - stamp if s and number(stamp) else None
+        return dict(state_receipt_age_s=age(s['received_monotonic_s'] if s else None),
+            state_progress_age_s=age(s['progress_monotonic_s'] if s else None),
+            floor_receipt_age_s=age(self._floor_received_at),
+            pose_receipt_age_s=age(p['received_monotonic_s'] if p else None),
+            pose_progress_age_s=age(p['progress_monotonic_s'] if p else None),
+            state_floor_sim_delta_s=delta(self._floor_status_stamp),
+            state_pose_sim_delta_s=delta(p['sim_t'] if p else None),
+            pending_map_receipt_age_s=age(pending_at),
+            state_pending_map_sim_delta_s=delta(pending.get('sim_t')),
+            state_pending_pose_sim_delta_s=delta((pending.get('pose_map') or {}).get('stamp_sim')),
+            state_episode=s['episode'] if s else None,
+            pose_episode=p['episode'] if p else None,
+            state_reason=self._gate.reason, invalidation_reason=self._reason,
+            map_last_rejection=self.map_last_rejection,
+            map_received=self.map_received, map_retries=self.map_retries,
+            map_rejections=dict(self.map_rejections))
 
     def snapshot(self):
         if self.state and not self._coherent(self.state["sim_t"], self.state["received_monotonic_s"]):
