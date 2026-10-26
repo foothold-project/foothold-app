@@ -69,8 +69,10 @@ const recv = async (w: FakeWS, m: object) => { act(() => w.recv(m)); await flush
 /** 에이전트 흉내: lease.take → lease_id, 그 밖 요청 → ok. hello·cmd·ping·stop 은 답 없음(state 로 확인) */
 const agentAuto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 const last = <T,>(xs: T[]) => xs[xs.length - 1];
-/** 오른쪽 위 설정 메뉴 → «설정»·«정보»(나가기는 왼쪽 위 «<») */
+/** 왼쪽 아래 메뉴(10-26) → «시나리오»·«지도 보기»·«설정»·«정보»·«시뮬 끝내기»(나가기는 왼쪽 위 «<») */
 const menuItem = async (t: string) => { await click($('[data-sim-menu]')); await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === t)); };
+/** 시나리오 띠: 닫혀 있으면 메뉴 → «시나리오», 열려 있으면 메뉴 단추로 닫기 */
+const scnToggle = async () => { if ($('[data-sim-scn]')) return click($('[data-sim-menu]')); if (!$('.dv-menu')) await click($('[data-sim-menu]')); await click($('[data-sim-scn-btn]')); };
 
 /** 띄우기 → 출입증 → hello → welcome 까지 */
 async function launch(hello = welcome(), more: typeof routes = {}) {
@@ -228,10 +230,13 @@ describe('시뮬 상하좌우·회전 조이스틱(10-25)', () => {
   });
   it('experimental 있음: 시험용 띠, 뒤·옆·제자리 회전 보냄, 화살표 모두 켬, STOP 보임', async () => {
     const a = await launch({ ...welcome(), limits: EXP }); await drive(a);
+    expect($('[data-sim-exp]')).toBeNull();   // 10-26: 영상 위에서 빼고 메뉴 안 한 줄
+    await click($('[data-sim-menu]'));
     const exp = $('[data-sim-exp]')!, full = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
-    expect(exp.textContent).toBe('시험용 · 넘어질 수 있음');   // 10-25: 영상 위 큰 띠 대신 작은 표시, 긴 문장은 aria·설정 시트
+    expect(exp.textContent).toBe('시험용 · 넘어질 수 있음');   // 긴 문장은 aria·설정 시트
     expect(exp.getAttribute('aria-label')).toBe(full);
-    expect(exp.closest('.dv-act')).toBeNull();
+    expect(exp.closest('.dv-menu')).toBeTruthy();
+    await click($('[data-sim-menu]'));
     expect(arrows('전후')).toBe('up+ down+ left+ right+');
     expect(arrows('회전')).toBe('left+ right+');
     const left = stick('전후'), turn = stick('회전');
@@ -415,7 +420,7 @@ describe('시뮬 로봇 직결 흐름', () => {
     ptr(fwd, 'pointerup', 50, 0);
 
     // 끝내기: 반납 → 연결 닫기 → DELETE → 목록 다시 → IDLE
-    await click(btn('시뮬 끝내기'));
+    await menuItem('시뮬 끝내기');
     expect(a.of('lease.release')).toHaveLength(1);
     expect(a.readyState).toBe(3);
     expect(c.readyState).toBe(3);
@@ -725,7 +730,7 @@ describe('시뮬 직결 실패', () => {
     const a = await launch();
     routes[`DELETE /simulation/robots/${S1}`] = err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.');
     const lists = calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length;
-    await click(btn('시뮬 끝내기'));
+    await menuItem('시뮬 끝내기');
     expect(a.readyState).toBe(3);
     expect($('[data-sim="checking"]')!.textContent).toContain('정리를 확인하지 못했습니다');
     expect(calls.filter((c) => c.path === '/simulation/robots' && c.method === 'GET').length).toBeGreaterThan(lists);
@@ -742,6 +747,7 @@ it.each(['STARTING', 'STOPPING'] as const)('목록의 %s를 전환 안내로 표
   expect(box.textContent).toContain(state === 'STARTING' ? '시뮬을 띄우는 중…' : '시뮬을 정리하는 중…');
   expect(box.textContent).not.toContain('관리자에 연결하지 못했습니다');
   expect($('[data-stop]')).toBeTruthy();
+  await click($('[data-sim-menu]'));
   expect(btn('시뮬 끝내기')).toBeTruthy();
   expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
 });
@@ -783,8 +789,10 @@ it('폰 시계 오차와 무관하게 remaining_s로 세고 증명된 만료 뒤
     await act(() => sim.load());
     expect(box.textContent).toContain('남은 시간 01:00');
     expect(box.textContent).toContain('1분 안에 시뮬을 끝냅니다.');
+    await click($('[data-sim-menu]')); await click($('[data-sim-menu]'));   // 정보 시트를 닫고 메뉴 열기
     expect(btn('시뮬 끝내기')).toBeTruthy();
     expect($('[data-stop]')).toBeTruthy();
+    await click($('[data-sim-menu]'));
     // An old generation is never sufficient to close the current connection.
     routes['GET /simulation/robots'] = { status: 200, body: { items: mine, expired: [
       { robot_id: S1, owner_id: 'u-lee', generation: 99, reason: 'time_limit' },
@@ -853,10 +861,10 @@ describe('시뮬 조종 화면 덮개(10-23 — 다시 들어가기·설정 메�
     expect(btn('직접 연결')).toBeTruthy();
   });
 
-  it('기본 화면: 상태 줄·정책·지연은 숨기고 위 가운데 알약 «시뮬 · 실행 중 · 0.40 m/s»만, 정보 메뉴에서 보임', async () => {
+  it('기본 화면: 상태 줄·정책·지연은 숨기고 위 가운데 알약 «시뮬 · 0.40 m/s»만, 정보 메뉴에서 보임', async () => {
     const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
     const top = $('.dv-top')!;
-    expect(top.textContent).toBe('시뮬 · 실행 중 · 0.00 m/s');   // 시뮬 표시 + 상태 + 속도뿐(정상이면 잠금 표시 없음)
+    expect(top.textContent).toBe('시뮬 · 0.00 m/s');   // 정상이면 시뮬 표시 + 속도뿐(10-26 — 잠금·실행·끊김일 때만 그 말)
     expect(box.textContent).not.toContain('정책 go2-flat');
     expect(box.textContent).not.toContain('시뮬 시계 차');
     const fwd = stick('전후');
@@ -971,7 +979,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
   const scenarios = (items: Scenario[]) => ({ 'GET /simulation/worlds': { status: 200, body: MAPPED }, 'GET /scenarios': { status: 200, body: { items, next_cursor: null } } });
   const items = () => [...box.querySelectorAll('[data-sim-scn] li button')].map((b) => b.textContent);
 
-  it('구도: 왼쪽 위 «<»·위 가운데 알약(잠금 반영)·오른쪽 위 설정(설정·정보), 시나리오 단추 하나', async () => {
+  it('구도(10-26): 왼쪽 위 «<»·위 가운데 알약(잠금 반영)·머리줄은 STOP 만, 왼쪽 아래 메뉴 하나(시나리오·설정·정보·시뮬 끝내기)', async () => {
     const a = await launch();
     await recv(a, phoneState());
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
@@ -979,12 +987,66 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 보는 중 · 0.00 m/s');
     expect($('[data-sim-leave]')!.getAttribute('aria-label')).toBe('나가기');
     await click($('[data-sim-menu]'));
-    expect([...box.querySelectorAll('.dv-menu button')].map((b) => b.textContent)).toEqual(['설정', '정보']);
+    expect([...box.querySelectorAll('.dv-menu button')].map((b) => b.textContent)).toEqual(['시나리오', '설정', '정보', '시뮬 끝내기']);
     expect(box.querySelectorAll('[aria-label="시나리오"]')).toHaveLength(1);
+    const head = $('header')!;   // 머리줄 = STOP 하나(시뮬 끝내기·제목·연결·⋯ 없음)
+    expect(head.hasAttribute('data-bare')).toBe(true);
+    expect([...head.querySelectorAll('button, summary, h1')].map((e) => e.getAttribute('aria-label') ?? e.textContent)).toEqual(['비상 정지']);
+    expect($('[data-sim-mini]')).toBeNull();   // 작은 지도는 기본 꺼짐
+    await click($('[data-sim-menu]'));
     await drive(a);
-    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 실행 중 · 0.00 m/s');
+    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 0.00 m/s');
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: true, stop_gen: 2 }));
     expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
+  });
+
+  it('10-26 깔끔한 화면: STOP 은 정상·잠금·안내 카드·메뉴·시트 모두에서 영상 칸 밖에 보이고 눌림, 안내는 카드 한 장(닫으면 글만 빠지고 단추 남음)', async () => {
+    const a = await launch();
+    const stopOk = async (n: number) => {
+      const s = $<HTMLButtonElement>('[data-stop]')!;
+      expect(s.disabled).toBe(false);
+      expect(s.closest('header')!.hasAttribute('data-bare')).toBe(true);
+      expect(box.querySelector('.dv-stage [data-stop]')).toBeNull();
+      await click(s);
+      expect(a.of('stop')).toHaveLength(n);
+    };
+    await recv(a, phoneState());   // 잠금(조종권 없음): 카드 = «조종 시작»
+    expect($('[data-sim-pill]')!.textContent).toBe('시뮬 · 정지 잠금 · 0.00 m/s');
+    await stopOk(1);
+    await drive(a);                 // 정상
+    await stopOk(2);
+    const held = { lease_id: LEASE, controller: 'u-lee', controller_connected: true, stop_gen: 3 };
+    await recv(a, phoneState({ ...held, safety_reason: 'OUTPUT_STALLED' }));   // 안내 여러 줄 + 단추 → 카드 한 장
+    expect(box.querySelectorAll('.dv-act')).toHaveLength(1);
+    const card = $('[data-sim-card]')!;
+    expect(card.querySelectorAll('.dv-note').length).toBeGreaterThan(1);
+    expect(card.textContent).toContain(STALLED);
+    expect(btn('잠금 해제')).toBeTruthy();
+    await stopOk(3);
+    await click($('[data-sim-card-close]'));   // 닫기: 글은 빠지고 지금 눌러야 할 단추는 남음
+    expect(box.querySelectorAll('.dv-act .dv-note')).toHaveLength(0);
+    expect(btn('잠금 해제')).toBeTruthy();
+    await stopOk(4);
+    await click($('[data-sim-menu]'));          // 메뉴 열림
+    expect($('.dv-menu')).toBeTruthy();
+    await stopOk(5);
+    await click([...box.querySelectorAll('.dv-menu button')].find((b) => b.textContent === '설정'));   // 시트 열림
+    expect($('[data-sheet]')).toBeTruthy();
+    await stopOk(6);
+    expect(calls.some((c) => c.path.endsWith('/stop'))).toBe(false);   // 시뮬 STOP 은 에이전트로만
+  });
+
+  it('PR117 r1: STOP 안내를 닫은 뒤 새 위험 안내(LOCALIZATION_LOST)가 오면 카드가 다시 보임', async () => {
+    const a = await launch();
+    await drive(a);
+    await click($('[data-stop]'));
+    await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, stop_gen: 2, applied: [0, 0, 0] }));
+    expect(box.querySelectorAll('.dv-act .dv-note').length).toBeGreaterThan(0);
+    await click($('[data-sim-card-close]'));
+    expect(box.querySelectorAll('.dv-act .dv-note')).toHaveLength(0);
+    await recv(a, { t: 'run.update', run_id: 'r-1', status: 'FAILED', step: 0, progress: { done: 0, total: 3 }, wait_reason: null, fail_code: 'LOCALIZATION_LOST' });
+    expect($('[data-sim-card]')!.textContent).toContain('로봇이 지도 위 자기 위치를 잃었습니다.');
+    expect($<HTMLButtonElement>('[data-stop]')!.disabled).toBe(false);
   });
 
   it('잠금 사유 OUTPUT_STALLED 면 출력 지연 안내, 사유 없음·해제면 기존 그대로(잠금 해제 단추·STOP 그대로)', async () => {
@@ -1053,12 +1115,12 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     await click($('[data-sim-menu]'));
     await click($('[data-sim-scn-btn]'));
     expect($('.dv-menu')).toBeNull();   // 둘 중 하나만
-    await click($('[data-sim-scn-btn]'));
-    await click($('[data-sim-scn-btn]'));
+    await scnToggle(); expect($('[data-sim-scn]')).toBeNull();
+    await scnToggle();
     ptr(stick('전후'), 'pointerdown', 50, 0); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0, wz: 0 });
     expect(stick('전후').getAttribute('aria-disabled')).toBe('true');
-    expect($('[data-sim-scn-btn]')!.getAttribute('aria-expanded')).toBe('true');
+    expect($('[data-sim-menu]')!.getAttribute('aria-expanded')).toBe('true');
     expect(box.querySelector('.dv-stage [data-stop]')).toBeNull();
     const s = $<HTMLButtonElement>('[data-stop]')!;
     expect(s.disabled).toBe(false);
@@ -1066,7 +1128,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
     expect(a.of('stop')).toHaveLength(1);
     // 닫으면 입력이 다시 산다(잠금 해제된 상태로 되돌림)
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false, stop_gen: 2 }));
-    await click($('[data-sim-scn-btn]'));
+    await scnToggle();
     expect($('[data-sim-scn]')).toBeNull();
     ptr(stick('전후'), 'pointerdown', 50, 0); await wait(80);
     expect(last(a.of('cmd'))).toMatchObject({ vx: 0.6 });
@@ -1075,7 +1137,7 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
   it('이 월드 지도(층)를 지나는 보관 안 된 시나리오만, 고르면 «고름» — 실행 능력 알림 없는 로봇은 실행 막힘·이유, 실행 요청 0', async () => {
     const a = await launch(welcome(), scenarios([scn('s-a', '1층 순찰', F1), scn('s-b', '남의 지도', F2), scn('s-c', '보관됨', F1, '2026-10-01T00:00:00Z')]));
     await drive(a);
-    await click($('[data-sim-scn-btn]'));
+    await scnToggle();
     expect(calls.some((c) => c.method === 'GET' && c.path.startsWith('/scenarios'))).toBe(true);
     expect(items()).toEqual(['1층 순찰']);
     expect(btn('실행')).toBeUndefined();
@@ -1092,21 +1154,21 @@ describe('시뮬 조종 화면 구도·시나리오 띠(10-23 — 아래 단추 
 
   it('시나리오 0개면 «이 지도에 시나리오가 없습니다»', async () => {
     await launch(welcome(), scenarios([scn('s-b', '남의 지도', F2)]));
-    await click($('[data-sim-scn-btn]'));
+    await scnToggle();
     expect($('[data-sim-scn]')!.textContent).toBe('이 지도에 시나리오가 없습니다.');
     expect(btn('실행')).toBeUndefined();
   });
 
   it('지도에 묶이지 않은 월드는 목록을 부르지 않고 안내만', async () => {
     await launch();
-    await click($('[data-sim-scn-btn]'));
+    await scnToggle();
     expect($('[data-sim-scn]')!.textContent).toBe('이 월드에 묶인 지도가 없어 시나리오가 없습니다.');
     expect(calls.some((c) => c.path.startsWith('/scenarios'))).toBe(false);
   });
 
   it('목록 실패는 «받지 못했습니다»·다시', async () => {
     await launch(welcome(), { ...scenarios([]), 'GET /scenarios': err(503, 'INTERNAL_ERROR', 'x') });
-    await click($('[data-sim-scn-btn]'));
+    await scnToggle();
     expect($('[data-sim-scn]')!.textContent).toContain('시나리오 목록을 받지 못했습니다.');
     routes['GET /scenarios'] = { status: 200, body: { items: [scn('s-a', '1층 순찰', F1)], next_cursor: null } };
     await click(btn('다시'));
@@ -1142,7 +1204,7 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
       'GET /simulation/worlds': { status: 200, body: { ...CATALOG, worlds: [warehouse] } },
       'POST /simulation/robots': () => { mine = [{ ...simRobot(), world_id: 'warehouse/f1' }]; return { status: 201, body: mine[0] }; },
     });
-    await drive(a);
+    await drive(a); await menuItem('지도 보기');
     await recv(a, at({ world_id: 'warehouse', spawn_floor_id: 'f1', current_floor_id: 'f1', floor_state: 'on_floor', confirmed_sim_t: 0 }));
     expect(shown()).toBe(V1);
     await load();
@@ -1167,7 +1229,7 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
   });
 
   it('1층 판 + 위치 → 층 이동 중(점 숨김·흐림) → 2층 판 자동 교체·안내, 옛 rev·다른 세대 무시, 큰 지도에서도 조이스틱·STOP 그대로', async () => {
-    const a = await launch(welcome(), routesV5); await drive(a);
+    const a = await launch(welcome(), routesV5); await drive(a); await menuItem('지도 보기');
     expect($('[data-sim-mini]')!.getAttribute('aria-label')).toBe('지도 크게');
     expect($('[data-sim-floor]')!.textContent).toBe('층을 확인하는 중');   // 문맥 전 — 판·점 없음
     expect($('[data-sim-map]')).toBeNull();
@@ -1215,7 +1277,7 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
   });
 
   it('1층 판을 그린 뒤 문맥이 null(RESET·만료)이면 마지막 문맥을 현재로 쓰지 않는다 — 확인 중·흐림·점 숨김', async () => {
-    const a = await launch(welcome(), routesV5); await drive(a);
+    const a = await launch(welcome(), routesV5); await drive(a); await menuItem('지도 보기');
     await recv(a, at(L1)); await load();
     expect($('[data-sim-dot]')).toBeTruthy();
     await recv(a, phoneState({ lease_id: LEASE, controller: 'u-lee', controller_connected: true, latched: false,
@@ -1241,7 +1303,7 @@ describe('시뮬 층 자동 전환 작은 지도(floor-auto 1B)', () => {
   it('판 응답이 오기 전에 문맥이 바뀌면 그 판은 그리지 않는다, 판 SHA 가 다르면 위치 숨김', async () => {
     let answer: (r: Reply) => void = () => {};
     const a = await launch(welcome(), { ...routesV5, [`GET /map-versions/${V1}`]: () => new Promise<Reply>((f) => { answer = f; }), [`GET /map-versions/${V2}`]: ver(V2, 'other') });
-    await drive(a);
+    await drive(a); await menuItem('지도 보기');
     await recv(a, at(L1));
     await recv(a, at(TRANSIT));
     answer(ver(V1, 'a1')); await flush();

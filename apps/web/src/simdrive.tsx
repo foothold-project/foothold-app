@@ -1,7 +1,7 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState } from 'react';
 import type { SimRobot } from '../../contracts/ts';
-import { DEAD, allowed, runMoving, sim, useSim, velocity, type Sim } from './phone';
+import { DEAD, RUN_END, allowed, runMoving, sim, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { Chip } from './screens';
@@ -121,12 +121,15 @@ export const CAM = { wait: '영상 기다리는 중', none: '영상 없음 — �
 
 const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
 const ICON = {
-  gear: I(<><path strokeLinejoin="round" d="M19.1 9.8L21.9 10.4L21.9 13.6L19.1 14.2L18.5 15.5L20.1 17.9L17.9 20.1L15.5 18.5L14.2 19.1L13.6 21.9L10.4 21.9L9.8 19.1L8.5 18.5L6.1 20.1L3.9 17.9L5.5 15.5L4.9 14.2L2.1 13.6L2.1 10.4L4.9 9.8L5.5 8.5L3.9 6.1L6.1 3.9L8.5 5.5L9.8 4.9L10.4 2.1L13.6 2.1L14.2 4.9L15.5 5.5L17.9 3.9L20.1 6.1L18.5 8.5Z" /><circle cx="12" cy="12" r="3" /></>),
   set: I(<path d="M4 7h10M18 7h2M4 17h4M12 17h8M16 5v4M10 15v4" />),
   info: I(<><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7v1" /></>),
   back: I(<path strokeLinecap="round" strokeLinejoin="round" d="M15 5l-7 7 7 7" />),
   route: I(<><circle cx="6" cy="18" r="2" /><circle cx="18" cy="6" r="2" /><path d="M8 18h6a3 3 0 0 0 0-6h-4a3 3 0 0 1 0-6h6" /></>),
   flag: I(<path strokeLinejoin="round" d="M6 21V4M6 4h11l-2.5 4 2.5 4H6" />),
+  grid: I(<><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></>),
+  map: I(<path strokeLinejoin="round" d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2zM9 4v14M15 6v14" />),
+  close: I(<path strokeLinecap="round" d="M6 6l12 12M18 6L6 18" />),
+  end: I(<><rect x="5" y="5" width="14" height="14" rx="2" /><path d="M9 9l6 6M15 9l-6 6" /></>),
 };
 
 /** 아래 단추 하나 → 가로 띠: 이 시뮬 월드에 묶인 지도(world.map_id 의 층)를 지나는 시나리오. «실행»은 에이전트가 실행 능력을 알리고 시작 조건이 맞을 때만(run.tsx startBlock) */
@@ -150,8 +153,9 @@ function ScenarioBar({ s, r, started }: { s: Sim; r: SimRobot; started: () => vo
 
 export const EXP = '시뮬 시험용 — 후진·옆걸음·제자리 회전은 넘어질 수 있습니다';
 const SPIN = '제자리 회전 — 시뮬에서 아직 확인 안 됨. 앞으로 밀면서 돌리세요.';
-/** 직결 조종 화면: 카메라 전체. 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약, 오른쪽 위 설정 메뉴(설정·정보), 아래 두 구석 조이스틱,
- *  왼쪽 조이스틱 옆 시나리오 단추 하나(누르면 가로 띠), 설정 아래 작은 지도(누르면 지도 크게 ↔ 영상 크게, simmap.tsx), 지금 눌러야 할 단추·안내. STOP 은 App 머리줄(영상 칸 밖이라 메뉴·띠·시트가 덮지 못함).
+/** 직결 조종 화면(10-26 사용자 «쓸데없는 거 다 빼줘» — 참고 Unitree 앱 구도): 영상이 화면 전체(cover). 영상 위에는 왼쪽 위 «<»(나가기), 위 가운데 상태 알약 하나,
+ *  오른쪽 위 STOP(App 머리줄 — 시뮬 조종 중에는 STOP 만 남아 영상 위에 뜬다, 메뉴·띠·시트가 덮지 못함), 아래 두 구석 조이스틱, 왼쪽 조이스틱 옆 메뉴 단추 하나
+ *  (시나리오 띠·작은 지도 켜고 끄기(기본 꺼짐)·설정·정보·시뮬 끝내기·시험용 안내), 안내·단추는 카드 한 장(첫 줄 = 사유, 실행 다음 행동 줄은 그 아래 — 닫으면 글이 사라지고 단추는 남음).
  *  메뉴·띠가 열려 있거나 나가는 중이면 입력 0 */
 export function SimDrive() {
   const s = useSim(), l = s.link!, r = s.robot!, st = l.st, w = l.welcome;
@@ -160,9 +164,9 @@ export function SimDrive() {
   const input = useRef<[number, number, number]>([0, 0, 0]), gen = useRef(0);   // [전후, 회전, 옆]
   const [unsupported, setUnsupported] = useState(''), [vx, setVx] = useState(0);
   const [menu, setMenu] = useState<'' | 'menu' | 'set' | 'info'>(''), [bar, setBar] = useState(false), [leaving, setLeaving] = useState<'' | 'wait' | 'fail'>('');
-  // 작은 지도(오른쪽 위 설정 아래): 누르면 지도 크게 ↔ 영상 크게(실기 화면 dv-mini 와 같음 — 입력·조이스틱은 그대로)
+  // 작은 지도(메뉴에서 켬, 기본 꺼짐 — 오른쪽 위 STOP 아래): 누르면 지도 크게 ↔ 영상 크게(실기 화면 dv-mini 와 같음 — 입력·조이스틱은 그대로)
   const floors = s.catalog?.worlds.find((x) => x.id === r.world_id)?.floors ?? [], fm = useFloorMap(st, r, floors);
-  const [big, setBig] = useState(false), hasMap = floors.length > 0 || !!fm.ctx;
+  const [big, setBig] = useState(false), [mini, setMini] = useState(false), [shut, setShut] = useState<string[]>([]), hasMap = floors.length > 0 || !!fm.ctx;
   const run = runView(s), moving = runMoving(l.run);   // 실행이 움직이는 중이면 조이스틱 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
   const live = ready && !menu && !bar && !leaving && !moving;
   const smooth = w?.limits.vx_mode === 'continuous', can = allowed(w), blocked = blockedNames(can);
@@ -198,24 +202,25 @@ export function SimDrive() {
   const soc = st?.battery?.soc, wait = Math.max(0, Math.ceil((s.retryAt - performance.now()) / 1000)), stop = stopText(s);
   // OUTPUT_STALLED·시나리오 실행 안내가 뜰 때는 영상 자리 문구를 숨긴다(아래 안내 칸과 겹침). 실제 영상 장애(lost·none)는 안내 줄 아래로 옮겨 계속 보인다
   const stalled = open && !!st?.latched && st.safety_reason === 'OUTPUT_STALLED', hideCam = stalled || run.notes.length > 0;
-  const notes = [
+  const notes = [   // 카드 첫 줄 = 맨 앞(안전·연결 먼저)
+    stop,
+    stalled && STALLED,
+    leaving === 'wait' && '조종권을 반납하고 나가는 중입니다…',
+    leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
+    l.at === 'closed' && l.why,
+    ...run.notes,
     r.state === 'STOPPING' && '시뮬을 정리하는 중…',
     r.state === 'STARTING' && '시뮬을 띄우는 중…',
     timeNotice(runtimeLeft),
-    l.at === 'closed' && l.why,
     l.notice,
-    leaving === 'wait' && '조종권을 반납하고 나가는 중입니다…',
-    leaving === 'fail' && '조종권 반납을 확인하지 못했습니다 — 입력은 0 입니다. 다시 반납하거나 STOP 을 누르세요.',
     unsupported,
     fm.notice,
     !unsupported && mine && clipNote && `명령 범위 조정 — 허용 범위로 잘랐습니다.${smooth || !can.spin ? '' : ' 끝까지 밀어야 움직입니다.'}`,
     open && left < 60 && (moving ? `출입증 ${Math.max(0, left)}초 남음 — 만료되면 실행이 일시정지됩니다. 다시 연결한 뒤 이 화면에서 «이어서»를 누르세요.`
       : `출입증 ${Math.max(0, left)}초 남음 — 만료되면 로봇이 멈추고 조종권이 비워집니다. 새 출입증으로 다시 연결하세요.`),
-    ...run.notes,
-    stalled && STALLED,
     hideCam && (l.cam === 'lost' || l.cam === 'none') && CAM[l.cam],
-    stop,
   ].filter(Boolean) as string[];
+  const said = notes.length > 0 && notes.every((t) => shut.includes(t));   // 닫을 때 보이던 안내뿐이면 숨김(새 안내가 하나라도 생기면 다시 보임)
   const acts = leaving ? leaving === 'fail' && [
     <button key="rel" type="button" className="btn pri" onClick={leave}>다시 반납</button>,
     l.at === 'closed' && <button key="re" type="button" className="btn" disabled={!!wait} onClick={() => sim.connect()}>{wait ? `다시 연결(${wait}초 뒤)` : '다시 연결'}</button>,
@@ -227,23 +232,31 @@ export function SimDrive() {
     ...run.acts,
   ].filter(Boolean);
   const range = w && `로봇 허용 범위(앞 ${w.limits.vx_max.toFixed(2)} m/s${can.back ? `, 뒤 ${(-w.limits.vx_min).toFixed(2)} m/s` : ''}${can.left || can.right ? `, 옆 ±${w.limits.vy_max} m/s` : ''}, 회전 ±${w.limits.wz_max} rad/s) 밖은 잘라 보냅니다.${!can.spin ? ' 제자리 회전은 앞으로 밀면서 돌리세요.' : ''}`;
-  const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" draggable={false} src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+  // 알약 하나: 정상이면 «시뮬 · 속도», 잠금·연결·보기는 그 말, 시나리오 실행 중이면 «실행 2/3»(잠금·끊김이 먼저)
+  const rr = l.run && !RUN_END.includes(l.run.status) ? l.run : null, total = rr?.progress.total ?? 0;
+  const state = r.state !== 'RUNNING' ? STATE[r.state] : lock.tone !== 'ok' ? lock.text
+    : rr ? rr.status === 'PAUSED' ? '실행 일시정지' : total ? `실행 ${Math.min(rr.step + 1, total)}/${total}` : '실행 준비' : '';
+  const toggle = () => { if (menu || bar) { setMenu(''); setBar(false); } else setMenu('menu'); };
+  const video = (small: boolean) => l.cam === 'frame' ? <img className="dv-video" draggable={false} src={l.img} alt="RGB 영상" style={{ width: '100%', height: '100%', objectFit: small ? 'contain' : 'cover' }} />
     : <div className="dv-video" role="img" aria-label="RGB 영상">{!small && !hideCam && <span>{CAM[l.cam]}</span>}</div>;
   return <section className="dv ph" style={{ flexBasis: '100%' }} aria-label="조종" data-sim-drive onContextMenu={(e) => e.preventDefault()}>
     <div className="dv-body"><div className="dv-stage rgb">
-      {big && hasMap ? <SimMap m={fm} big /> : video(false)}
-      {hasMap && <button type="button" className="dv-mini" aria-label={big ? '영상 크게' : '지도 크게'} data-sim-mini onClick={() => setBig(!big)}>{big ? video(true) : <SimMap m={fm} />}</button>}
+      {big && hasMap && mini ? <SimMap m={fm} big /> : video(false)}
+      <div className="dv-safe">
+      {hasMap && mini && <button type="button" className="dv-mini" aria-label={big ? '영상 크게' : '지도 크게'} data-sim-mini onClick={() => setBig(!big)}>{big ? video(true) : <SimMap m={fm} />}</button>}
       <button type="button" className="dv-gear dv-leave" aria-label="나가기" disabled={leaving === 'wait'} data-sim-leave onClick={leave}>{ICON.back}</button>
       <div className="dv-top" aria-label="상태" data-tone={r.state === 'RUNNING' ? lock.tone : 'off'} data-sim-pill>
-        시뮬 · {r.state !== 'RUNNING' ? STATE[r.state] : lock.tone === 'ok' ? '실행 중' : lock.text} · <span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
+        시뮬 · {state && <>{state} · </>}<span className="mono" data-sim-vx>{(live ? vx : 0).toFixed(2)} m/s</span>
       </div>
-      {can.experimental && <p className="dv-exp" role="note" aria-label={EXP} data-sim-exp>시험용 · 넘어질 수 있음</p>}
-      <button type="button" className="dv-gear" aria-label="설정 메뉴" aria-expanded={!!menu} data-sim-menu onClick={() => { setBar(false); setMenu(menu ? '' : 'menu'); }}>{ICON.gear}</button>
-      {menu === 'menu' && <div className="dv-menu" role="group" aria-label="설정 메뉴 항목">
+      <button type="button" className="dv-menu-btn" aria-label="메뉴" aria-expanded={!!menu || bar} data-sim-menu onClick={toggle}>{ICON.grid}</button>
+      {menu === 'menu' && <div className="dv-menu" role="group" aria-label="메뉴 항목">
+        {can.experimental && <p className="dv-exp" role="note" aria-label={EXP} data-sim-exp>시험용 · 넘어질 수 있음</p>}
+        <button type="button" className="btn" aria-label="시나리오" data-sim-scn-btn onClick={() => { setMenu(''); setBar(true); }}>{ICON.route}<span>시나리오</span></button>
+        {hasMap && <button type="button" className="btn" aria-pressed={mini} data-sim-map-toggle onClick={() => { setMenu(''); setMini(!mini); setBig(false); }}>{ICON.map}<span>{mini ? '지도 끄기' : '지도 보기'}</span></button>}
         <button type="button" className="btn" onClick={() => setMenu('set')}>{ICON.set}<span>설정</span></button>
         <button type="button" className="btn" onClick={() => setMenu('info')}>{ICON.info}<span>정보</span></button>
+        <button type="button" className="btn" data-sim-end onClick={() => { setMenu(''); sim.end(); }}>{ICON.end}<span>시뮬 끝내기</span></button>
       </div>}
-      <button type="button" className="dv-scn-btn" aria-label="시나리오" aria-expanded={bar} data-sim-scn-btn onClick={() => { setMenu(''); setBar(!bar); }}>{ICON.route}</button>
       {bar && <ScenarioBar s={s} r={r} started={() => setBar(false)} />}
       {menu === 'set' && <Sheet title="설정" close={() => setMenu('')}>
         {smooth ? <p className="dv-note">시뮬 전용 · 멈출 때 가끔 넘어질 수 있음(측정 34회 중 3회){blocked && ` · ${blocked}은 아직 지원하지 않습니다`}</p> : <>
@@ -270,8 +283,9 @@ export function SimDrive() {
         </div>
         {run.dev}
       </Sheet>}
-      {(notes.length > 0 || !!acts && acts.length > 0) && <div className="dv-act">
-        {notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}
+      {(notes.length > 0 && !said || !!acts && acts.length > 0) && <div className="dv-act" data-sim-card data-bare={said || notes.length === 0 || undefined}>
+        {notes.length > 0 && !said && <div className="dv-act-head"><div className="dv-act-t">{notes.map((t) => <p key={t} className="dv-note" role="status">{t}</p>)}</div>
+          <button type="button" className="dv-x" aria-label="안내 닫기" data-sim-card-close onClick={() => setShut(notes)}>{ICON.close}</button></div>}
         {acts && acts.length > 0 && <div className="fh-row">{acts}</div>}
       </div>}
       {l.ask && mine && <div className="dv-ask" role="dialog" aria-labelledby="sim-ask-t" aria-live="assertive">
@@ -280,6 +294,7 @@ export function SimDrive() {
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
         <Stick label="회전" on={live} epoch={+live} gen={gen} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick></>}
+      </div>
     </div></div>
   </section>;
 }
