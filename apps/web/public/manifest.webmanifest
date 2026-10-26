@@ -1,0 +1,11 @@
+{
+  "name": "FOOTHOLD",
+  "short_name": "FOOTHOLD",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone"],
+  "background_color": "#12161d",
+  "theme_color": "#12161d",
+  "icons": [{ "src": "./brand/assets/logo/v1/foothold-favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

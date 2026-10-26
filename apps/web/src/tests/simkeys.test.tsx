@@ -8,6 +8,7 @@ import { App } from '../App';
 import { sim } from '../phone';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
+import frameCss from '../frame.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -246,5 +247,27 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await sleep(60);
     expect(FakeWS.all.flatMap((w) => w.sent.map((m) => m.t)).filter((t) => ['cmd', 'lease.take', 'unlock'].includes(t))).toEqual([]);
     expect($('[data-sim-keys]')).toBeNull();
+  });
+});
+
+// 10-26: PC 시나리오 고르기 = 네이티브 select(키보드 ↑↓·Enter·Esc, combobox/listbox 는 브라우저 기본) + 토큰 모양(.fh-user .fh-sel, frame.css base-select)
+describe('PC 시나리오 고르기 모양', () => {
+  it('목록 칸은 select.fh-user.fh-sel(고르기 + 이 지도 시나리오), 고르면 안내가 바뀜 — 펼친 목록 CSS 는 토큰 변수만', async () => {
+    const MAPPED: SimCatalog = { ...CATALOG, worlds: [{ ...CATALOG.worlds[0], map_id: 'b-1', floors: [{ floor_id: 'f-1', name: '1층', floor_z: 0, map_version_id: 'v-1' }] }] };
+    serve({ 'GET /simulation/worlds': { status: 200, body: MAPPED }, 'GET /scenarios': { status: 200, body: { items: [{ id: 's-a', name: '1층 순찰', floor_ids: ['f-1'], archived_at: null }], next_cursor: null } } });
+    await mount();
+    await click(btn('띄우기'));
+    const a = FakeWS.all.find((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')!; a.auto = agentAuto;
+    act(() => a.open()); await flush();
+    await recv(a, welcome()); await recv(a, phoneState()); await flush();
+    const sel = box.querySelector<HTMLSelectElement>('[data-sim-scn] select')!;
+    expect(sel.className).toBe('fh-user fh-sel');
+    expect([...sel.options].map((o) => o.textContent)).toEqual(['고르기', '1층 순찰']);
+    expect($('#sim-scn-why')!.textContent).toBe('실행할 시나리오를 고르세요.');
+    act(() => { sel.value = 's-a'; sel.dispatchEvent(new Event('change', { bubbles: true })); }); await flush();
+    expect($('#sim-scn-why')!.textContent).not.toBe('실행할 시나리오를 고르세요.');
+    const css = frameCss.split('\n').filter((l) => l.startsWith('.fh-sel') || l.startsWith('.fh:not(.light) .fh-sel')).join('\n');
+    expect(css).toContain('appearance:base-select');
+    expect(css.replace(/rgba\(0,0,0,\.4\)/g, '')).not.toMatch(/#[0-9a-f]{3,8}\b|rgb/i);   // 색은 var(--…) 토큰만(그림자 값은 .dv-ask 그대로)
   });
 });

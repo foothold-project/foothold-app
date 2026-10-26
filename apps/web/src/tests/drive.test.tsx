@@ -1727,6 +1727,8 @@ describe('폰 조종 앱 틀', () => {
     expect(driveCss).toMatch(/\n\.fh:has\(\.dv\.ph\)\{height:100dvh;min-height:0\}/);
     expect(frameCss).toMatch(/\n\.fh\.phone\{box-sizing:border-box;padding:0 env\(safe-area-inset-right,0px\) env\(safe-area-inset-bottom,0px\) env\(safe-area-inset-left,0px\);overflow-x:clip;touch-action:manipulation\}/);
     expect(frameCss).toMatch(/\nhtml\{-webkit-text-size-adjust:100%;text-size-adjust:100%\}/);
+    // PR #114 r1: 위쪽 safe-area 는 sticky 머리줄 안쪽 여백으로 — 전체화면·홈 화면 앱(노치 59px)에서도 STOP 이 노치 아래(측정은 PR 코멘트)
+    expect(frameCss).toMatch(/\n\.fh\.phone \.fh-head\{padding:calc\(6px \+ env\(safe-area-inset-top,0px\)\) 8px 6px;gap:8px\}/);
     expect(driveCss).toMatch(/@media \(max-height:480px\)\{\.dv-hud\{[^}]*max-height:calc\(100% - 112px\);overflow-y:auto\}/);   // 가로: 상태 판이 조이스틱을 덮지 않음
   });
 
@@ -1942,5 +1944,64 @@ describe('총괄 — 실기 조종·STOP 없음, 시뮬은 그대로', () => {
     expect(band()).toContain(`시뮬 로봇 1 정지 요청을 보내지 못했습니다. ${NO}`);
     tick(STOP_WS_MS + STOP_HTTP_MS);
     expect(f.mock.calls.filter((c) => String(c[0]).includes('/stop'))).toHaveLength(1);
+  });
+});
+
+// 10-26 실폰: 전체화면은 화면 전환일 뿐 — 조종권·입력(cmd 50 ms)·STOP 경로는 그대로. 아이폰(요소 전체화면 막힘)은 단추 대신 «홈 화면에 추가» 안내
+describe('전체화면(⋯ 메뉴)', () => {
+  let fsEl: Element | null = null;
+  afterEach(() => {
+    fsEl = null;
+    for (const k of ['fullscreenEnabled', 'fullscreenElement', 'exitFullscreen']) delete (document as unknown as Record<string, unknown>)[k];
+    delete (document.documentElement as unknown as Record<string, unknown>).requestFullscreen;
+  });
+  const fsApi = () => {
+    const req = vi.fn(async () => { fsEl = document.documentElement; document.dispatchEvent(new Event('fullscreenchange')); });
+    const exit = vi.fn(async () => { fsEl = null; document.dispatchEvent(new Event('fullscreenchange')); });
+    Object.defineProperty(document, 'fullscreenEnabled', { configurable: true, value: true });
+    Object.defineProperty(document, 'fullscreenElement', { configurable: true, get: () => fsEl });
+    Object.defineProperty(document, 'exitFullscreen', { configurable: true, value: exit });
+    Object.defineProperty(document.documentElement, 'requestFullscreen', { configurable: true, value: req });
+    return { req, exit };
+  };
+
+  it('되는 브라우저: «전체화면» 켜기/끄기 — 누르는 키 입력·조종권·cmd 박자 그대로, 반납·hidden 0, STOP 은 보이고 눌림', async () => {
+    const { req, exit } = fsApi();
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    ready();
+    expect($('[data-full-tip]')).toBeNull();
+    key('keydown', 'KeyW'); tick(100);
+    expect(lastAxes()).toEqual([1, 0, 0]);
+    const lid = end(cmds()).lease_id;
+    await act(async () => { $('[data-full]').click(); });
+    expect(req).toHaveBeenCalledTimes(1);
+    expect($('[data-full]').textContent).toBe('전체화면 끄기');
+    const n = cmds().length;
+    tick(500);
+    expect(cmds().length - n).toBe(500 / 50);
+    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect(end(cmds()).lease_id).toBe(lid);
+    await act(async () => { $('[data-full]').click(); });
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect($('[data-full]').textContent).toBe('전체화면');
+    tick(100);
+    expect(lastAxes()).toEqual([1, 0, 0]);
+    expect([w.of('lease.release'), w.of('hidden'), w.of('stop')].map((a) => a.length)).toEqual([0, 0, 0]);
+    expect($('header').lastElementChild).toBe($('[data-stop]'));
+    click($('[data-stop]'));
+    expect(w.of('stop')).toHaveLength(1);
+  });
+
+  it('아이폰(요소 전체화면 없음): 단추 없이 «홈 화면에 추가» 안내, 홈 화면 앱으로 열렸으면 안내도 없음 — STOP 그대로', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7');
+    expect($('[data-full]')).toBeNull();
+    expect($('[data-full-tip]')).toBeNull();   // mount 의 matchMedia 는 모든 질의에 true = display-mode standalone(홈 화면 앱)
+    window.matchMedia = ((q: string) => ({ matches: q === PHONE_Q, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+    act(() => push('r7', { speed: 0.1 }));
+    expect($('[data-full]')).toBeNull();
+    expect($('[data-full-tip]').textContent).toContain('홈 화면에 추가');
+    expect($('header').lastElementChild).toBe($('[data-stop]'));
   });
 });
