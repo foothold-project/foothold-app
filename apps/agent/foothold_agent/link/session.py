@@ -15,7 +15,7 @@ import time
 from typing import Callable
 import sys
 
-from foothold_agent.safety.core import Core, DEAD, Z, valid_axes, quantize
+from foothold_agent.safety.core import Core, DEAD, Z, valid_axes, quantize, _log_source
 
 LINK_TIMEOUT = 3.0
 REPORT_INTERVAL = 0.1
@@ -289,6 +289,7 @@ class Session:
         # Preserve Core's existing safe STOP publication request; unlock is never retried.
         if self.core.want_stop_pub() and not any(a.kind == "stop" for a in actions):
             actions = tuple(actions) + (MotionCommand("stop"),)
+            self.core._safety_log.emit('stop_effect', 'core_wants_stop', _log_source(), stop_gen=self.core.stop_gen)
         return Effects(tuple(actions) + (MotionCommand(velocity=self.core.out),),
                        tuple(deepcopy(messages)))
 
@@ -452,6 +453,9 @@ class Session:
                        and isinstance(frame, dict) and frame.get('t') == 'stop')
         if urgent_stop:
             self.core.stop("server STOP")  # no lease or user check on STOP
+            # This Session entry is also used by Hub.stop(); do not claim it
+            # proves that a cloud server or a particular peer originated STOP.
+            self.core._safety_log.emit('stop_received', 'session_stop_frame', _log_source(), stop_gen=self.core.stop_gen)
             if self.before_history is not None:
                 self.before_history()
         # A due link/executor transition can itself produce history. The STOP
@@ -485,11 +489,14 @@ class Session:
             actions = (MotionCommand("stop"),)
         elif kind == "unlock":
             gen = frame.get("stop_gen")
+            self.core._safety_log.emit('resume', 'session_unlock_received', _log_source(), stop_gen=self.core.stop_gen)
             if (self.lease_confirmed and frame.get("lease_id") == self.lease_id
                     and type(gen) is int and 0 <= gen <= MAX_SEQ
                     and not (self._output_stall_locked and self._output_feedback_held)
                     and self.core.resume(self.lease_id, gen)):
                 actions = (MotionCommand("unlock"),)
+            else:
+                self.core._safety_log.emit('resume_rejected', 'session_unlock_gate', _log_source(), stop_gen=self.core.stop_gen)
         elif kind == "cmd":
             seq = frame.get("seq")
             if (self.lease_confirmed and self.holder_type == "USER"

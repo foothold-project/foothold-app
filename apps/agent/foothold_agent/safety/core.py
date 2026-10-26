@@ -7,6 +7,8 @@ the simulation phone Hub explicitly supplies a continuous velocity projection.
 """
 
 import math
+import logging
+import sys
 import time
 from collections import deque
 
@@ -16,6 +18,42 @@ STATE_STALE = 1.0     # 시뮬 상태가 이만큼 안 오면 «끊김»
 RESUME_TIMEOUT = 3.0  # STOP 해제 요청 뒤 시뮬 확인을 기다리는 시간
 RESET_TIMEOUT = 35.0  # 리셋 응답 대기(계약: 첫 새 state 뒤 응답, 30 s 이내)
 Z = (0.0, 0.0, 0.0)
+
+
+class _SafetyLog:
+    """Diagnostic only: fixed labels, eight lines/key/second, no input values.
+
+    stderr is captured in agent.log by the agent unit. Logging failures must
+    never prevent a safety transition. stop_gen is unavailable in the ROS sink;
+    its local generation is explicitly named separately.
+    """
+
+    def __init__(self, now):
+        self.now = now
+        self.windows = {}
+
+    def emit(self, event, reason, source, *, stop_gen='unavailable', sink_generation='unavailable'):
+        try:
+            now = self.now()
+            key = (event, reason, source)
+            start, count, suppressed = self.windows.get(key, (now, 0, 0))
+            if now - start >= 1:
+                start, count = now, 0
+            if count >= 8:
+                self.windows[key] = (start, count, suppressed + 1)
+                return
+            self.windows[key] = (start, count + 1, 0)
+            logging.getLogger('foothold_agent.safety').warning(
+                'SAFETY event=%s reason=%s source=%s stop_gen=%s sink_generation=%s monotonic_s=%.6f suppressed=%s',
+                event, reason, source, stop_gen, sink_generation, now, suppressed)
+        except Exception:
+            pass
+
+
+def _log_source(depth=1):
+    """Code location only; never inspect frame locals or format message data."""
+    frame = sys._getframe(depth)
+    return '%s.%s:%s' % (frame.f_globals.get('__name__', 'unknown'), frame.f_code.co_name, frame.f_lineno)
 
 
 def finite(v):
@@ -72,6 +110,7 @@ class Core:
 
     def __init__(self, now=time.monotonic, *, velocity_projection=quantize):
         self.now = now
+        self._safety_log = _SafetyLog(now)
         self.velocity_projection = velocity_projection
         self.controller = None      # 조종권을 가진 연결 id
         self.latch = False          # 앱 STOP 래치
@@ -102,6 +141,7 @@ class Core:
     def _lock(self):
         """잠금 + 재개 취소 + 입력 폐기 + 잠금 세대 +1(이미 잠겼어도)"""
         self.latch = True; self.resume_pending = None; self._void(); self.stop_gen += 1
+        self._safety_log.emit('lock', 'lock_transition', _log_source(2), stop_gen=self.stop_gen)
 
     def _void(self):
         """지금까지의 입력을 버린다. 다음 비영은 이 뒤에 새로 받은 손 뗌(0) 다음에만."""
@@ -137,9 +177,11 @@ class Core:
         self.episode = d['episode']
         if self.resume_pending and self.state_seq > self.resume_pending[1] and not d['stop_requested']:
             self.resume_pending = None; self.latch = False; self._void()
+            self._safety_log.emit('resume', 'sim_confirmed', _log_source(), stop_gen=self.stop_gen)
             self.ev('ok', 'STOP 해제 확인(시뮬) · 새 입력 전까지 0')
         elif d['stop_requested'] and not self.latch:      # 시뮬이 STOP 상태(리셋 뒤 등)면 앱도 잠근다
             self._lock(); self.ev('warn', '시뮬이 STOP 상태 · «STOP 해제» 필요')
+            self._safety_log.emit('relock', 'sim_stop_requested', _log_source(), stop_gen=self.stop_gen)
         return True
 
     def take(self, cid, who='이 기기'):
@@ -178,6 +220,12 @@ class Core:
         elif self.resume_pending:
             self.ev('bad', f'STOP ({who}) · 재개 요청 취소')
         self._lock()   # 이미 잠겼어도 세대 +1 — 확인창 동안 누른 남의 STOP 을 resume 이 풀지 못하게
+        # Fixed labels only: who can contain a caller-supplied reason or identity.
+        reason = who if isinstance(who, str) and who in {'startup', 'connection/reconnection', 'link grace expired',
+            'output stalled', 'wire generation exhausted', 'protocol mismatch',
+            'history storage blocked', 'history storage unavailable', 'outgoing queue full',
+            'server authorization rejected', 'client shutdown', 'invalid lease', 'server STOP'} else 'other_stop'
+        self._safety_log.emit('stop', reason, _log_source(2), stop_gen=self.stop_gen)
 
     def resume(self, cid, gen=None):
         """조종권 · 앱 래치 · 시뮬이 STOP 을 확인한 상태에서만. 성공해도 시뮬 해제 확인 전까지 0.
@@ -187,8 +235,18 @@ class Core:
                else '리셋 처리 중' if self.reset_pending else '재개 확인 대기 중' if self.resume_pending
                else self.sim_block() or ('' if self.st['stop_requested'] else '시뮬 STOP 확인 전 — 잠시 뒤'))
         if why:
+            diagnostic_reason = {
+                '조종권 없음': 'no_controller', '잠금 아님': 'not_latched',
+                '잠금 세대 다름 — 확인 뒤 새 STOP·잠금(다시 «조종 시작»)': 'generation_mismatch',
+                '리셋 처리 중': 'reset_pending', '재개 확인 대기 중': 'resume_pending',
+                '시뮬 STOP 확인 전 — 잠시 뒤': 'sim_stop_unconfirmed',
+                '시뮬 상태 미수신': 'sim_unseen', '시뮬 상태 끊김': 'sim_stale',
+                '시뮬 리셋 중': 'sim_resetting', '정책 미실행': 'policy_not_running',
+            }.get(why, 'sim_busy')
+            self._safety_log.emit('resume_rejected', diagnostic_reason, _log_source(), stop_gen=self.stop_gen)
             self.ev('warn', f'STOP 해제 거부 · {why}'); return False
         self.resume_pending = (self.now(), self.state_seq); self._void()
+        self._safety_log.emit('resume', 'requested', _log_source(), stop_gen=self.stop_gen)
         self.ev('ok', 'STOP 해제 요청 · 시뮬 확인 대기(0 유지)')
         return True
 
@@ -223,12 +281,14 @@ class Core:
             self.reset_pending = None; self.ev('bad', f'리셋 응답 없음 {RESET_TIMEOUT:.0f} s · STOP 유지')
         if self.resume_pending and now - self.resume_pending[0] > RESUME_TIMEOUT:
             self.resume_pending = None; self.ev('warn', 'STOP 해제 확인 없음 · 잠금 유지(다시 누르세요)')
+            self._safety_log.emit('resume', 'confirmation_timeout', _log_source(), stop_gen=self.stop_gen)
         block = self.sim_block()
         if block:
             if self.sim_was_ok:
                 self.ev('warn', f'{block} → 명령 0 · 입력 버림')
             if self.resume_pending:
                 self.resume_pending = None; self.ev('warn', '재개 요청 취소 · 시뮬 상태 이상')
+                self._safety_log.emit('resume', 'sim_block_cancelled', _log_source(), stop_gen=self.stop_gen)
             self.sim_was_ok = False; self._void(); self.reason = block; return Z
         self.sim_was_ok = True
         if self.controller is None:
