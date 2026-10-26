@@ -60,8 +60,11 @@ per-viewer asyncio queues also have size one. No media operation acquires a
 control/STOP lock, shares a command queue, or accesses DB/journal/executor.
 
 PointCloud2 permits at most 100,000 input points / 2MB, float32 XYZ fields, bounded
-stride and explicit endianness/row padding. Invalid, nonfinite or out-of-range
-coordinates reject the scan. Conversion uses 0.1m voxels, at most 4,000 points,
+stride and explicit endianness/row padding. Nonfinite XYZ returns (NaN/Inf, as
+preserved by the native sensor adapter) are skipped individually; malformed
+layouts and finite out-of-range coordinates still reject the scan. A fresh scan
+with no finite returns emits count zero and an empty binary payload, clearing
+the previous sensor-frame scan. Conversion uses 0.1m voxels, at most 4,000 points,
 and sets `truncated` when further voxels exist. Only `lidar_link` is emitted,
 with `map_version_id=null` and `pose=null`: label it **L1 sensor frame**, not map
 accumulation. No verified TF/map transform is implemented here.

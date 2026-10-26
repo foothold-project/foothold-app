@@ -35,6 +35,50 @@ def cloud(xyz=((1., 2., 3.),), *, big=False, pad=0):
             (('x', 0, 7, 1), ('y', 4, 7, 1), ('z', 8, 7, 1)), 'lidar_link')
 
 
+def organized_l1(*, big=False, pad=0):
+    """Synthetic adapter-shaped scan: 360x6, sim stamp, missing ray returns.
+
+    The native adapter preserves nonfinite coordinates while aliasing the frame.
+    No recorded points or map data are used here.
+    """
+    width, height, step = 360, 6, 16
+    row_step = width * step + pad
+    pack = struct.Struct('>ffff' if big else '<ffff').pack
+    rows = []
+    for row in range(height):
+        cells = []
+        for column in range(width):
+            xyz = ((1., 2., 3.) if (row, column) in ((0, 1), (0, 2)) else
+                   (4., 5., 6.) if (row, column) == (5, 359) else
+                   (float('nan'), float('inf'), -float('inf')))
+            cells.append(pack(*xyz, 10.))
+        rows.append(b''.join(cells) + b'\0' * pad)
+    return SimpleNamespace(
+        header=SimpleNamespace(frame_id='lidar_link', stamp=SimpleNamespace(sec=310, nanosec=800_000_000)),
+        width=width, height=height, point_step=step, row_step=row_step,
+        data=b''.join(rows), is_bigendian=big, is_dense=False,
+        fields=tuple(SimpleNamespace(name=name, offset=offset, datatype=7, count=1)
+                     for name, offset in (('x', 0), ('y', 4), ('z', 8), ('intensity', 12))))
+
+
+@pytest.mark.parametrize('big,pad', [(False, 0), (False, 8), (True, 0), (True, 8)])
+def test_organized_l1_missing_returns_preserve_valid_points(big, pad):
+    message = organized_l1(big=big, pad=pad)
+    raw = (message.data, message.width, message.height, message.point_step,
+           message.row_step, message.is_bigendian,
+           tuple((f.name, f.offset, f.datatype, f.count) for f in message.fields),
+           message.header.frame_id)
+    binding = dict(robot=str(uuid4()), epoch=1, episode_id=str(uuid4()))
+    converted = convert('lidar', (binding, 1, time.monotonic(), datetime.now(timezone.utc).isoformat(), raw))
+    assert converted is not None
+    header, payload = converted[2:]
+    parsed = MediaPointCloudHeader.model_validate({**header, 'seq': 1})
+    parsed.validate_payload(payload)
+    assert header['count'] == 2 and not header['truncated']
+    assert header['frame'] == 'lidar_link' and header['pose'] is None and header['map_version_id'] is None
+    assert payload == struct.pack('<ffffff', 1., 2., 3., 4., 5., 6.)
+
+
 @pytest.fixture
 def media(h, request):
     stream = Media(h.robot, external_source='gazebo_external' if getattr(request, 'param', False) else None)
@@ -59,10 +103,22 @@ def test_voxel_cap_little_endian_and_layout():
     assert header['count'] == 4000 and header['truncated'] and len(payload) == 48000
 
 
-@pytest.mark.parametrize('value', [float('nan'), float('inf'), -10001., 10001.])
-def test_reject_nonfinite_and_range(value):
+@pytest.mark.parametrize('value', [-10001., 10001.])
+def test_reject_finite_out_of_range(value):
     with pytest.raises(ValueError):
         points(cloud(((value, 0, 0),)))
+
+
+@pytest.mark.parametrize('value', [float('nan'), float('inf'), -float('inf')])
+@pytest.mark.parametrize('axis', [0, 1, 2])
+def test_missing_returns_never_enter_payload_or_voxels(value, axis):
+    bad = [0., 0., 0.]
+    bad[axis] = value
+    header, payload = points(cloud(((1., 2., 3.), bad, (4., 5., 6.))))
+    assert header['count'] == 2 and not header['truncated']
+    assert payload == struct.pack('<ffffff', 1., 2., 3., 4., 5., 6.)
+    header, payload = points(cloud((bad,)))
+    assert header['count'] == 0 and not header['truncated'] and payload == b''
 
 
 def test_reject_bad_cloud_fields_and_length():
@@ -156,6 +212,41 @@ def test_real_workers_contracts_freshness_latest_only(h, media):
         media.sample()
         assert queue.qsize() == 1 and queue.get_nowait()[1]['state'] == 'NO_VIDEO'
         media.unsubscribe('rgb', queue)
+    asyncio.run(run())
+
+
+def test_organized_l1_sim_stamp_through_source_worker_and_transport(media):
+    async def run():
+        source = MediaRosSource(media)
+        source.update_time(1, 310.9)
+        source.cloud(organized_l1())
+        frame = await wait_frame(media, 'lidar')
+        header = MediaPointCloudHeader.model_validate(frame[1])
+        header.validate_payload(frame[2])
+        assert header.count == 2 and header.frame == 'lidar_link'
+        # Capture UTC comes from receipt; the ROS sim stamp is never UTC.
+        assert abs((datetime.now(timezone.utc) - header.captured_at).total_seconds()) < 1
+        assert frame[1]['epoch'] == 1 and frame[1]['episode_id'] == media.binding['episode_id']
+        source.cloud(organized_l1())
+        assert media.processes['lidar'][1].take() is None  # duplicate sim stamp
+
+        class Socket:
+            def __init__(self):
+                self.sent = []
+            async def send(self, value):
+                self.sent.append(value)
+
+        queue, socket = asyncio.Queue(maxsize=1), Socket()
+        queue.put_nowait(frame)
+        transport = MediaTransport(media, None)
+        task = asyncio.create_task(transport._frames(socket, 'lidar', queue, dict(media.binding)))
+        try:
+            await asyncio.sleep(.01)
+            assert json.loads(socket.sent[0])['count'] == 2
+            assert socket.sent[1] == struct.pack('<ffffff', 1., 2., 3., 4., 5., 6.)
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
     asyncio.run(run())
 
 

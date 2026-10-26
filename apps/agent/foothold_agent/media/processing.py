@@ -48,8 +48,12 @@ def points(cloud):
         for column in range(width):
             at = row * row_step + column * step
             xyz = tuple(read(data, at + offsets[key])[0] for key in ('x', 'y', 'z'))
-            if not all(math.isfinite(v) and abs(v) <= 10_000 for v in xyz):
-                raise ValueError('nonfinite or out-of-range point')
+            # Organized lidar scans retain NaN/Inf for rays without a return.
+            # Drop that point, not the valid returns in the rest of the scan.
+            if not all(math.isfinite(v) for v in xyz):
+                continue
+            if not all(abs(v) <= 10_000 for v in xyz):
+                raise ValueError('out-of-range point')
             cell = tuple(math.floor(v / .1) for v in xyz)
             if cell in seen:
                 continue
