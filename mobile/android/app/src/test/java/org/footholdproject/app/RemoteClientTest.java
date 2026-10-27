@@ -65,6 +65,11 @@ public class RemoteClientTest {
         assertFalse(RemoteClient.isSim("https://localhost/?e=net", l));
         assertFalse(RemoteClient.isSim("https://localhost/index.html?x=/sim/", l));
         assertFalse(RemoteClient.isSim("https://localhost/sim/../index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/%2e%2e/index.html", l));   // PR #145 Codex: 인코딩 상위 경로
+        assertFalse(RemoteClient.isSim("https://localhost/sim/%2E%2E/index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/..%2findex.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/.%2e/index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/%2fx", l));
         assertFalse(RemoteClient.isSim("https://localhost/simx/index.html", l));
         assertFalse(RemoteClient.isSim("https://localhost:8443/sim/index.html", l));
         assertFalse(RemoteClient.isSim("http://localhost/sim/index.html", l));

@@ -108,12 +108,12 @@ public class RemoteClient extends BridgeWebViewClient {
         return allowed(url, local);
     }
 
-    /** 앱 출처(local)의 /sim/ 아래(앱 번들 시뮬)면 true — 경로는 정규화해서 본다(/sim/../ 는 아님) */
+    /** 앱 출처(local)의 /sim/ 아래(앱 번들 시뮬)면 true — raw 경로에 %·\·.. 가 있으면 무조건 아님(%2e%2e 우회 차단, 번들 경로엔 인코딩 불필요) */
     static boolean isSim(String url, String local) {
         if (!allowed(url, local)) return false;
         try {
-            String p = new URI(url).normalize().getPath();
-            return p != null && p.startsWith("/sim/");
+            String p = new URI(url).getRawPath();
+            return p != null && p.startsWith("/sim/") && p.indexOf('%') < 0 && p.indexOf('\\') < 0 && !p.contains("..");
         } catch (Exception e) {
             return false;
         }
