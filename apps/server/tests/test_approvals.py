@@ -13,16 +13,8 @@ from apps.server.fh_server.models import Approval, Event, Floor, MapVersion, Not
 from .test_maps import maps, auth, tree, upload, save, FEATURES, P
 
 
-def request(http, operator, floor, image, base=None):
-    response = save(http, operator, floor, image, base=base)
-    assert response.status_code == 201, response.text
-    version = response.json()
-    assert version['status'] == 'PENDING'
-    listing = http.get(P + '/approvals', headers=operator).json()['items']
-    approval = next((row for row in listing if row['target']['id'] == version['id']), None)
-    assert approval is not None, 'saving a pending map must create an approval'
-    assert approval['status'] == 'PENDING'
-    return version, approval
+# Legacy records are seeded directly; current map APIs never create requests.
+from .legacy_approvals import pending_map as request
 
 
 def setup(maps):
@@ -240,12 +232,9 @@ def test_rollback_request_approval_and_pending_rejected_canceled_cannot_rollback
     second = save(http, admin, floor, image, base=first['id'], features={**FEATURES, 'waypoints': [
         {'id': 'new', 'name': '새 지점', 'x': 1, 'y': 1, 'yaw': 0}]}).json()
     assert http.get(P + f'/map-versions/{first["id"]}', headers=operator).json()['status'] == 'SUPERSEDED'
-    response = http.post(P + f'/map-versions/{first["id"]}/rollback', headers=operator,
-        json={'base_version_id': second['id'], 'reason': '이전 지도로'})
-    assert response.status_code == 201 and response.json()['status'] == 'PENDING'
-    version = response.json()
+    version, row = request(http, operator, floor, image, second['id'], copied_from=first['id'])
+    assert version['status'] == 'PENDING'
     assert current(http, admin)['approved_version_id'] == second['id']
-    row = http.get(P + '/approvals', headers=operator).json()['items'][0]
     assert row['kind'] == 'MAP_ROLLBACK' and row['target']['id'] == version['id']
     assert version['copied_from_id'] == first['id'] and row['base_ref']['id'] == second['id']
     assert http.post(P + f'/approvals/{row["id"]}/approve', headers=admin).status_code == 200
@@ -328,7 +317,7 @@ def test_missing_template_fails_and_rolls_back_every_effect(maps, seeded, monkey
     monkeypatch.delitem(TEMPLATES, code)
     with pytest.raises(KeyError):
         if phase == 'request':
-            save(http, operator, floor, image)
+            request(http, operator, floor, image)
         else:
             http.post(P + f'/approvals/{row["id"]}/' + ('approve' if phase == 'stale' else phase),
                 headers=operator if phase == 'cancel' else admin,

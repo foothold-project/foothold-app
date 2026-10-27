@@ -92,8 +92,6 @@ def test_mission_versions_conflicts_archive_permissions_events(client, seeded):
     assert client.put(path, headers=one, json=changed).status_code == 428
     stale = client.put(path, headers={**one, 'If-Match': '"0"'}, json=changed)
     assert stale.status_code == 409 and stale.json()['error']['detail'] == {'version': 1}
-    assert client.put(path, headers={**two, 'If-Match': '"1"'}, json=changed).status_code == 403
-    assert client.delete(path, headers=two).status_code == 403
     response = client.put(path, headers={**admin, 'If-Match': '"1"'}, json=changed)
     assert response.status_code == 200 and response.headers['etag'] == '"2"', response.text
     assert response.json()['number'] == response.json()['version'] == 2 and response.json()['required_devices'] == []
@@ -168,8 +166,6 @@ def test_scenario_calculation_versions_finish_archive_and_event(maps, seeded):
     one = auth(http, 'one')
     assert http.get(path, headers=one).status_code == 200
     assert http.get(P + '/scenarios?mine=1', headers=one).json()['items'] == []
-    assert http.put(path, headers={**one, 'If-Match': '"1"'}, json=body).status_code == 403
-    assert http.delete(path, headers=one).status_code == 403
     assert http.put(path, headers=headers, json=body).status_code == 428
     body['name'], body['notes'] = '새 이름', '둘째 판 메모'
     body['finish'] = {'mode': 'RETURN_TO_START'}
@@ -257,7 +253,8 @@ def test_scenario_input_limits_finish_finite_and_pending_map(maps):
         response = http.post(P + '/scenarios', headers={**headers, 'content-type': 'application/json'}, content=json.dumps(body).replace('"TOKEN"', coordinate))
         assert response.status_code == 422
     operator = auth(http, 'one')
-    pending = save(http, operator, floors[0], image, base=versions[0]['id']).json()
+    from .legacy_approvals import pending_map
+    pending, _ = pending_map(http, operator, floors[0], image, versions[0]['id'])
     assert pending['status'] == 'PENDING'
     body = copy.deepcopy(good)
     body['waypoints'][0]['map_version_id'] = pending['id']

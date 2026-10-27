@@ -143,9 +143,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
             fail(404, 'NOT_FOUND', '임무 또는 시나리오를 찾을 수 없습니다.')
         return row
 
-    def editable(row, user):
-        if user.role != 'ORG_ADMIN' and row.created_by != user.id:
-            fail(403, 'FORBIDDEN', '만든 사람 또는 총괄만 변경할 수 있습니다.')
+    def editable(row):
         if row.archived_at is not None:
             fail(409, 'VERSION_CONFLICT', '보관된 항목은 변경할 수 없습니다.', {'version': row.version})
 
@@ -220,8 +218,6 @@ def install(app, DB, Identity, fail, authorize, event, page):
 
     def archive(db, user, model, identifier):
         row = own(db, user, model, identifier, lock=True)
-        if user.role != 'ORG_ADMIN' and row.created_by != user.id:
-            fail(403, 'FORBIDDEN', '만든 사람 또는 총괄만 보관할 수 있습니다.')
         if row.archived_at is None:
             row.archived_at, row.version = now(), row.version + 1
             event(db, user.org_id, 'MISSION_ARCHIVED' if model is Mission else 'SCENARIO_ARCHIVED', user.id,
@@ -306,7 +302,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
     def update_mission(identifier: UUID, body: C.MissionWrite, auth: Identity, db: DB, response: Response,
                        if_match: Annotated[str | None, Header()] = None):
         row = own(db, auth[0], Mission, identifier, lock=True)
-        editable(row, auth[0])
+        editable(row)
         check_match(row, if_match)
         return tagged(response, save(db, auth[0], body, Mission, row))
 
@@ -346,7 +342,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
     def update_scenario(identifier: UUID, body: C.ScenarioWrite, auth: Identity, db: DB, response: Response,
                         if_match: Annotated[str | None, Header()] = None):
         row = own(db, auth[0], Scenario, identifier, lock=True)
-        editable(row, auth[0])
+        editable(row)
         check_match(row, if_match)
         return tagged(response, save(db, auth[0], body, Scenario, row))
 

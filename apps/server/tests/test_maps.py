@@ -108,21 +108,43 @@ def test_admin_approval_stale_immutable_png_and_delete_guards(maps, seeded):
     assert len(list(root.glob('maps/*/*.png'))) == len(list(root.glob('maps/*/*.yaml'))) == 2
 
 
-def test_operator_upload_pending_save_and_crud_denied(maps):
-    http, admin, _ = maps
-    _, building, floor = tree(http, admin)
-    operator = auth(http, 'one')
-    image = upload(http, operator)
-    result = save(http, operator, floor, image)
-    assert result.status_code == 201 and result.json()['status'] == 'PENDING'
-    for path, payload in [('/sites', {'name': '금지'}), (f'/buildings/{building}/floors', {'name': '층', 'level': 2})]:
-        assert http.post(P + path, headers=operator, json=payload).status_code == 403
-    assert http.patch(P + f'/floors/{floor}', headers=operator, json={'name': '금지'}).status_code == 403
-    assert http.delete(P + f'/floors/{floor}', headers=operator).status_code == 403
-    version = save(http, admin, floor, image)
-    assert version.status_code == 201
-    assert http.get(P + '/sites', headers=operator).status_code == 200
-    assert http.get(P + f'/map-versions/{version.json()["id"]}/image', headers=operator).status_code == 200
+@pytest.mark.parametrize('actor', ['one', 'admin'])
+def test_upload_direct_save_and_map_tree_crud(maps, seeded, actor):
+    http, _, _ = maps
+    headers = auth(http, actor)
+    site, building, floor = tree(http, headers)
+    image = upload(http, headers)
+    result = save(http, headers, floor, image)
+    assert result.status_code == 201 and result.json()['status'] == 'APPROVED'
+    first = result.json()
+    assert first['created_by'] == str(seeded['users'][actor])
+    for path, payload in [(f'/sites/{site}', {'name': '변경 장소'}),
+                          (f'/buildings/{building}', {'name': '변경 건물'}),
+                          (f'/floors/{floor}', {'name': '변경 층', 'level': 2})]:
+        response = http.patch(P + path, headers=headers, json=payload)
+        assert response.status_code == 200, response.text
+    second = save(http, headers, floor, image, base=first['id']).json()
+    assert second['status'] == 'APPROVED'
+    current = http.get(P + '/sites', headers=headers).json()['items'][0]['buildings'][0]['floors'][0]
+    assert current['approved_version_id'] == second['id'] and current['pending_count'] == 0
+    assert http.get(P + f'/map-versions/{first["id"]}', headers=headers).json()['status'] == 'SUPERSEDED'
+    assert http.get(P + f'/map-versions/{second["id"]}/image', headers=headers).status_code == 200
+    # Referenced snapshots still prevent destructive hierarchy deletion.
+    assert http.delete(P + f'/floors/{floor}', headers=headers).status_code == 409
+    empty = http.post(P + f'/buildings/{building}/floors', headers=headers, json={'name': '빈 층', 'level': 3}).json()['id']
+    assert http.delete(P + f'/floors/{empty}', headers=headers).status_code == 204
+    other_site, other_building, other_floor = tree(http, headers)
+    for path in (f'/floors/{other_floor}', f'/buildings/{other_building}', f'/sites/{other_site}'):
+        assert http.delete(P + path, headers=headers).status_code == 204
+    assert http.get(P + '/approvals', headers=headers).json()['items'] == []
+    engine = create_engine(seeded['urls']['app'])
+    try:
+        with engine.connect() as conn:
+            assert conn.scalar(text('SELECT count(*) FROM approvals')) == 0
+            assert conn.scalar(text("SELECT count(*) FROM events WHERE code='MAP_VERSION_APPROVED' AND user_id=:actor"),
+                               {'actor': seeded['users'][actor]}) == 2
+    finally:
+        engine.dispose()
     assert http.get(P + '/sites').status_code == 401
 
 

@@ -31,9 +31,9 @@ def test_map_save_rollback_replay_before_stale_and_mismatch(maps):
     before = sorted(p.relative_to(root) for p in root.rglob('*') if p.is_file())
     assert http.post(path, headers=headers, json=body).json() == first.json()
     assert sorted(p.relative_to(root) for p in root.rglob('*') if p.is_file()) == before
-    approval = http.get(P + '/approvals', headers=one).json()['items'][0]
-    assert http.post(P + '/approvals/' + approval['id'] + '/approve', headers=admin).status_code == 200
-    # Replay is the original PENDING response, even after target state changed.
+    assert first.json()['status'] == 'APPROVED'
+    assert http.get(P + '/approvals', headers=one).json()['items'] == []
+    # Replay remains the original successful response after later map changes.
     replay = http.post(path, headers=headers, json=body)
     assert replay.status_code == first.status_code and replay.json() == first.json()
     assert http.post(path, headers=headers, json={**body, 'reason': '다른 본문'}).status_code == 422
@@ -48,9 +48,12 @@ def test_map_save_rollback_replay_before_stale_and_mismatch(maps):
     assert replay.status_code == 201 and replay.json() == created.json()
     assert http.post(rollback, headers=rb_headers, json={**rb_body, 'reason': '다름'}).status_code == 422
     assert http.post(rollback, headers=headers, json=rb_body).status_code == 422  # cross-route key reuse
-    # Headerless requests keep existing create-per-request behavior.
-    assert http.post(rollback, headers=one, json=rb_body).json()['id'] != created.json()['id']
-    assert len(http.get(P + '/approvals', headers=one).json()['items']) == 3
+    # Direct rollback changes the current pointer, so the old base is stale.
+    assert http.post(rollback, headers=one, json=rb_body).status_code == 409
+    newest = save(http, admin, floor, image, base=created.json()['id']).json()
+    assert http.post(rollback, headers=rb_headers, json=rb_body).json() == created.json()
+    assert newest['id'] != created.json()['id']
+    assert http.get(P + '/approvals', headers=one).json()['items'] == []
 
 
 @pytest.mark.parametrize('operation', ['map', 'rollback', 'assignment'])
@@ -93,7 +96,7 @@ def test_same_key_concurrently_one_creation_without_org_mutex(maps, seeded, monk
         assert target is not None
         assert len(list(db.scalars(select(IdempotencyReceipt)))) == 1
         approvals = http.get(P + '/approvals', headers=one).json()['items']
-        assert len(approvals) == 1
+        assert approvals == []
     engine.dispose()
 
 
