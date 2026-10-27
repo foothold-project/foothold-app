@@ -145,7 +145,6 @@ function serve(me: User, o: { page?: number; over?: Record<string, (Reply | ((re
       const s = r.snaps[Number(n) - 1];
       return s ? { status: 200, body: { ...s, version: r.head.version, latest_version: r.head.latest_version, archived_at: r.head.archived_at } } : err(404, 'NOT_FOUND', '판을 찾을 수 없습니다.');
     }
-    if (me.role !== 'ORG_ADMIN' && r.head.created_by !== me.id) return err(403, 'FORBIDDEN', '만든 사람과 총괄만 바꿀 수 있습니다.');
     if (method === 'DELETE') { if (!r.head.archived_at) r.head = { ...r.head, archived_at: stamp(), version: r.head.version + 1 }; return { status: 204 }; }
     if (!match) return err(428, 'PRECONDITION_REQUIRED', 'If-Match 가 필요합니다.');
     if (r.head.archived_at) return err(409, 'VERSION_CONFLICT', '보관된 항목은 변경할 수 없습니다.', { version: r.head.version });
@@ -437,21 +436,21 @@ describe('임무 편집', () => {
 });
 
 describe('권한(02 §10)', () => {
-  it('운영 관리자: 남의 임무·시나리오는 보는 중(편집·보관 단추 없음, 미리보기 안 부름), 내 것은 편집', async () => {
+  it('운영 관리자도 남의 임무·시나리오를 편집(10-27 — 결재·소유 제한 없음), 저장은 바로 새 판', async () => {
     seed(); serve(LEE);
     await open();
     await click(row('s1'));
-    expect($('[data-readonly]')!.textContent).toBe('보는 중 — 만든 사람과 총괄 운영 관리자만 고칠 수 있습니다.');
-    expect(btn('새 판으로 저장')).toBeUndefined(); expect(btn('보관')).toBeUndefined(); expect(name().readOnly).toBe(true);
-    expect(aria('1번 지점 지우기')).toBeUndefined();
+    expect($('[data-readonly]')).toBeNull(); expect(text()).not.toContain('보는 중');
+    expect(btn('새 판으로 저장')).toBeTruthy(); expect(btn('보관')).toBeTruthy(); expect(name().readOnly).toBe(false);
+    expect(aria('1번 지점 지우기')).toBeTruthy(); expect(btn('결재 요청')).toBeUndefined();
+    await setVal(name(), '1층 순찰 고침');
     await settle();
-    expect(sent('POST', '/scenarios/preview')).toHaveLength(0);
-    expect(text()).toContain('예상 거리 약 12 m');
+    await click(saveBtn());
+    expect(sent('PUT', '/scenarios/s1')).toHaveLength(1);
+    expect(text()).toContain('저장했습니다(판 2).');
     await kind('임무');
     await click(row('m1'));
-    expect($('[data-readonly]')).toBeTruthy(); expect(btn('＋ 대기')).toBeUndefined(); expect(aria('1번 작업 지우기')).toBeUndefined();
-    await click(row('m2'));
-    expect($('[data-readonly]')).toBeNull(); expect(btn('새 판으로 저장')).toBeTruthy(); expect(btn('보관')).toBeTruthy();
+    expect($('[data-readonly]')).toBeNull(); expect(btn('＋ 대기')).toBeTruthy(); expect(aria('1번 작업 지우기')).toBeTruthy();
     await stopSends();
   });
   it('총괄은 남(운영 관리자)의 것도 편집', async () => {
@@ -640,16 +639,22 @@ describe('시나리오 편집(03 §5.3)', () => {
     await settle();
     expect(last(sent('POST', '/scenarios/preview'))!.body).toMatchObject({ waypoints: [{}, { x: 0.5, y: 0, waypoint_ref: null }] });
   });
-  it('찍힌 지점을 다시 누르면 지움 + «되돌리기» 한 번(확인창 없음), 8px 안 흔들림도 누름, 끌면 옮김 — 단계 창 «지우기»도 같음', async () => {
+  it('지점 누름 = 고르기만(단계 창 그 줄 강조·굴림), 지우기는 고른 지점 오른쪽 위 X — 확인창 없이 «되돌리기» 한 번, 끌면 옮김 — 단계 창 «지우기»도 같음', async () => {
     seed(); serve(KIM);
     await open();
     await click(btn('새 시나리오'));
     await tap(1, 1); await tap(2, 0); await tap(0, 1);
     expect([0, 1, 2].map((i) => point(i).textContent)).toEqual([expect.stringContaining('(1.0, 1.0) m'), expect.stringContaining('(2.0, 0.0) m'), expect.stringContaining('(0.0, 1.0) m')]);
-    const confirm = vi.spyOn(window, 'confirm');
+    const confirm = vi.spyOn(window, 'confirm'), seen = vi.fn(); Element.prototype.scrollIntoView = seen;   // jsdom 에는 없음
+    const pressed = () => [0, 1, 2].map((i) => point(i).querySelector('.ms-name')!.getAttribute('aria-pressed'));
     sized(); await ptr('pointerdown', 2, 0, map().querySelector('[data-pt="1"]')!); await ptr('pointermove', 2.05, 0); await ptr('pointerup', 2.05, 0);   // 4px 흔들림 = 누름
+    expect(point(2)).toBeTruthy(); expect($('[data-undo]')).toBeNull();                 // 다시 눌러도 지우지 않음
+    expect(pressed()).toEqual(['false', 'true', 'false']); expect(seen.mock.contexts).toContain(point(1));
+    const xs = map().querySelectorAll('[data-del]');
+    expect(xs).toHaveLength(1); expect(xs[0].getAttribute('data-del')).toBe('1'); expect(xs[0].getAttribute('aria-label')).toBe('2번 지점 지우기');
+    await ptr('pointerdown', 2, 0, xs[0]); await ptr('pointerup', 2, 0, xs[0]);
     expect(confirm).not.toHaveBeenCalled();
-    expect($('[data-wp="2"]')).toBeNull(); expect(point(1).textContent).toContain('(0.0, 1.0) m');
+    expect($('[data-wp="2"]')).toBeNull(); expect(point(1).textContent).toContain('(0.0, 1.0) m'); expect(map().querySelector('[data-del]')).toBeNull();
     expect($('[data-undo]')!.textContent).toBe('지점 2 지움되돌리기');
     await click(btn('되돌리기', $('[data-undo]')!));
     expect(point(1).textContent).toContain('(2.0, 0.0) m'); expect(point(2)).toBeTruthy(); expect($('[data-undo]')).toBeNull();
@@ -662,8 +667,9 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(-0.5, -1);
     expect($('[data-undo]')).toBeNull();
     expect([0, 1, 2].map((i) => point(i).textContent)).toEqual([expect.stringContaining('(2.5, 0.0) m'), expect.stringContaining('(0.0, 1.0) m'), expect.stringContaining('(-0.5, -1.0) m')]);
+    delete (Element.prototype as Partial<Element>).scrollIntoView;
   });
-  it('터치: 찍힌 지점 한 손가락 누름 = 지움, 지점 위에서 시작한 두 손가락 집기는 지우지 않음(PR #119 규칙 그대로)', async () => {
+  it('터치: 지점 한 손가락 누름 = 고르기만, X 한 손가락 누름 = 지움, 지점 위에서 시작한 두 손가락 집기는 지우지 않음', async () => {
     seed(); serve(KIM);
     await open();
     await click(btn('새 시나리오'));
@@ -680,12 +686,13 @@ describe('시나리오 편집(03 §5.3)', () => {
     await touch('pointerdown', 2, 0, 1, pt()); await touch('pointerdown', 3, 0, 2);
     await touch('pointermove', 1.5, 0, 1); await touch('pointerup', 1.5, 0, 1); await touch('pointerup', 3, 0, 2);
     expect(point(1).textContent).toContain('(2.0, 0.0) m'); expect($('[data-undo]')).toBeNull();
-    await touch('pointerdown', 2, 0, 3, pt());
-    expect(point(1)).toBeTruthy();                                       // 누르는 동안은 아직
-    await touch('pointerup', 2, 0, 3, pt());
+    await touch('pointerdown', 2, 0, 3, pt()); await touch('pointerup', 2, 0, 3, pt());
+    expect(point(1)).toBeTruthy(); expect($('[data-undo]')).toBeNull();
+    const x = map().querySelector('[data-del="1"]')!;
+    await touch('pointerdown', 2, 0, 4, x); await touch('pointerup', 2, 0, 4, x);
     expect($('[data-wp="1"]')).toBeNull(); expect($('[data-undo]')!.textContent).toContain('지점 2 지움');
   });
-  it('끝 지점도 같은 규칙 — 누르면 지움(끝나면 «지정 지점으로 이동»은 그대로, 다시 찍어야 저장) + 되돌리기', async () => {
+  it('끝 지점도 X 로 지움 — 누름은 고르기만(끝나면 «지정 지점으로 이동»은 그대로, 다시 찍어야 저장) + 되돌리기', async () => {
     seed(); serve(KIM);
     await open();
     await click(btn('새 시나리오'));
@@ -694,6 +701,10 @@ describe('시나리오 편집(03 §5.3)', () => {
     await tap(-0.5, -1);
     expect(map().querySelector('[data-pt="T"]')).toBeTruthy();
     await tap(-0.5, -1, map().querySelector('[data-pt="T"]')!);
+    expect(map().querySelector('[data-pt="T"]')).toBeTruthy();
+    const x = map().querySelector('[data-del="T"]')!;
+    expect(x.getAttribute('aria-label')).toBe('끝 지점 지우기');
+    await tap(-0.5, -1, x);
     expect(map().querySelector('[data-pt="T"]')).toBeNull(); expect(point(0)).toBeTruthy();
     expect(field('끝나면').value).toBe('GO_TO');
     expect($('[data-block]')!.textContent).toBe('끝나고 갈 지점을 지도에서 찍으세요.');

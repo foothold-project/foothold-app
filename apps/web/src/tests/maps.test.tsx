@@ -217,17 +217,17 @@ describe('지도 탭 — 장소 나무', () => {
     expect(sent('DELETE', '/floors/f1')).toHaveLength(5);
     await stopSends();
   });
-  it('운영 관리자: 장소는 보기만 — «고치기»는 회색+이유(U6), 이름 바꾸기·지우기 없음, 올리기는 «결재 요청» 문구로', async () => {
+  it('운영 관리자: 장소는 보기만 — «고치기»는 회색+이유(U6), 이름 바꾸기·지우기 없음, 올리기는 결재 없이 «올리기»(10-27)', async () => {
     serve(signedIn(LEE));
     await open('#/map');
     expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
     const words = btns().map((b) => b.textContent);
-    for (const w of ['이름 바꾸기', '지우기', '+ 장소', '올리기']) expect(words, w).not.toContain(w);
+    for (const w of ['이름 바꾸기', '지우기', '+ 장소']) expect(words, w).not.toContain(w);
     const fix = btn('고치기')!;
     expect(fix.disabled).toBe(true);
     expect(document.getElementById(fix.getAttribute('aria-describedby')!)!.textContent).toBe('장소 고치기는 총괄만 할 수 있습니다.');
-    expect(card('새 지도 올리기').textContent).toContain('올리면 새 판이 결재 요청이 됩니다. 총괄이 승인하기 전에는 지금 승인 판을 그대로 씁니다.');
-    expect(btn('올리고 결재 요청', card('새 지도 올리기'))).toBeTruthy();
+    expect(card('새 지도 올리기').textContent).not.toContain('결재');
+    expect(btn('올리기', card('새 지도 올리기'))).toBeTruthy();
     expect(sent('GET', '/users')).toHaveLength(0);                                     // 계정 목록은 총괄만
     await stopSends();
   });
@@ -285,7 +285,7 @@ describe('지도 탭 — 보기', () => {
     serve(signedIn(LEE));
     await open('#/map');
     await click(floorBtn('2층'));
-    expect(card('지도 보기').textContent).toContain('아직 지도가 없습니다. 아래에서 지도 파일을 올리세요. 올리면 결재 요청이 됩니다.');
+    expect(card('지도 보기').textContent).toContain('아직 지도가 없습니다. 아래에서 지도 파일을 올리세요.');
     expect(img()).toBeNull();
   });
   it('그림을 못 받으면 칸 안 글 + 다시 불러오기(새 요청), STOP 은 그대로', async () => {
@@ -336,8 +336,8 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
     expect(sent('GET', '/floors/f1/map-versions').length).toBeGreaterThan(1);              // 판 목록·나무 다시 받기
     expect(sent('GET', '/sites').length).toBeGreaterThan(1);
   });
-  it('운영 관리자: 같은 순서로 올리고 201 PENDING → «결재를 요청했습니다» + «내 요청 보기», 승인 판 그대로·배지 다시 받기', async () => {
-    const P3 = ver('v3', 3, { base_version_id: 'v2', status: 'PENDING', created_by: LEE.id });
+  it('운영 관리자도 결재 없이 «올리기»(10-27) → 같은 순서, 201 APPROVED 면 «새 판을 저장했습니다»·«내 요청 보기» 없음', async () => {
+    const P3 = ver('v3', 3, { base_version_id: 'v2', created_by: LEE.id });
     let asked = false;
     serve(signedIn(LEE, {
       'POST /uploads': (q) => ({ status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: 'cd'.repeat(32) } }),
@@ -345,25 +345,22 @@ describe('지도 탭 — 새 지도 올리기(총괄)', () => {
       'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: asked ? [P3, V2, V1] : [V2, V1], next_cursor: null } }) }));
     await open('#/map');
     await fillUpload('새로 스캔');
-    const dash = sent('GET', '/dashboard').length;
-    await click(btn('올리고 결재 요청'));
+    await click(btn('올리기'));
     expect(writes()).toEqual(['POST /uploads', 'POST /uploads?image=up-img', 'POST /floors/f1/map-versions']);
     expect(calls.filter((c) => c.method === 'POST')[2].body).toMatchObject({ base_version_id: 'v2', image: 'up-yaml', reason: '새로 스캔' });
-    expect(card('새 지도 올리기').textContent).toContain('결재를 요청했습니다(판 3). 승인되기 전에는 지금 승인 판을 그대로 씁니다.');
-    expect(btn('내 요청 보기', card('새 지도 올리기'))).toBeTruthy();
-    expect($<HTMLSelectElement>('select[aria-label="판"]')!.value).toBe('v2');
-    expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    expect(sent('GET', '/dashboard').length).toBe(dash + 1);
+    expect(card('지도 보기').textContent).toContain('새 판을 저장했습니다(판 3).');
+    expect(card('새 지도 올리기').textContent).not.toContain('결재');
+    expect(btn('내 요청 보기')).toBeUndefined();
     await stopSends();
   });
-  it('운영 관리자: 저장 403(서버 판정) → «결재를 요청하지 못했습니다» + 서버 문구', async () => {
+  it('운영 관리자: 저장 403(서버 판정) → «올리지 못했습니다» + 서버 문구', async () => {
     serve(signedIn(LEE, {
       'POST /uploads': (q) => ({ status: 201, body: { upload_id: q.get('image') ? 'up-yaml' : 'up-img', sha256: 'cd'.repeat(32) } }),
       'POST /floors/f1/map-versions': err(403, 'FORBIDDEN', '권한이 없습니다.') }));
     await open('#/map');
     await fillUpload();
-    await click(btn('올리고 결재 요청'));
-    expect(card('새 지도 올리기').textContent).toContain('결재를 요청하지 못했습니다. 권한이 없습니다.');
+    await click(btn('올리기'));
+    expect(card('새 지도 올리기').textContent).toContain('올리지 못했습니다. 권한이 없습니다.');
   });
   it('«그대로 두기»를 끄면 빈 요소, 승인 판 없는 층은 base null + 빈 요소', async () => {
     serve(ok());
@@ -720,20 +717,20 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     await click(btn('보기', card('보기·편집')));
     expect(canvas()).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeTruthy();
   });
-  it('운영 관리자: 저장 = «결재 요청» → 201 PENDING 이면 안내 + «내 요청 보기», 승인 판을 그대로 보임·배지 다시 받기 / 총괄도 승인 판 없는 층은 토글 없음', async () => {
+  it('운영 관리자도 «새 판으로 저장»(10-27) — 옛 서버가 201 PENDING 이면 대기로 받았다고 안내(«내 요청 보기» 없음), 승인 판을 그대로 보임·배지 다시 받기 / 총괄도 승인 판 없는 층은 토글 없음', async () => {
     const P3 = ver('v3', 3, { base_version_id: 'v2', source: 'EDIT', status: 'PENDING', created_by: LEE.id });
     let asked = false;
     serve(editSrv({ 'POST /floors/f1/map-versions': () => { asked = true; return { status: 201, body: P3 }; },
       'GET /floors/f1/map-versions': () => ({ status: 200, body: { items: asked ? [P3, UP, V1] : [UP, V1], next_cursor: null } }) }, LEE));
     await startEdit();
     expect(card('지도 보기').querySelector('[aria-describedby="fh-soon"]')).toBeNull();
-    expect($('[aria-label="새 지도 올리기"]')).toBeNull(); expect(btn('새 판으로 저장')).toBeUndefined();   // 올리기는 총괄만
+    expect($('[aria-label="새 지도 올리기"]')).toBeNull(); expect(btn('결재 요청')).toBeUndefined();
     await tool('지점'); await tap(1, 1);
     const dash = sent('GET', '/dashboard').length;
-    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
+    await setVal(field('바꾼 이유', card('새 판으로 저장')), '지점 추가'); await click(btn('새 판으로 저장', card('새 판으로 저장')));
     expect(writes()).toEqual(['POST /floors/f1/map-versions']); expect(body().base_version_id).toBe('v2');
-    const note = [...box.querySelectorAll('[role="status"]')].find((x) => x.textContent!.includes('결재를 요청했습니다'))!;
-    expect(note.textContent).toContain('결재를 요청했습니다(판 3). 승인되기 전에는 지금 승인 판을 그대로 씁니다.');
+    const note = [...box.querySelectorAll('[role="status"]')].find((x) => x.textContent!.includes('결재 대기로 받았습니다'))!;
+    expect(note.textContent).toContain('판 3을 저장했지만 서버가 결재 대기로 받았습니다. 승인되기 전에는 지금 승인 판을 그대로 씁니다.');
     expect(canvas()).toBeNull();
     expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
     const sel = $<HTMLSelectElement>('select[aria-label="판"]')!;
@@ -744,8 +741,7 @@ describe('지도 편집 — 보기/편집 토글·권한', () => {
     expect(card('지도 보기').textContent).toContain('결재 대기 중인 판을 보는 중입니다. 승인되기 전에는 이 판을 쓰지 않습니다.');
     await stopSends();
     await setVal(sel, 'v2');
-    await click(btn('내 요청 보기')); await hashed(); await flush();
-    expect(location.hash).toBe('#/approval'); expect($('h1')!.textContent).toBe('내 요청');
+    expect(btn('내 요청 보기')).toBeUndefined();
     act(() => root?.unmount()); box.remove();
     serve(editSrv());
     await open('#/map');
@@ -909,6 +905,83 @@ describe('지도 편집 — 도구', () => {
     expect(near([[b.features.waypoints[0].x, b.features.waypoints[0].y]])).toEqual([[2, 0.5]]);
     expect(b.features.connectors).toEqual([]);
     expect(near(b.features.zones[0].polygon)).toEqual([[-0.5, -1.5], [0.5, -1.5], [0.5, -0.5]]);
+  });
+});
+
+describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () => {
+  const rows = () => [...card('요소 창').querySelectorAll('[data-el]')];
+  const pressed = () => rows().map((li) => li.querySelector('.ms-name')!.getAttribute('aria-pressed'));
+  const zone = () => canvas().querySelector('[data-zone]')!;
+  it('요소 창: 구역·지점·연결점·지우개/벽 순 한 줄씩(번호·아이콘·이름), 줄 누름 = 지도에서 강조 / 지도에서 구역 누름 = 그 줄 강조·굴림', async () => {
+    serve(editSrv());
+    await startEdit();
+    const pane = card('요소 창');
+    expect(pane.tagName).toBe('ASIDE');
+    expect(canvas().compareDocumentPosition(pane) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // 지도 오른쪽(뒤)
+    expect(rows().map((li) => li.getAttribute('data-el'))).toEqual(['zones.0', 'waypoints.0', 'connectors.0', 'edits.0']);
+    expect(rows().map((li) => li.querySelector('.ms-name')!.textContent!.trim().slice(0, 2))).toEqual(['1.', '2.', '3.', '4.']);
+    expect(rows()[0].textContent).toContain('공사'); expect(rows()[1].textContent).toContain('계기판 A');
+    expect(rows().every((li) => li.querySelector('.ms-name svg'))).toBe(true);
+    expect($('.ms-fold')!.textContent).toBe('요소 4 ▸');
+    expect(pressed()).toEqual(['false', 'false', 'false', 'false']);
+    await click(rows()[1].querySelector('.ms-name')!);
+    expect(pressed()).toEqual(['false', 'true', 'false', 'false']);
+    expect(field('이름', card('고른 요소')).value).toBe('계기판 A');
+    expect(canvas().querySelector('[data-key="waypoints.0"] circle')!.getAttribute('style')).toContain('stroke: var(--accent)');
+    const seen = vi.fn(); Element.prototype.scrollIntoView = seen;   // jsdom 에는 없음
+    await tap(-0.8, -1.9, zone());
+    expect(pressed()).toEqual(['true', 'false', 'false', 'false']); expect(seen.mock.contexts).toContain(rows()[0]);
+    expect(zone().getAttribute('style')).toContain('stroke: var(--accent)');
+    delete (Element.prototype as Partial<Element>).scrollIntoView;
+    await click($('.ms-fold')!);
+    expect($('.ms-fold')!.textContent).toBe('◂ 요소 4'); expect($('[data-el]')).toBeNull();
+  });
+  it('구역 안을 끌면 통째로(모든 꼭짓점 같은 만큼) — 구역 그리기 도구에서도 새 사각형 대신 옮김, 고르기에서도', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    await tool('진입 금지');
+    await ptr('pointerdown', -0.8, -1.9, zone()); await ptr('pointermove', 0.2, -0.9); await ptr('pointerup', 0.2, -0.9);
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(1);                  // 새 사각형을 만들지 않음
+    expect(pressed()[0]).toBe('true');
+    await tool('고르기');
+    await ptr('pointerdown', 0.2, -0.9, zone()); await ptr('pointermove', 0.7, -0.4); await ptr('pointerup', 0.7, -0.4);
+    await save('구역 옮김');
+    expect(near(body().features.zones[0].polygon)).toEqual([[0.5, -0.5], [1.5, -0.5], [1.5, 0.5]]);   // (-1,-2)(0,-2)(0,-1) + (1.5, 1.5)
+  });
+  it('고른 구역 오른쪽 위 작은 X = 확인창 없이 지움 + «되돌리기» 한 번 / 요소 창 ✕ 도 같음, 다른 편집 뒤엔 되돌리기 사라짐', async () => {
+    serve(editSrv(saved201));
+    await startEdit();
+    const confirm = vi.spyOn(window, 'confirm');
+    expect(canvas().querySelector('[data-del]')).toBeNull();                            // 고르기 전엔 X 없음
+    await tap(-0.8, -1.9, zone());
+    const x = canvas().querySelector('[data-del]')!;
+    expect(x.getAttribute('data-del')).toBe('zones.0'); expect(x.getAttribute('aria-label')).toContain('지우기');
+    const c = x.querySelector('circle')!;
+    expect([c.getAttribute('cx'), c.getAttribute('cy')]).toEqual(['20', '60']);         // 구역 그림 (0,80)(20,80)(20,60) 의 오른쪽 위
+    await ptr('pointerdown', 0, -1, x); await ptr('pointerup', 0, -1, x);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(0); expect(rows()).toHaveLength(3); expect(canvas().querySelector('[data-del]')).toBeNull();
+    expect($('[data-undo]')!.textContent).toContain('지움');
+    await click(btn('되돌리기', $('[data-undo]')!));
+    expect(canvas().querySelectorAll('[data-zone]')).toHaveLength(1); expect($('[data-undo]')).toBeNull();
+    await click($('button[aria-label="2번 요소 지우기"]')!);
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(0); expect(rows()).toHaveLength(3);
+    expect($('[data-undo]')!.textContent).toContain('계기판 A');
+    await tool('지점'); await tap(1, 1);
+    expect($('[data-undo]')).toBeNull();                                                // 나중 편집을 덮지 않게
+    await save('정리');
+    expect(body().features.waypoints).toHaveLength(1); expect(body().features.zones).toEqual(FEAT.zones);
+  });
+  it('결재 단추 없음 — 총괄·운영 관리자 모두 보기·편집·되돌리기에 «결재» 글자 단추 0', async () => {
+    for (const me of [KIM, LEE]) {
+      serve(editSrv({}, me));
+      await startEdit();
+      expect(btns().filter((b) => b.textContent!.includes('결재')).map((b) => b.textContent), me.display_name).toEqual([]);
+      expect(btn('새 판으로 저장')).toBeTruthy();
+      await click(btn('보기', card('보기·편집')));
+      expect(btns().filter((b) => b.textContent!.includes('결재') || b.textContent === '내 요청 보기').map((b) => b.textContent), me.display_name).toEqual([]);
+      act(() => root?.unmount()); box.remove();
+    }
   });
 });
 
@@ -1463,7 +1536,7 @@ describe('판 비교·되돌리기(W4c)', () => {
     await stopSends();
   });
 
-  it('운영 관리자: 비교 + 되돌리기 = «결재 요청» → 201 PENDING 이면 안내, 승인 판(판 2) 그대로', async () => {
+  it('운영 관리자도 비교 + «되돌리기»(10-27) — 옛 서버가 201 PENDING 이면 대기로 받았다고 안내, 승인 판(판 2) 그대로', async () => {
     const P3 = { ...V3, status: 'PENDING' as const, created_by: LEE.id };
     serve(rollSrv({ status: 201, body: P3 }, {}, LEE));
     await open('#/map');
@@ -1472,136 +1545,18 @@ describe('판 비교·되돌리기(W4c)', () => {
     expect(sent('GET', '/map-versions/v1/diff')).toHaveLength(1);
     expect(btns(card('판 관리')).map((b) => b.textContent)).toEqual(['비교', '이 판으로 되돌리기']);
     await click(undoBtn());
-    expect(card('이 판으로 되돌리기').textContent).toContain('결재를 요청합니다. 승인되기 전에는 지금 승인 판(판 2)을 그대로 씁니다.');
-    await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('결재 요청', card('이 판으로 되돌리기')));
+    expect(card('이 판으로 되돌리기').textContent).toContain('새 승인 판을 만듭니다. 지금 승인 판(판 2)은 지난 판으로 남고');
+    expect(btn('결재 요청')).toBeUndefined();
+    await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('되돌리기', card('이 판으로 되돌리기')));
     expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
     expect(sent('POST', '/map-versions/v1/rollback')[0].body).toEqual({ base_version_id: 'v2', reason: '잘못 편집함' });
-    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
+    expect(card('지도 보기').textContent).toContain('판 3을 저장했지만 서버가 결재 대기로 받았습니다. 승인되기 전에는 지금 승인 판을 그대로 씁니다.');
     expect($('[aria-label="이 판으로 되돌리기"]')).toBeNull();
     expect(verSel().value).toBe('v2'); expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 1층 · 승인 판 2');
   });
 
-  // PR #36 검토 3: 운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않는다 — 답이 끊기면 이번 요청을 확정하기 전에는 다시 보내지 않음.
-  // 보내기 전에 내 대기 요청 ID 를 받아 두고, 그 뒤 생긴 요청 중 종류·기준 판·이유·내용이 모두 맞는 것이 정확히 하나일 때만 성공
-  const P3r = { ...V3, status: 'PENDING' as const, created_by: LEE.id };
-  const myAsk = (id: string, target: string, p: Partial<{ kind: string; base: string; reason: string }> = {}) => ({ id, kind: p.kind ?? 'MAP_ROLLBACK', status: 'PENDING', requester: { id: LEE.id, display_name: LEE.display_name }, decider: null,
-    reason: p.reason ?? '잘못 편집함', decision_comment: null, target: { type: 'map_version', id: target }, base_ref: { type: 'map_version', id: p.base ?? 'v2' }, emergency: false, created_at: '2026-10-20T05:00:00Z', decided_at: null });
-  const page = (items: unknown[] = [], next: string | null = null): Reply => ({ status: 200, body: { items, next_cursor: next } });
-  const queue = (...r: Route[]): Route => (q, body) => { const x = r.shift() ?? page(); return typeof x === 'function' ? x(q, body) : x; };
-  // 미끼 판: v8 = 예전에 똑같이 보낸 되돌리기(보내기 전부터 대기), v7 = 같은 종류·기준·이유지만 다른 판에서 되돌린 것, v9 = 조건 하나가 다른 요청
-  const V8 = { ...P3r, id: 'v8', number: 8 }, V7 = { ...P3r, id: 'v7', number: 7, copied_from_id: 'v0' }, V9 = { ...P3r, id: 'v9', number: 9 };
-  const dropRoll = (asks: Route) => {
-    let n = 0;
-    serve(rollSrv(() => { n++; throw new TypeError('Failed to fetch'); }, { 'GET /approvals': asks, 'GET /map-versions/v3': { status: 200, body: P3r },
-      'GET /map-versions/v7': { status: 200, body: V7 }, 'GET /map-versions/v8': { status: 200, body: V8 }, 'GET /map-versions/v9': { status: 200, body: V9 } }, LEE));
-    return () => n;
-  };
-  const askRoll = async () => {
-    await open('#/map');
-    await setVal(verSel(), 'v1');
-    await click(undoBtn());
-    await setVal(field('되돌리는 이유', card('이 판으로 되돌리기')), '잘못 편집함'); await click(btn('결재 요청', card('이 판으로 되돌리기')));
-  };
-  const at = (method: string, path: string) => calls.findIndex((c) => c.method === method && c.path === path);
-  it('검토 3: 보내기 전에 내 대기 요청을 받아 둠 → 답이 끊기면 그 뒤 생긴 같은 요청(종류·기준 판·이유·원본 판)이 하나일 때만 그 판으로 끝', async () => {
-    let hold = (_: Reply) => {};
-    dropRoll(queue(page([myAsk('ap0', 'v8')]), () => new Promise<Reply>((r) => { hold = r; })));
-    await askRoll();
-    expect(at('GET', '/approvals')).toBeLessThan(at('POST', '/map-versions/v1/rollback'));   // 보내기 전 받아 둠
-    expect(sent('GET', '/approvals')[0].q.get('status')).toBe('PENDING');
-    const form = card('이 판으로 되돌리기');
-    expect(btn('결재 요청', form)!.disabled).toBe(true); expect(btn('취소', form)!.disabled).toBe(true);
-    expect(box.textContent).toContain('결재 요청이 만들어졌는지 확인하는 중…');
-    act(() => (form as HTMLFormElement).requestSubmit()); await flush();       // 단추를 우회해도
-    expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
-    await stopSends();
-    hold(page([myAsk('ap0', 'v8'), myAsk('ap7', 'v7'), myAsk('ap9a', 'v9', { reason: '다른 이유' }), myAsk('ap9b', 'v9', { base: 'v1' }), myAsk('ap9c', 'v9', { kind: 'MAP_REVISION' }), myAsk('ap3', 'v3')])); await flush();
-    expect(sent('GET', '/map-versions/v9')).toHaveLength(0);                   // 종류·기준·이유가 다른 것은 판도 안 받음
-    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
-    expect($('[aria-label="이 판으로 되돌리기"]')).toBeNull();
-    expect(writes()).toEqual(['POST /map-versions/v1/rollback']);
-  });
-  it('검토 3: 보내기 전 확인 실패 → 보내지 않음(POST 0), 다시 누를 수 있음', async () => {
-    const posts = dropRoll(queue(err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.')));
-    await askRoll();
-    expect(posts()).toBe(0);
-    expect(alertText()).toContain('요청 전에 내 대기 요청을 확인하지 못해 보내지 않았습니다.');
-    expect(btn('결재 요청', card('이 판으로 되돌리기'))!.disabled).toBe(false); expect(btn('상태 확인')).toBeUndefined();
-  });
-  it('검토 3: 확인 실패(503)·빈 조회 → 확정하지 않음(«아직 확인되지 않았습니다»·«상태 확인» 유지·다시 보내기 막힘) → 늦게 생긴 요청을 찾으면 그 판, POST 1번', async () => {
-    const posts = dropRoll(queue(page(), err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), page([myAsk('ap9', 'v9', { reason: '다른 이유' })], '1'), page(), page([myAsk('ap3', 'v3')])));
-    await askRoll();
-    const form = card('이 판으로 되돌리기');
-    expect(alertText()).toContain('결재 요청이 만들어졌는지 확인하지 못했습니다. 잠시 뒤 다시 시도하세요.');
-    expect(btn('결재 요청', form)!.disabled).toBe(true);
-    act(() => (form as HTMLFormElement).requestSubmit()); await flush();
-    expect(posts()).toBe(1);
-    await click(btn('상태 확인', form));
-    expect(sent('GET', '/approvals').map((c) => c.q.get('cursor'))).toEqual([null, null, null, '1']);   // 다음 쪽까지
-    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
-    expect(btn('상태 확인', form)).toBeDefined(); expect(btn('결재 요청', form)!.disabled).toBe(true);
-    act(() => (form as HTMLFormElement).requestSubmit()); await flush();
-    expect(posts()).toBe(1);
-    await click(btn('다시 요청', form));
-    expect(card('다시 요청 확인').textContent).toContain('이미 요청됐을 수 있습니다. 같은 요청이 두 번 갈 수 있어요 — 내 요청에서 먼저 확인하세요.');
-    await click(btn('닫기', card('다시 요청 확인')));
-    expect(posts()).toBe(1);
-    await stopSends();
-    await click(btn('상태 확인', form));                                      // 첫 요청이 늦게 들어감
-    expect(card('지도 보기').textContent).toContain('결재를 요청했습니다(판 3).');
-    expect(posts()).toBe(1);
-  });
-  it('검토 3: 다시 요청은 확인창 «그래도 다시 요청»에서만 — 그때도 먼저 내 대기 요청을 받아 둠', async () => {
-    const posts = dropRoll(queue(page(), page(), page([myAsk('ap0', 'v8')])));
-    await askRoll();
-    const form = card('이 판으로 되돌리기');
-    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
-    await click(btn('다시 요청', form)); await click(btn('그래도 다시 요청', card('다시 요청 확인')));
-    expect(posts()).toBe(2);
-    expect(calls.filter((c) => c.path === '/approvals' || c.path === '/map-versions/v1/rollback').map((c) => c.method)).toEqual(['GET', 'POST', 'GET', 'GET', 'POST', 'GET']);
-    expect(btn('상태 확인', form)).toBeDefined();                              // 또 끊김 → 다시 확인 전
-  });
-  it('검토 3: 편집 결재 요청 답이 끊김 → 같은 종류·기준·이유라도 내용이 다른 판(v9)은 이번 요청 아님(초안 그대로) / 확인 전 캔버스 누름·끌기·도구 잠금 → 같은 내용 판을 찾으면 그 판', async () => {
-    let n = 0, posted: { features?: unknown } = {};
-    const V3e = () => ({ ...P3r, source: 'EDIT', copied_from_id: null, upload_id: UP.upload_id, features: posted.features });
-    const asks = queue(page(), err(503, 'SERVER_BUSY', '잠시 뒤 다시 시도하세요.'), page([myAsk('ap9', 'v9', { kind: 'MAP_REVISION', reason: '지점 추가' })]),
-      page([myAsk('ap9', 'v9', { kind: 'MAP_REVISION', reason: '지점 추가' }), myAsk('ap3', 'v3', { kind: 'MAP_REVISION', reason: '지점 추가' })]));
-    serve(editSrv({ 'POST /floors/f1/map-versions': (_, b) => { n++; posted = b as typeof posted; throw new TypeError('Failed to fetch'); }, 'GET /approvals': asks,
-      'GET /map-versions/v9': () => ({ status: 200, body: { ...V3e(), id: 'v9', number: 9, features: UP.features } }), 'GET /map-versions/v3': () => ({ status: 200, body: V3e() }) }, LEE));
-    await startEdit();
-    await tool('지점'); await tap(1, 1);
-    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
-    expect(at('GET', '/approvals')).toBeLessThan(at('POST', '/floors/f1/map-versions'));
-    expect(alertText()).toContain('결재 요청이 만들어졌는지 확인하지 못했습니다.');
-    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 초안 그대로
-    expect(btn('결재 요청', card('결재 요청'))!.matches(':disabled')).toBe(true); expect(btn('지점', card('편집 도구'))!.matches(':disabled')).toBe(true);   // 편집 칸 fieldset 잠금
-    await tap(2, 1);                                                             // fieldset 이 막지 못하는 캔버스 누름도
-    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);
-    act(() => (card('결재 요청') as HTMLFormElement).requestSubmit()); await flush();
-    expect(n).toBe(1);
-    await click(btn('상태 확인'));
-    expect(sent('GET', '/map-versions/v9')).toHaveLength(1);
-    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
-    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);       // 다른 내용 판을 성공으로 보지 않음 — 초안 유지
-    await stopSends();
-    await click(btn('상태 확인'));
-    expect(canvas()).toBeNull();
-    expect(box.textContent).toContain('결재를 요청했습니다(판 3).');
-    expect(n).toBe(1);
-  });
-  it('검토 3: 확인 전에는 진행 중이던 끌기도 끊음 — 저장 중 놓지 않은 끌기가 확인 전 옮기지 않음', async () => {
-    serve(editSrv({ 'POST /floors/f1/map-versions': () => { throw new TypeError('Failed to fetch'); }, 'GET /approvals': queue(page(), page()) }, LEE));
-    await startEdit();
-    await tool('지점'); await tap(1, 1); await tool('고르기');
-    const w = () => canvas().querySelectorAll('[data-waypoint]')[1] as SVGElement, was = w().outerHTML;
-    await ptr('pointerdown', 1, 1, w());
-    await setVal(field('바꾼 이유', card('결재 요청')), '지점 추가'); await click(btn('결재 요청', card('결재 요청')));
-    expect(box.textContent).toContain('결재 요청이 아직 확인되지 않았습니다.');
-    await ptr('pointermove', 3, 0, w());
-    expect(w().outerHTML).toBe(was);
-  });
-  it('검토 3: 총괄의 답 끊김은 그대로(목록 다시 받기 — 다시 보내면 승인 판이 바뀌어 서버가 STALE)', async () => {
-    serve(rollSrv(() => { throw new TypeError('Failed to fetch'); }));
+  it('운영 관리자도 답 끊김은 총괄과 같이(목록 다시 받기 — 내 대기 요청 조회·«상태 확인» 없음, 10-27)', async () => {
+    serve(rollSrv(() => { throw new TypeError('Failed to fetch'); }, {}, LEE));
     await open('#/map');
     await setVal(verSel(), 'v1');
     await click(undoBtn());

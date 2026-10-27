@@ -1,5 +1,5 @@
 // W6b 시나리오 배정(01 MS-04, 02 F-MS-05, 05 §6.4 — S5b /assignments). fetch 는 상태를 가진 가짜 서버(배정·Idempotency-Key 재생·권한·409·보관 흉내), WebSocket 은 FakeWS.
-// 총괄 ACTIVE·운영 관리자 PENDING «결재 대기», 남의 로봇 회색 + 이유(403·404 도 같은 문구), 409·보관 문구, 응답 불확실 → «확인 중» + 목록 재조회 판정·같은 키 재전송,
+// 누구나 바로 ACTIVE(10-27 결재 없음 — 옛 PENDING 줄은 그대로), 남의 로봇 회색 + 이유(403·404 도 같은 문구), 409·보관 문구, 응답 불확실 → «확인 중» + 목록 재조회 판정·같은 키 재전송,
 // 해제(PENDING → 결재 취소됨)·해제 불확실, 로봇별 보기, 폰 시나리오 카드(실행 «준비 중» 비활성), 배정 중에도 STOP 이 보이고 눌리는지 본다.
 import { act } from 'react';
 import { createRoot, type Root as ReactRoot } from 'react-dom/client';
@@ -64,7 +64,7 @@ function serve(me: User, o: { over?: Record<string, (((real: () => Reply) => Rep
       if (!can(body!.robot_id)) return err(403, 'FORBIDDEN', '담당 로봇만 배정하거나 해제할 수 있습니다.');
       if (asg.some((a) => a.robot_id === body!.robot_id && a.scenario_version === body!.scenario_version && a.scenario_id === body!.scenario_id && (a.status === 'ACTIVE' || a.status === 'PENDING')))
         return err(409, 'ASSIGNMENT_EXISTS', '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.');
-      const a = mk({ ...body!, scenario_name: s.name, robot_id: body!.robot_id, status: me.role === 'ORG_ADMIN' ? 'ACTIVE' : 'PENDING', created_by: me.id });
+      const a = mk({ ...body!, scenario_name: s.name, robot_id: body!.robot_id, status: 'ACTIVE', created_by: me.id });
       asg.push(a);
       const r = { status: 201, body: a };
       if (key) receipts.set(key, r);
@@ -131,7 +131,7 @@ describe('배정 창', () => {
   it('총괄: 로봇 고르기·메모 → POST /assignments(Idempotency-Key) → ACTIVE «배정됨», 바로 적용 안내', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(KIM);
-    expect(text()).toContain('총괄은 바로 적용됩니다');
+    expect(text()).toContain('바로 적용됩니다');
     await pickRobot('r-a');
     await setVal(memo(), ' 아침 순찰 ');
     await click(btn('배정', panel()));
@@ -143,23 +143,25 @@ describe('배정 창', () => {
     expect(rowOf(asg[0].id).textContent).toContain('아침 순찰');
     await stopOk();
   });
-  it('운영 관리자: 남의 로봇은 회색 + 이유, 내 로봇 → PENDING «결재 대기» + «내 요청 보기»', async () => {
+  it('운영 관리자: 남의 로봇은 회색 + 이유, 내 로봇 → «배정» 하나로 바로 ACTIVE(결재 요청 단추·«내 요청 보기» 없음)', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(LEE);
-    expect(text()).toContain('결재 요청이 되고');
+    expect(text()).toContain('바로 적용됩니다');
+    expect(text()).not.toContain('결재');
+    expect(btn('결재 요청', panel())).toBeUndefined();
     const other = $<HTMLButtonElement>('[data-robot="r-b"]', panel())!;
     expect(other.disabled).toBe(true);
     expect($(`#${other.getAttribute('aria-describedby')}`)!.textContent).toBe(OUT);
     await pickRobot('r-a');
-    await click(btn('결재 요청', panel()));
-    expect(asg[0].status).toBe('PENDING');
-    expect(text()).toContain('결재 대기 — Go2-A에 «1층 순찰» 판 1 배정을 요청했습니다.');
-    expect(btn('내 요청 보기', panel())).toBeTruthy();
-    expect(rowOf(asg[0].id).textContent).toContain('결재 대기');
-    // 이미 결재를 기다리는 판 → 그 로봇도 회색 + 이유
+    await click(btn('배정', panel()));
+    expect(asg[0].status).toBe('ACTIVE');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다. 바로 적용됩니다.');
+    expect(btn('내 요청 보기', panel())).toBeUndefined();
+    expect(rowOf(asg[0].id).textContent).toContain('배정됨');
+    // 이미 배정된 판 → 그 로봇도 회색 + 이유
     await click(btn('로봇에 배정', panel()));
     expect($<HTMLButtonElement>('[data-robot="r-a"]', panel())!.disabled).toBe(true);
-    expect(text()).toContain('이 판은 이미 결재를 기다리고 있습니다.');
+    expect(text()).toContain('이 판이 이미 배정되어 있습니다.');
   });
   it('서버 403·404 = 회색 단추와 같은 문구, 409 = 이미 배정 문구, 보관 422 = 보관 문구', async () => {
     scenarios = [scen('s1', '1층 순찰')];
@@ -212,7 +214,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(LEE, { over: { 'POST /assignments': [{ status: 502, body: null }] } });
     await pickRobot('r-a');
-    await click(btn('결재 요청', panel()));
+    await click(btn('배정', panel()));
     expect(asg).toHaveLength(0);
     expect(text()).toContain('배정이 아직 목록에 없습니다.');
     expect(text()).not.toContain('결재 대기 —');
@@ -220,7 +222,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     expect(posts()).toHaveLength(2);
     expect(posts()[1].key).toBe(posts()[0].key);
     expect(posts()[1].body).toEqual(posts()[0].body);
-    expect(text()).toContain('결재 대기 — Go2-A');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
     // 같은 키를 또 보내도 서버는 첫 결과를 돌려준다(두 번 배정 안 됨)
     expect(asg).toHaveLength(1);
   });
@@ -244,7 +246,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(LEE, lostThenEmpty());
     await pickRobot('r-a');
-    await click(btn('결재 요청', panel()));
+    await click(btn('배정', panel()));
     expect(text()).toContain('배정이 아직 목록에 없습니다.');
     asg[0].status = 'REJECTED';   // 그새 총괄이 반려(또는 STALE → 서버가 REJECTED 로 정리)
     await click(btn('같은 요청 다시 보내기', panel()));
@@ -268,7 +270,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(LEE, lostThenEmpty());
     await pickRobot('r-a');
-    await click(btn('결재 요청', panel()));
+    await click(btn('배정', panel()));
     asg[0].status = 'REJECTED';
     await click(btn('다시 확인', panel()));
     expect(text()).toContain('지금은 반려됐습니다');
@@ -280,7 +282,7 @@ describe('응답 불확실 → 확인 중 → 목록 재조회로 판정', () =>
     o.over!['GET /assignments'].push(lost);
     await openAssign(LEE, o);
     await pickRobot('r-a');
-    await click(btn('결재 요청', panel()));
+    await click(btn('배정', panel()));
     await click(btn('같은 요청 다시 보내기', panel()));
     expect(text()).toContain('배정됐는지 확인하지 못했습니다.');
     expect(text()).not.toContain('결재 대기 —');
@@ -407,9 +409,9 @@ describe('관제 서랍 [배정]', () => {
     await click($('[data-plan="s1"]'));
     expect($('[aria-label="배정 창"]', panel())).toBeTruthy();
     expect($('[data-robot="r-a"]', panel())!.getAttribute('aria-pressed')).toBe('true');
-    await click(btn('결재 요청', panel()));
+    await click(btn('배정', panel()));
     expect(posts()[0].body).toMatchObject({ scenario_id: 's1', robot_id: 'r-a' });
-    expect(text()).toContain('결재 대기 — Go2-A');
+    expect(text()).toContain('Go2-A에 «1층 순찰» 판 1을 배정했습니다.');
   });
 });
 

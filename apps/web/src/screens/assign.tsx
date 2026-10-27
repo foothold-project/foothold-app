@@ -1,5 +1,5 @@
 // 시나리오 배정(01 MS-04, 02 F-MS-05, 05 §6.4 — S5b /assignments). 임무 탭 시나리오 편집 칸 아래 배정 창 + 배정 목록(이 시나리오 / 로봇별), 폰 시나리오 시트 카드.
-// 총괄 = 바로 ACTIVE, 운영 관리자 = PENDING «결재 대기»(시나리오 배정 결재). 보내기는 Idempotency-Key — 답을 못 받으면 «확인 중»으로 두고 목록을 다시 받아 판정, 같은 시도를 다시 보낼 땐 같은 키.
+// 누구나 바로 ACTIVE(10-27 결재 없음 — 옛 PENDING «결재 대기» 줄은 그대로 보이고 해제하면 그 결재도 취소). 보내기는 Idempotency-Key — 답을 못 받으면 «확인 중»으로 두고 목록을 다시 받아 판정, 같은 시도를 다시 보낼 땐 같은 키.
 // 해제(DELETE)는 결재 없이(F-MS-05). 실행 단추는 실행기 전(S7)이라 «준비 중». STOP 은 App 머리줄 — 이 칸은 창 키를 잡지 않는다.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Assignment, AssignmentCreate } from '../../../contracts/ts';
@@ -68,9 +68,9 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
     attempt.current = null; setPhase('idle'); setOpen(false); setRobot(''); setMemo('');
     const what = `${a.robot_name}에 «${a.scenario_name}» 판 ${a.scenario_version}`;
     if (!live(a)) setAll(true);   // 반려·해제된 결과 줄도 목록에 보이게
-    setMsg(a.status === 'PENDING' ? { text: `결재 대기 — ${what} 배정을 요청했습니다. 총괄 운영 관리자가 승인하면 적용됩니다.`, ok: true, mine: true }
+    setMsg(a.status === 'PENDING' ? { text: `${what} 배정을 보냈지만 서버가 결재 대기로 받았습니다. 승인되면 적용됩니다.`, ok: true }
       : a.status === 'ACTIVE' ? { text: `${what}을 배정했습니다. 바로 적용됩니다.`, ok: true }
-      : a.status === 'REJECTED' ? { text: `${what} 배정 요청은 처리됐지만 지금은 반려됐습니다(반려됐거나 요청 뒤 배정 대상이 바뀜). 아래 목록에서 확인하세요.`, mine: true }
+      : a.status === 'REJECTED' ? { text: `${what} 배정 요청은 처리됐지만 지금은 반려됐습니다(반려됐거나 요청 뒤 배정 대상이 바뀜). 아래 목록에서 확인하세요.` }
       : { text: `${what} 배정은 처리됐지만 지금은 ${status(a.status).text} 상태입니다. 아래 목록에서 확인하세요.` });
     l.load().catch(() => {});
   };
@@ -156,13 +156,13 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
       <button type="button" className="btn pri" disabled={!!blocked || open} aria-describedby={blocked ? 'assign-why' : undefined} onClick={() => { setOpen(true); setMsg(null); }}>로봇에 배정</button>
       {blocked && <span id="assign-why" className="fh-why" data-why>{blocked}</span>}</div>
     {open && <form className="fh-form" onSubmit={submit} noValidate aria-label="배정 창">
-      <p className="lv-note">«{name}» 판 {version}을 배정합니다. {user.role === 'ORG_ADMIN' ? '총괄은 바로 적용됩니다.' : '운영 관리자는 결재 요청이 되고, 총괄이 승인하면 적용됩니다.'}</p>
+      <p className="lv-note">«{name}» 판 {version}을 배정합니다. 바로 적용됩니다.</p>
       <fieldset disabled={lock} style={{ display: 'contents' }}>
         <div className="fh-form" role="group" aria-label="로봇 고르기">{robots.filter((r) => !idleSim(r)).map((r) => { const w = why(r); return <div key={r.id} className="fh-row">
           <button type="button" className="btn" aria-pressed={robot === r.id} disabled={!!w} aria-describedby={w ? `assign-${r.id}` : undefined} data-robot={r.id} onClick={() => setRobot(r.id)}>{r.name}</button>
           {w && <span id={`assign-${r.id}`} className="fh-why" data-why>{w}</span>}</div>; })}
           {!robots.length && <p className="lv-note">고를 수 있는 로봇이 없습니다.</p>}</div>
-        <label className="fh-field"><span>메모(선택{user.role === 'ORG_ADMIN' ? '' : ' — 결재 요청 이유로 보입니다'})</span><input className="inp" maxLength={2000} value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
+        <label className="fh-field"><span>메모(선택)</span><input className="inp" maxLength={2000} value={memo} onChange={(e) => setMemo(e.target.value)} /></label>
       </fieldset>
       <div className="fh-row">
         {phase === 'unsure' ? <>
@@ -170,7 +170,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
           <button type="button" className="btn" onClick={() => attempt.current && check(attempt.current)}>다시 확인</button>
           <button type="button" className="btn" onClick={() => { attempt.current = null; setPhase('idle'); setOpen(false); setMsg({ text: '배정 결과를 확정하지 못한 채 창을 닫았습니다. 아래 목록에서 배정됐는지 확인하세요.' }); l.load().catch(() => {}); }}>닫기</button>
         </> : <>
-          <button type="submit" className="btn pri" disabled={lock || !robot}>{user.role === 'ORG_ADMIN' ? '배정' : '결재 요청'}</button>
+          <button type="submit" className="btn pri" disabled={lock || !robot}>배정</button>
           <button type="button" className="btn" disabled={lock} onClick={() => { setOpen(false); setMsg(null); }}>닫기</button></>}
         {phase === 'sending' && <span className="lv-note" role="status">보내는 중…</span>}
         {phase === 'checking' && <span className="lv-note" role="status" data-checking>확인 중 — 목록을 다시 받는 중…</span>}
