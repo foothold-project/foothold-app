@@ -17,7 +17,8 @@ import java.net.URI;
 
 /**
  * 원격 주소 방식(1.1.0-dev): 앱 안 시작 화면(https://localhost)에서 고른 서버 origin 의 웹 화면을 같은 WebView 로 연다.
- * 1.2.0-dev 앱 안 시뮬(https://localhost/sim/)은 시작 화면과 같은 origin 이라 isLocal 로 이미 허용 — 허용 규칙 변경 없음.
+ * 1.2.0-dev 앱 안 시뮬(https://localhost/sim/)은 시작 화면과 같은 origin 이라 isLocal 로 이미 허용 — 서버 화면 → 시뮬 이동도 같은 규칙.
+ * 1.2.1-dev: 시뮬(/sim/)이 열릴 때는 고른 서버(chosen)를 비우지 않는다 — 시뮬 «집»(history.back)으로 그 서버 화면에 돌아오게. 허용 origin 은 그대로(새 origin 0).
  *
  * 허용 목록을 capacitor.config 의 server.allowNavigation 에 두지 않고 여기서 막는 이유(@capacitor/android 8.5.2 소스 확인):
  *  - allowNavigation 항목은 Bridge.setAllowedOriginRules 로 플러그인 브리지 허용 origin 이 되고,
@@ -81,7 +82,7 @@ public class RemoteClient extends BridgeWebViewClient {
     @Override
     public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
         super.onPageStarted(view, url, favicon);
-        if (isLocal(url)) chosen = null;
+        if (isLocal(url) && !isSim(url, local)) chosen = null;
     }
 
     @Override
@@ -105,6 +106,17 @@ public class RemoteClient extends BridgeWebViewClient {
     /** 시작 화면 origin 과 정확히 같을 때만(다른 포트·사용자정보·평문은 아님) */
     private boolean isLocal(String url) {
         return allowed(url, local);
+    }
+
+    /** 앱 출처(local)의 /sim/ 아래(앱 번들 시뮬)면 true — 경로는 정규화해서 본다(/sim/../ 는 아님) */
+    static boolean isSim(String url, String local) {
+        if (!allowed(url, local)) return false;
+        try {
+            String p = new URI(url).normalize().getPath();
+            return p != null && p.startsWith("/sim/");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** https·사용자정보 없음·호스트 있음이면 scheme://host[:port](소문자, 기본 포트 생략), 아니면 null */

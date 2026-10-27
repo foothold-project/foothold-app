@@ -12,8 +12,8 @@
   main { max-width: 480px; margin: 0 auto; padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 14px; }
   .top { display: flex; align-items: center; justify-content: space-between; }
   .logo { height: 28px; width: auto; }
-  .sim { display: grid; place-items: center; width: 48px; height: 48px; padding: 0; border: 1px solid var(--rule); border-radius: 12px; background: var(--paper-2); color: var(--brand); }
-  .sim svg { width: 28px; height: 28px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  .sim { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 56px; font-size: 17px; text-decoration: none; }
+  .sim svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
   .logo.d { display: none; }
   @media (prefers-color-scheme: dark) { .logo.l { display: none; } .logo.d { display: block; } }
   h1 { font-size: 20px; margin: 8px 0 0; }
@@ -35,9 +35,9 @@
 <main>
   <div class="top">
     <span><img class="logo l" src="./brand/assets/logo/v1/foothold-lockup-compact-light.svg" alt="FOOTHOLD"><img class="logo d" src="./brand/assets/logo/v1/foothold-lockup-compact-dark.svg" alt="FOOTHOLD"></span>
-    <!-- 앱 안 오프라인 시뮬(서버·인터넷 없이). 글자 없는 아이콘 -->
-    <a class="sim" id="sim" href="./sim/index.html" aria-label="오프라인 시뮬"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M10 8v5l4-2.5zM8 21h8M12 17v4"/></svg></a>
   </div>
+  <!-- 앱 안 오프라인 시뮬(three.js + MuJoCo, 서버·인터넷 없이). 1.2.1: 오른쪽 위 작은 아이콘 → 글자 있는 큰 단추(10-27 사용자 «어디 있는지 모르겠다») -->
+  <a class="btn pri sim" id="sim" href="./sim/index.html"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M10 8v5l4-2.5zM8 21h8M12 17v4"/></svg>시뮬 열기 (서버 없이)</a>
   <h1>서버 주소</h1>
   <p>PC 에서 받은 서버 주소(https://…)를 넣고 «열기»를 누르세요.</p>
   <p class="note" role="alert" id="note"></p>

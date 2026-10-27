@@ -102,6 +102,20 @@ describe('탭 전환', () => {
     // 월드 목록을 받기 전에는 띄우기를 못 누름(흐름 전체는 phone.test.tsx)
     const go = [...$('[aria-label="시뮬 로봇 띄우기"]').querySelectorAll('button')].find((b) => b.textContent === '띄우기')!;
     expect(go.disabled).toBe(true);
+    expect($('[data-sim-app]')).toBeNull();
+  });
+  it('폰 앱(UA FootholdApp/): Gazebo 띄우기 대신 «시뮬 열기» → 앱 번들 시뮬(서버 화면에서 왔다고 표시)', () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) Chrome/140 Mobile Safari/537.36 FootholdApp/1.2.1-dev');
+    mount(true, 'u-lee');
+    expect($('[aria-label="시뮬 로봇 띄우기"]')).toBeNull();
+    const card = $('[aria-label="시뮬(앱 안)"]'), open = $<HTMLAnchorElement>('[data-sim-app]');
+    expect(card.querySelector('h2')!.textContent).toBe('시뮬(앱 안)');
+    expect(open.textContent).toBe('시뮬 열기');
+    expect(open.getAttribute('href')).toBe('https://localhost/sim/index.html?from=server');
+    expect(card.textContent).toContain('폰 안에서 도는 창고 시뮬, 서버 필요 없음');
+    expect([...card.querySelectorAll('button')].filter((b) => b.textContent === '띄우기')).toEqual([]);
+    expect(card.querySelector('[aria-label="월드 목록"]')).toBeNull();
+    expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);   // 내 로봇 목록은 그대로
   });
 });
 

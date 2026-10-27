@@ -1,8 +1,8 @@
 {
   "name": "foothold-mobile",
   "private": true,
-  "version": "1.2.0",
-  "description": "FOOTHOLD 앱 Android 껍데기(Capacitor). 1.2.0 원격 주소 방식(서버 주소 입력 → 화면은 서버가 내줌) + 앱 안 오프라인 시뮬(sim/, 빌드 때 FH_SIM_SRC 필요).",
+  "version": "1.2.1",
+  "description": "FOOTHOLD 앱 Android 껍데기(Capacitor). 1.2.1 원격 주소 방식(서버 주소 입력 → 화면은 서버가 내줌) + 앱 안 오프라인 시뮬(sim/, 빌드 때 FH_SIM_SRC 필요).",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
