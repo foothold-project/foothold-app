@@ -135,8 +135,7 @@ describe('결재함(총괄)·내 요청(운영 관리자) 목록', () => {
     const q = sent('GET', '/approvals');
     expect(q).toHaveLength(1); expect(q[0].q.get('status')).toBe('PENDING'); expect(q[0].q.get('limit')).toBe('20');
     expect(rows().map((b) => b.textContent)).toEqual([`▲대기지도 수정1층 · 판 2 → 판 3이운영 · ${when('2026-10-20T03:00:00Z')}`, `▲대기지도 되돌리기1층 · 판 2 → 판 4이운영 · ${when('2026-10-20T04:00:00Z')}`]);
-    expect($('nav a[href="#/approval"]')!.getAttribute('aria-label')).toBe('결재 7건');   // 화면에서 세지 않음
-    expect($('nav a[href="#/approval"] .fh-badge')!.textContent).toBe('7');
+    expect($('nav a[href="#/approval"]')).toBeNull();   // 10-27 결재 탭은 메뉴에서 숨김(주소로는 열림) — 배지 자리도 없음
     await stopSends();
   });
   it('«더 보기» = next_cursor 로 이어 받기, «전체» = status 없이(끝난 것 포함) — STALE 은 «적용 불가(지도가 바뀜)»', async () => {
@@ -162,7 +161,7 @@ describe('결재함(총괄)·내 요청(운영 관리자) 목록', () => {
     expect(sent('GET', '/approvals')[0].q.has('status')).toBe(false);
     expect(rows().map((b) => b.dataset.approval)).toEqual(['a1', 'a2']);
     expect(rows()[0].textContent).not.toContain('이운영');
-    expect($('nav a[href="#/approval"]')!.getAttribute('aria-label')).toBe('내 요청 1건');
+    expect($('nav a[href="#/approval"]')).toBeNull();
     await pick('a2');
     expect(detail().textContent).toContain('반려 이유구역이 너무 넓음');
     expect(detail().textContent).toContain('처리김총괄');

@@ -31,6 +31,8 @@ afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.res
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s)!;
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
+/** 메뉴에 보이는 탭(결재 탭은 10-27 숨김 — 주소로는 열림) */
+const shown = () => tabsFor(false).filter((t) => !t.hidden);
 const navLabels = () => $$('nav[aria-label="주 메뉴"] a').map((a) => a.childNodes[1].textContent);
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const robotRow = (name: string) => $$('[aria-label="로봇 목록"] button').find((b) => b.textContent!.includes(name))!;
@@ -51,8 +53,9 @@ function eachPhoneScreen(user: string, f: (where: string) => void) {
 const cardNames = () => $$('.dv-card b').map((b) => b.textContent);
 
 describe('메뉴 정의(한 곳)', () => {
-  it('PC 메뉴 7개(실기 조종 탭 없음, 시뮬 탭), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
-    expect([...PC_TABS, PC_BOTTOM].map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '결재', '시나리오', '지도', '시뮬', '기록', '설정']);
+  it('PC 메뉴 6개(실기 조종 탭 없음, 시뮬 탭, 결재 탭 숨김), 폰은 조종·기록 화면 + 아래 줄 시트 4개', () => {
+    expect([...PC_TABS, PC_BOTTOM].filter((t) => !t.hidden).map((t) => labelOf(t, 'ORG_ADMIN'))).toEqual(['로봇', '시나리오', '지도', '시뮬', '기록', '설정']);
+    expect(tabFromHash('#/approval', false)).toBe('approval');   // 옛 결재·알림 링크는 주소로 그대로
     expect(PHONE_TABS.map((t) => labelOf(t, 'OPERATOR'))).toEqual(['조종', '기록']);
     expect(PHONE_SHEETS.map((t) => t.label)).toEqual(['자세', '시나리오', '지도·목표', '정책']);
   });
@@ -71,9 +74,10 @@ describe('메뉴 정의(한 곳)', () => {
 describe('탭 전환', () => {
   it('PC: 메뉴를 누르면 제목·본문·현재 표시가 그 탭으로', () => {
     mount(false);
-    expect(navLabels()).toEqual(['로봇', '결재', '시나리오', '지도', '시뮬', '기록', '설정']);
+    expect(navLabels()).toEqual(['로봇', '시나리오', '지도', '시뮬', '기록', '설정']);
     expect($('nav a[href="#/drive"]')).toBeNull();
-    for (const t of tabsFor(false)) {
+    expect($('nav a[href="#/approval"]')).toBeNull();
+    for (const t of shown()) {
       click($(`nav a[href="#/${t.id}"]`));
       const l = labelOf(t, 'ORG_ADMIN');
       expect($('h1').textContent).toBe(l);
@@ -120,10 +124,10 @@ describe('탭 전환', () => {
 });
 
 describe('역할 전환', () => {
-  it('운영자로 바꾸면 «내 요청»이 보이고 남의 로봇은 보는 중, 폰에는 내 로봇만', () => {
+  it('운영자로 바꿔도 결재·«내 요청» 탭은 메뉴에 없고 남의 로봇은 보는 중, 폰에는 내 로봇만', () => {
     mount(false); feed();
     pickUser('u-lee');
-    expect(navLabels()).toContain('내 요청');
+    expect(navLabels()).not.toContain('내 요청');
     expect(navLabels()).not.toContain('결재');
     expect($$('[aria-label="로봇 목록"] b').map((b) => b.textContent)).toEqual(['Go2-3', 'Go2-1', 'Go2-7']);   // 담당이 바뀌는 사이 목록에 남은 남의 로봇: 내 로봇 뒤 + 보는 중
     expect(robotRow('Go2-7').textContent).toContain('보는 중');
@@ -151,7 +155,7 @@ describe('STOP 상시 표시', () => {
   };
   for (const u of USERS) it(`PC · ${u.name}: 모든 탭에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개'} + 상태 띠 자리`, () => {
     mount(false, u.id);
-    for (const t of tabsFor(false)) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id, u.role === 'ORG_ADMIN'); }
+    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); one(false, t.id, u.role === 'ORG_ADMIN'); }
   });
   for (const u of USERS) it(`폰 · ${u.name}: 로봇 연결·조종·시트 4개·기록에 STOP ${u.role === 'ORG_ADMIN' ? '0개(총괄·실기만)' : '1개(64px)'} + 상태 띠 자리`, () => {
     mount(true, u.id);
@@ -175,7 +179,7 @@ describe('금지어 0', () => {
   };
   for (const u of USERS) it(`PC · ${u.name}`, () => {
     mount(false, u.id);
-    for (const t of tabsFor(false)) { click($(`nav a[href="#/${t.id}"]`)); none(t.id); }
+    for (const t of shown()) { click($(`nav a[href="#/${t.id}"]`)); none(t.id); }
   });
   for (const u of USERS) it(`폰 · ${u.name}`, () => {
     mount(true, u.id);
@@ -273,7 +277,7 @@ describe('R2·R3 보강', () => {
     const MARK: Record<string, string> = { fleet: '주의 필요', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '장소 목록', settings: '화면 밝기' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
-      click($(`nav a[href="#/${id}"]`));
+      act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로
       const text = $('main').textContent!;
       expect(text, id).toContain(m);
       for (const [o, om] of Object.entries(MARK)) if (o !== id) expect(text, `${id} 에 ${o} 내용`).not.toContain(om);

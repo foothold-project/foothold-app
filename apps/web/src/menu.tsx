@@ -3,7 +3,7 @@
 import type { Role } from './fake';
 
 export type TabId = 'fleet' | 'drive' | 'sim' | 'mission' | 'approval' | 'history' | 'map' | 'settings';
-export type Tab = { id: TabId; label: string | Record<Role, string>; icon: JSX.Element };
+export type Tab = { id: TabId; label: string | Record<Role, string>; icon: JSX.Element; hidden?: boolean };   // hidden = 메뉴에 안 보임(주소·알림 링크로는 열림)
 
 const I = (d: JSX.Element) => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">{d}</svg>;
 const ICON = {
@@ -17,11 +17,12 @@ const ICON = {
   settings: I(<><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1L7 17M17 7l2.1-2.1" /></>),
 };
 
-/** 총괄 웹(PC) 왼쪽 세로 메뉴. 설정은 PC_BOTTOM 으로 맨 아래 따로 — 로봇 · 결재 · 시나리오 · 지도 · 시뮬 · 기록 · 설정.
+/** 총괄 웹(PC) 왼쪽 세로 메뉴. 설정은 PC_BOTTOM 으로 맨 아래 따로 — 로봇 · 시나리오 · 지도 · 시뮬 · 기록 · 설정.
+ *  결재 탭은 숨김(10-27 결재 없이 바로 반영 — 새 결재가 안 생김). 옛 결재·알림 링크 #/approvals 는 주소로 그대로 열린다.
  *  실기 조종은 폰만, 시뮬은 PC «시뮬» 탭(10 ADR-003 §1 결정 3). 옛 주소 #/drive 는 첫 탭(로봇)으로 */
 export const PC_TABS: Tab[] = [
   { id: 'fleet', label: '로봇', icon: ICON.fleet },
-  { id: 'approval', label: { ORG_ADMIN: '결재', OPERATOR: '내 요청' }, icon: ICON.approval },
+  { id: 'approval', label: { ORG_ADMIN: '결재', OPERATOR: '내 요청' }, icon: ICON.approval, hidden: true },
   { id: 'mission', label: '시나리오', icon: ICON.mission },
   { id: 'map', label: '지도', icon: ICON.map },
   { id: 'sim', label: '시뮬', icon: ICON.sim },

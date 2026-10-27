@@ -1,9 +1,9 @@
 // 지도 탭(01 MP-01·02·04·06, 02 F-MP-01·02·04, 03 §5.6, 05 §5 — S3a /sites·/map-versions·/uploads)과 관제 지도 칸의 층 고르기(FL-03).
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
-// 운영 관리자의 편집 저장·되돌리기 = 결재 요청(S4a, 201 PENDING 판) — 승인될 때까지 승인 판을 그대로 보이고, 처리는 결재 탭(screens/approvals.tsx).
+// 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 결재 대기(PENDING) 판은 판 목록·기록에 그대로 보인다.
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import type { Approval, MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Tone, User } from '../fake';
 import { MapFrame, MapImage, around, useWalls, type Box } from '../mapframe';
@@ -119,8 +119,8 @@ const stateOf = (v: MapVersion, approved: string | null): { tone: Tone; text: st
   : v.status === 'PENDING' ? (v.base_version_id === approved ? { tone: 'warn', text: '결재 대기' } : { tone: 'bad', text: '적용 불가(지도가 바뀜)' })
   : v.status === 'REJECTED' ? { tone: 'bad', text: '반려됨' } : v.status === 'CANCELED' ? { tone: 'off', text: '취소됨' } : { tone: 'off', text: '지난 판' };
 const verName = (v: MapVersion, approved: string | null) => `판 ${v.number}${v.id === approved || v.status !== 'SUPERSEDED' && v.status !== 'APPROVED' ? ` · ${stateOf(v, approved).text}` : ''}`;
-/** 운영 관리자 저장·되돌리기 결과(201 PENDING) — 승인 판을 그대로 보이고 결재 탭으로 가는 길을 둔다 */
-const asked = (x: MapVersion): Msg => ({ text: `결재를 요청했습니다(판 ${x.number}). 승인되기 전에는 지금 승인 판을 그대로 씁니다.`, ok: true, mine: true });
+/** 서버가 아직 결재 대기(201 PENDING)로 받은 경우(결재 없는 서버 전) — 승인 판을 그대로 보인다 */
+const asked = (x: MapVersion): Msg => ({ text: `판 ${x.number}을 저장했지만 서버가 결재 대기로 받았습니다. 승인되기 전에는 지금 승인 판을 그대로 씁니다.`, ok: true });
 
 type Kind = 'sites' | 'buildings' | 'floors';
 const WHAT: Record<Kind, string> = { sites: '장소', buildings: '건물', floors: '층' };
@@ -135,76 +135,13 @@ const placeFail = (e: ApiFail, k: Kind) => (e.code === 'RESOURCE_IN_USE' ? IN_US
 
 /** 고치기 칸: 새로 만들기(parent) 또는 이름 바꾸기(id). 층은 층 번호(지하 1층 = -1)도 */
 type Form = { kind: Kind; id?: string; parent?: string; title: string; name: string; level: string };
-export type Msg = { text: string; ok?: boolean; mine?: boolean } | null;   // mine = 결재 요청 안내 + «내 요청 보기»(알림 종처럼 주소만 바꿈)
-export const Note = ({ m }: { m: Msg }) => {
-  if (!m) return null;
-  const p = <p className={`fh-msg${m.ok ? ' ok' : ''}`} role={m.ok ? 'status' : 'alert'}>{m.text}</p>;
-  return m.mine ? <div className="fh-row">{p}<button type="button" className="btn" onClick={() => { location.hash = '#/approval'; }}>내 요청 보기</button></div> : p;
-};
+export type Msg = { text: string; ok?: boolean } | null;
+export const Note = ({ m }: { m: Msg }) => (m ? <p className={`fh-msg${m.ok ? ' ok' : ''}`} role={m.ok ? 'status' : 'alert'}>{m.text}</p> : null);
 
-/** 내 대기 결재(운영 관리자는 서버가 본인 것만). ponytail: 200건까지 — 넘으면 확인 못 함 */
-async function myPending(cancel?: AbortSignal): Promise<Approval[]> {
-  const all: Approval[] = [];
-  let cursor: string | null = null;
-  for (let i = 0; i < 10; i++) {
-    const r = await api.approvals('PENDING', cursor, cancel);
-    if (!r || !Array.isArray(r.items) || !r.items.every((x) => typeof x?.id === 'string') || !(r.next_cursor === null || typeof r.next_cursor === 'string')) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다.');
-    all.push(...r.items);
-    if (!(cursor = r.next_cursor)) return all;
-  }
-  throw new ApiFail(0, 'TOO_MANY', '대기 중인 요청이 너무 많습니다.');
-}
-/** 결재 요청 전에 지금 내 대기 요청 ID — 답이 끊기면 이 뒤에 생긴 것만 이번 요청 후보로 본다 */
-export const pendingIds = (cancel?: AbortSignal) => myPending(cancel).then((x) => x.map((a) => a.id));
 /** 내용 비교용: null 칸을 빼고 열쇠 순서를 맞춘 JSON(서버는 None 칸을 저장하지 않는다) */
 export const canon = (x: unknown) => JSON.stringify(x, (_, v) => (v && typeof v === 'object' && !Array.isArray(v)
   ? Object.fromEntries(Object.entries(v).filter(([, y]) => y != null).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v));
-/** 보낸 결재 요청: 종류·기준 판·이유 + 만들어진 판이 보낸 내용과 같은가(편집 = 그림·요소, 되돌리기 = 원본 판) */
-export type Sent = { kind: Approval['kind']; base: string; reason: string; same: (v: MapVersion) => boolean };
-/** 보내기 전에 없던(known 밖) 내 대기 요청 중 보낸 것과 모두 같은 판들 */
-async function findAsked(s: Sent, known: string[], cancel?: AbortSignal): Promise<MapVersion[]> {
-  const fresh = (await myPending(cancel)).filter((a) => !known.includes(a.id) && a.kind === s.kind && a.base_ref?.id === s.base && a.reason === s.reason && typeof a.target?.id === 'string');
-  return (await Promise.all(fresh.map((a) => api.version(a.target.id, cancel).then(shape(isVersion))))).filter(s.same);
-}
-const NOT_YET = '결재 요청이 아직 확인되지 않았습니다. 서버가 처리하는 중일 수 있습니다. 잠시 뒤 «상태 확인»을 다시 누르거나 내 요청에서 확인하세요.';
-const MANY = '같은 내용의 새 결재 요청이 여러 건 보여 이번 요청을 정할 수 없습니다. 내 요청에서 확인하세요.';
-/** 결재 요청 답이 끊김 — 운영 관리자는 요청해도 승인 판이 그대로라 같은 기준으로 다시 보내면 서버가 막지 않고 대기 판·결재가 하나 더 생긴다(서버 멱등 키는 후속).
- *  known = 보내기 전 내 대기 요청 ID(null = 확실함). 그 뒤 생긴 요청 중 보낸 것과 정확히 하나가 맞을 때만 found(그 판). 못 찾거나 여럿·확인 실패면 확정하지 않는다 —
- *  «상태 확인»을 남기고, 다시 보내기는 확인창에서 고를 때만(UnsureBar). first = 이 칸을 다시 열 때 이어받은 known(편집 초안) */
-export function useUnsure(s: Sent, found: (v: MapVersion) => void, say: (m: Msg) => void, cancel?: AbortSignal, first: string[] | null = null) {
-  const [known, setKnown] = useState(first), [checking, setChecking] = useState(false), [again, setAgain] = useState(false), live = useRef(true);
-  const check = (ids = known) => {
-    if (!ids) return;
-    setKnown(ids); setChecking(true); setAgain(false);
-    findAsked(s, ids, cancel).then((hits) => {
-      if (!live.current) return;
-      setChecking(false);
-      if (hits.length === 1) { setKnown(null); found(hits[0]); } else say({ text: hits.length ? MANY : NOT_YET });
-    }, (e: ApiFail) => {
-      if (!live.current || e.code === 'CANCELED') return;
-      setChecking(false);
-      say({ text: `결재 요청이 만들어졌는지 확인하지 못했습니다. ${e.message} «상태 확인»을 눌러 다시 확인하세요.` });
-    });
-  };
-  useEffect(() => { live.current = true; if (first) check(first); return () => { live.current = false; }; }, []);
-  return { unsure: !!known, known, checking, check, again, setAgain, clear: () => { setKnown(null); setAgain(false); } };
-}
-/** 확인 전 단추: «상태 확인» + «다시 요청»(같은 요청이 두 번 갈 수 있다는 확인창을 거쳐서만) */
-export function UnsureBar({ u, resend }: { u: ReturnType<typeof useUnsure>; resend: () => void }) {
-  if (!u.unsure) return null;
-  return <>
-    <div className="fh-row"><button type="button" className="btn" disabled={u.checking} onClick={() => u.check()}>상태 확인</button>
-      <button type="button" className="btn" disabled={u.checking || u.again} onClick={() => u.setAgain(true)}>다시 요청</button>
-      {u.checking && <span className="lv-note" role="status">결재 요청이 만들어졌는지 확인하는 중…</span>}</div>
-    {u.again && <div className="fh-row" role="group" aria-label="다시 요청 확인"><span>이미 요청됐을 수 있습니다. 같은 요청이 두 번 갈 수 있어요 — 내 요청에서 먼저 확인하세요.</span>
-      <button type="button" className="btn pri" onClick={() => { u.clear(); resend(); }}>그래도 다시 요청</button>
-      <button type="button" className="btn" onClick={() => u.setAgain(false)}>닫기</button></div>}
-  </>;
-}
-/** 결재 요청 전 확인(pendingIds) 실패 — 보내지 않았다 */
-export const preFail = (e: ApiFail): Msg => ({ text: `결재를 요청하지 못했습니다. 요청 전에 내 대기 요청을 확인하지 못해 보내지 않았습니다. ${e.message} 다시 누르세요.` });
-
-/** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 장소 고치기는 운영 관리자에게 회색+이유(U6), 지도 올리기 단추는 총괄만. dash = 결재 요청 뒤 배지 다시 받기 */
+/** 지도 탭(03 §5.6): 왼쪽 장소 나무, 가운데 고른 층의 판 보기. 장소 고치기는 운영 관리자에게 회색+이유(U6). dash = 결재 대기로 받힌 뒤 배지 다시 받기 */
 export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
   const admin = c.user.role === 'ORG_ADMIN', t = useTree(c.cancel), places = floorsOf(t.tree);
   const [pick, setPick] = useState(() => kept.d?.floor ?? ''), cur = places.find((p) => p.floor.id === pick) ?? places[0];
@@ -294,7 +231,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 }
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림·정보·비교, 보기/편집 토글(승인 판이 있을 때)·한때 승인된 판 되돌리기, 총괄은 새 지도 올리기.
- *  운영 관리자의 편집 저장·되돌리기는 결재 요청 — 결과(PENDING 판)는 고르지 않고 승인 판을 그대로 보인다. asked = 결재 요청함(배지 다시 받기) */
+ *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. asked = 그때 배지 다시 받기 */
 function FloorView({ p, admin, names, cancel, again, asked: told }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; asked: () => void }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
@@ -328,10 +265,10 @@ function FloorView({ p, admin, names, cancel, again, asked: told }: { p: Place; 
       {!editing && !!list?.length && <label className="fh-row"><span className="lbl">판</span><select className="fh-user" aria-label="판" value={v?.id ?? ''} onChange={(e) => { setSel(e.target.value); setUndo(null); }}>
         {!v && <option value="">판 고르기</option>}{list.map((x) => <option key={x.id} value={x.id}>{verName(x, approved)}</option>)}</select></label>}
     </div>
-    {undo && !editing && <Rollback key={undo.v.id} v={undo.v} now={undo.now} cancel={cancel} close={() => setUndo(null)} reload={reload} request={!admin}
+    {undo && !editing && <Rollback key={undo.v.id} v={undo.v} now={undo.now} cancel={cancel} close={() => setUndo(null)} reload={reload}
       done={(x) => { setUndo(null); setCmp(false); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
         else { setSel(x.id); setDone({ text: `판 ${undo.v.number}의 지도로 새 승인 판(판 ${x.number})을 만들었습니다. 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />}
-    {editing ? <Editor v={editing} p={p} cancel={cancel} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id} request={!admin}
+    {editing ? <Editor v={editing} p={p} cancel={cancel} quit={() => setEditing(null)} recheck={reload} moved={!!back && editing === back && !!list && now?.id !== back.id}
         saved={(x) => { setEditing(null); if (x.status === 'PENDING') { setSel(''); setDone(asked(x)); told(); }
           else { setSel(x.id); setDone({ text: `새 판을 저장했습니다(판 ${x.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); } reload(); }} />
     : v ? <>
@@ -348,12 +285,11 @@ function FloorView({ p, admin, names, cancel, again, asked: told }: { p: Place; 
       {who && <Line k="만든 사람"><span>{who}</span></Line>}
       <Line k="만든 때"><span>{day(v.created_at)}</span></Line>
       <Line k="요소"><span>구역 {v.features.zones.length} · 지점 {v.features.waypoints.length} · 연결점 {v.features.connectors.length}</span></Line>
-    </> : list && <p className="lv-note">아직 지도가 없습니다. 아래에서 지도 파일을 올리세요.{admin ? '' : ' 올리면 결재 요청이 됩니다.'}</p>}
+    </> : list && <p className="lv-note">아직 지도가 없습니다. 아래에서 지도 파일을 올리세요.</p>}
     {err && <div className="fh-row"><p className="fh-msg" role="alert">{err}</p><button type="button" className="btn" onClick={() => setN(n + 1)}>다시 시도</button></div>}
     {!list && !err && <p className="lv-note" role="status">판 목록을 불러오는 중…</p>}
     {/* 승인 판이 있으면 그 판의 요소를 받은 뒤에만 올리기(못 받은 채 올리면 진입 금지·감속 구역이 빈 채로 새 승인 판이 된다) */}
-    {/* 운영 관리자도 올린다 — 저장 = 결재 요청(서버가 PENDING 판으로 받음, 판정은 서버). 결과는 고르지 않고 승인 판을 그대로 보인다 */}
-    {!editing && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list && (!approved || !!now)} cancel={cancel} request={!admin}
+    {!editing && <Upload floor={p.floor.id} base={approved} keep={now?.features ?? null} ready={!!list && (!approved || !!now)} cancel={cancel}
       saved={(x) => { if (x.status === 'PENDING') told(); else setSel(x.id); setN(n + 1); again(); }} again={() => { setN(n + 1); again(); }} />}
   </section>;
 }
@@ -376,9 +312,8 @@ function upFail(e: ApiFail, step: number) {
 }
 
 /** 새 지도 올리기(MP-02 의 파일 올리기): 그림 → 그 ID 로 yaml → 판 저장. 앞 단계가 실패하면 다음 단계를 보내지 않는다.
- *  base = 지금 승인 판(다르면 서버가 409 STALE). keep = 지금 판의 구역·지점·연결점(벽 고침 선은 옛 그림 것이라 빼고)
- *  request = 운영 관리자(저장 = 결재 요청 — 문구만 다르고 같은 요청, 편집 저장과 같다) */
-function Upload({ floor, base, keep, ready, cancel, saved, again, request }: { floor: string; base: string | null; keep: MapFeatures | null; ready: boolean; cancel?: AbortSignal; saved: (v: MapVersion) => void; again: () => void; request?: boolean }) {
+ *  base = 지금 승인 판(다르면 서버가 409 STALE). keep = 지금 판의 구역·지점·연결점(벽 고침 선은 옛 그림 것이라 빼고) */
+function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: string; base: string | null; keep: MapFeatures | null; ready: boolean; cancel?: AbortSignal; saved: (v: MapVersion) => void; again: () => void }) {
   const [img, setImg] = useState<File | null>(null), [yml, setYml] = useState<File | null>(null), [reason, setReason] = useState(''), [hold, setHold] = useState(true);
   const [step, setStep] = useState(''), [msg, setMsg] = useState<Msg>(null), [stale, setStale] = useState(false), [fresh, setFresh] = useState(0);   // fresh = 저장 뒤 파일 칸 비우기
   const go = async (e: FormEvent) => {
@@ -399,7 +334,7 @@ function Upload({ floor, base, keep, ready, cancel, saved, again, request }: { f
       const a = await api.upload(img, type, undefined, cancel).then(shape(isUpload));
       at = 1; setStep('지도 설정을 올리는 중…');
       const b = await api.upload(yml, 'text/yaml', a.upload_id, cancel).then(shape(isUpload));
-      at = 2; setStep(request ? '결재를 요청하는 중…' : '새 판으로 저장하는 중…');
+      at = 2; setStep('새 판으로 저장하는 중…');
       const features: MapFeatures = hold && keep ? { zones: keep.zones, waypoints: keep.waypoints, connectors: keep.connectors, edits: [] } : { zones: [], waypoints: [], connectors: [], edits: [] };
       const v = await api.saveVersion(floor, { base_version_id: base, image: b.upload_id, features, reason: reason.trim() }, cancel).then(shape(isVersion));   // 빈·어긋난 201 = 저장 불확실(status 0)
       setMsg(v.status === 'PENDING' ? asked(v) : { text: `새 판을 저장했습니다(판 ${v.number}). 다음 실행부터 이 판을 씁니다.`, ok: true }); setImg(null); setYml(null); setReason(''); setFresh(fresh + 1);
@@ -408,20 +343,19 @@ function Upload({ floor, base, keep, ready, cancel, saved, again, request }: { f
       const f = x as ApiFail;
       if (f.code === 'CANCELED') return;
       // 저장 요청을 보낸 뒤 답이 끊기면(헤더 전·본문 중·마감·깨진 본문) 저장됐을 수도 있다 — 목록을 다시 받아 보여 주고 같은 파일을 두 번 올리지 않게 알린다
-      if (at === 2 && f.status === 0) { setMsg({ text: request ? '결재 요청 응답을 받지 못했습니다. 요청됐을 수 있어 판 목록을 다시 받습니다. «결재 대기» 판이 보이면 다시 올리지 마세요.' : '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 올리지 마세요.' }); again(); return; }
-      setMsg({ text: `${request && at === 2 ? '결재를 요청하지 못했습니다.' : '올리지 못했습니다.'} ${upFail(f, at)}` }); setStale(f.code === 'STALE' || f.status === 404);
+      if (at === 2 && f.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 올리지 마세요.' }); again(); return; }
+      setMsg({ text: `올리지 못했습니다. ${upFail(f, at)}` }); setStale(f.code === 'STALE' || f.status === 404);
     } finally { setStep(''); }
   };
   return <form className="fh-form" onSubmit={go} noValidate aria-label="새 지도 올리기" key={fresh}>
     <h2>새 지도 올리기</h2>
-    {request && <p className="lv-note">올리면 새 판이 결재 요청이 됩니다. 총괄이 승인하기 전에는 지금 승인 판을 그대로 씁니다.</p>}
     <label className="fh-field"><span>지도 그림(pgm·png)</span><input type="file" className="inp" accept=".pgm,.png" onChange={(e) => setImg(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>지도 설정(yaml)</span><input type="file" className="inp" accept=".yaml,.yml" onChange={(e) => setYml(e.target.files?.[0] ?? null)} /></label>
     <label className="fh-field"><span>바꾼 이유</span><input className="inp" maxLength={2000} value={reason} onChange={(e) => setReason(e.target.value)} /></label>
     {keep && <label className="fh-row"><input type="checkbox" checked={hold} onChange={(e) => setHold(e.target.checked)} /><span>지금 판의 구역·지점·연결점 그대로 두기</span></label>}
     {keep && !hold && <p className="fh-msg" role="alert">끄면 진입 금지·감속 구역, 지점, 연결점이 모두 빠진 새 판이 됩니다.</p>}
     {!ready && !step && <p className="lv-note" role="status">지금 승인 판의 구역·지점·연결점을 받은 뒤에 올릴 수 있습니다.</p>}
-    <div className="fh-row"><button type="submit" className="btn pri" disabled={!!step || !ready}>{request ? '올리고 결재 요청' : '올리기'}</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(null); again(); }}>새로 불러오기</button>}</div>
+    <div className="fh-row"><button type="submit" className="btn pri" disabled={!!step || !ready}>올리기</button>{stale && <button type="button" className="btn" onClick={() => { setStale(false); setMsg(null); again(); }}>새로 불러오기</button>}</div>
     {step && <p className="lv-note" role="status">{step}</p>}
     <Note m={msg} />
   </form>;
