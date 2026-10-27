@@ -1,10 +1,11 @@
-"""S4a actual uvicorn/HTTP: operator request, admin decide, durable inbox."""
+"""Legacy requests over actual uvicorn/HTTP: admin decisions, durable inbox."""
 import httpx
-from .test_maps import P, PGM, YAML, FEATURES
+from .test_maps import P, PGM, YAML
 from .ws_process import server_process
+from .legacy_approvals import pending_map
 
 
-def test_operator_save_admin_list_approve_tree_reject_operator_notification(seeded, tmp_path, monkeypatch):
+def test_legacy_pending_admin_list_approve_tree_reject_operator_notification(seeded, tmp_path, monkeypatch):
     monkeypatch.setenv('FH_FILES_ROOT', str(tmp_path / 'files'))
     with server_process(seeded, tmp_path) as server:
         base = server['base'].replace('ws://', 'http://') + P
@@ -20,13 +21,8 @@ def test_operator_save_admin_list_approve_tree_reject_operator_notification(seed
             image = http.post('/uploads', headers={**operator, 'content-type': 'image/x-portable-graymap'}, content=PGM).json()['upload_id']
             image = http.post('/uploads', params={'image': image}, headers={**operator, 'content-type': 'text/yaml'}, content=YAML).json()['upload_id']
             def request(base):
-                response = http.post(f'/floors/{floor}/map-versions', headers=operator, json={
-                    'base_version_id': base, 'image': image, 'features': FEATURES, 'reason': '합성 지도 결재'})
-                assert response.status_code == 201 and response.json()['status'] == 'PENDING', response.text
-                version = response.json()
-                rows = http.get('/approvals?status=PENDING', headers=admin).json()['items']
-                row = next(row for row in rows if row['target']['id'] == version['id'])
-                return version, row
+                with httpx.Client(base_url=server['base'].replace('ws://', 'http://'), timeout=10) as legacy:
+                    return pending_map(legacy, operator, floor, image, base, database_url=seeded['urls']['migrate'])
             version, row = request(None)
             response = http.post(f'/approvals/{row["id"]}/approve', headers=admin, json={})
             assert response.status_code == 200 and response.json()['status'] == 'APPROVED', response.text

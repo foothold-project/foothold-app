@@ -15,7 +15,6 @@ from sqlalchemy import delete, func, select
 from apps.contracts import models as C
 from .map_files import MAX_IMAGE, MAX_YAML, image_bytes, map_yaml, sha256, yaml_bytes
 from . import idempotency
-from .approvals import request_map
 from .models import Approval, Building, Floor, FloorConnector, MapVersion, Robot, Site, Upload
 
 
@@ -241,7 +240,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     @app.post('/api/v1/sites', response_model=C.MapSite, status_code=201)
     def site_create(body: C.MapName, auth: Identity, db: DB):
         user = auth[0]
-        authorize(user, 'A')
+        authorize(user, 'O')
         row = Site(org_id=user.org_id, name=body.name)
         db.add(row)
         db.flush()
@@ -252,7 +251,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     def building_create(site_id: UUID, body: C.MapName, auth: Identity, db: DB):
         user = auth[0]
         own(db, Site, site_id, user)
-        authorize(user, 'A')
+        authorize(user, 'O')
         row = Building(org_id=user.org_id, site_id=site_id, name=body.name)
         db.add(row)
         db.flush()
@@ -263,7 +262,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     def floor_create(building_id: UUID, body: C.FloorCreate, auth: Identity, db: DB):
         user = auth[0]
         building = own(db, Building, building_id, user)
-        authorize(user, 'A')
+        authorize(user, 'O')
         row = Floor(provenance='SIMULATION' if building.sim_world_id else 'HUMAN', org_id=user.org_id, building_id=building_id, name=body.name, level=body.level)
         db.add(row)
         db.flush()
@@ -274,7 +273,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         def patch(identifier: UUID, body: patch_model, auth: Identity, db: DB):
             user = auth[0]
             row = own(db, model, identifier, user)
-            authorize(user, 'A')
+            authorize(user, 'O')
             for key, value in body.model_dump(exclude_unset=True).items():
                 if value is None:
                     fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
@@ -285,7 +284,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         def remove(identifier: UUID, auth: Identity, db: DB):
             user = auth[0]
             row = own(db, model, identifier, user)
-            authorize(user, 'A')
+            authorize(user, 'O')
             if model is Site:
                 used = db.scalar(select(Building.id).where(Building.site_id == row.id).limit(1))
             elif model is Building:
@@ -397,7 +396,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         base_provenance = db.scalar(select(MapVersion.provenance).where(MapVersion.id == body.base_version_id)) if body.base_version_id else None
         row = MapVersion(provenance='SIMULATION' if 'SIMULATION' in (floor.provenance, upload.provenance, base_provenance) else 'HUMAN',
             org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
-            status='APPROVED' if user.role == 'ORG_ADMIN' else 'PENDING', upload_id=upload.id, image_path=str(relative), image_sha256=upload.png_sha256,
+            status='APPROVED', upload_id=upload.id, image_path=str(relative), image_sha256=upload.png_sha256,
             width=upload.width, height=upload.height, resolution=metadata['resolution'], origin_x=origin[0],
             origin_y=origin[1], origin_yaw=origin[2], features=body.features.model_dump(mode='json', exclude_none=True), reason=body.reason,
             source='IMPORT' if body.base_version_id is None else 'EDIT', created_by=user.id)
@@ -415,13 +414,10 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                     output.write(content)
             db.add(row)
             db.flush()
-            if user.role == 'ORG_ADMIN':
-                floor.approved_version_id = row.id
-                db.flush()
-                refresh_connectors(db, floor)
-                record(db, user, 'MAP_VERSION_APPROVED', row)
-            else:
-                request_map(db, user, row)
+            floor.approved_version_id = row.id
+            db.flush()
+            refresh_connectors(db, floor)
+            record(db, user, 'MAP_VERSION_APPROVED', row)
             result = idempotency.finish(receipt, version_object(row, floor))
             db.commit()
             return result
@@ -481,7 +477,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         number = (db.scalar(select(func.max(MapVersion.number)).where(MapVersion.floor_id == floor.id)) or 0) + 1
         row = MapVersion(provenance='SIMULATION' if 'SIMULATION' in (floor.provenance, original.provenance) else 'HUMAN',
             org_id=user.org_id, floor_id=floor.id, number=number, base_version_id=body.base_version_id,
-            copied_from_id=original.id, status='APPROVED' if user.role == 'ORG_ADMIN' else 'PENDING', upload_id=original.upload_id,
+            copied_from_id=original.id, status='APPROVED', upload_id=original.upload_id,
             image_path=original.image_path, image_sha256=original.image_sha256, width=original.width, height=original.height,
             resolution=original.resolution, origin_x=original.origin_x, origin_y=original.origin_y, origin_yaw=original.origin_yaw,
             features=copy.deepcopy(original.features), reason=body.reason, source='ROLLBACK', created_by=user.id)
@@ -494,14 +490,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
             fail(503, 'FILE_STORAGE_ERROR', '지도 파일을 읽거나 저장할 수 없습니다.')
         db.add(row)
         db.flush()
-        if user.role == 'ORG_ADMIN':
-            floor.approved_version_id = row.id
-            db.flush()
-            refresh_connectors(db, floor)
-            record(db, user, 'MAP_VERSION_ROLLED_BACK', row, copied_from_id=str(original.id),
-                base_version_id=str(body.base_version_id), copied_from_number=original.number, reason=body.reason)
-        else:
-            request_map(db, user, row)
+        floor.approved_version_id = row.id
+        db.flush()
+        refresh_connectors(db, floor)
+        record(db, user, 'MAP_VERSION_ROLLED_BACK', row, copied_from_id=str(original.id),
+            base_version_id=str(body.base_version_id), copied_from_number=original.number, reason=body.reason)
         return idempotency.finish(receipt, version_object(row, floor))
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)

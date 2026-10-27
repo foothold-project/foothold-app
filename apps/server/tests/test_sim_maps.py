@@ -155,13 +155,15 @@ def test_simulation_target_enforced_for_admin_operator_and_approval(maps, seeded
     engine = create_engine(seeded['urls']['migrate'])
     with engine.begin() as conn:
         conn.execute(text('UPDATE robots SET simulation=true WHERE id=:id'), {'id': seeded['robots']['mine']})
-    pending = http.post(P + '/assignments', headers=auth(http, 'one'), json=body)
-    assert pending.status_code == 201, pending.text
-    assert pending.json()['status'] == 'PENDING'
-    approved = http.post(P + '/approvals/' + pending.json()['approval_id'] + '/approve', headers=admin, json={})
-    assert approved.status_code == 200 and approved.json()['status'] == 'APPROVED'
-    assert http.delete(P + '/assignments/' + pending.json()['id'], headers=admin).status_code == 204
-    pending = http.post(P + '/assignments', headers=auth(http, 'one'), json=body).json()
+    from .legacy_approvals import pending_assignment
+    one = auth(http, 'one')
+    direct = http.post(P + '/assignments', headers=one, json=body)
+    assert direct.status_code == 201, direct.text
+    assert direct.json()['status'] == 'ACTIVE' and direct.json()['approval_id'] is None
+    assert http.get(P + '/approvals', headers=admin).json()['items'] == []
+    assert http.delete(P + '/assignments/' + direct.json()['id'], headers=admin).status_code == 204
+    # Existing requests must still revalidate provenance during a decision.
+    pending = pending_assignment(http, one, scenario, seeded['robots']['mine'])
     with engine.begin() as conn:
         conn.execute(text('UPDATE robots SET simulation=false WHERE id=:id'), {'id': seeded['robots']['mine']})
     stale = http.post(P + '/approvals/' + pending['approval_id'] + '/approve', headers=admin, json={})

@@ -79,14 +79,10 @@ def install(app, DB, Identity, fail, page):
                 Assignment.status.in_(['ACTIVE', 'PENDING']))) is not None:
             fail(409, 'ASSIGNMENT_EXISTS', '이미 배정되었거나 결재를 기다리는 시나리오 판입니다.')
         row = Assignment(org_id=user.org_id, scenario_version_id=version.id, robot_id=body.robot_id,
-            status='ACTIVE' if user.role == 'ORG_ADMIN' else 'PENDING', memo=body.memo, created_by=user.id)
+            status='ACTIVE', memo=body.memo, created_by=user.id)
         db.add(row)
         db.flush()
-        if row.status == 'PENDING':
-            request = approvals.request_assignment(db, user, row)
-            row.approval_id = request.id
-        else:
-            record(db, user, row, 'ASSIGNMENT_CREATED')
+        record(db, user, row, 'ASSIGNMENT_CREATED')
         db.flush()
         return idempotency.finish(receipt, assignment_objects(db, [row])[0])
 

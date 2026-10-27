@@ -16,10 +16,7 @@ def test_approval_revalidates_deleted_connector_pair_and_preserves_pending(maps)
     assert pair.status_code == 201
     pair = pair.json()['id']
     features = {**FEATURES, 'connectors': [{'id': 'pair', 'kind': 'STAIRS', 'pair_floor_id': pair, 'x': 1, 'y': 1, 'yaw': 0}]}
-    pending = save(http, operator, floor, image, base=first['id'], features=features)
-    assert pending.status_code == 201
-    pending = pending.json()
-    row = http.get(P + '/approvals', headers=operator).json()['items'][0]
+    pending, row = request(http, operator, floor, image, first['id'], features=features)
     assert http.delete(P + f'/floors/{pair}', headers=admin).status_code == 204
     before = current(http, admin)
     events = http.get(P + '/events?category=APPROVAL', headers=admin).json()
@@ -94,10 +91,7 @@ def test_list_batches_users_once_and_detail_preview_for_both_map_kinds(maps):
     second = save(http, admin, floor, image, base=first['id']).json()
     for _ in range(5):
         request(http, operator, floor, image, second['id'])
-    response = http.post(P + f'/map-versions/{first["id"]}/rollback', headers=operator,
-        json={'base_version_id': second['id'], 'reason': '이전 판 요청'})
-    assert response.status_code == 201
-    row = http.get(P + '/approvals', headers=operator).json()['items'][0]
+    _, row = request(http, operator, floor, image, second['id'], copied_from=first['id'])
     assert http.post(P + f'/approvals/{row["id"]}/approve', headers=admin).status_code == 200
     statements = []
     def queried(conn, cursor, statement, *args):

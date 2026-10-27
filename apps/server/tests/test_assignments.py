@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from apps.server.fh_server import api
 from apps.server.fh_server.models import Approval, Assignment, Event, Notification, Robot, Scenario, ScenarioVersion
 from .test_maps import P, auth, maps, tree, upload, save
+from .legacy_approvals import pending_assignment
 
 
 def scenario(http, admin):
@@ -47,9 +48,7 @@ def test_direct_pending_preview_decisions_notifications_and_history(maps, seeded
     assert direct.status_code == 201, direct.text
     direct = direct.json()
     assert direct['status'] == 'ACTIVE' and direct['approval_id'] is None and direct['removed_at'] is None
-    pending = assignment(http, one, value, seeded['robots']['mine'])
-    assert pending.status_code == 201, pending.text
-    pending = pending.json()
+    pending = pending_assignment(http, one, value, seeded['robots']['mine'])
     assert pending['status'] == 'PENDING' and pending['approval_id']
     assert len(listing(http, two)) == 2  # organization-wide read for operators
     assert listing(http, one, robot_id=str(seeded['robots']['mine']), status='PENDING') == [pending]
@@ -117,10 +116,9 @@ def test_boundaries_duplicate_multiple_scenarios_archive_and_memo(maps, seeded):
     assert assignment(http, admin, value, seeded['robots']['theirs']).status_code == 422
     assert http.delete(P + '/assignments/' + row['id'], headers=admin).status_code == 204
     assert listing(http, admin, status='REMOVED')[0]['id'] == row['id']
-    approval = http.get(P + '/approvals/' + row['approval_id'], headers=admin).json()
-    assert approval['status'] == 'CANCELED' and approval['decider']['id'] == str(seeded['users']['admin'])
-    assert http.post(P + '/approvals/' + row['approval_id'] + '/approve', headers=admin).status_code == 409
-    assert http.get(P + '/notifications', headers=one).json()['items'][0]['kind'] == 'APPROVAL_DECIDED'
+    assert row['approval_id'] is None
+    assert http.get(P + '/approvals', headers=admin).json()['items'] == []
+    assert http.get(P + '/notifications', headers=one).json()['items'] == []
 
 
 @pytest.mark.parametrize('action,expected', [('reject', 'REJECTED'), ('cancel', 'REMOVED')])
@@ -128,7 +126,7 @@ def test_reject_cancel_reassign(maps, seeded, action, expected):
     http, admin, _ = maps
     one = auth(http, 'one')
     value, _, _, _ = scenario(http, admin)
-    row = assignment(http, one, value, seeded['robots']['mine']).json()
+    row = pending_assignment(http, one, value, seeded['robots']['mine'])
     response = http.post(P + '/approvals/' + row['approval_id'] + '/' + action,
         headers=one if action == 'cancel' else admin, json={'reason': '내용 수정'} if action == 'reject' else {})
     assert response.status_code == 200, response.text
@@ -143,7 +141,7 @@ def test_stale_four_causes_commits_terminal_decision(maps, seeded, change):
     http, admin, _ = maps
     one = auth(http, 'one')
     value, floor, image, old = scenario(http, admin)
-    row = assignment(http, one, value, seeded['robots']['mine']).json()
+    row = pending_assignment(http, one, value, seeded['robots']['mine'])
     if change == 'archive':
         http.delete(P + '/scenarios/' + value['id'], headers=admin)
     elif change == 'owner':
@@ -173,7 +171,7 @@ def test_remove_approve_race_holds_approval_then_assignment(maps, seeded, monkey
     http, admin, _ = maps
     one = auth(http, 'one')
     value, _, _, _ = scenario(http, admin)
-    row = assignment(http, one, value, seeded['robots']['mine']).json()
+    row = pending_assignment(http, one, value, seeded['robots']['mine'])
     monkeypatch.setattr(api, 'lock_organization', lambda *args: None)
     reached, robot_seen = Signal(), Signal()
     def queried(conn, cursor, statement, *args):
@@ -237,7 +235,7 @@ def test_approval_checks_hold_shared_locks(maps, seeded, monkeypatch, resource):
     http, admin, _ = maps
     one = auth(http, 'one')
     value, floor, _, _ = scenario(http, admin)
-    row = assignment(http, one, value, seeded['robots']['mine']).json()
+    row = pending_assignment(http, one, value, seeded['robots']['mine'])
     monkeypatch.setattr(api, 'lock_organization', lambda *args: None)
     reached = Signal()
     def queried(conn, cursor, statement, *args):
@@ -340,7 +338,7 @@ def test_concurrent_duplicate_without_key_uses_partial_unique(maps, seeded, monk
     finally:
         sql_event.remove(http.app.state.engine, 'after_cursor_execute', queried)
     assert len(listing(http, one)) == 1
-    assert http.get(P + '/dashboard', headers=admin).json()['approvals_pending'] == 1
+    assert http.get(P + '/dashboard', headers=admin).json()['approvals_pending'] == 0
 
 
 def test_populated_assignment_approval_downgrade_refuses_without_losing_history(maps, seeded, monkeypatch):
@@ -349,7 +347,7 @@ def test_populated_assignment_approval_downgrade_refuses_without_losing_history(
     from .conftest import CONFIG
     http, admin, _ = maps
     value, _, _, _ = scenario(http, admin)
-    row = assignment(http, auth(http, 'one'), value, seeded['robots']['mine']).json()
+    row = pending_assignment(http, auth(http, 'one'), value, seeded['robots']['mine'])
     monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', seeded['urls']['migrate'])
     with pytest.raises(DBAPIError, match='assignment approval history requires backup'):
         command.downgrade(Config(str(CONFIG)), '0014')
@@ -363,7 +361,7 @@ def test_populated_assignment_approval_downgrade_refuses_without_losing_history(
         engine.dispose()
 
 
-@pytest.mark.parametrize('creator', ['admin', 'one'], ids=['ACTIVE', 'PENDING'])
+@pytest.mark.parametrize('creator', ['admin', 'one', 'legacy'], ids=['admin-active', 'operator-active', 'legacy-pending'])
 @pytest.mark.parametrize('remover', ['admin', 'one'], ids=['admin', 'owner'])
 def test_remove_assignment_after_robot_archived(maps, seeded, creator, remover):
     http, admin, _ = maps
@@ -371,10 +369,13 @@ def test_remove_assignment_after_robot_archived(maps, seeded, creator, remover):
     headers = {'admin': admin, 'one': one}
     value, _, _, _ = scenario(http, admin)
     robot = str(seeded['robots']['mine'])
-    created = assignment(http, headers[creator], value, robot)
-    assert created.status_code == 201, created.text
-    row = created.json()
-    assert row['status'] == ('ACTIVE' if creator == 'admin' else 'PENDING')
+    if creator == 'legacy':
+        row = pending_assignment(http, one, value, seeded['robots']['mine'])
+    else:
+        created = assignment(http, headers[creator], value, robot)
+        assert created.status_code == 201, created.text
+        row = created.json()
+    assert row['status'] == ('PENDING' if creator == 'legacy' else 'ACTIVE')
     assert http.delete(P + '/robots/' + robot, headers=admin).status_code == 204
     path = P + '/assignments/' + row['id']
     assert http.delete(path, headers=other).status_code == 403
