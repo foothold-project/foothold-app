@@ -56,6 +56,27 @@ public class RemoteClientTest {
         assertFalse(RemoteClient.allowed("https://localhost.evil.org/", l));
     }
 
+    @Test
+    public void sim() {   // /sim/ 에서는 고른 서버를 비우지 않음(시뮬 «집» = 뒤로 서버 화면) — 앱 출처의 /sim/ 아래만
+        String l = RemoteClient.origin("https://localhost");
+        assertTrue(RemoteClient.isSim("https://localhost/sim/index.html?from=server", l));
+        assertTrue(RemoteClient.isSim("https://localhost/sim/", l));
+        assertFalse(RemoteClient.isSim("https://localhost/", l));
+        assertFalse(RemoteClient.isSim("https://localhost/?e=net", l));
+        assertFalse(RemoteClient.isSim("https://localhost/index.html?x=/sim/", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/../index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/%2e%2e/index.html", l));   // PR #145 Codex: 인코딩 상위 경로
+        assertFalse(RemoteClient.isSim("https://localhost/sim/%2E%2E/index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/..%2findex.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/.%2e/index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/%2fx", l));
+        assertFalse(RemoteClient.isSim("https://localhost/simx/index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost:8443/sim/index.html", l));
+        assertFalse(RemoteClient.isSim("http://localhost/sim/index.html", l));
+        assertFalse(RemoteClient.isSim("https://gate.example.org/sim/index.html", l));
+        assertFalse(RemoteClient.isSim("https://localhost/sim/index.html", null));
+    }
+
     /** @capacitor 의 JS → 네이티브 통로 이름이 모두 RemoteClient.JS_OBJECTS 로 떼어지는지(판 올림으로 새 통로가 생기면 실패) */
     @Test
     public void jsBridgesAllRemoved() throws Exception {

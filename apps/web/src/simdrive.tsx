@@ -6,7 +6,7 @@ import { useOrbit, viewBlock } from './extview';
 import { DEAD, RUN_END, allowed, runMoving, sim, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
-import { Chip } from './screens';
+import { Chip, inApp } from './screens';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 
@@ -64,8 +64,12 @@ export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
 /** 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) 안내. 해제 판정은 에이전트 몫이라 단추 동작은 그대로 */
 export const STALLED = '출력이 늦어져 로봇을 멈췄습니다 — 다시 잠금 해제하면 이어집니다.';
 
-/** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중. view = PC «시뮬» 탭(조종 없이 보기만 — 단추 이름만 다름) */
+/** 앱 번들 시뮬(three.js + MuJoCo, mobile/sim) — 앱 시작 화면과 같은 출처. from=server 면 시뮬 «집» 단추가 뒤로(이 화면)로 돌아온다 */
+export const SIM_APP = 'https://localhost/sim/index.html?from=server';
+/** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중. view = PC «시뮬» 탭(조종 없이 보기만 — 단추 이름만 다름).
+ *  폰 앱 안(inApp, 10-27 사용자): Gazebo 띄우기 대신 «시뮬 열기»(앱 번들 시뮬) — 이미 떠 있는 내 Gazebo 시뮬 로봇·정리 칸은 그대로 */
 export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
+  const app = !view && inApp(), title = app ? '시뮬(앱 안)' : '시뮬 로봇 띄우기';
   const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
   useDeadline(!!s.robot?.expires_at);
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
@@ -101,6 +105,8 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
     {s.mine.length > 0 && <ul className="dv-cards" aria-label="내 시뮬 로봇">{s.mine.map((r) => <li key={r.robot_id} className="card dv-card">
       <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span></div>
       <div className="fh-row">{r !== resume && <button type="button" className="btn pri" onClick={() => sim.attach(r)}>{view ? '보기' : '직접 연결'}</button>}<button type="button" className="btn" onClick={() => sim.end(r)}>{r.state === 'ERROR' ? '정리' : '끝내기'}</button></div></li>)}</ul>}
+    {app ? <><a className="btn pri" href={SIM_APP} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
+      <p className="lv-note">폰 안에서 도는 창고 시뮬, 서버 필요 없음</p></> : <>
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />
@@ -110,9 +116,9 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
       <div className="fh-row">{spawns.map((f) => <label key={f} className="fh-row dv-spawn">
         <input type="radio" name="sim-spawn" value={f} checked={f === from} onChange={() => setSpawn(f)} /><span>{floorName(f)}</span></label>)}</div></fieldset>}
     <button type="button" className="btn pri" disabled={!world || s.mine.length > 0 || cleanup.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me, from)}>띄우기</button>
-    {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>;
-  return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="시뮬 로봇 띄우기">
-    <h2>시뮬 로봇 띄우기</h2>
+    {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>}</>;
+  return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label={title}>
+    <h2>{title}</h2>
     {body}
     {s.step !== 'unsure' && s.step !== 'checking' && msg}
     {stop && <p className="fh-why" role="status" data-sim-stop>{stop}</p>}
