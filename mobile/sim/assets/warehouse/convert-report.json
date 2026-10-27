@@ -1,0 +1,27 @@
+{
+ "models": 25,
+ "collision_geoms": 498,
+ "nonconvex_components": [
+  "ShelfF_01_collision_c0(60점 → 상자 9)",
+  "WallB_01_collision_c0(32점 → 상자 4)",
+  "TrashCanC_01_collision_c0(72점 → 상자 19)",
+  "PalletJackB_01_collision_c4(84점 → 상자 54)",
+  "PalletJackB_01_collision_c11(76점 → 상자 342)",
+  "PalletJackB_01_collision_c12(12점 → 상자 12)"
+ ],
+ "skipped_flat": [],
+ "unsupported": {
+  "world/plugin[gz::sim::systems::Physics]": 1,
+  "world/plugin[gz::sim::systems::UserCommands]": 1,
+  "world/plugin[gz::sim::systems::SceneBroadcaster]": 1,
+  "world/plugin[gz::sim::systems::Sensors]": 1,
+  "world/plugin[gz::sim::systems::Imu]": 1,
+  "world/physics": 1,
+  "world/light[Warehouse_CeilingLight_003]": 1,
+  "visual/material/ambient": 25
+ },
+ "gravity_sdf": "0 0 -9.8",
+ "visual_meshes": 12,
+ "visual_tris": 8445,
+ "mj_meshes": 27
+}

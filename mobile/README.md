@@ -1,5 +1,19 @@
 # mobile — Android 껍데기 (Capacitor 8)
 
+## 1.2.0-dev — 앱 안 오프라인 시뮬 (2026-10-27)
+
+1.1.0-dev(아래) 그대로 + 시작 화면 오른쪽 위 **시뮬 아이콘**(글자 없음) → 앱 안 번들 `sim/index.html`(RS-6 창고 브라우저 시뮬을 옮김). 서버·인터넷 없이 열린다. 서버 주소 입력 흐름·Gazebo 기능(서버 화면)은 그대로.
+
+| 항목 | 내용 |
+|---|---|
+| 앱 id · 버전 | `org.footholdproject.app.dev` · versionCode 17 · `1.2.0-dev`(같은 debug 키, 1.1.0-dev 위에 덮어 설치) |
+| 시뮬 | MuJoCo wasm(창고 충돌체 + Go2) · three.js · 정책 가중치 foothold-v2 파생(앞으로 걷기·회전만 학습) · 라이다 360줄. `sim.js`·`lidar.js`·`assets/warehouse/*` 는 RS-6 복사본(AWS 창고 MIT-0, LICENSE·NOTICE 동봉) |
+| 화면 | 보이는 글자 0(아이콘·모양·색만). STOP = 오른쪽 위 빨간 팔각형(맨 위 층) — 누르면 명령 0 잠금, 막대를 만져도 안 풀리고 ▶(다시 시작)만 푼다. 처음 열 때도 잠김. 앱 숨김(`visibilitychange`)·`pagehide`·`freeze`·`blur` = 잠금. 왼쪽 막대 앞뒤·옆, 오른쪽 막대 회전, 학습 범위 밖 명령은 왼쪽 막대 테두리 주황. 막대 밖 한 손가락 = 카메라 돌리기, 두 손가락 = 확대·축소. 아이콘: 집(시작 화면) · 겹층(위에서 보기 ↔ 따라가기) · 둥근 화살표(다시 세우기, 넘어지면 빨갛게 깜빡임) |
+| 출처·허용 | 시뮬은 시작 화면과 같은 앱 origin(`https://localhost/sim/`) — `RemoteClient` 허용 규칙 변경 없음. 시뮬 화면 CSP 는 `connect-src 'self'`(앱 번들만) + `wasm-unsafe-eval`·`unsafe-eval`(mujoco.js embind). 시뮬 화면도 `html[data-drive]` 라 가로 고정 |
+| 커밋 안 하는 것 | 정책 `policy_v2.f32` · MuJoCo `mujoco.js`·`mujoco.wasm` · three · Go2 메시. 빌드 때 `FH_SIM_SRC=<RS-6 시뮬 폴더>`(그 안에 `policy_v2.f32`·`vendor/`·`node_modules/@mujoco/mujoco/`·`assets/unitree_go2/`)에서 `www/sim` 으로 복사, 없으면 `sync-web` 이 멈춘다 |
+
+빌드: 1.1.0 명령에 `FH_SIM_SRC=<RS-6 시뮬 폴더>` 만 더한다 — `FH_SIM_SRC=… npm run apk:dev`.
+
 ## 1.1.0-dev — 원격 주소 방식 (2026-10-26)
 
 앱 안에는 **서버 주소 입력 한 장**(`start/`)만 들어 있다. 주소(https origin, `start/origin.js` = 옛 `gateOrigin` 규칙)를 넣으면 같은 WebView 가 그 서버의 새 웹 화면(`apps/web`, `#/drive`)을 연다. 화면 출처 = 서버 출처라 쿠키·CSRF·WS Origin 이 브라우저와 같다(서버 변경 0). 서버 주소는 매번 넣는다(최근 주소 5개만 기억, 자동으로 열지 않음).
