@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Shared only by trusted, root-owned deployment scripts.
+FH_DEPLOY_TOOLS_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 valid_sha() { [[ ${1:-} =~ ^[0-9a-f]{40}$ ]]; }
 valid_site() { [[ ${1:-} =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && $1 == *.* && $1 != *..* ]]; }
 needs_rollback() { (( $1 != 0 && $2 == 1 )); }
@@ -77,9 +78,9 @@ take_sim_deploy_guard() {
 # Runs under the held exclusive guard; idle admission is fenced until completion.
 sim_manager_stop() {
     [[ -d /var/lib/foothold-sim/guard ]] || return 0
-    python3 "$(dirname -- "${BASH_SOURCE[0]}")/sim_control.py" stop
+    python3 "$FH_DEPLOY_TOOLS_DIR/sim_control.py" stop
 }
 sim_manager_start() {
     [[ -d /var/lib/foothold-sim/guard ]] || return 0
-    python3 "$(dirname -- "${BASH_SOURCE[0]}")/sim_control.py" start
+    python3 "$FH_DEPLOY_TOOLS_DIR/sim_control.py" start
 }
