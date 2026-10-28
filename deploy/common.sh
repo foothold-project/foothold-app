@@ -77,10 +77,12 @@ take_sim_deploy_guard() {
 
 # Runs under the held exclusive guard; idle admission is fenced until completion.
 sim_manager_stop() {
-    [[ -d /var/lib/foothold-sim/guard ]] || return 0
+    local guard=${1:-/var/lib/foothold-sim/guard}
+    [[ -d $guard ]] || return 0
     python3 "$FH_DEPLOY_TOOLS_DIR/sim_control.py" stop
 }
 sim_manager_start() {
-    [[ -d /var/lib/foothold-sim/guard ]] || return 0
+    local guard=${1:-/var/lib/foothold-sim/guard}
+    [[ -d $guard ]] || return 0
     python3 "$FH_DEPLOY_TOOLS_DIR/sim_control.py" start
 }
