@@ -266,6 +266,8 @@ if __name__ == '__main__':
     try:
         if os.geteuid() != 0 or len(sys.argv) != 3 or sys.argv[1] not in ('--check', '--install'):
             raise ValueError('usage: server root install_sim_packages.py --check|--install private-lock.json')
+        if sys.argv[1] == '--install':
+            raise ValueError('system apt installation disabled; use reviewed private sysroot workflow')
         ensure_no_install_latch()
         os.umask(0o077)
         JOURNAL = Path(tempfile.mkdtemp(prefix='foothold-sim-packages-', dir='/root'))

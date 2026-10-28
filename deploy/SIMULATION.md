@@ -1,143 +1,139 @@
-# Development-server simulation deployment fence
+# Development-server simulation and immutable private sysroot
 
-The API and simulation manager use the same release. A dev merge remains eligible
-for automatic deployment within the timer interval when there is no simulation
-session and no unproven cleanup. The manager acquires a shared flock and durable
-`state/unproven` latch before creating a world. Only the existing full cleanup
-proof removes the latch. A crash or unproven cleanup blocks deployment and next
-start pending manual evidence audit. Never remove the latch to pass a test.
-A proven pre-creation world/resource rejection clears its lease; it created no
-session. An idle manager holds no session lease and does not block deployment.
+API and manager code use the same release. Session creation acquires a shared
+flock plus durable runtime latch; only existing full cleanup proof releases it.
+Idle deployment takes the exclusive flock, stops the idle manager, switches the
+API release, starts the same-release manager and checks readiness. Busy or
+unproven sessions skip without poisoning the candidate SHA. A failed transition
+restores the prior idle API/manager pair under that same fence. No session is
+automatically started or retried. Existing STOP/zero/ownership proofs remain.
 
-Automatic/manual deploy and rollback hold the exclusive flock from candidate
-admission through build, activation, manager readiness, API smoke and recovery.
-This blocks concurrent session creation, including during manager restart.
-After preparing the candidate they stop the idle manager, prove its unit/PID/
-cgroup exit, switch the release and start a new manager using the same `current`
-path as the API. They verify native-single readiness and the new manager's real
-working directory. A failed transition stops the candidate manager and restores
-the prior API/manager pair under the same fence; failed SHA recording retains the
-existing autodeploy rules. A busy session/latch is a skip, never a failed SHA.
-There is no human SHA-pin step and no simulator session is automatically started.
+## Install boundary
 
-Before provisioning simulation, install reviewed `common.sh`, `autodeploy.sh`,
-`deploy.sh`, `rollback.sh`, `prepare-release.sh`, and `sim_control.py` into existing
-root-owned deploy-tools while holding the existing deployment lock. Atomically
-replace files, common.sh first; merging a PR does not update installed tools.
-Keep the automatic deployment timer enabled. Provision
-`/var/lib/foothold-sim/guard` root-owned 0755, `deploy.lock` root:foothold-sim 0660,
-and `state` foothold-sim:foothold-sim 0700. Never replace the lock inode in use.
-Install `foothold-simmgr.service` into the dedicated user's manager. Its fixed
-`FH_SIM_DEPLOY_GUARD_DIR` overrides private env, and `Restart=no` prevents retries.
-The private `/etc/foothold-sim/manager.env` and catalogue are root:foothold-sim 0640;
-its referenced service credential is an independent foothold-sim-owned 0600 file.
+**System apt installation is disabled.** The former
+`install_sim_packages.py --install` command refuses before any action. Existing
+untracked NVIDIA/GL files must not be replaced or adopted by dpkg. Simulation
+packages use only the private sysroot workflow below. No dpkg registration,
+maintainer scripts, system ldconfig, driver install, reboot, or payload writes to
+/usr, /etc or /opt/ros are allowed. Separately reviewed identity/helper/unit
+management remains a distinct operation; it is not package payload extraction.
 
-The release includes apps/simmgr and apps/agent with tools/sim and tools/nav2.
-External source, model/policy, private maps and credentials are not archived.
-Offline checks cover actual temporary flock contention, lifecycle failure
-latches, bundle isolation and mocked manager transitions. Live installation,
-EGL, Gazebo/ROS, HTTPS, driving and live rollback are separate acceptance steps.
+The host's dpkg status is copied read-only into a private APT root. Existing
+packages are reused at their actual configured version. If resolution requires
+changing an existing version, stop. libc6/libc-bin/ld-linux, libstdc++6/libgcc-s1,
+Python3.12, systemd and OpenSSL families cannot be extracted. NVIDIA/kernel/
+DKMS/firmware/CUDA/DCGM/rpcbind and CUDA library families are also excluded;
+linux-libc-dev headers alone may appear as private development data. New locked
+Mesa/GLVND software-rendering dependencies are private files only.
 
-## Dedicated installation (server root, separate approval from Git merge)
+## Prepare and approve the package lock
 
-1. Record package and service baseline privately. Add the official ROS Noble
-   source and verified signing key, update apt lists only, and resolve a full
-   private JSON closure: `[{"name":"package","version":"exact-deb-version",
-   "sha256":"64-hex"}]`. Keep it root:0600 outside Git. Each SHA must come from
-   signature-verified apt metadata. `sim-package-versions.json` fixes upstream
-   versions; only distro security suffixes and ROS build timestamps may differ.
-   Never choose newer upstream or omit an unavailable dependency from the lock.
-2. Run `python3 deploy/install_sim_packages.py --check PRIVATE_LOCK` first.
-   It refuses any removal/purge, existing package change or unlocked dependency.
-   New GL/Mesa/GLVND user-space libraries are allowed at locked version/SHA;
-   new NVIDIA/kernel/DKMS/firmware/CUDA/DCGM/rpcbind packages are forbidden. With an accepted simulation, `--install` uses
-   `--no-upgrade --no-install-recommends`, verifies downloaded SHA and all five
-   embedded Gazebo ABI versions, then repeats simulation before installation.
-   GPU driver/device identity, DCGM PID719/start ticks, API/Caddy/PostgreSQL
-   unit state/PID/start timestamps must remain equal before/after.
-   Archives and the lock remain private for rollback/evidence. Missing version,
-   metadata, archive or ABI is a stop/escalation, never a latest fallback.
-3. Prepare root-owned offline wheel caches and hash-locked requirements for the
-   release's exact server requirements. For native `/usr/bin/python3`, vendor
-   only `trimesh==5.1.0` using `pip --no-deps --no-index --require-hashes --target
-   /opt/foothold-sim/python-vendor` from its private wheel cache/lock; NumPy and
-   geometry/image dependencies use the pinned OS packages. Chown the vendor
-   tree root:root and remove group/other writes. Only the isolated native child
-   enables this path; the manager does not import it. No Torch/ONNX/Isaac/CUDA
-   inference packages or agent hardware extras are needed.
-4. Install reviewed deploy-tools atomically under the deploy lock (common.sh
-   first), then run `bootstrap-sim.sh --prepare`. This prepares only the nologin
-   account, existing render/video groups, linger bus and root-owned user units;
-   it does not activate the guard or manager. Existing groups beyond the three
-   allowlisted groups require an audit. API service sandbox remains unchanged.
-5. Copy sealed external assets without editing originals, preserve required
-   source/mesh layout, and grant the simulation UID read-only access. Give only
-   native output parents, replay and release episode/startup evidence leaves
-   private write access. Verify EGL on the dedicated UID using the existing
-   NVIDIA driver. Provision the catalogue/env from the examples privately;
-   replace placeholder UUIDs and paths with actual registered warehouse binding.
-   Catalogue/env are root:foothold-sim 0640; credentials/pass keys are separate
-   UID-owned 0600 copies. Register warehouse with the existing sim_maps import.
-6. Install/review the OS proof helper and exact HTTPS proxy separately. Then
-   `bootstrap-sim.sh --activate` publishes the guard with its exclusive flock
-   already held and starts the same-release idle manager. A failed activation
-   leaves a durable latch. Do not enable the user service at boot or auto-retry
-   failed simulation sessions. Subsequent idle dev deployment updates API and
-   manager together. First warehouse/ROS93 and HTTPS tests require their own
-   recorded acceptance; preparation/manager readiness is not a simulation pass.
+Run from the exact reviewed immutable release directory using system Python3.12
+with `-B`; never source ROS in the manager or root shell. First atomically install
+reviewed common.sh/autodeploy.sh/deploy.sh/rollback.sh/prepare-release.sh/
+sim_control.py under the existing deployment lock (common.sh first). A dev merge
+does not itself update the installed deploy-tools.
 
-Rollback preserves lock/latch/evidence and database. Stop starts, prove normal
-STOP/zero and all native absence, then use the paired release rollback. Disable
-only the new manager/linger after full absence proof. Compare the private package
-baseline before selectively removing newly installed simulation packages; never
-use autoremove or remove/update existing graphics/DCGM/rpcbind services.
+`python3 -B -m deploy.sim_sysroot resolve` prepares sources, public keys, lists,
+cache, logs and a status copy exclusively under /opt/foothold-sim/apt. It uses the
+official signed Noble repositories and the fixed ROS Jazzy snapshot. Host apt
+configuration/hooks are not loaded; insecure metadata and authentication bypass
+are disabled. APT runs in a transient unit with ProtectSystem=strict, private
+home/tmp, no host credentials and one private writable prefix. The command never
+invokes apt install. It records the complete host package state, exact missing
+DEB version/size/SHA and signed metadata fingerprints in a private lock.
 
-### Failure-latch audit (manual, never automatic reset)
+Report the lock SHA, download count and size to the coordinator **before stage**.
+Unavailable approved upstream or any base/host version conflict is a stop; never
+substitute latest. Gazebo sim8.15.0/transport13.6.0/msgs10.4.0/rendering8.2.3/
+sensors8.2.2 and protobuf3.21.12 remain mandatory. Native policy/plugin originals
+and their approved SHA stay unchanged.
 
-There are two independent latches: runtime `guard/state/unproven`, and root-only
-`guard/setup-unproven` for failed initial activation. Root never opens a leaf in
-the runtime-owned state directory to record failure. The root activation latch
-uses a validated root-owned directory fd with exclusive/no-follow creation.
-Deployment, package setup and manager transitions reject either latch.
+## Download and stage (separate acceptance)
 
-To consider recovery, first block new starts and take the deploy and exclusive
-simulation locks. Preserve the old latch and episode/manifests/log/package state
-in private evidence. Check fresh helper proof, exact unit/PID/start/cgroup/
-partition identity, domain93/DDS absence and the existing STOP/zero/child exit/
-manifest/source-ledger proofs for every possible episode. A missing process or
-manager row alone is insufficient. Record the failure cause and evidence, ask
-the coordinator to accept the audit, and only then remove the audited latch
-entry and explicitly authorize one retry. If anything is unknown, retain both
-slot and deployment fence; do not kill by a name pattern or restart a session.
-An activation failure under the exclusive pre-creation guard still needs fresh
-unit/process/DDS absence and a recorded setup audit before clearing its latch.
+After the lock summary is accepted,
+`python3 -B -m deploy.sim_sysroot stage FULL_LOCK_SHA` rechecks host status and
+metadata, downloads exact locked versions using private APT, and verifies every
+archive size/SHA. It checks tar paths, links/link parents, collisions and special
+nodes before `dpkg-deb -x` into a new root-private staging directory. Extraction
+also runs with the host filesystem read-only and only that staging prefix
+writable. It never executes control/maintainer scripts. Ownership and modes are
+normalized to root read-only with no SUID/SGID payload executables. A complete
+file/link/mode/owner SHA manifest is checked before and after atomic publication
+at /opt/foothold-sim/sysroot/LOCK_SHA. Archive originals are retained.
 
-The user-manager slice is a secondary budget. Root installs the same limits in
-system `user-<dedicated-uid>.slice.d/foothold-sim.conf` and applies them to that
-parent slice. Thus changing a user unit/slice cannot raise the server's ceiling;
-the parent also contains the dedicated user's bus and all descendant cgroups.
+Generated private wrappers relocate GZ YAML prefixes, explicit library aliases
+replace needed update-alternatives without running scripts, and a Ruby launcher
+avoids host shebang assumptions. Original DEB files are not edited. The lock
+binds both preparation/profile generator code. A changed generator requires a
+new lock. `verify FULL_LOCK_SHA` rechecks immutable tree contents and host state.
 
-### Package transaction and existing graphics ownership
+Only the isolated child reads the root-owned profile.json; schema, lock binding,
+parents, file ownership/modes and allowlisted paths are checked. A profile cannot
+supply ROS/DDS identity or credentials. Domain93/LOCALHOST are applied afterwards.
+PATH/LD_LIBRARY_PATH/PYTHONPATH/GZ/AMENT are private; host Python3.12 and existing
+base runtime remain in use. Agent venv packages retain precedence over appended
+ROS paths. Use the generated ros-setup.bash as SIM_ROS_SETUP and the profile as
+FH_SIM_SYSROOT_PROFILE in private manager.env.
 
-Before any apt installation, install the reviewed deploy-tools (including the
-new common.sh fence) under the deployment lock. The package command verifies
-those exact tool bytes. Existing NVIDIA EGL/GLX and any present GLVND libraries
-must resolve to dpkg-owned real files; unknown ownership or an NVIDIA .run
-installer indicator is a stop/escalation. New libraries must not silently replace
-an untracked host installation. Do not proceed on that server by ignoring dpkg
-ownership or forcing package dependencies.
+The profile selects only private Mesa EGL vendor/DRI paths, software rendering
+and llvmpipe, with disk shader cache disabled. NVIDIA rendering is not used.
+EGL renderer, OGRE2 real camera/lidar rendering, ROS extension ABI, plugin loading
+and performance must still be tested on the server; generation is not proof of
+execution. Resource limits/TTL/single session remain unchanged.
 
-Immediately before the actual apt install command, create root-only
-`/var/lib/foothold/sim-packages-unproven` with directory-fd, O_EXCL and O_NOFOLLOW.
-Any apt error, installed-version mismatch, host/GPU/service identity change,
-ownership failure, evidence write error or interruption leaves this marker.
-Only completion of all final proofs removes that same inode durably. The next
-package command, deployment (even before a sim guard exists), bootstrap, manager
-transition and session admission reject a remaining marker. This is the third
-independent audit latch; preserve its private transaction evidence and use the
-manual audit/authorization process above. Never clear it merely to retry apt.
+## Identity, credentials and resources
 
-New NVIDIA packages are forbidden regardless of where `nvidia` appears in the
-name, as are glx-diversions and CUDA library families whose name lacks cuda
-(cublas, nvrtc, npp, cufft, curand, cusolver, cusparse, nvjpeg). Existing package
-changes, including same-version reinstalls, remain forbidden.
+`bootstrap-sim.sh --prepare` creates only the nologin account, permitted groups,
+private writable leaves, linger bus and root-owned user units; guard/manager are
+not activated. A root system user-UID.slice drop-in enforces 4GiB/4CPU/Tasks640/
+swap0 above the secondary user-manager slice, so the UID cannot raise the cap.
+Do not change unrelated services or API sandbox settings.
+
+Private catalogue/env examples use anonymous paths and UUIDs. Replace them only
+in private configuration, register warehouse with existing sim_maps import, and
+provide independent UID-owned 0600 service/pass credential copies. The API copy
+must live in its readable private credential directory, not root-only /etc.
+Native source/assets and sysroot stay read-only; only episode/replay/outbox and
+the native output parent have dedicated private writes. Native trimesh5.1.0 uses
+a root-owned, hash-locked private vendor; no hardware SDK or inference stack.
+
+After package/asset/EGL/ABI/map/proxy/OS-helper review,
+`bootstrap-sim.sh --activate` publishes the locked guard and starts only the
+same-release idle manager. It requires private config/lock and proof socket.
+It does not start Gazebo or enable session retries. HTTPS start/limited drive/
+STOP/video/map/termination/restart and full absence are separate acceptance.
+
+## Durable failure and audit
+
+Three independent latches are checked at admission:
+- guard/state/unproven: runtime-owned; only existing native cleanup proof clears it.
+- guard/setup-unproven: root-owned activation failure, outside UID-owned state.
+- /var/lib/foothold/sim-packages-unproven: root-only package/sysroot transaction.
+
+Root records failures with validated directory fd and O_EXCL/O_NOFOLLOW, never
+by opening a runtime-owned leaf. The package marker is created before staging
+operations and removed only after all final proofs. Exceptions/interruption,
+failed archive/tree/version/host proof or evidence writes retain it. Deployment
+(even without a sim guard), bootstrap, package commands and manager/session
+admission reject it.
+
+Before/after evidence includes unchanged dpkg status/query, /usr path/content/
+mode/owner digest, NVIDIA driver/device identity, DCGM PID719/start time and
+API/Caddy/PostgreSQL unit/PID/start timestamps. Source addresses, credentials,
+raw assets and private evidence are never committed or echoed.
+
+For manual recovery: block new starts, take deployment and simulation locks,
+preserve private latch/episode/transaction evidence, audit the cause and fresh
+unit/PID/start/cgroup/partition/domain93/DDS absence plus the existing STOP/zero/
+manifest/source-ledger proofs. Absence of a manager row alone is insufficient.
+Only after the coordinator accepts the audit may the specific audited latch be
+removed and one explicit retry authorized. Unknown state stays fenced. Never
+kill by name pattern, erase evidence, autoremove packages or restart a session.
+
+Rollback restores the reviewed API/manager pair only after full cleanup. Private
+sysroots are immutable and can be retained; changing profiles requires the same
+idle gate and fresh evidence. No host package removal or driver rollback occurs.
+
+References: [Mesa environment variables](https://docs.mesa3d.org/envvars.html),
+[Gazebo8 EGL headless rendering](https://gazebosim.org/api/sim/8/headless_rendering.html).
