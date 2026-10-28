@@ -79,7 +79,7 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
       : <p className="lv-note" role="status" data-nearby={busy ? 'scanning' : 'done'}>{busy ? `찾는 중… (Wi-Fi·블루투스, 약 10초)${items.length ? ` — ${items.length}대 찾음` : ''}` : items.length ? `${items.length}대 찾았습니다.` : '찾은 로봇이 없습니다.'}</p>}
     {scan?.problems.map((p) => PROBLEM[p] && <p key={p} className="fh-why" data-nearby-problem={p}>{PROBLEM[p]}</p>)}
     {items.length > 0 && <ul className="dv-cards">{items.map((f) => <li key={f.key} className="card dv-card">
-      <button type="button" className="btn" style={{ textAlign: 'left' }} aria-expanded={open === f.key} onClick={() => setOpen(open === f.key ? null : f.key)}>
+      <button type="button" className="btn" style={{ textAlign: 'left', flexDirection: 'column', alignItems: 'flex-start' }} aria-expanded={open === f.key} onClick={() => setOpen(open === f.key ? null : f.key)}>
         <span className="fh-row"><b>{f.name}</b><Chip tone="off" text={VIA[f.via]} /></span>
         <span className="lbl">{status(f, robots)}{f.host ? ` · ${f.host}` : ''}{f.model ? ` · ${f.model}` : ''}</span>
       </button>
