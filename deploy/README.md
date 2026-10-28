@@ -139,3 +139,6 @@ root 전용 700 폴더를 만들고 cron을 관리자가 선택 설치한다. Po
 
 `bash -n`(모든 sh), `bash deploy/tests/test_decisions.sh`, `bash deploy/tests/test_autodeploy.sh`, `bash deploy/tests/test_prepare_release.sh`, `bash deploy/tests/test_repo_transport.sh`, Python 구문 검사, `python3 -m unittest discover -s deploy/tests -p 'test_*.py'`를 수행한다. 자동 결정 시험은 같은 SHA, 실패 SHA, off 파일, 원격 조회/fetch 실패 시 무변경, 잠금 중 건너뜀, 자식의 잠금 재사용, 새 SHA, 준비/배포 실패를 임시 파일·실제 flock·가짜 Git/배포로 검사한다. 저장소 전송 시험은 HTTPS/SSH URL의 엄격한 검사, 인증 정보·외부 host·query 등 거부, HTTPS의 SSH 설정 제거와 키 없는 Git config를 확인한다. 준비 시험은 가짜 npm과 임시 bare 저장소로 빌드 입력 분리·서버/배포 소스 오염 차단·dist 링크 거부를 검사한다. 실제 root systemd 빌드 격리·잔류 프로세스 정리는 2단계에서 검증한다. Python 시험은 가짜 HTTP/WS로 전용 계정 사용과 WS 실패 시 로그아웃을 확인한다. 앱 소스는 변경하지 않아 전체 앱 빌드를 반복하지 않는다.
 서버 SSH·apt·Node 24 서버 빌드/npm ci·실 DB 계정 생성/권한·systemd 타이머·GitHub 배포 키 등록·실제 HTTPS/WS·자동 배포 전환은 이 변경의 로컬 시험에서 **미검증**이다. 배포 키 등록 및 서버 설치는 별도 2단계 관문이다.
+
+
+기존 서버의 `/opt/foothold/deploy-tools`는 release와 별도인 고정 설치본이며 dev 자동 배포가 스스로 갱신하지 않는다. 시뮬 배포 관문을 활성화하려면 [SIMULATION.md](SIMULATION.md)의 잠금·root-only 백업/SHA·6개 파일 원자 교체(common.sh 먼저)·다음 자연 타이머 같은 SHA exit0 및 기존 서비스 무변경 증명을 따른다. 기존 서버에서 패키지 설치가 포함된 bootstrap-autodeploy/bootstrap-server 전체를 갱신 수단으로 재실행하지 않는다.
