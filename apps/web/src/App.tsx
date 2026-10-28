@@ -68,7 +68,7 @@ export function typing(t: EventTarget | null) {
   return false;
 }
 
-/** STOP — 모든 탭·두 틀에 늘 보임(총괄은 정지할 시뮬 로봇이 있을 때만 — 실기 STOP 은 운영자 폰). 폰 64px, PC 44px 이상(U7). 누르면 서버에 정지 요청(로봇이 0 + 잠금) */
+/** STOP — 모든 탭·두 틀에 늘 보임(총괄은 정지할 시뮬 로봇이 있을 때만 — 실기 STOP 은 운영자 폰. 폰 홈은 멈출 것이 없다고 확인될 때만 숨김 — App calm). 폰 64px, PC 44px 이상(U7). 누르면 서버에 정지 요청(로봇이 0 + 잠금) */
 export function Stop({ phone, onStop }: { phone: boolean; onStop: () => void }) {
   return <button type="button" className="fh-stop" aria-label="비상 정지" data-stop style={{ minHeight: phone ? 64 : 44, minWidth: phone ? 96 : 120 }} onClick={onStop}>
     <svg width="26" height="26" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 2h8l6 6v8l-6 6H8l-6-6V8z" fill="none" stroke="#FFFFFF" strokeWidth="2" /><rect x="8" y="8" width="8" height="8" fill="#FFFFFF" /></svg>
@@ -90,7 +90,7 @@ export class Guard extends Component<{ children: ReactNode; quiet?: boolean }, {
 /** user·robots = 서버 /me·/robots?scope=<listScope> 값(시험은 가짜 자료) — 운영 관리자는 내게 배정된 로봇만. 남은 남의 로봇은 보는 중(조종 비활성 + 이유, STOP 은 됨). fresh = 그 목록을 요청한 시각(rt.now()).
  *  logout 이 있으면 머리줄에 로그아웃. setMe = 내 정보가 서버에서 바뀌었을 때(설정 탭). refresh = 로봇 목록 다시 받기. cancel = 이 로그인 세션의 취소 신호(화면 요청용).
  *  note = 띠에 올릴 한 줄(로그아웃 실패 등). dev = 무엇이 가짜인지 알리는 개발용 표시 */
-export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, logout, setMe = () => {}, cancel, note, dev }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string; dev?: string }) {
+export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refresh = () => {}, stale = false, logout, setMe = () => {}, cancel, note, dev }: { user?: User; robots?: Robot[]; fresh?: number; refresh?: () => void; stale?: boolean; logout?: () => void; setMe?: (u: ApiUser) => void; cancel?: AbortSignal; note?: string; dev?: string }) {
   const phone = usePhone(), full = useFull();
   useRt();
   const robots = listed.map(withLive), net = rt.link();
@@ -124,6 +124,11 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const stops = pool.filter(mayStop), canStop = target ? mayStop(target) : user.role !== 'ORG_ADMIN' || !!stops.length;
   // 떠 있거나 띄우는 중인 내 시뮬(sim.live())이 있으면 STOP·Space 는 그 슬롯으로 — 폰 조종 화면, PC 로봇 탭에서 고른 정지 가능한 로봇은 예외(그 로봇)
   const toSim = !open && !!sim.live() && (phone || !target || !canStop);
+  // 폰 홈(로봇 연결) 머리의 STOP 은 멈출 것이 하나도 없다고 확인될 때만 숨긴다(10-28 사용자). 멈출 것 = 연결된 로봇·조종권자가 있는 로봇(내 조종권·반납 확인 중·실행 포함)·끝나지 않은 실행·
+  // 떠 있는 내 시뮬(띄우는 중·끝내는 중·정리 대상). 모르면 보인다 — 실시간 끊김·첫 상태 전·로봇 목록 다시 받기 실패(stale)·시뮬 목록 전(처음으로 뒤 포함)·관리자 오류(설정 없음은 시뮬이 없다는 뜻이라 예외)
+  const calm = phone && tab === 'drive' && !open && !simOpen && !toSim && net.at === 'open' && !stale
+    && pool.every((r) => !r.unknown && !r.online && !r.mission && !rt.get(r.id).holder && !rt.get(r.id).releasing)
+    && sv.listed && (!sv.managerError || sv.managerError === 'SIM_DISABLED') && !sv.mine.length && !sv.cleanup.length;
   const [choose, setChoose] = useState<string | null>(null);   // 펼침: 고른 로봇 id('' = 아직), null = 닫힘
   // 고른 로봇이 후보에서 빠지면(지움·실기로 바뀜) 고르기 전으로, 총괄에게 정지할 시뮬이 없어지면 고르기를 닫는다(STOP 경로 0). 운영 관리자 STOP 은 그대로
   useEffect(() => { if (choose != null && !canStop) setChoose(null); else if (choose && !stops.some((r) => r.id === choose)) setChoose(''); });
@@ -216,7 +221,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
           {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
           {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
-      {(canStop || toSim) && <Stop phone={phone} onStop={stop} />}
+      {(canStop || toSim) && !calm && <Stop phone={phone} onStop={stop} />}
     </>}</header>
     {open && robot && rel && (rel.why
       ? <div className="fh-pick" role="alertdialog" aria-label="조종권 반납 확인 못함" data-end-fail>
