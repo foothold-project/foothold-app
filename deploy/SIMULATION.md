@@ -32,9 +32,25 @@ Run from the exact reviewed immutable release directory using system Python3.12
 with `-B`; never source ROS in the manager or root shell. First atomically install
 reviewed common.sh/autodeploy.sh/deploy.sh/rollback.sh/prepare-release.sh/
 sim_control.py under the existing deployment lock (common.sh first). A dev merge
-does not itself update the installed deploy-tools. Run reviewed
-`bootstrap-sim.sh --prepare` before `resolve` so /opt/foothold-sim is already
-root:foothold-sim 0750; a root-private package-created parent is not activation.
+does not itself update the installed deploy-tools. The timer executes the fixed
+installed copy, so new release code alone does not activate a deployment fence.
+On an existing host, take the existing deploy.lock and, when provisioned, the
+exclusive clean-session guard. Before changing tools, retain the original files
+and owner/mode/SHA metadata in a new root-only backup directory; never overwrite
+an earlier backup. Compare the six reviewed release files with SHA256 recorded from the
+reviewed Git contents, then publish root:root 0644 sibling-temp+fsync+rename replacements,
+common.sh first. Include sim_control.py even when it was previously absent.
+Do not run bootstrap-autodeploy to refresh tools: it also installs packages.
+
+Release the lock and observe one natural timer run: the same current SHA must
+skip with exit0, no failed marker and unchanged deploys.log. Record unchanged
+Caddy/API/PostgreSQL PID/start/NRestarts and DCGM identity. Do not restart the
+services or timer to manufacture this proof. On failure, restore the saved five
+files under the locks and remove a newly added helper only after checking its
+exact installed SHA; retain evidence and report before proceeding. Run reviewed
+`bootstrap-sim.sh --prepare` before staging/profile use so /opt/foothold-sim is
+root:foothold-sim 0750. Metadata-only resolve may precede this step with a
+root-private 0700 parent; it does not grant runtime traversal or activation.
 Preparation installs only the new fixed-field proof socket, identity and units.
 
 `python3 -B -m deploy.sim_sysroot resolve` prepares sources, public keys, lists,
