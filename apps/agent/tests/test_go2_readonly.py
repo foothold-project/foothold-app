@@ -410,7 +410,9 @@ def test_cli_invalid_configuration_and_bind_failure_precede_dds(monkeypatch):
     from foothold_agent.go2_readonly import __main__ as cli
     monkeypatch.setattr(cli.socket, 'if_nameindex', lambda: [(1, 'fake-nic')])
     calls, _, _ = fake_sdk(monkeypatch)
+    monkeypatch.setattr(cli, 'make_server', lambda *a: pytest.fail('invalid configuration must not bind'))
     for args in (['--nic', 'missing'], ['--nic', 'fake-nic', '--listen', '0.0.0.0'],
+                 ['--nic', 'fake-nic', '--listen', '8.8.8.8'],
                  ['--nic', 'fake-nic', '--advertise']):
         with pytest.raises(SystemExit) as error:
             cli.main(args)
@@ -418,6 +420,49 @@ def test_cli_invalid_configuration_and_bind_failure_precede_dds(monkeypatch):
     monkeypatch.setattr(cli.signal, 'signal', lambda *a: None)
     monkeypatch.setattr(cli, 'make_server', lambda *a: (_ for _ in ()).throw(OSError('bind failure')))
     assert cli.main(['--nic', 'fake-nic']) == 1
+    assert not calls
+
+
+@pytest.mark.parametrize('listen', [
+    '8.8.8.8', '0.0.0.0', '224.0.0.1', '240.0.0.1', '255.255.255.255',
+    '100.64.0.1', '192.0.2.8', '198.18.0.1', '172.32.0.1', '::1', 'invalid',
+])
+@pytest.mark.parametrize('advertise', [False, True])
+def test_cli_nonlocal_listen_rejected_before_network_or_dds(monkeypatch, capsys, listen, advertise):
+    from foothold_agent.go2_readonly import __main__ as cli
+    calls, _, _ = fake_sdk(monkeypatch)
+    forbidden = lambda *a: pytest.fail('invalid listen must not reach network setup')
+    monkeypatch.setattr(cli.socket, 'if_nameindex', forbidden)
+    monkeypatch.setattr(cli, 'make_server', forbidden)
+    with pytest.raises(SystemExit) as error:
+        cli.main(['--nic', 'fake-nic', '--listen', listen] + (['--advertise'] if advertise else []))
+    assert error.value.code == 2
+    output = capsys.readouterr()
+    assert not output.out
+    assert output.err.splitlines() == [
+        'error: --listen must be loopback, RFC1918 private IPv4, or link-local IPv4']
+    assert not calls
+
+
+@pytest.mark.parametrize('listen', [
+    None, '127.0.0.2', '10.0.0.1', '10.255.255.254', '172.16.0.1',
+    '172.31.255.254', '192.168.0.1', '192.168.255.254', '169.254.0.1', '169.254.255.254',
+])
+def test_cli_local_listen_reaches_mock_bind_before_dds(monkeypatch, listen):
+    from foothold_agent.go2_readonly import __main__ as cli
+    calls, _, _ = fake_sdk(monkeypatch)
+    monkeypatch.setattr(cli.socket, 'if_nameindex', lambda: [(1, 'fake-nic')])
+    monkeypatch.setattr(cli.signal, 'signal', lambda *a: None)
+    bound = []
+
+    def fail_bind(address, *args):
+        bound.append(address)
+        raise OSError('mock bind failure')
+
+    monkeypatch.setattr(cli, 'make_server', fail_bind)
+    args = ['--nic', 'fake-nic'] + (['--listen', listen] if listen is not None else [])
+    assert cli.main(args) == 1
+    assert bound == [(listen if listen is not None else '127.0.0.1', 9610)]
     assert not calls
 
 

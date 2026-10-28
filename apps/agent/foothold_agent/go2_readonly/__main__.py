@@ -1,7 +1,7 @@
 """Dedicated field process; starting this command intentionally joins DDS domain 0."""
 
 import argparse
-from ipaddress import IPv4Address
+from ipaddress import IPv4Address, IPv4Network
 import json
 import logging
 import signal
@@ -27,8 +27,13 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         address = IPv4Address(args.listen)
-        if address.is_unspecified or address.is_multicast or address.is_reserved:
+        if not (address.is_loopback or address.is_link_local or any(
+                address in IPv4Network(network)
+                for network in ('10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16'))):
             raise ValueError('invalid listen address')
+    except ValueError:
+        parser.exit(2, 'error: --listen must be loopback, RFC1918 private IPv4, or link-local IPv4\n')
+    try:
         if not 1 <= args.port <= 65535:
             raise ValueError('invalid port')
         if args.nic not in {name for _, name in socket.if_nameindex()}:
