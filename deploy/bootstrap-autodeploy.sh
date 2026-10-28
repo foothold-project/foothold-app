@@ -14,8 +14,10 @@ take_deploy_lock || { echo 'A deploy/rollback is running.' >&2; exit 1; }
 [[ $FH_REPO_SSH_URL =~ ^git@github\.com:[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+\.git$ ]] || exit 2
 [[ -s /etc/foothold/github_known_hosts ]] || { echo 'Install verified GitHub SSH host keys first (README).'; exit 2; }
 export DEBIAN_FRONTEND=noninteractive
+# Optional install must not refresh existing system tools or restart other units.
+export NEEDRESTART_MODE=l
 apt-get update
-apt-get install -y curl gnupg ca-certificates git openssh-client util-linux
+apt-get install --no-upgrade -y curl gnupg ca-certificates git openssh-client util-linux
 install -d -m 755 /usr/share/keyrings
 curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor --yes -o /usr/share/keyrings/foothold-nodesource.gpg
 chmod 644 /usr/share/keyrings/foothold-nodesource.gpg
