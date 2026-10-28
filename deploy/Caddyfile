@@ -1,0 +1,25 @@
+{$FH_SITE} {
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy no-referrer
+        Strict-Transport-Security "max-age=86400"
+        -Server
+    }
+    # reverse_proxy handles WS upgrades, including /api/v1/ws and /agent/ws.
+    handle /api/v1/* {
+        reverse_proxy 127.0.0.1:8810 {
+            header_up X-Forwarded-For {remote_host}
+            header_up X-Forwarded-Proto https
+            header_up -Forwarded
+        }
+    }
+    handle /api/* {
+        respond 404
+    }
+    handle {
+        root * /opt/foothold/current/apps/web/dist
+        try_files {path} /index.html
+        file_server
+    }
+}
