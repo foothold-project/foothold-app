@@ -1,0 +1,31 @@
+[Unit]
+Description=Foothold team development API
+After=network.target postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=foothold
+Group=foothold
+WorkingDirectory=/opt/foothold/current
+EnvironmentFile=/etc/foothold/server.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/opt/foothold/current/.venv/bin/uvicorn apps.server.fh_server.main:app --host 127.0.0.1 --port 8810 --workers 1 --ws-max-size 4096 --forwarded-allow-ips 127.0.0.1 --no-access-log
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/foothold/files
+
+[Install]
+WantedBy=multi-user.target
