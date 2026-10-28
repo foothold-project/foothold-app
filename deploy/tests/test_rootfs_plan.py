@@ -50,7 +50,9 @@ def test_complete_estimate_never_reads_host_inventory_or_downloads(tmp_path):
         calls.append(args)
         assert writable==root
         if args[0]=='/usr/bin/gpg':return 'pub:::::::::\nfpr:::::::::'+plan.shared.ROS_KEY_FINGERPRINT+':\n'
-        if args[0]=='/usr/bin/gpgv':return ''
+        if args[0]=='/usr/bin/gpgv':
+            Path(args[args.index('--output')+1]).write_text('authenticated fixture cleartext\n')
+            return ''
         assert options['apt_config']==root/'apt.conf'
         assert (root/'state/status').read_bytes()==b''
         if args[0]=='/usr/bin/apt-cache' and args[1]=='madison':return args[-1]+' | 1.0-1 | signed-fixture\n'
@@ -64,6 +66,7 @@ def test_complete_estimate_never_reads_host_inventory_or_downloads(tmp_path):
             patch.object(plan.shared,'requirements',return_value={names[-1]:'1.0'}), \
             patch.object(plan.shared,'apt_metadata_digest',return_value='b'*64), \
             patch.object(plan,'verify_cached_packages'), \
+            patch.object(plan,'cleartext_envelope'), \
             patch.object(plan.shared,'installed_versions',side_effect=AssertionError('host inventory forbidden')):
         result=plan.estimate(root,cache,run)
     assert result['host_inventory_used'] is False and result['status_empty'] is True and result['runnable'] is False
@@ -86,9 +89,70 @@ def test_cached_packages_are_bound_to_signed_release_and_expiry(tmp_path):
     header='Date: '+format_datetime(now)+'\nValid-Until: Thu, 29 Oct 2026 00:00:00 +0000\nSHA256:\n '
     content=header+hashlib.sha256(payload).hexdigest()+' '+str(len(payload))+' main/binary-amd64/Packages\n'
     release.write_text(content)
-    plan.verify_cached_packages(release,cache,'fixture',('main',),now)
+    plan.verify_cached_packages(release.read_text(),cache,'fixture',('main',),now)
     (cache/'lists'/filename).write_bytes(b'forged cache bytes')
-    with pytest.raises(ValueError):plan.verify_cached_packages(release,cache,'fixture',('main',),now)
+    with pytest.raises(ValueError):plan.verify_cached_packages(release.read_text(),cache,'fixture',('main',),now)
     (cache/'lists'/filename).write_bytes(payload)
     release.write_text(content.replace('29 Oct','27 Oct'))
-    with pytest.raises(ValueError):plan.verify_cached_packages(release,cache,'fixture',('main',),now)
+    with pytest.raises(ValueError):plan.verify_cached_packages(release.read_text(),cache,'fixture',('main',),now)
+
+
+def test_signed_expiry_cannot_be_overwritten_outside_signature(tmp_path):
+    import shutil
+    import subprocess
+    from datetime import datetime, timezone
+    if not shutil.which('gpg') or not shutil.which('gpgv'):
+        pytest.skip('gpg/gpgv required for offline signature-envelope regression')
+    fixtures=Path(__file__).parent/'fixtures/snapshot-signing'
+    directory=tmp_path/'verify';(directory/'home/gnupg').mkdir(parents=True,mode=0o700)
+    keyring=directory/'key.gpg'
+    subprocess.run(['gpg','--batch','--no-options','--homedir',str(directory/'home/gnupg'),
+        '--dearmor','--output',str(keyring),str(fixtures/'expired-public.asc')],check=True,capture_output=True)
+    def run(args,*unused,**options):
+        return subprocess.run(args,check=True,capture_output=True,text=True).stdout
+    cleartext=plan.verified_release(fixtures/'expired.InRelease',directory,keyring,run)
+    assert cleartext.startswith('Origin:') and 'BEGIN PGP' not in cleartext
+    now=datetime(2026,10,29,tzinfo=timezone.utc)
+    with pytest.raises(ValueError,match='expired'):
+        plan.verify_cached_packages(cleartext,tmp_path,'fixture',('main',),now)
+    payload=b'Package: forged unsigned index\n'
+    trailer=('\nDate: Thu, 29 Oct 2026 00:00:00 +0000\nValid-Until: Thu, 29 Oct 2099 00:00:00 +0000\nSHA256:\n '+
+             hashlib.sha256(payload).hexdigest()+' '+str(len(payload))+' universe/binary-amd64/Packages\n').encode()
+    attack=tmp_path/'appended.InRelease';attack.write_bytes((fixtures/'expired.InRelease').read_bytes()+trailer)
+    raw=subprocess.run(['gpgv','--homedir',str(directory/'home/gnupg'),'--keyring',str(keyring),str(attack)],capture_output=True)
+    assert raw.returncode==0  # GPG accepts the signed packet and ignores this trailer.
+    with pytest.raises(ValueError,match='trailing'):
+        plan.verified_release(attack,directory,keyring,run)
+    assert not (directory/(attack.name+'.verified')).exists()
+    prefixed=tmp_path/'prefixed.InRelease';prefixed.write_bytes(trailer+(fixtures/'expired.InRelease').read_bytes())
+    with pytest.raises(ValueError,match='envelope'):
+        plan.verified_release(prefixed,directory,keyring,run)
+
+
+def test_main_failed_estimate_records_after_evidence_and_retains_latch(tmp_path,monkeypatch):
+    import json
+    from unittest.mock import Mock
+    directory=tmp_path/'plan';directory.mkdir()
+    marker=tmp_path/'pending'
+    def create():
+        marker.write_text('pending\n');info=marker.stat();return info.st_dev,info.st_ino
+    clear=Mock(side_effect=lambda identity:marker.unlink())
+    snapshot=Mock(return_value={'stable':'host-proof'})
+    monkeypatch.setattr(plan,'DEPLOY_LOCK',tmp_path/'deploy.lock')
+    monkeypatch.setattr(plan,'GUARD',tmp_path/'absent-guard')
+    monkeypatch.setattr(plan.os,'geteuid',lambda:0)
+    monkeypatch.setattr(plan.os,'umask',lambda value:0o022)
+    monkeypatch.setattr(plan,'prepare_plan',lambda cache:directory)
+    monkeypatch.setattr(plan.shared,'ensure_no_install_latch',lambda:None)
+    monkeypatch.setattr(plan.shared,'create_install_latch',create)
+    monkeypatch.setattr(plan.shared,'clear_install_latch',clear)
+    monkeypatch.setattr(plan.shared,'snapshot',snapshot)
+    def fail(*args):raise ValueError('synthetic solve failed')
+    monkeypatch.setattr(plan,'estimate',fail)
+    with pytest.raises(ValueError,match='synthetic solve failed'):plan.main()
+    assert marker.read_text()=='pending\n'
+    clear.assert_not_called()
+    assert snapshot.call_count==2
+    assert json.loads((directory/'before.json').read_text())=={'stable':'host-proof'}
+    assert json.loads((directory/'after.json').read_text())=={'stable':'host-proof'}
+    assert json.loads((directory/'error.json').read_text())['message']=='synthetic solve failed'

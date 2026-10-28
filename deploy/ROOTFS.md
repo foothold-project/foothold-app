@@ -25,7 +25,9 @@ uses the cached Noble/main/universe, Noble updates/security and the fixed
 snapshot signed-by uses only the pinned snapshot primary
 `4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA`. There is no main-ROS fallback.
 
-Before solving, GPG verifies each retained InRelease, validity dates are checked,
+Before solving, strict clear-signed armor framing rejects unsigned prefix/trailer
+data. GPG verifies each retained InRelease and writes authenticated cleartext to
+a new private output file; only that cleartext is parsed. Validity dates are checked,
 and cached uncompressed Packages sizes/SHA256 are compared with its signed
 SHA256 entries. Unsupported compressed cache representations refuse rather than
 silently trusting different bytes. Metadata refresh is a separate future step.

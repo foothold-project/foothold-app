@@ -23,6 +23,8 @@ BASE_ROOTS = ('base-files','base-passwd','bash','dash','coreutils','debianutils'
     'dbus-bin','libegl-mesa0','libgl1-mesa-dri')
 SNAPSHOT = '2026-09-11'
 PREFIX = Path('/opt/foothold-sim/rootfs-plans')
+DEPLOY_LOCK = Path('/var/lib/foothold/deploy.lock')
+GUARD = Path('/var/lib/foothold-sim/guard')
 
 
 def apt_config(plan, cache):
@@ -113,11 +115,45 @@ def package_rows(text, selected):
     return result
 
 
-def verify_cached_packages(release, cache, prefix, components, now=None):
+def cleartext_envelope(release):
+    """Reject ignored unsigned prefix/trailer and ambiguous armor containers."""
+    if release.stat().st_size>2*1024*1024:raise ValueError('InRelease exceeds bound')
+    raw=release.read_bytes().replace(b'\r\n',b'\n')
+    start=b'-----BEGIN PGP SIGNED MESSAGE-----\n'
+    begin=b'\n-----BEGIN PGP SIGNATURE-----\n'
+    end=b'\n-----END PGP SIGNATURE-----'
+    if (not raw.startswith(start) or b'\r' in raw or raw.count(start)!=1
+            or raw.count(begin)!=1 or raw.count(end)!=1):
+        raise ValueError('InRelease armor envelope invalid')
+    header_end=raw.find(b'\n\n',len(start))
+    if header_end<0:raise ValueError('InRelease armor header missing')
+    headers=raw[len(start):header_end].splitlines()
+    if not headers or any(not re.fullmatch(rb'Hash: [A-Z0-9, -]+',line) for line in headers):
+        raise ValueError('unsigned InRelease armor fields forbidden')
+    signature_start=raw.index(begin)
+    signature_end=raw.index(end)
+    if signature_start<=header_end or signature_end<=signature_start or raw[signature_end+len(end):].strip(b'\n'):
+        raise ValueError('unsigned InRelease trailing data forbidden')
+
+
+def verified_release(release, directory, keyring, run):
+    cleartext_envelope(release)
+    output=directory/(release.name+'.verified')
+    if output.exists() or output.is_symlink():raise ValueError('verified output already exists')
+    run(['/usr/bin/gpgv','--homedir',str(directory/'home/gnupg'),
+         '--keyring',str(keyring),'--output',str(output),str(release)],directory)
+    info=output.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_size>2*1024*1024:
+        raise ValueError('verified Release output invalid')
+    return output.read_text()  # gpgv-authenticated, dash-unescaped cleartext only
+
+
+def verify_cached_packages(cleartext, cache, prefix, components, now=None):
     """Bind uncompressed cached Packages bytes to the authenticated Release."""
     now=datetime.now(timezone.utc) if now is None else now
-    text=release.read_text();fields={};checks={};in_sha=False
-    for line in text.splitlines():
+    if not isinstance(cleartext,str):raise ValueError('authenticated cleartext required')
+    fields={};checks={};in_sha=False
+    for line in cleartext.splitlines():
         if line=='SHA256:':in_sha=True;continue
         if in_sha and line.startswith(' '):
             digest,size,name=line.split()
@@ -129,6 +165,7 @@ def verify_cached_packages(release, cache, prefix, components, now=None):
         if line.startswith(('Date:','Valid-Until:')):
             key,value=line.split(':',1);parsed=parsedate_to_datetime(value.strip())
             if parsed.tzinfo is None:raise ValueError('Release date lacks timezone')
+            if key in fields:raise ValueError('ambiguous signed Release date')
             fields[key]=parsed
     if 'Date' not in fields or fields['Date'].timestamp()>now.timestamp()+600:
         raise ValueError('Release timestamp missing/in future')
@@ -164,8 +201,8 @@ def estimate(plan, cache, run=shared.sandbox):
         ('snapshots.ros.org_jazzy_'+SNAPSHOT+'_ubuntu_dists_noble','ros.gpg',('main',)))
     for prefix,key,components in indexes:
         release=cache/'lists'/(prefix+'_InRelease')
-        run(['/usr/bin/gpgv','--homedir',str(plan/'home/gnupg'),'--keyring',str(cache/'keyrings'/key),str(release)],plan)
-        verify_cached_packages(release,cache,prefix,components)
+        cleartext=verified_release(release,plan,cache/'keyrings'/key,run)
+        verify_cached_packages(cleartext,cache,prefix,components)
     pins=shared.requirements();concrete={}
     for name in sorted(set(pins)|set(BASE_ROOTS)):
         text=run(['/usr/bin/apt-cache','madison',name],plan,apt_config=config)
@@ -194,30 +231,33 @@ def estimate(plan, cache, run=shared.sandbox):
         installed_bytes=sum(row['installed_bytes'] for row in rows))
 
 
+def prepare_plan(cache):
+    for path in (cache,cache/'lists',cache/'keyrings',*cache.parents):
+        info=path.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+            raise ValueError('cached metadata parent untrusted')
+    for path in (cache/'keyrings/ros.gpg',cache/'keyrings/ubuntu.gpg'):
+        info=path.lstat()
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+            raise ValueError('cached signing key untrusted')
+    PREFIX.mkdir(exist_ok=True,mode=0o700)
+    info=PREFIX.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or stat.S_IMODE(info.st_mode)!=0o700:
+        raise ValueError('rootfs plan directory untrusted')
+    return Path(tempfile.mkdtemp(prefix='plan-',dir=PREFIX))
+
+
 def main():
     import fcntl
     os.umask(0o077)
     if os.geteuid()!=0:raise ValueError('server root metadata planner only')
     shared.ensure_no_install_latch()
-    with open('/var/lib/foothold/deploy.lock','a') as lock:
+    with DEPLOY_LOCK.open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-        guard=Path('/var/lib/foothold-sim/guard')
-        if guard.exists() or guard.is_symlink():
+        if GUARD.exists() or GUARD.is_symlink():
             raise ValueError('this initial planner requires no activated simulation guard')
         cache=shared.ROOT/'apt'
-        for path in (cache,cache/'lists',cache/'keyrings',*cache.parents):
-            info=path.lstat()
-            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
-                raise ValueError('cached metadata parent untrusted')
-        for path in (cache/'keyrings/ros.gpg',cache/'keyrings/ubuntu.gpg'):
-            info=path.lstat()
-            if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
-                raise ValueError('cached signing key untrusted')
-        PREFIX.mkdir(exist_ok=True,mode=0o700)
-        info=PREFIX.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or stat.S_IMODE(info.st_mode)!=0o700:
-            raise ValueError('rootfs plan directory untrusted')
-        plan=Path(tempfile.mkdtemp(prefix='plan-',dir=PREFIX))
+        plan=prepare_plan(cache)
         before=shared.snapshot();(plan/'before.json').write_bytes(shared.canonical(before))
         marker=shared.create_install_latch()
         error=None

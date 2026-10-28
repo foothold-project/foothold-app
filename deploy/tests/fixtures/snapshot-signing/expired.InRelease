@@ -1,0 +1,15 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Origin: Foothold TEST ONLY expired snapshot
+Date: Wed, 01 Jan 2020 00:00:00 +0000
+Valid-Until: Thu, 02 Jan 2020 00:00:00 +0000
+SHA256:
+ ebea64cea077374f9231df921f3bb8fa7b60fdd6edcf37908cf51a1209d01bab 17 main/binary-amd64/Packages
+-----BEGIN PGP SIGNATURE-----
+
+iI4EARYKADYWIQRjyYIqJfaR+nw7wpV8GIp0NvQWpAUCXgvhABgcZXhwaXJlZEBl
+eGFtcGxlLmludmFsaWQACgkQfBiKdDb0FqQrggEAl3OKNaUljqYBxk0YWLLaS8Ng
+qUeEXFGF+g76ufHrH94BAONzTpuAWM8pYpG0CBHU+4CUWgcN6F17tO2UH1WI7q8G
+=VU78
+-----END PGP SIGNATURE-----
