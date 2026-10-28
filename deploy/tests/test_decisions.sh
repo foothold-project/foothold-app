@@ -13,7 +13,7 @@ mv() { calls+=("mv:$*"); }
 rm() { calls+=("rm:$*"); }
 systemctl() { calls+=("systemctl:$*"); }
 restore_release /opt/foothold/releases/previous
-[[ ${calls[0]} == 'ln:-s /opt/foothold/releases/previous /opt/foothold/current.next' ]]
+[[ ${calls[0]} == 'ln:-sfn /opt/foothold/releases/previous /opt/foothold/current.next' ]]
 [[ ${calls[1]} == 'mv:-Tf /opt/foothold/current.next /opt/foothold/current' ]]
 [[ ${calls[2]} == 'systemctl:restart foothold-server' ]]
 calls=()
