@@ -19,8 +19,8 @@ export const LIST_MS = 10_000;
 const toUser = (u: ApiUser): User => ({ id: u.id, name: u.display_name, role: u.role });
 
 /** cancel = 이 로그인 세션에 묶인 취소 신호(화면 요청에 넘김) — 세션이 끝나면 거둬, 늦게 온 답(앞 세션의 401 등)이 다음 세션의 인증을 건드리지 않게.
- *  fresh = 지금 robots 를 요청한 시각(now()) — 더 늦게 요청한 목록만 덮어쓴다 */
-type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; fresh: number; n: number; cancel: AbortSignal; note?: string };
+ *  fresh = 지금 robots 를 요청한 시각(now()) — 더 늦게 요청한 목록만 덮어쓴다. stale = 마지막 다시 받기가 실패(다시 성공하면 거둠 — 폰 홈 STOP 숨김을 막는다) */
+type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; fresh: number; n: number; cancel: AbortSignal; note?: string; stale?: boolean };
 
 export function Root() {
   const [st, setSt] = useState<State>({ at: 'wait' });
@@ -45,8 +45,11 @@ export function Root() {
       setSt((s) => {
         if (s.at !== 'app' || `${s.user.id}-${s.n}` !== session || fresh <= s.fresh) return s;
         setServerData(s.user, robots);
-        return { ...s, robots, fresh };
+        return { ...s, robots, fresh, stale: false };
       });
+    }, (e) => {
+      setSt((s) => (s.at !== 'app' || `${s.user.id}-${s.n}` !== session || fresh <= s.fresh ? s : { ...s, stale: true }));
+      throw e;
     });
   };
   // 운영 관리자는 새로 배정된 로봇을 실시간으로 알 수 없어 목록을 주기적으로 다시 받는다. 실패하면 이전 값 + 받은 시각 그대로(401 은 로그인 화면).
@@ -77,7 +80,7 @@ export function Root() {
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
   // 로봇을 등록·바꿈·지움, 구독 회수 → 바로 목록 다시 받기(실패하면 이전 목록 그대로, 401 은 로그인 화면)
   const refresh = () => { reload(st.user, `${st.user.id}-${st.n}`, st.cancel).catch(() => {}); };
-  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} dev={DEV_NOTE} />;
+  return <App key={`${st.user.id}-${st.n}`} user={st.user} robots={st.robots} fresh={st.fresh} refresh={refresh} stale={st.stale} logout={logout} setMe={setMe} cancel={st.cancel} note={st.note} dev={DEV_NOTE} />;
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {

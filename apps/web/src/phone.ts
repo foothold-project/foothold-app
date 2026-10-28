@@ -447,8 +447,8 @@ export const sim = {
       sim.load();
     }
   },
-  /** 처음(고르기)으로 — 연결은 닫는다 */
-  reset() { sim.close(); cancel = false; set({ ...blank(), catalog: S.catalog, mine: S.mine, cleanup: S.cleanup, listed: S.listed, taken: S.taken }); sim.load(); },
+  /** 처음(고르기)으로 — 연결은 닫는다. 이전 목록 확인은 거둔다(listed=false): 정리가 불확실했던 슬롯이 없다고 새 목록이 확인하기 전엔 폰 홈 STOP 을 숨기지 않게 */
+  reset() { sim.close(); cancel = false; set({ ...blank(), catalog: S.catalog, mine: S.mine, cleanup: S.cleanup, taken: S.taken }); sim.load(); },
   /** 화면 세션 끝(로그아웃·화면 내림)·시험: 연결을 닫고 비운다. 진행 중인 띄우기·끝내기의 늦은 답은 이 상태를 건드리지 않는다 */
   clear() { epoch++; sim.close(); backoff = 0; cancel = false; screen = ''; own = pausedAt = null; dismissed = ''; S = blank(); emit(); },
 };
