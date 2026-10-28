@@ -212,7 +212,7 @@ class BinaryRosKeyRegression(unittest.TestCase):
                             Path(args[args.index('--output')+1]).write_bytes(b'\x99normalized-key')
                             return ''
                         return fingerprint if '--show-keys' in args else ''
-                    with patch('urllib.request.urlopen',return_value=io.BytesIO(key)), \
+                    with patch('urllib.request.urlopen',return_value=io.BytesIO(key)) as fetch, \
                          patch.object(root,'sandbox',side_effect=sandbox), \
                          patch.object(root.shutil,'copyfile'), \
                          patch.object(Path,'read_bytes',return_value=b'synthetic-status'):
@@ -226,8 +226,44 @@ class BinaryRosKeyRegression(unittest.TestCase):
                             self.assertNotIn(['/usr/bin/apt-get','update'],calls)
                     self.assertEqual((apt/'keyrings/ros.input').read_bytes(),key)
                     self.assertIn('--show-keys',calls[0])
+                    fetch.assert_called_once_with(root.ROS_KEY_URL,timeout=30)
         for key in (b'',b'x'*65537):
             with tempfile.TemporaryDirectory() as folder,patch('urllib.request.urlopen',return_value=io.BytesIO(key)), \
                     patch.object(root,'sandbox') as sandbox:
                 with self.assertRaises(ValueError):root.setup_apt(Path(folder)/'apt')
                 sandbox.assert_not_called()
+
+
+class SnapshotSigningPinRegression(unittest.TestCase):
+    def test_snapshot_key_cannot_revert_to_main_archive_or_add_fallback(self):
+        expected='4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA'
+        self.assertEqual(root.ROS_KEY_FINGERPRINT,expected)
+        self.assertEqual(root.ROS_KEY_URL,'https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x'+expected)
+        snapshot='pub::::::::::\nfpr:::::::::'+expected+':\n'
+        root.validate_ros_key(snapshot)
+        main=snapshot.replace(expected,'C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654')
+        for invalid in (main,snapshot+main):
+            with self.assertRaises(ValueError):root.validate_ros_key(invalid)
+
+    def test_fake_snapshot_inrelease_requires_its_own_keyring(self):
+        # Committed fixtures contain fake PUBLIC keys and a signed fake Release;
+        # no private key, key generation, network or global keyring is used here.
+        import shutil
+        if not shutil.which('gpg') or not shutil.which('gpgv'):
+            self.skipTest('gpg/gpgv required for offline signed-InRelease regression')
+        fixtures=Path(__file__).parent/'fixtures/snapshot-signing'
+        with tempfile.TemporaryDirectory() as directory:
+            home=Path(directory)
+            fingerprints={}
+            for kind in ('main','snapshot'):
+                public=fixtures/(kind+'-public.asc');keyring=home/(kind+'.gpg')
+                command=['gpg','--batch','--no-options','--homedir',str(home)]
+                subprocess.run(command+['--yes','--dearmor','--output',str(keyring),str(public)],check=True,capture_output=True)
+                shown=subprocess.run(command+['--with-colons','--show-keys',str(public)],check=True,capture_output=True,text=True).stdout
+                fingerprints[kind]=shown
+                verified=subprocess.run(['gpgv','--homedir',str(home),'--keyring',str(keyring),str(fixtures/'snapshot.InRelease')],capture_output=True)
+                self.assertEqual(verified.returncode==0,kind=='snapshot')
+            fingerprint=next(line.split(':')[9] for line in fingerprints['snapshot'].splitlines() if line.startswith('fpr:'))
+            with patch.object(root,'ROS_KEY_FINGERPRINT',fingerprint):
+                root.validate_ros_key(fingerprints['snapshot'])
+                with self.assertRaises(ValueError):root.validate_ros_key(fingerprints['main'])
