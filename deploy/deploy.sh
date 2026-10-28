@@ -9,14 +9,18 @@ sha=$1
 mode=manual
 [[ ${FH_DEPLOY_MODE:-} != auto ]] || mode=auto
 take_deploy_lock || { echo 'Another deploy/rollback is running.' >&2; exit 1; }
+take_sim_deploy_guard "$1" || { echo 'Sim deployment fence refused: active session or cleanup unproven.' >&2; exit 1; }
 previous=''
 if [[ -L /opt/foothold/current ]]; then previous=$(readlink -f /opt/foothold/current); fi
 switched=0
+sim_stopped=0
 finish() {
     local result=$? rollback=not-needed
     trap - EXIT
     if needs_rollback "$result" "$switched"; then
         if restore_release "$previous"; then rollback=restored; else rollback=FAILED; fi
+    elif (( result != 0 && sim_stopped == 1 )); then
+        if sim_manager_start; then rollback=restored-idle-manager; else rollback=FAILED; fi
     fi
     printf '%s commit=%s previous=%s exit=%s rollback=%s mode=%s\n' "$(date -u +%FT%TZ)" "$sha" "${previous##*/}" "$result" "$rollback" "$mode" >> /var/lib/foothold/deploys.log
     exit "$result"
@@ -36,6 +40,10 @@ python3.12 -m venv "$release/.venv"
 "$release/.venv/bin/python" -m pip install --disable-pip-version-check -r "$release/apps/server/requirements.txt"
 chown -R root:root "$release"
 chmod -R u=rwX,go=rX "$release"
+if [[ -d /var/lib/foothold-sim/guard ]]; then
+    # Only these evidence leaves are writable; code and venv remain root-owned.
+    install -d -o foothold-sim -g foothold-sim -m 700 "$release/runs/server-sim" "$release/tmp/p1c/startup"
+fi
 cd "$release"
 "$release/.venv/bin/python" -m deploy.database
 "$release/.venv/bin/python" -m deploy.site
@@ -44,9 +52,12 @@ source /etc/foothold/site.env
 set +a
 valid_site "$FH_SITE" || exit 2
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+sim_manager_stop
+sim_stopped=1
 activate_release "$release"
 switched=1
 systemctl restart foothold-server
+sim_manager_start
 # reload reads site.env again; on the first deployment Caddy may not be running.
 if systemctl is-active --quiet caddy; then systemctl reload caddy; else systemctl start caddy; fi
 "$release/.venv/bin/python" -m deploy.smoke

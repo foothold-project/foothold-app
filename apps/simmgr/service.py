@@ -4,6 +4,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import logging
 import math
+import os
 from uuid import UUID
 
 from apps.contracts.models import SimWorldStart
@@ -11,6 +12,7 @@ from apps.contracts.models import SimWorldStart
 from .launcher import FakeLauncher, NativeLauncher
 from .environment import validate_control_environment
 from .native_catalogue import WorldValidationError
+from .deploy_guard import DeploymentLease
 from .preflight import ResourceGateError
 
 
@@ -37,6 +39,7 @@ class Manager:
         self.launcher = launcher if launcher is not None else (NativeLauncher(settings) if settings.real else FakeLauncher())
         if self.launcher.real != settings.real:
             raise ValueError('launcher mode mismatch')
+        self.deployment_lease = DeploymentLease(os.environ.get('FH_SIM_DEPLOY_GUARD_DIR'))
         self.lock = asyncio.Lock()
         self.world = None
         self.spawn_floor_id = None
@@ -108,6 +111,12 @@ class Manager:
         deadline = asyncio.get_running_loop().time() + self.settings.runtime_seconds
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.settings.runtime_seconds)
         try:
+            self.deployment_lease.acquire()
+        except (OSError, RuntimeError):
+            # The exclusive deployment lock rejects before creation; not a
+            # failed episode and never a reason to restart the simulator.
+            raise SimError('SIM_UNAVAILABLE', 503, {'reason': 'unknown', 'start_not_created': True}) from None
+        try:
             await self.launcher.start_world(world)
         except WorldValidationError as error:
             # Only the initial resolver rejection is proven to precede creation.
@@ -115,10 +124,12 @@ class Manager:
             if getattr(self.launcher, 'sim', None) is not None or getattr(self.launcher, 'failed', False):
                 self.failed = True
                 raise RuntimeError('world validation failed after possible launch') from error
+            self.deployment_lease.release(True)
             raise SimError(error.code, 400) from None
         except ResourceGateError:
             # Only the launcher's exact pre-creation resource gates use this
             # exception. No world/agent exists, so there is nothing to latch.
+            self.deployment_lease.release(True)
             raise SimError('SIM_UNAVAILABLE', 503,
                            {'reason': 'resources_low', 'start_not_created': True}) from None
         except BaseException:
@@ -141,6 +152,7 @@ class Manager:
                                              owner_id=row.owner, org_id=row.slot.org_id)
                 await self.launcher.close_world()
                 self.world = self.expires_at = None
+                self._release_deployment_lease()
             except Exception:
                 # A deadline is not cleanup evidence. Keep ownership and the
                 # failure latch exactly as for a failed explicit DELETE.
@@ -223,9 +235,14 @@ class Manager:
             if not getattr(self.launcher, 'failure', False):
                 self.failed = False
             self.world = self.expires_at = None
+            self._release_deployment_lease()
             if self.expiry_task and self.expiry_task is not asyncio.current_task():
                 self.expiry_task.cancel()
         return False
+
+    def _release_deployment_lease(self):
+        clean = not self.failed and not getattr(self.launcher, 'failure', False)
+        self.deployment_lease.release(clean)
 
     async def close(self):
         self.closing = True
@@ -244,6 +261,7 @@ class Manager:
         async with self.lock:
             await self.launcher.close_world()
             self.world = None
+            self._release_deployment_lease()
 
     async def listing(self, org_id):
         # Never wait behind native startup or STOP/zero/world cleanup. The

@@ -50,7 +50,7 @@ configure_repo_transport /var/lib/foothold/repo.git "$transport"
 # Public HTTPS needs no key; SSH still requires human deploy-key registration.
 install -d -m 755 /opt/foothold/deploy-tools
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
-for script in common.sh autodeploy.sh prepare-release.sh deploy.sh rollback.sh; do
+for script in common.sh autodeploy.sh prepare-release.sh deploy.sh rollback.sh sim_control.py; do
     install -o root -g root -m 644 "$script" /opt/foothold/deploy-tools/"$script"
 done
 install -o root -g root -m 644 foothold-autodeploy.service foothold-autodeploy.timer /etc/systemd/system/

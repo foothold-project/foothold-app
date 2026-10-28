@@ -1,0 +1,24 @@
+[Unit]
+Description=Foothold development simulation manager
+After=default.target
+
+[Service]
+Type=exec
+Slice=foothold-sim.slice
+WorkingDirectory=/opt/foothold/current
+EnvironmentFile=/etc/foothold-sim/manager.env
+# ExecStart fixes the guard even if EnvironmentFile contains the same key.
+Environment=FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONPATH=/opt/foothold/current/apps/agent:/opt/foothold/current
+ExecStart=/usr/bin/env FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard PYTHONPATH=/opt/foothold/current/apps/agent:/opt/foothold/current PYTHONDONTWRITEBYTECODE=1 /opt/foothold/current/.venv/bin/python -m apps.simmgr
+Restart=no
+KillMode=process
+KillSignal=SIGTERM
+SendSIGKILL=no
+TimeoutStopSec=180
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

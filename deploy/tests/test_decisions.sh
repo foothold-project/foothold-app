@@ -23,3 +23,14 @@ restore_release ''
 ln() { return 1; }
 if restore_release /opt/foothold/releases/previous; then exit 1; fi
 printf 'PASS: validation, rollback, first-deploy cleanup, activation failure\n'
+# Paired idle recovery must stop candidate manager before switching the pointer,
+# then restart API and manager from that same prior release; failures propagate.
+calls=()
+sim_manager_stop() { calls+=(sim-stop); }
+sim_manager_start() { calls+=(sim-start); }
+ln() { calls+=("ln:$*"); }
+restore_release /opt/foothold/releases/previous
+[[ ${calls[0]} == sim-stop && ${calls[3]} == 'systemctl:restart foothold-server' && ${calls[4]} == sim-start ]]
+sim_manager_start() { return 1; }
+if restore_release /opt/foothold/releases/previous; then exit 1; fi
+printf 'PASS: paired manager/API recovery ordering and failure propagation\n'
