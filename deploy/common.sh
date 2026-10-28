@@ -56,3 +56,23 @@ configure_repo_transport() {
         return 2
     fi
 }
+
+# Server sim installation provisions this directory before enabling a manager.
+# Hold fd 8 until deploy/rollback exits, including failure rollback. The manager
+# holds a shared lock for its whole lifetime, not an HTTP idle snapshot.
+take_sim_deploy_guard() {
+    local target=$1 guard=${2:-/var/lib/foothold-sim/guard} pin=${3:-/opt/foothold/sim-current/COMMIT}
+    [[ -e $guard || -L $guard ]] || return 0
+    [[ -d $guard/state && ! -L $guard/state && -d $guard && ! -L $guard && -f $guard/deploy.lock && ! -L $guard/deploy.lock ]] || return 1
+    if [[ ${FH_SIM_DEPLOY_LOCK_HELD:-} == 1 && /proc/self/fd/8 -ef $guard/deploy.lock ]]; then
+        flock -xn 8 || return 1
+    else
+        exec 8<>"$guard/deploy.lock" || return 1
+        flock -xn 8 || return 1
+    fi
+    export FH_SIM_DEPLOY_LOCK_HELD=1
+    [[ ! -e $guard/state/unproven && ! -L $guard/state/unproven ]] || return 1
+    local sim_sha
+    [[ -f $pin ]] && read -r sim_sha < "$pin" || return 1
+    valid_sha "$sim_sha" && [[ $target == "$sim_sha" ]]
+}

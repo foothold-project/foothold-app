@@ -81,4 +81,18 @@ run
 export TEST_FETCH_FAIL=0
 run
 [[ $(cat "$TEST_TRACE") == $'fetch\nfetch\nprepare\ndeploy' ]]
+# Installed simulation guard refuses before fetch/prepare and never poisons SHA.
+: > "$TEST_TRACE"
+mkdir -p "$work/foothold-sim/guard/state"
+touch "$work/foothold-sim/guard/deploy.lock" "$work/foothold-sim/guard/state/unproven"
+before=$(cat "$TEST_STATE/autodeploy.failed")
+run; empty_trace
+[[ $(cat "$TEST_STATE/autodeploy.failed") == "$before" ]]
+rm "$work/foothold-sim/guard/state/unproven"
+exec 7<>"$work/foothold-sim/guard/deploy.lock"
+flock -sn 7
+run; empty_trace
+flock -u 7
+# Missing manual pin is also refused; no fallback to the moving API SHA.
+run; empty_trace
 printf 'PASS: current, failed SHA, off, network/fetch no-change, lock, inherited lock, new SHA, prepare/deploy failures\n'

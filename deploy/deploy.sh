@@ -9,6 +9,7 @@ sha=$1
 mode=manual
 [[ ${FH_DEPLOY_MODE:-} != auto ]] || mode=auto
 take_deploy_lock || { echo 'Another deploy/rollback is running.' >&2; exit 1; }
+take_sim_deploy_guard "$1" || { echo 'Sim deployment fence refused; stop cleanly and approve the same sim SHA first.' >&2; exit 1; }
 previous=''
 if [[ -L /opt/foothold/current ]]; then previous=$(readlink -f /opt/foothold/current); fi
 switched=0

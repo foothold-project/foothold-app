@@ -2,6 +2,7 @@
 from contextlib import asynccontextmanager
 import asyncio
 import hmac
+import os
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Request
@@ -11,6 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from apps.contracts import models as C
 from .service import Manager, SimError
 from .preflight import ResourceGateError, startup_preflight
+from .deploy_guard import DeploymentLease
 from .launcher import CleanupUnconfirmed
 
 
@@ -19,14 +21,23 @@ def create_app(settings, launcher=None):
 
     @asynccontextmanager
     async def lifespan(app):
-        app.state.preflight = await asyncio.to_thread(startup_preflight, settings.real)
-        app.state.instance_id = uuid4()
-        app.state.ready = True
+        lease = DeploymentLease(os.environ.get('FH_SIM_DEPLOY_GUARD_DIR'))
+        lease.acquire()
+        clean = False
         try:
-            yield
+            app.state.preflight = await asyncio.to_thread(startup_preflight, settings.real)
+            app.state.instance_id = uuid4()
+            app.state.ready = True
+            try:
+                yield
+            finally:
+                app.state.ready = False
+                await manager.close()
+                # close_world includes the existing full native cleanup proof.
+                clean = not manager.failed and not getattr(manager.launcher, 'failure', False)
         finally:
             app.state.ready = False
-            await manager.close()
+            lease.release(clean)
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.manager = manager

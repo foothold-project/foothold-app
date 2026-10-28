@@ -6,6 +6,7 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 source ./common.sh
 valid_sha "$1" || exit 2
 take_deploy_lock || exit 1
+take_sim_deploy_guard "$1" || { echo 'Sim deployment fence refused; stop cleanly and approve the same sim SHA first.' >&2; exit 1; }
 target=$1
 release=/opt/foothold/releases/$target
 [[ -x $release/.venv/bin/uvicorn && -s $release/apps/web/dist/index.html && $(cat "$release/COMMIT") == "$1" ]] || exit 1
