@@ -1,4 +1,4 @@
-"""Optional server deployment fence. An unclean exit retains the durable latch."""
+"""Optional per-session deployment fence; unproven cleanup leaves a durable latch."""
 import fcntl
 import os
 from pathlib import Path
@@ -10,9 +10,9 @@ class DeploymentLease:
         self.fd = None
 
     def acquire(self):
-        if self.directory is None:
+        if self.directory is None or self.fd is not None:
             return
-        # Provisioned by root. Never create/replace the lock inode at runtime.
+        # Root owns the parent and lock inode. Runtime can only write state/.
         self.fd = os.open(self.directory / 'deploy.lock', os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
             fcntl.flock(self.fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
@@ -20,7 +20,7 @@ class DeploymentLease:
             os.close(fd)
         except BaseException:
             self.release(False)
-            raise RuntimeError('simulation deployment fence unavailable; manual audit required') from None
+            raise RuntimeError('simulation deployment fence unavailable') from None
 
     def release(self, clean):
         if self.fd is not None:

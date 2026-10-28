@@ -6,15 +6,19 @@ prepare=$(cd -- "$(dirname -- "$0")/.." && pwd)/prepare-release.sh
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/source/apps/server" "$work/source/apps/contracts" "$work/source/apps/web" \
+    "$work/source/apps/simmgr" "$work/source/apps/agent/tools/sim" "$work/source/apps/agent/tools/nav2" \
     "$work/source/deploy" "$work/source/mobile/sim/assets/test" "$work/bin" "$work/out" "$work/check"
 printf trusted-server > "$work/source/apps/server/marker"
+printf trusted-simmgr > "$work/source/apps/simmgr/marker"
+printf trusted-agent > "$work/source/apps/agent/tools/sim/marker"
+printf trusted-nav2 > "$work/source/apps/agent/tools/nav2/marker"
 printf trusted-contracts > "$work/source/apps/contracts/marker"
 printf trusted-deploy > "$work/source/deploy/marker"
 printf '{}' > "$work/source/apps/web/package.json"
 printf '{}' > "$work/source/mobile/sim/maps.json"
 printf placeholder > "$work/source/mobile/sim/assets/test/top.png"
 git init -q "$work/source"
-git -C "$work/source" add apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker mobile/sim/maps.json mobile/sim/assets/test/top.png
+git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker mobile/sim/maps.json mobile/sim/assets/test/top.png
 git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm fixture
 sha=$(git -C "$work/source" rev-parse HEAD)
 git clone -q --bare "$work/source" "$work/repo.git"
@@ -38,6 +42,9 @@ chmod +x "$work/bin/npm"
 tar -xzf "$work/out/$sha.tar.gz" -C "$work/check"
 [[ $(cat "$work/check/apps/server/marker") == trusted-server ]]
 [[ $(cat "$work/check/apps/contracts/marker") == trusted-contracts ]]
+[[ $(cat "$work/check/apps/simmgr/marker") == trusted-simmgr ]]
+[[ $(cat "$work/check/apps/agent/tools/sim/marker") == trusted-agent ]]
+[[ $(cat "$work/check/apps/agent/tools/nav2/marker") == trusted-nav2 ]]
 [[ $(cat "$work/check/deploy/marker") == trusted-deploy ]]
 rm "$work/out/$sha.tar.gz" "$work/out/$sha.tar.gz.sha256"
 if (cd "$work/repo.git" && TEST_LINK=1 PATH="$work/bin:$PATH" bash "$prepare" "$sha" "$work/out") > "$work/rejected" 2>&1; then

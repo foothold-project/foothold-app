@@ -23,7 +23,7 @@ autodeploy_run() (
         echo "auto: failed $sha; skipped until a new commit"; exit 0
     fi
     if ! take_sim_deploy_guard "$sha" "$state/../foothold-sim/guard"; then
-        echo 'auto: sim connected, cleanup unproven or SHA not approved; skipped'; exit 0
+        echo 'auto: sim session active or cleanup unproven; skipped'; exit 0
     fi
     # Network/fetch failures are transient; do not poison this deployment SHA.
     if ! git --git-dir="$state/repo.git" fetch --no-tags origin "$sha" >/dev/null 2>&1; then

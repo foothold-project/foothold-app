@@ -53,32 +53,111 @@ def test_deploy_blocks_manager(tmp_path):
         os.close(fd)
 
 
-@pytest.mark.parametrize('failure', ['none', 'startup', 'cleanup'])
-def test_api_lifecycle_retains_latch_on_unproven_cleanup(tmp_path, monkeypatch, failure):
-    from fastapi.testclient import TestClient
-    from apps.simmgr.api import create_app
-    from apps.simmgr.launcher import FakeLauncher
-    from apps.simmgr.tests.test_manager import settings
+def provision(tmp_path, monkeypatch):
     (tmp_path / 'deploy.lock').touch()
     (tmp_path / 'state').mkdir()
     monkeypatch.setenv('FH_SIM_DEPLOY_GUARD_DIR', str(tmp_path))
-    def fail(*args):
-        raise RuntimeError('unproven')
-    if failure == 'startup':
-        monkeypatch.setattr('apps.simmgr.api.startup_preflight', fail)
+
+
+def test_idle_session_cleanup_and_next_sha(tmp_path, monkeypatch):
+    import asyncio
+    from uuid import uuid4
+    from apps.simmgr.service import Manager
+    from test_manager import settings
+    provision(tmp_path, monkeypatch)
+    async def run():
+        manager = Manager(settings())
+        assert contender(tmp_path) == 0  # idle manager admits deployment
+        slot = next(iter(manager.settings.slots.values()))
+        await manager.add('a', slot.robot_id, str(uuid4()), slot.org_id, 'x'*32, 1)
+        assert contender(tmp_path) != 0
+        assert (tmp_path / 'state/unproven').exists()
+        await manager.close()
+        assert contender(tmp_path) == 0
+        assert not (tmp_path / 'state/unproven').exists()
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize('failure', ['manager', 'launcher', 'cleanup'])
+def test_session_failure_never_clears_latch(tmp_path, monkeypatch, failure):
+    import asyncio
+    from apps.simmgr.launcher import FakeLauncher
+    from apps.simmgr.service import Manager
+    from test_manager import settings
+    provision(tmp_path, monkeypatch)
     class Launcher(FakeLauncher):
+        failure = False
         async def close_world(self):
             if failure == 'cleanup':
-                fail()
-    app = create_app(settings(), Launcher())
-    def run():
-        with TestClient(app):
-            assert contender(tmp_path) != 0
-            assert (tmp_path / 'state/unproven').exists()
-    if failure == 'none':
-        run()
-    else:
-        with pytest.raises(RuntimeError, match='unproven'):
-            run()
-    assert (tmp_path / 'state/unproven').exists() == (failure != 'none')
-    assert contender(tmp_path) == 0
+                raise RuntimeError('unproven')
+    async def run():
+        launcher = Launcher()
+        manager = Manager(settings(), launcher)
+        await manager.start_world('a')
+        manager.failed = failure == 'manager'
+        launcher.failure = failure == 'launcher'
+        if failure == 'cleanup':
+            with pytest.raises(RuntimeError):
+                await manager.close()
+            manager.deployment_lease.release(False)  # process exit retains latch
+        else:
+            await manager.close()
+        assert (tmp_path / 'state/unproven').exists()
+        assert contender(tmp_path) == 0
+    asyncio.run(run())
+
+
+def test_precreation_resource_rejection_releases_lease(tmp_path, monkeypatch):
+    import asyncio
+    from apps.simmgr.launcher import FakeLauncher
+    from apps.simmgr.preflight import ResourceGateError
+    from apps.simmgr.service import Manager, SimError
+    from test_manager import settings
+    provision(tmp_path, monkeypatch)
+    class Launcher(FakeLauncher):
+        reject = True
+        async def start_world(self, world):
+            if self.reject:
+                raise ResourceGateError()
+    async def run():
+        launcher = Launcher()
+        manager = Manager(settings(), launcher)
+        with pytest.raises(SimError) as error:
+            await manager.start_world('a')
+        assert error.value.detail['start_not_created'] is True
+        assert not manager.failed and manager.world is None
+        assert not (tmp_path / 'state/unproven').exists()
+        assert contender(tmp_path) == 0
+        launcher.reject = False
+        await manager.start_world('a')
+        assert contender(tmp_path) != 0
+        await manager.close()
+    asyncio.run(run())
+
+
+def test_deployment_refusal_does_not_latch_manager(tmp_path, monkeypatch):
+    import asyncio
+    from apps.simmgr.service import Manager, SimError
+    from test_manager import settings
+    provision(tmp_path, monkeypatch)
+    fd = os.open(tmp_path / 'deploy.lock', os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    async def run():
+        manager = Manager(settings())
+        with pytest.raises(SimError):
+            await manager.start_world('a')
+        assert not manager.failed and not manager.launcher.events
+        assert not (tmp_path / 'state/unproven').exists()
+    try:
+        asyncio.run(run())
+    finally:
+        os.close(fd)
+
+
+def test_user_unit_fixes_guard_after_private_env():
+    from pathlib import Path
+    unit = Path('deploy/foothold-simmgr.service').read_text()
+    assert unit.index('EnvironmentFile=') < unit.index('Environment=FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard')
+    assert 'Restart=no' in unit
+    assert 'ExecStart=/usr/bin/env FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard ' in unit
+    assert '/opt/foothold/current/.venv/bin/python -m apps.simmgr' in unit

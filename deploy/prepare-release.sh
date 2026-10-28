@@ -41,12 +41,12 @@ if [[ $EUID == 0 ]]; then
         --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
         --property="ReadWritePaths=$build/apps/web" \
         /usr/bin/env -i PATH=/usr/bin:/bin HOME="$build/apps/web" \
-        /usr/bin/bash -c 'cd "$1/apps/web" && npm ci --ignore-scripts && npm run build' bash "$build" 9>&-
+        /usr/bin/bash -c 'cd "$1/apps/web" && npm ci --ignore-scripts && npm run build' bash "$build" 9>&- 8>&-
 else
-    (cd "$build/apps/web" && npm ci --ignore-scripts && npm run build)
+    (cd "$build/apps/web" && npm ci --ignore-scripts && npm run build) 8>&- 9>&-
 fi
 # Root constructs trusted code afresh only after all sandbox processes have exited.
-git --git-dir="$repo" archive "$sha" apps/server apps/contracts deploy | tar -x -C "$work"
+git --git-dir="$repo" archive "$sha" apps/server apps/contracts apps/simmgr apps/agent deploy | tar -x -C "$work"
 # Reject replaced parent paths and all symlinks/special files before privileged copy.
 for directory in "$build/apps" "$build/apps/web" "$build/apps/web/dist"; do
     [[ -d $directory && ! -L $directory ]] || { echo 'Invalid web build directory.' >&2; exit 1; }
@@ -55,7 +55,7 @@ done
 [[ -s $build/apps/web/dist/index.html ]] || exit 1
 # The release directory is root-owned and never inside the writable build tree.
 mkdir -p "$work/release/apps/web"
-cp -a "$work/apps/server" "$work/apps/contracts" "$work/release/apps/"
+cp -a "$work/apps/server" "$work/apps/contracts" "$work/apps/simmgr" "$work/apps/agent" "$work/release/apps/"
 rm -rf "$work/release/apps/server/tests" "$work/release/apps/server/tools" "$work/release/apps/contracts/tests"
 cp -a "$build/apps/web/dist" "$work/release/apps/web/"
 cp -a "$work/deploy" "$work/release/"

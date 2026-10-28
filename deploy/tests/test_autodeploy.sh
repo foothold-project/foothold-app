@@ -93,6 +93,7 @@ exec 7<>"$work/foothold-sim/guard/deploy.lock"
 flock -sn 7
 run; empty_trace
 flock -u 7
-# Missing manual pin is also refused; no fallback to the moving API SHA.
-run; empty_trace
+# Idle manager must allow the new SHA without a manual pin.
+run
+[[ $(cat "$TEST_TRACE") == $'fetch\nprepare\ndeploy' ]]
 printf 'PASS: current, failed SHA, off, network/fetch no-change, lock, inherited lock, new SHA, prepare/deploy failures\n'

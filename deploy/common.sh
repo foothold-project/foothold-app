@@ -12,10 +12,9 @@ activate_release() {
 restore_release() {
     local previous=$1
     if [[ -n $previous ]]; then
-        activate_release "$previous" && systemctl restart foothold-server
+        sim_manager_stop && activate_release "$previous" && systemctl restart foothold-server && sim_manager_start
     else
-        rm -f /opt/foothold/current
-        systemctl stop foothold-server
+        sim_manager_stop && rm -f /opt/foothold/current && systemctl stop foothold-server
     fi
 }
 
@@ -59,9 +58,9 @@ configure_repo_transport() {
 
 # Server sim installation provisions this directory before enabling a manager.
 # Hold fd 8 until deploy/rollback exits, including failure rollback. The manager
-# holds a shared lock for its whole lifetime, not an HTTP idle snapshot.
+# holds a shared lock from pre-creation through full cleanup of each session.
 take_sim_deploy_guard() {
-    local target=$1 guard=${2:-/var/lib/foothold-sim/guard} pin=${3:-/opt/foothold/sim-current/COMMIT}
+    local target=$1 guard=${2:-/var/lib/foothold-sim/guard}
     [[ -e $guard || -L $guard ]] || return 0
     [[ -d $guard/state && ! -L $guard/state && -d $guard && ! -L $guard && -f $guard/deploy.lock && ! -L $guard/deploy.lock ]] || return 1
     if [[ ${FH_SIM_DEPLOY_LOCK_HELD:-} == 1 && /proc/self/fd/8 -ef $guard/deploy.lock ]]; then
@@ -72,7 +71,15 @@ take_sim_deploy_guard() {
     fi
     export FH_SIM_DEPLOY_LOCK_HELD=1
     [[ ! -e $guard/state/unproven && ! -L $guard/state/unproven ]] || return 1
-    local sim_sha
-    [[ -f $pin ]] && read -r sim_sha < "$pin" || return 1
-    valid_sha "$sim_sha" && [[ $target == "$sim_sha" ]]
+    valid_sha "$target"
+}
+
+# Runs under the held exclusive guard; idle admission is fenced until completion.
+sim_manager_stop() {
+    [[ -d /var/lib/foothold-sim/guard ]] || return 0
+    python3 "$(dirname -- "${BASH_SOURCE[0]}")/sim_control.py" stop
+}
+sim_manager_start() {
+    [[ -d /var/lib/foothold-sim/guard ]] || return 0
+    python3 "$(dirname -- "${BASH_SOURCE[0]}")/sim_control.py" start
 }
