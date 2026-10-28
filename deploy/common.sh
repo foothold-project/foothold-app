@@ -5,7 +5,7 @@ valid_site() { [[ ${1:-} =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && $1 == *.* && $1 
 needs_rollback() { (( $1 != 0 && $2 == 1 )); }
 activate_release() {
     local target=$1
-    ln -s "$target" /opt/foothold/current.next &&
+    ln -sfn "$target" /opt/foothold/current.next &&
     mv -Tf /opt/foothold/current.next /opt/foothold/current
 }
 # Deliberately no database downgrade. A failed first deploy has no fallback.

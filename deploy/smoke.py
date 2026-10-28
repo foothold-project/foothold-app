@@ -27,14 +27,14 @@ def main():
     site = private_env(Path('/etc/foothold/site.env'))['FH_SITE']
     origin = 'https://' + site
     jar = http.cookiejar.CookieJar()
-    http = build_opener(ProxyHandler({}), NoRedirect(), HTTPCookieProcessor(jar))
+    opener = build_opener(ProxyHandler({}), NoRedirect(), HTTPCookieProcessor(jar))
     # Retry only readiness. Login is attempted once to avoid failure-rate floods.
     for attempt in range(20):
         try:
-            with http.open(origin + '/', timeout=5) as response:
+            with opener.open(origin + '/', timeout=5) as response:
                 assert response.status == 200 and b'<html' in response.read(65536).lower()
             try:
-                http.open(origin + '/api/v1/auth/session', timeout=5)
+                opener.open(origin + '/api/v1/auth/session', timeout=5)
             except HTTPError as error:
                 assert error.code == 401
             else:
@@ -56,7 +56,7 @@ def main():
                                            'password': admin['FH_BOOTSTRAP_PASSWORD'],
                                            'client': 'web', 'device_label': 'deploy-check'}).encode(),
                           headers={'Content-Type': 'application/json', 'Origin': origin})
-        with http.open(request, timeout=10) as response:
+        with opener.open(request, timeout=10) as response:
             csrf = json.load(response)['csrf_token']
         cookie = next(c.value for c in jar if c.name == 'fh_s')
     else:
@@ -71,7 +71,7 @@ def main():
         if owned_session and csrf:
             request = Request(origin + '/api/v1/auth/logout', method='POST',
                               headers={'Origin': origin, 'X-FH-CSRF': csrf})
-            with http.open(request, timeout=10) as response:
+            with opener.open(request, timeout=10) as response:
                 assert response.status == 204
 
 
