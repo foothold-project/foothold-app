@@ -1,0 +1,28 @@
+[
+  {
+    "id": "short-loop",
+    "name": "요소 코스 짧은 한 바퀴 · 초안",
+    "waypoints": [
+      {
+        "x": 0.8,
+        "y": 0.0,
+        "mission_name": "element_course-f1-순찰-1"
+      },
+      {
+        "x": 0.8,
+        "y": 0.8,
+        "mission_name": "element_course-f1-순찰-2"
+      },
+      {
+        "x": 0.0,
+        "y": 0.8,
+        "mission_name": "element_course-f1-순찰-3"
+      },
+      {
+        "x": 0.0,
+        "y": 0.0,
+        "mission_name": "element_course-f1-순찰-4"
+      }
+    ]
+  }
+]

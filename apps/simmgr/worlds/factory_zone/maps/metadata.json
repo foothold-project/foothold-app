@@ -1,0 +1,63 @@
+{
+  "generator_version": "collision-map/1",
+  "generator_sha256": "b02389779320b8f9c34f3ae46500d80829d67a55b7b960392f674d5eaef21e01",
+  "world_sha256": "f7e1b85d42f58f42c8d340b7750c9fe07eaee9ea5c8e2ff4076ae4c7b70103d5",
+  "dependency_sha256": "3b6e4ae1ebb7f338d8f6149f0e4a44389c472e7edf602df5588ccc306766ef72",
+  "dependencies": {
+    "factory_zone.sdf": "f7e1b85d42f58f42c8d340b7750c9fe07eaee9ea5c8e2ff4076ae4c7b70103d5",
+    "meshes/4cec3862f3279b0b.obj": "9ea8847eb9d1e4397cc022b3d59a0c31842acab0f102bb35e00457ed33d61d64",
+    "meshes/6602321f9711837b.obj": "2d8009a2c0e0b7ad37a1c306de2a8af5caaa2d5d5da6a4e6e45795ae5b19022a"
+  },
+  "resolution": 0.05,
+  "origin": [
+    -5.05,
+    -19.05,
+    0.0
+  ],
+  "size_pixels": [
+    802,
+    882
+  ],
+  "size_m": [
+    40.1,
+    44.1
+  ],
+  "body_band_above_floor_m": [
+    0.05,
+    0.6
+  ],
+  "support_tolerance_m": 0.005,
+  "support_samples": "four corners and centre; no support remains unknown",
+  "open_mesh_policy": "occupied AABB in body band; never supplies support",
+  "pixel_values": {
+    "occupied": 0,
+    "free": 254,
+    "unknown": 205
+  },
+  "pixel_to_world": "x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution",
+  "floors": {
+    "f1": {
+      "floor_z": 0.0,
+      "image": "f1.png",
+      "yaml": "f1.yaml",
+      "image_sha256": "d3daa2c7c767ce7d7d58b31c44c703b2d1b9f79b2179b9f908d96ba315641a2d",
+      "counts": {
+        "occupied": 64076,
+        "free": 208866,
+        "unknown": 434422
+      }
+    },
+    "f2": {
+      "floor_z": 2.0,
+      "image": "f2.png",
+      "yaml": "f2.yaml",
+      "image_sha256": "a28e13e398c5984c5a315c12182593e4552324adb7bfec0fcef5438a73b2425d",
+      "counts": {
+        "occupied": 41237,
+        "free": 43806,
+        "unknown": 622321
+      }
+    }
+  },
+  "upstream_revision": "team-draft-2026-10-26"
+}

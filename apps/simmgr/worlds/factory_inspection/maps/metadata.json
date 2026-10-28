@@ -1,0 +1,50 @@
+{
+  "generator_version": "collision-map/1",
+  "generator_sha256": "b02389779320b8f9c34f3ae46500d80829d67a55b7b960392f674d5eaef21e01",
+  "world_sha256": "8b139aa1aa679356d07d317aa2c443c365194a6473c4db17bca9c6b5e665982c",
+  "dependency_sha256": "a81151268051980d43840959ff6d011f7f4f417fb263181653067f0f15697267",
+  "dependencies": {
+    "factory_inspection.sdf": "8b139aa1aa679356d07d317aa2c443c365194a6473c4db17bca9c6b5e665982c"
+  },
+  "resolution": 0.05,
+  "origin": [
+    -0.05,
+    -0.05,
+    0.0
+  ],
+  "size_pixels": [
+    1002,
+    1002
+  ],
+  "size_m": [
+    50.1,
+    50.1
+  ],
+  "body_band_above_floor_m": [
+    0.05,
+    0.6
+  ],
+  "support_tolerance_m": 0.005,
+  "support_samples": "four corners and centre; no support remains unknown",
+  "open_mesh_policy": "occupied AABB in body band; never supplies support",
+  "pixel_values": {
+    "occupied": 0,
+    "free": 254,
+    "unknown": 205
+  },
+  "pixel_to_world": "x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution",
+  "floors": {
+    "f1": {
+      "floor_z": 0.0,
+      "image": "f1.png",
+      "yaml": "f1.yaml",
+      "image_sha256": "8669ef9e9300c7a6372d02b230aaee98f984337bac9cebe5b1316be1e7d61721",
+      "counts": {
+        "occupied": 127321,
+        "free": 872679,
+        "unknown": 4004
+      }
+    }
+  },
+  "upstream_revision": "team-draft-2026-10-26"
+}

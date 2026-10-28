@@ -28,7 +28,9 @@ for (const { id } of read('../sim/maps.json')) {
     const runner = createScenarioRunner(sim, () => false);
     runner.start(s.points);
     let yaw = 0, last = 0;
-    for (let k = 0; k < 10000 && runner.active; k++) {
+    const distance = s.points.reduce((sum, p, i) => { const q = i ? s.points[i - 1] : { x: map.spawn_xyyaw[0], y: map.spawn_xyyaw[1] }; return sum + Math.hypot(p.x - q.x, p.y - q.y); }, 0);
+    const limit = Math.max(10000, Math.ceil(distance / MAX_VX / 0.02) * 3);
+    for (let k = 0; k < limit && runner.active; k++) {
       runner.tick();
       assert.ok(runner.index >= last && runner.index <= last + 1, 'waypoints must advance in order'); last = runner.index;
       const [vx, vy, wz] = sim.cmd;

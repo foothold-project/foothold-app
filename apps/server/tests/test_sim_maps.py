@@ -275,3 +275,28 @@ def test_explicit_management_command_is_the_only_trigger(maps, seeded, world_fol
     assert len(json.loads(first.stdout)['registered_versions']) == 1
     assert json.loads(second.stdout)['registered_versions'] == []
     assert counts(http) == [1, 1, 1, 1, 1, 0, 12, 12, 3, 3]
+
+
+def test_factory_catalogue_imports_all_floors_and_presets(seeded, tmp_path):
+    """Full real catalogue, temporary PostgreSQL only; repeat import is a no-op."""
+    engine = create_engine(seeded['urls']['migrate'])
+    try:
+        prepared = load_worlds(SOURCE)
+        keys = {e['world_id']+'/'+e['floor_id'] for e, *_ in prepared}
+        factory_keys = {'factory_inspection/f1', 'factory_inspection_alt1/f1',
+                        'factory_zone/f1', 'factory_zone/f2', 'element_course/f1'}
+        assert factory_keys <= keys
+        for entry, metadata, png, _, _, _ in prepared:
+            if entry['world_id'].startswith(('factory_', 'element_')):
+                x, y, _ = entry['spawn_xyyaw']
+                check_clearance(png, metadata, [{'waypoints': [{'x': x, 'y': y}]}])
+        with Session(engine) as db, db.begin():
+            changed = sync_worlds(db, seeded['org'], seeded['users']['admin'], SOURCE, tmp_path)
+            assert len(changed) == len(prepared)
+        with Session(engine) as db, db.begin():
+            assert sync_worlds(db, seeded['org'], seeded['users']['admin'], SOURCE, tmp_path) == []
+            floors = list(db.scalars(select(Floor).where(Floor.sim_floor_id.in_(['f1', 'f2']))))
+            assert len(floors) == len(prepared)
+            assert any(f.sim_floor_id == 'f2' and f.floor_z == 2 for f in floors)
+    finally:
+        engine.dispose()

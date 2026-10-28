@@ -1,0 +1,5377 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.9">
+  <world name="element_course">
+    <physics type="ignored">
+      <max_step_size>0.004</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <scene>
+      <ambient>0.38 0.38 0.40 1</ambient>
+      <background>0.62 0.72 0.85 1</background>
+      <sky />
+      <shadows>true</shadows>
+    </scene>
+    <light type="directional" name="sun">
+      <cast_shadows>true</cast_shadows>
+      <pose>0 0 60 0 0 0</pose>
+      <diffuse>1 0.96 0.88 1</diffuse>
+      <specular>0.3 0.3 0.3 1</specular>
+      <direction>-0.45 0.4 -0.75</direction>
+    </light>
+    <model name="element_course">
+      <static>true</static>
+      <link name="ground_1">
+        <pose>15.000 7.500 -0.100 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>38.000 24.000 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/39244ec8de406b91.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_2">
+        <pose>14.500 -1.200 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_3">
+        <pose>14.500 1.200 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_sign_4">
+        <pose>-1.200 1.500 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_post_5">
+        <pose>-1.200 1.500 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_6">
+        <pose>14.500 1.800 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_7">
+        <pose>14.500 4.200 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_sign_8">
+        <pose>-1.200 4.500 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_post_9">
+        <pose>-1.200 4.500 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_10">
+        <pose>14.500 4.800 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_11">
+        <pose>14.500 7.200 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_sign_12">
+        <pose>-1.200 7.500 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_post_13">
+        <pose>-1.200 7.500 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_14">
+        <pose>14.500 7.800 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_15">
+        <pose>14.500 10.200 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_sign_16">
+        <pose>-1.200 10.500 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_post_17">
+        <pose>-1.200 10.500 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_18">
+        <pose>14.500 10.800 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_19">
+        <pose>14.500 13.200 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_sign_20">
+        <pose>-1.200 13.500 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_post_21">
+        <pose>-1.200 13.500 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_22">
+        <pose>14.500 13.800 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="mark_23">
+        <pose>14.500 16.200 0.008 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6029f67c0ad3b185.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_sign_24">
+        <pose>-1.200 16.500 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lane_post_25">
+        <pose>-1.200 16.500 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="cable_26">
+        <pose>6.000 0.000 0.015 0.0000 1.5708 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.030 0.030 2.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/357ce7285ebd36b1.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.080 0.080 0.090 1</ambient>
+            <diffuse>0.080 0.080 0.090 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="cable_27">
+        <pose>6.800 0.000 0.015 0.0000 1.5708 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.030 0.030 2.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/357ce7285ebd36b1.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.900 0.350 0.050 1</ambient>
+            <diffuse>0.900 0.350 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_28">
+        <pose>5.400 1.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_29">
+        <pose>5.400 1.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="cable_30">
+        <pose>13.000 0.000 0.025 0.0000 1.5708 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.050 0.050 2.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fe1381a483af5ab6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.080 0.080 0.090 1</ambient>
+            <diffuse>0.080 0.080 0.090 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="cable_31">
+        <pose>13.800 0.000 0.025 0.0000 1.5708 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.050 0.050 2.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fe1381a483af5ab6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.900 0.350 0.050 1</ambient>
+            <diffuse>0.900 0.350 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_32">
+        <pose>12.400 1.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_33">
+        <pose>12.400 1.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="cable_34">
+        <pose>20.000 0.000 0.040 0.0000 1.5708 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.080 0.080 2.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/9f27717839b666bd.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.080 0.080 0.090 1</ambient>
+            <diffuse>0.080 0.080 0.090 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="cable_35">
+        <pose>20.800 0.000 0.040 0.0000 1.5708 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.080 0.080 2.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/9f27717839b666bd.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.900 0.350 0.050 1</ambient>
+            <diffuse>0.900 0.350 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_36">
+        <pose>19.400 1.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_37">
+        <pose>19.400 1.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_38">
+        <pose>6.000 3.000 0.025 0.0000 0.0000 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>2.400 0.100 0.050</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6f89cfaa03dff877.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.350 0.370 1</ambient>
+            <diffuse>0.350 0.350 0.370 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_39">
+        <pose>5.400 4.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_40">
+        <pose>5.400 4.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_41">
+        <pose>13.000 3.000 0.050 0.0000 0.0000 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>2.400 0.100 0.100</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/ac06d84f7420131f.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.350 0.370 1</ambient>
+            <diffuse>0.350 0.350 0.370 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_42">
+        <pose>12.400 4.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_43">
+        <pose>12.400 4.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_44">
+        <pose>20.000 3.000 0.075 0.0000 0.0000 1.5708</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>2.400 0.100 0.150</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/9e9adda4b9fada46.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.350 0.370 1</ambient>
+            <diffuse>0.350 0.350 0.370 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_45">
+        <pose>19.400 4.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_46">
+        <pose>19.400 4.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_47">
+        <pose>7.418 6.000 0.152 0.0000 -0.1745 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>2.879 2.400 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/139a54b3b69dfcaa.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_48">
+        <pose>7.418 4.860 0.254 0.0000 -0.1745 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6578fbf3d14f9d71.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_49">
+        <pose>7.418 7.140 0.254 0.0000 -0.1745 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6578fbf3d14f9d71.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="plateau_50">
+        <pose>9.586 6.000 0.250 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.500 2.400 0.500</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/0f4da93a6c92d3e0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_51">
+        <pose>11.753 6.000 0.152 0.0000 -0.1745 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>2.879 2.400 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/139a54b3b69dfcaa.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_52">
+        <pose>11.753 7.140 0.254 0.0000 -0.1745 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6578fbf3d14f9d71.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_53">
+        <pose>11.753 4.860 0.254 0.0000 -0.1745 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/6578fbf3d14f9d71.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_54">
+        <pose>5.400 7.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_55">
+        <pose>5.400 7.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_56">
+        <pose>13.933 6.000 0.153 0.0000 -0.2618 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.932 2.400 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/d9a6567b967dbc0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_57">
+        <pose>13.933 4.860 0.254 0.0000 -0.2618 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/00684b43423c82c9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_58">
+        <pose>13.933 7.140 0.254 0.0000 -0.2618 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/00684b43423c82c9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="plateau_59">
+        <pose>15.616 6.000 0.250 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.500 2.400 0.500</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/0f4da93a6c92d3e0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_60">
+        <pose>17.299 6.000 0.153 0.0000 -0.2618 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.932 2.400 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/d9a6567b967dbc0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_61">
+        <pose>17.299 7.140 0.254 0.0000 -0.2618 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/00684b43423c82c9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_62">
+        <pose>17.299 4.860 0.254 0.0000 -0.2618 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/00684b43423c82c9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_63">
+        <pose>12.400 7.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_64">
+        <pose>12.400 7.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_65">
+        <pose>20.687 6.000 0.156 0.0000 -0.3491 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.462 2.400 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/58d9fa086b336fbb.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_66">
+        <pose>20.687 4.860 0.254 0.0000 -0.3491 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b0c032c5b02f8c07.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_67">
+        <pose>20.687 7.140 0.254 0.0000 -0.3491 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b0c032c5b02f8c07.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="plateau_68">
+        <pose>22.124 6.000 0.250 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.500 2.400 0.500</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/0f4da93a6c92d3e0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_69">
+        <pose>23.561 6.000 0.156 0.0000 -0.3491 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.462 2.400 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/58d9fa086b336fbb.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.600 0.600 0.580 1</ambient>
+            <diffuse>0.600 0.600 0.580 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_70">
+        <pose>23.561 7.140 0.254 0.0000 -0.3491 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b0c032c5b02f8c07.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="ramp_edge_71">
+        <pose>23.561 4.860 0.254 0.0000 -0.3491 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b0c032c5b02f8c07.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_72">
+        <pose>19.400 7.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_73">
+        <pose>19.400 7.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_74">
+        <pose>6.150 9.000 0.050 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.100</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/c84ae72629745822.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.055 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_75">
+        <pose>6.450 9.000 0.100 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/ad2690b6c91baa95.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.105 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_76">
+        <pose>6.750 9.000 0.150 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.300</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/220684e284a986d8.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.155 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_77">
+        <pose>7.050 9.000 0.200 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/523b2d00b46d9c99.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.205 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_78">
+        <pose>7.350 9.000 0.250 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.500</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/292fb44781c7f846.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.255 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_79">
+        <pose>6.000 7.930 0.600 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_80">
+        <pose>7.500 7.930 1.000 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_81">
+        <pose>6.750 7.930 1.300 0.0000 1.3102 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_82">
+        <pose>6.750 7.930 0.800 0.0000 1.3102 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_83">
+        <pose>6.000 10.070 0.600 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_84">
+        <pose>7.500 10.070 1.000 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_85">
+        <pose>6.750 10.070 1.300 0.0000 1.3102 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_86">
+        <pose>6.750 10.070 0.800 0.0000 1.3102 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="landing_87">
+        <pose>8.100 9.000 0.250 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.200 2.200 0.500</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/9512318b2036ef57.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_88">
+        <pose>10.050 9.000 0.050 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.100</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/c84ae72629745822.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.055 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_89">
+        <pose>9.750 9.000 0.100 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/ad2690b6c91baa95.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.105 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_90">
+        <pose>9.450 9.000 0.150 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.300</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/220684e284a986d8.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.155 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_91">
+        <pose>9.150 9.000 0.200 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/523b2d00b46d9c99.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.205 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_92">
+        <pose>8.850 9.000 0.250 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.500</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/292fb44781c7f846.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.255 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_93">
+        <pose>10.200 10.070 0.600 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_94">
+        <pose>8.700 10.070 1.000 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_95">
+        <pose>9.450 10.070 1.300 0.0000 1.3102 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_96">
+        <pose>9.450 10.070 0.800 0.0000 1.3102 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_97">
+        <pose>10.200 7.930 0.600 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_98">
+        <pose>8.700 7.930 1.000 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_99">
+        <pose>9.450 7.930 1.300 0.0000 1.3102 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_100">
+        <pose>9.450 7.930 0.800 0.0000 1.3102 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a82a276a688cd7b9.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_101">
+        <pose>5.400 10.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_102">
+        <pose>5.400 10.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_103">
+        <pose>13.150 9.000 0.065 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.130</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/719f3e435c32c6f5.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.070 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_104">
+        <pose>13.450 9.000 0.130 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.260</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/391b26910b753ef4.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.135 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_105">
+        <pose>13.750 9.000 0.195 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.390</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b0229608bb93df19.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.200 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_106">
+        <pose>14.050 9.000 0.260 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.520</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a74ed4ecc179e7cc.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.265 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_107">
+        <pose>13.000 7.930 0.630 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_108">
+        <pose>14.200 7.930 1.020 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_109">
+        <pose>13.600 7.930 1.325 0.0000 1.2566 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_110">
+        <pose>13.600 7.930 0.825 0.0000 1.2566 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_111">
+        <pose>13.000 10.070 0.630 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_112">
+        <pose>14.200 10.070 1.020 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_113">
+        <pose>13.600 10.070 1.325 0.0000 1.2566 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_114">
+        <pose>13.600 10.070 0.825 0.0000 1.2566 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="landing_115">
+        <pose>14.800 9.000 0.260 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.200 2.200 0.520</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/bd2035527572562c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_116">
+        <pose>16.450 9.000 0.065 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.130</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/719f3e435c32c6f5.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.070 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_117">
+        <pose>16.150 9.000 0.130 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.260</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/391b26910b753ef4.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.135 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_118">
+        <pose>15.850 9.000 0.195 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.390</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b0229608bb93df19.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.200 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_119">
+        <pose>15.550 9.000 0.260 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.520</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a74ed4ecc179e7cc.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.265 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_120">
+        <pose>16.600 10.070 0.630 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_121">
+        <pose>15.400 10.070 1.020 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_122">
+        <pose>16.000 10.070 1.325 0.0000 1.2566 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_123">
+        <pose>16.000 10.070 0.825 0.0000 1.2566 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_124">
+        <pose>16.600 7.930 0.630 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_125">
+        <pose>15.400 7.930 1.020 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_126">
+        <pose>16.000 7.930 1.325 0.0000 1.2566 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_127">
+        <pose>16.000 7.930 0.825 0.0000 1.2566 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/49310ae1b3954e90.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_128">
+        <pose>12.400 10.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_129">
+        <pose>12.400 10.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_130">
+        <pose>20.150 9.000 0.080 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.160</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/0d8f7fe895475b7c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.085 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_131">
+        <pose>20.450 9.000 0.160 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.320</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/2b2fa381d54d571b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.165 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_132">
+        <pose>20.750 9.000 0.240 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.480</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/ecf0a4479b238b35.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.245 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_133">
+        <pose>20.000 7.930 0.660 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_134">
+        <pose>20.900 7.930 0.980 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_135">
+        <pose>20.450 7.930 1.320 0.0000 1.2292 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_136">
+        <pose>20.450 7.930 0.820 0.0000 1.2292 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_137">
+        <pose>20.000 10.070 0.660 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_138">
+        <pose>20.900 10.070 0.980 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_139">
+        <pose>20.450 10.070 1.320 0.0000 1.2292 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_140">
+        <pose>20.450 10.070 0.820 0.0000 1.2292 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="landing_141">
+        <pose>21.500 9.000 0.240 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>1.200 2.200 0.480</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b69b542025de9603.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_142">
+        <pose>22.850 9.000 0.080 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.160</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/0d8f7fe895475b7c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.085 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_143">
+        <pose>22.550 9.000 0.160 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.320</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/2b2fa381d54d571b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.165 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_144">
+        <pose>22.250 9.000 0.240 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 2.200 0.480</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/ecf0a4479b238b35.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.245 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/c95cababb49c5f77.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_145">
+        <pose>23.000 10.070 0.660 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_146">
+        <pose>22.100 10.070 0.980 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_147">
+        <pose>22.550 10.070 1.320 0.0000 1.2292 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_148">
+        <pose>22.550 10.070 0.820 0.0000 1.2292 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_149">
+        <pose>23.000 7.930 0.660 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_150">
+        <pose>22.100 7.930 0.980 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_151">
+        <pose>22.550 7.930 1.320 0.0000 1.2292 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_152">
+        <pose>22.550 7.930 0.820 0.0000 1.2292 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e2b3698339e54ea6.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_153">
+        <pose>19.400 10.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_154">
+        <pose>19.400 10.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="gravel_155">
+        <pose>6.000 10.800 0.000 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <mesh>
+              <uri>meshes/315cc76bb308787d.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/315cc76bb308787d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.620 0.600 0.560 1</ambient>
+            <diffuse>0.620 0.600 0.560 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_156">
+        <pose>5.400 13.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_157">
+        <pose>5.400 13.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="gravel_158">
+        <pose>13.000 10.800 0.000 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <mesh>
+              <uri>meshes/b3981b3fe1aac11a.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b3981b3fe1aac11a.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.620 0.600 0.560 1</ambient>
+            <diffuse>0.620 0.600 0.560 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_159">
+        <pose>12.400 13.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_160">
+        <pose>12.400 13.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="broken_161">
+        <pose>20.000 10.800 0.000 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <mesh>
+              <uri>meshes/d7ebc6b73d8f6a41.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/d7ebc6b73d8f6a41.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.780 0.760 0.720 1</ambient>
+            <diffuse>0.780 0.760 0.720 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_162">
+        <pose>19.400 13.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_163">
+        <pose>19.400 13.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_164">
+        <pose>4.150 15.000 0.067 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.133</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/ac7e77b583448e7b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.072 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_165">
+        <pose>4.450 15.000 0.133 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.267</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/2f777834c6b02a53.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.138 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_166">
+        <pose>4.750 15.000 0.200 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/bf851c9c8396e5cf.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.205 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_167">
+        <pose>5.050 15.000 0.267 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.533</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/7c493d728d344c8b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.272 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_168">
+        <pose>5.350 15.000 0.333 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.666</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/c7ae4be235b5d85a.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.338 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_169">
+        <pose>5.650 15.000 0.400 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.800</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a64930cad5a83fd0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.405 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_170">
+        <pose>5.950 15.000 0.467 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.933</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/55cc90feb8add816.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.472 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_171">
+        <pose>6.250 15.000 0.533 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.066</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/794578408b774b2c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.538 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_172">
+        <pose>6.550 15.000 0.600 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/da3ca4d915497d01.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.605 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_173">
+        <pose>6.850 15.000 0.666 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.333</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b848f02f02d99bba.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.671 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_174">
+        <pose>7.150 15.000 0.733 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.466</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1f7664fc334b35bd.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.738 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_175">
+        <pose>7.450 15.000 0.800 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.600</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/74b3c3388d7ae814.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.805 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_176">
+        <pose>7.750 15.000 0.866 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.733</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/f34c0d615c1dc7db.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.871 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_177">
+        <pose>8.050 15.000 0.933 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.866</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/f9622db113a1d521.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.938 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_178">
+        <pose>8.350 15.000 1.000 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 2.000</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b9f504d64f635c8f.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 1.005 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_179">
+        <pose>4.000 14.430 0.633 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_180">
+        <pose>5.125 14.430 1.100 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_181">
+        <pose>6.250 14.430 1.566 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_182">
+        <pose>7.375 14.430 2.033 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_183">
+        <pose>8.500 14.430 2.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_184">
+        <pose>6.250 14.430 2.066 0.0000 1.1777 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_185">
+        <pose>6.250 14.430 1.566 0.0000 1.1777 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_186">
+        <pose>4.000 15.570 0.633 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_187">
+        <pose>5.125 15.570 1.100 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_188">
+        <pose>6.250 15.570 1.566 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_189">
+        <pose>7.375 15.570 2.033 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_190">
+        <pose>8.500 15.570 2.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_191">
+        <pose>6.250 15.570 2.066 0.0000 1.1777 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_192">
+        <pose>6.250 15.570 1.566 0.0000 1.1777 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="deck_193">
+        <pose>9.500 15.000 1.899 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>2.000 2.400 0.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/e58123249d8d436b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="deck_col_194">
+        <pose>8.650 13.950 0.900 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.200 0.200 1.800</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/afdaddae56fddd0b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="deck_col_195">
+        <pose>8.650 16.050 0.900 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.200 0.200 1.800</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/afdaddae56fddd0b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="deck_col_196">
+        <pose>10.350 13.950 0.900 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.200 0.200 1.800</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/afdaddae56fddd0b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="deck_col_197">
+        <pose>10.350 16.050 0.900 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.200 0.200 1.800</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/afdaddae56fddd0b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="deck_beam_198">
+        <pose>9.500 13.900 1.650 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/244e5b95f2d82243.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="deck_beam_199">
+        <pose>9.500 16.100 1.650 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/244e5b95f2d82243.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_200">
+        <pose>8.500 13.800 2.525 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/7630a40b13946d3c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_201">
+        <pose>10.500 13.800 2.525 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/7630a40b13946d3c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_202">
+        <pose>9.500 13.800 3.050 0.0000 1.5708 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/263cc60dd9b88b99.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_203">
+        <pose>9.500 13.800 2.525 0.0000 1.5708 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/263cc60dd9b88b99.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="kick_204">
+        <pose>9.500 13.800 2.075 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <pose>0.000 0.000 0.450 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <box>
+              <size>2.000 0.050 1.050</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/d57037c74860fc2e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_205">
+        <pose>8.500 16.200 2.525 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/7630a40b13946d3c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_206">
+        <pose>10.500 16.200 2.525 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/7630a40b13946d3c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_207">
+        <pose>9.500 16.200 3.050 0.0000 1.5708 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/263cc60dd9b88b99.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_208">
+        <pose>9.500 16.200 2.525 0.0000 1.5708 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/263cc60dd9b88b99.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="kick_209">
+        <pose>9.500 16.200 2.075 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <pose>0.000 0.000 0.450 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <box>
+              <size>2.000 0.050 1.050</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/d57037c74860fc2e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_210">
+        <pose>14.850 15.000 0.067 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.133</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/ac7e77b583448e7b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.072 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_211">
+        <pose>14.550 15.000 0.133 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.267</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/2f777834c6b02a53.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.138 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_212">
+        <pose>14.250 15.000 0.200 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.400</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/bf851c9c8396e5cf.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.205 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_213">
+        <pose>13.950 15.000 0.267 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.533</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/7c493d728d344c8b.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.272 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_214">
+        <pose>13.650 15.000 0.333 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.666</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/c7ae4be235b5d85a.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.338 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_215">
+        <pose>13.350 15.000 0.400 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.800</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/a64930cad5a83fd0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.405 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_216">
+        <pose>13.050 15.000 0.467 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 0.933</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/55cc90feb8add816.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.472 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_217">
+        <pose>12.750 15.000 0.533 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.066</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/794578408b774b2c.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.538 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_218">
+        <pose>12.450 15.000 0.600 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.200</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/da3ca4d915497d01.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.605 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_219">
+        <pose>12.150 15.000 0.666 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.333</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b848f02f02d99bba.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.671 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_220">
+        <pose>11.850 15.000 0.733 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.466</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1f7664fc334b35bd.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.738 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_221">
+        <pose>11.550 15.000 0.800 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.600</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/74b3c3388d7ae814.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.805 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_222">
+        <pose>11.250 15.000 0.866 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.733</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/f34c0d615c1dc7db.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.871 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_223">
+        <pose>10.950 15.000 0.933 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 1.866</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/f9622db113a1d521.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 0.938 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="step_224">
+        <pose>10.650 15.000 1.000 0.0000 0.0000 3.1416</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.300 1.200 2.000</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/b9f504d64f635c8f.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.420 0.440 0.460 1</ambient>
+            <diffuse>0.420 0.440 0.460 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="nose">
+          <pose>-0.130 0.000 1.005 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/d5c775acaa36c308.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_225">
+        <pose>15.000 15.570 0.633 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_226">
+        <pose>13.875 15.570 1.100 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_227">
+        <pose>12.750 15.570 1.566 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_228">
+        <pose>11.625 15.570 2.033 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_229">
+        <pose>10.500 15.570 2.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_230">
+        <pose>12.750 15.570 2.066 0.0000 1.1777 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_231">
+        <pose>12.750 15.570 1.566 0.0000 1.1777 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_232">
+        <pose>15.000 14.430 0.633 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_233">
+        <pose>13.875 14.430 1.100 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_234">
+        <pose>12.750 14.430 1.566 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_235">
+        <pose>11.625 14.430 2.033 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_post_236">
+        <pose>10.500 14.430 2.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/820fda90524e9773.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_237">
+        <pose>12.750 14.430 2.066 0.0000 1.1777 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="rail_bar_238">
+        <pose>12.750 14.430 1.566 0.0000 1.1777 3.1416</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/1c6d3e8c9fa05d0e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.950 0.750 0.050 1</ambient>
+            <diffuse>0.950 0.750 0.050 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_sign_239">
+        <pose>3.400 16.550 1.500 0.0000 0.0000 0.0000</pose>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/fc97910a610da36e.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.300 0.300 0.300 1</ambient>
+            <diffuse>0.300 0.300 0.300 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+        <visual name="face">
+          <pose>0.000 -0.017 0.000 0.0000 0.0000 0.0000</pose>
+          <geometry>
+            <mesh>
+              <uri>meshes/8426902b169e7c63.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>1.000 1.000 1.000 1</ambient>
+            <diffuse>1.000 1.000 1.000 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+      <link name="lv_post_240">
+        <pose>3.400 16.550 0.675 0.0000 0.0000 0.0000</pose>
+        <collision name="c">
+          <geometry>
+            <box>
+              <size>0.060 0.060 1.350</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="v">
+          <geometry>
+            <mesh>
+              <uri>meshes/45f0fd23fc30710d.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.350 0.380 0.420 1</ambient>
+            <diffuse>0.350 0.380 0.420 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>
