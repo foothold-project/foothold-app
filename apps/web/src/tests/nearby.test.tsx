@@ -45,7 +45,7 @@ describe('폰 홈 «내 로봇» 카드', () => {
   const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
   const flush = () => act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); });
   async function render(robots: Robot[], app: boolean, role: Role = 'OPERATOR') {
-    ua.mockReturnValue(app ? 'Mozilla/5.0 (Linux; Android 14) FootholdApp/1.2.2-dev' : 'Mozilla/5.0 (Linux; Android 14)');
+    ua.mockReturnValue(app ? 'Mozilla/5.0 (Linux; Android 14) FootholdApp/1.2.3-dev' : 'Mozilla/5.0 (Linux; Android 14)');
     box = document.createElement('div'); document.body.append(box);
     act(() => { root = createRoot(box); root.render(<Connect user={{ id: 'o1', name: '이운영', role }} robots={robots} go={() => {}} />); });
     await flush();

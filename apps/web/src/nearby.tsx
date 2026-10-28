@@ -83,7 +83,7 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
   if (view) return <Go2View {...view} close={() => setView(null)} />;
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="주변 로봇 찾기" data-nearby-scan={seq}>
     <div className="fh-row"><h2 className="fh-grow">주변 로봇 찾기</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
-    {!scan && old ? <p className="fh-why" role="status" data-nearby="old">이 앱 판은 주변 찾기를 지원하지 않습니다 — FOOTHOLD 앱을 1.2.2-dev 이상으로 업데이트하세요.</p>
+    {!scan && old ? <p className="fh-why" role="status" data-nearby="old">이 앱 판은 주변 찾기를 지원하지 않습니다 — FOOTHOLD 앱을 1.2.3-dev 이상으로 업데이트하세요.</p>
       : <p className="lv-note" role="status" data-nearby={busy ? 'scanning' : 'done'}>{busy ? `찾는 중… (Wi-Fi·블루투스, 약 10초)${items.length ? ` — ${items.length}대 찾음` : ''}` : items.length ? `${items.length}대 찾았습니다.` : '찾은 로봇이 없습니다.'}</p>}
     {scan?.problems.map((p) => PROBLEM[p] && <p key={p} className="fh-why" data-nearby-problem={p}>{PROBLEM[p]}</p>)}
     {items.length > 0 && <ul className="dv-cards">{items.map((f) => <li key={f.key} className="card dv-card">

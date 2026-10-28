@@ -80,7 +80,7 @@ export function Go2View({ name, url, close }: { name: string; url: string; close
       <button type="submit" className="btn pri" disabled={!/^\d{8}$/.test(draft)}>상태 보기</button>
     </form> : <>
       <div className="fh-row"><Chip {...CHIP[c]} />{last && c !== 'ONLINE' && <span className="lbl">{c === 'OFFLINE' ? '10초 넘게 응답 없음 — 값 지움' : '마지막 값'}</span>}</div>
-      {!heard && old ? <p className="fh-why" data-go2-old>이 앱 판은 상태 전용을 지원하지 않습니다 — FOOTHOLD 앱을 1.2.2-dev 이상으로 업데이트하세요.</p> : !last && !why && <p className="lv-note" role="status">읽는 중…</p>}
+      {!heard && old ? <p className="fh-why" data-go2-old>이 앱 판은 상태 전용을 지원하지 않습니다 — FOOTHOLD 앱을 1.2.3-dev 이상으로 업데이트하세요.</p> : !last && !why && <p className="lv-note" role="status">읽는 중…</p>}
       <Line k="배터리"><span className="mono">{dash(g?.soc ?? null, (x) => `${Math.round(x)}%`)} · {dash(g?.voltage ?? null, (x) => `${x.toFixed(1)} V`)}</span></Line>
       <Line k="자세"><span className="mono">롤 {deg(g?.roll ?? null)} · 피치 {deg(g?.pitch ?? null)}</span></Line>
       <Line k="넘어짐"><span>{g?.fallen == null ? '—' : g.fallen ? '넘어짐 추정' : '아님(추정)'}</span><span className="lbl">IMU 기울기 추정 — 넘어짐 감지 보장 아님</span></Line>
