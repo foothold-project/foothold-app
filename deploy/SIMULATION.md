@@ -151,7 +151,14 @@ actual operational proxy replacement remains a separate installation step.
 The ROS signing-key fetch is bounded to 65537 bytes and refuses empty/oversized
 input. GPG parses either binary or ASCII OpenPGP, checks the existing single
 primary fingerprint pin, then dearmors to a private .gpg keyring for APT. Signed
-metadata verification and the fixed signing identity remain mandatory. See
+metadata verification and the fixed signing identity remain mandatory. The fixed
+Jazzy snapshot uses the dedicated snapshot primary fingerprint
+`4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA`, fetched from the exact HTTPS Ubuntu
+keyserver lookup documented by [ROS snapshot installation](https://raw.githubusercontent.com/ros2/ros2_documentation/jazzy/source/Installation/Snapshot-Repository.rst).
+The main ROS archive key is not a fallback; an unknown/missing/extra primary
+still refuses the transaction and retains the package marker. Failed metadata
+preparation needs the coordinator's accepted host-state audit and explicit
+marker recovery/retry decision; code deployment never clears that marker. See
 [APT key formats](https://manpages.ubuntu.com/manpages/noble/man8/apt-key.8.html).
 
 The socket-activated root helper reads only /proc stat/cgroup and two environment

@@ -23,7 +23,9 @@ except ImportError:
         verify_host_unchanged, create_install_latch, clear_install_latch, ensure_no_install_latch)
 
 ROOT = Path('/opt/foothold-sim')
-ROS_KEY_FINGERPRINT='C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654'
+# The fixed snapshot repository has a distinct key from the main ROS archive.
+ROS_KEY_FINGERPRINT='4B63CF8FDE49746E98FA01DDAD19BAB3CBF125EA'
+ROS_KEY_URL='https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x'+ROS_KEY_FINGERPRINT
 try:
     from .sysroot_elf import forbidden as forbidden_runtime_name, soname as elf_soname
 except ImportError:
@@ -314,7 +316,7 @@ def setup_apt(apt):
     # No host apt config/hooks or status writes. Keys are public, acquired from
     # the official source over authenticated TLS; apt still verifies signatures.
     from urllib.request import urlopen
-    key = urlopen('https://raw.githubusercontent.com/ros/rosdistro/master/ros.key',timeout=30).read(65537)
+    key = urlopen(ROS_KEY_URL,timeout=30).read(65537)
     if not key or len(key)>65536:
         raise ValueError('invalid official ROS signing key')
     (apt/'keyrings/ros.input').write_bytes(key)
