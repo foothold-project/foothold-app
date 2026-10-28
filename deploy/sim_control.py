@@ -13,6 +13,7 @@ from urllib.request import Request, ProxyHandler, build_opener
 from uuid import UUID
 
 GUARD = Path('/var/lib/foothold-sim/guard')
+PACKAGE_LATCH = Path('/var/lib/foothold/sim-packages-unproven')
 CURRENT = Path('/opt/foothold/current')
 UNIT = 'foothold-simmgr.service'
 
@@ -33,6 +34,8 @@ def state():
 
 
 def no_latch():
+    if PACKAGE_LATCH.exists() or PACKAGE_LATCH.is_symlink():
+        raise ValueError('package transaction unproven')
     for name in ('state/unproven', 'setup-unproven'):
         path = GUARD / name
         if path.exists() or path.is_symlink():

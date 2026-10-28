@@ -114,6 +114,8 @@ class Settings:
         env = os.environ if env is None else env
         # Conflicts are rejected even in fake mode; no silent replacement of 61.
         validate_control_environment(env)
+        from .sysroot_environment import validate_server
+        validate_server(env)
         data = json.loads(Path(env['FH_SIM_CATALOG']).read_text())
         worlds = {w['id']: World(w['id'], Path(w['world_file']), Path(w['map_file']),
                                 **{key: w[key] for key in ('name', 'description') if key in w})

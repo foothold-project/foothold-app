@@ -16,6 +16,9 @@ class TransitionTests(unittest.TestCase):
         self.patch = patch.object(sim, 'GUARD', self.guard)
         self.patch.start()
         self.addCleanup(self.patch.stop)
+        packages = patch.object(sim, 'PACKAGE_LATCH', self.guard / 'packages-unproven')
+        packages.start()
+        self.addCleanup(packages.stop)
 
     def test_stop_proves_exit_and_rejects_surviving_pid(self):
         active = dict(LoadState='loaded', ActiveState='active', MainPID='42', ControlGroup='')
@@ -41,6 +44,13 @@ class TransitionTests(unittest.TestCase):
             for operation in (sim.stop, sim.start):
                 with self.assertRaises(ValueError):
                     operation()
+            ctl.assert_not_called()
+
+    def test_package_transaction_latch_blocks_manager_transition(self):
+        sim.PACKAGE_LATCH.touch()
+        with patch.object(sim, 'userctl') as ctl:
+            with self.assertRaises(ValueError):
+                sim.start()
             ctl.assert_not_called()
 
     def test_start_waits_for_current_release_readiness(self):

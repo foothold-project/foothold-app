@@ -26,12 +26,18 @@ class PackageGateTests(unittest.TestCase):
             with self.subTest(output=output), self.assertRaises(ValueError):
                 validate_simulation(output, locked)
 
-    def test_protected_rule_even_when_package_is_locked(self):
-        for name in ('nvidia-utils','libegl1','libgl1','mesa-vulkan-drivers','libgbm1','cuda-toolkit','dcgm','rpcbind'):
+    def test_new_userspace_gl_allowed_existing_changes_and_new_drivers_forbidden(self):
+        for name in ('libegl1','libglx0','libglew-dev','libvulkan-dev','libglvnd0','mesa-vulkan-drivers','libglib2.0-0t64'):
+            locked = {name:self.row(name,'1.0-1')}
+            self.assertEqual(validate_simulation('Inst '+name+' (1.0-1 Ubuntu)', locked), [name])
+            with self.assertRaises(ValueError):
+                validate_simulation('Inst '+name+' [1.0-1] (1.0-1 Ubuntu)', locked)
+        for name in ('nvidia-utils','libnvidia-compute-580','linux-image-generic','foo-dkms',
+                     'xserver-xorg-video-nvidia','firmware-sof-signed','cuda-toolkit','dcgm','rpcbind',
+                     'libegl-nvidia0','libglx-nvidia0','glx-alternative-nvidia','nvidia','glx-diversions',
+                     'libcublas12','libnvrtc13','libnpp13','libcufft11','libcurand10','libcusolver11','libcusparse12','libnvjpeg12'):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 validate_simulation('Inst '+name+' (1.0-1 Ubuntu)', {name:self.row(name,'1.0-1')})
-        name = 'libglib2.0-0t64'
-        self.assertEqual(validate_simulation('Inst '+name+' (1.0-1 Ubuntu)', {name:self.row(name,'1.0-1')}), [name])
 
     def test_vendor_version_from_deb_member_exact(self):
         output = io.BytesIO()
@@ -98,7 +104,7 @@ class InstalledVersionRegression(unittest.TestCase):
                     patch.object(package,'metadata_sha',return_value=row['sha256']), \
                     patch.object(package,'installed_versions',side_effect=[{}, {row['name']:('3.20.0-1','installed')}]), \
                     patch.object(package,'run',side_effect=command), patch.object(Path,'glob',return_value=[artifact]), \
-                    patch('deploy.verify_gz_abi.verify'):
+                    patch('deploy.verify_gz_abi.verify'), patch.object(package,'create_install_latch',return_value=(1,2)):
                 with self.assertRaises(ValueError):
                     package.install(str(lock),commit=True)
 
@@ -109,6 +115,37 @@ class InstalledVersionRegression(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify_installed({'safe':row},actual,require_all=True)
         verify_installed({'safe':row},{'safe':('1.0-1','installed')},require_all=True)
+
+
+class HostIdentityTests(unittest.TestCase):
+    def test_snapshot_reads_only_fixed_host_fields(self):
+        from pathlib import Path
+        from unittest.mock import patch
+        from deploy import install_sim_packages as package
+        tail = ['S'] + ['0']*18 + ['12345']
+        def command(*args):
+            if args[0] == 'nvidia-smi':
+                return 'driver-version,GPU-model,synthetic-device-id'
+            if args[0] == 'systemctl':
+                pid = '719' if args[2] == 'nvidia-dcgm.service' else '42'
+                return 'LoadState=loaded\nActiveState=active\nSubState=running\nMainPID='+pid+'\nExecMainStartTimestampMonotonic=100\n'
+            raise AssertionError('unexpected host command')
+        with patch.object(package,'run',side_effect=command), \
+                patch.object(Path,'read_text',return_value='719 (nv-hostengine) '+' '.join(tail)):
+            snapshot = package.host_snapshot()
+        self.assertEqual(snapshot['dcgm_start_ticks'], '12345')
+        self.assertEqual(len(snapshot['services']), 5)
+        self.assertEqual(snapshot['services']['nvidia-dcgm.service']['MainPID'],'719')
+
+    def test_driver_or_process_identity_change_refused(self):
+        import copy
+        from deploy.install_sim_packages import verify_host_unchanged
+        before = dict(gpu='driver,device',dcgm_start_ticks='12345', services={'api':{'MainPID':'42'}})
+        verify_host_unchanged(before, copy.deepcopy(before))
+        for after in (dict(before,gpu='changed'), dict(before,dcgm_start_ticks='999'),
+                      dict(before,services={'api':{'MainPID':'43'}})):
+            with self.assertRaises(ValueError):
+                verify_host_unchanged(before, after)
 
 
 if __name__ == '__main__':

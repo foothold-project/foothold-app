@@ -24,7 +24,7 @@ for group in render video; do
     getent group "$group" >/dev/null || { echo 'Required existing render/video group missing.' >&2; exit 2; }
     usermod -a -G "$group" foothold-sim
 done
-install -d -o root -g foothold-sim -m 750 /var/lib/foothold-sim /etc/foothold-sim
+install -d -o root -g foothold-sim -m 750 /var/lib/foothold-sim /etc/foothold-sim /opt/foothold-sim
 install -d -o foothold-sim -g foothold-sim -m 700 /var/lib/foothold-sim/replay
 install -d -o foothold -g foothold -m 700 /var/lib/foothold/sim-credentials
 install -d -o root -g root -m 755 /var/lib/foothold-sim/.config/systemd/user

@@ -12,6 +12,9 @@ class DeploymentLease:
     def acquire(self):
         if self.directory is None or self.fd is not None:
             return
+        packages = Path('/var/lib/foothold/sim-packages-unproven')
+        if packages.exists() or packages.is_symlink():
+            raise RuntimeError('package transaction unproven')
         # Root owns the parent and lock inode. Runtime can only write state/.
         self.fd = os.open(self.directory / 'deploy.lock', os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
