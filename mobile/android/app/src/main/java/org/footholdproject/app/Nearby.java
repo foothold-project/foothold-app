@@ -40,6 +40,7 @@ import org.json.JSONObject;
 /**
  * 주변 로봇 찾기(10-28, 폰 홈 «+ 로봇 연결하기»): 찾기·표시만 — BLE 연결·쓰기 0, 로봇 설정 변경 0.
  *  - Wi-Fi a) mDNS(NsdManager) _foothold._tcp — 에이전트 광고 계약(GO2-friday): TXT v=1·name·model·agent=ws://<주소>:<포트>/phone/ws·rid(선택)
+ *    mode: 없음 = 인증 WS(agent=ws://…/phone/ws) · discovery-only = 찾기 시험 신호(agent 없음) · go2-readonly = 상태 전용(agent=http://…/go2/status, Go2Status)
  *  - Wi-Fi b) Go2 기본 주소(192.168.12.1 = Go2 핫스팟, 192.168.123.161·.18 = 유선/내부망)에 TCP 연결만 해 보고 닫는다(아무것도 안 보냄). 실패는 조용히
  *  - 블루투스: BLE 광고 이름 «Go2_» — 근거 Bin4ry/UniPwn unitree_hack.py:95, jeff-hykin/dim-go2-dash protocol.rs:10(접두 Go2_·G1_·B2_·H1_·X1_, 서비스 0000ffe0)
  * 통로는 MainActivity 의 data-drive 와 같은 방식: 웹이 [data-nearby-scan=<seq>] 를 두면 네이티브가 읽고 찾기, 결과는 evaluateJavascript 로 'fh-nearby' 이벤트.
@@ -83,8 +84,9 @@ final class Nearby {
         items.clear();
         problems.clear();
         scanning = true;
-        Network wifi = wifi();
-        if (wifi == null) problems.add("wifi-off");
+        Network wifi = wifi(act);
+        String note = netNote(wifi != null, wifi != null && validated(wifi));
+        if (note != null) problems.add(note);
         mdns();
         probe(wifi);
         if (blePermitted()) ble(); else act.requestPermissions(blePerms(), REQ);
@@ -124,14 +126,20 @@ final class Nearby {
 
     /** Wi-Fi(또는 유선) 망. Go2 핫스팟은 인터넷이 없어 기본 망이 모바일 데이터일 수 있다 — 기본 주소 확인은 이 망에 묶어서 */
     @SuppressWarnings("deprecation")
-    private Network wifi() {
-        ConnectivityManager cm = (ConnectivityManager) act.getSystemService(Context.CONNECTIVITY_SERVICE);
+    static Network wifi(Context ctx) {
+        ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return null;
         for (Network n : cm.getAllNetworks()) {
             NetworkCapabilities c = cm.getNetworkCapabilities(n);
             if (c != null && (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) return n;
         }
         return null;
+    }
+
+    /** 인터넷 확인된 망인지(Go2 핫스팟은 아님 → 기본 망이 모바일 데이터, 서버는 그쪽으로) */
+    private boolean validated(Network n) {
+        NetworkCapabilities c = ((ConnectivityManager) act.getSystemService(Context.CONNECTIVITY_SERVICE)).getNetworkCapabilities(n);
+        return c != null && c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED);
     }
 
     private void mdns() {
@@ -296,6 +304,11 @@ final class Nearby {
 
     // ---- 순수 판정(RemoteClientTest 처럼 JVM 단위 시험) ----
 
+    /** 망 상태 한 줄: Wi-Fi(유선) 없음 → wifi-off, 있지만 인터넷 없음 → wifi-no-internet(로봇 쪽은 그 Wi-Fi 에 묶고 서버는 기본 망 그대로), 아니면 null */
+    static String netNote(boolean lan, boolean validated) {
+        return !lan ? "wifi-off" : validated ? null : "wifi-no-internet";
+    }
+
     static boolean isGo2(String name) {
         return name != null && name.startsWith("Go2_") && name.length() <= 40;
     }
@@ -316,7 +329,7 @@ final class Nearby {
         return priv ? b[0] + "." + b[1] + "." + b[2] + "." + b[3] : null;
     }
 
-    /** TXT(계약 v=1) → 화면에 보낼 값. v≠1 이면 null. agent 는 ws://<찾은 주소>:<포트>/… 일 때만 남긴다 */
+    /** TXT(계약 v=1) → 화면에 보낼 값. v≠1 이면 null. agent 는 mode 에 맞는 주소이고 호스트가 찾은 주소일 때만 남긴다 */
     static Map<String, String> txt(Map<String, byte[]> attrs, String host) {
         if (attrs == null || !"1".equals(str(attrs.get("v")))) return null;
         Map<String, String> o = new HashMap<>();
@@ -324,12 +337,16 @@ final class Nearby {
         if (name != null) o.put("name", name);
         if (model != null) o.put("model", model);
         if (rid != null && rid.matches("[0-9A-Za-z-]{1,64}")) o.put("rid", rid);
-        if (agent != null && agentOk(agent, host)) o.put("agent", agent);
+        String mode = str(attrs.get("mode"));
+        if ("discovery-only".equals(mode) || "go2-readonly".equals(mode)) o.put("mode", mode);   // 그 밖의 mode 값은 버림(= 기존 인증 WS 로 다룸)
+        else mode = null;
+        if (agent != null && agentOk(agent, host, mode)) o.put("agent", agent);   // discovery-only 는 상태 서비스가 없어 늘 버림
         return o;
     }
 
-    static boolean agentOk(String agent, String host) {
-        if (agent.length() > 200 || host == null) return false;
+    static boolean agentOk(String agent, String host, String mode) {
+        if (agent.length() > 200 || host == null || "discovery-only".equals(mode)) return false;
+        if ("go2-readonly".equals(mode)) { String[] t = Go2Status.target(agent); return t != null && t[0].equals(host); }
         try {
             URI u = new URI(agent);
             return "ws".equals(u.getScheme()) && host.equals(u.getHost()) && u.getRawUserInfo() == null && u.getPort() > 0 && u.getPort() <= 65535;

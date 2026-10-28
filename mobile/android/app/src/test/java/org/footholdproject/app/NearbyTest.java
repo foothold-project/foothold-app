@@ -54,14 +54,40 @@ public class NearbyTest {
     }
 
     @Test
+    public void discoveryOnly() {
+        assertEquals("discovery-only", Nearby.txt(attrs("v", "1", "name", "Go2 EDU (검색 시험)", "mode", "discovery-only"), "10.0.0.2").get("mode"));
+        assertFalse(Nearby.txt(attrs("v", "1", "mode", "other"), "10.0.0.2").containsKey("mode"));
+        assertFalse(Nearby.txt(attrs("v", "1"), "10.0.0.2").containsKey("mode"));
+    }
+
+    @Test
+    public void go2Readonly() {
+        Map<String, String> t = Nearby.txt(attrs("v", "1", "name", "Go2 EDU", "mode", "go2-readonly", "agent", "http://192.168.12.18:9610/go2/status"), "192.168.12.18");
+        assertEquals("go2-readonly", t.get("mode"));
+        assertEquals("http://192.168.12.18:9610/go2/status", t.get("agent"));
+        // go2-readonly 를 /phone/ws 로 고쳐 쓰지 않는다 · 다른 호스트·경로는 버림
+        assertFalse(Nearby.txt(attrs("v", "1", "mode", "go2-readonly", "agent", "ws://192.168.12.18:9610/phone/ws"), "192.168.12.18").containsKey("agent"));
+        assertFalse(Nearby.txt(attrs("v", "1", "mode", "go2-readonly", "agent", "http://192.168.12.19:9610/go2/status"), "192.168.12.18").containsKey("agent"));
+        assertFalse(Nearby.txt(attrs("v", "1", "mode", "discovery-only", "agent", "http://192.168.12.18:9610/go2/status"), "192.168.12.18").containsKey("agent"));
+        assertFalse(Nearby.txt(attrs("v", "1", "agent", "http://192.168.12.18:9610/go2/status"), "192.168.12.18").containsKey("agent"));   // mode 없음 = ws 만
+    }
+
+    @Test
+    public void netNote() {
+        assertEquals("wifi-off", Nearby.netNote(false, false));
+        assertEquals("wifi-no-internet", Nearby.netNote(true, false));   // Go2 핫스팟: 로봇은 Wi-Fi, 서버는 모바일 데이터
+        assertNull(Nearby.netNote(true, true));
+    }
+
+    @Test
     public void agent() {
-        assertTrue(Nearby.agentOk("ws://10.0.0.2:8765/phone/ws", "10.0.0.2"));
-        assertFalse(Nearby.agentOk("wss://10.0.0.2:8765/phone/ws", "10.0.0.2"));
-        assertFalse(Nearby.agentOk("http://10.0.0.2:8765/", "10.0.0.2"));
-        assertFalse(Nearby.agentOk("ws://10.0.0.2/phone/ws", "10.0.0.2"));             // 포트 없음
-        assertFalse(Nearby.agentOk("ws://u:p@10.0.0.2:8765/phone/ws", "10.0.0.2"));
-        assertFalse(Nearby.agentOk("ws://attacker.example:8765/", "10.0.0.2"));
-        assertFalse(Nearby.agentOk("ws://10.0.0.2:8765/phone/ws", null));
+        assertTrue(Nearby.agentOk("ws://10.0.0.2:8765/phone/ws", "10.0.0.2", null));
+        assertFalse(Nearby.agentOk("wss://10.0.0.2:8765/phone/ws", "10.0.0.2", null));
+        assertFalse(Nearby.agentOk("http://10.0.0.2:8765/", "10.0.0.2", null));
+        assertFalse(Nearby.agentOk("ws://10.0.0.2/phone/ws", "10.0.0.2", null));             // 포트 없음
+        assertFalse(Nearby.agentOk("ws://u:p@10.0.0.2:8765/phone/ws", "10.0.0.2", null));
+        assertFalse(Nearby.agentOk("ws://attacker.example:8765/", "10.0.0.2", null));
+        assertFalse(Nearby.agentOk("ws://10.0.0.2:8765/phone/ws", null, null));
     }
 
     @Test

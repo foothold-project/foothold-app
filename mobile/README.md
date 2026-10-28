@@ -9,6 +9,9 @@
 | 통로 | `apps/web/src/nearby.tsx` 가 `[data-nearby-scan=<seq>]` 를 두면 `MainActivity` 0.5 s 읽기가 보고 `Nearby.java` 찾기 시작, 결과는 `evaluateJavascript` 로 `fh-nearby` 이벤트. JS → 네이티브 통로(브리지·플러그인)는 그대로 0 |
 | Wi-Fi | mDNS `_foothold._tcp`(TXT `v=1`·`name`·`model`·`agent=ws://<주소>:<포트>/phone/ws`·`rid`) — 사설 IPv4 만, `agent` 는 찾은 주소와 같은 호스트일 때만. Go2 기본 주소 192.168.12.1·192.168.123.161·.18 에 TCP 9991·8081·22 연결만(Wi-Fi 망에 묶어서) |
 | 블루투스 | BLE 광고 이름 `Go2_` 접두(근거: Bin4ry/UniPwn `unitree_hack.py`, jeff-hykin/dim-go2-dash `protocol.rs`) |
+| 찾기 시험 | TXT `mode=discovery-only`(rid 없음) → «찾기 시험 신호 — 실제 연결 아님», 주소·등록·온라인 0 |
+| 상태 전용 | TXT `mode=go2-readonly`·`agent=http://<사설 IPv4>:9610/go2/status`(또는 주소 직접 입력) → `Go2Status.java` 가 1 s 마다 GET(3 s 제한, HTTP/1.0 소켓). 8자리 현장 코드는 `X-Foothold-Code` 헤더에만(URL·로그·저장 0), 401 = 코드 다시, 429 = Retry-After(기본 60 s) 쉼. 화면: 2 s 넘게 응답 없음 = 늦음, 10 s = 끊김(값 지움), «온라인 · 상태 전용» — 조종·등록·STOP 없음. 계약 정본 rb-go2-readonly `runs/go2-readonly/PHONE-CONTRACT.md` |
+| 인터넷 없는 Wi-Fi | Go2 핫스팟처럼 Wi-Fi 에 인터넷이 없으면 로봇 쪽 소켓(주소 확인·상태 GET)만 Wi-Fi 망에 묶고 서버(WebView)는 기본 망(모바일 데이터) 그대로 — 화면에 «Wi-Fi 에 인터넷 없음» 안내. 앱 전체 평문(network security config)은 열지 않음 |
 | 권한 | `BLUETOOTH_SCAN`(neverForLocation) · 11 이하만 `BLUETOOTH`·`BLUETOOTH_ADMIN`·`ACCESS_FINE_LOCATION`(maxSdk 30) · `ACCESS_NETWORK_STATE`(일반) |
 
 ## 1.2.2-dev — 앱 안 시뮬 지도 고르기 (2026-10-28)
