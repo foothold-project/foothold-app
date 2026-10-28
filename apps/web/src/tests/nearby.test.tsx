@@ -66,6 +66,12 @@ describe('폰 홈 «내 로봇» 카드', () => {
     expect(btn('+ 로봇 연결하기')?.className).toBe('btn');
   });
 
+  it('앱 안 + 상태 모름(실시간 끊김·첫 상태 전) → 목록 그대로 + 작은 단추(연결 없음으로 단정 안 함)', async () => {
+    await render([{ ...robot('r1', false), unknown: 'link' }], true);
+    expect(box.textContent).toContain('로봇-r1');
+    expect(btn('+ 로봇 연결하기')?.className).toBe('btn');
+  });
+
   it('앱 밖 → 카드 그대로 + 못 하는 이유만(단추 0)', async () => {
     await render([robot('r1', false)], false);
     expect(btn('+ 로봇 연결하기')).toBeUndefined();

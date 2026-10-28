@@ -120,8 +120,7 @@ describe('탭 전환', () => {
     expect(card.textContent).toContain('폰 안에서 도는 시뮬, 서버 필요 없음');
     expect([...card.querySelectorAll('button')].filter((b) => b.textContent === '띄우기')).toEqual([]);
     expect(card.querySelector('[aria-label="월드 목록"]')).toBeNull();
-    expect(cardNames()).toEqual([]);   // 10-28: 앱 안 + 연결된 실기 0 → «내 로봇» 본문이 «+ 로봇 연결하기»(nearby.test 에서 자세히)
-    expect($('[aria-label="내 로봇"] [data-robot-connect]').textContent).toBe('+ 로봇 연결하기');
+    expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);   // 내 로봇 목록은 그대로
   });
   it('폰 앱 시뮬 지도(10-28): 드롭다운 = mobile/sim/maps.json, 고른 지도의 위에서 본 사진, 열기 주소에 ?map=, 기억(없는 값·저장 실패면 첫 지도)', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
