@@ -32,7 +32,7 @@ def exercise(tmp_path,data):
     def open_private(path,flags,*args,**kwargs):
         assert path==PATH and flags&os.O_NOFOLLOW
         return original(file,flags,*args,**kwargs)
-    with patch.object(Path,'lstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFDIR|0o555)), \
+    with patch.object(profile,'validate_ros_link'), patch.object(Path,'lstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFDIR|0o555)), \
             patch.object(os,'open',side_effect=open_private), \
             patch.object(os,'fstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o444)):
         return child_environment(93,{'FH_SIM_SYSROOT_PROFILE':str(PATH),'FH_DATABASE_URL':'synthetic-secret'})
@@ -75,3 +75,12 @@ def test_server_native_requires_private_profile_and_matching_setup(monkeypatch):
     profile.validate_server(env)
     assert called==[env]
     profile.validate_server({})
+
+
+def test_ros_alias_must_match_profile_and_be_root_owned():
+    def info(path):
+        return SimpleNamespace(st_uid=0,st_mode=(stat.S_IFLNK|0o777) if path.name=='jazzy' else (stat.S_IFDIR|0o755))
+    with patch.object(Path,'lstat',info), patch.object(profile.os,'readlink',return_value=PREFIX+'/opt/ros/jazzy'):
+        profile.validate_ros_link(PATH)
+    with patch.object(Path,'lstat',info), patch.object(profile.os,'readlink',return_value='/foreign/prefix'):
+        with pytest.raises(ValueError):profile.validate_ros_link(PATH)

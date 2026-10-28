@@ -14,6 +14,15 @@ FIXED = dict(LIBGL_ALWAYS_SOFTWARE='true',GALLIUM_DRIVER='llvmpipe',MESA_LOADER_
              EGL_PLATFORM='surfaceless',MESA_SHADER_CACHE_DISABLE='true',LP_NUM_THREADS='2',QT_QPA_PLATFORM='offscreen')
 
 
+def validate_ros_link(profile):
+    parent=Path('/opt/ros');link=parent/'jazzy'
+    directory=parent.lstat();alias=link.lstat()
+    expected=profile.parent.parent/'opt/ros/jazzy'
+    if (not stat.S_ISDIR(directory.st_mode) or directory.st_uid!=0 or stat.S_IMODE(directory.st_mode)!=0o755
+            or not stat.S_ISLNK(alias.st_mode) or alias.st_uid!=0 or os.readlink(link)!=str(expected)):
+        raise ValueError('ROS alias does not match the immutable private profile')
+
+
 def load(env):
     value=env.get('FH_SIM_SYSROOT_PROFILE')
     if value is None: return {}
@@ -51,6 +60,7 @@ def load(env):
             target=Path(item)
             if not target.is_absolute() or not target.is_relative_to(root) or '..' in target.parts:
                 raise ValueError('sysroot environment escapes immutable prefix')
+    validate_ros_link(path)
     return result
 
 

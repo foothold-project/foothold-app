@@ -146,3 +146,50 @@ class PrivateSysrootTests(unittest.TestCase):
             entries=[('usr/short','link','..'),('escape','link','usr/short/../../outside')]
             with self.assertRaises(ValueError):
                 root.validate_tar(archive(entries),destination)
+
+    def test_publication_parent_overrides_private_umask(self):
+        import os
+        import stat
+        from types import SimpleNamespace
+        with tempfile.TemporaryDirectory() as folder:
+            parent=Path(folder)/'sysroot'
+            old=os.umask(0o077)
+            try:
+                with patch.object(Path,'lstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFDIR|0o700)):
+                    root.publish_parent(parent)
+            finally:os.umask(old)
+            self.assertEqual(stat.S_IMODE(parent.stat().st_mode),0o755)
+
+    def test_ros_signing_key_must_have_one_pinned_primary(self):
+        correct='pub::::::::::\nfpr:::::::::'+root.ROS_KEY_FINGERPRINT+':\nsub::::::::::\nfpr:::::::::'+'b'*40+':\n'
+        root.validate_ros_key(correct)
+        for text in (correct.replace(root.ROS_KEY_FINGERPRINT,'a'*40),correct+correct,''):
+            with self.assertRaises(ValueError):root.validate_ros_key(text)
+
+    def test_base_runtime_filenames_and_soname_aliases_refused(self):
+        from deploy.sysroot_elf import forbidden,soname
+        import struct
+        for name in ('libc.so.6','ld-linux-x86-64.so.2','libstdc++.so.6','libgcc_s.so.1',
+                     'libpython3.12.so.1.0','libssl.so.3','libcrypto.so.3','libsystemd.so.0'):
+            self.assertTrue(forbidden(name))
+            with tempfile.TemporaryDirectory() as folder,self.assertRaises(ValueError):
+                root.validate_tar(archive([('usr/lib/'+name,'file','')]),Path(folder))
+        # Synthetic ELF64 DSO: innocuous filename, forbidden DT_SONAME.
+        identity=b'\x7fELF\x02\x01'+b'\0'*10
+        object_head=struct.pack('<16sHHIQQQIHHHHHH',identity,1,62,1,0,0,0,0,64,0,0,0,0,0)
+        self.assertIsNone(soname(object_head))
+        head=struct.pack('<16sHHIQQQIHHHHHH',identity,3,62,1,0,64,0,0,64,56,2,0,0,0)
+        strings=b'\0libc.so.6\0'
+        size=64+112+64+len(strings)
+        load=struct.pack('<IIQQQQQQ',1,4,0,0x400000,0,size,size,4096)
+        dynamic=struct.pack('<IIQQQQQQ',2,4,176,0x400000+176,0,64,64,8)
+        values=b''.join(struct.pack('<qQ',key,value) for key,value in ((5,0x400000+240),(10,len(strings)),(14,1),(0,0)))
+        data=head+load+dynamic+values+strings
+        self.assertEqual(soname(data),'libc.so.6')
+        output=io.BytesIO()
+        with tarfile.open(fileobj=output,mode='w') as tar:
+            item=tarfile.TarInfo('usr/lib/innocent.so');item.size=len(data)
+            tar.addfile(item,io.BytesIO(data))
+        output.seek(0)
+        with tempfile.TemporaryDirectory() as folder,self.assertRaises(ValueError):
+            root.validate_tar(output,Path(folder))

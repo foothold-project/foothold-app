@@ -6,6 +6,11 @@ import re
 import shlex
 import subprocess
 
+try:
+    from .sysroot_elf import forbidden as forbidden_runtime_name
+except ImportError:
+    from sysroot_elf import forbidden as forbidden_runtime_name
+
 KEYS = frozenset(('PATH','LD_LIBRARY_PATH','PYTHONPATH','AMENT_PREFIX_PATH','CMAKE_PREFIX_PATH',
     'GZ_SIM_RESOURCE_PATH','GZ_SIM_SYSTEM_PLUGIN_PATH','GZ_GUI_PLUGIN_PATH','GZ_CONFIG_PATH',
     'GZ_RENDERING_ENGINE_PATH','GZ_RENDERING_RESOURCE_PATH','__EGL_VENDOR_LIBRARY_DIRS',
@@ -35,6 +40,7 @@ def generate(stage, final, lock_sha):
         match = re.search(r'\(SONAME\).*\[([^]/]+)\]',output)
         if not match: continue
         name = match[1]
+        if forbidden_runtime_name(name):raise ValueError('base runtime SONAME alias forbidden')
         if any((directory/name).exists() for directory in libdirs): continue
         target = runtime/'lib'/name
         if target.is_symlink():
@@ -92,6 +98,8 @@ def generate(stage, final, lock_sha):
     wrapper += 'exec '+shlex.quote(interpreter)+' '+shlex.quote(published(gz))+' "$@"\n'
     (runtime/'bin/gz').write_text(wrapper)
     (runtime/'bin/gz').chmod(0o755)
+    (runtime/'bin/ruby').write_text('#!/bin/bash\nexec '+shlex.quote(interpreter)+' "$@"\n')
+    (runtime/'bin/ruby').chmod(0o755)
     if not set(env)<=KEYS: raise ValueError('unapproved runtime environment field')
     profile = dict(schema=1,lock_sha256=lock_sha,env=env)
     (runtime/'profile.json').write_text(json.dumps(profile,sort_keys=True)+'\n')

@@ -199,12 +199,11 @@ def host_snapshot():
             raise ValueError('required existing service not active')
         if unit != 'postgresql.service' and int(info.get('MainPID', '0')) <= 0:
             raise ValueError('required service process absent')
-        if unit == 'nvidia-dcgm.service' and info.get('MainPID') != '719':
-            raise ValueError('DCGM PID differs from approved baseline')
         services[unit] = info
-    dcgm = Path('/proc/719/stat').read_text().rsplit(')', 1)[1].split()[19]
+    dcgm_pid=int(services['nvidia-dcgm.service']['MainPID'])
+    dcgm = Path('/proc/'+str(dcgm_pid)+'/stat').read_text().rsplit(')', 1)[1].split()[19]
     gpu = run('nvidia-smi', '--query-gpu=driver_version,name,uuid', '--format=csv,noheader')
-    return dict(services=services, dcgm_pid=719, dcgm_start_ticks=dcgm, gpu=gpu)
+    return dict(services=services, dcgm_pid=dcgm_pid, dcgm_start_ticks=dcgm, gpu=gpu)
 
 
 def verify_host_unchanged(before, after):

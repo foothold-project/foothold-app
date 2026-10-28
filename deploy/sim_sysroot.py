@@ -23,6 +23,11 @@ except ImportError:
         verify_host_unchanged, create_install_latch, clear_install_latch, ensure_no_install_latch)
 
 ROOT = Path('/opt/foothold-sim')
+ROS_KEY_FINGERPRINT='C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654'
+try:
+    from .sysroot_elf import forbidden as forbidden_runtime_name, soname as elf_soname
+except ImportError:
+    from sysroot_elf import forbidden as forbidden_runtime_name, soname as elf_soname
 BASE_FORBIDDEN = re.compile(r'^(?:libc6(?:-|$)|libc-bin$|ld-linux|libstdc\+\+6(?:-|$)|libgcc-s1$|(?:lib)?python3\.12|systemd(?:-|$)|libsystemd|openssl(?:-|$)|libssl|libcrypto)')
 DRIVER_FORBIDDEN = re.compile(r'nvidia|cuda|dcgm|rpcbind|dkms|firmware|^linux-(?!libc-dev$)|^glx-diversions|^lib(?:cublas|nvrtc|npp|cufft|curand|cusolver|cusparse|nvjpeg)', re.I)
 NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*\Z')
@@ -49,7 +54,7 @@ def execute(args, *, env=None, cwd=None):
 
 def generator_digest():
     return hashlib.sha256(canonical({name:sha(Path(__file__).with_name(name))
-        for name in ('sim_sysroot.py','sysroot_profile.py')})).hexdigest()
+        for name in ('sim_sysroot.py','sysroot_profile.py','sysroot_elf.py','sysroot_link.py')})).hexdigest()
 
 
 def requirements():
@@ -166,6 +171,17 @@ def validate_tar(stream, destination):
             if total > 8*1024**3 or len(members)>200000 or any('capability' in key for key in item.pax_headers):
                 raise ValueError('oversized or privileged archive payload')
             name = member_name(item.name)
+            if not item.isdir() and forbidden_runtime_name(PurePosixPath(name).name):
+                raise ValueError('base runtime filename cannot enter sysroot')
+            if item.isfile():
+                member=archive.extractfile(item)
+                first=member.read(4)
+                if first==b'\x7fELF':
+                    if item.size>1024**3:raise ValueError('oversized ELF payload')
+                    identity=elf_soname(first+member.read())
+                    if identity and forbidden_runtime_name(identity):
+                        raise ValueError('base runtime SONAME alias cannot enter sysroot')
+                member.close()
             if name == '.':
                 if not item.isdir(): raise ValueError('invalid archive root')
                 continue
@@ -176,6 +192,8 @@ def validate_tar(stream, destination):
             members[name] = item.isdir()
             if item.issym() or item.islnk():
                 target = PurePosixPath(item.linkname)
+                if forbidden_runtime_name(target.name):
+                    raise ValueError('base runtime link target cannot enter sysroot')
                 if target.is_absolute() or '\\' in item.linkname or any(ord(c)<32 for c in item.linkname):
                     raise ValueError('absolute/external link forbidden')
                 base = PurePosixPath(name).parent if item.issym() else PurePosixPath('.')
@@ -268,6 +286,27 @@ def private_apt(apt):
                 LC_ALL='C',PYTHONDONTWRITEBYTECODE='1',APT_CONFIG=str(config))
 
 
+def validate_ros_key(output):
+    count=0;primary=False;fingerprints=[]
+    for line in output.splitlines():
+        fields=line.split(':')
+        if fields[0]=='pub':count+=1;primary=True
+        elif fields[0]=='sub':primary=False
+        elif fields[0]=='fpr' and primary:
+            if len(fields)<10:raise ValueError('invalid ROS key fingerprint record')
+            fingerprints.append(fields[9]);primary=False
+    if count!=1 or fingerprints!=[ROS_KEY_FINGERPRINT]:
+        raise ValueError('official ROS key fingerprint differs from approved pin')
+
+
+def publish_parent(path):
+    path.mkdir(exist_ok=True,mode=0o755)
+    info=path.lstat()
+    if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+        raise ValueError('sysroot publication parent untrusted')
+    path.chmod(0o755)  # Explicit: the transaction umask is 077.
+
+
 def setup_apt(apt):
     for leaf in ('etc/parts','etc/sourceparts','etc/trustedparts','lists/partial','cache/archives/partial',
                  'downloads','logs','tmp','home','keyrings'):
@@ -279,6 +318,10 @@ def setup_apt(apt):
     if len(key)>65536 or b'BEGIN PGP PUBLIC KEY BLOCK' not in key:
         raise ValueError('invalid official ROS signing key')
     (apt/'keyrings/ros.asc').write_bytes(key)
+    (apt/'home/gnupg').mkdir(exist_ok=True,mode=0o700)
+    fingerprint=sandbox(['/usr/bin/gpg','--batch','--no-options','--homedir',str(apt/'home/gnupg'),
+        '--with-colons','--show-keys',str(apt/'keyrings/ros.asc')],apt)
+    validate_ros_key(fingerprint)
     shutil.copyfile('/usr/share/keyrings/ubuntu-archive-keyring.gpg',apt/'keyrings/ubuntu.gpg')
     (apt/'etc/main.conf').write_text('')
     sources = (f'deb [arch=amd64 signed-by={apt}/keyrings/ubuntu.gpg] http://archive.ubuntu.com/ubuntu noble main universe\n'
@@ -385,7 +428,7 @@ def resolve(apt):
     return lock_sha
 
 
-def lock_read(apt,lock_sha):
+def lock_read(apt,lock_sha,*,existing=False):
     if not HASH.fullmatch(lock_sha): raise ValueError('invalid lock SHA')
     path = apt/('lock-'+lock_sha+'.json')
     fd = os.open(path,os.O_RDONLY|os.O_NOFOLLOW)
@@ -396,9 +439,10 @@ def lock_read(apt,lock_sha):
         lock = json.load(stream)
     if hashlib.sha256(canonical(lock)).hexdigest()!=lock_sha or lock.get('schema')!=1:
         raise ValueError('sysroot lock digest mismatch')
-    if lock['generator_sha256']!=generator_digest():
+    if not existing and lock['generator_sha256']!=generator_digest():
         raise ValueError('sysroot generator changed; resolve a new lock')
-    if lock['host_status_sha256']!=sha(Path('/var/lib/dpkg/status')) or lock['apt_metadata_sha256']!=apt_metadata_digest(apt):
+    if (lock['host_status_sha256']!=sha(Path('/var/lib/dpkg/status'))
+            or (not existing and lock['apt_metadata_sha256']!=apt_metadata_digest(apt))):
         raise ValueError('host/private metadata changed; resolve a new lock after audit')
     installed = installed_versions()
     if lock['host_versions']!={name:list(value) for name,value in sorted(installed.items())}:
@@ -430,6 +474,9 @@ def verify_tree(root,lock_sha):
     actual = [row for row in tree_manifest(root) if row['path']!='MANIFEST.json']
     if any(row['uid']!=0 or row['gid']!=0 or (row['type']!='link' and row['mode']&0o6222) for row in actual):
         raise ValueError('mutable or privileged sysroot member')
+    expected_alias=str(ROOT/'sysroot'/lock_sha/'opt/ros/jazzy')
+    if document.get('ros_alias_target')!=expected_alias:
+        raise ValueError('ROS alias target not bound to sysroot manifest')
     if document.get('lock_sha256')!=lock_sha or document.get('rows')!=actual:
         raise ValueError('private sysroot integrity proof failed')
     return True
@@ -468,7 +515,7 @@ def stage(apt,lock_sha):
     # installed vendor packages would need their own cached exact archive proof.
     verify(archives)
     (ROOT/'staging').mkdir(exist_ok=True,mode=0o700)
-    (ROOT/'sysroot').mkdir(exist_ok=True,mode=0o755)
+    publish_parent(ROOT/'sysroot')
     temporary=Path(tempfile.mkdtemp(prefix=lock_sha+'-',dir=ROOT/'staging'))
     for path in (temporary/'tmp',temporary/'home'):
         path.mkdir(mode=0o700)
@@ -481,7 +528,7 @@ def stage(apt,lock_sha):
     generate(temporary,final,lock_sha)
     normalize(temporary)
     rows=tree_manifest(temporary)
-    (temporary/'MANIFEST.json').write_bytes(canonical(dict(schema=1,lock_sha256=lock_sha,rows=rows))+b'\n')
+    (temporary/'MANIFEST.json').write_bytes(canonical(dict(schema=1,lock_sha256=lock_sha,rows=rows,ros_alias_target=str(final/'opt/ros/jazzy')))+b'\n')
     (temporary/'MANIFEST.json').chmod(0o444)
     verify_tree(temporary,lock_sha)
     temporary.rename(final)
@@ -522,6 +569,12 @@ def run(operation,lock_sha=None):
         if operation=='stage' and shutil.disk_usage(ROOT).free<20*1024**3:
             raise ValueError('private staging requires at least 20GiB free')
         journal=Path(tempfile.mkdtemp(prefix='proof-',dir=ROOT))
+        try:
+            from .sysroot_link import snapshot as link_snapshot, activate as activate_link
+        except ImportError:
+            from sysroot_link import snapshot as link_snapshot, activate as activate_link
+        alias_before=link_snapshot()
+        (journal/'ros-link-before.json').write_bytes(canonical(alias_before))
         before=snapshot()
         (journal/'before.json').write_bytes(canonical(before))
         pending=create_install_latch()
@@ -533,10 +586,27 @@ def run(operation,lock_sha=None):
             resolve(apt)
         elif operation=='stage':
             stage(apt,lock_sha)
+        elif operation=='link':
+            lock_read(apt,lock_sha,existing=True)
+            final=ROOT/'sysroot'/lock_sha
+            verify_tree(final,lock_sha)
+            if guard_fd is not None:
+                try:
+                    from .sim_control import state as manager_state
+                except ImportError:
+                    from sim_control import state as manager_state
+                current=manager_state()
+                if current.get('ActiveState')!='inactive' or current.get('MainPID')!='0':
+                    raise ValueError('stop the proven idle manager before ROS alias transition')
+            activate_link(final/'opt/ros/jazzy',lock_sha)
         elif operation=='verify':
-            lock_read(apt,lock_sha)
+            lock_read(apt,lock_sha,existing=True)
             verify_tree(ROOT/'sysroot'/lock_sha,lock_sha)
         else: raise ValueError('invalid private sysroot operation')
+        alias_after=link_snapshot()
+        (journal/'ros-link-after.json').write_bytes(canonical(alias_after))
+        if operation!='link' and alias_after!=alias_before:
+            raise ValueError('ROS alias changed during preparation')
         after=snapshot()
         (journal/'after.json').write_bytes(canonical(after))
         verify_host_unchanged(before,after)
@@ -548,7 +618,7 @@ def run(operation,lock_sha=None):
 if __name__=='__main__':
     try:
         parser=argparse.ArgumentParser(description=__doc__)
-        parser.add_argument('operation',choices=('resolve','stage','verify'))
+        parser.add_argument('operation',choices=('resolve','stage','link','verify'))
         parser.add_argument('lock_sha',nargs='?')
         args=parser.parse_args()
         if args.operation!='resolve' and (args.lock_sha is None or not HASH.fullmatch(args.lock_sha)):

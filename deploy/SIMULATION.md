@@ -119,7 +119,7 @@ failed archive/tree/version/host proof or evidence writes retain it. Deployment
 admission reject it.
 
 Before/after evidence includes unchanged dpkg status/query, /usr path/content/
-mode/owner digest, NVIDIA driver/device identity, DCGM PID719/start time and
+mode/owner digest, NVIDIA driver/device identity, active DCGM/MainPID/start time (initial observation 719) and
 API/Caddy/PostgreSQL unit/PID/start timestamps. Source addresses, credentials,
 raw assets and private evidence are never committed or echoed.
 
@@ -137,3 +137,21 @@ idle gate and fresh evidence. No host package removal or driver rollback occurs.
 
 References: [Mesa environment variables](https://docs.mesa3d.org/envvars.html),
 [Gazebo8 EGL headless rendering](https://gazebosim.org/api/sim/8/headless_rendering.html).
+
+### Approved ROS prefix alias (one host-path exception)
+
+The initial read-only audit found /opt/ros absent. After staging, an explicit
+`link FULL_LOCK_SHA` operation creates a root:0755 /opt/ros and one root-owned
+/opt/ros/jazzy symlink to that immutable sysroot's opt/ros/jazzy. It never copies
+package payload into /opt/ros. An existing foreign directory is not adopted.
+Future changes require the exact recorded directory inode/entries/current link,
+a verified tree, an inactive proven-clean manager and the exclusive guards.
+The link changes by atomic rename and its before/after record is private proof;
+its target is declared in the immutable manifest. Manager profiles check the
+alias binding. This preserves the unchanged external runtime's absolute ROS
+constant; no AST/source rewrite or facade is used.
+
+For rollback, stop the proven-clean idle manager, explicitly link the retained
+prior lock SHA and restore its matching private profile/setup before restarting
+the paired API/manager release. Unknown ownership or failed link proof retains
+the package marker and requires audit. /usr, /etc and dpkg remain unchanged.
