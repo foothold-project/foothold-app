@@ -19,8 +19,16 @@ maintainer scripts, system ldconfig, driver install, reboot, or payload writes t
 management remains a distinct operation; it is not package payload extraction.
 
 The host's dpkg status is copied read-only into a private APT root. Existing
-packages are reused at their actual configured version. If resolution requires
-changing an existing version, stop. libc6/libc-bin/ld-linux, libstdc++6/libgcc-s1,
+packages are reused at their actual configured version. Every configured host
+package is passed as an exact name=installed-version simulation root, including
+packages outside the direct sim pins. APT --no-upgrade protects command-line
+packages only; --no-remove also refuses removals at the solver boundary. The
+existing post-simulation checks still reject every host Inst/Remv/Purg. These
+constraints only affect the private metadata solve: no system holds/preferences
+or installed state are edited. If dependencies cannot coexist with those exact
+host roots, stop; do not relax the constraints or choose newer host/base runtime.
+See [APT --no-upgrade semantics](https://manpages.ubuntu.com/manpages/noble/man8/apt-get.8.html).
+If resolution requires changing an existing version, stop. libc6/libc-bin/ld-linux, libstdc++6/libgcc-s1,
 Python3.12, systemd and OpenSSL families cannot be extracted. NVIDIA/kernel/
 DKMS/firmware/CUDA/DCGM/rpcbind and CUDA library families are also excluded;
 linux-libc-dev headers alone may appear as private development data. New locked

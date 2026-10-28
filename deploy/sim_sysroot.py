@@ -392,6 +392,24 @@ def apt_metadata_digest(apt):
     return digest.hexdigest()
 
 
+def resolution_specs(concrete, installed):
+    """Freeze every configured host package as a solver root, not just sim pins.
+
+    apt --no-upgrade protects only command-line packages; dependencies otherwise
+    remain upgrade/removal candidates. These are simulation constraints only.
+    """
+    versions=dict(concrete)
+    for name,(version,status) in installed.items():
+        package,separator,architecture=name.partition(':')
+        if (not NAME.fullmatch(package) or (separator and not re.fullmatch('[a-z0-9][a-z0-9-]*',architecture))
+                or not isinstance(version,str) or not VERSION.fullmatch(version) or status!='installed'):
+            raise ValueError('host package root invalid or not fully configured')
+        if name in versions and versions[name]!=version:
+            raise ValueError('requested version conflicts with frozen host package')
+        versions[name]=version
+    return [name+'='+version for name,version in sorted(versions.items())]
+
+
 def resolve(apt):
     installed = installed_versions()
     pins = requirements()
@@ -419,8 +437,8 @@ def resolve(apt):
             versions = [line.split('|')[1].strip() for line in text.splitlines() if '|' in line]
             if not versions: raise ValueError('software Mesa provider unavailable')
             concrete[name] = versions[0]
-    specs = [name+'='+version for name,version in sorted(concrete.items())]
-    simulation = sandbox(['/usr/bin/apt-get','--simulate','--no-upgrade','--no-install-recommends','install',*specs],
+    specs = resolution_specs(concrete,installed)
+    simulation = sandbox(['/usr/bin/apt-get','--simulate','--no-upgrade','--no-remove','--no-install-recommends','install',*specs],
                          apt,apt_config=apt/'apt.conf')
     (apt/'simulation.txt').write_text(simulation)
     changes = simulation_changes(simulation,installed)

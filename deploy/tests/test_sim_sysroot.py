@@ -267,3 +267,42 @@ class SnapshotSigningPinRegression(unittest.TestCase):
             with patch.object(root,'ROS_KEY_FINGERPRINT',fingerprint):
                 root.validate_ros_key(fingerprints['snapshot'])
                 with self.assertRaises(ValueError):root.validate_ros_key(fingerprints['main'])
+
+
+class FrozenHostResolutionRegression(unittest.TestCase):
+    def test_dependency_upgrade_cannot_escape_direct_only_no_upgrade(self):
+        # Offline consumer seam models APT's documented command-line-only
+        # --no-upgrade rule, while the complete resolver/lock gate runs normally.
+        installed={'libhost':('1.0-1','installed'),'existing-app':('1.0-1','installed')}
+        def sandbox(args,*unused,**kw):
+            if args[0]=='/usr/bin/apt-cache':return args[-1]+' | 1.0-1 | synthetic\n'
+            self.assertIn('--simulate',args)
+            self.assertIn('--no-upgrade',args)
+            self.assertIn('--no-remove',args)
+            supplied=dict(item.split('=',1) for item in args[args.index('install')+1:])
+            if any(supplied.get(name)!=state[0] for name,state in installed.items()):
+                return 'Inst libhost [1.0-1] (2.0-1 Synthetic)\nRemv existing-app [1.0-1]\n'
+            return '\n'.join('Inst '+name+' (1.0-1 Synthetic [amd64])' for name in
+                             ('sim-runtime','libegl-mesa0','libgl1-mesa-dri'))
+        def metadata(apt,name,version):
+            return dict(name=name,version=version,sha256='a'*64,size=10,filename='pool/main/s/'+name+'.deb')
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(root,'installed_versions',return_value=installed), \
+                patch.object(root,'requirements',return_value={'sim-runtime':'1.0'}), \
+                patch.object(root,'sandbox',side_effect=sandbox), \
+                patch.object(root,'metadata',side_effect=metadata), \
+                patch.object(root,'sha',return_value='b'*64), \
+                patch.object(root,'apt_metadata_digest',return_value='c'*64), \
+                patch.object(root,'generator_digest',return_value='d'*64):
+            apt=Path(folder);lock_sha=root.resolve(apt)
+            lock=json.loads((apt/('lock-'+lock_sha+'.json')).read_text())
+            self.assertEqual(set(lock['host_versions']),set(installed))
+            self.assertEqual({r['name'] for r in lock['downloads']},{'sim-runtime','libegl-mesa0','libgl1-mesa-dri'})
+            self.assertEqual(lock['direct'],{'sim-runtime':'1.0-1','libegl-mesa0':'1.0-1','libgl1-mesa-dri':'1.0-1'})
+
+    def test_host_conflicts_or_unconfigured_state_never_become_solver_roots(self):
+        for direct,installed in (({'systemd':'256.0-1'},{'systemd':('255.4-1','installed')}),
+                                 ({},{'systemd':('255.4-1','half-configured')}),
+                                 ({},{'pkg=remove':('1.0-1','installed')})):
+            with self.subTest(direct=direct),self.assertRaises(ValueError):root.resolution_specs(direct,installed)
+        self.assertEqual(root.resolution_specs({}, {'libhost:i386':('1:1.0-1','installed')}),['libhost:i386=1:1.0-1'])
