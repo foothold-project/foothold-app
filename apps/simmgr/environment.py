@@ -20,6 +20,10 @@ def child_environment(domain, env=None):
         raise ValueError('simulation domain must be 93')
     child = {name: env[name] for name in BASE_KEYS if name in env}
     child.setdefault('PATH', os.defpath)
+    if 'FH_SIM_NATIVE_PYTHON_DIR' in env:
+        if env['FH_SIM_NATIVE_PYTHON_DIR'] != '/opt/foothold-sim/python-vendor':
+            raise ValueError('unapproved native Python vendor path')
+        child['FH_SIM_NATIVE_PYTHON_DIR'] = env['FH_SIM_NATIVE_PYTHON_DIR']
     child.update(REQUIRED_ENV, GZ_IP='127.0.0.1', PYTHONDONTWRITEBYTECODE='1')
     validate_isolation(child)
     return child

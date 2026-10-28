@@ -201,7 +201,7 @@ class Simulation:
                   'PYTHONPATH="$5:${PYTHONPATH:-}" /usr/bin/python3 -c "from foothold_agent.ros_bridge.config import validate_isolation; validate_isolation()"; '
                   'exec /usr/bin/python3 "$2/live_map.py" --isolated-verify --sensor-profile l1-d435i-c2-min '
                   f'--purpose session --world-id {WORLD_ID} --floor-id {FLOOR_ID} --map-mode static --map-version {GT_VERSION} --out "$3"')
-        args = ['systemd-run', '--user', '--unit=' + self.unit, '--collect', '--property=MemoryMax=1500M',
+        args = ['systemd-run', '--user', '--unit=' + self.unit, '--collect', '--property=Slice=foothold-sim.slice', '--property=MemoryMax=1500M',
                 '--property=MemorySwapMax=0', '--property=CPUQuota=200%', '--property=TasksMax=256',
                 '--property=KillSignal=SIGINT', '--property=KillMode=process', '--property=SendSIGKILL=no',
                 '--property=TimeoutStopSec=45', '--property=RuntimeMaxSec=' + str(self.seconds),

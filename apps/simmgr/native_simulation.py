@@ -40,7 +40,7 @@ class CataloguedSimulation(D1Simulation):
                   'PYTHONPATH="$5:${PYTHONPATH:-}" /usr/bin/python3 -c "from foothold_agent.ros_bridge.config import validate_isolation; validate_isolation()"; '
                   'exec /usr/bin/python3 "$6" "$2" "$7" --isolated-verify --sensor-profile l1-d435i-c2-min '
                   '--purpose session --world-id "$8" --floor-id "$9" --map-mode static --map-version gt-20261012 --out "$3"')
-        args = ['systemd-run', '--user', '--unit=' + self.unit, '--collect', '--property=MemoryMax=1500M',
+        args = ['systemd-run', '--user', '--unit=' + self.unit, '--collect', '--property=Slice=foothold-sim.slice', '--property=MemoryMax=1500M',
                 '--property=MemorySwapMax=0', '--property=CPUQuota=200%', '--property=TasksMax=256',
                 '--property=KillSignal=SIGINT', '--property=KillMode=process', '--property=SendSIGKILL=no',
                 '--property=TimeoutStopSec=45', '--property=RuntimeMaxSec=' + str(self.seconds),

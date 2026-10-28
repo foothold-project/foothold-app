@@ -1,0 +1,167 @@
+"""Install a separately reviewed private apt transaction lock, never latest.
+
+The lock lists the entire resolved dependency closure as name/version/sha256;
+apt metadata must already be signature-verified by apt-get update. No repository
+or key is added here. --check performs simulation only; --install additionally
+downloads, checks archive hashes and installs with --no-upgrade.
+"""
+import hashlib
+import fcntl
+import json
+import os
+from pathlib import Path
+import re
+import stat
+import subprocess
+import sys
+import tempfile
+
+PROTECTED = re.compile(r'(nvidia|cuda|dcgm|rpcbind|mesa|libegl|libgl(?!ib)|libgbm|libvulkan)', re.I)
+JOURNAL = None
+SIMULATIONS = 0
+NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*(?::amd64)?\Z')
+VERSION = re.compile(r'[0-9][a-zA-Z0-9.+:~_-]*\Z')
+
+
+def run(*args):
+    global SIMULATIONS
+    result = subprocess.run(args, check=False, capture_output=True, text=True)
+    if JOURNAL is not None and args[0] == 'apt-get' and '--simulate' in args:
+        SIMULATIONS += 1
+        (JOURNAL / ('simulate-' + str(SIMULATIONS) + '.txt')).write_text(result.stdout + result.stderr)
+    result.check_returncode()
+    return result.stdout
+
+
+def upstream(version):
+    return version.split(':')[-1].split('-')[0].split('+')[0]
+
+
+def validate_lock(rows, requirements):
+    locked = {}
+    if not isinstance(rows, list) or not rows or len(rows) > 2000:
+        raise ValueError('invalid package closure')
+    for row in rows:
+        if set(row) != {'name', 'version', 'sha256'}:
+            raise ValueError('invalid package fields')
+        name, version, sha = (row[k] for k in ('name', 'version', 'sha256'))
+        if not NAME.fullmatch(name) or not VERSION.fullmatch(version) or not re.fullmatch('[0-9a-f]{64}', sha):
+            raise ValueError('invalid package identity')
+        if name in locked:
+            raise ValueError('duplicate package')
+        locked[name] = row
+        expected = requirements.get(name)
+        if name.startswith('ros-jazzy-nav2-'):
+            expected = '1.3.13'
+        if name.startswith(('libprotobuf', 'protobuf-', 'python3-protobuf')):
+            expected = '3.21.12'
+        if expected and upstream(version) != expected:
+            raise ValueError('upstream version differs from approved plan')
+    if not set(requirements) <= set(locked):
+        raise ValueError('required direct pin missing')
+    return locked
+
+
+def validate_simulation(output, locked):
+    changes = []
+    for line in output.splitlines():
+        if line.startswith('Remv '):
+            raise ValueError('package removal forbidden')
+        if not line.startswith('Inst '):
+            continue
+        match = re.match(r'Inst (\S+)(?: \[([^]]+)\])? \((\S+)', line)
+        if not match:
+            raise ValueError('unknown apt simulation format')
+        name, installed, version = match.groups()
+        if PROTECTED.search(name):
+            raise ValueError('protected GPU/GL/DCGM/rpcbind change candidate')
+        if installed is not None and installed != version:
+            raise ValueError('existing package upgrade forbidden')
+        if name not in locked or locked[name]['version'] != version:
+            raise ValueError('unlocked transitive dependency')
+        changes.append(name)
+    return changes
+
+
+def metadata_sha(name, version):
+    records = run('apt-cache', 'show', name + '=' + version).strip().split('\n\n')
+    hashes = set()
+    for record in records:
+        fields = dict(line.split(': ', 1) for line in record.splitlines() if ': ' in line and not line.startswith(' '))
+        if fields.get('Version') == version and fields.get('SHA256'):
+            hashes.add(fields['SHA256'])
+    if len(hashes) != 1:
+        raise ValueError('exact package SHA unavailable in verified apt metadata')
+    return hashes.pop()
+
+
+def install(lock_path, commit=False):
+    fd = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    with os.fdopen(fd) as stream:
+        info = os.fstat(stream.fileno())
+        if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or not stat.S_ISREG(info.st_mode):
+            raise ValueError('lock must be root-owned 0600')
+        rows = json.load(stream)
+    requirements = json.loads(Path(__file__).with_name('sim-package-versions.json').read_text())
+    locked = validate_lock(rows, requirements)
+    for name, row in locked.items():
+        if metadata_sha(name, row['version']) != row['sha256']:
+            raise ValueError('apt metadata SHA differs from reviewed lock')
+    specs = [name + '=' + row['version'] for name, row in sorted(locked.items())]
+    command = ['apt-get', '--no-upgrade', '--no-install-recommends', 'install', *specs]
+    changes = validate_simulation(run(*command[:1], '--simulate', *command[1:]), locked)
+    print('Simulation accepted: changes=' + str(len(changes)) + ', protected changes=0')
+    if not commit:
+        return
+    # Keep needrestart in list-only mode: do not restart unrelated services.
+    os.environ.update(DEBIAN_FRONTEND='noninteractive', NEEDRESTART_MODE='l')
+    run(*command[:1], '--download-only', '--yes', *command[1:])
+    downloaded = {}
+    for path in Path('/var/cache/apt/archives').glob('*.deb'):
+        name = run('dpkg-deb', '-f', str(path), 'Package').strip()
+        version = run('dpkg-deb', '-f', str(path), 'Version').strip()
+        if name in locked and version == locked[name]['version']:
+            if hashlib.sha256(path.read_bytes()).hexdigest() != locked[name]['sha256']:
+                raise ValueError('downloaded archive SHA mismatch')
+            downloaded[name] = path
+    if not set(changes) <= set(downloaded):
+        raise ValueError('downloaded transaction incomplete')
+    # Vendor ABI must be proven from these exact downloaded archives first.
+    try:
+        from .verify_gz_abi import verify
+    except ImportError:
+        from verify_gz_abi import verify
+    verify(downloaded)
+    # Resolve once more immediately before installation; no changed transaction.
+    if validate_simulation(run(*command[:1], '--simulate', *command[1:]), locked) != changes:
+        raise ValueError('apt transaction changed after download')
+    run(*command[:1], '--yes', *command[1:])
+    print('Pinned package transaction installed; simulator not started')
+
+
+if __name__ == '__main__':
+    try:
+        if os.geteuid() != 0 or len(sys.argv) != 3 or sys.argv[1] not in ('--check', '--install'):
+            raise ValueError('usage: server root install_sim_packages.py --check|--install private-lock.json')
+        os.umask(0o077)
+        JOURNAL = Path(tempfile.mkdtemp(prefix='foothold-sim-packages-', dir='/root'))
+        # Serialize against automatic deployment, and refuse any active episode.
+        with open('/var/lib/foothold/deploy.lock', 'a') as deployment_lock:
+            fcntl.flock(deployment_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            guard_fd = None
+            guard = Path('/var/lib/foothold-sim/guard')
+            if guard.exists() or guard.is_symlink():
+                guard_fd = os.open(guard / 'deploy.lock', os.O_RDWR | os.O_NOFOLLOW)
+                fcntl.flock(guard_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                if (guard / 'state/unproven').exists() or (guard / 'state/unproven').is_symlink():
+                    raise ValueError('simulation cleanup unproven')
+            (JOURNAL / 'dpkg-before.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
+            install(sys.argv[2], sys.argv[1] == '--install')
+            (JOURNAL / 'dpkg-after.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
+            if guard_fd is not None:
+                os.close(guard_fd)
+    except Exception as error:
+        if JOURNAL is not None:
+            (JOURNAL / 'failure.txt').write_text(type(error).__name__ + ': ' + str(error))
+        # Deliberately omit command output, private paths, env and exception text.
+        raise SystemExit('Pinned package check/install refused; retain private evidence and escalate (' + type(error).__name__ + ')') from None

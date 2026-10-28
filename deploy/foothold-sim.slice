@@ -1,0 +1,8 @@
+[Unit]
+Description=Foothold simulation aggregate resource limit
+
+[Slice]
+MemoryMax=4G
+MemorySwapMax=0
+CPUQuota=400%
+TasksMax=640

@@ -45,6 +45,7 @@ class ObserverUnit(AgentUnit):
 
     def start(self):
         args = ['systemd-run', '--user', '--quiet', '--unit=' + self.unit,
+                '--property=Slice=foothold-sim.slice',
                 '--property=RuntimeMaxSec=' + str(self.settings.unit_runtime_seconds),
                 '--property=RemainAfterExit=yes', '--property=KillMode=control-group',
                 '--property=KillSignal=SIGINT', '--property=SendSIGKILL=yes',
