@@ -14,6 +14,9 @@ printf '%s\n' "$sha" > "$work/pin"
 touch "$work/guard/state/unproven"
 if (take_sim_deploy_guard "$sha" "$work/guard" "$work/pin"); then exit 1; fi
 rm "$work/guard/state/unproven"
+touch "$work/guard/setup-unproven"
+if (take_sim_deploy_guard "$sha" "$work/guard"); then exit 1; fi
+rm "$work/guard/setup-unproven"
 exec 7<>"$work/guard/deploy.lock"
 flock -sn 7
 if (exec 7>&-; take_sim_deploy_guard "$sha" "$work/guard" "$work/pin"); then exit 1; fi

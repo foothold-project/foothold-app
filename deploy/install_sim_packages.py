@@ -65,7 +65,7 @@ def validate_lock(rows, requirements):
 def validate_simulation(output, locked):
     changes = []
     for line in output.splitlines():
-        if line.startswith('Remv '):
+        if line.startswith(('Remv ', 'Purg ')):
             raise ValueError('package removal forbidden')
         if not line.startswith('Inst '):
             continue
@@ -81,6 +81,27 @@ def validate_simulation(output, locked):
             raise ValueError('unlocked transitive dependency')
         changes.append(name)
     return changes
+
+
+def installed_versions():
+    output = run('dpkg-query', '-W', '-f=${binary:Package}\t${Version}\t${db:Status-Status}\n')
+    result = {}
+    for line in output.splitlines():
+        name, version, status = line.split('\t')
+        name = name.removesuffix(':amd64')
+        if status not in ('not-installed', 'config-files'):
+            result[name] = (version, status)
+    return result
+
+
+def verify_installed(locked, installed, require_all=False):
+    for name, row in locked.items():
+        actual = installed.get(name.removesuffix(':amd64'))
+        if actual is None:
+            if require_all:
+                raise ValueError('locked package not installed')
+        elif actual != (row['version'], 'installed'):
+            raise ValueError('installed version/status differs from lock; no upgrade allowed')
 
 
 def metadata_sha(name, version):
@@ -106,6 +127,7 @@ def install(lock_path, commit=False):
         (JOURNAL / 'lock.json').write_text(json.dumps(rows, sort_keys=True) + '\n')
     requirements = json.loads(Path(__file__).with_name('sim-package-versions.json').read_text())
     locked = validate_lock(rows, requirements)
+    verify_installed(locked, installed_versions())
     for name, row in locked.items():
         if metadata_sha(name, row['version']) != row['sha256']:
             raise ValueError('apt metadata SHA differs from reviewed lock')
@@ -138,6 +160,7 @@ def install(lock_path, commit=False):
     if validate_simulation(run(*command[:1], '--simulate', *command[1:]), locked) != changes:
         raise ValueError('apt transaction changed after download')
     run(*command[:1], '--yes', *command[1:])
+    verify_installed(locked, installed_versions(), require_all=True)
     print('Pinned package transaction installed; simulator not started')
 
 
@@ -155,7 +178,7 @@ if __name__ == '__main__':
             if guard.exists() or guard.is_symlink():
                 guard_fd = os.open(guard / 'deploy.lock', os.O_RDWR | os.O_NOFOLLOW)
                 fcntl.flock(guard_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                if (guard / 'state/unproven').exists() or (guard / 'state/unproven').is_symlink():
+                if any((guard / name).exists() or (guard / name).is_symlink() for name in ('state/unproven', 'setup-unproven')):
                     raise ValueError('simulation cleanup unproven')
             (JOURNAL / 'dpkg-before.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
             install(sys.argv[2], sys.argv[1] == '--install')
@@ -164,6 +187,10 @@ if __name__ == '__main__':
                 os.close(guard_fd)
     except Exception as error:
         if JOURNAL is not None:
+            try:
+                (JOURNAL / 'dpkg-after.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
+            except Exception:
+                pass
             (JOURNAL / 'failure.txt').write_text(type(error).__name__ + ': ' + str(error))
         # Deliberately omit command output, private paths, env and exception text.
         raise SystemExit('Pinned package check/install refused; retain private evidence and escalate (' + type(error).__name__ + ')') from None

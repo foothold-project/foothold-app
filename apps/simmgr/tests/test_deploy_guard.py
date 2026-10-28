@@ -161,3 +161,14 @@ def test_user_unit_fixes_guard_after_private_env():
     assert 'Restart=no' in unit
     assert 'ExecStart=/usr/bin/env FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard ' in unit
     assert '/opt/foothold/current/.venv/bin/python -m apps.simmgr' in unit
+
+
+def test_root_activation_latch_blocks_new_session(tmp_path):
+    (tmp_path / 'deploy.lock').touch()
+    (tmp_path / 'state').mkdir()
+    (tmp_path / 'setup-unproven').touch()
+    with pytest.raises(RuntimeError):
+        DeploymentLease(tmp_path).acquire()
+    assert (tmp_path / 'setup-unproven').exists()
+    assert not (tmp_path / 'state/unproven').exists()
+    assert contender(tmp_path) == 0

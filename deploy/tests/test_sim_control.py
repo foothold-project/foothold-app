@@ -35,6 +35,14 @@ class TransitionTests(unittest.TestCase):
                     operation()
             ctl.assert_not_called()
 
+    def test_root_activation_latch_blocks_stop_and_start(self):
+        (self.guard / 'setup-unproven').touch()
+        with patch.object(sim, 'userctl') as ctl:
+            for operation in (sim.stop, sim.start):
+                with self.assertRaises(ValueError):
+                    operation()
+            ctl.assert_not_called()
+
     def test_start_waits_for_current_release_readiness(self):
         running = dict(ActiveState='active', MainPID='42')
         with patch.object(sim, 'stop') as stop, patch.object(sim, 'userctl') as ctl, \

@@ -88,3 +88,28 @@ STOP/zero and all native absence, then use the paired release rollback. Disable
 only the new manager/linger after full absence proof. Compare the private package
 baseline before selectively removing newly installed simulation packages; never
 use autoremove or remove/update existing graphics/DCGM/rpcbind services.
+
+### Failure-latch audit (manual, never automatic reset)
+
+There are two independent latches: runtime `guard/state/unproven`, and root-only
+`guard/setup-unproven` for failed initial activation. Root never opens a leaf in
+the runtime-owned state directory to record failure. The root activation latch
+uses a validated root-owned directory fd with exclusive/no-follow creation.
+Deployment, package setup and manager transitions reject either latch.
+
+To consider recovery, first block new starts and take the deploy and exclusive
+simulation locks. Preserve the old latch and episode/manifests/log/package state
+in private evidence. Check fresh helper proof, exact unit/PID/start/cgroup/
+partition identity, domain93/DDS absence and the existing STOP/zero/child exit/
+manifest/source-ledger proofs for every possible episode. A missing process or
+manager row alone is insufficient. Record the failure cause and evidence, ask
+the coordinator to accept the audit, and only then remove the audited latch
+entry and explicitly authorize one retry. If anything is unknown, retain both
+slot and deployment fence; do not kill by a name pattern or restart a session.
+An activation failure under the exclusive pre-creation guard still needs fresh
+unit/process/DDS absence and a recorded setup audit before clearing its latch.
+
+The user-manager slice is a secondary budget. Root installs the same limits in
+system `user-<dedicated-uid>.slice.d/foothold-sim.conf` and applies them to that
+parent slice. Thus changing a user unit/slice cannot raise the server's ceiling;
+the parent also contains the dedicated user's bus and all descendant cgroups.

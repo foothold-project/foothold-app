@@ -34,6 +34,12 @@ release=$(readlink -f /opt/foothold/current)
 install -d -o foothold-sim -g foothold-sim -m 700 "$release/runs/server-sim" "$release/tmp/p1c/startup"
 loginctl enable-linger foothold-sim
 uid=$(id -u foothold-sim)
+[[ $uid =~ ^[1-9][0-9]*$ ]] || exit 2
+install -d -o root -g root -m 755 "/etc/systemd/system/user-$uid.slice.d"
+install -o root -g root -m 644 foothold-sim-user-slice.conf "/etc/systemd/system/user-$uid.slice.d/foothold-sim.conf"
+systemctl daemon-reload
+# The parent system slice bounds even a modified/escaped user-manager slice.
+systemctl set-property --runtime "user-$uid.slice" MemoryMax=4G MemorySwapMax=0 CPUQuota=400% TasksMax=640
 systemctl start "user@$uid.service"
 runuser -u foothold-sim -- env -i PATH=/usr/bin:/bin XDG_RUNTIME_DIR="/run/user/$uid" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus" systemctl --user daemon-reload
 if [[ $mode == --prepare ]]; then
@@ -60,7 +66,7 @@ else
 fi
 if ! python3 ./sim_control.py start; then
     # No episode could start under the exclusive lock; still retain failed setup.
-    (umask 077; : > /var/lib/foothold-sim/guard/state/unproven)
+    python3 ./mark_sim_failure.py
     echo 'Manager activation failed; deployment fenced pending manual audit.' >&2
     exit 1
 fi

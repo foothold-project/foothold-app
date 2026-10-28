@@ -54,3 +54,13 @@ def test_vendor_requires_root_immutable_directories_and_exact_metadata(monkeypat
     monkeypatch.setattr(Path, 'read_text', lambda *_: 'Name: trimesh\nVersion: 5.2.0\n')
     with pytest.raises(ValueError):
         enable()
+
+
+def test_system_slice_cannot_be_raised_by_simulation_user():
+    unit = Path('deploy/foothold-sim-user-slice.conf').read_text()
+    for value in ('MemoryMax=4G','MemorySwapMax=0','CPUQuota=400%','TasksMax=640'):
+        assert value in unit
+    setup = Path('deploy/bootstrap-sim.sh').read_text()
+    assert '/etc/systemd/system/user-$uid.slice.d' in setup
+    assert 'install -o root -g root -m 644 foothold-sim-user-slice.conf' in setup
+    assert 'systemctl set-property --runtime "user-$uid.slice" MemoryMax=4G MemorySwapMax=0 CPUQuota=400% TasksMax=640' in setup
