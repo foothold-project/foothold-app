@@ -33,6 +33,7 @@ class AgentUnit:
                            root=str(root), simulation_binding=proof), output)
         self.private = private
         args = ['systemd-run', '--user', '--quiet', '--unit=' + self.unit,
+                '--property=Slice=foothold-sim.slice',
                 '--property=RuntimeMaxSec=' + str(settings.unit_runtime_seconds), '--property=RemainAfterExit=yes',
                 '--property=WorkingDirectory=' + str(root), '--property=KillMode=control-group',
                 '--property=KillSignal=SIGINT', '--property=SendSIGKILL=yes',

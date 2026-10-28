@@ -71,7 +71,7 @@ take_sim_deploy_guard() {
         flock -xn 8 || return 1
     fi
     export FH_SIM_DEPLOY_LOCK_HELD=1
-    [[ ! -e $guard/state/unproven && ! -L $guard/state/unproven ]] || return 1
+    [[ ! -e $guard/state/unproven && ! -L $guard/state/unproven && ! -e $guard/setup-unproven && ! -L $guard/setup-unproven ]] || return 1
     valid_sha "$target"
 }
 

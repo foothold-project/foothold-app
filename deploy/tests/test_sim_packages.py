@@ -1,0 +1,115 @@
+"""Synthetic locks/apt output/DEB members; never invoke apt or inspect host state."""
+import io
+import tarfile
+import unittest
+
+from deploy.install_sim_packages import validate_lock, validate_simulation
+from deploy.verify_gz_abi import archive_version
+
+
+class PackageGateTests(unittest.TestCase):
+    def row(self, name='ros-jazzy-nav2-controller', version='1.3.13-1noble.20260903'):
+        return dict(name=name, version=version, sha256='a'*64)
+
+    def test_date_suffix_allowed_upstream_change_refused(self):
+        self.assertIn('ros-jazzy-nav2-controller', validate_lock([self.row()], {'ros-jazzy-nav2-controller':'1.3.13'}))
+        for row in (self.row(version='1.3.14-1noble'), self.row(version='1.3.13+really1.4.0-1noble'), self.row('libprotobuf32', '3.22.0-1')):
+            with self.assertRaises(ValueError):
+                validate_lock([row], {})
+        with self.assertRaises(ValueError):
+            validate_lock([self.row()], {'ros-jazzy-rclpy':'7.1.12'})
+
+    def test_protected_changes_and_unlocked_dependencies_refused(self):
+        locked = {'safe':self.row('safe','1.0-1')}
+        self.assertEqual(validate_simulation('Inst safe (1.0-1 Ubuntu [amd64])', locked), ['safe'])
+        for output in ('Remv safe [1.0-1]', 'Purg safe [1.0-1]', 'Inst safe [0.9-1] (1.0-1 Ubuntu)', 'Inst extra (1.0-1 Ubuntu)'):
+            with self.subTest(output=output), self.assertRaises(ValueError):
+                validate_simulation(output, locked)
+
+    def test_protected_rule_even_when_package_is_locked(self):
+        for name in ('nvidia-utils','libegl1','libgl1','mesa-vulkan-drivers','libgbm1','cuda-toolkit','dcgm','rpcbind'):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                validate_simulation('Inst '+name+' (1.0-1 Ubuntu)', {name:self.row(name,'1.0-1')})
+        name = 'libglib2.0-0t64'
+        self.assertEqual(validate_simulation('Inst '+name+' (1.0-1 Ubuntu)', {name:self.row(name,'1.0-1')}), [name])
+
+    def test_vendor_version_from_deb_member_exact(self):
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode='w') as archive:
+            body = b'Name: gz-sim8\nVersion: 8.15.0\n'
+            item = tarfile.TarInfo('./opt/ros/jazzy/opt/vendor/lib/pkgconfig/gz-sim8.pc')
+            item.size = len(body)
+            archive.addfile(item, io.BytesIO(body))
+        self.assertEqual(archive_version(output.getvalue(),'gz-sim8'), '8.15.0')
+        with self.assertRaises(ValueError):
+            archive_version(output.getvalue(),'gz-msgs10')
+
+
+class InstalledVersionRegression(unittest.TestCase):
+    def test_no_upgrade_skip_must_not_pass_old_installed_protobuf(self):
+        from pathlib import Path
+        import json
+        import stat
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from deploy import install_sim_packages as package
+        row = dict(name='python3-protobuf',version='3.21.12-8.2ubuntu0.4',sha256='a'*64)
+        with tempfile.TemporaryDirectory() as folder:
+            lock = Path(folder) / 'lock.json'
+            lock.write_text(json.dumps([row]))
+            def command(*args):
+                if args[0] == 'dpkg-query':
+                    return 'python3-protobuf\t3.20.0-1\tinstalled\n'
+                if args[0] == 'apt-get' and '--simulate' in args:
+                    return ''  # --no-upgrade silently skips the existing package
+                raise AssertionError('no installation/download may run')
+            with patch.object(package.os, 'fstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o600)), \
+                    patch.object(package,'validate_lock',return_value={row['name']:row}), \
+                    patch.object(package,'metadata_sha',return_value='a'*64), patch.object(package,'run',side_effect=command):
+                with self.assertRaises(ValueError):
+                    package.install(str(lock),commit=False)
+
+    def test_post_install_uses_actual_dpkg_not_cached_abi(self):
+        import hashlib
+        import json
+        from pathlib import Path
+        import stat
+        import tempfile
+        from types import SimpleNamespace
+        from unittest.mock import patch
+        from deploy import install_sim_packages as package
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            artifact = root / 'synthetic.deb'
+            artifact.write_bytes(b'synthetic archive')
+            row = dict(name='python3-protobuf',version='3.21.12-8.2ubuntu0.4',
+                       sha256=hashlib.sha256(artifact.read_bytes()).hexdigest())
+            lock = root / 'lock.json'
+            lock.write_text(json.dumps([row]))
+            def command(*args):
+                if args[0] == 'apt-get':
+                    return 'Inst python3-protobuf (3.21.12-8.2ubuntu0.4 Ubuntu)' if '--simulate' in args else ''
+                if args[0] == 'dpkg-deb':
+                    return row['name'] if args[-1] == 'Package' else row['version']
+                raise AssertionError('unexpected command')
+            with patch.object(package.os,'fstat',return_value=SimpleNamespace(st_uid=0,st_mode=stat.S_IFREG|0o600)), \
+                    patch.object(package,'validate_lock',return_value={row['name']:row}), \
+                    patch.object(package,'metadata_sha',return_value=row['sha256']), \
+                    patch.object(package,'installed_versions',side_effect=[{}, {row['name']:('3.20.0-1','installed')}]), \
+                    patch.object(package,'run',side_effect=command), patch.object(Path,'glob',return_value=[artifact]), \
+                    patch('deploy.verify_gz_abi.verify'):
+                with self.assertRaises(ValueError):
+                    package.install(str(lock),commit=True)
+
+    def test_complete_closure_requires_installed_and_configured(self):
+        from deploy.install_sim_packages import verify_installed
+        row = dict(name='safe',version='1.0-1',sha256='a'*64)
+        for actual in ({}, {'safe':('0.9-1','installed')}, {'safe':('1.0-1','unpacked')}):
+            with self.assertRaises(ValueError):
+                verify_installed({'safe':row},actual,require_all=True)
+        verify_installed({'safe':row},{'safe':('1.0-1','installed')},require_all=True)
+
+
+if __name__ == '__main__':
+    unittest.main()

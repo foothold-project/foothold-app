@@ -1,0 +1,16 @@
+{
+  "worlds": [{
+    "id": "warehouse/f1",
+    "name": "창고",
+    "description": "단일 창고 층",
+    "world_file": "/opt/foothold/current/apps/simmgr/worlds/warehouse/warehouse.sdf",
+    "map_file": "/opt/foothold/current/apps/simmgr/worlds/warehouse/maps/f1.yaml"
+  }],
+  "slots": [{
+    "robot_id": "00000000-0000-4000-8000-000000000001",
+    "org_id": "00000000-0000-4000-8000-000000000002",
+    "key_path": "/etc/foothold-sim/phone-keys.json",
+    "replay_path": "/var/lib/foothold-sim/replay/slot.sqlite3",
+    "port": 9433
+  }]
+}

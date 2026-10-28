@@ -49,6 +49,8 @@ def verified_helper(source, manifest, argv):
 
 
 def main(argv=None):
+    from apps.simmgr.native_vendor import enable
+    enable()  # child-only pinned dependency; control plane never loads it
     source_arg, manifest_arg, *runtime_args = sys.argv[1:] if argv is None else argv
     source = Path(source_arg)
     helper = verified_helper(source, Path(manifest_arg), runtime_args)

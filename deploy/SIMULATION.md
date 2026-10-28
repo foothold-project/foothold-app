@@ -37,3 +37,79 @@ External source, model/policy, private maps and credentials are not archived.
 Offline checks cover actual temporary flock contention, lifecycle failure
 latches, bundle isolation and mocked manager transitions. Live installation,
 EGL, Gazebo/ROS, HTTPS, driving and live rollback are separate acceptance steps.
+
+## Dedicated installation (server root, separate approval from Git merge)
+
+1. Record package and service baseline privately. Add the official ROS Noble
+   source and verified signing key, update apt lists only, and resolve a full
+   private JSON closure: `[{"name":"package","version":"exact-deb-version",
+   "sha256":"64-hex"}]`. Keep it root:0600 outside Git. Each SHA must come from
+   signature-verified apt metadata. `sim-package-versions.json` fixes upstream
+   versions; only distro security suffixes and ROS build timestamps may differ.
+   Never choose newer upstream or omit an unavailable dependency from the lock.
+2. Run `python3 deploy/install_sim_packages.py --check PRIVATE_LOCK` first.
+   It refuses any removal/upgrade, unlocked dependency, or NVIDIA/GL/CUDA/DCGM/
+   rpcbind candidate. With an accepted simulation, `--install` uses
+   `--no-upgrade --no-install-recommends`, verifies downloaded SHA and all five
+   embedded Gazebo ABI versions, then repeats simulation before installation.
+   Archives and the lock remain private for rollback/evidence. Missing version,
+   metadata, archive or ABI is a stop/escalation, never a latest fallback.
+3. Prepare root-owned offline wheel caches and hash-locked requirements for the
+   release's exact server requirements. For native `/usr/bin/python3`, vendor
+   only `trimesh==5.1.0` using `pip --no-deps --no-index --require-hashes --target
+   /opt/foothold-sim/python-vendor` from its private wheel cache/lock; NumPy and
+   geometry/image dependencies use the pinned OS packages. Chown the vendor
+   tree root:root and remove group/other writes. Only the isolated native child
+   enables this path; the manager does not import it. No Torch/ONNX/Isaac/CUDA
+   inference packages or agent hardware extras are needed.
+4. Install reviewed deploy-tools atomically under the deploy lock (common.sh
+   first), then run `bootstrap-sim.sh --prepare`. This prepares only the nologin
+   account, existing render/video groups, linger bus and root-owned user units;
+   it does not activate the guard or manager. Existing groups beyond the three
+   allowlisted groups require an audit. API service sandbox remains unchanged.
+5. Copy sealed external assets without editing originals, preserve required
+   source/mesh layout, and grant the simulation UID read-only access. Give only
+   native output parents, replay and release episode/startup evidence leaves
+   private write access. Verify EGL on the dedicated UID using the existing
+   NVIDIA driver. Provision the catalogue/env from the examples privately;
+   replace placeholder UUIDs and paths with actual registered warehouse binding.
+   Catalogue/env are root:foothold-sim 0640; credentials/pass keys are separate
+   UID-owned 0600 copies. Register warehouse with the existing sim_maps import.
+6. Install/review the OS proof helper and exact HTTPS proxy separately. Then
+   `bootstrap-sim.sh --activate` publishes the guard with its exclusive flock
+   already held and starts the same-release idle manager. A failed activation
+   leaves a durable latch. Do not enable the user service at boot or auto-retry
+   failed simulation sessions. Subsequent idle dev deployment updates API and
+   manager together. First warehouse/ROS93 and HTTPS tests require their own
+   recorded acceptance; preparation/manager readiness is not a simulation pass.
+
+Rollback preserves lock/latch/evidence and database. Stop starts, prove normal
+STOP/zero and all native absence, then use the paired release rollback. Disable
+only the new manager/linger after full absence proof. Compare the private package
+baseline before selectively removing newly installed simulation packages; never
+use autoremove or remove/update existing graphics/DCGM/rpcbind services.
+
+### Failure-latch audit (manual, never automatic reset)
+
+There are two independent latches: runtime `guard/state/unproven`, and root-only
+`guard/setup-unproven` for failed initial activation. Root never opens a leaf in
+the runtime-owned state directory to record failure. The root activation latch
+uses a validated root-owned directory fd with exclusive/no-follow creation.
+Deployment, package setup and manager transitions reject either latch.
+
+To consider recovery, first block new starts and take the deploy and exclusive
+simulation locks. Preserve the old latch and episode/manifests/log/package state
+in private evidence. Check fresh helper proof, exact unit/PID/start/cgroup/
+partition identity, domain93/DDS absence and the existing STOP/zero/child exit/
+manifest/source-ledger proofs for every possible episode. A missing process or
+manager row alone is insufficient. Record the failure cause and evidence, ask
+the coordinator to accept the audit, and only then remove the audited latch
+entry and explicitly authorize one retry. If anything is unknown, retain both
+slot and deployment fence; do not kill by a name pattern or restart a session.
+An activation failure under the exclusive pre-creation guard still needs fresh
+unit/process/DDS absence and a recorded setup audit before clearing its latch.
+
+The user-manager slice is a secondary budget. Root installs the same limits in
+system `user-<dedicated-uid>.slice.d/foothold-sim.conf` and applies them to that
+parent slice. Thus changing a user unit/slice cannot raise the server's ceiling;
+the parent also contains the dedicated user's bus and all descendant cgroups.

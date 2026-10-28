@@ -33,9 +33,10 @@ def state():
 
 
 def no_latch():
-    path = GUARD / 'state/unproven'
-    if path.exists() or path.is_symlink():
-        raise ValueError('cleanup unproven')
+    for name in ('state/unproven', 'setup-unproven'):
+        path = GUARD / name
+        if path.exists() or path.is_symlink():
+            raise ValueError('cleanup unproven')
 
 
 def private_read(path, owner, modes):
