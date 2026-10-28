@@ -1,7 +1,8 @@
 // 시뮬 지도 «위에서 본 사진»(mobile/sim/assets/<이름>/top.png): 앱 시뮬과 같은 three.js 장면(scene.json 메시·색·빛)을
 // 직교 카메라로 바로 위에서 그려 PNG 로 굽는다. 범위 = 장면 메시의 xy 경계 + 둘레 PAD m, 1 m = PX 화소.
 // three 는 커밋하지 않으므로 FH_SIM_SRC/vendor 에서 읽고, 그림은 headless Chrome(창 없음, 임시 프로필)으로 127.0.0.1 임시 서버의 쪽을 찍는다.
-// 실행: FH_SIM_SRC=<RS-6 시뮬 폴더> node scripts/make-top.mjs [이름 …]   (이름 없으면 maps.json 전부)
+// 사진 옆 top.json = 사진이 덮는 지도 좌표 범위 [x0, y0, x1, y1](m) + 그 지도 판(origin·res·w·h) — 웹이 장애물 지도 밑에 깔 때 이 값으로만 맞춘다.
+// 실행: FH_SIM_SRC=<RS-6 시뮬 폴더> node scripts/make-top.mjs [이름 …]   (이름 없으면 maps.json 전부). --meta = 그림 없이 top.json 만(three 불필요)
 import { execFile } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -12,9 +13,10 @@ import { promisify } from 'node:util';
 
 const PX = 24, PAD = 0.3;
 const here = dirname(dirname(fileURLToPath(import.meta.url))), simDir = join(here, 'sim'), src = process.env.FH_SIM_SRC;
-if (!src) throw new Error('FH_SIM_SRC=<RS-6 시뮬 폴더> 가 필요합니다(three 는 저장소에 없음)');
+const meta = process.argv.includes('--meta'), args = process.argv.slice(2).filter((a) => a !== '--meta');
+if (!src && !meta) throw new Error('FH_SIM_SRC=<RS-6 시뮬 폴더> 가 필요합니다(three 는 저장소에 없음)');
 const chrome = process.env.CHROME || 'google-chrome';
-const ids = process.argv.slice(2).length ? process.argv.slice(2) : JSON.parse(readFileSync(join(simDir, 'maps.json'), 'utf8')).map((m) => m.id);
+const ids = args.length ? args : JSON.parse(readFileSync(join(simDir, 'maps.json'), 'utf8')).map((m) => m.id);
 
 /** 장면 메시를 모델 자세(quat = w,x,y,z)로 옮긴 xy 경계 + PAD */
 function bounds(sc, map) {
@@ -54,9 +56,11 @@ document.body.textContent = r.domElement.toDataURL('image/png');   // 화면 크
 
 for (const id of ids) {
   if (!/^[a-z0-9-]+$/.test(id)) throw new Error(`지도 이름은 [a-z0-9-] 만: ${id}`);
-  const b = bounds(JSON.parse(readFileSync(join(simDir, 'assets', id, 'scene.json'), 'utf8')),
-    JSON.parse(readFileSync(join(simDir, 'assets', id, 'map.json'), 'utf8')));
+  const map = JSON.parse(readFileSync(join(simDir, 'assets', id, 'map.json'), 'utf8'));
+  const b = bounds(JSON.parse(readFileSync(join(simDir, 'assets', id, 'scene.json'), 'utf8')), map);
   const W = Math.round((b[2] - b[0]) * PX), H = Math.round((b[3] - b[1]) * PX);
+  writeFileSync(join(simDir, 'assets', id, 'top.json'), JSON.stringify({ bounds: b, px: [W, H], map: { origin: map.origin, res: map.res, w: map.w, h: map.h } }) + '\n');
+  if (meta) { console.log(`${id}: top.json ${W}×${H}`); continue; }
   const files = { '/vendor/three.module.js': join(src, 'vendor/three.module.js'), '/vendor/three.core.js': join(src, 'vendor/three.core.js'),
     [`/assets/${id}/scene.json`]: join(simDir, 'assets', id, 'scene.json') };
   const srv = createServer((q, res) => {
