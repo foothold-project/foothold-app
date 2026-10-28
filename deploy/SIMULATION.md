@@ -48,10 +48,13 @@ EGL, Gazebo/ROS, HTTPS, driving and live rollback are separate acceptance steps.
    versions; only distro security suffixes and ROS build timestamps may differ.
    Never choose newer upstream or omit an unavailable dependency from the lock.
 2. Run `python3 deploy/install_sim_packages.py --check PRIVATE_LOCK` first.
-   It refuses any removal/upgrade, unlocked dependency, or NVIDIA/GL/CUDA/DCGM/
-   rpcbind candidate. With an accepted simulation, `--install` uses
+   It refuses any removal/purge, existing package change or unlocked dependency.
+   New GL/Mesa/GLVND user-space libraries are allowed at locked version/SHA;
+   new NVIDIA/kernel/DKMS/firmware/CUDA/DCGM/rpcbind packages are forbidden. With an accepted simulation, `--install` uses
    `--no-upgrade --no-install-recommends`, verifies downloaded SHA and all five
    embedded Gazebo ABI versions, then repeats simulation before installation.
+   GPU driver/device identity, DCGM PID719/start ticks, API/Caddy/PostgreSQL
+   unit state/PID/start timestamps must remain equal before/after.
    Archives and the lock remain private for rollback/evidence. Missing version,
    metadata, archive or ABI is a stop/escalation, never a latest fallback.
 3. Prepare root-owned offline wheel caches and hash-locked requirements for the

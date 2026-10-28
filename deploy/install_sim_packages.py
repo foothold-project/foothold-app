@@ -17,6 +17,7 @@ import sys
 import tempfile
 
 PROTECTED = re.compile(r'(nvidia|cuda|dcgm|rpcbind|mesa|libegl|libgl(?!ib)|libgbm|libvulkan)', re.I)
+NEW_FORBIDDEN = re.compile(r'(^nvidia-|^libnvidia-|^linux-|dkms|^xserver-xorg-video-nvidia|firmware|cuda|dcgm|rpcbind|^datacenter-gpu-manager)', re.I)
 JOURNAL = None
 SIMULATIONS = 0
 NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*(?::amd64)?\Z')
@@ -73,10 +74,12 @@ def validate_simulation(output, locked):
         if not match:
             raise ValueError('unknown apt simulation format')
         name, installed, version = match.groups()
-        if PROTECTED.search(name):
-            raise ValueError('protected GPU/GL/DCGM/rpcbind change candidate')
-        if installed is not None and installed != version:
-            raise ValueError('existing package upgrade forbidden')
+        if installed is not None:
+            if PROTECTED.search(name):
+                raise ValueError('existing GPU/GL/DCGM/rpcbind package change forbidden')
+            raise ValueError('existing package change forbidden')
+        if NEW_FORBIDDEN.search(name):
+            raise ValueError('new driver/kernel/CUDA/DCGM/rpcbind package forbidden')
         if name not in locked or locked[name]['version'] != version:
             raise ValueError('unlocked transitive dependency')
         changes.append(name)
@@ -116,6 +119,30 @@ def metadata_sha(name, version):
     return hashes.pop()
 
 
+def host_snapshot():
+    services = {}
+    for unit in ('nvidia-dcgm.service', 'foothold-server.service', 'caddy.service',
+                 'postgresql.service', 'postgresql@16-main.service'):
+        text = run('systemctl', 'show', unit,
+            '--property=LoadState,ActiveState,SubState,MainPID,ExecMainStartTimestampMonotonic')
+        info = dict(line.split('=', 1) for line in text.splitlines() if '=' in line)
+        if info.get('LoadState') != 'loaded' or info.get('ActiveState') != 'active':
+            raise ValueError('required existing service not active')
+        if unit != 'postgresql.service' and int(info.get('MainPID', '0')) <= 0:
+            raise ValueError('required service process absent')
+        if unit == 'nvidia-dcgm.service' and info.get('MainPID') != '719':
+            raise ValueError('DCGM PID differs from approved baseline')
+        services[unit] = info
+    dcgm = Path('/proc/719/stat').read_text().rsplit(')', 1)[1].split()[19]
+    gpu = run('nvidia-smi', '--query-gpu=driver_version,name,uuid', '--format=csv,noheader')
+    return dict(services=services, dcgm_pid=719, dcgm_start_ticks=dcgm, gpu=gpu)
+
+
+def verify_host_unchanged(before, after):
+    if after != before:
+        raise ValueError('protected GPU/DCGM/service identity changed; stop and escalate')
+
+
 def install(lock_path, commit=False):
     fd = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
     with os.fdopen(fd) as stream:
@@ -134,7 +161,7 @@ def install(lock_path, commit=False):
     specs = [name + '=' + row['version'] for name, row in sorted(locked.items())]
     command = ['apt-get', '--no-upgrade', '--no-install-recommends', 'install', *specs]
     changes = validate_simulation(run(*command[:1], '--simulate', *command[1:]), locked)
-    print('Simulation accepted: changes=' + str(len(changes)) + ', protected changes=0')
+    print('Simulation accepted: new packages=' + str(len(changes)) + ', existing changes=0, driver/DCGM/rpcbind changes=0')
     if not commit:
         return
     # Keep needrestart in list-only mode: do not restart unrelated services.
@@ -181,13 +208,19 @@ if __name__ == '__main__':
                 if any((guard / name).exists() or (guard / name).is_symlink() for name in ('state/unproven', 'setup-unproven')):
                     raise ValueError('simulation cleanup unproven')
             (JOURNAL / 'dpkg-before.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
+            baseline = host_snapshot()
+            (JOURNAL / 'host-before.json').write_text(json.dumps(baseline, sort_keys=True))
             install(sys.argv[2], sys.argv[1] == '--install')
+            after = host_snapshot()
+            (JOURNAL / 'host-after.json').write_text(json.dumps(after, sort_keys=True))
+            verify_host_unchanged(baseline, after)
             (JOURNAL / 'dpkg-after.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
             if guard_fd is not None:
                 os.close(guard_fd)
     except Exception as error:
         if JOURNAL is not None:
             try:
+                (JOURNAL / 'host-after.json').write_text(json.dumps(host_snapshot(), sort_keys=True))
                 (JOURNAL / 'dpkg-after.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
             except Exception:
                 pass
