@@ -9,6 +9,7 @@ import { clearServerData, listScope, setServerData, toRobots, type Robot, type U
 import { now } from './rt';
 import { kept } from './screens/mapedit';
 import { clearPlans } from './screens/missions';
+import { useTheme } from './theme';
 
 /** 무엇이 서버 값이고 무엇이 아직 준비 중인지(개발용 표시) — 서버 경유 영상·관제 지도 그림이 생기면 지운다 */
 export const DEV_NOTE = '개발용 표시: 계정·로봇 목록·관제 요약·설정·기록·알림·지도·임무·시나리오·배정·결재·시뮬 로봇과 로봇 연결·상태·조종권·잠금·STOP 은 서버 값입니다. 서버 경유 조종 화면의 영상·지도 그림은 아직 준비 중(자리만)이고, 시나리오 실행은 시뮬 직결 화면에서만 됩니다.';
@@ -23,7 +24,7 @@ const toUser = (u: ApiUser): User => ({ id: u.id, name: u.display_name, role: u.
 type State = { at: 'wait' } | { at: 'login'; note?: string } | { at: 'app'; user: User; robots: Robot[]; fresh: number; n: number; cancel: AbortSignal; note?: string; stale?: boolean };
 
 export function Root() {
-  const [st, setSt] = useState<State>({ at: 'wait' });
+  const [st, setSt] = useState<State>({ at: 'wait' }), fh = useTheme()[1] ? 'fh light' : 'fh';   // 로그인 전 화면도 고른 테마
   const live = useRef<AbortController | null>(null);   // 지금 로그인 세션의 취소 신호
   const toLogin = (note?: string) => { live.current?.abort(); live.current = null; setSt({ at: 'login', note }); };
   // 로그인 화면이 되면(로그아웃·401·세션 없음) 이전 사용자·로봇을 비운다. 실시간 연결·조종권은 App 이 내려가며 돌려주고 닫는다.
@@ -74,7 +75,7 @@ export function Root() {
   const logout = () => api.logout().then(() => toLogin(),
     (e: ApiFail) => (e.status === 401 ? toLogin() : setSt((s) => (s.at === 'app' ? { ...s, note: `로그아웃하지 못했습니다. ${e.message}` } : s))));
 
-  if (st.at === 'wait') return <div className="fh"><p className="lv-note" style={{ padding: 16 }} role="status">불러오는 중…</p></div>;
+  if (st.at === 'wait') return <div className={fh}><p className="lv-note" style={{ padding: 16 }} role="status">불러오는 중…</p></div>;
   if (st.at === 'login') return <Login note={st.note} enter={enter} />;
   // 내 이름이 바뀌면(설정 탭) 머리줄·이름 찾기도 새 값으로 — 같은 사용자라 App 은 그대로
   const setMe = (u: ApiUser) => setSt((s) => { if (s.at !== 'app' || s.user.id !== u.id) return s; const user = toUser(u); setServerData(user, s.robots); return { ...s, user }; });
@@ -84,7 +85,7 @@ export function Root() {
 }
 
 function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
-  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState(note), [busy, setBusy] = useState(false), fh = useTheme()[1] ? 'fh light' : 'fh';
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (busy) return;
@@ -94,7 +95,7 @@ function Login({ note, enter }: { note?: string; enter: () => Promise<void> }) {
     try { await api.login(id, pw); await enter(); }
     catch (err) { setMsg((err as ApiFail).message); setBusy(false); }
   };
-  return <div className="fh"><main className="fh-login" aria-label="로그인">
+  return <div className={fh}><main className="fh-login" aria-label="로그인">
     <form onSubmit={submit} noValidate>
       <BrandLogo kind="primary" h={40} />
       <div className="fh-field"><h2>로그인</h2><span className="lbl">현장 서버에 연결해 로봇을 보고 조종합니다</span></div>
