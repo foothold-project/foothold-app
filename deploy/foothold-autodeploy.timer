@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Foothold dev every two minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+Persistent=false
+Unit=foothold-autodeploy.service
+
+[Install]
+WantedBy=timers.target

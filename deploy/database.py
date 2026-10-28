@@ -32,6 +32,8 @@ def main():
         os.environ.update(read_env('/root/foothold-initial-admin.txt'))
         from apps.server.fh_server.bootstrap import organization
         organization()
+    from .smoke_account import ensure_account
+    ensure_account()
 
 
 if __name__ == '__main__':

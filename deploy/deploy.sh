@@ -6,16 +6,11 @@ cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 source ./common.sh
 valid_sha "$1" || { echo 'A full lowercase commit SHA is required.' >&2; exit 2; }
 sha=$1
-exec 9>/var/lib/foothold/deploy.lock
-flock -n 9 || { echo 'Another deploy/rollback is running.' >&2; exit 1; }
+mode=manual
+[[ ${FH_DEPLOY_MODE:-} != auto ]] || mode=auto
+take_deploy_lock || { echo 'Another deploy/rollback is running.' >&2; exit 1; }
 previous=''
 if [[ -L /opt/foothold/current ]]; then previous=$(readlink -f /opt/foothold/current); fi
-release=/opt/foothold/releases/$sha
-archive=/var/lib/foothold/incoming/$sha.tar.gz
-[[ ! -e $release && ! -L $release ]] || { echo 'Release exists; use rollback.sh or audit/remove a failed preparation privately.' >&2; exit 1; }
-read -r checksum filename < "$archive.sha256"
-[[ $checksum =~ ^[0-9a-f]{64}$ && $filename == "$sha.tar.gz" ]] || exit 2
-[[ $(sha256sum "$archive" | cut -d' ' -f1) == "$checksum" ]] || { echo 'Artifact checksum mismatch.' >&2; exit 1; }
 switched=0
 finish() {
     local result=$? rollback=not-needed
@@ -23,10 +18,16 @@ finish() {
     if needs_rollback "$result" "$switched"; then
         if restore_release "$previous"; then rollback=restored; else rollback=FAILED; fi
     fi
-    printf '%s commit=%s previous=%s exit=%s rollback=%s\n' "$(date -u +%FT%TZ)" "$sha" "${previous##*/}" "$result" "$rollback" >> /var/lib/foothold/deploys.log
+    printf '%s commit=%s previous=%s exit=%s rollback=%s mode=%s\n' "$(date -u +%FT%TZ)" "$sha" "${previous##*/}" "$result" "$rollback" "$mode" >> /var/lib/foothold/deploys.log
     exit "$result"
 }
 trap finish EXIT
+release=/opt/foothold/releases/$sha
+archive=/var/lib/foothold/incoming/$sha.tar.gz
+[[ ! -e $release && ! -L $release ]] || { echo 'Release exists; use rollback.sh or audit/remove a failed preparation privately.' >&2; exit 1; }
+read -r checksum filename < "$archive.sha256"
+[[ $checksum =~ ^[0-9a-f]{64}$ && $filename == "$sha.tar.gz" ]] || exit 2
+[[ $(sha256sum "$archive" | cut -d' ' -f1) == "$checksum" ]] || { echo 'Artifact checksum mismatch.' >&2; exit 1; }
 install -d -m 755 "$release"
 tar -xzf "$archive" -C "$release" --no-same-owner --no-same-permissions
 [[ $(cat "$release/COMMIT") == "$sha" && -s $release/apps/web/dist/index.html ]] || exit 1

@@ -5,8 +5,7 @@ set -euo pipefail
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 source ./common.sh
 valid_sha "$1" || exit 2
-exec 9>/var/lib/foothold/deploy.lock
-flock -n 9 || exit 1
+take_deploy_lock || exit 1
 target=$1
 release=/opt/foothold/releases/$target
 [[ -x $release/.venv/bin/uvicorn && -s $release/apps/web/dist/index.html && $(cat "$release/COMMIT") == "$1" ]] || exit 1
@@ -19,7 +18,7 @@ finish() {
     if needs_rollback "$result" "$switched"; then
         if restore_release "$previous"; then rollback=restored; else rollback=FAILED; fi
     fi
-    printf '%s rollback-to=%s previous=%s exit=%s recovery=%s\n' "$(date -u +%FT%TZ)" "$target" "${previous##*/}" "$result" "$rollback" >> /var/lib/foothold/deploys.log
+    printf '%s rollback-to=%s previous=%s exit=%s recovery=%s mode=manual\n' "$(date -u +%FT%TZ)" "$target" "${previous##*/}" "$result" "$rollback" >> /var/lib/foothold/deploys.log
     exit "$result"
 }
 trap finish EXIT
