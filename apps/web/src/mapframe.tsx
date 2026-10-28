@@ -32,7 +32,8 @@ export function MapImage({ id, style, ...rest }: { id: string; width: number; he
 
 /** 시뮬 월드 «실제 모습»: mobile/scripts/make-top.mjs 가 구운 top.png 와 그 범위 top.json(사진이 덮는 지도 좌표 [x0, y0, x1, y1] m + 그 지도 판).
  *  판과 사진은 서버가 준 그림 sha256 으로만 잇는다 — 서버가 시뮬 월드를 등록할 때 쓰는 그림(apps/simmgr/worlds/<월드>/maps/<층>.png, sim_maps.py)의 sha256.
- *  이름으로 맞추지 않는다(tests/maptop.test 가 worlds.json·그림과 대조). 잔해 험지(rubble)·연결 건물·실기·올린 지도는 사진 없음 */
+ *  이름으로 맞추지 않는다(tests/maptop.test 가 worlds.json·그림과 대조). 잔해 험지(rubble)·연결 건물·실기·올린 지도는 사진 없음.
+ *  같은 PNG·YAML 을 사람이 올린 판(provenance HUMAN)도 사진 없음 — 서버가 시뮬 등록으로 남긴 판(SIMULATION, 편집·되돌림도 이어받음)만 */
 export const SIM_TOP = new Map([
   ['ce79faafe42fbe7c3239699802c6422701e760d98edc96e8b980f7f322c3480b', 'warehouse'],   // warehouse/f1
   ['8669ef9e9300c7a6372d02b230aaee98f984337bac9cebe5b1316be1e7d61721', 'factory-inspection'],   // factory_inspection/f1
@@ -45,10 +46,10 @@ type TopMeta = { bounds: [number, number, number, number]; map: { origin: number
 const TOP_PNG = import.meta.glob<string>('../../../mobile/sim/assets/*/top.png', { eager: true, query: '?url', import: 'default' });
 const TOP_META = import.meta.glob<TopMeta>('../../../mobile/sim/assets/*/top.json', { eager: true, import: 'default' });
 export type Top = { href: string; x: number; y: number; width: number; height: number };
-type Ver = Pick<MapVersion, 'image_sha256' | 'origin' | 'resolution' | 'width' | 'height'>;
-/** 판에 깔 사진 자리(그림 픽셀). 연결된 시뮬 그림이 아니거나 판 좌표(origin·해상도·크기)가 사진을 구운 지도와 다르면 null */
+type Ver = Pick<MapVersion, 'provenance' | 'image_sha256' | 'origin' | 'resolution' | 'width' | 'height'>;
+/** 판에 깔 사진 자리(그림 픽셀). 시뮬 등록 판이 아니거나 연결된 시뮬 그림이 아니거나 판 좌표(origin·해상도·크기)가 사진을 구운 지도와 다르면 null */
 export function topOf(v?: Ver | null): Top | null {
-  const id = v && SIM_TOP.get(v.image_sha256), t = id && TOP_META[`../../../mobile/sim/assets/${id}/top.json`], href = id && TOP_PNG[`../../../mobile/sim/assets/${id}/top.png`];
+  const id = v?.provenance === 'SIMULATION' && SIM_TOP.get(v.image_sha256), t = id && TOP_META[`../../../mobile/sim/assets/${id}/top.json`], href = id && TOP_PNG[`../../../mobile/sim/assets/${id}/top.png`];
   if (!v || !t || !href) return null;
   const { map: m, bounds: [x0, y0, x1, y1] } = t, r = v.resolution;
   if (m.res !== r || m.w !== v.width || m.h !== v.height || m.origin.length !== 3 || m.origin.some((o, i) => o !== v.origin[i])) return null;

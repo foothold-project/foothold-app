@@ -9,7 +9,7 @@ import { toPixel } from '../screens/maps';
 let root: Root | null = null, box: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); setLook('photo'); vi.restoreAllMocks(); });
 
-const ver = (image_sha256: string, origin: [number, number, number], width: number, height: number, resolution = 0.05) => ({ image_sha256, origin, resolution, width, height });
+const ver = (image_sha256: string, origin: [number, number, number], width: number, height: number, resolution = 0.05, provenance: 'HUMAN' | 'SIMULATION' = 'SIMULATION') => ({ provenance, image_sha256, origin, resolution, width, height });
 const WAREHOUSE = 'ce79faafe42fbe7c3239699802c6422701e760d98edc96e8b980f7f322c3480b';
 const draw = (el: JSX.Element) => { box = document.createElement('div'); document.body.append(box); root = createRoot(box); act(() => root!.render(el)); };
 
@@ -30,6 +30,13 @@ describe('사진 자리', () => {
     expect(topOf(ver(WAREHOUSE, [-7.5, -11, 0], 301, 440))).toBeNull();
     expect(topOf(ver('__proto__', [-7.5, -11, 0], 300, 440))).toBeNull();
     expect(topOf(null)).toBeNull();
+  });
+  it('같은 창고 PNG·YAML 이라도 사람이 올린 판(HUMAN·provenance 없음)은 사진 없음', () => {
+    expect(topOf(ver(WAREHOUSE, [-7.5, -11, 0], 300, 440, 0.05, 'HUMAN'))).toBeNull();
+    expect(topOf({ ...ver(WAREHOUSE, [-7.5, -11, 0], 300, 440), provenance: undefined })).toBeNull();
+    draw(<MapFrame full={[0, 0, 300, 440]} res={0.05} photo={ver(WAREHOUSE, [-7.5, -11, 0], 300, 440, 0.05, 'HUMAN')}><rect /></MapFrame>);
+    expect(box.querySelector('[data-map-top]')).toBeNull();
+    expect(box.querySelector('[data-look-btn]')).toBeNull();
   });
 });
 

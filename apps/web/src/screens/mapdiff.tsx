@@ -137,7 +137,8 @@ export function Compare({ v, list, cancel, gone }: { v: MapVersion; list: Pick<M
         : <p className="lv-note">지도 그림은 같습니다.</p>}
       <MapFrame {...look!} photo={b} role="img" aria-label={`${a ? `판 ${a.number}` : '빈 지도'}와 판 ${b.number} 비교`} data-diff style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
         {two && img !== 'after' && <MapImage key={`a${k}`} data-image="before" id={a!.id} width={a!.width} height={a!.height} transform={onto(a!, b)} onError={onErr} />}
-        {(!two || img !== 'before') && <MapImage key={`b${k}`} data-image="after" id={b.id} width={b.width} height={b.height} style={{ opacity: two && img === 'both' ? 0.5 : 1 }} onError={onErr} />}
+        {/* 겹쳐 보기 반투명은 묶음(g)에 — 그림 자체 투명도(사진 모드 --fh-map-a, MapImage)에 곱해진다. 그림 style 로 덮으면 «실제 모습» 사진이 가려진다 */}
+        {(!two || img !== 'before') && <g opacity={two && img === 'both' ? 0.5 : undefined}><MapImage key={`b${k}`} data-image="after" id={b.id} width={b.width} height={b.height} onError={onErr} /></g>}
         <g opacity={0.3} aria-hidden="true"><Shapes v={b} f={b.features} /></g>
         <g opacity={hi >= 0 ? 0.35 : 1}>{layer}</g>
         {d.changes[hi] && <One g={b} c={d.changes[hi]} hi />}

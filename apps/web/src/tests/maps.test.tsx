@@ -1391,14 +1391,37 @@ describe('판 비교·되돌리기(W4c)', () => {
     const before = () => diffSvg().querySelector('image[data-image="before"]'), after = () => diffSvg().querySelector<SVGImageElement>('image[data-image="after"]');
     expect(before()!.getAttribute('href')).toBe('/api/v1/map-versions/v1/image');
     expect(after()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
-    expect(after()!.style.opacity).toBe('0.5');
+    expect(after()!.parentElement!.getAttribute('opacity')).toBe('0.5');
     expect($('[aria-label="지도 보기"] svg[data-map]')).toBeNull();        // 비교 중엔 판 그림 하나 대신 비교 그림
     await click(btn('판 1', card('지도 그림')));
     expect(before()).toBeTruthy(); expect(after()).toBeNull();
     await click(btn('판 2', card('지도 그림')));
-    expect(before()).toBeNull(); expect(after()!.style.opacity).toBe('1');
+    expect(before()).toBeNull(); expect(after()!.parentElement!.getAttribute('opacity')).toBeNull();
     await compare();                                                    // 다시 누르면 보기로
     expect(diffSvg()).toBeNull(); expect(img()!.getAttribute('href')).toBe('/api/v1/map-versions/v2/image');
+  });
+
+  it('시뮬 월드 판 «실제 모습»: 같은 그림·첫 판·뒤 판 단독은 그림 투명도를 덮지 않고(--fh-map-a 그대로), 겹쳐 보기는 묶음 반투명', async () => {
+    const sim = { provenance: 'SIMULATION' as const, image_sha256: 'ce79faafe42fbe7c3239699802c6422701e760d98edc96e8b980f7f322c3480b', width: 300, height: 440, origin: [-7.5, -11, 0] as [number, number, number] };
+    const S1 = { ...V1, ...sim }, S2 = { ...V2, ...sim }, after = () => diffSvg().querySelector<SVGImageElement>('image[data-image="after"]')!;
+    const own = () => { expect(after().style.opacity).not.toBe('1'); expect(after().parentElement!.getAttribute('opacity')).toBeNull(); };   // jsdom 은 var() 투명도를 못 읽어 «덮지 않음»만 본다
+    let diff = { ...DIFF, version: S2, against: S1 as MapVersion | null, image_changed: false };
+    serve(signedIn(KIM, { 'GET /map-versions/v2': { status: 200, body: S2 }, 'GET /floors/f1/map-versions': { status: 200, body: { items: [S2, S1], next_cursor: null } },
+      'GET /map-versions/v2/diff': () => ({ status: 200, body: diff }) }));
+    await open('#/map');
+    await compare();                                                    // 같은 그림
+    expect(card('판 비교').textContent).toContain('지도 그림은 같습니다.');
+    expect(diffSvg().querySelector('[data-map-top]')).not.toBeNull();
+    expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45');
+    own();
+    await compare(); diff = { ...diff, against: null }; await compare();   // 첫 판(빈 지도와 비교)
+    expect(card('판 비교').textContent).toContain('빈 지도 → 판 2');
+    expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45'); own();
+    await compare(); diff = { ...diff, against: S1, image_changed: true }; await compare();   // 그림이 바뀜: 겹쳐 보기 → 뒤 판 단독
+    expect(after().parentElement!.getAttribute('opacity')).toBe('0.5');
+    expect(after().style.opacity).toBe(diffSvg().querySelector<SVGImageElement>('image[data-image="before"]')!.style.opacity);   // 두 그림 모두 자기 투명도 그대로
+    await click(btn('판 2', card('지도 그림')));
+    expect(diffSvg().style.getPropertyValue('--fh-map-a')).toBe('0.45'); own();
   });
 
   it('추가·삭제·바뀜·순서 바뀜을 색으로 구분해 그리고, 차이 목록을 누르면 그 요소만 강조', async () => {
