@@ -5,6 +5,7 @@ import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
 import { PC_BOTTOM, PC_TABS, PHONE_SHEETS, PHONE_TABS, labelOf, tabFromHash, tabsFor } from '../menu';
 import { FakeWS, state } from './fakeWs';
+import SIM_MAPS from '../../../../mobile/sim/maps.json';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -27,7 +28,7 @@ const feed = (robots: Robot[] = ROBOTS) => act(() => {
     : state(r.id, { connection: 'OFFLINE', status: null, battery: null, latched: null, stop_gen: null, applied: null }));
 });
 const resize = (phone: boolean) => act(() => { isPhone = phone; listeners.forEach((f) => f()); });
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.restoreAllMocks(); localStorage.clear(); });
 
 const $ = <T extends Element = HTMLElement>(s: string) => box.querySelector<T>(s)!;
 const $$ = (s: string) => [...box.querySelectorAll<HTMLElement>(s)];
@@ -115,11 +116,32 @@ describe('탭 전환', () => {
     const card = $('[aria-label="시뮬(앱 안)"]'), open = $<HTMLAnchorElement>('[data-sim-app]');
     expect(card.querySelector('h2')!.textContent).toBe('시뮬(앱 안)');
     expect(open.textContent).toBe('시뮬 열기');
-    expect(open.getAttribute('href')).toBe('https://localhost/sim/index.html?from=server');
-    expect(card.textContent).toContain('폰 안에서 도는 창고 시뮬, 서버 필요 없음');
+    expect(open.getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=warehouse');
+    expect(card.textContent).toContain('폰 안에서 도는 시뮬, 서버 필요 없음');
     expect([...card.querySelectorAll('button')].filter((b) => b.textContent === '띄우기')).toEqual([]);
     expect(card.querySelector('[aria-label="월드 목록"]')).toBeNull();
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);   // 내 로봇 목록은 그대로
+  });
+  it('폰 앱 시뮬 지도(10-28): 드롭다운 = mobile/sim/maps.json, 고른 지도의 위에서 본 사진, 열기 주소에 ?map=, 기억(없는 값·저장 실패면 첫 지도)', () => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
+    localStorage.setItem('fh.simMap', 'nope');
+    mount(true, 'u-lee');
+    const sel = $<HTMLSelectElement>('[data-sim-map]');
+    expect(sel.className).toBe('fh-user fh-sel');   // 앱 공용 고르기 모양
+    expect([...sel.options].map((o) => [o.value, o.textContent])).toEqual(SIM_MAPS.map((m) => [m.id, m.name]));
+    expect(sel.value).toBe('warehouse');
+    expect($<HTMLImageElement>('[data-sim-top]').getAttribute('src')).toMatch(/mobile\/sim\/assets\/warehouse\/top\.png/);
+    expect($<HTMLImageElement>('[data-sim-top]').alt).toBe('창고 위에서 본 모습');
+    act(() => { sel.value = 'warehouse'; sel.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(localStorage.getItem('fh.simMap')).toBe('warehouse');
+    expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('https://localhost/sim/index.html?from=server&map=warehouse');
+    act(() => root?.unmount()); root = null; box.remove();
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('막힘'); });
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('막힘'); });
+    mount(true, 'u-lee');
+    expect($<HTMLSelectElement>('[data-sim-map]').value).toBe('warehouse');
+    act(() => { $<HTMLSelectElement>('[data-sim-map]').dispatchEvent(new Event('change', { bubbles: true })); });
+    expect($('[data-sim-app]')).not.toBeNull();
   });
 });
 
