@@ -193,3 +193,41 @@ class PrivateSysrootTests(unittest.TestCase):
         output.seek(0)
         with tempfile.TemporaryDirectory() as folder,self.assertRaises(ValueError):
             root.validate_tar(output,Path(folder))
+
+
+class BinaryRosKeyRegression(unittest.TestCase):
+    def test_binary_or_armored_key_reaches_same_fixed_fingerprint_gate(self):
+        # No key import, network, apt update or host status read. Synthetic gpg
+        # output tests the trust decision after either bounded byte encoding.
+        good='pub:::::::::\nfpr:::::::::'+root.ROS_KEY_FINGERPRINT+':\n'
+        bad=good.replace(root.ROS_KEY_FINGERPRINT,'0'*40)
+        for key in (b'\x99synthetic-binary-key', b'-----BEGIN PGP PUBLIC KEY BLOCK-----\nsynthetic'):
+            for fingerprint,accepted in ((good,True),(bad,False)):
+                with self.subTest(binary=key.startswith(b'\x99'),accepted=accepted),tempfile.TemporaryDirectory() as folder:
+                    apt=Path(folder)/'apt'
+                    calls=[]
+                    def sandbox(args,*a,**kw):
+                        calls.append(args)
+                        if '--dearmor' in args:
+                            Path(args[args.index('--output')+1]).write_bytes(b'\x99normalized-key')
+                            return ''
+                        return fingerprint if '--show-keys' in args else ''
+                    with patch('urllib.request.urlopen',return_value=io.BytesIO(key)), \
+                         patch.object(root,'sandbox',side_effect=sandbox), \
+                         patch.object(root.shutil,'copyfile'), \
+                         patch.object(Path,'read_bytes',return_value=b'synthetic-status'):
+                        if accepted:
+                            root.setup_apt(apt)
+                            self.assertIn(['/usr/bin/apt-get','update'],calls)
+                            self.assertIn('keyrings/ros.gpg]',(apt/'etc/sources.list').read_text())
+                            self.assertEqual((apt/'keyrings/ros.gpg').stat().st_size,15)
+                        else:
+                            with self.assertRaises(ValueError):root.setup_apt(apt)
+                            self.assertNotIn(['/usr/bin/apt-get','update'],calls)
+                    self.assertEqual((apt/'keyrings/ros.input').read_bytes(),key)
+                    self.assertIn('--show-keys',calls[0])
+        for key in (b'',b'x'*65537):
+            with tempfile.TemporaryDirectory() as folder,patch('urllib.request.urlopen',return_value=io.BytesIO(key)), \
+                    patch.object(root,'sandbox') as sandbox:
+                with self.assertRaises(ValueError):root.setup_apt(Path(folder)/'apt')
+                sandbox.assert_not_called()

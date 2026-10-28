@@ -32,7 +32,10 @@ Run from the exact reviewed immutable release directory using system Python3.12
 with `-B`; never source ROS in the manager or root shell. First atomically install
 reviewed common.sh/autodeploy.sh/deploy.sh/rollback.sh/prepare-release.sh/
 sim_control.py under the existing deployment lock (common.sh first). A dev merge
-does not itself update the installed deploy-tools.
+does not itself update the installed deploy-tools. Run reviewed
+`bootstrap-sim.sh --prepare` before `resolve` so /opt/foothold-sim is already
+root:foothold-sim 0750; a root-private package-created parent is not activation.
+Preparation installs only the new fixed-field proof socket, identity and units.
 
 `python3 -B -m deploy.sim_sysroot resolve` prepares sources, public keys, lists,
 cache, logs and a status copy exclusively under /opt/foothold-sim/apt. It uses the
@@ -103,6 +106,54 @@ After package/asset/EGL/ABI/map/proxy/OS-helper review,
 same-release idle manager. It requires private config/lock and proof socket.
 It does not start Gazebo or enable session retries. HTTPS start/limited drive/
 STOP/video/map/termination/restart and full absence are separate acceptance.
+
+## HTTPS and fixed-field OS proof
+
+Caddy forwards exactly the three original request targets under
+/__fh_phone/9433/phone/{ws,camera/ws,media/ws}. Queries, encoded aliases, dot
+segments, trailing slashes, adjacent ports and other phone paths never reach an
+upstream. A literal route puts the decoded-but-uncleaned reserved-segment
+guard before API/static matching, including aliases that cleaning would erase.
+GET, one exact HTTPS Origin, a WebSocket Upgrade and a Connection
+upgrade token are required. Duplicate Origin values are rejected. Native pass,
+media-token and command checks remain end-to-end. site.py derives API and phone
+Origins from the same private site.env, retaining private owners and modes.
+Run it after creating manager.env and before activating the idle manager.
+
+Automatic release deployment does not replace /etc/caddy/Caddyfile. The original
+new-server copier is bootstrap-server.sh, which also installs system packages and
+restarts PostgreSQL; **do not rerun that bootstrap on this existing host**. After
+review, take the deployment/session fence, retain a private previous config, copy
+only the reviewed Caddyfile to a root-owned sibling temporary file, inject the
+private FH_SITE for `caddy adapt`/`caddy validate`, atomically rename the candidate
+and reload only Caddy. If validation/reload fails, retain evidence and restore the
+previous proxy config before releasing the fence. No package/DB/driver changes
+belong in this operation. Apply the matching private Origin before manager start.
+The server's Caddy v2.11.7 accepted the initial and corrected templates via adapt;
+actual operational proxy replacement remains a separate installation step.
+
+The ROS signing-key fetch is bounded to 65537 bytes and refuses empty/oversized
+input. GPG parses either binary or ASCII OpenPGP, checks the existing single
+primary fingerprint pin, then dearmors to a private .gpg keyring for APT. Signed
+metadata verification and the fixed signing identity remain mandatory. See
+[APT key formats](https://manpages.ubuntu.com/manpages/noble/man8/apt-key.8.html).
+
+The socket-activated root helper reads only /proc stat/cgroup and two environment
+keys (ROS_DOMAIN_ID/GZ_PARTITION). It never exports argv, command names, full
+environment or credentials. Its fixed nonce-bound protocol accepts no paths,
+commands or signals; SO_PEERCRED restricts requests to root or foothold-sim.
+The socket is root:foothold-sim 0660. Each request has bounded memory/CPU/time,
+read-only filesystem protection and no ptrace/process_vm/signal syscalls.
+CAP_SYS_PTRACE/CAP_DAC_READ_SEARCH belong only to this short-lived root reader,
+never the simulation account or manager. No new TCP listener is added.
+
+The manager's service fixes the socket path after EnvironmentFile expansion.
+Native server configuration requires it; isolation.py uses the authenticated
+snapshot for startup, identity and final absence. Permission denial, invalid
+fields, nonce/time mismatch, changed PID identity or missing helper refuse proof;
+there is no partial /proc fallback. Existing runtime/STOP/manifest/93/DDS checks
+still determine cleanup. Local development without this server key retains its
+existing scanner. Unit/PID/cgroup/93/DDS absence is still required before restart.
 
 ## Durable failure and audit
 

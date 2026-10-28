@@ -6,20 +6,51 @@
         Strict-Transport-Security "max-age=86400"
         -Server
     }
-    # reverse_proxy handles WS upgrades, including /api/v1/ws and /agent/ws.
-    handle /api/v1/* {
-        reverse_proxy 127.0.0.1:8810 {
-            header_up X-Forwarded-For {remote_host}
-            header_up X-Forwarded-Proto https
-            header_up -Forwarded
+    # Literal route order matters: reject the reserved namespace before Caddy's
+    # normalized path matchers can select API or static handlers. orig_uri.path
+    # is decoded but uncleaned: encoded names/slashes/dots and case variants are
+    # caught even when cleaning would erase the reserved segment entirely.
+    route {
+        @bad_phone_target expression `({http.request.orig_uri.path}.matches("(?i)(^|/)__fh_phone") || path("/__fh_phone*")) && !({http.request.orig_uri} in ["/__fh_phone/9433/phone/ws", "/__fh_phone/9433/phone/camera/ws", "/__fh_phone/9433/phone/media/ws"])`
+        respond @bad_phone_target 404
+
+        # reverse_proxy handles WS upgrades, including /api/v1/ws and /agent/ws.
+        handle /api/v1/* {
+            reverse_proxy 127.0.0.1:8810 {
+                header_up X-Forwarded-For {remote_host}
+                header_up X-Forwarded-Proto https
+                header_up -Forwarded
+            }
         }
-    }
-    handle /api/* {
-        respond 404
-    }
-    handle {
-        root * /opt/foothold/current/apps/web/dist
-        try_files {path} /index.html
-        file_server
+        handle /api/* {
+            respond 404
+        }
+        # Compare the original request target: encoded aliases, queries, trailing
+        # slashes, dot segments and neighbouring ports never become proxy routes.
+        @sim_phone expression `{http.request.orig_uri} in ["/__fh_phone/9433/phone/ws", "/__fh_phone/9433/phone/camera/ws", "/__fh_phone/9433/phone/media/ws"]`
+        handle @sim_phone {
+            @bad_phone_handshake {
+                not {
+                    method GET
+                    expression `{http.request.header.Origin} == "https://{$FH_SITE}" && {http.request.header.Upgrade}.matches("(?i)^websocket$")`
+                    header_regexp Connection `(?i)(^|,)[ \t]*upgrade[ \t]*(,|$)`
+                }
+            }
+            respond @bad_phone_handshake 403
+            uri strip_prefix /__fh_phone/9433
+            reverse_proxy 127.0.0.1:9433 {
+                header_up X-Forwarded-For {remote_host}
+                header_up X-Forwarded-Proto https
+                header_up -Forwarded
+            }
+        }
+        handle /__fh_phone* {
+            respond 404
+        }
+        handle {
+            root * /opt/foothold/current/apps/web/dist
+            try_files {path} /index.html
+            file_server
+        }
     }
 }
