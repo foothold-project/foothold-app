@@ -63,7 +63,7 @@ export function Go2View({ name, url, close }: { name: string; url: string; close
       else if (d.status === 429) setWhy(`잘못된 코드가 많아 로봇이 잠시 막았습니다 — ${n(d.retry) ?? 60}초 뒤 다시 읽습니다.`);
       else if (d.status === -2) { setCode(null); setWhy('주소나 코드 모양이 틀렸습니다.'); }
       else if (d.status === -1) setWhy('응답 모양이 상태 전용 계약과 다릅니다.');
-      else setWhy(d.why === 'wifi-off' ? PROBLEM['wifi-off'] : typeof d.status === 'number' && d.status >= 400 ? `로봇이 오류로 답했습니다(${d.status}).` : '응답 없음(3초) — 같은 Wi-Fi(또는 Go2 핫스팟)인지 확인하세요.');
+      else setWhy(d.why === 'wifi-off' || d.why === 'other-subnet' ? PROBLEM[d.why] : typeof d.status === 'number' && d.status >= 400 ? `로봇이 오류로 답했습니다(${d.status}).` : '응답 없음(3초) — 같은 Wi-Fi(또는 Go2 핫스팟)인지 확인하세요.');
     };
     window.addEventListener('fh-go2', on);
     const tick = setInterval(() => setNow(performance.now()), 500), t = setTimeout(() => setOld(true), NO_APP_MS);

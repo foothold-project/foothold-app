@@ -76,6 +76,8 @@ describe('상태 보기 화면', () => {
     act(() => { vi.advanceTimersByTime(8000); });
     expect($('[data-go2-view]')?.dataset.go2View).toBe('OFFLINE');
     expect(box.textContent).not.toContain('87%');
+    send({ seq: '1', status: 0, why: 'other-subnet' });
+    expect($('[data-go2-why]')?.textContent).toContain('같은 Wi-Fi 에 있어야');
     send({ seq: '1', status: 429, retry: 60 });
     expect($('[data-go2-why]')?.textContent).toContain('60초 뒤');
     send({ seq: '1', status: 401 });

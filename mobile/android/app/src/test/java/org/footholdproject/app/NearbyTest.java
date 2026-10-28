@@ -6,6 +6,8 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Test;
@@ -15,6 +17,26 @@ public class NearbyTest {
         Map<String, byte[]> m = new HashMap<>();
         for (int i = 0; i < kv.length; i += 2) m.put(kv[i], kv[i + 1].getBytes(StandardCharsets.UTF_8));
         return m;
+    }
+
+    @Test
+    public void sameSubnet() {
+        // 현장: 폰·노트북이 Go2 핫스팟 192.168.12.0/24, 노트북 Wi-Fi 주소를 광고
+        assertTrue(Nearby.sameSubnet("192.168.12.18", Arrays.asList("fe80::1%wlan0/64", "192.168.12.5/24")));
+        assertTrue(Nearby.sameSubnet("10.1.200.7", Collections.singletonList("10.1.3.4/16")));
+        assertFalse(Nearby.sameSubnet("10.0.0.7", Collections.singletonList("192.168.12.5/24")));        // 다른 사설 서브넷
+        assertFalse(Nearby.sameSubnet("192.168.123.161", Collections.singletonList("192.168.12.5/24")));  // Go2 내부망(유선)은 폰 Wi-Fi 와 다름
+        assertFalse(Nearby.sameSubnet("192.168.13.1", Collections.singletonList("192.168.12.5/24")));
+        assertFalse(Nearby.sameSubnet("192.168.12.18", Collections.emptyList()));                       // 정보 없음
+        assertFalse(Nearby.sameSubnet("192.168.12.18", null));
+        assertFalse(Nearby.sameSubnet("192.168.12.18", Collections.singletonList("fe80::1%wlan0/64")));  // IPv6 뿐
+        assertFalse(Nearby.sameSubnet("192.168.12.18", Arrays.asList("192.168.12.5", "x/24", "192.168.12.5/abc")));
+        assertFalse(Nearby.sameSubnet("10.0.0.7", Collections.singletonList("10.9.9.9/4")));             // 너무 넓은 prefix
+        assertFalse(Nearby.sameSubnet("8.8.8.8", Collections.singletonList("8.8.8.1/24")));              // 공인 주소 대상
+        assertTrue(Nearby.sameSubnet("192.168.12.5", Collections.singletonList("192.168.12.5/32")));
+        // 망 전환: 같은 대상도 매번 지금 망 주소로 다시 판정
+        assertTrue(Nearby.sameSubnet("192.168.12.18", Collections.singletonList("192.168.12.5/24")));
+        assertFalse(Nearby.sameSubnet("192.168.12.18", Collections.singletonList("192.168.0.20/24")));
     }
 
     @Test

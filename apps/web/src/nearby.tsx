@@ -13,6 +13,7 @@ const VIA = { mdns: 'Wi-Fi', addr: 'Wi-Fi', ble: '블루투스' } as const;
 export const PROBLEM: Record<string, string> = {
   'wifi-no-internet': 'Wi-Fi 에 인터넷 없음 — 로봇 연결은 Wi-Fi, 서버는 모바일 데이터로 합니다.',
   'wifi-off': 'Wi-Fi 가 꺼져 있거나 연결되지 않았습니다 — 로봇과 같은 Wi-Fi(또는 Go2 핫스팟)에 연결하세요.',
+  'other-subnet': '폰과 노트북(로봇)이 같은 Wi-Fi 에 있어야 합니다 — 폰 Wi-Fi 와 로봇 주소의 망이 달라 연결하지 않았습니다.',
   'bt-off': '블루투스가 꺼져 있습니다 — 켜면 Go2 를 블루투스로도 찾습니다.',
   'bt-perm': '블루투스 찾기 권한이 거부되어 Wi-Fi 로만 찾았습니다. 설정 › 앱 › FOOTHOLD › 권한에서 «주변 기기»(Android 11 이하는 «위치»)를 허용하세요.',
   'loc-off': 'Android 11 이하에서는 위치(GPS)를 켜야 블루투스 찾기가 됩니다.',

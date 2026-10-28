@@ -20,6 +20,7 @@ import org.json.JSONObject;
  *  - 현장 코드(8자리)는 매 요청 X-Foothold-Code 헤더로만 — URL·로그·저장 0. 401 = 화면이 코드 다시 받음, 429 = Retry-After(기본 60 s) 동안 쉼
  *  - WebView fetch 가 아니라 여기서 소켓으로(HTTP/1.0, Connection: close) — 앱 전체 평문 허용(network security config)을 열지 않는다.
  *    Go2 핫스팟은 인터넷이 없어 기본 망이 모바일 데이터일 수 있다 → 소켓을 Wi-Fi 망에 묶는다(서버는 기본 망 그대로)
+ *  - 매 요청 직전 그 Wi-Fi(유선) 망의 IPv4 주소/prefix 와 대상이 같은 서브넷인지 본다(Nearby.onLink) — 아니면 연결하지 않는다(망 전환 시 재검증)
  * 통로: 화면이 window.fhGo2Status={seq,url,code} 를 두면 MainActivity 0.5 s 읽기가 보고 시작, 없어지면 멈춤.
  */
 final class Go2Status {
@@ -61,6 +62,7 @@ final class Go2Status {
             String body;
             Network n = Nearby.wifi(act);
             if (n == null) body = "{\"status\":0,\"why\":\"wifi-off\"}";
+            else if ((n = Nearby.onLink(act, host)) == null) body = "{\"status\":0,\"why\":\"other-subnet\"}";   // 다른 서브넷·주소 정보 없음 — 연결·코드 전송 0
             else {
                 Resp r;
                 try { r = parse(get(n, host, port, code)); } catch (Exception e) { r = null; }

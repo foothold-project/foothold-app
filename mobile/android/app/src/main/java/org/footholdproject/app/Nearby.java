@@ -14,6 +14,8 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
 import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
 import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.nsd.NsdManager;
@@ -27,9 +29,11 @@ import java.net.Socket;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -129,9 +133,26 @@ final class Nearby {
     static Network wifi(Context ctx) {
         ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
         if (cm == null) return null;
+        for (Network n : cm.getAllNetworks()) if (lanNet(cm.getNetworkCapabilities(n))) return n;
+        return null;
+    }
+
+    private static boolean lanNet(NetworkCapabilities c) {
+        return c != null && (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET));
+    }
+
+    /** host 와 같은 IPv4 서브넷(LinkProperties 주소/prefix)인 Wi-Fi(유선) 망, 없거나 주소 정보 없으면 null. 소켓은 이 망에만 묶는다 —
+     *  연결 직전마다 다시 불러 망 전환 시 재검증. 서버 통신의 기본 망은 건드리지 않는다 */
+    @SuppressWarnings("deprecation")
+    static Network onLink(Context ctx, String host) {
+        ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+        if (cm == null) return null;
         for (Network n : cm.getAllNetworks()) {
-            NetworkCapabilities c = cm.getNetworkCapabilities(n);
-            if (c != null && (c.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || c.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET))) return n;
+            LinkProperties lp = cm.getLinkProperties(n);
+            if (lp == null || !lanNet(cm.getNetworkCapabilities(n))) continue;
+            List<String> a = new ArrayList<>();
+            for (LinkAddress l : lp.getLinkAddresses()) a.add(l.getAddress().getHostAddress() + "/" + l.getPrefixLength());
+            if (sameSubnet(host, a)) return n;
         }
         return null;
     }
@@ -197,7 +218,7 @@ final class Nearby {
         resolveNext(nsd);
     }
 
-    /** Go2 기본 주소: 연결만 열었다 닫는다. 같은 망(Go2 핫스팟·유선)일 때만 의미가 있다 */
+    /** Go2 기본 주소: 연결만 열었다 닫는다. 같은 서브넷 망(Go2 핫스팟·유선)이 있을 때만 — 아니면 연결 시도 0 */
     private void probe(Network wifi) {
         if (wifi == null) return;
         final int g = gen;
@@ -206,8 +227,10 @@ final class Nearby {
             pool.execute(() -> {
                 for (int port : GO2_PORTS) {
                     if (Thread.currentThread().isInterrupted()) return;
+                    Network n = onLink(act, ip);
+                    if (n == null) return;
                     try (Socket s = new Socket()) {
-                        wifi.bindSocket(s);
+                        n.bindSocket(s);
                         s.connect(new InetSocketAddress(ip, port), PROBE_MS);
                         Map<String, Object> it = new HashMap<>();
                         it.put("via", "addr");
@@ -315,18 +338,45 @@ final class Nearby {
 
     /** 사설 IPv4(10/8 · 172.16/12 · 192.168/16) 점 표기면 정규화해서, 아니면 null. 이름 풀이 없음 */
     static String lan(String ip) {
-        if (ip == null) return null;
+        long v = v4(ip);
+        if (v < 0) return null;
+        long a = v >>> 24, b = (v >>> 16) & 255;
+        boolean priv = a == 10 || (a == 172 && b >= 16 && b <= 31) || (a == 192 && b == 168);
+        return priv ? a + "." + b + "." + ((v >>> 8) & 255) + "." + (v & 255) : null;
+    }
+
+    /** IPv4 점 표기 → 32비트 값, 아니면 -1 */
+    private static long v4(String ip) {
+        if (ip == null) return -1;
         String[] p = ip.split("\\.", -1);
-        if (p.length != 4) return null;
-        int[] b = new int[4];
-        for (int i = 0; i < 4; i++) {
-            if (p[i].isEmpty() || p[i].length() > 3) return null;
-            for (char c : p[i].toCharArray()) if (c < '0' || c > '9') return null;
-            b[i] = Integer.parseInt(p[i]);
-            if (b[i] > 255) return null;
+        if (p.length != 4) return -1;
+        long v = 0;
+        for (String q : p) {
+            if (q.isEmpty() || q.length() > 3) return -1;
+            for (char c : q.toCharArray()) if (c < '0' || c > '9') return -1;
+            int b = Integer.parseInt(q);
+            if (b > 255) return -1;
+            v = v << 8 | b;
         }
-        boolean priv = b[0] == 10 || (b[0] == 172 && b[1] >= 16 && b[1] <= 31) || (b[0] == 192 && b[1] == 168);
-        return priv ? b[0] + "." + b[1] + "." + b[2] + "." + b[3] : null;
+        return v;
+    }
+
+    /** 사설 IPv4 host 가 망 주소("a.b.c.d/prefix", LinkAddress) 중 하나와 같은 서브넷이면 true.
+     *  주소 정보 없음·IPv6 뿐·prefix 8 미만(너무 넓음) → false = 연결 전 거부 */
+    static boolean sameSubnet(String host, Iterable<String> addrs) {
+        long t = v4(lan(host));
+        if (t < 0 || addrs == null) return false;
+        for (String a : addrs) {
+            int c = a == null ? -1 : a.indexOf('/');
+            if (c < 0) continue;
+            long l = v4(a.substring(0, c));
+            int p;
+            try { p = Integer.parseInt(a.substring(c + 1)); } catch (NumberFormatException e) { continue; }
+            if (l < 0 || p < 8 || p > 32) continue;
+            long m = (0xFFFFFFFFL << (32 - p)) & 0xFFFFFFFFL;
+            if ((t & m) == (l & m)) return true;
+        }
+        return false;
     }
 
     /** TXT(계약 v=1) → 화면에 보낼 값. v≠1 이면 null. agent 는 mode 에 맞는 주소이고 호스트가 찾은 주소일 때만 남긴다 */
