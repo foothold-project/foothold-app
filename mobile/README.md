@@ -1,5 +1,16 @@
 # mobile — Android 껍데기 (Capacitor 8)
 
+## 1.2.2-dev — 앱 안 시뮬 지도 고르기 (2026-10-28)
+
+1.2.1-dev 그대로 + 지도 고르기(10-28 사용자 «three.js 로 만든 맵을 고를 수 있게, 고르면 위에서 바라본 사진, 드롭다운, 디자인은 그대로»). versionCode 19 · `1.2.2-dev`(같은 앱 id·debug 키).
+
+| 항목 | 내용 |
+|---|---|
+| 지도 목록 | `sim/maps.json` 하나(`[{id, name}]`, 지금 `warehouse` 하나). 지도 자산 = `sim/assets/<id>/`의 `scene.json`·`map.json`·`<id>.xml` |
+| 시뮬 | `sim/index.html?map=<id>` — 목록에 있고 `[a-z0-9-]` 만이면 그 지도, 아니면 `warehouse` |
+| 위에서 본 사진 | `sim/assets/<id>/top.png` = `FH_SIM_SRC=… node scripts/make-top.mjs` 가 같은 three.js 장면을 직교 카메라로 구움(headless Chrome). 서버 화면(apps/web)이 빌드 때 담는다 |
+| 서버 화면(폰 앱 안) | «시뮬(앱 안)» 카드 = 지도 드롭다운(`.fh-user.fh-sel`) + 사진 + «시뮬 열기»(`…?from=server&map=<id>`). 고른 지도는 localStorage `fh.simMap`(실패해도 동작) |
+
 ## 1.2.1-dev — 시뮬 진입 바꿈 (2026-10-27)
 
 1.2.0-dev 그대로 + 진입만 바꿈(10-27 사용자 «오른쪽 위 시뮬이 어디 있는지 모르겠고, 시뮬은 three.js + MuJoCo 로»). versionCode 18 · `1.2.1-dev`(같은 앱 id·debug 키).

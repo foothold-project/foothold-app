@@ -1,4 +1,5 @@
 // 앱 안 오프라인 시뮬(RS-6 창고 브라우저 시뮬을 옮김): 창고 f1 안에서 Go2 를 두 막대로 걷게 한다. 서버·인터넷 없이 앱 번들(www/sim)만 읽는다.
+// 지도 = ?map=<이름>(maps.json 목록 안, [a-z0-9-] 만 — 없거나 틀리면 warehouse) → assets/<이름>/ 의 scene.json·map.json·<이름>.xml.
 // 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = foothold-v2 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
 // RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 앱 숨김·화면 꺼짐 = STOP
 // · 막대 밖 한 손가락 끌기 = 카메라 돌리기, 두 손가락 = 확대·축소. 정책·물리 값은 그대로(sim.js·lidar.js 는 RS-6 복사본).
@@ -71,16 +72,18 @@ try {
 }
 
 async function main() {
-  const [mj, sceneJ, mapJ, polBuf] = await Promise.all([load(), json('assets/warehouse/scene.json'), json('assets/warehouse/map.json'),
+  const q = new URLSearchParams(location.search).get('map') ?? '', maps = await json('maps.json');
+  const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
+  const [mj, sceneJ, mapJ, polBuf] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
     get('policy_v2.f32').then((r) => r.arrayBuffer())]);
   const map = decodeMap(mapJ);
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
   await Promise.all([
     bytes('assets/unitree_go2/go2.xml').then((b) => mj.FS.writeFile('/go2/go2.xml', b)),
-    bytes('assets/warehouse/warehouse.xml').then((b) => mj.FS.writeFile('/go2/warehouse.xml', b)),
+    bytes(`${dir}/${id}.xml`).then((b) => mj.FS.writeFile('/go2/world.xml', b)),
     ...MESHES.map(async (f) => mj.FS.writeFile(`/go2/assets/${f}.obj`, await bytes(`assets/unitree_go2/assets/${f}.obj`))),
   ]);
-  mj.FS.writeFile('/go2/scene.xml', '<mujoco model="go2 warehouse"><include file="go2.xml"/><include file="warehouse.xml"/></mujoco>');
+  mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
   sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, loadPolicy(polBuf), { floorZ: map.floor_z, spawn: map.spawn_xyyaw });
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360);

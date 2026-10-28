@@ -19,6 +19,7 @@ export default defineConfig(({ mode, command, isPreview }) => {
     define: { 'import.meta.env.FH_PHONE_PORT_RANGE': JSON.stringify(env.FH_PHONE_PORT_RANGE ?? PHONE_PORT_RANGE) },
     server: { host: '127.0.0.1', port: 5180, strictPort: true,
       allowedHosts: [],
+      fs: { allow: ['.', '../../mobile/sim'] },   // 앱 안 시뮬 지도 목록·위에서 본 사진(simdrive.tsx)
       proxy: devTunnel ? { '/api': proxy['/api'] } : proxy },
     preview: { host: '127.0.0.1', port: 5183, strictPort: true,
       allowedHosts: origin ? [new URL(origin).hostname] : [], proxy },
