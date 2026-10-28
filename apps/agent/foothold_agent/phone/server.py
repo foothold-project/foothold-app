@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 
 from .hub import PhoneError, Peer
 from .origins import with_tunnel_origin
+from foothold_agent.discovery import Advertiser
 
 
 @dataclass(frozen=True)
@@ -267,6 +268,7 @@ class Server:
 
     async def run(self):
         from websockets.asyncio.server import serve
+        advertisement = Advertiser.for_listener(self.settings.host, self.settings.port, rid=self.hub.robot)
         watchdog = waiter = None
         primary = None
         stopped = False
@@ -282,6 +284,7 @@ class Server:
                              write_limit=4096, compression=None, ping_interval=None,
                              open_timeout=3, close_timeout=.2) as listener:
                 try:
+                    advertisement.start()
                     self.ready.set()
                     watchdog = asyncio.create_task(self._watchdog())
                     waiter = asyncio.create_task(self.stopping.wait())
@@ -296,6 +299,7 @@ class Server:
                         self._failed(error)
                     raise
                 finally:
+                    advertisement.close()
                     # Includes cancellation: stop BEFORE listener shutdown waits.
                     try:
                         stop_hub()

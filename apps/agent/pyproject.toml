@@ -12,6 +12,7 @@ dependencies = []
 [project.optional-dependencies]
 test = ["pytest>=7"]
 link = ["websockets==15.0.1"]
+discovery = ["zeroconf==0.148.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
