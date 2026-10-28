@@ -18,3 +18,14 @@ restore_release() {
         systemctl stop foothold-server
     fi
 }
+
+# An auto parent keeps fd 9 across prepare + deploy; manual callers take it here.
+take_deploy_lock() {
+    local lock=${1:-/var/lib/foothold/deploy.lock}
+    if [[ ${FH_DEPLOY_LOCK_HELD:-} == 1 && /proc/self/fd/9 -ef $lock ]]; then
+        flock -n 9
+    else
+        exec 9>"$lock"
+        flock -n 9
+    fi
+}

@@ -4,6 +4,10 @@ set -euo pipefail
 [[ $EUID == 0 ]] || { echo 'Run on the new server as root.' >&2; exit 1; }
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")"
 source ./common.sh
+if [[ ${1:-} == --autodeploy && $# == 1 ]]; then
+    exec bash ./bootstrap-autodeploy.sh
+fi
+[[ $# == 0 ]] || exit 2
 . /etc/os-release
 [[ $ID == ubuntu && $VERSION_ID == 24.04 ]] || { echo 'Ubuntu 24.04 required.' >&2; exit 1; }
 : "${CADDY_VERSION:?Select the exact official package version first}"

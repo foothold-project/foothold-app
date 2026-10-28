@@ -1,0 +1,12 @@
+[Unit]
+Description=Pull dev and reuse the Foothold deployment checks
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/bash /opt/foothold/deploy-tools/autodeploy.sh
+TimeoutStartSec=30min
+UMask=0077

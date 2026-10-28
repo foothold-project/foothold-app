@@ -44,23 +44,17 @@ def main():
             if attempt == 19:
                 raise
             time.sleep(2)
-    # After initial password rotation supply a current web cookie in a root:600
-    # /root/foothold-smoke.env containing FH_SMOKE_COOKIE, never a CLI value.
-    existing = Path('/root/foothold-smoke.env')
-    owned_session = not existing.exists()
+    # A fresh dedicated session each time; independent of administrator rotation.
+    credentials = private_env(Path('/etc/foothold/smoke.env'))
     csrf = None
-    if owned_session:
-        admin = private_env(Path('/root/foothold-initial-admin.txt'))
-        request = Request(origin + '/api/v1/auth/login', method='POST',
-                          data=json.dumps({'username': admin['FH_BOOTSTRAP_USERNAME'],
-                                           'password': admin['FH_BOOTSTRAP_PASSWORD'],
-                                           'client': 'web', 'device_label': 'deploy-check'}).encode(),
-                          headers={'Content-Type': 'application/json', 'Origin': origin})
-        with opener.open(request, timeout=10) as response:
-            csrf = json.load(response)['csrf_token']
-        cookie = next(c.value for c in jar if c.name == 'fh_s')
-    else:
-        cookie = private_env(existing)['FH_SMOKE_COOKIE']
+    request = Request(origin + '/api/v1/auth/login', method='POST',
+                      data=json.dumps({'username': credentials['FH_SMOKE_USERNAME'],
+                                       'password': credentials['FH_SMOKE_PASSWORD'],
+                                       'client': 'web', 'device_label': 'deploy-check'}).encode(),
+                      headers={'Content-Type': 'application/json', 'Origin': origin})
+    with opener.open(request, timeout=10) as response:
+        csrf = json.load(response)['csrf_token']
+    cookie = next(c.value for c in jar if c.name == 'fh_s')
     try:
         with connect('wss://' + site + '/api/v1/ws', origin=origin,
                      additional_headers={'Cookie': 'fh_s=' + cookie},
@@ -68,7 +62,7 @@ def main():
             # A successful connect proves HTTP 101; receive-only, no robot frames.
             assert ws.response.status_code == 101
     finally:
-        if owned_session and csrf:
+        if csrf:
             request = Request(origin + '/api/v1/auth/logout', method='POST',
                               headers={'Origin': origin, 'X-FH-CSRF': csrf})
             with opener.open(request, timeout=10) as response:
