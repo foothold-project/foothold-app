@@ -61,7 +61,8 @@ configure_repo_transport() {
 # Hold fd 8 until deploy/rollback exits, including failure rollback. The manager
 # holds a shared lock from pre-creation through full cleanup of each session.
 take_sim_deploy_guard() {
-    local target=$1 guard=${2:-/var/lib/foothold-sim/guard}
+    local target=$1 guard=${2:-/var/lib/foothold-sim/guard} packages=${3:-/var/lib/foothold/sim-packages-unproven}
+    [[ ! -e $packages && ! -L $packages ]] || return 1
     [[ -e $guard || -L $guard ]] || return 0
     [[ -d $guard/state && ! -L $guard/state && -d $guard && ! -L $guard && -f $guard/deploy.lock && ! -L $guard/deploy.lock ]] || return 1
     if [[ ${FH_SIM_DEPLOY_LOCK_HELD:-} == 1 && /proc/self/fd/8 -ef $guard/deploy.lock ]]; then

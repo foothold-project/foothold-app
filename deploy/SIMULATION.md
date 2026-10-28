@@ -116,3 +116,28 @@ The user-manager slice is a secondary budget. Root installs the same limits in
 system `user-<dedicated-uid>.slice.d/foothold-sim.conf` and applies them to that
 parent slice. Thus changing a user unit/slice cannot raise the server's ceiling;
 the parent also contains the dedicated user's bus and all descendant cgroups.
+
+### Package transaction and existing graphics ownership
+
+Before any apt installation, install the reviewed deploy-tools (including the
+new common.sh fence) under the deployment lock. The package command verifies
+those exact tool bytes. Existing NVIDIA EGL/GLX and any present GLVND libraries
+must resolve to dpkg-owned real files; unknown ownership or an NVIDIA .run
+installer indicator is a stop/escalation. New libraries must not silently replace
+an untracked host installation. Do not proceed on that server by ignoring dpkg
+ownership or forcing package dependencies.
+
+Immediately before the actual apt install command, create root-only
+`/var/lib/foothold/sim-packages-unproven` with directory-fd, O_EXCL and O_NOFOLLOW.
+Any apt error, installed-version mismatch, host/GPU/service identity change,
+ownership failure, evidence write error or interruption leaves this marker.
+Only completion of all final proofs removes that same inode durably. The next
+package command, deployment (even before a sim guard exists), bootstrap, manager
+transition and session admission reject a remaining marker. This is the third
+independent audit latch; preserve its private transaction evidence and use the
+manual audit/authorization process above. Never clear it merely to retry apt.
+
+New NVIDIA packages are forbidden regardless of where `nvidia` appears in the
+name, as are glx-diversions and CUDA library families whose name lacks cuda
+(cublas, nvrtc, npp, cufft, curand, cusolver, cusparse, nvjpeg). Existing package
+changes, including same-version reinstalls, remain forbidden.

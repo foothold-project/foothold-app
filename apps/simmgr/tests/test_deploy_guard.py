@@ -172,3 +172,16 @@ def test_root_activation_latch_blocks_new_session(tmp_path):
     assert (tmp_path / 'setup-unproven').exists()
     assert not (tmp_path / 'state/unproven').exists()
     assert contender(tmp_path) == 0
+
+
+def test_package_transaction_latch_blocks_new_session(tmp_path, monkeypatch):
+    from pathlib import Path
+    original = Path.exists
+    marker = Path('/var/lib/foothold/sim-packages-unproven')
+    monkeypatch.setattr(Path, 'exists', lambda path: True if path == marker else original(path))
+    (tmp_path / 'deploy.lock').touch()
+    (tmp_path / 'state').mkdir()
+    with pytest.raises(RuntimeError, match='package'):
+        DeploymentLease(tmp_path).acquire()
+    assert not (tmp_path / 'state/unproven').exists()
+    assert contender(tmp_path) == 0

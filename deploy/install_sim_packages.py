@@ -17,7 +17,8 @@ import sys
 import tempfile
 
 PROTECTED = re.compile(r'(nvidia|cuda|dcgm|rpcbind|mesa|libegl|libgl(?!ib)|libgbm|libvulkan)', re.I)
-NEW_FORBIDDEN = re.compile(r'(^nvidia-|^libnvidia-|^linux-|dkms|^xserver-xorg-video-nvidia|firmware|cuda|dcgm|rpcbind|^datacenter-gpu-manager)', re.I)
+NEW_FORBIDDEN = re.compile(r'(nvidia|^linux-|dkms|firmware|cuda|dcgm|rpcbind|^datacenter-gpu-manager|^lib(?:cublas|nvrtc|npp|cufft|curand|cusolver|cusparse|nvjpeg)|^glx-diversions)', re.I)
+INSTALL_LATCH = Path('/var/lib/foothold/sim-packages-unproven')
 JOURNAL = None
 SIMULATIONS = 0
 NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*(?::amd64)?\Z')
@@ -119,6 +120,74 @@ def metadata_sha(name, version):
     return hashes.pop()
 
 
+def ensure_no_install_latch(path=INSTALL_LATCH):
+    if path.exists() or path.is_symlink():
+        raise ValueError('previous package transaction unproven; manual audit required')
+
+
+def latch_parent(path):
+    fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    info = os.fstat(fd)
+    if info.st_uid != 0 or info.st_mode & 0o022:
+        os.close(fd)
+        raise ValueError('package latch directory untrusted')
+    return fd
+
+
+def create_install_latch(path=INSTALL_LATCH):
+    parent = latch_parent(path)
+    try:
+        fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                     0o600, dir_fd=parent)
+        try:
+            os.write(fd, b'package-transaction-pending\n')
+            os.fsync(fd)
+            info = os.fstat(fd)
+            identity = (info.st_dev, info.st_ino)
+        finally:
+            os.close(fd)
+        os.fsync(parent)
+        return identity
+    finally:
+        os.close(parent)
+
+
+def clear_install_latch(identity, path=INSTALL_LATCH):
+    parent = latch_parent(path)
+    try:
+        info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
+        if ((info.st_dev, info.st_ino) != identity or not stat.S_ISREG(info.st_mode)
+                or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600):
+            raise ValueError('package latch identity changed')
+        os.unlink(path.name, dir_fd=parent)
+        os.fsync(parent)
+    finally:
+        os.close(parent)
+
+
+def verify_gl_owners():
+    if Path('/usr/bin/nvidia-uninstall').exists() or Path('/var/log/nvidia-installer.log').exists():
+        raise ValueError('non-package NVIDIA installer indicator present; manual audit required')
+    cache = run('ldconfig', '-p')
+    owners = {}
+    for name in ('libEGL_nvidia.so.0','libGLX_nvidia.so.0','libEGL.so.1',
+                 'libGLX.so.0','libGLdispatch.so.0','libOpenGL.so.0'):
+        paths = {line.split('=>', 1)[1].strip() for line in cache.splitlines()
+                 if line.strip().startswith(name + ' ') and '=>' in line}
+        if not paths and 'nvidia' in name:
+            raise ValueError('NVIDIA rendering library absent')
+        for path in paths:
+            real = str(Path(path).resolve(strict=True))
+            try:
+                ownership = run('dpkg-query', '-S', real).strip()
+            except subprocess.CalledProcessError:
+                raise ValueError('existing NVIDIA/GL file owner unknown; installation forbidden') from None
+            if not ownership:
+                raise ValueError('existing NVIDIA/GL file owner unknown; installation forbidden')
+            owners[real] = ownership
+    return owners
+
+
 def host_snapshot():
     services = {}
     for unit in ('nvidia-dcgm.service', 'foothold-server.service', 'caddy.service',
@@ -186,15 +255,18 @@ def install(lock_path, commit=False):
     # Resolve once more immediately before installation; no changed transaction.
     if validate_simulation(run(*command[:1], '--simulate', *command[1:]), locked) != changes:
         raise ValueError('apt transaction changed after download')
+    transaction = create_install_latch()
     run(*command[:1], '--yes', *command[1:])
     verify_installed(locked, installed_versions(), require_all=True)
-    print('Pinned package transaction installed; simulator not started')
+    print('Pinned package transaction installed; final host proof pending; simulator not started')
+    return transaction
 
 
 if __name__ == '__main__':
     try:
         if os.geteuid() != 0 or len(sys.argv) != 3 or sys.argv[1] not in ('--check', '--install'):
             raise ValueError('usage: server root install_sim_packages.py --check|--install private-lock.json')
+        ensure_no_install_latch()
         os.umask(0o077)
         JOURNAL = Path(tempfile.mkdtemp(prefix='foothold-sim-packages-', dir='/root'))
         # Serialize against automatic deployment, and refuse any active episode.
@@ -208,13 +280,21 @@ if __name__ == '__main__':
                 if any((guard / name).exists() or (guard / name).is_symlink() for name in ('state/unproven', 'setup-unproven')):
                     raise ValueError('simulation cleanup unproven')
             (JOURNAL / 'dpkg-before.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
+            # Installed tools must honor the persistent package fence first.
+            for name in ('common.sh','autodeploy.sh','deploy.sh','rollback.sh','prepare-release.sh','sim_control.py'):
+                if Path(__file__).with_name(name).read_bytes() != (Path('/opt/foothold/deploy-tools') / name).read_bytes():
+                    raise ValueError('install reviewed deployment tools before package transaction')
+            (JOURNAL / 'gl-owners-before.json').write_text(json.dumps(verify_gl_owners(), sort_keys=True))
             baseline = host_snapshot()
             (JOURNAL / 'host-before.json').write_text(json.dumps(baseline, sort_keys=True))
-            install(sys.argv[2], sys.argv[1] == '--install')
+            transaction = install(sys.argv[2], sys.argv[1] == '--install')
             after = host_snapshot()
             (JOURNAL / 'host-after.json').write_text(json.dumps(after, sort_keys=True))
             verify_host_unchanged(baseline, after)
+            (JOURNAL / 'gl-owners-after.json').write_text(json.dumps(verify_gl_owners(), sort_keys=True))
             (JOURNAL / 'dpkg-after.txt').write_text(run('dpkg-query', '-W', '-f=${binary:Package}=${Version}\n'))
+            if transaction is not None:
+                clear_install_latch(transaction)
             if guard_fd is not None:
                 os.close(guard_fd)
     except Exception as error:

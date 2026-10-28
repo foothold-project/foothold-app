@@ -33,7 +33,9 @@ class PackageGateTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_simulation('Inst '+name+' [1.0-1] (1.0-1 Ubuntu)', locked)
         for name in ('nvidia-utils','libnvidia-compute-580','linux-image-generic','foo-dkms',
-                     'xserver-xorg-video-nvidia','firmware-sof-signed','cuda-toolkit','dcgm','rpcbind'):
+                     'xserver-xorg-video-nvidia','firmware-sof-signed','cuda-toolkit','dcgm','rpcbind',
+                     'libegl-nvidia0','libglx-nvidia0','glx-alternative-nvidia','nvidia','glx-diversions',
+                     'libcublas12','libnvrtc13','libnpp13','libcufft11','libcurand10','libcusolver11','libcusparse12','libnvjpeg12'):
             with self.subTest(name=name), self.assertRaises(ValueError):
                 validate_simulation('Inst '+name+' (1.0-1 Ubuntu)', {name:self.row(name,'1.0-1')})
 
@@ -102,7 +104,7 @@ class InstalledVersionRegression(unittest.TestCase):
                     patch.object(package,'metadata_sha',return_value=row['sha256']), \
                     patch.object(package,'installed_versions',side_effect=[{}, {row['name']:('3.20.0-1','installed')}]), \
                     patch.object(package,'run',side_effect=command), patch.object(Path,'glob',return_value=[artifact]), \
-                    patch('deploy.verify_gz_abi.verify'):
+                    patch('deploy.verify_gz_abi.verify'), patch.object(package,'create_install_latch',return_value=(1,2)):
                 with self.assertRaises(ValueError):
                     package.install(str(lock),commit=True)
 
@@ -123,7 +125,7 @@ class HostIdentityTests(unittest.TestCase):
         tail = ['S'] + ['0']*18 + ['12345']
         def command(*args):
             if args[0] == 'nvidia-smi':
-                return 'driver-version,NVIDIA L4,synthetic-device-id'
+                return 'driver-version,GPU-model,synthetic-device-id'
             if args[0] == 'systemctl':
                 pid = '719' if args[2] == 'nvidia-dcgm.service' else '42'
                 return 'LoadState=loaded\nActiveState=active\nSubState=running\nMainPID='+pid+'\nExecMainStartTimestampMonotonic=100\n'
