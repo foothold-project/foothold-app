@@ -314,20 +314,26 @@ def setup_apt(apt):
     # No host apt config/hooks or status writes. Keys are public, acquired from
     # the official source over authenticated TLS; apt still verifies signatures.
     from urllib.request import urlopen
-    key = urlopen('https://raw.githubusercontent.com/ros/rosdistro/master/ros.key',timeout=30).read()
-    if len(key)>65536 or b'BEGIN PGP PUBLIC KEY BLOCK' not in key:
+    key = urlopen('https://raw.githubusercontent.com/ros/rosdistro/master/ros.key',timeout=30).read(65537)
+    if not key or len(key)>65536:
         raise ValueError('invalid official ROS signing key')
-    (apt/'keyrings/ros.asc').write_bytes(key)
+    (apt/'keyrings/ros.input').write_bytes(key)
     (apt/'home/gnupg').mkdir(exist_ok=True,mode=0o700)
     fingerprint=sandbox(['/usr/bin/gpg','--batch','--no-options','--homedir',str(apt/'home/gnupg'),
-        '--with-colons','--show-keys',str(apt/'keyrings/ros.asc')],apt)
+        '--with-colons','--show-keys',str(apt/'keyrings/ros.input')],apt)
     validate_ros_key(fingerprint)
+    # APT requires binary OpenPGP in .gpg, ASCII armor in .asc. Normalize either
+    # accepted encoding only after the exact primary trust pin has been checked.
+    sandbox(['/usr/bin/gpg','--batch','--no-options','--homedir',str(apt/'home/gnupg'),
+        '--yes','--dearmor','--output',str(apt/'keyrings/ros.gpg'),str(apt/'keyrings/ros.input')],apt)
+    if not 0<(apt/'keyrings/ros.gpg').stat().st_size<=65536:
+        raise ValueError('invalid normalized official ROS signing key')
     shutil.copyfile('/usr/share/keyrings/ubuntu-archive-keyring.gpg',apt/'keyrings/ubuntu.gpg')
     (apt/'etc/main.conf').write_text('')
     sources = (f'deb [arch=amd64 signed-by={apt}/keyrings/ubuntu.gpg] http://archive.ubuntu.com/ubuntu noble main universe\n'
         f'deb [arch=amd64 signed-by={apt}/keyrings/ubuntu.gpg] http://archive.ubuntu.com/ubuntu noble-updates main universe\n'
         f'deb [arch=amd64 signed-by={apt}/keyrings/ubuntu.gpg] http://security.ubuntu.com/ubuntu noble-security main universe\n'
-        f'deb [arch=amd64 signed-by={apt}/keyrings/ros.asc] http://snapshots.ros.org/jazzy/2026-09-11/ubuntu noble main\n')
+        f'deb [arch=amd64 signed-by={apt}/keyrings/ros.gpg] http://snapshots.ros.org/jazzy/2026-09-11/ubuntu noble main\n')
     (apt/'etc/sources.list').write_text(sources)
     (apt/'status').write_bytes(Path('/var/lib/dpkg/status').read_bytes())
     (apt/'apt.conf').write_text('''Dir "'''+str(apt)+'''";

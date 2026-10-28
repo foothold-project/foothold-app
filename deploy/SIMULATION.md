@@ -112,11 +112,31 @@ STOP/video/map/termination/restart and full absence are separate acceptance.
 Caddy forwards exactly the three original request targets under
 /__fh_phone/9433/phone/{ws,camera/ws,media/ws}. Queries, encoded aliases, dot
 segments, trailing slashes, adjacent ports and other phone paths never reach an
-upstream. GET, one exact HTTPS Origin, a WebSocket Upgrade and a Connection
+upstream. A literal route puts the decoded-but-uncleaned reserved-segment
+guard before API/static matching, including aliases that cleaning would erase.
+GET, one exact HTTPS Origin, a WebSocket Upgrade and a Connection
 upgrade token are required. Duplicate Origin values are rejected. Native pass,
 media-token and command checks remain end-to-end. site.py derives API and phone
 Origins from the same private site.env, retaining private owners and modes.
 Run it after creating manager.env and before activating the idle manager.
+
+Automatic release deployment does not replace /etc/caddy/Caddyfile. The original
+new-server copier is bootstrap-server.sh, which also installs system packages and
+restarts PostgreSQL; **do not rerun that bootstrap on this existing host**. After
+review, take the deployment/session fence, retain a private previous config, copy
+only the reviewed Caddyfile to a root-owned sibling temporary file, inject the
+private FH_SITE for `caddy adapt`/`caddy validate`, atomically rename the candidate
+and reload only Caddy. If validation/reload fails, retain evidence and restore the
+previous proxy config before releasing the fence. No package/DB/driver changes
+belong in this operation. Apply the matching private Origin before manager start.
+The server's Caddy v2.11.7 accepted the initial and corrected templates via adapt;
+actual operational proxy replacement remains a separate installation step.
+
+The ROS signing-key fetch is bounded to 65537 bytes and refuses empty/oversized
+input. GPG parses either binary or ASCII OpenPGP, checks the existing single
+primary fingerprint pin, then dearmors to a private .gpg keyring for APT. Signed
+metadata verification and the fixed signing identity remain mandatory. See
+[APT key formats](https://manpages.ubuntu.com/manpages/noble/man8/apt-key.8.html).
 
 The socket-activated root helper reads only /proc stat/cgroup and two environment
 keys (ROS_DOMAIN_ID/GZ_PARTITION). It never exports argv, command names, full
