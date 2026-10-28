@@ -37,7 +37,10 @@ uid=$(id -u foothold-sim)
 [[ $uid =~ ^[1-9][0-9]*$ ]] || exit 2
 install -d -o root -g root -m 755 "/etc/systemd/system/user-$uid.slice.d"
 install -o root -g root -m 644 foothold-sim-user-slice.conf "/etc/systemd/system/user-$uid.slice.d/foothold-sim.conf"
+install -o root -g root -m 644 foothold-sim-proof.socket foothold-sim-proof@.service /etc/systemd/system/
+install -o root -g root -m 644 proc_proof_server.py /opt/foothold/deploy-tools/proc_proof_server.py
 systemctl daemon-reload
+systemctl enable --now foothold-sim-proof.socket
 # The parent system slice bounds even a modified/escaped user-manager slice.
 systemctl set-property --runtime "user-$uid.slice" MemoryMax=4G MemorySwapMax=0 CPUQuota=400% TasksMax=640
 systemctl start "user@$uid.service"

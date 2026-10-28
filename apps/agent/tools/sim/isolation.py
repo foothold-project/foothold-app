@@ -27,6 +27,12 @@ def command(*args):
 
 def processes():
     """Select only isolation keys; never record argv or unrelated environment secrets."""
+    proof = os.environ.get("FH_SIM_PROC_PROOF_SOCKET")
+    if proof is not None:
+        if proof != "/run/foothold-sim-proof.sock":
+            raise RuntimeError("unapproved OS proof socket; retain slot lock")
+        from apps.simmgr.proc_proof import processes as proof_processes
+        return proof_processes()  # failure must never fall back to partial /proc
     rows, denied = [], 0
     for root in Path('/proc').iterdir():
         if not root.name.isdigit():

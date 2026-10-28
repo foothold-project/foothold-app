@@ -1,0 +1,14 @@
+[Unit]
+Description=Foothold fixed-field OS isolation proof socket
+
+[Socket]
+ListenStream=/run/foothold-sim-proof.sock
+SocketUser=root
+SocketGroup=foothold-sim
+SocketMode=0660
+Accept=yes
+MaxConnections=4
+RemoveOnStop=yes
+
+[Install]
+WantedBy=sockets.target

@@ -11,7 +11,7 @@ EnvironmentFile=/etc/foothold-sim/manager.env
 Environment=FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONPATH=/opt/foothold/current/apps/agent:/opt/foothold/current
-ExecStart=/usr/bin/env FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard PYTHONPATH=/opt/foothold/current/apps/agent:/opt/foothold/current PYTHONDONTWRITEBYTECODE=1 /opt/foothold/current/.venv/bin/python -m apps.simmgr
+ExecStart=/usr/bin/env FH_SIM_DEPLOY_GUARD_DIR=/var/lib/foothold-sim/guard FH_SIM_PROC_PROOF_SOCKET=/run/foothold-sim-proof.sock PYTHONPATH=/opt/foothold/current/apps/agent:/opt/foothold/current PYTHONDONTWRITEBYTECODE=1 /opt/foothold/current/.venv/bin/python -m apps.simmgr
 Restart=no
 KillMode=process
 KillSignal=SIGTERM

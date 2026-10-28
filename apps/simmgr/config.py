@@ -116,6 +116,10 @@ class Settings:
         validate_control_environment(env)
         from .sysroot_environment import validate_server
         validate_server(env)
+        if (env.get("FH_SIM_DEPLOY_GUARD_DIR") == "/var/lib/foothold-sim/guard"
+                and env.get("FH_SIM_RUN") == "1"
+                and env.get("FH_SIM_PROC_PROOF_SOCKET") != "/run/foothold-sim-proof.sock"):
+            raise ValueError("server native simulation requires fixed OS proof socket")
         data = json.loads(Path(env['FH_SIM_CATALOG']).read_text())
         worlds = {w['id']: World(w['id'], Path(w['world_file']), Path(w['map_file']),
                                 **{key: w[key] for key in ('name', 'description') if key in w})

@@ -74,7 +74,7 @@ bootstrap 재실행은 저장한 암호·조직·관리자 파일을 교체하�
 | `FH_SMOKE_USERNAME`, `FH_SMOKE_PASSWORD` | `/etc/foothold/smoke.env`(root 소유, 600) · 별도 점검 계정 |
 
 server.env에는 관리자·마이그레이션 자격 증명을 넣지 않는다. API는 fh_app, 마이그레이션은 fh_migrate, 보고용은 fh_readonly다. API 시작의 기존 DB 권한 검사를 유지한다.
-`FH_SIM_MANAGER_URL`, `FH_SIM_AUTH_FILE`, `FH_PHONE_PASS_KEYS`, `FH_TUNNEL*`은 설정하지 않는다. 이 서버는 시뮬 관리자나 폰 출입증 키를 배포하지 않는다.
+기본 서버 설치는 sim/pass 키를 만들지 않는다. 승인된 개발 서버 시뮬은 [SIMULATION.md](SIMULATION.md)의 별도 private 설정·전용 UID·검사 helper 관문을 따른다. 그 경우 site.py가 같은 FH_SITE에서 manager의 FOOTHOLD_PHONE_ORIGINS도 파생한다. FH_TUNNEL*은 설정하지 않는다.
 Caddy는 site.env만 전달받는다. [reverse_proxy의 WS 지원](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)을 사용하며 외부 X-Forwarded-For를 실제 접속 IP로 덮어쓴다. uvicorn은 loopback 프록시만 신뢰한다. TLS는 Caddy 자동 HTTPS, 보안 헤더와 짧은 HSTS를 적용한다. 접근 로그는 켜지 않으며 API 접근 로그도 끈다.
 API systemd는 코드/venv를 root 소유 읽기 전용으로 두고 파일 저장소만 쓰게 한다. 단일 worker는 기존 실시간 중재기 소유권 요구다.
 
