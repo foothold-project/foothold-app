@@ -13,7 +13,7 @@ class PackageGateTests(unittest.TestCase):
 
     def test_date_suffix_allowed_upstream_change_refused(self):
         self.assertIn('ros-jazzy-nav2-controller', validate_lock([self.row()], {'ros-jazzy-nav2-controller':'1.3.13'}))
-        for row in (self.row(version='1.3.14-1noble'), self.row('libprotobuf32', '3.22.0-1')):
+        for row in (self.row(version='1.3.14-1noble'), self.row(version='1.3.13+really1.4.0-1noble'), self.row('libprotobuf32', '3.22.0-1')):
             with self.assertRaises(ValueError):
                 validate_lock([row], {})
         with self.assertRaises(ValueError):

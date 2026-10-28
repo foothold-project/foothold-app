@@ -34,7 +34,7 @@ def run(*args):
 
 
 def upstream(version):
-    return version.split(':')[-1].split('-')[0].split('+')[0]
+    return re.sub(r'\+(?:ds|dfsg)[0-9]*$', '', version.split(':')[-1].split('-')[0])
 
 
 def validate_lock(rows, requirements):
@@ -102,6 +102,8 @@ def install(lock_path, commit=False):
         if info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600 or not stat.S_ISREG(info.st_mode):
             raise ValueError('lock must be root-owned 0600')
         rows = json.load(stream)
+    if JOURNAL is not None:
+        (JOURNAL / 'lock.json').write_text(json.dumps(rows, sort_keys=True) + '\n')
     requirements = json.loads(Path(__file__).with_name('sim-package-versions.json').read_text())
     locked = validate_lock(rows, requirements)
     for name, row in locked.items():

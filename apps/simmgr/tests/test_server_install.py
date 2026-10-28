@@ -34,6 +34,7 @@ def test_vendor_requires_root_immutable_directories_and_exact_metadata(monkeypat
     from apps.simmgr import native_vendor
     monkeypatch.setenv('FH_SIM_NATIVE_PYTHON_DIR', str(native_vendor.VENDOR))
     monkeypatch.setattr(sys, 'path', list(sys.path))
+    monkeypatch.delitem(sys.modules, 'trimesh', raising=False)
     def trusted(path):
         mode = stat.S_IFREG | 0o644 if path.name == 'METADATA' else stat.S_IFDIR | 0o755
         return SimpleNamespace(st_uid=0, st_mode=mode)
