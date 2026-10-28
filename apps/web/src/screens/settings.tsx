@@ -4,6 +4,7 @@ import type { OrgSettings, RobotSummary, Session, User as ApiUser } from '../../
 import { api, expireAuth, type ApiFail } from '../api';
 import { ROLE_NAME, robotName, type Role, type User } from '../fake';
 import { Chip, type Ctx } from '../screens';
+import { ThemePick } from '../theme';
 
 type Msg = { text: string; ok?: boolean } | null;
 /** 긴 이름·아이디(128자)는 칸 안에서 줄을 바꾼다 */
@@ -11,12 +12,12 @@ const WRAP = { minWidth: 0, overflowWrap: 'anywhere' } as const;
 const Note = ({ msg }: { msg: Msg }) => (msg ? <p style={WRAP} className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p> : null);
 
 /** 로봇이 0대여도 열리는 탭이라 Ctx 전체가 아니라 필요한 것만 받는다 */
-export function Settings(c: Pick<Ctx, 'user' | 'light' | 'setLight' | 'setMe' | 'refresh' | 'cancel'>) {
+export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) {
   const admin = c.user.role === 'ORG_ADMIN';
   return <>
     <section className="lv-card" aria-label="개인 설정">
       <h2>개인 설정</h2>
-      <div className="fh-row"><span>화면 밝기</span><button type="button" className="btn" aria-pressed={c.light} onClick={() => c.setLight(!c.light)}>{c.light ? '밝게' : '어둡게'}</button></div>
+      <div className="fh-row"><span>화면 밝기</span><ThemePick /></div>
     </section>
     <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />
     <OrgLimits admin={admin} cancel={c.cancel} />

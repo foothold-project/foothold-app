@@ -20,6 +20,7 @@ import { Maps } from './screens/maps';
 import { Missions } from './screens/missions';
 import { Settings } from './screens/settings';
 import { SimTab } from './screens/sim';
+import { ThemePick, useTheme } from './theme';
 
 /** STOP 결과 한 줄 — 서버가 받았는지와 로봇이 알린 잠금을 나눠 쓴다. 확인 안 된 «정지됨»은 쓰지 않는다(F-COM-01) */
 function stopText(r: Robot, l: Live) {
@@ -114,7 +115,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const [rid, setRid] = useState(''), robot: Robot | undefined = pool.find((r) => r.id === (open ? sub : rid)) ?? pool[0];   // 0대면 undefined — 본문은 «로봇 없음»
   useEffect(() => { if (robot) setRid(robot.id); }, [robot?.id]);
   const dash = useDash(cancel);   // 관제 칸과 결재 탭 배지가 같은 값(한 곳에서 받음)
-  const [stopped, setStopped] = useState<Robot | null>(null), [light, setLight] = useState(false);   // stopped = 마지막으로 STOP 한 로봇
+  const [stopped, setStopped] = useState<Robot | null>(null), [, light] = useTheme();   // stopped = 마지막으로 STOP 한 로봇
   // STOP 대상(F-COM-01) = 지금 화면이 가리키는 로봇: 폰은 조종 화면의 로봇(내 로봇이 한 대뿐이면 어느 화면이든 그 로봇), PC 는 로봇 탭에서 고른 로봇.
   // 그 밖(로봇 연결·시나리오·기록 등)은 대상이 없어 STOP 이 «로봇 고르기»를 펼친다 — 내 조종권 로봇이 기본, 다시 누르면 그 로봇 정지
   const target = open || (!phone && tab === 'fleet') ? robot : phone && pool.length === 1 ? pool[0] : null;
@@ -190,7 +191,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
   const cur = tabsFor(phone).find((t) => t.id === tab)!, title = !phone ? labelOf(cur, user.role) : tab === 'history' ? '기록' : open || simOpen ? '조종' : '로봇 연결';
   const shut = (e: { currentTarget: Element }, f: () => void) => { e.currentTarget.closest('details')?.removeAttribute('open'); f(); };
   const problems = pool.filter(lost);
-  const ctx: Ctx | null = robot ? { user, robot, robots: tab === 'history' || tab === 'mission' ? withSlots : pool, pick: setRid, go, open, phone, light, setLight, setMe, refresh, cancel, focus, dash } : null;
+  const ctx: Ctx | null = robot ? { user, robot, robots: tab === 'history' || tab === 'mission' ? withSlots : pool, pick: setRid, go, open, phone, setMe, refresh, cancel, focus, dash } : null;
   const Body = BODY[tab];
   const none = <section className="lv-card" aria-label="로봇 없음"><h2>로봇이 없습니다</h2><p className="lv-note">{user.role === 'ORG_ADMIN' ? '등록된 로봇이 없습니다. 로봇을 등록하면 여기에 보입니다.' : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p></section>;
 
@@ -216,11 +217,12 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
       {!phone && <Guard quiet><Bell cancel={cancel} /></Guard>}
       {!phone && <span className="fh-me">{user.name}({ROLE_NAME[user.role]})</span>}
       {!phone && logout && <button type="button" className="btn" onClick={logout}>로그아웃</button>}
-      {phone && (tab !== 'history' || logout) && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
+      {phone && <details className="fh-more"><summary aria-label="더 보기">⋯</summary>
         <div className="card">{inApp() ? null : canFull() ? <button type="button" className="btn" aria-pressed={full} data-full onClick={(e) => shut(e, toggleFull)}>{full ? '전체화면 끄기' : '전체화면'}</button>
           : !installed() && <p className="lbl" data-full-tip>공유 → «홈 화면에 추가»로 열면 주소창 없이 넓게 보입니다.</p>}
           {tab !== 'history' && <button type="button" className="btn" onClick={(e) => shut(e, () => go('history'))}>기록</button>}
-          {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}</div></details>}
+          {logout && <button type="button" className="btn" onClick={(e) => shut(e, logout)}>로그아웃</button>}
+          <ThemePick /></div></details>}
       {(canStop || toSim) && !calm && <Stop phone={phone} onStop={stop} />}
     </>}</header>
     {open && robot && rel && (rel.why
@@ -253,7 +255,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.filter((t) => !t.hidden).map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
       <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? <SimDrive />
-        : tab === 'settings' ? <Settings key={user.id} user={user} light={light} setLight={setLight} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
+        : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' || tab === 'mission' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재·임무는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
         : tab === 'fleet' ? <EmptyFleet user={user} cancel={cancel} dash={dash}>{none}</EmptyFleet>   // 로봇 0대여도 관제 요약·운영 관리자 표

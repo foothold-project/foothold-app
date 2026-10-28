@@ -16,7 +16,7 @@ import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
-export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean; light: boolean; setLight: (v: boolean) => void;
+export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
   /** 내 정보가 서버에서 바뀜(설정 탭 — 이름) */
   setMe: (u: ApiUser) => void;
   /** 로봇 목록을 서버에서 다시 받음(등록·바꿈·지움·구독 회수 뒤) */

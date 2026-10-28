@@ -1,4 +1,5 @@
-/* 4칸 보기(quad.tsx) — ui/src/live.css «관제 4분할» 규칙을 옮김. 기존 색 토큰만 */
+/* 4칸 보기(quad.tsx) — ui/src/live.css «관제 4분할» 규칙을 옮김. 기존 색 토큰만
+   영상 칸 바탕(#05080A)·범례 판·작은 칸 그림자는 영상 위라 두 테마 모두 고정 어두운 색 */
 .qd{position:relative;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;padding:6px}
 .qd.f{--tw:clamp(104px,22vw,200px);grid-template-columns:minmax(0,1fr) var(--tw);grid-template-rows:36px auto auto auto 1fr}
 .qt{display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--map,#0E1317)}

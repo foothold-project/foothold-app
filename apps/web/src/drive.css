@@ -1,5 +1,6 @@
 /* 폰 조종 화면(09 ADR-002 §3 — 03 UX §5.7, PC 조종 탭은 없앰). 색은 화면 틀 변수(brand.css 가 공식 토큰으로 덮음)만 쓴다.
-   영상 위 반투명 판은 원본 ui/src/screens/MDrive.view.tsx 의 .hud 값(rgba(8,11,14,.66)) 그대로. */
+   영상 위 반투명 판은 원본 ui/src/screens/MDrive.view.tsx 의 .hud 값(rgba(8,11,14,.66)) 그대로.
+   영상·무대 위 판·글자(.dv-stage 안 #05080A·rgba(8,11,14,…)·#E6EBEF)는 영상 위라 밝음 테마에서도 일부러 고정색. */
 .dv{display:flex;flex-direction:column;gap:10px;min-width:0;font-size:14px}
 .dv-line{gap:12px}
 .dv-line h2{margin:0;font-size:17px}
@@ -15,7 +16,7 @@
 .dv-views{display:flex;flex-direction:column;gap:8px}
 .dv-views .btn[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
 .dv-back{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:8px 14px;border-radius:8px;background:rgba(8,11,14,.8);color:#FFFFFF}
-.dv-ask{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:2;width:min(440px,calc(100% - 24px));box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.dv-ask{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:2;width:min(440px,calc(100% - 24px));box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
 .dv-ask p{margin:0}
 .dv-bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
 .dv-bar>i{display:block;height:100%;background:var(--accent)}
@@ -58,7 +59,7 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-sheets{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);z-index:1;display:flex;gap:6px}
 .dv-sheets .btn{min-width:56px;min-height:44px;white-space:nowrap;background:rgba(8,11,14,.66);border-color:rgba(230,235,239,.45);color:#E6EBEF}
 .dv-sheets .btn[aria-expanded="true"]{border-color:var(--accent)}
-.fh-sheet{position:absolute;left:8px;right:8px;bottom:8px;z-index:1;max-height:60%;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:0 6px 24px rgba(0,0,0,.4)}
+.fh-sheet{position:absolute;left:8px;right:8px;bottom:8px;z-index:1;max-height:60%;overflow:auto;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;padding:14px;border:1px solid var(--line2);border-radius:10px;background:var(--panel);color:var(--text);box-shadow:var(--shadow)}
 .fh-sheet h2{margin:0;font-size:15px}
 @media (orientation:portrait){.dv-sheets{left:8px;right:8px;bottom:144px;transform:none;flex-wrap:wrap;justify-content:center}.dv-sheets .btn{padding:0 8px}.dv.ph .dv-mini{bottom:200px}}
 /* 낮은 세로 폰(320×568 등): 조이스틱을 줄이고 단추 줄을 내려 위 상태 판과 겹치지 않게 */
