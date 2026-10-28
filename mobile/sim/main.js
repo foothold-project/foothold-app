@@ -6,6 +6,7 @@
 import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
 import { createSim, loadPolicy, ISAAC_LIKE, POLICY_DT } from './sim.js';
+import { topFrame } from './top-fit.js';
 import { makeLidar, decodeMap } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
 
@@ -114,13 +115,15 @@ async function main() {
   document.body.prepend(cv);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x14171c);
-  const camera = new THREE.PerspectiveCamera(55, 1, 0.05, 80);
+  const followCamera = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
+  const topCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
+  let camera = topCamera;
   camera.up.set(0, 0, 1);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x404048, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.4);
   sun.position.set(-4, -6, 10);
   scene.add(sun);
-  const resize = () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); };
+  const resize = () => { renderer.setSize(innerWidth, innerHeight); followCamera.aspect = innerWidth / innerHeight; followCamera.updateProjectionMatrix(); };
   addEventListener('resize', resize);
   resize();
 
@@ -152,7 +155,7 @@ async function main() {
   const mapPlane = new THREE.Mesh(new THREE.PlaneGeometry(map.w * map.res, map.h * map.res),
     new THREE.MeshBasicMaterial({ map: mapTex, transparent: true, depthWrite: false }));
   mapPlane.position.set(map.origin[0] + (map.w * map.res) / 2, map.origin[1] + (map.h * map.res) / 2, map.floor_z + 0.02);
-  mapPlane.visible = false;
+  mapPlane.visible = true;
   scene.add(mapPlane);
 
   // 위에서 보기에서만 선택한 지점과 점선 경로를 표시한다. 선택할 때만 geometry 갱신.
@@ -227,10 +230,12 @@ async function main() {
   };
 
   // ── 카메라: 따라가기(로봇 뒤에서 돌기) ↔ 위에서 보기(지도판). 막대 밖(캔버스) 한 손가락 끌기 = 돌리기, 두 손가락·휠 = 확대·축소
-  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 13, topRot: 0 };
-  let top = false;
+  const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0 };
+  let top = true;
+  $('cam').setAttribute('aria-pressed', 'true');
+  $('cam').setAttribute('aria-label', '따라가기');
   const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
-  const zoom = (k) => { if (top) view.topH = clamp(view.topH * k, 3, 30); else view.dist = clamp(view.dist * k, 0.8, 8); };
+  const zoom = (k) => { if (top) view.topH = clamp(view.topH * k, 0.08, 3); else view.dist = clamp(view.dist * k, 0.8, 8); };
   const ptrs = new Map();
   let pinch = 0;
   cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0; });
@@ -254,7 +259,7 @@ async function main() {
 
   $('reset').onclick = () => { sim.reset(); sim.hold(0.5); acc = 0; };
   $('cam').onclick = () => {
-    top = !top; mapPlane.visible = top; route.visible = top;
+    top = !top; camera = top ? topCamera : followCamera; mapPlane.visible = top; route.visible = top;
     $('cam').setAttribute('aria-pressed', String(top));
     $('cam').setAttribute('aria-label', top ? '따라가기' : '위에서 보기');
     if (!top) camera.up.set(0, 0, 1);
@@ -292,10 +297,19 @@ async function main() {
     draw();
     const bx = d.qpos[0], by = d.qpos[1], bz = d.qpos[2];
     if (top) {
-      camPos.set(bx, by, map.floor_z + view.topH); look.set(bx, by, 0);
+      // Keep the first whole-map view clear of the fixed header and camera/scenario buttons.
+      const upper = Math.max($('home').getBoundingClientRect().bottom, $('stop').getBoundingClientRect().bottom) + 12;
+      const lower = $('btns').getBoundingClientRect().top - 12;
+      const width = innerWidth - 24, height = Math.max(1, lower - upper);
+      renderer.setViewport(12, innerHeight - lower, width, height);
+      const fit = topFrame(map, width / height, view.topRot, view.topH);
+      topCamera.left = -fit.width / 2; topCamera.right = fit.width / 2;
+      topCamera.top = fit.height / 2; topCamera.bottom = -fit.height / 2;
+      camPos.set(fit.cx, fit.cy, map.floor_z + 100); look.set(fit.cx, fit.cy, map.floor_z);
       camera.up.set(-Math.sin(view.topRot), Math.cos(view.topRot), 0); // 돌리기 0 = 지도처럼 +y 가 화면 위
-      camera.near = Math.max(0.05, view.topH - 8); // 천장 등(바닥 + 8.5~10 m)을 잘라 로봇이 가리지 않게
+      camera.near = 0.1; // Roof-free assets; the whole site stays inside the orthographic frustum.
     } else {
+      renderer.setViewport(0, 0, innerWidth, innerHeight);
       const a = yawOf() + view.yaw, h = view.dist * Math.cos(view.pitch);
       camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx, by, bz);
       camera.near = 0.05;

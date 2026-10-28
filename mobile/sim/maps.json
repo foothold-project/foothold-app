@@ -1,3 +1,26 @@
 [
-  { "id": "warehouse", "name": "창고" }
+  {
+    "id": "warehouse",
+    "name": "창고"
+  },
+  {
+    "id": "factory-inspection",
+    "name": "큰 공장 · 초안"
+  },
+  {
+    "id": "factory-inspection-alt1",
+    "name": "큰 공장 심화 · 초안"
+  },
+  {
+    "id": "factory-zone-f1",
+    "name": "2층 공장 1층 · 초안"
+  },
+  {
+    "id": "factory-zone-f2",
+    "name": "2층 공장 2층 · 초안"
+  },
+  {
+    "id": "element-course",
+    "name": "요소 코스 · 초안"
+  }
 ]

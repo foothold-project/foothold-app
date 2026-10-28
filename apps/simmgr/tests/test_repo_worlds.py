@@ -329,3 +329,36 @@ def test_repository_entrypoint_installs_assets_and_preserves_ledger_paths(repo, 
     assert list(map(float, data['pose'].split())) == [0, 0, .434226, 0, 0, 0]
     assert data['ledgers'] == [str(control / 'runs/map_ledger.jsonl'), '/synthetic/ux/ledger']
     assert data['root'] == data['identity_root'] == str(folder / 'native-assets')
+
+
+@pytest.mark.parametrize('key', ['factory_inspection/f1', 'factory_inspection_alt1/f1',
+                                 'factory_zone/f1', 'factory_zone/f2', 'element_course/f1'])
+def test_factory_repository_closure_and_raster(key, tmp_path):
+    """Verify all catalogue hashes and regenerate each floor without ROS/Gazebo."""
+    script = r'''
+import json, sys
+from pathlib import Path
+from types import SimpleNamespace
+import numpy as np
+from PIL import Image
+from apps.simmgr.native_catalogue import resolve_native_world
+from apps.simmgr.tools.collision_map import read_collisions, raster_floor
+root=Path(sys.argv[1]); key=sys.argv[2]; empty=Path(sys.argv[3])
+e=json.loads((root/'worlds.json').read_text())['worlds'][key]
+w=SimpleNamespace(id=key,world_file=root/e['world'],map_file=root/e['gt_map'])
+native=resolve_native_world(w,{key:w},empty,root)
+assert native.repository and native.key==key
+assert e['readiness']=='offline_prepared' and e['native_supported'] is False
+assert '초안' in e['name'] and '미검증' in e['description']
+m=json.loads((root/e['map_metadata']).read_text())
+ox,oy,_=m['origin']; width,height=m['size_pixels']; res=m['resolution']
+collisions,_=read_collisions(w.world_file)
+px=raster_floor(collisions,[ox,oy,ox+width*res,oy+height*res],res,e['floor_z'])
+assert np.array_equal(px,np.array(Image.open(w.map_file.with_suffix('.png'))))
+x,y,_=e['spawn_xyyaw']; assert px[height-1-int((y-oy)/res),int((x-ox)/res)]==254
+assert e['floor_z']==(2.0 if key=='factory_zone/f2' else 0.0)
+print(key,'closure and raster verified')
+'''
+    result = subprocess.run(['/usr/bin/python3', '-c', script, str(native_catalogue.REPO_WORLDS), key, str(tmp_path)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, result.stdout + result.stderr

@@ -1,5 +1,5 @@
 // Uses existing local RS-6 dependencies only. No server, browser, download, or real robot.
-// FH_SIM_SRC=<local sim bundle source> node mobile/scripts/scenario-headless.mjs
+// FH_SIM_SRC=<local sim bundle source> node mobile/scripts/scenario-headless.mjs [map-id] [scenario-id]
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,13 +18,17 @@ mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.x
 const buf = readFileSync(join(src, 'policy_v2.f32'));
 const policy = loadPolicy(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url)));
-const map = decodeMap(read('../sim/assets/warehouse/map.json'));
-mj.FS.writeFile('/go2/world.xml', readFileSync(new URL('../sim/assets/warehouse/warehouse.xml', import.meta.url)));
+const id = process.argv[2] || 'warehouse';
+assert.ok(read('../sim/maps.json').some((m) => m.id === id), 'listed map required');
+const map = decodeMap(read(`../sim/assets/${id}/map.json`));
+mj.FS.writeFile('/go2/world.xml', readFileSync(new URL(`../sim/assets/${id}/${id}.xml`, import.meta.url)));
 mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
 const sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw });
 const scan = makeLidar(mj, sim.m, sim.d, 360);
 const runner = createScenarioRunner(sim, () => false);
-for (const route of validateScenarios(read('../sim/assets/warehouse/scenarios.json'), map)) {
+const routes = validateScenarios(read(`../sim/assets/${id}/scenarios.json`).filter((s) => !process.argv[3] || s.id === process.argv[3]), map);
+assert.ok(routes.length, 'at least one selected route required');
+for (const route of routes) {
   sim.reset(); sim.hold(0.5); runner.start(route.points);
   let front = Infinity, steps = 0, scanMs = 0, followMs = 0, last = 0;
   const arrived = [], start = performance.now();

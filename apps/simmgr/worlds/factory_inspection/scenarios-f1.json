@@ -1,0 +1,28 @@
+[
+  {
+    "id": "short-loop",
+    "name": "큰 공장 짧은 한 바퀴 · 초안",
+    "waypoints": [
+      {
+        "x": 24.8,
+        "y": 21.5,
+        "mission_name": "factory_inspection-f1-순찰-1"
+      },
+      {
+        "x": 24.8,
+        "y": 22.3,
+        "mission_name": "factory_inspection-f1-순찰-2"
+      },
+      {
+        "x": 24.0,
+        "y": 22.3,
+        "mission_name": "factory_inspection-f1-순찰-3"
+      },
+      {
+        "x": 24.0,
+        "y": 21.5,
+        "mission_name": "factory_inspection-f1-순찰-4"
+      }
+    ]
+  }
+]

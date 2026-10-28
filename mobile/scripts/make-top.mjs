@@ -17,8 +17,8 @@ const chrome = process.env.CHROME || 'google-chrome';
 const ids = process.argv.slice(2).length ? process.argv.slice(2) : JSON.parse(readFileSync(join(simDir, 'maps.json'), 'utf8')).map((m) => m.id);
 
 /** 장면 메시를 모델 자세(quat = w,x,y,z)로 옮긴 xy 경계 + PAD */
-function bounds(sc) {
-  const b = [Infinity, Infinity, -Infinity, -Infinity];
+function bounds(sc, map) {
+  const b = [map.origin[0], map.origin[1], map.origin[0] + map.w * map.res, map.origin[1] + map.h * map.res];
   for (const { mesh, pos, quat: [w, x, y, z] } of sc.models) {
     const p = sc.meshes[mesh].p;
     for (let k = 0; k < p.length; k += 3) {
@@ -54,7 +54,8 @@ document.body.textContent = r.domElement.toDataURL('image/png');   // 화면 크
 
 for (const id of ids) {
   if (!/^[a-z0-9-]+$/.test(id)) throw new Error(`지도 이름은 [a-z0-9-] 만: ${id}`);
-  const b = bounds(JSON.parse(readFileSync(join(simDir, 'assets', id, 'scene.json'), 'utf8')));
+  const b = bounds(JSON.parse(readFileSync(join(simDir, 'assets', id, 'scene.json'), 'utf8')),
+    JSON.parse(readFileSync(join(simDir, 'assets', id, 'map.json'), 'utf8')));
   const W = Math.round((b[2] - b[0]) * PX), H = Math.round((b[3] - b[1]) * PX);
   const files = { '/vendor/three.module.js': join(src, 'vendor/three.module.js'), '/vendor/three.core.js': join(src, 'vendor/three.core.js'),
     [`/assets/${id}/scene.json`]: join(simDir, 'assets', id, 'scene.json') };

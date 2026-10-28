@@ -1,0 +1,10 @@
+{
+  "draft": true,
+  "source": "factory_inspection_alt1/f1",
+  "triangles": 16628,
+  "meshes": 32,
+  "models": 32,
+  "scene_bytes": 424433,
+  "physics": "SDF boxes exact; rough mesh collision uses conservative local AABB; no stair transit between maps",
+  "readiness": "offline_prepared; real phone FPS unverified"
+}

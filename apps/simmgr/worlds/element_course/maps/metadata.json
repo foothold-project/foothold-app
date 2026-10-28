@@ -1,0 +1,53 @@
+{
+  "generator_version": "collision-map/1",
+  "generator_sha256": "b02389779320b8f9c34f3ae46500d80829d67a55b7b960392f674d5eaef21e01",
+  "world_sha256": "c7ec7f5965cd639c4db3b472cf6ccda17dd84479534fd33c9bced77d648fcbf2",
+  "dependency_sha256": "9bac34136cbf01c57cb19b784c65a58264f43150660f472a22f540015df510d3",
+  "dependencies": {
+    "element_course.sdf": "c7ec7f5965cd639c4db3b472cf6ccda17dd84479534fd33c9bced77d648fcbf2",
+    "meshes/315cc76bb308787d.obj": "1e7a4f5d4181bccd194971cd4907966e7984f17b2bfbae599ad4fd2fe49be3c0",
+    "meshes/b3981b3fe1aac11a.obj": "24135b35b800961757ea6b39ef2d708ba7e224f27dbb80865f82a0cc99fa52a0",
+    "meshes/d7ebc6b73d8f6a41.obj": "f5c2992e7182462b2cb62f14b120f0cae3eec20ab7cd3c796c7f4569edc2fbf7"
+  },
+  "resolution": 0.05,
+  "origin": [
+    -4.05,
+    -4.55,
+    0.0
+  ],
+  "size_pixels": [
+    762,
+    482
+  ],
+  "size_m": [
+    38.1,
+    24.1
+  ],
+  "body_band_above_floor_m": [
+    0.05,
+    0.6
+  ],
+  "support_tolerance_m": 0.005,
+  "support_samples": "four corners and centre; no support remains unknown",
+  "open_mesh_policy": "occupied AABB in body band; never supplies support",
+  "pixel_values": {
+    "occupied": 0,
+    "free": 254,
+    "unknown": 205
+  },
+  "pixel_to_world": "x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution",
+  "floors": {
+    "f1": {
+      "floor_z": 0.0,
+      "image": "f1.png",
+      "yaml": "f1.yaml",
+      "image_sha256": "e36a96d7619a8a721e0a922f6a57491cf9d99c31f47de5995ff413ba25302955",
+      "counts": {
+        "occupied": 32592,
+        "free": 332208,
+        "unknown": 2484
+      }
+    }
+  },
+  "upstream_revision": "team-draft-2026-10-26"
+}

@@ -1,0 +1,28 @@
+[
+  {
+    "id": "short-loop",
+    "name": "2층 공장 짧은 한 바퀴 · 초안",
+    "waypoints": [
+      {
+        "x": 6.45,
+        "y": 4.65,
+        "mission_name": "factory_zone-f2-순찰-1"
+      },
+      {
+        "x": 6.45,
+        "y": 5.45,
+        "mission_name": "factory_zone-f2-순찰-2"
+      },
+      {
+        "x": 5.65,
+        "y": 5.45,
+        "mission_name": "factory_zone-f2-순찰-3"
+      },
+      {
+        "x": 5.65,
+        "y": 4.65,
+        "mission_name": "factory_zone-f2-순찰-4"
+      }
+    ]
+  }
+]
