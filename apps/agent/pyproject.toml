@@ -13,6 +13,12 @@ dependencies = []
 test = ["pytest>=7"]
 link = ["websockets==15.0.1"]
 discovery = ["zeroconf==0.148.0"]
+go2-readonly = [
+    "unitree_sdk2py @ git+https://github.com/unitreerobotics/unitree_sdk2_python.git@814556d15970dd2ecf1c9984e845ca02ab07e206",
+    "cyclonedds==0.10.2",
+    "numpy==1.26.4",
+    "opencv-python==4.10.0.84",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]
