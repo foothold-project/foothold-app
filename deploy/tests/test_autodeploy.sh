@@ -64,7 +64,7 @@ export TEST_PREP_FAIL=1
 if run; then echo 'Expected prepare failure' >&2; exit 1; fi
 [[ $(cat "$TEST_STATE/autodeploy.failed") == "$TEST_SHA" ]]
 [[ $(cat "$TEST_TRACE") == $'fetch\nprepare' ]]
-rg -q 'mode=auto phase=prepare' "$TEST_STATE/deploys.log"
+grep -q 'mode=auto phase=prepare' "$TEST_STATE/deploys.log"
 : > "$TEST_TRACE"
 run; empty_trace
 export TEST_SHA=2222222222222222222222222222222222222222 TEST_PREP_FAIL=0 TEST_DEPLOY_FAIL=1
@@ -73,6 +73,12 @@ if run; then echo 'Expected deploy failure' >&2; exit 1; fi
 : > "$TEST_TRACE"
 run; empty_trace
 export TEST_SHA=3333333333333333333333333333333333333333 TEST_DEPLOY_FAIL=0 TEST_FETCH_FAIL=1
-if run; then echo 'Expected fetch failure' >&2; exit 1; fi
-[[ $(cat "$TEST_STATE/autodeploy.failed") == "$TEST_SHA" ]]
-printf 'PASS: current, failed SHA, off, network no-change, lock, inherited lock, new SHA, prepare/deploy/fetch failures\n'
+before=$(cat "$TEST_STATE/deploys.log")
+run
+[[ $(cat "$TEST_STATE/autodeploy.failed") == 2222222222222222222222222222222222222222 ]]
+[[ $(cat "$TEST_STATE/deploys.log") == "$before" && $(cat "$TEST_TRACE") == fetch ]]
+# Same SHA can recover from a transient fetch error without manual state changes.
+export TEST_FETCH_FAIL=0
+run
+[[ $(cat "$TEST_TRACE") == $'fetch\nfetch\nprepare\ndeploy' ]]
+printf 'PASS: current, failed SHA, off, network/fetch no-change, lock, inherited lock, new SHA, prepare/deploy failures\n'

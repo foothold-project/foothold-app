@@ -22,6 +22,13 @@ autodeploy_run() (
     if [[ -f $state/autodeploy.failed && $(cat "$state/autodeploy.failed") == "$sha" ]]; then
         echo "auto: failed $sha; skipped until a new commit"; exit 0
     fi
+    # Network/fetch failures are transient; do not poison this deployment SHA.
+    if ! git --git-dir="$state/repo.git" fetch --no-tags origin "$sha" >/dev/null 2>&1; then
+        echo 'auto: fetch failed; deployment state unchanged'; exit 0
+    fi
+    if ! resolved=$(git --git-dir="$state/repo.git" rev-parse --verify "$sha^{commit}" 2>/dev/null) || [[ $resolved != "$sha" ]]; then
+        echo 'auto: fetched commit unavailable; deployment state unchanged'; exit 0
+    fi
     finish_auto() {
         local result=$?
         trap - EXIT
@@ -36,9 +43,6 @@ autodeploy_run() (
         exit "$result"
     }
     trap finish_auto EXIT
-    # Fetch the observed object, never chase a moving branch during this build.
-    git --git-dir="$state/repo.git" fetch --no-tags origin "$sha" >/dev/null 2>&1
-    [[ $(git --git-dir="$state/repo.git" rev-parse --verify "$sha^{commit}") == "$sha" ]]
     (cd "$state/repo.git" && bash "$scripts/prepare-release.sh" "$sha" "$state/incoming")
     handed_off=1
     bash "$scripts/deploy.sh" "$sha"

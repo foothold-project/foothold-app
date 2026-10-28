@@ -7,26 +7,57 @@ sha=$(git rev-parse --verify "$1^{commit}")
 out=$(realpath "$2")
 [[ -d $out ]] || exit 2
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT
-# Keep the web's out-of-app imports, without archiving the simulator runtime.
-git --git-dir="$repo" archive "$sha" apps/server apps/contracts apps/web deploy \
-  mobile/sim/maps.json 'mobile/sim/assets/*/top.png' | tar -x -C "$work"
-# No .env or working-tree files enter this clean build.
+build='' build_unit=''
+cleanup() {
+    # On interruption also stop the independent build cgroup before deleting input.
+    if [[ -n $build_unit ]]; then systemctl stop "$build_unit" >/dev/null 2>&1 || true; fi
+    rm -rf -- "$work"
+    [[ -z $build ]] || rm -rf -- "$build"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
 if [[ $EUID == 0 ]]; then
-    # Root never runs npm or candidate-controlled package scripts.
     [[ ${FH_BUILD_USER:-} == foothold-build ]] || { echo 'Root builds require FH_BUILD_USER=foothold-build.' >&2; exit 2; }
-    chown -R foothold-build:foothold-build "$work"
-    # Do not let candidate build scripts retain or unlock the parent lock fd.
-    runuser -u foothold-build -- env -i PATH=/usr/bin:/bin HOME="$work" \
-        bash -c 'cd "$1/apps/web" && npm ci --ignore-scripts && npm run build' bash "$work" 9>&-
+    # Outside /tmp so PrivateTmp can isolate the service without hiding its input.
+    build=$(mktemp -d /var/lib/foothold/build.XXXXXXXX)
 else
-    (cd "$work/apps/web" && npm ci --ignore-scripts && npm run build)
+    build=$(mktemp -d)
 fi
-# Manager, agent, tests, web build tooling and node_modules are not shipped.
+# Only web and its imported data enter the build sandbox; never server/deploy.
+git --git-dir="$repo" archive "$sha" apps/contracts apps/web \
+  mobile/sim/maps.json 'mobile/sim/assets/*/top.png' | tar -x -C "$build"
+if [[ $EUID == 0 ]]; then
+    chmod 755 "$build"
+    chmod -R u=rwX,go=rX "$build"
+    chown -R foothold-build:foothold-build "$build/apps/web"
+    build_unit="foothold-web-build-$$"
+    # --wait finishes after unit shutdown; KillMode kills lingering descendants.
+    # Inputs outside web stay root-owned/read-only. No deploy lock fd reaches npm.
+    systemd-run --quiet --wait --collect --pipe --unit="$build_unit" \
+        --property=Type=exec --property=User=foothold-build --property=Group=foothold-build \
+        --property=KillMode=control-group --property=TimeoutStopSec=15s \
+        --property=RuntimeMaxSec=20min --property=NoNewPrivileges=yes \
+        --property=ProtectSystem=strict --property=ProtectHome=yes --property=PrivateTmp=yes \
+        --property="ReadWritePaths=$build/apps/web" \
+        /usr/bin/env -i PATH=/usr/bin:/bin HOME="$build/apps/web" \
+        /usr/bin/bash -c 'cd "$1/apps/web" && npm ci --ignore-scripts && npm run build' bash "$build" 9>&-
+else
+    (cd "$build/apps/web" && npm ci --ignore-scripts && npm run build)
+fi
+# Root constructs trusted code afresh only after all sandbox processes have exited.
+git --git-dir="$repo" archive "$sha" apps/server apps/contracts deploy | tar -x -C "$work"
+# Reject replaced parent paths and all symlinks/special files before privileged copy.
+for directory in "$build/apps" "$build/apps/web" "$build/apps/web/dist"; do
+    [[ -d $directory && ! -L $directory ]] || { echo 'Invalid web build directory.' >&2; exit 1; }
+done
+[[ -z $(find "$build/apps/web/dist" ! -type d ! -type f -print -quit) ]] || { echo 'Web dist contains a link or special file.' >&2; exit 1; }
+[[ -s $build/apps/web/dist/index.html ]] || exit 1
+# The release directory is root-owned and never inside the writable build tree.
 mkdir -p "$work/release/apps/web"
 cp -a "$work/apps/server" "$work/apps/contracts" "$work/release/apps/"
 rm -rf "$work/release/apps/server/tests" "$work/release/apps/server/tools" "$work/release/apps/contracts/tests"
-cp -a "$work/apps/web/dist" "$work/release/apps/web/"
+cp -a "$build/apps/web/dist" "$work/release/apps/web/"
 cp -a "$work/deploy" "$work/release/"
 printf '%s\n' "$sha" > "$work/release/COMMIT"
 tar -czf "$out/$sha.tar.gz" -C "$work/release" .
