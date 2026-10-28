@@ -7,6 +7,7 @@ import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
 import { createSim, loadPolicy, ISAAC_LIKE, POLICY_DT } from './sim.js';
 import { makeLidar, decodeMap } from './lidar.js';
+import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
 
 const $ = (id) => document.getElementById(id);
 const MESHES = ['base_0', 'base_1', 'base_2', 'base_3', 'base_4', 'hip_0', 'hip_1', 'thigh_0', 'thigh_1', 'thigh_mirror_0',
@@ -87,6 +88,24 @@ async function main() {
   sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, loadPolicy(polBuf), { floorZ: map.floor_z, spawn: map.spawn_xyyaw });
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360);
+  const runner = createScenarioRunner(sim, () => stopped);
+  let scenarios = [];
+  try { scenarios = validateScenarios(await json(`${dir}/scenarios.json`), map); }
+  catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
+  const select = $('scenarioSelect');
+  for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
+  let scenarioText = '';
+  const scenarioUI = () => {
+    const text = runner.active ? `지점 ${runner.index + 1}/${runner.points.length}` : runner.status;
+    if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
+    select.disabled = runner.active || !scenarios.length;
+    $('scenarioRun').disabled = !ready || stopped || sim.fell || runner.active || !scenarios.length;
+    $('scenarioHalt').disabled = !runner.active;
+    $('scenarioHint').hidden = !stopped;
+  };
+  bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
+  $('scenarioMenu').onclick = () => { $('scenarioPanel').hidden = !$('scenarioPanel').hidden; $('scenarioMenu').setAttribute('aria-expanded', String(!$('scenarioPanel').hidden)); };
+  $('scenarioHalt').onclick = () => { runner.cancel('중단'); lock(); scenarioUI(); };
 
   // ── three.js: Z-up
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -136,6 +155,22 @@ async function main() {
   mapPlane.visible = false;
   scene.add(mapPlane);
 
+  // 위에서 보기에서만 선택한 지점과 점선 경로를 표시한다. 선택할 때만 geometry 갱신.
+  const route = new THREE.Group();
+  scene.add(route);
+  const showRoute = () => {
+    while (route.children.length) { const c = route.children[0]; route.remove(c); c.geometry.dispose(); c.material.dispose(); }
+    const chosen = scenarios.find((s) => s.id === select.value);
+    if (!chosen) return;
+    const pts = chosen.points.map((p) => new THREE.Vector3(p.x, p.y, map.floor_z + 0.07));
+    const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0x81c784, dashSize: 0.15, gapSize: 0.12, depthTest: false }));
+    path.computeLineDistances(); route.add(path);
+    route.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), new THREE.PointsMaterial({ color: 0xe6e8eb, size: 9, sizeAttenuation: false, depthTest: false })));
+  };
+  select.onchange = showRoute;
+  showRoute();
+  route.visible = false;
+
   // Go2: 컴파일된 메시(group 2)를 geom 마다 그린다
   const geoms = [], meshGeo = new Map();
   for (let g = 0; g < m.ngeom; g++) {
@@ -169,15 +204,26 @@ async function main() {
     new THREE.PointsMaterial({ color: 0x39ff88, size: 4, sizeAttenuation: false }));
   lidarPts.frustumCulled = false;
   scene.add(lidarPts);
-  let lastScan = 0;
+  let lastScan = 0, front = Infinity;
   const yawOf = () => 2 * Math.atan2(d.qpos[6], d.qpos[3]); // 기울기 무시한 근사(서 있을 때 충분)
   const scan = () => {
     const x = d.qpos[0], y = d.qpos[1], z = d.qpos[2] + 0.1, yaw = yawOf(), r = lidar(x, y, z, yaw);
+    front = frontDistance(r);
     for (let i = 0; i < LN; i++) {
       const a = yaw + (i * 2 * Math.PI) / LN, k = Number.isFinite(r[i]) ? r[i] : 0;
       lidarPos.set(k ? [x + Math.cos(a) * k, y + Math.sin(a) * k, z] : [x, y, -100], i * 3);
     }
     lidarPts.geometry.attributes.position.needsUpdate = true;
+  };
+  $('scenarioRun').onclick = () => {
+    if (!ready || stopped || sim.fell || runner.active) return;
+    const chosen = scenarios.find((s) => s.id === select.value);
+    if (!chosen) return;
+    sticks.forEach((s) => s.release());
+    scan(); lastScan = performance.now();
+    runner.start(chosen.points);
+    runner.tick(front); // 가까운 장애물은 실행 순간부터 0
+    scenarioUI();
   };
 
   // ── 카메라: 따라가기(로봇 뒤에서 돌기) ↔ 위에서 보기(지도판). 막대 밖(캔버스) 한 손가락 끌기 = 돌리기, 두 손가락·휠 = 확대·축소
@@ -208,7 +254,7 @@ async function main() {
 
   $('reset').onclick = () => { sim.reset(); sim.hold(0.5); acc = 0; };
   $('cam').onclick = () => {
-    top = !top; mapPlane.visible = top;
+    top = !top; mapPlane.visible = top; route.visible = top;
     $('cam').setAttribute('aria-pressed', String(top));
     $('cam').setAttribute('aria-label', top ? '따라가기' : '위에서 보기');
     if (!top) camera.up.set(0, 0, 1);
@@ -220,23 +266,29 @@ async function main() {
   $('busy').hidden = true;
   if (stopped) sim.cmd = [0, 0, 0];
   ui();
+  scenarioUI();
 
   // ── 실행: 화면 시간에 맞춰 정책 스텝(한 프레임 최대 5스텝, 밀리면 늦게 감)
   let acc = 0, lastT = performance.now(), frames = 0, fps = 0, fpsT = lastT;
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
-    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray() });
+    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
   function frame(now) {
     acc += Math.min((now - lastT) / 1000, 0.25);
     lastT = now;
+    if (now - lastScan >= 100) { scan(); lastScan = now; }
     let n = 0;
     while (acc >= POLICY_DT && n < 5) {
       acc -= POLICY_DT; n++;
-      if (!sim.fell) { sim.cmd = stopped ? [0, 0, 0] : joy.slice(); sim.step(); }
+      if (runner.active) runner.tick(front);
+      else sim.cmd = stopped || sim.fell ? [0, 0, 0] : joy.slice();
+      if (!sim.fell) sim.step();
+      if (sim.fell && runner.active) runner.cancel('넘어짐');
+      if (sim.fell) sim.cmd = [0, 0, 0];
       st.steps++;
     }
     if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }
-    if (now - lastScan >= 100) { scan(); lastScan = now; }
+    scenarioUI();
     draw();
     const bx = d.qpos[0], by = d.qpos[1], bz = d.qpos[2];
     if (top) {
