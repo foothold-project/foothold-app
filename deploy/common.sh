@@ -29,3 +29,30 @@ take_deploy_lock() {
         flock -n 9
     fi
 }
+
+# Only GitHub repository URLs without credentials, queries, ports or shell syntax.
+repo_transport() {
+    if [[ ${1:-} =~ ^https://github\.com/[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\.git$ ]]; then
+        printf 'https\n'
+    elif [[ ${1:-} =~ ^git@github\.com:[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*\.git$ ]]; then
+        printf 'ssh\n'
+    else
+        return 1
+    fi
+}
+
+configure_repo_transport() {
+    local repo=$1 transport=$2 result
+    if [[ $transport == https ]]; then
+        if git --git-dir="$repo" config --unset-all core.sshCommand; then :; else
+            result=$?
+            [[ $result == 5 ]] || return "$result"
+        fi
+        # Public pulls must not obtain credentials from a global helper.
+        git --git-dir="$repo" config credential.helper ''
+    elif [[ $transport == ssh ]]; then
+        git --git-dir="$repo" config core.sshCommand 'ssh -i /etc/foothold/deploy_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/etc/foothold/github_known_hosts -o ConnectTimeout=15'
+    else
+        return 2
+    fi
+}
