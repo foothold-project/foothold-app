@@ -2,7 +2,7 @@
   "appId": "org.footholdproject.app",
   "appName": "FOOTHOLD",
   "webDir": "www",
-  "appendUserAgent": "FootholdApp/1.2.2-dev",
+  "appendUserAgent": "FootholdApp/1.2.3-dev",
   "android": { "allowMixedContent": false, "loggingBehavior": "none" },
   "server": { "androidScheme": "https", "cleartext": false }
 }
