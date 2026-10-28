@@ -1,5 +1,16 @@
 # mobile — Android 껍데기 (Capacitor 8)
 
+## 1.2.2-dev — 주변 로봇 찾기 (2026-10-28)
+
+1.2.1-dev 그대로 + 폰 홈 «+ 로봇 연결하기» → «주변 로봇 찾기»(10-28 사용자). versionCode 19 · `1.2.2-dev`. 찾기·표시만 — BLE 연결·쓰기·로봇 설정 변경 0.
+
+| 항목 | 내용 |
+|---|---|
+| 통로 | `apps/web/src/nearby.tsx` 가 `[data-nearby-scan=<seq>]` 를 두면 `MainActivity` 0.5 s 읽기가 보고 `Nearby.java` 찾기 시작, 결과는 `evaluateJavascript` 로 `fh-nearby` 이벤트. JS → 네이티브 통로(브리지·플러그인)는 그대로 0 |
+| Wi-Fi | mDNS `_foothold._tcp`(TXT `v=1`·`name`·`model`·`agent=ws://<주소>:<포트>/phone/ws`·`rid`) — 사설 IPv4 만, `agent` 는 찾은 주소와 같은 호스트일 때만. Go2 기본 주소 192.168.12.1·192.168.123.161·.18 에 TCP 9991·8081·22 연결만(Wi-Fi 망에 묶어서) |
+| 블루투스 | BLE 광고 이름 `Go2_` 접두(근거: Bin4ry/UniPwn `unitree_hack.py`, jeff-hykin/dim-go2-dash `protocol.rs`) |
+| 권한 | `BLUETOOTH_SCAN`(neverForLocation) · 11 이하만 `BLUETOOTH`·`BLUETOOTH_ADMIN`·`ACCESS_FINE_LOCATION`(maxSdk 30) · `ACCESS_NETWORK_STATE`(일반) |
+
 ## 1.2.2-dev — 앱 안 시뮬 지도 고르기 (2026-10-28)
 
 1.2.1-dev 그대로 + 지도 고르기(10-28 사용자 «three.js 로 만든 맵을 고를 수 있게, 고르면 위에서 바라본 사진, 드롭다운, 디자인은 그대로»). versionCode 19 · `1.2.2-dev`(같은 앱 id·debug 키).

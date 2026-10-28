@@ -5,7 +5,8 @@ import { useEffect, useRef, useState, type MouseEvent, type PointerEvent, type R
 import { ADMIN_REAL, ROLE_NAME, driveBlock, robotStatus, type Holder, type Robot, type Role, type Tone } from './fake';
 import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
-import { Chip, DriveButton, Scenario, soon, type Ctx } from './screens';
+import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
+import { Nearby } from './nearby';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
 
@@ -60,15 +61,21 @@ export function Drive(c: Ctx) {
   return c.open ? <Screen {...c} /> : <Connect {...c} />;
 }
 
-/** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기(simdrive.tsx — 직결) */
+/** 로봇 연결(ADR-002 §3.2): 위 = 내 로봇 목록 → [연결](조종 화면), 못 하면 [보기만] + 이유. 아래 = 시뮬 로봇 띄우기(simdrive.tsx — 직결)
+ *  «+ 로봇 연결하기»(10-28): 앱 안에서 연결된 실기가 없으면 카드 본문을 이 단추로, 있으면 목록 아래 작게 → 주변 로봇 찾기(nearby.tsx). 앱 밖은 못 하는 이유만 */
 export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
   useRt();
+  const [find, setFind] = useState(false), app = inApp(), live = c.robots.some((r) => r.online && !r.sim);
+  const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setFind(true)} data-robot-connect>+ 로봇 연결하기</button>;
   return <>
-    <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="내 로봇">
+    {find ? <Nearby robots={c.robots} close={() => setFind(false)} /> : <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="내 로봇">
       <h2>내 로봇</h2>
-      {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
-        : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? `${ADMIN_REAL} 시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 조종합니다.` : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p>}
-    </section>
+      {app && !live ? add(true) : <>
+        {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>
+          : <p className="lv-note">{c.user.role === 'ORG_ADMIN' ? `${ADMIN_REAL} 시뮬 로봇은 아래 «시뮬 로봇 띄우기»에서 조종합니다.` : '담당 로봇이 없습니다. 총괄 운영 관리자에게 로봇 배정을 요청하세요.'}</p>}
+        {app ? add(false) : <p className="lv-note" data-robot-connect-note>주변 로봇 찾기(Wi-Fi·블루투스)는 FOOTHOLD Android 앱에서만 됩니다 — 브라우저는 블루투스·같은 망 기기를 찾을 수 없습니다.</p>}
+      </>}
+    </section>}
     <SimLaunch me={c.user.id} />
   </>;
 }
