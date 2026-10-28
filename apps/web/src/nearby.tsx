@@ -4,12 +4,14 @@
 import { useEffect, useState } from 'react';
 import type { Robot } from './fake';
 import { Chip } from './screens';
+import { Go2View, manualUrl } from './go2status';
 
-export type Found = { key: string; via: 'mdns' | 'addr' | 'ble'; name: string; host?: string; port?: number; model?: string; agent?: string; rid?: string; rssi?: number };
+export type Found = { key: string; via: 'mdns' | 'addr' | 'ble'; name: string; host?: string; port?: number; model?: string; agent?: string; rid?: string; rssi?: number; mode?: 'discovery-only' | 'go2-readonly' };
 export type Scan = { scanning: boolean; items: Found[]; problems: string[] };
 
 const VIA = { mdns: 'Wi-Fi', addr: 'Wi-Fi', ble: '블루투스' } as const;
 export const PROBLEM: Record<string, string> = {
+  'wifi-no-internet': 'Wi-Fi 에 인터넷 없음 — 로봇 연결은 Wi-Fi, 서버는 모바일 데이터로 합니다.',
   'wifi-off': 'Wi-Fi 가 꺼져 있거나 연결되지 않았습니다 — 로봇과 같은 Wi-Fi(또는 Go2 핫스팟)에 연결하세요.',
   'bt-off': '블루투스가 꺼져 있습니다 — 켜면 Go2 를 블루투스로도 찾습니다.',
   'bt-perm': '블루투스 찾기 권한이 거부되어 Wi-Fi 로만 찾았습니다. 설정 › 앱 › FOOTHOLD › 권한에서 «주변 기기»(Android 11 이하는 «위치»)를 허용하세요.',
@@ -31,7 +33,7 @@ export function parse(d: unknown, seq: string): Scan | null {
   for (const x of o.items as Record<string, unknown>[]) {
     const key = str(x?.key), via = x?.via, name = str(x?.name, 40);
     if (!key || !name || (via !== 'mdns' && via !== 'addr' && via !== 'ble')) continue;
-    items.push({ key, via, name, host: str(x.host, 15), port: num(x.port), model: str(x.model, 40), agent: str(x.agent), rid: str(x.rid, 64), rssi: num(x.rssi) });
+    items.push({ key, via, name, host: str(x.host, 15), port: num(x.port), model: str(x.model, 40), agent: str(x.agent), rid: str(x.rid, 64), rssi: num(x.rssi), mode: x.mode === 'discovery-only' || x.mode === 'go2-readonly' ? x.mode : undefined });
   }
   return { scanning: o.scanning === true, items, problems: (o.problems as unknown[]).filter((p): p is string => typeof p === 'string') };
 }
@@ -52,6 +54,8 @@ export function merge(items: Found[]): Found[] {
 /** 항목을 눌렀을 때 안내. 폰에서 쓸 연결 등록 API 는 아직 없다(POST /robots 는 총괄 등록이고, 받은 에이전트 토큰을 로봇에 넣는 길이 없음) */
 export function detail(f: Found, robots: Robot[]): string {
   if (f.via !== 'mdns') return 'Go2 발견 — FOOTHOLD 에이전트가 아직 없음(설치 필요). 로봇 온보드 컴퓨터에 에이전트를 설치·실행하면 Wi-Fi 에서 «에이전트 발견»으로 보입니다.';
+  if (f.mode === 'discovery-only') return '찾기 시험 신호 — 실제 연결 아님. 등록·연결하지 않습니다.';
+  if (f.mode === 'go2-readonly') return `상태 전용 에이전트: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} — 로봇 쪽 8자리 현장 코드를 넣으면 배터리·자세만 읽습니다(조종·등록·STOP 없음).`;
   const mine = f.rid && robots.find((r) => r.id === f.rid);
   if (mine) return `이미 내 조직에 등록된 로봇입니다(${mine.name}). 에이전트가 서버에 접속하면 «내 로봇»에서 «연결됨»으로 바뀝니다.`;
   return `에이전트 발견: ${f.name} ${f.host ?? ''}${f.port ? `:${f.port}` : ''} — 연결 등록은 서버 준비 중입니다.`;
@@ -59,12 +63,15 @@ export function detail(f: Found, robots: Robot[]): string {
 
 function status(f: Found, robots: Robot[]) {
   if (f.via !== 'mdns') return f.via === 'ble' ? `에이전트 없음${f.rssi != null ? ` · 신호 ${f.rssi} dBm` : ''}` : '에이전트 없음 · 기본 주소 응답';
+  if (f.mode === 'discovery-only') return '찾기 시험 신호 — 실제 연결 아님';
+  if (f.mode === 'go2-readonly') return '상태 전용 에이전트';
   return f.rid && robots.some((r) => r.id === f.rid) ? '에이전트 발견 · 내 조직 로봇' : '에이전트 발견';
 }
 
 /** «주변 로봇 찾기» 화면(«내 로봇» 카드 자리). 들어오면 바로 찾기, «다시 찾기» = 새 seq */
 export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }) {
   const [seq, setSeq] = useState(1), [scan, setScan] = useState<Scan | null>(null), [open, setOpen] = useState<string | null>(null), [old, setOld] = useState(false);
+  const [view, setView] = useState<{ name: string; url: string } | null>(null), [ip, setIp] = useState('');
   useEffect(() => {
     setScan(null); setOld(false); setOpen(null);
     const on = (e: Event) => { const s = parse((e as CustomEvent).detail, String(seq)); if (s) setScan(s); };
@@ -72,7 +79,8 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
     const t = setTimeout(() => setOld(true), NO_APP_MS);
     return () => { window.removeEventListener('fh-nearby', on); clearTimeout(t); };
   }, [seq]);
-  const items = merge(scan?.items ?? []), busy = !scan || scan.scanning;
+  const items = merge(scan?.items ?? []), busy = !scan || scan.scanning, typed = manualUrl(ip);
+  if (view) return <Go2View {...view} close={() => setView(null)} />;
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="주변 로봇 찾기" data-nearby-scan={seq}>
     <div className="fh-row"><h2 className="fh-grow">주변 로봇 찾기</h2><button type="button" className="btn" onClick={close}>닫기</button></div>
     {!scan && old ? <p className="fh-why" role="status" data-nearby="old">이 앱 판은 주변 찾기를 지원하지 않습니다 — FOOTHOLD 앱을 1.2.2-dev 이상으로 업데이트하세요.</p>
@@ -84,8 +92,13 @@ export function Nearby({ robots, close }: { robots: Robot[]; close: () => void }
         <span className="lbl">{status(f, robots)}{f.host ? ` · ${f.host}` : ''}{f.model ? ` · ${f.model}` : ''}</span>
       </button>
       {open === f.key && <span className="fh-why" data-nearby-detail>{detail(f, robots)}</span>}
+      {open === f.key && f.mode === 'go2-readonly' && f.agent && <button type="button" className="btn pri" onClick={() => setView({ name: f.name, url: f.agent! })}>상태 보기</button>}
     </li>)}</ul>}
     <button type="button" className="btn pri" disabled={busy && !old} onClick={() => setSeq((n) => n + 1)}>다시 찾기</button>
+    <form className="fh-row" onSubmit={(e) => { e.preventDefault(); if (typed) setView({ name: `Go2 ${ip.trim()}`, url: typed }); }}>
+      <label className="fh-field fh-grow"><span className="lbl">안 보이면 주소 직접 넣기(상태 전용, 사설 IPv4)</span><input className="inp" value={ip} onChange={(e) => setIp(e.target.value)} inputMode="decimal" autoComplete="off" placeholder="192.168.12.x" data-go2-ip /></label>
+      <button type="submit" className="btn" disabled={!typed}>상태 보기</button>
+    </form>
     <p className="lv-note">Wi-Fi 찾기는 폰과 로봇이 같은 망(같은 공유기 또는 Go2 핫스팟)일 때만 됩니다. 블루투스는 로봇 근처에서만 보입니다. 찾기·표시만 하고 로봇 설정은 바꾸지 않습니다.</p>
   </section>;
 }
