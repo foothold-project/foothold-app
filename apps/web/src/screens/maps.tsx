@@ -92,7 +92,7 @@ export function useFit(v?: MapVersion) {
 export function MapView({ v }: { v: MapVersion }) {
   const [at, setAt] = useState<'wait' | 'ok' | 'bad'>('wait'), [n, setN] = useState(0);
   return <div>
-      <MapFrame {...useFit(v)} role="img" aria-label={`판 ${v.number} 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+      <MapFrame {...useFit(v)} photo={v} role="img" aria-label={`판 ${v.number} 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
         <MapImage key={n} id={v.id} width={v.width} height={v.height} onLoad={() => setAt('ok')} onError={() => setAt('bad')} />
         <Shapes v={v} f={v.features} />
       </MapFrame>

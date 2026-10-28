@@ -67,7 +67,7 @@ export function SimMap({ m, big }: { m: FloorMap; big?: boolean }) {
   const at = dot && v ? toPixel(v, dot.x, dot.y) : null, tip = dot && v ? aim(v, dot, r) : null;
   const walls = useWalls(v?.id), look = useMemo(() => { const full: Box = v ? [0, 0, v.width, v.height] : [0, 0, 1, 1]; return { full, fit: v ? around(walls, [], full, v.resolution) : full, res: v?.resolution ?? 1 }; }, [v, walls]);
   return <>
-    {v ? <MapFrame {...look} still={!big} at={{ left: 8, top: 148 }} className="dv-map" role="img" aria-label={m.label || `${m.floor} 지도`} data-sim-map={v.id} data-dim={m.dim || undefined}>
+    {v ? <MapFrame {...look} photo={v} still={!big} at={{ left: 8, top: 148 }} className="dv-map" role="img" aria-label={m.label || `${m.floor} 지도`} data-sim-map={v.id} data-dim={m.dim || undefined}>
       <MapImage key={`${v.id}-${m.n}`} id={v.id} width={v.width} height={v.height} onLoad={() => m.load(v.id)} onError={() => m.fail(v.id)} />
       {at && tip && <g data-sim-dot><line x1={at[0]} y1={at[1]} x2={tip[0]} y2={tip[1]} style={{ stroke: 'var(--accent)' }} strokeWidth={r * 0.6} strokeLinecap="round" />
         <circle cx={at[0]} cy={at[1]} r={r} style={{ fill: 'var(--accent)' }} stroke="#FFFFFF" strokeWidth={r * 0.3} /></g>}

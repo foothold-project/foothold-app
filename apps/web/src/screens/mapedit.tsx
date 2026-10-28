@@ -334,7 +334,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
       </div>
       <div className="ms-box" style={{ flex: 1, minWidth: 0 }}><div className="ms-edit" data-open={open ? '' : undefined}>
       <div className="ms-map">
-      <MapFrame ref={svg} {...fit} edit role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
+      <MapFrame ref={svg} {...fit} photo={v} edit role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
         style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>
         <MapImage id={v.id} width={v.width} height={v.height} onError={() => setMsg({ text: '지도 그림을 불러오지 못했습니다. 보기로 돌아가 다시 불러오세요.' })} />
         <Shapes v={v} f={f} sel={sel} bad={bad ? keyOf(bad.path) : undefined} />
