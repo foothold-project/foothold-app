@@ -27,7 +27,7 @@ flowchart LR
 ## 웹 빌드는 PC에서
 
 서버 Node 설치를 생략한다. 임시 `git archive`에서 `npm ci --ignore-scripts`와 `npm run build`로 빌드한 정적 파일만 전송한다. 서버 빌드보다 서버의 `node_modules` 디스크와 TypeScript/Vite 빌드 메모리를 절약한다(정량 수치는 미측정). Python venv는 대상 서버의 ABI에 맞게 서버에서 만든다.
-PC의 Node/npm은 해당 커밋의 웹 빌드를 지원하는 사전 설치본을 사용한다. 패키지 설치·빌드는 이 작업에서 실행하지 않았다.
+PC의 Node/npm은 해당 커밋의 웹 빌드를 지원하는 사전 설치본을 사용한다. 빌드 입력에는 웹이 가져오는 `apps/contracts`, `mobile/sim/maps.json`, `mobile/sim/assets/*/top.png`도 포함한다. 서버에는 웹 `dist`만 보내며 시뮬 실행 코드·원본 자산은 보내지 않는다.
 
 ```bash
 # PC: 출력 폴더는 저장소 밖. COMMIT은 검토한 dev 커밋을 환경 변수로 지정.
@@ -117,4 +117,5 @@ root 전용 700 폴더를 만들고 cron을 관리자가 선택 설치한다. Po
 ## 이번 검증과 미검증
 
 `bash -n`(모든 sh), 모의 복구 조건 시험 `bash deploy/tests/test_decisions.sh`, Python 구문 검사를 수행한다. shellcheck는 사전 설치본이 있을 때만 실행한다. 서버 앱 코드는 변경하지 않으므로 서버 pytest/전체 앱 빌드는 반복하지 않는다.
-실제 서버 SSH·root/sudo·apt·systemctl·Caddy 검증 실행·PostgreSQL 설정/권한·Alembic 실적용·TLS 발급·HTTP/WS·웹 빌드·실폰은 **미검증**이다. 서버 재현성을 보장하는 배포 완료 기록이 아니며 첫 배포 작업의 관문이다.
+깨끗한 `git archive` 폴더에 기존 웹 의존성을 읽기 전용으로 연결해 `npm run build`(`tsc --noEmit` + `vite build`) 1회 통과를 확인했다. 패키지 설치는 0회이며 `prepare-release.sh`의 `npm ci` 및 최종 전송 묶음 생성은 실행하지 않았다.
+실제 서버 SSH·root/sudo·apt·systemctl·Caddy 검증 실행·PostgreSQL 설정/권한·Alembic 실적용·TLS 발급·HTTP/WS·실폰은 **미검증**이다. 서버 재현성을 보장하는 배포 완료 기록이 아니며 첫 배포 작업의 관문이다.

@@ -8,7 +8,9 @@ out=$(realpath "$2")
 [[ -d $out ]] || exit 2
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-git -C "$repo" archive "$sha" apps/server apps/contracts apps/web deploy | tar -x -C "$work"
+# Keep the web's out-of-app imports, without archiving the simulator runtime.
+git -C "$repo" archive "$sha" apps/server apps/contracts apps/web deploy \
+  mobile/sim/maps.json 'mobile/sim/assets/*/top.png' | tar -x -C "$work"
 # No .env or working-tree files enter this clean build.
 (cd "$work/apps/web" && npm ci --ignore-scripts && npm run build)
 # Manager, agent, tests, web build tooling and node_modules are not shipped.
