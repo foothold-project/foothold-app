@@ -33,18 +33,29 @@ class State:
         self.now, self.wall = now, wall
         self._lock = threading.Lock()
         self._topics = {}
+        self._sport_message = None
 
-    def _accept(self, topic, marker, values):
+    def _accept(self, topic, marker, values, message=None):
         with self._lock:
             previous = self._topics.get(topic)
-            # DDS receipt alone doesn't make replayed/frozen measurements fresh.
             if previous is not None:
-                delta = marker - previous['marker']
-                # The lowstate tick is uint32 milliseconds and can wrap.
-                wrapped = (topic == 'lowstate' and previous['marker'] > 0xF0000000
-                           and marker < 0x0FFFFFFF)
-                if delta <= 0 and not wrapped:
-                    return
+                # Some Go2 firmware leaves sport stamp unset or constant. Distinct
+                # DDS callbacks then prove receipt freshness, not clock progress.
+                if topic == 'sportmodestate':
+                    if message is self._sport_message:
+                        return
+                    if (marker is not None and previous['marker'] is not None
+                            and marker < previous['marker']):
+                        return
+                else:
+                    delta = marker - previous['marker']
+                    # The lowstate tick is uint32 milliseconds and can wrap.
+                    wrapped = (previous['marker'] > 0xF0000000 and marker < 0x0FFFFFFF)
+                    if delta <= 0 and not wrapped:
+                        return
+            if topic == 'sportmodestate':
+                # Keep the reference, rather than id(), to prevent object-ID reuse.
+                self._sport_message = message
             self._topics[topic] = dict(marker=marker, values=values,
                                        received=self.now(), wall=self.wall())
 
@@ -62,12 +73,14 @@ class State:
     def sportmodestate(self, message):
         stamp = getattr(message, 'stamp', None)
         sec, nsec = getattr(stamp, 'sec', None), getattr(stamp, 'nanosec', None)
-        if not integer(sec, 0x7FFFFFFF) or not integer(nsec, 999999999):
+        if stamp is not None and (not integer(sec, 0x7FFFFFFF)
+                                  or not integer(nsec, 999999999)):
             return
         mode, error = getattr(message, 'mode', None), getattr(message, 'error_code', None)
-        self._accept('sportmodestate', sec * 1000000000 + nsec, {
+        marker = None if stamp is None else sec * 1000000000 + nsec
+        self._accept('sportmodestate', marker, {
             'mode': mode if integer(mode, 255) else None,
-            'error_code': error if integer(error, 0xFFFFFFFF) else None})
+            'error_code': error if integer(error, 0xFFFFFFFF) else None}, message)
 
     def snapshot(self):
         with self._lock:

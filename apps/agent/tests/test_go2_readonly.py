@@ -234,15 +234,55 @@ def test_missing_topic_cannot_be_online_and_persistent_one_topic_is_stale():
 
 def test_duplicates_regressions_and_malformed_stamps_cannot_refresh():
     state, clock = measured()
+    sample = sport(sec=2)
+    state.sportmodestate(sample)
     clock.t = 3
     state.lowstate(low(tick=1, soc=100))
     state.lowstate(low(tick=0))
+    state.sportmodestate(sample)
+    sample.mode = 7  # Mutating the same callback object is not a new DDS receipt.
+    state.sportmodestate(sample)
     state.sportmodestate(sport(sec=1))
     state.sportmodestate(sport(sec=0))
     state.lowstate(NS())
     state.sportmodestate(sport(nsec=1000000000))
     assert state.snapshot()['connection'] == 'STALE'
     assert all(s['age_s'] == 3 for s in state.snapshot()['sources'].values())
+
+
+@pytest.mark.parametrize('stamp', [None, 0, 42])
+def test_unset_or_constant_sport_stamp_uses_distinct_receipts_and_expires(stamp):
+    clock = Clock()
+    state = State(now=clock, wall=clock.wall)
+    for tick in range(1, 5):
+        clock.t = tick * 3
+        sample = (NS(mode=3, error_code=0) if stamp is None else sport(sec=stamp))
+        state.lowstate(low(tick=tick))
+        state.sportmodestate(sample)
+        assert state.snapshot()['connection'] == 'ONLINE'
+        assert state.snapshot()['mode'] == 3
+    clock.t += 2.01
+    assert state.snapshot()['connection'] == 'STALE'
+    assert state.snapshot()['mode'] is None
+    clock.t += 8
+    assert state.snapshot()['connection'] == 'OFFLINE'
+
+
+@pytest.mark.parametrize('stamp', [None, 0, 42])
+def test_same_sport_object_cannot_refresh_even_if_mutated(stamp):
+    clock = Clock()
+    state = State(now=clock, wall=clock.wall)
+    sample = NS(mode=3, error_code=0) if stamp is None else sport(sec=stamp)
+    state.sportmodestate(sample)
+    clock.t = 3
+    sample.mode = 7
+    if stamp is not None:
+        sample.stamp.sec += 1
+    state.sportmodestate(sample)
+    state.lowstate(low())
+    assert state.snapshot()['connection'] == 'STALE'
+    assert state.snapshot()['sources']['sportmodestate']['age_s'] == 3
+    assert state.snapshot()['mode'] is None
 
 
 def test_tick_wrap_and_wall_clock_jump_do_not_break_monotonic_freshness():
@@ -408,3 +448,24 @@ def test_cli_thread_start_failure_never_waits_for_unstarted_http_worker(monkeypa
     assert cli.main(['--nic', 'fake-nic']) == 1
     assert closed == [True]
     assert calls[-2:] == [('close', 'rt/sportmodestate'), ('close', 'rt/lowstate')]
+
+
+@pytest.mark.parametrize('json_output', [False, True])
+def test_cli_keeps_field_code_visible_by_default_without_real_network(monkeypatch, capsys, json_output):
+    from foothold_agent.go2_readonly import __main__ as cli
+    fake_sdk(monkeypatch)
+    monkeypatch.setattr(cli.socket, 'if_nameindex', lambda: [(1, 'fake-nic')])
+    monkeypatch.setattr(cli.signal, 'signal', lambda *a: None)
+    waits = iter([False, False, True])
+    monkeypatch.setattr(cli, 'threading', NS(
+        Event=lambda: NS(wait=lambda _: next(waits)),
+        Thread=lambda **kw: NS(start=lambda: None, is_alive=lambda: False)))
+    monkeypatch.setattr(cli, 'make_server', lambda *a: NS(
+        serve_forever=lambda: None, server_close=lambda: None))
+    args = ['--nic', 'fake-nic'] + (['--json'] if json_output else [])
+    assert cli.main(args) == 0
+    lines = capsys.readouterr().out.splitlines()
+    assert lines[1].startswith('Field code (30 minutes; restart to renew): ')
+    assert len(lines) == (4 if json_output else 2)
+    if json_output:
+        assert all(json.loads(line)['connection'] == 'OFFLINE' for line in lines[2:])

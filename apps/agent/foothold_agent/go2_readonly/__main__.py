@@ -20,6 +20,8 @@ def main(argv=None):
     parser.add_argument('--listen', default='127.0.0.1', help='this host IPv4 on the phone LAN')
     parser.add_argument('--port', type=int, default=9610)
     parser.add_argument('--advertise', action='store_true', help='enable LAN mDNS discovery')
+    parser.add_argument('--json', action='store_true',
+                        help='print status JSON every second (default off; never pipe to tee)')
     parser.add_argument('--name', default='Go2 EDU (상태 전용)')
     parser.add_argument('--rid', help='optional confirmed robot UUID; no registration is performed')
     args = parser.parse_args(argv)
@@ -56,7 +58,8 @@ def main(argv=None):
         print(f'Field code (30 minutes; restart to renew): {access.code}', flush=True)
         advertiser.start()
         while not stopping.wait(1):
-            print(json.dumps(state.snapshot(), ensure_ascii=False, allow_nan=False), flush=True)
+            if args.json:
+                print(json.dumps(state.snapshot(), ensure_ascii=False, allow_nan=False), flush=True)
     except Exception:
         logging.error('Read-only startup/runtime failed; check optional extra, NIC and listener')
         return 1
