@@ -2,7 +2,7 @@
 // 화면 검사는 서버(apps/server/fh_server/maps.py validate_features)와 같은 규칙 — 그래도 422 가 오면 그 요소를 고르고 쉬운 말로 알린다.
 // 캔버스는 자기 svg 의 포인터만 쓴다(창 전체 키·포인터를 잡지 않음) — STOP 단추·Space = STOP 은 App 그대로. 판 비교·되돌리기는 screens/mapdiff.tsx.
 // 오른쪽 요소 창(시나리오 단계 창과 같은 missions.css 틀): 구역·지점·연결점·선을 차례로 한 줄씩 — 줄을 누르면 지도에서 고르고, 지도에서 고르면 그 줄을 강조·굴림.
-import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { MapConnector, MapEdit, MapFeatures, MapVersion, MapWaypoint, MapZone } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import { MapFrame, MapImage, toView } from '../mapframe';
@@ -123,6 +123,7 @@ function saveFail(e: ApiFail) {
 type Tool = 'pick' | 'NO_GO' | 'SLOW' | 'waypoint' | 'connector' | 'ERASE' | 'WALL';
 const TOOLS: [Tool, string][] = [['pick', '고르기'], ['NO_GO', '진입 금지'], ['SLOW', '감속'], ['waypoint', '지점'], ['connector', '연결점'], ['ERASE', '지우개'], ['WALL', '벽']];
 const EMPTY: MapFeatures = { zones: [], waypoints: [], connectors: [], edits: [] };
+const NARROW = 440;   // 요소 창 칸 폭(px) — missions.css @container 와 같은 값
 const MIN_BOX = 8;   // 화면 px — 이보다 작은 끌기(그냥 누름 포함)는 구역을 만들지 않는다
 const newId = () => `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;   // 같은 무리 안에서만 달라야 함(서버 검사)
 const deg = (r: number) => Math.round((r * 180) / Math.PI), rad = (d: number) => (d * Math.PI) / 180;
@@ -150,6 +151,9 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
   const [undo, setUndo] = useState<{ text: string; f: MapFeatures; after: MapFeatures } | null>(null), [open, setOpen] = useState(true);
   // 저장 중에는 편집을 모두 막는다 — 캔버스 누름·끌기·그리기와 모든 고치기(보낸 내용과 초안이 달라지지 않게). STOP 은 App 머리줄 그대로
   const lock = busy;
+  // 칸이 좁으면(missions.css 440 — PC 좁은 창·확대) 요소 창을 접은 채 시작해 지도를 넓게. 폭을 모르면(0) 펼친 채
+  const wrap = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { const w = wrap.current?.clientWidth; if (w && w <= NARROW) setOpen(false); }, []);
   useEffect(() => { if (lock) { drag.current = null; rect.current = null; setBox(null); } }, [lock]);
   const others = p.building.floors.filter((x) => x.id !== p.floor.id), svg = useRef<SVGSVGElement>(null), drag = useRef<{ key: string; from: P; orig: MapFeatures } | null>(null);
   const r = Math.max(v.width, v.height) / 100, zone = tool === 'NO_GO' || tool === 'SLOW', line = tool === 'ERASE' || tool === 'WALL';
@@ -332,7 +336,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved }: { v: MapVe
       <div role="toolbar" aria-label="편집 도구" aria-orientation="vertical" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {TOOLS.map(([t, text]) => <button key={t} type="button" className="btn" aria-pressed={tool === t} disabled={lock} onClick={() => pick(t)}>{text}</button>)}
       </div>
-      <div className="ms-box" style={{ flex: 1, minWidth: 0 }}><div className="ms-edit" data-open={open ? '' : undefined}>
+      <div className="ms-box" ref={wrap} style={{ flex: 1, minWidth: 0 }}><div className="ms-edit" data-open={open ? '' : undefined}>
       <div className="ms-map">
       <MapFrame ref={svg} {...fit} photo={v} edit role="img" aria-label={`판 ${v.number} 편집`} data-map data-edit onPointerDown={down} onPointerMove={move} onPointerUp={end} onPointerCancel={end}
         style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8, userSelect: 'none', WebkitUserSelect: 'none', cursor: tool === 'pick' ? 'default' : 'crosshair' }}>

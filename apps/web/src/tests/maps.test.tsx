@@ -936,6 +936,16 @@ describe('지도 편집 — 오른쪽 요소 창·구역 끌기·X(10-27)', () =
     await click($('.ms-fold')!);
     expect($('.ms-fold')!.textContent).toBe('◂ 요소 4'); expect($('[data-el]')).toBeNull();
   });
+  it('칸이 좁으면(≤440 px, PC 좁은 창·확대 — 10-29) 요소 창은 접힌 채 시작해 지도 옆 세로 막대, 눌러 펼친다', async () => {
+    serve(editSrv());
+    const cw = vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockImplementation(function (this: HTMLElement) { return this.classList.contains('ms-box') ? 400 : 0; });
+    await startEdit();
+    cw.mockRestore();
+    expect($('.ms-fold')!.getAttribute('aria-expanded')).toBe('false'); expect($('.ms-fold')!.textContent).toBe('◂ 요소 4');
+    expect($('.ms-edit')!.hasAttribute('data-open')).toBe(false);
+    await click($('.ms-fold')!);
+    expect(rows()).toHaveLength(4);
+  });
   it('구역 안을 끌면 통째로(모든 꼭짓점 같은 만큼) — 구역 그리기 도구에서도 새 사각형 대신 옮김, 고르기에서도', async () => {
     serve(editSrv(saved201));
     await startEdit();
