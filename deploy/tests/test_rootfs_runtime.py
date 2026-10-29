@@ -1,4 +1,5 @@
-"""Namespace property/transition denials only; no real systemd/UID/ROS use."""
+"""Runtime audit and namespace transitions; no real systemd/UID/ROS use."""
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -10,6 +11,62 @@ from apps.simmgr import rootfs_environment as env,proc_proof
 def data():return dict(recipe_sha256='a'*64,manifest_sha256='b'*64,asset_source='/opt/foothold-sim/assets/'+'c'*64+'/source',
     asset_manifest_sha256='d'*64,identity=dict(uid=23456,gid=23456,
     mesh_targets=['/home/example/0.obj','/home/example/1.obj'],library_aliases={}))
+
+
+@pytest.fixture
+def prepare_audit(tmp_path,monkeypatch):
+    audit=tmp_path/'prepare-audit.json'
+    path=Mock(side_effect=lambda value:audit if value=='/var/lib/foothold/rootfs-prepare-audit.json' else Path(value))
+    monkeypatch.setattr(r,'Path',path)
+    action=Mock();atomic=Mock();snapshot=Mock(return_value={'usr':'same'})
+    create=Mock(return_value=(17,29));clear=Mock()
+    monkeypatch.setattr(r,'prepare_contents',action)
+    monkeypatch.setattr(r,'atomic',atomic)
+    monkeypatch.setattr(r.build.shared,'snapshot',snapshot)
+    monkeypatch.setattr(r.build.shared,'create_install_latch',create)
+    monkeypatch.setattr(r.build.shared,'clear_install_latch',clear)
+    return SimpleNamespace(input=tmp_path/'input.json',audit=audit,path=path,action=action,
+        atomic=atomic,snapshot=snapshot,create=create,clear=clear)
+
+
+@pytest.mark.parametrize('error',[None,ValueError('prepare rejected'),OSError('private detail')],
+    ids=['success','action-value-error','action-os-error'])
+def test_prepare_uses_real_audited_callback_and_binds_failure_to_latch(prepare_audit,error,capsys):
+    f=prepare_audit
+    f.action.side_effect=error
+    if error is None:r.prepare(f.input)
+    else:
+        with pytest.raises(type(error)) as caught:r.prepare(f.input)
+        assert caught.value is error
+    f.action.assert_called_once_with(f.input)
+    f.create.assert_called_once_with()
+    assert f.snapshot.call_count==2
+    f.path.assert_called_once_with('/var/lib/foothold/rootfs-prepare-audit.json')
+    f.atomic.assert_called_once()
+    path,body,mode=f.atomic.call_args.args
+    expected=dict(before={'usr':'same'},after={'usr':'same'})
+    if error is None:
+        f.clear.assert_called_once_with((17,29))
+        assert 'setup remains fenced; no runtime started' in capsys.readouterr().out
+    else:
+        expected.update(error_type=type(error).__name__,latch_device=17,latch_inode=29)
+        if type(error) is ValueError:expected['reason']=str(error)
+        f.clear.assert_not_called()
+        assert capsys.readouterr().out==''
+    assert path==f.audit and mode==0o400
+    assert json.loads(body)==expected and body.endswith('\n')
+
+
+@pytest.mark.parametrize('symlink',[False,True],ids=['existing-audit','dangling-audit-link'])
+def test_prepare_still_refuses_prior_audit_without_overwrite_or_latch_clear(prepare_audit,symlink):
+    f=prepare_audit
+    if symlink:f.audit.symlink_to(f.audit.parent/'absent')
+    else:f.audit.write_text('prior audit')
+    with pytest.raises(ValueError,match='prior prepare audit exists; no automatic retry'):r.prepare(f.input)
+    f.action.assert_called_once_with(f.input)
+    f.atomic.assert_not_called();f.clear.assert_not_called()
+    if symlink:assert f.audit.is_symlink()
+    else:assert f.audit.read_text()=='prior audit'
 
 
 def test_namespace_has_exact_uid_rootfs_code_binds_and_no_host_venv_or_libraries():
