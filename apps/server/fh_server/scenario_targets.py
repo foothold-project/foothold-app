@@ -2,6 +2,7 @@
 from sqlalchemy import select
 from apps.contracts.models import SIM_MAP_REQUIRES_SIM_ROBOT
 from .models import MapVersion
+from .resource_archive import require_live_floors
 
 
 def simulation_only(db, version):
@@ -11,5 +12,6 @@ def simulation_only(db, version):
 
 
 def require_target(db, version, robot, fail):
+    require_live_floors(db, version, fail)
     if not robot.simulation and simulation_only(db, version):
         fail(422, SIM_MAP_REQUIRES_SIM_ROBOT, '시뮬 지도 시나리오는 시뮬 로봇에만 배정하거나 실행할 수 있습니다.')

@@ -867,7 +867,8 @@ class FloorPatch(Contract):
 
 
 class MapFloor(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'floor_z'))
+    archived_at: UTCDateTime | None = None
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('provenance', 'floor_z', 'archived_at'))
     provenance: Literal['HUMAN', 'SIMULATION'] = 'HUMAN'
     floor_z: float | None = None
     id: UUID
@@ -879,7 +880,8 @@ class MapFloor(Contract):
 
 
 class MapBuilding(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('sim_world_id'))
+    archived_at: UTCDateTime | None = None
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('sim_world_id', 'archived_at'))
     sim_world_id: str | None = None
     id: UUID
     site_id: UUID
@@ -888,6 +890,8 @@ class MapBuilding(Contract):
 
 
 class MapSite(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('archived_at'))
+    archived_at: UTCDateTime | None = None
     id: UUID
     name: str
     buildings: list[MapBuilding] = Field(default_factory=list)

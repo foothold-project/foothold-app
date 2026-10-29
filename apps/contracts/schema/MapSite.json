@@ -3,6 +3,19 @@
     "MapBuilding": {
       "additionalProperties": false,
       "properties": {
+        "archived_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Archived At"
+        },
         "floors": {
           "items": {
             "$ref": "#/$defs/MapFloor"
@@ -60,6 +73,19 @@
             }
           ],
           "title": "Approved Version Id"
+        },
+        "archived_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Archived At"
         },
         "building_id": {
           "format": "uuid",
@@ -122,6 +148,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "properties": {
+    "archived_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Archived At"
+    },
     "buildings": {
       "items": {
         "$ref": "#/$defs/MapBuilding"

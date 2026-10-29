@@ -224,7 +224,7 @@ def test_downgrade_refuses_to_erase_simulation_provenance(maps, seeded, world_fo
         assert db.scalar(select(Floor.provenance)) == 'SIMULATION'
     engine = create_engine(seeded['urls']['migrate'])
     with engine.connect() as conn:
-        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0020'
+        assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
     engine.dispose()
 
 

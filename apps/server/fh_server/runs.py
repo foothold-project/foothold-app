@@ -16,8 +16,9 @@ from apps.contracts import models as C
 from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
 from .floor_maps import connected_source
+from .resource_archive import require_live_floors
 from .models import (AgentPlanMap, Building, Event, Floor, MapVersion, MissionVersion,
-                     Robot, Run, RunReport, RunReportRejection, RunStep, ScenarioVersion, Upload, User, Photo, now)
+                     Robot, Scenario, Run, RunReport, RunReportRejection, RunStep, ScenarioVersion, Upload, User, Photo, now)
 
 TERMINAL = {'COMPLETED', 'FAILED', 'CANCELED', 'ABORTED'}
 SECRET_KEYS = {'resume_token', 'token', 'signature', 'authorization'}
@@ -106,6 +107,11 @@ def fixed_scenario(db, robot, identifier, version, fail, *, capabilities=None, r
         ScenarioVersion.scenario_id == identifier, ScenarioVersion.number == version))
     if row is None:
         fail(404, 'NOT_FOUND', '시나리오 판을 찾을 수 없습니다.')
+    parent = db.scalar(select(Scenario).where(Scenario.org_id == robot.org_id,
+        Scenario.id == identifier).with_for_update(read=True))
+    if parent is None or parent.archived_at is not None:
+        fail(409, 'RESOURCE_ARCHIVED', '삭제된 시나리오는 새로 실행할 수 없습니다.')
+    require_live_floors(db, row, fail)
     # No SF-12 proof/assignment/user binding exists in the current data contract.
     # Do not let the simulation exception silently enable real execution.
     if robot.simulation is not True:

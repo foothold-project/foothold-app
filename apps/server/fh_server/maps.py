@@ -15,7 +15,8 @@ from sqlalchemy import delete, func, select
 from apps.contracts import models as C
 from .map_files import MAX_IMAGE, MAX_YAML, image_bytes, map_yaml, sha256, yaml_bytes
 from . import idempotency
-from .models import Approval, Building, Floor, FloorConnector, MapVersion, Robot, Site, Upload
+from .resource_archive import require_unused
+from .models import Approval, Building, Floor, FloorConnector, MapVersion, Site, Upload, now
 
 
 UPLOAD_BODY_SECONDS = 30
@@ -115,7 +116,7 @@ def validate_features(db, floor, upload, features, fail):
                 point(item.x, item.y, path)
                 if group == 'connectors':
                     pair = db.scalar(select(Floor).where(Floor.id == item.pair_floor_id, Floor.org_id == floor.org_id,
-                        Floor.building_id == floor.building_id, Floor.id != floor.id))
+                        Floor.building_id == floor.building_id, Floor.archived_at.is_(None), Floor.id != floor.id))
                     if pair is None:
                         # No identifiers/names of foreign or absent floors are disclosed.
                         bad(path + '.pair_floor_id', '같은 건물의 다른 층을 선택하세요.')
@@ -131,13 +132,16 @@ def validate_features(db, floor, upload, features, fail):
 
 def refresh_connectors(db, floor):
     """Project the current approved pair only; unmatched endpoints stay inactive."""
-    floors = list(db.scalars(select(Floor).where(Floor.org_id == floor.org_id, Floor.building_id == floor.building_id)))
+    floors = list(db.scalars(select(Floor).where(Floor.org_id == floor.org_id, Floor.building_id == floor.building_id, Floor.archived_at.is_(None))))
+    live_floor_ids = {f.id for f in floors}
     versions = {f.id: db.get(MapVersion, f.approved_version_id) for f in floors if f.approved_version_id}
     db.execute(delete(FloorConnector).where(FloorConnector.org_id == floor.org_id, FloorConnector.building_id == floor.building_id))
     seen = set()
     for floor_id, version in versions.items():
         for connector in version.features['connectors']:
             pair_id = UUID(connector['pair_floor_id'])
+            if pair_id not in live_floor_ids:
+                continue
             key = (min(str(floor_id), str(pair_id)), max(str(floor_id), str(pair_id)), connector['id'])
             if key in seen:
                 continue
@@ -172,7 +176,7 @@ def bounded_features(row, fail):
 def validate_rollback_connectors(db, floor, features, fail):
     for index, connector in enumerate(features['connectors']):
         pair = db.scalar(select(Floor.id).where(Floor.id == UUID(connector['pair_floor_id']),
-            Floor.org_id == floor.org_id, Floor.building_id == floor.building_id, Floor.id != floor.id))
+            Floor.org_id == floor.org_id, Floor.building_id == floor.building_id, Floor.archived_at.is_(None), Floor.id != floor.id))
         if pair is None:
             fail(422, 'INVALID_FEATURES', '연결점이 가리키는 같은 건물의 다른 층을 찾을 수 없습니다.',
                 {'element': f'features.connectors.{index}.pair_floor_id'})
@@ -199,13 +203,15 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     root = Path(settings.files_root).resolve()
     conversion_slot = asyncio.Semaphore(1)
 
-    def own(db, model, identifier, user, *, lock=False):
+    def own(db, model, identifier, user, *, lock=False, live=False):
         query = select(model).where(model.id == identifier, model.org_id == user.org_id)
         if lock:
             query = query.with_for_update()
         row = db.scalar(query)
         if row is None:
             fail(404, 'NOT_FOUND', '장소·지도 자료를 찾을 수 없습니다.')
+        if live and row.archived_at is not None:
+            fail(409, 'RESOURCE_ARCHIVED', '삭제된 장소·건물·층은 변경하거나 선택할 수 없습니다.')
         return row
 
     def record(db, user, code, row, **data):
@@ -225,16 +231,16 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         return C.MapFloor(pending_count=pending_count, **{key: getattr(row, key) for key in C.MapFloor.model_fields if key != 'pending_count'})
 
     @app.get('/api/v1/sites', response_model=C.SiteTree)
-    def sites(auth: Identity, db: DB):
+    def sites(auth: Identity, db: DB, archived: bool = False):
         user = auth[0]
-        floors = list(db.scalars(select(Floor).where(Floor.org_id == user.org_id).order_by(Floor.level, Floor.id)))
-        buildings = list(db.scalars(select(Building).where(Building.org_id == user.org_id).order_by(Building.name, Building.id)))
-        sites = list(db.scalars(select(Site).where(Site.org_id == user.org_id).order_by(Site.name, Site.id)))
+        floors = list(db.scalars(select(Floor).where(Floor.org_id == user.org_id, True if archived else Floor.archived_at.is_(None)).order_by(Floor.level, Floor.id)))
+        buildings = list(db.scalars(select(Building).where(Building.org_id == user.org_id, True if archived else Building.archived_at.is_(None)).order_by(Building.name, Building.id)))
+        sites = list(db.scalars(select(Site).where(Site.org_id == user.org_id, True if archived else Site.archived_at.is_(None)).order_by(Site.name, Site.id)))
         counts = dict(db.execute(select(MapVersion.floor_id, func.count()).join(Approval,
             (Approval.org_id == MapVersion.org_id) & (Approval.target_id == MapVersion.id)).where(
             Approval.org_id == user.org_id, Approval.status == 'PENDING').group_by(MapVersion.floor_id)).all())
-        return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, buildings=[C.MapBuilding(id=b.id,
-            site_id=b.site_id, name=b.name, sim_world_id=b.sim_world_id, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
+        return C.SiteTree(items=[C.MapSite(id=s.id, name=s.name, archived_at=s.archived_at, buildings=[C.MapBuilding(id=b.id,
+            site_id=b.site_id, name=b.name, archived_at=b.archived_at, sim_world_id=b.sim_world_id, floors=[floor_object(f, counts.get(f.id, 0)) for f in floors if f.building_id == b.id])
             for b in buildings if b.site_id == s.id]) for s in sites])
 
     @app.post('/api/v1/sites', response_model=C.MapSite, status_code=201)
@@ -250,7 +256,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     @app.post('/api/v1/sites/{site_id}/buildings', response_model=C.MapBuilding, status_code=201)
     def building_create(site_id: UUID, body: C.MapName, auth: Identity, db: DB):
         user = auth[0]
-        own(db, Site, site_id, user)
+        own(db, Site, site_id, user, lock=True, live=True)
         authorize(user, 'O')
         row = Building(org_id=user.org_id, site_id=site_id, name=body.name)
         db.add(row)
@@ -261,7 +267,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     @app.post('/api/v1/buildings/{building_id}/floors', response_model=C.MapFloor, status_code=201)
     def floor_create(building_id: UUID, body: C.FloorCreate, auth: Identity, db: DB):
         user = auth[0]
-        building = own(db, Building, building_id, user)
+        building = own(db, Building, building_id, user, lock=True, live=True)
         authorize(user, 'O')
         row = Floor(provenance='SIMULATION' if building.sim_world_id else 'HUMAN', org_id=user.org_id, building_id=building_id, name=body.name, level=body.level)
         db.add(row)
@@ -272,7 +278,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     def mutable_routes(model, path, patch_model, response_model, serialize, prefix):
         def patch(identifier: UUID, body: patch_model, auth: Identity, db: DB):
             user = auth[0]
-            row = own(db, model, identifier, user)
+            row = own(db, model, identifier, user, lock=True, live=True)
             authorize(user, 'O')
             for key, value in body.model_dump(exclude_unset=True).items():
                 if value is None:
@@ -283,22 +289,24 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
 
         def remove(identifier: UUID, auth: Identity, db: DB):
             user = auth[0]
-            row = own(db, model, identifier, user)
+            row = own(db, model, identifier, user, lock=True)
             authorize(user, 'O')
+            if row.archived_at is not None:
+                return
             if model is Site:
-                used = db.scalar(select(Building.id).where(Building.site_id == row.id).limit(1))
+                used = db.scalar(select(Building.id).where(Building.site_id == row.id, Building.archived_at.is_(None)).limit(1))
             elif model is Building:
-                used = db.scalar(select(Floor.id).where(Floor.building_id == row.id).limit(1))
+                used = db.scalar(select(Floor.id).where(Floor.building_id == row.id, Floor.archived_at.is_(None)).limit(1))
             else:
-                used = db.scalar(select(MapVersion.id).where(MapVersion.floor_id == row.id).limit(1))
-                used = used or db.scalar(select(Robot.id).where(Robot.last_floor_id == row.id).limit(1))
-                used = used or db.scalar(select(FloorConnector.id).where(FloorConnector.floor_b_id == row.id).limit(1))
-                # Scenario points require an approved MapVersion. Keeping every
-                # map snapshot already prevents deleting a referenced floor.
+                used = None
+                require_unused(db, user.org_id, fail, floor=row)
             if used:
-                fail(409, 'RESOURCE_IN_USE', '하위 자료나 사용 중인 지도가 있어 지울 수 없습니다.')
+                fail(409, 'RESOURCE_IN_USE', '삭제되지 않은 하위 장소·건물·층이 있어 삭제할 수 없습니다.')
+            row.archived_at = now()
             record(db, user, prefix + '_DELETED', row)
-            db.delete(row)
+            if model is Floor:
+                db.flush()
+                refresh_connectors(db, row)
         app.patch(path, response_model=response_model, name=prefix.lower() + '_patch')(patch)
         app.delete(path, status_code=204, name=prefix.lower() + '_delete')(remove)
 
@@ -381,7 +389,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         receipt, replay = idempotency.begin(db, user, idempotency_key, 'POST /floors/' + str(floor_id) + '/map-versions', body, fail)
         if replay is not None:
             return replay
-        floor = own(db, Floor, floor_id, user, lock=True)
+        floor = own(db, Floor, floor_id, user, lock=True, live=True)
         if body.base_version_id != floor.approved_version_id:
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
         upload = own(db, Upload, body.image, user)
@@ -465,7 +473,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         if replay is not None:
             return replay
         original = own(db, MapVersion, version_id, user)
-        floor = own(db, Floor, original.floor_id, user, lock=True)
+        floor = own(db, Floor, original.floor_id, user, lock=True, live=True)
         if body.base_version_id != floor.approved_version_id:
             fail(409, 'STALE', '승인된 지도 판이 바뀌었습니다.', {'approved_version_id': str(floor.approved_version_id) if floor.approved_version_id else None})
         if original.id == floor.approved_version_id:
@@ -498,9 +506,11 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         return idempotency.finish(receipt, version_object(row, floor))
 
     @app.get('/api/v1/floors/{floor_id}/map-versions', response_model=C.MapVersionList)
-    def versions(floor_id: UUID, auth: Identity, db: DB, limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):
+    def versions(floor_id: UUID, auth: Identity, db: DB, archived: bool = False, limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):
         user = auth[0]
         floor = own(db, Floor, floor_id, user)
+        if floor.archived_at is not None and not archived:
+            return C.MapVersionList(items=[], next_cursor=None)
         query = select(MapVersion).where(MapVersion.org_id == user.org_id, MapVersion.floor_id == floor.id)
         if cursor:
             if not cursor.isdecimal() or len(cursor) > 10 or not 1 <= int(cursor) <= 2147483647:
@@ -527,6 +537,6 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
     @app.get('/api/v1/floor-connectors', response_model=C.FloorConnectorList)
     def connectors(building_id: UUID, auth: Identity, db: DB):
         user = auth[0]
-        own(db, Building, building_id, user)
+        own(db, Building, building_id, user, live=True)
         rows = db.scalars(select(FloorConnector).where(FloorConnector.org_id == user.org_id, FloorConnector.building_id == building_id).order_by(FloorConnector.id))
         return C.FloorConnectorList(items=[C.FloorConnector(**{key: getattr(row, key) for key in C.FloorConnector.model_fields}) for row in rows])

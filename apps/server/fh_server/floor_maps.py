@@ -42,11 +42,11 @@ def approved_bindings(db, org_id, world_id='v5_building'):
         raise ValueError('unsupported static world')
     expected = {'f1'} if world_id in ('warehouse', 'rubble') else {'l1', 'l2'}
     building = db.scalar(select(Building).where(Building.org_id == org_id,
-        Building.sim_world_id == world_id))
+        Building.sim_world_id == world_id, Building.archived_at.is_(None)))
     if building is None:
         raise ValueError('connected building is not registered')
     floors = list(db.scalars(select(Floor).where(Floor.org_id == org_id,
-        Floor.building_id == building.id)))
+        Floor.building_id == building.id, Floor.archived_at.is_(None))))
     if len(floors) != len(expected) or {f.sim_floor_id for f in floors} != expected:
         raise ValueError('both connected floors are required')
     result = []

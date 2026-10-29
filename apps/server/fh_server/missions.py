@@ -9,6 +9,7 @@ from sqlalchemy import any_, select, tuple_
 from apps.contracts import models as C
 from .maps import bounded_features, orientation, within_map
 from .models import Floor, FloorConnector, MapVersion, Mission, MissionVersion, Robot, RobotDevice, Scenario, ScenarioVersion, now
+from .resource_archive import require_unused, visible_version
 from .robots import reported_devices
 from .runs import execution_capabilities
 
@@ -42,7 +43,7 @@ def preview(db, user, body, fail):
     # Stable shared-lock ordering: approval/map save needs an exclusive floor
     # lock, so every referenced pointer stays current until this save commits.
     floors = {row.id: row for row in db.scalars(select(Floor).where(Floor.org_id == user.org_id,
-        Floor.id.in_({p.floor_id for _, p in points})).order_by(Floor.id).with_for_update(read=True))}
+        Floor.archived_at.is_(None), Floor.id.in_({p.floor_id for _, p in points})).order_by(Floor.id).with_for_update(read=True))}
     if len(floors) != len({p.floor_id for _, p in points}):
         fail(404, 'NOT_FOUND', '층을 찾을 수 없습니다.')
     for element, point in points:
@@ -217,8 +218,11 @@ def install(app, DB, Identity, fail, authorize, event, page):
         return serialize(row, snapshot)
 
     def archive(db, user, model, identifier):
+        authorize(user, 'O')
         row = own(db, user, model, identifier, lock=True)
         if row.archived_at is None:
+            if model is Scenario:
+                require_unused(db, user.org_id, fail, scenario=row)
             row.archived_at, row.version = now(), row.version + 1
             event(db, user.org_id, 'MISSION_ARCHIVED' if model is Mission else 'SCENARIO_ARCHIVED', user.id,
                 {'id': str(row.id), 'name': row.name, 'number': row.latest_version})
@@ -319,7 +323,9 @@ def install(app, DB, Identity, fail, authorize, event, page):
                   limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):
         query = select(Scenario).where(Scenario.org_id == auth[0].org_id)
         if not archived:
-            query = query.where(Scenario.archived_at.is_(None))
+            query = query.where(Scenario.archived_at.is_(None), Scenario.id.in_(
+                select(ScenarioVersion.scenario_id).where(ScenarioVersion.org_id == auth[0].org_id,
+                    ScenarioVersion.number == Scenario.latest_version, visible_version()).correlate(Scenario)))
         if mine:
             query = query.where(Scenario.created_by == auth[0].id)
         if floor_id is not None:

@@ -79,7 +79,7 @@ def test_reused_archived_name_rejects_downgrade_atomically(monkeypatch):
             with pytest.raises(IntegrityError):
                 command.downgrade(config, '0006')
             with engine.connect() as conn:
-                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0020'
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
                 assert conn.execute(text('SELECT id, name, archived_at FROM robots ORDER BY id')).all() == before
                 assert conn.scalar(text("SELECT to_regclass('robots_active_org_name')")) == 'robots_active_org_name'
                 assert conn.scalar(text("SELECT count(*) FROM pg_constraint WHERE conname='robots_org_id_name_key'")) == 0
@@ -157,3 +157,36 @@ def test_mission_snapshot_and_parent_grants(migrated):
                     assert conn.scalar(text('SELECT has_column_privilege(current_user,:table,:column,\'UPDATE\')'), {'table': table, 'column': column}) == allowed
     finally:
         engine.dispose()
+
+
+def test_resource_archive_upgrade_preserves_rows_and_guarded_downgrade(monkeypatch):
+    from sqlalchemy.exc import DBAPIError
+    with temporary_postgres() as urls:
+        monkeypatch.setenv('FH_MIGRATE_DATABASE_URL', urls['migrate'])
+        config = Config(str(CONFIG))
+        engine = create_engine(urls['migrate'])
+        try:
+            command.upgrade(config, '0020')
+            with engine.begin() as conn:
+                org = conn.scalar(text("INSERT INTO organizations(name) VALUES ('archive migration') RETURNING id"))
+                site = conn.scalar(text("INSERT INTO sites(id, org_id, name) VALUES (gen_random_uuid(), :org, 'synthetic') RETURNING id"), {'org': org})
+                building = conn.scalar(text("INSERT INTO buildings(id, org_id, site_id, name) VALUES (gen_random_uuid(), :org, :site, 'synthetic') RETURNING id"), {'org': org, 'site': site})
+                floor = conn.scalar(text("INSERT INTO floors(id, org_id, building_id, name, level) VALUES (gen_random_uuid(), :org, :building, 'synthetic', 1) RETURNING id"), {'org': org, 'building': building})
+            command.upgrade(config, 'head')
+            with engine.begin() as conn:
+                assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor AND archived_at IS NULL'), {'floor': floor}) == 1
+                conn.execute(text('UPDATE floors SET archived_at=now() WHERE id=:floor'), {'floor': floor})
+            with pytest.raises(DBAPIError, match='Reconcile archived map resources'):
+                command.downgrade(config, '0020')
+            with engine.connect() as conn:
+                assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
+                assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor AND archived_at IS NOT NULL'), {'floor': floor}) == 1
+            with engine.begin() as conn:
+                conn.execute(text('UPDATE floors SET archived_at=NULL WHERE id=:floor'), {'floor': floor})
+            command.downgrade(config, '0020')
+            command.upgrade(config, 'head')
+            with engine.connect() as conn:
+                assert compare_metadata(MigrationContext.configure(conn), Base.metadata) == []
+                assert conn.scalar(text('SELECT count(*) FROM floors WHERE id=:floor'), {'floor': floor}) == 1
+        finally:
+            engine.dispose()
