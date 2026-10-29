@@ -24,7 +24,7 @@ def repository_registration(world_id):
 def connected_source(meta, version, world_id):
     """Recover only packaged legacy registrations, without changing the upload."""
     source = meta.get('connected_gt', {})
-    if world_id in ('warehouse', 'rubble'):
+    if world_id == 'warehouse':
         canonical, width, height = repository_registration(world_id)
         if (version is None or (version.width, version.height) != (width, height)
                 or meta.get('resolution') != canonical['resolution']
@@ -38,9 +38,9 @@ def connected_source(meta, version, world_id):
 
 
 def approved_bindings(db, org_id, world_id='v5_building'):
-    if world_id not in ('v5_building', 'warehouse', 'rubble'):
+    if world_id not in ('v5_building', 'warehouse'):
         raise ValueError('unsupported static world')
-    expected = {'f1'} if world_id in ('warehouse', 'rubble') else {'l1', 'l2'}
+    expected = {'f1'} if world_id == 'warehouse' else {'l1', 'l2'}
     building = db.scalar(select(Building).where(Building.org_id == org_id,
         Building.sim_world_id == world_id, Building.archived_at.is_(None)))
     if building is None:
@@ -60,7 +60,7 @@ def approved_bindings(db, org_id, world_id='v5_building'):
         if (f.provenance != 'SIMULATION' or v is None or upload is None
                 or upload.provenance != 'SIMULATION' or v.source != 'IMPORT'
                 or source.get('world_id') != world_id or source.get('ros_floor_id') != f.sim_floor_id
-                or f.floor_z != (.034226 if world_id == 'warehouse' else 0.0 if world_id == 'rubble' or f.sim_floor_id == 'l1' else 2.4)
+                or f.floor_z != (.034226 if world_id == 'warehouse' else 0.0 if f.sim_floor_id == 'l1' else 2.4)
                 or source.get('sha256') != v.image_sha256.hex()
                 or v.image_sha256 != upload.png_sha256 or (v.width, v.height) != (upload.width, upload.height)
                 or meta.get('resolution') != v.resolution

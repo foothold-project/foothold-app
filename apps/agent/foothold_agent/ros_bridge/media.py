@@ -18,7 +18,7 @@ def external_source(config, simulation_binding):
     """
     floors = getattr(config, 'floor_bindings', None)
     if (simulation_binding is None or floors is None or not config.phone.simulation
-            or floors.world not in ('warehouse', 'rubble')):
+            or floors.world != 'warehouse'):
         return None
     if (simulation_binding.robot_id != config.robot_id or floors.robot_id != config.robot_id
             or simulation_binding.run_id != floors.run_id

@@ -26,7 +26,7 @@ describe('연결 대조', () => {
       expect(pngSize(read(`mobile/sim/assets/${id}/top.png`))).toEqual([Math.round((x1 - x0) * 24), Math.round((y1 - y0) * 24)]);
     }
     expect(Object.fromEntries(found)).toEqual({ warehouse: 'warehouse/f1', 'factory-inspection': 'factory_inspection/f1', 'factory-inspection-alt1': 'factory_inspection_alt1/f1',
-      'factory-zone-f1': 'factory_zone/f1', 'factory-zone-f2': 'factory_zone/f2', 'element-course': 'element_course/f1', 'collapsed-house-v2': 'collapsed_house_v2/f1' });   // 표의 모든 sha 가 실제 월드 그림(낡은 줄 없음). rubble 은 사진 없음
+      'factory-zone-f1': 'factory_zone/f1', 'factory-zone-f2': 'factory_zone/f2', 'element-course': 'element_course/f1', 'collapsed-house-v2': 'collapsed_house_v2/f1' });   // 표의 모든 sha 가 실제 월드 그림(낡은 줄 없음).
   });
 });
 

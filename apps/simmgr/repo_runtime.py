@@ -26,7 +26,7 @@ def verify_bindings(native, bindings):
         ros_map_version=VERSION, source_pgm_sha256=hashlib.sha256(pgm).hexdigest(),
         sha256=hashlib.sha256(png).hexdigest(), resolution=meta['resolution'], origin=meta['origin'],
         width=width, height=height, source='SIMULATION')
-    if (native.key not in ('warehouse/f1', 'rubble/f1') or len(bindings) != 1
+    if (native.key != 'warehouse/f1' or len(bindings) != 1
             or any(bindings[0].get(k) != v for k, v in expected.items())):
         raise ValueError('approved repository binding differs from native GT')
     # UUIDs are validated by the authenticated provisioning contract.
@@ -34,7 +34,7 @@ def verify_bindings(native, bindings):
 
 def single_floor_status(status, meta, *, world_id='warehouse'):
     """Repository single-floor world is a fixed f1 observation, never a fabricated connected transit."""
-    if world_id not in ('warehouse', 'rubble') or status.get('world_id') != world_id or status.get('floor_id') != 'f1':
+    if world_id != 'warehouse' or status.get('world_id') != world_id or status.get('floor_id') != 'f1':
         raise ValueError('repository status identity changed')
     status.update(floor_rev=1, floor_state='on_floor', current_floor='f1', spawn_floor='f1',
         floor_reason='ok', floor_src='gt_geometry', floor_confirm_sim_t=0.0,

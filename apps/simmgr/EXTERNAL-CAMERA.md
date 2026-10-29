@@ -1,6 +1,6 @@
 # External episode camera (observer/1)
 
-Warehouse and rubble episode SDFs gain one independent `fh_external_camera`
+Warehouse episode SDFs gain one independent `fh_external_camera`
 model after the established sensor-profile transform. It is static, has gravity
 disabled, has no collision/joint, and renders RGB 320×240 at 5 simulated Hz.
 The robot include, sensor model/profile and source assets are untouched;

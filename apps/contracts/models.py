@@ -173,7 +173,7 @@ class FloorContext(Contract):
     run_id: str = Field(min_length=1, max_length=128)
     epoch: int = Field(ge=0, strict=True)
     floor_rev: int = Field(ge=0, strict=True)
-    world_id: Literal['v5_building', 'warehouse', 'rubble']
+    world_id: Literal['v5_building', 'warehouse']
     building_id: UUID
     spawn_floor_id: Literal['l1', 'l2', 'f1']
     current_floor_id: Literal['l1', 'l2', 'f1'] | None
@@ -188,7 +188,7 @@ class FloorContext(Contract):
 
     @model_validator(mode='after')
     def coherent_floor(self):
-        if self.world_id in ('warehouse', 'rubble'):
+        if self.world_id == 'warehouse':
             if (self.spawn_floor_id != 'f1' or self.current_floor_id != 'f1'
                     or self.floor_state != 'on_floor'):
                 raise ValueError('static world has one fixed floor')
@@ -2157,7 +2157,7 @@ class SimRemove(Contract):
 
 class SimMapBinding(Contract):
     """Server-verified canonical GT registration; PNG and PGM hashes are distinct."""
-    world_id: Literal['v5_building', 'warehouse', 'rubble']
+    world_id: Literal['v5_building', 'warehouse']
     building_id: UUID
     ros_building_id: str = Field(min_length=1, max_length=64)
     ros_floor_id: Literal['l1', 'l2', 'f1']
@@ -2174,7 +2174,7 @@ class SimMapBinding(Contract):
 
     @model_validator(mode='after')
     def world_floor(self):
-        if (self.world_id in ('warehouse', 'rubble')) != (self.ros_floor_id == 'f1'):
+        if (self.world_id == 'warehouse') != (self.ros_floor_id == 'f1'):
             raise ValueError('floor does not belong to world')
         return self
 

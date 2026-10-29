@@ -5,7 +5,7 @@
 
 `connected_runtime.compile_static_runtime`이 격리 child에서만 기존
 `node.create_timer(1.0, publish_status)`를 `0.2`초로 바꾼다. connected static과
-repository static(warehouse/rubble) 경로에 적용하며 외부 runtime 파일은
+repository static(warehouse) 경로에 적용하며 외부 runtime 파일은
 고치지 않는다. 알려진 타이머가 없거나 중복되거나 모양이 달라지면 시작 전에
 거부한다. state·명령 타이머와 발행 본문은 이 변경에서 손대지 않는다.
 

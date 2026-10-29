@@ -19,7 +19,7 @@ class FloorBindings:
         self.robot_id = str(UUID(robot_id))
         single = spawn_floor_id == 'f1'
         world = bindings[0].get('world_id') if single and bindings else 'v5_building'
-        if single and world not in ('warehouse', 'rubble'):
+        if single and world != 'warehouse':
             raise ValueError('unsupported single-floor world')
         allowed = {'f1'} if single else {'l1', 'l2'}
         if (type(generation) is not int or generation < 1 or type(epoch) is not int or epoch < 0
@@ -70,7 +70,7 @@ class FloorBindings:
                 or status.get('spawn_floor') != self.spawn
                 or (cur is not None and cur not in self.allowed)
                 or (state == 'on_floor') != (cur in self.allowed)
-                or (self.world in ('warehouse', 'rubble') and (state != 'on_floor' or cur != 'f1'))
+                or (self.world == 'warehouse' and (state != 'on_floor' or cur != 'f1'))
                 or not finite(stamp) or (confirmed is not None and (not finite(confirmed) or confirmed > stamp))):
             return None
         b = self.bindings.get(cur)

@@ -34,7 +34,7 @@ def policy():
     return observer, body, clock
 
 
-@pytest.mark.parametrize('world_id', ['warehouse', 'rubble'])
+@pytest.mark.parametrize('world_id', ['warehouse'])
 def test_generated_world_preserves_original_geometry_and_robot(world_id, tmp_path):
     root = Path(__file__).resolve().parents[1]/'worlds'
     source = root/world_id/(world_id+'.sdf')
