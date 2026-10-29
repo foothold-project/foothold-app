@@ -13,9 +13,10 @@ const footholdV2 = {
   observations: { size: 235, bodySize: 48, order: ['linear_velocity', 'angular_velocity', 'gravity', 'command', 'joint_position_relative', 'joint_velocity', 'last_action', 'height_scan'],
     dimensions: [3, 3, 3, 3, 12, 12, 12, 187], scale: 1, bodyClip: null,
     units: ['m/s', 'rad/s', 'unit_vector', 'm/s,m/s,rad/s', 'rad', 'rad/s', 'action', 'm'],
-    height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 20, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0,
-      // Imported warehouse ceiling lights are not part of the training ground mesh.
-      excludedGeomNames: ['aws_robomaker_warehouse_Lamp_01_005/Lamp_01_collision_c0'] } },
+    // Training scans only ground from +20 m. Here world geometry includes ceilings:
+    // clip(base_z - hit_z - 0.5, +/-1) reaches -1 at base_z + 0.5;
+    // start 1 mm above that boundary to avoid rounding away boundary hits.
+    height: { grid, ordering: 'xy', resolution: 0.1, size: [1.6, 1.0], rayOffset: 0.501, offset: 0.5, missValue: 1, clip: [-1, 1], noise: 0 } },
   network: { file: 'policy_v2.f32', sha256: 'da199be22d3bea64601d5237a0438ff447c85a49ce64d35bb6f486b5f0adc68c',
     format: 'float32 LE, row-major weight then bias per layer', shapes: [[512, 235], [256, 512], [128, 256], [12, 128]], activation: 'ELU(1), linear output' },
   action: { size: 12, joints: isaacJoints, defaultPose, scale: 0.25, kp: 25, kd: 0.5, effort: 23.5, velocityLimit: 30 },
@@ -57,8 +58,7 @@ const footholdV2 = {
     const cfg = this.observations.height;
     const excluded = [];
     for (let g = 0; g < m.ngeom; g++) {
-      const name = mj.mj_id2name(m, mj.mjtObj.mjOBJ_GEOM.value, g);
-      if (m.geom_bodyid[g] !== 0 || (!m.geom_contype[g] && !m.geom_conaffinity[g]) || cfg.excludedGeomNames.includes(name)) excluded.push([g, m.geom_group[g]]);
+      if (m.geom_bodyid[g] !== 0 || (!m.geom_contype[g] && !m.geom_conaffinity[g])) excluded.push([g, m.geom_group[g]]);
     }
     const scan = (q, out, offset = 0) => {
       const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
