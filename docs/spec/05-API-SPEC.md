@@ -1486,3 +1486,53 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 문서 확정·모의 시험·Nav2 빌드·격리 시뮬 주행·실폰·실기는 각각 다른 증거로 보고한다.
 ④의 명령 차단 통과와 몸체 물리 정지/도착 허용치 미결은 분리하며, 이 문서 PR은 코드·실행
 검증·시뮬 기동을 포함하지 않는다.
+
+### 13.11 총괄 정지 요청과 상태 요약 (ADR-002, FIX-1029)
+
+실기(`simulation != true`)의 옛 서버 WS 조종권·명령·잠금 해제·STOP 및 REST
+`POST /robots/{id}/stop` 중계는 거부한다. 운영자는 `PHONE_DIRECT_REQUIRED`, 총괄은
+기존 `ADMIN_NO_REAL_CONTROL`을 받는다. 서버의 시작·끊김·기록 장애에 따른 내부 제어
+발신도 실기로 보내지 않는다. 시뮬의 기존 중계 경로와 에이전트의 구형 수신 STOP 방어는 유지한다.
+
+총괄은 `POST /api/v1/robots/{robot_id}/stop-requests`에 `{request_id: UUID}`를 보낸다.
+같은 조직·같은 요청 번호는 한 번만 기록하고 다른 로봇에 재사용하면 409다. 응답 202는
+`{request_id, robot_id, status:"REQUESTED", message:"요청 전달됨 — 실제 정지 확인 아님"}`이다.
+실제 알림 저장이 0건이면 409 `STOP_REQUEST_NO_RECIPIENTS`,
+«받을 폰 사용자가 없음 — 현장에 직접 연락»으로 거절하며 접수 기록도 남기지 않는다.
+담당자 없음·잠김·보관으로 받을 사람이 없는 경우를 포함한다.
+로봇의 보고된 조종자와 등록 담당자에게 사용자별 알림함으로 전달하므로 각 사용자의 폰에서
+읽을 수 있다. `STOP_REQUESTED` 알림은 환경설정으로 숨기지 않으며 link의 `robot_id`와
+`stop_request_id`로 대상 폰 화면을 연다. 폰 수신·사람 확인·정지는 각각 다른 사실이다.
+최초 응답은 알림함 저장을 뜻하며 폰의 실제 수신을 확인한 뜻은 아니다.
+수신 폰은 `POST /robots/{robot_id}/stop-requests/{request_id}/ack`에
+`{stage:"PHONE_RECEIVED"}`를, 사람이 확인 단추를 누르면 `{stage:"HUMAN_CONFIRMED"}`를 보낸다.
+등록 수신자만 보낼 수 있고 각 단계는 한 번만 기록한다. 상태는 각각 `PHONE_RECEIVED`,
+`HUMAN_CONFIRMED`이며 둘 다 «실제 정지 확인 아님»을 유지한다.
+
+폰은 현장 직결 `stop`에 선택 `request_id`를 붙인다. 메타데이터가 있어도 기존 STOP은
+즉시 수행한다. 에이전트는 그 뒤 새로 수신한 신선한 bridge 상태에서 STOP 요청·몸체 정지,
+Core 잠금·출력 0을 확인한 때 `STOP_REQUEST_APPLIED` 사건을 서버에 보낸다. data는
+`{request_id, stop_gen, latched:true, applied:[0,0,0], bridge_confirmed:true}`다.
+서버는 인증된 그 로봇의 보고만 해당 요청과 연결해 한 번 `STOP_REQUEST_CONFIRMED`를 기록한다.
+`GET /api/v1/robots/{robot_id}/stop-requests/{request_id}`는 이때만
+`status:"STOP_CONFIRMED", message:"정지 확인"`을 반환한다. 일반 사건의 같은 이름으로는
+상태를 바꿀 수 없다. 이는 에이전트/bridge의 적용 보고이며 물리 정지 거리·현장 안전 승인과 다르다.
+
+에이전트 state의 선택 확장: `controller`, `controller_device`(UUID 또는 null),
+`controller_connected`(bool), `controller_since`(UTC 또는 null), `reported_run`(기존 RunSnapshot 또는 null).
+직결 Observer가 하나뿐인 폰 Hub의 조종자·예약과 실행기에서 읽어 보고한다. 서버는 이 값으로
+조종권을 발급하거나 고치지 않는다.
+
+로봇 요약의 새 선택 필드:
+
+| 필드 | 뜻 |
+|---|---|
+| `last_state_received_at` | 이 서버가 마지막으로 유효한 로봇 state를 받은 UTC. 아직 못 받았거나 서버 재시작 후 모르면 null |
+| `state_stale` | 연결이 없거나 마지막 state가 3초보다 오래됐으면 true. 요약만 허용된 다른 담당자의 로봇은 null |
+| `controller`, `controller_device`, `controller_connected` | 신선한 폰/에이전트 보고의 사용자·기기·연결 상태. 오래되거나 가려진 경우 null |
+| `lease` | 연결된 폰 조종자·시각을 사용. 자리 예약은 사용자·기기만 보이고 lease는 null. 폰 보고가 없는 시뮬만 옛 서버 조종권을 대체 근거로 사용 |
+| `current_run` | 에이전트 실행 보고 또는 저장된 활성 실행의 상태·진행. 이름이 아직 저장되지 않았으면 수신 대기 표시 |
+
+`connection:"ONLINE"`은 전송 연결이 살아 있다는 뜻이다. `state_stale:true`이면 ONLINE이어도
+`attention`에 `STATE_STALE`을 싣고 오래된 측정·조종자를 신선한 값처럼 보여 주지 않는다.
+총괄 `robots_running`은 신선한 실행 보고의 활성 상태(일시정지·종료 제외)를 센다.

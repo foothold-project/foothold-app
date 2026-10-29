@@ -241,7 +241,29 @@ class Device(Contract):
     state: Literal['OK', 'MISSING', 'ERROR']
 
 
+class StopRequest(Contract):
+    request_id: UUID
+
+
+class StopRequestAck(Contract):
+    stage: Literal['PHONE_RECEIVED', 'HUMAN_CONFIRMED']
+
+
+class StopRequestStatus(Contract):
+    request_id: UUID
+    robot_id: UUID
+    status: Literal['REQUESTED', 'PHONE_RECEIVED', 'HUMAN_CONFIRMED', 'STOP_CONFIRMED']
+    message: str
+
+
 class RobotSummary(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields(
+        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected'))
+    last_state_received_at: UTCDateTime | None = None
+    state_stale: bool | None = True
+    controller: Person | None = None
+    controller_device: UUID | None = None
+    controller_connected: bool | None = None
     simulation: bool = False
     id: UUID
     name: str
@@ -490,6 +512,11 @@ class AgentBattery(AgentInput):
 
 
 class AgentState(AgentInput):
+    controller: UUID | None = None
+    controller_device: UUID | None = None
+    controller_connected: bool = False
+    controller_since: UTCDateTime | None = None
+    reported_run: 'RunSnapshot | None' = None
     t: Literal['state']
     pose: AgentPose
     speed: float | None
@@ -1548,7 +1575,12 @@ class PhoneHello(PhoneEnvelope):
 
 
 class PhoneLease(PhoneEnvelope):
-    t: Literal['lease.take', 'lease.request', 'lease.release', 'lease.cancel', 'view', 'stop']
+    t: Literal['lease.take', 'lease.request', 'lease.release', 'lease.cancel', 'view']
+
+
+class PhoneStop(PhoneEnvelope):
+    t: Literal['stop']
+    request_id: UUID = omitted()
 
 
 class PhoneRespond(PhoneEnvelope):
@@ -1630,7 +1662,7 @@ class PhoneRunConfirm(PhoneEnvelope):
     data: dict[str, JsonValue]
 
 
-PhoneMessage = Annotated[PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing
+PhoneMessage = Annotated[PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing
                          | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm,
                          Field(discriminator='t')]
 
@@ -1799,7 +1831,7 @@ class PhoneRunUpdate(RunSnapshot):
 
 
 class PhoneState(AgentState):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('run'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('run', 'controller_since', 'reported_run'))
     run: RunSnapshot | None = None
     robot: PhoneRobotID
     controller: UUID | None
@@ -2222,3 +2254,9 @@ REQUEST_MODELS.update(T for T in TOP.values() if isinstance(T, type)
 TOP.update(MediaMessage=MediaMessage, MediaChannel=MediaChannel, MediaSource=MediaSource,
            ExecutionCapabilityKey=ExecutionCapabilityKey)
 REQUEST_MODELS.update({MediaHello, ExternalCameraViewRequest, PhotoUploadMetadata, PhoneRunStartV2})
+
+TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
+
+REQUEST_MODELS.update({StopRequest, PhoneStop})
+
+REQUEST_MODELS.add(StopRequestAck)

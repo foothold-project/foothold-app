@@ -52,10 +52,10 @@ def test_warehouse_location_is_accepted_only_for_matching_approval_and_generatio
         resolution=.05,origin=[-7.5,-11,0],width=300,height=440)
     assert matches_context(c,[b])
     assert not matches_context({**c,'world_id':'v5_building'},[b])
-    peer = Peer(None,auth_checked=0.)
+    peer = Peer(None,auth_checked=0., simulation=True)
     rid = c['robot_id']; batch = AgentBatch(); batch.floor_authority = {rid:(3,[b])}
     realtime = SimpleNamespace(agents={rid:peer},owner_uncertain=False,clock=lambda:0.,
-        agent_pipeline=SimpleNamespace(latest=batch,stamp=0.),runs={},screens={},
+        agent_pipeline=SimpleNamespace(latest=batch,stamp=0.),runs={},last_state_received={},screens={},
         arbiter=SimpleNamespace(robot=lambda _:SimpleNamespace(transfer=None),state=lambda *args:[]),apply=lambda _:None)
     def report():
         return C.AgentState(t='state',pose=dict(floor_context=deepcopy(c),floor_id=c['floor_id'],

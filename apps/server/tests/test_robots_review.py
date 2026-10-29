@@ -247,6 +247,10 @@ def test_change_gate_blocks_control_and_deleted_cache_blocks_even_stop(client, s
 @pytest.mark.parametrize('change',['token','deleting','changing'])
 def test_hello_revalidates_token_and_pending_robot_change(client, seeded, rt, monkeypatch, change):
     rid=str(seeded['robots']['mine'])
+    if change == 'token':
+        with Session(client.app.state.engine) as db:
+            db.get(Robot, seeded['robots']['mine']).simulation = False
+            db.commit()
     original, gate = rt.receive, threading.Event()
     async def gated(ws, **kw):
         frame=await original(ws,**kw)
@@ -324,8 +328,7 @@ def test_name_only_patch_does_not_gate_existing_control(client, seeded, rt, monk
         def forbidden(*args):
             raise AssertionError('name-only update must not block robot control')
         monkeypatch.setattr(rt,'begin_robot_change',forbidden)
-        response=client.patch(P+'/robots/'+str(rid),headers=admin,json={'name':'renamed',
-            'owner_user_id':str(seeded['users']['one'])})
+        response=client.patch(P+'/robots/'+str(rid),headers=admin,json={'name':'renamed'})
         assert response.status_code==200
         assert reply(ws,send(ws,'cmd',rid,lease_id=lease,seq=0,axes=[0,0,0]))['ok']
         assert rt.arbiter.robot(str(rid)).holder.lease_id==lease

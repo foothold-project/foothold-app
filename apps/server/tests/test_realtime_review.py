@@ -213,7 +213,7 @@ def test_disconnected_requester_cannot_be_granted_even_before_cleanup(client, se
 def test_safety_enqueue_discards_pre_stop_commands(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
     async def check():
-        peer = Peer(Sink())
+        peer = Peer(Sink(), simulation=True)
         rt.agents[rid] = peer
         for seq in range(5):
             peer.queue.put_nowait({'t': 'cmd', 'seq': seq})
@@ -380,7 +380,7 @@ def test_failed_runtime_refuses_existing_connection_control_but_allows_stop(clie
 def test_replaced_agent_state_handler_has_its_own_identity_gate(client, seeded, rt):
     rid = str(seeded['robots']['mine'])
     async def check():
-        old, current = Peer(Sink(), auth_checked=rt.clock()), Peer(Sink(), auth_checked=rt.clock())
+        old, current = Peer(Sink(), auth_checked=rt.clock(), simulation=True), Peer(Sink(), auth_checked=rt.clock(), simulation=True)
         rt.agents[rid] = current
         rt.arbiter.robot(rid).stop_gen = 1
         assert rt.accept_state(rid, old, C.AgentState.model_validate(state(999))) is False

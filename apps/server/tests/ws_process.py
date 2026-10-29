@@ -22,6 +22,7 @@ def server_process(seeded, tmp_path, *, hold_owner=False, app_target='apps.serve
     raw = 'fake-recovery-agent-token'
     with DBSession(engine) as db:
         db.get(Robot, seeded['robots']['mine']).agent_token_hash = digest(raw)
+        db.get(Robot, seeded['robots']['mine']).simulation = True
         db.commit()
     blocker = engine.connect() if hold_owner else None
     key = 'fh-realtime:' + str(seeded['org'])

@@ -146,8 +146,7 @@
             "lease.request",
             "lease.release",
             "lease.cancel",
-            "view",
-            "stop"
+            "view"
           ],
           "title": "T",
           "type": "string"
@@ -561,6 +560,46 @@
       "title": "PhoneRunStartV2",
       "type": "object"
     },
+    "PhoneStop": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "proto": {
+          "const": "fh-phone/1",
+          "title": "Proto",
+          "type": "string"
+        },
+        "request_id": {
+          "format": "uuid",
+          "title": "Request Id",
+          "type": "string"
+        },
+        "robot": {
+          "description": "소문자 하이픈 UUID 표준형만 허용한다.",
+          "format": "uuid",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+          "title": "Robot",
+          "type": "string"
+        },
+        "t": {
+          "const": "stop",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "robot",
+        "t"
+      ],
+      "title": "PhoneStop",
+      "type": "object"
+    },
     "PhoneUnlock": {
       "additionalProperties": false,
       "properties": {
@@ -626,7 +665,7 @@
       "run.control": "#/$defs/PhoneRunControl",
       "run.start": "#/$defs/PhoneRunStart",
       "run.start.v2": "#/$defs/PhoneRunStartV2",
-      "stop": "#/$defs/PhoneLease",
+      "stop": "#/$defs/PhoneStop",
       "unlock": "#/$defs/PhoneUnlock",
       "view": "#/$defs/PhoneLease"
     },
@@ -638,6 +677,9 @@
     },
     {
       "$ref": "#/$defs/PhoneLease"
+    },
+    {
+      "$ref": "#/$defs/PhoneStop"
     },
     {
       "$ref": "#/$defs/PhoneRespond"

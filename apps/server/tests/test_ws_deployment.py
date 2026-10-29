@@ -30,6 +30,7 @@ def test_readme_uvicorn_really_upgrades_screen_and_agent(seeded, tmp_path):
     engine = create_engine(seeded['urls']['migrate'])
     with DBSession(engine) as db:
         db.get(Robot, rid).agent_token_hash = digest(raw)
+        db.get(Robot, rid).simulation = True
         db.commit()
     engine.dispose()
     # Passing an already bound ephemeral fd avoids port probes and bind races.

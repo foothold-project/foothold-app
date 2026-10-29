@@ -33,10 +33,10 @@ def test_invalid_agent_safety_reason_rejected_by_wire_contract(value):
 def runtime():
     clock = Clock()
     rid, other_rid = str(UUID(int=1)), str(UUID(int=2))
-    peers = {key: Peer(None, auth_checked=clock()) for key in (rid, other_rid)}
+    peers = {key: Peer(None, auth_checked=clock(), simulation=True) for key in (rid, other_rid)}
     arbiter = SimpleNamespace(robot=lambda _: SimpleNamespace(transfer=None), state=lambda *args: [])
     return SimpleNamespace(agents=peers, clock=clock, arbiter=arbiter, owner_uncertain=False,
-        runs={}, apply=lambda _: None), rid, other_rid
+        runs={}, last_state_received={}, apply=lambda _: None), rid, other_rid
 
 
 def test_reason_is_robot_local_and_expires_with_telemetry(runtime):
@@ -53,7 +53,7 @@ def test_reason_is_robot_local_and_expires_with_telemetry(runtime):
     peer.closing = True
     frame = Realtime.screen_state(realtime, rid)
     assert frame['connection'] == 'OFFLINE' and frame['safety_reason'] is None
-    realtime.agents[rid] = Peer(None, auth_checked=0)
+    realtime.agents[rid] = Peer(None, auth_checked=0, simulation=True)
     assert Realtime.screen_state(realtime, rid)['safety_reason'] is None
 
 
@@ -64,7 +64,7 @@ def test_rejected_state_cannot_overwrite_safety_reason(runtime, blocked):
     current.state['safety_reason'] = 'OUTPUT_STALLED'
     peer = current
     if blocked == 'replaced':
-        peer = Peer(None, auth_checked=0)
+        peer = Peer(None, auth_checked=0, simulation=True)
     elif blocked == 'other_robot':
         peer = realtime.agents[other_rid]
     elif blocked == 'closing':

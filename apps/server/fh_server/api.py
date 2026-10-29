@@ -20,7 +20,7 @@ from starlette.exceptions import HTTPException
 from apps.contracts import models as C
 from .models import Event, Organization, Robot, RobotDevice, Session, User, now
 from .security import digest, hash_password, token, verify_password, web_csrf
-from .robots import attention, device_error, live_state, robot_object, robot_objects
+from .robots import attention, device_error, is_running, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 from .event_messages import render
 from . import approvals, assignments, phone_pass
@@ -725,6 +725,9 @@ def create_app(settings: Settings | None = None):
         finally:
             rt.end_robot_change(rid)
 
+    from . import stop_requests
+    stop_requests.install(app, DB, Identity, fail)
+
     @app.get(prefix + '/dashboard', response_model=C.Dashboard)
     def dashboard(auth: Identity, db: DB):
         user = auth[0]
@@ -745,7 +748,8 @@ def create_app(settings: Settings | None = None):
         return C.Dashboard(robots_total=len(rows), robots_online=sum(online for _, online, _ in snapshots),
             robots_attention=sum(bool(attention(online, state,
                 device_error(app.state.realtime, str(row.id), row.id in error_ids), policy))
-                for row, online, state in snapshots), robots_running=0,
+                for row, online, state in snapshots), robots_running=sum(
+                    online and is_running(state) for _, online, state in snapshots),
             approvals_pending=approvals.pending_count(db, user), operators=operators)
 
     @app.get(prefix + '/org/settings', response_model=C.OrgSettings)

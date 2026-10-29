@@ -38,6 +38,8 @@ def frame(raw, robot):
         raise ValueError('VALIDATION')
     required = {'t', 'id', 'robot'} | FIELDS[kind]
     optional = {'proto'}
+    if kind == 'stop':
+        optional.add('request_id')
     if kind == 'run.start':
         optional.add('assignment_id')
     if kind == 'run.control':

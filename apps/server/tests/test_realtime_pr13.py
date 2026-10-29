@@ -185,7 +185,7 @@ def test_batched_reads_reserve_control_and_agent_capacity_under_viewer_load(clie
                                 role='OPERATOR', password_hash=password_hash))
                 robot_ids = [uuid4() for _ in range(9)]
                 for robot_id in robot_ids:
-                    db.add(Robot(id=robot_id, org_id=seeded['org'], name='review-' + str(robot_id), model='unitree_go2',
+                    db.add(Robot(id=robot_id, org_id=seeded['org'], name='review-' + str(robot_id), model='unitree_go2', simulation=True,
                         owner_user_id=seeded['users']['one'], agent_token_hash=digest('fake-test-' + str(robot_id))))
                 db.commit()
             for robot_id in robot_ids:
@@ -412,6 +412,7 @@ def test_live_rows_still_control_memoized_rights_and_session_validity(client, se
         db.commit()
     assert 'O_OWN' not in run(client, snapshot).rights[rid]
     with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = False
         db.get(User, seeded['users']['one']).role = 'ORG_ADMIN'
         db.commit()
     promoted = run(client, snapshot).rights[rid]
@@ -467,7 +468,7 @@ def test_known_agent_denial_cannot_confirm_a_new_take_during_close(client, seede
             async def close(self, **kwargs):
                 entered.set()
                 await release.wait()
-        peer = Peer(Socket(), auth_checked=rt.clock())
+        peer = Peer(Socket(), auth_checked=rt.clock(), simulation=True)
         rt.agents[rid] = peer
         rt.screens[actor.connection] = Peer(Sink(), actor=actor, policy=policy)
         alive = asyncio.create_task(asyncio.Event().wait())
@@ -518,7 +519,7 @@ def test_brief_agent_verifier_error_retries_before_revoking_fresh_authority(clie
     monkeypatch.setattr(rt, 'clock', lambda: 0)
     rid = str(seeded['robots']['mine'])
     async def check():
-        peer = Peer(Sink(), auth_checked=0)
+        peer = Peer(Sink(), auth_checked=0, simulation=True)
         rt.agents[rid] = peer
         actor = Actor(str(seeded['users']['one']), str(uuid4()), 'verifier')
         rt.arbiter.take(rid, actor)

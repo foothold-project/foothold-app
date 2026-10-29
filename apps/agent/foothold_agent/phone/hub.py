@@ -60,6 +60,7 @@ class Hub:
         self.acquisition_denials = 0
         self.acquisition_report_at = self.now()
         self.stop_ref = 0
+        self.stop_requests = {}
         self.clock_origin = None
         from foothold_agent.executor.scenario_run import ScenarioRun
         self.runs = ScenarioRun(self, nav=nav, source=scenario_source, journal=run_journal,
@@ -468,6 +469,11 @@ class Hub:
                 self._request_result('CANCELED', self_cancel=True)
         elif kind == 'stop':
             self.stop()  # authenticated view-only phones may STOP
+            if 'request_id' in f:
+                # Bounded confirmation metadata never suppresses the STOP itself.
+                if len(self.stop_requests) >= 16:
+                    self.stop_requests.pop(next(iter(self.stop_requests)))
+                self.stop_requests[f['request_id']] = self.now()
         elif kind == 'ping':
             p.last_ping = self.now()
             p.echo = {'id': f['id'], 'client_time_ms': f['client_time_ms'], 'agent_time_ms': int(self.wall()*1000)}
@@ -493,6 +499,16 @@ class Hub:
         self._expire()  # a bridge callback must not apply intent past ticket expiry
         self._emit(self.session.on_robot_state(raw))
         st = self.session.core.st
+        if (self.stop_requests and st is not None and self.session.core.latch
+                and not any(self.session.core.out) and st.get('stop_requested') is True
+                and st.get('body_still') is True
+                and self.now() - self.session.core.state_t <= STATE_STALE):
+            for request_id, requested_at in list(self.stop_requests.items()):
+                if self.session.core.state_t > requested_at:
+                    del self.stop_requests[request_id]
+                    self._audit('STOP_REQUEST_APPLIED', request_id=request_id,
+                        stop_gen=self.session.core.stop_gen, latched=True,
+                        applied=list(self.session.core.out), bridge_confirmed=True)
         if st and st.get('sim_t') is not None:
             if self.clock_origin is None or self.clock_origin[0] != st['episode']:
                 self.clock_origin = (st['episode'], st['sim_t'], self.now())

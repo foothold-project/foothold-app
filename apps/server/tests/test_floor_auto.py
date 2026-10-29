@@ -79,12 +79,12 @@ def test_server_location_carries_context_and_rejects_late_revision_without_motio
         ros_floor_id='l1', ros_map_version='gt-20261012', floor_id=c['floor_id'], map_version_id=c['map_version_id'],
         sha256=c['sha256'], source_pgm_sha256=c['source_pgm_sha256'], source='SIMULATION',
         resolution=.05, origin=[-20, -14, 0], width=2, height=2)
-    peer = Peer(None, auth_checked=0.)
+    peer = Peer(None, auth_checked=0., simulation=True)
     rid = c['robot_id']
     batch = AgentBatch(); batch.floor_authority = {rid: (3, [b])}
     effects = []
     realtime = SimpleNamespace(agents={rid: peer}, owner_uncertain=False, clock=lambda: 0.,
-        agent_pipeline=SimpleNamespace(latest=batch, stamp=0.), runs={}, screens={},
+        agent_pipeline=SimpleNamespace(latest=batch, stamp=0.), runs={}, last_state_received={}, screens={},
         arbiter=SimpleNamespace(robot=lambda _: SimpleNamespace(transfer=None),
             state=lambda *args: effects.append(args) or []), apply=lambda _: None)
     def report(ctx):

@@ -457,6 +457,10 @@ def test_sub_refreshes_snapshot_after_robot_write_and_missing_keeps_connection(c
     mine = str(seeded['robots']['mine'])
     other = str(seeded['robots']['theirs'])
     forced = []
+    if change in ('assign', 'delete'):
+        with DBSession(client.app.state.engine) as db:
+            db.get(Robot, seeded['robots']['theirs']).simulation = False
+            db.commit()
     with screen(client, headers) as ws:
         assert reply(ws, send(ws, 'sub', robots=[mine], streams=['state']))['ok']
         original = rt.refresh_policy

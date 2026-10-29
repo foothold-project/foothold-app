@@ -217,10 +217,17 @@ def test_regrant_requires_resubscription_before_take_or_request(client, seeded, 
     rid, other = str(seeded['robots']['mine']), str(seeded['users']['two'])
     with agent(client, seeded) as ag, screen(client, own) as ws:
         assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
-        assert client.patch(P+'/robots/'+rid, headers=admin, json={'owner_user_id': other}).status_code == 200
+        # Exercise ACL regrant on a synthetic sim row; production sim ownership
+        # remains manager-only, so the ordinary robot PATCH is not used here.
+        with Session(client.app.state.engine) as db:
+            db.get(Robot, seeded['robots']['mine']).owner_user_id = seeded['users']['two']
+            db.commit()
+        client.portal.call(lambda: rt.robot_changed(rid, old_owner=str(seeded['users']['one'])))
         receive(ws, 'subscription.revoked')
-        assert client.patch(P+'/robots/'+rid, headers=admin,
-            json={'owner_user_id': str(seeded['users']['one'])}).status_code == 200
+        with Session(client.app.state.engine) as db:
+            db.get(Robot, seeded['robots']['mine']).owner_user_id = seeded['users']['one']
+            db.commit()
+        client.portal.call(lambda: rt.robot_changed(rid, old_owner=other))
         async def verified():
             peer = next(iter(rt.screens.values()))
             async with asyncio.timeout(2):
@@ -252,7 +259,7 @@ def test_take_confirmation_at_policy_boundary_is_deterministic(client, seeded, r
         policy = Policy({rid: frozenset({'O_OWN', 'ROBOT_READ'})}, C.OrgSettings(),
             now()+timedelta(hours=1), fixed)
         peer = Peer(Sink(), actor=actor, policy=policy)
-        ag = Peer(Sink(), auth_checked=fixed)
+        ag = Peer(Sink(), auth_checked=fixed, simulation=True)
         rt.screens[actor.connection], rt.agents[rid] = peer, ag
         try:
             rt.apply(rt.arbiter.take(rid, actor))

@@ -67,8 +67,10 @@ def test_admin_real_ws_denials_and_live_read(client, seeded, rt):
     rid = seeded['robots']['mine']
     headers = app_token(client, 'admin')
     operator = app_token(client)
-    with agent(client, seeded) as ag, screen(client, operator) as owner, screen(client, headers) as ws:
-        lease = take(owner, ag, rid)
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        db.commit()
+    with agent(client, seeded, direct=True) as ag, screen(client, operator) as owner, screen(client, headers) as ws:
         holder = rt.arbiter.robot(str(rid)).holder
         assert reply(ws, send(ws, 'sub', robots=[str(rid)], streams=['state']))['ok']
         ag.send_json(state())
@@ -84,8 +86,7 @@ def test_admin_real_ws_denials_and_live_read(client, seeded, rt):
             assert result['error']['message'] == ADMIN_NO_REAL_CONTROL
         assert rt.arbiter.robot(str(rid)).holder == holder
         assert rt.arbiter.robot(str(rid)).stop_ref == before
-        assert reply(owner, send(owner, 'cmd', rid, lease_id=lease, seq=0, axes=[0, 0, 0]))['ok']
-        receive(ag, 'cmd')
+        assert reply(owner, send(owner, 'cmd', rid, lease_id=str(uuid4()), seq=0, axes=[0, 0, 0]))['error']['code'] == 'PHONE_DIRECT_REQUIRED'
         denied = client.post(f'/api/v1/robots/{rid}/stop', headers=headers)
         assert denied.status_code == 403
         assert denied.json()['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
@@ -119,17 +120,24 @@ def test_live_control_revocation_preserves_only_authorized_subscriptions(client,
         with DBSession(client.app.state.engine) as db:
             db.get(Robot, seeded['robots']['mine']).simulation = True
             db.commit()
+    if change == 'read':
+        with DBSession(client.app.state.engine) as db:
+            db.get(Robot, seeded['robots']['mine']).simulation = False
+            db.commit()
     headers = app_token(client, 'admin' if change == 'simulation' else 'one')
     admin_headers = csrf(client, 'admin')
-    with agent(client, seeded) as ag, screen(client, headers) as ws:
+    with agent(client, seeded, direct=(change == 'read')) as ag, screen(client, headers) as ws:
         assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
-        lease = take(ws, ag, rid)
+        lease = take(ws, ag, rid) if change != 'read' else str(uuid4())
         before = rt.arbiter.robot(rid).stop_ref
         if change == 'simulation':
             with DBSession(client.app.state.engine) as db:
                 db.get(Robot, seeded['robots']['mine']).simulation = False
                 db.commit()
         elif change == 'promotion':
+            with DBSession(client.app.state.engine) as db:
+                db.get(Robot, seeded['robots']['mine']).simulation = False
+                db.commit()
             result = client.patch(f"/api/v1/users/{seeded['users']['one']}",
                 headers=admin_headers, json={'role': 'ORG_ADMIN'})
             assert result.status_code == 200, result.text
@@ -138,9 +146,6 @@ def test_live_control_revocation_preserves_only_authorized_subscriptions(client,
                 json={'owner_user_id': str(seeded['users']['two'])})
             assert result.status_code == 200, result.text
 
-        assert receive(ag, 'lease', predicate=lambda body: body['lease_id'] is None)
-        stopped = receive(ag, 'stop')
-        assert stopped['stop_ref'] > before
 
         async def revoked():
             async with asyncio.timeout(2):
@@ -160,7 +165,7 @@ def test_live_control_revocation_preserves_only_authorized_subscriptions(client,
             assert peer.subscriptions == {rid: {'state'}}
             assert rid not in peer.revoked_robots
             assert client.get(f'/api/v1/robots/{rid}', headers=headers).status_code == 200
-            ag.send_json({**state(4, stop_ref=stopped['stop_ref']), 'battery': {'soc': 42}})
+            ag.send_json({**state(4, stop_ref=rt.arbiter.robot(rid).stop_ref), 'battery': {'soc': 42}})
             # A new state reaches the original subscription without another sub.
             deadline = time.monotonic() + 2
             while True:

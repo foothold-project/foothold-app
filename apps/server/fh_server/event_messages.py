@@ -16,6 +16,10 @@ MAX_VALUE_LENGTH = 128
 UNKNOWN = '확인되지 않음'
 
 TEMPLATES = {
+    'STOP_REQUEST_RECEIVED': '{robot} 정지 요청을 폰에서 받았습니다. 실제 정지 확인 아님.',
+    'STOP_REQUEST_ACKNOWLEDGED': '{person}님이 {robot} 정지 요청을 확인했습니다. 실제 정지 확인 아님.',
+    'STOP_REQUESTED': '{person}님이 {robot} 정지를 요청했습니다. 요청 전달됨 — 실제 정지 확인 아님.',
+    'STOP_REQUEST_CONFIRMED': '{robot} 정지 확인: 에이전트가 STOP 적용을 보고했습니다.',
     'PHOTO_STORED': '{robot} 사진을 저장했습니다.',
     'PHOTO_STORE_FAILED': '{robot} 사진 저장에 실패했습니다. 이유: {reason}.',
     'ASSIGNMENT_CREATED': '{person}님이 {robot}에 시나리오 {scenario} {number}판을 배정했습니다.',

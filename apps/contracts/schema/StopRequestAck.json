@@ -1,0 +1,20 @@
+{
+  "$id": "fh-app/1/StopRequestAck",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "stage": {
+      "enum": [
+        "PHONE_RECEIVED",
+        "HUMAN_CONFIRMED"
+      ],
+      "title": "Stage",
+      "type": "string"
+    }
+  },
+  "required": [
+    "stage"
+  ],
+  "title": "StopRequestAck",
+  "type": "object"
+}

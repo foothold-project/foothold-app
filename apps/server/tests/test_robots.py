@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session as DBSession
 from starlette.websockets import WebSocketDisconnect
 
 from apps.contracts import models as C
-from apps.server.fh_server.models import Event, Robot, RobotDevice
+from apps.server.fh_server.models import Event, PhonePass, PhoneRevocation, Robot, RobotDevice
 from apps.server.fh_server.security import digest
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take
 
@@ -114,59 +114,46 @@ def test_rest_summaries_reflect_state_and_mask_other_owner(client, seeded, rt, m
 
 
 @pytest.mark.parametrize('owner', ['two', None])
-def test_assignment_stops_before_revoke_notification_and_keeps_other_subscription(client, seeded, rt, owner):
+def test_assignment_recalls_phone_access_and_keeps_other_subscription(client, seeded, rt, owner):
     admin, own = app_token(client, 'admin'), app_token(client)
     rid = seeded['robots']['mine']
-    # A second assigned robot proves a single connection's other state survives.
-    result = client.post(P + '/robots', headers=admin, json={'name': 'second',
-        'owner_user_id': str(seeded['users']['one'])}).json()
-    second = result['robot']['id']
-    with agent(client, seeded) as ag, screen(client, own) as ws:
+    second = str(seeded['robots']['theirs'])
+    jti = uuid4()
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        db.get(Robot, seeded['robots']['theirs']).owner_user_id = seeded['users']['one']
+        db.add(PhonePass(org_id=seeded['org'], user_id=seeded['users']['one'], robot_id=rid,
+            device=uuid4(), purpose='control', jti=jti, iat=int(time.time()), exp=int(time.time())+600))
+        db.commit()
+    with agent(client, seeded, direct=True) as ag, screen(client, own) as ws:
         assert reply(ws, send(ws, 'sub', robots=[str(rid), second], streams=['state']))['ok']
-        lease = take(ws, ag, rid)
-        assert client.get(P + '/robots/' + str(rid), headers=own).json()['lease']['user']['id'] == str(seeded['users']['one'])
-        assert client.delete(P + '/robots/' + str(rid), headers=admin).status_code == 409
-        order = []
-        original_apply, original_put = rt.apply, rt.put
-        def apply(effects):
-            effects = list(effects)
-            order.extend(('agent', e.body.get('t')) for e in effects if e.robot == str(rid) and e.target == 'agent')
-            return original_apply(effects)
-        def put(peer, body):
-            if body.get('t') == 'subscription.revoked':
-                order.append(('screen', body['t']))
-            return original_put(peer, body)
-        rt.apply, rt.put = apply, put
-        try:
-            result = client.patch(P + '/robots/' + str(rid), headers=admin,
-                json={'owner_user_id': str(seeded['users'][owner]) if owner else None})
-            assert result.status_code == 200, result.text
-            assert receive(ag, 'lease')['lease_id'] is None
-            receive(ag, 'stop')
-            clear = receive(ws, 'lease', predicate=lambda m: m['holder'] is None)
-            assert clear['lease_id'] is None
-            revoked = receive(ws, 'subscription.revoked')
-            assert revoked == {'t': 'subscription.revoked', 'robot': str(rid), 'reason': 'ACCESS_REVOKED'}
-            assert order[:3] == [('agent', 'lease'), ('agent', 'stop'), ('screen', 'subscription.revoked')]
-            assert rt.arbiter.robot(str(rid)).holder is None
-            assert receive(ws, 'state', predicate=lambda m: m['robot'] == second)
-            assert reply(ws, send(ws, 'ping'))['ok']
-            for kind, fields in [('cmd', dict(lease_id=lease, seq=5, axes=[1, 0, 0])), ('lease.take', {})]:
-                assert not reply(ws, send(ws, kind, rid, **fields))['ok']
-            peers = list(rt.screens.values())
-            assert all(str(rid) not in p.subscriptions and second in p.subscriptions for p in peers)
-            send(ws, 'sub', robots=[str(rid)], streams=['state'])
-            with pytest.raises(WebSocketDisconnect) as denied:
-                receive(ws, 'reply')
-            assert denied.value.code == 4403  # unchanged explicit out-of-scope sub denial
-        finally:
-            rt.apply, rt.put = original_apply, original_put
+        result = client.patch(P + '/robots/' + str(rid), headers=admin,
+            json={'owner_user_id': str(seeded['users'][owner]) if owner else None})
+        assert result.status_code == 200, result.text
+        packet = receive(ag, 'phone.revoke')
+        assert str(jti) in [j for item in packet['items'] for j in item['jtis']]
+        assert receive(ws, 'lease', predicate=lambda m: m['holder'] is None).get('lease_id') is None
+        assert receive(ws, 'subscription.revoked') == {
+            't':'subscription.revoked', 'robot':str(rid), 'reason':'ACCESS_REVOKED'}
+        assert rt.arbiter.robot(str(rid)).holder is None
+        assert receive(ws, 'state', predicate=lambda m: m['robot'] == second)
+        assert reply(ws, send(ws, 'ping'))['ok']
+        assert all(str(rid) not in p.subscriptions and second in p.subscriptions for p in rt.screens.values())
+        send(ws, 'sub', robots=[str(rid)], streams=['state'])
+        with pytest.raises(WebSocketDisconnect) as denied:
+            receive(ws, 'reply')
+        assert denied.value.code == 4403
+    with DBSession(client.app.state.engine) as db:
+        assert db.scalar(select(PhoneRevocation).where(PhoneRevocation.jti == jti)) is not None
 
 
 def test_delete_running_conflict_then_closes_agent_and_preserves_history(client, seeded, rt):
     admin = app_token(client, 'admin')
     rid = str(seeded['robots']['mine'])
-    with agent(client, seeded) as ag, screen(client, admin) as ws:
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = False
+        db.commit()
+    with agent(client, seeded, direct=True) as ag, screen(client, admin) as ws:
         assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
         rt.runs[rid] = {'status': 'PAUSED'}
         assert client.delete(P + '/robots/' + rid, headers=admin).status_code == 409
@@ -180,24 +167,29 @@ def test_delete_running_conflict_then_closes_agent_and_preserves_history(client,
         assert client.get(P + '/dashboard', headers=admin).json()['robots_total'] == 1
 
 
-def test_assignment_revokes_disconnected_holder_without_waiting_fifteen_seconds(client, seeded, rt):
-    admin, own = app_token(client, 'admin'), app_token(client)
-    rid = seeded['robots']['mine']
-    with agent(client, seeded) as ag:
-        with screen(client, own) as ws:
-            take(ws, ag, rid)
-        assert rt.arbiter.robot(str(rid)).holder is not None
+def test_assignment_recalls_disconnected_phone_without_server_lease(client, seeded, rt):
+    admin = app_token(client, 'admin')
+    rid, jti = seeded['robots']['mine'], uuid4()
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        db.add(PhonePass(org_id=seeded['org'], user_id=seeded['users']['one'], robot_id=rid,
+            device=uuid4(), purpose='control', jti=jti, iat=int(time.time()), exp=int(time.time())+600))
+        db.commit()
+    with agent(client, seeded, direct=True) as ag:
         result = client.patch(P + '/robots/' + str(rid), headers=admin, json={'owner_user_id': None})
         assert result.status_code == 200
         assert rt.arbiter.robot(str(rid)).holder is None
-        assert receive(ag, 'lease')['lease_id'] is None
-        receive(ag, 'stop')
+        packet = receive(ag, 'phone.revoke')
+        assert str(jti) in [j for item in packet['items'] for j in item['jtis']]
 
 
 def test_assignment_change_preserves_admin_subscription_but_denies_real_control(client, seeded, rt):
     admin = app_token(client, 'admin')
     rid = seeded['robots']['mine']
-    with agent(client, seeded) as ag, screen(client, admin) as ws:
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        db.commit()
+    with agent(client, seeded, direct=True) as ag, screen(client, admin) as ws:
         assert reply(ws, send(ws, 'sub', robots=[str(rid)], streams=['state']))['ok']
         denied = reply(ws, send(ws, 'lease.take', rid))
         assert denied['error']['code'] == 'ADMIN_NO_REAL_CONTROL'
