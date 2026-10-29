@@ -79,7 +79,9 @@ def changes(text):
         if line.startswith(('Remv ','Purg ')):
             raise ValueError('empty rootfs cannot remove a package')
         if not line.startswith('Inst '):continue
-        match=re.fullmatch(r'Inst (\S+) \((\S+)(?: .*)?\)',line)
+        # APT may append an empty broken-package list even with an empty status.
+        # Only that literal suffix is harmless; populated lists still refuse.
+        match=re.fullmatch(r'Inst (\S+) \((\S+)(?: .*)?\)(?: \[\])?',line)
         if not match:raise ValueError('unexpected installed-state simulation; host mixing refused')
         name,version=match.groups();name=name.removesuffix(':amd64')
         if (not shared.NAME.fullmatch(name) or not shared.VERSION.fullmatch(version)

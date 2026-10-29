@@ -30,6 +30,25 @@ def test_signed_sizes_and_identity_are_required():
         with pytest.raises(ValueError):plan.package_rows(text,[('libc6','1.0-1')])
 
 
+def test_real_empty_status_simulation_accepts_only_empty_suffix():
+    fixture=Path(__file__).parent/'fixtures/rootfs-empty-status-inst.txt'
+    text=fixture.read_text()
+    expected=[('libc6','2.39-0ubuntu8.9'),('libheif-plugin-aomdec','1.17.6-1ubuntu4.9'),
+        ('ruby3.2','3.2.3-1ubuntu0.24.04.8'),('ruby-rubygems','3.4.20-1'),
+        ('ruby','1:3.2~ubuntu1'),('rake','13.0.6-3'),('ruby-net-telnet','0.2.0-1'),
+        ('ruby-webrick','1.8.1-1ubuntu0.2'),('ruby-xmlrpc','0.3.2-2'),
+        ('ruby-sdbm','1.0.0-5build4'),('libruby3.2','3.2.3-1ubuntu0.24.04.8')]
+    assert plan.changes(text)==expected
+    # Conf is normal simulation output; it never becomes an extra selected row.
+    assert plan.changes(text+'Conf libc6 (2.39-0ubuntu8.9 Ubuntu:24.04/noble-updates [amd64])\n')==expected
+    line=text.splitlines()[0]
+    for rejected in (line.replace(' []',' [libc6:amd64]'),line.replace(' []',' [ ]'),
+                     line.replace(' []',' [] []'),line.replace(' []',' [] trailing'),
+                     line.replace(' (',' [2.39-0ubuntu8.8] (',1),
+                     'Remv libc6 [2.39-0ubuntu8.9]','Purg libc6 [2.39-0ubuntu8.9]'):
+        with pytest.raises(ValueError):plan.changes(rejected)
+
+
 def test_new_config_empty_status_and_cached_signed_lists_only(tmp_path):
     root=tmp_path/'plan';cache=tmp_path/'cache'
     config=plan.apt_config(root,cache).read_text()
