@@ -1,5 +1,12 @@
 # Development-server simulation and immutable private sysroot
 
+> Superseded runtime direction: use [ROOTFS.md](ROOTFS.md). The approved target is
+> a complete, separate RootDirectory userland, not host-package reuse or a mixed
+> private sysroot. The new rootfs planner is metadata-only; do not run the legacy
+> resolve/stage/link/activation steps below for the new direction. Those sections
+> retain the prior implementation/audit history until its replacement is reviewed.
+
+
 API and manager code use the same release. Session creation acquires a shared
 flock plus durable runtime latch; only existing full cleanup proof releases it.
 Idle deployment takes the exclusive flock, stops the idle manager, switches the
