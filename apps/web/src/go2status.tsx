@@ -102,7 +102,7 @@ export function Go2View({ name, url, close }: { name: string; url: string; close
       <Line k="배터리"><span className="mono">{dash(g?.soc ?? null, (x) => `${Math.round(x)}%`)} · {dash(g?.voltage ?? null, (x) => `${x.toFixed(1)} V`)}</span></Line>
       <Line k="자세"><span className="mono">롤 {deg(g?.roll ?? null)} · 피치 {deg(g?.pitch ?? null)}</span></Line>
       <Line k="넘어짐"><span>{g?.fallen == null ? '—' : g.fallen ? '넘어짐 추정' : '아님(추정)'}</span><span className="lbl">IMU 기울기 추정 — 넘어짐 감지 보장 아님</span></Line>
-      {last && <Line k="로봇 자료"><span data-go2-src>{(Object.keys(TOPICS) as (keyof Src)[]).map((k) => { const t = last.go2.sources[k];
+      {last && <Line k="로봇 자료"><span data-go2-src>{where === 'phone' ? '모름(폰↔노트북 끊김)' : (Object.keys(TOPICS) as (keyof Src)[]).map((k) => { const t = last.go2.sources[k];
         return `${TOPICS[k]} ${t.fresh ? '받는 중' : t.fresh === false ? `끊김${t.age == null ? '(받은 적 없음)' : `(${t.age.toFixed(1)}초 전)`}` : '모름'}`; }).join(' · ')}</span>
         <span className="lbl">노트북↔Go2 토픽(lowstate · sportmodestate)</span></Line>}
       <Line k="모드"><span className="mono">{dash(g?.mode ?? null, String)}</span><span className="lbl">오류 코드</span><span className="mono">{dash(g?.error ?? null, String)}</span></Line>

@@ -97,10 +97,13 @@ describe('상태 보기 화면', () => {
     expect($('[data-go2-cut]')?.dataset.go2Cut).toBe('phone');
     expect(box.textContent).toContain('늦음 · 폰↔노트북 2초 넘게 응답 없음');
     expect(box.textContent).toContain('87%');
+    expect($('[data-go2-src]')?.textContent).toBe('모름(폰↔노트북 끊김)');   // 폰 쪽 끊김에 마지막 sources 의 «받는 중»을 남기지 않음
     act(() => { vi.advanceTimersByTime(8000); });
     expect($('[data-go2-view]')?.dataset.go2View).toBe('OFFLINE');
     expect(box.textContent).not.toContain('87%');
     expect(box.textContent).toContain('오프라인 · 폰↔노트북 응답 없음');
+    expect($('[data-go2-src]')?.textContent).toBe('모름(폰↔노트북 끊김)');
+    expect(box.textContent).not.toContain('받는 중');
     send({ seq: '1', status: 0, why: 'other-subnet' });
     expect($('[data-go2-why]')?.textContent).toContain('같은 Wi-Fi 에 있어야');
     send({ seq: '1', status: 429, retry: 60 });
