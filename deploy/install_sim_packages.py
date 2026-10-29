@@ -15,10 +15,14 @@ import stat
 import subprocess
 import sys
 import tempfile
+import uuid
 
 PROTECTED = re.compile(r'(nvidia|cuda|dcgm|rpcbind|mesa|libegl|libgl(?!ib)|libgbm|libvulkan)', re.I)
 NEW_FORBIDDEN = re.compile(r'(nvidia|^linux-|dkms|firmware|cuda|dcgm|rpcbind|^datacenter-gpu-manager|^lib(?:cublas|nvrtc|npp|cufft|curand|cusolver|cusparse|nvjpeg)|^glx-diversions)', re.I)
 INSTALL_LATCH = Path('/var/lib/foothold/sim-packages-unproven')
+LATCH_RELEASE_PROTOCOL=2
+SETUP_LATCH = Path('/var/lib/foothold-sim/guard/setup-unproven')
+FENCE_TOOLS = Path('/opt/foothold/deploy-tools')
 JOURNAL = None
 SIMULATIONS = 0
 NAME = re.compile(r'[a-z0-9][a-z0-9+.-]*(?::amd64)?\Z')
@@ -121,8 +125,37 @@ def metadata_sha(name, version):
 
 
 def ensure_no_install_latch(path=INSTALL_LATCH):
-    if path.exists() or path.is_symlink():
-        raise ValueError('previous package transaction unproven; manual audit required')
+    for marker in (path,release_guard(path)):
+        if marker.exists() or marker.is_symlink():
+            raise ValueError('previous package transaction unproven; manual audit required')
+
+
+def release_guard(path):
+    return path.with_name(path.name+'.release-pending')
+
+
+def require_release_fences(path):
+    if path not in (INSTALL_LATCH,SETUP_LATCH):return
+    # A private tool delivery must not mix the new release protocol with old
+    # admission readers that only know the original marker name.
+    for name in ('common.sh','sim_control.py','proc_proof_server.py'):
+        installed=FENCE_TOOLS/name
+        if name=='proc_proof_server.py' and not installed.exists() and not installed.is_symlink():continue
+        if not installed.exists() and not installed.is_symlink():
+            raise ValueError('reviewed release-pending fence tool missing: '+name)
+        for parent in installed.parents:
+            info=parent.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+                raise ValueError('reviewed release-pending fence tools required')
+        fd=os.open(installed,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+        with os.fdopen(fd,'rb') as stream:
+            info=os.fstat(stream.fileno())
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022 or info.st_size>1024**2:
+                raise ValueError('reviewed release-pending fence tools required')
+            content=stream.read(1024**2+1)
+            tag=b'FH_LATCH_RELEASE_PROTOCOL=2\n' if name=='common.sh' else b'LATCH_RELEASE_PROTOCOL=2\n'
+            if tag not in content or content!=Path(__file__).with_name(name).read_bytes():
+                raise ValueError('reviewed release-pending fence tools required')
 
 
 def latch_parent(path):
@@ -131,12 +164,20 @@ def latch_parent(path):
     if info.st_uid != 0 or info.st_mode & 0o022:
         os.close(fd)
         raise ValueError('package latch directory untrusted')
+    # Every helper that changes a latch name takes this same directory lock.
+    try:fcntl.flock(fd,fcntl.LOCK_EX)
+    except BaseException:os.close(fd);raise
     return fd
 
 
 def create_install_latch(path=INSTALL_LATCH):
+    require_release_fences(path)
     parent = latch_parent(path)
     try:
+        guard=release_guard(path).name
+        try:os.stat(guard,dir_fd=parent,follow_symlinks=False)
+        except FileNotFoundError:pass
+        else:raise ValueError('previous latch release unproven; manual audit required')
         fd = os.open(path.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
                      0o600, dir_fd=parent)
         try:
@@ -153,14 +194,45 @@ def create_install_latch(path=INSTALL_LATCH):
 
 
 def clear_install_latch(identity, path=INSTALL_LATCH):
+    require_release_fences(path)
     parent = latch_parent(path)
+    retired=None;moved=False
+    def matches(info):
+        return ((info.st_dev,info.st_ino)==identity and stat.S_ISREG(info.st_mode)
+                and info.st_uid==0 and stat.S_IMODE(info.st_mode)==0o600)
     try:
         info = os.stat(path.name, dir_fd=parent, follow_symlinks=False)
-        if ((info.st_dev, info.st_ino) != identity or not stat.S_ISREG(info.st_mode)
-                or info.st_uid != 0 or stat.S_IMODE(info.st_mode) != 0o600):
-            raise ValueError('package latch identity changed')
-        os.unlink(path.name, dir_fd=parent)
+        if not matches(info):raise ValueError('package latch identity changed')
+        guard=release_guard(path).name
+        # A durable second blocking name covers capture, verification and sync.
+        os.link(path.name,guard,src_dir_fd=parent,dst_dir_fd=parent,follow_symlinks=False)
+        if not matches(os.stat(guard,dir_fd=parent,follow_symlinks=False)):
+            raise ValueError('package latch changed before release guard')
         os.fsync(parent)
+        retired='.'+path.name+'.retired-'+uuid.uuid4().hex
+        reserve=os.open(retired,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC,0o600,dir_fd=parent)
+        os.close(reserve)
+        # Capture first, then validate the captured inode. Never unlink the
+        # original pathname after a stat: it might now name another transaction.
+        os.rename(path.name,retired,src_dir_fd=parent,dst_dir_fd=parent);moved=True
+        if not matches(os.stat(retired,dir_fd=parent,follow_symlinks=False)):
+            raise ValueError('package latch changed during release capture')
+        os.fsync(parent)
+        try:os.stat(path.name,dir_fd=parent,follow_symlinks=False)
+        except FileNotFoundError:pass
+        else:raise ValueError('new package latch appeared during release')
+        # Final namespace change: no subsequent fsync can fail after admission
+        # opens. A crash may resurrect this guard, which conservatively blocks.
+        os.unlink(guard,dir_fd=parent)
+    except BaseException:
+        if moved:
+            # NOREPLACE hard links preserve both a newly installed latch and
+            # the captured inode. The already-synced guard also blocks if a
+            # filesystem error prevents restoring the original name.
+            for destination in (path.name,release_guard(path).name):
+                try:os.link(retired,destination,src_dir_fd=parent,dst_dir_fd=parent,follow_symlinks=False)
+                except OSError:pass
+        raise
     finally:
         os.close(parent)
 

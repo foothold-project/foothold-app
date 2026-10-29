@@ -185,3 +185,19 @@ def test_package_transaction_latch_blocks_new_session(tmp_path, monkeypatch):
         DeploymentLease(tmp_path).acquire()
     assert not (tmp_path / 'state/unproven').exists()
     assert contender(tmp_path) == 0
+
+
+def test_package_release_barrier_blocks_without_original_name(tmp_path,monkeypatch):
+    from pathlib import Path
+    marker=Path('/var/lib/foothold/sim-packages-unproven.release-pending')
+    original=Path.exists
+    monkeypatch.setattr(Path,'exists',lambda path:True if path==marker else original(path))
+    with pytest.raises(RuntimeError,match='package'):DeploymentLease(tmp_path).acquire()
+    assert not (tmp_path/'state/unproven').exists()
+
+
+def test_setup_release_barrier_blocks_without_original_name(tmp_path):
+    (tmp_path/'state').mkdir();(tmp_path/'deploy.lock').touch()
+    (tmp_path/'setup-unproven.release-pending').touch()
+    with pytest.raises(RuntimeError):DeploymentLease(tmp_path).acquire()
+    assert not (tmp_path/'state/unproven').exists()

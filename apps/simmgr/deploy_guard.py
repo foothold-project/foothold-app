@@ -16,7 +16,8 @@ class DeploymentLease:
             from .proc_proof import processes
             processes()  # host package fence must be proven, not inferred in chroot
         packages = Path('/var/lib/foothold/sim-packages-unproven')
-        if packages.exists() or packages.is_symlink():
+        package_pending=packages.with_name(packages.name+'.release-pending')
+        if packages.exists() or packages.is_symlink() or package_pending.exists() or package_pending.is_symlink():
             raise RuntimeError('package transaction unproven')
         # Root owns the parent and lock inode. Runtime can only write state/.
         self.fd = os.open(self.directory / 'deploy.lock', os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
@@ -25,7 +26,8 @@ class DeploymentLease:
             if 'FH_SIM_ROOTFS_LOCK' in os.environ:
                 processes()  # recheck after locking against a root preparation race
             setup = self.directory / 'setup-unproven'
-            if setup.exists() or setup.is_symlink():
+            setup_pending=setup.with_name(setup.name+'.release-pending')
+            if setup.exists() or setup.is_symlink() or setup_pending.exists() or setup_pending.is_symlink():
                 raise RuntimeError('initial activation unproven')
             fd = os.open(self.directory / 'state/unproven', os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             os.close(fd)

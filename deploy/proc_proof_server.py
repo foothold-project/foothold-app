@@ -14,6 +14,7 @@ import time
 
 MAX_REPLY=4*1024*1024
 FIELDS=frozenset(('pid','ppid','start_ticks','cgroup','domain','partition'))
+LATCH_RELEASE_PROTOCOL=2
 PACKAGE_LATCH=Path('/var/lib/foothold/sim-packages-unproven')
 ROOTFS_CONFIG=Path('/etc/foothold-sim/rootfs-runtime.json')
 ROOTFS_PREFIX=Path('/opt/foothold-sim/rootfs')
@@ -21,9 +22,10 @@ ROOTFS_VALIDATION=Path('/var/lib/foothold-sim/rootfs-validation.json')
 
 
 def package_fence():
-    try:PACKAGE_LATCH.lstat()
-    except FileNotFoundError:return
-    raise ValueError('host package preparation unproven')
+    for path in (PACKAGE_LATCH,PACKAGE_LATCH.with_name(PACKAGE_LATCH.name+'.release-pending')):
+        try:path.lstat()
+        except FileNotFoundError:continue
+        raise ValueError('host package preparation unproven')
 
 
 def private_document(path,mode):

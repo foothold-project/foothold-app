@@ -4,7 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import pytest
 from deploy import rootfs_build as b,rootfs_config as cfg
 
@@ -118,7 +118,7 @@ def test_failed_or_changed_host_transaction_records_after_and_never_clears_latch
     monkeypatch.setattr(b.shared,'clear_install_latch',lambda value:clear.append(value))
     monkeypatch.setattr(b.shared,'snapshot',lambda:{'usr':'same'})
     def failed(before):raise ValueError('archive escape')
-    def persist(before,after,error):proofs.append((before,after,type(error).__name__ if error else None))
+    def persist(before,after,error,pending):proofs.append((before,after,type(error).__name__ if error else None))
     with pytest.raises(ValueError,match='archive escape'):b.audited(failed,persist)
     assert marker.read_text()=='pending' and not clear and proofs==[({'usr':'same'},{'usr':'same'},'ValueError')]
     snapshots=iter([{'usr':'same'},{'usr':'changed'}])
@@ -335,3 +335,13 @@ def test_build_archive_refusal_carries_package_filename_and_member(tmp_path,monk
     monkeypatch.setattr(b,'deb_stream',stream)
     with pytest.raises(b.archive.ArchiveError) as caught:b.build({},tmp_path,tmp_path)
     assert 'fixture (fixture_1_all.deb)' in str(caught.value) and '/outside' in str(caught.value)
+
+
+def test_after_audit_failure_still_binds_error_to_retained_latch(monkeypatch):
+    before={'usr':'same'};records=[];clear=[]
+    monkeypatch.setattr(b.shared,'snapshot',Mock(side_effect=[before,OSError('audit unavailable')]))
+    monkeypatch.setattr(b.shared,'create_install_latch',lambda:(17,29))
+    monkeypatch.setattr(b.shared,'clear_install_latch',lambda value:clear.append(value))
+    def persist(first,after,error,identity):records.append((first,after,type(error).__name__,identity))
+    with pytest.raises(ValueError,match='identity changed'):b.audited(lambda _:None,persist)
+    assert records==[(before,None,'OSError',(17,29))] and clear==[]

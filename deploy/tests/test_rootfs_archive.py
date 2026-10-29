@@ -131,3 +131,10 @@ def test_refusal_identifies_package_member_and_link_target_without_raw_controls(
     assert error.target=='bad\nname'
     assert 'fixture_1_all.deb' in str(error) and 'usr/lib/unit' in str(error) and '\\n' in str(error)
     assert '\n' not in str(error)
+
+
+def test_graph_canonical_alias_keeps_original_link_provenance():
+    data=archive([('./opt/alias','link','/usr/lib'),('./opt/alias/unit','link','../../../../outside')])
+    with pytest.raises(a.ArchiveError) as caught:a.graph({'fixture':a.scan(io.BytesIO(data),source='fixture (fixture_1_all.deb)')})
+    assert caught.value.source=='fixture (fixture_1_all.deb)'
+    assert caught.value.member=='./opt/alias/unit' and caught.value.target=='../../../../outside'

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Shared only by trusted, root-owned deployment scripts.
+FH_LATCH_RELEASE_PROTOCOL=2
 FH_DEPLOY_TOOLS_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 valid_sha() { [[ ${1:-} =~ ^[0-9a-f]{40}$ ]]; }
 valid_site() { [[ ${1:-} =~ ^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$ && $1 == *.* && $1 != *..* ]]; }
@@ -62,7 +63,7 @@ configure_repo_transport() {
 # holds a shared lock from pre-creation through full cleanup of each session.
 take_sim_deploy_guard() {
     local target=$1 guard=${2:-/var/lib/foothold-sim/guard} packages=${3:-/var/lib/foothold/sim-packages-unproven}
-    [[ ! -e $packages && ! -L $packages ]] || return 1
+    [[ ! -e $packages && ! -L $packages && ! -e $packages.release-pending && ! -L $packages.release-pending ]] || return 1
     [[ -e $guard || -L $guard ]] || return 0
     [[ -d $guard/state && ! -L $guard/state && -d $guard && ! -L $guard && -f $guard/deploy.lock && ! -L $guard/deploy.lock ]] || return 1
     if [[ ${FH_SIM_DEPLOY_LOCK_HELD:-} == 1 && /proc/self/fd/8 -ef $guard/deploy.lock ]]; then
@@ -72,7 +73,7 @@ take_sim_deploy_guard() {
         flock -xn 8 || return 1
     fi
     export FH_SIM_DEPLOY_LOCK_HELD=1
-    [[ ! -e $guard/state/unproven && ! -L $guard/state/unproven && ! -e $guard/setup-unproven && ! -L $guard/setup-unproven ]] || return 1
+    [[ ! -e $guard/state/unproven && ! -L $guard/state/unproven && ! -e $guard/setup-unproven && ! -L $guard/setup-unproven && ! -e $guard/setup-unproven.release-pending && ! -L $guard/setup-unproven.release-pending ]] || return 1
     valid_sha "$target"
 }
 

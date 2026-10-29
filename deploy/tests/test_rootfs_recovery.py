@@ -55,12 +55,13 @@ def failed(tmp_path,monkeypatch):
     monkeypatch.setattr(b,'ROOT',root.parent);monkeypatch.setattr(b,'INSTALL_LATCH',latch)
     monkeypatch.setattr(b.planner,'DEPLOY_LOCK',lock);monkeypatch.setattr(b.planner,'GUARD',tmp_path/'guard')
     observation=Mock(return_value=audit);monkeypatch.setattr(b.shared,'snapshot',observation)
+    real_build=b.build
     monkeypatch.setattr(b,'build',Mock(side_effect=AssertionError('recovery must never build')))
     monkeypatch.setattr(b,'download',Mock(side_effect=AssertionError('recovery must never download')))
     def recover(**changes):
         values=dict(recipe_path=source,expected=key,failed_operation='build',device=identity[0],inode=identity[1],audit_sha=b.digest(audit));values.update(changes)
         return b.recover_latch(**values)
-    return dict(root=root,key=key,source=source,recipe=recipe,audit=audit,save=save,latch=latch,identity=identity,lock=lock,observation=observation,recover=recover)
+    return dict(root=root,key=key,source=source,recipe=recipe,audit=audit,save=save,latch=latch,identity=identity,lock=lock,observation=observation,recover=recover,real_build=real_build)
 
 
 def test_equal_audits_release_only_explicit_inode_and_preserve_failed_files(failed):
@@ -165,3 +166,151 @@ def test_non_root_recovery_cannot_observe_or_clear(failed,monkeypatch):
     monkeypatch.setattr(b.os,'geteuid',lambda:1000)
     with pytest.raises(ValueError,match='server root only'):failed['recover']()
     assert failed['latch'].exists();failed['observation'].assert_not_called()
+
+
+def test_final_parent_sync_failure_preserves_a_blocking_name(failed,monkeypatch):
+    import stat
+    from deploy import install_sim_packages as package
+    original_sync=os.fsync
+    def sync(fd):
+        if stat.S_ISDIR(os.fstat(fd).st_mode) and not os.path.lexists(failed['latch']):
+            raise OSError('last parent fsync failed')
+        return original_sync(fd)
+    monkeypatch.setattr(os,'fsync',sync)
+    with pytest.raises(OSError,match='last parent fsync'):failed['recover']()
+    assert failed['latch'].stat().st_ino==failed['identity'][1]
+    guard=package.release_guard(failed['latch']);assert guard.exists()
+    # The extra barrier alone also refuses admission when rollback cannot put
+    # the original name back; this removes only a synthetic test file.
+    failed['latch'].unlink()
+    with pytest.raises(ValueError,match='unproven'):package.ensure_no_install_latch(failed['latch'])
+
+
+def test_last_stat_swap_never_unlinks_the_new_latch(failed,monkeypatch):
+    original=os.stat;replacement=failed['latch'].with_name('new-transaction')
+    replacement.write_bytes(b'package-transaction-pending\n');replacement.chmod(0o600)
+    new_inode=replacement.stat().st_ino;swapped=[]
+    def swap(path,*args,**kwargs):
+        info=original(path,*args,**kwargs)
+        if path==failed['latch'].name and kwargs.get('dir_fd') is not None and not swapped:
+            swapped.append(True);replacement.replace(failed['latch'])
+        return info
+    monkeypatch.setattr(os,'stat',swap)
+    with pytest.raises(ValueError,match='changed'):failed['recover']()
+    assert swapped and failed['latch'].stat().st_ino==new_inode
+    assert failed['latch'].read_bytes()==b'package-transaction-pending\n'
+
+
+def test_swap_at_atomic_capture_restores_foreign_inode_without_removal(failed,monkeypatch):
+    original=os.rename;replacement=failed['latch'].with_name('new-transaction')
+    replacement.write_bytes(b'package-transaction-pending\n');replacement.chmod(0o600)
+    new_inode=replacement.stat().st_ino
+    def swap(*args,**kwargs):
+        replacement.replace(failed['latch']);return original(*args,**kwargs)
+    monkeypatch.setattr(os,'rename',swap)
+    with pytest.raises(ValueError,match='capture'):failed['recover']()
+    assert failed['latch'].stat().st_ino==new_inode
+
+
+def test_stored_recipe_mismatch_never_observes_or_releases(failed):
+    f=failed;(f['root']/'RECIPE.json').chmod(0o600);f['save'](f['root']/'RECIPE.json',{**f['recipe'],'schema':2},0o400)
+    with pytest.raises(ValueError,match='stored failed recipe differs'):f['recover']()
+    f['observation'].assert_not_called();assert f['latch'].exists()
+
+
+def test_new_failure_latch_binding_must_match_approved_inode(failed):
+    f=failed;f['save'](f['root']/'.archives/build-error.json',dict(type='ArchiveError',latch_device=f['identity'][0],latch_inode=f['identity'][1]+1))
+    with pytest.raises(ValueError,match='another latch'):f['recover']()
+    f['observation'].assert_not_called();assert f['latch'].exists()
+
+
+@pytest.mark.parametrize('kind',['graph','reserved','canonical_reserved'])
+def test_actual_build_cli_and_failure_json_preserve_origin_and_latch(failed,monkeypatch,kind):
+    import io
+    import shutil
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    from deploy import verify_gz_abi
+    from deploy.tests.test_rootfs_archive import archive
+    f=failed
+    if kind=='graph':entries=[('./usr/lib/unit','link','../../../../outside')];member='./usr/lib/unit';target='../../../../outside'
+    elif kind=='reserved':entries=[('./foothold-runtime/surprise','file',b'x')];member='./foothold-runtime/surprise';target=None
+    else:entries=[('./opt/a','link','/.stage'),('./opt/a/member','file',b'x')];member='./opt/a/member';target=None
+    data=archive(entries)
+    shutil.rmtree(f['root']/'.stage');shutil.rmtree(f['root']/'.archives/audit')
+    # Ownership/host observation are synthetic; run/build/scan/graph/persist/CLI
+    # are real, including their control flow and filesystem evidence.
+    monkeypatch.setattr(b,'validate_recipe',lambda _:f['key'])
+    monkeypatch.setattr(b.shared,'ROOT',f['root'].parent)
+    monkeypatch.setattr(b.shared,'ensure_no_install_latch',lambda:None)
+    monkeypatch.setattr(b.shared,'create_install_latch',lambda:f['identity'])
+    clear=Mock();monkeypatch.setattr(b.shared,'clear_install_latch',clear)
+    monkeypatch.setattr(b.shutil,'disk_usage',lambda _:SimpleNamespace(free=21*1024**3))
+    monkeypatch.setattr(b,'build',f['real_build'])
+    monkeypatch.setattr(b,'check_debs',lambda *_:{'fixture':Path('fixture_1_all.deb')})
+    monkeypatch.setattr(verify_gz_abi,'verify',lambda _:None)
+    @contextmanager
+    def stream(*_):yield io.BytesIO(data)
+    monkeypatch.setattr(b,'deb_stream',stream)
+    monkeypatch.setattr(b.resource,'setrlimit',lambda *_:None)
+    with pytest.raises(SystemExit) as caught:b.main(['build',str(f['source']),f['key']])
+    assert 'fixture_1_all.deb' in str(caught.value) and member in str(caught.value)
+    if target:assert target in str(caught.value)
+    error=json.loads((f['root']/'.archives/build-error.json').read_bytes())
+    assert error['type']=='ArchiveError'
+    assert error['archive']=='fixture (fixture_1_all.deb)' and error['member']==member and error['target']==target
+    assert (error['latch_device'],error['latch_inode'])==f['identity']
+    assert not (f['root']/'.stage/tree').exists()
+    assert f['latch'].exists();clear.assert_not_called()
+
+
+def test_recovery_cli_prints_specific_safe_refusal(failed,monkeypatch):
+    f=failed;(f['root']/'RECIPE.json').chmod(0o600);f['save'](f['root']/'RECIPE.json',{**f['recipe'],'schema':2},0o400)
+    monkeypatch.setattr(b.resource,'setrlimit',lambda *_:None)
+    args=['recover-latch',str(f['source']),f['key'],'--failed-operation','build','--latch-device',str(f['identity'][0]),'--latch-inode',str(f['identity'][1]),'--audit-sha256',b.digest(f['audit'])]
+    with pytest.raises(SystemExit,match='recovery refused: stored failed recipe differs'):b.main(args)
+    assert f['latch'].exists();f['observation'].assert_not_called()
+
+
+def test_release_protocol_refuses_mixed_installed_fence_versions(failed,monkeypatch):
+    from deploy import install_sim_packages as package
+    tools=failed['root'].parent/'tools';tools.mkdir(mode=0o700)
+    monkeypatch.setattr(package,'FENCE_TOOLS',tools);monkeypatch.setattr(package,'INSTALL_LATCH',failed['latch'])
+    for name in ('common.sh','sim_control.py','proc_proof_server.py'):
+        path=tools/name;path.write_bytes(Path(package.__file__).with_name(name).read_bytes());path.chmod(0o644)
+    package.require_release_fences(failed['latch'])
+    (tools/'common.sh').write_bytes(b'old fence')
+    with pytest.raises(ValueError,match='reviewed release-pending'):package.clear_install_latch(failed['identity'],failed['latch'])
+    assert failed['latch'].exists()
+    assert not package.release_guard(failed['latch']).exists()
+    # Flat installed-tool packages must reject old readers even when the
+    # comparison source happens to be the installed directory itself.
+    monkeypatch.setattr(package,'__file__',str(tools/'install_sim_packages.py'))
+    with pytest.raises(ValueError,match='reviewed release-pending'):package.require_release_fences(failed['latch'])
+
+
+def test_failed_original_name_rollback_still_leaves_durable_barrier(failed,monkeypatch):
+    import stat
+    from deploy import install_sim_packages as package
+    rename=os.rename;link=os.link;sync=os.fsync;moved=[]
+    def capture(*args,**kwargs):
+        result=rename(*args,**kwargs);moved.append(True);return result
+    def failed_sync(fd):
+        if moved and stat.S_ISDIR(os.fstat(fd).st_mode):raise OSError('directory sync failed')
+        return sync(fd)
+    def failed_rollback(source,destination,*args,**kwargs):
+        if moved and destination==failed['latch'].name:raise OSError('rollback link failed')
+        return link(source,destination,*args,**kwargs)
+    monkeypatch.setattr(os,'rename',capture);monkeypatch.setattr(os,'fsync',failed_sync);monkeypatch.setattr(os,'link',failed_rollback)
+    with pytest.raises(OSError,match='directory sync'):failed['recover']()
+    assert not failed['latch'].exists() and package.release_guard(failed['latch']).exists()
+    with pytest.raises(ValueError,match='unproven'):package.ensure_no_install_latch(failed['latch'])
+
+
+def test_recovery_cli_io_refusal_hides_private_exception_details(failed,monkeypatch):
+    f=failed;f['observation'].side_effect=OSError('private path and secret detail')
+    monkeypatch.setattr(b.resource,'setrlimit',lambda *_:None)
+    args=['recover-latch',str(f['source']),f['key'],'--failed-operation','build','--latch-device',str(f['identity'][0]),'--latch-inode',str(f['identity'][1]),'--audit-sha256',b.digest(f['audit'])]
+    with pytest.raises(SystemExit) as caught:b.main(args)
+    assert 'recovery refused: OSError' in str(caught.value) and 'private path' not in str(caught.value)
+    assert f['latch'].exists()

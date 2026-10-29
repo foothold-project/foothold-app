@@ -24,12 +24,13 @@ from urllib.request import build_opener, HTTPSHandler, HTTPRedirectHandler
 import zipfile
 
 from . import sim_sysroot as shared, rootfs_plan as planner, rootfs_archive as archive
-from .install_sim_packages import INSTALL_LATCH
+from .install_sim_packages import INSTALL_LATCH,LATCH_RELEASE_PROTOCOL
+if LATCH_RELEASE_PROTOCOL!=2:raise ValueError('reviewed latch release protocol required')
 
 ROOT=Path('/opt/foothold-sim/rootfs')
 CONTROL=frozenset(('RECIPE.json','MANIFEST.json','COMPLETE.json','foothold-runtime/identity.json'))
 RESERVED=CONTROL|{'.stage','.archives','foothold-runtime'}
-GENERATOR_FILES=('rootfs_build.py','rootfs_archive.py','rootfs_config.py','rootfs_probe.py','foothold-sim.slice')
+GENERATOR_FILES=('rootfs_build.py','rootfs_archive.py','rootfs_config.py','rootfs_probe.py','foothold-sim.slice','install_sim_packages.py')
 
 
 def digest(data):return hashlib.sha256(shared.canonical(data)).hexdigest()
@@ -134,7 +135,8 @@ def recipe_identity(recipe):
     validate_plan(recipe['apt_plan']);validate_wheels(recipe['wheels'])
     from .rootfs_config import validate_config
     validate_config(recipe['config'])
-    if (not isinstance(recipe['generators'],dict) or set(recipe['generators'])!=set(generators())
+    keys=set(generators())
+    if (not isinstance(recipe['generators'],dict) or set(recipe['generators']) not in (keys,keys-{'install_sim_packages.py'})
             or any(not isinstance(value,str) or not shared.HASH.fullmatch(value)
                    for value in recipe['generators'].values())):
         raise ValueError('invalid historical generator identity')
@@ -334,10 +336,10 @@ def build(recipe,root,work):
         with deb_stream(path,work) as stream:
             rows[key]=archive.scan(stream,source=f'{key} ({path.name})')
         for row in rows[key]:
-            if row['path'].split('/')[0] in RESERVED:raise ValueError('archive replaces generated namespace')
+            if row['path'].split('/')[0] in RESERVED:archive.refuse(row,'archive replaces generated namespace')
     _,canonical=archive.graph(rows)
-    if any(path.split('/')[0] in RESERVED for path in canonical):
-        raise ValueError('canonical archive path replaces generated namespace')
+    for path,row in canonical.items():
+        if path.split('/')[0] in RESERVED:archive.refuse(row,'canonical archive path replaces generated namespace')
     tree=work/'tree';tree.mkdir(mode=0o700)
     archive.merge(tree,rows,lambda key:deb_stream(debs[key],work))
     check_debs(recipe,root/'.archives/debs')  # archives unchanged across both passes
@@ -355,8 +357,11 @@ def audited(action,persist):
     before=shared.snapshot();pending=shared.create_install_latch();error=None
     try:action(before)
     except BaseException as caught:error=caught
-    after=shared.snapshot()
-    persist(before,after,error)  # after evidence precedes comparison, even on failure
+    try:after=shared.snapshot()
+    except BaseException as audit_error:
+        after=None
+        if error is None:error=audit_error
+    persist(before,after,error,pending)  # bind failure evidence to its own latch
     shared.verify_host_unchanged(before,after)
     if error is not None:raise error
     shared.clear_install_latch(pending)
@@ -423,6 +428,8 @@ def recover_latch(recipe_path,expected,failed_operation,device,inode,audit_sha):
             error=private_json(evidence/(failed_operation+'-error.json'))
             if not isinstance(error,dict) or not isinstance(error.get('type'),str) or not error['type']:
                 raise ValueError('recorded failed operation required')
+            if ('latch_device' in error or 'latch_inode' in error) and (error.get('latch_device'),error.get('latch_inode'))!=identity:
+                raise ValueError('recorded failure belongs to another latch identity')
             if digest(before)!=audit_sha or digest(after)!=audit_sha:
                 raise ValueError('recorded failure audit differs from approved digest')
             shared.verify_host_unchanged(before,after)
@@ -479,11 +486,14 @@ def run(operation,recipe_path,expected):
                 (archive_dir/'build-before.json').write_bytes(shared.canonical(before))
                 build(recipe,root,work)
             else:raise ValueError('invalid rootfs operation')
-        def persist(before,after,error):
+        def persist(before,after,error,pending):
             evidence=root/'.archives' if (root/'.archives').is_dir() else root
             (evidence/(operation+'-after.json')).write_bytes(shared.canonical(after))
+            if error is None:
+                try:shared.verify_host_unchanged(before,after)
+                except ValueError as audit_error:error=audit_error
             if error is not None:
-                details=dict(type=type(error).__name__)
+                details=dict(type=type(error).__name__,latch_device=pending[0],latch_inode=pending[1])
                 if isinstance(error,ValueError):details['reason']=str(error)
                 if isinstance(error,archive.ArchiveError):
                     details.update(archive=error.source,member=error.member,target=error.target)
@@ -498,7 +508,8 @@ def run(operation,recipe_path,expected):
         print('Rootfs '+operation+' complete recipe='+recipe_sha+' host_unchanged=true; runtime not activated')
 
 
-if __name__=='__main__':
+def main(argv=None):
+    args=None
     try:
         parser=argparse.ArgumentParser(description=__doc__)
         parser.add_argument('operation',choices=('download','build','recover-latch'))
@@ -506,7 +517,7 @@ if __name__=='__main__':
         parser.add_argument('--failed-operation',choices=('download','build'))
         parser.add_argument('--latch-device',type=int);parser.add_argument('--latch-inode',type=int)
         parser.add_argument('--audit-sha256')
-        args=parser.parse_args()
+        args=parser.parse_args(argv)
         recovery=(args.failed_operation,args.latch_device,args.latch_inode,args.audit_sha256)
         if args.operation=='recover-latch' and any(value is None for value in recovery):
             parser.error('recover-latch requires --failed-operation, --latch-device, --latch-inode and --audit-sha256')
@@ -523,4 +534,10 @@ if __name__=='__main__':
         if isinstance(error,SystemExit) and error.code in (0,None):raise
         if isinstance(error,archive.ArchiveError):
             raise SystemExit(str(error)+'; retain recipe/latch/evidence and escalate') from None
+        if args is not None and args.operation=='recover-latch':
+            reason=str(error) if isinstance(error,ValueError) else type(error).__name__
+            raise SystemExit('Rootfs recovery refused: '+reason+'; retain latch/evidence and escalate') from None
         raise SystemExit('Rootfs build refused; retain recipe/latch/evidence and escalate') from None
+
+
+if __name__=='__main__':main()

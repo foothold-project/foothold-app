@@ -24,6 +24,12 @@ flock -u 7
 touch "$work/packages-unproven"
 if (take_sim_deploy_guard "$sha" "$work/absent" "$work/packages-unproven"); then exit 1; fi
 rm "$work/packages-unproven"
+touch "$work/packages-unproven.release-pending"
+if (take_sim_deploy_guard "$sha" "$work/absent" "$work/packages-unproven"); then exit 1; fi
+rm "$work/packages-unproven.release-pending"
+touch "$work/guard/setup-unproven.release-pending"
+if (take_sim_deploy_guard "$sha" "$work/guard"); then exit 1; fi
+rm "$work/guard/setup-unproven.release-pending"
 # Parent's guard fd must be inherited without deadlocking/replacing its inode.
 (take_sim_deploy_guard "$sha" "$work/guard"
  bash -c 'source "$1"; take_sim_deploy_guard "$2" "$3" ' bash "$(dirname "$0")/../common.sh" "$sha" "$work/guard")
