@@ -12,6 +12,9 @@ class DeploymentLease:
     def acquire(self):
         if self.directory is None or self.fd is not None:
             return
+        if 'FH_SIM_ROOTFS_LOCK' in os.environ:
+            from .proc_proof import processes
+            processes()  # host package fence must be proven, not inferred in chroot
         packages = Path('/var/lib/foothold/sim-packages-unproven')
         if packages.exists() or packages.is_symlink():
             raise RuntimeError('package transaction unproven')
@@ -19,6 +22,8 @@ class DeploymentLease:
         self.fd = os.open(self.directory / 'deploy.lock', os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
             fcntl.flock(self.fd, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            if 'FH_SIM_ROOTFS_LOCK' in os.environ:
+                processes()  # recheck after locking against a root preparation race
             setup = self.directory / 'setup-unproven'
             if setup.exists() or setup.is_symlink():
                 raise RuntimeError('initial activation unproven')

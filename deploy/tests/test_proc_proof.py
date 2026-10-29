@@ -157,3 +157,43 @@ def test_client_authenticated_transport_and_failure(change):
         if change=='valid':assert client.processes()==([dict(row(),comm='')],0)
         else:
             with pytest.raises(RuntimeError,match='retain slot lock'):client.processes()
+
+
+def test_host_package_marker_blocks_before_reader_and_when_created_during_snapshot(tmp_path,monkeypatch):
+    marker=tmp_path/'package-pending';monkeypatch.setattr(server,'PACKAGE_LATCH',marker)
+    class Connection:
+        def settimeout(self,value):pass
+        def getsockopt(self,*args):return struct.pack('3i',42,0,0)
+        def recv(self,size):return json.dumps(dict(v=1,nonce=NONCE)).encode()+b'\n'
+        def sendall(self,data):pytest.fail('must not return a complete proof')
+    marker.touch()
+    with pytest.raises(ValueError,match='host package'):
+        server.serve(Connection(),12345,lambda:pytest.fail('reader must not run'))
+    marker.unlink()
+    def reader():marker.touch();return [row()],0
+    with pytest.raises(ValueError,match='host package'):server.serve(Connection(),12345,reader)
+
+
+def test_rootfs_v2_cannot_downgrade_or_use_different_manifest():
+    binding=dict(recipe_sha256='a'*64,manifest_sha256='b'*64)
+    document=body();document.update(v=2,**binding)
+    assert client.validate(document,NONCE,10,40,binding)==([dict(row(),comm='')],0)
+    for change in ('downgrade','recipe','manifest','missing'):
+        bad=dict(document)
+        if change=='downgrade':bad['v']=1
+        if change=='recipe':bad['recipe_sha256']='c'*64
+        if change=='manifest':bad['manifest_sha256']='c'*64
+        if change=='missing':del bad['manifest_sha256']
+        with pytest.raises(ValueError):client.validate(bad,NONCE,10,40,binding)
+
+
+def test_v2_rootfs_seal_failure_never_calls_process_reader(monkeypatch):
+    class Connection:
+        def settimeout(self,value):pass
+        def getsockopt(self,*args):return struct.pack('3i',42,0,0)
+        def recv(self,size):return json.dumps(dict(v=2,nonce=NONCE,recipe_sha256='a'*64)).encode()+b'\n'
+    monkeypatch.setattr(server,'package_fence',lambda:None)
+    def reject(recipe):raise ValueError('manifest absent')
+    monkeypatch.setattr(server,'rootfs_binding',reject)
+    with pytest.raises(ValueError,match='manifest absent'):
+        server.serve(Connection(),12345,lambda:pytest.fail('reader must not run'))

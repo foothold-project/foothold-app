@@ -8,6 +8,8 @@ import stat
 import subprocess
 import sys
 import time
+import importlib
+import types
 from urllib.parse import urlencode
 from urllib.request import Request, ProxyHandler, build_opener
 from uuid import UUID
@@ -16,6 +18,20 @@ GUARD = Path('/var/lib/foothold-sim/guard')
 PACKAGE_LATCH = Path('/var/lib/foothold/sim-packages-unproven')
 CURRENT = Path('/opt/foothold/current')
 UNIT = 'foothold-simmgr.service'
+ROOTFS_CONFIG = Path('/etc/foothold-sim/rootfs-runtime.json')
+
+
+def rootfs_runtime():
+    if __package__:
+        return importlib.import_module('.rootfs_runtime',__package__)
+    # The reviewed root-owned tools directory is not named as a Python package.
+    # Give its relative imports a private package, never a runtime/user path.
+    name='_foothold_deploy_tools'
+    if name not in sys.modules:
+        package=types.ModuleType(name)
+        package.__path__=[str(Path(__file__).resolve().parent)]
+        sys.modules[name]=package
+    return importlib.import_module(name+'.rootfs_runtime')
 
 
 def userctl(*args):
@@ -70,7 +86,7 @@ def ready():
         raise ValueError('native-single manager required')
 
 
-def stop():
+def stop_manager():
     no_latch()
     before = state()
     if before.get('LoadState') != 'loaded' or before.get('ActiveState') not in ('active', 'inactive', 'failed'):
@@ -95,14 +111,15 @@ def stop():
 
 
 def same_release(pid):
+    if ROOTFS_CONFIG.exists() or ROOTFS_CONFIG.is_symlink():
+        runtime=rootfs_runtime()
+        return runtime.attest(pid,runtime.load())
     return Path(f'/proc/{pid}/cwd').resolve(strict=True) == CURRENT.resolve(strict=True)
 
 
-def start():
-    no_latch()
+def start_manager():
     # The user unit's fixed WorkingDirectory/ExecStart/PYTHONPATH all use current.
     # Stop first, even on rollback, to avoid adopting an older live manager.
-    stop()
     userctl('start', UNIT)
     for attempt in range(30):
         try:
@@ -117,6 +134,21 @@ def start():
             pass
         time.sleep(1)
     raise ValueError('simulation manager readiness failed')
+
+
+def stop():
+    no_latch()
+    if ROOTFS_CONFIG.exists() or ROOTFS_CONFIG.is_symlink():
+        return rootfs_runtime().stop_pair(stop_manager,userctl)
+    return stop_manager()
+
+
+def start():
+    no_latch()
+    if ROOTFS_CONFIG.exists() or ROOTFS_CONFIG.is_symlink():
+        return rootfs_runtime().start_pair(start_manager)
+    stop()
+    return start_manager()
 
 
 if __name__ == '__main__':

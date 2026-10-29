@@ -94,7 +94,12 @@ def preflight(folder):
     (folder / 'ps-before.txt').write_text(command('ps', '-eo', 'pid,ppid,lstart,comm'))
     (folder / 'free-before.txt').write_text(command('free', '-m'))
     (folder / 'vmstat-before.txt').write_text(command('vmstat', '1', '3'))
-    (folder / 'gpu-before.txt').write_text(command('nvidia-smi', '--query-gpu=memory.total,memory.used,memory.free,utilization.gpu', '--format=csv'))
+    if 'FH_SIM_ROOTFS_LOCK' in os.environ:
+        from apps.simmgr.rootfs_environment import binding,load
+        binding();load(os.environ)  # verified software profile, never a host GPU shim
+        (folder / 'gpu-before.txt').write_text('RootDirectory CPU llvmpipe; GPU devices/libraries are not bound.\n')
+    else:
+        (folder / 'gpu-before.txt').write_text(command('nvidia-smi', '--query-gpu=memory.total,memory.used,memory.free,utilization.gpu', '--format=csv'))
     if value['domain93'] or used:
         raise RuntimeError('domain 93 / candidate DDS UDP ports already in use')
     if value['mem_available_mib'] < 2500 or value['load1'] > 9:

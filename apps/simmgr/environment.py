@@ -20,8 +20,14 @@ def child_environment(domain, env=None):
         raise ValueError('simulation domain must be 93')
     child = {name: env[name] for name in BASE_KEYS if name in env}
     child.setdefault('PATH', os.defpath)
+    from .rootfs_environment import load as rootfs_load
     from .sysroot_environment import load
-    child.update(load(env))
+    if 'FH_SIM_ROOTFS_LOCK' in env:
+        child.update(rootfs_load(env))
+        child['FH_SIM_ROOTFS_LOCK']=env['FH_SIM_ROOTFS_LOCK']
+        child['FH_SIM_PROC_PROOF_SOCKET']='/run/foothold-sim-proof.sock'
+    else:
+        child.update(load(env))
     if 'FH_SIM_NATIVE_PYTHON_DIR' in env:
         if env['FH_SIM_NATIVE_PYTHON_DIR'] != '/opt/foothold-sim/python-vendor':
             raise ValueError('unapproved native Python vendor path')

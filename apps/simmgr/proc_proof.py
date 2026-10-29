@@ -15,14 +15,18 @@ MAX_REPLY=4*1024*1024
 FIELDS=frozenset(('pid','ppid','start_ticks','cgroup','domain','partition'))
 
 
-def validate(body,nonce,begin,end):
+def validate(body,nonce,begin,end,binding=None):
     expected={'v','nonce','started_ns','finished_ns','complete','denied','rows'}
-    if (not isinstance(body,dict) or set(body)!=expected or type(body['v']) is not int or body['v']!=1
+    version=2 if binding is not None else 1
+    if binding is not None:expected|={'recipe_sha256','manifest_sha256'}
+    if (not isinstance(body,dict) or set(body)!=expected or type(body['v']) is not int or body['v']!=version
             or body['nonce']!=nonce or body['complete'] is not True or type(body['denied']) is not int or body['denied']!=0
             or type(body['started_ns']) is not int or type(body['finished_ns']) is not int
             or not begin<=body['started_ns']<=body['finished_ns']<=end
             or not isinstance(body['rows'],list) or len(body['rows'])>8192):
         raise ValueError('OS snapshot incomplete, stale or unbound')
+    if binding is not None and any(body.get(key)!=binding[key] for key in ('recipe_sha256','manifest_sha256')):
+        raise ValueError('rootfs OS proof differs from immutable identity')
     seen=set();result=[]
     for row in body['rows']:
         if (not isinstance(row,dict) or set(row)!=FIELDS
@@ -40,6 +44,8 @@ def validate(body,nonce,begin,end):
 
 def processes():
     try:
+        from .rootfs_environment import binding as rootfs_binding
+        binding=rootfs_binding()
         info=SOCKET.lstat()
         group=grp.getgrnam('foothold-sim').gr_gid
         if not stat.S_ISSOCK(info.st_mode) or info.st_uid!=0 or info.st_gid!=group or stat.S_IMODE(info.st_mode)!=0o660:
@@ -50,7 +56,9 @@ def processes():
             connection.connect(str(SOCKET))
             pid,uid,gid=struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
             if uid!=0:raise ValueError('OS proof server must be root')
-            connection.sendall(json.dumps(dict(v=1,nonce=nonce)).encode()+b'\n')
+            request=dict(v=2 if binding is not None else 1,nonce=nonce)
+            if binding is not None:request['recipe_sha256']=binding['recipe_sha256']
+            connection.sendall(json.dumps(request).encode()+b'\n')
             response=b''
             while b'\n' not in response:
                 chunk=connection.recv(min(65536,MAX_REPLY+1-len(response)))
@@ -59,6 +67,6 @@ def processes():
                 if len(response)>MAX_REPLY:raise ValueError('OS proof response too large')
             first,remainder=response.split(b'\n',1)
             if remainder:raise ValueError('OS proof response framing invalid')
-            return validate(json.loads(first),nonce,begin,time.monotonic_ns())
+            return validate(json.loads(first),nonce,begin,time.monotonic_ns(),binding)
     except Exception:
         raise RuntimeError('OS isolation proof unavailable; retain slot lock') from None
