@@ -150,3 +150,29 @@ def test_probe_checks_native_geometry_pin_and_origin(version,origin,accepted,mon
     if accepted:rootfs_probe.native_geometry()
     else:
         with pytest.raises(ValueError,match='geometry version/origin'):rootfs_probe.native_geometry()
+
+
+def test_probe_pins_runtime_dir_dependency_and_never_starts_user_manager(tmp_path,monkeypatch):
+    import json
+    value=data();value.update(plugin_rel='gz/plugin.so',policy_rel='policy.npz')
+    for name in ('inactive_namespace','assets','private_settings'):
+        monkeypatch.setattr(r,name,lambda *_:None)
+    monkeypatch.setattr(r,'load',lambda:value)
+    monkeypatch.setattr(r,'identity',lambda value:(23456,23456))
+    monkeypatch.setattr(r.build,'verify',lambda *_:None)
+    monkeypatch.setattr(r,'rootfs',lambda value:tmp_path)
+    monkeypatch.setattr(r,'VALIDATION',tmp_path/'validation.json')
+    monkeypatch.setattr(r,'CURRENT',SimpleNamespace(resolve=lambda **kwargs:Path('/opt/foothold/releases')/('e'*40)))
+    result=dict(recipe_sha256=value['recipe_sha256'],manifest_sha256=value['manifest_sha256'],
+        llvmpipe=True,egl_render_readback=True,python_closure=True,native_abi=True,root_attested=True)
+    calls=[]
+    def run(args):
+        calls.append(args)
+        return json.dumps(result) if args[0]=='systemd-run' else ''
+    monkeypatch.setattr(r,'run',run);saved=Mock();monkeypatch.setattr(r,'atomic',saved)
+    r.probe()
+    command=next(args for args in calls if args[0]=='systemd-run')
+    assert '--property=Requires=user-runtime-dir@23456.service' in command
+    assert '--property=After=user-runtime-dir@23456.service' in command
+    assert not any('user@23456.service' in arg for args in calls for arg in args)
+    saved.assert_called_once()

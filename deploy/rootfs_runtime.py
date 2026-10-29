@@ -338,13 +338,12 @@ def probe():
     build.verify(rootfs(data),data['recipe_sha256']);assets(data);private_settings(data)
     if VALIDATION.exists() or VALIDATION.is_symlink():raise ValueError('validation already exists; no automatic probe retry')
     run(['systemctl','daemon-reload'])
-    # user-runtime-dir is a new dedicated instance, never another UID.
-    run(['systemctl','start','user-runtime-dir@'+str(uid)+'.service'])
     props=properties(data,CURRENT.resolve(strict=True),proof=False)
     for key in ('Restart','Environment'):props.pop(key)
     props.update(User='foothold-sim',Group='foothold-sim',Slice='user-'+str(uid)+'.slice',
         MemoryMax='1500M',MemorySwapMax='0',CPUQuota='200%',TasksMax='256',RuntimeMaxSec='120',
-        KillMode='control-group',TimeoutStopSec='15')
+        KillMode='control-group',TimeoutStopSec='15',
+        Requires='user-runtime-dir@'+str(uid)+'.service',After='user-runtime-dir@'+str(uid)+'.service')
     command=['systemd-run','--quiet','--wait','--collect','--pipe','--unit=foothold-rootfs-probe-'+data['recipe_sha256'][:16]]
     command += ['--property='+key+'='+value for key,value in props.items()]
     source=config.ASSETS+'/'
