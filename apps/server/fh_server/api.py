@@ -134,10 +134,18 @@ def page(db, query, model, limit, cursor, serialize, serialize_many=None):
     return {'items': serialize_many(db, rows) if serialize_many else [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
 
 
-def revoke_user_sessions(db, user, *, clock=phone_pass.time.time):
+def revoke_user_sessions(db, user, *, session=None, clock=phone_pass.time.time):
+    """One organization-locked transaction for session end and durable pass recall.
+
+    Pass metadata is user-scoped, so ending one session conservatively recalls
+    every pass for that user, as logout/admin logout already did.
+    """
     phone_pass.revoke(db, user.org_id, user_id=user.id,clock=clock)
-    db.execute(update(Session).where(Session.org_id == user.org_id, Session.user_id == user.id,
-                                    Session.revoked_at.is_(None)).values(revoked_at=now()))
+    query = update(Session).where(Session.org_id == user.org_id, Session.user_id == user.id,
+                                  Session.revoked_at.is_(None))
+    if session is not None:
+        query = query.where(Session.id == session.id)
+    db.execute(query.values(revoked_at=now()))
 
 
 def lock_organization(db, org_id):
@@ -147,6 +155,18 @@ def lock_organization(db, org_id):
     with db.no_autoflush:
         return db.scalar(select(Organization).where(Organization.id == org_id)
                          .with_for_update(key_share=True))
+
+
+def expire_user_sessions(factory, org_id, *, clock=phone_pass.time.time):
+    """End expired web/refresh sessions, retaining app access-token renewal."""
+    with factory.begin() as db:
+        lock_organization(db, org_id)
+        expired = db.scalars(select(Session).where(Session.org_id == org_id,
+            Session.revoked_at.is_(None), or_(
+                (Session.client == 'web') & (Session.expires_at <= now()),
+                (Session.client == 'app') & (Session.refresh_expires_at <= now()))))
+        for session in list(expired):
+            revoke_user_sessions(db, db.get(User, session.user_id), session=session, clock=clock)
 
 
 def protect_last_admin(db, user, values=None, *, archive=False):
@@ -217,6 +237,7 @@ def create_app(settings: Settings | None = None):
                 await asyncio.sleep(1)
                 try:
                     await asyncio.to_thread(issuer.flush_denials,factory,settings.org_id)
+                    await asyncio.to_thread(expire_user_sessions, factory, settings.org_id, clock=issuer.clock)
                 except Exception:
                     # Counters stay durable and retry; never drop a denial silently.
                     continue
@@ -401,6 +422,8 @@ def create_app(settings: Settings | None = None):
     @app.post(prefix + '/auth/refresh', response_model=C.TokenResponse)
     def refresh(body: C.RefreshRequest, db: DB):
         refresh_hash = digest(body.refresh_token)
+        # Match authenticated writes: organization first, then session row.
+        lock_organization(db, settings.org_id)
         session = db.scalar(select(Session).where(Session.org_id == settings.org_id,
             Session.client == 'app', or_(Session.refresh_hash == refresh_hash,
                 Session.retired_refresh_hashes.contains([refresh_hash.hex()])),
@@ -409,7 +432,7 @@ def create_app(settings: Settings | None = None):
         if not user or user.locked or user.archived_at:
             fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
         if session.refresh_hash != refresh_hash:
-            session.revoked_at = now()
+            revoke_user_sessions(db, user, session=session, clock=issuer.clock)
             event(db, user.org_id, 'SESSION_REVOKED', user.id, {'session_id': str(session.id), 'reason': 'REFRESH_REUSED'}, 'WARN')
             db.commit()
             fail(401, 'AUTH_REQUIRED', '다시 로그인하세요.')
@@ -434,8 +457,7 @@ def create_app(settings: Settings | None = None):
     @app.post(prefix + '/auth/logout', status_code=204)
     def logout(response: Response, auth: Identity, db: DB):
         user, session = auth
-        session.revoked_at = now()
-        phone_pass.revoke(db, user.org_id, user_id=user.id,clock=issuer.clock)
+        revoke_user_sessions(db, user, session=session, clock=issuer.clock)
         event(db, user.org_id, 'LOGOUT', user.id)
         response.delete_cookie('fh_s', path='/api/v1', httponly=True, secure=True, samesite='strict')
 
@@ -553,14 +575,13 @@ def create_app(settings: Settings | None = None):
     @app.delete(prefix + '/users/{user_id}/sessions/{session_id}', status_code=204)
     def revoke(user_id: UUID, session_id: UUID, auth: Identity, db: DB):
         actor = auth[0]
-        find_user(db, actor, user_id)
+        user = find_user(db, actor, user_id)
         session = db.scalar(select(Session).where(Session.org_id == actor.org_id,
             Session.user_id == user_id, Session.id == session_id))
         if not session:
             fail(404, 'NOT_FOUND', '기기를 찾을 수 없습니다.')
         if session.revoked_at is None:
-            phone_pass.revoke(db, actor.org_id, user_id=user_id,clock=issuer.clock)
-            session.revoked_at = now()
+            revoke_user_sessions(db, user, session=session, clock=issuer.clock)
             event(db, actor.org_id, 'SESSION_REVOKED', actor.id,
                   {'session_id': str(session_id)})
 

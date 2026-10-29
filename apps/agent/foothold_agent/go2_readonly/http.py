@@ -6,12 +6,17 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import secrets
+import socket
 import threading
 import time
 
 from foothold_agent.discovery import Advertisement
 
 CODE_LIFETIME_S = 1800
+MAX_WORKERS = 16
+MAX_CONNECTIONS_PER_ADDRESS = 4
+REQUEST_DEADLINE_S = 3
+MAX_FAILURE_ADDRESSES = 128
 
 
 @dataclass(frozen=True)
@@ -30,25 +35,97 @@ class Access:
         self.now = now
         self.code = f'{secrets.randbelow(100000000):08d}'
         self.expires = now() + CODE_LIFETIME_S
-        self._failures = deque()
+        self._failures = {}
         self._lock = threading.Lock()
 
-    def authorize(self, code):
+    def authorize(self, code, address='local'):
         with self._lock:
             now = self.now()
-            while self._failures and now - self._failures[0] >= 60:
-                self._failures.popleft()
+            for peer, failures in list(self._failures.items()):
+                while failures and now - failures[0] >= 60:
+                    failures.popleft()
+                if not failures:
+                    del self._failures[peer]
             if now >= self.expires:
                 return 401
-            if len(self._failures) >= 5:
+            failures = self._failures.get(address)
+            if failures and len(failures) >= 5:
                 return 429
             if not hmac.compare_digest(code, self.code):
-                self._failures.append(now)
+                if failures is None:
+                    if len(self._failures) >= MAX_FAILURE_ADDRESSES:
+                        return 429
+                    failures = self._failures[address] = deque()
+                failures.append(now)
                 return 401
             return 200
 
 
-def make_server(address, state, access):
+class BoundedHTTPServer(ThreadingHTTPServer):
+    """Admission before thread/header parsing; deadline covers the entire request."""
+    daemon_threads = True
+    request_queue_size = MAX_WORKERS
+
+    def __init__(self, address, handler, *, max_workers, max_per_address, request_deadline):
+        if max_workers < 1 or max_per_address < 1 or request_deadline <= 0:
+            raise ValueError('positive HTTP resource limits required')
+        self._slots = threading.BoundedSemaphore(max_workers)
+        self._peers = {}
+        self._admission_lock = threading.Lock()
+        self.max_per_address = max_per_address
+        self.request_deadline = request_deadline
+        super().__init__(address, handler)
+
+    def process_request(self, request, client_address):
+        peer = client_address[0]
+        with self._admission_lock:
+            admitted = self._peers.get(peer, 0) < self.max_per_address and self._slots.acquire(False)
+            if admitted:
+                self._peers[peer] = self._peers.get(peer, 0) + 1
+        if not admitted:
+            # No worker or blocking write is allocated for rejected connections.
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self._release(peer)
+            raise
+
+    def _release(self, peer):
+        with self._admission_lock:
+            self._peers[peer] -= 1
+            if not self._peers[peer]:
+                del self._peers[peer]
+            self._slots.release()
+
+    def process_request_thread(self, request, client_address):
+        def expire():
+            try:
+                request.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        deadline = threading.Timer(self.request_deadline, expire)
+        deadline.daemon = True
+        started = False
+        try:
+            deadline.start()
+            started = True
+            super().process_request_thread(request, client_address)
+        finally:
+            deadline.cancel()
+            if started:
+                deadline.join()
+            else:
+                self.shutdown_request(request)
+            self._release(client_address[0])
+
+    def handle_error(self, request, client_address):
+        pass  # timeouts/disconnects must not log client addresses or headers
+
+
+def make_server(address, state, access, *, max_workers=MAX_WORKERS,
+                max_per_address=MAX_CONNECTIONS_PER_ADDRESS, request_deadline=REQUEST_DEADLINE_S):
     class Handler(BaseHTTPRequestHandler):
         # One request per TCP connection. Never keep an unread command body alive.
         timeout = 3
@@ -78,7 +155,7 @@ def make_server(address, state, access):
             code = codes[0] if len(codes) == 1 else ''
             if len(code) != 8 or not code.isascii() or not code.isdigit():
                 code = ''
-            status = access.authorize(code)
+            status = access.authorize(code, self.client_address[0])
             return self.reply(status, state.snapshot() if status == 200 else None)
 
         def do_POST(self):
@@ -86,4 +163,5 @@ def make_server(address, state, access):
 
         do_PUT = do_PATCH = do_DELETE = do_OPTIONS = do_HEAD = do_POST
 
-    return ThreadingHTTPServer(address, Handler)
+    return BoundedHTTPServer(address, Handler, max_workers=max_workers,
+                             max_per_address=max_per_address, request_deadline=request_deadline)
