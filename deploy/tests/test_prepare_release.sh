@@ -15,12 +15,23 @@ printf trusted-nav2 > "$work/source/apps/agent/tools/nav2/marker"
 printf trusted-contracts > "$work/source/apps/contracts/marker"
 printf trusted-deploy > "$work/source/deploy/marker"
 cp "$(dirname "$prepare")/prepare_sim.py" "$work/source/deploy/prepare_sim.py"
+# Only the temporary archived helper uses a tiny, deterministic policy fixture.
+python3 - "$work/source/deploy/prepare_sim.py" <<'PY'
+import hashlib
+from pathlib import Path
+import re
+import sys
+path = Path(sys.argv[1])
+digest = hashlib.sha256(b'fixture-policy').hexdigest()
+path.write_text(re.sub(r'^POLICY_SHA = "[0-9a-f]+"$', f'POLICY_SHA = "{digest}"', path.read_text(), flags=re.M))
+PY
 printf '{}' > "$work/source/apps/web/package.json"
+printf '<html>sim</html>' > "$work/source/mobile/sim/index.html"
 printf '{}' > "$work/source/mobile/sim/maps.json"
 printf placeholder > "$work/source/mobile/sim/assets/test/top.png"
 printf '{"width":100}' > "$work/source/mobile/sim/assets/test/top.json"
 git init -q "$work/source"
-git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker deploy/prepare_sim.py mobile/sim/maps.json mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json
+git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker deploy/prepare_sim.py mobile/sim/index.html mobile/sim/maps.json mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json
 git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm fixture
 sha=$(git -C "$work/source" rev-parse HEAD)
 git clone -q --bare "$work/source" "$work/repo.git"
@@ -34,11 +45,12 @@ if [[ $1 == ci ]]; then [[ $2 == --ignore-scripts ]]; exit; fi
 [[ -s ../../mobile/sim/assets/test/top.png ]]
 [[ $(cat ../../mobile/sim/assets/test/top.json) == '{"width":100}' ]]
 # A malicious build tries to create/modify root-executed code and contracts.
-mkdir -p ../server ../../deploy dist
+mkdir -p ../server ../../deploy dist/sim
 printf tainted-server > ../server/marker
 printf tainted-deploy > ../../deploy/marker
 printf tainted-contracts > ../contracts/marker
 printf '<html>fake build</html>' > dist/index.html
+printf unverified-sim > dist/sim/stale
 [[ ${TEST_LINK:-0} == 0 ]] || ln -s /etc/passwd dist/unsafe
 NPM
 chmod +x "$work/bin/npm"
@@ -51,6 +63,41 @@ tar -xzf "$work/out/$sha.tar.gz" -C "$work/check"
 [[ $(cat "$work/check/apps/agent/tools/nav2/marker") == trusted-nav2 ]]
 [[ $(cat "$work/check/deploy/marker") == trusted-deploy ]]
 rm "$work/out/$sha.tar.gz" "$work/out/$sha.tar.gz.sha256"
+# Wrong policy bytes must not make set -e abort release creation.
+mkdir "$work/wrong-policy"
+printf incorrect-policy > "$work/wrong-policy/policy_v2.f32"
+assert_web_only() {
+    local assets=$1 name=$2
+    (cd "$work/repo.git" && FH_SIM_ASSETS="$assets" PATH="$work/bin:$PATH" bash "$prepare" "$sha" "$work/out") > "$work/$name.log" 2>&1
+    [[ -s $work/out/$sha.tar.gz && -s $work/out/$sha.tar.gz.sha256 ]]
+    mkdir "$work/$name"
+    tar -xzf "$work/out/$sha.tar.gz" -C "$work/$name"
+    [[ -s $work/$name/apps/web/dist/index.html && ! -e $work/$name/apps/web/dist/sim ]]
+    [[ $(grep -c '^WARNING:' "$work/$name.log") == 1 ]]
+    grep -q 'preparing web only (no /sim/)' "$work/$name.log"
+    rm "$work/out/$sha.tar.gz" "$work/out/$sha.tar.gz.sha256"
+}
+assert_web_only "$work/wrong-policy" wrong-policy-result
+# A valid fixture policy with exactly one required runtime file absent has the same fallback.
+python3 - "$work/missing-runtime" <<'PY'
+import json
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+files = {
+    'policy_v2.f32': b'fixture-policy',
+    'vendor/three.module.js': b'three', 'vendor/three.core.js': b'core', 'vendor/LICENSE': b'license',
+    'mujoco/mujoco.js': b'js',
+    'mujoco/package.json': json.dumps({'name': '@mujoco/mujoco', 'version': '3.17.0'}).encode(),
+    'assets/unitree_go2/go2.xml': b'<mujoco/>', 'assets/unitree_go2/LICENSE': b'license',
+}
+for name, data in files.items():
+    path = root / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+assert not (root / 'mujoco/mujoco.wasm').exists()
+PY
+assert_web_only "$work/missing-runtime" missing-runtime-result
 if (cd "$work/repo.git" && TEST_LINK=1 PATH="$work/bin:$PATH" bash "$prepare" "$sha" "$work/out") > "$work/rejected" 2>&1; then
     echo 'Expected symlink dist rejection' >&2; exit 1
 fi
@@ -77,4 +124,4 @@ if (cd "$work/repo.git" && PATH="$work/bin:$PATH" bash "$prepare" "$bad_sha" "$w
     echo 'Expected empty top-view input rejection' >&2; exit 1
 fi
 [[ ! -e $work/out/$bad_sha.tar.gz ]]
-printf 'PASS: bare archive, paired top-view input, pristine trusted code, dist symlink rejection\n'
+printf 'PASS: bare archive, paired top-view input, pristine trusted code, dist symlink rejection, wrong-policy/missing-runtime web-only releases\n'

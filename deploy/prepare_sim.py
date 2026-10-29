@@ -18,6 +18,10 @@ AME2_SHA = {
 MUJOCO_VERSION = "3.17.0"
 
 
+class SimulatorUnavailable(ValueError):
+    """Optional simulator content is missing or differs from the approved export."""
+
+
 def regular(path):
     """Reject linked parents as well as linked leaves and special files."""
     for parent in reversed(path.parents):
@@ -30,7 +34,29 @@ def regular(path):
 
 def verify(path, expected):
     if hashlib.sha256(regular(path).read_bytes()).hexdigest() != expected:
-        raise ValueError("Simulator policy SHA-256 differs from provenance")
+        raise SimulatorUnavailable("Simulator policy SHA-256 differs from provenance")
+
+
+def validate_tree(root, private=False):
+    """Check security boundaries before any content error can trigger fallback."""
+    for directory in (*reversed(root.parents), root):
+        if directory.is_symlink():
+            raise ValueError("Simulator input contains a linked parent")
+        try:
+            info = directory.lstat()
+        except FileNotFoundError:
+            continue
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError("Invalid simulator input directory")
+        if private and os.geteuid() == 0 and (info.st_uid != 0 or info.st_mode & 0o022):
+            raise ValueError("Private simulator ancestors must be root-owned and not writable by others")
+    for path in root.rglob("*"):
+        info = path.lstat()
+        if stat.S_ISDIR(info.st_mode):
+            if private and os.geteuid() == 0 and (info.st_uid != 0 or info.st_mode & 0o022):
+                raise ValueError("Private simulator directories must be root-owned and not writable by others")
+        else:
+            regular(path)
 
 
 def package(source, private, dist):
@@ -40,17 +66,20 @@ def package(source, private, dist):
         if target.is_symlink() or not target.is_dir():
             raise ValueError("Invalid simulator output directory")
         shutil.rmtree(target)
-    policy = private / "policy_v2.f32"
-    if not policy.exists() and not policy.is_symlink():
-        print("WARNING: foothold-v2 policy absent; preparing web only (no /sim/).", file=sys.stderr)
+    validate_tree(source)
+    validate_tree(private, private=True)
+    try:
+        return copy_simulator(source, private, target)
+    except (SimulatorUnavailable, FileNotFoundError, json.JSONDecodeError):
+        # A failed copy must not leave a partial simulator in an otherwise valid web release.
+        if target.exists():
+            shutil.rmtree(target)
+        print("WARNING: simulator assets missing or invalid; preparing web only (no /sim/).", file=sys.stderr)
         return False
-    if private.is_symlink() or not private.is_dir():
-        raise ValueError("Invalid private simulator directory")
-    if os.geteuid() == 0:
-        for directory in (private, *private.parents):
-            info = directory.lstat()
-            if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
-                raise ValueError("Private simulator ancestors must be root-owned and not writable by others")
+
+
+def copy_simulator(source, private, target):
+    policy = private / "policy_v2.f32"
     verify(policy, POLICY_SHA)
     files = [(policy, Path("policy_v2.f32"))]
     # Same external runtime allowlist as mobile/scripts/sync-web.mjs.
@@ -60,24 +89,19 @@ def package(source, private, dist):
     for name in runtime:
         files.append((regular(private / name), Path(name)))
     manifest = json.loads((private / "mujoco/package.json").read_text())
-    if manifest.get("name") != "@mujoco/mujoco" or manifest.get("version") != MUJOCO_VERSION:
-        raise ValueError("MuJoCo must retain the existing pinned version")
+    if not isinstance(manifest, dict) or manifest.get("name") != "@mujoco/mujoco" or manifest.get("version") != MUJOCO_VERSION:
+        raise SimulatorUnavailable("MuJoCo must retain the existing pinned version")
     xml = (private / "assets/unitree_go2/go2.xml").read_text()
-    for mesh in re.findall(r'<mesh file="([\w.]+)"', xml):
-        if mesh in (".", ".."):
+    for mesh in re.findall(r'<mesh file="([^"]+)"', xml):
+        if not re.fullmatch(r"[\w.]+", mesh) or mesh in (".", ".."):
             raise ValueError("Invalid Go2 mesh name")
         name = Path("assets/unitree_go2/assets") / mesh
         files.append((regular(private / name), name))
-    if all((private / name).exists() for name in AME2_SHA):
+    ame2_present = all((private / name).exists() for name in AME2_SHA)
+    if ame2_present:
         for name, digest in AME2_SHA.items():
             verify(private / name, digest)
             files.append((private / name, Path(name)))
-    else:
-        print("WARNING: AME-2 assets absent/incomplete; its existing selector stays disabled.", file=sys.stderr)
-    # Validate every archived map, top-view and script before copying any bytes.
-    for path in source.rglob("*"):
-        if path.is_symlink() or not path.is_dir():
-            regular(path)
     regular(source / "index.html")
     shutil.copytree(source, target)
     for origin, relative in files:
@@ -85,6 +109,8 @@ def package(source, private, dist):
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(origin, destination)
         destination.chmod(0o644)
+    if not ame2_present:
+        print("WARNING: AME-2 assets absent/incomplete; its existing selector stays disabled.", file=sys.stderr)
     print("Prepared /sim/index.html?from=web (existing MuJoCo runtime and verified policies).")
     return True
 

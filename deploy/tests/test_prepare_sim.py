@@ -2,6 +2,7 @@
 import hashlib
 import json
 import mimetypes
+import os
 from pathlib import Path
 
 import pytest
@@ -63,15 +64,29 @@ def test_linked_private_input_rejected(bundle, name):
         prepare_sim.package(*bundle)
 
 
-def test_hash_and_mujoco_version_mismatch_rejected(bundle):
+@pytest.mark.parametrize("name,content", [
+    ("mujoco/package.json", b'{"name":"@mujoco/mujoco","version":"999"}'),
+    ("policy_v2.f32", b"changed"),
+])
+def test_hash_and_mujoco_version_mismatch_keep_web(bundle, capsys, name, content):
     source, private, dist = bundle
-    manifest = private / "mujoco/package.json"
-    manifest.write_text('{"name":"@mujoco/mujoco","version":"999"}')
-    with pytest.raises(ValueError, match="pinned version"):
-        prepare_sim.package(*bundle)
-    (private / "policy_v2.f32").write_bytes(b"changed")
-    with pytest.raises(ValueError, match="SHA-256"):
-        prepare_sim.package(*bundle)
+    (private / name).write_bytes(content)
+    assert not prepare_sim.package(*bundle)
+    assert not (dist / "sim").exists()
+    assert capsys.readouterr().err.count("WARNING:") == 1
+
+
+@pytest.mark.parametrize("name", ["ame2_actor.f32", "ame2_actor.json"])
+def test_wrong_ame2_sha_omits_entire_simulator(bundle, monkeypatch, capsys, name):
+    source, private, dist = bundle
+    digest = hashlib.sha256(b"fixture actor").hexdigest()
+    monkeypatch.setattr(prepare_sim, "AME2_SHA", {file: digest for file in prepare_sim.AME2_SHA})
+    for file in prepare_sim.AME2_SHA:
+        (private / file).write_bytes(b"fixture actor")
+    (private / name).write_bytes(b"different incorrect content")
+    assert not prepare_sim.package(*bundle)
+    assert not (dist / "sim").exists()
+    assert capsys.readouterr().err.count("WARNING:") == 1
 
 
 def test_complete_ame2_pair_verified_and_incomplete_pair_omitted(bundle, monkeypatch):
@@ -92,3 +107,46 @@ def test_archived_map_link_rejected(bundle):
     (source / "linked-map").symlink_to(private, target_is_directory=True)
     with pytest.raises(ValueError, match="regular file"):
         prepare_sim.package(*bundle)
+
+
+@pytest.mark.parametrize("violation", ["fifo", "linked-parent", "mesh-traversal", "output-link", "ownership"])
+def test_security_violations_still_abort(bundle, monkeypatch, violation):
+    source, private, dist = bundle
+    if violation == "fifo":
+        path = private / "mujoco/mujoco.wasm"
+        path.unlink()
+        os.mkfifo(path)
+    elif violation == "linked-parent":
+        (private / "vendor").rename(private / "actual-vendor")
+        (private / "vendor").symlink_to(private / "actual-vendor", target_is_directory=True)
+    elif violation == "mesh-traversal":
+        (private / "assets/unitree_go2/go2.xml").write_text('<mesh file="../outside.obj"/>')
+    elif violation == "output-link":
+        (dist / "sim").symlink_to(source, target_is_directory=True)
+    else:
+        monkeypatch.setattr(prepare_sim.os, "geteuid", lambda: 0)
+    with pytest.raises(ValueError):
+        prepare_sim.package(*bundle)
+
+
+def test_content_error_cannot_mask_fifo(bundle):
+    source, private, dist = bundle
+    (private / "policy_v2.f32").write_bytes(b"wrong SHA")
+    os.mkfifo(private / "unexpected-fifo")
+    with pytest.raises(ValueError, match="regular file"):
+        prepare_sim.package(*bundle)
+
+
+def test_missing_asset_during_copy_removes_partial_simulator(bundle, monkeypatch, capsys):
+    source, private, dist = bundle
+    original_copy = prepare_sim.shutil.copyfile
+
+    def interrupted_copy(origin, destination, **kwargs):
+        if Path(origin).name == "mujoco.wasm":
+            raise FileNotFoundError("asset disappeared")
+        return original_copy(origin, destination, **kwargs)
+
+    monkeypatch.setattr(prepare_sim.shutil, "copyfile", interrupted_copy)
+    assert not prepare_sim.package(*bundle)
+    assert not (dist / "sim").exists()
+    assert capsys.readouterr().err.count("WARNING:") == 1

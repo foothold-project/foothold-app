@@ -55,7 +55,7 @@ rsync -av "$ARTIFACT_DIR/$COMMIT.tar.gz" "$ARTIFACT_DIR/$COMMIT.tar.gz.sha256" \
 | `mujoco/mujoco.js`, `mujoco/mujoco.wasm`, `mujoco/package.json` | 기존 `@mujoco/mujoco` 3.17.0 자산 그대로, npm/lock 갱신 없음 |
 | `assets/unitree_go2/go2.xml`, `LICENSE`, `assets/<mesh>` | 모바일 복사 목록과 같은 XML·라이선스·참조 메시 |
 
-기본 정책이 없으면 경고하고 `/sim/` 없이 웹만 준비한다. AME-2 쌍이 없거나 불완전하면 둘 다 생략하며 기존 페이지가 선택지를 끈다. 존재하는 정책의 해시 오류, 필수 런타임 누락, 버전 변경, 링크·특수파일은 준비 실패다. 빌드 산출물과 최종 웹 묶음 모두 링크·특수파일을 검사한다.
+정책 SHA·런타임 버전이 틀리거나 필수 자산이 누락되면 경고 후 `/sim/` 전체를 제외하고 웹만 준비하며, 경로 탈출·링크·FIFO·특수파일·자산 폴더 소유권 위반은 실패한다. AME-2 쌍이 없거나 불완전하면 둘 다 생략하며 기존 페이지가 선택지를 끈다. 빌드 산출물과 복사 뒤 최종 웹 묶음 모두 링크·특수파일을 검사하며 위반 시 중단한다.
 
 시뮬 페이지의 meta CSP는 `wasm-unsafe-eval`·`unsafe-eval`을 허용한다. 현재 저장소 Caddyfile에는 추가 CSP가 없으며 정적 파일 서버가 `.wasm`을 `application/wasm`으로 제공한다. 실제 서버 헤더·MIME·페이지 로드는 합침 후 별도로 확인한다. Caddy 설정 변경이 필요하면 중단하고 조정에 보고한다. 설치된 deploy-tools는 자동 갱신되지 않으므로 검토한 준비 스크립트와 helper의 선택 갱신이 필요하다. bootstrap 재실행은 이 작업에 포함하지 않는다. 되돌림은 변경 커밋을 revert하고 기존 배포 절차로 이전 검증 묶음을 선택한다. 비공개 자산은 유지할 수 있다.
 
