@@ -73,7 +73,8 @@ class Robot(Tenant, Base):
     simulation: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     sim_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text('0'))
     sim_state: Mapped[str] = mapped_column(Text, default='IDLE', server_default=text("'IDLE'"))
-    sim_world_id: Mapped[str | None] = mapped_column(Text)
+    # Keep simulation bookkeeping out of existing full Robot reads.
+    sim_world_id: Mapped[str | None] = mapped_column(Text, deferred=True)
     sim_manager_instance_id: Mapped[UUID | None] = mapped_column(PGUUID)
     __tablename__ = 'robots'
     __table_args__ = (
