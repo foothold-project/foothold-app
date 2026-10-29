@@ -53,6 +53,7 @@ const sleep = (ms: number) => act(() => new Promise<void>((r) => setTimeout(r, m
 async function mount(hash = '#/sim') {
   window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;   // PC 틀
   location.hash = hash;
+  localStorage.setItem('fh.simEngine', 'gazebo');   // 띄우기(서버 계산) 흐름 — 기본은 MuJoCo(10-29)
   box = document.createElement('div'); document.body.append(box);
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === 'u-lee')} robots={ROBOTS} />); });
   await flush();
