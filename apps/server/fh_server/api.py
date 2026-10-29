@@ -134,13 +134,15 @@ def page(db, query, model, limit, cursor, serialize, serialize_many=None):
     return {'items': serialize_many(db, rows) if serialize_many else [serialize(db, row) for row in rows], 'next_cursor': next_cursor}
 
 
-def revoke_user_sessions(db, user, *, session=None, clock=phone_pass.time.time):
+def revoke_user_sessions(db, user, *, session=None, recall_passes=True, clock=phone_pass.time.time):
     """One organization-locked transaction for session end and durable pass recall.
 
     Pass metadata is user-scoped, so ending one session conservatively recalls
-    every pass for that user, as logout/admin logout already did.
+    every pass for that user, as logout/admin logout already did. Natural expiry
+    only ends that session: an old PC login must not interrupt an active phone.
     """
-    phone_pass.revoke(db, user.org_id, user_id=user.id,clock=clock)
+    if recall_passes:
+        phone_pass.revoke(db, user.org_id, user_id=user.id,clock=clock)
     query = update(Session).where(Session.org_id == user.org_id, Session.user_id == user.id,
                                   Session.revoked_at.is_(None))
     if session is not None:
@@ -166,7 +168,8 @@ def expire_user_sessions(factory, org_id, *, clock=phone_pass.time.time):
                 (Session.client == 'web') & (Session.expires_at <= now()),
                 (Session.client == 'app') & (Session.refresh_expires_at <= now()))))
         for session in list(expired):
-            revoke_user_sessions(db, db.get(User, session.user_id), session=session, clock=clock)
+            revoke_user_sessions(db, db.get(User, session.user_id), session=session,
+                                 recall_passes=False, clock=clock)
 
 
 def protect_last_admin(db, user, values=None, *, archive=False):

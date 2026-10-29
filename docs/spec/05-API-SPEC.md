@@ -786,6 +786,8 @@ cancel_goal_removed assertion11개+StopIteration3개(64/65)는 별도 검사 도
 
 ### 13.7 출입증 발급·회수 (`fh-control`)
 
+갱신 토큰 재사용 감지·명시적 로그아웃·강제 종료·계정 잠금/보관·비밀번호 변경은 사용자 전체 출입증을 회수한다. 웹/앱 refresh의 자연 만료 정리는 해당 세션만 끝내며 폰 출입증은 자체 최대 600초 수명까지 유지한다(옛 PC 로그인 만료로 사용 중인 폰을 끊지 않음).
+
 `POST /api/v1/robots/{robot_id}/phone-pass`는 §2의 현재 로그인 세션을 매번 검사한다.
 웹 세션은 `X-FH-CSRF` 필수, 앱은 기존 Bearer 세션 규칙이다. 요청은
 `{device:UUID,purpose:"control"|"view",surface?:"phone"|"pc",switch?:false}`이고 응답은

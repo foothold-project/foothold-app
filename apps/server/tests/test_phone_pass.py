@@ -1442,13 +1442,14 @@ def test_refresh_reuse_recalls_once_and_open_phone_loses_authority(pc, seeded, m
         verifier.close()
 
 
-def test_expiry_cleanup_uses_same_recall_and_app_access_expiry_can_refresh(pc, seeded):
+def test_expiry_ends_only_that_session_and_app_access_expiry_can_refresh(pc, seeded):
     from datetime import timedelta
     from apps.server.fh_server.api import expire_user_sessions
     from apps.server.fh_server.models import Session, now
-    assert issue(pc, seeded).status_code == 200
     login = pc.post('/api/v1/auth/login', json=dict(username='one',
         password='fake-test-password', client='app')).json()
+    pc.pass_headers = {'Authorization': 'Bearer ' + login['access_token']}
+    assert issue(pc, seeded).status_code == 200
     factory = sessionmaker(pc.app.state.engine)
     with factory.begin() as db:
         session = db.scalar(select(Session).where(Session.client == 'app'))
@@ -1460,5 +1461,40 @@ def test_expiry_cleanup_uses_same_recall_and_app_access_expiry_can_refresh(pc, s
         session = db.scalar(select(Session).where(Session.client == 'web'))
         session.expires_at = now() - timedelta(seconds=1)
     expire_user_sessions(factory, seeded['org'])
-    assert rows(seeded, PhoneRevocation)
+    assert not rows(seeded, PhoneRevocation)
     assert next(s for s in rows(seeded, Session) if s.client == 'web').revoked_at is not None
+    with factory.begin() as db:
+        db.scalar(select(Session).where(Session.client == 'app')).refresh_expires_at = now() - timedelta(seconds=1)
+    expire_user_sessions(factory, seeded['org'])
+    assert all(s.revoked_at is not None for s in rows(seeded, Session))
+    assert not rows(seeded, PhoneRevocation)
+
+
+def test_background_loop_retires_expired_web_without_recalling_app_pass(pc, seeded, monkeypatch):
+    from datetime import timedelta
+    import threading
+    from apps.server.fh_server import api
+    from apps.server.fh_server.models import Session, now
+    login = pc.post('/api/v1/auth/login', json=dict(username='one',
+        password='fake-test-password', client='app')).json()
+    pc.pass_headers = {'Authorization': 'Bearer ' + login['access_token']}
+    assert issue(pc, seeded).status_code == 200
+    called = threading.Event()
+    original = api.expire_user_sessions
+    def track(*args, **kwargs):
+        result = original(*args, **kwargs)
+        called.set()
+        return result
+    monkeypatch.setattr(api, 'expire_user_sessions', track)
+    with DBSession(pc.app.state.engine) as db:
+        db.scalar(select(Session).where(Session.client == 'web')).expires_at = now() - timedelta(seconds=1)
+        db.commit()
+    deadline = time.monotonic() + 3
+    while True:
+        sessions = rows(seeded, Session)
+        if called.is_set() and next(s for s in sessions if s.client == 'web').revoked_at is not None:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(.02)
+    assert next(s for s in sessions if s.client == 'app').revoked_at is None
+    assert not rows(seeded, PhoneRevocation)
