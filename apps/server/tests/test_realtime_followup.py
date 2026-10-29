@@ -1,6 +1,7 @@
 """Read latency, archival head-of-line blocking and protocol-version regressions."""
 import asyncio
 import json
+import pickle
 import time
 from pathlib import Path
 from dataclasses import replace
@@ -12,7 +13,8 @@ from sqlalchemy.orm import Session as DBSession
 from starlette.websockets import WebSocketDisconnect
 
 from apps.server.fh_server.realtime import BoundAgentHeaders, ReadAhead, AuditQueue
-from apps.server.fh_server.models import Event
+from apps.server.fh_server.models import Event, Robot
+from apps.server.fh_server.history import History
 from apps.server.fh_server.leases import Effect
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take
 from .test_realtime_review import run
@@ -167,6 +169,28 @@ def test_old_agent_proto_is_explicit_protocol_close_with_reason_audit(client, se
     run(client, rt.audit.join)
     with DBSession(client.app.state.engine) as db:
         assert db.scalar(select(Event).where(Event.code == 'AGENT_PROTOCOL_MISMATCH'))
+
+
+@pytest.mark.parametrize('simulation', [False, True])
+def test_agent_identity_is_plain_string_through_pickle_and_history(client, seeded, rt, simulation):
+    rid = str(seeded['robots']['mine'])
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = simulation
+        db.commit()
+    identity = rt.agent_identity({'authorization': 'Bearer fake-test-' + rid})
+    assert type(identity) is str
+    restored = pickle.loads(pickle.dumps(Effect('stop', identity, {})))
+    assert type(restored.robot) is str and restored.robot == rid
+    history = History(1, lambda _: True)
+    history.append(restored)
+    history.append(Effect('stop', identity, {}))
+    assert history.disk_count == 1
+    assert all(type(effect.robot) is str and effect.robot == rid for effect in history)
+    assert history.pop().robot == rid
+    restored = history.pop()
+    assert type(restored.robot) is str and restored.robot == rid
+    with agent(client, seeded, direct=not simulation):
+        assert rt.agents[rid].simulation is simulation
 
 
 def test_bound_agent_recheck_reads_one_robot_and_compares_digest(client, seeded, rt, monkeypatch):

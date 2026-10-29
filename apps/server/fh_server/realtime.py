@@ -56,14 +56,6 @@ SAFETY_CODES = {'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT', 'EXECUTOR_STALLED',
 from .audit import AuditQueue, FairAuditQueue, SourceArchiveFull
 
 
-class AgentIdentity(str):
-    """Robot ID plus DB provenance from the same authentication SELECT."""
-    def __new__(cls, robot, simulation):
-        identity = super().__new__(cls, robot)
-        identity.simulation = simulation
-        return identity
-
-
 class BoundAgentHeaders(dict):
     """Server-created binding; no HTTP header can set this attribute."""
     def __init__(self, headers, robot):
@@ -1080,6 +1072,10 @@ class Realtime:
             self.queue_audit(Effect('audit', rid, {'op': 'AUDIT_DROPPED', 'at': now(), 'data': {'count': count}}))
 
     def agent_identity(self, headers):
+        return self.agent_auth(headers)[0]
+
+    def agent_auth(self, headers):
+        """Keep DB provenance separate from IDs persisted in history."""
         raw = headers.get('authorization', '')
         if not raw.startswith('Bearer ') or not raw[7:]:
             raise self.api_error(401, 'AUTH_REQUIRED', '에이전트 인증이 필요합니다.')
@@ -1097,7 +1093,7 @@ class Realtime:
                        if hmac.compare_digest(robot.agent_token_hash or b'\x00' * 32, candidate)]
             if len(matches) != 1:
                 raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
-            return AgentIdentity(str(matches[0].id), matches[0].simulation is True)
+            return str(matches[0].id), matches[0].simulation is True
 
     def put(self, peer, body):
         if peer.closing:
@@ -1830,8 +1826,7 @@ class Realtime:
             # Metadata writes can wait behind a row/audit lock. Revalidate the
             # token before publishing a connected peer or granting authority.
             auth_started = self.clock()
-            verified = await self.read(self.agent_identity, ws.headers)
-            peer.simulation = getattr(verified, 'simulation', False)
+            _, peer.simulation = await self.read(self.agent_auth, ws.headers)
             peer.auth_checked = auth_started
             if rid in self.deleted_robots:
                 await ws.close(code=4403)
