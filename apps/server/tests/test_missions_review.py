@@ -239,11 +239,12 @@ def test_connector_geometry_checked_once_per_pair(maps, monkeypatch):
     assert len(endpoint_checks) == 2, 'each connector endpoint is checked once, not once per segment'
 
 
-def test_scenario_referenced_floor_cannot_be_deleted(maps):
+def test_scenario_referenced_floor_hides_without_losing_snapshot(maps):
     http, headers, _ = maps
     body, (floor, _), _, _ = setup_scenario(http, headers)
     response = http.post(P + '/scenarios', headers=headers, json=body)
     assert response.status_code == 201, response.text
     removed = http.delete(P + '/floors/' + floor, headers=headers)
-    assert removed.status_code == 409 and removed.json()['error']['code'] == 'RESOURCE_IN_USE'
+    assert removed.status_code == 204
+    assert http.get(P + '/scenarios', headers=headers).json()['items'] == []
     assert http.get(P + '/scenarios/' + response.json()['id'], headers=headers).json()['waypoints'] == body['waypoints']

@@ -325,7 +325,7 @@ def install(app, DB, Identity, fail, authorize, event, page):
         if not archived:
             query = query.where(Scenario.archived_at.is_(None), Scenario.id.in_(
                 select(ScenarioVersion.scenario_id).where(ScenarioVersion.org_id == auth[0].org_id,
-                    ScenarioVersion.number == Scenario.latest_version, visible_version())))
+                    ScenarioVersion.number == Scenario.latest_version, visible_version()).correlate(Scenario)))
         if mine:
             query = query.where(Scenario.created_by == auth[0].id)
         if floor_id is not None:
