@@ -2,13 +2,20 @@
 // 지도 = ?map=<이름>(maps.json 목록 안, [a-z0-9-] 만 — 없거나 틀리면 warehouse) → assets/<이름>/ 의 scene.json·map.json·<이름>.xml.
 // 물리 = MuJoCo wasm(창고 충돌체 + Go2), 그림 = three.js, 정책 = foothold-v2 파생(sim.js 순수 JS 추론), 라이다 = mj_multiRay 360줄 10 Hz.
 // RS-6 에서 바뀐 것: 보이는 글자 0(아이콘·색만) · STOP 은 «다시 시작» 아이콘으로만 풀림(막대를 만져도 안 풀림) · 앱 숨김·화면 꺼짐 = STOP
-// · 막대 밖 한 손가락 끌기 = 카메라 돌리기, 두 손가락 = 확대·축소. 정책·물리 값은 그대로(sim.js·lidar.js 는 RS-6 복사본).
+// · 막대 밖 한 손가락 끌기 = 카메라 돌리기, 두 손가락 = 확대·축소. 정책 계약은 policy-adapters.js 에서 id 로 고른다.
 import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
-import { createSim, loadPolicy, ISAAC_LIKE, POLICY_DT } from './sim.js';
+import { createSim, ISAAC_LIKE } from './sim.js';
+import { getPolicyAdapter } from './policy-adapters.js';
 import { topFrame } from './top-fit.js';
 import { makeLidar, decodeMap } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
+
+let adapter = getPolicyAdapter(), selectionError = null;
+try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
+catch (e) { selectionError = e; }
+const POLICY_DT = adapter.timing.policyDt;
+const neutral = () => adapter.stop.input.slice();
 
 const $ = (id) => document.getElementById(id);
 const MESHES = ['base_0', 'base_1', 'base_2', 'base_3', 'base_4', 'hip_0', 'hip_1', 'thigh_0', 'thigh_1', 'thigh_mirror_0',
@@ -19,11 +26,11 @@ const json = async (u) => (await get(u)).json();
 const st = (window.__sim = { ready: false, err: null });   // 시험용(headless) — 화면에는 안 보임
 
 // ── STOP 잠금: 명령 0. «다시 시작»(#go)만 푼다. 잡고 있던 막대 손가락도 놓게 해서 풀린 뒤엔 새로 누른 손가락만 명령이 된다
-let joy = [0, 0, 0], stopped = true, sim = null, ready = false;
+let joy = neutral(), stopped = true, sim = null, ready = false;
 const sticks = [];
 function lock() {
-  stopped = true; joy = [0, 0, 0];
-  if (sim) sim.cmd = [0, 0, 0];
+  stopped = true; joy = neutral();
+  if (sim) sim.cmd = neutral();
   sticks.forEach((s) => s.release());
   ui();
 }
@@ -61,11 +68,12 @@ function stick(el, set) {
   sticks.push({ release });
 }
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
-stick($('stickL'), (x, y) => { joy[0] = r2(-y); joy[1] = r2(-x * 0.5); });
-stick($('stickR'), (x) => { joy[2] = r2(-x); });
-const inRange = (c) => (c[0] === 0 || (c[0] >= 0.4 && c[0] <= 1.5)) && c[1] === 0 && Math.abs(c[2]) <= 1;
+stick($('stickL'), (x, y) => { joy[0] = r2(-y * adapter.command.joystickScale[0]); joy[1] = r2(-x * adapter.command.joystickScale[1]); });
+stick($('stickR'), (x) => { joy[2] = r2(-x * adapter.command.joystickScale[2]); });
+const inRange = adapter.command.inRange;
 
 try {
+  if (selectionError) throw selectionError;
   await main();
 } catch (e) {
   st.err = String(e?.stack || e);
@@ -77,7 +85,7 @@ async function main() {
   const q = new URLSearchParams(location.search).get('map') ?? '', maps = await json('maps.json');
   const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
   const [mj, sceneJ, mapJ, polBuf] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
-    get('policy_v2.f32').then((r) => r.arrayBuffer())]);
+    get(adapter.network.file).then((r) => r.arrayBuffer())]);
   const map = decodeMap(mapJ);
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
   const physicsAssets = mapJ.physics_assets ?? [];
@@ -91,7 +99,7 @@ async function main() {
     ...MESHES.map(async (f) => mj.FS.writeFile(`/go2/assets/${f}.obj`, await bytes(`assets/unitree_go2/assets/${f}.obj`))),
   ]);
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, loadPolicy(polBuf), { floorZ: map.floor_z, spawn: map.spawn_xyyaw });
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, adapter.loadPolicy(polBuf), { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360);
   const runner = createScenarioRunner(sim, () => stopped);
@@ -274,7 +282,7 @@ async function main() {
   sim.hold(0.5);
   ready = true;
   $('busy').hidden = true;
-  if (stopped) sim.cmd = [0, 0, 0];
+  if (stopped) sim.cmd = neutral();
   ui();
   scenarioUI();
 
@@ -291,10 +299,10 @@ async function main() {
     while (acc >= POLICY_DT && n < 5) {
       acc -= POLICY_DT; n++;
       if (runner.active) runner.tick(front);
-      else sim.cmd = stopped || sim.fell ? [0, 0, 0] : joy.slice();
+      else sim.cmd = stopped || sim.fell ? neutral() : joy.slice();
       if (!sim.fell) sim.step();
       if (sim.fell && runner.active) runner.cancel('넘어짐');
-      if (sim.fell) sim.cmd = [0, 0, 0];
+      if (sim.fell) sim.cmd = neutral();
       st.steps++;
     }
     if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }
