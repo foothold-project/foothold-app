@@ -152,6 +152,11 @@ export interface AgentServerPing {
 }
 
 export interface AgentState {
+  controller?: string | null;
+  controller_device?: string | null;
+  controller_connected?: boolean;
+  controller_since?: string | null;
+  reported_run?: RunSnapshot | null;
   t: "state";
   pose: AgentPose;
   speed: number | null;
@@ -947,7 +952,7 @@ export interface PhoneLease {
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
   proto?: "fh-phone/1";
-  t: "lease.take" | "lease.request" | "lease.release" | "lease.cancel" | "view" | "stop";
+  t: "lease.take" | "lease.request" | "lease.release" | "lease.cancel" | "view";
 }
 
 export interface PhoneLeaseRequested {
@@ -1146,6 +1151,11 @@ export interface PhoneRunUpdate {
 }
 
 export interface PhoneState {
+  controller: string | null;
+  controller_device: string | null;
+  controller_connected: boolean;
+  controller_since?: string | null;
+  reported_run?: RunSnapshot | null;
   t: "state";
   pose: AgentPose;
   speed: number | null;
@@ -1160,9 +1170,6 @@ export interface PhoneState {
   run?: RunSnapshot | null;
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
-  controller: string | null;
-  controller_device: string | null;
-  controller_connected: boolean;
   lease_id: string | null;
   stop_requested: boolean | null;
   posture: PhonePosture;
@@ -1172,6 +1179,15 @@ export interface PhoneState {
   sim_time_s: number | null;
   sim_wall_delta_s: number | null;
   simulation: boolean;
+}
+
+export interface PhoneStop {
+  id: string;
+  /** 소문자 하이픈 UUID 표준형만 허용한다. */
+  robot: string;
+  proto?: "fh-phone/1";
+  t: "stop";
+  request_id?: string;
 }
 
 export interface PhoneTicketClaims {
@@ -1323,6 +1339,11 @@ export interface RobotPatch {
 }
 
 export interface RobotSummary {
+  last_state_received_at?: string | null;
+  state_stale?: boolean | null;
+  controller?: Person | null;
+  controller_device?: string | null;
+  controller_connected?: boolean | null;
   simulation: boolean;
   id: string;
   name: string;
@@ -1839,6 +1860,21 @@ export interface SiteTree {
   next_cursor: null;
 }
 
+export interface StopRequest {
+  request_id: string;
+}
+
+export interface StopRequestAck {
+  stage: "PHONE_RECEIVED" | "HUMAN_CONFIRMED";
+}
+
+export interface StopRequestStatus {
+  request_id: string;
+  robot_id: string;
+  status: "REQUESTED" | "PHONE_RECEIVED" | "HUMAN_CONFIRMED" | "STOP_CONFIRMED";
+  message: string;
+}
+
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
@@ -1886,7 +1922,7 @@ export type RunReportTransientCode = "RUN_REPORT_SEQUENCE" | "RUN_REPORT_STORAGE
 export type RunReportPermanentCode = "RUN_REPORT_OWNER" | "RUN_REPORT_MAP" | "RUN_REPORT_PLAN" | "RUN_REPORT_STATE" | "RUN_REPORT_STEP" | "RUN_REPORT_PROVENANCE" | "RUN_REPORT_CONFLICT" | "RUN_REPORT_INSTANCE" | "RUN_REPORT_ROBOT" | "RUN_REPORT_NOT_FOUND" | "RUN_REPORT_INVALID";
 export type ScreenMessage = ScreenSub | ScreenLease | ScreenRespond | ScreenCmd | ScreenUnlock | ScreenPing;
 export type AgentMessage = AgentHello | AgentState | AgentPing | AgentEvent | AgentRunUpdate | AgentCmdAck | AgentMedia | AgentPhoneRevokeAck;
-export type PhoneMessage = PhoneHello | PhoneLease | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
+export type PhoneMessage = PhoneHello | PhoneLease | PhoneStop | PhoneRespond | PhoneCommand | PhoneUnlock | PhonePing | PhoneRunStart | PhoneRunStartV2 | PhoneRunControl | PhoneRunConfirm;
 export type ServerAgentMessage = AgentLease | AgentCommand | AgentStop | AgentUnlock | AgentServerPing | AgentStreams | AgentPhoneRevoke | RunRecorded | RunReportRejected;
 export type MediaMessage = MediaVideoFrame | MediaPointCloudHeader | MediaStatus;
 export type MediaChannel = "rgb" | "external" | "lidar";

@@ -492,6 +492,42 @@
       "title": "Connection",
       "type": "string"
     },
+    "controller": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Person"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "controller_connected": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Controller Connected"
+    },
+    "controller_device": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Controller Device"
+    },
     "current_run": {
       "anyOf": [
         {
@@ -513,6 +549,19 @@
       "format": "uuid",
       "title": "Id",
       "type": "string"
+    },
+    "last_state_received_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last State Received At"
     },
     "lease": {
       "anyOf": [
@@ -556,6 +605,18 @@
       "default": false,
       "title": "Simulation",
       "type": "boolean"
+    },
+    "state_stale": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": true,
+      "title": "State Stale"
     },
     "status": {
       "anyOf": [

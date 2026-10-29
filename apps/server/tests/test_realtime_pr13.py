@@ -412,6 +412,7 @@ def test_live_rows_still_control_memoized_rights_and_session_validity(client, se
         db.commit()
     assert 'O_OWN' not in run(client, snapshot).rights[rid]
     with DBSession(client.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).simulation = False
         db.get(User, seeded['users']['one']).role = 'ORG_ADMIN'
         db.commit()
     promoted = run(client, snapshot).rights[rid]

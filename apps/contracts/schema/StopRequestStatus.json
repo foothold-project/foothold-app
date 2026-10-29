@@ -1,0 +1,39 @@
+{
+  "$id": "fh-app/1/StopRequestStatus",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "request_id": {
+      "format": "uuid",
+      "title": "Request Id",
+      "type": "string"
+    },
+    "robot_id": {
+      "format": "uuid",
+      "title": "Robot Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "REQUESTED",
+        "PHONE_RECEIVED",
+        "HUMAN_CONFIRMED",
+        "STOP_CONFIRMED"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "request_id",
+    "robot_id",
+    "status",
+    "message"
+  ],
+  "title": "StopRequestStatus",
+  "type": "object"
+}

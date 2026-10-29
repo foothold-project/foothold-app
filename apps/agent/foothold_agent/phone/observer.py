@@ -49,7 +49,19 @@ class Observer:
         return self.phone.session.core  # read by Client's before-history guard
 
     def _state(self):
-        return {**self.phone.session._state(), 'stop_ref': self.server_stop_ref}
+        from datetime import datetime, timezone
+        owner = self.phone.peers.get(self.phone.owner)
+        identity = ((owner.user, owner.device) if owner is not None else
+                    self.phone.reservation['identity'] if self.phone.reservation else (None, None))
+        if identity != getattr(self, '_controller_identity', None):
+            self._controller_identity = identity
+            self._controller_since = (datetime.fromtimestamp(self.phone.wall(), timezone.utc).isoformat()
+                                      if identity[0] is not None else None)
+        return {**self.phone.session._state(), 'stop_ref': self.server_stop_ref,
+                'controller': identity[0], 'controller_device': identity[1],
+                'controller_connected': owner is not None,
+                'controller_since': self._controller_since,
+                'reported_run': self.phone.runs.snapshot()}
 
     def _finish(self):
         messages = ()

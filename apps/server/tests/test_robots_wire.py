@@ -11,6 +11,10 @@ from websockets.asyncio.client import connect
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'agent'))
 
 from .ws_process import server_process
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session as DBSession
+from uuid import UUID
+from apps.server.fh_server.models import Robot
 
 
 def test_registration_real_client_dashboard_reassignment_stop_and_delete(seeded, tmp_path):
@@ -54,6 +58,12 @@ def test_registration_real_client_dashboard_reassignment_stop_and_delete(seeded,
             assert response.status_code == 201
             created = response.json()
             rid = created['robot']['id']
+            # This synthetic Session exercises the supported legacy sim relay.
+            engine = create_engine(seeded['urls']['migrate'])
+            with DBSession(engine) as db:
+                db.get(Robot, UUID(rid)).simulation = True
+                db.commit()
+            engine.dispose()
             session, sink = FakeTelemetrySession(), Sink()
             client = Client(session, sink, Settings(server['base'] + '/api/v1/agent/ws', created['agent_token']))
             task = asyncio.create_task(client.run())

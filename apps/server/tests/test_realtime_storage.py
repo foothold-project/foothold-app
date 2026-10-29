@@ -237,6 +237,7 @@ def test_cached_http_stop_is_invalidated_immediately_by_account_or_session_chang
                 user.archived_at = now()
             elif change == 'role':
                 user.role = 'ORG_ADMIN'  # valid role change still invalidates
+                db.get(Robot, seeded['robots']['mine']).simulation = False
             elif change == 'organization':
                 # Do not violate same-org FKs; mutate a session's org claim.
                 session = db.scalar(select(UserSession).where(UserSession.user_id == user.id))

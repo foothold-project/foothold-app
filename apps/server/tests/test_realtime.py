@@ -77,23 +77,30 @@ def state(gen=2, **kw):
 def rt(client, seeded):
     engine = create_engine(seeded['urls']['migrate'])
     with DBSession(engine) as db:
-        for rid in seeded['robots'].values():
-            db.get(Robot, rid).agent_token_hash = digest('fake-test-' + str(rid))
+        for key, rid in seeded['robots'].items():
+            row = db.get(Robot, rid)
+            row.agent_token_hash = digest('fake-test-' + str(rid))
+            # Legacy relay regressions exercise the retained simulation path.
+            if key != 'foreign':
+                row.simulation = True
         db.commit()
     yield client.app.state.realtime
     engine.dispose()
 
 
 @contextmanager
-def agent(client, seeded, **extra):
+def agent(client, seeded, *, direct=False, **extra):
     rid = seeded['robots']['mine']
     with client.websocket_connect('wss://testserver/api/v1/agent/ws', headers={
             'authorization': 'Bearer fake-test-' + str(rid)}) as ws:
         frame = hello()
         frame.update(extra)
         ws.send_json(frame)
-        assert receive(ws, 'lease')['lease_id'] is None
-        receive(ws, 'stop')
+        if direct:
+            receive(ws, 'ping')
+        else:
+            assert receive(ws, 'lease')['lease_id'] is None
+            receive(ws, 'stop')
         yield ws
 
 
@@ -314,6 +321,9 @@ def test_restart_free_ignores_hello_human_lease_copy(client, seeded, rt):
 def test_token_rotation_hash_only_old_agent_invalid_and_event_no_secret(client, seeded, rt):
     rid = seeded['robots']['mine']
     headers = app_token(client, 'admin')
+    with DBSession(client.app.state.engine) as db:
+        db.get(Robot, rid).simulation = False
+        db.commit()
     response = client.post(f'/api/v1/robots/{rid}/agent-token', headers=headers)
     assert response.status_code == 200
     assert response.headers['cache-control'] == 'no-store'
@@ -329,7 +339,7 @@ def test_token_rotation_hash_only_old_agent_invalid_and_event_no_secret(client, 
     assert error.value.status_code == 403
     with client.websocket_connect('wss://testserver/api/v1/agent/ws', headers={'authorization': 'Bearer ' + raw}) as ag:
         ag.send_json(hello())
-        receive(ag, 'lease')
+        receive(ag, 'ping')
     operator = app_token(client)
     assert client.post(f'/api/v1/robots/{rid}/agent-token', headers=operator).status_code == 403
 

@@ -9,6 +9,8 @@ from .models import Notification, Robot, User, now
 
 # F-COM-03; emergency execution is connected by its S7 owner.
 KINDS = {
+    'STOP_REQUESTED': ('STOP_REQUESTED', '정지 요청'),
+    'STOP_REQUEST_CONFIRMED': ('STOP_REQUEST_CONFIRMED', '정지 확인'),
     'APPROVAL_REQUESTED': ('APPROVAL_REQUESTED', '결재 요청'),
     'APPROVAL_DECIDED': ('APPROVAL_DECIDED', '결재 결과'),
     'APPROVAL_CANCELED': ('APPROVAL_DECIDED', '결재 취소'),
@@ -31,7 +33,9 @@ def append_for_event(db, event, *, other_user_id=None):
     kind, title = definition
     if event.code == 'APPROVAL_STALE' and event.data.get('approval_kind') == 'SCENARIO_ASSIGNMENT':
         title = '배정 대상 변경으로 승인 불가'
-    if event.code == 'APPROVAL_REQUESTED':
+    if kind in ('STOP_REQUESTED', 'STOP_REQUEST_CONFIRMED'):
+        recipients = select(User).where(User.id.in_([UUID(v) for v in event.data['recipients']]))
+    elif event.code == 'APPROVAL_REQUESTED':
         recipients = select(User).where(User.role == 'ORG_ADMIN')
     elif kind == 'APPROVAL_DECIDED':
         recipients = select(User).where(User.id == UUID(event.data['requester_id']), User.id != event.user_id)
@@ -44,10 +48,12 @@ def append_for_event(db, event, *, other_user_id=None):
     recipients = recipients.where(User.org_id == event.org_id, User.locked.is_(False), User.archived_at.is_(None))
     db.flush()  # event ID is allocated inside the same audit transaction
     for user in db.scalars(recipients):
-        if user.notify_prefs.get(kind, True) is False:
+        if not kind.startswith('STOP_REQUEST') and user.notify_prefs.get(kind, True) is False:
             continue
         db.add(Notification(org_id=event.org_id, user_id=user.id, event_id=event.id,
-            kind=kind, title=title, body=event.message, link=f'#/approvals?approval_id={event.approval_id}' if event.approval_id else f'#/history?event_id={event.id}'))
+            kind=kind, title=title, body=event.message, link=(f'#/drive?robot_id={event.robot_id}&stop_request_id={event.data["request_id"]}'
+                if kind.startswith('STOP_REQUEST') else f'#/approvals?approval_id={event.approval_id}'
+                if event.approval_id else f'#/history?event_id={event.id}')))
 
 
 def notification_object(row):

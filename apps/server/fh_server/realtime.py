@@ -154,6 +154,7 @@ class Peer:
     state: dict = field(default_factory=dict)
     run: dict | None = None
     closing: bool = False
+    simulation: bool = False
     policy: object = None
     budget: float = 100
     budget_at: float = 0
@@ -206,7 +207,7 @@ def policy_rights(authorize, api_error, user_values, robot_values):
                 authorize(user, permission, robot)
                 allowed.add(permission)
             except api_error as exc:
-                if exc.code == 'ADMIN_NO_REAL_CONTROL':
+                if exc.code in ('ADMIN_NO_REAL_CONTROL', 'PHONE_DIRECT_REQUIRED'):
                     allowed.add(exc.code)
         rights[str(robot.id)] = frozenset(allowed)
     return MappingProxyType(rights)
@@ -243,7 +244,13 @@ class Realtime:
                           'connect_timeout': 2, 'keepalives': 1, 'keepalives_idle': 2,
                           'keepalives_interval': 1, 'keepalives_count': 2, 'tcp_user_timeout': 5000})
         self.factory = sessionmaker(self.read_engine, expire_on_commit=False)
-        self.authorize, self.api_error, self.clock = authorize, api_error, clock
+        def relay_authorize(user, permission, robot=None):
+            authorize(user, permission, robot)
+            if (robot is not None and permission in ('O_OWN', 'ROBOT_STOP')
+                    and robot.simulation is not True):
+                raise api_error(403, 'PHONE_DIRECT_REQUIRED', '실기 조종·STOP은 현장 폰에서 직접 하세요.')
+        self.authorize, self.api_error, self.clock = relay_authorize, api_error, clock
+        self.last_state_received = {}
         self.arbiter = Arbiter(clock)
         self.screens: dict[str, Peer] = {}
         self.agents: dict[str, Peer] = {}
@@ -660,7 +667,7 @@ class Realtime:
                         self.authorize(user, permission, robot)
                         allowed.add(permission)
                     except self.api_error as exc:
-                        if exc.code == 'ADMIN_NO_REAL_CONTROL':
+                        if exc.code in ('ADMIN_NO_REAL_CONTROL', 'PHONE_DIRECT_REQUIRED'):
                             allowed.add(exc.code)
                 rights[str(robot.id)] = frozenset(allowed)
             return Policy(rights, C.OrgSettings.model_validate(org.settings), session.expires_at, checked)
@@ -875,6 +882,7 @@ class Realtime:
         if old_owner is not None:
             self.robot_changed_at[(rid, old_owner)] = self.clock()
         if deleted:
+            self.last_state_received.pop(rid, None)
             self.__dict__.get('phone_ack_contention',{}).pop(rid,None)
             self.deleted_robots.add(rid)
             self.deleted_at[rid] = self.clock()
@@ -900,6 +908,9 @@ class Realtime:
                 'ADMIN_NO_REAL_CONTROL' in policy.rights.get(rid, ()) for rid in robots):
             from .api import ADMIN_NO_REAL_CONTROL
             raise self.api_error(403, 'ADMIN_NO_REAL_CONTROL', ADMIN_NO_REAL_CONTROL)
+        if permission in ('O_OWN', 'ROBOT_STOP') and any(
+                'PHONE_DIRECT_REQUIRED' in policy.rights.get(rid, ()) for rid in robots):
+            raise self.api_error(403, 'PHONE_DIRECT_REQUIRED', '실기 조종·STOP은 현장 폰에서 직접 하세요.')
         if permission in ('ROBOT_READ', 'O_OWN') and any(
                 rid in peer.revoked_robots and (permission not in policy.rights.get(rid, ())
                     or policy.checked < self.robot_changed_at.get((rid, peer.actor.user), float('-inf')))
@@ -1080,6 +1091,11 @@ class Realtime:
                 raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
             return str(matches[0].id)
 
+    def agent_simulation(self, rid):
+        with self.factory() as db:
+            return db.scalar(select(Robot.simulation).where(Robot.org_id == self.settings.org_id,
+                Robot.id == UUID(rid), Robot.archived_at.is_(None))) is True
+
     def put(self, peer, body):
         if peer.closing:
             return
@@ -1106,6 +1122,12 @@ class Realtime:
                 if target == 'agent':
                     peer = self.agents.get(rid)
                     if peer:
+                        # DB provenance only. Unknown/real peers never receive control,
+                        # including startup/disconnect/overload-generated STOP effects.
+                        if not peer.simulation and body.get('t') in (
+                                'lease', 'cmd', 'unlock', 'stop', 'run.start', 'run.control',
+                                'run.confirm', 'floor.set', 'slam'):
+                            continue
                         if body['t'] == 'lease' and body['holder_type'] == 'RUN':
                             self.runs[rid]['lease_id'] = body['lease_id']
                             body['holder_type'] = 'RUN:' + self.runs[rid]['run_id']
@@ -1165,6 +1187,10 @@ class Realtime:
         self.apply(safety + records)
 
     async def send_body(self, peer, body, delivery=None):
+        if peer.actor is None and not peer.simulation and body.get('t') in (
+                'lease', 'cmd', 'unlock', 'stop', 'run.start', 'run.control',
+                'run.confirm', 'floor.set', 'slam'):
+            return False
         async with peer.send_lock:
             if delivery is not None:
                 rid, epoch = delivery
@@ -1492,9 +1518,11 @@ class Realtime:
                 await self.deny_screen(peer, 1013)
 
     def verify_agents(self, peers, robots):
-        result = {}
+        result = AgentBatch()
+        result.simulations = {}
         for rid, peer in peers:
             robot = robots.get(rid)
+            result.simulations[rid] = (robot is not None and robot.simulation is True, peer)
             raw = peer.socket.headers.get('authorization', '')
             if robot and hmac.compare_digest(robot.agent_token_hash or b'\x00' * 32, digest(raw[7:])):
                 result[rid] = (rid, peer)
@@ -1509,7 +1537,7 @@ class Realtime:
                 Robot.archived_at, Robot.owner_user_id, Robot.agent_token_hash, Robot.simulation, Robot.sim_generation).where(
                 Robot.id.in_([UUID(rid) for rid, _ in peers]), Robot.org_id == self.settings.org_id,
                 Robot.archived_at.is_(None)))}
-            batch = AgentBatch(self.verify_agents(peers, robots))
+            batch = self.verify_agents(peers, robots)
             batch.floor_authority = {}
             if any(r.simulation for r in robots.values()):
                 bindings = []
@@ -1554,6 +1582,9 @@ class Realtime:
                     identities = getattr(candidate.latest, 'agents', None)
                     if candidate.stamp > started and identities is not None and rid in identities:
                         batch, started = identities, candidate.stamp
+                provenance = getattr(batch, 'simulations', {}).get(rid)
+                if provenance is not None and provenance[1] is peer:
+                    peer.simulation = provenance[0]
                 identity = batch.get(rid)
                 if identity is None:
                     continue
@@ -1809,6 +1840,7 @@ class Realtime:
             # A validated hello starts a new metadata generation even when the
             # old socket's finally runs after this peer has replaced it.
             self.inventory.forget(rid)
+            peer.simulation = await self.read(self.agent_simulation, rid)
             self.agents[rid] = peer
             self.inventory.submit(rid, [d.model_dump(mode='json') for d in hello.devices],
                 hello.robot_model, digest(ws.headers.get('authorization', '')[7:]))
@@ -1833,7 +1865,7 @@ class Realtime:
                 run['wait_reason'] = 'RECONNECTED'
                 self.runs[rid] = run
                 # RUN remains reserved after the same stop verification barrier.
-                if fresh_reference:
+                if fresh_reference and peer.simulation:
                     r.transfer = Transfer(None, self.clock() + 2, r.stop_ref)
             else:
                 self.runs.pop(rid, None)
@@ -1913,6 +1945,9 @@ class Realtime:
                         await ws.close(code=1013, reason='RUN_RECORDING_UNAVAILABLE')
                         return
                     peer.run_reports.put_nowait(('report', raw, None))
+                elif msg.t == 'event' and msg.code == 'STOP_REQUEST_APPLIED':
+                    from .stop_requests import confirm
+                    await self.read(confirm, self.run_factory, self.settings.org_id, rid, msg.data)
                 elif msg.t == 'event':
                     from .runs import public_data
                     effect = Effect('audit', rid, {**msg.model_dump(mode='json'), 'data': public_data(msg.data), 'op': 'AGENT_EVENT', 'at': now()})
@@ -1995,11 +2030,15 @@ class Realtime:
             peer.record_pose = dict(pose)
             peer.state['location'] = (C.Location(**pose, updated_at=now()).model_dump(mode='json')
                 if context is not None or any(pose[key] is not None for key in ('x', 'y', 'yaw')) else None)
-        run = self.runs.get(rid)
+        run = data.get('reported_run') if 'reported_run' in msg.model_fields_set else self.runs.get(rid)
         peer.state['status'] = 'STOP_LATCHED' if msg.latched else 'PAUSED' if run and run['status'] == 'PAUSED' else 'RUNNING' if msg.mode == 'RUN' else 'TELEOP' if msg.mode == 'USER' else 'IDLE'
         if msg.devices_changed is not None:
             peer.state['devices'] = data['devices_changed']
+        peer.state.update({k: data[k] for k in ('controller', 'controller_device',
+            'controller_connected', 'controller_since', 'reported_run', 'mode')})
+        peer.state['phone_reported'] = 'reported_run' in msg.model_fields_set
         peer.state_received_at = self.clock()
+        self.last_state_received[rid] = now()
         pending = self.arbiter.robot(rid).transfer
         if pending and pending.actor:
             try:

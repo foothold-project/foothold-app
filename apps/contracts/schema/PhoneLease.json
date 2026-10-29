@@ -27,8 +27,7 @@
         "lease.request",
         "lease.release",
         "lease.cancel",
-        "view",
-        "stop"
+        "view"
       ],
       "title": "T",
       "type": "string"
