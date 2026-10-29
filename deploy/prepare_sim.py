@@ -70,7 +70,7 @@ def package(source, private, dist):
     validate_tree(private, private=True)
     try:
         return copy_simulator(source, private, target)
-    except (SimulatorUnavailable, FileNotFoundError, json.JSONDecodeError):
+    except (SimulatorUnavailable, FileNotFoundError, json.JSONDecodeError, UnicodeDecodeError):
         # A failed copy must not leave a partial simulator in an otherwise valid web release.
         if target.exists():
             shutil.rmtree(target)
@@ -79,6 +79,13 @@ def package(source, private, dist):
 
 
 def copy_simulator(source, private, target):
+    # A wrong policy or missing runtime must not hide an existing path escape.
+    xml_path = private / "assets/unitree_go2/go2.xml"
+    xml = regular(xml_path).read_text() if xml_path.exists() else ""
+    meshes = re.findall(r'<mesh file="([^"]+)"', xml)
+    for mesh in meshes:
+        if not re.fullmatch(r"[\w.]+", mesh) or mesh in (".", ".."):
+            raise ValueError("Invalid Go2 mesh name")
     policy = private / "policy_v2.f32"
     verify(policy, POLICY_SHA)
     files = [(policy, Path("policy_v2.f32"))]
@@ -91,10 +98,7 @@ def copy_simulator(source, private, target):
     manifest = json.loads((private / "mujoco/package.json").read_text())
     if not isinstance(manifest, dict) or manifest.get("name") != "@mujoco/mujoco" or manifest.get("version") != MUJOCO_VERSION:
         raise SimulatorUnavailable("MuJoCo must retain the existing pinned version")
-    xml = (private / "assets/unitree_go2/go2.xml").read_text()
-    for mesh in re.findall(r'<mesh file="([^"]+)"', xml):
-        if not re.fullmatch(r"[\w.]+", mesh) or mesh in (".", ".."):
-            raise ValueError("Invalid Go2 mesh name")
+    for mesh in meshes:
         name = Path("assets/unitree_go2/assets") / mesh
         files.append((regular(private / name), name))
     ame2_present = all((private / name).exists() for name in AME2_SHA)

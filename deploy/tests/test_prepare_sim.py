@@ -129,12 +129,17 @@ def test_security_violations_still_abort(bundle, monkeypatch, violation):
         prepare_sim.package(*bundle)
 
 
-def test_content_error_cannot_mask_fifo(bundle):
+@pytest.mark.parametrize("violation", ["fifo", "mesh-traversal"])
+def test_content_error_cannot_mask_security_violation(bundle, violation):
     source, private, dist = bundle
     (private / "policy_v2.f32").write_bytes(b"wrong SHA")
-    os.mkfifo(private / "unexpected-fifo")
-    with pytest.raises(ValueError, match="regular file"):
+    if violation == "fifo":
+        os.mkfifo(private / "unexpected-fifo")
+    else:
+        (private / "assets/unitree_go2/go2.xml").write_text('<mesh file="../outside.obj"/>')
+    with pytest.raises(ValueError) as error:
         prepare_sim.package(*bundle)
+    assert not isinstance(error.value, prepare_sim.SimulatorUnavailable)
 
 
 def test_missing_asset_during_copy_removes_partial_simulator(bundle, monkeypatch, capsys):
