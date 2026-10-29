@@ -231,14 +231,18 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
           <button type="button" className="btn pri" onClick={() => rt.release(robot.id)}>다시 시도</button>
           <button type="button" className="btn" onClick={() => go('drive')}>연결 화면</button></div>
       : <div className="fh-pick" role="status" data-ending>조종권을 반납하는 중입니다…</div>)}
-    {choose != null && !target && canStop && <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
+    {/* 후보 0(운영 관리자 로봇 0대 등 — 모르면 STOP 은 보인다)이면 빈 고르기 대신 이 앱으로 멈출 것이 없다고 바로 알린다 */}
+    {choose != null && !target && canStop && (stops.length ? <div className="fh-pick" role="dialog" aria-label="정지할 로봇 고르기">
       <span>어느 로봇을 정지할까요?</span>
       <select className="fh-user" aria-label="정지할 로봇" value={choose} onChange={(e) => setChoose(e.target.value)}>
         {!choose && <option value="">로봇 고르기</option>}
         {stops.map((r) => <option key={r.id} value={r.id}>{r.name}{rt.get(r.id).lease ? ' (내가 조종 중)' : rt.get(r.id).releasing ? ' (반납 확인 중)' : ''}</option>)}</select>
       <button type="button" className="fh-stop" disabled={!choose} onClick={stop}>정지</button>
       <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
-    </div>}
+    </div> : <div className="fh-pick" role="alertdialog" aria-label="멈출 로봇 없음" data-no-stop>
+      <span>▲ 이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요.</span>
+      <button type="button" className="btn" onClick={() => setChoose(null)}>닫기</button>
+    </div>)}
     {dev && (open || simOpen   // 폰 조종 화면은 접어 둔다(영상·조이스틱 자리). 내용은 그대로
       ? <details className="fh-dev" data-dev><summary>개발용 표시</summary>{dev.replace(/^개발용 표시:\s*/, '')}</details>
       : <p className="fh-dev" data-dev>{dev}</p>)}

@@ -128,6 +128,16 @@ const stopOk = async () => {
 };
 
 describe('배정 창', () => {
+  it('저장 안 한 편집이 있으면 «저장된 판 N 이 배정됩니다», 저장된 대로면 안내 없음', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    await openAssign(KIM);
+    expect($('[data-unsaved-assign]')).toBeNull();
+    const name = $<HTMLInputElement>('[aria-label="시나리오 편집 칸"] input')!;
+    await setVal(name, '1층 순찰 고침');
+    expect($('[data-unsaved-assign]')!.textContent).toContain('배정하면 저장된 판 1이 배정됩니다');
+    await setVal(name, '1층 순찰');
+    expect($('[data-unsaved-assign]')).toBeNull();
+  });
   it('총괄: 로봇 고르기·메모 → POST /assignments(Idempotency-Key) → ACTIVE «배정됨», 바로 적용 안내', async () => {
     scenarios = [scen('s1', '1층 순찰')];
     await openAssign(KIM);

@@ -96,6 +96,16 @@ describe('로그인·세션', () => {
     expect($('[data-stop]')).toBeNull();
     expect($('[role="alert"]')).toBeNull();   // 첫 방문은 «끝났습니다» 안내 없음
   });
+  it('기기 이름: 브라우저 «웹 브라우저», 앱(UA FootholdApp/<판>) «FOOTHOLD 앱 <판>» — 둘 다 쿠키 세션이라 client 는 web', async () => {
+    const body = async () => {
+      serve({ 'POST /auth/login': { status: 200, body: { ...KIM, csrf_token: 'c', access_token: null, refresh_token: null } } });
+      await api.login('kim', 'pw');
+      return calls.find((c) => c.path === '/auth/login')!.body;
+    };
+    expect(await body()).toMatchObject({ client: 'web', device_label: '웹 브라우저' });
+    const ua = vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) Chrome/140 Mobile Safari/537.36 FootholdApp/1.2.4-dev');
+    try { expect(await body()).toMatchObject({ client: 'web', device_label: 'FOOTHOLD 앱 1.2.4-dev' }); } finally { ua.mockRestore(); }
+  });
   it('로그인 → /me 역할·/robots → 관제. 로그인 응답의 CSRF 로 변경 요청', async () => {
     serve({ 'GET /auth/session': NO_LOGIN, 'POST /auth/login': { status: 200, body: { ...KIM, csrf_token: 'csrf-L', access_token: null, refresh_token: null } },
       'GET /me': { status: 200, body: KIM }, 'GET /robots': { status: 200, body: { items: [robot('r-a', 'Go2-A', 'o1', '이운영')], next_cursor: null } },

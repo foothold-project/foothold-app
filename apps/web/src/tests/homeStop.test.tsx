@@ -160,4 +160,13 @@ describe('폰 홈 머리 STOP — 멈출 것이 없을 때만 숨김', () => {
     await act(async () => { await sim.load(); });
     expect(stopShown()).toBe(true);
   });
+  it('멈출 후보 0(내 로봇 0대) 인데 상태 모름 → STOP 은 보이고, 누르면 빈 고르기 대신 «멈출 로봇 없음» 안내', async () => {
+    list = ok();
+    await mount([]);   // 소켓 열리기 전 = 모름 → 보임
+    expect(stopShown()).toBe(true);
+    act(() => { box.querySelector<HTMLElement>('.fh-head [data-stop]')!.click(); });
+    expect(box.querySelector('[data-no-stop]')?.textContent).toContain('이 앱으로 멈출 로봇이 없습니다 — 현장에서 로봇을 직접 멈추세요');
+    expect(box.querySelector('[aria-label="정지할 로봇"]')).toBeNull();
+    expect(stopShown()).toBe(true);   // 안내 뒤에도 STOP 은 그대로
+  });
 });

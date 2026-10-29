@@ -17,8 +17,9 @@ printf trusted-deploy > "$work/source/deploy/marker"
 printf '{}' > "$work/source/apps/web/package.json"
 printf '{}' > "$work/source/mobile/sim/maps.json"
 printf placeholder > "$work/source/mobile/sim/assets/test/top.png"
+printf '{"width":100}' > "$work/source/mobile/sim/assets/test/top.json"
 git init -q "$work/source"
-git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker mobile/sim/maps.json mobile/sim/assets/test/top.png
+git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker mobile/sim/maps.json mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json
 git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm fixture
 sha=$(git -C "$work/source" rev-parse HEAD)
 git clone -q --bare "$work/source" "$work/repo.git"
@@ -29,6 +30,8 @@ if [[ $1 == ci ]]; then [[ $2 == --ignore-scripts ]]; exit; fi
 [[ $1 == run && $2 == build ]]
 # Root-executed sources were never present in the build input.
 [[ ! -e ../server && ! -e ../../deploy ]]
+[[ -s ../../mobile/sim/assets/test/top.png ]]
+[[ $(cat ../../mobile/sim/assets/test/top.json) == '{"width":100}' ]]
 # A malicious build tries to create/modify root-executed code and contracts.
 mkdir -p ../server ../../deploy dist
 printf tainted-server > ../server/marker
@@ -52,4 +55,25 @@ if (cd "$work/repo.git" && TEST_LINK=1 PATH="$work/bin:$PATH" bash "$prepare" "$
 fi
 [[ ! -e $work/out/$sha.tar.gz ]]
 grep -q 'Web dist contains a link or special file' "$work/rejected"
-printf 'PASS: bare archive, build input isolation, pristine trusted code, dist symlink rejection\n'
+# A tracked PNG without its metadata must fail before npm runs.
+mkdir -p "$work/source/mobile/sim/assets/unpaired"
+printf placeholder > "$work/source/mobile/sim/assets/unpaired/top.png"
+git -C "$work/source" add mobile/sim/assets/unpaired/top.png
+git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm missing-metadata
+git -C "$work/repo.git" fetch -q "$work/source" HEAD
+bad_sha=$(git -C "$work/source" rev-parse HEAD)
+if (cd "$work/repo.git" && PATH="$work/bin:$PATH" bash "$prepare" "$bad_sha" "$work/out") > "$work/rejected" 2>&1; then
+    echo 'Expected missing top metadata rejection' >&2; exit 1
+fi
+[[ ! -e $work/out/$bad_sha.tar.gz ]]
+grep -q 'Top-view input requires matching nonempty PNG/JSON pairs' "$work/rejected"
+# With no PNG or JSON matches git archive itself must reject the empty glob.
+git -C "$work/source" rm -q mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json mobile/sim/assets/unpaired/top.png
+git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm empty-topviews
+git -C "$work/repo.git" fetch -q "$work/source" HEAD
+bad_sha=$(git -C "$work/source" rev-parse HEAD)
+if (cd "$work/repo.git" && PATH="$work/bin:$PATH" bash "$prepare" "$bad_sha" "$work/out") > "$work/rejected" 2>&1; then
+    echo 'Expected empty top-view input rejection' >&2; exit 1
+fi
+[[ ! -e $work/out/$bad_sha.tar.gz ]]
+printf 'PASS: bare archive, paired top-view input, pristine trusted code, dist symlink rejection\n'

@@ -297,6 +297,8 @@ function Edit({ kind, id, user, robots, cancel, places, treeAgain, done, newMiss
         <button type="button" className="btn pri" onClick={() => { const u = unsure; setUnsure(null); setAgain(false); send(u.body); }}>그래도 다시 저장</button>
         <button type="button" className="btn" onClick={() => setAgain(false)}>닫기</button></div>}
     </>}
+    {/* 배정은 저장된 판만 간다 — 저장 안 한 편집이 있으면 어느 판이 가는지 바로 위에 알린다 */}
+    {kind === 'scenarios' && id && latest && !view && dirty && <p className="fh-why" role="status" data-unsaved-assign>저장하지 않은 편집이 있습니다 — 배정하면 저장된 판 {latest.latest_version}이 배정됩니다. 고친 내용을 배정하려면 먼저 «새 판으로 저장»을 누르세요.</p>}
     {kind === 'scenarios' && id && latest && <AssignPanel scenario={id} name={latest.name} version={view?.number ?? latest.latest_version} archived={archived} user={user} robots={robots} cancel={cancel} />}
   </div>;
 }

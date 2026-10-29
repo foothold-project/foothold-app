@@ -1384,3 +1384,117 @@ def test_robot_deletion_discards_ack_contention_and_cannot_recreate_it(pc,seeded
         rt.note_phone_ack_contention(rid,peer,1)  # late failure must not recreate deleted state
         assert rid not in rt.phone_ack_contention
     pc.portal.call(run)
+
+
+def test_refresh_reuse_recalls_once_and_open_phone_loses_authority(pc, seeded, monkeypatch):
+    from apps.server.fh_server import phone_pass
+    from foothold_agent.phone.hub import PhoneError
+    from apps.server.fh_server.models import Session
+    from apps.server.fh_server.security import digest
+    login = pc.post('/api/v1/auth/login', json=dict(username='one',
+        password='fake-test-password', client='app')).json()
+    pc.pass_headers = {'Authorization': 'Bearer ' + login['access_token']}
+    issued = issue(pc, seeded).json()
+    compact = issued['token']
+    claims = json.loads(base64.urlsafe_b64decode(compact.split('.')[1] + '=='))
+    rid = claims['robot']
+    outputs = []
+    verifier = Verifier(rid, pc.keys[rid][1], org=str(seeded['org']),
+                        replay_path=':memory:', clock_trusted=True)
+    hub = Hub(verifier, type('Sink', (), {'apply': lambda _, c: outputs.append(c)})(),
+              policy_name='test', policy_version='1', simulation=False)
+    peer = object()
+    def rpc(kind, **fields):
+        return hub.receive(peer, json.dumps(dict(t=kind, id=str(uuid4()), robot=rid, **fields)))
+    try:
+        rpc('hello', proto='fh-phone/1', device=claims['device'], ticket=compact)
+        assert rpc('lease.take')['ok']
+        rotated = pc.post('/api/v1/auth/refresh', json={'refresh_token': login['refresh_token']})
+        assert rotated.status_code == 200
+        calls = []
+        original = phone_pass.revoke
+        def track(*args, **kwargs):
+            calls.append(1)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(phone_pass, 'revoke', track)
+        assert pc.post('/api/v1/auth/refresh', json={'refresh_token': login['refresh_token']}).status_code == 401
+        assert calls == [1]
+        with DBSession(pc.app.state.engine) as db:
+            assert db.scalar(select(Session).where(Session.token_hash == digest(rotated.json()['access_token']))).revoked_at
+            db.get(Robot, seeded['robots']['mine']).agent_token_hash = digest('fake-reuse-recall-agent')
+            db.commit()
+        # Real server WS outbox -> existing Observer -> open phone Hub.
+        with pc.websocket_connect('/api/v1/agent/ws', headers={'authorization': 'Bearer fake-reuse-recall-agent'}) as ws:
+            ws.send_json(agent_hello())
+            packet = receive(ws, 'phone.revoke')
+            observer = Observer(hub)
+            observer.connect()
+            effects = observer.receive(packet)
+            assert any(m['t'] == 'phone.revoke.ack' for m in effects.messages)
+        assert hub.owner is None and hub.session.core.latch
+        with pytest.raises(PhoneError) as error:
+            rpc('lease.take')
+        assert error.value.close_code == 4403
+        with pytest.raises(TicketError):
+            verifier.verify(compact)
+        assert pc.get('/api/v1/me', headers={'Authorization': 'Bearer ' + rotated.json()['access_token']}).status_code == 401
+    finally:
+        verifier.close()
+
+
+def test_expiry_ends_only_that_session_and_app_access_expiry_can_refresh(pc, seeded):
+    from datetime import timedelta
+    from apps.server.fh_server.api import expire_user_sessions
+    from apps.server.fh_server.models import Session, now
+    login = pc.post('/api/v1/auth/login', json=dict(username='one',
+        password='fake-test-password', client='app')).json()
+    pc.pass_headers = {'Authorization': 'Bearer ' + login['access_token']}
+    assert issue(pc, seeded).status_code == 200
+    factory = sessionmaker(pc.app.state.engine)
+    with factory.begin() as db:
+        session = db.scalar(select(Session).where(Session.client == 'app'))
+        session.expires_at = now() - timedelta(seconds=1)
+    expire_user_sessions(factory, seeded['org'])
+    assert not rows(seeded, PhoneRevocation)
+    assert pc.post('/api/v1/auth/refresh', json={'refresh_token': login['refresh_token']}).status_code == 200
+    with factory.begin() as db:
+        session = db.scalar(select(Session).where(Session.client == 'web'))
+        session.expires_at = now() - timedelta(seconds=1)
+    expire_user_sessions(factory, seeded['org'])
+    assert not rows(seeded, PhoneRevocation)
+    assert next(s for s in rows(seeded, Session) if s.client == 'web').revoked_at is not None
+    with factory.begin() as db:
+        db.scalar(select(Session).where(Session.client == 'app')).refresh_expires_at = now() - timedelta(seconds=1)
+    expire_user_sessions(factory, seeded['org'])
+    assert all(s.revoked_at is not None for s in rows(seeded, Session))
+    assert not rows(seeded, PhoneRevocation)
+
+
+def test_background_loop_retires_expired_web_without_recalling_app_pass(pc, seeded, monkeypatch):
+    from datetime import timedelta
+    import threading
+    from apps.server.fh_server import api
+    from apps.server.fh_server.models import Session, now
+    login = pc.post('/api/v1/auth/login', json=dict(username='one',
+        password='fake-test-password', client='app')).json()
+    pc.pass_headers = {'Authorization': 'Bearer ' + login['access_token']}
+    assert issue(pc, seeded).status_code == 200
+    called = threading.Event()
+    original = api.expire_user_sessions
+    def track(*args, **kwargs):
+        result = original(*args, **kwargs)
+        called.set()
+        return result
+    monkeypatch.setattr(api, 'expire_user_sessions', track)
+    with DBSession(pc.app.state.engine) as db:
+        db.scalar(select(Session).where(Session.client == 'web')).expires_at = now() - timedelta(seconds=1)
+        db.commit()
+    deadline = time.monotonic() + 3
+    while True:
+        sessions = rows(seeded, Session)
+        if called.is_set() and next(s for s in sessions if s.client == 'web').revoked_at is not None:
+            break
+        assert time.monotonic() < deadline
+        time.sleep(.02)
+    assert next(s for s in sessions if s.client == 'app').revoked_at is None
+    assert not rows(seeded, PhoneRevocation)

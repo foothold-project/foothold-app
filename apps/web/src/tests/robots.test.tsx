@@ -305,6 +305,12 @@ describe('설정 › 로봇(총괄, 05 §3)', () => {
     expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);
     setVal(box2.querySelector('select')!, '');
     await submit(box2.querySelector('form')!);
+    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);   // 담당이 바뀌면 확인 먼저 — 로봇 이름과 조종 끝·정지
+    expect(card('확인').textContent).toMatch(/Go2-A.*담당을 .+ → 담당 없음\(으\)로 바꿀까요\? .+의 조종이 끝나고 로봇이 정지합니다/);
+    await click(btn('취소', card('확인')));
+    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);
+    await submit(box2.querySelector('form')!);
+    await click(btn('바꾸기(조종 끝·정지)', card('확인')));
     expect(sent('PATCH', '/robots/r-a')[0].body).toEqual({ owner_user_id: null });
     setVal(box2.querySelector('input[name="name"]')!, 'Go2-AA');
     setVal(box2.querySelector('select')!, 'o1');
@@ -317,6 +323,7 @@ describe('설정 › 로봇(총괄, 05 §3)', () => {
     await pickRobot('Go2-A');
     setVal(card('로봇 설정').querySelector('select')!, 'o2');
     await submit(card('로봇 설정').querySelector('form')!);
+    await click(btn('바꾸기(조종 끝·정지)', card('확인')));
     expect(card('로봇 설정').querySelector('[role="alert"]')!.textContent).toBe(ROBOT_BUSY);
   });
   it('지우기: 확인 뒤 DELETE. 409 = 조종·실행 중 문구, 503 = 다시, 404 = 이미 지워짐 + 목록 다시, 204 = 목록에서 빠짐', async () => {

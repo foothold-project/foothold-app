@@ -220,7 +220,7 @@ describe('총괄 — 계정 관리', () => {
     expect(calls.filter((c) => c.method === 'PATCH' && c.path.startsWith('/users'))).toEqual([]);
   });
 
-  it('기기 목록: 지금 쓰는 기기만, 로그아웃시키기 → DELETE 후 다시 받음', async () => {
+  it('기기 목록: 지금 쓰는 기기만, 로그아웃시키기 → 확인 → DELETE 후 다시 받음', async () => {
     let ended = false;
     serve(signedIn(KIM, {
       'GET /users/o1/sessions': () => ({ status: 200, body: { items: [sess('s1', '웹 브라우저', ended ? { revoked_at: past } : {}), sess('s2', '현장 폰', { client: 'app' }),
@@ -233,6 +233,12 @@ describe('총괄 — 계정 관리', () => {
     expect(list()).toEqual(['웹 브라우저', '현장 폰']);
     expect(card('로그인 기기').textContent).toContain('앱');
     await click(btn('로그아웃시키기', card('로그인 기기').querySelector('li')!));
+    expect(sent('DELETE', '/users/o1/sessions/s1')).toHaveLength(0);   // 확인 전에는 보내지 않음
+    expect(card('확인').textContent).toContain('이운영의 «웹 브라우저» 로그인을 끝낼까요?');
+    await click(btn('취소', card('확인')));
+    expect(sent('DELETE', '/users/o1/sessions/s1')).toHaveLength(0);
+    await click(btn('로그아웃시키기', card('로그인 기기').querySelector('li')!));
+    await click(btn('로그아웃시키기', card('확인')));
     expect(sent('DELETE', '/users/o1/sessions/s1')).toHaveLength(1);
     expect(list()).toEqual(['현장 폰']);
     expect(card('로그인 기기').textContent).toContain('웹 브라우저 로그인을 끝냈습니다.');
