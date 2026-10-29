@@ -55,7 +55,17 @@ def egl_render():
         terminate(display)
 
 
+def native_geometry():
+    vendor=Path('/opt/foothold-sim/python-vendor')
+    if 'trimesh' in sys.modules:raise ValueError('geometry vendor must be selected before import')
+    sys.path.insert(0,str(vendor))
+    module=importlib.import_module('trimesh')
+    if module.__version__!='5.1.0' or not Path(module.__file__).is_relative_to(vendor):
+        raise ValueError('native geometry version/origin unproven')
+
+
 def dependencies():
+    native_geometry()  # include the separate pinned vendor in dependency checking
     # pip is an exact DEB payload, never installed or executed on the host.
     wheels=list(Path('/usr/share/python-wheels').glob('pip-*.whl'))
     if len(wheels)!=1:raise ValueError('locked pip metadata checker unavailable')

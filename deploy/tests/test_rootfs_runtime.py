@@ -135,3 +135,18 @@ def test_software_preflight_never_invokes_host_nvidia_shim(tmp_path,monkeypatch)
     def unproven(*args):raise ValueError('rootfs identity absent')
     monkeypatch.setattr(env,'binding',unproven)
     with pytest.raises(ValueError,match='identity absent'):isolation.preflight(tmp_path)
+
+
+@pytest.mark.parametrize('version,origin,accepted',[
+    ('5.1.0','/opt/foothold-sim/python-vendor/trimesh/__init__.py',True),
+    ('5.0.0','/opt/foothold-sim/python-vendor/trimesh/__init__.py',False),
+    ('5.1.0','/usr/lib/python3/dist-packages/trimesh/__init__.py',False)])
+def test_probe_checks_native_geometry_pin_and_origin(version,origin,accepted,monkeypatch):
+    from deploy import rootfs_probe
+    import sys
+    monkeypatch.delitem(sys.modules,'trimesh',raising=False)
+    monkeypatch.setattr(sys,'path',list(sys.path))
+    monkeypatch.setattr(rootfs_probe.importlib,'import_module',lambda name:SimpleNamespace(__version__=version,__file__=origin))
+    if accepted:rootfs_probe.native_geometry()
+    else:
+        with pytest.raises(ValueError,match='geometry version/origin'):rootfs_probe.native_geometry()
