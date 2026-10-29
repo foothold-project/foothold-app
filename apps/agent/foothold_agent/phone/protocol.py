@@ -113,5 +113,9 @@ LIMITS = {'vx_min': 0.0, 'vx_max': .6, 'vy_min': 0.0, 'vy_max': 0.0,
           'wz_min': -.5, 'wz_max': .5,
           'commands': [[0.0, 0.0, 0.0], [.6, 0.0, 0.0], [.6, 0.0, -.5], [.6, 0.0, .5]]}
 
-# Continuous bounds plus exact ZERO; standing never means rotation in place.
-SIMULATION_LIMITS = FOOTHOLD_V2.limits()
+# Keep the existing phone input envelope, including pressed-deadzone signaling.
+# Accepted policy commands are advertised separately and enforced by the agent.
+SIMULATION_LIMITS = {**LIMITS, 'vx_mode': 'continuous', 'vx_min_moving': .2,
+                     'vx_min': -.3, 'vx_max': 1.0, 'vy_min': -.3, 'vy_max': .3,
+                     'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
+                     **FOOTHOLD_V2.metadata()}

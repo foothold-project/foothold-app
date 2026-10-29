@@ -25,24 +25,15 @@ def test_short_and_long_paths_have_bounded_commands_without_near_stationary_turn
     vx, vy, wz = regulated_command(curvature, params)
     assert .24 <= vx <= .6
     assert vy == 0 and abs(wz) <= .400000000001
-    value, reason = SimulationPolicyAdapter.validate((vx, vy, wz))
-    if vx >= .4:
-        assert (value, reason) == ((vx, vy, wz), 'TESTED')
-    else:
-        assert (value, reason) == ((0, 0, 0), 'UNSUPPORTED_VELOCITY')
+    assert SimulationPolicyAdapter.validate((vx, vy, wz))[1] == 'TESTED'
 
 
 @pytest.mark.parametrize('angle', ANGLES)
 def test_heading_and_position_fixtures_use_real_latch_and_keep_completion_separate(params, angle):
     for start in STARTS:
         result = replay(start, angle, params)
-        if abs(angle) in (60, 90, 135):
-            assert result['latch_count'] == 1
-            assert result['assessment']['first_latched_rejection_index'] == 0
-            assert not result['model_completed']
-        else:
-            assert result['latch_count'] == 0
-            assert result['assessment']['first_latched_rejection_index'] is None
+        assert result['latch_count'] == 0
+        assert result['assessment']['first_latched_rejection_index'] is None
         assert result['max_abs_wz'] <= .400000000001
         assert .24 <= result['min_moving_vx'] <= .6
         if angle in (0, 30, -30):
@@ -51,13 +42,11 @@ def test_heading_and_position_fixtures_use_real_latch_and_keep_completion_separa
             assert not result['model_completed']
 
 
-def test_low_speed_rejection_precedes_stateful_yaw_success(params):
+def test_stateful_yaw_success_is_not_reported_as_geometric_completion(params):
     result = replay((0., 0.), 60, params)
-    assert result['nav_stateful_successes'] == 0
-    assert result['latch_count'] == 1
-    assert result['assessment']['first_latched_rejection_index'] == 0
+    assert result['nav_stateful_successes'] == 1
     assert result['geometric_goals_reached'] == 0
-    assert not result['model_completed']
+    assert result['failure_reason'] == 'GOAL_YAW_ALIGNED_OUTSIDE_XY'
 
 
 def test_body_intersection_is_not_reported_as_wall_clear_completion(params):

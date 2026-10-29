@@ -42,7 +42,9 @@ def test_welcome_limits_contract_and_mode(request, fixture, limits):
     parsed = PhoneWelcome.model_validate(welcome)
     assert parsed.limits.vx_mode == ('continuous' if welcome['simulation'] else 'discrete')
     if welcome['simulation']:
-        assert parsed.limits.vx_min_moving == .4 and parsed.limits.vx_max == 1.5
+        assert parsed.limits.vx_min_moving == .2 and parsed.limits.vx_max == 1.0
+        assert parsed.limits.policy_velocity_range.vx_min_moving == .4
+        assert parsed.limits.policy_velocity_range.vx_max == 1.5
         assert parsed.limits.commands == []
         assert parsed.limits.policy_adapter_id == 'foothold-v2'
         assert parsed.limits.requires_forward_motion is True

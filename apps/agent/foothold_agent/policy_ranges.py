@@ -42,12 +42,12 @@ class VelocityRange:
         value, reason = self.validate((vx, vy, wz))
         return value, '' if reason in ('ZERO', 'TESTED') else reason
 
-    def limits(self):
+    def metadata(self):
+        """Additive policy facts; legacy phone limits keep their input semantics."""
         return dict(policy_adapter_id=self.adapter_id, requires_forward_motion=True,
-                    vx_mode='continuous', vx_min_moving=self.vx_min_moving,
-                    vx_min=0.0, vx_max=self.vx_max, vy_min=self.vy_min,
-                    vy_max=self.vy_max, wz_min=self.wz_min, wz_max=self.wz_max,
-                    commands=[], experimental=[])
+                    policy_velocity_range=dict(vx_min_moving=self.vx_min_moving,
+                        vx_max=self.vx_max, vy_min=self.vy_min, vy_max=self.vy_max,
+                        wz_min=self.wz_min, wz_max=self.wz_max))
 
 
 # DRIVE-MODES-VALIDATION.md: training env.yaml ranges; standing is ALL axes zero.

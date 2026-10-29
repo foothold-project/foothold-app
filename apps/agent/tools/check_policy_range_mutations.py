@@ -1,4 +1,4 @@
-"""Two offline mutations for the simulation adapter; never writes source files."""
+"""Three offline mutations for the simulation adapter; never writes source files."""
 import json
 import os
 from pathlib import Path
@@ -8,12 +8,16 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[3]
 CASES = {
+    'phone limits erase pressed neutral intent': ('protocol',
+        "'experimental': ['reverse', 'lateral', 'turn_in_place']",
+        "'experimental': []"),
     'physical projection loses simulation guard': ('protocol', 'if simulation is True:', 'if True:'),
     'adapter loses range guard': ('policy_ranges',
         'if not (self.vx_min_moving <= vx <= self.vx_max',
         'if False and not (self.vx_min_moving <= vx <= self.vx_max'),
 }
 TESTS = ['apps/agent/tests/test_policy_ranges.py',
+         'apps/agent/tests/test_phone_policy_compat.py',
          'apps/agent/tests/test_phone_continuous.py::test_simulation_projection_boundaries',
          'apps/agent/tests/test_phone_continuous.py::test_physical_projection_is_identical_to_default']
 
@@ -31,6 +35,7 @@ def child(label, report):
         exec(compile(source.replace(before, after), module.__file__, 'exec'), module.__dict__)
         if target == 'protocol':
             hub.project_velocity = protocol.project_velocity
+            hub.SIMULATION_LIMITS = protocol.SIMULATION_LIMITS
         else:
             protocol.FOOTHOLD_V2 = policy_ranges.FOOTHOLD_V2
     return pytest.main(['-q', '-p', 'no:cacheprovider', '-p', 'mutation_reporter',

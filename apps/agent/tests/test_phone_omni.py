@@ -66,12 +66,12 @@ def test_experimental_limits_are_optional_and_welcome_is_deep_copied(h):
     welcome = h.connect()[2]
     assert welcome['limits'] == SIMULATION_LIMITS
     parsed = PhoneWelcome.model_validate(welcome)
-    assert (parsed.limits.vx_min, parsed.limits.vx_max) == (0, 1.5)
-    assert (parsed.limits.vy_min, parsed.limits.vy_max) == (0, 0)
-    assert (parsed.limits.wz_min, parsed.limits.wz_max) == (-1, 1)
-    assert parsed.limits.experimental == []
-    welcome['limits']['experimental'].append('reverse')
-    assert h.connect()[2]['limits']['experimental'] == []
+    assert (parsed.limits.vx_min, parsed.limits.vx_max) == (-.3, 1)
+    assert (parsed.limits.vy_min, parsed.limits.vy_max) == (-.3, .3)
+    assert (parsed.limits.wz_min, parsed.limits.wz_max) == (-.5, .5)
+    assert parsed.limits.experimental == ['reverse', 'lateral', 'turn_in_place']
+    welcome['limits']['experimental'].clear()
+    assert h.connect()[2]['limits']['experimental'] == ['reverse', 'lateral', 'turn_in_place']
     with pytest.raises(ValidationError):
         PhoneLimits.model_validate({**SIMULATION_LIMITS, 'experimental': ['unknown']})
 
