@@ -197,3 +197,22 @@ def test_v2_rootfs_seal_failure_never_calls_process_reader(monkeypatch):
     monkeypatch.setattr(server,'rootfs_binding',reject)
     with pytest.raises(ValueError,match='manifest absent'):
         server.serve(Connection(),12345,lambda:pytest.fail('reader must not run'))
+
+
+def test_v2_binding_change_during_snapshot_cannot_return_complete_proof(monkeypatch):
+    class Connection:
+        sent=[]
+        def settimeout(self,value):pass
+        def getsockopt(self,*args):return struct.pack('3i',42,0,0)
+        def recv(self,size):return json.dumps(dict(v=2,nonce=NONCE,recipe_sha256='a'*64)).encode()+b'\n'
+        def sendall(self,data):self.sent.append(data)
+    calls=[]
+    def binding(recipe):
+        calls.append(recipe)
+        return dict(recipe_sha256=recipe,manifest_sha256=('b' if len(calls)==1 else 'c')*64)
+    monkeypatch.setattr(server,'package_fence',lambda:None)
+    monkeypatch.setattr(server,'rootfs_binding',binding)
+    connection=Connection()
+    with pytest.raises(ValueError,match='binding changed during proof'):
+        server.serve(connection,12345,lambda:([],0))
+    assert calls==['a'*64,'a'*64] and connection.sent==[]

@@ -199,8 +199,8 @@ def check_debs(recipe,directory):
 
 
 @contextmanager
-def deb_stream(path):
-    with tempfile.TemporaryFile() as errors:
+def deb_stream(path,stage):
+    with tempfile.TemporaryFile(dir=stage) as errors:
         child=subprocess.Popen(['/usr/bin/dpkg-deb','--fsys-tarfile',str(path)],stdout=subprocess.PIPE,stderr=errors)
         try:
             yield child.stdout
@@ -316,14 +316,14 @@ def build(recipe,root,work):
     abi(debs)
     rows={}
     for key,path in debs.items():
-        with deb_stream(path) as stream:rows[key]=archive.scan(stream)
+        with deb_stream(path,work) as stream:rows[key]=archive.scan(stream)
         for row in rows[key]:
             if row['path'].split('/')[0] in RESERVED:raise ValueError('archive replaces generated namespace')
     _,canonical=archive.graph(rows)
     if any(path.split('/')[0] in RESERVED for path in canonical):
         raise ValueError('canonical archive path replaces generated namespace')
     tree=work/'tree';tree.mkdir(mode=0o700)
-    archive.merge(tree,rows,lambda key:deb_stream(debs[key]))
+    archive.merge(tree,rows,lambda key:deb_stream(debs[key],work))
     check_debs(recipe,root/'.archives/debs')  # archives unchanged across both passes
     install_wheels(recipe,root,tree)
     from .rootfs_config import generate
@@ -346,6 +346,20 @@ def audited(action,persist):
     shared.clear_install_latch(pending)
 
 
+def require_unsealed(root):
+    # A completed (or partly sealed) recipe is not a transaction target. Do not
+    # even append failure evidence there: it would invalidate the actual seal.
+    fd=os.open(root,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        for name in ('COMPLETE.json','MANIFEST.json'):
+            try:os.stat(name,dir_fd=fd,follow_symlinks=False)
+            except FileNotFoundError:continue
+            raise ValueError('rootfs already sealed; build refused without writes')
+        if not stat.S_IMODE(os.fstat(fd).st_mode)&0o222:
+            raise ValueError('rootfs already read-only; build refused without writes')
+    finally:os.close(fd)
+
+
 def run(operation,recipe_path,expected):
     os.umask(0o077)
     if os.geteuid()!=0:raise ValueError('server root only')
@@ -363,6 +377,7 @@ def run(operation,recipe_path,expected):
         root=ROOT/recipe_sha
         if operation=='download' and (root.exists() or root.is_symlink()):raise ValueError('recipe exists; no automatic retry')
         if operation!='download' and (not root.is_dir() or root.is_symlink()):raise ValueError('rootfs recipe directory absent')
+        if operation=='build':require_unsealed(root)
         work=root/'.stage'
         def action(before):
             # Every write, download, scratch file and evidence stays within recipe SHA.
@@ -373,7 +388,6 @@ def run(operation,recipe_path,expected):
             (work/'before.json').write_bytes(shared.canonical(before))
             if operation=='download':download(recipe,root,work)
             elif operation=='build':
-                if (root/'COMPLETE.json').exists():raise ValueError('rootfs already complete')
                 # Move audit to root-private cache before build removes scratch.
                 archive_dir=root/'.archives/audit';archive_dir.mkdir(mode=0o700)
                 (archive_dir/'build-before.json').write_bytes(shared.canonical(before))

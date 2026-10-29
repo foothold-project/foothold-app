@@ -83,3 +83,20 @@ def test_archive_byte_mutation_between_passes_refuses(tmp_path):
     def stream(key):yield io.BytesIO(after)
     with pytest.raises(ValueError,match='bytes'):
         a.merge(tmp_path,{'fixture':a.scan(io.BytesIO(before))},stream)
+
+
+def test_capability_xattr_refuses_at_scan_before_any_merge():
+    output=io.BytesIO()
+    with tarfile.open(fileobj=output,mode='w',format=tarfile.PAX_FORMAT) as tar:
+        item=tarfile.TarInfo('usr/bin/privileged');item.mode=0o755;item.size=1
+        item.pax_headers={'SCHILY.xattr.security.capability':'fixture-capability'}
+        tar.addfile(item,io.BytesIO(b'x'))
+    with pytest.raises(ValueError,match='privileged archive metadata'):a.scan(io.BytesIO(output.getvalue()))
+
+
+@pytest.mark.parametrize('kind',[tarfile.FIFOTYPE,tarfile.CHRTYPE,tarfile.BLKTYPE,b's'])
+def test_each_special_node_refuses_at_scan(kind):
+    output=io.BytesIO()
+    with tarfile.open(fileobj=output,mode='w') as tar:
+        item=tarfile.TarInfo('special');item.type=kind;item.mode=0o600;tar.addfile(item)
+    with pytest.raises(ValueError,match='special archive node forbidden'):a.scan(io.BytesIO(output.getvalue()))

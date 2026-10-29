@@ -161,3 +161,160 @@ def test_skipped_postinst_interpreter_alternatives_stay_inside_root(tmp_path):
     cfg.executable_alias(tmp_path,'/usr/bin/ruby','/usr/bin/ruby3.2')
     with pytest.raises(ValueError,match='provider absent'):
         cfg.executable_alias(tmp_path,'/usr/bin/python3','/usr/bin/python3.12')
+
+
+def generator_fixture(root):
+    for name in ('usr/bin','usr/share/ca-certificates','opt/ros/jazzy/opt','etc'):
+        (root/name).mkdir(parents=True,exist_ok=True)
+    for name in ('dash','python3.12','ruby3.2','gawk'):
+        path=root/'usr/bin'/name;path.write_bytes(b'synthetic');path.chmod(0o555)
+    (root/'usr/share/ca-certificates/root.crt').write_bytes(b'ROOT_CERT')
+
+
+@pytest.mark.parametrize('parent',['etc/systemd','etc/systemd/user'])
+def test_generator_absolute_write_parent_stays_under_root(tmp_path,monkeypatch,parent):
+    root=tmp_path/'root';root.mkdir();generator_fixture(root)
+    outside=tmp_path/'host-etc';outside.mkdir();(outside/'sentinel').write_bytes(b'HOST')
+    link=root/parent;link.parent.mkdir(parents=True,exist_ok=True);link.symlink_to(outside)
+    monkeypatch.setattr(cfg,'_profile',lambda *_:{})
+    cfg.generate(root,config(),'a'*64)
+    assert sorted(p.name for p in outside.iterdir())==['sentinel']
+    assert (outside/'sentinel').read_bytes()==b'HOST'
+    with cfg.RootTree(root) as tree:
+        expected=root/tree.relative('/etc/systemd/user/sockets.target.wants/dbus.socket',follow_final=False)
+    assert expected.is_relative_to(root) and expected.is_symlink()
+    assert os.readlink(expected)=='/usr/lib/systemd/user/dbus.socket'
+
+
+@pytest.mark.parametrize('parent',['usr/share/ca-certificates','usr/share/ca-certificates/mozilla'])
+def test_generator_absolute_ca_parent_never_reads_host(tmp_path,monkeypatch,parent):
+    root=tmp_path/'root';root.mkdir();generator_fixture(root)
+    outside=tmp_path/'host-certs';outside.mkdir();(outside/'foreign.crt').write_bytes(b'HOST_CERT_SENTINEL')
+    link=root/parent
+    if link.exists():
+        (link/'root.crt').unlink();link.rmdir()
+    link.symlink_to(outside)
+    # Give the future root's absolute target different, non-host bytes.
+    internal=root/str(outside).lstrip('/');internal.mkdir(parents=True)
+    (internal/'internal.crt').write_bytes(b'INTERNAL_CERT')
+    monkeypatch.setattr(cfg,'_profile',lambda *_:{})
+    cfg.generate(root,config(),'a'*64)
+    bundle=cfg.inside(root,'/etc/ssl/certs/ca-certificates.crt').read_bytes()
+    assert b'HOST_CERT_SENTINEL' not in bundle
+    if parent.endswith('mozilla'):assert b'ROOT_CERT' in bundle
+    else:assert bundle==b'INTERNAL_CERT\n'
+
+
+def test_generator_nofollow_parent_swap_is_refused(tmp_path,monkeypatch):
+    root=tmp_path/'root';(root/'etc/systemd').mkdir(parents=True)
+    outside=tmp_path/'host-etc';outside.mkdir()
+    with cfg.RootTree(root) as tree:
+        resolve=tree.relative
+        def swap(value,**kwargs):
+            result=resolve(value,**kwargs)
+            (root/'etc/systemd').rmdir();(root/'etc/systemd').symlink_to(outside)
+            return result
+        monkeypatch.setattr(tree,'relative',swap)
+        with pytest.raises(OSError):tree.write('/etc/systemd/generated',b'unsafe')
+    assert list(outside.iterdir())==[]
+
+
+def test_profile_uses_only_root_relative_vendor_and_library_inputs(tmp_path,monkeypatch):
+    root=tmp_path/'root';root.mkdir()
+    vendor='opt/ros/jazzy/opt/vendor'
+    for name in ('usr/lib/x86_64-linux-gnu','usr/lib/python3/dist-packages',
+            vendor+'/lib',vendor+'/bin',vendor+'/share/gz',vendor+'/share/resources'):
+        (root/name).mkdir(parents=True,exist_ok=True)
+    for name in ('usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0',vendor+'/share/gz/vendor.yaml',
+            vendor+'/lib/libgz-sim8-fixture.so',vendor+'/lib/libgz-rendering8-ogre2.so'):
+        (root/name).write_bytes(b'synthetic')
+    payload=b'\x7fELF'+b'x'*64
+    provider=root/vendor/'lib/native-provider';provider.write_bytes(payload)
+    outside=tmp_path/'host-libraries';outside.mkdir()
+    (outside/'foreign').write_bytes(b'\x7fELF'+b'HOST'*20)
+    (root/'usr/lib/foreign').symlink_to(outside)
+    inspected=[]
+    def soname(data):
+        inspected.append(bytes(data));return 'libfixture.so'
+    monkeypatch.setattr(cfg,'soname',soname)
+    env=cfg.profile(root,{})
+    assert inspected==[payload]
+    assert os.readlink(root/'foothold-runtime/lib/libfixture.so')=='/'+vendor+'/lib/native-provider'
+    assert env['GZ_CONFIG_PATH']=='/'+vendor+'/share/gz'
+    assert env['GZ_RENDERING_ENGINE_PATH'].split(':')[0]=='/'+vendor+'/lib'
+    assert '/'+vendor+'/share/resources' in env['GZ_SIM_RESOURCE_PATH'].split(':')
+    assert env['LD_LIBRARY_PATH'].split(':')[0]=='/foothold-runtime/lib'
+    assert all(str(tmp_path) not in value for value in env.values())
+    icd=json.loads((root/'foothold-runtime/egl_vendor.d/50_mesa.json').read_bytes())
+    assert icd['ICD']['library_path']=='/usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0'
+
+
+def test_completed_recipe_reentry_never_audits_or_changes_seal(tmp_path,monkeypatch):
+    from types import SimpleNamespace
+    root,key=sealed(tmp_path,monkeypatch)
+    assert b.verify(root,key)['recipe_sha256']==key
+    before=b.shared.tree_manifest(root)
+    source=tmp_path/'approved-recipe.json';source.write_bytes((root/'RECIPE.json').read_bytes());source.chmod(0o600)
+    monkeypatch.setattr(b,'ROOT',tmp_path)
+    monkeypatch.setattr(b.shared,'ROOT',tmp_path)
+    monkeypatch.setattr(b.planner,'DEPLOY_LOCK',tmp_path/'deploy.lock')
+    monkeypatch.setattr(b.planner,'GUARD',tmp_path/'absent-guard')
+    monkeypatch.setattr(b.os,'geteuid',lambda:0)
+    monkeypatch.setattr(b.os,'umask',lambda _:0o077)
+    monkeypatch.setattr(b,'validate_recipe',lambda _:key)
+    monkeypatch.setattr(b.shared,'ensure_no_install_latch',lambda:None)
+    monkeypatch.setattr(b.shutil,'disk_usage',lambda _:SimpleNamespace(free=21*1024**3))
+    original=Path.lstat;parents={tmp_path,*tmp_path.parents}
+    def trusted_parent(path,*args,**kwargs):
+        values=list(original(path,*args,**kwargs))
+        if path in parents:values[0]&=~0o022
+        return os.stat_result(values)
+    monkeypatch.setattr(Path,'lstat',trusted_parent)
+    with patch.object(b,'audited',side_effect=AssertionError('sealed recipe must not enter audit')) as audit:
+        with pytest.raises(ValueError,match='sealed'):b.run('build',source,key)
+        audit.assert_not_called()
+    assert b.shared.tree_manifest(root)==before
+    assert not (root/'.stage').exists()
+    assert b.verify(root,key)['recipe_sha256']==key
+
+
+@pytest.mark.parametrize('name',['COMPLETE.json','MANIFEST.json'])
+def test_partial_seal_or_broken_seal_link_refuses_without_writes(tmp_path,name):
+    (tmp_path/name).symlink_to('missing')
+    before=sorted(p.name for p in tmp_path.iterdir())
+    with pytest.raises(ValueError,match='sealed'):b.require_unsealed(tmp_path)
+    assert sorted(p.name for p in tmp_path.iterdir())==before
+
+
+def test_deb_stderr_temporary_file_uses_explicit_stage(tmp_path,monkeypatch):
+    import io
+    stage=tmp_path/'recipe/stage';stage.mkdir(parents=True)
+    foreign=tmp_path/'outside';foreign.mkdir();monkeypatch.setenv('TMPDIR',str(foreign))
+    observed=[]
+    class Child:
+        stdout=io.BytesIO(b'payload')
+        def wait(self,**kwargs):return 0
+        def poll(self):return 0
+    def popen(args,**kwargs):
+        target=os.readlink('/proc/self/fd/'+str(kwargs['stderr'].fileno()))
+        observed.append(Path(target.removesuffix(' (deleted)')).parent)
+        return Child()
+    monkeypatch.setattr(b.subprocess,'Popen',popen)
+    with b.deb_stream(tmp_path/'fixture.deb',stage) as stream:assert stream.read()==b'payload'
+    assert observed==[stage] and list(foreign.iterdir())==[]
+
+
+@pytest.mark.parametrize('mode',[0o644,0o4555])
+def test_verify_rejects_mutable_or_privileged_mode_even_with_coherent_seal(tmp_path,monkeypatch,mode):
+    root,key=sealed(tmp_path,monkeypatch)
+    (root/'payload').chmod(mode)
+    manifest=b.shared.canonical(dict(schema=1,recipe_sha256=key,rows=b.manifest_rows(root)))
+    identity=dict(schema=1,recipe_sha256=key,manifest_sha256=hashlib.sha256(manifest).hexdigest())
+    identity_bytes=b.shared.canonical(identity)
+    complete={**identity,'identity_sha256':hashlib.sha256(identity_bytes).hexdigest()}
+    for path,body,permissions in ((root/'MANIFEST.json',manifest,0o400),
+            (root/'foothold-runtime/identity.json',identity_bytes,0o444),
+            (root/'COMPLETE.json',b.shared.canonical(complete),0o400)):
+        path.chmod(0o600);path.write_bytes(body);path.chmod(permissions)
+    assert b.completion(root,key)['manifest_sha256']==identity['manifest_sha256']
+    with pytest.raises(ValueError,match='mutable/privileged payload'):b.verify(root,key)

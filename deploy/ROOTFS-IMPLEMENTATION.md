@@ -91,6 +91,18 @@ start. Both success and refusal save host audits. Independent manager/pass
 credential files and a warehouse-only catalogue must be provisioned privately
 before probe; API DB credentials are never bound.
 
+Preparation starts a deliberate web auto-deployment pause: from creation of
+guard/setup-unproven until successful probe and activate clear that exact marker,
+common.sh's take_sim_deploy_guard refuses new deployments. The two-minute timer
+keeps running and skips candidates; the existing deployed API/web keeps serving.
+There is no fixed timeout or automatic marker expiry. Review/approval waits and
+any probe/activation failure extend the pause until audited recovery succeeds.
+Have the sealed assets, private settings/catalogue, validation window and stage-3
+confirmation process ready before prepare. After prepare, report its UID/marker
+and audit promptly, obtain stage-3 confirmation, then probe/activate in that
+window. Do not disable the timer, rerun bootstrap or clear the marker merely to
+resume web updates; on failure preserve evidence and escalate for literal recovery.
+
 The instance-only user@<uid>.service.d/foothold-rootfs.conf uses RootDirectory,
 MountAPIVFS, PrivateUsers/Devices/Tmp, ProtectSystem=strict, NoNewPrivileges and
 empty capabilities. PID1 sets up the namespace. Bindings contain only four
