@@ -14,7 +14,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from apps.server.fh_server.audit import FairAuditQueue
 from apps.server.fh_server.leases import Effect
-from apps.server.fh_server.models import Event, User, Session as UserSession, now
+from apps.server.fh_server.models import Event, Robot, User, Session as UserSession, now
 from apps.server.fh_server.realtime import AuditQueue
 from .test_realtime import agent, app_token, receive, reply, rt, screen, send, state, take
 from .test_realtime_review import run

@@ -34,3 +34,7 @@ def test_observer_reports_the_single_phone_controller_and_keeps_legacy_stop_defe
     assert observer._state()['controller_since'] == first['controller_since']
     observer.receive({'t':'stop'})
     assert h.hub.session.core.latch and not any(h.hub.session.core.out)
+    h.hub.disconnect(peer)
+    reserved = observer._state()
+    assert reserved['controller'] == claims['sub']
+    assert reserved['controller_connected'] is False

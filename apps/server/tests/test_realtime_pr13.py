@@ -185,7 +185,7 @@ def test_batched_reads_reserve_control_and_agent_capacity_under_viewer_load(clie
                                 role='OPERATOR', password_hash=password_hash))
                 robot_ids = [uuid4() for _ in range(9)]
                 for robot_id in robot_ids:
-                    db.add(Robot(id=robot_id, org_id=seeded['org'], name='review-' + str(robot_id), model='unitree_go2',
+                    db.add(Robot(id=robot_id, org_id=seeded['org'], name='review-' + str(robot_id), model='unitree_go2', simulation=True,
                         owner_user_id=seeded['users']['one'], agent_token_hash=digest('fake-test-' + str(robot_id))))
                 db.commit()
             for robot_id in robot_ids:

@@ -29,7 +29,7 @@ KINDS = {
 def append_for_event(db, event, *, other_user_id=None):
     definition = KINDS.get(event.code)
     if definition is None:
-        return
+        return 0
     kind, title = definition
     if event.code == 'APPROVAL_STALE' and event.data.get('approval_kind') == 'SCENARIO_ASSIGNMENT':
         title = '배정 대상 변경으로 승인 불가'
@@ -47,6 +47,7 @@ def append_for_event(db, event, *, other_user_id=None):
         recipients = select(User).where(or_(User.role == 'ORG_ADMIN', User.id == owner))
     recipients = recipients.where(User.org_id == event.org_id, User.locked.is_(False), User.archived_at.is_(None))
     db.flush()  # event ID is allocated inside the same audit transaction
+    inserted = 0
     for user in db.scalars(recipients):
         if not kind.startswith('STOP_REQUEST') and user.notify_prefs.get(kind, True) is False:
             continue
@@ -54,6 +55,8 @@ def append_for_event(db, event, *, other_user_id=None):
             kind=kind, title=title, body=event.message, link=(f'#/drive?robot_id={event.robot_id}&stop_request_id={event.data["request_id"]}'
                 if kind.startswith('STOP_REQUEST') else f'#/approvals?approval_id={event.approval_id}'
                 if event.approval_id else f'#/history?event_id={event.id}')))
+        inserted += 1
+    return inserted
 
 
 def notification_object(row):

@@ -1497,6 +1497,9 @@ F-MS-06의 우선순위(STOP_LATCHED 등)를 유지한다.
 총괄은 `POST /api/v1/robots/{robot_id}/stop-requests`에 `{request_id: UUID}`를 보낸다.
 같은 조직·같은 요청 번호는 한 번만 기록하고 다른 로봇에 재사용하면 409다. 응답 202는
 `{request_id, robot_id, status:"REQUESTED", message:"요청 전달됨 — 실제 정지 확인 아님"}`이다.
+실제 알림 저장이 0건이면 409 `STOP_REQUEST_NO_RECIPIENTS`,
+«받을 폰 사용자가 없음 — 현장에 직접 연락»으로 거절하며 접수 기록도 남기지 않는다.
+담당자 없음·잠김·보관으로 받을 사람이 없는 경우를 포함한다.
 로봇의 보고된 조종자와 등록 담당자에게 사용자별 알림함으로 전달하므로 각 사용자의 폰에서
 읽을 수 있다. `STOP_REQUESTED` 알림은 환경설정으로 숨기지 않으며 link의 `robot_id`와
 `stop_request_id`로 대상 폰 화면을 연다. 폰 수신·사람 확인·정지는 각각 다른 사실이다.
@@ -1527,7 +1530,7 @@ Core 잠금·출력 0을 확인한 때 `STOP_REQUEST_APPLIED` 사건을 서버�
 | `last_state_received_at` | 이 서버가 마지막으로 유효한 로봇 state를 받은 UTC. 아직 못 받았거나 서버 재시작 후 모르면 null |
 | `state_stale` | 연결이 없거나 마지막 state가 3초보다 오래됐으면 true. 요약만 허용된 다른 담당자의 로봇은 null |
 | `controller`, `controller_device`, `controller_connected` | 신선한 폰/에이전트 보고의 사용자·기기·연결 상태. 오래되거나 가려진 경우 null |
-| `lease` | 실기는 보고된 폰 조종자·시각을 사용. 시뮬만 옛 서버 조종권을 대체 근거로 사용 |
+| `lease` | 연결된 폰 조종자·시각을 사용. 자리 예약은 사용자·기기만 보이고 lease는 null. 폰 보고가 없는 시뮬만 옛 서버 조종권을 대체 근거로 사용 |
 | `current_run` | 에이전트 실행 보고 또는 저장된 활성 실행의 상태·진행. 이름이 아직 저장되지 않았으면 수신 대기 표시 |
 
 `connection:"ONLINE"`은 전송 연결이 살아 있다는 뜻이다. `state_stale:true`이면 ONLINE이어도

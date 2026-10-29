@@ -56,6 +56,14 @@ SAFETY_CODES = {'SERVER_LINK_LOST', 'LINK_LOSS_TIMEOUT', 'EXECUTOR_STALLED',
 from .audit import AuditQueue, FairAuditQueue, SourceArchiveFull
 
 
+class AgentIdentity(str):
+    """Robot ID plus DB provenance from the same authentication SELECT."""
+    def __new__(cls, robot, simulation):
+        identity = super().__new__(cls, robot)
+        identity.simulation = simulation
+        return identity
+
+
 class BoundAgentHeaders(dict):
     """Server-created binding; no HTTP header can set this attribute."""
     def __init__(self, headers, robot):
@@ -1089,12 +1097,7 @@ class Realtime:
                        if hmac.compare_digest(robot.agent_token_hash or b'\x00' * 32, candidate)]
             if len(matches) != 1:
                 raise self.api_error(403, 'FORBIDDEN', '에이전트 인증을 확인하세요.')
-            return str(matches[0].id)
-
-    def agent_simulation(self, rid):
-        with self.factory() as db:
-            return db.scalar(select(Robot.simulation).where(Robot.org_id == self.settings.org_id,
-                Robot.id == UUID(rid), Robot.archived_at.is_(None))) is True
+            return AgentIdentity(str(matches[0].id), matches[0].simulation is True)
 
     def put(self, peer, body):
         if peer.closing:
@@ -1539,7 +1542,9 @@ class Realtime:
                 Robot.archived_at.is_(None)))}
             batch = self.verify_agents(peers, robots)
             batch.floor_authority = {}
-            if any(r.simulation for r in robots.values()):
+            # A legacy sim peer without a manager generation has no floor
+            # authority. Do not delay its one-query auth snapshot with map I/O.
+            if any(r.simulation and r.sim_generation > 0 for r in robots.values()):
                 bindings = []
                 for world in ('v5_building', 'warehouse', 'rubble'):
                     try:
@@ -1547,7 +1552,7 @@ class Realtime:
                     except (ValueError, KeyError, TypeError):
                         pass
                 batch.floor_authority = {rid: (r.sim_generation, bindings)
-                    for rid, r in robots.items() if r.simulation}
+                    for rid, r in robots.items() if r.simulation and r.sim_generation > 0}
             return batch
 
     async def agent_watch(self, rid, peer):
@@ -1825,7 +1830,8 @@ class Realtime:
             # Metadata writes can wait behind a row/audit lock. Revalidate the
             # token before publishing a connected peer or granting authority.
             auth_started = self.clock()
-            await self.read(self.agent_identity, ws.headers)
+            verified = await self.read(self.agent_identity, ws.headers)
+            peer.simulation = getattr(verified, 'simulation', False)
             peer.auth_checked = auth_started
             if rid in self.deleted_robots:
                 await ws.close(code=4403)
@@ -1840,7 +1846,6 @@ class Realtime:
             # A validated hello starts a new metadata generation even when the
             # old socket's finally runs after this peer has replaced it.
             self.inventory.forget(rid)
-            peer.simulation = await self.read(self.agent_simulation, rid)
             self.agents[rid] = peer
             self.inventory.submit(rid, [d.model_dump(mode='json') for d in hello.devices],
                 hello.robot_model, digest(ws.headers.get('authorization', '')[7:]))

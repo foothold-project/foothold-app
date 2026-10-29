@@ -84,7 +84,8 @@ def install(app, DB, Identity, fail):
             category='SAFETY', code='STOP_REQUESTED', severity='WARN',
             data={'request_id': str(body.request_id), 'recipients': sorted(recipients)}))
         db.add(event)
-        append_for_event(db, event)
+        if append_for_event(db, event) == 0:
+            fail(409, 'STOP_REQUEST_NO_RECIPIENTS', '받을 폰 사용자가 없음 — 현장에 직접 연락')
         return response(db, event)
 
     @app.post('/api/v1/robots/{robot_id}/stop-requests/{request_id}/ack', response_model=C.StopRequestStatus)

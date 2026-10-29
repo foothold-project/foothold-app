@@ -1,5 +1,6 @@
 """ADR-002: real control stays on the phone; tower requests are observations."""
 import time
+import pytest
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -150,7 +151,12 @@ def test_real_summary_uses_phone_reports_and_marks_stale_transport_online(client
         ag.send_json(payload)
         paused = wait_detail(client, rid, admin, lambda v: v['current_run']['status'] == 'PAUSED')
         assert client.get('/api/v1/dashboard', headers=admin).json()['robots_running'] == 0
-        stamp = paused['last_state_received_at']
+        payload.update(controller_connected=False, mode='FREE', latched=True)
+        ag.send_json(payload)
+        reserved = wait_detail(client, rid, admin, lambda v: v['controller_connected'] is False)
+        assert reserved['controller']['id'] == str(seeded['users']['one'])
+        assert reserved['lease'] is None
+        stamp = reserved['last_state_received_at']
         async def age():
             rt.agents[str(rid)].state_received_at = rt.clock() - 4
         client.portal.call(age)
@@ -161,3 +167,23 @@ def test_real_summary_uses_phone_reports_and_marks_stale_transport_online(client
         assert client.get('/api/v1/dashboard', headers=admin).json()['robots_running'] == 0
     offline = client.get(f'/api/v1/robots/{rid}', headers=admin).json()
     assert offline['last_state_received_at'] == stamp and offline['state_stale'] is True
+
+
+@pytest.mark.parametrize('owner_state', ['missing', 'locked'])
+def test_stop_request_with_no_eligible_phone_user_is_not_accepted(client, seeded, rt, owner_state):
+    rid = real_robot(client, seeded)
+    admin = app_token(client, 'admin')
+    with DBSession(client.app.state.engine) as db:
+        if owner_state == 'missing':
+            db.get(Robot, rid).owner_user_id = None
+        else:
+            db.get(User, seeded['users']['one']).locked = True
+        db.commit()
+    result = client.post(f'/api/v1/robots/{rid}/stop-requests', headers=admin,
+                        json={'request_id':str(uuid4())})
+    assert result.status_code == 409, result.text
+    assert result.json()['error']['code'] == 'STOP_REQUEST_NO_RECIPIENTS'
+    assert result.json()['error']['message'] == '받을 폰 사용자가 없음 — 현장에 직접 연락'
+    with DBSession(client.app.state.engine) as db:
+        assert not list(db.scalars(select(Event).where(Event.code == 'STOP_REQUESTED')))
+        assert not list(db.scalars(select(Notification).where(Notification.kind == 'STOP_REQUESTED')))

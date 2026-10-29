@@ -127,12 +127,13 @@ def robot_objects(db, robots, user, realtime):
         lease = None
         record = realtime.arbiter.robots.get(str(robot.id)) if full else None
         holder = record.holder if record else None
-        if holder and robot.simulation is True:
+        if holder and robot.simulation is True and not state.get('phone_reported'):
             lease = C.Lease(holder_type=holder.holder_type,
                 user=C.Person(id=holder.actor.user, display_name=holder.actor.display_name) if holder.actor else None,
                 since=now() - timedelta(seconds=max(0, realtime.clock() - holder.since)))
         controller = owners.get(UUID(state['controller'])) if state.get('controller') else None
-        if controller is not None and state.get('controller_since'):
+        if (controller is not None and state.get('controller_since')
+                and state.get('controller_connected') is True):
             lease = C.Lease(holder_type='RUN' if state.get('mode') == 'RUN' else 'USER',
                 user=C.Person(id=controller.id, display_name=controller.display_name),
                 since=state['controller_since'])

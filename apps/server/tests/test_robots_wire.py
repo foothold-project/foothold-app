@@ -105,6 +105,16 @@ def test_registration_real_client_dashboard_reassignment_stop_and_delete(seeded,
                     assert session.lease_id == lease['lease_id']
                     assert (await http.delete('/robots/' + rid, headers=admin)).status_code == 409
                     mark = len(session.frames)
+                    # Finish the legacy simulation phase before testing real
+                    # management. The real path must never relay lease/STOP.
+                    release_id = await send('lease.release', robot=rid)
+                    assert (await receive('reply', lambda m: m['id'] == release_id))['ok']
+                    await until(lambda: session.lease_id is None and session.core.latch)
+                    engine = create_engine(seeded['urls']['migrate'])
+                    with DBSession(engine) as db:
+                        db.get(Robot, UUID(rid)).simulation = False
+                        db.commit()
+                    engine.dispose()
                     response = await http.patch('/robots/' + rid, headers=admin,
                         json={'owner_user_id': str(seeded['users']['two'])})
                     assert response.status_code == 200
@@ -121,7 +131,7 @@ def test_registration_real_client_dashboard_reassignment_stop_and_delete(seeded,
                         result = (await asyncio.gather(task, return_exceptions=True))[0]
                     assert isinstance(result, ReconnectForbidden) and result.close_code == 4403
                     assert (await http.get('/robots/' + rid, headers=admin)).status_code == 404
-                    print('S1 uvicorn + real Client: registration token -> ONLINE/73/pose/device/dashboard -> take -> delete 409 -> reassignment lease-null/STOP/0 -> robot-only revoke -> delete/4403: PASS')
+                    print('S1 uvicorn + real Client: registration token -> ONLINE/73/pose/device/dashboard -> take -> delete 409 -> sim release lease-null/STOP/0 -> real reassignment robot-only revoke -> delete/4403: PASS')
             finally:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
