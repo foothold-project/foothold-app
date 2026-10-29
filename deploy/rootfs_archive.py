@@ -6,6 +6,7 @@ Absolute links describe the future RootDirectory, never a host lookup.
 import hashlib
 import os
 from pathlib import PurePosixPath
+import re
 import shutil
 import stat
 import tarfile
@@ -15,8 +16,21 @@ MAX_MEMBERS = 500000
 USRMERGE = {'bin':'usr/bin','sbin':'usr/sbin','lib':'usr/lib','lib64':'usr/lib64'}
 
 
+class ArchiveError(ValueError):
+    """Safe, package/member-specific diagnostics, including malformed names."""
+    def __init__(self,source,item,error):
+        self.source=str(source)
+        self.member=item.name if item is not None else None
+        self.target=item.linkname if item is not None and (item.issym() or item.islnk()) else None
+        super().__init__(f'archive={ascii(self.source)} member={ascii(self.member)} '
+                         f'target={ascii(self.target)}: {ascii(str(error))}')
+
+
 def name(value, *, target=False):
-    if (not isinstance(value,str) or not value or len(value)>4096 or '\\' in value
+    # systemd ships literal C-style escapes in unit basenames. On POSIX these
+    # are ordinary bytes, never separators: preserve them, never unescape.
+    if (not isinstance(value,str) or not value or len(value)>4096
+            or re.search(r'\\(?!x[0-9a-fA-F]{2})',value)
             or any(ord(c)<32 or ord(c)==127 for c in value)):
         raise ValueError('invalid archive path')
     path=PurePosixPath(value)
@@ -43,34 +57,38 @@ def resolve(value, links):
     return '/'.join(out)
 
 
-def scan(stream):
+def scan(stream,source='<archive>'):
     """Return bounded metadata and file digests; do not create any path."""
     rows=[];total=0;seen=set()
-    with tarfile.open(fileobj=stream,mode='r|*') as archive:
-        for item in archive:
-            path=name(item.name)
-            if path=='.' and item.isdir():continue
-            if path in seen:raise ValueError('duplicate member within archive')
-            seen.add(path)
-            if item.size<0:raise ValueError('negative archive member size')
-            total+=item.size
-            if total>MAX_BYTES or len(rows)>=MAX_MEMBERS:
-                raise ValueError('archive exceeds fixed envelope')
-            if item.mode&~0o7777 or any('capability' in key.lower() for key in item.pax_headers):
-                raise ValueError('privileged archive metadata')
-            row=dict(path=path,mode=0o555 if item.isdir() or item.mode&0o111 else 0o444)
-            if item.isdir():row['type']='dir'
-            elif item.issym():row.update(type='link',target=name(item.linkname,target=True))
-            elif item.islnk():row.update(type='hardlink',target=name(item.linkname))
-            elif item.isfile():
-                digest=hashlib.sha256();size=0
-                with archive.extractfile(item) as source:
-                    for chunk in iter(lambda:source.read(1024*1024),b''):
-                        size+=len(chunk);digest.update(chunk)
-                if size!=item.size:raise ValueError('short archive member')
-                row.update(type='file',sha256=digest.hexdigest(),size=size)
-            else:raise ValueError('special archive node forbidden')
-            rows.append(row)
+    item=None
+    try:
+        with tarfile.open(fileobj=stream,mode='r|*') as archive:
+            for item in archive:
+                path=name(item.name)
+                if path=='.' and item.isdir():continue
+                if path in seen:raise ValueError('duplicate member within archive')
+                seen.add(path)
+                if item.size<0:raise ValueError('negative archive member size')
+                total+=item.size
+                if total>MAX_BYTES or len(rows)>=MAX_MEMBERS:
+                    raise ValueError('archive exceeds fixed envelope')
+                if item.mode&~0o7777 or any('capability' in key.lower() for key in item.pax_headers):
+                    raise ValueError('privileged archive metadata')
+                row=dict(path=path,mode=0o555 if item.isdir() or item.mode&0o111 else 0o444)
+                if item.isdir():row['type']='dir'
+                elif item.issym():row.update(type='link',target=name(item.linkname,target=True))
+                elif item.islnk():row.update(type='hardlink',target=name(item.linkname))
+                elif item.isfile():
+                    digest=hashlib.sha256();size=0
+                    with archive.extractfile(item) as payload:
+                        for chunk in iter(lambda:payload.read(1024*1024),b''):
+                            size+=len(chunk);digest.update(chunk)
+                    if size!=item.size:raise ValueError('short archive member')
+                    row.update(type='file',sha256=digest.hexdigest(),size=size)
+                else:raise ValueError('special archive node forbidden')
+                rows.append(row)
+    except (ValueError,tarfile.TarError,EOFError) as error:
+        raise ArchiveError(source,item,error) from error
     return rows
 
 

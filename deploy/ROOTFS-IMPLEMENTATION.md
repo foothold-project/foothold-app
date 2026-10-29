@@ -42,6 +42,15 @@ Special/capability nodes, cycles, escapes and differing file collisions refuse;
 SUID/SGID/write bits are stripped. No package scripts, wheel installation hooks,
 ldconfig, ldd or rootfs executable runs on the host.
 
+Literal systemd unit-name escapes such as `system-systemd\x2dcryptsetup.slice`
+are valid POSIX filenames ([systemd unit-name escaping](https://www.freedesktop.org/software/systemd/man/257/systemd.unit.html#String%20Escaping%20for%20Inclusion%20in%20Unit%20Names)).
+Only complete literal `\xHH` sequences are accepted in place of the former blanket
+backslash refusal. They are preserved byte-for-byte, never decoded to a slash,
+dot, NUL or other character. Actual absolute members, parent traversal, malformed
+backslashes, control bytes and special nodes still refuse. Scan failures identify
+the package/archive basename, member and link target with escaped diagnostics;
+the private failure JSON retains those fields and the CLI prints the context.
+
 Bounds: 20GiB initially free; DEBs <=2GiB, payload <=8GiB; wheel archives <=1GiB,
 expanded wheels <=2GiB; inspector address space <=2GiB/CPU time <=3600s without
 increasing any lower inherited limit. Metadata mismatch, missing exact archive,
@@ -59,6 +68,42 @@ Every write starts with the existing root package latch under the deployment
 lock. Before/after dpkg/status/query, /usr bytes/modes/owners and protected
 GPU/DCGM/API/Caddy/PostgreSQL identities persist, including on refusal.
 A failure keeps its latch/evidence and prevents automatic retry.
+
+## Explicit recovery of a failed installation latch
+
+There is no automatic failure unlock. After review and separate execution
+confirmation, recover-latch can release one explicitly approved retained latch:
+
+```sh
+python3 -B -m deploy.rootfs_build recover-latch <old-private-recipe> <old-recipe-sha> \
+  --failed-operation build --latch-device <approved-device> \
+  --latch-inode <approved-inode> --audit-sha256 <approved-host-audit-sha>
+```
+
+The command requires root, the existing nonblocking exclusive deployment lock,
+no activated guard, an unsealed recipe and matching private recipe/failure files.
+It checks the literal root-owned 0600 latch content and exact device/inode both
+before observing the host and before release. The saved before/after audits must
+equal the explicitly supplied audit digest, and a fresh full dpkg/status/query,
+/usr content/mode/owner and GPU/DCGM/API/Caddy/PostgreSQL audit must match them.
+A root-only recovery observation is flushed to the failed recipe's evidence
+directory before the identity-checked release. A changed audit, inode, missing
+evidence, busy lock, active guard or write failure leaves the latch intact.
+Completed/partly sealed recipes refuse before any audit/evidence write.
+
+Recovery preserves all failed archives/staging/evidence and never downloads,
+extracts, resumes a build, activates a unit or changes the deployment timer.
+Historical generator digests are accepted only to identify this old failed
+recipe; download/build continue to require the exact current generator hashes.
+The fix therefore needs a new reviewed recipe SHA and separate execution
+confirmation; the failed path is not an automatic retry target.
+
+A retained latch also blocks automatic delivery of the recovery fix. Separately
+approve staging the exact reviewed tool source privately and invoking this
+command from it; never clear the latch or force deployment to obtain the tool.
+After a successful explicit recovery the unchanged timer may deploy pending dev
+commits, so coordinate that window. If recovery refuses, retain its observation
+and escalate; do not remove the latch, failed recipe or lock file by hand.
 
 ## Generated state instead of postinst
 

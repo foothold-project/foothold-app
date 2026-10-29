@@ -318,3 +318,20 @@ def test_verify_rejects_mutable_or_privileged_mode_even_with_coherent_seal(tmp_p
         path.chmod(0o600);path.write_bytes(body);path.chmod(permissions)
     assert b.completion(root,key)['manifest_sha256']==identity['manifest_sha256']
     with pytest.raises(ValueError,match='mutable/privileged payload'):b.verify(root,key)
+
+
+def test_build_archive_refusal_carries_package_filename_and_member(tmp_path,monkeypatch):
+    import io
+    import tarfile
+    from contextlib import contextmanager
+    from deploy import verify_gz_abi
+    output=io.BytesIO()
+    with tarfile.open(fileobj=output,mode='w') as tar:
+        item=tarfile.TarInfo('/outside');item.size=1;tar.addfile(item,io.BytesIO(b'x'))
+    monkeypatch.setattr(b,'check_debs',lambda *_:{'fixture':tmp_path/'fixture_1_all.deb'})
+    monkeypatch.setattr(verify_gz_abi,'verify',lambda _:None)
+    @contextmanager
+    def stream(*_):yield io.BytesIO(output.getvalue())
+    monkeypatch.setattr(b,'deb_stream',stream)
+    with pytest.raises(b.archive.ArchiveError) as caught:b.build({},tmp_path,tmp_path)
+    assert 'fixture (fixture_1_all.deb)' in str(caught.value) and '/outside' in str(caught.value)
