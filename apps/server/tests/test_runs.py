@@ -458,7 +458,7 @@ def test_human_map_and_forged_pgm_proof_fail_closed(scenario):
     assert not stored(s) and not stored(s, AgentPlanMap)
 
 
-@pytest.mark.parametrize('world_id', ['warehouse', 'rubble'])
+@pytest.mark.parametrize('world_id', ['warehouse'])
 @pytest.mark.parametrize('registration', ['missing', 'stored', 'superseded', 'wrong_source',
     'empty_source', 'origin', 'resolution', 'dimensions', 'human'])
 def test_agent_repository_map_proof_legacy_registration(maps, seeded, monkeypatch, world_id, registration):

@@ -1542,7 +1542,7 @@ class Realtime:
             # authority. Do not delay its one-query auth snapshot with map I/O.
             if any(r.simulation and r.sim_generation > 0 for r in robots.values()):
                 bindings = []
-                for world in ('v5_building', 'warehouse', 'rubble'):
+                for world in ('v5_building', 'warehouse'):
                     try:
                         bindings.extend(approved_bindings(db, self.settings.org_id, world))
                     except (ValueError, KeyError, TypeError):

@@ -419,14 +419,13 @@ def test_reset_discards_same_epoch_inflight_conversion(h, media, channel):
     assert channel not in media.latest
 
 
-@pytest.mark.parametrize('world', ['warehouse', 'rubble', 'v5_building'])
+@pytest.mark.parametrize('world', ['warehouse', 'v5_building'])
 def test_external_adapter_requires_verified_launch_and_supported_world(world, monkeypatch):
     from dataclasses import replace
     from foothold_agent.executor.nav2.simulation import SimulationBinding
     from test_warehouse_floor import launch as warehouse
-    from test_rubble_floor import launch as rubble
     from test_floor_telemetry import launch as building
-    floors = {'warehouse': warehouse, 'rubble': rubble, 'v5_building': building}[world]()
+    floors = {'warehouse': warehouse, 'v5_building': building}[world]()
     floors.run_id = str(uuid4())
     config = SimpleNamespace(robot_id=floors.robot_id, phone=SimpleNamespace(simulation=True), floor_bindings=floors)
     proof = SimulationBinding(config.robot_id, floors.run_id, floors.generation, floors.epoch,

@@ -124,6 +124,8 @@ Native source/assets and sysroot stay read-only; only episode/replay/outbox and
 the native output parent have dedicated private writes. Native trimesh5.1.0 uses
 a root-owned, hash-locked private vendor; no hardware SDK or inference stack.
 
+Before replacing the preview/server release, remove `rubble/f1` from its private catalogue; the removed world assets are no longer shipped.
+
 After package/asset/EGL/ABI/map/proxy/OS-helper review,
 `bootstrap-sim.sh --activate` publishes the locked guard and starts only the
 same-release idle manager. It requires private config/lock and proof socket.

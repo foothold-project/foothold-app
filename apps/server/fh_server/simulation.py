@@ -27,6 +27,8 @@ START_REJECTIONS = frozenset({
     (404, 'SIM_WORLD_NOT_FOUND'), (404, 'SIM_SLOT_NOT_FOUND'),
     (409, 'SIM_WORLD_BUSY'), (409, 'SIM_OWNER_LIMIT'),
     (409, 'SIM_NATIVE_SINGLE_ONLY'), (409, 'SIM_ROBOT_LIMIT'),
+    # Manager checks asset files before acquiring its lease or invoking the launcher.
+    (503, 'SIM_ASSET_MISSING'),
 })
 
 
@@ -232,7 +234,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                 Floor.archived_at.is_not(None)).limit(1))):
             fail(409, 'RESOURCE_ARCHIVED', '삭제된 층이 포함된 시뮬 지도는 새로 시작할 수 없습니다.')
         bindings = []
-        if body.world_id in ('v5_building', 'warehouse/f1', 'rubble/f1'):
+        if body.world_id in ('v5_building', 'warehouse/f1'):
             try:
                 bindings = [b.model_dump(mode='json') for b in approved_bindings(
                     db, user.org_id, body.world_id.split('/')[0])]

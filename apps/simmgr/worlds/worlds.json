@@ -57,38 +57,6 @@
         "meshes/WallB_01_visual.obj": "190636bf31bc60967c487b02c566c5d3deb032dc73d8fde759bd94d9005ec357"
       }
     },
-    "rubble/f1": {
-      "world_id": "rubble",
-      "floor_id": "f1",
-      "building_id": "rubble",
-      "name": "잔해 험지",
-      "description": "직접 생성한 20×20m 정적 잔해. 쉬움 5cm·보통 10cm·어려움 15cm. v2 보행 정책 잔해 미시험: 넘어질 수 있음.",
-      "floor_z": 0.0,
-      "spawn_xyyaw": [
-        0.0,
-        -6.0,
-        0.0
-      ],
-      "spawn_z": 0.4,
-      "world": "rubble/rubble.sdf",
-      "gt_map": "rubble/maps/f1.yaml",
-      "map_metadata": "rubble/maps/metadata.json",
-      "ledger_key": "rubble/f1",
-      "height_source": "static_sdf_collision",
-      "readiness": "offline_prepared",
-      "native_supported": true,
-      "notes": "private 실행 목록·서버 지도 명시 등록 필요. 로봇 보행·주행 미검증.",
-      "scenarios": "rubble/scenarios.json",
-      "sha256": {
-        "world": "7646fdd2da1909f6bdc9fb566d88bdc93cb37a647d6f25cbcb80d93032fc0bf7",
-        "map": "215428198a42a4cab8714e972438624e790fc50ae8df513bf45073e71bc86b8b",
-        "metadata": "51761d13f6704f67b5d3db07281c13af6c929ad66eb2b4215f367e0f62db8168"
-      },
-      "mesh_sha256": {
-        "meshes/cylinder.obj": "636b387f78b211dad04f8be98a0bd8294eebc3603c3de2036e50a4b90dc429b9",
-        "meshes/mound.obj": "dd36a25cc0799012eae9aa5d5d103ede2a4f3391a46766171b717a82aa6067c0"
-      }
-    },
     "factory_inspection/f1": {
       "world_id": "factory_inspection",
       "floor_id": "f1",

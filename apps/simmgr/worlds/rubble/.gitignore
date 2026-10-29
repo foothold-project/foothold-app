@@ -1,6 +1,0 @@
-# Reproducible maps from our original procedural geometry.
-!maps/
-maps/*
-!maps/f1.png
-!maps/f1.yaml
-!maps/metadata.json

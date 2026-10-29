@@ -87,7 +87,7 @@ def load_worlds(folder):
                 or not math.isfinite(entry['floor_z']) or generated['size_pixels'] != [width, height]
                 or generated['origin'] != metadata['origin'] or generated['resolution'] != metadata['resolution']):
             raise ValueError('Static map metadata does not match image/YAML/floor')
-        if key in (('warehouse', 'f1'), ('rubble', 'f1')):
+        if key == ('warehouse', 'f1'):
             _, _, pixels = gray_pixels(png)
             pgm = f'P5\n{width} {height}\n255\n'.encode() + pixels
             metadata['connected_gt'] = dict(world_id=entry['world_id'], ros_building_id=entry['building_id'],

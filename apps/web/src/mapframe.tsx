@@ -32,7 +32,7 @@ export function MapImage({ id, style, ...rest }: { id: string; width: number; he
 
 /** 시뮬 월드 «실제 모습»: mobile/scripts/make-top.mjs 가 구운 top.png 와 그 범위 top.json(사진이 덮는 지도 좌표 [x0, y0, x1, y1] m + 그 지도 판).
  *  판과 사진은 서버가 준 그림 sha256 으로만 잇는다 — 서버가 시뮬 월드를 등록할 때 쓰는 그림(apps/simmgr/worlds/<월드>/maps/<층>.png, sim_maps.py)의 sha256.
- *  이름으로 맞추지 않는다(tests/maptop.test 가 worlds.json·그림과 대조). 잔해 험지(rubble)·연결 건물·실기·올린 지도는 사진 없음.
+ *  이름으로 맞추지 않는다(tests/maptop.test 가 worlds.json·그림과 대조). 연결 건물·실기·올린 지도는 사진 없음.
  *  같은 PNG·YAML 을 사람이 올린 판(provenance HUMAN)도 사진 없음 — 서버가 시뮬 등록으로 남긴 판(SIMULATION, 편집·되돌림도 이어받음)만 */
 export const SIM_TOP = new Map([
   ['2b36237e818ca8423a454b1852a69cb9826da8e6a6dce801b66532364db6d632', 'collapsed-house-v2'],   // collapsed_house_v2/f1

@@ -358,7 +358,7 @@ class NativeLauncher:
             identity = json.loads((self.sim.out / 'run-identity.json').read_text())
             env['FOOTHOLD_FLOOR_BINDINGS'] = json.dumps(dict(robot_id=slot.robot_id,
                 generation=credentials['generation'], run_id=identity['run_id'], epoch=1,
-                spawn_floor_id=('f1' if credentials['map_bindings'][0]['world_id'] in ('warehouse', 'rubble')
+                spawn_floor_id=('f1' if credentials['map_bindings'][0]['world_id'] == 'warehouse'
                                 else credentials['spawn_floor_id']), bindings=credentials['map_bindings']))
         try:
             if getattr(self.native_world, 'repository', False):

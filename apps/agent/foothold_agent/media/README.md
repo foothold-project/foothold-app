@@ -71,9 +71,9 @@ accumulation. No verified TF/map transform is implemented here.
 
 External camera is enabled only when the existing simmgr bootstrap's verified
 `SimulationBinding` matches the launcher-provided `FloorBindings` (robot, native
-run UUID, generation, epoch and registered maps), and the world is `warehouse`
-or `rubble`. No new environment switch is used; floor bindings or media flags
-alone do not enable the subscription. Building/legacy/unverified launches retain
+run UUID, generation, epoch and registered maps), and the world is `warehouse`.
+No new environment switch is used; floor bindings or media flags alone do not
+enable the subscription. Building/legacy/unverified launches retain
 `available=false`, token null, and `External camera source is not connected`.
 When its decoder is alive and the media binding is valid, welcome advertises
 `external: {available: true, reason: "Ready", token: "..."}`. The explicit
