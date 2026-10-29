@@ -128,6 +128,24 @@ describe('PC «시뮬» 고르기(10-29 — MuJoCo / Gazebo)', () => {
     expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
   });
 
+  for (const [how, fail] of [['SIM_DISABLED', err(503, 'SIM_DISABLED', '설정 없음')],
+    ['manager_unreachable', { status: 503, body: { error: { code: 'SIM_UNAVAILABLE', message: '관리자 꺼짐', detail: { reason: 'manager_unreachable' } } } }]] as const)
+    it(`정상 목록 뒤 worlds 실패가 다른 문구(simulationMessage: ${how})여도 Gazebo «준비 중»·MuJoCo`, async () => {
+      serve(); await mount();
+      expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
+      routes['GET /simulation/worlds'] = fail;
+      await act(async () => { await sim.load(); }); await flush();
+      expect($('[data-sim-msg]')!.textContent).not.toMatch(/^시뮬 월드 목록을 받지 못했습니다/);   // 앞부분 문구로는 못 가리는 경로
+      expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, true]]);
+      expect(btn('띄우기')).toBeUndefined();
+    });
+
+  it('월드는 받아도 관리자 오류(manager_error)면 Gazebo «준비 중»', async () => {
+    serve({ 'GET /simulation/robots': { status: 200, body: { items: [], manager_error: 'SIM_UNAVAILABLE' } } }); await mount();
+    expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, true]]);
+    expect(btn('띄우기')).toBeUndefined();
+  });
+
   for (const [how, worlds] of [['목록 못 받음', err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.')], ['빈 목록', { status: 200, body: { ...CATALOG, worlds: [] } }]] as const)
     it(`서버 월드 ${how} → Gazebo «준비 중»·누를 수 없음, 기억이 Gazebo 여도 지금은 MuJoCo(기억은 그대로)`, async () => {
       serve({ 'GET /simulation/worlds': worlds }); await mount();

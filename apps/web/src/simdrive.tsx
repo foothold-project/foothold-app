@@ -91,9 +91,8 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
   const worlds = s.catalog?.worlds ?? [], world = worlds.some((w) => w.id === pick) ? pick : worlds[0]?.id ?? '';
-  // Gazebo 는 서버 월드 목록이 있어야 고를 수 있다(목록 못 받음·빈 목록 = 준비 중). 기억은 그대로 두고 지금만 MuJoCo.
-  // phone.ts load 는 조회 실패 때 옛 catalog 를 남기므로 지금 실패는 그 오류 문구(phone.ts:278 — 실패면 이 문구가 먼저)로 가린다
-  const gz = worlds.length > 0 && !s.err.startsWith('시뮬 월드 목록을 받지 못했습니다'), app = only || engine === 'mujoco' || !gz;
+  // Gazebo 는 서버 월드 목록이 있고 지금 조회·관리자가 성공일 때만(옛 catalog 는 조회 실패 때도 남음 → worldsOk 로 가림). 기억은 그대로 두고 지금만 MuJoCo
+  const gz = worlds.length > 0 && s.worldsOk && !s.managerError, app = only || engine === 'mujoco' || !gz;
   // 시작 층: 고른 월드가 두 층 이상에서 띄울 수 있을 때만(하나뿐이면 표시·전송 0)
   const w0 = worlds.find((w) => w.id === world), spawns = w0?.spawn_floor_ids ?? [], from = spawns.length > 1 ? spawns.includes(spawn) ? spawn : spawns[0] : undefined;
   const floorName = (f: 'l1' | 'l2') => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : '2층');

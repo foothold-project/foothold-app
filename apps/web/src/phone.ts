@@ -26,7 +26,7 @@ export type Link = {
   run: RunSnapshot | null; arrived: string; navOff: boolean;
 };
 export type Sim = {
-  step: Step; catalog: SimCatalog | null; mine: SimRobot[]; listed: boolean; err: string; robot: SimRobot | null; since: number; link: Link | null;
+  step: Step; catalog: SimCatalog | null; worldsOk: boolean; mine: SimRobot[]; listed: boolean; err: string; robot: SimRobot | null; since: number; link: Link | null;
   /** STOP: agent = 에이전트에 직접 보냄, cleanup = 로봇에 연결 전이라 명령 없이 그 슬롯을 정리(서버 STOP 경로는 쓰지 않음 — ADR-002 §5) */
   stop: { at: number; via: 'agent' | 'cleanup'; g0?: number; conn?: number; latched?: true } | null;   // g0·conn = STOP 때 stop_gen·연결(gen), latched = 그 뒤 새 세대 잠금을 이 연결에서 받음
   /** 이 시각(단조) 전에는 다시 연결하지 않는다(1013 뒤 늘리는 간격·출입증 429 retry_after) */
@@ -39,7 +39,7 @@ export type Sim = {
 
 export const CMD_MS = 50, PING_MS = 1000;
 const now = () => performance.now();
-const blank = (): Sim => ({ step: 'pick', catalog: null, mine: [], cleanup: [], managerError: null, listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, runtimeUntil: null, slotBusy: false, busyWhy: '', taken: [] });
+const blank = (): Sim => ({ step: 'pick', catalog: null, worldsOk: false, mine: [], cleanup: [], managerError: null, listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, runtimeUntil: null, slotBusy: false, busyWhy: '', taken: [] });
 const runtimeUntil = (r: SimRobot) => typeof r.remaining_s === 'number' && Number.isFinite(r.remaining_s) && r.remaining_s >= 0
   ? now() + r.remaining_s * 1000 : null;
 /** 05 §13.9 시작 전 확실한 거부 (status, code) 고정 목록 — 이 밖(SIM_SLOT_BUSY 포함)은 불확실 */
@@ -269,7 +269,7 @@ export const sim = {
       x.robot_id === S.robot!.robot_id && x.generation === S.robot!.generation && x.owner_id === S.robot!.owner_id);
     if (completed && (S.step === 'drive' || S.step === 'linking' || S.step === 'checking')) {
       sim.close();
-      set({ ...blank(), catalog: c.status === 'fulfilled' ? c.value : S.catalog,
+      set({ ...blank(), catalog: c.status === 'fulfilled' ? c.value : S.catalog, worldsOk: c.status === 'fulfilled',
         mine: r.status === 'fulfilled' ? r.value.items : [], listed: true,
         err: '시간이 다 되어 시뮬을 끝냈습니다 — 다시 띄우기' });
       return true;
@@ -280,7 +280,7 @@ export const sim = {
       : managerError === 'SIM_DISABLED' ? '시뮬 관리자 연결 설정이 없습니다. 관리자에게 설정을 요청하세요.'
       : managerError ? '시뮬 관리자에 연결하지 못했습니다. 관리자가 켜져 있는지와 연결을 확인한 뒤 정리하세요.' : '';
     // 목록 오류만 지운다 — 띄우기 거부·정리 확인 실패 문구는 남김
-    set({ catalog: c.status === 'fulfilled' ? c.value : S.catalog, mine: r.status === 'fulfilled' ? r.value.items : S.mine, listed: r.status === 'fulfilled' || S.listed,
+    set({ catalog: c.status === 'fulfilled' ? c.value : S.catalog, worldsOk: c.status === 'fulfilled', mine: r.status === 'fulfilled' ? r.value.items : S.mine, listed: r.status === 'fulfilled' || S.listed,
       cleanup: r.status === 'fulfilled' ? r.value.cleanup ?? [] : S.cleanup, managerError,
       err: e || (S.err === loadErr ? '' : S.err) });
     const current = S.robot;
