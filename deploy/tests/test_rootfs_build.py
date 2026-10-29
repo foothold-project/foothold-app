@@ -345,3 +345,22 @@ def test_after_audit_failure_still_binds_error_to_retained_latch(monkeypatch):
     def persist(first,after,error,identity):records.append((first,after,type(error).__name__,identity))
     with pytest.raises(ValueError,match='identity changed'):b.audited(lambda _:None,persist)
     assert records==[(before,None,'OSError',(17,29))] and clear==[]
+
+
+def test_distinct_gazebo_plugins_sharing_soname_require_explicit_provider(tmp_path,monkeypatch):
+    vendor='opt/ros/jazzy/opt/gz_gui_vendor'
+    plugins=vendor+'/lib/gz-gui-8/plugins'
+    for name in ('usr/lib/x86_64-linux-gnu',plugins,vendor+'/share/gz'):
+        (tmp_path/name).mkdir(parents=True,exist_ok=True)
+    for name in ('usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0',vendor+'/share/gz/vendor.yaml',
+            vendor+'/lib/libgz-sim8-fixture.so',vendor+'/lib/libgz-rendering8-ogre2.so'):
+        (tmp_path/name).write_bytes(b'synthetic')
+    for name in ('libGrid3D.so','libGridConfig.so'):
+        (tmp_path/plugins/name).write_bytes(b'\x7fELF'+name.encode()*8)
+    monkeypatch.setattr(cfg,'soname',lambda _: 'libGridConfig.so')
+    with pytest.raises(ValueError,match='ambiguous') as caught:cfg.profile(tmp_path,{})
+    assert 'libGrid3D.so' in str(caught.value) and 'libGridConfig.so' in str(caught.value)
+    assert not (tmp_path/'foothold-runtime/lib/libGridConfig.so').exists()
+    chosen='/'+plugins+'/libGridConfig.so'
+    cfg.profile(tmp_path,{'libGridConfig.so':chosen})
+    assert os.readlink(tmp_path/'foothold-runtime/lib/libGridConfig.so')==chosen

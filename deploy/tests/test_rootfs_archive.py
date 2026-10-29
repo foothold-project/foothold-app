@@ -138,3 +138,32 @@ def test_graph_canonical_alias_keeps_original_link_provenance():
     with pytest.raises(a.ArchiveError) as caught:a.graph({'fixture':a.scan(io.BytesIO(data),source='fixture (fixture_1_all.deb)')})
     assert caught.value.source=='fixture (fixture_1_all.deb)'
     assert caught.value.member=='./opt/alias/unit' and caught.value.target=='../../../../outside'
+
+
+def test_gzip_uncompress_dot_prefixed_hardlink_survives_both_passes(tmp_path):
+    # gzip_1.12-1ubuntu3.2_amd64.deb stores this linkname with a leading ./.
+    body=b'#!/bin/sh\nexec gzip -d "$@"\n'
+    data=archive([('./usr/bin/gunzip','file',body),('./usr/bin/uncompress','hardlink','./usr/bin/gunzip')])
+    expected=merge(tmp_path,{'gzip':data})
+    assert (tmp_path/'usr/bin/uncompress').read_bytes()==body
+    assert expected['usr/bin/uncompress']['sha256']==hashlib.sha256(body).hexdigest()
+
+
+def test_dot_prefixed_symlink_target_uses_same_normalization_in_both_passes(tmp_path):
+    data=archive([('./usr/bin/provider','file',b'safe'),('./usr/bin/alias','link','./provider')])
+    merge(tmp_path,{'fixture':data})
+    assert (tmp_path/'usr/bin/alias').read_bytes()==b'safe'
+    assert os.readlink(tmp_path/'usr/bin/alias')=='provider'
+
+
+@pytest.mark.parametrize('target',['./other','/usr/bin/provider','../../escape'])
+def test_second_pass_hardlink_target_change_is_refused_with_origin(tmp_path,target):
+    one=archive([('usr/bin/provider','file',b'safe'),('usr/bin/copy','hardlink','./usr/bin/provider')])
+    two=archive([('usr/bin/provider','file',b'safe'),('usr/bin/copy','hardlink',target)])
+    rows=a.scan(io.BytesIO(one),source='fixture (fixture_1_all.deb)')
+    @contextmanager
+    def stream(_):yield io.BytesIO(two)
+    with pytest.raises(a.ArchiveError) as caught:a.merge(tmp_path,{'fixture':rows},stream)
+    assert caught.value.source=='fixture (fixture_1_all.deb)' and caught.value.member=='usr/bin/copy'
+    assert caught.value.target==target
+    assert not (tmp_path/'usr/bin/copy').exists()

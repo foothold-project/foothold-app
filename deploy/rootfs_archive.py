@@ -61,6 +61,13 @@ def name(value, *, target=False):
     return str(path)
 
 
+def link_target(item):
+    """Use the same lexical target representation in both tar passes."""
+    if item.issym():return name(item.linkname,target=True)
+    if item.islnk():return name(item.linkname)
+    return None
+
+
 def resolve(value, links):
     pending=list(PurePosixPath(value).parts);out=[];count=0;last=None
     def invalid(message):
@@ -102,8 +109,8 @@ def scan(stream,source='<archive>'):
                     raise ValueError('privileged archive metadata')
                 row=dict(path=path,mode=0o555 if item.isdir() or item.mode&0o111 else 0o444)
                 if item.isdir():row['type']='dir'
-                elif item.issym():row.update(type='link',target=name(item.linkname,target=True))
-                elif item.islnk():row.update(type='hardlink',target=name(item.linkname))
+                elif item.issym():row.update(type='link',target=link_target(item))
+                elif item.islnk():row.update(type='hardlink',target=link_target(item))
                 elif item.isfile():
                     digest=hashlib.sha256();size=0
                     with archive.extractfile(item) as payload:
@@ -226,26 +233,35 @@ def merge(root,packages,streams):
         for key,rows in packages.items():
             by_name={row['path']:row for row in rows}
             observed=[]
-            with streams(key) as stream,tarfile.open(fileobj=stream,mode='r|*') as archive:
-                for item in archive:
-                    path=name(item.name)
-                    if path=='.' and item.isdir():continue
-                    row=by_name.get(path)
-                    if row is None:raise ValueError('archive changed after inspection')
-                    kind=('file' if item.isfile() else 'dir' if item.isdir() else
-                          'link' if item.issym() else 'hardlink' if item.islnk() else 'special')
-                    if (kind!=row['type'] or (kind in ('link','hardlink') and item.linkname!=row['target'])
-                            or (kind=='file' and item.size!=row['size'])):
-                        raise ValueError('archive member metadata changed after inspection')
-                    observed.append(path)
-                    if row['type'] not in ('file','hardlink'):continue
-                    dest=resolve(path,links)
-                    if dest in written:continue
-                    if row['type']=='hardlink':copies.append((dest,resolve(row['target'],links)));continue
-                    if not item.isfile():raise ValueError('archive member type changed')
-                    with archive.extractfile(item) as source:put(root_fd,dest,source,expected[dest])
-                    written.add(dest)
-            if observed!=list(by_name):raise ValueError('archive member order/set changed')
+            source_name=getattr(rows[0],'source',key) if rows else key;item=None
+            try:
+                with streams(key) as stream,tarfile.open(fileobj=stream,mode='r|*') as archive:
+                    for item in archive:
+                        path=name(item.name)
+                        if path=='.' and item.isdir():continue
+                        row=by_name.get(path)
+                        if row is None:raise ValueError('archive changed after inspection')
+                        kind=('file' if item.isfile() else 'dir' if item.isdir() else
+                              'link' if item.issym() else 'hardlink' if item.islnk() else 'special')
+                        target=link_target(item)
+                        if (kind!=row['type'] or (kind in ('link','hardlink') and target!=row['target'])
+                                or (kind=='file' and item.size!=row['size'])):
+                            raise ValueError('archive member metadata changed after inspection; '
+                                f'expected type={row["type"]!r} target={row.get("target")!r} size={row.get("size")!r}; '
+                                f'observed type={kind!r} target={target!r} size={item.size!r}')
+                        observed.append(path)
+                        if row['type'] not in ('file','hardlink'):continue
+                        dest=resolve(path,links)
+                        if dest in written:continue
+                        if row['type']=='hardlink':copies.append((dest,resolve(row['target'],links)));continue
+                        if not item.isfile():raise ValueError('archive member type changed')
+                        with archive.extractfile(item) as source:put(root_fd,dest,source,expected[dest])
+                        written.add(dest)
+                if observed!=list(by_name):raise ValueError('archive member order/set changed')
+            except ArchiveError:raise
+            except (ValueError,tarfile.TarError,EOFError) as error:
+                raise ArchiveError(source_name,item,error) from error
+
         for dest,target in copies:
             if dest in written:continue
             parent,_,leaf=target.rpartition('/');fd=directory(root_fd,parent)

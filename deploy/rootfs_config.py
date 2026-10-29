@@ -221,7 +221,9 @@ def _profile(tree,aliases):
             target=PurePosixPath('/')/tree.relative(chosen)
             if target not in paths:raise ValueError('explicit SONAME provider does not match')
         else:
-            if len({tree.sha(p) for p in paths})!=1:raise ValueError('ambiguous skipped-alternatives library; explicit recipe required')
+            if len({tree.sha(p) for p in paths})!=1:
+                raise ValueError('ambiguous skipped-alternatives library '+name+
+                    '; explicit recipe required; candidates='+','.join(map(str,sorted(paths))))
             target=paths[0]
         tree.symlink(runtime/'lib'/name,str(target))
     for key in aliases:
