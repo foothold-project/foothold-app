@@ -134,10 +134,17 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
         authorize(user, 'O')
         catalogue = C.SimCatalog.model_validate(call('GET', '/v1/worlds?' + urlencode({'org_id': str(user.org_id)})))
         buildings = list(db.scalars(select(Building).where(Building.org_id == user.org_id, Building.sim_world_id.is_not(None))))
+        hidden_worlds = set()
+        for building in buildings:
+            if building.archived_at is not None or db.scalar(select(Floor.id).where(
+                    Floor.org_id == user.org_id, Floor.building_id == building.id,
+                    Floor.archived_at.is_not(None)).limit(1)):
+                hidden_worlds.add(building.sim_world_id)
+        catalogue.worlds = [w for w in catalogue.worlds if w.id.split('/')[0] not in hidden_worlds]
         for world in catalogue.worlds:
             for building in buildings:
                 floors = list(db.scalars(select(Floor).where(Floor.org_id == user.org_id,
-                    Floor.building_id == building.id, Floor.sim_floor_id.is_not(None)).order_by(Floor.level, Floor.id)))
+                    Floor.building_id == building.id, Floor.archived_at.is_(None), Floor.sim_floor_id.is_not(None)).order_by(Floor.level, Floor.id)))
                 if world.id != building.sim_world_id and world.id not in {building.sim_world_id + '/' + f.sim_floor_id for f in floors}:
                     continue
                 world.map_id = building.id
@@ -217,6 +224,13 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
                     or found.spawn_floor_id != body.spawn_floor_id):
                 fail(409, 'SIM_SLOT_BUSY', '이 시뮬 슬롯은 사용 중입니다.', {'reason': 'slot_busy'})
             return found
+        world_key = body.world_id.split('/')[0]
+        building = db.scalar(select(Building).where(Building.org_id == user.org_id,
+            Building.sim_world_id == world_key))
+        if building is not None and (building.archived_at is not None or db.scalar(select(Floor.id).where(
+                Floor.org_id == user.org_id, Floor.building_id == building.id,
+                Floor.archived_at.is_not(None)).limit(1))):
+            fail(409, 'RESOURCE_ARCHIVED', '삭제된 층이 포함된 시뮬 지도는 새로 시작할 수 없습니다.')
         bindings = []
         if body.world_id in ('v5_building', 'warehouse/f1', 'rubble/f1'):
             try:
@@ -231,6 +245,7 @@ def install(app, DB, Identity, fail, authorize, event, issuer, settings, lock_or
             db.add(row)
         row.owner_user_id = user.id
         row.sim_generation += 1
+        row.sim_world_id = body.world_id.split('/')[0]
         row.sim_state = 'STARTING'
         row.sim_manager_instance_id = catalogue.manager_instance_id
         row.agent_token_hash = digest(raw)

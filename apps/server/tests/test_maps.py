@@ -87,7 +87,7 @@ def test_admin_approval_stale_immutable_png_and_delete_guards(maps, seeded):
     assert old['status'] == 'SUPERSEDED' and old['image_sha256'] == first['image_sha256']
     for method in ('patch', 'put', 'delete'):
         assert getattr(http, method)(P + f'/map-versions/{first["id"]}', headers=headers).status_code == 405
-    for path in (f'/sites/{site}', f'/buildings/{building}', f'/floors/{floor}'):
+    for path in (f'/sites/{site}', f'/buildings/{building}'):
         response = http.delete(P + path, headers=headers)
         assert response.status_code == 409 and response.json()['error']['code'] == 'RESOURCE_IN_USE'
     engine = create_engine(seeded['urls']['app'])
@@ -129,8 +129,8 @@ def test_upload_direct_save_and_map_tree_crud(maps, seeded, actor):
     assert current['approved_version_id'] == second['id'] and current['pending_count'] == 0
     assert http.get(P + f'/map-versions/{first["id"]}', headers=headers).json()['status'] == 'SUPERSEDED'
     assert http.get(P + f'/map-versions/{second["id"]}/image', headers=headers).status_code == 200
-    # Referenced snapshots still prevent destructive hierarchy deletion.
-    assert http.delete(P + f'/floors/{floor}', headers=headers).status_code == 409
+    # Deletion hides the floor and preserves its immutable snapshots.
+    assert http.delete(P + f'/floors/{floor}', headers=headers).status_code == 204
     empty = http.post(P + f'/buildings/{building}/floors', headers=headers, json={'name': '빈 층', 'level': 3}).json()['id']
     assert http.delete(P + f'/floors/{empty}', headers=headers).status_code == 204
     other_site, other_building, other_floor = tree(http, headers)

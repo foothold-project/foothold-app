@@ -73,6 +73,7 @@ class Robot(Tenant, Base):
     simulation: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text('false'))
     sim_generation: Mapped[int] = mapped_column(BigInteger, default=0, server_default=text('0'))
     sim_state: Mapped[str] = mapped_column(Text, default='IDLE', server_default=text("'IDLE'"))
+    sim_world_id: Mapped[str | None] = mapped_column(Text)
     sim_manager_instance_id: Mapped[UUID | None] = mapped_column(PGUUID)
     __tablename__ = 'robots'
     __table_args__ = (
@@ -209,6 +210,7 @@ class RobotDevice(Tenant, Base):
 
 
 class Site(Tenant, Base):
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = 'sites'
     __table_args__ = (ForeignKeyConstraint(['org_id'], ['organizations.id']), UniqueConstraint('org_id', 'id'))
     id: Mapped[UUID] = mapped_column(PGUUID, primary_key=True, default=uuid4, server_default=text("gen_random_uuid()"))
@@ -216,6 +218,7 @@ class Site(Tenant, Base):
 
 
 class Building(Tenant, Base):
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = 'buildings'
     __table_args__ = (ForeignKeyConstraint(['org_id', 'site_id'], ['sites.org_id', 'sites.id']), UniqueConstraint('org_id', 'id'),
         UniqueConstraint('org_id', 'sim_world_id'))
@@ -226,6 +229,7 @@ class Building(Tenant, Base):
 
 
 class Floor(Tenant, Base):
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     __tablename__ = 'floors'
     __table_args__ = (
         CheckConstraint("provenance IN ('HUMAN','SIMULATION')", name='floor_provenance'),

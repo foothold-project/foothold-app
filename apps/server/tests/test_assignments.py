@@ -112,10 +112,12 @@ def test_boundaries_duplicate_multiple_scenarios_archive_and_memo(maps, seeded):
     assert http.delete(P + '/assignments/' + str(uuid4()), headers=admin).status_code == 404
     another, _, _, _ = scenario(http, admin)
     assert assignment(http, admin, another, seeded['robots']['mine']).status_code == 201
+    assert http.delete(P + '/scenarios/' + value['id'], headers=admin).status_code == 409
+    assert http.delete(P + '/assignments/' + row['id'], headers=admin).status_code == 204
     assert http.delete(P + '/scenarios/' + value['id'], headers=admin).status_code == 204
     assert assignment(http, admin, value, seeded['robots']['theirs']).status_code == 422
-    assert http.delete(P + '/assignments/' + row['id'], headers=admin).status_code == 204
-    assert listing(http, admin, status='REMOVED')[0]['id'] == row['id']
+    assert listing(http, admin, status='REMOVED') == []
+    assert listing(http, admin, status='REMOVED', archived=True)[0]['id'] == row['id']
     assert row['approval_id'] is None
     assert http.get(P + '/approvals', headers=admin).json()['items'] == []
     assert http.get(P + '/notifications', headers=one).json()['items'] == []
@@ -143,7 +145,12 @@ def test_stale_four_causes_commits_terminal_decision(maps, seeded, change):
     value, floor, image, old = scenario(http, admin)
     row = pending_assignment(http, one, value, seeded['robots']['mine'])
     if change == 'archive':
-        http.delete(P + '/scenarios/' + value['id'], headers=admin)
+        assert http.delete(P + '/scenarios/' + value['id'], headers=admin).status_code == 409
+        # Legacy/imported inconsistent data still needs the defensive STALE path.
+        engine = create_engine(seeded['urls']['migrate'])
+        with engine.begin() as conn:
+            conn.execute(text('UPDATE scenarios SET archived_at=now() WHERE id=:id'), {'id': value['id']})
+        engine.dispose()
     elif change == 'owner':
         http.patch(P + '/robots/' + str(seeded['robots']['mine']), headers=admin,
             json={'owner_user_id': str(seeded['users']['two'])})
@@ -160,7 +167,7 @@ def test_stale_four_causes_commits_terminal_decision(maps, seeded, change):
     response = http.post(path + '/approve', headers=admin)
     assert response.status_code == 409 and response.json()['error']['code'] == 'APPROVAL_STALE', response.text
     assert http.get(path, headers=one).json()['status'] == 'STALE'
-    assert listing(http, one)[0]['status'] == ('REMOVED' if change == 'remove' else 'REJECTED')
+    assert listing(http, one, archived=True)[0]['status'] == ('REMOVED' if change == 'remove' else 'REJECTED')
     assert http.get(P + '/dashboard', headers=admin).json()['approvals_pending'] == 0
     assert http.post(path + '/approve', headers=admin).json()['error']['code'] == 'ALREADY_DECIDED'
     notice = http.get(P + '/notifications', headers=one).json()['items'][0]
@@ -354,7 +361,7 @@ def test_populated_assignment_approval_downgrade_refuses_without_losing_history(
     engine = create_engine(seeded['urls']['migrate'])
     try:
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0020'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
             assert conn.scalar(text('SELECT status FROM assignments WHERE id=:id'), {'id': row['id']}) == 'PENDING'
             assert conn.scalar(text('SELECT status FROM approvals WHERE id=:id'), {'id': row['approval_id']}) == 'PENDING'
     finally:
@@ -409,7 +416,7 @@ def test_direct_active_assignment_downgrade_refuses_without_losing_history(maps,
         with pytest.raises(DBAPIError, match='assignment approval history requires backup'):
             command.downgrade(Config(str(CONFIG)), '0014')
         with engine.connect() as conn:
-            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0020'
+            assert conn.scalar(text('SELECT version_num FROM alembic_version')) == '0021'
             assert conn.execute(text('SELECT status, approval_id, removed_at FROM assignments WHERE id=:id'),
                 {'id': row['id']}).one() == ('ACTIVE', None, None)
             assert conn.scalar(text("SELECT count(*) FROM approvals WHERE kind='SCENARIO_ASSIGNMENT'")) == 0

@@ -8,6 +8,7 @@ from apps.contracts import models as C
 from . import approvals, idempotency
 from .event_messages import render
 from .scenario_targets import require_target
+from .resource_archive import visible_version
 from .models import Approval, Assignment, Event, Robot, Scenario, ScenarioVersion, now
 
 
@@ -47,9 +48,13 @@ def robot_for_write(db, user, robot_id, fail, *, creating):
 
 def install(app, DB, Identity, fail, page):
     @app.get('/api/v1/assignments', response_model=C.AssignmentList)
-    def listing(auth: Identity, db: DB, robot_id: UUID | None = None, status: C.AssignmentStatus | None = None,
+    def listing(auth: Identity, db: DB, robot_id: UUID | None = None, status: C.AssignmentStatus | None = None, archived: bool = False,
                 limit: Annotated[int, Query(ge=1, le=100)] = 50, cursor: str | None = None):
         query = select(Assignment).where(Assignment.org_id == auth[0].org_id)
+        if not archived:
+            query = query.where(Assignment.scenario_version_id.in_(select(ScenarioVersion.id).join(Scenario,
+                Scenario.id == ScenarioVersion.scenario_id).where(Scenario.org_id == auth[0].org_id,
+                    Scenario.archived_at.is_(None), visible_version())))
         if robot_id is not None:
             query = query.where(Assignment.robot_id == robot_id)
         if status is not None:

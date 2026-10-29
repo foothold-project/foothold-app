@@ -582,6 +582,7 @@ export interface LoginResponse {
 }
 
 export interface MapBuilding {
+  archived_at?: string | null;
   sim_world_id?: string | null;
   id: string;
   site_id: string;
@@ -630,6 +631,7 @@ export interface MapFeatures {
 }
 
 export interface MapFloor {
+  archived_at?: string | null;
   provenance?: "HUMAN" | "SIMULATION";
   floor_z?: number | null;
   id: string;
@@ -650,6 +652,7 @@ export interface MapRollback {
 }
 
 export interface MapSite {
+  archived_at?: string | null;
   id: string;
   name: string;
   buildings: MapBuilding[];
