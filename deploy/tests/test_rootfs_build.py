@@ -149,3 +149,15 @@ def test_symlink_target_mutation_is_manifest_bound(tmp_path,monkeypatch):
     assert b.verify(root,key)['recipe_sha256']==key
     root.chmod(0o755);(root/'alias').unlink();(root/'alias').symlink_to('/usr/lib/other');root.chmod(0o555)
     with pytest.raises(ValueError,match='actual manifest'):b.verify(root,key)
+
+
+def test_skipped_postinst_interpreter_alternatives_stay_inside_root(tmp_path):
+    (tmp_path/'usr/bin').mkdir(parents=True)
+    provider=tmp_path/'usr/bin/ruby3.2';provider.write_bytes(b'synthetic interpreter');provider.chmod(0o555)
+    (tmp_path/'usr/bin/ruby').symlink_to('/etc/alternatives/ruby')
+    cfg.executable_alias(tmp_path,'/usr/bin/ruby','/usr/bin/ruby3.2')
+    assert os.readlink(tmp_path/'etc/alternatives/ruby')=='/usr/bin/ruby3.2'
+    assert cfg.inside(tmp_path,'/usr/bin/ruby')==provider
+    cfg.executable_alias(tmp_path,'/usr/bin/ruby','/usr/bin/ruby3.2')
+    with pytest.raises(ValueError,match='provider absent'):
+        cfg.executable_alias(tmp_path,'/usr/bin/python3','/usr/bin/python3.12')

@@ -65,7 +65,8 @@ A failure keeps its latch/evidence and prevents automatic retry.
 rootfs_config.py generates only passwd/group UID entries, nsswitch/loopback
 hosts/hostname, isolated machine-id, no-external-DNS resolver, standard loader
 configuration, deterministic CA bundle, control Python path, user dbus socket
-dependency, manager/slice files and bind placeholders. No host passwd,
+dependency, explicit sh/Python3.12/Ruby3.2/gawk alternatives, manager/slice files
+and bind placeholders. No host passwd,
 machine-id, CA bundle, loader cache or venv is copied. Gazebo/protobuf/Python/
 loader/base libraries all come from the recipe.
 

@@ -73,6 +73,21 @@ def put(root,path,body,executable=False):
     target.chmod(0o755 if executable else 0o644)
 
 
+def executable_alias(root,alias,target):
+    provider=inside(root,target)
+    if not ordinary(root,target) or not provider.lstat().st_mode&0o111:
+        raise ValueError('reviewed rootfs interpreter/provider absent')
+    if ordinary(root,alias):
+        if not inside(root,alias).lstat().st_mode&0o111:raise ValueError('non-executable interpreter alias')
+        return
+    # Follow links only through the root-relative resolver. A skipped postinst
+    # may have left an /etc/alternatives target absent; fill that target.
+    destination=inside(root,alias)
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    if destination.exists() or destination.is_symlink():raise ValueError('interpreter alias collision')
+    destination.symlink_to(target)
+
+
 def profile(root,aliases):
     ros=root/'opt/ros/jazzy'
     if not ros.is_dir() or ros.is_symlink():raise ValueError('complete ROS prefix absent')
@@ -156,6 +171,9 @@ def generate(root,config,recipe_sha):
         path=root/value
         if not path.exists():path.mkdir(parents=True)
         if not stat.S_ISDIR(path.lstat().st_mode):raise ValueError('generated namespace parent must be an ordinary directory')
+    for alias,target in (('/usr/bin/sh','/usr/bin/dash'),('/usr/bin/python3','/usr/bin/python3.12'),
+            ('/usr/bin/ruby','/usr/bin/ruby3.2'),('/usr/bin/awk','/usr/bin/gawk')):
+        executable_alias(root,alias,target)
     # This list is the reviewed, deterministic replacement for postinst actions.
     put(root,'/etc/passwd',f'root:x:0:0:root:/root:/usr/sbin/nologin\nfoothold-sim:x:{uid}:{gid}:simulation:/var/lib/foothold-sim:/usr/sbin/nologin\n')
     put(root,'/etc/group',f'root:x:0:\nfoothold-sim:x:{gid}:\n')
