@@ -2,6 +2,7 @@
 """Plan by default; explicit --install installs an offline, private venv only."""
 import argparse
 import hashlib
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -63,17 +64,26 @@ def main(argv=None):
             raise ValueError('run with dedicated Python >=3.10; do not replace JetPack Python')
         if args.dest.exists() or args.dest.is_symlink():
             raise ValueError('destination must not already exist')
+        dest = args.dest.resolve()
         wheelhouse = args.wheelhouse.absolute()
         requirements = checked_inputs(wheelhouse)
         print('Offline venv only; SDK connection, service enable/start and robot commands: NONE')
         if not args.install:
             print('Plan verified. Re-run with --install after target ABI/wheels are reviewed.')
             return 0
-        subprocess.run([sys.executable, '-I', '-m', 'venv', str(args.dest)], check=True)
-        python = args.dest/'bin/python'
+        # Python -I does not isolate pip's own configuration. Disable all config
+        # files and remove every inherited PIP_* option for ALL child processes.
+        child_env = {key: value for key, value in os.environ.items()
+                     if not key.upper().startswith('PIP_')}
+        child_env['PIP_CONFIG_FILE'] = os.devnull
+        subprocess.run([sys.executable, '-I', '-m', 'venv', str(dest)],
+                       check=True, env=child_env)
+        python = dest/'bin/python'
         subprocess.run([str(python), '-I', '-m', 'pip', 'install', '--no-index', '--require-hashes',
-                        '--only-binary=:all:', '--find-links', str(wheelhouse), '-r', str(requirements)], check=True)
-        subprocess.run([str(python), '-I', '-m', 'pip', 'check'], check=True)
+                        '--no-user', '--prefix', str(dest), '--only-binary=:all:',
+                        '--find-links', str(wheelhouse), '-r', str(requirements)],
+                       check=True, env=child_env)
+        subprocess.run([str(python), '-I', '-m', 'pip', 'check'], check=True, env=child_env)
         print('Installed only. No process/service started; Go2 motion remains disabled.')
         return 0
     except (ValueError, OSError, subprocess.SubprocessError) as error:

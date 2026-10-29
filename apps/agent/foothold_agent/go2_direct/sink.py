@@ -47,8 +47,10 @@ class Limits:
 class Go2Sink:
     """Constructor and apply are I/O-free; start_threads is explicit.
 
-    Integration calls drain() from its output worker and check_watchdog() from
-    an independent watcher (or start_threads()). STOP/expiry discard pending
+    start_threads() must run before live input: it runs independent output and
+    emergency/watchdog workers, waking the latter on STOP without waiting for a
+    deadline. Manual drain/check_watchdog calls are for offline tests.
+    STOP/expiry discard pending
     nonzero commands. Fresh telemetry evidence plus authorized unlock plus NEW
     neutral are required before nonzero; periodic apply alone cannot unlock.
     """
@@ -61,6 +63,7 @@ class Go2Sink:
         self._output = threading.RLock()
         self._emergency = threading.Lock()
         self._closed = threading.Event()
+        self._stop_requested = threading.Event()
         self._threads = []
         self.pending = ZERO
         self.latched = True
@@ -99,7 +102,15 @@ class Go2Sink:
             # STOP dominates every source; source arbitration is not an auth gate.
             if command.kind == 'stop':
                 self._hold()
+                self._stop_requested.set()
                 return
+            # Check OLD clocks before any input can refresh them. Otherwise a
+            # delayed apply -> drain -> watchdog sequence erases the outage.
+            stamp = self.now()
+            if not self.latched and (stamp-self._last_apply >= DEADLINE_S or
+                                     stamp-self._last_drain >= DEADLINE_S):
+                self._hold()
+                self._stop_requested.set()
             if source != self.source or self.source is None:
                 self._hold()
                 raise ValueError('not the selected command source')
@@ -117,7 +128,7 @@ class Go2Sink:
             except ValueError:
                 self._hold()
                 raise
-            self._last_apply = self.now()
+            self._last_apply = stamp
             # Expiry cannot be undone by continuing input; only explicit unlock.
             self.pending = ZERO if self.latched or self._neutral_required else velocity
             if not self.latched and self._neutral_required and velocity == ZERO:
@@ -207,14 +218,16 @@ class Go2Sink:
 
     def check_watchdog(self):
         with self._lock:
+            requested = self._stop_requested.is_set()
+            self._stop_requested.clear()
             expired = (self.now()-self._last_apply >= DEADLINE_S or
                        self.now()-self._last_drain >= DEADLINE_S)
-            if not expired:
+            if not requested and not expired:
                 self._tripped = False
                 return False
-            if self._tripped:
+            if not requested and self._tripped:
                 return False
-            self._tripped = True
+            self._tripped = expired
             self._hold()
         self.emergency_stop()
         return True
@@ -223,21 +236,23 @@ class Go2Sink:
         with self._lock:
             if self._threads or self._closed.is_set():
                 raise RuntimeError('output workers cannot be restarted')
-            def worker(action):
+            def worker(action, wake):
                 while not self._closed.is_set():
                     try:
                         action()
                     except BaseException as error:
                         self._fail(error)
                         return
-                    self._closed.wait(.02)
-            self._threads = [threading.Thread(target=worker, args=(fn,), daemon=True)
-                             for fn in (self.drain, self.check_watchdog)]
+                    wake.wait(.02)
+            self._threads = [threading.Thread(target=worker, args=(fn, wake), daemon=True)
+                             for fn, wake in ((self.drain, self._closed),
+                                              (self.check_watchdog, self._stop_requested))]
             for thread in self._threads:
                 thread.start()
 
     def close(self):
         self._closed.set()
+        self._stop_requested.set()
         self.emergency_stop()
         for thread in self._threads:
             thread.join(timeout=.25)

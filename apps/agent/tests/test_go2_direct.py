@@ -238,6 +238,94 @@ def test_output_itself_rejects_expired_input_before_watcher():
     assert normal.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
 
 
+@pytest.mark.parametrize('expired', ['input', 'output'])
+def test_late_nonzero_apply_cannot_erase_expired_deadline(expired):
+    sink, normal, _, clock = make_sink()
+    unlock(sink, clock)
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    generation = sink.generation
+    clock.value += .20
+    if expired == 'input':
+        sink.drain()  # Output stays fresh while input is absent.
+    else:
+        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    clock.value += .11
+    before = len(normal.calls)
+    # Reviewer reproduction order: late input -> output -> watchdog.
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    sink.check_watchdog()
+    assert sink.latched and sink.pending == (0., 0., 0.)
+    assert sink.generation > generation
+    assert ('Move', (.6, 0., 0.)) not in normal.calls[before:]
+    # Continuing fresh input cannot resume without a new stop/unlock/neutral.
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    assert sink.latched and ('Move', (.6, 0., 0.)) not in normal.calls[before:]
+
+
+def test_switch_source_while_moving_latches_and_discards_pending_command():
+    sink, normal, _, clock = make_sink()
+    unlock(sink, clock)
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    assert normal.calls[-1] == ('Move', (.6, 0., 0.))
+    generation = sink.generation
+    sink.select_source('nav2')
+    assert sink.source == 'nav2'
+    assert sink.latched and sink.pending == (0., 0., 0.)
+    assert sink.generation > generation
+    sink.apply(command(velocity=(.6, 0., 0.)), source='nav2')
+    sink.drain()
+    assert sink.latched and normal.calls[-1][0] == 'StopMove'
+
+
+def test_select_unknown_source_is_rejected():
+    sink, _, _, _ = make_sink()
+    with pytest.raises(ValueError):
+        sink.select_source('evil')
+    assert sink.source == 'phone'
+
+
+def test_explicit_stop_wakes_emergency_worker_while_normal_move_is_blocked():
+    sink, normal, emergency, clock = make_sink()
+    unlock(sink, clock)
+    entered, release, stopped = threading.Event(), threading.Event(), threading.Event()
+    original_move, original_stop = normal.Move, emergency.StopMove
+
+    def blocked_move(*velocity):
+        if velocity != (0., 0., 0.):
+            entered.set()
+            assert release.wait(2), 'test must release fake SDK'
+        return original_move(*velocity)
+
+    def record_stop():
+        result = original_stop()
+        stopped.set()
+        return result
+
+    normal.Move = blocked_move
+    emergency.StopMove = record_stop
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.start_threads()
+    try:
+        assert entered.wait(1)
+        generation = sink.generation
+        sink.apply(command('stop'), source='anything')
+        # The clock never advances: this must be STOP, not deadline expiry.
+        assert stopped.wait(1), 'STOP must not wait for normal Move or watchdog expiry'
+        assert not release.is_set() and clock() == 1000.
+        assert sink.latched and sink.pending == (0., 0., 0.)
+        assert sink.generation > generation
+        assert emergency.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
+    finally:
+        release.set()
+        sink.close()
+    assert not any(worker.is_alive() for worker in sink._threads)
+    assert normal.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
+
+
 def test_stop_and_unlock_do_not_refresh_input_deadline():
     sink, _, _, clock = make_sink()
     unlock(sink, clock)

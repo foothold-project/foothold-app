@@ -1,6 +1,7 @@
 """Local fixtures only; do not install wheels or execute SDK/robot discovery."""
 import hashlib
 import importlib.util
+import os
 from pathlib import Path
 
 import pytest
@@ -81,6 +82,50 @@ def test_install_argv_is_offline_only_with_mocked_subprocess(wheelhouse, tmp_pat
     assert '--no-index' in calls[1] and '--require-hashes' in calls[1]
     assert '--only-binary=:all:' in calls[1] and calls[2][-2:] == ['pip', 'check']
     assert not any('systemctl' in arg or 'unitree_sdk2py' in arg for cmd in calls for arg in cmd)
+
+
+def test_install_isolates_pip_environment_config_and_prefix(wheelhouse, tmp_path, monkeypatch):
+    from pip._internal.commands.install import InstallCommand
+
+    rogue_config = tmp_path/'rogue-pip.conf'
+    rogue_config.write_text('[global]\nfind-links = https://offline-violation.invalid/config\n'
+                            '[install]\ntarget = /tmp/not-the-venv\nuser = true\n')
+    for name, value in {
+        'PIP_CONFIG_FILE': str(rogue_config),
+        'PIP_FIND_LINKS': 'https://offline-violation.invalid/env',
+        'PIP_TARGET': '/tmp/not-the-venv',
+        'PIP_PREFIX': '/tmp/another-prefix',
+        'PIP_USER': 'true',
+        'PIP_INDEX_URL': 'https://offline-violation.invalid/index',
+        'PIP_REQUIREMENT': str(tmp_path/'rogue-requirements.txt'),
+    }.items():
+        monkeypatch.setenv(name, value)
+    dest = tmp_path/'private-venv'
+    calls = []
+
+    def inspect_only(argv, **kwargs):
+        # Parse options only. Never run pip/venv, build packages or access network.
+        child_env = kwargs['env']
+        assert {k: v for k, v in child_env.items() if k.upper().startswith('PIP_')} == {
+            'PIP_CONFIG_FILE': os.devnull}
+        calls.append(argv)
+        if 'install' in argv:
+            with monkeypatch.context() as isolated:
+                for key in list(os.environ):
+                    isolated.delenv(key)
+                for key, value in child_env.items():
+                    isolated.setenv(key, value)
+                options, remaining = InstallCommand('install', '').parse_args(argv[5:])
+            assert not remaining
+            assert options.no_index and options.find_links == [str(wheelhouse)]
+            assert options.target_dir is None and options.use_user_site is False
+            assert options.prefix_path == str(dest)
+            assert options.requirements == [str(wheelhouse/'requirements.txt')]
+        assert argv[0] in (installer.sys.executable, str(dest/'bin/python'))
+
+    monkeypatch.setattr(installer.subprocess, 'run', inspect_only)
+    assert installer.main(['--wheelhouse', str(wheelhouse), '--dest', str(dest), '--install']) == 0
+    assert len(calls) == 3 and not dest.exists()
 
 
 @pytest.mark.parametrize('damage', ['hash', 'symlink', 'unlisted', 'url', 'empty', 'pin'])
