@@ -27,7 +27,7 @@ flowchart LR
 ## 웹 빌드는 PC에서
 
 수동 배포에서는 서버 Node 설치를 생략할 수 있다. 아래 자동 배포를 선택하면 서버에 고정 버전 Node를 설치한다. 임시 `git archive`에서 `npm ci --ignore-scripts`와 `npm run build`로 빌드한 정적 파일만 전송한다. 서버 빌드보다 서버의 `node_modules` 디스크와 TypeScript/Vite 빌드 메모리를 절약한다(정량 수치는 미측정). Python venv는 대상 서버의 ABI에 맞게 서버에서 만든다.
-PC의 Node/npm은 해당 커밋의 웹 빌드를 지원하는 사전 설치본을 사용한다. 빌드 입력에는 웹이 가져오는 `apps/contracts`, `mobile/sim/maps.json`, `mobile/sim/assets/*/top.png`도 포함한다. 서버에는 웹 `dist`만 보내며 시뮬 실행 코드·원본 자산은 보내지 않는다.
+PC의 Node/npm은 해당 커밋의 웹 빌드를 지원하는 사전 설치본을 사용한다. 빌드 입력에는 웹이 가져오는 `apps/contracts`, `mobile/sim/maps.json`, `mobile/sim/assets/*/top.png`도 포함한다. MuJoCo 브라우저 시뮬은 아래 조건에서 `dist/sim/`에 포함한다. Gazebo 런타임은 웹 산출물에 넣지 않는다.
 
 ```bash
 # PC: 출력 폴더는 저장소 밖. COMMIT은 검토한 dev 커밋을 환경 변수로 지정.
@@ -40,6 +40,24 @@ rsync -av "$ARTIFACT_DIR/$COMMIT.tar.gz" "$ARTIFACT_DIR/$COMMIT.tar.gz.sha256" \
 체크섬은 전송 손상 확인용이며 서명이 아니다. 신뢰하는 PC·검토한 커밋·SSH 경로를 사용해야 한다. tar와 그 안의 Python은 root로 실행할 신뢰 코드다. 임의 업로드나 웹 요청으로 배포를 호출하면 안 된다.
 준비 스크립트도 해당 후보 커밋의 것을 사용한다. 웹 주소는 빌드에 넣지 않고 상대 경로 `/api/v1`을 그대로 쓴다.
 서버 Python 직접 의존성은 `apps/server/requirements.txt`의 `==` 버전을 사용한다. 전이 의존성 전체 해시 lock은 아직 없으며 향후 재현성 보강 대상이다.
+
+### 브라우저 MuJoCo 묶음
+
+`prepare-release.sh`는 웹 빌드 사용자와 systemd 샌드박스를 유지한다. 빌드 종료 뒤 신뢰한 커밋의 `mobile/sim/` 전체(스크립트·maps·변환 지도·top 이미지/메타데이터)를 새로 추출하고 `deploy/prepare_sim.py`로 `apps/web/dist/sim/`에 담는다. 진입 주소는 같은 출처의 `/sim/index.html?from=web`이다. 기존 `brand/` 정적 파일을 함께 사용한다.
+
+서버 비공개 자산 기본 위치는 `/var/lib/foothold/sim-policy/`다. 디렉터리와 상위 경로는 root 소유이며 다른 사용자 쓰기 권한이 없어야 한다. 자산 디렉터리는 `0500`, 파일은 `0400`으로 보관한다. 앱 사용자가 소유한 `files/` 아래에 두면 상위 디렉터리 교체가 가능하므로 사용하지 않는다. 비-root PC 준비에만 `FH_SIM_ASSETS`로 같은 구조의 로컬 디렉터리를 지정할 수 있다. 비공개 자산은 커밋하지 않는다.
+
+| 비공개 디렉터리 안 상대 경로 | 웹 묶음 |
+|---|---|
+| `policy_v2.f32` | 기본 정책, `docs/POLICY-PROVENANCE.md` SHA-256 대조 |
+| `ame2_actor.f32`, `ame2_actor.json` | 둘 다 있을 때만 포함, `docs/AME2-PROVENANCE.md` SHA-256 대조 |
+| `vendor/three.module.js`, `vendor/three.core.js`, `vendor/LICENSE` | 모바일과 동일한 three 자산 |
+| `mujoco/mujoco.js`, `mujoco/mujoco.wasm`, `mujoco/package.json` | 기존 `@mujoco/mujoco` 3.17.0 자산 그대로, npm/lock 갱신 없음 |
+| `assets/unitree_go2/go2.xml`, `LICENSE`, `assets/<mesh>` | 모바일 복사 목록과 같은 XML·라이선스·참조 메시 |
+
+기본 정책이 없으면 경고하고 `/sim/` 없이 웹만 준비한다. AME-2 쌍이 없거나 불완전하면 둘 다 생략하며 기존 페이지가 선택지를 끈다. 존재하는 정책의 해시 오류, 필수 런타임 누락, 버전 변경, 링크·특수파일은 준비 실패다. 빌드 산출물과 최종 웹 묶음 모두 링크·특수파일을 검사한다.
+
+시뮬 페이지의 meta CSP는 `wasm-unsafe-eval`·`unsafe-eval`을 허용한다. 현재 저장소 Caddyfile에는 추가 CSP가 없으며 정적 파일 서버가 `.wasm`을 `application/wasm`으로 제공한다. 실제 서버 헤더·MIME·페이지 로드는 합침 후 별도로 확인한다. Caddy 설정 변경이 필요하면 중단하고 조정에 보고한다. 설치된 deploy-tools는 자동 갱신되지 않으므로 검토한 준비 스크립트와 helper의 선택 갱신이 필요하다. bootstrap 재실행은 이 작업에 포함하지 않는다. 되돌림은 변경 커밋을 revert하고 기존 배포 절차로 이전 검증 묶음을 선택한다. 비공개 자산은 유지할 수 있다.
 
 ## 첫 bootstrap 및 배포
 

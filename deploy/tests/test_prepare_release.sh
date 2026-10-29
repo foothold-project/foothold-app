@@ -14,12 +14,13 @@ printf trusted-agent > "$work/source/apps/agent/tools/sim/marker"
 printf trusted-nav2 > "$work/source/apps/agent/tools/nav2/marker"
 printf trusted-contracts > "$work/source/apps/contracts/marker"
 printf trusted-deploy > "$work/source/deploy/marker"
+cp "$(dirname "$prepare")/prepare_sim.py" "$work/source/deploy/prepare_sim.py"
 printf '{}' > "$work/source/apps/web/package.json"
 printf '{}' > "$work/source/mobile/sim/maps.json"
 printf placeholder > "$work/source/mobile/sim/assets/test/top.png"
 printf '{"width":100}' > "$work/source/mobile/sim/assets/test/top.json"
 git init -q "$work/source"
-git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker mobile/sim/maps.json mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json
+git -C "$work/source" add apps/simmgr/marker apps/agent/tools/sim/marker apps/agent/tools/nav2/marker apps/server/marker apps/contracts/marker apps/web/package.json deploy/marker deploy/prepare_sim.py mobile/sim/maps.json mobile/sim/assets/test/top.png mobile/sim/assets/test/top.json
 git -C "$work/source" -c user.name=Test -c user.email=test@users.noreply.github.com commit -qm fixture
 sha=$(git -C "$work/source" rev-parse HEAD)
 git clone -q --bare "$work/source" "$work/repo.git"
@@ -41,7 +42,7 @@ printf '<html>fake build</html>' > dist/index.html
 [[ ${TEST_LINK:-0} == 0 ]] || ln -s /etc/passwd dist/unsafe
 NPM
 chmod +x "$work/bin/npm"
-(cd "$work/repo.git" && PATH="$work/bin:$PATH" bash "$prepare" "$sha" "$work/out")
+(cd "$work/repo.git" && FH_SIM_ASSETS="$work/absent" PATH="$work/bin:$PATH" bash "$prepare" "$sha" "$work/out")
 tar -xzf "$work/out/$sha.tar.gz" -C "$work/check"
 [[ $(cat "$work/check/apps/server/marker") == trusted-server ]]
 [[ $(cat "$work/check/apps/contracts/marker") == trusted-contracts ]]

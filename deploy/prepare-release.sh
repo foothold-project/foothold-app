@@ -59,7 +59,7 @@ else
     (cd "$build/apps/web" && npm ci --ignore-scripts && npm run build) 8>&- 9>&-
 fi
 # Root constructs trusted code afresh only after all sandbox processes have exited.
-git --git-dir="$repo" archive "$sha" apps/server apps/contracts apps/simmgr apps/agent deploy | tar -x -C "$work"
+git --git-dir="$repo" archive "$sha" apps/server apps/contracts apps/simmgr apps/agent deploy mobile/sim | tar -x -C "$work"
 # Reject replaced parent paths and all symlinks/special files before privileged copy.
 for directory in "$build/apps" "$build/apps/web" "$build/apps/web/dist"; do
     [[ -d $directory && ! -L $directory ]] || { echo 'Invalid web build directory.' >&2; exit 1; }
@@ -71,6 +71,15 @@ mkdir -p "$work/release/apps/web"
 cp -a "$work/apps/server" "$work/apps/contracts" "$work/apps/simmgr" "$work/apps/agent" "$work/release/apps/"
 rm -rf "$work/release/apps/server/tests" "$work/release/apps/server/tools" "$work/release/apps/contracts/tests"
 cp -a "$build/apps/web/dist" "$work/release/apps/web/"
+# Assemble from pristine archived sources after the build sandbox has stopped.
+# Root never accepts a caller-selected private asset directory.
+sim_assets=/var/lib/foothold/sim-policy
+if [[ $EUID != 0 ]]; then sim_assets=${FH_SIM_ASSETS:-$sim_assets}; fi
+python3 "$work/deploy/prepare_sim.py" "$work/mobile/sim" \
+    "$sim_assets" "$work/release/apps/web/dist"
+[[ -z $(find "$work/release/apps/web/dist" ! -type d ! -type f -print -quit) ]] || {
+    echo 'Web dist contains a link or special file.' >&2; exit 1;
+}
 cp -a "$work/deploy" "$work/release/"
 printf '%s\n' "$sha" > "$work/release/COMMIT"
 tar -czf "$out/$sha.tar.gz" -C "$work/release" .
