@@ -1,51 +1,29 @@
 // RS-4 공통 핵심(브라우저·Node 같이 씀): MuJoCo Go2 + foothold-v2 순수 JS 추론.
-// RS-6: rs-4/sim.js 복사본. 바뀐 것은 바닥 높이·출발 자세(world)뿐 — 창고 바닥이 z 0.034 라 높이 관측·낙상 판정·출발 높이를 바닥 기준으로 잰다.
+// Policy contracts live in policy-adapters.js; height observations raycast actual world geometry.
 // 관측·행동 계약은 exp33 src/v2_obs.py 그대로(관측 235, 행동 Isaac 순서, q* = 0.25·a + 기본자세).
+import { getPolicyAdapter } from './policy-adapters.js';
+const defaultAdapter = getPolicyAdapter();
 const LEGS = ['FL', 'FR', 'RL', 'RR'], PARTS = ['hip', 'thigh', 'calf'];
-export const ISAAC_J = PARTS.flatMap((k) => LEGS.map((l) => `${l}_${k}_joint`)); // 부위별(hip×4 → thigh×4 → calf×4)
-export const MJ_J = LEGS.flatMap((l) => PARTS.map((k) => `${l}_${k}_joint`));    // Menagerie 다리별(FL hip·thigh·calf …)
-// v2_obs.py DEFAULT_POS_RE 와 같은 값: hip L +0.1 / R −0.1, thigh F 0.8 / R 1.0, calf −1.5
-export const DEFAULT_I = Float64Array.from(ISAAC_J, (n) =>
-  n.includes('_hip') ? (n[1] === 'L' ? 0.1 : -0.1) : n.includes('_thigh') ? (n[0] === 'F' ? 0.8 : 1.0) : -1.5);
-const ACTION_SCALE = 0.25, KP = 25, KD = 0.5, EFFORT = 23.5, VEL_LIM = 30;
-export const PHYS_DT = 0.005, DECIM = 4, POLICY_DT = PHYS_DT * DECIM;
-// Menagerie 원값. 보정 시도는 이 값을 바꿔 넘긴다.
+// Legacy exports stay available to the existing measurement scripts.
+export const ISAAC_J = defaultAdapter.action.joints;
+export const MJ_J = LEGS.flatMap((l) => PARTS.map((k) => `${l}_${k}_joint`));
+export const DEFAULT_I = defaultAdapter.action.defaultPose;
+export const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = defaultAdapter.timing;
 export const MENAGERIE = { damping: 2, frictionloss: 0.2, armature: 0.01, footFriction: 0.8, footSpin: true };
-// 시도 3(REPORT): Isaac 처럼 관절 감쇠·마찰 0, 발 비틀림·구름 마찰 끔. 페이지 기본값.
 export const ISAAC_LIKE = { ...MENAGERIE, damping: 0, frictionloss: 0, footSpin: false };
-
-const SHAPES = [[512, 235], [256, 512], [128, 256], [12, 128]];
-// policy_v2.f32 = npz 0/2/4/6 의 weight(행 우선)·bias 를 차례로 이은 float32 LE
-export function loadPolicy(buf) {
-  const f = new Float32Array(buf), L = [];
-  let o = 0;
-  for (const [r, c] of SHAPES) { L.push([f.subarray(o, o + r * c), f.subarray(o + r * c, o + r * c + r), r, c]); o += r * c + r; }
-  if (o !== f.length) throw new Error(`가중치 길이 ${f.length} ≠ ${o}`);
-  const hs = SHAPES.map(([r]) => new Float32Array(r));
-  return (x) => {
-    let h = x;
-    L.forEach(([W, b, r, c], k) => {
-      const y = hs[k];
-      for (let i = 0; i < r; i++) {
-        let s = b[i];
-        const row = i * c;
-        for (let j = 0; j < c; j++) s += W[row + j] * h[j];
-        y[i] = k < 3 ? (s > 0 ? s : Math.expm1(s)) : s; // ELU(1)
-      }
-      h = y;
-    });
-    return h;
-  };
-}
+export const loadPolicy = (buf, adapterId = 'foothold-v2') => getPolicyAdapter(adapterId).loadPolicy(buf);
 
 // DCMotor(IsaacLab): 속도에 따라 줄어드는 토크 한도, 그 위 effort_limit 로 자름
-function dcmotor(tau, dq) {
+function dcmotor(tau, dq, { effort: EFFORT, velocityLimit: VEL_LIM }) {
   const hi = Math.min(Math.max(EFFORT * (1 - dq / VEL_LIM), 0), EFFORT);
   const lo = Math.max(Math.min(EFFORT * (-1 - dq / VEL_LIM), 0), -EFFORT);
   return Math.min(Math.max(tau, lo), hi);
 }
 
-export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }) {
+export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floorZ: 0, spawn: [0, 0, 0] }, adapterId = 'foothold-v2') {
+  const adapter = getPolicyAdapter(adapterId);
+  const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = adapter.timing;
+  const { joints: ISAAC_J, defaultPose: DEFAULT_I, scale: ACTION_SCALE, kp: KP, kd: KD } = adapter.action;
   const F = world.floorZ, [SX, SY, SYAW] = world.spawn;
   const m = mj.MjModel.from_xml_path(xmlPath), d = new mj.MjData(m);
   m.opt.timestep = PHYS_DT;
@@ -61,8 +39,9 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   }
   if (m.nu !== 12 || qa.some((a, i) => a !== 7 + i)) throw new Error('관절 배치가 예상(자유관절 뒤 FL..RR)과 다름');
 
-  const obs = new Float32Array(235), last = new Float32Array(12), tgt = new Float64Array(12); // tgt: mj 순서
-  const s = { m, d, t: 0, cmd: [0, 0, 0], linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], z: 0, fell: false, policyMs: 0, physMs: 0, I2M, M2I };
+  const sampleHeight = adapter.makeHeightScanner(mj, m, d);
+  const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
+  const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], z: 0, fell: false, policyMs: 0, physMs: 0, I2M, M2I };
 
   s.reset = () => {
     mj.mj_resetData(m, d);
@@ -91,12 +70,8 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
 
   // 정책 1스텝(50 Hz): 관측 → 추론 → 물리 4스텝(스텝마다 PD·DCMotor)
   s.step = () => {
-    const q = d.qpos, v = d.qvel;
     const t0 = performance.now();
-    obs.set(s.linB, 0); obs.set(s.angB, 3); obs.set(s.grav, 6); obs.set(s.cmd, 9);
-    for (let i = 0; i < 12; i++) { const j = M2I[i]; obs[12 + i] = q[7 + j] - DEFAULT_I[i]; obs[24 + i] = v[6 + j]; }
-    obs.set(last, 36);
-    obs.fill(Math.min(Math.max(s.z - 0.5, -1), 1), 48); // height187 평면 분석식: (base_z − 바닥) − 0.5, ±1
+    adapter.observe(obs, s, last, sampleHeight);
     const a = policy(obs);
     last.set(a);
     for (let i = 0; i < 12; i++) tgt[i] = a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]];
@@ -108,10 +83,11 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   };
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;
-    for (let i = 0; i < 12; i++) u[i] = dcmotor(KP * (tgt[i] - q[7 + i]) - KD * v[6 + i], v[6 + i]);
+    for (let i = 0; i < 12; i++) u[i] = dcmotor(KP * (tgt[i] - q[7 + i]) - KD * v[6 + i], v[6 + i], adapter.action);
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
+  s.dispose = () => { sampleHeight.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }
