@@ -264,17 +264,28 @@ class Go2Sink:
                 raise RuntimeError('offline test mode cannot start live workers')
             if self._threads or self._closed.is_set():
                 raise RuntimeError('output workers cannot be restarted')
-            def worker(action, wake):
+            def worker(action, wake, normal_output):
                 while not self._closed.is_set():
                     try:
                         action()
                     except BaseException as error:
                         self._fail(error)
+                        if normal_output:
+                            # The emergency worker may already be dead. Even a
+                            # readiness failure before drain's SDK try-block
+                            # must attempt zero/stop on this independent lane.
+                            # Only started workers do this; pre-start calls stay
+                            # I/O-free. Preserve the first fault if stopping fails.
+                            try:
+                                with self._output:
+                                    self._stop_output(self.client)
+                            except BaseException as stop_error:
+                                self._fail(stop_error)
                         return
                     wake.wait(.02)
-            self._threads = [threading.Thread(target=worker, args=(fn, wake), daemon=True)
-                             for fn, wake in ((self.drain, self._closed),
-                                              (self.check_watchdog, self._stop_requested))]
+            self._threads = [threading.Thread(target=worker, args=(fn, wake, normal), daemon=True)
+                             for fn, wake, normal in ((self.drain, self._closed, True),
+                                                      (self.check_watchdog, self._stop_requested, False))]
             for thread in self._threads:
                 thread.start()
 

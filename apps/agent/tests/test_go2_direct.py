@@ -417,6 +417,62 @@ def test_explicit_stop_wakes_emergency_worker_while_normal_move_is_blocked():
     assert normal.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
 
 
+@pytest.mark.parametrize('trigger', ['stop', 'deadline'])
+@pytest.mark.parametrize('fallback_fails', [False, True])
+def test_dead_emergency_worker_still_attempts_normal_stop(trigger, fallback_fails):
+    sink, normal, emergency, clock = make_sink(offline_test_mode=False)
+    moving, between_outputs, release = threading.Event(), threading.Event(), threading.Event()
+    original_move, original_drain = normal.Move, sink.drain
+
+    def record_motion(*velocity):
+        result = original_move(*velocity)
+        if velocity != (0., 0., 0.):
+            moving.set()
+        return result
+
+    def pause_between_outputs():
+        # Pause OUTSIDE drain/SDK: an in-flight command's compensation would
+        # otherwise mask a missing stop in the worker-preparation failure path.
+        if moving.is_set():
+            between_outputs.set()
+            assert release.wait(3), 'test must release normal worker'
+        original_drain()
+
+    normal.Move = record_motion
+    sink.drain = pause_between_outputs
+    sink.start_threads()
+    try:
+        unlock(sink, clock)
+        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+        assert moving.wait(1) and between_outputs.wait(1)
+        before = len(normal.calls)
+        emergency.result = 1
+        if trigger == 'stop':
+            sink.apply(command('stop'), source='phone')
+        else:
+            clock.value += .31
+        sink._threads[1].join(1)
+        assert not sink._threads[1].is_alive(), 'failed emergency worker must have exited'
+        assert emergency.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
+        first_error = sink.error
+        assert first_error is not None
+        normal.result = 1 if fallback_fails else 0
+        release.set()
+        sink._threads[0].join(1)
+        assert not sink._threads[0].is_alive()
+        assert normal.calls[before:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
+        assert sink.latched and sink.pending == (0., 0., 0.)
+        assert sink.error is first_error
+        with pytest.raises(OutputError):
+            sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    finally:
+        release.set()
+        # Cleanup is after the assertions, so close() cannot supply the stop
+        # under test. Both SDK objects are still just local fakes.
+        normal.result = emergency.result = 0
+        sink.close()
+
+
 def test_stop_and_unlock_do_not_refresh_input_deadline():
     sink, _, _, clock = make_sink()
     unlock(sink, clock)
