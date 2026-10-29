@@ -54,10 +54,14 @@ describe('폰 홈 «내 로봇» 카드', () => {
   beforeEach(() => { vi.stubGlobal('fetch', async () => new Response('{}', { status: 404 })); });
   afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
-  it('앱 안 + 연결된 실기 0 → 본문이 «+ 로봇 연결하기» 단추(연결 전 로봇·시뮬만 online 이어도)', async () => {
+  it('앱 안 + 연결된 실기 0 → «+ 로봇 연결하기» 큰 단추가 목록 위, 내 로봇 목록(오프라인·이유)은 그대로(연결 전 로봇·시뮬만 online 이어도)', async () => {
     await render([robot('r1', false), robot('s1', true, true)], true);
-    expect(btn('+ 로봇 연결하기')?.className).toBe('btn pri');
-    expect(box.textContent).not.toContain('보기만');
+    const add = btn('+ 로봇 연결하기')!;
+    expect(add.className).toBe('btn pri');
+    expect([...box.querySelectorAll('[data-robot-connect]')]).toHaveLength(1);
+    expect(box.textContent).toContain('로봇-r1');
+    expect($('[data-why]')).not.toBeNull();   // 보기만 + 이유
+    expect(add.compareDocumentPosition($('.dv-cards')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();   // 단추가 목록 위
   });
 
   it('앱 안 + 연결된 실기 있음 → 카드 그대로 + 아래 작은 단추', async () => {

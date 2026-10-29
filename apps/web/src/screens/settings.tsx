@@ -244,12 +244,12 @@ function Account({ u, self, put, gone, cancel }: { u: ApiUser; self: boolean; pu
 const when = (at: string) => new Date(at).toLocaleString('ko-KR', { dateStyle: 'medium', timeStyle: 'short' });
 /** 로그인 기기(세션) — 지금 쓰는 것만. 끝난 것은 기록 탭에 남는다 */
 function Devices({ u, cancel }: { u: ApiUser } & Cancel) {
-  const [list, setList] = useState<Session[] | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState('');
+  const [list, setList] = useState<Session[] | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(''), [ask, setAsk] = useState<Session | null>(null);
   const load = () => api.sessions(u.id, cancel).then((l) => setList(l.filter((s) => !s.revoked_at && new Date(s.expires_at) > new Date())), (e: ApiFail) => setMsg({ text: e.message }));
   useEffect(() => { load(); }, []);
   const end = (s: Session) => {
     if (busy) return;
-    setBusy(s.id);
+    setBusy(s.id); setAsk(null);
     api.endSession(u.id, s.id, cancel).then(() => { setMsg({ text: `${s.device_label} 로그인을 끝냈습니다.`, ok: true }); return load(); }, (e: ApiFail) => setMsg({ text: e.message })).finally(() => setBusy(''));
   };
   return <div className="fh-form" aria-label="로그인 기기">
@@ -257,7 +257,12 @@ function Devices({ u, cancel }: { u: ApiUser } & Cancel) {
     {list && !list.length && <p className="lv-note">로그인한 기기가 없습니다.</p>}
     {list && !!list.length && <ul className="fh-form" style={{ listStyle: 'none', margin: 0, padding: 0 }}>{list.map((s) => <li key={s.id} className="fh-row">
       <b style={WRAP}>{s.device_label}</b><span className="lbl">{s.client === 'web' ? '웹' : '앱'}</span><span className="fh-grow lbl">마지막 사용 {when(s.last_seen_at)}</span>
-      <button type="button" className="btn" disabled={!!busy} onClick={() => end(s)}>로그아웃시키기</button></li>)}</ul>}
+      <button type="button" className="btn" disabled={!!busy} onClick={() => setAsk(s)}>로그아웃시키기</button></li>)}</ul>}
+    {ask && <div className="fh-row" role="group" aria-label="확인">
+      <span style={WRAP}>{`${u.display_name}의 «${ask.device_label}» 로그인을 끝낼까요? 그 기기는 바로 로그아웃되어 다시 로그인해야 합니다.`}</span>
+      <button type="button" className="btn pri" onClick={() => end(ask)}>로그아웃시키기</button>
+      <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
+    </div>}
     <Note msg={msg} />
   </div>;
 }
@@ -337,7 +342,8 @@ function NewRobot({ ops, close, done, cancel }: { ops: ApiUser[]; close: () => v
 
 function RobotEdit({ r, ops, changed, gone, showToken, cancel }: { r: RobotSummary; ops: ApiUser[]; changed: () => void; gone: (text: string) => void; showToken: (t: string) => void } & Cancel) {
   const [name, setName] = useState(r.name), [owner, setOwner] = useState(r.owner?.id ?? '');
-  const [ask, setAsk] = useState<'token' | 'delete' | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
+  const [ask, setAsk] = useState<'token' | 'delete' | 'owner' | null>(null), [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
+  const was = r.owner?.id ?? '', who = (id: string) => (id ? ops.find((u) => u.id === id)?.display_name ?? (r.owner?.id === id ? r.owner.display_name : '?') : '담당 없음');
   const run = async (f: () => Promise<string | void>) => {
     if (busy) return;
     setBusy(true); setAsk(null); setMsg(null);
@@ -347,12 +353,15 @@ function RobotEdit({ r, ops, changed, gone, showToken, cancel }: { r: RobotSumma
       setMsg({ text: robotFail(err) });
     } finally { setBusy(false); }
   };
+  const patch = () => { const v = name.trim(); return { ...(v !== r.name && { name: v }), ...(owner !== was && { owner_user_id: owner || null }) }; };
+  const write = () => run(async () => { await api.saveRobot(r.id, patch(), cancel); changed(); return '저장했습니다.'; });
+  // 담당이 바뀌면 예전 담당자의 조종이 끝나고 로봇이 정지한다 — 로봇 이름과 함께 한 번 더 묻는다
   const save = (e: FormEvent) => {
     e.preventDefault();
-    const v = name.trim(), was = r.owner?.id ?? '', patch = { ...(v !== r.name && { name: v }), ...(owner !== was && { owner_user_id: owner || null }) };
-    if (!v) return setMsg({ text: '로봇 이름을 입력하세요.' });
-    if (!Object.keys(patch).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
-    run(async () => { await api.saveRobot(r.id, patch, cancel); changed(); return '저장했습니다.'; });
+    if (!name.trim()) return setMsg({ text: '로봇 이름을 입력하세요.' });
+    if (!Object.keys(patch()).length) return setMsg({ text: '바뀐 값이 없습니다.', ok: true });
+    if (owner !== was) return setAsk('owner');
+    write();
   };
   const reissue = () => run(async () => showToken((await api.robotToken(r.id, cancel)).agent_token));
   const del = () => run(async () => { await api.deleteRobot(r.id, cancel); gone(`${robotName(r)} 로봇을 지웠습니다.`); });
@@ -370,8 +379,9 @@ function RobotEdit({ r, ops, changed, gone, showToken, cancel }: { r: RobotSumma
     </div>
     {ask && <div className="fh-row" role="group" aria-label="확인">
       <span style={WRAP}>{ask === 'token' ? `${robotName(r)} 토큰을 새로 받을까요? 예전 토큰은 바로 못 쓰게 되어 새 토큰을 넣을 때까지 로봇이 연결되지 않습니다.`
+        : ask === 'owner' ? `${robotName(r)} 담당을 ${who(was)} → ${who(owner)}(으)로 바꿀까요? ${was ? `${who(was)}의 조종이 끝나고` : '조종 중이면 조종이 끝나고'} 로봇이 정지합니다.`
         : `${robotName(r)} 로봇을 지울까요? 로봇이 더 이상 연결되지 않고 되돌릴 수 없습니다. 기록은 남습니다.`}</span>
-      <button type="button" className="btn pri" onClick={ask === 'token' ? reissue : del}>{ask === 'token' ? '토큰 다시 받기' : '지우기'}</button>
+      <button type="button" className="btn pri" onClick={ask === 'token' ? reissue : ask === 'owner' ? write : del}>{ask === 'token' ? '토큰 다시 받기' : ask === 'owner' ? '바꾸기(조종 끝·정지)' : '지우기'}</button>
       <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button>
     </div>}
     <Note msg={msg} />

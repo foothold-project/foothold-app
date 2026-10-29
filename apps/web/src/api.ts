@@ -85,8 +85,10 @@ export type Plan = 'missions' | 'scenarios';
 type PlanOf = { missions: Mission; scenarios: Scenario };
 type WriteOf = { missions: MissionWrite; scenarios: ScenarioWrite };
 export const api = {
+  /** 앱(WebView, UA FootholdApp/<판> — screens inApp)도 쿠키 세션이라 client 는 'web'(서버 'app' = Bearer 토큰). 기기 이름만 «FOOTHOLD 앱 <판>»으로 나눈다 */
   async login(username: string, password: string) {
-    const r = await call<LoginResponse>('POST', '/auth/login', { username, password, client: 'web', device_label: '웹 브라우저' });
+    const app = /\bFootholdApp\/(\S+)/.exec(navigator.userAgent)?.[1];
+    const r = await call<LoginResponse>('POST', '/auth/login', { username, password, client: 'web', device_label: app ? `FOOTHOLD 앱 ${app}`.slice(0, 128) : '웹 브라우저' });
     csrf = r.csrf_token;
     return r;
   },
