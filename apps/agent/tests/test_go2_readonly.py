@@ -335,14 +335,14 @@ def test_invalid_mode_error_and_mutation_of_returned_snapshot():
 
 
 @contextmanager
-def running_http():
+def running_http(**limits):
     state, clock = measured()
     access = Access(now=clock)
     first, last = map(int, os.environ.get('FH_TEST_PORT_RANGE', '9610:9619').split(':'))
     server = None
     for port in range(first, last + 1):
         try:
-            server = make_server(('127.0.0.1', port), state, access)
+            server = make_server(('127.0.0.1', port), state, access, **limits)
             break
         except OSError:
             continue
@@ -360,6 +360,7 @@ def running_http():
                 return response.status, dict(response.headers), json.loads(raw) if raw else None
             finally:
                 connection.close()
+        request.server = server
         yield state, clock, access, request
     finally:
         server.shutdown()
@@ -514,3 +515,54 @@ def test_cli_keeps_field_code_visible_by_default_without_real_network(monkeypatc
     assert len(lines) == (4 if json_output else 2)
     if json_output:
         assert all(json.loads(line)['connection'] == 'OFFLINE' for line in lines[2:])
+
+
+def test_code_failures_are_per_address_and_tracking_is_bounded():
+    from foothold_agent.go2_readonly.http import MAX_FAILURE_ADDRESSES
+    access = Access()
+    for _ in range(5):
+        assert access.authorize('wrong', 'A') == 401
+    assert access.authorize(access.code, 'A') == 429
+    assert access.authorize(access.code, 'B') == 200
+    for i in range(MAX_FAILURE_ADDRESSES + 5):
+        access.authorize('wrong', str(i))
+    assert len(access._failures) == MAX_FAILURE_ADDRESSES
+    assert access.authorize(access.code, 'untracked-valid') == 200
+
+
+@pytest.mark.parametrize('global_limit,peer_limit', [(1, 4), (4, 1)])
+def test_http_connection_admission_caps_and_whole_request_deadline(global_limit, peer_limit):
+    import socket
+    import time
+    with running_http(max_workers=global_limit, max_per_address=peer_limit,
+                      request_deadline=.5) as (_, _, access, request):
+        server = request.server
+        first = socket.create_connection(server.server_address, timeout=2)
+        second = None
+        try:
+            first.sendall(b'GET /go2/status HTTP/1.1\r\n')
+            until = time.monotonic() + 1
+            while not server._peers and time.monotonic() < until:
+                time.sleep(.005)
+            assert sum(server._peers.values()) == 1
+            second = socket.create_connection(server.server_address, timeout=2)
+            assert second.recv(1) == b''  # rejected before allocating a handler
+            # Trickle faster than the idle timeout; total deadline still closes it.
+            started = time.monotonic()
+            while time.monotonic() - started < .8:
+                try:
+                    first.sendall(b'X: a\r\n')
+                except OSError:
+                    break
+                time.sleep(.05)
+            first.settimeout(1)
+            assert first.recv(1) == b''
+            until = time.monotonic() + 1
+            while server._peers and time.monotonic() < until:
+                time.sleep(.005)
+            assert not server._peers
+            assert request(code=access.code)[0] == 200
+        finally:
+            first.close()
+            if second is not None:
+                second.close()
