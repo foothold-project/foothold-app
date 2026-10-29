@@ -63,6 +63,9 @@
   <button id="scenarioMenu" type="button" aria-expanded="false" aria-controls="scenarioPanel">시나리오</button>
 </div>
 <section id="scenarioPanel" aria-label="시나리오" hidden>
+  <label for="policySelect">시뮬 정책</label>
+  <select id="policySelect" aria-label="시뮬 정책"><option value="foothold-v2">foothold-v2</option><option value="ame2-demo" disabled>AME-2(시연)</option></select>
+  <p id="policyReason" role="status"></p>
   <select id="scenarioSelect" aria-label="시나리오 선택"></select>
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>
   <output id="scenarioStatus" role="status">대기</output>

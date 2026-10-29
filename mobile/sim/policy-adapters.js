@@ -1,5 +1,6 @@
 // Policy contract: observations, network, action conversion, timing and neutral input.
-// Only this verified actor is registered; START / AME-2 remain undefined.
+// START remains undefined; AME-2 is an opt-in simulation demonstration.
+import { makeAme2Adapter } from './ame2-adapter.js';
 const legs = ['FL', 'FR', 'RL', 'RR'], parts = ['hip', 'thigh', 'calf'];
 const isaacJoints = parts.flatMap((p) => legs.map((l) => `${l}_${p}_joint`));
 const defaultPose = Float64Array.from(isaacJoints, (n) =>
@@ -52,35 +53,48 @@ const footholdV2 = {
     sampleHeight(q, obs, this.observations.bodySize);
   },
   makeHeightScanner(mj, m, d) {
-    const hit = new mj.IntBuffer(1), group = [1, 1, 0, 0, 1, 0], down = [0, 0, -1];
-    // World collision geometry only, including group-4 heightfields. Do not read
-    // robot meshes or conservative lidar-only boxes (both contact masks zero).
-    const cfg = this.observations.height;
-    const excluded = [];
-    for (let g = 0; g < m.ngeom; g++) {
-      if (m.geom_bodyid[g] !== 0 || (!m.geom_contype[g] && !m.geom_conaffinity[g])) excluded.push([g, m.geom_group[g]]);
-    }
+    const cfg = this.observations.height, sample = makeTerrainSampler(mj, m, d, cfg);
+    const heights = new Float64Array(cfg.grid.length);
     const scan = (q, out, offset = 0) => {
-      const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
-      const c = Math.cos(yaw), s = Math.sin(yaw), z = q[2] + cfg.rayOffset;
-      // Restore groups before any lidar/physics call; this scan is synchronous.
-      for (const [g] of excluded) m.geom_group[g] = 5;
-      try {
-        for (let i = 0; i < cfg.grid.length; i++) {
-          const [x, y] = cfg.grid[i];
-          const distance = mj.mj_ray(m, d, [q[0] + c * x - s * y, q[1] + s * x + c * y, z], down, group, true, -1, hit, null);
-          const height = q[2] - (z - distance) - cfg.offset;
-          out[offset + i] = distance >= 0 && Number.isFinite(height) ? clip(height) : cfg.missValue;
-        }
-      } finally { for (const [g, original] of excluded) m.geom_group[g] = original; }
+      sample(q, heights);
+      for (let i = 0; i < heights.length; i++) {
+        const height = q[2] - heights[i] - cfg.offset;
+        out[offset + i] = Number.isFinite(height) ? clip(height) : cfg.missValue;
+      }
       return out;
     };
-    scan.dispose = () => hit.delete();
+    scan.dispose = sample.dispose;
     return scan;
   },
 };
 
-export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2 });
+export function makeTerrainSampler(mj, m, d, cfg) {
+  const hit = new mj.IntBuffer(1), group = [1, 1, 0, 0, 1, 0], down = [0, 0, -1];
+  // World collision geometry only, including group-4 heightfields. Do not read
+  // robot meshes or conservative lidar-only boxes (both contact masks zero).
+  const excluded = [];
+  for (let g = 0; g < m.ngeom; g++) {
+    if (m.geom_bodyid[g] !== 0 || (!m.geom_contype[g] && !m.geom_conaffinity[g])) excluded.push([g, m.geom_group[g]]);
+  }
+  const scan = (q, out) => {
+    const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
+    const c = Math.cos(yaw), s = Math.sin(yaw), z = q[2] + cfg.rayOffset;
+    // Restore groups before any lidar/physics call; this scan is synchronous.
+    for (const [g] of excluded) m.geom_group[g] = 5;
+    try {
+      for (let i = 0; i < cfg.grid.length; i++) {
+        const [x, y] = cfg.grid[i];
+        const distance = mj.mj_ray(m, d, [q[0] + c * x - s * y, q[1] + s * x + c * y, z], down, group, true, -1, hit, null);
+        out[i] = distance >= 0 && Number.isFinite(distance) ? z - distance : NaN;
+      }
+    } finally { for (const [g, original] of excluded) m.geom_group[g] = original; }
+    return out;
+  };
+  scan.dispose = () => hit.delete();
+  return scan;
+}
+
+export const POLICY_ADAPTERS = Object.freeze({ 'foothold-v2': footholdV2, 'ame2-demo': makeAme2Adapter(makeTerrainSampler) });
 export function getPolicyAdapter(id = 'foothold-v2') {
   const adapter = Object.hasOwn(POLICY_ADAPTERS, id) && POLICY_ADAPTERS[id];
   if (!adapter) throw new Error(`알 수 없는 정책 어댑터: ${id}`);

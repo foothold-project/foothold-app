@@ -209,11 +209,121 @@ AME-2 근거는 저장소 밖 AME-2 계획 분석(10-29, 가중치는 열어 보
 | P2 | ① `policy_v2.f32` 출처 | 변환 스크립트 찾기, 원본 npz sha256(`a162d3bf…`)과 f32 sha256 기록, 같은 입력 출력 차이 측정. f32 는 저장소에 없음(`mobile/scripts/sync-web.mjs:16,25` 가 외부 폴더에서 복사) | 진행 중 | 한 모델 검토 |
 | P3 | ② 높이 187칸 | 시뮬 어댑터(foothold-v2) 묶음 + xy 격자 확인 + MuJoCo 실제 높이 측정(§3) | 구현·높이/평지 검증, 험지 완주 0/20, 검토 대기 | 한 모델 검토 |
 | P4 | ③ 안전 Core 범위 | §4.2: 어댑터 선언 범위 → Core 는 범위 밖·NaN·deadman·STOP 만 0. 셀프테스트 기대값 유지 | 대기 | **두 모델 검토**. 실기 적용은 §4.3 별도 관문 |
-| P5 | ④⑤ 어댑터 셋·AME-2 | AME-2 actor 내보내기(ONNX 등)·출력 대조 → 시뮬 시연. START 계열은 팀장님 정의 뒤 | **torch 설치 승인 대기** | 두 모델 검토(명령 경로) + §3 열린 질문 답 |
+| P5 | ④⑤ 어댑터 셋·AME-2 | AME-2 actor 내보내기(ONNX 등)·출력 대조 → 시뮬 시연. START 계열은 팀장님 정의 뒤 | f32 내보내기 완료, 시뮬 어댑터 Draft PR 검토 대기 | 두 모델 검토(명령 경로) + §3 열린 질문 답 |
 
 열린 질문(팀장님 확인 필요): START 계열 정의, AME-2 «시간 입력», 지도 네 종류 이름, 실기 «벽» 높이 문턱, HiPAN 입력 형식.
 
-## 9. 변경 이력
+## 9. AME-2 교사 시연 어댑터 (실기 불가)
+
+**실기 불가: 참 높이지도**를 읽는 교사 모델이다. 앱의 오프라인 MuJoCo 시연만 지원한다.
+기본 정책은 계속 `foothold-v2`이며, 시뮬 메뉴의 정책 선택 또는 `?policy=ame2-demo`로
+`AME-2(시연)`을 고른다. 선택 변경은 페이지를 새로 읽고 잠금 상태에서 시작한다.
+AME-2에서는 기존 속도 기반 시나리오 실행을 끄고 두 막대만 사용한다.
+실기 경로·Safety Core·서버·agent는 변경하지 않는다. 보행 성공은 평가하지 않았다.
+
+### 9.1 입력과 출력
+
+[출처 계약](../AME2-PROVENANCE.md)과 `mobile/scripts/ame2_export.py`의 NumPy 계산이 기준이다.
+`ame2-network.js`는 CNN·ELU·공간 max·gaze hard crop·ties-to-even round·32-head MHA·출력 MLP를
+새 의존성 없이 계산한다. 배치표의 41개 이름·shape·순서·offset·유한값을 확인하고,
+브라우저 로더는 f32의 고정 SHA-256도 확인한다. `log_std`는 결정적 평균에 사용하지 않는다.
+
+| 입력 | 0부터의 칸 / 순서 | 단위·처리 |
+|---|---|---|
+| 몸 49칸 | 0–2 선속도, 3–5 각속도, 6–8 중력 | 몸 좌표 m/s, rad/s, 단위벡터; 잡음 0 |
+| 몸 49칸 | 9–20 기본각 대비 관절각, 21–32 관절속도 | rad, rad/s; 아래 정책 순서 |
+| 몸 49칸 | 33–44 직전 raw 행동, 45–48 목표 | 직전 행동 ±50 clip; `[x,y,sin(yaw오차),cos(yaw오차)]`, m/무차원 |
+| 지도 | `[29,13,3]`, x 바깥·y 안쪽·xyz | 6cm, x=−0.42…1.26m, y=−0.36…0.36m, yaw만 회전 |
+| 지도 z | `clip(hit_world_z-body_z+0.27,-1.5,1.5)` | m; 잡음 0, 몸의 roll/pitch로 격자를 기울이지 않음 |
+| 출력 | raw 평균 12칸 | `q_target=clip(q_default+0.25*a,-100,100)` rad |
+
+PD는 Kp=25, Kd=0.5, 정책 50Hz/물리 200Hz다. 지연은 **고정 0 물리 step**으로,
+학습 `delay_range=[0,4]`의 하한이다(받은 `params/env.yaml:1583–1600`,
+`go2/ame2_go2/tasks/mdp/actions.py:52–60`). 관측 이력은 지연 목표각이 아닌 직전 raw 행동이다.
+**시간 입력 미확인**: 독립 시간 칸이 보이지 않는다는 정적 관찰만으로 계약을 확정하지 않는다.
+
+Go2HV 포락선은 `env.yaml:166–203`, `go2/ame2_go2/assets/unitree_go2.py:19–21,58–84`,
+`go2/ame2_go2/assets/go2_curve.py:8–20`의 텍스트에 따른다. hip/thigh의 구동·제동 토크는
+20.2/23.4Nm, 속도 평탄부/영점은 13.5/30rad/s다. calf는 감속비 `30.1/15.70`을 적용해
+38.7273885/44.8624204Nm, 7.04152824/15.6478405rad/s다. 평탄부 이후 선형으로 줄인다.
+MuJoCo XML의 별도 motor clamp가 이 포락선을 덮지 않도록 AME-2에서만 해제하며,
+실제 actuator→joint 이름·gear=1을 검사한다. 기존 foothold-v2 모터 설정은 유지한다.
+
+### 9.2 관절 대응 근거와 가정
+
+받은 `params/env.yaml:154–161`과 `go2/ame2_go2/assets/unitree_go2.py:46–54`는
+이름별 기본각을 확정한다. `env.yaml:1592–1596`은 `joint_names=['.*']`, `preserve_order=false`여서
+실제 USD articulation 순서를 정하지 않는다. 관측 코드 `go2/ame2_go2/tasks/mdp/observations.py:69–81`도
+asset의 joint 순서를 따른다. `go2/ame2_go2/algorithms/go2_runner.py:554`는 실행 중 이름을 기록하지만
+이번 제공물에는 그 목록과 USD가 없다. 따라서 **정책 12칸 순서는 미확정 가정**이다.
+같은 Go2 USD 계열의 기존 foothold-v2 순서를 후보로 사용하며 확정됐다고 보고하지 않는다.
+가정은 `mobile/sim/ame2-adapter.js`의 `AME2_JOINT_ORDER` 상수 하나에 모았다.
+MuJoCo 순서는 `mobile/sim/sim.js`의 `MJ_J`와 qpos 배치·actuator 이름 검사로 확인한다.
+
+| 정책 칸(가정) | 이름 | MuJoCo 칸 | 기본각 rad(이름별 확정) |
+|---:|---|---:|---:|
+| 0 | FL_hip_joint | 0 | 0.1 |
+| 1 | FR_hip_joint | 3 | −0.1 |
+| 2 | RL_hip_joint | 6 | 0.1 |
+| 3 | RR_hip_joint | 9 | −0.1 |
+| 4 | FL_thigh_joint | 1 | 0.8 |
+| 5 | FR_thigh_joint | 4 | 0.8 |
+| 6 | RL_thigh_joint | 7 | 1.0 |
+| 7 | RR_thigh_joint | 10 | 1.0 |
+| 8 | FL_calf_joint | 2 | −1.5 |
+| 9 | FR_calf_joint | 5 | −1.5 |
+| 10 | RL_calf_joint | 8 | −1.5 |
+| 11 | RR_calf_joint | 11 | −1.5 |
+
+### 9.3 지형・조종·정지의 시연 선택
+
+#178의 기하 필터를 `makeTerrainSampler`로 공유한다. world 충돌체만 읽고 로봇·라이다용
+비충돌 proxy를 제외하며 group을 복원한다. 광선은 `body_z+0.501m`에서 내려 머리 위 형상을
+제외한다. 학습의 +20m top-down과는 다르며, 낮은 선반·여러 층의 지형 의미는 미확인이다.
+
+무반사는 받은 `observations.py:110–140`에서 이번 설정의 virtual-floor 분기를 확인하고,
+`go2/ame2_go2/sensors/virtual_floor.py:56–83`의 규칙을 사용한다. 앱 지도에는 학습 타일의
+가상 바닥 표식이 없으므로 가상 평면은 끈다. 무반사 칸은 최저 유효 세계 높이−depth,
+전부 무반사면 floor_z−depth로 채운 뒤 상대높이 변환·clip한다. depth는 잡음 없는 시연을 위해
+`env.yaml:1793–1799`의 −1.0…−0.4m 중간값에 해당하는 **0.7m 고정 가정**이다.
+학습의 타일별 가상 평면·에피소드별 난수를 재현한다는 뜻은 아니다. 구버전
+`min_valid+U(-1.5,-0.65)` 분기와 혼동하지 않는다.
+
+조종은 계획 A안이다. 왼쪽 위 방향은 몸 앞 0…1m, 좌우는 옆 목표이며 전체 목표 거리를
+1m 이하로 정규화해 2m 미만을 유지한다. 뒤 입력은 앞 거리를 0으로 제한한다.
+오른쪽 막대는 목표 heading을 최대 1rad/s로 적분하고 현재 yaw 대비 ±60°로 제한한다.
+완전 중립은 목표·heading을 현 자세에 붙여 `[0,0,0,1]`이다. STOP·앱 숨김·blur·pagehide·freeze는
+목표·이전 행동을 버리고 기존 잠금을 유지하며 AME-2 정책·물리를 일시정지한다.
+다시 시작은 기존 버튼만 가능하고 막대를 새로 눌러야 한다. 중립 입력이 물리적 정지를
+보장한다고 가정하지 않는다. reset·정책 변경도 AME-2를 잠근다.
+
+### 9.4 자산 배포와 검증
+
+가중치·배치표·check.json은 커밋하지 않는다. `sync-web.mjs`가 기존 `FH_SIM_SRC`에서
+foothold-v2 자산을 복사하고, 선택적 `FH_AME2_SRC`(미지정 시 `FH_SIM_SRC`)에서
+`ame2_actor.f32`·`ame2_actor.json`을 **둘 다 있을 때만** `www/sim`에 복사한다.
+없으면 AME-2 선택지가 비활성화되고 이유가 표시된다. 없는 모델을 URL로 요청해도
+foothold-v2 잠금 상태로 돌아간다. 모델 로드 오류는 이유를 표시하고 실행하지 않는다.
+APK 생성·배포는 이번 작업에 포함하지 않는다.
+
+- `AME2_EXPORT=<로컬 내보내기 폴더> node mobile/scripts/ame2-network-selftest.mjs`: 274건,
+  JS↔NumPy 최대 절대 차 **5.364418029785156e-6**, crop offset 전부 동일, 유한값 검사 통과.
+- Node **22.23.3**, CPU 측정: 단독 측정 첫 추론 46.09ms, 중앙값 19.38ms, p95 25.02ms.
+  폰 시간이 아니며 20ms 실시간 예산을 보장하지 않는다.
+- `FH_SIM_SRC=… AME2_EXPORT=… node mobile/scripts/ame2-sim-selftest.mjs`: 높이 최대 오차
+  **1.668930060816365e-8m**(≤1mm), 평지·경사·계단·yaw·roll/pitch·무반사·기하 제외 통과.
+  평지 3초/150회 정책 추론·600회 물리 step에서 NaN·예외 없음. 보행 성공 판정 없음.
+- `height-scan-selftest.mjs`, `height-walk-selftest.mjs`(기준 a840fe2), `start-selftest.mjs`,
+  `scenario-selftest.mjs`, `top-fit-selftest.mjs`: 모두 통과. 기존 5개 지도/각6초의
+  foothold-v2 낙상 0, 기준과 같은 이동 거리. 기존 안전 시험 기대값은 변경하지 않았다.
+- `FH_PLAYWRIGHT=<기존 playwright-core/index.mjs> node mobile/scripts/ame2-ui-selftest.mjs`:
+  headless Chrome·임의 로컬 포트에서 모델 부재·기본 정책·선택·중립·STOP·pagehide·자동 재개 없음 통과.
+
+남은 미확인: 실제 USD 관절 순서, 시간 입력 계약, 원래 학습 actor 실행과의 일치,
+MuJoCo/PhysX 접촉 차이, 라이선스·재배포 범위, 실폰 속도·발열, 실기 센서 지도, 보행 성능.
+되돌림은 이 어댑터 커밋을 `git revert`하고 번들을 다시 만드는 별도 절차다.
+
+## 10. 변경 이력
 
 | 판 | 날짜 | 내용 |
 |---|---|---|
@@ -222,3 +332,4 @@ AME-2 근거는 저장소 밖 AME-2 계획 분석(10-29, 가중치는 열어 보
 | 0.3 | 2026-10-29 | POLICY-CORE-RANGE: §4.1 시뮬 Hub의 foothold-v2 범위, Nav2 이전 범위 유지, 기존 limits 의미 보존·선택 정책 범위, 실기 불변·중립 회귀 수정. 두 모델 검토 막음 수정 후 조정 확인 대기 |
 | 0.4 | 2026-10-29 | P3: 모바일 foothold-v2 어댑터와 실제 187칸 높이 입력·격자/부호 근거·시험 범위 반영 |
 | 0.5 | 2026-10-29 | PR #178 B1: 이름 제외를 광선 시작 높이 기하 필터로 대체, 학습과 차이·한계·5개 지도 평지 회귀 및 주택 재시험 기록 |
+| 0.6 | 2026-10-29 | AME-2 시연 어댑터·순전파 대조·관측/모터/조종·관절 순서 가정·회귀 범위 기록 |
