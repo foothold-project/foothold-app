@@ -61,7 +61,25 @@ try {
   assert.deepEqual(await joy(), [-1, 0, 0]);
   await k.up('KeyS');
   assert.deepEqual(await joy(), [0, 0, 0]);
+  // 같은 방향 두 키(↑+W·←+A)도 막대 끝 값 1 — 범위를 넘지 않음, 반대 방향이 같이 눌리면 0
+  await k.down('ArrowUp'); await k.down('KeyW'); await k.down('ArrowLeft'); await k.down('KeyA');
+  assert.deepEqual(await joy(), [1, 0, 1]);
+  await k.down('ArrowDown');
+  assert.deepEqual(await joy(), [0, 0, 1]);
+  for (const c of ['ArrowDown', 'KeyA', 'ArrowLeft', 'KeyW', 'ArrowUp']) await k.up(c);
+  assert.deepEqual(await joy(), [0, 0, 0]);
   await page.waitForFunction(() => __sim.cmd().every((v) => v === 0));
+
+  // 수정키(단축키 시작)를 누르면 쥔 키를 버린다 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있어 ↑ keyup 없이도 0, 계속 쥔 ↑(반복)로 재개 없음
+  for (const mod of ['Meta', 'Control', 'Alt']) {
+    await k.down('ArrowUp');
+    assert.deepEqual(await joy(), [1, 0, 0]);
+    await k.down(mod); await k.up(mod);
+    assert.deepEqual(await joy(), [0, 0, 0]);
+    await k.down('ArrowUp');
+    assert.deepEqual(await joy(), [0, 0, 0]);
+    await k.up('ArrowUp');
+  }
 
   // Esc = STOP(명령 0), STOP 중 키 무시
   await k.down('KeyW');
@@ -92,23 +110,29 @@ try {
     assert.deepEqual(await joy(), [0, 0, 0]);
     await page.click('#go'); await k.down('KeyW');
     assert.deepEqual(await joy(), [0, 0, 0]);
-    await k.up('KeyW'); await k.press('Escape');
+    await k.down('ArrowLeft');   // 다른 키만 새로 눌러도 옛 W 는 살아나지 않는다
+    assert.deepEqual(await joy(), [0, 0, 1]);
+    await k.up('ArrowLeft'); await k.up('KeyW'); await k.press('Escape');
   }
 
-  // reset = 키 0(쥔 키는 다시 눌러야)
+  // reset = STOP 잠금 + 키 0(기본 정책도) — «시작» 전에는 새로 누른 키도 무시
   await page.click('#go'); await k.down('KeyW');
   assert.deepEqual(await joy(), [1, 0, 0]);
   await page.click('#reset');
+  assert.equal(await page.evaluate(() => __sim.stopped()), true);
   assert.deepEqual(await joy(), [0, 0, 0]);
-  await k.down('KeyW');
+  await k.up('KeyW'); await k.down('KeyW');
   assert.deepEqual(await joy(), [0, 0, 0]);
   await k.up('KeyW');
 
-  // 고르기 칸에 초점이면 화살표는 그 칸 몫 — 주행 안 함. Esc 는 거기서도 STOP
+  // 고르기 칸에 초점이면 화살표는 그 칸 몫 — 움직일 수 있는 상태에서 키를 쥐고 있어도 주행 안 함. Esc 는 거기서도 STOP
+  await page.click('#go');
   await page.click('#scenarioMenu');
   await page.focus('#scenarioSelect');
-  await k.press('ArrowDown');
+  await k.down('ArrowDown');
+  assert.equal(await page.evaluate(() => __sim.stopped()), false);
   assert.deepEqual(await joy(), [0, 0, 0]);
+  await k.up('ArrowDown');
   await k.press('Escape');
   assert.equal(await page.evaluate(() => __sim.stopped()), true);
   await page.evaluate(() => document.activeElement.blur());
@@ -139,7 +163,7 @@ try {
   assert.deepEqual(await ame.evaluate(() => __sim.cmd()), [0, 0, 0, 1]);
   await ame.keyboard.up('ArrowUp');
   assert.deepEqual(errors, []);
-  console.log('sim keys headless PASS: PC sticks hidden/touch sticks kept, keys → joystick-scale values, STOP ignores keys, re-press after start, Esc/Space/blur/pagehide/hidden/reset zero, select focus ignored, keys cancel scenario, AME-2 goal path');
+  console.log('sim keys headless PASS: PC sticks hidden/touch sticks kept, keys → joystick-scale values, one value per axis, modifier drops held, STOP ignores keys, re-press after start/other key, reset locks, Esc/Space/blur/pagehide/hidden/reset zero, select focus ignored, keys cancel scenario, AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));
