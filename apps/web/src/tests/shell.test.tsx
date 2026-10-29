@@ -99,15 +99,16 @@ describe('탭 전환', () => {
     expect($$('[aria-label="로봇 목록"] [data-seen]')).toHaveLength(3);
     expect($$('main button').filter((b) => /조종/.test(b.textContent!))).toEqual([]);
   });
-  it('폰: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + 시뮬 로봇 띄우기)', () => {
+  it('폰 브라우저: 아래 탭 줄 없음, 처음은 «로봇 연결»(내 로봇 + MuJoCo «시뮬 열기» 만 — 같은 출처 /sim/, from=web)', () => {
     mount(true, 'u-lee');
     expect($('nav')).toBeNull();
     expect($('main').getAttribute('aria-label')).toBe('로봇 연결');
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);
-    // 월드 목록을 받기 전에는 띄우기를 못 누름(흐름 전체는 phone.test.tsx)
-    const go = [...$('[aria-label="시뮬 로봇 띄우기"]').querySelectorAll('button')].find((b) => b.textContent === '띄우기')!;
-    expect(go.disabled).toBe(true);
-    expect($('[data-sim-app]')).toBeNull();
+    const card = $('[aria-label="시뮬"]');
+    expect($('[aria-label="시뮬 로봇 띄우기"]')).toBeNull();
+    expect(card.querySelector('[data-sim-engine]')).toBeNull();   // 폰은 고르는 칸 없음(10-29)
+    expect([...card.querySelectorAll('button')].filter((b) => b.textContent === '띄우기')).toEqual([]);
+    expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toBe('/sim/index.html?from=web&map=warehouse');
   });
   it('폰 앱(UA FootholdApp/): Gazebo 띄우기 대신 «시뮬 열기» → 앱 번들 시뮬(서버 화면에서 왔다고 표시)', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) Chrome/140 Mobile Safari/537.36 FootholdApp/1.2.1-dev');
@@ -196,7 +197,9 @@ describe('STOP 상시 표시', () => {
 const BANNED = [/정지·잠금 상태입니다/, /관문/, /링크/, /명령 0/, /deadman/i, /Gazebo/i, /GT/, /v2/, /rad\/s/, /HTTP\s*\d/, /\b[0-9a-f]{7,}\b/i, /미제공/, /원값/, /리허설/, /배치안/, /SLAM/, /Nav2/];
 describe('금지어 0', () => {
   const none = (where: string) => {
-    const text = box.textContent + ' ' + $$('[aria-label]').map((e) => e.getAttribute('aria-label')).join(' ');
+    // PC «시뮬» 탭의 «MuJoCo / Gazebo» 고르는 칸은 사용자가 정한 이름(10-29) — 그 칸만 빼고 본다
+    const c = box.cloneNode(true) as HTMLElement; c.querySelectorAll('[data-sim-engine]').forEach((e) => e.remove());
+    const text = c.textContent + ' ' + $$('[aria-label]').map((e) => e.getAttribute('aria-label')).join(' ');
     for (const b of BANNED) expect(text, `${where}: ${b}`).not.toMatch(b);
   };
   for (const u of USERS) it(`PC · ${u.name}`, () => {

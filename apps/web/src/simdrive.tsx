@@ -70,12 +70,20 @@ export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
 /** 잠금 사유 OUTPUT_STALLED(에이전트 출력 지연 → 0·STOP·잠금) 안내. 해제 판정은 에이전트 몫이라 단추 동작은 그대로 */
 export const STALLED = '출력이 늦어져 로봇을 멈췄습니다 — 다시 잠금 해제하면 이어집니다.';
 
-/** 앱 번들 시뮬(three.js + MuJoCo, mobile/sim) — 앱 시작 화면과 같은 출처. from=server 면 시뮬 «집» 단추가 뒤로(이 화면)로 돌아온다 */
-export const SIM_APP = 'https://localhost/sim/index.html?from=server';
+/** MuJoCo 시뮬(mobile/sim) 열기 주소. 앱 안 = 앱 번들(앱 시작 화면과 같은 출처, from=server 면 «집» = 뒤로),
+ *  웹 = 같은 출처 /sim/(배포가 싣는다, from=web 면 «집» = 웹 «시뮬» 화면) */
+export const simUrl = (map: string) => `${inApp() ? 'https://localhost/sim/index.html?from=server' : '/sim/index.html?from=web'}&map=${map}`;
+/** PC 웹 «시뮬» 탭에서 고른 계산 방식 기억(10-29 사용자) — 없거나 깨지면 MuJoCo */
+type Engine = 'mujoco' | 'gazebo';
+const ENGINE_KEY = 'fh.simEngine';
+const savedEngine = (): Engine => { try { return localStorage.getItem(ENGINE_KEY) === 'gazebo' ? 'gazebo' : 'mujoco'; } catch { return 'mujoco'; } };
 /** 로봇 연결 화면 아래 칸: 월드 고르기·띄우기·진행·확인 중. view = PC «시뮬» 탭(조종 없이 보기만 — 단추 이름만 다름).
- *  폰 앱 안(inApp, 10-27 사용자): Gazebo 띄우기 대신 «시뮬 열기»(앱 번들 시뮬) — 이미 떠 있는 내 Gazebo 시뮬 로봇·정리 칸은 그대로 */
+ *  PC 웹(view, 10-29 사용자): «MuJoCo»(이 기기에서 계산 — 시뮬 열기) / «Gazebo»(서버에서 계산 — 띄우기) 중 고르기, 서버 월드 목록이 없으면 Gazebo «준비 중».
+ *  폰(앱 안·폰 브라우저 — 폰 틀의 로봇 연결 화면, view 없음) = MuJoCo 만. 이미 떠 있는 내 Gazebo 시뮬 로봇·정리 칸은 둘 다 그대로 */
 export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
-  const app = !view && inApp(), title = app ? '시뮬(앱 안)' : '시뮬 로봇 띄우기';
+  const only = !view || inApp(), title = !only ? '시뮬 로봇 띄우기' : inApp() ? '시뮬(앱 안)' : '시뮬';
+  const [engine, setEngine] = useState(savedEngine);
+  const pickEngine = (e: Engine) => { setEngine(e); try { localStorage.setItem(ENGINE_KEY, e); } catch { /* 기억만 못 함 */ } };
   const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
   const [want, setWant] = useState(savedMap), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0], top = TOPS[`../../../mobile/sim/assets/${map.id}/top.png`];
   const pickMap = (id: string) => { setWant(id); try { localStorage.setItem(MAP_KEY, id); } catch { /* 기억만 못 함 */ } };
@@ -83,6 +91,8 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
   const worlds = s.catalog?.worlds ?? [], world = worlds.some((w) => w.id === pick) ? pick : worlds[0]?.id ?? '';
+  // Gazebo 는 서버 월드 목록이 있어야 고를 수 있다(목록 못 받음·빈 목록 = 준비 중). 기억은 그대로 두고 지금만 MuJoCo
+  const gz = worlds.length > 0, app = only || engine === 'mujoco' || !gz;
   // 시작 층: 고른 월드가 두 층 이상에서 띄울 수 있을 때만(하나뿐이면 표시·전송 0)
   const w0 = worlds.find((w) => w.id === world), spawns = w0?.spawn_floor_ids ?? [], from = spawns.length > 1 ? spawns.includes(spawn) ? spawn : spawns[0] : undefined;
   const floorName = (f: 'l1' | 'l2') => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : '2층');
@@ -113,11 +123,16 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
     {s.mine.length > 0 && <ul className="dv-cards" aria-label="내 시뮬 로봇">{s.mine.map((r) => <li key={r.robot_id} className="card dv-card">
       <div className="fh-row"><b>{short(r.robot_id)}</b><Chip tone="off" text="시뮬" /><span className="lbl">{worldName(s, r.world_id)} · {STATE[r.state]}</span></div>
       <div className="fh-row">{r !== resume && <button type="button" className="btn pri" onClick={() => sim.attach(r)}>{view ? '보기' : '직접 연결'}</button>}<button type="button" className="btn" onClick={() => sim.end(r)}>{r.state === 'ERROR' ? '정리' : '끝내기'}</button></div></li>)}</ul>}
+    {!only && <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }} data-sim-engine><legend>시뮬</legend>
+      <ul className="fh-list" aria-label="시뮬 고르기">{([['mujoco', 'MuJoCo', '이 기기에서 계산'], ['gazebo', 'Gazebo', gz ? '서버에서 계산' : '서버에서 계산 · 준비 중']] as const).map(([id, name, note]) =>
+        <li key={id}><label className="fh-row">
+          <input type="radio" name="sim-engine" value={id} checked={(app ? 'mujoco' : 'gazebo') === id} disabled={id === 'gazebo' && !gz} onChange={() => pickEngine(id)} />
+          <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}
     {app ? <><label className="fh-row"><span className="lbl">지도</span><select className="fh-user fh-sel" aria-label="지도" value={map.id} onChange={(e) => pickMap(e.target.value)} data-sim-map>
         {SIM_MAPS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
       {top && <img src={top} alt={`${map.name} 위에서 본 모습`} data-sim-top style={{ display: 'block', alignSelf: 'center', maxWidth: '100%', maxHeight: 240, borderRadius: 8 }} />}
-      <a className="btn pri" href={`${SIM_APP}&map=${map.id}`} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
-      <p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p></> : <>
+      <a className="btn pri" href={simUrl(map.id)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
+      {only && <p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p>}</> : <>
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>
       <ul className="fh-list" aria-label="월드 목록">{worlds.map((w) => <li key={w.id}><label className="fh-row">
         <input type="radio" name="sim-world" value={w.id} checked={w.id === world} onChange={() => setPick(w.id)} />

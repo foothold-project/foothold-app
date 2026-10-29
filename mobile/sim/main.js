@@ -49,9 +49,10 @@ $('stop').onclick = lock;                            // 키보드·읽어 주기
 $('go').onclick = () => { if (!ready) return; sticks.forEach((s) => s.release()); stopped = false; ui(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) lock(); });   // 앱 숨김·화면 꺼짐
 for (const ev of ['pagehide', 'freeze', 'blur']) addEventListener(ev, lock);
-// 집: 서버 화면(«시뮬 열기», ?from=server)에서 왔으면 뒤로 = 그 서버 화면(RemoteClient 가 /sim/ 에서는 고른 서버를 잊지 않음), 아니면 시작 화면
-const fromServer = new URLSearchParams(location.search).get('from') === 'server' && history.length > 1;
-$('home').onclick = () => { lock(); if (fromServer) history.back(); else location.href = '../index.html'; };
+// 집: 서버 화면(«시뮬 열기», ?from=server)에서 왔으면 뒤로 = 그 서버 화면(RemoteClient 가 /sim/ 에서는 고른 서버를 잊지 않음),
+// 웹(같은 출처 /sim/, ?from=web)이면 웹 «시뮬» 화면(폰 틀은 로봇 연결로 바뀜), 아니면 앱 시작 화면
+const from = new URLSearchParams(location.search).get('from'), fromServer = from === 'server' && history.length > 1;
+$('home').onclick = () => { lock(); if (fromServer) history.back(); else location.href = from === 'web' ? '../#/sim' : '../index.html'; };
 addEventListener('contextmenu', (e) => e.preventDefault());
 
 // ── 막대 두 개(RS-5 배치): 왼쪽 위·아래 = vx ±1, 좌우 = vy ±0.5 / 오른쪽 좌우 = wz ±1. 학습 범위 밖은 자르지 않고 테두리 색으로만 알림
