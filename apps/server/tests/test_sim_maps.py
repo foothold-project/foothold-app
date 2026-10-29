@@ -54,11 +54,14 @@ def counts(http):
             Site, Building, Floor, MapVersion, Upload, Approval, Mission, MissionVersion, Scenario, ScenarioVersion)]
 
 
-def test_removed_world_keeps_registered_maps_but_cannot_start(maps, seeded, world_folder, monkeypatch):
+@pytest.mark.parametrize('stale_catalogue', [False, True])
+def test_removed_world_keeps_registered_maps_but_cannot_start(maps, seeded, world_folder, monkeypatch,
+                                                            stale_catalogue):
     from uuid import uuid4
     from apps.server.fh_server.floor_maps import approved_bindings
     from apps.simmgr.api import create_app as manager_app
     from apps.simmgr.config import Settings as ManagerSettings, Slot, World
+    from apps.simmgr.launcher import FakeLauncher
     from .test_simulation import LocalRelay
 
     for name in tuple(os.environ):
@@ -87,18 +90,36 @@ def test_removed_world_keeps_registered_maps_but_cannot_start(maps, seeded, worl
     config = ManagerSettings({'warehouse/f1': World('warehouse/f1', Path('unused'), Path('unused'))},
         {rid: Slot(rid, str(seeded['org']), 'unused', 'unused.sqlite', 9493)}, 'x' * 32,
         port=9490, extra_ports=(9490, 9493))
+    if stale_catalogue:
+        # Private catalogues can retain the removed entry after the release changes.
+        missing = world_folder / 'rubble/rubble.sdf'
+        assert not missing.exists()
+        config.worlds['rubble/f1'] = World('rubble/f1', missing, world_folder / 'rubble/maps/f1.yaml')
+    launcher = FakeLauncher()
     monkeypatch.setattr('apps.simmgr.api.startup_preflight', lambda *_: {'synthetic': True})
-    with TestClient(manager_app(config), client=('127.0.0.1', 9498)) as sim:
+    with TestClient(manager_app(config, launcher), client=('127.0.0.1', 9498)) as sim:
+        if stale_catalogue:
+            # Exercise the real asset gate with a fake launcher; never start Gazebo.
+            monkeypatch.setattr(launcher, 'real', True)
+        def unexpected_lease():
+            pytest.fail('missing world must be rejected before the deployment lease')
+        monkeypatch.setattr(sim.app.state.manager.deployment_lease, 'acquire', unexpected_lease)
         http.app.state.simmgr = LocalRelay(sim, config.secret)
         http.app.state.phone_pass_issuer.keys[rid] = ('test', {'test': b'x' * 32})
         catalog = http.get(P + '/simulation/worlds', headers=headers)
         assert catalog.status_code == 200
-        assert 'rubble/f1' not in {w['id'] for w in catalog.json()['worlds']}
-        response = http.post(P + '/simulation/robots', headers=headers,
-                             json={'world_id': 'rubble/f1', 'robot_id': rid})
-        assert response.status_code == 404
-        assert response.json()['error']['code'] == 'SIM_WORLD_NOT_FOUND'
+        assert ('rubble/f1' in {w['id'] for w in catalog.json()['worlds']}) == stale_catalogue
+        for generation in (1, 2):
+            response = http.post(P + '/simulation/robots', headers=headers,
+                                 json={'world_id': 'rubble/f1', 'robot_id': rid})
+            assert response.status_code == (503 if stale_catalogue else 404)
+            assert response.json()['error']['code'] == (
+                'SIM_ASSET_MISSING' if stale_catalogue else 'SIM_WORLD_NOT_FOUND')
+            with Session(http.app.state.engine) as db:
+                robot = db.get(Robot, UUID(rid))
+                assert (robot.sim_state, robot.owner_user_id, robot.sim_generation) == ('IDLE', None, generation)
         assert sim.app.state.manager.world is None
+        assert not sim.app.state.manager.robots and not launcher.events
         assert http.get(P + '/simulation/robots', headers=headers).json()['items'] == []
     with Session(http.app.state.engine) as db:
         robot = db.get(Robot, UUID(rid))

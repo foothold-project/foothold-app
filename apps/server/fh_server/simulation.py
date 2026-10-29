@@ -27,6 +27,8 @@ START_REJECTIONS = frozenset({
     (404, 'SIM_WORLD_NOT_FOUND'), (404, 'SIM_SLOT_NOT_FOUND'),
     (409, 'SIM_WORLD_BUSY'), (409, 'SIM_OWNER_LIMIT'),
     (409, 'SIM_NATIVE_SINGLE_ONLY'), (409, 'SIM_ROBOT_LIMIT'),
+    # Manager checks asset files before acquiring its lease or invoking the launcher.
+    (503, 'SIM_ASSET_MISSING'),
 })
 
 
