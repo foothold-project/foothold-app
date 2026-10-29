@@ -1,12 +1,13 @@
 // 시뮬 로봇 띄우기 → 지도(월드) 고르기 → 직결 조종 → 끝내기(09 ADR-002 §3.2·§6). 상태·요청은 phone.ts, 이 파일은 그림만.
 import { useEffect, useRef, useState, type HTMLAttributes } from 'react';
-import type { SimRobot } from '../../contracts/ts';
+import type { PhoneWelcome, SimRobot } from '../../contracts/ts';
 import { feedText, media, needsRelink, useFeed } from './media';
 import { useOrbit, viewBlock } from './extview';
 import { DEAD, RUN_END, allowed, runMoving, sim, useSim, velocity, type Sim } from './phone';
 import { runView, startBlock, startFloor, useScenarios } from './run';
 import { Sheet, Stick } from './drive';
 import { Chip, inApp } from './screens';
+import { typing } from './App';
 import { simName, type Tone } from './fake';
 import { SimMap, useFloorMap } from './simmap';
 import SIM_MAPS from '../../../mobile/sim/maps.json';
@@ -15,6 +16,24 @@ import SIM_MAPS from '../../../mobile/sim/maps.json';
 const TOPS = import.meta.glob<string>('../../../mobile/sim/assets/*/top.png', { eager: true, query: '?url', import: 'default' });
 const MAP_KEY = 'fh.simMap';
 const savedMap = () => { try { return localStorage.getItem(MAP_KEY) ?? ''; } catch { return ''; } };
+
+/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 02 F-TO-05: W/↑ 전진, S/↓ 후진, A/←·D/→ 회전. 옆걸음(시뮬 시험용)은 Q/E. e.code(자판 자리)라 한글 입력 상태에서도 같다 */
+export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
+  KeyA: [1, 1], ArrowLeft: [1, 1], KeyD: [1, -1], ArrowRight: [1, -1], KeyQ: [2, 1], KeyE: [2, -1] };
+/** F-TO-05 키보드 전진 기본 0.6 m/s: 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 0.6 이면 끝까지(최종 자르기는 velocity·에이전트) */
+export const KEY_VX = 0.6;
+export function forward(w: PhoneWelcome) {
+  const L = w.limits, m = Math.min(L.vx_min_moving ?? L.vx_min, L.vx_max);
+  return L.vx_mode !== 'continuous' || L.vx_max <= KEY_VX ? 1 : DEAD + (1 - DEAD) * Math.max(1e-3, (KEY_VX - m) / (L.vx_max - m));
+}
+/** 지금 키 입력을 받을 수 있나 — 에이전트가 simulation 이라 알린 연결 + 조종권 + 잠금 풀림. 키 처리는 렌더 값이 아니라 저장소를 바로 본다.
+ *  시뮬 정지를 보낸 뒤 에이전트가 처리했다고 알리기 전(stop_gen 이 그대로)에는 옛 latched=false 가 남아 있어도 막는다 — 처리 뒤에는 잠금(latched)이 막고, 사람이 잠금 해제해야 다시 */
+export function canDrive() {
+  const g = sim.get(), l = g.link, p = g.stop, st = l?.st;
+  return !!l && l.welcome?.simulation === true && l.at === 'open' && !!l.lease && st?.latched === false && !(p && !p.latched && st.stop_gen <= (p.g0 ?? Infinity))
+    && !runMoving(l.run);   // 시나리오가 움직이는 중이면 키 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
+}
+export const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSelectElement;   // 글 입력칸·고르기 칸에 초점이면 조종 키 무시
 
 /** on 인 동안 1 s 마다 다시 그림(경과·남은 시간) */
 export function useTick(on: boolean) {
@@ -225,7 +244,8 @@ export function SimDrive() {
   const [clipUntil, setClipUntil] = useState(0), clipNote = l.clipped && performance.now() < clipUntil;
   useEffect(() => { if (l.clipped) setClipUntil(performance.now() + 3000); }, [l.clipped]);
   useEffect(() => () => sim.axes([0, 0]), []);
-  useEffect(() => { input.current = [0, 0, 0]; sim.axes([0, 0]); setUnsupported(''); setVx(0); }, [live]);
+  const held = useRef(new Set<string>());
+  useEffect(() => { held.current.clear(); input.current = [0, 0, 0]; sim.axes([0, 0]); setUnsupported(''); setVx(0); }, [live]);   // 움직일 수 없게 되면 누른 키도 버린다(다시 눌러야)
   /** 왼쪽 = 전후·옆, 오른쪽 = 회전. 막힌 방향은 limits 가 0 으로 자르고(phone.ts) 여기서는 이유만 안내 */
   const put = (i: 0 | 1 | 2, v: number) => {
     input.current[i] = v;
@@ -234,6 +254,28 @@ export function SimDrive() {
     if (out) setVx(out.vx);
     sim.axes([f, t, y]);
   };
+  // 컴퓨터 키(PC 는 조이스틱을 숨김 — drive.css): PC «시뮬» 탭(SimView)과 같은 키 표·규칙. 움직일 수 있을 때만 받고 반복 keydown 은 무시,
+  // 뗌·창 초점 잃음·탭 숨김 = 0. 수정키 조합·입력칸은 조종 아님. Space = STOP 은 App 공통 층
+  const keyRef = useRef({ live, put }); keyRef.current = { live, put };
+  useEffect(() => {
+    const apply = () => {
+      if (!keyRef.current.live || !canDrive()) held.current.clear();
+      const a: [number, number, number] = [0, 0, 0], k = sim.get().link?.welcome;
+      held.current.forEach((c) => { const [i, v] = KEYS[c]; a[i] = Math.max(-1, Math.min(1, a[i] + v)); });
+      if (a[0] > 0 && k) a[0] = forward(k);
+      input.current[1] = a[1]; input.current[2] = a[2]; keyRef.current.put(0, a[0]);
+    };
+    const down = (e: KeyboardEvent) => {
+      if (held.current.size && (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt')) return zero();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음
+      if (!(e.code in KEYS) || e.repeat || e.ctrlKey || e.metaKey || e.altKey || field(e.target) || !keyRef.current.live || !canDrive()) return;
+      e.preventDefault(); held.current.add(e.code); apply();
+    };
+    const up = (e: KeyboardEvent) => { if (held.current.delete(e.code)) apply(); };
+    const zero = () => { if (held.current.size) { held.current.clear(); apply(); } };
+    const hide = () => { if (document.visibilityState === 'hidden') zero(); };
+    addEventListener('keydown', down); addEventListener('keyup', up); addEventListener('blur', zero); document.addEventListener('visibilitychange', hide);
+    return () => { removeEventListener('keydown', down); removeEventListener('keyup', up); removeEventListener('blur', zero); document.removeEventListener('visibilitychange', hide); };
+  }, []);
   /** 나가기: 0 → 조종권 반납(답 2 s 까지) → 확인된 반납만 연결 닫고 띄우기 카드로. 시뮬은 켠 채(«조종 화면 띄우기»로 다시 들어옴).
    *  거절·무응답이면 조종 화면에 남는다(연결·STOP 대상 보존, 입력 0, «다시 반납») */
   const leave = async () => {
@@ -348,7 +390,8 @@ export function SimDrive() {
         <div className="fh-row"><button type="button" className="btn" onClick={() => sim.respond(true)}>넘기기</button><button type="button" className="btn" onClick={() => sim.respond(false)}>계속 조종</button></div></div>}
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
-        <Stick label="회전" on={live} epoch={+live} gen={gen} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick></>}
+        <Stick label="회전" on={live} epoch={+live} gen={gen} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick>
+        <p className="dv-keys" data-sim-keys>↑↓ 앞뒤 · ←→ 회전{(can.left || can.right) && ' · QE 옆'}</p></>}
       </div>
     </div></div>
   </section>;

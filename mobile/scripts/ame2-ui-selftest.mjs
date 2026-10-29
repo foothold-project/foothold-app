@@ -20,7 +20,7 @@ await new Promise((r) => server.listen(0, '127.0.0.1', r));
 let browser;
 try {
   browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true, args: ['--no-sandbox', '--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader'] });
-  const page = await browser.newPage();
+  const page = await browser.newPage({ hasTouch: true });   // 터치 기기 = 조이스틱(컴퓨터는 키 — sim-keys-selftest)
   const errors = []; page.on('pageerror', (e) => errors.push(e.message));
   const url = `http://127.0.0.1:${server.address().port}/sim/index.html?map=warehouse`;
   await page.route('**/ame2_actor*', (route) => route.fulfill({ status: 404, body: 'missing' }));

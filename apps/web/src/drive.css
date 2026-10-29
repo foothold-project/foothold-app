@@ -149,3 +149,9 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
 .dv-video>span{padding:0 16px;text-align:center;line-height:1.45}
 .dv-stage:has(.dv-cams)>.dv-floor{top:108px}
 .dv-stage:has(.dv-cams) .dv-map-again{top:144px}
+/* 컴퓨터(마우스·키보드 기기 — MuJoCo 시뮬 mobile/sim 과 같은 기준)의 시뮬 조종은 조이스틱 대신 키: 조이스틱을 숨기고 오른쪽 조이스틱 자리에 키 안내. 실기 조종 화면은 그대로 */
+.dv-keys{display:none}
+@media (hover:hover) and (pointer:fine){
+  [data-sim-drive] .dv-stick{display:none}
+  [data-sim-drive] .dv-keys{display:block;position:absolute;right:12px;bottom:12px;max-width:96px;margin:0;padding:6px 10px;border-radius:8px;background:rgba(8,11,14,.5);color:#E6EBEF;font-size:13px;line-height:1.4}
+}

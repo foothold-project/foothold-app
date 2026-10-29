@@ -79,6 +79,32 @@ stick($('stickL'), (x, y) => { const axes = adapter.stop.pause ? goalAxes : joy;
 stick($('stickR'), (x) => { (adapter.stop.pause ? goalAxes : joy)[2] = r2(-x * adapter.command.joystickScale[2]); });
 const inRange = (c) => adapter.command.inRange(c);
 
+// ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): ↑·W / ↓·S = 앞·뒤, ←·A / →·D = 회전, 막대를 끝까지 민 값과 같다. 떼면 0.
+// STOP 중에 누른 키와 잠글 때 쥐고 있던 키는 버린다(반복 keydown 무시) — «다시 시작» 뒤 새로 눌러야 움직인다. Esc·Space = STOP. 입력칸·고르기 칸에서는 조종 안 함
+const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [2, 1], KeyA: [2, 1], ArrowRight: [2, -1], KeyD: [2, -1] };
+const held = new Set();
+const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 1 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
+  const axes = adapter.stop.pause ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
+  for (const i of [0, 2]) axes[i] = r2((on(i, 1) - on(i, -1)) * adapter.command.joystickScale[i]);
+};
+const dropKeys = () => { held.clear(); keyAxes(); };
+sticks.push({ release: dropKeys });   // lock()·#go·시나리오 실행이 막대와 함께 놓는다
+const field = (t) => t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || !!t?.isContentEditable;
+addEventListener('keydown', (e) => {
+  if (e.code === 'Escape') return lock();
+  if (e.key === 'Meta' || e.key === 'Control' || e.key === 'Alt') return dropKeys();   // 단축키 시작 — macOS 는 Cmd 뒤 keyup 이 안 올 수 있음(웹 simdrive 와 같음)
+  if (e.ctrlKey || e.metaKey || e.altKey || field(e.target)) return;
+  if (e.code === 'Space') { e.preventDefault(); return lock(); }   // 초점 있는 단추(#go 등)가 눌리지 않게
+  if (!(e.code in KEYS)) return;
+  e.preventDefault();
+  if (stopped || e.repeat) return;
+  held.add(e.code); keyAxes();
+});
+addEventListener('keyup', (e) => {
+  if (e.code === 'Space' && !field(e.target)) e.preventDefault();   // 단추는 Space 를 뗄 때 눌린다
+  if (held.delete(e.code)) keyAxes();
+});
+
 try {
   if (selectionError) throw selectionError;
   await preparePolicies();
@@ -156,6 +182,8 @@ async function main() {
     $('scenarioHint').hidden = !stopped;
   };
   bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
+  // 막대를 누를 때처럼 조종 키도 실행을 끊고 잠근다(키는 위 keydown 이 먼저 받았어도 lock 이 버린다)
+  addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) { runner.cancel('중단'); lock(); } });
 
   $('scenarioHalt').onclick = () => { runner.cancel('중단'); lock(); scenarioUI(); };
 
@@ -308,7 +336,7 @@ async function main() {
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) cv.addEventListener(ev, (e) => { ptrs.delete(e.pointerId); pinch = 0; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001)); }, { passive: false });
 
-  $('reset').onclick = () => { if (adapter.stop.pause) lock(); sim.reset(); sim.hold(0.5); acc = 0; };
+  $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); acc = 0; };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera; mapPlane.visible = top; route.visible = top;
     $('cam').setAttribute('aria-pressed', String(top));
