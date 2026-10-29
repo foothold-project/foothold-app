@@ -11,7 +11,7 @@ export const DEFAULT_I = defaultAdapter.action.defaultPose;
 export const { physicsDt: PHYS_DT, decimation: DECIM, policyDt: POLICY_DT } = defaultAdapter.timing;
 export const MENAGERIE = { damping: 2, frictionloss: 0.2, armature: 0.01, footFriction: 0.8, footSpin: true };
 export const ISAAC_LIKE = { ...MENAGERIE, damping: 0, frictionloss: 0, footSpin: false };
-export const loadPolicy = (buf, adapterId = 'foothold-v2') => getPolicyAdapter(adapterId).loadPolicy(buf);
+export const loadPolicy = (buf, adapterId = 'foothold-v2', manifest) => getPolicyAdapter(adapterId).loadPolicy(buf, manifest);
 
 // DCMotor(IsaacLab): 속도에 따라 줄어드는 토크 한도, 그 위 effort_limit 로 자름
 function dcmotor(tau, dq, { effort: EFFORT, velocityLimit: VEL_LIM }) {
@@ -39,15 +39,32 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   }
   if (m.nu !== 12 || qa.some((a, i) => a !== 7 + i)) throw new Error('관절 배치가 예상(자유관절 뒤 FL..RR)과 다름');
 
-  const sampleHeight = adapter.makeHeightScanner(mj, m, d);
+  if (adapter.action.torque) {
+    for (let i = 0; i < 12; i++) {
+      // All twelve XML motors have gear=1 and the same ordering as MJ_J.
+      const j = m.actuator_trnid[i * 2];
+      if (j !== jid(MJ_J[i]) || m.actuator_gear[i * 6] !== 1) throw new Error('AME-2 모터 배치/기어 불일치');
+      m.actuator_ctrllimited[i] = 0; m.actuator_forcelimited[i] = 0;
+      m.jnt_actfrclimited[j] = 0;
+    }
+  }
+
+  const sampleHeight = adapter.makeHeightScanner(mj, m, d, world);
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
   const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], z: 0, fell: false, policyMs: 0, physMs: 0, I2M, M2I };
 
+  // AME-2 STOP discards the previous action and target; UI keeps its existing latch.
+  s.clearPolicyState = () => {
+    s.cmd = adapter.stop.input.slice(); last.fill(0);
+    for (let i = 0; i < 12; i++) tgt[i] = DEFAULT_I[I2M[i]];
+  };
+  s.mapping = adapter.observations.mappingSize ? new Float32Array(adapter.observations.mappingSize) : null;
   s.reset = () => {
     mj.mj_resetData(m, d);
     const q = d.qpos, v = d.qvel;
     q[0] = SX; q[1] = SY; q[2] = F + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 바닥 위 0.4
     for (let i = 0; i < 12; i++) { q[7 + i] = DEFAULT_I[I2M[i]]; tgt[i] = DEFAULT_I[I2M[i]]; }
+    if (adapter.stop.pause) s.clearPolicyState();
     v.fill(0); last.fill(0); s.t = 0; s.fell = false;
     mj.mj_forward(m, d);
     state();
@@ -72,9 +89,10 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   s.step = () => {
     const t0 = performance.now();
     adapter.observe(obs, s, last, sampleHeight);
-    const a = policy(obs);
+    const a = policy(obs, s.mapping);
+    if (adapter.action.targetClip && (a.length !== 12 || !a.every(Number.isFinite))) throw new Error('AME-2 행동 크기/유한값 오류');
     last.set(a);
-    for (let i = 0; i < 12; i++) tgt[i] = a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]];
+    for (let i = 0; i < 12; i++) tgt[i] = adapter.action.targetClip ? Math.max(-adapter.action.targetClip, Math.min(adapter.action.targetClip, a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]])) : a[I2M[i]] * ACTION_SCALE + DEFAULT_I[I2M[i]];
     const t1 = performance.now();
     for (let k = 0; k < DECIM; k++) s.physStep();
     s.policyMs = t1 - t0; s.physMs = performance.now() - t1;
@@ -83,7 +101,10 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   };
   s.physStep = () => {
     const q = d.qpos, v = d.qvel, u = d.ctrl;
-    for (let i = 0; i < 12; i++) u[i] = dcmotor(KP * (tgt[i] - q[7 + i]) - KD * v[6 + i], v[6 + i], adapter.action);
+    for (let i = 0; i < 12; i++) {
+      const torque = KP * (tgt[i] - q[7 + i]) - KD * v[6 + i];
+      u[i] = adapter.action.torque ? adapter.action.torque(torque, v[6 + i], I2M[i]) : dcmotor(torque, v[6 + i], adapter.action);
+    }
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD

@@ -28,6 +28,14 @@ const copy = [['policy_v2.f32', 'policy_v2.f32'], ['vendor/three.module.js', 've
   ...[...go2xml.matchAll(/<mesh file="([\w.]+)"/g)].map(([, f]) => [`assets/unitree_go2/assets/${f}`, `assets/unitree_go2/assets/${f}`])];
 for (const [a, b] of copy) { mkdirSync(dirname(join(sim, b)), { recursive: true }); copyFileSync(need(a), join(sim, b)); }
 
+// Optional teacher assets follow the same external-copy path as foothold-v2.
+// Never make an absent optional model break the default offline simulator.
+const ame2src = process.env.FH_AME2_SRC || src;
+const ame2files = ['ame2_actor.f32', 'ame2_actor.json'];
+if (ame2files.every((file) => existsSync(join(ame2src, file)))) {
+  for (const file of ame2files) copyFileSync(join(ame2src, file), join(sim, file));
+}
+
 const files = {};
 const walk = (d) => readdirSync(d).sort().forEach((n) => {
   const p = join(d, n);

@@ -7,6 +7,7 @@ import * as THREE from './vendor/three.module.js';
 import load from './mujoco/mujoco.js';
 import { createSim, ISAAC_LIKE } from './sim.js';
 import { getPolicyAdapter } from './policy-adapters.js';
+import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame } from './top-fit.js';
 import { makeLidar, decodeMap } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
@@ -26,11 +27,14 @@ const json = async (u) => (await get(u)).json();
 const st = (window.__sim = { ready: false, err: null });   // 시험용(headless) — 화면에는 안 보임
 
 // ── STOP 잠금: 명령 0. «다시 시작»(#go)만 푼다. 잡고 있던 막대 손가락도 놓게 해서 풀린 뒤엔 새로 누른 손가락만 명령이 된다
+let heading = null;
+const goalAxes = [0, 0, 0];
 let joy = neutral(), stopped = true, sim = null, ready = false;
 const sticks = [];
 function lock() {
   stopped = true; joy = neutral();
   if (sim) sim.cmd = neutral();
+  if (adapter.stop.pause) { heading = null; goalAxes.fill(0); sim?.clearPolicyState(); }
   sticks.forEach((s) => s.release());
   ui();
 }
@@ -40,6 +44,7 @@ function ui() {
   $('go').hidden = !stopped || !ready;
 }
 $('stop').addEventListener('pointerdown', lock);   // 누르는 순간(click 은 손을 뗄 때라 늦다)
+$('scenarioMenu').onclick = () => { $('scenarioPanel').hidden = !$('scenarioPanel').hidden; $('scenarioMenu').setAttribute('aria-expanded', String(!$('scenarioPanel').hidden)); };
 $('stop').onclick = lock;                            // 키보드·읽어 주기
 $('go').onclick = () => { if (!ready) return; sticks.forEach((s) => s.release()); stopped = false; ui(); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) lock(); });   // 앱 숨김·화면 꺼짐
@@ -68,24 +73,55 @@ function stick(el, set) {
   sticks.push({ release });
 }
 const r2 = (v) => +v.toFixed(2) || 0; // −0 → 0
-stick($('stickL'), (x, y) => { joy[0] = r2(-y * adapter.command.joystickScale[0]); joy[1] = r2(-x * adapter.command.joystickScale[1]); });
-stick($('stickR'), (x) => { joy[2] = r2(-x * adapter.command.joystickScale[2]); });
-const inRange = adapter.command.inRange;
+stick($('stickL'), (x, y) => { const axes = adapter.stop.pause ? goalAxes : joy;
+  axes[0] = r2(-y * adapter.command.joystickScale[0]); axes[1] = r2(-x * adapter.command.joystickScale[1]); });
+stick($('stickR'), (x) => { (adapter.stop.pause ? goalAxes : joy)[2] = r2(-x * adapter.command.joystickScale[2]); });
+const inRange = (c) => adapter.command.inRange(c);
 
 try {
   if (selectionError) throw selectionError;
+  await preparePolicies();
   await main();
 } catch (e) {
   st.err = String(e?.stack || e);
   console.error(e);
   $('busy').hidden = true; $('fail').hidden = false;
+  if (adapter.stop.pause) { $('policySelect').options[1].disabled = true; $('policyReason').textContent = `AME-2 사용 불가: ${e.message}`; }
+}
+
+async function preparePolicies() {
+  const choice = $('policySelect'), reason = $('policyReason');
+  choice.value = adapter.id;
+  choice.onchange = () => {
+    lock();
+    const url = new URL(location.href); url.searchParams.set('policy', choice.value);
+    location.href = url.href;
+  };
+  try {
+    const manifest = await json('ame2_actor.json');
+    const response = await fetch('ame2_actor.f32', { method: 'HEAD' });
+    if (!response.ok || manifest.schema !== 'ame2-f32-v1') throw new Error('가중치 파일 또는 배치표 없음');
+    choice.options[1].disabled = false;
+    reason.textContent = 'AME-2: 실기 불가 · 참 높이지도 · 관절 순서 가정';
+  } catch {
+    choice.options[1].disabled = true;
+    reason.textContent = 'AME-2 사용 불가: 가중치 파일 또는 배치표 없음';
+    if (adapter.id === 'ame2-demo') {
+      adapter = getPolicyAdapter(); joy = neutral();
+      choice.value = adapter.id;
+    }
+  }
 }
 
 async function main() {
   const q = new URLSearchParams(location.search).get('map') ?? '', maps = await json('maps.json');
   const id = /^[a-z0-9-]+$/.test(q) && maps.some((x) => x.id === q) ? q : 'warehouse', dir = `assets/${id}`;
-  const [mj, sceneJ, mapJ, polBuf] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
-    get(adapter.network.file).then((r) => r.arrayBuffer())]);
+  const [mj, sceneJ, mapJ, polBuf, policyManifest] = await Promise.all([load(), json(`${dir}/scene.json`), json(`${dir}/map.json`),
+    get(adapter.network.file).then((r) => r.arrayBuffer()), adapter.network.manifest ? json(adapter.network.manifest) : null]);
+  if (adapter.network.manifest) {
+    const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', polBuf)), (x) => x.toString(16).padStart(2, '0')).join('');
+    if (digest !== adapter.network.sha256) throw new Error('AME-2 가중치 SHA-256 불일치');
+  }
   const map = decodeMap(mapJ);
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
   const physicsAssets = mapJ.physics_assets ?? [];
@@ -99,7 +135,7 @@ async function main() {
     ...MESHES.map(async (f) => mj.FS.writeFile(`/go2/assets/${f}.obj`, await bytes(`assets/unitree_go2/assets/${f}.obj`))),
   ]);
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);
-  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, adapter.loadPolicy(polBuf), { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
+  sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, adapter.loadPolicy(polBuf, policyManifest), { floorZ: map.floor_z, spawn: map.spawn_xyyaw }, adapter.id);
   const { m, d } = sim;
   const lidar = makeLidar(mj, m, d, 360);
   const runner = createScenarioRunner(sim, () => stopped);
@@ -108,17 +144,18 @@ async function main() {
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
+  if (adapter.stop.pause) $('scenarioStatus').textContent = 'AME-2는 두 막대로 조종하세요';
   let scenarioText = '';
   const scenarioUI = () => {
-    const text = runner.active ? `지점 ${runner.index + 1}/${runner.points.length}` : runner.status;
+    const text = adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${runner.index + 1}/${runner.points.length}` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
-    select.disabled = runner.active || !scenarios.length;
-    $('scenarioRun').disabled = !ready || stopped || sim.fell || runner.active || !scenarios.length;
+    select.disabled = runner.active || !scenarios.length || adapter.stop.pause;
+    $('scenarioRun').disabled = !ready || stopped || sim.fell || runner.active || !scenarios.length || adapter.stop.pause;
     $('scenarioHalt').disabled = !runner.active;
     $('scenarioHint').hidden = !stopped;
   };
   bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
-  $('scenarioMenu').onclick = () => { $('scenarioPanel').hidden = !$('scenarioPanel').hidden; $('scenarioMenu').setAttribute('aria-expanded', String(!$('scenarioPanel').hidden)); };
+
   $('scenarioHalt').onclick = () => { runner.cancel('중단'); lock(); scenarioUI(); };
 
   // ── three.js: Z-up
@@ -232,7 +269,7 @@ async function main() {
     lidarPts.geometry.attributes.position.needsUpdate = true;
   };
   $('scenarioRun').onclick = () => {
-    if (!ready || stopped || sim.fell || runner.active) return;
+    if (!ready || stopped || sim.fell || runner.active || adapter.stop.pause) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
     sticks.forEach((s) => s.release());
@@ -270,7 +307,7 @@ async function main() {
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) cv.addEventListener(ev, (e) => { ptrs.delete(e.pointerId); pinch = 0; });
   cv.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(e.deltaY * 0.001)); }, { passive: false });
 
-  $('reset').onclick = () => { sim.reset(); sim.hold(0.5); acc = 0; };
+  $('reset').onclick = () => { if (adapter.stop.pause) lock(); sim.reset(); sim.hold(0.5); acc = 0; };
   $('cam').onclick = () => {
     top = !top; camera = top ? topCamera : followCamera; mapPlane.visible = top; route.visible = top;
     $('cam').setAttribute('aria-pressed', String(top));
@@ -299,8 +336,11 @@ async function main() {
     while (acc >= POLICY_DT && n < 5) {
       acc -= POLICY_DT; n++;
       if (runner.active) runner.tick(front);
-      else sim.cmd = stopped || sim.fell ? neutral() : joy.slice();
-      if (!sim.fell) sim.step();
+      else if (adapter.stop.pause) {
+        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped || sim.fell ? [0, 0, 0] : goalAxes, POLICY_DT);
+        heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
+      } else sim.cmd = stopped || sim.fell ? neutral() : joy.slice();
+      if (!sim.fell && !(adapter.stop.pause && stopped)) sim.step();
       if (sim.fell && runner.active) runner.cancel('넘어짐');
       if (sim.fell) sim.cmd = neutral();
       st.steps++;
