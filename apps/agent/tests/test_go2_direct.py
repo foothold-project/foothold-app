@@ -36,11 +36,12 @@ def command(kind='apply', velocity=(0., 0., 0.)):
     return SimpleNamespace(kind=kind, velocity=velocity)
 
 
-def make_sink():
+def make_sink(*, offline_test_mode=True):
     clock, normal, emergency = Clock(), FakeSport(), FakeSport()
-    sink = Go2Sink(normal, emergency, now=clock)
+    sink = Go2Sink(normal, emergency, now=clock, offline_test_mode=offline_test_mode)
     sink.select_source('phone')
-    sink.drain()
+    if offline_test_mode:
+        sink.drain()
     return sink, normal, emergency, clock
 
 
@@ -49,6 +50,53 @@ def unlock(sink, clock, sequence=1):
                                 received_at=clock(), stationary=True)
     sink.apply(command('unlock'), source='phone')
     sink.apply(command(), source='phone')
+
+
+@pytest.mark.parametrize('kind,velocity', [('unlock', (0., 0., 0.)),
+    ('apply', (0., 0., 0.)), ('apply', (.6, 0., 0.))])
+def test_default_live_input_requires_workers_before_unlock_or_apply(kind, velocity):
+    clock, normal, emergency = Clock(), FakeSport(), FakeSport()
+    sink = Go2Sink(normal, emergency, now=clock)
+    sink.select_source('phone')
+    assert sink.confirm_stopped(generation=sink.generation, sequence=1,
+                                received_at=clock(), stationary=True)
+    with pytest.raises(OutputError):
+        sink.apply(command(kind, velocity), source='phone')
+    assert sink.latched and sink.pending == (0., 0., 0.)
+    assert not sink._threads and not normal.calls and not emergency.calls
+    # STOP remains accepted even before workers start; no motion can be queued.
+    sink.apply(command('stop'), source='anything')
+    assert sink.latched and sink._stop_requested.is_set()
+
+
+def test_default_live_manual_drain_requires_workers():
+    normal, emergency = FakeSport(), FakeSport()
+    sink = Go2Sink(normal, emergency)
+    with pytest.raises(OutputError):
+        sink.drain()
+    assert sink.latched and not normal.calls and not emergency.calls
+
+
+@pytest.mark.parametrize('alive', [(True,), (True, False)])
+def test_live_input_requires_both_workers_alive(alive):
+    sink = Go2Sink(FakeSport(), FakeSport())
+    sink.select_source('phone')
+    sink._threads = [SimpleNamespace(is_alive=lambda value=value: value) for value in alive]
+    with pytest.raises(OutputError):
+        sink.apply(command(), source='phone')
+    assert sink.latched and sink.pending == (0., 0., 0.)
+
+
+def test_explicit_offline_mode_allows_manual_fakes_but_not_live_workers():
+    sink, normal, _, clock = make_sink(offline_test_mode=True)
+    unlock(sink, clock)
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    assert normal.calls[-1] == ('Move', (.6, 0., 0.))
+    with pytest.raises(RuntimeError):
+        sink.start_threads()
+    with pytest.raises(ValueError):
+        Go2Sink(FakeSport(), FakeSport(), offline_test_mode='true')
 
 
 @pytest.fixture
@@ -238,6 +286,49 @@ def test_output_itself_rejects_expired_input_before_watcher():
     assert normal.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
 
 
+def test_drain_first_cannot_erase_expired_output_deadline():
+    sink, normal, emergency, clock = make_sink()
+    unlock(sink, clock)
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    generation = sink.generation
+    clock.value += .20
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    clock.value += .11
+    before = len(normal.calls)
+    # No late apply and no watchdog first: output must check its OLD clock.
+    sink.drain()
+    assert sink.latched and sink.pending == (0., 0., 0.)
+    assert sink.generation > generation and sink._stop_requested.is_set()
+    assert normal.calls[before:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
+    assert sink.check_watchdog()
+    assert emergency.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    assert sink.latched and ('Move', (.6, 0., 0.)) not in normal.calls[before:]
+
+
+def test_late_sdk_return_cannot_refresh_expired_output_before_watcher():
+    sink, normal, emergency, clock = make_sink()
+    unlock(sink, clock)
+    original = normal.Move
+
+    def delayed_return(*velocity):
+        if velocity != (0., 0., 0.):
+            clock.value += .20
+            sink.apply(command(velocity=velocity), source='phone')
+            clock.value += .11
+        return original(*velocity)
+
+    normal.Move = delayed_return
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
+    sink.drain()
+    assert sink.latched and sink.pending == (0., 0., 0.)
+    assert sink._stop_requested.is_set()
+    assert normal.calls[-2:] == [('Move', (0., 0., 0.)), ('StopMove', ())]
+    assert sink.check_watchdog() and emergency.calls[-1][0] == 'StopMove'
+
+
 @pytest.mark.parametrize('expired', ['input', 'output'])
 def test_late_nonzero_apply_cannot_erase_expired_deadline(expired):
     sink, normal, _, clock = make_sink()
@@ -289,8 +380,7 @@ def test_select_unknown_source_is_rejected():
 
 
 def test_explicit_stop_wakes_emergency_worker_while_normal_move_is_blocked():
-    sink, normal, emergency, clock = make_sink()
-    unlock(sink, clock)
+    sink, normal, emergency, clock = make_sink(offline_test_mode=False)
     entered, release, stopped = threading.Event(), threading.Event(), threading.Event()
     original_move, original_stop = normal.Move, emergency.StopMove
 
@@ -307,9 +397,10 @@ def test_explicit_stop_wakes_emergency_worker_while_normal_move_is_blocked():
 
     normal.Move = blocked_move
     emergency.StopMove = record_stop
-    sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
     sink.start_threads()
     try:
+        unlock(sink, clock)
+        sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
         assert entered.wait(1)
         generation = sink.generation
         sink.apply(command('stop'), source='anything')

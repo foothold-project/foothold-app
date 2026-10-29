@@ -49,15 +49,20 @@ class Go2Sink:
 
     start_threads() must run before live input: it runs independent output and
     emergency/watchdog workers, waking the latter on STOP without waiting for a
-    deadline. Manual drain/check_watchdog calls are for offline tests.
+    deadline. Manual execution requires explicit offline_test_mode=True and fake
+    clients; that mode cannot start live workers.
     STOP/expiry discard pending
     nonzero commands. Fresh telemetry evidence plus authorized unlock plus NEW
     neutral are required before nonzero; periodic apply alone cannot unlock.
     """
-    def __init__(self, client, emergency_client, *, limits=None, now=time.monotonic):
+    def __init__(self, client, emergency_client, *, limits=None, now=time.monotonic,
+                 offline_test_mode=False):
+        if type(offline_test_mode) is not bool:
+            raise ValueError('offline_test_mode must be an explicit boolean')
         if client is emergency_client:
             raise ValueError('separate normal/emergency SDK objects required')
         self.client, self.emergency_client = client, emergency_client
+        self._offline_test_mode = offline_test_mode
         self.limits, self.now = limits or Limits(), now
         self._lock = threading.RLock()
         self._output = threading.RLock()
@@ -95,6 +100,15 @@ class Go2Sink:
         self._neutral_required = True
         self._urgent = True
 
+    def _require_workers(self):
+        # Call under the memory lock. start_threads starts BOTH workers while
+        # holding that lock, so neither may output before the pair is ready.
+        if not self._offline_test_mode and (len(self._threads) != 2 or
+                                           not all(t.is_alive() for t in self._threads)):
+            self._hold()
+            self._stop_requested.set()
+            raise OutputError('both live workers must be ready before input/output')
+
     def apply(self, command, *, source):
         with self._lock:
             if self._closed.is_set() or self.error is not None:
@@ -104,6 +118,7 @@ class Go2Sink:
                 self._hold()
                 self._stop_requested.set()
                 return
+            self._require_workers()
             # Check OLD clocks before any input can refresh them. Otherwise a
             # delayed apply -> drain -> watchdog sequence erases the outage.
             stamp = self.now()
@@ -177,8 +192,12 @@ class Go2Sink:
             with self._lock:
                 if self._closed.is_set():
                     return
-                if not self.latched and self.now()-self._last_apply >= DEADLINE_S:
+                self._require_workers()
+                stamp = self.now()
+                if not self.latched and (stamp-self._last_apply >= DEADLINE_S or
+                                         stamp-self._last_drain >= DEADLINE_S):
                     self._hold()
+                    self._stop_requested.set()
                 generation, urgent = self.generation, self._urgent
                 velocity = ZERO if self.latched else self.pending
                 self._urgent = False
@@ -190,7 +209,14 @@ class Go2Sink:
                 # An in-flight SDK call cannot be cancelled. Compensate on its
                 # own lane immediately after return if STOP/close raced it.
                 with self._lock:
-                    self._last_drain = self.now()
+                    stamp = self.now()
+                    # A stalled SDK return can also beat the watcher. Do not
+                    # erase the outage by stamping its late completion as fresh.
+                    if not self.latched and (stamp-self._last_apply >= DEADLINE_S or
+                                             stamp-self._last_drain >= DEADLINE_S):
+                        self._hold()
+                        self._stop_requested.set()
+                    self._last_drain = stamp
                     changed = generation != self.generation or self._closed.is_set()
                     if changed:
                         self._urgent = True
@@ -234,6 +260,8 @@ class Go2Sink:
 
     def start_threads(self):
         with self._lock:
+            if self._offline_test_mode:
+                raise RuntimeError('offline test mode cannot start live workers')
             if self._threads or self._closed.is_set():
                 raise RuntimeError('output workers cannot be restarted')
             def worker(action, wake):
