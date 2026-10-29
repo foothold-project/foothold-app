@@ -1,17 +1,17 @@
 /* 시나리오 편집(10-26): 지도 + 오른쪽 단계 창(파워포인트 애니메이션 창처럼 접고 펼침). 색·선은 frame.css 토큰만.
-   칸 폭으로 바꾼다(container) — 좁은 창·폰 폭에서는 단계 창이 지도 아래 접는 막대가 되어 지도를 가리지 않는다 */
+   칸 폭으로 바꾼다(container) — PC 좁은 창(왼쪽 나무·목록 + 도구줄이 자리를 먹어 칸이 640 아래)에서도 창은 오른쪽에 두고 지도·창이 같이 줄어든다.
+   칸이 440 아래면 접힌 창은 지도 옆 세로 막대 그대로, 펼친 창만 지도 아래로 내려 지도를 가리지 않는다(지도 편집은 이 폭이면 접힌 채 시작 — mapedit.tsx NARROW) */
 .ms-box{container-type:inline-size}
 .ms-edit{display:flex;gap:12px;align-items:flex-start}
-.ms-map{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}
-.ms-steps{flex:0 0 340px;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;max-height:calc(60vh + 52px);overflow-y:auto;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
-.ms-edit:not([data-open])>.ms-steps{flex:0 0 auto;padding:4px}
+.ms-map{flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:8px}
+.ms-steps{flex:0 1 340px;min-width:220px;box-sizing:border-box;display:flex;flex-direction:column;gap:8px;max-height:calc(60vh + 52px);overflow-y:auto;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--panel2)}
+.ms-edit:not([data-open])>.ms-steps{flex:0 0 auto;min-width:0;padding:4px}
 .ms-edit:not([data-open]) .ms-fold{writing-mode:vertical-rl;padding:12px 0;min-width:44px}   /* 접힘 = 지도 옆 세로 막대 */
 .ms-step{display:flex;flex-direction:column;gap:6px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
 .ms-step .btn{padding:0 10px;min-width:44px}
 .ms-step .ms-name{justify-content:flex-start;text-align:left;overflow-wrap:anywhere}
 .ms-step .ms-name[aria-pressed="true"]{border-color:var(--accent);background:var(--acc-bg)}
-@container (max-width:640px){
-  .ms-edit{flex-direction:column;align-items:stretch}
-  .ms-steps,.ms-edit:not([data-open])>.ms-steps{flex:none;max-height:none}
-  .ms-edit:not([data-open]) .ms-fold{writing-mode:horizontal-tb;padding:0 16px}
+@container (max-width:440px){
+  .ms-edit[data-open]{flex-direction:column;align-items:stretch}
+  .ms-edit[data-open]>.ms-steps{flex:none;min-width:0;max-height:none}
 }
