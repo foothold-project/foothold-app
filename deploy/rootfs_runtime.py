@@ -324,10 +324,13 @@ def prepare_contents(input_path):
 
 
 def prepare(input_path):
-    def persist(before,after,error):
+    def persist(before,after,error,pending):
         details=dict(before=before,after=after)
+        if error is None:
+            try:shared.verify_host_unchanged(before,after)
+            except ValueError as audit_error:error=audit_error
         if error is not None:
-            details['error_type']=type(error).__name__
+            details.update(error_type=type(error).__name__,latch_device=pending[0],latch_inode=pending[1])
             if type(error) is ValueError:details['reason']=str(error)
         path=Path('/var/lib/foothold/rootfs-prepare-audit.json')
         if path.exists() or path.is_symlink():raise ValueError('prior prepare audit exists; no automatic retry')
