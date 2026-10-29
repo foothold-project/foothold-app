@@ -430,19 +430,40 @@ def test_r9_invalid_hidden_replies_without_closing(client, seeded, rt):
         assert reply(ws, send(ws, 'ping'))['ok']
 
 
-def test_stale_authorization_blocks_motion_but_cached_stop_remains_immediate(client, seeded, rt):
+def test_stale_authorization_blocks_motion_but_cached_stop_remains_immediate(client, seeded, rt, monkeypatch):
     rid = str(seeded['robots']['mine'])
     with agent(client, seeded) as ag, screen(client, app_token(client)) as ws:
         lease = take(ws, ag, rid)
         async def age_snapshot():
+            entered, resume = asyncio.Event(), asyncio.Event()
+            original = rt.refresh_policy
+            async def paused_refresh(peer, *, after=None):
+                entered.set()
+                await resume.wait()
+                return await original(peer, after=after)
+            monkeypatch.setattr(rt, 'refresh_policy', paused_refresh)
+            # Wait until any in-flight refresh has finished and the watcher is
+            # paused at its next read. Otherwise it can replace the aged policy
+            # between this portal call and the cmd frame below.
+            async with asyncio.timeout(1):
+                await entered.wait()
             peer = next(iter(rt.screens.values()))
             peer.policy = replace(peer.policy, checked=rt.clock() - 1)
-        run(client, age_snapshot)
-        result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[1, 0, 0]))
-        assert not result['ok']
-        assert result['error']['code'] == 'POLICY_STALE'
-        assert reply(ws, send(ws, 'stop', rid))['ok']
-        receive(ag, 'stop', timeout=.1)
+            return peer, peer.policy, resume
+        peer, stale, resume = run(client, age_snapshot)
+        try:
+            result = reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[1, 0, 0]))
+            assert not result['ok']
+            assert result['error']['code'] == 'POLICY_STALE'
+            ident = send(ws, 'stop', rid)
+            receive(ag, 'stop', timeout=.1)
+            assert reply(ws, ident)['ok']
+            async def still_paused():
+                assert peer.policy is stale
+                assert not resume.is_set()  # STOP did not wait for a refresh.
+            run(client, still_paused)
+        finally:
+            run(client, resume.set)
 
 
 def test_b1_real_ws_cmd_and_stop_floods_allow_fresh_take(client, seeded, rt):
