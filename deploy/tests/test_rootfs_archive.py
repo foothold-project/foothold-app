@@ -100,3 +100,41 @@ def test_each_special_node_refuses_at_scan(kind):
     with tarfile.open(fileobj=output,mode='w') as tar:
         item=tarfile.TarInfo('special');item.type=kind;item.mode=0o600;tar.addfile(item)
     with pytest.raises(ValueError,match='special archive node forbidden'):a.scan(io.BytesIO(output.getvalue()))
+
+
+def test_systemd_literal_hex_escape_round_trips_without_decoding(tmp_path):
+    leaf=r'system-systemd\x2dcryptsetup.slice'
+    encoded=r'\x2e\x2e\x2fescape'
+    data=archive([('usr/lib/systemd/system/'+leaf,'file',b'unit'),
+                  ('usr/lib/systemd/system/alias.slice','link',leaf),
+                  ('usr/share/'+encoded,'file',b'literal')])
+    merge(tmp_path,{'systemd':data})
+    assert (tmp_path/'usr/lib/systemd/system'/leaf).read_bytes()==b'unit'
+    assert os.readlink(tmp_path/'usr/lib/systemd/system/alias.slice')==leaf
+    assert (tmp_path/'usr/share'/encoded).read_bytes()==b'literal'
+    assert not (tmp_path/'usr/lib/systemd/system/system-systemd-cryptsetup.slice').exists()
+    assert not (tmp_path/'usr/escape').exists()
+
+
+@pytest.mark.parametrize('path',[r'bad\name',r'bad\x2',r'bad\xGG','bad\nname',
+    r'/tmp/\x2descape',r'../\x2descape'])
+def test_escape_support_does_not_accept_malformed_or_escaping_members(tmp_path,path):
+    with pytest.raises(a.ArchiveError):merge(tmp_path,{'bad':archive([(path,'file',b'x')])})
+    assert list(tmp_path.iterdir())==[]
+
+
+def test_refusal_identifies_package_member_and_link_target_without_raw_controls():
+    data=archive([('usr/lib/unit','link','bad\nname')])
+    with pytest.raises(a.ArchiveError) as caught:a.scan(io.BytesIO(data),source='fixture (fixture_1_all.deb)')
+    error=caught.value
+    assert error.source=='fixture (fixture_1_all.deb)' and error.member=='usr/lib/unit'
+    assert error.target=='bad\nname'
+    assert 'fixture_1_all.deb' in str(error) and 'usr/lib/unit' in str(error) and '\\n' in str(error)
+    assert '\n' not in str(error)
+
+
+def test_graph_canonical_alias_keeps_original_link_provenance():
+    data=archive([('./opt/alias','link','/usr/lib'),('./opt/alias/unit','link','../../../../outside')])
+    with pytest.raises(a.ArchiveError) as caught:a.graph({'fixture':a.scan(io.BytesIO(data),source='fixture (fixture_1_all.deb)')})
+    assert caught.value.source=='fixture (fixture_1_all.deb)'
+    assert caught.value.member=='./opt/alias/unit' and caught.value.target=='../../../../outside'

@@ -18,26 +18,33 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 from urllib.parse import urlsplit
 from urllib.request import build_opener, HTTPSHandler, HTTPRedirectHandler
 import zipfile
 
 from . import sim_sysroot as shared, rootfs_plan as planner, rootfs_archive as archive
+from .install_sim_packages import INSTALL_LATCH,LATCH_RELEASE_PROTOCOL
+if LATCH_RELEASE_PROTOCOL!=2:raise ValueError('reviewed latch release protocol required')
 
 ROOT=Path('/opt/foothold-sim/rootfs')
 CONTROL=frozenset(('RECIPE.json','MANIFEST.json','COMPLETE.json','foothold-runtime/identity.json'))
 RESERVED=CONTROL|{'.stage','.archives','foothold-runtime'}
-GENERATOR_FILES=('rootfs_build.py','rootfs_archive.py','rootfs_config.py','rootfs_probe.py','foothold-sim.slice')
+GENERATOR_FILES=('rootfs_build.py','rootfs_archive.py','rootfs_config.py','rootfs_probe.py','foothold-sim.slice','install_sim_packages.py')
 
 
 def digest(data):return hashlib.sha256(shared.canonical(data)).hexdigest()
 
 
-def private_json(path,mode=0o600):
+def private_parents(path):
     for parent in path.parents:
         info=parent.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
             raise ValueError('untrusted private input parent')
+
+
+def private_json(path,mode=0o600):
+    private_parents(path)
     fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
     with os.fdopen(fd) as stream:
         info=os.fstat(stream.fileno())
@@ -122,14 +129,24 @@ def validate_wheels(rows):
     return seen
 
 
-def validate_recipe(recipe):
+def recipe_identity(recipe):
     if set(recipe)!={'schema','apt_plan','wheels','config','generators'} or recipe['schema']!=1:
         raise ValueError('invalid rootfs recipe')
     validate_plan(recipe['apt_plan']);validate_wheels(recipe['wheels'])
     from .rootfs_config import validate_config
     validate_config(recipe['config'])
-    if recipe['generators']!=generators():raise ValueError('generator differs from reviewed recipe')
+    keys=set(generators())
+    if (not isinstance(recipe['generators'],dict) or set(recipe['generators']) not in (keys,keys-{'install_sim_packages.py'})
+            or any(not isinstance(value,str) or not shared.HASH.fullmatch(value)
+                   for value in recipe['generators'].values())):
+        raise ValueError('invalid historical generator identity')
     return digest(recipe)
+
+
+def validate_recipe(recipe):
+    recipe_sha=recipe_identity(recipe)
+    if recipe['generators']!=generators():raise ValueError('generator differs from reviewed recipe')
+    return recipe_sha
 
 
 def verify_metadata(plan,work):
@@ -316,12 +333,13 @@ def build(recipe,root,work):
     abi(debs)
     rows={}
     for key,path in debs.items():
-        with deb_stream(path,work) as stream:rows[key]=archive.scan(stream)
+        with deb_stream(path,work) as stream:
+            rows[key]=archive.scan(stream,source=f'{key} ({path.name})')
         for row in rows[key]:
-            if row['path'].split('/')[0] in RESERVED:raise ValueError('archive replaces generated namespace')
+            if row['path'].split('/')[0] in RESERVED:archive.refuse(row,'archive replaces generated namespace')
     _,canonical=archive.graph(rows)
-    if any(path.split('/')[0] in RESERVED for path in canonical):
-        raise ValueError('canonical archive path replaces generated namespace')
+    for path,row in canonical.items():
+        if path.split('/')[0] in RESERVED:archive.refuse(row,'canonical archive path replaces generated namespace')
     tree=work/'tree';tree.mkdir(mode=0o700)
     archive.merge(tree,rows,lambda key:deb_stream(debs[key],work))
     check_debs(recipe,root/'.archives/debs')  # archives unchanged across both passes
@@ -339,8 +357,11 @@ def audited(action,persist):
     before=shared.snapshot();pending=shared.create_install_latch();error=None
     try:action(before)
     except BaseException as caught:error=caught
-    after=shared.snapshot()
-    persist(before,after,error)  # after evidence precedes comparison, even on failure
+    try:after=shared.snapshot()
+    except BaseException as audit_error:
+        after=None
+        if error is None:error=audit_error
+    persist(before,after,error,pending)  # bind failure evidence to its own latch
     shared.verify_host_unchanged(before,after)
     if error is not None:raise error
     shared.clear_install_latch(pending)
@@ -360,9 +381,81 @@ def require_unsealed(root):
     finally:os.close(fd)
 
 
+@contextmanager
+def retained_latch(identity):
+    private_parents(INSTALL_LATCH)
+    fd=os.open(INSTALL_LATCH,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+    try:
+        info=os.fstat(fd)
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or stat.S_IMODE(info.st_mode)!=0o600
+                or info.st_nlink!=1 or (info.st_dev,info.st_ino)!=identity
+                or os.read(fd,128)!=b'package-transaction-pending\n'):
+            raise ValueError('retained package latch identity/content differs')
+        yield  # pin this inode against reuse throughout observation/release
+    finally:os.close(fd)
+
+
+def recover_latch(recipe_path,expected,failed_operation,device,inode,audit_sha):
+    """Explicit audit-only recovery: preserve failed files, never resume a build."""
+    os.umask(0o077)
+    if os.geteuid()!=0:raise ValueError('server root only')
+    if (not shared.HASH.fullmatch(expected) or not shared.HASH.fullmatch(audit_sha)
+            or failed_operation not in ('download','build') or device<0 or inode<=0):
+        raise ValueError('explicit failed operation, recipe, audit and latch identity required')
+    recipe=private_json(recipe_path)
+    # A reviewed fix changes generator hashes. Historical identity is accepted
+    # only by this non-executing recovery path; build still requires exact code.
+    if recipe_identity(recipe)!=expected:raise ValueError('explicit failed recipe SHA differs')
+    root=ROOT/expected
+    private_parents(root/'RECIPE.json');require_unsealed(root)
+    if private_json(root/'RECIPE.json',0o400)!=recipe:raise ValueError('stored failed recipe differs')
+    private_parents(planner.DEPLOY_LOCK)
+    fd=os.open(planner.DEPLOY_LOCK,os.O_RDWR|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:
+        info=os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+            raise ValueError('untrusted existing deployment lock')
+        fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        if planner.GUARD.exists() or planner.GUARD.is_symlink():raise ValueError('recovery requires no activated guard')
+        identity=(device,inode)
+        with retained_latch(identity):
+            archive_dir=root/'.archives'
+            if archive_dir.is_symlink():raise ValueError('untrusted archive evidence directory')
+            evidence=archive_dir if archive_dir.is_dir() else root
+            before_path=(archive_dir/'audit/build-before.json' if failed_operation=='build' else root/'.stage/before.json')
+            before=private_json(before_path)
+            after=private_json(evidence/(failed_operation+'-after.json'))
+            error=private_json(evidence/(failed_operation+'-error.json'))
+            if not isinstance(error,dict) or not isinstance(error.get('type'),str) or not error['type']:
+                raise ValueError('recorded failed operation required')
+            if ('latch_device' in error or 'latch_inode' in error) and (error.get('latch_device'),error.get('latch_inode'))!=identity:
+                raise ValueError('recorded failure belongs to another latch identity')
+            if digest(before)!=audit_sha or digest(after)!=audit_sha:
+                raise ValueError('recorded failure audit differs from approved digest')
+            shared.verify_host_unchanged(before,after)
+            current=shared.snapshot()
+            # Persist the fresh observation even on mismatch; never clear on error.
+            private_parents(evidence/'recovery.json')
+            record=evidence/f'recover-latch-{inode}-{time.time_ns()}.json'
+            output=os.open(record,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW|os.O_CLOEXEC,0o600)
+            with os.fdopen(output,'wb') as stream:
+                stream.write(shared.canonical(dict(schema=1,recipe_sha256=expected,failed_operation=failed_operation,
+                    latch_device=device,latch_inode=inode,approved_audit_sha256=audit_sha,
+                    observed_audit_sha256=digest(current),observed=current)))
+                stream.flush();os.fsync(stream.fileno())
+            directory=os.open(evidence,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+            try:os.fsync(directory)
+            finally:os.close(directory)
+            shared.verify_host_unchanged(before,current)
+            with retained_latch(identity):shared.clear_install_latch(identity,INSTALL_LATCH)
+    finally:os.close(fd)
+    print('Package latch recovered recipe='+expected+' audit='+audit_sha+'; failed files retained; no retry or activation')
+
+
 def run(operation,recipe_path,expected):
     os.umask(0o077)
     if os.geteuid()!=0:raise ValueError('server root only')
+    if operation not in ('download','build'):raise ValueError('invalid rootfs operation')
     recipe=private_json(recipe_path);recipe_sha=validate_recipe(recipe)
     if recipe_sha!=expected or not shared.HASH.fullmatch(expected):raise ValueError('explicit recipe SHA required')
     shared.ensure_no_install_latch()
@@ -393,12 +486,17 @@ def run(operation,recipe_path,expected):
                 (archive_dir/'build-before.json').write_bytes(shared.canonical(before))
                 build(recipe,root,work)
             else:raise ValueError('invalid rootfs operation')
-        def persist(before,after,error):
+        def persist(before,after,error,pending):
             evidence=root/'.archives' if (root/'.archives').is_dir() else root
             (evidence/(operation+'-after.json')).write_bytes(shared.canonical(after))
+            if error is None:
+                try:shared.verify_host_unchanged(before,after)
+                except ValueError as audit_error:error=audit_error
             if error is not None:
-                details=dict(type=type(error).__name__)
-                if type(error) is ValueError:details['reason']=str(error)
+                details=dict(type=type(error).__name__,latch_device=pending[0],latch_inode=pending[1])
+                if isinstance(error,ValueError):details['reason']=str(error)
+                if isinstance(error,archive.ArchiveError):
+                    details.update(archive=error.source,member=error.member,target=error.target)
                 (evidence/(operation+'-error.json')).write_bytes(shared.canonical(details))
                 return
             # Verify host identity before making a completion marker.
@@ -410,18 +508,36 @@ def run(operation,recipe_path,expected):
         print('Rootfs '+operation+' complete recipe='+recipe_sha+' host_unchanged=true; runtime not activated')
 
 
-if __name__=='__main__':
+def main(argv=None):
+    args=None
     try:
         parser=argparse.ArgumentParser(description=__doc__)
-        parser.add_argument('operation',choices=('download','build'))
+        parser.add_argument('operation',choices=('download','build','recover-latch'))
         parser.add_argument('recipe',type=Path);parser.add_argument('recipe_sha256')
-        args=parser.parse_args()
+        parser.add_argument('--failed-operation',choices=('download','build'))
+        parser.add_argument('--latch-device',type=int);parser.add_argument('--latch-inode',type=int)
+        parser.add_argument('--audit-sha256')
+        args=parser.parse_args(argv)
+        recovery=(args.failed_operation,args.latch_device,args.latch_inode,args.audit_sha256)
+        if args.operation=='recover-latch' and any(value is None for value in recovery):
+            parser.error('recover-latch requires --failed-operation, --latch-device, --latch-inode and --audit-sha256')
+        if args.operation!='recover-latch' and any(value is not None for value in recovery):
+            parser.error('recovery arguments are valid only for recover-latch')
         # Bound the inspector itself; never increase a pre-existing lower limit.
         for option,ceiling in ((resource.RLIMIT_AS,2*1024**3),(resource.RLIMIT_CPU,3600)):
             soft,hard=resource.getrlimit(option)
             bounded=lambda value:ceiling if value==resource.RLIM_INFINITY else min(value,ceiling)
             resource.setrlimit(option,(bounded(soft),bounded(hard)))
-        run(args.operation,args.recipe,args.recipe_sha256)
+        if args.operation=='recover-latch':recover_latch(args.recipe,args.recipe_sha256,*recovery)
+        else:run(args.operation,args.recipe,args.recipe_sha256)
     except BaseException as error:
         if isinstance(error,SystemExit) and error.code in (0,None):raise
+        if isinstance(error,archive.ArchiveError):
+            raise SystemExit(str(error)+'; retain recipe/latch/evidence and escalate') from None
+        if args is not None and args.operation=='recover-latch':
+            reason=str(error) if isinstance(error,ValueError) else type(error).__name__
+            raise SystemExit('Rootfs recovery refused: '+reason+'; retain latch/evidence and escalate') from None
         raise SystemExit('Rootfs build refused; retain recipe/latch/evidence and escalate') from None
+
+
+if __name__=='__main__':main()

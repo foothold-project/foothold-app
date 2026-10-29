@@ -216,3 +216,9 @@ def test_v2_binding_change_during_snapshot_cannot_return_complete_proof(monkeypa
     with pytest.raises(ValueError,match='binding changed during proof'):
         server.serve(connection,12345,lambda:([],0))
     assert calls==['a'*64,'a'*64] and connection.sent==[]
+
+
+def test_release_pending_barrier_blocks_package_proof_without_original_name(tmp_path,monkeypatch):
+    marker=tmp_path/'package-pending';monkeypatch.setattr(server,'PACKAGE_LATCH',marker)
+    marker.with_name(marker.name+'.release-pending').touch()
+    with pytest.raises(ValueError,match='unproven'):server.package_fence()

@@ -74,3 +74,26 @@ class PackageTransactionTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 package.verify_gl_owners()
             command.assert_not_called()
+
+
+def test_all_latch_name_mutations_serialize_on_parent_lock(tmp_path):
+    import threading
+    for operation in ('create','clear'):
+        path=tmp_path/operation
+        with trusted_temporary_owner():
+            identity=package.create_install_latch(path) if operation=='clear' else None
+            parent=package.latch_parent(path);started=threading.Event();done=threading.Event();errors=[]
+            def mutate():
+                started.set()
+                try:
+                    if operation=='create':package.create_install_latch(path)
+                    else:package.clear_install_latch(identity,path)
+                except BaseException as error:errors.append(error)
+                finally:done.set()
+            worker=threading.Thread(target=mutate);worker.start()
+            try:
+                assert started.wait(1)
+                assert not done.wait(.05)
+            finally:os.close(parent)
+            worker.join(2)
+            assert done.is_set() and not errors

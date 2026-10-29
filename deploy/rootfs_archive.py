@@ -6,6 +6,7 @@ Absolute links describe the future RootDirectory, never a host lookup.
 import hashlib
 import os
 from pathlib import PurePosixPath
+import re
 import shutil
 import stat
 import tarfile
@@ -15,8 +16,43 @@ MAX_MEMBERS = 500000
 USRMERGE = {'bin':'usr/bin','sbin':'usr/sbin','lib':'usr/lib','lib64':'usr/lib64'}
 
 
+class ArchiveError(ValueError):
+    """Safe, package/member-specific diagnostics, including malformed names."""
+    def __init__(self,source,item,error,*,member=None,target=None):
+        self.source=str(source)
+        self.member=item.name if item is not None else member
+        self.target=item.linkname if item is not None and (item.issym() or item.islnk()) else target
+        super().__init__(f'archive={ascii(self.source)} member={ascii(self.member)} '
+                         f'target={ascii(self.target)}: {ascii(str(error))}')
+
+
+class ArchiveRow(dict):
+    """Payload metadata with out-of-band provenance (not manifest fields)."""
+    def __init__(self,row,source,member,target=None):
+        super().__init__(row);self.source=source;self.member=member;self.original_target=target
+    def copy(self):return ArchiveRow(self,self.source,self.member,self.original_target)
+
+
+class LinkGraph(dict):
+    def __init__(self,*args):super().__init__(*args);self.origins={}
+
+
+def refuse(row,message):
+    raise ArchiveError(getattr(row,'source','<generated>'),None,message,
+        member=getattr(row,'member',row.get('path')),target=getattr(row,'original_target',row.get('target')))
+
+
+def checked_resolve(value,links,row):
+    try:return resolve(value,links)
+    except ArchiveError:raise
+    except ValueError as error:refuse(row,str(error))
+
+
 def name(value, *, target=False):
-    if (not isinstance(value,str) or not value or len(value)>4096 or '\\' in value
+    # systemd ships literal C-style escapes in unit basenames. On POSIX these
+    # are ordinary bytes, never separators: preserve them, never unescape.
+    if (not isinstance(value,str) or not value or len(value)>4096
+            or re.search(r'\\(?!x[0-9a-fA-F]{2})',value)
             or any(ord(c)<32 or ord(c)==127 for c in value)):
         raise ValueError('invalid archive path')
     path=PurePosixPath(value)
@@ -26,98 +62,107 @@ def name(value, *, target=False):
 
 
 def resolve(value, links):
-    pending=list(PurePosixPath(value).parts);out=[];count=0
+    pending=list(PurePosixPath(value).parts);out=[];count=0;last=None
+    def invalid(message):
+        row=getattr(links,'origins',{}).get(last)
+        if row is not None:refuse(row,message)
+        raise ValueError(message)
     while pending:
         part=pending.pop(0)
         if part in ('','/','.'):continue
         if part=='..':
-            if not out:raise ValueError('root-relative link escapes root')
+            if not out:invalid('root-relative link escapes root')
             out.pop();continue
         out.append(part);key='/'.join(out)
         if key in links:
-            count+=1
-            if count>40:raise ValueError('cyclic archive link graph')
+            count+=1;last=key
+            if count>40:invalid('cyclic archive link graph')
             target=PurePosixPath(links[key]);out.pop()
             if target.is_absolute():out=[]
             pending=list(target.parts)+pending
     return '/'.join(out)
 
 
-def scan(stream):
+def scan(stream,source='<archive>'):
     """Return bounded metadata and file digests; do not create any path."""
     rows=[];total=0;seen=set()
-    with tarfile.open(fileobj=stream,mode='r|*') as archive:
-        for item in archive:
-            path=name(item.name)
-            if path=='.' and item.isdir():continue
-            if path in seen:raise ValueError('duplicate member within archive')
-            seen.add(path)
-            if item.size<0:raise ValueError('negative archive member size')
-            total+=item.size
-            if total>MAX_BYTES or len(rows)>=MAX_MEMBERS:
-                raise ValueError('archive exceeds fixed envelope')
-            if item.mode&~0o7777 or any('capability' in key.lower() for key in item.pax_headers):
-                raise ValueError('privileged archive metadata')
-            row=dict(path=path,mode=0o555 if item.isdir() or item.mode&0o111 else 0o444)
-            if item.isdir():row['type']='dir'
-            elif item.issym():row.update(type='link',target=name(item.linkname,target=True))
-            elif item.islnk():row.update(type='hardlink',target=name(item.linkname))
-            elif item.isfile():
-                digest=hashlib.sha256();size=0
-                with archive.extractfile(item) as source:
-                    for chunk in iter(lambda:source.read(1024*1024),b''):
-                        size+=len(chunk);digest.update(chunk)
-                if size!=item.size:raise ValueError('short archive member')
-                row.update(type='file',sha256=digest.hexdigest(),size=size)
-            else:raise ValueError('special archive node forbidden')
-            rows.append(row)
+    item=None
+    try:
+        with tarfile.open(fileobj=stream,mode='r|*') as archive:
+            for item in archive:
+                path=name(item.name)
+                if path=='.' and item.isdir():continue
+                if path in seen:raise ValueError('duplicate member within archive')
+                seen.add(path)
+                if item.size<0:raise ValueError('negative archive member size')
+                total+=item.size
+                if total>MAX_BYTES or len(rows)>=MAX_MEMBERS:
+                    raise ValueError('archive exceeds fixed envelope')
+                if item.mode&~0o7777 or any('capability' in key.lower() for key in item.pax_headers):
+                    raise ValueError('privileged archive metadata')
+                row=dict(path=path,mode=0o555 if item.isdir() or item.mode&0o111 else 0o444)
+                if item.isdir():row['type']='dir'
+                elif item.issym():row.update(type='link',target=name(item.linkname,target=True))
+                elif item.islnk():row.update(type='hardlink',target=name(item.linkname))
+                elif item.isfile():
+                    digest=hashlib.sha256();size=0
+                    with archive.extractfile(item) as payload:
+                        for chunk in iter(lambda:payload.read(1024*1024),b''):
+                            size+=len(chunk);digest.update(chunk)
+                    if size!=item.size:raise ValueError('short archive member')
+                    row.update(type='file',sha256=digest.hexdigest(),size=size)
+                else:raise ValueError('special archive node forbidden')
+                rows.append(ArchiveRow(row,source,item.name,item.linkname if item.issym() or item.islnk() else None))
+    except (ValueError,tarfile.TarError,EOFError) as error:
+        raise ArchiveError(source,item,error) from error
     return rows
 
 
 def graph(packages):
-    """Canonical merge plan, including usrmerge and cross-archive link parents."""
-    raw={};links=dict(USRMERGE);count=0;size=0;path_bytes=0
-    for rows in packages.values():
-        for row in rows:
+    """Canonical merge plan, retaining original DEB/member/link provenance."""
+    raw={};links=LinkGraph(USRMERGE);count=0;size=0;path_bytes=0
+    for package,rows in packages.items():
+        for entry in rows:
+            row=entry if isinstance(entry,ArchiveRow) else ArchiveRow(entry,package,entry['path'],entry.get('target'))
             count+=1;size+=row.get('size',0)
             path_bytes+=len(row['path'])+len(row.get('target',''))
-            if count>MAX_MEMBERS or size>MAX_BYTES or path_bytes>64*1024**2:raise ValueError('rootfs exceeds fixed envelope')
+            if count>MAX_MEMBERS or size>MAX_BYTES or path_bytes>64*1024**2:refuse(row,'rootfs exceeds fixed envelope')
             path=row['path'];previous=raw.get(path)
             if path in USRMERGE:
                 if row['type']=='dir':continue
-                if row['type']!='link' or row['target']!=USRMERGE[path]:
-                    raise ValueError('unapproved usrmerge replacement')
+                if row['type']!='link' or row['target']!=USRMERGE[path]:refuse(row,'unapproved usrmerge replacement')
             if previous and previous!=row:
                 if previous['type']==row['type']=='dir':continue
-                raise ValueError('unapproved archive collision')
+                refuse(row,'unapproved archive collision')
             raw[path]=row
-            if row['type']=='link':links[path]=row['target']
+            if row['type']=='link':links[path]=row['target'];links.origins[path]=row
     # Add canonical spellings until nested aliases stop changing.
     for _ in range(40):
-        additions={}
+        additions={};origins={}
         for path,target in list(links.items()):
+            row=links.origins.get(path,dict(path=path,target=target))
             parent,_,leaf=path.rpartition('/')
-            canonical='/'.join(filter(None,(resolve(parent,links),leaf)))
-            if canonical in links and links[canonical]!=target:
-                raise ValueError('ambiguous canonical link')
+            canonical='/'.join(filter(None,(checked_resolve(parent,links,row),leaf)))
+            if canonical in links and links[canonical]!=target:refuse(row,'ambiguous canonical link')
             additions[canonical]=target
-        old=len(links);links.update(additions)
+            if path in links.origins:origins[canonical]=row
+        old=len(links);links.update(additions);links.origins.update(origins)
         if len(links)==old:break
-    else:raise ValueError('unstable archive link graph')
-    for path in links:resolve(path,links)
+    else:refuse(row,'unstable archive link graph')
+    for path in links:checked_resolve(path,links,links.origins.get(path,dict(path=path,target=links[path])))
     result={}
     for path,row in raw.items():
         if row['type']=='link':
             parent,_,leaf=path.rpartition('/')
-            dest='/'.join(filter(None,(resolve(parent,links),leaf)))
-        else:dest=resolve(path,links)
-        if not dest:raise ValueError('archive replaces root')
-        value={**row,'path':dest}
-        if value['type']=='hardlink':value['target']=resolve(value['target'],links)
+            dest='/'.join(filter(None,(checked_resolve(parent,links,row),leaf)))
+        else:dest=checked_resolve(path,links,row)
+        if not dest:refuse(row,'archive replaces root')
+        value=row.copy();value['path']=dest
+        if value['type']=='hardlink':value['target']=checked_resolve(value['target'],links,row)
         previous=result.get(dest)
         if previous and previous!=value:
             if previous['type']==value['type']=='dir':continue
-            raise ValueError('canonical archive collision')
+            refuse(row,'canonical archive collision')
         result[dest]=value
     for path,target in USRMERGE.items():result[path]=dict(path=path,type='link',target=target,mode=0o555)
     # Missing parents become ordinary directories, never links or files.
@@ -125,11 +170,11 @@ def graph(packages):
         for parent in PurePosixPath(path).parents:
             if str(parent)=='.':continue
             value=result.setdefault(str(parent),dict(path=str(parent),type='dir',mode=0o555))
-            if value['type']!='dir':raise ValueError('non-directory canonical parent')
+            if value['type']!='dir':refuse(result[path],'non-directory canonical parent')
     for row in result.values():
         if row['type']=='hardlink':
             target=result.get(row['target'])
-            if not target or target['type']!='file':raise ValueError('hardlink target is not an ordinary file')
+            if not target or target['type']!='file':refuse(row,'hardlink target is not an ordinary file')
             row.update(type='file',sha256=target['sha256'],size=target['size'],mode=target['mode'])
     return links,result
 

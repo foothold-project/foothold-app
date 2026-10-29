@@ -77,3 +77,13 @@ class TransitionTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_release_pending_barrier_blocks_transition_without_original_name(tmp_path):
+    for marker in (tmp_path/'packages',tmp_path/'setup-unproven'):
+        pending=marker.with_name(marker.name+'.release-pending');pending.touch()
+        with patch.object(sim,'PACKAGE_LATCH',tmp_path/'packages'),patch.object(sim,'GUARD',tmp_path),patch.object(sim,'userctl') as ctl:
+            import pytest
+            with pytest.raises(ValueError):sim.start()
+            ctl.assert_not_called()
+        pending.unlink()
