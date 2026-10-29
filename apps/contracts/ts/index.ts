@@ -974,6 +974,8 @@ export interface PhoneLeaseResult {
 }
 
 export interface PhoneLimits {
+  policy_adapter_id?: string | null;
+  requires_forward_motion?: boolean;
   vx_mode?: "discrete" | "continuous";
   vx_min_moving?: number | null;
   experimental?: ("reverse" | "lateral" | "turn_in_place")[];

@@ -1671,6 +1671,8 @@ class PhoneLimits(Contract):
     # Additive metadata: old physical agents keep the original six bounds and
     # commands. Missing vx_mode means discrete; never infer a continuous range.
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
+    policy_adapter_id: str | None = Field(default=None, min_length=1, max_length=128)
+    requires_forward_motion: bool = False
     vx_mode: Literal['discrete', 'continuous'] = 'discrete'
     vx_min_moving: float | None = Field(default=None, ge=0)
     experimental: list[Literal['reverse', 'lateral', 'turn_in_place']] = Field(default_factory=list)

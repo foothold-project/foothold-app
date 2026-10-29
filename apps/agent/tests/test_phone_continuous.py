@@ -9,20 +9,19 @@ from foothold_agent.phone.protocol import LIMITS, SIMULATION_LIMITS, project_vel
 from foothold_agent.safety.core import Z, quantize
 
 
-@pytest.mark.parametrize('vx', [0, .0001, .1999, math.nextafter(.2, 0), .2,
-                                .2001, .55, 1.0, 1.0001, -1, -.0001])
-@pytest.mark.parametrize('vy', [-1, 0, 1])
-@pytest.mark.parametrize('wz', [-1, -.5, -.4999, 0, .4999, .5, 1])
+@pytest.mark.parametrize('vx', [0, .0001, .1999, .2, .3999,
+                                .4, .4001, .55, 1.0, 1.5, 1.5001, -1])
+@pytest.mark.parametrize('vy', [-.2, 0, .2])
+@pytest.mark.parametrize('wz', [-1.01, -1, -.7, -.0001, 0, .0001, .7, 1, 1.01])
 def test_simulation_projection_boundaries(vx, vy, wz):
-    axes, clipped = project_velocity(vx, vy, wz, simulation=True)
+    requested = (vx, vy, wz)
+    axes, clipped = project_velocity(*requested, simulation=True)
     result, reason = simulation_velocity(*axes)
-    x = min(vx, 1.0) if vx >= .2 else max(vx, -.3) if vx <= -.05 else 0.0
-    y = max(-.3, min(vy, .3)) if abs(vy) >= .05 else 0
-    expected = (x, y, .5 if wz >= .5 else -.5 if wz <= -.5 else 0)
+    expected = requested if requested == Z or (.4 <= vx <= 1.5 and vy == 0 and -1 <= wz <= 1) else Z
     assert result == expected
-    assert clipped is (expected != (vx, vy, wz))
-    assert bool(reason) is (expected == Z and (vx, vy, wz) != Z)
-    assert all(-1 <= axis <= 1 for axis in axes)
+    assert axes == requested  # no hidden clipping or quantization before Core
+    assert clipped is (expected != requested)
+    assert bool(reason) is (expected == Z and requested != Z)
 
 
 @pytest.mark.parametrize('vx', [0, .1999, .2, .55, .6, 1.0, 1.0001, -.2])
@@ -43,8 +42,10 @@ def test_welcome_limits_contract_and_mode(request, fixture, limits):
     parsed = PhoneWelcome.model_validate(welcome)
     assert parsed.limits.vx_mode == ('continuous' if welcome['simulation'] else 'discrete')
     if welcome['simulation']:
-        assert parsed.limits.vx_min_moving == .2 and parsed.limits.vx_max == 1.0
+        assert parsed.limits.vx_min_moving == .4 and parsed.limits.vx_max == 1.5
         assert parsed.limits.commands == []
+        assert parsed.limits.policy_adapter_id == 'foothold-v2'
+        assert parsed.limits.requires_forward_motion is True
     else:
         assert parsed.limits.commands == [[0, 0, 0], [.6, 0, 0], [.6, 0, -.5], [.6, 0, .5]]
     welcome['limits']['vx_max'] = 99
@@ -59,8 +60,7 @@ def test_mode_reaches_actual_session_output(request, fixture, vx, wz):
     owner, _ = harness.moving()
     ack = harness.cmd(owner, vx, vy=.8, wz=wz)
     if fixture == 'h':
-        x = min(vx, 1) if vx >= .2 else max(vx, -.3) if vx <= -.05 else 0
-        expected = (x, .3, wz)
+        expected = Z  # vy=.8 is outside this adapter; reject the whole triple
     else:
         x = .6 if vx >= .6 else 0
         expected = (x, 0, wz if x else 0)
@@ -77,9 +77,9 @@ def test_rejected_simulation_input_cannot_create_neutral(h, velocity):
     ack = h.cmd(owner, *velocity)
     assert ack['applied'] == list(Z) and ack['reason'] and ack['clipped']
     assert h.hub.session.core.need_neutral
-    assert h.cmd(owner, .2)['applied'] == list(Z)
+    assert h.cmd(owner, .4)['applied'] == list(Z)
     h.cmd(owner, 0)
-    assert h.cmd(owner, .2)['applied'] == [.2, 0, 0]
+    assert h.cmd(owner, .4)['applied'] == [.4, 0, 0]
 
 
 def test_simulation_release_stop_and_deadman_preserve_existing_gates(h):

@@ -8,7 +8,7 @@ from pathlib import Path
 import re
 
 from foothold_agent.safety.core import Z
-from .intent import number
+from foothold_agent.policy_ranges import FOOTHOLD_V2
 
 
 @dataclass(frozen=True)
@@ -81,25 +81,19 @@ class SimulationBinding:
 class SimulationPolicyAdapter:
     @property
     def policy_version(self):
-        return 'nav2-simulation-si/2' if self.enabled() else self.physical.policy_version
+        return 'nav2-simulation-foothold-v2/3' if self.enabled() else self.physical.policy_version
 
     def __init__(self, physical, enabled):
         self.physical, self.enabled = physical, enabled
 
     @staticmethod
     def validate(velocity):
-        if (not isinstance(velocity, (tuple, list)) or len(velocity) != 3
-                or not all(number(x) for x in velocity)):
-            return Z, 'INVALID_VELOCITY'
-        vx, vy, wz = velocity
-        if not (0 <= vx <= .6 and vy == 0 and -.5 <= wz <= .5):
-            return Z, 'UNSUPPORTED_VELOCITY'
-        return tuple(velocity), 'TESTED' if any(velocity) else 'ZERO'
+        return FOOTHOLD_V2.validate(velocity)
 
     def adapt(self, velocity):
         if not self.enabled():
             return self.physical.adapt(velocity)
-        # Values fit Core's existing [-1,1] input validation, but are SI here.
+        # Only an explicit simulation Session accepts SI instead of stick axes.
         return self.validate(velocity)
 
     def project(self, vx, vy, wz):

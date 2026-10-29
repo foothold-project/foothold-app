@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from foothold_agent.link.session import Session, MotionCommand, Effects, MAX_BUFFER
 from foothold_agent.safety.core import Z, STATE_STALE, quantize
+from foothold_agent.policy_ranges import velocity_input
 from .protocol import (PROTO, LIMITS, SIMULATION_LIMITS, MAX_SEQ, frame,
                        project_velocity, simulation_velocity)
 from .tickets import TicketError
@@ -50,7 +51,8 @@ class Hub:
         self.policy = {'name': policy_name, 'version': policy_version}
         self.simulation = simulation
         self.session = Session(now=now, server_link=False,
-                               velocity_projection=simulation_velocity if simulation is True else quantize)
+                               velocity_projection=simulation_velocity if simulation is True else quantize,
+                               **({"axes_validator": velocity_input} if simulation is True else {}))
         self.session.output_safety = getattr(sink, 'output_safety', None)
         self.peers = {}
         self.closing = {}
@@ -66,7 +68,7 @@ class Hub:
         self.runs = ScenarioRun(self, nav=nav, source=scenario_source, journal=run_journal,
             context=run_context, arrival=arrival_evidence, run_pause_timeout_s=run_pause_timeout_s)
         self.session.executor_zero_only = self.runs.zero_only_waiting
-        # Nav2 has its own SI policy. Phone axes keep their existing projection.
+        # Bound simulation Nav2 and phone input share the adapter SI range.
         from foothold_agent.executor.nav2.simulation import SimulationBinding, SimulationPolicyAdapter
         if (simulation is True and nav is not None
                 and isinstance(simulation_binding, SimulationBinding)

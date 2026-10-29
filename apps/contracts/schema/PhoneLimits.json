@@ -27,6 +27,25 @@
       "title": "Experimental",
       "type": "array"
     },
+    "policy_adapter_id": {
+      "anyOf": [
+        {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Adapter Id"
+    },
+    "requires_forward_motion": {
+      "default": false,
+      "title": "Requires Forward Motion",
+      "type": "boolean"
+    },
     "vx_max": {
       "title": "Vx Max",
       "type": "number"
