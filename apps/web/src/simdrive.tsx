@@ -83,7 +83,7 @@ const savedEngine = (): Engine => { try { return localStorage.getItem(ENGINE_KEY
 export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
   const only = !view || inApp(), title = !only ? '시뮬 로봇 띄우기' : inApp() ? '시뮬(앱 안)' : '시뮬';
   const [engine, setEngine] = useState(savedEngine);
-  const pickEngine = (e: Engine) => { setEngine(e); try { localStorage.setItem(ENGINE_KEY, e); } catch { /* 기억만 못 함 */ } };
+  const pickEngine = (e: Engine) => { try { localStorage.setItem(ENGINE_KEY, e); setEngine(e); } catch { setEngine('mujoco'); } };   // 저장 실패 = MuJoCo
   const s = useSim(), [pick, setPick] = useState(''), [spawn, setSpawn] = useState<'l1' | 'l2'>('l1');
   const [want, setWant] = useState(savedMap), map = SIM_MAPS.find((m) => m.id === want) ?? SIM_MAPS[0], top = TOPS[`../../../mobile/sim/assets/${map.id}/top.png`];
   const pickMap = (id: string) => { setWant(id); try { localStorage.setItem(MAP_KEY, id); } catch { /* 기억만 못 함 */ } };
@@ -91,8 +91,9 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
   useEffect(() => { if (s.step === 'pick') sim.load(); }, []);
   useTick(s.step === 'starting');
   const worlds = s.catalog?.worlds ?? [], world = worlds.some((w) => w.id === pick) ? pick : worlds[0]?.id ?? '';
-  // Gazebo 는 서버 월드 목록이 있어야 고를 수 있다(목록 못 받음·빈 목록 = 준비 중). 기억은 그대로 두고 지금만 MuJoCo
-  const gz = worlds.length > 0, app = only || engine === 'mujoco' || !gz;
+  // Gazebo 는 서버 월드 목록이 있어야 고를 수 있다(목록 못 받음·빈 목록 = 준비 중). 기억은 그대로 두고 지금만 MuJoCo.
+  // phone.ts load 는 조회 실패 때 옛 catalog 를 남기므로 지금 실패는 그 오류 문구(phone.ts:278 — 실패면 이 문구가 먼저)로 가린다
+  const gz = worlds.length > 0 && !s.err.startsWith('시뮬 월드 목록을 받지 못했습니다'), app = only || engine === 'mujoco' || !gz;
   // 시작 층: 고른 월드가 두 층 이상에서 띄울 수 있을 때만(하나뿐이면 표시·전송 0)
   const w0 = worlds.find((w) => w.id === world), spawns = w0?.spawn_floor_ids ?? [], from = spawns.length > 1 ? spawns.includes(spawn) ? spawn : spawns[0] : undefined;
   const floorName = (f: 'l1' | 'l2') => w0?.floors?.find((x) => x.ros_floor_id === f)?.name ?? (f === 'l1' ? '1층' : '2층');

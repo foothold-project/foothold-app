@@ -56,7 +56,7 @@ async function mount(uid = 'u-lee', robots = ROBOTS, hash = '#/sim', engine: str
   act(() => { root = createRoot(box); root.render(<App user={USERS.find((u) => u.id === uid)} robots={robots} refresh={refresh} />); });
   await flush();
 }
-afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); refresh.mockReset(); sim.clear(); });
+afterEach(() => { act(() => root?.unmount()); root = null; box?.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); refresh.mockReset(); sim.clear(); });
 
 const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
@@ -81,7 +81,7 @@ describe('PC «시뮬» 고르기(10-29 — MuJoCo / Gazebo)', () => {
     expect(box.textContent).not.toMatch(/브라우저 시뮬|three\.js|폰 안에서/i);
   });
 
-  it('Gazebo 고르면 월드·띄우기(정리할 자리가 있으면 막힘), 고른 값 기억 — 깨진 값·저장 실패면 MuJoCo', async () => {
+  it('Gazebo 고르면 월드·띄우기(정리할 자리가 있으면 막힘), 고른 값 기억 — 깨진 값·읽기/저장 실패면 MuJoCo', async () => {
     serve({ 'GET /simulation/robots': () => ({ status: 200, body: { items: [], cleanup: [{ robot_id: S1, owner_id: 'u-lee', generation: 1, can_recover: true }] } }) });
     await mount('u-lee', ROBOTS, '#/sim', null);
     await click(box.querySelector('input[value="gazebo"]'));
@@ -98,8 +98,34 @@ describe('PC «시뮬» 고르기(10-29 — MuJoCo / Gazebo)', () => {
     await remount(null);
     expect(engines()[0]).toEqual(['mujoco', true, false]);
     await click(box.querySelector('input[value="gazebo"]'));
-    expect(btn('띄우기')).toBeTruthy();   // 기억만 못 하고 고르기는 됨
-    vi.restoreAllMocks();
+    expect(engines()[0]).toEqual(['mujoco', true, false]);   // 저장 실패 = MuJoCo 로 돌아감
+    expect(btn('띄우기')).toBeUndefined();
+    expect($('[data-sim-app]')).toBeTruthy();
+  });
+
+  it('저장만 실패(읽기는 됨) — Gazebo 눌러도 MuJoCo 그대로', async () => {
+    serve(); await mount('u-lee', ROBOTS, '#/sim', null);
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('막힘'); });
+    await click(box.querySelector('input[value="gazebo"]'));
+    expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, false]]);
+    expect(btn('띄우기')).toBeUndefined();
+  });
+
+  it('정상 목록 뒤 /simulation/worlds 503 → 옛 목록이 남아도 Gazebo «준비 중»·MuJoCo, 내 정리 칸은 그대로', async () => {
+    serve({ 'GET /simulation/robots': () => ({ status: 200, body: { items: [], cleanup: [{ robot_id: S1, owner_id: 'u-lee', generation: 1, can_recover: true }] } }) });
+    await mount();
+    expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
+    routes['GET /simulation/worlds'] = err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.');
+    await act(async () => { await sim.load(); }); await flush();
+    expect(sim.get().catalog?.worlds.length).toBe(1);   // 옛 목록은 남음
+    expect(engines()).toEqual([['mujoco', true, false], ['gazebo', false, true]]);
+    expect($('[data-sim-engine]')!.textContent).toContain('서버에서 계산 · 준비 중');
+    expect(btn('띄우기')).toBeUndefined();
+    expect($('[aria-label="정리할 내 시뮬 자리"]')).toBeTruthy();
+    expect(localStorage.getItem('fh.simEngine')).toBe('gazebo');
+    routes['GET /simulation/worlds'] = { status: 200, body: CATALOG };   // 다시 받으면 Gazebo 로 돌아옴
+    await act(async () => { await sim.load(); }); await flush();
+    expect(engines()).toEqual([['mujoco', false, false], ['gazebo', true, false]]);
   });
 
   for (const [how, worlds] of [['목록 못 받음', err(503, 'SIMMGR_UNAVAILABLE', '시뮬 관리자에 닿지 못했습니다.')], ['빈 목록', { status: 200, body: { ...CATALOG, worlds: [] } }]] as const)
