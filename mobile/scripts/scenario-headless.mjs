@@ -21,6 +21,7 @@ const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url)));
 const id = process.argv[2] || 'warehouse';
 assert.ok(read('../sim/maps.json').some((m) => m.id === id), 'listed map required');
 const map = decodeMap(read(`../sim/assets/${id}/map.json`));
+for (const f of map.physics_assets ?? []) { const b = readFileSync(new URL(`../sim/assets/${id}/${f}`, import.meta.url)); mj.FS.writeFile(`/go2/${f}`, b); mj.FS.writeFile(`/go2/assets/${f}`, b); }
 mj.FS.writeFile('/go2/world.xml', readFileSync(new URL(`../sim/assets/${id}/${id}.xml`, import.meta.url)));
 mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
 const sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw });

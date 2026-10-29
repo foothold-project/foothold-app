@@ -80,9 +80,14 @@ async function main() {
     get('policy_v2.f32').then((r) => r.arrayBuffer())]);
   const map = decodeMap(mapJ);
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
+  const physicsAssets = mapJ.physics_assets ?? [];
+  if (!Array.isArray(physicsAssets) || physicsAssets.length > 8 || physicsAssets.some((f) => typeof f !== 'string' || !/^[a-z0-9_-]+\.png$/.test(f))) throw new Error('지형 파일 목록 형식');
   await Promise.all([
     bytes('assets/unitree_go2/go2.xml').then((b) => mj.FS.writeFile('/go2/go2.xml', b)),
     bytes(`${dir}/${id}.xml`).then((b) => mj.FS.writeFile('/go2/world.xml', b)),
+    // MuJoCo include resources and the Go2 compiler use these two asset roots.
+    ...physicsAssets.map(async (f) => { const b = await bytes(`${dir}/${f}`);
+      mj.FS.writeFile(`/go2/${f}`, b); mj.FS.writeFile(`/go2/assets/${f}`, b); }),
     ...MESHES.map(async (f) => mj.FS.writeFile(`/go2/assets/${f}.obj`, await bytes(`assets/unitree_go2/assets/${f}.obj`))),
   ]);
   mj.FS.writeFile('/go2/scene.xml', `<mujoco model="go2 ${id}"><include file="go2.xml"/><include file="world.xml"/></mujoco>`);

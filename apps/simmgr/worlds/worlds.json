@@ -889,6 +889,36 @@
         "meshes/fc97910a610da36e.obj": "3d33e5a4a4623dabb0d278789fd3ac4a9127ddea49f89070af4da10c6e437e74",
         "meshes/fe1381a483af5ab6.obj": "03e60aa55218eaca4bd5a480509a9da0c1eecf94fba21d69987b7bd50d2640d0"
       }
+    },
+    "collapsed_house_v2/f1": {
+      "world_id": "collapsed_house_v2",
+      "floor_id": "f1",
+      "building_id": "collapsed_house_v2",
+      "name": "붕괴 주택 · 초안",
+      "floor_name": "1층",
+      "level": 1,
+      "description": "고정 붕괴 주택; 9단 입구와 시계 방향 세 방. 보행 결과는 README 참조.",
+      "floor_z": 1.23155292,
+      "spawn_xyyaw": [
+        3.85,
+        -9.35,
+        1.5707963267948966
+      ],
+      "spawn_z": 0.38,
+      "world": "collapsed_house_v2/collapsed_house_v2.sdf",
+      "gt_map": "collapsed_house_v2/maps/f1.yaml",
+      "map_metadata": "collapsed_house_v2/maps/metadata.json",
+      "scenarios": "collapsed_house_v2/scenarios.json",
+      "ledger_key": "collapsed_house_v2/f1",
+      "height_source": "heightfield_and_house_triangles",
+      "readiness": "draft",
+      "native_supported": false,
+      "notes": "앱 오프라인 MuJoCo/three.js 전용; 서버 지도 등록 가능, Gazebo 실행 adapter 추가 필요.",
+      "sha256": {
+        "world": "5103a894af1d2f1c4daaf28ffe977db0d03719d853db41a48559c2250e27b94c",
+        "map": "a985b9168be82c1b452892998ac92ecbe51087ce44d66ded5f773f90430465a5",
+        "metadata": "13f08333aa52d881eae72870876223365212e5d6c79a6c3365e8e94389558026"
+      }
     }
   }
 }
