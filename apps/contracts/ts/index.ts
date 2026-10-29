@@ -974,6 +974,9 @@ export interface PhoneLeaseResult {
 }
 
 export interface PhoneLimits {
+  policy_adapter_id?: string | null;
+  requires_forward_motion?: boolean;
+  policy_velocity_range?: PhonePolicyVelocityRange | null;
   vx_mode?: "discrete" | "continuous";
   vx_min_moving?: number | null;
   experimental?: ("reverse" | "lateral" | "turn_in_place")[];
@@ -1037,6 +1040,15 @@ export interface PhonePing {
 export interface PhonePolicy {
   name: string;
   version: string;
+}
+
+export interface PhonePolicyVelocityRange {
+  vx_min_moving: number;
+  vx_max: number;
+  vy_min: number;
+  vy_max: number;
+  wz_min: number;
+  wz_max: number;
 }
 
 export interface PhonePosture {

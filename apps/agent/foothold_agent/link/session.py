@@ -68,9 +68,10 @@ class Session:
     """
 
     def __init__(self, now: Callable[[], float] = time.monotonic, *, identity: dict | None = None,
-                 server_link: bool = True, velocity_projection=quantize):
+                 server_link: bool = True, velocity_projection=quantize, axes_validator=_axes):
         self.now = now
         self.server_link = server_link
+        self.axes_validator = axes_validator
         self.core = _MemoryCore(now=now, velocity_projection=velocity_projection)
         self.core.stop("startup")
         self.identity = {
@@ -504,7 +505,7 @@ class Session:
                     and type(seq) is int and 0 <= seq <= MAX_SEQ and seq > self.last_seq):
                 self.last_seq = seq
                 self.ack_pending = True
-                self.core.cmd(self.lease_id, _axes(frame.get("axes")))
+                self.core.cmd(self.lease_id, self.axes_validator(frame.get("axes")))
             elif self.holder_type == "RUN":
                 # The server cannot overwrite *or invalidate* local executor intent.
                 if not self._run_server_cmd_reported:
@@ -549,7 +550,7 @@ class Session:
         if (self.run is not None and self.run["run_id"] == run_id
                 and self.holder_run_id == run_id
                 and self.run["status"] not in TERMINAL):
-            valid = Z if self.executor_zero_only is not None and self.executor_zero_only() else _axes(axes, local=True)
+            valid = Z if self.executor_zero_only is not None and self.executor_zero_only() else self.axes_validator(axes, local=True)
             if valid is not None:
                 self.executor_t = self.now()
             # Executor health is independent of command authority: while waiting

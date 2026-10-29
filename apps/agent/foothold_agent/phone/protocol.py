@@ -7,6 +7,7 @@ nonfinite numbers, duplicate JSON keys and noncanonical UUIDs are rejected.
 import math
 
 from foothold_agent.safety.core import Z
+from foothold_agent.policy_ranges import FOOTHOLD_V2
 from .tickets import json_object, uuid
 
 PROTO = 'fh-phone/1'
@@ -81,31 +82,20 @@ def frame(raw, robot):
     return value
 
 
-def simulation_velocity(fx, fy, fw):
-    """Experimental simulation phone axes: fx/fy are SI, fw is turn intent.
+def simulation_velocity(vx, vy, wz):
+    """Simulation SI commands: preserve accepted values; reject without clipping.
 
-    Only exact ZERO confirms neutral. Rejected movement retains a reason so it
-    cannot satisfy Core's fresh-neutral gate after STOP/deadman/reconnection.
+    Only exact ZERO confirms neutral. Rejected commands retain a reason.
     """
-    if (fx, fy, fw) == Z:
-        return Z, ''
-    x = min(fx, 1.0) if fx >= .2 else max(fx, -.3) if fx <= -.05 else 0.0
-    y = max(-.3, min(fy, .3)) if abs(fy) >= .05 else 0.0
-    turn = .5 if fw >= 1 else -.5 if fw <= -1 else 0.0
-    limited = (x, y, turn)
-    return limited, '시뮬 시험 범위 데드존 — 보내지 않음' if limited == Z else ''
+    return FOOTHOLD_V2.project(vx, vy, wz)
 
 
 def project_velocity(vx, vy, wz, *, simulation=False):
     """SI input -> Core axes; physical/default mode keeps the tested alphabet."""
     if simulation is True:
-        limited, _ = simulation_velocity(vx, vy, wz / .5)
-        axes = (limited[0], limited[1], limited[2] / .5)
-        if limited == Z and (vx, vy, wz) != Z:
-            # Valid nonneutral axes that stay in the simulation deadzone with
-            # a reason. Clipping must never confirm Core's fresh-neutral gate.
-            axes = (.1, 0.0, 0.0)
-        return axes, limited != (vx, vy, wz)
+        limited, _ = simulation_velocity(vx, vy, wz)
+        # Keep rejected SI intent for Core's reason and fresh-neutral gate.
+        return (vx, vy, wz), limited != (vx, vy, wz)
     x = .6 if vx >= .6 else 0.0
     turn = (.5 if wz >= .5 else -.5 if wz <= -.5 else 0.0) if x else 0.0
     limited = (x, 0.0, turn)
@@ -123,8 +113,9 @@ LIMITS = {'vx_min': 0.0, 'vx_max': .6, 'vy_min': 0.0, 'vy_max': 0.0,
           'wz_min': -.5, 'wz_max': .5,
           'commands': [[0.0, 0.0, 0.0], [.6, 0.0, 0.0], [.6, 0.0, -.5], [.6, 0.0, .5]]}
 
-# commands enumerates discrete mode only. Continuous mode uses the interval
-# plus ZERO. Reverse/lateral/turn-in-place are simulation experiments only.
+# Keep the existing phone input envelope, including pressed-deadzone signaling.
+# Accepted policy commands are advertised separately and enforced by the agent.
 SIMULATION_LIMITS = {**LIMITS, 'vx_mode': 'continuous', 'vx_min_moving': .2,
                      'vx_min': -.3, 'vx_max': 1.0, 'vy_min': -.3, 'vy_max': .3,
-                     'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place']}
+                     'commands': [], 'experimental': ['reverse', 'lateral', 'turn_in_place'],
+                     **FOOTHOLD_V2.metadata()}
