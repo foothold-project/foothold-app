@@ -65,6 +65,8 @@ def load(env):
 
 
 def validate_server(env):
+    from .rootfs_environment import validate_server as validate_rootfs
+    if validate_rootfs(env):return
     if (env.get('FH_SIM_DEPLOY_GUARD_DIR')!='/var/lib/foothold-sim/guard'
             or env.get('FH_SIM_RUN')!='1'):
         return

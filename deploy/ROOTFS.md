@@ -1,8 +1,10 @@
 # Full rootfs: design and metadata-only planning
 
-Status: **design + planner only**. This PR cannot download, extract, publish or
-activate a runtime. A plan has `runnable=false`; a later implementation PR and
-Claude/Codex review must precede every installation/runtime step.
+Status: **implementation supplied for review; server execution gated**. The
+metadata plan remains `runnable=false`. See [the implementation and execution
+gates](ROOTFS-IMPLEMENTATION.md) for the new builder and namespace controller.
+Claude/Codex review, merge and explicit execution confirmation must precede
+download, extraction, account/unit/socket activation and the first session.
 
 The approved direction is a complete Noble userland + fixed ROS Jazzy snapshot
 + Mesa llvmpipe under `/opt/foothold-sim/rootfs/<complete-lock-sha>`. Host package
@@ -47,7 +49,7 @@ bytes, Installed-Size bytes and disk free. It is **not** a complete runtime lock
 control Python wheels, generated config, extraction and namespace execution
 remain separate gates. No server planning attempt was made for this PR yet.
 
-## Runtime architecture proposed for the next implementation
+## Runtime architecture
 
 Keep the API on the host. Put the dedicated `foothold-sim` **user manager and all
 its children** inside the rootfs using an instance-only system service drop-in
@@ -109,10 +111,12 @@ The rootfs code parent is a namespace directory, so the old host-cwd string test
 alone is insufficient. Package rootfs lock and API/manager code SHA are distinct:
 an idle code update can rebind code without rebuilding package libraries.
 
-## Builder and generated-config gate, not implemented here
+## Builder and generated-config gate
 
-The final lock must include DEBs, hash-pinned control wheels/trimesh, generator
-code, UID/config/bind declarations and the complete file/link/mode/owner manifest.
+The fixed recipe SHA binds DEBs, hash-pinned control wheels/trimesh, generator
+code and UID/config declarations. After extraction the separate root-only actual
+file/link/mode/owner manifest is digest-bound by completion evidence. This avoids
+renaming a partially built root while refusing any missing/changed manifest.
 After approval, download exact archives only into private storage. Never run
 maintainer scripts, register host dpkg state, call host ldconfig over rootfs or
 use host Python/ldd to execute rootfs binaries.

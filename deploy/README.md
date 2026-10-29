@@ -162,4 +162,4 @@ root 전용 700 폴더를 만들고 cron을 관리자가 선택 설치한다. Po
 기존 서버의 `/opt/foothold/deploy-tools`는 release와 별도인 고정 설치본이며 dev 자동 배포가 스스로 갱신하지 않는다. 시뮬 배포 관문을 활성화하려면 [SIMULATION.md](SIMULATION.md)의 잠금·root-only 백업/SHA·6개 파일 원자 교체(common.sh 먼저)·다음 자연 타이머 같은 SHA exit0 및 기존 서비스 무변경 증명을 따른다. 기존 서버에서 패키지 설치가 포함된 bootstrap-autodeploy/bootstrap-server 전체를 갱신 수단으로 재실행하지 않는다.
 
 
-시뮬의 현재 승인 방향은 [독립 full rootfs 설계와 metadata-only planner](ROOTFS.md)다. 호스트 버전 고정/혼합 sysroot 대신 빈 dpkg status에서 별도 Noble+ROS+llvmpipe 의존성을 계산한다. 이 planner는 계획만 저장하며 다운로드·추출·설치·runtime 활성화 기능이 없다. 과거 SIMULATION.md의 sysroot 설치 명령은 새 방향에서 실행하지 않는다.
+시뮬은 [독립 full rootfs 설계와 metadata-only planner](ROOTFS.md)를 따른다. [새 빌더·namespace 구현과 실행 관문](ROOTFS-IMPLEMENTATION.md)은 검토·합침 및 구체 실행 확인 뒤에만 사용한다. planner 자체는 계획만 저장하며 다운로드·추출·설치·runtime 활성화 기능이 없다. 과거 SIMULATION.md의 sysroot 설치 명령과 bootstrap-sim.sh는 새 방향에서 실행하지 않는다.
