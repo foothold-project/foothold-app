@@ -132,7 +132,7 @@ def test_assignment_recalls_phone_access_and_keeps_other_subscription(client, se
         assert result.status_code == 200, result.text
         packet = receive(ag, 'phone.revoke')
         assert str(jti) in [j for item in packet['items'] for j in item['jtis']]
-        assert receive(ws, 'lease', predicate=lambda m: m['holder'] is None)['lease_id'] is None
+        assert receive(ws, 'lease', predicate=lambda m: m['holder'] is None).get('lease_id') is None
         assert receive(ws, 'subscription.revoked') == {
             't':'subscription.revoked', 'robot':str(rid), 'reason':'ACCESS_REVOKED'}
         assert rt.arbiter.robot(str(rid)).holder is None

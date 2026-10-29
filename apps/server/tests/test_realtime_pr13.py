@@ -468,7 +468,7 @@ def test_known_agent_denial_cannot_confirm_a_new_take_during_close(client, seede
             async def close(self, **kwargs):
                 entered.set()
                 await release.wait()
-        peer = Peer(Socket(), auth_checked=rt.clock())
+        peer = Peer(Socket(), auth_checked=rt.clock(), simulation=True)
         rt.agents[rid] = peer
         rt.screens[actor.connection] = Peer(Sink(), actor=actor, policy=policy)
         alive = asyncio.create_task(asyncio.Event().wait())
@@ -519,7 +519,7 @@ def test_brief_agent_verifier_error_retries_before_revoking_fresh_authority(clie
     monkeypatch.setattr(rt, 'clock', lambda: 0)
     rid = str(seeded['robots']['mine'])
     async def check():
-        peer = Peer(Sink(), auth_checked=0)
+        peer = Peer(Sink(), auth_checked=0, simulation=True)
         rt.agents[rid] = peer
         actor = Actor(str(seeded['users']['one']), str(uuid4()), 'verifier')
         rt.arbiter.take(rid, actor)

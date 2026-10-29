@@ -128,8 +128,7 @@ def test_live_control_revocation_preserves_only_authorized_subscriptions(client,
     admin_headers = csrf(client, 'admin')
     with agent(client, seeded, direct=(change == 'read')) as ag, screen(client, headers) as ws:
         assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
-        if change != 'read':
-            take(ws, ag, rid)
+        lease = take(ws, ag, rid) if change != 'read' else str(uuid4())
         before = rt.arbiter.robot(rid).stop_ref
         if change == 'simulation':
             with DBSession(client.app.state.engine) as db:

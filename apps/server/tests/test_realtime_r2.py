@@ -111,7 +111,7 @@ def test_n5_overflow_free_follows_entire_accepted_effect_batch(client, seeded, r
         policy = Policy({rid: frozenset({'ROBOT_READ', 'O_OWN'})}, C.OrgSettings(), now() + timedelta(hours=1), rt.clock())
         a, b = Peer(Sink(), actor=one, policy=policy, subscriptions={rid: set()}), Peer(Sink(), actor=two, policy=policy, subscriptions={rid: set()})
         rt.screens = {one.connection: a, two.connection: b}
-        rt.agents = {rid: Peer(Sink(), auth_checked=rt.clock())}
+        rt.agents = {rid: Peer(Sink(), auth_checked=rt.clock(), simulation=True)}
         rt.audit = AuditQueue(1)
         rt.audit.put_nowait(Effect('audit', rid, {'op': 'TAKE'}))
         try:

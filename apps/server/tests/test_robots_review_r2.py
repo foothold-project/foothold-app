@@ -252,7 +252,7 @@ def test_take_confirmation_at_policy_boundary_is_deterministic(client, seeded, r
         policy = Policy({rid: frozenset({'O_OWN', 'ROBOT_READ'})}, C.OrgSettings(),
             now()+timedelta(hours=1), fixed)
         peer = Peer(Sink(), actor=actor, policy=policy)
-        ag = Peer(Sink(), auth_checked=fixed)
+        ag = Peer(Sink(), auth_checked=fixed, simulation=True)
         rt.screens[actor.connection], rt.agents[rid] = peer, ag
         try:
             rt.apply(rt.arbiter.take(rid, actor))
