@@ -48,6 +48,14 @@
   #busy { position: fixed; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px; border-radius: 50%; border: 4px solid rgb(255 255 255 / .2); border-top-color: #e6e8eb; animation: spin 1s linear infinite; pointer-events: none; }
   @keyframes spin { to { transform: rotate(1turn); } }
   #fail { position: fixed; left: 50%; top: 50%; width: 72px; height: 72px; margin: -36px; fill: none; stroke: var(--stopc); stroke-width: 3; pointer-events: none; }
+  /* 컴퓨터(마우스·키보드 기기)는 조이스틱 대신 키 — 웹 시뮬 조종(apps/web drive.css)과 같은 기준 */
+  #keys { display: none; position: fixed; top: calc(var(--t) + 20px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 340px); text-align: center; margin: 0; padding: 6px 10px; border-radius: 8px;
+    background: rgb(20 23 28 / .72); color: #b9c0ca; font: 13px system-ui; pointer-events: none; }
+  @media (hover: hover) and (pointer: fine) {
+    .stick { display: none; }
+    #btns { bottom: calc(var(--edge) + env(safe-area-inset-bottom)); }
+    #keys { display: block; }
+  }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -57,6 +65,7 @@
 <button id="go" type="button" aria-label="다시 시작" hidden><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z"/></svg></button>
 <div id="stickL" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><b></b></div>
 <div id="stickR" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 9a8 8 0 0 1 14 0M19 9V4.5M19 9h-4.5M5 9V4.5M5 9h4.5"/></svg><b></b></div>
+<p id="keys">↑↓ 앞·뒤 · ←→ 회전(WASD) · Esc·Space 정지 · ▶ 로 시작</p>
 <div id="btns">
   <button id="cam" type="button" aria-label="위에서 보기" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M12 3 3 7.5 12 12l9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></svg></button>
   <button id="reset" type="button" aria-label="다시 세우기" disabled><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/></svg></button>

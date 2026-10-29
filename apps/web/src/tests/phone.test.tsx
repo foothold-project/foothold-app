@@ -10,6 +10,7 @@ import { FakeWS, type Msg } from './fakeWs';
 import { DEAD, NUDGE, TURN_ON, allowed, sim, velocity, type Axes } from '../phone';
 import { STALLED, remainingTime, timeNotice } from '../simdrive';
 import { newer } from '../simmap';
+import driveCss from '../drive.css?raw';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -163,6 +164,74 @@ describe('시뮬 연속 앞 속도(02 F-TO-05)', () => {
     expect($('[data-stop]')).toBeTruthy();
     await click($('[data-stop]'));
     expect(a.of('stop')).toHaveLength(1);
+  });
+});
+
+describe('시뮬 조종 화면 — 컴퓨터 키(10-29 «컴퓨터는 화살표, 조이스틱은 폰만»)', () => {
+  const key = async (type: 'keydown' | 'keyup', code: string, o: KeyboardEventInit & { target?: EventTarget } = {}) => {
+    act(() => { (o.target ?? window).dispatchEvent(new KeyboardEvent(type, { code, bubbles: true, cancelable: true, ...o })); }); await flush();
+  };
+  const cmd = async () => { await wait(60); return last(agents()[0].of('cmd')); };
+  const held = { lease_id: LEASE, controller: 'u-lee', controller_connected: true };
+
+  it('PC(hover·fine)만 시뮬 조이스틱을 숨기고 키 안내 — 실기 조종 조이스틱은 그대로', () => {
+    const pc = driveCss.slice(driveCss.indexOf('@media (hover:hover) and (pointer:fine)'));
+    expect(pc).toContain('[data-sim-drive] .dv-stick{display:none}');
+    expect(pc).toContain('[data-sim-drive] .dv-keys{display:block');
+    expect(driveCss).toContain('.dv-keys{display:none}');
+    expect(driveCss).not.toMatch(/(^|\})\s*\.dv-stick\{display:none/);
+  });
+
+  it('↑·W 전진(키 기본 0.6 m/s)·←→ 회전, 떼면 0 · 수정키·입력칸 무시', async () => {
+    const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
+    expect($('[data-sim-keys]')!.textContent).toContain('회전');
+    await key('keydown', 'ArrowUp');
+    expect((await cmd()).vx).toBeCloseTo(0.6, 5);
+    expect($('[data-sim-vx]')!.textContent).toBe('0.60 m/s');
+    await key('keydown', 'ArrowLeft');
+    expect(await cmd()).toMatchObject({ wz: 0.5 });
+    await key('keyup', 'ArrowLeft'); await key('keyup', 'ArrowUp');
+    expect(await cmd()).toMatchObject({ vx: 0, vy: 0, wz: 0 });
+    await key('keydown', 'KeyW', { ctrlKey: true });
+    expect(await cmd()).toMatchObject({ vx: 0 });
+    const input = document.createElement('input'); document.body.append(input); input.focus();
+    await key('keydown', 'KeyW', { target: input });
+    expect(await cmd()).toMatchObject({ vx: 0 });
+    input.remove();
+  });
+
+  it('STOP 중 키 무시, 잠금 해제 뒤에도 쥐고 있던 키로는 재개 없음(다시 눌러야), 창 흐림 = 0', async () => {
+    const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
+    await key('keydown', 'KeyW');
+    expect((await cmd()).vx).toBeCloseTo(0.6, 5);
+    await click($('[data-stop]'));
+    expect(a.of('stop')).toHaveLength(1);
+    await recv(a, phoneState({ ...held, latched: true, stop_gen: 2 }));
+    const n = a.of('cmd').length;
+    await key('keydown', 'KeyD');
+    await wait(60);
+    expect(a.of('cmd').slice(n).every((m) => m.vx === 0 && m.wz === 0)).toBe(true);
+    await click(btn('잠금 해제'));
+    await recv(a, phoneState({ ...held, latched: false, stop_gen: 2 }));
+    await key('keydown', 'KeyW', { repeat: true });
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    await key('keyup', 'KeyW'); await key('keydown', 'KeyW');
+    expect((await cmd()).vx).toBeCloseTo(0.6, 5);
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    await key('keydown', 'KeyW', { repeat: true });
+    expect(await cmd()).toMatchObject({ vx: 0 });
+  });
+
+  it('메뉴가 열리면(입력 0 규칙) 누른 키를 버리고 새 키도 무시', async () => {
+    const a = await launch({ ...welcome(), limits: CONT }); await drive(a);
+    await key('keydown', 'KeyW');
+    expect((await cmd()).vx).toBeCloseTo(0.6, 5);
+    await click($('[data-sim-menu]'));
+    expect(await cmd()).toMatchObject({ vx: 0 });
+    await key('keydown', 'ArrowLeft');
+    expect(await cmd()).toMatchObject({ vx: 0, wz: 0 });
+    expect(a.of('stop')).toHaveLength(0);
   });
 });
 

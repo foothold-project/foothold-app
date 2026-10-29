@@ -3,15 +3,14 @@
 // 키보드는 이 화면(시뮬 로봇 직결)에만 붙는다 — 실기 로봇 화면에는 없다(ADR-003 §4.2). «시뮬 정지»는 sim.stop()(폰 직결 STOP 과 같은 경로).
 // 머리줄 STOP·Space 는 App(PR #94·#96 규칙 그대로) — 이 화면은 STOP 을 덮지 않는다.
 import { useEffect, useRef, useState } from 'react';
-import { DEAD, allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
+import { allowed, runMoving, sim, useSim, velocity, type Sim } from '../phone';
 import { runView, startBlock, startFloor, useScenarios } from '../run';
-import { EXP, STATE, SimLaunch, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
+import { EXP, KEYS, STATE, SimLaunch, canDrive, field, forward, Video, blockNote, relink, remainingTime, short, stopText, timeNotice, useDeadline, useTick, worldName } from '../simdrive';
 import { SimMap, useFloorMap, type FloorMap } from '../simmap';
 import { needsRelink, useFeed } from '../media';
 import { Cloud3D, QEmpty, Quad, type QTile } from '../quad';
 import { Chip } from '../screens';
-import { typing } from '../App';
-import type { PhoneWelcome, SimRobot } from '../../../contracts/ts';
+import type { SimRobot } from '../../../contracts/ts';
 import type { Tone, User } from '../fake';
 
 export function SimTab({ user, refresh }: { user: User; refresh: () => void }) {
@@ -30,24 +29,6 @@ function SimStop() {
     style={{ minWidth: 120, borderColor: 'var(--warn)', color: 'var(--warn)', background: 'var(--warn-bg)', borderWidth: 2, borderRadius: 4 }} onClick={() => sim.stop()}>
     <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><rect x="2" y="2" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" /><rect x="6" y="6" width="4" height="4" fill="currentColor" /></svg>시뮬 정지</button>;
 }
-
-/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 02 F-TO-05: W/↑ 전진, S/↓ 후진, A/←·D/→ 회전. 옆걸음(시뮬 시험용)은 Q/E. e.code(자판 자리)라 한글 입력 상태에서도 같다 */
-const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
-  KeyA: [1, 1], ArrowLeft: [1, 1], KeyD: [1, -1], ArrowRight: [1, -1], KeyQ: [2, 1], KeyE: [2, -1] };
-/** F-TO-05 키보드 전진 기본 0.6 m/s: 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 0.6 이면 끝까지(최종 자르기는 velocity·에이전트) */
-export const KEY_VX = 0.6;
-function forward(w: PhoneWelcome) {
-  const L = w.limits, m = Math.min(L.vx_min_moving ?? L.vx_min, L.vx_max);
-  return L.vx_mode !== 'continuous' || L.vx_max <= KEY_VX ? 1 : DEAD + (1 - DEAD) * Math.max(1e-3, (KEY_VX - m) / (L.vx_max - m));
-}
-/** 지금 키 입력을 받을 수 있나 — 에이전트가 simulation 이라 알린 연결 + 조종권 + 잠금 풀림. 키 처리는 렌더 값이 아니라 저장소를 바로 본다.
- *  시뮬 정지를 보낸 뒤 에이전트가 처리했다고 알리기 전(stop_gen 이 그대로)에는 옛 latched=false 가 남아 있어도 막는다 — 처리 뒤에는 잠금(latched)이 막고, 사람이 잠금 해제해야 다시 */
-function canDrive() {
-  const g = sim.get(), l = g.link, p = g.stop, st = l?.st;
-  return !!l && l.welcome?.simulation === true && l.at === 'open' && !!l.lease && st?.latched === false && !(p && !p.latched && st.stop_gen <= (p.g0 ?? Infinity))
-    && !runMoving(l.run);   // 시나리오가 움직이는 중이면 키 입력 0(수동 조종 거부 — 일시정지 뒤 전환)
-}
-const field = (t: EventTarget | null) => typing(t) || t instanceof HTMLSelectElement;   // 글 입력칸·고르기 칸에 초점이면 조종 키 무시
 
 /** 띄운 시뮬 보기 + 키보드 조종: 조종 시작(조종권) → 잠금 해제 → 키를 누르는 동안만 움직임. 키 뗌·창 초점 잃음·탭 숨김·연결 끊김·시뮬 정지 = 0(다시 누를 때까지 재개 없음) */
 function SimView({ admin }: { admin: boolean }) {
