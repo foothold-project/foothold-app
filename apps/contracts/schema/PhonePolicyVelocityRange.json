@@ -1,0 +1,43 @@
+{
+  "$id": "fh-app/1/PhonePolicyVelocityRange",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Accepted SI policy range, separate from the legacy phone input envelope.",
+  "properties": {
+    "vx_max": {
+      "title": "Vx Max",
+      "type": "number"
+    },
+    "vx_min_moving": {
+      "minimum": 0,
+      "title": "Vx Min Moving",
+      "type": "number"
+    },
+    "vy_max": {
+      "title": "Vy Max",
+      "type": "number"
+    },
+    "vy_min": {
+      "title": "Vy Min",
+      "type": "number"
+    },
+    "wz_max": {
+      "title": "Wz Max",
+      "type": "number"
+    },
+    "wz_min": {
+      "title": "Wz Min",
+      "type": "number"
+    }
+  },
+  "required": [
+    "vx_min_moving",
+    "vx_max",
+    "vy_min",
+    "vy_max",
+    "wz_min",
+    "wz_max"
+  ],
+  "title": "PhonePolicyVelocityRange",
+  "type": "object"
+}

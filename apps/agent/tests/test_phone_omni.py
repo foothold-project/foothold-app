@@ -12,36 +12,22 @@ from foothold_agent.ros_bridge.sink import RosSink, twist_message
 from foothold_agent.safety.core import Z, quantize
 
 
-@pytest.mark.parametrize('axis,value,expected', [
-    (0, -1, -.3), (0, math.nextafter(-.3, -1), -.3), (0, -.3, -.3),
-    (0, -.2, -.2), (0, -.05, -.05), (0, math.nextafter(-.05, 0), 0),
-    (0, -.0001, 0), (0, 0, 0), (0, math.nextafter(.2, 0), 0),
-    (0, .2, .2), (0, 1, 1), (0, math.nextafter(1, 2), 1),
-    (1, -1, -.3), (1, math.nextafter(-.3, -1), -.3), (1, -.3, -.3),
-    (1, -.05, -.05), (1, math.nextafter(-.05, 0), 0), (1, 0, 0),
-    (1, math.nextafter(.05, 0), 0), (1, .05, .05), (1, .3, .3),
-    (1, math.nextafter(.3, 1), .3), (1, 1, .3),
-    (2, -1, -.5), (2, -.5, -.5), (2, math.nextafter(-.5, 0), 0),
-    (2, 0, 0), (2, math.nextafter(.5, 0), 0), (2, .5, .5), (2, 1, .5),
-])
-def test_omni_exact_boundaries(axis, value, expected):
-    requested, applied = list(Z), list(Z)
-    requested[axis], applied[axis] = value, expected
+@pytest.mark.parametrize('axis,value', [(0, -.3), (0, .2), (0, .3999), (0, 1.5001),
+    (1, -.0001), (1, .0001), (2, -1.0001), (2, 1.0001)])
+def test_outside_adapter_range_rejects_entire_command(axis, value):
+    requested = [.6, 0, 0]
+    requested[axis] = value
     axes, clipped = project_velocity(*requested, simulation=True)
+    assert axes == tuple(requested) and clipped
     result, reason = simulation_velocity(*axes)
-    assert result == tuple(applied)
-    assert clipped is (requested != applied)
-    assert bool(reason) is (tuple(applied) == Z and tuple(requested) != Z)
-    # The Core projection itself also enforces every SI limit.
-    assert simulation_velocity(requested[0], requested[1], requested[2] / .5) == (result, reason)
-    assert all(-1 <= v <= 1 for v in axes)
+    assert result == Z and reason
 
 
 EXPERIMENTS = [(-.3, 0, 0), (0, -.3, 0), (0, .3, 0), (0, 0, -.5),
                (0, 0, .5), (.2, .3, .5), (-.3, -.3, -.5)]
 
 
-@pytest.mark.parametrize('velocity', EXPERIMENTS)
+@pytest.mark.parametrize('velocity', [(.4, 0, -.123), (1.5, 0, 1), (.8, 0, -.8)])
 def test_omni_session_zero_stop_and_deadman(h, velocity):
     owner, _ = h.moving()
     assert h.cmd(owner, *velocity)['applied'] == list(velocity)
@@ -90,7 +76,7 @@ def test_experimental_limits_are_optional_and_welcome_is_deep_copied(h):
         PhoneLimits.model_validate({**SIMULATION_LIMITS, 'experimental': ['unknown']})
 
 
-@pytest.mark.parametrize('velocity', EXPERIMENTS)
+@pytest.mark.parametrize('velocity', [(.4, 0, -.123), (1.5, 0, 1), (.8, 0, -.8)])
 def test_omni_core_to_ros_sink_to_twist_without_ros(h, velocity):
     messages = []
     def factory():

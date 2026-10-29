@@ -124,6 +124,36 @@
           "title": "Experimental",
           "type": "array"
         },
+        "policy_adapter_id": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Policy Adapter Id"
+        },
+        "policy_velocity_range": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PhonePolicyVelocityRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "requires_forward_motion": {
+          "default": false,
+          "title": "Requires Forward Motion",
+          "type": "boolean"
+        },
         "vx_max": {
           "title": "Vx Max",
           "type": "number"
@@ -300,6 +330,47 @@
         "version"
       ],
       "title": "PhonePolicy",
+      "type": "object"
+    },
+    "PhonePolicyVelocityRange": {
+      "additionalProperties": false,
+      "description": "Accepted SI policy range, separate from the legacy phone input envelope.",
+      "properties": {
+        "vx_max": {
+          "title": "Vx Max",
+          "type": "number"
+        },
+        "vx_min_moving": {
+          "minimum": 0,
+          "title": "Vx Min Moving",
+          "type": "number"
+        },
+        "vy_max": {
+          "title": "Vy Max",
+          "type": "number"
+        },
+        "vy_min": {
+          "title": "Vy Min",
+          "type": "number"
+        },
+        "wz_max": {
+          "title": "Wz Max",
+          "type": "number"
+        },
+        "wz_min": {
+          "title": "Wz Min",
+          "type": "number"
+        }
+      },
+      "required": [
+        "vx_min_moving",
+        "vx_max",
+        "vy_min",
+        "vy_max",
+        "wz_min",
+        "wz_max"
+      ],
+      "title": "PhonePolicyVelocityRange",
       "type": "object"
     }
   },
