@@ -345,3 +345,49 @@ def test_after_audit_failure_still_binds_error_to_retained_latch(monkeypatch):
     def persist(first,after,error,identity):records.append((first,after,type(error).__name__,identity))
     with pytest.raises(ValueError,match='identity changed'):b.audited(lambda _:None,persist)
     assert records==[(before,None,'OSError',(17,29))] and clear==[]
+
+
+def test_distinct_gazebo_plugins_sharing_soname_require_explicit_provider(tmp_path,monkeypatch):
+    vendor='opt/ros/jazzy/opt/gz_gui_vendor'
+    plugins=vendor+'/lib/gz-gui-8/plugins'
+    for name in ('usr/lib/x86_64-linux-gnu',plugins,vendor+'/share/gz'):
+        (tmp_path/name).mkdir(parents=True,exist_ok=True)
+    for name in ('usr/lib/x86_64-linux-gnu/libEGL_mesa.so.0',vendor+'/share/gz/vendor.yaml',
+            vendor+'/lib/libgz-sim8-fixture.so',vendor+'/lib/libgz-rendering8-ogre2.so'):
+        (tmp_path/name).write_bytes(b'synthetic')
+    for name in ('libGrid3D.so','libGridConfig.so'):
+        (tmp_path/plugins/name).write_bytes(b'\x7fELF'+name.encode()*8)
+    monkeypatch.setattr(cfg,'soname',lambda _: 'libGridConfig.so')
+    with pytest.raises(ValueError,match='ambiguous') as caught:cfg.profile(tmp_path,{})
+    assert 'libGrid3D.so' in str(caught.value) and 'libGridConfig.so' in str(caught.value)
+    assert not (tmp_path/'foothold-runtime/lib/libGridConfig.so').exists()
+    chosen='/'+plugins+'/libGridConfig.so'
+    pin=dict(path=chosen,sha256=hashlib.sha256((tmp_path/chosen.lstrip('/')).read_bytes()).hexdigest())
+    for bad in (dict(pin,path='/'+plugins+'/absent.so'),dict(pin,sha256='0'*64),
+            dict(pin,path='/'+plugins+'/libGrid3D.so')):
+        with pytest.raises(ValueError,match='explicit SONAME provider'):
+            cfg.profile(tmp_path,{'libGridConfig.so':bad})
+        assert not (tmp_path/'foothold-runtime/lib/libGridConfig.so').exists()
+    cfg.profile(tmp_path,{'libGridConfig.so':pin})
+    assert os.readlink(tmp_path/'foothold-runtime/lib/libGridConfig.so')==chosen
+
+
+def test_alias_recipe_requires_both_provider_path_and_exact_sha256():
+    valid=dict(path='/opt/ros/jazzy/lib/libfixture.so',sha256='a'*64)
+    good=config();good['library_aliases']={'libfixture.so':valid}
+    assert cfg.validate_config(good)==good
+    for bad in (valid['path'],dict(path=valid['path']),dict(sha256='a'*64),
+            dict(valid,sha256='bad'),dict(valid,path='/usr/lib/../escape.so'),
+            dict(valid,path='/etc/foreign.so'),dict(valid,extra=True)):
+        value=config();value['library_aliases']={'libfixture.so':bad}
+        with pytest.raises(ValueError):cfg.validate_config(value)
+
+
+def test_explicit_alias_hash_is_checked_even_with_ordinary_search_directory_provider(tmp_path,monkeypatch):
+    (tmp_path/'opt/ros/jazzy/opt').mkdir(parents=True)
+    parent=tmp_path/'usr/lib/x86_64-linux-gnu';parent.mkdir(parents=True)
+    provider=parent/'libfixture.so';provider.write_bytes(b'\x7fELF'+b'x'*64)
+    monkeypatch.setattr(cfg,'soname',lambda _: 'libfixture.so')
+    with pytest.raises(ValueError,match='provider SHA256'):
+        cfg.profile(tmp_path,{'libfixture.so':dict(path='/usr/lib/x86_64-linux-gnu/libfixture.so',sha256='0'*64)})
+    assert not (tmp_path/'foothold-runtime/lib/libfixture.so').exists()

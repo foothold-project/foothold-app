@@ -35,7 +35,12 @@ def validate_config(config):
             raise ValueError('mesh binding must be one absolute private file')
     for key,value in config['library_aliases'].items():
         if not re.fullmatch(r'lib[A-Za-z0-9_.+\-]+\.so(?:\.[0-9]+)*',key):raise ValueError('invalid library alias')
-        if not value.startswith(('/usr/lib/','/opt/ros/jazzy/')) or '..' in PurePosixPath(value).parts:
+        if (not isinstance(value,dict) or set(value)!={'path','sha256'}
+                or not isinstance(value['path'],str) or not isinstance(value['sha256'],str)
+                or not re.fullmatch(r'[0-9a-f]{64}',value['sha256'])):
+            raise ValueError('library alias requires exact provider path and SHA256')
+        path=value['path'];archive.name(path,target=True)
+        if not path.startswith(('/usr/lib/','/opt/ros/jazzy/')) or '..' in PurePosixPath(path).parts:
             raise ValueError('library alias must stay inside rootfs libraries')
     return config
 
@@ -215,13 +220,17 @@ def _profile(tree,aliases):
         if '/' in value or not re.fullmatch(r'[A-Za-z0-9_.+\-]+',value):raise ValueError('unsafe SONAME')
         candidates.setdefault(value,[]).append(path)
     for name,paths in sorted(candidates.items()):
-        if any(tree.ordinary(directory/name) for directory in libdirs):continue
         chosen=aliases.get(name)
+        if chosen is None and any(tree.ordinary(directory/name) for directory in libdirs):continue
         if chosen is not None:
-            target=PurePosixPath('/')/tree.relative(chosen)
-            if target not in paths:raise ValueError('explicit SONAME provider does not match')
+            target=PurePosixPath('/')/tree.relative(chosen['path'])
+            if target not in paths or str(target)!=chosen['path']:
+                raise ValueError('explicit SONAME provider path does not match')
+            if tree.sha(target)!=chosen['sha256']:raise ValueError('explicit SONAME provider SHA256 does not match')
         else:
-            if len({tree.sha(p) for p in paths})!=1:raise ValueError('ambiguous skipped-alternatives library; explicit recipe required')
+            if len({tree.sha(p) for p in paths})!=1:
+                raise ValueError('ambiguous skipped-alternatives library '+name+
+                    '; explicit recipe required; candidates='+','.join(map(str,sorted(paths))))
             target=paths[0]
         tree.symlink(runtime/'lib'/name,str(target))
     for key in aliases:
