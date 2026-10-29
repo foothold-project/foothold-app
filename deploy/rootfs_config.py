@@ -202,7 +202,11 @@ def generate(root,config,recipe_sha):
             '/var/lib/foothold-sim/native-output',CODE+'/runs/server-sim',CODE+'/tmp/p1c/startup',
             ASSETS,STAGE,'/run/user/'+str(uid),'/proc','/sys','/dev','/tmp','/var/tmp'):
         inside(root,path).mkdir(parents=True,exist_ok=True)
-    for path in [CODE+'/COMMIT','/run/foothold-sim-proof.sock',*config['mesh_targets']]:put(root,path,b'')
+    # PID1's notify/os-release mounts and explicit journal sockets must not add
+    # underlying paths to an already sealed rootfs at namespace creation time.
+    for path in [CODE+'/COMMIT','/run/foothold-sim-proof.sock','/run/systemd/notify',
+            '/run/host/os-release','/run/systemd/journal/socket','/run/systemd/journal/stdout',
+            '/dev/log',*config['mesh_targets']]:put(root,path,b'')
     environment=profile(root,config['library_aliases'])
     put(root,'/foothold-runtime/child-profile.json',canonical(dict(schema=1,env=environment)))
     setup=''.join('export '+key+'='+shlex.quote(value)+'\n' for key,value in sorted(environment.items()))

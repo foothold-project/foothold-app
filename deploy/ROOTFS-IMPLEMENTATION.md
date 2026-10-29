@@ -97,6 +97,10 @@ empty capabilities. PID1 sets up the namespace. Bindings contain only four
 read-only app directories and COMMIT (never .venv), sealed source/two mesh
 files, independent simulation config, the fixed proof socket, dedicated
 runtime/bus and declared guard/replay/episode/startup/native-output writes.
+Only the fixed journal stdout/datagram sockets are additionally mounted for
+user-manager/dbus logging; global journal files and the system bus are absent.
+Notify and host os-release mount placeholders are pre-created for PID1 so its
+automatic mounts cannot add underlying paths after the actual manifest seal.
 The read-only source stage overlays the writable native-output parent.
 No host /usr, /lib*, /bin, /opt/ros, GPU device, driver or system bus bind.
 The API stays on the host. Child and aggregate 4GiB/CPU400%/Tasks640/swap0

@@ -23,6 +23,9 @@ def test_namespace_has_exact_uid_rootfs_code_binds_and_no_host_venv_or_libraries
     for source,target in readonly+writable:
         assert '.venv' not in str(source) and not str(source).startswith(('/usr','/lib','/bin','/dev','/opt/ros'))
     assert any(target==r.config.STAGE for _,target in readonly)
+    assert (Path('/run/systemd/journal/stdout'),'/run/systemd/journal/stdout') in readonly
+    assert (Path('/run/systemd/journal/dev-log'),'/dev/log') in readonly
+    assert not any(target=='/run/dbus/system_bus_socket' or target=='/var/log/journal' for _,target in readonly)
     assert any(target==r.config.SPEC for _,target in writable)
     assert props['Restart']=='no'
     text=r.dropin(value,release)

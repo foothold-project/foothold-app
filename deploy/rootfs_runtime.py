@@ -125,6 +125,9 @@ def bindings(data,release,*,proof=True):
     readonly += [(release/'COMMIT',config.CODE+'/COMMIT'),(Path('/etc/foothold-sim'),'/etc/foothold-sim'),
         (source,config.ASSETS),(source/'sensor-spec-20261016/stage',config.STAGE)]
     readonly += [(source.parent/'meshes'/str(index),target) for index,target in enumerate(data['identity']['mesh_targets'])]
+    readonly += [(Path('/run/systemd/journal/socket'),'/run/systemd/journal/socket'),
+        (Path('/run/systemd/journal/stdout'),'/run/systemd/journal/stdout'),
+        (Path('/run/systemd/journal/dev-log'),'/dev/log')]
     if proof:readonly.append((Path('/run/foothold-sim-proof.sock'),'/run/foothold-sim-proof.sock'))
     writable=[(Path('/run/user')/str(uid),'/run/user/'+str(uid))]
     for leaf,target in (('guard','/var/lib/foothold-sim/guard'),('replay','/var/lib/foothold-sim/replay'),
