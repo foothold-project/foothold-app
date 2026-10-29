@@ -26,7 +26,20 @@ else
 fi
 # Only web and its imported data enter the build sandbox; never server/deploy.
 git --git-dir="$repo" archive "$sha" apps/contracts apps/web \
-  mobile/sim/maps.json 'mobile/sim/assets/*/top.png' | tar -x -C "$build"
+  mobile/sim/maps.json 'mobile/sim/assets/*/top.png' 'mobile/sim/assets/*/top.json' | tar -x -C "$build"
+# Validate the actual archived input, including empty globs and orphan metadata.
+shopt -s nullglob
+top_images=("$build"/mobile/sim/assets/*/top.png)
+top_metadata=("$build"/mobile/sim/assets/*/top.json)
+[[ ${#top_images[@]} -gt 0 && ${#top_images[@]} == ${#top_metadata[@]} ]] || {
+    echo 'Top-view input requires matching nonempty PNG/JSON pairs.' >&2; exit 1;
+}
+for top_image in "${top_images[@]}"; do
+    [[ -f ${top_image%.png}.json ]] || {
+        echo 'Top-view PNG is missing adjacent JSON metadata.' >&2; exit 1;
+    }
+done
+shopt -u nullglob
 if [[ $EUID == 0 ]]; then
     chmod 755 "$build"
     chmod -R u=rwX,go=rX "$build"
