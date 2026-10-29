@@ -57,6 +57,23 @@ def test_prepare_uses_real_audited_callback_and_binds_failure_to_latch(prepare_a
     assert json.loads(body)==expected and body.endswith('\n')
 
 
+def test_prepare_binds_host_audit_mismatch_after_successful_action_to_latch(prepare_audit,capsys):
+    f=prepare_audit
+    before={'usr':'before'};after={'usr':'after'}
+    f.snapshot.side_effect=[before,after]
+    with pytest.raises(ValueError,match='identity changed') as caught:r.prepare(f.input)
+    f.action.assert_called_once_with(f.input)
+    f.create.assert_called_once_with()
+    assert f.snapshot.call_count==2
+    f.atomic.assert_called_once()
+    path,body,mode=f.atomic.call_args.args
+    assert path==f.audit and mode==0o400
+    assert json.loads(body)==dict(before=before,after=after,error_type='ValueError',
+        reason=str(caught.value),latch_device=17,latch_inode=29)
+    f.clear.assert_not_called()
+    assert capsys.readouterr().out==''
+
+
 @pytest.mark.parametrize('symlink',[False,True],ids=['existing-audit','dangling-audit-link'])
 def test_prepare_still_refuses_prior_audit_without_overwrite_or_latch_clear(prepare_audit,symlink):
     f=prepare_audit
