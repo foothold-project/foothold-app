@@ -61,6 +61,13 @@ def name(value, *, target=False):
     return str(path)
 
 
+def member_mode(item):
+    """Apply the same privilege refusal and output-mode policy in both passes."""
+    if item.mode&~0o7777 or any('capability' in key.lower() for key in item.pax_headers):
+        raise ValueError('privileged archive metadata')
+    return 0o555 if item.isdir() or item.mode&0o111 else 0o444
+
+
 def link_target(item):
     """Use the same lexical target representation in both tar passes."""
     if item.issym():return name(item.linkname,target=True)
@@ -105,9 +112,7 @@ def scan(stream,source='<archive>'):
                 total+=item.size
                 if total>MAX_BYTES or len(rows)>=MAX_MEMBERS:
                     raise ValueError('archive exceeds fixed envelope')
-                if item.mode&~0o7777 or any('capability' in key.lower() for key in item.pax_headers):
-                    raise ValueError('privileged archive metadata')
-                row=dict(path=path,mode=0o555 if item.isdir() or item.mode&0o111 else 0o444)
+                row=dict(path=path,mode=member_mode(item))
                 if item.isdir():row['type']='dir'
                 elif item.issym():row.update(type='link',target=link_target(item))
                 elif item.islnk():row.update(type='hardlink',target=link_target(item))
@@ -243,12 +248,12 @@ def merge(root,packages,streams):
                         if row is None:raise ValueError('archive changed after inspection')
                         kind=('file' if item.isfile() else 'dir' if item.isdir() else
                               'link' if item.issym() else 'hardlink' if item.islnk() else 'special')
-                        target=link_target(item)
-                        if (kind!=row['type'] or (kind in ('link','hardlink') and target!=row['target'])
+                        target=link_target(item);mode=member_mode(item)
+                        if (mode!=row['mode'] or kind!=row['type'] or (kind in ('link','hardlink') and target!=row['target'])
                                 or (kind=='file' and item.size!=row['size'])):
                             raise ValueError('archive member metadata changed after inspection; '
-                                f'expected type={row["type"]!r} target={row.get("target")!r} size={row.get("size")!r}; '
-                                f'observed type={kind!r} target={target!r} size={item.size!r}')
+                                f'expected type={row["type"]!r} mode={row["mode"]:#o} target={row.get("target")!r} size={row.get("size")!r}; '
+                                f'observed type={kind!r} mode={mode:#o} target={target!r} size={item.size!r}')
                         observed.append(path)
                         if row['type'] not in ('file','hardlink'):continue
                         dest=resolve(path,links)

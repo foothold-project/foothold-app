@@ -22,7 +22,7 @@ The later namespace probe rejects an incomplete/conflicting Python closure.
 
 config has numeric uid/gid reserved for the new dedicated account, exactly
 two mesh_targets (private original absolute file URIs), and library_aliases
-(explicit SONAME-to-internal-library paths, normally empty). Name/UID/GID
+(explicit SONAME-to-provider objects with `path` and `sha256`, normally empty). Name/UID/GID
 collisions stop; no existing identity is adopted or modified.
 
 All downloads, checks, retained archives and extraction scratch stay under
@@ -57,8 +57,12 @@ Both archive passes use the same lexical link-target normalization before
 comparing metadata. For example, gzip 1.12-1ubuntu3.2 stores hardlink member
 `./usr/bin/uncompress` with target `./usr/bin/gunzip`; inspection records
 `usr/bin/gunzip`. Comparing that normalized value to the raw second-pass target
-incorrectly refused unchanged bytes. Changed normalized targets/types/sizes and
+incorrectly refused unchanged bytes. Changed normalized modes/targets/types/sizes and
 changed file digests still refuse, with archive/member/original-target context.
+Both passes apply the same mode policy: directories or executable members become
+0555, other members become 0444; an execution-bit change that changes this
+normalized mode refuses, while stripped write/SUID/SGID bits do not affect the
+output mode. Invalid mode bits and capability metadata refuse in both passes.
 Absolute hardlink targets and parent traversal remain invalid; absolute symbolic
 links continue to describe the future root. Normalization never decodes escapes.
 
@@ -93,9 +97,18 @@ with SONAME `libGridConfig.so`: `libGrid3D.so` and `libGridConfig.so`. Keep the
 ambiguity refusal. The proposed recipe explicitly selects the matching provider:
 
 ```json
-{"library_aliases":{"libGridConfig.so":"/opt/ros/jazzy/opt/gz_gui_vendor/lib/gz-gui-8/plugins/libGridConfig.so"}}
+{"library_aliases":{"libGridConfig.so":{
+  "path":"/opt/ros/jazzy/opt/gz_gui_vendor/lib/gz-gui-8/plugins/libGridConfig.so",
+  "sha256":"e286fc02e5bef4b832980c3d724283dcb4dc9c79b580fb9f373d2b6b48f29b5b"
+}}}
 ```
 
+The selected file matches the SONAME filename and exports the
+`gz::gui::GridConfig` plugin registration; this is an explicit canonical-provider
+choice, not a claim that both candidates have equal bytes. Each alias binds its
+literal canonical regular provider path and SHA256; a missing/different provider
+or changed bytes refuse before publishing that alias. This also applies when an
+ordinary search directory already contains that SONAME. Path-only aliases refuse.
 This is one config field, not a complete recipe. Review it with the newly hashed
 recipe; do not change the failed recipe or select a provider automatically.
 All package/wheel pins stay unchanged. A different ambiguity must stop and show

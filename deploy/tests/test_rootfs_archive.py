@@ -167,3 +167,40 @@ def test_second_pass_hardlink_target_change_is_refused_with_origin(tmp_path,targ
     assert caught.value.source=='fixture (fixture_1_all.deb)' and caught.value.member=='usr/bin/copy'
     assert caught.value.target==target
     assert not (tmp_path/'usr/bin/copy').exists()
+
+
+def test_absolute_hardlink_target_refuses_even_with_matching_internal_file(tmp_path):
+    data=archive([('usr/bin/provider','file',b'safe'),
+                  ('usr/bin/copy','hardlink','/usr/bin/provider')])
+    with pytest.raises(a.ArchiveError,match='escapes root'):merge(tmp_path,{'fixture':data})
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize('before,after',[(0o755,0o644),(0o644,0o755)])
+def test_second_pass_execution_bit_only_change_refuses(tmp_path,before,after):
+    def with_mode(mode):
+        output=io.BytesIO()
+        with tarfile.open(fileobj=output,mode='w') as tar:
+            item=tarfile.TarInfo('usr/bin/provider');item.mode=mode;item.size=4
+            tar.addfile(item,io.BytesIO(b'safe'))
+        return output.getvalue()
+    rows=a.scan(io.BytesIO(with_mode(before)),source='mode (mode_1_all.deb)')
+    @contextmanager
+    def stream(_):yield io.BytesIO(with_mode(after))
+    with pytest.raises(a.ArchiveError,match='metadata changed') as caught:
+        a.merge(tmp_path,{'fixture':rows},stream)
+    assert 'mode=' in str(caught.value) and caught.value.member=='usr/bin/provider'
+    assert not (tmp_path/'usr/bin/provider').exists()
+
+
+@pytest.mark.parametrize('after',[
+    [('usr/bin/provider','file',b'longer')],
+    [('usr/bin/provider','link','/usr/bin/other')],
+])
+def test_second_pass_size_or_kind_change_refuses_as_metadata_before_writes(tmp_path,after):
+    before=archive([('usr/bin/provider','file',b'safe')]);changed=archive(after)
+    @contextmanager
+    def stream(_):yield io.BytesIO(changed)
+    with pytest.raises(a.ArchiveError,match='metadata changed'):
+        a.merge(tmp_path,{'fixture':a.scan(io.BytesIO(before))},stream)
+    assert not (tmp_path/'usr/bin/provider').exists()
