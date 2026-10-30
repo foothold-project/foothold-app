@@ -38,11 +38,17 @@ class Feedback:
             return self._fault
 
     def lowstate(self, message):
+        received = self.now()  # callback entry, BEFORE parsing or any lock wait
+        sink = self.sink
+        generation = None if sink is None else sink.generation  # nonblocking epoch snapshot
         sn, tick = getattr(message, 'sn', None), getattr(message, 'tick', None)
         if not isinstance(sn, (tuple, list)) or len(sn) != 2 or not all(integer(x, 0xFFFFFFFF) for x in sn):
             return
         serial = f'{sn[0]}-{sn[1]}'
         with self._lock:
+            if (not 0 <= self.now()-received <= FEEDBACK_MAX_AGE_S or self.sink is not sink
+                    or (sink is not None and sink.generation != generation)):
+                return
             if serial != self.serial:
                 self._fault = True
                 return
@@ -56,12 +62,15 @@ class Feedback:
             motors = getattr(message, 'motor_state', None)
             dq = (vector([getattr(m, 'dq', None) for m in motors[:12]], 12)
                   if isinstance(motors, (tuple, list)) and len(motors) >= 12 else None)
-            self._low = dict(tick=tick, received=self.now(), attitude=attitude(message),
+            self._low = dict(tick=tick, received=received, generation=generation, attitude=attitude(message),
                              still=gyro is not None and dq is not None and
                              all(abs(x) <= .05 for x in gyro) and all(abs(x) <= .10 for x in dq))
             self.state.lowstate(message)
 
     def sportmodestate(self, message):
+        received = self.now()  # preserve receipt through cache-lock contention
+        sink = self.sink
+        generation = None if sink is None else sink.generation
         stamp = getattr(message, 'stamp', None)
         sec, nsec = getattr(stamp, 'sec', None), getattr(stamp, 'nanosec', None)
         if not integer(sec, 0x7FFFFFFF) or not integer(nsec, 999999999):
@@ -73,16 +82,17 @@ class Feedback:
         progress, height = getattr(message, 'progress', None), getattr(message, 'body_height', None)
         with self._lock:
             now = self.now()
-            if (self._fault or self._low is None or
+            if (not 0 <= now-received <= FEEDBACK_MAX_AGE_S or self.sink is not sink
+                    or (sink is not None and sink.generation != generation) or
+                    self._fault or self._low is None or
                     not 0 <= now-self._low['received'] <= FEEDBACK_MAX_AGE_S or marker <= 0 or
                     (self._sport is not None and marker <= self._sport['marker'])):
                 return
             if velocity is None or not number(yaw) or not integer(mode, 255) or not integer(error, 0xFFFFFFFF):
                 return
-            context = self.sink.feedback_context() if self.sink is not None else (None, True)
             self._sequence += 1
-            self._sport = dict(marker=marker, received=now, sequence=self._sequence,
-                               generation=context[0], velocity=velocity, yaw=float(yaw),
+            self._sport = dict(marker=marker, received=received, sequence=self._sequence,
+                               generation=generation, velocity=velocity, yaw=float(yaw),
                                mode=mode, error=error, progress=progress, height=height)
             self.state.sportmodestate(message)
 
@@ -111,7 +121,7 @@ class Feedback:
                  number(sport['height'], .20, .50) and tilt is not None and tilt < math.pi/3)
         still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity']) and abs(sport['yaw']) <= .03)
         generation, latched = self.sink.feedback_context()
-        confirmed = (ready and still and self.sink.confirm_stopped(
+        confirmed = (ready and still and low['generation'] == sport['generation'] and self.sink.confirm_stopped(
             generation=sport['generation'], sequence=sport['sequence'],
             received_at=sport['received'], stationary=True))
         self._last_ready = ready

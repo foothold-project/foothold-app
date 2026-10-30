@@ -1,5 +1,6 @@
 """Sensor evidence is independent of SDK submission success."""
 from types import SimpleNamespace as NS
+import threading
 
 import pytest
 
@@ -151,3 +152,68 @@ def test_phone_watchdog_requires_original_input_time_for_nonzero():
     with pytest.raises(ValueError):
         sink.apply(command(velocity=(.6, 0., 0.)), source='phone')
     assert sink.latched and sink.pending == (0., 0., 0.)
+
+
+def test_input_deadline_boundary_holds_without_failing_service():
+    now = Clock()
+    now.value = .30
+    sink = Go2Sink(FakeSport(), FakeSport(), now=now, offline_test_mode=True, phone_watchdog=True)
+    sink.select_source('phone')
+    assert sink.confirm_stopped(generation=sink.generation, sequence=1, received_at=now(), stationary=True)
+    sink.apply(command('unlock'), source='phone')
+    sink.apply(command(), source='phone')
+    sink.apply(command(velocity=(.6, 0., 0.)), source='phone', input_received_at=0.)
+    assert sink.latched and sink.error is None and sink.pending == (0., 0., 0.)
+    assert sink._stop_requested.is_set()
+
+
+class CallbackGate:
+    """Deterministically pause one DDS thread before acquiring the cache lock."""
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.waiting, self.release = threading.Event(), threading.Event()
+
+    def __enter__(self):
+        if threading.current_thread().name == 'delayed-dds':
+            self.waiting.set()
+            assert self.release.wait(2), 'test must release delayed callback'
+        self.lock.acquire()
+
+    def __exit__(self, *args):
+        self.lock.release()
+
+
+@pytest.mark.parametrize('topic,delay', [('low', .31), ('sport', .10)])
+def test_delayed_callback_cannot_relabel_receipt_or_stop_generation(topic, delay):
+    now, sink, feedback, hub, states = fixture()
+    feedback.lowstate(low())
+    feedback.sportmodestate(sport())
+    assert feedback.consume(hub)
+    gate = CallbackGate()
+    feedback._lock = gate
+    errors = []
+    def callback():
+        try:
+            if topic == 'low':
+                feedback.lowstate(low(2))
+            else:
+                feedback.sportmodestate(sport(2))
+        except BaseException as error:
+            errors.append(error)
+    worker = threading.Thread(target=callback, name='delayed-dds')
+    worker.start()
+    try:
+        assert gate.waiting.wait(1)
+        now.value += delay
+        sink.apply(command('stop'), source='phone')
+        if topic == 'sport':
+            feedback.lowstate(low(2))  # fresh low callback overtakes queued old sport
+    finally:
+        gate.release.set()
+        worker.join(2)
+    assert not worker.is_alive() and not errors
+    if topic == 'low':
+        feedback.sportmodestate(sport(2))
+    feedback.consume(hub)
+    assert sink._confirmed_generation is None
+    assert sink.latched
