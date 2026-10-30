@@ -1,6 +1,6 @@
 // 탭 본문 — 03 UX §5 배치 뼈대 수준. 관제 요약·로봇 목록·상세는 서버 값(설정 탭은 screens/settings.tsx, 기록 탭은 screens/history.tsx, 지도 탭·관제 지도 칸은 screens/maps.tsx, 결재 탭은 screens/approvals.tsx, 임무 탭은 screens/missions.tsx), 폰 시나리오 카드는 서버 배정(screens/assign.tsx). 빈 칸(.fh-slot)은 다음 작업 자리.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
+import { adminReal, driveBlock, ownerName, robotStatus, toRobot, type Robot, type Tone, type User } from './fake';
 import type { Dashboard, Device, RobotSummary, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import { Drive, holderText } from './drive';
@@ -15,6 +15,7 @@ import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
 import { PhoneRelay } from './phoneRelay';
+import { ServerDrive } from './serverdrive';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
@@ -165,6 +166,8 @@ function Detail(c: Ctx) {
   const s = r.unknown ? null : rt.get(r.id).state, loc = s ? s.location : r.location ?? null, devices = s ? s.devices : r.devices ?? [];
   return <section className="lv-card" style={{ flexBasis: 360 }} aria-label="로봇 상세">
     <div className="fh-row"><h2>{r.name}</h2><Chip {...robotStatus(r)} /></div>
+    {/* 서버가 켠 실기 시험 로봇만, PC 웹·담당 운영자만(총괄·남의 로봇·앱은 보기만) */}
+    {r.serverDrive && !r.sim && !c.phone && !inApp() && !adminReal(c.user, r) && c.robot.owner === c.user.id && <ServerDrive c={c} r={r} />}
     <Line k="담당"><span>{ownerName(r)}</span></Line>
     <Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>
     {r.mission && <Line k="임무"><span>{r.mission}</span></Line>}

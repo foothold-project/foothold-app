@@ -3,7 +3,7 @@
 // 작은 칸을 숨기면(›) 그 칸 내용을 내려 media 구독도 놓는다(display:none 만으로는 받기가 계속됨).
 // 큰 칸일 때만 «전체화면»(이 묶음만 Fullscreen API). 전체화면은 머리줄 STOP 을 가리므로 fs(STOP)를 그 안에 늘 둔다.
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { feedText, useFeed } from './media';
+import { feedText, useFeed, type Feed } from './media';
 import './quad.css';
 
 export type QSize = 'grid' | 'big' | 'thumb';
@@ -48,8 +48,9 @@ const ZL = -1, ZH = 1;
 export const hue = (z: number) => Math.round(200 - Math.max(0, Math.min(1, (z - ZL) / (ZH - ZL))) * 170);
 /** 3D 점군(Canvas2D 정사영 — three 없이). 바뀐 때만 2 Hz 로 다시 그림, 끌기는 화면 한 장(requestAnimationFrame)에 한 번만. 큰 칸만 끌어 돌려 봄(작은 칸은 폰 스크롤 그대로). 그림만 — 명령 0.
  *  lidar 는 이 칸이 떠 있는 동안만 받는다 */
-export function Cloud3D({ small, big }: { small: boolean; big: boolean }) {
-  const feed = useFeed('lidar'), empty = feedText(feed, 'lidar');
+export function Cloud3D({ small, big, feed: given, empty: none = '' }: { small: boolean; big: boolean; feed?: Feed; empty?: string }) {
+  // given = 다른 곳에서 받은 점군(서버 경유 시험 — drivemedia.ts) + 빈 칸 문구. 없으면 폰 직결 media 를 이 칸이 받는다
+  const own = useFeed('lidar', !given), feed = given ?? own, empty = given ? none : feedText(feed, 'lidar');
   const cv = useRef<HTMLCanvasElement>(null), view = useRef({ a: -0.6, b: 0.9, ver: -1, w: 0, h: 0 }), cur = useRef(feed);
   cur.current = feed;
   useEffect(() => {
