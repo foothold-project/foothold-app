@@ -108,6 +108,7 @@ TEMPLATES = {
     'SUBSCRIPTION_REQUIRED': '{robot}{object_particle} 다시 선택한 뒤 조종해 주세요.',
     'CMD_SEQ': '{robot} 조종 입력 순서가 올바르지 않아 거절했습니다.',
     'CMD_RATE_LIMIT': '{robot} 조종 입력이 너무 많아 거절했습니다.',
+    'SERVER_DRIVE_COMMAND': '{robot} 시험 명령표 밖 입력을 거절하고 정지 잠금을 요청했습니다.',
     'STOP_GEN_MISMATCH': '{robot} 정지 상태가 바뀌어 잠금 해제를 거절했습니다.',
     'SERVER_LINK_LOST': '{robot}{with_particle} 서버 연결이 끊겼습니다.',
     'LINK_LOSS_TIMEOUT': '{robot} 연결 복구 대기 시간이 끝났습니다.',
