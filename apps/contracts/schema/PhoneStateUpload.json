@@ -1,0 +1,648 @@
+{
+  "$defs": {
+    "AgentBattery": {
+      "properties": {
+        "soc": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Soc"
+        },
+        "voltage": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Voltage"
+        }
+      },
+      "required": [
+        "soc"
+      ],
+      "title": "AgentBattery",
+      "type": "object"
+    },
+    "AgentPose": {
+      "properties": {
+        "confidence": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confidence"
+        },
+        "floor_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FloorContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "floor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Floor Id"
+        },
+        "map_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Map Version Id"
+        },
+        "x": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "X"
+        },
+        "y": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Y"
+        },
+        "yaw": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Yaw"
+        }
+      },
+      "required": [
+        "floor_id",
+        "x",
+        "y",
+        "yaw",
+        "confidence"
+      ],
+      "title": "AgentPose",
+      "type": "object"
+    },
+    "AgentState": {
+      "properties": {
+        "applied": {
+          "items": {
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "title": "Applied",
+          "type": "array"
+        },
+        "battery": {
+          "$ref": "#/$defs/AgentBattery"
+        },
+        "controller": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controller"
+        },
+        "controller_connected": {
+          "default": false,
+          "title": "Controller Connected",
+          "type": "boolean"
+        },
+        "controller_device": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controller Device"
+        },
+        "controller_since": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controller Since"
+        },
+        "devices_changed": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/Device"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Devices Changed"
+        },
+        "latched": {
+          "title": "Latched",
+          "type": "boolean"
+        },
+        "mode": {
+          "maxLength": 64,
+          "title": "Mode",
+          "type": "string"
+        },
+        "pose": {
+          "$ref": "#/$defs/AgentPose"
+        },
+        "reported_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "safety_reason": {
+          "anyOf": [
+            {
+              "const": "OUTPUT_STALLED",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Safety Reason"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Speed"
+        },
+        "stop_gen": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Gen",
+          "type": "integer"
+        },
+        "stop_ref": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Stop Ref",
+          "type": "integer"
+        },
+        "t": {
+          "const": "state",
+          "title": "T",
+          "type": "string"
+        }
+      },
+      "required": [
+        "t",
+        "pose",
+        "speed",
+        "battery",
+        "latched",
+        "stop_gen",
+        "stop_ref",
+        "applied",
+        "mode"
+      ],
+      "title": "AgentState",
+      "type": "object"
+    },
+    "Device": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "title": "Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "CAMERA_RGB",
+            "CAMERA_DEPTH",
+            "LIDAR",
+            "BATTERY",
+            "OTHER"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "state": {
+          "enum": [
+            "OK",
+            "MISSING",
+            "ERROR"
+          ],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "kind",
+        "label",
+        "state"
+      ],
+      "title": "Device",
+      "type": "object"
+    },
+    "FloorContext": {
+      "additionalProperties": false,
+      "description": "Observation identity; compare the entire token before using asynchronous map results.\n\nThis context never grants control or changes STOP/deadman gates. Positions are\nabsent during transit/unknown and when the approved grid binding is invalid.",
+      "properties": {
+        "building_id": {
+          "format": "uuid",
+          "title": "Building Id",
+          "type": "string"
+        },
+        "confirmed_sim_t": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Confirmed Sim T"
+        },
+        "current_floor_id": {
+          "anyOf": [
+            {
+              "enum": [
+                "l1",
+                "l2",
+                "f1"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Current Floor Id"
+        },
+        "epoch": {
+          "minimum": 0,
+          "title": "Epoch",
+          "type": "integer"
+        },
+        "floor_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Floor Id"
+        },
+        "floor_rev": {
+          "minimum": 0,
+          "title": "Floor Rev",
+          "type": "integer"
+        },
+        "floor_state": {
+          "enum": [
+            "on_floor",
+            "transit",
+            "unknown"
+          ],
+          "title": "Floor State",
+          "type": "string"
+        },
+        "generation": {
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "map_version_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Map Version Id"
+        },
+        "reason": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "robot_id": {
+          "format": "uuid",
+          "title": "Robot Id",
+          "type": "string"
+        },
+        "run_id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Sha256"
+        },
+        "source": {
+          "const": "gt_geometry",
+          "title": "Source",
+          "type": "string"
+        },
+        "source_pgm_sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Pgm Sha256"
+        },
+        "spawn_floor_id": {
+          "enum": [
+            "l1",
+            "l2",
+            "f1"
+          ],
+          "title": "Spawn Floor Id",
+          "type": "string"
+        },
+        "world_id": {
+          "enum": [
+            "v5_building",
+            "warehouse"
+          ],
+          "title": "World Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "robot_id",
+        "generation",
+        "run_id",
+        "epoch",
+        "floor_rev",
+        "world_id",
+        "building_id",
+        "spawn_floor_id",
+        "current_floor_id",
+        "floor_id",
+        "map_version_id",
+        "sha256",
+        "source_pgm_sha256",
+        "source",
+        "floor_state",
+        "reason",
+        "confirmed_sim_t"
+      ],
+      "title": "FloorContext",
+      "type": "object"
+    },
+    "Progress": {
+      "additionalProperties": false,
+      "properties": {
+        "done": {
+          "minimum": 0,
+          "title": "Done",
+          "type": "integer"
+        },
+        "total": {
+          "minimum": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "done",
+        "total"
+      ],
+      "title": "Progress",
+      "type": "object"
+    },
+    "RunSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "fail_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fail Code"
+        },
+        "progress": {
+          "$ref": "#/$defs/Progress"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "QUEUED",
+            "PREPARING",
+            "MOVING",
+            "AT_WAYPOINT",
+            "PERFORMING",
+            "WAIT_CONFIRM",
+            "PAUSED",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "step": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "title": "Step",
+          "type": "integer"
+        },
+        "wait_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "LINK_LOST",
+                "STOPPED_BY_USER",
+                "RECORDING_UNAVAILABLE"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Wait Reason"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "step",
+        "progress",
+        "wait_reason",
+        "fail_code"
+      ],
+      "title": "RunSnapshot",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/PhoneStateUpload",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Display-only relay. Possession of an issued pass is checked with app auth.",
+  "properties": {
+    "observed_at": {
+      "format": "date-time",
+      "title": "Observed At",
+      "type": "string"
+    },
+    "pass_token": {
+      "maxLength": 4096,
+      "minLength": 1,
+      "title": "Pass Token",
+      "type": "string"
+    },
+    "robot": {
+      "format": "uuid",
+      "title": "Robot",
+      "type": "string"
+    },
+    "robot_serial": {
+      "pattern": "^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$",
+      "title": "Robot Serial",
+      "type": "string"
+    },
+    "sensor_age_ms": {
+      "maximum": 1000,
+      "minimum": 0,
+      "title": "Sensor Age Ms",
+      "type": "integer"
+    },
+    "sequence": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "title": "Sequence",
+      "type": "integer"
+    },
+    "state": {
+      "$ref": "#/$defs/AgentState"
+    },
+    "t": {
+      "const": "phone.state",
+      "title": "T",
+      "type": "string"
+    }
+  },
+  "required": [
+    "t",
+    "robot",
+    "pass_token",
+    "sequence",
+    "observed_at",
+    "robot_serial",
+    "sensor_age_ms",
+    "state"
+  ],
+  "title": "PhoneStateUpload",
+  "type": "object"
+}

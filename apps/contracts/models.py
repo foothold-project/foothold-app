@@ -256,9 +256,20 @@ class StopRequestStatus(Contract):
     message: str
 
 
+class PhoneRelayState(Contract):
+    """Display only: never a direct connection, device inventory or capability."""
+    source: Literal['PHONE'] = 'PHONE'
+    battery: Battery | None
+    speed: float | None
+    devices: list[Device]
+    age_s: float = Field(ge=0)
+    valid_for_s: float = Field(ge=0, le=3)
+
+
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
-        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected'))
+        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay'))
+    phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
     state_stale: bool | None = True
     controller: Person | None = None
@@ -787,7 +798,8 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay'))
+    phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'
     robot: UUID
     connection: Literal['ONLINE', 'OFFLINE']
@@ -1848,7 +1860,12 @@ class PhoneRunUpdate(RunSnapshot):
 
 
 class PhoneState(AgentState):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('run', 'controller_since', 'reported_run'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields(
+        'run', 'controller_since', 'reported_run', 'robot_serial', 'sensor_age_ms'))
+    robot_serial: str | None = Field(default=None, pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$',
+                                    exclude_if=lambda value: value is None)
+    sensor_age_ms: int | None = Field(default=None, ge=0, strict=True,
+                                     exclude_if=lambda value: value is None)
     run: RunSnapshot | None = None
     robot: PhoneRobotID
     controller: UUID | None
@@ -1863,6 +1880,34 @@ class PhoneState(AgentState):
     sim_time_s: float | None
     sim_wall_delta_s: float | None
     simulation: bool
+
+
+class PhoneStateUpload(Contract):
+    """Display-only relay. Possession of an issued pass is checked with app auth."""
+    t: Literal['phone.state']
+    robot: UUID
+    pass_token: str = Field(min_length=1, max_length=4096, repr=False)
+    sequence: Sequence
+    observed_at: UTCDateTime
+    robot_serial: str = Field(pattern=r'^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$')
+    sensor_age_ms: int = Field(ge=0, le=1000, strict=True)
+    state: AgentState
+
+    @model_validator(mode='after')
+    def physical_display_only(self):
+        if any(int(part) > 0xFFFFFFFF for part in self.robot_serial.split('-')):
+            raise ValueError('DDS serial must contain uint32 values')
+        if self.state.mode not in ('FREE', 'USER') or self.state.reported_run is not None:
+            raise ValueError('physical manual display only')
+        if self.state.speed is not None and self.state.speed < 0:
+            raise ValueError('nonnegative measured speed required')
+        if self.state.devices_changed is not None and len(self.state.devices_changed) > 16:
+            raise ValueError('at most sixteen physical devices')
+        if any(len(d.key) > 64 or len(d.label) > 128 for d in self.state.devices_changed or []):
+            raise ValueError('bounded physical device descriptors required')
+        if any(value is not None for value in self.state.pose.model_dump().values()):
+            raise ValueError('physical relay does not accept map poses')
+        return self
 
 
 class PhoneTicketClaims(Contract):
@@ -2277,3 +2322,4 @@ TOP.update(StopRequest=StopRequest, StopRequestStatus=StopRequestStatus)
 REQUEST_MODELS.update({StopRequest, PhoneStop})
 
 REQUEST_MODELS.add(StopRequestAck)
+REQUEST_MODELS.add(PhoneStateUpload)

@@ -31,7 +31,7 @@ from sqlalchemy.exc import DBAPIError, DataError, IntegrityError, StatementError
 from apps.contracts import models as C
 from .leases import Actor, Arbiter, Effect, LeaseError, Transfer
 from .inventory import InventoryWriter
-from .robots import live_state
+from .robots import live_state, phone_relay
 from .event_messages import render, CATEGORIES, AGENT_CODES
 from .notifications import append_for_event
 from .models import Event, LeaseLog, Organization, Robot, Session, User, now
@@ -1454,6 +1454,7 @@ class Realtime:
     def screen_state(self, rid):
         online, state = live_state(self, rid)
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
+            phone_relay=phone_relay(self, rid),
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
             latched=state.get('latched'), safety_reason=state.get('safety_reason'), stop_gen=state.get('stop_gen'),

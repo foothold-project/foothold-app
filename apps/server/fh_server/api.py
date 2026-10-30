@@ -800,4 +800,6 @@ def create_app(settings: Settings | None = None):
     external_camera.install(app, UploadIdentity, upload_write, fail, authorize)
     app.state.phone_pass_issuer = issuer
     app.state.realtime.phone_pass_clock = lambda: issuer.clock()
+    from . import phone_telemetry
+    phone_telemetry.install(app, DB, Identity, fail, authorize, issuer, find_robot)
     return app

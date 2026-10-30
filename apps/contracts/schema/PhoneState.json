@@ -645,6 +645,19 @@
       "title": "Robot",
       "type": "string"
     },
+    "robot_serial": {
+      "anyOf": [
+        {
+          "pattern": "^(0|[1-9][0-9]{0,9})-(0|[1-9][0-9]{0,9})$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Robot Serial"
+    },
     "run": {
       "anyOf": [
         {
@@ -668,6 +681,19 @@
       ],
       "default": null,
       "title": "Safety Reason"
+    },
+    "sensor_age_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sensor Age Ms"
     },
     "sim_time_s": {
       "anyOf": [

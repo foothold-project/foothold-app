@@ -7,6 +7,7 @@ import sys
 
 from .config import Config
 from .runtime import run
+from .reporting import Reporting
 
 
 async def serve(config, env):
@@ -16,7 +17,7 @@ async def serve(config, env):
     for sig in signals:
         loop.add_signal_handler(sig, stop.set)
     try:
-        await run(config, env, stop=stop)
+        await run(config, env, stop=stop, reporting_factory=Reporting)
     finally:
         for sig in signals:
             loop.remove_signal_handler(sig)

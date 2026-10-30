@@ -53,8 +53,8 @@ def test_physical_phone_config_without_cloud_credentials_is_local_only(env):
 
 @pytest.mark.parametrize('change', [dict(FOOTHOLD_PHONE_SIMULATION='1'),
     dict(FH_GO2_DEDICATED_NIC='0'), dict(FOOTHOLD_PHONE_HOST='0.0.0.0'),
-    dict(FOOTHOLD_AGENT_WS_URL='wss://server.invalid/ws'),
-    dict(FOOTHOLD_AGENT_TOKEN='fake-token'), dict(FOOTHOLD_ROBOT_ID='invalid'),
+    dict(FH_GO2_CLOUD_REPORTING='1', FOOTHOLD_AGENT_WS_URL='wss://server.invalid/ws'),
+    dict(FH_GO2_CLOUD_REPORTING='1', FOOTHOLD_AGENT_TOKEN='fake-token'), dict(FOOTHOLD_ROBOT_ID='invalid'),
     dict(FOOTHOLD_PHONE_CLOCK_TRUSTED='0')])
 def test_incomplete_or_simulation_configuration_fails(env, change):
     with pytest.raises(ValueError):
@@ -62,10 +62,20 @@ def test_incomplete_or_simulation_configuration_fails(env, change):
 
 
 def test_cloud_opt_in_does_not_expose_credentials_in_repr(env):
-    config = Config.from_env({**env, 'FOOTHOLD_AGENT_WS_URL': 'wss://server.invalid/ws',
+    config = Config.from_env({**env, 'FH_GO2_CLOUD_REPORTING': '1',
+                            'FOOTHOLD_AGENT_WS_URL': 'wss://server.invalid/ws',
                             'FOOTHOLD_AGENT_TOKEN': 'fake-test-token'})
     try:
         assert config.link is not None
         assert 'fake-test-token' not in repr(config) and 'server.invalid' not in repr(config)
+    finally:
+        config.verifier.close()
+
+
+def test_inherited_registration_settings_do_not_enable_direct_cloud_link(env):
+    config = Config.from_env({**env, 'FOOTHOLD_AGENT_WS_URL': 'wss://server.invalid/ws',
+                             'FOOTHOLD_AGENT_TOKEN': 'fake-test-token'})
+    try:
+        assert config.link is None
     finally:
         config.verifier.close()

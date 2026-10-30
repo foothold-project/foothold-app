@@ -53,6 +53,12 @@ def reported_devices(realtime, rid):
     return peer.state.get('devices', []) if peer and not peer.closing else None
 
 
+def phone_relay(realtime, rid):
+    """Separate display projection. Never used by online or capability checks."""
+    cache = getattr(realtime, 'phone_telemetry', None)
+    return cache.get(rid) if cache is not None else None
+
+
 def device_error(realtime, rid, stored_error):
     # A connected agent's complete inventory supersedes persisted states;
     # omitted stored devices become MISSING, including any old ERROR.
@@ -147,6 +153,7 @@ def robot_objects(db, robots, user, realtime):
                     else '시나리오 이름 수신 대기', progress=reported_run['progress'])
                 if reported_run['status'] not in TERMINAL_RUNS else None)
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
+            phone_relay=phone_relay(realtime, str(robot.id)) if full else None,
             owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
             connection=('ONLINE' if online else 'OFFLINE') if full else 'UNKNOWN', status=state.get('status'),
             battery=state.get('battery'), location=state.get('location'), lease=lease,
