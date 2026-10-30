@@ -32,6 +32,7 @@ FAMILIES=('fh-rb-sim-*.service','fh-simmgr-agent-*.service','fh-simmgr-nav2-*.se
 REFRESH_TOOLS=Path('/opt/foothold/deploy-tools')
 REFRESH_AUDITS=Path('/var/lib/foothold')
 REFRESH_LOCK=Path('/var/lib/foothold/deploy.lock')
+GUARD_MODE=0o710  # root rwx, dedicated group search only; no listing or writes
 
 
 def run(args):return subprocess.run(args,check=True,capture_output=True,text=True,timeout=200).stdout
@@ -253,6 +254,7 @@ def attest(pid,data):
 def start_pair(start_manager,*,setup_identity=None):
     data=load();uid,_=identity(data);inactive_namespace(data)
     build.verify(rootfs(data),data['recipe_sha256']);assets(data);private_settings(data);validated(data)
+    guard_access(uid,data['identity']['gid'])
     release=CURRENT.resolve(strict=True)
     if release.parent!=Path('/opt/foothold/releases') or (release/'COMMIT').read_text().strip()!=release.name:
         raise ValueError('exact release binding required')
@@ -289,6 +291,28 @@ def atomic(path,body,mode):
     finally:os.close(fd)
 
 
+def create_guard(uid,gid):
+    GUARD.mkdir(mode=0o700)
+    os.chown(GUARD,0,gid);GUARD.chmod(GUARD_MODE)
+    state=GUARD/'state';state.mkdir(mode=0o700);os.chown(state,uid,gid)
+    lock=GUARD/'deploy.lock';lock.touch(mode=0o660);os.chown(lock,0,gid);lock.chmod(0o660)
+
+
+def guard_access(uid,gid):
+    # Read-only credential probe: the host and bind-mounted guest share inodes.
+    # Real DAC/ACL evaluation catches failures root's own access() would hide.
+    code=("import os,sys; p=sys.argv[1]; "
+          "assert os.access(p,os.X_OK); "
+          "fd=os.open(p+'/deploy.lock',os.O_RDWR|os.O_NOFOLLOW); os.close(fd); "
+          "assert os.access(p+'/state',os.W_OK|os.X_OK)")
+    try:
+        result=subprocess.run(['/usr/bin/python3','-I','-B','-c',code,str(GUARD)],user=uid,group=gid,
+            extra_groups=(),cwd='/',env={},capture_output=True,timeout=10,check=False)
+    except (OSError,subprocess.TimeoutExpired):
+        raise ValueError('guard_access: dedicated UID access probe could not complete') from None
+    if result.returncode:raise ValueError('guard_access: dedicated UID cannot traverse guard or access lock/state')
+
+
 def prepare_contents(input_path):
     if CONFIG.exists() or CONFIG.is_symlink() or GUARD.exists():raise ValueError('runtime already provisioned; no bootstrap/retry')
     data=build.private_json(input_path)
@@ -311,9 +335,7 @@ def prepare_contents(input_path):
     for leaf in ('episodes','startup','native-output','replay'):
         path=Path('/var/lib/foothold-sim')/leaf;path.mkdir(mode=0o700);os.chown(path,uid,gid)
     stage=Path('/var/lib/foothold-sim/native-output/stage');stage.mkdir(mode=0o555)
-    GUARD.mkdir(mode=0o755);os.chown(GUARD,0,0)
-    state=GUARD/'state';state.mkdir(mode=0o700);os.chown(state,uid,gid)
-    lock=GUARD/'deploy.lock';lock.touch(mode=0o660);os.chown(lock,0,gid);lock.chmod(0o660)
+    create_guard(uid,gid)
     setup=create_install_latch(GUARD/'setup-unproven')
     data.pop('identity');data['setup_identity']=list(setup)
     atomic(CONFIG,json.dumps(data,sort_keys=True)+'\n',0o600)
@@ -484,6 +506,81 @@ def refresh_tools(source,commit,sha256):
         return dict(changed=True,**details,audit=str(audit),cleanup_pending=remaining)
 
 
+def repair_guard_mode(device,inode):
+    """Offline, explicitly inode-pinned permission repair; no prepare or start."""
+    if os.geteuid()!=0:raise ValueError('server root only')
+    if type(device) is not int or type(inode) is not int or device<0 or inode<=0:
+        raise ValueError('explicit guard device/inode required')
+    for directory in (GUARD,GUARD/'state',REFRESH_AUDITS,REFRESH_LOCK.parent):
+        # state is dedicated-UID-owned; validate it separately below.
+        if directory!=GUARD/'state':refresh_directory(directory)
+    with ExitStack() as stack:
+        directory=os.open(GUARD,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+        stack.callback(os.close,directory)
+        before=os.fstat(directory)
+        if (before.st_dev,before.st_ino)!=(device,inode) or before.st_uid!=0:
+            raise ValueError('guard identity/owner differs')
+        for path in (REFRESH_LOCK,GUARD/'deploy.lock'):
+            fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+            stack.callback(os.close,fd)
+            info=os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=0:raise ValueError('untrusted existing repair lock')
+            fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        shared.ensure_no_install_latch()
+        for name in ('state/unproven','state/unproven.release-pending','setup-unproven.release-pending'):
+            path=GUARD/name
+            if path.exists() or path.is_symlink():raise ValueError('session/setup cleanup unproven')
+        data=load();uid,gid=identity(data)
+        marker=GUARD/'setup-unproven'
+        if marker.exists() or marker.is_symlink():
+            _,info=refresh_read(marker)
+            if [info.st_dev,info.st_ino]!=data['setup_identity']:raise ValueError('repair setup marker identity differs')
+        state=(GUARD/'state').lstat();lock=(GUARD/'deploy.lock').lstat()
+        if (not stat.S_ISDIR(state.st_mode) or (state.st_uid,state.st_gid)!=(uid,gid)
+                or stat.S_IMODE(state.st_mode)!=0o700 or lock.st_gid!=gid
+                or stat.S_IMODE(lock.st_mode)!=0o660):raise ValueError('guard lock/state permissions differ')
+        inactive_namespace(data)
+        current=GUARD.lstat()
+        if (current.st_dev,current.st_ino,current.st_uid,current.st_gid,current.st_mode)!=(
+                before.st_dev,before.st_ino,before.st_uid,before.st_gid,before.st_mode):
+            raise ValueError('guard changed during repair checks')
+        mode=stat.S_IMODE(before.st_mode)
+        if mode==GUARD_MODE and before.st_gid==gid:return dict(changed=False,device=device,inode=inode)
+        if mode!=0o700 or before.st_gid!=0:raise ValueError('repair requires original root:root guard mode 0700')
+        audit=REFRESH_AUDITS/('rootfs-guard-mode-'+str(device)+'-'+str(inode)+'.json')
+        if audit.exists() or audit.is_symlink():raise ValueError('guard repair audit already exists')
+        details=dict(schema=1,operation='repair-guard-mode',device=device,inode=inode,
+            before_mode=mode,after_mode=GUARD_MODE,before_gid=before.st_gid,after_gid=gid,
+            recorded_at_unix_ns=time.time_ns())
+        work=Path(tempfile.mkdtemp(prefix='.rootfs-guard-mode-',dir=REFRESH_AUDITS))
+        changed=False;published=False;complete=False;restored=False
+        try:
+            record=work/'audit'
+            with record.open('xb') as stream:
+                os.fchown(stream.fileno(),0,0);os.fchmod(stream.fileno(),0o400)
+                stream.write((json.dumps(details,sort_keys=True)+'\n').encode())
+                stream.flush();os.fsync(stream.fileno())
+            changed=True
+            os.fchown(directory,0,gid);os.fchmod(directory,GUARD_MODE);os.fsync(directory)
+            after=os.fstat(directory)
+            if (after.st_dev,after.st_ino,after.st_uid,after.st_gid,stat.S_IMODE(after.st_mode))!=(device,inode,0,gid,GUARD_MODE):
+                raise ValueError('guard repair readback differs')
+            os.link(record,audit,follow_symlinks=False);published=True
+            refresh_sync(REFRESH_AUDITS);complete=True
+        except BaseException as error:
+            try:
+                if changed:
+                    os.fchown(directory,0,before.st_gid);os.fchmod(directory,mode);os.fsync(directory)
+                if published:audit.unlink();refresh_sync(REFRESH_AUDITS)
+                restored=True
+            except BaseException:
+                raise RuntimeError('guard repair rollback/durability unproven; preserve evidence and escalate') from error
+            raise
+        finally:
+            if not changed or restored or complete:shutil.rmtree(work,ignore_errors=True)
+        return dict(changed=True,**details,audit=str(audit),cleanup_pending=[str(work)] if work.exists() else [])
+
+
 def probe():
     data=load();uid,gid=identity(data);inactive_namespace(data)
     build.verify(rootfs(data),data['recipe_sha256']);assets(data);private_settings(data)
@@ -518,14 +615,18 @@ def probe():
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation',choices=('prepare','probe','activate','refresh-tools'))
+    parser.add_argument('operation',choices=('prepare','probe','activate','refresh-tools','repair-guard-mode'))
     parser.add_argument('--input',type=Path)
     parser.add_argument('--source',type=Path,help='root-owned reviewed export with COMMIT and deploy/rootfs_runtime.py')
     parser.add_argument('--commit',help='reviewed full 40-character source commit')
     parser.add_argument('--sha256',help='reviewed SHA256 of source deploy/rootfs_runtime.py')
+    parser.add_argument('--guard-device',type=int,help='independently reviewed guard st_dev pin')
+    parser.add_argument('--guard-inode',type=int,help='independently reviewed guard st_ino pin')
     args=parser.parse_args()
     os.umask(0o077)
     if os.geteuid()!=0:raise ValueError('server root only')
+    if args.operation=='repair-guard-mode':
+        print(json.dumps(repair_guard_mode(args.guard_device,args.guard_inode),sort_keys=True));return
     if args.operation=='refresh-tools':
         if args.source is None:raise ValueError('explicit reviewed source required')
         print(json.dumps(refresh_tools(args.source,args.commit,args.sha256),sort_keys=True));return
@@ -554,4 +655,6 @@ if __name__=='__main__':
     try:main()
     except BaseException as error:
         if isinstance(error,SystemExit) and error.code in (None,0):raise
+        if isinstance(error,ValueError) and str(error).startswith('guard_access:'):
+            raise SystemExit(str(error)) from None
         raise SystemExit('Rootfs runtime refused; preserve setup/package latch and escalate') from None

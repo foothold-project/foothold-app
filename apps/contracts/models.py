@@ -2100,7 +2100,7 @@ class PhotoUploadReceipt(PhotoUploadMetadata):
 class SimFailureDetail(Contract):
     """Allowlisted diagnostics; only exact resource pre-creation proof releases a slot."""
     model_config = ConfigDict(json_schema_serialization_defaults_required=False)
-    reason: Literal['resources_low', 'manager_unreachable', 'slot_busy', 'unknown']
+    reason: Literal['resources_low', 'manager_unreachable', 'slot_busy', 'unknown', 'guard_access']
     start_not_created: bool = Field(default=False, strict=True)
     mem_available_mib: float | None = Field(default=None, ge=0, strict=True)
     load1: float | None = Field(default=None, ge=0, strict=True)
