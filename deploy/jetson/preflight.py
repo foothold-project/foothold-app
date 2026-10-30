@@ -8,6 +8,8 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import re
+from ctypes.util import find_library
 
 PINNED = {'foothold-agent': '0.2.0', 'websockets': '15.0.1',
           'unitree-sdk2py': '1.0.1', 'cyclonedds': '0.10.2',
@@ -50,6 +52,34 @@ def interfaces():
     return links
 
 
+def dds_dependencies():
+    """Inspect installed ELF metadata only; NEVER dlopen a library or import DDS."""
+    try:
+        dist = importlib.metadata.distribution('cyclonedds')
+        libraries = [dist.locate_file(p) for p in dist.files or [] if '.so' in Path(p).name]
+        bundled = {p.name for p in libraries}
+        needed = set()
+        for path in libraries:
+            output = subprocess.run(['readelf', '-d', str(path)], check=True,
+                                    capture_output=True, text=True, timeout=3).stdout
+            needed.update(re.findall(r'\(NEEDED\).*\[([^]]+)\]', output))
+        missing = []
+        for name in sorted(needed - bundled):
+            match = re.fullmatch(r'lib([A-Za-z0-9_+-]+)\.so(?:\.[0-9.]+)?', name)
+            if match is None or find_library(match[1]) != name:
+                missing.append(name)
+        has_ddsc = any('libddsc' in name for name in bundled | needed)
+        # A pure binding may discover ddsc at runtime rather than ELF NEEDED.
+        if not has_ddsc and find_library('ddsc') is None:
+            missing.append('libddsc (runtime lookup)')
+        return {'metadata_complete': bool(libraries) and not missing,
+                'bundled': sorted(bundled), 'needed': sorted(needed), 'missing': missing,
+                'loaded': False}
+    except (importlib.metadata.PackageNotFoundError, OSError, subprocess.SubprocessError):
+        return {'metadata_complete': False, 'bundled': [], 'needed': [],
+                'missing': ['cyclonedds package or ELF inspection unavailable'], 'loaded': False}
+
+
 def main():
     import os
     parser = argparse.ArgumentParser(description=__doc__)
@@ -63,6 +93,10 @@ def main():
     links = interfaces()
     override = any(os.environ.get(k) for k in ['CYCLONEDDS_URI','CYCLONEDDS_HOME','LD_LIBRARY_PATH'])
     report = evaluate(platform.machine(), sys.version_info, packages, links, override)
+    report['dds_dependencies'] = dds_dependencies()
+    if not report['dds_dependencies']['metadata_complete']:
+        report['issues'].append('dds-shared-library-metadata-incomplete')
+        report['ready_for_runtime_review'] = False
     jetpack = Path('/etc/nv_tegra_release')
     report.update({'machine': platform.machine(), 'python': platform.python_version(),
                    'libc': list(platform.libc_ver()), 'packages': packages, 'interfaces': links,
