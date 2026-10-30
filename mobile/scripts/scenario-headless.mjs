@@ -24,12 +24,14 @@ const map = decodeMap(read(`../sim/assets/${id}/map.json`));
 for (const f of map.physics_assets ?? []) { const b = readFileSync(new URL(`../sim/assets/${id}/${f}`, import.meta.url)); mj.FS.writeFile(`/go2/${f}`, b); mj.FS.writeFile(`/go2/assets/${f}`, b); }
 mj.FS.writeFile('/go2/world.xml', readFileSync(new URL(`../sim/assets/${id}/${id}.xml`, import.meta.url)));
 mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
-const sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw });
-const scan = makeLidar(mj, sim.m, sim.d, 360);
-const runner = createScenarioRunner(sim, () => false);
-const routes = validateScenarios(read(`../sim/assets/${id}/scenarios.json`).filter((s) => !process.argv[3] || s.id === process.argv[3]), map);
+const routes = read(`../sim/assets/${id}/scenarios.json`).filter((s) => !process.argv[3] || s.id === process.argv[3]);
 assert.ok(routes.length, 'at least one selected route required');
 for (const route of routes) {
+  const floor = route.floor_id ? decodeMap(read(`../sim/assets/${id}/map-${route.floor_id}.json`)) : map;
+  validateScenarios([route], floor);
+  const sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: floor.floor_z, spawn: floor.spawn_xyyaw });
+  const scan = makeLidar(mj, sim.m, sim.d, 360);
+  const runner = createScenarioRunner(sim, () => false);
   sim.reset(); sim.hold(0.5); runner.start(route.points);
   let front = Infinity, steps = 0, scanMs = 0, followMs = 0, last = 0;
   const arrived = [], start = performance.now();
@@ -49,4 +51,5 @@ for (const route of routes) {
   assert.equal(runner.index, route.points.length); assert.deepEqual(sim.cmd, [0, 0, 0]);
   console.log(JSON.stringify({ id: route.id, status: runner.status, falls: 0, seconds: +(steps * POLICY_DT).toFixed(2), arrived,
     wallMs: +(performance.now() - start).toFixed(1), followUsPerStep: +(followMs * 1000 / steps).toFixed(2), scanMs: +scanMs.toFixed(1) }));
+  sim.dispose();
 }

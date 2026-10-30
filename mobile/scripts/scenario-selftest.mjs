@@ -6,11 +6,13 @@ import { validateScenarios, createScenarioRunner, bindScenarioInterrupts, frontD
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url)));
 let routes = 0, samples = 0;
 for (const { id } of read('../sim/maps.json')) {
-  const map = decodeMap(read(`../sim/assets/${id}/map.json`));
-  const list = validateScenarios(read(`../sim/assets/${id}/scenarios.json`), map);
-  assert.throws(() => validateScenarios([{ id: 'bad', name: 'bad', points: [{ x: Infinity, y: 0 }] }], map));
-  assert.throws(() => validateScenarios([{ id: 'bad', name: 'bad', points: [{ x: map.origin[0] - 1, y: 0 }] }], map));
+  const defaultMap = decodeMap(read(`../sim/assets/${id}/map.json`));
+  const list = read(`../sim/assets/${id}/scenarios.json`);
   for (const s of list) {
+    const map = s.floor_id ? decodeMap(read(`../sim/assets/${id}/map-${s.floor_id}.json`)) : defaultMap;
+    validateScenarios([s], map);
+    assert.throws(() => validateScenarios([{ id: 'bad', name: 'bad', points: [{ x: Infinity, y: 0 }] }], map));
+    assert.throws(() => validateScenarios([{ id: 'bad', name: 'bad', points: [{ x: map.origin[0] - 1, y: 0 }] }], map));
     routes++;
     // Check every leg from spawn, including a 35 cm body clearance around it.
     let prev = { x: map.spawn_xyyaw[0], y: map.spawn_xyyaw[1] };
