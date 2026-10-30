@@ -8,13 +8,25 @@ from foothold_agent.phone.tickets import json_object
 from . import sdk
 from .feedback import Feedback
 from .reporting import devices, project
-from .sink import Go2Sink
+from .sink import Go2Sink, server_velocity
+
+
+def axes(value, *, local=False):
+    try:
+        return server_velocity(value)
+    except ValueError:
+        return None
+
+
+def project_velocity(vx, vy, wz):
+    return server_velocity((vx, vy, wz)), ''
 
 
 class DriveSession(Session):
     def __init__(self, feedback, **kwargs):
         self.feedback = feedback
-        super().__init__(identity={'robot_model': 'unitree_go2'}, **kwargs)
+        super().__init__(identity={'robot_model': 'unitree_go2'},
+                         axes_validator=axes, velocity_projection=project_velocity, **kwargs)
 
     def disconnect(self):
         # Socket close is an immediate local STOP, independent of link grace.
@@ -47,6 +59,10 @@ class DriveSession(Session):
         except (ValueError, TypeError, UnicodeError, RecursionError):
             return self.tick()
         if isinstance(frame, dict):
+            if frame.get('t') == 'cmd' and axes(frame.get('axes')) is None:
+                self.core.st = None
+                self.core.stop('outside server-drive command table')
+                return self._finish((MotionCommand('stop'),), state=True)
             if frame.get('t') == 'stop':
                 self.core.st = None
             if frame.get('t') == 'lease' and frame.get('holder_type') not in (None, 'USER'):
@@ -78,10 +94,11 @@ class ServerSink:
 
 
 async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=None,
-              connect_factory=None, client_factory=Client):
+              connect_factory=None, client_factory=Client, media_factory=None):
     stop = stop or asyncio.Event()
     feedback = Feedback(config.approval.robot_serial)
     channel = sink = client = None
+    media_task = None
     tasks = []
     deadline = time.monotonic()+max(0, config.approval.expires_at-time.time())
     try:
@@ -103,6 +120,14 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
         client = client_factory(session, ServerSink(sink, session), config.link)
         sink.start_threads()
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(stop.wait())]
+        # Observations own independent SDK workers and sockets. Their failure is
+        # intentionally excluded from the control lifetime/health task set.
+        if media_factory is not None:
+            try:
+                media = media_factory(config, env, channel)
+                media_task = asyncio.create_task(media.run())
+            except Exception:
+                pass
         healthy = False
         while not any(task.done() for task in tasks):
             if feedback.fault or time.monotonic() >= deadline:
@@ -126,8 +151,12 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
         finally:
             for task in tasks:
                 task.cancel()
+            if media_task is not None:
+                media_task.cancel()
             try:
                 await asyncio.gather(*tasks, return_exceptions=True)
+                if media_task is not None:
+                    await asyncio.gather(media_task, return_exceptions=True)
             finally:
                 try:
                     if sink is not None:

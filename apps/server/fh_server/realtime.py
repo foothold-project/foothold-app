@@ -442,6 +442,8 @@ class Realtime:
         self.starts -= 1
         if self.starts:
             return
+        if hasattr(self, 'drive_media'):
+            await self.drive_media.close()
         await self.inventory.close()
         for task in self.tasks + list(self.archive_closers):
             task.cancel()
@@ -1416,11 +1418,27 @@ class Realtime:
                                 self.apply(self.arbiter.tick())
                             self.apply(self.arbiter.respond(rid, actor, str(msg.request_id), msg.accept))
                         elif msg.t == 'cmd':
+                            if self.agents[rid].server_drive and not self.agents[rid].simulation:
+                                from apps.contracts.server_drive import ALLOWED
+                                self.arbiter.owned(self.arbiter.robot(rid), actor, str(msg.lease_id))
+                                if tuple(msg.axes) not in ALLOWED:
+                                    self.apply(self.arbiter.stop(rid, actor))
+                                    raise LeaseError('SERVER_DRIVE_COMMAND', '허용된 시험 명령표 밖 입력입니다.', 400)
                             self.apply(self.arbiter.cmd(rid, actor, str(msg.lease_id), msg.seq, msg.axes))
                         elif msg.t == 'unlock':
                             self.apply(self.arbiter.unlock(rid, actor, str(msg.lease_id), msg.stop_gen))
                     self.put(peer, C.ScreenReply(id=msg.id, ok=True).model_dump(mode='json'))
                 except ValidationError:
+                    if raw.get('t') == 'cmd':
+                        # Malformed axes also stop an authenticated trial holder;
+                        # never let schema rejection retain its previous movement.
+                        with suppress(ValueError, TypeError, self.api_error, LeaseError):
+                            rejected_rid = str(UUID(raw.get('robot')))
+                            agent = self.agents.get(rejected_rid)
+                            if agent is not None and agent.server_drive and not agent.simulation:
+                                self.cached_access(peer, [rejected_rid], 'O_OWN')
+                                self.arbiter.owned(self.arbiter.robot(rejected_rid), actor, str(UUID(raw.get('lease_id'))))
+                                self.apply(self.arbiter.stop(rejected_rid, actor))
                     self.put(peer, {'t': 'reply', 'id': str(raw.get('id', ''))[:128], 'ok': False,
                                     'error': {'code': 'VALIDATION', 'message': '입력 형식을 확인하세요.', 'detail': {}}})
                 except (self.api_error, LeaseError) as exc:
@@ -2221,6 +2239,8 @@ def install(app, settings, factory, authorize, api_error):
     app.state.realtime = realtime
     app.add_api_websocket_route('/api/v1/ws', realtime.screen_ws)
     app.add_api_websocket_route('/api/v1/agent/ws', realtime.agent_ws)
+    from .drive_media import install as install_drive_media
+    install_drive_media(app, realtime)
 
     class StopResponse(JSONResponse):
         def __init__(self, records, reservations):

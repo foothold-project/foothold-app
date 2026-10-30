@@ -30,10 +30,29 @@ ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. �
 
 ## 유지되는 안전 경계
 
-입력은 기존 normalized axes이며 출력은 `(0,0,0)`, `(0.6,0,0)`, `(0.6,0,±0.5)`만 가능하다. 웹은 **새 seq로 10~20Hz 입력**을 보낸다. 서버는 입력을 그대로 전달하며 마지막 명령을 반복하지 않는다(lease만으로 계속 움직이지 않음). 원입력이 0.30초 끊기면 Move(0)·StopMove·잠금이다. 인터넷 지연으로 자주 잠기면 올바른 실패이므로 시간을 늘리지 않고 RTT/간격을 현장 측정한다. 소켓 단절은 즉시 정지·잠금이며 재연결만으로 재개하지 않는다. 주기 tick·상태·ping은 원입력 시각을 갱신하지 않는다. STOP은 lease와 무관하게 우선하고, lease 상실은 정지한다. 정지 확인에는 신선한 일치 serial의 LowState + SportModeState를 사용하며 SDK 성공 코드는 정지 증거가 아니다. RUN·SLAM·지도 명령은 이 예외로 열지 않는다. 서버 상태에는 기존 배터리·실측 속도·latched·stop_gen·실측 후 stop_ref를 사용한다.
+서버 경유 실기의 `cmd.axes`는 **SI 값 그대로**이며 아래 9개만 정확히 일치시킨다. 반올림·값 맞추기 없이 표 밖은 서버와 에이전트가 STOP·잠금하고 거절한다. 폰의 기존 네 가지 0.6 m/s 표와 시뮬 입력 정책은 바꾸지 않는다.
+
+| 키 | (vx m/s, vy m/s, wz rad/s) |
+|---|---|
+| 손 뗌 | (0, 0, 0) |
+| ↑ / ↓ | (0.4, 0, 0) / (-0.2, 0, 0) |
+| ← / → | (0, 0.2, 0) / (0, -0.2, 0) |
+| A / D | (0, 0, 0.5) / (0, 0, -0.5) |
+| ↑+A / ↑+D | (0.4, 0, 0.5) / (0.4, 0, -0.5) |
+
+ 웹은 **새 seq로 10~20Hz 입력**을 보낸다. 서버는 입력을 그대로 전달하며 마지막 명령을 반복하지 않는다(lease만으로 계속 움직이지 않음). 원입력이 0.30초 끊기면 Move(0)·StopMove·잠금이다. 인터넷 지연으로 자주 잠기면 올바른 실패이므로 시간을 늘리지 않고 RTT/간격을 현장 측정한다. 소켓 단절은 즉시 정지·잠금이며 재연결만으로 재개하지 않는다. 주기 tick·상태·ping은 원입력 시각을 갱신하지 않는다. STOP은 lease와 무관하게 우선하고, lease 상실은 정지한다. 정지 확인에는 신선한 일치 serial의 LowState + SportModeState를 사용하며 SDK 성공 코드는 정지 증거가 아니다. RUN·SLAM·지도 명령은 이 예외로 열지 않는다. 서버 상태에는 기존 배터리·실측 속도·latched·stop_gen·실측 후 stop_ref를 사용한다.
 
 ## 이 PC 설치·검증 기록
 
 시스템 Python/apt 변경 없이 `runs/go2-python/`의 사용자 공간 CPython 3.10.22와 `runs/go2-x86-venv/`를 준비했다(모두 gitignore). [고정 SDK 커밋](https://github.com/unitreerobotics/unitree_sdk2_python/blob/814556d15970dd2ecf1c9984e845ca02ab07e206/setup.py)은 `814556d15970dd2ecf1c9984e845ca02ab07e206`, cyclonedds는 `0.10.2`, numpy `1.26.4`, opencv-python `4.10.0.84`, websockets `15.0.1`, zeroconf `0.148.0`이다. [공식 PyPI 파일](https://pypi.org/project/cyclonedds/0.10.2/#files)의 `cyclonedds-0.10.2-cp310-cp310-manylinux_2_17_x86_64.manylinux2014_x86_64.whl` SHA256은 `1194b03377e7644c7fb7230dd19b85eb363699d179459bdc5486974ec8d0fc0e`다. wheel과 설치 로그/해시는 `runs/go2-x86-artifacts/`에 로컬 보관한다. preflight는 패키지/커밋/wheel 해시/ELF 메타데이터만 읽고 SDK를 import하거나 DDS에 참가하지 않는다. 소스 갱신 뒤 실행은 위처럼 `PYTHONPATH=apps/agent`를 명시한다.
 
-가짜 SDK·loopback WS 검증만 수행했다. 실기 NIC/serial·실제 STOP·인터넷 왕복·배터리/속도 실측 표시는 미검증이며, 이 문서의 설치 준비 완료는 실기 안전 검증이 아니다. 시험 종료 시 현장 STOP·정지 확인 후 에이전트를 종료하고 배포 담당자가 서버 목록에서 UUID를 제거한다. 코드 되돌림은 해당 기능 커밋의 revert로 하며 운영 교체는 별도 배포 절차다.
+이동 경로는 가짜 SDK·loopback WS로만 검증했다. 별도 사용자 승인으로 실기 상태 구독→로컬 서버→웹 상태 수신·headless 표시만 읽기 전용으로 확인했으며 실기 이동 검증은 아니다. 실기 NIC/serial·실제 STOP·인터넷 왕복·배터리/속도 실측 표시는 미검증이며, 이 문서의 설치 준비 완료는 실기 안전 검증이 아니다. 시험 종료 시 현장 STOP·정지 확인 후 에이전트를 종료하고 배포 담당자가 서버 목록에서 UUID를 제거한다. 코드 되돌림은 해당 기능 커밋의 revert로 하며 운영 교체는 별도 배포 절차다.
+
+
+## 관측 전용 경로와 읽기 모드
+
+카메라는 SDK VideoClient.GetImageSample로 읽어 640×360 이하 JPEG·64 KiB 이하·최대 5 Hz로 줄인다. L1은 같은 승인된 DDS 채널의 `rt/utlidar/cloud`를 읽고 센서 frame(`lidar_link` 또는 `utlidar_lidar`)의 float32 XYZ를 4000점·48 KiB 이하·최대 2 Hz로 줄인다. 지도 TF/위치는 만들지 않는다. 각 관측 worker와 최신 자료 1개짜리 보관함은 Core·Go2Sink와 무관하며, 카메라 RPC·코덱·업로드가 멈춰도 입력 감시/STOP을 기다리게 하지 않는다. 카메라 captured_at은 PC 수신 시각이며 기체 촬영 시각의 정확도는 미검증이다.
+
+에이전트는 기존 agent 토큰으로 **HTTP POST** `/api/v1/agent/drive-media/{rgb|lidar}`에 `{header: media/1 JSON, points: null 또는 XYZ bytes의 base64}`를 올린다(본문 100,000 bytes 상한, 채널당 최대 5 Hz). 조종 WS 4096 bytes 제한과 배포 기동 인자는 유지한다. 웹은 같은 서버의 `/api/v1/robots/{robot_id}/drive-media/{rgb|lidar}` WS에 기존 로그인 쿠키+정확한 Origin으로 접속해 받기만 한다(Bearer 앱 인증도 가능). hello·URL 토큰·조종 입력은 없다. `media.video` JSON, `media.points` JSON 직후 binary xyz_f32le, `media.status`는 기존 media/1 그대로다. robot/epoch/episode_id(null)를 확인하고 epoch 변경·1초 넘은 자료·끊김 때 이전 그림을 비운다. 담당자/총괄만 볼 수 있고 재배정·로그아웃·토큰 폐기 시 재확인하여 닫는다. 느린 viewer는 0.20초 쓰기 마감으로 끊으며 관측 오류가 조종 연결을 닫지 않는다.
+
+움직임 SDK 객체 없이 상태만 서버로 올릴 때는 별도 **읽기 전용** 모드를 쓴다. `FH_GO2_DIRECT_ENABLED` 및 `FH_GO2_FIELD_APPROVAL`은 제거하고, robot UUID·agent 토큰·서버 WS 주소만 기존처럼 설정한 후 `--server --readonly --nic <ROBOT_NIC>`를 명시한다. 이 모드는 go2_readonly의 두 DDS 구독자·DiscardSink만 사용하고 SportClient/Go2Sink/Move/StopMove/카메라 RPC를 만들지 않는다. 서버 cmd·lease·unlock·STOP은 모두 폐기하고 stop_ref=0을 유지하여 물리 정지 확인이나 조종권을 만들지 않는다. latched/applied는 논리 잠금·폐기 출력이며 **물리 STOP 확인이 아니다**. 이 명령 역시 실제 DDS 읽기 참가이므로 현장 읽기 승인이 있어야 한다. 읽기 모드에서는 카메라·라이다 송출을 하지 않는다.

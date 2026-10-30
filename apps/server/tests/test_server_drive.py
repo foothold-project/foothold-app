@@ -60,8 +60,8 @@ def test_trial_relay_lease_cmd_stop_admin_and_two_connections(trial, seeded):
             assert receive(ag, 'unlock')['stop_gen'] == 3
             assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[0,0,0]))['ok']
             assert receive(ag, 'cmd')['axes'] == [0,0,0]
-            assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[1,0,1]))['ok']
-            assert receive(ag, 'cmd')['axes'] == [1,0,1]
+            assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[.4,0,.5]))['ok']
+            assert receive(ag, 'cmd')['axes'] == [.4,0,.5]
             denied = reply(second, send(second, 'cmd', rid, lease_id=lease, seq=2, axes=[1,0,0]))
             assert denied['error']['code'] == 'LEASE_MISMATCH'
             assert reply(second, send(second, 'lease.take', rid))['error']['code'] == 'LEASE_HELD'
@@ -101,3 +101,16 @@ def test_empty_list_retains_real_rejection(client, seeded):
         for kind in ('lease.take', 'stop'):
             assert reply(ws, send(ws, kind, rid))['error']['code'] == 'PHONE_DIRECT_REQUIRED'
     assert client.post(f'/api/v1/robots/{rid}/stop', headers=owner).json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
+
+
+@pytest.mark.parametrize('bad', [[.4000000001,0,0],[-.2,0,.5],[.4,.2,0],[1,0,0],[True,0,0]])
+def test_outside_exact_table_is_stopped_and_rejected(trial,seeded,bad):
+    rid=seeded['robots']['mine']
+    with trial.websocket_connect('/api/v1/agent/ws',headers={
+            'authorization':'Bearer fake-test-'+str(rid)}) as ag:
+        ag.send_json(hello()); receive(ag,'lease'); receive(ag,'stop')
+        with screen(trial,app_token(trial)) as ws:
+            lease=take(ws,ag,rid)
+            result=reply(ws,send(ws,'cmd',rid,lease_id=lease,seq=1,axes=bad))
+            assert not result['ok'] and result['error']['code'] in ('SERVER_DRIVE_COMMAND','VALIDATION')
+            receive(ag,'stop')
