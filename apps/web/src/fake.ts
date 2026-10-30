@@ -13,7 +13,9 @@ export type Status = 'STOP_LATCHED' | 'ERROR' | 'TELEOP' | 'PAUSED' | 'RUNNING' 
 export type Holder = { type: 'USER' | 'RUN'; id: string | null; name: string };
 export type Robot = { id: string; name: string; owner: string; ownerName?: string; battery: number | null; online: boolean; seenAt: string; status: Status | null; mission?: string;
   unknown?: 'link' | 'wait' | 'summary'; holder?: Holder | null; listedAt?: string; location?: Location | null; devices?: Device[]; sim?: boolean;
-  phoneRelay?: PhoneRelayState | null; phoneRelayAt?: number };
+  phoneRelay?: PhoneRelayState | null; phoneRelayAt?: number;
+  /** 서버가 이 실기 로봇의 웹 서버 경유 시험 조종을 켰음(10-30 SERVER-DRIVE — serverdrive.tsx). 서버가 true 로 줄 때만 */
+  serverDrive?: boolean };
 export type Tone = 'off' | 'ok' | 'warn' | 'bad';
 
 export const ROLE_NAME: Record<Role, string> = { ORG_ADMIN: '총괄', OPERATOR: '운영 관리자' };
@@ -84,6 +86,7 @@ export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
   phoneRelay: r.phone_relay ?? null, phoneRelayAt: performance.now(),
+  serverDrive: (r as { server_drive?: unknown }).server_drive === true,   // 계약 필드는 SERVER-DRIVE-AGENT 몫 — 그 전엔 없으면 꺼짐
 });
 export const toRobots = (l: RobotSummary[]) => { const sims = l.filter((r) => r.simulation).map((r) => r.id); return l.map((r) => toRobot(r, sims)); };
 
