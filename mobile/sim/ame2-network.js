@@ -39,45 +39,94 @@ export function loadAme2Policy(buffer, manifest) {
   if (offset !== buffer.byteLength || manifest.tensors.length !== 41) throw new Error('AME-2 텐서 수/길이 오류');
   // The manifest's MHA uses in_proj_weight/bias instead of .weight/.bias.
   weights['mha.in_proj.weight'] = weights['mha.in_proj_weight']; weights['mha.in_proj.bias'] = weights['mha.in_proj_bias']; shapes['mha.in_proj.weight'] = [288, 96];
+  // Pack four output rows together once, so the inner loop reads adjacent
+  // weights instead of four distant rows. The source/export is never changed.
+  const packed = Object.create(null);
+  for (const [name, shape] of Object.entries(shapes)) {
+    if (!name.endsWith('.weight') || shape.length < 2 || shape[0] % 4) continue;
+    const cols = shape.slice(1).reduce((n, v) => n * v, 1), w = weights[name], out = new Float32Array(w.length);
+    for (let i = 0; i < shape[0]; i += 4) for (let j = 0; j < cols; j++) for (let r = 0; r < 4; r++) out[i * cols + j * 4 + r] = w[(i + r) * cols + j];
+    packed[name] = out;
+  }
   // Reuse per-operator output buffers. No recurrent state or retained action.
   const scratch = new Map();
   const alloc = (key, n) => {
     if (!scratch.has(key)) scratch.set(key, new Float32Array(n));
     return scratch.get(key);
   };
-  function linear(x, prefix, activation = false, rowStart = 0, rows = null, key = prefix) {
-    const w = weights[prefix + '.weight'], b = weights[prefix + '.bias'];
-    const [allRows, cols] = shapes[prefix + '.weight'];
-    rows ??= allRows;
-    const batches = x.length / cols, out = alloc(key, batches * rows);
-    for (let k = 0; k < batches; k++) for (let i = 0; i < rows; i++) {
-      const wi = (i + rowStart) * cols, xi = k * cols;
-      let sum = 0;
-      for (let j = 0; j < cols; j++) sum += w[wi + j] * x[xi + j];
-      const v = f(f(sum) + b[i + rowStart]);
-      out[k * rows + i] = activation ? elu(v) : v;
+  // Two packed groups (eight independent rows) share each input load, with
+  // four/scalar tails. Each dot product keeps its original left-to-right
+  // double accumulation and float32 operator boundary.
+  function matmul(x, w, b, cols, rows, rowStart, activation, out) {
+    for (let k = 0; k < x.length / cols; k++) {
+      const xi = k * cols, yi = k * rows;
+      let i = 0;
+      for (; i + 7 < rows; i += 8) {
+        const wi = (i + rowStart) * cols, next = wi + 4 * cols;
+        let a = 0, c = 0, d = 0, e = 0, g = 0, h = 0, u = 0, v = 0;
+        for (let j = 0; j < cols; j++) {
+          const xj = x[xi + j], p = wi + j * 4, q = next + j * 4;
+          a += w[p] * xj; c += w[p + 1] * xj; d += w[p + 2] * xj; e += w[p + 3] * xj;
+          g += w[q] * xj; h += w[q + 1] * xj; u += w[q + 2] * xj; v += w[q + 3] * xj;
+        }
+        a = f(f(a) + b[i + rowStart]); c = f(f(c) + b[i + rowStart + 1]);
+        d = f(f(d) + b[i + rowStart + 2]); e = f(f(e) + b[i + rowStart + 3]);
+        g = f(f(g) + b[i + rowStart + 4]); h = f(f(h) + b[i + rowStart + 5]);
+        u = f(f(u) + b[i + rowStart + 6]); v = f(f(v) + b[i + rowStart + 7]);
+        out[yi + i] = activation ? elu(a) : a; out[yi + i + 1] = activation ? elu(c) : c;
+        out[yi + i + 2] = activation ? elu(d) : d; out[yi + i + 3] = activation ? elu(e) : e;
+        out[yi + i + 4] = activation ? elu(g) : g; out[yi + i + 5] = activation ? elu(h) : h;
+        out[yi + i + 6] = activation ? elu(u) : u; out[yi + i + 7] = activation ? elu(v) : v;
+      }
+      for (; i + 3 < rows; i += 4) {
+        const wi = (i + rowStart) * cols;
+        let a = 0, c = 0, d = 0, e = 0;
+        for (let j = 0; j < cols; j++) {
+          const v = x[xi + j], p = wi + j * 4;
+          a += w[p] * v; c += w[p + 1] * v;
+          d += w[p + 2] * v; e += w[p + 3] * v;
+        }
+        a = f(f(a) + b[i + rowStart]); c = f(f(c) + b[i + rowStart + 1]);
+        d = f(f(d) + b[i + rowStart + 2]); e = f(f(e) + b[i + rowStart + 3]);
+        out[yi + i] = activation ? elu(a) : a; out[yi + i + 1] = activation ? elu(c) : c;
+        out[yi + i + 2] = activation ? elu(d) : d; out[yi + i + 3] = activation ? elu(e) : e;
+      }
+      for (; i < rows; i++) {
+        let sum = 0;
+        const wi = (i + rowStart) * cols;
+        for (let j = 0; j < cols; j++) sum += w[wi + j] * x[xi + j];
+        const v = f(f(sum) + b[i + rowStart]);
+        out[yi + i] = activation ? elu(v) : v;
+      }
     }
     return out;
   }
+  function linear(x, prefix, activation = false, rowStart = 0, rows = null, key = prefix) {
+    const [allRows, cols] = shapes[prefix + '.weight'];
+    rows ??= allRows;
+    return matmul(x, packed[prefix + '.weight'] ?? weights[prefix + '.weight'], weights[prefix + '.bias'], cols, rows, rowStart, activation, alloc(key, x.length / cols * rows));
+  }
   const mlp = (x, p) => linear(linear(linear(x, p + '.net.0', true), p + '.net.2', true), p + '.net.4');
   function conv(x, h, width, prefix, pad = 0, dilation = 1) {
-    const w = weights[prefix + '.weight'], b = weights[prefix + '.bias'];
+    const w = packed[prefix + '.weight'], b = weights[prefix + '.bias'];
     const [oc, ic, kernel] = shapes[prefix + '.weight'];
     const oh = h + 2 * pad - dilation * (kernel - 1), ow = width + 2 * pad - dilation * (kernel - 1);
-    const out = alloc(prefix, oh * ow * oc);
-    for (let i = 0; i < oh; i++) for (let j = 0; j < ow; j++) for (let o = 0; o < oc; o++) {
-      let sum = 0;
-      for (let c = 0; c < ic; c++) for (let a = 0; a < kernel; a++) {
-        const xx = i - pad + a * dilation;
-        if (xx < 0 || xx >= h) continue;
-        for (let z = 0; z < kernel; z++) {
-          const yy = j - pad + z * dilation;
-          if (yy >= 0 && yy < width) sum += x[(xx * width + yy) * ic + c] * w[((o * ic + c) * kernel + a) * kernel + z];
-        }
+    const cols = ic * kernel * kernel, patches = alloc(prefix + '.patches', oh * ow * cols);
+    // Precompute source indices once per layer, including dilation and padding.
+    // Packing in C,H,W order matches the original summation and OIHW weights.
+    const indexKey = prefix + '.indices';
+    if (!scratch.has(indexKey)) {
+      const indices = new Int32Array(patches.length);
+      let p = 0;
+      for (let i = 0; i < oh; i++) for (let j = 0; j < ow; j++) for (let c = 0; c < ic; c++) for (let a = 0; a < kernel; a++) for (let z = 0; z < kernel; z++) {
+        const xx = i - pad + a * dilation, yy = j - pad + z * dilation;
+        indices[p++] = xx >= 0 && xx < h && yy >= 0 && yy < width ? (xx * width + yy) * ic + c : -1;
       }
-      out[(i * ow + j) * oc + o] = elu(f(f(sum) + b[o]));
+      scratch.set(indexKey, indices);
     }
-    return out;
+    const indices = scratch.get(indexKey);
+    for (let i = 0; i < patches.length; i++) patches[i] = indices[i] < 0 ? 0 : x[indices[i]];
+    return matmul(patches, w, b, cols, oc, 0, true, alloc(prefix, oh * ow * oc));
   }
   const cat = (key, ...arrays) => {
     const out = alloc(key, arrays.reduce((n, a) => n + a.length, 0));
@@ -100,11 +149,14 @@ export function loadAme2Policy(buffer, manifest) {
     const offsets = cropOffsets(centers), patch = alloc('patch', 360), heights = alloc('patchZ', 120);
     for (let i = 0; i < 12; i++) for (let j = 0; j < 10; j++) {
       const src = ((offsets[0] + i) * 13 + offsets[1] + j) * 3, dst = (i * 10 + j) * 3;
-      patch.set(mapping.subarray(src, src + 3), dst); heights[i * 10 + j] = mapping[src + 2];
+      patch[dst] = mapping[src]; patch[dst + 1] = mapping[src + 1]; patch[dst + 2] = heights[i * 10 + j] = mapping[src + 2];
     }
     const spatial = conv(conv(heights, 12, 10, 'cnn_part.0', 2), 12, 10, 'cnn_part.2', 2);
     const fc = linear(patch, 'fc_part.0', true), localInput = alloc('localInput', 120 * 64);
-    for (let i = 0; i < 120; i++) { localInput.set(fc.subarray(i * 16, (i + 1) * 16), i * 64); localInput.set(spatial.subarray(i * 48, (i + 1) * 48), i * 64 + 16); }
+    for (let i = 0; i < 120; i++) {
+      for (let j = 0; j < 16; j++) localInput[i * 64 + j] = fc[i * 16 + j];
+      for (let j = 0; j < 48; j++) localInput[i * 64 + 16 + j] = spatial[i * 48 + j];
+    }
     const local = linear(localInput, 'local_proj.0', true), query = mlp(cat('queryInput', proprio, global), 'query_mlp');
     const q = linear(query, 'mha.in_proj', false, 0, 96, 'q');
     const k = linear(local, 'mha.in_proj', false, 96, 96, 'k'), v = linear(local, 'mha.in_proj', false, 192, 96, 'v');
