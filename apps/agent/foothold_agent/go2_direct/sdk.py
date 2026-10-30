@@ -4,6 +4,7 @@ import socket
 import time
 import os
 from .approval import validate
+from .identity import verify
 
 SDK_TIMEOUT_S = .10
 
@@ -72,8 +73,7 @@ def connect(env, *, observed_serial, wall=time.time, monotonic=time.monotonic, c
     already validated subscription channel instead of reinitializing DDS.
     """
     approval = validate(env, now=wall())
-    if observed_serial != approval.robot_serial:
-        raise PermissionError('robot serial does not match field approval')
+    verify(approval, observed_serial)
     if channel is None:
         channel = open_channel(env, wall=wall)
     elif type(channel) is not _Channel or channel.approval != approval:
@@ -93,7 +93,8 @@ def connect(env, *, observed_serial, wall=time.time, monotonic=time.monotonic, c
 def observation(env, channel, observed_serial, *, callback=None):
     """Read-only media factory, called on observation workers after field gates."""
     approval = validate(env)
-    if (observed_serial != approval.robot_serial or type(channel) is not _Channel
+    verify(approval, observed_serial)
+    if (type(channel) is not _Channel
             or channel.approval != approval):
         raise PermissionError('observation channel identity mismatch')
     if callback is not None:

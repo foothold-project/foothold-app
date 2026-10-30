@@ -5,14 +5,16 @@ import os
 import re
 import stat
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass(frozen=True)
 class Approval:
     nic: str
-    robot_serial: str
+    robot_serial: str | None
     expires_at: float
+    serial_unavailable: bool = False
+    robot_mac: str | None = field(default=None, repr=False)
 
 
 def validate(env, *, now=None, uid=None):
@@ -40,10 +42,16 @@ def validate(env, *, now=None, uid=None):
         raise PermissionError('field approval must be an object')
     expiry = value.get('expires_at')
     serial = value.get('robot_serial')
+    unavailable = value.get('serial_unavailable', False)
+    mac = value.get('robot_mac')
+    fallback = (unavailable is True and 'robot_serial' in value and serial is None
+                and isinstance(mac, str) and re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac)
+                and mac != '00:00:00:00:00:00' and not int(mac[:2], 16) & 1)
+    regular = (unavailable is False and mac is None and isinstance(serial, str)
+               and re.fullmatch(r'[A-Za-z0-9_-]{4,80}', serial))
     if (type(value.get('v')) is not int or value.get('v') != 1 or
             value.get('purpose') != 'go2-field-motion' or
-            value.get('nic') != nic or not isinstance(serial, str) or
-            not re.fullmatch(r'[A-Za-z0-9_-]{4,80}', serial) or
+            value.get('nic') != nic or not (fallback or regular) or
             type(expiry) not in (int, float) or not now < expiry <= now+1800):
         raise PermissionError('field approval is invalid or expired')
-    return Approval(nic, serial, float(expiry))
+    return Approval(nic, serial, float(expiry), bool(fallback), mac)

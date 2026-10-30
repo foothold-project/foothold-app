@@ -138,7 +138,8 @@ def test_explicit_server_configuration_has_no_phone_listener(env, monkeypatch):
         Config.from_env({**env, 'FOOTHOLD_AGENT_TOKEN':''}, server=True)
 
 
-def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
+@pytest.mark.parametrize('fallback', [False, True])
+def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallback):
     from types import SimpleNamespace as NS
     import time
     from websockets.asyncio.server import serve
@@ -153,6 +154,11 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
         normal, emergency = FakeSport(), FakeSport()
         stop = asyncio.Event()
         captured = {}
+        identity_checks = []
+        def identity_check(approval, serial):
+            assert serial == '0-0'
+            identity_checks.append(serial)
+            return True
         class Channel:
             closed = False
             handle = None
@@ -160,7 +166,7 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
             def subscribe(self, feedback):
                 def sample():
                     self.counter += 1
-                    feedback.lowstate(low(self.counter))
+                    feedback.lowstate(low(self.counter, sn=(0,0) if fallback else (1234,5678)))
                     feedback.sportmodestate(sport(self.counter))
                     self.handle = asyncio.get_running_loop().call_later(.02, sample)
                 sample()
@@ -204,11 +210,15 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
             stop.set()
         async with serve(server, '127.0.0.1', 0) as listener:
             port = listener.sockets[0].getsockname()[1]
-            config = NS(approval=NS(robot_serial='1234-5678', expires_at=time.time()+60),
+            config = NS(approval=NS(robot_serial=None if fallback else '1234-5678',
+                        serial_unavailable=fallback, robot_mac='02:00:00:00:00:01', expires_at=time.time()+60),
                         link=Settings(f'ws://127.0.0.1:{port}/agent', 'fake-token'))
             await asyncio.wait_for(run(config, {}, stop=stop, channel_factory=lambda env:channel,
-                connect_factory=lambda *a,**kw:(normal, emergency), client_factory=client_factory), 5)
+                connect_factory=lambda *a,**kw:(normal, emergency), client_factory=client_factory,
+                identity_check=identity_check), 5)
         assert channel.closed
+        if fallback:
+            assert len(identity_checks) >= 2  # startup plus explicit resume, never a cached grant
         assert normal.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
     asyncio.run(scenario())
 

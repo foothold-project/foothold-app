@@ -24,9 +24,11 @@ class Config:
     def from_env(cls, env=None, *, server=False):
         env = os.environ if env is None else env
         approval = validate(env)  # disabled/absent marker: zero SDK imports
+        regular = (approval.robot_serial is not None and
+                re.fullmatch(r'(0|[1-9][0-9]*)-(0|[1-9][0-9]*)', approval.robot_serial) and
+                all(int(part) <= 0xFFFFFFFF for part in approval.robot_serial.split('-')))
         if (env.get('FH_GO2_DEDICATED_NIC') != '1' or
-                not re.fullmatch(r'(0|[1-9][0-9]*)-(0|[1-9][0-9]*)', approval.robot_serial) or
-                any(int(part) > 0xFFFFFFFF for part in approval.robot_serial.split('-'))):
+                not (regular or (server and approval.serial_unavailable))):
             raise ValueError('dedicated robot NIC and canonical DDS serial required')
         robot = uuid(env.get('FOOTHOLD_ROBOT_ID'))
         if server:

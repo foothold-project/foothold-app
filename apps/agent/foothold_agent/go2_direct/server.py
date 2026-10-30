@@ -9,6 +9,7 @@ from . import sdk
 from .feedback import Feedback
 from .reporting import devices, project
 from .sink import Go2Sink, server_velocity
+from .identity import expected_serial, verify, ResumeGate
 
 
 def axes(value, *, local=False):
@@ -23,8 +24,9 @@ def project_velocity(vx, vy, wz):
 
 
 class DriveSession(Session):
-    def __init__(self, feedback, **kwargs):
+    def __init__(self, feedback, *, identity_gate=None, **kwargs):
         self.feedback = feedback
+        self.identity_gate = identity_gate
         super().__init__(identity={'robot_model': 'unitree_go2'},
                          axes_validator=axes, velocity_projection=project_velocity, **kwargs)
 
@@ -59,6 +61,9 @@ class DriveSession(Session):
         except (ValueError, TypeError, UnicodeError, RecursionError):
             return self.tick()
         if isinstance(frame, dict):
+            if frame.get('t') == 'unlock' and self.identity_gate is not None:
+                self.identity_gate.request(frame, self)
+                return self.tick()
             if frame.get('t') == 'cmd' and axes(frame.get('axes')) is None:
                 self.core.st = None
                 self.core.stop('outside server-drive command table')
@@ -69,6 +74,9 @@ class DriveSession(Session):
                 return self.shutdown()
             if frame.get('t') not in ('lease', 'cmd', 'stop', 'unlock', 'ping'):
                 return self.tick()
+        return super().receive(frame)
+
+    def unlock_verified(self, frame):
         return super().receive(frame)
 
     def _state(self):
@@ -94,9 +102,11 @@ class ServerSink:
 
 
 async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=None,
-              connect_factory=None, client_factory=Client, media_factory=None):
+              connect_factory=None, client_factory=Client, media_factory=None, identity_check=None):
     stop = stop or asyncio.Event()
-    feedback = Feedback(config.approval.robot_serial)
+    feedback = Feedback(expected_serial(config.approval))
+    gate = None
+    identity_check = identity_check or verify
     channel = sink = client = None
     media_task = None
     tasks = []
@@ -113,10 +123,14 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             if time.monotonic() >= until:
                 raise TimeoutError('fresh matching telemetry required')
             await asyncio.sleep(.02)
+        if getattr(config.approval, 'serial_unavailable', False):
+            await asyncio.to_thread(identity_check, config.approval, feedback.serial)
         clients = (connect_factory or sdk.connect)(env, observed_serial=feedback.serial, channel=channel)
         sink = Go2Sink(*clients, phone_watchdog=True)
         feedback.sink = sink
-        session = DriveSession(feedback)
+        if getattr(config.approval, 'serial_unavailable', False):
+            gate = ResumeGate(config.approval, feedback, check=identity_check)
+        session = DriveSession(feedback, identity_gate=gate)
         client = client_factory(session, ServerSink(sink, session), config.link)
         sink.start_threads()
         tasks = [asyncio.create_task(client.run()), asyncio.create_task(stop.wait())]
@@ -135,6 +149,8 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             if sink.error is not None:
                 raise RuntimeError('Go2 output failed') from sink.error
             ready = feedback.consume(client)
+            if gate is not None:
+                gate.poll(client)
             if healthy and not ready:
                 client._emit(session.feedback_lost())
             healthy = ready
@@ -149,6 +165,8 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             if client is not None:
                 client.sink.apply(MotionCommand('stop'))
         finally:
+            if gate is not None:
+                gate.close()
             for task in tasks:
                 task.cancel()
             if media_task is not None:

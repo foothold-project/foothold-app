@@ -56,3 +56,11 @@ ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. �
 에이전트는 기존 agent 토큰으로 **HTTP POST** `/api/v1/agent/drive-media/{rgb|lidar}`에 `{header: media/1 JSON, points: null 또는 XYZ bytes의 base64}`를 올린다(본문 100,000 bytes 상한, 채널당 최대 5 Hz). 조종 WS 4096 bytes 제한과 배포 기동 인자는 유지한다. 웹은 같은 서버의 `/api/v1/robots/{robot_id}/drive-media/{rgb|lidar}` WS에 기존 로그인 쿠키+정확한 Origin으로 접속해 받기만 한다(Bearer 앱 인증도 가능). hello·URL 토큰·조종 입력은 없다. `media.video` JSON, `media.points` JSON 직후 binary xyz_f32le, `media.status`는 기존 media/1 그대로다. robot/epoch/episode_id(null)를 확인하고 epoch 변경·1초 넘은 자료·끊김 때 이전 그림을 비운다. 담당자/총괄만 볼 수 있고 재배정·로그아웃·토큰 폐기 시 재확인하여 닫는다. 느린 viewer는 0.20초 쓰기 마감으로 끊으며 관측 오류가 조종 연결을 닫지 않는다.
 
 움직임 SDK 객체 없이 상태만 서버로 올릴 때는 별도 **읽기 전용** 모드를 쓴다. `FH_GO2_DIRECT_ENABLED` 및 `FH_GO2_FIELD_APPROVAL`은 제거하고, robot UUID·agent 토큰·서버 WS 주소만 기존처럼 설정한 후 `--server --readonly --nic <ROBOT_NIC>`를 명시한다. 이 모드는 go2_readonly의 두 DDS 구독자·DiscardSink만 사용하고 SportClient/Go2Sink/Move/StopMove/카메라 RPC를 만들지 않는다. 서버 cmd·lease·unlock·STOP은 모두 폐기하고 stop_ref=0을 유지하여 물리 정지 확인이나 조종권을 만들지 않는다. latched/applied는 논리 잠금·폐기 출력이며 **물리 STOP 확인이 아니다**. 이 명령 역시 실제 DDS 읽기 참가이므로 현장 읽기 승인이 있어야 한다. 읽기 모드에서는 카메라·라이다 송출을 하지 않는다.
+
+## 명시적 0-0 신원 예외 — 서버 시험만
+
+LowState 실측 serial이 **정확히 `0-0`**인 기체에서만 현장 담당자의 선택으로 유선 이웃·MAC 확인을 사용한다. 기존 표식의 소유자·0600·단일 링크·최대 30분 만료는 유지하고, JSON에 `"robot_serial":null,"serial_unavailable":true,"robot_mac":"<현장에서 읽은 소문자 unicast MAC>"`을 모두 명시한다. 누락·다른 serial·MAC 불일치에는 적용하지 않으며 폰 경유는 이 예외를 허용하지 않는다. 생성기는 `deploy/jetson/make_approval.py --output <비공개 절대 경로> --nic <ROBOT_NIC> --serial-unavailable --robot-mac <실측 MAC> --approve-field-motion`이다. 실제 값은 저장소·공유 로그에 넣지 않는다.
+
+시작 및 **매번 명시적 잠금 해제 직전** 지정 NIC의 `ip -j -4 neigh show dev`를 읽어 해당 기체 대역 이웃이 Go2 `.161`과 Orin `.18` 두 항목뿐인지, `.161` MAC이 표식과 일치하는지, 신선한 SDK serial이 여전히 `0-0`인지 확인한다. 제3 이웃·누락·FAILED/INCOMPLETE·다른 NIC·다른 serial은 거부/정지/잠금이다. 스캔·ping·ARP 갱신/삭제·추가 패킷은 만들지 않는다. 잠금 해제의 이웃 조회는 비동기 한 개만 진행하고, 도중 STOP·lease 상실·WS 단절·세대 변화·0.30초 초과가 있으면 폐기한다. 예외를 통과해도 기존 실측 정지·명시 해제·새 중립 및 **error_code==0** readiness 관문은 그대로다.
+
+로컬 관리 비트가 켜진 MAC은 기체 재부팅 뒤 바뀔 수 있다. 바뀌면 거부되는 것이 정상이며 현장에서 다시 읽고 새 표식을 만든다. 옛 MAC을 자동 수용하거나 serial/ready 기준을 낮추지 않는다. 실제 이 예외로 이동하는 시험은 아직 하지 않았다.
