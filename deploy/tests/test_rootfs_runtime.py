@@ -107,6 +107,70 @@ def test_namespace_has_exact_uid_rootfs_code_binds_and_no_host_venv_or_libraries
     assert 'foothold-simmgr.service' not in text  # no default-target native auto-start
 
 
+def test_user_manager_boot_check_sees_real_host_directory_in_generated_rootfs_view(tmp_path):
+    # RECOVER2: the sealed guest has no /run/systemd/system, but the booted
+    # host does. systemd v255 sd_booted() checks precisely this directory.
+    # Resolve the generated bind view without mounts, a container or systemd.
+    host=tmp_path/'host';guest=tmp_path/'guest'
+    boot=Path('/run/systemd/system')
+    (host/str(boot).lstrip('/')).mkdir(parents=True)
+    guest.mkdir()
+    visible=guest/str(boot).lstrip('/')
+    assert not visible.exists()  # the old drop-in leaves sd_booted() false
+    text=r.dropin(data(),Path('/opt/foothold/releases')/('e'*40))
+    fields=dict(line.split('=',1) for line in text.splitlines() if '=' in line)
+    for item in fields['BindReadOnlyPaths'].split():
+        source,target,*options=item.split(':')
+        if target==str(boot):
+            assert source==str(boot) and options==['norbind']
+            visible=host/source.lstrip('/')
+    assert visible.is_dir(), 'user manager still cannot see the host systemd boot directory'
+    assert visible.samefile(host/str(boot).lstrip('/'))
+    assert not (guest/str(boot).lstrip('/')).exists()  # never alter the seal
+    assert all(item.split(':')[0]!=str(boot)
+        for key in ('ReadWritePaths','BindPaths') for item in fields[key].split())
+
+
+def test_boot_visibility_does_not_expose_host_control_sockets_or_change_probe_boundary():
+    value=data();release=Path('/opt/foothold/releases')/('e'*40)
+    text=r.dropin(value,release)
+    fields=dict(line.split('=',1) for line in text.splitlines() if '=' in line)
+    systemd_binds=[item for item in fields['BindReadOnlyPaths'].split()
+        if item.split(':')[0].startswith('/run/systemd')]
+    assert set(systemd_binds)=={
+        '/run/systemd/journal/socket:/run/systemd/journal/socket',
+        '/run/systemd/journal/stdout:/run/systemd/journal/stdout',
+        '/run/systemd/journal/dev-log:/dev/log',
+        '/run/systemd/system:/run/systemd/system:norbind'}
+    assert 'RootDirectory=/opt/foothold-sim/rootfs/'+'a'*64 in text
+    for boundary in ('PrivateUsers=yes','PrivateDevices=yes','ProtectHome=tmpfs',
+            'ProtectSystem=strict','NoNewPrivileges=yes','CapabilityBoundingSet=\n',
+            'AmbientCapabilities=\n','RestrictSUIDSGID=yes','Restart=no'):
+        assert boundary in text
+    assert '/run/user/23456:/run/user/23456' in fields['BindPaths'].split()
+    assert '/run/foothold-sim-proof.sock:/run/foothold-sim-proof.sock' in fields['BindReadOnlyPaths'].split()
+    assert '/run/systemd/system' not in r.properties(value,release,proof=False)['BindReadOnlyPaths']
+    assert not any(item.split(':')[0] in ('/run','/run/systemd','/run/dbus','/run/user')
+        for key in ('BindPaths','BindReadOnlyPaths') for item in fields[key].split())
+
+
+def test_boot_bind_install_stays_in_dedicated_uid_dropin(tmp_path,monkeypatch):
+    destination=tmp_path/'user@23456.service.d/foothold-rootfs.conf'
+    expected='/etc/systemd/system/user@23456.service.d/foothold-rootfs.conf'
+    paths=[]
+    def path(value):
+        paths.append(value)
+        return destination if value==expected else Path(value)
+    monkeypatch.setattr(r,'Path',path)
+    host=Mock();monkeypatch.setattr(r,'run',host)
+    r.bind_namespace(data(),Path('/opt/foothold/releases')/('e'*40))
+    assert expected in paths
+    assert list(tmp_path.rglob('*.conf'))==[destination]
+    assert 'BindReadOnlyPaths=' in destination.read_text()
+    assert '/run/systemd/system:/run/systemd/system:norbind' in destination.read_text()
+    host.assert_called_once_with(['systemctl','daemon-reload'])
+
+
 def test_rootfs_transition_refuses_before_start_when_manifest_or_validation_fails(monkeypatch):
     value=data();monkeypatch.setattr(r,'load',lambda:value)
     monkeypatch.setattr(r,'identity',lambda value:(23456,23456))
