@@ -1625,7 +1625,7 @@ export interface ScreenCmd {
   t: "cmd";
   lease_id: string;
   seq: number;
-  axes: number[];
+  axes: number[] | [-1.5, 0.0, 0.0] | [0.0, -1.5, 0.0] | [0.0, 1.5, 0.0] | [1.5, 0.0, -0.5] | [1.5, 0.0, 0.0] | [1.5, 0.0, 0.5];
 }
 
 export interface ScreenEnvelope {

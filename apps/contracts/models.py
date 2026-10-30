@@ -9,6 +9,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import AfterValidator, AwareDatetime, BaseModel, ConfigDict, Field, JsonValue, model_validator
+from .server_drive import ALLOWED as SERVER_DRIVE_ALLOWED
 
 UTCDateTime = Annotated[AwareDatetime, AfterValidator(lambda value: value.astimezone(timezone.utc))]
 
@@ -377,6 +378,11 @@ class SessionList(Contract):
 # FH-SPEC-05 §§9–10: flat envelopes, no WebSocket subprotocol header.
 Axis = Annotated[float, Field(ge=-1, le=1, strict=True)]
 Axes = Annotated[list[Axis], Field(min_length=3, max_length=3)]
+ScreenCommandAxes = Annotated[list[Annotated[float, Field(ge=-1.5, le=1.5, strict=True)]],
+    Field(min_length=3, max_length=3, json_schema_extra={'anyOf': [
+        {'type':'array','minItems':3,'maxItems':3,'items':{'type':'number','minimum':-1,'maximum':1}},
+        {'type':'array','enum':[list(value) for value in sorted(SERVER_DRIVE_ALLOWED)
+                              if any(abs(axis)>1 for axis in value)]}]})]
 Vector3 = Annotated[list[float], Field(min_length=3, max_length=3)]
 MAX_SAFE_INTEGER = 2**53 - 1
 Sequence = Annotated[int, Field(ge=0, le=MAX_SAFE_INTEGER, strict=True)]
@@ -412,7 +418,13 @@ class ScreenCmd(ScreenRobot):
     t: Literal['cmd']
     lease_id: UUID
     seq: Sequence
-    axes: Axes
+    axes: ScreenCommandAxes
+
+    @model_validator(mode='after')
+    def normalized_or_exact_trial_axes(self):
+        if any(abs(axis)>1 for axis in self.axes) and tuple(self.axes) not in SERVER_DRIVE_ALLOWED:
+            raise ValueError('normalized axes or exact server trial command required')
+        return self
 
 
 class ScreenUnlock(ScreenRobot):

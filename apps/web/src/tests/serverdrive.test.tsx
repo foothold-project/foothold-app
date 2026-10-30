@@ -55,7 +55,7 @@ function serve(...ids: string[]) {
 const axes = () => w.of('cmd').map((m) => (m.axes as number[]).join());
 const lastAxes = () => axes()[axes().length - 1];
 /** 서버·에이전트 허용 표 — 이 9개 밖은 나가면 안 된다 */
-const ALLOWED = new Set(['0,0,0', '0.4,0,0', '-0.2,0,0', '0,0.2,0', '0,-0.2,0', '0,0,0.5', '0,0,-0.5', '0.4,0,0.5', '0.4,0,-0.5']);
+const ALLOWED = new Set(['0,0,0', '1.5,0,0', '-1.5,0,0', '0,1.5,0', '0,-1.5,0', '0,0,0.5', '0,0,-0.5', '1.5,0,0.5', '1.5,0,-0.5']);
 /** 박OO 가 Go2-7(서버 허용) 을 골라 조종 시작 → 잠금 해제 → 중립까지 */
 function ready() {
   mount('u-park'); serve('r7');
@@ -87,14 +87,14 @@ describe('서버 경유 시험 조종 패널', () => {
 
   it('키: 화살표 = 이동, A/D = 제자리 회전, ↑+A/D — 표의 SI 값 그대로, 그 밖 조합·W 는 0', () => {
     ready();
-    expect(hold(['ArrowUp'])).toBe('0.4,0,0');
-    expect(hold(['ArrowDown'])).toBe('-0.2,0,0');
-    expect(hold(['ArrowLeft'])).toBe('0,0.2,0');
-    expect(hold(['ArrowRight'])).toBe('0,-0.2,0');
+    expect(hold(['ArrowUp'])).toBe('1.5,0,0');
+    expect(hold(['ArrowDown'])).toBe('-1.5,0,0');
+    expect(hold(['ArrowLeft'])).toBe('0,1.5,0');
+    expect(hold(['ArrowRight'])).toBe('0,-1.5,0');
     expect(hold(['KeyA'])).toBe('0,0,0.5');
     expect(hold(['KeyD'])).toBe('0,0,-0.5');
-    expect(hold(['ArrowUp', 'KeyA'])).toBe('0.4,0,0.5');
-    expect(hold(['KeyD', 'ArrowUp'])).toBe('0.4,0,-0.5');
+    expect(hold(['ArrowUp', 'KeyA'])).toBe('1.5,0,0.5');
+    expect(hold(['KeyD', 'ArrowUp'])).toBe('1.5,0,-0.5');
     for (const k of [['ArrowDown', 'KeyA'], ['ArrowLeft', 'ArrowUp'], ['KeyA', 'KeyD'], ['KeyW'], ['KeyS'], ['KeyQ']]) expect(hold(k)).toBe('0,0,0');
     expect(lastAxes()).toBe('0,0,0');
     expect(axes().every((a) => ALLOWED.has(a))).toBe(true);
@@ -102,7 +102,7 @@ describe('서버 경유 시험 조종 패널', () => {
 
   it('화면 단추 8개도 같은 표 — 누르는 동안만, 떼면 그 자리에서 0', () => {
     ready();
-    const want: Record<string, string> = { up: '0.4,0,0', down: '-0.2,0,0', left: '0,0.2,0', right: '0,-0.2,0', rotl: '0,0,0.5', rotr: '0,0,-0.5', 'rotl+up': '0.4,0,0.5', 'rotr+up': '0.4,0,-0.5' };
+    const want: Record<string, string> = { up: '1.5,0,0', down: '-1.5,0,0', left: '0,1.5,0', right: '0,-1.5,0', rotl: '0,0,0.5', rotr: '0,0,-0.5', 'rotl+up': '1.5,0,0.5', 'rotr+up': '1.5,0,-0.5' };
     expect(box.querySelectorAll('[data-sd-move]').length).toBe(8);
     for (const [k, v] of Object.entries(want)) {
       const b = $(`[data-sd-move="${k}"]`)!;
@@ -117,14 +117,14 @@ describe('서버 경유 시험 조종 패널', () => {
 
   it('초점 잃음·가려짐 → 바로 0 + 안내, 자동 재개 없음', () => {
     ready();
-    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0.4,0,0');
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     act(() => { window.dispatchEvent(new Event('blur')); });
     expect(lastAxes()).toBe('0,0,0'); expect($('[data-sd-why]')!.textContent).toBe(SD_NOTE.blur);
     act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { code: 'ArrowUp', repeat: true, bubbles: true })); });   // 누르고 있던 키의 반복은 되살리지 않는다
     tick(200); expect(lastAxes()).toBe('0,0,0');
     key('keyup', 'ArrowUp');
 
-    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0.4,0,0');
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     act(() => { document.dispatchEvent(new Event('visibilitychange')); });
     expect(w.of('hidden').length).toBe(1);   // 조종권 반납(rt) — 그 뒤 cmd 없음
@@ -135,7 +135,7 @@ describe('서버 경유 시험 조종 패널', () => {
 
   it('연결이 끊기면 0 + 안내, 다시 연결돼도 조종권 없이 시작 단추부터', () => {
     ready();
-    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0.4,0,0');
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     act(() => { w.drop(1006); });
     expect($('[data-sd-why]')!.textContent).toBe(SD_NOTE.link);
     tick(1000);   // 다시 연결
@@ -149,7 +149,7 @@ describe('서버 경유 시험 조종 패널', () => {
     ready();
     const stop = $('[data-sd-stop]')!, fwd = $('[data-sd-move="up"]')!;
     expect(parseInt(stop.style.minHeight)).toBeGreaterThan(parseInt(fwd.style.minHeight));
-    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0.4,0,0');
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     click(stop);
     const i = w.sent.findIndex((m) => m.t === 'stop');
     expect(i).toBeGreaterThan(-1);
@@ -227,7 +227,7 @@ describe('서버 경유 카메라·라이다', () => {
     expect(stop).toBeTruthy();
     const sizes = [...full.querySelectorAll<HTMLElement>('button')].filter((b) => b !== stop).map((b) => parseInt(b.style.minHeight) || 0);
     expect(parseInt(stop.style.minHeight)).toBeGreaterThan(Math.max(...sizes));
-    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('0.4,0,0');
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
     key('keyup', 'ArrowUp'); expect(lastAxes()).toBe('0,0,0');
     click(full.querySelector('[aria-label="카메라 작게 보기"]')!);
     expect($('[data-sd-full]')).toBeNull();

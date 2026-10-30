@@ -102,9 +102,9 @@ def test_async_resume_neighbor_check_cannot_outlive_stop_or_authority(change):
         if change=='none':
             assert not sink.latched
             measured()
-            frame('cmd',lease_id='fake-lease',seq=1,axes=[.4,0,0]);assert sink.pending==(0,0,0)
+            frame('cmd',lease_id='fake-lease',seq=1,axes=[1.5,0,0]);assert sink.pending==(0,0,0)
             frame('cmd',lease_id='fake-lease',seq=2,axes=[0,0,0])
-            frame('cmd',lease_id='fake-lease',seq=3,axes=[.4,0,0]);assert sink.pending==(.4,0,0)
+            frame('cmd',lease_id='fake-lease',seq=3,axes=[1.5,0,0]);assert sink.pending==(1.5,0,0)
         else:assert sink.latched and sink.pending==(0,0,0)
         gate.close()
     try:asyncio.run(scenario())

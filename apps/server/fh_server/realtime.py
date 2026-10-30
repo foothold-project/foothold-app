@@ -1424,6 +1424,8 @@ class Realtime:
                                 if tuple(msg.axes) not in ALLOWED:
                                     self.apply(self.arbiter.stop(rid, actor))
                                     raise LeaseError('SERVER_DRIVE_COMMAND', '허용된 시험 명령표 밖 입력입니다.', 400)
+                            elif any(abs(axis)>1 for axis in msg.axes):
+                                raise self.api_error(400, 'VALIDATION', '입력 형식을 확인하세요.')
                             self.apply(self.arbiter.cmd(rid, actor, str(msg.lease_id), msg.seq, msg.axes))
                         elif msg.t == 'unlock':
                             self.apply(self.arbiter.unlock(rid, actor, str(msg.lease_id), msg.stop_gen))

@@ -4,9 +4,56 @@
       "additionalProperties": false,
       "properties": {
         "axes": {
+          "anyOf": [
+            {
+              "items": {
+                "maximum": 1,
+                "minimum": -1,
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            {
+              "enum": [
+                [
+                  -1.5,
+                  0.0,
+                  0.0
+                ],
+                [
+                  0.0,
+                  -1.5,
+                  0.0
+                ],
+                [
+                  0.0,
+                  1.5,
+                  0.0
+                ],
+                [
+                  1.5,
+                  0.0,
+                  -0.5
+                ],
+                [
+                  1.5,
+                  0.0,
+                  0.0
+                ],
+                [
+                  1.5,
+                  0.0,
+                  0.5
+                ]
+              ],
+              "type": "array"
+            }
+          ],
           "items": {
-            "maximum": 1,
-            "minimum": -1,
+            "maximum": 1.5,
+            "minimum": -1.5,
             "type": "number"
           },
           "maxItems": 3,

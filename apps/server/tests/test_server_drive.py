@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as DBSession
 from apps.server.fh_server.api import Settings, create_app
 from apps.server.fh_server.models import Robot
 from apps.server.fh_server.security import digest
-from .test_realtime import app_token, hello, receive, reply, screen, send, state, take
+from .test_realtime import app_token, hello, receive, reply, screen, send, state, take, agent, rt
 
 
 @pytest.fixture
@@ -60,8 +60,8 @@ def test_trial_relay_lease_cmd_stop_admin_and_two_connections(trial, seeded):
             assert receive(ag, 'unlock')['stop_gen'] == 3
             assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=0, axes=[0,0,0]))['ok']
             assert receive(ag, 'cmd')['axes'] == [0,0,0]
-            assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[.4,0,.5]))['ok']
-            assert receive(ag, 'cmd')['axes'] == [.4,0,.5]
+            assert reply(ws, send(ws, 'cmd', rid, lease_id=lease, seq=1, axes=[1.5,0,.5]))['ok']
+            assert receive(ag, 'cmd')['axes'] == [1.5,0,.5]
             denied = reply(second, send(second, 'cmd', rid, lease_id=lease, seq=2, axes=[1,0,0]))
             assert denied['error']['code'] == 'LEASE_MISMATCH'
             assert reply(second, send(second, 'lease.take', rid))['error']['code'] == 'LEASE_HELD'
@@ -103,7 +103,7 @@ def test_empty_list_retains_real_rejection(client, seeded):
     assert client.post(f'/api/v1/robots/{rid}/stop', headers=owner).json()['error']['code'] == 'PHONE_DIRECT_REQUIRED'
 
 
-@pytest.mark.parametrize('bad', [[.4000000001,0,0],[-.2,0,.5],[.4,.2,0],[1,0,0],[True,0,0]])
+@pytest.mark.parametrize('bad', [[1.5000000001,0,0],[-1.5,0,.5],[1.5,1.5,0],[1,0,0],[True,0,0]])
 def test_outside_exact_table_is_stopped_and_rejected(trial,seeded,bad):
     rid=seeded['robots']['mine']
     with trial.websocket_connect('/api/v1/agent/ws',headers={
@@ -114,3 +114,13 @@ def test_outside_exact_table_is_stopped_and_rejected(trial,seeded,bad):
             result=reply(ws,send(ws,'cmd',rid,lease_id=lease,seq=1,axes=bad))
             assert not result['ok'] and result['error']['code'] in ('SERVER_DRIVE_COMMAND','VALIDATION')
             receive(ag,'stop')
+
+
+def test_simulation_keeps_normalized_axis_bounds(client, seeded, rt):
+    rid=seeded['robots']['mine']
+    with agent(client,seeded) as ag, screen(client,app_token(client)) as ws:
+        lease=take(ws,ag,rid)
+        rejected=reply(ws,send(ws,'cmd',rid,lease_id=lease,seq=1,axes=[1.5,0,0]))
+        assert rejected['error']['code']=='VALIDATION'
+        assert reply(ws,send(ws,'cmd',rid,lease_id=lease,seq=2,axes=[1,0,0]))['ok']
+        assert receive(ag,'cmd')['axes']==[1,0,0]
