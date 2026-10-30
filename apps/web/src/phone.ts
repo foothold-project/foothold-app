@@ -101,18 +101,18 @@ function onRelay(e: Event) {
     nonce = k;
     set({ relay: p });
     sim.connect();
-  } else {   // 앱이 중계를 닫음(Wi-Fi 끊김·망 바뀜·대상 아님) — «다시 연결»이 중계부터 새로 연다
-    nonce = '';
-    set({ relay: 0 });
-    setLink({ at: 'closed', why: RELAY_WHY[String(d.why)] ?? '로봇 Wi-Fi 연결을 준비하지 못했습니다. 다시 연결하세요.' });
-  }
+  } else abandon(RELAY_WHY[String(d.why)] ?? '로봇 Wi-Fi 연결을 준비하지 못했습니다. 다시 연결하세요.');   // 앱이 중계를 닫음(Wi-Fi 끊김·망 바뀜·대상 아님)
+}
+/** 중계를 버림: 연결·진행 중 출입증 요청 무효화(gen+1 — 늦게 성공한 출입증으로 옛 포트에 hello 0), 포트·nonce 비움. «다시 연결»이 중계부터 새로 연다 */
+function abandon(why: string) {
+  sim.close();
+  nonce = '';
+  set({ relay: 0 });
+  setLink({ at: 'closed', why });
 }
 /** 연결 중에 앱이 가려지면 진행 중 중계·출입증 요청을 버린다(돌아와도 자동 연결 0) */
 function onRealHide() {
-  if (document.visibilityState !== 'hidden' || !S.real || S.link?.at !== 'connecting') return;
-  sim.close();
-  nonce = '';
-  setLink({ at: 'closed', why: '앱이 가려져 연결을 멈췄습니다 — 다시 연결하세요.' });
+  if (document.visibilityState === 'hidden' && S.real && S.link?.at === 'connecting') abandon('앱이 가려져 연결을 멈췄습니다 — 다시 연결하세요.');
 }
 function arm(t: Real | null) {
   const w = window as W;

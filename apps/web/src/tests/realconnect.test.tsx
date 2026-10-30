@@ -212,6 +212,27 @@ describe('실기 연결 흐름', () => {
     expect(calls).not.toContain(`POST /robots/${RID}/phone-pass`);
   });
 
+  it('출입증을 받는 중에 앱이 중계 닫힘(wifi-off)을 알리면 늦게 받은 출입증으로 옛 포트에 붙지 않음(WS 0·hello 0)', async () => {
+    serve();
+    await pick();
+    act(() => { fire({ port: 40123 }); fire({ why: 'wifi-off' }); });   // 출입증 답 전에 중계 닫힘
+    await flush();
+    expect(calls).toContain(`POST /robots/${RID}/phone-pass`);
+    expect(agents()).toHaveLength(0);
+    expect($('[data-real-why]')?.textContent).toContain('로봇 Wi-Fi 에 연결되어 있지 않습니다');
+  });
+
+  it('WS 가 열리기 전 중계 실패 알림 → 그 WS 는 버리고 hello 0', async () => {
+    serve();
+    await pick();
+    await relay({ port: 40123 });
+    const a = agents()[0];
+    await relay({ why: 'relay-fail' });
+    act(() => a.open()); await flush();
+    expect(a.sent).toEqual([]);
+    expect($('[data-real-why]')?.textContent).toContain('연결을 준비하지 못했습니다');
+  });
+
   it('출입증을 받는 중에 앱이 가려지면 그 출입증으로 연결하지 않음', async () => {
     serve();
     await pick();
