@@ -18,6 +18,7 @@ def main(argv=None):
     identity.add_argument('--serial', help='confirmed LowState uint32-uint32')
     identity.add_argument('--serial-unavailable', action='store_true', help='confirmed LowState 0-0; explicit server trial only')
     parser.add_argument('--robot-mac', help='confirmed canonical unicast MAC on dedicated robot NIC')
+    parser.add_argument('--accept-error-codes', default='', help='confirmed V2 sport state numbers for server trial only')
     parser.add_argument('--minutes', type=int, default=15, choices=range(1, 31))
     parser.add_argument('--approve-field-motion', action='store_true', required=True,
                         help='operator confirms separate field authorization')
@@ -40,6 +41,12 @@ def main(argv=None):
                      robot_serial=args.serial, expires_at=time.time()+args.minutes*60)
         if fallback:
             value.update(robot_serial=None, serial_unavailable=True, robot_mac=args.robot_mac)
+        if args.accept_error_codes.strip():
+            parts = [part.strip() for part in args.accept_error_codes.split(',')]
+            if (any(not re.fullmatch(r'0|[1-9][0-9]{0,9}',part) or int(part)>0xFFFFFFFF for part in parts)
+                    or len(set(parts)) != len(parts)):
+                raise ValueError('confirmed uint32 sport state list required')
+            value['accept_error_codes'] = sorted(map(int,parts))
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w') as target:
             json.dump(value, target)

@@ -21,8 +21,11 @@ def vector(value, length):
 
 
 class Feedback:
-    def __init__(self, serial, *, now=time.monotonic, wall=time.time):
+    def __init__(self, serial, *, now=time.monotonic, wall=time.time, accept_error_codes=()):
         self.serial, self.now = serial, now
+        self.accept_error_codes = frozenset(accept_error_codes)
+        if any(type(x) is not int or not 0<=x<=0xFFFFFFFF for x in self.accept_error_codes):
+            raise ValueError('explicit uint32 state list required')
         self.state = State(now=now, wall=wall)
         self._lock = threading.Lock()
         self._low = self._sport = None
@@ -141,7 +144,8 @@ class Feedback:
         tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
         # Unitree's documented ordinary stand/balance/locomotion modes only.
         # No mode switch or stand-up is issued. Unknown modes/errors stay closed.
-        ready = (sport['mode'] in (0, 1, 3) and sport['error'] == 0 and
+        ready = (sport['mode'] in (0, 1, 3) and (sport['error'] == 0 or
+                 (sport['error'] in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')) and
                  number(sport['progress']) and sport['progress'] == 0 and
                  number(sport['height'], .20, .50) and tilt is not None and tilt < math.pi/3)
         still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity']) and abs(sport['yaw']) <= .03)

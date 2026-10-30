@@ -138,8 +138,8 @@ def test_explicit_server_configuration_has_no_phone_listener(env, monkeypatch):
         Config.from_env({**env, 'FOOTHOLD_AGENT_TOKEN':''}, server=True)
 
 
-@pytest.mark.parametrize('fallback', [False, True])
-def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallback):
+@pytest.mark.parametrize('fallback,sport_state', [(False,0),(True,0),(True,100)])
+def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallback, sport_state, caplog):
     from types import SimpleNamespace as NS
     import time
     from websockets.asyncio.server import serve
@@ -167,7 +167,7 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallb
                 def sample():
                     self.counter += 1
                     feedback.lowstate(low(self.counter, sn=(0,0) if fallback else (1234,5678)))
-                    feedback.sportmodestate(sport(self.counter))
+                    feedback.sportmodestate(sport(self.counter, error_code=sport_state))
                     self.handle = asyncio.get_running_loop().call_later(.02, sample)
                 sample()
             def close(self):
@@ -211,12 +211,15 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallb
         async with serve(server, '127.0.0.1', 0) as listener:
             port = listener.sockets[0].getsockname()[1]
             config = NS(approval=NS(robot_serial=None if fallback else '1234-5678',
-                        serial_unavailable=fallback, robot_mac='02:00:00:00:00:01', expires_at=time.time()+60),
+                        serial_unavailable=fallback, robot_mac='02:00:00:00:00:01',
+                        accept_error_codes=frozenset({100}) if sport_state else frozenset(), expires_at=time.time()+60),
                         link=Settings(f'ws://127.0.0.1:{port}/agent', 'fake-token'))
             await asyncio.wait_for(run(config, {}, stop=stop, channel_factory=lambda env:channel,
                 connect_factory=lambda *a,**kw:(normal, emergency), client_factory=client_factory,
                 identity_check=identity_check), 5)
         assert channel.closed
+        if sport_state:
+            assert '100(Agile)' in caplog.text
         if fallback:
             assert len(identity_checks) >= 2  # startup plus explicit resume, never a cached grant
         assert normal.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]

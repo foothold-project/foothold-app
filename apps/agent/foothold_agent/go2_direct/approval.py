@@ -15,6 +15,21 @@ class Approval:
     expires_at: float
     serial_unavailable: bool = False
     robot_mac: str | None = field(default=None, repr=False)
+    accept_error_codes: frozenset[int] = frozenset()
+
+
+def parse_codes(raw):
+    if not isinstance(raw,str):
+        raise ValueError('explicit integer state list required')
+    if not raw.strip():
+        return frozenset()
+    parts = [part.strip() for part in raw.split(',')]
+    if any(not re.fullmatch(r'0|[1-9][0-9]{0,9}', part) or int(part)>0xFFFFFFFF for part in parts):
+        raise ValueError('canonical uint32 state list required')
+    values = frozenset(map(int,parts))
+    if len(values) != len(parts):
+        raise ValueError('duplicate states are not permitted')
+    return values
 
 
 def validate(env, *, now=None, uid=None):
@@ -44,6 +59,10 @@ def validate(env, *, now=None, uid=None):
     serial = value.get('robot_serial')
     unavailable = value.get('serial_unavailable', False)
     mac = value.get('robot_mac')
+    codes = value.get('accept_error_codes', [])
+    if (not isinstance(codes,list) or any(type(x) is not int or not 0<=x<=0xFFFFFFFF for x in codes)
+            or len(set(codes)) != len(codes)):
+        raise PermissionError('field state list is invalid')
     fallback = (unavailable is True and 'robot_serial' in value and serial is None
                 and isinstance(mac, str) and re.fullmatch(r'[0-9a-f]{2}(?::[0-9a-f]{2}){5}', mac)
                 and mac != '00:00:00:00:00:00' and not int(mac[:2], 16) & 1)
@@ -54,4 +73,4 @@ def validate(env, *, now=None, uid=None):
             value.get('nic') != nic or not (fallback or regular) or
             type(expiry) not in (int, float) or not now < expiry <= now+1800):
         raise PermissionError('field approval is invalid or expired')
-    return Approval(nic, serial, float(expiry), bool(fallback), mac)
+    return Approval(nic, serial, float(expiry), bool(fallback), mac, frozenset(codes))

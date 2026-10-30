@@ -1,6 +1,7 @@
 """Explicit server trial: one existing fh-agent/2 Client, Core and Go2Sink."""
 import asyncio
 import time
+import logging
 
 from foothold_agent.link.client import Client
 from foothold_agent.link.session import Session, MotionCommand, Effects
@@ -104,7 +105,11 @@ class ServerSink:
 async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=None,
               connect_factory=None, client_factory=Client, media_factory=None, identity_check=None):
     stop = stop or asyncio.Event()
-    feedback = Feedback(expected_serial(config.approval))
+    codes = getattr(config.approval, 'accept_error_codes', frozenset())
+    feedback = Feedback(expected_serial(config.approval), accept_error_codes=codes)
+    if codes:
+        labels = ', '.join('100(Agile)' if code == 100 else str(code) for code in sorted(codes))
+        logging.getLogger(__name__).warning('서버 시험 운동 상태 허용: %s', labels)
     gate = None
     identity_check = identity_check or verify
     channel = sink = client = None

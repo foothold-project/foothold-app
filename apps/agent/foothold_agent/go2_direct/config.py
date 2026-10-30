@@ -8,7 +8,7 @@ from ipaddress import IPv4Address, IPv4Network
 from foothold_agent.phone.server import Settings as PhoneSettings
 from foothold_agent.phone.tickets import uuid, load_keys, Verifier
 from foothold_agent.link.client import Settings as LinkSettings
-from .approval import Approval, validate
+from .approval import Approval, validate, parse_codes
 
 
 @dataclass
@@ -32,6 +32,8 @@ class Config:
             raise ValueError('dedicated robot NIC and canonical DDS serial required')
         robot = uuid(env.get('FOOTHOLD_ROBOT_ID'))
         if server:
+            if parse_codes(env.get('FH_GO2_ACCEPT_ERROR_CODES','')) != approval.accept_error_codes:
+                raise PermissionError('server state list differs from field approval')
             # No phone listener, credentials or second command source in this mode.
             link = LinkSettings(env.get('FOOTHOLD_AGENT_WS_URL', ''),
                                 env.get('FOOTHOLD_AGENT_TOKEN', ''))
