@@ -26,6 +26,26 @@
 | `FOOTHOLD_PHONE_SIMULATION` | 반드시 `0` |
 | `FOOTHOLD_PHONE_ORIGINS` | 필요할 때 기존 폰 Origin 허용 목록 JSON. 기본 `[]` |
 
+상태의 기본 경로는 [폰 LTE 경유 계약](GO2-PHONE-STATE-RELAY.md)이다. Orin 인터넷을
+가정하지 않는다. Orin에 인터넷이 있는 현장에서만 `FH_GO2_CLOUD_REPORTING=1`과 등록
+토큰 `FOOTHOLD_AGENT_TOKEN`, 기존 agent WS 주소 `FOOTHOLD_AGENT_WS_URL`을 **모두**
+준비하면 직접 Bearer/hello/state 경로를 쓴다. 기본은 로컬 폰 경로만 실행한다. 직접
+보고를 켜고 URL/토큰 중 하나만 설정하면 시작을 거부한다. 외부 서버 주소는 WSS만 허용한다.
+등록·키 배포·폰 출입증 취득은 기존 절차를 사용하며 토큰을 터미널에 출력하지 않는다.
+
+서버 보고는 같은 폰 Core를 읽는 facade와 출력이 없는 DiscardSink를 사용한다.
+서버의 STOP·lease·cmd·unlock·reset·run 프레임은 로봇에 전달하지 않는다.
+기존 인증 폐기 `phone.revoke`와 ping만 받는다. 인증 폐기에 따른 폰 권한 소멸은
+기존 안전 정책대로 처리하며 원격 조종권을 만들지 않는다. 서버 재연결·단절도
+폰 이동 입력을 복원하거나 새 Core를 만들지 않는다.
+
+기존 AgentState 계약의 배터리·속도·장치 OK/MISSING/ERROR만 송신한다.
+원래 센서 수신 시각의 기존 1초 STATE_STALE 규칙을 적용하고, 낡거나 없는 값은
+null/MISSING으로 보낸다. 지도 위치는 만들지 않는다. 기울기·오류는 장치 오류로만
+표시되며 label에 숫자를 숨겨 넣지 않는다. **다음 작업: 선택 필드 추가 확장**으로
+자세 수치·오류 코드·토픽별 신선도를 계약에 추가해야 한다. 이번에는 계약·웹 표시를
+바꾸지 않는다. 에이전트 링크 ONLINE과 센서 신선도는 서로 다른 판정이다.
+
 승인 표식은 기존 `v:1`, `purpose:"go2-field-motion"`, `nic`, `robot_serial`,
 `expires_at` 형식을 유지한다. 실행 사용자 소유, 0600, 일반 파일, 단일 링크,
 현재부터 30분 이내 만료여야 한다. 이 실행부의 `robot_serial`은 SDK LowState의

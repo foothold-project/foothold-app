@@ -38,7 +38,9 @@ class Config:
         # A registration token is optional. Partial cloud configuration is an
         # error, never a reason to silently disable requested reporting.
         link = None
-        if env.get('FOOTHOLD_AGENT_TOKEN') or env.get('FOOTHOLD_AGENT_WS_URL'):
+        if env.get('FH_GO2_CLOUD_REPORTING', '0') not in ('0', '1'):
+            raise ValueError('explicit cloud reporting flag required')
+        if env.get('FH_GO2_CLOUD_REPORTING') == '1':
             link = LinkSettings(env.get('FOOTHOLD_AGENT_WS_URL', ''),
                                 env.get('FOOTHOLD_AGENT_TOKEN', ''))
         keys = load_keys(phone.key_path)

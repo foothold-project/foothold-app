@@ -1454,6 +1454,7 @@ class Realtime:
     def screen_state(self, rid):
         online, state = live_state(self, rid)
         return C.ScreenState(robot=rid, connection='ONLINE' if online else 'OFFLINE',
+            telemetry_source=state.get('telemetry_source'),
             status=state.get('status'), battery=state.get('battery'), location=state.get('location'),
             devices=state.get('devices', []), speed=state.get('speed'), latency_ms=None,
             latched=state.get('latched'), safety_reason=state.get('safety_reason'), stop_gen=state.get('stop_gen'),

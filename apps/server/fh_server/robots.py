@@ -37,6 +37,11 @@ def live_state(realtime, rid):
     peer = realtime.agents.get(rid)
     online = peer is not None and not peer.closing
     fresh = online and realtime.clock() - peer.state_received_at <= 3
+    if not fresh:
+        cache = getattr(realtime, 'phone_telemetry', None)
+        relayed = cache.get(rid) if cache is not None else None
+        if relayed is not None:
+            return True, relayed
     state = dict(peer.state) if fresh else {}
     location = state.get('location')
     if location and location.get('floor_context'):
@@ -50,7 +55,12 @@ def live_state(realtime, rid):
 
 def reported_devices(realtime, rid):
     peer = realtime.agents.get(rid)
-    return peer.state.get('devices', []) if peer and not peer.closing else None
+    if peer and not peer.closing and realtime.clock()-peer.state_received_at <= 3:
+        return peer.state.get('devices', [])
+    cache = getattr(realtime, 'phone_telemetry', None)
+    relayed = cache.get(rid) if cache is not None else None
+    return relayed.get('devices', []) if relayed is not None else (
+        peer.state.get('devices', []) if peer and not peer.closing else None)
 
 
 def device_error(realtime, rid, stored_error):
@@ -147,6 +157,7 @@ def robot_objects(db, robots, user, realtime):
                     else '시나리오 이름 수신 대기', progress=reported_run['progress'])
                 if reported_run['status'] not in TERMINAL_RUNS else None)
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
+            telemetry_source=state.get('telemetry_source'),
             owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
             connection=('ONLINE' if online else 'OFFLINE') if full else 'UNKNOWN', status=state.get('status'),
             battery=state.get('battery'), location=state.get('location'), lease=lease,

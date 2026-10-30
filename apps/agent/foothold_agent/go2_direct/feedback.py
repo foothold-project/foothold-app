@@ -94,6 +94,20 @@ class Feedback:
                 return None
             return deepcopy((self._low, self._sport))
 
+    def telemetry(self):
+        """Measured display cache; reporting freshness is separate from motion."""
+        with self._lock:
+            sport = deepcopy(self._sport)
+            fault = self._fault
+        snapshot = self.state.snapshot()
+        snapshot['speed_sample'] = (None if sport is None or fault else dict(
+            speed=math.hypot(*sport['velocity'][:2]), received=sport['received']))
+        if fault:
+            # Do not publish the previous robot's healthy battery on an ID conflict.
+            for source in snapshot['sources'].values():
+                source['fresh'] = False
+        return snapshot
+
     def consume(self, hub):
         sample = self.sample()
         if sample is None:

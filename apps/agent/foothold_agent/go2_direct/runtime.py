@@ -4,11 +4,10 @@ import socket
 import sys
 import time
 
-from foothold_agent.phone.hub import Hub
 from foothold_agent.phone.server import Server
 from . import sdk
 from .feedback import Feedback
-from .phone import PhoneSink
+from .phone import PhoneSink, Go2Hub
 from .sink import Go2Sink
 
 
@@ -42,7 +41,7 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
         feedback.sink = sink
         sink.start_threads()
         phone_sink = PhoneSink(sink)
-        hub = Hub(config.verifier, phone_sink, policy_name=config.phone.policy_name,
+        hub = Go2Hub(config.verifier, phone_sink, feedback=feedback, policy_name=config.phone.policy_name,
                   policy_version=config.phone.policy_version, simulation=False)
         phone_sink.hub = hub
         phone = server_factory(hub, config.phone, sock=sock)
@@ -62,6 +61,7 @@ async def run(config, env, *, stop=None, startup_timeout=5., channel_factory=Non
             if not ready and healthy:
                 hub.stop()  # sensor expiry/invalidity locks before Core's 1 s stale gate
             healthy = ready
+            hub.update_display()
             if reporting is not None:
                 reporting.update()
             await asyncio.sleep(.02)

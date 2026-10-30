@@ -11,6 +11,7 @@ from types import SimpleNamespace as NS
 from uuid import uuid4
 
 import pytest
+from apps.contracts.models import PhoneState
 
 from foothold_agent.go2_direct.config import Config
 from foothold_agent.go2_direct.runtime import run
@@ -106,6 +107,7 @@ def free_port():
 def test_authenticated_ws_move_stop_feedback_resume_and_outages(env, monkeypatch, outage):
     from websockets.asyncio.client import connect
     env['FOOTHOLD_PHONE_PORT'] = str(free_port())
+    env['FOOTHOLD_PHONE_ORIGINS'] = '["https://app.invalid"]'
     config = Config.from_env(env)
     dds = FakeDDS(monkeypatch)
     servers = []
@@ -123,7 +125,8 @@ def test_authenticated_ws_move_stop_feedback_resume_and_outages(env, monkeypatch
             hub = servers[0].hub
             sink = hub.sink.sink
             seq = 0
-            async with connect(f'ws://127.0.0.1:{config.phone.port}/phone/ws', proxy=None) as ws:
+            async with connect(f'ws://127.0.0.1:{config.phone.port}/phone/ws',
+                               origin='https://app.invalid', proxy=None) as ws:
                 async def request(kind, **body):
                     ident = str(uuid4())
                     await ws.send(json.dumps(dict(t=kind, id=ident, robot=config.robot, **body)))
@@ -138,6 +141,10 @@ def test_authenticated_ws_move_stop_feedback_resume_and_outages(env, monkeypatch
                                         ticket=signed(b'x'*32, claims))
                 assert welcome['simulation'] is False
                 assert (await request('lease.take'))['ok']
+                display = hub.state(hub.owner)
+                PhoneState.model_validate(display)
+                assert display['battery']['soc'] == 75 and display['robot_serial'] == '1234-5678'
+                assert display['sensor_age_ms'] <= 200
                 lease = hub.session.lease_id
                 async def unlock():
                     await until(lambda: hub.session.core.st is not None and
@@ -188,6 +195,39 @@ def test_authenticated_ws_move_stop_feedback_resume_and_outages(env, monkeypatch
         asyncio.run(scenario())
     finally:
         config.verifier.close()
+
+
+def test_origin_rejection_has_fixed_reason_without_echoing_address(caplog):
+    from websockets.asyncio.client import connect
+    from websockets.exceptions import InvalidStatus
+    from foothold_agent.phone.server import Settings
+    from test_phone import Harness
+    h = Harness(simulation=False)
+    async def scenario():
+        port = free_port()
+        settings = Settings('127.0.0.1', port, 'unused', 'go2-flat', '1', h.org,
+                            'unused.sqlite', True, False, ('https://app.invalid',))
+        server = Server(h.hub, settings)
+        task = asyncio.create_task(server.run())
+        await asyncio.wait_for(server.ready.wait(), 2)
+        try:
+            with pytest.raises(InvalidStatus) as rejected:
+                async with connect(f'ws://127.0.0.1:{port}/phone/ws',
+                                   origin='https://untrusted.invalid', proxy=None):
+                    pass
+            assert rejected.value.response.status_code == 403
+            assert b'PHONE_ORIGIN_NOT_ALLOWED' in rejected.value.response.body
+            assert 'PHONE_ORIGIN_NOT_ALLOWED' in caplog.text and 'untrusted.invalid' not in caplog.text
+            async with connect(f'ws://127.0.0.1:{port}/phone/ws', origin='https://app.invalid', proxy=None):
+                pass
+        finally:
+            server.stopping.set()
+            await asyncio.wait_for(task, 2)
+    try:
+        asyncio.run(scenario())
+    finally:
+        h.hub.close()
+        h.verifier.close()
 
 
 def test_occupied_listener_and_disabled_cli_import_no_sdk(env, monkeypatch):

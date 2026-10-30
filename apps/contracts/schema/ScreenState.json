@@ -479,6 +479,19 @@
       "default": "state",
       "title": "T",
       "type": "string"
+    },
+    "telemetry_source": {
+      "anyOf": [
+        {
+          "const": "PHONE",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Telemetry Source"
     }
   },
   "required": [

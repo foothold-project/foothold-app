@@ -1182,6 +1182,8 @@ export interface PhoneState {
   applied: number[];
   mode: string;
   devices_changed?: Device[] | null;
+  robot_serial?: string | null;
+  sensor_age_ms?: number | null;
   run?: RunSnapshot | null;
   /** 소문자 하이픈 UUID 표준형만 허용한다. */
   robot: string;
@@ -1194,6 +1196,17 @@ export interface PhoneState {
   sim_time_s: number | null;
   sim_wall_delta_s: number | null;
   simulation: boolean;
+}
+
+export interface PhoneStateUpload {
+  t: "phone.state";
+  robot: string;
+  pass_token: string;
+  sequence: number;
+  observed_at: string;
+  robot_serial: string;
+  sensor_age_ms: number;
+  state: AgentState;
 }
 
 export interface PhoneStop {
@@ -1354,6 +1367,7 @@ export interface RobotPatch {
 }
 
 export interface RobotSummary {
+  telemetry_source?: "PHONE" | null;
   last_state_received_at?: string | null;
   state_stale?: boolean | null;
   controller?: Person | null;
@@ -1679,6 +1693,7 @@ export interface ScreenServerPing {
 }
 
 export interface ScreenState {
+  telemetry_source?: "PHONE" | null;
   t: "state";
   robot: string;
   connection: "ONLINE" | "OFFLINE";

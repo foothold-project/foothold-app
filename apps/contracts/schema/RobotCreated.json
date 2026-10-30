@@ -633,6 +633,19 @@
             }
           ],
           "title": "Status"
+        },
+        "telemetry_source": {
+          "anyOf": [
+            {
+              "const": "PHONE",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Telemetry Source"
         }
       },
       "required": [
