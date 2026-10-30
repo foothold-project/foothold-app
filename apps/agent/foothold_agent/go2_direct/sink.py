@@ -178,6 +178,9 @@ class Go2Sink:
                 if velocity != ZERO and not fresh_input:
                     self._stall()
                     self._stop_requested.set()
+                    if (type(input_received_at) in (int, float) and math.isfinite(input_received_at)
+                            and input_received_at <= stamp):
+                        return  # ordinary input deadline: hold/STOP, keep the service alive
                     raise ValueError('nonzero requires original fresh phone input time')
                 if (fresh_input
                         and (self._source_received is None or input_received_at > self._source_received)):
