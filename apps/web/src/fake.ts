@@ -86,7 +86,7 @@ export const toRobot = (r: RobotSummary, sims: string[] = []): Robot => ({
   holder: r.lease && { type: r.lease.holder_type === 'RUN' ? 'RUN' : 'USER', id: r.lease.user?.id ?? null, name: r.lease.user?.display_name ?? '' },
   listedAt: clock(new Date().toISOString()), location: r.location, devices: r.devices, sim: r.simulation,
   phoneRelay: r.phone_relay ?? null, phoneRelayAt: performance.now(),
-  serverDrive: (r as { server_drive?: unknown }).server_drive === true,   // 계약 필드는 SERVER-DRIVE-AGENT 몫 — 그 전엔 없으면 꺼짐
+  serverDrive: (r as { server_drive_allowed?: unknown }).server_drive_allowed === true,   // 계약 필드(PR #207, 기본 false) — 합치기 전 계약엔 아직 없어 캐스트
 });
 export const toRobots = (l: RobotSummary[]) => { const sims = l.filter((r) => r.simulation).map((r) => r.id); return l.map((r) => toRobot(r, sims)); };
 
