@@ -1061,6 +1061,15 @@ export interface PhonePosture {
   body_still: boolean | null;
 }
 
+export interface PhoneRelayState {
+  source: "PHONE";
+  battery: Battery | null;
+  speed: number | null;
+  devices: Device[];
+  age_s: number;
+  valid_for_s: number;
+}
+
 export interface PhoneReply {
   detail?: RunResumeDetail | null;
   t: "reply";
@@ -1367,7 +1376,7 @@ export interface RobotPatch {
 }
 
 export interface RobotSummary {
-  telemetry_source?: "PHONE" | null;
+  phone_relay?: PhoneRelayState | null;
   last_state_received_at?: string | null;
   state_stale?: boolean | null;
   controller?: Person | null;
@@ -1693,7 +1702,7 @@ export interface ScreenServerPing {
 }
 
 export interface ScreenState {
-  telemetry_source?: "PHONE" | null;
+  phone_relay?: PhoneRelayState | null;
   t: "state";
   robot: string;
   connection: "ONLINE" | "OFFLINE";

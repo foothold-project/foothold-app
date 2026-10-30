@@ -94,6 +94,25 @@ function live(me: User) {
   return w;
 }
 
+it('keeps relay battery and devices separate from direct status in list and detail', async () => {
+  const relay = { source: 'PHONE' as const, age_s: .1, valid_for_s: 2.9,
+    battery: { soc: 75, updated_at: AT }, speed: .5,
+    devices: [{ key: 'relay-lidar', kind: 'LIDAR' as const, label: '폰이 전한 라이다', state: 'OK' as const }] };
+  serve(signedIn(LEE, [{ ...RA, phone_relay: relay }]));
+  await open('#/fleet');
+  const w = FakeWS.last;
+  act(() => { w.open(); w.recv(state('r-a', { battery: { soc: 64, updated_at: AT }, phone_relay: relay })); });
+  expect(line('배터리')).toBe('64%');
+  expect(card('로봇 상세').querySelector('[aria-label="폰 경유 상태"]')!.textContent).toContain('75%');
+  expect(row('Go2-A').textContent).toContain('폰 경유 · 0초 전');
+  act(() => w.recv(state('r-a', { connection: 'OFFLINE', status: null, battery: null,
+    devices: [], latched: null, stop_gen: null, applied: null, phone_relay: relay })));
+  expect(row('Go2-A').textContent).toContain('끊김');
+  expect(line('배터리')).toBe('64%');
+  expect(card('로봇 상세').querySelector('[aria-label="폰 경유 상태"]')!.textContent).toContain('폰이 전한 라이다');
+  expect(rt.get('r-a').state?.devices).toEqual([]);
+});
+
 describe('관제 요약 = GET /dashboard(05 §4)', () => {
   it('총괄: 서버 수치 그대로, 주의 필요는 강조, 운영 관리자 표', async () => {
     serve(signedIn(KIM, [RA, RB]));

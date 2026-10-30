@@ -256,10 +256,20 @@ class StopRequestStatus(Contract):
     message: str
 
 
+class PhoneRelayState(Contract):
+    """Display only: never a direct connection, device inventory or capability."""
+    source: Literal['PHONE'] = 'PHONE'
+    battery: Battery | None
+    speed: float | None
+    devices: list[Device]
+    age_s: float = Field(ge=0)
+    valid_for_s: float = Field(ge=0, le=3)
+
+
 class RobotSummary(Contract):
     model_config = ConfigDict(json_schema_extra=optional_response_fields(
-        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'telemetry_source'))
-    telemetry_source: Literal['PHONE'] | None = Field(default=None, exclude_if=lambda value: value is None)
+        'last_state_received_at', 'state_stale', 'controller', 'controller_device', 'controller_connected', 'phone_relay'))
+    phone_relay: PhoneRelayState | None = None
     last_state_received_at: UTCDateTime | None = None
     state_stale: bool | None = True
     controller: Person | None = None
@@ -788,8 +798,8 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'telemetry_source'))
-    telemetry_source: Literal['PHONE'] | None = Field(default=None, exclude_if=lambda value: value is None)
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay'))
+    phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'
     robot: UUID
     connection: Literal['ONLINE', 'OFFLINE']

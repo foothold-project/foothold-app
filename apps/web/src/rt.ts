@@ -227,7 +227,9 @@ function receive(m: { t?: unknown }) {
 /** 상세 서랍에 보이는 위치(0.1 m·초)·장치 — 이것만 바뀌어도 다시 그린다 */
 const shown = (s: ScreenState) => {
   const l = s.location;
-  return JSON.stringify([l && [l.x?.toFixed(1), l.y?.toFixed(1), l.updated_at.slice(0, 19)], s.devices]);
+  const relay = s.phone_relay;
+  return JSON.stringify([l && [l.x?.toFixed(1), l.y?.toFixed(1), l.updated_at.slice(0, 19)], s.devices,
+    relay && [relay.source, relay.battery, relay.speed, relay.devices, Math.floor(relay.age_s), Math.floor(relay.valid_for_s)]]);
 };
 function onState(s: ScreenState) {
   const l = get(s.robot);
@@ -457,8 +459,10 @@ export const useLive = (id: string) => { useRt(); return get(id); };
  *  summary = 구독하지 않는 로봇(운영 관리자에게 남의 로봇) — 목록 요약 값뿐이고 서버의 목록 연결값은 아직 실제가 아니라 확인 안 됨.
  *  끊긴 로봇은 마지막 ONLINE 상태 + 그 시각 */
 export function withLive(r: Robot): Robot {
-  if (!robots.includes(r.id)) return { ...r, online: false, unknown: 'summary' };
-  if (link.at === 'lost' || link.at === 'denied') return { ...r, online: false, unknown: 'link' };
+  const entry = live.get(r.id);
+  if (entry?.state) r = { ...r, phoneRelay: entry.state.phone_relay ?? null, phoneRelayAt: entry.stateAt };
+  if (!robots.includes(r.id)) return { ...r, online: false, unknown: 'summary', phoneRelay: null };
+  if (link.at === 'lost' || link.at === 'denied') return { ...r, online: false, unknown: 'link', phoneRelay: null };
   const s = live.get(r.id)?.state;
   if (!s) return { ...r, online: false, unknown: 'wait' };
   if (s.connection === 'ONLINE') return { ...r, online: true, status: s.status, battery: s.battery?.soc ?? null, seenAt: clock() };

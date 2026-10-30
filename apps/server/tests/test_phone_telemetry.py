@@ -33,19 +33,29 @@ def post(pc, body, *, robot=None, headers=None):
 def test_valid_phone_pass_relay_reaches_rest_and_web_without_agent_or_arbiter(pc, seeded, purpose):
     body = upload(pc, seeded, purpose=purpose)
     pc.upload_headers = app_token(pc)
+    rid = body['robot']
+    body['state']['devices_changed'].append(dict(key='lidar', kind='LIDAR', label='relay lidar', state='OK'))
+    before_actions = pc.get('/api/v1/actions', params={'robot_id': rid}, headers=pc.upload_headers).json()
+    before_dashboard = pc.get('/api/v1/dashboard', headers=pc.upload_headers).json()
     result = post(pc, body)
     assert result.status_code == 204 and result.headers['cache-control'] == 'no-store'
     rt = pc.app.state.realtime
-    rid = body['robot']
     assert rid not in rt.agents and rid not in rt.arbiter.robots
     detail = pc.get(f'/api/v1/robots/{rid}', headers=pc.upload_headers).json()
-    assert detail['battery']['soc'] == 75. and detail['telemetry_source'] == 'PHONE'
-    assert detail['connection'] == 'ONLINE' and detail['location'] is None
+    assert detail['battery'] is None and detail['devices'] == []
+    assert detail['phone_relay']['battery']['soc'] == 75. and detail['phone_relay']['source'] == 'PHONE'
+    assert detail['phone_relay']['devices'][-1]['kind'] == 'LIDAR'
+    assert detail['connection'] == 'OFFLINE' and detail['location'] is None
     assert detail['lease'] is None
+    assert detail['last_state_received_at'] is None
+    assert pc.get('/api/v1/actions', params={'robot_id': rid}, headers=pc.upload_headers).json() == before_actions
+    assert pc.get('/api/v1/dashboard', headers=pc.upload_headers).json()['robots_online'] == before_dashboard['robots_online']
     with screen(pc, pc.upload_headers) as ws:
         assert reply(ws, send(ws, 'sub', robots=[rid], streams=['state']))['ok']
         frame = receive(ws, 'state')
-        assert frame['telemetry_source'] == 'PHONE' and frame['speed'] == .5
+        assert frame['connection'] == 'OFFLINE' and frame['speed'] is None and frame['devices'] == []
+        assert frame['phone_relay']['source'] == 'PHONE' and frame['phone_relay']['speed'] == .5
+        assert 0 <= frame['phone_relay']['age_s'] < 3
     assert rid not in rt.agents
 
 
@@ -105,7 +115,7 @@ def test_replay_rate_stale_identity_expiry_and_no_store_forward(pc, seeded):
     at[0] += 3.01
     detail = pc.get(f'/api/v1/robots/{body["robot"]}', headers=pc.upload_headers).json()
     assert detail['connection'] == 'OFFLINE' and detail['battery'] is None
-    assert 'telemetry_source' not in detail
+    assert detail['phone_relay'] is None
     assert post(pc, newer).json()['error']['code'] == 'PHONE_STATE_SEQUENCE'
     assert not pc.app.state.realtime.agents
 

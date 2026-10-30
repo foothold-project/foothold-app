@@ -11,7 +11,7 @@ Orin에 상태 이력/재송신 큐를 만들지 않는다.
 |---|---|---|
 | 기존 PhoneState | 선택 `robot_serial`, `sensor_age_ms` | 기존 필드 그대로. 값이 없으면 새 필드 생략 |
 | 새 PhoneStateUpload | POST 표시 메시지 `t:"phone.state"` 1개. 중첩 `state`는 기존 AgentState | 기존 AgentState/폰 명령 메시지 변경 없음 |
-| RobotSummary, ScreenState | 선택 `telemetry_source:"PHONE"` | 직접 agent 상태는 기존 모양. 새 필드는 폰 경유 상태일 때만 존재 |
+| RobotSummary, ScreenState | 선택 `phone_relay` 표시 객체 | 직접 agent의 연결·배터리·장치·기능 판단 필드는 그대로 |
 
 기존 계약의 배터리·속도·장치 OK/MISSING/ERROR를 쓴다. 자세 수치·오류 코드·토픽별
 신선도는 **다음 작업: 선택 필드 추가 확장**이다. label에 숫자를 넣지 않는다.
@@ -92,10 +92,15 @@ pose는 전부 null이어야 한다. 장치는 최대 16개, key 64자·label 12
 매 요청 재확인한다. 서버는 pass_token을 저장하지 않는다.
 
 서버는 최신 표시 값 하나만 메모리에 보관하고 원래 관측 나이까지 포함해 최대 3초 뒤
-버린다(출입증 만료가 먼저면 그때 버림). 등록 agent가 신선하면 그 상태를 우선한다.
-폰 경유 캐시는 `realtime.agents`, arbiter, 조종권, STOP ref 확인, 임무 실행에 연결하지
-않는다. 서버 → 폰 → 로봇 명령 경로는 없다. 기존 웹 목록/상태 경로에서만 읽는다.
-`telemetry_source:"PHONE"`은 **폰이 전한 상태**라는 출처이며 암호학적 센서 증명이나
+버린다(출입증 만료가 먼저면 그때 버림). 표시 값은 `phone_relay`에만 담는다:
+`{source:"PHONE", battery, speed, devices, age_s, valid_for_s}`. `age_s`는 원래 관측
+나이이며 `valid_for_s`는 서버가 남긴 표시 유효 시간이다. 만료 시 null로 보낸다.
+직접 agent의 `connection`, 배터리/장치, ONLINE 집계와 `/actions` 기능 판단은 바꾸지 않는다.
+폰 경유 캐시는 `live_state`, `reported_devices`, `realtime.agents`, arbiter, 조종권,
+STOP ref 확인, 임무 실행에 연결하지 않는다. 서버 → 폰 → 로봇 명령 경로는 없다.
+웹 로봇 목록·상세에는 별도 «폰 경유 · N초 전»을 표시한다. 수신 뒤에도 단조 시계로
+나이를 계산하고 3초/서버 유효 시간 만료 시 수치를 숨겨 «폰 경유 · 모름»으로 바꾼다.
+`phone_relay.source:"PHONE"`은 **폰이 전한 상태**라는 출처이며 암호학적 센서 증명이나
 로봇의 정지 보장을 뜻하지 않는다. 초기 기체 식별은 전용 NIC/현장 승인 규칙을 따른다.
 
 ## 선택 경로: 인터넷이 있는 현장의 Orin 직접 보고
