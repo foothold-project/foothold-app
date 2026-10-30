@@ -2,6 +2,8 @@
 import { cell } from './lidar.js';
 
 export const REACH_RADIUS = 0.3, MAX_VX = 0.4, MAX_WZ = 0.6, BLOCK_RANGE = 0.6;
+// 이 시간 넘게 지점에 0.1 m 도 못 다가가고 방향 오차도 0.1 rad 넘게 못 줄이면 «막힘»(돌다 걸린 것도 멈춤)
+export const STALL_S = 5, STALL_GAIN = 0.1, STALL_TURN = 0.1;
 
 export function validateScenarios(list, map) {
   if (!Array.isArray(list)) throw new Error('시나리오 목록 형식');
@@ -27,34 +29,43 @@ export function frontDistance(rays) {
 }
 
 export function createScenarioRunner(sim, isStopped) {
-  const runner = { active: false, index: 0, points: [], status: '대기' };
+  // goal = 찍은 곳 하나로 가기(손 조종이 끊으면 잠그지 않고 취소만). best(거리)·turn(방향 오차)·stall = 진전 없음 재기
+  const runner = { active: false, index: 0, points: [], status: '대기', goal: false, best: Infinity, turn: Infinity, stall: 0 };
   runner.cancel = (reason = '중단') => {
     runner.active = false;
     runner.status = reason;
     sim.cmd = [0, 0, 0];
     return sim.cmd;
   };
-  runner.start = (points) => {
+  runner.start = (points, goal = false) => {
     if (isStopped() || sim.fell || !points?.length) return false;
     runner.points = points;
+    runner.goal = goal;
     runner.index = 0;
+    runner.best = runner.turn = Infinity; runner.stall = 0;
     runner.status = '실행 중';
     runner.active = true;
     sim.cmd = [0, 0, 0];
     return true;
   };
-  runner.tick = (front = Infinity) => {
+  // dt = 이번 틱 시간(s). 0 이면 진전 없음은 재지 않는다
+  runner.tick = (front = Infinity, dt = 0) => {
     if (!runner.active) return sim.cmd;
     if (isStopped()) return runner.cancel('중단');
     if (sim.fell) return runner.cancel('넘어짐');
-    if (!(front > BLOCK_RANGE)) return runner.cancel('막힘');
     const q = sim.d.qpos;
     while (runner.index < runner.points.length) {
-      const p = runner.points[runner.index], dx = p.x - q[0], dy = p.y - q[1];
-      if (Math.hypot(dx, dy) <= REACH_RADIUS) { runner.index++; continue; }
+      const p = runner.points[runner.index], dx = p.x - q[0], dy = p.y - q[1], dist = Math.hypot(dx, dy);
+      if (dist <= REACH_RADIUS) { runner.index++; runner.best = runner.turn = Infinity; runner.stall = 0; continue; }
       const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
-      const a = Math.atan2(dy, dx) - yaw, error = Math.atan2(Math.sin(a), Math.cos(a));
-      sim.cmd = [Math.abs(error) < 0.4 ? MAX_VX : 0, 0, Math.max(-MAX_WZ, Math.min(MAX_WZ, 1.5 * error))];
+      const a = Math.atan2(dy, dx) - yaw, error = Math.atan2(Math.sin(a), Math.cos(a)), vx = Math.abs(error) < 0.4 ? MAX_VX : 0;
+      // 앞 막힘은 앞으로 갈 때만 — 벽을 보고 선 채 뒤쪽 지점으로 돌아서는 것은 막지 않는다
+      if (vx && !(front > BLOCK_RANGE)) return runner.cancel('막힘');
+      let gained = false;
+      if (dist < runner.best - STALL_GAIN) { runner.best = dist; gained = true; }
+      if (Math.abs(error) < runner.turn - STALL_TURN) { runner.turn = Math.abs(error); gained = true; }
+      if (gained) runner.stall = 0; else if ((runner.stall += dt) >= STALL_S) return runner.cancel('막힘');
+      sim.cmd = [vx, 0, Math.max(-MAX_WZ, Math.min(MAX_WZ, 1.5 * error))];
       return sim.cmd;
     }
     return runner.cancel('완료');
@@ -63,12 +74,15 @@ export function createScenarioRunner(sim, isStopped) {
 }
 
 // Human input cancels autonomy and enters the existing STOP lock. A new Run is required.
+// 찍은 곳 가기(goal)만 예외: 막대·키(손 조종)는 목표를 취소하고 잠그지 않는다 — 손 조종이 바로 이어진다.
 export function bindScenarioInterrupts({ runner, lock, left, right, stop, doc, win, home, reset }) {
   const interrupt = () => { if (runner.active) { runner.cancel('중단'); lock(); } };
-  for (const el of [left, right]) el.addEventListener('pointerdown', interrupt, { capture: true });
+  const hand = () => { if (runner.active && runner.goal) runner.cancel('손 조종'); else interrupt(); };
+  for (const el of [left, right]) el.addEventListener('pointerdown', hand, { capture: true });
   stop.addEventListener('pointerdown', interrupt, { capture: true });
   stop.addEventListener('click', interrupt, { capture: true });
   doc.addEventListener('visibilitychange', () => { if (doc.hidden) interrupt(); });
   for (const ev of ['pagehide', 'freeze', 'blur']) win.addEventListener(ev, interrupt);
   for (const el of [home, reset]) el.addEventListener('click', interrupt, { capture: true });
+  return { hand };
 }

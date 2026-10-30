@@ -13,17 +13,18 @@ type P = [number, number];
 const TINT: [string, string][] = [['1 1 1 1 0 0 0 0 0 0', 'var(--text)'], ['0 0 0 0 1 1 1 1 1 0', 'var(--bg)'], ['0 0 0 0 0 0 0 0 0 1', 'var(--panel)']];
 const WALL = 102;   // 255 × 0.4
 
-/** 판 그림(<image>, 쿠키로 따로 받음)을 앱 색으로. 나머지 속성(onLoad·onError·transform·style…)은 <image> 그대로 */
-export function MapImage({ id, style, ...rest }: { id: string; width: number; height: number } & Omit<SVGProps<SVGImageElement>, 'href' | 'filter'>) {
-  const f = `fh-tint${useId().replace(/:/g, '')}`;
+/** 판 그림(<image>, 쿠키로 따로 받음)을 앱 색으로. 나머지 속성(onLoad·onError·transform·style…)은 <image> 그대로.
+ *  tint = 벽만 그 색으로(빈 곳·미확인은 투명) — 층 겹쳐 보기 */
+export function MapImage({ id, style, tint, ...rest }: { id: string; width: number; height: number; tint?: string } & Omit<SVGProps<SVGImageElement>, 'href' | 'filter'>) {
+  const f = `fh-tint${useId().replace(/:/g, '')}`, tones = tint ? [[TINT[0][0], tint]] : TINT;
   return <>
     <filter id={f} x="0" y="0" width="1" height="1" colorInterpolationFilters="sRGB">
       <feColorMatrix type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  1 0 0 0 0" result="l" />
-      {TINT.map(([t, c], i) => [
+      {tones.map(([t, c], i) => [
         <feComponentTransfer key={`m${i}`} in="l" result={`m${i}`}><feFuncA type="discrete" tableValues={t} /></feComponentTransfer>,
         <feFlood key={`f${i}`} style={{ floodColor: c }} result={`f${i}`} />,
         <feComposite key={`c${i}`} in={`f${i}`} in2={`m${i}`} operator="in" result={`c${i}`} />])}
-      <feMerge result="all">{TINT.map((_, i) => <feMergeNode key={i} in={`c${i}`} />)}</feMerge>
+      <feMerge result="all">{tones.map((_, i) => <feMergeNode key={i} in={`c${i}`} />)}</feMerge>
       <feComposite in="all" in2="SourceAlpha" operator="in" />
     </filter>
     <image href={api.imageUrl(id)} filter={`url(#${f})`} style={{ imageRendering: 'pixelated', opacity: 'var(--fh-map-a, 1)', ...style }} {...rest} />

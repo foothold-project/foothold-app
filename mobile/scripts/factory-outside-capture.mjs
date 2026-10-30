@@ -38,7 +38,9 @@ try {
     await page.waitForFunction(() => window.__sim?.ready || window.__sim?.err, null, { timeout: 60000 });
     assert.equal(await page.evaluate(() => __sim.err), null);
     assert.equal(await page.evaluate(() => __sim.sim.adapterId), policy);
-    await page.click('#cam');
+    // 따라가기 시점을 명시: 처음 시점이 무엇이든 위에서 보기면 한 번 눌러 따라가기로
+    if (await page.evaluate(() => __sim.top())) await page.click('#cam');
+    assert.equal(await page.evaluate(() => __sim.top()), false);
     // Only initial placement is changed: start on the apron at the pictured ramp.
     // All subsequent movement uses real keyboard events and the existing UI loop.
     await page.evaluate(() => {
@@ -48,7 +50,7 @@ try {
     });
     const state = () => page.evaluate(() => ({ xyz: Array.from(__sim.sim.d.qpos.slice(0, 3)), clearance: __sim.sim.z, grav: __sim.sim.grav[2], fell: __sim.sim.fell,
       joy: __sim.joy(), cmd: __sim.cmd(), stopped: __sim.stopped(), seconds: __sim.sim.t, steps: __sim.steps, camera: __sim.cam() }));
-    // Follow camera lerps from the initial top view; settle before driving.
+    // Follow camera lerps to the moved robot; settle before driving.
     await page.waitForFunction(() => Math.abs(__sim.cam()[2] - __sim.sim.d.qpos[2] - .75) < .05, null, { timeout: 60000 });
     console.log(JSON.stringify({ policy, stage: 'ramp-start', ...await state() }));
     await page.click('#go'); await page.keyboard.down('ArrowUp');

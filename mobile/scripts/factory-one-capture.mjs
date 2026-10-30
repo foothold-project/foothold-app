@@ -28,6 +28,7 @@ try {
   await page.goto('http://factory.invalid/sim/index.html?map=factory-zone');
   await page.waitForFunction(() => __sim?.ready || __sim?.err, null, { timeout: 60000 });
   assert.equal(await page.evaluate(() => __sim.err), null);
+  await page.click('#cam');   // 처음 = 따라가기 → 위에서 보기로 전체 한 장
   await page.screenshot({ path: resolve(out, 'whole-world.png') });
   await page.click('#cam');
   // Follow view, first-floor robot at the east stair entrance facing toward the deck.
