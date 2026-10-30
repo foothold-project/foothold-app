@@ -14,6 +14,7 @@ import { Missions, keptPlan } from './screens/missions';
 import { AssignedCards, OUT, assignFor, mineOf } from './screens/assign';
 import type { TabId } from './menu';
 import { SimTab } from './screens/sim';
+import { PhoneRelay } from './phoneRelay';
 
 /** go(t, id): id 를 주면 그 로봇 화면을 바로 연다(#/drive/<id>). open = PC 조종 탭에서 로봇 화면이 열림. robots = 서버가 준 로봇 목록 그대로 */
 export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string) => void; go: (t: TabId, id?: string) => void; open: boolean; phone: boolean;
@@ -109,6 +110,7 @@ function Fleet(c: Ctx) {
           <Chip {...t} /><b>{x.name}</b>{x.sim && <span className="lbl">시뮬</span>}<span className="mono">{pct(x.battery)}</span><span className="fh-grow">{x.mission ?? ''}</span>
           <span className="lbl">{ownerName(x)}{!admin && !mine ? ' · 보는 중' : ''}</span>
           <Seen x={x} />
+          <PhoneRelay report={x.phoneRelay} receivedAt={x.phoneRelayAt} compact />
         </button></li>; })}</ul>
     </section>
     <MapCard cancel={c.cancel} />
@@ -167,6 +169,7 @@ function Detail(c: Ctx) {
     <Line k="조종"><span>{holderText(rt.get(r.id), c.user.id, r)}</span></Line>
     {r.mission && <Line k="임무"><span>{r.mission}</span></Line>}
     <Line k="배터리"><span className="mono">{hidden ? '확인 안 됨' : r.battery == null ? '측정 안 됨' : `${r.battery}%`}</span></Line>
+    {!hidden && <PhoneRelay key={r.id} report={r.phoneRelay} receivedAt={r.phoneRelayAt} />}
     <Line k="위치"><span>{hidden ? '확인 안 됨' : loc ? <><span className="mono">x {m(loc.x)} · y {m(loc.y)}</span> <span className="lbl">({hms(loc.updated_at)})</span></> : '위치 없음'}</span></Line>
     <Line k="장치">{hidden ? <span>확인 안 됨</span> : !devices.length ? <span>장치 정보 없음</span>
       : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">

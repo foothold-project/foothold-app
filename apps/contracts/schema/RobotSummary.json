@@ -439,6 +439,67 @@
       "title": "Person",
       "type": "object"
     },
+    "PhoneRelayState": {
+      "additionalProperties": false,
+      "description": "Display only: never a direct connection, device inventory or capability.",
+      "properties": {
+        "age_s": {
+          "minimum": 0,
+          "title": "Age S",
+          "type": "number"
+        },
+        "battery": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Battery"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "devices": {
+          "items": {
+            "$ref": "#/$defs/Device"
+          },
+          "title": "Devices",
+          "type": "array"
+        },
+        "source": {
+          "const": "PHONE",
+          "default": "PHONE",
+          "title": "Source",
+          "type": "string"
+        },
+        "speed": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Speed"
+        },
+        "valid_for_s": {
+          "maximum": 3,
+          "minimum": 0,
+          "title": "Valid For S",
+          "type": "number"
+        }
+      },
+      "required": [
+        "source",
+        "battery",
+        "speed",
+        "devices",
+        "age_s",
+        "valid_for_s"
+      ],
+      "title": "PhoneRelayState",
+      "type": "object"
+    },
     "Progress": {
       "additionalProperties": false,
       "properties": {
@@ -600,6 +661,17 @@
         }
       ]
     },
+    "phone_relay": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PhoneRelayState"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
     "simulation": {
       "default": false,
       "title": "Simulation",
@@ -635,19 +707,6 @@
         }
       ],
       "title": "Status"
-    },
-    "telemetry_source": {
-      "anyOf": [
-        {
-          "const": "PHONE",
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Telemetry Source"
     }
   },
   "required": [

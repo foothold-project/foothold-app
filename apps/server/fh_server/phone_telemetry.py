@@ -85,12 +85,10 @@ class PhoneTelemetry:
         rid, jti = str(body.robot), str(claims.jti)
         data = body.state.model_dump(mode='json')
         # Readouts never update arbiter, STOP references, agent ownership or runs.
-        state = {k: data[k] for k in ('speed', 'latched', 'safety_reason', 'stop_gen', 'applied',
-                                      'controller', 'controller_device', 'controller_connected')}
-        state.update(battery=(C.Battery(soc=body.state.battery.soc, updated_at=now()).model_dump(mode='json')
-                              if body.state.battery.soc is not None else None), location=None,
-                     devices=data.get('devices_changed') or [], telemetry_source='PHONE',
-                     status='STOP_LATCHED' if body.state.latched else 'TELEOP' if body.state.mode == 'USER' else 'IDLE')
+        state = dict(speed=data['speed'], source='PHONE',
+                     battery=(C.Battery(soc=body.state.battery.soc, updated_at=now()).model_dump(mode='json')
+                              if body.state.battery.soc is not None else None),
+                     devices=data.get('devices_changed') or [])
         with self._lock:
             self._states = {k: v for k, v in self._states.items() if v['expires'] > at}
             self._passes = {k: v for k, v in self._passes.items() if v['expires'] > at}
@@ -107,7 +105,8 @@ class PhoneTelemetry:
                     (jti not in self._passes and len(self._passes) >= self.MAX_PASSES)):
                 fail(503, 'PHONE_STATE_CAPACITY', '상태 수신을 잠시 후 다시 시도하세요.')
             self._passes[jti] = dict(sequence=body.sequence, received=at, expires=at+claims.exp-wall)
-            self._states[rid] = dict(state=state, serial=body.robot_serial, expires=at+remaining)
+            self._states[rid] = dict(state=state, serial=body.robot_serial, expires=at+remaining,
+                                     sampled_at=at-age-body.sensor_age_ms/1000)
 
     def get(self, rid):
         with self._lock:
@@ -115,7 +114,8 @@ class PhoneTelemetry:
             if item is None or item['expires'] <= self.clock():
                 self._states.pop(str(rid), None)
                 return None
-            return deepcopy(item['state'])
+            return {**deepcopy(item['state']), 'age_s': max(0., self.clock()-item['sampled_at']),
+                    'valid_for_s': max(0., item['expires']-self.clock())}
 
 
 def install(app, DB, Identity, fail, authorize, issuer, find_robot):
@@ -137,5 +137,4 @@ def install(app, DB, Identity, fail, authorize, issuer, find_robot):
         if body.state.controller is not None and body.state.controller != user.id:
             fail(409, 'PHONE_STATE_CONTROLLER', '폰 상태의 조종자를 확인하세요.')
         cache.accept(body, claims, fail)
-        app.state.realtime.last_state_received[str(robot_id)] = now()
         return Response(status_code=204, headers={'Cache-Control': 'no-store'})
