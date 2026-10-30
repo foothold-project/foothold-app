@@ -183,6 +183,36 @@ class CallbackGate:
         self.lock.release()
 
 
+@pytest.mark.parametrize('delay', [.10, .31])
+def test_delayed_conflicting_identity_stays_faulted_across_stop_and_fresh_samples(delay):
+    now, sink, feedback, hub, _ = fixture()
+    feedback.lowstate(low())
+    feedback.sportmodestate(sport())
+    assert feedback.consume(hub)
+    gate = CallbackGate()
+    feedback._lock = gate
+    errors = []
+    def callback():
+        try:
+            feedback.lowstate(low(2, sn=(9999, 9999)))
+        except BaseException as error:
+            errors.append(error)
+    worker = threading.Thread(target=callback, name='delayed-dds')
+    worker.start()
+    try:
+        assert gate.waiting.wait(1)
+        now.value += delay
+        sink.apply(command('stop'), source='phone')
+    finally:
+        gate.release.set()
+        worker.join(2)
+    assert not worker.is_alive() and not errors
+    feedback.lowstate(low(3))
+    feedback.sportmodestate(sport(3))
+    assert feedback.fault and not feedback.consume(hub)
+    assert sink._confirmed_generation is None and sink.latched
+
+
 @pytest.mark.parametrize('topic,delay', [('low', .31), ('sport', .10)])
 def test_delayed_callback_cannot_relabel_receipt_or_stop_generation(topic, delay):
     now, sink, feedback, hub, states = fixture()
