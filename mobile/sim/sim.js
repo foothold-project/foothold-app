@@ -1,7 +1,7 @@
 // RS-4 공통 핵심(브라우저·Node 같이 씀): MuJoCo Go2 + foothold-v2 순수 JS 추론.
 // Policy contracts live in policy-adapters.js; height observations raycast actual world geometry.
 // 관측·행동 계약은 exp33 src/v2_obs.py 그대로(관측 235, 행동 Isaac 순서, q* = 0.25·a + 기본자세).
-import { getPolicyAdapter } from './policy-adapters.js';
+import { getPolicyAdapter, makeTerrainSampler } from './policy-adapters.js';
 const defaultAdapter = getPolicyAdapter();
 const LEGS = ['FL', 'FR', 'RL', 'RR'], PARTS = ['hip', 'thigh', 'calf'];
 // Legacy exports stay available to the existing measurement scripts.
@@ -50,6 +50,12 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   }
 
   const sampleHeight = adapter.makeHeightScanner(mj, m, d, world);
+  // The reset floor is not the ground everywhere (factory ramp: 0 → -0.6 m).
+  // Use collision geometry directly below the body, excluding the robot and
+  // lidar-only proxies just like the policy scanner. A void keeps the reset
+  // datum, so a missing surface cannot disable the height guard.
+  const sampleSupport = makeTerrainSampler(mj, m, d, { grid: [[0, 0]], rayOffset: 0 });
+  const support = new Float64Array(1);
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
   const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], z: 0, fell: false, policyMs: 0, physMs: 0, I2M, M2I };
 
@@ -81,7 +87,8 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     s.linB = tB(v[0], v[1], v[2]);          // 자유관절 선속도 = 월드 → 몸통 좌표
     s.angB = [v[3], v[4], v[5]];            // 자유관절 각속도 = 이미 몸통 좌표
     s.grav = tB(0, 0, -1);
-    s.z = q[2] - F; // 바닥 기준 몸통 높이
+    sampleSupport(q, support);
+    s.z = q[2] - (Number.isFinite(support[0]) ? support[0] : F); // 지지면 기준 몸통 높이
     if (s.z < 0.18 || s.grav[2] > -0.5) s.fell = true; // 몸통 18 cm 아래 또는 60° 넘게 기욺
   }
 
@@ -108,7 +115,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { sampleHeight.dispose(); sampleSupport.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }
