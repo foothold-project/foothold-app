@@ -215,9 +215,16 @@ async function main() {
       geo = geoCache[md.mesh] = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(src.p, 3));
       geo.setIndex(src.i);
+      if (src.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(src.uv, 2));
       geo.computeVertexNormals();
     }
-    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), side: THREE.DoubleSide }));
+    let texture = null;
+    if (md.texture) {
+      if (!/^[a-z0-9_-]+\.png$/.test(md.texture)) throw new Error('장면 재질 파일 형식');
+      texture = await new THREE.TextureLoader().loadAsync(`${dir}/${md.texture}`);
+      texture.colorSpace = THREE.SRGBColorSpace;
+    }
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, side: THREE.DoubleSide }));
     mesh.position.set(...md.pos);
     mesh.quaternion.set(md.quat[1], md.quat[2], md.quat[3], md.quat[0]);
     scene.add(mesh);

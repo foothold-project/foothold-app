@@ -44,8 +44,11 @@ const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(-4, -6, 
 const cache = {};
 for (const md of sc.models) {   // main.js 와 같은 방식(quat = w,x,y,z)
   const g = cache[md.mesh] ??= (() => { const m = sc.meshes[md.mesh], b = new THREE.BufferGeometry();
-    b.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); b.setIndex(m.i); b.computeVertexNormals(); return b; })();
-  const o = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), side: THREE.DoubleSide }));
+    b.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); b.setIndex(m.i);
+    if (m.uv) b.setAttribute('uv', new THREE.Float32BufferAttribute(m.uv, 2)); b.computeVertexNormals(); return b; })();
+  const texture = md.texture ? await new THREE.TextureLoader().loadAsync('/assets/${id}/' + md.texture) : null;
+  if (texture) texture.colorSpace = THREE.SRGBColorSpace;
+  const o = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, side: THREE.DoubleSide }));
   o.position.set(...md.pos); o.quaternion.set(md.quat[1], md.quat[2], md.quat[3], md.quat[0]); s.add(o);
 }
 const cam = new THREE.OrthographicCamera(-w / 2, w / 2, h / 2, -h / 2, 0.1, 200);
@@ -63,11 +66,16 @@ for (const id of ids) {
   if (meta) { console.log(`${id}: top.json ${W}×${H}`); continue; }
   const files = { '/vendor/three.module.js': join(src, 'vendor/three.module.js'), '/vendor/three.core.js': join(src, 'vendor/three.core.js'),
     [`/assets/${id}/scene.json`]: join(simDir, 'assets', id, 'scene.json') };
+  const scene = JSON.parse(readFileSync(join(simDir, 'assets', id, 'scene.json'), 'utf8'));
+  for (const { texture } of scene.models) if (texture) {
+    if (!/^[a-z0-9_-]+\.png$/.test(texture)) throw new Error('장면 재질 파일 형식');
+    files[`/assets/${id}/${texture}`] = join(simDir, 'assets', id, texture);
+  }
   const srv = createServer((q, res) => {
     const p = q.url.split('?')[0];
     if (p === '/') { res.writeHead(200, { 'Content-Type': 'text/html' }); return res.end(page(id, b, W, H)); }
     if (!files[p]) { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'Content-Type': p.endsWith('.js') ? 'text/javascript' : 'application/json' }); res.end(readFileSync(files[p]));
+    res.writeHead(200, { 'Content-Type': p.endsWith('.js') ? 'text/javascript' : p.endsWith('.png') ? 'image/png' : 'application/json' }); res.end(readFileSync(files[p]));
   });
   await new Promise((ok) => srv.listen(0, '127.0.0.1', ok));
   const prof = mkdtempSync(join(tmpdir(), 'fh-top-')), out = join(simDir, 'assets', id, 'top.png');
