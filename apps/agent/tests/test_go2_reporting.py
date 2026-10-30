@@ -2,12 +2,14 @@
 import asyncio
 import json
 import time
+import threading
 from types import SimpleNamespace as NS
 
 from foothold_agent.go2_direct.feedback import Feedback
 from foothold_agent.go2_direct.reporting import ReadOnlyObserver, Reporting, project, devices
 from foothold_agent.link.client import Settings
 from test_go2_feedback import low, sport
+from test_go2_feedback import CallbackGate
 from test_phone import Harness
 from test_go2_runtime import free_port
 
@@ -75,6 +77,36 @@ def test_errors_and_tilt_use_existing_device_states_without_numeric_label_hacks(
         assert all('123' not in d['label'] for d in states)
         feedback.lowstate(low(3, sn=(9999, 9999)))
         assert project(feedback.telemetry(), h.clock())['battery']['soc'] is None
+    finally:
+        h.hub.close()
+        h.verifier.close()
+
+
+def test_phone_display_keeps_callback_entry_age_after_a_short_cache_lock_wait():
+    h = Harness(simulation=False)
+    try:
+        feedback = populated(h.clock, h.clock.wall)
+        gate = CallbackGate()
+        feedback._lock = gate
+        errors = []
+        def callback():
+            try:
+                feedback.lowstate(low(2))
+            except BaseException as error:
+                errors.append(error)
+        worker = threading.Thread(target=callback, name='delayed-dds')
+        worker.start()
+        try:
+            assert gate.waiting.wait(1)
+            h.clock.t += .15
+        finally:
+            gate.release.set()
+            worker.join(2)
+        assert not worker.is_alive() and not errors
+        snapshot = feedback.telemetry()
+        assert snapshot['sources']['lowstate']['age_s'] == .15
+        original = devices(snapshot, h.clock())[0]['received_monotonic_s']
+        assert original == 0.
     finally:
         h.hub.close()
         h.verifier.close()

@@ -107,9 +107,18 @@ class Feedback:
     def telemetry(self):
         """Measured display cache; reporting freshness is separate from motion."""
         with self._lock:
+            low = deepcopy(self._low)
             sport = deepcopy(self._sport)
             fault = self._fault
         snapshot = self.state.snapshot()
+        # The read-only display cache stamps when it is updated. Preserve the
+        # actual DDS callback-entry receipts for phone/relay freshness instead.
+        now = self.now()
+        for topic, sample in (('lowstate', low), ('sportmodestate', sport)):
+            source = snapshot['sources'][topic]
+            age = None if sample is None else now-sample['received']
+            source['age_s'] = None if age is None else max(0., age)
+            source['fresh'] = source['fresh'] and age is not None and age >= 0
         snapshot['speed_sample'] = (None if sport is None or fault else dict(
             speed=math.hypot(*sport['velocity'][:2]), received=sport['received']))
         if fault:
