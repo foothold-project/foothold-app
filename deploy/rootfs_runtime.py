@@ -155,6 +155,11 @@ def properties(data,release,*,proof=True):
 
 def dropin(data,release):
     values=properties(data,release)
+    # systemd --user calls sd_booted(), which checks /run/systemd/system/.
+    # RootDirectory/MountAPIVFS hide the host boot directory. Bind the real one
+    # read-only, without submounts; do not fabricate it in the sealed rootfs or
+    # expose /run/systemd (private control sockets). The probe needs no such bind.
+    values['BindReadOnlyPaths']+=' /run/systemd/system:/run/systemd/system:norbind'
     # Reset inherited namespace bindings; only this UID instance is touched.
     text='[Service]\nBindPaths=\nBindReadOnlyPaths=\nReadWritePaths=\n'
     text+=''.join(key+'='+value+'\n' for key,value in values.items())

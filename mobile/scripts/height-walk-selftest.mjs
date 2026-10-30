@@ -19,7 +19,7 @@ mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.x
 const weights = readFileSync(join(src, 'policy_v2.f32'));
 const buffer = weights.buffer.slice(weights.byteOffset, weights.byteOffset + weights.byteLength);
 const results = [];
-for (const id of ['factory-inspection', 'factory-inspection-alt1', 'factory-zone-f1', 'warehouse', 'element-course']) {
+for (const id of ['factory-inspection', 'factory-inspection-alt1', 'factory-zone', 'warehouse', 'element-course']) {
   const dir = new URL(`../sim/assets/${id}/`, import.meta.url);
   const map = JSON.parse(readFileSync(new URL('map.json', dir)));
   for (const f of map.physics_assets ?? []) {

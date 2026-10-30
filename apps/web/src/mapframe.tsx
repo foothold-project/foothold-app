@@ -39,20 +39,23 @@ export const SIM_TOP = new Map([
   ['ce79faafe42fbe7c3239699802c6422701e760d98edc96e8b980f7f322c3480b', 'warehouse'],   // warehouse/f1
   ['8669ef9e9300c7a6372d02b230aaee98f984337bac9cebe5b1316be1e7d61721', 'factory-inspection'],   // factory_inspection/f1
   ['52597920b820608c7de49ef63b562e72f7480324a0da75af5b1a96b061bda1a8', 'factory-inspection-alt1'],   // factory_inspection_alt1/f1
-  ['d3daa2c7c767ce7d7d58b31c44c703b2d1b9f79b2179b9f908d96ba315641a2d', 'factory-zone-f1'],   // factory_zone/f1
-  ['a28e13e398c5984c5a315c12182593e4552324adb7bfec0fcef5438a73b2425d', 'factory-zone-f2'],   // factory_zone/f2
+  ['d3daa2c7c767ce7d7d58b31c44c703b2d1b9f79b2179b9f908d96ba315641a2d', 'factory-zone'],   // factory_zone/f1
+  ['a28e13e398c5984c5a315c12182593e4552324adb7bfec0fcef5438a73b2425d', 'factory-zone'],   // factory_zone/f2
   ['e36a96d7619a8a721e0a922f6a57491cf9d99c31f47de5995ff413ba25302955', 'element-course'],   // element_course/f1
 ]);
-type TopMeta = { bounds: [number, number, number, number]; map: { origin: number[]; res: number; w: number; h: number } };
-const TOP_PNG = import.meta.glob<string>('../../../mobile/sim/assets/*/top.png', { eager: true, query: '?url', import: 'default' });
+type TopGrid = { origin: number[]; res: number; w: number; h: number };
+type TopMeta = { bounds: [number, number, number, number]; map: TopGrid; floors?: { image_sha256: string; top: string; map: TopGrid }[] };
+const TOP_PNG = import.meta.glob<string>('../../../mobile/sim/assets/*/top*.png', { eager: true, query: '?url', import: 'default' });
 const TOP_META = import.meta.glob<TopMeta>('../../../mobile/sim/assets/*/top.json', { eager: true, import: 'default' });
 export type Top = { href: string; x: number; y: number; width: number; height: number };
 type Ver = Pick<MapVersion, 'provenance' | 'image_sha256' | 'origin' | 'resolution' | 'width' | 'height'>;
 /** 판에 깔 사진 자리(그림 픽셀). 시뮬 등록 판이 아니거나 연결된 시뮬 그림이 아니거나 판 좌표(origin·해상도·크기)가 사진을 구운 지도와 다르면 null */
 export function topOf(v?: Ver | null): Top | null {
-  const id = v?.provenance === 'SIMULATION' && SIM_TOP.get(v.image_sha256), t = id && TOP_META[`../../../mobile/sim/assets/${id}/top.json`], href = id && TOP_PNG[`../../../mobile/sim/assets/${id}/top.png`];
+  const id = v?.provenance === 'SIMULATION' && SIM_TOP.get(v.image_sha256), t = id && TOP_META[`../../../mobile/sim/assets/${id}/top.json`];
+  const floor = t && t.floors?.find((f) => f.image_sha256 === v?.image_sha256);
+  const href = id && TOP_PNG[`../../../mobile/sim/assets/${id}/${floor ? floor.top : 'top.png'}`];
   if (!v || !t || !href) return null;
-  const { map: m, bounds: [x0, y0, x1, y1] } = t, r = v.resolution;
+  const { bounds: [x0, y0, x1, y1] } = t, m = floor ? floor.map : t.map, r = v.resolution;
   if (m.res !== r || m.w !== v.width || m.h !== v.height || m.origin.length !== 3 || m.origin.some((o, i) => o !== v.origin[i])) return null;
   return { href, x: (x0 - v.origin[0]) / r, y: v.height - (y1 - v.origin[1]) / r, width: (x1 - x0) / r, height: (y1 - y0) / r };   // origin 방향 0(위 검사) — 사진 위쪽 = +y
 }

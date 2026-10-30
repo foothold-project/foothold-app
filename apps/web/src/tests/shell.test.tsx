@@ -123,6 +123,14 @@ describe('탭 전환', () => {
     expect(card.querySelector('[aria-label="월드 목록"]')).toBeNull();
     expect(cardNames()).toEqual(['Go2-3', 'Go2-1']);   // 내 로봇 목록은 그대로
   });
+  it.each(['factory-zone-f1', 'factory-zone-f2'])('옛 공장 저장값 %s 는 한 월드로 이동', (old) => {
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
+    localStorage.setItem('fh.simMap', old);
+    mount(true, 'u-lee');
+    expect($<HTMLSelectElement>('[data-sim-map]').value).toBe('factory-zone');
+    expect($<HTMLAnchorElement>('[data-sim-app]').getAttribute('href')).toContain('map=factory-zone');
+    expect($<HTMLImageElement>('[data-sim-top]').getAttribute('src')).toContain('/factory-zone/top.png');
+  });
   it('폰 앱 시뮬 지도(10-28): 드롭다운 = mobile/sim/maps.json, 고른 지도의 위에서 본 사진, 열기 주소에 ?map=, 기억(없는 값·저장 실패면 첫 지도)', () => {
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Linux; Android 14; wv) FootholdApp/1.2.2-dev');
     localStorage.setItem('fh.simMap', 'nope');
