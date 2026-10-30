@@ -214,6 +214,19 @@ describe('조종 화면', () => {
     expect(cmds().slice(n).every((m) => String(m.axes) === '0,0,0')).toBe(true);   // 잠긴 뒤 입력은 0
   });
 
+  it('relay-only status cannot claim direct robot STOP confirmation in the App banner', () => {
+    mount(true, 'u-park', '#/drive/r7');
+    serve(PARK, 'r7'); ready();
+    w.auto = () => ({ ok: true });
+    key('keydown', 'Space'); tick(100);
+    act(() => push('r7', { connection: 'OFFLINE', latched: null, applied: null, stop_gen: null,
+      phone_relay: { source: 'PHONE', battery: null, speed: 0, devices: [], age_s: .1, valid_for_s: 2.9 } }));
+    expect(band()).toContain('폰 경유 자료는 받았지만 직접 로봇 보고로 정지를 확인하지 못했습니다');
+    expect(band()).not.toContain('로봇이 잠금과 멈춤 출력을 알렸습니다');
+    act(() => push('r7', { connection: 'ONLINE', latched: true, stop_gen: 2, applied: [0, 0, 0] }));
+    expect(band()).toContain('로봇이 잠금과 멈춤 출력을 알렸습니다');
+  });
+
   it('STOP 뒤 잠금 보고 전에는 «아직 잠금 안 됨» 유지, 잠금 → 해제되면 STOP 띠를 지움', () => {
     mount(true, 'u-park', '#/drive/r7');
     serve(PARK, 'r7');
