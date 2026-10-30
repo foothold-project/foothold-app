@@ -6,7 +6,7 @@ import { createRoot, type Root as ReactRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MapFeatures, MapVersion, RobotSummary, SiteTree, User } from '../../../contracts/ts';
 import { Root } from '../session';
-import { floorName, toPixel } from '../screens/maps';
+import { floorName, pixelTo, toPixel } from '../screens/maps';
 import { kept } from '../screens/mapedit';
 import raw from './mapcases.json?raw';
 import { FakeWS } from './fakeWs';
@@ -1739,6 +1739,67 @@ describe('판 비교·되돌리기(W4c)', () => {
     act(() => asked.mock.calls[0][0]()); await flush();
     leaving.ask = null;
     expect(card('이 판으로 되돌리기')).toBeTruthy();
+    expect(writes()).toEqual([]);
+  });
+});
+
+describe('지도 탭 — 층 레이어(10-30 «전체·1층·2층»)', () => {
+  /** 2층 판: 다른 origin·회전(90°)·해상도 — 겹칠 때 지도 좌표로 맞춘다 */
+  const F2 = ver('w1', 1, { floor_id: 'f2', width: 40, height: 40, resolution: 0.1, origin: [0, 0, Math.PI / 2] });
+  const two = (more: Record<string, Route> = {}) => signedIn(KIM, { 'GET /sites': { status: 200, body: { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0],
+    floors: [floor('f1', '1층', 1, 'v2'), floor('f2', '2층', 2, 'w1')] }] }] } }, 'GET /map-versions/w1': { status: 200, body: F2 },
+    'GET /floors/f2/map-versions': { status: 200, body: { items: [F2], next_cursor: null } }, ...more });
+  const layers = () => card('층 레이어');
+  it('pixelTo: 판 a 픽셀 → 지도 좌표 → 판 b 픽셀(toPixel 과 맞음)', () => {
+    const [a, b, c, d, e, f] = pixelTo(F2, V2), at = (x: number, y: number) => [a * x + c * y + e, b * x + d * y + f];
+    // F2 픽셀 (0,40) = 왼쪽 아래 = origin (0,0) → V2 의 toPixel(0,0)
+    at(0, 40).forEach((n, i) => expect(n).toBeCloseTo(toPixel(V2, 0, 0)[i]));
+    // F2 픽셀 (10,40) = 그림 +x 1 m = 지도 +y 1 m(90° 회전)
+    at(10, 40).forEach((n, i) => expect(n).toBeCloseTo(toPixel(V2, 0, 1)[i]));
+  });
+  it('2층 이상 건물: «전체 · 1층 · 2층» — 전체는 층마다 색 겹침 + 범례, 보기만(편집·올리기 없음), 층을 고르면 편집 가능', async () => {
+    serve(two());
+    await open('#/map');
+    expect(btns(layers()).map((b) => b.textContent)).toEqual(['전체', '1층', '2층']);
+    expect(btn('1층', layers())!.getAttribute('aria-pressed')).toBe('true');
+    await click(btn('전체', layers()));
+    const all = $('[data-all-floors]')!;
+    expect(btn('전체', layers())!.getAttribute('aria-pressed')).toBe('true');
+    expect(floorBtn('1층').getAttribute('aria-pressed')).toBe('false');
+    const imgs = [...all.querySelectorAll('svg image')];
+    expect(imgs.map((i) => i.getAttribute('href'))).toEqual(['/api/v1/map-versions/v2/image', '/api/v1/map-versions/w1/image']);
+    expect(imgs[1].getAttribute('transform')).toBe(`matrix(${pixelTo(F2, V2).join(' ')})`);
+    expect(all.querySelectorAll('filter feFlood')).toHaveLength(2);                      // 층마다 벽 한 색(빈 곳·미확인 투명)
+    expect([...all.querySelectorAll('[data-legend] li')].map((l) => l.textContent)).toEqual(['1층', '2층']);
+    expect(btn('편집', all)).toBeUndefined(); expect($('[aria-label="보기·편집"]')).toBeNull(); expect($('[aria-label="새 지도 올리기"]')).toBeNull();
+    expect(all.textContent).toContain('보기만 합니다');
+    await click(btn('2층', layers()));
+    expect($('[data-all-floors]')).toBeNull();
+    expect(card('지도 보기').querySelector('h2')!.textContent).toBe('본관 본동 2층 · 승인 판 1');
+    expect(btn('편집', card('보기·편집'))).toBeTruthy();
+    expect(writes()).toEqual([]);
+  });
+  it('지도 없는 층은 범례에 «지도 없음», 한 층 건물은 토글 없음', async () => {
+    serve(signedIn(KIM));
+    await open('#/map');
+    await click(btn('전체', layers()));
+    expect([...$('[data-all-floors]')!.querySelectorAll('[data-legend] li')].map((l) => l.textContent)).toEqual(['1층', '2층지도 없음']);
+    act(() => root?.unmount()); box.remove();
+    serve(signedIn(KIM, { 'GET /sites': { status: 200, body: { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [floor('f1', '1층', 1, 'v2')] }] }] } } }));
+    await open('#/map');
+    expect($('[aria-label="층 레이어"]')).toBeNull();
+  });
+  it('저장 안 한 편집 중 «전체» → 기존 확인(계속 편집이면 그 층에 머묾, 나가기면 전체)', async () => {
+    serve(editSrv());   // 본동 = 1층·2층(2층 지도 없음)
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await click(btn('전체', layers()));
+    expect(card('확인').textContent).toContain('저장하지 않은 편집이 있습니다.');
+    await click(btn('계속 편집', card('확인')));
+    expect($('[data-all-floors]')).toBeNull(); expect(canvas()).toBeTruthy();
+    await click(btn('전체', layers()));
+    await click(btn('나가기', card('확인')));
+    expect($('[data-all-floors]')).toBeTruthy();
     expect(writes()).toEqual([]);
   });
 });

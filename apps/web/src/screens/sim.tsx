@@ -107,6 +107,7 @@ function SimView({ admin }: { admin: boolean }) {
         {key('W/↑', '전진', !running)}{key('S/↓', '후진', can.back && !running)}{key('A/←·D/→', '회전', !running)}{key('Q/E', '옆걸음', (can.left || can.right) && !running)}{key('Space', '정지')}{/* Space = STOP — 실행 중에도 눌리므로 줄긋지 않는다 */}
         <span className="mono" data-sim-vx>{(live ? out.vx : 0).toFixed(2)} m/s</span>
         {can.experimental && <span className="lbl" data-sim-exp>{EXP}</span>}
+        <span className="lbl" data-sim-tapnote>지도 찍어서 이동은 MuJoCo(«시뮬 열기») 만 — 이 시뮬은 키·시나리오로</span>
       </div>}
     </section>
     <SimQuad fm={fm} hasMap={hasMap} mine={mine} />
@@ -123,7 +124,7 @@ function SimQuad({ fm, hasMap, mine }: { fm: FloorMap; hasMap: boolean; mine: bo
     { id: 'map', label: '지도', body: (z) => hasMap ? <div data-sim-mapbox><SimMap m={fm} big={z === 'big'} /></div> : <QEmpty text="이 월드에는 지도가 없습니다" /> },
     { id: 'lidar', label: '3D 점군 · L1 센서 기준 1스캔', body: (z) => <Cloud3D small={z === 'thumb'} big={z === 'big'} /> },
   ];
-  return <section className="dv" style={{ flexBasis: '100%' }} aria-label="보기">
+  return <section className="dv" style={{ flexBasis: '100%' }} aria-label="보기" data-sim-quad>
     <Quad label="시뮬 보기 4칸" tiles={tiles} fs={<SimStop />}
       top={again && (mine ? <span className="lbl" data-media-again>영상을 다시 받으려면 조종권을 반납한 뒤 «영상 다시 받기»를 누르세요.</span>
         : <button type="button" className="btn" data-media-again onClick={() => sim.connect()}>영상 다시 받기(다시 연결)</button>)} />

@@ -2,7 +2,7 @@
 // 나무·판·그림·요소는 서버 값 그대로 그린다. 편집 도구는 screens/mapedit.tsx(W4b), 판 비교·되돌리기는 screens/mapdiff.tsx(W4c), 로봇 점은 위치-판 묶기(D5) 뒤.
 // 편집 저장·되돌리기·올리기는 누구나 바로 새 승인 판(10-27 결재 없음). 옛 결재 대기(PENDING) 판은 판 목록·기록에 그대로 보인다.
 // 큰 그림은 <image> 가 쿠키로 따로 받는다 — 불러오기·실패는 이 칸 안 글로만, 머리줄·STOP 은 경계(App Guard) 밖.
-import { useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type { MapBuilding, MapFeatures, MapFloor, MapSite, MapUpload, MapVersion, SiteTree } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
 import type { Tone, User } from '../fake';
@@ -38,6 +38,13 @@ export const shape = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) thro
 export function toPixel(v: Pick<MapVersion, 'origin' | 'resolution' | 'height'>, x: number, y: number): [number, number] {
   const [ox, oy, yaw] = v.origin, dx = x - ox, dy = y - oy, c = Math.cos(yaw), s = Math.sin(yaw);
   return [(c * dx + s * dy) / v.resolution, v.height - (-s * dx + c * dy) / v.resolution];
+}
+/** 판 a 그림 픽셀 → 판 b 그림 픽셀(지도 좌표를 거쳐, toPixel 의 역 + toPixel). svg matrix(a b c d e f) */
+export function pixelTo(a: Pick<MapVersion, 'origin' | 'resolution' | 'height'>, b: Pick<MapVersion, 'origin' | 'resolution' | 'height'>) {
+  const [ox, oy, yaw] = a.origin, c = Math.cos(yaw), s = Math.sin(yaw);
+  const at = (px: number, py: number) => { const u = px * a.resolution, w = (a.height - py) * a.resolution; return toPixel(b, ox + c * u - s * w, oy + s * u + c * w); };
+  const [e, f] = at(0, 0), [x1, y1] = at(1, 0), [x2, y2] = at(0, 1);
+  return [x1 - e, y1 - f, x2 - e, y2 - f, e, f] as const;
 }
 
 /** 구역 종류는 테두리로(진입 금지 = 굵은 실선, 감속 = 둥근 점선)와 이름표로 가른다 — 색에만 기대지 않게 */
@@ -145,6 +152,7 @@ export const canon = (x: unknown) => JSON.stringify(x, (_, v) => (v && typeof v 
 export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
   const admin = c.user.role === 'ORG_ADMIN', t = useTree(c.cancel), places = floorsOf(t.tree);
   const [pick, setPick] = useState(() => kept.d?.floor ?? ''), cur = places.find((p) => p.floor.id === pick) ?? places[0];
+  const [all, setAll] = useState(false), multi = !!cur && cur.building.floors.length >= 2, whole = all && multi;   // 전체 = 건물 층 겹쳐 보기(보기만)
   const [fix, setFix] = useState(false), [form, setForm] = useState<Form | null>(null), [ask, setAsk] = useState<{ kind: Kind; id: string; name: string } | null>(null);
   const [msg, setMsg] = useState<Msg>(null), [busy, setBusy] = useState(false);
   const names = useNames(c.user, admin, c.cancel), nums = useNumbers(places, c.cancel);
@@ -176,6 +184,13 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
     <button type="button" className="btn" disabled={busy} onClick={() => open({ kind, id: x.id, title: `${WHAT[kind]} 이름 바꾸기 — ${x.name}`, name: x.name, level: x.level })}>이름 바꾸기</button>
     <button type="button" className="btn" disabled={busy} onClick={() => { setAsk({ kind, id: x.id, name: x.name }); setForm(null); setMsg(null); }}>지우기</button></span>;
 
+  // 층 레이어(10-30): 2층 이상 건물만 «전체 · 1층 · 2층…». 층을 바꾸면 저장 안 한 편집 확인(leaving.ask)부터 — 전체에는 편집이 없다
+  const layers = cur && multi && <div className="fh-row" role="group" aria-label="층 레이어" data-layers>
+    <button type="button" className="btn" aria-pressed={whole} onClick={() => { const go = () => { setAll(true); setMsg(null); }; if (whole) return; if (leaving.ask) leaving.ask(go); else go(); }}>전체</button>
+    {cur.building.floors.map((f) => <button key={f.id} type="button" className="btn" aria-pressed={!whole && f.id === cur.floor.id}
+      onClick={() => { const go = () => { setPick(f.id); setAll(false); setMsg(null); }; if (leaving.ask && f.id !== cur.floor.id) leaving.ask(go); else go(); }}>{f.name}</button>)}
+  </div>;
+
   return <>
     <section className="lv-card" style={{ flex: '0 1 260px' }} aria-label="장소">
       <div className="fh-row"><h2 className="fh-grow">장소</h2><button type="button" className="btn" aria-pressed={admin ? fix : undefined} disabled={!admin} aria-describedby={admin ? undefined : 'fix-why'}
@@ -186,7 +201,7 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
         {s.buildings.map((b) => <div key={b.id} style={{ display: 'flex', flexDirection: 'column', gap: 6, paddingLeft: 12 }}>
           <div className="fh-row"><span className="fh-grow">{b.name}</span>{tools('buildings', b)}</div>
           <ul className="fh-list" aria-label={`${b.name} 층`}>{b.floors.map((f) => <li key={f.id} className="fh-row">
-            <button type="button" aria-pressed={f.id === cur?.floor.id} style={{ flex: 1 }} onClick={() => { const go = () => { setPick(f.id); setMsg(null); }; if (leaving.ask && f.id !== cur?.floor.id) leaving.ask(go); else go(); }}><span className="fh-grow">{f.name}</span>
+            <button type="button" aria-pressed={!whole && f.id === cur?.floor.id} style={{ flex: 1 }} onClick={() => { const go = () => { setPick(f.id); setAll(false); setMsg(null); }; if (leaving.ask && f.id !== cur?.floor.id) leaving.ask(go); else go(); }}><span className="fh-grow">{f.name}</span>
               <span className="lbl">{!f.approved_version_id ? '지도 없음' : nums[f.approved_version_id] ? `판 ${nums[f.approved_version_id]}` : ''}</span></button>{tools('floors', f)}</li>)}</ul>
           {fix && <button type="button" className="btn" disabled={busy} onClick={() => open({ kind: 'floors', parent: b.id, title: `${s.name} ${b.name} 에 새 층` })}>+ 층</button>}
         </div>)}
@@ -209,7 +224,8 @@ export function Maps(c: Pick<Ctx, 'user' | 'cancel'> & { dash?: Dash }) {
       {t.err && <div className="fh-row"><p className="fh-msg" role="alert">장소 목록을 받지 못했습니다. {t.err}</p><button type="button" className="btn" onClick={t.again}>다시 시도</button></div>}
       {!t.tree && !t.err && <p className="lv-note" role="status">장소 목록을 불러오는 중…</p>}
     </section>
-    {cur ? <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} asked={() => c.dash?.again()} />
+    {whole && cur ? <AllFloors key={cur.building.id} b={cur.building} top={layers} cancel={c.cancel} />
+      : cur ? <FloorView key={cur.floor.id} p={cur} admin={admin} names={names} cancel={c.cancel} again={t.again} asked={() => c.dash?.again()} top={layers} />
       : <section className="lv-card" aria-label="지도 보기"><p className="lv-note">{t.tree ? '층을 만들면 여기에서 지도를 봅니다.' : ''}</p></section>}
   </>;
 }
@@ -232,7 +248,7 @@ function useNames(me: User, admin: boolean, cancel?: AbortSignal) {
 
 /** 고른 층: 판 목록(GET /floors/{id}/map-versions) → 승인 판(또는 고른 옛 판) 그림·정보·비교, 보기/편집 토글(승인 판이 있을 때)·한때 승인된 판 되돌리기, 총괄은 새 지도 올리기.
  *  저장·되돌리기는 누구나 바로 새 승인 판 — 서버가 아직 PENDING 으로 받으면 고르지 않고 승인 판을 그대로 보인다. asked = 그때 배지 다시 받기 */
-function FloorView({ p, admin, names, cancel, again, asked: told }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; asked: () => void }) {
+function FloorView({ p, admin, names, cancel, again, asked: told, top }: { p: Place; admin: boolean; names: (id: string) => string | undefined; cancel?: AbortSignal; again: () => void; asked: () => void; top?: ReactNode }) {
   const approved = p.floor.approved_version_id;
   const [got, setGot] = useState<{ key: string; list: MapVersion[] } | null>(null), [err, setErr] = useState(''), [n, setN] = useState(0), [sel, setSel] = useState('');
   const [back] = useState(() => (kept.d?.floor === p.floor.id ? kept.d.base : null));   // 폰 틀에서 돌아와 이어 쓰는 편집의 기준 판
@@ -257,6 +273,7 @@ function FloorView({ p, admin, names, cancel, again, asked: told }: { p: Place; 
   const reload = () => { setN(n + 1); again(); };
   const pending = num(p.floor.pending_count) ? p.floor.pending_count : 0;
   return <section className="lv-card" aria-label="지도 보기">
+    {top}
     <div className="fh-row">{now && <span className="fh-row" role="group" aria-label="보기·편집">
         <button type="button" className="btn" aria-pressed={!editing} onClick={() => { if (!editing) return; if (leaving.ask) leaving.ask(() => setEditing(null)); else setEditing(null); }}>보기</button>
         <button type="button" className="btn" aria-pressed={!!editing} onClick={() => { if (!editing) { setEditing(now); setSel(''); setDone(null); setCmp(false); setUndo(null); } }}>편집</button></span>}
@@ -359,6 +376,36 @@ function Upload({ floor, base, keep, ready, cancel, saved, again }: { floor: str
     {step && <p className="lv-note" role="status">{step}</p>}
     <Note m={msg} />
   </form>;
+}
+
+/** 전체(층 겹쳐 보기): 건물 각 층 승인 판의 벽만 층 색으로 첫 판 위에 겹친다 — 판마다 origin·해상도가 달라도 지도 좌표로 맞춤. 보기만(편집은 한 층을 골랐을 때) */
+function AllFloors({ b, top, cancel }: { b: MapBuilding; top: ReactNode; cancel?: AbortSignal }) {
+  const [got, setGot] = useState<Record<string, MapVersion | 'bad'>>({}), ids = b.floors.map((f) => f.approved_version_id ?? '');
+  useEffect(() => {
+    let live = true;
+    for (const id of ids) if (id) api.version(id, cancel).then(shape(isVersion)).then((v) => { if (live) setGot((o) => ({ ...o, [id]: v })); },
+      (e: ApiFail) => { if (live && e.code !== 'CANCELED') setGot((o) => ({ ...o, [id]: 'bad' })); });
+    return () => { live = false; };
+  }, [ids.join()]);
+  const rows = b.floors.map((f, i) => ({ f, i, v: got[ids[i]] })), shown = rows.flatMap((r) => (r.v && r.v !== 'bad' ? [{ ...r, v: r.v }] : []));
+  const base = shown[0]?.v, look = useMemo(() => {
+    if (!base) return null;
+    const xs: number[] = [], ys: number[] = [];
+    for (const { v } of shown) { const [a, bb, c, d, e, f] = pixelTo(v, base); for (const [x, y] of [[0, 0], [v.width, 0], [0, v.height], [v.width, v.height]]) { xs.push(a * x + c * y + e); ys.push(bb * x + d * y + f); } }
+    const full: Box = [Math.min(...xs), Math.min(...ys), Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)];
+    return { full, res: base.resolution };
+  }, [shown.map((r) => r.v.id).join()]);
+  return <section className="lv-card" aria-label="지도 보기" data-all-floors>
+    {top}
+    <h2>{b.name} · 전체 층 겹쳐 보기</h2>
+    <p className="lv-note">보기만 합니다. 편집은 위에서 한 층을 고르세요.</p>
+    {look && base ? <MapFrame {...look} role="img" aria-label={`${b.name} 전체 층 지도`} data-map style={{ display: 'block', width: '100%', maxHeight: '60vh', borderRadius: 8 }}>
+      {shown.map(({ v, i }) => <MapImage key={v.id} id={v.id} width={v.width} height={v.height} tint={fillOf(i)} transform={`matrix(${pixelTo(v, base).join(' ')})`} data-layer={i} />)}
+    </MapFrame> : <p className="lv-note" role="status">{rows.some((r) => ids[r.i] && !r.v) ? '지도를 불러오는 중…' : '겹쳐 볼 승인 지도가 없습니다.'}</p>}
+    <ul className="fh-row" aria-label="범례" data-legend style={{ listStyle: 'none', margin: 0, padding: 0, flexWrap: 'wrap' }}>{rows.map(({ f, i, v }) => <li key={f.id} className="fh-row">
+      <span aria-hidden="true" style={{ width: 14, height: 14, borderRadius: 3, background: fillOf(i) }} /><span>{f.name}</span>
+      {!ids[i] ? <span className="lbl">지도 없음</span> : v === 'bad' ? <span className="fh-why">받지 못함</span> : null}</li>)}</ul>
+  </section>;
 }
 
 /** 관제 지도 칸(FL-03): 층 단추 + 그 층 승인 판 그림. 로봇 점은 위치에 판이 묶이면(D5) — 지금은 그리지 않는다(지어내지 않음) */

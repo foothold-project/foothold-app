@@ -155,3 +155,11 @@ html:has(.dv.ph),.fh:has(.dv.ph){background:#05080A}
   [data-sim-drive] .dv-stick{display:none}
   [data-sim-drive] .dv-keys{display:block;position:absolute;right:12px;bottom:12px;max-width:96px;margin:0;padding:6px 10px;border-radius:8px;background:rgba(8,11,14,.5);color:#E6EBEF;font-size:13px;line-height:1.4}
 }
+/* 시뮬 보기 4칸(screens/sim.tsx, 10-30 «지도가 너무 작아»): 지도 칸을 맨 위 한 줄 전체 · 화면 높이 절반쯤, 나머지 셋은 그 아래 한 줄. 크게 보기도 지도는 더 높게 */
+[data-sim-quad] .qd:not(.f){grid-template-columns:repeat(3,minmax(0,1fr))}
+[data-sim-quad] .qd:not(.f) .qt[data-tile="map"]{grid-column:1/-1;order:-1}
+[data-sim-quad] .qd:not(.f) .qt[data-tile="map"] .qb{flex:none;aspect-ratio:auto;max-height:none;height:clamp(280px,50vh,640px)}
+[data-sim-quad] .qd.f .qt.on[data-tile="map"] .qb{height:min(78vh,900px)}
+@media (max-width:700px){[data-sim-quad] .qd:not(.f){grid-template-columns:repeat(2,minmax(0,1fr))}[data-sim-quad] .qd:not(.f) .qt[data-tile="map"] .qb{height:min(50vh,100vw)}}
+/* 폰 작은 지도는 화면 폭 기준(가로 폰 max-height:480 규칙은 그대로 위에서 덮음) */
+@media (min-height:481px){[data-sim-drive].dv.ph .dv-mini{width:clamp(120px,42vw,220px);height:auto;aspect-ratio:10/7}}

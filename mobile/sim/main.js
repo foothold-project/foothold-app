@@ -9,8 +9,8 @@ import { createSim, ISAAC_LIKE } from './sim.js';
 import { getPolicyAdapter } from './policy-adapters.js';
 import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame } from './top-fit.js';
-import { makeLidar, decodeMap } from './lidar.js';
-import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts } from './scenario.js';
+import { makeLidar, decodeMap, cell } from './lidar.js';
+import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts, MAX_VX } from './scenario.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
@@ -174,16 +174,16 @@ async function main() {
   if (adapter.stop.pause) $('scenarioStatus').textContent = 'AME-2는 두 막대로 조종하세요';
   let scenarioText = '';
   const scenarioUI = () => {
-    const text = adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${runner.index + 1}/${runner.points.length}` : runner.status;
+    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${runner.index + 1}/${runner.points.length}` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
     select.disabled = runner.active || !scenarios.length || adapter.stop.pause;
     $('scenarioRun').disabled = !ready || stopped || sim.fell || runner.active || !scenarios.length || adapter.stop.pause;
     $('scenarioHalt').disabled = !runner.active;
     $('scenarioHint').hidden = !stopped;
   };
-  bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
-  // 막대를 누를 때처럼 조종 키도 실행을 끊고 잠근다(키는 위 keydown 이 먼저 받았어도 lock 이 버린다)
-  addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) { runner.cancel('중단'); lock(); } });
+  const { hand } = bindScenarioInterrupts({ runner, lock, left: $('stickL'), right: $('stickR'), stop: $('stop'), doc: document, win: window, home: $('home'), reset: $('reset') });
+  // 막대를 누를 때처럼 조종 키도 실행을 끊는다 — 시나리오는 잠그고(키는 위 keydown 이 먼저 받았어도 lock 이 버린다), 찍은 곳 가기는 취소만(그 키로 바로 손 조종)
+  addEventListener('keydown', (e) => { if (runner.active && e.code in KEYS && !e.repeat && !field(e.target) && !(e.ctrlKey || e.metaKey || e.altKey)) hand(); });
 
   $('scenarioHalt').onclick = () => { runner.cancel('중단'); lock(); scenarioUI(); };
 
@@ -308,6 +308,42 @@ async function main() {
     scenarioUI();
   };
 
+  // ── 찍은 곳으로 가기: 캔버스를 짧게 누르면(끌기·두 손가락 아님) 그 바닥 점까지 위 실행기로 곧게 간다(길 찾기 없음 — 막히면 멈춤).
+  // 안전 규칙은 시나리오와 같다(STOP·흐림·숨김·pagehide·reset = 취소+잠금, 넘어짐·앞 막힘·5초 진전 없음 = 멈춤). 막대·키 = 취소만(손 조종 우선)
+  const goalMark = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.24, 32), new THREE.MeshBasicMaterial({ color: 0xffd54f, depthTest: false, transparent: true }));
+  goalMark.renderOrder = 2; goalMark.visible = false; scene.add(goalMark);
+  const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 0, 1), -map.floor_z), hit = new THREE.Vector3();
+  let vp = [0, 0, 1, 1];   // 마지막으로 그린 칸(CSS px 왼쪽·위·폭·높이) — 누른 점을 그 칸의 카메라로 바닥에 비춘다
+  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 넘어짐: '넘어져서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다' };
+  let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
+  const say = (text) => { note = { text, until: performance.now() + 4000 }; };
+  const goTo = (cx, cy) => {
+    const [l, t, w, h] = vp;
+    if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
+    if (stopped) return say('정지 중에는 찍어도 움직이지 않습니다 — ▶ 로 시작하세요');
+    if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 찍으세요');
+    if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
+    ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
+    if (!ray.ray.intersectPlane(floor, hit)) return say('바닥을 찍으세요');
+    const ox = map.origin[0], oy = map.origin[1];
+    if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
+    if (cell(map, hit.x, hit.y) !== 254) return say('장애물·모르는 칸이라 갈 수 없습니다');
+    sticks.forEach((s) => s.release());
+    scan(); lastScan = performance.now();
+    runner.start([{ x: hit.x, y: hit.y }], true);
+    goalMark.position.set(hit.x, hit.y, map.floor_z + 0.03);
+    note = { text: '', until: 0 };
+    runner.tick(front);   // 이미 닿았거나 막혔으면 바로 0 — 그 결과도 안내(다음 프레임 goalUI 는 진행 중이던 목표만 본다)
+    if (!runner.active) say(GOAL_END[runner.status] ?? runner.status);
+  };
+  const goalUI = (now) => {
+    const on = runner.active && runner.goal;
+    if (wasGoal && !on && runner.goal) say(GOAL_END[runner.status] ?? runner.status);
+    wasGoal = on; goalMark.visible = on;
+    const g = runner.points[0], text = on ? `찍은 곳으로 가는 중 · ${Math.hypot(g.x - d.qpos[0], g.y - d.qpos[1]).toFixed(1)} m` : now < note.until ? note.text : '';
+    if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
+  };
+
   // ── 카메라: 따라가기(로봇 뒤에서 돌기) ↔ 위에서 보기(지도판). 막대 밖(캔버스) 한 손가락 끌기 = 돌리기, 두 손가락·휠 = 확대·축소
   const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0 };
   let top = true;
@@ -316,11 +352,19 @@ async function main() {
   const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
   const zoom = (k) => { if (top) view.topH = clamp(view.topH * k, 0.08, 3); else view.dist = clamp(view.dist * k, 0.8, 8); };
   const ptrs = new Map();
-  let pinch = 0;
-  cv.addEventListener('pointerdown', (e) => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0; });
+  let pinch = 0, tap = null;   // tap = 찍기 후보(한 손가락·왼쪽 단추, 8 px 안·0.5 s 안에 뗌)
+  cv.addEventListener('pointerdown', (e) => {
+    cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]); pinch = 0;
+    tap = ptrs.size === 1 && e.button === 0 ? { id: e.pointerId, x: e.clientX, y: e.clientY, t: performance.now() } : null;
+  });
+  cv.addEventListener('pointerup', (e) => {
+    if (tap?.id === e.pointerId && performance.now() - tap.t < 500) goTo(e.clientX, e.clientY);
+    tap = null;
+  });
   cv.addEventListener('pointermove', (e) => {
     const p = ptrs.get(e.pointerId);
     if (!p) return;
+    if (tap && Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 8) tap = null;
     if (ptrs.size === 1) {
       const dx = e.clientX - p[0], dy = e.clientY - p[1];
       if (top) view.topRot -= dx * 0.006;
@@ -355,7 +399,9 @@ async function main() {
   // ── 실행: 화면 시간에 맞춰 정책 스텝(한 프레임 최대 5스텝, 밀리면 늦게 감)
   let acc = 0, lastT = performance.now(), frames = 0, fps = 0, fpsT = lastT;
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
-    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner });
+    top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
+    // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
+    toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
   function frame(now) {
     acc += Math.min((now - lastT) / 1000, 0.25);
@@ -364,9 +410,12 @@ async function main() {
     let n = 0;
     while (acc >= POLICY_DT && n < 5) {
       acc -= POLICY_DT; n++;
-      if (runner.active) runner.tick(front);
+      if (runner.active && !adapter.stop.pause) runner.tick(front, POLICY_DT);
       else if (adapter.stop.pause) {
-        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped || sim.fell ? [0, 0, 0] : goalAxes, POLICY_DT);
+        // AME-2 는 찍은 곳 가기도 자체 목표 입력(ame2Joystick)으로 — 실행기 명령을 막대 값으로(앞 0 또는 끝까지, 회전 rad/s ≤ 0.6)
+        if (runner.active) runner.tick(front, POLICY_DT);
+        const axes = runner.active ? [sim.cmd[0] / MAX_VX, 0, sim.cmd[2]] : goalAxes;
+        const goal = ame2Joystick(heading, adapter.yawOf(d.qpos), stopped || sim.fell ? [0, 0, 0] : axes, POLICY_DT);
         heading = goal.heading; joy = goal.command; sim.cmd = joy.slice();
       } else sim.cmd = stopped || sim.fell ? neutral() : joy.slice();
       if (!sim.fell && !(adapter.stop.pause && stopped)) sim.step();
@@ -376,6 +425,7 @@ async function main() {
     }
     if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }
     scenarioUI();
+    goalUI(now);
     draw();
     const bx = d.qpos[0], by = d.qpos[1], bz = d.qpos[2];
     if (top) {
@@ -383,7 +433,7 @@ async function main() {
       const upper = Math.max($('home').getBoundingClientRect().bottom, $('stop').getBoundingClientRect().bottom) + 12;
       const lower = $('btns').getBoundingClientRect().top - 12;
       const width = innerWidth - 24, height = Math.max(1, lower - upper);
-      renderer.setViewport(12, innerHeight - lower, width, height);
+      renderer.setViewport(12, innerHeight - lower, width, height); vp = [12, upper, width, height];
       const fit = topFrame(map, width / height, view.topRot, view.topH);
       topCamera.left = -fit.width / 2; topCamera.right = fit.width / 2;
       topCamera.top = fit.height / 2; topCamera.bottom = -fit.height / 2;
@@ -391,7 +441,7 @@ async function main() {
       camera.up.set(-Math.sin(view.topRot), Math.cos(view.topRot), 0); // 돌리기 0 = 지도처럼 +y 가 화면 위
       camera.near = 0.1; // Roof-free assets; the whole site stays inside the orthographic frustum.
     } else {
-      renderer.setViewport(0, 0, innerWidth, innerHeight);
+      renderer.setViewport(0, 0, innerWidth, innerHeight); vp = [0, 0, innerWidth, innerHeight];
       const a = yawOf() + view.yaw, h = view.dist * Math.cos(view.pitch);
       camPos.set(bx - Math.cos(a) * h, by - Math.sin(a) * h, bz + view.dist * Math.sin(view.pitch)); look.set(bx, by, bz);
       camera.near = 0.05;

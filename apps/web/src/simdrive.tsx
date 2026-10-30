@@ -149,7 +149,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
           <span><b>{name}</b><br /><small className="lbl">{note}</small></span></label></li>)}</ul></fieldset>}
     {app ? <><label className="fh-row"><span className="lbl">지도</span><select className="fh-user fh-sel" aria-label="지도" value={map.id} onChange={(e) => pickMap(e.target.value)} data-sim-map>
         {SIM_MAPS.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-      {top && <img src={top} alt={`${map.name} 위에서 본 모습`} data-sim-top style={{ display: 'block', alignSelf: 'center', maxWidth: '100%', maxHeight: 240, borderRadius: 8 }} />}
+      {top && <img src={top} alt={`${map.name} 위에서 본 모습`} data-sim-top style={{ display: 'block', alignSelf: 'center', width: '100%', maxHeight: 'min(55vh, 640px)', objectFit: 'contain', borderRadius: 8 }} />}
       <a className="btn pri" href={simUrl(map.id)} style={{ textDecoration: 'none' }} data-sim-app>시뮬 열기</a>
       {only && <p className="lv-note">폰 안에서 도는 시뮬, 서버 필요 없음</p>}</> : <>
     {s.catalog && (worlds.length ? <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }}><legend>지도(월드)</legend>

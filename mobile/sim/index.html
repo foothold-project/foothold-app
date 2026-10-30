@@ -35,7 +35,10 @@
   #scenarioActions { display: flex; gap: 8px; margin-top: 10px; }
   #scenarioActions button { flex: 1; font: inherit; }
   #scenarioStatus { display: block; margin-top: 10px; }
-  #scenarioHint { margin: 8px 0 0; color: #b9c0ca; font-size: 12px; }
+  #scenarioHint, #goalHint { margin: 8px 0 0; color: #b9c0ca; font-size: 12px; }
+  /* 찍은 곳 가기 진행·거절 한 줄: 위 가운데(STOP·시작 단추 자리 비움), 누름은 아래 화면으로 */
+  #goalNote { position: fixed; z-index: 80; top: calc(var(--t) + 60px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 180px); box-sizing: border-box; margin: 0;
+    padding: 6px 10px; border-radius: 8px; background: rgb(20 23 28 / .82); border: 1px solid #ffd54f; color: #e6e8eb; font: 13px system-ui; text-align: center; pointer-events: none; }
   #reset.fell { background: var(--stopc); border-color: #fff; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .45; } }
   .stick { position: fixed; bottom: calc(var(--edge) + env(safe-area-inset-bottom)); width: var(--stick); height: var(--stick); border-radius: 50%;
@@ -65,7 +68,8 @@
 <button id="go" type="button" aria-label="다시 시작" hidden><svg viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z"/></svg></button>
 <div id="stickL" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v18M3 12h18M9 6l3-3 3 3M9 18l3 3 3-3M6 9l-3 3 3 3M18 9l3 3-3 3"/></svg><b></b></div>
 <div id="stickR" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 9a8 8 0 0 1 14 0M19 9V4.5M19 9h-4.5M5 9V4.5M5 9h4.5"/></svg><b></b></div>
-<p id="keys">↑↓ 앞·뒤 · ←→ 회전(WASD) · Esc·Space 정지 · ▶ 로 시작</p>
+<p id="keys">↑↓ 앞·뒤 · ←→ 회전(WASD) · Esc·Space 정지 · ▶ 로 시작 · 바닥 클릭 = 그곳으로</p>
+<output id="goalNote" role="status" hidden></output>
 <div id="btns">
   <button id="cam" type="button" aria-label="위에서 보기" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M12 3 3 7.5 12 12l9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></svg></button>
   <button id="reset" type="button" aria-label="다시 세우기" disabled><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/></svg></button>
@@ -79,6 +83,7 @@
   <div id="scenarioActions"><button id="scenarioRun" type="button" disabled>실행</button><button id="scenarioHalt" type="button" disabled>멈춤</button></div>
   <output id="scenarioStatus" role="status">대기</output>
   <p id="scenarioHint">다시 시작 버튼으로 잠금을 푼 뒤 실행하세요.</p>
+  <p id="goalHint">화면 바닥을 짧게 누르면 그 자리로 곧게 갑니다(길 찾기 없음 · 막히면 멈춤 · 막대·키를 쓰면 취소).</p>
 </section>
 <div id="busy"></div>
 <svg id="fail" viewBox="0 0 24 24" hidden><circle cx="12" cy="12" r="9"/><path d="M8.5 8.5l7 7M15.5 8.5l-7 7"/></svg>

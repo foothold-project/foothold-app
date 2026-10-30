@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { decodeMap, cell } from '../sim/lidar.js';
-import { validateScenarios, createScenarioRunner, bindScenarioInterrupts, frontDistance, MAX_VX, MAX_WZ } from '../sim/scenario.js';
+import { validateScenarios, createScenarioRunner, bindScenarioInterrupts, frontDistance, MAX_VX, MAX_WZ, STALL_S } from '../sim/scenario.js';
 
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url)));
 let routes = 0, samples = 0;
@@ -73,4 +73,32 @@ for (const reason of ['막힘', '넘어짐', '중단']) {
   assert.equal(r.status, reason); assert.deepEqual(sim.cmd, [0, 0, 0]); assert.equal(r.active, false);
   stopped = true; assert.equal(r.start([{ x: 2, y: 0 }]), false);
 }
-console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/fall/STOP guards`);
+// 찍은 곳 가기(goal): 막대 누름 = 취소만(잠금 없음 — 손 조종 우선), STOP·흐림 등은 시나리오와 같이 잠금
+for (const ev of ['left', 'right', 'stop', 'blur']) {
+  let stopped = false;
+  const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
+  const runner = createScenarioRunner(sim, () => stopped);
+  const els = Object.fromEntries(['left', 'right', 'stop', 'doc', 'win', 'home', 'reset'].map((k) => [k, new EventTarget()]));
+  bindScenarioInterrupts({ runner, lock: () => { stopped = true; sim.cmd = [0, 0, 0]; }, ...els });
+  runner.start([{ x: 2, y: 0 }], true); runner.tick(); assert.ok(sim.cmd[0] > 0 && runner.goal);
+  (ev === 'blur' ? els.win : els[ev]).dispatchEvent(new Event(ev === 'blur' ? 'blur' : 'pointerdown'));
+  assert.equal(runner.active, false, ev); assert.deepEqual(sim.cmd, [0, 0, 0], ev);
+  assert.equal(stopped, ev === 'stop' || ev === 'blur', `goal ${ev}: lock only for STOP/lifecycle`);
+  assert.equal(runner.status, ev === 'left' || ev === 'right' ? '손 조종' : '중단');
+}
+{ // 5초 진전 없음(앞으로 가는 중에만 셈) = 막힘, 앞 막힘은 앞으로 갈 때만 — 벽을 보고 뒤쪽 목표로 도는 것은 허용
+  const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
+  const r = createScenarioRunner(sim, () => false);
+  r.start([{ x: 2, y: 0 }], true);
+  for (let k = 0; k < Math.round(STALL_S / 0.02) - 2; k++) r.tick(Infinity, 0.02);
+  assert.equal(r.active, true, 'not stalled before 5 s');
+  for (let k = 0; k < 5; k++) r.tick(Infinity, 0.02);
+  assert.equal(r.status, '막힘'); assert.deepEqual(sim.cmd, [0, 0, 0]);
+  r.start([{ x: -2, y: 0 }], true); r.tick(0.1, 0.02);
+  assert.equal(r.active, true, 'turning toward a goal behind is not blocked'); assert.equal(sim.cmd[0], 0); assert.ok(Math.abs(sim.cmd[2]) > 0);
+  for (let k = 0; k < 1000; k++) r.tick(0.1, 0.02);   // 돌기만 하는 동안은 진전 없음 시간을 세지 않는다
+  assert.equal(r.active, true);
+  r.start([{ x: 0.2, y: 0 }], true); r.tick();   // 이미 0.3 m 안 = 바로 도착·명령 0
+  assert.equal(r.status, '완료'); assert.deepEqual(sim.cmd, [0, 0, 0]);
+}
+console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/fall/STOP guards, goal hand-cancel/no-lock, 5 s stall, turn-not-blocked`);
