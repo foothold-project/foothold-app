@@ -28,18 +28,26 @@ export type Link = {
 export type Sim = {
   step: Step; catalog: SimCatalog | null; worldsOk: boolean; mine: SimRobot[]; listed: boolean; err: string; robot: SimRobot | null; since: number; link: Link | null;
   /** STOP: agent = 에이전트에 직접 보냄, cleanup = 로봇에 연결 전이라 명령 없이 그 슬롯을 정리(서버 STOP 경로는 쓰지 않음 — ADR-002 §5) */
-  stop: { at: number; via: 'agent' | 'cleanup'; g0?: number; conn?: number; latched?: true } | null;   // g0·conn = STOP 때 stop_gen·연결(gen), latched = 그 뒤 새 세대 잠금을 이 연결에서 받음
+  stop: { at: number; via: 'agent' | 'cleanup' | 'none'; g0?: number; conn?: number; latched?: true } | null;   // g0·conn = STOP 때 stop_gen·연결(gen), latched = 그 뒤 새 세대 잠금을 이 연결에서 받음. none = 실기에 연결 전(보낼 길 없음)
   /** 이 시각(단조) 전에는 다시 연결하지 않는다(1013 뒤 늘리는 간격·출입증 429 retry_after) */
   retryAt: number;
   /** 관리자 remaining_s를 받은 뒤의 단조 시계 기한(폰 UTC 시계와 무관). */
   runtimeUntil: number | null;
   /** unsure 가 SIM_SLOT_BUSY 때문(남의 로봇일 수 있어 목록으로 내 것인지 먼저 확인) · 남이 쓰는 것으로 확인한 슬롯 */
   slotBusy: boolean; busyWhy: string; taken: string[]; cleanup: SimCleanupSlot[]; managerError: SimRobotList['manager_error'];
+  /** 실기(주변 찾기에서 고른 에이전트) — 있으면 시뮬 띄우기·정리(DELETE) 길을 타지 않는다. relay = 앱 중계의 127.0.0.1 포트(0 = 아직) */
+  real: Real | null; relay: number;
 };
+/** 실기 에이전트(mDNS agent=ws://host:port/phone/ws). 앱 WebView 는 https 화면이고 Go2 Wi-Fi 는 기본 망이 아닐 수 있어 직접 붙지 못한다 —
+ *  앱(Go2Link.java)이 127.0.0.1 임시 포트를 열고 Wi-Fi 에 묶은 소켓으로 host:port 에 바이트만 잇는다(출입증·fh-phone/1 은 끝까지 그대로) */
+export type Real = { host: string; port: number; name: string };
+export const UNVERIFIED = '실기 연결은 아직 실제 기체에서 확인하지 않았습니다(미검증). 현장 비상 정지 수단을 곁에 두세요.';
+/** 앱이 중계 포트를 이 안에 안 알리면 중계를 모르는 옛 앱 */
+export const NO_RELAY_MS = 4500;
 
 export const CMD_MS = 50, PING_MS = 1000;
 const now = () => performance.now();
-const blank = (): Sim => ({ step: 'pick', catalog: null, worldsOk: false, mine: [], cleanup: [], managerError: null, listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, runtimeUntil: null, slotBusy: false, busyWhy: '', taken: [] });
+const blank = (): Sim => ({ step: 'pick', catalog: null, worldsOk: false, mine: [], cleanup: [], managerError: null, listed: false, err: '', robot: null, since: 0, link: null, stop: null, retryAt: 0, runtimeUntil: null, slotBusy: false, busyWhy: '', taken: [], real: null, relay: 0 });
 const runtimeUntil = (r: SimRobot) => typeof r.remaining_s === 'number' && Number.isFinite(r.remaining_s) && r.remaining_s >= 0
   ? now() + r.remaining_s * 1000 : null;
 /** 05 §13.9 시작 전 확실한 거부 (status, code) 고정 목록 — 이 밖(SIM_SLOT_BUSY 포함)은 불확실 */
@@ -69,6 +77,64 @@ const subs = new Set<() => void>();
 const emit = () => { S = { ...S }; subs.forEach((f) => f()); };
 const set = (p: Partial<Sim>) => { Object.assign(S, p); emit(); };
 const setLink = (p: Partial<Link>) => { if (S.link) { S.link = { ...S.link, ...p }; emit(); } };
+const fresh = (): Link => ({ at: 'connecting', welcome: null, st: null, stAt: 0, lease: null, why: '', code: 0, notice: '', busy: '', clipped: false, rtt: null, cam: 'wait', img: '', ask: null, exp: 0, run: null, arrived: '', navOff: false });
+
+// 실기 중계 통로: 화면이 window.fhGo2Link={seq,host,port} 를 두면 앱 0.5 s 읽기가 보고 중계를 열어 'fh-go2-link' {seq,port} 또는 {seq,why} 로 알린다(JS → 네이티브 호출 0).
+// 지우면 중계와 그 위 연결을 모두 닫는다 — 앱이 가려졌다 돌아오면 새 포트로 다시 알린다
+type W = Window & { fhGo2Link?: { seq: string; host: string; port: number } };
+let relaySeq = 0, heard = 0, nonce = '';   // heard = 앱이 답한 마지막 seq(옛 앱 판정), nonce = 앱이 이번 중계에만 준 일회 값(한 번 쓰면 비움)
+const RELAY_WHY: Record<string, string> = {
+  'wifi-off': '폰이 로봇 Wi-Fi 에 연결되어 있지 않습니다 — 로봇 Wi-Fi(또는 Go2 핫스팟)에 연결한 뒤 다시 연결하세요.',
+  'other-subnet': '폰 Wi-Fi 와 로봇 주소의 망이 달라 연결하지 않았습니다 — 로봇과 같은 Wi-Fi 에 연결하세요.',
+  'not-found': '앱이 찾은 로봇 목록에 이 주소가 없습니다 — 로봇을 다시 찾은 뒤 연결하세요.',
+};
+const relayUrl = () => (S.relay && nonce ? `ws://127.0.0.1:${S.relay}/phone/ws?fh=${nonce}` : null);
+/** 앱 중계는 한 번만 받는다(첫 수락 뒤 닫힘, nonce 맞아야 로봇에) — 포트는 연결을 기다리는 중이고 화면이 보일 때만 바로 쓴다.
+ *  그 밖(앱 복귀 뒤 다시 열린 중계·늦은 답)은 버림: 자동 연결 0, «다시 연결»이 새 포트·nonce 를 받는다 */
+function onRelay(e: Event) {
+  const d = (e as CustomEvent).detail as { seq?: unknown; port?: unknown; nonce?: unknown; why?: unknown } | null;
+  if (!S.real || d?.seq !== String(relaySeq)) return;
+  heard = relaySeq;
+  const p = d.port, k = d.nonce;
+  if (typeof p === 'number' && Number.isInteger(p) && p > 0 && p < 65536 && typeof k === 'string' && /^[0-9a-f]{32}$/.test(k)) {
+    if (ws || S.link?.at !== 'connecting' || document.visibilityState === 'hidden') return;
+    nonce = k;
+    set({ relay: p });
+    sim.connect();
+  } else abandon(RELAY_WHY[String(d.why)] ?? '로봇 Wi-Fi 연결을 준비하지 못했습니다. 다시 연결하세요.');   // 앱이 중계를 닫음(Wi-Fi 끊김·망 바뀜·대상 아님)
+}
+/** 중계를 버림: 연결·진행 중 출입증 요청 무효화(gen+1 — 늦게 성공한 출입증으로 옛 포트에 hello 0), 포트·nonce 비움. «다시 연결»이 중계부터 새로 연다 */
+function abandon(why: string) {
+  sim.close();
+  nonce = '';
+  set({ relay: 0 });
+  setLink({ at: 'closed', why });
+}
+/** 연결 중에 앱이 가려지면 진행 중 중계·출입증 요청을 버린다(돌아와도 자동 연결 0) */
+function onRealHide() {
+  if (document.visibilityState === 'hidden' && S.real && S.link?.at === 'connecting') abandon('앱이 가려져 연결을 멈췄습니다 — 다시 연결하세요.');
+}
+function arm(t: Real | null) {
+  const w = window as W;
+  removeEventListener('fh-go2-link', onRelay);
+  document.removeEventListener('visibilitychange', onRealHide);
+  nonce = '';
+  if (!t) { delete w.fhGo2Link; return; }
+  w.fhGo2Link = { seq: String(++relaySeq), host: t.host, port: t.port };
+  addEventListener('fh-go2-link', onRelay);
+  document.addEventListener('visibilitychange', onRealHide);
+  set({ relay: 0 });
+  const k = relaySeq;
+  setTimeout(() => { if (S.real && relaySeq === k && heard !== k) setLink({ at: 'closed', why: '이 앱 판은 실기 직접 연결을 지원하지 않습니다 — FOOTHOLD 앱을 업데이트하세요.' }); }, NO_RELAY_MS);
+}
+/** 실기 출입증 거절 → 쉬운 말(서버 문구는 «발급하지 못했습니다» 하나라 code 로 나눈다) */
+const REAL_PASS: Record<string, string> = {
+  NOT_FOUND: '서버에 이 로봇이 등록되어 있지 않거나 내 담당 로봇이 아닙니다 — 총괄 관리자에게 등록·배정을 요청하세요.',
+  PASS_KEY_MISSING: '서버에 이 로봇의 출입증 열쇠가 아직 없습니다 — 총괄 관리자에게 실기 연결 설정을 요청하세요.',
+  PASS_OTHER_ROBOT: '다른 로봇(시뮬 포함)의 조종 출입증이 아직 살아 있습니다 — 그 연결을 끝내고 몇 분 뒤 다시 하세요.',
+  NETWORK: '서버에 닿지 않아 출입증을 받지 못했습니다 — 모바일 데이터(LTE)를 켜세요. 로봇 Wi-Fi 에는 인터넷이 없습니다.',
+  TIMEOUT: '서버 응답이 늦어 출입증을 받지 못했습니다 — 모바일 데이터(LTE)를 확인하세요.',
+};
 
 /** 설치 단위 기기 UUID(§13.2 — 탭마다 만들지 않음). 저장소를 못 쓰면 이 창에서만 */
 let mem = '', loadErr = '';
@@ -178,6 +244,7 @@ function onMsg(raw: string) {
   const l = S.link; if (!l) return;
   if (m.t === 'hello') {
     backoff = 0;
+    if (S.stop?.via === 'none') S.stop = null;   // 연결 전 실기 STOP 안내 — 새 연결은 잠금으로 시작한다
     setLink({ at: 'open', welcome: m as unknown as PhoneWelcome });
     set({ step: 'drive' });
     media.offer((m as { media?: unknown }).media, S.robot!.agent_address);   // 형상 검사는 media.ts — 틀리면 받지 않음
@@ -221,7 +288,8 @@ function onMsg(raw: string) {
 }
 /** 영상(§13.8): 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello. 끊겨도 조종·STOP 에는 영향 없음, 다시 열려면 새 연결 */
 function openCamera(token: string | null) {
-  if (!token || !S.robot) return setLink({ cam: 'off' });
+  // ponytail: 실기는 앱 중계가 한 번만 받아(조정 조건 ②) 옛 카메라 연결을 열지 않음 — 영상은 같은 연결의 media/1 이 오면
+  if (!token || !S.robot || S.real) return setLink({ cam: 'off' });
   const url = phoneUrl(S.robot.agent_address, location, 'camera');
   if (!url) return setLink({ cam: 'lost' });
   const robot = S.robot.robot_id, c = new WebSocket(url);
@@ -337,14 +405,23 @@ export const sim = {
   },
   /** 이미 떠 있는 내 시뮬 로봇에 다시 붙기 */
   attach(r: SimRobot) { set({ robot: r, runtimeUntil: runtimeUntil(r), err: '', stop: null }); return sim.connect(); },
+  /** 실기 연결(주변 찾기 «연결»): 앱 중계를 열고, 포트가 오면 출입증 → 직접 hello(connect). 1폰 1대 — 다른 로봇이 걸려 있으면 하지 않는다 */
+  real(t: Real, robotId: string) {
+    if (sim.live()) return;
+    sim.close();
+    set({ ...blank(), catalog: S.catalog, mine: S.mine, cleanup: S.cleanup, listed: S.listed, taken: S.taken, real: t, robot: { robot_id: robotId } as SimRobot, step: 'linking', link: fresh() });
+    arm(t);
+  },
   /** 관리자가 연결 주소를 확인하지 못한 DB 슬롯에는 DELETE만 제공한다. */
   cleanupSlot(r: SimCleanupSlot) { return sim.end({ robot_id: r.robot_id } as SimRobot); },
   /** 새 출입증 → 에이전트에 직접 hello. 출입증은 hello 에만 싣고 버린다 */
   async connect() {
     const r = S.robot; if (!r || now() < S.retryAt) return;
     sim.close();
-    const g = gen, url = phoneUrl(r.agent_address, location);
-    set({ step: S.step === 'drive' ? 'drive' : 'linking', link: { at: 'connecting', welcome: null, st: null, stAt: 0, lease: null, why: '', code: 0, notice: '', busy: '', clipped: false, rtt: null, cam: 'wait', img: '', ask: null, exp: 0, run: null, arrived: '', navOff: false } });
+    const g = gen, url = S.real ? relayUrl() : phoneUrl(r.agent_address, location);
+    nonce = '';   // 실기 중계 포트·nonce 는 한 번만
+    set({ step: S.step === 'drive' ? 'drive' : 'linking', link: fresh() });
+    if (S.real && !url) return arm(S.real);   // 중계가 아직(또는 Wi-Fi 문제로 못 염) — 다시 열고 포트가 오면 onRelay 가 잇는다
     if (!url) return setLink({ at: 'closed', why: '로봇 연결 주소가 올바르지 않습니다.' });
     let pass;
     try { pass = await api.phonePass(r.robot_id, { device: deviceId(), purpose: 'control', ...(surface && { surface }) }); } catch (e) {
@@ -353,7 +430,8 @@ export const sim = {
       if (ra > 0) S.retryAt = now() + ra * 1000;
       // 403 WEB_SIM_ONLY = 서버가 이 로봇에 웹 시뮬 출입증을 주지 않음(simulation 꺼짐). 서버 문구 그대로, 화면은 «다시 연결»을 내지 않는다(code 403)
       if (e instanceof ApiFail && e.status === 403 && e.code === 'WEB_SIM_ONLY') return setLink({ at: 'closed', code: 403, why: e.message });
-      setLink({ at: 'closed', why: `출입증을 받지 못했습니다. ${message(e)}` });
+      const plain = S.real && e instanceof ApiFail ? e.code === 'ADMIN_NO_REAL_CONTROL' ? e.message : ra > 0 ? `요청이 많습니다 — ${Math.ceil(ra)}초 뒤 다시 연결하세요.` : REAL_PASS[e.code] : undefined;
+      setLink({ at: 'closed', why: plain ?? `출입증을 받지 못했습니다. ${message(e)}` });
       return;
     }
     if (g !== gen) return;
@@ -421,6 +499,7 @@ export const sim = {
     if (!sim.live()) return;
     axes = [0, 0];
     if (S.link?.welcome && send({ t: 'stop' })) return set({ stop: { at: now(), via: 'agent', g0: S.link.st?.stop_gen ?? -1, conn: gen } });
+    if (S.real) return set({ stop: { at: now(), via: 'none' } });   // 실기는 정리할 슬롯이 없다 — 보낼 길이 없다고만 알린다
     set({ stop: { at: now(), via: 'cleanup' } });
     if (S.step === 'starting') cancel = true;
     else if (S.slotBusy) { cancel = true; sim.recheck(); }   // 남의 로봇일 수 있어 내 것으로 확인된 뒤에만 정리
@@ -434,6 +513,7 @@ export const sim = {
     set({ step: 'ending', robot: r, err: '', slotBusy: false });
     if (S.link?.lease) await Promise.race([sim.release(), new Promise((f) => setTimeout(f, 2000))]);
     if (e0 !== epoch) return;
+    if (S.real) return sim.reset();   // 실기 = 연결·중계만 닫음(로봇은 입력이 끊겨 스스로 0, 조종권은 에이전트가 비움) — 서버 DELETE 없음
     sim.close();
     try {
       await api.simEnd(r.robot_id);
@@ -448,8 +528,8 @@ export const sim = {
     }
   },
   /** 처음(고르기)으로 — 연결은 닫는다. 이전 목록 확인은 거둔다(listed=false): 정리가 불확실했던 슬롯이 없다고 새 목록이 확인하기 전엔 폰 홈 STOP 을 숨기지 않게 */
-  reset() { sim.close(); cancel = false; set({ ...blank(), catalog: S.catalog, mine: S.mine, cleanup: S.cleanup, taken: S.taken }); sim.load(); },
+  reset() { sim.close(); cancel = false; arm(null); set({ ...blank(), catalog: S.catalog, mine: S.mine, cleanup: S.cleanup, taken: S.taken }); sim.load(); },
   /** 화면 세션 끝(로그아웃·화면 내림)·시험: 연결을 닫고 비운다. 진행 중인 띄우기·끝내기의 늦은 답은 이 상태를 건드리지 않는다 */
-  clear() { epoch++; sim.close(); backoff = 0; cancel = false; screen = ''; own = pausedAt = null; dismissed = ''; S = blank(); emit(); },
+  clear() { epoch++; sim.close(); arm(null); backoff = 0; cancel = false; screen = ''; own = pausedAt = null; dismissed = ''; S = blank(); emit(); },
 };
 export const useSim = () => useSyncExternalStore(sim.subscribe, sim.get);

@@ -78,6 +78,7 @@ export const STATE: Record<SimRobot['state'], string> = { STARTING: '띄우는 �
 /** STOP 결과 한 줄 — 보냈다는 것과 로봇이 알린 잠금을 나눠 쓴다(확인 안 된 «정지됨» 없음, F-COM-01) */
 export function stopText({ stop: p, link: l, step, slotBusy }: Sim) {
   if (!p) return '';
+  if (p.via === 'none') return '■ 로봇에 연결되지 않아 정지 명령을 보낼 길이 없습니다 — 로봇은 폰 입력이 끊기면 스스로 멈춥니다(실기 미검증). 현장 비상 정지 수단을 쓰세요.';
   if (p.via === 'cleanup') return step === 'pick' ? '' : slotBusy ? '■ 로봇에 연결 전 — 명령 없음. 내 시뮬 로봇으로 확인되면 정리합니다.'
     : step === 'checking' ? '■ 로봇에 연결 전 — 명령 없음. 정리를 확인하지 못했습니다 — 다시 끝내기를 누르세요.' : '■ 로봇에 연결 전 — 명령 없음, 정리 중입니다.';
   const st = l?.st;
@@ -162,6 +163,7 @@ export function SimLaunch({ me, view }: { me: string; view?: boolean }) {
         <input type="radio" name="sim-spawn" value={f} checked={f === from} onChange={() => setSpawn(f)} /><span>{floorName(f)}</span></label>)}</div></fieldset>}
     <button type="button" className="btn pri" disabled={!world || s.mine.length > 0 || cleanup.length > 0} aria-describedby={s.mine.length ? 'sim-one' : undefined} onClick={() => sim.start(world, me, from)}>띄우기</button>
     {s.mine.length > 0 && <span id="sim-one" className="fh-why">시뮬 로봇은 한 사람에 한 대입니다. 위 로봇에 연결하거나 끝낸 뒤 띄우세요.</span>}</>}</>;
+  if (s.real) return null;   // 실기 연결 중(주변 찾기 카드가 보인다) — 시뮬 띄우기·정리 단추를 내지 않는다(1폰 1대)
   return <section className="lv-card" style={{ flexBasis: '100%' }} aria-label={title}>
     <h2>{title}</h2>
     {body}

@@ -7,6 +7,7 @@ import { CMD_MS, rt, useLive, useRt, type Live } from './rt';
 import { PHONE_SHEETS, type SheetId } from './menu';
 import { Chip, DriveButton, Scenario, inApp, soon, type Ctx } from './screens';
 import { Nearby } from './nearby';
+import { useSim } from './phone';
 import { STALLED, SimLaunch } from './simdrive';
 import './drive.css';
 
@@ -65,10 +66,10 @@ export function Drive(c: Ctx) {
  *  «+ 로봇 연결하기»(10-28): 앱 안에서 연결된 실기가 없으면 목록 위에 크게(목록·오프라인 이유·반납 실패 줄은 그대로), 있으면 목록 아래 작게 → 주변 로봇 찾기(nearby.tsx). 앱 밖은 못 하는 이유만 */
 export function Connect(c: Pick<Ctx, 'user' | 'robots' | 'go'>) {
   useRt();
-  const [find, setFind] = useState(false), app = inApp(), live = c.robots.some((r) => !r.sim && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
+  const s = useSim(), [find, setFind] = useState(false), app = inApp(), live = c.robots.some((r) => !r.sim && (r.online || !!r.unknown));   // 상태 모름(실시간 끊김·첫 상태 전)은 «연결 없음»으로 단정하지 않는다 — 깜빡임 방지
   const add = (pri: boolean) => <button type="button" className={`btn${pri ? ' pri' : ''}`} onClick={() => setFind(true)} data-robot-connect>+ 로봇 연결하기</button>;
   return <>
-    {find ? <Nearby robots={c.robots} close={() => setFind(false)} /> : <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="내 로봇">
+    {find || (s.real && s.step !== 'drive') ? <Nearby robots={c.robots} close={() => setFind(false)} /> : <section className="lv-card" style={{ flexBasis: '100%' }} aria-label="내 로봇">
       <h2>내 로봇</h2>
       {app && !live && add(true)}
       {c.robots.length ? <ul className="dv-cards">{c.robots.map((r) => <Card key={r.id} c={c} r={r} />)}</ul>

@@ -13,6 +13,7 @@ import { BODY, EmptyFleet, inApp, useDash, type Ctx } from './screens';
 import { Connect, endDrive } from './drive';
 import { sim, useSim } from './phone';
 import { SimDrive } from './simdrive';
+import { RealDrive } from './realdrive';
 import { Approvals } from './screens/approvals';
 import { Bell, History } from './screens/history';
 import { kept } from './screens/mapedit';
@@ -258,7 +259,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
     ].filter(Boolean)}</div>
     <div className="fh-body">
       {!phone && <nav className="fh-nav" aria-label="주 메뉴">{PC_TABS.filter((t) => !t.hidden).map((t) => link(t, 'nav'))}<span className="fh-grow" />{link(PC_BOTTOM, 'nav')}</nav>}
-      <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? <SimDrive />
+      <main className="fh-main" aria-label={title}><Guard key={tab}>{simOpen ? sv.real ? <RealDrive /> : <SimDrive />
         : tab === 'settings' ? <Settings key={user.id} user={user} setMe={setMe} refresh={refresh} cancel={cancel} />   // 로봇 목록이 바뀌어도 다시 그리지 않음(한 번만 보이는 토큰 칸 유지)
         : ctx ? <Body key={`${tab}-${tab === 'fleet' || tab === 'map' || tab === 'approval' || tab === 'mission' ? '' : ctx.robot.id}-${user.id}`} {...ctx} />   // 관제·지도·결재·임무는 로봇을 골라도 다시 그리지 않음(층·지도 그림·고른 결재 유지 — 상세 서랍은 자기 key)
         : tab === 'drive' ? <Connect user={user} robots={pool} go={go} />   // 로봇 0대여도 시뮬 로봇 띄우기 자리
