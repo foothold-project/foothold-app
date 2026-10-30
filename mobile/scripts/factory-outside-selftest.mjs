@@ -71,16 +71,16 @@ for (const id of policies.keys()) {
 
 // A lowered/raised support changes the datum, never the 18cm / 60° limits.
 // Include void, overhead slab, robot exclusion, contact-free proxy and latched fall.
-for (const id of policies.keys()) for (const [label, geoms, z, roll, expected] of [
-  ['lower-flat', '<geom group="1" type="plane" pos="0 0 -.6" size="2 2 .1"/>', -.2, 0, false],
+for (const id of policies.keys()) for (const [label, geoms, z, roll, expected, floorZ = 0] of [
+  ['lower-flat', '<geom group="1" type="plane" pos="0 0 -.6" size="2 2 .1"/>', -.2, 0, false, -.6],
   ['upper-flat', '<geom group="1" type="box" pos="0 0 1.9" size="2 2 .1"/>', 2.4, 0, false],
-  ['low-body', '<geom group="1" type="plane" pos="0 0 -.6" size="2 2 .1"/>', -.43, 0, true],
-  ['tipped', '<geom group="1" type="plane" pos="0 0 -.6" size="2 2 .1"/>', -.2, 1.1, true],
+  ['low-body', '<geom group="1" type="plane" pos="0 0 -.6" size="2 2 .1"/>', -.43, 0, true, -.6],
+  ['tipped', '<geom group="1" type="plane" pos="0 0 -.6" size="2 2 .1"/>', -.2, 1.1, true, -.6],
   ['void', '', .17, 0, true],
   ['overhead-and-proxy', '<geom group="1" type="plane" size="2 2 .1"/><geom group="1" type="box" size="2 2 .1" pos="0 0 2"/><geom group="1" type="box" contype="0" conaffinity="0" size="2 2 .05" pos="0 0 .3"/>', .4, 0, false],
 ]) {
   mj.FS.writeFile('/go2/world.xml', `<mujoco><worldbody>${geoms}</worldbody></mujoco>`);
-  const sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, policies.get(id), { floorZ: 0, spawn: [0, 0, 0] }, id);
+  const sim = code.createSim(mj, '/go2/scene.xml', code.ISAAC_LIKE, policies.get(id), { floorZ, spawn: [0, 0, 0] }, id);
   try {
     sim.d.qpos[2] = z; sim.d.qpos[3] = Math.cos(roll / 2); sim.d.qpos[4] = Math.sin(roll / 2); sim.d.qpos[5] = sim.d.qpos[6] = 0;
     mj.mj_forward(sim.m, sim.d); sim.hold(0);
