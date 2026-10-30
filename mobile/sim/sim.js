@@ -1,7 +1,7 @@
 // RS-4 공통 핵심(브라우저·Node 같이 씀): MuJoCo Go2 + foothold-v2 순수 JS 추론.
 // Policy contracts live in policy-adapters.js; height observations raycast actual world geometry.
 // 관측·행동 계약은 exp33 src/v2_obs.py 그대로(관측 235, 행동 Isaac 순서, q* = 0.25·a + 기본자세).
-import { getPolicyAdapter } from './policy-adapters.js';
+import { getPolicyAdapter, makeTerrainSampler } from './policy-adapters.js';
 const defaultAdapter = getPolicyAdapter();
 const LEGS = ['FL', 'FR', 'RL', 'RR'], PARTS = ['hip', 'thigh', 'calf'];
 // Legacy exports stay available to the existing measurement scripts.
@@ -50,6 +50,13 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   }
 
   const sampleHeight = adapter.makeHeightScanner(mj, m, d, world);
+  // The reset floor is not the ground everywhere (factory ramp: 0 → -0.6 m).
+  // Sample the Go2 trunk collision box footprint, not just a centre ray that
+  // can see through a gap/over a ledge while the body rests on the higher edge.
+  const supportGrid = [[0, 0], [-.1881, -.04675], [-.1881, .04675], [.1881, -.04675], [.1881, .04675]];
+  const sampleSupport = makeTerrainSampler(mj, m, d, { grid: supportGrid, rayOffset: 0 });
+  const support = new Float64Array(supportGrid.length);
+  let supportZ = F;
   const obs = new Float32Array(adapter.observations.size), last = new Float32Array(adapter.action.size), tgt = new Float64Array(adapter.action.size); // tgt: mj 순서
   const s = { m, d, adapterId, t: 0, cmd: adapter.stop.input.slice(), linB: [0, 0, 0], angB: [0, 0, 0], grav: [0, 0, -1], z: 0, fell: false, policyMs: 0, physMs: 0, I2M, M2I };
 
@@ -65,7 +72,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     q[0] = SX; q[1] = SY; q[2] = F + 0.4; q[3] = Math.cos(SYAW / 2); q[4] = q[5] = 0; q[6] = Math.sin(SYAW / 2); // Isaac init_state 바닥 위 0.4
     for (let i = 0; i < 12; i++) { q[7 + i] = DEFAULT_I[I2M[i]]; tgt[i] = DEFAULT_I[I2M[i]]; }
     if (adapter.stop.pause) s.clearPolicyState();
-    v.fill(0); last.fill(0); s.t = 0; s.fell = false;
+    v.fill(0); last.fill(0); s.t = 0; s.fell = false; supportZ = F;
     mj.mj_forward(m, d);
     state();
   };
@@ -81,7 +88,13 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     s.linB = tB(v[0], v[1], v[2]);          // 자유관절 선속도 = 월드 → 몸통 좌표
     s.angB = [v[3], v[4], v[5]];            // 자유관절 각속도 = 이미 몸통 좌표
     s.grav = tB(0, 0, -1);
-    s.z = q[2] - F; // 바닥 기준 몸통 높이
+    sampleSupport(q, support);
+    let highest = -Infinity;
+    for (const height of support) if (Number.isFinite(height)) highest = Math.max(highest, height);
+    // Normal ramps change gradually. A distant lower floor must not follow a
+    // falling body down and hide its fall: retain the last valid/reset datum.
+    if (Number.isFinite(highest) && q[2] - highest <= .8 && highest >= supportZ - .5) supportZ = highest;
+    s.z = q[2] - supportZ; // 지지면 기준 몸통 높이
     if (s.z < 0.18 || s.grav[2] > -0.5) s.fell = true; // 몸통 18 cm 아래 또는 60° 넘게 기욺
   }
 
@@ -108,7 +121,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { sampleHeight.dispose(); sampleSupport.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }
