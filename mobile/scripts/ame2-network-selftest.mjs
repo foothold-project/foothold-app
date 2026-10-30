@@ -18,7 +18,7 @@ const badWeights = buffer.slice(0); new Float32Array(badWeights)[12] = NaN;
 assert.throws(() => loadAme2Policy(badWeights, manifest), /유한/);
 assert.throws(() => policy(new Float32Array(48), new Float32Array(1131)), /입력/);
 for (const [center, offset] of [[[6, 5], [0, 0]], [[7, 6], [2, 2]], [[8, 7], [2, 2]], [[22, 7], [16, 2]]]) assert.deepEqual(cropOffsets(center), offset);
-let maxAbs = 0, count = 0;
+let maxAbs = 0, maxTorch = 0, count = 0;
 const times = [];
 let firstMs;
 for (const [name, group] of Object.entries(check.cases)) {
@@ -31,13 +31,17 @@ for (const [name, group] of Object.entries(check.cases)) {
     firstMs ??= times.at(-1);
     assert.deepEqual(policy.offsets, group.crop_offsets[i], `${name}/${i} crop`);
     assert.ok(out.every(Number.isFinite));
-    for (let j = 0; j < 12; j++) groupMax = Math.max(groupMax, Math.abs(out[j] - group.numpy_outputs[i][j]));
+    for (let j = 0; j < 12; j++) {
+      groupMax = Math.max(groupMax, Math.abs(out[j] - group.numpy_outputs[i][j]));
+      maxTorch = Math.max(maxTorch, Math.abs(out[j] - group.torch_outputs[i][j]));
+    }
     count++;
   }
   console.log(`${name}: n=${group.n}, max_abs=${groupMax}`);
   maxAbs = Math.max(maxAbs, groupMax);
 }
 assert.equal(count, 274);
-assert.ok(maxAbs <= 1e-4, `JS/NumPy max ${maxAbs}`);
+assert.ok(maxAbs <= 1e-5, `JS/NumPy max ${maxAbs}`);
+assert.ok(maxTorch <= 1e-5, `JS/torch max ${maxTorch}`);
 times.sort((a, b) => a - b);
-console.log(JSON.stringify({ pass: true, count, maxAbs, node: process.version, inferenceMs: { first: firstMs, median: times[times.length >> 1], p95: times[Math.floor(times.length * .95)] }, scope: 'Node CPU; not phone timing' }));
+console.log(JSON.stringify({ pass: true, count, maxAbs, maxTorch, node: process.version, inferenceMs: { first: firstMs, median: times[times.length >> 1], p95: times[Math.floor(times.length * .95)] }, scope: 'Node CPU; not phone timing' }));
