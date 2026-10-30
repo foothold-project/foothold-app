@@ -15,12 +15,15 @@ import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
-/** 실기 중계: 대상 고정(Nearby.real) · 127.0.0.1 만 · 연결 1개만 · 한쪽 끝나면 둘 다 · close 면 즉시 닫힘. 로봇 = 루프백 메아리 서버 */
+/** 실기 중계: 대상 고정(Nearby.real) · 127.0.0.1 만 · 한 번만 받음 · 첫 줄 nonce 맞을 때만 로봇에(경로에서 nonce 뺌) · close 면 즉시 닫힘. 로봇 = 루프백 메아리 서버 */
 public class Go2LinkTest {
+    private static final String NONCE = "0123456789abcdef0123456789abcdef", HELLO = "GET /phone/ws?fh=" + NONCE + " HTTP/1.1\r\n";
+    private final AtomicInteger opened = new AtomicInteger();
     private ServerSocket echo;
     private Go2Link.Relay relay;
 
@@ -42,7 +45,7 @@ public class Go2LinkTest {
         });
         t.setDaemon(true);
         t.start();
-        relay = new Go2Link.Relay(() -> new Socket(InetAddress.getLoopbackAddress(), echo.getLocalPort()));
+        relay = new Go2Link.Relay(NONCE, () -> { opened.incrementAndGet(); return new Socket(InetAddress.getLoopbackAddress(), echo.getLocalPort()); });
     }
 
     @After
@@ -59,8 +62,12 @@ public class Go2LinkTest {
     }
 
     private static String roundTrip(Socket s, String msg) throws IOException {
+        return roundTrip(s, msg, msg.length());
+    }
+
+    private static String roundTrip(Socket s, String msg, int len) throws IOException {
         s.getOutputStream().write(msg.getBytes(StandardCharsets.UTF_8));
-        byte[] b = new byte[msg.length()];
+        byte[] b = new byte[len];
         InputStream in = s.getInputStream();
         for (int off = 0; off < b.length; ) {
             int n = in.read(b, off, b.length - off);
@@ -83,64 +90,91 @@ public class Go2LinkTest {
     }
 
     @Test
-    public void relaysBytes() throws IOException {
+    public void nonceThenRewrittenAndRelayed() throws IOException {
         try (Socket s = dial()) {
-            assertEquals("{\"t\":\"hello\"}", roundTrip(s, "{\"t\":\"hello\"}"));
+            // 로봇(메아리)이 받은 첫 줄 = nonce 뺀 경로, 나머지 바이트는 그대로
+            assertEquals("GET /phone/ws HTTP/1.1\r\nHost: x\r\n", roundTrip(s, HELLO + "Host: x\r\n", "GET /phone/ws HTTP/1.1\r\nHost: x\r\n".length()));
             assertEquals("cmd", roundTrip(s, "cmd"));
         }
+        assertEquals(1, opened.get());
     }
 
     @Test
-    public void oneConnectionOnly() throws Exception {
+    public void wrongNonceNeverReachesRobot() throws Exception {
+        for (String first : new String[] { "GET /phone/ws?fh=" + "0".repeat(32) + " HTTP/1.1\r\n", "GET /phone/ws HTTP/1.1\r\n", "{\"t\":\"hello\"}\n", "x".repeat(3000) }) {
+            Go2Link.Relay r = new Go2Link.Relay(NONCE, () -> { opened.incrementAndGet(); return new Socket(InetAddress.getLoopbackAddress(), echo.getLocalPort()); });
+            try (Socket s = new Socket()) {
+                s.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), r.port()), 1000);
+                s.setSoTimeout(2000);
+                s.getOutputStream().write(first.getBytes(StandardCharsets.UTF_8));
+                assertTrue(closed(s));
+            } catch (IOException ignored) {   // 긴 쓰레기는 쓰는 중에 닫힐 수 있음
+            } finally {
+                r.close();
+            }
+        }
+        assertEquals("틀린 첫 줄이면 로봇 연결 0", 0, opened.get());
+    }
+
+    @Test
+    public void silentPhoneTimesOut() throws IOException {
+        try (Socket s = dial()) {
+            s.setSoTimeout(Go2Link.Relay.HELLO_MS + 2000);
+            assertTrue(closed(s));   // 첫 줄 없이 붙어만 있으면 HELLO_MS 뒤 닫힘
+        }
+        assertEquals(0, opened.get());
+    }
+
+    @Test
+    public void acceptsOnceThenListenClosed() throws Exception {
         try (Socket a = dial()) {
-            assertEquals("x", roundTrip(a, "x"));
-            try (Socket b = dial()) {
-                assertTrue("쓰는 중이면 두 번째 연결은 바로 닫힘", closed(b));
-            }
-            assertEquals("y", roundTrip(a, "y"));   // 첫 연결은 그대로
+            assertEquals("GET /phone/ws HTTP/1.1\r\n", roundTrip(a, HELLO, "GET /phone/ws HTTP/1.1\r\n".length()));
+            assertRefused(relay.port());   // 쓰는 중 두 번째 연결
         }
-        // 첫 연결이 끝나면 다시 받음(다시 연결)
-        long end = System.currentTimeMillis() + 2000;
-        while (true) {
-            try (Socket c = dial()) {
-                assertEquals("z", roundTrip(c, "z"));
-                break;
-            } catch (IOException e) {
-                if (System.currentTimeMillis() > end) throw e;
-                Thread.sleep(20);
-            }
+        Thread.sleep(100);
+        assertRefused(relay.port());       // 끝난 뒤 다시 붙기
+    }
+
+    @Test
+    public void squatterBurnsRelayOnly() throws Exception {
+        try (Socket squat = dial()) {      // 다른 앱이 먼저 붙음(nonce 모름)
+            squat.getOutputStream().write("GET /phone/ws HTTP/1.1\r\n".getBytes(StandardCharsets.US_ASCII));
+            assertTrue(closed(squat));
         }
+        assertRefused(relay.port());       // 진짜 화면도 이 포트는 못 씀 → «다시 연결» = 새 포트·nonce
+        assertEquals(0, opened.get());
     }
 
     @Test
     public void closeDropsLinkAndPort() throws IOException {
         Socket s = dial();
-        assertEquals("a", roundTrip(s, "a"));
+        roundTrip(s, HELLO, "GET /phone/ws HTTP/1.1\r\n".length());
         int port = relay.port();
         relay.close();
         assertTrue(closed(s));
         s.close();
-        try (Socket again = new Socket()) {
-            again.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 500);
-            fail("닫힌 중계 포트에 붙음");
-        } catch (IOException expected) {}
+        assertRefused(port);
     }
 
     @Test
-    public void robotSideEndClosesPhoneSide() throws IOException {
-        try (Socket s = dial()) {
-            assertEquals("a", roundTrip(s, "a"));
-            echo.close();   // 새 연결만 막힘 — 이미 이은 쪽은 살아 있음
-            assertEquals("b", roundTrip(s, "b"));
-        }
-        Go2Link.Relay dead = new Go2Link.Relay(() -> { throw new IOException("unreachable"); });
+    public void robotUnreachableClosesPhone() throws IOException {
+        Go2Link.Relay dead = new Go2Link.Relay(NONCE, () -> { throw new IOException("unreachable"); });
         try (Socket s = new Socket()) {
             s.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), dead.port()), 1000);
             s.setSoTimeout(2000);
+            s.getOutputStream().write(HELLO.getBytes(StandardCharsets.US_ASCII));
             assertTrue("로봇에 못 붙으면 폰 쪽도 닫힘", closed(s));
         } finally {
             dead.close();
         }
+    }
+
+    private static void assertRefused(int port) {
+        try (Socket again = new Socket()) {
+            again.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), 500);
+            again.setSoTimeout(1000);
+            if (!closed(again)) fail("닫힌 중계 포트가 받음");
+        } catch (IOException expected) {}
     }
 
     @Test

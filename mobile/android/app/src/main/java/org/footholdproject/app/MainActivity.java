@@ -31,7 +31,8 @@ public class MainActivity extends BridgeActivity {
         + "return [document.querySelector('[data-drive]')!==null,n?n.getAttribute('data-nearby-scan'):null,g?[String(g.seq),String(g.url),String(g.code)]:null,"
         + "l?[String(l.seq),String(l.host),String(l.port)]:null]})()";
     private final Handler main = new Handler(Looper.getMainLooper());
-    private boolean drive;
+    private boolean drive, resumed;
+    private int pollGen;   // 가려지면 +1 — 그 전에 요청한 늦은 읽기 결과는 버린다(중계·찾기를 다시 켜지 않게)
     private Nearby nearby;
     private Go2Status go2;
     private Go2Link link;
@@ -40,7 +41,8 @@ public class MainActivity extends BridgeActivity {
     private final Runnable poll = new Runnable() {
         @Override
         public void run() {
-            bridge.getWebView().evaluateJavascript(POLL_JS, MainActivity.this::polled);
+            final int g = pollGen;
+            bridge.getWebView().evaluateJavascript(POLL_JS, (r) -> { if (resumed && g == pollGen) polled(r); });
             main.postDelayed(this, DRIVE_POLL_MS);
         }
     };
@@ -65,12 +67,15 @@ public class MainActivity extends BridgeActivity {
     public void onResume() {
         super.onResume();
         immersive();
+        resumed = true;
         main.post(poll);
     }
 
     // 찾기는 onPause 에서 멈추지 않는다 — 권한 창도 onPause 를 부르고, 멈췄다 다시 시작하면 거부 때 창이 되풀이된다. 10 s 뒤 스스로 끝남
     @Override
     public void onPause() {
+        resumed = false;
+        pollGen++;
         main.removeCallbacks(poll);
         go2.stop();   // 가려지면 상태 읽기도 멈춤 — 돌아오면 읽기가 다시 시작
         link.stop();  // 가려지면 실기 중계도 닫음 — 로봇은 deadman 으로 멈춤, 돌아오면 중계만 다시 열리고 조종 연결은 화면의 «다시 연결»

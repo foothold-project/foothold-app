@@ -44,7 +44,10 @@ const $ = (s: string) => box.querySelector<HTMLElement>(s);
 const btn = (t: string) => [...box.querySelectorAll('button')].find((b) => b.textContent === t) as HTMLButtonElement | undefined;
 const click = async (el: Element | null | undefined) => { expect(el).toBeTruthy(); act(() => { (el as HTMLElement).click(); }); await flush(); };
 const link = () => (window as { fhGo2Link?: { seq: string; host: string; port: number } }).fhGo2Link;
-const relay = async (d: Record<string, unknown>) => { act(() => { window.dispatchEvent(new CustomEvent('fh-go2-link', { detail: { seq: link()!.seq, ...d } })); }); await flush(); };
+const NONCE = '0123456789abcdef0123456789abcdef';
+const fire = (d: Record<string, unknown>) => window.dispatchEvent(new CustomEvent('fh-go2-link', { detail: { seq: link()!.seq, ...(d.port ? { nonce: NONCE } : {}), ...d } }));
+const relay = async (d: Record<string, unknown>) => { act(() => { fire(d); }); await flush(); };
+const hide = () => { vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden'); document.dispatchEvent(new Event('visibilitychange')); };
 const agents = () => FakeWS.all.filter((w) => w.url.startsWith('ws://127.0.0.1:40123/'));
 const auto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 
@@ -95,7 +98,7 @@ describe('실기 연결 흐름', () => {
     await relay({ port: 40123 });
     expect(calls).toContain(`POST /robots/${RID}/phone-pass`);
     const a = agents()[0]; a.auto = auto;
-    expect(a.url).toBe('ws://127.0.0.1:40123/phone/ws');
+    expect(a.url).toBe(`ws://127.0.0.1:40123/phone/ws?fh=${NONCE}`);
     act(() => a.open()); await flush();
     expect(a.sent[0]).toMatchObject({ t: 'hello', robot: RID, proto: 'fh-phone/1', ticket: 'pass-secret' });
     act(() => a.recv(welcome)); await flush();
@@ -173,14 +176,50 @@ describe('실기 연결 흐름', () => {
     expect($('[data-real-why]')?.textContent).toContain('이 앱 판은 실기 직접 연결을 지원하지 않습니다');
   }, 10_000);
 
-  it('조종 화면에서 중계가 다시 열리면(앱 가림 뒤) 새 포트로 «다시 연결»', async () => {
+  it('앱 복귀 뒤 다시 열린 중계(늦은 포트)는 버리고, «다시 연결»은 새 포트·nonce 를 받아서만', async () => {
     serve();
     const a = await connected();
+    const seq = link()!.seq;
     act(() => a.drop(1006)); await flush();
     await relay({ port: 40124 });
     expect(FakeWS.all.some((w) => w.url.startsWith('ws://127.0.0.1:40124/'))).toBe(false);   // 자동 연결 0
+    const n = FakeWS.all.length;
     await click(btn('다시 연결'));
-    expect(FakeWS.last.url).toBe('ws://127.0.0.1:40124/phone/ws');
+    expect(FakeWS.all.length).toBe(n);   // 한 번 쓴 포트(40123)로 다시 붙지 않음
+    expect(link()!.seq).not.toBe(seq);
+    await relay({ port: 40125, nonce: 'fedcba9876543210fedcba9876543210' });
+    expect(FakeWS.last.url).toBe('ws://127.0.0.1:40125/phone/ws?fh=fedcba9876543210fedcba9876543210');
+  });
+
+  it('nonce 없거나 모양이 틀린 포트 알림은 쓰지 않음', async () => {
+    serve();
+    await pick();
+    await relay({ port: 40123, nonce: 'short' });
+    expect(agents()).toHaveLength(0);
+    expect(calls).not.toContain(`POST /robots/${RID}/phone-pass`);
+    expect($('[data-real-why]')).toBeTruthy();
+  });
+
+  it('중계 답 전에 앱이 가려지면 늦은 포트 알림이 와도 WebSocket 0, 복귀 뒤 자동 연결 0', async () => {
+    serve();
+    await pick();
+    act(() => hide()); await flush();
+    expect($('[data-real-why]')?.textContent).toContain('앱이 가려져');
+    await relay({ port: 40123 });
+    vi.restoreAllMocks();   // 다시 보임
+    await relay({ port: 40124 });
+    expect(FakeWS.all.filter((w) => w.url.startsWith('ws://127.0.0.1:'))).toHaveLength(0);
+    expect(calls).not.toContain(`POST /robots/${RID}/phone-pass`);
+  });
+
+  it('출입증을 받는 중에 앱이 가려지면 그 출입증으로 연결하지 않음', async () => {
+    serve();
+    await pick();
+    act(() => { fire({ port: 40123 }); hide(); });   // 출입증 요청이 끝나기 전에 숨김
+    await flush();
+    expect(calls).toContain(`POST /robots/${RID}/phone-pass`);
+    expect(FakeWS.all.filter((w) => w.url.startsWith('ws://127.0.0.1:'))).toHaveLength(0);
+    expect($('[data-real-why]')?.textContent).toContain('앱이 가려져');
   });
 
   it('실기는 카메라 토큰이 와도 두 번째 연결(옛 카메라 경로)을 열지 않음 — 앱 중계는 연결 1개만', async () => {
@@ -206,6 +245,6 @@ describe('실기 연결 흐름', () => {
     expect(FakeWS.all.length).toBe(n);   // 죽은 포트로 붙지 않음
     expect(link()!.seq).not.toBe(seq);
     await relay({ port: 40125 });
-    expect(FakeWS.last.url).toBe('ws://127.0.0.1:40125/phone/ws');
+    expect(FakeWS.last.url).toBe(`ws://127.0.0.1:40125/phone/ws?fh=${NONCE}`);
   });
 });

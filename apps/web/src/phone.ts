@@ -82,33 +82,48 @@ const fresh = (): Link => ({ at: 'connecting', welcome: null, st: null, stAt: 0,
 // 실기 중계 통로: 화면이 window.fhGo2Link={seq,host,port} 를 두면 앱 0.5 s 읽기가 보고 중계를 열어 'fh-go2-link' {seq,port} 또는 {seq,why} 로 알린다(JS → 네이티브 호출 0).
 // 지우면 중계와 그 위 연결을 모두 닫는다 — 앱이 가려졌다 돌아오면 새 포트로 다시 알린다
 type W = Window & { fhGo2Link?: { seq: string; host: string; port: number } };
-let relaySeq = 0, heard = 0;   // heard = 앱이 답한 마지막 seq(옛 앱 판정)
+let relaySeq = 0, heard = 0, nonce = '';   // heard = 앱이 답한 마지막 seq(옛 앱 판정), nonce = 앱이 이번 중계에만 준 일회 값(한 번 쓰면 비움)
 const RELAY_WHY: Record<string, string> = {
   'wifi-off': '폰이 로봇 Wi-Fi 에 연결되어 있지 않습니다 — 로봇 Wi-Fi(또는 Go2 핫스팟)에 연결한 뒤 다시 연결하세요.',
   'other-subnet': '폰 Wi-Fi 와 로봇 주소의 망이 달라 연결하지 않았습니다 — 로봇과 같은 Wi-Fi 에 연결하세요.',
   'not-found': '앱이 찾은 로봇 목록에 이 주소가 없습니다 — 로봇을 다시 찾은 뒤 연결하세요.',
 };
-const relayUrl = () => (S.relay ? `ws://127.0.0.1:${S.relay}/phone/ws` : null);
+const relayUrl = () => (S.relay && nonce ? `ws://127.0.0.1:${S.relay}/phone/ws?fh=${nonce}` : null);
+/** 앱 중계는 한 번만 받는다(첫 수락 뒤 닫힘, nonce 맞아야 로봇에) — 포트는 연결을 기다리는 중이고 화면이 보일 때만 바로 쓴다.
+ *  그 밖(앱 복귀 뒤 다시 열린 중계·늦은 답)은 버림: 자동 연결 0, «다시 연결»이 새 포트·nonce 를 받는다 */
 function onRelay(e: Event) {
-  const d = (e as CustomEvent).detail as { seq?: unknown; port?: unknown; why?: unknown } | null;
+  const d = (e as CustomEvent).detail as { seq?: unknown; port?: unknown; nonce?: unknown; why?: unknown } | null;
   if (!S.real || d?.seq !== String(relaySeq)) return;
   heard = relaySeq;
-  const p = d.port;
-  if (typeof p === 'number' && Number.isInteger(p) && p > 0 && p < 65536) {
-    const first = !S.relay;
-    set({ relay: p });   // 다시 열린 중계(새 포트)는 다음 연결부터 — 열린 연결은 이미 끊겼다
-    if (first && !ws && S.link?.at === 'connecting') sim.connect();
+  const p = d.port, k = d.nonce;
+  if (typeof p === 'number' && Number.isInteger(p) && p > 0 && p < 65536 && typeof k === 'string' && /^[0-9a-f]{32}$/.test(k)) {
+    if (ws || S.link?.at !== 'connecting' || document.visibilityState === 'hidden') return;
+    nonce = k;
+    set({ relay: p });
+    sim.connect();
   } else {   // 앱이 중계를 닫음(Wi-Fi 끊김·망 바뀜·대상 아님) — «다시 연결»이 중계부터 새로 연다
+    nonce = '';
     set({ relay: 0 });
     setLink({ at: 'closed', why: RELAY_WHY[String(d.why)] ?? '로봇 Wi-Fi 연결을 준비하지 못했습니다. 다시 연결하세요.' });
   }
 }
+/** 연결 중에 앱이 가려지면 진행 중 중계·출입증 요청을 버린다(돌아와도 자동 연결 0) */
+function onRealHide() {
+  if (document.visibilityState !== 'hidden' || !S.real || S.link?.at !== 'connecting') return;
+  sim.close();
+  nonce = '';
+  setLink({ at: 'closed', why: '앱이 가려져 연결을 멈췄습니다 — 다시 연결하세요.' });
+}
 function arm(t: Real | null) {
   const w = window as W;
   removeEventListener('fh-go2-link', onRelay);
+  document.removeEventListener('visibilitychange', onRealHide);
+  nonce = '';
   if (!t) { delete w.fhGo2Link; return; }
   w.fhGo2Link = { seq: String(++relaySeq), host: t.host, port: t.port };
   addEventListener('fh-go2-link', onRelay);
+  document.addEventListener('visibilitychange', onRealHide);
+  set({ relay: 0 });
   const k = relaySeq;
   setTimeout(() => { if (S.real && relaySeq === k && heard !== k) setLink({ at: 'closed', why: '이 앱 판은 실기 직접 연결을 지원하지 않습니다 — FOOTHOLD 앱을 업데이트하세요.' }); }, NO_RELAY_MS);
 }
@@ -273,7 +288,7 @@ function onMsg(raw: string) {
 }
 /** 영상(§13.8): 같은 포트 /phone/camera/ws, 첫 프레임 camera.hello. 끊겨도 조종·STOP 에는 영향 없음, 다시 열려면 새 연결 */
 function openCamera(token: string | null) {
-  // ponytail: 실기는 앱 중계가 연결 1개만 받아(조정 조건 ②) 옛 카메라 연결을 열지 않음 — 영상은 같은 연결의 media/1 이 오면
+  // ponytail: 실기는 앱 중계가 한 번만 받아(조정 조건 ②) 옛 카메라 연결을 열지 않음 — 영상은 같은 연결의 media/1 이 오면
   if (!token || !S.robot || S.real) return setLink({ cam: 'off' });
   const url = phoneUrl(S.robot.agent_address, location, 'camera');
   if (!url) return setLink({ cam: 'lost' });
@@ -404,6 +419,7 @@ export const sim = {
     const r = S.robot; if (!r || now() < S.retryAt) return;
     sim.close();
     const g = gen, url = S.real ? relayUrl() : phoneUrl(r.agent_address, location);
+    nonce = '';   // 실기 중계 포트·nonce 는 한 번만
     set({ step: S.step === 'drive' ? 'drive' : 'linking', link: fresh() });
     if (S.real && !url) return arm(S.real);   // 중계가 아직(또는 Wi-Fi 문제로 못 염) — 다시 열고 포트가 오면 onRelay 가 잇는다
     if (!url) return setLink({ at: 'closed', why: '로봇 연결 주소가 올바르지 않습니다.' });
