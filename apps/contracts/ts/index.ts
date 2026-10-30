@@ -1767,7 +1767,7 @@ export interface SimExpired {
 }
 
 export interface SimFailureDetail {
-  reason: "resources_low" | "manager_unreachable" | "slot_busy" | "unknown";
+  reason: "resources_low" | "manager_unreachable" | "slot_busy" | "unknown" | "guard_access";
   start_not_created?: boolean;
   mem_available_mib?: number | null;
   load1?: number | null;

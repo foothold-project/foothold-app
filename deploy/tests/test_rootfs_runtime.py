@@ -231,6 +231,7 @@ def test_rootfs_admission_requires_host_proof_before_opening_guard(tmp_path,monk
 
 
 def test_failed_root_attestation_retains_setup_marker_without_starting_manager(tmp_path,monkeypatch):
+    monkeypatch.setattr(r,'guard_access',lambda *_:None)  # separate UID DAC gate has dedicated coverage
     value=data();monkeypatch.setattr(r,'load',lambda:value)
     monkeypatch.setattr(r,'identity',lambda value:(23456,23456))
     for name in ('inactive_namespace','assets','private_settings','validated'):

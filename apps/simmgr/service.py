@@ -12,7 +12,7 @@ from apps.contracts.models import SimWorldStart
 from .launcher import FakeLauncher, NativeLauncher
 from .environment import validate_control_environment
 from .native_catalogue import WorldValidationError
-from .deploy_guard import DeploymentLease
+from .deploy_guard import DeploymentLease, DeploymentGuardError
 from .preflight import ResourceGateError
 
 
@@ -112,10 +112,14 @@ class Manager:
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=self.settings.runtime_seconds)
         try:
             self.deployment_lease.acquire()
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError) as error:
+            stage = error.stage if isinstance(error, DeploymentGuardError) else 'lease_acquire'
+            number = error.errno if isinstance(error, (OSError, DeploymentGuardError)) else None
+            reason = error.reason if isinstance(error, DeploymentGuardError) else 'unknown'
+            logging.getLogger(__name__).warning('simulation admission refused stage=%s errno=%s', stage, number)
             # The exclusive deployment lock rejects before creation; not a
             # failed episode and never a reason to restart the simulator.
-            raise SimError('SIM_UNAVAILABLE', 503, {'reason': 'unknown', 'start_not_created': True}) from None
+            raise SimError('SIM_UNAVAILABLE', 503, {'reason': reason, 'start_not_created': True}) from None
         try:
             await self.launcher.start_world(world)
         except WorldValidationError as error:
