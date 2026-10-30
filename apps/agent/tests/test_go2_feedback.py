@@ -31,6 +31,32 @@ def fixture():
     return now, sink, feedback, hub, states
 
 
+@pytest.mark.parametrize('vz', [-.06, -.029, .029, .06])
+def test_approved_vertical_still_band_confirms_without_unlocking(vz):
+    _, sink, feedback, hub, states = fixture()
+    feedback.lowstate(low())
+    feedback.sportmodestate(sport(velocity=(.02, -.02, vz), yaw_speed=.03))
+    assert feedback.consume(hub)
+    assert states[-1]['body_still'] and states[-1]['stop_requested']
+    assert sink._confirmed_generation == sink.generation
+    assert sink.latched  # measured evidence alone never unlocks
+
+
+@pytest.mark.parametrize('velocity,yaw', [
+    ((0., 0., -.060001), 0.), ((0., 0., .060001), 0.),
+    ((.020001, 0., .029), 0.), ((-.020001, 0., .029), 0.),
+    ((0., .020001, .029), 0.), ((0., -.020001, .029), 0.),
+    ((0., 0., .029), .030001), ((0., 0., .029), -.030001),
+])
+def test_vertical_band_keeps_planar_yaw_and_vertical_boundaries_closed(velocity, yaw):
+    _, sink, feedback, hub, states = fixture()
+    feedback.lowstate(low())
+    feedback.sportmodestate(sport(velocity=velocity, yaw_speed=yaw))
+    assert feedback.consume(hub)
+    assert not states[-1]['body_still'] and not states[-1]['stop_requested']
+    assert sink._confirmed_generation is None and sink.latched
+
+
 def test_stop_requires_new_generation_fresh_identity_and_physical_stationary():
     now, sink, feedback, hub, states = fixture()
     feedback.lowstate(low())
