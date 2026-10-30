@@ -15,7 +15,7 @@ import SIM_MAPS from '../../../mobile/sim/maps.json';
 /** 앱 안 시뮬 지도 목록(mobile/sim/maps.json 하나) · 위에서 본 사진(mobile/scripts/make-top.mjs 가 구운 top.png — 웹 빌드에 담긴다) · 고른 지도 기억(저장 실패해도 동작) */
 const TOPS = import.meta.glob<string>('../../../mobile/sim/assets/*/top.png', { eager: true, query: '?url', import: 'default' });
 const MAP_KEY = 'fh.simMap';
-const savedMap = () => { try { return localStorage.getItem(MAP_KEY) ?? ''; } catch { return ''; } };
+const savedMap = () => { try { return (localStorage.getItem(MAP_KEY) ?? '').replace(/^factory-zone-f[12]$/, 'factory-zone'); } catch { return ''; } };
 
 /** 키 → [축(0 전후·1 회전·2 옆), 방향]. 02 F-TO-05: W/↑ 전진, S/↓ 후진, A/←·D/→ 회전. 옆걸음(시뮬 시험용)은 Q/E. e.code(자판 자리)라 한글 입력 상태에서도 같다 */
 export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],

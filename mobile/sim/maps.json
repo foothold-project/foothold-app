@@ -12,12 +12,8 @@
     "name": "큰 공장 심화 · 초안"
   },
   {
-    "id": "factory-zone-f1",
-    "name": "2층 공장 1층 · 초안"
-  },
-  {
-    "id": "factory-zone-f2",
-    "name": "2층 공장 2층 · 초안"
+    "id": "factory-zone",
+    "name": "2층 공장 · 초안"
   },
   {
     "id": "element-course",
