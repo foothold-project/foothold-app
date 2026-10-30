@@ -39,6 +39,10 @@
   /* 찍은 곳 가기 진행·거절 한 줄: 위 가운데(STOP·시작 단추 자리 비움), 누름은 아래 화면으로 */
   #goalNote { position: fixed; z-index: 80; top: calc(var(--t) + 60px); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 180px); box-sizing: border-box; margin: 0;
     padding: 6px 10px; border-radius: 8px; background: rgb(20 23 28 / .82); border: 1px solid #ffd54f; color: #e6e8eb; font: 13px system-ui; text-align: center; pointer-events: none; }
+  /* 여러 층 지도: 위에서 보기 왼쪽 «전체 · 1층 · 2층» (main.js 가 만듦, 왼쪽 띠 = 층 색 범례) */
+  #floorBar { position: fixed; z-index: 85; top: calc(var(--t) + 64px); left: calc(8px + env(safe-area-inset-left)); display: flex; flex-direction: column; gap: 6px; }
+  #floorBar button { width: auto; min-width: 52px; height: 40px; padding: 0 10px; font: 13px system-ui; }
+  #floorBar button[aria-pressed="true"] { border-color: #ffd54f; background: rgb(60 52 20 / .9); }
   #reset.fell { background: var(--stopc); border-color: #fff; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .45; } }
   .stick { position: fixed; bottom: calc(var(--edge) + env(safe-area-inset-bottom)); width: var(--stick); height: var(--stick); border-radius: 50%;
@@ -70,6 +74,7 @@
 <div id="stickR" class="stick" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 9a8 8 0 0 1 14 0M19 9V4.5M19 9h-4.5M5 9V4.5M5 9h4.5"/></svg><b></b></div>
 <p id="keys">↑↓ 앞·뒤 · ←→ 회전(WASD) · Esc·Space 정지 · ▶ 로 시작 · 바닥 클릭 = 그곳으로</p>
 <output id="goalNote" role="status" hidden></output>
+<div id="floorBar" role="group" aria-label="층" hidden></div>
 <div id="btns">
   <button id="cam" type="button" aria-label="위에서 보기" aria-pressed="false" disabled><svg viewBox="0 0 24 24"><path d="M12 3 3 7.5 12 12l9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5"/></svg></button>
   <button id="reset" type="button" aria-label="다시 세우기" disabled><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4.5h4.5"/></svg></button>

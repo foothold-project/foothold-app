@@ -45,7 +45,12 @@ try {
   const errors = [];
   const open = async (q = '') => {
     const p = await browser.newPage({ viewport: { width: 1280, height: 800 } }); p.on('pageerror', (e) => errors.push(e.message));
-    await p.goto(url + q); await p.waitForFunction(() => window.__sim?.ready); await p.waitForTimeout(200); return p;
+    await p.goto(url + q); await p.waitForFunction(() => window.__sim?.ready); await p.waitForTimeout(200);
+    // 처음 = 따라가기(10-30): 단추 «위에서 보기»·눌리지 않음, 지도판 숨김, 카메라는 로봇 뒤·위(첫 프레임부터)
+    assert.deepEqual(await p.evaluate(() => [__sim.top(), document.getElementById('cam').getAttribute('aria-pressed'), document.getElementById('cam').getAttribute('aria-label')]), [false, 'false', '위에서 보기']);
+    const [cx, cy, cz] = await p.evaluate(() => __sim.cam()), [bx, by, bz] = await p.evaluate(() => Array.from(__sim.sim.d.qpos.slice(0, 3)));
+    assert.ok(Math.hypot(cx - bx, cy - by) < 3 && cz > bz, `follow cam near robot (${cx.toFixed(2)},${cy.toFixed(2)},${cz.toFixed(2)})`);
+    await p.click('#cam'); await p.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); return p;   // 아래 찍기 시험은 위에서 보기부터
   };
   const page = await open();
   const ev = (f, a) => page.evaluate(f, a);
@@ -130,10 +135,40 @@ try {
 
   // 따라가기(3D) 화면에서도 바닥 찍기 — 로봇 앞 바닥
   await page.click('#cam'); await page.waitForTimeout(300); await page.click('#go');
-  await page.mouse.click(640, 470); await frame();   // 화면 가운데 조금 아래 = 로봇 앞 바닥(가운데보다 많이 아래는 로봇 발밑·뒤)
+  const [tx, ty] = await ev(() => __sim.toScreen(__sim.sim.d.qpos[0] + 1, __sim.sim.d.qpos[1]));   // 로봇 앞 1 m 바닥(따라가기 카메라로 비춤)
+  await page.mouse.click(tx, ty); await frame();
   g = await goal(); assert.equal(g.active && g.goal, true, `3D floor tap: ${g.note}`);
   await page.click('#stop');
   await page.close();
+
+  // 여러 층(2층 공장, top.json floors): 몸 높이로 지금 층 자동, «전체 · 1층 · 2층», 다른 층 보기에서 찍기 거절, 다른 층 시나리오는 그 층 출발점에서
+  const fz = await browser.newPage({ viewport: { width: 1280, height: 800 } }); fz.on('pageerror', (e) => errors.push(e.message));
+  await fz.goto(url.replace('map=warehouse', 'map=factory-zone')); await fz.waitForFunction(() => window.__sim?.ready); await fz.waitForTimeout(300);
+  assert.equal(await fz.evaluate(() => document.getElementById('floorBar').hidden), true, 'floor bar only in top view');
+  await fz.click('#cam'); await fz.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  const fl = () => fz.evaluate(() => __sim.floor()), bar = () => fz.evaluate(() => [...document.querySelectorAll('#floorBar button')].map((b) => b.textContent + (b.getAttribute('aria-pressed') === 'true' ? '*' : '')));
+  assert.deepEqual(await fl(), { here: 0, view: 0, names: ['1층', '2층'] });
+  assert.deepEqual(await bar(), ['전체', '1층 · 지금*', '2층']);
+  assert.deepEqual(await fz.evaluate(() => [...document.querySelectorAll('#scenarioSelect option')].map((o) => o.value)), ['f1-short-loop', 'f2-short-loop']);
+  await fz.evaluate(() => { const x = document.getElementById('scenarioSelect'); x.value = 'f2-short-loop'; x.dispatchEvent(new Event('change')); });   // 시나리오 칸은 접혀 있음
+  assert.match(await fz.textContent('#scenarioStatus'), /2층 시나리오 — 실행하면 2층 출발점/);
+  await fz.click('#go');
+  await fz.click('#floorBar [data-floor="1"]'); assert.equal((await fl()).view, 1);
+  const [fx, fy] = await fz.evaluate(() => __sim.toScreen(__sim.sim.d.qpos[0] + 0.8, __sim.sim.d.qpos[1]));
+  await fz.mouse.click(fx, fy); await fz.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+  assert.equal(await fz.evaluate(() => __sim.scenario.active), false); assert.match(await fz.evaluate(() => __sim.goalNote()), /로봇이 선 층\(1층\)/);
+  await fz.click('#floorBar [data-floor="all"]'); assert.equal((await fl()).view, 'all');
+  await fz.click('#floorBar [data-floor="0"]'); assert.equal((await fl()).view, 0, 'robot floor = back to auto');
+  // 2층 시나리오 실행 = 2층 출발점(5.65, 4.65)에 다시 세워 시작(datum 0, 몸 높이 2 + 0.4) → 지금 층 2층·안내 사라짐
+  await fz.evaluate(() => document.getElementById('scenarioRun').click());
+  const f2 = await fz.evaluate(() => ({ q: Array.from(__sim.sim.d.qpos.slice(0, 3)), active: __sim.scenario.active, fell: __sim.sim.fell, here: __sim.floor().here }));
+  assert.ok(f2.active && !f2.fell && f2.here === 1 && Math.hypot(f2.q[0] - 5.65, f2.q[1] - 4.65) < 0.1 && f2.q[2] > 2.2 && f2.q[2] < 2.5, `f2 scenario start ${JSON.stringify(f2)}`);
+  await fz.waitForTimeout(1500);
+  assert.equal(await fz.evaluate(() => __sim.sim.fell || __sim.floor().here !== 1), false, 'stays up on 2층');
+  assert.deepEqual(await bar(), ['전체', '1층', '2층 · 지금*']);
+  assert.doesNotMatch(await fz.textContent('#scenarioStatus'), /출발점/);
+  await fz.click('#stop');
+  await fz.close();
 
   // AME-2(시연): 찍은 곳 가기도 자체 목표 입력 — 명령 4칸, 앞으로 감, STOP = [0,0,0,1]
   const ame = await open('&policy=ame2-demo');
@@ -149,7 +184,7 @@ try {
   } else console.log('AME-2 가중치 없음 — AME-2 찍기 생략');
   await ame.close();
   assert.deepEqual(errors, []);
-  console.log('sim goal headless PASS: STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, fall cancel, wall-behind goal → blocked stop, 3D floor tap, AME-2 goal path');
+  console.log('sim goal headless PASS: first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, fall cancel, wall-behind goal → blocked stop, 3D floor tap, AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

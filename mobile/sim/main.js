@@ -16,6 +16,7 @@ let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
 catch (e) { selectionError = e; }
 const POLICY_DT = adapter.timing.policyDt;
+const FLOOR_RGB = [[255, 60, 60], [255, 193, 7], [66, 165, 245], [171, 71, 188]];   // 층 지도 색(1층 = 예전 한 층 지도 빨강)
 const neutral = () => adapter.stop.input.slice();
 
 const $ = (id) => document.getElementById(id);
@@ -149,7 +150,11 @@ async function main() {
     const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', polBuf)), (x) => x.toString(16).padStart(2, '0')).join('');
     if (digest !== adapter.network.sha256) throw new Error('AME-2 가중치 SHA-256 불일치');
   }
-  const map = decodeMap(mapJ);
+  let map = decodeMap(mapJ);   // 로봇이 지금 선 층의 지도(찍기·시나리오 검사) — 여러 층이면 몸 높이로 바뀐다
+  // 여러 층(top.json floors, z = 로봇 몸 높이 반열린 띠 [아래, 위)): 층마다 지도·시나리오 파일. 한 층이면 지금처럼 map.json·scenarios.json 하나
+  const floors = await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
+    map: decodeMap(await json(`${dir}/${f.map_file}`)) }))) : []), () => []);
+  const layers = floors.length ? floors : [{ name: '', map }];
   mj.FS.mkdir('/go2'); mj.FS.mkdir('/go2/assets');
   const physicsAssets = mapJ.physics_assets ?? [];
   if (!Array.isArray(physicsAssets) || physicsAssets.length > 8 || physicsAssets.some((f) => typeof f !== 'string' || !/^[a-z0-9_-]+\.png$/.test(f))) throw new Error('지형 파일 목록 형식');
@@ -167,14 +172,20 @@ async function main() {
   const lidar = makeLidar(mj, m, d, 360);
   const runner = createScenarioRunner(sim, () => stopped);
   let scenarios = [];
-  try { scenarios = validateScenarios(await json(`${dir}/scenarios.json`), map); }
+  // 층 시나리오는 floor_id 가 그 층이고 지점이 그 층 지도의 빈 칸이어야 한다(floor = 층 번호)
+  try { scenarios = floors.length ? (await Promise.all(floors.map(async (f, i) => validateScenarios(await json(`${dir}/${f.scn}`), f.map)
+    .map((x) => { if (x.floor_id !== f.id) throw new Error('시나리오 층이 파일 층과 다름'); return { ...x, floor: i }; })))).flat()
+    : validateScenarios(await json(`${dir}/scenarios.json`), map); }
   catch (e) { console.warn('시나리오를 읽지 못함', e); runner.status = '시나리오 없음'; }
   const select = $('scenarioSelect');
   for (const s of scenarios) { const o = document.createElement('option'); o.value = s.id; o.textContent = s.name; select.append(o); }
   if (adapter.stop.pause) $('scenarioStatus').textContent = 'AME-2는 두 막대로 조종하세요';
-  let scenarioText = '';
+  let scenarioText = '', here = 0, pin = null;   // here = 로봇이 선 층, pin = 볼 층(null 자동 = here, 'all' 전체, 층 번호)
+  const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
   const scenarioUI = () => {
-    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${runner.index + 1}/${runner.points.length}` : runner.status;
+    const far = away();
+    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${runner.index + 1}/${runner.points.length}`
+      : far ? `${floors[far.floor].name} 시나리오 — 실행하면 ${floors[far.floor].name} 출발점에 다시 세워 시작` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
     select.disabled = runner.active || !scenarios.length || adapter.stop.pause;
     $('scenarioRun').disabled = !ready || stopped || sim.fell || runner.active || !scenarios.length || adapter.stop.pause;
@@ -196,7 +207,7 @@ async function main() {
   scene.background = new THREE.Color(0x14171c);
   const followCamera = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
   const topCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
-  let camera = topCamera;
+  let camera = followCamera;   // 처음 = 따라가기(로봇 뒤 외부 카메라, 10-30)
   camera.up.set(0, 0, 1);
   scene.add(new THREE.HemisphereLight(0xffffff, 0x404048, 1.6));
   const sun = new THREE.DirectionalLight(0xffffff, 1.4);
@@ -223,35 +234,36 @@ async function main() {
     scene.add(mesh);
   }
 
-  // 정답 지도(f1.png) 판: 점유 칸만 빨갛게, 위에서 보기 때만. DataTexture 행 0 = 아래라서 위아래를 뒤집는다
-  const tex = new Uint8Array(map.w * map.h * 4);
-  for (let r = 0; r < map.h; r++) for (let c = 0; c < map.w; c++) {
-    const v = map.px[r * map.w + c], o = ((map.h - 1 - r) * map.w + c) * 4;
-    if (v === 0) tex.set([255, 60, 60, 150], o); else if (v === 205) tex.set([120, 120, 140, 90], o);
-  }
-  const mapTex = new THREE.DataTexture(tex, map.w, map.h);
-  mapTex.magFilter = THREE.NearestFilter; mapTex.needsUpdate = true;
-  const mapPlane = new THREE.Mesh(new THREE.PlaneGeometry(map.w * map.res, map.h * map.res),
-    new THREE.MeshBasicMaterial({ map: mapTex, transparent: true, depthWrite: false }));
-  mapPlane.position.set(map.origin[0] + (map.w * map.res) / 2, map.origin[1] + (map.h * map.res) / 2, map.floor_z + 0.02);
-  mapPlane.visible = true;
-  scene.add(mapPlane);
+  // 정답 지도(f1.png) 판: 점유 칸만 층 색으로(1층 빨강 — 한 층 지도도 같은 색), 위에서 보기 때만. DataTexture 행 0 = 아래라서 위아래를 뒤집는다
+  const planes = layers.map(({ map: mp }, i) => {
+    const tex = new Uint8Array(mp.w * mp.h * 4);
+    for (let r = 0; r < mp.h; r++) for (let c = 0; c < mp.w; c++) {
+      const v = mp.px[r * mp.w + c], o = ((mp.h - 1 - r) * mp.w + c) * 4;
+      if (v === 0) tex.set([...FLOOR_RGB[i % FLOOR_RGB.length], 150], o); else if (v === 205) tex.set([120, 120, 140, 90], o);
+    }
+    const mapTex = new THREE.DataTexture(tex, mp.w, mp.h);
+    mapTex.magFilter = THREE.NearestFilter; mapTex.needsUpdate = true;
+    const plane = new THREE.Mesh(new THREE.PlaneGeometry(mp.w * mp.res, mp.h * mp.res),
+      new THREE.MeshBasicMaterial({ map: mapTex, transparent: true, depthWrite: false }));
+    plane.position.set(mp.origin[0] + (mp.w * mp.res) / 2, mp.origin[1] + (mp.h * mp.res) / 2, mp.floor_z + 0.02);
+    scene.add(plane);
+    return plane;
+  });
 
-  // 위에서 보기에서만 선택한 지점과 점선 경로를 표시한다. 선택할 때만 geometry 갱신.
+  // 두 시점 모두 선택한 지점과 점선 경로를 표시한다. 선택할 때만 geometry 갱신.
   const route = new THREE.Group();
   scene.add(route);
   const showRoute = () => {
     while (route.children.length) { const c = route.children[0]; route.remove(c); c.geometry.dispose(); c.material.dispose(); }
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
-    const pts = chosen.points.map((p) => new THREE.Vector3(p.x, p.y, map.floor_z + 0.07));
+    const pts = chosen.points.map((p) => new THREE.Vector3(p.x, p.y, layers[chosen.floor ?? 0].map.floor_z + 0.07));
     const path = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineDashedMaterial({ color: 0x81c784, dashSize: 0.15, gapSize: 0.12, depthTest: false }));
     path.computeLineDistances(); route.add(path);
     route.add(new THREE.Points(new THREE.BufferGeometry().setFromPoints(pts), new THREE.PointsMaterial({ color: 0xe6e8eb, size: 9, sizeAttenuation: false, depthTest: false })));
   };
-  select.onchange = showRoute;
+  select.onchange = () => { showRoute(); scenarioUI(); };
   showRoute();
-  route.visible = false;
 
   // Go2: 컴파일된 메시(group 2)를 geom 마다 그린다
   const geoms = [], meshGeo = new Map();
@@ -297,10 +309,18 @@ async function main() {
     }
     lidarPts.geometry.attributes.position.needsUpdate = true;
   };
+  // 다른 층 시나리오 = 그 층 출발점(spawn_xyyaw)에 다시 세워 시작 — 월드 기준(datum 0)은 그대로, 몸 높이만 그 층 바닥 + 0.4(sim.reset 과 같음)
+  const spawnOn = (i) => {
+    const { spawn_xyyaw: [x, y, yaw], floor_z: z } = floors[i].map, q = d.qpos;
+    sim.reset(); q[0] = x; q[1] = y; q[2] = z + 0.4; q[3] = Math.cos(yaw / 2); q[6] = Math.sin(yaw / 2);
+    mj.mj_forward(m, d); sim.hold(0.5); acc = 0; pin = null; floorTick(q[2]);
+  };
   $('scenarioRun').onclick = () => {
     if (!ready || stopped || sim.fell || runner.active || adapter.stop.pause) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
+    const far = away();
+    if (far) spawnOn(far.floor);
     sticks.forEach((s) => s.release());
     scan(); lastScan = performance.now();
     runner.start(chosen.points);
@@ -323,6 +343,7 @@ async function main() {
     if (stopped) return say('정지 중에는 찍어도 움직이지 않습니다 — ▶ 로 시작하세요');
     if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 찍으세요');
     if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
+    if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
     ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
     if (!ray.ray.intersectPlane(floor, hit)) return say('바닥을 찍으세요');
     const ox = map.origin[0], oy = map.origin[1];
@@ -346,9 +367,7 @@ async function main() {
 
   // ── 카메라: 따라가기(로봇 뒤에서 돌기) ↔ 위에서 보기(지도판). 막대 밖(캔버스) 한 손가락 끌기 = 돌리기, 두 손가락·휠 = 확대·축소
   const view = { yaw: 0, pitch: Math.atan2(0.75, 1.7), dist: Math.hypot(0.75, 1.7), topH: 1, topRot: 0 };
-  let top = true;
-  $('cam').setAttribute('aria-pressed', 'true');
-  $('cam').setAttribute('aria-label', '따라가기');
+  let top = false;   // 단추 처음 상태(aria-pressed false·«위에서 보기»)는 index.html
   const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
   const zoom = (k) => { if (top) view.topH = clamp(view.topH * k, 0.08, 3); else view.dist = clamp(view.dist * k, 0.8, 8); };
   const ptrs = new Map();
@@ -382,10 +401,9 @@ async function main() {
 
   $('reset').onclick = () => { lock(); sim.reset(); sim.hold(0.5); acc = 0; };   // 다시 세우기 = STOP 잠금(모든 정책) — «시작»으로만 다시
   $('cam').onclick = () => {
-    top = !top; camera = top ? topCamera : followCamera; mapPlane.visible = top; route.visible = top;
+    top = !top; camera = top ? topCamera : followCamera;
     $('cam').setAttribute('aria-pressed', String(top));
     $('cam').setAttribute('aria-label', top ? '따라가기' : '위에서 보기');
-    if (!top) camera.up.set(0, 0, 1);
     camera.updateProjectionMatrix();
   };
   for (const b of ['reset', 'cam']) $(b).disabled = false;
@@ -396,12 +414,34 @@ async function main() {
   ui();
   scenarioUI();
 
+  // ── 층(여러 층 지도만): 로봇 몸 높이로 지금 층 → 찍기·시나리오 지도. 위에서 보기는 볼 층 천장 높이에서 내려다봐 위층을 잘라 낸다.
+  // 단추 «전체 · 1층 · 2층»: 전체 = 층 지도 모두 층 색으로(보기만), 다른 층 = 그 층 고정, 로봇이 선 층 = 다시 자동
+  const bar = $('floorBar'), fbs = [['all', '전체'], ...floors.map((f, i) => [i, f.name])].map(([k, t]) => {
+    const b = document.createElement('button'); b.type = 'button'; b.dataset.floor = k; b.textContent = t;
+    if (k !== 'all') b.style.boxShadow = `inset 5px 0 0 rgb(${FLOOR_RGB[k % FLOOR_RGB.length]})`;   // 전체 겹침 범례
+    b.onclick = () => { pin = k === 'all' ? 'all' : k === here ? null : k; };
+    bar.append(b); return [k, b, t];
+  });
+  let floorKey = '';
+  const floorTick = (z) => {
+    const i = floors.findIndex((f) => z >= f.z[0] && z < f.z[1]);
+    if (i >= 0 && i !== here) { here = i; map = floors[i].map; floor.constant = -map.floor_z; }
+    const v = pin ?? here;
+    planes.forEach((p, j) => { p.visible = top && (v === 'all' || v === j); p.material.depthTest = v !== 'all'; });
+    const key = `${top}|${here}|${pin}`;
+    if (key === floorKey) return;
+    floorKey = key; bar.hidden = !top || !floors.length;
+    for (const [k, b, t] of fbs) { b.setAttribute('aria-pressed', String(k === v)); b.textContent = k === here ? `${t} · 지금` : t; }
+    scenarioUI();
+  };
+
   // ── 실행: 화면 시간에 맞춰 정책 스텝(한 프레임 최대 5스텝, 밀리면 늦게 감)
   let acc = 0, lastT = performance.now(), frames = 0, fps = 0, fpsT = lastT;
   Object.assign(st, { ready: true, sim, steps: 0, stepsBehind: 0, fps: () => fps, joy: () => joy.slice(), cmd: () => sim.cmd.slice(), stopped: () => stopped,
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
-    toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText });
+    toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
+    floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
   function frame(now) {
     acc += Math.min((now - lastT) / 1000, 0.25);
@@ -424,6 +464,7 @@ async function main() {
       st.steps++;
     }
     if (acc >= POLICY_DT) { st.stepsBehind++; acc = 0; }
+    floorTick(d.qpos[2]);
     scenarioUI();
     goalUI(now);
     draw();
@@ -437,7 +478,9 @@ async function main() {
       const fit = topFrame(map, width / height, view.topRot, view.topH);
       topCamera.left = -fit.width / 2; topCamera.right = fit.width / 2;
       topCamera.top = fit.height / 2; topCamera.bottom = -fit.height / 2;
-      camPos.set(fit.cx, fit.cy, map.floor_z + 100); look.set(fit.cx, fit.cy, map.floor_z);
+      // 한 층을 볼 때는 그 위층 바닥 조금 아래(천장)에서 — 카메라 뒤(위층)는 그리지 않는다. 전체·맨 위층은 높이 100 m
+      const v = pin ?? here, vz = v === 'all' ? map.floor_z : layers[v].map.floor_z, up = v === 'all' ? null : floors[v + 1];
+      camPos.set(fit.cx, fit.cy, up ? up.map.floor_z - 0.2 : vz + 100); look.set(fit.cx, fit.cy, vz - 1);
       camera.up.set(-Math.sin(view.topRot), Math.cos(view.topRot), 0); // 돌리기 0 = 지도처럼 +y 가 화면 위
       camera.near = 0.1; // Roof-free assets; the whole site stays inside the orthographic frustum.
     } else {
@@ -447,7 +490,7 @@ async function main() {
       camera.near = 0.05;
     }
     camera.updateProjectionMatrix();
-    camera.position.lerp(camPos, top ? 1 : 0.25);
+    camera.position.lerp(camPos, top || !camera.position.lengthSq() ? 1 : 0.25);   // 첫 프레임(원점)은 바로 제자리
     camera.lookAt(look);
     renderer.render(scene, camera);
     frames++;
