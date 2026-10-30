@@ -107,7 +107,7 @@ class Go2Sink:
         self._hold()
 
     def select_source(self, source):
-        if source not in ('phone', 'nav2'):
+        if source not in ('phone', 'nav2', 'server'):
             raise ValueError('known source required')
         with self._lock:
             if self.source != source:

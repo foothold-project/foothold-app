@@ -38,6 +38,7 @@ class Settings:
     simmgr_url: str | None = None
     simmgr_auth_file: str | None = None
     tunnel_origin: str | None = None
+    server_drive_robots: frozenset[UUID] = frozenset()
 
     @classmethod
     def from_env(cls):
@@ -46,7 +47,9 @@ class Settings:
                    files_root=os.environ.get('FH_FILES_ROOT', '/var/lib/foothold/files'),
                    phone_pass_keys=os.environ.get('FH_PHONE_PASS_KEYS'),
                    simmgr_url=os.environ.get('FH_SIM_MANAGER_URL'), simmgr_auth_file=os.environ.get('FH_SIM_AUTH_FILE'),
-                   tunnel_origin=tunnel_origin(os.environ))
+                   tunnel_origin=tunnel_origin(os.environ),
+                   server_drive_robots=frozenset(UUID(value.strip()) for value in
+                       os.environ.get('FH_SERVER_DRIVE_ROBOTS', '').split(',') if value.strip()))
 
 
 class APIError(Exception):

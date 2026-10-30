@@ -155,6 +155,7 @@ class Peer:
     run: dict | None = None
     closing: bool = False
     simulation: bool = False
+    server_drive: bool = False
     policy: object = None
     budget: float = 100
     budget_at: float = 0
@@ -247,7 +248,8 @@ class Realtime:
         def relay_authorize(user, permission, robot=None):
             authorize(user, permission, robot)
             if (robot is not None and permission in ('O_OWN', 'ROBOT_STOP')
-                    and robot.simulation is not True):
+                    and robot.simulation is not True
+                    and robot.id not in settings.server_drive_robots):
                 raise api_error(403, 'PHONE_DIRECT_REQUIRED', '실기 조종·STOP은 현장 폰에서 직접 하세요.')
         self.authorize, self.api_error, self.clock = relay_authorize, api_error, clock
         self.last_state_received = {}
@@ -1121,11 +1123,8 @@ class Realtime:
                 if target == 'agent':
                     peer = self.agents.get(rid)
                     if peer:
-                        # DB provenance only. Unknown/real peers never receive control,
-                        # including startup/disconnect/overload-generated STOP effects.
-                        if not peer.simulation and body.get('t') in (
-                                'lease', 'cmd', 'unlock', 'stop', 'run.start', 'run.control',
-                                'run.confirm', 'floor.set', 'slam'):
+                        # DB provenance plus explicit per-robot manual trial only.
+                        if self.blocked_agent_control(peer, body):
                             continue
                         if body['t'] == 'lease' and body['holder_type'] == 'RUN':
                             self.runs[rid]['lease_id'] = body['lease_id']
@@ -1185,10 +1184,16 @@ class Realtime:
                 (records if effect.target == 'audit' else safety).append(effect)
         self.apply(safety + records)
 
-    async def send_body(self, peer, body, delivery=None):
-        if peer.actor is None and not peer.simulation and body.get('t') in (
+    def blocked_agent_control(self, peer, body):
+        # Trial authority is manual driving only; never unlock mission/map paths.
+        return (peer.actor is None and not peer.simulation and body.get('t') in (
                 'lease', 'cmd', 'unlock', 'stop', 'run.start', 'run.control',
-                'run.confirm', 'floor.set', 'slam'):
+                'run.confirm', 'floor.set', 'slam') and (not peer.server_drive or
+                body.get('t') not in ('lease', 'cmd', 'unlock', 'stop') or
+                (body.get('t') == 'lease' and body.get('holder_type') not in (None, 'USER'))))
+
+    async def send_body(self, peer, body, delivery=None):
+        if self.blocked_agent_control(peer, body):
             return False
         async with peer.send_lock:
             if delivery is not None:
@@ -1828,6 +1833,7 @@ class Realtime:
             # token before publishing a connected peer or granting authority.
             auth_started = self.clock()
             _, peer.simulation = await self.read(self.agent_auth, ws.headers)
+            peer.server_drive = UUID(rid) in self.settings.server_drive_robots
             peer.auth_checked = auth_started
             if rid in self.deleted_robots:
                 await ws.close(code=4403)

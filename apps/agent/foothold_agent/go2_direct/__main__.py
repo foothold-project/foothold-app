@@ -17,7 +17,11 @@ async def serve(config, env):
     for sig in signals:
         loop.add_signal_handler(sig, stop.set)
     try:
-        await run(config, env, stop=stop, reporting_factory=Reporting)
+        if config.server:
+            from .server import run as run_server
+            await run_server(config, env, stop=stop)
+        else:
+            await run(config, env, stop=stop, reporting_factory=Reporting)
     finally:
         for sig in signals:
             loop.remove_signal_handler(sig)
@@ -25,11 +29,12 @@ async def serve(config, env):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.parse_args(argv)
+    parser.add_argument('--server', action='store_true', help='explicit server-drive trial; no phone listener')
+    args = parser.parse_args(argv)
     config = None
     try:
         env = dict(os.environ)
-        config = Config.from_env(env)
+        config = Config.from_env(env, server=args.server)
         asyncio.run(serve(config, env))
         return 0
     except (Exception, KeyboardInterrupt):
@@ -37,7 +42,7 @@ def main(argv=None):
         print('Go2 direct stopped or refused; check reviewed field configuration', file=sys.stderr)
         return 2
     finally:
-        if config is not None:
+        if config is not None and config.verifier is not None:
             config.verifier.close()
 
 

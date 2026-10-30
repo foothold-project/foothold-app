@@ -672,6 +672,11 @@
       ],
       "default": null
     },
+    "server_drive_allowed": {
+      "default": false,
+      "title": "Server Drive Allowed",
+      "type": "boolean"
+    },
     "simulation": {
       "default": false,
       "title": "Simulation",
@@ -711,6 +716,7 @@
   },
   "required": [
     "simulation",
+    "server_drive_allowed",
     "id",
     "name",
     "model",
