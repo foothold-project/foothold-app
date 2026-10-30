@@ -105,7 +105,7 @@ describe('폰 홈 머리 STOP — 멈출 것이 없을 때만 숨김', () => {
   it('로봇 목록 다시 받기 실패(5xx·네트워크) → 보임, 다시 받기에 성공한 뒤에만 숨김', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const LEE: ApiUser = { id: 'u-lee', username: 'lee', display_name: '이OO', role: 'OPERATOR', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
-    const R: RobotSummary = { id: 'r1', name: 'Go2-1', model: 'unitree_go2', owner: { id: 'u-lee', display_name: '이OO' }, simulation: false,
+    const R: RobotSummary = { id: 'r1', name: 'Go2-1', model: 'unitree_go2', owner: { id: 'u-lee', display_name: '이OO' }, simulation: false, server_drive_allowed: false,
       connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] };
     const robots = () => ({ status: 200, body: { items: [R], next_cursor: null } });
     list = ok();

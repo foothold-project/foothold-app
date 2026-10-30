@@ -14,7 +14,7 @@ import { FakeWS, lease, state } from './fakeWs';
 const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR' };
 const robot = (id: string, name: string, owner: string, ownerName: string): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner, display_name: ownerName },
-  simulation: false,
+  simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] });
 const LIMITS: OrgSettings = { battery_low_pct: 20, run_min_battery_pct: 30, deviation_m: 1.5, lease_request_timeout_s: 10, link_loss_wait_s: 30 };
 const err = (status: number, code: string, message: string) => ({ status, body: { error: { code, message, detail: {} } } });
