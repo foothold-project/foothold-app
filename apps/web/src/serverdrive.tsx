@@ -16,15 +16,15 @@ type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
 const KEY: Record<string, Tok> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', KeyA: 'rotl', KeyD: 'rotr' };
 /** 서버·에이전트 허용 표(SERVER-DRIVE-ADD1 A) — [vx m/s, vy m/s, wz rad/s]. 정확히 이 값만, 표 밖 조합은 0 */
 export const TABLE: Record<string, [number, number, number]> = {
-  '': [0, 0, 0], up: [0.4, 0, 0], down: [-0.2, 0, 0], left: [0, 0.2, 0], right: [0, -0.2, 0],
-  rotl: [0, 0, 0.5], rotr: [0, 0, -0.5], 'rotl+up': [0.4, 0, 0.5], 'rotr+up': [0.4, 0, -0.5],
+  '': [0, 0, 0], up: [1.5, 0, 0], down: [-1.5, 0, 0], left: [0, 1.5, 0], right: [0, -1.5, 0],
+  rotl: [0, 0, 0.5], rotr: [0, 0, -0.5], 'rotl+up': [1.5, 0, 0.5], 'rotr+up': [1.5, 0, -0.5],
 };
 const id = (held: Iterable<Tok>) => [...held].sort().join('+');
 export const command = (held: Iterable<Tok>) => TABLE[id(held)] ?? TABLE[''];
 /** 화면 단추 8개(+ 손 뗌 = 0) — 키와 같은 표 */
 const PAD: [Tok[], string, string][] = [
-  [['rotl', 'up'], '↑+A', '앞+왼쪽 회전'], [['up'], '↑', '앞 0.4'], [['rotr', 'up'], '↑+D', '앞+오른쪽 회전'],
-  [['left'], '←', '옆 왼쪽 0.2'], [['down'], '↓', '뒤 0.2'], [['right'], '→', '옆 오른쪽 0.2'],
+  [['rotl', 'up'], '↑+A', '앞+왼쪽 회전'], [['up'], '↑', '앞 1.5'], [['rotr', 'up'], '↑+D', '앞+오른쪽 회전'],
+  [['left'], '←', '옆 왼쪽 1.5'], [['down'], '↓', '뒤 1.5'], [['right'], '→', '옆 오른쪽 1.5'],
   [['rotl'], 'A', '제자리 왼쪽'], [['rotr'], 'D', '제자리 오른쪽'],
 ];
 export const TRIAL = '실기 · 서버 경유 시험 · 미검증';
@@ -137,7 +137,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
     </div>}
     {mine ? <>
       {pad}
-      <div className="fh-row"><span className="lbl fh-grow">누르는 동안만 — ↑ 0.4 · ↓ 0.2 · ←/→ 옆 0.2 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0</span>
+      <div className="fh-row"><span className="lbl fh-grow">누르는 동안만 — ↑ 1.5 · ↓ 1.5 · ←/→ 옆 1.5 m/s · A/D 제자리 0.5 rad/s · ↑+A/D. 떼면 0, 다른 조합도 0</span>
         <button type="button" className="btn" onClick={() => { zero(); rt.release(r.id); }}>조종 끝내기</button></div>
     </> : <DriveButton c={c} r={r} label="조종 시작" wait={wait} onClick={() => { setWhy(''); if (l.holder?.type === 'USER') rt.request(r.id); else rt.take(r.id); }} />}
     {l.releasing?.why && <div className="fh-row" role="status"><span className="fh-why">조종권 반납을 확인하지 못했습니다. {l.releasing.why}</span>

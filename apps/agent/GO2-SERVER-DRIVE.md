@@ -35,10 +35,10 @@ ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. �
 | 키 | (vx m/s, vy m/s, wz rad/s) |
 |---|---|
 | 손 뗌 | (0, 0, 0) |
-| ↑ / ↓ | (0.4, 0, 0) / (-0.2, 0, 0) |
-| ← / → | (0, 0.2, 0) / (0, -0.2, 0) |
+| ↑ / ↓ | (1.5, 0, 0) / (-1.5, 0, 0) |
+| ← / → | (0, 1.5, 0) / (0, -1.5, 0) |
 | A / D | (0, 0, 0.5) / (0, 0, -0.5) |
-| ↑+A / ↑+D | (0.4, 0, 0.5) / (0.4, 0, -0.5) |
+| ↑+A / ↑+D | (1.5, 0, 0.5) / (1.5, 0, -0.5) |
 
  웹은 **새 seq로 10~20Hz 입력**을 보낸다. 서버는 입력을 그대로 전달하며 마지막 명령을 반복하지 않는다(lease만으로 계속 움직이지 않음). 원입력이 0.30초 끊기면 Move(0)·StopMove·잠금이다. 인터넷 지연으로 자주 잠기면 올바른 실패이므로 시간을 늘리지 않고 RTT/간격을 현장 측정한다. 소켓 단절은 즉시 정지·잠금이며 재연결만으로 재개하지 않는다. 주기 tick·상태·ping은 원입력 시각을 갱신하지 않는다. STOP은 lease와 무관하게 우선하고, lease 상실은 정지한다. 정지 확인에는 신선한 일치 serial의 LowState + SportModeState를 사용하며 SDK 성공 코드는 정지 증거가 아니다. RUN·SLAM·지도 명령은 이 예외로 열지 않는다. 서버 상태에는 기존 배터리·실측 속도·latched·stop_gen·실측 후 stop_ref를 사용한다.
 
@@ -56,3 +56,25 @@ ADR-002의 **명시적으로 선택한 시험 기체**에만 여는 예외다. �
 에이전트는 기존 agent 토큰으로 **HTTP POST** `/api/v1/agent/drive-media/{rgb|lidar}`에 `{header: media/1 JSON, points: null 또는 XYZ bytes의 base64}`를 올린다(본문 100,000 bytes 상한, 채널당 최대 5 Hz). 조종 WS 4096 bytes 제한과 배포 기동 인자는 유지한다. 웹은 같은 서버의 `/api/v1/robots/{robot_id}/drive-media/{rgb|lidar}` WS에 기존 로그인 쿠키+정확한 Origin으로 접속해 받기만 한다(Bearer 앱 인증도 가능). hello·URL 토큰·조종 입력은 없다. `media.video` JSON, `media.points` JSON 직후 binary xyz_f32le, `media.status`는 기존 media/1 그대로다. robot/epoch/episode_id(null)를 확인하고 epoch 변경·1초 넘은 자료·끊김 때 이전 그림을 비운다. 담당자/총괄만 볼 수 있고 재배정·로그아웃·토큰 폐기 시 재확인하여 닫는다. 느린 viewer는 0.20초 쓰기 마감으로 끊으며 관측 오류가 조종 연결을 닫지 않는다.
 
 움직임 SDK 객체 없이 상태만 서버로 올릴 때는 별도 **읽기 전용** 모드를 쓴다. `FH_GO2_DIRECT_ENABLED` 및 `FH_GO2_FIELD_APPROVAL`은 제거하고, robot UUID·agent 토큰·서버 WS 주소만 기존처럼 설정한 후 `--server --readonly --nic <ROBOT_NIC>`를 명시한다. 이 모드는 go2_readonly의 두 DDS 구독자·DiscardSink만 사용하고 SportClient/Go2Sink/Move/StopMove/카메라 RPC를 만들지 않는다. 서버 cmd·lease·unlock·STOP은 모두 폐기하고 stop_ref=0을 유지하여 물리 정지 확인이나 조종권을 만들지 않는다. latched/applied는 논리 잠금·폐기 출력이며 **물리 STOP 확인이 아니다**. 이 명령 역시 실제 DDS 읽기 참가이므로 현장 읽기 승인이 있어야 한다. 읽기 모드에서는 카메라·라이다 송출을 하지 않는다.
+
+## 명시적 0-0 신원 예외 — 서버 시험만
+
+LowState 실측 serial이 **정확히 `0-0`**인 기체에서만 현장 담당자의 선택으로 유선 이웃·MAC 확인을 사용한다. 기존 표식의 소유자·0600·단일 링크·최대 30분 만료는 유지하고, JSON에 `"robot_serial":null,"serial_unavailable":true,"robot_mac":"<현장에서 읽은 소문자 unicast MAC>"`을 모두 명시한다. 누락·다른 serial·MAC 불일치에는 적용하지 않으며 폰 경유는 이 예외를 허용하지 않는다. 생성기는 `deploy/jetson/make_approval.py --output <비공개 절대 경로> --nic <ROBOT_NIC> --serial-unavailable --robot-mac <실측 MAC> --approve-field-motion`이다. 실제 값은 저장소·공유 로그에 넣지 않는다.
+
+시작 및 **매번 명시적 잠금 해제 직전** 지정 NIC의 `ip -j -4 neigh show dev`를 읽어 해당 기체 대역 이웃이 Go2 `.161`과 Orin `.18` 두 항목뿐인지, `.161` MAC이 표식과 일치하는지, 신선한 SDK serial이 여전히 `0-0`인지 확인한다. 제3 이웃·누락·FAILED/INCOMPLETE·다른 NIC·다른 serial은 거부/정지/잠금이다. 스캔·ping·ARP 갱신/삭제·추가 패킷은 만들지 않는다. 잠금 해제의 이웃 조회는 비동기 한 개만 진행하고, 도중 STOP·lease 상실·WS 단절·세대 변화·0.30초 초과가 있으면 폐기한다. 예외를 통과해도 기존 실측 정지·명시 해제·새 중립 및 기본 **error_code==0** readiness 관문은 유지하며 아래의 명시적 운동 상태 목록만 서버 시험에서 추가로 허용할 수 있다.
+
+로컬 관리 비트가 켜진 MAC은 기체 재부팅 뒤 바뀔 수 있다. 바뀌면 거부되는 것이 정상이며 현장에서 다시 읽고 새 표식을 만든다. 옛 MAC을 자동 수용하거나 serial 검사를 생략하지 않는다. 실제 이 예외로 이동하는 시험은 아직 하지 않았다.
+
+
+## 확인된 V2 운동 상태 허용 — 기본 빈 목록
+
+현장 사용자가 제공한 Unitree V2 문서에 따르면 해당 펌웨어판의 `SportModeState.error_code`는 현재 운동 상태 번호이며 **100=Agile(灵动)**이다. 근거: [Unitree Motion Services Interface V2.0](https://support.unitree.com/home/en/developer/Motion_Services_Interface_V2.0) — 현장 사용자 제공, JS 페이지 본문 대조는 미확인이다. V2에서는 0이 아닌 값이 상태 번호일 수 있으므로 확인된 정수만 목록에 적는다.
+
+서버 경유 시험에만 `FH_GO2_ACCEPT_ERROR_CODES=<확인된 상태 번호의 쉼표 목록>`과 승인 JSON의 `"accept_error_codes":[<같은 정수 목록>]`이 정확히 같은 집합일 때 활성화한다. 기본은 둘 다 빈 목록, 0은 항상 허용, 목록 밖 값은 계속 거부한다. 시작 로그에 `서버 시험 운동 상태 허용: 100(Agile)`처럼 선택한 상태를 한 줄로 남긴다. 폰 경유와 읽기 전용 모드의 조종 권한에는 영향이 없다. 신선한 실측 정지·기존 mode/progress/높이/자세 조건·serial/MAC·명시 해제·새 중립·0.30초는 유지한다. 웹의 기본 보행 장치 오류 표시는 별도 범위다.
+
+현장 담당자가 각각 실측값을 채우는 표식 생성 예: `deploy/jetson/make_approval.py --output <비공개 절대 경로> --nic <ROBOT_NIC> --serial-unavailable --robot-mac <실측 MAC> --accept-error-codes <확인된 상태 번호> --approve-field-motion`. 서버 경유 환경의 `FH_GO2_ACCEPT_ERROR_CODES`에도 동일한 정수 목록을 넣는다. 일반 serial이 확인되는 기체는 `--serial <실측 serial>`을 쓰며 0-0 예외를 적용하지 않는다.
+
+관측 소스는 앞 카메라의 SDK VideoClient **RGB JPEG**와 `rt/utlidar/cloud`의 L1 점군이다. 별도 깊이 센서를 연결하지 않은 이번 구성에는 뎁스 영상 소스가 없으며 RGB를 뎁스로 표시하지 않는다.
+
+
+서버 경유 이동 표는 현장 사용자 선택으로 전후·좌우 **1.5 m/s**, 회전 **0.5 rad/s**다. 고정 SDK의 SportClient.Move는 vx/vy/vyaw를 JSON으로 직렬화해 _CallNoReply로 보내며 자체 범위 검사/클램프가 없다. 따라서 SDK Python 코드가 vy=1.5를 직접 거부하는 경로는 없지만, 반환0은 펌웨어의 실제 수용·속도·클램프를 보장하지 않는다. 펌웨어 수용 범위와 실기1.5 m/s는 미검증이다. 폰 경로의 기존 표/limits는 유지한다.

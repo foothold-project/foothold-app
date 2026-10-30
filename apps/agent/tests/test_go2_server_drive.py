@@ -44,8 +44,8 @@ def rig():
 
 
 @pytest.mark.parametrize('axes,expected', [(list(value), value) for value in (
-    (0.,0.,0.), (.4,0.,0.), (-.2,0.,0.), (0.,.2,0.), (0.,-.2,0.),
-    (0.,0.,.5), (0.,0.,-.5), (.4,0.,.5), (.4,0.,-.5))])
+    (0.,0.,0.), (1.5,0.,0.), (-1.5,0.,0.), (0.,1.5,0.), (0.,-1.5,0.),
+    (0.,0.,.5), (0.,0.,-.5), (1.5,0.,.5), (1.5,0.,-.5))])
 def test_existing_server_command_to_sdk_alphabet(axes, expected):
     now, sink, normal, _, session, client, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=axes)
@@ -57,7 +57,7 @@ def test_existing_server_command_to_sdk_alphabet(axes, expected):
 
 def test_ticks_cannot_refresh_point_three_second_input_deadline():
     now, sink, normal, emergency, session, client, measured, frame = rig()
-    frame('cmd', lease_id='fake-lease', seq=1, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
     for _ in range(6):
         now.value += .05
         client._emit(session.tick())
@@ -66,7 +66,7 @@ def test_ticks_cannot_refresh_point_three_second_input_deadline():
     assert sink.check_watchdog()
     assert sink.latched and sink.pending == (0,0,0)
     assert emergency.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
-    frame('cmd', lease_id='fake-lease', seq=2, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=2, axes=[1.5,0,0])
     sink.drain()
     assert sink.latched and normal.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
 
@@ -74,7 +74,7 @@ def test_ticks_cannot_refresh_point_three_second_input_deadline():
 @pytest.mark.parametrize('reason', ['disconnect', 'transport_closed', 'stop', 'lease'])
 def test_socket_stop_and_lease_loss_lock_before_next_input(reason):
     now, sink, normal, emergency, session, client, measured, frame = rig()
-    frame('cmd', lease_id='fake-lease', seq=1, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
     sink.drain()
     if reason == 'disconnect':
         client._emit(session.disconnect())
@@ -88,7 +88,7 @@ def test_socket_stop_and_lease_loss_lock_before_next_input(reason):
     assert sink.latched and sink.pending == (0,0,0)
     assert sink.check_watchdog()
     assert emergency.calls[-1] == ('StopMove',())
-    frame('cmd', lease_id='fake-lease', seq=2, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=2, axes=[1.5,0,0])
     assert sink.pending == (0,0,0)
 
 
@@ -102,19 +102,19 @@ def test_stop_confirmation_requires_new_measurement_then_explicit_unlock_and_new
     assert session._state()['stop_ref'] == 42
     frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
     measured()
-    frame('cmd', lease_id='fake-lease', seq=1, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
     assert sink.pending == (0,0,0)
     frame('cmd', lease_id='fake-lease', seq=2, axes=[0,0,0])
-    frame('cmd', lease_id='fake-lease', seq=3, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=3, axes=[1.5,0,0])
     sink.drain()
     sink.drain()  # the first drain services the queued STOP before any motion
-    assert normal.calls[-1] == ('Move',(.4,0,0))
+    assert normal.calls[-1] == ('Move',(1.5,0,0))
 
 
 def test_two_sources_and_run_cannot_drive_server_mode():
     _, sink, _, _, session, client, measured, frame = rig()
     with pytest.raises(ValueError):
-        sink.apply(command(velocity=(.4,0,0)), source='phone')
+        sink.apply(command(velocity=(1.5,0,0)), source='phone')
     assert sink.latched
     frame('lease', lease_id='run', holder_type='RUN:fake')
     assert not session.connected and not session.lease_confirmed
@@ -138,7 +138,8 @@ def test_explicit_server_configuration_has_no_phone_listener(env, monkeypatch):
         Config.from_env({**env, 'FOOTHOLD_AGENT_TOKEN':''}, server=True)
 
 
-def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
+@pytest.mark.parametrize('fallback,sport_state', [(False,0),(True,0),(True,100)])
+def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch, fallback, sport_state, caplog):
     from types import SimpleNamespace as NS
     import time
     from websockets.asyncio.server import serve
@@ -153,6 +154,11 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
         normal, emergency = FakeSport(), FakeSport()
         stop = asyncio.Event()
         captured = {}
+        identity_checks = []
+        def identity_check(approval, serial):
+            assert serial == '0-0'
+            identity_checks.append(serial)
+            return True
         class Channel:
             closed = False
             handle = None
@@ -160,8 +166,8 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
             def subscribe(self, feedback):
                 def sample():
                     self.counter += 1
-                    feedback.lowstate(low(self.counter))
-                    feedback.sportmodestate(sport(self.counter))
+                    feedback.lowstate(low(self.counter, sn=(0,0) if fallback else (1234,5678)))
+                    feedback.sportmodestate(sport(self.counter, error_code=sport_state))
                     self.handle = asyncio.get_running_loop().call_later(.02, sample)
                 sample()
             def close(self):
@@ -187,11 +193,11 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
             await read(ws, lambda x:x['t']=='state' and x['latched'] is False)
             await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=0, axes=[0,0,0])))
             for seq in range(1, 8):
-                await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=seq, axes=[.4,0,.5])))
+                await ws.send(json.dumps(dict(t='cmd', lease_id='fake-lease', seq=seq, axes=[1.5,0,.5])))
                 await asyncio.sleep(.06)
-                if ('Move',(.4,0,.5)) in normal.calls:
+                if ('Move',(1.5,0,.5)) in normal.calls:
                     break
-            assert ('Move',(.4,0,.5)) in normal.calls
+            assert ('Move',(1.5,0,.5)) in normal.calls
             stop_count = len(emergency.calls)
             await ws.close()
             async with asyncio.timeout(.25):
@@ -204,32 +210,39 @@ def test_real_loopback_ws_fake_sdk_disconnect_stops_and_locks(monkeypatch):
             stop.set()
         async with serve(server, '127.0.0.1', 0) as listener:
             port = listener.sockets[0].getsockname()[1]
-            config = NS(approval=NS(robot_serial='1234-5678', expires_at=time.time()+60),
+            config = NS(approval=NS(robot_serial=None if fallback else '1234-5678',
+                        serial_unavailable=fallback, robot_mac='02:00:00:00:00:01',
+                        accept_error_codes=frozenset({100}) if sport_state else frozenset(), expires_at=time.time()+60),
                         link=Settings(f'ws://127.0.0.1:{port}/agent', 'fake-token'))
             await asyncio.wait_for(run(config, {}, stop=stop, channel_factory=lambda env:channel,
-                connect_factory=lambda *a,**kw:(normal, emergency), client_factory=client_factory), 5)
+                connect_factory=lambda *a,**kw:(normal, emergency), client_factory=client_factory,
+                identity_check=identity_check), 5)
         assert channel.closed
+        if sport_state:
+            assert '100(Agile)' in caplog.text
+        if fallback:
+            assert len(identity_checks) >= 2  # startup plus explicit resume, never a cached grant
         assert normal.calls[-2:] == [('Move',(0,0,0)), ('StopMove',())]
     asyncio.run(scenario())
 
 
 def test_feedback_loss_reports_lock_and_requires_explicit_recovery():
     now, sink, normal, emergency, session, client, measured, frame = rig()
-    frame('cmd', lease_id='fake-lease', seq=1, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
     client._emit(session.feedback_lost())
     assert session.connected and sink.latched and session._state()['latched']
     measured()
-    frame('cmd', lease_id='fake-lease', seq=2, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=2, axes=[1.5,0,0])
     assert sink.latched and sink.pending == (0,0,0)
     frame('unlock', lease_id='fake-lease', stop_gen=session.core.stop_gen)
     measured()
-    frame('cmd', lease_id='fake-lease', seq=3, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=3, axes=[1.5,0,0])
     assert sink.pending == (0,0,0)
     frame('cmd', lease_id='fake-lease', seq=4, axes=[0,0,0])
-    frame('cmd', lease_id='fake-lease', seq=5, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=5, axes=[1.5,0,0])
     sink.drain()
     sink.drain()
-    assert normal.calls[-1] == ('Move',(.4,0,0))
+    assert normal.calls[-1] == ('Move',(1.5,0,0))
 
 
 def test_new_si_table_is_exact_and_does_not_change_phone_table():
@@ -239,11 +252,11 @@ def test_new_si_table_is_exact_and_does_not_change_phone_table():
     assert ALLOWED == frozenset(((0.,0.,0.),(.6,0.,0.),(.6,0.,.5),(.6,0.,-.5)))
 
 
-@pytest.mark.parametrize('bad', [[1,0,0],[.6,0,0],[.4000000001,0,0],[-.2,0,.5],
-    [.4,.2,0],[0,0,1],[True,0,0],[float('nan'),0,0]])
+@pytest.mark.parametrize('bad', [[.4,0,0],[1,0,0],[.6,0,0],[1.5000000001,0,0],[-1.5,0,.5],
+    [1.5,1.5,0],[0,0,1],[True,0,0],[float('nan'),0,0]])
 def test_outside_exact_server_table_stops_without_quantization(bad):
     _, sink, normal, emergency, session, client, measured, frame = rig()
-    frame('cmd', lease_id='fake-lease', seq=1, axes=[.4,0,0])
+    frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])
     frame('cmd', lease_id='fake-lease', seq=2, axes=bad)
     assert sink.latched and session.core.latch and sink.pending == (0,0,0)
     assert sink.check_watchdog() and emergency.calls[-1] == ('StopMove',())
@@ -282,7 +295,7 @@ def test_readonly_server_mode_never_constructs_motion_adapter(monkeypatch):
             async def run(self):
                 self.session.connect()
                 for frame in ({'t':'lease','lease_id':'bad','holder_type':'USER'},
-                    {'t':'cmd','lease_id':'bad','seq':1,'axes':[.4,0,0]},
+                    {'t':'cmd','lease_id':'bad','seq':1,'axes':[1.5,0,0]},
                     {'t':'unlock','lease_id':'bad','stop_gen':2},{'t':'stop','stop_ref':42}):
                     self.session.receive(frame)
                 value=self.session._state()

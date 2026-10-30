@@ -17,6 +17,7 @@ from urllib.request import Request, build_opener, ProxyHandler
 from concurrent.futures import ThreadPoolExecutor
 
 from . import sdk
+from .identity import expected_serial
 
 MAX_INPUT_BYTES = 2_000_000
 MAX_INPUT_POINTS = 100_000
@@ -144,7 +145,7 @@ class Source:
 
     def camera(self):
         try:
-            client = self.factory(self.env, self.channel, self.config.approval.robot_serial)
+            client = self.factory(self.env, self.channel, expected_serial(self.config.approval))
             while not self.closing.is_set():
                 code, data = client.GetImageSample()
                 received = self.now()
@@ -183,7 +184,7 @@ class Source:
     def lidar(self):
         subscriber = None
         try:
-            subscriber = self.factory(self.env, self.channel, self.config.approval.robot_serial, callback=self.cloud)
+            subscriber = self.factory(self.env, self.channel, expected_serial(self.config.approval), callback=self.cloud)
             while not self.closing.wait(.02):
                 with self.lock:
                     item, self.raw_cloud = self.raw_cloud, None

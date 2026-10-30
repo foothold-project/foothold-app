@@ -14,9 +14,9 @@ DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 # Preserve current real-robot alphabet. Do not widen it from a config file.
 ALLOWED = frozenset((ZERO, (.6, 0., 0.), (.6, 0., -.5), (.6, 0., .5)))
-SERVER_ALLOWED = frozenset((ZERO, (.4, 0., 0.), (-.2, 0., 0.),
-    (0., .2, 0.), (0., -.2, 0.), (0., 0., .5), (0., 0., -.5),
-    (.4, 0., .5), (.4, 0., -.5)))
+SERVER_ALLOWED = frozenset((ZERO, (1.5, 0., 0.), (-1.5, 0., 0.),
+    (0., 1.5, 0.), (0., -1.5, 0.), (0., 0., .5), (0., 0., -.5),
+    (1.5, 0., .5), (1.5, 0., -.5)))
 
 
 def server_velocity(value):

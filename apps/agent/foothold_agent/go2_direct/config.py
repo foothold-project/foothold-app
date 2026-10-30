@@ -8,7 +8,7 @@ from ipaddress import IPv4Address, IPv4Network
 from foothold_agent.phone.server import Settings as PhoneSettings
 from foothold_agent.phone.tickets import uuid, load_keys, Verifier
 from foothold_agent.link.client import Settings as LinkSettings
-from .approval import Approval, validate
+from .approval import Approval, validate, parse_codes
 
 
 @dataclass
@@ -24,12 +24,16 @@ class Config:
     def from_env(cls, env=None, *, server=False):
         env = os.environ if env is None else env
         approval = validate(env)  # disabled/absent marker: zero SDK imports
+        regular = (approval.robot_serial is not None and
+                re.fullmatch(r'(0|[1-9][0-9]*)-(0|[1-9][0-9]*)', approval.robot_serial) and
+                all(int(part) <= 0xFFFFFFFF for part in approval.robot_serial.split('-')))
         if (env.get('FH_GO2_DEDICATED_NIC') != '1' or
-                not re.fullmatch(r'(0|[1-9][0-9]*)-(0|[1-9][0-9]*)', approval.robot_serial) or
-                any(int(part) > 0xFFFFFFFF for part in approval.robot_serial.split('-'))):
+                not (regular or (server and approval.serial_unavailable))):
             raise ValueError('dedicated robot NIC and canonical DDS serial required')
         robot = uuid(env.get('FOOTHOLD_ROBOT_ID'))
         if server:
+            if parse_codes(env.get('FH_GO2_ACCEPT_ERROR_CODES','')) != approval.accept_error_codes:
+                raise PermissionError('server state list differs from field approval')
             # No phone listener, credentials or second command source in this mode.
             link = LinkSettings(env.get('FOOTHOLD_AGENT_WS_URL', ''),
                                 env.get('FOOTHOLD_AGENT_TOKEN', ''))
