@@ -41,6 +41,18 @@ def test_house_surface_and_full_scenario_keep_collision_clearance():
     meta = json.loads((MOBILE/'metadata.json').read_text())
     assert 30000 <= meta['triangles'] <= 100000
     assert meta['loose_pile_pieces'] > 100
+    assert meta['perimeter_fragments']['rock'] >= 1000
+    assert meta['perimeter_fragments']['wood'] >= 300
+    assert meta['perimeter_fragments']['concrete'] >= 20
+    assert meta['perimeter_max_above_ground_m'] <= .8
+    assert meta['perimeter_contact_clusters'] > 50
+    for name in meta['shared_rubble_textures']:
+        assert struct.unpack('>II',(MOBILE/name).read_bytes()[16:24]) == (256,256)
+    for kind in ('rock','wood','concrete'):
+        model=next(m for m in scene['models'] if m['name']==f'perimeter_{kind}')
+        assert model['texture_repeat'] and model['flat_shading']
+        mesh=scene['meshes'][model['mesh']]
+        assert len(mesh['uv']) == len(mesh['p'])//3*2
     assert meta['metrics']['indoor_max_above_floor_m'] == pytest.approx(.786, abs=.01)
     assert len(xml.findall('asset/mesh')) == meta['loose_pile_pieces']
     grid = json.loads((MOBILE/'map.json').read_text())

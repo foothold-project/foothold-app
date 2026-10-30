@@ -883,9 +883,9 @@
       "native_supported": false,
       "notes": "앱 오프라인 MuJoCo/three.js 전용; 서버 지도 등록 가능, Gazebo 실행 adapter 추가 필요.",
       "sha256": {
-        "world": "9336ddae1a6a9c7ca46f0ab2ca00193f840e684f7071a0e01deb8d3f32e25326",
-        "map": "a985b9168be82c1b452892998ac92ecbe51087ce44d66ded5f773f90430465a5",
-        "metadata": "890bd1c11b0c0b834737b3a837a717d9833eb7b1a3f9eacd1845d0d3f70ba3d2"
+        "world": "9aa4ca3efbefbce01e8b836598d0a6fc2aa8b7151d7d2dcc556088cdc704f027",
+        "map": "4363df75e6204d4f341bd0f4fd18366aee351ce9b5bc5e6e952a2db7e9982661",
+        "metadata": "6d4dc5971544c145f2966401673327162936e60cc14e79f52c2ee30f11207c0c"
       }
     }
   }

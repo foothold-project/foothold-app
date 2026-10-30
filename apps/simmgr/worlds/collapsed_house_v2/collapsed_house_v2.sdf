@@ -359,17 +359,6 @@
             </friction>
           </surface>
         </collision>
-        <visual name="visual">
-          <geometry>
-            <box>
-              <size>26 26 0.2</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.39 0.37 0.33 1</ambient>
-            <diffuse>0.39 0.37 0.33 1</diffuse>
-          </material>
-        </visual>
       </link>
     </model>
     <model name="original_house">
@@ -412,9 +401,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.16104 0.14067 0.11067 1</ambient>
-            <diffuse>0.16104 0.14067 0.11067 1</diffuse>
+            <ambient>0.95 0.95 0.95 1</ambient>
+            <diffuse>0.95 0.95 0.95 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>rubble-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
         <collision name="dust_contact">
@@ -439,9 +434,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.228223188 0.22861272121600001 0.22104141812799996 1</ambient>
-            <diffuse>0.228223188 0.22861272121600001 0.22104141812799996 1</diffuse>
+            <ambient>0.774 0.7568 0.7138 1</ambient>
+            <diffuse>0.774 0.7568 0.7138 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -456,9 +457,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.249453252 0.24987902086400002 0.24160341051199993 1</ambient>
-            <diffuse>0.249453252 0.24987902086400002 0.24160341051199993 1</diffuse>
+            <ambient>0.846 0.8271999999999999 0.7801999999999999 1</ambient>
+            <diffuse>0.846 0.8271999999999999 0.7801999999999999 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -473,9 +480,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.270683316 0.271145320512 0.26216540289599993 1</ambient>
-            <diffuse>0.270683316 0.271145320512 0.26216540289599993 1</diffuse>
+            <ambient>0.918 0.8976000000000001 0.8466 1</ambient>
+            <diffuse>0.918 0.8976000000000001 0.8466 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -490,9 +503,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.29191338 0.29241162016000005 0.28272739527999996 1</ambient>
-            <diffuse>0.29191338 0.29241162016000005 0.28272739527999996 1</diffuse>
+            <ambient>0.9900000000000001 0.9680000000000001 0.913 1</ambient>
+            <diffuse>0.9900000000000001 0.9680000000000001 0.913 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -507,9 +526,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.1572204184 0.15067656625599998 0.138483780032 1</ambient>
-            <diffuse>0.1572204184 0.15067656625599998 0.138483780032 1</diffuse>
+            <ambient>0.5332 0.49879999999999997 0.4472 1</ambient>
+            <diffuse>0.5332 0.49879999999999997 0.4472 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -524,9 +549,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.1718455736 0.16469299102399998 0.15136599212799998 1</ambient>
-            <diffuse>0.1718455736 0.16469299102399998 0.15136599212799998 1</diffuse>
+            <ambient>0.5828 0.5451999999999999 0.4888 1</ambient>
+            <diffuse>0.5828 0.5451999999999999 0.4888 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -541,9 +572,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.18647072879999999 0.178709415792 0.164248204224 1</ambient>
-            <diffuse>0.18647072879999999 0.178709415792 0.164248204224 1</diffuse>
+            <ambient>0.6324 0.5916 0.5304 1</ambient>
+            <diffuse>0.6324 0.5916 0.5304 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -558,9 +595,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.201095884 0.19272584056 0.17713041631999998 1</ambient>
-            <diffuse>0.201095884 0.19272584056 0.17713041631999998 1</diffuse>
+            <ambient>0.682 0.638 0.5720000000000001 1</ambient>
+            <diffuse>0.682 0.638 0.5720000000000001 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -575,9 +618,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.16420824348 0.06458053899999999 0.016265668480000002 1</ambient>
-            <diffuse>0.16420824348 0.06458053899999999 0.016265668480000002 1</diffuse>
+            <ambient>0.516 0.43 0.34400000000000003 1</ambient>
+            <diffuse>0.516 0.43 0.34400000000000003 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -592,9 +641,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.17948342891999997 0.070588031 0.01777875392 1</ambient>
-            <diffuse>0.17948342891999997 0.070588031 0.01777875392 1</diffuse>
+            <ambient>0.564 0.47 0.376 1</ambient>
+            <diffuse>0.564 0.47 0.376 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -609,9 +664,15 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.19475861436 0.076595523 0.019291839360000004 1</ambient>
-            <diffuse>0.19475861436 0.076595523 0.019291839360000004 1</diffuse>
+            <ambient>0.612 0.51 0.40800000000000003 1</ambient>
+            <diffuse>0.612 0.51 0.40800000000000003 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -626,9 +687,84 @@
             </mesh>
           </geometry>
           <material>
-            <ambient>0.2100337998 0.082603015 0.020804924800000003 1</ambient>
-            <diffuse>0.2100337998 0.082603015 0.020804924800000003 1</diffuse>
+            <ambient>0.66 0.55 0.44000000000000006 1</ambient>
+            <diffuse>0.66 0.55 0.44000000000000006 1</diffuse>
             <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="perimeter_rock">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/perimeter_rock.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.62 0.58 0.52 1</ambient>
+            <diffuse>0.62 0.58 0.52 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="perimeter_concrete">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/perimeter_concrete.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.9 0.88 0.83 1</ambient>
+            <diffuse>0.9 0.88 0.83 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="perimeter_wood">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/perimeter_wood.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.6 0.5 0.4 1</ambient>
+            <diffuse>0.6 0.5 0.4 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
@@ -3234,6 +3370,1160 @@
             </box>
           </geometry>
         </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_0">
+      <static>true</static>
+      <pose>9.0428 -7.577450000000001 0.1737 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.5652000000000008 1.3235000000000001 0.3834</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_1">
+      <static>true</static>
+      <pose>-9.43525 0.9417500000000001 0.2458091415277993 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.5167000000000002 1.8289 0.5276182830555987</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_2">
+      <static>true</static>
+      <pose>9.219899999999999 4.448 0.2237528896940419 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4921999999999986 1.9718000000000004 0.4835057793880838</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_3">
+      <static>true</static>
+      <pose>-9.21525 -7.6000000000000005 0.19553410027817492 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.2790999999999997 1.3542000000000005 0.42706820055634986</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_4">
+      <static>true</static>
+      <pose>9.168 6.14875 0.19165 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.209200000000001 1.8902999999999999 0.4193</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_5">
+      <static>true</static>
+      <pose>6.2363 -7.462 0.2860717778002164 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2807999999999993 1.7082000000000006 0.6081435556004329</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_6">
+      <static>true</static>
+      <pose>-9.05865 -6.0445 0.17716474737944543 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3107000000000006 1.9871999999999996 0.3903294947588909</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_7">
+      <static>true</static>
+      <pose>9.295200000000001 2.8504500000000004 0.15339587429724616 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4032 2.2513 0.34279174859449235</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_8">
+      <static>true</static>
+      <pose>-9.14825 7.27825 0.1603885464827412 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3895 1.7965000000000009 0.35677709296548243</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_9">
+      <static>true</static>
+      <pose>9.187999999999999 7.24515 0.1635 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.266399999999999 1.5785 0.36300000000000004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_10">
+      <static>true</static>
+      <pose>-7.7484 -7.46645 0.1306 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1310000000000002 1.4838999999999993 0.2972</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_11">
+      <static>true</static>
+      <pose>-6.1194500000000005 -7.24165 0.3513335305420726 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2053000000000003 2.183700000000001 0.7386670610841453</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_12">
+      <static>true</static>
+      <pose>-2.63755 7.4749 0.3008160759339768 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0538999999999996 1.2312000000000003 0.6376321518679536</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_13">
+      <static>true</static>
+      <pose>9.07565 0.7051999999999999 0.24343670836778808 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.5005000000000006 2.3165999999999998 0.5228734167355762</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_14">
+      <static>true</static>
+      <pose>9.1493 -6.084350000000001 0.29325313812352743 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4505999999999997 1.8778999999999995 0.6225062762470549</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_15">
+      <static>true</static>
+      <pose>-9.2894 4.1578 0.2646284287758661 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3702000000000005 1.9779999999999998 0.5652568575517323</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_16">
+      <static>true</static>
+      <pose>4.297000000000001 7.54685 0.15977653489285304 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2648 1.2687000000000008 0.3555530697857061</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_17">
+      <static>true</static>
+      <pose>-0.9173 -7.4745 0.2301014981028493 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3042 1.6240000000000006 0.49620299620569863</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_18">
+      <static>true</static>
+      <pose>-2.5755 -7.4772 0.22876978094328526 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2514000000000003 1.5107999999999997 0.49353956188657055</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_19">
+      <static>true</static>
+      <pose>9.1813 -4.46785 0.21875641901937914 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4307999999999996 2.0828999999999995 0.4735128380387583</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_20">
+      <static>true</static>
+      <pose>0.8681500000000001 -7.45645 0.09885 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9153 1.4583000000000013 0.23370000000000002</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_21">
+      <static>true</static>
+      <pose>9.109950000000001 -2.5082 0.322842807951919 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4625000000000004 2.5923999999999996 0.681685615903838</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_22">
+      <static>true</static>
+      <pose>-6.21645 7.58155 0.10389999999999996 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9748999999999999 1.1761000000000008 0.24379999999999996</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_23">
+      <static>true</static>
+      <pose>-9.0857 5.85855 0.3426052953604305 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.662799999999999 2.4969 0.721210590720861</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_24">
+      <static>true</static>
+      <pose>7.88855 -7.6622 0.20930023079691534 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9693000000000005 1.63 0.4546004615938307</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_25">
+      <static>true</static>
+      <pose>-9.1401 2.6797 0.35423246972145417 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3707999999999991 2.5637999999999996 0.7444649394429084</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_26">
+      <static>true</static>
+      <pose>-9.05955 -2.49755 0.1360824962960977 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3294999999999995 2.0577000000000005 0.30816499259219543</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_27">
+      <static>true</static>
+      <pose>-9.2035 -4.4392 0.1365858992689638 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6083999999999996 2.1496000000000004 0.30917179853792764</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_28">
+      <static>true</static>
+      <pose>-8.115499999999999 7.4483 0.1597652626798618 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.5149999999999997 1.2881999999999998 0.3555305253597236</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_29">
+      <static>true</static>
+      <pose>-3.83375 -7.3423 0.21565 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.8521 1.7317999999999998 0.46730000000000005</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_30">
+      <static>true</static>
+      <pose>-0.87375 7.3871 0.2441094196595558 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9649 1.3099999999999996 0.5242188393191116</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_31">
+      <static>true</static>
+      <pose>9.27175 -0.9405 0.17729999999999996 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.2135000000000016 2.0646 0.39059999999999995</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_32">
+      <static>true</static>
+      <pose>-9.22635 -0.93455 0.20115 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.1781000000000006 2.3173 0.4383</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_33">
+      <static>true</static>
+      <pose>-4.37355 7.6546 0.28275884856461136 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.5671 1.5730000000000004 0.6015176971292228</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_34">
+      <static>true</static>
+      <pose>6.0886 7.331099999999999 0.20865249532864555 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9736000000000002 1.5029999999999992 0.45330499065729113</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_35">
+      <static>true</static>
+      <pose>0.8492999999999999 7.5077 0.2346923775790002 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8754 1.3533999999999997 0.5053847551580004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_36">
+      <static>true</static>
+      <pose>2.7678000000000003 7.444750000000001 0.12145 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1362 1.1937000000000006 0.27890000000000004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_37">
+      <static>true</static>
+      <pose>5.25655 -7.3424499999999995 0.21814999999999998 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.6014999999999997 1.4892999999999992 0.4723</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_38">
+      <static>true</static>
+      <pose>7.91385 7.4876000000000005 0.16775225165471735 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9990999999999994 1.2058000000000009 0.37150450330943474</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_39">
+      <static>true</static>
+      <pose>7.9167 4.316599999999999 0.3060084840157262 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8789999999999996 2.0622 0.6480169680314525</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_40">
+      <static>true</static>
+      <pose>2.0219 -7.6991 0.18489999999999995 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6076 1.7584000000000009 0.40579999999999994</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_41">
+      <static>true</static>
+      <pose>-2.70555 6.5028500000000005 0.30571705384406356 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9936999999999998 1.8501000000000003 0.6474341076881271</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_42">
+      <static>true</static>
+      <pose>-7.902950000000001 6.2294 0.22286697168238181 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.984700000000001 2.3127999999999993 0.48173394336476366</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_43">
+      <static>true</static>
+      <pose>-0.80535 6.1185 0.19814999999999994 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3397 2.1728000000000005 0.4322999999999999</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_44">
+      <static>true</static>
+      <pose>0.85665 -6.1531 0.17435 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9703000000000002 1.8864 0.38470000000000004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_45">
+      <static>true</static>
+      <pose>7.328849999999999 5.93225 0.3408975634992747 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.937499999999999 2.3857 0.7177951269985494</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_46">
+      <static>true</static>
+      <pose>-8.18605 4.35795 0.3071992722261171 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9356999999999998 1.7798999999999996 0.6503985444522342</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_47">
+      <static>true</static>
+      <pose>-1.01745 -6.0836500000000004 0.35023628227697334 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3435 2.0269000000000004 0.7364725645539467</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_48">
+      <static>true</static>
+      <pose>5.1691 -6.5153 0.08844999999999992 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.38260000000000005 1.0140000000000002 0.21289999999999987</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_49">
+      <static>true</static>
+      <pose>7.72725 0.7373000000000001 0.3342202297542344 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2463000000000006 2.4774 0.7044404595084688</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_50">
+      <static>true</static>
+      <pose>6.1662 -6.25945 0.28099970334834357 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1576000000000004 2.2432999999999996 0.5979994066966872</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_51">
+      <static>true</static>
+      <pose>8.20655 -0.5530499999999999 0.23040393329159015 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6933000000000007 1.8385 0.4968078665831803</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_52">
+      <static>true</static>
+      <pose>8.19445 -2.65675 0.3045481306286594 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.694300000000001 2.6323 0.6450962612573188</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_53">
+      <static>true</static>
+      <pose>-7.77225 -6.1422 0.21365716576157245 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.6615 2.4643999999999995 0.46331433152314494</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_54">
+      <static>true</static>
+      <pose>-6.2766 6.3559 0.19314523107966342 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.4164000000000003 1.7254000000000005 0.42229046215932686</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_55">
+      <static>true</static>
+      <pose>2.03445 -6.0322499999999994 0.2593999999999999 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6148999999999998 2.2771 0.5547999999999998</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_56">
+      <static>true</static>
+      <pose>-8.4733 2.381 0.37107158281195834 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9487999999999994 2.4622 0.7781431656239167</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_57">
+      <static>true</static>
+      <pose>0.8410500000000001 -4.8779 0.08834999999999998 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8811 1.1621999999999995 0.2127</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_58">
+      <static>true</static>
+      <pose>7.950950000000001 2.46945 0.2964499999999999 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.8019000000000007 2.6773 0.6288999999999998</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_59">
+      <static>true</static>
+      <pose>-8.1369 1.1185 0.3424311195730255 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4504000000000001 1.7648000000000001 0.7208622391460511</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_60">
+      <static>true</static>
+      <pose>1.02105 6.1354500000000005 0.33662943045331173 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2819 2.0158999999999994 0.7092588609066235</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_61">
+      <static>true</static>
+      <pose>7.9186499999999995 -4.4033999999999995 0.21689999999999987 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9645000000000001 2.7816 0.4697999999999998</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_62">
+      <static>true</static>
+      <pose>-8.2792 -4.2044 0.17064999999999997 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9626000000000001 1.9619999999999997 0.37729999999999997</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_63">
+      <static>true</static>
+      <pose>-8.157350000000001 -2.4778000000000002 0.3620135662081685 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.250300000000001 2.0516 0.760027132416337</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_64">
+      <static>true</static>
+      <pose>-8.17085 -0.7727 0.2686071239364766 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8871000000000002 2.3930000000000002 0.5732142478729533</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_65">
+      <static>true</static>
+      <pose>0.81595 4.078749999999999 0.3110840816835082 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3659 2.4951 0.6581681633670164</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_66">
+      <static>true</static>
+      <pose>-0.19215 -4.9943 0.07755000000000001 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.4971 0.4588000000000001 0.19110000000000005</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_67">
+      <static>true</static>
+      <pose>-0.4945 4.2331 0.193245677609036 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3822 1.7345999999999995 0.422491355218072</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_68">
+      <static>true</static>
+      <pose>7.72465 -6.1358 0.3572439373423871 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.6000999999999994 1.9169999999999998 0.7504878746847742</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_69">
+      <static>true</static>
+      <pose>6.12715 6.19475 0.1975 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0177000000000005 2.0412999999999997 0.43100000000000005</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_70">
+      <static>true</static>
+      <pose>-4.6174 6.25 0.3561386609670238 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3154 1.9309999999999992 0.7482773219340476</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_71">
+      <static>true</static>
+      <pose>2.6413 6.0417000000000005 0.22510102932083248 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.415 2.2597999999999994 0.486202058641665</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_72">
+      <static>true</static>
+      <pose>-6.04765 -6.55015 0.2978981897670362 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9053000000000004 1.8100999999999994 0.6317963795340724</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_73">
+      <static>true</static>
+      <pose>-4.3904499999999995 -6.53415 0.22307748962382906 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9006999999999996 1.1842999999999995 0.48215497924765816</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_74">
+      <static>true</static>
+      <pose>2.67815 4.5039 0.190652199670153 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0546999999999995 1.9945999999999997 0.41730439934030605</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_75">
+      <static>true</static>
+      <pose>-2.44725 -6.63225 0.16610000000000003 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2981 1.3231000000000002 0.3682000000000001</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_76">
+      <static>true</static>
+      <pose>4.311 6.2888 0.18400000000000005 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2058 2.248 0.40400000000000014</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_77">
+      <static>true</static>
+      <pose>6.15135 4.54115 0.37181481459774457 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0420999999999996 2.5696999999999997 0.7796296291954892</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_78">
+      <static>true</static>
+      <pose>4.5367999999999995 4.48625 0.29032126008339976 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.309 2.3551 0.6166425201667995</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_79">
+      <static>true</static>
+      <pose>6.10425 2.6713500000000003 0.31262154122850927 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0080999999999998 2.0139 0.6612430824570186</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_80">
+      <static>true</static>
+      <pose>6.33555 1.3029 0.08585000000000009 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4215 1.8328 0.20770000000000022</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_81">
+      <static>true</static>
+      <pose>0.945 2.99245 0.36148495202201336 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0835999999999997 1.4011 0.7589699040440263</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_82">
+      <static>true</static>
+      <pose>2.36295 2.7981499999999997 0.2751500000000002 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>3.0749 2.3905 0.5863</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_83">
+      <static>true</static>
+      <pose>4.2849 2.7771999999999997 0.2943585042236211 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1670000000000003 2.0616 0.6247170084472418</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_84">
+      <static>true</static>
+      <pose>2.1773499999999997 -4.838050000000001 0.09405000000000019 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.0345 0.9699 0.22409999999999997</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_85">
+      <static>true</static>
+      <pose>6.4219 -4.90045 0.0768000000000002 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4596 1.2081 0.1896</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_86">
+      <static>true</static>
+      <pose>-0.27315 2.9729 0.11655000000000015 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.5126999999999999 0.8294000000000001 0.2690999999999999</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="outdoor_gravel">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/outdoor_gravel.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.95 0.95 0.95 1</ambient>
+            <diffuse>0.95 0.95 0.95 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>rubble-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
       </link>
     </model>
   </world>

@@ -3,7 +3,8 @@
 10-29 supplies the route, stair boxes, XY fragments and pile envelopes. The
 10-28 material palette and the CC0 house's UV albedo supply sampled colors.
 Small chips share visual batches and conservative contact boxes; larger pieces
-are individual convex meshes in both engines. No source texture is distributed.
+are individual convex meshes in both engines. Shared resized original albedos
+and the 10-23 perimeter replace the former single-color approximation.
 """
 import base64
 from collections import defaultdict
@@ -17,6 +18,7 @@ from scipy.interpolate import RegularGridInterpolator
 from scipy.spatial.transform import Rotation
 import trimesh
 
+from .house_look_materials import copy_materials, exterior_fragments, textured_mesh, write_textured_obj
 from .import_house import ROOT, WORLD_ID, MOBILE_ID, mesh_from, obj, rectangles, sha, wall_pixels, write_json
 
 
@@ -82,6 +84,8 @@ def export_loose_house(source):
     mobile = ROOT/'mobile/sim/assets'/MOBILE_ID
     for p in (out/'meshes',out/'maps',mobile):
         p.mkdir(parents=True,exist_ok=True)
+    reference=source.parent/'debris-sandbox-20261023'
+    textures=copy_materials(reference,(out,mobile))
     rng = np.random.default_rng(20261030)
     original_base = mesh_from(data['base'])
     v = original_base.vertices.copy()
@@ -151,10 +155,8 @@ def export_loose_house(source):
     lo = highest.bounds[0,2]
     highest.vertices[:,2] = lo+(highest.vertices[:,2]-lo)*(floor+.786-lo)/(highest.bounds[1,2]-lo)
     for i,(m,kind) in enumerate(pieces):batches[(kind,(i+1)%4)].append(m.triangles)
-    # Mean linear albedo of the 10-23 materials multiplied by their SDF tint.
-    palette = {'rock':np.array([.294862,.30207812,.30966856])*[.62,.58,.52],
-        'concrete':np.array([.294862,.30207812,.30966856])*[.9,.88,.83],
-        'wood':np.array([.31823303,.1501873,.04728392])*[.6,.5,.4]}
+    palette = {'rock':np.array([.62,.58,.52]),'concrete':np.array([.9,.88,.83]),'wood':np.array([.6,.5,.4])}
+    exterior=exterior_fragments(reference,data['indoor_floor'],route,distance,grid_top)
     uv = house_uv(source,data['building'])
     scene = dict(meshes={},models=[])
     worldtree = ET.parse(source/'house_debris_world.sdf')
@@ -165,10 +167,17 @@ def export_loose_house(source):
     # Same diffuse palette in both renderers, with the source's neutral daylight.
     world.find('scene/ambient').text='.58 .58 .56 1'
     world.find('light/direction').text='-.4 .3 -1'
-    def visual(name,mesh,color,collision=False):
+    def visual(name,mesh,color,collision=False,texture=None,tile=1.):
+        uv_data=None
+        if texture:mesh,uv_data=textured_mesh(mesh,tile)
         obj(out/f'meshes/{name}.obj',mesh)
         scene['meshes'][name]=dict(p=np.round(mesh.vertices,5).ravel().tolist(),i=mesh.faces.ravel().tolist())
         scene['models'].append(dict(name=name,mesh=name,pos=[0,0,0],quat=[1,0,0,0],color=list(map(float,color))))
+        if texture:
+            write_textured_obj(out/f'meshes/{name}.obj',mesh,uv_data)
+            scene['meshes'][name]['p']=np.round(mesh.vertices,4).ravel().tolist()
+            scene['meshes'][name]['uv']=np.round(uv_data,4).ravel().tolist()
+            scene['models'][-1].update(texture=texture,texture_repeat=True,flat_shading=True)
         model=ET.SubElement(world,'model',name=name);ET.SubElement(model,'static').text='true'
         link=ET.SubElement(model,'link',name='body')
         for kind in (('collision','visual') if collision else ('visual',)):
@@ -178,6 +187,10 @@ def export_loose_house(source):
                 mat=ET.SubElement(part,'material')
                 for tag in ('ambient','diffuse'):ET.SubElement(mat,tag).text=' '.join(map(str,[*color,1]))
                 ET.SubElement(mat,'specular').text='.03 .03 .03 1'
+                if texture:
+                    metal=ET.SubElement(ET.SubElement(mat,'pbr'),'metal')
+                    ET.SubElement(metal,'albedo_map').text=texture
+                    ET.SubElement(metal,'roughness').text='.95'
         return link
     house_mesh=trimesh.Trimesh(data['building'].reshape(-1,3),np.arange(len(data['building'])*3).reshape(-1,3),process=False)
     house_link=visual('original_house',house_mesh,[1,1,1],True)
@@ -198,14 +211,21 @@ def export_loose_house(source):
     albedo.thumbnail((512,512),Image.Resampling.LANCZOS)
     for folder in (out,mobile):albedo.save(folder/'house-albedo.png')
     # Outdoor ground already has an exact box: duplicate coplanar faces flicker.
-    dust_visual=dust.submesh([np.flatnonzero(np.max(dust.triangles[:,:,2],axis=1)>0)],append=True)
-    visual('dust_floor',dust_visual,[.16104,.14067,.11067])
+    xs=np.linspace(-8.5,8.5,65);ys=np.linspace(-9,8,65);X,Y=np.meshgrid(xs,ys)
+    z=grid_top(dust.triangles,xs,ys,np.full(X.shape,-.02))
+    idx=np.arange(65*65).reshape(65,65)
+    faces=np.concatenate([np.stack([idx[:-1,:-1],idx[:-1,1:],idx[1:,1:]],-1).reshape(-1,3),np.stack([idx[:-1,:-1],idx[1:,1:],idx[1:,:-1]],-1).reshape(-1,3)])
+    coarse_dust=trimesh.Trimesh(np.c_[X.ravel(),Y.ravel(),z.ravel()],faces,process=False)
+    dust_visual=coarse_dust.submesh([np.flatnonzero(np.max(coarse_dust.triangles[:,:,2],axis=1)>0)],append=True)
+    visual('dust_floor',dust_visual,[.95,.95,.95],texture=textures['rubble'],tile=3.)
     for i,(k,ts) in enumerate(sorted(batches.items())):
         if not ts:continue
         color=palette[k[0]]*(.86+k[1]*.08)
         mesh=mesh_from(np.concatenate(ts))
-        mesh.unmerge_vertices()  # fractured faces retain hard edges in both renderers
-        visual(f'{k[0]}_batch_{k[1]}',mesh,color)
+        visual(f'{k[0]}_batch_{k[1]}',mesh,color,texture=textures['wood' if k[0]=='wood' else 'stone'],tile=.5 if k[0]=='wood' else 1.)
+    for kind in ('rock','concrete','wood'):
+        ts=[t for t,k in exterior if k==kind]
+        visual(f'perimeter_{kind}',mesh_from(np.concatenate(ts)),palette[kind],texture=textures['wood' if kind=='wood' else 'stone'],tile=.5 if kind=='wood' else 1.)
     xml=ET.Element('mujoco',model=MOBILE_ID)
     asset=ET.SubElement(xml,'asset');wb=ET.SubElement(xml,'worldbody')
     hmin,hrange=-.02,float(base.max()+.02)
@@ -217,7 +237,7 @@ def export_loose_house(source):
     collision=ET.SubElement(model.find('link'),'collision',name='dust_contact')
     hm=ET.SubElement(ET.SubElement(collision,'geometry'),'heightmap')
     for tag,value in [('uri','height.png'),('size',f'17 17 {hrange}'),('pos','0 -.5 -.02'),('sampling','1')]:ET.SubElement(hm,tag).text=value
-    support_triangles=[dust.triangles,*small]
+    support_triangles=[dust.triangles,*small,*[t for t,k in exterior]]
     contact_triangles=[dust.triangles]
     physics_assets=['height.png']
     for i,(m,kind) in enumerate(pieces):
@@ -246,14 +266,31 @@ def export_loose_house(source):
         ET.SubElement(model,'pose').text=' '.join(map(str,[*center,0,0,0]))
         col=ET.SubElement(ET.SubElement(model,'link',name='body'),'collision',name='chips')
         ET.SubElement(ET.SubElement(ET.SubElement(col,'geometry'),'box'),'size').text=' '.join(map(str,size*2))
+    perimeter_clusters=defaultdict(list)
+    for t,kind in exterior:
+        c=t.mean((0,1));perimeter_clusters[tuple(np.floor(c[:2]/1.75).astype(int))].append(t)
+    for i,ts in enumerate(perimeter_clusters.values()):
+        vv=np.concatenate(ts).reshape(-1,3);lo,hi=vv.min(0),vv.max(0)
+        center=(lo+hi)/2;size=np.maximum((hi-lo)/2,.002)
+        ET.SubElement(wb,'geom',name=f'perimeter_contact_{i}',type='box',group='1',pos=' '.join(map(str,center)),size=' '.join(map(str,size)))
+        m=trimesh.creation.box(size*2);m.vertices+=center;contact_triangles.append(m.triangles)
+        model=ET.SubElement(world,'model',name=f'perimeter_contact_{i}');ET.SubElement(model,'static').text='true'
+        ET.SubElement(model,'pose').text=' '.join(map(str,[*center,0,0,0]))
+        col=ET.SubElement(ET.SubElement(model,'link',name='body'),'collision',name='rubble')
+        ET.SubElement(ET.SubElement(ET.SubElement(col,'geometry'),'box'),'size').text=' '.join(map(str,size*2))
     for model in world.findall('model'):
         box=model.findtext('link/visual/geometry/box/size')
         if box is None:continue
         size=np.fromstring(box,sep=' ');pose=np.fromstring(model.findtext('pose'),sep=' ')
         color=np.fromstring(model.findtext('link/visual/material/diffuse'),sep=' ')[:3]
         name=model.get('name');m=trimesh.creation.box(size)
-        scene['meshes'][name]=dict(p=m.vertices.ravel().tolist(),i=m.faces.ravel().tolist())
-        scene['models'].append(dict(name=name,mesh=name,pos=pose[:3].tolist(),quat=[1,0,0,0],color=color.tolist()))
+        if name=='outdoor_ground':
+            world_mesh=m.copy();world_mesh.vertices+=pose[:3]
+            model.find('link').remove(model.find('link/visual'))
+            visual('outdoor_gravel',world_mesh,[.95,.95,.95],texture=textures['rubble'],tile=3.)
+        else:
+            scene['meshes'][name]=dict(p=m.vertices.ravel().tolist(),i=m.faces.ravel().tolist())
+            scene['models'].append(dict(name=name,mesh=name,pos=pose[:3].tolist(),quat=[1,0,0,0],color=color.tolist()))
         ET.SubElement(wb,'geom',name=name,type='box',group='1',pos=' '.join(map(str,pose[:3])),size=' '.join(map(str,size/2)))
         m.vertices+=pose[:3];support_triangles.append(m.triangles);contact_triangles.append(m.triangles)
     wx=np.arange(-8.45,8.5,.1);wy=np.arange(-6.45,6.5,.1)
@@ -264,17 +301,21 @@ def export_loose_house(source):
     ET.indent(xml);ET.ElementTree(xml).write(mobile/f'{MOBILE_ID}.xml',encoding='utf-8',xml_declaration=True)
     ET.indent(worldtree);worldtree.write(out/f'{WORLD_ID}.sdf',encoding='utf-8',xml_declaration=True)
     write_json(mobile/'scene.json',scene)
-    xs=np.arange(-8.475,8.5,.05);ys=np.arange(-9.975,8.,.05)
+    xs=np.arange(-12.975,13,.05);ys=xs.copy()
     blank=np.full((len(ys),len(xs)),-.02)
     visible=grid_top(np.concatenate(support_triangles),xs,ys,blank)
     contact=grid_top(np.concatenate(contact_triangles),xs,ys,blank)
     wall=wall_pixels(data['building'],xs,ys,floor)
-    occupied=wall|(contact>floor+.15)
+    X,Y=np.meshgrid(xs,ys)
+    support=base_at(np.c_[Y.ravel(),X.ravel()]).reshape(X.shape)
+    entry=(abs(X-3.85)<.95)&(Y<-3.4)&(Y>-10)
+    threshold=np.where(entry,floor+.15,support+.15)
+    occupied=wall|(contact>threshold)
     pixels=np.where(occupied,0,254).astype('uint8')[::-1]
     Image.fromarray(pixels).save(out/'maps/f1.png')
-    (out/'maps/f1.yaml').write_text('image: f1.png\nmode: trinary\nresolution: 0.05\norigin: [-8.5, -10.0, 0.0]\nnegate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n')
-    image_sha=sha(out/'maps/f1.png');origin=[-8.5,-10.,0.]
-    write_json(out/'maps/metadata.json',dict(generator_version='house-look-loose/1',resolution=.05,origin=origin,size_pixels=[len(xs),len(ys)],body_band_above_floor_m=[.10,.65],occupancy='house body-band triangles; actual loose convex pieces and conservative chip boxes above floor +15cm',support_samples='5cm vertical triangle intersections of exported pieces and dust/porch',pixel_to_world='x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution',variable_elevation=True,floors={'f1':dict(floor_z=floor,image='f1.png',yaml='f1.yaml',image_sha256=image_sha)}))
+    (out/'maps/f1.yaml').write_text('image: f1.png\nmode: trinary\nresolution: 0.05\norigin: [-13.0, -13.0, 0.0]\nnegate: 0\noccupied_thresh: 0.65\nfree_thresh: 0.196\n')
+    image_sha=sha(out/'maps/f1.png');origin=[-13.,-13.,0.]
+    write_json(out/'maps/metadata.json',dict(generator_version='house-look-textured-perimeter/2',resolution=.05,origin=origin,size_pixels=[len(xs),len(ys)],body_band_above_floor_m=[.10,.65],occupancy='house body-band triangles; indoor pieces above floor +15cm; exterior conservative rubble boxes above outdoor ground +15cm; entry steps remain traversable candidates',support_samples='5cm vertical triangle intersections of exported pieces and dust/porch',pixel_to_world='x=xmin+(column+0.5)*resolution; y=ymin+(height-row-0.5)*resolution',variable_elevation=True,floors={'f1':dict(floor_z=floor,image='f1.png',yaml='f1.yaml',image_sha256=image_sha)}))
     write_json(mobile/'map.json',dict(res=.05,origin=origin,w=len(xs),h=len(ys),floor_z=-.02,spawn_xyyaw=[*route[0],np.pi/2],spawn_z=.38,physics_assets=physics_assets,px=base64.b64encode(pixels.tobytes()).decode()))
     X,Y=np.meshgrid(xs,ys)
     indoor=grid_top(data['indoor_floor'],xs,ys,np.full(blank.shape,-np.inf))>floor-.1
@@ -282,7 +323,7 @@ def export_loose_house(source):
     off=indoor&~corridor
     metrics=dict(corridor_p5_p50_p95_m=np.quantile((visible-floor)[corridor],[.05,.5,.95]).tolist(),corridor_min_max_m=[float((visible-floor)[corridor].min()),float((visible-floor)[corridor].max())],off_path_p5_p50_p95_m=np.quantile((visible-floor)[off],[.05,.5,.95]).tolist(),off_path_15_40cm_fraction=float(((visible[off]-floor>=.15)&(visible[off]-floor<=.4)).mean()),indoor_max_above_floor_m=float((visible-floor)[indoor].max()),chip_contact_visual_error_p95_m=float(np.quantile(np.abs(contact-visible)[corridor],.95)),chip_contact_visual_error_max_m=float(np.max(np.abs(contact-visible)[corridor])))
     write_json(out/'look-metrics.json',metrics)
-    metadata=dict(draft=True,source_layout_sha256=sha(source/'layout.json'),generator='house-look-loose/1',source=f'{WORLD_ID}/f1',triangles=sum(len(scene['meshes'][m['mesh']]['i'])//3 for m in scene['models']),house_triangles=len(data['building']),physics='dust/porch heightfield only; individual convex loose pieces; conservative chip-cluster boxes; 10cm house wall columns',collision_geometries=len(wb),ray_only_proxies=0,source_heightmap=sha(out/'height.png'),heightfield_quantization_m=hrange/255,reused_fragments=1085,added_fragments=150,loose_pile_pieces=len(pieces),chip_contact_clusters=len(clusters),house_albedo_resolution=[512,512],metrics=metrics,limitations='small-chip contact boxes fill sub-cell gaps, height scan sees these conservative supports; house walls are body-band columns, roof/furniture visual only; phone unverified')
+    metadata=dict(draft=True,source_layout_sha256=sha(source/'layout.json'),generator='house-look-textured-perimeter/2',source=f'{WORLD_ID}/f1',triangles=sum(len(scene['meshes'][m['mesh']]['i'])//3 for m in scene['models']),house_triangles=len(data['building']),physics='dust/porch heightfield only; individual indoor convex pieces; conservative indoor chip and exterior rubble boxes; 10cm house wall columns',collision_geometries=len(wb),ray_only_proxies=0,source_heightmap=sha(out/'height.png'),heightfield_quantization_m=hrange/255,reused_fragments=1085,added_fragments=150,loose_pile_pieces=len(pieces),chip_contact_clusters=len(clusters),perimeter_contact_clusters=len(perimeter_clusters),perimeter_fragments={k:sum(kind==k for _,kind in exterior) for k in ('rock','wood','concrete')},perimeter_max_above_ground_m=float(max(t[:,:,2].max()+.02 for t,k in exterior)),shared_rubble_textures=list(textures.values()),house_albedo_resolution=[512,512],metrics=metrics,limitations='small-chip and perimeter contact boxes fill sub-cell gaps, height scan sees these conservative supports; house walls are body-band columns, roof/furniture visual only; phone unverified')
     write_json(mobile/'metadata.json',metadata)
     # Remove only named obsolete generated outputs, never local source files.
     for i in range(32):

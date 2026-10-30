@@ -50,7 +50,19 @@ try {
     for(let i=0;i<187;i++) assert.ok(Math.abs(obs[i]-Math.max(-1,Math.min(1,z-heights[i]-.5)))<1e-6);
   }
   assert.ok(details.length>=5, `piece rays observed: ${details.length}`);
-  console.log(JSON.stringify({heightScan:'PASS',rays:187,looseContacts:loose.length,independentPieceHits:details}));
+  const perimeter=Array.from({length:m.ngeom},(_,g)=>g).filter(g=>name(g)?.startsWith('perimeter_contact_'));
+  assert.ok(perimeter.length>50);
+  let perimeterHits=0;
+  for(const g of perimeter.filter(g=>Math.abs(m.geom_pos[g*3])>8.4||Math.abs(m.geom_pos[g*3+1])>6.8).filter((_,i)=>i%5===0)) {
+    const q=[m.geom_pos[g*3],m.geom_pos[g*3+1],m.geom_pos[g*3+2]+m.geom_size[g*3+2]+.4,1,0,0,0];
+    sample(q,heights);const before=heights[5*17+8];
+    const type=m.geom_contype[g],affinity=m.geom_conaffinity[g];m.geom_contype[g]=0;m.geom_conaffinity[g]=0;
+    const without=makeTerrainSampler(mj,m,d,cfg),other=new Float64Array(187);
+    try {without(q,other);} finally {without.dispose();m.geom_contype[g]=type;m.geom_conaffinity[g]=affinity;}
+    if(before-other[5*17+8]>.01)perimeterHits++;
+  }
+  assert.ok(perimeterHits>=3);
+  console.log(JSON.stringify({heightScan:'PASS',rays:187,looseContacts:loose.length,independentPieceHits:details,perimeterContacts:perimeter.length,perimeterHits}));
 } finally {scan.dispose();sample.dispose();d.delete();m.delete();}
 const map=world('warehouse');
 for(let run=0;run<3;run++) {

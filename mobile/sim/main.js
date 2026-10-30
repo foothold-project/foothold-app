@@ -207,7 +207,7 @@ async function main() {
   resize();
 
   // 창고: scene.json 의 메시를 모델 자세에 놓는다. quat 은 w,x,y,z
-  const geoCache = {};
+  const geoCache = {}, textureCache = {};
   for (const md of sceneJ.models) {
     let geo = geoCache[md.mesh];
     if (!geo) {
@@ -221,10 +221,11 @@ async function main() {
     let texture = null;
     if (md.texture) {
       if (!/^[a-z0-9_-]+\.png$/.test(md.texture)) throw new Error('장면 재질 파일 형식');
-      texture = await new THREE.TextureLoader().loadAsync(`${dir}/${md.texture}`);
+      texture = textureCache[md.texture] ??= await new THREE.TextureLoader().loadAsync(`${dir}/${md.texture}`);
       texture.colorSpace = THREE.SRGBColorSpace;
+      if (md.texture_repeat) texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
     }
-    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, side: THREE.DoubleSide }));
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, flatShading: !!md.flat_shading, side: THREE.DoubleSide }));
     mesh.position.set(...md.pos);
     mesh.quaternion.set(md.quat[1], md.quat[2], md.quat[3], md.quat[0]);
     scene.add(mesh);

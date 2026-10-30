@@ -35,7 +35,7 @@ export function MapImage({ id, style, ...rest }: { id: string; width: number; he
  *  이름으로 맞추지 않는다(tests/maptop.test 가 worlds.json·그림과 대조). 연결 건물·실기·올린 지도는 사진 없음.
  *  같은 PNG·YAML 을 사람이 올린 판(provenance HUMAN)도 사진 없음 — 서버가 시뮬 등록으로 남긴 판(SIMULATION, 편집·되돌림도 이어받음)만 */
 export const SIM_TOP = new Map([
-  ['74e7ec26d5a02abfd24f63fedba75d73b39ae55a02a6c380fe8bcb61b85a7ce3', 'collapsed-house-v2'],   // collapsed_house_v2/f1
+  ['c6993b70ffbfdbdac9e072a6bd383c9ab4963aae1ca07bf511c67bc3238a6099', 'collapsed-house-v2'],   // collapsed_house_v2/f1
   ['ce79faafe42fbe7c3239699802c6422701e760d98edc96e8b980f7f322c3480b', 'warehouse'],   // warehouse/f1
   ['8669ef9e9300c7a6372d02b230aaee98f984337bac9cebe5b1316be1e7d61721', 'factory-inspection'],   // factory_inspection/f1
   ['52597920b820608c7de49ef63b562e72f7480324a0da75af5b1a96b061bda1a8', 'factory-inspection-alt1'],   // factory_inspection_alt1/f1

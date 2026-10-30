@@ -41,14 +41,15 @@ const r = new THREE.WebGLRenderer({ antialias: true }); r.setPixelRatio(1); r.se
 const s = new THREE.Scene(); s.background = new THREE.Color(0x14171c);
 s.add(new THREE.HemisphereLight(0xffffff, 0x404048, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(-4, -6, 10); s.add(sun);
-const cache = {};
+const cache = {}, textures = {};
 for (const md of sc.models) {   // main.js 와 같은 방식(quat = w,x,y,z)
   const g = cache[md.mesh] ??= (() => { const m = sc.meshes[md.mesh], b = new THREE.BufferGeometry();
     b.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); b.setIndex(m.i);
     if (m.uv) b.setAttribute('uv', new THREE.Float32BufferAttribute(m.uv, 2)); b.computeVertexNormals(); return b; })();
-  const texture = md.texture ? await new THREE.TextureLoader().loadAsync('/assets/${id}/' + md.texture) : null;
-  if (texture) texture.colorSpace = THREE.SRGBColorSpace;
-  const o = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, side: THREE.DoubleSide }));
+  const texture = md.texture ? (textures[md.texture] ??= await new THREE.TextureLoader().loadAsync('/assets/${id}/' + md.texture)) : null;
+  if (texture) { texture.colorSpace = THREE.SRGBColorSpace;
+    if (md.texture_repeat) texture.wrapS = texture.wrapT = THREE.RepeatWrapping; }
+  const o = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, flatShading: !!md.flat_shading, side: THREE.DoubleSide }));
   o.position.set(...md.pos); o.quaternion.set(md.quat[1], md.quat[2], md.quat[3], md.quat[0]); s.add(o);
 }
 const cam = new THREE.OrthographicCamera(-w / 2, w / 2, h / 2, -h / 2, 0.1, 200);
