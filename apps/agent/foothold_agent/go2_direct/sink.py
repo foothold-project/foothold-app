@@ -14,6 +14,17 @@ DEADLINE_S = .30
 FEEDBACK_MAX_AGE_S = .20
 # Preserve current real-robot alphabet. Do not widen it from a config file.
 ALLOWED = frozenset((ZERO, (.6, 0., 0.), (.6, 0., -.5), (.6, 0., .5)))
+SERVER_ALLOWED = frozenset((ZERO, (.4, 0., 0.), (-.2, 0., 0.),
+    (0., .2, 0.), (0., -.2, 0.), (0., 0., .5), (0., 0., -.5),
+    (.4, 0., .5), (.4, 0., -.5)))
+
+
+def server_velocity(value):
+    if (not isinstance(value, (list, tuple)) or len(value) != 3 or
+            not all(type(x) in (int, float) and math.isfinite(x) for x in value) or
+            tuple(value) not in SERVER_ALLOWED):
+        raise ValueError('outside exact server-drive SI alphabet')
+    return tuple(value)
 
 
 class OutputError(RuntimeError):
@@ -107,7 +118,7 @@ class Go2Sink:
         self._hold()
 
     def select_source(self, source):
-        if source not in ('phone', 'nav2'):
+        if source not in ('phone', 'nav2', 'server'):
             raise ValueError('known source required')
         with self._lock:
             if self.source != source:
@@ -167,9 +178,11 @@ class Go2Sink:
                 self._hold()
                 raise ValueError('unsupported motion kind')
             try:
-                velocity = self.limits.project(command.velocity)
+                velocity = (server_velocity(command.velocity) if source == 'server'
+                            else self.limits.project(command.velocity))
             except ValueError:
                 self._hold()
+                self._stop_requested.set()
                 raise
             self._last_apply = stamp
             if self._phone_watchdog and not self.latched:

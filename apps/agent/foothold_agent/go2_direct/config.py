@@ -15,12 +15,13 @@ from .approval import Approval, validate
 class Config:
     approval: Approval
     robot: str
-    phone: PhoneSettings
-    verifier: Verifier = field(repr=False)
+    phone: PhoneSettings | None
+    verifier: Verifier | None = field(repr=False)
     link: LinkSettings | None = field(default=None, repr=False)
+    server: bool = False
 
     @classmethod
-    def from_env(cls, env=None):
+    def from_env(cls, env=None, *, server=False):
         env = os.environ if env is None else env
         approval = validate(env)  # disabled/absent marker: zero SDK imports
         if (env.get('FH_GO2_DEDICATED_NIC') != '1' or
@@ -28,6 +29,11 @@ class Config:
                 any(int(part) > 0xFFFFFFFF for part in approval.robot_serial.split('-'))):
             raise ValueError('dedicated robot NIC and canonical DDS serial required')
         robot = uuid(env.get('FOOTHOLD_ROBOT_ID'))
+        if server:
+            # No phone listener, credentials or second command source in this mode.
+            link = LinkSettings(env.get('FOOTHOLD_AGENT_WS_URL', ''),
+                                env.get('FOOTHOLD_AGENT_TOKEN', ''))
+            return cls(approval, robot, None, None, link, True)
         phone = PhoneSettings.from_env(env)
         if phone is None or phone.simulation:
             raise ValueError('explicit physical phone configuration required')

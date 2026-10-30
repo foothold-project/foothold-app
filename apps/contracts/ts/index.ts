@@ -1383,6 +1383,7 @@ export interface RobotSummary {
   controller_device?: string | null;
   controller_connected?: boolean | null;
   simulation: boolean;
+  server_drive_allowed: boolean;
   id: string;
   name: string;
   model: string;

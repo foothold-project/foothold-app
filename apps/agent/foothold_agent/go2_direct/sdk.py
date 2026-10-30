@@ -88,3 +88,26 @@ def connect(env, *, observed_serial, wall=time.time, monotonic=time.monotonic, c
         client.Init()
         clients.append(SportBoundary(client, approval, now=monotonic, wall=wall))
     return tuple(clients)
+
+
+def observation(env, channel, observed_serial, *, callback=None):
+    """Read-only media factory, called on observation workers after field gates."""
+    approval = validate(env)
+    if (observed_serial != approval.robot_serial or type(channel) is not _Channel
+            or channel.approval != approval):
+        raise PermissionError('observation channel identity mismatch')
+    if callback is not None:
+        from unitree_sdk2py.core.channel import ChannelSubscriber
+        from unitree_sdk2py.idl.sensor_msgs.msg.dds_ import PointCloud2_
+        subscriber = ChannelSubscriber('rt/utlidar/cloud', PointCloud2_)
+        try:
+            subscriber.Init(callback, 0)
+        except BaseException:
+            subscriber.Close()
+            raise
+        return subscriber
+    from unitree_sdk2py.go2.video.video_client import VideoClient
+    client = VideoClient()
+    client.SetTimeout(SDK_TIMEOUT_S)
+    client.Init()
+    return client

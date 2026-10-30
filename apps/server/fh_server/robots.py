@@ -116,6 +116,7 @@ def robot_objects(db, robots, user, realtime):
                 {'done': min(run.step, len(version.waypoints)), 'total': len(version.waypoints)})
     result = []
     for robot in robots:
+        server_drive = robot.simulation is not True and robot.id in realtime.settings.server_drive_robots
         owner = owners.get(robot.owner_user_id)
         full = user.role == 'ORG_ADMIN' or robot.owner_user_id == user.id
         online, state = snapshots[str(robot.id)] if full else (False, {})
@@ -133,7 +134,7 @@ def robot_objects(db, robots, user, realtime):
         lease = None
         record = realtime.arbiter.robots.get(str(robot.id)) if full else None
         holder = record.holder if record else None
-        if holder and robot.simulation is True and not state.get('phone_reported'):
+        if holder and (robot.simulation is True or server_drive) and not state.get('phone_reported'):
             lease = C.Lease(holder_type=holder.holder_type,
                 user=C.Person(id=holder.actor.user, display_name=holder.actor.display_name) if holder.actor else None,
                 since=now() - timedelta(seconds=max(0, realtime.clock() - holder.since)))
@@ -153,6 +154,7 @@ def robot_objects(db, robots, user, realtime):
                     else '시나리오 이름 수신 대기', progress=reported_run['progress'])
                 if reported_run['status'] not in TERMINAL_RUNS else None)
         result.append(C.RobotSummary(id=robot.id, name=robot.name, model=robot.model, simulation=robot.simulation,
+            server_drive_allowed=server_drive,
             phone_relay=phone_relay(realtime, str(robot.id)) if full else None,
             owner=C.Person(id=owner.id, display_name=owner.display_name) if owner else None,
             connection=('ONLINE' if online else 'OFFLINE') if full else 'UNKNOWN', status=state.get('status'),

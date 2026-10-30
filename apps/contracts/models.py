@@ -276,6 +276,7 @@ class RobotSummary(Contract):
     controller_device: UUID | None = None
     controller_connected: bool | None = None
     simulation: bool = False
+    server_drive_allowed: bool = False
     id: UUID
     name: str
     model: str
