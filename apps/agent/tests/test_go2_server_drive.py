@@ -55,6 +55,17 @@ def test_existing_server_command_to_sdk_alphabet(axes, expected):
     assert state['battery']['soc'] == 75 and state['speed'] == 0
 
 
+def test_approved_vertical_still_evidence_reports_server_stop_ref():
+    _, sink, _, _, session, client, _, frame = rig()
+    frame('stop', stop_ref=42)
+    assert session._state()['stop_ref'] == 0
+    session.feedback.lowstate(low(1000))
+    session.feedback.sportmodestate(sport(1000, velocity=(0., 0., -.029)))
+    assert session.feedback.consume(client)
+    assert session._state()['stop_ref'] == 42
+    assert sink.latched and session.core.latch
+
+
 def test_ticks_cannot_refresh_point_three_second_input_deadline():
     now, sink, normal, emergency, session, client, measured, frame = rig()
     frame('cmd', lease_id='fake-lease', seq=1, axes=[1.5,0,0])

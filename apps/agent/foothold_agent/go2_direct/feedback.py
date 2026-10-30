@@ -13,6 +13,8 @@ from foothold_agent.go2_readonly.state import State, attitude, integer, number
 from foothold_agent.safety.core import SCHEMA
 from .sink import FEEDBACK_MAX_AGE_S
 
+STILL_VZ_MAX_M_S = .06  # ponytail: 실측 정지 분포 보고 조정 (현장 승인).
+
 
 def vector(value, length):
     if not isinstance(value, (list, tuple)) or len(value) != length or not all(number(x) for x in value):
@@ -148,7 +150,8 @@ class Feedback:
                  (sport['error'] in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')) and
                  number(sport['progress']) and sport['progress'] == 0 and
                  number(sport['height'], .20, .50) and tilt is not None and tilt < math.pi/3)
-        still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity']) and abs(sport['yaw']) <= .03)
+        still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity'][:2])
+                 and abs(sport['velocity'][2]) <= STILL_VZ_MAX_M_S and abs(sport['yaw']) <= .03)
         generation, latched = self.sink.feedback_context()
         confirmed = (ready and still and low['generation'] == sport['generation'] and self.sink.confirm_stopped(
             generation=sport['generation'], sequence=sport['sequence'],
