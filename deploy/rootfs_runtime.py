@@ -12,11 +12,14 @@ import os
 from pathlib import Path, PurePosixPath
 import pwd
 import grp
+import hashlib
 import re
 import shutil
 import stat
 import subprocess
 import time
+import tempfile
+from contextlib import ExitStack
 
 from . import rootfs_build as build, rootfs_config as config, sim_sysroot as shared
 from .install_sim_packages import create_install_latch,clear_install_latch
@@ -26,6 +29,9 @@ GUARD=Path('/var/lib/foothold-sim/guard')
 VALIDATION=Path('/var/lib/foothold-sim/rootfs-validation.json')
 CURRENT=Path('/opt/foothold/current')
 FAMILIES=('fh-rb-sim-*.service','fh-simmgr-agent-*.service','fh-simmgr-nav2-*.service','fh-simmgr-observer-*.service')
+REFRESH_TOOLS=Path('/opt/foothold/deploy-tools')
+REFRESH_AUDITS=Path('/var/lib/foothold')
+REFRESH_LOCK=Path('/var/lib/foothold/deploy.lock')
 
 
 def run(args):return subprocess.run(args,check=True,capture_output=True,text=True,timeout=200).stdout
@@ -344,6 +350,140 @@ def prepare(input_path):
     print('Dedicated rootfs account/definitions prepared; setup remains fenced; no runtime started')
 
 
+def refresh_directory(path):
+    if not path.is_absolute() or path.resolve(strict=True)!=path:
+        raise ValueError('refresh requires absolute paths without symlinks')
+    for parent in (path,*path.parents):
+        info=parent.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid!=0 or info.st_mode&0o022:
+            raise ValueError('refresh requires root-owned non-writable directories')
+
+
+def refresh_read(path):
+    fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+    with os.fdopen(fd,'rb') as stream:
+        info=os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or info.st_gid!=0
+                or stat.S_IMODE(info.st_mode) not in (0o400,0o600,0o644) or info.st_size>1024**2):
+            raise ValueError('untrusted refresh file')
+        body=stream.read(1024**2+1)
+        if len(body)>1024**2:raise ValueError('refresh file too large')
+        return body,info
+
+
+def refresh_sync(directory):
+    fd=os.open(directory,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW|os.O_CLOEXEC)
+    try:os.fsync(fd)
+    finally:os.close(fd)
+
+
+def refresh_tools(source,commit,sha256):
+    """Explicit offline repair of ONE helper, never prepare or runtime activation.
+
+    source is a root-owned reviewed export containing COMMIT and
+    deploy/rootfs_runtime.py. The caller pins both its full commit and file SHA;
+    COMMIT is an export label, not independent proof of Git provenance. Export
+    the bytes from the reviewed Git object and compare the SHA before invoking.
+    Only rootfs_runtime.py is eligible: replacing several helpers would expose
+    a mixed generation. No install/setup latch or existing audit is written.
+    """
+    if os.geteuid()!=0:raise ValueError('server root only')
+    if not re.fullmatch('[0-9a-f]{40}',commit or '') or not shared.HASH.fullmatch(sha256 or ''):
+        raise ValueError('explicit full commit and file SHA256 required')
+    source=Path(source)
+    for directory in (source,source/'deploy',REFRESH_TOOLS,REFRESH_AUDITS,REFRESH_LOCK.parent,GUARD):
+        refresh_directory(directory)
+    label,_=refresh_read(source/'COMMIT')
+    if label!= (commit+'\n').encode():raise ValueError('refresh source commit differs')
+    body,_=refresh_read(source/'deploy/rootfs_runtime.py')
+    if hashlib.sha256(body).hexdigest()!=sha256:raise ValueError('refresh source SHA256 differs')
+    # Read-only opens and flock coordinate with deploy and session admission;
+    # neither lock inode is created, truncated, replaced or unlinked here.
+    with ExitStack() as stack:
+        for path in (REFRESH_LOCK,GUARD/'deploy.lock'):
+            fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK|os.O_CLOEXEC)
+            stack.callback(os.close,fd)
+            info=os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=0:
+                raise ValueError('untrusted existing refresh lock')
+            fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+        shared.ensure_no_install_latch()
+        for name in ('state/unproven','state/unproven.release-pending','setup-unproven.release-pending'):
+            path=GUARD/name
+            if path.exists() or path.is_symlink():raise ValueError('session/setup cleanup unproven')
+        data=load()
+        marker=GUARD/'setup-unproven'
+        if marker.exists() or marker.is_symlink():
+            _,info=refresh_read(marker)
+            if [info.st_dev,info.st_ino]!=data['setup_identity']:
+                raise ValueError('refresh setup marker identity differs')
+        inactive_namespace(data)  # dedicated UID processes, manager, cgroup, DDS
+        target=REFRESH_TOOLS/'rootfs_runtime.py'
+        original,info=refresh_read(target)
+        before=hashlib.sha256(original).hexdigest()
+        if before==sha256:return dict(changed=False,commit=commit,sha256=sha256)
+        audit=REFRESH_AUDITS/('rootfs-refresh-'+commit+'-'+sha256+'.json')
+        if audit.exists() or audit.is_symlink():raise ValueError('refresh audit already exists')
+        # Stage in the target filesystem. A hard link retains the exact old
+        # inode for rollback, including its ownership and permissions. On a
+        # caught error even audit publication/fsync failure restores that inode.
+        work=Path(tempfile.mkdtemp(prefix='.rootfs-refresh-',dir=REFRESH_TOOLS))
+        audit_work=None;replaced=False;published=False;complete=False;restored=False
+        try:
+            audit_work=Path(tempfile.mkdtemp(prefix='.rootfs-refresh-',dir=REFRESH_AUDITS))
+            staged=work/'new';backup=work/'original';record=audit_work/'audit'
+            with staged.open('xb') as stream:
+                os.fchown(stream.fileno(),0,0)
+                os.fchmod(stream.fileno(),0o644)
+                stream.write(body);stream.flush();os.fsync(stream.fileno())
+            os.link(target,backup,follow_symlinks=False)
+            retained,retained_info=refresh_read(backup)
+            if retained!=original or (retained_info.st_dev,retained_info.st_ino)!=(info.st_dev,info.st_ino):
+                raise ValueError('refresh target changed before replacement')
+            details=dict(schema=1,operation='refresh-tools',commit=commit,
+                file='rootfs_runtime.py',before_sha256=before,after_sha256=sha256,
+                recorded_at_unix_ns=time.time_ns())
+            with record.open('xb') as stream:
+                os.fchown(stream.fileno(),0,0)
+                os.fchmod(stream.fileno(),0o400)
+                stream.write((json.dumps(details,sort_keys=True)+'\n').encode())
+                stream.flush();os.fsync(stream.fileno())
+            os.replace(staged,target);replaced=True
+            actual,_=refresh_read(target)
+            if hashlib.sha256(actual).hexdigest()!=sha256:raise ValueError('refresh installed SHA256 differs')
+            refresh_sync(REFRESH_TOOLS)
+            # No overwrite; refuse a competing audit rather than replacing it.
+            os.link(record,audit,follow_symlinks=False);published=True
+            refresh_sync(REFRESH_AUDITS)
+            complete=True
+        except BaseException as error:
+            rollback_error=None
+            if replaced:
+                try:
+                    os.replace(backup,target)
+                    restored=True
+                    refresh_sync(REFRESH_TOOLS)
+                except BaseException as caught:rollback_error=caught
+            if published:
+                try:
+                    audit.unlink()
+                    refresh_sync(REFRESH_AUDITS)
+                except BaseException as caught:rollback_error=rollback_error or caught
+            if rollback_error is not None:
+                raise RuntimeError('refresh rollback/durability unproven; preserve evidence and escalate') from error
+            raise
+        finally:
+            # Keep rollback evidence if restoration itself failed.
+            if not replaced or restored or complete:
+                # A committed install must not be reported as failed solely
+                # because a private staging directory could not be removed.
+                # Leave its path visible to the operator instead of hiding it.
+                shutil.rmtree(work,ignore_errors=True)
+                if audit_work is not None:shutil.rmtree(audit_work,ignore_errors=True)
+        remaining=[str(path) for path in (work,audit_work) if path is not None and path.exists()]
+        return dict(changed=True,**details,audit=str(audit),cleanup_pending=remaining)
+
+
 def probe():
     data=load();uid,gid=identity(data);inactive_namespace(data)
     build.verify(rootfs(data),data['recipe_sha256']);assets(data);private_settings(data)
@@ -378,11 +518,17 @@ def probe():
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('operation',choices=('prepare','probe','activate'))
+    parser.add_argument('operation',choices=('prepare','probe','activate','refresh-tools'))
     parser.add_argument('--input',type=Path)
+    parser.add_argument('--source',type=Path,help='root-owned reviewed export with COMMIT and deploy/rootfs_runtime.py')
+    parser.add_argument('--commit',help='reviewed full 40-character source commit')
+    parser.add_argument('--sha256',help='reviewed SHA256 of source deploy/rootfs_runtime.py')
     args=parser.parse_args()
     os.umask(0o077)
     if os.geteuid()!=0:raise ValueError('server root only')
+    if args.operation=='refresh-tools':
+        if args.source is None:raise ValueError('explicit reviewed source required')
+        print(json.dumps(refresh_tools(args.source,args.commit,args.sha256),sort_keys=True));return
     shared.ensure_no_install_latch()
     with Path('/var/lib/foothold/deploy.lock').open('a') as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
