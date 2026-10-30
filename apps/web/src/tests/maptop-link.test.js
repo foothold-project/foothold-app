@@ -19,6 +19,7 @@ describe('연결 대조', () => {
       found.set(key, id);
       const top = JSON.parse(read(`mobile/sim/assets/${id}/top.json`).toString());
       const floor = top.floors?.find((f) => f.image_sha256 === sha(png));
+      if (key.startsWith('factory_zone/')) expect(floor?.id).toBe(key.split('/')[1]);
       const map = JSON.parse(read(`mobile/sim/assets/${id}/${floor ? floor.map_file : 'map.json'}`).toString());
       const plate = floor ? floor.map : top.map;
       expect(topOf({ provenance: 'SIMULATION', image_sha256: sha(png), origin: map.origin, resolution: map.res, width: map.w, height: map.h })?.href).toContain(`/mobile/sim/assets/${id}/${floor ? floor.top : 'top.png'}`);
@@ -40,14 +41,18 @@ describe('연결 대조', () => {
     const dir = 'mobile/sim/assets/factory-zone/', top = JSON.parse(read(dir + 'top.json').toString());
     expect(top.floors.map((f) => [f.id, f.name, f.z, f.top])).toEqual([
       ['f1', '1층', [-1, 2], 'top-f1.png'], ['f2', '2층', [2, 8], 'top-f2.png']]);
-    const all = JSON.parse(read(dir + 'scenarios.json').toString());
+    const defaults = JSON.parse(read(dir + 'scenarios.json').toString());
+    expect(defaults).toEqual(JSON.parse(read(dir + 'scenarios-f1.json').toString()));
+    expect(defaults.length).toBeGreaterThan(0);
+    expect(defaults.every((s) => s.floor_id === 'f1')).toBe(true);
     for (const f of top.floors) {
       const map = JSON.parse(read(dir + f.map_file).toString()), scenarios = JSON.parse(read(dir + f.scenarios_file).toString());
       expect(map.floor_id).toBe(f.id); expect(map.floor_z).toBe(f.floor_z);
       expect(map.spawn_xyyaw).toEqual(f.spawn_xyyaw);
       expect(Buffer.from(map.px, 'base64').length).toBe(f.map.w * f.map.h);
       expect(scenarios.every((s) => s.floor_id === f.id)).toBe(true);
-      expect(all.filter((s) => s.floor_id === f.id)).toEqual(scenarios);
+      expect(scenarios.length).toBeGreaterThan(0);
+      if (f.id === 'f2') expect(scenarios.every((s) => !defaults.some((d) => d.id === s.id))).toBe(true);
       expect(pngSize(read(dir + f.top))).toEqual(top.px);
     }
     expect(pngSize(read(dir + 'top.png'))).toEqual(top.px);

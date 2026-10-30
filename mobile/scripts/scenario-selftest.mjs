@@ -9,7 +9,8 @@ for (const { id } of read('../sim/maps.json')) {
   const defaultMap = decodeMap(read(`../sim/assets/${id}/map.json`));
   const list = read(`../sim/assets/${id}/scenarios.json`);
   for (const s of list) {
-    const map = s.floor_id ? decodeMap(read(`../sim/assets/${id}/map-${s.floor_id}.json`)) : defaultMap;
+    const map = defaultMap;   // Match main.js: default routes never change map/spawn by floor_id.
+    if (s.floor_id) assert.equal(s.floor_id, map.floor_id, `${id}: default route must match default spawn floor`);
     validateScenarios([s], map);
     assert.throws(() => validateScenarios([{ id: 'bad', name: 'bad', points: [{ x: Infinity, y: 0 }] }], map));
     assert.throws(() => validateScenarios([{ id: 'bad', name: 'bad', points: [{ x: map.origin[0] - 1, y: 0 }] }], map));

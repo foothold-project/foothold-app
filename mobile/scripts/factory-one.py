@@ -103,7 +103,8 @@ def main():
             floor_routes.append(dict(id=f'{floor}-{route["id"]}', floor_id=floor, name=f'{1 if floor == "f1" else 2}층 · {route["name"]}',
                                      points=[dict(x=p['x'], y=p['y']) for p in route['waypoints']]))
         write(f'scenarios-{floor}.json', floor_routes)
-        scenarios.extend(floor_routes)
+        if floor == 'f1':
+            scenarios.extend(floor_routes)  # main.js has no floor selection until SIM-MAP-UX lands.
         floors.append(dict(id=floor, name='1층' if floor == 'f1' else '2층', z=band, top=f'top-{floor}.png', map=grid,
                            image_sha256=meta['floors'][floor]['image_sha256'], map_file=f'map-{floor}.json', scenarios_file=f'scenarios-{floor}.json', floor_z=z, spawn_xyyaw=spawn))
     write('scenarios.json', scenarios)

@@ -1,5 +1,5 @@
 // Uses existing local RS-6 dependencies only. No server, browser, download, or real robot.
-// FH_SIM_SRC=<local sim bundle source> node mobile/scripts/scenario-headless.mjs [map-id] [scenario-id]
+// FH_SIM_SRC=<local sim bundle source> node mobile/scripts/scenario-headless.mjs [map-id] [scenario-id] [--floor=f1|f2] (explicit floor is offline-only)
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -18,18 +18,21 @@ mj.FS.writeFile('/go2/go2.xml', readFileSync(join(src, 'assets/unitree_go2/go2.x
 const buf = readFileSync(join(src, 'policy_v2.f32'));
 const policy = loadPolicy(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
 const read = (p) => JSON.parse(readFileSync(new URL(p, import.meta.url)));
-const id = process.argv[2] || 'warehouse';
+const args = process.argv.slice(2), floorId = args.find((a) => a.startsWith('--floor='))?.slice(8);
+const [id = 'warehouse', scenarioId] = args.filter((a) => !a.startsWith('--floor='));
+if (floorId) assert.ok(read(`../sim/assets/${id}/top.json`).floors?.some((f) => f.id === floorId), 'listed floor required');
 assert.ok(read('../sim/maps.json').some((m) => m.id === id), 'listed map required');
-const map = decodeMap(read(`../sim/assets/${id}/map.json`));
+const map = decodeMap(read(`../sim/assets/${id}/${floorId ? `map-${floorId}` : 'map'}.json`));
 for (const f of map.physics_assets ?? []) { const b = readFileSync(new URL(`../sim/assets/${id}/${f}`, import.meta.url)); mj.FS.writeFile(`/go2/${f}`, b); mj.FS.writeFile(`/go2/assets/${f}`, b); }
 mj.FS.writeFile('/go2/world.xml', readFileSync(new URL(`../sim/assets/${id}/${id}.xml`, import.meta.url)));
 mj.FS.writeFile('/go2/scene.xml', '<mujoco><include file="go2.xml"/><include file="world.xml"/></mujoco>');
-const routes = read(`../sim/assets/${id}/scenarios.json`).filter((s) => !process.argv[3] || s.id === process.argv[3]);
+const routes = read(`../sim/assets/${id}/${floorId ? `scenarios-${floorId}` : 'scenarios'}.json`).filter((s) => !scenarioId || s.id === scenarioId);
 assert.ok(routes.length, 'at least one selected route required');
 for (const route of routes) {
-  const floor = route.floor_id ? decodeMap(read(`../sim/assets/${id}/map-${route.floor_id}.json`)) : map;
-  validateScenarios([route], floor);
-  const sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: floor.floor_z, spawn: floor.spawn_xyyaw });
+  // Default mode uses exactly main.js's map.json + scenarios.json, with no implicit floor switching.
+  if (route.floor_id) assert.equal(route.floor_id, map.floor_id, 'route must match selected map/spawn floor');
+  validateScenarios([route], map);
+  const sim = createSim(mj, '/go2/scene.xml', ISAAC_LIKE, policy, { floorZ: map.floor_z, spawn: map.spawn_xyyaw });
   const scan = makeLidar(mj, sim.m, sim.d, 360);
   const runner = createScenarioRunner(sim, () => false);
   sim.reset(); sim.hold(0.5); runner.start(route.points);
