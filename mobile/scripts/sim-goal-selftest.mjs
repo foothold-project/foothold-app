@@ -81,9 +81,9 @@ try {
   await page.mouse.move(cx, cy); await page.mouse.down(); await page.mouse.move(cx + 40, cy, { steps: 4 }); await page.mouse.up();
   assert.equal((await goal()).active, false, 'drag is not a tap');
 
-  // 장애물 칸·지도 밖 = 거절(목표 없음)
+  // 장애물 칸(위에서 보면 선반 메시가 먼저 맞음 = «바닥만», 메시 없는 점유 칸 = «장애물»)·지도 밖 = 거절(목표 없음)
   await tapAt(wall);
-  g = await goal(); assert.equal(g.active, false); assert.match(g.note, /장애물/);
+  g = await goal(); assert.equal(g.active, false); assert.match(g.note, /장애물|바닥만/);
   await tapAt({ x: map.origin[0] - 0.4, y: map.origin[1] + 2 });
   g = await goal(); assert.equal(g.active, false); assert.match(g.note, /지도 밖/);
 
@@ -127,7 +127,10 @@ try {
   await page.click('#reset'); await page.waitForTimeout(600);
 
   // 벽 너머 목표 = 곧게 가다 앞 막힘(0.6 m) 또는 5초 진전 없음 → «막혀서 멈췄습니다»
+  // 그 점은 선반 아래라 위에서 찍으면 «바닥만»으로 거절된다(가린 바닥) — 막힘 동작은 실행기에 직접 목표를 넣어 본다
   await page.click('#go'); await tapAt(behind);
+  g = await goal(); assert.equal(g.active, false); assert.match(g.note, /바닥만/);
+  await ev((b) => __sim.scenario.start([b], true), behind);
   assert.equal((await goal()).active, true);
   await page.waitForFunction(() => !__sim.scenario.active, null, { timeout: 90000 });
   g = await goal(); assert.equal(g.status, '막힘'); assert.deepEqual(g.cmd, [0, 0, 0]); assert.match(g.note, /막혀서 멈췄습니다/);
@@ -135,7 +138,10 @@ try {
 
   // 따라가기(3D) 화면에서도 바닥 찍기 — 로봇 앞 바닥
   await page.click('#cam'); await page.waitForTimeout(300); await page.click('#go');
-  const [tx, ty] = await ev(() => __sim.toScreen(__sim.sim.d.qpos[0] + 1, __sim.sim.d.qpos[1]));   // 로봇 앞 1 m 바닥(따라가기 카메라로 비춤)
+  // 따라가기는 몸통을 화면 가운데에 둔다 — 몸통 가운데 누르기는 그 뒤 바닥이 아니라 몸통이 먼저 맞음 = 거절·명령 0
+  await page.mouse.click(640, 400); await frame();
+  g = await goal(); assert.equal(g.active, false, 'body click is not a goal'); assert.match(g.note, /바닥만/); assert.deepEqual(g.cmd, [0, 0, 0]);
+  const [tx, ty] = await ev(() => __sim.toScreen(__sim.sim.d.qpos[0] + 2, __sim.sim.d.qpos[1]));   // 로봇 앞 2 m 바닥(1 m 는 이 카메라에서 몸통에 가림)
   await page.mouse.click(tx, ty); await frame();
   g = await goal(); assert.equal(g.active && g.goal, true, `3D floor tap: ${g.note}`);
   await page.click('#stop');
@@ -184,7 +190,7 @@ try {
   } else console.log('AME-2 가중치 없음 — AME-2 찍기 생략');
   await ame.close();
   assert.deepEqual(errors, []);
-  console.log('sim goal headless PASS: first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, fall cancel, wall-behind goal → blocked stop, 3D floor tap, AME-2 goal path');
+  console.log('sim goal headless PASS: first view = follow, floors auto by body z + 전체/층 toggle + other-floor tap blocked + other-floor scenario starts at that floor spawn, STOP ignores taps, top-view tap → goal → arrive ≤0.3 m cmd 0 no lock, drag not a tap, obstacle/outside rejected, key = cancel only + hand drive, STOP/blur/pagehide/hidden/reset cancel+lock no resume, fall cancel, covered floor tap rejected, wall-behind goal → blocked stop, 3D floor tap + body click rejected, AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));

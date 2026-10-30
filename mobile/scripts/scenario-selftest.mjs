@@ -86,7 +86,7 @@ for (const ev of ['left', 'right', 'stop', 'blur']) {
   assert.equal(stopped, ev === 'stop' || ev === 'blur', `goal ${ev}: lock only for STOP/lifecycle`);
   assert.equal(runner.status, ev === 'left' || ev === 'right' ? '손 조종' : '중단');
 }
-{ // 5초 진전 없음(앞으로 가는 중에만 셈) = 막힘, 앞 막힘은 앞으로 갈 때만 — 벽을 보고 뒤쪽 목표로 도는 것은 허용
+{ // 5초 진전 없음(거리 0.1 m·방향 0.1 rad 둘 다) = 막힘, 앞 막힘은 앞으로 갈 때만 — 벽을 보고 뒤쪽 목표로 도는 것은 허용
   const sim = { cmd: [0, 0, 0], fell: false, d: { qpos: [0, 0, 0.4, 1, 0, 0, 0] } };
   const r = createScenarioRunner(sim, () => false);
   r.start([{ x: 2, y: 0 }], true);
@@ -96,9 +96,15 @@ for (const ev of ['left', 'right', 'stop', 'blur']) {
   assert.equal(r.status, '막힘'); assert.deepEqual(sim.cmd, [0, 0, 0]);
   r.start([{ x: -2, y: 0 }], true); r.tick(0.1, 0.02);
   assert.equal(r.active, true, 'turning toward a goal behind is not blocked'); assert.equal(sim.cmd[0], 0); assert.ok(Math.abs(sim.cmd[2]) > 0);
-  for (let k = 0; k < 1000; k++) r.tick(0.1, 0.02);   // 돌기만 하는 동안은 진전 없음 시간을 세지 않는다
-  assert.equal(r.active, true);
+  // 실제로 도는 동안(yaw 가 명령대로 바뀜)은 막힘 아님 → 다 돌면 앞으로
+  const q = sim.d.qpos;
+  for (let k = 0, yaw = 0; k < 400 && !sim.cmd[0]; k++) { r.tick(Infinity, 0.02); yaw += sim.cmd[2] * 0.02; q[3] = Math.cos(yaw / 2); q[6] = Math.sin(yaw / 2); }
+  assert.equal(r.active, true, 'real turning is progress'); assert.ok(sim.cmd[0] > 0, 'turned then forward');
+  // 돌지 못함(위치·yaw 고정), 목표 (0, 1), 8 s → 5 s 에 막힘·명령 0
+  q[3] = 1; q[6] = 0; r.start([{ x: 0, y: 1 }], true);
+  for (let k = 0; k < 400; k++) r.tick(Infinity, 0.02);
+  assert.equal(r.active, false, 'stuck turn stalls'); assert.equal(r.status, '막힘'); assert.deepEqual(sim.cmd, [0, 0, 0]);
   r.start([{ x: 0.2, y: 0 }], true); r.tick();   // 이미 0.3 m 안 = 바로 도착·명령 0
   assert.equal(r.status, '완료'); assert.deepEqual(sim.cmd, [0, 0, 0]);
 }
-console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/fall/STOP guards, goal hand-cancel/no-lock, 5 s stall, turn-not-blocked`);
+console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/fall/STOP guards, goal hand-cancel/no-lock, 5 s stall, turn-not-blocked, stuck-turn stall`);

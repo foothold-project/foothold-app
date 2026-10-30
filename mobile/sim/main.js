@@ -218,7 +218,7 @@ async function main() {
   resize();
 
   // 창고: scene.json 의 메시를 모델 자세에 놓는다. quat 은 w,x,y,z
-  const geoCache = {};
+  const geoCache = {}, solids = [];   // solids = 찍기에서 바닥보다 먼저 맞으면 거절하는 장면 메시(창고·공장·로봇)
   for (const md of sceneJ.models) {
     let geo = geoCache[md.mesh];
     if (!geo) {
@@ -231,7 +231,7 @@ async function main() {
     const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), side: THREE.DoubleSide }));
     mesh.position.set(...md.pos);
     mesh.quaternion.set(md.quat[1], md.quat[2], md.quat[3], md.quat[0]);
-    scene.add(mesh);
+    scene.add(mesh); solids.push(mesh);
   }
 
   // 정답 지도(f1.png) 판: 점유 칸만 층 색으로(1층 빨강 — 한 층 지도도 같은 색), 위에서 보기 때만. DataTexture 행 0 = 아래라서 위아래를 뒤집는다
@@ -281,7 +281,7 @@ async function main() {
     const mat = m.geom_matid[g], c = mat >= 0 ? m.mat_rgba.slice(mat * 4, mat * 4 + 3) : m.geom_rgba.slice(g * 4, g * 4 + 3);
     const mesh = new THREE.Mesh(meshGeo.get(id), new THREE.MeshLambertMaterial({ color: new THREE.Color(c[0], c[1], c[2]).multiplyScalar(0.85).addScalar(0.08) }));
     mesh.matrixAutoUpdate = false;
-    scene.add(mesh);
+    scene.add(mesh); solids.push(mesh);
     geoms.push([g, mesh]);
   }
   const draw = () => {
@@ -346,6 +346,9 @@ async function main() {
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
     ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
     if (!ray.ray.intersectPlane(floor, hit)) return say('바닥을 찍으세요');
+    // 처음 맞은 표면이 이 층 바닥(높이 ±5 cm)보다 앞이면 — 로봇 몸통·벽·난간·물건·가린 바닥 — 목표로 받지 않는다
+    const first = ray.intersectObjects(solids, false)[0];
+    if (first && first.distance < ray.ray.origin.distanceTo(hit) - 0.02 && Math.abs(first.point.z - map.floor_z) > 0.05) return say('바닥만 찍을 수 있습니다(로봇·벽·물건 위는 안 됨)');
     const ox = map.origin[0], oy = map.origin[1];
     if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
     if (cell(map, hit.x, hit.y) !== 254) return say('장애물·모르는 칸이라 갈 수 없습니다');
@@ -471,7 +474,7 @@ async function main() {
     const bx = d.qpos[0], by = d.qpos[1], bz = d.qpos[2];
     if (top) {
       // Keep the first whole-map view clear of the fixed header and camera/scenario buttons.
-      const upper = Math.max($('home').getBoundingClientRect().bottom, $('stop').getBoundingClientRect().bottom) + 12;
+      const upper = Math.max($('home').getBoundingClientRect().bottom, $('stop').getBoundingClientRect().bottom, bar.hidden ? 0 : bar.getBoundingClientRect().bottom) + 12;   // 층 단추 아래부터
       const lower = $('btns').getBoundingClientRect().top - 12;
       const width = innerWidth - 24, height = Math.max(1, lower - upper);
       renderer.setViewport(12, innerHeight - lower, width, height); vp = [12, upper, width, height];
