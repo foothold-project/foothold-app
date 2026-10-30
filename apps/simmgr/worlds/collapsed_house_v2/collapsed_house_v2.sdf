@@ -359,137 +359,6 @@
             </friction>
           </surface>
         </collision>
-        <visual name="visual">
-          <geometry>
-            <box>
-              <size>26 26 0.2</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.39 0.37 0.33 1</ambient>
-            <diffuse>0.39 0.37 0.33 1</diffuse>
-          </material>
-        </visual>
-      </link>
-    </model>
-    <model name="terrain_v2">
-      <static>true</static>
-      <link name="body">
-        <collision name="surface">
-          <geometry>
-            <heightmap>
-              <uri>height.png</uri>
-              <size>17 17 2.040657</size>
-              <pos>0 -0.5 -0.02</pos>
-              <sampling>1</sampling>
-            </heightmap>
-          </geometry>
-        </collision>
-        <visual name="terrain_v2">
-          <geometry>
-            <mesh>
-              <uri>meshes/terrain_v2.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.57 0.55 0.51 1</ambient>
-            <diffuse>0.57 0.55 0.51 1</diffuse>
-            <pbr>
-              <metal>
-                <albedo_map>dust.png</albedo_map>
-                <roughness>0.97</roughness>
-              </metal>
-            </pbr>
-          </material>
-        </visual>
-        <visual name="fragments_0">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_0.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.4963743 0.4706997 0.4279089 1</ambient>
-            <diffuse>0.4963743 0.4706997 0.4279089 1</diffuse>
-          </material>
-        </visual>
-        <visual name="fragments_1">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_1.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.5077703 0.4815063 0.437733 1</ambient>
-            <diffuse>0.5077703 0.4815063 0.437733 1</diffuse>
-          </material>
-        </visual>
-        <visual name="fragments_2">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_2.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.6382945 0.6052793 0.5502539 1</ambient>
-            <diffuse>0.6382945 0.6052793 0.5502539 1</diffuse>
-          </material>
-        </visual>
-        <visual name="fragments_3">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_3.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.5457529 0.5175243 0.4704767 1</ambient>
-            <diffuse>0.5457529 0.5175243 0.4704767 1</diffuse>
-          </material>
-        </visual>
-        <visual name="fragments_4">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_4.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.5345339 0.5068856 0.460805 1</ambient>
-            <diffuse>0.5345339 0.5068856 0.460805 1</diffuse>
-          </material>
-        </visual>
-        <visual name="fragments_5">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_5.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.481897 0.4569713 0.4154285 1</ambient>
-            <diffuse>0.481897 0.4569713 0.4154285 1</diffuse>
-          </material>
-        </visual>
-        <visual name="fragments_6">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_6.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.4962479 0.4705799 0.4277999 1</ambient>
-            <diffuse>0.4962479 0.4705799 0.4277999 1</diffuse>
-          </material>
-        </visual>
-        <visual name="fragments_7">
-          <geometry>
-            <mesh>
-              <uri>meshes/fragments_7.obj</uri>
-            </mesh>
-          </geometry>
-          <material>
-            <ambient>0.4816435 0.4567309 0.4152099 1</ambient>
-            <diffuse>0.4816435 0.4567309 0.4152099 1</diffuse>
-          </material>
-        </visual>
       </link>
     </model>
     <model name="original_house">
@@ -498,18 +367,4161 @@
         <collision name="collision">
           <geometry>
             <mesh>
-              <uri>meshes/house.obj</uri>
+              <uri>meshes/original_house.obj</uri>
             </mesh>
           </geometry>
         </collision>
         <visual name="visual">
           <geometry>
             <mesh>
-              <uri>meshes/house.obj</uri>
+              <uri>meshes/original_house.obj</uri>
             </mesh>
           </geometry>
           <material>
-            <diffuse>.56 .52 .45 1</diffuse>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>house-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="dust_floor">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/dust_floor.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.95 0.95 0.95 1</ambient>
+            <diffuse>0.95 0.95 0.95 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>rubble-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+        <collision name="dust_contact">
+          <geometry>
+            <heightmap>
+              <uri>height.png</uri>
+              <size>17 17 1.2595523500587835</size>
+              <pos>0 -.5 -.02</pos>
+              <sampling>1</sampling>
+            </heightmap>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="concrete_batch_0">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/concrete_batch_0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.774 0.7568 0.7138 1</ambient>
+            <diffuse>0.774 0.7568 0.7138 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="concrete_batch_1">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/concrete_batch_1.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.846 0.8271999999999999 0.7801999999999999 1</ambient>
+            <diffuse>0.846 0.8271999999999999 0.7801999999999999 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="concrete_batch_2">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/concrete_batch_2.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.918 0.8976000000000001 0.8466 1</ambient>
+            <diffuse>0.918 0.8976000000000001 0.8466 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="concrete_batch_3">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/concrete_batch_3.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.9900000000000001 0.9680000000000001 0.913 1</ambient>
+            <diffuse>0.9900000000000001 0.9680000000000001 0.913 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="rock_batch_0">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/rock_batch_0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.5332 0.49879999999999997 0.4472 1</ambient>
+            <diffuse>0.5332 0.49879999999999997 0.4472 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="rock_batch_1">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/rock_batch_1.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.5828 0.5451999999999999 0.4888 1</ambient>
+            <diffuse>0.5828 0.5451999999999999 0.4888 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="rock_batch_2">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/rock_batch_2.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.6324 0.5916 0.5304 1</ambient>
+            <diffuse>0.6324 0.5916 0.5304 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="rock_batch_3">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/rock_batch_3.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.682 0.638 0.5720000000000001 1</ambient>
+            <diffuse>0.682 0.638 0.5720000000000001 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wood_batch_0">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/wood_batch_0.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.516 0.43 0.34400000000000003 1</ambient>
+            <diffuse>0.516 0.43 0.34400000000000003 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wood_batch_1">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/wood_batch_1.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.564 0.47 0.376 1</ambient>
+            <diffuse>0.564 0.47 0.376 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wood_batch_2">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/wood_batch_2.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.612 0.51 0.40800000000000003 1</ambient>
+            <diffuse>0.612 0.51 0.40800000000000003 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="wood_batch_3">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/wood_batch_3.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.66 0.55 0.44000000000000006 1</ambient>
+            <diffuse>0.66 0.55 0.44000000000000006 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="perimeter_rock">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/perimeter_rock.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.62 0.58 0.52 1</ambient>
+            <diffuse>0.62 0.58 0.52 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="perimeter_concrete">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/perimeter_concrete.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.9 0.88 0.83 1</ambient>
+            <diffuse>0.9 0.88 0.83 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>stone-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="perimeter_wood">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/perimeter_wood.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.6 0.5 0.4 1</ambient>
+            <diffuse>0.6 0.5 0.4 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>wood-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
+          </material>
+        </visual>
+      </link>
+    </model>
+    <model name="contact_0">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_000.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_1">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_001.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_2">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_002.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_3">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_003.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_4">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_004.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_5">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_005.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_6">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_006.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_7">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_007.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_8">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_008.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_9">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_009.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_10">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_010.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_11">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_011.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_12">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_012.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_13">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_013.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_14">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_014.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_15">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_015.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_16">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_016.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_17">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_017.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_18">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_018.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_19">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_019.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_20">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_020.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_21">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_021.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_22">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_022.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_23">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_023.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_24">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_024.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_25">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_025.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_26">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_026.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_27">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_027.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_28">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_028.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_29">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_029.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_30">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_030.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_31">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_031.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_32">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_032.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_33">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_033.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_34">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_034.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_35">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_035.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_36">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_036.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_37">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_037.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_38">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_038.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_39">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_039.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_40">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_040.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_41">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_041.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_42">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_042.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_43">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_043.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_44">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_044.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_45">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_045.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_46">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_046.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_47">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_047.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_48">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_048.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_49">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_049.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_50">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_050.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_51">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_051.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_52">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_052.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_53">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_053.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_54">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_054.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_55">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_055.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_56">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_056.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_57">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_057.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_58">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_058.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_59">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_059.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_60">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_060.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_61">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_061.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_62">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_062.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_63">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_063.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_64">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_064.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_65">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_065.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_66">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_066.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_67">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_067.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_68">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_068.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_69">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_069.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_70">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_070.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_71">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_071.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_72">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_072.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_73">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_073.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_74">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_074.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_75">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_075.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_76">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_076.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_77">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_077.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_78">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_078.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_79">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_079.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_80">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_080.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_81">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_081.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_82">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_082.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_83">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_083.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_84">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_084.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_85">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_085.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_86">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_086.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_87">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_087.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_88">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_088.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_89">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_089.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_90">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_090.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_91">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_091.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_92">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_092.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_93">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_093.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_94">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_094.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_95">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_095.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_96">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_096.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_97">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_097.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_98">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_098.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_99">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_099.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_100">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_100.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_101">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_101.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_102">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_102.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_103">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_103.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_104">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_104.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_105">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_105.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_106">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_106.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_107">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_107.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_108">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_108.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_109">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_109.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_110">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_110.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_111">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_111.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_112">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_112.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="contact_113">
+      <static>true</static>
+      <link name="body">
+        <collision name="piece">
+          <geometry>
+            <mesh>
+              <uri>meshes/piece_113.obj</uri>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_0">
+      <static>true</static>
+      <pose>-1.8585121572967553 -3.1277092971133222 1.2692920228278717 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3647974475027664 1.4555272438537887 0.057478205655743686</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_1">
+      <static>true</static>
+      <pose>-0.6239619320642928 0.6401592596753236 1.2733439303913792 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4076968030889128 1.292935663974632 0.06558202078275843</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_2">
+      <static>true</static>
+      <pose>-6.857035593084042 4.3793417999167445 1.2719462469977718 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3822920733636366 1.4734728155905406 0.06278665399554417</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_3">
+      <static>true</static>
+      <pose>-1.7878250823383524 -0.6268671326223083 1.2765178751378174 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3928092322855719 1.3245557392684977 0.07192991027563544</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_4">
+      <static>true</static>
+      <pose>-6.829367146415235 -3.144201534846137 1.2759485571453189 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3944409307697079 1.3401970215795984 0.07079127429063803</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_5">
+      <static>true</static>
+      <pose>-4.32935778826528 -3.209026183122954 1.2737615292691788 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3985796460478483 1.3363634864267682 0.06641721853835802</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_6">
+      <static>true</static>
+      <pose>4.357218294144685 -3.0583277851894923 1.2683796949525314 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4490186373927254 1.3076394287774176 0.055653549905063215</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_7">
+      <static>true</static>
+      <pose>-1.9113040404029833 0.6455050237767358 1.2760589744709105 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4227348771850656 1.437502344684843 0.07101210894182142</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_8">
+      <static>true</static>
+      <pose>0.619533807733348 -1.872480677310091 1.2720692551849915 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4220334305893838 1.440250390866784 0.06303267036998328</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_9">
+      <static>true</static>
+      <pose>-6.858253174687457 -4.298873662232163 1.2751585890691635 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2963526164494281 1.277094040143493 0.06921133813832703</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_10">
+      <static>true</static>
+      <pose>0.6150392287518228 1.59839761825857 1.2697384940714178 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3421705256917271 0.8499849611494776 0.05837114814283573</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_11">
+      <static>true</static>
+      <pose>5.6592477170900635 -3.1940484845608106 1.2746871025949043 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.223102440420643 1.2869256382886074 0.06826836518980861</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_12">
+      <static>true</static>
+      <pose>-0.6189038289174453 -0.6704010559841898 1.2728151436851052 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3799720411513974 1.3345446749931398 0.0645244473702109</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_13">
+      <static>true</static>
+      <pose>-0.5596590701212785 1.7967708813639085 1.2740828067117564 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.330098364497044 1.2072955869026316 0.06705977342351321</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_14">
+      <static>true</static>
+      <pose>0.604926432396489 -0.6350754391091669 1.2688425539389505 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.457184512011583 1.397079610217808 0.05657926787790157</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_15">
+      <static>true</static>
+      <pose>0.66879947947434 0.6053450163310838 1.2682746059730698 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2856000474708213 1.4672478482900475 0.05544337194614002</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_16">
+      <static>true</static>
+      <pose>0.5883894743704323 -4.0304900539912705 1.2692640458079303 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3077832794945032 0.6428542810211191 0.0574222516158609</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_17">
+      <static>true</static>
+      <pose>1.8677936797543762 -0.604522594070564 1.267993176367077 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3950519850199827 1.4607049394048237 0.05488051273415451</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_18">
+      <static>true</static>
+      <pose>-1.9132657844826966 -1.840114146878208 1.2717776963998062 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.1591914770135343 1.2525610202111241 0.06244955279961273</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_19">
+      <static>true</static>
+      <pose>-3.0957641297555454 1.8144295937098518 1.2692464846739286 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3501684959787568 1.3804426384671706 0.05738712934785761</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_20">
+      <static>true</static>
+      <pose>-0.703656231309773 -1.9039545327782412 1.2735136766731698 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2881803988201046 1.4979276122212013 0.06592151334634</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_21">
+      <static>true</static>
+      <pose>-0.6462895849615554 -3.082205678319368 1.267987681496623 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.396329858425707 1.2805536955259282 0.054869522993246544</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_22">
+      <static>true</static>
+      <pose>6.747752879169183 -1.9298268307921083 1.2742286225874064 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.1656730969111706 1.403805731266752 0.06735140517481342</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_23">
+      <static>true</static>
+      <pose>-5.5532546728131855 -3.169070989029979 1.2747436172136153 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.266718657330176 1.2272030369950366 0.0683813944272309</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_24">
+      <static>true</static>
+      <pose>3.095790828198628 -0.6547296074753041 1.2714101009911833 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4980233740478965 1.305313124802583 0.061714361982366794</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_25">
+      <static>true</static>
+      <pose>3.1272834883557445 -4.006138737722132 1.2750509125030112 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3751491053368166 0.4853325590095938 0.06899598500602244</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_26">
+      <static>true</static>
+      <pose>0.6228958213422144 -3.138035616541827 1.268824645589934 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4008656235810584 1.452366984288311 0.056543451179868365</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_27">
+      <static>true</static>
+      <pose>-3.1102242442037733 0.6120302571497452 1.2752296575720703 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3613233743055466 1.4039657105909213 0.06935347514414092</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_28">
+      <static>true</static>
+      <pose>-1.8466179525199709 1.9097139918493595 1.2701479695687055 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.348867651788026 1.3970735346077963 0.05919009913741147</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_29">
+      <static>true</static>
+      <pose>-1.8788666030643704 3.0996270506157386 1.271634579547094 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.438862937183453 1.4316670296243723 0.062163319094188596</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_30">
+      <static>true</static>
+      <pose>-5.60684679944516 4.3757924613772605 1.2712374653892446 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3986146971666145 1.3355478720725995 0.06136909077848962</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_31">
+      <static>true</static>
+      <pose>-3.128268589899088 4.352727976923318 1.2721490768500787 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4081653241305196 1.4357676631945826 0.06319231370015777</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_32">
+      <static>true</static>
+      <pose>1.8326171712640296 -3.1232885012176492 1.27019239769918 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4073379024999213 1.4470316826227587 0.05927895539836059</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_33">
+      <static>true</static>
+      <pose>-4.363799643745046 4.385424518051459 1.2722731675512753 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.5225966593311369 1.469354113737404 0.06344049510255112</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_34">
+      <static>true</static>
+      <pose>-3.1056847437216524 -4.403998895625064 1.2754458342036135 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4656432411415774 1.4430490481199598 0.06978582840722725</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_35">
+      <static>true</static>
+      <pose>-1.8635861188499212 4.386268164854084 1.272046917564638 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.475174967627883 1.4308312808035346 0.06298799512927644</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_36">
+      <static>true</static>
+      <pose>3.169529683278049 -1.8397331216209292 1.2740516521246774 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.207658343920349 1.4354338664834483 0.06699746424935538</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_37">
+      <static>true</static>
+      <pose>-3.1061869840143883 -3.1372283162966887 1.268832392109456 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2871845432466449 1.3820772568038584 0.05655894421891228</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_38">
+      <static>true</static>
+      <pose>1.951288460298061 -1.8217243785136692 1.271010811079676 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3920456778751635 1.2372516634752722 0.06091578215935245</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_39">
+      <static>true</static>
+      <pose>-3.119295910548371 3.089399169291748 1.2693146432923954 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4187264348617 1.3454160246361675 0.057523446584790916</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_40">
+      <static>true</static>
+      <pose>-4.314398307471737 -4.395304524215994 1.2747489739381497 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3857447454899527 1.3461290476503023 0.06839210787629968</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_41">
+      <static>true</static>
+      <pose>4.482926634390014 -3.9074277388522534 1.2663141354127658 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.200433701851571 0.45550595231671265 0.051522430825531984</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_42">
+      <static>true</static>
+      <pose>-6.8218402642167115 5.336378442292816 1.2722254788849652 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3553279155932518 0.8770005733764972 0.06334511776993046</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_43">
+      <static>true</static>
+      <pose>-5.594649179886616 -4.330069601799608 1.275157529794372 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4889008413675784 1.3639783265386183 0.06920921958874438</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_44">
+      <static>true</static>
+      <pose>-4.281768612961161 0.6157719759705292 1.275755001907167 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3023349984808767 1.4193923142278468 0.07040416381433445</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_45">
+      <static>true</static>
+      <pose>-4.363772276791216 1.856572359738593 1.272779702122828 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4248728632726304 1.426838261097261 0.06445356424565629</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_46">
+      <static>true</static>
+      <pose>5.589712629902751 -1.8945933594618953 1.2746677161985733 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4544352541541885 1.4107966510262402 0.06822959239714699</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_47">
+      <static>true</static>
+      <pose>5.635031388684425 -0.6325588989213365 1.2729711566462012 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2704133772765438 1.2246791207881242 0.06483647329240272</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_48">
+      <static>true</static>
+      <pose>4.348304723230603 -1.8727074825469852 1.2735813429079097 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2808551169726847 1.3481008904912961 0.06605684581581994</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_49">
+      <static>true</static>
+      <pose>1.8313903468569337 -4.028314160511994 1.2665063537166499 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.350633481498783 0.6025250928524639 0.051906867433299864</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_50">
+      <static>true</static>
+      <pose>1.8810395042978731 1.5892836538762112 1.2723594877013755 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4588136715189737 0.7592373914403892 0.06361313540275138</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_51">
+      <static>true</static>
+      <pose>-1.014815311535236 3.149636853466683 1.273944063505189 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.6917902251884381 1.3074834658665768 0.06678228701037847</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_52">
+      <static>true</static>
+      <pose>1.8587079548947139 0.6631223122460198 1.2685886651993656 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.236491726179865 1.4146159060972268 0.05607149039873183</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_53">
+      <static>true</static>
+      <pose>-2.028040836383662 -4.4421823220648635 1.274842050464689 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.1424237318207149 1.230054638082624 0.06857826092937813</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_54">
+      <static>true</static>
+      <pose>-5.6327525960867995 5.228803767999059 1.2718527198935234 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.302587360853722 0.606875362269947 0.06259959978704699</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_55">
+      <static>true</static>
+      <pose>5.756464208016667 -3.9115717297583297 1.273468498207424 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.0794319410546809 0.400844347625279 0.0658311564148486</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_56">
+      <static>true</static>
+      <pose>6.7205551892446715 -0.5197573040257166 1.2750423447245405 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.1607460308049884 1.2708220599678395 0.0689788494490815</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_57">
+      <static>true</static>
+      <pose>-5.612723742478298 0.638201636818972 1.2756671120176928 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3875935623382203 1.4475642047586006 0.07022838403538567</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_58">
+      <static>true</static>
+      <pose>4.462763744883253 -0.6234275170885661 1.2738615598624201 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2790483363693412 1.353779832936831 0.06661727972484033</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_59">
+      <static>true</static>
+      <pose>-4.61162895224371 5.373112678278402 1.2680455600976726 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.5559832405132337 0.28428005055288885 0.05498528019534521</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_60">
+      <static>true</static>
+      <pose>3.132305606841167 0.6041484103660879 1.2720796808595543 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4175368997694089 1.3724642567220022 0.06305352171910883</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_61">
+      <static>true</static>
+      <pose>-4.320344438321055 3.065810650248964 1.2692640032305031 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3760731186991197 1.1940674176109964 0.05742216646100662</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_62">
+      <static>true</static>
+      <pose>-6.827810656393378 3.1346158082048197 1.2724812496439388 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.9681376923184297 1.254411631068868 0.06385665928787798</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_63">
+      <static>true</static>
+      <pose>-5.62738915549737 3.1523736640214373 1.272167648740049 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.224506887809099 1.3981586825532704 0.06322945748009845</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_64">
+      <static>true</static>
+      <pose>6.740336470503241 -3.036633754793219 1.2739594630231932 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.1051665994599933 1.1956808660152052 0.0668130860463867</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_65">
+      <static>true</static>
+      <pose>-1.8401847308051518 -5.253272541188037 1.2743442348944543 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.367663363938756 0.6371907194166573 0.06758262978890905</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_66">
+      <static>true</static>
+      <pose>3.094748326279767 -3.2046544620885227 1.2700316498994584 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2486788747683195 1.3304717238025447 0.05895745979891709</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_67">
+      <static>true</static>
+      <pose>-0.7462148351955626 -4.34701292080974 1.2744504466426156 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2834048363327346 1.293255227202868 0.06779505328523161</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_68">
+      <static>true</static>
+      <pose>-3.1119826135713997 -0.5918190952560496 1.2749178506581857 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2904140438115492 1.1697506639845074 0.06872986131637182</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_69">
+      <static>true</static>
+      <pose>-3.0540041668202274 -1.8000511085396917 1.272084909180815 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3064037943416587 1.3021113187687468 0.06306397836163047</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_70">
+      <static>true</static>
+      <pose>-6.836970049345225 -5.206639006799691 1.2734555915941113 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.9517129174525838 0.6024228749719605 0.06580534318822284</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_71">
+      <static>true</static>
+      <pose>-3.0727258557931956 -5.275248161511511 1.2719863583106976 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3738160344116737 0.7568765629425558 0.06286687662139578</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_72">
+      <static>true</static>
+      <pose>4.378149198435061 0.6751104440893219 1.2735596361212038 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.406170256464116 1.4052646748451996 0.06601343224240819</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_73">
+      <static>true</static>
+      <pose>6.8115710010612 0.24455054383016867 1.2731280667910199 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.9617029116443065 0.4037871763392046 0.06515029358204005</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_74">
+      <static>true</static>
+      <pose>-5.637525472352128 -0.7057953836747062 1.2758247425716847 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.0960620303145827 1.249477502007478 0.07054364514336942</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_75">
+      <static>true</static>
+      <pose>6.827030333687587 -3.8501966121203965 1.2724644050095522 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.7880817843931984 0.4666141611697192 0.06382297001910464</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_76">
+      <static>true</static>
+      <pose>-4.3417494452354015 -1.857147193427048 1.273765928270778 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.300354164937536 1.4205139744853232 0.06642601654155622</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_77">
+      <static>true</static>
+      <pose>-1.6171357946083273 5.301988026548605 1.2713197347930583 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.0013870317420297 0.7219277005451454 0.061533629586116856</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_78">
+      <static>true</static>
+      <pose>5.587452552271278 0.6093031488053597 1.272247703872927 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.0661313530667051 1.2058386058318389 0.06338956774585425</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_79">
+      <static>true</static>
+      <pose>-6.788287211947329 -1.8508620703599903 1.2720052957621903 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.208827829015612 1.2683995879905265 0.0629047515243808</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_80">
+      <static>true</static>
+      <pose>5.2569934871952615 1.4553814902858069 1.273904513962786 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.6375679132544505 0.39145677707460846 0.0667031879255724</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_81">
+      <static>true</static>
+      <pose>4.348800200288901 1.5855854892549528 1.2747909840246099 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.4697358599324204 0.9160399480309711 0.0684761280492201</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_82">
+      <static>true</static>
+      <pose>-6.780897545956583 -0.5689043858671142 1.2705881016436016 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.247921852178897 1.30601028191377 0.0600703632872035</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_83">
+      <static>true</static>
+      <pose>-5.633646511649406 -5.26562839050044 1.2703738260885005 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.3463436202319992 0.39948160145042433 0.059641812177001485</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_84">
+      <static>true</static>
+      <pose>-0.9685956757271836 4.4359596345950205 1.2717252332845033 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.553586807936174 1.2126405908105893 0.06234462656900708</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_85">
+      <static>true</static>
+      <pose>-6.7771577928082465 1.9503099141984361 1.2728654453452608 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.264021681100128 1.035455440294895 0.06462505069052193</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_86">
+      <static>true</static>
+      <pose>-5.563012706145674 1.9244799858922956 1.2722115331657615 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2934626807088918 1.2851548688975798 0.06331722633152337</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_87">
+      <static>true</static>
+      <pose>-4.194184057062207 -5.262916454244638 1.2745841117085261 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.8442556551708802 0.634741024309653 0.06806238341705262</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_88">
+      <static>true</static>
+      <pose>-4.486879976387237 -0.6716700736825856 1.2762613232347433 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2889711141601978 1.3460772022715095 0.0714168064694869</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_89">
+      <static>true</static>
+      <pose>-6.754445923285711 0.6538627333977786 1.2725034825116512 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.1069139789442755 1.159855386211807 0.06390112502330281</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_90">
+      <static>true</static>
+      <pose>3.148877228352257 1.6226410857124889 1.274202966342683 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.164779176748406 0.8434744504863694 0.06730009268536641</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_91">
+      <static>true</static>
+      <pose>-3.086136222858669 5.292773970244756 1.2728968010071837 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.2749337044400728 0.6718061236723862 0.06468776201436777</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_92">
+      <static>true</static>
+      <pose>-0.9564963679156888 -5.275979038581687 1.2757722838979113 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.47092670126963165 0.6448671536233279 0.07043872779582272</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_93">
+      <static>true</static>
+      <pose>-1.0887625252541824 5.544505812530252 1.2727556441766477 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>0.44774130876938134 0.330734246726057 0.06440544835329565</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="chip_contact_94">
+      <static>true</static>
+      <pose>-5.597081230567498 -1.8973416654542912 1.2725644120097752 0 0 0</pose>
+      <link name="body">
+        <collision name="chips">
+          <geometry>
+            <box>
+              <size>1.437012703588941 1.3970547501809343 0.06402298401955098</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_0">
+      <static>true</static>
+      <pose>9.0428 -7.577450000000001 0.1737 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.5652000000000008 1.3235000000000001 0.3834</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_1">
+      <static>true</static>
+      <pose>-9.43525 0.9417500000000001 0.2458091415277993 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.5167000000000002 1.8289 0.5276182830555987</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_2">
+      <static>true</static>
+      <pose>9.219899999999999 4.448 0.2237528896940419 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4921999999999986 1.9718000000000004 0.4835057793880838</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_3">
+      <static>true</static>
+      <pose>-9.21525 -7.6000000000000005 0.19553410027817492 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.2790999999999997 1.3542000000000005 0.42706820055634986</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_4">
+      <static>true</static>
+      <pose>9.168 6.14875 0.19165 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.209200000000001 1.8902999999999999 0.4193</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_5">
+      <static>true</static>
+      <pose>6.2363 -7.462 0.2860717778002164 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2807999999999993 1.7082000000000006 0.6081435556004329</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_6">
+      <static>true</static>
+      <pose>-9.05865 -6.0445 0.17716474737944543 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3107000000000006 1.9871999999999996 0.3903294947588909</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_7">
+      <static>true</static>
+      <pose>9.295200000000001 2.8504500000000004 0.15339587429724616 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4032 2.2513 0.34279174859449235</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_8">
+      <static>true</static>
+      <pose>-9.14825 7.27825 0.1603885464827412 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3895 1.7965000000000009 0.35677709296548243</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_9">
+      <static>true</static>
+      <pose>9.187999999999999 7.24515 0.1635 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.266399999999999 1.5785 0.36300000000000004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_10">
+      <static>true</static>
+      <pose>-7.7484 -7.46645 0.1306 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1310000000000002 1.4838999999999993 0.2972</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_11">
+      <static>true</static>
+      <pose>-6.1194500000000005 -7.24165 0.3513335305420726 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2053000000000003 2.183700000000001 0.7386670610841453</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_12">
+      <static>true</static>
+      <pose>-2.63755 7.4749 0.3008160759339768 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0538999999999996 1.2312000000000003 0.6376321518679536</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_13">
+      <static>true</static>
+      <pose>9.07565 0.7051999999999999 0.24343670836778808 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.5005000000000006 2.3165999999999998 0.5228734167355762</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_14">
+      <static>true</static>
+      <pose>9.1493 -6.084350000000001 0.29325313812352743 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4505999999999997 1.8778999999999995 0.6225062762470549</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_15">
+      <static>true</static>
+      <pose>-9.2894 4.1578 0.2646284287758661 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3702000000000005 1.9779999999999998 0.5652568575517323</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_16">
+      <static>true</static>
+      <pose>4.297000000000001 7.54685 0.15977653489285304 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2648 1.2687000000000008 0.3555530697857061</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_17">
+      <static>true</static>
+      <pose>-0.9173 -7.4745 0.2301014981028493 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3042 1.6240000000000006 0.49620299620569863</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_18">
+      <static>true</static>
+      <pose>-2.5755 -7.4772 0.22876978094328526 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2514000000000003 1.5107999999999997 0.49353956188657055</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_19">
+      <static>true</static>
+      <pose>9.1813 -4.46785 0.21875641901937914 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4307999999999996 2.0828999999999995 0.4735128380387583</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_20">
+      <static>true</static>
+      <pose>0.8681500000000001 -7.45645 0.09885 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9153 1.4583000000000013 0.23370000000000002</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_21">
+      <static>true</static>
+      <pose>9.109950000000001 -2.5082 0.322842807951919 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4625000000000004 2.5923999999999996 0.681685615903838</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_22">
+      <static>true</static>
+      <pose>-6.21645 7.58155 0.10389999999999996 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9748999999999999 1.1761000000000008 0.24379999999999996</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_23">
+      <static>true</static>
+      <pose>-9.0857 5.85855 0.3426052953604305 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.662799999999999 2.4969 0.721210590720861</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_24">
+      <static>true</static>
+      <pose>7.88855 -7.6622 0.20930023079691534 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9693000000000005 1.63 0.4546004615938307</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_25">
+      <static>true</static>
+      <pose>-9.1401 2.6797 0.35423246972145417 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3707999999999991 2.5637999999999996 0.7444649394429084</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_26">
+      <static>true</static>
+      <pose>-9.05955 -2.49755 0.1360824962960977 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3294999999999995 2.0577000000000005 0.30816499259219543</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_27">
+      <static>true</static>
+      <pose>-9.2035 -4.4392 0.1365858992689638 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6083999999999996 2.1496000000000004 0.30917179853792764</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_28">
+      <static>true</static>
+      <pose>-8.115499999999999 7.4483 0.1597652626798618 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.5149999999999997 1.2881999999999998 0.3555305253597236</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_29">
+      <static>true</static>
+      <pose>-3.83375 -7.3423 0.21565 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.8521 1.7317999999999998 0.46730000000000005</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_30">
+      <static>true</static>
+      <pose>-0.87375 7.3871 0.2441094196595558 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9649 1.3099999999999996 0.5242188393191116</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_31">
+      <static>true</static>
+      <pose>9.27175 -0.9405 0.17729999999999996 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.2135000000000016 2.0646 0.39059999999999995</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_32">
+      <static>true</static>
+      <pose>-9.22635 -0.93455 0.20115 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.1781000000000006 2.3173 0.4383</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_33">
+      <static>true</static>
+      <pose>-4.37355 7.6546 0.28275884856461136 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.5671 1.5730000000000004 0.6015176971292228</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_34">
+      <static>true</static>
+      <pose>6.0886 7.331099999999999 0.20865249532864555 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9736000000000002 1.5029999999999992 0.45330499065729113</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_35">
+      <static>true</static>
+      <pose>0.8492999999999999 7.5077 0.2346923775790002 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8754 1.3533999999999997 0.5053847551580004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_36">
+      <static>true</static>
+      <pose>2.7678000000000003 7.444750000000001 0.12145 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1362 1.1937000000000006 0.27890000000000004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_37">
+      <static>true</static>
+      <pose>5.25655 -7.3424499999999995 0.21814999999999998 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.6014999999999997 1.4892999999999992 0.4723</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_38">
+      <static>true</static>
+      <pose>7.91385 7.4876000000000005 0.16775225165471735 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9990999999999994 1.2058000000000009 0.37150450330943474</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_39">
+      <static>true</static>
+      <pose>7.9167 4.316599999999999 0.3060084840157262 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8789999999999996 2.0622 0.6480169680314525</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_40">
+      <static>true</static>
+      <pose>2.0219 -7.6991 0.18489999999999995 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6076 1.7584000000000009 0.40579999999999994</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_41">
+      <static>true</static>
+      <pose>-2.70555 6.5028500000000005 0.30571705384406356 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9936999999999998 1.8501000000000003 0.6474341076881271</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_42">
+      <static>true</static>
+      <pose>-7.902950000000001 6.2294 0.22286697168238181 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.984700000000001 2.3127999999999993 0.48173394336476366</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_43">
+      <static>true</static>
+      <pose>-0.80535 6.1185 0.19814999999999994 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3397 2.1728000000000005 0.4322999999999999</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_44">
+      <static>true</static>
+      <pose>0.85665 -6.1531 0.17435 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9703000000000002 1.8864 0.38470000000000004</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_45">
+      <static>true</static>
+      <pose>7.328849999999999 5.93225 0.3408975634992747 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.937499999999999 2.3857 0.7177951269985494</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_46">
+      <static>true</static>
+      <pose>-8.18605 4.35795 0.3071992722261171 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9356999999999998 1.7798999999999996 0.6503985444522342</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_47">
+      <static>true</static>
+      <pose>-1.01745 -6.0836500000000004 0.35023628227697334 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3435 2.0269000000000004 0.7364725645539467</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_48">
+      <static>true</static>
+      <pose>5.1691 -6.5153 0.08844999999999992 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.38260000000000005 1.0140000000000002 0.21289999999999987</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_49">
+      <static>true</static>
+      <pose>7.72725 0.7373000000000001 0.3342202297542344 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2463000000000006 2.4774 0.7044404595084688</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_50">
+      <static>true</static>
+      <pose>6.1662 -6.25945 0.28099970334834357 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1576000000000004 2.2432999999999996 0.5979994066966872</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_51">
+      <static>true</static>
+      <pose>8.20655 -0.5530499999999999 0.23040393329159015 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6933000000000007 1.8385 0.4968078665831803</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_52">
+      <static>true</static>
+      <pose>8.19445 -2.65675 0.3045481306286594 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.694300000000001 2.6323 0.6450962612573188</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_53">
+      <static>true</static>
+      <pose>-7.77225 -6.1422 0.21365716576157245 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.6615 2.4643999999999995 0.46331433152314494</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_54">
+      <static>true</static>
+      <pose>-6.2766 6.3559 0.19314523107966342 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.4164000000000003 1.7254000000000005 0.42229046215932686</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_55">
+      <static>true</static>
+      <pose>2.03445 -6.0322499999999994 0.2593999999999999 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.6148999999999998 2.2771 0.5547999999999998</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_56">
+      <static>true</static>
+      <pose>-8.4733 2.381 0.37107158281195834 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9487999999999994 2.4622 0.7781431656239167</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_57">
+      <static>true</static>
+      <pose>0.8410500000000001 -4.8779 0.08834999999999998 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8811 1.1621999999999995 0.2127</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_58">
+      <static>true</static>
+      <pose>7.950950000000001 2.46945 0.2964499999999999 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.8019000000000007 2.6773 0.6288999999999998</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_59">
+      <static>true</static>
+      <pose>-8.1369 1.1185 0.3424311195730255 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4504000000000001 1.7648000000000001 0.7208622391460511</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_60">
+      <static>true</static>
+      <pose>1.02105 6.1354500000000005 0.33662943045331173 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2819 2.0158999999999994 0.7092588609066235</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_61">
+      <static>true</static>
+      <pose>7.9186499999999995 -4.4033999999999995 0.21689999999999987 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9645000000000001 2.7816 0.4697999999999998</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_62">
+      <static>true</static>
+      <pose>-8.2792 -4.2044 0.17064999999999997 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9626000000000001 1.9619999999999997 0.37729999999999997</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_63">
+      <static>true</static>
+      <pose>-8.157350000000001 -2.4778000000000002 0.3620135662081685 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.250300000000001 2.0516 0.760027132416337</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_64">
+      <static>true</static>
+      <pose>-8.17085 -0.7727 0.2686071239364766 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.8871000000000002 2.3930000000000002 0.5732142478729533</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_65">
+      <static>true</static>
+      <pose>0.81595 4.078749999999999 0.3110840816835082 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3659 2.4951 0.6581681633670164</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_66">
+      <static>true</static>
+      <pose>-0.19215 -4.9943 0.07755000000000001 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.4971 0.4588000000000001 0.19110000000000005</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_67">
+      <static>true</static>
+      <pose>-0.4945 4.2331 0.193245677609036 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.3822 1.7345999999999995 0.422491355218072</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_68">
+      <static>true</static>
+      <pose>7.72465 -6.1358 0.3572439373423871 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.6000999999999994 1.9169999999999998 0.7504878746847742</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_69">
+      <static>true</static>
+      <pose>6.12715 6.19475 0.1975 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0177000000000005 2.0412999999999997 0.43100000000000005</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_70">
+      <static>true</static>
+      <pose>-4.6174 6.25 0.3561386609670238 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.3154 1.9309999999999992 0.7482773219340476</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_71">
+      <static>true</static>
+      <pose>2.6413 6.0417000000000005 0.22510102932083248 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.415 2.2597999999999994 0.486202058641665</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_72">
+      <static>true</static>
+      <pose>-6.04765 -6.55015 0.2978981897670362 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9053000000000004 1.8100999999999994 0.6317963795340724</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_73">
+      <static>true</static>
+      <pose>-4.3904499999999995 -6.53415 0.22307748962382906 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.9006999999999996 1.1842999999999995 0.48215497924765816</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_74">
+      <static>true</static>
+      <pose>2.67815 4.5039 0.190652199670153 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0546999999999995 1.9945999999999997 0.41730439934030605</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_75">
+      <static>true</static>
+      <pose>-2.44725 -6.63225 0.16610000000000003 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2981 1.3231000000000002 0.3682000000000001</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_76">
+      <static>true</static>
+      <pose>4.311 6.2888 0.18400000000000005 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.2058 2.248 0.40400000000000014</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_77">
+      <static>true</static>
+      <pose>6.15135 4.54115 0.37181481459774457 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0420999999999996 2.5696999999999997 0.7796296291954892</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_78">
+      <static>true</static>
+      <pose>4.5367999999999995 4.48625 0.29032126008339976 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.309 2.3551 0.6166425201667995</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_79">
+      <static>true</static>
+      <pose>6.10425 2.6713500000000003 0.31262154122850927 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0080999999999998 2.0139 0.6612430824570186</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_80">
+      <static>true</static>
+      <pose>6.33555 1.3029 0.08585000000000009 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4215 1.8328 0.20770000000000022</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_81">
+      <static>true</static>
+      <pose>0.945 2.99245 0.36148495202201336 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.0835999999999997 1.4011 0.7589699040440263</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_82">
+      <static>true</static>
+      <pose>2.36295 2.7981499999999997 0.2751500000000002 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>3.0749 2.3905 0.5863</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_83">
+      <static>true</static>
+      <pose>4.2849 2.7771999999999997 0.2943585042236211 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>2.1670000000000003 2.0616 0.6247170084472418</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_84">
+      <static>true</static>
+      <pose>2.1773499999999997 -4.838050000000001 0.09405000000000019 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.0345 0.9699 0.22409999999999997</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_85">
+      <static>true</static>
+      <pose>6.4219 -4.90045 0.0768000000000002 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>1.4596 1.2081 0.1896</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="perimeter_contact_86">
+      <static>true</static>
+      <pose>-0.27315 2.9729 0.11655000000000015 0 0 0</pose>
+      <link name="body">
+        <collision name="rubble">
+          <geometry>
+            <box>
+              <size>0.5126999999999999 0.8294000000000001 0.2690999999999999</size>
+            </box>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="outdoor_gravel">
+      <static>true</static>
+      <link name="body">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>meshes/outdoor_gravel.obj</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.95 0.95 0.95 1</ambient>
+            <diffuse>0.95 0.95 0.95 1</diffuse>
+            <specular>.03 .03 .03 1</specular>
+            <pbr>
+              <metal>
+                <albedo_map>rubble-albedo.png</albedo_map>
+                <roughness>.95</roughness>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>

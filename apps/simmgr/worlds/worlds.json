@@ -878,14 +878,14 @@
       "map_metadata": "collapsed_house_v2/maps/metadata.json",
       "scenarios": "collapsed_house_v2/scenarios.json",
       "ledger_key": "collapsed_house_v2/f1",
-      "height_source": "heightfield_and_house_triangles",
+      "height_source": "dust_heightfield_and_loose_convex_pieces",
       "readiness": "draft",
       "native_supported": false,
       "notes": "앱 오프라인 MuJoCo/three.js 전용; 서버 지도 등록 가능, Gazebo 실행 adapter 추가 필요.",
       "sha256": {
-        "world": "5103a894af1d2f1c4daaf28ffe977db0d03719d853db41a48559c2250e27b94c",
-        "map": "a985b9168be82c1b452892998ac92ecbe51087ce44d66ded5f773f90430465a5",
-        "metadata": "13f08333aa52d881eae72870876223365212e5d6c79a6c3365e8e94389558026"
+        "world": "9aa4ca3efbefbce01e8b836598d0a6fc2aa8b7151d7d2dcc556088cdc704f027",
+        "map": "4363df75e6204d4f341bd0f4fd18366aee351ce9b5bc5e6e952a2db7e9982661",
+        "metadata": "6d4dc5971544c145f2966401673327162936e60cc14e79f52c2ee30f11207c0c"
       }
     }
   }

@@ -218,7 +218,7 @@ async function main() {
   resize();
 
   // 창고: scene.json 의 메시를 모델 자세에 놓는다. quat 은 w,x,y,z
-  const geoCache = {}, solids = [];   // solids = 찍기에서 바닥보다 먼저 맞으면 거절하는 장면 메시(창고·공장·로봇)
+  const geoCache = {}, textureCache = {}, solids = [];   // solids = 찍기에서 바닥보다 먼저 맞으면 거절하는 장면 메시(창고·공장·로봇)
   for (const md of sceneJ.models) {
     let geo = geoCache[md.mesh];
     if (!geo) {
@@ -226,9 +226,17 @@ async function main() {
       geo = geoCache[md.mesh] = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(src.p, 3));
       geo.setIndex(src.i);
+      if (src.uv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(src.uv, 2));
       geo.computeVertexNormals();
     }
-    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), side: THREE.DoubleSide }));
+    let texture = null;
+    if (md.texture) {
+      if (!/^[a-z0-9_-]+\.png$/.test(md.texture)) throw new Error('장면 재질 파일 형식');
+      texture = textureCache[md.texture] ??= await new THREE.TextureLoader().loadAsync(`${dir}/${md.texture}`);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      if (md.texture_repeat) texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+    }
+    const mesh = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, flatShading: !!md.flat_shading, side: THREE.DoubleSide }));
     mesh.position.set(...md.pos);
     mesh.quaternion.set(md.quat[1], md.quat[2], md.quat[3], md.quat[0]);
     scene.add(mesh); solids.push(mesh);
