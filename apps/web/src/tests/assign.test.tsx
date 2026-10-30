@@ -15,7 +15,7 @@ import { adminNoStop } from './adminStop';
 
 const KIM: User = { id: 'a1', username: 'kim', display_name: '김총괄', role: 'ORG_ADMIN', locked: false, robot_ids: [], created_at: '2026-10-19T00:00:00Z' };
 const LEE: User = { ...KIM, id: 'o1', username: 'lee', display_name: '이운영', role: 'OPERATOR', robot_ids: ['r-a'] };
-const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner.id, display_name: owner.display_name }, simulation: false,
+const robot = (id: string, name: string, owner: User): RobotSummary => ({ id, name, model: 'unitree_go2', owner: { id: owner.id, display_name: owner.display_name }, simulation: false, server_drive_allowed: false,
   connection: 'OFFLINE', status: null, battery: null, location: null, lease: null, current_run: null, devices: [], attention: [] });
 const RA = robot('r-a', 'Go2-A', LEE), RB = robot('r-b', 'Go2-B', { ...LEE, id: 'o2', display_name: '박운영' });
 /** 끝낸(IDLE) 시뮬 슬롯 — 서버는 담당을 비운 채 /robots 에 남긴다. extra 에 넣은 시험에서만 목록에 */
