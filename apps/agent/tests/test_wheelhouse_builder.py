@@ -68,6 +68,20 @@ def test_dependency_markers_use_target_python_not_preparing_host(tmp_path):
     assert builder.target_dependencies(tmp_path, '3.12') == []
 
 
+def test_supplied_cyclonedds_requires_reviewed_hash_pin_and_arm64(tmp_path):
+    path = tmp_path/'cyclonedds-0.10.2-cp310-cp310-manylinux2014_aarch64.whl'
+    with zipfile.ZipFile(path, 'w') as wheel:
+        wheel.writestr('cyclonedds-0.10.2.dist-info/METADATA', 'Name: cyclonedds\nVersion: 0.10.2\n')
+        wheel.writestr('cyclonedds/binding.so', b'fixture only; full ELF audit still required')
+    assert builder.provided_cyclonedds(path, builder.digest(path)) == path
+    with pytest.raises(ValueError):
+        builder.provided_cyclonedds(path, '0'*64)
+    path.rename(tmp_path/'cyclonedds-0.10.2-cp310-cp310-linux_x86_64.whl')
+    with pytest.raises(ValueError):
+        other = tmp_path/'cyclonedds-0.10.2-cp310-cp310-linux_x86_64.whl'
+        builder.provided_cyclonedds(other, builder.digest(other))
+
+
 def test_preflight_reports_missing_external_dds_without_loading_it(tmp_path, monkeypatch):
     from types import SimpleNamespace
     dist = SimpleNamespace(files=['binding.so'], locate_file=lambda p: tmp_path/p)

@@ -56,6 +56,10 @@ SDK는 domain 0을 계획한다. 이 스크립트는 실행 중 DDS 도메인·�
 
 ## 2. 인터넷 없이 설치하기 위한 파일 목록
 
+**현재 차단 항목:** PyPI의 고정 CycloneDDS 0.10.2 ARM64 wheel 부재로 실제 생성은
+INCOMPLETE다. [DDS-BUILD-PATHS.md](DDS-BUILD-PATHS.md)의 사전 Orin 인터넷 빌드 또는
+별도 ARM64 환경에서의 두 고정 소스 빌드를 준비해야 한다. 이 PC에서는 설치/ARM 빌드를 하지 않는다.
+
 인터넷이 있는 준비 PC의 **기존 Python 3.12 + setuptools/wheel/pip/readelf**로 만든다.
 새 패키지를 설치하지 않는다. 기본은 계획만 표시하며, 새 `runs/` 경로에 명시적
 `--download`를 붙여야 다운로드/소스 wheel 빌드가 시작된다. 대상 ABI는 실제 Orin의

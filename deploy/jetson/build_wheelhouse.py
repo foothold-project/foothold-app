@@ -108,16 +108,38 @@ def target_dependencies(wheels, python_version):
     return sorted(set(missing))
 
 
+def provided_cyclonedds(path, expected):
+    if (not expected or not re.fullmatch(r'[0-9a-f]{64}', expected) or path.is_symlink()
+            or not path.is_file() or digest(path) != expected or
+            not path.name.endswith('.whl') or 'aarch64' not in path.name):
+        raise ValueError('reviewed ARM64 CycloneDDS wheel and exact SHA256 required')
+    with zipfile.ZipFile(path) as wheel:
+        metadata = [n for n in wheel.namelist() if n.endswith('.dist-info/METADATA')]
+        if len(metadata) != 1:
+            raise ValueError('exactly one wheel metadata record required')
+        fields = BytesParser().parsebytes(wheel.read(metadata[0]))
+        if ((fields['Name'] or '').lower() != 'cyclonedds' or fields['Version'] != '0.10.2' or
+                not any('.so' in Path(n).name for n in wheel.namelist())):
+            raise ValueError('reviewed CycloneDDS 0.10.2 native wheel required')
+    return path
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output', type=Path, required=True, help='new path inside runs/')
     parser.add_argument('--python-version', required=True, choices=('3.10', '3.11', '3.12'))
     parser.add_argument('--download', action='store_true', help='otherwise show plan only')
+    parser.add_argument('--cyclonedds-wheel', type=Path, help='reviewed external ARM64 0.10.2 wheel')
+    parser.add_argument('--cyclonedds-sha256', help='reviewed wheel SHA256; mandatory with wheel')
     args = parser.parse_args(argv)
     try:
         output = args.output.resolve()
         if 'runs' not in output.parts or args.output.is_symlink() or output.exists():
             raise ValueError('new directory under runs/ required')
+        if bool(args.cyclonedds_wheel) != bool(args.cyclonedds_sha256):
+            raise ValueError('CycloneDDS wheel and hash must be provided together')
+        supplied = (provided_cyclonedds(args.cyclonedds_wheel, args.cyclonedds_sha256)
+                    if args.cyclonedds_wheel else None)
         if not args.download:
             print('Plan: ARM64 binary download + pinned SDK/agent pure wheels; no installation')
             return 0
@@ -146,10 +168,16 @@ def main(argv=None):
             run([sys.executable, '-I', '-c', build, str(wheels)], cwd=source, env=env)
         if any(not p.name.endswith('-py3-none-any.whl') for p in wheels.glob('*.whl')):
             raise ValueError('source builds must be pure Python wheels')
+        if supplied is not None:
+            shutil.copyfile(supplied, wheels/supplied.name)
         download = [sys.executable, '-I', '-m', 'pip', 'download', '--platform', 'manylinux2014_aarch64',
              '--python-version', args.python_version, '--implementation', 'cp',
              '--abi', 'cp'+args.python_version.replace('.', ''),
              '--only-binary=:all:', '--dest', str(wheels)]
+        if supplied is not None:
+            # A wheel built on the exact target may legitimately use linux_aarch64.
+            # It is NOT relabeled as manylinux; target libc review remains required.
+            download.extend(['--platform', 'linux_aarch64'])
         run([*download, *PINS, *map(str, sorted(wheels.glob('*.whl')))], cwd=output, env=env)
         for _ in range(8):
             missing = target_dependencies(wheels, args.python_version)
@@ -172,6 +200,8 @@ def main(argv=None):
         provenance = {'agent_commit': commit, 'sdk_commit': SDK_COMMIT,
                       'agent_source_sha256': digest(agent_archive),
                       'sdk_source_sha256': digest(archive), 'platform': 'manylinux2014_aarch64',
+                      'supplied_cyclonedds_sha256': args.cyclonedds_sha256,
+                      'native_target_abi_review_required': supplied is not None,
                       'python': args.python_version, 'native_libraries': audit,
                       'dds_external_so_check': 'Review NEEDED and verify resolution on target preflight',
                       'installed': False, 'robot_tested': False}

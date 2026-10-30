@@ -8,6 +8,7 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import sysconfig
 import re
 from ctypes.util import find_library
 
@@ -99,6 +100,7 @@ def main():
         report['ready_for_runtime_review'] = False
     jetpack = Path('/etc/nv_tegra_release')
     report.update({'machine': platform.machine(), 'python': platform.python_version(),
+                   'python_abi': sysconfig.get_config_var('SOABI'),
                    'libc': list(platform.libc_ver()), 'packages': packages, 'interfaces': links,
                    'l4t': jetpack.read_text().splitlines()[0] if jetpack.exists() else None})
     print(json.dumps(report, indent=2, ensure_ascii=False))
