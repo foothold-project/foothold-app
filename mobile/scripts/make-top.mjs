@@ -32,19 +32,23 @@ function bounds(sc, map) {
   return [b[0] - PAD, b[1] - PAD, b[2] + PAD, b[3] + PAD];
 }
 
-const page = (scenePath, b, W, H) => `<!doctype html><meta charset="utf-8"><script type="module">
+const page = (scenePath, textureURLs, b, W, H) => `<!doctype html><meta charset="utf-8"><script type="module">
 import * as THREE from '${pathToFileURL(join(src, 'vendor/three.module.js'))}';
-const sc = await (await fetch('${pathToFileURL(scenePath)}')).json(), [x0, y0, x1, y1] = ${JSON.stringify(b)};
+const sc = await (await fetch('${pathToFileURL(scenePath)}')).json(), textureURLs = ${JSON.stringify(textureURLs)}, [x0, y0, x1, y1] = ${JSON.stringify(b)};
 const w = x1 - x0, h = y1 - y0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
 const r = new THREE.WebGLRenderer({ antialias: true }); r.setPixelRatio(1); r.setSize(${W}, ${H});
 const s = new THREE.Scene(); s.background = new THREE.Color(0x14171c);
 s.add(new THREE.HemisphereLight(0xffffff, 0x404048, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.4); sun.position.set(-4, -6, 10); s.add(sun);
-const cache = {};
+const cache = {}, textures = {};
 for (const md of sc.models) {   // main.js 와 같은 방식(quat = w,x,y,z)
   const g = cache[md.mesh] ??= (() => { const m = sc.meshes[md.mesh], b = new THREE.BufferGeometry();
-    b.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); b.setIndex(m.i); b.computeVertexNormals(); return b; })();
-  const o = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), side: THREE.DoubleSide }));
+    b.setAttribute('position', new THREE.Float32BufferAttribute(m.p, 3)); b.setIndex(m.i);
+    if (m.uv) b.setAttribute('uv', new THREE.Float32BufferAttribute(m.uv, 2)); b.computeVertexNormals(); return b; })();
+  const texture = md.texture ? (textures[md.texture] ??= await new THREE.TextureLoader().loadAsync(textureURLs[md.texture])) : null;
+  if (texture) { texture.colorSpace = THREE.SRGBColorSpace;
+    if (md.texture_repeat) texture.wrapS = texture.wrapT = THREE.RepeatWrapping; }
+  const o = new THREE.Mesh(g, new THREE.MeshLambertMaterial({ color: new THREE.Color(...md.color), map: texture, flatShading: !!md.flat_shading, side: THREE.DoubleSide }));
   o.position.set(...md.pos); o.quaternion.set(md.quat[1], md.quat[2], md.quat[3], md.quat[0]); s.add(o);
 }
 const cam = new THREE.OrthographicCamera(-w / 2, w / 2, h / 2, -h / 2, 0.1, 200);
@@ -64,8 +68,13 @@ for (const id of ids) {
   if (meta) { console.log(`${id}: top.json ${W}×${H}`); continue; }
   const shots = [{ top: 'top.png', scene: 'scene.json' }, ...(floors ?? []).map((f) => ({ top: f.top, scene: `scene-${f.id}.json` }))];
   for (const shot of shots) {
+    const scenePath = join(dir, shot.scene), scene = JSON.parse(readFileSync(scenePath, 'utf8')), textureURLs = {};
+    for (const { texture } of scene.models) if (texture) {
+      if (typeof texture !== 'string' || !/^[a-z0-9_-]+\.png$/.test(texture)) throw new Error('장면 재질 파일 형식');
+      textureURLs[texture] = pathToFileURL(join(dir, texture)).href;
+    }
     const prof = mkdtempSync(join(tmpdir(), 'fh-top-')), out = join(dir, shot.top), html = join(prof, 'top.html');
-    writeFileSync(html, page(join(dir, shot.scene), b, W, H));
+    writeFileSync(html, page(scenePath, textureURLs, b, W, H));
     try {
       const { stdout } = await promisify(execFile)(chrome, ['--headless=new', `--user-data-dir=${prof}`, '--no-first-run', '--allow-file-access-from-files', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
         '--virtual-time-budget=15000', '--dump-dom', pathToFileURL(html).href], { timeout: 120_000, maxBuffer: 64 << 20 });
