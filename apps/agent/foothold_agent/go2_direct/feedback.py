@@ -46,11 +46,13 @@ class Feedback:
             return
         serial = f'{sn[0]}-{sn[1]}'
         with self._lock:
-            if (not 0 <= self.now()-received <= FEEDBACK_MAX_AGE_S or self.sink is not sink
-                    or (sink is not None and sink.generation != generation)):
-                return
+            # Identity conflict is permanent evidence, even if motion evidence
+            # aged out or crossed STOP while this callback waited for the lock.
             if serial != self.serial:
                 self._fault = True
+                return
+            if (not 0 <= self.now()-received <= FEEDBACK_MAX_AGE_S or self.sink is not sink
+                    or (sink is not None and sink.generation != generation)):
                 return
             if not integer(tick, 0xFFFFFFFF):
                 return
