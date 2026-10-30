@@ -4,9 +4,10 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 
-from apps.server.fh_server.models import Robot
+from apps.server.fh_server.models import Robot, Event
 from apps.server.fh_server.phone_pass import revoke
 from .test_phone_pass import pc, issue
 from .test_realtime import app_token, screen, send, reply, receive, state
@@ -95,6 +96,24 @@ def test_expired_pass_and_missing_login_rejected(pc, seeded):
     pc.cookies.clear()
     response = pc.post(f'/api/v1/robots/{body["robot"]}/phone-state', json=body)
     assert response.status_code == 401
+
+
+def test_relay_controller_does_not_become_stop_recipient_after_assignment_changes(pc, seeded):
+    body = upload(pc, seeded)
+    pc.upload_headers = app_token(pc)
+    body['state'].update(controller=str(seeded['users']['one']), controller_connected=True)
+    assert post(pc, body).status_code == 204
+    with DBSession(pc.app.state.engine) as db:
+        db.get(Robot, seeded['robots']['mine']).owner_user_id = seeded['users']['two']
+        db.commit()
+    request_id = str(uuid4())
+    response = pc.post(f'/api/v1/robots/{body["robot"]}/stop-requests',
+        headers=app_token(pc, 'admin'), json={'request_id': request_id})
+    assert response.status_code == 202 and response.json()['status'] == 'REQUESTED'
+    with DBSession(pc.app.state.engine) as db:
+        event = db.scalar(select(Event).where(Event.code == 'STOP_REQUESTED',
+            Event.data['request_id'].astext == request_id))
+        assert event.data['recipients'] == [str(seeded['users']['two'])]
 
 
 def test_replay_rate_stale_identity_expiry_and_no_store_forward(pc, seeded):
