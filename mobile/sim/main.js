@@ -11,6 +11,7 @@ import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts, MAX_VX } from './scenario.js';
+import { findPath, planRoute } from './astar.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
@@ -80,13 +81,14 @@ stick($('stickL'), (x, y) => { const axes = adapter.stop.pause ? goalAxes : joy;
 stick($('stickR'), (x) => { (adapter.stop.pause ? goalAxes : joy)[2] = r2(-x * adapter.command.joystickScale[2]); });
 const inRange = (c) => adapter.command.inRange(c);
 
-// ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): ↑·W / ↓·S = 앞·뒤, ←·A / →·D = 회전, 막대를 끝까지 민 값과 같다. 떼면 0.
+// ── 키(컴퓨터는 조이스틱을 숨김 — index.html 의 (hover: hover) and (pointer: fine)): 실기 웹 조종칸(serverdrive)과 같게 ↑·W / ↓·S = 앞·뒤,
+// ← / → = 옆걸음(왼 막대 좌우), A / D = 제자리 회전(오른 막대), 막대를 끝까지 민 값과 같다. 떼면 0. 학습 범위 밖은 자르지 않고 테두리 색만
 // STOP 중에 누른 키와 잠글 때 쥐고 있던 키는 버린다(반복 keydown 무시) — «다시 시작» 뒤 새로 눌러야 움직인다. Esc·Space = STOP. 입력칸·고르기 칸에서는 조종 안 함
-const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [2, 1], KeyA: [2, 1], ArrowRight: [2, -1], KeyD: [2, -1] };
+const KEYS = { ArrowUp: [0, 1], KeyW: [0, 1], ArrowDown: [0, -1], KeyS: [0, -1], ArrowLeft: [1, 1], ArrowRight: [1, -1], KeyA: [2, 1], KeyD: [2, -1] };
 const held = new Set();
-const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 1 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
+const keyAxes = () => {   // 축마다 방향 하나씩(↑+W 도 끝 값 — 막대 범위를 넘지 않음), 반대 방향 둘 다면 0
   const axes = adapter.stop.pause ? goalAxes : joy, on = (i, v) => [...held].some((k) => KEYS[k][0] === i && KEYS[k][1] === v);
-  for (const i of [0, 2]) axes[i] = r2((on(i, 1) - on(i, -1)) * adapter.command.joystickScale[i]);
+  for (const i of [0, 1, 2]) axes[i] = r2((on(i, 1) - on(i, -1)) * adapter.command.joystickScale[i]);
 };
 const dropKeys = () => { held.clear(); keyAxes(); };
 sticks.push({ release: dropKeys });   // lock()·#go·시나리오 실행이 막대와 함께 놓는다
@@ -184,7 +186,7 @@ async function main() {
   const away = () => { const c = scenarios.find((x) => x.id === select.value); return c && c.floor !== undefined && c.floor !== here ? c : null; };   // 다른 층 시나리오
   const scenarioUI = () => {
     const far = away();
-    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${runner.index + 1}/${runner.points.length}`
+    const text = runner.active && runner.goal ? '찍은 곳으로 가는 중' : adapter.stop.pause ? 'AME-2는 두 막대로 조종하세요' : runner.active ? `지점 ${(runner.points[runner.index]?.mark ?? 0) + 1}/${runner.points.at(-1).mark + 1}`
       : far ? `${floors[far.floor].name} 시나리오 — 실행하면 ${floors[far.floor].name} 출발점에 다시 세워 시작` : runner.status;
     if (text !== scenarioText) { $('scenarioStatus').textContent = scenarioText = text; }
     select.disabled = runner.active || !scenarios.length || adapter.stop.pause;
@@ -306,11 +308,11 @@ async function main() {
     new THREE.PointsMaterial({ color: 0x39ff88, size: 4, sizeAttenuation: false }));
   lidarPts.frustumCulled = false;
   scene.add(lidarPts);
-  let lastScan = 0, front = Infinity;
+  let lastScan = 0, front = Infinity, rays = null;   // rays = 마지막 라이다 줄(다시 찾기에 앞 장애물로)
   const yawOf = () => 2 * Math.atan2(d.qpos[6], d.qpos[3]); // 기울기 무시한 근사(서 있을 때 충분)
   const scan = () => {
     const x = d.qpos[0], y = d.qpos[1], z = d.qpos[2] + 0.1, yaw = yawOf(), r = lidar(x, y, z, yaw);
-    front = frontDistance(r);
+    front = frontDistance(r); rays = r;
     for (let i = 0; i < LN; i++) {
       const a = yaw + (i * 2 * Math.PI) / LN, k = Number.isFinite(r[i]) ? r[i] : 0;
       lidarPos.set(k ? [x + Math.cos(a) * k, y + Math.sin(a) * k, z] : [x, y, -100], i * 3);
@@ -329,22 +331,78 @@ async function main() {
     if (!chosen) return;
     const far = away();
     if (far) spawnOn(far.floor);
+    // 지점 사이도 찍은 점과 같은 A* 경유점으로 잇는다(안전 규칙은 실행기 그대로 — 막히면 멈춤, 다시 찾기는 찍은 점만)
+    const pts = planRoute(map, { x: d.qpos[0], y: d.qpos[1] }, chosen.points);
+    if (!pts) { runner.status = '갈 수 있는 길이 없습니다'; scenarioUI(); return; }
     sticks.forEach((s) => s.release());
     scan(); lastScan = performance.now();
-    runner.start(chosen.points);
+    runner.start(pts);
     runner.tick(front); // 가까운 장애물은 실행 순간부터 0
     scenarioUI();
   };
 
-  // ── 찍은 곳으로 가기: 캔버스를 짧게 누르면(끌기·두 손가락 아님) 그 바닥 점까지 위 실행기로 곧게 간다(길 찾기 없음 — 막히면 멈춤).
-  // 안전 규칙은 시나리오와 같다(STOP·흐림·숨김·pagehide·reset = 취소+잠금, 넘어짐·앞 막힘·5초 진전 없음 = 멈춤). 막대·키 = 취소만(손 조종 우선)
-  const goalMark = new THREE.Mesh(new THREE.RingGeometry(0.12, 0.24, 32), new THREE.MeshBasicMaterial({ color: 0xffd54f, depthTest: false, transparent: true }));
-  goalMark.renderOrder = 2; goalMark.visible = false; scene.add(goalMark);
+  // ── 찍은 점 가기: 캔버스를 짧게 누를 때마다(끌기·두 손가락 아님) 그 바닥 점을 끝에 추가 → «출발»로 차례대로 간다. 가는 중에 찍어도 끝에 추가.
+  // 점 사이는 층 지도 A*(astar.js) 경유점 — 길이 없으면 그 점을 받지 않는다. 막히면(앞 막힘·진전 없음) 지금 자리에서 앞 라이다 장애물을 더해 한 번만 다시 찾고, 또 막히면 멈춤.
+  // 안전 규칙은 시나리오와 같다(STOP·흐림·숨김·pagehide·reset = 취소+잠금, 넘어짐 = 멈춤). 막대·키 = 취소만(손 조종 우선). 끝나거나 끊기면 못 간 점은 남는다(«출발»로 이어 감)
   const ray = new THREE.Raycaster(), floor = new THREE.Plane(new THREE.Vector3(0, 0, 1), -map.floor_z), hit = new THREE.Vector3();
   let vp = [0, 0, 1, 1];   // 마지막으로 그린 칸(CSS px 왼쪽·위·폭·높이) — 누른 점을 그 칸의 카메라로 바닥에 비춘다
-  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 넘어짐: '넘어져서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다' };
+  const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 넘어짐: '넘어져서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
   let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
+  let marks = [], plan = [], planFrom = null, retried = false;   // 찍은 점, 그리는(가는) 경유점(mark = 점 번호), 경유점 선의 출발 자리, 이번 출발에서 다시 찾았나
   const say = (text) => { note = { text, until: performance.now() + 4000 }; };
+  const pos = () => ({ x: d.qpos[0], y: d.qpos[1] });
+  // 번호 표시(점) + 경유점 선 — 바뀔 때만 다시 만든다
+  const marksG = new THREE.Group(), numTex = [];
+  scene.add(marksG);
+  const tex = (n) => numTex[n] ??= (() => {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d'); g.fillStyle = '#ffd54f'; g.beginPath(); g.arc(32, 32, 30, 0, 2 * Math.PI); g.fill();
+    g.fillStyle = '#14171c'; g.font = 'bold 36px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(String(n), 32, 34);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
+  const drawMarks = () => {
+    while (marksG.children.length) { const c = marksG.children[0]; marksG.remove(c); if (c.isLine) c.geometry.dispose(); c.material.dispose(); }
+    const z = map.floor_z + 0.08;
+    if (plan.length && planFrom) {
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([planFrom, ...plan].map((p) => new THREE.Vector3(p.x, p.y, z))), new THREE.LineBasicMaterial({ color: 0xffd54f, depthTest: false }));
+      line.renderOrder = 2; marksG.add(line);
+    }
+    marks.forEach((p, i) => {
+      const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex(i + 1), depthTest: false }));
+      s.position.set(p.x, p.y, z); s.renderOrder = 3; marksG.add(s);   // 크기는 frame 이 화면 28 px 로 맞춘다
+    });
+    $('wpGo').hidden = $('wpClear').hidden = !marks.length;
+  };
+  // 앞 ±30° 1 m 안 라이다 점 = 지도에 없을 수 있는 장애물(다시 찾기에만 더함)
+  const seen = () => {
+    const out = [], yaw = yawOf(), n = rays?.length ?? 0;
+    for (let i = 0; i < n; i++) {
+      if (Math.min(i, n - i) * 2 * Math.PI / n > Math.PI / 6 || !(rays[i] <= 1)) continue;
+      const a = yaw + (i * 2 * Math.PI) / n; out.push({ x: d.qpos[0] + Math.cos(a) * rays[i], y: d.qpos[1] + Math.sin(a) * rays[i] });
+    }
+    return out;
+  };
+  const begin = (p, from) => {
+    plan = p; planFrom = from;
+    sticks.forEach((s) => s.release());
+    scan(); lastScan = performance.now();
+    runner.start(plan, true);
+    drawMarks();
+    runner.tick(front);   // 이미 닿았거나 막혔으면 바로 0
+  };
+  // 찍은 점 가기가 끝남(완료·막힘·취소) — 간 점은 지우고, 막힘이면 이번 출발에 한 번만 지금 자리에서 다시 찾는다
+  const finish = () => {
+    const cut = () => { marks = marks.slice(runner.points[runner.index]?.mark ?? marks.length); };
+    cut();
+    if (runner.status === '막힘' && !retried && marks.length) {
+      retried = true;
+      const p = planRoute(map, pos(), marks, seen());
+      if (p) { begin(p, pos()); if (runner.active) return say('막혀서 지금 자리에서 길을 다시 찾았습니다'); cut(); }
+    }
+    plan = (marks.length && planRoute(map, pos(), marks)) || []; planFrom = pos();
+    drawMarks();
+    say((GOAL_END[runner.status] ?? runner.status) + (marks.length ? ` — 남은 점 ${marks.length}개, «출발»로 이어 갑니다` : ''));
+  };
   const goTo = (cx, cy) => {
     const [l, t, w, h] = vp;
     if (!ready || cx < l || cy < t || cx > l + w || cy > t + h) return;
@@ -360,19 +418,39 @@ async function main() {
     const ox = map.origin[0], oy = map.origin[1];
     if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
     if (cell(map, hit.x, hit.y) !== 254) return say('장애물·모르는 칸이라 갈 수 없습니다');
-    sticks.forEach((s) => s.release());
-    scan(); lastScan = performance.now();
-    runner.start([{ x: hit.x, y: hit.y }], true);
-    goalMark.position.set(hit.x, hit.y, map.floor_z + 0.03);
-    note = { text: '', until: 0 };
-    runner.tick(front);   // 이미 닿았거나 막혔으면 바로 0 — 그 결과도 안내(다음 프레임 goalUI 는 진행 중이던 목표만 본다)
-    if (!runner.active) say(GOAL_END[runner.status] ?? runner.status);
+    const p = { x: hit.x, y: hit.y }, going = runner.active && runner.goal;
+    // 이어 붙일 자리: 가는 중이거나 점이 있으면 마지막 점, 아니면 로봇
+    const from = marks.length ? marks.at(-1) : pos(), leg = findPath(map, from, p);
+    if (!leg) return say('갈 수 있는 길이 없습니다');
+    if (!marks.length && !going) { plan = []; planFrom = from; }
+    marks.push(p);
+    plan.push(...leg.map((q) => ({ ...q, mark: marks.length - 1 })));   // 가는 중이면 plan = runner.points — 실행기가 끝에 이어 간다
+    drawMarks();
+    say(going ? `점 ${marks.length} 추가 — 이어서 갑니다` : `점 ${marks.length} 추가 — «출발»로 갑니다`);
+  };
+  $('wpGo').onclick = () => {
+    if (!ready || !marks.length || runner.active) return;
+    if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 «출발»을 누르세요');
+    if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 출발하세요');
+    const p = planRoute(map, pos(), marks);   // 찍은 뒤 손으로 움직였을 수 있어 지금 자리에서 다시 잇는다
+    if (!p) return say('갈 수 있는 길이 없습니다');
+    retried = false; note = { text: '', until: 0 };
+    begin(p, pos());
+    if (!runner.active) finish();
+  };
+  $('wpClear').onclick = () => {
+    if (runner.active && runner.goal) runner.cancel('지움');
+    marks = []; plan = []; drawMarks();
+    if (!runner.active) { wasGoal = false; say(GOAL_END.지움); }
   };
   const goalUI = (now) => {
     const on = runner.active && runner.goal;
-    if (wasGoal && !on && runner.goal) say(GOAL_END[runner.status] ?? runner.status);
-    wasGoal = on; goalMark.visible = on;
-    const g = runner.points[0], text = on ? `찍은 곳으로 가는 중 · ${Math.hypot(g.x - d.qpos[0], g.y - d.qpos[1]).toFixed(1)} m` : now < note.until ? note.text : '';
+    if (wasGoal && !on && runner.goal) finish();
+    wasGoal = runner.active && runner.goal;
+    $('wpGo').disabled = runner.active || stopped;
+    const m = on && marks[runner.points[runner.index]?.mark];
+    // 안내(점 추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
+    const text = now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 점 ${runner.points[runner.index].mark + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : '';
     if (text !== goalText) { $('goalNote').textContent = goalText = text; $('goalNote').hidden = !text; }
   };
 
@@ -436,7 +514,7 @@ async function main() {
   let floorKey = '';
   const floorTick = (z) => {
     const i = floors.findIndex((f) => z >= f.z[0] && z < f.z[1]);
-    if (i >= 0 && i !== here) { here = i; map = floors[i].map; floor.constant = -map.floor_z; }
+    if (i >= 0 && i !== here) { here = i; map = floors[i].map; floor.constant = -map.floor_z; marks = []; plan = []; drawMarks(); }   // 다른 층 점은 받지 않는다
     const v = pin ?? here;
     planes.forEach((p, j) => { p.visible = top && (v === 'all' || v === j); p.material.depthTest = v !== 'all'; });
     const key = `${top}|${here}|${pin}`;
@@ -452,6 +530,7 @@ async function main() {
     top: () => top, view: () => ({ ...view }), cam: () => camera.position.toArray(), scenario: runner,
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
+    marks: () => marks.map((p) => ({ ...p })), plan: () => plan.map((p) => ({ ...p })),
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
   function frame(now) {
@@ -501,12 +580,15 @@ async function main() {
       camera.near = 0.05;
     }
     camera.updateProjectionMatrix();
+    // 번호 표시: 위에서 보기는 화면 28 px, 따라가기는 지름 0.4 m
+    const ms = top ? 28 * (topCamera.top - topCamera.bottom) / vp[3] : 0.4;
+    for (const c of marksG.children) if (c.isSprite) c.scale.set(ms, ms, 1);
     camera.position.lerp(camPos, top || !camera.position.lengthSq() ? 1 : 0.25);   // 첫 프레임(원점)은 바로 제자리
     camera.lookAt(look);
     renderer.render(scene, camera);
     frames++;
     if (now - fpsT > 1000) { fps = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
-    $('stickL').classList.toggle('out', !inRange(sim.cmd));
+    $('stickL').classList.toggle('out', !inRange(sim.cmd)); $('keys').classList.toggle('out', !inRange(sim.cmd));
     $('reset').classList.toggle('fell', sim.fell);
     requestAnimationFrame(frame);
   }

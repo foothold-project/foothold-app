@@ -15,6 +15,12 @@ const goal = ame2Joystick(null, 1.5, [1, 1, 1]);
 assert.ok(Math.abs(Math.hypot(...goal.command.slice(0, 2)) - 1) < 1e-12);
 assert.ok(Math.abs(Math.atan2(goal.command[2], goal.command[3]) - .02) < 1e-12);
 assert.ok(Math.abs(Math.atan2(...ame2Joystick(99, 0, [1, 0, 0]).command.slice(2))) <= Math.PI / 3);
+// 시뮬 잠금 풀기(10-31): 후진 목표도 자르지 않고 보낸다 — 앞쪽 가정 밖이라 inRange false(테두리 색 알림만), 옆·제자리 회전은 범위 안
+const back = ame2Joystick(null, 0, [-1, 0, 0]);
+assert.deepEqual(back.command, [-1, 0, 0, 1]); assert.equal(adapter.command.inRange(back.command), false);
+assert.equal(adapter.command.inRange(goal.command), true);
+assert.equal(adapter.command.inRange(ame2Joystick(null, 0, [0, -1, 0]).command), true);
+assert.ok(ame2Joystick(null, 0, [0, 0, 1]).heading > 0, 'turn in place = heading target');
 assert.equal(ame2Torque(100, 1, 0), 20.2);
 assert.equal(ame2Torque(-100, 1, 0), -23.4);
 assert.equal(ame2Torque(100, 30, 0), 0);
