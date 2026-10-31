@@ -158,14 +158,19 @@ PYTHONPATH=apps/agent python3 apps/agent/tools/nav2/replay_paths.py --heading-sw
 회귀는 `replay(..., rotate=False)` 기본값으로 보존하며 기존 시험 기대값은 유지한다.
 이 인자는 오프라인 모델 선택이며 실제 실행 권한이나 새 환경변수가 아니다.
 
-시뮬 SI 정책 `nav2-simulation-si/2`는 기존 전진 허용 구간에
-`vx=0, vy=0, 0<|wz|<=.5 rad/s`만 더한다. 후진·횡이동·vx>.6·|wz|>.5·
-비유한·형식 오류는 첫 위반 FAILED 래치이며, 원값·정책판 진단을 유지한다.
-출력은 원 SI 그대로이며 어댑터가 속도를 키우거나 깎지 않는다.
+시뮬 SI 정책 `nav2-simulation-si/3`는 폰 수동 시뮬과 같은
+`SIMULATION_LIMITS`의 vx −.3~1.0, vy ±.3 m/s, wz ±.5 rad/s를 허용한다.
+후진·횡이동·제자리 회전과 조합은 시험용이며, 학습 범위나 보행 검증을 뜻하지 않는다.
+welcome의 `experimental` 목록은 유지하고 `requires_forward_motion=false`를 알린다.
+실제 허용 범위와 다른 `FOOTHOLD_V2` 학습 범위는 welcome에서 제거했으며,
+학습 정책·범위 자체는 그대로다. 비유한·형식 오류·범위 밖은 거부하고 원 SI를 자르지 않는다.
 Hub의 `simulation is True`와 simmgr `SimulationBinding` 및 목표별 결속 검사를
-그대로 재사용한다(`phone/hub.py:70`, `executor/nav2/simulation.py:76`). 결속이 없으면
-물리 PolicyAdapter의 0/.6 직진·곡선 off·yaw<=.04 축소로 돌아간다.
-기본 YAML·Core·STOP·폰 명령·수신 만료·실기 투영은 변경하지 않았다.
+그대로 재사용한다(`phone/hub.py`, `executor/nav2/simulation.py`). 결속이 없으면
+기존 물리 PolicyAdapter로 돌아가며, 결속을 잃은 SI 투영은 거부한다.
+기본 YAML·Core·STOP·수신 만료·실기 투영은 변경하지 않았다.
+RPP의 `allow_reversing=false`는 유지한다. 회전 설정과의 상호 배타성 때문에
+단순히 켜지 않으며, RPP는 횡이동 명령도 생성하지 않는다. 어댑터의 허용과
+자율 경로 생성 능력은 구분하며 실제 Gazebo 보행은 별도 검증이 필요하다.
 
 설치 package.xml의 1.3.13과 설치 `parameter_handler.hpp`, 공식
 [파라미터 구현](https://github.com/ros-navigation/navigation2/blob/1.3.13/nav2_regulated_pure_pursuit_controller/src/parameter_handler.cpp),

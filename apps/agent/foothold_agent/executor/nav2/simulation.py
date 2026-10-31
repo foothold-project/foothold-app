@@ -9,6 +9,7 @@ import re
 
 from foothold_agent.safety.core import Z
 from .intent import number
+from foothold_agent.phone.protocol import simulation_velocity
 
 
 @dataclass(frozen=True)
@@ -81,7 +82,7 @@ class SimulationBinding:
 class SimulationPolicyAdapter:
     @property
     def policy_version(self):
-        return 'nav2-simulation-si/2' if self.enabled() else self.physical.policy_version
+        return 'nav2-simulation-si/3' if self.enabled() else self.physical.policy_version
 
     def __init__(self, physical, enabled):
         self.physical, self.enabled = physical, enabled
@@ -91,9 +92,9 @@ class SimulationPolicyAdapter:
         if (not isinstance(velocity, (tuple, list)) or len(velocity) != 3
                 or not all(number(x) for x in velocity)):
             return Z, 'INVALID_VELOCITY'
-        vx, vy, wz = velocity
-        if not (0 <= vx <= .6 and vy == 0 and -.5 <= wz <= .5):
-            return Z, 'UNSUPPORTED_VELOCITY'
+        _, reason = simulation_velocity(*velocity)
+        if reason:
+            return Z, reason
         return tuple(velocity), 'TESTED' if any(velocity) else 'ZERO'
 
     def adapt(self, velocity):

@@ -1,4 +1,4 @@
-"""Two offline simulation/physical isolation mutations; source files stay untouched.
+"""Offline simulation unlock/isolation mutations; source files stay untouched.
 
 Run with the same PYTHONPATH/socket fence/TMPDIR as SIM-OMNI-VALIDATION.md.
 Each child mutates only its imported module in memory. Only assertion failures
@@ -17,8 +17,25 @@ CASES = {
     'physical Hub uses simulation Core': ('hub',
         'velocity_projection=simulation_velocity if simulation is True else quantize',
         'velocity_projection=simulation_velocity'),
+    'simulation reverse locked again': ('protocol', "    return value, ''",
+        "    return (Z, 'LOCKED') if vx < 0 else (value, '')"),
+    'simulation lateral locked again': ('protocol', "    return value, ''",
+        "    return (Z, 'LOCKED') if vy != 0 else (value, '')"),
+    'simulation stationary rotation locked again': ('protocol', "    return value, ''",
+        "    return (Z, 'LOCKED') if vx == vy == 0 and wz else (value, '')"),
+    'simulation envelope guard removed': ('protocol',
+        "    if not all(SIMULATION_LIMITS[axis + '_min']",
+        "    if False and not all(SIMULATION_LIMITS[axis + '_min']"),
+    'simulation experimental label removed': ('protocol',
+        "'experimental': ['reverse', 'lateral', 'turn_in_place']", "'experimental': []"),
+    'Nav2 simulation reverse locked again': ('nav', '        if reason:',
+        '        if reason or velocity[0] < 0:'),
+    'Nav2 simulation lateral locked again': ('nav', '        if reason:',
+        '        if reason or velocity[1] != 0:'),
 }
 TESTS = [
+    'apps/agent/tests/test_phone_omni.py',
+    'apps/agent/tests/test_nav2_simulation.py',
     'apps/agent/tests/test_phone_omni.py::test_physical_hub_keeps_experiments_closed',
     'apps/agent/tests/test_phone_continuous.py::test_physical_projection_is_identical_to_default',
 ]
@@ -26,16 +43,20 @@ TESTS = [
 
 def child(label, report):
     from foothold_agent.phone import hub, protocol
+    from foothold_agent.executor.nav2 import simulation
     import pytest
     if label != 'baseline':
         target, before, after = CASES[label]
-        module = {'hub': hub, 'protocol': protocol}[target]
+        module = {'hub': hub, 'protocol': protocol, 'nav': simulation}[target]
         source = Path(module.__file__).read_text()
         if source.count(before) != 1:
             raise RuntimeError('mutation anchor must match exactly once')
         exec(compile(source.replace(before, after), module.__file__, 'exec'), module.__dict__)
         if target == 'protocol':
             hub.project_velocity = protocol.project_velocity
+            hub.simulation_velocity = protocol.simulation_velocity
+            simulation.simulation_velocity = protocol.simulation_velocity
+            hub.SIMULATION_LIMITS = protocol.SIMULATION_LIMITS
     return pytest.main(['-q', '-p', 'no:cacheprovider', '-p', 'mutation_reporter',
                         '--link-mutation-report', report, *TESTS])
 

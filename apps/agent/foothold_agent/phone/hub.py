@@ -68,7 +68,7 @@ class Hub:
         self.runs = ScenarioRun(self, nav=nav, source=scenario_source, journal=run_journal,
             context=run_context, arrival=arrival_evidence, run_pause_timeout_s=run_pause_timeout_s)
         self.session.executor_zero_only = self.runs.zero_only_waiting
-        # Nav2 retains its existing SI range; manual input uses the policy range.
+        # Only the proven simulation Nav2 adapter shares the manual SI envelope.
         from foothold_agent.executor.nav2.simulation import SimulationBinding, SimulationPolicyAdapter
         if (simulation is True and nav is not None
                 and isinstance(simulation_binding, SimulationBinding)
