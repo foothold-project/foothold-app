@@ -55,7 +55,7 @@ class AgentUnit:
 
     def show(self):
         result = subprocess.run(['systemctl', '--user', 'show', self.unit,
-            '--property=LoadState,ActiveState,Result,ExecMainCode,ExecMainStatus,MainPID,ControlGroup,InvocationID'],
+            '--property=LoadState,ActiveState,SubState,Result,ExecMainCode,ExecMainStatus,MainPID,ControlGroup,InvocationID'],
             text=True, capture_output=True, timeout=5, check=False)
         state = dict(line.split('=', 1) for line in result.stdout.splitlines() if '=' in line)
         if 'LoadState' not in state:
@@ -96,6 +96,13 @@ class AgentUnit:
         state = self.show()
         if state.get('Result') == 'success' and state.get('ExecMainCode') == '1' and state.get('ExecMainStatus') == '0':
             return 0
+        # RemainAfterExit can retain active/exited even after a nonzero exit
+        # (and Result=success). This is failure evidence, never STOP/zero proof.
+        if (state.get('ActiveState') == 'active' and state.get('SubState') == 'exited'
+                and state.get('MainPID') == '0'
+                and state.get('ExecMainCode') in ('1', '2', '3')
+                and state.get('ExecMainStatus') not in (None, '', '0')):
+            return 1
         if state.get('ActiveState') in ('active', 'activating', 'deactivating'):
             return None
         return 1  # missing/failed/expired is never STOP/zero confirmation
