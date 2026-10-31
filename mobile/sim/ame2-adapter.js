@@ -23,8 +23,9 @@ export function ame2Torque(torque, velocity, index) {
 
 // A: fresh nearby body-frame target each tick; heading integrates the right stick.
 // Complete neutral attaches both target and heading to the current pose.
+// 시뮬 잠금 풀기(10-31): 뒤쪽 목표(후진)도 보낸다 — 앞쪽만이라고 가정한 범위 밖이라 inRange 가 테두리 색으로만 알린다(자르지 않음)
 export function ame2Joystick(previousHeading, yaw, axes, dt = .02) {
-  const forward = clamp(axes[0], 0, 1), lateral = clamp(axes[1], -1, 1), turn = clamp(axes[2], -1, 1);
+  const forward = clamp(axes[0], -1, 1), lateral = clamp(axes[1], -1, 1), turn = clamp(axes[2], -1, 1);
   if (!forward && !lateral && !turn) return { heading: null, command: [0, 0, 0, 1] };
   let heading = (previousHeading ?? yaw) + turn * dt;
   const error = clamp(Math.atan2(Math.sin(heading - yaw), Math.cos(heading - yaw)), -Math.PI / 3, Math.PI / 3);
@@ -40,7 +41,7 @@ export function makeAme2Adapter(makeTerrainSampler) {
     network: { file: 'ame2_actor.f32', manifest: 'ame2_actor.json', sha256: '28edbc05169b817044c600d90cc081bb797ae56c5b8400b8ffebf648410d26a0' },
     action: { size: 12, joints: AME2_JOINT_ORDER, defaultPose: defaults, scale: .25, kp: 25, kd: .5, targetClip: 100, torque: ame2Torque },
     timing: { physicsDt: .005, decimation: 4, policyDt: .02, delaySteps: 0 },
-    command: { kind: 'nearby_goal', joystickScale: [1, 1, 1], inRange: (c) => c.length === 4 && c.every(Number.isFinite) && Math.hypot(c[0], c[1]) <= 2 },
+    command: { kind: 'nearby_goal', joystickScale: [1, 1, 1], inRange: (c) => c.length === 4 && c.every(Number.isFinite) && c[0] >= 0 && Math.hypot(c[0], c[1]) <= 2 },
     stop: { input: [0, 0, 0, 1], pause: true },
     loadPolicy: loadAme2Policy,
     observe(obs, s, last, sampleHeight) {

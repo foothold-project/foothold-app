@@ -1,4 +1,4 @@
-// 컴퓨터 키 조종(MuJoCo 시뮬) headless 시험 — 조이스틱 숨김·키 → 명령 값·STOP 중 무시·시작 뒤 다시 눌러야 함·흐림/숨김/reset 0·입력칸 무시·시나리오 끊기·AME-2 목표 경로.
+// 컴퓨터 키 조종(MuJoCo 시뮬) headless 시험 — 조이스틱 숨김·키(실기 웹 조종칸과 같게 ↑↓ 앞뒤·←→ 옆걸음·AD 제자리 회전) → 명령 값·학습 범위 밖 테두리 알림·STOP 중 무시·시작 뒤 다시 눌러야 함·흐림/숨김/reset 0·입력칸 무시·시나리오 끊기·AME-2 목표 경로.
 // ame2-ui-selftest 와 같은 틀: sync-web 먼저. FH_PLAYWRIGHT=<기존 playwright-core/index.mjs> node mobile/scripts/sim-keys-selftest.mjs
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -36,7 +36,7 @@ try {
   const k = page.keyboard;
   assert.equal(await page.locator('#stickL').isVisible(), false);
   assert.equal(await page.locator('#stickR').isVisible(), false);
-  assert.match(await page.locator('#keys').textContent(), /회전/);
+  assert.match(await page.locator('#keys').textContent(), /←→ 옆걸음 · AD 제자리 회전/);
   assert.equal(await page.evaluate(() => __sim.stopped()), true);
 
   // STOP 중 누른 키는 무시, 시작 뒤에도 쥐고 있는(반복) 키로는 안 움직이고 떼고 다시 눌러야 한다
@@ -49,23 +49,35 @@ try {
   await k.up('ArrowUp'); await k.down('ArrowUp');
   assert.deepEqual(await joy(), [1, 0, 0]);
   await page.waitForFunction(() => __sim.cmd()[0] === 1);
-  await k.down('ArrowLeft');
-  assert.deepEqual(await joy(), [1, 0, 1]);
-  await k.down('KeyD');   // ← + D = 0
+  await k.down('ArrowLeft');   // ← = 옆걸음 왼쪽(왼 막대 좌우 끝 = vy 0.5)
+  assert.deepEqual(await joy(), [1, 0.5, 0]);
+  await k.down('ArrowRight');   // ← + → = 0
   assert.deepEqual(await joy(), [1, 0, 0]);
-  await k.up('KeyD'); await k.up('ArrowLeft'); await k.down('ArrowRight');
+  await k.up('ArrowLeft');
+  assert.deepEqual(await joy(), [1, -0.5, 0]);
+  await k.up('ArrowRight'); await k.down('KeyA');   // A = 회전 왼쪽
+  assert.deepEqual(await joy(), [1, 0, 1]);
+  await k.down('KeyD');   // A + D = 0
+  assert.deepEqual(await joy(), [1, 0, 0]);
+  await k.up('KeyA');
   assert.deepEqual(await joy(), [1, 0, -1]);
-  await k.up('ArrowRight'); await k.down('KeyS');   // ↑ + S = 0
+  await k.up('KeyD'); await k.down('KeyS');   // ↑ + S = 0
   assert.deepEqual(await joy(), [0, 0, 0]);
   await k.up('ArrowUp');
   assert.deepEqual(await joy(), [-1, 0, 0]);
-  await k.up('KeyS');
+  // 후진·옆걸음은 foothold-v2 학습 범위 밖 — 자르지 않고(명령 그대로) 키 안내 테두리 색만, 제자리 회전은 범위 안
+  await page.waitForFunction(() => __sim.cmd()[0] === -1 && document.getElementById('keys').classList.contains('out'));
+  await k.up('KeyS'); await k.down('ArrowRight');
+  await page.waitForFunction(() => __sim.cmd()[1] === -0.5 && document.getElementById('keys').classList.contains('out'));
+  await k.up('ArrowRight'); await k.down('KeyD');
+  await page.waitForFunction(() => __sim.cmd()[2] === -1 && !document.getElementById('keys').classList.contains('out'));
+  await k.up('KeyD');
   assert.deepEqual(await joy(), [0, 0, 0]);
   // 같은 방향 두 키(↑+W·←+A)도 막대 끝 값 1 — 범위를 넘지 않음, 반대 방향이 같이 눌리면 0
   await k.down('ArrowUp'); await k.down('KeyW'); await k.down('ArrowLeft'); await k.down('KeyA');
-  assert.deepEqual(await joy(), [1, 0, 1]);
+  assert.deepEqual(await joy(), [1, 0.5, 1]);
   await k.down('ArrowDown');
-  assert.deepEqual(await joy(), [0, 0, 1]);
+  assert.deepEqual(await joy(), [0, 0.5, 1]);
   for (const c of ['ArrowDown', 'KeyA', 'ArrowLeft', 'KeyW', 'ArrowUp']) await k.up(c);
   assert.deepEqual(await joy(), [0, 0, 0]);
   await page.waitForFunction(() => __sim.cmd().every((v) => v === 0));
@@ -110,9 +122,9 @@ try {
     assert.deepEqual(await joy(), [0, 0, 0]);
     await page.click('#go'); await k.down('KeyW');
     assert.deepEqual(await joy(), [0, 0, 0]);
-    await k.down('ArrowLeft');   // 다른 키만 새로 눌러도 옛 W 는 살아나지 않는다
+    await k.down('KeyA');   // 다른 키만 새로 눌러도 옛 W 는 살아나지 않는다
     assert.deepEqual(await joy(), [0, 0, 1]);
-    await k.up('ArrowLeft'); await k.up('KeyW'); await k.press('Escape');
+    await k.up('KeyA'); await k.up('KeyW'); await k.press('Escape');
   }
 
   // reset = STOP 잠금 + 키 0(기본 정책도) — «시작» 전에는 새로 누른 키도 무시
@@ -156,6 +168,11 @@ try {
   await ame.waitForFunction(() => __sim.cmd()[0] > .1);
   const cmd = await ame.evaluate(() => __sim.cmd());
   assert.equal(cmd.length, 4); assert.ok(cmd[0] <= 1 && Math.hypot(cmd[0], cmd[1]) <= 1);
+  await ame.keyboard.up('ArrowUp'); await ame.keyboard.down('ArrowDown');   // 후진 목표도 보낸다(10-31 잠금 풀기) — 앞쪽 가정 밖이라 테두리 알림
+  await ame.waitForFunction(() => __sim.cmd()[0] < -.1 && document.getElementById('keys').classList.contains('out'), null, { timeout: 30000 });
+  await ame.keyboard.up('ArrowDown'); await ame.keyboard.down('ArrowLeft');   // 옆걸음
+  await ame.waitForFunction(() => __sim.cmd()[1] > .1, null, { timeout: 30000 });
+  await ame.keyboard.up('ArrowLeft'); await ame.keyboard.down('ArrowUp');
   await ame.keyboard.press('Escape');
   const t = await ame.evaluate(() => __sim.sim.t);
   await ame.waitForTimeout(150);
@@ -163,7 +180,7 @@ try {
   assert.deepEqual(await ame.evaluate(() => __sim.cmd()), [0, 0, 0, 1]);
   await ame.keyboard.up('ArrowUp');
   assert.deepEqual(errors, []);
-  console.log('sim keys headless PASS: PC sticks hidden/touch sticks kept, keys → joystick-scale values, one value per axis, modifier drops held, STOP ignores keys, re-press after start/other key, reset locks, Esc/Space/blur/pagehide/hidden/reset zero, select focus ignored, keys cancel scenario, AME-2 goal path');
+  console.log('sim keys headless PASS: PC sticks hidden/touch sticks kept, keys ↑↓ fwd/back ←→ lateral AD spin → joystick-scale values, out-of-training border only (not clipped), AME-2 back/lateral sent, one value per axis, modifier drops held, STOP ignores keys, re-press after start/other key, reset locks, Esc/Space/blur/pagehide/hidden/reset zero, select focus ignored, keys cancel scenario, AME-2 goal path');
 } finally {
   await browser?.close();
   await new Promise((r) => server.close(r));
