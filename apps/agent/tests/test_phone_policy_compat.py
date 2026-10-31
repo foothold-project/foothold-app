@@ -44,7 +44,7 @@ def test_actual_phone_pressed_input_cannot_clear_deadman_neutral(h, phone_transf
     velocity = phone_transform(welcome, pressed)
     ack = h.cmd(owner, **velocity)
     assert h.hub.session.core.need_neutral  # catch the bypass in the actual Core
-    assert ack['applied'] == list(Z) and ack['reason'] and ack['clipped']
+    assert ack['applied'] == list(Z) and ack['reason'] and not ack['clipped']
     assert tuple(velocity.values()) != Z  # pressed survives the phone boundary
     assert h.cmd(owner, **phone_transform(welcome, [.5, 0, 0]))['applied'] == list(Z)
     assert h.hub.session.core.need_neutral
@@ -63,7 +63,8 @@ def test_legacy_input_envelope_and_additive_policy_range(h):
                   experimental=['reverse', 'lateral', 'turn_in_place'])
     assert {key: limits[key] for key in legacy} == legacy
     parsed = PhoneLimits.model_validate(limits)
-    assert parsed.policy_velocity_range.model_dump() == dict(
-        vx_min_moving=.4, vx_max=1.5, vy_min=0, vy_max=0, wz_min=-1, wz_max=1)
+    assert parsed.policy_velocity_range is None  # no claim that experiments were trained
+    assert parsed.requires_forward_motion is False
+    assert parsed.policy_adapter_id == 'simulation-experimental-si/1'
     # Older payloads still parse; new facts are optional.
     assert PhoneLimits.model_validate(legacy).policy_velocity_range is None

@@ -27,7 +27,8 @@ def enable(h):
 
 
 @pytest.mark.parametrize('velocity', [(.6, 0, -.0849), (.3, 0, .4), (.01, 0, -.5),
-                                     (.6, 0, .5), (.6, 0, -.5), (0, 0, .4), (0, 0, -.5), Z])
+                                     (.6, 0, .5), (.6, 0, -.5), (-.3, 0, 0), (0, -.3, 0), (0, .3, 0),
+                                     (-.3, -.3, -.5), (1, .3, .5), (0, 0, .4), (0, 0, -.5), Z])
 def test_simulation_output_preserves_si(r, velocity):
     binding = enable(r)
     assert r.runs.nav.intent(binding, velocity)
@@ -39,8 +40,8 @@ def test_simulation_output_preserves_si(r, velocity):
     assert not r.runs.nav.intent(Binding('old', 'old', 0, 0, '', '', ''), (.6, 0, 0))
 
 
-@pytest.mark.parametrize('velocity', [(-.1, 0, 0), (0, 0, .51), (.6, .1, 0), (0, .1, 0),
-    (.7, 0, 0), (.6, 0, .6), (float('nan'), 0, 0), (float('inf'), 0, 0),
+@pytest.mark.parametrize('velocity', [(-.300001, 0, 0), (0, 0, .51), (.6, .300001, 0), (0, -.300001, 0),
+    (1.000001, 0, 0), (.6, 0, .6), (float('nan'), 0, 0), (float('inf'), 0, 0),
     (True, 0, 0), None, (.6,), 'bad'])
 def test_first_invalid_input_fails_latched_with_one_original_diagnostic(r, velocity, caplog):
     binding = enable(r)
@@ -51,7 +52,7 @@ def test_first_invalid_input_fails_latched_with_one_original_diagnostic(r, veloc
     assert r.runs.snapshot()['fail_code'] == 'NAV_GOAL_REJECTED'
     assert r.hub.session.core.latch and r.outputs[-1].velocity == Z
     detail = deepcopy(r.runs.nav.first_rejection)
-    assert detail['policy_version'] == 'nav2-simulation-si/2'
+    assert detail['policy_version'] == 'nav2-simulation-si/3'
     assert detail['reason'] in ('INVALID_VELOCITY', 'UNSUPPORTED_VELOCITY')
     assert detail['received_at'] == 0
     assert detail['input_si'] == (None if velocity is None else
@@ -118,8 +119,8 @@ def test_ten_seconds_of_fresh_stationary_rotation_does_not_trigger_executor_stal
 
 def test_first_rejection_cannot_be_hidden_by_action_success_or_poll_delay(r):
     binding = enable(r)
-    r.runs.nav.intent(binding, (.7, 0, 0))
-    assert r.runs.nav.rejected and r.runs.nav.first_rejection['input_si'] == [.7, 0, 0]
+    r.runs.nav.intent(binding, (1.000001, 0, 0))
+    assert r.runs.nav.rejected and r.runs.nav.first_rejection['input_si'] == [1.000001, 0, 0]
     assert not r.runs.nav.feedback(binding, 'SUCCEEDED')
     r.clock.t = .300001
     r.hub.tick()
@@ -137,7 +138,8 @@ def test_hub_requires_exact_simulation_and_simmgr_binding(simulation, bound):
               nav=nav, simulation_binding=proof, now=h.clock)
     hub.runs.binding = Binding('run', 'goal', 0, 0, 'warehouse', 'floor', 'a'*64)
     assert nav.adapter.adapt((.6, 0, -.0849)) == (Z, 'UNSUPPORTED_VELOCITY')
-    assert nav.adapter.adapt((0, 0, .3)) == (Z, 'UNSUPPORTED_VELOCITY')
+    for velocity in ((-.3, 0, 0), (0, .3, 0), (0, 0, .3)):
+        assert nav.adapter.adapt(velocity) == (Z, 'UNSUPPORTED_VELOCITY')
     assert nav.adapter.adapt((.6, 0, .04)) == ((1, 0, 0), 'TESTED_YAW_REDUCED')
     hub.session.holder_type = 'RUN'
     assert hub.session.core.velocity_projection(1, 0, 0)[0] == (.6, 0, 0)
