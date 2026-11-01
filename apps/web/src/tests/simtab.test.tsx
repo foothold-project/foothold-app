@@ -193,7 +193,13 @@ describe('PC «시뮬» 탭', () => {
     expect($('[data-stop]')).toBeTruthy();   // 운영 관리자 STOP 그대로
     expect(refresh).toHaveBeenCalled();      // 띄운 로봇이 목록·STOP 후보에 바로 보이게
     refresh.mockClear();
-    await click(btn('끝내기'));
+    // «보기 닫기»와 떨어진 «시뮬 종료·정리» → 화면 안 확인(취소하면 아무것도 안 보냄) → «종료·정리»
+    await click(btn('시뮬 종료·정리')!);
+    expect($('[data-simtab-end-ask]')!.textContent).toContain('시뮬 삭제');
+    await click(btn('취소')!);
+    expect($('[data-simtab-end-ask]')).toBeNull();
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    await click(btn('시뮬 종료·정리')!); await click(btn('종료·정리')!);
     expect(calls.some((c) => c.method === 'DELETE' && c.path === `/simulation/robots/${S1}`)).toBe(true);
     expect($('[data-sim-view]')).toBeNull();
     expect($('[data-sim-msg]')!.textContent).toBe('시뮬 로봇을 정리했습니다.');
@@ -335,7 +341,7 @@ describe('PC «시뮬» 탭', () => {
       routes['GET /simulation/robots'] = () => new Promise<Reply>((f) => { list = () => f({ status: 200, body: { items: mine } }); });
       return { status: 204 };
     };
-    await click(btn('끝내기'));
+    await click(btn('시뮬 종료·정리')!); await click(btn('종료·정리')!);
     expect(sim.get()).toMatchObject({ mine: [], listed: false });
     await act(async () => list()); await flush();
     expect(sim.get()).toMatchObject({ step: 'pick', mine: [], listed: true });

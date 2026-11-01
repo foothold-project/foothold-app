@@ -17,9 +17,10 @@ const TOPS = import.meta.glob<string>('../../../mobile/sim/assets/*/top.png', { 
 const MAP_KEY = 'fh.simMap';
 const savedMap = () => { try { return (localStorage.getItem(MAP_KEY) ?? '').replace(/^factory-zone-f[12]$/, 'factory-zone'); } catch { return ''; } };
 
-/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 02 F-TO-05: W/↑ 전진, S/↓ 후진, A/←·D/→ 회전. 옆걸음(시뮬 시험용)은 Q/E. e.code(자판 자리)라 한글 입력 상태에서도 같다 */
+/** 키 → [축(0 전후·1 회전·2 옆), 방향]. 실기 서버 경유(serverdrive.tsx)·mobile/sim 과 같은 배치(UIUX-1101): W/↑ 전진, S/↓ 후진, ←/→ 옆걸음, A/D 제자리 회전.
+ *  Q/E 는 뺐다(옛 시뮬 옆걸음 — 실기에 없는 키). e.code(자판 자리)라 한글 입력 상태에서도 같다 */
 export const KEYS: Record<string, [0 | 1 | 2, number]> = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1],
-  KeyA: [1, 1], ArrowLeft: [1, 1], KeyD: [1, -1], ArrowRight: [1, -1], KeyQ: [2, 1], KeyE: [2, -1] };
+  KeyA: [1, 1], KeyD: [1, -1], ArrowLeft: [2, 1], ArrowRight: [2, -1] };
 /** F-TO-05 키보드 전진 기본 0.6 m/s: 연속 모드(시뮬)는 velocity 의 ramp 를 거꾸로 풀어 그 기울기, 그 밖·vx_max ≤ 0.6 이면 끝까지(최종 자르기는 velocity·에이전트) */
 export const KEY_VX = 0.6;
 export function forward(w: PhoneWelcome) {
@@ -391,7 +392,7 @@ export function SimDrive() {
       {mine && open && <><Stick label="전후" both on={live} epoch={+live} gen={gen} set={(v, y) => { put(2, y); put(0, v); }}>
           <Arrows on={{ up: true, down: can.back, left: can.left, right: can.right }} /></Stick>
         <Stick label="회전" on={live} epoch={+live} gen={gen} set={(v) => put(1, v)}><Arrows on={{ left: true, right: true }} /></Stick>
-        <p className="dv-keys" data-sim-keys>↑↓ 앞뒤 · ←→ 회전{(can.left || can.right) && ' · QE 옆'}</p></>}
+        <p className="dv-keys" data-sim-keys>W/↑ S/↓ 앞뒤 · A/D 회전{(can.left || can.right) && ' · ←/→ 옆'}</p></>}
       </div>
     </div></div>
   </section>;

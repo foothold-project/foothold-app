@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SimCatalog, SimRobot } from '../../../contracts/ts';
 import { App } from '../App';
+import { KEYS } from '../simdrive';
 import { sim } from '../phone';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
@@ -93,6 +94,17 @@ async function ready(w = welcome()) {
 }
 
 describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
+  it('UIUX-1101 키 통일: ←/→ = 옆걸음, A/D = 제자리 회전(실기 서버 경유와 같은 배치)', async () => {
+    await ready(welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }));
+    await key('keydown', 'ArrowLeft');
+    let c = await lastCmd(); expect(c.vy).toBeGreaterThan(0); expect(c.wz).toBe(0);
+    await key('keyup', 'ArrowLeft'); await key('keydown', 'ArrowRight');
+    c = await lastCmd(); expect(c.vy).toBeLessThan(0); expect(c.wz).toBe(0);
+    await key('keyup', 'ArrowRight'); await key('keydown', 'KeyD');
+    c = await lastCmd(); expect(c.vy).toBe(0); expect(c.wz).toBeLessThan(0);
+    await key('keyup', 'KeyD');
+    expect(Object.keys(KEYS)).not.toContain('KeyQ'); expect(Object.keys(KEYS)).not.toContain('KeyE');   // Q/E 는 뺐다(실기에 없는 키)
+  });
   it('출입증 요청에 surface: "pc"', async () => {
     serve(); await mount();
     await click(btn('띄우기'));
@@ -110,7 +122,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     expect(FakeWS.all.some((w) => w.url.includes(':9481'))).toBe(false);
   });
 
-  it('키를 누르는 동안만: W = 전진 0.6 m/s, 떼면 바로 0 · A 회전 · S 후진 · 막힌 Q(옆걸음) 안내', async () => {
+  it('키를 누르는 동안만: W = 전진 0.6 m/s, 떼면 바로 0 · A 회전 · S 후진 · 막힌 ←(옆걸음) 안내', async () => {
     const a = await ready();
     expect($('[data-sim-keys]')!.textContent).toContain('키를 누르는 동안만 움직입니다');
     expect((await lastCmd())).toMatchObject({ vx: 0, vy: 0, wz: 0 });
@@ -126,11 +138,12 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
     await key('keydown', 'ArrowDown');
     expect((await lastCmd()).vx).toBeCloseTo(-0.3, 5);
     await key('keyup', 'ArrowDown');
-    await key('keydown', 'KeyQ');
-    expect(await lastCmd()).toMatchObject({ vx: 0, vy: 0 });
+    // 실기 서버 경유와 같은 배치(UIUX-1101): ← = 옆걸음(여기선 막힘 — 회전 아님), Q/E 는 키 아님
+    await key('keydown', 'ArrowLeft');
+    const side = await lastCmd(); expect(side).toMatchObject({ vx: 0, vy: 0 }); expect(Math.abs(side.wz as number)).toBeLessThan(0.01);   // NUDGE(문턱 아래) — 돌지 않음
     expect(box.textContent).toContain('옆걸음은 아직 지원하지 않습니다');
-    expect($('[data-key-off]')!.textContent).toContain('옆걸음');
-    await key('keyup', 'KeyQ');
+    expect($('[data-key-off]')!.textContent).toContain('←/→ 옆걸음');
+    await key('keyup', 'ArrowLeft');
     // Ctrl 같이 누름(브라우저 단축키)은 조종 아님
     await key('keydown', 'KeyW', { ctrlKey: true });
     expect(await lastCmd()).toMatchObject({ vx: 0 });
@@ -208,7 +221,7 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
   it('«시뮬 정지»는 끝내기 반납 대기(ending) 중에도 하나 — 누르면 stop 1회', async () => {
     const a = await ready();
     a.auto = null;   // 반납 응답 보류
-    await click(btn('끝내기'));
+    await click(btn('시뮬 종료·정리')); await click(btn('종료·정리'));
     expect(sim.get().step).toBe('ending');
     expect(box.querySelectorAll('[data-sim-stop-btn]')).toHaveLength(1);
     await click($('[data-sim-stop-btn]'));
