@@ -33,7 +33,6 @@ export type Ctx = { user: User; robot: Robot; robots: Robot[]; pick: (id: string
 const ICON: Record<Tone, string> = { off: '○', ok: '●', warn: '▲', bad: '■' };
 /** 상태 표시 하나: 모양 + 짧은 글(색만으로 구분 0). 원본 ui/src/app/chip.tsx 의 Chip 모양 */
 export const Chip = ({ tone, text }: { tone: Tone; text: string }) => <span className={`lv-chip ${tone}`} data-tone={tone}><span aria-hidden="true">{ICON[tone]}</span><span>{text}</span></span>;
-const Slot = ({ text, h }: { text: string; h?: number }) => <div className="fh-slot" style={h ? { minHeight: h } : undefined}>{text}</div>;
 /** 아직 동작이 없는 단추: 비활성 + 본문 아래 «준비 중» 글에 이음(권한 때문인 비활성과 구분 — 권한은 DriveButton 처럼 자기 이유) */
 // FOOTHOLD Android 앱(mobile/ 껍데기)의 WebView 는 UA 끝에 FootholdApp/<판> 을 붙인다 — 앱에선 전체화면 단추·홈 화면 안내·파일 내려받기가 맞지 않음
 export const inApp = () => /\bFootholdApp\//.test(navigator.userAgent);
@@ -144,6 +143,12 @@ function Operators({ user, d }: { user: User; d: Dashboard | null }) {
 }
 
 export const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_DEPTH: '뎁스 카메라', LIDAR: '라이다', BATTERY: '배터리', OTHER: '기타' };
+/** 장치 상태 코드(contracts DeviceStatusCode, #213): OK 는 숨김, 명시 허용(ACCEPTED)은 «허용된 상태 코드 n», 그 밖(ERROR·모르는 level)은 오류로 원시 코드 */
+const codeText = ({ status_code: c }: Device) => {
+  if (c?.raw == null || c.level === 'OK') return null;
+  const ok = c.level === 'ACCEPTED';
+  return <span className="lbl" data-status-code={ok ? 'ACCEPTED' : 'ERROR'}>{ok ? `허용된 상태 코드 ${c.raw}${c.reason === 'EXPLICIT_SERVER_ALLOWLIST' ? '(서버 명시 허용)' : ''}` : `상태 코드 ${c.raw}`}</span>;
+};
 const DEVICE: Record<Device['state'], { tone: Tone; text: string }> = { OK: { tone: 'ok', text: '정상' }, MISSING: { tone: 'warn', text: '연결 끊겨 확인 안 됨' }, ERROR: { tone: 'bad', text: '오류' } };
 const m = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} m`);
 const hms = (at: string) => new Date(at).toTimeString().slice(0, 8);
@@ -176,13 +181,12 @@ function Detail(c: Ctx) {
     <Line k="위치"><span>{hidden ? '확인 안 됨' : loc ? <><span className="mono">x {m(loc.x)} · y {m(loc.y)}</span> <span className="lbl">({hms(loc.updated_at)})</span></> : '위치 없음'}</span></Line>
     <Line k="장치">{hidden ? <span>확인 안 됨</span> : !devices.length ? <span>장치 정보 없음</span>
       : <ul className="fh-list" style={{ flex: 1 }} aria-label="장치">{devices.map((v) => <li key={v.key} className="fh-row">
-          <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} /></li>)}</ul>}</Line>
+          <span>{v.label}</span><span className="lbl fh-grow">{KIND[v.kind] ?? KIND.OTHER}</span><Chip {...(DEVICE[v.state] ?? DEVICE.ERROR)} />{codeText(v)}</li>)}</ul>}</Line>
     {(c.user.role === 'ORG_ADMIN' || c.robot.owner === c.user.id) && <RecentEvents robot={r.id} cancel={c.cancel} />}
     <div className="fh-row"><button type="button" className="btn" disabled={!mineOf(c.user, c.robot)} aria-describedby={mineOf(c.user, c.robot) ? undefined : 'assign-from-detail'} data-assign-robot
       onClick={() => { if (keptPlan.kind !== 'scenarios') { keptPlan.kind = 'scenarios'; keptPlan.sel = null; } assignFor.robot = c.robot.id; c.go('mission'); }}>배정</button>
       {!mineOf(c.user, c.robot) && <span id="assign-from-detail" className="fh-why" data-why>{OUT}</span>}</div>
     {err && <p className="fh-msg" role="alert">{err}</p>}
-    <Slot text="지도·그래프 자리" />
   </section>;
 }
 

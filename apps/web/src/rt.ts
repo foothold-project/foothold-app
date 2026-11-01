@@ -239,6 +239,7 @@ function onState(s: ScreenState) {
   const same = p && p.connection === s.connection && p.status === s.status && p.battery?.soc === s.battery?.soc && p.latched === s.latched
     && (p.safety_reason ?? null) === (s.safety_reason ?? null)
     && shown(p) === shown(s)
+    && JSON.stringify(p.unlock_refused ?? null) === JSON.stringify(s.unlock_refused ?? null)   // 잠금 해제 거절 사유(contracts UnlockRefused)
     && p.stop_gen === s.stop_gen && zero(p.applied) === zero(s.applied) && (p.speed ?? 0).toFixed(1) === (s.speed ?? 0).toFixed(1)
     && !(l.stop && l.stateAt <= l.stop.at);   // STOP 뒤 첫 state 는 그려야 «로봇 보고»가 보인다
   if (same) { l.state = s; l.stateAt = now(); return; }

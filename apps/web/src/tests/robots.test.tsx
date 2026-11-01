@@ -206,6 +206,20 @@ describe('상세 서랍 = GET /robots/{id}', () => {
     expect(line('위치')).toContain('x 9.0 m');
     expect(line('장치')).toContain('오류');
   });
+  it('장치 상태 코드(contracts DeviceStatusCode): ACCEPTED 는 허용 표시, ERROR·모르는 level 은 오류로 원시 코드, OK 는 숨김', async () => {
+    serve(signedIn(KIM, [RA]));
+    await open('#/fleet');
+    const w = live(KIM);
+    await click(row('Go2-A'));
+    act(() => w.recv(state('r-a', { devices: [
+      { key: 'body', kind: 'OTHER', label: '기체', state: 'OK', status_code: { raw: 100, level: 'ACCEPTED', reason: 'EXPLICIT_SERVER_ALLOWLIST' } },
+      { key: 'cam', kind: 'CAMERA_RGB', label: '앞 카메라', state: 'ERROR', status_code: { raw: 7, level: 'ERROR', reason: null } },
+      { key: 'x', kind: 'OTHER', label: '새 장치', state: 'ERROR', status_code: { raw: 9, level: 'WEIRD' as never, reason: null } },
+      { key: 'lidar', kind: 'LIDAR', label: '라이다', state: 'OK', status_code: { raw: 0, level: 'OK', reason: null } },
+    ] })));
+    const codes = [...card('로봇 상세').querySelectorAll('[data-status-code]')].map((e) => `${e.getAttribute('data-status-code')}:${e.textContent}`);
+    expect(codes).toEqual(['ACCEPTED:허용된 상태 코드 100(서버 명시 허용)', 'ERROR:상태 코드 7', 'ERROR:상태 코드 9']);
+  });
   it('열린 상세의 담당이 바뀌면 다시 받아 갱신, 옛 요청의 늦은 답은 버린다', async () => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     serve(signedIn(LEE, [RA, RB_HIDDEN]));

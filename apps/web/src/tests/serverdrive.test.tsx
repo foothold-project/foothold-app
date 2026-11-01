@@ -6,8 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ScreenState } from '../../../contracts/ts';
 import { App } from '../App';
 import { ROBOTS, USERS, type Robot } from './fixtures';
-import { FakeWS, lease, state } from './fakeWs';
-import { SD_NOTE, TRIAL } from '../serverdrive';
+import { FakeWS, fail, lease, state } from './fakeWs';
+import { SD_NOTE, TRIAL, UNLOCK_WAIT_MS } from '../serverdrive';
 import { NO_SIGNAL, RETRY_MS } from '../drivemedia';
 import { toRobot } from '../fake';
 
@@ -238,5 +238,104 @@ describe('서버 경유 카메라·라이다', () => {
     click($('[data-sd-tile="lidar"]')!);
     click($('[data-sd-full] [data-sd-stop="full"]')!);   // 전체화면 안 STOP
     expect(w.of('stop').length).toBe(1);
+  });
+});
+
+// UIUX-1101 1·2·4: STOP 단계 구분(확인 없이 «멈췄습니다» 금지)·잠금 해제 대기/미확인·전체화면 모달(상태·초점 가두기·배경 inert)
+describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
+  const phase = () => $('[data-sd-stop-phase]')?.textContent ?? '';
+  it('STOP 요청이 거절되면 «정지 요청 실패 — 현장 확인», 어디에도 «멈췄습니다» 없음 — 전체화면에도 STOP 옆에 보임', () => {
+    ready();
+    const auto = w.auto!;
+    w.auto = (m) => (m.t === 'stop' ? fail('ROBOT_OFFLINE', '거절') : auto(m));
+    act(() => push('r7', { speed: 1.5, latched: false, applied: [1.5, 0, 0] }));
+    click($('[data-sd-stop]')!); tick(100);
+    expect(phase()).toContain('정지 요청 실패 — 현장 확인');
+    expect(box.textContent).not.toContain('멈췄습니다');
+    click($('[data-sd-tile="rgb"]')!);
+    const st = $('[data-sd-full] [data-sd-full-state]')!;
+    expect(st.textContent).toContain('정지 요청 실패 — 현장 확인');
+    expect(box.textContent).not.toContain('멈췄습니다');
+  });
+
+  it('접수만으로는 «확인 대기», 이 STOP 뒤 잠금·출력 0·수평 속도 0 보고가 와야 «로봇 정지 확인»', () => {
+    ready();
+    const auto = w.auto!;
+    w.auto = (m) => (m.t === 'stop' ? { ok: true } : auto(m));   // 서버 접수만, 로봇 보고 아직
+    click($('[data-sd-stop]')!); tick(10);
+    expect(phase()).toContain('정지 요청 접수 — 로봇 정지 확인 대기');
+    act(() => push('r7', { latched: true, stop_gen: 2, applied: [0.3, 0, 0], speed: 0.4 })); tick(10);   // 잠겼지만 아직 움직임
+    expect(phase()).toContain('확인 대기');
+    act(() => push('r7', { latched: true, stop_gen: 2, applied: [0, 0, 0], speed: 0 })); tick(10);
+    expect(phase()).toContain('로봇 정지 확인');
+    expect($('[data-sd-why]')!.textContent).toBe(SD_NOTE.stop);
+    expect(SD_NOTE.stop + SD_NOTE.blur + SD_NOTE.hidden + SD_NOTE.link).not.toContain('멈췄습니다');
+  });
+
+  it('잠금 해제: 요청 뒤 «해제 대기» → 안 풀리면 «미확인 — 로봇이 정지 확인을 못 함», 거절 사유가 오면 축 값·기준까지', () => {
+    mount('u-park'); serve('r7');
+    const auto = w.auto!;
+    w.auto = (m) => (m.t === 'unlock' ? { ok: true } : auto(m));   // 서버 전달은 성공, 로봇 잠금 그대로
+    click(row('Go2-7')); click(btn('조종 시작'));
+    expect($('[data-sd-status]')!.textContent).toContain('수평 속도');
+    click(btn('② 잠금 해제')); tick(10);
+    expect($('[data-sd-unlock]')!.getAttribute('data-sd-unlock')).toBe('wait');
+    expect($('[data-sd-unlock]')!.textContent).toContain('해제 대기');
+    tick(UNLOCK_WAIT_MS);
+    expect($('[data-sd-unlock]')!.textContent).toContain('미확인 — 로봇이 정지 확인을 못 해');
+    act(() => push('r7', { unlock_refused: { reason: 'STILL_MOVING', at: '2026-11-01T00:00:00Z', axes: [{ axis: 'vz', value: 0.12, limit: 0.05, unit: 'm/s' }] } })); tick(300);
+    expect($('[data-sd-unlock]')!.textContent).toContain('거절 사유: STILL_MOVING — vz 0.12 m/s > 기준 0.05 m/s');
+    act(() => push('r7', { latched: false })); tick(10);
+    expect($('[data-sd-unlock]')).toBeNull();
+  });
+
+  it('전체화면은 모달: 열면 «작게 보기»에 초점, 배경 inert, Tab·Shift+Tab 은 안에서 돌고, 닫으면 연 칸으로 초점 복귀 · 잠금 해제도 안에서', () => {
+    ready();
+    click($('[data-sd-stop]')!); tick(100);   // 잠김
+    const tile = $('[data-sd-tile="rgb"]')!; tile.focus(); click(tile);
+    const full = $('[data-sd-full]')!;
+    expect(full.getAttribute('aria-modal')).toBe('true');
+    expect(document.activeElement).toBe(full.querySelector('[data-sd-small]'));
+    expect($('[data-sd-stop="panel"]')!.closest('[inert]')).not.toBeNull();   // 배경(패널 STOP·조종 끝내기)
+    expect(btn('조종 끝내기').closest('[inert]')).not.toBeNull();
+    expect(full.closest('[inert]')).toBeNull();
+    expect(full.querySelector('[data-sd-lock] button')!.textContent).toBe('② 잠금 해제');   // 작게 보기 없이 해제
+    const f = [...full.querySelectorAll<HTMLElement>('button:not([disabled])')];
+    const tab = (shift = false) => act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: shift, bubbles: true, cancelable: true })); });
+    f[0].focus(); tab(true); expect(document.activeElement).toBe(f[f.length - 1]);
+    tab(); expect(document.activeElement).toBe(f[0]);
+    key('keydown', 'Escape');
+    expect($('[data-sd-full]')).toBeNull();
+    expect(box.querySelector('[inert]')).toBeNull();
+    expect(document.activeElement).toBe(tile);
+  });
+
+  it('#214 r1: 전체화면을 Esc·작게 보기·카메라 클릭 어느 길로 닫아도 눌린 이동 키를 버리고 바로 0 — 200 ms 뒤에도 0', () => {
+    ready();
+    const ways: [string, () => void][] = [
+      ['Esc', () => key('keydown', 'Escape')],
+      ['작게 보기', () => click($('[data-sd-full] [data-sd-small]')!)],
+      ['카메라 클릭', () => click($('[data-sd-full] [aria-label="카메라 작게 보기"]')!)],
+    ];
+    for (const [way, close] of ways) {
+      click($('[data-sd-tile="rgb"]')!);
+      key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+      close();
+      expect($('[data-sd-full]'), way).toBeNull();
+      expect(lastAxes(), way).toBe('0,0,0');   // 닫는 그 자리에서 0
+      tick(200); expect(lastAxes(), way).toBe('0,0,0');
+      key('keyup', 'ArrowUp');
+    }
+    // 전체화면이 열린 채 창 초점 잃음·가려짐도 0(닫기와 별개 경로 — zero)
+    click($('[data-sd-tile="rgb"]')!);
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    expect(lastAxes()).toBe('0,0,0'); tick(200); expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(w.of('hidden').length).toBe(1);   // 가려짐 = rt 가 hidden(서버가 0·잠금·반납)을 보내고 조종권을 비움 — 그 뒤 cmd 없음
+    const n = axes().length; tick(300); expect(axes().length).toBe(n);
+    key('keyup', 'ArrowUp');
   });
 });

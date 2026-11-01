@@ -271,7 +271,7 @@ export function App({ user = USERS[0], robots: listed = ROBOTS, fresh = 0, refre
         : tab === 'mission' ? <Missions key={`mission-${user.id}`} user={user} cancel={cancel} robots={withSlots} />   // 로봇 0대여도 임무·시나리오
         : tab === 'sim' ? <SimTab user={user} refresh={refresh} />   // 로봇 0대여도 시뮬 띄우기
         : none}</Guard>
-        <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중입니다.</p></main>
+        <p id="fh-soon" className="lv-note" style={{ flexBasis: '100%' }}>흐린 단추는 아직 준비 중인 기능입니다(권한 때문인 비활성은 단추 옆에 이유가 따로 나옵니다).</p></main>
     </div>
   </div>;
 }
