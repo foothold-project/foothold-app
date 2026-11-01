@@ -37,6 +37,24 @@ AgentState와 이를 상속하는 PhoneState의 선택 필드 `safety_reason`은
 서버는 검증된 값을 로봇별 `ScreenState.safety_reason`으로 전달한다. 필드를 생략하는
 옛 에이전트, 아직 상태가 없거나 오래된 상태, 오프라인 로봇은 null이다.
 
+`AgentState`·`PhoneState`·`ScreenState`의 선택 `unlock_refused`는
+`{reason, at, axes}` 또는 null이다. `at`은 UTC 시각, `reason`은 `UnlockRefused`의
+고정 코드이며 lease 확인/불일치·세대 형식/불일치·출력 hold와 Core의 기존 거절 관문을
+구분한다. `STILL_MOVING`이면 `axes`에 기준을 초과한 `axis,value,limit,unit`만 담는다.
+Go2의 vx/vy/vz는 0.02 m/s, wz는 0.03 rad/s, gyro_x/y/z는 0.05 rad/s,
+joint_0~11은 0.10 rad/s다. 축이 없으면 정지 확인 미완료를 움직임으로 추정하지 않는다.
+마지막 거절은 다음 unlock이 승인될 때 null이 되며 과거 거절 시각을 유지한다.
+서버는 신선한 해당 로봇 상태에만 전달하고 구 보고의 생략/null은 이전 값을 지운다.
+이 필드는 해제 승인·물리 정지 확인·조종 권한의 근거로 쓰지 않는다.
+
+`Device.status_code`는 선택 `{raw,level,reason}`이다. 명시 승인 목록과 서버 source가
+readiness와 동일하게 맞는 nonzero만 `level=ACCEPTED`,
+`reason=EXPLICIT_SERVER_ALLOWLIST`와 기존 `state=OK`로 표시한다. 0은 `OK`,
+목록 밖 nonzero는 `ERROR`이며 raw 정수는 보존한다. 허용 코드는 장치 오류 KPI를
+추가하지 않지만 STOP 잠금·다른 장치 오류·배터리 등 독립 주의 사유는 그대로다.
+관측이 만료되면 `state=MISSING`으로 바꾸고 `status_code`를 생략한다.
+서버는 기존 장치 info JSON에 코드를 보관하므로 DB 마이그레이션이 필요 없다.
+
 사건/event와 run.update는 발생 FIFO를 유지한다. hello·최신 state/ACK는 이력을 앞설 수
 있다. 포화는 일반 사건 우선 생략과 누락 수 사건으로 알리며 안전 사건 초과분은
 프로세스 수명 동안 파일로 보존한다. 4406의 이유 문자열은 정확히 `PROTOCOL_MISMATCH`다.

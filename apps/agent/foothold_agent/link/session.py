@@ -12,6 +12,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 import json
 import time
+from datetime import datetime, timezone
 from typing import Callable
 import sys
 
@@ -100,6 +101,8 @@ class Session:
         self.executor_zero_only = None
         self.last_report = float("-inf")
         self._telemetry = None
+        self.unlock_refused = None
+        self._still_axes = []
         self.ack_pending = False
         self._messages = History(MAX_BUFFER - 1, lambda m: m.get('code') in SAFETY_EVENTS or m.get('t') == 'run.update'
                                  or (m.get('code') == 'SERVER_CLOSED' and m.get('data', {}).get('close_code') in (4401, 4403, 4406)),
@@ -219,6 +222,7 @@ class Session:
                 "devices_changed": self._device_snapshot(),
                 "latched": self.core.latch, "stop_gen": self._generation(),
                 "safety_reason": "OUTPUT_STALLED" if self._output_stall_locked and self.core.latch else None,
+                "unlock_refused": deepcopy(self.unlock_refused),
                 "stop_ref": self.stop_ref, "applied": list(self.core.out), "mode": self.holder_type or "FREE"}
 
     def _sync_output_hold(self):
@@ -265,6 +269,8 @@ class Session:
             fresh = number(receipt) and 0 <= self.now() - receipt <= STALE_S
             result.append({**{k: device[k] for k in ("key", "kind", "label")},
                            "state": device["state"] if fresh else "MISSING"})
+            if fresh and device.get('status_code') is not None:
+                result[-1]['status_code'] = deepcopy(device['status_code'])
         return result
 
     def _finish(self, actions=(), *, state=False):
@@ -399,7 +405,20 @@ class Session:
                 if record_errors:
                     self._event("BRIDGE_STATE_INVALID", reason="NUMBER_RANGE")
                 return self._finish()
+        sequence = self.core.state_seq
         self.core.on_state(raw)
+        if self.core.state_seq != sequence:
+            # Private producer measurements, never arbitrary bridge keys/identity.
+            from .telemetry import number
+            axes = {'vx', 'vy', 'vz', 'wz', 'gyro_x', 'gyro_y', 'gyro_z',
+                    *(f'joint_{i}' for i in range(12))}
+            measurements = raw.get('still_violations')
+            measurements = measurements if isinstance(measurements, list) else []
+            self._still_axes = [dict(axis=v['axis'], value=v['value'], limit=v['limit'], unit=v['unit'])
+                for v in measurements[:19]
+                if isinstance(v, dict) and isinstance(v.get('axis'), str) and v['axis'] in axes
+                and number(v.get('value')) and number(v.get('limit')) and v['limit'] > 0
+                and abs(v['value']) > v['limit'] and v.get('unit') in ('m/s', 'rad/s')]
         return self._finish()
 
     def _lease(self, frame):
@@ -491,12 +510,23 @@ class Session:
         elif kind == "unlock":
             gen = frame.get("stop_gen")
             self.core._safety_log.emit('resume', 'session_unlock_received', _log_source(), stop_gen=self.core.stop_gen)
-            if (self.lease_confirmed and frame.get("lease_id") == self.lease_id
-                    and type(gen) is int and 0 <= gen <= MAX_SEQ
-                    and not (self._output_stall_locked and self._output_feedback_held)
-                    and self.core.resume(self.lease_id, gen)):
+            reason = ('LEASE_UNCONFIRMED' if not self.lease_confirmed else
+                      'LEASE_MISMATCH' if frame.get('lease_id') != self.lease_id else
+                      'INVALID_GENERATION' if type(gen) is not int or not 0 <= gen <= MAX_SEQ else
+                      'OUTPUT_HELD' if self._output_stall_locked and self._output_feedback_held else None)
+            if reason is None and self.core.resume(self.lease_id, gen):
                 actions = (MotionCommand("unlock"),)
+                self.unlock_refused = None
             else:
+                if reason is None:
+                    reason = {'sim_stop_unconfirmed': 'STOP_UNCONFIRMED', 'sim_unseen': 'STATE_UNSEEN',
+                              'sim_stale': 'STATE_STALE', 'sim_resetting': 'STATE_RESETTING'}.get(
+                                  self.core.resume_refused, (self.core.resume_refused or 'sim_busy').upper())
+                violations = self._still_axes if reason == 'STOP_UNCONFIRMED' else []
+                if violations:
+                    reason = 'STILL_MOVING'
+                self.unlock_refused = dict(reason=reason, at=datetime.now(timezone.utc).isoformat(),
+                                           axes=deepcopy(violations))
                 self.core._safety_log.emit('resume_rejected', 'session_unlock_gate', _log_source(), stop_gen=self.core.stop_gen)
         elif kind == "cmd":
             seq = frame.get("seq")
