@@ -123,6 +123,7 @@ class Core:
         self.sink = None            # 사건 영구 기록(파일) — 실패해도 조종은 계속
         self.st = None; self.state_t = None; self.state_seq = 0; self.episode = None
         self.resume_pending = None  # (요청 시각, 그때 state_seq) — 시뮬이 stop_requested=false 를 보낼 때까지 0
+        self.resume_refused = None  # Diagnostic code only; never used by motion gates.
         self.reset_pending = None   # 요청 시각
         self.ep_change_t = None     # 마지막 episode 변경 시각
         self.sim_was_ok = False; self.bad_input = False; self.bad_state = False
@@ -243,8 +244,10 @@ class Core:
                 '시뮬 상태 미수신': 'sim_unseen', '시뮬 상태 끊김': 'sim_stale',
                 '시뮬 리셋 중': 'sim_resetting', '정책 미실행': 'policy_not_running',
             }.get(why, 'sim_busy')
+            self.resume_refused = diagnostic_reason
             self._safety_log.emit('resume_rejected', diagnostic_reason, _log_source(), stop_gen=self.stop_gen)
             self.ev('warn', f'STOP 해제 거부 · {why}'); return False
+        self.resume_refused = None
         self.resume_pending = (self.now(), self.state_seq); self._void()
         self._safety_log.emit('resume', 'requested', _log_source(), stop_gen=self.stop_gen)
         self.ev('ok', 'STOP 해제 요청 · 시뮬 확인 대기(0 유지)')

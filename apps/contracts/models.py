@@ -235,11 +235,37 @@ class CurrentRun(Contract):
     progress: Progress
 
 
+class DeviceStatusCode(Contract):
+    raw: int = Field(strict=True, ge=0, le=0xFFFFFFFF)
+    level: Literal['OK', 'ACCEPTED', 'ERROR']
+    reason: Literal['EXPLICIT_SERVER_ALLOWLIST'] | None
+
+
+class UnlockAxis(Contract):
+    axis: Literal['vx', 'vy', 'vz', 'wz', 'gyro_x', 'gyro_y', 'gyro_z',
+                  'joint_0', 'joint_1', 'joint_2', 'joint_3', 'joint_4', 'joint_5',
+                  'joint_6', 'joint_7', 'joint_8', 'joint_9', 'joint_10', 'joint_11']
+    value: float
+    limit: float = Field(gt=0)
+    unit: Literal['m/s', 'rad/s']
+
+
+class UnlockRefused(Contract):
+    reason: Literal['LEASE_UNCONFIRMED', 'LEASE_MISMATCH', 'INVALID_GENERATION',
+                    'OUTPUT_HELD', 'NO_CONTROLLER', 'NOT_LATCHED', 'GENERATION_MISMATCH',
+                    'RESET_PENDING', 'RESUME_PENDING', 'STOP_UNCONFIRMED', 'STATE_UNSEEN',
+                    'STATE_STALE', 'STATE_RESETTING', 'POLICY_NOT_RUNNING', 'SIM_BUSY', 'STILL_MOVING']
+    at: UTCDateTime
+    axes: list[UnlockAxis] = Field(max_length=19)
+
+
 class Device(Contract):
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('status_code'))
     key: str
     kind: Literal['CAMERA_RGB', 'CAMERA_DEPTH', 'LIDAR', 'BATTERY', 'OTHER']
     label: str
     state: Literal['OK', 'MISSING', 'ERROR']
+    status_code: DeviceStatusCode | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
 class StopRequest(Contract):
@@ -547,6 +573,7 @@ class AgentState(AgentInput):
     battery: AgentBattery
     latched: bool = Field(strict=True)
     safety_reason: SafetyReason | None = None
+    unlock_refused: UnlockRefused | None = None
     stop_gen: Sequence
     stop_ref: Sequence
     applied: Vector3
@@ -811,7 +838,7 @@ class ScreenLeaseResult(Contract):
 
 
 class ScreenState(Contract):
-    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay'))
+    model_config = ConfigDict(json_schema_extra=optional_response_fields('safety_reason', 'phone_relay', 'unlock_refused'))
     phone_relay: PhoneRelayState | None = None
     t: Literal['state'] = 'state'
     robot: UUID
@@ -824,6 +851,7 @@ class ScreenState(Contract):
     latency_ms: float | None
     latched: bool | None
     safety_reason: SafetyReason | None = None
+    unlock_refused: UnlockRefused | None = None
     stop_gen: Sequence | None
     applied: Vector3 | None
 

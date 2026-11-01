@@ -68,6 +68,7 @@ class Feedback:
             dq = (vector([getattr(m, 'dq', None) for m in motors[:12]], 12)
                   if isinstance(motors, (tuple, list)) and len(motors) >= 12 else None)
             self._low = dict(tick=tick, received=received, generation=generation, attitude=attitude(message),
+                             gyro=gyro, dq=dq,
                              still=gyro is not None and dq is not None and
                              all(abs(x) <= .05 for x in gyro) and all(abs(x) <= .10 for x in dq))
             self.state.lowstate(message)
@@ -130,7 +131,17 @@ class Feedback:
             # Do not publish the previous robot's healthy battery on an ID conflict.
             for source in snapshot['sources'].values():
                 source['fresh'] = False
+        error = snapshot.get('error_code')
+        if type(error) is int:
+            accepted = error != 0 and self.error_allowed(error)
+            snapshot['status_code'] = dict(raw=error,
+                level='ACCEPTED' if accepted else 'ERROR' if error else 'OK',
+                reason='EXPLICIT_SERVER_ALLOWLIST' if accepted else None)
         return snapshot
+
+    def error_allowed(self, error):
+        """Shared display/readiness policy; configuration already verified marker+env."""
+        return error == 0 or (error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')
 
     def consume(self, hub):
         sample = self.sample()
@@ -144,8 +155,7 @@ class Feedback:
         tilt = None if any(x is None for x in angles.values()) else max(abs(x) for x in angles.values())
         # Unitree's documented ordinary stand/balance/locomotion modes only.
         # No mode switch or stand-up is issued. Unknown modes/errors stay closed.
-        ready = (sport['mode'] in (0, 1, 3) and (sport['error'] == 0 or
-                 (sport['error'] in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server')) and
+        ready = (sport['mode'] in (0, 1, 3) and self.error_allowed(sport['error']) and
                  number(sport['progress']) and sport['progress'] == 0 and
                  number(sport['height'], .20, .50) and tilt is not None and tilt < math.pi/3)
         still = (low['still'] and all(abs(x) <= .02 for x in sport['velocity']) and abs(sport['yaw']) <= .03)
@@ -154,7 +164,15 @@ class Feedback:
             generation=sport['generation'], sequence=sport['sequence'],
             received_at=sport['received'], stationary=True))
         self._last_ready = ready
+        checks = [(axis, value, .02, 'm/s') for axis, value in zip(('vx', 'vy', 'vz'), sport['velocity'])]
+        checks += [('wz', sport['yaw'], .03, 'rad/s')]
+        checks += [(axis, value, .05, 'rad/s') for axis, value in
+                   zip(('gyro_x', 'gyro_y', 'gyro_z'), low['gyro'] or ())]
+        checks += [(f'joint_{i}', value, .10, 'rad/s') for i, value in enumerate(low['dq'] or ())]
+        violations = [dict(axis=axis, value=value, limit=limit, unit=unit)
+                      for axis, value, limit, unit in checks if abs(value) > limit]
         hub.on_robot_state(dict(schema=SCHEMA, episode=0, sim_t=None,
+            still_violations=violations,
             stop_requested=bool(latched and confirmed), reset_in_progress=False, policy_running=ready,
             body_still=still, fallen=None if tilt is None else tilt >= math.pi/3,
             tilt_deg=None if tilt is None else math.degrees(tilt), z=sport['height'],
