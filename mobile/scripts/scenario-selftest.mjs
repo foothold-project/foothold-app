@@ -104,7 +104,20 @@ for (const ev of ['left', 'right', 'stop', 'blur']) {
   q[3] = 1; q[6] = 0; r.start([{ x: 0, y: 1 }], true);
   for (let k = 0; k < 400; k++) r.tick(Infinity, 0.02);
   assert.equal(r.active, false, 'stuck turn stalls'); assert.equal(r.status, '막힘'); assert.deepEqual(sim.cmd, [0, 0, 0]);
+  // 바로 뒤 목표 + 몸 흔들림(yaw ±0.03 이 ±π 를 오감): 처음 고른 회전 방향을 지키고 끝까지 돈다(부호가 뒤집혀 제자리 → 5 s 막힘 아님)
+  {
+    q[0] = 0; q[1] = 0; q[3] = 1; q[6] = 0; r.start([{ x: -2, y: 0 }], true);
+    const signs = new Set();
+    for (let k = 0, yaw = 0; k < 400 && !sim.cmd[0]; k++) {
+      const wob = (k % 2 ? 0.03 : -0.03);
+      q[3] = Math.cos((yaw + wob) / 2); q[6] = Math.sin((yaw + wob) / 2);
+      r.tick(Infinity, 0.02); if (Math.abs(yaw) < 2.4) signs.add(Math.sign(sim.cmd[2]));
+      yaw += (k < 5 ? 0 : sim.cmd[2]) * 0.02;   // 처음 0.1 s 는 아직 못 돎(흔들림만)
+    }
+    assert.equal(signs.size, 1, `one turn direction behind (${[...signs]})`);
+    assert.equal(r.active, true, 'behind goal with wobble: no stall'); assert.ok(sim.cmd[0] > 0, 'turned around then forward');
+  }
   r.start([{ x: 0.2, y: 0 }], true); r.tick();   // 이미 0.3 m 안 = 바로 도착·명령 0
   assert.equal(r.status, '완료'); assert.deepEqual(sim.cmd, [0, 0, 0]);
 }
-console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/fall/STOP guards, goal hand-cancel/no-lock, 5 s stall, turn-not-blocked, stuck-turn stall`);
+console.log(`scenario selftest OK: ${routes} routes, ${samples} free/clearance cells, ordered arrival, command bounds, 10 input/lifecycle interruptions, block/fall/STOP guards, goal hand-cancel/no-lock, 5 s stall, turn-not-blocked, stuck-turn stall, behind goal keeps one turn direction under wobble`);

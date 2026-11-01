@@ -5,7 +5,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SimCatalog, SimRobot } from '../../../contracts/ts';
 import { App } from '../App';
-import { sim } from '../phone';
+import { allowed, sim, velocity } from '../phone';
+import { blockNote } from '../simdrive';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
 import frameCss from '../frame.css?raw';
@@ -93,6 +94,16 @@ async function ready(w = welcome()) {
 }
 
 describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
+  it('에이전트 시뮬 limits(protocol.py SIMULATION_LIMITS)면 후진·옆걸음·제자리 회전 모두 열림 — 막힘 안내 없음, 명령 0 아님', () => {
+    const w = welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }) as unknown as Parameters<typeof velocity>[1];
+    const can = allowed(w);
+    expect(can).toMatchObject({ back: true, left: true, right: true, spin: true });
+    for (const [a, want] of [[[-1, 0, 0], { vx: -0.3 }], [[0, 0, 1], { vy: 0.3 }], [[0, 0, -1], { vy: -0.3 }], [[0, 1, 0], { vx: 0, vy: 0, wz: 0.5 }]] as const) {
+      const out = velocity([...a], w);
+      expect(out).toMatchObject(want);
+      expect(blockNote([...a], can, out)).toBe('');
+    }
+  });
   it('출입증 요청에 surface: "pc"', async () => {
     serve(); await mount();
     await click(btn('띄우기'));
