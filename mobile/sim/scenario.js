@@ -3,7 +3,7 @@ import { cell } from './lidar.js';
 
 export const REACH_RADIUS = 0.3, MAX_VX = 0.4, MAX_WZ = 0.6, BLOCK_RANGE = 0.6;
 // 이 시간 넘게 지점에 0.1 m 도 못 다가가고 방향 오차도 0.1 rad 넘게 못 줄이면 «막힘»(돌다 걸린 것도 멈춤)
-export const STALL_S = 5, STALL_GAIN = 0.1, STALL_TURN = 0.1;
+export const STALL_S = 5, STALL_GAIN = 0.1, STALL_TURN = 0.1, BEHIND = 2.6;
 
 export function validateScenarios(list, map) {
   if (!Array.isArray(list)) throw new Error('시나리오 목록 형식');
@@ -42,7 +42,7 @@ export function createScenarioRunner(sim, isStopped) {
     runner.points = points;
     runner.goal = goal;
     runner.index = 0;
-    runner.best = runner.turn = Infinity; runner.stall = 0;
+    runner.best = runner.turn = Infinity; runner.stall = runner.spin = 0;
     runner.status = '실행 중';
     runner.active = true;
     sim.cmd = [0, 0, 0];
@@ -56,9 +56,14 @@ export function createScenarioRunner(sim, isStopped) {
     const q = sim.d.qpos;
     while (runner.index < runner.points.length) {
       const p = runner.points[runner.index], dx = p.x - q[0], dy = p.y - q[1], dist = Math.hypot(dx, dy);
-      if (dist <= REACH_RADIUS) { runner.index++; runner.best = runner.turn = Infinity; runner.stall = 0; continue; }
+      if (dist <= REACH_RADIUS) { runner.index++; runner.best = runner.turn = Infinity; runner.stall = runner.spin = 0; continue; }
       const yaw = Math.atan2(2 * (q[3] * q[6] + q[4] * q[5]), 1 - 2 * (q[5] ** 2 + q[6] ** 2));
-      const a = Math.atan2(dy, dx) - yaw, error = Math.atan2(Math.sin(a), Math.cos(a)), vx = Math.abs(error) < 0.4 ? MAX_VX : 0;
+      const a = Math.atan2(dy, dx) - yaw;
+      let error = Math.atan2(Math.sin(a), Math.cos(a));
+      // 거의 바로 뒤(|오차| > BEHIND)면 처음 고른 회전 방향을 지킨다 — ±π 근처에서 몸 흔들림으로 부호가 뒤집혀 제자리에 멈춰 «막힘»이 되지 않게
+      if (runner.spin && Math.abs(error) > BEHIND && Math.sign(error) !== runner.spin) error = runner.spin * (2 * Math.PI - Math.abs(error));
+      runner.spin = Math.abs(error) > BEHIND ? Math.sign(error) : 0;
+      const vx = Math.abs(error) < 0.4 ? MAX_VX : 0;
       // 앞 막힘은 앞으로 갈 때만 — 벽을 보고 선 채 뒤쪽 지점으로 돌아서는 것은 막지 않는다
       if (vx && !(front > BLOCK_RANGE)) return runner.cancel('막힘');
       let gained = false;

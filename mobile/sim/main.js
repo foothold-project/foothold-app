@@ -11,7 +11,7 @@ import { ame2Joystick } from './ame2-adapter.js';
 import { topFrame } from './top-fit.js';
 import { makeLidar, decodeMap, cell } from './lidar.js';
 import { validateScenarios, createScenarioRunner, frontDistance, bindScenarioInterrupts, MAX_VX } from './scenario.js';
-import { findPath, planRoute } from './astar.js';
+import { CLEARANCE, inflate, fits, findPath, planRoute } from './astar.js';
 
 let adapter = getPolicyAdapter(), selectionError = null;
 try { adapter = getPolicyAdapter(new URLSearchParams(location.search).get('policy') ?? 'foothold-v2'); }
@@ -153,6 +153,7 @@ async function main() {
     if (digest !== adapter.network.sha256) throw new Error('AME-2 가중치 SHA-256 불일치');
   }
   let map = decodeMap(mapJ);   // 로봇이 지금 선 층의 지도(찍기·시나리오 검사) — 여러 층이면 몸 높이로 바뀐다
+  inflate(map);   // 길 찾기 막힘 격자를 미리(쉬어 가며) 만들어 둔다
   // 여러 층(top.json floors, z = 로봇 몸 높이 반열린 띠 [아래, 위)): 층마다 지도·시나리오 파일. 한 층이면 지금처럼 map.json·scenarios.json 하나
   const floors = await json(`${dir}/top.json`).then((t) => (t.floors?.length > 1 ? Promise.all(t.floors.map(async (f) => ({ id: f.id, name: f.name, z: f.z, scn: f.scenarios_file,
     map: decodeMap(await json(`${dir}/${f.map_file}`)) }))) : []), () => []);
@@ -325,15 +326,18 @@ async function main() {
     sim.reset(); q[0] = x; q[1] = y; q[2] = z + 0.4; q[3] = Math.cos(yaw / 2); q[6] = Math.sin(yaw / 2);
     mj.mj_forward(m, d); sim.hold(0.5); acc = 0; pin = null; floorTick(q[2]);
   };
-  $('scenarioRun').onclick = () => {
-    if (!ready || stopped || sim.fell || runner.active || adapter.stop.pause) return;
+  $('scenarioRun').onclick = async () => {
+    if (!ready || stopped || sim.fell || runner.active || adapter.stop.pause || busy) return;
     const chosen = scenarios.find((s) => s.id === select.value);
     if (!chosen) return;
     const far = away();
     if (far) spawnOn(far.floor);
     // 지점 사이도 찍은 점과 같은 A* 경유점으로 잇는다(안전 규칙은 실행기 그대로 — 막히면 멈춤, 다시 찾기는 찍은 점만)
-    const pts = planRoute(map, { x: d.qpos[0], y: d.qpos[1] }, chosen.points);
-    if (!pts) { runner.status = '갈 수 있는 길이 없습니다'; scenarioUI(); return; }
+    const at = pos(), g0 = gen;
+    busy = true; runner.status = '길 찾는 중'; scenarioUI();
+    const pts = await planRoute(map, at, chosen.points).finally(() => { busy = false; });
+    const why = stale(at, g0) || (pts ? '' : '갈 수 있는 길이 없습니다');   // 찾는 동안(큰 지도는 쉬어 가며) STOP·넘어짐·움직임이면 시작하지 않는다
+    if (why) { runner.status = why; scenarioUI(); return; }
     sticks.forEach((s) => s.release());
     scan(); lastScan = performance.now();
     runner.start(pts);
@@ -349,8 +353,13 @@ async function main() {
   const GOAL_END = { 완료: '도착했습니다', 막힘: '막혀서 멈췄습니다', 넘어짐: '넘어져서 멈췄습니다', 중단: '정지(잠금)로 목표를 취소했습니다', '손 조종': '손 조종으로 목표를 취소했습니다', 지움: '점을 지웠습니다' };
   let note = { text: '', until: 0 }, wasGoal = false, goalText = '';
   let marks = [], plan = [], planFrom = null, retried = false;   // 찍은 점, 그리는(가는) 경유점(mark = 점 번호), 경유점 선의 출발 자리, 이번 출발에서 다시 찾았나
+  // 길 찾기는 async(큰 지도는 쉬어 가며) — busy = 출발용 찾기 하나만, adding = 찍은 점 차례로, gen = 점 지움·층 바뀜마다 +1(찾던 결과 버림)
+  let busy = false, adding = Promise.resolve(), gen = 0;
   const say = (text) => { note = { text, until: performance.now() + 4000 }; };
   const pos = () => ({ x: d.qpos[0], y: d.qpos[1] });
+  // 찾는 동안 바뀐 것이 있으면 그 까닭(출발하지 않음), 없으면 ''
+  const stale = (at, g0) => g0 !== gen ? '점이 바뀌어 출발하지 않았습니다' : stopped ? '정지(잠금)로 출발하지 않았습니다' : sim.fell ? '넘어져서 출발하지 않았습니다'
+    : runner.active ? '다른 실행 중입니다' : Math.hypot(d.qpos[0] - at.x, d.qpos[1] - at.y) > 0.2 ? '길 찾는 동안 움직였습니다 — 다시 누르세요' : '';
   // 번호 표시(점) + 경유점 선 — 바뀔 때만 다시 만든다
   const marksG = new THREE.Group(), numTex = [];
   scene.add(marksG);
@@ -394,14 +403,23 @@ async function main() {
   const finish = () => {
     const cut = () => { marks = marks.slice(runner.points[runner.index]?.mark ?? marks.length); };
     cut();
-    if (runner.status === '막힘' && !retried && marks.length) {
-      retried = true;
-      const p = planRoute(map, pos(), marks, seen());
-      if (p) { begin(p, pos()); if (runner.active) return say('막혀서 지금 자리에서 길을 다시 찾았습니다'); cut(); }
-    }
-    plan = (marks.length && planRoute(map, pos(), marks)) || []; planFrom = pos();
-    drawMarks();
-    say((GOAL_END[runner.status] ?? runner.status) + (marks.length ? ` — 남은 점 ${marks.length}개, «출발»로 이어 갑니다` : ''));
+    // 남은 경유점을 그대로 그린다(«출발»은 그때 자리에서 다시 찾는다)
+    const end = (why = GOAL_END[runner.status] ?? runner.status) => {
+      plan = marks.length ? plan.slice(runner.index) : []; planFrom = pos();
+      drawMarks();
+      say(why + (marks.length ? ` — 남은 점 ${marks.length}개, «출발»로 이어 갑니다` : ''));
+    };
+    if (runner.status !== '막힘' || retried || !marks.length || busy) return end();
+    retried = true; busy = true; say('막혀서 지금 자리에서 길을 다시 찾는 중');
+    const at = pos(), g0 = gen;
+    const near = seen();
+    adding.then(() => planRoute(map, at, marks.slice(), near)).finally(() => { busy = false; }).then((p) => {
+      const why = stale(at, g0);
+      if (why || !p) return end(why || '막혀서 멈췄습니다');
+      begin(p, at);
+      if (runner.active) return say('막혀서 지금 자리에서 길을 다시 찾았습니다');
+      cut(); end();
+    });
   };
   const goTo = (cx, cy) => {
     const [l, t, w, h] = vp;
@@ -409,6 +427,7 @@ async function main() {
     if (stopped) return say('정지 중에는 찍어도 움직이지 않습니다 — ▶ 로 시작하세요');
     if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 찍으세요');
     if (runner.active && !runner.goal) return say('시나리오 실행 중에는 찍어서 이동할 수 없습니다');
+    if (busy) return say('길 찾는 중입니다 — 잠시 뒤 찍으세요');
     if (top && (pin ?? here) !== here) return say(`로봇이 선 층(${floors[here].name})을 볼 때만 찍을 수 있습니다`);
     ray.setFromCamera(new THREE.Vector2(((cx - l) / w) * 2 - 1, 1 - ((cy - t) / h) * 2), camera);
     if (!ray.ray.intersectPlane(floor, hit)) return say('바닥을 찍으세요');
@@ -418,36 +437,47 @@ async function main() {
     const ox = map.origin[0], oy = map.origin[1];
     if (hit.x < ox || hit.y < oy || hit.x >= ox + map.w * map.res || hit.y >= oy + map.h * map.res) return say('지도 밖은 갈 수 없습니다');
     if (cell(map, hit.x, hit.y) !== 254) return say('장애물·모르는 칸이라 갈 수 없습니다');
-    const p = { x: hit.x, y: hit.y }, going = runner.active && runner.goal;
+    const p = { x: hit.x, y: hit.y };
+    adding = adding.then(() => addMark(p));   // 찍은 차례대로(앞 점 길 찾기가 끝난 뒤 그 점에서 잇는다)
+  };
+  const addMark = async (p) => {
+    const g0 = gen, f = map;
+    if (!(await fits(f, p))) return g0 === gen && say(`벽·물건에서 ${CLEARANCE} m 안이라 갈 수 없습니다 — 조금 떨어진 곳을 찍으세요`);
     // 이어 붙일 자리: 가는 중이거나 점이 있으면 마지막 점, 아니면 로봇
-    const from = marks.length ? marks.at(-1) : pos(), leg = findPath(map, from, p);
+    const from = marks.length ? marks.at(-1) : pos(), leg = await findPath(f, from, p);
+    if (g0 !== gen || f !== map) return;   // 찾는 동안 점 지움·층 바뀜
     if (!leg) return say('갈 수 있는 길이 없습니다');
+    const going = runner.active && runner.goal;
     if (!marks.length && !going) { plan = []; planFrom = from; }
     marks.push(p);
     plan.push(...leg.map((q) => ({ ...q, mark: marks.length - 1 })));   // 가는 중이면 plan = runner.points — 실행기가 끝에 이어 간다
     drawMarks();
     say(going ? `점 ${marks.length} 추가 — 이어서 갑니다` : `점 ${marks.length} 추가 — «출발»로 갑니다`);
   };
-  $('wpGo').onclick = () => {
-    if (!ready || !marks.length || runner.active) return;
+  $('wpGo').onclick = async () => {
+    if (!ready || !marks.length || runner.active || busy) return;
     if (stopped) return say('정지 중입니다 — ▶ 로 시작한 뒤 «출발»을 누르세요');
     if (sim.fell) return say('넘어졌습니다 — 다시 세운 뒤 출발하세요');
-    const p = planRoute(map, pos(), marks);   // 찍은 뒤 손으로 움직였을 수 있어 지금 자리에서 다시 잇는다
-    if (!p) return say('갈 수 있는 길이 없습니다');
+    const at = pos(), g0 = gen;
+    busy = true;
+    await adding;   // 찍은 점 길 찾기가 남아 있으면 끝난 뒤
+    const p = await planRoute(map, at, marks.slice()).finally(() => { busy = false; });   // 찍은 뒤 손으로 움직였을 수 있어 지금 자리에서 다시 잇는다
+    const why = stale(at, g0) || (p ? '' : '갈 수 있는 길이 없습니다');
+    if (why) return say(why);
     retried = false; note = { text: '', until: 0 };
-    begin(p, pos());
+    begin(p, at);
     if (!runner.active) finish();
   };
   $('wpClear').onclick = () => {
     if (runner.active && runner.goal) runner.cancel('지움');
-    marks = []; plan = []; drawMarks();
+    gen++; marks = []; plan = []; drawMarks();
     if (!runner.active) { wasGoal = false; say(GOAL_END.지움); }
   };
   const goalUI = (now) => {
     const on = runner.active && runner.goal;
     if (wasGoal && !on && runner.goal) finish();
     wasGoal = runner.active && runner.goal;
-    $('wpGo').disabled = runner.active || stopped;
+    $('wpGo').disabled = runner.active || stopped || busy;
     const m = on && marks[runner.points[runner.index]?.mark];
     // 안내(점 추가·다시 찾음·끝남)는 4초, 그 밖에는 가는 중 진행
     const text = now < note.until ? note.text : m ? `찍은 곳으로 가는 중 · 점 ${runner.points[runner.index].mark + 1}/${marks.length} · ${Math.hypot(m.x - d.qpos[0], m.y - d.qpos[1]).toFixed(1)} m` : '';
@@ -514,7 +544,7 @@ async function main() {
   let floorKey = '';
   const floorTick = (z) => {
     const i = floors.findIndex((f) => z >= f.z[0] && z < f.z[1]);
-    if (i >= 0 && i !== here) { here = i; map = floors[i].map; floor.constant = -map.floor_z; marks = []; plan = []; drawMarks(); }   // 다른 층 점은 받지 않는다
+    if (i >= 0 && i !== here) { here = i; map = floors[i].map; floor.constant = -map.floor_z; gen++; marks = []; plan = []; drawMarks(); inflate(map); }   // 다른 층 점은 받지 않는다
     const v = pin ?? here;
     planes.forEach((p, j) => { p.visible = top && (v === 'all' || v === j); p.material.depthTest = v !== 'all'; });
     const key = `${top}|${here}|${pin}`;
@@ -531,6 +561,7 @@ async function main() {
     // 시험용: 지도 좌표 → 화면(CSS px) 점(그 점을 찍는 시험), 지금 보이는 찍기 안내
     toScreen: (x, y) => { const v = new THREE.Vector3(x, y, map.floor_z).project(camera); return [vp[0] + (v.x + 1) / 2 * vp[2], vp[1] + (1 - v.y) / 2 * vp[3]]; }, goalNote: () => goalText,
     marks: () => marks.map((p) => ({ ...p })), plan: () => plan.map((p) => ({ ...p })),
+    settled: () => adding.then(() => new Promise((r) => { const w = () => (busy ? setTimeout(w, 5) : r()); w(); })),   // 찍은 점·출발용 길 찾기가 끝날 때까지
     floor: () => ({ here, view: pin ?? here, names: floors.map((f) => f.name) }) });
   const camPos = new THREE.Vector3(), look = new THREE.Vector3();
   function frame(now) {

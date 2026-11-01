@@ -39,12 +39,12 @@ for (let k = 0; k < 72 && !(free && behind); k++) {
 }
 assert.ok(free && wall && behind, 'test points in warehouse map');
 // 점 3개: free → 출발점 뒤 1 m → 그 자리에서 곧게는 막혀 A* 로 돌아야 하는 빈 칸(사방 0.5 m 빈 칸, 도는 길 9 m 안, 가장 많이 돌아가는 곳)
-const back = { x: sx - 1, y: sy }, grid = inflate(map), len = (a, p) => p.reduce((t, q, i) => t + Math.hypot(q.x - (i ? p[i - 1] : a).x, q.y - (i ? p[i - 1] : a).y), 0);
+const back = { x: sx - 1, y: sy }, grid = await inflate(map), len = (a, p) => p.reduce((t, q, i) => t + Math.hypot(q.x - (i ? p[i - 1] : a).x, q.y - (i ? p[i - 1] : a).y), 0);
 let around = null, ratio = 1;
 for (let x = map.origin[0] + 0.5; x < map.origin[0] + map.w * map.res; x += 0.5) for (let y = map.origin[1] + 0.5; y < map.origin[1] + map.h * map.res; y += 0.5) {
   const p = { x, y }, d = Math.hypot(x - back.x, y - back.y);
   if (d > 6 || !clear(x, y) || ![[-.5, 0], [.5, 0], [0, -.5], [0, .5]].every(([a, b]) => clear(x + a, y + b)) || visible(map, grid, back, p)) continue;
-  const r = findPath(map, back, p);
+  const r = await findPath(map, back, p);
   if (r && len(back, r) < 9 && len(back, r) / d > ratio) { ratio = len(back, r) / d; around = p; }
 }
 assert.ok(around, 'detour point in warehouse map');
@@ -67,9 +67,10 @@ try {
   const page = await open();
   const ev = (f, a) => page.evaluate(f, a);
   const frame = () => ev(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));   // 안내 글은 다음 프레임에 바뀐다
-  const tapAt = async ({ x, y }) => { const [cx, cy] = await ev(([x, y]) => __sim.toScreen(x, y), [x, y]); await page.mouse.click(cx, cy); await frame(); };
+  const settled = () => ev(() => __sim.settled());   // 길 찾기는 async(큰 지도는 쉬어 가며)
+  const tapAt = async ({ x, y }) => { const [cx, cy] = await ev(([x, y]) => __sim.toScreen(x, y), [x, y]); await page.mouse.click(cx, cy); await settled(); await frame(); };
   const goal = () => ev(() => ({ active: __sim.scenario.active, goal: __sim.scenario.goal, status: __sim.scenario.status, note: __sim.goalNote(), stopped: __sim.stopped(), cmd: __sim.cmd(), marks: __sim.marks().length }));
-  const go = async () => { await page.click('#wpGo'); await frame(); };
+  const go = async () => { await page.click('#wpGo'); await settled(); await frame(); };
   const clearMarks = async () => { if (await page.isVisible('#wpClear')) await page.click('#wpClear'); await frame(); };
   const goTo = async (p) => { await tapAt(p); await go(); };
   const pos = () => ev(() => [__sim.sim.d.qpos[0], __sim.sim.d.qpos[1]]);
@@ -186,7 +187,7 @@ try {
   // 막힘 = 지금 자리에서 한 번만 다시 찾기, 또 막히면 멈춤 + 못 간 점 남김
   await page.click('#stop'); await page.click('#go'); await goTo(free);
   assert.equal((await goal()).active, true);
-  await ev(() => __sim.scenario.cancel('막힘')); await frame();
+  await ev(() => __sim.scenario.cancel('막힘')); await frame(); await settled(); await frame();
   g = await goal(); assert.equal(g.active, true, 'replanned once'); assert.match(g.note, /다시 찾았습니다/);
   await ev(() => __sim.scenario.cancel('막힘')); await frame();
   g = await goal(); assert.equal(g.active, false); assert.equal(g.status, '막힘'); assert.equal(g.marks, 1); assert.match(g.note, /막혀서 멈췄습니다 — 남은 점 1개/);
@@ -199,7 +200,7 @@ try {
   await page.mouse.click(640, 400); await frame();
   g = await goal(); assert.equal(g.active, false, 'body click is not a goal'); assert.match(g.note, /바닥만/); assert.deepEqual(g.cmd, [0, 0, 0]);
   const [tx, ty] = await ev(() => __sim.toScreen(__sim.sim.d.qpos[0] + 2, __sim.sim.d.qpos[1]));   // 로봇 앞 2 m 바닥(1 m 는 이 카메라에서 몸통에 가림)
-  await page.mouse.click(tx, ty); await frame();
+  await page.mouse.click(tx, ty); await settled(); await frame();
   g = await goal(); assert.equal(g.marks, 1, `3D floor tap: ${g.note}`);
   await go(); assert.equal((await goal()).active, true, '3D 출발');
   await page.click('#stop');
@@ -224,7 +225,7 @@ try {
   await fz.click('#floorBar [data-floor="all"]'); assert.equal((await fl()).view, 'all');
   await fz.click('#floorBar [data-floor="0"]'); assert.equal((await fl()).view, 0, 'robot floor = back to auto');
   // 2층 시나리오 실행 = 2층 출발점(5.65, 4.65)에 다시 세워 시작(datum 0, 몸 높이 2 + 0.4) → 지금 층 2층·안내 사라짐
-  await fz.evaluate(() => document.getElementById('scenarioRun').click());
+  await fz.evaluate(() => document.getElementById('scenarioRun').click()); await fz.evaluate(() => __sim.settled());
   const f2 = await fz.evaluate(() => ({ q: Array.from(__sim.sim.d.qpos.slice(0, 3)), active: __sim.scenario.active, fell: __sim.sim.fell, here: __sim.floor().here }));
   assert.ok(f2.active && !f2.fell && f2.here === 1 && Math.hypot(f2.q[0] - 5.65, f2.q[1] - 4.65) < 0.1 && f2.q[2] > 2.2 && f2.q[2] < 2.5, `f2 scenario start ${JSON.stringify(f2)}`);
   await fz.waitForTimeout(1500);
@@ -239,7 +240,7 @@ try {
   if (await ame.evaluate(() => __sim.sim.adapterId) === 'ame2-demo') {
     await ame.click('#go');
     const [ax, ay] = await ame.evaluate(([x, y]) => __sim.toScreen(x, y), [free.x, free.y]);
-    await ame.mouse.click(ax, ay); await ame.click('#wpGo');
+    await ame.mouse.click(ax, ay); await ame.evaluate(() => __sim.settled()); await ame.click('#wpGo'); await ame.evaluate(() => __sim.settled());
     assert.equal(await ame.evaluate(() => __sim.scenario.active && __sim.scenario.goal), true);
     await ame.waitForFunction(() => __sim.cmd().length === 4 && __sim.cmd()[0] > .1, null, { timeout: 30000 });
     await ame.click('#stop');
