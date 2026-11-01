@@ -22,8 +22,13 @@ def save_inventory(factory, org_id, rid, devices, model=None, token_hash=None):
         for device in devices:
             device = dict(device)
             code = device.pop('status_code', None)
-            device['info'] = {'status_code': code} if code is not None else {}
             row = existing.pop(device['key'], None)
+            info = dict(row.info or {}) if row is not None else {}
+            if code is None:
+                info.pop('status_code', None)
+            else:
+                info['status_code'] = code
+            device['info'] = info
             if row is None:
                 row = RobotDevice(org_id=org_id, robot_id=robot.id, **device)
                 db.add(row)

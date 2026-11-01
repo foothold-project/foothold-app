@@ -63,4 +63,9 @@ def test_inventory_stores_code_in_existing_info_and_clears_legacy(client, seeded
         with factory() as db:
             row = db.scalar(select(RobotDevice).where(RobotDevice.robot_id == rid))
             assert row.state == 'OK' and row.info.get('status_code') == expected
+            if expected is not None:
+                row.info = {**row.info, 'unrelated': 'preserve-existing-metadata'}
+                db.commit()
+            else:
+                assert row.info['unrelated'] == 'preserve-existing-metadata'
     engine.dispose()
