@@ -10,6 +10,7 @@ import { STALLED } from './simdrive';
 import { Cloud3D } from './quad';
 import { driveFeedText, useDriveFeed, type DriveCh } from './drivemedia';
 import type { Robot, Tone } from './fake';
+import type { UnlockRefused } from '../../contracts/ts';
 
 /** 누름 하나: up·down = 전후, left·right = 옆걸음, rotl·rotr = 제자리 회전(A·D) */
 type Tok = 'up' | 'down' | 'left' | 'right' | 'rotl' | 'rotr';
@@ -49,11 +50,10 @@ export function stopLine({ stop: p, state: s }: Pick<Live, 'stop' | 'state'>): {
 }
 /** 잠금 해제 요청 뒤 이 시간 안에 잠금이 안 풀리면 «미확인» */
 export const UNLOCK_WAIT_MS = 3000;
-/** UIUX-1101-AGENT 가 더할 거절 사유(아직 contracts 전 — optional 로 읽음) */
-type Refused = { reason?: string; at?: string; axes?: { axis: string; value: number; limit: number; unit?: string }[] };
-export function refusedText(r: Refused | null | undefined) {
+/** 에이전트 잠금 해제 거절(contracts UnlockRefused, #213): 사유 코드 그대로 + 넘은 축 값/기준 */
+export function refusedText(r: UnlockRefused | null | undefined) {
   if (!r?.reason) return '';
-  const ax = (r.axes ?? []).map((a) => `${a.axis} ${a.value}${a.unit ? ` ${a.unit}` : ''} > 기준 ${a.limit}${a.unit ? ` ${a.unit}` : ''}`).join(', ');
+  const ax = (r.axes ?? []).map((a) => `${a.axis} ${a.value} ${a.unit} > 기준 ${a.limit} ${a.unit}`).join(', ');
   return `거절 사유: ${r.reason}${ax ? ` — ${ax}` : ''}`;
 }
 /** 대화상자 밖을 inert(초점·누름 막음) — 대화상자 조상 줄의 형제 모두. 돌려줄 때 원래대로 */
@@ -152,7 +152,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const box = (children: ReactNode, h?: number) => <div style={{ position: 'relative', flex: 1, minHeight: h, background: '#070A0C', borderRadius: 8, overflow: 'hidden' }}>{children}</div>;
   const age = s ? Math.round(rt.now() - l.stateAt) : null, stalled = !!s?.latched && s.safety_reason === 'OUTPUT_STALLED';
   const sl = stopLine(l), stopNote = sl && <span role="status" data-sd-stop-phase data-tone={sl.tone}><Chip {...sl} /></span>;
-  const refused = refusedText((s as { unlock_refused?: Refused | null } | null)?.unlock_refused);
+  const refused = refusedText(s?.unlock_refused);
   const late = asked != null && rt.now() - asked >= UNLOCK_WAIT_MS;
   const unlock = mine && s?.latched && <div className="fh-row" style={{ flexWrap: 'wrap' }} data-sd-lock>
     <span>① 정지 확인 — 서버 보고 수평 속도 {s.speed != null ? `${s.speed.toFixed(1)} m/s` : '모름'}</span>

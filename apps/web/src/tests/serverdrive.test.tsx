@@ -283,8 +283,8 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     expect($('[data-sd-unlock]')!.textContent).toContain('해제 대기');
     tick(UNLOCK_WAIT_MS);
     expect($('[data-sd-unlock]')!.textContent).toContain('미확인 — 로봇이 정지 확인을 못 해');
-    act(() => push('r7', { unlock_refused: { reason: 'NOT_STILL', at: '2026-11-01T00:00:00Z', axes: [{ axis: 'vz', value: 0.12, limit: 0.05, unit: 'm/s' }] } } as never)); tick(300);
-    expect($('[data-sd-unlock]')!.textContent).toContain('거절 사유: NOT_STILL — vz 0.12 m/s > 기준 0.05 m/s');
+    act(() => push('r7', { unlock_refused: { reason: 'STILL_MOVING', at: '2026-11-01T00:00:00Z', axes: [{ axis: 'vz', value: 0.12, limit: 0.05, unit: 'm/s' }] } })); tick(300);
+    expect($('[data-sd-unlock]')!.textContent).toContain('거절 사유: STILL_MOVING — vz 0.12 m/s > 기준 0.05 m/s');
     act(() => push('r7', { latched: false })); tick(10);
     expect($('[data-sd-unlock]')).toBeNull();
   });

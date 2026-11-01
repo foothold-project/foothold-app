@@ -143,10 +143,12 @@ function Operators({ user, d }: { user: User; d: Dashboard | null }) {
 }
 
 export const KIND: Record<Device['kind'], string> = { CAMERA_RGB: '카메라', CAMERA_DEPTH: '뎁스 카메라', LIDAR: '라이다', BATTERY: '배터리', OTHER: '기타' };
-/** UIUX-1101-AGENT 의 상태 코드(아직 contracts 전 — optional 로 읽음): 명시 허용이면 «허용된 상태 코드 n», 오류면 원시 코드 */
-type Code = { raw?: number | string | null; level?: 'OK' | 'ACCEPTED' | 'ERROR'; reason?: string | null };
-const codeText = (v: Device) => { const c = (v as { status_code?: Code | null }).status_code;
-  return c?.raw == null || c.level === 'OK' ? null : <span className="lbl" data-status-code={c.level}>{c.level === 'ACCEPTED' ? `허용된 상태 코드 ${c.raw}` : `상태 코드 ${c.raw}`}</span>; };
+/** 장치 상태 코드(contracts DeviceStatusCode, #213): OK 는 숨김, 명시 허용(ACCEPTED)은 «허용된 상태 코드 n», 그 밖(ERROR·모르는 level)은 오류로 원시 코드 */
+const codeText = ({ status_code: c }: Device) => {
+  if (c?.raw == null || c.level === 'OK') return null;
+  const ok = c.level === 'ACCEPTED';
+  return <span className="lbl" data-status-code={ok ? 'ACCEPTED' : 'ERROR'}>{ok ? `허용된 상태 코드 ${c.raw}${c.reason === 'EXPLICIT_SERVER_ALLOWLIST' ? '(서버 명시 허용)' : ''}` : `상태 코드 ${c.raw}`}</span>;
+};
 const DEVICE: Record<Device['state'], { tone: Tone; text: string }> = { OK: { tone: 'ok', text: '정상' }, MISSING: { tone: 'warn', text: '연결 끊겨 확인 안 됨' }, ERROR: { tone: 'bad', text: '오류' } };
 const m = (v: number | null) => (v == null ? '—' : `${v.toFixed(1)} m`);
 const hms = (at: string) => new Date(at).toTimeString().slice(0, 8);
