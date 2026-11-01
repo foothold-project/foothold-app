@@ -36,13 +36,17 @@ def devices(snapshot, now):
     pose = snapshot.get('attitude', {})
     tilt_known = all(number(pose.get(k)) for k in ('roll', 'pitch'))
     error = snapshot.get('error_code')
+    code = snapshot.get('status_code')
     result = [dict(key='go2-battery', kind='BATTERY', label='기체 배터리',
                  state='OK' if low and number(snapshot.get('battery', {}).get('soc')) else 'MISSING'),
             dict(key='go2-imu', kind='OTHER', label='기체 자세 센서',
                  state='MISSING' if not low or not tilt_known else
                        'ERROR' if snapshot.get('fallen') is True else 'OK'),
             dict(key='go2-sport', kind='OTHER', label='기체 기본 보행 상태',
-                 state='MISSING' if not sport or not number(error) else 'ERROR' if error != 0 else 'OK')]
+                 state='MISSING' if not sport or not number(error) else
+                       'OK' if error == 0 or (code and code['level'] == 'ACCEPTED') else 'ERROR')]
+    if sport and number(error) and code:
+        result[-1]['status_code'] = deepcopy(code)
     for device, topic in zip(result, ('lowstate', 'lowstate', 'sportmodestate')):
         age = snapshot.get('sources', {}).get(topic, {}).get('age_s')
         device['received_monotonic_s'] = now-age if number(age) and age >= 0 else float('-inf')

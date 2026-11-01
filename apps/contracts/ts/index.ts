@@ -163,6 +163,7 @@ export interface AgentState {
   battery: AgentBattery;
   latched: boolean;
   safety_reason?: "OUTPUT_STALLED" | null;
+  unlock_refused?: UnlockRefused | null;
   stop_gen: number;
   stop_ref: number;
   applied: number[];
@@ -344,6 +345,13 @@ export interface Device {
   kind: "CAMERA_RGB" | "CAMERA_DEPTH" | "LIDAR" | "BATTERY" | "OTHER";
   label: string;
   state: "OK" | "MISSING" | "ERROR";
+  status_code?: DeviceStatusCode | null;
+}
+
+export interface DeviceStatusCode {
+  raw: number;
+  level: "OK" | "ACCEPTED" | "ERROR";
+  reason: "EXPLICIT_SERVER_ALLOWLIST" | null;
 }
 
 export interface DurableAgentEvent {
@@ -1186,6 +1194,7 @@ export interface PhoneState {
   battery: AgentBattery;
   latched: boolean;
   safety_reason?: "OUTPUT_STALLED" | null;
+  unlock_refused?: UnlockRefused | null;
   stop_gen: number;
   stop_ref: number;
   applied: number[];
@@ -1715,6 +1724,7 @@ export interface ScreenState {
   latency_ms: number | null;
   latched: boolean | null;
   safety_reason?: "OUTPUT_STALLED" | null;
+  unlock_refused?: UnlockRefused | null;
   stop_gen: number | null;
   applied: number[] | null;
 }
@@ -1918,6 +1928,19 @@ export interface StopRequestStatus {
 export interface TokenResponse {
   access_token: string;
   refresh_token: string;
+}
+
+export interface UnlockAxis {
+  axis: "vx" | "vy" | "vz" | "wz" | "gyro_x" | "gyro_y" | "gyro_z" | "joint_0" | "joint_1" | "joint_2" | "joint_3" | "joint_4" | "joint_5" | "joint_6" | "joint_7" | "joint_8" | "joint_9" | "joint_10" | "joint_11";
+  value: number;
+  limit: number;
+  unit: "m/s" | "rad/s";
+}
+
+export interface UnlockRefused {
+  reason: "LEASE_UNCONFIRMED" | "LEASE_MISMATCH" | "INVALID_GENERATION" | "OUTPUT_HELD" | "NO_CONTROLLER" | "NOT_LATCHED" | "GENERATION_MISMATCH" | "RESET_PENDING" | "RESUME_PENDING" | "STOP_UNCONFIRMED" | "STATE_UNSEEN" | "STATE_STALE" | "STATE_RESETTING" | "POLICY_NOT_RUNNING" | "SIM_BUSY" | "STILL_MOVING";
+  at: string;
+  axes: UnlockAxis[];
 }
 
 export interface User {

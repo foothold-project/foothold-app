@@ -5,6 +5,7 @@ A mutant is killed only by an actual test assertion failure, not collection erro
 """
 
 from pathlib import Path
+import argparse
 import shutil
 import json
 import subprocess
@@ -13,6 +14,11 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 MUTATIONS = [
+    ('UIUX refusal hidden from state', 'link/session.py', '"unlock_refused": deepcopy(self.unlock_refused)', '"unlock_refused": None'),
+    ('UIUX still measurements dropped', 'go2_direct/feedback.py', 'still_violations=violations,', 'still_violations=[],'),
+    ('UIUX accepted state reported as error', 'go2_direct/reporting.py', "error == 0 or (code and code['level'] == 'ACCEPTED')", 'error == 0'),
+    ('UIUX status code stripped', 'link/session.py', "if fresh and device.get('status_code') is not None:", 'if False:'),
+    ('UIUX source gate removed', 'go2_direct/feedback.py', "error in self.accept_error_codes and getattr(self.sink, 'source', None) == 'server'", 'error in self.accept_error_codes'),
     ('telemetry receipt age ignored', 'link/telemetry.py', '0 <= now - observation["received_monotonic_s"] <= STALE_S', 'True'),
     ('telemetry progress age ignored', 'link/telemetry.py', '0 <= now - observation["progress_monotonic_s"] <= STALE_S', 'True'),
     ('telemetry future receipt admitted', 'link/telemetry.py', '0 <= now - observation["received_monotonic_s"] <= STALE_S', 'now - observation["received_monotonic_s"] <= STALE_S'),
@@ -143,6 +149,11 @@ MUTATIONS = [
 # Client probes are selected by the changed policy, including Session-originated
 # transport events. Assertion failures, not slow blanket runs, prove each change.
 PROBE_TESTS = {
+    'UIUX refusal hidden from state': 'tests/test_unlock_reporting.py::test_refusal_codes_preserve_gate',
+    'UIUX still measurements dropped': 'tests/test_unlock_reporting.py::test_go2_still_refusal_reports_every_failed_axis_including_vertical_and_joints',
+    'UIUX accepted state reported as error': 'tests/test_unlock_reporting.py::test_device_status_uses_exact_readiness_allowlist_and_source',
+    'UIUX status code stripped': 'tests/test_unlock_reporting.py::test_device_status_uses_exact_readiness_allowlist_and_source',
+    'UIUX source gate removed': 'tests/test_unlock_reporting.py::test_device_status_uses_exact_readiness_allowlist_and_source',
     **{name: 'tests/test_agent_telemetry.py::test_session_independently_checks_each_measurement_clock'
        for name in ('telemetry receipt age ignored', 'telemetry progress age ignored',
                     'telemetry future receipt admitted', 'telemetry future progress admitted', 'telemetry location age ignored')},
@@ -193,11 +204,17 @@ PROBE_TESTS = {
 }
 
 
-def main():
+def main(argv=()):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--match', help='Run only mutation names containing this text')
+    args = parser.parse_args(argv)
+    mutations = [m for m in MUTATIONS if not args.match or args.match.casefold() in m[0].casefold()]
+    if not mutations:
+        parser.error('No mutation names match')
     failures = 0
     print("| Mutation | Result | Assertion-failing tests |")
     print("|---|---|---|")
-    for label, target, before, after in MUTATIONS:
+    for label, target, before, after in mutations:
         with tempfile.TemporaryDirectory(prefix="agent-link-mutant-") as tmp:
             copy = Path(tmp) / "agent"
             shutil.copytree(ROOT, copy, ignore=shutil.ignore_patterns(
@@ -253,4 +270,4 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv[1:]))

@@ -20,6 +20,9 @@ def save_inventory(factory, org_id, rid, devices, model=None, token_hash=None):
         existing = {d.key: d for d in db.scalars(select(RobotDevice).where(
             RobotDevice.org_id == org_id, RobotDevice.robot_id == robot.id))}
         for device in devices:
+            device = dict(device)
+            code = device.pop('status_code', None)
+            device['info'] = {'status_code': code} if code is not None else {}
             row = existing.pop(device['key'], None)
             if row is None:
                 row = RobotDevice(org_id=org_id, robot_id=robot.id, **device)
@@ -63,6 +66,8 @@ def device_error(realtime, rid, stored_error):
     # A connected agent's complete inventory supersedes persisted states;
     # omitted stored devices become MISSING, including any old ERROR.
     reported = reported_devices(realtime, rid)
+    # ACCEPTED is diagnostic context on legacy OK, so it never adds DEVICE_ERROR.
+    # Other real device errors (including posture) remain independent warnings.
     return any(d['state'] == 'ERROR' for d in reported) if reported is not None else stored_error
 
 
@@ -103,7 +108,8 @@ def robot_objects(db, robots, user, realtime):
         for device in db.scalars(select(RobotDevice).where(RobotDevice.org_id == user.org_id,
                 RobotDevice.robot_id.in_(full_ids)).order_by(RobotDevice.key)):
             devices.setdefault(device.robot_id, {})[device.key] = C.Device(key=device.key,
-                kind=device.kind, label=device.label, state=device.state)
+                kind=device.kind, label=device.label, state=device.state,
+                status_code=(device.info or {}).get('status_code'))
     settings = C.OrgSettings.model_validate(db.get(Organization, user.org_id).settings)
     current_runs = {}
     if full_ids:
@@ -124,12 +130,12 @@ def robot_objects(db, robots, user, realtime):
         live_devices = reported_devices(realtime, str(robot.id)) if full else None
         if live_devices is not None:
             reported = {d['key']: C.Device(**d) for d in live_devices}
-            inventory = {key: value.model_copy(update={'state': 'MISSING'})
+            inventory = {key: value.model_copy(update={'state': 'MISSING', 'status_code': None})
                          for key, value in inventory.items() if key not in reported} | reported
         if not online:
             # Persisted inventory is history, not evidence that a disconnected
             # device is currently available. Keep rows unchanged for reconnect.
-            inventory = {key: value.model_copy(update={'state': 'MISSING'})
+            inventory = {key: value.model_copy(update={'state': 'MISSING', 'status_code': None})
                          for key, value in inventory.items()}
         lease = None
         record = realtime.arbiter.robots.get(str(robot.id)) if full else None

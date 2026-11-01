@@ -159,6 +159,17 @@
           ],
           "title": "State",
           "type": "string"
+        },
+        "status_code": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DeviceStatusCode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
         }
       },
       "required": [
@@ -168,6 +179,45 @@
         "state"
       ],
       "title": "Device",
+      "type": "object"
+    },
+    "DeviceStatusCode": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "enum": [
+            "OK",
+            "ACCEPTED",
+            "ERROR"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "raw": {
+          "maximum": 4294967295,
+          "minimum": 0,
+          "title": "Raw",
+          "type": "integer"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "const": "EXPLICIT_SERVER_ALLOWLIST",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "raw",
+        "level",
+        "reason"
+      ],
+      "title": "DeviceStatusCode",
       "type": "object"
     },
     "FloorContext": {
@@ -517,6 +567,108 @@
       ],
       "title": "RunSnapshot",
       "type": "object"
+    },
+    "UnlockAxis": {
+      "additionalProperties": false,
+      "properties": {
+        "axis": {
+          "enum": [
+            "vx",
+            "vy",
+            "vz",
+            "wz",
+            "gyro_x",
+            "gyro_y",
+            "gyro_z",
+            "joint_0",
+            "joint_1",
+            "joint_2",
+            "joint_3",
+            "joint_4",
+            "joint_5",
+            "joint_6",
+            "joint_7",
+            "joint_8",
+            "joint_9",
+            "joint_10",
+            "joint_11"
+          ],
+          "title": "Axis",
+          "type": "string"
+        },
+        "limit": {
+          "exclusiveMinimum": 0,
+          "title": "Limit",
+          "type": "number"
+        },
+        "unit": {
+          "enum": [
+            "m/s",
+            "rad/s"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "axis",
+        "value",
+        "limit",
+        "unit"
+      ],
+      "title": "UnlockAxis",
+      "type": "object"
+    },
+    "UnlockRefused": {
+      "additionalProperties": false,
+      "properties": {
+        "at": {
+          "format": "date-time",
+          "title": "At",
+          "type": "string"
+        },
+        "axes": {
+          "items": {
+            "$ref": "#/$defs/UnlockAxis"
+          },
+          "maxItems": 19,
+          "title": "Axes",
+          "type": "array"
+        },
+        "reason": {
+          "enum": [
+            "LEASE_UNCONFIRMED",
+            "LEASE_MISMATCH",
+            "INVALID_GENERATION",
+            "OUTPUT_HELD",
+            "NO_CONTROLLER",
+            "NOT_LATCHED",
+            "GENERATION_MISMATCH",
+            "RESET_PENDING",
+            "RESUME_PENDING",
+            "STOP_UNCONFIRMED",
+            "STATE_UNSEEN",
+            "STATE_STALE",
+            "STATE_RESETTING",
+            "POLICY_NOT_RUNNING",
+            "SIM_BUSY",
+            "STILL_MOVING"
+          ],
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "at",
+        "axes"
+      ],
+      "title": "UnlockRefused",
+      "type": "object"
     }
   },
   "$id": "fh-app/1/PhoneState",
@@ -759,6 +911,17 @@
       "const": "state",
       "title": "T",
       "type": "string"
+    },
+    "unlock_refused": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UnlockRefused"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
     },
     "velocity": {
       "maxItems": 3,
