@@ -284,8 +284,16 @@ class NativeLauncher:
             from .native_simulation import CataloguedSimulation
             Simulation = CataloguedSimulation
             extra = dict(native=native, configured_world=world)
+        # The sealed rootfs HOME is read-only. gz-common initializes ~/.gz even
+        # for headless runs; failed directory creation can recurse in its logger.
+        # Keep native logs/cache in this episode's already writable evidence bind.
+        native_home = folder / 'native-home'
+        (native_home / '.gz').mkdir(parents=True, mode=0o700)
+        native_home.chmod(0o700)
+        native_env = child_environment(self.settings.domain)
+        native_env['HOME'] = str(native_home)
         sim = Simulation(folder, Path(self.settings.source), Path(self.settings.ros_setup),
-                         launch_env=child_environment(self.settings.domain),
+                         launch_env=native_env,
                          seconds=self.settings.unit_runtime_seconds, **extra)
         self.sim = sim
         resource_not_created = False
