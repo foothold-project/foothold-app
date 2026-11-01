@@ -309,4 +309,33 @@ describe('UIUX-1101 정지·해제 안내와 전체화면', () => {
     expect(box.querySelector('[inert]')).toBeNull();
     expect(document.activeElement).toBe(tile);
   });
+
+  it('#214 r1: 전체화면을 Esc·작게 보기·카메라 클릭 어느 길로 닫아도 눌린 이동 키를 버리고 바로 0 — 200 ms 뒤에도 0', () => {
+    ready();
+    const ways: [string, () => void][] = [
+      ['Esc', () => key('keydown', 'Escape')],
+      ['작게 보기', () => click($('[data-sd-full] [data-sd-small]')!)],
+      ['카메라 클릭', () => click($('[data-sd-full] [aria-label="카메라 작게 보기"]')!)],
+    ];
+    for (const [way, close] of ways) {
+      click($('[data-sd-tile="rgb"]')!);
+      key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+      close();
+      expect($('[data-sd-full]'), way).toBeNull();
+      expect(lastAxes(), way).toBe('0,0,0');   // 닫는 그 자리에서 0
+      tick(200); expect(lastAxes(), way).toBe('0,0,0');
+      key('keyup', 'ArrowUp');
+    }
+    // 전체화면이 열린 채 창 초점 잃음·가려짐도 0(닫기와 별개 경로 — zero)
+    click($('[data-sd-tile="rgb"]')!);
+    key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    act(() => { window.dispatchEvent(new Event('blur')); });
+    expect(lastAxes()).toBe('0,0,0'); tick(200); expect(lastAxes()).toBe('0,0,0');
+    key('keyup', 'ArrowUp'); key('keydown', 'ArrowUp'); tick(60); expect(lastAxes()).toBe('1.5,0,0');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    act(() => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(w.of('hidden').length).toBe(1);   // 가려짐 = rt 가 hidden(서버가 0·잠금·반납)을 보내고 조종권을 비움 — 그 뒤 cmd 없음
+    const n = axes().length; tick(300); expect(axes().length).toBe(n);
+    key('keyup', 'ArrowUp');
+  });
 });

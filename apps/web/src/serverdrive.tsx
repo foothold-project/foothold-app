@@ -86,6 +86,9 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   const changed = () => { setOn(id(held.current)); if (rt.get(r.id).lease) send(); };
   /** 0 으로: 누른 것을 모두 버리고 바로 보낸다 + 안내. 다시 움직이려면 새로 눌러야 한다 */
   const zero = useRef((note = '') => { held.current.clear(); changed(); if (note) setWhy(note); }).current;
+  /** 전체화면 닫기는 이것 하나(Esc·작게 보기·카메라 클릭): 눌린 이동 키를 버리고 바로 0 을 보낸 뒤 닫는다(#214 r1) */
+  const fullRef = useRef(full); fullRef.current = full;
+  const closeFull = useRef(() => { if (!fullRef.current) return; zero(); setFull(null); }).current;
   const press = (t: Tok[]) => { if (!readyRef.current) return; setWhy(''); held.current = new Set(t); changed(); };
 
   useEffect(() => rt.watch(r.id), [r.id]);   // 이 패널이 열린 동안만 조종권을 쥔다(닫으면 반납 — rt)
@@ -98,7 +101,7 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
   }, [mine, r.id]);
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
-      if (e.code === 'Escape') return setFull(null);
+      if (e.code === 'Escape') return closeFull();
       if (typing(e.target)) return;
       if (e.code === 'Space') return zero(SD_NOTE.stop);   // STOP 은 App 머리줄이 보낸다 — 여기는 입력만 먼저 0
       const t = KEY[e.code];
@@ -199,10 +202,10 @@ export function ServerDrive({ c, r }: { c: Ctx; r: Robot }) {
       style={{ position: 'fixed', inset: 0, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8, padding: 12, background: 'var(--bg)' }}>
       <div className="fh-row" style={{ flexWrap: 'wrap', alignItems: 'center' }}>
         <Chip tone="warn" text={TRIAL} /><Chip {...lock} />{status}<span className="fh-grow" style={{ flex: 1 }} />
-        <button type="button" className="btn" data-sd-small onClick={() => setFull(null)}>작게 보기(Esc)</button>{stop(true)}
+        <button type="button" className="btn" data-sd-small onClick={closeFull}>작게 보기(Esc)</button>{stop(true)}
       </div>
       {(stopNote || unlock) && <div className="fh-row" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }} data-sd-full-state>{stopNote}{unlock}</div>}
-      {full === 'rgb' ? <button type="button" aria-label="카메라 작게 보기" onClick={() => setFull(null)} style={{ flex: 1, display: 'flex', padding: 0, border: 0, background: 'none', cursor: 'zoom-out' }}>{box(view('rgb', true))}</button>
+      {full === 'rgb' ? <button type="button" aria-label="카메라 작게 보기" onClick={closeFull} style={{ flex: 1, display: 'flex', padding: 0, border: 0, background: 'none', cursor: 'zoom-out' }}>{box(view('rgb', true))}</button>
         : box(view('lidar', true))}{/* 라이다 큰 칸은 끌어 돌려 보므로 누름 대신 «작게 보기»·Esc */}
       {notes}
       {pad}
