@@ -17,7 +17,7 @@ def test_simulation_projection_boundaries(vx, vy, wz):
     requested = (vx, vy, wz)
     axes, clipped = project_velocity(*requested, simulation=True)
     result, reason = simulation_velocity(*axes)
-    expected = requested if requested == Z or (.4 <= vx <= 1.5 and vy == 0 and -1 <= wz <= 1) else Z
+    expected = requested if requested == Z or (-.3 <= vx <= 1 and -.3 <= vy <= .3 and -.5 <= wz <= .5) else Z
     assert result == expected
     assert axes == requested  # no hidden clipping or quantization before Core
     assert clipped is (expected != requested)
@@ -43,11 +43,10 @@ def test_welcome_limits_contract_and_mode(request, fixture, limits):
     assert parsed.limits.vx_mode == ('continuous' if welcome['simulation'] else 'discrete')
     if welcome['simulation']:
         assert parsed.limits.vx_min_moving == .2 and parsed.limits.vx_max == 1.0
-        assert parsed.limits.policy_velocity_range.vx_min_moving == .4
-        assert parsed.limits.policy_velocity_range.vx_max == 1.5
+        assert parsed.limits.policy_velocity_range is None
         assert parsed.limits.commands == []
-        assert parsed.limits.policy_adapter_id == 'foothold-v2'
-        assert parsed.limits.requires_forward_motion is True
+        assert parsed.limits.policy_adapter_id == 'simulation-experimental-si/1'
+        assert parsed.limits.requires_forward_motion is False
     else:
         assert parsed.limits.commands == [[0, 0, 0], [.6, 0, 0], [.6, 0, -.5], [.6, 0, .5]]
     welcome['limits']['vx_max'] = 99
@@ -72,12 +71,12 @@ def test_mode_reaches_actual_session_output(request, fixture, vx, wz):
 
 
 @pytest.mark.parametrize('velocity', [(.1999, 0, 0), (-.0499, 0, 0), (0, .0499, 0), (0, 0, .4999)])
-def test_rejected_simulation_input_cannot_create_neutral(h, velocity):
+def test_accepted_nonzero_simulation_input_cannot_create_neutral(h, velocity):
     owner, _, _ = h.connect()
     h.take(owner)
     h.unlock(owner)
     ack = h.cmd(owner, *velocity)
-    assert ack['applied'] == list(Z) and ack['reason'] and ack['clipped']
+    assert ack['applied'] == list(Z) and ack['reason'] and not ack['clipped']
     assert h.hub.session.core.need_neutral
     assert h.cmd(owner, .4)['applied'] == list(Z)
     h.cmd(owner, 0)

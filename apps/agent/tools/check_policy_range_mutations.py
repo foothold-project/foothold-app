@@ -36,8 +36,6 @@ def child(label, report):
         if target == 'protocol':
             hub.project_velocity = protocol.project_velocity
             hub.SIMULATION_LIMITS = protocol.SIMULATION_LIMITS
-        else:
-            protocol.FOOTHOLD_V2 = policy_ranges.FOOTHOLD_V2
     return pytest.main(['-q', '-p', 'no:cacheprovider', '-p', 'mutation_reporter',
                         '--link-mutation-report', report, *TESTS])
 

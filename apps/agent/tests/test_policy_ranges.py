@@ -10,22 +10,31 @@ from foothold_agent.phone.protocol import LIMITS, project_velocity, simulation_v
 from foothold_agent.safety.core import Z, quantize
 
 
-@pytest.mark.parametrize('velocity', [(.4, 0, -1), (1.5, 0, 1), (.6789, 0, .0123),
-    (.4, 0, math.nextafter(0, 1)), (1.2345, 0, -.9876), Z])
-def test_shared_adapter_preserves_all_accepted_si_values(h, velocity):
+@pytest.mark.parametrize('velocity,experimental_allowed', [((.4, 0, -1), False),
+    ((1.5, 0, 1), False), ((.6789, 0, .0123), True),
+    ((.4, 0, math.nextafter(0, 1)), True), ((1.2345, 0, -.9876), False), (Z, True)])
+def test_training_range_and_experimental_envelope_are_separate(h, velocity, experimental_allowed):
     owner, _ = h.moving()
     assert FOOTHOLD_V2.validate(velocity)[0] == velocity
-    assert simulation_velocity(*velocity) == (velocity, '')
+    # Training facts are unchanged; simulation experiments have a separate envelope.
+    expected = velocity if experimental_allowed else Z
+    assert simulation_velocity(*velocity)[0] == expected
     ack = h.cmd(owner, *velocity)
-    assert ack['applied'] == list(velocity) and not ack['clipped']
-    assert h.outputs[-1].velocity == velocity
+    assert ack['applied'] == list(expected)
+    assert h.outputs[-1].velocity == expected
 
 
 @pytest.mark.parametrize('velocity', [(math.nextafter(.4, 0), 0, 0),
     (math.nextafter(1.5, 2), 0, 0), (.6, math.nextafter(0, 1), 0),
     (.6, 0, math.nextafter(1, 2)), (.6, 0, math.nextafter(-1, -2)),
     (-.2, 0, 0), (.3, 0, 0), (0, 0, .5), (.6, .2, 0), (.001, 0, 0)])
-def test_outside_range_is_zero_with_reason_not_clipped_or_neutral(h, velocity):
+def test_outside_training_range_stays_unsupported_by_trained_policy(velocity):
+    assert FOOTHOLD_V2.validate(velocity) == (Z, 'UNSUPPORTED_VELOCITY')
+
+
+@pytest.mark.parametrize('velocity', [(-.300001, 0, 0), (1.000001, 0, 0),
+    (.6, .300001, 0), (.6, -.300001, 0), (0, 0, .500001), (0, 0, -.500001)])
+def test_outside_simulation_envelope_is_rejected_without_confirming_neutral(h, velocity):
     owner, _, _ = h.connect()
     h.take(owner)
     h.unlock(owner)
@@ -71,7 +80,7 @@ def test_physical_hub_existing_projection_is_unchanged(physical_h, velocity, exp
 
 def test_simulation_state_authority_and_reset_gates_still_block(h):
     owner, _ = h.moving()
-    velocity = (1.5, 0, .777)
+    velocity = (1, 0, .5)
     h.cmd(owner, *velocity)
     h.state(policy_running=False)
     assert h.outputs[-1].velocity == Z
