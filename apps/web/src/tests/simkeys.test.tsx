@@ -77,8 +77,8 @@ const key = async (type: 'keydown' | 'keyup', code: string, o: KeyboardEventInit
 const lastCmd = async () => { await sleep(60); const c = agent().of('cmd'); return c[c.length - 1]; };
 
 /** 띄우기 → 직결 → 조종 시작 → 잠금 해제 → 움직일 수 있음 */
-async function ready(w = welcome()) {
-  serve(); await mount();
+async function ready(w = welcome(), more: typeof routes = {}) {
+  serve(more); await mount();
   await click(btn('띄우기'));
   const a = FakeWS.all.find((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')!; a.auto = agentAuto;
   act(() => a.open()); await flush();
@@ -114,6 +114,16 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
       expect(out).toMatchObject(want);
       expect(blockNote([...a], can, out)).toBe('');
     }
+  });
+  it('설정 › 시뮬 조직 값: 연결할 때 받아 키보드 전진 = sim_key_vx, 상한 = min(에이전트, 조직)', async () => {
+    const ORG = { sim_max_vx: 0.5, sim_min_vx: 0.1, sim_max_vy: 0.3, sim_max_wz: 0.25, sim_key_vx: 0.4, stick_deadzone: 0.1 };
+    await ready(welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }), { 'GET /org/settings': { status: 200, body: ORG } });
+    expect(calls.some((c) => c.path === '/org/settings')).toBe(true);
+    await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.4, 9);   // 기본 0.6 대신 조직 키 속도
+    await key('keydown', 'KeyA');
+    expect((await lastCmd()).wz).toBe(0.25);   // 회전 상한 0.5 → 조직 0.25
+    await key('keyup', 'KeyW'); await key('keyup', 'KeyA');
   });
   it('출입증 요청에 surface: "pc"', async () => {
     serve(); await mount();
