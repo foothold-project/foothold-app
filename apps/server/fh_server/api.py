@@ -816,13 +816,23 @@ def create_app(settings: Settings | None = None):
         return C.OrgSettings.model_validate(db.get(Organization, auth[0].org_id).settings)
 
     @app.patch(prefix + '/org/settings', response_model=C.OrgSettings)
-    def patch_settings(body: C.OrgSettingsPatch, auth: Identity, db: DB):
+    async def patch_settings(body: C.OrgSettingsPatch, auth: Identity, db: DB):
+        result, enabled = await asyncio.to_thread(save_settings, body, auth, db)
+        if enabled:
+            from .leases import Actor
+            user, session = auth
+            app.state.realtime.stop_fast_server_drives(user.org_id,
+                Actor(str(user.id), str(session.id), '', user.display_name, user.role))
+        return result
+
+    def save_settings(body, auth, db):
         user = auth[0]
         authorize(user, 'A')
         values = body.model_dump(exclude_unset=True)
         if any(value is None for value in values.values()):
             fail(400, 'VALIDATION', '빈 값으로 바꿀 수 없습니다.')
         org = lock_organization(db, user.org_id)
+        was_enabled = C.OrgSettings.model_validate(org.settings).real_no_fast_server_drive
         try:
             result = C.OrgSettings.model_validate({**org.settings, **values})
         except ValidationError as exc:
@@ -830,7 +840,9 @@ def create_app(settings: Settings | None = None):
             fail(422, 'VALIDATION', exc.errors(include_input=False)[0]['msg'].removeprefix('Value error, '))
         org.settings = result.model_dump()
         event(db, user.org_id, 'ORG_SETTINGS_UPDATED', user.id, values)
-        return result
+        # Only a successful commit may trigger the realtime safety effect.
+        db.commit()
+        return result, not was_enabled and result.real_no_fast_server_drive
 
     @app.post(prefix + '/robots/{robot_id}/agent-token', response_model=C.AgentTokenResponse)
     def agent_token(robot_id: UUID, auth: Identity, db: DB, response: Response):
