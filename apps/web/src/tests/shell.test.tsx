@@ -307,7 +307,7 @@ describe('R2·R3 보강', () => {
     mount(false);
   });
   it('탭마다 그 탭 본문 고유 내용이 보인다', () => {
-    const MARK: Record<string, string> = { fleet: '주의 필요', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '장소 목록', settings: '화면 밝기' };
+    const MARK: Record<string, string> = { fleet: '주의 필요', mission: '새 시나리오', approval: '결재함', history: '내보내기', map: '장소 목록', settings: '조직 기준값' };
     mount(false);
     for (const [id, m] of Object.entries(MARK)) {
       act(() => { location.hash = `#/${id}`; window.dispatchEvent(new HashChangeEvent('hashchange')); });   // 결재 탭은 메뉴에 없어 주소로
@@ -315,6 +315,20 @@ describe('R2·R3 보강', () => {
       expect(text, id).toContain(m);
       for (const [o, om] of Object.entries(MARK)) if (o !== id) expect(text, `${id} 에 ${o} 내용`).not.toContain(om);
     }
+  });
+  it('화면 밝기(11-02): PC 는 왼쪽 메뉴 «설정» 바로 위 단추(누를 때마다 바뀜·설정 탭엔 없음), 폰은 ⋯ 안 고르는 칸', () => {
+    mount(false, 'u-kim', '#/settings');
+    const b = $('nav[aria-label="주 메뉴"] [data-theme-pick]');
+    expect(b.nextElementSibling!.getAttribute('href')).toBe('#/settings');
+    expect($('main [data-theme-pick]')).toBeNull();
+    const seen = [b.getAttribute('aria-label')];
+    for (let i = 0; i < 3; i++) { click(b); seen.push(b.getAttribute('aria-label')); }
+    expect(seen).toEqual(['화면 밝기 어두움', '화면 밝기 밝음', '화면 밝기 기기 설정 따름', '화면 밝기 어두움']);
+    click(b);
+    expect([$('.fh').classList.contains('light'), localStorage.getItem('fh.theme')]).toEqual([true, 'light']);
+    resize(true);
+    expect($('nav[aria-label="주 메뉴"]')).toBeNull();
+    expect($('.fh-more select[data-theme-pick]')).not.toBeNull();
   });
   it('미구현 단추는 비활성 + «준비 중» 글에 이어짐', () => {
     mount(true, 'u-lee', '#/drive/r3');   // 폰 «시뮬 로봇 띄우기»·PC 임무 탭은 이제 서버 값 — 자세 시트 «서기»는 아직 준비 중

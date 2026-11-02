@@ -1,10 +1,9 @@
-// 설정 탭(02 F-ST-01·02, 03 UX §5) — 개인 설정·내 정보·조직 기준값(서버 값). 계정 관리(05 §2 /users)·시뮬 로봇 이름(05 §3)은 총괄에게만 보인다(01 AU-04: 권한 없는 기능은 숨김).
+// 설정 탭(02 F-ST-01·02, 03 UX §5) — 내 정보·조직 기준값(서버 값). 계정 관리(05 §2 /users)·시뮬 로봇 이름(05 §3)은 총괄에게만 보인다(01 AU-04: 권한 없는 기능은 숨김).
 import { useEffect, useState, type FormEvent } from 'react';
 import type { OrgSettings, RobotSummary, Session, User as ApiUser } from '../../../contracts/ts';
 import { api, expireAuth, type ApiFail } from '../api';
 import { ROLE_NAME, robotName, type Role, type User } from '../fake';
 import { Chip, type Ctx } from '../screens';
-import { ThemePick } from '../theme';
 
 type Msg = { text: string; ok?: boolean } | null;
 /** 긴 이름·아이디(128자)는 칸 안에서 줄을 바꾼다 */
@@ -15,10 +14,6 @@ const Note = ({ msg }: { msg: Msg }) => (msg ? <p style={WRAP} className={`fh-ms
 export function Settings(c: Pick<Ctx, 'user' | 'setMe' | 'refresh' | 'cancel'>) {
   const admin = c.user.role === 'ORG_ADMIN';
   return <>
-    <section className="lv-card" aria-label="개인 설정">
-      <h2>개인 설정</h2>
-      <div className="fh-row"><span>화면 밝기</span><ThemePick /></div>
-    </section>
     <MyInfo user={c.user} setMe={c.setMe} cancel={c.cancel} />
     <OrgLimits admin={admin} cancel={c.cancel} />
     {admin && <Accounts me={c.user} cancel={c.cancel} />}
