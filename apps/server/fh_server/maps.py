@@ -211,7 +211,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
         if row is None:
             fail(404, 'NOT_FOUND', '장소·지도 자료를 찾을 수 없습니다.')
         if live and row.archived_at is not None:
-            fail(409, 'RESOURCE_ARCHIVED', '삭제된 장소·건물·층은 변경하거나 선택할 수 없습니다.')
+            fail(409, 'RESOURCE_ARCHIVED', '휴지통의 장소·건물·층은 변경하거나 선택할 수 없습니다.')
         return row
 
     def record(db, user, code, row, **data):
@@ -301,7 +301,7 @@ def install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity,
                 used = None
                 require_unused(db, user.org_id, fail, floor=row)
             if used:
-                fail(409, 'RESOURCE_IN_USE', '삭제되지 않은 하위 장소·건물·층이 있어 삭제할 수 없습니다.')
+                fail(409, 'RESOURCE_IN_USE', '휴지통 밖의 하위 장소·건물·층이 있어 옮길 수 없습니다.')
             row.archived_at = now()
             record(db, user, prefix + '_DELETED', row)
             if model is Floor:

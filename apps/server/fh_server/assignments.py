@@ -20,8 +20,10 @@ def assignment_objects(db, rows):
         ScenarioVersion.org_id == org_id, ScenarioVersion.id.in_({r.scenario_version_id for r in rows})))}
     robots = dict(db.execute(select(Robot.id, Robot.name).where(Robot.org_id == org_id,
         Robot.id.in_({r.robot_id for r in rows}))).all())
-    return [C.Assignment(scenario_id=versions[r.scenario_version_id].scenario_id,
-        scenario_version=versions[r.scenario_version_id].number, scenario_name=versions[r.scenario_version_id].name,
+    return [C.Assignment(scenario_id=versions[r.scenario_version_id].scenario_id if r.scenario_version_id else None,
+        scenario_version=versions[r.scenario_version_id].number if r.scenario_version_id else None,
+        scenario_name=versions[r.scenario_version_id].name if r.scenario_version_id else '삭제된 시나리오: ' + (r.scenario_name_snapshot or ''),
+        scenario_name_snapshot=r.scenario_name_snapshot,
         robot_name=robots[r.robot_id], **{k: getattr(r, k) for k in (
             'id', 'robot_id', 'status', 'approval_id', 'memo', 'created_by', 'created_at', 'removed_at')}) for r in rows]
 

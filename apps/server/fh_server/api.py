@@ -23,7 +23,7 @@ from .security import digest, hash_password, token, verify_password, web_csrf
 from .robots import attention, device_error, is_running, live_state, robot_object, robot_objects
 from .rate_limits import close_rate_windows, record_rate_limit
 from .event_messages import render
-from . import approvals, assignments, phone_pass
+from . import approvals, assignments, phone_pass, trash
 from .tunnel import tunnel_origin
 
 
@@ -243,6 +243,7 @@ def create_app(settings: Settings | None = None):
                 await asyncio.sleep(1)
                 try:
                     await asyncio.to_thread(issuer.flush_denials,factory,settings.org_id)
+                    await asyncio.to_thread(trash.delete_files, factory, settings.files_root, settings.org_id)
                     await asyncio.to_thread(expire_user_sessions, factory, settings.org_id, clock=issuer.clock)
                 except Exception:
                     # Counters stay durable and retry; never drop a denial silently.
@@ -321,6 +322,8 @@ def create_app(settings: Settings | None = None):
         with factory() as db:
             yield db
             db.commit()
+            if db.info.pop('trash_files_pending', None):
+                trash.delete_files(factory, settings.files_root, settings.org_id)
 
     DB = Annotated[DBSession, Depends(database, scope='function')]
 
@@ -798,6 +801,7 @@ def create_app(settings: Settings | None = None):
     maps.install(app, DB, Identity, fail, authorize, event, settings, UploadIdentity, upload_write)
     from .realtime import install
     install(app, settings, factory, authorize, APIError)
+    trash.install(app, DB, Identity, fail, authorize, event, settings, factory)
     runs.install(app, DB, fail)
     photos.install(app, DB, Identity, fail, authorize)
     external_camera.install(app, UploadIdentity, upload_write, fail, authorize)

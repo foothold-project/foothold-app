@@ -86,10 +86,16 @@ def approval_detail(db, row):
         version = db.scalar(select(ScenarioVersion).where(ScenarioVersion.org_id == row.org_id, ScenarioVersion.id == assignment.scenario_version_id))
         robot = db.scalar(select(Robot).where(Robot.org_id == row.org_id, Robot.id == assignment.robot_id))
         return C.ApprovalDetail(**approval_object(db, row).model_dump(), preview=C.ApprovalAssignmentPreview(
-            scenario_id=version.scenario_id, scenario_name=version.name, scenario_version=version.number,
+            scenario_id=version.scenario_id if version else None,
+            scenario_name=version.name if version else '삭제된 시나리오: ' + (assignment.scenario_name_snapshot or ''),
+            scenario_version=version.number if version else None,
             robot_id=robot.id, robot_name=robot.name))
     target = db.execute(select(MapVersion.floor_id, MapVersion.number).where(
-        MapVersion.org_id == row.org_id, MapVersion.id == row.target_id)).one()
+        MapVersion.org_id == row.org_id, MapVersion.id == row.target_id)).one_or_none()
+    if target is None:
+        return C.ApprovalDetail(**approval_object(db, row).model_dump(), preview=C.ApprovalMapPreview(
+            floor_id=None, floor_name='삭제된 층: ' + (row.floor_name_snapshot or ''),
+            target_version_number=None, base_version_number=None))
     floor = db.scalar(select(Floor).where(Floor.org_id == row.org_id, Floor.id == target.floor_id))
     base_number = db.scalar(select(MapVersion.number).where(MapVersion.org_id == row.org_id,
         MapVersion.id == row.base_ref_id)) if row.base_ref_id else None

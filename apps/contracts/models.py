@@ -1088,7 +1088,7 @@ ApprovalStatus = Literal['PENDING', 'APPROVED', 'REJECTED', 'CANCELED', 'STALE']
 
 class ApprovalRef(Contract):
     type: Literal['map_version', 'assignment'] = 'map_version'
-    id: UUID
+    id: UUID | None
 
 
 class Approval(Contract):
@@ -1107,16 +1107,16 @@ class Approval(Contract):
 
 
 class ApprovalMapPreview(Contract):
-    floor_id: UUID
+    floor_id: UUID | None
     floor_name: str
-    target_version_number: int
+    target_version_number: int | None
     base_version_number: int | None
 
 
 class ApprovalAssignmentPreview(Contract):
-    scenario_id: UUID
+    scenario_id: UUID | None
     scenario_name: str
-    scenario_version: int
+    scenario_version: int | None
     robot_id: UUID
     robot_name: str
 
@@ -1597,6 +1597,9 @@ class AssignmentCreate(Contract):
 
 
 class Assignment(AssignmentCreate):
+    scenario_id: UUID | None
+    scenario_version: int | None
+    scenario_name_snapshot: str | None = None
     id: UUID
     scenario_name: str
     robot_name: str
@@ -2328,6 +2331,37 @@ class SimRobotList(Contract):
     expired: list[SimExpired] = Field(default_factory=list)
     cleanup: list[SimCleanupSlot] = Field(default_factory=list)
     manager_error: Literal['SIM_DISABLED', 'SIM_UNAVAILABLE'] | None = None
+
+
+# Unified trash; archived=true on older lists still includes live resources.
+TrashKind = Literal['site', 'building', 'floor', 'scenario']
+
+
+class TrashItem(Contract):
+    kind: TrashKind
+    id: UUID
+    name: str
+    archived_at: UTCDateTime
+    deleted_by: Person | None
+    parent_name: str | None
+
+
+class TrashList(Contract):
+    items: list[TrashItem]
+
+
+class RunHistory(Contract):
+    id: UUID
+    scenario_version_id: UUID | None
+    floor_id: UUID | None
+    map_version_id: UUID | None
+    scenario_name: str
+    floor_name: str
+    scenario_name_snapshot: str | None
+    floor_name_snapshot: str | None
+    status: RunStatus
+    started_at: UTCDateTime
+    ended_at: UTCDateTime | None
 
 
 TOP = {name: value for name, value in list(globals().items())
