@@ -112,3 +112,30 @@ def observation(env, channel, observed_serial, *, callback=None):
     client.SetTimeout(SDK_TIMEOUT_S)
     client.Init()
     return client
+
+
+def connect_approved(approval, observed_serial, subscriptions):
+    """Pairing path: already-running readonly DDS, authenticated field marker.
+
+    File-based/manual entrypoints keep their existing validation path. This
+    path reuses exactly the marker validator before importing motion SDK types.
+    """
+    from .approval import Approval, SERVER_CLOCK_SKEW_S, validate_value
+    from foothold_agent.go2_readonly.sdk import Subscriptions
+    if type(approval) is not Approval or type(subscriptions) is not Subscriptions:
+        raise PermissionError('validated approval and readonly subscriptions required')
+    validate_value(dict(v=1, purpose='go2-field-motion', nic=approval.nic,
+                        robot_serial=approval.robot_serial, expires_at=approval.expires_at), approval.nic,
+                   clock_skew_s=SERVER_CLOCK_SKEW_S)
+    verify(approval, observed_serial)
+    if (not subscriptions._started or subscriptions.nic != approval.nic
+            or approval.nic not in {name for _, name in socket.if_nameindex()}):
+        raise PermissionError('current dedicated subscription NIC required')
+    from unitree_sdk2py.go2.sport.sport_client import SportClient
+    clients = []
+    for _ in range(2):
+        client = SportClient()
+        client.SetTimeout(SDK_TIMEOUT_S)
+        client.Init()
+        clients.append(SportBoundary(client, approval))
+    return tuple(clients)
