@@ -52,8 +52,8 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const sampleHeight = adapter.makeHeightScanner(mj, m, d, world);
   // The reset floor is not the ground everywhere (factory ramp: 0 → -0.6 m).
   // Prefer terrain directly below the trunk centre: a higher stair/rubble
-  // under its nose is not yet the body's support. Keep footprint rays as a
-  // fallback when the centre sees through a gap or beyond a ledge.
+  // under its nose is not yet the body's support. Footprint rays also guard
+  // a trunk bridging a gap or still supported by the edge of a lower ledge.
   const supportGrid = [[0, 0], [-.1881, -.04675], [-.1881, .04675], [.1881, -.04675], [.1881, .04675]];
   const sampleSupport = makeTerrainSampler(mj, m, d, { grid: supportGrid, rayOffset: 0 });
   const support = new Float64Array(supportGrid.length);
@@ -93,11 +93,19 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     // Normal ramps change gradually. A distant lower floor must not follow a
     // falling body down and hide its fall: retain the last valid/reset datum.
     const validSupport = (height) => Number.isFinite(height) && q[2] - height <= .8 && height >= supportZ - .5;
-    if (validSupport(support[0])) supportZ = support[0];
-    else {
-      let highest = -Infinity;
-      for (const height of support) if (validSupport(height)) highest = Math.max(highest, height);
-      if (Number.isFinite(highest)) supportZ = highest;
+    let highest = -Infinity;
+    for (const height of support) if (validSupport(height)) highest = Math.max(highest, height);
+    if (validSupport(support[0])) {
+      const side = (a, b) => Math.max(validSupport(a) ? a : -Infinity, validSupport(b) ? b : -Infinity);
+      const bridge = Math.min(side(support[1], support[2]), side(support[3], support[4]));
+      let selected = Math.max(support[0], bridge);
+      // Both ends above the centre indicate a gap, rather than an uphill
+      // nose. At a descending edge, do not lower the previous datum while
+      // any part of the trunk footprint still sees terrain at that level.
+      if (selected < supportZ && highest >= supportZ) selected = supportZ;
+      supportZ = selected;
+    } else if (Number.isFinite(highest)) {
+      supportZ = highest;
     }
     s.z = q[2] - supportZ; // 지지면 기준 몸통 높이
     if (s.z < 0.18 || s.grav[2] > -0.5) s.fell = true; // 몸통 18 cm 아래 또는 60° 넘게 기욺
