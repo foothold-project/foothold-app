@@ -317,3 +317,32 @@ including startup/default targets, recording attempts before transport, complete
 calls after return and first/last monotonic attempt timestamps in the manifest.
 A failed/in-flight publish remains incomplete; an interrupted runtime without a
 final manifest remains unproven. No retrospective counters are fabricated.
+
+## Go2 mesh URI 검사와 갱신
+
+Go2의 고정 생성 모델은 과거 빌드 머신의 `file://` URI를 포함한다.
+원본·생성 manifest·SHA 검증은 유지하고, warehouse 에피소드에서만 모델과
+메시를 복사하여 `meshes/<name>.dae`로 바꾼다. 생성 world는 이 모델의
+실제 파일을 include하므로 `GZ_SIM_RESOURCE_PATH`나 Fuel 검색에 의존하지 않는다.
+알려진 `gz/model/out/meshes` 접미사와 다섯 파일만 대응하며, 임의 basename
+검색이나 과거 개인 경로의 호스트 바인드를 추가하지 않는다.
+
+자산 빌드·갱신 시 검토한 release에서 오프라인 검사를 먼저 실행한다.
+
+```sh
+python3 -m apps.simmgr.mesh_resources \
+  --source /opt/foothold-sim/assets/source/sensor-spec-20261016/stage/sensor-runtime-r1 \
+  --world apps/simmgr/worlds/warehouse/warehouse.sdf
+```
+
+검사는 모델 URI 전체와 world URI 전체를 읽어 누락·빈 파일·경로 탈출·개인
+빌드 경로 잔존을 거절한다. rootfs 활성화의 `start_pair`는 sealed 자산과
+검토한 release를 대상으로 namespace/setup marker 생성 전에 이 검사를 실행한다.
+manager는 요청마다 supervisor·증거 폴더 생성 전에 반복하고, native child는
+최종 에피소드 world와 include 모델의 URI를 재귀 검사한 뒤 Gazebo에 넘긴다.
+
+기존 설치는 검토된 `rootfs_runtime.py`를 기존 `refresh-tools` 절차로 갱신하고
+앱 release를 반영해야 한다. rootfs 생성기·profile은 바뀌지 않아 rootfs 재빌드는
+필요하지 않지만, sealed 자산에 `gz/model/out/meshes`의 다섯 DAE가 없으면
+자산을 별도 검토·재봉인해야 한다. 이 변경은 과거 cleanup marker를 해제하지
+않으며, 남은 실패 슬롯/fence 복구와 실서버 재검증은 별도 승인 작업이다.

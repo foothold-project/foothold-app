@@ -182,6 +182,38 @@ def test_rootfs_transition_refuses_before_start_when_manifest_or_validation_fail
     start.assert_not_called()
 
 
+def test_mesh_check_uses_only_reviewed_release_without_ros_or_credentials(tmp_path,monkeypatch):
+    execute=Mock();monkeypatch.setattr(r.subprocess,'run',execute)
+    release=tmp_path/'release'
+    r.mesh_preflight(data(),release)
+    args=execute.call_args.args[0];options=execute.call_args.kwargs
+    assert args[:3]==['/usr/bin/python3','-m','apps.simmgr.mesh_resources']
+    assert args[3:]==['--source',data()['asset_source']+'/sensor-spec-20261016/stage/sensor-runtime-r1',
+        '--world',str(release/'apps/simmgr/worlds/warehouse/warehouse.sdf')]
+    assert options['cwd']==release and options['check'] and options['timeout']==30
+    assert options['env']=={'PATH':'/usr/bin:/bin','PYTHONDONTWRITEBYTECODE':'1'}
+
+
+def test_mesh_rejection_precedes_namespace_marker_and_manager_start(monkeypatch):
+    value=data();monkeypatch.setattr(r,'load',lambda:value)
+    monkeypatch.setattr(r,'identity',lambda _:(23456,23456))
+    for name in ('inactive_namespace','assets','private_settings','validated','guard_access'):
+        monkeypatch.setattr(r,name,lambda *_:None)
+    monkeypatch.setattr(r.build,'verify',lambda *_:None)
+    release=Path('/opt/foothold/releases')/('e'*40)
+    monkeypatch.setattr(r,'CURRENT',SimpleNamespace(resolve=lambda **_:release))
+    monkeypatch.setattr(Path,'read_text',lambda *_:'e'*40+'\n')
+    rejected=Mock(side_effect=ValueError('mesh missing'))
+    monkeypatch.setattr(r,'mesh_preflight',rejected)
+    forbidden=Mock(side_effect=AssertionError('native mutation before mesh refusal'))
+    for name in ('create_install_latch','bind_namespace','run'):
+        monkeypatch.setattr(r,name,forbidden)
+    with pytest.raises(ValueError,match='mesh missing'):
+        r.start_pair(forbidden)
+    rejected.assert_called_once_with(value,release)
+    forbidden.assert_not_called()
+
+
 def test_namespaced_stop_checks_all_four_child_families_before_stopping_parent(monkeypatch):
     value=data();monkeypatch.setattr(r,'load',lambda:value)
     monkeypatch.setattr(r,'identity',lambda value:(23456,23456))
@@ -234,7 +266,7 @@ def test_failed_root_attestation_retains_setup_marker_without_starting_manager(t
     monkeypatch.setattr(r,'guard_access',lambda *_:None)  # separate UID DAC gate has dedicated coverage
     value=data();monkeypatch.setattr(r,'load',lambda:value)
     monkeypatch.setattr(r,'identity',lambda value:(23456,23456))
-    for name in ('inactive_namespace','assets','private_settings','validated'):
+    for name in ('inactive_namespace','assets','private_settings','validated','mesh_preflight'):
         monkeypatch.setattr(r,name,lambda *_:None)
     monkeypatch.setattr(r.build,'verify',lambda *_:None)
     release=Path('/opt/foothold/releases')/('e'*40)

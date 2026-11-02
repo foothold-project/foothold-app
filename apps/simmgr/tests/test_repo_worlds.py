@@ -295,7 +295,7 @@ def test_repository_entrypoint_installs_assets_and_preserves_ledger_paths(repo, 
         'import json\nfrom pathlib import Path\nfrom types import SimpleNamespace\n'
         'import xml.etree.ElementTree as ET\nimport sensor_isolation as iso\n'
         f'HERE = {str(control)!r}\n'
-        'SP = SimpleNamespace(world_text=lambda text, follow: text)\n'
+        'SP = SimpleNamespace(world_text=lambda text, follow: text.replace("model://go2_v2_map", "model://go2_v2_l1d435i_c2min"))\n'
         "def operating_ledgers(): return [HERE + '/runs/map_ledger.jsonl', '/synthetic/ux/ledger']\n"
         'def gt_identity_allowed(d, w, here=HERE): return here\n'
         'def main():\n'

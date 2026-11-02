@@ -254,6 +254,17 @@ def attest(pid,data):
     return True
 
 
+def mesh_preflight(data,release):
+    # Execute only reviewed release code, with no manager credentials/ROS env.
+    # This check reads the host's sealed files before binding them at the fixed
+    # internal prefix; the manager repeats it inside RootDirectory per request.
+    subprocess.run(['/usr/bin/python3','-m','apps.simmgr.mesh_resources',
+        '--source',str(Path(data['asset_source'])/'sensor-spec-20261016/stage/sensor-runtime-r1'),
+        '--world',str(release/'apps/simmgr/worlds/warehouse/warehouse.sdf')],
+        cwd=release,env={'PATH':'/usr/bin:/bin','PYTHONDONTWRITEBYTECODE':'1'},
+        check=True,capture_output=True,text=True,timeout=30)
+
+
 def start_pair(start_manager,*,setup_identity=None):
     data=load();uid,_=identity(data);inactive_namespace(data)
     build.verify(rootfs(data),data['recipe_sha256']);assets(data);private_settings(data);validated(data)
@@ -261,6 +272,9 @@ def start_pair(start_manager,*,setup_identity=None):
     release=CURRENT.resolve(strict=True)
     if release.parent!=Path('/opt/foothold/releases') or (release/'COMMIT').read_text().strip()!=release.name:
         raise ValueError('exact release binding required')
+    # Refresh/activation checks the sealed model against actual asset files
+    # before creating a setup obligation or starting the namespace/manager.
+    mesh_preflight(data,release)
     marker=GUARD/'setup-unproven'
     if setup_identity is None:setup_identity=create_install_latch(marker)
     else:
