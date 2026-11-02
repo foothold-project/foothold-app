@@ -180,6 +180,7 @@ async function main() {
   const { selectOnnxPolicy } = await import('./policy-onnx.js');
   const params = new URLSearchParams(location.search);
   policy = await selectOnnxPolicy(adapter, policy, {
+    worker: params.get('policyThread') !== 'main', // explicit comparison/recovery path
     backend: params.get('policyBackend') ?? (adapter.id === 'ame2-demo' ? params.get('ame2Backend') : null) ?? 'wasm',
     notify: (text) => {
       st.policyEngine = text;

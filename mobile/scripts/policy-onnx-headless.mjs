@@ -72,7 +72,9 @@ try {
   const open = async (id, backend = 'wasm', configure = async () => {}) => {
     const p = await browser.newPage(); p.setDefaultTimeout(30000); p.on('pageerror', (e) => pageErrors.push(e.message));
     await configure(p);
-    await p.goto(base + `index.html?map=warehouse&policy=${id}&policyBackend=${backend}`);
+    // This suite patches the main ORT prototype; retain recovery-path coverage.
+    // Default Worker execution is exercised by ame2-worker-selftest.mjs.
+    await p.goto(base + `index.html?map=warehouse&policy=${id}&policyBackend=${backend}&policyThread=main`);
     await p.waitForFunction(() => window.__sim?.ready, null, { timeout: 60000 });
     return p;
   };

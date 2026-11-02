@@ -58,11 +58,11 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
   const asyncPolicy = policy.async === true;
   let generation = 0, pending = false;
 
-  s.cancelPolicyStep = () => { if (asyncPolicy) generation++; };
+  s.cancelPolicyStep = () => { if (asyncPolicy) { generation++; policy.cancel?.(); } };
 
   // AME-2 STOP discards the previous action and target; UI keeps its existing latch.
   s.clearPolicyState = () => {
-    if (asyncPolicy) generation++;
+    s.cancelPolicyStep();
     s.cmd = adapter.stop.input.slice(); last.fill(0);
     for (let i = 0; i < 12; i++) tgt[i] = DEFAULT_I[I2M[i]];
     actionDelay?.clear();
@@ -103,7 +103,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
       const gen = generation;
       pending = true;
       return Promise.resolve().then(() => policy(obs, s.mapping)).then((a) => {
-        if (gen !== generation) return false;
+        if (gen !== generation || !a) return false;
         applyAction(a, t0);
         return true;
       }).finally(() => { pending = false; });
@@ -131,7 +131,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
     mj.mj_step(m, d);
   };
   s.hold = (sec) => { for (let k = 0; k < Math.round(sec / PHYS_DT); k++) s.physStep(); state(); }; // 정책 없이 기본자세 PD
-  s.dispose = () => { if (asyncPolicy) generation++; sampleHeight.dispose(); d.delete(); m.delete(); };
+  s.dispose = () => { s.cancelPolicyStep(); sampleHeight.dispose(); d.delete(); m.delete(); };
   s.reset();
   return s;
 }

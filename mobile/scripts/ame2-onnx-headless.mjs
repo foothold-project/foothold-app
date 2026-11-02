@@ -93,7 +93,8 @@ try {
     await page.close();
   }
   const page=await browser.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
-  await page.goto(url+'index.html?policy=ame2-demo&ame2Backend=wasm');
+  // Main ORT fault injection tests the explicit recovery path; Worker has its own suite.
+  await page.goto(url+'index.html?policy=ame2-demo&ame2Backend=wasm&policyThread=main');
   await page.waitForFunction(()=>window.__sim?.ready,null,{timeout:60000});
   assert.match(await page.locator('#policyEngine').textContent(),/ONNX WASM/);
   await page.screenshot({path:'runs/ame2-onnx/wasm-sim.png'});
@@ -135,7 +136,7 @@ try {
     if(failure==='runtime')await p.route('**/ort.wasm.min.mjs',r=>r.fulfill({status:404,body:'missing'}));
     if(failure==='wasm')await p.route('**/ort-wasm-simd-threaded.wasm',r=>r.fulfill({status:404,body:'missing'}));
     if(failure==='hash')await p.route('**/ame2_actor.onnx',r=>r.fulfill({status:200,body:Buffer.from('bad model')}));
-    await p.goto(url+'index.html?policy=ame2-demo&ame2Backend=wasm');
+    await p.goto(url+'index.html?policy=ame2-demo&ame2Backend=wasm&policyThread=main');
     await p.waitForFunction(()=>window.__sim?.ready,null,{timeout:60000});
     if(failure==='run')await p.evaluate(async()=>{const ort=await import('./ort/ort.wasm.min.mjs');ort.InferenceSession.prototype.run=async()=>{throw Error('injected run failure');};});
     await p.click('#go');await p.waitForFunction(()=>__sim.sim.t>.04);
