@@ -65,7 +65,7 @@ export async function selectOnnxPolicy(adapter, f32, { backend = 'wasm', notify 
     catch (error) { await runner.dispose().catch(() => {}); throw error; }
     return runner;
   };
-  const announce = () => notify(`${label} · ONNX ${backend.toUpperCase()} · ${inWorker ? 'Worker' : `화면 계산${workerReason ? ` (Worker 사용 불가: ${workerReason})` : ''}`}`);
+  const announce = () => notify(`${label} · ONNX ${backend.toUpperCase()} · ${inWorker ? 'Worker' : workerReason === 'Worker 늦음' ? 'Worker 늦음 → 화면 계산' : `화면 계산${workerReason ? ` (Worker 사용 불가: ${workerReason})` : ''}`}`);
   try {
     if (!adapter.onnx) throw new Error('ONNX 계약 없음');
     if (!['wasm', 'webgpu'].includes(backend)) throw new Error('지원하지 않는 추론 설정');
@@ -112,8 +112,8 @@ export async function selectOnnxPolicy(adapter, f32, { backend = 'wasm', notify 
     }
   };
   policy.async = true;
-  // Browser Worker selection retains its 50Hz result budget even on fallback.
-  if (worker) policy.deadlineMs = adapter.timing.policyDt * 1000;
+  // Only the Worker client applies the roundtrip deadline. Main ONNX/f32
+  // recovery keeps its existing behavior: apply late results in the same generation.
   policy.cancel = () => onnx.cancel?.();
   policy.dispose = () => failed ? undefined : onnx.dispose();
   return policy;

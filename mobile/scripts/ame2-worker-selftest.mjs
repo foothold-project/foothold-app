@@ -1,13 +1,14 @@
 // Existing local dependencies only; headless Chrome, ephemeral loopback port.
 // sync-web first. AME2_EXPORT, POLICY_ONNX_FIXTURES, FH_PLAYWRIGHT required.
 // --measure: compare AME2_WORKER_BASE sources with this tree, 30s per policy/path.
+// --slow-only: rerun the CPU/delay recovery regression without parity/lifecycle tests.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { resolve, extname, join, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { loadWorkerPolicy } from '../sim/policy-worker-client.js';
+import { loadWorkerPolicy, WORKER_TIMEOUT_LIMIT } from '../sim/policy-worker-client.js';
 
 // Controlled transport: sequence mismatch, timeout, cancellation, no queued work.
 let transport;
@@ -43,6 +44,17 @@ assert.equal(failureSeen, 'lost Worker after STOP');
 await assert.rejects(cancelled([2]), /lost Worker/); await cancelled.dispose();
 await assert.rejects(loadWorkerPolicy(new ArrayBuffer(1), contract, 'wasm', { createWorker: () => { throw Error('blocked'); } }), /blocked/);
 await assert.rejects(loadWorkerPolicy(new ArrayBuffer(1), contract, 'wasm', { initTimeoutMs: 5, createWorker: () => ({ postMessage() {}, terminate() {} }) }), /초기화 시간 초과/);
+const slowClient = await loadWorkerPolicy(new ArrayBuffer(1), contract, 'wasm', { deadlineMs: 1, createWorker: fake });
+for (let i = 1; i <= WORKER_TIMEOUT_LIMIT; i++) {
+  const result = slowClient([i]);
+  if (i === WORKER_TIMEOUT_LIMIT) await assert.rejects(result, /Worker 늦음/);
+  else {
+    assert.equal(await result, null);
+    assert.equal(await slowClient([99]), null, 'no queue between timeout and drain');
+    transport.reply({ type: 'result', seq: i + 1, action: [99] });
+  }
+}
+assert.equal(transport.terminated, true); await slowClient.dispose();
 console.log('Worker transport PASS: sequence/timeout/cancel/drain/no queue/create failure/init timeout');
 
 const root = resolve('mobile/www'), out = resolve('runs/ame2-worker'); mkdirSync(out, { recursive: true });
@@ -86,6 +98,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env.FH_CHROME || '/usr/bin/google-chrome', headless: true,
     args: ['--no-sandbox', '--enable-webgl', '--use-gl=angle', '--use-angle=swiftshader'] });
   if (!process.argv.includes('--measure-only')) {
+  if (!process.argv.includes('--slow-only')) {
   const page = await browser.newPage();
   await page.goto(base + '/sim/index.html?policyBackend=f32'); await page.waitForFunction(() => window.__sim?.ready);
   const parity = await page.evaluate(async () => {
@@ -198,6 +211,77 @@ try {
     }
   }
   }
+  const slowResults = [];
+  for (const id of ['foothold-v2', 'ame2-demo']) {
+    for (const scenario of [{ cpu: 1, delay: 35 }, { cpu: 4, delay: 0 }, { cpu: 6, delay: 0 }]) {
+      const p = await browser.newPage();
+      await p.goto(base + `/sim/index.html?policy=${id}`); await p.waitForFunction(() => window.__sim?.ready);
+      await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; }); await p.waitForTimeout(75);
+      await p.evaluate(() => __sim.sim.cancelPolicyStep()); // start a fresh consecutive-timeout window
+      const w = p.workers().find((w) => w.url().endsWith('/policy-worker.js')); assert.ok(w);
+      if (scenario.delay) await w.evaluate(async (delay) => {
+        const ort = await import('./ort/ort.wasm.min.mjs'), run = ort.InferenceSession.prototype.run;
+        ort.InferenceSession.prototype.run = async function (...args) { await new Promise((r) => setTimeout(r, delay)); return run.apply(this, args); };
+      }, scenario.delay);
+      await p.evaluate(async () => {
+        const ort = await import('./ort/ort.wasm.min.mjs'), run = ort.InferenceSession.prototype.run;
+        // Main recovery must apply despite this additional >20ms latency.
+        ort.InferenceSession.prototype.run = async function (...args) {
+          if (window.holdMain) await new Promise((r) => { window.releaseMain = r; });
+          else await new Promise((r) => setTimeout(r, 35));
+          return run.apply(this, args);
+        };
+        window.slowBadges = [];
+        new MutationObserver(() => {
+          const text = document.querySelector('#policyEngine').textContent;
+          if (text.includes('Worker 늦음 → 화면 계산') && slowBadges.at(-1) !== text) slowBadges.push(text);
+        }).observe(document.querySelector('#policyEngine'), { childList: true, subtree: true, characterData: true });
+      });
+      const cdp = await p.context().newCDPSession(p); await cdp.send('Emulation.setCPUThrottlingRate', { rate: scenario.cpu });
+      let applied = 0, attempts = 0, badge;
+      for (; attempts < WORKER_TIMEOUT_LIMIT;) {
+        attempts++;
+        if (await p.evaluate(() => originalStep())) applied++;
+        badge = await p.locator('#policyEngine').textContent();
+        if (applied || badge.includes('Worker 늦음 → 화면 계산')) break;
+        await p.waitForTimeout(75); // drain the single late job; no queued requests
+      }
+      assert.ok(applied > 0 || badge.includes('Worker 늦음 → 화면 계산'), `${id}/${JSON.stringify(scenario)} stalled after ${attempts} steps`);
+      if (scenario.delay) {
+        assert.equal(attempts, WORKER_TIMEOUT_LIMIT); assert.equal(applied, 1);
+        assert.match(badge, /Worker 늦음 → 화면 계산/);
+        assert.equal(await p.evaluate(() => slowBadges.length), 1);
+        assert.equal(await p.evaluate(() => originalStep()), true, 'late main ONNX applies after Worker recovery');
+        await p.evaluate(() => { window.holdMain = true; originalStep().then((a) => { window.lateMainApplied = a; }); });
+        await p.waitForFunction(() => typeof window.releaseMain === 'function');
+        const time = await p.evaluate(() => __sim.sim.t);
+        await p.dispatchEvent('#stop', 'pointerdown'); await p.evaluate(() => releaseMain());
+        await p.waitForFunction(() => window.lateMainApplied === false);
+        assert.equal(await p.evaluate(() => __sim.sim.t), time, 'STOP invalidates delayed recovered main result');
+        await p.click('#go'); assert.deepEqual(await p.evaluate(() => __sim.joy()), id === 'ame2-demo' ? [0, 0, 0, 1] : [0, 0, 0]);
+      }
+      const result = { id, ...scenario, attempts, applied, badge }; slowResults.push(result); console.log('Worker slow recovery PASS', JSON.stringify(result));
+      await p.close();
+    }
+    const p = await browser.newPage();
+    await p.addInitScript(() => { window.Worker = class { constructor() { throw Error('Worker blocked'); } }; });
+    await p.goto(base + `/sim/index.html?policy=${id}`); await p.waitForFunction(() => window.__sim?.ready);
+    await p.evaluate(() => { window.originalStep = __sim.sim.step; __sim.sim.step = () => false; }); await p.waitForTimeout(75);
+    await p.evaluate(async () => {
+      const ort = await import('./ort/ort.wasm.min.mjs'), run = ort.InferenceSession.prototype.run;
+      ort.InferenceSession.prototype.run = async function (...args) { await new Promise((r) => setTimeout(r, 35)); return run.apply(this, args); };
+    });
+    assert.equal(await p.evaluate(() => originalStep()), true, 'Worker creation failure: delayed main ONNX applies');
+    await p.evaluate(async () => {
+      const ort = await import('./ort/ort.wasm.min.mjs');
+      ort.InferenceSession.prototype.run = async () => { await new Promise((r) => setTimeout(r, 35)); throw Error('delayed main failure'); };
+    });
+    assert.equal(await p.evaluate(() => originalStep()), true, 'late main failure: f32 recovery applies');
+    assert.match(await p.locator('#policyEngine').textContent(), /기본 계산 사용.*f32 JS/);
+    await p.close(); console.log(`${id} delayed main/f32 fallback PASS`);
+  }
+  writeFileSync(join(out, 'slow-recovery.json'), JSON.stringify(slowResults, null, 2));
+  }
   if (measure) {
     const metrics = [];
     for (const id of ['foothold-v2', 'ame2-demo']) for (const version of ['before', 'after']) {
@@ -224,5 +308,5 @@ try {
     }
     writeFileSync(join(out, 'metrics.json'), JSON.stringify({ browser: browser.version(), baseline: process.env.AME2_WORKER_BASE, map: 'warehouse', input: 'KeyW held after go', gpu: 'ANGLE SwiftShader', metrics }, null, 2));
   }
-  console.log(process.argv.includes('--measure-only') ? 'Worker measurement complete' : 'Worker headless PASS: both adapters, real CSP, parity, lifecycle/deadline discard, visible main ONNX/f32 fallback');
+  console.log(process.argv.includes('--measure-only') ? 'Worker measurement complete' : process.argv.includes('--slow-only') ? 'Worker slow recovery PASS: both adapters, delay/CPU/main/f32/STOP' : 'Worker headless PASS: both adapters, real CSP, parity, lifecycle/deadline discard, visible main ONNX/f32 fallback, delay/CPU recovery');
 } finally { await browser?.close(); await new Promise((r) => server.close(r)); }

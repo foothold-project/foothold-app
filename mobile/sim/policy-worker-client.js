@@ -1,10 +1,12 @@
 // One in-flight request; a timeout/cancel settles the caller but keeps the slot
 // occupied until the Worker replies. Never build an inference queue.
+export const WORKER_TIMEOUT_LIMIT = 5;
 export async function loadWorkerPolicy(model, contract, backend, {
   deadlineMs, createWorker = (url) => new Worker(url, { type: 'module' }), initTimeoutMs = 15000, onFailure = () => {},
+  timeoutLimit = WORKER_TIMEOUT_LIMIT,
 } = {}) {
   const worker = createWorker(new URL('./policy-worker.js', import.meta.url));
-  let seq = 0, active = null, failure = null, disposed = false;
+  let seq = 0, active = null, failure = null, disposed = false, lateCount = 0;
   const settle = (request, value, error) => {
     clearTimeout(request.timer);
     if (error) request.reject(error); else request.resolve(value);
@@ -15,6 +17,15 @@ export async function loadWorkerPolicy(model, contract, backend, {
     active = null;
     worker.terminate();
     onFailure(error);
+  };
+  const expire = (request) => {
+    if (request.cancelled || request.expired) return;
+    request.expired = true;
+    if (++lateCount >= timeoutLimit) {
+      const error = new Error('Worker 늦음');
+      fail(error); // terminate the last late job before main ONNX recovery
+      settle(request, null, error);
+    } else settle(request, null);
   };
   worker.onerror = (event) => { event.preventDefault?.(); fail(new Error(event.message || 'Worker 실행 실패')); };
   worker.onmessageerror = () => fail(new Error('Worker 메시지 읽기 실패'));
@@ -28,15 +39,21 @@ export async function loadWorkerPolicy(model, contract, backend, {
     // deliver a result before its overdue timeout callback gets a turn.
     const late = performance.now() - request.started >= request.budget;
     if (late && request.reply === 'ready') { fail(new Error('Worker 초기화 시간 초과')); settle(request, null, failure); return; }
-    settle(request, late ? null : data.action);
+    if (request.cancelled || request.expired) { settle(request, null); return; }
+    if (late) { expire(request); return; }
+    lateCount = 0;
+    settle(request, data.action);
   };
   const request = (message, reply, budget, transfer = []) => new Promise((resolve, reject) => {
-    const current = active = { seq: ++seq, resolve, reject, reply, budget, started: performance.now() };
+    const current = active = { seq: ++seq, resolve, reject, reply, budget, started: 0 };
+    const packet = { ...message, seq: current.seq };
     current.timer = setTimeout(() => {
       if (reply === 'ready') fail(new Error('Worker 초기화 시간 초과'));
-      else settle(current, null); // retain active until the late reply is drained
+      else expire(current); // retain active until drained, or stop after N misses
     }, budget);
-    try { worker.postMessage({ ...message, seq: current.seq }, transfer); }
+    // Input copying/observation time is outside the Worker roundtrip budget.
+    current.started = performance.now();
+    try { worker.postMessage(packet, transfer); }
     catch (error) { fail(error); }
   });
   try {
@@ -51,7 +68,7 @@ export async function loadWorkerPolicy(model, contract, backend, {
     return request({ type: 'infer', inputs }, 'result', deadlineMs, inputs.map((v) => v.buffer));
   };
   policy.async = true;
-  policy.cancel = () => { if (active) settle(active, null); };
+  policy.cancel = () => { lateCount = 0; if (active) { active.cancelled = true; settle(active, null); } };
   policy.dispose = async () => { disposed = true; policy.cancel(); worker.terminate(); active = null; };
   return policy;
 }

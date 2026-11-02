@@ -103,7 +103,7 @@ export function createSim(mj, xmlPath, phys = MENAGERIE, policy, world = { floor
       const gen = generation;
       pending = true;
       return Promise.resolve().then(() => policy(obs, s.mapping)).then((a) => {
-        if (gen !== generation || !a || (policy.deadlineMs && performance.now() - t0 >= policy.deadlineMs)) return false;
+        if (gen !== generation || !a) return false;
         applyAction(a, t0);
         return true;
       }).finally(() => { pending = false; });
