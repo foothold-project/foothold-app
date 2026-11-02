@@ -222,7 +222,7 @@ describe('폰 운영 관리자 — 현장 안전 확인', () => {
 });
 
 describe('폰 운영 관리자 — 내 로봇 관리', () => {
-  it('이름 바꾸기 PATCH {name}, 연결 끊기 = 확인 뒤 DELETE connection, 지우기 409 = 조종·실행 중 문구, 담당 넘기기 없음', async () => {
+  it('이름 바꾸기 PATCH {name}, 연결 끊기 = 확인 뒤 DELETE connection, 지우기 409 = 조종·실행 중 문구, 담당 넘기기는 접힘', async () => {
     serve(signedIn(LEE, [RA], {
       'PATCH /robots/r-a': { status: 200, body: { ...RA, name: 'Go2-새' } },
       'DELETE /robots/r-a/connection': { status: 204 },
@@ -232,7 +232,7 @@ describe('폰 운영 관리자 — 내 로봇 관리', () => {
     await unfold('관리');
     const g = card('내 로봇 관리');
     expect(g.textContent).toContain(SERIAL);
-    expect(g.querySelector('select')).toBeNull();   // 넘기기 대상 목록 API 가 없어 아직 없음
+    expect(g.querySelector('select')).toBeNull();   // 담당 넘기기는 접혀 있음(펼치면 라디오 — PC 웹 운영 관리자 담당 넘기기 시험)
     setVal($<HTMLInputElement>('input[name="name"]', g)!, ' Go2-새 ');
     await submit(g.querySelector('form')!);
     expect(sent('PATCH', '/robots/r-a')[0].body).toEqual({ name: 'Go2-새' });
@@ -348,5 +348,95 @@ describe('r1 — 총괄 실기 상세에는 «배정» 없음(시뮬은 유지)'
     expect($('[aria-label="로봇 상세"] [data-assign-robot]')).toBeNull();
     await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('창고 시뮬')));
     expect($('[aria-label="로봇 상세"] [data-assign-robot]')).not.toBeNull();
+  });
+});
+
+describe('PC 웹 운영 관리자 — 담당 넘기기', () => {
+  const CAND = 'GET /robots/r-a/owner-candidates';
+  const cands = (items: { user_id: string; display_name: string }[]) => ({ status: 200, body: { items, next_cursor: null } });
+  const transfer = () => card('내 로봇 관리').querySelector<HTMLElement>('[data-transfer]')!;
+  const pick = (name: string) => act(() => { [...transfer().querySelectorAll<HTMLLabelElement>('label')].find((l) => l.textContent === name)!.querySelector('input')!.click(); });
+
+  it('펼치면 후보 목록(라디오) → 고르기 → 같은 화면 확인(포커스 이동·취소) → 넘기기 PATCH {owner_user_id} 한 번 → 목록 다시 받아 «다른 로봇»으로', async () => {
+    let moved = false;
+    serve(signedIn(LEE, [RA], {
+      [CAND]: cands([{ user_id: 'o2', display_name: '박운영' }, { user_id: 'o4', display_name: '정운영' }]),
+      'PATCH /robots/r-a': () => { moved = true; return { status: 200, body: { ...RA, owner: { id: 'o2', display_name: '박운영' } } }; },
+      'GET /robots': () => ({ status: 200, body: { items: [moved ? { ...RA, owner: { id: 'o2', display_name: '박운영' } } : RA], next_cursor: null } }),
+    }));
+    await open('#/fleet', false);
+    expect(sent('GET', '/robots/r-a/owner-candidates?limit=100')).toHaveLength(0);   // 펼치기 전엔 부르지 않음
+    const open1 = btn('담당 넘기기', transfer())!;
+    expect(open1.getAttribute('aria-expanded')).toBe('false');
+    await click(open1);
+    expect(open1.getAttribute('aria-expanded')).toBe('true');
+    expect(sent('GET', '/robots/r-a/owner-candidates?limit=100')).toHaveLength(1);
+    const radios = [...transfer().querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    expect(radios.map((x) => x.parentElement!.textContent)).toEqual(['박운영', '정운영']);
+    expect(transfer().querySelector('legend')!.textContent).toBe('넘겨받을 운영 관리자');
+    expect(btn('넘기기…', transfer())!.disabled).toBe(true);
+    pick('박운영'); await flush();
+    await click(btn('넘기기…', transfer()));
+    const ask = card('담당 넘기기 확인');
+    expect(document.activeElement).toBe(ask);
+    expect(ask.textContent).toContain('Go2-A 담당을 박운영(으)로 넘길까요?');
+    expect(ask.textContent).toContain('넘기면 이 로봇의 폰 출입증과 현장 승인이 풀리고, 조종·배정은 새 담당만 할 수 있습니다');
+    await click(btn('취소', ask));
+    expect($('[aria-label="담당 넘기기 확인"]')).toBeNull();
+    expect(sent('PATCH', '/robots/r-a')).toHaveLength(0);
+    await click(btn('넘기기…', transfer()));
+    const go = btn('넘기기', card('담당 넘기기 확인'))!;
+    const before = sent('GET', '/robots?scope=mine&limit=100').length;
+    act(() => { go.click(); go.click(); });   // 같은 틱 두 번 누름
+    await flush();
+    expect(sent('PATCH', '/robots/r-a')).toHaveLength(1);
+    expect(sent('PATCH', '/robots/r-a')[0].body).toEqual({ owner_user_id: 'o2' });
+    expect(sent('GET', '/robots?scope=mine&limit=100').length).toBeGreaterThan(before);   // refresh
+    expect($('[data-manage]')).toBeNull();   // 이제 담당 아님 — 관리·넘기기 사라짐
+    expect($('[data-transfer]')).toBeNull();
+  });
+
+  it('후보 0명 = 안내, 목록 실패 = 서버 문구 + 다시 불러오기, 넘기기 실패 = 서버 문구 그대로', async () => {
+    let list: Reply = cands([]);
+    serve(signedIn(LEE, [RA], {
+      [CAND]: () => list,
+      'PATCH /robots/r-a': err(409, 'VERSION_CONFLICT', '조종 중인 로봇은 담당을 넘길 수 없습니다.'),
+    }));
+    await open('#/fleet', false);
+    await click(btn('담당 넘기기', transfer()));
+    expect(transfer().textContent).toContain('넘길 수 있는 운영 관리자가 없습니다');
+    expect(transfer().querySelector('input[type="radio"]')).toBeNull();
+    await click(btn('담당 넘기기', transfer()));   // 접기
+    list = err(403, 'NOT_ROBOT_OWNER', '담당 로봇만 바꿀 수 있습니다.');
+    await click(btn('담당 넘기기', transfer()));
+    expect(transfer().querySelector('[role="alert"]')!.textContent).toBe('넘길 수 있는 운영 관리자 목록을 받지 못했습니다. 담당 로봇만 바꿀 수 있습니다.');
+    list = cands([{ user_id: 'o2', display_name: '박운영' }]);
+    await click(btn('다시 불러오기', transfer()));
+    expect(transfer().querySelector('[role="alert"]')).toBeNull();
+    pick('박운영'); await flush();
+    await click(btn('넘기기…', transfer()));
+    await click(btn('넘기기', card('담당 넘기기 확인')));
+    expect(transfer().querySelector('[role="alert"]')!.textContent).toBe('조종 중인 로봇은 담당을 넘길 수 없습니다.');   // robotFail 의 지우기 문구로 바꾸지 않음
+    expect(btn('넘기기', card('담당 넘기기 확인'))!.disabled).toBe(false);   // 다시 누를 수 있음
+  });
+
+  it('시뮬 로봇·담당 아닌 실기·총괄에는 담당 넘기기 없음', async () => {
+    const SIM = robot('s-1', '창고 시뮬', LEE, { simulation: true }), RP = robot('r-p', 'Go2-P', PARK);
+    serve(signedIn(LEE, [SIM, RP]));
+    await open('#/fleet', false);
+    for (const n of ['창고 시뮬', 'Go2-P']) {
+      const row = [...box.querySelectorAll('button')].find((b) => b.textContent!.includes(n));
+      if (row) await click(row);
+      expect($('[data-transfer]')).toBeNull();
+      expect(btn('담당 넘기기')).toBeUndefined();
+    }
+    act(() => root?.unmount()); box.remove();
+    serve(signedIn(KIM, [RA]));
+    await open('#/fleet', false);
+    await click([...card('로봇 목록').querySelectorAll('button')].find((b) => b.textContent!.includes('Go2-A')));
+    expect(card('로봇 상세').textContent).toContain('Go2-A');
+    expect($('[data-transfer]')).toBeNull();
+    expect(btn('담당 넘기기')).toBeUndefined();
+    expect(calls.some((c) => c.path.includes('owner-candidates'))).toBe(false);
   });
 });

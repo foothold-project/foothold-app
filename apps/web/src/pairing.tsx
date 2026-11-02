@@ -1,8 +1,8 @@
 // 실기 로봇 연결(ROBOT-PAIRING, 05 §3.1). 운영 관리자: 새 로봇 추가(QR·6자리 → 기체번호 확인 → 이름) → 현장 안전 확인(30분) → 내 로봇 관리(이름·연결 끊기·지우기).
 // 총괄은 실기 로봇에 쓰기가 없다 — 담당 없는 실기의 담당 지정만(AssignOwner). 연결 키는 화면에 오지 않는다(노트북 연결 프로그램이 poll 로 한 번 받음).
-// 담당 넘기기는 운영이 넘길 대상 목록 API 가 없어 아직 없음(조정 11-02 — 목록 API 뒤 후속).
+// 담당 넘기기(TransferOwner): 내 로봇 관리 안 — 넘길 대상 목록(owner-candidates) → 같은 화면 확인 → PATCH owner_user_id.
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import type { PairingClaimed, User as ApiUser } from '../../contracts/ts';
+import type { PairingClaimed, RobotOwnerCandidate, User as ApiUser } from '../../contracts/ts';
 import { api, type ApiFail } from './api';
 import type { Robot, Tone } from './fake';
 import { Chip } from './screens';
@@ -177,7 +177,46 @@ export function FieldCheck({ r, refresh, cancel }: { r: Robot; refresh: () => vo
   </div>;
 }
 
-/** 내 로봇 관리(담당 운영): 이름 바꾸기 · 연결 끊기(연결 키 폐기 + 진행 중 조종 정지·잠금) · 지우기 */
+/** 담당 넘기기(담당 운영, 실기): 펼치면 대상 목록 → 한 명 고르기 → 같은 화면 확인(브라우저 confirm 없음) → PATCH {owner_user_id}.
+ *  넘기면 서버가 폰 출입증 회수·현장 승인 해제 — 성공하면 목록을 다시 받아 이 로봇은 «다른 로봇»으로 내려간다. 실패는 서버 문구 그대로 */
+function TransferOwner({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
+  const [open, setOpen] = useState(false), [list, setList] = useState<RobotOwnerCandidate[] | null>(null), [to, setTo] = useState('');
+  const [ask, setAsk] = useState(false), [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
+  const seq = useRef(0), askBox = useRef<HTMLDivElement>(null), sending = useRef(false);   // sending = 같은 틱 두 번 누름도 막음(busy 는 다시 그린 뒤에야 보임)
+  useEffect(() => { if (ask) askBox.current?.focus(); }, [ask]);
+  const load = () => {
+    const n = ++seq.current;
+    setList(null); setTo(''); setAsk(false); setMsg(null);
+    api.ownerCandidates(r.id, cancel).then((l) => { if (n === seq.current) setList(l); },
+      (e: ApiFail) => { if (n === seq.current && e.code !== 'CANCELED') setMsg({ text: `넘길 수 있는 운영 관리자 목록을 받지 못했습니다. ${e.message}` }); });
+  };
+  const toggle = () => { if (!open) load(); else seq.current++; setOpen(!open); };
+  const who = list?.find((u) => u.user_id === to)?.display_name ?? '';
+  const send = async () => {
+    if (sending.current) return;
+    sending.current = true; setBusy(true); setMsg(null);
+    try { await api.saveRobot(r.id, { owner_user_id: to }, cancel); setAsk(false); setOpen(false); setMsg({ text: `담당을 ${who}(으)로 넘겼습니다.`, ok: true }); refresh(); }
+    catch (e) { if ((e as ApiFail).code !== 'CANCELED') setMsg({ text: (e as ApiFail).message }); }
+    finally { sending.current = false; setBusy(false); }
+  };
+  return <div className="fh-form" data-transfer>
+    <div className="fh-row"><button type="button" className="btn" aria-expanded={open} disabled={busy} onClick={toggle}>담당 넘기기</button></div>
+    {open && list == null && !msg && <p className="lbl" role="status">넘길 수 있는 운영 관리자를 불러오는 중…</p>}
+    {open && list == null && msg && <div className="fh-row"><button type="button" className="btn" onClick={load}>다시 불러오기</button></div>}
+    {open && list?.length === 0 && <p className="lbl" role="status">넘길 수 있는 운영 관리자가 없습니다.</p>}
+    {open && !!list?.length && <fieldset className="fh-field" style={{ border: 0, padding: 0, margin: 0 }} disabled={busy || ask}><legend>넘겨받을 운영 관리자</legend>
+      {list.map((u) => <label key={u.user_id} className="fh-row"><input type="radio" name={`owner-to-${r.id}`} value={u.user_id} checked={to === u.user_id}
+        onChange={() => setTo(u.user_id)} /><span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{u.display_name}</span></label>)}
+      <div className="fh-row"><button type="button" className="btn" disabled={!to} onClick={() => setAsk(true)}>넘기기…</button></div></fieldset>}
+    {open && ask && <div className="fh-form" role="group" aria-label="담당 넘기기 확인" tabIndex={-1} ref={askBox} style={{ padding: 8, borderRadius: 8 }}>
+      <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>{`${r.name} 담당을 ${who}(으)로 넘길까요? 넘기면 이 로봇의 폰 출입증과 현장 승인이 풀리고, 조종·배정은 새 담당만 할 수 있습니다.`}</span>
+      <div className="fh-row"><button type="button" className="btn pri" disabled={busy} onClick={send}>넘기기</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => setAsk(false)}>취소</button></div></div>}
+    {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p>}
+  </div>;
+}
+
+/** 내 로봇 관리(담당 운영): 이름 바꾸기 · 연결 끊기(연결 키 폐기 + 진행 중 조종 정지·잠금) · 지우기 · 담당 넘기기(실기) */
 export function ManageRobot({ r, refresh, cancel }: { r: Robot; refresh: () => void } & Cancel) {
   const [name, setName] = useState(r.name), [ask, setAsk] = useState<'cut' | 'delete' | null>(null);
   const [msg, setMsg] = useState<{ text: string; ok?: boolean } | null>(null), [busy, setBusy] = useState(false);
@@ -213,6 +252,7 @@ export function ManageRobot({ r, refresh, cancel }: { r: Robot; refresh: () => v
         : run(() => api.deleteRobot(r.id, cancel), `${r.name} 로봇을 지웠습니다.`))}>{ask === 'cut' ? '연결 끊기' : '지우기'}</button>
       <button type="button" className="btn" onClick={() => setAsk(null)}>취소</button></div>}
     {msg && <p className={`fh-msg${msg.ok ? ' ok' : ''}`} role={msg.ok ? 'status' : 'alert'}>{msg.text}</p>}
+    {!r.sim && <TransferOwner r={r} refresh={refresh} cancel={cancel} />}
   </div>;
 }
 
