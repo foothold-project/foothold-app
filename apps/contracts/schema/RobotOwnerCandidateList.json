@@ -1,0 +1,53 @@
+{
+  "$defs": {
+    "RobotOwnerCandidate": {
+      "additionalProperties": false,
+      "properties": {
+        "display_name": {
+          "title": "Display Name",
+          "type": "string"
+        },
+        "user_id": {
+          "format": "uuid",
+          "title": "User Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "user_id",
+        "display_name"
+      ],
+      "title": "RobotOwnerCandidate",
+      "type": "object"
+    }
+  },
+  "$id": "fh-app/1/RobotOwnerCandidateList",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/RobotOwnerCandidate"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Next Cursor"
+    }
+  },
+  "required": [
+    "items",
+    "next_cursor"
+  ],
+  "title": "RobotOwnerCandidateList",
+  "type": "object"
+}

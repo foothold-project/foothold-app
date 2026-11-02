@@ -433,6 +433,16 @@ class UserList(Contract):
     next_cursor: str | None
 
 
+class RobotOwnerCandidate(Contract):
+    user_id: UUID
+    display_name: str
+
+
+class RobotOwnerCandidateList(Contract):
+    items: list[RobotOwnerCandidate]
+    next_cursor: str | None
+
+
 class SessionList(Contract):
     items: list[Session]
     next_cursor: str | None
