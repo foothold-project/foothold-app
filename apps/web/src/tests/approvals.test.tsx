@@ -605,4 +605,16 @@ describe('null 참조는 끝난 결재에만(PR #230 검토)', () => {
     expect(btn('승인', document.body)).toBeFalsy();
     await stopSends();
   });
+  it('대기·끝난 지도 결재에서 floor_id 만 null(대상·판은 있음)이면 형식 오류 — «(삭제됨)»·[승인] 없음', async () => {
+    const half = { target: { type: 'map_version' as const, id: 't3' }, preview: { floor_id: null, floor_name: '1층', target_version_number: 3, base_version_number: 2 } };
+    serve(KIM, [ap('half', 3, half), ap('half2', 4, { ...half, status: 'APPROVED' })]);
+    await open('#/approval'); await pick('half');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(document.body.textContent).not.toContain('(삭제됨) 1층');
+    expect(btn('승인', document.body)).toBeFalsy();
+    await click(btn('전체', card('보기'))); await pick('half2');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(document.body.textContent).not.toContain('(삭제됨) 1층');
+    await stopSends();
+  });
 });

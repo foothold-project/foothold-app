@@ -34,7 +34,7 @@ const isDetail = (d: ApprovalDetail) => isApproval(d) && (!known(d.kind) || (d.k
   ? isAssignPreview(d.preview) && str(d.preview.scenario_name) && str(d.preview.robot_name)
     && ((str(d.preview.scenario_id) && int(d.preview.scenario_version)) || (ended(d) && d.preview.scenario_id === null && d.preview.scenario_version === null))
   : isMapPreview(d.preview) && str(d.preview.floor_name)
-    && ((str(d.target.id) && int(d.preview.target_version_number)) || (ended(d) && d.target.id === null && d.preview.floor_id === null && d.preview.target_version_number === null))));
+    && ((str(d.target.id) && str(d.preview.floor_id) && int(d.preview.target_version_number)) || (ended(d) && d.target.id === null && d.preview.floor_id === null && d.preview.target_version_number === null))));
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 /** 지워진 시나리오·층은 «(삭제됨) 이름», 지워진 판 번호는 «판 ?» */
 const scenName = (p: ApprovalAssignmentPreview) => (p.scenario_id === null ? deleted(p.scenario_name) : p.scenario_name);
