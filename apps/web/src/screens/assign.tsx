@@ -28,8 +28,12 @@ export const mineOf = (u: User, r: Robot) => u.role === 'ORG_ADMIN' || r.owner =
 export const assignFor: { robot: string | null } = { robot: null };
 
 const str = (v: unknown) => typeof v === 'string';
-// 시나리오를 완전 삭제하면 끝난 배정의 scenario_id·scenario_version 이 null(§5.1) — 이름은 스냅샷으로
-const isAssignment = (a: Assignment) => !!a && str(a.id) && (a.scenario_id === null || str(a.scenario_id)) && (a.scenario_version === null || Number.isInteger(a.scenario_version)) && str(a.robot_id) && str(a.status) && str(a.scenario_name) && str(a.robot_name) && str(a.created_by);
+// 시나리오를 완전 삭제하면 끝난 배정만 scenario_id·scenario_version 이 함께 null(§5.1) — 이름은 스냅샷으로.
+// 현재 배정(ACTIVE·PENDING)과 쓰기 성공 응답은 참조·판이 꼭 있어야 한다
+const refs = (a: Assignment) => str(a.scenario_id) && Number.isInteger(a.scenario_version);
+const gone = (a: Assignment) => !live(a) && a.scenario_id === null && a.scenario_version === null;
+const isAssignment = (a: Assignment) => !!a && str(a.id) && str(a.status) && (refs(a) || gone(a)) && str(a.robot_id) && str(a.scenario_name) && str(a.robot_name) && str(a.created_by);
+const isCurrent = (a: Assignment) => isAssignment(a) && refs(a);
 /** 배정 줄의 시나리오 이름 · 판 — 지워진 시나리오는 «(삭제됨) 이름», 판 없음 */
 const scen = (a: Assignment) => (a.scenario_id ? a.scenario_name : deleted(a.scenario_name_snapshot ?? a.scenario_name));
 const ver = (a: Assignment) => (a.scenario_version == null ? '' : ` · 판 ${a.scenario_version}`);
@@ -96,7 +100,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
   /** again = «같은 요청 다시 보내기»(같은 키) — 답이 와도 첫 결과의 재생일 수 있어 목록으로 확인한다 */
   const send = (t: Try, again = false) => {
     setPhase('sending'); setMsg(null);
-    api.assign(t.body, t.key, cancel).then(fit(isAssignment)).then((a) => { if (alive.current) { if (again) check(t, a.id); else done(a); } }, (e: ApiFail) => {
+    api.assign(t.body, t.key, cancel).then(fit(isCurrent)).then((a) => { if (alive.current) { if (again) check(t, a.id); else done(a); } }, (e: ApiFail) => {
       if (!alive.current || e.code === 'CANCELED') return;
       if (unsure(e)) { setMsg({ text: '배정 응답을 받지 못했습니다. 처리됐을 수 있어 목록으로 확인하는 중입니다(확인 중).' }); check(t); return; }
       attempt.current = null; setPhase('idle');

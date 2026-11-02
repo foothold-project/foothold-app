@@ -21,15 +21,20 @@ const status = (s: string, kind?: string) => (s === 'STALE' && kind === 'SCENARI
 
 // 받은 값 모양 검사 — 어긋난 응답이 화면(머리줄·STOP 포함)을 깨뜨리지 않게 오류 한 줄로만.
 // 층·시나리오를 완전 삭제하면 끝난 결재의 target.id·판 번호·scenario_id·floor_id 가 null(§5.1) — 이름은 «삭제된 …: 이름»으로 온다
-const str = (v: unknown) => typeof v === 'string', orNull = (v: unknown, ok: (x: unknown) => boolean) => v === null || ok(v), int = (v: unknown) => Number.isInteger(v);
+const str = (v: unknown) => typeof v === 'string', int = (v: unknown) => Number.isInteger(v);
+// null 은 끝난 결재(PENDING 아님)에서만, 한 묶음으로: 지도 = target.id·floor_id·대상 판 모두 null, 배정 = scenario_id·판 함께 null. 대기 결재·쓰기 성공 응답은 참조 필수
+const ended = (a: Approval) => a.status !== 'PENDING';
 const isApproval = (a: Approval) => !!a && str(a.id) && str(a.kind) && str(a.status) && !!a.requester && str(a.requester.id) && str(a.requester.display_name)
-  && str(a.reason) && str(a.created_at) && !!a.target && orNull(a.target.id, str);
+  && str(a.reason) && str(a.created_at) && !!a.target && (str(a.target.id) || (ended(a) && a.target.id === null));
+const isWritten = (a: Approval) => isApproval(a) && str(a.target.id);
 const isList = (l: ApprovalList) => !!l && Array.isArray(l.items) && l.items.every(isApproval) && (l.next_cursor === null || str(l.next_cursor));
 const isMapPreview = (p: ApprovalDetail['preview']): p is ApprovalMapPreview => !!p && typeof p === 'object' && 'floor_name' in p;
 const isAssignPreview = (p: ApprovalDetail['preview']): p is ApprovalAssignmentPreview => !!p && typeof p === 'object' && 'scenario_name' in p;
 const isDetail = (d: ApprovalDetail) => isApproval(d) && (!known(d.kind) || (d.kind === 'SCENARIO_ASSIGNMENT'
-  ? isAssignPreview(d.preview) && str(d.preview.scenario_name) && str(d.preview.robot_name) && orNull(d.preview.scenario_version, int)
-  : isMapPreview(d.preview) && str(d.preview.floor_name) && orNull(d.preview.target_version_number, int)));
+  ? isAssignPreview(d.preview) && str(d.preview.scenario_name) && str(d.preview.robot_name)
+    && ((str(d.preview.scenario_id) && int(d.preview.scenario_version)) || (ended(d) && d.preview.scenario_id === null && d.preview.scenario_version === null))
+  : isMapPreview(d.preview) && str(d.preview.floor_name)
+    && ((str(d.target.id) && int(d.preview.target_version_number)) || (ended(d) && d.target.id === null && d.preview.floor_id === null && d.preview.target_version_number === null))));
 const fit = <T,>(ok: (x: T) => boolean) => (x: T) => { if (!ok(x)) throw new ApiFail(0, 'BAD_SHAPE', '받은 결재 형식이 맞지 않습니다. 잠시 뒤 다시 시도하세요.'); return x; };
 /** 지워진 시나리오·층은 «(삭제됨) 이름», 지워진 판 번호는 «판 ?» */
 const scenName = (p: ApprovalAssignmentPreview) => (p.scenario_id === null ? deleted(p.scenario_name) : p.scenario_name);
@@ -164,7 +169,7 @@ function Detail({ id, me, admin, cancel, done, recheck, seen, first }: { id: str
     sending.current = true; setBusy(true); setMsg(null);
     try {
       const body = comment.trim() || null;
-      await (a === 'approve' ? api.approve(d.id, body, cancel) : a === 'reject' ? api.reject(d.id, reason.trim(), cancel) : api.cancelApproval(d.id, cancel)).then(fit(isApproval));   // 빈·어긋난 200 = 불확실(status 0)
+      await (a === 'approve' ? api.approve(d.id, body, cancel) : a === 'reject' ? api.reject(d.id, reason.trim(), cancel) : api.cancelApproval(d.id, cancel)).then(fit(isWritten));   // 빈·어긋난 200 = 불확실(status 0)
       done(d.id, { text: a === 'approve' && p ? `승인했습니다. 이제 ${p.floor_name}의 승인 판은 판 ${p.target_version_number}입니다. 다음 실행부터 이 판을 씁니다.`
         : a === 'approve' && ap ? `승인했습니다. 이제 ${ap.robot_name}에 «${ap.scenario_name}» 판 ${ap.scenario_version}이 배정됐습니다.` : DONE[a], ok: true });
     } catch (x) {

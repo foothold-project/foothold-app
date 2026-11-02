@@ -587,3 +587,22 @@ describe('지워진 시나리오·층의 끝난 결재(05 §5.1 — 휴지통 �
     await stopSends();
   });
 });
+
+describe('null 참조는 끝난 결재에만(PR #230 검토)', () => {
+  it('대기 결재의 target.id 가 null 이면 형식 오류 — 목록에 줄도 [승인]도 없다', async () => {
+    serve(KIM, [ap('bad', 3, { target: { type: 'map_version', id: null }, preview: { floor_id: null, floor_name: '1층', target_version_number: null, base_version_number: null } })]);
+    await open('#/approval');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(rows()).toHaveLength(0);
+    expect(btn('승인', document.body)).toBeFalsy();
+    await stopSends();
+  });
+  it('대기 결재 상세의 대상 판이 null 이면 형식 오류 — «완전 삭제» 안내·[승인] 없음', async () => {
+    serve(KIM, [ap('bad2', 3, { preview: { floor_id: null, floor_name: '1층', target_version_number: null, base_version_number: null } })]);
+    await open('#/approval'); await pick('bad2');
+    expect(alertText()).toContain('형식이 맞지 않습니다');
+    expect(document.body.textContent).not.toContain('층과 함께 완전 삭제되어');
+    expect(btn('승인', document.body)).toBeFalsy();
+    await stopSends();
+  });
+});

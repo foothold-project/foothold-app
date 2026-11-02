@@ -471,3 +471,13 @@ describe('폰 시나리오 카드', () => {
     expect($('[data-sheet]')!.textContent).toContain('이 로봇에 배정된 시나리오가 없습니다.');
   });
 });
+
+describe('null 참조는 끝난 배정에만(PR #230 검토)', () => {
+  it('POST 성공 응답이 ACTIVE 인데 scenario_id·판이 null 이면 성공으로 보이지 않는다', async () => {
+    scenarios = [scen('s1', '1층 순찰')];
+    await openAssign(LEE, { over: { 'POST /assignments': [{ status: 201, body: mk({ robot_id: 'r-a', status: 'ACTIVE', scenario_id: null, scenario_version: null }) }] } });
+    await pickRobot('r-a'); await click(btn('배정', panel()));
+    expect(text()).not.toContain('배정했습니다');
+    expect(text()).not.toContain('null');
+  });
+});
