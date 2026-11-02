@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { SimCatalog, SimRobot } from '../../../contracts/ts';
 import { App } from '../App';
-import { allowed, sim, velocity } from '../phone';
+import { allowed, sim, tuned, velocity } from '../phone';
 import { KEYS, blockNote } from '../simdrive';
 import { ROBOTS, USERS } from './fixtures';
 import { FakeWS, type Msg } from './fakeWs';
@@ -28,7 +28,7 @@ const phoneState = (p: Record<string, unknown> = {}) => ({ t: 'state', robot: S1
 const agentAuto = ((m: Msg) => (m.t === 'lease.take' ? { lease_id: LEASE } : ['hello', 'cmd', 'ping', 'stop'].includes(m.t) ? undefined : {})) as FakeWS['auto'];
 
 type Reply = { status: number; body?: unknown };
-let calls: { method: string; path: string; body?: unknown }[] = [], routes: Record<string, Reply | (() => Reply)> = {};
+let calls: { method: string; path: string; body?: unknown }[] = [], routes: Record<string, Reply | (() => Reply | Promise<Reply>)> = {};
 function serve(more: typeof routes = {}) {
   calls = [];
   let mine: SimRobot[] = [];
@@ -43,7 +43,7 @@ function serve(more: typeof routes = {}) {
   vi.stubGlobal('fetch', async (url: string, init: RequestInit = {}) => {
     const method = init.method ?? 'GET', path = url.replace(/^\/api\/v1/, '');
     calls.push({ method, path, body: init.body ? JSON.parse(String(init.body)) : undefined });
-    const hit = routes[`${method} ${path.split('?')[0]}`], rep = (typeof hit === 'function' ? hit() : hit) ?? { status: 404, body: { error: { code: 'NOT_FOUND', message: '없음', detail: {} } } };
+    const hit = routes[`${method} ${path.split('?')[0]}`], rep = (typeof hit === 'function' ? await hit() : hit) ?? { status: 404, body: { error: { code: 'NOT_FOUND', message: '없음', detail: {} } } };
     return new Response(rep.status === 204 ? null : JSON.stringify(rep.body), { status: rep.status, headers: { 'Content-Type': 'application/json' } });
   });
 }
@@ -77,8 +77,8 @@ const key = async (type: 'keydown' | 'keyup', code: string, o: KeyboardEventInit
 const lastCmd = async () => { await sleep(60); const c = agent().of('cmd'); return c[c.length - 1]; };
 
 /** 띄우기 → 직결 → 조종 시작 → 잠금 해제 → 움직일 수 있음 */
-async function ready(w = welcome()) {
-  serve(); await mount();
+async function ready(w = welcome(), more: typeof routes = {}) {
+  serve(more); await mount();
   await click(btn('띄우기'));
   const a = FakeWS.all.find((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')!; a.auto = agentAuto;
   act(() => a.open()); await flush();
@@ -114,6 +114,35 @@ describe('PC «시뮬» 탭 키보드 조종(ADR-003 §7 ④)', () => {
       expect(out).toMatchObject(want);
       expect(blockNote([...a], can, out)).toBe('');
     }
+  });
+  it('설정 › 시뮬 조직 값: 연결할 때 받아 키보드 전진 = sim_key_vx, 상한 = min(에이전트, 조직)', async () => {
+    const ORG = { sim_max_vx: 0.5, sim_min_vx: 0.1, sim_max_vy: 0.3, sim_max_wz: 0.25, sim_key_vx: 0.4, stick_deadzone: 0.1 };
+    await ready(welcome({ limits: { ...LIMITS, vy_min: -0.3, vy_max: 0.3, experimental: ['reverse', 'lateral', 'turn_in_place'] } }), { 'GET /org/settings': { status: 200, body: ORG } });
+    expect(calls.some((c) => c.path === '/org/settings')).toBe(true);
+    await key('keydown', 'KeyW');
+    expect((await lastCmd()).vx).toBeCloseTo(0.4, 9);   // 기본 0.6 대신 조직 키 속도
+    await key('keydown', 'KeyA');
+    expect((await lastCmd()).wz).toBe(0.25);   // 회전 상한 0.5 → 조직 0.25
+    await key('keyup', 'KeyW'); await key('keyup', 'KeyA');
+  });
+  it('조직 값 GET 이 영구 대기·실패여도 기본값으로 바로 연결(WebSocket 1개), 키보드 전진 = 기본 0.6', async () => {
+    for (const org of [() => new Promise<Reply>(() => {}), () => ({ status: 500, body: { error: { code: 'INTERNAL_ERROR', message: '오류', detail: {} } } })]) {
+      FakeWS.all.length = 0;
+      await ready(welcome(), { 'GET /org/settings': org });
+      expect(FakeWS.all.filter((x) => x.url === 'ws://127.0.0.1:9481/phone/ws')).toHaveLength(1);
+      await key('keydown', 'KeyW');
+      expect((await lastCmd()).vx).toBeCloseTo(0.6, 9);
+      await key('keyup', 'KeyW');
+      act(() => root?.unmount()); root = null; box.remove(); sim.clear();
+    }
+  });
+  it('연결을 거둔 뒤 늦게 온 조직 값은 적용하지 않음(같은 연결 세대만)', async () => {
+    let answer: (r: Reply) => void = () => {};
+    await ready(welcome(), { 'GET /org/settings': () => new Promise<Reply>((f) => { answer = f; }) });
+    expect(FakeWS.all.filter((x) => x.url === 'ws://127.0.0.1:9481/phone/ws' && x.readyState === 1)).toHaveLength(1);
+    act(() => sim.close());
+    answer({ status: 200, body: { sim_max_vx: 0.5, sim_key_vx: 0.4 } }); await flush();
+    expect(tuned(welcome() as unknown as Parameters<typeof tuned>[0]).L.vx_max).toBe(1);
   });
   it('출입증 요청에 surface: "pc"', async () => {
     serve(); await mount();

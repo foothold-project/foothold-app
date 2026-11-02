@@ -266,6 +266,82 @@ describe('총괄 — 계정 관리', () => {
   });
 });
 
+describe('설정 탭 묶음(11-02 공통·실기·시뮬·계정)', () => {
+  const ORG = { ...LIMITS, sim_max_vx: 0.5, sim_min_vx: 0.2, sim_max_vy: 0.3, sim_max_wz: 0.5, sim_key_vx: 0.4, stick_deadzone: 0.1, sim_runner_vx: 0.4, sim_runner_wz: 0.6, lidar_view_m: 12, real_no_fast_server_drive: false };
+  const tabs = () => [...box.querySelectorAll<HTMLButtonElement>('[role="tablist"] [role="tab"]')];
+  const panel = (name: string) => document.getElementById(tabs().find((t) => t.textContent === name)!.getAttribute('aria-controls')!)!;
+  const key = (el: Element, k: string) => act(() => { el.dispatchEvent(new KeyboardEvent('keydown', { key: k, bubbles: true })); });
+  it('탭 4개(tablist), 처음 공통, 칸 자리: 공통=조직 기준값, 실기=조종권·서버 경유 스위치, 시뮬=시뮬 값·시뮬 로봇, 계정=내 정보·계정 — 알림 없음', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG } }));
+    await open();
+    expect(tabs().map((t) => [t.textContent, t.getAttribute('aria-selected'), t.tabIndex])).toEqual([['공통', 'true', 0], ['실기', 'false', -1], ['시뮬', 'false', -1], ['계정', 'false', -1]]);
+    expect(['공통', '실기', '시뮬', '계정'].map((n) => panel(n).hidden)).toEqual([false, true, true, true]);
+    const names = (n: string) => [...panel(n).querySelectorAll('input[name]')].map((i) => i.getAttribute('name'));
+    expect(names('공통')).toEqual(['battery_low_pct', 'run_min_battery_pct', 'deviation_m']);
+    expect(names('실기')).toEqual(['lease_request_timeout_s', 'link_loss_wait_s', 'real_no_fast_server_drive']);
+    expect(names('시뮬')).toEqual(['sim_max_vx', 'sim_min_vx', 'sim_max_vy', 'sim_max_wz', 'sim_key_vx', 'stick_deadzone', 'sim_runner_vx', 'sim_runner_wz', 'lidar_view_m']);
+    expect(panel('시뮬').querySelector('[aria-label="로봇"]')).not.toBeNull();
+    expect(panel('계정').querySelector('[aria-label="내 정보"]')).not.toBeNull();
+    expect(panel('계정').querySelector('[aria-label="계정"]')).not.toBeNull();
+    expect($('main')!.textContent).not.toContain('알림');   // 머리줄 종은 설정 화면 밖
+    expect(panel('실기').textContent).toContain('켜면 서버 경유 1.5 m/s 이동을 받지 않고 STOP');
+    // 키: → 다음(초점도), End 끝, ← 끝에서 앞, Home 처음
+    key(tabs()[0], 'ArrowRight');
+    expect(tabs()[1].getAttribute('aria-selected')).toBe('true'); expect(document.activeElement).toBe(tabs()[1]); expect(panel('실기').hidden).toBe(false); expect(panel('공통').hidden).toBe(true);
+    key(tabs()[1], 'End'); expect(tabs()[3].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[3], 'ArrowRight'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[0], 'ArrowLeft'); expect(tabs()[3].getAttribute('aria-selected')).toBe('true');
+    key(tabs()[3], 'Home'); expect(tabs()[0].getAttribute('aria-selected')).toBe('true');
+    await click(tabs()[2]);
+    expect(panel('시뮬').hidden).toBe(false);
+    expect(location.hash).toBe('#/settings');   // 고른 탭은 주소가 아니라 화면 상태
+  });
+  it('실기 «서버 경유 빠른 이동 끄기»: 바꾼 칸만 PATCH(true)', async () => {
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': { status: 200, body: { ...ORG, real_no_fast_server_drive: true } } }));
+    await open();
+    const c = card('속도 제한'), sw = $<HTMLInputElement>('input[name="real_no_fast_server_drive"]', c)!;
+    expect([sw.checked, sw.disabled, sw.getAttribute('role')]).toEqual([false, false, 'switch']);
+    act(() => sw.click());
+    await submit($('form', c)!);
+    expect(sent('PATCH', '/org/settings').map((x) => x.body)).toEqual([{ real_no_fast_server_drive: true }]);
+    expect(sw.checked).toBe(true);
+    expect($('[role="status"]', c)!.textContent).toContain('저장했습니다');
+  });
+  it('시뮬 값 교차 검사 422 → 서버 문구를 그 칸 옆에(aria-describedby), 다른 칸 값은 그대로', async () => {
+    const MSG = '시뮬 키보드 전진 속도는 최대 전진 속도 이하여야 합니다.';
+    serve(signedIn(KIM, { 'GET /org/settings': { status: 200, body: ORG }, 'PATCH /org/settings': err(422, 'VALIDATION', MSG) }));
+    await open();
+    const c = card('조종 입력·임무 실행기'), inp = $<HTMLInputElement>('input[name="sim_key_vx"]', c)!;
+    setVal(inp, '0.9');
+    await submit($('form', c)!);
+    expect(sent('PATCH', '/org/settings')[0].body).toEqual({ sim_key_vx: 0.9 });
+    const why = document.getElementById(inp.getAttribute('aria-describedby')!)!;
+    expect([why.textContent, why.getAttribute('role'), inp.getAttribute('aria-invalid')]).toEqual([MSG, 'alert', 'true']);
+    expect(inp.closest('label')!.contains(why)).toBe(true);
+    // 최대 전진을 낮춰 걸린 경우는 «시뮬 속도 상한» 카드의 최대 전진 칸 옆
+    const cap = card('시뮬 속도 상한'), max = $<HTMLInputElement>('input[name="sim_max_vx"]', cap)!;
+    expect(max.type).toBe('range');
+    setVal(max, '0.3');
+    await submit($('form', cap)!);
+    expect(document.getElementById(max.getAttribute('aria-describedby')!)!.textContent).toBe(MSG);
+    expect(inp.value).toBe('0.9');
+  });
+  it('운영 관리자: 네 탭 모두 보기만(숫자 readOnly·막대·스위치 비활성·저장 비활성 + 같은 이유), PATCH 0, 계정·시뮬 로봇 숨김', async () => {
+    serve(signedIn(LEE, { 'GET /org/settings': { status: 200, body: ORG } }));
+    await open();
+    expect(tabs().map((t) => t.textContent)).toEqual(['공통', '실기', '시뮬', '계정']);
+    const inputs = [...box.querySelectorAll<HTMLInputElement>('[role="tabpanel"] form input[name]')].filter((i) => !['display_name', 'current', 'next', 'again'].includes(i.name));
+    expect(inputs).toHaveLength(15);
+    for (const i of inputs) expect(i.type === 'number' ? i.readOnly : i.disabled, i.name).toBe(true);
+    const saves = [...box.querySelectorAll<HTMLButtonElement>('[role="tabpanel"] button')].filter((b) => b.textContent === '저장');
+    expect(saves).toHaveLength(6);
+    for (const b of saves) { expect(b.disabled).toBe(true); expect(document.getElementById(b.getAttribute('aria-describedby')!)!.textContent).toBe('조직 기준값은 총괄 운영 관리자만 바꿀 수 있습니다.'); }
+    expect($('[aria-label="계정"]')).toBeNull();
+    expect($('[aria-label="로봇"]')).toBeNull();
+    expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+});
+
 describe('운영 관리자', () => {
   it('계정 관리가 보이지 않고 /users 를 부르지 않음, 내 정보는 보임', async () => {
     serve(signedIn(LEE));
