@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { Assignment, AssignmentCreate } from '../../../contracts/ts';
 import { ApiFail, api } from '../api';
-import { idleSim, type Robot, type Tone, type User } from '../fake';
+import { adminReal, idleSim, type Robot, type Tone, type User } from '../fake';
 import { Chip, soon, type Ctx } from '../screens';
 import { Note, type Msg } from './maps';
 
@@ -14,6 +14,8 @@ const status = (s: string) => STATUS[s as Assignment['status']] ?? { tone: 'off'
 /** 남의 로봇·범위 밖 — 회색 단추의 이유와 서버 403·404 에 같은 문구 */
 export const OUT = '담당 로봇만 배정하거나 해제할 수 있습니다(남의 로봇이거나 볼 수 있는 범위 밖).';
 /** 끝낸 시뮬 슬롯(담당 비움)에 남은 배정 — 서버는 총괄만 해제를 받는다(운영 관리자는 담당이 아니라 403) */
+/** 총괄은 실기 로봇에 배정하지 않는다(로봇 탭 읽기 전용 — 상세 «배정» 숨김과 같은 규칙, 시뮬은 배정) */
+export const ADMIN_ASSIGN = '총괄 계정은 실기 로봇에 배정하지 않습니다 — 담당 운영 관리자가 배정합니다. 시뮬 로봇은 배정할 수 있습니다.';
 export const IDLE_SLOT = '끝낸 시뮬 슬롯에 남은 배정이라 총괄만 해제할 수 있습니다.';
 const EXISTS = '이 로봇에는 이미 같은 시나리오 판이 배정되어 있거나 결재를 기다리고 있습니다. 아래 목록에서 확인하세요.';
 const ARCHIVED = '보관된 시나리오는 배정할 수 없습니다.';
@@ -60,7 +62,7 @@ export function AssignPanel({ scenario, name, version, archived, user, robots, c
   useEffect(() => { assignFor.robot = null; return () => { alive.current = false; }; }, []);
   // 이 판이 이미 ACTIVE·PENDING 인 로봇(이 시나리오 목록을 볼 때만 안다 — 로봇별 보기면 서버 409 가 막는다)
   const taken = new Map((by ? [] : l.items ?? []).filter((a) => live(a) && a.scenario_version === version).map((a) => [a.robot_id, a.status]));
-  const why = (r: Robot) => (!mineOf(user, r) ? OUT : taken.has(r.id) ? (taken.get(r.id) === 'PENDING' ? '이 판은 이미 결재를 기다리고 있습니다.' : '이 판이 이미 배정되어 있습니다.') : null);
+  const why = (r: Robot) => (adminReal(user, r) ? ADMIN_ASSIGN : !mineOf(user, r) ? OUT : taken.has(r.id) ? (taken.get(r.id) === 'PENDING' ? '이 판은 이미 결재를 기다리고 있습니다.' : '이 판이 이미 배정되어 있습니다.') : null);
   const lock = phase !== 'idle';
   const nameOf = (id: string) => robots.find((r) => r.id === id)?.name ?? '로봇';
 
