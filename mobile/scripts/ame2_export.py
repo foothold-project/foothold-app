@@ -216,7 +216,18 @@ def decode(data, table):
     return weights
 
 
-def input_contract():
+def checkpoint_joint_names(checkpoint):
+    """The runner saves actual articulation order; absent means unconfirmed."""
+    names = checkpoint.get("go2_env_state", {}).get("critic_contract", {}).get("joint_names")
+    if names is None:
+        return None
+    if (not isinstance(names, (list, tuple)) or len(names) != 12
+            or not all(isinstance(n, str) for n in names) or len(set(names)) != 12):
+        raise ValueError("invalid checkpoint joint_names")
+    return list(names)
+
+
+def input_contract(joint_names=None):
     return {
         "teacher_prop": {"shape": ["B", 49], "dtype": "float32", "history": 0,
             "fields": [
@@ -230,7 +241,8 @@ def input_contract():
             "index_intervals": "start-inclusive,end-exclusive", "neutral_goal": [0, 0, 0, 1],
             "goal_distance_clip_m": 2, "far_goal_yaw": "random each policy step",
             "extra_scale": 1, "normalization": "none",
-            "evidence": "params/env.yaml:1320-1409; observations.py:40-81,276-340"},
+            "time_input": "critic only; absent from actor",
+            "evidence": "go2_env_cfg.py:170-235; observations.py:40-81,276-340"},
         "teacher_mapping": {"shape": ["B", 29, 13, 3], "dtype": "float32",
             "order": "NHWC row-major; x outer, y inner; channels x,y,z in meters",
             "x": "-0.42+0.06*i, i=0..28", "y": "-0.36+0.06*j, j=0..12",
@@ -239,8 +251,10 @@ def input_contract():
         "output": {"shape": ["B", 12], "kind": "deterministic raw mean, no sampling or clipping",
             "scale": 0.25, "target": "default_joint_angle + 0.25*raw_action",
             "evidence": "AME2_models.py:102-139; params/env.yaml:1583-1600",
-            "source_excerpt": "scale: 0.25\nuse_default_offset: true", "joint_names": None},
-        "unknown": ["joint name order from unavailable USD asset", "time input remains unconfirmed",
+            "source_excerpt": "scale: 0.25\nuse_default_offset: true", "joint_names": joint_names,
+            "joint_order_evidence": "go2_env_state.critic_contract.joint_names; go2_runner.py:431,554",
+            "delay_physics_substeps": [0, 4], "delay_sample": "uniform inclusive, once per reset"},
+        "unknown": ([] if joint_names is not None else ["joint name order absent from checkpoint"]) + [
                     "training runtime/version and original actor execution parity",
                     "redistribution license", "phone inference performance", "sensor map adapter"],
         "restriction": "실기 불가: 교사가 참 높이지도를 읽음",
@@ -345,7 +359,7 @@ def main():
                 "strict_missing_keys": [], "strict_unexpected_keys": [],
                 "file": "ame2_actor.f32", "sha256": sha(data), "bytes": len(data),
                 "layout": "C row-major float32 little-endian; offsets and lengths in bytes",
-                "tensors": table, "contract": input_contract(),
+                "tensors": table, "contract": input_contract(checkpoint_joint_names(checkpoint)),
                 "check": None if report is None else {k: v for k, v in report.items() if k != "cases"}}
     args.out.mkdir(parents=True, exist_ok=True)
     payloads = {"ame2_actor.f32": data,

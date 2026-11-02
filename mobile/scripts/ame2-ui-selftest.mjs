@@ -77,6 +77,14 @@ try {
   assert.equal(await page.evaluate(() => __sim.sim.t), visibilityT);
   assert.deepEqual(await page.evaluate(() => __sim.cmd()), [0, 0, 0, 1]);
   assert.deepEqual(errors, []);
+  await page.goto(url.replace('map=warehouse', 'map=ame2-train-terrain') + '&policy=ame2-demo');
+  await page.waitForFunction(() => window.__sim?.ready && __sim.sim.adapterId === 'ame2-demo');
+  assert.equal(await page.evaluate(() => __sim.stopped()), true);
+  await page.click('#go');
+  await page.waitForFunction(() => __sim.sim.t >= .1);
+  await page.dispatchEvent('#stop', 'pointerdown');
+  assert.equal(await page.evaluate(() => __sim.sim.mapping.every(Number.isFinite)), true);
+  assert.deepEqual(errors, []);
   console.log('AME-2 headless UI PASS: absent model disabled/fallback, default unchanged, select/reload locked, joystick goal, STOP clears/pauses, lifecycle locks/no auto-resume, no page errors');
 } finally {
   await browser?.close();
