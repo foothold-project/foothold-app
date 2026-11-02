@@ -160,7 +160,7 @@ erDiagram
 | token_ciphertext | bytea NULL | nonce + AES-GCM 암호문. 암호 키는 poll_secret의 별도 도메인 해시이며 DB의 poll_hash와 다름. poll 후 삭제 |
 | robot_serial | text | confirm 전 기체번호 |
 | expires_at | timestamptz | start 이후10분, 다음 start 때 만료 행 삭제 |
-| claimed_by, robot_id | uuid NULL | 같은 조직 사용자·로봇의 복합 FK, 행 잠금으로 claim·confirm·poll 직렬화 |
+| claimed_by, robot_id | uuid NULL | 같은 조직 사용자·로봇의 복합 FK, 행 잠금으로 claim·confirm·poll 직렬화. 같은 serial의 담당 본인 재연결이면 기존 robot_id를 참조하고 토큰 교체 |
 | consumed | bool | 자격을 한 번만 전달했는지 |
 
 **pairing_rates**: `(org_id,key_hash,window_start)` 복합 PK, `count integer`. 실제 연결 IP·사용자별 start/claim 시도를10분 창으로 집계한다. 원래 식별값은 저장하지 않고 실패 응답 전에도 카운터를 commit한다. 앱 DB 계정에 두 표의 SELECT/INSERT/UPDATE/DELETE, 읽기 계정에 SELECT만 부여한다. 로봇 승인 사건은 기존 append-only events를 쓴다.

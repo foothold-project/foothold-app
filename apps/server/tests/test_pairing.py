@@ -6,6 +6,7 @@ from datetime import timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from starlette.websockets import WebSocketDisconnect
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 
@@ -287,3 +288,67 @@ def test_offline_expiry_is_durable_and_recorded_once(client, seeded):
         assert db.get(Robot, rid).field_approval_expires_at is None
         assert len(list(db.scalars(select(Event).where(Event.robot_id == rid,
             Event.code == 'FIELD_APPROVAL_EXPIRED')))) == 1
+
+
+def test_owner_repair_preserves_id_stops_control_and_rejects_old_token(trial, seeded):
+    own = app_token(trial)
+    rid = str(seeded['robots']['mine'])
+    old_token = 'fake-test-' + rid
+    rt = trial.app.state.realtime
+    with DBSession(trial.app.state.engine) as db:
+        db.get(Robot, UUID(rid)).serial = '1234-5678'
+        db.commit()
+    with trial.websocket_connect(P + '/agent/ws', headers={'authorization': 'Bearer ' + old_token}) as ag:
+        ag.send_json(hello()); receive(ag, 'stop')
+        assert trial.post(P + '/robots/' + rid + '/field-approval', headers=own,
+            json={'checks': CHECKS}).status_code == 200
+        receive(ag, 'field_approval', predicate=lambda m: m['expires_at'] is not None)
+        with screen(trial, own) as ws:
+            take(ws, ag, rid)
+            before = rt.arbiter.robot(rid).stop_ref
+            robot, credential, _ = paired(trial, own, name='다시 연결한 기체')
+            assert robot['id'] == credential['robot_id'] == rid
+            assert robot['name'] == '다시 연결한 기체' and robot['field_approval_expires_at'] is None
+            assert credential['agent_token'] != old_token
+            receive(ag, 'lease', predicate=lambda m: m['lease_id'] is None)
+            receive(ag, 'stop')
+            record = rt.arbiter.robot(rid)
+            assert record.holder is None and record.latched and record.stop_ref > before
+            assert not rt.field_approved(rid)
+    with pytest.raises(WebSocketDisconnect) as denied:
+        with trial.websocket_connect(P + '/agent/ws', headers={'authorization': 'Bearer ' + old_token}):
+            pass
+    assert denied.value.status_code == 403
+    with DBSession(trial.app.state.engine) as db:
+        assert db.get(Robot, UUID(rid)).agent_token_hash == digest(credential['agent_token'])
+        assert db.scalar(select(Event).where(Event.robot_id == UUID(rid), Event.code == 'ROBOT_REPAIRED'))
+    # The new key belongs to the same robot, but reconnect grants no old lease.
+    with trial.websocket_connect(P + '/agent/ws', headers={
+            'authorization': 'Bearer ' + credential['agent_token']}) as ag:
+        ag.send_json(hello()); receive(ag, 'stop')
+        assert rt.arbiter.robot(rid).holder is None
+
+
+def test_another_operator_cannot_repair_existing_serial(client):
+    own, other = app_token(client), app_token(client, 'two')
+    robot, credential, _ = paired(client, own)
+    pending = start(client)
+    assert client.post(P + '/pairing/claim', headers=other, json={'code': pending['code']}).status_code == 200
+    result = client.post(P + '/pairing/' + pending['pairing_id'] + '/confirm',
+        headers=other, json={'name': '가로채기'})
+    assert result.status_code == 409
+    assert '넘겨받기 또는 삭제' in result.json()['error']['message']
+    with DBSession(client.app.state.engine) as db:
+        row = db.get(Robot, UUID(robot['id']))
+        assert row.name == robot['name'] and row.agent_token_hash == digest(credential['agent_token'])
+
+
+def test_owner_can_repair_after_connection_is_revoked(client):
+    own = app_token(client)
+    before, old, _ = paired(client, own)
+    assert client.delete(P + '/robots/' + before['id'] + '/connection', headers=own).status_code == 204
+    after, new, _ = paired(client, own, name='다시 설치')
+    assert after['id'] == before['id'] == new['robot_id']
+    assert after['field_approval_expires_at'] is None and new['agent_token'] != old['agent_token']
+    with DBSession(client.app.state.engine) as db:
+        assert db.get(Robot, UUID(after['id'])).agent_token_hash == digest(new['agent_token'])

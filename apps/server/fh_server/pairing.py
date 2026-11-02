@@ -2,11 +2,13 @@
 import asyncio
 import hmac
 import secrets
+from contextlib import suppress
 from datetime import timedelta
 from uuid import UUID, uuid4
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from fastapi import Request, Response
+from starlette.websockets import WebSocketDisconnect
 from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 
@@ -45,6 +47,22 @@ def expire(factory, org_id):
             robot.field_approval_expires_at = None
             db.add(render(db, Event(org_id=org_id, robot_id=robot.id, category='SAFETY',
                 code='FIELD_APPROVAL_EXPIRED', severity='INFO', data={'expires_at': expired.isoformat()})))
+
+
+async def close_connection(rt, rid):
+    peer = rt.agents.get(rid)
+    if peer is None:
+        return
+    # A token watcher may already be closing the old socket after commit.
+    # In either case, try safe delivery before closing, never fail a durable
+    # credential revocation just because the old transport has disappeared.
+    with suppress(WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+        await rt.send_body(peer, {'t': 'lease', 'lease_id': None, 'holder_type': None})
+        await rt.send_body(peer, {'t': 'stop', 'by_user_id': None,
+                                  'stop_ref': rt.arbiter.robot(rid).stop_ref})
+    peer.closing = True
+    with suppress(WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+        await peer.socket.close(code=4403)
 
 
 def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_event, issuer):
@@ -131,24 +149,52 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
         return C.PairingClaimed(pairing_id=row.id, robot_serial=row.robot_serial, expires_at=row.expires_at)
 
     @app.post(prefix + '/pairing/{pairing_id}/confirm', response_model=C.RobotSummary)
-    def confirm(pairing_id: UUID, body: C.PairingConfirm, response: Response, auth: Identity, db: DB):
+    async def confirm(pairing_id: UUID, body: C.PairingConfirm, response: Response, auth: Identity, db: DB):
         user = operator(auth)
-        row = lookup(db, pairing_id)
+        row = await asyncio.to_thread(lookup, db, pairing_id)
         if row.claimed_by != user.id or row.robot_id is not None or row.consumed:
             missing()
         if not body.name.strip():
             fail(400, 'VALIDATION', '로봇 이름을 입력하세요.')
-        if db.scalar(select(Robot.id).where(Robot.serial == row.robot_serial,
-                                            Robot.archived_at.is_(None))) is not None:
-            fail(409, 'ROBOT_ALREADY_PAIRED', '이미 등록된 기체입니다. 담당 운영자에게 확인하세요.')
-        robot = Robot(org_id=user.org_id, owner_user_id=user.id, name=body.name.strip(),
-            model='unitree_go2', simulation=False, serial=row.robot_serial, agent_token_hash=row.token_hash)
-        db.add(robot)
-        db.flush()
-        row.robot_id = robot.id
-        robot_event(db, user, robot, 'ROBOT_CREATED', {'name': robot.name, 'paired': True})
+        def existing_robot():
+            return db.scalar(select(Robot).where(Robot.serial == row.robot_serial,
+                Robot.archived_at.is_(None)).with_for_update())
+        existing = await asyncio.to_thread(existing_robot)
+        if existing is not None:
+            if (existing.org_id != user.org_id or existing.owner_user_id != user.id
+                    or existing.simulation):
+                fail(409, 'ROBOT_ALREADY_PAIRED', '담당 운영에게 넘겨받기 또는 삭제를 요청하세요.')
+            rt, rid = app.state.realtime, str(existing.id)
+            rt.begin_robot_change(rid)
+            try:
+                rt.set_field_approval(rid, None)
+                def reconnect():
+                    if existing.field_approval_expires_at is not None:
+                        robot_event(db, user, existing, 'FIELD_APPROVAL_REVOKED', {'reason': 'REPAIRED'})
+                    existing.name = body.name.strip()
+                    existing.agent_token_hash = row.token_hash
+                    existing.field_approval_expires_at = None
+                    phone_pass.revoke(db, user.org_id, robot_id=existing.id, clock=issuer.clock)
+                    row.robot_id = existing.id
+                    robot_event(db, user, existing, 'ROBOT_REPAIRED', {'name': existing.name})
+                    db.commit()
+                await asyncio.to_thread(reconnect)
+                rt.set_field_approval(rid, None)
+                await close_connection(rt, rid)
+                response.headers['Cache-Control'] = 'no-store'
+                return await asyncio.to_thread(robot_object, db, existing, user, rt)
+            finally:
+                rt.end_robot_change(rid)
+        def create():
+            robot = Robot(org_id=user.org_id, owner_user_id=user.id, name=body.name.strip(),
+                model='unitree_go2', simulation=False, serial=row.robot_serial, agent_token_hash=row.token_hash)
+            db.add(robot)
+            db.flush()
+            row.robot_id = robot.id
+            robot_event(db, user, robot, 'ROBOT_CREATED', {'name': robot.name, 'paired': True})
+            return robot_object(db, robot, user, app.state.realtime)
         response.headers['Cache-Control'] = 'no-store'
-        return robot_object(db, robot, user, app.state.realtime)
+        return await asyncio.to_thread(create)
 
     @app.post(prefix + '/pairing/{pairing_id}/poll', response_model=C.PairingWaiting | C.PairingPaired)
     def poll(pairing_id: UUID, body: C.PairingPoll, request: Request, response: Response, db: DB):
@@ -222,19 +268,14 @@ def install(app, DB, Identity, fail, authorize, settings, find_robot, robot_even
             rt.set_field_approval(rid, None)
             def write():
                 row.agent_token_hash = digest(token())
+                if row.field_approval_expires_at is not None:
+                    robot_event(db, user, row, 'FIELD_APPROVAL_REVOKED', {'reason': 'DISCONNECTED'})
                 row.field_approval_expires_at = None
                 phone_pass.revoke(db, user.org_id, robot_id=row.id, clock=issuer.clock)
                 robot_event(db, user, row, 'ROBOT_DISCONNECTED', {})
                 db.commit()
             await asyncio.to_thread(write)
             rt.set_field_approval(rid, None)
-            peer = rt.agents.get(rid)
-            if peer:
-                # Deliver existing STOP/lease-null before closing the socket.
-                await rt.send_body(peer, {'t': 'lease', 'lease_id': None, 'holder_type': None})
-                await rt.send_body(peer, {'t': 'stop', 'by_user_id': None,
-                                          'stop_ref': rt.arbiter.robot(rid).stop_ref})
-                peer.closing = True
-                await peer.socket.close(code=4403)
+            await close_connection(rt, rid)
         finally:
             rt.end_robot_change(rid)

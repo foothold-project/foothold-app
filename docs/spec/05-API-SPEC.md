@@ -146,13 +146,13 @@
 |---|---|---|
 | POST `/pairing/start` | `{model:"unitree_go2",robot_serial}` → `{pairing_id,code,expires_at,poll_secret}` | 로그인 없음 |
 | POST `/pairing/claim` | `{code}` → `{pairing_id,robot_serial,expires_at}` | 운영만 |
-| POST `/pairing/{id}/confirm` | `{name}` → `RobotSummary`; 담당=claim한 운영, simulation=false | 같은 운영만 |
+| POST `/pairing/{id}/confirm` | `{name}` → `RobotSummary`; 새 등록은 담당=claim한 운영·simulation=false, 같은 담당 기체는 기존 id 재연결 | 같은 운영만 |
 | POST `/pairing/{id}/poll` | `{poll_secret}` → `{state:"waiting"}` / `{state:"paired",robot_id,agent_token,agent_ws_url}` / `{state:"consumed"}` | 시작 프로그램의 비밀 필요 |
 | POST `/robots/{id}/field-approval` | `{checks:["space_clear","emergency_stop_ready","robot_verified"]}` → `{expires_at}` | 실기 담당 운영만 |
 | DELETE `/robots/{id}/field-approval` | 즉시 해제 →204 | 실기 담당 운영만 |
 | DELETE `/robots/{id}/connection` | 연결 키·폰 출입증 폐기, 진행 중 조종 STOP·잠금·조종권 회수, 연결 종료 →204 | 실기 담당 운영만 |
 
-- serial은 DDS uint32 두 개를 정규화한 `앞숫자-뒷숫자`다. 활성 실기 serial은 중복 등록할 수 없다(409). 기존 serial 없는 로봇·토큰은 그대로 둔다.
+- serial은 DDS uint32 두 개를 정규화한 `앞숫자-뒷숫자`다. 같은 serial의 활성 실기가 있고 담당이 confirm한 운영 본인이면 기존 robot_id로 재연결한다. 이름을 바꾸고 새 토큰을 발급하며 옛 토큰·폰 출입증·현장 승인을 폐기하고 진행 중 조종은 연결 끊기와 같은 STOP·잠금·조종권 회수 뒤 옛 연결을 닫는다. 토큰이 살아 있는 노트북 재설치도 같은 처리다. 다른 담당의 기체는409와 «담당 운영에게 넘겨받기 또는 삭제 요청» 안내를 준다. 기존 serial 없는 로봇·토큰은 그대로 둔다.
 - 코드는 10분·1회용, poll_secret은 32바이트 무작위이며 start 응답에서만 전달한다. claim한 다른 운영의 claim/confirm, 없는 코드·사용한 코드·만료 코드는 같은404 `PAIRING_NOT_FOUND`다. 같은 운영의 대기 claim 재요청은 허용한다.
 - start는 실제 연결 IP당 10분 고정 창 10회, claim은 사용자당 10회·IP당 20회다(429). 프록시의 임의 전달 헤더는 신뢰하지 않는다. DB에 카운터를 저장해 실패·재시작으로 초기화되지 않는다. 조직당 확인 전 대기 상한100건이다.
 - 모든 pairing 응답은 `Cache-Control: no-store`. poll_secret은 해시만, 전달 전 토큰은 poll_secret에서 별도로 유도한 키로 AES-GCM 암호화해 저장한다. 한 번 poll하면 암호문을 지운다. 코드·비밀·토큰·serial 원문은 사건에 기록하지 않는다.
