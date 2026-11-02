@@ -1839,6 +1839,40 @@ describe('지도 탭 — 한 줄 단추 줄·작은 창(MAPSCEN-UI 11-02)', () =
     await click(btn('편집', card('보기·편집')));
     expect($('.mx-menu.more')).toBeNull(); expect($('.mx-bar')!.textContent).toContain('판 2 편집 중');
   });
+  it('서버 422 INVALID_FEATURES 도 화면 검사 실패처럼 — 저장 창을 닫고 접힌 오른쪽 창을 펼쳐 그 요소·오류, 그 요소 첫 칸으로 포커스(#234 B1)', async () => {
+    serve(editSrv({ 'POST /floors/f1/map-versions': { status: 422, body: { error: { code: 'INVALID_FEATURES', message: '다각형 변이 서로 교차합니다.', detail: { element: 'features.zones.0.polygon' } } } } }));
+    await startEdit();
+    await tool('지점'); await tap(1, 1);
+    await click($('.mx-fold')!);
+    expect(card('요소 창').hasAttribute('data-fold')).toBe(true);
+    const d = dlg('새 판으로 저장');
+    await click(btn('새 판으로 저장…', $('.mx-bar')!));
+    await save();
+    expect(writes()).toEqual(['POST /floors/f1/map-versions']);                       // API·인자는 그대로(한 번 보냄)
+    expect(d.hasAttribute('open')).toBe(false);
+    expect(card('요소 창').hasAttribute('data-fold')).toBe(false);
+    expect($('[data-bad]')!.textContent).toBe('진입 금지 구역 «공사»: 다각형 변이 서로 교차합니다. 고친 뒤 다시 저장하세요.');
+    expect(document.activeElement).toBe(field('이름', card('고른 요소')));
+    expect(canvas().querySelectorAll('[data-waypoint]')).toHaveLength(2);           // 편집 내용 그대로
+  });
+  it('Esc: 메뉴는 닫고 그 메뉴 단추로, 작은 창(Esc·✕)은 닫고 연 단추로 포커스를 돌려준다 — 숨은 칸에 남지 않음(#234 B2)', async () => {
+    serve(editSrv());
+    await startEdit();
+    const m = $('.mx-bar details.mx-menu')!, item = m.querySelector<HTMLElement>('.mx-pop button, .mx-pop select, .mx-pop input')!;
+    act(() => { m.setAttribute('open', ''); item.focus(); });
+    act(() => { item.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(m.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(m.querySelector('summary'));
+    const d = dlg('새 판으로 저장'), b = btn('새 판으로 저장…', $('.mx-bar')!)!;
+    act(() => b.focus()); await click(b);
+    expect(document.activeElement).toBe(field('바꾼 이유', d));
+    act(() => { field('바꾼 이유', d).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); }); await flush();
+    expect(d.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(b);
+    await click(b);
+    expect(document.activeElement).toBe(field('바꾼 이유', d));
+    await click($('button[aria-label="새 판으로 저장 닫기"]')!);
+    expect(d.hasAttribute('open')).toBe(false); expect(document.activeElement).toBe(b);
+    expect(d.matches(':modal')).toBe(false);                                           // 비모달(showModal 아님) — 머리줄 STOP 을 막지 않음
+  });
   it('장소가 많으면(층 5개 넘게) 드롭다운 위 거르기 칸 — 이름으로 줄이고, 지우면 다시 모두', async () => {
     const many: SiteTree = { ...TREE, items: [{ ...TREE.items[0], buildings: [{ ...TREE.items[0].buildings[0], floors: [1, 2, 3, 4, 5, 6].map((n) => floor(`f${n}`, `${n}층`, n, n === 1 ? 'v2' : null)) }] }] };
     serve(signedIn(KIM, { 'GET /sites': { status: 200, body: many } }));

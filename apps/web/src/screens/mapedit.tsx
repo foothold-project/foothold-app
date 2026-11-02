@@ -179,9 +179,18 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot }: { v:
     // 저장 요청을 보낸 뒤 답이 끊기면 저장됐을 수도 있다 — 편집 내용은 그대로 둔다. 목록을 다시 받아 보인다(다시 저장하면 승인 판이 바뀌어 STALE 로 막힘)
     if (x.status === 0) { setMsg({ text: '저장 응답을 받지 못했습니다. 저장됐을 수 있어 판 목록을 다시 받습니다. 새 판이 보이면 다시 저장하지 마세요.' }); recheck(); return; }
     if (x.code === 'STALE') { setStale(true); setMsg({ text: STALE }); return; }
-    if (x.code === 'INVALID_FEATURES') { const b = serverBad(x); setBad(b); setSel(keyOf(b.path)); return; }
+    if (x.code === 'INVALID_FEATURES') return toBad(serverBad(x));   // 화면 검사 실패와 같이: 저장 창 닫고 오른쪽 창에 그 요소·오류
     setMsg({ text: `저장하지 못했습니다. ${saveFail(x)}` });
   };
+  /** 검사 실패(화면·서버 422) — 저장 창을 닫고 오른쪽 창을 펼쳐 그 요소를 고르고, 그 요소 첫 칸(없으면 오류 줄)으로 포커스 */
+  const jump = useRef(false);
+  const toBad = (b: Bad) => { setBad(b); setSel(keyOf(b.path)); setMsg(null); setSaving(false); setOpen(true); jump.current = true; };
+  useEffect(() => {
+    if (!bad || !jump.current) return;
+    jump.current = false;
+    const q = '[aria-label="요소 창"] [aria-label="고른 요소"]';
+    (document.querySelector<HTMLElement>(`${q} input, ${q} select`) ?? document.querySelector<HTMLElement>('[aria-label="요소 창"] [data-bad]'))?.focus();
+  }, [bad]);
   useEffect(() => {
     if (!unsaved) return;
     leaving.ask = (go) => setAsk({ text: '저장하지 않은 편집이 있습니다. 나가면 편집 내용을 잃습니다.', yes: '나가기', go: () => { leaving.ask = null; left.current = true; go(); } });
@@ -294,7 +303,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot }: { v:
     if (pts.length) return setMsg({ text: '그리던 구역·선을 먼저 닫거나 지우세요.' });
     if (!dirty) return setMsg({ text: '바꾼 것이 없습니다. 도구로 지도를 고친 뒤 저장하세요.' });
     const b = check(f, v, others.map((x) => x.id));
-    if (b) { setBad(b); setSel(keyOf(b.path)); setMsg(null); setSaving(false); setOpen(true); return; }   // 창을 닫고 그 요소를 오른쪽 창에
+    if (b) return toBad(b);
     const why = reasonBad(reason, '바꾼 이유');
     if (why) return setMsg({ text: why });
     send();
@@ -374,7 +383,7 @@ export function Editor({ v, p, cancel, saved, quit, recheck, moved, slot }: { v:
         head={cur ? <><button type="button" className="btn" aria-label="요소 목록으로" title="목록으로" onClick={() => setSel('')}>‹</button>
           <span className="fh-grow"><Glyph f={f} k={sel} /><span className="mx-cut">{featName(f, sel)}</span><span className="mx-tag">{featSub(f, sel, p.building.floors)}</span></span></>
           : <span className="fh-grow">요소 {keys.length}</span>}>
-        {bad && <p className="fh-msg mx-in" role="alert" data-bad>{label(f, keyOf(bad.path))}{bad.text}</p>}
+        {bad && <p className="fh-msg mx-in" role="alert" tabIndex={-1} data-bad>{label(f, keyOf(bad.path))}{bad.text}</p>}
         {cur ? <div className="fh-form mx-in" role="group" aria-label="고른 요소">
           <b className="mx-sr">{label(f, sel).replace(/: $/, '')}</b>
           {sg === 'zones' && <>

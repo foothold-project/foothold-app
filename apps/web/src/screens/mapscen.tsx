@@ -13,23 +13,32 @@ export function Menu({ label, title, end, children, className }: { label: ReactN
     <summary className="btn" title={title} aria-label={title}><span className="mx-cut">{label}</span></summary>
     <div className="card mx-pop">{children}</div></details>;
 }
+/** 메뉴를 닫고 포커스가 그 안에 있었으면 열기 단추(summary)로 — 닫힌 메뉴 안에 포커스가 남지 않게 */
+const fold = (d: Element) => { const back = d.contains(document.activeElement); d.removeAttribute('open'); if (back) d.querySelector<HTMLElement>('summary')?.focus(); };
 /** 메뉴 항목을 누른 뒤 그 메뉴를 닫는다 */
-export const shut = (e: SyntheticEvent) => { (e.currentTarget as Element).closest('details.mx-menu')?.removeAttribute('open'); };
+export const shut = (e: SyntheticEvent) => { const d = (e.currentTarget as Element).closest('details.mx-menu'); if (d) fold(d); };
 // 바깥을 누르거나 Esc 면 열린 메뉴를 닫는다(한 번만 거는 창 처리 — 지도 svg 포인터는 그대로 지나감)
 if (typeof window !== 'undefined') {
-  const close = (t: EventTarget | null) => { for (const d of document.querySelectorAll('details.mx-menu[open]')) if (!(t instanceof Node && d.contains(t))) d.removeAttribute('open'); };
-  addEventListener('pointerdown', (e) => close(e.target), true);
-  addEventListener('keydown', (e) => { if (e.key === 'Escape') close(null); });
+  addEventListener('pointerdown', (e) => { for (const d of document.querySelectorAll('details.mx-menu[open]')) if (!(e.target instanceof Node && d.contains(e.target))) d.removeAttribute('open'); }, true);
+  addEventListener('keydown', (e) => { if (e.key === 'Escape') for (const d of document.querySelectorAll('details.mx-menu[open]')) fold(d); });
 }
 
-/** 작은 창(띄움, 모달 아님 — 머리줄 STOP 이 막히지 않게). 안 내용은 닫혀도 문서에 있다(안 양식의 aria-label 은 그대로 쓰게 창 이름은 제목 글로). Esc = 닫기 */
+/** 작은 창(띄움, 모달 아님 — 머리줄 STOP 이 막히지 않게). 안 내용은 닫혀도 문서에 있다(안 양식의 aria-label 은 그대로 쓰게 창 이름은 제목 글로). Esc = 닫기.
+ *  닫을 때 포커스가 창 안이면 연 단추로 돌려준다(숨은 칸에 남지 않게) */
 export function Pop({ open, close, label, children }: { open: boolean; close: () => void; label: string; children: ReactNode }) {
-  const d = useRef<HTMLDialogElement>(null), id = useId();
+  const d = useRef<HTMLDialogElement>(null), id = useId(), opener = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const x = d.current;
     if (!x) return;
-    if (open && !x.hasAttribute('open')) { x.setAttribute('open', ''); (x.querySelector<HTMLElement>('input,select,textarea') ?? x.querySelector<HTMLElement>('button'))?.focus?.(); }
-    else if (!open && x.hasAttribute('open')) x.removeAttribute('open');
+    if (open && !x.hasAttribute('open')) {
+      opener.current = document.activeElement instanceof HTMLElement && !x.contains(document.activeElement) ? document.activeElement : null;
+      x.setAttribute('open', ''); (x.querySelector<HTMLElement>('input,select,textarea') ?? x.querySelector<HTMLElement>('button'))?.focus?.();
+    } else if (!open && x.hasAttribute('open')) {
+      const back = x.contains(document.activeElement);
+      x.removeAttribute('open');
+      const o = opener.current;   // 연 단추가 닫힌 메뉴 안이면 그 메뉴 단추로
+      if (back && o?.isConnected) (o.closest('details:not([open])')?.querySelector<HTMLElement>('summary') ?? o).focus();
+    }
   }, [open]);
   const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
   return <dialog ref={d} className="card mx-dlg" aria-labelledby={id} onKeyDown={key}>
